@@ -61,7 +61,6 @@ add_executable(orkige_editor
     EditorDocument.cpp
     EditorBrowserServe.cpp
     EditorExport.cpp
-    EditorHelpPortal.cpp
     EditorFileDialogs.cpp
     EditorHierarchyPanel.cpp
     EditorImageDecode.h

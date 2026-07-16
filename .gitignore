@@ -1,4 +1,6 @@
 build/
+# a manual local /api/ render (Docs/api/Doxyfile) writes here
+Docs/api/build/
 .DS_Store
 *.log
 # native project modules build in-place (compile-on-Play)

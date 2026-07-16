@@ -167,17 +167,31 @@ add_test(NAME orkige_export_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(orkige_export_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
-# help-portal generator self-validation: make_help_portal.py renders a
-# synthetic corpus (nested lists, indented fences inside list items, tables
-# with pipe escapes, cross-page links) asserting the emitted HTML AND the
-# whole REAL docs corpus - every page renders with balanced tags, ZERO broken
-# internal links/anchors (a broken one is reported as file:line and fails),
-# the search index carries the expected sections and the sha256 stale-stamp
-# skips/rebuilds correctly. Stdlib-only, headless.
+# site generator self-validation: make_help_portal.py renders a synthetic
+# corpus (nested lists, indented fences inside list items, tables with pipe
+# escapes, cross-page links) asserting the emitted HTML AND the whole REAL
+# docs corpus - every page (landing, portal, legal) renders with balanced
+# tags, ZERO broken internal links/anchors (a broken one is reported as
+# file:line and fails - the gate that keeps main deployable to the public
+# site), the legal pages are footer-linked everywhere but stay out of nav and
+# search, the /api/ reference link is honoured (the one target the Pages
+# workflow satisfies), the search index carries the expected sections and the
+# sha256 stale-stamp skips/rebuilds correctly. Stdlib-only, headless.
 add_test(NAME make_help_portal_selftest
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_help_portal.py" --selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(make_help_portal_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
+# the /api/ class-reference config (Docs/api/Doxyfile) actually renders: run
+# the documentation tool over the real headers into a temp dir and assert a
+# clean exit, known engine classes in the class list and the site-root +
+# imprint/privacy footer links on the emitted pages. The tooling is CI-only
+# (the Pages workflow installs it) - machines without it SKIP (exit 77).
+add_test(NAME check_doxyfile
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_doxyfile.py"
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(check_doxyfile PROPERTIES LABELS unit TIMEOUT 300
+    SKIP_RETURN_CODE 77)
 
 # doc-generator self-validation: update_docs.py parses the binding sources into
 # a non-empty Lua API model, renders a budget-fitting index and asserts the .oui
@@ -974,20 +988,17 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         LABELS integration TIMEOUT 600
         SKIP_RETURN_CODE 77)
 
-    # Help > "Orkige Help" end to end: the hook fires the menu action's
-    # request flag, the frame loop preflights python3, generates the help
-    # site from the docs corpus (Util/make_help_portal.py, stale-checked
-    # into <build>/help_portal) and serves it on the editor's loopback help
-    # server; a worker thread then GETs the index page, a rendered doc page,
-    # the search index and the css/js assets, asserting status + content
-    # types + contents and the path jail's 404s (escape AND miss). The
-    # default browser never opens (automated run). The first run renders the
-    # whole corpus; re-runs hit the stale-stamp no-op.
+    # Help > "Orkige Help": the hook fires the menu action's request flag
+    # and asserts the frame loop resolved the published documentation URL
+    # (HELP_PORTAL_URL). Deliberately reduced to a wiring + gating check:
+    # the site is CI-deployed (never generated or served by the editor), so
+    # the automated run must open NO browser and touch NO network - the
+    # site's content is gated by make_help_portal_selftest instead.
     add_test(NAME editor_help_portal${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_help_portal${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_HELPTEST=1"
-        LABELS integration TIMEOUT 120)
+        LABELS integration TIMEOUT 60)
 
     # the project system end to end: open projects/example programmatically
     # (same function as File > Open Project), re-open it (resource-group

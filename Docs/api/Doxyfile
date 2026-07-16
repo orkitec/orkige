@@ -1,0 +1,42 @@
+# Doxyfile - the /api/ class reference of the deployed site
+# (https://orkige.orkitec.com/api/). Run from the repository root; the Pages
+# workflow (.github/workflows/pages.yml) renders it and assembles the HTML
+# output next to the portal Util/make_help_portal.py generates. The tooling
+# is CI-only - dev machines never need it; Util/check_doxyfile.py validates
+# this file locally when the tool happens to be installed and skips honestly
+# otherwise.
+
+PROJECT_NAME           = "Orkige"
+PROJECT_BRIEF          = "the orkitec game engine"
+OUTPUT_DIRECTORY       = Docs/api/build
+
+INPUT                  = orkige_core orkige_engine
+FILE_PATTERNS          = *.h
+RECURSIVE              = YES
+
+# the whole public surface, even where the 2009-era comments are sparse
+EXTRACT_ALL            = YES
+# the comment corpus is uneven - warnings are logged, never fatal
+WARN_AS_ERROR          = NO
+QUIET                  = YES
+
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+SOURCE_BROWSER         = NO
+GENERATE_TREEVIEW      = YES
+# every /api/ page carries the site-root and imprint/privacy links - the
+# legal footer the rest of https://orkige.orkitec.com shows
+HTML_FOOTER            = Docs/api/footer.html
+# match the portal's accent colour (help.css --accent)
+HTML_COLORSTYLE_HUE    = 205
+
+HAVE_DOT               = YES
+DOT_IMAGE_FORMAT       = svg
+
+# the export macros are inert in the static build - expand them away so
+# class declarations parse as `class Name`, not `class MACRO Name`
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = ORKIGE_CORE_DLL= \
+                         ORKIGE_ENGINE_DLL=

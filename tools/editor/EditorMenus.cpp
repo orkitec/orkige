@@ -490,8 +490,8 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 		}
 		if (ImGui::BeginMenu("Help"))
 		{
-			// the searchable documentation portal: the frame loop generates
-			// the site if stale, serves it and opens the default browser
+			// the published documentation site: the frame loop opens it in
+			// the default browser (HELP_PORTAL_URL)
 			if (ImGui::MenuItem("Orkige Help"))
 			{
 				state.requestedHelpPortal = true;

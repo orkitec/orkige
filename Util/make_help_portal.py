@@ -1,30 +1,43 @@
 #!/usr/bin/env python3
-# make_help_portal.py - assemble the offline, searchable help portal from the
-# documentation corpus.
+# make_help_portal.py - assemble the engine's website: a landing page, the
+# searchable documentation portal and the legal pages.
 #
-# The editor's Help > "Orkige Help" serves the output of this script on a
-# loopback HTTP port. The corpus is the repository's committed prose exactly
-# as written (this script PRESENTS the docs, it never rewrites them):
+# CI regenerates and deploys the site to https://orkige.orkitec.com on every
+# push to main (.github/workflows/pages.yml); the editor's Help > "Orkige
+# Help" opens the published /help/ portal. The docs corpus is the
+# repository's committed prose exactly as written (this script PRESENTS the
+# docs, it never rewrites them). Output layout:
 #
-#   README.md            -> the Overview page
-#   Docs/*.md            -> one page each (incl. their GENERATED blocks)
-#   projects/*/README.md -> one page each (none exist yet; picked up when
-#                           a project documents itself)
+#   index.html           -> the landing page (the product front door)
+#   help/                -> the documentation portal:
+#     overview.html        <- README.md
+#     <doc>.html           <- Docs/*.md (one page each, incl. GENERATED blocks)
+#     project-<name>.html  <- projects/*/README.md (picked up when a project
+#                             documents itself)
+#   imprint.html         -> Docs/legal/imprint.md (footer-linked, unindexed)
+#   privacy.html         -> Docs/legal/privacy.md (footer-linked, unindexed)
+#
+# NOT generated here: /api/, the C++ class reference. The Pages workflow
+# renders it from the engine headers with dedicated documentation tooling
+# (Docs/api/Doxyfile) and assembles it NEXT TO this output - keeping this
+# script stdlib-only and locally runnable with no extra installs. Links to
+# /api/ are therefore the ONE target the link gate accepts on faith.
 #
 #   make_help_portal.py --output <dir>              build the site
 #   make_help_portal.py --output <dir> --if-stale   rebuild only when a source
 #                                                   (or this script) changed -
 #                                                   a sha256 stamp, the
 #                                                   update_docs --check idea
-#   make_help_portal.py --selftest                  render a synthetic corpus
+#   make_help_portal.py --selftest                  render synthetic corpora
 #                                                   AND the real one, assert
 #                                                   pages/index/links/stamp
 #
-# The site is fully self-contained (hand-written help.css + help.js, a
-# generated search-index.json - no vendored libraries, no network). Python has
-# no stdlib markdown library, so rendering is a markdown-SUBSET renderer
-# tailored to what the corpus actually uses (audited): ATX headings, nested
-# unordered/ordered lists with continuation lines, fenced code blocks
+# The site is fully self-contained and relative-linked (hand-written help.css
+# + help.js, a generated search-index.json - no vendored libraries, no
+# network), so a built directory also previews straight off the local disk.
+# Python has no stdlib markdown library, so rendering is a markdown-SUBSET
+# renderer tailored to what the corpus actually uses (audited): ATX headings,
+# nested unordered/ordered lists with continuation lines, fenced code blocks
 # (including fences indented inside list items; mermaid renders as a plain
 # code block), pipe tables with \| cell escapes, horizontal rules, inline
 # code/bold/italic/links/images. Internal links between corpus pages are
@@ -60,15 +73,30 @@ GENERATED_NOTE = ("Generated from the repository docs by "
                   "Util/make_help_portal.py - edit the source .md files, "
                   "not this site.")
 
+SITE_URL = "https://orkige.orkitec.com"
+GITHUB_URL = "https://github.com/orkitec/orkige"
+
+# the sidebar/index groups, in order (the "Legal" group is deliberately
+# absent: its pages are footer-linked only and stay out of nav and search)
+NAV_GROUPS = ("Overview", "Guides", "Projects")
+
+# the API reference is assembled at /api/ by the Pages workflow (rendered
+# from the engine headers by CI-only tooling, see Docs/api/Doxyfile) - a
+# local portal preview lacks it unless that tool is run by hand
+API_SECTION_NOTE = ("The C++ class reference, generated from the engine "
+                    "headers when the site deploys (not part of a local "
+                    "portal preview).")
+
 
 # ---------------------------------------------------------------------------
 # corpus discovery
 # ---------------------------------------------------------------------------
 class Page:
-    def __init__(self, page_id, source, group):
+    def __init__(self, page_id, source, group, directory="help"):
         self.page_id = page_id        # output stem, e.g. "lua-api"
         self.source = source          # repo-relative source path
         self.group = group            # sidebar group name
+        self.directory = directory    # output subdir: "help" or "" (root)
         self.title = page_id          # replaced by the first H1
         self.html = ""                # rendered article body
         self.toc = []                 # [(anchor, text)] for the h2 rail
@@ -76,9 +104,21 @@ class Page:
         self.sections = []            # search records for this page
 
 
+def page_href(from_directory, to_page):
+    """Relative href from a page in `from_directory` to `to_page` - the whole
+    site is relative-linked so it previews straight off the local disk."""
+    name = to_page.page_id + ".html"
+    if from_directory == to_page.directory:
+        return name
+    if from_directory == "help":
+        return "../" + name
+    return to_page.directory + "/" + name
+
+
 def discover_corpus(root):
     """The corpus pages in sidebar order: Overview, the Docs guides, the
-    project READMEs. Returns ({repo path -> Page}, [Page in order])."""
+    project READMEs, plus the root-level legal pages (footer-only).
+    Returns ({repo path -> Page}, [Page in order])."""
     pages = []
     readme = os.path.join(root, "README.md")
     if os.path.isfile(readme):
@@ -97,6 +137,11 @@ def discover_corpus(root):
             if os.path.isfile(candidate):
                 pages.append(Page("project-" + name,
                                   "projects/%s/README.md" % name, "Projects"))
+    for stem in ("imprint", "privacy"):
+        candidate = os.path.join(docs_dir, "legal", stem + ".md")
+        if os.path.isfile(candidate):
+            pages.append(Page(stem, "Docs/legal/%s.md" % stem, "Legal",
+                              directory=""))
     by_source = {p.source: p for p in pages}
     return by_source, pages
 
@@ -162,6 +207,13 @@ class RenderContext:
         if re.match(r'^[a-z][a-z0-9+.-]*:', target):  # http:, https:, mailto:
             return '<a class="external" href="%s">%s</a>' % (
                 html.escape(target, quote=True), text_html)
+        if target == "/api/":
+            # the API reference the Pages workflow assembles NEXT TO this
+            # generator's output (rendered from the engine headers by
+            # CI-only tooling, Docs/api/Doxyfile) - the ONE site-absolute
+            # target the link gate accepts without a corpus page behind it
+            prefix = "../" if self.page.directory == "help" else ""
+            return '<a href="%sapi/index.html">%s</a>' % (prefix, text_html)
         if target.startswith("#"):
             self.pending_links.append((self.line, self.page, target[1:]))
             return '<a href="#%s">%s</a>' % (
@@ -174,7 +226,8 @@ class RenderContext:
             dest = self.by_source[repo_path]
             if fragment:
                 self.pending_links.append((self.line, dest, fragment))
-            href = dest.page_id + ".html" + ("#" + fragment if fragment else "")
+            href = page_href(self.page.directory, dest) + \
+                ("#" + fragment if fragment else "")
             return '<a href="%s">%s</a>' % (html.escape(href, quote=True),
                                             text_html)
         if os.path.exists(os.path.join(self.root, repo_path)):
@@ -500,9 +553,23 @@ def render_page(page, by_source, root):
 # ---------------------------------------------------------------------------
 # site assembly
 # ---------------------------------------------------------------------------
+def footer_html(from_directory, pages):
+    """The shared footer: the generated-site note plus the legal links -
+    imprint and privacy notice appear on EVERY page, footer-only."""
+    legal = [p for p in pages if p.group == "Legal"]
+    links = ""
+    if legal:
+        links = '<span class="footer-links">%s</span>' % " &middot; ".join(
+            '<a href="%s">%s</a>' % (
+                html.escape(page_href(from_directory, p), quote=True),
+                html.escape(p.title)) for p in legal)
+    return "<footer><span>%s</span>%s</footer>" % (
+        html.escape(GENERATED_NOTE), links)
+
+
 def page_shell(page, pages, body, extra_head=""):
     groups = []
-    for group in ("Overview", "Guides", "Projects"):
+    for group in NAV_GROUPS:
         members = [p for p in pages if p.group == group]
         if not members:
             continue
@@ -512,6 +579,12 @@ def page_shell(page, pages, body, extra_head=""):
             items.append('<li%s><a href="%s.html">%s</a></li>' % (
                 current, member.page_id, html.escape(member.title)))
         groups.append('<h2>%s</h2><ul>%s</ul>' % (group, "".join(items)))
+        if group == "Guides":
+            # the /api/ reference lives beside the portal, assembled by the
+            # Pages workflow - a static entry, no Page object behind it
+            groups.append('<h2>Engine API</h2><ul><li>'
+                          '<a href="../api/index.html">API Reference</a>'
+                          "</li></ul>")
     toc = ""
     if page is not None and page.toc:
         entries = "".join('<li><a href="#%s">%s</a></li>' % (
@@ -528,21 +601,40 @@ def page_shell(page, pages, body, extra_head=""):
             '<header>\n<a class="home" href="index.html">Orkige Help</a>\n'
             '<div class="searchbox"><input id="search" type="search" '
             'placeholder="Search the docs..." autocomplete="off">\n'
-            '<div id="results" hidden></div></div>\n</header>\n'
+            '<div id="results" hidden></div></div>\n'
+            '<span class="header-links"><a href="../index.html">Orkige</a>'
+            "</span>\n</header>\n"
             '<div class="shell">\n<nav>%s</nav>\n'
             "<main><article>\n%s\n</article></main>\n%s</div>\n"
-            '<footer>%s</footer>\n'
+            "%s\n"
             '<script src="help.js"></script>\n</body>\n</html>\n') % (
         title, extra_head, "".join(groups), body, toc,
-        html.escape(GENERATED_NOTE))
+        footer_html("help", pages))
+
+
+def legal_shell(page, pages, body):
+    """The minimal shell for a root-level legal page: no sidebar, no search
+    (legal pages stay out of nav and the search index by convention)."""
+    return ("<!DOCTYPE html>\n"
+            '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+            '<meta name="viewport" content="width=device-width, '
+            'initial-scale=1">\n'
+            "<title>%s - Orkige</title>\n"
+            '<link rel="stylesheet" href="help/help.css">\n</head>\n<body>\n'
+            '<header>\n<a class="home" href="index.html">Orkige</a>\n'
+            '<span class="header-links">'
+            '<a href="help/index.html">Documentation</a></span>\n</header>\n'
+            '<div class="shell">\n<main><article>\n%s\n</article></main>\n'
+            "</div>\n%s\n</body>\n</html>\n") % (
+        html.escape(page.title), body, footer_html("", pages))
 
 
 def index_body(pages):
     parts = ["<h1>Orkige Help</h1>",
              "<p>The engine, editor and scripting documentation, generated "
-             "from the repository's committed docs. Use the search box or "
-             "pick a page.</p>"]
-    for group in ("Overview", "Guides", "Projects"):
+             "from the repository's committed docs and engine headers. Use "
+             "the search box or pick a page.</p>"]
+    for group in NAV_GROUPS:
         members = [p for p in pages if p.group == group]
         if not members:
             continue
@@ -557,7 +649,105 @@ def index_body(pages):
                                page.page_id, html.escape(page.title),
                                snippet))
         parts.append('<ul class="directory">%s</ul>' % "".join(entries))
+        if group == "Guides":
+            parts.append("<h2>Engine API</h2>")
+            parts.append('<ul class="directory"><li>'
+                         '<a href="../api/index.html">API Reference</a>'
+                         '<span class="snippet">%s</span></li></ul>'
+                         % html.escape(API_SECTION_NOTE))
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# the landing page (the site root at https://orkige.orkitec.com)
+# ---------------------------------------------------------------------------
+LANDING_TAGLINE = (
+    "A C++20 game engine for desktop, mobile and web games &mdash; macOS, "
+    "Windows, Linux, iOS, Android and the browser via WebAssembly &mdash; "
+    "with an AI-native editor that lets agents create, run, test and debug "
+    "games over MCP.")
+
+LANDING_INTRO = (
+    "A full 3D engine with a first-class 2D layer on top. Originally "
+    "written 2009&ndash;2012 and shipped on the App Store, revived and "
+    "fully modernized in 2026. Open source under the Apache-2.0 license.")
+
+LANDING_FEATURES = (
+    ("Dual-backend rendering",
+     "Two render backends behind one facade &mdash; Metal, Vulkan, GL3+, "
+     "GLES2 and WebGL &mdash; with pixel-identical output enforced by a "
+     "parity test. SDL3 windowing and input, glTF asset loading."),
+    ("Six platforms, one project",
+     "A game is a folder with a manifest; the Build menu exports a macOS "
+     "app, iOS app, Android APK or a self-contained browser build &mdash; "
+     "each with per-project icons and launch screens; store-submittable "
+     "packages are a CLI flag away."),
+    ("Live Lua scripting",
+     "Game logic lives in per-object script components with "
+     "designer-tunable properties, a sandbox per instance and hot-reload "
+     "during Play &mdash; complete games ship with zero compiled code."),
+    ("2D and organic vector art",
+     "Sprites, flipbook animation, batched particles, and flat-colour "
+     "vector shapes that squash, stretch, wobble and morph as soft bodies "
+     "&mdash; resolution-independent art with cooked vector clip "
+     "animation."),
+    ("Physics and gameplay systems",
+     "Jolt Physics with a planar 2D mode, data-driven collision layers and "
+     "contact events into script; named input actions, an audio mixer with "
+     "streamed music, tweens, localisation, typed saves, haptics and a "
+     "defined mobile lifecycle."),
+    ("Game UI",
+     "A display-scale and safe-area aware UI system: runtime-baked TTF "
+     "fonts, rect-anchor layout with groups and scroll views, nine-slice "
+     "panels, and whole screens authored as declarative text files."),
+    ("An editor that plays out of process",
+     "Scene authoring with hierarchy, inspector, asset browser, prefabs "
+     "and tile painting; Play spawns the standalone player over a debug "
+     "protocol &mdash; on desktop, simulators, devices or in the browser "
+     "&mdash; so a crashing game never takes the editor down."),
+    ("AI-native by design",
+     "The editor hosts a Model Context Protocol server: agents open "
+     "projects, edit scenes, write assets, drive Play, run tests and read "
+     "back state and screenshots."),
+)
+
+
+def landing_page(pages):
+    """The product front door at the site root: the engine's story distilled
+    from the repository README, linking into the portal and the repository -
+    text-first, no claims the README does not make."""
+    getting_started = next(
+        (p for p in pages if p.page_id == "getting-started"), None)
+    actions = ['<a class="action primary" href="help/index.html">'
+               "Documentation</a>"]
+    if getting_started is not None:
+        actions.append('<a class="action" href="help/%s.html">Getting '
+                       "started</a>" % getting_started.page_id)
+    # /api/ is assembled beside this output by the Pages workflow
+    actions.append('<a class="action" href="api/index.html">'
+                   "API Reference</a>")
+    actions.append('<a class="action" href="%s">GitHub</a>' % GITHUB_URL)
+    features = "".join(
+        '<section class="feature"><h3>%s</h3><p>%s</p></section>'
+        % (title, text) for title, text in LANDING_FEATURES)
+    return ("<!DOCTYPE html>\n"
+            '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+            '<meta name="viewport" content="width=device-width, '
+            'initial-scale=1">\n'
+            "<title>Orkige - the orkitec game engine</title>\n"
+            '<link rel="stylesheet" href="help/help.css">\n</head>\n<body>\n'
+            '<header>\n<a class="home" href="index.html">Orkige</a>\n'
+            '<span class="header-links">'
+            '<a href="help/index.html">Documentation</a>'
+            '<a href="%s">GitHub</a></span>\n</header>\n'
+            '<div class="hero">\n<h1>Orkige</h1>\n'
+            '<p class="tagline">%s</p>\n'
+            '<p class="actions">%s</p>\n</div>\n'
+            '<main class="landing"><article>\n<p>%s</p>\n'
+            '<div class="features">%s</div>\n</article></main>\n'
+            "%s\n</body>\n</html>\n") % (
+        GITHUB_URL, LANDING_TAGLINE, "".join(actions), LANDING_INTRO,
+        features, footer_html("", pages))
 
 
 HELP_CSS = """\
@@ -657,11 +847,48 @@ li p { margin: 0.4rem 0; }
 footer {
 	padding: 1rem 1.2rem; color: var(--muted); font-size: 0.8rem;
 	border-top: 1px solid var(--line);
+	display: flex; justify-content: space-between; gap: 1rem;
+	flex-wrap: wrap;
 }
+footer a { color: var(--muted); }
 .directory { list-style: none; padding: 0; }
 .directory li { margin: 0.55rem 0; }
 .directory .snippet { display: block; color: var(--muted);
 	font-size: 0.88em; }
+header .header-links { margin-left: auto; display: flex; gap: 1.1rem; }
+header .header-links a { color: var(--fg); text-decoration: none; }
+header .header-links a:hover { color: var(--accent); }
+/* the landing page (site root) and the legal pages share this sheet */
+.hero {
+	padding: 3.4rem 1.6rem 2.6rem; text-align: center;
+	border-bottom: 1px solid var(--line);
+}
+.hero h1 { font-size: 2.5rem; margin: 0 0 0.7rem; }
+.hero .tagline {
+	max-width: 44rem; margin: 0 auto 1.5rem; color: var(--muted);
+	font-size: 1.05rem;
+}
+.hero .actions {
+	display: flex; gap: 0.8rem; justify-content: center; flex-wrap: wrap;
+	margin: 0;
+}
+.action {
+	display: inline-block; padding: 0.5rem 1.1rem; border-radius: 6px;
+	border: 1px solid var(--line); text-decoration: none; font-weight: 600;
+	color: var(--fg);
+}
+.action:hover { border-color: var(--accent); color: var(--accent); }
+.action.primary {
+	background: var(--accent); border-color: var(--accent); color: #ffffff;
+}
+.action.primary:hover { color: #ffffff; }
+.landing article { max-width: 58rem; margin: 0 auto; }
+.features {
+	display: grid; gap: 0.2rem 1.8rem;
+	grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+}
+.feature h3 { margin-bottom: 0.2rem; }
+.feature p { margin-top: 0.2rem; color: var(--muted); }
 @media (max-width: 60rem) { nav, .toc { display: none; } }
 """
 
@@ -859,8 +1086,10 @@ def build(root, output_dir, if_stale=False):
     by_source, pages = discover_corpus(root)
     stamp = corpus_stamp(root, by_source)
     stamp_path = os.path.join(output_dir, ".stamp")
-    index_path = os.path.join(output_dir, "index.html")
-    if if_stale and os.path.isfile(stamp_path) and os.path.isfile(index_path):
+    help_dir = os.path.join(output_dir, "help")
+    if if_stale and os.path.isfile(stamp_path) \
+            and os.path.isfile(os.path.join(output_dir, "index.html")) \
+            and os.path.isfile(os.path.join(help_dir, "index.html")):
         with open(stamp_path, "r") as f:
             if f.read().strip() == stamp:
                 print("make_help_portal: up to date (%d pages)" % len(pages))
@@ -876,28 +1105,38 @@ def build(root, output_dir, if_stale=False):
             sys.stderr.write("  BROKEN LINK %s\n" % issue)
         return 1
 
-    os.makedirs(output_dir, exist_ok=True)
-    written = set()
+    os.makedirs(help_dir, exist_ok=True)
+    written = {"": set(), "help": set()}
 
-    def write(name, content):
-        with open(os.path.join(output_dir, name), "w", encoding="utf-8",
-                  newline="\n") as f:
+    def write(directory, name, content):
+        with open(os.path.join(output_dir, directory, name), "w",
+                  encoding="utf-8", newline="\n") as f:
             f.write(content)
-        written.add(name)
+        written[directory].add(name)
 
     for page in pages:
-        write(page.page_id + ".html", page_shell(page, pages, page.html))
-    write("index.html", page_shell(None, pages, index_body(pages)))
-    write("help.css", HELP_CSS)
-    write("help.js", HELP_JS)
-    records = [record for page in pages for record in page.sections]
-    write("search-index.json",
+        if page.group == "Legal":
+            write("", page.page_id + ".html",
+                  legal_shell(page, pages, page.html))
+        else:
+            write("help", page.page_id + ".html",
+                  page_shell(page, pages, page.html))
+    write("help", "index.html", page_shell(None, pages, index_body(pages)))
+    write("", "index.html", landing_page(pages))
+    write("help", "help.css", HELP_CSS)
+    write("help", "help.js", HELP_JS)
+    # legal pages stay OUT of the search index by convention (footer-only)
+    records = [record for page in pages if page.group != "Legal"
+               for record in page.sections]
+    write("help", "search-index.json",
           json.dumps(records, ensure_ascii=False, separators=(",", ":")))
-    write(".stamp", stamp + "\n")
-    # a renamed/removed doc must not leave its stale page behind
-    for name in os.listdir(output_dir):
-        if name.endswith(".html") and name not in written:
-            os.remove(os.path.join(output_dir, name))
+    write("", ".stamp", stamp + "\n")
+    # a renamed/removed doc must not leave its stale page behind (the /api/
+    # sibling the Pages workflow assembles is not this script's to clean)
+    for directory in written:
+        for name in os.listdir(os.path.join(output_dir, directory)):
+            if name.endswith(".html") and name not in written[directory]:
+                os.remove(os.path.join(output_dir, directory, name))
     print("make_help_portal: wrote %d pages, %d search records"
           % (len(pages), len(records)))
     print("make_help_portal: OK %s" % output_dir)
@@ -940,7 +1179,8 @@ SELFTEST_DOC = """\
 # Synthetic page
 
 Intro paragraph with `inline code`, **bold**, *italic* and a
-[link](other.md#target-section) plus [outside](../README.md).
+[link](other.md#target-section) plus [outside](../README.md) and the
+[class reference](/api/).
 
 ## Lists and fences
 
@@ -975,35 +1215,72 @@ Body of the target section mentioning zanzibar exactly once.
 """
 
 
+def _check_site_tags(out):
+    """Every emitted page - landing, legal, portal - must nest correctly."""
+    for directory in ("", "help"):
+        site_dir = os.path.join(out, directory)
+        for name in sorted(os.listdir(site_dir)):
+            if not name.endswith(".html"):
+                continue
+            with open(os.path.join(site_dir, name)) as f:
+                problems = _TagBalanceChecker().check(f.read())
+            assert not problems, "%s/%s: %s" % (directory, name, problems)
+
+
 def _selftest_synthetic(temp_root):
-    os.makedirs(os.path.join(temp_root, "Docs"))
+    os.makedirs(os.path.join(temp_root, "Docs", "legal"))
     with open(os.path.join(temp_root, "README.md"), "w") as f:
         f.write("# Tiny\n\nOverview body.\n")
     with open(os.path.join(temp_root, "Docs", "synthetic.md"), "w") as f:
         f.write(SELFTEST_DOC)
     with open(os.path.join(temp_root, "Docs", "other.md"), "w") as f:
         f.write(SELFTEST_OTHER)
+    with open(os.path.join(temp_root, "Docs", "legal", "imprint.md"),
+              "w") as f:
+        f.write("# Impressum\n\nSynthetic imprint body, see "
+                "[privacy](privacy.md) and [a guide](../synthetic.md).\n")
+    with open(os.path.join(temp_root, "Docs", "legal", "privacy.md"),
+              "w") as f:
+        f.write("# Privacy Notice\n\nSynthetic privacy body with the word "
+                "xylophone.\n")
     out = os.path.join(temp_root, "site")
     assert build(temp_root, out) == 0
-    with open(os.path.join(out, "synthetic.html")) as f:
+    with open(os.path.join(out, "help", "synthetic.html")) as f:
         page = f.read()
     assert '<a href="other.html#target-section">link</a>' in page, page
     assert "<code>../README.md</code>" not in page   # resolves to overview
     assert '<a href="overview.html">outside</a>' in page, page
+    # the /api/ allowlist: the reference the Pages workflow assembles
+    assert '<a href="../api/index.html">class reference</a>' in page, page
     assert '<pre><code class="lang-lua">print(&quot;fenced inside' in page
     assert "<ol>" in page and "nested ordered two" in page
     assert "pipe escape: a | b" in page
     assert '<td style="text-align:center">1</td>' in page
     assert '<h2 id="lists-and-fences">' in page
-    for name in os.listdir(out):
-        if name.endswith(".html"):
-            with open(os.path.join(out, name)) as f:
-                problems = _TagBalanceChecker().check(f.read())
-            assert not problems, "%s: %s" % (name, problems)
-    with open(os.path.join(out, "search-index.json")) as f:
+    # the legal pages: root-level, footer-linked from every page, unindexed
+    assert '<a href="../imprint.html">Impressum</a>' in page, page
+    assert '<a href="../privacy.html">Privacy Notice</a>' in page, page
+    with open(os.path.join(out, "imprint.html")) as f:
+        imprint = f.read()
+    assert "Synthetic imprint body" in imprint
+    assert '<a href="privacy.html">privacy</a>' in imprint, imprint
+    assert '<a href="help/synthetic.html">a guide</a>' in imprint, imprint
+    assert '<a href="imprint.html">Impressum</a>' in imprint  # own footer
+    assert 'id="search"' not in imprint          # no search on legal pages
+    # the landing page: the site front door linking portal, /api/, GitHub
+    with open(os.path.join(out, "index.html")) as f:
+        landing = f.read()
+    assert 'href="help/index.html"' in landing
+    assert 'href="api/index.html"' in landing
+    assert GITHUB_URL in landing
+    assert '<a href="imprint.html">Impressum</a>' in landing
+    _check_site_tags(out)
+    with open(os.path.join(out, "help", "search-index.json")) as f:
         records = json.load(f)
     target = [r for r in records if r["anchor"] == "target-section"]
     assert target and "zanzibar" in target[0]["body"]
+    assert not any("xylophone" in r["body"] for r in records), \
+        "legal pages must stay out of the search index"
 
     # staleness: an unchanged corpus is a no-op, a touched source rebuilds
     stamp_file = os.path.join(out, ".stamp")
@@ -1039,20 +1316,36 @@ def _selftest_real_corpus(temp_root):
     by_source, pages = discover_corpus(ROOT)
     assert any(p.page_id == "lua-api" for p in pages)
     assert any(p.page_id == "overview" for p in pages)
+    assert any(p.page_id == "imprint" and p.group == "Legal" for p in pages)
+    assert any(p.page_id == "privacy" and p.group == "Legal" for p in pages)
     for page in pages:
-        path = os.path.join(out, page.page_id + ".html")
+        path = os.path.join(out, page.directory, page.page_id + ".html")
         assert os.path.getsize(path) > 0, page.page_id
-        with open(path) as f:
-            problems = _TagBalanceChecker().check(f.read())
-        assert not problems, "%s: %s" % (page.page_id, problems)
-    with open(os.path.join(out, "search-index.json")) as f:
+    _check_site_tags(out)
+    with open(os.path.join(out, "help", "search-index.json")) as f:
         records = json.load(f)
     assert len(records) > 100, "the corpus should index >100 sections"
     hits = [r for r in records if "script components" in r["heading"].lower()]
     assert hits, "lua-api's Script components section must be indexed"
-    with open(os.path.join(out, "lua-api.html")) as f:
+    assert not any(r["page"] in ("imprint.html", "privacy.html")
+                   for r in records), "legal pages must not be indexed"
+    with open(os.path.join(out, "help", "lua-api.html")) as f:
         lua_page = f.read()
     assert 'id="script-components"' in lua_page
+    assert '<a href="../api/index.html">API Reference</a>' in lua_page
+    # the deployed front door: landing -> portal / getting started / api
+    with open(os.path.join(out, "index.html")) as f:
+        landing = f.read()
+    assert 'href="help/index.html"' in landing
+    assert 'href="help/getting-started.html"' in landing
+    assert 'href="api/index.html"' in landing
+    assert '<a href="imprint.html">Impressum</a>' in landing
+    with open(os.path.join(out, "imprint.html")) as f:
+        imprint = f.read()
+    assert "Impressum" in imprint and "orkitec" in imprint
+    with open(os.path.join(out, "privacy.html")) as f:
+        privacy = f.read()
+    assert "Privacy Notice" in privacy
     print("make_help_portal selftest: real corpus OK (%d pages, %d records)"
           % (len(pages), len(records)))
 

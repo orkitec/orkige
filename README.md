@@ -13,6 +13,10 @@ under [Apache-2.0](LICENSE).
 ![Scripting](https://img.shields.io/badge/scripting-Lua%20(sol2)-purple)
 ![CI](https://img.shields.io/badge/CI-Linux%20·%20macOS%20·%20Windows-brightgreen)
 
+**Website & documentation:** [orkige.orkitec.com](https://orkige.orkitec.com)
+— this documentation as a searchable site, plus the generated C++ API
+reference.
+
 ## What's in the box
 
 A full 3D engine with a first-class 2D layer on top — not a 2D engine.
@@ -67,9 +71,9 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
   editor mode** (ortho, plane-locked gizmos), a **Tile Palette with grid
   painting** for tile-based levels (paint/erase prefab instances, one undo step
   per stroke), transform gizmos with Q/W/E/R, undo/redo, multi-select, native
-  macOS menu + file dialogs, and a built-in **searchable offline help portal**
-  (Help > Orkige Help — this documentation as ranked, linked pages). Ships as
-  `Orkige.app`.
+  macOS menu + file dialogs, and Help > Orkige Help opening the engine's
+  **published documentation site** at
+  [orkige.orkitec.com](https://orkige.orkitec.com). Ships as `Orkige.app`.
 - **Play mode, out of process** — Play spawns the standalone player as a separate
   process over a TCP debug protocol: live remote hierarchy/inspector, pause/step/
   stop, live property + cvar editing, script hot-reload. A crashing game can never
@@ -157,7 +161,7 @@ projects/          .orkproj game projects (roller, benchmark, jumper-lua, ...)
 tests/             unit + integration suites
 Util/              asset generators + build/export tooling (python, stdlib-only)
 ports/ triplets/   vcpkg overlay ports and triplets
-Docs/              the documentation corpus (also the in-editor help portal)
+Docs/              the documentation corpus (published at orkige.orkitec.com)
 ```
 
 Modern work happens on `main`; the deep history carries the engine's

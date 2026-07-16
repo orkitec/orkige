@@ -499,9 +499,11 @@ unsigned bundle-module structure) plus the `orkige_icons` /
 The 2012 legacy tools and prebuilt binaries were removed from the tree (recoverable
 from history); `Util/*.py` are the live asset generators.
 
-**Docs/**: historical API docs (`OrkigeAPI`, `LuaAPI`), `Docs/ports.md` (overlay-port
-rationale), `Docs/upstream/` (OGRE PR package — submitted as OGRECave/ogre #3667-3669),
-`Docs/mcp.md` (the MCP endpoint), `Docs/render-abstraction.md` (the facade design/audit).
+**Docs/**: `Docs/ports.md` (overlay-port rationale), `Docs/upstream/` (OGRE PR
+package — submitted as OGRECave/ogre #3667-3669), `Docs/mcp.md` (the MCP
+endpoint), `Docs/render-abstraction.md` (the facade design/audit), `Docs/api/`
+(the public site's `/api/` class-reference config + footer), `Docs/legal/`
+(the site's imprint + privacy notice).
 
 ## Feature systems (the 2026 build)
 
@@ -800,13 +802,21 @@ look when touching one:
   both flavors).
 - **AI control**: the editor hosts an **MCP server over Streamable HTTP** — see the
   MCP section above + `Docs/mcp.md`.
-- **Help portal** (`Util/make_help_portal.py` + `tools/editor/EditorHelpPortal.cpp`):
-  Help > Orkige Help generates (stdlib-only markdown-subset renderer over the
-  committed docs corpus + README, sha256 `--if-stale`, hard-failing file:line
-  broken-link gate) a self-contained offline HTML site with client-side ranked
-  search, serves it on a dedicated loopback HttpServer and opens the browser
-  (gated for automated runs). `make_help_portal_selftest` renders the REAL
-  corpus at zero broken links — docs rot is a test failure. The portal
+- **Public site + help portal** (`Util/make_help_portal.py` +
+  `.github/workflows/pages.yml`): https://orkige.orkitec.com — a generated
+  landing page, the searchable docs portal under `/help/` (stdlib-only
+  markdown-subset renderer over the committed docs corpus + README,
+  hard-failing file:line broken-link gate = the deploy gate), the C++ class
+  reference under `/api/` (rendered from the engine headers by the CI-only
+  `Docs/api/Doxyfile` tooling — `/api/` is the ONE allowlisted link target the
+  generator takes on faith) and footer-linked legal pages (`Docs/legal/`,
+  imprint + privacy, out of nav and search by convention). CI redeploys on
+  every main push; Help > Orkige Help just opens the published `/help/` URL
+  (`HELP_PORTAL_URL` — network required; the editor never generates or serves
+  the site, a distributed editor has no repo or python).
+  `make_help_portal_selftest` renders the REAL corpus at zero broken links —
+  docs rot is a test failure; `check_doxyfile` validates the API config
+  against the real tree (skip-77 without the CI-only tool). The portal
   PRESENTS docs, never rewrites them (`Docs/help-portal.md`).
 - **Editor scripts** (`tools/editor/EditorScriptHost`, discovery in the
   editor_core lib's `EditorScriptTools`): a project `scripts/<name>.editor.lua`

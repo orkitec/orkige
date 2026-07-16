@@ -80,7 +80,7 @@ namespace Orkige
 		std::function<void()> resetLayout;
 		std::function<void()> viewSettings;
 		// Help
-		//! Help > Orkige Help: the generated offline documentation portal
+		//! Help > Orkige Help: the published documentation site
 		std::function<void()> helpPortal;
 		std::function<void()> about;
 	};

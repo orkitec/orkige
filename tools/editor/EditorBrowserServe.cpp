@@ -18,11 +18,10 @@
 #include <fstream>
 #include <sstream>
 
-//! the content type a browser needs per served-file extension - shared with
-//! the help-portal server (EditorHelpPortal.cpp). wasm MUST be
+//! the content type a browser needs per served-file extension. wasm MUST be
 //! application/wasm exactly - WebAssembly streaming compilation refuses
-//! anything else. Everything a web export or the help site contains is
-//! covered; an unknown extension degrades to the honest binary default.
+//! anything else. Everything a web export contains is covered; an unknown
+//! extension degrades to the honest binary default.
 std::string staticContentTypeFor(std::string const& path)
 {
 	const std::size_t dot = path.rfind('.');

@@ -584,11 +584,10 @@ int main(int argc, char** argv)
 		// the editor's lifetime, doc root swapped per browser play (see
 		// EditorBrowserServe.cpp; the MCP endpoint keeps its own instance)
 		BrowserServe browserServe;
-		// Help > Orkige Help: the generated documentation site on its own
-		// loopback HttpServer instance (idle until the first Help click; see
-		// EditorHelpPortal.cpp) plus the ORKIGE_EDITOR_HELPTEST worker
-		HelpPortal helpPortal;
-		HelpPortalSelfTest helpSelfTest;
+		// Help > Orkige Help: the URL the frame loop opened last (the
+		// published documentation site; "" until the first Help click) -
+		// what the ORKIGE_EDITOR_HELPTEST hook asserts
+		std::string helpOpenedUrl;
 		const char* helpTestEnv = std::getenv("ORKIGE_EDITOR_HELPTEST");
 #ifdef __APPLE__
 		// ORKIGE_EDITOR_PLAY_SIMULATOR: preselect an iOS simulator as the
@@ -1939,15 +1938,24 @@ int main(int argc, char** argv)
 			// pump the static server (accept/read/respond; a no-op while idle)
 			browserServeUpdate(browserServe, playSession);
 
-			// Help > Orkige Help: generate the doc site if stale, serve it on
-			// the loopback help server and open the browser (never on
-			// automated runs) - see EditorHelpPortal.cpp
+			// Help > Orkige Help: open the published documentation site
+			// (the docs corpus + engine API reference, redeployed by CI on
+			// every main push - see HELP_PORTAL_URL). Automated runs never
+			// touch the user's default browser.
 			if (state.requestedHelpPortal)
 			{
 				state.requestedHelpPortal = false;
-				helpPortalRequest(helpPortal, console);
+				helpOpenedUrl = HELP_PORTAL_URL;
+				console.addLine(ConsoleLevel::Info,
+					std::string("[help] ") + HELP_PORTAL_URL);
+				if (!gAutomatedRun && !SDL_OpenURL(HELP_PORTAL_URL))
+				{
+					console.addLine(ConsoleLevel::Error,
+						std::string("[help] could not open the default "
+						"browser: ") + SDL_GetError() + " - open " +
+						HELP_PORTAL_URL + " yourself");
+				}
 			}
-			helpPortalUpdate(helpPortal, console);
 
 			// engine log lines captured since the last frame -> Console
 			drainEngineLogIntoConsole(engineLogCapture, console);
@@ -8554,41 +8562,29 @@ int main(int argc, char** argv)
 					running = false;
 				}
 			}
-			// Help portal self-test (editor_help_portal ctest): trigger the
-			// menu action's request flag, let the frame loop generate + serve
-			// the site, then verify the served portal from a worker thread
-			// (see HelpPortalSelfTest). Condition-driven - the generator's
-			// first run renders the whole corpus, so no frame budget; the
-			// ctest TIMEOUT is the backstop.
+			// Help self-test (editor_help_portal ctest): fire the menu
+			// action's request flag and assert the frame loop resolved the
+			// published documentation URL. The run is automated, so the
+			// default-browser gate must hold - no browser and no network
+			// are ever touched (the site itself is CI-deployed and gated by
+			// make_help_portal_selftest).
 			if (helpTestEnv != nullptr)
 			{
-				if (frameCount == 5 && helpPortal.status.empty())
+				if (frameCount == 5)
 				{
 					SDL_Log("orkige_editor: help-test requesting the portal "
 						"(the Help > Orkige Help action)");
 					state.requestedHelpPortal = true;
 				}
-				if (helpPortal.status == "failed")
+				if (frameCount >= 8)
 				{
-					SDL_Log("orkige_editor: help-test FAILED - the help site "
-						"generation failed (see the [help] lines)");
-					exitCode = 2;
-					running = false;
-				}
-				if (helpPortal.status == "serving" && !helpSelfTest.active() &&
-					!helpSelfTest.done())
-				{
-					helpSelfTest.begin(helpPortal.server.getPort());
-				}
-				if (helpSelfTest.done())
-				{
-					helpSelfTest.finish();
-					if (!helpSelfTest.passed())
+					const bool passed = helpOpenedUrl == HELP_PORTAL_URL;
+					SDL_Log("orkige_editor: help-test %s (url '%s')",
+						passed ? "PASSED" : "FAILED", helpOpenedUrl.c_str());
+					if (!passed)
 					{
 						exitCode = 2;
 					}
-					SDL_Log("orkige_editor: help-test %s",
-						helpSelfTest.passed() ? "PASSED" : "FAILED");
 					running = false;
 				}
 			}
@@ -8634,15 +8630,6 @@ int main(int argc, char** argv)
 			SDL_KillProcess(exportJob.process, false);
 			SDL_DestroyProcess(exportJob.process);
 			exportJob.process = nullptr;
-		}
-
-		// editor shutdown while the help site generates: kill the generator
-		// (the stale-checked site is simply regenerated on the next Help)
-		if (helpPortal.isGenerating())
-		{
-			SDL_KillProcess(helpPortal.process, false);
-			SDL_DestroyProcess(helpPortal.process);
-			helpPortal.process = nullptr;
 		}
 
 		// free the thumbnail cache's owned CPU uploads (vector shapes) while the
