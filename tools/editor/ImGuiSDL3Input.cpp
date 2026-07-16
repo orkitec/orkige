@@ -193,14 +193,14 @@ namespace Orkige
 
 		case SDL_EVENT_MOUSE_WHEEL:
 		{
-			float wheelX = event.wheel.x;
-			float wheelY = event.wheel.y;
-			if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED)
-			{
-				wheelX = -wheelX;
-				wheelY = -wheelY;
-			}
-			io.AddMouseWheelEvent(wheelX, wheelY);
+			// SDL delivers wheel values ALREADY adjusted to the user's
+			// configured scroll direction ("natural" scrolling included);
+			// SDL_MOUSEWHEEL_FLIPPED is informational - negating on it would
+			// UNDO the user's platform preference and feel backwards next to
+			// every native app. The X negation converts SDL's
+			// positive-is-right into the horizontal convention
+			// AddMouseWheelEvent expects.
+			io.AddMouseWheelEvent(-event.wheel.x, event.wheel.y);
 			return io.WantCaptureMouse;
 		}
 

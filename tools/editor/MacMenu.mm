@@ -211,16 +211,23 @@ namespace
 			action:nil keyEquivalent:@""];
 		[item setSubmenu:menu];
 		// keep the mac convention: our menus go between the app menu and the
-		// Window menu (SDL's View menu also sits at the end - inserting
-		// before "Window" keeps File/Edit/... in the expected order)
+		// Window menu (inserting before "Window" keeps File/Edit/... in the
+		// expected order) - EXCEPT Help, which the platform puts LAST, after
+		// Window (it also gains the system search field there)
 		const NSInteger windowIndex = [mainMenu indexOfItemWithTitle:@"Window"];
-		if (windowIndex >= 0)
+		if (windowIndex >= 0 && ![title isEqualToString:@"Help"])
 		{
 			[mainMenu insertItem:item atIndex:windowIndex];
 		}
 		else
 		{
 			[mainMenu addItem:item];
+		}
+		if ([title isEqualToString:@"Help"])
+		{
+			// registering it as THE help menu gives macOS's own search
+			// field a home at its top
+			[NSApp setHelpMenu:menu];
 		}
 		return menu;
 	}
