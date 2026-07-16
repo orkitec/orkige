@@ -9,7 +9,9 @@
 
 #include "core_debug/MemorySampler.h"
 
-#if defined(__APPLE__)
+#if defined(__EMSCRIPTEN__)
+#	include <emscripten/heap.h>
+#elif defined(__APPLE__)
 #	include <mach/mach.h>
 #elif defined(_WIN32)
 #	include <windows.h>
@@ -26,7 +28,12 @@ namespace Orkige
 		//---------------------------------------------------------
 		std::size_t residentBytes()
 		{
-#if defined(__APPLE__)
+#if defined(__EMSCRIPTEN__)
+			// the browser gives a wasm module no OS process to query; the
+			// linear-memory heap size is the process-footprint analog (it
+			// only ever grows, and it is what the page actually commits)
+			return emscripten_get_heap_size();
+#elif defined(__APPLE__)
 			// the kernel's own per-task accounting (covers macOS and iOS):
 			// resident_size is the physical footprint in bytes
 			mach_task_basic_info info{};

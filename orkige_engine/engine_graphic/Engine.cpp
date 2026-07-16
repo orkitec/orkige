@@ -20,7 +20,7 @@
 #include <core_debug/Profile.h>
 #ifdef OGRE_STATIC_LIB
 // static build: render systems are linked in and registered via installPlugin
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS || OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS || OGRE_PLATFORM == OGRE_PLATFORM_ANDROID || OGRE_PLATFORM == OGRE_PLATFORM_EMSCRIPTEN
 #include <OgreGLES2Plugin.h>
 #else
 #include <OgreGL3PlusPlugin.h>
@@ -119,11 +119,12 @@ namespace Orkige
 #ifdef OGRE_STATIC_LIB
 		// static build: no plugin config file, render systems are registered below
 		this->root = optr<Ogre::Root>(new Ogre::Root(Ogre::BLANKSTRING, renderCfgPlatformFileName, engineLogFileName));
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS || OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
-		// iOS/Android: the GLES2 render system (OGRE forces GLES2 on for
-		// APPLE_IOS/ANDROID; deprecated by Apple but works incl. the simulator
-		// and emulator and has a full RTSS path - the Metal RS below does not,
-		// see the comment there)
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS || OGRE_PLATFORM == OGRE_PLATFORM_ANDROID || OGRE_PLATFORM == OGRE_PLATFORM_EMSCRIPTEN
+		// iOS/Android/browser: the GLES2 render system (OGRE forces GLES2 on
+		// for APPLE_IOS/ANDROID/EMSCRIPTEN; deprecated by Apple but works
+		// incl. the simulator and emulator, renders through WebGL on the
+		// browser canvas, and has a full RTSS path - the Metal RS below does
+		// not, see the comment there)
 		this->renderSystemPlugin = onew(new Ogre::GLES2Plugin());
 #else
 		this->renderSystemPlugin = onew(new Ogre::GL3PlusPlugin());

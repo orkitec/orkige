@@ -206,10 +206,17 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool AppHost::setupEngineBody(std::function<void()> const & registerResources)
 	{
+		// the platform bridge may honestly have no native handle to offer
+		// (the browser's one canvas IS the window): an empty handle string
+		// makes the engine create its own render window instead of parsing
+		// a meaningless zero
+		void* const nativeWindowHandle =
+			orkige_native_window_handle(this->mWindow);
 		if (!this->mEngine->setup(this->mConfig.windowTitle,
-			Engine::SHOW_NEVER, StringUtil::Converter::toString(
-				reinterpret_cast<size_t>(
-					orkige_native_window_handle(this->mWindow)))))
+			Engine::SHOW_NEVER, nativeWindowHandle
+				? StringUtil::Converter::toString(
+					reinterpret_cast<size_t>(nativeWindowHandle))
+				: String()))
 		{
 			oDebugError("engine", 0, "AppHost: engine setup failed");
 			return false;

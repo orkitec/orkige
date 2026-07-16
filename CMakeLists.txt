@@ -40,6 +40,17 @@ if(ORKIGE_IOS OR ORKIGE_ANDROID)
 else()
     set(ORKIGE_MOBILE FALSE)
 endif()
+# Browser cross-build (preset web-release): the player compiles to
+# WebAssembly through the Emscripten toolchain and renders classic GLES2
+# through the browser's WebGL - like mobile, only the runtime targets ship
+# (no editor, no desktop samples). The headless Catch2 core unit suite DOES
+# build here: node hosts the wasm binary, so the unit gate stays honest on
+# the web target (see tests/core/CMakeLists.txt).
+if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+    set(ORKIGE_WEB TRUE)
+else()
+    set(ORKIGE_WEB FALSE)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -183,7 +194,7 @@ add_subdirectory(orkige_core)
 
 if(ORKIGE_BUILD_ENGINE)
     add_subdirectory(orkige_engine)
-    if(NOT ORKIGE_MOBILE)
+    if(NOT ORKIGE_MOBILE AND NOT ORKIGE_WEB)
         # desktop-only SDL samples (plain executables, host asset paths).
         # hello_orkige builds on both render flavors (per-flavor boot
         # block); jumper stays classic-only - its HUD is gui, which
@@ -199,10 +210,10 @@ if(ORKIGE_BUILD_TOOLS)
     if(NOT ORKIGE_BUILD_ENGINE)
         message(FATAL_ERROR "ORKIGE_BUILD_TOOLS requires ORKIGE_BUILD_ENGINE=ON (the editor is an Orkige engine app)")
     endif()
-    if(NOT ORKIGE_MOBILE)
+    if(NOT ORKIGE_MOBILE AND NOT ORKIGE_WEB)
         # the editor is desktop-only (imgui/imguizmo are not built for
-        # mobile) and builds on BOTH render flavors via the ImGui-on-
-        # DrawLayer2D port (Docs/render-abstraction.md)
+        # mobile or the browser) and builds on BOTH render flavors via the
+        # ImGui-on-DrawLayer2D port (Docs/render-abstraction.md)
         add_subdirectory(tools/editor)
     endif()
     # the player builds on both render flavors (per-flavor boot
@@ -210,7 +221,13 @@ if(ORKIGE_BUILD_TOOLS)
     add_subdirectory(tools/player)
 endif()
 
-if(ORKIGE_BUILD_TESTS AND NOT ORKIGE_MOBILE)
+if(ORKIGE_BUILD_TESTS AND ORKIGE_WEB)
+    # web tree: the headless Catch2 core unit suite only - node hosts the
+    # wasm test binary (one ctest registration, see tests/core). The windowed
+    # integration suite needs a browser session and stays host-side.
+    enable_testing()
+    add_subdirectory(tests/core)
+elseif(ORKIGE_BUILD_TESTS AND NOT ORKIGE_MOBILE)
     enable_testing()
     add_subdirectory(tests)
 endif()

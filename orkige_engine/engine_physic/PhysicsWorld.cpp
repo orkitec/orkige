@@ -16,7 +16,15 @@
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/TempAllocator.h>
-#include <Jolt/Core/JobSystemThreadPool.h>
+#ifdef __EMSCRIPTEN__
+// the wasm build is single-threaded (no pthreads in v1: worker threads would
+// demand SharedArrayBuffer and cross-origin-isolation headers from every
+// hosting page) - Jolt's single-threaded job system runs the same simulation
+// jobs inline on the calling thread
+#	include <Jolt/Core/JobSystemSingleThreaded.h>
+#else
+#	include <Jolt/Core/JobSystemThreadPool.h>
+#endif
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -254,7 +262,11 @@ namespace Orkige
 		ObjectVsBroadPhaseLayerFilterImpl	mObjectVsBroadPhaseFilter;	//!< object vs broadphase layer filter
 		ObjectLayerPairFilterImpl			mObjectLayerPairFilter;		//!< object layer pair filter (reads mLayerConfig)
 		JPH::TempAllocatorImpl				mTempAllocator;				//!< per-update scratch memory
+#ifdef __EMSCRIPTEN__
+		JPH::JobSystemSingleThreaded		mJobSystem;					//!< simulation jobs run inline (single-threaded wasm)
+#else
 		JPH::JobSystemThreadPool			mJobSystem;					//!< worker threads for the simulation
+#endif
 		JPH::PhysicsSystem					mPhysicsSystem;				//!< the Jolt world
 		ContactListenerImpl					mContactListener;			//!< worker-thread contact queue (@see drainContactQueue)
 		//! body -> opaque user tag (the GameObject bridge stores its
@@ -267,8 +279,12 @@ namespace Orkige
 		explicit PhysicsWorldImpl(PhysicsWorld::LayerConfig const & layerConfig) :
 			mLayerConfig(layerConfig),
 			mTempAllocator(10 * 1024 * 1024),
+#ifdef __EMSCRIPTEN__
+			mJobSystem(JPH::cMaxPhysicsJobs)
+#else
 			mJobSystem(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers,
 				std::max(1, static_cast<int>(std::thread::hardware_concurrency()) - 1))
+#endif
 		{
 			// the pair filter reads the owned config copy (stable for the Jolt
 			// system's lifetime - Jolt keeps the interface by reference)

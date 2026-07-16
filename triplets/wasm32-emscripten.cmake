@@ -30,5 +30,10 @@ set(VCPKG_TARGET_ARCHITECTURE wasm32)
 set(VCPKG_CRT_LINKAGE dynamic)
 set(VCPKG_LIBRARY_LINKAGE static)
 set(VCPKG_CMAKE_SYSTEM_NAME Emscripten)
-set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${EMSCRIPTEN_ROOT}/cmake/Modules/Platform/Emscripten.cmake")
+# the chainload is the repo's own wrapper around the emsdk platform file: it
+# seeds the ABI-relevant codegen flags (native wasm exception handling) every
+# wasm object in the closure must share - vcpkg has no emscripten toolchain,
+# so the VCPKG_C(XX)_FLAGS triplet variables would never reach the compiler
+# here. See cmake/wasm32-emscripten-toolchain.cmake for the full rationale.
+set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/../cmake/wasm32-emscripten-toolchain.cmake")
 set(VCPKG_CMAKE_CONFIGURE_OPTIONS -DCMAKE_IGNORE_PREFIX_PATH=/usr/local)

@@ -23,7 +23,18 @@
 
 # --- dependencies shared by both flavors ------------------------------------
 find_package(SDL3 CONFIG REQUIRED)
-find_package(OpenAL CONFIG REQUIRED)
+if(EMSCRIPTEN)
+    # the browser runtime provides OpenAL itself: the AL/ALC headers live in
+    # the Emscripten sysroot and the implementation is a JavaScript library
+    # the linker resolves (WebAudio-backed) - openal-soft is deliberately
+    # absent from the wasm dependency set (vcpkg.json platform qualifier).
+    # An empty imported target keeps the engine's link line uniform.
+    if(NOT TARGET OpenAL::OpenAL)
+        add_library(OpenAL::OpenAL INTERFACE IMPORTED)
+    endif()
+else()
+    find_package(OpenAL CONFIG REQUIRED)
+endif()
 # stb: header/single-file only - ships stb_vorbis.c (the OGG Vorbis decoder
 # engine_sound/StbVorbisImpl.cpp compiles) + stb_truetype.h (the glyph
 # rasteriser engine_gui/FontBakeImpl.cpp compiles). Provides Stb_INCLUDE_DIR.
@@ -148,6 +159,7 @@ set(ORKIGE_ENGINE_SOURCES
     # editor, native game modules); hosts keep their own frame loops
     engine_runtime/AppHost.h
     engine_runtime/AppHost.cpp
+    engine_runtime/MainLoopPacer.h
     engine_sound/SoundPlatform.h
     engine_sound/SoundPlatform.cpp
     engine_sound/SoundError.h
@@ -331,6 +343,11 @@ elseif(WIN32)
     # the Win32 HWND bridge (same extern-C contract as the other platforms,
     # engine_util/SDLNativeWindowWindows.cpp)
     list(APPEND ORKIGE_ENGINE_SOURCES engine_util/SDLNativeWindowWindows.cpp)
+elseif(EMSCRIPTEN)
+    # the browser bridge: no native handle exists - the page's one canvas is
+    # both SDL's window and the GLES2 render surface (the bridge returns
+    # null, the engine boots its own render window on the canvas)
+    list(APPEND ORKIGE_ENGINE_SOURCES engine_util/SDLNativeWindowWeb.cpp)
 endif()
 
 add_library(orkige_engine STATIC ${ORKIGE_ENGINE_SOURCES})
@@ -465,10 +482,12 @@ target_link_libraries(orkige_engine
 
 # static build: render systems and codecs are linked in and registered via
 # Root::installPlugin / codec startup (see Engine.cpp). Desktop default is
-# GL3Plus; iOS and Android use the GLES2 render system (OGRE forces it on for
-# APPLE_IOS/ANDROID, and it is the only RS with a full RTSS path there -
-# Metal has none yet, Vulkan-on-Android is a later phase).
-if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
+# GL3Plus; iOS, Android and the browser use the GLES2 render system (OGRE
+# forces it on for APPLE_IOS/ANDROID/EMSCRIPTEN, and it is the only RS with a
+# full RTSS path there - Metal has none yet, Vulkan-on-Android is a later
+# phase; in the browser GLES2 renders through WebGL).
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android"
+        OR EMSCRIPTEN)
     target_link_libraries(orkige_engine PUBLIC RenderSystem_GLES2)
 else()
     target_link_libraries(orkige_engine PUBLIC RenderSystem_GL3Plus)

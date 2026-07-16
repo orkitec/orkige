@@ -324,12 +324,15 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_OSX_SYSROOT": null,
         "VCPKG_TARGET_TRIPLET": "wasm32-emscripten",
-        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/cmake/wasm32-emscripten-toolchain.cmake",
+        "CMAKE_CXX_FLAGS": "-fwasm-exceptions",
+        "CMAKE_C_FLAGS": "-fwasm-exceptions",
+        "CMAKE_EXE_LINKER_FLAGS": "-fwasm-exceptions",
         "VCPKG_INSTALL_OPTIONS": "--clean-buildtrees-after-build",
         "ORKIGE_RENDER_BACKEND": "classic",
         "ORKIGE_BUILD_ENGINE": "ON",
         "ORKIGE_BUILD_TOOLS": "ON",
-        "ORKIGE_BUILD_TESTS": "OFF"
+        "ORKIGE_BUILD_TESTS": "ON"
       }
     },
     {
@@ -555,6 +558,19 @@
       },
       "execution": {
         "jobs": 10
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "web-unit",
+      "displayName": "Web unit tests (the Catch2 core suite as wasm, hosted by node)",
+      "configurePreset": "web-release",
+      "filter": {
+        "include": {
+          "label": "unit"
+        }
       },
       "output": {
         "outputOnFailure": true
