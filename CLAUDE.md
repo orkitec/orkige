@@ -823,9 +823,14 @@ look when touching one:
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) builds + tests on every push —
-**ten parallel jobs, one per platform x flavor**, so a failure names itself
-and every verdict lands as early as its own build allows (public-repo
+**twelve parallel jobs, one per platform x flavor**, so a failure names
+itself and every verdict lands as early as its own build allows (public-repo
 runners are free; the only cap is 5 concurrent macOS jobs):
+**web** cross-builds the wasm player + core test module on Ubuntu (pinned
+emsdk, cached; vcpkg binary cache keyed on the chainload wrapper too) and
+runs the full web suite — core units under the emsdk's node plus the export
+structure/pixel-boot tests through the image's headless Chrome, with a
+may-not-skip guard on the boot test;
 **linux-next**/**linux-classic** run the full windowed desktop suites under
 xvfb (lavapipe / llvmpipe); linux-next adds the **`ORKIGE_SCRIPTING=OFF`**
 build + unit gate and the CI-only **ASan + UBSan** tree with the complete

@@ -397,6 +397,118 @@ jobs:
             build/linux-debug-sanitize/tests/**/*.log
           if-no-files-found: ignore
 
+  # The browser flavor: the classic GLES2 player cross-compiled to
+  # WebAssembly. Builds the wasm dependency set + player + core test module,
+  # then runs the full web suite - the Catch2 core units under the emsdk's
+  # node and the export structure/pixel-boot tests through the runner's
+  # headless Chrome (preinstalled on the hosted Ubuntu image).
+  web:
+    name: Web (wasm/Emscripten) - build + web suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      # the emscripten release the tree is proven against (matches the
+      # user-local dev install - see triplets/wasm32-emscripten.cmake)
+      EMSDK_VERSION: 6.0.3
+      EMSDK: /home/runner/Development/emsdk
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build ccache python3 pkg-config \
+            autoconf autoconf-archive automake libtool curl zip unzip tar
+
+      - name: Restore emsdk
+        id: emsdk-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: /home/runner/Development/emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}
+
+      - name: Install emsdk
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git "$EMSDK"
+          "$EMSDK/emsdk" install "$EMSDK_VERSION"
+          "$EMSDK/emsdk" activate "$EMSDK_VERSION"
+
+      - name: Save emsdk
+        if: always() && steps.emsdk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/Development/emsdk
+          key: ${{ steps.emsdk-cache.outputs.cache-primary-key }}
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-web-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**', 'cmake/wasm32-emscripten-toolchain.cmake') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-web-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: /home/runner/.ccache
+          key: ccache-web-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-web-${{ runner.os }}-
+
+      - name: Configure (web-release, vcpkg dependency builds)
+        run: cmake --preset web-release -DVCPKG_INSTALL_OPTIONS=--clean-buildtrees-after-build
+
+      # save right after the configure (that is when vcpkg builds/installs),
+      # BEFORE anything that can fail - a red build must not lose the cold
+      # dependency work
+      - name: Save vcpkg binary cache
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build the wasm player + core test module (MUST pass)
+        run: |
+          cmake --build --preset web-release --target orkige_player
+          cmake --build --preset web-release --target orkige_core_tests
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      - name: Web suite (MUST pass, boot test may not skip)
+        run: |
+          # the hosted image ships headless Chrome; a skip would mean the
+          # driver lost its browser discovery and must fail loudly
+          ctest --preset web --timeout 600 --output-log ctest-web.log
+          ! grep -q "Skipped" ctest-web.log
+
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-diagnostics
+          path: |
+            build/web-release/Testing/**/*.log
+            ctest-web.log
+          if-no-files-found: ignore
+
   # Android emulator on the default Ogre-Next/Vulkan flavor, as its own
   # job so a broken Android build reports in minutes instead of after the
   # desktop suites. The ANDROID build runs FIRST (the fail-fast the job
