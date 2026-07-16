@@ -1758,7 +1758,8 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 			// a browser session never dials out - the PAGE dials in (the
 			// serve port's WebSocket upgrade lands in session.client). A
 			// page that never connects degrades honestly: back to edit
-			// mode, the tab (if any) runs standalone, serving continues.
+			// mode, and the serve ends with the session (the main loop
+			// resets the browser-play status once onBrowser drops).
 			std::chrono::milliseconds browserTimeout(
 				BROWSER_PAGE_CONNECT_TIMEOUT_SECONDS * 1000);
 			if (const char* timeoutMs =
@@ -1773,8 +1774,9 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 			if (now - session.launchStart > browserTimeout)
 			{
 				console.addLine(ConsoleLevel::Warning, "[deploy] the "
-					"browser page never connected the debug link - it runs "
-					"standalone (serving continues)");
+					"browser page never connected the debug link - the "
+					"serve ends with the session (press Play in Browser "
+					"to retry)");
 				endPlaySession(session, "no debug link from the page");
 			}
 			return;

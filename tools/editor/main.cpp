@@ -1911,8 +1911,20 @@ int main(int argc, char** argv)
 				exportJob.deployBrowser = false;
 				std::string url;
 				std::string serveError;
-				if (!browserServeStart(browserServe, exportJob.artifactPath,
-					url, serveError))
+				if (playSession.isActive())
+				{
+					// another session is already live (a desktop play
+					// started while the export ran): serving follows the
+					// browser session, so this attempt is abandoned rather
+					// than hijacking that session
+					console.addLine(ConsoleLevel::Warning, "[deploy] the "
+						"web build is exported, but a play session is "
+						"already active - stop it and press Play in "
+						"Browser again");
+					state.browserPlayStatus = "failed";
+				}
+				else if (!browserServeStart(browserServe,
+					exportJob.artifactPath, url, serveError))
 				{
 					console.addLine(ConsoleLevel::Error,
 						"[deploy] Play in Browser: " + serveError);
@@ -1929,26 +1941,13 @@ int main(int argc, char** argv)
 						std::to_string(browserServe.server.getPort());
 					state.browserPlayUrl = url;
 					state.browserPlayStatus = "serving";
-					if (!playSession.isActive())
-					{
-						beginBrowserPlaySession(playSession,
-							state.project.isLoaded()
-								? state.project.getRootDirectory()
-								: std::string());
-						console.addLine(ConsoleLevel::Info, "[deploy] "
-							"serving the web build at " + url + " - waiting "
-							"for the page to connect the debug link");
-					}
-					else
-					{
-						// another session is already live (a desktop play
-						// started while the export ran): the page runs
-						// standalone rather than hijacking that session
-						console.addLine(ConsoleLevel::Warning, "[deploy] "
-							"serving the web build at " + url + " - a play "
-							"session is already active, the page runs "
-							"standalone");
-					}
+					beginBrowserPlaySession(playSession,
+						state.project.isLoaded()
+							? state.project.getRootDirectory()
+							: std::string());
+					console.addLine(ConsoleLevel::Info, "[deploy] "
+						"serving the web build at " + url + " - waiting "
+						"for the page to connect the debug link");
 					// automated runs never touch the user's default browser
 					// (the scripted tests fetch the served files themselves,
 					// or drive their own headless browser at the URL)
@@ -1970,6 +1969,18 @@ int main(int argc, char** argv)
 				// the browser-play attempt is over
 				exportJob.deployBrowser = false;
 				state.browserPlayStatus = "failed";
+			}
+			// Stop ends the serve with the session (EditorBrowserServe
+			// answers the honest 404 once no browser play is live) - reset
+			// the toolbar/get_state status so nothing offers a URL the
+			// server would refuse
+			if (!playSession.onBrowser &&
+				(state.browserPlayStatus == "serving" ||
+					state.browserPlayStatus == "connected"))
+			{
+				state.browserPlayStatus.clear();
+				state.browserPlayUrl.clear();
+				browserServe.docRoot.clear();
 			}
 			// pump the static server (accept/read/respond; a no-op while idle)
 			browserServeUpdate(browserServe, playSession);

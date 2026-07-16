@@ -115,7 +115,12 @@ void browserServeUpdate(BrowserServe& serve, PlaySession& session)
 	const bool acceptDebugUpgrade =
 		session.mode == PlaySession::Mode::Launching && session.onBrowser &&
 		!session.client.isConnected();
-	serve.server.update([&serve, acceptDebugUpgrade](
+	// files serve only while a browser play session is live: Stop ends the
+	// serve too, so a reloading tab gets the refusal below instead of a
+	// fresh standalone run of the last export
+	const bool sessionLive =
+		session.onBrowser && session.mode != PlaySession::Mode::Edit;
+	serve.server.update([&serve, acceptDebugUpgrade, sessionLive](
 		Orkige::HttpRequest const& request) -> Orkige::HttpResponse
 	{
 		Orkige::HttpResponse response;
@@ -142,6 +147,14 @@ void browserServeUpdate(BrowserServe& serve, PlaySession& session)
 			response.reason = "Method Not Allowed";
 			response.contentType = "text/plain";
 			response.body = "static file server: GET only\n";
+			return response;
+		}
+		if (!sessionLive)
+		{
+			response.status = 404;
+			response.reason = "Not Found";
+			response.contentType = "text/plain";
+			response.body = "no browser play session is running\n";
 			return response;
 		}
 		const std::string filePath = serve.isServing()

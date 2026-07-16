@@ -88,20 +88,23 @@ a WebSocket (`binary` subprotocol) — and the serve port answers the upgrade
 `HttpServer` connection takeover) and hands the socket to the waiting play
 session's `DebugClient` (`adoptWebSocket`). From there it is a desktop-like
 session: `[remote]` Console lines, remote hierarchy/inspector, pause/step,
-live property writes and cvars, all unchanged. One page per session; a
-second tab or a page arriving after the session ended is refused (409) and
-runs standalone.
+live property writes and cvars, all unchanged. One page per session: a
+second tab during the session is refused the upgrade (409) and runs
+standalone; once the session ends the serve ends with it, so any later
+page gets the honest 404.
 
 Honest boundaries of the browser link:
 
 - **Stop** sends quit over the link; the page's game loop exits cleanly
   (`ORKIGE_EXIT_<code>` in the title) and the closing socket confirms the
-  stop. The editor cannot close a tab — the finished page stays open.
+  stop. The editor cannot close a tab — the finished page stays open, but
+  the **serve ends with the session**: a reload of that tab answers the
+  honest 404 instead of restarting the game.
 - A page that **never connects** (no browser, tab closed early) times out
-  (`BROWSER_PAGE_CONNECT_TIMEOUT_SECONDS`) back to edit mode; serving
-  continues and the tab runs standalone. Closing/refreshing the tab
-  mid-session ends the session like a vanished player; the reloaded page is
-  refused and runs standalone.
+  (`BROWSER_PAGE_CONNECT_TIMEOUT_SECONDS`) back to edit mode, and the serve
+  ends with the session there too. Closing/refreshing the tab mid-session
+  ends the session like a vanished player — and with it the serve, so the
+  reloaded page gets the 404, not a standalone restart.
 - `screenshot_game` and `record_trace` refuse: the page writes to its
   in-memory filesystem, which never reaches the editor's disk.
 - Lua/`.oui` **hot-reload** refuses (and the editor's file watchers stay

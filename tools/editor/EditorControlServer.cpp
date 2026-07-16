@@ -2644,13 +2644,13 @@ namespace Orkige
 			ok.set("can_redo", core.canRedo() ? "1" : "0");
 			ok.set("play_mode", playSessionModeName(*context.play));
 			// Play-in-Browser outcome (play {target:"browser"} / the toolbar):
-			// "" until the first browser play, "exporting" while the web export
+			// "" until the first browser play (and again once a session
+			// ends - the serve ends WITH the session, so a reloading tab
+			// cannot restart the game), "exporting" while the web export
 			// runs, "serving" + the URL once the page is up (the URL carries
 			// the debug-connect parameter - a browser at it dials the live
 			// session in), "connected" while that session's link is up,
-			// "failed" on an export failure. After the session ends the page
-			// (if still open) runs standalone and the status returns to
-			// "serving".
+			// "failed" on an export failure.
 			ok.set("browser_play_status",
 				context.play->onBrowser && context.play->client.isConnected()
 					? String("connected") : state.browserPlayStatus);
@@ -6934,8 +6934,8 @@ namespace Orkige
 					}
 				}
 				// (B6) stop: MSG_QUIT rides the link, the page's game loop
-				// exits and the closing socket confirms the stop; the status
-				// returns to plain serving
+				// exits and the closing socket confirms the stop; the serve
+				// ends WITH the session, so the status returns to idle
 				if (!callTool("stop", JsonValue::object(), true, structured,
 					isError) || isError)
 				{
@@ -6946,25 +6946,28 @@ namespace Orkige
 				if (!waitState([](JsonValue const& s)
 					{
 						return s.get("play_mode").asString() == "edit" &&
-							s.get("browser_play_status").asString() ==
-								"serving";
+							s.get("browser_play_status").asString().empty();
 					}, 300))
 				{
 					reapBrowser();
 					finish(false, "browser session test: the session never "
-						"returned to edit mode after stop");
+						"returned to edit mode (with the serve ended) after "
+						"stop");
 					return;
 				}
-				// the server still serves the artifacts after the session
+				// the serve ended with the session: a reloading tab must NOT
+				// restart the game - the honest 404 answers instead
 				int stillStatus = 0;
 				String stillHeaders;
 				String stillBody;
 				if (!getServed("/index.html", true, stillStatus, stillHeaders,
-					stillBody) || stillStatus != 200)
+					stillBody) || stillStatus != 404)
 				{
 					reapBrowser();
-					finish(false, "browser session test: serving must "
-						"continue after the session ended");
+					finish(false, "browser session test: the serve must end "
+						"with the session (got status " +
+						std::to_string(stillStatus) + " for a post-stop "
+						"fetch, want 404)");
 					return;
 				}
 				reapBrowser();
@@ -7013,23 +7016,27 @@ namespace Orkige
 			}
 			// honest degradation: NO page ever dials in (this test opens no
 			// browser), so the waiting session must time out back to edit
-			// mode while serving continues (the ctest env shrinks the
-			// timeout via ORKIGE_BROWSER_CONNECT_TIMEOUT_MS)
+			// mode and the serve must end with it (the ctest env shrinks
+			// the timeout via ORKIGE_BROWSER_CONNECT_TIMEOUT_MS)
 			if (!waitState([](JsonValue const& s)
 				{
-					return s.get("play_mode").asString() == "edit";
+					return s.get("play_mode").asString() == "edit" &&
+						s.get("browser_play_status").asString().empty();
 				}, 600))
 			{
 				finish(false, "browser play test: the waiting session never "
-					"degraded to edit mode without a page");
+					"degraded to edit mode (with the serve ended) without a "
+					"page");
 				return;
 			}
-			if (!callTool("get_state", JsonValue::object(), false, structured,
-				isError) || isError ||
-				structured.get("browser_play_status").asString() != "serving")
+			// a fetch after the degradation answers the honest 404 - a
+			// leftover tab reloading cannot restart the game
+			if (!getServed("/index.html", true, status, headers, body) ||
+				status != 404)
 			{
-				finish(false, "browser play test: serving must continue "
-					"after the no-page degradation");
+				finish(false, "browser play test: the serve must end with "
+					"the degraded session (got status " +
+					std::to_string(status) + ", want 404)");
 				return;
 			}
 			// with no session waiting, a debug upgrade is refused (409): a

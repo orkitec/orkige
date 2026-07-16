@@ -199,11 +199,12 @@ struct PlaySession;	// the debug-upgrade destination (defined below)
 
 //! @brief the loopback static-file server behind Play in Browser: a second
 //! instance of the core_debugnet HttpServer (the MCP endpoint keeps its own,
-//! opt-in instance) serving ONE exported web build directory. Started lazily
-//! on the first browser play and kept for the editor's lifetime; every play
-//! re-exports and re-points the doc root - requests for the PREVIOUS
-//! export's files (an old tab reloading) answer with the jailed 404, the
-//! honest outcome for artifacts that no longer exist. Binds 127.0.0.1 only.
+//! opt-in instance) serving ONE exported web build directory. The listener
+//! starts lazily on the first browser play and stays for the editor's
+//! lifetime (stable port), but files serve ONLY while a browser play
+//! session is live - Stop ends the serve, so a reloading tab cannot restart
+//! the game; it and requests for a PREVIOUS export's files answer with the
+//! honest 404. Binds 127.0.0.1 only.
 struct BrowserServe
 {
 	Orkige::HttpServer server;
