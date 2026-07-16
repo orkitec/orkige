@@ -190,21 +190,27 @@ TEST_CASE("HttpServer upgrade takeover feeds a WebSocket DebugClient",
 	CHECK(deliveries[1].type == Protocol::MSG_LOG);
 	CHECK(deliveries[2].type == Protocol::MSG_SCRIPT_ERROR);
 
-	// --- the pong answered the ping ---
+	// --- the pong answered the ping (it may trail the data frames, so keep
+	// pumping until it lands) ---
 	{
-		String wsBytes = received;
 		bool pongSeen = false;
-		Ws::Frame frame;
-		std::size_t consumed = 0;
-		while (Ws::decodeFrame(wsBytes, consumed, frame) ==
-			Ws::DecodeResult::Ok)
+		REQUIRE(pumpUntil(server, handler, &editorSide, fd, received,
+			[&received, &pongSeen]
 		{
-			wsBytes.erase(0, consumed);
-			if (frame.opcode == Ws::OP_PONG && frame.payload == "ka")
+			String wsBytes = received;
+			Ws::Frame frame;
+			std::size_t consumed = 0;
+			while (Ws::decodeFrame(wsBytes, consumed, frame) ==
+				Ws::DecodeResult::Ok)
 			{
-				pongSeen = true;
+				wsBytes.erase(0, consumed);
+				if (frame.opcode == Ws::OP_PONG && frame.payload == "ka")
+				{
+					pongSeen = true;
+				}
 			}
-		}
+			return pongSeen;
+		}));
 		CHECK(pongSeen);
 	}
 
@@ -216,13 +222,20 @@ TEST_CASE("HttpServer upgrade takeover feeds a WebSocket DebugClient",
 	REQUIRE(pumpUntil(server, handler, &editorSide, fd, received,
 		[&received, &peerLine]
 	{
+		// scan past any control frames (a straggling pong) to the first
+		// binary frame
+		String wsBytes = received;
 		Ws::Frame frame;
 		std::size_t consumed = 0;
-		if (Ws::decodeFrame(received, consumed, frame) ==
-			Ws::DecodeResult::Ok && frame.opcode == Ws::OP_BINARY)
+		while (Ws::decodeFrame(wsBytes, consumed, frame) ==
+			Ws::DecodeResult::Ok)
 		{
-			peerLine = frame.payload;
-			return true;
+			wsBytes.erase(0, consumed);
+			if (frame.opcode == Ws::OP_BINARY)
+			{
+				peerLine = frame.payload;
+				return true;
+			}
 		}
 		return false;
 	}));
