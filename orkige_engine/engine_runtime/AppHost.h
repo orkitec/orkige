@@ -43,7 +43,11 @@ namespace Orkige
 		String	windowTitle = "Orkige";
 		int		windowWidth = 1280;
 		int		windowHeight = 720;
-		//! desktop only (mobile is always a fullscreen native surface)
+		//! desktop: a user-resizable window frame. Mobile: the window is
+		//! always a fullscreen native surface, and this flag opts it into
+		//! DEVICE ROTATION instead (the window system only rotates an app
+		//! whose window declares itself resizable; a fixed window stays
+		//! pinned to its boot orientation)
 		bool	resizableWindow = false;
 		//! scripted/frame-capped runs render vsync-free (as fast as the
 		//! machine allows); a HUMAN run gets vsync so games neither spin

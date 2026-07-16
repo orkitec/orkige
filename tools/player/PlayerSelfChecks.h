@@ -39,6 +39,7 @@ struct PlayerSelfChecks
 	bool breadcrumbCheck = false;
 	bool fadeCheck = false;
 	bool lifecycleCheck = false;
+	bool resizeCheck = false;
 	bool perfCheck = false;
 	bool benchmarkCheck = false;
 
@@ -332,6 +333,24 @@ struct PlayerSelfChecks
 
 	LifecyclePhase lifecyclePhase = LifecyclePhase::Init;
 	bool lifecycleFailed = false;
+	// --- ORKIGE_RESIZE_SELFCHECK=1: the window-resize plumbing end to end -
+	// the same path a device rotation takes (drawable size change -> SDL
+	// resize event -> notifyWindowResized -> swapchain/drawable recreate +
+	// window-camera aspect re-derive). At the baseline frame the check
+	// records the drawable size and asserts the window camera's projection
+	// matches it, then requests a DIFFERENT window size through the host
+	// window (SDL_SetWindowSize, so the resize event takes the real
+	// poll-loop path). Condition-driven with a fat deadline (the window
+	// system delivers the event on its own schedule): the render system
+	// must report the new drawable size AND the window camera's aspect
+	// must match it - the stale-aspect (stretched image) regression guard.
+	enum class ResizePhase { Baseline, WaitResize, Done };
+
+	ResizePhase resizePhase = ResizePhase::Baseline;
+	bool resizeCheckFailed = false;
+	unsigned int resizeBaselineW = 0;
+	unsigned int resizeBaselineH = 0;
+	unsigned long resizeDeadline = 0;
 	bool perfCheckFailed = false;
 
 	// fade selfcheck state (see the ORKIGE_FADE_SELFCHECK block below)

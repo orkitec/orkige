@@ -27,13 +27,24 @@ public class OrkigeActivity extends SDLActivity {
     protected String[] getArguments() {
         String scene = getIntent().getStringExtra("scene");
         int debugPort = getIntent().getIntExtra("debugPort", 0);
-        if (scene == null || scene.isEmpty()) {
-            // launcher start: the player falls back to the bundled example scene
-            return new String[0];
+        // the project manifest's export.orientation, delivered explicitly:
+        // a play session pushes only the temp scene to the device, so the
+        // player cannot read the setting from the manifest itself
+        String orientation = getIntent().getStringExtra("orientation");
+        java.util.ArrayList<String> args = new java.util.ArrayList<String>();
+        if (scene != null && !scene.isEmpty()) {
+            args.add(scene);
+            if (debugPort > 0) {
+                args.add("--debug-port");
+                args.add(String.valueOf(debugPort));
+            }
         }
-        if (debugPort > 0) {
-            return new String[] { scene, "--debug-port", String.valueOf(debugPort) };
+        // launcher start with no extras: the player falls back to the
+        // bundled example scene
+        if (orientation != null && !orientation.isEmpty()) {
+            args.add("--orientation");
+            args.add(orientation);
         }
-        return new String[] { scene };
+        return args.toArray(new String[0]);
     }
 }

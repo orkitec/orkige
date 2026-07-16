@@ -219,6 +219,11 @@ namespace Orkige
 			{
 				arguments.projectPath = argv[++argIndex];
 			}
+			else if (std::strcmp(argv[argIndex], "--orientation") == 0 &&
+				argIndex + 1 < argc)
+			{
+				arguments.orientation = argv[++argIndex];
+			}
 			else if (argv[argIndex][0] != '-' && arguments.scenePath.empty())
 			{
 				arguments.scenePath = argv[argIndex];

@@ -88,9 +88,16 @@ namespace Orkige
 #if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
 		// mobile: fullscreen native window; SDL sizes it to the screen/surface
 		// regardless of the requested size (it renders at native scale via the
-		// view's own content scale, so the window stays in points)
+		// view's own content scale, so the window stays in points). RESIZABLE
+		// is the rotation opt-in: only a resizable window may follow the
+		// device orientation - a fixed one gets pinned to its boot aspect
+		SDL_WindowFlags mobileFlags = SDL_WINDOW_FULLSCREEN;
+		if (config.resizableWindow)
+		{
+			mobileFlags |= SDL_WINDOW_RESIZABLE;
+		}
 		this->mWindow = SDL_CreateWindow(config.windowTitle.c_str(),
-			config.windowWidth, config.windowHeight, SDL_WINDOW_FULLSCREEN);
+			config.windowWidth, config.windowHeight, mobileFlags);
 #else
 		// desktop: HIGH_PIXEL_DENSITY so the render surface tracks the OS
 		// backing scale - both render flavors then derive the same drawable

@@ -45,6 +45,7 @@
 #include <engine_gocomponent/VectorAnimationComponent.h>
 #include <engine_gui/GuiManager.h>
 #include <engine_render/RenderSystem.h>
+#include <engine_render/RenderCamera.h>
 #include <engine_runtime/AppHost.h>
 #include <engine_sound/SoundManager.h>
 #include <engine_util/StringUtil.h>
@@ -190,6 +191,14 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// the ORKIGE_LIFECYCLE_SELFCHECK block near the loop below.
 	lifecycleCheck =
 		(std::getenv("ORKIGE_LIFECYCLE_SELFCHECK") != nullptr);
+	// ORKIGE_RESIZE_SELFCHECK verifies the window-resize plumbing (the path
+	// a device rotation takes): request a different window size through the
+	// host window and require the render system to report the new drawable
+	// size with the window camera's aspect re-derived to match (see the
+	// ORKIGE_RESIZE_SELFCHECK block at the loop bottom). Runs against any
+	// scene; desktop-only in ctest (a mobile window ignores size requests).
+	resizeCheck =
+		(std::getenv("ORKIGE_RESIZE_SELFCHECK") != nullptr);
 	// ORKIGE_PERF_SELFCHECK=1: run a real project for ~70 frames and
 	// assert the performance instruments produce a truthful readback -
 	// the profiler snapshot carries the canonical tick phases at depth 0,
@@ -208,8 +217,8 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		rollerProgressionCheck || tweenCheck ||
 		hotreloadCheck || scriptPropCheck ||
 		integrationContactCheck || integrationLevelCheck ||
-		breadcrumbCheck || fadeCheck || lifecycleCheck || softbodyCheck ||
-		perfCheck || benchmarkCheck || vectorAnimCheck ||
+		breadcrumbCheck || fadeCheck || lifecycleCheck || resizeCheck ||
+		softbodyCheck || perfCheck || benchmarkCheck || vectorAnimCheck ||
 		!assetIdCheckTexture.empty() || frameLimit != 0;
 }
 
@@ -3391,6 +3400,102 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 			}
 		}
 	}
+
+	// ORKIGE_RESIZE_SELFCHECK: the window-resize plumbing, end to end.
+	// Request a smaller host window (SDL_SetWindowSize - the resize event
+	// then takes the real poll-loop path, exactly like a device rotation's
+	// drawable change) and require the render system to report the new
+	// drawable size with the window camera's aspect re-derived to match.
+	if (resizeCheck && !resizeCheckFailed)
+	{
+		auto resizeFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: RESIZE SELFCHECK FAILED - %s "
+				"(frame %lu)", what.c_str(), frameCount);
+			resizeCheckFailed = true;
+			exitCode = 1;
+			running = false;
+		};
+		// the window camera's aspect, read back through its projection:
+		// proj[1][1] / proj[0][0] equals width/height for both projection
+		// types (and both render flavors - the facade contract)
+		auto cameraAspect = [&render]() -> double
+		{
+			optr<Orkige::RenderCamera> camera = render->getWindowCamera();
+			if (!camera)
+			{
+				return 0.0;
+			}
+			const Orkige::Mat4 projection = camera->getProjectionMatrix();
+			return projection[0][0] != 0.0f
+				? static_cast<double>(projection[1][1]) /
+					static_cast<double>(projection[0][0])
+				: 0.0;
+		};
+		if (resizePhase == ResizePhase::Baseline && frameCount == 10)
+		{
+			render->getWindowSize(resizeBaselineW, resizeBaselineH);
+			const double aspect = cameraAspect();
+			if (resizeBaselineW == 0 || resizeBaselineH == 0)
+			{
+				resizeFail("no drawable at the baseline frame");
+			}
+			else if (std::abs(aspect - static_cast<double>(resizeBaselineW) /
+				static_cast<double>(resizeBaselineH)) > 0.02)
+			{
+				resizeFail("window camera aspect does not match the "
+					"baseline drawable");
+			}
+			else
+			{
+				// halve the LOGICAL width (the drawable follows at the
+				// display's own pixel density) - a clear aspect change a
+				// window manager never clamps, in the same direction a
+				// portrait rotation moves it
+				int logicalW = 0;
+				int logicalH = 0;
+				SDL_GetWindowSize(context.host.getWindow(), &logicalW,
+					&logicalH);
+				SDL_SetWindowSize(context.host.getWindow(), logicalW / 2,
+					logicalH);
+				resizePhase = ResizePhase::WaitResize;
+				resizeDeadline = frameCount + 300;
+			}
+		}
+		else if (resizePhase == ResizePhase::WaitResize)
+		{
+			unsigned int windowW = 0;
+			unsigned int windowH = 0;
+			render->getWindowSize(windowW, windowH);
+			if (windowW != 0 && windowH != 0 && windowW != resizeBaselineW)
+			{
+				const double aspect = cameraAspect();
+				const double expected = static_cast<double>(windowW) /
+					static_cast<double>(windowH);
+				if (std::abs(aspect - expected) > 0.02)
+				{
+					resizeFail("window camera aspect not re-derived after "
+						"the resize (stale projection)");
+				}
+				else
+				{
+					SDL_Log("orkige_player: RESIZE SELFCHECK PASSED - "
+						"%ux%u -> %ux%u, camera aspect %.4f",
+						resizeBaselineW, resizeBaselineH, windowW, windowH,
+						aspect);
+					resizePhase = ResizePhase::Done;
+					exitCode = 0;
+					running = false;
+				}
+			}
+			else if (frameCount >= resizeDeadline)
+			{
+				resizeFail("drawable never changed size (resize event "
+					"lost?) - still " + std::to_string(windowW) + "x" +
+					std::to_string(windowH));
+			}
+		}
+	}
 }
 
 //---------------------------------------------------------
@@ -3430,6 +3535,13 @@ void PlayerSelfChecks::atLoopEnd(PlayerContext& context)
 	{
 		SDL_Log("orkige_player: LIFECYCLE SELFCHECK FAILED - run ended in "
 			"phase %d", static_cast<int>(lifecyclePhase));
+		exitCode = 1;
+	}
+	if (resizeCheck && !resizeCheckFailed &&
+		resizePhase != ResizePhase::Done)
+	{
+		SDL_Log("orkige_player: RESIZE SELFCHECK FAILED - run ended in "
+			"phase %d", static_cast<int>(resizePhase));
 		exitCode = 1;
 	}
 	if (integrationContactCheck && !integContactFailed &&

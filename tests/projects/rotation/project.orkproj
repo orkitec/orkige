@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OrkigeProject version="1">
+    <Name>Rotation Fixture</Name>
+    <MainScene>scenes/main.oscene</MainScene>
+    <Settings>
+        <!-- the fixture exists to follow device rotation: the player must
+             leave every orientation allowed instead of the portrait pin -->
+        <Setting key="export.orientation" value="auto"/>
+    </Settings>
+</OrkigeProject>

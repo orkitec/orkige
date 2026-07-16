@@ -1174,6 +1174,42 @@ if(TARGET orkige_editor AND TARGET orkige_player)
             ENVIRONMENT
                 "ORKIGE_EDITOR_PLAYTEST=stop;ORKIGE_EDITOR_PLAY_ANDROID=auto"
             SKIP_RETURN_CODE 77)
+
+        # device ROTATION on Android: play tests/projects/rotation (its
+        # manifest opts into every orientation - export.orientation=auto,
+        # delivered to the device as the --orientation launch argument) on an
+        # adb device/emulator, force a landscape rotation through the system
+        # user_rotation setting, and assert over the debug protocol that the
+        # drawable dimensions swapped orientation while the player kept
+        # rendering (MSG_STATS carries the flipped size), then rotate back and
+        # require the original size again. The device's rotation settings are
+        # restored on every exit path. SKIPPED (exit 77) when no adb device
+        # has the player APK installed (same preparation as
+        # editor_play_android).
+        add_test(NAME player_rotation_android COMMAND orkige_editor
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_rotation_android PROPERTIES
+            ENVIRONMENT
+                "ORKIGE_EDITOR_ROTATION_CHECK=${Orkige_SOURCE_DIR}/tests/projects/rotation;ORKIGE_EDITOR_PLAY_ANDROID=auto"
+            SKIP_RETURN_CODE 77)
+    endif()
+
+    if(APPLE)
+        # device ROTATION on iOS: the same run against a booted iPhone
+        # simulator - Simulator.app's Device menu is the only scriptable
+        # rotation, driven over osascript (a LOCAL-ONLY affordance: without
+        # the Automation/Accessibility permission the run SKIPS, exit 77,
+        # after a clean stop - never a false red on CI). Asserts the Metal
+        # drawable swapped orientation over MSG_STATS AND that the notch
+        # safe-area inset moved to a side edge in landscape, then rotates
+        # back. Same preparation as editor_play_simulator (a booted simulator
+        # with OrkigePlayer.app installed, or a shutdown one + the built app).
+        add_test(NAME player_rotation_ios COMMAND orkige_editor
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_rotation_ios PROPERTIES
+            ENVIRONMENT
+                "ORKIGE_EDITOR_ROTATION_CHECK=${Orkige_SOURCE_DIR}/tests/projects/rotation;ORKIGE_EDITOR_PLAY_SIMULATOR=auto"
+            SKIP_RETURN_CODE 77)
     endif()
 
     if(APPLE)
@@ -1461,6 +1497,22 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_lifecycle_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_LIFECYCLE_SELFCHECK=1;ORKIGE_PROGRESS_RESET=1;ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/lifecycle_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX};ORKIGE_BREADCRUMB_DIR=${CMAKE_CURRENT_BINARY_DIR}/lifecycle_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}")
+
+        # window-resize plumbing, end to end - the same path a device rotation
+        # takes (drawable size change -> SDL resize event -> the player's
+        # notifyWindowResized -> swapchain/drawable recreate + window-camera
+        # aspect re-derive): the check requests a smaller host window and
+        # requires the render system to report the new drawable size with the
+        # camera aspect matching it (the stale-aspect/stretched-image guard;
+        # see the ORKIGE_RESIZE_SELFCHECK block in tools/player/
+        # PlayerSelfChecks.cpp). Runs on BOTH flavors; desktop-only - a mobile
+        # window ignores size requests, rotation itself is covered by the
+        # device-labeled player_rotation_* tests.
+        add_test(NAME player_resize_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player samples/scenes/example.oscene
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_resize_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_RESIZE_SELFCHECK=1")
 
         # performance instruments, end to end: run the roller project (scripts,
         # physics, sprites, HUD all live) for ~70 frames and assert the
@@ -1760,6 +1812,8 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         editor_project_native_play editor_project_native_play_break
         editor_play_simulator editor_play_simulator_boot
         editor_play_android editor_play_ios_device
+        player_resize_selfcheck player_resize_selfcheck_next
+        player_rotation_android player_rotation_ios
         export_macos_lua export_macos_native
         export_ios_simulator export_android export_android_aab
         demo_plain_vulkan player_example_scene_vulkan editor_selfcheck_vulkan
@@ -1828,6 +1882,15 @@ endforeach()
 if(TEST editor_play_simulator)
     set_tests_properties(editor_play_simulator PROPERTIES TIMEOUT 600)
 endif()
+# the rotation runs add two device rotations + their stats round-trips on top
+# of the play flow; the iOS one may additionally have to boot a simulator
+# first (same headroom reasoning as editor_play_simulator)
+if(TEST player_rotation_android)
+    set_tests_properties(player_rotation_android PROPERTIES TIMEOUT 300)
+endif()
+if(TEST player_rotation_ios)
+    set_tests_properties(player_rotation_ios PROPERTIES TIMEOUT 600)
+endif()
 if(TEST editor_play_simulator_boot)
     # covers the editor's whole in-test chain: sim prep (900s) + debug-link
     # connect (90s) + the playtest phase slack - see EditorApp.h budgets
@@ -1840,7 +1903,8 @@ endif()
 # (ctest --preset desktop) can exclude them; run them via ctest --preset all
 # when deploy/device code changed or before handing work over.
 foreach(device_test editor_play_simulator editor_play_simulator_boot
-        editor_play_android editor_play_ios_device player_safearea_device)
+        editor_play_android editor_play_ios_device player_safearea_device
+        player_rotation_android player_rotation_ios)
     if(TEST ${device_test})
         # RESOURCE_LOCK: device tests share one simulator/emulator + adb -
         # they must not run concurrently when the suite runs with -j

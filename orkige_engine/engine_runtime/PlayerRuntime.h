@@ -39,6 +39,11 @@ namespace Orkige
 	{
 		String			scenePath;				//!< positional scene ("" = none given)
 		String			projectPath;			//!< --project value ("" = loose-scene mode)
+		//! --orientation value ("" = none given): the project manifest's
+		//! export.orientation (portrait/landscape/auto), delivered explicitly
+		//! for play sessions where the manifest itself does not travel to the
+		//! device (the editor's Android play deploys only the temp scene)
+		String			orientation;
 		bool			debugRequested = false;	//!< --debug-port was given
 		unsigned short	debugPort = 0;			//!< requested port (0 = ephemeral)
 		bool			valid = true;			//!< false on an unknown argument

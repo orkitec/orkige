@@ -9,6 +9,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #ifdef _WIN32
 #include <process.h>	// _getpid - unique temp fixture names (parallel ctest)
 #define getpid _getpid
@@ -131,4 +132,38 @@ TEST_CASE("empty base directory falls through safely",
 	// and the media resolution must keep the fallback
 	CHECK(Orkige::PlayerBundle::resolveMediaDirectory("/dev/fallback")
 		== "/dev/fallback");
+}
+
+TEST_CASE("PlayerArguments parses the shared player CLI contract",
+	"[engine][playerbundle]")
+{
+	// scene + --project + --debug-port + --orientation (the manifest's
+	// export.orientation delivered explicitly when the manifest itself does
+	// not travel to the device - the editor's Android play sessions)
+	const char* argv[] = { "player", "scene.oscene", "--project", "/proj",
+		"--debug-port", "4242", "--orientation", "auto" };
+	const Orkige::PlayerArguments arguments = Orkige::PlayerArguments::parse(
+		static_cast<int>(std::size(argv)), const_cast<char**>(argv));
+	CHECK(arguments.valid);
+	CHECK(arguments.scenePath == "scene.oscene");
+	CHECK(arguments.projectPath == "/proj");
+	CHECK(arguments.debugRequested);
+	CHECK(arguments.debugPort == 4242);
+	CHECK(arguments.orientation == "auto");
+}
+
+TEST_CASE("PlayerArguments defaults leave the orientation to the manifest",
+	"[engine][playerbundle]")
+{
+	const char* argv[] = { "player", "scene.oscene" };
+	const Orkige::PlayerArguments arguments = Orkige::PlayerArguments::parse(
+		static_cast<int>(std::size(argv)), const_cast<char**>(argv));
+	CHECK(arguments.valid);
+	CHECK(arguments.orientation.empty());
+	// an unknown argument still reports honestly
+	const char* badArgv[] = { "player", "--rotate" };
+	const Orkige::PlayerArguments bad = Orkige::PlayerArguments::parse(
+		static_cast<int>(std::size(badArgv)), const_cast<char**>(badArgv));
+	CHECK_FALSE(bad.valid);
+	CHECK(bad.unknownArgument == "--rotate");
 }

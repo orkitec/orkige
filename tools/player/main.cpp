@@ -83,6 +83,7 @@
 #include <core_game/GameState.h>
 #include <core_project/Project.h>
 #include <core_debug/CVarManager.h>
+#include <core_debug/DebugMacros.h>
 #include <core_debug/Breadcrumbs.h>
 #include <core_debug/BenchmarkRecorder.h>
 #include <core_debug/MemoryManager.h>
@@ -510,6 +511,22 @@ static bool playerIterate(PlayerContext& context)
 			break;
 		case SDL_EVENT_LOW_MEMORY:
 			applyLifecycle(Orkige::AppLifecycle::Event::LowMemory);
+			break;
+		// the drawable changed size (a desktop window resize, a device
+		// ROTATION): resize the render target and re-derive the window
+		// camera's aspect so the image never stretches. Same facade call
+		// the editor makes on its own window; CameraComponent's fit modes
+		// then see the new aspect on their next tick.
+		case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+			if (render != NULL)
+			{
+				render->notifyWindowResized();
+				unsigned int resizedWidth = 0;
+				unsigned int resizedHeight = 0;
+				render->getWindowSize(resizedWidth, resizedHeight);
+				oDebugMsg("player", 0, "window drawable resized to " <<
+					resizedWidth << "x" << resizedHeight);
+			}
 			break;
 		case SDL_EVENT_TERMINATING:
 			// the OS is killing us: final flush + marker, then leave the
@@ -1038,15 +1055,26 @@ int main(int argc, char** argv)
 	// render surface match the orientation the OS presents (the iOS 90°-rotation
 	// guard) and keeps the safe-area insets deterministic. PORTRAIT is the default
 	// (and where any unrecognised value lands); explicit "auto" leaves the hint
-	// unset (SDL allows every orientation). A no-op on desktop.
+	// unset AND asks for a rotation-following window - both halves are needed:
+	// with no hint the window system derives the allowed set from the window,
+	// and only a RESIZABLE window may follow the device orientation (a fixed
+	// one gets pinned to its boot aspect). A no-op on desktop.
+	bool followDeviceRotation = false;
 	{
-		const Orkige::String orientation =
-			project.getSetting("export.orientation", "portrait");
+		// an explicit --orientation (the editor's Android play sessions, where
+		// the manifest does not travel to the device) wins over the manifest
+		const Orkige::String orientation = !arguments.orientation.empty()
+			? arguments.orientation
+			: project.getSetting("export.orientation", "portrait");
 		if (orientation == "landscape")
 		{
 			SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
 		}
-		else if (orientation != "auto")
+		else if (orientation == "auto")
+		{
+			followDeviceRotation = true;
+		}
+		else
 		{
 			SDL_SetHint(SDL_HINT_ORIENTATIONS, "Portrait");
 		}
@@ -1245,12 +1273,16 @@ int main(int argc, char** argv)
 #if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
 		hostConfig.windowTitle = "Orkige Player";
 		hostConfig.hlmsMediaDir = playerMediaDir;
+		// export.orientation "auto": the fullscreen surface follows device
+		// rotation (see the orientation-hint block above)
+		hostConfig.resizableWindow = followDeviceRotation;
 #else
 		hostConfig.windowTitle = "Orkige Player - " + scenePath;
 		if (playerMediaDir != std::string(ORKIGE_PLAYER_MEDIA_DIR))
 		{
 			hostConfig.hlmsMediaDir = playerMediaDir;
 		}
+		(void)followDeviceRotation;	// rotation policy is a mobile concern
 #endif
 		hostConfig.automatedRun = automatedRun;
 		hostConfig.engineLogFile = engineLogPath;

@@ -65,6 +65,35 @@ python3 Util/orkige_device.py ios --simulator  # no certificate needed
   simulator `.app`, boots a simulator and `simctl install` + `launch`. No
   certificate required; this is also the target for the live-debug loop.
 
+## Device rotation
+
+Rotation is a project decision: the manifest Setting `export.orientation`
+(`portrait` — the default — `landscape`, or `auto`) is honored by every
+delivery path — the exported app's OS-level orientation lock, the runtime's
+window-orientation constraint, and the editor's Android play sessions (the
+setting travels as the `--orientation` launch argument because the manifest
+itself stays on the host). Only `auto` follows the device: the player then
+requests a rotation-following window, handles the resize event
+(swapchain/drawable recreate + window-camera aspect re-derive, the same
+plumbing a desktop window resize takes — `player_resize_selfcheck`), and the
+safe-area insets and gui layout re-resolve on the new edges.
+
+On Android/Vulkan the renderer applies the surface's reported rotation
+(`preTransform`) natively — the projection is rotated instead of leaving the
+compositor to counter-rotate the image, so a rotated frame costs no hidden
+blit. The `orkige_test` emulator exercises the full path (it reports the
+non-identity 90° transform after a forced rotation), verified by the
+device-labeled `player_rotation_android` ctest; `player_rotation_ios` covers
+the simulator side (Simulator.app's Device menu driven over osascript — a
+local affordance that skips without the Automation permission).
+
+What remains physical-phone only: real accelerometer-driven rotation (the
+emulator rotation is forced through the system `user_rotation` setting, the
+simulator's through its menu) and each GPU driver's own
+`preTransform`/performance behavior — worth one look at the swapchain log
+line (`surfaceCaps.currentTransform`) in a phone session's logcat when
+rotation performance matters.
+
 ## What it needs once (iOS hardware)
 
 A signed device install requires an Apple Developer signing identity and a

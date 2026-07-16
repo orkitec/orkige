@@ -1165,6 +1165,24 @@ int main(int argc, char** argv)
 		const char* safeAreaCheckEnv =
 			std::getenv("ORKIGE_EDITOR_SAFEAREA_CHECK");
 
+		// ORKIGE_EDITOR_ROTATION_CHECK=<project dir>: the device-rotation
+		// run (the player_rotation_android / player_rotation_ios ctests).
+		// Combined with ORKIGE_EDITOR_PLAY_ANDROID=auto or
+		// ORKIGE_EDITOR_PLAY_SIMULATOR=auto it opens the project (whose
+		// manifest carries export.orientation=auto - the rotation opt-in),
+		// plays it on the device, waits for the MSG_STATS window stream,
+		// then ROTATES the device (Android: the system user_rotation
+		// setting over adb; iOS: Simulator.app's Device menu over
+		// osascript) and asserts over the debug protocol that the drawable
+		// dimensions swapped orientation while the player kept rendering
+		// (a stats message carrying the flipped size), that on a notched
+		// simulator the safe-area inset moved to a side edge, and that
+		// rotating back restores the original orientation. An osascript
+		// refusal (no Automation/Accessibility permission) SKIPS the run
+		// (exit 77) - the iOS leg is a local-only affordance.
+		const char* rotationCheckEnv =
+			std::getenv("ORKIGE_EDITOR_ROTATION_CHECK");
+
 		// a plain interactive launch reopens the last project
 		// (toggleable in View Settings; automation runs are exempt via
 		// automatedRun so every scripted test keeps its empty-start
@@ -1513,6 +1531,24 @@ int main(int argc, char** argv)
 		bool safeAreaSawStream = false;
 		std::chrono::steady_clock::time_point safeAreaStreamAt;
 		const std::chrono::seconds safeAreaInsetSettle{ 20 };
+
+		// device-rotation run state (ORKIGE_EDITOR_ROTATION_CHECK)
+		enum class RotationPhase
+		{
+			Idle, WaitStream, WaitRotated, WaitRestored, WaitStop, Done
+		};
+		RotationPhase rotationPhase = RotationPhase::Idle;
+		std::chrono::steady_clock::time_point rotationDeadline;
+		bool rotationFailed = false;
+		bool rotationSkip = false;		//!< end the run as SKIPPED (exit 77)
+		std::string rotationFailure;
+		long long rotationBaselineW = -1;
+		long long rotationBaselineH = -1;
+		// the device's rotation settings before the run (Android), restored
+		// on every exit path so the emulator is left as it was found
+		std::string rotationSavedAccel;
+		std::string rotationSavedUser;
+		bool rotationSettingsSaved = false;
 
 		// ORKIGE_EDITOR_LEVELPAINT=<roller project dir>: the level-paint state
 		// seam test (editor_level_paint ctest). Frame 10 copies the project to a
@@ -7465,6 +7501,286 @@ int main(int argc, char** argv)
 				{
 					SDL_Log("orkige_editor: safe-area device run FAILED - %s",
 						safeAreaFailure.c_str());
+					exitCode = 2;
+					running = false;
+				}
+			}
+
+			// --- scripted device-rotation run (ORKIGE_EDITOR_ROTATION_CHECK) -
+			// plays a project whose manifest opts into device rotation
+			// (export.orientation=auto), rotates the device and asserts over
+			// the debug protocol that the drawable swapped orientation while
+			// the player kept rendering, then rotates back. The device
+			// selection earlier already exited 77 (skip) when no prepared
+			// device exists.
+			if (rotationCheckEnv)
+			{
+				const std::chrono::steady_clock::time_point rotationNow =
+					std::chrono::steady_clock::now();
+				// one adb settings call on the session's device (Android leg)
+				auto adbSetting = [&playSession](
+					std::vector<std::string> const& tail, std::string& output)
+				{
+					std::vector<std::string> command = { adbPath(), "-s",
+						playSession.androidSerial, "shell", "settings" };
+					command.insert(command.end(), tail.begin(), tail.end());
+					int adbExit = 0;
+					const bool ran = runProcessCaptured(command, output,
+						adbExit) && adbExit == 0;
+					// settings get answers with a trailing newline
+					while (!output.empty() && (output.back() == '\n' ||
+						output.back() == '\r'))
+					{
+						output.pop_back();
+					}
+					return ran;
+				};
+				// restore the Android rotation settings captured below -
+				// runs on every exit path (pass, fail, skip)
+				auto restoreAndroidRotation = [&]()
+				{
+					if (!rotationSettingsSaved ||
+						playSession.androidSerial.empty())
+					{
+						return;
+					}
+					std::string ignored;
+					adbSetting({ "put", "system", "user_rotation",
+						rotationSavedUser.empty() ? "0" : rotationSavedUser },
+						ignored);
+					adbSetting({ "put", "system", "accelerometer_rotation",
+						rotationSavedAccel.empty() ? "1" : rotationSavedAccel },
+						ignored);
+					rotationSettingsSaved = false;
+				};
+				// rotate the play device; false = the mechanism itself is
+				// unavailable (the iOS osascript refusal -> SKIP)
+				auto rotateDevice = [&](bool toLandscape) -> bool
+				{
+					if (!playSession.androidSerial.empty())
+					{
+						std::string output;
+						if (!rotationSettingsSaved)
+						{
+							adbSetting({ "get", "system",
+								"accelerometer_rotation" }, rotationSavedAccel);
+							adbSetting({ "get", "system", "user_rotation" },
+								rotationSavedUser);
+							rotationSettingsSaved = true;
+						}
+						return adbSetting({ "put", "system",
+								"accelerometer_rotation", "0" }, output) &&
+							adbSetting({ "put", "system", "user_rotation",
+								toLandscape ? "1" : "0" }, output);
+					}
+#ifdef __APPLE__
+					// Simulator.app's Device menu: the only scriptable
+					// rotation the simulator offers. Needs the Automation/
+					// Accessibility permission - a refusal is an unprepared
+					// machine, not a rotation defect.
+					const std::string script =
+						std::string("tell application \"System Events\" to "
+							"tell process \"Simulator\" to click menu item \"")
+						+ (toLandscape ? "Rotate Left" : "Rotate Right") +
+						"\" of menu \"Device\" of menu bar item \"Device\" "
+						"of menu bar 1";
+					std::string output;
+					int osaExit = 0;
+					const bool ran = runProcessCaptured(
+						{ "/usr/bin/osascript", "-e", script }, output,
+						osaExit) && osaExit == 0;
+					if (!ran)
+					{
+						oDebugWarn("editor.play", 0, "rotation check - "
+							"osascript could not drive Simulator.app (" <<
+							output << "), skipping");
+					}
+					return ran;
+#else
+					return false;
+#endif
+				};
+				const bool rotationOnSimulator =
+					playSession.androidSerial.empty();
+				if (rotationPhase == RotationPhase::Idle && frameCount == 10)
+				{
+					if (!openProjectFromPath(state, editorCore,
+						rotationCheckEnv))
+					{
+						rotationFailed = true;
+						rotationFailure = std::string(
+							"could not open project '") + rotationCheckEnv + "'";
+					}
+				}
+				else if (rotationPhase == RotationPhase::Idle &&
+					frameCount == 40)
+				{
+					if (!startPlay(playSession, gameObjectManager,
+						state.project))
+					{
+						rotationFailed = true;
+						rotationFailure = "startPlay failed";
+					}
+					else
+					{
+						rotationPhase = RotationPhase::WaitStream;
+						rotationDeadline =
+							rotationNow + std::chrono::seconds(240);
+					}
+				}
+				else if (rotationPhase == RotationPhase::WaitStream)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						rotationFailed = true;
+						rotationFailure =
+							"play session ended before the stats stream";
+					}
+					else if (playSession.remoteWindowW > 0 &&
+						playSession.remoteWindowH > 0 &&
+						playSession.remoteWindowW != playSession.remoteWindowH)
+					{
+						rotationBaselineW = playSession.remoteWindowW;
+						rotationBaselineH = playSession.remoteWindowH;
+						if (!rotateDevice(rotationBaselineW <
+							rotationBaselineH))
+						{
+							// the rotation mechanism is unavailable on this
+							// machine - end the run as SKIPPED after a clean
+							// stop (never a false red)
+							rotationSkip = true;
+							requestStopPlay(playSession);
+							rotationPhase = RotationPhase::WaitStop;
+							rotationDeadline =
+								rotationNow + std::chrono::seconds(30);
+						}
+						else
+						{
+							SDL_Log("orkige_editor: rotation check - baseline "
+								"%lldx%lld, rotating", rotationBaselineW,
+								rotationBaselineH);
+							rotationPhase = RotationPhase::WaitRotated;
+							rotationDeadline =
+								rotationNow + std::chrono::seconds(90);
+						}
+					}
+				}
+				else if (rotationPhase == RotationPhase::WaitRotated)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						rotationFailed = true;
+						rotationFailure = "play session died during rotation";
+					}
+					// the flipped-orientation stats message is the proof the
+					// resize reached the render system AND the player kept
+					// rendering (the stream carries the CURRENT frame state)
+					else if (playSession.remoteWindowW > 0 &&
+						playSession.remoteWindowH > 0 &&
+						(playSession.remoteWindowW >
+							playSession.remoteWindowH) !=
+						(rotationBaselineW > rotationBaselineH))
+					{
+						// on a notched simulator the inset must have moved to
+						// a side edge; hold until the post-rotation insets
+						// settle (they can lag the size by a beat)
+						if (rotationOnSimulator &&
+							playSession.remoteSafeLeft <= 0 &&
+							playSession.remoteSafeRight <= 0)
+						{
+							// keep waiting within the phase deadline
+						}
+						else
+						{
+							SDL_Log("orkige_editor: rotation check - rotated "
+								"to %lldx%lld (safe insets l %lld t %lld r "
+								"%lld b %lld), rotating back",
+								playSession.remoteWindowW,
+								playSession.remoteWindowH,
+								playSession.remoteSafeLeft,
+								playSession.remoteSafeTop,
+								playSession.remoteSafeRight,
+								playSession.remoteSafeBottom);
+							if (!rotateDevice(rotationBaselineW >=
+								rotationBaselineH))
+							{
+								rotationFailed = true;
+								rotationFailure =
+									"rotate-back request failed";
+							}
+							else
+							{
+								rotationPhase = RotationPhase::WaitRestored;
+								rotationDeadline = rotationNow +
+									std::chrono::seconds(90);
+							}
+						}
+					}
+				}
+				else if (rotationPhase == RotationPhase::WaitRestored)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						rotationFailed = true;
+						rotationFailure =
+							"play session died during the rotate-back";
+					}
+					else if (playSession.remoteWindowW ==
+						rotationBaselineW &&
+						playSession.remoteWindowH == rotationBaselineH)
+					{
+						requestStopPlay(playSession);
+						rotationPhase = RotationPhase::WaitStop;
+						rotationDeadline =
+							rotationNow + std::chrono::seconds(30);
+					}
+				}
+				else if (rotationPhase == RotationPhase::WaitStop)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						restoreAndroidRotation();
+#ifdef __APPLE__
+						if (playSession.simulatorBootedByEditor &&
+							!playSession.simulatorUdid.empty())
+						{
+							const char* shutdownArgs[] = { "/usr/bin/xcrun",
+								"simctl", "shutdown",
+								playSession.simulatorUdid.c_str(), nullptr };
+							std::string shutdownOutput;
+							int shutdownExit = 0;
+							runProcessCaptured(shutdownArgs, shutdownOutput,
+								shutdownExit);
+						}
+#endif
+						if (rotationSkip)
+						{
+							SDL_Log("orkige_editor: rotation check SKIPPED - "
+								"no scriptable rotation on this machine");
+							exitCode = 77;
+						}
+						else
+						{
+							SDL_Log("orkige_editor: rotation check PASSED");
+						}
+						rotationPhase = RotationPhase::Done;
+						running = false;
+					}
+				}
+				if (!rotationFailed &&
+					rotationPhase != RotationPhase::Idle &&
+					rotationPhase != RotationPhase::Done &&
+					rotationNow >= rotationDeadline)
+				{
+					rotationFailed = true;
+					rotationFailure = "deadline exceeded in rotation phase " +
+						std::to_string(static_cast<int>(rotationPhase));
+				}
+				if (rotationFailed)
+				{
+					restoreAndroidRotation();
+					SDL_Log("orkige_editor: rotation check FAILED - %s",
+						rotationFailure.c_str());
 					exitCode = 2;
 					running = false;
 				}

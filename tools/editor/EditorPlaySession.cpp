@@ -728,6 +728,13 @@ bool startPlay(PlaySession& session,
 			std::string("/data/local/tmp/") + PLAY_ANDROID_SCENE_NAME;
 		const std::string deviceScenePath =
 			std::string("files/") + PLAY_ANDROID_SCENE_NAME;
+		// the project manifest stays on the host, so its export.orientation
+		// travels explicitly (an intent extra -> the player's --orientation):
+		// the played session then matches the exported app's orientation
+		// policy (portrait pin by default, "auto" follows device rotation)
+		const std::string orientation = session.projectRoot.empty()
+			? std::string("portrait")
+			: project.getSetting("export.orientation", "portrait");
 		const std::vector<std::vector<std::string>> steps = {
 			// a fresh process (and thus a fresh SDL_main) per session
 			{ adb, "-s", session.androidSerial, "shell",
@@ -747,7 +754,8 @@ bool startPlay(PlaySession& session,
 			{ adb, "-s", session.androidSerial, "shell",
 				"am", "start", "-n", PLAY_ANDROID_ACTIVITY,
 				"--es", "scene", PLAY_ANDROID_SCENE_NAME,
-				"--ei", "debugPort", portString },
+				"--ei", "debugPort", portString,
+				"--es", "orientation", orientation },
 		};
 		for (std::vector<std::string> const& step : steps)
 		{
