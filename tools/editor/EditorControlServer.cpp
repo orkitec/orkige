@@ -2258,12 +2258,14 @@ namespace Orkige
 		// codec) required argument must come back as an honest tool error,
 		// never flow into a verb as an empty field (an empty scene path once
 		// reached an internal assert and took the whole editor down)
+		bool knownTool = false;
 		for (ToolSpec const& spec : toolSpecs())
 		{
 			if (name != spec.name)
 			{
 				continue;
 			}
+			knownTool = true;
 			JsonValue const& arguments = params.get("arguments");
 			for (PropSpec const& prop : spec.properties)
 			{
@@ -2281,6 +2283,14 @@ namespace Orkige
 				}
 			}
 			break;
+		}
+		// a name outside the advertised tool list is its own honest error -
+		// dispatching it would hit the auth gate first and misreport an
+		// unknown tool as an authentication failure
+		if (!knownTool)
+		{
+			return toolError("unknown tool '" + name +
+				"' - tools/list names the available tools");
 		}
 
 		DebugMessage request(name);
@@ -6029,6 +6039,34 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - unauthenticated "
 				"mutation correctly rejected");
+		}
+
+		// (6b) UNKNOWN TOOL: a name outside tools/list answers "unknown tool"
+		// (its own honest error), never the auth-gate message - even without
+		// a token, so tool-name typos don't masquerade as auth failures
+		{
+			JsonValue params = JsonValue::object();
+			params.set("name", JsonValue("definitely_not_a_tool"));
+			params.set("arguments", JsonValue::object());
+			if (!post("tools/call", params, false, true, response))
+			{
+				finish(false, "control self-test: unknown-tool call had a "
+					"transport failure");
+				return;
+			}
+			JsonValue const& result = response.get("result");
+			const String text = result.get("content").at(0)
+				.get("text").asString();
+			if (!result.get("isError").asBool(false) ||
+				text.find("unknown tool") == String::npos ||
+				text.find("unauthenticated") != String::npos)
+			{
+				finish(false, "control self-test: an unknown tool name did not "
+					"answer 'unknown tool' (got '" + text + "')");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - unknown tool answered "
+				"honestly");
 		}
 
 		// (7) tools/call screenshot (authed) - returns the path, file written
