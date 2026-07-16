@@ -114,7 +114,10 @@ local function orbitCamera(t)
 end
 
 -- rotate the "Sun" directional light so the atmosphere sky sweeps with it;
--- pitch goes from dawn (low) through noon (high) to dusk over the arc `p` 0..1
+-- pitch goes from dawn (low) through noon (high) to dusk over the arc `p` 0..1.
+-- The light's -Z is the LIGHT-TRAVEL direction (down for a daytime sun, like
+-- the scene's authored orientation), so the arc rotates NEGATIVE about X:
+-- toward-the-sun is the negation the atmosphere linkage derives itself.
 local function driveSun(p)
 	local sun = world.getTransform("Sun")
 	if sun == nil then
@@ -122,7 +125,7 @@ local function driveSun(p)
 	end
 	local pitch = math.rad(15.0 + p * 150.0)   -- 15deg -> 165deg
 	local half = pitch * 0.5
-	sun:setOrientation(Quaternion(math.cos(half), math.sin(half), 0, 0))
+	sun:setOrientation(Quaternion(math.cos(half), -math.sin(half), 0, 0))
 end
 
 -- day -> sunset -> night atmosphere blend as `p` goes 0..1. The sky, fog and

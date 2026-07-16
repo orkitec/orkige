@@ -1362,12 +1362,13 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 				"the exposure probe mesh takes the mid-grey material");
 			// the sun: a near-vertical daytime directional light (the FIRST
 			// directional light, so the atmosphere links + drives it). The
-			// AtmosphereNpr convention orients the light TOWARD the sun (so a
-			// noon sun's node points up); the linkage drives the actual light
-			// travel direction down onto the slab top.
+			// node's direction is the LIGHT-TRAVEL direction (down onto the
+			// slab top for a noon sun) - toward-the-sun is its negation,
+			// which the atmosphere derives itself (same rule as the classic
+			// dome's sun glow).
 			optr<RenderNode> exposureSunNode =
 				world->createNode("selfcheck.exposureSun");
-			exposureSunNode->setDirection(Vec3(0.15f, 1.0f, 0.1f),
+			exposureSunNode->setDirection(Vec3(-0.15f, -1.0f, -0.1f),
 				RenderNode::TS_WORLD);
 			optr<RenderLight> exposureSun = world->createLight();
 			exposureSun->attachTo(exposureSunNode);

@@ -781,21 +781,31 @@ namespace Orkige
 
 		// SUN LINKAGE: the first directional light is the sun; read its current
 		// direction (authored via its node) so orienting the light sweeps the
-		// day-night arc, then the atmosphere drives that light's colour/power
+		// day-night arc, then the atmosphere drives that light's colour/power.
+		// Read the direction and snapshot the light's node BEFORE any
+		// atmosphere call: setLight/setPreset/setSunDir each run
+		// AtmosphereNpr::syncToLight, which steers the node.
 		Ogre::Light* sun = RenderBackend::firstDirectionalLight();
-		gAtmosphere->setLight(sun);
-		Ogre::Vector3 sunDir(0.3f, 0.9f, 0.2f);	// default: high daytime sun
+		Ogre::Vector3 toSun(0.3f, 0.9f, 0.2f);	// default: high daytime sun
+		Ogre::Node* sunNode = NULL;
+		Ogre::Quaternion sunNodeOrientation = Ogre::Quaternion::IDENTITY;
 		if(sun)
 		{
 			// -direction points FROM the surface TOWARD the sun
-			sunDir = -sun->getDerivedDirectionUpdated();
+			toSun = -sun->getDerivedDirectionUpdated();
+			sunNode = sun->getParentNode();
+			if(sunNode)
+			{
+				sunNodeOrientation = sunNode->getOrientation();
+			}
 		}
-		sunDir.normalise();
+		toSun.normalise();
+		gAtmosphere->setLight(sun);
 		// the native day/night phase from the sun's elevation: sunHeight in the
 		// shader is sin(normTime * PI), so normTime = asin(elevation)/PI maps
 		// overhead(+1)->0.5 (noon), horizon(0)->0 and below(-1)->-0.5 (night)
 		const float elevation =
-			std::max(-1.0f, std::min(1.0f, static_cast<float>(sunDir.y)));
+			std::max(-1.0f, std::min(1.0f, static_cast<float>(toSun.y)));
 		const float normTime = std::asin(elevation) /
 			static_cast<float>(Ogre::Math::PI);
 
@@ -817,7 +827,23 @@ namespace Orkige
 		preset.linkedSceneAmbientLowerPower =
 			0.01f * static_cast<float>(Ogre::Math::PI) * desc.ambientPower;
 		gAtmosphere->setPreset(preset);			// preset first (syncToLight reads it)
-		gAtmosphere->setSunDir(sunDir, normTime);	// then place the sun
+		// CONVENTION: AtmosphereNpr's Vector3 setSunDir takes the LIGHT-TRAVEL
+		// direction (sun -> surface, what Light::setDirection holds) - it
+		// negates it into its toward-the-sun mSunDir and syncToLight writes
+		// the linked light's direction back as -mSunDir. Passing the
+		// toward-the-sun vector here would sample the sun colour BELOW the
+		// horizon (night-blue daylight) and flip the light's direction on
+		// every call.
+		gAtmosphere->setSunDir(-toSun, normTime);	// then place the sun
+		if(sunNode)
+		{
+			// syncToLight steered the light's node (Light::setDirection
+			// writes the node in PARENT space, so repeated syncs COMPOUND
+			// with a transform-driven parent). The transform is the
+			// direction's source of truth here - restore the node, the
+			// atmosphere keeps only the light's colour/power
+			sunNode->setOrientation(sunNodeOrientation);
+		}
 	}
 	//---------------------------------------------------------
 	void RenderBackend::recreateWindowWorkspace()

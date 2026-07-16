@@ -1476,6 +1476,20 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_benchmark_vista_wipe${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 240)
+        # the vista must also LOOK right: measured pixel discriminators over a
+        # captured frame - HUD glyph presence (per-frame-dirty gui batches
+        # reach the frame) and a daylit green-over-blue terrain band (the
+        # atmosphere-linked sun samples ABOVE the horizon). Catches the wrong-
+        # render classes the artifact test cannot see, per flavor.
+        add_test(NAME player_benchmark_pixels${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_benchmark_pixel_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --player "$<TARGET_FILE:orkige_player>"
+                --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_pixels${ORKIGE_FLAVOR_TEST_SUFFIX}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_benchmark_pixels${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 240)
     endif()
 
     # asset-id rename survival end to end (the asset database): the fixture

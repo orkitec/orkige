@@ -384,6 +384,10 @@ namespace Orkige
 		//! layer content/order changed - painter depths get reassigned
 		//! before the next frame
 		static void markDrawLayer2DOrderDirty();
+		//! reassign every batch node's painter depth NOW (global zOrder/
+		//! creation/submission walk); batch (re)builds and zOrder changes
+		//! call it directly so a mid-frame rebuild draws the same frame
+		static void assignDrawLayer2DBatchDepths();
 		//! per-frame 2D upkeep (called from renderOneFrame): follow window
 		//! resizes with the UI camera and reassign batch depths when dirty
 		static void updateDrawLayer2DFrame();

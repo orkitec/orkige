@@ -183,33 +183,44 @@ namespace Orkige
 		}
 		if(gOrderDirty)
 		{
-			gOrderDirty = false;
-			// reassign every batch node's depth in global draw order
-			// (ascending layer zOrder, layer creation order, batch
-			// submission order); earlier draws sit farther from the camera
-			std::vector<DrawLayer2D*> ordered = gDrawLayers;
-			std::stable_sort(ordered.begin(), ordered.end(),
-				[](DrawLayer2D const * a, DrawLayer2D const * b)
-				{ return a->getZOrder() < b->getZOrder(); });
-			size_t totalBatches = 0;
-			for(DrawLayer2D* layer : ordered)
+			RenderBackend::assignDrawLayer2DBatchDepths();
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::assignDrawLayer2DBatchDepths()
+	{
+		gOrderDirty = false;
+		// reassign every batch node's depth in global draw order
+		// (ascending layer zOrder, layer creation order, batch
+		// submission order); earlier draws sit farther from the camera.
+		// Runs IMMEDIATELY when a batch object is (re)built or a layer's
+		// zOrder changes: rebuilds happen mid-frame too (the gui rebuilds
+		// its screens from the frame-started bridge, INSIDE the backend's
+		// renderOneFrame), and a node left at the z=0 default sits on the
+		// UI camera's plane - outside the near clip - so a batch rebuilt
+		// every frame would otherwise never rasterize.
+		std::vector<DrawLayer2D*> ordered = gDrawLayers;
+		std::stable_sort(ordered.begin(), ordered.end(),
+			[](DrawLayer2D const * a, DrawLayer2D const * b)
+			{ return a->getZOrder() < b->getZOrder(); });
+		size_t totalBatches = 0;
+		for(DrawLayer2D* layer : ordered)
+		{
+			totalBatches += layer->mImpl->batches.size();
+		}
+		size_t drawIndex = 0;
+		for(DrawLayer2D* layer : ordered)
+		{
+			for(DrawLayer2D::Impl::Batch & batch : layer->mImpl->batches)
 			{
-				totalBatches += layer->mImpl->batches.size();
-			}
-			size_t drawIndex = 0;
-			for(DrawLayer2D* layer : ordered)
-			{
-				for(DrawLayer2D::Impl::Batch & batch : layer->mImpl->batches)
+				if(batch.node)
 				{
-					if(batch.node)
-					{
-						// drawIndex 0 farthest -> drawn first (back to front)
-						const Ogre::Real depth = BATCH_DEPTH_SPACING *
-							Ogre::Real(totalBatches - drawIndex);
-						batch.node->setPosition(0.0f, 0.0f, -depth);
-					}
-					++drawIndex;
+					// drawIndex 0 farthest -> drawn first (back to front)
+					const Ogre::Real depth = BATCH_DEPTH_SPACING *
+						Ogre::Real(totalBatches - drawIndex);
+					batch.node->setPosition(0.0f, 0.0f, -depth);
 				}
+				++drawIndex;
 			}
 		}
 	}
@@ -474,7 +485,10 @@ namespace Orkige
 		// offscreen-target layer carries the target's bit, so only the
 		// matching UI pass draws this batch (window vs. the target's pass)
 		batch.object->setVisibilityFlags(this->visibilityFlags);
-		gOrderDirty = true;
+		// depth NOW, not at the next frame's upkeep: this may run inside the
+		// current frame (frame-started rebuilds), and an unplaced node never
+		// draws (@see assignDrawLayer2DBatchDepths)
+		RenderBackend::assignDrawLayer2DBatchDepths();
 	}
 	//---------------------------------------------------------
 	void DrawLayer2D::Impl::destroyBatchObject(Batch & batch)
@@ -540,7 +554,8 @@ namespace Orkige
 		if(this->mImpl->zOrder != zOrder)
 		{
 			this->mImpl->zOrder = zOrder;
-			gOrderDirty = true;
+			// a mid-frame reorder must land this frame, like a rebuild
+			RenderBackend::assignDrawLayer2DBatchDepths();
 		}
 	}
 	//---------------------------------------------------------

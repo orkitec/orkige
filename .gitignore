@@ -14,3 +14,4 @@ projects/*/builds/
 # runtime crash trail written to the cwd by players/tests run from the repo root
 breadcrumbs.jsonl
 breadcrumbs.prev.jsonl
+*.oscene.autosave

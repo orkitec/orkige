@@ -102,10 +102,14 @@ namespace Orkige
 						const bool loaded = RenderSystem::get() &&
 							RenderSystem::get()->getTextureSize(
 								textureName, texelWidth, texelHeight);
-						oAssertDesc(loaded, "UiAtlas: atlas texture not found: "
-							<< textureName);
 						if(!loaded)
 						{
+							// an atlas without its texture renders NOTHING -
+							// a construction-time failure must never pass
+							// silently (scripts often build a GuiManager
+							// inside a pcall)
+							oDebugError("gui", 0, "UiAtlas: atlas texture "
+								"not found: " << textureName);
 							continue;
 						}
 						width = Real(texelWidth);
@@ -293,7 +297,19 @@ namespace Orkige
 	{
 		this->refreshMarkupColours();
 		Ogre::ConfigFile configFile;
-		configFile.loadFromResourceSystem(oguiFile, group, " ", true);
+		try
+		{
+			configFile.loadFromResourceSystem(oguiFile, group, " ", true);
+		}
+		catch(...)
+		{
+			// surface the miss at the seam, then keep the throw: the caller
+			// (often a script constructing a GuiManager inside a pcall) may
+			// swallow the error, but the log must still name the failure
+			oDebugError("gui", 0, "UiAtlas: atlas file '" << oguiFile
+				<< "' not found in resource group '" << group << "'");
+			throw;
+		}
 		this->_load(configFile, 0, 0);
 		this->_calculateCoordinates();
 	}
