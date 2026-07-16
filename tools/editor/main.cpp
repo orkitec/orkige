@@ -1779,10 +1779,13 @@ int main(int argc, char** argv)
 						"debug link into a browser tab)");
 					if (!SDL_OpenURL(url.c_str()))
 					{
-						console.addLine(ConsoleLevel::Warning,
+						// the toolbar's web status keeps the URL clickable,
+						// so the recovery is one click away
+						console.addLine(ConsoleLevel::Error,
 							"[deploy] could not open the default browser: " +
 							std::string(SDL_GetError()) + " - open " + url +
-							" yourself");
+							" yourself (or click the web status in the "
+							"toolbar)");
 					}
 				}
 			}

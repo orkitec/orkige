@@ -490,7 +490,38 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		switch (mode)
 		{
 		case PlaySession::Mode::Edit:
-			ImGui::TextDisabled(prefabMode ? "editing prefab" : "editing");
+			// Play in Browser is a deploy-and-run (no live session, the page
+			// runs standalone), so the editor STAYS in edit mode - this
+			// status is the visible trace of that flow: the export progress,
+			// the served URL (a click re-opens the browser - the recovery
+			// when the first open failed silently), or the failure pointer
+			if (state.browserPlayStatus == "exporting")
+			{
+				ImGui::TextUnformatted("web: exporting...");
+			}
+			else if (state.browserPlayStatus == "failed")
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text,
+					Orkige::editorErrorTextColor());
+				ImGui::TextUnformatted("web: export failed - see Console");
+				ImGui::PopStyleColor();
+			}
+			else if (state.browserPlayStatus == "serving" &&
+				!state.browserPlayUrl.empty())
+			{
+				if (ImGui::SmallButton(
+					("web: " + state.browserPlayUrl).c_str()))
+				{
+					SDL_OpenURL(state.browserPlayUrl.c_str());
+				}
+				ImGui::SetItemTooltip("the exported game is served at this "
+					"address (it runs standalone in the page - the editor "
+					"stays in edit mode); click to open the browser again");
+			}
+			else
+			{
+				ImGui::TextDisabled(prefabMode ? "editing prefab" : "editing");
+			}
 			break;
 		case PlaySession::Mode::Building:
 			// compile-on-Play: the Console carries the [build] output
