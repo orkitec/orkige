@@ -34,9 +34,16 @@ OGRE — the compatibility flavor**), `ios-simulator-debug`, `android-debug`
 Metal, Android boots Vulkan**), `ios-simulator-debug-classic`,
 `android-debug-classic` (the classic GLES2 mobile flavor),
 `ios-device-debug`/`ios-device-release` (**arm64 iPhoneOS — the
-physical-device player, Ogre-Next/Metal**) and
+physical-device player, Ogre-Next/Metal**),
 `ios-device-debug-classic`/`ios-device-release-classic` (the classic
-GLES2 device flavor). Output in `build/<preset>/`.
+GLES2 device flavor) and `web-release` (**wasm32 via Emscripten — the
+browser player, classic GLES2→WebGL**; needs the user-local emsdk, see
+`triplets/wasm32-emscripten.cmake`; the chainload wrapper
+`cmake/wasm32-emscripten-toolchain.cmake` carries `-fwasm-exceptions` for
+the WHOLE closure because vcpkg silently drops triplet compiler flags on
+toolchain-less platforms; export via `orkige_export.py --platform web`,
+Play in Browser from the editor's target picker serves it on a loopback
+HttpServer instance — `Docs/web-export.md`). Output in `build/<preset>/`.
 The two flavors implement the same `engine_render` facade
 (`engine_render_next/` vs `engine_render_classic/`, same source tree). Games
 (player, hello_orkige, projects/), gui AND the editor (ImGui on
@@ -146,6 +153,9 @@ ctest --preset desktop         # the default (Ogre-Next) suite (no simulator/emu
 ctest --preset desktop-classic # the classic-flavor suite: exports, Vulkan runs,
                                # native-module tests (build macos-debug-classic first)
 ctest --preset all             # classic tree incl. device tests (boots simulators/emulators)
+ctest --preset web             # the web tree: wasm core units under node + the
+                               # export structure/boot tests (Chrome headless,
+                               # skip-77 without a browser) — build web-release first
 ```
 
 Layout: `tests/core/` is the Catch2 unit suite (`orkige_core_tests`, label `unit`,
