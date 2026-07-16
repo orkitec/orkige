@@ -80,6 +80,50 @@ namespace Orkige
 		TextureImportSettings const & resolvedFor(String const & platform) const;
 	};
 
+	//! @brief the per-asset cook OPTIONS of a source document that imports by
+	//! cooking to a native artifact (today: a Lottie .json cooked to .oanim by
+	//! Util/cook_vector_anim.py). Values are kept VERBATIM as strings - the
+	//! exact CLI argument text - so the canonical form (and its hash) never
+	//! drifts through number re-formatting; "" = unset (the cook's default).
+	//! Persisted on the SOURCE asset's sidecar and applied on every
+	//! (re)import/re-cook, the texture-import-settings pattern for cooked pairs.
+	struct ORKIGE_CORE_DLL CookSettings
+	{
+		String	clips;		//!< --clips "name:start:end[:loop|once],..." ("" = document markers)
+		String	extent;		//!< --extent world-unit size ("" = the cook default)
+		String	tolerance;	//!< --tolerance flatten chord tolerance ("" = the cook default)
+
+		//! @brief the canonical text form the settings hash is taken over -
+		//! one "key=value" line per option, fixed order. Pure and stable: two
+		//! setting sets compare equal exactly when their canonical forms match.
+		String canonical() const;
+		//! SHA-1 (hex) of the canonical form - the settings input fingerprint
+		String hash() const;
+	};
+
+	//! @brief the recorded import INPUTS of a cooked-pair source asset: which
+	//! cook produced the current artifact, from which source bytes, with which
+	//! tool and settings. The record is written ONLY after a successful cook;
+	//! comparing it against the current inputs answers "is the artifact
+	//! stale?" (any mismatch = re-cook). A sidecar without a record is never
+	//! auto-re-cooked - exactly the behavior of every sidecar written before
+	//! records existed.
+	struct ORKIGE_CORE_DLL CookRecord
+	{
+		String			tool;			//!< the cook kind ("vectoranim")
+		CookSettings	settings;		//!< the options the artifact was cooked with
+		String			sourceHash;		//!< SHA-1 (hex) of the source bytes as cooked
+		String			toolHash;		//!< SHA-1 (hex) of the cook script as cooked
+		String			settingsHash;	//!< settings.hash() as cooked
+
+		//! @brief do the recorded inputs match the CURRENT ones? False (stale,
+		//! re-cook) on any difference - fresh source bytes, an updated cook
+		//! script, or edited settings (the stored settings fields hashing to
+		//! something other than the recorded settingsHash).
+		bool matchesInputs(String const & currentSourceHash,
+			String const & currentToolHash) const;
+	};
+
 	//! @brief stable asset ids for a project's assets - the
 	//! foundation that lets scene references survive renames and moves.
 	//! @remarks Every asset file under a project's assets/ and scripts/
@@ -126,6 +170,7 @@ namespace Orkige
 		static const String META_ELEMENT_NAME;			//!< "orkmeta"
 		static const String META_ID_ATTRIBUTE;			//!< "id"
 		static const String META_TEXTURE_ELEMENT_NAME;	//!< "texture" (the import block)
+		static const String META_COOK_ELEMENT_NAME;		//!< "cook" (the cooked-pair import record)
 		//! the scene-file attribute carrying an asset id next to a value
 		static const String REFERENCE_ID_ATTRIBUTE;	//!< "assetId"
 	protected:
@@ -214,6 +259,18 @@ namespace Orkige
 		//! or carries no <texture> block (an id-only v1 sidecar).
 		static bool readImportSettings(String const & metaFilePath,
 			TextureImport & texture);
+		//! @brief (over)write a sidecar carrying its id AND a <cook> import
+		//! record; false on an IO error. Like the <texture> writer this emits
+		//! the id plus ITS block only (a cooked-pair source is never a texture,
+		//! so the two blocks never share a sidecar). The id is preserved by the
+		//! caller passing it - read it with readMetaFile first when updating.
+		static bool writeMetaFile(String const & metaFilePath,
+			String const & assetId, CookRecord const & cook);
+		//! @brief read the <cook> record of a sidecar; false (record left
+		//! empty) when the file is missing/invalid or carries no <cook> block -
+		//! the never-auto-re-cook answer for every pre-record sidecar.
+		static bool readCookRecord(String const & metaFilePath,
+			CookRecord & cook);
 
 		//! @brief absolute .orkmeta path of an asset id, or "" when the id is
 		//! unknown (used to reach a texture's import settings from its id)

@@ -1084,6 +1084,23 @@ if(TARGET orkige_editor AND TARGET orkige_player)
             ENVIRONMENT "ORKIGE_EDITOR_UI_HOTRELOAD_PLAYTEST=${Orkige_SOURCE_DIR}/tests/projects/uihotreload")
     endif()
 
+    # vector-animation hot-reload, the full editor->player path: the hook
+    # copies tests/projects/animhotreload to a temp dir, OPENS it (the
+    # cooked-pair drift scan must re-cook the fixture's deliberately drifted
+    # probe pair and leave the record-less legacy pair byte-untouched),
+    # presses Play, then edits assets/probe.json on disk. The editor's
+    # animation watcher must re-cook the pair (the [import] summary carries
+    # the renamed clip) and send MSG_RELOAD_ANIM so the running player
+    # rebuilds the rig; a directly-edited source-less orphan.oanim reloads
+    # without a cook; a BROKEN source fails the cook honestly (error line, no
+    # reload, play continues) and a broken .oanim is refused by the player's
+    # parse-before-swap ([remote] error, old rig keeps playing). Not
+    # script-gated: the rig components play without Lua.
+    add_test(NAME editor_anim_hotreload${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_anim_hotreload${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_ANIM_HOTRELOAD_PLAYTEST=${Orkige_SOURCE_DIR}/tests/projects/animhotreload")
+
     # play mode on an iOS simulator: same stop flow, but the player is the
     # OrkigePlayer.app launched on a simulator via simctl (temp scene read
     # straight off the host filesystem, debug link over the shared loopback).
@@ -1725,9 +1742,10 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_assetid_selfcheck player_assetid_selfcheck_next
         editor_play_stop editor_play_crash editor_project_play
         editor_play_script_error editor_play_hotreload editor_ui_hotreload
+        editor_anim_hotreload
         editor_play_stop_next editor_play_crash_next editor_project_play_next
         editor_play_script_error_next editor_play_hotreload_next
-        editor_ui_hotreload_next
+        editor_ui_hotreload_next editor_anim_hotreload_next
         editor_project_native_play editor_project_native_play_break
         editor_play_simulator editor_play_simulator_boot
         editor_play_android editor_play_ios_device
@@ -1748,6 +1766,7 @@ endforeach()
 foreach(play_test player_debug_pause editor_play_stop editor_play_crash
         editor_project_play editor_play_script_error editor_play_hotreload
         editor_ui_hotreload editor_ui_hotreload_next
+        editor_anim_hotreload editor_anim_hotreload_next
         editor_play_stop_next editor_play_crash_next editor_project_play_next
         editor_play_script_error_next editor_play_hotreload_next
         editor_play_simulator editor_play_android

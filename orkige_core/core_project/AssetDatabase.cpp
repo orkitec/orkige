@@ -12,6 +12,7 @@
 #include "core_project/AssetDatabase.h"
 #include "core_project/Project.h"
 #include "core_debug/LogManager.h"
+#include "core_util/Sha1.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -27,6 +28,7 @@ namespace Orkige
 	const String AssetDatabase::META_ELEMENT_NAME = "orkmeta";
 	const String AssetDatabase::META_ID_ATTRIBUTE = "id";
 	const String AssetDatabase::META_TEXTURE_ELEMENT_NAME = "texture";
+	const String AssetDatabase::META_COOK_ELEMENT_NAME = "cook";
 	const String AssetDatabase::REFERENCE_ID_ATTRIBUTE = "assetId";
 
 	namespace
@@ -98,6 +100,38 @@ namespace Orkige
 			return this->ios;
 		}
 		return this->base;
+	}
+	//---------------------------------------------------------
+	String CookSettings::canonical() const
+	{
+		// one "key=value" line per option in fixed order; values verbatim so
+		// the form is byte-stable across writes (@see the header remarks)
+		return "clips=" + this->clips + "\n" +
+			"extent=" + this->extent + "\n" +
+			"tolerance=" + this->tolerance + "\n";
+	}
+	//---------------------------------------------------------
+	String CookSettings::hash() const
+	{
+		const String canonicalForm = this->canonical();
+		return Sha1::hexDigest(canonicalForm.data(), canonicalForm.size());
+	}
+	//---------------------------------------------------------
+	bool CookRecord::matchesInputs(String const & currentSourceHash,
+		String const & currentToolHash) const
+	{
+		// a record without hashes never matches (it also never auto-re-cooks -
+		// callers gate on readCookRecord's return first); empty CURRENT hashes
+		// mean an unreadable input, which must read as stale, never as a match
+		if (this->sourceHash.empty() || currentSourceHash.empty() ||
+			this->toolHash.empty() || currentToolHash.empty() ||
+			this->settingsHash.empty())
+		{
+			return false;
+		}
+		return this->sourceHash == currentSourceHash &&
+			this->toolHash == currentToolHash &&
+			this->settingsHash == this->settings.hash();
 	}
 
 	optr<AssetDatabase> AssetDatabase::sActive;
@@ -479,6 +513,66 @@ namespace Orkige
 			texture.ios = texture.base;
 			readTextureSettings(ios, texture.ios);
 		}
+		return true;
+	}
+	//---------------------------------------------------------
+	bool AssetDatabase::writeMetaFile(String const & metaFilePath,
+		String const & assetId, CookRecord const & cook)
+	{
+		tinyxml2::XMLDocument document;
+		tinyxml2::XMLElement * root = document.NewElement(
+			META_ELEMENT_NAME.c_str());
+		root->SetAttribute(META_ID_ATTRIBUTE.c_str(), assetId.c_str());
+		tinyxml2::XMLElement * cookElement = document.NewElement(
+			META_COOK_ELEMENT_NAME.c_str());
+		cookElement->SetAttribute("tool", cook.tool.c_str());
+		cookElement->SetAttribute("sourceHash", cook.sourceHash.c_str());
+		cookElement->SetAttribute("toolHash", cook.toolHash.c_str());
+		cookElement->SetAttribute("settingsHash", cook.settingsHash.c_str());
+		cookElement->SetAttribute("clips", cook.settings.clips.c_str());
+		cookElement->SetAttribute("extent", cook.settings.extent.c_str());
+		cookElement->SetAttribute("tolerance",
+			cook.settings.tolerance.c_str());
+		root->InsertEndChild(cookElement);
+		document.InsertEndChild(root);
+		return document.SaveFile(metaFilePath.c_str()) ==
+			tinyxml2::XML_SUCCESS;
+	}
+	//---------------------------------------------------------
+	bool AssetDatabase::readCookRecord(String const & metaFilePath,
+		CookRecord & cook)
+	{
+		cook = CookRecord();	// empty until proven otherwise
+		tinyxml2::XMLDocument document;
+		if (document.LoadFile(metaFilePath.c_str()) != tinyxml2::XML_SUCCESS)
+		{
+			return false;
+		}
+		const tinyxml2::XMLElement * root = document.RootElement();
+		if (!root || String(root->Name()) != META_ELEMENT_NAME)
+		{
+			return false;
+		}
+		const tinyxml2::XMLElement * cookElement =
+			root->FirstChildElement(META_COOK_ELEMENT_NAME.c_str());
+		if (!cookElement)
+		{
+			return false;	// a pre-record sidecar - never auto-re-cook
+		}
+		// an absent attribute stays "" (unset); matchesInputs treats missing
+		// hashes as never-matching, so a hand-trimmed record reads as stale
+		auto attribute = [cookElement](char const * name) -> String
+		{
+			const char * value = cookElement->Attribute(name);
+			return value ? String(value) : String();
+		};
+		cook.tool = attribute("tool");
+		cook.sourceHash = attribute("sourceHash");
+		cook.toolHash = attribute("toolHash");
+		cook.settingsHash = attribute("settingsHash");
+		cook.settings.clips = attribute("clips");
+		cook.settings.extent = attribute("extent");
+		cook.settings.tolerance = attribute("tolerance");
 		return true;
 	}
 	//---------------------------------------------------------

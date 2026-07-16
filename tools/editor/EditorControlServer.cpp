@@ -1455,6 +1455,22 @@ namespace Orkige
 				  "player is connected.",
 				  { { "file", "string", "the .oui name (as passed to loadLayout)",
 				      true } } },
+				{ "reload_anim",
+				  "Hot-reload one vector-animation rig (.oanim) on the RUNNING "
+				  "game: parse the fresh file FIRST, then rebuild every "
+				  "VectorAnimationComponent playing it (clean cutover - playback "
+				  "restarts at each component's reflected clip). 'file' is the "
+				  "rig's resource basename (the component's 'animation' value, "
+				  "e.g. 'hero.oanim'). A rig that fails to parse keeps every OLD "
+				  "rig and surfaces a [remote] error naming the line; a "
+				  "successful rebuild emits the 'animation.reloaded' script "
+				  "event. Author the .oanim with write_project_file (or re-cook "
+				  "its source via reimport_asset), then trigger it here (the "
+				  "editor's animation watcher also fires this on a file save). "
+				  "Errors when no player is connected.",
+				  { { "file", "string",
+				      "the .oanim resource basename (e.g. 'hero.oanim')",
+				      true } } },
 				{ "screenshot_game",
 				  "Screenshot the RUNNING game's next rendered frame to 'path' "
 				  "(desktop play only; the path is on the player's filesystem, "
@@ -1617,14 +1633,48 @@ namespace Orkige
 				  "editor (same trust model; needs auth). 'sourcePath' is an "
 				  "absolute path on the editor's filesystem. Optional 'targetDir' "
 				  "(project-relative, jailed) relocates the import within the "
-				  "project, id preserved. Returns the project-relative 'path' and "
-				  "the minted 'assetId'; a Lottie .json that cooked to a .oanim "
-				  "also returns the rig's 'clips' (names in rig order).",
+				  "project, id preserved. A Lottie .json source cooks to .oanim; "
+				  "the optional cook params 'clips'/'extent'/'tolerance' are "
+				  "applied AND recorded on the kept source's sidecar (re-imports "
+				  "and the automatic drift re-cook keep using them). Returns the "
+				  "project-relative 'path' and the minted 'assetId'; a cooked "
+				  ".oanim also returns the rig's 'clips' (names in rig order).",
 				  { { "sourcePath", "string",
 				      "absolute path of the file to import", true },
 				    { "targetDir", "string",
 				      "project-relative destination dir (default: assets/)",
+				      false },
+				    { "clips", "string", "Lottie cook: clip ranges overriding "
+				      "the document markers, 'name:start:end[:loop|once],...' "
+				      "(frames)", false },
+				    { "extent", "string", "Lottie cook: world-unit size the "
+				      "composition's larger side spans (default 2)", false },
+				    { "tolerance", "string", "Lottie cook: flatten chord "
+				      "tolerance in composition units (default: automatic)",
 				      false } } },
+				{ "reimport_asset",
+				  "Re-cook an imported animation pair IN PLACE: run the Lottie "
+				  "cook on the project's kept .json source (import_asset copies "
+				  "an OUTSIDE file; this one re-cooks what is already in the "
+				  "project - e.g. a source just edited via write_project_file, "
+				  "which never cooks by itself). 'asset' is the project-relative "
+				  ".json source, or its cooked .oanim/.oshape (the pair resolves "
+				  "either way). Optional 'clips'/'extent'/'tolerance' become the "
+				  "sidecar's recorded settings first; omitted params keep the "
+				  "recorded ones. Returns the produced artifact 'path', the "
+				  "'source', the recorded settings ('clips_setting'/"
+				  "'extent_setting'/'tolerance_setting'), the recorded input "
+				  "hashes ('source_hash'/'tool_hash'/'settings_hash') and a "
+				  "fresh rig's 'clips'. During Play, follow with reload_anim "
+				  "(the editor's watcher only auto-re-cooks on a file save).",
+				  { { "asset", "string", "project-relative .json source (or its "
+				      ".oanim/.oshape artifact)", true },
+				    { "clips", "string", "clip ranges overriding the document "
+				      "markers (omit = keep recorded)", false },
+				    { "extent", "string", "world-unit extent (omit = keep "
+				      "recorded)", false },
+				    { "tolerance", "string", "flatten tolerance (omit = keep "
+				      "recorded)", false } } },
 				{ "create_prefab",
 				  "Write a GameObject's subtree as a .oprefab asset and convert "
 				  "the live subtree into a prefab INSTANCE (undoable). 'path' is "
@@ -4340,6 +4390,35 @@ namespace Orkige
 			this->sendOk(req);
 			return;
 		}
+		if (type == "reload_anim")
+		{
+			if (!context.play->client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			if (context.play->onBrowser)
+			{
+				this->sendErr(req, "reload_anim cannot reach a browser session "
+					"- the page runs its packaged export snapshot; stop, "
+					"re-play and let the export pick the edit up");
+				return;
+			}
+			const String& file = request.get("file");
+			if (file.empty())
+			{
+				this->sendErr(req,
+					"reload_anim needs a 'file' (the .oanim name)");
+				return;
+			}
+			// fire-and-forget like reload_ui: the player parses the fresh rig
+			// FIRST and rebuilds its components (or, on a parse failure, keeps
+			// every old rig and logs a [remote] error visible in console_tail).
+			// Reuse the editor's own watcher path.
+			reloadRemoteAnim(*context.play, *context.console, file);
+			this->sendOk(req);
+			return;
+		}
 		if (type == "gui_press")
 		{
 			if (!context.play->client.isConnected())
@@ -4608,6 +4687,12 @@ namespace Orkige
 						state.project.getScriptsDirectory());
 				}
 			}
+			// a directly-written rig may be the one on the Inspector's animation
+			// preview: bump the import revision so its stale-rig guard re-checks
+			if (absolute.extension() == ".oanim")
+			{
+				++state.assetBrowser.animImportsRevision;
+			}
 			DebugMessage ok(MSG_OK);
 			ok.set("path", relative);
 			ok.set("bytes", std::to_string(normalized.size()));
@@ -4766,10 +4851,17 @@ namespace Orkige
 				return;
 			}
 			// the existing import path (copy into assets/ + resource-location
-			// refresh + sidecar mint), reused wholesale
+			// refresh + sidecar mint), reused wholesale. Optional cook params
+			// (a Lottie .json source) become the sidecar's recorded intent.
+			CookSettings cookSettings;
+			cookSettings.clips = request.get("clips");
+			cookSettings.extent = request.get("extent");
+			cookSettings.tolerance = request.get("tolerance");
+			const bool hasCookSettings = !cookSettings.clips.empty() ||
+				!cookSettings.extent.empty() || !cookSettings.tolerance.empty();
 			String importError;
-			const std::string destPath =
-				importAssetFile(state, source, &importError);
+			const std::string destPath = importAssetFile(state, source,
+				&importError, hasCookSettings ? &cookSettings : nullptr);
 			if (destPath.empty())
 			{
 				this->sendErr(req, "import_asset failed: " +
@@ -4815,6 +4907,100 @@ namespace Orkige
 				relative.substr(relative.size() - 6) == ".oanim")
 			{
 				std::ifstream animIn(state.project.resolvePath(relative),
+					std::ios::binary);
+				std::stringstream animText;
+				animText << animIn.rdbuf();
+				VectorAnimAsset::Document animDoc;
+				if (animIn && VectorAnimAsset::parse(animText.str(), animDoc))
+				{
+					StringVector clipNames;
+					for (VectorAnimAsset::Clip const& clip : animDoc.clips)
+					{
+						clipNames.push_back(clip.name);
+					}
+					ok.setList("clips", clipNames);
+				}
+			}
+			this->sendOk(req, ok);
+			return;
+		}
+		// reimport_asset: re-cook an imported animation pair IN PLACE - the MCP
+		// face of the Asset browser's "Reimport" (import_asset cannot carry it:
+		// its contract is an OUTSIDE source copied in; this one's source already
+		// lives in the project - e.g. a .json an agent wrote via
+		// write_project_file, which never cooks). Optional cook params update
+		// the sidecar's recorded settings first; the reply reads the recorded
+		// state back (settings + input hashes + the fresh rig's clips).
+		if (type == "reimport_asset")
+		{
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open - reimport_asset needs a "
+					"project");
+				return;
+			}
+			String asset = request.get("asset");
+			if (asset.empty())
+			{
+				this->sendErr(req, "reimport_asset needs an 'asset' (the "
+					"project-relative .json source, or its cooked .oanim)");
+				return;
+			}
+			std::filesystem::path assetAbsolute;
+			String assetRelative;
+			String jailError;
+			if (!jailProjectPath(state.project.getRootDirectory(), asset,
+				assetAbsolute, assetRelative, jailError))
+			{
+				this->sendErr(req, "reimport_asset refused: " + jailError);
+				return;
+			}
+			// accept the artifact as an alias for its kept source (the pair)
+			const String extension = assetAbsolute.extension().string();
+			if (extension == ".oanim" || extension == ".oshape")
+			{
+				assetRelative = std::filesystem::path(assetRelative)
+					.replace_extension(".json").generic_string();
+			}
+			CookSettings cookSettings;
+			cookSettings.clips = request.get("clips");
+			cookSettings.extent = request.get("extent");
+			cookSettings.tolerance = request.get("tolerance");
+			const bool hasCookSettings = !cookSettings.clips.empty() ||
+				!cookSettings.extent.empty() || !cookSettings.tolerance.empty();
+			String cookError;
+			const std::string produced = recookAnimationPair(state,
+				assetRelative, hasCookSettings ? &cookSettings : nullptr,
+				&cookError);
+			if (produced.empty())
+			{
+				this->sendErr(req, "reimport_asset failed: " +
+					(cookError.empty() ? "see the editor log" : cookError));
+				return;
+			}
+			const String producedRelative =
+				state.project.makeProjectRelative(produced);
+			DebugMessage ok(MSG_OK);
+			ok.set("path", producedRelative);
+			ok.set("source", assetRelative);
+			// the recorded state, read back from the sidecar the cook just wrote
+			CookRecord record;
+			if (AssetDatabase::readCookRecord(
+				state.project.resolvePath(assetRelative) +
+				AssetDatabase::META_FILE_EXTENSION, record))
+			{
+				ok.set("clips_setting", record.settings.clips);
+				ok.set("extent_setting", record.settings.extent);
+				ok.set("tolerance_setting", record.settings.tolerance);
+				ok.set("source_hash", record.sourceHash);
+				ok.set("tool_hash", record.toolHash);
+				ok.set("settings_hash", record.settingsHash);
+			}
+			// clip discovery rides the reply like import_asset's
+			if (producedRelative.size() > 6 && producedRelative.substr(
+				producedRelative.size() - 6) == ".oanim")
+			{
+				std::ifstream animIn(state.project.resolvePath(producedRelative),
 					std::ios::binary);
 				std::stringstream animText;
 				animText << animIn.rdbuf();
@@ -8638,6 +8824,118 @@ namespace Orkige
 			SDL_Log("orkige_editor: control self-test - Lottie import + "
 				"preview_animation OK (kept source, two poses differ, "
 				"inline image block present)");
+		}
+
+		// (19c) cook settings over import + reimport_asset: import a MARKER-LESS
+		// Lottie with a clips override (the setting must drive the cook AND land
+		// on the kept source's sidecar as the recorded intent), then re-cook it
+		// in place with different clips via reimport_asset (recorded settings +
+		// input hashes read back), and probe reload_anim's no-player honesty.
+		{
+			// the (19b) rig without markers: the clips come from the settings
+			const std::string lottie = R"json({"v":"5.7.0","fr":30,"ip":0,"op":60,"w":200,"h":200,"layers":[{"ty":4,"nm":"body","ind":1,"ip":0,"op":60,"ks":{"p":{"a":0,"k":[100,100]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"r":{"a":1,"k":[{"t":0,"s":[0]},{"t":30,"s":[90]},{"t":60,"s":[0]}]},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","it":[{"ty":"rc","p":{"a":0,"k":[0,0]},"s":{"a":0,"k":[30,90]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[0.9,0.42,0.38,1]},"o":{"a":0,"k":100}}]}]}]})json";
+			const fs::path outside = fs::temp_directory_path() /
+				("orkige_mcp_cookset_" + std::to_string(port) + ".json");
+			{
+				std::ofstream f(outside, std::ios::binary);
+				f << lottie;
+			}
+			JsonValue importArgs = JsonValue::object();
+			importArgs.set("sourcePath", JsonValue(outside.string()));
+			importArgs.set("clips",
+				JsonValue(String("spin:0:30,rest:30:60:once")));
+			JsonValue structured;
+			bool isError = true;
+			const bool imported = callTool("import_asset", importArgs, true,
+				structured, isError) && !isError;
+			fs::remove(outside, authIgnored);
+			auto clipsAre = [](JsonValue const& reply, char const* a,
+				char const* b) -> bool
+			{
+				JsonValue const& clips = reply.get("clips");
+				bool sawA = false, sawB = (b == nullptr);
+				for (size_t i = 0; i < clips.size(); ++i)
+				{
+					if (clips.at(i).asString() == a) sawA = true;
+					if (b && clips.at(i).asString() == b) sawB = true;
+				}
+				return sawA && sawB;
+			};
+			if (!imported || !clipsAre(structured, "spin", "rest"))
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: import_asset with a clips "
+					"override did not cook the overridden clips");
+				return;
+			}
+			// the kept source's sidecar carries the recorded cook inputs
+			const String sourceRel = "assets/orkige_mcp_cookset_" +
+				std::to_string(port) + ".json";
+			auto readTextFile = [&](fs::path const& p) -> std::string
+			{
+				std::ifstream in(p, std::ios::binary);
+				std::stringstream text;
+				text << in.rdbuf();
+				return text.str();
+			};
+			const std::string sidecarText = readTextFile(
+				authRoot / (sourceRel + ".orkmeta"));
+			if (sidecarText.find("cook") == std::string::npos ||
+				sidecarText.find("sourceHash") == std::string::npos ||
+				sidecarText.find("spin:0:30,rest:30:60:once") ==
+					std::string::npos)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: the kept source's sidecar "
+					"does not record the cook inputs/settings");
+				return;
+			}
+			// reimport_asset re-cooks in place with NEW clips; the reply reads
+			// the recorded state back
+			JsonValue reimportArgs = JsonValue::object();
+			reimportArgs.set("asset", JsonValue(sourceRel));
+			reimportArgs.set("clips", JsonValue(String("whirl:0:60")));
+			isError = true;
+			const bool reimported = callTool("reimport_asset", reimportArgs,
+				true, structured, isError) && !isError;
+			const String recordedClips =
+				structured.get("clips_setting").asString();
+			const String recordedSourceHash =
+				structured.get("source_hash").asString();
+			if (!reimported || !clipsAre(structured, "whirl", nullptr) ||
+				recordedClips != "whirl:0:60" ||
+				recordedSourceHash.size() != 40)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: reimport_asset did not re-cook "
+					"with the new clips / read the recorded state back");
+				return;
+			}
+			// AUTH: reimport_asset mutates - it must be rejected without a token
+			bool unauthError = false;
+			if (!callTool("reimport_asset", reimportArgs, false, structured,
+				unauthError) || !unauthError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: unauthenticated reimport_asset "
+					"was NOT rejected");
+				return;
+			}
+			// reload_anim without a live player answers an honest error
+			JsonValue reloadArgs = JsonValue::object();
+			reloadArgs.set("file", JsonValue(String("whatever.oanim")));
+			bool reloadError = false;
+			if (!callTool("reload_anim", reloadArgs, true, structured,
+				reloadError) || !reloadError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: reload_anim without a player "
+					"did not error");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - cook settings + "
+				"reimport_asset OK (override cooked, recorded, re-cooked to "
+				"'%s')", recordedClips.c_str());
 		}
 
 		// (20) create_prefab -> instantiate_prefab round-trip: make an object, of

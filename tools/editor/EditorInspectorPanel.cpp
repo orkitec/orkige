@@ -684,12 +684,137 @@ std::string selectedBrowserAnimation(EditorState& state)
 	return std::string();
 }
 
+//! the KEPT Lottie source of the animation the single selection targets: the
+//! selected `.json` itself, or the selected `.oanim`'s sibling `.json` when
+//! the import kept it. Returns the project-relative source path, or "" (an
+//! orphan rig authored directly as `.oanim` text has no source).
+std::string selectedBrowserAnimationSource(EditorState& state)
+{
+	std::string rel;
+	const std::string ext = singleSelectionExtension(state, rel);
+	if (ext == ".json")
+	{
+		return rel;
+	}
+	if (ext == ".oanim")
+	{
+		const std::string sibling = std::filesystem::path(rel)
+			.replace_extension(".json").generic_string();
+		std::error_code ec;
+		if (std::filesystem::is_regular_file(
+			state.project.resolvePath(sibling), ec))
+		{
+			return sibling;
+		}
+	}
+	return std::string();
+}
+
+//! the animation preview's freshness key for a rig: the RECORDED sourceHash of
+//! its kept source's sidecar (a re-cook rewrites the record, so the key moves
+//! exactly when the artifact did), falling back to the artifact's own write
+//! time for a record-less pair or an orphan `.oanim`.
+std::string animationFreshnessKey(EditorState& state,
+	std::string const& animRel)
+{
+	const std::string sourceRel = selectedBrowserAnimationSource(state);
+	if (!sourceRel.empty())
+	{
+		Orkige::CookRecord record;
+		if (Orkige::AssetDatabase::readCookRecord(
+			state.project.resolvePath(sourceRel) +
+			Orkige::AssetDatabase::META_FILE_EXTENSION, record) &&
+			!record.sourceHash.empty())
+		{
+			return record.sourceHash;
+		}
+	}
+	std::error_code ec;
+	const std::filesystem::file_time_type mtime =
+		std::filesystem::last_write_time(
+			state.project.resolvePath(animRel), ec);
+	return ec ? std::string() : std::to_string(
+		static_cast<long long>(mtime.time_since_epoch().count()));
+}
+
+//! the "Animation Import Settings" block heading the preview section when the
+//! selection is a cooked PAIR (a kept source exists): shows the sidecar's
+//! recorded cook settings (--clips/--extent/--tolerance, verbatim CLI text)
+//! with edit fields, and Apply re-cooks the pair with the edited settings
+//! (which become the recorded intent) - the texture-import-settings pattern
+//! for cooked pairs. An orphan `.oanim` has no source and no settings.
+void drawAnimationImportSettings(EditorState& state,
+	std::string const& sourceRel)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	const std::string metaPath = state.project.resolvePath(sourceRel) +
+		Orkige::AssetDatabase::META_FILE_EXTENSION;
+	// (re)read from disk on a selection change OR after any cook (the revision
+	// moves - a watcher/scan/MCP re-cook may have rewritten the record) so the
+	// fields always reflect the recorded state
+	if (browser.editCookMetaPath != metaPath ||
+		browser.editCookSeenRevision != browser.animImportsRevision)
+	{
+		Orkige::CookRecord record;
+		browser.editCookHasRecord =
+			Orkige::AssetDatabase::readCookRecord(metaPath, record);
+		browser.editCook = record.settings;
+		browser.editCookMetaPath = metaPath;
+		browser.editCookSeenRevision = browser.animImportsRevision;
+	}
+	ImGui::TextUnformatted("Animation Import Settings");
+	ImGui::TextDisabled("%s",
+		std::filesystem::path(sourceRel).filename().string().c_str());
+	if (!browser.editCookHasRecord)
+	{
+		ImGui::TextDisabled("no recorded import yet - Apply cooks and records");
+	}
+	auto textField = [](char const* label, char const* hint,
+		std::string& value)
+	{
+		char buffer[256];
+		SDL_strlcpy(buffer, value.c_str(), sizeof(buffer));
+		if (ImGui::InputTextWithHint(label, hint, buffer, sizeof(buffer)))
+		{
+			value = buffer;
+		}
+	};
+	textField("clips", "document markers", browser.editCook.clips);
+	ImGui::SetItemTooltip("clip ranges overriding the document markers:\n"
+		"name:start:end[:loop|once],...  (frames)");
+	textField("extent", "2", browser.editCook.extent);
+	ImGui::SetItemTooltip(
+		"world-unit size the composition's larger side spans");
+	textField("tolerance", "auto", browser.editCook.tolerance);
+	ImGui::SetItemTooltip("flatten chord tolerance in composition units");
+	if (ImGui::Button("Apply (re-cook)"))
+	{
+		std::string cookError;
+		if (recookAnimationPair(state, sourceRel, &browser.editCook,
+			&cookError).empty())
+		{
+			// keep the edited fields for a fix-up; the record is unchanged
+			browser.statusMessage = "re-cook failed: " + cookError;
+			browser.statusMessageExpiry = ImGui::GetTime() + 6.0;
+		}
+		else
+		{
+			// the record now carries the edits - re-read on the next draw
+			browser.editCookMetaPath.clear();
+		}
+	}
+	ImGui::Separator();
+}
+
 //! the inline animation-preview section: shown when the SCENE selection is
 //! empty AND the single browser selection is a `.oanim` (or a `.json` with a
-//! cooked sibling). Loads the rig into the SHARED preview stage on a selection
-//! change and draws the shared animation preview widget (clip dropdown,
-//! Play/Pause/Reset, scrub, blend, status + pose image). Returns true
-//! when it drew the section.
+//! cooked sibling). A cooked pair heads it with the Animation Import Settings
+//! block. Loads the rig into the SHARED preview stage on a selection change
+//! OR when a re-cook made the loaded rig stale - the guard keys on the
+//! sidecar's RECORDED source hash (via the animation-import revision counter,
+//! so an unchanged frame does no sidecar IO) - and draws the shared animation
+//! preview widget (clip dropdown, Play/Pause/Reset, scrub, blend, status +
+//! pose image). Returns true when it drew the section.
 bool drawAnimationPreviewSection(EditorState& state,
 	OrkigeEditor::AnimationPreviewStage& stage)
 {
@@ -698,11 +823,27 @@ bool drawAnimationPreviewSection(EditorState& state,
 	{
 		return false;
 	}
-	if (stage.getLoadedFile() != animRel)
+	AssetBrowserState& browser = state.assetBrowser;
+	// stale-rig guard: check freshness on a selection change or whenever a
+	// cook bumped the revision; reload only when the key actually moved
+	if (stage.getLoadedFile() != animRel ||
+		browser.animPreviewSeenRevision != browser.animImportsRevision)
 	{
-		std::string err;
-		stage.load(state.project.getRootDirectory(), animRel, err);
-		stage.clearBlend();
+		browser.animPreviewSeenRevision = browser.animImportsRevision;
+		const std::string key = animationFreshnessKey(state, animRel);
+		if (stage.getLoadedFile() != animRel ||
+			key != browser.animPreviewFreshnessKey)
+		{
+			std::string err;
+			stage.load(state.project.getRootDirectory(), animRel, err);
+			stage.clearBlend();
+			browser.animPreviewFreshnessKey = key;
+		}
+	}
+	const std::string sourceRel = selectedBrowserAnimationSource(state);
+	if (!sourceRel.empty())
+	{
+		drawAnimationImportSettings(state, sourceRel);
 	}
 	ImGui::TextUnformatted("Animation Preview");
 	ImGui::TextDisabled("%s",

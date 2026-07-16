@@ -57,11 +57,13 @@ void clearRemoteState(PlaySession& session)
 	session.remoteParents.clear();
 	session.remoteActive.clear();
 	session.scriptErrorIds.clear();
-	// the hot-reload watcher re-baselines against the fresh session's scripts
-	// AND its .oui layouts (scriptsWatchArmed arms both)
+	// the hot-reload watcher re-baselines against the fresh session's scripts,
+	// its .oui layouts AND its animation sources (scriptsWatchArmed arms all)
 	session.scriptsWatchArmed = false;
 	session.scriptsNewestMtime = 0;
 	session.uiFileMtimes.clear();
+	session.animSourceMtimes.clear();
+	session.animFileMtimes.clear();
 	session.remoteSelectedId.clear();
 	session.stateObjectId.clear();
 	session.stateComponents.clear();
@@ -1038,8 +1040,103 @@ void reloadRemoteUi(PlaySession& session, EditorConsole& console,
 		"player");
 }
 
+//! vector-animation hot-reload: tell the running player to re-read one rig
+void reloadRemoteAnim(PlaySession& session, EditorConsole& console,
+	std::string const& animName)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage reload(Protocol::MSG_RELOAD_ANIM);
+	reload.set(Protocol::FIELD_PATH, animName);
+	session.client.send(reload);
+	oDebugMsg("editor.play", 0, "animation change detected (" << animName <<
+		") - reload sent to the player");
+	console.addLine(ConsoleLevel::Info,
+		"[reload] animation '" + animName + "' changed - hot-reloading the "
+		"running player");
+}
+
 namespace
 {
+//! @brief scan the project tree for the vector-animation hot-reload watcher:
+//! Lottie `.json` sources that have a cooked sibling (same-stem .oanim/.oshape
+//! beside them - the kept-source pair; a plain data .json has no sibling and
+//! is never watched) into outSources, and ORPHAN `.oanim` files (no source
+//! pair - agent-authored directly; keeping paired artifacts out is what stops
+//! a re-cook's own rewrite from re-firing the watcher) into outAnims. Sources
+//! key by ABSOLUTE path (the re-cook needs it), orphans by basename (the
+//! resource name MSG_RELOAD_ANIM carries). Build trees are skipped like the
+//! .oui scan.
+void scanProjectAnimFiles(std::string const& root,
+	std::map<std::string, long long>& outSources,
+	std::map<std::string, long long>& outAnims)
+{
+	outSources.clear();
+	outAnims.clear();
+	std::error_code ec;
+	if (!std::filesystem::is_directory(root, ec))
+	{
+		return;
+	}
+	for (std::filesystem::recursive_directory_iterator
+		it(root, ec), end; it != end; it.increment(ec))
+	{
+		if (ec)
+		{
+			break;
+		}
+		// never descend into build outputs / VCS metadata
+		if (it->is_directory(ec))
+		{
+			const std::string name = it->path().filename().string();
+			if (name == "builds" || name == "build" || name == ".git")
+			{
+				it.disable_recursion_pending();
+			}
+			continue;
+		}
+		const std::string ext = it->path().extension().string();
+		if (!it->is_regular_file(ec) || (ext != ".json" && ext != ".oanim"))
+		{
+			continue;
+		}
+		const std::filesystem::file_time_type mtime =
+			std::filesystem::last_write_time(it->path(), ec);
+		if (ec)
+		{
+			continue;
+		}
+		const long long stamp =
+			static_cast<long long>(mtime.time_since_epoch().count());
+		const std::filesystem::path sibling(it->path().parent_path() /
+			it->path().stem());
+		std::error_code probe;
+		if (ext == ".json")
+		{
+			// a source is watched exactly when its cooked artifact sits beside it
+			if (std::filesystem::is_regular_file(
+					sibling.string() + ".oanim", probe) ||
+				std::filesystem::is_regular_file(
+					sibling.string() + ".oshape", probe))
+			{
+				outSources[it->path().string()] = stamp;
+			}
+		}
+		else if (!std::filesystem::is_regular_file(
+			sibling.string() + ".json", probe))
+		{
+			const std::string base = it->path().filename().string();
+			auto found = outAnims.find(base);
+			if (found == outAnims.end() || stamp > found->second)
+			{
+				outAnims[base] = stamp;
+			}
+		}
+	}
+}
+
 //! @brief scan the project tree for `.oui` layouts, folding to the newest write
 //! time per BASENAME (the name a game passes to GuiFactory::loadLayout / the
 //! player resolves). Build trees are skipped so a native module's build output
@@ -1091,14 +1188,17 @@ std::map<std::string, long long> scanProjectOuiFiles(std::string const& root)
 	return result;
 }
 
-//! @brief poll the project tree for `.lua` (scripts/) and `.oui` edits (~4 Hz)
-//! and hot-reload the running player on any change (MSG_RELOAD_SCRIPT reloads
-//! ALL scripts; MSG_RELOAD_UI reloads just the changed layout). Desktop play
-//! only (a device player has no host-filesystem trigger); the first poll of a
-//! session only records the baseline (scriptsWatchArmed arms BOTH watchers) so
-//! opening Play never fires a spurious reload.
-void watchProjectScripts(PlaySession& session, EditorConsole& console,
-	std::chrono::steady_clock::time_point now)
+//! @brief poll the project tree for `.lua` (scripts/), `.oui` and vector-
+//! animation edits (~4 Hz) and hot-reload the running player on any change
+//! (MSG_RELOAD_SCRIPT reloads ALL scripts; MSG_RELOAD_UI / MSG_RELOAD_ANIM
+//! reload just the changed layout/rig; a changed Lottie SOURCE re-cooks
+//! through its sidecar's recorded settings first). Desktop play only (a
+//! device/browser player runs a packaged copy - a host-disk edit is invisible
+//! to it, so hot-reload would lie); the first poll of a session only records
+//! the baseline (scriptsWatchArmed arms ALL the watchers) so opening Play
+//! never fires a spurious reload.
+void watchProjectScripts(EditorState& state, PlaySession& session,
+	EditorConsole& console, std::chrono::steady_clock::time_point now)
 {
 	if (session.projectRoot.empty() || session.onAndroid ||
 		session.onSimulator || session.onBrowser ||
@@ -1148,11 +1248,17 @@ void watchProjectScripts(PlaySession& session, EditorConsole& console,
 	// the .oui layouts, per basename (see scanProjectOuiFiles)
 	std::map<std::string, long long> ouiNow =
 		scanProjectOuiFiles(session.projectRoot);
+	// the animation pairs: Lottie sources (by path) + orphan rigs (by basename)
+	std::map<std::string, long long> animSourcesNow;
+	std::map<std::string, long long> animsNow;
+	scanProjectAnimFiles(session.projectRoot, animSourcesNow, animsNow);
 	if (!session.scriptsWatchArmed)
 	{
 		// first poll of the session: record the baseline, never reload
 		session.scriptsNewestMtime = newest;
 		session.uiFileMtimes = std::move(ouiNow);
+		session.animSourceMtimes = std::move(animSourcesNow);
+		session.animFileMtimes = std::move(animsNow);
 		session.scriptsWatchArmed = true;
 		return;
 	}
@@ -1171,13 +1277,63 @@ void watchProjectScripts(PlaySession& session, EditorConsole& console,
 		}
 	}
 	session.uiFileMtimes = std::move(ouiNow);
+	// per-source diff: a freshly-written Lottie .json re-cooks FIRST (recorded
+	// sidecar settings; [import] lines like a manual import), then the fresh
+	// artifact hot-reloads - a cook failure reports honestly and sends nothing
+	// (the player keeps playing the old rig)
+	for (auto const& entry : animSourcesNow)
+	{
+		auto known = session.animSourceMtimes.find(entry.first);
+		if (known != session.animSourceMtimes.end() &&
+			entry.second <= known->second)
+		{
+			continue;
+		}
+		std::string cookError;
+		const std::string produced =
+			recookAnimationPair(state, entry.first, nullptr, &cookError);
+		if (produced.empty())
+		{
+			console.addLine(ConsoleLevel::Error, "[import] re-cook of '" +
+				std::filesystem::path(entry.first).filename().string() +
+				"' failed - " + cookError);
+			continue;
+		}
+		if (std::filesystem::path(produced).extension() == ".oanim")
+		{
+			reloadRemoteAnim(session, console,
+				std::filesystem::path(produced).filename().string());
+		}
+		else
+		{
+			// the edit stopped animating: the cook landed a .oshape - there is
+			// no rig to hot-reload (the stale .oanim keeps playing; say so)
+			console.addLine(ConsoleLevel::Warning, "[import] '" +
+				std::filesystem::path(entry.first).filename().string() +
+				"' no longer animates (cooked a static .oshape) - the running "
+				"rig was not reloaded");
+		}
+	}
+	session.animSourceMtimes = std::move(animSourcesNow);
+	// per-rig diff: a directly-edited ORPHAN .oanim (agent-authored, no source
+	// pair) hot-reloads as-is - the player's parse-before-swap guards it
+	for (auto const& entry : animsNow)
+	{
+		auto known = session.animFileMtimes.find(entry.first);
+		if (known == session.animFileMtimes.end() || entry.second > known->second)
+		{
+			reloadRemoteAnim(session, console, entry.first);
+		}
+	}
+	session.animFileMtimes = std::move(animsNow);
 }
 } // namespace
 
 //! per-frame play session pump: complete the connect, drain streamed
 //! messages (remote log lines land in the Console tagged "[remote]"), watch
 //! the process and the link, enforce the stop grace timeout
-void updatePlaySession(PlaySession& session, EditorConsole& console)
+void updatePlaySession(EditorState& state, PlaySession& session,
+	EditorConsole& console)
 {
 	if (!session.isActive())
 	{
@@ -1575,7 +1731,7 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			// layout in this same frame, and the frame's later logic may edit a
 			// watched file before the next poll; arming a frame late would fold
 			// that first edit into the baseline and never hot-reload it.
-			watchProjectScripts(session, console, now);
+			watchProjectScripts(state, session, console, now);
 			return;
 		}
 		// the player needs a few seconds to boot before it listens: keep
@@ -1632,7 +1788,7 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 	case PlaySession::Mode::Paused:
 		// Lua hot-reload: watch the project's scripts/ and tell the
 		// running player to recompile-and-swap on any edit (desktop play only)
-		watchProjectScripts(session, console, now);
+		watchProjectScripts(state, session, console, now);
 		// crash resilience: a vanished process or a dropped link reverts
 		// the editor to edit mode cleanly
 		if (processExited)

@@ -553,6 +553,27 @@ struct AssetBrowserState
 	//! from disk, so the section always reflects the selected texture)
 	Orkige::TextureImport editImport;
 	std::string editImportPath;
+	//! the Inspector's Animation Import Settings edit cache (the texture cache's
+	//! cooked-pair sibling): the cook settings being edited, the source sidecar
+	//! they were read from and whether that sidecar carried a <cook> record yet
+	Orkige::CookSettings editCook;
+	std::string editCookMetaPath;
+	bool editCookHasRecord = false;
+	//! the import revision the settings cache was read at: a cook that
+	//! happened elsewhere (watcher, scan, MCP) re-reads the recorded fields
+	unsigned int editCookSeenRevision = 0;
+	//! animation (re)cook revision: incremented by EVERY animation cook (import,
+	//! Reimport, the project-open drift scan, the play watcher's re-cook, MCP) so
+	//! the Inspector's animation preview can key its stale-rig guard on the
+	//! RECORDED source hash without per-frame sidecar IO - it re-reads the
+	//! sidecar only when this moved (and reloads the stage when the recorded
+	//! hash differs from the one it loaded at)
+	unsigned int animImportsRevision = 1;
+	//! the preview guard's cache: the revision it last checked at and the
+	//! freshness key (recorded sourceHash, or the artifact mtime for a
+	//! source-less .oanim) the loaded stage corresponds to
+	unsigned int animPreviewSeenRevision = 0;
+	std::string animPreviewFreshnessKey;
 	//! the Inspector's text-preview cache: the project-relative file whose
 	//! highlighted read-only content is shown, its lines split for the clipper,
 	//! the chosen highlight family and the size-cap bookkeeping. A changed path
@@ -1035,6 +1056,18 @@ struct PlaySession
 	//! name); keyed by the .oui basename (the name the game passes to
 	//! GuiFactory::loadLayout). Reset by clearRemoteState.
 	std::map<std::string, long long> uiFileMtimes;
+	//! vector-animation hot-reload watcher: rides the SAME poll/cadence/
+	//! lifecycle as the scripts/.oui watchers (scriptsWatchArmed arms all
+	//! three). Two per-basename write-time maps: animSourceMtimes tracks Lottie
+	//! .json sources that have a cooked sibling (a change re-cooks through the
+	//! sidecar's recorded settings FIRST, then MSG_RELOAD_ANIM carries the
+	//! artifact's basename - a cook failure reports and sends nothing);
+	//! animFileMtimes tracks ORPHAN .oanim files only (agent-authored, no
+	//! source pair - a change reloads directly; keeping paired artifacts out of
+	//! this map is what stops a re-cook's own rewrite from double-firing).
+	//! Reset by clearRemoteState.
+	std::map<std::string, long long> animSourceMtimes;
+	std::map<std::string, long long> animFileMtimes;
 	std::string remoteSelectedId;
 	std::string stateObjectId;					//!< object of the latest object_state
 	Orkige::StringVector stateComponents;		//!< its component type names
@@ -1374,6 +1407,15 @@ void reloadRemoteScripts(PlaySession& session, EditorConsole& console);
 void reloadRemoteUi(PlaySession& session, EditorConsole& console,
 	std::string const& ouiName);
 
+//! @brief vector-animation hot-reload: tell the running player to re-read one
+//! `.oanim` rig and rebuild its components (MSG_RELOAD_ANIM, parse-before-swap
+//! on the player). @p animName is the rig's resource basename. Sent
+//! automatically by the project-tree animation watcher in updatePlaySession
+//! (which re-cooks a changed Lottie source first) and by the MCP reload_anim
+//! verb.
+void reloadRemoteAnim(PlaySession& session, EditorConsole& console,
+	std::string const& animName);
+
 //! @brief write a live component property on the RUNNING game (MSG_SET_PROPERTY,
 //! the reflected setter on the player - takes effect immediately, not undoable
 //! and NOT an edit-world change). A no-op when no player is connected.
@@ -1408,8 +1450,11 @@ void requestRemoteRecord(PlaySession& session, std::string const& path,
 void stopRemoteRecord(PlaySession& session);
 
 //! per-frame pump: connection progress, protocol messages, build/process
-//! supervision, crash detection
-void updatePlaySession(PlaySession& session, EditorConsole& console);
+//! supervision, crash detection. @p state backs the hot-reload watcher's
+//! animation re-cook (project resolution + the import revision); the session
+//! itself stays the play-mode source of truth.
+void updatePlaySession(EditorState& state, PlaySession& session,
+	EditorConsole& console);
 
 // The offscreen scene render target: the editor's scene camera renders into a
 // facade RenderTexture (the old manual TU_RENDERTARGET pattern moved
@@ -1550,8 +1595,36 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 //! mode) so the copied texture/script/prefab/scene resolves by name at once.
 //! NOT undoable (a filesystem side effect, like the mesh import). Returns the
 //! destination path ("" on failure; error, if given, receives the reason).
+//! A Lottie .json source cooks to .oanim with cookSettings when given (MCP
+//! import_asset's optional cook params - they become the sidecar's recorded
+//! intent), else with the destination sidecar's recorded settings (a re-import
+//! keeps per-asset intent), else the cook defaults.
 std::string importAssetFile(EditorState& state, std::string const& sourcePath,
+	std::string* error = nullptr,
+	Orkige::CookSettings const* cookSettings = nullptr);
+
+//! @brief re-cook one imported animation pair IN PLACE: run the Lottie cook on
+//! the project's kept source .json (project-relative or absolute path) with
+//! the given settings (nullptr = the sidecar's recorded ones), mirror the cook
+//! summary as [import] Console lines, record the fresh import inputs (source/
+//! tool/settings hashes) on the source's sidecar and bump the animation-import
+//! revision. The force behind the Asset browser's "Reimport", the play
+//! watcher's source re-cook and the MCP reimport_asset verb. Returns the
+//! produced artifact's ABSOLUTE path (.oanim, or .oshape when nothing
+//! animates), or "" (+ *error).
+std::string recookAnimationPair(EditorState& state,
+	std::string const& sourcePath,
+	Orkige::CookSettings const* settingsOverride = nullptr,
 	std::string* error = nullptr);
+
+//! @brief the project-open drift scan: for every id-tracked .json whose
+//! sidecar carries a <cook> record, compare the recorded import inputs against
+//! the CURRENT source bytes / cook script / settings and re-cook on any
+//! mismatch (or a vanished artifact). Sidecars without a record - everything
+//! imported before records existed, and plain data .json files - are left
+//! alone by design: no record, no auto-re-cook. Per-pair failures report and
+//! the scan continues.
+void recookProjectAnimationsOnScan(EditorState& state);
 
 // GameObject > Create Prefab / Hierarchy context menu: write the selection's
 // subtree as "<assets>/<rootId>.oprefab" (stable .orkmeta id included) and

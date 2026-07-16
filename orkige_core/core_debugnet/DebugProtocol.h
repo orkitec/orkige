@@ -92,6 +92,23 @@ namespace Orkige
 		//! mid-frame). An additive protocol-extension message that rides the ONE
 		//! debug protocol; old players answer "unknown command".
 		extern ORKIGE_CORE_DLL const String MSG_RELOAD_UI;
+		//! @brief vector-animation hot-reload: the editor tells the RUNNING
+		//! player to re-read one `.oanim` rig live. FIELD_PATH carries the rig's
+		//! resource name (a basename, e.g. "hero.oanim" - the value a
+		//! VectorAnimationComponent's `animation` reference holds). The player
+		//! parses the fresh file FIRST and, on a clean parse, rebuilds every
+		//! VectorAnimationComponent playing that rig (clean cutover - playback
+		//! restarts at each component's reflected clip, no state merge); a parse
+		//! failure keeps every OLD rig and answers with an error carrying the
+		//! line and reason. On a successful rebuild the player emits the
+		//! `animation.reloaded` script-event so scripts re-drive their clips.
+		//! Player-directed like MSG_RELOAD_UI (the editor's animation watcher -
+		//! which re-cooks a changed Lottie source before sending - and the MCP
+		//! reload_anim verb only send this; the swap happens on the player at
+		//! its message-drain point, never mid-frame). An additive
+		//! protocol-extension message that rides the ONE debug protocol; old
+		//! players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_RELOAD_ANIM;
 		//! @brief screenshot the RUNNING game: the editor asks the player to
 		//! capture its next rendered frame to FIELD_PATH (a path on the player's
 		//! filesystem - desktop play shares it with the editor). The player saves

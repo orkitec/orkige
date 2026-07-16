@@ -263,6 +263,55 @@ the single implicit runtime clip `default` — prints on the CLI, mirrors into
 the editor Console as `[import]` lines, and rides an `import_asset` reply as
 `clips`, so clip discovery lands WITH the import instead of a file-open later.
 
+### Import records and automatic re-cooks
+
+Every successful cook records its INPUTS on the kept source's `.orkmeta`
+sidecar as a `<cook>` element (`core_project/AssetDatabase` `CookRecord`):
+
+```xml
+<orkmeta id="…">
+    <cook tool="vectoranim"
+          sourceHash="…" toolHash="…" settingsHash="…"
+          clips="idle:0:30,walk:30:60:once" extent="2.0" tolerance=""/>
+</orkmeta>
+```
+
+- `sourceHash` — SHA-1 (`core_util/Sha1`) of the source `.json` bytes as
+  cooked; `toolHash` — SHA-1 of `cook_vector_anim.py` itself (the script's
+  byte content IS the cook-tool version: any script change reads as drift, no
+  version constant to forget — and because cooks are byte-deterministic, an
+  inconsequential script edit re-cooks once into identical bytes);
+- `clips`/`extent`/`tolerance` — the per-asset **cook settings**, kept
+  VERBATIM as the CLI text and applied on every (re)import/re-cook (the
+  texture-import-settings pattern for cooked pairs); `settingsHash` is the
+  SHA-1 of their canonical form, recorded at cook time, so a settings edit
+  reads as drift exactly like a source edit.
+
+**The drift scan** runs at project open (`recookProjectAnimationsOnScan`,
+after `Project::importAssets`): every id-tracked `.json` whose sidecar
+carries a record gets its current inputs compared against the recorded ones —
+any mismatch (fresh source bytes, an updated cook script, edited settings, or
+a vanished artifact) re-cooks the pair with the RECORDED settings, reported
+as `[import]` Console lines like a manual import. A sidecar **without** a
+record is never auto-re-cooked — every sidecar from before records existed
+(and any plain data `.json`) behaves exactly as it always did. The `.svg` →
+`.oshape` on-ramp is deliberately OUTSIDE this system (morph `--targets`
+included): the `.svg` source is not kept, so there is nothing to hash, watch
+or re-cook from — extending records to shapes would first mean reversing the
+keep-the-source decision.
+
+**Manual forces** — the Asset browser's context-menu **Reimport** (on a kept
+`.json`, or on its cooked artifact) re-cooks the pair on demand with the
+recorded settings; the Inspector's **Animation Import Settings** block (shown
+above the animation preview for a cooked pair) edits the recorded
+`clips`/`extent`/`tolerance` and Apply re-cooks with the edits (which become
+the recorded intent). Over MCP, `import_asset` accepts the same optional cook
+params on the way in, and `reimport_asset` is the in-place re-cook (see
+`Docs/mcp.md`). The Inspector's animation preview keys its stale-rig guard on
+the recorded `sourceHash` (via a cook-bumped revision counter, so an
+unchanged frame does no sidecar IO): a re-cook refreshes the preview without
+reselecting.
+
 **Thumbnails** — an `.oanim` asset shows a real tile: its default clip is
 evaluated at frame 0 (`VectorAnimEval::evaluateAt` → `composeRegions`),
 tessellated once and CPU-rasterized with `core_util/VectorShapeRaster`, then
@@ -333,3 +382,40 @@ clip name stay distinguishable. `projects/vectorshapes/scripts/hero_anim.lua`
 is the reference script (idle → one-shot hop crossfade → ended event back into
 Lua), exercised by the `player_vectoranim_selfcheck` ctest on both flavors;
 `Docs/lua-api.md` carries the drive snippet and the full method index.
+
+## Hot-reload during Play (.oanim iteration)
+
+The editor's project-tree watcher (the scripts/`.oui` watcher's cadence and
+lifecycle, desktop play sessions only — a device/browser player runs a
+packaged copy a host-disk edit never reaches) also covers vector animation,
+through TWO per-basename maps:
+
+- a **Lottie source** with a cooked sibling: a file save RE-COOKS the pair
+  first (the sidecar's recorded settings, `[import]` Console lines), then
+  sends `MSG_RELOAD_ANIM` with the artifact's basename. A cook failure
+  reports honestly and sends nothing — the player keeps playing the old rig.
+  An edit that stops the document animating (the cook lands a `.oshape`)
+  reports that no rig reload was possible;
+- an **orphan `.oanim`** (agent-authored directly, no source pair): a file
+  save reloads it as-is. Paired artifacts are deliberately NOT watched — that
+  is what stops a re-cook's own rewrite from double-firing the watcher.
+
+On the player, `PlayerDebugLink::handleReloadAnim` is parse-before-swap: the
+fresh file is parsed AND rig-built FIRST (the component's own `loadAnimation`
+tears down before parsing, so the guard sits in front of it), then every
+`VectorAnimationComponent` playing that resource rebuilds at the message
+drain point — a clean cutover, playback restarting at each component's
+reflected `clip` (a renamed clip falls back to the first clip with the usual
+warning). A broken edit keeps every OLD rig playing and answers a `[remote]`
+error carrying the parse line and reason. A successful rebuild emits
+`animation.reloaded {file}` on the script event bus (the `ui.reloaded` twin)
+so scripts re-drive their clips. The MCP `reload_anim` verb sends the same
+message on demand (after a `reimport_asset`, say); browser sessions refuse it
+honestly like `reload_ui`.
+
+Verified end to end by the `editor_anim_hotreload` ctest (both flavors,
+`tests/projects/animhotreload`): the project-open drift scan re-cooks the
+fixture's deliberately drifted pair while leaving its record-less legacy pair
+byte-untouched, a source edit re-cooks + live-reloads, an orphan `.oanim`
+edit reloads directly, and both broken paths are contained (a failed cook
+sends no reload; an unparseable rig is refused while play continues).

@@ -30,6 +30,9 @@
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/ScriptComponent.h"
+#include "engine_gocomponent/VectorAnimationComponent.h"
+#include "core_util/VectorAnimAsset.h"
+#include "core_util/VectorAnimEval.h"
 #include "engine_render/RenderMath.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderCamera.h"
@@ -1137,6 +1140,80 @@ namespace Orkige
 			file + "'");
 	}
 	//---------------------------------------------------------
+	//! @brief reload_anim (vector-animation hot-reload): re-read one `.oanim`
+	//! rig and rebuild every VectorAnimationComponent playing it. FIELD_PATH is
+	//! the rig's resource name (the value a component's `animation` reference
+	//! holds). Player-directed like reload_ui: the editor's animation watcher
+	//! (which re-cooks a changed Lottie source first) and the MCP verb only
+	//! send this; the swap happens here, at the message-drain point. The fresh
+	//! file is parsed AND rig-built FIRST - VectorAnimationComponent's own
+	//! loadAnimation tears the old mesh down before parsing, so the guard must
+	//! sit in front of it: a broken edit keeps every OLD rig playing and
+	//! answers with an error carrying the parse line and reason. The resource
+	//! read serves fresh bytes by construction (the archive caches the file
+	//! INDEX, not contents, and a hot-reload overwrites an existing name - the
+	//! same guarantee reload_ui already relies on). A successful rebuild emits
+	//! the `animation.reloaded` script event so scripts re-drive their clips.
+	void PlayerDebugLink::handleReloadAnim(
+		GameObjectManager & gameObjectManager, DebugMessage const & message)
+	{
+		const String & file = message.get(Protocol::FIELD_PATH);
+		if (file.empty())
+		{
+			sendError("reload_anim: missing path");
+			return;
+		}
+		// parse-and-build-before-swap: only a file that makes a valid rig may
+		// touch any component
+		String text;
+		if (RenderSystem::get() == NULL ||
+			!RenderSystem::get()->readResourceText(file, text))
+		{
+			sendError("reload_anim '" + file + "': not found");
+			return;
+		}
+		VectorAnimAsset::Document document;
+		VectorAnimAsset::ParseError parseError;
+		if (!VectorAnimAsset::parse(text, document, &parseError))
+		{
+			sendError("reload_anim '" + file + "': line " +
+				std::to_string(parseError.line) + ": " + parseError.message);
+			return;
+		}
+		{
+			VectorAnimEval probe;
+			if (!probe.build(document))
+			{
+				sendError("reload_anim '" + file + "': not a valid rig");
+				return;
+			}
+		}
+		// clean cutover: rebuild every component playing this rig (loadAnimation
+		// re-reads the same fresh bytes and restarts at the reflected clip)
+		int reloaded = 0;
+		for (auto const & [id, gameObject] :
+			gameObjectManager.getGameObjects())
+		{
+			for (auto const & entry : gameObject->getComponents())
+			{
+				VectorAnimationComponent * animation =
+					dynamic_cast<VectorAnimationComponent*>(entry.second.get());
+				if (animation && animation->getAnimationName() == file)
+				{
+					animation->loadAnimation(file);
+					++reloaded;
+				}
+			}
+		}
+		// mirror onto the script event bus so a script re-drives the fresh rig
+		// (a renamed clip falls back with its own warning, like any load)
+		ScriptEventPayload payload;
+		payload.setString("file", file);
+		ScriptEventBus::getSingleton().emit("animation.reloaded", payload);
+		EngineLogCapture::logMessage("orkige runtime: hot-reloaded animation '" +
+			file + "' on " + std::to_string(reloaded) + " component(s)");
+	}
+	//---------------------------------------------------------
 	//! @brief set_cvar: change a console variable on the RUNNING
 	//! player live. CVarManager::setString parses+validates the value per the
 	//! cvar's registered type and fires its onChange (the live re-apply seam),
@@ -1240,6 +1317,12 @@ namespace Orkige
 				// .oui hot-reload (editor-driven): destroy-and-rebuild the named
 				// screen at this message-drain point, never mid-frame
 				handleReloadUi(message);
+			}
+			else if (message.type == Protocol::MSG_RELOAD_ANIM)
+			{
+				// .oanim hot-reload (editor-driven): parse-before-swap, then
+				// rebuild the rig's components at this message-drain point
+				handleReloadAnim(gameObjectManager, message);
 			}
 			else if (message.type == Protocol::MSG_SET_CVAR)
 			{

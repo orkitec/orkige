@@ -29,6 +29,7 @@ namespace Orkige
 		const String MSG_SET_ACTIVE			= "set_active";
 		const String MSG_RELOAD_SCRIPT		= "reload_script";
 		const String MSG_RELOAD_UI			= "reload_ui";
+		const String MSG_RELOAD_ANIM		= "reload_anim";
 		const String MSG_SET_CVAR			= "set_cvar";
 		const String MSG_SCREENSHOT			= "screenshot";
 		const String MSG_RECORD_START		= "record_start";

@@ -380,6 +380,110 @@ TEST_CASE("AssetDatabase sidecar v2: texture import block round-trips and an "
 	}
 }
 
+TEST_CASE("AssetDatabase sidecar cook record: round-trip, back-compat and "
+	"the drift comparison", "[assetdb][cook]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_cookrecord");
+	const std::string metaPath = project.metaPath("assets/hero.json");
+	std::filesystem::create_directories(
+		std::filesystem::path(metaPath).parent_path());
+
+	Orkige::CookSettings settings;
+	settings.clips = "idle:0:30,walk:30:60:once";
+	settings.extent = "2.5";
+	// tolerance stays "" (unset - the cook default)
+
+	SECTION("the record preserves the id AND round-trips verbatim")
+	{
+		Orkige::CookRecord written;
+		written.tool = "vectoranim";
+		written.settings = settings;
+		written.sourceHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+		written.toolHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+		written.settingsHash = settings.hash();
+		const Orkige::String id = "1234567890abcdef1234567890abcdef";
+		REQUIRE(Orkige::AssetDatabase::writeMetaFile(metaPath, id, written));
+		// the id reads back through the plain reader - back-compat: a
+		// record-carrying sidecar is still a valid id sidecar
+		Orkige::String readId;
+		REQUIRE(Orkige::AssetDatabase::readMetaFile(metaPath, readId));
+		CHECK(readId == id);
+		Orkige::CookRecord read;
+		REQUIRE(Orkige::AssetDatabase::readCookRecord(metaPath, read));
+		CHECK(read.tool == "vectoranim");
+		CHECK(read.settings.clips == settings.clips);
+		CHECK(read.settings.extent == "2.5");
+		CHECK(read.settings.tolerance == "");
+		CHECK(read.sourceHash == written.sourceHash);
+		CHECK(read.toolHash == written.toolHash);
+		CHECK(read.settingsHash == settings.hash());
+	}
+	SECTION("an id-only sidecar reads clean and yields NO record - the "
+		"never-auto-re-cook contract for pre-record sidecars")
+	{
+		const Orkige::String id = "fedcba0987654321fedcba0987654321";
+		REQUIRE(Orkige::AssetDatabase::writeMetaFile(metaPath, id));
+		Orkige::String readId;
+		REQUIRE(Orkige::AssetDatabase::readMetaFile(metaPath, readId));
+		CHECK(readId == id);
+		Orkige::CookRecord read;
+		CHECK_FALSE(Orkige::AssetDatabase::readCookRecord(metaPath, read));
+		CHECK(read.sourceHash.empty());
+		// and an empty record NEVER matches (a caller that skipped the
+		// readCookRecord gate still cannot mistake it for freshness)
+		CHECK_FALSE(read.matchesInputs("aaaa", "bbbb"));
+	}
+	SECTION("a texture-v2 sidecar yields no cook record either")
+	{
+		Orkige::TextureImport texture;
+		REQUIRE(Orkige::AssetDatabase::writeMetaFile(metaPath,
+			"1234567890abcdef1234567890abcdef", texture));
+		Orkige::CookRecord read;
+		CHECK_FALSE(Orkige::AssetDatabase::readCookRecord(metaPath, read));
+	}
+	SECTION("matchesInputs detects every drift axis")
+	{
+		Orkige::CookRecord record;
+		record.tool = "vectoranim";
+		record.settings = settings;
+		record.sourceHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+		record.toolHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+		record.settingsHash = settings.hash();
+		// fresh: everything as recorded
+		CHECK(record.matchesInputs(record.sourceHash, record.toolHash));
+		// source bytes changed
+		CHECK_FALSE(record.matchesInputs(
+			"cccccccccccccccccccccccccccccccccccccccc", record.toolHash));
+		// cook script changed
+		CHECK_FALSE(record.matchesInputs(record.sourceHash,
+			"cccccccccccccccccccccccccccccccccccccccc"));
+		// settings edited AFTER the cook: the stored fields hash differently
+		// than the recorded settingsHash
+		record.settings.extent = "4";
+		CHECK_FALSE(record.matchesInputs(record.sourceHash, record.toolHash));
+		record.settings.extent = "2.5";
+		CHECK(record.matchesInputs(record.sourceHash, record.toolHash));
+		// an unreadable CURRENT input ("" - e.g. a vanished source) is stale,
+		// never a match
+		CHECK_FALSE(record.matchesInputs("", record.toolHash));
+		CHECK_FALSE(record.matchesInputs(record.sourceHash, ""));
+	}
+	SECTION("the canonical settings form is order-fixed and value-verbatim")
+	{
+		CHECK(settings.canonical() ==
+			"clips=idle:0:30,walk:30:60:once\nextent=2.5\ntolerance=\n");
+		// hash = SHA-1 of exactly that canonical text
+		Orkige::CookSettings same;
+		same.clips = settings.clips;
+		same.extent = settings.extent;
+		CHECK(same.hash() == settings.hash());
+		Orkige::CookSettings other = settings;
+		other.tolerance = "0.01";
+		CHECK(other.hash() != settings.hash());
+	}
+}
+
 TEST_CASE("AssetDatabase::metaFilePathForId resolves a texture's sidecar",
 	"[assetdb][texture]")
 {

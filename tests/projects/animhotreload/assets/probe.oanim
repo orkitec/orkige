@@ -1,0 +1,24 @@
+# orkige vector animation v2 - cooked from Lottie JSON by Util/cook_vector_anim.py
+version 2
+fps 30
+duration 60
+clip idle 0 30 loop
+clip walk 30 60 loop
+layer comp parent -1
+  pos k 1
+    kf 0 -1.00000 1.00000
+layer body parent 0
+  pos k 1
+    kf 0 1.00000 -1.00000
+  rot k 3
+    kf 0 0.00000
+    kf 30 -90.00000
+    kf 60 0.00000
+  shape k 1
+    kf 0
+      fill 0.9000 0.4200 0.3800 1.0000
+      contour 4
+      v -0.15000 0.45000
+      v 0.15000 0.45000
+      v 0.15000 -0.45000
+      v -0.15000 -0.45000

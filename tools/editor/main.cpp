@@ -167,6 +167,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_UI_HOTRELOAD_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_ANIM_HOTRELOAD_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_HELPTEST") != nullptr ||
@@ -1122,6 +1123,23 @@ int main(int argc, char** argv)
 		const char* uiHotreloadPlaytestEnv =
 			std::getenv("ORKIGE_EDITOR_UI_HOTRELOAD_PLAYTEST");
 
+		// ORKIGE_EDITOR_ANIM_HOTRELOAD_PLAYTEST=path: scripted vector-animation
+		// hot-reload run (the editor_anim_hotreload ctest on
+		// tests/projects/animhotreload). The project is COPIED to a temp dir;
+		// OPENING it must run the cooked-pair drift scan (the fixture commits a
+		// deliberately drifted cook record on assets/probe.json, so the open
+		// re-cooks it; the record-less legacy pair must stay byte-untouched).
+		// After Play, the hook EDITS probe.json (a renamed clip marker) and
+		// asserts the watcher re-cooked it ([import] summary carries the new
+		// clip) and the player hot-reloaded the rig ([remote] runtime line),
+		// then edits the source-less orphan.oanim directly (direct reload),
+		// then breaks BOTH paths: an invalid .json must fail the cook honestly
+		// (error line, NO reload, play continues) and an unparseable .oanim
+		// must be refused by the player's parse-before-swap ([remote] error,
+		// play continues). Stop must revert cleanly.
+		const char* animHotreloadPlaytestEnv =
+			std::getenv("ORKIGE_EDITOR_ANIM_HOTRELOAD_PLAYTEST");
+
 		// ORKIGE_EDITOR_ASSETTEST=path: scripted Asset browser run (the
 		// editor_asset_browser ctest). At frame 10 it COPIES the
 		// project to a temp dir (the real one is never touched), opens the
@@ -1393,6 +1411,85 @@ int main(int argc, char** argv)
 			}
 			return false;
 		};
+
+		// vector-animation hot-reload playtest state that spans frames
+		enum class AnimHotReloadPhase
+		{
+			Idle, WaitBaseline, WaitRecook, WaitOrphan, WaitBrokenCook,
+			WaitBrokenReload, WaitRevert, Done
+		};
+		AnimHotReloadPhase animHotreloadPhase = AnimHotReloadPhase::Idle;
+		std::chrono::steady_clock::time_point animHotreloadDeadline;
+		std::string animHotreloadTempRoot;	//!< the temp project copy
+		// how many console lines contain the substring (the "did a second
+		// reload fire?" probe needs a count, not a boolean)
+		auto consoleCountLines = [&console](std::string const& needle) -> int
+		{
+			std::lock_guard<std::mutex> lock(console.mutex);
+			int count = 0;
+			for (ConsoleLine const& line : console.lines)
+			{
+				if (line.text.find(needle) != std::string::npos)
+				{
+					++count;
+				}
+			}
+			return count;
+		};
+		// does the Console hold an ERROR line containing the substring?
+		auto consoleHasErrorLine = [&console](std::string const& needle)
+		{
+			std::lock_guard<std::mutex> lock(console.mutex);
+			for (ConsoleLine const& line : console.lines)
+			{
+				if (line.level == ConsoleLevel::Error &&
+					line.text.find(needle) != std::string::npos)
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+		// (over)write a temp-copy asset with a strictly newer mtime (the
+		// uiWriteOui stamping rule - a rewrite within one filesystem timestamp
+		// granule must stay visible to the watcher)
+		auto animWriteAsset = [&animHotreloadTempRoot](
+			std::string const& name, std::string const& content) -> bool
+		{
+			const std::filesystem::path assetPath =
+				std::filesystem::path(animHotreloadTempRoot) / "assets" / name;
+			{
+				std::ofstream file(assetPath,
+					std::ios::binary | std::ios::trunc);
+				file << content;
+				if (!file.good())
+				{
+					return false;
+				}
+			}
+			std::error_code stampError;
+			const std::filesystem::file_time_type written =
+				std::filesystem::last_write_time(assetPath, stampError);
+			if (!stampError)
+			{
+				std::filesystem::last_write_time(assetPath,
+					written + std::chrono::seconds(2), stampError);
+			}
+			return true;
+		};
+		// read a temp-copy asset ("" on error)
+		auto animReadAsset = [&animHotreloadTempRoot](
+			std::string const& name) -> std::string
+		{
+			std::ifstream file(std::filesystem::path(animHotreloadTempRoot) /
+				"assets" / name, std::ios::binary);
+			std::stringstream text;
+			text << file.rdbuf();
+			return file ? text.str() : std::string();
+		};
+		// the probe-rig reload count observed when the broken-cook leg started
+		// (a failed cook must never grow it)
+		int animProbeReloadsAtBreak = 0;
 
 		enum class PlaytestPhase
 		{
@@ -1674,7 +1771,7 @@ int main(int argc, char** argv)
 
 			// play mode: pump the debug link, watch the player process,
 			// handle crash/stop transitions - before the UI reads the state
-			updatePlaySession(playSession, console);
+			updatePlaySession(state, playSession, console);
 
 			// timed autosave: a crash-recovery copy of a dirty scene to its
 			// ".autosave" sibling (never the real file). Stands down during an
@@ -7976,6 +8073,334 @@ int main(int argc, char** argv)
 					{
 						std::error_code ignored;
 						std::filesystem::remove_all(uiHotreloadTempRoot,
+							ignored);
+					}
+					exitCode = 7;
+					running = false;
+				}
+			}
+
+			// vector-animation hot-reload playtest
+			// (ORKIGE_EDITOR_ANIM_HOTRELOAD_PLAYTEST): open a temp copy (the
+			// drift scan must re-cook the fixture's drifted pair and leave the
+			// record-less legacy pair untouched), Play, then edit / break the
+			// Lottie source and the orphan .oanim on disk and assert the
+			// watcher + MSG_RELOAD_ANIM round-trips.
+			if (animHotreloadPlaytestEnv)
+			{
+				const std::chrono::steady_clock::time_point animNow =
+					std::chrono::steady_clock::now();
+				bool animFailed = false;
+				std::string animFailure;
+				if (frameCount == 10 &&
+					animHotreloadPhase == AnimHotReloadPhase::Idle)
+				{
+					animHotreloadTempRoot =
+						(std::filesystem::temp_directory_path() /
+						("orkige_anim_hotreload_" + std::to_string(
+							std::chrono::steady_clock::now()
+								.time_since_epoch().count()))).string();
+					std::error_code copyError;
+					std::filesystem::copy(animHotreloadPlaytestEnv,
+						animHotreloadTempRoot,
+						std::filesystem::copy_options::recursive, copyError);
+					if (copyError)
+					{
+						animFailed = true;
+						animFailure = "could not prepare the temp copy at " +
+							animHotreloadTempRoot;
+					}
+					else if (!openProjectFromPath(state, editorCore,
+						animHotreloadTempRoot))
+					{
+						animFailed = true;
+						animFailure = "could not open the project copy '" +
+							animHotreloadTempRoot + "'";
+					}
+				}
+				if (frameCount == 30 && !animFailed &&
+					animHotreloadPhase == AnimHotReloadPhase::Idle)
+				{
+					// the OPEN ran the drift scan: the drifted pair re-cooked
+					// (the [import] line + a fresh record on its sidecar), the
+					// record-less legacy artifact stayed byte-untouched
+					if (consoleCountLines(
+						"re-cooking 'assets/probe.json'") < 1)
+					{
+						animFailed = true;
+						animFailure = "the project open did not re-cook the "
+							"drifted pair (no [import] re-cooking line)";
+					}
+					else if (consoleCountLines("legacy.json") > 0)
+					{
+						animFailed = true;
+						animFailure = "the record-less legacy pair was touched "
+							"by the drift scan";
+					}
+					else if (animReadAsset("legacy.oanim").find(
+						"sentinel-untouched") == std::string::npos)
+					{
+						animFailed = true;
+						animFailure = "the record-less legacy artifact was "
+							"rewritten";
+					}
+					else if (animReadAsset("probe.json.orkmeta").find(
+						"0000000000000000000000000000000000000000") !=
+						std::string::npos)
+					{
+						animFailed = true;
+						animFailure = "the re-cook did not refresh the drifted "
+							"pair's recorded hashes";
+					}
+				}
+				if (frameCount == 40 && !animFailed &&
+					animHotreloadPhase == AnimHotReloadPhase::Idle)
+				{
+					if (!startPlay(playSession, gameObjectManager,
+						state.project))
+					{
+						animFailed = true;
+						animFailure = "startPlay failed";
+					}
+					else
+					{
+						animHotreloadPhase = AnimHotReloadPhase::WaitBaseline;
+						animHotreloadDeadline =
+							animNow + std::chrono::seconds(90);
+						SDL_Log("orkige_editor: anim hot-reload playtest - "
+							"drift scan verified, Play pressed on the temp "
+							"copy");
+					}
+				}
+				else if (animHotreloadPhase == AnimHotReloadPhase::WaitBaseline)
+				{
+					if (playSession.mode == PlaySession::Mode::Playing &&
+						playSession.helloReceived &&
+						playSession.scriptsWatchArmed)
+					{
+						// the session is live and the watcher baseline is armed:
+						// rename the walk clip's marker in the SOURCE - the
+						// watcher must re-cook, then hot-reload the rig
+						const std::string source = animReadAsset("probe.json");
+						const std::string::size_type marker =
+							source.find("\"cm\":\"walk\"");
+						if (source.empty() || marker == std::string::npos ||
+							!animWriteAsset("probe.json", std::string(source)
+								.replace(marker, 11, "\"cm\":\"swap\"")))
+						{
+							animFailed = true;
+							animFailure = "could not edit the probe source";
+						}
+						else
+						{
+							animHotreloadPhase = AnimHotReloadPhase::WaitRecook;
+							animHotreloadDeadline =
+								animNow + std::chrono::seconds(90);
+							SDL_Log("orkige_editor: anim hot-reload playtest - "
+								"session live, renamed the walk clip to swap");
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						animFailed = true;
+						animFailure = "session ended before it became live";
+					}
+				}
+				else if (animHotreloadPhase == AnimHotReloadPhase::WaitRecook)
+				{
+					// the watcher re-cooked (the [import] summary carries the
+					// renamed clip) AND the player rebuilt the pair's rig
+					if (consoleCountLines("swap 30-60") >= 1 &&
+						consoleCountLines(
+							"hot-reloaded animation 'probe.oanim'") >= 1)
+					{
+						// direct path next: touch the source-less orphan rig
+						const std::string orphan = animReadAsset("orphan.oanim");
+						if (orphan.empty() || !animWriteAsset("orphan.oanim",
+							orphan + "\n# poked by the playtest\n"))
+						{
+							animFailed = true;
+							animFailure = "could not edit the orphan rig";
+						}
+						else
+						{
+							animHotreloadPhase = AnimHotReloadPhase::WaitOrphan;
+							animHotreloadDeadline =
+								animNow + std::chrono::seconds(90);
+							SDL_Log("orkige_editor: anim hot-reload playtest - "
+								"source re-cook + live reload verified, poked "
+								"the orphan rig");
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						animFailed = true;
+						animFailure = "session ended before the re-cooked rig "
+							"hot-reloaded";
+					}
+				}
+				else if (animHotreloadPhase == AnimHotReloadPhase::WaitOrphan)
+				{
+					if (consoleCountLines(
+						"hot-reloaded animation 'orphan.oanim'") >= 1)
+					{
+						// break the COOK: an invalid source must fail honestly
+						// and send no reload
+						animProbeReloadsAtBreak = consoleCountLines(
+							"hot-reloaded animation 'probe.oanim'");
+						if (!animWriteAsset("probe.json", "{not json"))
+						{
+							animFailed = true;
+							animFailure = "could not break the probe source";
+						}
+						else
+						{
+							animHotreloadPhase =
+								AnimHotReloadPhase::WaitBrokenCook;
+							animHotreloadDeadline =
+								animNow + std::chrono::seconds(90);
+							SDL_Log("orkige_editor: anim hot-reload playtest - "
+								"orphan direct reload verified, broke the "
+								"probe source");
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						animFailed = true;
+						animFailure = "session ended before the orphan rig "
+							"hot-reloaded";
+					}
+				}
+				else if (animHotreloadPhase ==
+					AnimHotReloadPhase::WaitBrokenCook)
+				{
+					// the failed cook surfaced as an error line, play continued
+					// and NO fresh reload reached the player
+					if (consoleHasErrorLine("re-cook of 'probe.json' failed"))
+					{
+						if (playSession.mode != PlaySession::Mode::Playing &&
+							playSession.mode != PlaySession::Mode::Paused)
+						{
+							animFailed = true;
+							animFailure = "the broken cook stopped play (it "
+								"must keep running)";
+						}
+						else if (consoleCountLines(
+							"hot-reloaded animation 'probe.oanim'") !=
+							animProbeReloadsAtBreak)
+						{
+							animFailed = true;
+							animFailure = "a FAILED cook still hot-reloaded the "
+								"running rig";
+						}
+						else if (!animWriteAsset("orphan.oanim", "not a rig\n"))
+						{
+							animFailed = true;
+							animFailure = "could not break the orphan rig";
+						}
+						else
+						{
+							animHotreloadPhase =
+								AnimHotReloadPhase::WaitBrokenReload;
+							animHotreloadDeadline =
+								animNow + std::chrono::seconds(90);
+							SDL_Log("orkige_editor: anim hot-reload playtest - "
+								"broken cook contained, broke the orphan rig");
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						animFailed = true;
+						animFailure = "session ended before the broken cook "
+							"surfaced";
+					}
+				}
+				else if (animHotreloadPhase ==
+					AnimHotReloadPhase::WaitBrokenReload)
+				{
+					// the player's parse-before-swap refused the broken rig:
+					// a [remote] reload_anim error, play continues
+					if (consoleHasErrorLine("reload_anim"))
+					{
+						if (playSession.mode != PlaySession::Mode::Playing &&
+							playSession.mode != PlaySession::Mode::Paused)
+						{
+							animFailed = true;
+							animFailure = "the broken rig stopped play (the old "
+								"rig must keep playing)";
+						}
+						else
+						{
+							requestStopPlay(playSession);
+							animHotreloadPhase = AnimHotReloadPhase::WaitRevert;
+							animHotreloadDeadline =
+								animNow + std::chrono::seconds(90);
+							SDL_Log("orkige_editor: anim hot-reload playtest - "
+								"parse-before-swap refused the broken rig, "
+								"stopping");
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						animFailed = true;
+						animFailure = "session ended before the broken rig was "
+							"refused";
+					}
+				}
+				else if (animHotreloadPhase == AnimHotReloadPhase::WaitRevert)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						if (playSession.process != nullptr ||
+							playSession.client.isConnected())
+						{
+							animFailed = true;
+							animFailure = "session not fully torn down after "
+								"revert";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: anim hot-reload playtest "
+								"PASSED: open-scan re-cooked the drifted pair "
+								"(legacy untouched), source edit -> re-cook -> "
+								"live reload, orphan direct reload, broken "
+								"cook and broken rig both contained, clean "
+								"Stop");
+							std::error_code ignored;
+							std::filesystem::remove_all(animHotreloadTempRoot,
+								ignored);
+							animHotreloadPhase = AnimHotReloadPhase::Done;
+							running = false;
+						}
+					}
+				}
+				if (!animFailed &&
+					animHotreloadPhase != AnimHotReloadPhase::Idle &&
+					animHotreloadPhase != AnimHotReloadPhase::Done &&
+					animNow >= animHotreloadDeadline)
+				{
+					animFailed = true;
+					animFailure = "deadline exceeded in phase " +
+						std::to_string(static_cast<int>(animHotreloadPhase)) +
+						" (mode=" + std::to_string(
+							static_cast<int>(playSession.mode)) +
+						", probeReloads=" + std::to_string(consoleCountLines(
+							"hot-reloaded animation 'probe.oanim'")) +
+						", orphanReloads=" + std::to_string(consoleCountLines(
+							"hot-reloaded animation 'orphan.oanim'")) +
+						", cookErr=" + (consoleHasErrorLine(
+							"re-cook of 'probe.json' failed") ? "yes" : "no") +
+						", reloadErr=" + (consoleHasErrorLine("reload_anim")
+							? "yes" : "no") + ")";
+				}
+				if (animFailed)
+				{
+					SDL_Log("orkige_editor: anim hot-reload playtest FAILED - "
+						"%s", animFailure.c_str());
+					if (!animHotreloadTempRoot.empty())
+					{
+						std::error_code ignored;
+						std::filesystem::remove_all(animHotreloadTempRoot,
 							ignored);
 					}
 					exitCode = 7;

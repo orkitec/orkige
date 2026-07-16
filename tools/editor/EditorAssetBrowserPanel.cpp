@@ -2328,6 +2328,40 @@ void drawItemContextMenu(EditorState& state, Orkige::EditorCore& core,
 					*gViewSettings);
 			}
 		}
+		// a cooked animation PAIR (kept .json source <-> .oanim/.oshape
+		// artifact) re-cooks on demand with the sidecar's recorded settings -
+		// the manual force behind the automatic drift re-cook
+		{
+			std::error_code reimportEc;
+			const fs::path itemPath(entry.item.absolutePath);
+			const std::string ext = itemPath.extension().string();
+			std::string reimportSource;
+			if (ext == ".json" &&
+				(fs::is_regular_file(fs::path(itemPath)
+					.replace_extension(".oanim"), reimportEc) ||
+				 fs::is_regular_file(fs::path(itemPath)
+					.replace_extension(".oshape"), reimportEc)))
+			{
+				reimportSource = entry.item.relativePath;
+			}
+			else if ((ext == ".oanim" || ext == ".oshape") &&
+				fs::is_regular_file(fs::path(itemPath)
+					.replace_extension(".json"), reimportEc))
+			{
+				reimportSource = fs::path(entry.item.relativePath)
+					.replace_extension(".json").generic_string();
+			}
+			if (!reimportSource.empty() && ImGui::MenuItem("Reimport"))
+			{
+				std::string reimportError;
+				if (recookAnimationPair(state, reimportSource, nullptr,
+					&reimportError).empty())
+				{
+					browser.statusMessage = "reimport failed: " + reimportError;
+					browser.statusMessageExpiry = ImGui::GetTime() + 6.0;
+				}
+			}
+		}
 	}
 	else if (ImGui::MenuItem("Open"))
 	{

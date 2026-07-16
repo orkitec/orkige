@@ -316,6 +316,8 @@ namespace Orkige
 		void handleReloadScript(GameObjectManager & gameObjectManager,
 			DebugMessage const & message);
 		void handleReloadUi(DebugMessage const & message);
+		void handleReloadAnim(GameObjectManager & gameObjectManager,
+			DebugMessage const & message);
 		void handleSetCvar(DebugMessage const & message);
 		void handleRecordStart(DebugMessage const & message);
 		//! record an event on the active trace (a no-op when idle): the hook
