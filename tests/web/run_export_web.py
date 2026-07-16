@@ -122,7 +122,10 @@ def run_browser(browser, url, deadline_seconds, screenshot="",
     """drive one headless page load; returns captured stderr text. The
     process is killed at the deadline or as soon as every needed marker was
     seen (the page's timer loop can keep the browser alive indefinitely)."""
-    with tempfile.TemporaryDirectory() as profile:
+    # ignore_cleanup_errors: the deadline-killed browser's helper processes
+    # can still be writing the profile while the context exits - a leftover
+    # temp profile is harmless, a cleanup OSError would fail a passed test
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as profile:
         command = [browser, "--headless=new", "--no-first-run",
                    "--user-data-dir=" + profile,
                    "--enable-unsafe-swiftshader",
