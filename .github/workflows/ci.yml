@@ -521,6 +521,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # this job is the disk-heaviest (an Android cross tree + the host
+      # editor tree + vcpkg caches + SDK/emulator images) and has hit the
+      # hosted runner's disk ceiling mid-link - drop the preinstalled
+      # toolchains it never uses (the Android SDK stays)
+      - name: Reclaim runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /usr/share/swift /usr/local/share/boost \
+            "$AGENT_TOOLSDIRECTORY/CodeQL"
+          df -h /
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -665,6 +676,16 @@ jobs:
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
+
+      # same disk ceiling as the next sibling: two build trees + the
+      # emulator on one hosted disk - drop the unused preinstalled
+      # toolchains (the Android SDK stays)
+      - name: Reclaim runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /usr/share/swift /usr/local/share/boost \
+            "$AGENT_TOOLSDIRECTORY/CodeQL"
+          df -h /
 
       - name: Install system dependencies
         run: |
