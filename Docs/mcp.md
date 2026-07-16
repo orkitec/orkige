@@ -606,14 +606,29 @@ WHERE:
   toolbar's boot flow), so `play` returns `{ accepted:"1" }` and you poll
   `get_state` (`play_mode` walks `launching`→`playing`). Native-module projects
   are desktop-only.
-- `"browser"` is an export-serve-open, never a live play session (a page
-  cannot host the debug socket): the editor runs a `web` export, serves the
-  artifact directory on a loopback port and opens the default browser. Poll
-  `get_state` — `browser_play_status` walks `exporting`→`serving` (or
-  `failed`) and `browser_play_url` carries the page URL; drive your own
-  headless browser at it (the shell page maps `?env.NAME=VALUE` query params
-  onto the module environment, so the native automation hooks work —
-  `Docs/web-export.md`). Gated (`target_states:"gated"`) until the
+- `"browser"` is an export-serve-open that becomes a LIVE play session once
+  the page loads: the editor runs a `web` export, serves the artifact
+  directory on a loopback port, opens the default browser at a URL carrying
+  `?env.ORKIGE_DEBUG_CONNECT=127.0.0.1:<servePort>` — and waits. The page's
+  runtime dials that endpoint (a page cannot listen, so the direction
+  reverses; its socket emulation rides a WebSocket the serve port upgrades)
+  and the session becomes a desktop-like live session: `runtime_hierarchy`,
+  `runtime_state`, `pause`/`resume`/`step`, `set_runtime_property`,
+  `set_cvar` and the `[remote]` Console lines all work over the ONE debug
+  protocol. Poll `get_state` — `browser_play_status` walks
+  `exporting`→`serving`→`connected` (or `failed`) and `browser_play_url`
+  carries the page URL; a headless agent drives its own browser at that URL
+  (the shell page maps `?env.NAME=VALUE` query params onto the module
+  environment, so the native automation hooks work — `Docs/web-export.md`).
+  A page that never connects degrades honestly: the waiting session times
+  out back to edit mode, the status returns to `serving` and the tab runs
+  standalone. `stop` sends quit over the link — the page's game loop exits
+  (the editor cannot close a tab; the finished page stays). What does NOT
+  work over a browser link, each refusing with an honest error:
+  `screenshot_game` and `record_trace` (the page's in-memory filesystem
+  never reaches the editor's disk) and `reload_script`/`reload_ui` (the page
+  runs its packaged export snapshot — stop, re-play, and the fresh export
+  picks the edit up). Gated (`target_states:"gated"`) until the
   web-release preset built the wasm player.
 
 `list_play_targets` (a read) enumerates exactly what the editor's target picker

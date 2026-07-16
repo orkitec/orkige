@@ -43,7 +43,10 @@ browser player, classic GLES2→WebGL**; needs the user-local emsdk, see
 the WHOLE closure because vcpkg silently drops triplet compiler flags on
 toolchain-less platforms; export via `orkige_export.py --platform web`,
 Play in Browser from the editor's target picker serves it on a loopback
-HttpServer instance — `Docs/web-export.md`). Output in `build/<preset>/`.
+HttpServer instance AND is a live debug session: the page dials the debug
+link back in over a WebSocket the serve port upgrades — the ONE protocol,
+reversed direction — so remote logs/hierarchy/pause work; screenshot/trace/
+hot-reload refuse honestly — `Docs/web-export.md`). Output in `build/<preset>/`.
 The two flavors implement the same `engine_render` facade
 (`engine_render_next/` vs `engine_render_classic/`, same source tree). Games
 (player, hello_orkige, projects/), gui AND the editor (ImGui on

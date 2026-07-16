@@ -70,19 +70,56 @@ on machines without a headless browser (`ORKIGE_CHROME` overrides discovery).
 
 The Play toolbar's target picker carries a **Browser (WebGL)** entry once the
 web-release preset built the wasm player (greyed with the build hint
-otherwise). Play on it is an export-serve-open, not a live play session: the
-editor runs the `web` export through its async export job (the `[export]`
-Console lines), serves the artifact directory on a loopback port through a
-second instance of the core_debugnet `HttpServer` (127.0.0.1 only; the wasm
-module serves as `application/wasm` — streaming compilation requires it) and
-opens the default browser at the served URL. The game runs standalone in the
-tab — a page cannot host the debug socket, so the remote hierarchy/inspector
-stay unavailable, like an iOS hardware session. A later Play re-exports and
-re-points the one server's doc root; a previous tab's fetches answer 404 from
-then on (those artifacts no longer exist). Agents reach the same flow over
-MCP: `play { target:"browser" }`, then poll `get_state` for
-`browser_play_status`/`browser_play_url` (`Docs/mcp.md`). Verified by the
-`editor_play_browser` ctest (SKIPs 77 without the wasm player).
+otherwise). Play on it is an export-serve-open that becomes a **live debug
+session** once the page loads: the editor runs the `web` export through its
+async export job (the `[export]` Console lines), serves the artifact
+directory on a loopback port through a second instance of the core_debugnet
+`HttpServer` (127.0.0.1 only; the wasm module serves as `application/wasm` —
+streaming compilation requires it), opens the default browser at the served
+URL — and waits for the page to dial the debug link back in.
+
+The link is the ONE editor↔player debug protocol with its direction
+reversed: a page cannot listen and cannot speak raw TCP, so the URL carries
+`?env.ORKIGE_DEBUG_CONNECT=127.0.0.1:<servePort>` (the shell's `?env.*`
+mapping), the wasm runtime dials that endpoint through its plain
+`DebugClient` — Emscripten's POSIX-socket emulation wraps the byte stream in
+a WebSocket (`binary` subprotocol) — and the serve port answers the upgrade
+(RFC 6455 handshake in `core_debugnet/WebSocket.{h,cpp}`, the generic
+`HttpServer` connection takeover) and hands the socket to the waiting play
+session's `DebugClient` (`adoptWebSocket`). From there it is a desktop-like
+session: `[remote]` Console lines, remote hierarchy/inspector, pause/step,
+live property writes and cvars, all unchanged. One page per session; a
+second tab or a page arriving after the session ended is refused (409) and
+runs standalone.
+
+Honest boundaries of the browser link:
+
+- **Stop** sends quit over the link; the page's game loop exits cleanly
+  (`ORKIGE_EXIT_<code>` in the title) and the closing socket confirms the
+  stop. The editor cannot close a tab — the finished page stays open.
+- A page that **never connects** (no browser, tab closed early) times out
+  (`BROWSER_PAGE_CONNECT_TIMEOUT_SECONDS`) back to edit mode; serving
+  continues and the tab runs standalone. Closing/refreshing the tab
+  mid-session ends the session like a vanished player; the reloaded page is
+  refused and runs standalone.
+- `screenshot_game` and `record_trace` refuse: the page writes to its
+  in-memory filesystem, which never reaches the editor's disk.
+- Lua/`.oui` **hot-reload** refuses (and the editor's file watchers stay
+  dark): the page runs its packaged export snapshot — stop, re-play, and
+  the fresh export picks the edit up.
+
+A later Play re-exports and re-points the one server's doc root; a previous
+tab's fetches answer 404 from then on (those artifacts no longer exist).
+Agents reach the same flow over MCP: `play { target:"browser" }`, poll
+`get_state` for `browser_play_status` (`exporting`→`serving`→`connected`) /
+`browser_play_url`, open their own browser at the URL and use the
+`runtime_*` verbs (`Docs/mcp.md`). Verified by the `editor_play_browser`
+ctest (served artifacts, the no-page degradation and the late-upgrade 409;
+SKIPs 77 without the wasm player) and the `editor_play_browser_session`
+ctest (a real headless Chrome dials the session in: remote logs, hierarchy,
+pause/resume, the honest refusals, stop; SKIPs 77 without the wasm player or
+a headless browser). The transport itself is unit-tested browser-free
+(`WebSocketCodecTests`, `DebugWebSocketLinkTests`).
 
 ## What is different in the browser (v1)
 
@@ -96,9 +133,12 @@ MCP: `play { target:"browser" }`, then poll `get_state` for
   `PlayerContext`); when the run ends, the callback performs the same orderly
   shutdown the desktop path runs, then the runtime exits with the game's code
   (the `ORKIGE_EXIT_<code>` title contract is unchanged).
-- **No debug link.** The BSD-socket API compiles but cannot listen in a page;
-  `--debug-port` fails honestly and the game runs standalone — like an iOS
-  device session.
+- **The debug link dials OUT.** The BSD-socket API compiles but cannot
+  listen in a page, so `--debug-port` fails honestly; instead
+  `ORKIGE_DEBUG_CONNECT=host:port` (a `?env.*` query param) makes the
+  runtime dial the editor — the browser Play session's live link (see
+  below). Without it, or when nobody answers the dial, the game runs
+  standalone.
 - **Saves are in-memory.** The module filesystem is MEMFS: the save store
   works within a session but does not survive a reload (persistent browser
   storage is a future knob).
