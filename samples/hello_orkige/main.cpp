@@ -4236,8 +4236,12 @@ int main(int, char**)
 		bool running = true;
 		unsigned long frameCount = 0;
 		// music selfcheck: the playhead sampled early, compared late to prove it
-		// advanced (device present) or stayed put at 0 (headless no-op)
+		// advanced (device present) or stayed put at 0 (headless no-op); loop
+		// wraps between the samples are counted as advancement (a slow host
+		// spans whole loops - the playhead legitimately lands BELOW its start)
 		float musicPosStart = 0.0f;
+		float musicPosLast = 0.0f;
+		int musicWraps = 0;
 		std::chrono::steady_clock::time_point lastFrameTime =
 			std::chrono::steady_clock::now();
 		while (running)
@@ -4731,6 +4735,22 @@ int main(int, char**)
 				// audio has played)
 				Orkige::MusicStreamPtr track = soundManager.getMusic("bgm");
 				musicPosStart = track ? track->getPlayPosition() : 0.0f;
+				musicPosLast = musicPosStart;
+			}
+			if (demoMusic && frameCount > 20 && frameCount < 110)
+			{
+				// the playhead of a LOOPING track wraps at the duration
+				// (documented on getPlayPosition) - on a slow host the sample
+				// window spans whole loops, so advancement must be judged
+				// wrap-aware: count the wraps as they happen
+				Orkige::MusicStreamPtr track = soundManager.getMusic("bgm");
+				const float pos = track ? track->getPlayPosition() : 0.0f;
+				const float duration = track ? track->getDuration() : 0.0f;
+				if (duration > 0.0f && pos + 0.5f * duration < musicPosLast)
+				{
+					++musicWraps;
+				}
+				musicPosLast = pos;
 			}
 			if (demoMusic && frameCount == 110)
 			{
@@ -4744,15 +4764,20 @@ int main(int, char**)
 				if (musicAudioUp)
 				{
 					// device present: the track must be playing AND its playhead
-					// must have advanced (proves the queued-buffer ring refilled)
-					if (!playing || !(musicPosEnd > musicPosStart))
+					// must have advanced (proves the queued-buffer ring
+					// refilled). A looping playhead WRAPS at the duration, and a
+					// slow host spans whole loops between the two samples - a
+					// counted wrap is advancement too.
+					if (!playing || !(musicWraps > 0 || musicPosEnd > musicPosStart))
 					{
 						SDL_Log("hello_orkige: FAILED - music playhead did not "
-							"advance (ring did not refill)");
+							"advance (ring did not refill; wraps=%d)",
+							musicWraps);
 						return 1;
 					}
 					SDL_Log("hello_orkige: music selfcheck passed (streamed OGG "
-						"playhead advanced across frames)");
+						"playhead advanced across frames, %d loop wrap(s))",
+						musicWraps);
 				}
 				else
 				{
