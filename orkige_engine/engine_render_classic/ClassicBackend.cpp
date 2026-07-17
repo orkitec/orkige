@@ -59,6 +59,11 @@ namespace Orkige
 		bool gPreArmBackFaces = true;
 		Ogre::ShadowCameraSetupPtr gPreArmCameraSetup;
 
+		//! every live offscreen render target - applyShadowConfig re-applies
+		//! their viewport state on arm/disarm (the shadow-toggle override,
+		//! @see RenderBackend::shadowsArmed)
+		std::vector<RenderTexture*> gRenderTargets;
+
 		//! does any live directional light ask to cast (the arming trigger -
 		//! v1 shadow maps are directional-only on both flavors)
 		bool anyDirectionalCaster()
@@ -127,6 +132,22 @@ namespace Orkige
 #else
 		return false;
 #endif
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::shadowsArmed()
+	{
+		return gArmedShadowQuality != ShadowPreset::SQ_OFF;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::registerRenderTarget(RenderTexture* target)
+	{
+		gRenderTargets.push_back(target);
+	}
+	//---------------------------------------------------------
+	void RenderBackend::unregisterRenderTarget(RenderTexture* target)
+	{
+		gRenderTargets.erase(std::remove(gRenderTargets.begin(),
+			gRenderTargets.end(), target), gRenderTargets.end());
 	}
 	//---------------------------------------------------------
 	void RenderBackend::noteSunDimmedForShadows(bool dimmed)
@@ -217,6 +238,12 @@ namespace Orkige
 		}
 		if(target == ShadowPreset::SQ_OFF || !schemeState)
 		{
+			// disarmed: every offscreen target returns to its AUTHORED
+			// shadow toggle (the arm-time override lifts, restore-exactly)
+			for(RenderTexture* each : gRenderTargets)
+			{
+				each->mImpl->applyViewportState();
+			}
 			return;
 		}
 
@@ -309,6 +336,15 @@ namespace Orkige
 		schemeState->addTemplateSubRenderState(receiver);
 		generator->invalidateScheme(scheme);
 		gArmedShadowQuality = target;
+		// armed: every viewport must PREPARE shadow state - the integrated
+		// receiver is baked into the scene's generated shaders, and a
+		// shadows-disabled viewport rendering them reads unmaintained
+		// shadow projectors (@see RenderBackend::shadowsArmed). Re-apply
+		// each target's viewport state so the override takes effect.
+		for(RenderTexture* each : gRenderTargets)
+		{
+			each->mImpl->applyViewportState();
+		}
 #endif // USE_RTSHADER_SYSTEM
 	}
 	//---------------------------------------------------------
@@ -408,6 +444,9 @@ namespace Orkige
 		gArmedShadowQuality = ShadowPreset::SQ_OFF;
 		gSunDimmedForShadows = false;
 		gPreArmCameraSetup.reset();
+		// render-target handles may outlive the backend (script states) -
+		// drop the registry so their destructors stop unregistering
+		gRenderTargets.clear();
 	}
 	//---------------------------------------------------------
 	RenderSystem* RenderBackend::system()

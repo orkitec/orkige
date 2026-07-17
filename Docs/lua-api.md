@@ -781,6 +781,8 @@ ModelComponent:setMaterialReference(...)
 ModelComponent:getMaterialFileName(...)
 ModelComponent.mesh
 ModelComponent.material
+ModelComponent.castShadows
+ModelComponent.receiveShadows
 
 ## WaterComponent
 WaterComponent:getSizeX(...)
@@ -805,6 +807,7 @@ WaterComponent.waveScale
 WaterComponent.waveSpeed
 WaterComponent.fresnelPower
 WaterComponent.normalTexture
+WaterComponent.receiveShadows
 
 ## SpriteComponent
 SpriteComponent:loadSprite(...)

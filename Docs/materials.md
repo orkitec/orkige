@@ -118,6 +118,22 @@ occlusion/roughness/metalness layout). The backend writes them in that
 order; a swapped write turns every rough dielectric into a mirror-smooth
 metal (black diffuse plus a pin highlight) — the historical field-cube bug.
 
+**Shadows**: `.omat` content participates in dynamic shadows on BOTH
+flavors (the `r.shadowQuality` knob + a casting directional light — the
+full design lives in `Docs/render-abstraction.md`). Receiver code is
+injected CENTRALLY: next through HlmsPbs, classic through the RTSS
+shadow-mapping sub-render-state added once to the generated-material scheme,
+whose shadow factor feeds the same Cook-Torrance stage — no per-material
+work. Per-OBJECT participation is `ModelComponent`'s reflected
+`castShadows`/`receiveShadows` (default true): the caster flag rides the
+mesh instance, the receiver flag swaps the instance onto a no-receive
+variant of its material/datablock (`MeshInstance::setReceiveShadows`), so
+instances sharing one `.omat` keep independent flags. Water receives
+(`WaterComponent.receiveShadows`, per-instance material) but never casts.
+2D content (sprites, vector shapes, particles, gui) is out of the shadow
+pass by construction — its generated materials set receive-shadows false
+and its objects never cast.
+
 ## Honest v1 boundaries
 
 - **Opaque only** — no transparency/blend modes on scene-content materials.

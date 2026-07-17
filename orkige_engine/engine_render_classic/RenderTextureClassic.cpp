@@ -30,6 +30,9 @@ namespace Orkige
 		handle->mImpl->width = width;
 		handle->mImpl->height = height;
 		handle->mImpl->recreate();
+		// the registry lets applyShadowConfig re-apply this target's
+		// viewport state on shadow arm/disarm (the shadow-toggle override)
+		RenderBackend::registerRenderTarget(handle.get());
 		return handle;
 	}
 	//---------------------------------------------------------
@@ -102,7 +105,15 @@ namespace Orkige
 		Ogre::Viewport* viewport = renderTarget->getViewport(0);
 		viewport->setBackgroundColour(this->background);
 		viewport->setOverlaysEnabled(this->overlaysEnabled);
-		viewport->setShadowsEnabled(this->shadowsEnabled);
+		// while the scene-level shadow technique is ARMED the authored
+		// shadow toggle is overridden ON: the integrated receiver is baked
+		// into the scene's generated shaders, and classic OGRE maintains the
+		// shadow-projector state only for viewports that prepare shadow
+		// textures - honoring "off" here would render receiver shaders
+		// against stale projectors (a crash). The authored value is kept and
+		// restored the moment the technique disarms (restore-exactly).
+		viewport->setShadowsEnabled(this->shadowsEnabled ||
+			RenderBackend::shadowsArmed());
 	}
 	//---------------------------------------------------------
 	RenderTexture::RenderTexture()
@@ -112,6 +123,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	RenderTexture::~RenderTexture()
 	{
+		if(RenderBackend::system())
+		{
+			RenderBackend::unregisterRenderTarget(this);
+		}
 		this->mImpl->destroyTexture();
 		delete this->mImpl;
 	}

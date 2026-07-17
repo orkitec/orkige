@@ -67,7 +67,13 @@ namespace Orkige
 		//! (the editor turns them OFF so the scene panel shows only scene)
 		//! map: classic=Viewport::setOverlaysEnabled | next=overlay compositor pass toggle | filament=separate UI View (nothing to toggle)
 		void setOverlaysEnabled(bool enabled);
-		//! map: classic=Viewport::setShadowsEnabled | next=shadow node toggle in the workspace | filament=View::setShadowingEnabled
+		//! @remarks classic subset: while the scene-level shadow technique is
+		//! ARMED (@see RenderWorld::setShadowQuality) the toggle is overridden
+		//! ON for this target - the integrated receiver is baked into the
+		//! scene's generated shaders, so per-viewport disabling is structurally
+		//! unsupported there; the authored value is restored when shadows
+		//! disarm. The next flavor honors the toggle per target natively.
+		//! map: classic=Viewport::setShadowsEnabled (armed-override, see remarks) | next=shadow node toggle in the workspace | filament=View::setShadowingEnabled
 		void setShadowsEnabled(bool enabled);
 
 		//--- size ---

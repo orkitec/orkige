@@ -363,6 +363,19 @@ namespace Orkige
 		//! (technique, configured texture counts, receiver injection) - the
 		//! render_facade selfcheck asserts arm/disarm restores it EXACTLY
 		static String shadowStateDescription();
+		//! @brief is the scene-level shadow technique currently armed
+		//! @remarks While armed, per-target shadow DISABLE is overridden: an
+		//! integrated technique bakes the receiver into the scene's generated
+		//! shaders, and classic OGRE only maintains the shadow-projector
+		//! state for viewports that prepare shadow textures - rendering those
+		//! shaders in a shadows-disabled viewport reads stale projectors (a
+		//! crash class, @see RenderTexture::Impl::applyViewportState).
+		static bool shadowsArmed();
+		//! live render-target registry: applyShadowConfig re-applies every
+		//! target's viewport state on arm/disarm (the shadow-toggle override
+		//! above), mirroring the next backend's registry
+		static void registerRenderTarget(RenderTexture* target);
+		static void unregisterRenderTarget(RenderTexture* target);
 		static optr<RenderTexture> createRenderTexture(String const & name,
 			unsigned int width, unsigned int height);
 		//! create a 2D overlay layer (registers it with the render hook -
