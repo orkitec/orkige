@@ -61,8 +61,7 @@ namespace Orkige
 		handle->mImpl->mesh->setQueryFlags(0);
 		// dynamic: the geometry is refilled (static once, deformable per frame)
 		handle->mImpl->mesh->setDynamic(true);
-		handle->mImpl->mesh->setRenderQueueGroup(
-			RenderBackend::renderQueueForZOrder(0));
+		RenderBackend::applyZOrder(handle->mImpl->mesh, 0);
 		return handle;
 	}
 	//---------------------------------------------------------
@@ -106,8 +105,7 @@ namespace Orkige
 				this->indices[t * 3 + 1], this->indices[t * 3 + 2]);
 		}
 		this->mesh->end();
-		this->mesh->setRenderQueueGroup(
-			RenderBackend::renderQueueForZOrder(this->zOrder));
+		RenderBackend::applyZOrder(this->mesh, this->zOrder);
 	}
 	//---------------------------------------------------------
 	void VectorMesh::Impl::updateVertices(VectorMesh::Vertex const * vertices,
@@ -199,8 +197,7 @@ namespace Orkige
 	{
 		this->mImpl->zOrder = std::clamp(zOrder,
 			SpriteQuad::ZORDER_MIN, SpriteQuad::ZORDER_MAX);
-		this->mImpl->mesh->setRenderQueueGroup(
-			RenderBackend::renderQueueForZOrder(this->mImpl->zOrder));
+		RenderBackend::applyZOrder(this->mImpl->mesh, this->mImpl->zOrder);
 	}
 	//---------------------------------------------------------
 	void VectorMesh::setVisible(bool visible)

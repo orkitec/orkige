@@ -121,6 +121,42 @@ def probe_field(img):
         fail("the instance-field cubes render black (median %.1f)" % median)
 
 
+# flatland: the flat-colour 2D vector showcase. Its shapes (a red soft-body
+# blob, an orange morph blob, a blue vector-anim walker, a yellow sun sprite)
+# sit OVER a full-screen gradient backdrop sprite. If the 2D painter order
+# regresses - the backdrop paints on TOP of the shapes, washing them to the
+# backdrop's blue-grey (the classic transparent-sort-vs-render-queue fault) -
+# the saturated shape colours vanish. This corridor bounds BOTH flavors from
+# the same side: the shapes MUST contribute enough clearly-warm (red/orange)
+# and clearly-yellow (sun) pixels, which a washed frame cannot.
+FLATLAND_WARM_MIN = 400     # red blob + orange blob pixels (of the ~102k grid)
+FLATLAND_SUN_MIN = 8        # the small bright-yellow sun sprite
+
+
+def probe_flatland(img):
+    width, height, channels, pixels = img
+    warm = 0        # strongly red/orange - the blob + morph shapes
+    sun = 0         # bright warm-yellow - the sun sprite
+    for y in range(0, height, 2):
+        for x in range(0, width, 2):
+            r, g, b = pixel(pixels, channels, width, x, y)
+            # the blue-grey backdrop (e.g. 76,114,178) has b dominant; a shape
+            # pixel is clearly red-dominant (blob 230,77,52 / orange 242,153,102)
+            if r >= 180 and r >= g + 70 and r >= b + 90:
+                warm += 1
+            # the sun is bright yellow (255,229,102): high r+g, low-ish b
+            if r >= 210 and g >= 180 and b <= 170:
+                sun += 1
+    log("flatland: warm(red/orange) px %d (want >= %d), sun px %d (want >= %d)"
+        % (warm, FLATLAND_WARM_MIN, sun, FLATLAND_SUN_MIN))
+    if warm < FLATLAND_WARM_MIN:
+        fail("the flat-colour shapes are washed out - the 2D backdrop paints "
+             "over them (the render-queue/painter-order regression)")
+    if sun < FLATLAND_SUN_MIN:
+        fail("the sun sprite is washed out - a high-zOrder sprite renders "
+             "behind the backdrop")
+
+
 def probe_hud2x(img):
     width, height, channels, pixels = img
     # bright-glyph histogram over the HUD corner (rows are DEVICE pixels; the
@@ -156,14 +192,15 @@ def main():
     parser.add_argument("--player", required=True)
     parser.add_argument("--dir", required=True)
     parser.add_argument("--probe", required=True,
-                        choices=("lumens", "field", "hud2x"))
+                        choices=("lumens", "field", "hud2x", "flatland"))
     parser.add_argument("--frames", type=int, default=240,
                         help="capture is at frame 60; later frames only pad "
                              "the clean-exit check")
     args = parser.parse_args()
 
     scene = {"lumens": "scenes/lumens.oscene", "field": "scenes/field.oscene",
-             "hud2x": "scenes/lumens.oscene"}[args.probe]
+             "hud2x": "scenes/lumens.oscene",
+             "flatland": "scenes/flatland.oscene"}[args.probe]
 
     os.makedirs(args.dir, exist_ok=True)
     shot = os.path.join(args.dir, args.probe + "_frame.png")
@@ -200,7 +237,7 @@ def main():
 
     img = decode_png(shot)
     { "lumens": probe_lumens, "field": probe_field,
-      "hud2x": probe_hud2x }[args.probe](img)
+      "hud2x": probe_hud2x, "flatland": probe_flatland }[args.probe](img)
     log("OK")
 
 

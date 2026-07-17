@@ -139,8 +139,7 @@ namespace Orkige
 		this->quad->triangle(0, 3, 2);
 		this->quad->triangle(0, 2, 1);
 		this->quad->end();
-		this->quad->setRenderQueueGroup(
-			RenderBackend::renderQueueForZOrder(this->zOrder));
+		RenderBackend::applyZOrder(this->quad, this->zOrder);
 	}
 	//---------------------------------------------------------
 	SpriteQuad::SpriteQuad()
@@ -246,8 +245,7 @@ namespace Orkige
 	void SpriteQuad::setZOrder(int zOrder)
 	{
 		this->mImpl->zOrder = std::clamp(zOrder, ZORDER_MIN, ZORDER_MAX);
-		this->mImpl->quad->setRenderQueueGroup(
-			RenderBackend::renderQueueForZOrder(this->mImpl->zOrder));
+		RenderBackend::applyZOrder(this->mImpl->quad, this->mImpl->zOrder);
 	}
 	//---------------------------------------------------------
 	void SpriteQuad::setVisible(bool visible)

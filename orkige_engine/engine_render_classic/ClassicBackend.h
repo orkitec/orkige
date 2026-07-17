@@ -414,8 +414,20 @@ namespace Orkige
 		//! (RenderSystem::setWaterTime) - a name with no registered water
 		//! material is a silent no-op (the dormancy rule)
 		static void setWaterMaterialTime(String const & name, float seconds);
-		//! zOrder -> render queue id (painter's sorting around MAIN)
-		static Ogre::uint8 renderQueueForZOrder(int zOrder);
+		//! @brief order a 2D renderable (sprite / vector fill / sprite batch)
+		//! by @p zOrder so a higher zOrder paints ON TOP.
+		//! @remarks classic OGRE sorts alpha-blended, depth-write-disabled
+		//! renderables by camera distance and does NOT honour the render-queue
+		//! GROUP id across groups for them (a lower-group full-screen backdrop
+		//! paints over a higher-group sprite - the distance sort wins, and a
+		//! centred quad is nearest so it always lands on top). Render PRIORITY
+		//! *within one group* IS honoured, so all 2D content shares
+		//! RENDER_QUEUE_MAIN and paints by zOrder-as-priority (higher zOrder =
+		//! higher priority = drawn later = on top), matching the next flavor's
+		//! render-queue-id painter order (WYSIWYG). The priority is centred on
+		//! the renderable default so co-planar 2D still straddles other MAIN
+		//! transparents (e.g. water) by zOrder sign.
+		static void applyZOrder(Ogre::MovableObject* object, int zOrder);
 	};
 }
 

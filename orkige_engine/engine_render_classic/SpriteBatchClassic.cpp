@@ -110,8 +110,7 @@ namespace Orkige
 		handle->mImpl->batch->setQueryFlags(0);
 		// dynamic: the geometry is refilled every frame
 		handle->mImpl->batch->setDynamic(true);
-		handle->mImpl->batch->setRenderQueueGroup(
-			RenderBackend::renderQueueForZOrder(0));
+		RenderBackend::applyZOrder(handle->mImpl->batch, 0);
 		return handle;
 	}
 	//---------------------------------------------------------
@@ -145,8 +144,7 @@ namespace Orkige
 			this->batch->triangle(v0 + 0, v0 + 2, v0 + 1);
 		}
 		this->batch->end();
-		this->batch->setRenderQueueGroup(
-			RenderBackend::renderQueueForZOrder(this->zOrder));
+		RenderBackend::applyZOrder(this->batch, this->zOrder);
 	}
 	//---------------------------------------------------------
 	SpriteBatch::SpriteBatch()
@@ -218,8 +216,7 @@ namespace Orkige
 	{
 		this->mImpl->zOrder = std::clamp(zOrder,
 			SpriteQuad::ZORDER_MIN, SpriteQuad::ZORDER_MAX);
-		this->mImpl->batch->setRenderQueueGroup(
-			RenderBackend::renderQueueForZOrder(this->mImpl->zOrder));
+		RenderBackend::applyZOrder(this->mImpl->batch, this->mImpl->zOrder);
 	}
 	//---------------------------------------------------------
 	void SpriteBatch::setVisible(bool visible)

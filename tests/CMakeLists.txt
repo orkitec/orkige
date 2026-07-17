@@ -1648,8 +1648,11 @@ if(TARGET orkige_player)
         # exposure linkage and the point-light path per flavor); field = the
         # ramped instance cubes render LIT (the black-cube regression class);
         # hud2x = the HUD title/stats rows stay vertically disjoint at a
-        # simulated 2x display density (the overlap regression class).
-        foreach(ORKIGE_SCENE_PROBE lumens field hud2x)
+        # simulated 2x display density (the overlap regression class);
+        # flatland = the flat-colour 2D shapes paint OVER the full-screen
+        # backdrop (the 2D painter-order/render-queue regression that washed
+        # them out on classic + web).
+        foreach(ORKIGE_SCENE_PROBE lumens field hud2x flatland)
             add_test(NAME player_benchmark_${ORKIGE_SCENE_PROBE}_probe${ORKIGE_FLAVOR_TEST_SUFFIX}
                 COMMAND python3
                     "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_benchmark_scene_probe.py"

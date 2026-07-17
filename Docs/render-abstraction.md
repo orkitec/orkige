@@ -141,6 +141,17 @@ carry per-method mapping comments for classic OGRE, Ogre-Next and Filament.
 | `MeshInstance.h` | `MeshInstance` | ModelComponent needs (load/attach/visible/shadows/bounds/query flags), vertex-colour-unlit fixup + sub-mesh introspection (self-checks), `setMaterial` (assign a `createMaterial` material to all sub-meshes), AnimationComponent's AnimationState control surface (names/enable/loop/time/length/ended) |
 | `RenderMaterial.h` | `RenderMaterialDesc` | the material authoring surface (metal-rough PBS description: albedo colour/map, metalness, roughness, normal map, emissive) consumed by `RenderSystem::createMaterial` — usually parsed from a `.omat` asset (see `Docs/materials.md`) |
 | `SpriteQuad.h` | `SpriteQuad` | SpriteComponent needs: texture + texel size, size, UV rect, tint, flips, zOrder (painter's sorting), visibility |
+<!-- 2D painter order is a per-backend implementation detail behind the SAME
+zOrder contract. Next maps zOrder → render-queue id `50+z` (the queue id IS the
+paint order). Classic can NOT: OGRE sorts alpha-blended, depth-write-disabled
+renderables by CAMERA DISTANCE and does not honour the render-queue GROUP id
+across groups for them (a full-screen backdrop at a lower group paints OVER a
+higher-group sprite because, being centred, it sorts nearest). So the classic
+backend puts ALL 2D content (SpriteQuad/VectorMesh/SpriteBatch) in ONE group
+(`RENDER_QUEUE_MAIN`) and maps zOrder → render PRIORITY, which OGRE DOES honour
+within a group — `RenderBackend::applyZOrder`. Both flavors therefore paint 2D by
+zOrder (WYSIWYG, `render_backend_parity` + the `flatland` benchmark probe). -->
+
 | `VectorMesh.h` | `VectorMesh` | flat-colour vector-shape content (VectorShapeComponent): a world-space untextured vertex-coloured indexed triangle list refilled from a CPU array (`setMesh`, the SpriteBatch contract), one shared "VectorFill" unlit alpha datablock, zOrder on the SAME painter window as SpriteQuad/SpriteBatch. classic = `ManualObject` OT_TRIANGLE_LIST + "VectorFill" material; next = v2 `ManualObject` SCENE_DYNAMIC + HlmsUnlit datablock. Triangles come from the renderer-free `core_util/VectorTessellator` |
 | `RenderCamera.h` | `RenderCamera` | perspective/ortho (vertical half-extent), FOVy, aspect, near/far clip getters (added so projection switchers preserve the clips), viewport ray + project point, view/projection matrices (gizmo), wireframe toggle |
 | `RenderLight.h` | `RenderLight` | deliberate minimum + room (type/colour/range/spot/shadows) — consumed by `engine_gocomponent/LightComponent` (dir/point/spot, reflected/serialized/Lua/MCP; intensity folds into the colour handed to the facade) |

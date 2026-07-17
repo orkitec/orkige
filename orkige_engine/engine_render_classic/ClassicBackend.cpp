@@ -274,12 +274,17 @@ namespace Orkige
 		return material;
 	}
 	//---------------------------------------------------------
-	Ogre::uint8 RenderBackend::renderQueueForZOrder(int zOrder)
+	void RenderBackend::applyZOrder(Ogre::MovableObject* object, int zOrder)
 	{
-		// RENDER_QUEUE_MAIN (50) +- 40 keeps sprites inside the valid
-		// render queue range and clear of the overlay queues (>= 95)
-		const int queue = static_cast<int>(Ogre::RENDER_QUEUE_MAIN) +
-			std::clamp(zOrder, SpriteQuad::ZORDER_MIN, SpriteQuad::ZORDER_MAX);
-		return static_cast<Ogre::uint8>(queue);
+		oAssert(object);
+		// all 2D content lives in RENDER_QUEUE_MAIN; zOrder maps to render
+		// PRIORITY (the only painter key classic honours for these transparent
+		// depth-write-off renderables - see the header). Priority is a ushort
+		// centred on the renderable default so the clamped zOrder span stays
+		// positive and straddles other MAIN transparents by sign.
+		const int priority = static_cast<int>(Ogre::Renderable::DEFAULT_PRIORITY)
+			+ std::clamp(zOrder, SpriteQuad::ZORDER_MIN, SpriteQuad::ZORDER_MAX);
+		object->setRenderQueueGroupAndPriority(Ogre::RENDER_QUEUE_MAIN,
+			static_cast<Ogre::ushort>(priority));
 	}
 }
