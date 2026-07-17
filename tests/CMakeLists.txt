@@ -143,6 +143,17 @@ add_test(NAME make_water_mesh_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(make_water_mesh_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# sky cubemap generator self-validation: make_sky_assets.py bakes the stock
+# skybox cubemaps in memory and asserts the container structure (a six-face
+# BGRA8 cubemap .dds with a complete mip chain, exact body length), byte
+# determinism per seed, the six distinct debug face colours and the day/night
+# looks (bright blue-dominant vs dark zenith). Stdlib-only, headless - the
+# skybox asset pipeline at the tooling level.
+add_test(NAME make_sky_assets_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_sky_assets.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(make_sky_assets_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 # benchmark showcase generator self-validation: make_benchmark_assets.py builds
 # every scene through its pure writers and asserts the serialized shape (scene
 # version marker, a director in each), the localisation key set, the vector
