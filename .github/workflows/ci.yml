@@ -165,7 +165,7 @@ jobs:
         # --clean-after-build keeps vcpkg buildtrees from filling the runner
         # disk during the cold dependency build
         run: |
-          cmake --preset linux-debug-classic \
+          bash Util/ci_configure.sh --preset linux-debug-classic \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
       - name: Save vcpkg binary cache
@@ -268,7 +268,7 @@ jobs:
 
       - name: Configure (linux-debug-next)
         run: |
-          cmake --preset linux-debug-next \
+          bash Util/ci_configure.sh --preset linux-debug-next \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
       - name: Save vcpkg binary cache
@@ -310,7 +310,7 @@ jobs:
       - name: Configure + build + unit tests (ORKIGE_SCRIPTING=OFF - MUST pass)
         id: linux_noscript
         run: |
-          cmake --preset linux-debug-noscript \
+          bash Util/ci_configure.sh --preset linux-debug-noscript \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
           cmake --build --preset linux-debug-noscript
           ctest --preset unit-linux-noscript
@@ -395,7 +395,7 @@ jobs:
 
       - name: Configure + build (ASan + UBSan)
         run: |
-          cmake --preset linux-debug-sanitize \
+          bash Util/ci_configure.sh --preset linux-debug-sanitize \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
           cmake --build --preset linux-debug-sanitize
 
@@ -507,7 +507,7 @@ jobs:
             ccache-web-${{ runner.os }}-
 
       - name: Configure (web-release, vcpkg dependency builds)
-        run: cmake --preset web-release -DVCPKG_INSTALL_OPTIONS=--clean-buildtrees-after-build
+        run: bash Util/ci_configure.sh --preset web-release -DVCPKG_INSTALL_OPTIONS=--clean-buildtrees-after-build
 
       # save right after the configure (that is when vcpkg builds/installs),
       # BEFORE anything that can fail - a red build must not lose the cold
@@ -632,9 +632,9 @@ jobs:
 
       - name: Configure Android + host (vcpkg dependency builds)
         run: |
-          cmake --preset android-emulator-debug-ci \
+          bash Util/ci_configure.sh --preset android-emulator-debug-ci \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
-          cmake --preset linux-debug-next \
+          bash Util/ci_configure.sh --preset linux-debug-next \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
       # save right after the configures (that is when vcpkg builds/installs),
@@ -787,9 +787,9 @@ jobs:
 
       - name: Configure Android + host (vcpkg dependency builds)
         run: |
-          cmake --preset android-emulator-debug-ci-classic \
+          bash Util/ci_configure.sh --preset android-emulator-debug-ci-classic \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
-          cmake --preset linux-debug-classic \
+          bash Util/ci_configure.sh --preset linux-debug-classic \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
       # save right after the configures (that is when vcpkg builds/installs),
@@ -908,7 +908,7 @@ jobs:
 
       - name: Configure (macos-debug)
         run: |
-          cmake --preset macos-debug \
+          bash Util/ci_configure.sh --preset macos-debug \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
       - name: Save vcpkg binary cache
@@ -998,7 +998,7 @@ jobs:
 
       - name: Configure (macos-debug-classic)
         run: |
-          cmake --preset macos-debug-classic \
+          bash Util/ci_configure.sh --preset macos-debug-classic \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
       - name: Build (engine + editor + player + tests)
@@ -1088,9 +1088,9 @@ jobs:
 
       - name: Configure Simulator + host (vcpkg dependency builds)
         run: |
-          cmake --preset ios-simulator-debug \
+          bash Util/ci_configure.sh --preset ios-simulator-debug \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
-          cmake --preset macos-debug \
+          bash Util/ci_configure.sh --preset macos-debug \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
       # save right after the configures (that is when vcpkg builds/installs),
@@ -1251,9 +1251,9 @@ jobs:
 
       - name: Configure Simulator + host (vcpkg dependency builds)
         run: |
-          cmake --preset ios-simulator-debug-classic \
+          bash Util/ci_configure.sh --preset ios-simulator-debug-classic \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
-          cmake --preset macos-debug-classic \
+          bash Util/ci_configure.sh --preset macos-debug-classic \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
       # save right after the configures (that is when vcpkg builds/installs),
@@ -1350,7 +1350,7 @@ jobs:
       - name: Configure (windows-debug)
         shell: pwsh
         run: |
-          cmake --preset windows-debug -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+          bash Util/ci_configure.sh --preset windows-debug -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
@@ -1509,7 +1509,7 @@ jobs:
       - name: Configure (windows-debug-classic)
         shell: pwsh
         run: |
-          cmake --preset windows-debug-classic -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+          bash Util/ci_configure.sh --preset windows-debug-classic -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
