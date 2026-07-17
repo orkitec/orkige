@@ -1735,6 +1735,21 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			"parseRenderCap returns Count for an unknown name");
 	}
 
+	// --- numeric light-budget capability (@see RenderSystem::lightBudget) ----
+	// the NUMERIC sibling of the boolean register: the live boot fill must equal
+	// the flavor's pure defaultLightBudget() (the unit-tested per-flavor constant)
+	// and be a real ceiling, so the boot wiring cannot drift from the tested value
+	{
+		const unsigned int liveBudget = renderSystem->lightBudget();
+		const unsigned int defaultBudget = RenderSystem::defaultLightBudget();
+		std::printf("render_facade_selfcheck: light budget - live %u, default %u\n",
+			liveBudget, defaultBudget);
+		SELFCHECK(liveBudget > 0u,
+			"the backend reports a non-zero dynamic-light budget after boot");
+		SELFCHECK(liveBudget == defaultBudget,
+			"the live light budget matches the flavor's defaultLightBudget()");
+	}
+
 	std::printf("render_facade_selfcheck: all checks passed\n");
 	return 0;
 }

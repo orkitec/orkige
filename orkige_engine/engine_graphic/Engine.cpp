@@ -1038,6 +1038,12 @@ namespace Orkige
 		return renderSystem && renderSystem->supports(cap);
 	}
 	//---------------------------------------------------------
+	unsigned int Engine::getLightBudget() const
+	{
+		RenderSystem* renderSystem = RenderSystem::get();
+		return renderSystem ? renderSystem->lightBudget() : 0u;
+	}
+	//---------------------------------------------------------
 	OOBJECT_IMPL(Engine)
 		OCONSTRUCTOR0()
 		OSINGLETON()
@@ -1083,5 +1089,8 @@ namespace Orkige
 		// render backend capability probe: engine:supports("skyDome") etc.
 		// (@see RenderCaps) - a script degrades its look per flavor
 		OFUNC(supports)
+		// numeric light-budget probe: engine:getLightBudget() - a script sizes
+		// its many-lights ramp to the flavor's dynamic-light ceiling
+		OFUNC(getLightBudget)
 	OOBJECT_END
 }

@@ -102,6 +102,7 @@ namespace Orkige
 		float				bestFPS = 0.0f;		//!< max since resetFrameStats
 		float				worstFPS = 999999.0f;	//!< min since resetFrameStats (classic's sentinel)
 		unsigned int		caps = 0;			//!< RenderCaps bitset (bit i = supports RenderCaps(i)), filled at boot
+		unsigned int		lightBudget = 0;	//!< sane concurrent dynamic-light ceiling (@see RenderSystem::lightBudget), filled at boot
 	};
 
 	struct RenderWorld::Impl
@@ -359,6 +360,19 @@ namespace Orkige
 			//! (enough for clear-only rendering, nothing with materials)
 			String			hlmsMediaDir;
 		};
+
+		//--- clustered forward light grid (boot config) ------------
+		//! @brief the clustered-forward light grid this backend configures at
+		//! boot (setForwardClustered). lightsPerCell is the per-cluster
+		//! light-list bound - the worst-case (all lights overlapping one cell)
+		//! concurrent dynamic-light count the shader evaluates, which
+		//! RenderSystem::defaultLightBudget reports as this flavor's sane
+		//! many-lights ceiling. Named here so the boot call and the budget
+		//! derivation share ONE source and cannot drift.
+		static unsigned int const FORWARD_CLUSTERED_WIDTH = 16u;
+		static unsigned int const FORWARD_CLUSTERED_HEIGHT = 8u;
+		static unsigned int const FORWARD_CLUSTERED_SLICES = 24u;
+		static unsigned int const FORWARD_CLUSTERED_LIGHTS_PER_CELL = 96u;
 
 		//--- lifecycle ---------------------------------------------
 		//! boot Ogre-Next (Root + Metal RS + window + world) and create

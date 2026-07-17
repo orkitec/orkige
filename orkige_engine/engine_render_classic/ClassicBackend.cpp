@@ -419,6 +419,9 @@ namespace Orkige
 			system->mImpl->caps |=
 				(1u << static_cast<int>(RenderCaps::DynamicShadows));
 		}
+		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
+		// lightBudget): the classic forward renderer's per-pass headroom
+		system->mImpl->lightBudget = RenderSystem::defaultLightBudget();
 		gRenderSystem = system;
 		return gRenderSystem;
 	}

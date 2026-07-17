@@ -120,12 +120,22 @@ Hlms auto-batch), a flat-colour 2D showcase (vector soft-bodies, morph, sprite
 parallax, vector animation), a `.oui`/localisation GUI screen, a physics body
 cascade with a time-scale hitstop, and a GUI results card.
 
+The night point-light ramp is **capability-driven**: the director queries the
+active flavor's dynamic-light ceiling (`engine:getLightBudget()` /
+`RenderSystem::lightBudget`) and caps the lamp ramp at it — the RTSS forward
+per-pass headroom (~30) on classic, the far higher clustered-forward light-list
+bound (96) on next — instead of a hard authored constant, so next's signature
+many-lights headroom is not pinned to classic's floor. The lamp pool is authored
+well above the strongest flavor's ceiling (100 inactive lamps; inactive lights
+are near-free) so the ramp is never short of lamps to light.
+
 Timing is **frame-count based, scaled by the `benchmark.sceneScale` cvar**
 (default 1): a scene lasts `seconds * 60 * scale` frames, so a normal vsync-paced
 run reads as seconds while an automated run shrinks scale to a handful of
 deterministic frames per scene. `benchmark.wipe` (0 skips the fade wipe) and
-`benchmark.lightCeiling` (the night-lights ramp ceiling) are the other knobs.
-The stress scenes self-limit: a ramp stops adding load once a frame exceeds the
+`benchmark.lightCeiling` (0 = use the queried light budget; a positive value is
+an OPTIONAL manual cap for a tighter budget on a weak device) are the other
+knobs. The stress scenes self-limit: a ramp stops adding load once a frame exceeds the
 budget, so the recorded scene tells you where the device stalled. Two more
 cvars exist purely as automation seams: `benchmark.rampBudgetMs` overrides the
 self-limit budget (a probe forces the ramp to its ceiling regardless of the
@@ -138,7 +148,10 @@ ctests `player_benchmark_lumens_probe` / `_field_probe` / `_hud2x_probe`) boot
 single scenes deterministically and assert measured discriminators — the
 moonlit-night corridor + visible lamp pools (lumens), lit instance cubes
 (field), and vertically disjoint HUD text rows at a simulated 2x display
-density (hud2x).
+density (hud2x). The lumens probe additionally asserts the many-lights
+MECHANISM (not an absolute count, which a software rasterizer legitimately
+ramps low): the director's queried light budget drives the ramp and the live
+lamp count never exceeds it, parsed from the director's own log lines.
 
 The generator additionally writes two **test fixture scenes** beside the tour
 (`scenes/fixture_static.oscene`, `scenes/fixture_sprites.oscene`) — director-
@@ -180,5 +193,6 @@ churns materials, the RTSS transiently drops those materials' generated
 technique — and the `DrawLayer2D` composite dereferenced a null best technique.
 The classic composite now recompiles-or-skips on that transient
 (`engine_render_classic/DrawLayer2DClassic.cpp`), so the `player_benchmark_vista`
-and `player_benchmark_selfcheck` ctests run on both flavors. The
-`benchmark.lightCeiling` cvar bounds the night-lights ramp for a tighter budget.
+and `player_benchmark_selfcheck` ctests run on both flavors. The night-lights
+ramp is bounded by the flavor's queried dynamic-light budget (above); the
+`benchmark.lightCeiling` cvar can cap it lower still for a tighter budget.

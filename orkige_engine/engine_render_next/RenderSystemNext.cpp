@@ -69,6 +69,22 @@ namespace Orkige
 		return (this->mImpl->caps >> static_cast<int>(cap)) & 1u;
 	}
 	//---------------------------------------------------------
+	unsigned int RenderSystem::lightBudget() const
+	{
+		return this->mImpl->lightBudget;
+	}
+	//---------------------------------------------------------
+	unsigned int RenderSystem::defaultLightBudget()
+	{
+		// the clustered-forward light-list bound (setForwardClustered's
+		// lightsPerCell): the max point/spot lights ONE cluster cell shades,
+		// i.e. the worst-case (all lights overlapping one cell) concurrent
+		// dynamic-light count. The full width*height*slices*lightsPerCell
+		// product is not a sane authored ceiling (hundreds of thousands), so
+		// the per-cell bound is the honest whole-scene many-lights budget.
+		return RenderBackend::FORWARD_CLUSTERED_LIGHTS_PER_CELL;
+	}
+	//---------------------------------------------------------
 	bool RenderSystem::renderOneFrame()
 	{
 		// per-frame fps bookkeeping - Next has no per-target getStatistics

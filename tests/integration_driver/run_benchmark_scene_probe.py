@@ -258,12 +258,53 @@ def run_player_capture(args, scene, shot, extra_cvars="", fake_scale=None):
     result = subprocess.run(cmd, cwd=args.repo, env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             timeout=180)
+    output = result.stdout.decode("utf-8", "replace")
     if result.returncode != 0:
-        log(result.stdout.decode("utf-8", "replace")[-1500:])
+        log(output[-1500:])
         fail("player exited %d" % result.returncode)
     if not os.path.exists(shot):
         fail("no screenshot written to " + shot)
-    return decode_png(shot)
+    return decode_png(shot), output
+
+
+def probe_lumens_ramp(output):
+    """The many-lights MECHANISM: the director must query the ACTIVE flavor's
+    light budget (engine:getLightBudget) and cap the point-light ramp at it.
+    Asserts the mechanism, NOT an absolute count (a CI software rasterizer
+    legitimately ramps to a low frame-budget cap; here the self-limit is
+    disabled via rampBudgetMs, so the ramp reaches its HARD ceiling): the ramp
+    functioned (>= 1 lamp lit) and its ceiling never exceeded the queried
+    budget. Parses the director's own log lines."""
+    import re
+    budget_match = re.search(
+        r"director: light budget (\d+) \(ramp ceiling (\d+)\)", output)
+    if budget_match is None:
+        fail("the director never reported its queried light budget - "
+             "engine:getLightBudget is not driving the ramp")
+    queried = int(budget_match.group(1))
+    ceiling = int(budget_match.group(2))
+    log("lumens ramp: queried budget %d, effective ceiling %d" %
+        (queried, ceiling))
+    if queried < 1:
+        fail("the queried light budget is 0 - the render backend reported no "
+             "dynamic-light ceiling")
+    if ceiling > queried:
+        fail("the ramp ceiling %d exceeds the queried light budget %d - the "
+             "budget is not the hard cap" % (ceiling, queried))
+    # the ramp reached its ceiling OR stalled on the frame budget; either way a
+    # count line must appear and its count must honor the ceiling and be >= 1
+    reached = re.findall(r"director\[lumens\]: ramp (?:reached ceiling|capped "
+                         r"at) (\d+)", output)
+    if not reached:
+        fail("the lumens ramp never activated a lamp - the point-light ramp "
+             "did not function")
+    active = max(int(n) for n in reached)
+    log("lumens ramp: activated %d lamp(s) (want 1..%d)" % (active, ceiling))
+    if active < 1:
+        fail("the lumens ramp activated no lamps")
+    if active > ceiling:
+        fail("the lumens ramp activated %d lamps, above its ceiling %d" %
+             (active, ceiling))
 
 
 def main():
@@ -284,11 +325,11 @@ def main():
     if args.probe == "vistashadow":
         # the differential probe: the SAME deterministic vista frame with the
         # shadow knob off, then on - only the shadows may differ
-        img_off = run_player_capture(
+        img_off, _ = run_player_capture(
             args, "scenes/vista.oscene",
             os.path.join(args.dir, "vistashadow_off.png"),
             extra_cvars=",r.shadowQuality=off")
-        img_on = run_player_capture(
+        img_on, _ = run_player_capture(
             args, "scenes/vista.oscene",
             os.path.join(args.dir, "vistashadow_on.png"),
             extra_cvars=",r.shadowQuality=medium")
@@ -300,11 +341,14 @@ def main():
              "hud2x": "scenes/lumens.oscene",
              "flatland": "scenes/flatland.oscene"}[args.probe]
     shot = os.path.join(args.dir, args.probe + "_frame.png")
-    img = run_player_capture(
+    img, output = run_player_capture(
         args, scene, shot,
         fake_scale="2" if args.probe == "hud2x" else None)
     { "lumens": probe_lumens, "field": probe_field,
       "hud2x": probe_hud2x, "flatland": probe_flatland }[args.probe](img)
+    # the lumens scene also carries the many-lights ramp MECHANISM assertion
+    if args.probe == "lumens":
+        probe_lumens_ramp(output)
     log("OK")
 
 

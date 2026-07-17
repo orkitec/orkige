@@ -36,12 +36,20 @@ local TS = RenderNode.TransformSpace
 local RAMP_BUDGET_MS = 1000.0 / 40.0
 local rampBudgetMs = RAMP_BUDGET_MS
 
--- concurrent dynamic point-light ceiling for the night-lights ramp, read from
--- the `benchmark.lightCeiling` cvar in init (default 16 - a real "many lights"
--- ramp the default render backend takes comfortably at mobile budget). The
--- frame-budget self-limit still applies below it, so a weaker device stops the
--- ramp early and records where it stalled. Lower the cvar for a tighter budget.
-local lightCeiling = 16
+-- concurrent dynamic point-light ceiling for the night-lights ramp. Filled in
+-- init from engine:getLightBudget() - the ACTIVE render backend's honest
+-- dynamic-light ceiling (@see RenderSystem::lightBudget): the classic forward
+-- renderer's per-pass headroom on one flavor, the far higher clustered-forward
+-- light-list bound on the other. Querying it (instead of a hard authored
+-- constant) lets the many-lights showcase climb as high as each flavor allows
+-- rather than pinning the stronger flavor to the weaker one's floor. The
+-- `benchmark.lightCeiling` cvar (default 0 = use the queried budget) is an
+-- OPTIONAL manual cap for a tighter budget on a weak device; the frame-budget
+-- self-limit still applies below whichever ceiling wins, so a stalling device
+-- records where it stopped. FALLBACK_LIGHT_CEILING covers a query of 0 (before
+-- the render system exists - never in a real play session).
+local FALLBACK_LIGHT_CEILING = 16
+local lightCeiling = FALLBACK_LIGHT_CEILING
 
 --- per-instance state --------------------------------------------------------
 local engine, camNode, levels
@@ -404,12 +412,25 @@ function init(self)
 
 	cvar.registerNumber("benchmark.sceneScale", 1.0)
 	cvar.registerNumber("benchmark.wipe", 1.0)
-	cvar.registerNumber("benchmark.lightCeiling", 16.0)
+	cvar.registerNumber("benchmark.lightCeiling", 0.0)
 	cvar.registerNumber("benchmark.rampBudgetMs", RAMP_BUDGET_MS)
 	cvar.registerNumber("benchmark.cameraOrbit", 1.0)
 	scale = cvar.getNumber("benchmark.sceneScale", 1.0)
 	wipe = cvar.getNumber("benchmark.wipe", 1.0)
-	lightCeiling = math.max(0, math.floor(cvar.getNumber("benchmark.lightCeiling", 16.0)))
+	-- the flavor's queried dynamic-light ceiling drives the many-lights ramp
+	lightCeiling = math.floor(engine:getLightBudget())
+	if lightCeiling < 1 then
+		lightCeiling = FALLBACK_LIGHT_CEILING
+	end
+	-- optional manual cap for a tighter budget (0 = use the queried budget)
+	local lightCap = math.floor(cvar.getNumber("benchmark.lightCeiling", 0.0))
+	if lightCap >= 1 then
+		lightCeiling = math.min(lightCeiling, lightCap)
+	end
+	-- report the queried budget + effective ceiling (the many-lights mechanism
+	-- probe parses this and asserts the ramp never exceeds the queried budget)
+	print(string.format("director: light budget %d (ramp ceiling %d)",
+		math.floor(engine:getLightBudget()), lightCeiling))
 	rampBudgetMs = cvar.getNumber("benchmark.rampBudgetMs", RAMP_BUDGET_MS)
 	cameraOrbit = cvar.getNumber("benchmark.cameraOrbit", 1.0)
 	budget = math.max(6, math.floor(seconds * 60.0 * scale))

@@ -1142,6 +1142,7 @@ Engine:setAtmosphere(enabled, skyRed, skyGreen, skyBlue, density, fogDensity) ->
 Engine:setAtmosphereBlend(...)
 Engine:hasUISystem(...)
 Engine:supports(capabilityName) -> bool  -- does the active render backend support a capability? (e.g. "skyDome"/"dynamicShadows"/"hemisphereAmbient") - degrade a script's look per flavor; an unknown name is false
+Engine:getLightBudget() -> integer  -- the active render backend's sane concurrent dynamic-light ceiling - size a many-lights ramp to the flavor (next's clustered-forward headroom is far above classic's forward floor); 0 before the render system exists
 
 ## FrameEventData
 FrameEventData.timeSinceLastEvent

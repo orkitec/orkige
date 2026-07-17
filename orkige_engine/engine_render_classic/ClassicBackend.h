@@ -66,6 +66,7 @@ namespace Orkige
 		bool				uiOnlyWindow = false;	//!< showUIOnlyWindow mode: the window shows only 2D layers (getWindowCamera answers NULL)
 		Ogre::Camera*		uiOnlyCamera = NULL;	//!< internal camera feeding the UI-only viewport (owned by the scene manager)
 		unsigned int		caps = 0;				//!< RenderCaps bitset (bit i = supports RenderCaps(i)), filled at boot
+		unsigned int		lightBudget = 0;		//!< sane concurrent dynamic-light ceiling (@see RenderSystem::lightBudget), filled at boot
 	};
 
 	struct RenderWorld::Impl
@@ -279,6 +280,16 @@ namespace Orkige
 	//! design questions.
 	struct RenderBackend
 	{
+		//! @brief the classic forward renderer's sane concurrent dynamic-light
+		//! ceiling (@see RenderSystem::defaultLightBudget): RTSS generates one
+		//! forward material whose Cook-Torrance/FFP stage iterates the active
+		//! scene lights per pass, so many dynamic point lights must stay
+		//! bounded. 30 is the honest per-pass headroom the lit-content /
+		//! shadow / atmosphere work assumed (the night-lights showcase grid),
+		//! well within the fixed-function 8-light minimum the RTSS Cook-Torrance
+		//! stage lifts to a per-object active-light loop.
+		static unsigned int const FORWARD_LIGHT_BUDGET = 30u;
+
 		//--- lifecycle (called from the classic bootstrapper Engine) ---
 		//! create the facade RenderSystem over a set-up Engine (scene
 		//! manager + render window must exist); wires RenderSystem::get

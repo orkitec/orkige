@@ -435,8 +435,14 @@ namespace Orkige
 		// shape; 96 lights per cell is generous headroom for the mobile
 		// budget, and the 2..100 unit depth range covers the engine's
 		// tens-of-units scenes. Directional lights are unaffected (they
-		// ride the pass buffer either way).
-		sceneManager->setForwardClustered(true, 16u, 8u, 24u, 96u, 0u, 0u,
+		// ride the pass buffer either way). The grid dimensions come from
+		// the shared RenderBackend constants so RenderSystem::lightBudget
+		// derives the many-lights ceiling from the SAME lightsPerCell bound.
+		sceneManager->setForwardClustered(true,
+			RenderBackend::FORWARD_CLUSTERED_WIDTH,
+			RenderBackend::FORWARD_CLUSTERED_HEIGHT,
+			RenderBackend::FORWARD_CLUSTERED_SLICES,
+			RenderBackend::FORWARD_CLUSTERED_LIGHTS_PER_CELL, 0u, 0u,
 			2.0f, 100.0f);
 
 		RenderSystem* system = new RenderSystem();
@@ -459,6 +465,9 @@ namespace Orkige
 			(1u << static_cast<int>(RenderCaps::SunExposureLinkage)) |
 			(1u << static_cast<int>(RenderCaps::AnimatedNormalMappedWater)) |
 			(1u << static_cast<int>(RenderCaps::OffscreenOwnedLayers));
+		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
+		// lightBudget), derived from the clustered-forward config set above
+		system->mImpl->lightBudget = RenderSystem::defaultLightBudget();
 		gRenderSystem = system;
 		return gRenderSystem;
 	}

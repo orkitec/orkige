@@ -133,6 +133,17 @@ namespace Orkige
 		return (this->mImpl->caps >> static_cast<int>(cap)) & 1u;
 	}
 	//---------------------------------------------------------
+	unsigned int RenderSystem::lightBudget() const
+	{
+		return this->mImpl->lightBudget;
+	}
+	//---------------------------------------------------------
+	unsigned int RenderSystem::defaultLightBudget()
+	{
+		// the classic forward renderer's per-pass dynamic-light headroom
+		return RenderBackend::FORWARD_LIGHT_BUDGET;
+	}
+	//---------------------------------------------------------
 	bool RenderSystem::renderOneFrame()
 	{
 		// coalesced static-region maintenance: membership/visibility changes

@@ -134,6 +134,12 @@ namespace Orkige
 		//! returns false). Lets a script degrade its look honestly per flavor.
 		//! @see RenderCaps (the X-macro vocabulary), Docs/render-abstraction.md
 		bool supports(String const & name) const;
+		//! @brief the active render backend's sane concurrent dynamic-light
+		//! ceiling (@see RenderSystem::lightBudget) - a script sizes its
+		//! many-lights budget to the flavor instead of a hard-coded constant
+		//! (next's clustered-forward headroom is far above classic's forward
+		//! floor). 0 before the render system exists. Lua: engine:getLightBudget().
+		unsigned int getLightBudget() const;
 		//! get external window handle if Engine is embedded
 		inline String const & getExternalWindowHandle() { return this->externalWindowHandle; }
 		//! get top level window handle if Engine is embedded into multi window app

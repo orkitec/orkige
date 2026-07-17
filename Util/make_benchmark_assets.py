@@ -703,15 +703,21 @@ def build_lumens():
     colours = [(1.0, 0.3, 0.2), (0.2, 0.6, 1.0), (0.3, 1.0, 0.4),
                (1.0, 0.8, 0.2), (0.9, 0.3, 0.9)]
     idx = 0
-    # a 5x6 grid (30 lamps): a real "many lights" ramp, kept within the classic
-    # forward renderer's per-pass headroom so both flavors survive the ramp.
-    # Intensity/range make each lamp a clearly visible pool on the night
-    # terrain (the lamps are the stars of this vignette): the quadratic
-    # falloff eats most of the power, so a dim lamp reads as nothing.
-    for gz in range(6):
-        for gx in range(5):
-            x = -10.0 + gx * 5.0
-            z = -2.0 - gz * 3.0
+    # a 10x10 grid (100 lamps), all INACTIVE: the director ramps how many are
+    # on up to the ACTIVE flavor's queried dynamic-light ceiling
+    # (engine:getLightBudget / RenderSystem::lightBudget) - the classic forward
+    # renderer's per-pass headroom on one flavor, the far higher
+    # clustered-forward light-list bound on the other. The pool is authored WELL
+    # ABOVE the strongest flavor's ceiling (inactive lights are near-free) so
+    # the many-lights showcase is not capped by too few lamps to light. The grid
+    # sits over the 48-unit terrain, in front of the orbiting camera.
+    # Intensity/range make each lamp a clearly visible pool on the night terrain
+    # (the lamps are the stars of this vignette): the quadratic falloff eats most
+    # of the power, so a dim lamp reads as nothing.
+    for gz in range(10):
+        for gx in range(10):
+            x = -18.0 + gx * 4.0
+            z = -2.0 - gz * 2.0
             col = colours[idx % len(colours)]
             s.add("Lamp%d" % idx,
                   s.transform(x, 1.5, z),

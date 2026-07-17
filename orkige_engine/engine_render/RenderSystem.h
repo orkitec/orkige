@@ -91,6 +91,22 @@ namespace Orkige
 		//! map: classic/next=a per-backend bitset set in createRenderSystem | filament=its own set
 		bool supports(RenderCaps cap) const;
 
+		//! @brief the flavor's sane ceiling on concurrent DYNAMIC point/spot
+		//! lights - a NUMERIC capability beside the boolean supports() (@see
+		//! RenderCaps for the boolean vocabulary). A consumer that ramps live
+		//! lights (the benchmark's many-lights showcase) caps its count at this
+		//! instead of an authored constant, so next's clustered-forward headroom
+		//! is not pinned to classic's forward floor. 0 only if queried before the
+		//! backend booted. Filled ONCE at boot from defaultLightBudget().
+		//! map: classic=RTSS forward per-pass light headroom | next=setForwardClustered lightsPerCell (per-cluster light-list bound) | filament=its clustered/tiled bound
+		unsigned int lightBudget() const;
+		//! @brief the flavor's boot-time light budget WITHOUT a live system - the
+		//! value lightBudget() returns after boot. A pure per-backend constant
+		//! (classic's forward headroom / next's clustered light-list bound), so
+		//! the headless unit suite can assert the flavor's ceiling and the boot
+		//! fill cannot drift from the tested value.
+		static unsigned int defaultLightBudget();
+
 		//--- frame loop ---
 		//! @brief render one frame to all active targets
 		//! map: classic/next=Root::renderOneFrame | filament=Renderer::beginFrame/render(views)/endFrame
