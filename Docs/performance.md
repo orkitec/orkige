@@ -245,34 +245,48 @@ Known metric caveat: the next flavor's `FrameStats.batchCount` (Metal
 once), so next budgets are tighter in absolute terms and mostly guard
 *deltas*; classic counts are true draw calls.
 
-## Measured results (macOS, Apple M-series, Debug trees, 240–300-frame deterministic boots)
+## Measured results (macOS, Apple M-series, Debug trees, 240-frame deterministic boots)
 
-Draw batches (avg over the run; the structural number the gate holds):
+Both columns come from the SAME tree — "before" runs with
+`r.staticScene=0,r.spriteBatching=0` (the exact pre-optimization path; the
+identity tests prove the pixels match either way), "after" with the
+defaults. Draw batches, avg over the run (the structural number the gate
+holds):
 
 | Scene | classic before | classic after | next before | next after |
 |---|---|---|---|---|
-| Terrace Vista | 16.1 | 10.0 | 7.1 | 7.1 |
-| Instance Field | 187.2 | 187.4 | 4.1 | 4.1 |
-| Flatland | 6.4 | 5.0 | 6.1 | 5.1 |
+| Terrace Vista | 16.1 | 8.1 | 7.1 | 7.1 |
+| Still Water (lake) | 15.1 | 8.1 | 7.1 | 7.1 |
+| Night Lumens | 11.1 | 4.0 | 3.1 | 3.1 |
+| Ember Swarm | 10.0 | 9.9 | 6.6 | 7.0 |
+| Instance Field | 185.3 | 185.3 | 4.1 | 4.1 |
+| Flatland | 6.5 | 6.5 | 6.1 | 6.1 |
+| Cascade | 32.1 | 3.0 | 3.1 | 3.0 |
 | fixture_static (9 meshes) | 9.0 | 5.0 | 2.0 | 2.0 |
 | fixture_sprites (11 sprites) | 11.0 | 4.0 | 4.0 | 3.0 |
 
 Notes for the reader of the deltas:
 
-- **Vista classic 16→10**: the static bake collapses terrain + five props
-  into two region buckets. Next's count is unchanged — its win is the CPU
-  side (static items leave the per-frame transform/cull pipeline), which
-  vsync-clamped Debug frame times cannot resolve; the structural numbers
-  are the honest measure on this rig.
+- **Vista/lake/lumens classic 16→8 / 15→8 / 11→4**: the static bake
+  collapses terrain + props into region buckets. Next's count is unchanged —
+  its win is the CPU side (static items leave the per-frame transform/cull
+  pipeline), which vsync-clamped Debug frame times cannot resolve; the
+  structural numbers are the honest measure on this rig.
+- **Cascade classic 32→3**: the 2D headline — the physics cascade's pooled
+  sprite bodies share textures and z-layers, so sprite-run batching folds
+  ~30 per-sprite draws into a few run batches.
+- **Flatland unchanged**: honest — its authored sprites are all *distinct*
+  parallax layers (one sprite per zOrder), so no run of two ever forms. The
+  fixture (and cascade) show the batching win; flatland shows the painter's
+  contract refusing to merge what may not merge.
+- **Ember Swarm ~unchanged**: particles already batch (one draw per
+  emitter, the SpriteBatch contract from day one).
 - **Instance Field**: untouched by design — the cubes are pooled/ramped
   (activation churn would thrash the classic bake) and the classic
-  instancing pillar is gated out (verdict above). The 187-vs-4 gap *is* the
+  instancing pillar is gated out (verdict above). The 185-vs-4 gap *is* the
   documented flavor difference.
-- **Flatland / fixtures**: sprite-run batching. Real 2D scenes batch by
-  content structure: the roller's tile sprites share one texture and batch
-  within their z-layers during play.
-- Frame-ms on this rig: classic Debug runs 0.7–1.7 ms/scene (real deltas
-  drown in vsync/jitter), next is vsync-clamped near 8.3 ms — which is why
+- Frame-ms on this rig: classic Debug runs 0.5–2.5 ms/scene (real deltas
+  drown in jitter), next is vsync-clamped near 8.3 ms — which is why
   the gate holds structure, not milliseconds, and why frame-ms stays
   reported-only.
 - The **web** flavor (classic GLES2→WebGL) could not be measured in this
