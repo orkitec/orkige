@@ -59,6 +59,17 @@ equivalent features. Local additions:
   `DrawLayer2D` backend draws each 2D element through exactly that
   `manualRender` overload, so the whole gui/editor/UI surface died on it.
   The patch treats a null renderable as "no identity view/projection".
+- `cpufeatures-build-interface.patch` - upstream candidate: master's
+  `target_link_libraries(OgreMain PRIVATE cpufeatures log z)` (new since
+  14.5.2) leaks the NDK's source-only `cpufeatures` module - an internal,
+  never-exported CMake target - onto static OgreMain's installed link
+  interface as a bare `-lcpufeatures` no consumer can resolve (the NDK
+  ships it as a source module, not a library); every Android link against
+  the vcpkg-installed OgreTargets failed. The patch wraps the dependency in
+  `$<BUILD_INTERFACE:...>`: OGRE's own tree builds unchanged, and installed
+  consumers keep the long-standing contract of compiling
+  `cpu-features.c` themselves (our `orkige_ndk_cpufeatures` in
+  `orkige_engine/CMakeLists.txt`).
 - Future upstream-candidate fixes follow the same lifecycle those three had:
   vendor the patch in the port the same day the PR goes upstream, then drop
   the patch file at the next reviewed pin bump once it is merged.
