@@ -2792,52 +2792,84 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				transform->setPosition(Orkige::Vec3(-0.25f, 0.05f, -8.05f));
 			}
 		}
-		if (frameCount == 30)
+		if (frameCount >= 30 && !spriteBatchBaselineLocked)
 		{
-			spriteBatchBatchesOn = render->getFrameStats().batchCount;
-			spriteBatchRunsOn = batcher ? batcher->activeRunCount() : 0;
-			if (!spriteBatchStartedOn)
+			// STEADY-STATE baseline (not a fixed frame): the fixture just
+			// moved a sprite, and a run re-upload can surface as a transient
+			// extra batch for a frame or two on some backends (Vulkan counts
+			// the upload; Metal's compressed metrics never show it). Lock
+			// the baseline only when two consecutive frames agree.
+			const std::size_t batches = render->getFrameStats().batchCount;
+			if (batches == spriteBatchPrevSample)
 			{
-				// the batching-off reference run: counts only, no toggle leg
-				SDL_Log("orkige_player: spritebatch selfcheck complete - "
-					"batching off, batches=%zu runs=%zu",
-					spriteBatchBatchesOn, spriteBatchRunsOn);
+				spriteBatchBaselineLocked = true;
+				spriteBatchBatchesOn = batches;
+				spriteBatchRunsOn = batcher ? batcher->activeRunCount() : 0;
+				if (!spriteBatchStartedOn)
+				{
+					// the batching-off reference run: counts only, no toggle
+					SDL_Log("orkige_player: spritebatch selfcheck complete - "
+						"batching off, batches=%zu runs=%zu",
+						spriteBatchBatchesOn, spriteBatchRunsOn);
+					spriteBatchDone = true;
+				}
+				else
+				{
+					// the toggle legs pace off the lock, not off boot
+					spriteBatchToggleFrame = frameCount + 20;
+				}
+			}
+			else if (frameCount >= 90)
+			{
+				SDL_Log("orkige_player: spritebatch selfcheck FAILED - the "
+					"batch count never settled (last %zu, prev %zu)",
+					batches, spriteBatchPrevSample);
+				exitCode = 1;
 				spriteBatchDone = true;
 			}
+			spriteBatchPrevSample = batches;
 		}
-		if (spriteBatchStartedOn && frameCount == 70)
+		if (spriteBatchStartedOn && spriteBatchToggleFrame != 0 &&
+			frameCount == spriteBatchToggleFrame)
 		{
 			// the live escape hatch: runs must release without a reboot
 			Orkige::CVarManager::getSingleton().setString(
 				"r.spriteBatching", "0");
 		}
-		if (spriteBatchStartedOn && frameCount == 90)
+		if (spriteBatchStartedOn && spriteBatchToggleFrame != 0 &&
+			frameCount == spriteBatchToggleFrame + 20)
 		{
 			spriteBatchBatchesLiveOff = render->getFrameStats().batchCount;
 			Orkige::CVarManager::getSingleton().setString(
 				"r.spriteBatching", "1");
+			// the restore leg CONVERGES to the steady baseline (deadline-
+			// bounded) instead of asserting one fixed frame - the re-enable
+			// itself re-uploads the runs, which transients like the capture
+			spriteBatchRestoreDeadline = frameCount + 120;
 		}
-		if (spriteBatchStartedOn && frameCount == 120)
+		if (spriteBatchStartedOn && spriteBatchRestoreDeadline != 0 &&
+			frameCount > spriteBatchToggleFrame + 20)
 		{
 			const std::size_t batchesBack = render->getFrameStats().batchCount;
 			const std::size_t runsBack = batcher ? batcher->activeRunCount() : 0;
-			if (batchesBack != spriteBatchBatchesOn ||
-				runsBack != spriteBatchRunsOn)
+			if (batchesBack == spriteBatchBatchesOn &&
+				runsBack == spriteBatchRunsOn)
+			{
+				SDL_Log("orkige_player: spritebatch selfcheck complete - "
+					"batching on, batches=%zu runs=%zu liveOffBatches=%zu "
+					"restored", spriteBatchBatchesOn, spriteBatchRunsOn,
+					spriteBatchBatchesLiveOff);
+				spriteBatchDone = true;
+			}
+			else if (frameCount >= spriteBatchRestoreDeadline)
 			{
 				SDL_Log("orkige_player: spritebatch selfcheck FAILED - "
 					"re-enabling did not restore the runs (batches %zu -> "
 					"%zu, runs %zu -> %zu)", spriteBatchBatchesOn,
 					batchesBack, spriteBatchRunsOn, runsBack);
 				exitCode = 1;
+				spriteBatchDone = true;
 			}
-			else
-			{
-				SDL_Log("orkige_player: spritebatch selfcheck complete - "
-					"batching on, batches=%zu runs=%zu liveOffBatches=%zu "
-					"restored", spriteBatchBatchesOn, spriteBatchRunsOn,
-					spriteBatchBatchesLiveOff);
-			}
-			spriteBatchDone = true;
 		}
 	}
 

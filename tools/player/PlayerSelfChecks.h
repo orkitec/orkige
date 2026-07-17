@@ -321,6 +321,14 @@ struct PlayerSelfChecks
 	std::size_t spriteBatchBatchesOn = 0;
 	std::size_t spriteBatchRunsOn = 0;
 	std::size_t spriteBatchBatchesLiveOff = 0;
+	//! steady-state sampling for the batch baseline + restore legs: a run
+	//! re-upload can surface as a transient extra batch for a frame on some
+	//! backends, so counts lock on two consecutive agreeing frames and the
+	//! restore converges under a deadline instead of asserting one frame
+	bool spriteBatchBaselineLocked = false;
+	std::size_t spriteBatchPrevSample = static_cast<std::size_t>(-1);
+	unsigned long spriteBatchToggleFrame = 0;
+	unsigned long spriteBatchRestoreDeadline = 0;
 	// --- ORKIGE_HOTRELOAD_SELFCHECK=1: Lua hot-reload, verified
 	// end to end against tests/projects/hotreload (run with --project
 	// tests/projects/hotreload). The Probe object runs scripts/
