@@ -310,16 +310,16 @@ TEST_CASE("AssetDatabase::importAsset registers a just-created file",
 	REQUIRE(database.importAsset("/definitely/elsewhere.png").empty());
 }
 
-TEST_CASE("AssetDatabase sidecar v2: texture import block round-trips and an "
+TEST_CASE("AssetDatabase sidecar v3: texture import block round-trips and an "
 	"id-only sidecar still reads clean", "[assetdb][texture]")
 {
 	Orkige::CoreTestEnvironment::get();
-	TempProject project("orkige_test_assetdb_texturev2");
+	TempProject project("orkige_test_assetdb_texturev3");
 	const std::string metaPath = project.metaPath("assets/hero.png");
 	std::filesystem::create_directories(
 		std::filesystem::path(metaPath).parent_path());
 
-	SECTION("a v2 sidecar preserves the id AND round-trips the settings")
+	SECTION("a v3 sidecar preserves the id AND round-trips the settings")
 	{
 		Orkige::TextureImport written;
 		written.base.filter = "point";
@@ -327,12 +327,18 @@ TEST_CASE("AssetDatabase sidecar v2: texture import block round-trips and an "
 		written.base.maxSize = 1024;
 		written.base.premultiply = true;
 		written.base.generateMips = true;
+		written.base.format = "none";		// atlas-style opt-out by default
+		written.base.quality = "high";
 		written.hasAndroid = true;
 		written.android = written.base;
 		written.android.maxSize = 512;		// mobile caps harder
 		written.hasIos = true;
 		written.ios = written.base;
 		written.ios.filter = "bilinear";	// iOS overrides just the filter
+		written.ios.format = "astc-8x8";	// ... and opts in to compression
+		written.hasWeb = true;
+		written.web = written.base;
+		written.web.maxSize = 256;			// the web slot caps hardest
 
 		const Orkige::String id = "1234567890abcdef1234567890abcdef";
 		REQUIRE(Orkige::AssetDatabase::writeMetaFile(metaPath, id, written));
@@ -350,18 +356,38 @@ TEST_CASE("AssetDatabase sidecar v2: texture import block round-trips and an "
 		CHECK(read.base.maxSize == 1024);
 		CHECK(read.base.premultiply == true);
 		CHECK(read.base.generateMips == true);
+		CHECK(read.base.format == "none");
+		CHECK(read.base.quality == "high");
 		REQUIRE(read.hasAndroid);
 		CHECK(read.android.maxSize == 512);
 		CHECK(read.android.filter == "point");		// inherited from base
+		CHECK(read.android.format == "none");		// inherited from base
 		REQUIRE(read.hasIos);
 		CHECK(read.ios.filter == "bilinear");		// overridden
 		CHECK(read.ios.maxSize == 1024);			// inherited from base
+		CHECK(read.ios.format == "astc-8x8");		// overridden
+		REQUIRE(read.hasWeb);
+		CHECK(read.web.maxSize == 256);				// overridden
+		CHECK(read.web.format == "none");			// inherited from base
 
 		// resolvedFor() picks the platform block when present, else base
 		CHECK(read.resolvedFor("").maxSize == 1024);
 		CHECK(read.resolvedFor("android").maxSize == 512);
 		CHECK(read.resolvedFor("ios").filter == "bilinear");
+		CHECK(read.resolvedFor("ios").format == "astc-8x8");
+		CHECK(read.resolvedFor("web").maxSize == 256);
 		CHECK(read.resolvedFor("windows").maxSize == 1024);	// unknown = base
+	}
+	SECTION("a pre-web v2 block resolves web to the base settings")
+	{
+		Orkige::TextureImport written;
+		written.base.maxSize = 128;
+		REQUIRE(Orkige::AssetDatabase::writeMetaFile(metaPath,
+			"1234567890abcdef1234567890abcdef", written));
+		Orkige::TextureImport read;
+		REQUIRE(Orkige::AssetDatabase::readImportSettings(metaPath, read));
+		CHECK_FALSE(read.hasWeb);
+		CHECK(read.resolvedFor("web").maxSize == 128);
 	}
 	SECTION("an id-only v1 sidecar reads clean and yields no import block")
 	{
@@ -371,12 +397,17 @@ TEST_CASE("AssetDatabase sidecar v2: texture import block round-trips and an "
 		REQUIRE(Orkige::AssetDatabase::readMetaFile(metaPath, readId));
 		CHECK(readId == id);
 		// no <texture> block: readImportSettings reports false and leaves
-		// defaults, so a live sprite keeps its default sampler
+		// defaults, so a live sprite keeps its default sampler (the export
+		// cook still treats such a texture as carrying the defaults -
+		// format "auto" - which is ITS contract, not this reader's)
 		Orkige::TextureImport read;
 		CHECK_FALSE(Orkige::AssetDatabase::readImportSettings(metaPath, read));
 		CHECK(read.base.filter == "bilinear");
 		CHECK(read.base.maxSize == 0);
+		CHECK(read.base.format == "auto");
+		CHECK(read.base.quality == "normal");
 		CHECK_FALSE(read.hasAndroid);
+		CHECK_FALSE(read.hasWeb);
 	}
 }
 

@@ -31,6 +31,7 @@ struct PlayerSelfChecks
 	bool vectorAnimCheck = false;
 	bool rollerProgressionCheck = false;
 	std::string assetIdCheckTexture;
+	std::string cookedCheckTexture;
 	bool tweenCheck = false;
 	bool hotreloadCheck = false;
 	bool scriptPropCheck = false;

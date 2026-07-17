@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -69,6 +70,57 @@ def read_cmake_cache(build_dir, variable):
             if line.startswith(variable + ":"):
                 return line.split("=", 1)[1].strip()
     return ""
+
+
+def check_payload_cook(payload_dir, source_project, platform_token, flavor,
+                       repo):
+    """assert the export-time texture cook conditioned the bundled payload:
+    every SOURCE texture whose settings resolve to a compressed format for
+    this (platform, flavor) must ship as a container (.dds/.ktx/.oitd) with
+    its sidecar renamed along, every shipped PNG must genuinely resolve to
+    'ship PNG' (format none/auto-none - e.g. the pixel-exact gui atlas), and
+    the container count matches the source expectation."""
+    sys.path.insert(0, os.path.join(repo, "Util"))
+    import cook_textures  # noqa: E402  (the real cook's resolution rules)
+
+    expected = 0
+    source_assets = os.path.join(source_project, "assets")
+    if os.path.isdir(source_assets):
+        for parent, _dirs, files in os.walk(source_assets):
+            for name in files:
+                if not name.lower().endswith(".png"):
+                    continue
+                meta = os.path.join(parent, name) + ".orkmeta"
+                if not os.path.isfile(meta):
+                    continue
+                settings = cook_textures.resolve_import_settings(
+                    meta, platform_token)
+                if settings is None:
+                    continue
+                fmt, _container = cook_textures.resolve_format(
+                    settings, platform_token, flavor, True)
+                if fmt:
+                    expected += 1
+    shipped = 0
+    for parent, _dirs, files in os.walk(payload_dir):
+        for name in files:
+            path = os.path.join(parent, name)
+            if name.lower().endswith(".png") and \
+                    os.path.isfile(path + ".orkmeta"):
+                settings = cook_textures.resolve_import_settings(
+                    path + ".orkmeta", platform_token)
+                fmt, _container = cook_textures.resolve_format(
+                    settings, platform_token, flavor, True)
+                require(fmt is None,
+                        "shipped PNG resolves to no compression: " + name)
+            if name.lower().endswith((".dds", ".ktx", ".oitd")):
+                require(os.path.isfile(path + ".orkmeta"),
+                        "cooked texture kept its (renamed) sidecar: " + name)
+                shipped += 1
+    require(shipped == expected,
+            "payload ships %d compressed texture(s) (source resolves to %d) "
+            "for platform '%s'/%s" % (shipped, expected,
+                                      platform_token or "desktop", flavor))
 
 
 def check_macos(app_dir, exe_name, run_frames, flavor):
@@ -313,18 +365,37 @@ def main():
     name, exe_name = project_names(args.project)
     flavor = read_cmake_cache(args.engine_build,
                               "ORKIGE_RENDER_BACKEND") or "classic"
+    # the import-settings platform token the cook resolved the payload for
+    platform_token = {"macos": "", "ios-simulator": "ios",
+                      "android": "android", "android-aab": "android"}
+    token = platform_token[args.platform]
     if args.platform == "macos":
         artifact = os.path.join(args.output, name + ".app")
         check_macos(artifact, exe_name, args.run_frames, flavor)
+        check_payload_cook(os.path.join(artifact, "Contents", "Resources",
+                                        "project"),
+                           args.project, token, flavor, args.repo)
     elif args.platform == "ios-simulator":
         artifact = os.path.join(args.output, name + ".app")
         check_ios(artifact, flavor)
+        check_payload_cook(os.path.join(artifact, "project"),
+                           args.project, token, flavor, args.repo)
     elif args.platform == "android-aab":
         artifact = os.path.join(args.output, exe_name + ".aab.module.zip")
         check_android_aab_module(artifact)
     else:
         artifact = os.path.join(args.output, exe_name + ".apk")
         check_android(artifact, aapt2)
+    if args.platform in ("android", "android-aab"):
+        # the payload rides inside the archive: extract it and run the same
+        # cooked-payload assertions the directory bundles get
+        with zipfile.ZipFile(artifact) as archive, \
+                tempfile.TemporaryDirectory() as temp_dir:
+            members = [entry for entry in archive.namelist()
+                       if entry.startswith("assets/project/")]
+            archive.extractall(temp_dir, members)
+            check_payload_cook(os.path.join(temp_dir, "assets", "project"),
+                               args.project, token, flavor, args.repo)
 
     log("artifact %s (%.1f MiB)" % (artifact,
         directory_size(artifact) / (1024.0 * 1024.0)))

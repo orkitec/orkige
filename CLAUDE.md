@@ -521,9 +521,23 @@ look when touching one:
   v7 added per-property prefab overrides. **Object tags** (multi-tag,
   `world.findByTag`). Serialization: `core_serialization` (`ISerializeable` + `XMLArchive`).
 - **Asset pipeline**: `core_project/AssetDatabase` = stable IDs via `.orkmeta` sidecars
-  (references survive renames; v2 sidecars carry per-platform **texture import
-  settings**); the editor **asset browser** (folder tree, thumbnails, drag-&-drop
+  (references survive renames; v3 sidecars carry per-platform **texture import
+  settings** — base + android/ios/web override slots incl. `format`/`quality`);
+  the editor **asset browser** (folder tree, thumbnails, drag-&-drop
   import/instantiate); `Util/make_sprite_atlas.py` + `cook_textures.py`.
+  **Export-time GPU texture compression** (`Docs/textures.md`): the dev loop
+  always renders raw PNGs; the export cook block-compresses the payload per
+  sidecar settings (`format` defaults to `auto` — desktop BCn in `.dds`, iOS
+  ASTC / Android ETC2 in `.oitd` on next, PNG on web and the classic GLES2
+  mobile flavor; explicit formats validate per platform x flavor and refuse
+  impossible pairs). Encoding runs in `tools/texcook` (host CLI over vcpkg
+  `ktx` — ASTC encoder + universal-transcoder ETC2/BCn); a cooked texture
+  replaces its `.png` (sidecar renamed along, ids keep resolving; the
+  backends fall back `.png`→`.dds`/`.oitd`/`.ktx` for bare-name refs).
+  Generated glyph/sprite atlases and normal maps stamp `format="none"`
+  (`Util/orkige_sidecar.py`). Verified by `texcook_selftest`,
+  `cook_textures_selftest`, `player_cooked_textures` (both flavors) and the
+  `export_*` payload assertions.
 - **2D**: `SpriteComponent`, `SpriteAnimationComponent` (flipbook), `ParticleComponent`
   + the facade `SpriteBatch` (one draw per emitter), an ortho **2D editor mode**.
   **3D particles + weather**: the SAME `ParticleComponent`/`ParticleSim` grows a

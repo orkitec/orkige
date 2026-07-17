@@ -126,6 +126,17 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		std::getenv("ORKIGE_ASSETID_SELFCHECK");
 	assetIdCheckTexture =
 		assetIdCheckEnv ? assetIdCheckEnv : "";
+	// ORKIGE_COOKED_SELFCHECK=<expected texture> verifies a block-compressed
+	// export payload end to end (run against a COOKED copy of
+	// tests/projects/asset_rename - see integration_driver/
+	// run_cooked_textures_test.py): the "Sprite" object must come up showing
+	// the expected texture (a .dds/.oitd the cook wrote in place of the
+	// source PNG) and the render backend must measure real texel dimensions
+	// for it - the GPU actually accepted the compressed container
+	const char* cookedCheckEnv =
+		std::getenv("ORKIGE_COOKED_SELFCHECK");
+	cookedCheckTexture =
+		cookedCheckEnv ? cookedCheckEnv : "";
 	// ORKIGE_TWEEN_SELFCHECK verifies the tween system end to end against
 	// tests/projects/tween (run with --project tests/projects/tween)
 	tweenCheck =
@@ -219,7 +230,8 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		integrationContactCheck || integrationLevelCheck ||
 		breadcrumbCheck || fadeCheck || lifecycleCheck || resizeCheck ||
 		softbodyCheck || perfCheck || benchmarkCheck || vectorAnimCheck ||
-		!assetIdCheckTexture.empty() || frameLimit != 0;
+		!assetIdCheckTexture.empty() || !cookedCheckTexture.empty() ||
+		frameLimit != 0;
 }
 
 //---------------------------------------------------------
@@ -344,6 +356,43 @@ std::optional<int> PlayerSelfChecks::afterSceneLoad(PlayerContext& context)
 			"reference resolved to '%s' (id %s)",
 			sprite->getTextureName().c_str(),
 			sprite->getTextureAssetId().c_str());
+	}
+
+	// --- ORKIGE_COOKED_SELFCHECK: prove a block-compressed export payload
+	// renders - the sprite must be up under the expected (cooked or raw)
+	// texture name AND the render backend must measure real texel
+	// dimensions for it, which means the GPU accepted the compressed
+	// container (.dds/.oitd) the export cook wrote
+	if (!cookedCheckTexture.empty())
+	{
+		optr<Orkige::GameObject> spriteObject =
+			gameObjectManager.getGameObject("Sprite").lock();
+		Orkige::SpriteComponent* sprite = (spriteObject &&
+			spriteObject->hasComponent<Orkige::SpriteComponent>())
+			? spriteObject->getComponentPtr<Orkige::SpriteComponent>()
+			: nullptr;
+		unsigned int texW = 0;
+		unsigned int texH = 0;
+		const bool measured = sprite && Orkige::RenderSystem::get() &&
+			Orkige::RenderSystem::get()->getTextureSize(
+				sprite->getTextureName(), texW, texH);
+		if (!sprite || !sprite->hasSprite() ||
+			sprite->getTextureName() != cookedCheckTexture ||
+			!measured || texW == 0 || texH == 0)
+		{
+			SDL_Log("orkige_player: COOKED SELFCHECK FAILED - "
+				"texture='%s' hasSprite=%d measured=%ux%u (expected the "
+				"cooked payload to render '%s' from its compressed "
+				"container)",
+				sprite ? sprite->getTextureName().c_str() : "<no sprite "
+				"component>",
+				sprite ? (sprite->hasSprite() ? 1 : 0) : 0, texW, texH,
+				cookedCheckTexture.c_str());
+			return 1;
+		}
+		SDL_Log("orkige_player: COOKED SELFCHECK PASSED - '%s' renders at "
+			"%ux%u from the cooked payload",
+			sprite->getTextureName().c_str(), texW, texH);
 	}
 	return std::nullopt;
 }

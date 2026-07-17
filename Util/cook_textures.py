@@ -172,15 +172,18 @@ def resolve_format(settings, platform, flavor, alpha, warn=None):
             raise CookError("format '%s' cannot ship to '%s' - mobile GPUs "
                             "have no BCn support (use astc/etc2 or none)"
                             % (fmt, platform))
-        if flavor == "classic" and platform in ("", "macos"):
-            if fmt == "bc7":
-                raise CookError("format 'bc7' cannot ship on the classic "
-                                "desktop flavor - its default GL renderer "
-                                "has no BC7 support (use bc1/bc3)")
-            if fmt not in BC_FORMATS:
-                raise CookError("format '%s' cannot ship on the classic "
-                                "desktop flavor - desktop GL there exposes "
-                                "neither ASTC nor ETC2 (use bc1/bc3)" % fmt)
+        if fmt not in BC_FORMATS and platform in ("", "macos"):
+            raise CookError("format '%s' cannot ship on a desktop export - "
+                            "the desktop runtimes load only the BC family "
+                            "(classic desktop GL exposes neither ASTC nor "
+                            "ETC2, and the next flavor's desktop renderer "
+                            "maps them only in its mobile builds); use "
+                            "bc1/bc3%s or none" % (fmt,
+                            "" if flavor == "classic" else "/bc7"))
+        if flavor == "classic" and platform in ("", "macos") and fmt == "bc7":
+            raise CookError("format 'bc7' cannot ship on the classic "
+                            "desktop flavor - its default GL renderer "
+                            "has no BC7 support (use bc1/bc3)")
         if platform == "web" and warn:
             warn("WARNING: explicit format '%s' on the web build only loads "
                  "on visitor GPUs exposing the matching compressed-texture "
@@ -380,6 +383,8 @@ def _resolution_selftest(check):
             (dict(auto, format="bc1"), "android", "next"),
             (dict(auto, format="bc7"), "", "classic"),
             (dict(auto, format="astc-4x4"), "", "classic"),
+            (dict(auto, format="astc-4x4"), "", "next"),
+            (dict(auto, format="etc2"), "", "next"),
             (dict(auto, format="nonsense"), "", "next")):
         try:
             resolve_format(settings, platform, flavor, True)
