@@ -45,6 +45,14 @@ namespace Orkige
 	//! (@see MeshInstance::setReceiveShadows), so instances sharing one
 	//! `.omat` keep independent flags. Both apply live (inspector, Lua, MCP,
 	//! debug protocol) and re-apply after every model/material change.
+	//!
+	//! RUNTIME ACCENTS: `tint` (multiplies the albedo, white = none) and
+	//! `emissiveBoost` (adds emitted colour, black = none - the hit-flash
+	//! accent) are per-instance, RUNTIME-ONLY looks (reflected TRANSIENT, so
+	//! inspector/Lua/MCP reach them but a scene save never records them - the
+	//! `.omat` stays the authored truth). They ride the same per-instance
+	//! variant machinery as `receiveShadows` (@see MeshInstance::setTint) and
+	//! re-apply after every model/material/shadow-flag change.
 	class ORKIGE_ENGINE_DLL ModelComponent : public GameObjectComponent, public SceneNodeGuard
 	{
 		OOBJECT(ModelComponent, GameObjectComponent)
@@ -68,6 +76,8 @@ namespace Orkige
 		String				materialAssetId;		//!< stable asset id of the material ("" = none)
 		bool				mCastShadows;			//!< this instance throws shadows (@see class remarks)
 		bool				mReceiveShadows;		//!< cast shadows darken this instance (@see class remarks)
+		Color				mTint;					//!< runtime albedo tint, white = none (@see class remarks)
+		Color				mEmissiveBoost;			//!< runtime additive emission, black = none (@see class remarks)
 		optr<StringUtil::StringObject> eventData;	//!< name of set or removed model
 	private:
 		//--- Methods -----------------------------------------------
@@ -103,6 +113,26 @@ namespace Orkige
 		//! @see ModelComponent::mReceiveShadows
 		inline bool getReceiveShadows() const;
 
+		//! @brief runtime albedo tint (RGB multiplier, 1 1 1 = none; @see
+		//! class remarks) - the Lua-friendly three-float form
+		void setTint(float red, float green, float blue);
+		//! @brief runtime additive emission (RGB, 0 0 0 = none - the
+		//! hit-flash accent; @see class remarks)
+		void setEmissiveBoost(float red, float green, float blue);
+		//! @see ModelComponent::mTint
+		inline Color const & getTint() const;
+		//! @see ModelComponent::mEmissiveBoost
+		inline Color const & getEmissiveBoost() const;
+		//! reflected transient setters (Color -> the three-float forms)
+		inline void setTintColor(Color const & tint)
+		{
+			this->setTint(tint.r, tint.g, tint.b);
+		}
+		inline void setEmissiveBoostColor(Color const & boost)
+		{
+			this->setEmissiveBoost(boost.r, boost.g, boost.b);
+		}
+
 		//! @see ModelComponent::modelFileName
 		inline String const & getCurrentModelFileName() const;
 		//! @see ModelComponent::modelAssetId
@@ -130,6 +160,11 @@ namespace Orkige
 		//! detached); runs after every model load and material apply, because
 		//! a fresh material assignment resets the backend's receive state
 		void applyShadowFlags();
+		//! @brief push the runtime accents onto the live mesh (no-op
+		//! detached); runs LAST - after every model/material/shadow-flag
+		//! apply, because each of those resets the backend's accent state
+		//! (@see MeshInstance::setTint)
+		void applyAccents();
 		//--- SERIALIZATION ---
 		//! save the model + material file names (each with its stable asset
 		//! id riding the record) to Archive
@@ -149,6 +184,16 @@ namespace Orkige
 	inline bool ModelComponent::getReceiveShadows() const
 	{
 		return this->mReceiveShadows;
+	}
+	//---------------------------------------------------------------
+	inline Color const & ModelComponent::getTint() const
+	{
+		return this->mTint;
+	}
+	//---------------------------------------------------------------
+	inline Color const & ModelComponent::getEmissiveBoost() const
+	{
+		return this->mEmissiveBoost;
 	}
 	//---------------------------------------------------------------
 	inline String const & ModelComponent::getCurrentModelFileName() const

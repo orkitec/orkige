@@ -153,6 +153,16 @@ namespace Orkige
 		//! switched to no-receive variants (@see MeshInstance::setReceiveShadows);
 		//! empty while the instance receives shadows normally
 		std::vector<Ogre::HlmsDatablock*>	receiveRestore;
+		//! runtime accents (@see MeshInstance::setTint/setEmissiveBoost):
+		//! the current tint (white = none) and additive emissive boost
+		//! (black = none), plus - while accented - the per-sub-item ORIGINAL
+		//! datablocks and the per-instance accent VARIANT clones rendering in
+		//! their place (destroyed on restore/teardown; NULL where a sub-item
+		//! carried a non-PBS datablock the accent skips)
+		Color	accentTint = Color(1.0f, 1.0f, 1.0f, 1.0f);
+		Color	accentBoost = Color(0.0f, 0.0f, 0.0f, 1.0f);
+		std::vector<Ogre::HlmsDatablock*>	accentRestore;
+		std::vector<Ogre::HlmsDatablock*>	accentVariants;
 	};
 
 	struct SpriteQuad::Impl
@@ -587,6 +597,11 @@ namespace Orkige
 		//! @remarks backs the global wireframe toggle; datablocks live
 		//! until teardown (they are tiny and shared by name)
 		static void registerContentDatablock(Ogre::HlmsDatablock* datablock);
+		//! restore a mesh instance's pre-accent datablocks and retire its
+		//! accent variant clones (@see MeshInstance::setTint; no-op unaccented)
+		static void resetMeshAccents(MeshInstance::Impl* impl);
+		//! realize a mesh instance's accent state (@see MeshInstance::setTint)
+		static void applyMeshAccents(MeshInstance::Impl* impl);
 		//! @brief RenderCamera::setWireframe on this backend: flip the
 		//! macroblock polygon mode of every backend-generated datablock
 		//! @remarks recorded deviation (see RenderCamera.h): Next's v2

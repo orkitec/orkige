@@ -33,6 +33,8 @@ namespace Orkige
 		this->materialAssetId = "";
 		this->mCastShadows = true;
 		this->mReceiveShadows = true;
+		this->mTint = Color(1.0f, 1.0f, 1.0f, 1.0f);
+		this->mEmissiveBoost = Color(0.0f, 0.0f, 0.0f, 1.0f);
 		this->addDependency<TransformComponent>();
 		this->eventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
 	}
@@ -85,10 +87,12 @@ namespace Orkige
 			this->setVisible(false);
 		}
 		// a recorded material reference renders over the imported materials,
-		// then the shadow participation flags (a material apply resets the
-		// backend's receive state, so the flags go LAST)
+		// then the shadow participation flags, then the runtime accents (each
+		// apply resets the backend state the NEXT one layers on, so the order
+		// is material -> shadow flags -> accents)
 		this->applyMaterial();
 		this->applyShadowFlags();
+		this->applyAccents();
 		this->eventData->setValue(fileName);
 		componentOwner->triggerEvent(Event(ModelComponent::ModelSetEvent, this->eventData));
 	}
@@ -157,22 +161,37 @@ namespace Orkige
 			materialFileName, "", AssetDatabase::REF_FILE_NAME);
 		// applies live when a mesh exists; otherwise the recorded reference
 		// applies when the model loads (loadModel calls applyMaterial). The
-		// shadow flags re-apply after it - a fresh material assignment
-		// resets the backend's receive state.
+		// shadow flags and the runtime accents re-apply after it - a fresh
+		// material assignment resets both backend states.
 		this->applyMaterial();
 		this->applyShadowFlags();
+		this->applyAccents();
 	}
 	//---------------------------------------------------------
 	void ModelComponent::setCastShadows(bool casts)
 	{
 		this->mCastShadows = casts;
 		this->applyShadowFlags();
+		this->applyAccents();	// the receive swap reset the accent state
 	}
 	//---------------------------------------------------------
 	void ModelComponent::setReceiveShadows(bool receives)
 	{
 		this->mReceiveShadows = receives;
 		this->applyShadowFlags();
+		this->applyAccents();	// the receive swap reset the accent state
+	}
+	//---------------------------------------------------------
+	void ModelComponent::setTint(float red, float green, float blue)
+	{
+		this->mTint = Color(red, green, blue, 1.0f);
+		this->applyAccents();
+	}
+	//---------------------------------------------------------
+	void ModelComponent::setEmissiveBoost(float red, float green, float blue)
+	{
+		this->mEmissiveBoost = Color(red, green, blue, 1.0f);
+		this->applyAccents();
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -230,6 +249,16 @@ namespace Orkige
 		}
 		this->mesh->setCastShadows(this->mCastShadows);
 		this->mesh->setReceiveShadows(this->mReceiveShadows);
+	}
+	//---------------------------------------------------------
+	void ModelComponent::applyAccents()
+	{
+		if(!this->mesh)
+		{
+			return;	// a detached component records the accents for the load
+		}
+		this->mesh->setTint(this->mTint);
+		this->mesh->setEmissiveBoost(this->mEmissiveBoost);
 	}
 	//---------------------------------------------------------
 	void ModelComponent::onAdd()
@@ -294,6 +323,8 @@ namespace Orkige
 		OFUNCCR(getCurrentModelFileName)
 		OFUNC(setMaterialReference)
 		OFUNCCR(getMaterialFileName)
+		OFUNC(setTint)
+		OFUNC(setEmissiveBoost)
 		// reflected schema: the mesh reference (AssetRef, asset-kind
 		// "mesh"); its stable id rides the record so a project rename
 		// survives. The material reference (AssetRef, asset-kind "material" -
@@ -306,6 +337,11 @@ namespace Orkige
 		// follow the mesh/material fields so an in-order apply loads first
 		OPROPERTY("castShadows", Orkige::PropertyKind::Bool, getCastShadows, setCastShadows, Orkige::PROP_NONE)
 		OPROPERTY("receiveShadows", Orkige::PropertyKind::Bool, getReceiveShadows, setReceiveShadows, Orkige::PROP_NONE)
+		// runtime accents (@see class remarks): TRANSIENT - live-tunable over
+		// every property surface (inspector, Lua, MCP, debug protocol) but
+		// never serialized, the .omat stays the authored truth
+		OPROPERTY("tint", Orkige::PropertyKind::Color, getTint, setTintColor, Orkige::PROP_TRANSIENT)
+		OPROPERTY("emissiveBoost", Orkige::PropertyKind::Color, getEmissiveBoost, setEmissiveBoostColor, Orkige::PROP_TRANSIENT)
 
 		// self.model / world.getModel(id) hand Lua a WEAK handle: locks per call,
 		// raises an honest error naming the owner once gone. @see TransformComponent.
@@ -314,6 +350,8 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(getCurrentModelFileName)
 			OWEAKHANDLE_BASEMETHOD(setMaterialReference)
 			OWEAKHANDLE_BASEMETHOD(getMaterialFileName)
+			OWEAKHANDLE_BASEMETHOD(setTint)
+			OWEAKHANDLE_BASEMETHOD(setEmissiveBoost)
 		OWEAKHANDLE_END
 	OOBJECT_END
 }

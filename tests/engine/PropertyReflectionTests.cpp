@@ -260,6 +260,18 @@ TEST_CASE("ModelComponent declares mesh AND material references in its schema",
 	REQUIRE(receives != nullptr);
 	CHECK(casts->kind == PropertyKind::Bool);
 	CHECK(receives->kind == PropertyKind::Bool);
+
+	// the runtime accents are TRANSIENT Colors: every live surface
+	// (inspector, Lua, MCP, debug protocol) reaches them, a scene save
+	// never records them - the .omat stays the authored truth
+	PropertyDesc const * tint = schema->find("tint");
+	PropertyDesc const * boost = schema->find("emissiveBoost");
+	REQUIRE(tint != nullptr);
+	REQUIRE(boost != nullptr);
+	CHECK(tint->kind == PropertyKind::Color);
+	CHECK(boost->kind == PropertyKind::Color);
+	CHECK(tint->hasFlag(PROP_TRANSIENT));
+	CHECK(boost->hasFlag(PROP_TRANSIENT));
 }
 //---------------------------------------------------------
 TEST_CASE("ModelComponent material reference round-trips on a DETACHED component",
@@ -299,8 +311,18 @@ TEST_CASE("ModelComponent material reference round-trips on a DETACHED component
 	CHECK_FALSE(model.getCastShadows());
 	CHECK_FALSE(model.getReceiveShadows());
 
+	// the runtime accents record on a detached component too (applied when
+	// a mesh loads) ...
+	PropertyDesc const * tint = schema->find("tint");
+	REQUIRE(tint != nullptr);
+	PropColor red;
+	red.r = 1.0f; red.g = 0.25f; red.b = 0.2f; red.a = 1.0f;
+	tint->set(instance, PropertyValue::makeColor(red));
+	CHECK(model.getTint().g == Approx(0.25f));
+
 	// the serialization path (capture -> apply) carries the reference AND
-	// the shadow flags
+	// the shadow flags - but NOT the transient accents (runtime-only; the
+	// restored component keeps the neutral white tint)
 	GameObject::ComponentPropertyMap captured =
 		SceneSerializer::captureComponentProperties(model);
 	ModelComponent restored;
@@ -308,6 +330,7 @@ TEST_CASE("ModelComponent material reference round-trips on a DETACHED component
 	CHECK(restored.getMaterialFileName() == "rock.omat");
 	CHECK_FALSE(restored.getCastShadows());
 	CHECK_FALSE(restored.getReceiveShadows());
+	CHECK(restored.getTint().g == Approx(1.0f));
 
 	// clearing detaches cleanly (no mesh to reload on a detached component)
 	material->set(instance, PropertyValue::makeAssetRef("material", ""));

@@ -23,6 +23,12 @@ same spirit as make_uvcheck_mesh.py / make_test_mesh.py:
       isolates what the normal/emissive maps contribute)
   samples/hello_orkige/media/demo_material_ground.omat a normal-mapped,
       emission-free ground material (the probe rig's shadow receiver)
+  samples/hello_orkige/media/demo_mat_leaf.png       RGBA cutout leaf (green
+      disc with a hard central alpha-0 hole)
+  samples/hello_orkige/media/demo_material_leaf.glb  a single upright quad
+      (single-sided geometry - the two-sided MATERIAL shows its back)
+  samples/hello_orkige/media/demo_material_leaf.omat the cutout + two-sided
+      demo surface (alphaTest 0.5, twoSided 1)
 
 Usage:
     python3 Util/make_material_demo.py [output_dir]

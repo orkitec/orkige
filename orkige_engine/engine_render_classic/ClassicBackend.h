@@ -122,6 +122,15 @@ namespace Orkige
 		//! switched to no-receive variants (@see MeshInstance::setReceiveShadows);
 		//! empty while the instance receives shadows normally
 		std::vector<Ogre::MaterialPtr>	receiveRestore;
+		//! runtime accents (@see MeshInstance::setTint/setEmissiveBoost):
+		//! the current tint (white = none) and additive emissive boost
+		//! (black = none), plus - while accented - the per-sub-entity
+		//! ORIGINAL materials and the per-instance accent VARIANT clones
+		//! that render in their place (destroyed on restore/teardown)
+		Color	accentTint = Color(1.0f, 1.0f, 1.0f, 1.0f);
+		Color	accentBoost = Color(0.0f, 0.0f, 0.0f, 1.0f);
+		std::vector<Ogre::MaterialPtr>	accentRestore;
+		std::vector<Ogre::MaterialPtr>	accentVariants;
 	};
 
 	struct SpriteQuad::Impl
@@ -482,6 +491,11 @@ namespace Orkige
 		//! (RenderSystem::setWaterTime) - a name with no registered water
 		//! material is a silent no-op (the dormancy rule)
 		static void setWaterMaterialTime(String const & name, float seconds);
+		//! restore a mesh instance's pre-accent materials and retire its
+		//! accent variant clones (@see MeshInstance::setTint; no-op unaccented)
+		static void resetMeshAccents(MeshInstance::Impl* impl);
+		//! realize a mesh instance's accent state (@see MeshInstance::setTint)
+		static void applyMeshAccents(MeshInstance::Impl* impl);
 		//! @brief order a 2D renderable (sprite / vector fill / sprite batch)
 		//! by @p zOrder so a higher zOrder paints ON TOP.
 		//! @remarks classic OGRE sorts alpha-blended, depth-write-disabled

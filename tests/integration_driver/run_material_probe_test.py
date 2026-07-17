@@ -304,11 +304,50 @@ def leg_cutout(binary, out_dir):
     return failures
 
 
+# accent-rig regions: instance A (accented) left, instance B (the untouched
+# sibling of the SAME material) right
+ACCENT_A = (0.24, 0.40, 0.40, 0.70)
+ACCENT_B = (0.60, 0.40, 0.76, 0.70)
+
+
+def leg_accents(binary, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+    restored_shot = os.path.join(out_dir, "mat_accents_restored.png")
+    accented_shot, pre_shot = run_demo(
+        binary, {"ORKIGE_DEMO_ACCENTS": "1",
+                 "ORKIGE_DEMO_SCREENSHOT3": restored_shot},
+        out_dir, "accents")
+    if not os.path.exists(restored_shot):
+        raise RuntimeError(f"no post-restore capture at {restored_shot}")
+    pre = Image(pre_shot)
+    accented = Image(accented_shot)
+    restored = Image(restored_shot)
+
+    failures = []
+    # 1. the accent changes instance A (tint + emissive boost visible)
+    delta_a = region_diff(pre, accented, ACCENT_A)
+    check(failures, delta_a > 8.0,
+          f"tint + emissive boost change instance A (mean delta "
+          f"{delta_a:.1f} > 8.0)")
+    # 2. instance B - the SAME shared material - stays untouched
+    delta_b = region_diff(pre, accented, ACCENT_B)
+    check(failures, delta_b < 1.5,
+          f"the sibling instance B stays untouched (mean delta "
+          f"{delta_b:.2f} < 1.5)")
+    # 3. toggle identity: clearing the accents restores A exactly
+    delta_restore = region_diff(pre, restored, ACCENT_A)
+    check(failures, delta_restore < 1.5,
+          f"clearing the accents restores instance A exactly (mean delta "
+          f"{delta_restore:.2f} < 1.5)")
+    return failures
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True, help="the hello_orkige app")
     parser.add_argument("--out", required=True, help="scratch dir for captures")
-    parser.add_argument("--leg", required=True, choices=["looks", "cutout"])
+    parser.add_argument("--leg", required=True,
+                        choices=["looks", "cutout", "accents"])
     args = parser.parse_args()
     if not os.path.exists(args.binary):
         print(f"SKIP: demo app not built: {args.binary}")
@@ -316,7 +355,8 @@ def main():
 
     try:
         failures = {"looks": leg_looks,
-                    "cutout": leg_cutout}[args.leg](args.binary, args.out)
+                    "cutout": leg_cutout,
+                    "accents": leg_accents}[args.leg](args.binary, args.out)
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         print(f"FAIL: {error}")
         return 1

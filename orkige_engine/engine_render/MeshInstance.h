@@ -108,6 +108,27 @@ namespace Orkige
 		//! map: classic=SubEntity::setMaterial | next=SubItem::setDatablock (Hlms shader-gen guarded) | filament=RenderableManager::setMaterialInstanceAt
 		bool setMaterial(String const & materialName);
 
+		//--- runtime accents (per-instance, never serialized) ---
+		//! @brief multiply THIS instance's albedo/diffuse by @p tint (RGB;
+		//! white = no tint). A runtime-only accent - the assigned material
+		//! (the authored `.omat`) stays untouched and other instances keep
+		//! their look: the instance swaps onto a per-instance VARIANT of its
+		//! current material/datablock ("<name>/Accent.<n>", cloned once, then
+		//! parameter-driven in place - cheap per call). Tint back to white
+		//! (with a black boost) restores the original assignment EXACTLY and
+		//! retires the variants. Assign materials and the receive flag first:
+		//! a later setMaterial or setReceiveShadows resets the accents, and
+		//! the component layer re-applies them after (the setReceiveShadows
+		//! variant discipline).
+		//! map: classic=pass diffuse/ambient scaled on the accent clone | next=HlmsPbsDatablock::setDiffuse on the accent clone | filament=MaterialInstance parameter
+		void setTint(Color const & tint);
+		//! @brief ADD @p boost (RGB; black = none) to this instance's emitted
+		//! colour - the hit-flash/highlight accent (a tint can only darken,
+		//! the boost brightens lighting-independently). Same per-instance
+		//! variant machinery, same reset discipline as setTint.
+		//! map: classic=pass self-illumination raised on the accent clone | next=HlmsPbsDatablock::setEmissive on the accent clone | filament=emissive parameter
+		void setEmissiveBoost(Color const & boost);
+
 		//--- animation (what AnimationComponent uses) ---
 		//! names of all animations the mesh's skeleton/resource carries
 		//! map: classic=Entity::getAllAnimationStates | next=v2 SkeletonInstance/SkeletonAnimation list | filament=gltfio Animator::getAnimationName/count

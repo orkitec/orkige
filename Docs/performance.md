@@ -161,7 +161,10 @@ corner), the exact composition the backend applies to the individual quad).
 Batched members hide their individual quad (object-level flag only; node
 visibility stays the game's state). The run's batch binds the **same**
 per-(texture,sampler) material the individual quads use — merging changes
-nothing but the draw count.
+nothing but the draw count. Per-sprite `tint` rides the batch's **vertex
+colours**, so a tinted sprite stays inside its run (no material clone, no
+demotion — unlike a 3D mesh accent, which costs one material variant per
+accented instance, see `Docs/materials.md`).
 
 ### Why the classic adapter is the facade SpriteBatch (the BillboardSet audit)
 

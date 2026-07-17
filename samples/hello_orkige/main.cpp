@@ -157,6 +157,11 @@ int main(int, char**)
 	// ground with a casting sun; the probe asserts the hole renders AND
 	// shadows as a hole, and the back face renders at all
 	const bool demoCutout = (std::getenv("ORKIGE_DEMO_CUTOUT") != nullptr);
+	// ORKIGE_DEMO_ACCENTS=1: the runtime material-accent pixel-probe rig
+	// (below) - two instances of ONE .omat; a tint + emissive boost lands on
+	// instance A mid-run, then clears again; three frame-locked captures let
+	// the probe assert per-instance isolation and exact restore
+	const bool demoAccents = (std::getenv("ORKIGE_DEMO_ACCENTS") != nullptr);
 
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window, engine
 	// singletons, the per-flavor Engine boot, the window-camera rig and the
@@ -190,7 +195,7 @@ int main(int, char**)
 				render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
 			}
 			if (demoMusic || demoVectorShape || demoMaterial || demoTerrain ||
-				demoParticles3D || demoMatLooks || demoCutout)
+				demoParticles3D || demoMatLooks || demoCutout || demoAccents)
 			{
 				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
 			}
@@ -382,7 +387,7 @@ int main(int, char**)
 		// the pixel-probe rigs stage a CONTROLLED scene: the spinning default
 		// cubes would inject frame-dependent pixels into the frame-locked
 		// captures, so they stay hidden there (each rig brings its own content)
-		const bool probeRig = demoMatLooks || demoCutout;
+		const bool probeRig = demoMatLooks || demoCutout || demoAccents;
 		if (probeRig)
 		{
 			cube->setVisible(false);
@@ -1211,6 +1216,66 @@ int main(int, char**)
 				Orkige::RenderNode::TS_WORLD);
 			SDL_Log("hello_orkige: cutout rig up (leaf + back-facing leaf "
 				"over lit ground)");
+		}
+
+		// --- ORKIGE_DEMO_ACCENTS: the runtime material-accent rig. TWO
+		// instances of the SAME .omat (one shared live material) side by
+		// side; the frame loop below tints + emissive-boosts instance A only
+		// (ModelComponent.setTint/setEmissiveBoost -> the per-instance accent
+		// variant), then clears the accents again. The probe compares three
+		// frame-locked captures: the accent must CHANGE A, leave B untouched
+		// (per-instance isolation on a shared material), and clearing must
+		// restore A exactly (toggle identity).
+		Orkige::ModelComponent* accentA = nullptr;
+		Orkige::ModelComponent* accentB = nullptr;
+		optr<Orkige::RenderNode> accentSunNode;
+		optr<Orkige::RenderLight> accentSun;
+		if (demoAccents)
+		{
+			optr<Orkige::GameObject> objectA =
+				gameObjectManager.createGameObject("accent_a").lock();
+			optr<Orkige::GameObject> objectB =
+				gameObjectManager.createGameObject("accent_b").lock();
+			if (!objectA || !objectB ||
+				!objectA->addComponent<Orkige::ModelComponent>() ||
+				!objectB->addComponent<Orkige::ModelComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - accent rig creation failed");
+				return 1;
+			}
+			accentA = objectA->getComponentPtr<Orkige::ModelComponent>();
+			accentB = objectB->getComponentPtr<Orkige::ModelComponent>();
+			objectA->getComponentPtr<Orkige::TransformComponent>()
+				->setPosition(Orkige::Vec3(-1.4f, -0.6f, 0.0f));
+			objectB->getComponentPtr<Orkige::TransformComponent>()
+				->setPosition(Orkige::Vec3(1.4f, -0.6f, 0.0f));
+			accentA->loadModel("demo_material_cube.glb");
+			accentA->setMaterialReference("demo_material_flat.omat");
+			accentB->loadModel("demo_material_cube.glb");
+			accentB->setMaterialReference("demo_material_flat.omat");
+			if (!accentA->getMeshInstance() || !accentB->getMeshInstance() ||
+				!accentA->getMeshInstance()->subMeshHasTexture(0))
+			{
+				SDL_Log("hello_orkige: FAILED - accent rig meshes/materials "
+					"did not build");
+				return 1;
+			}
+			accentSun = world->createLight();
+			accentSunNode = world->createNode("accentSunNode");
+			accentSunNode->setDirection(
+				Orkige::Vec3(0.35f, -0.7f, -0.6f).normalisedCopy(),
+				Orkige::RenderNode::TS_WORLD);
+			accentSun->attachTo(accentSunNode);
+			accentSun->setType(Orkige::RenderLight::LT_DIRECTIONAL);
+			accentSun->setDiffuseColour(Orkige::Color(1.0f, 0.97f, 0.9f));
+			accentSun->setSpecularColour(Orkige::Color(1.0f, 0.97f, 0.9f));
+			world->setAmbientHemisphere(Orkige::Color(0.30f, 0.32f, 0.36f),
+				Orkige::Color(0.15f, 0.13f, 0.11f));
+			cameraNode->setPosition(Orkige::Vec3(0.0f, 1.2f, 5.6f));
+			cameraNode->lookAt(Orkige::Vec3(0.0f, -0.5f, 0.0f),
+				Orkige::RenderNode::TS_WORLD);
+			SDL_Log("hello_orkige: accent rig up (two instances of one "
+				"material)");
 		}
 
 		// --- ORKIGE_DEMO_PHYSICS=1: Jolt dynamics through the engine_physic /
@@ -4541,6 +4606,38 @@ int main(int, char**)
 					Orkige::Color(0.008f, 0.008f, 0.008f));
 				render->setWindowBackgroundColour(
 					Orkige::Color(0.0f, 0.0f, 0.02f));
+			}
+			if (demoAccents && frameCount == 40)
+			{
+				// ORKIGE_DEMO_SCREENSHOT2 = the PRE-accent capture (both
+				// instances still render the shared material verbatim)
+				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT2"))
+				{
+					render->saveWindowContents(shotPath);
+				}
+			}
+			if (demoAccents && frameCount == 45)
+			{
+				// accent instance A ONLY: a red-leaning tint + a warm emissive
+				// boost (the hit-flash recipe); B keeps the shared material
+				accentA->setTint(1.0f, 0.3f, 0.25f);
+				accentA->setEmissiveBoost(0.28f, 0.03f, 0.02f);
+			}
+			if (demoAccents && frameCount == 70)
+			{
+				// clear the accents again - the frame-85 capture must equal
+				// the pre-accent one EXACTLY in the instance regions (the
+				// variant retires and the original assignment returns)
+				accentA->setTint(1.0f, 1.0f, 1.0f);
+				accentA->setEmissiveBoost(0.0f, 0.0f, 0.0f);
+			}
+			if (demoAccents && frameCount == 85)
+			{
+				// ORKIGE_DEMO_SCREENSHOT3 = the post-restore capture
+				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT3"))
+				{
+					render->saveWindowContents(shotPath);
+				}
 			}
 			if (demoMatLooks && frameCount == 80)
 			{

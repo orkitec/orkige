@@ -710,6 +710,22 @@ if(TARGET hello_orkige)
     set_tests_properties(material_cutout_right PROPERTIES
         LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
 
+    # material_accents_right: the runtime-accent PIXEL probe. Drives the
+    # ORKIGE_DEMO_ACCENTS rig (two instances of ONE .omat; a tint + emissive
+    # boost lands on instance A mid-run and clears again) and asserts the
+    # accent changes A, leaves the sibling B byte-untouched (per-instance
+    # isolation on a shared material - the accent variant machinery), and
+    # that clearing restores A exactly (toggle identity). Both flavors.
+    # Skips (77) if the app is unbuilt.
+    add_test(NAME material_accents_right COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_material_probe_test.py"
+        --binary "$<TARGET_FILE:hello_orkige>"
+        --out "${CMAKE_CURRENT_BINARY_DIR}/material_accents_right"
+        --leg accents
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(material_accents_right PROPERTIES
+        LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
+
     # ORKIGE_DEMO_TERRAIN: the baked-mesh terrain selfcheck - a ModelComponent
     # imports the committed chunked terrain .glb (Util/make_terrain_mesh.py:
     # a 3x3 grid of geometry chunks -> 9 engine sub-meshes with normals + UVs)

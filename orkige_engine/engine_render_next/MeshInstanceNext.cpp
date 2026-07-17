@@ -30,6 +30,7 @@
 #include <OgreMesh2.h>
 #include <OgreResourceGroupManager.h>
 #include <OgreRoot.h>
+#include <OgreHlms.h>
 #include <OgreHlmsManager.h>
 #include <OgreHlmsDatablock.h>
 #include <OgreHlmsPbsDatablock.h>
@@ -66,6 +67,93 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void RenderBackend::resetMeshAccents(MeshInstance::Impl* impl)
+	{
+		// restore the pre-accent datablocks and retire the accent variant
+		// clones (@see MeshInstance::setTint; a no-op while unaccented)
+		if(impl->accentVariants.empty())
+		{
+			return;
+		}
+		Ogre::Item* item = impl->item;
+		for(size_t each = 0; each < item->getNumSubItems() &&
+			each < impl->accentRestore.size(); ++each)
+		{
+			item->getSubItem(each)->setDatablock(impl->accentRestore[each]);
+		}
+		for(Ogre::HlmsDatablock* variant : impl->accentVariants)
+		{
+			if(variant && variant->getCreator())
+			{
+				variant->getCreator()->destroyDatablock(variant->getName());
+			}
+		}
+		impl->accentRestore.clear();
+		impl->accentVariants.clear();
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyMeshAccents(MeshInstance::Impl* impl)
+	{
+		// realize the accent state (@see MeshInstance::setTint): neutral
+		// values restore-exactly; anything else swaps each PBS sub-item onto
+		// its per-instance datablock clone (built once) and parameter-drives
+		// it from the ORIGINAL's values - diffuse scaled by the tint,
+		// emissive raised by the boost (datablock param writes are
+		// const-buffer updates, cheap per call). Non-PBS sub-items (unlit
+		// content) are skipped - vertex-colour/sprite tints own that path.
+		Color const & tint = impl->accentTint;
+		Color const & boost = impl->accentBoost;
+		const bool neutral =
+			tint.r == 1.0f && tint.g == 1.0f && tint.b == 1.0f &&
+			boost.r == 0.0f && boost.g == 0.0f && boost.b == 0.0f;
+		if(neutral)
+		{
+			RenderBackend::resetMeshAccents(impl);
+			return;
+		}
+		Ogre::Item* item = impl->item;
+		if(impl->accentVariants.empty())
+		{
+			for(size_t each = 0; each < item->getNumSubItems(); ++each)
+			{
+				Ogre::HlmsDatablock* original =
+					item->getSubItem(each)->getDatablock();
+				impl->accentRestore.push_back(original);
+				if(!original || original->mType != Ogre::HLMS_PBS)
+				{
+					impl->accentVariants.push_back(NULL);
+					continue;
+				}
+				const String* originalName = original->getNameStr();
+				Ogre::HlmsDatablock* variant = original->clone(
+					RenderBackend::generateName(
+						(originalName ? *originalName : String("datablock"))
+						+ "/Accent"));
+				impl->accentVariants.push_back(variant);
+				item->getSubItem(each)->setDatablock(variant);
+			}
+		}
+		for(size_t each = 0; each < impl->accentVariants.size(); ++each)
+		{
+			Ogre::HlmsPbsDatablock* variant =
+				static_cast<Ogre::HlmsPbsDatablock*>(
+					impl->accentVariants[each]);
+			Ogre::HlmsPbsDatablock* original =
+				static_cast<Ogre::HlmsPbsDatablock*>(
+					impl->accentRestore[each]);
+			if(!variant || !original)
+			{
+				continue;
+			}
+			const Ogre::Vector3 diffuse = original->getDiffuse();
+			const Ogre::Vector3 emissive = original->getEmissive();
+			variant->setDiffuse(Ogre::Vector3(diffuse.x * tint.r,
+				diffuse.y * tint.g, diffuse.z * tint.b));
+			variant->setEmissive(Ogre::Vector3(emissive.x + boost.r,
+				emissive.y + boost.g, emissive.z + boost.b));
+		}
+	}
+	//---------------------------------------------------------
 	optr<MeshInstance> RenderBackend::createMeshInstance(
 		Ogre::SceneManager* sceneManager, String const & meshName)
 	{
@@ -95,6 +183,8 @@ namespace Orkige
 		// late destruction guard, same rule as RenderNode
 		if(this->mImpl->item && RenderBackend::system())
 		{
+			// per-instance accent clones die with the instance
+			RenderBackend::resetMeshAccents(this->mImpl);
 			if(this->mImpl->item->isAttached())
 			{
 				this->mImpl->item->detachFromParent();
@@ -160,6 +250,12 @@ namespace Orkige
 	void MeshInstance::setReceiveShadows(bool receive)
 	{
 		Ogre::Item* item = this->mImpl->item;
+		// accents layer ON TOP of the receive variant - drop them first so
+		// the walk below sees the real assignment; the component layer
+		// re-applies accents after the flag (@see MeshInstance::setTint)
+		RenderBackend::resetMeshAccents(this->mImpl);
+		this->mImpl->accentTint = Color(1.0f, 1.0f, 1.0f, 1.0f);
+		this->mImpl->accentBoost = Color(0.0f, 0.0f, 0.0f, 1.0f);
 		if(receive)
 		{
 			// restore the exact pre-toggle assignment (a no-op while the
@@ -274,6 +370,13 @@ namespace Orkige
 				"' (create it via RenderSystem::createMaterial first)");
 			return false;
 		}
+		// the fresh assignment below replaces any accent variants outright -
+		// retire them first (their clones would leak; the remembered accent
+		// resets too, the component layer re-applies it after the material,
+		// @see MeshInstance::setTint)
+		RenderBackend::resetMeshAccents(this->mImpl);
+		this->mImpl->accentTint = Color(1.0f, 1.0f, 1.0f, 1.0f);
+		this->mImpl->accentBoost = Color(0.0f, 0.0f, 0.0f, 1.0f);
 		// assign atomically: Hlms shader generation REFUSES a datablock the
 		// mesh cannot host (a normal map needs tangents, any texture needs
 		// UVs - it throws from the sub-item's hash calculation). Remember the
@@ -312,6 +415,18 @@ namespace Orkige
 		// after it (@see MeshInstance::setReceiveShadows)
 		this->mImpl->receiveRestore.clear();
 		return true;
+	}
+	//---------------------------------------------------------
+	void MeshInstance::setTint(Color const & tint)
+	{
+		this->mImpl->accentTint = Color(tint.r, tint.g, tint.b, 1.0f);
+		RenderBackend::applyMeshAccents(this->mImpl);
+	}
+	//---------------------------------------------------------
+	void MeshInstance::setEmissiveBoost(Color const & boost)
+	{
+		this->mImpl->accentBoost = Color(boost.r, boost.g, boost.b, 1.0f);
+		RenderBackend::applyMeshAccents(this->mImpl);
 	}
 	//---------------------------------------------------------
 	StringVector MeshInstance::getAnimationNames() const

@@ -522,6 +522,24 @@ guitween.scale("badge", 1.2, 0.3, "quadInOut"):setLoops(-1, true)
 panel:setTransition("slide-up 0.3"); guitween.show("menu")
 ```
 
+**Material accents — a hit flash on a mesh (`self.model`).**
+
+```lua
+-- RUNTIME-ONLY, per instance: the .omat asset stays the authored truth (a
+-- scene save never records accents - the properties are transient), and the
+-- OTHER instances of the same material keep their look. Tint multiplies the
+-- albedo (white = off), the emissive boost ADDS glow (black = off) - a tint
+-- can only darken, the boost is what makes a flash BRIGHT.
+function onContactBegin(self, other)
+    self.model:setTint(1.0, 0.3, 0.25)             -- red-shift the surface
+    self.model:setEmissiveBoost(0.3, 0.05, 0.05)   -- and make it glow
+    tween.to(0, 1, 0.15, "quadOut", nil, function()
+        self.model:setTint(1, 1, 1)                -- restore EXACTLY
+        self.model:setEmissiveBoost(0, 0, 0)
+    end)
+end
+```
+
 **Screen shake + hitstop (time scale).**
 
 ```lua
@@ -779,10 +797,14 @@ ModelComponent:loadModel(...)
 ModelComponent:getCurrentModelFileName(...)
 ModelComponent:setMaterialReference(...)
 ModelComponent:getMaterialFileName(...)
+ModelComponent:setTint(...)
+ModelComponent:setEmissiveBoost(...)
 ModelComponent.mesh
 ModelComponent.material
 ModelComponent.castShadows
 ModelComponent.receiveShadows
+ModelComponent.tint
+ModelComponent.emissiveBoost
 
 ## WaterComponent
 WaterComponent:getSizeX(...)

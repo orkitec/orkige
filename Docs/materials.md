@@ -157,6 +157,45 @@ shader (texturing + alpha test) and the depth pass discards the cutout
 texels — a leaf shadows as a leaf. An update that drops the cutout retires
 the override material again.
 
+## Runtime accents — per-instance tint + emissive boost
+
+`MeshInstance::setTint(Color)` (multiplies the albedo; white = off) and
+`MeshInstance::setEmissiveBoost(Color)` (ADDS emitted colour; black = off —
+the hit-flash accent: a tint can only darken, the boost brightens) are
+**runtime-only, per-instance** looks. `ModelComponent` exposes them as
+`setTint(r,g,b)`/`setEmissiveBoost(r,g,b)` (Lua via `self.model`, see
+`Docs/lua-api.md`) and as the reflected **transient** `tint`/`emissiveBoost`
+Color properties — live-tunable over the inspector, MCP and the debug
+protocol, but **never serialized**: the `.omat` stays the authored truth.
+
+**Transport (both flavors): the per-instance VARIANT machinery** — the same
+mechanism `receiveShadows` uses. On the first non-neutral accent the
+instance's current materials/datablocks are cloned once per instance
+(`<name>/Accent.<n>`; classic re-registers the clone's RTSS render state via
+the shared variant recipe, next clones the HlmsPbs datablock); subsequent
+accent calls only parameter-drive the clone from the ORIGINAL's values
+(cheap: pass params / const-buffer writes). Neutral values (white tint AND
+black boost) restore the original assignment EXACTLY and retire the clones
+(toggle identity, pixel-verified). A later `setMaterial`/`setReceiveShadows`
+resets the accents and the component re-applies them — assign material →
+shadow flags → accents, the one ordering contract.
+
+Per-renderable **custom shader parameters were audited and rejected** as the
+transport: classic's generated RTSS programs expose no per-renderable
+uniform without authoring a bespoke sub-render-state (a parallel shader
+mechanism), and Ogre-Next's HlmsPbs reads material const buffers, not
+renderable custom parameters, without a custom Hlms listener. The variant
+clone reuses the proven receive-shadows machinery instead — one mechanism,
+both flavors, at the cost of one extra material per ACCENTED instance
+(un-accented instances share as before; next's auto-instancing regroups by
+datablock, so a tinted instance draws separately — expected and honest).
+
+**Sprites are NOT this feature**: `SpriteComponent.tint` rides per-vertex
+colour, so a tinted sprite stays inside its batched run (no material clone,
+no run demotion — see `Docs/performance.md`). Mesh accents target 3D
+`ModelComponent` content; on next, non-PBS sub-items (unlit/vertex-colour
+content) are skipped by the accent quietly.
+
 ## Honest v1 boundaries
 
 - **Opaque or binary CUTOUT only** — `alphaTest` is a hard keep/discard; no
@@ -198,6 +237,11 @@ receiver). Tests:
   renders at all (two-sided), and the cast shadow carries a LIT hole — the
   caster is a cutout too (the dark-sample-centroid check: a filled-disc
   shadow puts the centroid on dark ground).
+- `material_accents_right` (integration PIXEL probe, both flavors) — the
+  `ORKIGE_DEMO_ACCENTS` rig (two instances of ONE `.omat`): a tint +
+  emissive boost changes instance A, leaves sibling B byte-untouched
+  (per-instance isolation on a shared material), and clearing restores A
+  exactly (toggle identity).
 
 ## Terrain — the baked-mesh pipeline
 

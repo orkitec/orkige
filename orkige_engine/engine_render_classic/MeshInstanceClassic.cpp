@@ -53,6 +53,166 @@ namespace Orkige
 			}
 			return false;
 		}
+		//! @brief clone @p original as a per-instance VARIANT that keeps its
+		//! generated look: the cloned RTSS technique is dropped (its shaders
+		//! were built for the SOURCE's state; the resolver only regenerates
+		//! techniques it does not find) and the source's CUSTOM render state
+		//! (the Cook-Torrance/normal-map stages of a generated surface
+		//! material) is copied over, so the variant regenerates to the same
+		//! shading instead of falling back to plain FFP lighting. The shared
+		//! recipe of the no-receive and accent variants.
+		Ogre::MaterialPtr cloneMaterialKeepingRenderState(
+			Ogre::MaterialPtr const & original, String const & variantName)
+		{
+			Ogre::MaterialPtr variant = original->clone(variantName);
+#ifdef USE_RTSHADER_SYSTEM
+			if(Ogre::RTShader::ShaderGenerator* generator =
+				Ogre::RTShader::ShaderGenerator::getSingletonPtr())
+			{
+				const String scheme =
+					Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME;
+				for(unsigned short technique = variant->getNumTechniques();
+					technique > 0; --technique)
+				{
+					if(variant->getTechnique(technique - 1)->getSchemeName()
+						== scheme)
+					{
+						variant->removeTechnique(technique - 1);
+					}
+				}
+				// the per-material render state only EXISTS for materials with
+				// a REGISTERED shader-based technique (the scheme's technique
+				// entries; a bare getRenderState on an unregistered name
+				// answers NULL). The source has one when it is a generated
+				// surface material - a plain/imported material answers NULL
+				// and needs no copy, the resolver's default FFP emulation is
+				// its look. The variant must be registered FIRST, then its
+				// fresh render state can take the copied stages.
+				Ogre::RTShader::RenderState* source =
+					generator->getRenderState(scheme, original->getName(),
+						original->getGroup(), 0);
+				if(source && generator->createShaderBasedTechnique(*variant,
+					Ogre::MaterialManager::DEFAULT_SCHEME_NAME, scheme))
+				{
+					Ogre::RTShader::RenderState* target =
+						generator->getRenderState(scheme, variantName,
+							variant->getGroup(), 0);
+					if(target)
+					{
+						for(Ogre::RTShader::SubRenderState* srs :
+							source->getSubRenderStates())
+						{
+							Ogre::RTShader::SubRenderState* copy =
+								generator->createSubRenderState(srs->getType());
+							copy->copyFrom(*srs);
+							target->addTemplateSubRenderState(copy);
+						}
+					}
+					generator->invalidateMaterial(scheme, variantName,
+						variant->getGroup());
+				}
+			}
+#endif // USE_RTSHADER_SYSTEM
+			return variant;
+		}
+	}
+	//---------------------------------------------------------
+	//! restore the pre-accent materials and retire the accent variants
+	//! (@see MeshInstance::setTint; a no-op while unaccented)
+	void RenderBackend::resetMeshAccents(MeshInstance::Impl* impl)
+	{
+		if(impl->accentVariants.empty())
+		{
+			return;
+		}
+		Ogre::Entity* entity = impl->entity;
+		for(unsigned int each = 0; each < entity->getNumSubEntities() &&
+			each < impl->accentRestore.size(); ++each)
+		{
+			entity->getSubEntity(each)->setMaterial(
+				impl->accentRestore[each]);
+		}
+		for(Ogre::MaterialPtr const & variant : impl->accentVariants)
+		{
+			if(!variant)
+			{
+				continue;
+			}
+#ifdef USE_RTSHADER_SYSTEM
+			// unregister the variant's shader-based technique first - the
+			// generator must not keep entries pointing into a dead material
+			if(Ogre::RTShader::ShaderGenerator* generator =
+				Ogre::RTShader::ShaderGenerator::getSingletonPtr())
+			{
+				generator->removeAllShaderBasedTechniques(variant->getName(),
+					variant->getGroup());
+			}
+#endif // USE_RTSHADER_SYSTEM
+			Ogre::MaterialManager::getSingleton().remove(variant);
+		}
+		impl->accentRestore.clear();
+		impl->accentVariants.clear();
+	}
+	//---------------------------------------------------------
+	//! @brief realize the accent state (@see MeshInstance::setTint):
+	//! neutral values restore-exactly; anything else swaps each
+	//! sub-entity onto its per-instance variant clone (built once) and
+	//! parameter-drives it from the ORIGINAL material's values - diffuse/
+	//! ambient scaled by the tint, self-illumination raised by the boost
+	void RenderBackend::applyMeshAccents(MeshInstance::Impl* impl)
+	{
+		Color const & tint = impl->accentTint;
+		Color const & boost = impl->accentBoost;
+		const bool neutral =
+			tint.r == 1.0f && tint.g == 1.0f && tint.b == 1.0f &&
+			boost.r == 0.0f && boost.g == 0.0f && boost.b == 0.0f;
+		if(neutral)
+		{
+			RenderBackend::resetMeshAccents(impl);
+			return;
+		}
+		Ogre::Entity* entity = impl->entity;
+		if(impl->accentVariants.empty())
+		{
+			for(unsigned int each = 0;
+				each < entity->getNumSubEntities(); ++each)
+			{
+				Ogre::MaterialPtr original =
+					entity->getSubEntity(each)->getMaterial();
+				impl->accentRestore.push_back(original);
+				if(!original)
+				{
+					impl->accentVariants.push_back(Ogre::MaterialPtr());
+					continue;
+				}
+				Ogre::MaterialPtr variant = cloneMaterialKeepingRenderState(
+					original, RenderBackend::generateName(
+						original->getName() + "/Accent"));
+				impl->accentVariants.push_back(variant);
+				entity->getSubEntity(each)->setMaterial(variant);
+			}
+		}
+		for(size_t each = 0; each < impl->accentVariants.size(); ++each)
+		{
+			Ogre::MaterialPtr const & variant = impl->accentVariants[each];
+			Ogre::MaterialPtr const & original = impl->accentRestore[each];
+			if(!variant || !original)
+			{
+				continue;
+			}
+			Ogre::Pass* source =
+				original->getTechnique(0)->getPass(0);
+			Ogre::Pass* target = variant->getTechnique(0)->getPass(0);
+			const Ogre::ColourValue diffuse = source->getDiffuse();
+			const Ogre::ColourValue ambient = source->getAmbient();
+			const Ogre::ColourValue glow = source->getSelfIllumination();
+			target->setDiffuse(diffuse.r * tint.r, diffuse.g * tint.g,
+				diffuse.b * tint.b, diffuse.a);
+			target->setAmbient(ambient.r * tint.r, ambient.g * tint.g,
+				ambient.b * tint.b);
+			target->setSelfIllumination(glow.r + boost.r,
+				glow.g + boost.g, glow.b + boost.b);
+		}
 	}
 	//---------------------------------------------------------
 	optr<MeshInstance> RenderBackend::createMeshInstance(
@@ -91,6 +251,8 @@ namespace Orkige
 		{
 			// a baked entity leaves the static regions with its handle
 			RenderBackend::staticBakeUnregister(this->mImpl->entity);
+			// per-instance accent clones die with the instance
+			RenderBackend::resetMeshAccents(this->mImpl);
 			if(this->mImpl->entity->isAttached())
 			{
 				this->mImpl->entity->detachFromParent();
@@ -161,6 +323,12 @@ namespace Orkige
 	void MeshInstance::setReceiveShadows(bool receive)
 	{
 		Ogre::Entity* entity = this->mImpl->entity;
+		// accents layer ON TOP of the receive variant - drop them first so
+		// the walk below sees the real assignment; the component layer
+		// re-applies accents after the flag (@see MeshInstance::setTint)
+		RenderBackend::resetMeshAccents(this->mImpl);
+		this->mImpl->accentTint = Color(1.0f, 1.0f, 1.0f, 1.0f);
+		this->mImpl->accentBoost = Color(0.0f, 0.0f, 0.0f, 1.0f);
 		if(receive)
 		{
 			// restore the exact pre-toggle assignment (a no-op while the
@@ -185,9 +353,11 @@ namespace Orkige
 		// shadow receipt is a MATERIAL property here, so a per-instance
 		// opt-out swaps each sub-entity to a no-receive VARIANT of its
 		// current material ("<name>/NoRecv", created once per source
-		// material). The clone must drop the source's RTSS-generated
-		// technique: its shaders were built WITH the receiver stage, and the
-		// resolver only regenerates techniques it does not find.
+		// material). The clone drops the source's RTSS-generated technique
+		// and carries its custom render state over (the shared variant
+		// recipe, @see cloneMaterialKeepingRenderState) - its shaders were
+		// built WITH the receiver stage, and the resolver only regenerates
+		// techniques it does not find.
 		for(unsigned int each = 0; each < entity->getNumSubEntities(); ++each)
 		{
 			Ogre::MaterialPtr original =
@@ -202,45 +372,8 @@ namespace Orkige
 				.getByName(variantName, original->getGroup());
 			if(!variant)
 			{
-				variant = original->clone(variantName);
+				variant = cloneMaterialKeepingRenderState(original, variantName);
 				variant->setReceiveShadows(false);
-#ifdef USE_RTSHADER_SYSTEM
-				if(Ogre::RTShader::ShaderGenerator* generator =
-					Ogre::RTShader::ShaderGenerator::getSingletonPtr())
-				{
-					const String scheme =
-						Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME;
-					// drop the cloned generated technique(s) so the resolver
-					// builds fresh receiver-less shaders for the variant
-					for(unsigned short technique = variant->getNumTechniques();
-						technique > 0; --technique)
-					{
-						if(variant->getTechnique(technique - 1)->getSchemeName()
-							== scheme)
-						{
-							variant->removeTechnique(technique - 1);
-						}
-					}
-					// carry the source's CUSTOM render state over (the
-					// Cook-Torrance/normal-map stages of a generated surface
-					// material live there; without the copy the variant would
-					// fall back to plain FFP lighting and change its look)
-					Ogre::RTShader::RenderState* source =
-						generator->getRenderState(scheme, original->getName(),
-							original->getGroup(), 0);
-					Ogre::RTShader::RenderState* target =
-						generator->getRenderState(scheme, variantName,
-							original->getGroup(), 0);
-					for(Ogre::RTShader::SubRenderState* srs :
-						source->getSubRenderStates())
-					{
-						Ogre::RTShader::SubRenderState* copy =
-							generator->createSubRenderState(srs->getType());
-						copy->copyFrom(*srs);
-						target->addTemplateSubRenderState(copy);
-					}
-				}
-#endif // USE_RTSHADER_SYSTEM
 			}
 			entity->getSubEntity(each)->setMaterial(variant);
 		}
@@ -329,6 +462,13 @@ namespace Orkige
 				}
 			}
 		}
+		// the fresh assignment below replaces any accent variants outright -
+		// retire them first (their clones would leak; the remembered accent
+		// resets too, the component layer re-applies it after the material,
+		// @see MeshInstance::setTint)
+		RenderBackend::resetMeshAccents(this->mImpl);
+		this->mImpl->accentTint = Color(1.0f, 1.0f, 1.0f, 1.0f);
+		this->mImpl->accentBoost = Color(0.0f, 0.0f, 0.0f, 1.0f);
 		for(unsigned int each = 0;
 			each < this->mImpl->entity->getNumSubEntities(); ++each)
 		{
@@ -339,6 +479,18 @@ namespace Orkige
 		// after it (@see MeshInstance::setReceiveShadows)
 		this->mImpl->receiveRestore.clear();
 		return true;
+	}
+	//---------------------------------------------------------
+	void MeshInstance::setTint(Color const & tint)
+	{
+		this->mImpl->accentTint = Color(tint.r, tint.g, tint.b, 1.0f);
+		RenderBackend::applyMeshAccents(this->mImpl);
+	}
+	//---------------------------------------------------------
+	void MeshInstance::setEmissiveBoost(Color const & boost)
+	{
+		this->mImpl->accentBoost = Color(boost.r, boost.g, boost.b, 1.0f);
+		RenderBackend::applyMeshAccents(this->mImpl);
 	}
 	//---------------------------------------------------------
 	StringVector MeshInstance::getAnimationNames() const
