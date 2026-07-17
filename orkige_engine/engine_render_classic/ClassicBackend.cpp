@@ -202,8 +202,11 @@ namespace Orkige
 			Ogre::RTShader::ShaderGenerator::getSingletonPtr();
 		const String scheme =
 			Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME;
-		Ogre::RTShader::RenderState* schemeState =
-			generator ? generator->getRenderState(scheme) : NULL;
+		// createOrRetrieve: arming can precede the FIRST generated material
+		// (a scene's lights load before its first frame renders), and the
+		// scheme entry only exists once something generated through it
+		Ogre::RTShader::RenderState* schemeState = generator
+			? generator->createOrRetrieveRenderState(scheme).first : NULL;
 
 		// DISARM first - also the first half of a tier change (re-arming from
 		// the restored baseline keeps arm/disarm a strict pair): technique
