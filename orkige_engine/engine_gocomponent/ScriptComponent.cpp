@@ -16,6 +16,7 @@
 #include "engine_gocomponent/ParticleComponent.h"
 #include "engine_gocomponent/VectorShapeComponent.h"
 #include "engine_gocomponent/VectorAnimationComponent.h"
+#include "engine_gocomponent/DecalComponent.h"
 #include "engine_gocomponent/SoundComponent.h"
 #include "engine_gocomponent/CameraComponent.h"
 #include "engine_sound/SoundManager.h"
@@ -666,6 +667,13 @@ namespace Orkige
 			// vector-animation rig's clip playback and blending
 			instance->setSelfHandle("anim",
 				componentOwner->getComponent<VectorAnimationComponent>());
+		}
+		if (componentOwner->hasComponent<DecalComponent>())
+		{
+			// self.decal:place(pos, normal) / :fade(sec) stamp + fade the
+			// projected surface mark
+			instance->setSelfHandle("decal",
+				componentOwner->getComponent<DecalComponent>());
 		}
 		// inject the EXPORTED property values as their natural
 		// Lua types BEFORE init runs, so the script reads them as tunables

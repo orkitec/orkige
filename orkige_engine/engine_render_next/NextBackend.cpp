@@ -452,7 +452,8 @@ namespace Orkige
 			RenderBackend::FORWARD_CLUSTERED_WIDTH,
 			RenderBackend::FORWARD_CLUSTERED_HEIGHT,
 			RenderBackend::FORWARD_CLUSTERED_SLICES,
-			RenderBackend::FORWARD_CLUSTERED_LIGHTS_PER_CELL, 0u, 0u,
+			RenderBackend::FORWARD_CLUSTERED_LIGHTS_PER_CELL,
+			RenderBackend::FORWARD_CLUSTERED_DECALS_PER_CELL, 0u,
 			2.0f, 100.0f);
 
 		RenderSystem* system = new RenderSystem();
@@ -474,7 +475,8 @@ namespace Orkige
 			(1u << static_cast<int>(RenderCaps::HemisphereAmbient)) |
 			(1u << static_cast<int>(RenderCaps::SunExposureLinkage)) |
 			(1u << static_cast<int>(RenderCaps::AnimatedNormalMappedWater)) |
-			(1u << static_cast<int>(RenderCaps::OffscreenOwnedLayers));
+			(1u << static_cast<int>(RenderCaps::OffscreenOwnedLayers)) |
+			(1u << static_cast<int>(RenderCaps::ProjectedDecals));
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget), derived from the clustered-forward config set above
 		system->mImpl->lightBudget = RenderSystem::defaultLightBudget();
@@ -516,6 +518,7 @@ namespace Orkige
 		gWireframe = false;
 		gShadowCasterCount = 0;		// late light handles no-op (system() gate)
 		gRenderTargets.clear();		// their workspaces died with the root
+		RenderBackend::resetDecalState();	// registry + pool statics (pool dies with the root)
 		RenderBackend::resetDrawLayer2DState();
 		OGRE_DELETE root;
 		OGRE_DELETE gRenderSystemPlugin;

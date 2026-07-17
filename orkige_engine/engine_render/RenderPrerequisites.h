@@ -54,6 +54,7 @@ namespace Orkige
 	class SpriteBatch;
 	class RenderCamera;
 	class RenderLight;
+	class RenderDecal;
 	class RenderTexture;
 	class DrawLayer2D;
 

@@ -106,6 +106,14 @@ namespace Orkige
 		//! @brief create a light (attach it to a node to place it)
 		//! map: classic/next=SceneManager::createLight | filament=LightManager::Builder
 		optr<RenderLight> createLight();
+		//! @brief create a projected surface decal (attach it to a node to place
+		//! it; it projects down the node's local -Y onto the surface). @see
+		//! RenderDecal for the per-flavor tolerance (next = a true projected
+		//! Ogre-Next Decal, classic = a surface-aligned quad). The new decal joins
+		//! the world's visible-decal budget (@see setMaxDecals) - if it pushes the
+		//! count past the cap the oldest decal is hidden.
+		//! map: classic=ManualObject aligned quad + "Decal/<tex>" material | next=SceneManager::createDecal (forward-clustered) | filament=n/a (future)
+		optr<RenderDecal> createDecal();
 
 		//--- procedural built-in meshes ---
 		//! the editor's "Create Cube" mesh resource name (the facade home of
@@ -182,6 +190,26 @@ namespace Orkige
 		void setShadowQuality(ShadowPreset::Quality quality);
 		//! the knob position last set (default SQ_MEDIUM - the phone budget)
 		ShadowPreset::Quality getShadowQuality() const;
+
+		//--- projected decals (surface marks) ---
+		//! whether this backend renders TRUE projected decals (vs the classic
+		//! surface-aligned quad subset) is the `RenderCaps::ProjectedDecals`
+		//! capability (`RenderSystem::supports`).
+		//! @brief the hard cap on concurrently VISIBLE decals - the mobile-budget
+		//! discipline (live-tunable via the `r.maxDecals` cvar the app host
+		//! registers). When more decals exist than the cap allows, the OLDEST are
+		//! hidden (not destroyed - their handles still live); a cap of 0 hides
+		//! every decal, byte-identical to a scene with none (the escape hatch and
+		//! the toggle-identity gate). Default is a generous desktop ceiling; a
+		//! phone project lowers it. Applied immediately: lowering the cap live
+		//! hides the excess, raising it re-shows the newest up to the new cap.
+		//! map: classic/next=facade-side visible-decal registry (creation order)
+		void setMaxDecals(unsigned int maxDecals);
+		//! the decal cap last set (@see setMaxDecals)
+		unsigned int getMaxDecals() const;
+		//! the number of decals currently VISIBLE under the budget (<= the cap;
+		//! selfcheck/introspection - the eviction and toggle-identity probe)
+		unsigned int getVisibleDecalCount() const;
 
 		//--- sky / fog / atmosphere ---
 		//! whether this backend renders a real atmospheric sky dome (vs a flat

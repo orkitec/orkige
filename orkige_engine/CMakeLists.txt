@@ -77,6 +77,7 @@ set(ORKIGE_ENGINE_SOURCES
     engine_render/SpriteBatch.h
     engine_render/RenderCamera.h
     engine_render/RenderLight.h
+    engine_render/RenderDecal.h
     engine_render/RenderTexture.h
     engine_render/DrawLayer2D.h
     engine_render/DrawLayer2DClip.h
@@ -134,6 +135,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/ModelComponent.cpp
     engine_gocomponent/WaterComponent.h
     engine_gocomponent/WaterComponent.cpp
+    engine_gocomponent/DecalComponent.h
+    engine_gocomponent/DecalComponent.cpp
     engine_gocomponent/SpriteComponent.h
     engine_gocomponent/SpriteComponent.cpp
     engine_gocomponent/SpriteBatcher.h
@@ -285,6 +288,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_render_classic/VectorMeshClassic.cpp
         engine_render_classic/RenderCameraClassic.cpp
         engine_render_classic/RenderLightClassic.cpp
+        engine_render_classic/RenderDecalClassic.cpp
         engine_render_classic/RenderTextureClassic.cpp
         engine_render_classic/DrawLayer2DClassic.cpp
     )
@@ -307,6 +311,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         engine_render_next/VectorMeshNext.cpp
         engine_render_next/RenderCameraNext.cpp
         engine_render_next/RenderLightNext.cpp
+        engine_render_next/RenderDecalNext.cpp
         engine_render_next/RenderTextureNext.cpp
         engine_render_next/DrawLayer2DNext.cpp
     )

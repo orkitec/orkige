@@ -14,5 +14,9 @@ X(HemisphereAmbient, false)
 X(SunExposureLinkage, true)
 X(AnimatedNormalMappedWater, false)
 X(OffscreenOwnedLayers, false)
+// classic has no deferred/projective decal path - the honest subset is a
+// surface-aligned textured quad (RenderDecal), which is NOT true projected
+// decals, so the capability answers false (@see Docs/render-abstraction.md)
+X(ProjectedDecals, false)
 X(ScreenSpaceRefraction, false)
 X(IblReflections, false)

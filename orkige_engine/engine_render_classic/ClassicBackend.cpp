@@ -434,6 +434,7 @@ namespace Orkige
 		}
 		// static regions reference the dying scene manager - drop them first
 		RenderBackend::staticBakeTeardown();
+		RenderBackend::resetDecalState();	// facade-side decal registry statics
 		delete gRenderSystem;	// ~RenderSystem deletes the world
 		gRenderSystem = NULL;
 		// handles may still be alive in script states (Lua userdata lives

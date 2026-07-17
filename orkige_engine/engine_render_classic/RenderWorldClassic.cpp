@@ -512,6 +512,26 @@ namespace Orkige
 		return RenderBackend::createLight(this->mImpl->sceneManager);
 	}
 	//---------------------------------------------------------
+	optr<RenderDecal> RenderWorld::createDecal()
+	{
+		return RenderBackend::createDecal(this->mImpl->sceneManager);
+	}
+	//---------------------------------------------------------
+	void RenderWorld::setMaxDecals(unsigned int maxDecals)
+	{
+		RenderBackend::setMaxDecals(maxDecals);
+	}
+	//---------------------------------------------------------
+	unsigned int RenderWorld::getMaxDecals() const
+	{
+		return RenderBackend::maxDecals();
+	}
+	//---------------------------------------------------------
+	unsigned int RenderWorld::getVisibleDecalCount() const
+	{
+		return RenderBackend::visibleDecalCount();
+	}
+	//---------------------------------------------------------
 	void RenderWorld::createVertexColourCubeMesh(String const & meshName,
 		Real halfExtent)
 	{

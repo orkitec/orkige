@@ -306,6 +306,28 @@ namespace Orkige
 			CVarType::Bool, "1", CVAR_PERSIST,
 			"merge contiguous same-material sprite runs into one draw each "
 			"(off = every sprite costs its own draw call)");
+		// the projected-decal budget (@see RenderWorld::setMaxDecals): the hard
+		// cap on concurrently VISIBLE surface marks - the mobile-budget knob.
+		// When more decals exist the OLDEST are hidden; 0 hides every decal
+		// (byte-identical to a scene with none). Live-tunable + persisted. The
+		// hook pushes it onto the world so a set reconfigures mid-play.
+		CVarManager::getSingleton().registerCVar("r.maxDecals",
+			CVarType::Int,
+			std::to_string(this->mRenderWorld->getMaxDecals()),
+			CVAR_PERSIST,
+			"the maximum concurrently visible projected decals (surface marks); "
+			"the oldest are hidden past it, 0 hides every decal",
+			[](CVar const & cvar)
+			{
+				RenderSystem* renderSystem = RenderSystem::get();
+				if (!renderSystem)
+				{
+					return;	// a set after render teardown changes nothing
+				}
+				const int value = cvar.asInt();
+				renderSystem->getWorld()->setMaxDecals(
+					value > 0 ? static_cast<unsigned int>(value) : 0u);
+			});
 
 		if (this->mConfig.createWindowCamera)
 		{

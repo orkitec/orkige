@@ -52,6 +52,7 @@
 #include "engine_render/VectorMesh.h"
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderLight.h"
+#include "engine_render/RenderDecal.h"
 #include "engine_render/RenderTexture.h"
 #include "engine_render/DrawLayer2D.h"
 
@@ -75,6 +76,7 @@ namespace Ogre
 	class Item;
 	class ManualObject;	// the v2 one (OgreManualObject2.h)
 	class Light;
+	class Decal;
 	class TextureGpu;
 	class HlmsDatablock;
 	class Image2;
@@ -254,6 +256,27 @@ namespace Orkige
 		bool				castingShadows = false;
 	};
 
+	struct RenderDecal::Impl
+	{
+		Ogre::Decal*		decal = NULL;			//!< the v2 Decal movable
+		Ogre::SceneManager*	creator = NULL;
+		optr<RenderNode>	attachedTo;
+		String				textureName;			//!< the diffuse (mark) texture, "" until set
+		Ogre::TextureGpu*	texture = NULL;			//!< the pooled decal-diffuse texture (auto slice), or NULL
+		//! the two visibility gates ANDed onto the movable: mUserVisible = the
+		//! owner/component (setVisible), budgetVisible = the world decal budget
+		//! (RenderBackend enforces it). The Decal renders only when both hold.
+		bool				userVisible = true;
+		bool				budgetVisible = true;
+		//! next has no per-decal alpha uniform, so opacity is a threshold: <= 0
+		//! hides the mark (@see RenderDecal::setOpacity remarks). Kept so the
+		//! effective visibility recomputes from all three flags.
+		bool				opacityVisible = true;
+
+		//! push (userVisible && budgetVisible && opacityVisible) onto the movable
+		void applyVisibility();
+	};
+
 	struct DrawLayer2D::Impl
 	{
 		//! one submitted batch: texture + a flat, already scissor-clipped
@@ -377,6 +400,23 @@ namespace Orkige
 		static unsigned int const FORWARD_CLUSTERED_HEIGHT = 8u;
 		static unsigned int const FORWARD_CLUSTERED_SLICES = 24u;
 		static unsigned int const FORWARD_CLUSTERED_LIGHTS_PER_CELL = 96u;
+		//! @brief the per-cluster decal-list bound the boot passes to
+		//! setForwardClustered (its decalsPerCell arg) - a 0 there disables
+		//! decals entirely, so it MUST be > 0 for RenderDecal to render. The
+		//! worst-case overlapping decals a cell shades; 8 is generous for the
+		//! surface-mark budget (@see RenderWorld::setMaxDecals, the r.maxDecals
+		//! ceiling).
+		static unsigned int const FORWARD_CLUSTERED_DECALS_PER_CELL = 8u;
+
+		//--- decal diffuse texture pool (RenderDecal) --------------
+		//! @brief the fixed decal texture resolution. Ogre-Next decals sample ONE
+		//! diffuse ARRAY, and AutomaticBatching auto-pools textures by resolution,
+		//! so every decal texture must be this size to share the one pool whose
+		//! master feeds SceneManager::setDecalsDiffuse; a different-sized texture
+		//! would land in another pool and never render (rejected + logged). The
+		//! engine decal textures and project decal textures match it
+		//! (Docs/materials.md).
+		static unsigned int const DECAL_TEXTURE_SIZE = 256u;
 
 		//--- lifecycle ---------------------------------------------
 		//! boot Ogre-Next (Root + Metal RS + window + world) and create
@@ -409,6 +449,9 @@ namespace Orkige
 		//! (@see VectorMesh; the shared "VectorFill" HlmsUnlit datablock)
 		static optr<VectorMesh> createVectorMesh(Ogre::SceneManager* sceneManager);
 		static optr<RenderLight> createLight(Ogre::SceneManager* sceneManager);
+		//! create a projected decal (@see RenderDecalNext.cpp); joins the world
+		//! visible-decal budget on creation
+		static optr<RenderDecal> createDecal(Ogre::SceneManager* sceneManager);
 		static optr<RenderTexture> createRenderTexture(String const & name,
 			unsigned int width, unsigned int height);
 		//! create a 2D overlay layer (@see DrawLayer2DNext.cpp: v2 manual
@@ -725,6 +768,33 @@ namespace Orkige
 		//! the first (creation order) directional light, or NULL - the sun the
 		//! atmosphere links to (@see RenderWorld::setAtmosphere)
 		static Ogre::Light* firstDirectionalLight();
+
+		//--- projected decals (RenderDecal) --------------------------
+		//! @brief load @p textureName into the shared decal-diffuse pool (a
+		//! fixed-size array so every decal texture shares ONE master the scene
+		//! samples) and, on first use, hand that master to the SceneManager
+		//! (setDecalsDiffuse). Returns the pooled texture (auto slice), or NULL +
+		//! one log line when the resource is missing OR its resolution does not
+		//! match DECAL_TEXTURE_SIZE (a mismatch would land in another pool). The
+		//! pool is reserved lazily on the first call.
+		static Ogre::TextureGpu* loadDecalDiffuseTexture(String const & textureName);
+		//! @brief the world's visible-decal budget (@see RenderWorld::setMaxDecals):
+		//! a create registers here in order; register/setMaxDecals both re-enforce
+		//! the cap by hiding the OLDEST decals over it (budgetVisible=false) and
+		//! showing the newest up to it. A cap of 0 hides every decal.
+		static void registerDecal(RenderDecal* decal);
+		static void unregisterDecal(RenderDecal* decal);
+		//! re-apply the cap over the whole registry (a RenderBackend member so it
+		//! may touch RenderDecal::Impl - the friendship is to the hub)
+		static void enforceDecalBudget();
+		static void setMaxDecals(unsigned int maxDecals);
+		static unsigned int maxDecals();
+		//! decals currently visible under the budget (budgetVisible && userVisible
+		//! && opacityVisible) - the eviction / toggle-identity probe
+		static unsigned int visibleDecalCount();
+		//! drop the decal registry + pool statics (destroyRenderSystem teardown -
+		//! the pool texture dies with the texture manager)
+		static void resetDecalState();
 
 		//--- shared services -----------------------------------------
 		//! unique name for backend-created content ("prefix.<n>")

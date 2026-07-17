@@ -37,6 +37,7 @@
 #include "engine_render/VectorMesh.h"
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderLight.h"
+#include "engine_render/RenderDecal.h"
 #include "engine_render/RenderTexture.h"
 #include "engine_render/DrawLayer2D.h"
 #include "engine_module/EnginePrerequisitesClassic.h"
@@ -215,6 +216,32 @@ namespace Orkige
 		optr<RenderNode>	attachedTo;
 	};
 
+	struct RenderDecal::Impl
+	{
+		//! the aligned-quad honest subset: a textured quad in the node's local XZ
+		//! plane, depth-biased above the surface (classic has no projective decal)
+		Ogre::ManualObject*	quad = NULL;
+		Ogre::SceneManager*	creator = NULL;
+		optr<RenderNode>	attachedTo;
+		String				textureName;			//!< the diffuse (mark) texture, "" until set
+		Ogre::TexturePtr	texture;				//!< the loaded texture (material rebinds need it)
+		String				materialName;			//!< the per-texture "Decal/<tex>" material ("" until set)
+		float				sizeX = 2.0f;			//!< footprint width (local X)
+		float				sizeZ = 2.0f;			//!< footprint depth (local Z)
+		float				opacity = 1.0f;			//!< smooth alpha (per-vertex on classic)
+		//! two visibility gates ANDed onto the quad: the owner/component
+		//! (userVisible) and the world decal budget (budgetVisible). Classic dims
+		//! opacity smoothly per-vertex, so there is no opacity threshold gate.
+		bool				userVisible = true;
+		bool				budgetVisible = true;
+
+		//! (re)build the XZ-plane quad from size + opacity (vertex-colour alpha),
+		//! rendered with the "Decal/<tex>" material; no-op without a material
+		void rebuild();
+		//! push (userVisible && budgetVisible) onto the quad's visibility
+		void applyVisibility();
+	};
+
 	struct DrawLayer2D::Impl
 	{
 		//! one submitted batch: texture + a flat, already scissor-clipped
@@ -332,6 +359,9 @@ namespace Orkige
 		//! bridge behind RenderSystem::getWindowCamera)
 		static optr<RenderCamera> wrapCamera(Ogre::Camera* camera, bool owned);
 		static optr<RenderLight> createLight(Ogre::SceneManager* sceneManager);
+		//! create an aligned-quad decal (@see RenderDecalClassic.cpp); joins the
+		//! world visible-decal budget on creation
+		static optr<RenderDecal> createDecal(Ogre::SceneManager* sceneManager);
 		//! the SUN the sky dome links to: the FIRST directional light in
 		//! creation order (same semantic as the next flavor), or NULL. The
 		//! registry below keeps this in step as lights change kind or die.
@@ -507,6 +537,29 @@ namespace Orkige
 		static void resetMeshAccents(MeshInstance::Impl* impl);
 		//! realize a mesh instance's accent state (@see MeshInstance::setTint)
 		static void applyMeshAccents(MeshInstance::Impl* impl);
+		//--- projected decals (RenderDecal aligned-quad subset) ---------
+		//! @brief the generated per-texture "Decal/<tex>" material: unlit,
+		//! vertex colours tracked (the fade alpha), alpha-blended, depth-CHECKED
+		//! but not written, two-sided, with a DEPTH BIAS pulling the quad toward
+		//! the camera so it floats above the surface without z-fighting.
+		//! Idempotent per texture name. Returns "" when the texture is missing.
+		static String getOrCreateDecalMaterial(String const & textureName,
+			Ogre::TexturePtr & outTexture);
+		//! @brief the world's visible-decal budget (@see RenderWorld::setMaxDecals):
+		//! a create registers here in order; register/setMaxDecals both re-enforce
+		//! the cap by hiding the OLDEST decals over it. A cap of 0 hides every one.
+		static void registerDecal(RenderDecal* decal);
+		static void unregisterDecal(RenderDecal* decal);
+		//! re-apply the cap over the whole registry (a member so it may touch
+		//! RenderDecal::Impl - the friendship is to the hub)
+		static void enforceDecalBudget();
+		static void setMaxDecals(unsigned int maxDecals);
+		static unsigned int maxDecals();
+		//! decals currently visible under the budget (budgetVisible && userVisible)
+		static unsigned int visibleDecalCount();
+		//! drop the decal registry statics (destroyRenderSystem teardown)
+		static void resetDecalState();
+
 		//! @brief order a 2D renderable (sprite / vector fill / sprite batch)
 		//! by @p zOrder so a higher zOrder paints ON TOP.
 		//! @remarks classic OGRE sorts alpha-blended, depth-write-disabled
