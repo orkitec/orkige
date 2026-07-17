@@ -12,6 +12,7 @@ add_executable(orkige_core_tests
     CVarTests.cpp
     LogLevelsTests.cpp
     PropertyReflectionTests.cpp
+    SpriteRunPlannerTests.cpp
     TraceWriterTests.cpp
     BreadcrumbsTests.cpp
     MemorySamplerTests.cpp

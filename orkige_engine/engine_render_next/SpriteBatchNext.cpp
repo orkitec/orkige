@@ -35,13 +35,16 @@ namespace Orkige
 	//---------------------------------------------------------
 	Ogre::HlmsDatablock* RenderBackend::getOrCreateSpriteBatchDatablock(
 		String const & textureName, Ogre::TextureGpu* texture,
-		SpriteBatch::BlendMode blendMode)
+		SpriteBatch::BlendMode blendMode, SpriteQuad::FilterMode filter,
+		SpriteQuad::AddressMode addressing)
 	{
 		// the alpha variant IS the SpriteQuad datablock, reused wholesale
+		// (per-(texture,sampler) - a batched sprite run shares its members'
+		// exact material)
 		if(blendMode == SpriteBatch::BLEND_ALPHA)
 		{
 			return RenderBackend::getOrCreateSpriteDatablock(textureName,
-				texture, SpriteQuad::FILTER_BILINEAR, SpriteQuad::ADDRESS_CLAMP);
+				texture, filter, addressing);
 		}
 		oAssert(RenderBackend::system());
 		Ogre::HlmsManager* hlmsManager =
@@ -82,7 +85,8 @@ namespace Orkige
 	//---------------------------------------------------------
 	optr<SpriteBatch> RenderBackend::createSpriteBatch(
 		Ogre::SceneManager* sceneManager, String const & textureName,
-		SpriteBatch::BlendMode blendMode)
+		SpriteBatch::BlendMode blendMode, SpriteQuad::FilterMode filter,
+		SpriteQuad::AddressMode addressing)
 	{
 		oAssert(sceneManager);
 		oAssert(!textureName.empty());
@@ -93,14 +97,13 @@ namespace Orkige
 		}
 		optr<SpriteBatch> handle(new SpriteBatch());
 		RenderBackend::getOrCreateSpriteBatchDatablock(textureName, texture,
-			blendMode);
+			blendMode, filter, addressing);
 		handle->mImpl->creator = sceneManager;
 		handle->mImpl->textureName = textureName;
 		handle->mImpl->texture = texture;
 		handle->mImpl->blendMode = blendMode;
 		handle->mImpl->datablockName = (blendMode == SpriteBatch::BLEND_ALPHA)
-			? SpriteQuad::samplerName(textureName, SpriteQuad::FILTER_BILINEAR,
-				SpriteQuad::ADDRESS_CLAMP)
+			? SpriteQuad::samplerName(textureName, filter, addressing)
 			: String("SpriteAdd/") + textureName + "#bilinear-clamp";
 		handle->mImpl->texelWidth = static_cast<float>(texture->getWidth());
 		handle->mImpl->texelHeight = static_cast<float>(texture->getHeight());

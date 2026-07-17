@@ -753,6 +753,16 @@ static bool playerIterate(PlayerContext& context)
 	// picked up promptly; automated runs skip the sleep so they stay
 	// fast. Desktop never stops rendering (SDL raises no background
 	// events there).
+	// sprite-run batching resolves for the frame about to render: AFTER all
+	// gameplay/debug mutations of this frame (also while paused, so a
+	// debug-protocol edit still lands in its run), BEFORE renderOneFrame.
+	// Dirty-tracked - a frame where nothing moved re-uploads nothing.
+	if (context.spriteBatcher)
+	{
+		OPROFILE("present");
+		context.spriteBatcher->update();
+	}
+
 	if (lifecycle.isRenderingStopped())
 	{
 		if (!automatedRun)
@@ -1690,6 +1700,13 @@ int main(int argc, char** argv)
 		// presentation effect), like the fade. The editor never makes one.
 		context.screenShake.emplace();
 		Orkige::ScreenShake& screenShake = *context.screenShake;
+		// sprite-run batching (contiguous same-material sprite runs merge
+		// into one draw each): SpriteComponents register themselves against
+		// the singleton on sprite load; the loop resolves runs right before
+		// rendering. The editor never makes one, so edit mode keeps the
+		// plain per-quad path (merged pixels equal per-quad pixels anyway -
+		// the render-toggle test proves it).
+		context.spriteBatcher.emplace();
 		// the gameplay time scale the loop applies to the scripts/tweens/physics
 		// delta (Lua `world.setTimeScale`); the editor never makes one, so
 		// gameplay stays real-time in edit mode.

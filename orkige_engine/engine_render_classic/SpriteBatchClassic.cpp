@@ -25,15 +25,18 @@ namespace Orkige
 {
 	//---------------------------------------------------------
 	Ogre::MaterialPtr RenderBackend::getOrCreateSpriteBatchMaterial(
-		Ogre::TexturePtr const & texture, SpriteBatch::BlendMode blendMode)
+		Ogre::TexturePtr const & texture, SpriteBatch::BlendMode blendMode,
+		SpriteQuad::FilterMode filter, SpriteQuad::AddressMode addressing)
 	{
 		oAssert(texture);
-		// the batch always samples bilinear + clamp (the historic sprite look);
 		// the alpha variant IS the SpriteQuad material, reused wholesale
+		// (per-(texture,sampler) - a batched sprite run shares its members'
+		// exact material); the additive glow variant always samples
+		// bilinear + clamp (the burst recipe)
 		if(blendMode == SpriteBatch::BLEND_ALPHA)
 		{
 			return RenderBackend::getOrCreateSpriteMaterial(texture,
-				SpriteQuad::FILTER_BILINEAR, SpriteQuad::ADDRESS_CLAMP);
+				filter, addressing);
 		}
 		// additive: a DISTINCT material keyed under "SpriteAdd/<tex>" so it
 		// never stomps the alpha material of the same texture
@@ -68,7 +71,8 @@ namespace Orkige
 	//---------------------------------------------------------
 	optr<SpriteBatch> RenderBackend::createSpriteBatch(
 		Ogre::SceneManager* sceneManager, String const & textureName,
-		SpriteBatch::BlendMode blendMode)
+		SpriteBatch::BlendMode blendMode, SpriteQuad::FilterMode filter,
+		SpriteQuad::AddressMode addressing)
 	{
 		oAssert(sceneManager);
 		oAssert(!textureName.empty());
@@ -93,14 +97,14 @@ namespace Orkige
 			return optr<SpriteBatch>();
 		}
 		optr<SpriteBatch> handle(new SpriteBatch());
-		RenderBackend::getOrCreateSpriteBatchMaterial(texture, blendMode);
+		RenderBackend::getOrCreateSpriteBatchMaterial(texture, blendMode,
+			filter, addressing);
 		handle->mImpl->creator = sceneManager;
 		handle->mImpl->textureName = textureName;
 		handle->mImpl->texture = texture;
 		handle->mImpl->blendMode = blendMode;
 		handle->mImpl->materialName = (blendMode == SpriteBatch::BLEND_ALPHA)
-			? SpriteQuad::samplerName(textureName, SpriteQuad::FILTER_BILINEAR,
-				SpriteQuad::ADDRESS_CLAMP)
+			? SpriteQuad::samplerName(textureName, filter, addressing)
 			: String("SpriteAdd/") + textureName + "#bilinear-clamp";
 		handle->mImpl->texelWidth = static_cast<float>(texture->getWidth());
 		handle->mImpl->texelHeight = static_cast<float>(texture->getHeight());

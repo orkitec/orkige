@@ -34,7 +34,9 @@
 #include <core_util/VectorShapeAsset.h>
 #include <core_util/VectorAnimAsset.h>
 #include <core_util/VectorAnimEval.h>
+#include <core_debug/CVarManager.h>
 #include <engine_gocomponent/TransformComponent.h>
+#include <engine_gocomponent/SpriteBatcher.h>
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
@@ -226,6 +228,12 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// once AND land correctly through the backend repair path.
 	staticMoveCheck =
 		(std::getenv("ORKIGE_STATICMOVE_SELFCHECK") != nullptr);
+	// ORKIGE_SPRITEBATCH_SELFCHECK verifies sprite-run batching against
+	// projects/benchmark scenes/fixture_sprites.oscene (@see the header's
+	// block comment): exact run structure, the live r.spriteBatching escape
+	// hatch, and a moved member re-uploading its run.
+	spriteBatchCheck =
+		(std::getenv("ORKIGE_SPRITEBATCH_SELFCHECK") != nullptr);
 	// automated runs (ctest, the editor's play-mode tests - they inherit
 	// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 	// the machine allows; a HUMAN run gets vsync so games neither spin
@@ -236,7 +244,7 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		integrationContactCheck || integrationLevelCheck ||
 		breadcrumbCheck || fadeCheck || lifecycleCheck || resizeCheck ||
 		softbodyCheck || perfCheck || benchmarkCheck || vectorAnimCheck ||
-		staticMoveCheck ||
+		staticMoveCheck || spriteBatchCheck ||
 		!assetIdCheckTexture.empty() || !cookedCheckTexture.empty() ||
 		frameLimit != 0;
 }
@@ -2514,6 +2522,92 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				"scripted)");
 		}
 	}
+	// ORKIGE_SPRITEBATCH_SELFCHECK (@see PlayerSelfChecks.h): the exact run
+	// structure, the live escape hatch and a moved member's run re-upload.
+	// The ctest driver pins the flavor-exact numbers from the printed lines.
+	if (spriteBatchCheck && !spriteBatchDone)
+	{
+		Orkige::SpriteBatcher* batcher =
+			Orkige::SpriteBatcher::getSingletonPtr();
+		auto cvarOn = []() -> bool
+		{
+			return Orkige::CVarManager::getSingleton().getBool(
+				"r.spriteBatching", true);
+		};
+		if (frameCount == 5)
+		{
+			spriteBatchStartedOn = cvarOn();
+		}
+		if (frameCount == 20)
+		{
+			// move a batched member: its run must re-upload and the frame-60
+			// screenshot must show the sprite at the new place
+			optr<Orkige::GameObject> probe =
+				gameObjectManager.getGameObject("A4").lock();
+			Orkige::TransformComponent* transform = probe
+				? probe->getComponentPtr<Orkige::TransformComponent>()
+				: nullptr;
+			if (!transform || !batcher)
+			{
+				SDL_Log("orkige_player: spritebatch selfcheck FAILED - no "
+					"A4 sprite or no batcher in the fixture run");
+				exitCode = 1;
+				running = false;
+			}
+			else
+			{
+				transform->setPosition(Orkige::Vec3(-0.25f, 0.05f, -8.05f));
+			}
+		}
+		if (frameCount == 30)
+		{
+			spriteBatchBatchesOn = render->getFrameStats().batchCount;
+			spriteBatchRunsOn = batcher ? batcher->activeRunCount() : 0;
+			if (!spriteBatchStartedOn)
+			{
+				// the batching-off reference run: counts only, no toggle leg
+				SDL_Log("orkige_player: spritebatch selfcheck complete - "
+					"batching off, batches=%zu runs=%zu",
+					spriteBatchBatchesOn, spriteBatchRunsOn);
+				spriteBatchDone = true;
+			}
+		}
+		if (spriteBatchStartedOn && frameCount == 70)
+		{
+			// the live escape hatch: runs must release without a reboot
+			Orkige::CVarManager::getSingleton().setString(
+				"r.spriteBatching", "0");
+		}
+		if (spriteBatchStartedOn && frameCount == 90)
+		{
+			spriteBatchBatchesLiveOff = render->getFrameStats().batchCount;
+			Orkige::CVarManager::getSingleton().setString(
+				"r.spriteBatching", "1");
+		}
+		if (spriteBatchStartedOn && frameCount == 120)
+		{
+			const std::size_t batchesBack = render->getFrameStats().batchCount;
+			const std::size_t runsBack = batcher ? batcher->activeRunCount() : 0;
+			if (batchesBack != spriteBatchBatchesOn ||
+				runsBack != spriteBatchRunsOn)
+			{
+				SDL_Log("orkige_player: spritebatch selfcheck FAILED - "
+					"re-enabling did not restore the runs (batches %zu -> "
+					"%zu, runs %zu -> %zu)", spriteBatchBatchesOn,
+					batchesBack, spriteBatchRunsOn, runsBack);
+				exitCode = 1;
+			}
+			else
+			{
+				SDL_Log("orkige_player: spritebatch selfcheck complete - "
+					"batching on, batches=%zu runs=%zu liveOffBatches=%zu "
+					"restored", spriteBatchBatchesOn, spriteBatchRunsOn,
+					spriteBatchBatchesLiveOff);
+			}
+			spriteBatchDone = true;
+		}
+	}
+
 	// ORKIGE_STATICMOVE_SELFCHECK (@see PlayerSelfChecks.h): a runtime move
 	// of a STATIC object must land correctly through the backend repair
 	// path. The ctest driver asserts the flavor-specific batch delta and
@@ -3729,6 +3823,12 @@ void PlayerSelfChecks::atLoopEnd(PlayerContext& context)
 	if (staticMoveCheck && !staticMoveDone)
 	{
 		SDL_Log("orkige_player: STATICMOVE SELFCHECK FAILED - run ended "
+			"before the check completed");
+		exitCode = 1;
+	}
+	if (spriteBatchCheck && !spriteBatchDone)
+	{
+		SDL_Log("orkige_player: SPRITEBATCH SELFCHECK FAILED - run ended "
 			"before the check completed");
 		exitCode = 1;
 	}

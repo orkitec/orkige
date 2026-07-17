@@ -1645,6 +1645,24 @@ if(TARGET orkige_player)
         set_tests_properties(player_static_contract${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 240)
 
+        # sprite-run batching end to end, per flavor (projects/benchmark
+        # scenes/fixture_sprites.oscene, exact known grouping): the realized
+        # run count and draw-batch counts are pinned EXACTLY (a silent
+        # grouping regression shifts them), the live r.spriteBatching escape
+        # hatch must release and re-form the runs, a moved member re-uploads
+        # its run, and batching on/off renders identical pixels (byte-exact
+        # on classic; a 1-LSB edge-rounding fringe allowed on next).
+        add_test(NAME player_spritebatch${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_spritebatch_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --player "$<TARGET_FILE:orkige_player>"
+                --dir "${CMAKE_CURRENT_BINARY_DIR}/spritebatch${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                --flavor "${ORKIGE_RENDER_BACKEND}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_spritebatch${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 240)
+
         # the vista must also LOOK right: measured pixel discriminators over a
         # captured frame - HUD glyph presence (per-frame-dirty gui batches
         # reach the frame) and a daylit green-over-blue terrain band (the

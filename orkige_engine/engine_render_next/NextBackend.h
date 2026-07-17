@@ -371,7 +371,8 @@ namespace Orkige
 		//! NULL + a log line when the texture cannot be loaded
 		static optr<SpriteBatch> createSpriteBatch(
 			Ogre::SceneManager* sceneManager, String const & textureName,
-			SpriteBatch::BlendMode blendMode);
+			SpriteBatch::BlendMode blendMode, SpriteQuad::FilterMode filter,
+			SpriteQuad::AddressMode addressing);
 		//! create a world-space untextured vertex-coloured triangle mesh
 		//! (@see VectorMesh; the shared "VectorFill" HlmsUnlit datablock)
 		static optr<VectorMesh> createVectorMesh(Ogre::SceneManager* sceneManager);
@@ -494,13 +495,16 @@ namespace Orkige
 			String const & textureName, Ogre::TextureGpu* texture,
 			SpriteQuad::FilterMode filter, SpriteQuad::AddressMode addressing);
 		//! @brief the shared per-(texture,blend) sprite-batch datablock: the
-		//! alpha variant IS the SpriteQuad "Sprite/<tex>#bilinear-clamp"
-		//! datablock (reused wholesale); the additive variant a distinct
-		//! "SpriteAdd/<tex>#bilinear-clamp" HlmsUnlit datablock (source alpha /
-		//! one - order-independent glow). Idempotent per name.
+		//! alpha variant IS the SpriteQuad "Sprite/<tex>#<sampler>" datablock
+		//! (reused wholesale, so a batched sprite run renders through the
+		//! same material its individual quads use); the additive variant a
+		//! distinct "SpriteAdd/<tex>#bilinear-clamp" HlmsUnlit datablock
+		//! (source alpha / one - order-independent glow, always
+		//! bilinear+clamp). Idempotent per name.
 		static Ogre::HlmsDatablock* getOrCreateSpriteBatchDatablock(
 			String const & textureName, Ogre::TextureGpu* texture,
-			SpriteBatch::BlendMode blendMode);
+			SpriteBatch::BlendMode blendMode, SpriteQuad::FilterMode filter,
+			SpriteQuad::AddressMode addressing);
 		//! @brief the ONE shared untextured vertex-colour "VectorFill" HlmsUnlit
 		//! datablock: unlit, alpha-blended, depth-checked/not-written, two-sided;
 		//! colour flows from VES_DIFFUSE (the DrawLayer2D empty-texture recipe).

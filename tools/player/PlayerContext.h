@@ -21,6 +21,7 @@
 #include <core_tween/TimerManager.h>
 #include <core_util/optr.h>
 #include <engine_base/EngineLog.h>
+#include <engine_gocomponent/SpriteBatcher.h>
 #include <engine_graphic/ScreenFade.h>
 #include <engine_graphic/ScreenShake.h>
 #include <engine_input/InputManager.h>
@@ -101,6 +102,7 @@ struct PlayerContext
 	std::optional<Orkige::LevelManager> levelManager;
 	std::optional<Orkige::ScreenFade> screenFade;
 	std::optional<Orkige::ScreenShake> screenShake;
+	std::optional<Orkige::SpriteBatcher> spriteBatcher;
 	std::optional<Orkige::TimeControl> timeControl;
 	std::optional<Orkige::SaveStore> saveStore;
 	std::optional<Orkige::PlayerDebugLink> debugLink;

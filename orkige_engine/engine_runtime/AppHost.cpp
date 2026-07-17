@@ -298,6 +298,14 @@ namespace Orkige
 			CVarType::Bool, "1", CVAR_PERSIST,
 			"apply the static mobility flag to the renderer (off = every "
 			"object renders on the dynamic path; flags still round-trip)");
+		// sprite-run batching (@see SpriteBatcher): ON by default in every
+		// runtime that creates the batcher; OFF is the live escape hatch -
+		// runs release and every sprite draws individually again (pixels
+		// identical either way, the render-toggle test compares them)
+		CVarManager::getSingleton().registerCVar("r.spriteBatching",
+			CVarType::Bool, "1", CVAR_PERSIST,
+			"merge contiguous same-material sprite runs into one draw each "
+			"(off = every sprite costs its own draw call)");
 
 		if (this->mConfig.createWindowCamera)
 		{

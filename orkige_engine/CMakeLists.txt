@@ -129,6 +129,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/WaterComponent.cpp
     engine_gocomponent/SpriteComponent.h
     engine_gocomponent/SpriteComponent.cpp
+    engine_gocomponent/SpriteBatcher.h
+    engine_gocomponent/SpriteBatcher.cpp
     engine_gocomponent/VectorShapeComponent.h
     engine_gocomponent/VectorShapeComponent.cpp
     engine_gocomponent/VectorAnimationComponent.h

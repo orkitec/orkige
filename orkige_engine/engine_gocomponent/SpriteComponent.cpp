@@ -9,6 +9,7 @@
 
 #include "engine_gocomponent/SpriteComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
+#include "engine_gocomponent/SpriteBatcher.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
@@ -76,6 +77,7 @@ namespace Orkige
 		this->mAddressing = SpriteQuad::ADDRESS_CLAMP;
 		this->mZOrder = 0;
 		this->mVisible = true;
+		this->mStateVersion = 0;
 		this->addDependency<TransformComponent>();
 		this->mEventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
 	}
@@ -119,6 +121,13 @@ namespace Orkige
 		this->applyStateToQuad();
 		this->mQuad->attachTo(this->getNode());
 		this->applyVisibility();
+		++this->mStateVersion;
+		// a live runtime batches sprite runs (the editor never creates the
+		// batcher, so edit mode keeps the plain per-quad path)
+		if(SpriteBatcher* batcher = SpriteBatcher::getSingletonPtr())
+		{
+			batcher->add(this);
+		}
 
 		this->mEventData->setValue(textureName);
 		componentOwner->triggerEvent(Event(SpriteComponent::SpriteSetEvent, this->mEventData));
@@ -197,6 +206,13 @@ namespace Orkige
 		GameObject* componentOwner = this->getComponentOwner();
 		oAssert(componentOwner);
 
+		// leave any merged run BEFORE the quad dies (the batcher drops the
+		// membership and rebuilds the affected run at its next update)
+		if(SpriteBatcher* batcher = SpriteBatcher::getSingletonPtr())
+		{
+			batcher->remove(this);
+		}
+		++this->mStateVersion;
 		// RAII: dropping the handle detaches and destroys the quad geometry
 		this->mQuad.reset();
 
@@ -210,6 +226,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SpriteComponent::setSize(float width, float height)
 	{
+		++this->mStateVersion;
 		this->mWidth = width;
 		this->mHeight = height;
 		if(this->mQuad)
@@ -236,6 +253,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SpriteComponent::setUVRect(float u0, float v0, float u1, float v1)
 	{
+		++this->mStateVersion;
 		this->mU0 = u0;
 		this->mV0 = v0;
 		this->mU1 = u1;
@@ -262,6 +280,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SpriteComponent::setTint(float red, float green, float blue, float alpha)
 	{
+		++this->mStateVersion;
 		this->mTint = Color(red, green, blue, alpha);
 		if(this->mQuad)
 		{
@@ -271,6 +290,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SpriteComponent::setFlip(bool flipX, bool flipY)
 	{
+		++this->mStateVersion;
 		this->mFlipX = flipX;
 		this->mFlipY = flipY;
 		if(this->mQuad)
@@ -281,6 +301,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SpriteComponent::setFilter(SpriteQuad::FilterMode filter)
 	{
+		++this->mStateVersion;
 		this->mFilter = filter;
 		if(this->mQuad)
 		{
@@ -290,6 +311,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SpriteComponent::setAddressing(SpriteQuad::AddressMode addressing)
 	{
+		++this->mStateVersion;
 		this->mAddressing = addressing;
 		if(this->mQuad)
 		{
@@ -299,6 +321,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SpriteComponent::setZOrder(int zOrder)
 	{
+		++this->mStateVersion;
 		this->mZOrder = std::clamp(zOrder, ZORDER_MIN, ZORDER_MAX);
 		if(this->mQuad)
 		{
@@ -308,6 +331,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SpriteComponent::setSpriteVisible(bool visible)
 	{
+		++this->mStateVersion;
 		this->mVisible = visible;
 		if(this->mNode)
 		{
@@ -318,6 +342,74 @@ namespace Orkige
 	bool SpriteComponent::isSpriteVisible() const
 	{
 		return this->mVisible;
+	}
+	//--- sprite-run batching seams (@see SpriteBatcher) ---
+	//---------------------------------------------------------
+	String SpriteComponent::batchMaterialKey() const
+	{
+		// the SAME per-(texture,sampler) identity the individual quad binds -
+		// a run sharing this key renders through the identical material, so
+		// merging changes nothing but the draw count
+		return SpriteQuad::samplerName(this->mTextureName, this->mFilter,
+			this->mAddressing);
+	}
+	//---------------------------------------------------------
+	bool SpriteComponent::isEffectivelyVisible() const
+	{
+		GameObject* componentOwner =
+			const_cast<SpriteComponent*>(this)->getComponentOwner();
+		const bool ownerActive =
+			!componentOwner || componentOwner->isActiveInHierarchy();
+		return this->mVisible && ownerActive;
+	}
+	//---------------------------------------------------------
+	bool SpriteComponent::buildWorldQuad(SpriteBatch::Vertex outVertices[4]) const
+	{
+		if(!this->mQuad || !this->mNode)
+		{
+			return false;
+		}
+		float width = 0.0f;
+		float height = 0.0f;
+		SpriteComponent::resolveSize(this->mWidth, this->mHeight,
+			this->mTexelWidth, this->mTexelHeight, width, height);
+		Vec2 uv[4];
+		SpriteComponent::computeUVCorners(this->mU0, this->mV0, this->mU1,
+			this->mV1, this->mFlipX, this->mFlipY, uv);
+		// the node's world transform, composed the way the backend composes
+		// it for the attached quad: full transform = T * R * S per node, so
+		// worldCorner = position + orientation * (scale * corner)
+		const Vec3 position = this->mNode->getWorldPosition();
+		const Quat orientation = this->mNode->getWorldOrientation();
+		const Vec3 scale = this->mNode->getWorldScale();
+		const float halfWidth = width * 0.5f;
+		const float halfHeight = height * 0.5f;
+		// corner order TL/TR/BR/BL - the SpriteQuad/SpriteBatch winding
+		const Vec3 corners[4] = {
+			Vec3(-halfWidth,  halfHeight, 0.0f),
+			Vec3( halfWidth,  halfHeight, 0.0f),
+			Vec3( halfWidth, -halfHeight, 0.0f),
+			Vec3(-halfWidth, -halfHeight, 0.0f),
+		};
+		for(int each = 0; each < 4; ++each)
+		{
+			outVertices[each].position =
+				position + orientation * (scale * corners[each]);
+			outVertices[each].uv = uv[each];
+			outVertices[each].colour = this->mTint;
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	void SpriteComponent::suppressIndividualDraw(bool suppressed)
+	{
+		if(this->mQuad)
+		{
+			// object-level only: node visibility stays the game's own
+			// show/hide state (the batcher re-asserts this per frame, so a
+			// node cascade transiently flipping it self-corrects pre-render)
+			this->mQuad->setVisible(!suppressed);
+		}
 	}
 	//---------------------------------------------------------
 	void SpriteComponent::resolveSize(float configuredWidth, float configuredHeight,
@@ -461,6 +553,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SpriteComponent::onRemove()
 	{
+		if(SpriteBatcher* batcher = SpriteBatcher::getSingletonPtr())
+		{
+			batcher->remove(this);
+		}
 		// content first, then the node (a node must outlive its content)
 		this->mQuad.reset();
 		this->mTextureName = "";

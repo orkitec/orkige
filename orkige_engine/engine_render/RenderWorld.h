@@ -12,6 +12,7 @@
 #include "engine_render/RenderPrerequisites.h"
 #include "engine_render/RenderMath.h"
 #include "engine_render/SpriteBatch.h"
+#include "engine_render/SpriteQuad.h"
 #include "engine_render/VectorMesh.h"
 #include <core_util/ShadowPreset.h>
 #include <core_util/AtmosphereDesc.h>
@@ -81,10 +82,17 @@ namespace Orkige
 		optr<SpriteQuad> createSpriteQuad(String const & textureName);
 		//! @brief create a world-space, single-texture N-quad batch (the 2D
 		//! particle-system building block) - one draw call per system,
-		//! refilled from a CPU vertex array each frame (@see SpriteBatch)
-		//! map: classic=ManualObject + shared "Sprite/<tex>"/"SpriteAdd/<tex>" material | next=v2 ManualObject + shared HlmsUnlit datablock | filament=dynamic VB/IB + unlit filamat instance
+		//! refilled from a CPU vertex array each frame (@see SpriteBatch).
+		//! The alpha variant may pick the sprite SAMPLER (filter/addressing,
+		//! SpriteQuad::samplerName keying) so a batched sprite run renders
+		//! through the SAME per-(texture,sampler) material its individual
+		//! quads use; the additive glow variant always samples
+		//! bilinear+clamp (the burst recipe - sampler arguments ignored).
+		//! map: classic=ManualObject + shared "Sprite/<tex>#<sampler>"/"SpriteAdd/<tex>" material | next=v2 ManualObject + shared HlmsUnlit datablock | filament=dynamic VB/IB + unlit filamat instance
 		optr<SpriteBatch> createSpriteBatch(String const & textureName,
-			SpriteBatch::BlendMode blendMode = SpriteBatch::BLEND_ALPHA);
+			SpriteBatch::BlendMode blendMode = SpriteBatch::BLEND_ALPHA,
+			SpriteQuad::FilterMode filter = SpriteQuad::FILTER_BILINEAR,
+			SpriteQuad::AddressMode addressing = SpriteQuad::ADDRESS_CLAMP);
 		//! @brief create a world-space untextured vertex-coloured triangle mesh
 		//! - the flat-colour vector-shape building block (fills + alpha-feather
 		//! edge), refilled from a CPU vertex+index array (@see VectorMesh)

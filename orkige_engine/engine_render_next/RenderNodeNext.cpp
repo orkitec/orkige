@@ -195,6 +195,11 @@ namespace Orkige
 		return this->mImpl->node->_getDerivedOrientationUpdated();
 	}
 	//---------------------------------------------------------
+	Vec3 RenderNode::getWorldScale() const
+	{
+		return this->mImpl->node->_getDerivedScaleUpdated();
+	}
+	//---------------------------------------------------------
 	AABB RenderNode::getWorldBounds() const
 	{
 		AABB bounds;	// starts null; stays null for content-free subtrees

@@ -293,7 +293,8 @@ namespace Orkige
 			Ogre::SceneManager* sceneManager, String const & textureName);
 		static optr<SpriteBatch> createSpriteBatch(
 			Ogre::SceneManager* sceneManager, String const & textureName,
-			SpriteBatch::BlendMode blendMode);
+			SpriteBatch::BlendMode blendMode, SpriteQuad::FilterMode filter,
+			SpriteQuad::AddressMode addressing);
 		//! create a world-space untextured vertex-coloured triangle mesh
 		//! (@see VectorMesh; the shared "VectorFill" material)
 		static optr<VectorMesh> createVectorMesh(Ogre::SceneManager* sceneManager);
@@ -381,12 +382,15 @@ namespace Orkige
 			Ogre::TexturePtr const & texture, SpriteQuad::FilterMode filter,
 			SpriteQuad::AddressMode addressing);
 		//! @brief the shared per-(texture,blend) sprite-batch material: the
-		//! alpha variant IS the SpriteQuad "Sprite/<tex>#bilinear-clamp"
-		//! material (reused wholesale); the additive variant is a distinct
-		//! "SpriteAdd/<tex>#bilinear-clamp" material (SBF_SOURCE_ALPHA/SBF_ONE -
-		//! src.rgb*src.a + dst, order-independent glow). Idempotent per name.
+		//! alpha variant IS the SpriteQuad "Sprite/<tex>#<sampler>" material
+		//! (reused wholesale, so a batched sprite run renders through the
+		//! same material its individual quads use); the additive variant is a
+		//! distinct "SpriteAdd/<tex>#bilinear-clamp" material
+		//! (SBF_SOURCE_ALPHA/SBF_ONE - src.rgb*src.a + dst, order-independent
+		//! glow, always bilinear+clamp). Idempotent per name.
 		static Ogre::MaterialPtr getOrCreateSpriteBatchMaterial(
-			Ogre::TexturePtr const & texture, SpriteBatch::BlendMode blendMode);
+			Ogre::TexturePtr const & texture, SpriteBatch::BlendMode blendMode,
+			SpriteQuad::FilterMode filter, SpriteQuad::AddressMode addressing);
 		//! @brief the ONE shared untextured vertex-colour "VectorFill" material:
 		//! unlit, vertex colours tracked (TVC_DIFFUSE), alpha-blended,
 		//! depth-checked/not-written, two-sided, NO texture unit. Idempotent -

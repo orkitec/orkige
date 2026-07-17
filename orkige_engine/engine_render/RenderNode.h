@@ -79,6 +79,10 @@ namespace Orkige
 		Vec3 getWorldPosition() const;
 		//! map: classic=Node::_getDerivedOrientation | next=same caveat | filament=decompose getWorldTransform
 		Quat getWorldOrientation() const;
+		//! @brief world-space scale (local scales composed component-wise
+		//! through the ancestor chain - the backends' inherit-scale rule)
+		//! map: classic=Node::_getDerivedScale | next=_getDerivedScaleUpdated | filament=decompose getWorldTransform
+		Vec3 getWorldScale() const;
 		//! @brief world-space bounds of everything attached below this node
 		//! map: classic=SceneNode::_getWorldAABB | next=MovableObject::getWorldAabb per attached item | filament=RenderableManager::getAxisAlignedBoundingBox transformed
 		AABB getWorldBounds() const;

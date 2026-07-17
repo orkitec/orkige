@@ -184,6 +184,12 @@ namespace Orkige
 		return this->mImpl->node->_getDerivedOrientation();
 	}
 	//---------------------------------------------------------
+	Vec3 RenderNode::getWorldScale() const
+	{
+		this->mImpl->node->_update(false, true);	// see getWorldPosition
+		return this->mImpl->node->_getDerivedScale();
+	}
+	//---------------------------------------------------------
 	AABB RenderNode::getWorldBounds() const
 	{
 		// world AABBs are only refreshed by the render traversal; merge

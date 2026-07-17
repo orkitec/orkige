@@ -12,6 +12,7 @@
 #include <core_game/GameObjectComponent.h>
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_render/SpriteQuad.h"
+#include "engine_render/SpriteBatch.h"
 #include "engine_util/SceneNodeGuard.h"
 #include "core_util/StringUtil.h"
 
@@ -66,6 +67,7 @@ namespace Orkige
 		SpriteQuad::AddressMode	mAddressing;	//!< texture addressing (clamp default; from import settings)
 		int					mZOrder;		//!< sprite sort order (see class remarks)
 		bool				mVisible;		//!< sprite visibility (applied to the scene node)
+		unsigned int		mStateVersion;	//!< bumped by every sprite-state mutation (batch dirty tracking)
 		optr<StringUtil::StringObject> mEventData;	//!< name of the set/removed texture
 	private:
 		//--- Methods -----------------------------------------------
@@ -173,6 +175,31 @@ namespace Orkige
 		//! reflected flip setters (keep the other axis)
 		inline void setFlipXValue(bool flipX) { this->setFlip(flipX, this->mFlipY); }
 		inline void setFlipYValue(bool flipY) { this->setFlip(this->mFlipX, flipY); }
+
+		//--- sprite-run batching seams (@see SpriteBatcher) ---
+		//! @brief bumped by every sprite-state mutation; together with the
+		//! node's world transform it fingerprints the sprite for the
+		//! batcher's dirty tracking (an unmoved run never rebuilds)
+		inline unsigned int getStateVersion() const { return this->mStateVersion; }
+		//! @brief the material identity a batched run must share - the SAME
+		//! per-(texture,sampler) key the individual quad renders with
+		//! (SpriteQuad::samplerName), so merging changes nothing but the
+		//! draw count
+		String batchMaterialKey() const;
+		//! is the sprite meant to be on screen: its own visible flag AND the
+		//! owner's active state (the batcher's eligibility test)
+		bool isEffectivelyVisible() const;
+		//! @brief fill four world-space batch vertices (TL/TR/BR/BL - the
+		//! SpriteBatch corner order) from the sprite's current state and its
+		//! node's world transform, composing exactly like the backend node
+		//! transform does (position + orientation * (scale * corner)) so a
+		//! merged run rasterizes where the individual quad would.
+		//! @return false without a live quad/node
+		bool buildWorldQuad(SpriteBatch::Vertex outVertices[4]) const;
+		//! @brief the batcher's draw switch: while a sprite rides a merged
+		//! run its INDIVIDUAL quad is hidden (object-level visible flag -
+		//! node visibility stays the game's own show/hide state)
+		void suppressIndividualDraw(bool suppressed);
 
 		//--- pure helpers (headless-testable, no renderer required) ---
 		//! @brief derive the rendered size from the configured size and the

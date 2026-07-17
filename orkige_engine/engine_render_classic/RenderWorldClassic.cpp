@@ -382,10 +382,12 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	optr<SpriteBatch> RenderWorld::createSpriteBatch(String const & textureName,
-		SpriteBatch::BlendMode blendMode)
+		SpriteBatch::BlendMode blendMode, SpriteQuad::FilterMode filter,
+		SpriteQuad::AddressMode addressing)
 	{
 		return RenderBackend::createSpriteBatch(
-			this->mImpl->sceneManager, textureName, blendMode);
+			this->mImpl->sceneManager, textureName, blendMode, filter,
+			addressing);
 	}
 	//---------------------------------------------------------
 	optr<VectorMesh> RenderWorld::createVectorMesh()

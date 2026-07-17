@@ -45,6 +45,8 @@ struct PlayerSelfChecks
 	bool benchmarkCheck = false;
 	//! the static-mobility contract probe (@see the perFrame block)
 	bool staticMoveCheck = false;
+	//! the sprite-run batching probe (@see the perFrame block)
+	bool spriteBatchCheck = false;
 
 	//--- per-check phase state (comments ride with each check) -----------
 	// --- ORKIGE_JUMPER_LUA_SELFCHECK=1: the ScriptComponent milestone,
@@ -270,6 +272,22 @@ struct PlayerSelfChecks
 	// next: 0) and greps the one warning line.
 	bool staticMoveDone = false;
 	std::size_t staticMoveBatchesBefore = 0;
+	// --- ORKIGE_SPRITEBATCH_SELFCHECK=1: sprite-run batching, verified
+	// against projects/benchmark scenes/fixture_sprites.oscene (11 sprites
+	// whose exact grouping is 3 runs + 1 solo, see the generator). Frame 20
+	// MOVES sprite "A4" (a batched member - the run re-uploads and the
+	// frame-60 screenshot must render the move; the ctest driver compares it
+	// against a batching-off run of the same move). Frame 30 records the
+	// draw-batch count and the batcher's realized run count. When batching
+	// started ON, the LIVE TOGGLE leg follows: off at frame 70, count at 90,
+	// back on at 100, count + runs at 120 - the escape hatch must release
+	// and re-form the runs without a reboot. The driver pins the
+	// flavor-exact numbers from the printed lines.
+	bool spriteBatchDone = false;
+	bool spriteBatchStartedOn = false;
+	std::size_t spriteBatchBatchesOn = 0;
+	std::size_t spriteBatchRunsOn = 0;
+	std::size_t spriteBatchBatchesLiveOff = 0;
 	// --- ORKIGE_HOTRELOAD_SELFCHECK=1: Lua hot-reload, verified
 	// end to end against tests/projects/hotreload (run with --project
 	// tests/projects/hotreload). The Probe object runs scripts/
