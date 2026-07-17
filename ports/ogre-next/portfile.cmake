@@ -27,6 +27,7 @@ vcpkg_from_github(
         vulkan-no-shaderc-probe.patch             # the Vulkan RS compiles GLSL via glslang only - stop the find-probe from requiring shaderc_combined (absent from vcpkg and the NDK), which silently disabled the whole RS
         lib-install-path.patch                    # iOS + Windows: keep the standard vcpkg bin/lib layout (upstream installs into per-config lib/Release-style subdirs there, plugins under /opt on Windows)
         freeimage-codec-gate-unity-list.patch     # the unity SEPARATE list force-compiles OgreFreeImageCodec2.cpp into OgreMain even with the codec disabled - fatal on the FreeImage-less mobile platforms
+        pbs-honour-non-srgb-target.patch          # HlmsPbs assumed an sRGB colour target unconditionally (hw_gamma_write hardcoded 1); derive it from the live pass descriptor so linear lighting gamma-encodes in-shader on UNORM swapchains (upstream candidate)
 
 )
 
@@ -257,7 +258,12 @@ file(COPY "${_atmo_src}/Atmosphere.material" DESTINATION "${_atmo_dst}")
 # needed to parse the media set cleanly
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/atmosphere-media/AtmosphereQuad.program"
     DESTINATION "${_atmo_dst}")
-file(COPY "${_atmo_src}/Any/AtmosphereNprSky_ps.any" DESTINATION "${_atmo_dst}/Any")
+# the sky shader body ships from the port dir instead of the source tree: it
+# carries an in-shader gamma encode at the end (this media set renders into a
+# non-sRGB swapchain with no hardware gamma-on-write - the sqrt matches the
+# Hlms !hw_gamma_write path the pbs-honour-non-srgb-target.patch enables)
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/atmosphere-media/AtmosphereNprSky_ps.any"
+    DESTINATION "${_atmo_dst}/Any")
 # the sky fragment shader + its quad vertex shader, per shading language
 # (Metal drives Apple; glsl covers the Vulkan RS on Android/Linux via the
 # glslvk delegate; hlsl for a future D3D path). The material resolves the

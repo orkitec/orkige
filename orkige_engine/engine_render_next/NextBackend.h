@@ -643,6 +643,14 @@ namespace Orkige
 		//! registry firstDirectionalLight reads and, while the atmosphere is
 		//! live, re-links it to the new first sun (never a dangling pointer).
 		static void noteDirectionalLight(Ogre::Light* light, bool isDirectional);
+		//! @brief a RenderLight setter authored a colour. While the atmosphere
+		//! DRIVES @p light (it is the linked sun), the authored value lands in
+		//! the restore snapshot instead of the live light - the atmosphere owns
+		//! the visible colour, and disabling it restores the LATEST authored
+		//! one. Returns true when consumed that way (the caller then skips the
+		//! live write).
+		static bool noteAuthoredSunColour(Ogre::Light* light,
+			Ogre::ColourValue const & colour, bool specular);
 		//! the first (creation order) directional light, or NULL - the sun the
 		//! atmosphere links to (@see RenderWorld::setAtmosphere)
 		static Ogre::Light* firstDirectionalLight();

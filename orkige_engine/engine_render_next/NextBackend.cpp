@@ -44,6 +44,8 @@
 #include <OgreLight.h>
 #include <OgreMath.h>
 #include <OgreAtmosphereNpr.h>
+#include <OgreRectangle2D2.h>
+#include <OgreMaterial.h>
 #include <OgreTextureGpuManager.h>
 #include <OgreTextureFilters.h>
 #include <OgreTextureBox.h>
@@ -127,6 +129,36 @@ namespace Orkige
 		//! did the atmosphere sky material media register at boot? (false on a
 		//! media-less/headless boot - setAtmosphere then degrades honestly)
 		bool gAtmosphereMediaAvailable = false;
+		//! restore-exactly bookkeeping: the atmosphere OVERRIDES its linked
+		//! sun's colour/power (AtmosphereNpr::syncToLight), so the light's
+		//! authored values are snapshotted the moment the atmosphere takes it
+		//! and written back EXACTLY when the atmosphere lets go (disable, sun
+		//! change, teardown) - the recover-then-reapply rule (@see ScreenShake)
+		Ogre::Light* gLinkedSun = NULL;
+		Ogre::ColourValue gLinkedSunDiffuse;
+		Ogre::ColourValue gLinkedSunSpecular;
+		Ogre::Real gLinkedSunPower = 1.0f;
+
+		//! the render queue the atmosphere sky quad draws from: the FIRST v2
+		//! queue, before all scene content (depth-checked + write-off, so
+		//! opaque geometry covers it and 3D alpha content composites on top -
+		//! the classic dome's skies-early placement). The upstream default
+		//! (212, "after most stuff") sits past this backend's scene passes AND
+		//! would overdraw non-depth-writing sprites/particles.
+		const unsigned char kSkyRenderQueue = 0;
+
+		//! give the linked sun its authored colour/power back (no-op when the
+		//! atmosphere holds no light)
+		void restoreLinkedSun()
+		{
+			if(gLinkedSun)
+			{
+				gLinkedSun->setDiffuseColour(gLinkedSunDiffuse);
+				gLinkedSun->setSpecularColour(gLinkedSunSpecular);
+				gLinkedSun->setPowerScale(gLinkedSunPower);
+				gLinkedSun = NULL;
+			}
+		}
 		//! directional lights in creation order - the sun the atmosphere links
 		//! to is the FIRST of these (@see RenderBackend::firstDirectionalLight)
 		std::vector<Ogre::Light*> gDirectionalLights;
@@ -395,6 +427,16 @@ namespace Orkige
 		// revival; tune when a real workload appears
 		Ogre::SceneManager* sceneManager = root->createSceneManager(
 			Ogre::ST_GENERIC, 1, "OrkigeNextWorld");
+		// clustered forward light lists: without a Forward+ system this
+		// backend's HlmsPbs shades only SHADOW-CASTING point/spot lights -
+		// a plain dynamic lamp (RenderLight LT_POINT/LT_SPOT, no shadows)
+		// never lit anything. The 16x8x24 cluster grid is the standard
+		// shape; 96 lights per cell is generous headroom for the mobile
+		// budget, and the 2..100 unit depth range covers the engine's
+		// tens-of-units scenes. Directional lights are unaffected (they
+		// ride the pass buffer either way).
+		sceneManager->setForwardClustered(true, 16u, 8u, 24u, 96u, 0u, 0u,
+			2.0f, 100.0f);
 
 		RenderSystem* system = new RenderSystem();
 		system->mImpl->root = root;
@@ -437,6 +479,7 @@ namespace Orkige
 		}
 		gAtmosphereMediaAvailable = false;
 		gDirectionalLights.clear();
+		gLinkedSun = NULL;	// the light dies with the scene manager - no restore
 		delete gRenderSystem;	// ~RenderSystem deletes the world first
 		gRenderSystem = NULL;
 		// same late-handle rule as classic: handles that outlive the
@@ -691,6 +734,26 @@ namespace Orkige
 		return gDirectionalLights.empty() ? NULL : gDirectionalLights.front();
 	}
 	//---------------------------------------------------------
+	bool RenderBackend::noteAuthoredSunColour(Ogre::Light* light,
+		Ogre::ColourValue const & colour, bool specular)
+	{
+		if(!light || light != gLinkedSun)
+		{
+			return false;	// not driven - the caller writes the live light
+		}
+		// the atmosphere owns the live colour; record the authored value so
+		// disabling restores the LATEST one (restore-exactly)
+		if(specular)
+		{
+			gLinkedSunSpecular = colour;
+		}
+		else
+		{
+			gLinkedSunDiffuse = colour;
+		}
+		return true;
+	}
+	//---------------------------------------------------------
 	void RenderBackend::noteDirectionalLight(Ogre::Light* light,
 		bool isDirectional)
 	{
@@ -738,13 +801,18 @@ namespace Orkige
 
 		if(!desc.enabled)
 		{
-			// tear the sky + object fog down again (revert to plain clear)
+			// tear the sky + object fog down again (revert to plain clear);
+			// UNLINK the sun before restoring it - setSky runs one last light
+			// sync, which would stomp the restored colours otherwise
 			if(gAtmosphere)
 			{
+				gAtmosphere->setLight(NULL);
 				gAtmosphere->setSky(sceneManager, false);
 				OGRE_DELETE gAtmosphere;
 				gAtmosphere = NULL;
 			}
+			// the linked sun returns EXACTLY to its authored colour/power
+			restoreLinkedSun();
 			return;
 		}
 
@@ -777,6 +845,29 @@ namespace Orkige
 				return;
 			}
 			gAtmosphere->setSky(sceneManager, true);
+			// setSky attached the sky as a Rectangle2D in a LATE render queue
+			// (drawn after most content upstream) - past this backend's scene
+			// passes, and it would overdraw non-depth-writing 3D alpha content
+			// (sprites/particles) where only sky is behind them. Move it to
+			// the skies-early queue instead (@see kSkyRenderQueue); identified
+			// by its cloned "Ogre/Atmo/NprSky*" material - the atmosphere does
+			// not expose its quad.
+			Ogre::SceneManager::MovableObjectIterator rectangles =
+				sceneManager->getMovableObjectIterator(
+					Ogre::Rectangle2DFactory::FACTORY_TYPE_NAME);
+			while(rectangles.hasMoreElements())
+			{
+				Ogre::MovableObject* movable = rectangles.getNext();
+				Ogre::Rectangle2D* rectangle =
+					static_cast<Ogre::Rectangle2D*>(movable);
+				Ogre::MaterialPtr material = std::static_pointer_cast<
+					Ogre::Material>(rectangle->getMaterial());
+				if(material &&
+					material->getName().rfind("Ogre/Atmo/NprSky", 0) == 0)
+				{
+					rectangle->setRenderQueueGroup(kSkyRenderQueue);
+				}
+			}
 		}
 
 		// SUN LINKAGE: the first directional light is the sun; read its current
@@ -800,6 +891,21 @@ namespace Orkige
 			}
 		}
 		toSun.normalise();
+		// restore-exactly: a sun-set change hands the PREVIOUS sun its
+		// authored colour/power back (it is still alive here - the registry
+		// is updated before a dying light is destroyed) and snapshots the new
+		// one before the atmosphere starts driving it
+		if(gLinkedSun != sun)
+		{
+			restoreLinkedSun();
+			if(sun)
+			{
+				gLinkedSun = sun;
+				gLinkedSunDiffuse = sun->getDiffuseColour();
+				gLinkedSunSpecular = sun->getSpecularColour();
+				gLinkedSunPower = sun->getPowerScale();
+			}
+		}
 		gAtmosphere->setLight(sun);
 		// the native day/night phase from the sun's elevation: sunHeight in the
 		// shader is sin(normTime * PI), so normTime = asin(elevation)/PI maps
