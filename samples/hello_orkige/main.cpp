@@ -145,6 +145,13 @@ int main(int, char**)
 	// material (Util/make_water_mesh.py writes the plane + tiling normal to
 	// orkige_engine/media/water/, registered via ORKIGE_ENGINE_WATER_DIR)
 	const bool demoWater = (std::getenv("ORKIGE_DEMO_WATER") != nullptr);
+	// ORKIGE_DEMO_MATLOOKS=1|flat: the material pixel-probe rig (below) - a
+	// controlled lit scene (normal-mapped ground + hero cube + casting sun)
+	// whose frame-locked captures run_material_probe_test.py measures; the
+	// value "flat" swaps the hero onto the map-free sibling material so the
+	// probe can isolate what the normal/emissive maps contribute
+	const char* matLooksMode = std::getenv("ORKIGE_DEMO_MATLOOKS");
+	const bool demoMatLooks = (matLooksMode != nullptr);
 
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window, engine
 	// singletons, the per-flavor Engine boot, the window-camera rig and the
@@ -178,7 +185,7 @@ int main(int, char**)
 				render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
 			}
 			if (demoMusic || demoVectorShape || demoMaterial || demoTerrain ||
-				demoParticles3D)
+				demoParticles3D || demoMatLooks)
 			{
 				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
 			}
@@ -366,6 +373,15 @@ int main(int, char**)
 		optr<Orkige::MeshInstance> smallCube =
 			world->createMeshInstance("HelloCube.mesh");
 		smallCube->attachTo(smallCubeNode);
+
+		// the pixel-probe rig stages a CONTROLLED scene: the spinning default
+		// cubes would inject frame-dependent pixels into the frame-locked
+		// captures, so they stay hidden there (the rig brings its own content)
+		if (demoMatLooks)
+		{
+			cube->setVisible(false);
+			smallCube->setVisible(false);
+		}
 
 		// --- ORKIGE_DEMO_SPRITEANIM=1: the sprite flipbook selfcheck. A
 		// GameObject carrying a SpriteAnimationComponent on a 4x1 grid with one
@@ -805,9 +821,10 @@ int main(int, char**)
 		// the frame loop below adds the it-renders triangle-count probe.
 		// Flavor note: on the default backend this is a full PBS datablock
 		// (metal-rough + normal/emissive maps over generated tangents); the
-		// classic flavor renders its documented Blinn-Phong subset (albedo
-		// texture + derived specular, maps ignored) - both must APPLY and
-		// render without erroring, which is exactly what is asserted.
+		// classic flavor renders its RTSS Cook-Torrance counterpart (the maps
+		// too - normal-map stage + additive emissive pass) - both must APPLY
+		// and render without erroring, which is exactly what is asserted; the
+		// material_looks_right pixel probe covers what the maps LOOK like.
 		Orkige::ModelComponent* materialModel = nullptr;
 		std::size_t materialHiddenTriangles = 0;
 		if (demoMaterial)
@@ -1033,6 +1050,82 @@ int main(int, char**)
 
 		cameraNode->setPosition(Orkige::Vec3(0.0f, 2.0f, 6.0f));
 		cameraNode->lookAt(Orkige::Vec3::ZERO, Orkige::RenderNode::TS_WORLD);
+
+		// --- ORKIGE_DEMO_MATLOOKS: the material pixel-probe rig. A dedicated
+		// lit scene proving the `.omat` maps RENDER on the flavor under test
+		// (not just apply): a normal-mapped, emission-free ground slab (the
+		// shadow receiver), a hero cube carrying the full demo material
+		// (albedo + normal + emissive maps) - or, in "flat" mode, its map-free
+		// sibling - and a casting directional sun, so the probe can assert
+		// normal-mapped != flat-lit, the cast shadow composing on the
+		// normal-mapped receiver, and (after lights-out below) the emissive
+		// response. Frame-locked captures; regions measured by
+		// tests/integration_driver/run_material_probe_test.py.
+		Orkige::ModelComponent* matLooksHero = nullptr;
+		optr<Orkige::RenderNode> matLooksSunNode;
+		optr<Orkige::RenderLight> matLooksSun;
+		if (demoMatLooks)
+		{
+			const bool flatHero =
+				(Orkige::String(matLooksMode) == "flat");
+			optr<Orkige::GameObject> groundObject =
+				gameObjectManager.createGameObject("probe_ground").lock();
+			optr<Orkige::GameObject> heroObject =
+				gameObjectManager.createGameObject("probe_hero").lock();
+			if (!groundObject || !heroObject ||
+				!groundObject->addComponent<Orkige::ModelComponent>() ||
+				!heroObject->addComponent<Orkige::ModelComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - probe rig creation failed");
+				return 1;
+			}
+			Orkige::ModelComponent* ground =
+				groundObject->getComponentPtr<Orkige::ModelComponent>();
+			Orkige::TransformComponent* groundTransform =
+				groundObject->getComponentPtr<Orkige::TransformComponent>();
+			matLooksHero =
+				heroObject->getComponentPtr<Orkige::ModelComponent>();
+			Orkige::TransformComponent* heroTransform =
+				heroObject->getComponentPtr<Orkige::TransformComponent>();
+			groundTransform->setPosition(Orkige::Vec3(0.0f, -1.55f, 0.0f));
+			groundTransform->setScale(Orkige::Vec3(5.5f, 0.12f, 5.5f));
+			ground->loadModel("demo_material_cube.glb");
+			ground->setMaterialReference("demo_material_ground.omat");
+			heroTransform->setPosition(Orkige::Vec3(0.0f, -0.65f, 0.0f));
+			matLooksHero->loadModel("demo_material_cube.glb");
+			matLooksHero->setMaterialReference(flatHero
+				? "demo_material_flat.omat" : "demo_material.omat");
+			if (!ground->getMeshInstance() || !matLooksHero->getMeshInstance()
+				|| !matLooksHero->getMeshInstance()->subMeshHasTexture(0))
+			{
+				SDL_Log("hello_orkige: FAILED - probe rig meshes/materials "
+					"did not build");
+				return 1;
+			}
+			// the casting sun: slanted so the hero's shadow lands on the open
+			// ground to its screen-right (+x/+z), where the probe samples it
+			matLooksSun = world->createLight();
+			matLooksSunNode = world->createNode("probeSunNode");
+			matLooksSunNode->setDirection(
+				Orkige::Vec3(0.65f, -0.55f, 0.3f).normalisedCopy(),
+				Orkige::RenderNode::TS_WORLD);
+			matLooksSun->attachTo(matLooksSunNode);
+			matLooksSun->setType(Orkige::RenderLight::LT_DIRECTIONAL);
+			matLooksSun->setDiffuseColour(Orkige::Color(1.0f, 0.97f, 0.9f));
+			matLooksSun->setSpecularColour(Orkige::Color(1.0f, 0.97f, 0.9f));
+			matLooksSun->setCastShadows(true);
+			// modest ambient: enough to keep the shadow readable as a darker
+			// band instead of black, low enough that the sun owns the shading
+			world->setAmbientHemisphere(Orkige::Color(0.22f, 0.24f, 0.28f),
+				Orkige::Color(0.11f, 0.10f, 0.08f));
+			cameraNode->setPosition(Orkige::Vec3(0.0f, 1.9f, 5.6f));
+			cameraNode->lookAt(Orkige::Vec3(0.0f, -0.7f, 0.0f),
+				Orkige::RenderNode::TS_WORLD);
+			SDL_Log("hello_orkige: material probe rig up (hero=%s, shadows "
+				"%s)", flatHero ? "flat" : "mapped",
+				world->getShadowQuality() != Orkige::ShadowPreset::SQ_OFF
+					? "requested" : "off");
+		}
 
 		// --- ORKIGE_DEMO_PHYSICS=1: Jolt dynamics through the engine_physic /
 		// engine_gocomponent bridge. A static floor body, a pile of dynamic
@@ -4349,6 +4442,30 @@ int main(int, char**)
 					render->saveWindowContents(shotPath);
 				}
 			}
+			if (demoMatLooks && frameCount == 70)
+			{
+				// lights out AFTER the frame-60 lit capture: sun black, ambient
+				// near zero, backdrop near black - what survives into the frame
+				// 80 capture is the EMISSIVE response (map-driven on the mapped
+				// hero, absent on the flat sibling and the ground)
+				matLooksSun->setDiffuseColour(Orkige::Color(0.0f, 0.0f, 0.0f));
+				matLooksSun->setSpecularColour(Orkige::Color(0.0f, 0.0f, 0.0f));
+				world->setAmbientHemisphere(
+					Orkige::Color(0.012f, 0.012f, 0.012f),
+					Orkige::Color(0.008f, 0.008f, 0.008f));
+				render->setWindowBackgroundColour(
+					Orkige::Color(0.0f, 0.0f, 0.02f));
+			}
+			if (demoMatLooks && frameCount == 80)
+			{
+				// ORKIGE_DEMO_SCREENSHOT2 doubles as the dark-scene capture of
+				// the material probe (the water demo uses it at frame 40; the
+				// two demos never run together)
+				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT2"))
+				{
+					render->saveWindowContents(shotPath);
+				}
+			}
 			if (frameCount == 60)
 			{
 				// ORKIGE_DEMO_SCREENSHOT: dump the framebuffer for automated
@@ -4367,7 +4484,7 @@ int main(int, char**)
 			{
 				Orkige::pushKeyEvent(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, true);
 			}
-			if (frameCount == 10)
+			if (frameCount == 10 && !demoMatLooks)
 			{
 				// verification that both cubes actually got drawn (12 triangles
 				// each), not just a black window; with ORKIGE_DEMO_MESH the

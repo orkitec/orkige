@@ -102,7 +102,12 @@ material never pays for tangent generation.
 **Emissive map (classic)**: rendered as a second additive pass (lighting
 off, `SBT_ADD`, the emissive map modulated by the emissive colour). Surface
 materials are opaque, so additive-over-scene is safe; a translucent albedo
-skips the glow pass with one log line.
+skips the glow pass with one log line. When a map is present the emissive
+COLOUR is the map's tint only — the surface pass's flat self-illumination is
+zeroed, matching next's `emissive = colour × texture` (the
+`material_looks_right` probe caught the double application: the whole
+surface glowed instead of just the map's texels). Without a map, both
+flavors emit the uniform colour.
 
 **Colour space (next)**: PBS textures load raw (no sRGB flag), matching the
 backend's gamma-space passthrough pipeline (the classic colour-parity rule
@@ -149,8 +154,10 @@ and its objects never cast.
 
 `Util/make_material_demo.py` (stdlib-only, committed outputs) generates the
 hello_orkige demo set: `demo_material_cube.glb` (UV-mapped cube, imports
-textureless), `demo_mat_albedo/normal/emissive.png` and
-`demo_material.omat`. Tests:
+textureless), `demo_mat_albedo/normal/emissive.png`, `demo_material.omat`
+plus its probe siblings `demo_material_flat.omat` (same surface, no maps)
+and `demo_material_ground.omat` (normal-mapped, emission-free — the shadow
+receiver). Tests:
 
 - `MaterialAssetTests` (unit) — grammar round-trip + malformed honesty.
 - `PropertyReflectionTests` "ModelComponent … material" cases (unit) — the
@@ -159,6 +166,13 @@ textureless), `demo_mat_albedo/normal/emissive.png` and
   texture), `.omat` applies through the reflected reference (albedo map
   bound), and a hide/show triangle-count probe proves it renders on the
   flavor under test.
+- `material_looks_right` (integration PIXEL probe, both flavors —
+  `tests/integration_driver/run_material_probe_test.py`) — the
+  `ORKIGE_DEMO_MATLOOKS` rig rendered twice (full maps vs the flat
+  sibling): the maps measurably CHANGE the lit hero (normal-mapped lit ≠
+  flat-lit), the cast shadow composes on the normal-mapped ground receiver,
+  and after lights-out the emissive map glows while everything else reads
+  dark (the flat-emissive double-application guard).
 
 ## Terrain — the baked-mesh pipeline
 

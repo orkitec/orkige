@@ -667,14 +667,32 @@ if(TARGET hello_orkige)
     # baseline), takes demo_material.omat through its reflected material
     # reference (parse -> createMaterial -> setMaterial) and must then sample
     # the albedo map; a hide/show triangle-count probe proves the material
-    # actually renders. Runs on both flavors: next = the full PBS datablock
-    # (metal-rough + normal/emissive maps over generated tangents), classic =
-    # its documented Blinn-Phong subset - a per-flavor probe, NOT a pixel
+    # actually renders. Runs on both flavors: next = the full PBS datablock,
+    # classic = its RTSS Cook-Torrance counterpart (both honor the normal +
+    # emissive maps over generated tangents) - a per-flavor probe, NOT a pixel
     # parity case (lit content legitimately differs between the flavors).
     add_test(NAME demo_material COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_material PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_MATERIAL=1;ORKIGE_DEMO_FRAMES=120")
+
+    # material_looks_right: the PIXEL probe for what the `.omat` maps LOOK
+    # like (demo_material's counts prove "renders", not "renders right").
+    # Drives the ORKIGE_DEMO_MATLOOKS rig twice - full maps vs the flat
+    # sibling material - and asserts normal/emissive maps CHANGE the lit hero,
+    # the cast shadow composes on the normal-mapped receiver (the receiver
+    # stage and the normal-map stage feed the same lighting stage), and the
+    # emissive map glows after lights-out while everything else reads dark
+    # (which caught classic double-applying the emissive colour as a
+    # whole-surface glow). Both flavors. Skips (77) if the app is unbuilt.
+    add_test(NAME material_looks_right COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_material_probe_test.py"
+        --binary "$<TARGET_FILE:hello_orkige>"
+        --out "${CMAKE_CURRENT_BINARY_DIR}/material_looks_right"
+        --leg looks
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(material_looks_right PROPERTIES
+        LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
 
     # ORKIGE_DEMO_TERRAIN: the baked-mesh terrain selfcheck - a ModelComponent
     # imports the committed chunked terrain .glb (Util/make_terrain_mesh.py:

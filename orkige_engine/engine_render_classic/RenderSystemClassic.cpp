@@ -510,6 +510,12 @@ namespace Orkige
 							Ogre::LBS_TEXTURE, Ogre::LBS_MANUAL,
 							Ogre::ColourValue::White, Ogre::ColourValue(
 								desc.emissive.r, desc.emissive.g, desc.emissive.b));
+						// with a map, the emissive colour is the MAP's tint, not
+						// a whole-surface glow: the additive pass above carries
+						// colour x map (the other backend's emissive = colour x
+						// texture), so the flat self-illumination must not ALSO
+						// light the full surface
+						pass->setSelfIllumination(0.0f, 0.0f, 0.0f);
 					}
 					catch(Ogre::Exception const & e)
 					{
