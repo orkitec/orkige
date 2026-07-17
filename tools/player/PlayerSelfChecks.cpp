@@ -1426,42 +1426,61 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		{
 			jumperStartX = jumperPlayerTransform()->getPosition().x;
 			pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, true);
+			// CONDITION-DRIVEN pacing (the tilt-selfcheck precedent):
+			// the script moves by dt, so distance tracks WALL TIME, not
+			// frames - a fixed frame count walked the player off the
+			// platform edge on slow hosts. Hold RIGHT until a distance
+			// safely ON the first platform, then release.
+			jumperMoveDeadline = frameCount + 240;
 		}
-		if (frameCount == 50)
+		if (jumperMoveDeadline != 0 && frameCount > 30)
 		{
-			pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, false);
-		}
-		if (frameCount == 65)
-		{
-			jumperMovedX = jumperPlayerTransform()->getPosition().x -
-				jumperStartX;
-			SDL_Log("orkige_player: jumper-lua selfcheck - moved "
-				"+x %.3f m after 20 frames of RIGHT (HUD progress "
-				"%.0f%%)", jumperMovedX, jumperHudProgress());
-			if (jumperMovedX < 0.6f)
+			const float movedX =
+				jumperPlayerTransform()->getPosition().x - jumperStartX;
+			if (movedX >= 1.0f || frameCount >= jumperMoveDeadline)
 			{
-				jumperFail("player did not move right under "
-					"scripted input");
+				pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, false);
+				jumperMoveDeadline = 0;
+				jumperMovedX = movedX;
+				SDL_Log("orkige_player: jumper-lua selfcheck - moved "
+					"+x %.3f m under RIGHT (HUD progress %.0f%%)",
+					jumperMovedX, jumperHudProgress());
+				if (jumperMovedX < 0.6f)
+				{
+					jumperFail("player did not move right under "
+						"scripted input");
+				}
+				else if (uiChecksEnabled && jumperHudProgress() <= 0.0f)
+				{
+					jumperFail("HUD progress bar did not advance with x");
+				}
+				else
+				{
+					// settle, then wait for the ground contact - again by
+					// condition, not by frame ordinal
+					jumperGroundedDeadline = frameCount + 240;
+				}
 			}
-			else if (uiChecksEnabled && jumperHudProgress() <= 0.0f)
-			{
-				jumperFail("HUD progress bar did not advance with x");
-			}
 		}
-		if (frameCount == 80)
+		if (jumperGroundedDeadline != 0)
 		{
-			if (!jumperGrounded())
+			if (jumperGrounded())
 			{
+				jumperGroundedDeadline = 0;
+				jumperJumpStartY = jumperPlayerTransform()
+					->getPosition().y;
+				jumperJumpFrame = frameCount;
+				jumperMaxRise = 0.0f;
+				pushKeyEvent(SDL_SCANCODE_SPACE, SDLK_SPACE, true);
+				jumperPhase = JumperCheckPhase::WaitLanding;
+				jumperPhaseDeadline = frameCount + 240;
+			}
+			else if (frameCount >= jumperGroundedDeadline)
+			{
+				jumperGroundedDeadline = 0;
 				jumperFail("script does not report grounded before "
 					"the jump");
 			}
-			jumperJumpStartY = jumperPlayerTransform()
-				->getPosition().y;
-			jumperJumpFrame = frameCount;
-			jumperMaxRise = 0.0f;
-			pushKeyEvent(SDL_SCANCODE_SPACE, SDLK_SPACE, true);
-			jumperPhase = JumperCheckPhase::WaitLanding;
-			jumperPhaseDeadline = frameCount + 120;
 		}
 	}
 	else if (jumperLuaCheck && !jumperCheckFailed &&

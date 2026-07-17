@@ -60,10 +60,13 @@ struct PlayerSelfChecks
 	//   10..20    a synthetic mouse click on the START button (move,
 	//             press, release) -> the game switches to "playing",
 	//             title hidden, HUD visible
-	//   30..65    hold RIGHT -> the player moved +x and the HUD
-	//             progress bar advanced
-	//   frame 80  the script reports grounded; press SPACE -> the player
-	//             rises >0.8m and lands again within 120 frames
+	//   then      hold RIGHT until the player moved +1.0m (CONDITION-
+	//             driven with a fat deadline - dt-correct movement covers
+	//             wall time, so a frame count overshoots on slow hosts;
+	//             the roller tilt phases document the same convention)
+	//             and the HUD progress bar advanced
+	//   then      wait for grounded (deadline-bounded); press SPACE ->
+	//             the player rises >0.8m and lands again
 	//   then      teleport into the first gap -> the script's kill plane
 	//             respawns the player at the start (shared respawns +1)
 	//   then      teleport in front of the goal -> the script's win
@@ -88,6 +91,11 @@ struct PlayerSelfChecks
 	JumperCheckPhase jumperPhase = JumperCheckPhase::Script;
 	float jumperStartX = 0.0f;
 	float jumperMovedX = 0.0f;
+	//! condition-driven move/grounded pacing (frame-count pacing walked the
+	//! player off the platform on slow hosts - dt-correct movement covers
+	//! wall time, not frames): 0 = leg not yet active
+	unsigned long jumperMoveDeadline = 0;
+	unsigned long jumperGroundedDeadline = 0;
 	float jumperJumpStartY = 0.0f;
 	float jumperMaxRise = 0.0f;
 	unsigned long jumperJumpFrame = 0;
