@@ -140,6 +140,18 @@ moonlit-night corridor + visible lamp pools (lumens), lit instance cubes
 (field), and vertically disjoint HUD text rows at a simulated 2x display
 density (hud2x).
 
+The generator additionally writes two **test fixture scenes** beside the tour
+(`scenes/fixture_static.oscene`, `scenes/fixture_sprites.oscene`) — director-
+free, deterministic compositions the performance contract tests boot directly
+(`player_static_contract`, `player_spritebatch`; their exact object layouts
+are part of those tests' expected numbers, so change them together). The tour
+content itself carries the **static mobility flag** on its immobile scenery
+(terrain, vista props, Flatland's backdrops) and the **structural budget
+gate** (`benchmark_budget` per flavor, `tests/integration_driver/
+benchmark_budgets.json`) holds every scene's draw-batch corridor and triangle
+ceiling — `Docs/performance.md` carries the architecture and the update
+discipline.
+
 ### Running it
 
 - **Editor**: open the project and press Play (or pick an iOS-simulator / Android

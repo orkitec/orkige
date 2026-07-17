@@ -437,7 +437,11 @@ The **GameObject and component** surface follows the same rule. `world.get(id)`,
 all one `GameObjectHandle` type carrying the read / hierarchy / tag / active
 surface. Each component accessor (`world.getTransform`, `self.transform`, …) is
 its own per-type handle carrying that component's methods — a `TransformComponent`
-handle exposes `setPosition` / `teleport` / …, a `RigidBodyComponent` handle
+handle exposes `setPosition` / `teleport` / … plus the mobility flag
+(`getStaticFlag`/`setStaticFlag` — declare an object's world transform immutable
+so the renderer takes its immobile fast path; moving a static object still works
+but warns once and pays a repair cost, and the flag refuses a dynamic parent —
+`Docs/performance.md`), a `RigidBodyComponent` handle
 exposes `applyImpulse` / `setLinearVelocity` / …, and so on. There is no wrong-type
 gate for components (each type has its own accessor), so a component handle only
 ever raises the dead-handle error, naming the object it belonged to. A cached
@@ -768,6 +772,7 @@ TransformComponent:teleport(...)
 TransformComponent.position
 TransformComponent.orientation
 TransformComponent.scale
+TransformComponent.static
 
 ## ModelComponent
 ModelComponent:loadModel(...)

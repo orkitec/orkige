@@ -787,6 +787,26 @@ look when touching one:
   `DrawLayer2D` overlay animated through `EaseLibrary`, both flavors, ticked last;
   Lua `screen` table — `fadeOut`/`fadeIn`/`setFadeColor`/`isFading`/`loadScene`
   which wipes over a deferred scene switch).
+- **Performance architecture** (`Docs/performance.md` — the native-fast-path
+  rule lives in `Docs/render-abstraction.md`): the reflected **`static`
+  mobility flag** on TransformComponent (facade `RenderNode::setStatic`;
+  next = SCENE_STATIC memory managers, classic = StaticGeometry region bake
+  in `StaticBakeClassic.cpp`; THE MOBILITY CONTRACT: a runtime move warns
+  once per node and repairs — dirty-notify on next, demote-out-of-region on
+  classic; hierarchy rule static-parent-required, validated; gate cvar
+  `r.staticScene`, editor boots it OFF); **sprite-run batching** (pure
+  `core_util/SpriteRunPlanner` owns the painter's contract — stable zOrder
+  sort, contiguous same-(texture,sampler) runs, dirty-tracked;
+  `engine_gocomponent/SpriteBatcher` realizes runs as facade SpriteBatches,
+  player-ticked pre-render, editor-inert; gate cvar `r.spriteBatching`);
+  classic 3D instancing GATED OUT by verdict (RTSS derives no instanced
+  vertex path; next auto-instances natively). Guarded by the per-scene
+  **structural budget gate** (`benchmark_budget` per flavor over
+  `tests/integration_driver/benchmark_budgets.json` — draw-batch corridors
+  + tri ceilings, budgets edited in the same commit as the change that
+  moves them), the `player_static_contract`/`player_spritebatch` fixture
+  ctests (pixel identity under the toggles, exact counts, the mobility
+  probe) and the `SpriteRunPlannerTests`/`StaticFlagTests` units.
 - **Crash breadcrumbs**: `core_debug/Breadcrumbs` — an always-on, bounded ring of
   engine events (scene loads, script errors, warnings, boot/shutdown) FLUSHED to
   disk per entry so a hard crash leaves a readable trail; rotated on boot

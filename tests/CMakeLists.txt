@@ -1663,6 +1663,26 @@ if(TARGET orkige_player)
         set_tests_properties(player_spritebatch${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 240)
 
+        # the standing structural budget gate: every benchmark scene boots
+        # deterministically and its draw-batch count must land INSIDE the
+        # checked-in per-scene x per-flavor corridor (above = a batching/
+        # facade regression; dramatically below = something stopped
+        # rendering), with a triangle ceiling on top. Frame-ms is reported,
+        # never gated. Budgets update deliberately - edit
+        # integration_driver/benchmark_budgets.json in the SAME commit as
+        # the change that moves a number (Docs/performance.md).
+        add_test(NAME benchmark_budget${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_benchmark_budget_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --player "$<TARGET_FILE:orkige_player>"
+                --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_budget${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                --flavor "${ORKIGE_RENDER_BACKEND}"
+                --budgets "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/benchmark_budgets.json"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(benchmark_budget${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 600)
+
         # the vista must also LOOK right: measured pixel discriminators over a
         # captured frame - HUD glyph presence (per-frame-dirty gui batches
         # reach the frame) and a daylit green-over-blue terrain band (the

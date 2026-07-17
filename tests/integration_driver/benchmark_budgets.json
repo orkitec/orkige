@@ -1,0 +1,55 @@
+{
+  "_comment": [
+    "The standing structural budget gate over the benchmark tour, checked by",
+    "run_benchmark_budget_test.py per flavor (deterministic 240-frame boots,",
+    "ramps at ceiling, camera frozen - the numbers are only comparable under",
+    "that exact recipe). batchesMax guards against draw-count regressions,",
+    "batchesMin against something silently not rendering, trisMax against",
+    "content/LOD regressions; frame-ms is deliberately not gated. Budgets",
+    "move DELIBERATELY: edit this table in the same commit as the change",
+    "that moves a number, with the reason - see Docs/performance.md.",
+    "Baseline: post static-flag + sprite-run batching, macOS Debug trees",
+    "(classic ~8 vista batches after the static bake; field is the",
+    "documented 185-vs-4 instancing gap, gated out by verdict; the next",
+    "flavor's Metal metric compresses absolute counts - its budgets guard",
+    "deltas more than magnitudes)."
+  ],
+  "scenes": {
+    "vista.oscene": {
+      "classic": { "batchesMin": 4, "batchesMax": 14, "trisMax": 6000 },
+      "next": { "batchesMin": 4, "batchesMax": 12, "trisMax": 8500 }
+    },
+    "lake.oscene": {
+      "classic": { "batchesMin": 4, "batchesMax": 14, "trisMax": 6500 },
+      "next": { "batchesMin": 4, "batchesMax": 12, "trisMax": 10500 }
+    },
+    "lumens.oscene": {
+      "classic": { "batchesMin": 2, "batchesMax": 9, "trisMax": 5500 },
+      "next": { "batchesMin": 2, "batchesMax": 8, "trisMax": 3000 }
+    },
+    "swarm.oscene": {
+      "classic": { "batchesMin": 4, "batchesMax": 16, "trisMax": 6500 },
+      "next": { "batchesMin": 4, "batchesMax": 12, "trisMax": 3000 }
+    },
+    "field.oscene": {
+      "classic": { "batchesMin": 120, "batchesMax": 220, "trisMax": 7000 },
+      "next": { "batchesMin": 2, "batchesMax": 8, "trisMax": 7000 }
+    },
+    "flatland.oscene": {
+      "classic": { "batchesMin": 3, "batchesMax": 14, "trisMax": 400 },
+      "next": { "batchesMin": 3, "batchesMax": 10, "trisMax": 400 }
+    },
+    "console.oscene": {
+      "classic": { "batchesMin": 0, "batchesMax": 4, "trisMax": 300 },
+      "next": { "batchesMin": 0, "batchesMax": 4, "trisMax": 300 }
+    },
+    "cascade.oscene": {
+      "classic": { "batchesMin": 1, "batchesMax": 10, "trisMax": 400 },
+      "next": { "batchesMin": 1, "batchesMax": 10, "trisMax": 400 }
+    },
+    "tally.oscene": {
+      "classic": { "batchesMin": 0, "batchesMax": 4, "trisMax": 500 },
+      "next": { "batchesMin": 0, "batchesMax": 4, "trisMax": 500 }
+    }
+  }
+}

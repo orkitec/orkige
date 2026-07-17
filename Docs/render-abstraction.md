@@ -52,6 +52,27 @@ The facade **interface headers** in `orkige_engine/engine_render/` are backend-f
 
 ---
 
+## The native-fast-path rule
+
+**A facade contract must be expressible as each backend's NATIVE fast path.
+Anything a backend must emulate goes behind a capability flag, chosen
+consciously and documented — neither backend may be silently pessimized to
+serve the other.**
+
+The motivating example: the facade originally created every node and Item
+`SCENE_DYNAMIC`, so Ogre-Next's static memory managers — the machinery that
+skips per-frame transform derivation and cull prep for immobile objects —
+sat entirely unused until the mobility flag exposed the intent
+(`RenderNode::setStatic`; classic maps the same declaration onto
+StaticGeometry regions — `Docs/performance.md`). When designing a facade
+surface, ask per backend: *what is the cheapest native way to render this
+intent?* — and shape the contract so each backend can take it. The
+per-scene structural budget gate (`benchmark_budget`, per flavor) is the
+standing mechanical guard: a facade change that silently costs draw calls
+on either backend fails it.
+
+---
+
 ## Audit
 
 Counted (`grep -rEo '\bOgre::'`, `.h/.cpp/.mm`): **2882 references in
@@ -714,6 +735,10 @@ all in place. **Flavor capability matrix**:
 | Vulkan/GL runtime RS pick | yes | no (classic-backend concern; next boots Metal) |
 | mobile: iOS + Android runtime | yes (GLES2) | yes (iOS Metal, Android Vulkan — the default) |
 | root-motion animation backdoor | yes | no (classic-only backdoor) |
+| static mobility flag (`TransformComponent.static` → `RenderNode::setStatic`; `r.staticScene` gate) | yes — entities on static nodes bake into shared `StaticGeometry` regions (fewer draws; demote-on-move repair) | yes — node + content migrate into the `SCENE_STATIC` memory managers (no per-frame transform/cull prep; `notifyStaticDirty` repair). `Docs/performance.md` |
+| sprite-run batching (`SpriteBatcher` + pure `SpriteRunPlanner`; `r.spriteBatching` gate) | yes — one facade `SpriteBatch` (ManualObject) per contiguous same-material run | yes — same facade path over the v2 ManualObject + shared HlmsUnlit datablock |
+| same-mesh 3D instancing | no — gated out by verdict (RTSS generates no instanced vertex path; measured content never needs it — `Docs/performance.md`) | yes — native Hlms auto-instancing of identical Items (nothing to declare) |
+| per-scene structural budget gate (`benchmark_budget` ctest) | yes | yes |
 
 Remaining known gaps on next (all logged once at runtime):
 LT_ZIP/LT_BIGZIP locations, skeletal glb import. (The earlier "sRGB-swapchain
