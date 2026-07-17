@@ -59,7 +59,8 @@ equivalent features. Local additions:
   `DrawLayer2D` backend draws each 2D element through exactly that
   `manualRender` overload, so the whole gui/editor/UI surface died on it.
   The patch treats a null renderable as "no identity view/projection".
-- `cpufeatures-build-interface.patch` - upstream candidate: master's
+- `cpufeatures-build-interface.patch` - upstream candidate (submitted as
+  OGRECave/ogre #3675): master's
   `target_link_libraries(OgreMain PRIVATE cpufeatures log z)` (new since
   14.5.2) leaks the NDK's source-only `cpufeatures` module - an internal,
   never-exported CMake target - onto static OgreMain's installed link
