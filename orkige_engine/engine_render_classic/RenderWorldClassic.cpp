@@ -311,6 +311,90 @@ namespace Orkige
 			buildSkyDomeGeometry(skyDome, atmosphere);
 			skyDome->setVisible(true);
 		}
+		//--- cubemap sky box (AtmosphereSky::ST_SKYBOX) -------------------
+		//! the cubemap the native sky box currently shows ("" = no sky box),
+		//! so per-frame atmosphere re-applies with the same cubemap skip the
+		//! rebuild. File-scope like gSkyDomeNode - one world per process.
+		String gSkyBoxTexture;
+		//! the cubemap name last warned about (missing/unloadable), so the
+		//! honest degrade logs ONCE per name instead of per apply
+		String gSkyBoxWarnedTexture;
+
+		//! show/hide the native camera-bound sky box: @p textureName is a
+		//! single cubemap image (a cubemap .dds - what Util/make_sky_assets.py
+		//! bakes), "" disables. The per-cubemap material is generated (script
+		//! ban): unlit, depth-write off, first texture unit TEX_TYPE_CUBE_MAP -
+		//! the shape SceneManager::setSkyBox requires. A missing/unloadable
+		//! cubemap degrades honestly to the flat sky tint with one log line.
+		void applySkyBox(Ogre::SceneManager* sceneManager,
+			String const & textureName)
+		{
+			if(textureName == gSkyBoxTexture)
+			{
+				return;	// already showing this cubemap (or already disabled)
+			}
+			if(textureName.empty())
+			{
+				sceneManager->setSkyBox(false, "");
+				gSkyBoxTexture.clear();
+				return;
+			}
+			Ogre::TexturePtr cubemap;
+			try
+			{
+				cubemap = Ogre::TextureManager::getSingleton().load(
+					textureName,
+					Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME,
+					Ogre::TEX_TYPE_CUBE_MAP);
+			}
+			catch(Ogre::Exception const & e)
+			{
+				if(gSkyBoxWarnedTexture != textureName)
+				{
+					gSkyBoxWarnedTexture = textureName;
+					Ogre::LogManager::getSingleton().logMessage(
+						"Orkige classic backend: skybox cubemap '" +
+						textureName + "' failed to load - rendering the flat "
+						"sky colour instead: " + e.getDescription());
+				}
+				sceneManager->setSkyBox(false, "");
+				gSkyBoxTexture.clear();
+				return;
+			}
+			const String materialName = "Orkige/SkyBox/" + textureName;
+			Ogre::MaterialManager & materialManager =
+				Ogre::MaterialManager::getSingleton();
+			if(!materialManager.resourceExists(materialName,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+			{
+				Ogre::MaterialPtr material = materialManager.create(
+					materialName,
+					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+				// a backdrop like the gradient dome: never lit, never in the
+				// shadow pass (setSkyBox itself forces depth-write off and the
+				// sky mesh casts nothing)
+				material->setReceiveShadows(false);
+				Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
+				pass->setLightingEnabled(false);
+				pass->setDepthWriteEnabled(false);
+				pass->setCullingMode(Ogre::CULL_NONE);
+				Ogre::TextureUnitState* textureUnit =
+					pass->createTextureUnitState();
+				textureUnit->setTexture(cubemap);
+				textureUnit->setTextureAddressingMode(
+					Ogre::TextureUnitState::TAM_CLAMP);
+				textureUnit->setTextureFiltering(Ogre::FO_LINEAR,
+					Ogre::FO_LINEAR, Ogre::FO_LINEAR);
+			}
+			// a fixed camera-bound cube well inside every practical near/far
+			// pair (near < 50 < far); drawn first in the sky queue, so depth
+			// ordering never cuts it
+			sceneManager->setSkyBox(true, materialName, 50.0f, true,
+				Ogre::Quaternion::IDENTITY,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			gSkyBoxTexture = textureName;
+		}
+
 		//! drop the dome + its listener (world teardown)
 		void teardownSkyDome(Ogre::SceneManager* sceneManager,
 			Ogre::ManualObject*& skyDome, Ogre::SceneNode*& skyNode)
@@ -354,6 +438,13 @@ namespace Orkige
 		// restore (and the ambient flag resets for a future world)
 		gLinkedSun = NULL;
 		gAtmosphereDrivesAmbient = false;
+		// the scene manager outlives this world (Engine owns it): give it its
+		// sky box back off and reset the cubemap bookkeeping for a future world
+		if(this->mImpl->sceneManager)
+		{
+			applySkyBox(this->mImpl->sceneManager, String());
+		}
+		gSkyBoxWarnedTexture.clear();
 		// drop the sky dome (its ManualObject/node + the camera-follow listener)
 		// before the scene manager tears down
 		teardownSkyDome(this->mImpl->sceneManager, this->mImpl->skyDome,
@@ -529,12 +620,40 @@ namespace Orkige
 			this->mImpl->sceneManager->setFog(Ogre::FOG_NONE);
 		}
 
-		// the gradient sky dome: build/refresh it while enabled, hide it when
-		// the atmosphere is switched off (kept built for a cheap re-enable)
+		// the sky VISUAL per type (AtmosphereDesc::skyType); fog above and the
+		// sun-exposure drive below are sky-type-independent - the desc's
+		// contract, so a skybox/colour scene keeps the same day/night arc
 		if(desc.enabled)
 		{
-			rebuildSkyDome(this->mImpl->sceneManager, this->mImpl->skyDome,
-				this->mImpl->skyNode, this->mImpl->atmosphere);
+			if(desc.skyType == AtmosphereSky::ST_PROCEDURAL)
+			{
+				applySkyBox(this->mImpl->sceneManager, String());
+				// the gradient sky dome: build/refresh it while enabled (kept
+				// built but hidden for a cheap re-enable on the other types)
+				rebuildSkyDome(this->mImpl->sceneManager, this->mImpl->skyDome,
+					this->mImpl->skyNode, this->mImpl->atmosphere);
+			}
+			else
+			{
+				if(this->mImpl->skyDome)
+				{
+					this->mImpl->skyDome->setVisible(false);
+				}
+				if(desc.skyType == AtmosphereSky::ST_SKYBOX &&
+					desc.skyboxTexture.empty() &&
+					gSkyBoxWarnedTexture != "<empty>")
+				{
+					// skybox mode without a cubemap: the honest flat-tint
+					// degrade, said once
+					gSkyBoxWarnedTexture = "<empty>";
+					Ogre::LogManager::getSingleton().logMessage(
+						"Orkige classic backend: skybox sky type without a "
+						"cubemap texture - rendering the flat sky colour");
+				}
+				applySkyBox(this->mImpl->sceneManager,
+					desc.skyType == AtmosphereSky::ST_SKYBOX
+						? desc.skyboxTexture : String());
+			}
 			// sun-exposure linkage: drive the first directional light's
 			// colour + the flat ambient fill through the shared day/night
 			// curve (the next flavor gets the same drive natively from its
@@ -544,6 +663,7 @@ namespace Orkige
 		}
 		else
 		{
+			applySkyBox(this->mImpl->sceneManager, String());
 			if(this->mImpl->skyDome)
 			{
 				this->mImpl->skyDome->setVisible(false);
@@ -599,10 +719,12 @@ namespace Orkige
 		RenderWorld::Impl* impl = system->getWorld()->mImpl;
 		if(impl->atmosphere.enabled)
 		{
-			if(impl->skyDome)
+			if(impl->skyDome &&
+				impl->atmosphere.skyType == AtmosphereSky::ST_PROCEDURAL)
 			{
 				// the sun set changed under a live dome: re-emit its gradient
-				// (the sun glow tracks the new first directional light)
+				// (the sun glow tracks the new first directional light; a
+				// skybox/colour sky has no sun-linked pixels to refresh)
 				buildSkyDomeGeometry(impl->skyDome, impl->atmosphere);
 			}
 			// re-resolve the sun-exposure linkage to the new first

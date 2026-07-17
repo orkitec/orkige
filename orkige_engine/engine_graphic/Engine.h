@@ -339,6 +339,22 @@ protected:
 		//! first directional light to sweep the sun; @see setAtmosphere.
 		void setAtmosphereBlend(String const & fromSky, String const & toSky,
 			float t);
+		//! @brief choose the sky VISUAL the enabled atmosphere draws
+		//! (@see AtmosphereSky) - engine:setAtmosphereSky(type[, cubemap])
+		//! @param skyType "procedural" (the model-driven dome - the default),
+		//! "skybox" (a cubemap) or "colour" (flat sky-tint clear);
+		//! case-insensitive, an unknown word falls back to "procedural"
+		//! @param skyboxTexture the cubemap resource name for "skybox" (a
+		//! single cubemap .dds, e.g. baked by Util/make_sky_assets.py); pass
+		//! "" for the other types
+		//! @remarks STICKY: the chosen type + cubemap survive later
+		//! setAtmosphere/setAtmosphereBlend calls (those author the exposure/
+		//! fog arc, not the sky visual), until the next setAtmosphereSky. Fog
+		//! and the sun/ambient day/night drive are sky-type-independent; in
+		//! skybox mode the sky PICTURE is authored content and no longer
+		//! tracks the sun (@see AtmosphereDesc).
+		void setAtmosphereSky(String const & skyType,
+			String const & skyboxTexture);
 		//! @brief does this build carry the gui UI system?
 		//! @remarks true on BOTH flavors
 		//! (gui renders through the engine_render facade); the probe

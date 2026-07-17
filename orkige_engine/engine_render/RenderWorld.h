@@ -199,10 +199,19 @@ namespace Orkige
 		//! directional light the sky renders with a default overhead sun. A
 		//! second-sun / explicit-light setter can come later if a game needs it.
 		//!
+		//! SKY TYPE (AtmosphereDesc::skyType): what fills the sky pixels -
+		//! the procedural dome (default), a cubemap skybox
+		//! (AtmosphereDesc::skyboxTexture, a single cubemap image both
+		//! flavors load natively) or the flat sky-tint clear. Fog and the
+		//! sun/ambient drive are sky-type-independent (@see AtmosphereDesc).
+		//!
 		//! map: next=Ogre::AtmosphereNpr (sky dome + HlmsPbs-integrated object
-		//! fog + linked directional sun; sky media from the ogre-next port) |
-		//! classic=fixed-function scene fog + flat window clear colour, NO sky
-		//! dome (logged once - the honest subset) | filament=Skybox + fog
+		//! fog + linked directional sun; sky media from the ogre-next port;
+		//! skybox = the native SceneManager cubemap sky quad, same media set) |
+		//! classic=vertex-colour gradient sky dome + fixed-function scene fog
+		//! + flat window clear colour (skybox = the native camera-bound
+		//! SceneManager sky box over a generated cubemap material) |
+		//! filament=Skybox + fog
 		void setAtmosphere(AtmosphereDesc const & desc);
 		//! the atmosphere description last set (default: disabled)
 		AtmosphereDesc const & getAtmosphere() const;

@@ -130,6 +130,16 @@ namespace Orkige
 		//! did the atmosphere sky material media register at boot? (false on a
 		//! media-less/headless boot - setAtmosphere then degrades honestly)
 		bool gAtmosphereMediaAvailable = false;
+		//! is the AtmosphereNpr's procedural sky quad currently shown? (the
+		//! sky VISUAL follows AtmosphereDesc::skyType; fog + sun linkage stay
+		//! with gAtmosphere on every type)
+		bool gAtmosphereSkyVisible = false;
+		//! the cubemap the native SceneManager sky quad currently shows
+		//! ("" = none), so per-frame atmosphere re-applies skip the rebuild
+		String gSkyboxTexture;
+		//! the cubemap name last warned about (missing/unloadable/not a
+		//! cubemap), so the honest degrade logs ONCE per name
+		String gSkyboxWarnedTexture;
 		//! restore-exactly bookkeeping: the atmosphere OVERRIDES its linked
 		//! sun's colour/power (AtmosphereNpr::syncToLight), so the light's
 		//! authored values are snapshotted the moment the atmosphere takes it
@@ -488,6 +498,11 @@ namespace Orkige
 			gAtmosphere = NULL;
 		}
 		gAtmosphereMediaAvailable = false;
+		gAtmosphereSkyVisible = false;
+		// the SceneManager sky quad + its cloned material die with the root;
+		// only the bookkeeping resets here
+		gSkyboxTexture.clear();
+		gSkyboxWarnedTexture.clear();
 		gDirectionalLights.clear();
 		gLinkedSun = NULL;	// the light dies with the scene manager - no restore
 		delete gRenderSystem;	// ~RenderSystem deletes the world first
@@ -816,6 +831,93 @@ namespace Orkige
 				gRenderSystem->getWorld()->mImpl->atmosphere);
 		}
 	}
+	namespace
+	{
+		//! show/hide the native SceneManager cubemap sky quad: @p textureName
+		//! is a single cubemap image (a cubemap .dds - what
+		//! Util/make_sky_assets.py bakes), "" disables. The texture loads
+		//! WITHOUT the sRGB flag (colour parity rule: texels sample raw, like
+		//! loadTexture2D) and without AutomaticBatching (cubemaps never pool).
+		//! A missing/unloadable/non-cubemap file degrades honestly to the flat
+		//! sky tint with one log line per name.
+		void applySceneSkybox(Ogre::SceneManager* sceneManager,
+			String const & textureName)
+		{
+			if(textureName == gSkyboxTexture)
+			{
+				return;	// already showing this cubemap (or already disabled)
+			}
+			if(textureName.empty())
+			{
+				sceneManager->setSky(false, Ogre::SceneManager::SkyCubemap,
+					static_cast<Ogre::TextureGpu*>(NULL));
+				gSkyboxTexture.clear();
+				return;
+			}
+			Ogre::TextureGpuManager* textureManager =
+				sceneManager->getDestinationRenderSystem()
+					->getTextureGpuManager();
+			try
+			{
+				Ogre::ResourceGroupManager & resourceGroups =
+					Ogre::ResourceGroupManager::getSingleton();
+				const String group =
+					resourceGroups.findGroupContainingResource(textureName);
+				// decode-PROBE on this thread before the async loader sees the
+				// file (the loadTexture2D worker-recovery rule), and verify it
+				// really is a cubemap - SceneManager::setSky throws otherwise
+				{
+					Ogre::DataStreamPtr probe =
+						resourceGroups.openResource(textureName, group);
+					Ogre::Image2 probeImage;
+					probeImage.load2(probe, textureName);
+					if(probeImage.getTextureType() !=
+						Ogre::TextureTypes::TypeCube)
+					{
+						OGRE_EXCEPT(Ogre::Exception::ERR_INVALIDPARAMS,
+							"'" + textureName + "' is not a cubemap image",
+							"applySceneSkybox");
+					}
+				}
+				Ogre::TextureGpu* texture =
+					textureManager->createOrRetrieveTexture(textureName,
+						textureName, Ogre::GpuPageOutStrategy::Discard,
+						0u /*flags: no batching, no sRGB*/,
+						Ogre::TextureTypes::TypeCube, group,
+						Ogre::TextureFilter::TypeGenerateDefaultMipmaps);
+				if(texture->getResidencyStatus() ==
+					Ogre::GpuResidency::OnStorage)
+				{
+					texture->scheduleTransitionTo(
+						Ogre::GpuResidency::Resident);
+				}
+				texture->waitForMetadata();
+				sceneManager->setSky(true, Ogre::SceneManager::SkyCubemap,
+					texture);
+				// same queue lesson as the NprSky quad: the upstream default
+				// (212, late) sits past this backend's scene passes and would
+				// overdraw non-depth-writing 3D alpha content - the sky
+				// belongs in the skies-early queue. setSky exposes its quad
+				// directly, so no material-name scan is needed here.
+				sceneManager->getSky()->setRenderQueueGroup(kSkyRenderQueue);
+				gSkyboxTexture = textureName;
+			}
+			catch(Ogre::Exception const & e)
+			{
+				if(gSkyboxWarnedTexture != textureName)
+				{
+					gSkyboxWarnedTexture = textureName;
+					Ogre::LogManager::getSingleton().logMessage(
+						"Orkige next backend: skybox cubemap '" + textureName +
+						"' failed to load - rendering the flat sky colour "
+						"instead: " + e.getDescription());
+				}
+				sceneManager->setSky(false, Ogre::SceneManager::SkyCubemap,
+					static_cast<Ogre::TextureGpu*>(NULL));
+				gSkyboxTexture.clear();
+			}
+		}
+	}
 	//---------------------------------------------------------
 	void RenderBackend::applyAtmosphere(AtmosphereDesc const & desc)
 	{
@@ -841,7 +943,9 @@ namespace Orkige
 				gAtmosphere->setSky(sceneManager, false);
 				OGRE_DELETE gAtmosphere;
 				gAtmosphere = NULL;
+				gAtmosphereSkyVisible = false;
 			}
+			applySceneSkybox(sceneManager, String());
 			// the linked sun returns EXACTLY to its authored colour/power
 			restoreLinkedSun();
 			return;
@@ -875,30 +979,71 @@ namespace Orkige
 					e.getDescription());
 				return;
 			}
-			gAtmosphere->setSky(sceneManager, true);
-			// setSky attached the sky as a Rectangle2D in a LATE render queue
-			// (drawn after most content upstream) - past this backend's scene
-			// passes, and it would overdraw non-depth-writing 3D alpha content
-			// (sprites/particles) where only sky is behind them. Move it to
-			// the skies-early queue instead (@see kSkyRenderQueue); identified
-			// by its cloned "Ogre/Atmo/NprSky*" material - the atmosphere does
-			// not expose its quad.
-			Ogre::SceneManager::MovableObjectIterator rectangles =
-				sceneManager->getMovableObjectIterator(
-					Ogre::Rectangle2DFactory::FACTORY_TYPE_NAME);
-			while(rectangles.hasMoreElements())
+			gAtmosphereSkyVisible = false;
+		}
+
+		// the sky VISUAL per type (AtmosphereDesc::skyType): the procedural
+		// NprSky quad, the cubemap sky quad, or neither (flat sky-tint clear).
+		// gAtmosphere itself stays alive on EVERY type - it owns the HlmsPbs
+		// object fog and the native sun linkage, which are sky-type-
+		// independent by the desc's contract.
+		const bool wantProceduralSky =
+			desc.skyType == AtmosphereSky::ST_PROCEDURAL;
+		if(wantProceduralSky != gAtmosphereSkyVisible)
+		{
+			gAtmosphere->setSky(sceneManager, wantProceduralSky);
+			gAtmosphereSkyVisible = wantProceduralSky;
+			if(wantProceduralSky)
 			{
-				Ogre::MovableObject* movable = rectangles.getNext();
-				Ogre::Rectangle2D* rectangle =
-					static_cast<Ogre::Rectangle2D*>(movable);
-				Ogre::MaterialPtr material = std::static_pointer_cast<
-					Ogre::Material>(rectangle->getMaterial());
-				if(material &&
-					material->getName().rfind("Ogre/Atmo/NprSky", 0) == 0)
+				// setSky attached the sky as a Rectangle2D in a LATE render
+				// queue (drawn after most content upstream) - past this
+				// backend's scene passes, and it would overdraw non-depth-
+				// writing 3D alpha content (sprites/particles) where only sky
+				// is behind them. Move it to the skies-early queue instead
+				// (@see kSkyRenderQueue); identified by its cloned
+				// "Ogre/Atmo/NprSky*" material - the atmosphere does not
+				// expose its quad.
+				Ogre::SceneManager::MovableObjectIterator rectangles =
+					sceneManager->getMovableObjectIterator(
+						Ogre::Rectangle2DFactory::FACTORY_TYPE_NAME);
+				while(rectangles.hasMoreElements())
 				{
-					rectangle->setRenderQueueGroup(kSkyRenderQueue);
+					Ogre::MovableObject* movable = rectangles.getNext();
+					Ogre::Rectangle2D* rectangle =
+						static_cast<Ogre::Rectangle2D*>(movable);
+					Ogre::MaterialPtr material = std::static_pointer_cast<
+						Ogre::Material>(rectangle->getMaterial());
+					if(material &&
+						material->getName().rfind("Ogre/Atmo/NprSky", 0) == 0)
+					{
+						rectangle->setRenderQueueGroup(kSkyRenderQueue);
+					}
 				}
 			}
+		}
+		if(desc.skyType == AtmosphereSky::ST_SKYBOX)
+		{
+			if(desc.skyboxTexture.empty())
+			{
+				// skybox mode without a cubemap: the honest flat-tint
+				// degrade, said once
+				if(gSkyboxWarnedTexture != "<empty>")
+				{
+					gSkyboxWarnedTexture = "<empty>";
+					Ogre::LogManager::getSingleton().logMessage(
+						"Orkige next backend: skybox sky type without a "
+						"cubemap texture - rendering the flat sky colour");
+				}
+				applySceneSkybox(sceneManager, String());
+			}
+			else
+			{
+				applySceneSkybox(sceneManager, desc.skyboxTexture);
+			}
+		}
+		else
+		{
+			applySceneSkybox(sceneManager, String());
 		}
 
 		// SUN LINKAGE: the first directional light is the sun; read its current

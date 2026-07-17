@@ -1005,6 +1005,10 @@ namespace Orkige
 		{
 			if(RenderWorld* world = renderSystem->getWorld())
 			{
+				// the sky VISUAL is sticky (@see setAtmosphereSky): this call
+				// authors the look/exposure scalars, not the sky type
+				desc.skyType = world->getAtmosphere().skyType;
+				desc.skyboxTexture = world->getAtmosphere().skyboxTexture;
 				world->setAtmosphere(desc);
 			}
 		}
@@ -1017,11 +1021,32 @@ namespace Orkige
 		AtmospherePreset::Sky to = AtmospherePreset::SKY_DAY;
 		AtmospherePreset::parseSky(fromSky, from);
 		AtmospherePreset::parseSky(toSky, to);
-		const AtmosphereDesc desc = AtmospherePreset::blend(from, to, t);
+		AtmosphereDesc desc = AtmospherePreset::blend(from, to, t);
 		if(RenderSystem* renderSystem = this->getRenderSystem())
 		{
 			if(RenderWorld* world = renderSystem->getWorld())
 			{
+				// the sky VISUAL is sticky (@see setAtmosphereSky): a blend
+				// drives the day/night arc under whatever sky type is chosen
+				desc.skyType = world->getAtmosphere().skyType;
+				desc.skyboxTexture = world->getAtmosphere().skyboxTexture;
+				world->setAtmosphere(desc);
+			}
+		}
+	}
+	//---------------------------------------------------------
+	void Engine::setAtmosphereSky(String const & skyType,
+		String const & skyboxTexture)
+	{
+		AtmosphereSky::Type type = AtmosphereSky::ST_PROCEDURAL;
+		AtmosphereSky::parseType(skyType, type);	// unknown word -> procedural
+		if(RenderSystem* renderSystem = this->getRenderSystem())
+		{
+			if(RenderWorld* world = renderSystem->getWorld())
+			{
+				AtmosphereDesc desc = world->getAtmosphere();
+				desc.skyType = type;
+				desc.skyboxTexture = skyboxTexture;
 				world->setAtmosphere(desc);
 			}
 		}
@@ -1082,6 +1107,8 @@ namespace Orkige
 		OFUNC(setAtmosphere)
 		// day->night arc from tested looks: engine:setAtmosphereBlend(from,to,t)
 		OFUNC(setAtmosphereBlend)
+		// sky visual type: engine:setAtmosphereSky("skybox", "night_sky.dds")
+		OFUNC(setAtmosphereSky)
 		// UI capability probe: true here - the classic flavor carries
 		// gui; the next flavor's Engine sibling answers false and
 		// scripts skip their HUD honestly
