@@ -831,6 +831,29 @@ WaterComponent.fresnelPower
 WaterComponent.normalTexture
 WaterComponent.receiveShadows
 
+## DecalComponent
+DecalComponent:hasDecal(...)
+DecalComponent:getTexture(...)
+DecalComponent:setSizeX(...)
+DecalComponent:getSizeX(...)
+DecalComponent:setSizeZ(...)
+DecalComponent:getSizeZ(...)
+DecalComponent:setOpacity(...)
+DecalComponent:getOpacity(...)
+DecalComponent:setLifetime(...)
+DecalComponent:getLifetime(...)
+DecalComponent:setFadeDuration(...)
+DecalComponent:getFadeDuration(...)
+DecalComponent:place(...)
+DecalComponent:fade(...)
+DecalComponent.texture
+DecalComponent.sizeX
+DecalComponent.sizeZ
+DecalComponent.projectionDepth
+DecalComponent.opacity
+DecalComponent.lifetime
+DecalComponent.fadeDuration
+
 ## SpriteComponent
 SpriteComponent:loadSprite(...)
 SpriteComponent:loadSpriteFromAtlas(...)

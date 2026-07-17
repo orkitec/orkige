@@ -33,6 +33,7 @@
 #include <engine_render/VectorMesh.h>
 #include <engine_render/RenderCamera.h>
 #include <engine_render/RenderLight.h>
+#include <engine_render/RenderDecal.h>
 #include <engine_render/RenderTexture.h>
 #include <engine_render/DrawLayer2D.h>
 
@@ -140,6 +141,7 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	//--- resources through the facade ----------------------------------
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_MESH_DIR);
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_TEXTURE_DIR);
+	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_DECAL_DIR);
 	renderSystem->initialiseResourceGroups();
 
 	//--- ambient light --------------------------------------------------
@@ -1868,6 +1870,140 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			"the backend reports a non-zero dynamic-light budget after boot");
 		SELFCHECK(liveBudget == defaultBudget,
 			"the live light budget matches the flavor's defaultLightBudget()");
+	}
+
+	// --- projected decals (@see RenderDecal / RenderWorld::setMaxDecals) ------
+	// A decal marks a receiving surface; opacity fades the mark; the world budget
+	// hides the oldest decals past the cap (and 0 hides them all - the
+	// toggle-identity gate). Runs per-flavor with a live backend, so it exercises
+	// BOTH next's true projected Decal and classic's aligned-quad subset marking,
+	// fading and evicting. A dark blob is the mark (a large, driver-robust delta
+	// against the lit surface, like the fog leg's dark-object recipe).
+	{
+		// average-luminance probe of one pixel (a local helper - the sky leg's
+		// blockLuminance lambda is scoped to its own block)
+		auto decalLum = [&](std::string const & imageFile,
+			unsigned int x, unsigned int y, float & outLum) -> bool
+		{
+			float r = 0, g = 0, b = 0;
+			if(!SelfcheckBootstrap::readImagePixel(imageFile, x, y, r, g, b))
+			{
+				return false;
+			}
+			outLum = (r + g + b) / 3.0f;
+			return true;
+		};
+
+		unsigned int winW = 0, winH = 0;
+		renderSystem->getWindowSize(winW, winH);
+
+		const Vec3 decalCentre(0, 0, 120);	// a clear region of its own
+		world->setAmbientLight(Color(0.5f, 0.5f, 0.5f));
+		optr<RenderNode> groundNode = world->createNode("selfcheck.decalGround");
+		groundNode->setPosition(decalCentre);
+		groundNode->setScale(Vec3(12, 1, 12));
+		optr<MeshInstance> ground =
+			world->createMeshInstance("jumper_platform.glb");
+		SELFCHECK(ground != NULL, "the decal ground surface loads");
+		ground->attachTo(groundNode);
+		ground->setCastShadows(false);
+		optr<RenderNode> decalLightNode =
+			world->createNode("selfcheck.decalLight");
+		decalLightNode->setPosition(decalCentre + Vec3(0, 10, 3));
+		optr<RenderLight> decalLight = world->createLight();
+		decalLight->attachTo(decalLightNode);
+		decalLight->setType(RenderLight::LT_POINT);
+		decalLight->setRange(Real(80));
+
+		// look down at the platform from slightly off-vertical (avoids a
+		// degenerate straight-down lookAt)
+		camera->setPerspective(Degree(45), Real(0.1), Real(500));
+		cameraNode->setPosition(decalCentre + Vec3(0, 14, 4));
+		cameraNode->lookAt(decalCentre, RenderNode::TS_WORLD);
+
+		Real ndcX = 0, ndcY = 0;
+		SELFCHECK(camera->projectPoint(decalCentre, ndcX, ndcY),
+			"the decal centre projects into the view");
+		const unsigned int px = static_cast<unsigned int>(ndcX * (winW - 1));
+		const unsigned int py = static_cast<unsigned int>(ndcY * (winH - 1));
+
+		// baseline (no decal yet)
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render, decal baseline");
+		const std::string decalBaseShot = outDir + "/selfcheck_decal_baseline.png";
+		renderSystem->saveWindowContents(decalBaseShot);
+		float baseLum = 0;
+		SELFCHECK(decalLum(decalBaseShot, px, py, baseLum),
+			"the decal baseline pixel decodes");
+
+		// place a dark blob mark over the surface
+		optr<RenderNode> decalNode = world->createNode("selfcheck.decalNode");
+		decalNode->setPosition(decalCentre + Vec3(0, 2, 0));
+		optr<RenderDecal> decal = world->createDecal();
+		SELFCHECK(decal != NULL, "createDecal works");
+		decal->attachTo(decalNode);
+		decal->setSize(Real(8), Real(8), Real(6));
+		decal->setDiffuseTexture("decal_blob.png");
+		decal->setOpacity(Real(1));
+
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render with the decal");
+		const std::string decalMarkShot = outDir + "/selfcheck_decal_mark.png";
+		renderSystem->saveWindowContents(decalMarkShot);
+		float markLum = 0;
+		SELFCHECK(decalLum(decalMarkShot, px, py, markLum),
+			"the decal mark pixel decodes");
+		std::printf("render_facade_selfcheck: decal - baseline %.3f, mark %.3f\n",
+			baseLum, markLum);
+		const float markDelta = std::abs(markLum - baseLum);
+		SELFCHECK(markDelta > 0.06f,
+			"the decal visibly marks the surface");
+		SELFCHECK(world->getVisibleDecalCount() == 1u,
+			"one decal is visible under the budget");
+
+		// fade: opacity 0 hides the mark, the pixel returns toward baseline
+		decal->setOpacity(Real(0));
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render with the faded decal");
+		const std::string decalFadeShot = outDir + "/selfcheck_decal_faded.png";
+		renderSystem->saveWindowContents(decalFadeShot);
+		float fadeLum = 0;
+		SELFCHECK(decalLum(decalFadeShot, px, py, fadeLum),
+			"the decal faded pixel decodes");
+		std::printf("render_facade_selfcheck: decal faded %.3f\n", fadeLum);
+		SELFCHECK(std::abs(fadeLum - baseLum) < markDelta * 0.5f,
+			"fading the decal restores the surface toward baseline");
+		decal->setOpacity(Real(1));
+
+		// budget: a second decal, then a cap of 1 hides the OLDEST (this first)
+		optr<RenderNode> decal2Node = world->createNode("selfcheck.decal2Node");
+		decal2Node->setPosition(decalCentre + Vec3(4, 2, 4));
+		optr<RenderDecal> decal2 = world->createDecal();
+		decal2->attachTo(decal2Node);
+		decal2->setSize(Real(3), Real(3), Real(6));
+		decal2->setDiffuseTexture("decal_mark.png");
+		SELFCHECK(world->getVisibleDecalCount() == 2u,
+			"two decals are visible before the cap");
+		world->setMaxDecals(1u);
+		SELFCHECK(world->getVisibleDecalCount() == 1u,
+			"the budget hides the oldest decal past the cap");
+		// a cap of 0 hides every decal (the toggle-identity / escape hatch)
+		world->setMaxDecals(0u);
+		SELFCHECK(world->getVisibleDecalCount() == 0u,
+			"a budget of 0 hides every decal");
+		SELFCHECK(renderFrames(renderSystem, 2),
+			"frames render with decals budgeted off");
+		const std::string decalOffShot =
+			outDir + "/selfcheck_decal_budget_off.png";
+		renderSystem->saveWindowContents(decalOffShot);
+		float offLum = 0;
+		SELFCHECK(decalLum(decalOffShot, px, py, offLum),
+			"the budget-off pixel decodes");
+		SELFCHECK(std::abs(offLum - baseLum) < markDelta * 0.5f,
+			"a decal budget of 0 renders the surface as if there were none");
+		world->setMaxDecals(256u);	// restore the default cap
+
+		// all decal content drops via RAII as this block ends
 	}
 
 	std::printf("render_facade_selfcheck: all checks passed\n");

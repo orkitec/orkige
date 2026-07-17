@@ -403,3 +403,110 @@ asserts the surface is lit, carries a lively specular sun glint (measured
 contrast ~97 vs ~0.2 for an unlit slab; the threshold also fails a regression
 to a subdued ~11 response) and scrolls between frames. `WaterComponent`'s reflected schema + a detached
 round-trip are unit-tested in `PropertyReflectionTests`.
+
+## Decals — projected surface marks
+
+Decals are the third material-adjacent surface feature (alongside `.omat`
+surfaces and water): projected marks stamped onto scene geometry — impact marks,
+paint splats, footprints, and the **blob-shadow fallback tier**. The tunables
+are reflected properties on **`DecalComponent`** (`engine_gocomponent`), which
+owns a facade `RenderDecal` on a child scene node and projects the mark DOWN the
+owner's local −Y onto the surface below it (orient the object so its +Y is the
+surface normal — a ground mark needs no rotation).
+
+### The facade surface
+
+`RenderWorld` gains one factory and a budget knob (siblings of `createLight` /
+`setShadowQuality`):
+
+- `optr<RenderDecal> createDecal()` — the mark handle (RAII, like `RenderLight`).
+  `attachTo(node)`, `setDiffuseTexture(name)`, `setSize(width, depth,
+  projectionDepth)`, `setOpacity(0..1)`, `setVisible(bool)`.
+- `void setMaxDecals(unsigned)` / `getMaxDecals()` / `getVisibleDecalCount()` —
+  the hard cap on concurrently VISIBLE decals (the `r.maxDecals` cvar). When more
+  decals exist the OLDEST are hidden (their handles still live); a cap of **0**
+  hides every decal, byte-identical to a scene with none (the mobile-budget
+  escape hatch and the toggle-identity gate). See "Budget" below.
+
+`DecalComponent` reflected fields (the ONE property registry — inspector /
+serialization / MCP / Lua): `texture` (an AssetRef, default the engine
+`decal_mark.png`), `sizeX`/`sizeZ` (footprint world units), `projectionDepth`
+(next box depth along −Y; classic ignores it), `opacity`, `lifetime` (seconds,
+0 = permanent) and `fadeDuration`. Lua drive via `self.decal` —
+`place(pos, normal)` re-stamps a fresh mark at a world position (teleporting the
+owner transform, resetting the age) and `fade(seconds)` starts an immediate
+fade-out. Lifetime/fade is DORMANT unless a runtime ticks GameObjects (the editor
+shows a static preview, WYSIWYG — the `ScriptComponent`/`WaterComponent` rule);
+`onUpdateComponent` ages the mark and ramps the fade through the pure,
+headless-tested `DecalComponent::fadeFactor`.
+
+### Flavor capability (`RenderCaps::ProjectedDecals`)
+
+- **next** = a TRUE projected `Ogre::Decal` (HlmsPbs forward-clustered decal).
+  The boot raises `setForwardClustered`'s `decalsPerCell` above 0 (0 disables
+  decals), and every decal-diffuse texture loads as an `AutomaticBatching`
+  texture so they share ONE pool whose master feeds `SceneManager::
+  setDecalsDiffuse`; each decal references a slice. The mark WRAPS over any
+  geometry inside its projection box. **`supports("projectedDecals")` = true.**
+- **classic** = the honest subset — a surface-aligned textured QUAD
+  (`Ogre::ManualObject` in the node's local XZ plane) floating just above the
+  surface, rendered with a generated `Decal/<tex>` material (unlit, alpha-
+  blended, depth-checked/not-written, two-sided, with a DEPTH BIAS pulling it
+  toward the camera against z-fighting). Simple and mobile-cheap, but FLAT: it
+  does not wrap over uneven geometry. Classic has no deferred/projective decal
+  path, so **`supports("projectedDecals")` = false** (the aligned quad is a
+  tolerance, not true projected decals — no deferred/projective system is built
+  for classic by design).
+
+A per-flavor LOOK, not a pixel-parity case.
+
+**Opacity / fade delta:** `setOpacity` dims the classic aligned quad's alpha
+smoothly (per-vertex). The native projected decal has NO per-decal alpha uniform,
+so next treats opacity as a visibility THRESHOLD (> 0 shows the full-alpha mark,
+≤ 0 hides it) — a fade there pops out at its end rather than dimming
+continuously.
+
+**Texture resolution constraint (next):** the shared decal-diffuse array pools by
+resolution, so every decal texture must be `DecalComponent::DECAL_TEXTURE_SIZE`
+(256×256) to share the one pool the scene samples; a different-sized texture is
+rejected with one log line and renders no mark. The engine decal textures and
+project decal textures are authored at that size.
+
+### Budget
+
+`r.maxDecals` (registered by `AppHost`, `CVAR_PERSIST`, default 256) caps the
+concurrently visible decals — the mobile-budget discipline. The world keeps live
+decals in creation order; a create or a live cap change re-enforces it, keeping
+the newest `maxDecals` visible and hiding the rest (the OLDEST evicted). Lowering
+the cap live hides the excess; a cap of 0 hides every decal (rendering the scene
+byte-identically to one with no decals — the `getVisibleDecalCount() == 0`
+toggle-identity gate). The per-component `lifetime` fade is independent of the
+cross-decal budget.
+
+### Blob shadows (the fallback shadow tier)
+
+A blob shadow is a content-level PRESET over the same `DecalComponent`, not an
+automatic system: set `texture` to the engine **`decal_blob.png`** (a soft dark
+ellipse) and parent the decal object under a character so it stamps a cheap dark
+oval on the ground. Use it where real shadow maps are OFF or refused —
+`r.shadowQuality = off`, or a GLES2/WebGL context whose runtime depth-texture
+capability gate turned `RenderCaps::DynamicShadows` false (see
+`Docs/render-abstraction.md`). Recipe: a `GameObject` with a `TransformComponent`
++ a `DecalComponent` (`texture = "decal_blob.png"`, `sizeX`/`sizeZ` ≈ the
+character footprint, `lifetime = 0`), placed at the character's feet and moved
+with it. Because it is an ordinary decal it obeys the same `r.maxDecals` budget.
+
+### Generator + tests
+
+`Util/make_decal_textures.py` bakes the engine decal textures (stdlib only,
+`orkige_png`, deterministic): `decal_mark.png` (a soft white round mark, tintable
+— the neutral default) and `decal_blob.png` (a soft dark ellipse — the blob
+shadow), both 256×256. They live under `orkige_engine/media/decals/` (registered
+like the water/font dirs by the player/editor and bundled to exports under
+`Media/decals/`). The `render_facade_selfcheck` decal leg (BOTH flavors) proves a
+decal visibly marks a lit surface, that opacity fades the mark back to baseline,
+that the budget hides the oldest past the cap, and that a cap of 0 renders the
+surface as if there were no decals (baseline 0.341 → dark-blob mark 0.175 →
+faded/budgeted-off back to 0.341 on next). `DecalComponent`'s reflected schema, a
+detached property round-trip, and the pure `fadeFactor` lifetime/fade curve are
+unit-tested in `DecalComponentTests`.

@@ -313,7 +313,10 @@ if(TARGET orkige_engine)
         # facade-registered test assets: a vertex-coloured glb + a textured
         # glb/png (reused from the committed sample media)
         ORKIGE_SELFCHECK_MESH_DIR="${Orkige_SOURCE_DIR}/samples/hello_orkige/media"
-        ORKIGE_SELFCHECK_TEXTURE_DIR="${Orkige_SOURCE_DIR}/samples/jumper/media")
+        ORKIGE_SELFCHECK_TEXTURE_DIR="${Orkige_SOURCE_DIR}/samples/jumper/media"
+        # the engine decal media (default mark + blob-shadow textures) so the
+        # decal leg can load them by name (mirrors the player/editor registration)
+        ORKIGE_SELFCHECK_DECAL_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/decals")
     add_test(NAME render_facade_selfcheck COMMAND render_facade_selfcheck
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(render_facade_selfcheck PROPERTIES

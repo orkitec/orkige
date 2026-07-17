@@ -790,6 +790,7 @@ renders it fails CI.
 | `sunExposureLinkage` | yes | yes | the atmosphere drives the linked sun's colour/power (an exposure the un-tonemapped pipeline can clip) - native on next, the same day/night curve evaluated on the CPU on classic (colour + averaged-flat ambient fill, tolerance parity) |
 | `animatedNormalMappedWater` | no | yes | fully animated normal-mapped water ripples; classic lights OR scrolls one normal map on a unit, not both, so its lit relief is static |
 | `offscreenOwnedLayers` | no | yes | 2D layers composited into an offscreen RenderTexture (the editor GUI Preview + preview_ui), not just the main window |
+| `projectedDecals` | no | yes | surface marks (impact/splat/footprint + blob-shadow fallback) as TRUE projected decals wrapping over geometry (next = HlmsPbs forward-clustered Decal) vs a surface-aligned textured quad floating above the surface (classic - flat, does not wrap uneven geometry) |
 | `screenSpaceRefraction` | no | no | screen-space refraction distortion through transparent surfaces (a compositor refraction pass) - absent on both flavors |
 | `iblReflections` | no | no | image-based lighting: environment/reflection cubemaps on PBS materials - absent on both flavors |
 
