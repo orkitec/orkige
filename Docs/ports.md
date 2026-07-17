@@ -261,7 +261,8 @@ Patches (the same Xcode-oriented-CMake class as classic's ios/metal patches):
   shipped config's `lib/lib*.a` paths expect. (The `$(PLATFORM_NAME)`-under-
   Ninja output-path problem classic patched is already fixed upstream in
   ogre-next - `OgreConfigTargets.cmake` excludes Ninja.)
-- `pbs-honour-non-srgb-target.patch` - upstream candidate. HlmsPbs
+- `pbs-honour-non-srgb-target.patch` - upstream candidate (submitted as
+  OGRECave/ogre-next #584). HlmsPbs
   hardcodes `hw_gamma_write` to 1 in `preparePassHash`, assuming an sRGB
   colour target - on a UNORM swapchain (this engine's deliberate classic
   colour-parity convention) the LINEAR lighting result lands raw and every
