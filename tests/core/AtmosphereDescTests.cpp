@@ -107,6 +107,53 @@ TEST_CASE("AtmosphereDesc: blend interpolates between tested looks",
 		Catch::Approx(night.sunPower));
 }
 
+TEST_CASE("AtmosphereDesc: the sky type defaults procedural and presets keep it",
+	"[atmosphere]")
+{
+	// existing content never names a sky type - the default IS today's look
+	const AtmosphereDesc desc;
+	CHECK(desc.skyType == AtmosphereSky::ST_PROCEDURAL);
+	CHECK(desc.skyboxTexture.empty());
+
+	// the named looks author the procedural sky: forSky/blend leave the sky
+	// type + skybox ref at their defaults (the Engine wrappers carry a chosen
+	// type across preset calls)
+	const AtmosphereDesc sunset =
+		AtmospherePreset::forSky(AtmospherePreset::SKY_SUNSET);
+	CHECK(sunset.skyType == AtmosphereSky::ST_PROCEDURAL);
+	CHECK(sunset.skyboxTexture.empty());
+	const AtmosphereDesc mid =
+		AtmospherePreset::blend(AtmospherePreset::SKY_DAY,
+			AtmospherePreset::SKY_NIGHT, 0.5f);
+	CHECK(mid.skyType == AtmosphereSky::ST_PROCEDURAL);
+	CHECK(mid.skyboxTexture.empty());
+}
+
+TEST_CASE("AtmosphereDesc: sky type words round-trip (the Lua dialect)",
+	"[atmosphere]")
+{
+	const AtmosphereSky::Type types[] = { AtmosphereSky::ST_PROCEDURAL,
+		AtmosphereSky::ST_SKYBOX, AtmosphereSky::ST_COLOUR };
+	for(AtmosphereSky::Type type : types)
+	{
+		AtmosphereSky::Type parsed = AtmosphereSky::ST_PROCEDURAL;
+		REQUIRE(AtmosphereSky::parseType(
+			AtmosphereSky::typeName(type), parsed));
+		CHECK(parsed == type);
+	}
+	// case-insensitive + the American spelling
+	AtmosphereSky::Type parsed = AtmosphereSky::ST_PROCEDURAL;
+	REQUIRE(AtmosphereSky::parseType("SkyBox", parsed));
+	CHECK(parsed == AtmosphereSky::ST_SKYBOX);
+	REQUIRE(AtmosphereSky::parseType("color", parsed));
+	CHECK(parsed == AtmosphereSky::ST_COLOUR);
+	// garbage is refused and leaves the out-value alone
+	parsed = AtmosphereSky::ST_SKYBOX;
+	CHECK_FALSE(AtmosphereSky::parseType("gradient", parsed));
+	CHECK_FALSE(AtmosphereSky::parseType("", parsed));
+	CHECK(parsed == AtmosphereSky::ST_SKYBOX);
+}
+
 TEST_CASE("AtmosphereDesc: look words round-trip (the config dialect)",
 	"[atmosphere]")
 {

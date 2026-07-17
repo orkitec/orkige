@@ -13,6 +13,53 @@
 
 namespace Orkige
 {
+	//! @brief the sky VISUAL an enabled atmosphere draws - the type dialect of
+	//! AtmosphereDesc::skyType (pure, both flavors read the same words).
+	//!
+	//! The type selects ONLY what fills the sky pixels; fog and the
+	//! sun/ambient exposure drive ride the enabled atmosphere IDENTICALLY
+	//! across all three types (@see AtmosphereDesc).
+	namespace AtmosphereSky
+	{
+		enum Type
+		{
+			ST_PROCEDURAL = 0,	//!< the model-driven sky dome (the default look)
+			ST_SKYBOX,			//!< a cubemap texture (AtmosphereDesc::skyboxTexture)
+			ST_COLOUR			//!< flat clear in the sky tint (no dome, no cubemap)
+		};
+
+		//! @brief the canonical word for a sky type (the Lua/cvar dialect)
+		inline char const * typeName(Type type)
+		{
+			switch(type)
+			{
+			case ST_SKYBOX:		return "skybox";
+			case ST_COLOUR:		return "colour";
+			case ST_PROCEDURAL:
+			default:			return "procedural";
+			}
+		}
+
+		//! @brief parse a type word ("procedural"/"skybox"/"colour",
+		//! case-insensitive; "color" is accepted) back to its enum
+		//! @return false (outType untouched) on anything else
+		inline bool parseType(String const & text, Type & outType)
+		{
+			String lowered;
+			lowered.reserve(text.size());
+			for(char each : text)
+			{
+				lowered.push_back(each >= 'A' && each <= 'Z'
+					? static_cast<char>(each - 'A' + 'a') : each);
+			}
+			if(lowered == "procedural")		{ outType = ST_PROCEDURAL; return true; }
+			else if(lowered == "skybox")	{ outType = ST_SKYBOX;     return true; }
+			else if(lowered == "colour" ||
+				lowered == "color")			{ outType = ST_COLOUR;     return true; }
+			return false;
+		}
+	}
+
 	//! @brief pure, renderer-independent description of a scene's sky/fog
 	//! atmosphere - what RenderWorld::setAtmosphere consumes.
 	//!
@@ -39,6 +86,22 @@ namespace Orkige
 	//! enabled it OWNS the linked light's colour; disabling restores the
 	//! authored values exactly (@see the capability matrix in
 	//! Docs/render-abstraction.md).
+	//!
+	//! Sky TYPE (@c skyType, @see AtmosphereSky): the type selects what fills
+	//! the sky pixels while the atmosphere is enabled - the procedural dome
+	//! (the default; everything above applies verbatim), a @c skyboxTexture
+	//! cubemap (classic renders it through the native camera-bound sky box,
+	//! next samples the same cubemap on the sky quad - both flavors, same
+	//! picture), or the flat sky-tint clear alone. Fog and the sun/ambient
+	//! exposure drive are sky-type-INDEPENDENT: in skybox/colour mode the
+	//! linked sun still follows the SAME elevation-based day/night curve the
+	//! procedural sky drives (the @c sky* tint and @c density keep
+	//! parameterising that curve plus the window clear colour), scaled by
+	//! @c sunPower / @c ambientPower - the cubemap is authored content, so
+	//! the sky PICTURE no longer tracks the sun by construction (author the
+	//! skybox for the time of day it depicts). A missing/empty
+	//! @c skyboxTexture in skybox mode degrades honestly to the flat sky
+	//! tint with one log line.
 	//!
 	//! Field ranges + coupling (next flavor / AtmosphereNpr; verified against
 	//! the NprSky model - Components/Atmosphere in the Ogre-Next source):
@@ -74,6 +137,11 @@ namespace Orkige
 	{
 		bool	enabled;		//!< master switch: false = plain clear background, no fog
 
+		//--- sky visual type ---
+		AtmosphereSky::Type	skyType;	//!< what fills the sky pixels (@see AtmosphereSky)
+		String	skyboxTexture;	//!< cubemap resource name for ST_SKYBOX (a single
+								//!< cubemap .dds, e.g. from Util/make_sky_assets.py)
+
 		//--- sky look ---
 		float	skyRed;			//!< zenith sky tint, linear [0;1]
 		float	skyGreen;
@@ -98,6 +166,7 @@ namespace Orkige
 		//! enabled-only desc lights surfaces without blowing out to white.
 		AtmosphereDesc()
 			: enabled(false)
+			, skyType(AtmosphereSky::ST_PROCEDURAL)
 			, skyRed(0.334f), skyGreen(0.57f), skyBlue(1.0f)
 			, skyPower(1.0f)
 			, density(0.47f)
@@ -111,7 +180,10 @@ namespace Orkige
 
 	//! @brief named sky "looks" that pre-fill an AtmosphereDesc - the friendly
 	//! entry point (a game says "sunset", then tweaks). Pure so it unit-tests
-	//! headlessly and both flavors read the same numbers.
+	//! headlessly and both flavors read the same numbers. The looks author the
+	//! PROCEDURAL sky: forSky/blend leave skyType/skyboxTexture at their
+	//! defaults (the Engine Lua wrappers carry a previously-chosen sky type
+	//! across preset calls - @see Engine::setAtmosphereSky).
 	namespace AtmospherePreset
 	{
 		//! the canonical named looks (the cvar/word dialect below)
