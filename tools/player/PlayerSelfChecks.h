@@ -224,10 +224,11 @@ struct PlayerSelfChecks
 	// walk + idle clips). The Mannequin object carries a ModelComponent (the
 	// skinned .glb) + an AnimationComponent. Phased:
 	//   Boot     frame 5: the rig loaded. If the mesh carries NO animations
-	//            (the flavor imports glTF statically - the Ogre-Next path bakes
-	//            transforms and drops the skeleton), the check SKIPS HONESTLY
-	//            with that finding as the message (exit 0). Otherwise assert the
-	//            walk+idle clips exist, play walk, seed the animated bounds.
+	//            (a flavor that imports glTF statically, dropping the
+	//            skeleton - both shipping flavors import it whole), the check
+	//            SKIPS HONESTLY with that finding as the message (exit 0).
+	//            Otherwise assert the walk+idle clips exist, play walk, seed
+	//            the animated bounds.
 	//   Walk     the walk clip advances: the skeleton-driven local bounds SPREAD
 	//            (a swinging limb moves the skinned vertices - the bone-driven
 	//            deformation proof), then crossFadeTo("idle") is requested.

@@ -117,8 +117,9 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// ORKIGE_CHARACTER_RIG_SELFCHECK verifies 3D SKELETAL character animation
 	// end to end against tests/projects/character (a generated skinned
 	// mannequin): the walk clip moves bone-driven bounds, a crossfade blends to
-	// idle. Skips honestly on a flavor that imports glTF statically (no
-	// skeleton, no clips).
+	// idle. Runs on both flavors - the drift alarm between the two importer
+	// roads (Docs/character-animation.md); skips honestly on a flavor that
+	// imports glTF statically (no skeleton, no clips).
 	characterRigCheck =
 		(std::getenv("ORKIGE_CHARACTER_RIG_SELFCHECK") != nullptr);
 	// ORKIGE_ROLLER_PROGRESSION_SELFCHECK verifies the level sequence +
@@ -2436,7 +2437,9 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				else if (!anim->hasAnimations())
 				{
 					// the honest static-import skip: a flavor that bakes glTF
-					// transforms (dropping the skeleton) carries no clips
+					// transforms (dropping the skeleton) carries no clips -
+					// both shipping flavors import the rig whole today, so
+					// this guards a hypothetical future flavor
 					SDL_Log("orkige_player: character rig selfcheck SKIPPED - "
 						"the rig loaded with NO animations: this flavor imports "
 						"glTF statically (skeleton + clips dropped at import), "

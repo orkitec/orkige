@@ -16,25 +16,36 @@ frame; a `crossFadeTo` blends two clips by weight.
 
 ### Capability by render flavor
 
-The two flavors do NOT deliver the same thing here - skinned glTF import is a
-classic-only capability today. This is the one place a 3D feature is not at
-parity (see the matrix in `render-abstraction.md`).
+Skinned glTF import runs on BOTH flavors (the next importer's skinned road
+closed the former classic-only gap; see the matrix in
+`render-abstraction.md`).
 
 | Capability | Classic (compatibility flavor) | Next (default flavor) |
 | --- | --- | --- |
-| Skinned glTF import (bones + weights) | Yes - the Assimp codec builds an OGRE skeleton with bone assignments | **No** - the importer bakes node transforms (static meshes only) and drops the skeleton |
-| Animation clips from glTF | Yes - one OGRE animation per glTF animation | No - none surface (the mesh loads in bind pose) |
-| Clip playback (play/stop/loop/time/length) | Yes - `AnimationState` | Surface implemented over v2 `SkeletonInstance`, but no skeleton is ever produced by the import path, so it answers "no animations" |
-| Weighted crossfade / blend | Yes - `AnimationComponent::crossFadeTo` ramps outgoing/incoming weights | Same code path, unreachable without a skeleton |
-| Skeleton-driven bounds (correct culling of a swinging limb) | Yes - `MeshInstance::setAnimatedBounds` (armed automatically when clips load) | Native (v2 bounds track the animated skeleton) - moot without a skeleton |
+| Skinned glTF import (bones + weights) | Yes - the Assimp codec builds an OGRE skeleton with bone assignments | Yes - the backend's assimp road forks on skinning: the neutral `SkinnedRig` extraction feeds a v1 skeleton + bone assignments, `importV1` carries it to the v2 mesh |
+| Animation clips from glTF | Yes - one OGRE animation per glTF animation | Yes - one v1 animation per clip, converted to v2 `SkeletonAnimationDef`s (names exact in every build config via the backend's clip-name registry) |
+| Clip playback (play/stop/loop/time/length) | Yes - `AnimationState` | Yes - v2 `SkeletonInstance`/`SkeletonAnimation` |
+| Weighted crossfade / blend | Yes - `AnimationComponent::crossFadeTo` ramps outgoing/incoming weights | Yes - same component code path over the v2 per-animation weights |
+| Skeleton-driven bounds (correct culling of a swinging limb) | Yes - `MeshInstance::setAnimatedBounds` (armed automatically when clips load) | Yes - derived in the facade: the armed instance rebuilds `getLocalBounds` from the live bone poses expanded by the import-time bone radius (Ogre-Next itself keeps the bind-pose Aabb) |
 | Root-motion extraction | Yes - a classic-only backdoor (`handleMotion`/`motionBone`) reads the bone keyframe track directly | No - inert (no cross-backend facade bone API) |
 | Bone/tag-point attachment (weapon-in-hand) | Not exposed through the facade | Not exposed |
 
-The default (next) flavor therefore renders an imported character in its bind
-pose only. The gap is in the Next backend's mesh import (it uses
-`aiProcess_PreTransformVertices`, which removes bones), not in the facade
-animation surface - that is fully wired over the v2 skeleton system and lights
-up the day the importer keeps skins.
+### Two importer roads, one extraction (the drift alarm)
+
+The engine deliberately keeps TWO importer paths: classic loads glTF through
+the upstream render library's own assimp codec (reuse - never rewritten),
+next owns its import end to end (`engine_render_next/MeshLoaderNext.cpp`).
+To keep the skeleton/clip semantics from drifting between them, the NEW
+logic is written once in a backend-neutral layer:
+`engine_render/SkinnedRigExtract` turns the assimp scene into a pure
+`SkinnedRig` (joints, keyframe tracks in seconds, per-vertex weights - no
+renderer types), unit-tested against the generated mannequin's known
+structure (`SkinnedRigExtractTests`), and the next backend only realises
+that rig. If classic's codec ever diverges on animation semantics, classic
+consumes the same extraction instead of growing a second interpretation.
+The drift ALARM is `player_character_rig_selfcheck` on both flavors: the
+same generated rig must produce comparable measured motion (walk bounds
+spread, weighted crossfade, idle sway) on each importer road.
 
 ### The AnimationComponent surface
 
@@ -68,8 +79,10 @@ The runtime proof is `player_character_rig_selfcheck` (both flavors,
 `tests/projects/character/`): it plays `walk` and asserts the skeleton-driven
 bounds spread (a swinging limb moves the skinned vertices), crossfades to `idle`
 and asserts the blend transitioned, then asserts idle's sway keeps moving the
-bounds. On a flavor that imports glTF statically (next today), the rig loads with
-no clips and the check **skips honestly** with that finding as its message.
+bounds. The thresholds prove MOTION, not magnitude - the two flavors' bounds
+implementations report different absolute spreads for the same clip. On a
+hypothetical flavor that imports glTF statically, the rig loads with no clips
+and the check **skips honestly** with that finding as its message.
 
 ## 2D character animation
 

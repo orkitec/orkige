@@ -1451,12 +1451,14 @@ if(TARGET orkige_player)
         # AnimationComponent. The check plays walk and asserts the skeleton-driven
         # bounds SPREAD (a swinging limb moves the skinned vertices), then
         # crossFadeTo blends walk->idle (both clips run together, then walk drops)
-        # and idle's sway keeps moving the bounds. On a flavor that imports glTF
-        # STATICALLY (the Ogre-Next path bakes transforms + drops the skeleton),
-        # the rig loads with no animations and the check SKIPS HONESTLY (exit 0)
-        # with that finding as the message. See the ORKIGE_CHARACTER_RIG_SELFCHECK
-        # block in PlayerSelfChecks. Runs on both flavors (classic verifies the
-        # full path; next self-reports the static-import gap).
+        # and idle's sway keeps moving the bounds. Runs on both flavors - the
+        # DRIFT ALARM between the two importer roads (classic = the upstream
+        # assimp codec, next = MeshLoaderNext over the neutral SkinnedRig
+        # extraction; Docs/character-animation.md): the same generated rig must
+        # produce comparable measured motion on each. On a hypothetical flavor
+        # that imports glTF statically, the rig loads with no animations and the
+        # check SKIPS HONESTLY (exit 0) with that finding as the message. See the
+        # ORKIGE_CHARACTER_RIG_SELFCHECK block in PlayerSelfChecks.
         add_test(NAME player_character_rig_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player tests/projects/character/scenes/main.oscene
                 --project tests/projects/character

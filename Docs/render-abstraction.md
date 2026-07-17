@@ -600,11 +600,24 @@ the test suite, unchanged:
     `createByImportingV1` is DEFERRED (records name/group, imports on `load()` —
     call it, and KEEP the v1 intermediate alive: it is the reload source after
     device-lost), and real datablock names are written onto the v2 sub-meshes AFTER
-    import (`SubMesh::setMaterialName`). `PreTransformVertices` bakes node
-    transforms: **static meshes only** — skeletal glb import is an honest
-    `notImplementedOnce` gap (the facade animation surface itself is implemented
-    over v2 `SkeletonInstance`/`SkeletonAnimation`, exercised only for
-    unknown-name safety until animated content exists).
+    import (`SubMesh::setMaterialName`). The road FORKS on skinning: a STATIC
+    source gets `PreTransformVertices` (node transforms baked, the historical
+    path byte-identical — the probe parses first with zero post-processing and
+    defers the post steps via `ApplyPostProcessing`, which is exactly what a
+    one-call read does internally); a SKINNED/ANIMATED source keeps the node
+    hierarchy — the backend-neutral `engine_render/SkinnedRigExtract` fills a
+    `SkinnedRig` (joints/clips/skins), realised as a `v1::Skeleton`
+    (`OldSkeletonManager`, manual) + v1 animation tracks + per-sub-mesh bone
+    assignments, node transforms applied explicitly per section, and
+    `importV1` carries the whole rig to the v2 mesh (`SkeletonDef` + compiled
+    blend buffers) where the facade animation surface plays it over v2
+    `SkeletonInstance`/`SkeletonAnimation`. Animated BOUNDS are a facade
+    concern here: Ogre-Next keeps an item's local Aabb at the bind pose, so an
+    armed `setAnimatedBounds` instance derives `getLocalBounds` from the live
+    bone poses expanded by the import-time bone radius (classic's
+    bounds-from-skeleton semantics); clip NAMES read back through the
+    backend's skinned-mesh registry because the v2 `IdString` only keeps
+    readable strings in debug builds.
   - **HLMS mapping (the backend's whole material surface, all generated +
     registered for the wireframe toggle)**: mesh sub-mesh → PBS datablock
     `"<mesh>/mat<i>"` (diffuse colour via `setDiffuse`, diffuse texture via
@@ -651,9 +664,10 @@ the test suite, unchanged:
     polygon-mode decision): the v2 camera lost the polygon-mode toggle; the backend flips the
     macroblock polygon mode of every generated datablock instead. Fine for the
     debug-view call sites; noted in RenderCamera.h.
-  - Honest gaps (each `notImplementedOnce`): `LT_ZIP`/`LT_BIGZIP` resource
-    locations (zziplib port feature + engine_filesystem port pending), skeletal
-    glb import (above).
+  - Honest gap (`notImplementedOnce`): `LT_ZIP`/`LT_BIGZIP` resource
+    locations (zziplib port feature + engine_filesystem port pending).
+    (Skeletal glb import was the second gap here — closed by the skinned
+    fork of the assimp road above.)
 - **Parity run**: real games run on the Next flavor. What landed:
   - **EnginePrerequisites de-classicified**: `engine_module/EnginePrerequisites.h`
     is backend-NEUTRAL (core prerequisites + Meta + the `RenderMath.h` alias
@@ -735,15 +749,17 @@ all in place. **Flavor capability matrix**:
 | project export (macOS/iOS/Android) | yes (RTSS media) | yes (bundles Hlms shader media) |
 | Vulkan/GL runtime RS pick | yes | no (classic-backend concern; next boots Metal) |
 | mobile: iOS + Android runtime | yes (GLES2) | yes (iOS Metal, Android Vulkan — the default) |
+| skinned glTF import + skeletal clip playback (`AnimationComponent` over `MeshInstance`) | yes — the upstream assimp codec builds the skeleton + `AnimationState` clips; bounds via `setUpdateBoundingBoxFromSkeleton` | yes — the backend's own assimp road forks on skinning: the neutral `SkinnedRig` extraction → v1 skeleton/tracks/weights → `importV1` → v2 `SkeletonInstance` playback incl. weighted crossfade; animated bounds derived from live bone poses (`player_character_rig_selfcheck` both flavors) |
 | root-motion animation backdoor | yes | no (classic-only backdoor) |
 | static mobility flag (`TransformComponent.static` → `RenderNode::setStatic`; `r.staticScene` gate) | yes — entities on static nodes bake into shared `StaticGeometry` regions (fewer draws; demote-on-move repair) | yes — node + content migrate into the `SCENE_STATIC` memory managers (no per-frame transform/cull prep; `notifyStaticDirty` repair). `Docs/performance.md` |
 | sprite-run batching (`SpriteBatcher` + pure `SpriteRunPlanner`; `r.spriteBatching` gate) | yes — one facade `SpriteBatch` (ManualObject) per contiguous same-material run | yes — same facade path over the v2 ManualObject + shared HlmsUnlit datablock |
 | same-mesh 3D instancing | no — gated out by verdict (RTSS generates no instanced vertex path; measured content never needs it — `Docs/performance.md`) | yes — native Hlms auto-instancing of identical Items (nothing to declare) |
 | per-scene structural budget gate (`benchmark_budget` ctest) | yes | yes |
 
-Remaining known gaps on next (all logged once at runtime):
-LT_ZIP/LT_BIGZIP locations, skeletal glb import. (The earlier "sRGB-swapchain
-colour difference" is GONE — see the colour-parity work below.)
+Remaining known gap on next (logged once at runtime):
+LT_ZIP/LT_BIGZIP locations. (The earlier "sRGB-swapchain colour difference"
+is GONE — see the colour-parity work below; the skeletal-glb-import gap
+closed with the skinned fork of the assimp road.)
 
 ### Render capability register
 
