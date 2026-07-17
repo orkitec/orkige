@@ -676,7 +676,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Emulator Play test (MUST pass)
-        uses: reactivecircus/android-emulator-runner@v2.37.0
+        uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 35
           target: google_apis
@@ -831,7 +831,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Emulator Play test (MUST pass)
-        uses: reactivecircus/android-emulator-runner@v2.37.0
+        uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 35
           target: google_apis
