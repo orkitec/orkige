@@ -251,6 +251,15 @@ TEST_CASE("ModelComponent declares mesh AND material references in its schema",
 	CHECK(material->kind == PropertyKind::AssetRef);
 	CHECK(material->referenceHint == "material");
 	CHECK_FALSE(material->isReadOnly());
+
+	// the per-instance shadow participation flags (default true: content
+	// casts AND receives until a designer opts it out)
+	PropertyDesc const * casts = schema->find("castShadows");
+	PropertyDesc const * receives = schema->find("receiveShadows");
+	REQUIRE(casts != nullptr);
+	REQUIRE(receives != nullptr);
+	CHECK(casts->kind == PropertyKind::Bool);
+	CHECK(receives->kind == PropertyKind::Bool);
 }
 //---------------------------------------------------------
 TEST_CASE("ModelComponent material reference round-trips on a DETACHED component",
@@ -277,12 +286,28 @@ TEST_CASE("ModelComponent material reference round-trips on a DETACHED component
 	CHECK(model.getMaterialFileName() == "rock.omat");
 	CHECK(material->get(instance).referenceId() == "rock.omat");
 
-	// the serialization path (capture -> apply) carries the reference
+	// the shadow flags flip on a detached component (recorded, applied when
+	// a mesh loads) and default to true
+	PropertyDesc const * casts = schema->find("castShadows");
+	PropertyDesc const * receives = schema->find("receiveShadows");
+	REQUIRE(casts != nullptr);
+	REQUIRE(receives != nullptr);
+	CHECK(casts->get(instance).asBool());
+	CHECK(receives->get(instance).asBool());
+	casts->set(instance, PropertyValue::makeBool(false));
+	receives->set(instance, PropertyValue::makeBool(false));
+	CHECK_FALSE(model.getCastShadows());
+	CHECK_FALSE(model.getReceiveShadows());
+
+	// the serialization path (capture -> apply) carries the reference AND
+	// the shadow flags
 	GameObject::ComponentPropertyMap captured =
 		SceneSerializer::captureComponentProperties(model);
 	ModelComponent restored;
 	SceneSerializer::applyComponentProperties(captured, restored);
 	CHECK(restored.getMaterialFileName() == "rock.omat");
+	CHECK_FALSE(restored.getCastShadows());
+	CHECK_FALSE(restored.getReceiveShadows());
 
 	// clearing detaches cleanly (no mesh to reload on a detached component)
 	material->set(instance, PropertyValue::makeAssetRef("material", ""));
@@ -324,6 +349,12 @@ TEST_CASE("WaterComponent declares its water surface schema",
 	CHECK(normal->kind == PropertyKind::AssetRef);
 	CHECK(normal->referenceHint == "texture");
 	CHECK_FALSE(normal->isReadOnly());
+
+	// receive-only shadow participation (water never casts by design)
+	PropertyDesc const * receives = schema->find("receiveShadows");
+	REQUIRE(receives != nullptr);
+	CHECK(receives->kind == PropertyKind::Bool);
+	CHECK(schema->find("castShadows") == nullptr);
 }
 //---------------------------------------------------------
 TEST_CASE("WaterComponent properties round-trip on a DETACHED component",
@@ -356,6 +387,9 @@ TEST_CASE("WaterComponent properties round-trip on a DETACHED component",
 	schema->find("deepColour")->set(instance, PropertyValue::makeColor(deep));
 	schema->find("normalTexture")->set(instance,
 		PropertyValue::makeAssetRef("texture", "custom_water.png"));
+	CHECK(schema->find("receiveShadows")->get(instance).asBool());
+	schema->find("receiveShadows")->set(instance, PropertyValue::makeBool(false));
+	CHECK_FALSE(water.getReceiveShadows());
 
 	CHECK(water.getSizeX() == Approx(30.0f));
 	CHECK(water.getSizeZ() == Approx(18.0f));
@@ -377,6 +411,7 @@ TEST_CASE("WaterComponent properties round-trip on a DETACHED component",
 	CHECK(restored.getWaveScale() == Approx(8.0f));
 	CHECK(restored.getFresnelPower() == Approx(2.0f));
 	CHECK(restored.getNormalTexture() == "custom_water.png");
+	CHECK_FALSE(restored.getReceiveShadows());
 }
 //---------------------------------------------------------
 TEST_CASE("VectorAnimationComponent declares its playback + rig schema",
