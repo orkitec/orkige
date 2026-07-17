@@ -698,6 +698,9 @@ def build_lumens():
     idx = 0
     # a 5x6 grid (30 lamps): a real "many lights" ramp, kept within the classic
     # forward renderer's per-pass headroom so both flavors survive the ramp.
+    # Intensity/range make each lamp a clearly visible pool on the night
+    # terrain (the lamps are the stars of this vignette): the quadratic
+    # falloff eats most of the power, so a dim lamp reads as nothing.
     for gz in range(6):
         for gx in range(5):
             x = -10.0 + gx * 5.0
@@ -705,7 +708,7 @@ def build_lumens():
             col = colours[idx % len(colours)]
             s.add("Lamp%d" % idx,
                   s.transform(x, 1.5, z),
-                  s.light(light_type=1, colour=col, intensity=4.0, rng=6.0),
+                  s.light(light_type=1, colour=col, intensity=12.0, rng=8.0),
                   active=False, tags=("pool",))
             idx += 1
     return s

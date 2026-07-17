@@ -29,8 +29,12 @@ properties = {
 
 local TS = RenderNode.TransformSpace
 
--- self-limit budget: a ramp stops adding load once a frame costs more than this
-local RAMP_BUDGET_MS = 1000.0 / 40.0     -- 40 fps floor
+-- self-limit budget: a ramp stops adding load once a frame costs more than
+-- this (40 fps floor). Overridable via the `benchmark.rampBudgetMs` cvar so a
+-- deterministic test run can force the ramp to its ceiling regardless of the
+-- machine (a debug build's frame cost would otherwise cap it immediately).
+local RAMP_BUDGET_MS = 1000.0 / 40.0
+local rampBudgetMs = RAMP_BUDGET_MS
 
 -- concurrent dynamic point-light ceiling for the night-lights ramp, read from
 -- the `benchmark.lightCeiling` cvar in init (default 16 - a real "many lights"
@@ -100,8 +104,13 @@ local function setPerspectiveCamera(radius, height, center)
 	end
 end
 
+-- the slow showcase orbit. `benchmark.cameraOrbit` 0 freezes the camera at
+-- the init framing (an automation seam: the orbit runs on WALL time, so a
+-- pixel probe would sample machine-dependent framings otherwise).
+local cameraOrbit = 1.0
+
 local function orbitCamera(t)
-	if camNode == nil then
+	if camNode == nil or cameraOrbit < 0.5 then
 		return
 	end
 	local fit = framingFit()
@@ -165,7 +174,7 @@ local function rampPool(frameMs, n, ceiling)
 		end
 		return
 	end
-	if frameMs > RAMP_BUDGET_MS and activeCount > 0 then
+	if frameMs > rampBudgetMs and activeCount > 0 then
 		rampCapped = true
 		print(string.format("director[%s]: ramp capped at %d (%.2f ms/frame)",
 			mode, activeCount, frameMs))
@@ -196,12 +205,15 @@ local function buildHud()
 	local ok = pcall(function()
 		factory = GuiFactory()
 		gui = GuiManager(factory, "gui_default", PROJECT_GROUP)
-		local w = engine:getWindowWidth()
 		local safe = engine:getSafeAreaInsets()
 		hudTitle = factory:createLabel("hud.title", 24, label,
 			Vector2(16 + safe.mLeft, 14 + safe.mTop), "", 12, false)
+		-- the info line sits UNDER the MEASURED title: glyphs scale with the
+		-- display density (getSize folds the ui scale in), so a fixed second
+		-- row offset overlaps the title on a 2x-3x screen
+		local titleBottom = 14 + safe.mTop + hudTitle:getSize().y
 		hudInfo = factory:createLabel("hud.info", 9, "",
-			Vector2(16 + safe.mLeft, 46 + safe.mTop), "", 12, false)
+			Vector2(16 + safe.mLeft, titleBottom + 4), "", 12, false)
 	end)
 	if not ok then
 		gui, factory, hudTitle, hudInfo = nil, nil, nil, nil
@@ -393,9 +405,13 @@ function init(self)
 	cvar.registerNumber("benchmark.sceneScale", 1.0)
 	cvar.registerNumber("benchmark.wipe", 1.0)
 	cvar.registerNumber("benchmark.lightCeiling", 16.0)
+	cvar.registerNumber("benchmark.rampBudgetMs", RAMP_BUDGET_MS)
+	cvar.registerNumber("benchmark.cameraOrbit", 1.0)
 	scale = cvar.getNumber("benchmark.sceneScale", 1.0)
 	wipe = cvar.getNumber("benchmark.wipe", 1.0)
 	lightCeiling = math.max(0, math.floor(cvar.getNumber("benchmark.lightCeiling", 16.0)))
+	rampBudgetMs = cvar.getNumber("benchmark.rampBudgetMs", RAMP_BUDGET_MS)
+	cameraOrbit = cvar.getNumber("benchmark.cameraOrbit", 1.0)
 	budget = math.max(6, math.floor(seconds * 60.0 * scale))
 
 	frames = 0
@@ -426,7 +442,9 @@ function init(self)
 	elseif mode == "lumens" then
 		setPerspectiveCamera(18.0, 9.0, -8.0)
 		driveSun(0.9)
-		driveAtmosphere(0.9)
+		-- the TRUE night look (no sunset dilution): a dark dome, a dim white
+		-- moon low over the horizon - the lamps are the stars of this scene
+		driveAtmosphere(1.0)
 		gatherPool()
 		buildHud()
 	elseif mode == "swarm" then
@@ -533,6 +551,15 @@ function update(self, dt)
 		if world.getTimeScale() ~= 1.0 then
 			world.setTimeScale(1.0)
 		end
+		-- end of the tour: HOLD on the final scene (the results card) so a
+		-- played run visibly ends. Decided BEFORE the wipe - fading out and
+		-- back in on the held card read as the results being shown twice.
+		-- Attract-mode looping is the opt-in (benchmark.loop=1 - an exported
+		-- kiosk/soak build sets it).
+		local atEnd = levels == nil or count == 0 or (index + 1) >= count
+		if atEnd and cvar.getNumber("benchmark.loop", 0) < 0.5 then
+			return
+		end
 		if wipe > 0.5 and screen ~= nil then
 			screen.fadeOut(0.3)
 			switchAtFrame = frames + 22   -- ~0.35 s at the vsync pace
@@ -543,17 +570,8 @@ function update(self, dt)
 	if advancing and switchAtFrame ~= nil and frames >= switchAtFrame then
 		switchAtFrame = nil
 		local nextIndex = index + 1
-		if levels == nil or nextIndex >= count then
-			-- end of the tour: HOLD on the final scene (the results card) so
-			-- a played run visibly ends; attract-mode looping is the opt-in
-			-- (benchmark.loop=1 - an exported kiosk/soak build sets it)
-			if cvar.getNumber("benchmark.loop", 0) < 0.5 or count == 0 then
-				if screen ~= nil then
-					pcall(function() screen.fadeIn(0.35) end)
-				end
-				return
-			end
-			nextIndex = 0
+		if nextIndex >= count then
+			nextIndex = 0	-- attract-mode loop (the hold case never gets here)
 		end
 		if levels ~= nil then
 			levels:loadLevel(nextIndex)

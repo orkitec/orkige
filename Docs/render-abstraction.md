@@ -734,7 +734,7 @@ renders it fails CI.
 | `skyDome` | yes | yes | a horizon-to-zenith sky dome behind the scene (sun-linked atmospheric on next, a vertex-colour gradient on classic) vs a flat clear colour |
 | `dynamicShadows` | no | yes | dynamic shadow maps (PSSM/PCF) cast by shadow-casting lights |
 | `hemisphereAmbient` | no | yes | a two-colour sky/ground ambient term; classic averages the two colours to one flat ambient |
-| `sunExposureLinkage` | no | yes | the atmosphere drives the linked sun's colour/power (an exposure the un-tonemapped pipeline can clip); classic reads the sun direction only |
+| `sunExposureLinkage` | yes | yes | the atmosphere drives the linked sun's colour/power (an exposure the un-tonemapped pipeline can clip) - native on next, the same day/night curve evaluated on the CPU on classic (colour + averaged-flat ambient fill, tolerance parity) |
 | `animatedNormalMappedWater` | no | yes | fully animated normal-mapped water ripples; classic lights OR scrolls one normal map on a unit, not both, so its lit relief is static |
 | `offscreenOwnedLayers` | no | yes | 2D layers composited into an offscreen RenderTexture (the editor GUI Preview + preview_ui), not just the main window |
 | `screenSpaceRefraction` | no | no | screen-space refraction distortion through transparent surfaces (a compositor refraction pass) - absent on both flavors |
@@ -883,6 +883,39 @@ classic-backend app is SUPERSEDED.** What landed:
   on LIT content only (mean diff 0.65/255, 0.73% outlier pixels on the
   selfcheck window shot; unlit/vertex-colour/textured/2D content is
   byte-identical, the RTT capture matches with mean 0.00).
+- **Lit-content gamma on next (the crushed-PBS fix)**: the passthrough
+  pipeline above left one hole — Ogre-Next's `HlmsPbs` unconditionally
+  assumed an sRGB colour target (`hw_gamma_write` hardcoded to 1), so its
+  LINEAR lighting result landed raw in the UNORM swapchain and every lit
+  3D surface displayed gamma-crushed (a mid-grey slab under the noon sun
+  read near-black; only emissive and the unlit 2D path looked right). The
+  overlay port now derives `hw_gamma_write` from the live pass descriptor
+  (`ports/ogre-next/pbs-honour-non-srgb-target.patch`, an upstream
+  candidate), which engages the stock template's in-shader `sqrt` encode on
+  UNORM targets; the port-shipped atmosphere sky shader carries the same
+  encode. Unlit/2D stays byte-identical (HlmsUnlit is untouched — its raw
+  passthrough IS the parity convention). Lit 3D content remains a
+  TOLERANCE parity between the flavors (PBS + gamma-2 encode vs classic's
+  gamma-space Cook-Torrance), guarded by the per-vignette benchmark probes
+  (`run_benchmark_scene_probe.py`) and the facade exposure leg.
+- **Point/spot lights on next (clustered forward)**: without a Forward+
+  system Ogre-Next's HlmsPbs only shades point/spot lights that CAST
+  SHADOWS — a plain dynamic lamp never lit anything. The backend now boots
+  the scene manager with clustered forward light lists
+  (`setForwardClustered`, 16x8x24 grid, 96 lights/cell, 2..100 units), so
+  dynamic lamps render on both flavors (the lumens-vignette contract).
+  Directional lights were unaffected (they ride the pass buffer).
+- **The sun-exposure linkage on classic**: `AtmosphereDesc::sunPower` /
+  `ambientPower` now act on BOTH flavors. The classic backend evaluates the
+  SAME day/night colour model on the CPU (`core_util/AtmosphereSunDrive.h`,
+  headless-unit-tested) and drives the linked sun's diffuse/specular plus an
+  averaged-flat scene ambient, exposure-calibrated at the mid-grey reference
+  (the sqrt linearisation — monotone agreement, not per-pixel parity).
+  RESTORE-EXACTLY on both flavors: the atmosphere snapshots the linked
+  light's authored colours when it takes it and writes them back when it
+  lets go (disable, sun-set change, teardown); authored colour writes while
+  driven land in the snapshot (the atmosphere owns the visible value). The
+  facade selfcheck's restore leg proves the round-trip in pixels per flavor.
 - **`render_backend_parity`** (next preset): runs the facade selfcheck on
   BOTH backends and pixel-compares `selfcheck_window/drawlayer2d/rtt.png`
   (stdlib-only PNG decode, `tests/integration_driver/

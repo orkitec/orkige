@@ -1640,6 +1640,26 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_benchmark_pixels${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 240)
+        # per-vignette look probes (run_benchmark_scene_probe.py): direct scene
+        # boots with the stress ramp forced to its ceiling and the wall-time
+        # camera orbit frozen (deterministic frames on any machine). lumens =
+        # readable moonlit night + dark dome + visible lamp pools (the sun-
+        # exposure linkage and the point-light path per flavor); field = the
+        # ramped instance cubes render LIT (the black-cube regression class);
+        # hud2x = the HUD title/stats rows stay vertically disjoint at a
+        # simulated 2x display density (the overlap regression class).
+        foreach(ORKIGE_SCENE_PROBE lumens field hud2x)
+            add_test(NAME player_benchmark_${ORKIGE_SCENE_PROBE}_probe${ORKIGE_FLAVOR_TEST_SUFFIX}
+                COMMAND python3
+                    "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_benchmark_scene_probe.py"
+                    --repo "${Orkige_SOURCE_DIR}"
+                    --player "$<TARGET_FILE:orkige_player>"
+                    --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_${ORKIGE_SCENE_PROBE}_probe${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                    --probe "${ORKIGE_SCENE_PROBE}"
+                WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+            set_tests_properties(player_benchmark_${ORKIGE_SCENE_PROBE}_probe${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+                LABELS integration TIMEOUT 240)
+        endforeach()
     endif()
 
     # asset-id rename survival end to end (the asset database): the fixture

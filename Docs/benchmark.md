@@ -126,7 +126,19 @@ run reads as seconds while an automated run shrinks scale to a handful of
 deterministic frames per scene. `benchmark.wipe` (0 skips the fade wipe) and
 `benchmark.lightCeiling` (the night-lights ramp ceiling) are the other knobs.
 The stress scenes self-limit: a ramp stops adding load once a frame exceeds the
-budget, so the recorded scene tells you where the device stalled.
+budget, so the recorded scene tells you where the device stalled. Two more
+cvars exist purely as automation seams: `benchmark.rampBudgetMs` overrides the
+self-limit budget (a probe forces the ramp to its ceiling regardless of the
+machine's frame cost) and `benchmark.cameraOrbit` (0 freezes the wall-time
+showcase orbit at the init framing, so a captured frame is machine-independent).
+
+The tour must also LOOK right per flavor: beside the artifact tests, the
+per-vignette pixel probes (`tests/integration_driver/run_benchmark_scene_probe.py`,
+ctests `player_benchmark_lumens_probe` / `_field_probe` / `_hud2x_probe`) boot
+single scenes deterministically and assert measured discriminators — the
+moonlit-night corridor + visible lamp pools (lumens), lit instance cubes
+(field), and vertically disjoint HUD text rows at a simulated 2x display
+density (hud2x).
 
 ### Running it
 

@@ -1424,11 +1424,87 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 				"the slab is lit by the atmosphere sun (not black)");
 			SELFCHECK(slabLum < 0.95f,
 				"the sunlit slab does NOT clip to white (the sun drive is capped)");
+
+			// RESTORE-EXACTLY: while enabled the atmosphere OWNS the linked
+			// sun's colour (the shared day/night curve drives it near-white,
+			// on BOTH flavors now); disabling must hand the AUTHORED colour
+			// back untouched - the recover-then-reapply rule. A pure-red
+			// authored sun proves the round-trip in pixels: driven, the slab
+			// reads near-neutral; restored, it reads strongly red again.
+			auto slabChannels = [&](std::string const & imageFile,
+				float & outRed, float & outGreen) -> bool
+			{
+				float bestRed = 0, bestGreen = 0;
+				bool decoded = false;
+				for(int gx = -1; gx <= 1; ++gx)
+				{
+					for(int gz = -1; gz <= 1; ++gz)
+					{
+						const Vec3 slabPoint(600.0f + gx * 5.0f, 0.5f,
+							gz * 5.0f);
+						Real nx = 0, ny = 0;
+						if(!camera->projectPoint(slabPoint, nx, ny))
+						{
+							continue;
+						}
+						float red = 0, green = 0, blue = 0;
+						if(!SelfcheckBootstrap::readImagePixel(imageFile,
+							static_cast<unsigned int>(nx * (atmoW - 1)),
+							static_cast<unsigned int>(ny * (atmoH - 1)),
+							red, green, blue))
+						{
+							continue;
+						}
+						decoded = true;
+						if(red + green > bestRed + bestGreen)
+						{
+							bestRed = red;
+							bestGreen = green;
+						}
+					}
+				}
+				outRed = bestRed;
+				outGreen = bestGreen;
+				return decoded;
+			};
+			exposureSun->setDiffuseColour(Color(3.0f, 0.0f, 0.0f));
+			// re-apply: the atmosphere re-takes the sun and stomps the red
+			// with its own driven colour (authored values wait in the snapshot)
+			world->setAtmosphere(
+				AtmospherePreset::forSky(AtmospherePreset::SKY_DAY));
+			SELFCHECK(renderFrames(renderSystem, 3),
+				"frames render with the re-driven sun");
+			const std::string drivenShot =
+				outDir + "/selfcheck_atmosphere_driven.png";
+			renderSystem->saveWindowContents(drivenShot);
+			float drivenRed = 0, drivenGreen = 0;
+			SELFCHECK(slabChannels(drivenShot, drivenRed, drivenGreen),
+				"the driven-sun probe decodes");
+			world->setAtmosphere(AtmosphereDesc());	// disable -> restore
+			SELFCHECK(renderFrames(renderSystem, 3),
+				"frames render after the atmosphere released the sun");
+			const std::string restoredShot =
+				outDir + "/selfcheck_atmosphere_restored.png";
+			renderSystem->saveWindowContents(restoredShot);
+			float restoredRed = 0, restoredGreen = 0;
+			SELFCHECK(slabChannels(restoredShot, restoredRed, restoredGreen),
+				"the restored-sun probe decodes");
+			std::printf("render_facade_selfcheck: sun restore - driven r %.3f "
+				"g %.3f, restored r %.3f g %.3f\n", drivenRed, drivenGreen,
+				restoredRed, restoredGreen);
+			// driven: the curve's near-white sun keeps green close to red;
+			// restored: the authored red sun leaves green far behind
+			SELFCHECK(drivenGreen > drivenRed * 0.5f,
+				"the atmosphere-driven sun overrides the authored red");
+			SELFCHECK(restoredRed > 0.1f,
+				"the restored authored sun lights the slab");
+			SELFCHECK(restoredGreen < restoredRed * 0.5f,
+				"disabling the atmosphere restores the authored sun colour");
+
 			// tear the exposure probe content down (the fog section rebuilds its
 			// own sun + object below)
 			exposureSun.reset();
 			greySlab.reset();
-			world->setAtmosphere(AtmosphereDesc());	// disabled, clean slate
 			SELFCHECK(renderFrames(renderSystem, 2),
 				"frames render after the exposure probe was dropped");
 		}

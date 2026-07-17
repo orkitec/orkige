@@ -1287,6 +1287,18 @@ int main(int argc, char** argv)
 		hostConfig.automatedRun = automatedRun;
 		hostConfig.engineLogFile = engineLogPath;
 		hostConfig.classicMediaDir = playerMediaDir;
+		// ORKIGE_FAKE_CONTENT_SCALE=N simulates a dense (2x-3x) display for
+		// the UI scale path on any desktop - the same automation seam the
+		// hello demos use, so a headless test can exercise the HUD layout at
+		// a phone/retina density (glyph scale + scaled widget sizes).
+		if (const char* fakeScaleEnv = std::getenv("ORKIGE_FAKE_CONTENT_SCALE"))
+		{
+			const float fakeScale = std::strtof(fakeScaleEnv, nullptr);
+			if (fakeScale > 0.0f)
+			{
+				Orkige::PlatformWindow::setContentScaleOverride(fakeScale);
+			}
+		}
 		// ORKIGE_WINDOW_SIZE=WxH overrides the desktop window size (e.g. a
 		// portrait 540x960 to preview a phone aspect from the desktop). Ignored
 		// on mobile, where the window is the device screen. A dev/CI affordance.

@@ -106,7 +106,17 @@ skips the glow pass with one log line.
 
 **Colour space (next)**: PBS textures load raw (no sRGB flag), matching the
 backend's gamma-space passthrough pipeline (the classic colour-parity rule
-from `Docs/render-abstraction.md`) — the trade-off is documented there.
+from `Docs/render-abstraction.md`) — the trade-off is documented there. The
+LIT result is gamma-encoded in-shader (`sqrt`, the Hlms `!hw_gamma_write`
+path — enabled for UNORM targets by the overlay port's
+`pbs-honour-non-srgb-target.patch`), so PBS lighting displays correctly on
+the non-sRGB swapchain; unlit/2D content stays raw passthrough.
+
+**Metal-rough on classic (order note)**: the Cook-Torrance lighting stage
+reads ROUGHNESS from `specular.x` and METALNESS from `specular.y` (the
+occlusion/roughness/metalness layout). The backend writes them in that
+order; a swapped write turns every rough dielectric into a mirror-smooth
+metal (black diffuse plus a pin highlight) — the historical field-cube bug.
 
 ## Honest v1 boundaries
 

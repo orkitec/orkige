@@ -190,7 +190,15 @@ files (`Atmosphere.material`, a trimmed `AtmosphereQuad.program` in place of the
 samples' full `Quad.program`, the `AtmosphereNprSky_ps` fragment shader +
 `QuadCameraDirNoUV_vs` vertex shader per shading language, and the shared
 `Any/AtmosphereNprSky_ps.any` include), NOT the whole samples Common material set
-(which carries unrelated effects + heavyweight LUT `.dds` files). The runtime
+(which carries unrelated effects + heavyweight LUT `.dds` files). Two of those
+files are PORT-DIR copies rather than source-tree copies:
+`AtmosphereQuad.program` carries the `default_params` block the samples'
+`Quad.program` binds (`worldViewProj` + `rsDepthRange` auto params - without
+them the sky quad transforms by a zero matrix and silently never renders), and
+`Any/AtmosphereNprSky_ps.any` appends an in-shader gamma encode (`sqrt`) to the
+linear sky colour, because this engine renders into a non-sRGB swapchain with
+no hardware gamma-on-write (the same encode the patched HlmsPbs applies to lit
+content - see `pbs-honour-non-srgb-target.patch` below). The runtime
 registers `Media/Atmosphere` (the script dir plus each per-language shader subdir
 as its own location, so a script's bare `source X.metal` and shader includes
 resolve) alongside the Hlms media at boot; the HlmsPbs object-fog integration
@@ -253,6 +261,16 @@ Patches (the same Xcode-oriented-CMake class as classic's ios/metal patches):
   shipped config's `lib/lib*.a` paths expect. (The `$(PLATFORM_NAME)`-under-
   Ninja output-path problem classic patched is already fixed upstream in
   ogre-next - `OgreConfigTargets.cmake` excludes Ninja.)
+- `pbs-honour-non-srgb-target.patch` - upstream candidate. HlmsPbs
+  hardcodes `hw_gamma_write` to 1 in `preparePassHash`, assuming an sRGB
+  colour target - on a UNORM swapchain (this engine's deliberate classic
+  colour-parity convention) the LINEAR lighting result lands raw and every
+  lit surface displays gamma-crushed. The patch derives the property from
+  the live pass descriptor's colour format
+  (`PixelFormatGpuUtils::isSRgb`), which engages the stock template's
+  in-shader `sqrt` encode (`!hw_gamma_write`) on non-sRGB targets. HlmsUnlit
+  is deliberately untouched (its raw passthrough IS the 2D parity
+  convention).
 
 Debug/release note: vcpkg ships ONE header tree for both configs, but
 ogre-next's generated `OgreBuildSettings.h` bakes `OGRE_DEBUG_MODE` per build
