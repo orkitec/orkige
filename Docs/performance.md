@@ -292,11 +292,10 @@ Notes for the reader of the deltas:
   drown in jitter), next is vsync-clamped near 8.3 ms — which is why
   the gate holds structure, not milliseconds, and why frame-ms stays
   reported-only.
-- The **web** flavor (classic GLES2→WebGL) could not be measured in this
-  pass: the build host's x86-translation layer was wedged (unkillable
-  `wasm-metadce`), so the wasm link never completed. The classic numbers
-  are the proxy; draw-call savings matter *most* there, where each call
-  crosses the JS/WebGL boundary.
+- The **web** flavor (classic GLES2→WebGL) is CI-verified, not measured
+  here: the wasm tree builds and runs its suite on the CI Linux web job.
+  The classic desktop numbers are the structural proxy; draw-call savings
+  matter *most* on web, where each call crosses the JS/WebGL boundary.
 
 ## Test map
 
