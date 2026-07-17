@@ -110,7 +110,19 @@ namespace Orkige
 		{
 			this->mImpl->item->detachFromParent();
 		}
+		// mesh content created AFTER its node went static must join the
+		// static memory manager too (a node flip carries attached objects
+		// along, but a late attach starts dynamic) - align before attaching
+		if(RenderBackend::nodeIsStatic(node) != this->mImpl->item->isStatic())
+		{
+			this->mImpl->item->setStatic(RenderBackend::nodeIsStatic(node));
+		}
 		RenderBackend::sceneNode(node)->attachObject(this->mImpl->item);
+		if(this->mImpl->item->isStatic())
+		{
+			// snapshot the item's frozen transform/AABB on the next frame
+			this->mImpl->creator->notifyStaticAabbDirty(this->mImpl->item);
+		}
 		this->mImpl->attachedTo = node;
 	}
 	//---------------------------------------------------------
@@ -119,6 +131,12 @@ namespace Orkige
 		if(this->mImpl->item->isAttached())
 		{
 			this->mImpl->item->detachFromParent();
+		}
+		if(this->mImpl->item->isStatic())
+		{
+			// a detached item is placement-less; return it to the dynamic
+			// managers so a later attach starts from the default worldview
+			this->mImpl->item->setStatic(false);
 		}
 		this->mImpl->attachedTo.reset();
 	}

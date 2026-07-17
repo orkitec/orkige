@@ -288,6 +288,17 @@ namespace Orkige
 				}
 			});
 
+		// the mobility-flag apply gate (@see TransformComponent::setStaticFlag):
+		// ON by default - static-flagged objects take the backend's immobile
+		// fast path (SCENE_STATIC / StaticGeometry). OFF leaves every object
+		// on the default dynamic path: the editor's edit mode boots that way,
+		// and the render toggle tests prove the pixels match either way. Read
+		// at flag-APPLY time, so a live change affects newly loaded scenes.
+		CVarManager::getSingleton().registerCVar("r.staticScene",
+			CVarType::Bool, "1", CVAR_PERSIST,
+			"apply the static mobility flag to the renderer (off = every "
+			"object renders on the dynamic path; flags still round-trip)");
+
 		if (this->mConfig.createWindowCamera)
 		{
 			// the window camera on a facade rig (the

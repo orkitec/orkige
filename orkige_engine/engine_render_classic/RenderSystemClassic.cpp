@@ -135,6 +135,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool RenderSystem::renderOneFrame()
 	{
+		// coalesced static-region maintenance: membership/visibility changes
+		// since the last frame land as ONE rebuild (@see StaticBakeClassic.cpp)
+		RenderBackend::staticBakeFlush();
 		return this->mImpl->engine->renderOneFrame();
 	}
 	//---------------------------------------------------------

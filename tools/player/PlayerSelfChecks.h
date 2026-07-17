@@ -43,6 +43,8 @@ struct PlayerSelfChecks
 	bool resizeCheck = false;
 	bool perfCheck = false;
 	bool benchmarkCheck = false;
+	//! the static-mobility contract probe (@see the perFrame block)
+	bool staticMoveCheck = false;
 
 	//--- per-check phase state (comments ride with each check) -----------
 	// --- ORKIGE_JUMPER_LUA_SELFCHECK=1: the ScriptComponent milestone,
@@ -257,6 +259,17 @@ struct PlayerSelfChecks
 	// frame deadline.
 	bool tweenCheckDone = false;
 	bool tweenCheckFailed = false;
+	// --- ORKIGE_STATICMOVE_SELFCHECK=1: the static-mobility contract,
+	// verified against projects/benchmark scenes/fixture_static.oscene.
+	// Frame 30: record the draw-batch count, then MOVE the static "Static3"
+	// object through its TransformComponent (a mobility-contract violation:
+	// the backend warns once and lands the move through its repair path).
+	// Frame 60: assert the world position landed exactly and print the
+	// before/after batch counts - the ctest driver pins the flavor-specific
+	// delta (classic: +1, the demoted entity draws individually again;
+	// next: 0) and greps the one warning line.
+	bool staticMoveDone = false;
+	std::size_t staticMoveBatchesBefore = 0;
 	// --- ORKIGE_HOTRELOAD_SELFCHECK=1: Lua hot-reload, verified
 	// end to end against tests/projects/hotreload (run with --project
 	// tests/projects/hotreload). The Probe object runs scripts/

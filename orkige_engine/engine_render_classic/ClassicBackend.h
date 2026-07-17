@@ -96,6 +96,17 @@ namespace Orkige
 		void*				userPointer = NULL;		//!< @see RenderNode::setUserPointer
 		woptr<RenderNode>	parent;					//!< facade graph mirror (backend child lists are never walked)
 		std::vector<woptr<RenderNode>>	children;	//!< facade graph mirror, pruned lazily
+		//! the mobility flag (@see RenderNode::setStatic): attached mesh
+		//! content is StaticGeometry-bake eligible while set
+		bool				isStatic = false;
+		//! one mobility-contract warning per node (@see RenderNode::setStatic)
+		bool				staticMoveWarned = false;
+
+		//! the mobility-contract repair path: a transform mutation reached a
+		//! static node - warn once, then DEMOTE the subtree's baked entities
+		//! out of their regions (one rebuild; they render individually and
+		//! follow the node again - correct but costly)
+		void noteStaticMutation(char const * operation);
 	};
 
 	struct MeshInstance::Impl
@@ -334,6 +345,9 @@ namespace Orkige
 
 		//--- guts accessors (NULL-safe) ---------------------------------
 		static Ogre::SceneNode* sceneNode(optr<RenderNode> const & node);
+		//! the node's mobility flag (@see RenderNode::setStatic) - content
+		//! classes register with the static bake through it on attach
+		static bool nodeIsStatic(optr<RenderNode> const & node);
 		static Ogre::Camera* ogreCamera(optr<RenderCamera> const & camera);
 		//! the target's CURRENT backend texture (changes across resizes) -
 		//! the 2D layer binds render-texture batches through this per draw
@@ -428,6 +442,31 @@ namespace Orkige
 		//! the renderable default so co-planar 2D still straddles other MAIN
 		//! transparents (e.g. water) by zOrder sign.
 		static void applyZOrder(Ogre::MovableObject* object, int zOrder);
+		//--- the static bake (the classic mobility fast path) ------------
+		//! @brief entities on STATIC nodes bake into shared StaticGeometry
+		//! regions - OGRE's own many-immobile-meshes machinery; the backend
+		//! owns only the membership bookkeeping (@see StaticBakeClassic.cpp).
+		//! Registration is driven from MeshInstance attach/detach against a
+		//! static node and from RenderNode::setStatic over already-attached
+		//! entities; the bake itself is DEFERRED - membership changes mark it
+		//! dirty and renderOneFrame flushes ONE rebuild per frame at most.
+		//! register an entity living on a static node (idempotent)
+		static void staticBakeRegister(Ogre::Entity* entity,
+			Ogre::SceneNode* node);
+		//! drop an entity from the bake again (idempotent; restores its
+		//! individual rendering on the next flush)
+		static void staticBakeUnregister(Ogre::Entity* entity);
+		//! is the entity currently registered with the bake
+		static bool staticBakeContains(Ogre::Entity* entity);
+		//! request a region rebuild at the next frame boundary (membership or
+		//! visibility changed)
+		static void staticBakeMarkDirty();
+		//! rebuild the regions when dirty - called once per renderOneFrame
+		static void staticBakeFlush();
+		//! entities currently baked into regions (selfcheck introspection)
+		static size_t staticBakeBakedCount();
+		//! destroy regions + registry (destroyRenderSystem teardown)
+		static void staticBakeTeardown();
 	};
 }
 

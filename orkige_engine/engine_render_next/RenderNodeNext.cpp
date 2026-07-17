@@ -19,6 +19,7 @@
 //! recursive merge IS the classic semantic).
 
 #include "engine_render_next/NextBackend.h"
+#include <core_debug/DebugMacros.h>
 
 #include <OgreSceneManager.h>
 #include <OgreSceneNode.h>
@@ -91,6 +92,25 @@ namespace Orkige
 		return handle;
 	}
 	//---------------------------------------------------------
+	void RenderNode::Impl::noteStaticMutation(char const * operation)
+	{
+		if(!this->isStatic)
+		{
+			return;
+		}
+		if(!this->staticMoveWarned)
+		{
+			oDebugWarn("engine", 0, "RenderNode: " << operation
+				<< " on STATIC node '" << this->node->getName()
+				<< "' - static means static; the move lands through the "
+				"static-dirty repair path (correct but costly). Clear the "
+				"static flag on objects that move.");
+			this->staticMoveWarned = true;
+		}
+		// re-derive the frozen transforms (and their AABBs) next frame
+		this->creator->notifyStaticDirty(this->node);
+	}
+	//---------------------------------------------------------
 	RenderNode::RenderNode()
 		: mImpl(new Impl())
 	{
@@ -135,6 +155,7 @@ namespace Orkige
 	void RenderNode::setPosition(Vec3 const & position)
 	{
 		this->mImpl->node->setPosition(position);
+		this->mImpl->noteStaticMutation("setPosition");
 	}
 	//---------------------------------------------------------
 	Quat const & RenderNode::getOrientation() const
@@ -146,6 +167,7 @@ namespace Orkige
 	void RenderNode::setOrientation(Quat const & orientation)
 	{
 		this->mImpl->node->setOrientation(orientation);
+		this->mImpl->noteStaticMutation("setOrientation");
 	}
 	//---------------------------------------------------------
 	Vec3 const & RenderNode::getScale() const
@@ -157,6 +179,7 @@ namespace Orkige
 	void RenderNode::setScale(Vec3 const & scale)
 	{
 		this->mImpl->node->setScale(scale);
+		this->mImpl->noteStaticMutation("setScale");
 	}
 	//---------------------------------------------------------
 	Vec3 RenderNode::getWorldPosition() const
@@ -183,24 +206,28 @@ namespace Orkige
 	{
 		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->translate(delta, toOgreSpace(relativeTo));
+		this->mImpl->noteStaticMutation("translate");
 	}
 	//---------------------------------------------------------
 	void RenderNode::yaw(Radian const & angle, TransformSpace relativeTo)
 	{
 		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->yaw(angle, toOgreSpace(relativeTo));
+		this->mImpl->noteStaticMutation("yaw");
 	}
 	//---------------------------------------------------------
 	void RenderNode::pitch(Radian const & angle, TransformSpace relativeTo)
 	{
 		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->pitch(angle, toOgreSpace(relativeTo));
+		this->mImpl->noteStaticMutation("pitch");
 	}
 	//---------------------------------------------------------
 	void RenderNode::roll(Radian const & angle, TransformSpace relativeTo)
 	{
 		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->roll(angle, toOgreSpace(relativeTo));
+		this->mImpl->noteStaticMutation("roll");
 	}
 	//---------------------------------------------------------
 	void RenderNode::lookAt(Vec3 const & targetPoint, TransformSpace relativeTo,
@@ -209,6 +236,7 @@ namespace Orkige
 		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->lookAt(targetPoint, toOgreSpace(relativeTo),
 			localDirection);
+		this->mImpl->noteStaticMutation("lookAt");
 	}
 	//---------------------------------------------------------
 	void RenderNode::setDirection(Vec3 const & direction,
@@ -217,6 +245,7 @@ namespace Orkige
 		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->setDirection(direction, toOgreSpace(relativeTo),
 			localDirection);
+		this->mImpl->noteStaticMutation("setDirection");
 	}
 	//---------------------------------------------------------
 	void RenderNode::setFixedYawAxis(bool useFixed, Vec3 const & fixedAxis)
@@ -226,12 +255,17 @@ namespace Orkige
 	//---------------------------------------------------------
 	optr<RenderNode> RenderNode::createChild(String const & name)
 	{
-		Ogre::SceneNode* child =
-			this->mImpl->node->createChildSceneNode(Ogre::SCENE_DYNAMIC);
+		// children inherit the mobility flag (@see RenderNode::setStatic):
+		// content nodes created under an already-static object land in the
+		// static memory managers directly
+		Ogre::SceneNode* child = this->mImpl->node->createChildSceneNode(
+			this->mImpl->isStatic ? Ogre::SCENE_STATIC : Ogre::SCENE_DYNAMIC);
 		child->setName(name.empty()
 			? RenderBackend::generateName("OrkigeNode") : name);
-		return RenderBackend::wrapNode(child, true,
+		optr<RenderNode> handle = RenderBackend::wrapNode(child, true,
 			RenderBackend::findNode(this->mImpl->node));
+		handle->mImpl->isStatic = this->mImpl->isStatic;
+		return handle;
 	}
 	//---------------------------------------------------------
 	void RenderNode::setParent(optr<RenderNode> const & parent)
@@ -261,6 +295,9 @@ namespace Orkige
 		}
 		this->mImpl->parent = parent;
 		parent->mImpl->children.push_back(self);
+		// re-parenting changes the world transform - a mobility-contract
+		// violation on a static node (warned + repaired like a move)
+		this->mImpl->noteStaticMutation("setParent");
 	}
 	//---------------------------------------------------------
 	optr<RenderNode> RenderNode::getParent() const
@@ -295,6 +332,32 @@ namespace Orkige
 	void RenderNode::setVisible(bool visible, bool cascade)
 	{
 		this->mImpl->node->setVisible(visible, cascade);
+	}
+	//---------------------------------------------------------
+	void RenderNode::setStatic(bool isStatic)
+	{
+		if(this->mImpl->isStatic == isStatic)
+		{
+			return;
+		}
+		this->mImpl->isStatic = isStatic;
+		this->mImpl->staticMoveWarned = false;
+		// migrates the node AND its attached objects between the
+		// SCENE_DYNAMIC/SCENE_STATIC memory managers (Ogre-Next flips
+		// attached movables along with their node; child nodes are the
+		// caller's cascade)
+		this->mImpl->node->setStatic(isStatic);
+		if(isStatic)
+		{
+			// snapshot the derived transform into the static managers on the
+			// next frame (transforms set before this call are captured)
+			this->mImpl->creator->notifyStaticDirty(this->mImpl->node);
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderNode::isStatic() const
+	{
+		return this->mImpl->isStatic;
 	}
 	//---------------------------------------------------------
 	void RenderNode::setUserPointer(void * owner)

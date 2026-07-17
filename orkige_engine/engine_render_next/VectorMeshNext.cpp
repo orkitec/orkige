@@ -118,6 +118,12 @@ namespace Orkige
 		this->mesh->end();
 		this->mesh->setRenderQueueGroup(
 			RenderBackend::renderQueueForZOrder(this->zOrder));
+		if(this->mesh->isStatic())
+		{
+			// a mesh on a static node has a frozen AABB - re-snapshot after
+			// a rebuild so a legitimate late geometry edit culls correctly
+			this->creator->notifyStaticAabbDirty(this->mesh);
+		}
 	}
 	//---------------------------------------------------------
 	void VectorMesh::Impl::updateVertices(VectorMesh::Vertex const * vertices,
@@ -148,6 +154,10 @@ namespace Orkige
 				this->indices[t * 3 + 1], this->indices[t * 3 + 2]);
 		}
 		this->mesh->end();
+		if(this->mesh->isStatic())
+		{
+			this->creator->notifyStaticAabbDirty(this->mesh);
+		}
 	}
 	//---------------------------------------------------------
 	VectorMesh::VectorMesh()
@@ -176,7 +186,16 @@ namespace Orkige
 		{
 			this->mImpl->mesh->detachFromParent();
 		}
+		// align the movable's mobility with the target node (@see MeshInstance)
+		if(RenderBackend::nodeIsStatic(node) != this->mImpl->mesh->isStatic())
+		{
+			this->mImpl->mesh->setStatic(RenderBackend::nodeIsStatic(node));
+		}
 		RenderBackend::sceneNode(node)->attachObject(this->mImpl->mesh);
+		if(this->mImpl->mesh->isStatic())
+		{
+			this->mImpl->creator->notifyStaticAabbDirty(this->mImpl->mesh);
+		}
 		this->mImpl->attachedTo = node;
 	}
 	//---------------------------------------------------------

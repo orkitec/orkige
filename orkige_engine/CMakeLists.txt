@@ -270,6 +270,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_render_classic/RenderWorldClassic.cpp
         engine_render_classic/RenderNodeClassic.cpp
         engine_render_classic/MeshInstanceClassic.cpp
+        engine_render_classic/StaticBakeClassic.cpp
         engine_render_classic/SpriteQuadClassic.cpp
         engine_render_classic/SpriteBatchClassic.cpp
         engine_render_classic/VectorMeshClassic.cpp

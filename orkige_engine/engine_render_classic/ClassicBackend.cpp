@@ -106,6 +106,8 @@ namespace Orkige
 		{
 			return;
 		}
+		// static regions reference the dying scene manager - drop them first
+		RenderBackend::staticBakeTeardown();
 		delete gRenderSystem;	// ~RenderSystem deletes the world
 		gRenderSystem = NULL;
 		// handles may still be alive in script states (Lua userdata lives
@@ -154,6 +156,11 @@ namespace Orkige
 	Ogre::SceneNode* RenderBackend::sceneNode(optr<RenderNode> const & node)
 	{
 		return node ? node->mImpl->node : NULL;
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::nodeIsStatic(optr<RenderNode> const & node)
+	{
+		return node ? node->mImpl->isStatic : false;
 	}
 	//---------------------------------------------------------
 	Ogre::Camera* RenderBackend::ogreCamera(optr<RenderCamera> const & camera)

@@ -127,6 +127,29 @@ namespace Orkige
 		//! map: classic/next=SceneNode::setVisible(cascade) | filament=Scene::remove/addEntity per renderable
 		void setVisible(bool visible, bool cascade = true);
 
+		//--- mobility (the static flag) ---
+		//! @brief declare this node's WORLD transform immutable so the backend
+		//! can take its native immobile fast path. THE MOBILITY CONTRACT:
+		//! "static means static" - a static node is expected never to move
+		//! again. A later transform mutation on a static node stays CORRECT
+		//! but is a contract violation: the backend logs one warning per node
+		//! and lands the move through its costly repair path (next: an
+		//! explicit static-dirty notify re-derives the frozen transforms;
+		//! classic: baked mesh content DEMOTES out of its StaticGeometry
+		//! region - one region rebuild - and renders individually again).
+		//! Children created after the flag inherit it (createChild); child
+		//! nodes existing BEFORE the flag are not touched - callers cascade
+		//! explicitly (TransformComponent owns the per-object cascade).
+		//! map: classic=facade bookkeeping; attached mesh content becomes
+		//! StaticGeometry-bake eligible (see StaticBakeClassic.cpp) |
+		//! next=SceneNode::setStatic - the node and its attached objects move
+		//! into the SCENE_STATIC memory managers, which skip per-frame
+		//! transform derivation and cull prep | filament=no per-object static
+		//! path (transforms are only recomputed when set) - facade cache only
+		void setStatic(bool isStatic);
+		//! @see RenderNode::setStatic
+		bool isStatic() const;
+
 		//--- back-mapping (picking, editor hierarchy) ---
 		//! @brief attach an engine-side owner to the node - ray query results
 		//! and editors resolve a hit node back to its TransformComponent this

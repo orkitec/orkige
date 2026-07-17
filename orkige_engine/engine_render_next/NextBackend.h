@@ -131,6 +131,16 @@ namespace Orkige
 		mutable Ogre::Vector3		positionCache = Ogre::Vector3::ZERO;
 		mutable Ogre::Quaternion	orientationCache = Ogre::Quaternion::IDENTITY;
 		mutable Ogre::Vector3		scaleCache = Ogre::Vector3::UNIT_SCALE;
+		//! the mobility flag (@see RenderNode::setStatic): the node lives in
+		//! the SCENE_STATIC memory managers while set
+		bool				isStatic = false;
+		//! one mobility-contract warning per node (@see RenderNode::setStatic)
+		bool				staticMoveWarned = false;
+
+		//! the mobility-contract repair path: a transform mutation reached a
+		//! static node - warn once, then notifyStaticDirty so the frozen
+		//! transforms re-derive on the next frame (correct but costly)
+		void noteStaticMutation(char const * operation);
 	};
 
 	struct MeshInstance::Impl
@@ -581,6 +591,9 @@ namespace Orkige
 
 		//--- guts accessors (NULL-safe) ------------------------------
 		static Ogre::SceneNode* sceneNode(optr<RenderNode> const & node);
+		//! the node's mobility flag (@see RenderNode::setStatic) - content
+		//! classes align their movable's static mode with it on attach
+		static bool nodeIsStatic(optr<RenderNode> const & node);
 		static Ogre::Camera* ogreCamera(optr<RenderCamera> const & camera);
 		//! the target's CURRENT backend texture (changes across resizes) -
 		//! the 2D layer binds render-texture batches through this

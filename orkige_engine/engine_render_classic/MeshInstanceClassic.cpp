@@ -85,6 +85,8 @@ namespace Orkige
 	{
 		if(this->mImpl->entity)
 		{
+			// a baked entity leaves the static regions with its handle
+			RenderBackend::staticBakeUnregister(this->mImpl->entity);
 			if(this->mImpl->entity->isAttached())
 			{
 				this->mImpl->entity->detachFromParent();
@@ -102,11 +104,24 @@ namespace Orkige
 			this->mImpl->entity->detachFromParent();
 		}
 		RenderBackend::sceneNode(node)->attachObject(this->mImpl->entity);
+		// mesh content on a static node joins the static bake (content
+		// created after the node's flag flip registers here; a flip over
+		// already-attached content sweeps in RenderNode::setStatic)
+		if(RenderBackend::nodeIsStatic(node))
+		{
+			RenderBackend::staticBakeRegister(this->mImpl->entity,
+				RenderBackend::sceneNode(node));
+		}
+		else
+		{
+			RenderBackend::staticBakeUnregister(this->mImpl->entity);
+		}
 		this->mImpl->attachedTo = node;
 	}
 	//---------------------------------------------------------
 	void MeshInstance::detach()
 	{
+		RenderBackend::staticBakeUnregister(this->mImpl->entity);
 		if(this->mImpl->entity->isAttached())
 		{
 			this->mImpl->entity->detachFromParent();
@@ -122,11 +137,21 @@ namespace Orkige
 	void MeshInstance::setVisible(bool visible)
 	{
 		this->mImpl->entity->setVisible(visible);
+		if(RenderBackend::staticBakeContains(this->mImpl->entity))
+		{
+			// region membership follows the visible flag - re-filter
+			RenderBackend::staticBakeMarkDirty();
+		}
 	}
 	//---------------------------------------------------------
 	void MeshInstance::setCastShadows(bool cast)
 	{
 		this->mImpl->entity->setCastShadows(cast);
+		if(RenderBackend::staticBakeContains(this->mImpl->entity))
+		{
+			// the cast flag picks the region bucket - re-sort
+			RenderBackend::staticBakeMarkDirty();
+		}
 	}
 	//---------------------------------------------------------
 	AABB MeshInstance::getLocalBounds() const

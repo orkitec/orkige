@@ -64,6 +64,7 @@
 #include <imgui_internal.h> // FindWindowByName (the selfcheck's panel probes)
 #include <ImGuizmo.h>
 #include <core_debug/DebugMacros.h> // oDebug* + the Console log sink
+#include <core_debug/CVarManager.h> // the r.staticScene edit-mode gate
 
 #include "EditorCamera.h"
 #include "EditorCore.h"
@@ -357,6 +358,13 @@ int main(int argc, char** argv)
 		}
 		Orkige::RenderSystem* render = host.getRenderSystem();
 		Orkige::RenderWorld* world = host.getRenderWorld();
+
+		// edit mode never applies the static mobility flag to the renderer:
+		// gizmo moves and inspector edits keep working on the default dynamic
+		// path with no mobility-contract warnings, and the flag still
+		// round-trips through the inspector/serialization (played scenes get
+		// the fast path in the player, which boots with the gate ON)
+		Orkige::CVarManager::getSingleton().setString("r.staticScene", "0");
 
 		// The scene does not render into the window: the editor's scene
 		// camera draws into the offscreen facade RenderTexture created below

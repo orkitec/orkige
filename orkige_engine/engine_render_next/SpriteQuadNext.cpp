@@ -132,6 +132,13 @@ namespace Orkige
 		this->quad->end();
 		this->quad->setRenderQueueGroup(
 			RenderBackend::renderQueueForZOrder(this->zOrder));
+		if(this->quad->isStatic())
+		{
+			// a quad on a static node (the node flip carries its attached
+			// objects along) has a frozen AABB - re-snapshot after a rebuild
+			// so a legitimate late geometry edit still culls correctly
+			this->creator->notifyStaticAabbDirty(this->quad);
+		}
 	}
 	//---------------------------------------------------------
 	SpriteQuad::SpriteQuad()
@@ -160,7 +167,17 @@ namespace Orkige
 		{
 			this->mImpl->quad->detachFromParent();
 		}
+		// align the movable's mobility with the target node (a quad created
+		// after its node went static starts dynamic; @see MeshInstance)
+		if(RenderBackend::nodeIsStatic(node) != this->mImpl->quad->isStatic())
+		{
+			this->mImpl->quad->setStatic(RenderBackend::nodeIsStatic(node));
+		}
 		RenderBackend::sceneNode(node)->attachObject(this->mImpl->quad);
+		if(this->mImpl->quad->isStatic())
+		{
+			this->mImpl->creator->notifyStaticAabbDirty(this->mImpl->quad);
+		}
 		this->mImpl->attachedTo = node;
 	}
 	//---------------------------------------------------------

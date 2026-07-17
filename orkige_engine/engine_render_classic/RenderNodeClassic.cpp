@@ -14,6 +14,7 @@
 //! facade side, the registry in ClassicBackend backs the reverse lookups
 
 #include "engine_render_classic/ClassicBackend.h"
+#include <core_debug/DebugMacros.h>
 
 #include <algorithm>
 
@@ -32,6 +33,46 @@ namespace Orkige
 			}
 			return Ogre::Node::TS_PARENT;
 		}
+
+		//! drop every baked entity attached at or below node out of the
+		//! static bake (the classic demotion: it renders individually and
+		//! follows its node again; ONE deferred region rebuild covers all)
+		void demoteStaticSubtree(Ogre::SceneNode* node)
+		{
+			for(size_t each = 0; each < node->numAttachedObjects(); ++each)
+			{
+				Ogre::MovableObject* attached = node->getAttachedObject(each);
+				if(attached->getMovableType() == "Entity")
+				{
+					RenderBackend::staticBakeUnregister(
+						static_cast<Ogre::Entity*>(attached));
+				}
+			}
+			for(size_t each = 0; each < node->numChildren(); ++each)
+			{
+				demoteStaticSubtree(
+					static_cast<Ogre::SceneNode*>(node->getChild(each)));
+			}
+		}
+	}
+	//---------------------------------------------------------
+	void RenderNode::Impl::noteStaticMutation(char const * operation)
+	{
+		if(!this->isStatic)
+		{
+			return;
+		}
+		if(!this->staticMoveWarned)
+		{
+			oDebugWarn("engine", 0, "RenderNode: " << operation
+				<< " on STATIC node '" << this->node->getName()
+				<< "' - static means static; its baked mesh content demotes "
+				"out of the StaticGeometry regions (one rebuild) and renders "
+				"individually again. Clear the static flag on objects that "
+				"move.");
+			this->staticMoveWarned = true;
+		}
+		demoteStaticSubtree(this->node);
 	}
 	//---------------------------------------------------------
 	optr<RenderNode> RenderBackend::wrapNode(Ogre::SceneNode* node, bool owned,
@@ -101,6 +142,7 @@ namespace Orkige
 	void RenderNode::setPosition(Vec3 const & position)
 	{
 		this->mImpl->node->setPosition(position);
+		this->mImpl->noteStaticMutation("setPosition");
 	}
 	//---------------------------------------------------------
 	Quat const & RenderNode::getOrientation() const
@@ -111,6 +153,7 @@ namespace Orkige
 	void RenderNode::setOrientation(Quat const & orientation)
 	{
 		this->mImpl->node->setOrientation(orientation);
+		this->mImpl->noteStaticMutation("setOrientation");
 	}
 	//---------------------------------------------------------
 	Vec3 const & RenderNode::getScale() const
@@ -121,6 +164,7 @@ namespace Orkige
 	void RenderNode::setScale(Vec3 const & scale)
 	{
 		this->mImpl->node->setScale(scale);
+		this->mImpl->noteStaticMutation("setScale");
 	}
 	//---------------------------------------------------------
 	Vec3 RenderNode::getWorldPosition() const
@@ -151,21 +195,25 @@ namespace Orkige
 	void RenderNode::translate(Vec3 const & delta, TransformSpace relativeTo)
 	{
 		this->mImpl->node->translate(delta, toOgreSpace(relativeTo));
+		this->mImpl->noteStaticMutation("translate");
 	}
 	//---------------------------------------------------------
 	void RenderNode::yaw(Radian const & angle, TransformSpace relativeTo)
 	{
 		this->mImpl->node->yaw(angle, toOgreSpace(relativeTo));
+		this->mImpl->noteStaticMutation("yaw");
 	}
 	//---------------------------------------------------------
 	void RenderNode::pitch(Radian const & angle, TransformSpace relativeTo)
 	{
 		this->mImpl->node->pitch(angle, toOgreSpace(relativeTo));
+		this->mImpl->noteStaticMutation("pitch");
 	}
 	//---------------------------------------------------------
 	void RenderNode::roll(Radian const & angle, TransformSpace relativeTo)
 	{
 		this->mImpl->node->roll(angle, toOgreSpace(relativeTo));
+		this->mImpl->noteStaticMutation("roll");
 	}
 	//---------------------------------------------------------
 	void RenderNode::lookAt(Vec3 const & targetPoint, TransformSpace relativeTo,
@@ -173,6 +221,7 @@ namespace Orkige
 	{
 		this->mImpl->node->lookAt(targetPoint, toOgreSpace(relativeTo),
 			localDirection);
+		this->mImpl->noteStaticMutation("lookAt");
 	}
 	//---------------------------------------------------------
 	void RenderNode::setDirection(Vec3 const & direction,
@@ -180,6 +229,7 @@ namespace Orkige
 	{
 		this->mImpl->node->setDirection(direction, toOgreSpace(relativeTo),
 			localDirection);
+		this->mImpl->noteStaticMutation("setDirection");
 	}
 	//---------------------------------------------------------
 	void RenderNode::setFixedYawAxis(bool useFixed, Vec3 const & fixedAxis)
@@ -194,8 +244,12 @@ namespace Orkige
 			: this->mImpl->node->createChildSceneNode(name);
 		// own handle via the registry (facade classes are not
 		// enable_shared_from_this by design - handles stay plain)
-		return RenderBackend::wrapNode(child, true,
+		optr<RenderNode> handle = RenderBackend::wrapNode(child, true,
 			RenderBackend::findNode(this->mImpl->node));
+		// children inherit the mobility flag (@see RenderNode::setStatic):
+		// content attached to them registers with the static bake
+		handle->mImpl->isStatic = this->mImpl->isStatic;
+		return handle;
 	}
 	//---------------------------------------------------------
 	void RenderNode::setParent(optr<RenderNode> const & parent)
@@ -228,6 +282,9 @@ namespace Orkige
 		}
 		this->mImpl->parent = parent;
 		parent->mImpl->children.push_back(self);
+		// re-parenting changes the world transform - a mobility-contract
+		// violation on a static node (warned + demoted like a move)
+		this->mImpl->noteStaticMutation("setParent");
 	}
 	//---------------------------------------------------------
 	optr<RenderNode> RenderNode::getParent() const
@@ -262,6 +319,52 @@ namespace Orkige
 	void RenderNode::setVisible(bool visible, bool cascade)
 	{
 		this->mImpl->node->setVisible(visible, cascade);
+		if(this->mImpl->isStatic)
+		{
+			// baked geometry ignores the source entity's visible flag - a
+			// visibility change on a static object re-filters the regions at
+			// the next flush (membership follows entity->getVisible()). No
+			// warning: the inactive-at-load apply lands here legitimately.
+			RenderBackend::staticBakeMarkDirty();
+		}
+	}
+	//---------------------------------------------------------
+	void RenderNode::setStatic(bool isStatic)
+	{
+		if(this->mImpl->isStatic == isStatic)
+		{
+			return;
+		}
+		this->mImpl->isStatic = isStatic;
+		this->mImpl->staticMoveWarned = false;
+		// membership sweep over the DIRECTLY attached objects: entities on a
+		// newly-static node join the bake, entities on a newly-dynamic node
+		// leave it (child nodes are the caller's cascade; content attached
+		// later registers through MeshInstance::attachTo)
+		for(size_t each = 0; each < this->mImpl->node->numAttachedObjects();
+			++each)
+		{
+			Ogre::MovableObject* attached =
+				this->mImpl->node->getAttachedObject(each);
+			if(attached->getMovableType() != "Entity")
+			{
+				continue;	// 2D content batches through the sprite-run path
+			}
+			Ogre::Entity* entity = static_cast<Ogre::Entity*>(attached);
+			if(isStatic)
+			{
+				RenderBackend::staticBakeRegister(entity, this->mImpl->node);
+			}
+			else
+			{
+				RenderBackend::staticBakeUnregister(entity);
+			}
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderNode::isStatic() const
+	{
+		return this->mImpl->isStatic;
 	}
 	//---------------------------------------------------------
 	void RenderNode::setUserPointer(void * owner)

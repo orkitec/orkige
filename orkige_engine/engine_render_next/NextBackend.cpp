@@ -518,6 +518,11 @@ namespace Orkige
 		return node ? node->mImpl->node : NULL;
 	}
 	//---------------------------------------------------------
+	bool RenderBackend::nodeIsStatic(optr<RenderNode> const & node)
+	{
+		return node ? node->mImpl->isStatic : false;
+	}
+	//---------------------------------------------------------
 	Ogre::Camera* RenderBackend::ogreCamera(optr<RenderCamera> const & camera)
 	{
 		return camera ? camera->mImpl->camera : NULL;

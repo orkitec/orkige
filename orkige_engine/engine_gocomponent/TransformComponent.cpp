@@ -14,6 +14,8 @@
 #include "engine_render/RenderWorld.h"
 #include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
+#include <core_debug/CVarManager.h>
+#include <core_debug/DebugMacros.h>
 
 #include <vector>
 
@@ -42,7 +44,120 @@ namespace Orkige
 	{
 	}
 	//---------------------------------------------------------
+	char const * TransformComponent::staticFlagChangeError(bool wantStatic,
+		bool parentStatic, bool anyChildStatic)
+	{
+		// the hierarchy rule the backends' static memory layout requires: a
+		// static node's frozen world transform embeds its ancestors' poses,
+		// so every ancestor must be immutable too
+		if(wantStatic && !parentStatic)
+		{
+			return "a static object requires a static (or absent) parent - "
+				"flag the parent static first, or keep this object dynamic";
+		}
+		if(!wantStatic && anyChildStatic)
+		{
+			return "static children depend on this object's frozen transform "
+				"- clear their static flags first";
+		}
+		return NULL;
+	}
+	//---------------------------------------------------------
+	void TransformComponent::setStaticFlag(bool isStatic)
+	{
+		if(this->mStatic == isStatic)
+		{
+			return;
+		}
+		// hierarchy validation (only meaningful once the owner is placed in
+		// the object tree; a detached load records the flag and the scene
+		// loader parents children after their parents, so parents' flags are
+		// already in place when a child's property applies)
+		GameObject* componentOwner = this->getComponentOwner();
+		if(componentOwner)
+		{
+			bool parentStatic = true;	// no parent = the immutable world root
+			if(optr<GameObject> parent = componentOwner->getParent().lock())
+			{
+				optr<TransformComponent> parentTransform =
+					parent->getComponent<TransformComponent>().lock();
+				if(parentTransform)
+				{
+					parentStatic = parentTransform->getStaticFlag();
+				}
+			}
+			bool anyChildStatic = false;
+			if(GameObjectManager* manager = GameObjectManager::getSingletonPtr())
+			{
+				for(String const & childId :
+					manager->getChildren(componentOwner->getObjectID()))
+				{
+					optr<GameObject> child = manager->getGameObject(childId).lock();
+					if(!child)
+					{
+						continue;
+					}
+					optr<TransformComponent> childTransform =
+						child->getComponent<TransformComponent>().lock();
+					if(childTransform && childTransform->getStaticFlag())
+					{
+						anyChildStatic = true;
+						break;
+					}
+				}
+			}
+			if(char const * error = TransformComponent::staticFlagChangeError(
+				isStatic, parentStatic, anyChildStatic))
+			{
+				oDebugError("engine", 0, "TransformComponent: static flag on '"
+					<< componentOwner->getObjectID() << "' refused: " << error);
+				return;
+			}
+		}
+		this->mStatic = isStatic;
+		this->applyStaticFlag();
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
+	//---------------------------------------------------------
+	void TransformComponent::applyStaticFlag()
+	{
+		if(!this->mNode)
+		{
+			return;	// detached: the flag applies when the node exists (onAdd)
+		}
+		// the backend apply gate: OFF leaves everything on the default
+		// dynamic path (the editor's edit mode, and the toggle the pixel
+		// tests compare against). Read at apply time - flags set while OFF
+		// stay dormant until a scene reload with it ON.
+		if(CVarManager::getSingletonPtr() &&
+			!CVarManager::getSingleton().getBool("r.staticScene", true))
+		{
+			return;
+		}
+		// the object's own node, then the sibling components' content nodes:
+		// facade children WITHOUT a user pointer are component-owned (within
+		// the engine only TransformComponent tags nodes - the documented
+		// back-mapping convention); tagged children are child objects'
+		// transforms and flag themselves. Recursion covers helper nodes a
+		// component hung below its own (visual offsets etc.).
+		struct Cascade
+		{
+			static void apply(optr<RenderNode> const & node, bool isStatic)
+			{
+				node->setStatic(isStatic);
+				for(size_t each = 0; each < node->numChildren(); ++each)
+				{
+					optr<RenderNode> child = node->getChild(each);
+					if(child && child->getUserPointer() == NULL)
+					{
+						Cascade::apply(child, isStatic);
+					}
+				}
+			}
+		};
+		Cascade::apply(this->mNode, this->mStatic);
+	}
 	//---------------------------------------------------------
 	void TransformComponent::onAdd()
 	{
@@ -65,6 +180,12 @@ namespace Orkige
 		if(!componentOwner->getParentId().empty())
 		{
 			this->attachToNode(this->resolveParentNode());
+		}
+		// a flag recorded while detached (property applied before the node
+		// existed) lands on the fresh node now
+		if(this->mStatic)
+		{
+			this->applyStaticFlag();
 		}
 	}
 	//---------------------------------------------------------
@@ -292,6 +413,10 @@ namespace Orkige
 		OPROPERTY("position", Orkige::PropertyKind::Vec3, getPosition, setPosition, Orkige::PROP_NONE)
 		OPROPERTY("orientation", Orkige::PropertyKind::Quat, getOrientation, setOrientation, Orkige::PROP_NONE)
 		OPROPERTY("scale", Orkige::PropertyKind::Vec3, getScale, setScale, Orkige::PROP_NONE)
+		// the mobility flag - declared AFTER the transform fields so a scene
+		// load places the object BEFORE freezing it (@see setStaticFlag; the
+		// setter validates the hierarchy rule and may refuse with an error)
+		OPROPERTY("static", Orkige::PropertyKind::Bool, getStaticFlag, setStaticFlag, Orkige::PROP_NONE)
 
 		// self.transform / world.getTransform(id) hand Lua a WEAK handle - a
 		// distinct per-type currency (a component is its own handle base) that
@@ -311,6 +436,8 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(setWorldPosition)
 			OWEAKHANDLE_BASEMETHOD(setWorldOrientation)
 			OWEAKHANDLE_BASEMETHOD(teleport)
+			OWEAKHANDLE_BASEMETHOD(getStaticFlag)
+			OWEAKHANDLE_BASEMETHOD(setStaticFlag)
 		OWEAKHANDLE_END
 	OOBJECT_END
 }

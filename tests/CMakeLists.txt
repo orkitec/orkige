@@ -1627,6 +1627,24 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_benchmark_vista_wipe${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 240)
+        # the static mobility flag's whole contract in one run, per flavor
+        # (projects/benchmark scenes/fixture_static.oscene): toggle identity
+        # (r.staticScene on/off renders the same pixels - byte-exact on next,
+        # a tight StaticGeometry rounding tolerance on classic), the classic
+        # draw-call win, and the mobility contract (a runtime move of a
+        # static object warns EXACTLY once, lands correctly through the
+        # repair path, and demotes with the expected flavor batch delta).
+        add_test(NAME player_static_contract${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_static_contract_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --player "$<TARGET_FILE:orkige_player>"
+                --dir "${CMAKE_CURRENT_BINARY_DIR}/static_contract${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                --flavor "${ORKIGE_RENDER_BACKEND}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_static_contract${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 240)
+
         # the vista must also LOOK right: measured pixel discriminators over a
         # captured frame - HUD glyph presence (per-frame-dirty gui batches
         # reach the frame) and a daylit green-over-blue terrain band (the

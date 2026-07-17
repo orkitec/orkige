@@ -31,6 +31,8 @@ namespace Orkige
 		//--- Variables ---------------------------------------
 	public:
 	protected:
+		//! the reflected mobility flag (@see setStaticFlag)
+		bool	mStatic = false;
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -64,7 +66,43 @@ namespace Orkige
 		//! GameObject to its TransformComponent's current world pose, killing
 		//! the momentum of non-static bodies (@see teleport)
 		static void syncSubtreeBodies(GameObject * gameObject);
+
+		//--- MOBILITY (the reflected `static` flag) ---
+		//! @see TransformComponent::setStaticFlag
+		inline bool getStaticFlag() const { return this->mStatic; }
+		//! @brief declare this object's world transform IMMUTABLE so the
+		//! renderer can take its immobile fast path (next: SCENE_STATIC
+		//! memory managers skip per-frame transform derivation and cull
+		//! prep; classic: mesh content bakes into shared StaticGeometry
+		//! regions - fewer draw calls). Applies to the object's OWN node and
+		//! the content nodes its sibling components own; child GameObjects
+		//! flag themselves.
+		//! @remarks THE MOBILITY CONTRACT: "static means static" - a runtime
+		//! move of a static object stays correct but logs one warning per
+		//! node and pays the backend's repair path (@see
+		//! RenderNode::setStatic). HIERARCHY RULE, validated here with an
+		//! honest error: a static object requires a static (or absent)
+		//! parent - a static child under a dynamic parent would freeze while
+		//! the parent moves - and a static parent cannot go dynamic while
+		//! static children depend on it. The `r.staticScene` cvar gates the
+		//! backend apply (read at apply time; the flag itself always
+		//! round-trips) - the editor runs with it OFF so edit-mode gizmo
+		//! moves never fight the contract.
+		void setStaticFlag(bool isStatic);
+		//! @brief the pure hierarchy rule behind setStaticFlag: the reason a
+		//! flag change is refused, or NULL when it is allowed
+		//! @param wantStatic the value being set
+		//! @param parentStatic the parent object's flag (true when no parent)
+		//! @param anyChildStatic any direct child object's flag set
+		static char const * staticFlagChangeError(bool wantStatic,
+			bool parentStatic, bool anyChildStatic);
 	protected:
+		//! @brief push the current flag onto the render nodes: the owned node
+		//! plus the sibling components' content nodes below it (facade
+		//! children WITHOUT a user pointer; child TransformComponents carry
+		//! one and stay untouched - they flag themselves). No-op while
+		//! detached or while `r.staticScene` is off.
+		void applyStaticFlag();
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject

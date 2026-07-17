@@ -220,6 +220,12 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		(std::getenv("ORKIGE_PERF_SELFCHECK") != nullptr);
 	benchmarkCheck =
 		(std::getenv("ORKIGE_BENCHMARK_SELFCHECK") != nullptr);
+	// ORKIGE_STATICMOVE_SELFCHECK verifies the static-mobility contract
+	// against projects/benchmark scenes/fixture_static.oscene (@see the
+	// header's block comment): a runtime move of a static object must warn
+	// once AND land correctly through the backend repair path.
+	staticMoveCheck =
+		(std::getenv("ORKIGE_STATICMOVE_SELFCHECK") != nullptr);
 	// automated runs (ctest, the editor's play-mode tests - they inherit
 	// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 	// the machine allows; a HUMAN run gets vsync so games neither spin
@@ -230,6 +236,7 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		integrationContactCheck || integrationLevelCheck ||
 		breadcrumbCheck || fadeCheck || lifecycleCheck || resizeCheck ||
 		softbodyCheck || perfCheck || benchmarkCheck || vectorAnimCheck ||
+		staticMoveCheck ||
 		!assetIdCheckTexture.empty() || !cookedCheckTexture.empty() ||
 		frameLimit != 0;
 }
@@ -2507,6 +2514,67 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				"scripted)");
 		}
 	}
+	// ORKIGE_STATICMOVE_SELFCHECK (@see PlayerSelfChecks.h): a runtime move
+	// of a STATIC object must land correctly through the backend repair
+	// path. The ctest driver asserts the flavor-specific batch delta and
+	// the one mobility-contract warning from the lines printed here.
+	if (staticMoveCheck && !staticMoveDone)
+	{
+		if (frameCount == 30)
+		{
+			staticMoveBatchesBefore = render->getFrameStats().batchCount;
+			optr<Orkige::GameObject> probe =
+				gameObjectManager.getGameObject("Static3").lock();
+			Orkige::TransformComponent* transform = probe
+				? probe->getComponentPtr<Orkige::TransformComponent>()
+				: nullptr;
+			if (!transform || !transform->getStaticFlag())
+			{
+				SDL_Log("orkige_player: staticmove selfcheck FAILED - "
+					"no static Static3 object in the fixture scene");
+				exitCode = 1;
+				running = false;
+			}
+			else
+			{
+				// the contract violation under test: reposition a static
+				// object mid-run (warned once, then repaired)
+				transform->setPosition(Orkige::Vec3(0.05f, 3.05f, -9.05f));
+			}
+		}
+		if (frameCount == 60)
+		{
+			optr<Orkige::GameObject> probe =
+				gameObjectManager.getGameObject("Static3").lock();
+			Orkige::TransformComponent* transform = probe
+				? probe->getComponentPtr<Orkige::TransformComponent>()
+				: nullptr;
+			const Orkige::Vec3 world = transform
+				? transform->getWorldPosition()
+				: Orkige::Vec3::ZERO;
+			const std::size_t batchesAfter =
+				render->getFrameStats().batchCount;
+			if (!transform ||
+				std::abs(world.x - 0.05f) > 0.001f ||
+				std::abs(world.y - 3.05f) > 0.001f ||
+				std::abs(world.z + 9.05f) > 0.001f)
+			{
+				SDL_Log("orkige_player: staticmove selfcheck FAILED - "
+					"the move did not land (world %.3f %.3f %.3f)",
+					world.x, world.y, world.z);
+				exitCode = 1;
+			}
+			else
+			{
+				SDL_Log("orkige_player: staticmove selfcheck complete - "
+					"moved Static3 to (0.05, 3.05, -9.05); batches "
+					"before=%zu after=%zu",
+					staticMoveBatchesBefore, batchesAfter);
+			}
+			staticMoveDone = true;
+		}
+	}
+
 	if (rollerProgressionCheck && rollerProgCheckFailed)
 	{
 		exitCode = 1;
@@ -3656,6 +3724,12 @@ void PlayerSelfChecks::atLoopEnd(PlayerContext& context)
 	{
 		SDL_Log("orkige_player: TWEEN SELFCHECK FAILED - run ended before "
 			"the check completed");
+		exitCode = 1;
+	}
+	if (staticMoveCheck && !staticMoveDone)
+	{
+		SDL_Log("orkige_player: STATICMOVE SELFCHECK FAILED - run ended "
+			"before the check completed");
 		exitCode = 1;
 	}
 	if (lifecycleCheck && !lifecycleFailed &&

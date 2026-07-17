@@ -94,12 +94,17 @@ class ComponentWriter:
     # -- reflected components (subset-tolerant) ----------------------------
 
     def transform(self, x=0.0, y=0.0, z=0.0, sx=1.0, sy=1.0, sz=1.0,
-                  quat=(1.0, 0.0, 0.0, 0.0)):
-        return self._reflected("TransformComponent", [
+                  quat=(1.0, 0.0, 0.0, 0.0), static=False):
+        records = [
             ("position", K_VEC3, "%s %s %s" % (fmt(float(x)), fmt(float(y)), fmt(float(z))), ""),
             ("orientation", K_QUAT, "%s %s %s %s" % tuple(fmt(float(q)) for q in quat), ""),
             ("scale", K_VEC3, "%s %s %s" % (fmt(float(sx)), fmt(float(sy)), fmt(float(sz))), ""),
-        ])
+        ]
+        if static:
+            # the mobility flag: immobile scenery takes the renderer's
+            # static fast path (SCENE_STATIC / StaticGeometry regions)
+            records.append(("static", K_BOOL, "1", ""))
+        return self._reflected("TransformComponent", records)
 
     def model(self, mesh, material=""):
         recs = [("mesh", K_ASSETREF, mesh, "")]
@@ -607,8 +612,9 @@ def director(scene_writer, mode, label, seconds, extra_exports=()):
 
 
 def terrain_object(scene, y=-4.0):
+    # terrain never moves: static scenery (the renderer's immobile fast path)
     scene.add("Terrain",
-              scene.transform(0.0, y, 0.0),
+              scene.transform(0.0, y, 0.0, static=True),
               scene.model("demo_terrain.glb", "demo_terrain.omat"),
               tags=("terrain",))
 
@@ -634,8 +640,9 @@ def build_vista():
         (7.0, 1.0, -13.0, "prop_crystal.omat", 0.9),
     ]
     for i, (x, y, z, mat, sc) in enumerate(props):
+        # scattered props never move: static scenery
         s.add("Prop%d" % i,
-              s.transform(x, y, z, sc, sc, sc),
+              s.transform(x, y, z, sc, sc, sc, static=True),
               s.model("demo_material_cube.glb", mat))
     # weather: a world-space rain emitter high over the valley (director toggles
     # it on for the rain phase by activating this object)
@@ -773,10 +780,10 @@ def build_flatland():
     director(s, "flatland", "Flatland", 12.0)
     # parallax background bands (sprites at different zOrder), a soft-body blob,
     # a morph blob, a vector-anim character and a sprite.
-    s.add("BgFar", s.transform(0.0, 0.0, 0.0),
+    s.add("BgFar", s.transform(0.0, 0.0, 0.0, static=True),
           s.sprite("particle_dot.png", 40.0, 24.0, z_order=0,
                    tint=(0.3, 0.45, 0.7, 1.0)))
-    s.add("BgNear", s.transform(0.0, -3.0, 0.0),
+    s.add("BgNear", s.transform(0.0, -3.0, 0.0, static=True),
           s.sprite("particle_dot.png", 40.0, 12.0, z_order=1,
                    tint=(0.4, 0.6, 0.5, 1.0)))
     # a bouncing soft-body blob (a sibling rigid body squashes it)
@@ -854,10 +861,73 @@ def build_tally():
     return s
 
 
+# ---------------------------------------------------------------------------
+# test FIXTURE scenes: deterministic, director-free, NOT in the level
+# sequence. The performance selfchecks and the render-toggle pixel tests
+# boot these directly (tests/CMakeLists.txt), so their composition is part
+# of those tests' expected numbers - change them together.
+# ---------------------------------------------------------------------------
+
+def build_fixture_static():
+    """Static-mobility fixture: a sun plus a grid of STATIC prop cubes and
+    one deliberately DYNAMIC twin. The static-move contract test repositions
+    "Static3" at runtime (warning + demote path); the r.staticScene pixel
+    test renders this scene with the gate on and off."""
+    s = SceneWriter()
+    s.add("Sun",
+          s.transform(0.0, 20.0, 0.0, quat=(0.9239, -0.3827, 0.0, 0.0)),
+          s.light(light_type=0, colour=(1.0, 0.95, 0.85), intensity=1.1))
+    for i in range(8):
+        x = -5.25 + (i % 4) * 3.1
+        y = -1.55 + (i // 4) * 3.05
+        s.add("Static%d" % i,
+              s.transform(x, y, -12.05, static=True),
+              s.model("demo_material_cube.glb", "prop_rock.omat"))
+    s.add("Mover",
+          s.transform(0.05, -3.55, -9.05),
+          s.model("demo_material_cube.glb", "prop_crystal.omat"))
+    return s
+
+
+def build_fixture_sprites():
+    """Sprite-run batching fixture: a deterministic painter's sequence whose
+    grouping is known EXACTLY. Creation order at zOrder 0 is A,A,A,B,A,A,A,A,A
+    (A = dot texture, B = streak texture): the interleaved B breaks the run,
+    so batching yields A-run(3) + solo B + A-run(5) = 3 draws for 9 sprites;
+    two more A sprites at zOrder 1 form one more run. Batched draws 4 vs 11
+    individual - a delta of exactly 7 the sprite-batching selfcheck pins."""
+    s = SceneWriter()
+    layout = [
+        # (name, texture, x, y, z_order)
+        ("A0", "particle_dot.png", -5.05, 1.55, 0),
+        ("A1", "particle_dot.png", -3.85, 1.55, 0),
+        ("A2", "particle_dot.png", -2.65, 1.55, 0),
+        ("B0", "particle_rain.png", -1.45, 1.55, 0),
+        ("A3", "particle_dot.png", -0.25, 1.55, 0),
+        ("A4", "particle_dot.png", 0.95, 1.55, 0),
+        ("A5", "particle_dot.png", 2.15, 1.55, 0),
+        ("A6", "particle_dot.png", 3.35, 1.55, 0),
+        ("A7", "particle_dot.png", 4.55, 1.55, 0),
+        ("C0", "particle_dot.png", -1.05, -1.45, 1),
+        ("C1", "particle_dot.png", 0.85, -1.45, 1),
+    ]
+    for (name, texture, x, y, z_order) in layout:
+        s.add(name,
+              s.transform(x, y, -8.05),
+              s.sprite(texture, 1.0, 1.0, z_order=z_order))
+    return s
+
+
 BUILDERS = {
     "vista": build_vista, "lake": build_lake, "lumens": build_lumens,
     "swarm": build_swarm, "field": build_field, "flatland": build_flatland,
     "console": build_console, "cascade": build_cascade, "tally": build_tally,
+}
+
+#: fixture file -> builder (written beside the tour scenes, never sequenced)
+FIXTURES = {
+    "fixture_static.oscene": build_fixture_static,
+    "fixture_sprites.oscene": build_fixture_sprites,
 }
 
 
@@ -1088,6 +1158,12 @@ def build_all(project_dir):
         s.write(scenes / file)
         print("wrote %s (%d objects)" % (scenes / file, len(s.objects)))
 
+    # test fixtures (deterministic, director-free, not in the level sequence)
+    for (file, builder) in sorted(FIXTURES.items()):
+        s = builder()
+        s.write(scenes / file)
+        print("wrote %s (%d objects)" % (scenes / file, len(s.objects)))
+
     # config + manifest + attribution
     write_levels(project_dir / "levels.olevels")
     write_layers(project_dir / "physics.olayers")
@@ -1104,6 +1180,15 @@ def selftest():
         assert text.startswith('<?xml'), mode
         assert '<int value="7"/>' in text, "scene version 7 marker missing"
         assert 'Director' in text, "no director in %s" % mode
+    # fixtures build too and carry their contracts: the static grid is
+    # flagged, the sprite sequence keeps its exact painter's grouping
+    static_text = build_fixture_static().to_text()
+    assert static_text.count('<String value="static"/>') == 8, \
+        "fixture_static must flag exactly the 8 grid cubes"
+    sprites = build_fixture_sprites()
+    assert len(sprites.objects) == 11, "fixture_sprites is 11 sprites"
+    assert 'particle_rain.png' in sprites.to_text(), \
+        "the run-breaking B sprite is missing"
     # xliff round-trips its keys
     import io
     buf = io.StringIO()
