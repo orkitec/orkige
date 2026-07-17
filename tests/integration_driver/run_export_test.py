@@ -195,6 +195,25 @@ def check_ios(app_dir, flavor):
             "loose AppIcon*.png at the bundle root")
     require(info.get("CFBundleIdentifier") != "com.orkitec.orkige-player",
             "CFBundleIdentifier rewritten off the generic player identity")
+    # the privacy manifest: every iOS bundle carries a parseable
+    # PrivacyInfo.xcprivacy declaring no tracking and the audited
+    # required-reason API categories (see privacy_manifest() in the exporter)
+    privacy_path = os.path.join(app_dir, "PrivacyInfo.xcprivacy")
+    require(os.path.isfile(privacy_path),
+            "privacy manifest PrivacyInfo.xcprivacy at the bundle root")
+    with open(privacy_path, "rb") as privacy_file:
+        privacy = plistlib.load(privacy_file)  # raises if not a plist
+    require(privacy.get("NSPrivacyTracking") is False,
+            "privacy manifest declares no tracking")
+    accessed = privacy.get("NSPrivacyAccessedAPITypes", [])
+    categories = {entry.get("NSPrivacyAccessedAPIType") for entry in accessed}
+    for category in ("NSPrivacyAccessedAPICategoryFileTimestamp",
+                     "NSPrivacyAccessedAPICategorySystemBootTime"):
+        require(category in categories,
+                "privacy manifest declares " + category)
+    require(all(entry.get("NSPrivacyAccessedAPITypeReasons")
+                for entry in accessed),
+            "every accessed-API entry carries a reason code")
 
 
 def check_android(apk_path, aapt2):

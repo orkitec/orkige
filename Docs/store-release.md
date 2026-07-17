@@ -225,6 +225,34 @@ export ORKIGE_IOS_DISTRIBUTION_PROFILE="$HOME/path/to/YourGame_AppStore.mobilepr
    `notarytool` is **not** used here — it notarizes macOS apps; App Store iOS
    uploads go through altool/Transporter.
 
+### Privacy manifest (`PrivacyInfo.xcprivacy`)
+
+App Store submission requires a **privacy manifest** in the app bundle declaring
+collected data types, tracking, tracking domains, and any use of Apple's
+"required reason" APIs. The exporter generates one into every iOS bundle —
+`ios-simulator`, `ios`, and the `ios-ipa` `Payload` app (written before signing,
+so the signature seals it). It declares:
+
+- **No tracking** (`NSPrivacyTracking` false), **no tracking domains**, **no
+  collected data types** — the engine is self-contained: every dependency is
+  statically linked (no third-party SDK carrying its own manifest), it collects
+  nothing and contacts no server.
+- Exactly two **accessed API categories**, matching what the shipped player
+  binary actually imports:
+
+  | category | why | reason code |
+  |---|---|---|
+  | File timestamp | `stat`/`fstat` in the statically linked resource and file layers (archive/directory scanning, file sizes); the player reads only its bundle and its writable app dir | `C617.1` (files inside the app container) |
+  | System boot time | `mach_absolute_time` in the high-resolution frame/performance timer | `35F9.1` (elapsed time between in-app events) |
+
+Nothing else on Apple's required-reason list (disk space, active keyboard list,
+user defaults) appears in the binary, so nothing else is declared — an over- or
+under-declaring manifest is worse than none. Engine code that adopts one of
+those APIs must add its category with an approved reason code to
+`privacy_manifest()` in `Util/orkige_export.py`. The declaration is verified by
+`orkige_export.py --selftest` and the `export_ios_simulator` structure test
+(presence, plist parse, no-tracking, the two categories).
+
 ### This machine
 
 This development machine holds **no** Apple distribution certificate, so

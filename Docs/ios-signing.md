@@ -78,7 +78,9 @@ export time through the seam above.
 
 (The `--signing-identity` / `--provisioning-profile` arguments override the
 environment variables when both are given.) The exporter signs the bundle
-inside-out and embeds the profile, then prints the install command:
+inside-out and embeds the profile — the bundle also carries a generated
+`PrivacyInfo.xcprivacy` privacy manifest (see
+[`store-release.md`](store-release.md)) — then prints the install command:
 
 ```sh
 xcrun devicectl device install app --device <udid> <YourGame.app>

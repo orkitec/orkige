@@ -56,8 +56,10 @@ build of the project's own module). Per platform:
                  "export.macos.bundleId" (default com.orkitec.<name>).
 
   ios-simulator  reuses the OrkigePlayer.app the ios-simulator-debug preset
-                 built and adds the project payload + marker at the (flat)
-                 bundle root (= SDL_GetBasePath() on iOS). No re-signing
+                 built and adds the project payload + marker + the generated
+                 PrivacyInfo.xcprivacy (every iOS bundle carries the privacy
+                 manifest - see privacy_manifest()) at the (flat) bundle root
+                 (= SDL_GetBasePath() on iOS). No re-signing
                  needed for the simulator. Native-module projects are refused
                  (mobile native modules are future work); physical-device
                  export (--platform ios) is gated on a signing identity, the
@@ -753,6 +755,55 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
     return app_dir
 
 
+# --- iOS privacy manifest ----------------------------------------------------
+# Apple requires every submitted app to carry a PrivacyInfo.xcprivacy at the
+# bundle root declaring collected data, tracking, and any "required reason" API
+# use. The engine is self-contained (every dependency statically linked, no
+# third-party SDK with a manifest of its own), collects no data and contacts no
+# server, so the manifest is ONE generated artifact - written into every iOS
+# bundle (ios-simulator, ios, and the ios-ipa Payload app). The accessed-API
+# list mirrors what the shipped player binary actually imports:
+#
+#   file timestamp (reason C617.1 - timestamps of files inside the app's own
+#   container): stat/fstat via the statically linked resource and file layers
+#   (archive/directory scanning, file sizes) - the player reads only its
+#   bundle and its writable app dir.
+#   system boot time (reason 35F9.1 - elapsed time between in-app events):
+#   mach_absolute_time via the high-resolution frame/performance timer.
+#
+# Nothing else on Apple's required-reason list (disk space, active keyboards,
+# user defaults) appears in the binary, so nothing else is declared - an over-
+# or under-declaring manifest is worse than none. Engine code adopting one of
+# those APIs must add its category + an approved reason code here.
+PRIVACY_MANIFEST_FILE_NAME = "PrivacyInfo.xcprivacy"
+
+
+def privacy_manifest():
+    """the iOS app-bundle privacy manifest as a plist dict (pure, so the
+    selftest validates the exact declaration without packaging an app)."""
+    return {
+        "NSPrivacyTracking": False,
+        "NSPrivacyTrackingDomains": [],
+        "NSPrivacyCollectedDataTypes": [],
+        "NSPrivacyAccessedAPITypes": [
+            {"NSPrivacyAccessedAPIType":
+                "NSPrivacyAccessedAPICategoryFileTimestamp",
+             "NSPrivacyAccessedAPITypeReasons": ["C617.1"]},
+            {"NSPrivacyAccessedAPIType":
+                "NSPrivacyAccessedAPICategorySystemBootTime",
+             "NSPrivacyAccessedAPITypeReasons": ["35F9.1"]},
+        ],
+    }
+
+
+def write_privacy_manifest(app_dir):
+    """write PrivacyInfo.xcprivacy at the bundle root (flat on iOS - the same
+    level as Info.plist). Written before any codesign so the signature seals it."""
+    with open(os.path.join(app_dir, PRIVACY_MANIFEST_FILE_NAME),
+              "wb") as handle:
+        plistlib.dump(privacy_manifest(), handle)
+
+
 # --- iOS simulator ---------------------------------------------------------
 
 def emsdk_root(environ=None):
@@ -891,6 +942,7 @@ def export_ios_simulator(project, engine_build, output_dir):
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),
                                    "ios-simulator")
     write_marker(app_dir)
+    write_privacy_manifest(app_dir)
     log("project payload: %d files" % staged)
 
     # per-project icons + Info.plist identity. The prebuilt player bundle ships
@@ -1040,6 +1092,7 @@ def build_signed_ios_bundle(project, source_app, output_dir, identity, profile,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),
                                    "ios")
     write_marker(app_dir)
+    write_privacy_manifest(app_dir)
     log("project payload: %d files" % staged)
 
     icon_source = orkige_icons.load_square_source(
@@ -1511,6 +1564,33 @@ def selftest():
     assert resolve_ios_distribution_signing("", "", {
         IOS_SIGNING_IDENTITY_ENV: "dev-id"}) == ("", ""), \
         "distribution ignores the development env"
+
+    # the privacy manifest: no tracking, no tracking domains, no collected
+    # data, and EXACTLY the audited required-reason categories with their
+    # approved reason codes - asserted through a plistlib round-trip (the
+    # same serialization write_privacy_manifest ships) so the declaration
+    # survives as a valid plist
+    privacy = plistlib.loads(plistlib.dumps(privacy_manifest()))
+    assert privacy["NSPrivacyTracking"] is False, "no tracking declared"
+    assert privacy["NSPrivacyTrackingDomains"] == [], "no tracking domains"
+    assert privacy["NSPrivacyCollectedDataTypes"] == [], "no collected data"
+    accessed = {entry["NSPrivacyAccessedAPIType"]:
+                entry["NSPrivacyAccessedAPITypeReasons"]
+                for entry in privacy["NSPrivacyAccessedAPITypes"]}
+    assert accessed == {
+        "NSPrivacyAccessedAPICategoryFileTimestamp": ["C617.1"],
+        "NSPrivacyAccessedAPICategorySystemBootTime": ["35F9.1"],
+    }, "exactly the audited categories, each with its approved reason code"
+    # the writer puts the manifest at the bundle root under the exact name
+    # Apple's tooling looks for
+    with tempfile.TemporaryDirectory() as work:
+        write_privacy_manifest(work)
+        manifest_path = os.path.join(work, PRIVACY_MANIFEST_FILE_NAME)
+        assert os.path.basename(manifest_path) == "PrivacyInfo.xcprivacy", \
+            "the file name Apple's tooling expects"
+        with open(manifest_path, "rb") as handle:
+            assert plistlib.load(handle) == privacy, \
+                "written manifest round-trips to the same declaration"
 
     # .ipa layout: every bundle file lands under Payload/<App>.app/...
     assert ipa_arcname("/out/MyGame.app", "/out/MyGame.app/Info.plist") == \
