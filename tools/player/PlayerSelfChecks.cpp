@@ -3432,6 +3432,14 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 					static_cast<double>(projection[0][0])
 				: 0.0;
 		};
+		if (resizePhase == ResizePhase::Baseline && frameCount == 5)
+		{
+			// a maximized window ignores programmatic size requests (a small
+			// hosted-runner desktop maximizes the player at creation);
+			// restoring is a no-op on an already-windowed host and gives the
+			// window manager a few frames to settle before the baseline
+			SDL_RestoreWindow(context.host.getWindow());
+		}
 		if (resizePhase == ResizePhase::Baseline && frameCount == 10)
 		{
 			render->getWindowSize(resizeBaselineW, resizeBaselineH);
