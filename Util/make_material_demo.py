@@ -26,9 +26,13 @@ re-opens the written .glb and validates the chunk layout.
 """
 
 import json
+import os
 import struct
 import sys
 import zlib
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orkige_sidecar  # noqa: E402  (sibling stdlib helper)
 from pathlib import Path
 
 GLB_MAGIC = 0x46546C67  # 'glTF'
@@ -256,6 +260,10 @@ def main():
         path = out_dir / name
         path.write_bytes(payload)
         written.append(path)
+        if name == "demo_mat_normal.png":
+            # normal maps encode directions - block compression distorts
+            # them, so the export cook ships this one as exact PNG texels
+            orkige_sidecar.stamp_texture_sidecar(str(path))
     omat = out_dir / "demo_material.omat"
     omat.write_text(OMAT_TEXT)
     written.append(omat)

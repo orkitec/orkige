@@ -53,6 +53,9 @@ import struct
 import sys
 import zlib
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orkige_sidecar  # noqa: E402  (sibling stdlib helper)
+
 # ---------------------------------------------------------------------------
 # 5x7 pixel font, ASCII 33..126 ('X' = set). Rows top to bottom; baseline is
 # the bottom row (6) - descenders are compressed, classic LCD-font style.
@@ -424,6 +427,10 @@ def build_atlas(out_dir, atlas_name):
     canvas.write_png(png_path)
     with open(ogui_path, "w", newline="\n") as handle:
         handle.write("\n".join(ogui) + "\n")
+    # glyph atlases are pixel-exact: stamp format="none" so the export cook
+    # ships the PNG untouched (block compression smears glyph edges); the
+    # stamp preserves an existing id and never overrides a chosen format
+    orkige_sidecar.stamp_texture_sidecar(png_path)
     return png_path, ogui_path, canvas, occupied
 
 

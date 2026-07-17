@@ -500,10 +500,13 @@ struct AssetBrowserState
 	//! handling, mirrors scenePanelFocused / hierarchyFocused)
 	bool focused = false;
 	//! the Inspector's Texture Import Settings edit cache: the settings being
-	//! edited and the sidecar path they were read from (a changed path re-reads
-	//! from disk, so the section always reflects the selected texture)
+	//! edited, the sidecar path they were read from and the file time they
+	//! were read at (a changed path OR a changed file re-reads from disk, so
+	//! the section always reflects the selected texture - including a sidecar
+	//! rewritten from outside, e.g. an MCP write_project_file)
 	Orkige::TextureImport editImport;
 	std::string editImportPath;
+	long long editImportFileTime = 0;
 	//! the Inspector's Animation Import Settings edit cache (the texture cache's
 	//! cooked-pair sibling): the cook settings being edited, the source sidecar
 	//! they were read from and whether that sidecar carried a <cook> record yet

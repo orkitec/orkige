@@ -448,6 +448,14 @@ namespace Orkige
 			Vec3 const * points, Color const * colours, size_t pointCount);
 
 		//--- texture / datablock services (the material surface) -----
+		//! @brief resolve a texture resource name against the cooked-payload
+		//! rename: an exported payload block-compresses textures, replacing
+		//! foo.png with foo.dds/foo.oitd - when the plain name is missing
+		//! from every resource group, the cooked siblings are tried (id-less
+		//! bare-name references: .omat maps, gui atlases, script-set sprite
+		//! names; id-carrying references resolve through the renamed sidecar
+		//! before they reach the backend). Dev trees always hit the raw name.
+		static String resolveTextureResourceName(String const & textureName);
 		//! load a 2D texture through the resource system (any group);
 		//! metadata (texel size) is ready on return; NULL when missing
 		static Ogre::TextureGpu* loadTexture2D(String const & textureName);

@@ -139,7 +139,7 @@ namespace Orkige
 				try
 				{
 					texture = Ogre::TextureManager::getSingleton().load(
-						textureName,
+						RenderBackend::resolveTextureResourceName(textureName),
 						Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
 				}
 				catch(Ogre::Exception const &)

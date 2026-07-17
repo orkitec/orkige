@@ -38,6 +38,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orkige_png  # noqa: E402  (sibling stdlib helper)
+import orkige_sidecar  # noqa: E402  (sibling stdlib helper)
 
 PADDING = 1  # transparent gutter around every sprite (bilinear seam safety)
 
@@ -112,6 +113,11 @@ def build_atlas(out_dir, atlas_name, sprite_paths):
     orkige_png.encode_png(atlas, png_path)
     with open(oatlas_path, "w", newline="\n") as handle:
         handle.write("\n".join(lines) + "\n")
+    # region atlases are pixel-exact (frame rects share texel edges): stamp
+    # format="none" so the export cook ships the PNG untouched; the stamp
+    # preserves an existing id and never overrides a chosen format, so a
+    # decorative atlas can still opt in to compression per atlas
+    orkige_sidecar.stamp_texture_sidecar(png_path)
     return png_path, oatlas_path, atlas, dict(sprites), table
 
 

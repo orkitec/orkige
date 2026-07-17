@@ -459,6 +459,37 @@ void drawTextureSettingsFields(Orkige::TextureImportSettings& settings)
 		"to; 0 = uncapped");
 	Orkige::compactCheckbox("Premultiply Alpha", &settings.premultiply);
 	Orkige::compactCheckbox("Generate Mips", &settings.generateMips);
+	ImGui::SetItemTooltip("bake an offline mip chain into the compressed "
+		"container at export");
+	if (ImGui::BeginCombo("Format", settings.format.c_str()))
+	{
+		for (const char* option : { "auto", "none", "astc-4x4", "astc-6x6",
+			"astc-8x8", "etc2", "bc1", "bc3", "bc7" })
+		{
+			if (ImGui::Selectable(option, settings.format == option))
+			{
+				settings.format = option;
+			}
+		}
+		ImGui::EndCombo();
+	}
+	ImGui::SetItemTooltip("GPU block compression the export cook applies: "
+		"auto = the platform's best format, none = ship the PNG; an explicit "
+		"format is validated against the export platform (the dev loop always "
+		"renders the raw source)");
+	if (ImGui::BeginCombo("Quality", settings.quality.c_str()))
+	{
+		for (const char* option : { "low", "normal", "high" })
+		{
+			if (ImGui::Selectable(option, settings.quality == option))
+			{
+				settings.quality = option;
+			}
+		}
+		ImGui::EndCombo();
+	}
+	ImGui::SetItemTooltip("compression effort/quality; under auto it also "
+		"picks the ASTC block size (high 4x4, normal 6x6, low 8x8)");
 }
 
 //! the texture-import PREVIEW block appended to the settings section: a
@@ -505,6 +536,10 @@ void drawTexturePreviewBlock(EditorState& state, std::string const& relativePath
 	if (browser.editImport.hasIos)
 	{
 		platforms.push_back({ "iOS", "ios" });
+	}
+	if (browser.editImport.hasWeb)
+	{
+		platforms.push_back({ "Web", "web" });
 	}
 	bool valid = false;
 	for (auto const& option : platforms)
@@ -566,8 +601,10 @@ void drawTexturePreviewBlock(EditorState& state, std::string const& relativePath
 	ImGui::Text("as imported: %d x %d", impW, impH);
 	ImGui::SameLine();
 	ImGui::TextDisabled("(from %u x %u source)", srcW, srcH);
-	ImGui::TextDisabled("%s filter, %s wrap%s", resolved.filter.c_str(),
-		resolved.wrap.c_str(), resolved.premultiply ? ", premultiplied" : "");
+	ImGui::TextDisabled("%s filter, %s wrap%s, format %s (%s)",
+		resolved.filter.c_str(), resolved.wrap.c_str(),
+		resolved.premultiply ? ", premultiplied" : "",
+		resolved.format.c_str(), resolved.quality.c_str());
 }
 
 //! the "Texture Import Settings" Inspector section: shown when the SCENE
@@ -598,14 +635,25 @@ bool drawTextureImportSection(EditorState& state)
 		return false;
 	}
 	AssetBrowserState& browser = state.assetBrowser;
-	// (re)read from disk on a selection change so the fields always reflect the
-	// selected texture (an unset/id-only sidecar leaves the defaults)
-	if (browser.editImportPath != metaFilePath)
+	// (re)read from disk on a selection change OR when the sidecar file
+	// changed underneath (an MCP write_project_file rewriting it must show up
+	// without a re-select); an unset/id-only sidecar leaves the defaults
+	long long fileTime = 0;
+	{
+		std::error_code ec;
+		const std::filesystem::file_time_type mtime =
+			std::filesystem::last_write_time(metaFilePath, ec);
+		fileTime = ec ? 0
+			: static_cast<long long>(mtime.time_since_epoch().count());
+	}
+	if (browser.editImportPath != metaFilePath ||
+		browser.editImportFileTime != fileTime)
 	{
 		Orkige::TextureImport loaded;
 		Orkige::AssetDatabase::readImportSettings(metaFilePath, loaded);
 		browser.editImport = loaded;
 		browser.editImportPath = metaFilePath;
+		browser.editImportFileTime = fileTime;
 	}
 	const std::string relativePath = *browser.selection.begin();
 	ImGui::TextUnformatted("Texture Import Settings");
@@ -634,6 +682,17 @@ bool drawTextureImportSection(EditorState& state)
 	if (browser.editImport.hasIos)
 	{
 		drawTextureSettingsFields(browser.editImport.ios);
+	}
+	ImGui::PopID();
+	ImGui::PushID("web");
+	if (Orkige::compactCheckbox("Web override", &browser.editImport.hasWeb) &&
+		browser.editImport.hasWeb)
+	{
+		browser.editImport.web = browser.editImport.base;
+	}
+	if (browser.editImport.hasWeb)
+	{
+		drawTextureSettingsFields(browser.editImport.web);
 	}
 	ImGui::PopID();
 	ImGui::Separator();

@@ -942,13 +942,48 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	Ogre::TextureGpu* RenderBackend::loadTexture2D(String const & textureName)
+	String RenderBackend::resolveTextureResourceName(
+		String const & textureName)
+	{
+		Ogre::ResourceGroupManager & resourceGroups =
+			Ogre::ResourceGroupManager::getSingleton();
+		if(textureName.empty() ||
+			resourceGroups.resourceExistsInAnyGroup(textureName))
+		{
+			return textureName;	// the raw name wins (the dev-loop path)
+		}
+		const String::size_type dot = textureName.find_last_of('.');
+		if(dot == String::npos)
+		{
+			return textureName;
+		}
+		// the containers the export cook emits for THIS flavor: BCn rides
+		// .dds, ASTC/ETC2 ride the native .oitd (@see Util/cook_textures.py)
+		for(const char* extension : { ".dds", ".oitd" })
+		{
+			const String candidate = textureName.substr(0, dot) + extension;
+			if(resourceGroups.resourceExistsInAnyGroup(candidate))
+			{
+				return candidate;
+			}
+		}
+		return textureName;
+	}
+	//---------------------------------------------------------
+	Ogre::TextureGpu* RenderBackend::loadTexture2D(String const & rawName)
 	{
 		oAssert(gRenderSystem);
 		Ogre::TextureGpuManager* textureManager = gRenderSystem->mImpl->root
 			->getRenderSystem()->getTextureGpuManager();
 		// backend-object textures first (createTexture2DFromPixels uploads -
 		// e.g. an ImGui font atlas - have no resource-group entry)
+		if(Ogre::TextureGpu* existing =
+			textureManager->findTextureNoThrow(rawName))
+		{
+			return existing;
+		}
+		// cooked-payload fallback (foo.png -> foo.dds/.oitd in exports)
+		const String textureName = resolveTextureResourceName(rawName);
 		if(Ogre::TextureGpu* existing =
 			textureManager->findTextureNoThrow(textureName))
 		{
@@ -1302,7 +1337,10 @@ namespace Orkige
 					static_cast<Ogre::TextureGpu*>(NULL));
 				continue;
 			}
-			if(!resourceGroups.resourceExistsInAnyGroup(binding.textureName))
+			// cooked-payload fallback (foo.png -> foo.dds/.oitd in exports)
+			const String resolvedName =
+				RenderBackend::resolveTextureResourceName(binding.textureName);
+			if(!resourceGroups.resourceExistsInAnyGroup(resolvedName))
 			{
 				Ogre::LogManager::getSingleton().logMessage(
 					"Orkige next backend: material '" + name + "' texture '" +
@@ -1315,13 +1353,13 @@ namespace Orkige
 			if(binding.viaLoadTexture2D)
 			{
 				Ogre::TextureGpu* texture =
-					RenderBackend::loadTexture2D(binding.textureName);
+					RenderBackend::loadTexture2D(resolvedName);
 				datablock->setTexture(binding.slot, texture);
 				outComplete = outComplete && texture != NULL;
 			}
 			else
 			{
-				datablock->setTexture(binding.slot, binding.textureName);
+				datablock->setTexture(binding.slot, resolvedName);
 			}
 		}
 		return datablock;
@@ -1408,6 +1446,9 @@ namespace Orkige
 			{ Ogre::PBSM_DETAIL0_NM, Ogre::PBSM_DETAIL1_NM };
 		const float detailScales[2] = { desc.waveScale, desc.waveScale * 1.7f };
 		const float detailWeights[2] = { 1.0f, 0.6f };
+		// cooked-payload fallback (foo.png -> foo.dds/.oitd in exports)
+		const String resolvedNormal =
+			RenderBackend::resolveTextureResourceName(desc.normalTexture);
 		if(desc.normalTexture.empty())
 		{
 			for(int slot = 0; slot < 2; ++slot)
@@ -1417,7 +1458,7 @@ namespace Orkige
 			}
 		}
 		else if(!Ogre::ResourceGroupManager::getSingleton()
-			.resourceExistsInAnyGroup(desc.normalTexture))
+			.resourceExistsInAnyGroup(resolvedNormal))
 		{
 			Ogre::LogManager::getSingleton().logMessage(
 				"Orkige next backend: water material '" + name +
@@ -1434,7 +1475,7 @@ namespace Orkige
 		{
 			for(int slot = 0; slot < 2; ++slot)
 			{
-				datablock->setTexture(detailSlots[slot], desc.normalTexture);
+				datablock->setTexture(detailSlots[slot], resolvedNormal);
 				datablock->setDetailNormalWeight(static_cast<Ogre::uint8>(slot),
 					detailWeights[slot]);
 				datablock->setDetailMapOffsetScale(

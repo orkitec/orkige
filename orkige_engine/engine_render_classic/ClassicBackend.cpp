@@ -120,6 +120,34 @@ namespace Orkige
 		return gRenderSystem;
 	}
 	//---------------------------------------------------------
+	String RenderBackend::resolveTextureResourceName(
+		String const & textureName)
+	{
+		Ogre::ResourceGroupManager & resourceGroups =
+			Ogre::ResourceGroupManager::getSingleton();
+		if(textureName.empty() ||
+			resourceGroups.resourceExistsInAnyGroup(textureName))
+		{
+			return textureName;	// the raw name wins (the dev-loop path)
+		}
+		const String::size_type dot = textureName.find_last_of('.');
+		if(dot == String::npos)
+		{
+			return textureName;
+		}
+		// the containers the export cook emits for THIS flavor: BCn rides
+		// .dds, ASTC/ETC2 ride KTX1 (@see Util/cook_textures.py)
+		for(const char* extension : { ".dds", ".ktx" })
+		{
+			const String candidate = textureName.substr(0, dot) + extension;
+			if(resourceGroups.resourceExistsInAnyGroup(candidate))
+			{
+				return candidate;
+			}
+		}
+		return textureName;
+	}
+	//---------------------------------------------------------
 	Ogre::SceneNode* RenderBackend::sceneNode(optr<RenderNode> const & node)
 	{
 		return node ? node->mImpl->node : NULL;

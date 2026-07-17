@@ -51,6 +51,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orkige_png  # noqa: E402  (sibling stdlib helper - reused encoder)
+import orkige_sidecar  # noqa: E402  (sibling stdlib helper)
 
 GLB_MAGIC = 0x46546C67  # 'glTF'
 CHUNK_JSON = 0x4E4F534A  # 'JSON'
@@ -565,6 +566,11 @@ def generate(out_dir, seed, chunks, chunk_quads, world_size, height_amp,
     orkige_png.encode_png(build_albedo_texture(seed), albedo_path)
     normal_path = out_dir / NORMAL_NAME
     orkige_png.encode_png(build_normal_texture(seed), normal_path)
+    # a normal map encodes directions, not colours: block compression's
+    # endpoint quantisation distorts them, so it ships as exact PNG texels
+    # (a user may still choose an explicit format per texture - the stamp
+    # never overrides a chosen one)
+    orkige_sidecar.stamp_texture_sidecar(str(normal_path))
     omat_path = out_dir / OMAT_NAME
     omat_path.write_text(OMAT_TEMPLATE.format(albedo=ALBEDO_NAME,
                                               normal=NORMAL_NAME))

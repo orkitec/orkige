@@ -1,1 +1,3 @@
-<orkmeta id="f788784491499c10b28e1aac857a119f"/>
+<orkmeta id="f788784491499c10b28e1aac857a119f">
+    <texture filter="bilinear" wrap="clamp" maxSize="0" premultiply="false" generateMips="false" format="none" quality="normal"/>
+</orkmeta>

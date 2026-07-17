@@ -31,6 +31,10 @@
       "platform": "!emscripten"
     },
     "stb",
+    {
+      "name": "ktx",
+      "platform": "!ios & !android & !emscripten"
+    },
     "nanosvg",
     "earcut-hpp",
     "lua",

@@ -262,6 +262,15 @@ namespace Orkige
 		//! the live RenderSystem or NULL (backs RenderSystem::get)
 		static RenderSystem* system();
 
+		//! @brief resolve a texture resource name against the cooked-payload
+		//! rename: an exported payload block-compresses textures, replacing
+		//! foo.png with foo.dds/foo.ktx - when the plain name is missing
+		//! from every resource group, the cooked siblings are tried (id-less
+		//! bare-name references: .omat maps, gui atlases, script-set sprite
+		//! names; id-carrying references resolve through the renamed sidecar
+		//! before they reach the backend). Dev trees always hit the raw name.
+		static String resolveTextureResourceName(String const & textureName);
+
 		//--- handle factories (protected facade ctors) -----------------
 		//! wrap an existing backend node into an owning facade handle and
 		//! register it; parent is the facade-graph parent (NULL for root)

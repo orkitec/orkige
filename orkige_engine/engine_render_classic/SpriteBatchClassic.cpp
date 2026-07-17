@@ -75,7 +75,9 @@ namespace Orkige
 		Ogre::TexturePtr texture;
 		try
 		{
-			texture = Ogre::TextureManager::getSingleton().load(textureName,
+			// cooked-payload fallback (foo.png -> foo.dds/.ktx in exports)
+			texture = Ogre::TextureManager::getSingleton().load(
+				resolveTextureResourceName(textureName),
 				Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
 		}
 		catch(Ogre::Exception const & e)

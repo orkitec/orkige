@@ -215,6 +215,10 @@ if(ORKIGE_BUILD_TOOLS)
         # mobile or the browser) and builds on BOTH render flavors via the
         # ImGui-on-DrawLayer2D port (Docs/render-abstraction.md)
         add_subdirectory(tools/editor)
+        # the export-time texture encoder (a small host CLI over libktx;
+        # exports always cook on a desktop host, so the mobile/web player
+        # trees never build or ship it - see Docs/textures.md)
+        add_subdirectory(tools/texcook)
     endif()
     # the player builds on both render flavors (per-flavor boot
     # block; games choose their backend)

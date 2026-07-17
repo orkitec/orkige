@@ -302,11 +302,12 @@ namespace Orkige
 		outWidth = outHeight = 0;
 		// resolve through EVERY resource group, same rule as sprite/2D
 		// batch textures: engine media and project assets both work by
-		// plain file name
+		// plain file name (cooked payloads fall back to .dds/.ktx siblings)
 		Ogre::TexturePtr texture;
 		try
 		{
-			texture = Ogre::TextureManager::getSingleton().load(textureName,
+			texture = Ogre::TextureManager::getSingleton().load(
+				RenderBackend::resolveTextureResourceName(textureName),
 				Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
 		}
 		catch(Ogre::Exception const & e)
@@ -413,7 +414,9 @@ namespace Orkige
 			{
 				// resolve through EVERY resource group, like sprite textures
 				Ogre::TexturePtr texture =
-					Ogre::TextureManager::getSingleton().load(desc.albedoTexture,
+					Ogre::TextureManager::getSingleton().load(
+						RenderBackend::resolveTextureResourceName(
+							desc.albedoTexture),
 						Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
 				pass->createTextureUnitState()->setTexture(texture);
 			}
@@ -445,7 +448,8 @@ namespace Orkige
 				try
 				{
 					Ogre::TexturePtr texture = Ogre::TextureManager::getSingleton()
-						.load(desc.normalTexture,
+						.load(RenderBackend::resolveTextureResourceName(
+							desc.normalTexture),
 							Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
 					Ogre::TextureUnitState* unit = pass->createTextureUnitState();
 					unit->setTexture(texture);
@@ -485,7 +489,8 @@ namespace Orkige
 					{
 						Ogre::TexturePtr texture =
 							Ogre::TextureManager::getSingleton().load(
-								desc.emissiveTexture,
+								RenderBackend::resolveTextureResourceName(
+									desc.emissiveTexture),
 								Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
 						Ogre::Pass* glow = technique->createPass();
 						glow->setLightingEnabled(false);
@@ -609,7 +614,8 @@ namespace Orkige
 				try
 				{
 					Ogre::TexturePtr texture = Ogre::TextureManager::getSingleton()
-						.load(desc.normalTexture,
+						.load(RenderBackend::resolveTextureResourceName(
+							desc.normalTexture),
 							Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
 					const float invScale = 1.0f / std::max(desc.waveScale, 0.001f);
 					// TU 0: the scrolling colour shimmer (motion) - the one
@@ -659,7 +665,9 @@ namespace Orkige
 			try
 			{
 				Ogre::TexturePtr texture =
-					Ogre::TextureManager::getSingleton().load(desc.normalTexture,
+					Ogre::TextureManager::getSingleton().load(
+						RenderBackend::resolveTextureResourceName(
+							desc.normalTexture),
 						Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
 				Ogre::TextureUnitState* unit = pass->createTextureUnitState();
 				unit->setTexture(texture);

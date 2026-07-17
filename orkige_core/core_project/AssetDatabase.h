@@ -35,22 +35,34 @@ namespace Orkige
 	//! @brief a texture asset's import settings for ONE platform: how the
 	//! runtime samples it (filter/wrap, honored LIVE at sprite material
 	//! creation) and how the EXPORT-TIME cook conditions the shipped pixels
-	//! (maxSize downscale + premultiply; generateMips is a forward-looking
-	//! flag the cook does not act on yet).
-	//! @remarks filter/wrap are kept as strings ("point"/"bilinear",
-	//! "clamp"/"wrap") because this struct lives in core, BELOW the render
-	//! facade that owns the SpriteQuad sampler enums - the engine layer maps
-	//! the strings onto those enums. GPU-compressed formats are deliberately
-	//! ABSENT: the runtime registers only the PNG/JPG image codec AND the
-	//! stdlib-Python cook has no block-compression encoder, so compression is
-	//! double-blocked and stays out of v1 (its own separate future effort).
+	//! (maxSize downscale, premultiply, GPU block compression via format/
+	//! quality, offline mip chains via generateMips).
+	//! @remarks all choice fields are kept as strings ("point"/"bilinear",
+	//! "clamp"/"wrap", the format tokens) because this struct lives in core,
+	//! BELOW the render facade that owns the SpriteQuad sampler enums - the
+	//! engine layer maps the strings onto those enums, and the export cook
+	//! (Util/cook_textures.py + tools/texcook) consumes the format token
+	//! directly. The dev loop always renders the raw source pixels; only the
+	//! exported payload is compressed. See Docs/textures.md.
 	struct ORKIGE_CORE_DLL TextureImportSettings
 	{
 		String	filter = "bilinear";	//!< "point" | "bilinear"
 		String	wrap = "clamp";			//!< "clamp" | "wrap"
 		int		maxSize = 0;			//!< texel cap (longest side); 0 = uncapped
 		bool	premultiply = false;	//!< cook premultiplies alpha into RGB
-		bool	generateMips = false;	//!< reserved (the cook does not build mips yet)
+		bool	generateMips = false;	//!< cook bakes an offline mip chain
+		//! GPU block compression the export cook applies: "auto" (the
+		//! platform's best format), "none" (ship the PNG), or one explicit
+		//! format - "astc-4x4" | "astc-6x6" | "astc-8x8" | "etc2" | "bc1" |
+		//! "bc3" | "bc7". Every explicit format is selectable on every
+		//! platform slot; the cook validates the pair at export and refuses
+		//! impossible combinations honestly.
+		String	format = "auto";
+		//! encoder effort/quality for the compression: "low" | "normal" |
+		//! "high". Under format="auto" it also picks the ASTC block size
+		//! (high 4x4, normal 6x6, low 8x8); an explicit block-size format
+		//! wins over the quality-implied one.
+		String	quality = "normal";
 
 		//! @brief the imported texel dimensions this setting produces from a
 		//! source image @p srcW x @p srcH: the maxSize cap (0 = uncapped)
@@ -73,10 +85,12 @@ namespace Orkige
 		TextureImportSettings	android;			//!< resolved Android settings
 		bool					hasIos = false;		//!< an <ios> override exists
 		TextureImportSettings	ios;				//!< resolved iOS settings
+		bool					hasWeb = false;		//!< a <web> override exists
+		TextureImportSettings	web;				//!< resolved web settings
 
-		//! @brief the effective settings for a platform token ("android"/"ios"
-		//! use the override when present; anything else - "" = desktop - the
-		//! default)
+		//! @brief the effective settings for a platform token ("android"/
+		//! "ios"/"web" use the override when present; anything else - "" =
+		//! desktop - the default)
 		TextureImportSettings const & resolvedFor(String const & platform) const;
 	};
 
@@ -242,7 +256,7 @@ namespace Orkige
 		//! a fresh 128-bit random id as 32 lower-case hex characters
 		static String generateId();
 		//! read a sidecar file; false (id untouched) when missing/invalid.
-		//! @remarks reads ONLY the root id and ignores any children, so a v2
+		//! @remarks reads ONLY the root id and ignores any children, so a
 		//! sidecar carrying a <texture> import block reads exactly like a v1
 		//! id-only one - back-compat is automatic.
 		static bool readMetaFile(String const & metaFilePath, String & assetId);

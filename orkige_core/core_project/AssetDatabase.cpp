@@ -33,7 +33,7 @@ namespace Orkige
 
 	namespace
 	{
-		//! read one <texture>/<android>/<ios> element's attributes onto
+		//! read one <texture>/<android>/<ios>/<web> element's attributes onto
 		//! settings that already carry the inherited defaults (an absent
 		//! attribute leaves its value untouched - so override sub-blocks are
 		//! deltas over the default block)
@@ -51,6 +51,14 @@ namespace Orkige
 			element->QueryIntAttribute("maxSize", &settings.maxSize);
 			element->QueryBoolAttribute("premultiply", &settings.premultiply);
 			element->QueryBoolAttribute("generateMips", &settings.generateMips);
+			if (const char * value = element->Attribute("format"))
+			{
+				settings.format = value;
+			}
+			if (const char * value = element->Attribute("quality"))
+			{
+				settings.quality = value;
+			}
 		}
 		//! write a settings block's attributes onto an element (full, not a
 		//! delta - deterministic output the cook and a re-import both trust)
@@ -62,6 +70,8 @@ namespace Orkige
 			element->SetAttribute("maxSize", settings.maxSize);
 			element->SetAttribute("premultiply", settings.premultiply);
 			element->SetAttribute("generateMips", settings.generateMips);
+			element->SetAttribute("format", settings.format.c_str());
+			element->SetAttribute("quality", settings.quality.c_str());
 		}
 	}
 	//---------------------------------------------------------
@@ -98,6 +108,10 @@ namespace Orkige
 		if (platform == "ios" && this->hasIos)
 		{
 			return this->ios;
+		}
+		if (platform == "web" && this->hasWeb)
+		{
+			return this->web;
 		}
 		return this->base;
 	}
@@ -471,6 +485,12 @@ namespace Orkige
 			writeTextureSettings(platform, texture.ios);
 			textureElement->InsertEndChild(platform);
 		}
+		if (texture.hasWeb)
+		{
+			tinyxml2::XMLElement * platform = document.NewElement("web");
+			writeTextureSettings(platform, texture.web);
+			textureElement->InsertEndChild(platform);
+		}
 		root->InsertEndChild(textureElement);
 		document.InsertEndChild(root);
 		return document.SaveFile(metaFilePath.c_str()) ==
@@ -512,6 +532,13 @@ namespace Orkige
 			texture.hasIos = true;
 			texture.ios = texture.base;
 			readTextureSettings(ios, texture.ios);
+		}
+		if (const tinyxml2::XMLElement * web =
+			textureElement->FirstChildElement("web"))
+		{
+			texture.hasWeb = true;
+			texture.web = texture.base;
+			readTextureSettings(web, texture.web);
 		}
 		return true;
 	}

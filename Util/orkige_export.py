@@ -112,10 +112,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_LAUNCH_BACKGROUND = "#12161f"
 
 # --platform value -> the texture-cook / import-settings platform token
-# (desktop uses the default block; the mobile flavors resolve their overrides,
-# web ships the default pixels - browsers decode plain PNG everywhere)
+# (desktop uses the default block; the mobile and web slots resolve their
+# overrides - web AUTO still ships plain PNG, see cook_textures.py)
 COOK_PLATFORM = {"macos": "", "ios-simulator": "ios", "ios": "ios",
-                 "android": "android", "web": ""}
+                 "android": "android", "web": "web"}
 
 # the marker file name PlayerBundle reads (engine_runtime/PlayerRuntime.cpp)
 PROJECT_MARKER_FILE_NAME = "orkige_project.txt"
@@ -229,7 +229,32 @@ def stage_config_settings(project_root, settings, dest_dir):
     return staged
 
 
-def stage_project_payload(project, dest_dir, platform="macos"):
+def find_texcook(engine_build):
+    """the texcook encoder binary a payload cook shells out to: the
+    ORKIGE_TEXCOOK env wins, then the engine tree's own tools/texcook, then
+    the repo's desktop trees (the mobile/web player trees never build the
+    host tool - their exports cook on this desktop). None when absent; the
+    cook itself refuses honestly only if a texture actually needs encoding."""
+    env = os.environ.get("ORKIGE_TEXCOOK")
+    if env:
+        return env
+    exe = "texcook.exe" if os.name == "nt" else "texcook"
+    candidates = []
+    if engine_build:
+        candidates.append(os.path.join(engine_build, "tools", "texcook", exe))
+    for tree in ("macos-release", "macos-debug", "macos-release-classic",
+                 "macos-debug-classic", "linux-debug", "linux-debug-classic",
+                 "windows-debug"):
+        candidates.append(os.path.join(REPO_ROOT, "build", tree, "tools",
+                                       "texcook", exe))
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def stage_project_payload(project, dest_dir, platform="macos",
+                          engine_build=None):
     """copy the shippable project subset (manifest + scenes/assets/scripts)
     into dest_dir, run the export-time texture cook over the staged assets for
     the target platform, and return the number of files staged"""
@@ -246,16 +271,22 @@ def stage_project_payload(project, dest_dir, platform="macos"):
     # manifest-referenced project-config assets (input.oactions and its
     # siblings) ride along, preserving their project-relative paths
     staged += stage_config_settings(project.root, project.settings, dest_dir)
-    # export-time texture cook: resize/premultiply the staged textures per
-    # their sidecar import settings, resolved for the target platform. The
-    # sidecars ship alongside (the runtime reads the LIVE sampler settings from
-    # them); the cook only rewrites the pixels. Uncompressed only - GPU
-    # compression is double-blocked (see cook_textures.py) and deferred.
-    cooked = cook_textures.cook_payload(dest_dir, COOK_PLATFORM.get(platform,
-        ""), log=lambda message: log(message))
+    # export-time texture cook: resize/premultiply/block-compress the staged
+    # textures per their sidecar import settings, resolved for the target
+    # platform AND the packaged render flavor (which picks the container and
+    # the auto formats - see cook_textures.py / Docs/textures.md). The
+    # sidecars ship alongside, renamed with any compressed texture, so the
+    # runtime keeps reading the LIVE sampler settings and asset ids from them.
+    flavor = render_backend(engine_build) if engine_build else "next"
+    try:
+        cooked = cook_textures.cook_payload(
+            dest_dir, COOK_PLATFORM.get(platform, ""), flavor,
+            find_texcook(engine_build), log=lambda message: log(message))
+    except cook_textures.CookError as error:
+        fail(str(error))
     if cooked:
-        log("cooked %d texture(s) for platform '%s'"
-            % (cooked, COOK_PLATFORM.get(platform, "")))
+        log("cooked %d texture(s) for platform '%s' (%s flavor)"
+            % (cooked, COOK_PLATFORM.get(platform, ""), flavor))
     return staged
 
 
@@ -717,7 +748,8 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
                         dirs_exist_ok=True)
 
     staged = stage_project_payload(
-        project, os.path.join(resources, PAYLOAD_DIR_NAME), "macos")
+        project, os.path.join(resources, PAYLOAD_DIR_NAME), "macos",
+        engine_build)
     write_marker(resources)
     log("project payload: %d files" % staged)
 
@@ -872,7 +904,8 @@ def export_web(project, engine_build, output_dir):
                             os.path.join(staging, "Media", "water"),
                             dirs_exist_ok=True)
         staged = stage_project_payload(
-            project, os.path.join(staging, PAYLOAD_DIR_NAME), "web")
+            project, os.path.join(staging, PAYLOAD_DIR_NAME), "web",
+            engine_build)
         write_marker(staging)
         log("project payload: %d files" % staged)
         run([sys.executable, file_packager,
@@ -940,7 +973,7 @@ def export_ios_simulator(project, engine_build, output_dir):
                         dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),
-                                   "ios-simulator")
+                                   "ios-simulator", engine_build)
     write_marker(app_dir)
     write_privacy_manifest(app_dir)
     log("project payload: %d files" % staged)
@@ -1090,7 +1123,7 @@ def build_signed_ios_bundle(project, source_app, output_dir, identity, profile,
                         dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),
-                                   "ios")
+                                   "ios", engine_build)
     write_marker(app_dir)
     write_privacy_manifest(app_dir)
     log("project payload: %d files" % staged)
@@ -1265,7 +1298,8 @@ def export_android(project, engine_build, output_dir):
     payload_dir = os.path.join(output_dir, "payload-staging")
     if os.path.exists(payload_dir):
         shutil.rmtree(payload_dir)
-    staged = stage_project_payload(project, payload_dir, "android")
+    staged = stage_project_payload(project, payload_dir, "android",
+                                   engine_build)
     log("project payload: %d files" % staged)
     package = android_package_name(project)
 
@@ -1361,7 +1395,8 @@ def export_android_bundle(project, engine_build, output_dir, args, environ):
     payload_dir = os.path.join(output_dir, "payload-staging")
     if os.path.exists(payload_dir):
         shutil.rmtree(payload_dir)
-    staged = stage_project_payload(project, payload_dir, "android")
+    staged = stage_project_payload(project, payload_dir, "android",
+                                   engine_build)
     log("project payload: %d files" % staged)
     res_dir, launch_color = stage_android_res(project, output_dir)
 
