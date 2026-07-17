@@ -274,6 +274,16 @@ file(COPY "${_atmo_src}/GLSL/AtmosphereNprSky_ps.glsl"      DESTINATION "${_atmo
 file(COPY "${_atmo_src}/GLSL/QuadCameraDirNoUV_vs.glsl"     DESTINATION "${_atmo_dst}/GLSL")
 file(COPY "${_atmo_src}/HLSL/AtmosphereNprSky_ps.hlsl"      DESTINATION "${_atmo_dst}/HLSL")
 file(COPY "${_atmo_src}/HLSL/QuadCameraDirNoUV_vs.hlsl"     DESTINATION "${_atmo_dst}/HLSL")
+# the cubemap sky material SceneManager::setSky(SkyCubemap) loads by name
+# ("Ogre/Sky/Cubemap") - a trimmed cubemap-only sibling of the samples'
+# Sky.material (same reasoning as AtmosphereQuad.program: the equirectangular
+# method and its sources stay out). It reuses the QuadCameraDirNoUV_vs vertex
+# program shipped above; only the cubemap fragment sources are added.
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/atmosphere-media/SkyCubemap.material"
+    DESTINATION "${_atmo_dst}")
+file(COPY "${_atmo_src}/Metal/SkyCubemap_ps.metal"          DESTINATION "${_atmo_dst}/Metal")
+file(COPY "${_atmo_src}/GLSL/SkyCubemap_ps.glsl"            DESTINATION "${_atmo_dst}/GLSL")
+file(COPY "${_atmo_src}/HLSL/SkyCubemap_ps.hlsl"            DESTINATION "${_atmo_dst}/HLSL")
 
 # upstream installs no CMake package config (only .pc files) - ship ours
 file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/OGRE-NextConfig.cmake"
