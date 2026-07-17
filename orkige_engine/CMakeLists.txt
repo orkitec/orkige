@@ -51,13 +51,14 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
     # the overlay port ships this config (share/ogre-next); targets are
     # namespaced OgreNext::* so nothing collides with classic's OgreMain
     find_package(OGRE-Next CONFIG REQUIRED)
-    # Ogre-Next has no assimp codec - the backend's mesh import path
-    # (engine_render_next/MeshLoaderNext.cpp) drives assimp directly;
-    # the library is already in the tree via classic ogre's assimp feature
-    find_package(assimp CONFIG REQUIRED)
 else()
     find_package(OGRE CONFIG REQUIRED COMPONENTS Bites RTShaderSystem Overlay)
 endif()
+# assimp backs the backend-neutral skinned-rig extraction
+# (engine_render/SkinnedRigExtract.cpp) on BOTH flavors, and Ogre-Next's own
+# mesh import path (engine_render_next/MeshLoaderNext.cpp - Ogre-Next has no
+# assimp codec); classic already carries the library via ogre's assimp feature
+find_package(assimp CONFIG REQUIRED)
 
 # --- backend-neutral sources (both flavors) ---------------------------------
 set(ORKIGE_ENGINE_SOURCES
@@ -80,6 +81,12 @@ set(ORKIGE_ENGINE_SOURCES
     engine_render/DrawLayer2D.h
     engine_render/DrawLayer2DClip.h
     engine_render/RenderFacadeCheck.cpp
+    # the backend-neutral skinned-rig vocabulary + its assimp extraction
+    # (the ONE skeleton/clip semantics both importer roads share)
+    engine_render/SkinnedRig.h
+    engine_render/SkinnedRig.cpp
+    engine_render/SkinnedRigExtract.h
+    engine_render/SkinnedRigExtract.cpp
     engine_util/StringConverter.h
     engine_util/StringUtil.h
     engine_util/ConfigFileUtil.h
@@ -443,6 +450,9 @@ target_link_libraries(orkige_engine
         # vector-sprite rasteriser: nanosvg symbols never leave SvgRasterImpl.cpp
         NanoSVG::nanosvg
         NanoSVG::nanosvgrast
+        # skinned-rig extraction: assimp types never leave
+        # SkinnedRigExtract.cpp (plus the next backend's mesh import TU)
+        assimp::assimp
 )
 
 if(ORKIGE_RENDER_BACKEND STREQUAL "next")
@@ -454,10 +464,6 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
             # sky + object fog + sun-linked day/night (engine_render environment
             # surface; RenderWorld::setAtmosphere on the next flavor)
             OgreNext::Atmosphere
-        PRIVATE
-            # backend-internal mesh import; assimp types never leave the
-            # MeshLoaderNext translation unit
-            assimp::assimp
     )
     # exactly one Ogre-Next render system per platform (the backend boot in
     # engine_render_next/NextBackend.cpp installs the matching plugin):

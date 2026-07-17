@@ -17,9 +17,16 @@
 //! the original PBS datablock had one - the Next analog of classic's
 //! Pass::setLightingEnabled(false)+setVertexColourTracking. The
 //! animation surface runs over the v2 SkeletonInstance/
-//! SkeletonAnimation when the mesh has one; the assimp importer
-//! produces static meshes only (see MeshLoaderNext.cpp), so today that
-//! path only answers honestly with "no animations".
+//! SkeletonAnimation of a skinned import (MeshLoaderNext.cpp carries
+//! skeleton + clips through importV1); clip NAMES come from the
+//! backend's skinned-mesh registry where one exists, because the v2
+//! IdString only keeps readable names in debug builds. Animated
+//! bounds are derived here (setAnimatedBounds): Ogre-Next keeps an
+//! item's local Aabb at the bind pose, so the armed instance rebuilds
+//! the box from the LIVE bone poses (composed from the pose TRS
+//! values, never the SoA derived caches - those are only valid
+//! mid-frame) expanded by the import-time bone radius, the classic
+//! bounds-from-skeleton semantics.
 
 #include "engine_render_next/NextBackend.h"
 
@@ -38,6 +45,7 @@
 #include <OgreException.h>
 #include <Animation/OgreSkeletonInstance.h>
 #include <Animation/OgreSkeletonAnimation.h>
+#include <Animation/OgreBone.h>
 
 #include <vector>
 
@@ -64,6 +72,45 @@ namespace Orkige
 				}
 			}
 			return NULL;
+		}
+
+		//! the readable name of a v2 skeleton animation: resolved through
+		//! the skinned-mesh registry when the mesh imported through the
+		//! assimp road (exact strings in EVERY build config), else the
+		//! IdString's friendly text (readable in debug builds, a hash
+		//! elsewhere - the .mesh-serializer road)
+		String animationDisplayName(Ogre::SkeletonAnimation const & animation,
+			String const & meshName)
+		{
+			if(StringVector const * clipNames =
+				RenderBackend::skinnedMeshClipNames(meshName))
+			{
+				for(String const & each : *clipNames)
+				{
+					if(Ogre::IdString(each) == animation.getName())
+					{
+						return each;
+					}
+				}
+			}
+			return animation.getName().getFriendlyText();
+		}
+
+		//! a bone's pose position in SKELETON-LOCAL space, composed from
+		//! the live pose TRS values up the parent chain. The SoA derived
+		//! caches are deliberately not read - they are only refreshed
+		//! during the frame update, and this must answer at any time.
+		Ogre::Vector3 boneLocalPosePosition(Ogre::Bone const * bone)
+		{
+			Ogre::Vector3 position = bone->getPosition();
+			Ogre::Bone const * parent = bone->getParent();
+			while(parent)
+			{
+				position = parent->getPosition() + parent->getOrientation() *
+					(parent->getScale() * position);
+				parent = parent->getParent();
+			}
+			return position;
 		}
 	}
 	//---------------------------------------------------------
@@ -314,6 +361,37 @@ namespace Orkige
 	{
 		// v2 carries center/half-size Aabbs; the facade speaks min/max
 		const Ogre::Aabb localAabb = this->mImpl->item->getLocalAabb();
+		if(this->mImpl->animatedBounds)
+		{
+			if(Ogre::SkeletonInstance* skeleton =
+				this->mImpl->item->getSkeletonInstance())
+			{
+				// the animated box: union of the LIVE bone pose positions,
+				// each expanded by the import-time bone radius (max skinned-
+				// vertex distance from its bone) - classic's bounds-from-
+				// skeleton semantics; the bind-pose Aabb pads meshes that
+				// arrived without a registered radius (.mesh serializer road)
+				Real radius = RenderBackend::skinnedMeshBoneRadius(
+					this->mImpl->meshName);
+				if(radius <= 0)
+				{
+					radius = localAabb.getRadius();
+				}
+				const Ogre::Vector3 padding(radius, radius, radius);
+				AABB bounds;
+				bounds.setNull();
+				for(size_t each = 0; each < skeleton->getNumBones(); ++each)
+				{
+					const Ogre::Vector3 position = boneLocalPosePosition(
+						skeleton->getBone(each));
+					bounds.merge(AABB(position - padding, position + padding));
+				}
+				if(!bounds.isNull())
+				{
+					return bounds;
+				}
+			}
+		}
 		return AABB(localAabb.getMinimum(), localAabb.getMaximum());
 	}
 	//---------------------------------------------------------
@@ -438,7 +516,8 @@ namespace Orkige
 			for(Ogre::SkeletonAnimation const & each :
 				skeleton->getAnimations())
 			{
-				names.push_back(each.getName().getFriendlyText());
+				names.push_back(animationDisplayName(each,
+					this->mImpl->meshName));
 			}
 		}
 		return names;
@@ -460,7 +539,8 @@ namespace Orkige
 			{
 				if(each.getEnabled())
 				{
-					names.push_back(each.getName().getFriendlyText());
+					names.push_back(animationDisplayName(each,
+						this->mImpl->meshName));
 				}
 			}
 		}
@@ -494,10 +574,13 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void MeshInstance::setAnimatedBounds(bool /*enabled*/)
+	void MeshInstance::setAnimatedBounds(bool enabled)
 	{
-		// the v2 Item's world AABB already tracks the animated skeleton, so the
-		// culling bounds follow a swinging limb natively - nothing to arm here
+		// a swinging limb must keep the reported bounds honest: Ogre-Next
+		// keeps an item's local Aabb at the BIND pose, so an armed instance
+		// derives getLocalBounds from the live bone poses instead
+		// (@see getLocalBounds; meaningless without a skeleton)
+		this->mImpl->animatedBounds = enabled;
 	}
 	//---------------------------------------------------------
 	void MeshInstance::addAnimationTime(String const & name, float deltaSeconds)

@@ -34,6 +34,7 @@ add_executable(orkige_engine_tests
     TextEntryEditTests.cpp
     HapticTests.cpp
     AppHostPolicyTests.cpp
+    SkinnedRigExtractTests.cpp
 )
 
 target_link_libraries(orkige_engine_tests PRIVATE
@@ -60,6 +61,9 @@ target_compile_definitions(orkige_engine_tests PRIVATE
     # the committed tiny OGG fixture MusicStreamTests decodes (headless, no
     # device): read straight off disk to exercise the decode + refill seam
     ORKIGE_MUSIC_TEST_OGG="${Orkige_SOURCE_DIR}/tests/assets/blip.ogg"
+    # the generated skinned mannequin SkinnedRigExtractTests parses through
+    # the backend-neutral rig extraction (make_character_rig.py fixture)
+    ORKIGE_CHARACTER_RIG_GLB="${Orkige_SOURCE_DIR}/tests/projects/character/assets/character_rig.glb"
 )
 if(TARGET orkige_generate_atlases)
     add_dependencies(orkige_engine_tests orkige_generate_atlases)

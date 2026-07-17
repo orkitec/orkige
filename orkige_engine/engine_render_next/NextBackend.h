@@ -30,12 +30,12 @@
 //! ray queries, frame stats (RenderingMetrics) and the cube-mesh
 //! service. render_facade_selfcheck passes on this backend (enabled
 //! in ctest; since the default flip this flavor's suite is the
-//! default desktop preset). Remaining honest gaps, each logged
-//! once via notImplementedOnce: LT_ZIP/LT_BIGZIP resource locations
-//! (waits for real content work + the zziplib port feature) and
-//! skeletal animation IMPORT through the assimp path (the animation
-//! control surface is implemented over v2 SkeletonInstance, but the
-//! importer bakes node transforms - static meshes only).
+//! default desktop preset). Skinned glTF imports whole (skeleton +
+//! clips + weights via the v1 skeleton -> importV1 route, see
+//! MeshLoaderNext.cpp) and plays over v2 SkeletonInstance
+//! (MeshInstanceNext.cpp). Remaining honest gap, logged once via
+//! notImplementedOnce: LT_ZIP/LT_BIGZIP resource locations (waits
+//! for real content work + the zziplib port feature).
 //!
 //! Unlike classic (where Engine bootstraps OGRE and the facade wraps
 //! it), the RenderSystem facade IS the boot on Next: RenderBackend::
@@ -164,6 +164,10 @@ namespace Orkige
 		Color	accentBoost = Color(0.0f, 0.0f, 0.0f, 1.0f);
 		std::vector<Ogre::HlmsDatablock*>	accentRestore;
 		std::vector<Ogre::HlmsDatablock*>	accentVariants;
+		//! @see MeshInstance::setAnimatedBounds: while armed (and the item
+		//! carries a skeleton), getLocalBounds derives the box from the LIVE
+		//! bone poses instead of the fixed bind-pose Aabb
+		bool				animatedBounds = false;
 	};
 
 	struct SpriteQuad::Impl
@@ -469,12 +473,25 @@ namespace Orkige
 		//! imports through assimp - both v1 roads end in
 		//! MeshManager::createByImportingV1. The assimp road also
 		//! generates one HLMS datablock per sub-mesh (PBS: diffuse
-		//! colour/texture, incl. glb-embedded textures). Node transforms
-		//! are baked (aiProcess_PreTransformVertices): static meshes
-		//! only until a skeletal need appears (logged once).
+		//! colour/texture, incl. glb-embedded textures). A static source
+		//! gets its node transforms baked (aiProcess_PreTransformVertices);
+		//! a skinned/animated one imports skeleton + clips + weights whole
+		//! (the v1 skeleton route, see MeshLoaderNext.cpp remarks).
 		//! @return false + a log line when the resource is missing/broken
 		static bool ensureV2Mesh(Ogre::SceneManager* sceneManager,
 			String const & meshName);
+		//! @brief record a skinned import's facts for the instance surface
+		//! (@see MeshInstance::setAnimatedBounds / getAnimationNames):
+		//! boneRadius = max skinned-vertex distance from its bone at bind
+		//! (the animated-bounds padding), clipNames = the clip names in
+		//! import order (exact strings in every build config - the v2
+		//! IdString only keeps readable names in debug builds)
+		static void registerSkinnedMesh(String const & meshName,
+			Real boneRadius, StringVector const & clipNames);
+		//! the registered bone radius, 0 when meshName never imported skinned
+		static Real skinnedMeshBoneRadius(String const & meshName);
+		//! the registered clip names, NULL when meshName never imported skinned
+		static StringVector const * skinnedMeshClipNames(String const & meshName);
 		//! the backend cube-mesh service (v2 mesh + shared vertex-colour
 		//! unlit datablock; same recipe/palette as classic PrimitiveUtil)
 		static void createVertexColourCubeMesh(Ogre::SceneManager* sceneManager,
@@ -721,7 +738,7 @@ namespace Orkige
 		static void makeImageAlphaOpaque(Ogre::Image2 & image);
 		//! honest-gap discipline: log the missing feature ONCE, stay
 		//! silent afterwards - callers then return their safe default
-		//! (residual: LT_ZIP/LT_BIGZIP locations, skeletal import)
+		//! (residual: LT_ZIP/LT_BIGZIP locations)
 		static void notImplementedOnce(char const * feature);
 	};
 }

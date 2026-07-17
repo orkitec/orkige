@@ -2477,7 +2477,11 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 			const float sig = boundsSignature();
 			characterRigBoundsMin = std::min(characterRigBoundsMin, sig);
 			characterRigBoundsMax = std::max(characterRigBoundsMax, sig);
-			if (characterRigBoundsMax - characterRigBoundsMin > 0.05f)
+			// the threshold proves MOTION, not magnitude: on a flavor whose
+			// animated bounds arm before the first sample (next), the spread
+			// is the pure animation amplitude (~0.05 for the walk bob), while
+			// classic's first crossing rides a larger bind-box transition
+			if (characterRigBoundsMax - characterRigBoundsMin > 0.03f)
 			{
 				SDL_Log("orkige_player: character rig selfcheck - the walk clip "
 					"moves bone-driven vertices (skeletal bounds spread %.3f)",
@@ -2550,7 +2554,9 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 			const float sig = boundsSignature();
 			characterRigIdleBoundsMin = std::min(characterRigIdleBoundsMin, sig);
 			characterRigIdleBoundsMax = std::max(characterRigIdleBoundsMax, sig);
-			if (characterRigIdleBoundsMax - characterRigIdleBoundsMin > 0.02f)
+			// motion-not-magnitude again: idle's sway saturates near 0.02 on
+			// the flavor with exact animated-amplitude bounds (next)
+			if (characterRigIdleBoundsMax - characterRigIdleBoundsMin > 0.01f)
 			{
 				SDL_Log("orkige_player: character rig selfcheck complete - walk "
 					"moved skeletal bounds (spread %.3f), a weighted crossfade "
