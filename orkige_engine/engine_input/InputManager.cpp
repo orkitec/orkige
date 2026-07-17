@@ -265,6 +265,12 @@ namespace Orkige
 		//--- tilt state (see InputManager::getTilt) -----------
 		float tiltAngle;				//!< simulated tilt angle in radians
 		bool tiltSensorAvailable;		//!< a real accelerometer is open
+		//! the open accelerometer has delivered a finite, gravity-bearing
+		//! sample - only then does it DRIVE the tilt. A browser exposes a
+		//! devicemotion "accelerometer" even on desktops and in headless
+		//! runs, where no sample (or a null -> NaN one) ever arrives; until
+		//! the sensor actually speaks, the key simulation stays in charge.
+		bool tiltSensorLive;
 		SDL_Sensor* accelSensor;		//!< the opened SDL accelerometer or NULL
 		SDL_SensorID accelSensorId;		//!< instance id matched in injectEvent
 		float sensorAccel[3];			//!< latest raw accelerometer sample (m/s^2)
@@ -327,6 +333,7 @@ namespace Orkige
 			}
 			this->tiltAngle = 0.0f;
 			this->tiltSensorAvailable = false;
+			this->tiltSensorLive = false;
 			this->accelSensor = NULL;
 			this->accelSensorId = 0;
 			this->sensorAccel[0] = 0.0f;
@@ -592,6 +599,29 @@ namespace Orkige
 			if (this->impl->accelSensor &&
 				event.sensor.which == this->impl->accelSensorId)
 			{
+				// a browser's devicemotion "accelerometer" can deliver null
+				// fields (desktop browsers, headless runs, permission not
+				// granted) which arrive as NaN - discard those samples
+				// entirely so they never poison the tilt or the classic
+				// acceleration event
+				if (!tiltSampleUsable(event.sensor.data[0],
+					event.sensor.data[1], event.sensor.data[2]))
+				{
+					return true;
+				}
+				// the first real, gravity-bearing sample puts the sensor in
+				// charge of the tilt (see rawTilt; before that the key
+				// simulation drives, so a sensor that never speaks - the
+				// desktop-browser web case - leaves the game playable)
+				if (!this->impl->tiltSensorLive &&
+					tiltSampleGravityBearing(event.sensor.data[0],
+						event.sensor.data[1], event.sensor.data[2]))
+				{
+					this->impl->tiltSensorLive = true;
+					oDebugMsg("core", 0, "InputManager: the accelerometer "
+						"delivered its first sample - it drives getTilt() "
+						"from here");
+				}
 				optr<AccelerationEventData> const & acceleration =
 					this->impl->accelerationData;
 				acceleration->relX = event.sensor.data[0] - acceleration->absX;
@@ -704,9 +734,20 @@ namespace Orkige
 		return tilt;
 	}
 	//---------------------------------------------------------
+	bool InputManager::tiltSampleUsable(float x, float y, float z)
+	{
+		return std::isfinite(x) && std::isfinite(y) && std::isfinite(z);
+	}
+	//---------------------------------------------------------
+	bool InputManager::tiltSampleGravityBearing(float x, float y, float z)
+	{
+		return tiltSampleUsable(x, y, z) &&
+			std::sqrt(x * x + y * y + z * z) >= 1.0f;
+	}
+	//---------------------------------------------------------
 	Ogre::Vector3 InputManager::rawTilt() const
 	{
-		if(this->impl->tiltSensorAvailable)
+		if(this->impl->tiltSensorAvailable && this->impl->tiltSensorLive)
 		{
 			// SDL accelerometers report the reaction to gravity (device at
 			// rest, screen up: ~(0, 0, +9.81); held upright: y ~ +9.81) - the
@@ -797,7 +838,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool InputManager::isTiltSensorAvailable() const
 	{
-		return this->impl->tiltSensorAvailable;
+		// "available" to gameplay means the sensor actually DELIVERS: an
+		// open accelerometer that never speaks (a desktop browser's
+		// devicemotion shim) reads as unavailable, so games offer the
+		// key/tilt-simulation experience instead
+		return this->impl->tiltSensorAvailable && this->impl->tiltSensorLive;
 	}
 	//---------------------------------------------------------
 	void InputManager::setTiltAngle(float radians)
@@ -845,9 +890,10 @@ namespace Orkige
 	bool InputManager::onFrameStarted(Event const & event)
 	{
 		this->capture();
-		// advance the desktop tilt simulation once per frame; with a real
-		// accelerometer the sensor stream drives the tilt instead
-		if(!this->impl->tiltSensorAvailable)
+		// advance the desktop tilt simulation once per frame; once a real
+		// accelerometer DELIVERS samples, the sensor stream drives the tilt
+		// instead (an open-but-silent sensor must not disable the keys)
+		if(!(this->impl->tiltSensorAvailable && this->impl->tiltSensorLive))
 		{
 			optr<FrameEventData> frameData = event.getDataPtr<FrameEventData>();
 			if(frameData)

@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "Util"))
 import orkige_png  # noqa: E402  (sibling Util helper - stdlib-only PNG codec)
 
 PROJECT = os.path.join(REPO_ROOT, "projects", "jumper-lua")
+ROLLER_PROJECT = os.path.join(REPO_ROOT, "projects", "roller")
 EXPORTER = os.path.join(REPO_ROOT, "Util", "orkige_export.py")
 
 # what a web export must contain (see Util/orkige_export.py export_web)
@@ -74,9 +75,9 @@ def find_browser():
     return ""
 
 
-def export(engine_build, output_dir):
+def export(engine_build, output_dir, project=PROJECT):
     result = subprocess.run(
-        [sys.executable, EXPORTER, "--project", PROJECT, "--platform", "web",
+        [sys.executable, EXPORTER, "--project", project, "--platform", "web",
          "--engine-build", engine_build, "--output", output_dir],
         capture_output=True, text=True)
     if result.returncode != 0:
@@ -85,15 +86,15 @@ def export(engine_build, output_dir):
         fail("exporter did not report OK:\n%s" % result.stdout)
 
 
-def assert_structure(output_dir):
+def assert_structure(output_dir, title="Jumper Lua"):
     for name in ARTIFACT_FILES:
         path = os.path.join(output_dir, name)
         if not os.path.isfile(path) or os.path.getsize(path) == 0:
             fail("artifact file '%s' missing or empty" % name)
     with open(os.path.join(output_dir, "index.html"), encoding="utf-8") as f:
         shell = f.read()
-    if "<title>Jumper Lua</title>" not in shell:
-        fail("index.html does not carry the project title")
+    if "<title>%s</title>" % title not in shell:
+        fail("index.html does not carry the project title '%s'" % title)
     if "@" + "TITLE" + "@" in shell:
         fail("index.html still contains unexpanded placeholders")
     # the payload image must be substantial (engine media + project)
@@ -209,26 +210,56 @@ def assert_boot(output_dir, browser):
         server.shutdown()
 
 
+def assert_roller(output_dir, browser):
+    """the whole 2D-tier gameplay selfcheck IN the browser: the exported
+    roller runs its player selfcheck (tilt roll via the key simulation,
+    move mode, tile slide, win path) - the wasm physics/input/render stack
+    must pass the same bar the desktop ctest holds it to."""
+    server, port = serve(output_dir)
+    try:
+        url = ("http://127.0.0.1:%d/index.html"
+               "?env.ORKIGE_ROLLER_SELFCHECK=1" % port)
+        complete = "roller selfcheck complete"
+        failed = "ROLLER SELFCHECK FAILED"
+        log = run_browser(browser, url, deadline_seconds=300,
+                          needed_markers=(complete,))
+        if failed in log:
+            fail("the in-browser roller selfcheck FAILED - full log:\n%s"
+                 % log)
+        if complete not in log:
+            fail("the in-browser roller selfcheck never completed - full "
+                 "log:\n%s" % log)
+        print("run_export_web: in-browser roller selfcheck complete",
+              flush=True)
+    finally:
+        server.shutdown()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine-build", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--mode", choices=["structure", "boot"],
+    parser.add_argument("--mode", choices=["structure", "boot", "roller"],
                         default="structure")
     args = parser.parse_args()
 
     browser = ""
-    if args.mode == "boot":
+    if args.mode in ("boot", "roller"):
         browser = find_browser()
         if not browser:
             print("run_export_web: SKIPPED - no headless Chrome/Chromium on "
                   "this machine (set ORKIGE_CHROME to override)", flush=True)
             sys.exit(77)
 
-    export(os.path.abspath(args.engine_build), os.path.abspath(args.output))
-    assert_structure(os.path.abspath(args.output))
+    project = ROLLER_PROJECT if args.mode == "roller" else PROJECT
+    title = "Roller" if args.mode == "roller" else "Jumper Lua"
+    export(os.path.abspath(args.engine_build), os.path.abspath(args.output),
+           project)
+    assert_structure(os.path.abspath(args.output), title)
     if args.mode == "boot":
         assert_boot(os.path.abspath(args.output), browser)
+    elif args.mode == "roller":
+        assert_roller(os.path.abspath(args.output), browser)
     print("run_export_web: PASSED (%s)" % args.mode, flush=True)
 
 

@@ -27,7 +27,9 @@
 #include <core_serialization/XMLArchive.h>
 
 #include <SDL3/SDL.h>
+#include <cmath>
 #include <filesystem>
+#include <limits>
 
 using Catch::Approx;
 using namespace Orkige;
@@ -193,6 +195,57 @@ TEST_CASE("InputActionMap: tiltAxis reads the tilt component (0 at rest)", "[inp
 	input.setTiltAngle(-0.5f);
 	actions.update(1.0f / 60.0f);
 	CHECK(actions.value("steer") < -0.1f);
+}
+
+//---------------------------------------------------------
+TEST_CASE("InputManager: tilt sensor samples gate on finiteness and gravity",
+	"[input]")
+{
+	// the pure sample classification behind the accelerometer stream: a
+	// browser's devicemotion shim delivers null -> NaN fields on desktops
+	// and in headless runs - those samples must be discarded, and only a
+	// finite, gravity-bearing sample may put the sensor in charge
+	const float nan = std::numeric_limits<float>::quiet_NaN();
+	const float inf = std::numeric_limits<float>::infinity();
+	CHECK_FALSE(InputManager::tiltSampleUsable(nan, 0.0f, 9.8f));
+	CHECK_FALSE(InputManager::tiltSampleUsable(0.0f, nan, 9.8f));
+	CHECK_FALSE(InputManager::tiltSampleUsable(0.0f, 0.0f, inf));
+	CHECK(InputManager::tiltSampleUsable(0.0f, 0.0f, 0.0f));
+	CHECK(InputManager::tiltSampleUsable(0.0f, 9.8f, 0.0f));
+
+	// a NaN sample never counts as gravity, an all-zero one (no data /
+	// free fall) does not either; a resting device in any pose does
+	CHECK_FALSE(InputManager::tiltSampleGravityBearing(nan, nan, nan));
+	CHECK_FALSE(InputManager::tiltSampleGravityBearing(0.0f, 0.0f, 0.0f));
+	CHECK_FALSE(InputManager::tiltSampleGravityBearing(0.1f, 0.1f, 0.1f));
+	CHECK(InputManager::tiltSampleGravityBearing(0.0f, 0.0f, 9.8f));
+	CHECK(InputManager::tiltSampleGravityBearing(0.0f, 9.8f, 0.0f));
+	CHECK(InputManager::tiltSampleGravityBearing(-6.9f, -6.9f, 0.0f));
+}
+
+//---------------------------------------------------------
+TEST_CASE("InputManager: an open-but-silent sensor leaves the keys driving",
+	"[input]")
+{
+	EngineTestEnvironment::get();
+	InputManager input(false, false);
+
+	// a machine with a REAL accelerometer that has already spoken reports
+	// available; everywhere else - including a browser whose devicemotion
+	// sensor exists but never delivers - the tilt must stay finite and the
+	// simulation must stay reachable (the web roller regression: NaN tilt
+	// sank the ball)
+	const Vec3 tilt = input.getTilt();
+	CHECK(std::isfinite(tilt.x));
+	CHECK(std::isfinite(tilt.y));
+	CHECK(std::isfinite(tilt.z));
+	if(!input.isTiltSensorAvailable())
+	{
+		// the simulated path answers: setTiltAngle steers getTilt
+		input.setTiltAngle(0.5f);
+		CHECK(input.getTilt().x > 0.1f);
+		input.setTiltAngle(0.0f);
+	}
 }
 
 //---------------------------------------------------------

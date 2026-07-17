@@ -152,6 +152,16 @@ namespace Orkige
 		//! @brief pure mapping: tilt angle -> normalized gravity direction;
 		//! 0 = (0,-1,0), positive angles tilt toward +X
 		static Ogre::Vector3 tiltVectorFromAngle(float angleRadians);
+		//! @brief pure sample gate: an accelerometer sample is usable only
+		//! when every component is finite - a browser's devicemotion shim
+		//! delivers null fields (desktop browsers, headless runs) that
+		//! arrive as NaN and must never poison the tilt
+		static bool tiltSampleUsable(float x, float y, float z);
+		//! @brief pure: a usable sample CARRIES gravity (>= 1 m/s^2
+		//! magnitude); the first such sample puts the accelerometer in
+		//! charge of the tilt - until then the key simulation drives, so an
+		//! open sensor that never speaks leaves the game playable
+		static bool tiltSampleGravityBearing(float x, float y, float z);
 
 		//--- tilt calibration (neutral-pose capture) ----------
 		//! @brief capture the CURRENT (raw, un-calibrated) tilt pose as the new

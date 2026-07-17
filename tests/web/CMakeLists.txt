@@ -12,6 +12,12 @@
 #                         capped run, and render an actual scene in a mid-run
 #                         screenshot (pixel-level check). SKIPs (77) on a
 #                         machine without a headless browser.
+#   export_web_roller     the 2D-tier gameplay bar IN the browser: the
+#                         exported roller runs its full player selfcheck
+#                         (tilt roll via the key simulation, move mode, tile
+#                         slide, win path) headlessly - wasm physics, input
+#                         and rendering held to the desktop ctest's standard.
+#                         SKIPs (77) without a headless browser.
 
 add_test(NAME export_web_structure
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/run_export_web.py"
@@ -29,5 +35,15 @@ add_test(NAME export_web_boot
         --mode boot
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(export_web_boot PROPERTIES
+    LABELS integration TIMEOUT 600
+    SKIP_RETURN_CODE 77)
+
+add_test(NAME export_web_roller
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/run_export_web.py"
+        --engine-build "${CMAKE_BINARY_DIR}"
+        --output "${CMAKE_CURRENT_BINARY_DIR}/export_web_roller"
+        --mode roller
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(export_web_roller PROPERTIES
     LABELS integration TIMEOUT 600
     SKIP_RETURN_CODE 77)
