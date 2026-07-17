@@ -3434,11 +3434,16 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		};
 		if (resizePhase == ResizePhase::Baseline && frameCount == 5)
 		{
-			// a maximized window ignores programmatic size requests (a small
-			// hosted-runner desktop maximizes the player at creation);
-			// restoring is a no-op on an already-windowed host and gives the
-			// window manager a few frames to settle before the baseline
-			SDL_RestoreWindow(context.host.getWindow());
+			// a maximized or fullscreen window ignores programmatic size
+			// requests (a small hosted-runner desktop maximizes the player
+			// at creation); force it windowed and restored, and SYNC - both
+			// operations are asynchronous window-manager round trips on some
+			// platforms, so without the sync the size request below can race
+			// them and get swallowed
+			SDL_Window* window = context.host.getWindow();
+			SDL_SetWindowFullscreen(window, false);
+			SDL_RestoreWindow(window);
+			SDL_SyncWindow(window);
 		}
 		if (resizePhase == ResizePhase::Baseline && frameCount == 10)
 		{
@@ -3460,12 +3465,27 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				// display's own pixel density) - a clear aspect change a
 				// window manager never clamps, in the same direction a
 				// portrait rotation moves it
+				SDL_Window* window = context.host.getWindow();
 				int logicalW = 0;
 				int logicalH = 0;
-				SDL_GetWindowSize(context.host.getWindow(), &logicalW,
-					&logicalH);
-				SDL_SetWindowSize(context.host.getWindow(), logicalW / 2,
-					logicalH);
+				SDL_GetWindowSize(window, &logicalW, &logicalH);
+				SDL_SetWindowSize(window, logicalW / 2, logicalH);
+				SDL_SyncWindow(window);
+				// the diagnostic burst a failure needs to be conclusive from
+				// a CI log alone: the window state words, the logical size
+				// the request landed on, and the drawable the renderer sees
+				int syncedW = 0;
+				int syncedH = 0;
+				SDL_GetWindowSize(window, &syncedW, &syncedH);
+				const SDL_WindowFlags flags = SDL_GetWindowFlags(window);
+				SDL_Log("orkige_player: resize selfcheck - requested %dx%d "
+					"(was %dx%d), synced logical %dx%d, flags%s%s%s%s",
+					logicalW / 2, logicalH, logicalW, logicalH,
+					syncedW, syncedH,
+					(flags & SDL_WINDOW_FULLSCREEN) ? " fullscreen" : "",
+					(flags & SDL_WINDOW_MAXIMIZED) ? " maximized" : "",
+					(flags & SDL_WINDOW_MINIMIZED) ? " minimized" : "",
+					(flags & SDL_WINDOW_RESIZABLE) ? " resizable" : "");
 				resizePhase = ResizePhase::WaitResize;
 				resizeDeadline = frameCount + 300;
 			}
