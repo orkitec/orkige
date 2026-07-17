@@ -345,6 +345,15 @@ int main(int argc, char** argv)
 				{
 					render->addResourceLocation(ORKIGE_EDITOR_WATER_DIR);
 				}
+				// the engine decal media dir (default mark + blob-shadow
+				// textures) so a scene's DecalComponent shows its static
+				// preview in the editor scene panel
+				std::error_code decalDirError;
+				if (std::filesystem::is_directory(ORKIGE_EDITOR_DECAL_DIR,
+					decalDirError))
+				{
+					render->addResourceLocation(ORKIGE_EDITOR_DECAL_DIR);
+				}
 			}))
 		{
 			return 1;

@@ -1356,6 +1356,19 @@ int main(int argc, char** argv)
 				{
 					render->addResourceLocation(ORKIGE_PLAYER_WATER_DIR);
 				}
+				// the engine decal media dir (default mark + blob-shadow textures
+				// DecalComponent references), the same bundled/dev-tree pair
+				std::error_code decalDirError;
+				if (std::filesystem::is_directory(playerMediaDir + "/decals",
+					decalDirError))
+				{
+					render->addResourceLocation(playerMediaDir + "/decals");
+				}
+				if (std::filesystem::is_directory(ORKIGE_PLAYER_DECAL_DIR,
+					decalDirError))
+				{
+					render->addResourceLocation(ORKIGE_PLAYER_DECAL_DIR);
+				}
 				// sample assets (test_mesh.glb; scene meshes load lazily via
 				// Codec_Assimp) and the jumper sample assets, so the editor's
 				// play mode works on samples/* scenes too. Registered only when

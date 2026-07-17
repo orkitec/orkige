@@ -134,4 +134,8 @@ target_compile_definitions(orkige_player PRIVATE
     # player registers when running straight out of the build tree (an exported
     # bundle carries the same files under its Media/water dir instead)
     ORKIGE_PLAYER_WATER_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/water"
+    # the engine decal media dir (the default mark + blob-shadow textures the
+    # DecalComponent references) - the out-of-bundle build-tree fallback (an
+    # exported bundle carries the same files under its Media/decals dir instead)
+    ORKIGE_PLAYER_DECAL_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/decals"
 )

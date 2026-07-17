@@ -421,6 +421,14 @@ def engine_water_dir():
     return water if os.path.isdir(water) else ""
 
 
+def engine_decal_dir():
+    """the engine decal media directory committed to the tree (the default mark
+    + blob-shadow textures DecalComponent references) - registered as a resource
+    location at runtime like the font/water dirs. Empty when absent."""
+    decals = os.path.join(REPO_ROOT, "orkige_engine", "media", "decals")
+    return decals if os.path.isdir(decals) else ""
+
+
 def ogre_media_dir(build_dir):
     """the classic flavor's RTSS shader-library media (Main + RTShaderLib)"""
     triplet = vcpkg_triplet_dir(build_dir)
@@ -746,6 +754,12 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
         shutil.copytree(engine_water_dir(),
                         os.path.join(resources, "Media", "water"),
                         dirs_exist_ok=True)
+    # the engine decal media (default mark + blob-shadow textures) so a scene's
+    # DecalComponent ships self-contained
+    if engine_decal_dir():
+        shutil.copytree(engine_decal_dir(),
+                        os.path.join(resources, "Media", "decals"),
+                        dirs_exist_ok=True)
 
     staged = stage_project_payload(
         project, os.path.join(resources, PAYLOAD_DIR_NAME), "macos",
@@ -903,6 +917,10 @@ def export_web(project, engine_build, output_dir):
             shutil.copytree(engine_water_dir(),
                             os.path.join(staging, "Media", "water"),
                             dirs_exist_ok=True)
+        if engine_decal_dir():
+            shutil.copytree(engine_decal_dir(),
+                            os.path.join(staging, "Media", "decals"),
+                            dirs_exist_ok=True)
         staged = stage_project_payload(
             project, os.path.join(staging, PAYLOAD_DIR_NAME), "web",
             engine_build)
@@ -970,6 +988,10 @@ def export_ios_simulator(project, engine_build, output_dir):
     if engine_water_dir():
         shutil.copytree(engine_water_dir(),
                         os.path.join(app_dir, "Media", "water"),
+                        dirs_exist_ok=True)
+    if engine_decal_dir():
+        shutil.copytree(engine_decal_dir(),
+                        os.path.join(app_dir, "Media", "decals"),
                         dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),
@@ -1120,6 +1142,10 @@ def build_signed_ios_bundle(project, source_app, output_dir, identity, profile,
     if engine_water_dir():
         shutil.copytree(engine_water_dir(),
                         os.path.join(app_dir, "Media", "water"),
+                        dirs_exist_ok=True)
+    if engine_decal_dir():
+        shutil.copytree(engine_decal_dir(),
+                        os.path.join(app_dir, "Media", "decals"),
                         dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),

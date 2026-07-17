@@ -225,6 +225,10 @@ target_compile_definitions(orkige_editor PRIVATE
     # normal map WaterComponent references) so a scene's water surface shows its
     # static preview in the editor (matches what the player/exports register)
     ORKIGE_EDITOR_WATER_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/water"
+    # the engine decal media dir (default mark + blob-shadow textures the
+    # DecalComponent references) so a scene's decal shows its static preview in
+    # the editor (matches what the player/exports register)
+    ORKIGE_EDITOR_DECAL_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/decals"
     ORKIGE_EDITOR_VERSION="${PROJECT_VERSION}"
     # play mode spawns this binary (Play toolbar button / playtest hooks)
     ORKIGE_EDITOR_PLAYER_PATH="$<TARGET_FILE:orkige_player>"
