@@ -435,10 +435,13 @@ namespace Orkige
 			Ogre::RTShader::ShaderGenerator::getSingletonPtr())
 		{
 			// metal-rough response: the Cook-Torrance lighting stage reads
-			// metalness from specular.x and roughness from specular.y (the
-			// shininess exponent is unused there)
-			pass->setSpecular(std::clamp(desc.metalness, 0.0f, 1.0f),
-				std::clamp(desc.roughness, 0.0f, 1.0f), 0.0f, 1.0f);
+			// ROUGHNESS from specular.x and METALNESS from specular.y (its
+			// ormParams.yz take specular.xy - the orm layout, occlusion/
+			// roughness/metalness); the shininess exponent is unused there.
+			// The historical swapped order turned every rough dielectric into
+			// a mirror-smooth metal: black diffuse + a pin specular.
+			pass->setSpecular(std::clamp(desc.roughness, 0.0f, 1.0f),
+				std::clamp(desc.metalness, 0.0f, 1.0f), 0.0f, 1.0f);
 			pass->setShininess(0.0f);
 			// the tangent-space normal map, bound as a texture unit the normal-
 			// map stage samples (kept OUT of the colour texturing stage)
@@ -590,13 +593,14 @@ namespace Orkige
 		if(Ogre::RTShader::ShaderGenerator* generator =
 			Ogre::RTShader::ShaderGenerator::getSingletonPtr())
 		{
-			// a glossy dielectric: Cook-Torrance reads metalness from specular.x
-			// (0 = non-metal water) and roughness from specular.y. fresnelPower
-			// sharpens the reflection (lower roughness = a tighter, brighter sun
-			// glint riding the ripples).
+			// a glossy dielectric: Cook-Torrance reads ROUGHNESS from
+			// specular.x and METALNESS from specular.y (the orm layout - same
+			// order note as createMaterial above; 0 = non-metal water).
+			// fresnelPower sharpens the reflection (lower roughness = a
+			// tighter, brighter sun glint riding the ripples).
 			const float roughness = std::clamp(
 				0.15f / std::max(desc.fresnelPower, 0.25f), 0.03f, 0.4f);
-			pass->setSpecular(0.0f, roughness, 0.0f, 1.0f);
+			pass->setSpecular(roughness, 0.0f, 0.0f, 1.0f);
 			pass->setShininess(0.0f);
 			// A COMPOSITE of two water cues, because RTSS classic can light a
 			// normal map OR scroll a texture, not both on one unit (the

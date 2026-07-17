@@ -9,7 +9,7 @@
 X(SkyDome, true)
 X(DynamicShadows, false)
 X(HemisphereAmbient, false)
-X(SunExposureLinkage, false)
+X(SunExposureLinkage, true)
 X(AnimatedNormalMappedWater, false)
 X(OffscreenOwnedLayers, false)
 X(ScreenSpaceRefraction, false)

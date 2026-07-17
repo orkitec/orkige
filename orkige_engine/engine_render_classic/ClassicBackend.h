@@ -301,9 +301,18 @@ namespace Orkige
 		//! (RenderLight::setType / ~RenderLight). A membership change re-resolves
 		//! a live sky dome's sun so orienting/retyping the sun updates the sky.
 		static void noteDirectionalLight(Ogre::Light* light, bool isDirectional);
+		//! @brief a RenderLight setter authored a colour. While the atmosphere
+		//! DRIVES @p light (it is the linked sun of the sun-exposure linkage),
+		//! the authored value lands in the restore snapshot instead of the live
+		//! light - the atmosphere owns the visible colour, and disabling it
+		//! restores the LATEST authored one. Returns true when consumed that
+		//! way (the caller then skips the live write).
+		static bool noteAuthoredSunColour(Ogre::Light* light,
+			Ogre::ColourValue const & colour, bool specular);
 		//! recompute the live sky dome's vertex colours from the cached
-		//! atmosphere + the current sun (a no-op when no dome is up). Called
-		//! when the sun registry changes (@see noteDirectionalLight).
+		//! atmosphere + the current sun (a no-op when no dome is up) AND
+		//! re-resolve the sun-exposure linkage. Called when the sun registry
+		//! changes (@see noteDirectionalLight).
 		static void refreshSkyDome();
 		static optr<RenderTexture> createRenderTexture(String const & name,
 			unsigned int width, unsigned int height);

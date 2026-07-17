@@ -42,7 +42,7 @@ namespace Orkige
 	X(SkyDome, "skyDome", Asymmetric, "a horizon-to-zenith sky dome behind the scene (sun-linked atmospheric on next, a vertex-colour gradient on classic) vs a flat clear colour") \
 	X(DynamicShadows, "dynamicShadows", Asymmetric, "dynamic shadow maps (PSSM/PCF) cast by shadow-casting lights") \
 	X(HemisphereAmbient, "hemisphereAmbient", Asymmetric, "a two-colour sky/ground ambient term; classic averages the two colours to one flat ambient") \
-	X(SunExposureLinkage, "sunExposureLinkage", Asymmetric, "the atmosphere drives the linked sun's colour/power (an exposure the un-tonemapped pipeline can clip); classic reads the sun direction only") \
+	X(SunExposureLinkage, "sunExposureLinkage", Asymmetric, "the atmosphere drives the linked sun's colour/power (an exposure the un-tonemapped pipeline can clip) - native on next, the same day/night curve evaluated on the CPU on classic (colour + averaged-flat ambient fill, tolerance parity)") \
 	X(AnimatedNormalMappedWater, "animatedNormalMappedWater", Asymmetric, "fully animated normal-mapped water ripples; classic lights OR scrolls one normal map on a unit, not both, so its lit relief is static") \
 	X(OffscreenOwnedLayers, "offscreenOwnedLayers", Asymmetric, "2D layers composited into an offscreen RenderTexture (the editor GUI Preview + preview_ui), not just the main window") \
 	X(ScreenSpaceRefraction, "screenSpaceRefraction", PlannedAbsent, "screen-space refraction distortion through transparent surfaces (a compositor refraction pass) - absent on both flavors") \

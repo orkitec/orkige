@@ -30,9 +30,14 @@ namespace Orkige
 	//! the classic compatibility flavor a vertex-colour gradient sky dome reads
 	//! @c sky* / @c skyPower / @c density for its zenith->horizon gradient and
 	//! the sun glow direction from the first directional light, while @c
-	//! fogDensity / @c fog* drive fixed-function exponential fog; @c sunPower /
-	//! @c ambientPower are ignored (classic does not drive the sun's exposure) -
-	//! the honest subset (@see the capability matrix in
+	//! fogDensity / @c fog* drive fixed-function exponential fog. @c sunPower /
+	//! @c ambientPower drive the sun-exposure linkage on BOTH flavors: next
+	//! natively, classic through the same day/night curve evaluated on the CPU
+	//! (core_util/AtmosphereSunDrive.h - the linked sun's colour plus an
+	//! averaged-flat ambient fill, exposure-calibrated at the mid-grey
+	//! reference; a tolerance parity, not per-pixel). While the atmosphere is
+	//! enabled it OWNS the linked light's colour; disabling restores the
+	//! authored values exactly (@see the capability matrix in
 	//! Docs/render-abstraction.md).
 	//!
 	//! Field ranges + coupling (next flavor / AtmosphereNpr; verified against
@@ -148,8 +153,13 @@ namespace Orkige
 				break;
 			case SKY_NIGHT:
 				desc.skyRed = 0.05f; desc.skyGreen = 0.08f; desc.skyBlue = 0.18f;
-				desc.skyPower = 0.2f;
-				desc.density = 0.08f;
+				// the sky model amplifies a low sun hard (its light density
+				// divides by the sun elevation), so a dark night needs BOTH a
+				// low dome brightness and a thin Rayleigh density - at the
+				// earlier 0.2/0.08 the rendered night dome washed out to a
+				// bright haze once it actually drew
+				desc.skyPower = 0.1f;
+				desc.density = 0.04f;
 				// a dim moon: a low sun drive, a cool ambient fill so shapes
 				// stay legible instead of crushing to black
 				desc.sunPower = 0.35f;

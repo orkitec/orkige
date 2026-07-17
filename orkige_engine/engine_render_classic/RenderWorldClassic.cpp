@@ -14,6 +14,7 @@
 
 #include "engine_render_classic/ClassicBackend.h"
 #include "engine_util/PrimitiveUtil.h"
+#include "core_util/AtmosphereSunDrive.h"
 
 #include <cmath>
 
@@ -97,6 +98,79 @@ namespace Orkige
 			}
 			dir.normalise();
 			return dir;
+		}
+
+		//--- sun-exposure linkage (the classic subset of the next flavor's
+		//--- atmosphere-driven sun) --------------------------------------
+		//! restore-exactly bookkeeping: while the atmosphere is enabled it
+		//! OWNS the linked sun's colour (like the next flavor's native
+		//! linkage), so the light's authored diffuse/specular are snapshotted
+		//! the moment the atmosphere takes it and written back EXACTLY when
+		//! it lets go (disable, sun-set change, world teardown) - the
+		//! recover-then-reapply rule (@see ScreenShake). The editor never
+		//! enables an atmosphere, so editing stays untouched.
+		Ogre::Light* gLinkedSun = NULL;
+		Ogre::ColourValue gLinkedSunDiffuse;
+		Ogre::ColourValue gLinkedSunSpecular;
+		//! true while the atmosphere drives the scene ambient (so disabling
+		//! restores the authored hemisphere average exactly ONCE, and a
+		//! never-enabled atmosphere never touches the scene ambient)
+		bool gAtmosphereDrivesAmbient = false;
+
+		//! give the linked sun its authored colours back (no-op when the
+		//! atmosphere holds no light)
+		void restoreLinkedSun()
+		{
+			if(gLinkedSun)
+			{
+				gLinkedSun->setDiffuseColour(gLinkedSunDiffuse);
+				gLinkedSun->setSpecularColour(gLinkedSunSpecular);
+				gLinkedSun = NULL;
+			}
+		}
+
+		//! drive the linked sun's colour and the flat scene ambient from the
+		//! shared day/night curve (core_util/AtmosphereSunDrive.h - the SAME
+		//! model the next flavor's atmosphere evaluates natively, with the
+		//! classic exposure calibration documented there). The sun's
+		//! DIRECTION stays transform-authored on both flavors; only colour
+		//! and fill are driven.
+		void driveSunExposure(Ogre::SceneManager* sceneManager,
+			AtmosphereDesc const & desc)
+		{
+			Ogre::Light* sun = RenderBackend::firstDirectionalLight();
+			if(gLinkedSun != sun)
+			{
+				// the previous sun returns to its authored colours (it is
+				// still alive here - the registry is updated before a dying
+				// light is destroyed), the new one is snapshotted first
+				restoreLinkedSun();
+				if(sun)
+				{
+					gLinkedSun = sun;
+					gLinkedSunDiffuse = sun->getDiffuseColour();
+					gLinkedSunSpecular = sun->getSpecularColour();
+				}
+			}
+			const Ogre::Vector3 toSun = resolveSunDirection();
+			const AtmosphereSunDrive::Drive drive =
+				AtmosphereSunDrive::compute(desc, toSun.x, toSun.y, toSun.z);
+			if(sun)
+			{
+				const Ogre::ColourValue driven(
+					drive.sunRed * drive.classicSunScale,
+					drive.sunGreen * drive.classicSunScale,
+					drive.sunBlue * drive.classicSunScale, 1.0f);
+				sun->setDiffuseColour(driven);
+				sun->setSpecularColour(driven);
+			}
+			// the atmosphere's hemisphere fill, averaged flat (the classic
+			// setAmbientHemisphere subset) - written straight to the scene so
+			// the AUTHORED hemisphere cache stays the restore source
+			sceneManager->setAmbientLight(Ogre::ColourValue(
+				drive.classicAmbientRed, drive.classicAmbientGreen,
+				drive.classicAmbientBlue, 1.0f));
+			gAtmosphereDrivesAmbient = true;
 		}
 		//! create the sky material once: unlit, vertex-colour, no depth test/
 		//! write, two-sided - drawn first (sky queue) as the backdrop. RTSS
@@ -260,6 +334,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	RenderWorld::~RenderWorld()
 	{
+		// the linked sun dies with the scene manager - drop the handle, no
+		// restore (and the ambient flag resets for a future world)
+		gLinkedSun = NULL;
+		gAtmosphereDrivesAmbient = false;
 		// drop the sky dome (its ManualObject/node + the camera-follow listener)
 		// before the scene manager tears down
 		teardownSkyDome(this->mImpl->sceneManager, this->mImpl->skyDome,
@@ -448,16 +526,56 @@ namespace Orkige
 		{
 			rebuildSkyDome(this->mImpl->sceneManager, this->mImpl->skyDome,
 				this->mImpl->skyNode, this->mImpl->atmosphere);
+			// sun-exposure linkage: drive the first directional light's
+			// colour + the flat ambient fill through the shared day/night
+			// curve (the next flavor gets the same drive natively from its
+			// atmosphere - AtmosphereDesc::sunPower/ambientPower now act on
+			// BOTH flavors)
+			driveSunExposure(this->mImpl->sceneManager, this->mImpl->atmosphere);
 		}
-		else if(this->mImpl->skyDome)
+		else
 		{
-			this->mImpl->skyDome->setVisible(false);
+			if(this->mImpl->skyDome)
+			{
+				this->mImpl->skyDome->setVisible(false);
+			}
+			// restore-exactly: the linked sun returns to its authored
+			// colours, the scene ambient to the authored hemisphere average
+			// (only if the atmosphere was actually driving them)
+			restoreLinkedSun();
+			if(gAtmosphereDrivesAmbient)
+			{
+				gAtmosphereDrivesAmbient = false;
+				this->mImpl->sceneManager->setAmbientLight(
+					(this->mImpl->ambientUpper + this->mImpl->ambientLower)
+						* 0.5f);
+			}
 		}
 	}
 	//---------------------------------------------------------
 	AtmosphereDesc const & RenderWorld::getAtmosphere() const
 	{
 		return this->mImpl->atmosphere;
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::noteAuthoredSunColour(Ogre::Light* light,
+		Ogre::ColourValue const & colour, bool specular)
+	{
+		if(!light || light != gLinkedSun)
+		{
+			return false;	// not driven - the caller writes the live light
+		}
+		// the atmosphere owns the live colour; record the authored value so
+		// disabling restores the LATEST one (restore-exactly)
+		if(specular)
+		{
+			gLinkedSunSpecular = colour;
+		}
+		else
+		{
+			gLinkedSunDiffuse = colour;
+		}
+		return true;
 	}
 	//---------------------------------------------------------
 	void RenderBackend::refreshSkyDome()
@@ -468,11 +586,17 @@ namespace Orkige
 			return;
 		}
 		RenderWorld::Impl* impl = system->getWorld()->mImpl;
-		if(impl->skyDome && impl->atmosphere.enabled)
+		if(impl->atmosphere.enabled)
 		{
-			// the sun set changed under a live dome: re-emit its gradient
-			// (the sun glow tracks the new first directional light)
-			buildSkyDomeGeometry(impl->skyDome, impl->atmosphere);
+			if(impl->skyDome)
+			{
+				// the sun set changed under a live dome: re-emit its gradient
+				// (the sun glow tracks the new first directional light)
+				buildSkyDomeGeometry(impl->skyDome, impl->atmosphere);
+			}
+			// re-resolve the sun-exposure linkage to the new first
+			// directional light (restores a leaving sun, takes the new one)
+			driveSunExposure(impl->sceneManager, impl->atmosphere);
 		}
 	}
 	//---------------------------------------------------------

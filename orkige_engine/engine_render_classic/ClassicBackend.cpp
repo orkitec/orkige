@@ -88,11 +88,14 @@ namespace Orkige
 		// the classic backend's render capabilities (@see RenderSystem::supports;
 		// the register leg of render_facade_selfcheck asserts this fill matches
 		// engine_render_classic/RenderCapsExpectedClassic.inc): a vertex-colour
-		// gradient sky dome, and nothing else in the set. The rest (dynamic
-		// shadows, hemisphere ambient, sun-exposure linkage, animated
-		// normal-mapped water, offscreen-owned 2D layers) are registered next-only
-		// deltas; screen-space refraction + IBL are absent on both.
-		system->mImpl->caps = (1u << static_cast<int>(RenderCaps::SkyDome));
+		// gradient sky dome plus the sun-exposure linkage (the atmosphere
+		// drives the linked sun's colour and an averaged-flat ambient through
+		// the shared curve - core_util/AtmosphereSunDrive.h). The rest (dynamic
+		// shadows, hemisphere ambient, animated normal-mapped water,
+		// offscreen-owned 2D layers) are registered next-only deltas;
+		// screen-space refraction + IBL are absent on both.
+		system->mImpl->caps = (1u << static_cast<int>(RenderCaps::SkyDome)) |
+			(1u << static_cast<int>(RenderCaps::SunExposureLinkage));
 		gRenderSystem = system;
 		return gRenderSystem;
 	}

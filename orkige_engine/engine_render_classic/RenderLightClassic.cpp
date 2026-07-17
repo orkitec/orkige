@@ -104,12 +104,22 @@ namespace Orkige
 	//---------------------------------------------------------
 	void RenderLight::setDiffuseColour(Color const & colour)
 	{
-		this->mImpl->light->setDiffuseColour(colour);
+		// while the atmosphere drives this light (the linked sun), the
+		// authored colour lands in its restore snapshot instead
+		if(!RenderBackend::noteAuthoredSunColour(this->mImpl->light, colour,
+			false))
+		{
+			this->mImpl->light->setDiffuseColour(colour);
+		}
 	}
 	//---------------------------------------------------------
 	void RenderLight::setSpecularColour(Color const & colour)
 	{
-		this->mImpl->light->setSpecularColour(colour);
+		if(!RenderBackend::noteAuthoredSunColour(this->mImpl->light, colour,
+			true))
+		{
+			this->mImpl->light->setSpecularColour(colour);
+		}
 	}
 	//---------------------------------------------------------
 	void RenderLight::setRange(Real range)
