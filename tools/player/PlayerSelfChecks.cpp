@@ -2815,8 +2815,12 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				}
 				else
 				{
-					// the toggle legs pace off the lock, not off boot
-					spriteBatchToggleFrame = frameCount + 20;
+					// the toggle legs pace off the lock, not off boot - but
+					// never before the frame-60 screenshot, which must
+					// capture the batched rendering (the pixel-identity
+					// comparison against the batching-off run depends on it)
+					spriteBatchToggleFrame =
+						std::max<unsigned long>(frameCount + 20, 70);
 				}
 			}
 			else if (frameCount >= 90)
@@ -2871,6 +2875,13 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				spriteBatchDone = true;
 			}
 		}
+	}
+	if (spriteBatchCheck && spriteBatchDone && frameCount > 60)
+	{
+		// verdict reached and the frame-60 screenshot is on disk - the run
+		// has nothing left to prove, so end it instead of idling to the
+		// frame cap (a software-GPU host pays real seconds per frame)
+		running = false;
 	}
 
 	// ORKIGE_STATICMOVE_SELFCHECK (@see PlayerSelfChecks.h): a runtime move

@@ -65,8 +65,14 @@ def run_player(args, tag, batching_on):
     if os.path.exists(shot):
         os.unlink(shot)
     env = dict(os.environ)
+    # the frame budget must cover the selfcheck's own worst-case path: the
+    # steady-state baseline may take until frame 90 to lock, the toggle waits
+    # for the frame-60 screenshot, and the restore leg converges under a
+    # 120-frame deadline - so a slow software-GPU host legitimately needs
+    # ~250 frames. The check's internal deadlines fire first, so a genuine
+    # failure still reports its specific message, never a generic run-end.
     env.update({
-        "ORKIGE_DEMO_FRAMES": "150",
+        "ORKIGE_DEMO_FRAMES": "300",
         "ORKIGE_DEMO_SCREENSHOT": shot,
         "ORKIGE_SPRITEBATCH_SELFCHECK": "1",
         "ORKIGE_CVARS": "r.spriteBatching=%d" % (1 if batching_on else 0),
