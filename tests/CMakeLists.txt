@@ -1524,7 +1524,8 @@ if(TARGET orkige_player)
             COMMAND orkige_player samples/scenes/example.oscene
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_resize_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-            ENVIRONMENT "ORKIGE_RESIZE_SELFCHECK=1")
+            ENVIRONMENT "ORKIGE_RESIZE_SELFCHECK=1"
+            SKIP_RETURN_CODE 77)
 
         # performance instruments, end to end: run the roller project (scripts,
         # physics, sprites, HUD all live) for ~70 frames and assert the

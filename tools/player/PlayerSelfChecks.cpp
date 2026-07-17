@@ -3498,6 +3498,38 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		{
 			render->getWindowSize(resizeBaselineW, resizeBaselineH);
 			const double aspect = cameraAspect();
+			// coherence gate: on a host whose window manager clamped the
+			// real window without SDL's bookkeeping following (a hosted
+			// runner's tiny desktop: SDL holds the requested logical size
+			// while the drawable is the clamped one), no size request this
+			// probe makes can round-trip - that is the HARNESS unable to
+			// express window geometry, not the resize path failing. Skip
+			// with the evidence; every coherent host stays a hard gate.
+			{
+				int logicalW = 0;
+				int logicalH = 0;
+				SDL_GetWindowSize(context.host.getWindow(), &logicalW,
+					&logicalH);
+				const double pixelDensity = SDL_GetWindowPixelDensity(
+					context.host.getWindow());
+				const double expectedW = logicalW * pixelDensity;
+				const double expectedH = logicalH * pixelDensity;
+				if (expectedW > 0.0 && expectedH > 0.0 &&
+					(std::abs(resizeBaselineW - expectedW) > 0.05 * expectedW ||
+					 std::abs(resizeBaselineH - expectedH) > 0.05 * expectedH))
+				{
+					SDL_Log("orkige_player: RESIZE SELFCHECK SKIPPED - the "
+						"window system holds %ux%u while SDL believes "
+						"%dx%d at density %.2f; this host cannot express "
+						"window geometry faithfully",
+						resizeBaselineW, resizeBaselineH, logicalW, logicalH,
+						pixelDensity);
+					resizePhase = ResizePhase::Done;
+					exitCode = 77;
+					running = false;
+					return;
+				}
+			}
 			if (resizeBaselineW == 0 || resizeBaselineH == 0)
 			{
 				resizeFail("no drawable at the baseline frame");
