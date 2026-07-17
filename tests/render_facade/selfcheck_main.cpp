@@ -1410,6 +1410,126 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 				"the unsupported-sky-dome log line appears exactly once");
 		}
 
+		// --- sky TYPES (AtmosphereDesc::skyType, both flavors) -------------
+		// skybox visibly samples the cubemap (a debug cubemap face colour the
+		// procedural sky can never show), colour is a flat clear in the sky
+		// tint, and switching back to procedural restores the EXACT pixels -
+		// the toggle-identity discipline.
+		{
+			// aim at +X: through both flavors' (x, y, -z) cubemap sampling the
+			// debug cubemap shows its +X face there - saturated RED, which no
+			// procedural sky state in this leg renders
+			cameraNode->lookAt(Vec3(50, 12, 0), RenderNode::TS_WORLD);
+
+			// procedural baseline (the identity reference for the round-trip)
+			world->setAtmosphere(onDesc);
+			SELFCHECK(renderFrames(renderSystem, 3),
+				"frames render with the procedural sky (baseline)");
+			const std::string skyProceduralShot =
+				outDir + "/selfcheck_sky_procedural.png";
+			renderSystem->saveWindowContents(skyProceduralShot);
+			float baseRed = 0, baseGreen = 0, baseBlue = 0;
+			SELFCHECK(SelfcheckBootstrap::readImagePixel(skyProceduralShot,
+				skyX, skyY, baseRed, baseGreen, baseBlue),
+				"the procedural-sky probe decodes");
+			SELFCHECK(!(baseRed > 0.6f && baseGreen < 0.35f && baseBlue < 0.35f),
+				"the procedural sky is not the cubemap face colour");
+
+			// SKYBOX: the generated six-colour debug cubemap
+			// (samples/hello_orkige/media/sky_faces.dds - make_sky_assets.py)
+			AtmosphereDesc skyboxDesc = onDesc;
+			skyboxDesc.skyType = AtmosphereSky::ST_SKYBOX;
+			skyboxDesc.skyboxTexture = "sky_faces.dds";
+			world->setAtmosphere(skyboxDesc);
+			SELFCHECK(world->getAtmosphere().skyType ==
+				AtmosphereSky::ST_SKYBOX &&
+				world->getAtmosphere().skyboxTexture == "sky_faces.dds",
+				"the skybox desc round-trips");
+			SELFCHECK(renderFrames(renderSystem, 3),
+				"frames render with the skybox sky");
+			const std::string skySkyboxShot =
+				outDir + "/selfcheck_sky_skybox.png";
+			renderSystem->saveWindowContents(skySkyboxShot);
+			float boxRed = 0, boxGreen = 0, boxBlue = 0;
+			SELFCHECK(SelfcheckBootstrap::readImagePixel(skySkyboxShot,
+				skyX, skyY, boxRed, boxGreen, boxBlue),
+				"the skybox-sky probe decodes");
+			std::printf("render_facade_selfcheck: skybox sky probe "
+				"%.3f/%.3f/%.3f\n", boxRed, boxGreen, boxBlue);
+			SELFCHECK(boxRed > 0.6f && boxGreen < 0.35f && boxBlue < 0.35f,
+				"the skybox sky samples the cubemap (+X face red, "
+				"not the procedural gradient)");
+
+			// COLOUR: flat clear in the sky tint - no dome pixels, so two
+			// probe heights read the SAME colour (a gradient/cubemap sky
+			// would differ), and the tint's blue dominance shows
+			AtmosphereDesc colourDesc = onDesc;
+			colourDesc.skyType = AtmosphereSky::ST_COLOUR;
+			world->setAtmosphere(colourDesc);
+			SELFCHECK(renderFrames(renderSystem, 3),
+				"frames render with the colour sky");
+			const std::string skyColourShot =
+				outDir + "/selfcheck_sky_colour.png";
+			renderSystem->saveWindowContents(skyColourShot);
+			float flatRed = 0, flatGreen = 0, flatBlue = 0;
+			float flatRed2 = 0, flatGreen2 = 0, flatBlue2 = 0;
+			SELFCHECK(SelfcheckBootstrap::readImagePixel(skyColourShot,
+				skyX, skyY, flatRed, flatGreen, flatBlue) &&
+				SelfcheckBootstrap::readImagePixel(skyColourShot,
+					skyX, atmoH / 20u, flatRed2, flatGreen2, flatBlue2),
+				"the colour-sky probes decode");
+			SELFCHECK(flatBlue > flatRed && flatBlue > 0.3f,
+				"the colour sky clears to the blue-dominant sky tint");
+			SELFCHECK(std::fabs(flatRed - flatRed2) < 0.02f &&
+				std::fabs(flatGreen - flatGreen2) < 0.02f &&
+				std::fabs(flatBlue - flatBlue2) < 0.02f,
+				"the colour sky is FLAT (no dome/cubemap gradient)");
+
+			// ROUND-TRIP identity: procedural again must reproduce the
+			// baseline pixels exactly (a probe grid, zero-ish tolerance) -
+			// the other sky types left no residue behind
+			world->setAtmosphere(onDesc);
+			SELFCHECK(renderFrames(renderSystem, 3),
+				"frames render after returning to the procedural sky");
+			const std::string skyRestoredShot =
+				outDir + "/selfcheck_sky_procedural_restored.png";
+			renderSystem->saveWindowContents(skyRestoredShot);
+			bool identical = true;
+			for(unsigned int gy = 1; gy <= 4 && identical; ++gy)
+			{
+				for(unsigned int gx = 1; gx <= 4 && identical; ++gx)
+				{
+					const unsigned int px = atmoW * gx / 5u;
+					const unsigned int py = atmoH * gy / 5u;
+					float aR = 0, aG = 0, aB = 0, bR = 0, bG = 0, bB = 0;
+					if(!SelfcheckBootstrap::readImagePixel(
+							skyProceduralShot, px, py, aR, aG, aB) ||
+						!SelfcheckBootstrap::readImagePixel(
+							skyRestoredShot, px, py, bR, bG, bB))
+					{
+						identical = false;
+						break;
+					}
+					if(std::fabs(aR - bR) > 0.004f ||
+						std::fabs(aG - bG) > 0.004f ||
+						std::fabs(aB - bB) > 0.004f)
+					{
+						std::printf("render_facade_selfcheck: sky round-trip "
+							"differs at %u,%u (%.3f/%.3f/%.3f vs "
+							"%.3f/%.3f/%.3f)\n", px, py, aR, aG, aB,
+							bR, bG, bB);
+						identical = false;
+					}
+				}
+			}
+			SELFCHECK(identical,
+				"the procedural sky is pixel-identical after the sky-type "
+				"round-trip (toggle identity)");
+
+			// leave the leg the way the exposure block below expects it
+			cameraNode->lookAt(Vec3(0, 4, -50), RenderNode::TS_WORLD);
+		}
+
 		// NOT-CLIPPED exposure: the atmosphere drives its linked sun's power for
 		// an HDR pipeline, but THIS pipeline has no tonemapper - the native sun
 		// power (Math::PI) clips a mid-albedo surface to pure white. A mid-grey,
