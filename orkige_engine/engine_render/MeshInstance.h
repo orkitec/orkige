@@ -122,6 +122,15 @@ namespace Orkige
 		void setAnimationEnabled(String const & name, bool enabled);
 		//! map: classic=AnimationState::setLoop | next=SkeletonAnimation::setLoop | filament=facade time wrap
 		void setAnimationLoop(String const & name, bool loop);
+		//! @brief blend weight of an animation (1 = full). Several animations
+		//! enabled at once blend by their weights - the crossfade primitive.
+		//! map: classic=AnimationState::setWeight | next=SkeletonAnimation::mWeight | filament=Animator applyAnimation weight
+		void setAnimationWeight(String const & name, float weight);
+		//! @brief make the instance's bounds follow the animated skeleton (so a
+		//! swinging limb keeps the culling AABB correct); a no-op on an
+		//! unskinned instance / a flavor whose bounds already track animation.
+		//! map: classic=Entity::setUpdateBoundingBoxFromSkeleton | next=native (v2 bounds already animate)
+		void setAnimatedBounds(bool enabled);
 		//! map: classic=AnimationState::addTime | next=SkeletonAnimation::addTime | filament=advance facade clock + Animator::applyAnimation
 		void addAnimationTime(String const & name, float deltaSeconds);
 		//! map: classic=AnimationState::setTimePosition | next=SkeletonAnimation::setTime | filament=facade clock

@@ -109,6 +109,18 @@ add_test(NAME make_terrain_mesh_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(make_terrain_mesh_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# skinned character-rig generator self-validation: make_character_rig.py builds
+# the blocky mannequin .glb in memory and asserts the skinning structure (7-joint
+# skeleton, one inverse bind matrix per joint, per-vertex JOINTS_0/WEIGHTS_0 that
+# sum to 1 with a real multi-joint blend, in-range indices), the walk/idle clip
+# durations and rotation channels, determinism (byte-identical .glb) and the
+# undeformed rest pose. Stdlib-only, headless - the character pipeline at the
+# tooling level.
+add_test(NAME make_character_rig_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_character_rig.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(make_character_rig_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 # device-session prep self-validation: orkige_device.py drives the one-command
 # phone loop (doctor readiness report + android/ios deploy-and-run). The
 # selftest covers the pure parts - argument routing, doctor report assembly
@@ -1382,6 +1394,26 @@ if(TARGET orkige_player)
         set_tests_properties(player_vectoranim_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_VECTORANIM_SELFCHECK=1")
 
+        # 3D SKELETAL character animation, end to end: tests/projects/character
+        # scenes/main.oscene - a generated blocky mannequin (assets/
+        # character_rig.glb from Util/make_character_rig.py: a 7-joint skeleton,
+        # per-vertex weights, walk + idle clips) with a ModelComponent +
+        # AnimationComponent. The check plays walk and asserts the skeleton-driven
+        # bounds SPREAD (a swinging limb moves the skinned vertices), then
+        # crossFadeTo blends walk->idle (both clips run together, then walk drops)
+        # and idle's sway keeps moving the bounds. On a flavor that imports glTF
+        # STATICALLY (the Ogre-Next path bakes transforms + drops the skeleton),
+        # the rig loads with no animations and the check SKIPS HONESTLY (exit 0)
+        # with that finding as the message. See the ORKIGE_CHARACTER_RIG_SELFCHECK
+        # block in PlayerSelfChecks. Runs on both flavors (classic verifies the
+        # full path; next self-reports the static-import gap).
+        add_test(NAME player_character_rig_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player tests/projects/character/scenes/main.oscene
+                --project tests/projects/character
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_character_rig_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_CHARACTER_RIG_SELFCHECK=1")
+
         # roller LEVELS + PROGRESSION, end to end: solve level 1 (the
         # proven slide + roll), assert the runtime SWITCHED to level 2 via the
         # DEFERRED scene load (shared.roller.levelIndex incremented + the
@@ -1912,6 +1944,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
         player_softbody_selfcheck player_softbody_selfcheck_next
+        player_character_rig_selfcheck player_character_rig_selfcheck_next
         player_roller_progression_selfcheck
         player_roller_progression_selfcheck_next
         player_tween_selfcheck player_tween_selfcheck_next

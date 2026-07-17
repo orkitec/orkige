@@ -974,6 +974,9 @@ AnimationComponent:setExtractMotion(...)
 AnimationComponent:setExtractRotation(...)
 AnimationComponent:getMotionBone(...)
 AnimationComponent:setMotionBone(...)
+AnimationComponent:crossFadeTo(...)
+AnimationComponent:isCrossFading(...)
+AnimationComponent:getCrossFadeProgress(...)
 
 ## CameraComponent
 CameraComponent:setProjectionMode(...)

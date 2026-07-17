@@ -39,6 +39,7 @@
 #include <engine_gocomponent/SpriteBatcher.h>
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
+#include <engine_gocomponent/AnimationComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
@@ -48,11 +49,13 @@
 #include <engine_gui/GuiManager.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderCamera.h>
+#include <engine_render/MeshInstance.h>
 #include <engine_runtime/AppHost.h>
 #include <engine_sound/SoundManager.h>
 #include <engine_util/StringUtil.h>
 #include <core_debugnet/Json.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -111,6 +114,13 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// also logs the measured per-frame evaluate+tessellate cost per character.
 	vectorAnimCheck =
 		(std::getenv("ORKIGE_VECTORANIM_SELFCHECK") != nullptr);
+	// ORKIGE_CHARACTER_RIG_SELFCHECK verifies 3D SKELETAL character animation
+	// end to end against tests/projects/character (a generated skinned
+	// mannequin): the walk clip moves bone-driven bounds, a crossfade blends to
+	// idle. Skips honestly on a flavor that imports glTF statically (no
+	// skeleton, no clips).
+	characterRigCheck =
+		(std::getenv("ORKIGE_CHARACTER_RIG_SELFCHECK") != nullptr);
 	// ORKIGE_ROLLER_PROGRESSION_SELFCHECK verifies the level sequence +
 	// deferred scene switch + progression save end to end against
 	// projects/roller: solve level 1 (the proven tile-slide + roll), assert
@@ -244,7 +254,7 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		integrationContactCheck || integrationLevelCheck ||
 		breadcrumbCheck || fadeCheck || lifecycleCheck || resizeCheck ||
 		softbodyCheck || perfCheck || benchmarkCheck || vectorAnimCheck ||
-		staticMoveCheck || spriteBatchCheck ||
+		characterRigCheck || staticMoveCheck || spriteBatchCheck ||
 		!assetIdCheckTexture.empty() || !cookedCheckTexture.empty() ||
 		frameLimit != 0;
 }
@@ -2349,6 +2359,220 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		running = false;
 	}
 
+	// --- 3D SKELETAL character animation (see the ORKIGE_CHARACTER_RIG_
+	// SELFCHECK block in PlayerSelfChecks.h) ---------------------------
+	if (characterRigCheck && !characterRigCheckFailed &&
+		characterRigPhase != CharacterRigPhase::Done)
+	{
+		auto rigObject = [&gameObjectManager]() -> optr<Orkige::GameObject>
+		{
+			return gameObjectManager.getGameObject("Mannequin").lock();
+		};
+		auto animComp = [&]() -> Orkige::AnimationComponent*
+		{
+			optr<Orkige::GameObject> go = rigObject();
+			if (!go || !go->hasComponent<Orkige::AnimationComponent>())
+			{
+				return nullptr;
+			}
+			return go->getComponentPtr<Orkige::AnimationComponent>();
+		};
+		auto rigMesh = [&]() -> optr<Orkige::MeshInstance>
+		{
+			optr<Orkige::GameObject> go = rigObject();
+			if (!go || !go->hasComponent<Orkige::ModelComponent>())
+			{
+				return optr<Orkige::MeshInstance>();
+			}
+			Orkige::ModelComponent* model =
+				go->getComponentPtr<Orkige::ModelComponent>();
+			return model ? model->getMeshInstance()
+				: optr<Orkige::MeshInstance>();
+		};
+		// the skeleton-driven LOCAL bounds signature: as a limb swings, the
+		// skinned vertices move and the animated bounds spread (the bone-driven
+		// deformation proof, no pixel readback needed)
+		auto boundsSignature = [&]() -> float
+		{
+			optr<Orkige::MeshInstance> mesh = rigMesh();
+			if (!mesh)
+			{
+				return 0.0f;
+			}
+			Orkige::AABB bounds = mesh->getLocalBounds();
+			Orkige::Vec3 mn = bounds.getMinimum();
+			Orkige::Vec3 mx = bounds.getMaximum();
+			return std::abs(mn.x) + std::abs(mn.y) + std::abs(mn.z) +
+				std::abs(mx.x) + std::abs(mx.y) + std::abs(mx.z);
+		};
+		auto clipEnabled = [&](const char* name) -> bool
+		{
+			optr<Orkige::MeshInstance> mesh = rigMesh();
+			if (!mesh)
+			{
+				return false;
+			}
+			Orkige::StringVector enabled = mesh->getEnabledAnimations();
+			return std::find(enabled.begin(), enabled.end(),
+				Orkige::String(name)) != enabled.end();
+		};
+		auto characterFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: CHARACTER RIG SELFCHECK FAILED - %s "
+				"(bounds spread %.4f)", what.c_str(),
+				characterRigBoundsMax - characterRigBoundsMin);
+			characterRigCheckFailed = true;
+		};
+		Orkige::AnimationComponent* anim = animComp();
+
+		if (characterRigPhase == CharacterRigPhase::Boot)
+		{
+			if (frameCount == 5)
+			{
+				if (!anim)
+				{
+					characterFail("no Mannequin with an AnimationComponent");
+				}
+				else if (!anim->hasAnimations())
+				{
+					// the honest static-import skip: a flavor that bakes glTF
+					// transforms (dropping the skeleton) carries no clips
+					SDL_Log("orkige_player: character rig selfcheck SKIPPED - "
+						"the rig loaded with NO animations: this flavor imports "
+						"glTF statically (skeleton + clips dropped at import), "
+						"so 3D skeletal playback is not available on it");
+					characterRigSkipped = true;
+					characterRigPhase = CharacterRigPhase::Done;
+					running = false;
+				}
+				else
+				{
+					Orkige::StringList const& names =
+						anim->getAvailableAnimations();
+					const bool hasWalk = std::find(names.begin(), names.end(),
+						Orkige::String("walk")) != names.end();
+					const bool hasIdle = std::find(names.begin(), names.end(),
+						Orkige::String("idle")) != names.end();
+					if (!hasWalk || !hasIdle)
+					{
+						characterFail("the rig is missing its walk/idle clips");
+					}
+					else if (!anim->playAnimation("walk", true))
+					{
+						characterFail("could not play the walk clip");
+					}
+					else
+					{
+						const float sig = boundsSignature();
+						characterRigBoundsMin = characterRigBoundsMax = sig;
+						characterRigBoundsSeeded = true;
+						characterRigPhase = CharacterRigPhase::Walk;
+						characterRigDeadline = frameCount + 600;
+					}
+				}
+			}
+		}
+		else if (characterRigPhase == CharacterRigPhase::Walk)
+		{
+			const float sig = boundsSignature();
+			characterRigBoundsMin = std::min(characterRigBoundsMin, sig);
+			characterRigBoundsMax = std::max(characterRigBoundsMax, sig);
+			if (characterRigBoundsMax - characterRigBoundsMin > 0.05f)
+			{
+				SDL_Log("orkige_player: character rig selfcheck - the walk clip "
+					"moves bone-driven vertices (skeletal bounds spread %.3f)",
+					characterRigBoundsMax - characterRigBoundsMin);
+				if (anim && anim->crossFadeTo("idle", 0.4f))
+				{
+					characterRigPhase = CharacterRigPhase::Blend;
+					characterRigDeadline = frameCount + 600;
+				}
+				else
+				{
+					characterFail("crossFadeTo(idle) was refused");
+				}
+			}
+			else if (frameCount >= characterRigDeadline)
+			{
+				characterFail("the walk clip never moved the skeletal bounds");
+			}
+		}
+		else if (characterRigPhase == CharacterRigPhase::Blend)
+		{
+			if (anim && anim->isCrossFading())
+			{
+				characterRigSawBlending = true;
+				if (clipEnabled("walk") && clipEnabled("idle"))
+				{
+					// both clips run together mid-blend = a real weighted
+					// crossfade, not a hard cut
+					characterRigSawBothEnabled = true;
+				}
+			}
+			else if (anim)
+			{
+				// the blend completed - the outgoing clip must be gone and idle
+				// the sole survivor, and the blend must actually have happened
+				if (!characterRigSawBlending || !characterRigSawBothEnabled)
+				{
+					characterFail("the crossfade never blended both clips");
+				}
+				else if (clipEnabled("walk"))
+				{
+					characterFail("the walk clip was not dropped after the "
+						"crossfade");
+				}
+				else if (!clipEnabled("idle"))
+				{
+					characterFail("idle is not playing after the crossfade");
+				}
+				else
+				{
+					SDL_Log("orkige_player: character rig selfcheck - the "
+						"crossfade blended walk->idle (both clips ran together, "
+						"then walk dropped)");
+					const float sig = boundsSignature();
+					characterRigIdleBoundsMin = characterRigIdleBoundsMax = sig;
+					characterRigIdleSeeded = true;
+					characterRigPhase = CharacterRigPhase::Idle;
+					characterRigDeadline = frameCount + 600;
+				}
+			}
+			if (!characterRigCheckFailed &&
+				characterRigPhase == CharacterRigPhase::Blend &&
+				frameCount >= characterRigDeadline)
+			{
+				characterFail("the crossfade never completed");
+			}
+		}
+		else if (characterRigPhase == CharacterRigPhase::Idle)
+		{
+			const float sig = boundsSignature();
+			characterRigIdleBoundsMin = std::min(characterRigIdleBoundsMin, sig);
+			characterRigIdleBoundsMax = std::max(characterRigIdleBoundsMax, sig);
+			if (characterRigIdleBoundsMax - characterRigIdleBoundsMin > 0.02f)
+			{
+				SDL_Log("orkige_player: character rig selfcheck complete - walk "
+					"moved skeletal bounds (spread %.3f), a weighted crossfade "
+					"blended to idle, and idle's sway keeps moving the bounds "
+					"(spread %.3f) - 3D skeletal playback + blend verified",
+					characterRigBoundsMax - characterRigBoundsMin,
+					characterRigIdleBoundsMax - characterRigIdleBoundsMin);
+				characterRigPhase = CharacterRigPhase::Done;
+				running = false;
+			}
+			else if (frameCount >= characterRigDeadline)
+			{
+				characterFail("the idle sway never moved the skeletal bounds");
+			}
+		}
+	}
+	if (characterRigCheck && characterRigCheckFailed)
+	{
+		exitCode = 1;
+		running = false;
+	}
+
 	// --- roller PROGRESSION selfcheck (see the block above the loop) --
 	if (rollerProgressionCheck && !rollerProgCheckFailed &&
 		rollerProgPhase == RollerProgPhase::Boot)
@@ -3830,6 +4054,13 @@ void PlayerSelfChecks::atLoopEnd(PlayerContext& context)
 	{
 		SDL_Log("orkige_player: SPRITEBATCH SELFCHECK FAILED - run ended "
 			"before the check completed");
+		exitCode = 1;
+	}
+	if (characterRigCheck && !characterRigCheckFailed &&
+		characterRigPhase != CharacterRigPhase::Done)
+	{
+		SDL_Log("orkige_player: CHARACTER RIG SELFCHECK FAILED - run ended "
+			"in phase %d", static_cast<int>(characterRigPhase));
 		exitCode = 1;
 	}
 	if (lifecycleCheck && !lifecycleFailed &&

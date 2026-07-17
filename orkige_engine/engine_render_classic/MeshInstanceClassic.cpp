@@ -395,6 +395,26 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void MeshInstance::setAnimationWeight(String const & name, float weight)
+	{
+		if(Ogre::AnimationState* state =
+			animationState(this->mImpl->entity, name))
+		{
+			state->setWeight(weight);
+		}
+	}
+	//---------------------------------------------------------
+	void MeshInstance::setAnimatedBounds(bool enabled)
+	{
+		// a swinging limb must keep the culling AABB honest - OGRE recomputes
+		// the entity bounds from the live bone positions when this is set (only
+		// meaningful on a skinned entity)
+		if(this->mImpl->entity->hasSkeleton())
+		{
+			this->mImpl->entity->setUpdateBoundingBoxFromSkeleton(enabled);
+		}
+	}
+	//---------------------------------------------------------
 	void MeshInstance::addAnimationTime(String const & name, float deltaSeconds)
 	{
 		if(Ogre::AnimationState* state =

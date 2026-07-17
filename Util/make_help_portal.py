@@ -64,7 +64,7 @@ ROOT = os.path.dirname(os.path.dirname(SCRIPT_PATH))
 # appended alphabetically, so a new doc shows up without touching this script
 PREFERRED_ORDER = [
     "getting-started", "lua-api", "gui", "materials", "particles",
-    "vector-animation", "localisation", "logging", "benchmark",
+    "vector-animation", "character-animation", "localisation", "logging", "benchmark",
     "mcp", "mcp-workflows", "render-abstraction", "web-export",
     "device-session", "ios-signing", "store-release", "ports",
 ]

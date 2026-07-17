@@ -29,6 +29,7 @@ struct PlayerSelfChecks
 	std::string rollerShotDir;
 	bool softbodyCheck = false;
 	bool vectorAnimCheck = false;
+	bool characterRigCheck = false;
 	bool rollerProgressionCheck = false;
 	std::string assetIdCheckTexture;
 	std::string cookedCheckTexture;
@@ -217,6 +218,37 @@ struct PlayerSelfChecks
 	float vectorAnimPoseMax = 0.0f;
 	bool vectorAnimPoseSeeded = false;
 	unsigned long vectorAnimDeadline = 0;
+	// --- ORKIGE_CHARACTER_RIG_SELFCHECK=1: 3D SKELETAL character animation
+	// end to end against tests/projects/character (a generated blocky
+	// mannequin, Util/make_character_rig.py: 7-joint skeleton, skin weights,
+	// walk + idle clips). The Mannequin object carries a ModelComponent (the
+	// skinned .glb) + an AnimationComponent. Phased:
+	//   Boot     frame 5: the rig loaded. If the mesh carries NO animations
+	//            (the flavor imports glTF statically - the Ogre-Next path bakes
+	//            transforms and drops the skeleton), the check SKIPS HONESTLY
+	//            with that finding as the message (exit 0). Otherwise assert the
+	//            walk+idle clips exist, play walk, seed the animated bounds.
+	//   Walk     the walk clip advances: the skeleton-driven local bounds SPREAD
+	//            (a swinging limb moves the skinned vertices - the bone-driven
+	//            deformation proof), then crossFadeTo("idle") is requested.
+	//   Blend    the crossfade transitions: BOTH clips are enabled mid-blend and
+	//            the progress ramps to completion, then only idle remains.
+	//   Idle     idle is the sole playing clip and its sway still moves bounds.
+	// A missed deadline exits non-zero.
+	enum class CharacterRigPhase { Boot, Walk, Blend, Idle, Done };
+
+	CharacterRigPhase characterRigPhase = CharacterRigPhase::Boot;
+	bool characterRigCheckFailed = false;
+	bool characterRigSkipped = false;
+	float characterRigBoundsMin = 0.0f;
+	float characterRigBoundsMax = 0.0f;
+	bool characterRigBoundsSeeded = false;
+	bool characterRigSawBothEnabled = false;
+	bool characterRigSawBlending = false;
+	float characterRigIdleBoundsMin = 0.0f;
+	float characterRigIdleBoundsMax = 0.0f;
+	bool characterRigIdleSeeded = false;
+	unsigned long characterRigDeadline = 0;
 	// --- ORKIGE_ROLLER_PROGRESSION_SELFCHECK=1: the level sequence + the
 	// DEFERRED scene switch + the progression save, end to end
 	// against projects/roller. Same discipline as the roller selfcheck

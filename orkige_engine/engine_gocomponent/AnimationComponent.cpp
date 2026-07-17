@@ -92,6 +92,48 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
+	bool AnimationComponent::crossFadeTo(String const & anim, float durationSeconds)
+	{
+		optr<MeshInstance> mesh = this->getAnimableMesh();
+		if(!mesh || !mesh->hasAnimation(anim))
+		{
+			return false;
+		}
+		// the outgoing clip is the first enabled one that isn't the target
+		String from;
+		for(String const & name : mesh->getEnabledAnimations())
+		{
+			if(name != anim)
+			{
+				from = name;
+				break;
+			}
+		}
+		// bring the target in from time 0 (looping like playAnimation defaults)
+		mesh->setAnimationTime(anim, 0.f);
+		mesh->setAnimationEnabled(anim, true);
+		mesh->setAnimationLoop(anim, true);
+		if(from.empty() || durationSeconds <= 0.f)
+		{
+			// nothing to blend from (or an instant switch): snap to the target
+			if(!from.empty())
+			{
+				mesh->setAnimationEnabled(from, false);
+			}
+			mesh->setAnimationWeight(anim, 1.f);
+			this->blending = false;
+			return true;
+		}
+		mesh->setAnimationWeight(from, 1.f);
+		mesh->setAnimationWeight(anim, 0.f);
+		this->blendFrom = from;
+		this->blendTo = anim;
+		this->blendDuration = durationSeconds;
+		this->blendElapsed = 0.f;
+		this->blending = true;
+		return true;
+	}
+	//---------------------------------------------------------
 	void AnimationComponent::setDefaultAnimation(String const & anim)
 	{
 		optr<MeshInstance> mesh = this->getAnimableMesh();
@@ -147,6 +189,9 @@ namespace Orkige
 		this->extractMotion = false;
 		this->extractRotation = false;
 		this->speed = 1.f;
+		this->blending = false;
+		this->blendDuration = 0.f;
+		this->blendElapsed = 0.f;
 		this->getAnimationsFromModel();
 	}
 	//---------------------------------------------------------
@@ -166,6 +211,33 @@ namespace Orkige
 			{
 				bool playDefaultAnimation = this->playAnimation(this->defaultAnimation, true);
 				oAssert(playDefaultAnimation);
+			}
+			// advance a live crossfade: ramp the outgoing weight down and the
+			// incoming up over the blend duration (wall-time, unscaled), then
+			// drop the outgoing clip when the blend completes
+			if(this->blending)
+			{
+				this->blendElapsed += deltaTime;
+				float progress = this->blendDuration > 0.f
+					? this->blendElapsed / this->blendDuration : 1.f;
+				if(progress >= 1.f)
+				{
+					progress = 1.f;
+				}
+				if(optr<MeshInstance> mesh = this->getAnimableMesh())
+				{
+					mesh->setAnimationWeight(this->blendFrom, 1.f - progress);
+					mesh->setAnimationWeight(this->blendTo, progress);
+					if(progress >= 1.f)
+					{
+						mesh->setAnimationEnabled(this->blendFrom, false);
+						mesh->setAnimationWeight(this->blendTo, 1.f);
+					}
+				}
+				if(progress >= 1.f)
+				{
+					this->blending = false;
+				}
 			}
 			this->updateAnimations(deltaTime);
 		}
@@ -221,6 +293,9 @@ namespace Orkige
 				mesh->setAnimationTime(animationName, 0.f);
 				this->availableAnimations.push_back(animationName);
 			}
+			// an animated character's bounds must follow its swinging limbs so
+			// culling stays honest (a no-op where the backend already does this)
+			mesh->setAnimatedBounds(true);
 			this->getComponentOwner()->triggerEvent(Event(AnimationsLoaded));
 		}
 // ORKIGE_SANCTIONED_OGRE_BEGIN(root-motion-backdoor) - lint gate, see Util/ogre_containment.json
@@ -355,6 +430,9 @@ namespace Orkige
 		OFUNC(setExtractRotation)
 		OFUNCCR(getMotionBone)
 		OFUNC(setMotionBone)
+		OFUNC(crossFadeTo)
+		OFUNC(isCrossFading)
+		OFUNC(getCrossFadeProgress)
 	OOBJECT_END
 
 

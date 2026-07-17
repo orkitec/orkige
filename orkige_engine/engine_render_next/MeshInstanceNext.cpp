@@ -370,6 +370,21 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void MeshInstance::setAnimationWeight(String const & name, float weight)
+	{
+		if(Ogre::SkeletonAnimation* animation =
+			skeletonAnimation(this->mImpl->item, name))
+		{
+			animation->mWeight = weight;	// the SkeletonAnimation blend weight
+		}
+	}
+	//---------------------------------------------------------
+	void MeshInstance::setAnimatedBounds(bool /*enabled*/)
+	{
+		// the v2 Item's world AABB already tracks the animated skeleton, so the
+		// culling bounds follow a swinging limb natively - nothing to arm here
+	}
+	//---------------------------------------------------------
 	void MeshInstance::addAnimationTime(String const & name, float deltaSeconds)
 	{
 		if(Ogre::SkeletonAnimation* animation =

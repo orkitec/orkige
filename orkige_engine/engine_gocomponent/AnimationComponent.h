@@ -70,6 +70,13 @@ namespace Orkige
 		KeyFrameBackupRegistry			backuppedKeyframes;
 		optr<StringUtil::StringObject>	eventData;				//!< name of set or removed model
 		float							speed;					//!< sets the speed of the animation
+		//! the live crossfade: the outgoing/incoming clips blend by weight over
+		//! blendDuration (@see crossFadeTo). blending is false when idle.
+		String							blendFrom;
+		String							blendTo;
+		float							blendDuration;
+		float							blendElapsed;
+		bool							blending;
 		//--- Methods -----------------------------------------------
 	public:
 		//! constructor
@@ -93,6 +100,15 @@ namespace Orkige
 		bool playAnimation(String const & anim, bool loop);
 		//! stop a anim
 		bool stopAnimation(String const & anim);
+		//! @brief blend from the currently playing clip to another over
+		//! durationSeconds (weights ramp outgoing 1->0, incoming 0->1). With
+		//! nothing playing or a non-positive duration it switches instantly.
+		//! @return false when the target clip does not exist
+		bool crossFadeTo(String const & anim, float durationSeconds);
+		//! is a crossfade currently blending two clips?
+		inline bool isCrossFading();
+		//! crossfade progress 0..1 (0 when not blending)
+		inline float getCrossFadeProgress();
 		//! update playing animations
 		void updateAnimations(float timeDelta);
 		//! should component handle motions in animations?
@@ -237,6 +253,21 @@ namespace Orkige
 	inline void AnimationComponent::setMotionBone(String const & boneName)
 	{
 		this->motionBone = boneName;
+	}
+	//---------------------------------------------------------------
+	inline bool AnimationComponent::isCrossFading()
+	{
+		return this->blending;
+	}
+	//---------------------------------------------------------------
+	inline float AnimationComponent::getCrossFadeProgress()
+	{
+		if(!this->blending || this->blendDuration <= 0.0f)
+		{
+			return 0.0f;
+		}
+		float progress = this->blendElapsed / this->blendDuration;
+		return progress > 1.0f ? 1.0f : progress;
 	}
 	//---------------------------------------------------------------
 	inline void AnimationComponent::pause()
