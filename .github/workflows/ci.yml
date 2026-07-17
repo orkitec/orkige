@@ -63,6 +63,45 @@ env:
   CXX: clang++
 
 jobs:
+  # The public site (https://orkige.orkitec.com): landing page + docs portal +
+  # legal pages from Util/make_help_portal.py plus the /api/ class reference
+  # (Docs/api/Doxyfile - runner-only tooling). Lives INSIDE the CI workflow so
+  # one push shows ONE run; the job needs no engine build and runs in parallel
+  # with the test matrix. The generator's hard-failing broken-link gate means
+  # a broken docs state never deploys. Manual redeploys: the pages workflow
+  # keeps a workflow_dispatch-only trigger.
+  site:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Generate the site (landing + portal + legal pages)
+        run: python3 Util/make_help_portal.py --output _site
+      - name: Install the API-reference tooling
+        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
+      - name: Render the /api/ class reference from the engine headers
+        run: |
+          doxygen Docs/api/Doxyfile
+          mv Docs/api/build/html _site/api
+      - name: Pin the custom domain
+        run: echo orkige.orkitec.com > _site/CNAME
+      - name: Upload the site artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
   linux-classic:
     name: Linux classic (GL3Plus) - compatibility build + tests
     runs-on: ubuntu-latest
