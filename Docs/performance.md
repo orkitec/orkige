@@ -262,6 +262,7 @@ holds):
 | Instance Field | 185.3 | 185.3 | 4.1 | 4.1 |
 | Flatland | 6.5 | 6.5 | 6.1 | 6.1 |
 | Cascade | 32.1 | 3.0 | 3.1 | 3.0 |
+| roller (projects/roller main) | 18.0 | 5.0 | 6.0 | 5.0 |
 | fixture_static (9 meshes) | 9.0 | 5.0 | 2.0 | 2.0 |
 | fixture_sprites (11 sprites) | 11.0 | 4.0 | 4.0 | 3.0 |
 
@@ -272,9 +273,11 @@ Notes for the reader of the deltas:
   its win is the CPU side (static items leave the per-frame transform/cull
   pipeline), which vsync-clamped Debug frame times cannot resolve; the
   structural numbers are the honest measure on this rig.
-- **Cascade classic 32→3**: the 2D headline — the physics cascade's pooled
-  sprite bodies share textures and z-layers, so sprite-run batching folds
-  ~30 per-sprite draws into a few run batches.
+- **Cascade classic 32→3, roller 18→5**: the 2D headline — pooled cascade
+  bodies and the roller's tile frames/walls share textures within their
+  z-layers, so sprite-run batching folds the per-sprite draws into a few
+  run batches. The runs stay merged while tiles slide (dirty tracking
+  re-uploads the moved run; the roller selfcheck still passes end to end).
 - **Flatland unchanged**: honest — its authored sprites are all *distinct*
   parallax layers (one sprite per zOrder), so no run of two ever forms. The
   fixture (and cascade) show the batching win; flatland shows the painter's
