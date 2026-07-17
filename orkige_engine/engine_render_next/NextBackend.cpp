@@ -891,7 +891,10 @@ namespace Orkige
 					texture->scheduleTransitionTo(
 						Ogre::GpuResidency::Resident);
 				}
-				texture->waitForMetadata();
+				// wait for the texels, not just the metadata: the sky covers
+				// the whole background, so a partially-streamed first frame
+				// would flash black (and setSky reads the texture type)
+				texture->waitForData();
 				sceneManager->setSky(true, Ogre::SceneManager::SkyCubemap,
 					texture);
 				// same queue lesson as the NprSky quad: the upstream default

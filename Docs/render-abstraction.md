@@ -784,7 +784,7 @@ renders it fails CI.
 <!-- GENERATED:render-caps-matrix - edit Util/update_docs.py / lua_api_annotations.json; do not hand-edit -->
 | Capability (`RenderCaps` name) | classic | next | What it is |
 | --- | :---: | :---: | --- |
-| `skyDome` | yes | yes | a horizon-to-zenith sky dome behind the scene (sun-linked atmospheric on next, a vertex-colour gradient on classic) vs a flat clear colour; the dome is the `procedural` sky type — `AtmosphereDesc::skyType` also selects a cubemap `skybox` or a flat `colour` sky on both flavors |
+| `skyDome` | yes | yes | a horizon-to-zenith sky dome behind the scene (sun-linked atmospheric on next, a vertex-colour gradient on classic) vs a flat clear colour; the dome is the `procedural` sky type - `AtmosphereDesc::skyType` also selects a cubemap `skybox` or a flat `colour` sky on both flavors |
 | `dynamicShadows` | yes | yes | dynamic shadow maps cast by shadow-casting directional lights (next = compositor PSSM + PCF; classic = RTSS integrated PSSM folded into the one generated-material scheme - on GLES2/WebGL the bit is runtime-gated on depth-texture render targets) |
 | `hemisphereAmbient` | no | yes | a two-colour sky/ground ambient term; classic averages the two colours to one flat ambient |
 | `sunExposureLinkage` | yes | yes | the atmosphere drives the linked sun's colour/power (an exposure the un-tonemapped pipeline can clip) - native on next, the same day/night curve evaluated on the CPU on classic (colour + averaged-flat ambient fill, tolerance parity) |
