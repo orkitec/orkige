@@ -176,11 +176,14 @@ def assert_boot(output_dir, browser):
         log = run_browser(browser, url, deadline_seconds=180,
                           needed_markers=(BOOT_MARKER, EXIT_MARKER))
         if BOOT_MARKER not in log:
-            fail("player did not report the bundled project - boot log:\n%s"
-                 % log[-4000:])
+            fail("player did not report the bundled project - full boot "
+                 "log:\n%s" % log)
         if EXIT_MARKER not in log:
+            # the WHOLE captured console: a shader/GL failure's cause (the
+            # context version + supported-profile lines at GL init) sits
+            # thousands of lines before its symptom, so a tail is useless
             fail("player did not reach the orderly shutdown (no frame-stats "
-                 "line) - log tail:\n%s" % log[-4000:])
+                 "line) - full log:\n%s" % log)
         print("run_export_web: boot + clean shutdown OK", flush=True)
 
         # leg 2: a mid-run screenshot must show an actual rendered scene
