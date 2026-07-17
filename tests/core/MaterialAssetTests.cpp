@@ -33,7 +33,9 @@ TEST_CASE("material_parse_omat_valid", "[unit][material]")
 		"roughness 0.6\n"
 		"normalTexture rock_normal.png\n"
 		"emissive 0.9 0.7 0.3\n"
-		"emissiveTexture rock_glow.png\n";
+		"emissiveTexture rock_glow.png\n"
+		"alphaTest 0.5\n"
+		"twoSided 1\n";
 
 	MaterialAsset::ParsedMaterial material;
 	String error;
@@ -51,6 +53,8 @@ TEST_CASE("material_parse_omat_valid", "[unit][material]")
 	CHECK(material.emissive.g == Approx(0.7f));
 	CHECK(material.emissive.b == Approx(0.3f));
 	CHECK(material.emissiveTexture == "rock_glow.png");
+	CHECK(material.alphaTest == Approx(0.5f));
+	CHECK(material.twoSided);
 }
 //---------------------------------------------------------
 TEST_CASE("material_parse_omat_defaults", "[unit][material]")
@@ -67,6 +71,8 @@ TEST_CASE("material_parse_omat_defaults", "[unit][material]")
 	CHECK(material.normalTexture.empty());
 	CHECK(material.emissive.r == Approx(0.0f));
 	CHECK(material.emissiveTexture.empty());
+	CHECK(material.alphaTest == Approx(0.0f));
+	CHECK_FALSE(material.twoSided);
 
 	// `version 1` alone is a valid (all-defaults) material
 	REQUIRE(MaterialAsset::parse("version 1\n", material));
@@ -123,6 +129,13 @@ TEST_CASE("material_parse_omat_malformed", "[unit][material]")
 			&error));
 		CHECK_FALSE(MaterialAsset::parse("albedo 1 1 1 2\n", material,
 			&error));
+		CHECK_FALSE(MaterialAsset::parse("alphaTest 1.5\n", material,
+			&error));
+		CHECK_FALSE(MaterialAsset::parse("alphaTest opaque\n", material,
+			&error));
+		// twoSided is strictly 0/1 - no truthy words, no other numbers
+		CHECK_FALSE(MaterialAsset::parse("twoSided yes\n", material, &error));
+		CHECK_FALSE(MaterialAsset::parse("twoSided 2\n", material, &error));
 	}
 	SECTION("only version 1 is accepted")
 	{
@@ -154,6 +167,8 @@ TEST_CASE("material_serialize_roundtrips", "[unit][material]")
 	original.normalTexture = "rock_normal.png";
 	original.emissive = MaterialAsset::Colour(0.9f, 0.7f, 0.3f, 1.0f);
 	original.emissiveTexture = "rock_glow.png";
+	original.alphaTest = 0.35f;
+	original.twoSided = true;
 
 	const String text = MaterialAsset::serialize(original);
 	// the version line is always present and the canonical scalars are short
@@ -171,6 +186,8 @@ TEST_CASE("material_serialize_roundtrips", "[unit][material]")
 	CHECK(reparsed.normalTexture == "rock_normal.png");
 	CHECK(reparsed.emissive.g == Approx(0.7f));
 	CHECK(reparsed.emissiveTexture == "rock_glow.png");
+	CHECK(reparsed.alphaTest == Approx(0.35f));
+	CHECK(reparsed.twoSided);
 }
 
 TEST_CASE("material_serialize_defaults_are_minimal", "[unit][material]")
@@ -182,6 +199,8 @@ TEST_CASE("material_serialize_defaults_are_minimal", "[unit][material]")
 	CHECK(text.find("albedo ") == String::npos);
 	CHECK(text.find("metalness") == String::npos);
 	CHECK(text.find("emissive") == String::npos);
+	CHECK(text.find("alphaTest") == String::npos);
+	CHECK(text.find("twoSided") == String::npos);
 
 	MaterialAsset::ParsedMaterial reparsed;
 	REQUIRE(MaterialAsset::parse(text, reparsed, nullptr));

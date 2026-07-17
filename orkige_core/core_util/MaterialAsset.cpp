@@ -120,7 +120,8 @@ namespace Orkige
 				}
 				parsed.emissive = Colour(r, g, b, 1.0f);
 			}
-			else if(keyword == "metalness" || keyword == "roughness")
+			else if(keyword == "metalness" || keyword == "roughness" ||
+				keyword == "alphaTest")
 			{
 				float value = 0.0f;
 				if(!readUnitFloat(tokens, value) || !lineDone(tokens))
@@ -129,7 +130,18 @@ namespace Orkige
 						keyword + " takes one 0..1 value");
 				}
 				(keyword == "metalness" ? parsed.metalness
-					: parsed.roughness) = value;
+					: keyword == "roughness" ? parsed.roughness
+					: parsed.alphaTest) = value;
+			}
+			else if(keyword == "twoSided")
+			{
+				int value = 0;
+				if(!(tokens >> value) || (value != 0 && value != 1) ||
+					!lineDone(tokens))
+				{
+					return fail(outError, lineNumber, "twoSided takes 0 or 1");
+				}
+				parsed.twoSided = (value == 1);
 			}
 			else if(keyword == "albedoTexture" || keyword == "normalTexture" ||
 				keyword == "emissiveTexture")
@@ -240,6 +252,14 @@ namespace Orkige
 		if(!material.emissiveTexture.empty())
 		{
 			out << "emissiveTexture " << material.emissiveTexture << "\n";
+		}
+		if(material.alphaTest != defaults.alphaTest)
+		{
+			out << "alphaTest " << shortFloat(material.alphaTest) << "\n";
+		}
+		if(material.twoSided != defaults.twoSided)
+		{
+			out << "twoSided " << (material.twoSided ? 1 : 0) << "\n";
 		}
 		return out.str();
 	}

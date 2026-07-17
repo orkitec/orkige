@@ -411,17 +411,17 @@ namespace Orkige
 		// texture units are rebuilt from scratch (the update path must be
 		// able to REMOVE the albedo map). Albedo lands at texture unit 0.
 		pass->removeAllTextureUnitStates();
+		Ogre::TexturePtr albedoTexture;	// kept for the cutout caster below
 		if(!desc.albedoTexture.empty())
 		{
 			try
 			{
 				// resolve through EVERY resource group, like sprite textures
-				Ogre::TexturePtr texture =
-					Ogre::TextureManager::getSingleton().load(
-						RenderBackend::resolveTextureResourceName(
-							desc.albedoTexture),
-						Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
-				pass->createTextureUnitState()->setTexture(texture);
+				albedoTexture = Ogre::TextureManager::getSingleton().load(
+					RenderBackend::resolveTextureResourceName(
+						desc.albedoTexture),
+					Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+				pass->createTextureUnitState()->setTexture(albedoTexture);
 			}
 			catch(Ogre::Exception const & e)
 			{
@@ -431,6 +431,25 @@ namespace Orkige
 				outComplete = false;
 			}
 		}
+		// CUTOUT + TWO-SIDED, honoured in every branch: alpha rejection keeps
+		// texels whose albedo alpha passes (CMPF_GREATER_EQUAL threshold - the
+		// RTSS render state below includes SRS_ALPHA_TEST, so the generated
+		// shaders discard too); two-sided disables back-face culling (the lit
+		// normal is NOT flipped for back faces here - the registered subset,
+		// the other backend lights both sides)
+		const bool cutout = desc.alphaTest > 0.0f;
+		if(cutout)
+		{
+			pass->setAlphaRejectSettings(Ogre::CMPF_GREATER_EQUAL,
+				static_cast<unsigned char>(
+					std::clamp(desc.alphaTest, 0.0f, 1.0f) * 255.0f + 0.5f));
+		}
+		else
+		{
+			pass->setAlphaRejectSettings(Ogre::CMPF_ALWAYS_PASS, 0);
+		}
+		pass->setCullingMode(desc.twoSided
+			? Ogre::CULL_NONE : Ogre::CULL_CLOCKWISE);
 		// a re-created material may have been normal-mapped before this update
 		gNormalMappedMaterials.erase(name);
 #ifdef USE_RTSHADER_SYSTEM
@@ -529,6 +548,52 @@ namespace Orkige
 			// pin the shader render state LAST, so createShaderBasedTechnique
 			// clones both the surface pass and any emissive pass
 			configureSurfaceShaderState(generator, material, normalTuIndex);
+			// CUTOUT CASTER: the scene's derived-caster machinery mutates ONE
+			// shared plain-black pass per renderable at render time - state the
+			// RTSS-generated caster program (built once) cannot follow. A
+			// per-material shadow-caster OVERRIDE material is the mechanism the
+			// backend honours verbatim (deriveShadowCasterPass returns its best
+			// technique untouched): it re-binds the albedo texture with the
+			// SAME alpha rejection and culling, the resolver generates its
+			// FFP-emulating shader (texturing + alpha test), and the depth
+			// pass discards the cutout texels - a leaf shadows as a leaf.
+			Ogre::MaterialPtr caster;
+			const String casterName = name + "/Caster";
+			if(cutout && albedoTexture)
+			{
+				caster = materialManager.getByName(casterName,
+					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+				if(!caster)
+				{
+					caster = materialManager.create(casterName,
+						Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+				}
+				// a caster never receives (keeps the scheme's receiver stage
+				// out of its generated shader - it renders INTO the map)
+				caster->setReceiveShadows(false);
+				Ogre::Pass* casterPass =
+					caster->getTechnique(0)->getPass(0);
+				casterPass->setLightingEnabled(false);
+				casterPass->removeAllTextureUnitStates();
+				casterPass->createTextureUnitState()->setTexture(albedoTexture);
+				casterPass->setAlphaRejectSettings(
+					pass->getAlphaRejectFunction(), pass->getAlphaRejectValue());
+				casterPass->setCullingMode(pass->getCullingMode());
+				caster->load();	// the override path reads getBestTechnique
+			}
+			else if(Ogre::MaterialPtr stale = materialManager.getByName(
+				casterName,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+			{
+				// an update dropped the cutout - retire the override material
+				materialManager.remove(stale);
+			}
+			// bind (or clear) on EVERY technique, including the generated one
+			for(unsigned short each = 0;
+				each < material->getNumTechniques(); ++each)
+			{
+				material->getTechnique(each)->setShadowCasterMaterial(caster);
+			}
 			return material;
 		}
 #endif // USE_RTSHADER_SYSTEM

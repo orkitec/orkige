@@ -30,14 +30,20 @@
 //!   normalTexture NAME            tangent-space normal map
 //!   emissive r g b                emitted colour (independent of lighting)
 //!   emissiveTexture NAME          emissive map (tinted by `emissive`)
+//!   alphaTest f                   cutout threshold 0..1 (0 = off, the
+//!                                 default; texels whose albedo alpha falls
+//!                                 below f are discarded - render AND shadow)
+//!   twoSided 0|1                  1 = draw both faces (foliage/flag quads;
+//!                                 default 0 = back faces culled)
 //! Every directive is optional and may appear ONCE; defaults are a plain
 //! white dielectric (albedo 1 1 1 1, metalness 0, roughness 1, no maps, no
-//! emission). Honest v1 boundaries: opaque only (no blend/transparency
-//! modes), no occlusion/specular maps, no per-texture UV transforms, no
-//! reflection cubemap (image-based lighting arrives with the sky/atmosphere
-//! surface - the hemisphere ambient is the current stand-in). UNLIKE
-//! `.oshape` (which reserves future keywords), an unknown directive is an
-//! ERROR - a typo silently ignored would misrender without a trace.
+//! emission, no alpha test, single-sided). Honest v1 boundaries: opaque or
+//! CUTOUT only (alphaTest is binary keep/discard - no alpha BLENDING on
+//! scene-content materials), no occlusion/specular maps, no per-texture UV
+//! transforms, no reflection cubemap (image-based lighting arrives with the
+//! sky/atmosphere surface - the hemisphere ambient is the current stand-in).
+//! UNLIKE `.oshape` (which reserves future keywords), an unknown directive
+//! is an ERROR - a typo silently ignored would misrender without a trace.
 
 #include <core_util/String.h>
 
@@ -68,6 +74,8 @@ namespace Orkige
 			String	normalTexture;			//!< tangent-space normal map ("" = none)
 			Colour	emissive = Colour(0.0f, 0.0f, 0.0f, 1.0f);	//!< emitted colour
 			String	emissiveTexture;		//!< emissive map ("" = none)
+			float	alphaTest = 0.0f;		//!< cutout threshold 0..1 (0 = off)
+			bool	twoSided = false;		//!< draw both faces (default: cull back)
 		};
 
 		//! @brief parse `.omat` text into a surface description.

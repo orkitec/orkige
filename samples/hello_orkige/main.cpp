@@ -152,6 +152,11 @@ int main(int, char**)
 	// probe can isolate what the normal/emissive maps contribute
 	const char* matLooksMode = std::getenv("ORKIGE_DEMO_MATLOOKS");
 	const bool demoMatLooks = (matLooksMode != nullptr);
+	// ORKIGE_DEMO_CUTOUT=1: the alpha-test + two-sided pixel-probe rig
+	// (below) - a cutout leaf quad (and a back-facing sibling) over a lit
+	// ground with a casting sun; the probe asserts the hole renders AND
+	// shadows as a hole, and the back face renders at all
+	const bool demoCutout = (std::getenv("ORKIGE_DEMO_CUTOUT") != nullptr);
 
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window, engine
 	// singletons, the per-flavor Engine boot, the window-camera rig and the
@@ -185,7 +190,7 @@ int main(int, char**)
 				render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
 			}
 			if (demoMusic || demoVectorShape || demoMaterial || demoTerrain ||
-				demoParticles3D || demoMatLooks)
+				demoParticles3D || demoMatLooks || demoCutout)
 			{
 				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
 			}
@@ -374,10 +379,11 @@ int main(int, char**)
 			world->createMeshInstance("HelloCube.mesh");
 		smallCube->attachTo(smallCubeNode);
 
-		// the pixel-probe rig stages a CONTROLLED scene: the spinning default
+		// the pixel-probe rigs stage a CONTROLLED scene: the spinning default
 		// cubes would inject frame-dependent pixels into the frame-locked
-		// captures, so they stay hidden there (the rig brings its own content)
-		if (demoMatLooks)
+		// captures, so they stay hidden there (each rig brings its own content)
+		const bool probeRig = demoMatLooks || demoCutout;
+		if (probeRig)
 		{
 			cube->setVisible(false);
 			smallCube->setVisible(false);
@@ -1125,6 +1131,86 @@ int main(int, char**)
 				"%s)", flatHero ? "flat" : "mapped",
 				world->getShadowQuality() != Orkige::ShadowPreset::SQ_OFF
 					? "requested" : "off");
+		}
+
+		// --- ORKIGE_DEMO_CUTOUT: the alpha-test + two-sided rig. A cutout
+		// leaf quad (alphaTest 0.5, twoSided 1 - demo_material_leaf.omat)
+		// stands over a lit ground with a casting sun; a SECOND leaf is
+		// rotated to show the camera its BACK face (single-sided geometry -
+		// only the two-sided material makes it render). The probe asserts
+		// the hole shows the backdrop through, the back face renders, and
+		// the cast shadow carries the hole (the caster is a cutout too).
+		optr<Orkige::RenderNode> cutoutSunNode;
+		optr<Orkige::RenderLight> cutoutSun;
+		if (demoCutout)
+		{
+			optr<Orkige::GameObject> groundObject =
+				gameObjectManager.createGameObject("cutout_ground").lock();
+			optr<Orkige::GameObject> leafObject =
+				gameObjectManager.createGameObject("cutout_leaf").lock();
+			optr<Orkige::GameObject> backLeafObject =
+				gameObjectManager.createGameObject("cutout_leaf_back").lock();
+			if (!groundObject || !leafObject || !backLeafObject ||
+				!groundObject->addComponent<Orkige::ModelComponent>() ||
+				!leafObject->addComponent<Orkige::ModelComponent>() ||
+				!backLeafObject->addComponent<Orkige::ModelComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - cutout rig creation failed");
+				return 1;
+			}
+			Orkige::ModelComponent* ground =
+				groundObject->getComponentPtr<Orkige::ModelComponent>();
+			Orkige::TransformComponent* groundTransform =
+				groundObject->getComponentPtr<Orkige::TransformComponent>();
+			Orkige::ModelComponent* leaf =
+				leafObject->getComponentPtr<Orkige::ModelComponent>();
+			Orkige::TransformComponent* leafTransform =
+				leafObject->getComponentPtr<Orkige::TransformComponent>();
+			Orkige::ModelComponent* backLeaf =
+				backLeafObject->getComponentPtr<Orkige::ModelComponent>();
+			Orkige::TransformComponent* backLeafTransform =
+				backLeafObject->getComponentPtr<Orkige::TransformComponent>();
+			groundTransform->setPosition(Orkige::Vec3(0.0f, -1.55f, 0.0f));
+			groundTransform->setScale(Orkige::Vec3(5.5f, 0.12f, 5.5f));
+			ground->loadModel("demo_material_cube.glb");
+			ground->setMaterialReference("demo_material_flat.omat");
+			leafTransform->setPosition(Orkige::Vec3(-0.9f, -0.5f, 0.0f));
+			leaf->loadModel("demo_material_leaf.glb");
+			leaf->setMaterialReference("demo_material_leaf.omat");
+			// the back-facing sibling: same single-sided quad, spun 180
+			// degrees so its back faces the camera
+			backLeafTransform->setPosition(Orkige::Vec3(1.3f, -0.5f, 0.0f));
+			backLeafTransform->setOrientation(Orkige::Quat(
+				Orkige::Radian(3.14159265f), Orkige::Vec3::UNIT_Y));
+			backLeaf->loadModel("demo_material_leaf.glb");
+			backLeaf->setMaterialReference("demo_material_leaf.omat");
+			if (!ground->getMeshInstance() || !leaf->getMeshInstance() ||
+				!backLeaf->getMeshInstance() ||
+				!leaf->getMeshInstance()->subMeshHasTexture(0))
+			{
+				SDL_Log("hello_orkige: FAILED - cutout rig meshes/materials "
+					"did not build");
+				return 1;
+			}
+			// the sun: high and slightly behind, so the vertical leaf's
+			// shadow lands on the ground in FRONT of it (towards the camera)
+			cutoutSun = world->createLight();
+			cutoutSunNode = world->createNode("cutoutSunNode");
+			cutoutSunNode->setDirection(
+				Orkige::Vec3(0.15f, -0.8f, 0.6f).normalisedCopy(),
+				Orkige::RenderNode::TS_WORLD);
+			cutoutSun->attachTo(cutoutSunNode);
+			cutoutSun->setType(Orkige::RenderLight::LT_DIRECTIONAL);
+			cutoutSun->setDiffuseColour(Orkige::Color(1.0f, 0.97f, 0.9f));
+			cutoutSun->setSpecularColour(Orkige::Color(1.0f, 0.97f, 0.9f));
+			cutoutSun->setCastShadows(true);
+			world->setAmbientHemisphere(Orkige::Color(0.22f, 0.24f, 0.28f),
+				Orkige::Color(0.11f, 0.10f, 0.08f));
+			cameraNode->setPosition(Orkige::Vec3(0.0f, 1.5f, 5.2f));
+			cameraNode->lookAt(Orkige::Vec3(0.0f, -0.6f, 0.0f),
+				Orkige::RenderNode::TS_WORLD);
+			SDL_Log("hello_orkige: cutout rig up (leaf + back-facing leaf "
+				"over lit ground)");
 		}
 
 		// --- ORKIGE_DEMO_PHYSICS=1: Jolt dynamics through the engine_physic /
@@ -4484,7 +4570,7 @@ int main(int, char**)
 			{
 				Orkige::pushKeyEvent(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, true);
 			}
-			if (frameCount == 10 && !demoMatLooks)
+			if (frameCount == 10 && !probeRig)
 			{
 				// verification that both cubes actually got drawn (12 triangles
 				// each), not just a black window; with ORKIGE_DEMO_MESH the

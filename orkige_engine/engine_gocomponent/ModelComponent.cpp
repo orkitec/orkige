@@ -215,6 +215,8 @@ namespace Orkige
 		desc.emissive = Color(parsed.emissive.r, parsed.emissive.g,
 			parsed.emissive.b, 1.0f);
 		desc.emissiveTexture = parsed.emissiveTexture;
+		desc.alphaTest = parsed.alphaTest;
+		desc.twoSided = parsed.twoSided;
 		const String materialName = "Omat/" + this->materialFileName;
 		render->createMaterial(materialName, desc);	// texture misses logged
 		this->mesh->setMaterial(materialName);		// refusals logged + kept out

@@ -42,18 +42,33 @@ namespace Orkige
 	//! material instance (baseColor/metallic/roughness/normal/emissive are
 	//! native there too).
 	//!
-	//! Honest v1 boundaries (both flavors): opaque only, no reflection
-	//! cubemap yet (image-based lighting lands with the sky/atmosphere
-	//! surface; RenderWorld::setAmbientHemisphere is the current stand-in).
+	//! CUTOUT + TWO-SIDED: `alphaTest` > 0 turns the surface into a cutout -
+	//! texels whose albedo alpha falls below the threshold are DISCARDED, in
+	//! the colour pass AND in the shadow caster pass (a leaf shadows as a
+	//! leaf). next = the Hlms alpha-test path (casters carry it natively);
+	//! classic = pass alpha rejection + a generated per-material shadow-caster
+	//! override material that re-binds the albedo texture with the same
+	//! rejection (the shared derived-caster pass cannot follow per-material
+	//! texture state under generated shaders). `twoSided` disables back-face
+	//! culling (foliage/flag quads); next also flips the lit normal for back
+	//! faces (two-sided lighting), classic renders back faces with the
+	//! front-face normal - the registered subset.
+	//!
+	//! Honest v1 boundaries (both flavors): opaque or binary CUTOUT only (no
+	//! alpha blending), no reflection cubemap yet (image-based lighting lands
+	//! with the sky/atmosphere surface; RenderWorld::setAmbientHemisphere is
+	//! the current stand-in).
 	struct ORKIGE_ENGINE_DLL RenderMaterialDesc
 	{
 		Color	albedo = Color(1.0f, 1.0f, 1.0f, 1.0f);	//!< base colour factor (multiplies the albedo texture)
 		String	albedoTexture;			//!< base-colour map resource name ("" = none)
 		float	metalness = 0.0f;		//!< 0..1 (0 = dielectric, 1 = metal)
 		float	roughness = 1.0f;		//!< 0..1 (1 = fully rough)
-		String	normalTexture;			//!< tangent-space normal map ("" = none; classic ignores it)
+		String	normalTexture;			//!< tangent-space normal map ("" = none)
 		Color	emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);	//!< emitted colour (lighting-independent)
-		String	emissiveTexture;		//!< emissive map ("" = none; classic ignores it)
+		String	emissiveTexture;		//!< emissive map ("" = none)
+		float	alphaTest = 0.0f;		//!< cutout threshold 0..1 (0 = off; keeps albedo alpha >= threshold)
+		bool	twoSided = false;		//!< draw both faces (default: back faces culled)
 	};
 }
 

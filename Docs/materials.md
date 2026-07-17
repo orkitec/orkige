@@ -25,10 +25,15 @@ roughness 0.6                   # 0..1 (1 = fully rough)
 normalTexture rock_normal.png   # tangent-space normal map
 emissive 0.9 0.7 0.3            # emitted colour (lighting-independent)
 emissiveTexture rock_glow.png   # emissive map (tinted by `emissive`)
+alphaTest 0.5                   # cutout threshold 0..1 (0 = off): texels whose
+                                # albedo alpha falls below it are DISCARDED -
+                                # in the colour pass AND the shadow caster
+twoSided 1                      # 1 = draw both faces (foliage/flag quads)
 ```
 
 Defaults (everything omitted) are a plain white dielectric: `albedo 1 1 1 1`,
-`metalness 0`, `roughness 1`, no maps, no emission. Texture names resolve
+`metalness 0`, `roughness 1`, no maps, no emission, no alpha test,
+single-sided. Texture names resolve
 through the resource groups (engine media AND project `assets/`), like sprite
 textures; `.omat` files under `assets/` are id-tracked like any asset, so the
 reflected reference survives renames.
@@ -80,6 +85,8 @@ look. In the editor's asset browser a `.omat` classifies as kind
 | normal map | native (needs mesh tangents — see below) | native (RTSS normal-map stage; needs mesh tangents — see below) |
 | emissive colour | native | self-illumination |
 | emissive texture | native | additive self-illumination pass (opaque materials only) |
+| alphaTest (cutout) | native Hlms alpha test — the caster shader carries the test + diffuse texture, so cutouts SHADOW as cutouts | pass alpha rejection (the RTSS `SRS_ALPHA_TEST` stage discards in the generated shaders) + a generated `<name>/Caster` shadow-caster override material re-binding the albedo texture with the same rejection — see below |
+| twoSided | native (`CULL_NONE` + two-sided lighting: back faces light with the flipped normal) | `CULL_NONE`; back faces light with the FRONT normal (the registered subset) |
 
 Both flavors now light `.omat` content through a metal-rough model:
 Ogre-Next's HlmsPbs and classic's RTSS `SRS_COOK_TORRANCE_LIGHTING` stage
@@ -139,9 +146,21 @@ instances sharing one `.omat` keep independent flags. Water receives
 pass by construction — its generated materials set receive-shadows false
 and its objects never cast.
 
+**Cutout shadow caster (classic)**: the scene's derived-caster machinery
+mutates ONE shared plain-black pass per renderable at render time — state
+the RTSS-generated caster program (built once) cannot follow. So a cutout
+material generates a per-material shadow-caster OVERRIDE material
+(`<name>/Caster`, bound via `Technique::setShadowCasterMaterial`, which the
+backend honours verbatim): unlit, the albedo texture re-bound with the same
+alpha rejection and culling; the RTSS resolver generates its FFP-emulating
+shader (texturing + alpha test) and the depth pass discards the cutout
+texels — a leaf shadows as a leaf. An update that drops the cutout retires
+the override material again.
+
 ## Honest v1 boundaries
 
-- **Opaque only** — no transparency/blend modes on scene-content materials.
+- **Opaque or binary CUTOUT only** — `alphaTest` is a hard keep/discard; no
+  alpha BLENDING on scene-content materials.
 - **No IBL yet**: the per-datablock reflection cubemap is deliberately NOT
   wired — it interacts with the sky/atmosphere surface (`setSkyCubemap`) and
   ships with that package so there is ONE cubemap mechanism, not two.
@@ -173,6 +192,12 @@ receiver). Tests:
   flat-lit), the cast shadow composes on the normal-mapped ground receiver,
   and after lights-out the emissive map glows while everything else reads
   dark (the flat-emissive double-application guard).
+- `material_cutout_right` (integration PIXEL probe, both flavors) — the
+  `ORKIGE_DEMO_CUTOUT` rig (cutout leaf quad + a back-facing sibling over a
+  lit ground, casting sun): the hole renders as backdrop, the back face
+  renders at all (two-sided), and the cast shadow carries a LIT hole — the
+  caster is a cutout too (the dark-sample-centroid check: a filled-disc
+  shadow puts the centroid on dark ground).
 
 ## Terrain — the baked-mesh pipeline
 

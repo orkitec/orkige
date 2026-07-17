@@ -146,8 +146,10 @@ def region_diff(image_a, image_b, region, step=0.01):
     return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
 
 
-def run_demo(binary, env_extra, out_dir, tag, frames=100, timeout=180):
-    """run the demo once; returns (main_shot_path, second_shot_path)"""
+def run_demo(binary, env_extra, out_dir, tag, frames=100, timeout=180,
+             expect_second=True):
+    """run the demo once; returns (main_shot_path, second_shot_path) - the
+    second capture only exists in legs whose demo schedules one"""
     os.makedirs(out_dir, exist_ok=True)
     main_shot = os.path.join(out_dir, f"mat_{tag}.png")
     second_shot = os.path.join(out_dir, f"mat_{tag}_2.png")
@@ -161,7 +163,7 @@ def run_demo(binary, env_extra, out_dir, tag, frames=100, timeout=180):
                             stderr=subprocess.DEVNULL)
     if result.returncode != 0:
         raise RuntimeError(f"demo run '{tag}' exited {result.returncode}")
-    for path in (main_shot, second_shot):
+    for path in (main_shot,) + ((second_shot,) if expect_second else ()):
         if not os.path.exists(path):
             raise RuntimeError(f"demo run '{tag}' captured no frame at {path}")
     return main_shot, second_shot
@@ -218,18 +220,103 @@ def leg_looks(binary, out_dir):
     return failures
 
 
+# cutout-rig regions: the two leaves' screen placement (front leaf around
+# x 0.29..0.49, back-facing leaf around x 0.56..0.76, both y 0.30..0.64)
+LEAF_RING = (0.30, 0.42, 0.335, 0.50)       # solid part of the front leaf
+LEAF_HOLE = (0.375, 0.44, 0.405, 0.49)      # its central hole (backdrop shows)
+BACK_RING = (0.57, 0.42, 0.60, 0.50)        # the back-facing leaf's solid part
+BACK_HOLE = (0.63, 0.44, 0.66, 0.49)        # its hole
+CUTOUT_OPEN = (0.10, 0.68, 0.20, 0.76)      # open lit ground, no shadow
+SHADOW_SCAN = (0.26, 0.62, 0.54, 0.82)      # where the front leaf's shadow lands
+
+
+def region_rgb(image, region, step=0.01):
+    x0, y0, x1, y1 = region
+    sums = [0.0, 0.0, 0.0]
+    count = 0
+    fy = y0
+    while fy < y1:
+        fx = x0
+        while fx < x1:
+            r, g, b = image.rgb(fx, fy)
+            sums[0] += r
+            sums[1] += g
+            sums[2] += b
+            count += 1
+            fx += step
+        fy += step
+    return tuple(value / count for value in sums)
+
+
+def leaf_green(rgb):
+    """is the sample leaf-coloured (green-dominant)? The backdrop through the
+    hole is the orange ground checker or the blue sky - never green-led."""
+    r, g, b = rgb
+    return g > r * 1.15 and g > b * 1.15
+
+
+def leg_cutout(binary, out_dir):
+    shot, _second = run_demo(
+        binary, {"ORKIGE_DEMO_CUTOUT": "1"}, out_dir, "cutout", frames=90,
+        expect_second=False)
+    image = Image(shot)
+    failures = []
+    # 1. the cutout renders as a cutout: leaf ring solid green, the hole
+    # showing the backdrop through (never green-led)
+    ring = region_rgb(image, LEAF_RING)
+    hole = region_rgb(image, LEAF_HOLE)
+    check(failures, leaf_green(ring),
+          f"the leaf's solid ring renders green (rgb {ring})")
+    check(failures, not leaf_green(hole),
+          f"the leaf's hole shows the backdrop through (rgb {hole})")
+    # 2. two-sided: the BACK-facing sibling quad renders at all (single-sided
+    # geometry - culled to nothing without the two-sided material)
+    back_ring = region_rgb(image, BACK_RING)
+    back_hole = region_rgb(image, BACK_HOLE)
+    check(failures, leaf_green(back_ring),
+          f"the back-facing leaf renders (two-sided; rgb {back_ring})")
+    check(failures, not leaf_green(back_hole),
+          f"the back-facing leaf keeps its hole (rgb {back_hole})")
+    # 3. the CAST SHADOW is a cutout too: collect the dark (shadowed) samples
+    # under the front leaf - their centroid must land in the shadow's LIT
+    # hole (a filled-disc shadow puts its centroid on dark ground; measured
+    # centre/open ratios: healthy ~1.0 both flavors, filled ~<=0.7)
+    open_lum = region_mean(image, CUTOUT_OPEN)
+    dark = []
+    x0, y0, x1, y1 = SHADOW_SCAN
+    fy = y0
+    while fy < y1:
+        fx = x0
+        while fx < x1:
+            if image.lum(fx, fy) < 0.7 * open_lum:
+                dark.append((fx, fy))
+            fx += 0.005
+        fy += 0.005
+    check(failures, len(dark) > 100,
+          f"the leaf casts a shadow at all ({len(dark)} dark samples > 100)")
+    if dark:
+        cx = sum(p[0] for p in dark) / len(dark)
+        cy = sum(p[1] for p in dark) / len(dark)
+        centre = region_mean(image, (cx - 0.02, cy - 0.02, cx + 0.02, cy + 0.02))
+        check(failures, centre > 0.85 * open_lum,
+              f"the shadow has a LIT hole (ring centroid ({cx:.2f},{cy:.2f}) "
+              f"luminance {centre:.1f} > 85% of open {open_lum:.1f})")
+    return failures
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True, help="the hello_orkige app")
     parser.add_argument("--out", required=True, help="scratch dir for captures")
-    parser.add_argument("--leg", required=True, choices=["looks"])
+    parser.add_argument("--leg", required=True, choices=["looks", "cutout"])
     args = parser.parse_args()
     if not os.path.exists(args.binary):
         print(f"SKIP: demo app not built: {args.binary}")
         return 77
 
     try:
-        failures = {"looks": leg_looks}[args.leg](args.binary, args.out)
+        failures = {"looks": leg_looks,
+                    "cutout": leg_cutout}[args.leg](args.binary, args.out)
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         print(f"FAIL: {error}")
         return 1

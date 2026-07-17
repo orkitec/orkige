@@ -1437,6 +1437,29 @@ namespace Orkige
 		datablock->setRoughness(std::max(desc.roughness, 0.02f));
 		datablock->setEmissive(Ogre::Vector3(desc.emissive.r, desc.emissive.g,
 			desc.emissive.b));
+		// CUTOUT: the Hlms alpha test discards when (threshold CMP alpha)
+		// holds, so keeping alpha >= threshold is CMPF_GREATER - and the
+		// caster shader carries the test + the diffuse texture natively
+		// (a cutout caster shadows as a cutout, no extra material). The
+		// update path must be able to turn it off (CMPF_ALWAYS_PASS).
+		datablock->setAlphaTest(desc.alphaTest > 0.0f
+			? Ogre::CMPF_GREATER : Ogre::CMPF_ALWAYS_PASS);
+		datablock->setAlphaTestThreshold(
+			std::clamp(desc.alphaTest, 0.0f, 1.0f));
+		// TWO-SIDED: the macroblock owns the cull mode - set it EXPLICITLY
+		// both ways (setTwoSidedLighting(false) leaves a stale CULL_NONE
+		// macroblock behind), and keep the caster two-sided as well so a
+		// foliage plane casts from both sides; the lighting normal flips
+		// through the datablock's two-sided flag
+		{
+			Ogre::HlmsMacroblock macroblock;
+			macroblock.mCullMode = desc.twoSided
+				? Ogre::CULL_NONE : Ogre::CULL_CLOCKWISE;
+			datablock->setMacroblock(macroblock);
+			datablock->setMacroblock(macroblock, true /*caster*/);
+			datablock->setTwoSidedLighting(desc.twoSided,
+				false /*changeMacroblock*/);
+		}
 
 		// textures: a set name binds the map, an empty one detaches it (the
 		// update path must be able to REMOVE a map). Albedo/emissive ride

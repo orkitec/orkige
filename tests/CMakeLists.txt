@@ -694,6 +694,22 @@ if(TARGET hello_orkige)
     set_tests_properties(material_looks_right PROPERTIES
         LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
 
+    # material_cutout_right: the alpha-test + two-sided PIXEL probe. Drives
+    # the ORKIGE_DEMO_CUTOUT rig (a cutout leaf quad + a back-facing sibling
+    # over a lit ground with a casting sun) and asserts the hole renders as
+    # backdrop, the back face renders at all (two-sided), and the CAST SHADOW
+    # carries the hole - the caster is a cutout too (native Hlms alpha-test
+    # casters on next; the generated per-material caster override on classic).
+    # Both flavors. Skips (77) if the app is unbuilt.
+    add_test(NAME material_cutout_right COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_material_probe_test.py"
+        --binary "$<TARGET_FILE:hello_orkige>"
+        --out "${CMAKE_CURRENT_BINARY_DIR}/material_cutout_right"
+        --leg cutout
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(material_cutout_right PROPERTIES
+        LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
+
     # ORKIGE_DEMO_TERRAIN: the baked-mesh terrain selfcheck - a ModelComponent
     # imports the committed chunked terrain .glb (Util/make_terrain_mesh.py:
     # a 3x3 grid of geometry chunks -> 9 engine sub-meshes with normals + UVs)
