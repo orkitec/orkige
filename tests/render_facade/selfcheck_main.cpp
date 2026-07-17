@@ -393,6 +393,9 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		renderTexture->getHeight() == 160, "RTT resize-by-recreate works");
 	SELFCHECK(renderTexture->getNativeTextureId() != 0,
 		"RTT still has a native texture id after resize");
+	std::printf("render_facade_selfcheck: DEBUG shadow state at RTT: '%s'\n",
+		SelfcheckBootstrap::shadowInfrastructureState().c_str());
+	std::fflush(stdout);
 
 	//--- frames ------------------------------------------------------------
 	SELFCHECK(renderFrames(renderSystem, 30), "30 frames render");
@@ -1018,6 +1021,12 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	// (RenderWorld::setShadowQuality - the `r.shadowQuality` cvar's target).
 	if(RenderSystem::get()->supports(RenderCaps::DynamicShadows))
 	{
+		// the restore-exactly contract: the backend's shadow infrastructure
+		// (technique/texture state on classic, shadow node + caster tally on
+		// next) must read EXACTLY the same after the last caster leaves as it
+		// did before the first one armed it
+		const String shadowStateBefore =
+			SelfcheckBootstrap::shadowInfrastructureState();
 		// a flat caster plate hovering over a wide slab, lit by a nearly
 		// vertical shadow-casting directional sun on black ambient: the slab
 		// point under the plate reads dark, open slab reads lit
@@ -1156,6 +1165,75 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		SELFCHECK(std::abs(shadowedKnobOff - openKnobOff) < 0.1f,
 			"quality off matches the unshadowed baseline");
 
+		// seam 3: a LIVE tier change - off -> LOW re-arms the technique with
+		// the new budgets mid-run (what an `r.shadowQuality` cvar flip does
+		// over the debug protocol/MCP) and the shadow comes back
+		world->setShadowQuality(ShadowPreset::SQ_LOW);
+		SELFCHECK(world->getShadowQuality() == ShadowPreset::SQ_LOW,
+			"the shadow quality knob re-arms on low");
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render after the live tier change");
+		const std::string lowShot = outDir + "/selfcheck_shadow_low.png";
+		renderSystem->saveWindowContents(lowShot);
+		float shadowedLow = 0, openLow = 0;
+		SELFCHECK(probeLuminance(lowShot, shadowedPoint, shadowedLow)
+			&& probeLuminance(lowShot, openPoint, openLow),
+			"the low-tier probes decode");
+		std::printf("render_facade_selfcheck: low-tier probe - shadowed %.3f, "
+			"open %.3f\n", shadowedLow, openLow);
+		SELFCHECK(openLow > shadowedLow + 0.15f,
+			"a live tier change re-arms the shadow (low renders one)");
+		world->setShadowQuality(ShadowPreset::SQ_MEDIUM);
+
+		// seam 4: per-OBJECT caster flag (ModelComponent.castShadows): the
+		// plate stops casting - its shadow disappears while the sun still
+		// casts and the world knob stays on
+		plate->setCastShadows(false);
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render after the per-object caster flag went off");
+		const std::string meshCasterOffShot =
+			outDir + "/selfcheck_shadow_mesh_caster_off.png";
+		renderSystem->saveWindowContents(meshCasterOffShot);
+		float shadowedMeshOff = 0, openMeshOff = 0;
+		SELFCHECK(probeLuminance(meshCasterOffShot, shadowedPoint,
+				shadowedMeshOff)
+			&& probeLuminance(meshCasterOffShot, openPoint, openMeshOff),
+			"the per-object caster-off probes decode");
+		SELFCHECK(std::abs(shadowedMeshOff - openMeshOff) < 0.1f,
+			"a castShadows(false) object leaves no shadow");
+		plate->setCastShadows(true);
+
+		// seam 5: per-OBJECT receiver flag (ModelComponent.receiveShadows):
+		// the slab opts out of receiving - the point under the caster reads
+		// like open slab; opting back in restores the shadow exactly
+		slab->setReceiveShadows(false);
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render after the receiver flag went off");
+		const std::string receiveOffShot =
+			outDir + "/selfcheck_shadow_receive_off.png";
+		renderSystem->saveWindowContents(receiveOffShot);
+		float shadowedRecvOff = 0, openRecvOff = 0;
+		SELFCHECK(probeLuminance(receiveOffShot, shadowedPoint,
+				shadowedRecvOff)
+			&& probeLuminance(receiveOffShot, openPoint, openRecvOff),
+			"the receiver-off probes decode");
+		std::printf("render_facade_selfcheck: receiver-off probe - shadowed "
+			"%.3f, open %.3f\n", shadowedRecvOff, openRecvOff);
+		SELFCHECK(std::abs(shadowedRecvOff - openRecvOff) < 0.1f,
+			"a receiveShadows(false) surface renders unshadowed under a caster");
+		slab->setReceiveShadows(true);
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render after the receiver flag came back");
+		const std::string receiveOnShot =
+			outDir + "/selfcheck_shadow_receive_on.png";
+		renderSystem->saveWindowContents(receiveOnShot);
+		float shadowedRecvOn = 0, openRecvOn = 0;
+		SELFCHECK(probeLuminance(receiveOnShot, shadowedPoint, shadowedRecvOn)
+			&& probeLuminance(receiveOnShot, openPoint, openRecvOn),
+			"the receiver-restore probes decode");
+		SELFCHECK(openRecvOn > shadowedRecvOn + 0.15f,
+			"restoring receiveShadows(true) brings the shadow back");
+
 		// restore the default and tear the probe content down
 		world->setShadowQuality(ShadowPreset::SQ_MEDIUM);
 		sun.reset();
@@ -1163,6 +1241,15 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		plate.reset();
 		SELFCHECK(renderFrames(renderSystem, 2),
 			"frames render after the shadow probe was dropped (RAII teardown)");
+		// the last caster left with the sun - the backend must have
+		// disarmed back to EXACTLY the pre-arm infrastructure state
+		const String shadowStateAfter =
+			SelfcheckBootstrap::shadowInfrastructureState();
+		std::printf("render_facade_selfcheck: shadow state before '%s' / "
+			"after '%s'\n", shadowStateBefore.c_str(),
+			shadowStateAfter.c_str());
+		SELFCHECK(shadowStateAfter == shadowStateBefore,
+			"arm/disarm restores the shadow infrastructure exactly");
 	}
 	else
 	{

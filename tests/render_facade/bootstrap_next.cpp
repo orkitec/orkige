@@ -239,6 +239,14 @@ namespace SelfcheckBootstrap
 			return -1.0f;
 		}
 	}
+	//---------------------------------------------------------
+	Orkige::String shadowInfrastructureState()
+	{
+		// the backend hub's comparable one-liner (active shadow node +
+		// caster tally) - this TU is the sanctioned backend door
+		return Orkige::RenderBackend::shadowStateDescription();
+	}
+	//---------------------------------------------------------
 	bool expectedRenderCapSupport(Orkige::RenderCaps cap, bool & outKnown)
 	{
 		outKnown = true;

@@ -69,6 +69,12 @@ namespace SelfcheckBootstrap
 	//! the snapshot table (the coverage guard: every RenderCaps identity must be
 	//! listed).
 	bool expectedRenderCapSupport(Orkige::RenderCaps cap, bool & outKnown);
+	//! @brief one-line description of the backend's live shadow
+	//! infrastructure (classic: scene technique + texture counts + receiver
+	//! injection; next: active shadow node + caster tally). The shadow leg
+	//! snapshots it BEFORE arming and asserts arm -> disarm restores the
+	//! string EXACTLY (the restore-exactly contract of the shadow system).
+	Orkige::String shadowInfrastructureState();
 }
 
 #endif //__SelfcheckBootstrap_h__8_7_2026__18_00_00__

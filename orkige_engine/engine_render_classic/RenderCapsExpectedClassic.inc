@@ -7,7 +7,9 @@
 // Docs/render-abstraction.md (parsed by Util/update_docs.py).
 // Regenerate the matrix after any edit: python3 Util/update_docs.py --write
 X(SkyDome, true)
-X(DynamicShadows, false)
+// desktop truth (GL3Plus/Vulkan - what the selfcheck boots); a GLES2/WebGL
+// context without depth-texture render targets answers false at runtime
+X(DynamicShadows, true)
 X(HemisphereAmbient, false)
 X(SunExposureLinkage, true)
 X(AnimatedNormalMappedWater, false)

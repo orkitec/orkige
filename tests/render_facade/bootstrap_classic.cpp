@@ -19,6 +19,7 @@
 
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
+#include <engine_render_classic/ClassicBackend.h>	// the backend hub (shadow-state probe)
 #include <engine_render/RenderSystem.h>
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
@@ -273,6 +274,14 @@ namespace SelfcheckBootstrap
 			return -1.0f;
 		}
 	}
+	Orkige::String shadowInfrastructureState()
+	{
+		// the backend hub's comparable one-liner (technique + texture counts
+		// + receiver injection) - bootstrap TUs are the sanctioned backend
+		// door of this selfcheck
+		return Orkige::RenderBackend::shadowStateDescription();
+	}
+	//---------------------------------------------------------
 	bool expectedRenderCapSupport(Orkige::RenderCaps cap, bool & outKnown)
 	{
 		outKnown = true;

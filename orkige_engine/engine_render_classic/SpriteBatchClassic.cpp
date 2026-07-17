@@ -52,6 +52,8 @@ namespace Orkige
 		}
 		Ogre::MaterialPtr material = materialManager.create(materialName,
 			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		// 2D content stays out of the shadow pass (@see the sprite material)
+		material->setReceiveShadows(false);
 		Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
 		pass->setLightingEnabled(false);
 		pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
@@ -112,6 +114,8 @@ namespace Orkige
 			RenderBackend::generateName("RenderFacade/SpriteBatch"));
 		// particles never participate in editor picking
 		handle->mImpl->batch->setQueryFlags(0);
+		// the 2D layer neither casts nor receives shadows by construction
+		handle->mImpl->batch->setCastShadows(false);
 		// dynamic: the geometry is refilled every frame
 		handle->mImpl->batch->setDynamic(true);
 		RenderBackend::applyZOrder(handle->mImpl->batch, 0);

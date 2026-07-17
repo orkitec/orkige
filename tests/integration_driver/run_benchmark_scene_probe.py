@@ -20,6 +20,12 @@ legitimate tolerance-parity differences (PBS vs Blinn-Phong shading) pass.
     the scene title and the stats line must render as two VERTICALLY DISJOINT
     text bands (the overlap regression class - authored positions are
     physical pixels while glyphs scale with density).
+  * vistashadow - the vista vignette rendered TWICE (r.shadowQuality off vs
+    medium over the ORKIGE_CVARS seed) and compared pixel-for-pixel: with
+    shadows on, a real fraction of the terrain band must read measurably
+    DARKER (the prop/terrain shadows), while the frame stays daylit. A
+    differential probe, so it needs no fixed shadow positions and reads both
+    flavors (PBS and the RTSS integrated PSSM) with one criterion.
 
 Pure stdlib (the sibling pixel test's PNG decoder). Runs per flavor.
 Exit codes: 0 pass, 1 fail.
@@ -52,6 +58,14 @@ FIELD_CUBE_LIT_MIN = 55.0
 # hud2x: bright glyph pixels of the two HUD rows
 HUD_BRIGHT = 220
 HUD_ROW_MIN = 8               # a text row carries at least this many glyph px
+
+# vistashadow corridors: a shadowed pixel darkens by at least this much
+# (0..255) between the off and on runs, and at least this fraction of the
+# terrain band must darken (5 props + terrain self-shadowing); the daylit
+# floor guards against a flavor that darkens by rendering BROKEN (black)
+SHADOW_DARKEN_MIN = 12.0
+SHADOW_FRACTION_MIN = 0.004
+SHADOW_DAYLIT_FLOOR = 35.0
 
 
 def log(msg):
@@ -157,6 +171,37 @@ def probe_flatland(img):
              "behind the backdrop")
 
 
+def probe_vistashadow(img_off, img_on):
+    width, height, channels, pixels_on = img_on
+    off_w, off_h, off_c, pixels_off = img_off
+    if (off_w, off_h) != (width, height):
+        fail("the off/on captures disagree on size (%dx%d vs %dx%d)"
+             % (off_w, off_h, width, height))
+    darkened = 0
+    samples = 0
+    total_on = 0.0
+    for y in range(int(height * 0.55), int(height * 0.95), 2):
+        for x in range(int(width * 0.05), int(width * 0.95), 2):
+            r0, g0, b0 = pixel(pixels_off, off_c, width, x, y)
+            r1, g1, b1 = pixel(pixels_on, channels, width, x, y)
+            lum_on = luminance(r1, g1, b1)
+            total_on += lum_on
+            samples += 1
+            if luminance(r0, g0, b0) - lum_on >= SHADOW_DARKEN_MIN:
+                darkened += 1
+    fraction = darkened / max(samples, 1)
+    mean_on = total_on / max(samples, 1)
+    log("vistashadow: darkened fraction %.5f (want >= %.5f), terrain mean "
+        "with shadows %.1f (want >= %.1f)"
+        % (fraction, SHADOW_FRACTION_MIN, mean_on, SHADOW_DAYLIT_FLOOR))
+    if mean_on < SHADOW_DAYLIT_FLOOR:
+        fail("the shadowed vista is not daylit - the shadow pass darkened "
+             "the whole frame instead of casting shadows")
+    if fraction < SHADOW_FRACTION_MIN:
+        fail("no shadow-darkened band on the vista terrain - the casting sun "
+             "renders no shadows on this flavor")
+
+
 def probe_hud2x(img):
     width, height, channels, pixels = img
     # bright-glyph histogram over the HUD corner (rows are DEVICE pixels; the
@@ -186,27 +231,10 @@ def probe_hud2x(img):
              "bands - the rows overlap at this content scale")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", required=True)
-    parser.add_argument("--player", required=True)
-    parser.add_argument("--dir", required=True)
-    parser.add_argument("--probe", required=True,
-                        choices=("lumens", "field", "hud2x", "flatland"))
-    parser.add_argument("--frames", type=int, default=240,
-                        help="capture is at frame 60; later frames only pad "
-                             "the clean-exit check")
-    args = parser.parse_args()
-
-    scene = {"lumens": "scenes/lumens.oscene", "field": "scenes/field.oscene",
-             "hud2x": "scenes/lumens.oscene",
-             "flatland": "scenes/flatland.oscene"}[args.probe]
-
-    os.makedirs(args.dir, exist_ok=True)
-    shot = os.path.join(args.dir, args.probe + "_frame.png")
+def run_player_capture(args, scene, shot, extra_cvars="", fake_scale=None):
+    """boot the player on one scene, capture the frame-60 screenshot, decode"""
     if os.path.exists(shot):
         os.unlink(shot)
-
     env = dict(os.environ)
     env.update({
         "ORKIGE_DEMO_FRAMES": str(args.frames),
@@ -218,10 +246,11 @@ def main():
         # wall-time camera orbit at the init framing - both make the captured
         # frame machine-independent (the cvars are the director's automation
         # seams)
-        "ORKIGE_CVARS": "benchmark.rampBudgetMs=100000,benchmark.cameraOrbit=0",
+        "ORKIGE_CVARS": "benchmark.rampBudgetMs=100000,benchmark.cameraOrbit=0"
+                        + extra_cvars,
     })
-    if args.probe == "hud2x":
-        env["ORKIGE_FAKE_CONTENT_SCALE"] = "2"
+    if fake_scale is not None:
+        env["ORKIGE_FAKE_CONTENT_SCALE"] = fake_scale
 
     cmd = [args.player, scene, "--project",
            os.path.join(args.repo, "projects/benchmark")]
@@ -234,8 +263,46 @@ def main():
         fail("player exited %d" % result.returncode)
     if not os.path.exists(shot):
         fail("no screenshot written to " + shot)
+    return decode_png(shot)
 
-    img = decode_png(shot)
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo", required=True)
+    parser.add_argument("--player", required=True)
+    parser.add_argument("--dir", required=True)
+    parser.add_argument("--probe", required=True,
+                        choices=("lumens", "field", "hud2x", "flatland",
+                                 "vistashadow"))
+    parser.add_argument("--frames", type=int, default=240,
+                        help="capture is at frame 60; later frames only pad "
+                             "the clean-exit check")
+    args = parser.parse_args()
+
+    os.makedirs(args.dir, exist_ok=True)
+
+    if args.probe == "vistashadow":
+        # the differential probe: the SAME deterministic vista frame with the
+        # shadow knob off, then on - only the shadows may differ
+        img_off = run_player_capture(
+            args, "scenes/vista.oscene",
+            os.path.join(args.dir, "vistashadow_off.png"),
+            extra_cvars=",r.shadowQuality=off")
+        img_on = run_player_capture(
+            args, "scenes/vista.oscene",
+            os.path.join(args.dir, "vistashadow_on.png"),
+            extra_cvars=",r.shadowQuality=medium")
+        probe_vistashadow(img_off, img_on)
+        log("OK")
+        return
+
+    scene = {"lumens": "scenes/lumens.oscene", "field": "scenes/field.oscene",
+             "hud2x": "scenes/lumens.oscene",
+             "flatland": "scenes/flatland.oscene"}[args.probe]
+    shot = os.path.join(args.dir, args.probe + "_frame.png")
+    img = run_player_capture(
+        args, scene, shot,
+        fake_scale="2" if args.probe == "hud2x" else None)
     { "lumens": probe_lumens, "field": probe_field,
       "hud2x": probe_hud2x, "flatland": probe_flatland }[args.probe](img)
     log("OK")

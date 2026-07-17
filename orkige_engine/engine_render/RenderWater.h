@@ -57,6 +57,12 @@ namespace Orkige
 		float	waveSpeed = 0.04f;		//!< ripple scroll speed (UV units per second, driven by setWaterTime)
 		float	fresnelPower = 1.0f;	//!< edge-reflection strength knob (next scales F0; classic scales the specular)
 		String	normalTexture;			//!< tiling water normal map resource name ("" = a flat, non-rippling surface)
+		//! whether cast shadows darken the surface (the water material is
+		//! per-instance, so this is a per-surface knob; water never CASTS -
+		//! WaterComponent turns its plane's caster flag off by design)
+		//! map: classic=Material::setReceiveShadows (the RTSS receiver stage skips
+		//! the material) | next=HlmsDatablock::setReceiveShadows
+		bool	receiveShadows = true;
 	};
 }
 

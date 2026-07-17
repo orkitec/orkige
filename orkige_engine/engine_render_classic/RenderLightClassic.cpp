@@ -25,6 +25,12 @@ namespace Orkige
 		oAssert(sceneManager);
 		Ogre::Light* light = sceneManager->createLight(
 			RenderBackend::generateName("RenderFacade/Light"));
+		// the facade contract: lights do NOT cast shadows until asked
+		// (RenderLight::setCastShadows) - Ogre's own default is on, and a
+		// default-casting directional light would arm the whole shadow
+		// technique the moment it exists (the next backend sets the same
+		// explicit default)
+		light->setCastShadows(false);
 		optr<RenderLight> handle(new RenderLight());
 		handle->mImpl->light = light;
 		handle->mImpl->creator = sceneManager;
@@ -139,5 +145,8 @@ namespace Orkige
 	void RenderLight::setCastShadows(bool cast)
 	{
 		this->mImpl->light->setCastShadows(cast);
+		// the scene technique arms on the first directional caster and
+		// disarms restore-exactly with the last one
+		RenderBackend::applyShadowConfig();
 	}
 }

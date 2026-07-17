@@ -149,6 +149,10 @@ namespace Orkige
 		Ogre::SceneManager*	creator = NULL;
 		String				meshName;
 		optr<RenderNode>	attachedTo;				//!< keeps the node alive while content hangs off it
+		//! per-sub-item ORIGINAL datablocks, held while the instance is
+		//! switched to no-receive variants (@see MeshInstance::setReceiveShadows);
+		//! empty while the instance receives shadows normally
+		std::vector<Ogre::HlmsDatablock*>	receiveRestore;
 	};
 
 	struct SpriteQuad::Impl
@@ -638,6 +642,10 @@ namespace Orkige
 		//! window workspace and every live render-target workspace so their
 		//! scene passes pick the shadow node up / drop it
 		static void applyShadowConfig();
+		//! @brief one-line description of the live shadow infrastructure
+		//! (the active shadow node + the caster tally) - the render_facade
+		//! selfcheck asserts arm/disarm restores it EXACTLY
+		static String shadowStateDescription();
 		//! render-target registry (applyShadowConfig rebuilds them all)
 		static void registerRenderTarget(RenderTexture* target);
 		static void unregisterRenderTarget(RenderTexture* target);

@@ -123,6 +123,12 @@ namespace Orkige
 		void setNormalTexture(String const & normalTexture);
 		//! @see RenderWaterDesc::normalTexture
 		inline String const & getNormalTexture() const { return this->mDesc.normalTexture; }
+		//! @brief whether cast shadows darken the surface (reflected
+		//! `receiveShadows`, default true; RECEIVE-ONLY - the plane never
+		//! casts, its caster flag is off by design)
+		void setReceiveShadows(bool receives);
+		//! @see RenderWaterDesc::receiveShadows
+		inline bool getReceiveShadows() const { return this->mDesc.receiveShadows; }
 	protected:
 		//! component override: create the child scene node, build the surface
 		virtual void onAdd();

@@ -39,6 +39,8 @@ namespace Orkige
 		// feather alpha ramp ride the tracked vertex colour (TVC_DIFFUSE)
 		Ogre::MaterialPtr material = materialManager.create(materialName,
 			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		// 2D content stays out of the shadow pass (@see the sprite material)
+		material->setReceiveShadows(false);
 		Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
 		pass->setLightingEnabled(false);
 		pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
@@ -59,6 +61,8 @@ namespace Orkige
 			RenderBackend::generateName("RenderFacade/VectorMesh"));
 		// shapes never participate in editor picking
 		handle->mImpl->mesh->setQueryFlags(0);
+		// the 2D layer neither casts nor receives shadows by construction
+		handle->mImpl->mesh->setCastShadows(false);
 		// dynamic: the geometry is refilled (static once, deformable per frame)
 		handle->mImpl->mesh->setDynamic(true);
 		RenderBackend::applyZOrder(handle->mImpl->mesh, 0);

@@ -67,6 +67,16 @@ namespace Orkige
 		void setVisible(bool visible);
 		//! map: classic/next=MovableObject::setCastShadows | filament=RenderableManager::setCastShadows
 		void setCastShadows(bool cast);
+		//! @brief whether cast shadows darken THIS instance (on by default).
+		//! Shadow receiving lives on the material/datablock in both backends, so
+		//! turning it OFF swaps every sub-mesh to a per-instance no-receive
+		//! VARIANT of its current material ("<name>/NoRecv", created on demand);
+		//! turning it back ON restores the original assignment exactly. Assign
+		//! materials first (setMaterial), then the receive flag - a later
+		//! setMaterial resets the instance to that material's own (receiving)
+		//! state, and the component layer re-applies the flag after it.
+		//! map: classic=SubEntity::setMaterial(clone with Material::setReceiveShadows(false)) | next=SubItem::setDatablock(clone with HlmsDatablock::setReceiveShadows(false)) | filament=RenderableManager::setReceiveShadows (native per-renderable)
+		void setReceiveShadows(bool receive);
 		//! local-space bounds of the mesh
 		//! map: classic=Entity::getBoundingBox | next=Item::getLocalAabb | filament=RenderableManager::getAxisAlignedBoundingBox
 		AABB getLocalBounds() const;

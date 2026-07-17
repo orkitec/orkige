@@ -1707,8 +1707,12 @@ if(TARGET orkige_player)
         # simulated 2x display density (the overlap regression class);
         # flatland = the flat-colour 2D shapes paint OVER the full-screen
         # backdrop (the 2D painter-order/render-queue regression that washed
-        # them out on classic + web).
-        foreach(ORKIGE_SCENE_PROBE lumens field hud2x flatland)
+        # them out on classic + web);
+        # vistashadow = the daylit vista rendered with r.shadowQuality off vs
+        # medium must show a shadow-darkened terrain band (the casting sun
+        # throws REAL shadows on this flavor - differential, so it needs no
+        # fixed shadow positions).
+        foreach(ORKIGE_SCENE_PROBE lumens field hud2x flatland vistashadow)
             add_test(NAME player_benchmark_${ORKIGE_SCENE_PROBE}_probe${ORKIGE_FLAVOR_TEST_SUFFIX}
                 COMMAND python3
                     "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_benchmark_scene_probe.py"

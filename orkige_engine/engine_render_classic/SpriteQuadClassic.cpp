@@ -71,6 +71,8 @@ namespace Orkige
 		handle->mImpl->quad = sceneManager->createManualObject(
 			RenderBackend::generateName("RenderFacade/Sprite"));
 		handle->mImpl->quad->setQueryFlags(RenderWorld::QUERYFLAG_DEFAULT);
+		// the 2D layer neither casts nor receives shadows by construction
+		handle->mImpl->quad->setCastShadows(false);
 		handle->mImpl->rebuild();
 		return handle;
 	}

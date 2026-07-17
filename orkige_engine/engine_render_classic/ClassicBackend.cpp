@@ -16,7 +16,11 @@
 #include "engine_graphic/Engine.h"
 #include "engine_util/StringUtil.h"
 
+#include <OgreShadowCameraSetupPSSM.h>
+#include <OgreShadowCameraSetupFocused.h>
+
 #include <algorithm>
+#include <sstream>
 #include <unordered_map>
 
 namespace Orkige
@@ -36,6 +40,38 @@ namespace Orkige
 		//! to is the FIRST of these (@see RenderBackend::firstDirectionalLight,
 		//! mirrors the next flavor's registry)
 		std::vector<Ogre::Light*> gDirectionalLights;
+
+		//--- dynamic-shadow state (@see RenderBackend::applyShadowConfig) --
+		//! the tier the scene technique is currently ARMED with (SQ_OFF =
+		//! disarmed); a recompute that lands on the same value is a no-op
+		ShadowPreset::Quality gArmedShadowQuality = ShadowPreset::SQ_OFF;
+		//! the atmosphere drive dimmed the sun to night - the pass is skipped
+		//! while true (@see RenderBackend::noteSunDimmedForShadows)
+		bool gSunDimmedForShadows = false;
+		//! the one honest per-process refusal line was written
+		bool gShadowRefusalLogged = false;
+		//! restore-exactly snapshot of the scene manager's shadow state,
+		//! taken at arm time and written back verbatim at disarm
+		size_t gPreArmTextureCount = 0;
+		size_t gPreArmPerDirectional = 0;
+		float gPreArmFarDistance = 0.0f;
+		bool gPreArmSelfShadow = false;
+		bool gPreArmBackFaces = true;
+		Ogre::ShadowCameraSetupPtr gPreArmCameraSetup;
+
+		//! does any live directional light ask to cast (the arming trigger -
+		//! v1 shadow maps are directional-only on both flavors)
+		bool anyDirectionalCaster()
+		{
+			for(Ogre::Light* light : gDirectionalLights)
+			{
+				if(light->getCastShadows())
+				{
+					return true;
+				}
+			}
+			return false;
+		}
 	}
 	//---------------------------------------------------------
 	Ogre::Light* RenderBackend::firstDirectionalLight()
@@ -69,6 +105,246 @@ namespace Orkige
 		// directional light (drops a dangling sun when it leaves/dies,
 		// promotes a freshly-authored one)
 		RenderBackend::refreshSkyDome();
+		// and a directional caster may have appeared/left - recompute the
+		// shadow arming (a dying caster disarms, a fresh one arms)
+		RenderBackend::applyShadowConfig();
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::dynamicShadowsSupported()
+	{
+#ifdef USE_RTSHADER_SYSTEM
+		if(!Ogre::RTShader::ShaderGenerator::getSingletonPtr())
+		{
+			return false;	// no shader generator - no receiver injection
+		}
+		// depth-texture render targets are the ONE hardware requirement: the
+		// caster pass writes real depth, the receiver samples it with a
+		// hardware-compare fetch. GL3Plus/Vulkan always have them; a GLES2/
+		// WebGL context answers per device (OES_depth_texture /
+		// WEBGL_depth_texture - near-universal on the API-28+ floor).
+		return Ogre::TextureManager::getSingleton().isFormatSupported(
+			Ogre::TEX_TYPE_2D, Ogre::PF_DEPTH16, Ogre::TU_RENDERTARGET);
+#else
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	void RenderBackend::noteSunDimmedForShadows(bool dimmed)
+	{
+		if(gSunDimmedForShadows == dimmed)
+		{
+			return;
+		}
+		gSunDimmedForShadows = dimmed;
+		RenderBackend::applyShadowConfig();
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyShadowConfig()
+	{
+#ifdef USE_RTSHADER_SYSTEM
+		if(!gRenderSystem)
+		{
+			return;
+		}
+		RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+		Ogre::SceneManager* sceneManager = world->sceneManager;
+
+		// the target state: the knob's tier while a directional light casts
+		// and the atmosphere-driven sun is not night-dark, else disarmed
+		ShadowPreset::Quality target = world->shadowQuality;
+		if(target != ShadowPreset::SQ_OFF &&
+			(!anyDirectionalCaster() || gSunDimmedForShadows))
+		{
+			target = ShadowPreset::SQ_OFF;
+		}
+		if(target != ShadowPreset::SQ_OFF &&
+			!RenderBackend::dynamicShadowsSupported())
+		{
+			// the honest per-device refusal (a GLES2 context without depth
+			// textures) - said ONCE, then the knob keeps round-tripping
+			if(!gShadowRefusalLogged)
+			{
+				gShadowRefusalLogged = true;
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige classic backend: dynamic shadows are not supported "
+					"on this render backend - the quality knob is recorded but "
+					"no shadow maps render on this flavor");
+			}
+			target = ShadowPreset::SQ_OFF;
+		}
+		if(target == gArmedShadowQuality)
+		{
+			return;	// nothing changes (covers disarmed-stays-disarmed)
+		}
+
+		Ogre::RTShader::ShaderGenerator* generator =
+			Ogre::RTShader::ShaderGenerator::getSingletonPtr();
+		const String scheme =
+			Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME;
+		Ogre::RTShader::RenderState* schemeState =
+			generator ? generator->getRenderState(scheme) : NULL;
+
+		// DISARM first - also the first half of a tier change (re-arming from
+		// the restored baseline keeps arm/disarm a strict pair): technique
+		// NONE frees the shadow maps, the counts/distances/camera setup go
+		// back to their snapshotted pre-arm values, the receiver leaves the
+		// generated-material scheme
+		if(gArmedShadowQuality != ShadowPreset::SQ_OFF)
+		{
+			sceneManager->setShadowTechnique(Ogre::SHADOWTYPE_NONE);
+			sceneManager->setShadowTextureCount(gPreArmTextureCount);
+			sceneManager->setShadowTextureCountPerLightType(
+				Ogre::Light::LT_DIRECTIONAL, gPreArmPerDirectional);
+			sceneManager->setShadowFarDistance(gPreArmFarDistance);
+			sceneManager->setShadowTextureSelfShadow(gPreArmSelfShadow);
+			sceneManager->setShadowCasterRenderBackFaces(gPreArmBackFaces);
+			if(gPreArmCameraSetup)
+			{
+				sceneManager->setShadowCameraSetup(gPreArmCameraSetup);
+				gPreArmCameraSetup.reset();
+			}
+			if(schemeState)
+			{
+				if(Ogre::RTShader::SubRenderState* receiver =
+					schemeState->getSubRenderState(
+						Ogre::RTShader::SRS_SHADOW_MAPPING))
+				{
+					schemeState->removeSubRenderState(receiver);
+				}
+				generator->invalidateScheme(scheme);
+			}
+			gArmedShadowQuality = ShadowPreset::SQ_OFF;
+		}
+		if(target == ShadowPreset::SQ_OFF || !schemeState)
+		{
+			return;
+		}
+
+		// ARM: the scene-level integrated technique - the shader owns the
+		// darkening (the receiver folds the shadow factor into the SAME
+		// Cook-Torrance/FFP lighting stage every generated material uses),
+		// the scene renders ONCE plus one depth pass per split
+		const ShadowPreset::Settings preset = ShadowPreset::forQuality(target);
+		gPreArmTextureCount = sceneManager->getShadowTextureConfigList().size();
+		gPreArmPerDirectional = sceneManager->getShadowTextureCountPerLightType(
+			Ogre::Light::LT_DIRECTIONAL);
+		gPreArmFarDistance = sceneManager->getShadowFarDistance();
+		gPreArmSelfShadow = sceneManager->getShadowTextureSelfShadow();
+		gPreArmBackFaces = sceneManager->getShadowCasterRenderBackFaces();
+		gPreArmCameraSetup = sceneManager->getShadowCameraSetup();
+
+		sceneManager->setShadowTechnique(
+			Ogre::SHADOWTYPE_TEXTURE_ADDITIVE_INTEGRATED);
+		sceneManager->setShadowFarDistance(preset.maxDistance);
+		sceneManager->setShadowTextureCountPerLightType(
+			Ogre::Light::LT_DIRECTIONAL, preset.splitCount);
+		sceneManager->setShadowTextureCount(preset.splitCount);
+		for(int split = 0; split < preset.splitCount; ++split)
+		{
+			const unsigned int edge = ShadowPreset::splitResolution(preset,
+				split);
+			sceneManager->setShadowTextureConfig(split, edge, edge,
+				Ogre::PF_DEPTH16);
+		}
+		// real depth maps: self-shadowing works, acne is kept down by
+		// rendering caster BACK faces instead of a depth bias
+		sceneManager->setShadowTextureSelfShadow(true);
+		sceneManager->setShadowCasterRenderBackFaces(true);
+
+		// the split scheme: near plane from the shown camera (PSSM squeezes
+		// its crisp first cascade against the near plane), far = the preset's
+		// shadow reach; ONE split degenerates to a single focused map (the
+		// same collapse the next flavor renders for the low tier)
+		float nearClip = 0.5f;
+		Ogre::RenderWindow* window =
+			gRenderSystem->mImpl->engine->getRenderWindow(0);
+		if(window && window->getNumViewports() > 0 &&
+			window->getViewport(0)->getCamera())
+		{
+			nearClip = std::max(0.1f,
+				window->getViewport(0)->getCamera()->getNearClipDistance());
+		}
+		std::vector<Ogre::Real> splitPoints;
+		if(preset.splitCount > 1)
+		{
+			Ogre::PSSMShadowCameraSetup* pssm =
+				new Ogre::PSSMShadowCameraSetup();
+			pssm->setSplitPadding(nearClip);
+			pssm->calculateSplitPoints(preset.splitCount, nearClip,
+				preset.maxDistance);
+			for(int split = 0; split < preset.splitCount; ++split)
+			{
+				// the canonical near-to-far focus falloff (tight first cascade)
+				pssm->setOptimalAdjustFactor(split,
+					split == 0 ? 2.0f : (split == 1 ? 1.0f : 0.5f));
+			}
+			splitPoints = pssm->getSplitPoints();
+			sceneManager->setShadowCameraSetup(
+				Ogre::ShadowCameraSetupPtr(pssm));
+		}
+		else
+		{
+			// ONE split is the single focused map (the PSSM setup refuses
+			// < 2 splits - and a 1-split PSSM IS a focused map): the whole
+			// [near; maxDistance] range rides one texture
+			sceneManager->setShadowCameraSetup(Ogre::ShadowCameraSetupPtr(
+				new Ogre::FocusedShadowCameraSetup()));
+			splitPoints.push_back(nearClip);
+			splitPoints.push_back(preset.maxDistance);
+		}
+
+		// receiver injection, ONCE and centrally: the template sub-render-
+		// state joins the scheme render state, so EVERY generated material
+		// (Cook-Torrance surfaces, water, imported meshes) grows the receiver
+		// stage on the invalidate - materials that opted out
+		// (setReceiveShadows(false): all 2D/unlit materials) are skipped by
+		// the sub-render-state itself
+		Ogre::RTShader::SubRenderState* receiver =
+			generator->createSubRenderState(Ogre::RTShader::SRS_SHADOW_MAPPING);
+		receiver->setParameter("split_points", splitPoints);
+		if(preset.filterTaps >= 4)
+		{
+			receiver->setParameter("filter", "pcf16");
+		}
+		schemeState->addTemplateSubRenderState(receiver);
+		generator->invalidateScheme(scheme);
+		gArmedShadowQuality = target;
+#endif // USE_RTSHADER_SYSTEM
+	}
+	//---------------------------------------------------------
+	String RenderBackend::shadowStateDescription()
+	{
+		if(!gRenderSystem)
+		{
+			return "no-render-system";
+		}
+		Ogre::SceneManager* sceneManager =
+			gRenderSystem->getWorld()->mImpl->sceneManager;
+		std::ostringstream state;
+		state << "technique=" << static_cast<int>(
+				sceneManager->getShadowTechnique())
+			<< " textures=" << sceneManager->getShadowTextureConfigList().size()
+			<< " perDirectional=" << sceneManager
+				->getShadowTextureCountPerLightType(Ogre::Light::LT_DIRECTIONAL)
+			<< " far=" << sceneManager->getShadowFarDistance()
+			<< " selfShadow=" << sceneManager->getShadowTextureSelfShadow()
+			<< " backFaces=" << sceneManager->getShadowCasterRenderBackFaces();
+#ifdef USE_RTSHADER_SYSTEM
+		if(Ogre::RTShader::ShaderGenerator* generator =
+			Ogre::RTShader::ShaderGenerator::getSingletonPtr())
+		{
+			// createOrRetrieve: the probe may run before the first generated
+			// material brought the scheme entry into existence
+			Ogre::RTShader::RenderState* schemeState =
+				generator->createOrRetrieveRenderState(
+					Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME).first;
+			state << " scheme='"
+				<< Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME
+				<< "' receiver=" << (schemeState->getSubRenderState(
+					Ogre::RTShader::SRS_SHADOW_MAPPING) ? 1 : 0);
+		}
+#endif
+		return state.str();
 	}
 	//---------------------------------------------------------
 	RenderSystem* RenderBackend::createRenderSystem(Engine* engine)
@@ -88,14 +364,22 @@ namespace Orkige
 		// the classic backend's render capabilities (@see RenderSystem::supports;
 		// the register leg of render_facade_selfcheck asserts this fill matches
 		// engine_render_classic/RenderCapsExpectedClassic.inc): a vertex-colour
-		// gradient sky dome plus the sun-exposure linkage (the atmosphere
+		// gradient sky dome, the sun-exposure linkage (the atmosphere
 		// drives the linked sun's colour and an averaged-flat ambient through
-		// the shared curve - core_util/AtmosphereSunDrive.h). The rest (dynamic
-		// shadows, hemisphere ambient, animated normal-mapped water,
-		// offscreen-owned 2D layers) are registered next-only deltas;
-		// screen-space refraction + IBL are absent on both.
+		// the shared curve - core_util/AtmosphereSunDrive.h) and dynamic
+		// shadows (RTSS integrated PSSM, @see applyShadowConfig) - the shadow
+		// bit is RUNTIME-determined: a GLES2 context without depth-texture
+		// render targets answers false per device. The rest (hemisphere
+		// ambient, animated normal-mapped water, offscreen-owned 2D layers)
+		// are registered next-only deltas; screen-space refraction + IBL are
+		// absent on both.
 		system->mImpl->caps = (1u << static_cast<int>(RenderCaps::SkyDome)) |
 			(1u << static_cast<int>(RenderCaps::SunExposureLinkage));
+		if(RenderBackend::dynamicShadowsSupported())
+		{
+			system->mImpl->caps |=
+				(1u << static_cast<int>(RenderCaps::DynamicShadows));
+		}
 		gRenderSystem = system;
 		return gRenderSystem;
 	}
@@ -118,6 +402,12 @@ namespace Orkige
 		gNodeRegistry.clear();
 		// the sun registry points at lights the scene manager is tearing down
 		gDirectionalLights.clear();
+		// the shadow state dies with the scene manager - reset the arming
+		// bookkeeping for a future render system (no restore: the snapshot's
+		// scene manager is gone)
+		gArmedShadowQuality = ShadowPreset::SQ_OFF;
+		gSunDimmedForShadows = false;
+		gPreArmCameraSetup.reset();
 	}
 	//---------------------------------------------------------
 	RenderSystem* RenderBackend::system()
@@ -259,6 +549,10 @@ namespace Orkige
 		}
 		Ogre::MaterialPtr material = materialManager.create(materialName,
 			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		// the 2D layer never joins the shadow pass: unlit sprites cannot show
+		// a received shadow (no lighting stage consumes the factor), so the
+		// receiver stage is kept out of their generated shaders entirely
+		material->setReceiveShadows(false);
 		Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
 		pass->setLightingEnabled(false);
 		pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);

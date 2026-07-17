@@ -165,9 +165,19 @@ namespace Orkige
 		//! until then the scene pays neither memory nor per-frame cost.
 		//! v1 scope: DIRECTIONAL casters (cascaded/PSSM maps); point/spot
 		//! lights accept the cast flag but throw no maps yet.
-		//! map: classic=accepted + ONE "not supported" log line, renders
-		//! nothing (the knob still round-trips) | next=compositor shadow node
-		//! (PSSM + PCF) in the window and RTT workspaces | filament=per-light
+		//! A knob change while armed re-arms the technique with the new tier
+		//! (disarm + arm - the restore-exactly discipline makes it cheap), so
+		//! a live `r.shadowQuality` cvar flip reconfigures mid-play.
+		//! map: classic=scene-level RTSS integrated PSSM: depth shadow
+		//! textures + PSSMShadowCameraSetup + the shadow-mapping receiver
+		//! sub-render-state injected into the ONE generated-material scheme;
+		//! armed only while a directional light casts, disarmed
+		//! restore-exactly (technique NONE, maps freed, receiver removed). A
+		//! GLES2 context without depth-texture render targets refuses with
+		//! ONE log line (the runtime capability gate behind the
+		//! RenderCaps::DynamicShadows bit) | next=compositor shadow node
+		//! (PSSM + PCF; the 1-split low tier is a single focused map) in the
+		//! window and RTT workspaces | filament=per-light
 		//! LightManager::setShadowCaster + shadow options
 		void setShadowQuality(ShadowPreset::Quality quality);
 		//! the knob position last set (default SQ_MEDIUM - the phone budget)

@@ -103,6 +103,15 @@ namespace Orkige
 		this->applyMaterial();
 	}
 	//---------------------------------------------------------
+	void WaterComponent::setReceiveShadows(bool receives)
+	{
+		// receive-only by design: the flag rides the per-instance water
+		// material (@see RenderWaterDesc::receiveShadows); the plane never
+		// CASTS - buildSurface turns its caster flag off unconditionally
+		this->mDesc.receiveShadows = receives;
+		this->applyMaterial();
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void WaterComponent::onAdd()
@@ -196,6 +205,10 @@ namespace Orkige
 		this->mMesh = loaded;
 		this->mMaterialName = "Water/" + componentOwner->getObjectID();
 		this->mMesh->attachTo(this->getNode());
+		// water never casts a shadow (a flat transparent plane throws a
+		// full-body blob, not a believable shadow); receiving is the
+		// reflected `receiveShadows` knob on the per-instance material
+		this->mMesh->setCastShadows(false);
 		this->applyScale();
 		this->applyMaterial();
 		// content attached to an already-hidden node does not inherit the
@@ -260,5 +273,7 @@ namespace Orkige
 		OPROPERTY("waveSpeed", Orkige::PropertyKind::Float, getWaveSpeed, setWaveSpeed, Orkige::PROP_NONE)
 		OPROPERTY("fresnelPower", Orkige::PropertyKind::Float, getFresnelPower, setFresnelPower, Orkige::PROP_NONE)
 		OPROPERTY_REF("normalTexture", Orkige::PropertyKind::AssetRef, "texture", getNormalTexture, setNormalTexture, Orkige::PROP_NONE)
+		// receive-only shadow participation (water never casts, @see remarks)
+		OPROPERTY("receiveShadows", Orkige::PropertyKind::Bool, getReceiveShadows, setReceiveShadows, Orkige::PROP_NONE)
 	OOBJECT_END
 }

@@ -82,6 +82,8 @@ namespace Orkige
 			Ogre::MaterialPtr material = Ogre::MaterialManager::getSingleton()
 				.create(materialName,
 					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			// 2D layers stay out of the shadow pass (@see the sprite material)
+			material->setReceiveShadows(false);
 			Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
 			pass->setCullingMode(Ogre::CULL_NONE);
 			pass->setDepthCheckEnabled(false);

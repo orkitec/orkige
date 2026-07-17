@@ -16,6 +16,10 @@
 #include "engine_render_classic/ClassicBackend.h"
 #include <core_debug/DebugMacros.h>
 
+#ifdef USE_RTSHADER_SYSTEM
+#	include <OgreRTShaderSystem.h>
+#endif
+
 namespace Orkige
 {
 	namespace
@@ -154,6 +158,94 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void MeshInstance::setReceiveShadows(bool receive)
+	{
+		Ogre::Entity* entity = this->mImpl->entity;
+		if(receive)
+		{
+			// restore the exact pre-toggle assignment (a no-op while the
+			// instance never opted out)
+			if(this->mImpl->receiveRestore.empty())
+			{
+				return;
+			}
+			for(unsigned int each = 0; each < entity->getNumSubEntities() &&
+				each < this->mImpl->receiveRestore.size(); ++each)
+			{
+				entity->getSubEntity(each)->setMaterial(
+					this->mImpl->receiveRestore[each]);
+			}
+			this->mImpl->receiveRestore.clear();
+			return;
+		}
+		if(!this->mImpl->receiveRestore.empty())
+		{
+			return;	// already switched to the no-receive variants
+		}
+		// shadow receipt is a MATERIAL property here, so a per-instance
+		// opt-out swaps each sub-entity to a no-receive VARIANT of its
+		// current material ("<name>/NoRecv", created once per source
+		// material). The clone must drop the source's RTSS-generated
+		// technique: its shaders were built WITH the receiver stage, and the
+		// resolver only regenerates techniques it does not find.
+		for(unsigned int each = 0; each < entity->getNumSubEntities(); ++each)
+		{
+			Ogre::MaterialPtr original =
+				entity->getSubEntity(each)->getMaterial();
+			this->mImpl->receiveRestore.push_back(original);
+			if(!original)
+			{
+				continue;
+			}
+			const String variantName = original->getName() + "/NoRecv";
+			Ogre::MaterialPtr variant = Ogre::MaterialManager::getSingleton()
+				.getByName(variantName, original->getGroup());
+			if(!variant)
+			{
+				variant = original->clone(variantName);
+				variant->setReceiveShadows(false);
+#ifdef USE_RTSHADER_SYSTEM
+				if(Ogre::RTShader::ShaderGenerator* generator =
+					Ogre::RTShader::ShaderGenerator::getSingletonPtr())
+				{
+					const String scheme =
+						Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME;
+					// drop the cloned generated technique(s) so the resolver
+					// builds fresh receiver-less shaders for the variant
+					for(unsigned short technique = variant->getNumTechniques();
+						technique > 0; --technique)
+					{
+						if(variant->getTechnique(technique - 1)->getSchemeName()
+							== scheme)
+						{
+							variant->removeTechnique(technique - 1);
+						}
+					}
+					// carry the source's CUSTOM render state over (the
+					// Cook-Torrance/normal-map stages of a generated surface
+					// material live there; without the copy the variant would
+					// fall back to plain FFP lighting and change its look)
+					Ogre::RTShader::RenderState* source =
+						generator->getRenderState(scheme, original->getName(),
+							original->getGroup(), 0);
+					Ogre::RTShader::RenderState* target =
+						generator->getRenderState(scheme, variantName,
+							original->getGroup(), 0);
+					for(Ogre::RTShader::SubRenderState* srs :
+						source->getSubRenderStates())
+					{
+						Ogre::RTShader::SubRenderState* copy =
+							generator->createSubRenderState(srs->getType());
+						copy->copyFrom(*srs);
+						target->addTemplateSubRenderState(copy);
+					}
+				}
+#endif // USE_RTSHADER_SYSTEM
+			}
+			entity->getSubEntity(each)->setMaterial(variant);
+		}
+	}
+	//---------------------------------------------------------
 	AABB MeshInstance::getLocalBounds() const
 	{
 		return this->mImpl->entity->getBoundingBox();
@@ -242,6 +334,10 @@ namespace Orkige
 		{
 			this->mImpl->entity->getSubEntity(each)->setMaterial(material);
 		}
+		// a fresh material assignment resets the instance to that material's
+		// own (receiving) shadow state - callers re-apply setReceiveShadows
+		// after it (@see MeshInstance::setReceiveShadows)
+		this->mImpl->receiveRestore.clear();
 		return true;
 	}
 	//---------------------------------------------------------

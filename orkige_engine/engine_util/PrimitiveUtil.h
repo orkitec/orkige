@@ -41,6 +41,9 @@ namespace Orkige
 				return;
 			Ogre::MaterialPtr material = materialManager.create("VertexColour",
 				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			// unlit content cannot show a received shadow - keep the shadow
+			// receiver stage out of its generated shader
+			material->setReceiveShadows(false);
 			Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
 			pass->setLightingEnabled(false);
 			pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);

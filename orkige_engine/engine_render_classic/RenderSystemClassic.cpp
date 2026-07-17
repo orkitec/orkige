@@ -582,6 +582,10 @@ namespace Orkige
 			desc.deepColour.g + (desc.shallowColour.g - desc.deepColour.g) * blend,
 			desc.deepColour.b + (desc.shallowColour.b - desc.deepColour.b) * blend,
 			std::clamp(desc.opacity, 0.0f, 1.0f));
+		// water is a per-instance material, so the surface's receive flag maps
+		// 1:1 (@see RenderWaterDesc::receiveShadows); water never casts - the
+		// component turns its plane's caster flag off
+		material->setReceiveShadows(desc.receiveShadows);
 		pass->setLightingEnabled(true);
 		pass->setDiffuse(tint);				// alpha carries the opacity
 		pass->setAmbient(tint.r, tint.g, tint.b);

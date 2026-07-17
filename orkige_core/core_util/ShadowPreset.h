@@ -20,19 +20,31 @@ namespace Orkige
 	//! draw distance. The presets are deliberately phone-sized: MEDIUM (the
 	//! default) is what a mobile GPU comfortably renders - 2 cascades on a
 	//! 1024x1536 depth atlas (~6 MB) with a 3x3 filter; HIGH is the desktop
-	//! step-up. Renderer-independent so it unit tests headlessly and both
-	//! render flavors read the same numbers.
+	//! step-up; LOW is the constrained-GPU (GLES2/WebGL) budget - ONE split
+	//! (a single focused map, no cascades), a 1024 16-bit map and a hard-
+	//! clamped shadow distance (near-world shadows only - distance is the
+	//! cheapest quality lever, it halves the world each texel must cover).
+	//! Renderer-independent so it unit tests headlessly and both render
+	//! flavors read the same numbers.
 	//! @remarks Atlas layout convention (splitAtlasOffset/atlasSize): the first
 	//! cascade gets the full base resolution, every further cascade half of it
 	//! (distant cascades cover more world per texel anyway), stacked below the
 	//! first left-aligned in one atlas texture.
+	//! @remarks filterTaps is a REQUEST the backend rounds to its nearest
+	//! filter: 1 means "the cheapest sampling the backend offers" (a 2x2
+	//! hardware-compare fetch on both flavors - neither exposes a true single
+	//! tap), 3 a 3x3 kernel, 4 a 4x4/16-tap kernel.
+	//! @remarks splitCount 1 is NOT rendered as a one-split PSSM: both
+	//! backends collapse it to their plain single focused shadow map (the
+	//! Ogre-Next compositor requires PSSM splits >= 2 and a 1-split PSSM is
+	//! that same focused map by construction).
 	namespace ShadowPreset
 	{
 		//! the coarse quality knob (the canonical order - budgets grow with it)
 		enum Quality
 		{
 			SQ_OFF = 0,		//!< no dynamic shadows rendered
-			SQ_LOW,			//!< phone floor: 2 cascades, 512 base, 2x2 filter
+			SQ_LOW,			//!< GLES2/web floor: 1 focused map, 1024, cheapest filter, short reach
 			SQ_MEDIUM,		//!< the DEFAULT (phone budget): 2 cascades, 1024 base, 3x3 filter
 			SQ_HIGH			//!< desktop: 3 cascades, 2048 base, 4x4 filter
 		};
@@ -53,10 +65,10 @@ namespace Orkige
 			switch(quality)
 			{
 			case SQ_LOW:
-				settings.splitCount = 2;
-				settings.baseResolution = 512u;
-				settings.filterTaps = 2;
-				settings.maxDistance = 40.0f;
+				settings.splitCount = 1;
+				settings.baseResolution = 1024u;
+				settings.filterTaps = 1;
+				settings.maxDistance = 30.0f;
 				break;
 			case SQ_MEDIUM:
 				settings.splitCount = 2;

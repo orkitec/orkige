@@ -31,6 +31,8 @@ namespace Orkige
 		this->modelAssetId = "";
 		this->materialFileName = "";
 		this->materialAssetId = "";
+		this->mCastShadows = true;
+		this->mReceiveShadows = true;
 		this->addDependency<TransformComponent>();
 		this->eventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
 	}
@@ -82,8 +84,11 @@ namespace Orkige
 		{
 			this->setVisible(false);
 		}
-		// a recorded material reference renders over the imported materials
+		// a recorded material reference renders over the imported materials,
+		// then the shadow participation flags (a material apply resets the
+		// backend's receive state, so the flags go LAST)
 		this->applyMaterial();
+		this->applyShadowFlags();
 		this->eventData->setValue(fileName);
 		componentOwner->triggerEvent(Event(ModelComponent::ModelSetEvent, this->eventData));
 	}
@@ -151,8 +156,23 @@ namespace Orkige
 		this->materialAssetId = AssetDatabase::referenceIdForValue(
 			materialFileName, "", AssetDatabase::REF_FILE_NAME);
 		// applies live when a mesh exists; otherwise the recorded reference
-		// applies when the model loads (loadModel calls applyMaterial)
+		// applies when the model loads (loadModel calls applyMaterial). The
+		// shadow flags re-apply after it - a fresh material assignment
+		// resets the backend's receive state.
 		this->applyMaterial();
+		this->applyShadowFlags();
+	}
+	//---------------------------------------------------------
+	void ModelComponent::setCastShadows(bool casts)
+	{
+		this->mCastShadows = casts;
+		this->applyShadowFlags();
+	}
+	//---------------------------------------------------------
+	void ModelComponent::setReceiveShadows(bool receives)
+	{
+		this->mReceiveShadows = receives;
+		this->applyShadowFlags();
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -198,6 +218,16 @@ namespace Orkige
 		const String materialName = "Omat/" + this->materialFileName;
 		render->createMaterial(materialName, desc);	// texture misses logged
 		this->mesh->setMaterial(materialName);		// refusals logged + kept out
+	}
+	//---------------------------------------------------------
+	void ModelComponent::applyShadowFlags()
+	{
+		if(!this->mesh)
+		{
+			return;	// a detached component records the flags for the load
+		}
+		this->mesh->setCastShadows(this->mCastShadows);
+		this->mesh->setReceiveShadows(this->mReceiveShadows);
 	}
 	//---------------------------------------------------------
 	void ModelComponent::onAdd()
@@ -270,6 +300,10 @@ namespace Orkige
 		// material set before the mesh is recorded and applied by loadModel).
 		OPROPERTY_REF("mesh", Orkige::PropertyKind::AssetRef, "mesh", getCurrentModelFileName, setModelReference, Orkige::PROP_NONE)
 		OPROPERTY_REF("material", Orkige::PropertyKind::AssetRef, "material", getMaterialFileName, setMaterialReference, Orkige::PROP_NONE)
+		// per-instance shadow participation (@see class remarks) - the flags
+		// follow the mesh/material fields so an in-order apply loads first
+		OPROPERTY("castShadows", Orkige::PropertyKind::Bool, getCastShadows, setCastShadows, Orkige::PROP_NONE)
+		OPROPERTY("receiveShadows", Orkige::PropertyKind::Bool, getReceiveShadows, setReceiveShadows, Orkige::PROP_NONE)
 
 		// self.model / world.getModel(id) hand Lua a WEAK handle: locks per call,
 		// raises an honest error naming the owner once gone. @see TransformComponent.

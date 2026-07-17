@@ -32,6 +32,7 @@
 #include <OgreRoot.h>
 #include <OgreHlmsManager.h>
 #include <OgreHlmsDatablock.h>
+#include <OgreHlmsPbsDatablock.h>
 #include <OgreLogManager.h>
 #include <OgreException.h>
 #include <Animation/OgreSkeletonInstance.h>
@@ -156,6 +157,63 @@ namespace Orkige
 		this->mImpl->item->setCastShadows(cast);
 	}
 	//---------------------------------------------------------
+	void MeshInstance::setReceiveShadows(bool receive)
+	{
+		Ogre::Item* item = this->mImpl->item;
+		if(receive)
+		{
+			// restore the exact pre-toggle assignment (a no-op while the
+			// instance never opted out)
+			if(this->mImpl->receiveRestore.empty())
+			{
+				return;
+			}
+			for(size_t each = 0; each < item->getNumSubItems() &&
+				each < this->mImpl->receiveRestore.size(); ++each)
+			{
+				item->getSubItem(each)->setDatablock(
+					this->mImpl->receiveRestore[each]);
+			}
+			this->mImpl->receiveRestore.clear();
+			return;
+		}
+		if(!this->mImpl->receiveRestore.empty())
+		{
+			return;	// already switched to the no-receive variants
+		}
+		// shadow receipt is a DATABLOCK property here, so a per-instance
+		// opt-out swaps each sub-item to a no-receive VARIANT of its current
+		// PBS datablock ("<name>/NoRecv", cloned once per source datablock);
+		// non-PBS datablocks (unlit content) never receive - left untouched
+		Ogre::HlmsManager* hlmsManager =
+			RenderBackend::ogreRoot()->getHlmsManager();
+		for(size_t each = 0; each < item->getNumSubItems(); ++each)
+		{
+			Ogre::HlmsDatablock* original =
+				item->getSubItem(each)->getDatablock();
+			this->mImpl->receiveRestore.push_back(original);
+			if(!original || original->mType != Ogre::HLMS_PBS)
+			{
+				continue;
+			}
+			const String* originalName = original->getNameStr();
+			if(!originalName)
+			{
+				continue;
+			}
+			const String variantName = *originalName + "/NoRecv";
+			Ogre::HlmsDatablock* variant =
+				hlmsManager->getDatablockNoDefault(variantName);
+			if(!variant)
+			{
+				variant = original->clone(variantName);
+				static_cast<Ogre::HlmsPbsDatablock*>(variant)
+					->setReceiveShadows(false);
+			}
+			item->getSubItem(each)->setDatablock(variant);
+		}
+	}
+	//---------------------------------------------------------
 	AABB MeshInstance::getLocalBounds() const
 	{
 		// v2 carries center/half-size Aabbs; the facade speaks min/max
@@ -249,6 +307,10 @@ namespace Orkige
 				e.getDescription());
 			return false;
 		}
+		// a fresh material assignment resets the instance to that material's
+		// own (receiving) shadow state - callers re-apply setReceiveShadows
+		// after it (@see MeshInstance::setReceiveShadows)
+		this->mImpl->receiveRestore.clear();
 		return true;
 	}
 	//---------------------------------------------------------

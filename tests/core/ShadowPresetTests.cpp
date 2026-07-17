@@ -40,11 +40,14 @@ TEST_CASE("ShadowPreset: budgets grow monotonically with the knob",
 	const ShadowPreset::Quality steps[] = { ShadowPreset::SQ_LOW,
 		ShadowPreset::SQ_MEDIUM, ShadowPreset::SQ_HIGH };
 	ShadowPreset::Settings previous = ShadowPreset::forQuality(steps[0]);
-	// the phone floor is real: 2 cascades minimum for a usable PSSM set
-	CHECK(previous.splitCount >= 2);
-	CHECK(previous.baseResolution >= 256u);
-	CHECK(previous.filterTaps >= 2);
+	// the GLES2/web floor is ONE focused map (no cascades) on a real texture
+	// with a hard-clamped, near-world-only reach - the cheapest configuration
+	// that still shadows (@see ShadowPreset remarks)
+	CHECK(previous.splitCount == 1);
+	CHECK(previous.baseResolution >= 512u);
+	CHECK(previous.filterTaps >= 1);
 	CHECK(previous.maxDistance > 0.0f);
+	CHECK(previous.maxDistance <= 40.0f);
 	for(int each = 1; each < 3; ++each)
 	{
 		const ShadowPreset::Settings current =

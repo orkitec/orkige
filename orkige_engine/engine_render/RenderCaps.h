@@ -40,7 +40,7 @@ namespace Orkige
 	//! matrix (python3 Util/update_docs.py --write; --check gates staleness).
 #define ORKIGE_RENDER_CAPS(X) \
 	X(SkyDome, "skyDome", Asymmetric, "a horizon-to-zenith sky dome behind the scene (sun-linked atmospheric on next, a vertex-colour gradient on classic) vs a flat clear colour") \
-	X(DynamicShadows, "dynamicShadows", Asymmetric, "dynamic shadow maps (PSSM/PCF) cast by shadow-casting lights") \
+	X(DynamicShadows, "dynamicShadows", Asymmetric, "dynamic shadow maps cast by shadow-casting directional lights (next = compositor PSSM + PCF; classic = RTSS integrated PSSM folded into the one generated-material scheme - on GLES2/WebGL the bit is runtime-gated on depth-texture render targets)") \
 	X(HemisphereAmbient, "hemisphereAmbient", Asymmetric, "a two-colour sky/ground ambient term; classic averages the two colours to one flat ambient") \
 	X(SunExposureLinkage, "sunExposureLinkage", Asymmetric, "the atmosphere drives the linked sun's colour/power (an exposure the un-tonemapped pipeline can clip) - native on next, the same day/night curve evaluated on the CPU on classic (colour + averaged-flat ambient fill, tolerance parity)") \
 	X(AnimatedNormalMappedWater, "animatedNormalMappedWater", Asymmetric, "fully animated normal-mapped water ripples; classic lights OR scrolls one normal map on a unit, not both, so its lit relief is static") \

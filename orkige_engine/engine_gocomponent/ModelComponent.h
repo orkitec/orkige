@@ -35,6 +35,16 @@ namespace Orkige
 	//! imported materials. A missing/malformed asset or a mesh that cannot
 	//! host the maps logs and leaves the mesh's current materials - honest,
 	//! never half-applied.
+	//!
+	//! SHADOWS: the reflected `castShadows`/`receiveShadows` flags (default
+	//! true) are this object's per-instance shadow participation on a
+	//! shadow-capable flavor (@see RenderWorld::setShadowQuality).
+	//! `castShadows` maps to the mesh instance's caster flag;
+	//! `receiveShadows` maps to the material/datablock level, where the
+	//! backend swaps the instance onto a no-receive VARIANT of its material
+	//! (@see MeshInstance::setReceiveShadows), so instances sharing one
+	//! `.omat` keep independent flags. Both apply live (inspector, Lua, MCP,
+	//! debug protocol) and re-apply after every model/material change.
 	class ORKIGE_ENGINE_DLL ModelComponent : public GameObjectComponent, public SceneNodeGuard
 	{
 		OOBJECT(ModelComponent, GameObjectComponent)
@@ -56,6 +66,8 @@ namespace Orkige
 		String				modelAssetId;			//!< stable asset id of the mesh ("" = none/engine media)
 		String				materialFileName;		//!< `.omat` asset rendered over the imported materials ("" = none)
 		String				materialAssetId;		//!< stable asset id of the material ("" = none)
+		bool				mCastShadows;			//!< this instance throws shadows (@see class remarks)
+		bool				mReceiveShadows;		//!< cast shadows darken this instance (@see class remarks)
 		optr<StringUtil::StringObject> eventData;	//!< name of set or removed model
 	private:
 		//--- Methods -----------------------------------------------
@@ -80,6 +92,17 @@ namespace Orkige
 		//! clears it and reloads the mesh with its imported materials.
 		void setMaterialReference(String const & materialFileName);
 
+		//! @brief per-instance caster flag (reflected `castShadows`, default
+		//! true; @see class remarks) - applies live to a loaded mesh
+		void setCastShadows(bool casts);
+		//! @see ModelComponent::mCastShadows
+		inline bool getCastShadows() const;
+		//! @brief per-instance receiver flag (reflected `receiveShadows`,
+		//! default true; @see class remarks) - applies live to a loaded mesh
+		void setReceiveShadows(bool receives);
+		//! @see ModelComponent::mReceiveShadows
+		inline bool getReceiveShadows() const;
+
 		//! @see ModelComponent::modelFileName
 		inline String const & getCurrentModelFileName() const;
 		//! @see ModelComponent::modelAssetId
@@ -103,6 +126,10 @@ namespace Orkige
 		//! Any failure (missing/malformed asset, unsupported mesh) logs and
 		//! leaves the mesh's current materials.
 		void applyMaterial();
+		//! @brief push the cast/receive flags onto the live mesh (no-op
+		//! detached); runs after every model load and material apply, because
+		//! a fresh material assignment resets the backend's receive state
+		void applyShadowFlags();
 		//--- SERIALIZATION ---
 		//! save the model + material file names (each with its stable asset
 		//! id riding the record) to Archive
@@ -113,6 +140,16 @@ namespace Orkige
 		virtual void load(optr<IArchive> const & ar);
 	private:
 	};
+	//---------------------------------------------------------------
+	inline bool ModelComponent::getCastShadows() const
+	{
+		return this->mCastShadows;
+	}
+	//---------------------------------------------------------------
+	inline bool ModelComponent::getReceiveShadows() const
+	{
+		return this->mReceiveShadows;
+	}
 	//---------------------------------------------------------------
 	inline String const & ModelComponent::getCurrentModelFileName() const
 	{

@@ -163,6 +163,12 @@ namespace Orkige
 					drive.sunBlue * drive.classicSunScale, 1.0f);
 				sun->setDiffuseColour(driven);
 				sun->setSpecularColour(driven);
+				// a night-dark sun throws no visible shadow - skip the whole
+				// shadow pass below the intensity floor and re-arm at dawn
+				// (@see RenderBackend::noteSunDimmedForShadows)
+				const float sunPeak = std::max(driven.r,
+					std::max(driven.g, driven.b));
+				RenderBackend::noteSunDimmedForShadows(sunPeak < 0.05f);
 			}
 			// the atmosphere's hemisphere fill, averaged flat (the classic
 			// setAmbientHemisphere subset) - written straight to the scene so
@@ -186,6 +192,9 @@ namespace Orkige
 			}
 			Ogre::MaterialPtr material = materialManager.create(kSkyDomeMaterial,
 				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			// the sky is a backdrop - never a shadow receiver (or caster: the
+			// dome's ManualObject turns its caster flag off at build time)
+			material->setReceiveShadows(false);
 			Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
 			pass->setLightingEnabled(false);
 			pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
@@ -246,9 +255,16 @@ namespace Orkige
 		{
 		public:
 			void preFindVisibleObjects(Ogre::SceneManager*,
-				Ogre::SceneManager::IlluminationRenderStage,
+				Ogre::SceneManager::IlluminationRenderStage stage,
 				Ogre::Viewport* viewport) override
 			{
+				// never follow a shadow-texture camera: the dome casts
+				// nothing, and re-centring it on the caster rig would leave
+				// it misplaced for the scene pass that follows
+				if(stage == Ogre::SceneManager::IRS_RENDER_TO_TEXTURE)
+				{
+					return;
+				}
 				if(!gSkyDomeNode || !viewport)
 				{
 					return;
@@ -474,22 +490,13 @@ namespace Orkige
 		{
 			return;
 		}
-		// the knob is ACCEPTED (round-trips through the getter, so quality
-		// settings survive on a scene authored against the next flavor) but
-		// renders nothing here; say so ONCE per process, then stay silent
+		// the knob feeds the scene-level RTSS integrated-PSSM technique: a
+		// tier change while shadows render re-arms with the new budgets, OFF
+		// disarms restore-exactly (@see RenderBackend::applyShadowConfig - it
+		// also owns the honest one-log-line refusal of a render system
+		// without depth-texture targets)
 		this->mImpl->shadowQuality = quality;
-		if(quality != ShadowPreset::SQ_OFF)
-		{
-			static bool warnedOnce = false;
-			if(!warnedOnce)
-			{
-				warnedOnce = true;
-				Ogre::LogManager::getSingleton().logMessage(
-					"Orkige classic backend: dynamic shadows are not supported "
-					"on this render backend - the quality knob is recorded but "
-					"no shadow maps render on this flavor");
-			}
-		}
+		RenderBackend::applyShadowConfig();
 	}
 	//---------------------------------------------------------
 	ShadowPreset::Quality RenderWorld::getShadowQuality() const
@@ -543,7 +550,9 @@ namespace Orkige
 			}
 			// restore-exactly: the linked sun returns to its authored
 			// colours, the scene ambient to the authored hemisphere average
-			// (only if the atmosphere was actually driving them)
+			// (only if the atmosphere was actually driving them); an
+			// atmosphere-imposed night dim lifts with the atmosphere
+			RenderBackend::noteSunDimmedForShadows(false);
 			restoreLinkedSun();
 			if(gAtmosphereDrivesAmbient)
 			{

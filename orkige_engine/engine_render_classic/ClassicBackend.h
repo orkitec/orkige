@@ -13,8 +13,10 @@
 //! @brief PRIVATE plumbing of the classic-OGRE engine_render backend
 //! @remarks This header is the one place that pairs the backend-free
 //! facade headers (engine_render/) with classic OGRE 14 types. Only the
-//! engine_render_classic/*.cpp TUs and engine_graphic/Engine.cpp (the
-//! classic bootstrapper, which creates/destroys the RenderSystem) may
+//! engine_render_classic/*.cpp TUs, engine_graphic/Engine.cpp (the
+//! classic bootstrapper, which creates/destroys the RenderSystem) and the
+//! render_facade selfcheck's bootstrap_classic.cpp (the per-backend test
+//! TU, mirroring bootstrap_next.cpp's NextBackend.h include) may
 //! include it - application code and everything above engine_graphic
 //! talk to the facade headers exclusively. ONE sanctioned exception
 //! (a deliberate design decision, see Docs/render-abstraction.md): the root-motion
@@ -74,8 +76,9 @@ namespace Orkige
 		//! facade getters read them back honestly (the scene sees their average)
 		Ogre::ColourValue	ambientUpper = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);
 		Ogre::ColourValue	ambientLower = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);
-		//! the shadow quality knob position - RECORDED only on this flavor
-		//! (no dynamic shadows on classic, @see RenderWorld::setShadowQuality)
+		//! the shadow quality knob position (@see RenderWorld::setShadowQuality;
+		//! RenderBackend::applyShadowConfig arms/disarms the scene-level RTSS
+		//! integrated-PSSM technique from it)
 		ShadowPreset::Quality	shadowQuality = ShadowPreset::SQ_MEDIUM;
 		//! the sky/fog atmosphere last set (@see RenderWorld::setAtmosphere);
 		//! classic renders the fog subset + a vertex-colour gradient sky dome
@@ -115,6 +118,10 @@ namespace Orkige
 		Ogre::SceneManager*	creator = NULL;
 		String				meshName;
 		optr<RenderNode>	attachedTo;				//!< keeps the node alive while content hangs off it
+		//! per-sub-entity ORIGINAL materials, held while the instance is
+		//! switched to no-receive variants (@see MeshInstance::setReceiveShadows);
+		//! empty while the instance receives shadows normally
+		std::vector<Ogre::MaterialPtr>	receiveRestore;
 	};
 
 	struct SpriteQuad::Impl
@@ -326,6 +333,36 @@ namespace Orkige
 		//! re-resolve the sun-exposure linkage. Called when the sun registry
 		//! changes (@see noteDirectionalLight).
 		static void refreshSkyDome();
+
+		//--- dynamic shadows (the scene-level RTSS integrated PSSM) ------
+		//! @brief (re)apply the shadow configuration: ARM the scene's
+		//! SHADOWTYPE_TEXTURE_ADDITIVE_INTEGRATED technique (depth shadow
+		//! textures + a PSSM camera setup sized by ShadowPreset + the RTSS
+		//! shadow-mapping receiver sub-render-state injected ONCE into the
+		//! generated-material scheme) while the world knob is on AND a
+		//! directional light casts AND the atmosphere-driven sun is not
+		//! night-dimmed; DISARM restore-exactly otherwise (technique NONE,
+		//! shadow maps freed, texture counts restored, receiver removed). A
+		//! tier change while armed re-arms with the new budgets. Called from
+		//! every seam that can change the answer: the quality knob, a light's
+		//! cast flag, the directional-light registry and the sun-exposure
+		//! dim gate. A render system without depth-texture render targets
+		//! (a bare GLES2/WebGL1 context) refuses with ONE log line.
+		static void applyShadowConfig();
+		//! @brief the sun-exposure linkage dimmed the driven sun to (near)
+		//! black - a shadow pass under a black sun costs frame time and shows
+		//! nothing, so night disarms it (and dawn re-arms). Only the
+		//! atmosphere drive calls this; a state CHANGE re-applies the config.
+		static void noteSunDimmedForShadows(bool dimmed);
+		//! @brief can this backend render dynamic shadow maps at all: the
+		//! RTSS shader generator is active AND the render system can create
+		//! depth-texture render targets (the RenderCaps::DynamicShadows fill;
+		//! runtime-determined - a GLES2 context answers per device)
+		static bool dynamicShadowsSupported();
+		//! @brief one-line description of the live shadow infrastructure
+		//! (technique, configured texture counts, receiver injection) - the
+		//! render_facade selfcheck asserts arm/disarm restores it EXACTLY
+		static String shadowStateDescription();
 		static optr<RenderTexture> createRenderTexture(String const & name,
 			unsigned int width, unsigned int height);
 		//! create a 2D overlay layer (registers it with the render hook -

@@ -69,6 +69,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <sstream>
 #include <filesystem>
 #include <set>
 #include <unordered_map>
@@ -611,8 +612,13 @@ namespace Orkige
 				ShadowPreset::forQuality(quality);
 			Ogre::ShadowNodeHelper::ShadowParam param;
 			std::memset(&param, 0, sizeof(param));
-			param.technique = Ogre::SHADOWMAP_PSSM;
-			param.numPssmSplits = static_cast<Ogre::uint8>(preset.splitCount);
+			// the 1-split low tier IS the single focused map (the compositor
+			// requires PSSM splits in [2;4]; a 1-split PSSM is that same
+			// focused map by construction - no parallel code path)
+			param.technique = preset.splitCount > 1
+				? Ogre::SHADOWMAP_PSSM : Ogre::SHADOWMAP_FOCUSED;
+			param.numPssmSplits = static_cast<Ogre::uint8>(
+				std::max(preset.splitCount, 2));
 			param.atlasId = 0;
 			param.addLightType(Ogre::Light::LT_DIRECTIONAL);
 			for(int split = 0; split < preset.splitCount; ++split)
@@ -694,6 +700,17 @@ namespace Orkige
 		{
 			each->mImpl->recreate();
 		}
+	}
+	//---------------------------------------------------------
+	String RenderBackend::shadowStateDescription()
+	{
+		// the whole arming state in one comparable line: which shadow node
+		// the workspaces reference ("" = none) and how many lights ask to
+		// cast (the tally RenderLight::setCastShadows maintains)
+		std::ostringstream state;
+		state << "shadowNode=" << RenderBackend::activeShadowNodeName()
+			<< " casters=" << gShadowCasterCount;
+		return state.str();
 	}
 	//---------------------------------------------------------
 	void RenderBackend::registerRenderTarget(RenderTexture* target)
@@ -1520,6 +1537,10 @@ namespace Orkige
 		// an honest stand-in for depth-graded transmission (the true depth
 		// gradient waits on the refraction/depth pass; @see RenderWaterDesc).
 		datablock->setWorkflow(Ogre::HlmsPbsDatablock::SpecularAsFresnelWorkflow);
+		// water is a per-instance material, so the surface's receive flag maps
+		// 1:1 (@see RenderWaterDesc::receiveShadows); water never casts - the
+		// component turns its plane's caster flag off
+		datablock->setReceiveShadows(desc.receiveShadows);
 		// the deep colour IS the diffuse: the background-diffuse slot only
 		// shows through a diffuse map's alpha and is inert without one, so a
 		// water body coloured there renders plain white (this surface has no

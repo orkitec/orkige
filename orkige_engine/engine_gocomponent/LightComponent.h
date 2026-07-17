@@ -31,11 +31,17 @@ namespace Orkige
 	//! scales the light colour handed to the facade (colour * intensity for both
 	//! the diffuse and specular term) - the backend-neutral way to brighten a
 	//! light without growing the facade with a power term the shadow/PBS
-	//! packages will revisit. `castsShadows` is REAL: it drives
-	//! RenderLight::setCastShadows, and on a shadow-capable flavor a casting
-	//! DIRECTIONAL light throws cascaded shadow maps whenever the world's
-	//! quality knob is on (@see RenderWorld::setShadowQuality; a flavor
-	//! without shadows accepts the flag and renders none).
+	//! packages will revisit. `castsShadows` is REAL on BOTH flavors: it
+	//! drives RenderLight::setCastShadows, and a casting DIRECTIONAL light
+	//! throws shadow maps whenever the world's quality knob is on (@see
+	//! RenderWorld::setShadowQuality - next renders its compositor PSSM
+	//! node, classic the RTSS integrated-PSSM technique; a device whose
+	//! render system cannot host shadow maps accepts the flag and renders
+	//! none, with one honest log line). Per-OBJECT participation is the
+	//! receiving side's business: ModelComponent's reflected
+	//! `castShadows`/`receiveShadows` and WaterComponent's `receiveShadows`
+	//! (2D content - sprites, shapes, particles, gui - is out of the shadow
+	//! pass by construction and carries no flags).
 	class ORKIGE_ENGINE_DLL LightComponent : public GameObjectComponent, public SceneNodeGuard
 	{
 		OOBJECT(LightComponent, GameObjectComponent)
@@ -63,7 +69,7 @@ namespace Orkige
 		float				mRange;			//!< reach in world units (point/spot attenuation)
 		float				mInnerAngle;	//!< spot inner cone full angle in degrees
 		float				mOuterAngle;	//!< spot outer cone full angle in degrees
-		bool				mCastsShadows;	//!< forward-compatible shadow-caster flag
+		bool				mCastsShadows;	//!< shadow-caster flag (real on both flavors, @see class remarks)
 	private:
 		//--- Methods -----------------------------------------------
 	public:
