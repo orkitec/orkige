@@ -383,10 +383,21 @@ the transform node, both flavors; `RenderWorld::setAmbientHemisphere` adds
 two-colour sky/ground ambient — native on next, averaged-flat on classic;
 **PBS materials**: a `.omat` text asset — `core_util/MaterialAsset`, pure parser —
 feeds `RenderSystem::createMaterial` + `MeshInstance::setMaterial` via
-`ModelComponent`'s reflected `material` AssetRef; next = native HlmsPbs metal-rough
-incl. normal/emissive maps, classic = honest Blinn-Phong subset (maps ignored), no
-IBL until the sky/atmosphere surface — `Docs/materials.md`, `demo_material` per
-flavor; **baked-mesh terrain** is content, not a facade feature:
+`ModelComponent`'s reflected `material` AssetRef; next = native HlmsPbs metal-rough,
+classic = RTSS Cook-Torrance metal-rough — BOTH honor normal + emissive maps
+(tolerance parity), plus `alphaTest`/`twoSided` (cutout casters shadow as
+cutouts on both flavors) and runtime per-instance accents
+(`MeshInstance::setTint`/`setEmissiveBoost`, PROP_TRANSIENT — never
+serialized); no IBL until the sky/atmosphere surface — `Docs/materials.md`,
+`demo_material` + the `material_*_right` probes per flavor;
+**shadows**: integrated-PSSM texture shadows on BOTH flavors (next native,
+classic via the RTSS receiver injected into the generated-material scheme —
+`ClassicBackend::applyShadowConfig`); the `r.shadowQuality` cvar
+(off/low/medium/high, live re-arm, shared tier table
+`core_util/ShadowPreset.h`), per-object `castShadows`/`receiveShadows` on
+ModelComponent (+receive on Water), arm/disarm restore-exactly, the
+night-dimmed sun skips the pass, GLES2 gates on a runtime depth-texture
+capability probe; **baked-mesh terrain** is content, not a facade feature:
 `Util/make_terrain_mesh.py` bakes a seeded fBm heightfield into a chunked glTF
 `.glb` (per-chunk sub-meshes, 16-bit-index budget, normals + tiling UVs) plus a
 tiling ground `.omat`, rendered through this same ModelComponent path —
@@ -807,6 +818,23 @@ look when touching one:
   moves them), the `player_static_contract`/`player_spritebatch` fixture
   ctests (pixel identity under the toggles, exact counts, the mobility
   probe) and the `SpriteRunPlannerTests`/`StaticFlagTests` units.
+- **Character animation** (`Docs/character-animation.md` — both capability
+  tables + the 2D taxonomy doctrine): **skinned glTF characters play on BOTH
+  flavors** — classic via OGRE's assimp codec, next via `MeshLoaderNext`'s
+  skinned road (static imports byte-identical by deferred post-processing;
+  the backend-neutral `engine_render/SkinnedRig{,Extract}` extraction is the
+  shared semantics both flavors can consume — the two-importer drift alarm
+  is the `player_character_rig_selfcheck` per flavor over the GENERATED
+  mannequin `Util/make_character_rig.py`); `AnimationComponent` grew
+  `crossFadeTo`/weights/animated bounds (reflected, Lua + MCP). 2D
+  characters: flipbook + `.oanim` cutout rigs + morph/soft-body ARE the
+  house answer (weighted 2D skinning rejected as doctrine); textured cutout
+  parts on `.oanim` rigs = the scoped open gap.
+- **Light budget capability**: `RenderSystem::lightBudget()` +
+  `engine:getLightBudget()` — classic 30 (RTSS forward headroom), next 96
+  (derived from the clustered-forward `lightsPerCell` bound, constants
+  shared with the boot call); the benchmark's lamp ramps cap at the queried
+  budget, so each flavor climbs to its real ceiling (`LightBudgetTests`).
 - **Crash breadcrumbs**: `core_debug/Breadcrumbs` — an always-on, bounded ring of
   engine events (scene loads, script errors, warnings, boot/shutdown) FLUSHED to
   disk per entry so a hard crash leaves a readable trail; rotated on boot
