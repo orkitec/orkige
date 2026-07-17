@@ -852,9 +852,12 @@ look when touching one:
   `orkige_export.py`); the **canonical player-loop tick order** (fenced block in
   `tools/player/main.cpp`: input → scripts → tweens → physics → deferred-load); the
   **scene teardown hook** (`GameObjectManager::clear`, fenced); the **world-table
-  accessor convention** (fenced block in `ScriptComponent`). One backend-neutral
-  property registry driven off Meta (in design) is meant to retire the four
-  hand-kept property allowlists (debug read/write, inspector, MCP).
+  accessor convention** (fenced block in `ScriptComponent`). The backend-neutral
+  **property registry** (`core_base/PropertyReflect.h`/`PropertySchema.h`; the
+  `OPROPERTY*` macros in the Meta backends register schema + Lua binding in one
+  line) IS the single source of property truth — Inspector, scene/prefab
+  serialization, the debug protocol and MCP all consume the one schema; never
+  hand-wire a per-surface property list.
 
 ## CI
 
