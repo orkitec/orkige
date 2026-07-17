@@ -205,6 +205,18 @@ resolve) alongside the Hlms media at boot; the HlmsPbs object-fog integration
 pieces (`Pbs/Any/Atmosphere/*.any`) already ride in the shipped Hlms Pbs
 templates.
 
+The same media set also carries the **cubemap sky material**
+`SkyCubemap.material` (a port-dir trim of the samples' `Sky.material` to the
+cubemap method only - the equirectangular method and its sources stay out)
+plus the `SkyCubemap_ps` fragment sources per shading language. It defines the
+`Ogre/Sky/Cubemap` material `SceneManager::setSky(SkyCubemap)` loads by name -
+the atmosphere's `skybox` sky type (`AtmosphereDesc::skyType`,
+`Docs/render-abstraction.md`); the vertex program is the shipped
+`QuadCameraDirNoUV_vs`. The cubemap texel is emitted as-is (no gamma encode):
+skybox content is authored gamma-space artwork, the raw sample IS the colour -
+the classic flavor's sky box multiplies nothing either, which keeps the one
+`.dds` pixel-comparable across flavors.
+
 Overlay/samples/tools and all other components OFF until a consumer needs them;
 zip archives OFF (would add zziplib - revisit when content work needs
 `addResourceLocation(LT_ZIP)`).

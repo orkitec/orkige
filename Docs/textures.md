@@ -107,6 +107,15 @@ Rationale for the corners:
   the KTX2 work), revisiting ASTC as the Android `auto` is worth a look.
   Today `auto` stays ETC2 — the only format guaranteed at the floor. ASTC
   remains an explicit override.
+* **Cubemaps stay outside the cook (v2 note)**: a skybox cubemap
+  (`AtmosphereDesc::skyboxTexture`) is ONE uncompressed BGRA8 `.dds` with a
+  baked mip chain — the single container both flavors' native loaders accept
+  (classic codec → `setSkyBox`, next `TextureGpuManager` → `setSky`), baked
+  by `Util/make_sky_assets.py`. The cook only processes `.png`, so a cubemap
+  ships verbatim on every platform; block-compressing cubemap faces
+  (BCn/ASTC per platform, or KTX2 once v2 lands) is deliberately deferred —
+  a 128px-face sky is ~0.5 MB and the payload win doesn't yet justify a
+  second cook path.
 
 ### Containers and what the runtime loads
 

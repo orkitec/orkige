@@ -26,7 +26,11 @@
 	},
 	"Engine:setAtmosphere": {
 		"sig": "(enabled, skyRed, skyGreen, skyBlue, density, fogDensity) -> nil",
-		"doc": "set the scene sky/fog atmosphere; sun = the first directional light (next renders a sky dome, classic the flat sky + fog subset)"
+		"doc": "set the scene sky/fog atmosphere; sun = the first directional light (next renders the native atmospheric dome, classic a gradient-dome subset)"
+	},
+	"Engine:setAtmosphereSky": {
+		"sig": "(skyType, skyboxTexture) -> nil",
+		"doc": "choose the sky visual: 'procedural' (default), 'skybox' (a cubemap .dds resource, e.g. baked by make_sky_assets.py) or 'colour' (flat sky tint); sticky across setAtmosphere/setAtmosphereBlend calls - fog and the sun drive are sky-type-independent"
 	},
 	"Engine:supports": {
 		"sig": "(capabilityName) -> bool",

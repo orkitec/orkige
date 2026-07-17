@@ -1138,8 +1138,9 @@ Engine:setCameraOrthographic(...)
 Engine:setCameraOrthographicFit(...)
 Engine:setCameraPerspective(...)
 Engine:setWindowBackgroundColour(...)
-Engine:setAtmosphere(enabled, skyRed, skyGreen, skyBlue, density, fogDensity) -> nil  -- set the scene sky/fog atmosphere; sun = the first directional light (next renders a sky dome, classic the flat sky + fog subset)
+Engine:setAtmosphere(enabled, skyRed, skyGreen, skyBlue, density, fogDensity) -> nil  -- set the scene sky/fog atmosphere; sun = the first directional light (next renders the native atmospheric dome, classic a gradient-dome subset)
 Engine:setAtmosphereBlend(...)
+Engine:setAtmosphereSky(skyType, skyboxTexture) -> nil  -- choose the sky visual: 'procedural' (default), 'skybox' (a cubemap .dds resource, e.g. baked by make_sky_assets.py) or 'colour' (flat sky tint); sticky across setAtmosphere/setAtmosphereBlend calls - fog and the sun drive are sky-type-independent
 Engine:hasUISystem(...)
 Engine:supports(capabilityName) -> bool  -- does the active render backend support a capability? (e.g. "skyDome"/"dynamicShadows"/"hemisphereAmbient") - degrade a script's look per flavor; an unknown name is false
 Engine:getLightBudget() -> integer  -- the active render backend's sane concurrent dynamic-light ceiling - size a many-lights ramp to the flavor (next's clustered-forward headroom is far above classic's forward floor); 0 before the render system exists
