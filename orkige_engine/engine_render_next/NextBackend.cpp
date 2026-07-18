@@ -874,8 +874,18 @@ namespace Orkige
 			if(Ogre::MaterialPtr bright = materials.getByName("Orkige/Bloom/Bright"))
 			{
 				bright->load();
+				// the knob is DISPLAY-referred (an authored 0.15 means
+				// "brighter than 0.15 as seen on screen") but the bright pass
+				// samples the sRGB scene RT LINEARLY - a dim-scene lamp pool
+				// reading 0.22 on screen is ~0.04 linear, so an unconverted
+				// threshold can never catch non-emissive content. Convert
+				// once here (gamma 2.2 approximates the sRGB curve; the
+				// residual luminance-order error is below the knob's
+				// authoring granularity).
+				const Ogre::Real linearThreshold = std::pow(
+					Ogre::Real(desc.threshold), Ogre::Real(2.2f));
 				bright->getTechnique(0)->getPass(0)->getFragmentProgramParameters()
-					->setNamedConstant("Threshold", Ogre::Real(desc.threshold));
+					->setNamedConstant("Threshold", linearThreshold);
 			}
 			if(Ogre::MaterialPtr combine =
 				materials.getByName("Orkige/Bloom/Combine"))

@@ -46,7 +46,7 @@ LUMENS_SKY_MAX = 90.0         # the upper sky band stays night-dark
 # a lamp-glow pixel: clearly brighter than the moonlit base AND colour-
 # saturated (the pools are tinted; the moonlit terrain is a desaturated grey-
 # olive) - the same criterion reads both flavors' pool renderings
-LUMENS_LAMP_MAX_CHANNEL = 95
+LUMENS_LAMP_MAX_CHANNEL = 85
 LUMENS_LAMP_SPREAD = 25
 LUMENS_LAMP_MIN_FRACTION = 0.002    # of the terrain band
 

@@ -499,13 +499,13 @@ function init(self)
 		-- showcase of this vignette. Called UNCONDITIONALLY: bloom renders on
 		-- the next flavor (RenderCaps::Bloom) and is an honest no-op on classic
 		-- (gated off, the byte-identical contract), so the per-flavor pixel
-		-- probes/budgets reflect each flavor's actual image. A high LDR
-		-- threshold catches only the near-white lamp cores so the moonlit
-		-- terrain does not wash out. The threshold sits just BELOW the lamp
-		-- pools' bright cores (which read ~0.5 in the un-tonemapped target) and
-		-- above the dim moonlit terrain (~0.28), so the coloured pools bloom
-		-- into soft haloes while the night ground stays dark.
-		engine:setBloom(true, 0.42, 1.1)
+		-- probes/budgets reflect each flavor's actual image. The threshold
+		-- sits just BELOW the lamp pools' bright cores and above the dim
+		-- moonlit terrain, so the coloured pools bloom into soft haloes while
+		-- the night ground stays dark - measured on the deterministic probe
+		-- frame: pool cores peak ~0.22 luminance, moonlit terrain ~0.09, so
+		-- 0.15 separates them cleanly.
+		engine:setBloom(true, 0.15, 2.2)
 		gatherPool()
 		buildHud()
 	elseif mode == "swarm" then
