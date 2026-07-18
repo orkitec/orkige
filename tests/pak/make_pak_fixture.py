@@ -10,6 +10,7 @@ Usage: make_pak_fixture.py <out.pak> <blip.ogg>
 Stdlib only (python_stdlib_lint): zipfile builds the pak with ZIP_STORED so the
 entries are read in place / seekable, and zlib+struct emit a tiny valid PNG.
 """
+import os
 import struct
 import sys
 import zipfile
@@ -82,6 +83,9 @@ def main(argv):
         sys.stderr.write("usage: make_pak_fixture.py <out.pak> <blip.ogg>\n")
         return 2
     out_pak, ogg_path = argv[1], argv[2]
+    out_dir = os.path.dirname(out_pak)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     with open(ogg_path, "rb") as handle:
         ogg_bytes = handle.read()
     texture = solid_png(8, 8, b"\x40\xa0\xf0\xff")
