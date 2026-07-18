@@ -2232,9 +2232,9 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			return true;
 		};
 
-		// a dark scene so only the emissive cube + white sprite are bright;
-		// the stage centre sits clear of the origin content (see above) and
-		// of the ortho-RTT corner at x=100
+		// a dark scene so only the emissive cube + white sprite + the mid-tone
+		// gradient mesh (below) carry brightness; the stage centre sits clear of
+		// the origin content (see above) and of the ortho-RTT corner at x=100
 		const Vec3 bloomStage(60, 0, 0);
 		renderSystem->setWindowBackgroundColour(Color(0, 0, 0, 1));
 		world->setAmbientLight(Color(0, 0, 0));
@@ -2272,6 +2272,25 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		brightSprite->attachTo(spriteNode);
 		brightSprite->setSize(0.9f, 0.9f);
 
+		// a MID-TONE 3D surface BELOW the bright-pass threshold, to the left:
+		// its interior must keep its brightness UNCHANGED when bloom enables (it
+		// does not bloom, so the additive combine adds nothing there). This is
+		// the base-PRESERVATION guard - a combine-weight or scene-RT colourspace
+		// regression would shift even non-blooming surfaces, which the glow-delta
+		// + off/on-identity probes do NOT catch. The gradient quad (a real glTF
+		// mesh) rendered unlit shows its stable red->blue texture; its centre is
+		// a mid purple well under the 0.6 threshold used for the on-pass. Unlike
+		// the emissive cube, it routes through the 3D scene RT with a genuine
+		// mid tone (the cube-service mesh has no normals for a lit material).
+		optr<RenderNode> midNode = world->createNode("selfcheck.bloomMidNode");
+		midNode->setPosition(bloomStage + Vec3(-2.3f, 0, 0));
+		optr<MeshInstance> midMesh =
+			world->createMeshInstance("uvcheck_mesh.glb");
+		SELFCHECK(midMesh != NULL, "the mid-tone bloom mesh loads");
+		midMesh->attachTo(midNode);
+		midMesh->setVertexColourUnlit();	// show the texture unlit (stable mid)
+		midMesh->setCastShadows(false);
+
 		// project the cube centre + its right edge to size the silhouette in
 		// pixels, then pick a sample point JUST OUTSIDE it (background at
 		// baseline, the glow halo when bloom is on). Same for the sprite.
@@ -2286,11 +2305,13 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		};
 		int cubeX = 0, cubeY = 0, cubeEdgeX = 0, cubeEdgeY = 0;
 		int spriteX = 0, spriteY = 0, spriteEdgeX = 0, spriteEdgeY = 0;
+		int midX = 0, midY = 0;	// the mid-tone mesh INTERIOR (base-preservation)
 		SELFCHECK(projectPixel(bloomStage, cubeX, cubeY) &&
 			projectPixel(bloomStage + Vec3(0.6f, 0, 0), cubeEdgeX, cubeEdgeY) &&
 			projectPixel(bloomStage + Vec3(2.3f, 0, 0), spriteX, spriteY) &&
 			projectPixel(bloomStage + Vec3(2.75f, 0, 0), spriteEdgeX,
-				spriteEdgeY),
+				spriteEdgeY) &&
+			projectPixel(bloomStage + Vec3(-2.3f, 0, 0), midX, midY),
 			"the bloom probe points project");
 		const int cubeHalfPx = std::max(6, std::abs(cubeEdgeX - cubeX));
 		const int spriteHalfPx = std::max(6, std::abs(spriteEdgeX - spriteX));
@@ -2309,10 +2330,13 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		SELFCHECK(renderFrames(renderSystem, 3), "frames render with bloom off");
 		const std::string bloomBaseShot = outDir + "/selfcheck_bloom_off.png";
 		renderSystem->saveWindowContents(bloomBaseShot);
-		float cubeGlowBase = 0, spriteGlowBase = 0;
+		float cubeGlowBase = 0, spriteGlowBase = 0, midToneBase = 0;
 		SELFCHECK(blockLuminance(bloomBaseShot, cubeGlowX, cubeY, cubeGlowBase) &&
-			blockLuminance(bloomBaseShot, spriteGlowX, spriteY, spriteGlowBase),
+			blockLuminance(bloomBaseShot, spriteGlowX, spriteY, spriteGlowBase) &&
+			blockLuminance(bloomBaseShot, midX, midY, midToneBase),
 			"the bloom-off neighbourhood probes decode");
+		SELFCHECK(midToneBase > 0.1f,
+			"the mid-tone surface renders (a bloom-off reference brightness)");
 
 		if(RenderSystem::get()->supports(RenderCaps::Bloom))
 		{
@@ -2328,16 +2352,31 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 				"frames render with bloom on");
 			const std::string bloomOnShot = outDir + "/selfcheck_bloom_on.png";
 			renderSystem->saveWindowContents(bloomOnShot);
-			float cubeGlowOn = 0, spriteGlowOn = 0;
+			float cubeGlowOn = 0, spriteGlowOn = 0, midToneOn = 0;
 			SELFCHECK(
 				blockLuminance(bloomOnShot, cubeGlowX, cubeY, cubeGlowOn) &&
-				blockLuminance(bloomOnShot, spriteGlowX, spriteY, spriteGlowOn),
+				blockLuminance(bloomOnShot, spriteGlowX, spriteY, spriteGlowOn) &&
+				blockLuminance(bloomOnShot, midX, midY, midToneOn),
 				"the bloom-on neighbourhood probes decode");
 			std::printf("render_facade_selfcheck: bloom cube neighbourhood - "
 				"off %.3f, on %.3f\n", cubeGlowBase, cubeGlowOn);
 			SELFCHECK(cubeGlowOn > cubeGlowBase + 0.05f,
 				"bloom brightens the emissive object's neighbourhood (the glow "
 				"halo just outside its silhouette)");
+
+			// (b2) BASE PRESERVATION: the below-threshold mid-grey surface keeps
+			// its brightness UNCHANGED when bloom enables - it does not bloom, so
+			// the additive combine (OriginalImageWeight = 1) adds nothing to its
+			// interior. A combine-weight or scene-RT colourspace regression would
+			// shift the whole base image (even non-blooming surfaces) without
+			// touching the glow-delta or off/on-identity probes, so this is the
+			// guard that catches it. Below the readback noise floor - effectively
+			// pixel-identical.
+			std::printf("render_facade_selfcheck: bloom mid-tone (below "
+				"threshold) - off %.3f, on %.3f\n", midToneBase, midToneOn);
+			SELFCHECK(std::fabs(midToneOn - midToneBase) < 0.01f,
+				"bloom preserves a below-threshold lit surface's brightness "
+				"(the additive combine does not shift the base image)");
 
 			// (c) the 2D SPRITE stays crisp: its outside-silhouette samples do
 			// NOT gain luminance (the 2D-tier exclusion)
