@@ -1848,6 +1848,22 @@ namespace Orkige
 					resourceGroups.openResource(textureName, group);
 				Ogre::Image2 probeImage;
 				probeImage.load2(probe, textureName);
+				// Only a Type2D image can ride the AutomaticBatching 2D texture
+				// created below. A cubemap/volume/array image (e.g. a skybox
+				// .dds handed to the 2D loader) makes the async upload abort
+				// mid-map and leaves a staging texture in the pump - the process
+				// then SIGABRTs on the next map-region. Reject it HERE, on the
+				// main thread, BEFORE any GPU texture is scheduled: honest NULL +
+				// one log line, mirroring applySceneSkybox's cubemap probe. This
+				// guards every caller against any unsupported texture SHAPE, not
+				// just cubemaps.
+				if(probeImage.getTextureType() != Ogre::TextureTypes::Type2D)
+				{
+					OGRE_EXCEPT(Ogre::Exception::ERR_INVALIDPARAMS,
+						"'" + textureName + "' is not a 2D texture "
+						"(a cubemap/volume/array image cannot load as a 2D "
+						"texture)", "RenderBackend::loadTexture2D");
+				}
 			}
 			// NOT CommonTextureTypes::Diffuse: that would add
 			// PrefersLoadingFromFileAsSRGB, decoding texels in the shader -

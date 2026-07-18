@@ -1092,6 +1092,16 @@ int main(int argc, char** argv)
 		const char* previewSelfcheckEnv =
 			std::getenv("ORKIGE_EDITOR_PREVIEW_SELFCHECK");
 
+		// ORKIGE_EDITOR_CUBEMAP_SELFCHECK=<project>: open a project carrying a
+		// cubemap .dds and prove the asset-browser thumbnailer SURVIVES it. A
+		// cubemap cannot back a 2D thumbnail, so the tile must fall back to the
+		// kind glyph (thumbnail id 0) with no crash - before the fix, feeding a
+		// cubemap to the 2D+AutomaticBatching loader left a staging texture
+		// mid-map and SIGABRTed the editor. Regression guard on BOTH flavors
+		// (editor_cubemap_thumbnail{,_next}).
+		const char* cubemapSelfcheckEnv =
+			std::getenv("ORKIGE_EDITOR_CUBEMAP_SELFCHECK");
+
 		// ORKIGE_EDITOR_NATIVE_PLAYTEST=path: scripted compile-on-Play run
 		// against a project with a native module (the editor_project_native_
 		// play ctest test on projects/jumper-native). Frame 10 opens the
@@ -6754,6 +6764,49 @@ int main(int argc, char** argv)
 					SDL_Log("orkige_editor: asset-browser thumbnail shot written");
 					running = false;
 				}
+			}
+
+			// --- cubemap thumbnail survival (ORKIGE_EDITOR_CUBEMAP_SELFCHECK) ---
+			if (cubemapSelfcheckEnv && frameCount == 10)
+			{
+				if (!openProjectFromPath(state, editorCore, cubemapSelfcheckEnv))
+				{
+					SDL_Log("orkige_editor: FAILED cubemap selfcheck (open project)");
+					exitCode = 14;
+					running = false;
+				}
+				else
+				{
+					// show the asset browser on the assets folder so the panel's
+					// budgeted thumbnail service walks the cubemap tile through the
+					// real paint path (the reported crash path)
+					state.assetBrowser.currentDir =
+						state.project.getAssetsDirectory();
+					viewSettings.showAssetBrowserPanel = true;
+					viewSettings.showInspectorPanel = false;
+				}
+			}
+			if (cubemapSelfcheckEnv && frameCount == 30 && exitCode == 0)
+			{
+				// reaching here proves the browser SURVIVED drawing/servicing the
+				// cubemap tile (pre-fix: an aborted mid-map staging texture
+				// SIGABRTs the process). A cubemap cannot back a 2D thumbnail, so
+				// its tile resolves to id 0 (the kind glyph) - assert that through
+				// the SAME free function the panel's thumbnail service calls.
+				const std::string cubemap = (std::filesystem::path(
+					state.project.getAssetsDirectory()) / "sky_faces.dds").string();
+				const bool isTexture =
+					classifyAsset(cubemap) == AssetKind::Texture;
+				const ImTextureID thumb = assetThumbnailFor(state, cubemap);
+				const bool cubemapOk = isTexture && thumb == 0;
+				SDL_Log("orkige_editor: cubemap selfcheck - thumbnail fallback %s "
+					"(texture=%d, thumb=%s)", cubemapOk ? "OK" : "FAILED",
+					isTexture ? 1 : 0, thumb == 0 ? "glyph" : "bound");
+				if (!cubemapOk)
+				{
+					exitCode = 14;
+				}
+				running = false;
 			}
 
 			// --- scripted project test (ORKIGE_EDITOR_PROJECT_TEST=path) ---

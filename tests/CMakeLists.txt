@@ -825,6 +825,19 @@ if(TARGET orkige_editor)
 			ENVIRONMENT "ORKIGE_EDITOR_PREVIEW_SELFCHECK=${Orkige_SOURCE_DIR}/projects/benchmark;ORKIGE_DEMO_FRAMES=90")
 	endif()
 
+    # The asset-browser thumbnailer must SURVIVE a cubemap .dds: a cubemap
+    # cannot back a 2D thumbnail, so its tile falls back to the kind glyph
+    # (thumbnail id 0) with no crash. tests/projects/cubemap_preview carries a
+    # generated six-colour cubemap; the selfcheck opens it, shows the Assets
+    # panel, walks the tile through the real thumbnail service and asserts the
+    # honest glyph fallback. Both flavors (no offscreen layers needed, unlike
+    # editor_previews).
+    add_test(NAME editor_cubemap_thumbnail${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_cubemap_thumbnail${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_CUBEMAP_SELFCHECK=${Orkige_SOURCE_DIR}/tests/projects/cubemap_preview;ORKIGE_DEMO_FRAMES=60"
+        LABELS integration TIMEOUT 90)
+
     # programmatic SDL_SetWindowSize at frame 80 (resize robustness)
     add_test(NAME editor_resize${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")

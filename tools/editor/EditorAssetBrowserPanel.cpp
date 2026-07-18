@@ -68,6 +68,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cfloat>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -112,6 +113,102 @@ std::string lowerExtension(std::string const& path)
 	std::transform(ext.begin(), ext.end(), ext.begin(),
 		[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 	return ext;
+}
+
+//! @brief cheap header sniff: is this image FILE a cubemap/volume/array
+//! container rather than a plain 2D image? Such an image cannot back a 2D
+//! thumbnail - the render facade's 2D texture loader rejects a non-Type2D
+//! image (see RenderBackend::loadTexture2D on next), so feeding one to the
+//! thumbnail path would (before that guard) abort the editor. Detecting it
+//! HERE keeps the tile on its honest per-kind glyph without any GPU work, on
+//! BOTH render flavors. No decode: only the container header is read. Handles
+//! the DDS containers Util/make_sky_assets.py bakes (legacy DDSCAPS2 cubemap/
+//! volume bits + the DX10 extension) and KTX1/KTX2 face/array/depth counts;
+//! .png/.jpg/.tga/... are always plain 2D and return false without a read.
+bool imageFileIsNon2D(std::string const& path)
+{
+	const std::string ext = lowerExtension(path);
+	if (ext != ".dds" && ext != ".ktx" && ext != ".ktx2")
+	{
+		return false;
+	}
+	std::ifstream in(path, std::ios::binary);
+	if (!in)
+	{
+		return false;	// unreadable: let the loader report it honestly
+	}
+	unsigned char head[152] = { 0 };
+	in.read(reinterpret_cast<char*>(head), sizeof(head));
+	const std::streamsize got = in.gcount();
+	const auto u32le = [&](std::size_t at) -> std::uint32_t
+	{
+		return std::uint32_t(head[at]) | (std::uint32_t(head[at + 1]) << 8) |
+			(std::uint32_t(head[at + 2]) << 16) |
+			(std::uint32_t(head[at + 3]) << 24);
+	};
+	const auto u32be = [&](std::size_t at) -> std::uint32_t
+	{
+		return std::uint32_t(head[at + 3]) | (std::uint32_t(head[at + 2]) << 8) |
+			(std::uint32_t(head[at + 1]) << 16) |
+			(std::uint32_t(head[at]) << 24);
+	};
+	if (ext == ".dds")
+	{
+		if (got < 128 || std::memcmp(head, "DDS ", 4) != 0)
+		{
+			return false;	// not a DDS we understand
+		}
+		// file layout: 4-byte magic, then the 124-byte DDS_HEADER. Within the
+		// header, dwCaps2 is at offset 108, so its FILE offset is 4 + 108 = 112.
+		const std::uint32_t caps2 = u32le(112);
+		const std::uint32_t DDSCAPS2_CUBEMAP = 0x00000200u;
+		const std::uint32_t DDSCAPS2_VOLUME = 0x00200000u;
+		if (caps2 & (DDSCAPS2_CUBEMAP | DDSCAPS2_VOLUME))
+		{
+			return true;
+		}
+		// DX10-extended DDS carries the shape in its DDS_HEADER_DXT10 (at file
+		// offset 4 + 124 = 128), keyed by a "DX10" fourCC in the pixel format.
+		// ddspf is at file offset 76; dwFlags at 80, dwFourCC at 84.
+		const std::uint32_t pfFlags = u32le(80);	// ddspf.dwFlags
+		const std::uint32_t DDPF_FOURCC = 0x4u;
+		if ((pfFlags & DDPF_FOURCC) &&
+			std::memcmp(head + 84, "DX10", 4) == 0 && got >= 144)
+		{
+			const std::uint32_t resourceDimension = u32le(128 + 4);
+			const std::uint32_t miscFlag = u32le(128 + 8);
+			const std::uint32_t arraySize = u32le(128 + 12);
+			const std::uint32_t D3D_DIMENSION_TEXTURE3D = 4u;
+			const std::uint32_t DDS_RESOURCE_MISC_TEXTURECUBE = 0x4u;
+			if (resourceDimension == D3D_DIMENSION_TEXTURE3D ||
+				(miscFlag & DDS_RESOURCE_MISC_TEXTURECUBE) || arraySize > 1u)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+	// KTX containers state a face/array/depth count in their header
+	static const unsigned char KTX1[12] =
+		{ 0xAB, 'K', 'T', 'X', ' ', '1', '1', 0xBB, '\r', '\n', 0x1A, '\n' };
+	static const unsigned char KTX2[12] =
+		{ 0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, '\r', '\n', 0x1A, '\n' };
+	if (got >= 56 && std::memcmp(head, KTX1, 12) == 0)
+	{
+		const bool littleEndian = u32le(12) == 0x04030201u;
+		const std::uint32_t faces = littleEndian ? u32le(52) : u32be(52);
+		const std::uint32_t arrays = littleEndian ? u32le(48) : u32be(48);
+		const std::uint32_t depth = littleEndian ? u32le(44) : u32be(44);
+		return faces > 1u || arrays > 0u || depth > 1u;
+	}
+	if (got >= 40 && std::memcmp(head, KTX2, 12) == 0)
+	{
+		const std::uint32_t layerCount = u32le(32);
+		const std::uint32_t faceCount = u32le(36);
+		const std::uint32_t pixelDepth = u32le(28);
+		return faceCount > 1u || layerCount > 0u || pixelDepth > 1u;
+	}
+	return false;
 }
 
 //! build one AssetBrowserItem for a file path (kind + id/dimming). idTracked =
@@ -1042,6 +1139,17 @@ ImTextureID assetThumbnailFor(EditorState& state,
 	else if (lowerExtension(absolutePath) == ".oanim")
 	{
 		id = buildAnimThumbnail(absolutePath, uploadName);
+	}
+	else if (imageFileIsNon2D(absolutePath))
+	{
+		// a cubemap/volume/array image (e.g. a skybox .dds) cannot back a 2D
+		// thumbnail - decline it BEFORE the load so the tile keeps its honest
+		// per-kind texture glyph (id 0). This pre-empts the 2D+AutomaticBatching
+		// load on BOTH flavors (the render facade also rejects it, but detecting
+		// it here avoids the load entirely - the reported crash path).
+		oDebugMsg("editor.assets", 0, "'" <<
+			fs::path(absolutePath).filename().string() << "' is a cubemap/volume "
+			"texture - no 2D thumbnail (showing the texture icon)");
 	}
 	else
 	{
