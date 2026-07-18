@@ -24,6 +24,12 @@ Legs (--leg):
            leaf shows the backdrop through (alpha test renders as cutout),
            the back-facing sibling quad still renders (two-sided), and the
            leaf's cast shadow has a LIT hole (the caster carries the cutout).
+           The leaves are located ANALYTICALLY (green-dominant connected
+           blobs) and the ring/hole/shadow sample regions derived from each
+           blob's measured geometry - so the probe follows the content when a
+           display clamps the window aspect (the hosted-CI 1024-wide finding).
+           `--image <png>` runs the cutout checks against a saved frame with
+           no demo run (a clean debugging affordance, e.g. a CI screenshot).
 
   accents  The runtime accent demo (ORKIGE_DEMO_ACCENTS): two instances of
            ONE material; asserts a tint+emissive-boost on instance A changes
@@ -107,6 +113,10 @@ class Image:
     def rgb(self, fx, fy):
         x = min(self.w - 1, int(fx * self.w))
         y = min(self.h - 1, int(fy * self.h))
+        base = (y * self.w + x) * self.ch
+        return (self.px[base], self.px[base + 1], self.px[base + 2])
+
+    def rgb_px(self, x, y):
         base = (y * self.w + x) * self.ch
         return (self.px[base], self.px[base + 1], self.px[base + 2])
 
@@ -220,34 +230,6 @@ def leg_looks(binary, out_dir):
     return failures
 
 
-# cutout-rig regions: the two leaves' screen placement (front leaf around
-# x 0.29..0.49, back-facing leaf around x 0.56..0.76, both y 0.30..0.64)
-LEAF_RING = (0.30, 0.42, 0.335, 0.50)       # solid part of the front leaf
-LEAF_HOLE = (0.375, 0.44, 0.405, 0.49)      # its central hole (backdrop shows)
-BACK_RING = (0.57, 0.42, 0.60, 0.50)        # the back-facing leaf's solid part
-BACK_HOLE = (0.63, 0.44, 0.66, 0.49)        # its hole
-CUTOUT_OPEN = (0.10, 0.68, 0.20, 0.76)      # open lit ground, no shadow
-SHADOW_SCAN = (0.26, 0.62, 0.54, 0.82)      # where the front leaf's shadow lands
-
-
-def region_rgb(image, region, step=0.01):
-    x0, y0, x1, y1 = region
-    sums = [0.0, 0.0, 0.0]
-    count = 0
-    fy = y0
-    while fy < y1:
-        fx = x0
-        while fx < x1:
-            r, g, b = image.rgb(fx, fy)
-            sums[0] += r
-            sums[1] += g
-            sums[2] += b
-            count += 1
-            fx += step
-        fy += step
-    return tuple(value / count for value in sums)
-
-
 def leaf_green(rgb):
     """is the sample leaf-coloured (green-dominant)? The backdrop through the
     hole is the orange ground checker or the blue sky - never green-led."""
@@ -255,53 +237,197 @@ def leaf_green(rgb):
     return g > r * 1.15 and g > b * 1.15
 
 
+def _blob_green(r, g, b):
+    """membership test for the leaf-blob detector: green-led (the same 1.15 bar
+    the leaf_green ASSERTION uses) over a small brightness floor. The floor only
+    rejects near-black noise - it must stay well below the back-facing leaf,
+    which classic lights very dimly (its unlit side reads ~(13,26,13) green);
+    the green-dominance ratio, not brightness, is what isolates the leaves from
+    the orange ground / blue sky / neutral shadow."""
+    return g > r * 1.15 and g > b * 1.15 and g > 10
+
+
+def find_green_blobs(image, min_area_frac=0.005):
+    """Locate the leaf blobs ANALYTICALLY rather than at fixed screen rects, so
+    the probe follows the content when the window aspect shifts (a hosted CI
+    runner clamps 1280x720 to its 1024-wide display). Connected green-dominant
+    regions on a stride-reduced grid (resolution-independent, allocation-light);
+    each blob reports its pixel bounding box, centroid and area. Returns blobs
+    larger than `min_area_frac` of the frame, sorted largest-first."""
+    from collections import deque
+    w, h = image.w, image.h
+    stride = max(1, min(w, h) // 360)
+    gw = (w + stride - 1) // stride
+    gh = (h + stride - 1) // stride
+    mask = bytearray(gw * gh)
+    for gy in range(gh):
+        y = gy * stride
+        row = gy * gw
+        for gx in range(gw):
+            r, g, b = image.rgb_px(gx * stride, y)
+            if _blob_green(r, g, b):
+                mask[row + gx] = 1
+    seen = bytearray(gw * gh)
+    blobs = []
+    for start in range(gw * gh):
+        if not mask[start] or seen[start]:
+            continue
+        queue = deque([start])
+        seen[start] = 1
+        sx = sy = count = 0
+        minx = maxx = start % gw
+        miny = maxy = start // gw
+        while queue:
+            cell = queue.popleft()
+            cy, cx = divmod(cell, gw)
+            sx += cx
+            sy += cy
+            count += 1
+            if cx < minx:
+                minx = cx
+            if cx > maxx:
+                maxx = cx
+            if cy < miny:
+                miny = cy
+            if cy > maxy:
+                maxy = cy
+            for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                if 0 <= nx < gw and 0 <= ny < gh:
+                    k = ny * gw + nx
+                    if mask[k] and not seen[k]:
+                        seen[k] = 1
+                        queue.append(k)
+        blobs.append({
+            "area": count * stride * stride,
+            "x0": minx * stride, "x1": maxx * stride,
+            "y0": miny * stride, "y1": maxy * stride,
+            "cx": (sx / count) * stride, "cy": (sy / count) * stride,
+        })
+    min_area = min_area_frac * w * h
+    blobs = [blob for blob in blobs if blob["area"] >= min_area]
+    blobs.sort(key=lambda blob: blob["area"], reverse=True)
+    return blobs
+
+
+def box_rgb(image, x0, y0, x1, y1, step=2):
+    """mean RGB over a pixel-space box (clamped to the frame)"""
+    x0 = max(0, int(x0)); y0 = max(0, int(y0))
+    x1 = min(image.w, int(x1)); y1 = min(image.h, int(y1))
+    sums = [0.0, 0.0, 0.0]
+    count = 0
+    for y in range(y0, y1, step):
+        for x in range(x0, x1, step):
+            r, g, b = image.rgb_px(x, y)
+            sums[0] += r; sums[1] += g; sums[2] += b
+            count += 1
+    if count == 0:
+        return (0.0, 0.0, 0.0)
+    return tuple(value / count for value in sums)
+
+
+def box_lum(image, x0, y0, x1, y1, step=2):
+    r, g, b = box_rgb(image, x0, y0, x1, y1, step)
+    return (r + g + b) / 3.0
+
+
+def lum_px(image, x, y):
+    r, g, b = image.rgb_px(int(x), int(y))
+    return (r + g + b) / 3.0
+
+
+def _leaf_ring_box(blob):
+    """the solid green ring: a box on the ring's left arm (offset in from the
+    bounding-box edge toward the hole, at the vertical centre)"""
+    w = blob["x1"] - blob["x0"]
+    h = blob["y1"] - blob["y0"]
+    return (blob["x0"] + 0.10 * w, blob["cy"] - 0.06 * h,
+            blob["x0"] + 0.20 * w, blob["cy"] + 0.06 * h)
+
+
+def _leaf_hole_box(blob):
+    """the central hole: the interior non-green area at the blob's centroid (a
+    FILLED hole reads green here and fails the assertion loudly)"""
+    w = blob["x1"] - blob["x0"]
+    h = blob["y1"] - blob["y0"]
+    return (blob["cx"] - 0.06 * w, blob["cy"] - 0.06 * h,
+            blob["cx"] + 0.06 * w, blob["cy"] + 0.06 * h)
+
+
+def analyze_cutout(image):
+    """the content-anchored cutout checks over a decoded frame (shared by the
+    live leg and the --image debugging affordance). Locates the two leaf blobs,
+    derives each one's ring/hole sample regions from its measured geometry, and
+    keeps the SAME assertions: ring green, hole not green, a second blob present
+    (two-sided), the back hole preserved, and a cutout shadow with a LIT hole."""
+    failures = []
+    blobs = find_green_blobs(image)
+    # degenerate/two-sided guard: two leaf blobs must be present. A culled back
+    # face (two-sided broken) or a genuinely broken render lands here and fails
+    # loudly - the probe never passes vacuously on a leaf-less frame.
+    check(failures, len(blobs) >= 2,
+          f"the cutout render shows two leaf blobs (found {len(blobs)}) - a "
+          f"culled back face (two-sided) or a degenerate render fails here")
+    if len(blobs) < 2:
+        return failures
+    front, back = sorted(blobs[:2], key=lambda blob: blob["cx"])
+    # 1./2. each leaf renders as a cutout: solid green ring, backdrop through
+    # the hole (never green-led). The second (right) blob existing IS two-sided;
+    # its hole staying non-green IS the preserved back hole.
+    for name, blob in (("front", front), ("back", back)):
+        ring = box_rgb(image, *_leaf_ring_box(blob))
+        hole = box_rgb(image, *_leaf_hole_box(blob))
+        check(failures, leaf_green(ring),
+              f"the {name} leaf's solid ring renders green "
+              f"(rgb {tuple(round(v) for v in ring)})")
+        check(failures, not leaf_green(hole),
+              f"the {name} leaf's hole shows the backdrop through "
+              f"(rgb {tuple(round(v) for v in hole)})")
+    # 3. the CAST SHADOW is a cutout too: scan the ground BELOW the front leaf
+    # (a box centred on the leaf's measured centroid, sized in leaf-heights so
+    # it follows the content and stays clear of the sibling's shadow) for the
+    # dark shadowed samples; the centroid of the shadow RING's dark pixels must
+    # land in its LIT hole. The scan starts above the leaf's bottom to catch the
+    # ring's top arc, so the centroid stays balanced on the ring centre (a
+    # lighting gradient thins one arc otherwise). A filled-disc shadow (a caster
+    # that lost the cutout) puts its centroid on dark ground -> the lit-hole
+    # ratio drops and fails; a healthy cutout reads ~1.0 on both flavors.
+    fw = front["x1"] - front["x0"]
+    fh = front["y1"] - front["y0"]
+    fcx, fcy = front["cx"], front["cy"]
+    sx0 = max(0, int(fcx - 0.70 * fw))
+    sx1 = min(image.w, int(fcx + 0.70 * fw))
+    sy0 = max(0, int(fcy + 0.43 * fh))
+    sy1 = min(image.h, int(fcy + 1.07 * fh))
+    # open lit ground beside the shadow at the same depth band
+    ox0 = int(0.02 * image.w)
+    ox1 = max(ox0 + 20, sx0 - 10)
+    open_lum = box_lum(image, ox0, int(fcy + 0.6 * fh), ox1, int(fcy + 1.0 * fh))
+    dark = []
+    total = 0
+    for y in range(sy0, sy1, 2):
+        for x in range(sx0, sx1, 2):
+            total += 1
+            if lum_px(image, x, y) < 0.7 * open_lum:
+                dark.append((x, y))
+    dark_frac = (len(dark) / total) if total else 0.0
+    check(failures, dark_frac > 0.03,
+          f"the leaf casts a shadow at all ({len(dark)} dark samples, "
+          f"{dark_frac * 100:.0f}% of the scan > 3%)")
+    if dark:
+        cx = sum(p[0] for p in dark) / len(dark)
+        cy = sum(p[1] for p in dark) / len(dark)
+        centre = box_lum(image, cx - 8, cy - 8, cx + 8, cy + 8, step=1)
+        check(failures, centre > 0.85 * open_lum,
+              f"the shadow has a LIT hole (ring centroid ({cx:.0f},{cy:.0f}) "
+              f"luminance {centre:.1f} > 85% of open {open_lum:.1f})")
+    return failures
+
+
 def leg_cutout(binary, out_dir):
     shot, _second = run_demo(
         binary, {"ORKIGE_DEMO_CUTOUT": "1"}, out_dir, "cutout", frames=90,
         expect_second=False)
-    image = Image(shot)
-    failures = []
-    # 1. the cutout renders as a cutout: leaf ring solid green, the hole
-    # showing the backdrop through (never green-led)
-    ring = region_rgb(image, LEAF_RING)
-    hole = region_rgb(image, LEAF_HOLE)
-    check(failures, leaf_green(ring),
-          f"the leaf's solid ring renders green (rgb {ring})")
-    check(failures, not leaf_green(hole),
-          f"the leaf's hole shows the backdrop through (rgb {hole})")
-    # 2. two-sided: the BACK-facing sibling quad renders at all (single-sided
-    # geometry - culled to nothing without the two-sided material)
-    back_ring = region_rgb(image, BACK_RING)
-    back_hole = region_rgb(image, BACK_HOLE)
-    check(failures, leaf_green(back_ring),
-          f"the back-facing leaf renders (two-sided; rgb {back_ring})")
-    check(failures, not leaf_green(back_hole),
-          f"the back-facing leaf keeps its hole (rgb {back_hole})")
-    # 3. the CAST SHADOW is a cutout too: collect the dark (shadowed) samples
-    # under the front leaf - their centroid must land in the shadow's LIT
-    # hole (a filled-disc shadow puts its centroid on dark ground; measured
-    # centre/open ratios: healthy ~1.0 both flavors, filled ~<=0.7)
-    open_lum = region_mean(image, CUTOUT_OPEN)
-    dark = []
-    x0, y0, x1, y1 = SHADOW_SCAN
-    fy = y0
-    while fy < y1:
-        fx = x0
-        while fx < x1:
-            if image.lum(fx, fy) < 0.7 * open_lum:
-                dark.append((fx, fy))
-            fx += 0.005
-        fy += 0.005
-    check(failures, len(dark) > 100,
-          f"the leaf casts a shadow at all ({len(dark)} dark samples > 100)")
-    if dark:
-        cx = sum(p[0] for p in dark) / len(dark)
-        cy = sum(p[1] for p in dark) / len(dark)
-        centre = region_mean(image, (cx - 0.02, cy - 0.02, cx + 0.02, cy + 0.02))
-        check(failures, centre > 0.85 * open_lum,
-              f"the shadow has a LIT hole (ring centroid ({cx:.2f},{cy:.2f}) "
-              f"luminance {centre:.1f} > 85% of open {open_lum:.1f})")
-    return failures
+    return analyze_cutout(Image(shot))
 
 
 # accent-rig regions: instance A (accented) left, instance B (the untouched
@@ -344,11 +470,30 @@ def leg_accents(binary, out_dir):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", required=True, help="the hello_orkige app")
-    parser.add_argument("--out", required=True, help="scratch dir for captures")
+    parser.add_argument("--binary", help="the hello_orkige app")
+    parser.add_argument("--out", help="scratch dir for captures")
     parser.add_argument("--leg", required=True,
                         choices=["looks", "cutout", "accents"])
+    parser.add_argument("--image", help="analyze a saved PNG instead of running "
+                        "the demo (cutout leg only; a debugging affordance)")
     args = parser.parse_args()
+
+    # --image: exercise the probe logic against a saved frame (no demo run) -
+    # the way the CI screenshot is checked. Cutout leg only.
+    if args.image:
+        if args.leg != "cutout":
+            print("--image is only supported for the cutout leg")
+            return 2
+        failures = analyze_cutout(Image(args.image))
+        if failures:
+            print(f"{len(failures)} material probe check(s) failed")
+            return 1
+        print("material probe leg 'cutout' (--image): all checks passed")
+        return 0
+
+    if not args.binary or not args.out:
+        print("--binary and --out are required unless --image is given")
+        return 2
     if not os.path.exists(args.binary):
         print(f"SKIP: demo app not built: {args.binary}")
         return 77
