@@ -33,9 +33,9 @@
 //! default desktop preset). Skinned glTF imports whole (skeleton +
 //! clips + weights via the v1 skeleton -> importV1 route, see
 //! MeshLoaderNext.cpp) and plays over v2 SkeletonInstance
-//! (MeshInstanceNext.cpp). Remaining honest gap, logged once via
-//! notImplementedOnce: LT_ZIP/LT_BIGZIP resource locations (waits
-//! for real content work + the zziplib port feature).
+//! (MeshInstanceNext.cpp). Pak mounting (LT_ZIP / mountPak) now works
+//! here too, backed by the shared MiniZip reader since Ogre-Next ships
+//! no stock zip archive (engine_filesystem, Docs/filesystem.md).
 //!
 //! Unlike classic (where Engine bootstraps OGRE and the facade wraps
 //! it), the RenderSystem facade IS the boot on Next: RenderBackend::
@@ -887,7 +887,6 @@ namespace Orkige
 		static void makeImageAlphaOpaque(Ogre::Image2 & image);
 		//! honest-gap discipline: log the missing feature ONCE, stay
 		//! silent afterwards - callers then return their safe default
-		//! (residual: LT_ZIP/LT_BIGZIP locations)
 		static void notImplementedOnce(char const * feature);
 	};
 }

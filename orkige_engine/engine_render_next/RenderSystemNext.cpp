@@ -276,12 +276,16 @@ namespace Orkige
 	void RenderSystem::addResourceLocation(String const & path,
 		LocationType type, String const & groupName, bool recursive)
 	{
-		// Ogre-Next registers the stock "Zip" archive factory in its Root just
-		// like classic, so LT_ZIP works on both flavors with no bespoke reader
-		static const char* const locationTypeNames[] =
-			{ "FileSystem", "Zip" };
+		if(type == LT_ZIP)
+		{
+			// a whole-zip mount (no sub-tree): IDENTICAL to the classic backend
+			// - the MiniZip-backed pak path, since the Ogre-Next build ships no
+			// stock Zip archive (engine_filesystem/PakMount, Docs/filesystem.md)
+			PakMount::mount(path, "", groupName);
+			return;
+		}
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			path, locationTypeNames[type],
+			path, "FileSystem",
 			groupName.empty()
 				? Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME
 				: groupName,

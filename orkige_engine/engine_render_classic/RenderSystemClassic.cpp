@@ -896,13 +896,16 @@ namespace Orkige
 	void RenderSystem::addResourceLocation(String const & path,
 		LocationType type, String const & groupName, bool recursive)
 	{
-		// LT_ZIP is the flavor's STOCK Zip archive (Ogre::Root registers the
-		// factory on both flavors); a whole/sub-tree pak mount goes through
-		// mountPak (engine_filesystem/PakMount) instead
-		static const char* const locationTypeNames[] =
-			{ "FileSystem", "Zip" };
+		if(type == LT_ZIP)
+		{
+			// a whole-zip mount (no sub-tree): the SAME MiniZip-backed pak path
+			// as mountPak, so LT_ZIP behaves identically on both flavors (the
+			// Ogre-Next build ships no stock Zip archive - Docs/filesystem.md)
+			PakMount::mount(path, "", groupName);
+			return;
+		}
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			path, locationTypeNames[type],
+			path, "FileSystem",
 			groupName.empty()
 				? Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME
 				: groupName,
