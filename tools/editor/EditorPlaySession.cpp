@@ -659,8 +659,14 @@ bool startPlay(PlaySession& session,
 		// ones this very editor runs on.
 		const std::string moduleSourceDir =
 			project.resolvePath(nativeConfig.cmakeDir);
+		// per-flavor build tree: this editor configures the module against its
+		// OWN engine tree (ORKIGE_EDITOR_ENGINE_BUILD_DIR == this editor's build
+		// dir), whose flavor is ORKIGE_EDITOR_RENDER_BACKEND - a module tree is
+		// flavor-bound, so the two flavors build into native/build-<flavor> and
+		// never poison each other's cmake cache
 		const std::string moduleBuildDir =
-			project.resolvePath(nativeConfig.buildDir);
+			project.resolvePath(Orkige::NativeModule::flavoredBuildDir(
+				nativeConfig.buildDir, ORKIGE_EDITOR_RENDER_BACKEND));
 		std::error_code ignored;
 		if (!std::filesystem::exists(
 			std::filesystem::path(moduleSourceDir) / "CMakeLists.txt", ignored))

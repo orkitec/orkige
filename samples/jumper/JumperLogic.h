@@ -9,7 +9,7 @@
 #ifndef __JumperLogic_h__7_7_2026__16_50_00__
 #define __JumperLogic_h__7_7_2026__16_50_00__
 
-#include <OgreVector.h>
+#include <engine_render/RenderMath.h>
 #include <algorithm>
 #include <cmath>
 
@@ -25,9 +25,9 @@ namespace Orkige
 		//! a downward ray query for the grounded check (PhysicsWorld::castRay args)
 		struct GroundProbe
 		{
-			Ogre::Vector3	origin;			//!< ray start, just below the capsule bottom
-			Ogre::Vector3	direction;		//!< always straight down
-			float			maxDistance;	//!< short probe length
+			Vec3	origin;			//!< ray start, just below the capsule bottom
+			Vec3	direction;		//!< always straight down
+			float	maxDistance;	//!< short probe length
 		};
 
 		//! @brief build the grounded-check ray for a capsule at the given center.
@@ -36,14 +36,14 @@ namespace Orkige
 		//! inside the player capsule would hit the player itself at fraction 0.
 		//! Starting just outside also means a slightly penetrating ground plane
 		//! still registers (fraction-0 hit on the ground body = grounded).
-		inline GroundProbe makeGroundProbe(Ogre::Vector3 const & center,
+		inline GroundProbe makeGroundProbe(Vec3 const & center,
 			float capsuleHalfHeight, float capsuleRadius,
 			float skin = 0.02f, float probeLength = 0.2f)
 		{
 			GroundProbe probe;
-			probe.origin = Ogre::Vector3(center.x,
+			probe.origin = Vec3(center.x,
 				center.y - (capsuleHalfHeight + capsuleRadius + skin), center.z);
-			probe.direction = Ogre::Vector3::NEGATIVE_UNIT_Y;
+			probe.direction = Vec3::NEGATIVE_UNIT_Y;
 			probe.maxDistance = probeLength;
 			return probe;
 		}
@@ -65,8 +65,8 @@ namespace Orkige
 		}
 
 		//! is the player close enough to the goal marker to win?
-		inline bool reachedGoal(Ogre::Vector3 const & playerPosition,
-			Ogre::Vector3 const & goalPosition, float radius)
+		inline bool reachedGoal(Vec3 const & playerPosition,
+			Vec3 const & goalPosition, float radius)
 		{
 			return playerPosition.squaredDistance(goalPosition) <= radius * radius;
 		}

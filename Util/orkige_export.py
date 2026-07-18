@@ -18,18 +18,20 @@ build of the project's own module). Per platform:
 
   macos          a double-clickable <Name>.app:
                    Contents/MacOS/<Exe>       the player binary - the RELEASE
-                                              one when a sibling
-                                              macos-release-classic tree
-                                              carries it, else the given
-                                              tree's (with a warning when that
-                                              is a Debug binary). A project
+                                              one when the given tree's sibling
+                                              release tree (macos-release for
+                                              next, macos-release-classic for
+                                              classic) carries it, else the
+                                              given tree's (with a warning when
+                                              that is a Debug binary). A project
                                               with a native module ships the
                                               MODULE executable instead, built
-                                              here (Release against the
+                                              here against EITHER render flavor's
+                                              engine tree (Release against the
                                               release engine tree when
                                               available, else Debug with a
                                               warning) into <project>/<native.
-                                              buildDir>-export.
+                                              buildDir>-export-<flavor>.
                    Contents/Frameworks/       the executable's non-system
                                               dylib closure (today: the vcpkg
                                               Vulkan loader) plus each dylib's
@@ -604,11 +606,13 @@ def macos_make_self_contained(executable, frameworks_dir, search_dirs):
 
 
 def macos_build_native_module(project, target, engine_build, cmake, ninja):
-    """build the project's native module for export (see
-    cmake/OrkigeGameModule.cmake): Release against the sibling
-    macos-release-classic engine tree when its libraries exist, else the
-    given tree's build type with a warning. A SEPARATE build tree (<native.buildDir>-export) keeps
-    the editor's compile-on-Play cache untouched."""
+    """build the project's native module for export against EITHER render
+    flavor's engine tree (see cmake/OrkigeGameModule.cmake): Release against the
+    given tree's sibling release tree (macos-release / macos-release-classic)
+    when its libraries exist, else the given tree's build type with a warning. A
+    SEPARATE, per-flavor build tree (<native.buildDir>-export-<flavor>) keeps the
+    editor's compile-on-Play cache untouched AND keeps the two render flavors'
+    module builds from poisoning each other (a module tree is flavor-bound)."""
     engine_tree = engine_build
     release_tree = sibling_release_tree(engine_build)
     if read_cmake_cache(engine_build, "CMAKE_BUILD_TYPE") != "Release":
@@ -621,12 +625,13 @@ def macos_build_native_module(project, target, engine_build, cmake, ninja):
                  "the native module" % (release_tree,
                  read_cmake_cache(engine_build, "CMAKE_BUILD_TYPE") or "?"))
     build_type = read_cmake_cache(engine_tree, "CMAKE_BUILD_TYPE") or "Debug"
+    flavor = render_backend(engine_tree)
     source_dir = os.path.join(
         project.root, project.settings.get("native.cmakeDir", "native"))
     if not os.path.isfile(os.path.join(source_dir, "CMakeLists.txt")):
         fail("native module source '%s' has no CMakeLists.txt" % source_dir)
     build_dir = os.path.join(project.root, project.settings.get(
-        "native.buildDir", "native/build") + "-export")
+        "native.buildDir", "native/build") + "-export-" + flavor)
     arch = engine_tree_arch(engine_tree)
     if not arch:
         fail("cannot derive the target architecture from '%s' (no vcpkg "
@@ -675,16 +680,6 @@ def macos_build_native_module(project, target, engine_build, cmake, ninja):
 
 def export_macos(project, engine_build, output_dir, cmake, ninja):
     native_target = project.native_target()
-    if native_target and render_backend(engine_build) == "next":
-        # native modules link the classic OGRE closure and are refused against a
-        # next engine tree by cmake/OrkigeGameModule.cmake - refuse here too,
-        # honestly, instead of failing deep in the module's cmake configure.
-        # (The Lua/scene parts of such a project export fine on next without a
-        # module; the compiled module is desktop-classic-only for now.)
-        fail("project '%s' has a native module ('%s') - native modules link "
-             "the classic OGRE closure and are classic-flavor-only; pass a "
-             "classic engine tree (macos-debug-classic or macos-release-"
-             "classic)" % (project.name, native_target))
     if native_target:
         executable, source_tree = macos_build_native_module(
             project, native_target, engine_build, cmake, ninja)

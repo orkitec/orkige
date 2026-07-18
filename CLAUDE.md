@@ -52,8 +52,12 @@ The two flavors implement the same `engine_render` facade
 (player, hello_orkige, projects/), gui AND the editor (ImGui on
 DrawLayer2D) run on both flavors and must render the SAME image (WYSIWYG —
 enforced by the `render_backend_parity` pixel test). Classic remains fully
-supported because it OWNS what next doesn't do yet: native game modules,
-BigZip, the Vulkan/GL runtime RS pick and the jumper C++ sample. Project
+supported because it OWNS what next doesn't do yet: BigZip, the Vulkan/GL
+runtime RS pick and the jumper C++ sample. **Native game modules (compiled
+C++ game code, `projects/jumper-native/`) now build, play and export on BOTH
+flavors** — the module links the flavor's engine closure resolved from the
+engine build tree's cache (`cmake/OrkigeGameModule.cmake`) and is
+flavor-neutral game code by construction. Project
 export ships on BOTH flavors now (the exporter bundles the tree's engine
 media — classic RTSS media or the Ogre-Next Hlms shader templates —
 resolved at boot via `PlayerBundle`); the classic GLES2 mobile path lives
@@ -152,7 +156,8 @@ the Vulkan *loader* and headers stay vcpkg-provided.
 
 ```sh
 ctest --preset unit            # headless Catch2 unit tests (~3s) — safe to run anytime
-ctest --preset desktop         # the default (Ogre-Next) suite (no simulator/emulator boots)
+ctest --preset desktop         # the default (Ogre-Next) suite (no simulator/emulator boots;
+                               # incl. the native-module play/export tests, next flavor)
 ctest --preset desktop-classic # the classic-flavor suite: exports, Vulkan runs,
                                # native-module tests (build macos-debug-classic first)
 ctest --preset all             # classic tree incl. device tests (boots simulators/emulators)
@@ -487,12 +492,20 @@ Settings `native.target`/`native.cmakeDir`/`native.buildDir`
 (`core_project/NativeModule.h`) mark a project as carrying compiled C++ game code
 under `native/`, built as a standalone CMake project against the engine build tree
 via `cmake/OrkigeGameModule.cmake` (no installed SDK yet — the helper file IS the
-interim contract). In the editor, Play on such a project becomes compile-on-Play:
-async incremental cmake build with `[build]` lines streamed into the Console (Stop
-cancels, a failed build stays in edit mode and launches nothing), then the project's
-own executable runs as the play process (desktop target only; covered by the
-editor_project_native_play / _break ctests — their build tree persists under
-`projects/jumper-native/native/build`, gitignored, so re-runs build incrementally).
+interim contract). **Runs on BOTH render flavors**: the helper reads the engine
+tree's flavor from its cache and links THAT flavor's engine closure + defines its
+ABI macro (`ORKIGE_RENDER_NEXT` / `ORKIGE_RENDER_CLASSIC`); game code is
+flavor-neutral by construction (only facade types, no `Ogre::`). A module tree is
+flavor-bound like any build tree (a flavor flip in place FATAL_ERRORs), so the
+editor builds into the per-flavor `native/build-<flavor>` and the exporter into
+`native/build-export-<flavor>`. In the editor, Play on such a project becomes
+compile-on-Play: async incremental cmake build (against this editor's OWN flavor
+tree) with `[build]` lines streamed into the Console (Stop cancels, a failed build
+stays in edit mode and launches nothing), then the project's own executable runs as
+the play process (desktop target only; covered by the
+editor_project_native_play / _break ctests, per flavor — their build tree persists
+under `projects/jumper-native/native/build-<flavor>`, gitignored, so re-runs build
+incrementally).
 **Project export** (`Util/orkige_export.py`, editor Build menu): packages a project as a
 distributable macOS .app (self-contained: player/module binary + dylib closure + engine
 media + project payload; a marker file makes the app boot its bundled project with no

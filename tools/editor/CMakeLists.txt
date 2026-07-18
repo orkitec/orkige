@@ -249,6 +249,11 @@ target_compile_definitions(orkige_editor PRIVATE
     # cmake/OrkigeGameModule.cmake and startPlay's native branch
     ORKIGE_EDITOR_ENGINE_ROOT="${CMAKE_SOURCE_DIR}"
     ORKIGE_EDITOR_ENGINE_BUILD_DIR="${CMAKE_BINARY_DIR}"
+    # the render flavor THIS editor was built with ("next" or "classic"): the
+    # native module links against this editor's own engine tree, so its build
+    # dir is flavor-suffixed (native/build-<flavor>) - a module tree is
+    # flavor-bound (see cmake/OrkigeGameModule.cmake)
+    ORKIGE_EDITOR_RENDER_BACKEND="${ORKIGE_RENDER_BACKEND}"
     ORKIGE_EDITOR_CMAKE="${CMAKE_COMMAND}"
     # the test-runner MCP tools (run_tests / list_tests) drive this ctest
     ORKIGE_EDITOR_CTEST="${CMAKE_CTEST_COMMAND}"

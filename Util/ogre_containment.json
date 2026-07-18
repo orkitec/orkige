@@ -37,8 +37,6 @@
   "orkige_engine/engine_util/StringConverter.h": "math-adjacent converters - follow the math decision (aliases keep it working on both Ogre backends)",
   "orkige_engine/engine_util/StringUtil.h": "Ogre::DisplayString conversion for gui text (classic-gated; Next path uses the plain multibyte converter)",
   "orkige_engine/engine_util/ResourceUtil.cpp": "resource lookups over Ogre::ResourceGroupManager (findPath backs the .caf sound loader on both flavors; removeUnusedResources is classic-only)",
-  "samples/jumper/JumperLogic.h": "math-only residue (pure gameplay math, unit-tested headlessly) - alias vocabulary pending",
-  "samples/jumper/JumperHud.h": "one spelling: the resource-group default parameter forwarded to gui",
   "tests/render_facade/bootstrap_classic.cpp": "the classic backend's bootstrap TU of the render_facade selfcheck - per-backend by design",
   "tests/render_facade/bootstrap_next.cpp": "the Ogre-Next backend's bootstrap TU of the render_facade selfcheck/smoke - per-backend by design",
   "tests/engine/GuiAtlasTests.cpp": "parses .ogui atlases through the UiAtlas headless constructor + Ogre::ConfigFile (present in both flavors)",

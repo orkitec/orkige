@@ -3,14 +3,12 @@ build/
 Docs/api/build/
 .DS_Store
 *.log
-# native project modules build in-place (compile-on-Play)
-projects/*/native/build/
-# project export outputs (Util/orkige_export.py): packaged artifacts and the
-# exporter's separate native-module build tree
+# native project modules build in-place, per render flavor (compile-on-Play:
+# native/build-<flavor>; the exporter: native/build-export-<flavor>)
+projects/*/native/build*/
+# project export outputs (Util/orkige_export.py): packaged artifacts
 projects/*/builds/
-projects/*/native/build-export/
 __pycache__/
-projects/*/builds/
 .claude/
 
 # runtime crash trail written to the cwd by players/tests run from the repo root

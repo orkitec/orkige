@@ -1122,14 +1122,14 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # module from scratch (the build tree under
     # projects/jumper-native/native/build persists across runs, so re-runs
     # are an incremental no-op build) - hence the fat TIMEOUT.
-    # classic-only: the module's persistent build tree (native/build)
-    # configures against ONE engine build tree - flip-flopping it between
-    # flavors would poison the cmake cache (the break variant builds in a
-    # temp copy, but shares the RESOURCE_LOCK/serialization story)
-    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
-    add_test(NAME editor_project_native_play COMMAND orkige_editor
+    # both render flavors: the module builds against THIS editor's own engine
+    # tree (its flavor), into the flavor-suffixed native/build-<flavor> tree, so
+    # the two flavor suites never share - and thus never poison - a cmake cache
+    # (the break variant builds in a temp copy, but shares the RESOURCE_LOCK/
+    # serialization story). See cmake/OrkigeGameModule.cmake.
+    add_test(NAME editor_project_native_play${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(editor_project_native_play PROPERTIES
+    set_tests_properties(editor_project_native_play${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_NATIVE_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-native;ORKIGE_JUMPER_NATIVE_SELFCHECK=1")
 
     # the deliberate-breakage variant: the hook copies jumper-native to a
@@ -1138,11 +1138,10 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # must keep the editor in edit mode with [build] error lines in the
     # Console and nothing launched. Always compiles from scratch (fresh
     # temp copy), so it shares the fat TIMEOUT.
-    add_test(NAME editor_project_native_play_break COMMAND orkige_editor
+    add_test(NAME editor_project_native_play_break${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(editor_project_native_play_break PROPERTIES
+    set_tests_properties(editor_project_native_play_break${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_NATIVE_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-native;ORKIGE_EDITOR_NATIVE_PLAYTEST_BREAK=1")
-    endif()
 
     # loud script failures: the hook copies projects/jumper-lua to a temp dir
     # (the real project is never touched), overwrites scripts/player.lua with
@@ -1896,21 +1895,19 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 
         # the native-module jumper: the exporter builds the module executable
-        # (arch-pinned, into native/build-export - separate from the editor's
-        # compile-on-Play tree) and ships IT instead of the generic player.
-        # CLASSIC-only: native modules link the classic OGRE closure
-        # (cmake/OrkigeGameModule.cmake FATAL_ERRORs on a next engine tree), so
-        # this test registers only on the classic flavor - the exporter refuses
-        # a native+next combo honestly.
-        if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
-            add_test(NAME export_macos_native
-                COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
-                    --repo "${Orkige_SOURCE_DIR}"
-                    --project "${Orkige_SOURCE_DIR}/projects/jumper-native"
-                    --platform macos --engine-build "${CMAKE_BINARY_DIR}"
-                    --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-native"
-                WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        endif()
+        # (arch-pinned, into the per-flavor native/build-export-<flavor> tree -
+        # separate from the editor's compile-on-Play tree) and ships IT instead
+        # of the generic player. Both render flavors: the exporter resolves the
+        # module + engine closure for the given tree's flavor
+        # (cmake/OrkigeGameModule.cmake), so each flavor's tree checks the export
+        # of ITS OWN native module.
+        add_test(NAME export_macos_native${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-native"
+                --platform macos --engine-build "${CMAKE_BINARY_DIR}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-native"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 
         # mobile exports: structural assertions only (no simulator/emulator
         # boots, so these stay desktop-runnable); SKIPPED (exit 77) when the
@@ -2034,11 +2031,12 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         editor_play_script_error_next editor_play_hotreload_next
         editor_ui_hotreload_next editor_anim_hotreload_next
         editor_project_native_play editor_project_native_play_break
+        editor_project_native_play_next editor_project_native_play_break_next
         editor_play_simulator editor_play_simulator_boot
         editor_play_android editor_play_ios_device
         player_resize_selfcheck player_resize_selfcheck_next
         player_rotation_android player_rotation_ios
-        export_macos_lua export_macos_native
+        export_macos_lua export_macos_native export_macos_native_next
         export_ios_simulator export_android export_android_aab
         demo_plain_vulkan player_example_scene_vulkan editor_selfcheck_vulkan
         jumper_selfcheck editor_open_jumper_level render_facade_selfcheck)
@@ -2085,11 +2083,14 @@ endif()
 # needs real headroom; warm success re-runs are an incremental no-op
 foreach(native_test editor_project_native_play
         editor_project_native_play_break
+        editor_project_native_play_next
+        editor_project_native_play_break_next
         # exports jumper-native: the exporter's module build (its separate
-        # native/build-export tree persists, so re-runs are incremental)
-        # compiles the same OGRE-including module sources - same headroom,
-        # same serialization against the compile-on-Play tests
-        export_macos_native)
+        # per-flavor native/build-export-<flavor> tree persists, so re-runs are
+        # incremental) compiles the same OGRE-including module sources - same
+        # headroom, same serialization against the compile-on-Play tests
+        export_macos_native
+        export_macos_native_next)
     if(TEST ${native_test})
         set_tests_properties(${native_test} PROPERTIES TIMEOUT 420
             # both drive a build in/from the same module source; keep them

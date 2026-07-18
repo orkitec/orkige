@@ -364,6 +364,15 @@ TEST_CASE("NativeModule build-command assembly", "[project][native]")
 			"CMakeCache.txt").string(), "# cache");
 		REQUIRE_FALSE(Orkige::NativeModule::needsConfigure(dir.path));
 	}
+	SECTION("flavoredBuildDir suffixes the flavor so the two flavors never share a tree")
+	{
+		REQUIRE(Orkige::NativeModule::flavoredBuildDir("native/build", "next")
+			== "native/build-next");
+		REQUIRE(Orkige::NativeModule::flavoredBuildDir("native/build", "classic")
+			== "native/build-classic");
+		REQUIRE(Orkige::NativeModule::flavoredBuildDir("code/out", "next")
+			!= Orkige::NativeModule::flavoredBuildDir("code/out", "classic"));
+	}
 }
 
 TEST_CASE("Project::listScenes discovers .oscene files under scenes/",

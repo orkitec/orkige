@@ -49,11 +49,12 @@ namespace Orkige
 
 		JumperHud(int screenWidth, int screenHeight,
 			String const & atlas = "gui_default",
-			// gui is classic-only (see
-			// Docs/render-abstraction.md) - its resource-group default is
-			// the one sanctioned Ogre spelling left in this header
-			String const & resourceGroup =
-				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME)
+			// gui renders on BOTH render flavors (Docs/render-abstraction.md);
+			// this stays flavor-neutral game code. "General" is the engine's
+			// default resource group (the atlas media the C++ sample registers
+			// there); the native project module passes the "OrkigeProject"
+			// group instead
+			String const & resourceGroup = "General")
 		{
 			// GuiManager loads "<atlas>.ogui" (+ texture) from the given
 			// resource group and creates the UI screen for the main window

@@ -428,9 +428,11 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
   - `engine_util/FrameStatsUtil` needed NO change: it is a frame-TIME
     (wall-clock dt) collector with zero renderer coupling; the renderer
     stats consumers (triangle counts) moved to `RenderSystem::getFrameStats`.
-  - JumperHud (gui, classic-only per the HUD decision) kept exactly one Ogre
-    spelling: the resource-group default parameter it forwards to
-    GuiManager; its math went to the alias vocabulary.
+  - JumperHud + JumperLogic (shared by the classic jumper sample AND the
+    both-flavors native module) are now fully flavor-neutral: math on the alias
+    vocabulary (`Orkige::Vec3` via `RenderMath.h`) and the HUD's resource-group
+    default is the plain `"General"` group string — no `Ogre::` spelling left,
+    so both compile against the next engine too (the native module needs it).
 - **Editor**: RTT panel → `RenderTexture`; picking → `queryRay` +
   `findUserPointerUpwards`; gizmo → `RenderCamera` matrices/project; stats panel;
   grid via backend service; ImGuiOverlay glue isolated behind an editor-local seam.
@@ -1061,9 +1063,11 @@ flavors, **Ogre-Next is the engine's default render backend** on desktop AND
 mobile (iOS boots Metal, Android boots Vulkan — the unsuffixed
 `ios-simulator-debug`/`android-debug` presets are next); classic stays the
 fully supported **compatibility flavor** — kept because it OWNS what next
-doesn't do yet: native game modules, BigZip, the Vulkan/GL runtime RS pick and
-the jumper C++ sample. (The mobile GLES2 path is now the classic flavor's
-`-classic` mobile presets; project export ships on both flavors.)
+doesn't do yet: BigZip, the Vulkan/GL runtime RS pick and the jumper C++
+sample. (The mobile GLES2 path is now the classic flavor's `-classic` mobile
+presets; project export AND native game modules ship on both flavors — a
+native module links the flavor's engine closure resolved from the engine
+tree's cache, `cmake/OrkigeGameModule.cmake`.)
 
 - **`ORKIGE_RENDER_BACKEND` defaults to `next`** in the root CMakeLists. Every
   preset still forces its backend EXPLICITLY (nothing relies on the default;

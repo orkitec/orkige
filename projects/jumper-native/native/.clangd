@@ -1,6 +1,8 @@
 # Native game modules are standalone CMake projects - they are NOT in the
 # engine's compilation database. Point clangd at the module's own build dir
 # (created on first compile-on-Play / export; diagnostics are meaningless
-# before that first build).
+# before that first build). The module tree is flavor-bound, so the editor
+# builds into a per-flavor dir - point clangd at the default (next) flavor's
+# tree (use build-classic for classic-flavor diagnostics).
 CompileFlags:
-  CompilationDatabase: build
+  CompilationDatabase: build-next

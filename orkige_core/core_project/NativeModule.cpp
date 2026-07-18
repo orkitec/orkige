@@ -35,6 +35,11 @@ namespace Orkige
 			return config;
 		}
 		//---------------------------------------------------------
+		String flavoredBuildDir(String const & buildDir, String const & flavor)
+		{
+			return buildDir + "-" + flavor;
+		}
+		//---------------------------------------------------------
 		bool needsConfigure(String const & buildDirAbsolute)
 		{
 			std::error_code ignored;

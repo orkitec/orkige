@@ -427,12 +427,14 @@ int main(int argc, char** argv)
 	const bool automatedRun = frameLimit != 0 || hudSelfCheck;
 
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window, engine
-	// singletons, the classic Engine boot, the fixed-yaw window-camera rig
-	// and the GameObject world. The RTSS media comes from the engine build's
-	// vcpkg OGRE media (ORKIGE_MODULE_MEDIA_DIR, baked in by
-	// OrkigeGameModule.cmake) for dev runs; an exported .app overrides it
-	// with the Media/ bundled in its Resources so the bundle is
-	// self-contained.
+	// singletons, the per-flavor Engine boot, the fixed-yaw window-camera rig
+	// and the GameObject world. This is flavor-neutral game code: it sets both
+	// media fields and the host consumes only the one its flavor needs. The
+	// dev-run fallback is the engine build's vcpkg OGRE media
+	// (ORKIGE_MODULE_MEDIA_DIR, baked in by OrkigeGameModule.cmake - the classic
+	// RTSS library / the Ogre-Next Hlms templates); an exported .app carries its
+	// engine media under Resources/Media and resolveMediaDirectory returns THAT
+	// so the bundle is self-contained.
 	Orkige::AppHostConfig hostConfig;
 	hostConfig.windowTitle = "Orkige Jumper (native module)";
 	hostConfig.automatedRun = automatedRun;
@@ -442,8 +444,17 @@ int main(int argc, char** argv)
 		? Orkige::PlatformUtil::getSupportDirectory("Orkige Player") +
 			"jumper_native.log"
 		: "jumper_native.log";
-	hostConfig.classicMediaDir =
+	const std::string moduleMediaDir =
 		Orkige::PlayerBundle::resolveMediaDirectory(ORKIGE_MODULE_MEDIA_DIR);
+	// classic consumes classicMediaDir (RTSS media root, ignored on next); next
+	// keeps its baked Hlms default for a dev run and only needs the override
+	// when an exported bundle supplies its own Media/ (resolveMediaDirectory
+	// returned a path other than the baked fallback)
+	hostConfig.classicMediaDir = moduleMediaDir;
+	if (moduleMediaDir != std::string(ORKIGE_MODULE_MEDIA_DIR))
+	{
+		hostConfig.hlmsMediaDir = moduleMediaDir;
+	}
 
 	int exitCode = 0;
 	Orkige::AppHost host;

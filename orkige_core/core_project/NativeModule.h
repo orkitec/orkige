@@ -57,6 +57,14 @@ namespace Orkige
 		//! when the project carries no non-empty "native.target"
 		Config configFromProject(Project const & project);
 
+		//! @brief the per-flavor build tree for a module: the config buildDir
+		//! (default "native/build") with a "-<flavor>" suffix ("next" or
+		//! "classic"). A module tree is flavor-bound like the engine tree it
+		//! links (@see cmake/OrkigeGameModule.cmake), so the two render flavors
+		//! build into SEPARATE trees that never share a cache - the editor
+		//! passes its own compile-time flavor, the exporter the engine tree's.
+		String flavoredBuildDir(String const & buildDir, String const & flavor);
+
 		//! does the build tree still need a configure run? (no CMakeCache.txt
 		//! yet - `cmake --build` handles re-configures of an existing tree)
 		bool needsConfigure(String const & buildDirAbsolute);

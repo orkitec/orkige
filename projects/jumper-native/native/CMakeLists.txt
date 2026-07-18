@@ -4,10 +4,12 @@
 # Built by the editor's compile-on-Play pipeline (or by hand) against the
 # engine's build tree - see cmake/OrkigeGameModule.cmake for the full
 # contract and the required -DORKIGE_ROOT / -DORKIGE_ENGINE_BUILD_DIR cache
-# variables. The manifest's "native.target" setting names the executable
-# target below; it implements the player CLI contract
-# ([scene.oscene] [--project <dir>] [--debug-port N]) so the editor runs it
-# as the play process with the debug protocol attached.
+# variables. Plays and exports against EITHER render flavor's engine tree (the
+# flavor is read from the engine build's cache); the module tree is flavor-
+# bound, so the editor builds into native/build-<flavor>. The manifest's
+# "native.target" setting names the executable target below; it implements the
+# player CLI contract ([scene.oscene] [--project <dir>] [--debug-port N]) so
+# the editor runs it as the play process with the debug protocol attached.
 
 cmake_minimum_required(VERSION 3.28)
 
