@@ -92,6 +92,17 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
+	bool AnimationComponent::setAnimationTime(String const & anim, float seconds)
+	{
+		optr<MeshInstance> mesh = this->getAnimableMesh();
+		if(mesh && mesh->hasAnimation(anim))
+		{
+			mesh->setAnimationTime(anim, seconds);
+			return true;
+		}
+		return false;
+	}
+	//---------------------------------------------------------
 	bool AnimationComponent::crossFadeTo(String const & anim, float durationSeconds)
 	{
 		optr<MeshInstance> mesh = this->getAnimableMesh();
@@ -420,6 +431,14 @@ namespace Orkige
 		OFUNCIR(getBoneNames)
 		OFUNCCR(getDefaultAnimation)
 		OFUNC(setDefaultAnimation)
+		// clip playback control reachable from Lua (self.animation:...) and MCP:
+		// play/stop a named clip, seek it to a phase offset, and scale playback
+		// speed - the skeletal counterparts of the crossFadeTo blend below
+		OFUNC(playAnimation)
+		OFUNC(stopAnimation)
+		OFUNC(setAnimationTime)
+		OFUNC(setSpeed)
+		OFUNC(getSpeed)
 		OFUNC(getHandleMotion)
 		OFUNC(getHandleRotation)
 		OFUNC(getExtractMotion)
@@ -433,6 +452,24 @@ namespace Orkige
 		OFUNC(crossFadeTo)
 		OFUNC(isCrossFading)
 		OFUNC(getCrossFadeProgress)
+		// self.animation / world.getAnimation(id) hand Lua a WEAK handle: locks
+		// per call, raises an honest error naming the owner once gone. This is
+		// the clip-drive surface a SCRIPT reaches (the OFUNC lines above bind
+		// the direct usertype; a script only ever holds a handle). @see
+		// TransformComponent / ModelComponent.
+		OWEAKHANDLE_BEGIN(Orkige::AnimationComponent, "AnimationComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(playAnimation)
+			OWEAKHANDLE_BASEMETHOD(stopAnimation)
+			OWEAKHANDLE_BASEMETHOD(setAnimationTime)
+			OWEAKHANDLE_BASEMETHOD(setSpeed)
+			OWEAKHANDLE_BASEMETHOD(getSpeed)
+			OWEAKHANDLE_BASEMETHOD(crossFadeTo)
+			OWEAKHANDLE_BASEMETHOD(isCrossFading)
+			OWEAKHANDLE_BASEMETHOD(getCrossFadeProgress)
+			OWEAKHANDLE_BASEMETHOD(setDefaultAnimation)
+			OWEAKHANDLE_BASEMETHOD(hasAnimations)
+			OWEAKHANDLE_BASEMETHOD(hasPlayingAnimations)
+		OWEAKHANDLE_END
 	OOBJECT_END
 
 

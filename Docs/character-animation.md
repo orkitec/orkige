@@ -54,13 +54,20 @@ spread, weighted crossfade, idle sway) on each importer road.
   to `name`; both clips run together while the weight ramps (0.4 s reads well),
   then the outgoing clip is dropped. A non-positive duration switches instantly.
   `isCrossFading()` / `getCrossFadeProgress()` observe the blend.
-- `setSpeed(speed)` - time scale for all playing clips.
+- `setSpeed(speed)` / `getSpeed()` - time scale for all playing clips.
+- `setAnimationTime(name, seconds)` - seek a clip to an absolute time, a phase
+  offset (stagger a crowd of otherwise-identical rigs so they don't march in
+  lock-step).
 - `getAvailableAnimations()` / `getDefaultAnimation()` / `setDefaultAnimation()`.
 - Root motion: `setHandleMotion`/`setHandleRotation` + `setMotionBone` move the
   owning transform by the motion bone's track (classic-only, inert elsewhere).
 
-All of the above are reflected, so they are reachable from Lua (`self.<obj>`)
-and over MCP through the one property/function registry (see `lua-api.md`).
+The clip-playback verbs (`playAnimation`/`stopAnimation`/`setAnimationTime`/
+`setSpeed`/`getSpeed`/`crossFadeTo`/…) are reflected, so they are reachable from
+Lua and over MCP through the one property/function registry (see `lua-api.md`).
+A script drives its OWN rig through the `self.animation` sibling handle and
+another object's rig through `world.getAnimation(id)` - the same weak-handle
+currency as the other component accessors.
 
 Runtime state (which clip, weights, time) does not serialize yet - a saved scene
 restores the model and re-auto-plays the default clip.
@@ -83,6 +90,14 @@ bounds. The thresholds prove MOTION, not magnitude - the two flavors' bounds
 implementations report different absolute spreads for the same clip. On a
 hypothetical flavor that imports glTF statically, the rig loads with no clips
 and the check **skips honestly** with that finding as its message.
+
+**See it in the tour**: the benchmark showcase's `cast` vignette
+(`projects/benchmark/scenes/cast.oscene`) is the skinned mannequin on stage - a
+crowd stress-ramp of the same rig, each mannequin's script staggering its walk
+phase through `self.animation:setAnimationTime`/`setSpeed`, plus one
+front-and-centre mannequin the director cross-fades walk<->idle
+(`world.getAnimation`) so the blend reads. It is the moving proof of the Lua
+seam and the per-flavor skinning-cost measurement (`Docs/benchmark.md`).
 
 ## 2D character animation
 

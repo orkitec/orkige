@@ -171,6 +171,56 @@ TEST_CASE("ScriptComponent runs the init/update/shutdown lifecycle", "[script]")
 	env.scriptRuntime.setScriptSearchRoot("");
 }
 
+TEST_CASE("The world.getAnimation accessor is wired and self.animation is guarded", "[script]")
+{
+	// The skeletal-animation seam's WIRING, headlessly: world.getAnimation is a
+	// registered world.* accessor (callable, nil for a missing object) and the
+	// self.animation sibling handle is ABSENT when the owner has no
+	// AnimationComponent (the has-component guard). The live-rig leg - a real
+	// self.animation handle plus a reflected playAnimation/setAnimationTime/
+	// setSpeed drive - needs a loaded skinned mesh (a render backend), so it is
+	// proved end to end by the benchmark cast vignette's scripted anim probe on
+	// both flavors; here we prove the binding path exists and behaves.
+	Orkige::EngineTestEnvironment & env = Orkige::EngineTestEnvironment::get();
+	if (!scriptingAvailable())
+	{
+		return;
+	}
+	TempScriptDir dir("orkige_script_animseam_test");
+	dir.write("seam.lua", R"lua(
+		function init(self)
+			shared.animseam = {
+				-- world.getAnimation is a registered, callable accessor
+				fnExists = (type(world.getAnimation) == "function") and 1 or 0,
+				-- a missing object resolves to nil (never a raw pointer / error)
+				missing  = (world.getAnimation("no_such_object") == nil) and 1 or 0,
+				-- self.animation is absent - this object carries no rig
+				selfNil  = (self.animation == nil) and 1 or 0,
+			}
+		end
+		function update(self, dt) end
+	)lua");
+	env.scriptRuntime.setScriptSearchRoot(dir.root.string());
+	env.gameObjectManager.clear();
+
+	optr<Orkige::GameObject> actor =
+		env.gameObjectManager.createGameObject("Actor").lock();
+	REQUIRE(actor);
+	REQUIRE(actor->addComponent<Orkige::ScriptComponent>());
+	actor->getComponentPtr<Orkige::ScriptComponent>()
+		->setScriptFile("scripts/seam.lua");
+
+	env.gameObjectManager.update(0.016f);
+	CHECK_FALSE(actor->getComponentPtr<Orkige::ScriptComponent>()
+		->hasScriptError());
+	CHECK(sharedNumber("animseam", "fnExists") == 1.0);
+	CHECK(sharedNumber("animseam", "missing") == 1.0);
+	CHECK(sharedNumber("animseam", "selfNil") == 1.0);
+
+	env.gameObjectManager.clear();
+	env.scriptRuntime.setScriptSearchRoot("");
+}
+
 TEST_CASE("ScriptComponent instances are isolated but can share deliberately", "[script]")
 {
 	Orkige::EngineTestEnvironment & env = Orkige::EngineTestEnvironment::get();

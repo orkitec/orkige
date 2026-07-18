@@ -84,6 +84,10 @@
 		"sig": "(id) -> LevelComponent?",
 		"doc": "an object's LevelComponent (nil if none)"
 	},
+	"world.getAnimation": {
+		"sig": "(id) -> AnimationComponent?",
+		"doc": "an object's skeletal AnimationComponent (nil if none) - drive another rig's clip playback/crossfade/phase"
+	},
 	"world.loadScene": {
 		"sig": "(path)",
 		"doc": "deferred scene switch at the next frame boundary"

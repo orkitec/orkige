@@ -11,6 +11,7 @@
 #include "engine_gocomponent/ScriptComponentRegistry.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
+#include "engine_gocomponent/AnimationComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/SpriteComponent.h"
 #include "engine_gocomponent/ParticleComponent.h"
@@ -645,6 +646,14 @@ namespace Orkige
 			instance->setSelfHandle("model",
 				componentOwner->getComponent<ModelComponent>());
 		}
+		if (componentOwner->hasComponent<AnimationComponent>())
+		{
+			// self.animation:playAnimation(...) / :crossFadeTo(...) /
+			// :setAnimationTime(...) / :setSpeed(...) drive the sibling
+			// skeletal AnimationComponent's clip playback and blending
+			instance->setSelfHandle("animation",
+				componentOwner->getComponent<AnimationComponent>());
+		}
 		if (componentOwner->hasComponent<SpriteComponent>())
 		{
 			instance->setSelfHandle("sprite",
@@ -807,6 +816,13 @@ namespace Orkige
 			&worldComponentWeak<RigidBodyComponent>);
 		runtime.registerHandleAccessor("world", "getModel",
 			&worldComponentWeak<ModelComponent>);
+		// world.getAnimation(id) -> the object's AnimationComponent (nil when
+		// absent): reach a skeletal rig on ANOTHER object to drive its clip
+		// playback / crossfade / phase (playAnimation/stopAnimation/crossFadeTo/
+		// setSpeed/setAnimationTime) - the same weak-handle currency as its
+		// sibling accessors above; the reflected methods are the drive surface.
+		runtime.registerHandleAccessor("world", "getAnimation",
+			&worldComponentWeak<AnimationComponent>);
 		runtime.registerHandleAccessor("world", "getSprite",
 			&worldComponentWeak<SpriteComponent>);
 		runtime.registerHandleAccessor("world", "getParticles",

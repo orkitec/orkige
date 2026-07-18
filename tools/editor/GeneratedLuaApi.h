@@ -18,6 +18,7 @@ namespace Orkige
 		"world.getTransform(id) -> TransformComponent?  -- an object's TransformComponent (nil if none)\n"
 		"world.getRigidBody(id) -> RigidBodyComponent?  -- an object's RigidBodyComponent (nil if none)\n"
 		"world.getModel(id) -> ModelComponent?  -- an object's ModelComponent (nil if none)\n"
+		"world.getAnimation(id) -> AnimationComponent?  -- an object's skeletal AnimationComponent (nil if none) - drive another rig's clip playback/crossfade/phase\n"
 		"world.getSprite(id) -> SpriteComponent?  -- an object's SpriteComponent (nil if none)\n"
 		"world.getParticles(id) -> ParticleComponent?  -- an object's ParticleComponent (nil if none)\n"
 		"world.getScript(id) -> ScriptComponent?  -- an object's ScriptComponent (nil if none)\n"

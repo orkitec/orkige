@@ -100,6 +100,12 @@ namespace Orkige
 		bool playAnimation(String const & anim, bool loop);
 		//! stop a anim
 		bool stopAnimation(String const & anim);
+		//! @brief seek a clip to an absolute time in seconds - a phase offset
+		//! (e.g. to stagger a crowd of otherwise-identical animations). A thin
+		//! pass-through to the sibling mesh's animation surface (the same call
+		//! playAnimation makes to rewind to 0); returns false when the clip is
+		//! not present.
+		bool setAnimationTime(String const & anim, float seconds);
 		//! @brief blend from the currently playing clip to another over
 		//! durationSeconds (weights ramp outgoing 1->0, incoming 0->1). With
 		//! nothing playing or a non-positive duration it switches instantly.
