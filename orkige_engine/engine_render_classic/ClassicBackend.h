@@ -98,6 +98,12 @@ namespace Orkige
 		float					iblIntensity = 1.0f;
 		//! the IBL quality knob (chain budgets in core_util/IblPreset.h)
 		IblPreset::Quality		iblQuality = IblPreset::IQ_MEDIUM;
+		//! the LDR bloom knob + tunables (@see RenderWorld::setBloom); the
+		//! OrkigeBloom viewport compositor is enabled only while quality != BQ_OFF
+		//! AND bloom.enabled (@see RenderBackend::bloomActive). Default MEDIUM
+		//! tier, bloom OFF.
+		BloomPreset::Quality	bloomQuality = BloomPreset::BQ_MEDIUM;
+		BloomDesc				bloom;
 	};
 
 	struct RenderNode::Impl
@@ -453,6 +459,40 @@ namespace Orkige
 		//! shaders in a shadows-disabled viewport reads stale projectors (a
 		//! crash class, @see RenderTexture::Impl::applyViewportState).
 		static bool shadowsArmed();
+
+		//--- LDR bloom (viewport compositor) -------------------------
+		//! visibility bit carried by the 3D tier (mesh instances + the sky
+		//! dome) - the bloom compositor's scene pass masks to this so only 3D
+		//! content reaches the bright-pass source. Disjoint from SCENE_2D.
+		static unsigned int const SCENE_3D_VISIBILITY = 0x00000001u;
+		//! visibility bit carried by the 2D tier (sprite quads/batches + vector
+		//! meshes) - the bloom compositor's output scene pass masks to this so
+		//! the 2D tier draws un-bloomed over the combined 3D result.
+		static unsigned int const SCENE_2D_VISIBILITY = 0x00000002u;
+		//! @brief tag a 3D-tier movable so the bloom scene split includes it in
+		//! the glow source. Byte-stable while bloom is off (the window viewport
+		//! renders with the default 0xFFFFFFFF mask, matching every bit).
+		static void tagScene3D(Ogre::MovableObject* movable);
+		//! @brief tag a 2D-tier movable so the bloom scene split keeps it OUT of
+		//! the glow source (drawn un-bloomed over the combine instead).
+		static void tagScene2D(Ogre::MovableObject* movable);
+		//! whether the bloom compositor is currently ACTIVE: the world quality
+		//! knob is not BQ_OFF, a scene enabled bloom, and the backend supports it
+		static bool bloomActive();
+		//! whether this backend can render the bloom compositor at all: the RTSS
+		//! shader generator is active AND the render system can create the
+		//! off-screen colour render targets (the RenderCaps::Bloom fill,
+		//! runtime-determined - a bare GLES2/WebGL context answers false)
+		static bool bloomSupported();
+		//! @brief re-apply the bloom configuration (RenderWorld::setBloom /
+		//! setBloomQuality): enable/disable the OrkigeBloom compositor on the
+		//! window viewport and push the live threshold/intensity onto its
+		//! materials. Idempotent; a bare GLES2 context refuses with ONE log line.
+		static void applyBloomConfig();
+		//! @brief is the given viewport the bloom compositor's OUTPUT viewport
+		//! (target_output renders through the window's own viewport, so the 2D
+		//! overlay-queue GUI listener composites there). @see DrawLayer2DClassic.
+		static bool isBloomOutputViewport(Ogre::Viewport* viewport);
 		//! live render-target registry: applyShadowConfig re-applies every
 		//! target's viewport state on arm/disarm (the shadow-toggle override
 		//! above), mirroring the next backend's registry

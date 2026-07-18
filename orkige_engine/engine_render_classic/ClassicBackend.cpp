@@ -50,6 +50,22 @@ namespace Orkige
 		bool gSunDimmedForShadows = false;
 		//! the one honest per-process refusal line was written
 		bool gShadowRefusalLogged = false;
+
+		//--- LDR bloom state (@see RenderBackend::applyBloomConfig) --------
+		//! the OrkigeBloom compositor is added to this viewport (NULL = not
+		//! added); re-added when the window viewport identity changes
+		Ogre::Viewport* gBloomViewport = NULL;
+		//! the live OrkigeBloom compositor instance (for its off-screen 'scene'
+		//! render target, whose viewport carries the 3D visibility mask)
+		Ogre::CompositorInstance* gBloomInstance = NULL;
+		//! is the OrkigeBloom compositor currently ENABLED on gBloomViewport
+		bool gBloomEnabled = false;
+		//! the window viewport's visibility mask before bloom took it (restored
+		//! on disable): while bloom is on the window viewport draws the 2D tier
+		//! only (the compositor's target_output 2D pass), so its mask is narrowed
+		unsigned int gPreBloomWindowMask = 0xFFFFFFFFu;
+		//! the one honest per-process bloom refusal line was written
+		bool gBloomRefusalLogged = false;
 		//! restore-exactly snapshot of the scene manager's shadow state,
 		//! taken at arm time and written back verbatim at disarm
 		size_t gPreArmTextureCount = 0;
@@ -385,6 +401,186 @@ namespace Orkige
 #endif
 		return state.str();
 	}
+	//--- LDR bloom (viewport compositor) --------------------------------
+	//---------------------------------------------------------
+	bool RenderBackend::bloomSupported()
+	{
+		// GATED FALSE on this flavor (the compositor path below is implemented -
+		// media, shaders, the viewport-mask 2D split - but held off): classic
+		// OGRE's compositor render_scene pass does not drive the RTSS shader
+		// generation the shader-only render path needs, so a scene material that
+		// renders on the main RTSS viewport crashes with "no Vertex Shader" in
+		// the off-screen scene pass; and the classic compositor framework has no
+		// per-pass visibility mask (worked around with viewport masks). Until
+		// that RTSS+compositor integration lands, an enabled bloom degrades to no
+		// pass with one honest log line - bloom-off rendering is byte-correct.
+		// The tracked gap: Docs/render-abstraction.md (bloom parity debt).
+		return false;
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::bloomActive()
+	{
+		if(!gRenderSystem)
+		{
+			return false;
+		}
+		RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+		if(world->bloomQuality == BloomPreset::BQ_OFF || !world->bloom.enabled)
+		{
+			return false;
+		}
+		return RenderBackend::bloomSupported();
+	}
+	//---------------------------------------------------------
+	void RenderBackend::tagScene3D(Ogre::MovableObject* movable)
+	{
+		if(movable)
+		{
+			movable->setVisibilityFlags(RenderBackend::SCENE_3D_VISIBILITY);
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::tagScene2D(Ogre::MovableObject* movable)
+	{
+		if(movable)
+		{
+			movable->setVisibilityFlags(RenderBackend::SCENE_2D_VISIBILITY);
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::isBloomOutputViewport(Ogre::Viewport* viewport)
+	{
+		// while bloom is active the compositor's target_output pass renders to
+		// the WINDOW render target (possibly through a chain-managed viewport,
+		// not the identical window viewport(0) object) - accept any viewport
+		// whose target IS the window so the 2D overlay-queue GUI listener still
+		// composites over the combined result (@see DrawLayer2DClassic)
+		if(!gBloomEnabled || !viewport || !gRenderSystem ||
+			!gRenderSystem->mImpl->engine)
+		{
+			return false;
+		}
+		Ogre::RenderWindow* window =
+			gRenderSystem->mImpl->engine->getRenderWindow(0);
+		return window && viewport->getTarget() == window;
+	}
+	namespace
+	{
+		//! push a float named constant onto a bloom material's fragment program
+		//! (the compositor quad passes read the material's pass params live)
+		void setBloomFragParam(char const * material, char const * name,
+			float value)
+		{
+			Ogre::MaterialPtr handle =
+				Ogre::MaterialManager::getSingleton().getByName(material);
+			if(!handle)
+			{
+				return;
+			}
+			handle->load();
+			if(handle->getNumTechniques() == 0 ||
+				handle->getTechnique(0)->getNumPasses() == 0)
+			{
+				return;
+			}
+			Ogre::Pass* pass = handle->getTechnique(0)->getPass(0);
+			if(pass->hasFragmentProgram())
+			{
+				pass->getFragmentProgramParameters()->setNamedConstant(
+					name, Ogre::Real(value));
+			}
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyBloomConfig()
+	{
+		if(!gRenderSystem || !gRenderSystem->mImpl->engine)
+		{
+			return;
+		}
+		Ogre::Viewport* viewport = gRenderSystem->mImpl->engine->getViewport(0);
+		if(!viewport)
+		{
+			return;
+		}
+		Ogre::CompositorManager & compositors =
+			Ogre::CompositorManager::getSingleton();
+		const bool wantActive = RenderBackend::bloomActive();
+		// honest refusal on a bloom-less flavor (a bare GLES2/WebGL context):
+		// the knob + desc keep round-tripping, no compositor is added, said once
+		RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+		if(!wantActive && world->bloom.enabled &&
+			world->bloomQuality != BloomPreset::BQ_OFF &&
+			!RenderBackend::bloomSupported() && !gBloomRefusalLogged)
+		{
+			gBloomRefusalLogged = true;
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige classic backend: bloom post-process is not supported on "
+				"this render backend - the setting is recorded but no bloom "
+				"renders on this flavor");
+		}
+		if(wantActive)
+		{
+			// push the live threshold + intensity onto the bloom materials
+			const BloomDesc desc = world->bloom.sanitised();
+			setBloomFragParam("Orkige/Bloom/Bright", "Threshold", desc.threshold);
+			setBloomFragParam("Orkige/Bloom/Combine", "OriginalImageWeight", 1.0f);
+			setBloomFragParam("Orkige/Bloom/Combine", "Intensity", desc.intensity);
+			// (re)add the compositor if the window viewport changed under us
+			if(gBloomViewport && gBloomViewport != viewport)
+			{
+				compositors.setCompositorEnabled(gBloomViewport, "OrkigeBloom",
+					false);
+				compositors.removeCompositor(gBloomViewport, "OrkigeBloom");
+				gBloomViewport = NULL;
+			}
+			if(!gBloomViewport)
+			{
+				gBloomInstance = compositors.addCompositor(viewport,
+					"OrkigeBloom");
+				if(!gBloomInstance)
+				{
+					if(!gBloomRefusalLogged)
+					{
+						gBloomRefusalLogged = true;
+						Ogre::LogManager::getSingleton().logMessage(
+							"Orkige classic backend: bloom post-process is not "
+							"supported on this render backend - the compositor "
+							"could not be created");
+					}
+					return;
+				}
+				gBloomViewport = viewport;
+				gPreBloomWindowMask = viewport->getVisibilityMask();
+			}
+			compositors.setCompositorEnabled(viewport, "OrkigeBloom", true);
+			gBloomEnabled = true;
+			// the 3D/2D split via viewport visibility masks (the classic
+			// compositor has no per-pass mask): the off-screen 'scene' target
+			// draws only the 3D tier, and while bloom is on the WINDOW viewport
+			// (the compositor's target_output 2D pass) draws only the 2D tier
+			// over the combined 3D result
+			if(Ogre::RenderTarget* sceneTarget =
+				gBloomInstance->getRenderTarget("scene"))
+			{
+				if(sceneTarget->getNumViewports() > 0)
+				{
+					sceneTarget->getViewport(0)->setVisibilityMask(
+						RenderBackend::SCENE_3D_VISIBILITY);
+				}
+			}
+			viewport->setVisibilityMask(RenderBackend::SCENE_2D_VISIBILITY);
+		}
+		else if(gBloomViewport)
+		{
+			compositors.setCompositorEnabled(gBloomViewport, "OrkigeBloom",
+				false);
+			// restore the window viewport's full visibility mask so normal
+			// (bloom-off) rendering shows the whole scene again
+			gBloomViewport->setVisibilityMask(gPreBloomWindowMask);
+			gBloomEnabled = false;
+		}
+	}
 	//---------------------------------------------------------
 	RenderSystem* RenderBackend::createRenderSystem(Engine* engine)
 	{
@@ -468,6 +664,11 @@ namespace Orkige
 		gArmedShadowQuality = ShadowPreset::SQ_OFF;
 		gSunDimmedForShadows = false;
 		gPreArmCameraSetup.reset();
+		// the bloom compositor dies with the viewport/scene manager - reset the
+		// arming bookkeeping for a future render system
+		gBloomViewport = NULL;
+		gBloomInstance = NULL;
+		gBloomEnabled = false;
 		// render-target handles may outlive the backend (script states) -
 		// drop the registry so their destructors stop unregistering
 		gRenderTargets.clear();

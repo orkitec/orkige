@@ -73,6 +73,8 @@ namespace Orkige
 		handle->mImpl->quad->setQueryFlags(RenderWorld::QUERYFLAG_DEFAULT);
 		// the 2D layer neither casts nor receives shadows by construction
 		handle->mImpl->quad->setCastShadows(false);
+		// tag the 2D tier so the bloom scene split keeps it out of the glow
+		RenderBackend::tagScene2D(handle->mImpl->quad);
 		handle->mImpl->rebuild();
 		return handle;
 	}

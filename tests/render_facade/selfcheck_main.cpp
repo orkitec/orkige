@@ -142,10 +142,13 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_MESH_DIR);
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_TEXTURE_DIR);
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_DECAL_DIR);
+#ifdef ORKIGE_SELFCHECK_BLOOM_DIR
 	// the bloom post-process compositor media (bright/blur/combine material +
 	// shaders) - registered like the player/editor do so the bloom leg's pass
-	// chain can resolve its materials by name
+	// chain can resolve its materials by name (next only; classic bloom is
+	// gated off, so its media is not registered - @see tests/CMakeLists.txt)
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_BLOOM_DIR);
+#endif
 	renderSystem->initialiseResourceGroups();
 
 	//--- ambient light --------------------------------------------------

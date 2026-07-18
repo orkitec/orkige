@@ -233,6 +233,8 @@ namespace Orkige
 			return optr<MeshInstance>();
 		}
 		entity->setQueryFlags(RenderWorld::QUERYFLAG_DEFAULT);
+		// tag the 3D tier so the bloom scene split feeds it to the glow source
+		RenderBackend::tagScene3D(entity);
 		optr<MeshInstance> handle(new MeshInstance());
 		handle->mImpl->entity = entity;
 		handle->mImpl->creator = sceneManager;

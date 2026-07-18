@@ -228,8 +228,12 @@ namespace Orkige
 		}
 		Ogre::RenderWindow* window = system->mImpl->engine->getRenderWindow(0);
 		if(!window || window->getNumViewports() == 0 ||
-			current != window->getViewport(0))
+			(current != window->getViewport(0) &&
+				!RenderBackend::isBloomOutputViewport(current)))
 		{
+			// not the window viewport - unless the bloom compositor's output
+			// pass is rendering through the window target, where the GUI still
+			// composites over the combined 3D result (@see applyBloomConfig)
 			return;
 		}
 		const float windowWidth =

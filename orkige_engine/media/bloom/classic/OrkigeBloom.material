@@ -1,0 +1,138 @@
+//---------------------------------------------------------------------------
+// Orkige LDR bloom post-process materials (the classic OGRE flavor). The
+// OrkigeBloom compositor (OrkigeBloom.compositor) is enabled on the window
+// viewport while a scene enabled bloom and the r.bloomQuality knob is on
+// (@see RenderBackend::applyBloomConfig); it renders the 3D tier into an
+// off-screen scene texture, bright-passes -> separably blurs -> additively
+// combines it, then draws the 2D tier + GUI un-bloomed over the result. The
+// bright-pass Threshold and the combine Intensity are pushed live from
+// RenderWorld::setBloom. Portable OgreUnifiedShader.h shaders (GL3+/GLES/etc).
+//---------------------------------------------------------------------------
+
+vertex_program Orkige/Bloom/Quad_vp glsl
+{
+	source BloomQuad_vp.glsl
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
+fragment_program Orkige/Bloom/Bright_fp glsl
+{
+	source BloomBright_fp.glsl
+	default_params
+	{
+		param_named RT int 0
+		param_named Threshold float 0.75
+	}
+}
+
+fragment_program Orkige/Bloom/BlurH_fp glsl
+{
+	source BloomBlurH_fp.glsl
+	default_params { param_named Blur0 int 0 }
+}
+
+fragment_program Orkige/Bloom/BlurV_fp glsl
+{
+	source BloomBlurV_fp.glsl
+	default_params { param_named Blur0 int 0 }
+}
+
+fragment_program Orkige/Bloom/Combine_fp glsl
+{
+	source BloomCombine_fp.glsl
+	default_params
+	{
+		param_named RT int 0
+		param_named Blur1 int 1
+		param_named OriginalImageWeight float 1.0
+		param_named Intensity float 1.0
+	}
+}
+
+material Orkige/Bloom/Bright
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+			vertex_program_ref Orkige/Bloom/Quad_vp {}
+			fragment_program_ref Orkige/Bloom/Bright_fp {}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering none
+			}
+		}
+	}
+}
+
+material Orkige/Bloom/BlurH
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+			vertex_program_ref Orkige/Bloom/Quad_vp {}
+			fragment_program_ref Orkige/Bloom/BlurH_fp {}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering bilinear
+			}
+		}
+	}
+}
+
+material Orkige/Bloom/BlurV
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+			vertex_program_ref Orkige/Bloom/Quad_vp {}
+			fragment_program_ref Orkige/Bloom/BlurV_fp {}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering bilinear
+			}
+		}
+	}
+}
+
+material Orkige/Bloom/Combine
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+			vertex_program_ref Orkige/Bloom/Quad_vp {}
+			fragment_program_ref Orkige/Bloom/Combine_fp {}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering none
+			}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering bilinear
+			}
+		}
+	}
+}

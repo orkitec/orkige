@@ -746,6 +746,32 @@ namespace Orkige
 		return this->mImpl->atmosphere;
 	}
 	//---------------------------------------------------------
+	void RenderWorld::setBloom(BloomDesc const & desc)
+	{
+		this->mImpl->bloom = desc.sanitised();
+		RenderBackend::applyBloomConfig();
+	}
+	//---------------------------------------------------------
+	BloomDesc const & RenderWorld::getBloom() const
+	{
+		return this->mImpl->bloom;
+	}
+	//---------------------------------------------------------
+	void RenderWorld::setBloomQuality(BloomPreset::Quality quality)
+	{
+		if(this->mImpl->bloomQuality == quality)
+		{
+			return;
+		}
+		this->mImpl->bloomQuality = quality;
+		RenderBackend::applyBloomConfig();
+	}
+	//---------------------------------------------------------
+	BloomPreset::Quality RenderWorld::getBloomQuality() const
+	{
+		return this->mImpl->bloomQuality;
+	}
+	//---------------------------------------------------------
 	bool RenderBackend::noteAuthoredSunColour(Ogre::Light* light,
 		Ogre::ColourValue const & colour, bool specular)
 	{

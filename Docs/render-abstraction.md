@@ -791,7 +791,7 @@ renders it fails CI.
 | `animatedNormalMappedWater` | no | yes | fully animated normal-mapped water ripples; classic lights OR scrolls one normal map on a unit, not both, so its lit relief is static |
 | `offscreenOwnedLayers` | no | yes | 2D layers composited into an offscreen RenderTexture (the editor GUI Preview + preview_ui), not just the main window |
 | `projectedDecals` | no | yes | surface marks (impact/splat/footprint + blob-shadow fallback) as TRUE projected decals wrapping over geometry (next = HlmsPbs forward-clustered Decal) vs a surface-aligned textured quad floating above the surface (classic - flat, does not wrap uneven geometry) |
-| `bloom` | yes | yes | an LDR highlight-glow post-process on the 3D scene only (bright-pass -> separable blur -> additive combine, per-scene opt-in, the r.bloomQuality tier; next = CompositorManager2 quad passes, classic = a compositor-framework viewport chain) - the 2D tier (sprites/vector shapes/gui) is excluded so UI stays crisp; on the classic GLES2/WebGL path the bit is runtime-gated false (no HDR-capable off-screen targets) and an enabled bloom degrades to no pass |
+| `bloom` | no | yes | an LDR highlight-glow post-process on the 3D scene only (bright-pass -> separable blur -> additive combine, per-scene opt-in via engine:setBloom, the r.bloomQuality tier) - the 2D tier (sprites/vector shapes/gui) is excluded so UI stays crisp. next = CompositorManager2 quad passes inserted between the 3D scene pass and the 2D/UI pass (true). classic = gated false: the compositor path is implemented but held off pending the RTSS+compositor shader-generation integration (bloom parity debt, see Docs/render-abstraction.md); an enabled bloom degrades to no pass with one log line |
 | `screenSpaceRefraction` | no | no | screen-space refraction distortion through transparent surfaces (a compositor refraction pass) - absent on both flavors |
 | `iblReflections` | yes | yes | opt-in image-based lighting sourced from the scene's skybox cubemap: specular reflections + a diffuse fill ADDED to the analytic lights on PBS-lit facade materials (next = the HlmsPbs reflection map + diffuse-GI env feature; classic = the generated-shader image-based-lighting stage over the same cubemap - on a GLES context the bit is runtime-gated on GLSL ES 3.0), tiered by the `r.iblQuality` cvar (`core_util/IblPreset.h`) |
 
@@ -810,6 +810,36 @@ the per-cluster worst case). It is filled once at boot from the pure per-flavor
 the live value equals it. A consumer that ramps live lights — the benchmark's
 many-lights showcase — caps at this instead of an authored constant, so next's
 signature many-lights headroom is not pinned to classic's floor.
+
+**Bloom parity debt — classic gated off (next-first landed).** LDR bloom (the
+`bloom` capability: bright-pass → separable blur → additive combine, per-scene
+`engine:setBloom`, the `r.bloomQuality` tier, the pure `core_util/BloomPreset.h`)
+landed on the **next** flavor: a `CompositorManager2` quad chain inserted between
+the 3D scene pass and the 2D/UI pass in the window workspace, gated on
+enabled + quality, byte-stable when off. The 2D tier (sprites/vector meshes/gui)
+is excluded via a `SCENE_2D` visibility bit — the 3D scene renders into the
+bright-pass source WITHOUT it, then the 2D tier + gui draw un-bloomed over the
+combine (`render_facade_selfcheck` bloom leg, both the neighbourhood-glow and the
+crisp-sprite probes). On **classic** the same effect is IMPLEMENTED — the
+`OrkigeBloom` viewport compositor + material + `OgreUnifiedShader.h` shaders under
+`orkige_engine/media/bloom/classic/`, the facade `setBloom`, the visibility
+tagging (`tagScene3D`/`tagScene2D`) and the `DrawLayer2D` output-viewport guard —
+but **held off** (`RenderBackend::bloomSupported()` returns false, `RenderCaps::
+Bloom` = false, an enabled bloom logs one honest line and renders bloom-off, which
+stays byte-correct). Two structural walls block the classic path, both verified
+against the vcpkg OGRE 14 build: (1) classic OGRE's compositor `render_scene`
+pass does NOT drive the RTSS shader generation the shader-only render path
+requires — a scene material that renders fine on the main RTSS viewport crashes
+with `"... has no Vertex Shader"` inside the off-screen scene pass
+(`SceneManager::_setPass`); (2) the classic `CompositionPass` has no per-pass
+visibility mask (the Ogre-Next `visibility_mask` token is rejected by the classic
+script grammar and there is no C++ setter), worked around by setting the scene-RT
+and window viewport masks programmatically — but wall (1) blocks the render
+regardless. The fix (a follow-up, next like the refraction knob): make the classic
+bloom compositor's scene pass RTSS-validate its materials (hook the shader
+generator to the compositor render / pre-`validateScene` the scheme) so the
+off-screen pass generates shaders like the main viewport does. Since classic is
+the web (GLES2→WebGL) flavor, closing this lights bloom up in the browser too.
 
 **Future desktop quality knob — water refraction/depth pass.** The animated
 water v1 is contained deliberately: it renders through the EXISTING single scene

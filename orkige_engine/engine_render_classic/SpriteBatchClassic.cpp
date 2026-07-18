@@ -116,6 +116,8 @@ namespace Orkige
 		handle->mImpl->batch->setQueryFlags(0);
 		// the 2D layer neither casts nor receives shadows by construction
 		handle->mImpl->batch->setCastShadows(false);
+		// tag the 2D tier so the bloom scene split keeps it out of the glow
+		RenderBackend::tagScene2D(handle->mImpl->batch);
 		// dynamic: the geometry is refilled every frame
 		handle->mImpl->batch->setDynamic(true);
 		RenderBackend::applyZOrder(handle->mImpl->batch, 0);
