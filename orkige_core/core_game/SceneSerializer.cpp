@@ -408,7 +408,29 @@ namespace Orkige
 			oDebugMsg("scene",0,"SceneSerializer: could not open scene file: "<<fileName);
 			return false;
 		}
-
+		return loadSceneFromArchive(ar, gameObjectManager, fileName);
+	}
+	//---------------------------------------------------------
+	bool SceneSerializer::loadSceneFromString(String const & xml,
+		GameObjectManager & gameObjectManager, String const & sourceLabel)
+	{
+		// the resource-system / mounted-pak path: the scene bytes arrive as a
+		// string (read through RenderSystem over a mounted pak, where there is
+		// no real file to fopen) and parse in memory. Prefab references resolve
+		// relative to sourceLabel, so a pak-mounted scene that instantiates
+		// prefabs must be mounted with its prefabs reachable by that label.
+		optr<XMLArchive> ar = onew(new XMLArchive());
+		if(!ar->startReadingMemory(xml))
+		{
+			oDebugMsg("scene",0,"SceneSerializer: could not parse in-memory scene: "<<sourceLabel);
+			return false;
+		}
+		return loadSceneFromArchive(ar, gameObjectManager, sourceLabel);
+	}
+	//---------------------------------------------------------
+	bool SceneSerializer::loadSceneFromArchive(optr<XMLArchive> const & ar,
+		GameObjectManager & gameObjectManager, String const & fileName)
+	{
 		String magic;
 		ar >> magic;
 		if(magic != SCENE_FORMAT_MAGIC)

@@ -43,6 +43,15 @@ namespace Orkige
 		//! removed (their components tear down their scene-side state) before
 		//! the saved GameObjects are recreated through the component factories
 		static bool loadScene(String const & fileName, GameObjectManager & gameObjectManager);
+		//! @brief load a scene from an in-memory XML string (no file to fopen)
+		//! @remarks the mounted-pak / resource-system path: the scene bytes are
+		//! read through the resource system (RenderSystem) from a mounted pak and
+		//! parsed in memory. Same replace-the-world semantics as loadScene.
+		//! @param sourceLabel names the source for error messages AND for prefab
+		//! path resolution (a pak-mounted scene's prefabs resolve against it)
+		static bool loadSceneFromString(String const & xml,
+			GameObjectManager & gameObjectManager,
+			String const & sourceLabel = "memory");
 
 		//--- shared per-object helpers (PrefabSerializer reuses these) ---
 		//! write one GameObject's component block (count, then per component
@@ -96,6 +105,12 @@ namespace Orkige
 			GameObjectComponent & component);
 	protected:
 	private:
+		//! @brief the shared scene-read body: magic/version check, object loop
+		//! and hierarchy/active application over an ALREADY-started archive
+		//! (loadScene opens a file, loadSceneFromString parses a string, both
+		//! funnel here). fileName labels errors + roots prefab resolution.
+		static bool loadSceneFromArchive(optr<XMLArchive> const & ar,
+			GameObjectManager & gameObjectManager, String const & fileName);
 	};
 	//---------------------------------------------------------
 }

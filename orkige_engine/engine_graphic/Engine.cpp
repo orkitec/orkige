@@ -73,7 +73,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	Engine::Engine(Ogre::String const & smTypeName, String const & resourceCfgFileName, String const & pluginCfgFileName, String const & renderCfgFileName, String const & engineLogFileName, unsigned int _numberOfWindows, String const & zipFileName, String const & zipInternalPathPrefix)
+	Engine::Engine(Ogre::String const & smTypeName, String const & resourceCfgFileName, String const & pluginCfgFileName, String const & renderCfgFileName, String const & engineLogFileName, unsigned int _numberOfWindows)
 		: frameStartedEvent(Engine::FrameStartedEvent),
 		frameRenderingQueuedEvent(Engine::FrameRenderingQueuedEvent),
 		frameEndedEvent(Engine::FrameEndedEvent),
@@ -173,12 +173,6 @@ namespace Orkige
 #else
 		this->root = optr<Ogre::Root>(new Ogre::Root(pluginCfgFileName, renderCfgPlatformFileName, engineLogFileName));
 #endif
-		if(!zipFileName.empty())
-		{
-			this->bigZipArchiveFactory = onew(new BigZipArchiveFactory(zipFileName, zipInternalPathPrefix));
-			Ogre::ArchiveManager::getSingleton().addArchiveFactory( this->bigZipArchiveFactory.get() );
-			this->defaultLocationType = "BigZip";
-		}
 #if defined(WIN32) || defined(__ANDROID__)
 #ifdef ORKIGE_DEBUG
 		static LogListener logListener;
@@ -212,7 +206,6 @@ namespace Orkige
 		Ogre::STBIImageCodec::shutdown();
 #endif
 		this->root.reset();
-		this->bigZipArchiveFactory.reset();
 		// the plugins have to outlive the root
 		this->assimpCodecPlugin.reset();
 		this->glslangProgramPlugin.reset();

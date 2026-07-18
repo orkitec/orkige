@@ -11,14 +11,14 @@
 # 2D layer and the widgets were always renderer-blind math. Per flavor this
 # target adds:
 #   classic: the classic Engine bootstrapper + backend
-#            (engine_render_classic/), the BigZip Ogre::Archive plumbing,
-#            the overlay console and debug renderables -
-#            everything on the classic umbrella
+#            (engine_render_classic/), the overlay console and debug
+#            renderables - everything on the classic umbrella
 #            (engine_module/EnginePrerequisitesClassic.h).
 #   next:    the Ogre-Next backend (engine_render_next/) + the flavor's
-#            Engine sibling (engine_graphic/EngineNext.*). No BigZip (the
-#            facade's LT_ZIP/LT_BIGZIP stay honest notImplementedOnce
-#            gaps).
+#            Engine sibling (engine_graphic/EngineNext.*).
+# Pak mounting (engine_filesystem/, the backend-neutral successor to the
+# classic BigZip) is in the SHARED list: it wraps each flavor's stock Zip
+# archive, so LT_ZIP and mountPak run on BOTH flavors.
 # ---------------------------------------------------------------------------
 
 # --- dependencies shared by both flavors ------------------------------------
@@ -46,6 +46,10 @@ find_package(Stb REQUIRED)
 find_package(NanoSVG CONFIG REQUIRED)
 # vcpkg joltphysics installs a plain "Jolt" CMake package (target Jolt::Jolt)
 find_package(Jolt CONFIG REQUIRED)
+# zlib backs the pak reader's DEFLATE path (engine_filesystem/MiniZip.cpp); it
+# is already in the render closure (classic pulls it via zziplib, Ogre-Next
+# depends on it directly), so this is not a new dependency
+find_package(ZLIB REQUIRED)
 
 if(ORKIGE_RENDER_BACKEND STREQUAL "next")
     # the overlay port ships this config (share/ogre-next); targets are
@@ -254,16 +258,25 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gui/GuiToast.cpp
     engine_gui/GuiDropDown.h
     engine_gui/GuiDropDown.cpp
+    # pak mounting (a zip mounted as read content, optionally a sub-tree):
+    # backend-neutral by construction - PakArchive adapts the small MiniZip
+    # reader (over zlib, already in the closure) to the Ogre Archive interface,
+    # so it compiles and runs on classic AND Ogre-Next (the backend-neutral
+    # successor to the classic-only BigZip; the Ogre-Next build ships no zip
+    # support, so ONE reader keeps the contract identical). engine_filesystem
+    # is a sanctioned Ogre:: zone (Util/ogre_containment.json).
+    engine_filesystem/MiniZip.h
+    engine_filesystem/MiniZip.cpp
+    engine_filesystem/PakArchive.h
+    engine_filesystem/PakArchive.cpp
+    engine_filesystem/PakMount.h
+    engine_filesystem/PakMount.cpp
 )
 
 # --- classic-only sources (the classic umbrella zone) -----------------------
 if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
     list(APPEND ORKIGE_ENGINE_SOURCES
         engine_module/EnginePrerequisitesClassic.h
-        engine_filesystem/BigZipArchive.h
-        engine_filesystem/BigZipArchive.cpp
-        engine_filesystem/BigZipArchiveFactory.h
-        engine_filesystem/BigZipArchiveFactory.cpp
         engine_util/PrimitiveUtil.h
         engine_graphic/Engine.cpp
         # ColoredBoundingBox, LightMap and MovableText were unbuilt AND deleted
@@ -460,6 +473,9 @@ target_link_libraries(orkige_engine
         # skinned-rig extraction: assimp types never leave
         # SkinnedRigExtract.cpp (plus the next backend's mesh import TU)
         assimp::assimp
+        # the pak reader's DEFLATE path (MiniZip.cpp); zlib symbols never
+        # leave engine_filesystem, so the dependency stays private
+        ZLIB::ZLIB
 )
 
 if(ORKIGE_RENDER_BACKEND STREQUAL "next")

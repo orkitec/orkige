@@ -17,6 +17,7 @@
 
 #include "engine_render_classic/ClassicBackend.h"
 #include "engine_graphic/Engine.h"
+#include "engine_filesystem/PakMount.h"
 #include <core_debug/DebugMacros.h>
 
 #include <algorithm>
@@ -895,10 +896,11 @@ namespace Orkige
 	void RenderSystem::addResourceLocation(String const & path,
 		LocationType type, String const & groupName, bool recursive)
 	{
-		// LT_BIGZIP requires the BigZip archive factory, which Engine
-		// registers when constructed with a zip file (unchanged plumbing)
+		// LT_ZIP is the flavor's STOCK Zip archive (Ogre::Root registers the
+		// factory on both flavors); a whole/sub-tree pak mount goes through
+		// mountPak (engine_filesystem/PakMount) instead
 		static const char* const locationTypeNames[] =
-			{ "FileSystem", "Zip", "BigZip" };
+			{ "FileSystem", "Zip" };
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			path, locationTypeNames[type],
 			groupName.empty()
@@ -927,6 +929,20 @@ namespace Orkige
 		{
 			resourceGroups.removeResourceLocation(path, group);
 		}
+	}
+	//---------------------------------------------------------
+	void RenderSystem::mountPak(String const & pakPath,
+		String const & mountPoint, String const & groupName)
+	{
+		// the mount plumbing lives in the sanctioned engine_filesystem zone and
+		// is IDENTICAL on both flavors (it wraps the stock Zip archive)
+		PakMount::mount(pakPath, mountPoint, groupName);
+	}
+	//---------------------------------------------------------
+	void RenderSystem::unmountPak(String const & pakPath,
+		String const & mountPoint, String const & groupName)
+	{
+		PakMount::unmount(pakPath, mountPoint, groupName);
 	}
 	//---------------------------------------------------------
 	bool RenderSystem::resourceGroupExists(String const & groupName) const

@@ -49,6 +49,12 @@ struct PlayerSelfChecks
 	bool staticMoveCheck = false;
 	//! the sprite-run batching probe (@see the perFrame block)
 	bool spriteBatchCheck = false;
+	//! the pak-mount contract probe (@see gameplaySynchronousChecks): the
+	//! player mounts a zip and reads its scene/texture/sound through the
+	//! resource system, exactly like loose files (the reborn BigZip test)
+	bool pakCheck = false;
+	std::string pakPath;			//!< the zip/pak file to mount
+	std::string pakMountPoint;		//!< the sub-tree to expose ("game/" default)
 
 	//--- per-check phase state (comments ride with each check) -----------
 	// --- ORKIGE_JUMPER_LUA_SELFCHECK=1: the ScriptComponent milestone,

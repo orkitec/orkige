@@ -36,7 +36,20 @@ add_executable(orkige_engine_tests
     HapticTests.cpp
     AppHostPolicyTests.cpp
     SkinnedRigExtractTests.cpp
+    PakMountTests.cpp
 )
+
+# the small zip PakMountTests reads through MiniZip: one STORED entry, two
+# DEFLATE (incl. a nested path). Built once at configure with the stdlib
+# zipfile so the test exercises real STORED + DEFLATE decoding headlessly.
+set(ORKIGE_MINIZIP_TEST_ZIP "${CMAKE_CURRENT_BINARY_DIR}/minizip_test.zip")
+execute_process(COMMAND python3 -c
+    "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'w'); z.writestr('stored.txt', b'stored payload contents 12345', zipfile.ZIP_STORED); z.writestr('deflate.txt', b'x'*4096, zipfile.ZIP_DEFLATED); z.writestr('sub/nested.bin', bytes(range(256)), zipfile.ZIP_DEFLATED); z.close()"
+    "${ORKIGE_MINIZIP_TEST_ZIP}"
+    RESULT_VARIABLE ORKIGE_MINIZIP_ZIP_RESULT)
+if(NOT ORKIGE_MINIZIP_ZIP_RESULT EQUAL 0)
+    message(FATAL_ERROR "failed to build the MiniZip test fixture zip")
+endif()
 
 target_link_libraries(orkige_engine_tests PRIVATE
     Orkige::Engine
@@ -65,6 +78,9 @@ target_compile_definitions(orkige_engine_tests PRIVATE
     # the generated skinned mannequin SkinnedRigExtractTests parses through
     # the backend-neutral rig extraction (make_character_rig.py fixture)
     ORKIGE_CHARACTER_RIG_GLB="${Orkige_SOURCE_DIR}/tests/projects/character/assets/character_rig.glb"
+    # the MiniZip fixture zip (STORED + DEFLATE) and a known non-zip file
+    ORKIGE_MINIZIP_TEST_ZIP="${ORKIGE_MINIZIP_TEST_ZIP}"
+    ORKIGE_MINIZIP_TEST_SRC="${CMAKE_CURRENT_SOURCE_DIR}/PakMountTests.cpp"
 )
 if(TARGET orkige_generate_atlases)
     add_dependencies(orkige_engine_tests orkige_generate_atlases)

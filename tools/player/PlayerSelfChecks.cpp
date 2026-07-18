@@ -52,6 +52,7 @@
 #include <engine_render/MeshInstance.h>
 #include <engine_runtime/AppHost.h>
 #include <engine_sound/SoundManager.h>
+#include <engine_sound/MusicStream.h>
 #include <engine_util/StringUtil.h>
 #include <core_debugnet/Json.h>
 
@@ -258,6 +259,22 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// asserts the driver-independent run count/delta contract).
 	spriteBatchCheck =
 		(std::getenv("ORKIGE_SPRITEBATCH_SELFCHECK") != nullptr);
+	// ORKIGE_PAK_SELFCHECK=<pakfile>: the pak-mount contract end to end (the
+	// classic BigZip acceptance test reborn, flavor-neutral). The player mounts
+	// the zip's sub-tree ORKIGE_PAK_MOUNTPOINT (default "game/", the APK
+	// "assets/" case), loads its scene THROUGH the resource system (no fopen),
+	// resolves a texture from it and streams an OGG from it - all resolving like
+	// loose files. See gameplaySynchronousChecks (the whole run is synchronous).
+	if (const char* pak = std::getenv("ORKIGE_PAK_SELFCHECK"))
+	{
+		pakCheck = true;
+		pakPath = pak;
+		pakMountPoint = "game/";
+		if (const char* mount = std::getenv("ORKIGE_PAK_MOUNTPOINT"))
+		{
+			pakMountPoint = mount;
+		}
+	}
 	// automated runs (ctest, the editor's play-mode tests - they inherit
 	// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 	// the machine allows; a HUMAN run gets vsync so games neither spin
@@ -448,6 +465,96 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 	Orkige::ScreenShake& screenShake = *context.screenShake;
 	Orkige::TimeControl& timeControl = *context.timeControl;
 	Orkige::SaveStore& saveStore = *context.saveStore;
+
+	// ORKIGE_PAK_SELFCHECK: the pak-mount contract, end to end and synchronous
+	// (the classic BigZip acceptance test reborn, flavor-neutral). The pak was
+	// mounted in the boot resource callback (main.cpp) and its scene was loaded
+	// THROUGH the resource system (SceneSerializer::loadSceneFromString) at the
+	// scene-load point - so reaching here with a populated world already proves
+	// the scene resolved from the mounted zip. This leg adds the texture + OGG
+	// legs (resource resolution + seek-heavy streaming) and reports the verdict.
+	if (this->pakCheck)
+	{
+		bool ok = true;
+		std::string detail;
+		Orkige::RenderSystem* render = context.render;
+
+		// (1) the scene loaded from the pak (loaded before this hook runs)
+		const std::size_t objectCount =
+			gameObjectManager.getGameObjects().size();
+		if (objectCount == 0)
+		{
+			ok = false;
+			detail += " scene-from-pak-empty";
+		}
+		else
+		{
+			SDL_Log("orkige_pak_selfcheck: scene loaded from mounted pak "
+				"(%zu GameObjects)", objectCount);
+		}
+
+		// (2) a texture resolves from the pak like a loose file (the sprite in
+		// the scene already loaded it; this is the explicit probe)
+		unsigned int texW = 0;
+		unsigned int texH = 0;
+		if (render != nullptr &&
+			render->getTextureSize("pak_tex.png", texW, texH) &&
+			texW > 0 && texH > 0)
+		{
+			SDL_Log("orkige_pak_selfcheck: texture 'pak_tex.png' resolved from "
+				"pak (%ux%u)", texW, texH);
+		}
+		else
+		{
+			ok = false;
+			detail += " texture-from-pak-missing";
+		}
+
+		// (3) the OGG streams from the pak: SoundManager reads the bytes THROUGH
+		// the resource system (readResourceBytes) off the mounted zip, decodes
+		// them and primes the ring - the seek-heavy path (stb_vorbis seeks
+		// within the mounted bytes; priming a short loop already wraps via
+		// seekStart). A silent build (OpenAL down) still proves the bytes were
+		// read + decoded (isOpen); the audible stop/replay is skipped honestly.
+		Orkige::SoundManager& soundManager = *context.soundManager;
+		const bool played = soundManager.playMusic("bgm", "music.ogg", true);
+		Orkige::MusicStreamPtr track = soundManager.getMusic("bgm");
+		if (!track || !track->isOpen())
+		{
+			ok = false;
+			detail += " ogg-from-pak-not-decoded";
+		}
+		else
+		{
+			SDL_Log("orkige_pak_selfcheck: OGG 'music.ogg' streamed from pak "
+				"(duration %.3fs, primed=%d, played=%d)",
+				track->getDuration(), track->isPrimed() ? 1 : 0,
+				played ? 1 : 0);
+			if (track->getDuration() <= 0.0f)
+			{
+				ok = false;
+				detail += " ogg-zero-duration";
+			}
+			// exercise the seek path explicitly: stop rewinds the decoder
+			// (MusicDecode::seekStart over the mounted bytes) and a fresh play
+			// re-primes from the top - the seek-heavy streaming proof
+			if (track->isPrimed())
+			{
+				soundManager.update(0.0f);
+				track->stop();
+				track->play();
+			}
+		}
+
+		if (ok)
+		{
+			SDL_Log("orkige_pak_selfcheck: PASS - scene, texture and streamed "
+				"OGG all resolved from the mounted pak on this flavor");
+			return 0;
+		}
+		SDL_Log("orkige_pak_selfcheck: FAILED -%s", detail.c_str());
+		return 1;
+	}
 
 	// ORKIGE_GAMESUPPORT_SELFCHECK: the game-support pack verified end to end,
 	// synchronous (no render loop needed) against the live player wiring:

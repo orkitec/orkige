@@ -30,7 +30,6 @@
 #include <core_util/StringUtil.h>
 #include <core_util/PlatformUtil.h>
 #include <core_util/SafeArea.h>
-#include "engine_filesystem/BigZipArchiveFactory.h"
 
 #define MAX_MUMBER_OF_WINDOWS 8
 #ifdef USE_RTSHADER_SYSTEM
@@ -155,7 +154,6 @@ protected:
 		optr<Ogre::Plugin>			glslangProgramPlugin;
 		//! statically linked assimp mesh codec plugin (glTF/glb etc.) - same lifetime rule
 		optr<Ogre::Plugin>			assimpCodecPlugin;
-		optr<BigZipArchiveFactory>  bigZipArchiveFactory;
 		Ogre::RenderWindow*			renderWindow[MAX_MUMBER_OF_WINDOWS];
 		Ogre::SceneManager*			sceneManager;
 		//! OGRE 14 dropped Ogre::SceneType - scene managers are selected by type name now
@@ -207,9 +205,7 @@ protected:
 			String const & renderCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec.cfg", 
 #endif
 			String const & engineLogFileName = Orkige::PlatformUtil::getResourceDirectory() + "orkitec.log",
-			unsigned int _numberOfWindows = 1,
-			String const & zipFileName = Orkige::StringUtil::BLANK,
-			String const & zipInternalPathPrefix = Orkige::StringUtil::BLANK);
+			unsigned int _numberOfWindows = 1);
 		//! destructor
 		virtual ~Engine();
 

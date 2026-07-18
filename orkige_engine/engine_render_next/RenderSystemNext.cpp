@@ -13,10 +13,11 @@
 //! compositor workspace - Next renders nothing without one), window
 //! size/resize, screenshots, RTT creation (RenderTextureNext.cpp),
 //! resource locations, stats (fps facade-side, triangles/batches from
-//! the RenderingMetrics enabled at boot). Honest gap, logged once:
-//! Zip/BigZip resource locations (waits for real content work).
+//! the RenderingMetrics enabled at boot). Zip locations + pak mounting
+//! (mountPak) run here too - Ogre-Next ships the same stock Zip archive.
 
 #include "engine_render_next/NextBackend.h"
+#include "engine_filesystem/PakMount.h"
 
 #include <OgreRoot.h>
 #include <OgreWindow.h>
@@ -275,18 +276,12 @@ namespace Orkige
 	void RenderSystem::addResourceLocation(String const & path,
 		LocationType type, String const & groupName, bool recursive)
 	{
-		if(type != LT_FILESYSTEM)
-		{
-			// Zip needs the zziplib-backed archive (port feature);
-			// BigZip needs engine_filesystem ported off the classic
-			// umbrella - both wait for real content work
-			RenderBackend::notImplementedOnce(type == LT_ZIP
-				? "RenderSystem::addResourceLocation(LT_ZIP)"
-				: "RenderSystem::addResourceLocation(LT_BIGZIP)");
-			return;
-		}
+		// Ogre-Next registers the stock "Zip" archive factory in its Root just
+		// like classic, so LT_ZIP works on both flavors with no bespoke reader
+		static const char* const locationTypeNames[] =
+			{ "FileSystem", "Zip" };
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			path, "FileSystem",
+			path, locationTypeNames[type],
 			groupName.empty()
 				? Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME
 				: groupName,
@@ -313,6 +308,20 @@ namespace Orkige
 		{
 			resourceGroups.removeResourceLocation(path, group);
 		}
+	}
+	//---------------------------------------------------------
+	void RenderSystem::mountPak(String const & pakPath,
+		String const & mountPoint, String const & groupName)
+	{
+		// IDENTICAL to the classic backend: the pak wraps the stock Zip archive,
+		// which Ogre-Next registers in its Root too (engine_filesystem/PakMount)
+		PakMount::mount(pakPath, mountPoint, groupName);
+	}
+	//---------------------------------------------------------
+	void RenderSystem::unmountPak(String const & pakPath,
+		String const & mountPoint, String const & groupName)
+	{
+		PakMount::unmount(pakPath, mountPoint, groupName);
 	}
 	//---------------------------------------------------------
 	bool RenderSystem::resourceGroupExists(String const & groupName) const

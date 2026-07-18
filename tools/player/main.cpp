@@ -907,6 +907,12 @@ int main(int argc, char** argv)
 	std::string& scenePath = context.scenePath;
 	scenePath = arguments.scenePath;
 	std::string projectPath = arguments.projectPath;
+	// ORKIGE_PAK_SELFCHECK mounts a zip and reads its whole scene/content
+	// through the resource system - no scene path on the command line is needed
+	// (the scene is read from the mounted pak below), so it exempts the
+	// desktop "scene required" gate. Read here (before that gate); the full
+	// selfcheck env read happens later, once the engine is up.
+	const bool pakSelfCheck = std::getenv("ORKIGE_PAK_SELFCHECK") != nullptr;
 
 	// exported app, launched WITHOUT arguments (double-click): the
 	// orkige_project.txt marker next to the executable's resources names the
@@ -976,7 +982,7 @@ int main(int argc, char** argv)
 	// editor's play mode passes a scene path through the OrkigeActivity
 	// intent extras instead)
 #else
-	if (scenePath.empty())
+	if (scenePath.empty() && !pakSelfCheck)
 	{
 		SDL_Log("usage: orkige_player [--project <dir-or-.orkproj>] "
 			"[scene.oscene] [--debug-port N]");
@@ -1464,6 +1470,18 @@ int main(int argc, char** argv)
 						"the resource locations", project.getName().c_str(),
 						project.getRootDirectory().c_str());
 				}
+				// ORKIGE_PAK_SELFCHECK: mount the pak's sub-tree so its scene,
+				// textures and sounds resolve through the resource system like
+				// loose files (the reborn BigZip acceptance path, both flavors)
+				if (context.selfChecks.pakCheck)
+				{
+					render->mountPak(context.selfChecks.pakPath,
+						context.selfChecks.pakMountPoint,
+						Orkige::Project::RESOURCE_GROUP_NAME);
+					SDL_Log("orkige_player: mounted pak '%s' (sub-tree '%s')",
+						context.selfChecks.pakPath.c_str(),
+						context.selfChecks.pakMountPoint.c_str());
+				}
 			}))
 		{
 			return 1;
@@ -1822,7 +1840,29 @@ int main(int argc, char** argv)
 			}
 		}
 
-		if (!Orkige::SceneSerializer::loadScene(scenePath, gameObjectManager))
+		bool sceneLoaded = false;
+		if (context.selfChecks.pakCheck)
+		{
+			// the scene comes FROM the mounted pak: read its bytes THROUGH the
+			// resource system (a zip entry cannot be fopen'd) and parse in
+			// memory - the pak-mount scene-load proof
+			Orkige::String sceneXml;
+			if (!render->readResourceText("pak.oscene", sceneXml))
+			{
+				SDL_Log("orkige_player: FAILED - pak scene 'pak.oscene' not "
+					"found in the mounted pak");
+				return 1;
+			}
+			scenePath = "pak:pak.oscene";
+			sceneLoaded = Orkige::SceneSerializer::loadSceneFromString(
+				sceneXml, gameObjectManager, scenePath);
+		}
+		else
+		{
+			sceneLoaded = Orkige::SceneSerializer::loadScene(
+				scenePath, gameObjectManager);
+		}
+		if (!sceneLoaded)
 		{
 			SDL_Log("orkige_player: FAILED - could not load scene '%s'",
 				scenePath.c_str());

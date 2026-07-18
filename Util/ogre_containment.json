@@ -19,7 +19,7 @@
  ],
  "sanctioned_dirs": {
   "orkige_engine/engine_gui": "flavor-neutral UI zone: math alias spellings + utilities present identically in both Ogre backends (ConfigFile, ResourceGroupManager names, StringConverter/StringUtil, IteratorWrapper); rendering goes through engine_render/DrawLayer2D",
-  "orkige_engine/engine_filesystem": "Ogre::Archive/ArchiveFactory subclasses (BigZip) - the archive subsystem exists in Ogre-Next too; Filament gets an impl-side VFS"
+  "orkige_engine/engine_filesystem": "Ogre::Archive/ArchiveFactory subclasses (PakArchive/PakMount, the backend-neutral pak-mount over each flavor's stock Zip archive - runs on classic AND Ogre-Next); Filament gets an impl-side VFS"
  },
  "sanctioned_files": {
   "orkige_engine/engine_base/EngineLog.cpp": "the engine log service pimpl - the ONE place above the backends talking to the logging backend (OGRE LogManager, also present in Next)",

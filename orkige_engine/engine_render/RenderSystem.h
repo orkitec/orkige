@@ -56,12 +56,14 @@ namespace Orkige
 			FrameStats();			// defined by the backend TU
 		};
 		//! how a resource location is stored on disk
-		//! map: classic/next=Ogre archive type name ("FileSystem"/"Zip"/BigZip) | filament=impl-side VFS
+		//! map: classic/next=Ogre archive type name ("FileSystem"/"Zip") | filament=impl-side VFS
+		//! @remarks a whole zip mounted as content (optionally a sub-tree of it,
+		//! the APK case) goes through mountPak instead - it reuses the same stock
+		//! Zip reader plus a prefix-stripping remap (engine_filesystem/PakMount).
 		enum LocationType
 		{
 			LT_FILESYSTEM = 0,	//!< plain directory
-			LT_ZIP,				//!< zip archive
-			LT_BIGZIP			//!< engine_filesystem BigZip sub-tree archive
+			LT_ZIP				//!< zip archive (the flavor's stock Zip reader, both flavors)
 		};
 	protected:
 		//! backend state - defined only inside the selected backend
@@ -240,6 +242,25 @@ namespace Orkige
 		//! import re-registers a directory to re-index a just-copied file.
 		//! map: classic/next=ResourceGroupManager::removeResourceLocation | filament=drop from the impl search path list
 		void removeResourceLocation(String const & path,
+			String const & groupName = "");
+		//! @brief mount a zip/pak archive so its contents resolve through the
+		//! resource system EXACTLY like loose files - scenes, textures, sounds
+		//! and scripts all read from it. The mount reuses each flavor's STOCK
+		//! Zip reader (registered in the backend's Root on both classic and
+		//! Ogre-Next), so no bespoke zip code ships. @p mountPoint names a
+		//! sub-tree to expose with its prefix stripped (e.g. "assets/" to mount
+		//! an APK's asset tree by bare name); empty mounts the whole zip. This
+		//! is the backend-neutral successor to the classic BigZip capability -
+		//! the pak-mount contract now lives on BOTH flavors (Docs/filesystem.md).
+		//! @param groupName empty = the default/general group
+		//! map: classic/next=engine_filesystem PakArchive over the stock Zip archive | filament=impl-side VFS mount
+		void mountPak(String const & pakPath, String const & mountPoint = "",
+			String const & groupName = "");
+		//! @brief unmount a pak mounted with mountPak (idempotent - a pak that
+		//! was never mounted is a no-op). The (path, mountPoint, group) triple
+		//! must match the mount.
+		//! map: classic/next=ResourceGroupManager::removeResourceLocation | filament=drop the impl VFS mount
+		void unmountPak(String const & pakPath, String const & mountPoint = "",
 			String const & groupName = "");
 		//! @brief does the resource group exist (was anything registered
 		//! under it)? Project switching probes before tearing down.

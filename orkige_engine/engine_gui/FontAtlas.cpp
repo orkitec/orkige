@@ -34,7 +34,7 @@ namespace Orkige
 	{
 		//! read a resource's whole byte content through the OGRE resource
 		//! system (the LoadWavData/MusicStream path), so fonts/sprites resolve
-		//! inside BigZip archives and the APK asset extraction just the same
+		//! inside mounted pak archives and the APK asset extraction just the same
 		bool readResourceBytes(String const & fileName,
 			std::vector<unsigned char> & out)
 		{

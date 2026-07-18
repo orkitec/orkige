@@ -11,7 +11,7 @@
 // explicit (the neutral umbrella carries math only): the compressed bytes come
 // through the resource system - Ogre::DataStream/ResourceGroupManager exist
 // identically in classic OGRE 14 and Ogre-Next, exactly as LoadWavData reads
-// wav bytes, so streamed music stays BigZip/APK compatible
+// wav bytes, so streamed music stays mounted-pak/APK compatible
 #ifdef ORKIGE_OPENAL_SOUND
 #include <OgreDataStream.h>
 #include <OgreResourceGroupManager.h>
@@ -32,7 +32,7 @@ namespace Orkige
 	{
 		//! read a resource's whole byte content through the OGRE resource
 		//! system (the same path LoadWavData uses), so music resolves inside
-		//! BigZip archives and the APK asset extraction
+		//! mounted pak archives and the APK asset extraction
 		bool readResourceBytes(String const & fileName,
 			std::vector<unsigned char> & out)
 		{

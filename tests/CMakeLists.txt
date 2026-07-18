@@ -1376,6 +1376,30 @@ if(TARGET orkige_player)
     set_tests_properties(player_haptic_selfcheck PROPERTIES
         ENVIRONMENT "ORKIGE_HAPTIC_SELFCHECK=1")
 
+    # THE pak-mount contract, end to end and flavor-neutral (the classic BigZip
+    # acceptance test reborn): a STORED zip is built by a stdlib packer whose
+    # "game/" sub-tree holds a v7 scene, a texture and an OGG. The player mounts
+    # it (RenderSystem::mountPak), loads the scene THROUGH the resource system
+    # (no fopen against a zip entry), resolves the texture from it and STREAMS
+    # the OGG from it - all resolving like loose files. Runs on both render
+    # flavors (mountPak is backend-neutral over MiniZip). The setup fixture
+    # builds the pak into the build tree; ALSOFT_DRIVERS=null keeps it headless.
+    # See the ORKIGE_PAK_SELFCHECK block in tools/player/PlayerSelfChecks.cpp.
+    set(ORKIGE_PAK_FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/pak_fixture${ORKIGE_FLAVOR_TEST_SUFFIX}/game.pak")
+    add_test(NAME pak_fixture_build${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND python3 "${Orkige_SOURCE_DIR}/tests/pak/make_pak_fixture.py"
+            "${ORKIGE_PAK_FIXTURE}" "${Orkige_SOURCE_DIR}/tests/assets/blip.ogg")
+    set_tests_properties(pak_fixture_build${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        FIXTURES_SETUP PAK_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
+        LABELS integration TIMEOUT 30)
+    add_test(NAME player_pak_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_player
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(player_pak_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        FIXTURES_REQUIRED PAK_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
+        LABELS integration TIMEOUT 60
+        ENVIRONMENT "ORKIGE_PAK_SELFCHECK=${ORKIGE_PAK_FIXTURE};ALSOFT_DRIVERS=null")
+
     # whole-project run: --project loads projects/example's manifest,
     # registers its assets/ and scenes/ as resource locations and plays the
     # project's main scene (no scene argument)
