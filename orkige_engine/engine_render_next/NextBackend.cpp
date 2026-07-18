@@ -545,8 +545,24 @@ namespace Orkige
 		}
 		gAtmosphereMediaAvailable = false;
 		gAtmosphereSkyVisible = false;
-		// the SceneManager sky quad + its cloned material die with the root;
-		// only the bookkeeping resets here
+		// tear the cubemap sky quad down BEFORE the root teardown, same rule as
+		// gAtmosphere above: setSky created a Rectangle2D (mSky) attached to the
+		// SCENE_STATIC root, and SceneManager::clearScene (run from
+		// Root::shutdown) destroys every movable then re-attaches its cached
+		// mSky UNCONDITIONALLY - a still-live skybox leaves mSky dangling and
+		// clearScene re-attaches freed memory (a PAC/EXC_BAD_ACCESS at
+		// teardown). setSky(false) detaches, destroys AND nulls mSky, so the
+		// re-attach is skipped. The material/cubemap texture then die with the
+		// root as before; only the bookkeeping resets here.
+		if(!gSkyboxTexture.empty())
+		{
+			if(Ogre::SceneManager* sceneManager =
+				RenderBackend::worldSceneManager())
+			{
+				sceneManager->setSky(false, Ogre::SceneManager::SkyCubemap,
+					static_cast<Ogre::TextureGpu*>(NULL));
+			}
+		}
 		gSkyboxTexture.clear();
 		gSkyboxWarnedTexture.clear();
 		// image lighting: the chain texture + the datablocks it was bound to

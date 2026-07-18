@@ -2434,6 +2434,29 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		// bloom content drops via RAII as this block ends
 	}
 
+	// --- TEARDOWN with a skybox still active (regression guard) ----------
+	// The backend must tear down cleanly with an ST_SKYBOX atmosphere LIVE:
+	// the native sky quad (next SceneManager::setSky / classic setSkyBox) is
+	// a movable the scene-clear path re-touches, so a skybox left active at
+	// shutdown crashed teardown until the backends learned to detach+destroy
+	// it first. Every earlier leg restored procedural before shutdown, which
+	// is exactly why the crash hid - so this LAST leg deliberately leaves a
+	// skybox on. If teardown regresses, SelfcheckBootstrap::shutdown() (run by
+	// main right after this returns) faults and the process exits non-zero.
+	{
+		AtmosphereDesc teardownDesc =
+			AtmospherePreset::forSky(AtmospherePreset::SKY_DAY);
+		teardownDesc.skyType = AtmosphereSky::ST_SKYBOX;
+		teardownDesc.skyboxTexture = "sky_faces.dds";
+		world->setAtmosphere(teardownDesc);
+		SELFCHECK(world->getAtmosphere().skyType == AtmosphereSky::ST_SKYBOX,
+			"the atmosphere is left in skybox mode for the teardown guard");
+		SELFCHECK(renderFrames(renderSystem, 2),
+			"frames render with the skybox active before shutdown");
+		// intentionally NOT restored: the backend shutdown after runChecks
+		// returns must detach + destroy the live sky quad without faulting
+	}
+
 	std::printf("render_facade_selfcheck: all checks passed\n");
 	return 0;
 }
