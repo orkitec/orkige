@@ -253,22 +253,11 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// ORKIGE_SPRITEBATCH_SELFCHECK verifies sprite-run batching against
 	// projects/benchmark scenes/fixture_sprites.oscene (@see the header's
 	// block comment): exact run structure, the live r.spriteBatching escape
-	// hatch, and a moved member re-uploading its run. The ctest driver
-	// passes the flavor-exact steady draw-batch counts in
-	// ORKIGE_SPRITEBATCH_EXPECT (this run's mode) and
-	// ORKIGE_SPRITEBATCH_EXPECT_OFF (the live-toggle-off reading) - upload
-	// transients only ever ADD batches, so the expected count is a floor
-	// the run CONVERGES to rather than a value read at a fixed frame.
+	// hatch, and a moved member re-uploading its run. Counts are read as
+	// mode-over-window (driver-dependent absolute numbers; the ctest driver
+	// asserts the driver-independent run count/delta contract).
 	spriteBatchCheck =
 		(std::getenv("ORKIGE_SPRITEBATCH_SELFCHECK") != nullptr);
-	if (const char* expect = std::getenv("ORKIGE_SPRITEBATCH_EXPECT"))
-	{
-		spriteBatchExpect = std::strtoul(expect, nullptr, 10);
-	}
-	if (const char* expect = std::getenv("ORKIGE_SPRITEBATCH_EXPECT_OFF"))
-	{
-		spriteBatchExpectOff = std::strtoul(expect, nullptr, 10);
-	}
 	// automated runs (ctest, the editor's play-mode tests - they inherit
 	// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 	// the machine allows; a HUMAN run gets vsync so games neither spin
@@ -2933,28 +2922,57 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				transform->setPosition(Orkige::Vec3(-0.25f, 0.05f, -8.05f));
 			}
 		}
-		if (frameCount == 30 && spriteBatchExpect == 0)
+		// MODE-OVER-WINDOW sampling (@see PlayerSelfChecks.h): the absolute
+		// frame-stats batch count is driver-dependent and transients only ever
+		// ADD batches, so each leg reads the most frequent count over a
+		// 40-frame window instead of trusting any absolute number or frame
+		// ordinal. The driver asserts the driver-independent contract from
+		// the printed values (run count, on/off delta, live-off equality).
+		auto histMode = [this]() -> std::pair<std::size_t, unsigned int>
 		{
-			SDL_Log("orkige_player: spritebatch selfcheck FAILED - the "
-				"driver did not pass ORKIGE_SPRITEBATCH_EXPECT");
-			exitCode = 1;
-			running = false;
-		}
-		if (frameCount >= 30 && !spriteBatchBaselineLocked && exitCode == 0)
-		{
-			// CONVERGE-TO-FLOOR baseline: upload transients (the frame-20
-			// move's staging, mip generation) only ever ADD draw batches, so
-			// the driver-supplied expected count is a floor the frame stats
-			// cannot fake - the first frame AT the floor is the steady
-			// grouping, however long a slow host holds its transients. A
-			// grouping regression never reaches the floor and fails at the
-			// deadline with the counts seen.
-			const std::size_t batches = render->getFrameStats().batchCount;
-			if (batches == spriteBatchExpect)
+			std::size_t value = 0;
+			unsigned int best = 0;
+			for (auto const& entry : spriteBatchHist)
 			{
-				spriteBatchBaselineLocked = true;
-				spriteBatchBatchesOn = batches;
+				if (entry.second > best)
+				{
+					value = entry.first;
+					best = entry.second;
+				}
+			}
+			return { value, best };
+		};
+		auto histDump = [this]() -> std::string
+		{
+			std::string out;
+			for (auto const& entry : spriteBatchHist)
+			{
+				out += std::to_string(entry.first) + ":" +
+					std::to_string(entry.second) + " ";
+			}
+			return out;
+		};
+		const unsigned int minModeShare = 24;	// >= 60% of a 40-frame window
+		if (frameCount >= 30 && frameCount < 70)
+		{
+			spriteBatchHist[render->getFrameStats().batchCount]++;
+		}
+		if (frameCount == 70)
+		{
+			const auto [mode, share] = histMode();
+			if (share < minModeShare)
+			{
+				SDL_Log("orkige_player: spritebatch selfcheck FAILED - the "
+					"baseline batch count never settled (histogram %s)",
+					histDump().c_str());
+				exitCode = 1;
+				spriteBatchDone = true;
+			}
+			else
+			{
+				spriteBatchBatchesOn = mode;
 				spriteBatchRunsOn = batcher ? batcher->activeRunCount() : 0;
+				spriteBatchHist.clear();
 				if (!spriteBatchStartedOn)
 				{
 					// the batching-off reference run: counts only, no toggle
@@ -2965,75 +2983,65 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				}
 				else
 				{
-					// the toggle legs pace off the lock, not off boot - but
-					// never before the frame-60 screenshot, which must
-					// capture the batched rendering (the pixel-identity
-					// comparison against the batching-off run depends on it)
-					spriteBatchToggleFrame =
-						std::max<unsigned long>(frameCount + 20, 70);
+					// the live escape hatch: runs must release without a
+					// reboot (safely after the frame-60 screenshot, which
+					// must capture the batched rendering)
+					Orkige::CVarManager::getSingleton().setString(
+						"r.spriteBatching", "0");
 				}
 			}
-			else if (frameCount >= 120)
-			{
-				SDL_Log("orkige_player: spritebatch selfcheck FAILED - the "
-					"batch count never reached the expected %zu (last %zu) - "
-					"the grouping contract regressed",
-					spriteBatchExpect, batches);
-				exitCode = 1;
-				spriteBatchDone = true;
-			}
 		}
-		if (spriteBatchStartedOn && spriteBatchToggleFrame != 0 &&
-			frameCount == spriteBatchToggleFrame)
+		if (spriteBatchStartedOn && !spriteBatchDone)
 		{
-			// the live escape hatch: runs must release without a reboot
-			Orkige::CVarManager::getSingleton().setString(
-				"r.spriteBatching", "0");
-		}
-		if (spriteBatchStartedOn && spriteBatchToggleFrame != 0 &&
-			spriteBatchRestoreDeadline == 0 &&
-			frameCount > spriteBatchToggleFrame)
-		{
-			// the live-off reading converges to ITS floor too (the toggle
-			// re-uploads the per-quad path, which transients like any other)
-			const std::size_t batches = render->getFrameStats().batchCount;
-			if (batches == spriteBatchExpectOff)
+			if (frameCount >= 75 && frameCount < 115)
 			{
-				spriteBatchBatchesLiveOff = batches;
-				Orkige::CVarManager::getSingleton().setString(
-					"r.spriteBatching", "1");
-				spriteBatchRestoreDeadline = frameCount + 120;
+				spriteBatchHist[render->getFrameStats().batchCount]++;
 			}
-			else if (frameCount >= spriteBatchToggleFrame + 100)
+			if (frameCount == 115)
 			{
-				SDL_Log("orkige_player: spritebatch selfcheck FAILED - the "
-					"live toggle-off never reached the unbatched count %zu "
-					"(last %zu)", spriteBatchExpectOff, batches);
-				exitCode = 1;
-				spriteBatchDone = true;
+				const auto [mode, share] = histMode();
+				if (share < minModeShare)
+				{
+					SDL_Log("orkige_player: spritebatch selfcheck FAILED - "
+						"the live-off batch count never settled (histogram %s)",
+						histDump().c_str());
+					exitCode = 1;
+					spriteBatchDone = true;
+				}
+				else
+				{
+					spriteBatchBatchesLiveOff = mode;
+					spriteBatchHist.clear();
+					Orkige::CVarManager::getSingleton().setString(
+						"r.spriteBatching", "1");
+				}
 			}
-		}
-		if (spriteBatchStartedOn && spriteBatchRestoreDeadline != 0 &&
-			frameCount > spriteBatchToggleFrame)
-		{
-			const std::size_t batchesBack = render->getFrameStats().batchCount;
-			const std::size_t runsBack = batcher ? batcher->activeRunCount() : 0;
-			if (batchesBack == spriteBatchBatchesOn &&
-				runsBack == spriteBatchRunsOn)
+			if (frameCount >= 120 && frameCount < 160)
 			{
-				SDL_Log("orkige_player: spritebatch selfcheck complete - "
-					"batching on, batches=%zu runs=%zu liveOffBatches=%zu "
-					"restored", spriteBatchBatchesOn, spriteBatchRunsOn,
-					spriteBatchBatchesLiveOff);
-				spriteBatchDone = true;
+				spriteBatchHist[render->getFrameStats().batchCount]++;
 			}
-			else if (frameCount >= spriteBatchRestoreDeadline)
+			if (frameCount == 160)
 			{
-				SDL_Log("orkige_player: spritebatch selfcheck FAILED - "
-					"re-enabling did not restore the runs (batches %zu -> "
-					"%zu, runs %zu -> %zu)", spriteBatchBatchesOn,
-					batchesBack, spriteBatchRunsOn, runsBack);
-				exitCode = 1;
+				const auto [mode, share] = histMode();
+				const std::size_t runsBack =
+					batcher ? batcher->activeRunCount() : 0;
+				if (share < minModeShare || mode != spriteBatchBatchesOn ||
+					runsBack != spriteBatchRunsOn)
+				{
+					SDL_Log("orkige_player: spritebatch selfcheck FAILED - "
+						"re-enabling did not restore the runs (batches %zu -> "
+						"%zu, runs %zu -> %zu, histogram %s)",
+						spriteBatchBatchesOn, mode, spriteBatchRunsOn, runsBack,
+						histDump().c_str());
+					exitCode = 1;
+				}
+				else
+				{
+					SDL_Log("orkige_player: spritebatch selfcheck complete - "
+						"batching on, batches=%zu runs=%zu liveOffBatches=%zu "
+						"restored", spriteBatchBatchesOn, spriteBatchRunsOn,
+						spriteBatchBatchesLiveOff);
+				}
 				spriteBatchDone = true;
 			}
 		}

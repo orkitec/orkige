@@ -6992,8 +6992,11 @@ int main(int argc, char** argv)
 						nativeSawBuilding = true;
 						nativePhase = NativePlaytestPhase::WaitBuildOutcome;
 						// generous: the first Play configures + compiles the
-						// whole module (a fat OGRE-including TU + full link)
-						nativeDeadline = nativeNow + std::chrono::seconds(240);
+						// whole module (a fat OGRE-including TU + full link),
+						// and a sanitizer-instrumented compiler needs several
+						// times the plain build - the deadline only exists to
+						// fail a HUNG build, so it errs far on the long side
+						nativeDeadline = nativeNow + std::chrono::seconds(600);
 						SDL_Log("orkige_editor: native playtest - Play "
 							"pressed, building '%s'",
 							playSession.nativeTarget.c_str());

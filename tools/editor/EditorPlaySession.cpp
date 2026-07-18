@@ -9,6 +9,7 @@
 #include <core_project/NativeModule.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -521,13 +522,19 @@ void pumpBuildOutput(PlaySession& session, EditorConsole& console,
 	std::size_t newline = std::string::npos;
 	auto emitLine = [&console, &session](std::string const& text)
 	{
+		// classify case-insensitively: cmake spells "CMake Error at ..." with
+		// a capital E, and a configure failure whose error lines slip through
+		// unclassified leaves an undiagnosable one-line tail on CI
+		std::string lower = text;
+		std::transform(lower.begin(), lower.end(), lower.begin(),
+			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		ConsoleLevel level = ConsoleLevel::Info;
-		if (text.find("error") != std::string::npos ||
+		if (lower.find("error") != std::string::npos ||
 			text.find("FAILED") != std::string::npos)
 		{
 			level = ConsoleLevel::Error;
 		}
-		else if (text.find("warning") != std::string::npos)
+		else if (lower.find("warning") != std::string::npos)
 		{
 			level = ConsoleLevel::Warning;
 		}

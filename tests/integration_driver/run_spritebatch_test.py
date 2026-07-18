@@ -8,11 +8,11 @@ driving both runs (it moves the batched member "A4" at frame 20, so the
 frame-60 screenshots show a mid-run re-upload; the ON run additionally
 exercises the live r.spriteBatching escape hatch).
 
-Assertions:
-  * EXACT counts against the deterministic fixture (a silent grouping
-    regression shifts them): the realized run count is 3; the draw-batch
-    counts match the flavor table below, including the live-toggle-off
-    reading equalling the batching-off run.
+Assertions (driver-independent - see EXPECTED below):
+  * the realized run count is EXACTLY 3 (structural, a silent grouping
+    regression shifts it); the batching-off minus batching-on draw-batch
+    DELTA matches the flavor table; the live-toggle-off reading equals
+    the batching-off run (measured on the same host and driver).
   * PIXEL IDENTITY: the ON and OFF screenshots must match up to a 1-LSB
     rounding fringe on sprite edges, BOTH flavors (the merged path bakes
     the world transform on the CPU, the per-quad path applies it in the
@@ -33,14 +33,17 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 
-# per-flavor draw-batch expectations over the fixture (frame stats read at
-# frame 30/90). Classic counts real draw calls: 3 merged runs + 1 solo = 4
-# vs 11 individual quads. The next flavor's frame-stats metric compresses
-# the same structure into smaller absolute numbers - the DELTA is what the
-# assertion pins there.
+# per-flavor DRIVER-INDEPENDENT expectations over the fixture. Absolute
+# frame-stats batch counts are driver-dependent (a software Vulkan stack
+# counts one more steady batch than Metal for the same scene), so the
+# assertions pin what every driver preserves: the batcher's realized run
+# count (structural) and the batching-off minus batching-on draw-batch
+# DELTA. Classic counts real draw calls: 3 merged runs + 1 solo = 4 vs 11
+# individual quads (delta 7); the next flavor's frame-stats metric
+# compresses the same structure (delta 1).
 EXPECTED = {
-    "classic": {"on": 4, "off": 11, "runs": 3},
-    "next": {"on": 3, "off": 4, "runs": 3},
+    "classic": {"delta": 7, "runs": 3},
+    "next": {"delta": 1, "runs": 3},
 }
 
 MAX_DELTA = 1                 # per-channel LSB fringe, both flavors
@@ -66,25 +69,13 @@ def run_player(args, tag, batching_on):
     shot = os.path.join(args.dir, tag + ".png")
     if os.path.exists(shot):
         os.unlink(shot)
-    expected = EXPECTED[args.flavor]
     env = dict(os.environ)
-    # the frame budget must cover the selfcheck's own worst-case path: the
-    # baseline may converge as late as frame 120, the toggle waits for the
-    # frame-60 screenshot, and the live-off + restore legs each converge
-    # under their own deadlines - so a slow software-GPU host legitimately
-    # needs ~350 frames. The check's internal deadlines fire first, so a
-    # genuine failure still reports its specific message, never a generic
-    # run-end. The expected steady counts ride along because they are
-    # FLOORS: transients only ever add draw batches, so each leg locks on
-    # the first frame AT its expected count instead of trusting any frame
-    # ordinal to be past the transients.
+    # the selfcheck's mode-over-window schedule ends at frame 160; the cap
+    # only backs up its early exit
     env.update({
-        "ORKIGE_DEMO_FRAMES": "400",
+        "ORKIGE_DEMO_FRAMES": "200",
         "ORKIGE_DEMO_SCREENSHOT": shot,
         "ORKIGE_SPRITEBATCH_SELFCHECK": "1",
-        "ORKIGE_SPRITEBATCH_EXPECT":
-            str(expected["on"] if batching_on else expected["off"]),
-        "ORKIGE_SPRITEBATCH_EXPECT_OFF": str(expected["off"]),
         "ORKIGE_CVARS": "r.spriteBatching=%d" % (1 if batching_on else 0),
     })
     cmd = [args.player, "scenes/fixture_sprites.oscene", "--project",
@@ -130,12 +121,10 @@ def main():
     if runs_on != expected["runs"]:
         fail("the fixture must realize exactly %d runs (saw %d) - the "
              "grouping contract regressed" % (expected["runs"], runs_on))
-    if batches_on != expected["on"]:
-        fail("batching-on draw batches must be exactly %d (saw %d)"
-             % (expected["on"], batches_on))
-    if batches_off != expected["off"]:
-        fail("batching-off draw batches must be exactly %d (saw %d)"
-             % (expected["off"], batches_off))
+    if batches_off - batches_on != expected["delta"]:
+        fail("the batching-off minus batching-on delta must be exactly %d "
+             "(off %d, on %d) - the merge contract regressed"
+             % (expected["delta"], batches_off, batches_on))
     if live_off != batches_off:
         fail("the live escape hatch must render like the booted-off run "
              "(live %d vs booted %d)" % (live_off, batches_off))

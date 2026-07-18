@@ -10,6 +10,7 @@
 #define __PlayerSelfChecks_h__16_7_2026__06_00_00__
 
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <string>
 
@@ -335,26 +336,24 @@ struct PlayerSelfChecks
 	// whose exact grouping is 3 runs + 1 solo, see the generator). Frame 20
 	// MOVES sprite "A4" (a batched member - the run re-uploads and the
 	// frame-60 screenshot must render the move; the ctest driver compares it
-	// against a batching-off run of the same move). Frame 30 records the
-	// draw-batch count and the batcher's realized run count. When batching
-	// started ON, the LIVE TOGGLE leg follows: off at frame 70, count at 90,
-	// back on at 100, count + runs at 120 - the escape hatch must release
-	// and re-form the runs without a reboot. The driver pins the
-	// flavor-exact numbers from the printed lines.
+	// against a batching-off run of the same move). Counts are read as the
+	// MODE over 40-frame sampling windows, because the absolute frame-stats
+	// batch count is DRIVER-dependent (a software Vulkan stack counts one
+	// more steady batch than Metal for the same scene) and transients only
+	// ever ADD batches: baseline window frames 30..69, then (batching-on
+	// runs only) live-toggle OFF at 70, live-off window 75..114, back ON at
+	// 115, restore window 120..159, verdict at 160. The mode must cover
+	// >= 60% of its window; the restore mode must equal the baseline mode
+	// and the batcher's realized run count must return exactly. The ctest
+	// driver asserts the DRIVER-INDEPENDENT contract from the printed
+	// lines: the realized run count, the batching-off minus batching-on
+	// DELTA, live-off == the booted-off run, and pixel identity.
 	bool spriteBatchDone = false;
 	bool spriteBatchStartedOn = false;
 	std::size_t spriteBatchBatchesOn = 0;
 	std::size_t spriteBatchRunsOn = 0;
 	std::size_t spriteBatchBatchesLiveOff = 0;
-	//! steady-state sampling for the batch baseline + restore legs: a run
-	//! re-upload can surface as a transient extra batch for a frame on some
-	//! backends, so counts lock on two consecutive agreeing frames and the
-	//! restore converges under a deadline instead of asserting one frame
-	bool spriteBatchBaselineLocked = false;
-	std::size_t spriteBatchExpect = 0;
-	std::size_t spriteBatchExpectOff = 0;
-	unsigned long spriteBatchToggleFrame = 0;
-	unsigned long spriteBatchRestoreDeadline = 0;
+	std::map<std::size_t, unsigned int> spriteBatchHist;
 	// --- ORKIGE_HOTRELOAD_SELFCHECK=1: Lua hot-reload, verified
 	// end to end against tests/projects/hotreload (run with --project
 	// tests/projects/hotreload). The Probe object runs scripts/
