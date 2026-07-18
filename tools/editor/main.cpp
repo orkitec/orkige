@@ -354,6 +354,18 @@ int main(int argc, char** argv)
 				{
 					render->addResourceLocation(ORKIGE_EDITOR_DECAL_DIR);
 				}
+#ifdef ORKIGE_EDITOR_BLOOM_DIR
+				// the engine bloom compositor media (bright/blur/combine
+				// material + shaders) so a play session with engine:setBloom
+				// resolves its materials. Next flavor ONLY (classic bloom is
+				// gated off, @see RenderBackend::bloomSupported)
+				std::error_code bloomDirError;
+				if (std::filesystem::is_directory(ORKIGE_EDITOR_BLOOM_DIR,
+					bloomDirError))
+				{
+					render->addResourceLocation(ORKIGE_EDITOR_BLOOM_DIR);
+				}
+#endif
 			}))
 		{
 			return 1;

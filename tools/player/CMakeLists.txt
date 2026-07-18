@@ -139,3 +139,12 @@ target_compile_definitions(orkige_player PRIVATE
     # exported bundle carries the same files under its Media/decals dir instead)
     ORKIGE_PLAYER_DECAL_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/decals"
 )
+# the engine bloom compositor media (bright/blur/combine material + shaders
+# engine:setBloom needs) - NEXT FLAVOR ONLY (classic bloom is gated off, @see
+# RenderBackend::bloomSupported), so the define exists only on next builds and
+# the player's registration is #ifdef'd on it (the out-of-bundle build-tree
+# fallback; an exported next bundle carries the same files under Media/bloom/next)
+if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    target_compile_definitions(orkige_player PRIVATE
+        ORKIGE_PLAYER_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/bloom/next")
+endif()

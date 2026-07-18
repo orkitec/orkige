@@ -257,6 +257,13 @@ target_compile_definitions(orkige_editor PRIVATE
     ORKIGE_EDITOR_SCRIPTING="${ORKIGE_SCRIPTING}"
     ORKIGE_EDITOR_OSX_SYSROOT="${CMAKE_OSX_SYSROOT}"
 )
+# the engine bloom compositor media - NEXT FLAVOR ONLY (classic bloom is gated
+# off, @see RenderBackend::bloomSupported), so a next-flavor Play session with
+# engine:setBloom resolves its materials in the editor's own render context
+if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    target_compile_definitions(orkige_editor PRIVATE
+        ORKIGE_EDITOR_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/bloom/next")
+endif()
 
 # play mode needs the player binary present at runtime
 add_dependencies(orkige_editor orkige_player)

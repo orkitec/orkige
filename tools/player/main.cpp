@@ -1369,6 +1369,24 @@ int main(int argc, char** argv)
 				{
 					render->addResourceLocation(ORKIGE_PLAYER_DECAL_DIR);
 				}
+#ifdef ORKIGE_PLAYER_BLOOM_DIR
+				// the engine bloom compositor media (the bright/blur/combine
+				// material + shaders engine:setBloom needs). Next flavor ONLY -
+				// the define is set for the next backend, classic bloom is gated
+				// off (@see RenderBackend::bloomSupported). Same bundled/dev-tree
+				// pair as the media above.
+				std::error_code bloomDirError;
+				if (std::filesystem::is_directory(playerMediaDir + "/bloom/next",
+					bloomDirError))
+				{
+					render->addResourceLocation(playerMediaDir + "/bloom/next");
+				}
+				if (std::filesystem::is_directory(ORKIGE_PLAYER_BLOOM_DIR,
+					bloomDirError))
+				{
+					render->addResourceLocation(ORKIGE_PLAYER_BLOOM_DIR);
+				}
+#endif
 				// sample assets (test_mesh.glb; scene meshes load lazily via
 				// Codec_Assimp) and the jumper sample assets, so the editor's
 				// play mode works on samples/* scenes too. Registered only when

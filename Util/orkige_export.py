@@ -429,6 +429,15 @@ def engine_decal_dir():
     return decals if os.path.isdir(decals) else ""
 
 
+def engine_bloom_dir():
+    """the engine bloom compositor media (bright/blur/combine material + shaders
+    engine:setBloom needs) - the NEXT flavor set only (classic bloom is gated
+    off, so its media is never bundled). Registered at runtime under
+    Media/bloom/next like the font/water/decal dirs. Empty when absent."""
+    bloom = os.path.join(REPO_ROOT, "orkige_engine", "media", "bloom", "next")
+    return bloom if os.path.isdir(bloom) else ""
+
+
 def ogre_media_dir(build_dir):
     """the classic flavor's RTSS shader-library media (Main + RTShaderLib)"""
     triplet = vcpkg_triplet_dir(build_dir)
@@ -760,6 +769,12 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
         shutil.copytree(engine_decal_dir(),
                         os.path.join(resources, "Media", "decals"),
                         dirs_exist_ok=True)
+    # the engine bloom compositor media (next flavor only) so a scene's
+    # engine:setBloom ships self-contained
+    if flavor == "next" and engine_bloom_dir():
+        shutil.copytree(engine_bloom_dir(),
+                        os.path.join(resources, "Media", "bloom", "next"),
+                        dirs_exist_ok=True)
 
     staged = stage_project_payload(
         project, os.path.join(resources, PAYLOAD_DIR_NAME), "macos",
@@ -993,6 +1008,11 @@ def export_ios_simulator(project, engine_build, output_dir):
         shutil.copytree(engine_decal_dir(),
                         os.path.join(app_dir, "Media", "decals"),
                         dirs_exist_ok=True)
+    # the engine bloom compositor media (next flavor only)
+    if render_backend(engine_build) == "next" and engine_bloom_dir():
+        shutil.copytree(engine_bloom_dir(),
+                        os.path.join(app_dir, "Media", "bloom", "next"),
+                        dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),
                                    "ios-simulator", engine_build)
@@ -1146,6 +1166,11 @@ def build_signed_ios_bundle(project, source_app, output_dir, identity, profile,
     if engine_decal_dir():
         shutil.copytree(engine_decal_dir(),
                         os.path.join(app_dir, "Media", "decals"),
+                        dirs_exist_ok=True)
+    # the engine bloom compositor media (next flavor only)
+    if render_backend(engine_build) == "next" and engine_bloom_dir():
+        shutil.copytree(engine_bloom_dir(),
+                        os.path.join(app_dir, "Media", "bloom", "next"),
                         dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),

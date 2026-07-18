@@ -220,6 +220,13 @@ fi
 # WaterComponent ships self-contained (player registers <extracted>/Media/water)
 [ -d "$REPO_ROOT/orkige_engine/media/water" ] \
     && cp -R "$REPO_ROOT/orkige_engine/media/water" "$STAGE/assets/Media/water"
+# the engine bloom compositor media (bright/blur/combine material + shaders) so
+# an Android next scene's engine:setBloom ships self-contained. The player only
+# registers <extracted>/Media/bloom/next on a NEXT build (classic bloom is gated
+# off), so a classic APK carrying it is a harmless few KB.
+[ -d "$REPO_ROOT/orkige_engine/media/bloom/next" ] \
+    && mkdir -p "$STAGE/assets/Media/bloom" \
+    && cp -R "$REPO_ROOT/orkige_engine/media/bloom/next" "$STAGE/assets/Media/bloom/next"
 cp -R "$REPO_ROOT/samples/hello_orkige/media"         "$STAGE/assets/assets"
 cp -R "$REPO_ROOT/samples/jumper/media"               "$STAGE/assets/jumper_media"
 cp    "$REPO_ROOT/samples/scenes/example.oscene"      "$STAGE/assets/example.oscene"
