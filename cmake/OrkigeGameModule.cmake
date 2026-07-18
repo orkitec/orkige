@@ -201,6 +201,13 @@ file(GLOB _orkige_zlib_debug
     "${ORKIGE_VCPKG_PREFIX}/debug/lib/libz.*")
 message(STATUS "vcpkg zlib seed: release='${_orkige_zlib_release}' "
     "debug='${_orkige_zlib_debug}'")
+if(NOT _orkige_zlib_release)
+    # the seed found nothing - name the reality so the failure diagnoses
+    # itself: which prefix was picked and what its lib dir actually holds
+    file(GLOB _orkige_lib_listing "${ORKIGE_VCPKG_PREFIX}/lib/*")
+    message(STATUS "vcpkg zlib seed found no library - prefix "
+        "'${ORKIGE_VCPKG_PREFIX}', lib dir holds: ${_orkige_lib_listing}")
+endif()
 if(_orkige_zlib_release AND NOT DEFINED CACHE{ZLIB_LIBRARY})
     list(GET _orkige_zlib_release 0 _orkige_zlib_release_lib)
     set(ZLIB_LIBRARY_RELEASE "${_orkige_zlib_release_lib}" CACHE FILEPATH
