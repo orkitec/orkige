@@ -114,6 +114,17 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// also logs the measured per-frame evaluate+tessellate cost per character.
 	vectorAnimCheck =
 		(std::getenv("ORKIGE_VECTORANIM_SELFCHECK") != nullptr);
+	// ORKIGE_CUTOUT_SELFCHECK verifies TEXTURED cutout parts on a vector rig
+	// end to end against projects/vectorshapes (scenes/cutout.oscene): the
+	// mixed flat+textured rig builds its per-texture draw runs, the wave
+	// clip moves the pose through the dynamic section path, and (with
+	// ORKIGE_CUTOUT_SCREENSHOT_DIR set) a mid-clip screenshot lands for the
+	// driver's pixel probes.
+	cutoutCheck =
+		(std::getenv("ORKIGE_CUTOUT_SELFCHECK") != nullptr);
+	const char* cutoutShotDirEnv =
+		std::getenv("ORKIGE_CUTOUT_SCREENSHOT_DIR");
+	cutoutShotDir = cutoutShotDirEnv ? cutoutShotDirEnv : "";
 	// ORKIGE_CHARACTER_RIG_SELFCHECK verifies 3D SKELETAL character animation
 	// end to end against tests/projects/character (a generated skinned
 	// mannequin): the walk clip moves bone-driven bounds, a crossfade blends to
@@ -2368,6 +2379,123 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		}
 	}
 	if (vectorAnimCheck && vectorAnimCheckFailed)
+	{
+		exitCode = 1;
+		running = false;
+	}
+
+	// --- TEXTURED cutout parts on a vector rig (see the ORKIGE_CUTOUT_
+	// SELFCHECK block in PlayerSelfChecks.h) ---------------------------
+	if (cutoutCheck && !cutoutCheckFailed && cutoutPhase != CutoutPhase::Done)
+	{
+		auto cutoutComp = [&gameObjectManager]()
+			-> Orkige::VectorAnimationComponent*
+		{
+			optr<Orkige::GameObject> gameObject =
+				gameObjectManager.getGameObject("Cutout").lock();
+			if (!gameObject ||
+				!gameObject->hasComponent<Orkige::VectorAnimationComponent>())
+			{
+				return nullptr;
+			}
+			return gameObject->
+				getComponentPtr<Orkige::VectorAnimationComponent>();
+		};
+		auto cutoutFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: CUTOUT SELFCHECK FAILED - %s "
+				"(pose min %.3f, max %.3f)", what.c_str(),
+				cutoutPoseMin, cutoutPoseMax);
+			cutoutCheckFailed = true;
+		};
+		Orkige::VectorAnimationComponent* rig = cutoutComp();
+		if (rig && rig->hasAnimation())
+		{
+			const float signature = rig->getPoseSignature();
+			if (!cutoutPoseSeeded)
+			{
+				cutoutPoseMin = cutoutPoseMax = signature;
+				cutoutPoseSeeded = true;
+			}
+			cutoutPoseMin = std::min(cutoutPoseMin, signature);
+			cutoutPoseMax = std::max(cutoutPoseMax, signature);
+		}
+		if (cutoutPhase == CutoutPhase::Boot)
+		{
+			if (frameCount == 5)
+			{
+				if (!rig || !rig->hasAnimation())
+				{
+					cutoutFail("no Cutout with a built "
+						"VectorAnimationComponent");
+				}
+				else if (rig->getTexturedRunCount() < 3 ||
+					rig->getRunCount() < 4)
+				{
+					// the mixed rig must split into per-texture draw runs
+					// (one flat shadow run + body/head/arm textures)
+					cutoutFail("the rig did not split into the expected "
+						"draw runs (textured "
+						+ std::to_string(rig->getTexturedRunCount())
+						+ " of " + std::to_string(rig->getRunCount())
+						+ ", want >= 3 of >= 4)");
+				}
+				else if (rig->currentClip() != "wave")
+				{
+					cutoutFail("the rig did not boot on the wave clip");
+				}
+				else
+				{
+					SDL_Log("orkige_player: cutout selfcheck - rig built "
+						"(%zu runs, %zu textured, %zu triangles)",
+						rig->getRunCount(), rig->getTexturedRunCount(),
+						rig->getTriangleCount());
+					cutoutPhase = CutoutPhase::Motion;
+					cutoutDeadline = frameCount + 600;
+				}
+			}
+		}
+		else if (cutoutPhase == CutoutPhase::Motion)
+		{
+			// the wave clip advances: the textured quads move through the
+			// dynamic per-section upload (the pose signature spreads)
+			if (cutoutPoseMax - cutoutPoseMin > 1.0e-3f)
+			{
+				SDL_Log("orkige_player: cutout selfcheck - the wave clip "
+					"advances (pose signature moved %.4f)",
+					cutoutPoseMax - cutoutPoseMin);
+				cutoutPhase = CutoutPhase::Shot;
+				// let the wave settle a beat so the screenshot is
+				// unmistakably mid-clip
+				cutoutShotFrame = frameCount + 30;
+				cutoutDeadline = frameCount + 600;
+			}
+			else if (frameCount >= cutoutDeadline)
+			{
+				cutoutFail("the wave clip never moved the pose");
+			}
+		}
+		else if (cutoutPhase == CutoutPhase::Shot)
+		{
+			if (frameCount >= cutoutShotFrame)
+			{
+				if (!cutoutShotDir.empty())
+				{
+					const std::string path =
+						cutoutShotDir + "/cutout_play.png";
+					render->saveWindowContents(path);
+					SDL_Log("orkige_player: cutout selfcheck - "
+						"screenshot %s", path.c_str());
+				}
+				SDL_Log("orkige_player: cutout selfcheck complete - run "
+					"split, animated textured pose and screenshot all "
+					"verified");
+				cutoutPhase = CutoutPhase::Done;
+				running = false;
+			}
+		}
+	}
+	if (cutoutCheck && cutoutCheckFailed)
 	{
 		exitCode = 1;
 		running = false;

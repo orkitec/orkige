@@ -1465,6 +1465,28 @@ if(TARGET orkige_player)
         set_tests_properties(player_vectoranim_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_VECTORANIM_SELFCHECK=1")
 
+        # TEXTURED CUTOUT PARTS on a vector rig, end to end:
+        # projects/vectorshapes scenes/cutout.oscene - a hand-authored v3
+        # rig mixing one flat-colour region (the shadow) with three textured
+        # quad parts (body, two-band head, waving arm). The player asserts
+        # the per-texture draw-run split and that the wave clip animates the
+        # pose through the dynamic per-section upload; the driver then
+        # PIXEL-PROBES the mid-clip screenshot - each texture's signature
+        # colour really samples (never a tint-coloured silhouette), the
+        # head's dark band renders ABOVE its light band (the texture-row-0-
+        # at-rect-top v contract) and the flat shadow coexists. Runs on both
+        # render flavors. See the ORKIGE_CUTOUT_SELFCHECK block in
+        # tools/player/PlayerSelfChecks.cpp + run_cutout_test.py.
+        add_test(NAME player_cutout_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_cutout_test.py"
+                --player "$<TARGET_FILE:orkige_player>"
+                --dir "${CMAKE_CURRENT_BINARY_DIR}/cutout${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                --source "${Orkige_SOURCE_DIR}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_cutout_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 240)
+
         # 3D SKELETAL character animation, end to end: tests/projects/character
         # scenes/main.oscene - a generated blocky mannequin (assets/
         # character_rig.glb from Util/make_character_rig.py: a 7-joint skeleton,

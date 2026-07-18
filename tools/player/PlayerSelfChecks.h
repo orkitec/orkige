@@ -218,6 +218,31 @@ struct PlayerSelfChecks
 	float vectorAnimPoseMax = 0.0f;
 	bool vectorAnimPoseSeeded = false;
 	unsigned long vectorAnimDeadline = 0;
+	// --- ORKIGE_CUTOUT_SELFCHECK=1: TEXTURED cutout parts on a vector rig
+	// end to end against projects/vectorshapes (scenes/cutout.oscene). The
+	// Cutout rig mixes one flat-colour region (the shadow) with three
+	// textured quad regions (body, two-band head, waving arm), so the built
+	// mesh must split into flat + textured draw runs. Phased:
+	//   boot     frame 5: the rig is built, its run split reports >= 3
+	//            textured runs among >= 4 (the mixed flat/textured proof)
+	//   motion   the wave clip advances - the pose signature moves (the
+	//            textured quads animate through the dynamic section path)
+	//   shot     a screenshot lands in ORKIGE_CUTOUT_SCREENSHOT_DIR (when
+	//            set) a beat after motion was proven - the driver
+	//            (run_cutout_test.py) pixel-probes it for the texture
+	//            colours, the band orientation and the flat shadow
+	// A missed deadline exits non-zero.
+	enum class CutoutPhase { Boot, Motion, Shot, Done };
+
+	CutoutPhase cutoutPhase = CutoutPhase::Boot;
+	bool cutoutCheck = false;
+	bool cutoutCheckFailed = false;
+	std::string cutoutShotDir;
+	float cutoutPoseMin = 0.0f;
+	float cutoutPoseMax = 0.0f;
+	bool cutoutPoseSeeded = false;
+	unsigned long cutoutDeadline = 0;
+	unsigned long cutoutShotFrame = 0;
 	// --- ORKIGE_CHARACTER_RIG_SELFCHECK=1: 3D SKELETAL character animation
 	// end to end against tests/projects/character (a generated blocky
 	// mannequin, Util/make_character_rig.py: 7-joint skeleton, skin weights,

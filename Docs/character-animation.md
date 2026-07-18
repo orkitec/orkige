@@ -95,18 +95,23 @@ character-motion taxonomy - all renderer-neutral, identical on both flavors:
 | Vector cutout rig | a layer hierarchy of flat-colour shapes, keyframed transforms + opacity | `.oanim` (`VectorAnimationComponent`), Lottie-cooked | Shipping |
 | Vector morph | same-topology path blends (whole-shape deformation) | `.oanim` shape keys / `.oshape` morph targets | Shipping |
 | Soft body | smooth squash/stretch/wobble deformation | `VectorShapeComponent` softBody (control-point skinning) | Shipping |
-| Textured cutout parts | TEXTURED sprite pieces driven by a cutout rig's transforms | - | **Gap** (see below) |
+| Textured cutout parts | TEXTURED art pieces (hand-drawn PNG limbs/heads) driven by a cutout rig's transforms | `.oanim`/`.oshape` v3 `texture` regions (Lottie image layers cook to them) | Shipping |
 
-The vector cutout rig (`.oanim`) already gives a full parent-chain transform
-hierarchy - the "bones" of a 2D cutout character - and blends between clips
-(`crossFadeTo`). What it cannot do today is skin those transforms to **textured**
-parts: a `.oanim` layer's shapes are flat-colour fills (solid or gradient), and
-the facade `VectorMesh` it renders through carries position + colour per vertex,
-no UVs and one shared untextured datablock. A textured-cutout character (photo/
-painted limbs animated by the same rig) needs per-region UVs on the tessellated
-vertices, a per-texture datablock split (the way `SpriteBatch` batches per
-texture), and a `texture`/UV binding in the `.oanim` shape grammar. The transform
-and blend machinery is already there - only the textured render path is missing.
+Textured cutout parts close the former gap: a `.oanim` (or `.oshape`) region
+can bind a texture (`texture NAME x y w h [uv window]` - the v3 grammar, see
+`vector-animation.md`), with per-vertex UVs projected through the rect at
+parse time and pinned to the vertices, so the SAME parent-chain transforms,
+clip blending (`crossFadeTo`), morphs and soft-body deformation that drive
+flat shapes drive painted art. Rendering splits the tessellated mesh into
+per-texture draw runs realized as facade `VectorMesh` sections binding the
+per-texture SPRITE material/datablock (one draw per texture, both flavors);
+flat and textured regions mix freely in one rig, and an all-flat rig renders
+byte-identically to before. Lottie image layers are the authoring on-ramp
+(`cook_vector_anim.py` cooks them to textured regions and carries the image
+files along); the text grammar is the agent-authorable path. With this, 2D
+cutout characters - flat-colour AND textured - are fully covered by the house
+taxonomy. Reference: `projects/vectorshapes/scenes/cutout.oscene` +
+`player_cutout_selfcheck` per flavor.
 
 ### Weighted 2D mesh skinning - a deliberate non-goal
 
