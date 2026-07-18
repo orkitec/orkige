@@ -106,6 +106,20 @@ if(EXISTS "${ORKIGE_ENGINE_BUILD_DIR}/CMakeCache.txt")
     if(_orkige_module_backend_line MATCHES "=next$")
         set(ORKIGE_MODULE_FLAVOR "next")
     endif()
+    # ABI-relevant flags ride along like the flavor: a sanitizer-instrumented
+    # engine's static libs reference runtime symbols (__asan_*/__ubsan_*) that
+    # only the same -fsanitize= compile AND link provide - a module built
+    # plain against such a tree dies at link with thousands of undefined
+    # sanitizer symbols.
+    file(STRINGS "${ORKIGE_ENGINE_BUILD_DIR}/CMakeCache.txt"
+        _orkige_module_cxxflags_line REGEX "^CMAKE_CXX_FLAGS:")
+    if(_orkige_module_cxxflags_line MATCHES "(-fsanitize=[^ ;]+)")
+        set(_orkige_module_sanitize "${CMAKE_MATCH_1}")
+        string(APPEND CMAKE_CXX_FLAGS " ${_orkige_module_sanitize} -fno-omit-frame-pointer")
+        string(APPEND CMAKE_EXE_LINKER_FLAGS " ${_orkige_module_sanitize}")
+        string(APPEND CMAKE_SHARED_LINKER_FLAGS " ${_orkige_module_sanitize}")
+        message(STATUS "engine tree is sanitizer-instrumented - module inherits ${_orkige_module_sanitize}")
+    endif()
 endif()
 
 # Flavor-bind guard (mirrors the engine root CMakeLists' ORKIGE_RENDER_BACKEND_
@@ -161,6 +175,16 @@ if(NOT ORKIGE_VCPKG_PREFIX)
         "'${ORKIGE_ENGINE_BUILD_DIR}' - is that really an Orkige build tree?")
 endif()
 list(PREPEND CMAKE_PREFIX_PATH "${ORKIGE_VCPKG_PREFIX}")
+# MODULE-mode finds reached through the config packages (OGRE-Next's
+# find_dependency(ZLIB) -> FindZLIB) locate libraries via find_library, which
+# does not search a prefix's per-config lib layout on its own - without the
+# vcpkg toolchain, replicate its per-config dispatch: Debug prefers the
+# triplet's debug/lib (zlibd & friends), everything falls back to lib. On
+# Apple/Linux hosts a system zlib masks this; Windows has none.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND EXISTS "${ORKIGE_VCPKG_PREFIX}/debug/lib")
+    list(PREPEND CMAKE_LIBRARY_PATH "${ORKIGE_VCPKG_PREFIX}/debug/lib")
+endif()
+list(APPEND CMAKE_LIBRARY_PATH "${ORKIGE_VCPKG_PREFIX}/lib")
 
 # vcpkg packages resolve transitive dependencies (freetype's bzip2/brotli,
 # assimp's FindStb, lua's unofficial-lua redirection, ...) through per-port
