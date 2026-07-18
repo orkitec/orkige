@@ -34,13 +34,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 
 # per-flavor DRIVER-INDEPENDENT expectations over the fixture. Absolute
-# frame-stats batch counts are driver-dependent (a software Vulkan stack
-# counts one more steady batch than Metal for the same scene), so the
-# assertions pin what every driver preserves: the batcher's realized run
-# count (structural) and the batching-off minus batching-on draw-batch
-# DELTA. Classic counts real draw calls: 3 merged runs + 1 solo = 4 vs 11
+# frame-stats batch counts are driver-dependent (the next flavor's render
+# queue merges consecutive same-layout dynamic objects into multi-draws,
+# and how many merge can vary with buffer-pool layout), so the assertions
+# pin what every driver preserves: the batcher's realized run count
+# (structural) and the batching-off minus batching-on draw-batch DELTA.
+# Classic counts real draw calls: 3 merged runs + 1 solo = 4 vs 11
 # individual quads (delta 7); the next flavor's frame-stats metric
-# compresses the same structure (delta 1).
+# compresses the same structure (delta 1, measured identically on Metal
+# and lavapipe Vulkan: on=3 off=4). The mid-run re-upload leg guards the
+# merge stability itself: a same-count refresh must keep its buffers (a
+# reallocation would split the merged draw on Vulkan for the rest of the
+# session - the defect this test caught).
 EXPECTED = {
     "classic": {"delta": 7, "runs": 3},
     "next": {"delta": 1, "runs": 3},
