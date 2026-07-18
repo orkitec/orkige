@@ -7041,10 +7041,13 @@ int main(int argc, char** argv)
 						if (!nativePlaytestBreak)
 						{
 							// surface the compiler evidence in the test log -
-							// a bare "build failed" is undiagnosable on CI
+							// a bare "build failed" is undiagnosable on CI,
+							// and the full unclassified tail carries a cmake
+							// error's continuation-line message body
 							SDL_Log("orkige_editor: native playtest - build "
-								"error tail:\n%s",
-								playSession.buildErrorLog.c_str());
+								"error tail:\n%s\nfull build tail:\n%s",
+								playSession.buildErrorLog.c_str(),
+								playSession.buildOutputTail.c_str());
 							nativeFailed = true;
 							nativeFailure = "the native module build failed";
 						}

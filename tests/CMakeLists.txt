@@ -2138,7 +2138,10 @@ foreach(native_test editor_project_native_play
         export_macos_native
         export_macos_native_next)
     if(TEST ${native_test})
-        set_tests_properties(${native_test} PROPERTIES TIMEOUT 420
+        # above the editor's own 600s build deadline, so a slow (sanitizer-
+        # instrumented) build fails through the editor's honest path instead
+        # of a ctest kill
+        set_tests_properties(${native_test} PROPERTIES TIMEOUT 900
             # both drive a build in/from the same module source; keep them
             # serialized so -j runs cannot interleave cmake processes
             RESOURCE_LOCK native_module_build)

@@ -553,6 +553,19 @@ void pumpBuildOutput(PlaySession& session, EditorConsole& console,
 					session.buildErrorLog.size() - maxErrorLog);
 			}
 		}
+		// and the unclassified rolling tail: a cmake configure error's
+		// message body rides on plain continuation lines
+		session.buildOutputTail += text;
+		session.buildOutputTail += '\n';
+		const std::size_t maxTail = 4096;
+		if (session.buildOutputTail.size() > maxTail)
+		{
+			const std::size_t cut =
+				session.buildOutputTail.find('\n',
+					session.buildOutputTail.size() - maxTail);
+			session.buildOutputTail.erase(0,
+				cut == std::string::npos ? 0 : cut + 1);
+		}
 	};
 	while ((newline = session.buildOutputBuffer.find('\n', lineStart)) !=
 		std::string::npos)
@@ -598,6 +611,7 @@ bool startPlay(PlaySession& session,
 	session.buildOutcome = PlaySession::BuildOutcome::None;
 	session.buildStatusTarget.clear();
 	session.buildErrorLog.clear();
+	session.buildOutputTail.clear();
 	const std::string& projectRoot = project.getRootDirectory();
 	const Orkige::NativeModule::Config nativeConfig = project.isLoaded()
 		? Orkige::NativeModule::configFromProject(project)

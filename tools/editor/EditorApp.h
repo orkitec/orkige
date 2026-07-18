@@ -978,6 +978,10 @@ struct PlaySession
 	BuildOutcome buildOutcome = BuildOutcome::None;
 	std::string buildStatusTarget;		//!< the module target the outcome is for
 	std::string buildErrorLog;			//!< accumulated [build] error-line tail
+	//! the last ~40 [build] lines REGARDLESS of classification - a cmake
+	//! configure error spreads its message over unclassifiable continuation
+	//! lines, and a failure diagnosed from CI logs needs the whole tail
+	std::string buildOutputTail;
 	//! remote state streamed by the player
 	std::string remoteScenePath;
 	bool helloReceived = false;
