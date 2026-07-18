@@ -113,12 +113,33 @@ A single shared director script (`scripts/director.component.lua`, one
 `director` component kind whose `mode` export picks the vignette) runs each
 scene with **no input**: it sets up the camera + atmosphere, drives the scene's
 motion or stress ramp, draws a small HUD, and after a frame budget wipes to the
-next scene — looping on the results card. The nine scenes are a terrain vista
+next scene — looping on the results card. The ten scenes are a terrain vista
 with a day→night sun arc + PSSM shadows + weather, a water lake, a night point-
 light ramp, a 3D-particle swarm, an instance field (one mesh + one material,
-Hlms auto-batch), a flat-colour 2D showcase (vector soft-bodies, morph, sprite
-parallax, vector animation), a `.oui`/localisation GUI screen, a physics body
-cascade with a time-scale hitstop, and a GUI results card.
+Hlms auto-batch), a **character cast** (a skinned-mannequin crowd stress ramp +
+a front-and-centre hero the director cross-fades walk↔idle, over a 2D cutout-
+hero + soft-body-blob foreground), a flat-colour 2D showcase (vector soft-
+bodies, morph, sprite parallax, vector animation), a `.oui`/localisation GUI
+screen, a physics body cascade with a time-scale hitstop, and a GUI results
+card.
+
+The **Character Cast** is the skeletal-animation showcase and the per-flavor
+skinning-cost measurement. Its crowd is a pool of the generated mannequin rig
+(`Util/make_character_rig.py`) the director ramps like the light/instance
+ramps: each activated mannequin's `mannequin.component.lua` staggers its walk
+phase and tempo through the Lua animation seam
+(`self.animation:setAnimationTime`/`setSpeed`), and the director cross-fades the
+hero walk↔idle through `world.getAnimation` so the weighted blend reads — the
+moving proof of the reflected `AnimationComponent` clip surface (see
+`Docs/character-animation.md`). Reported skinning headroom (mannequins the ramp
+activates before the ~40 fps Debug floor) rides the same self-limit as the
+light/instance ramps. The 2D foreground (a benchmark-local copy of the textured
+cutout hero playing its `wave` clip + a timer-wobbled soft-body blob) sits at a
+proper scene depth in front of the crowd, painted over the 3D pass by zOrder.
+The `player_benchmark_anim_probe` (per flavor) is motion-not-magnitude: two
+frozen-camera captures apart in time — the crowd band must CHANGE while a
+byte-stable sky reference band holds, and the cutout's distinctive unlit colour
+signature must be present.
 
 Three of the vignettes double as demos of the atmosphere/lighting/decal
 systems, each engaged unconditionally so the per-flavor image is the honest
@@ -177,11 +198,13 @@ showcase orbit at the init framing, so a captured frame is machine-independent).
 
 The tour must also LOOK right per flavor: beside the artifact tests, the
 per-vignette pixel probes (`tests/integration_driver/run_benchmark_scene_probe.py`,
-ctests `player_benchmark_lumens_probe` / `_field_probe` / `_hud2x_probe`) boot
+ctests `player_benchmark_lumens_probe` / `_field_probe` / `_hud2x_probe` /
+`_anim_probe`) boot
 single scenes deterministically and assert measured discriminators — the
 moonlit-night corridor + visible lamp pools (lumens), lit instance cubes
-(field), and vertically disjoint HUD text rows at a simulated 2x display
-density (hud2x). The lumens probe additionally asserts the many-lights
+(field), vertically disjoint HUD text rows at a simulated 2x display
+density (hud2x), and the animated skinned crowd + present cutout signature
+over a byte-stable sky reference (anim, motion-not-magnitude). The lumens probe additionally asserts the many-lights
 MECHANISM (not an absolute count, which a software rasterizer legitimately
 ramps low): the director's queried light budget drives the ramp and the live
 lamp count never exceeds it, parsed from the director's own log lines.

@@ -1914,7 +1914,12 @@ if(TARGET orkige_player)
         # medium must show a shadow-darkened terrain band (the casting sun
         # throws REAL shadows on this flavor - differential, so it needs no
         # fixed shadow positions).
-        foreach(ORKIGE_SCENE_PROBE lumens field hud2x flatland vistashadow)
+        # anim = the character-cast vignette: two frozen-camera captures apart
+        # in time - the skinned crowd band must CHANGE while a static sky band
+        # holds, the 2D foreground cutout hero must show its colour signature,
+        # and the scripts must report the animation seam working (self.animation
+        # + world.getAnimation drove the rigs).
+        foreach(ORKIGE_SCENE_PROBE lumens field hud2x flatland vistashadow anim)
             add_test(NAME player_benchmark_${ORKIGE_SCENE_PROBE}_probe${ORKIGE_FLAVOR_TEST_SUFFIX}
                 COMMAND python3
                     "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_benchmark_scene_probe.py"

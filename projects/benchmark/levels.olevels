@@ -2,7 +2,7 @@
 <XMLArchive Version="0">
     <String value="orkige.olevels"/>
     <int value="1"/>
-    <unsigned_int value="9"/>
+    <unsigned_int value="10"/>
     <String value="scenes/vista.oscene"/>
     <String value="Terrace Vista"/>
     <int value="0"/>
@@ -17,6 +17,9 @@
     <int value="0"/>
     <String value="scenes/field.oscene"/>
     <String value="Instance Field"/>
+    <int value="0"/>
+    <String value="scenes/cast.oscene"/>
+    <String value="Character Cast"/>
     <int value="0"/>
     <String value="scenes/flatland.oscene"/>
     <String value="Flatland"/>

@@ -29,7 +29,8 @@ from pathlib import Path
 # lines the artifact must contain for the run to have visited the whole tour.
 EXPECTED_LABELS = [
     "Terrace Vista", "Still Water", "Night Lumens", "Ember Swarm",
-    "Instance Field", "Flatland", "Console", "Cascade", "Tally",
+    "Instance Field", "Character Cast", "Flatland", "Console", "Cascade",
+    "Tally",
 ]
 
 

@@ -35,6 +35,10 @@
       "classic": { "batchesMin": 120, "batchesMax": 220, "trisMax": 7000 },
       "next": { "batchesMin": 2, "batchesMax": 8, "trisMax": 7000 }
     },
+    "cast.oscene": {
+      "classic": { "batchesMin": 20, "batchesMax": 80, "trisMax": 7000 },
+      "next": { "batchesMin": 4, "batchesMax": 16, "trisMax": 8000 }
+    },
     "flatland.oscene": {
       "classic": { "batchesMin": 3, "batchesMax": 14, "trisMax": 400 },
       "next": { "batchesMin": 3, "batchesMax": 10, "trisMax": 400 }

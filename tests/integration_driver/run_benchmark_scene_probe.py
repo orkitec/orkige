@@ -202,6 +202,84 @@ def probe_vistashadow(img_off, img_on):
              "renders no shadows on this flavor")
 
 
+# anim (character-cast) corridors. Motion-not-magnitude: two captures apart in
+# time from ONE frozen-camera boot. The mannequin crowd band must CHANGE (the
+# skinned rigs animate + the hero cross-fades), a static sky reference band must
+# hold (byte-stable up to a tiny tolerance), and the 2D foreground must carry
+# the cutout hero's distinctive UNLIT colour signature. Thresholds are set well
+# below the measured clean-build numbers (crowd motion ~5.9, static 0.0, cutout
+# tan/yellow/blue ~23k px) so both flavors clear the same corridor.
+ANIM_MOTION_MIN = 1.5          # mean abs per-channel diff over the crowd band
+ANIM_STATIC_MAX = 1.5          # the sky reference band is effectively unchanged
+ANIM_CUTOUT_MIN = 800          # cutout-part pixels in the 2D foreground band
+
+
+def band_diff(img_a, img_b, x0, y0, x1, y1):
+    """mean absolute per-channel difference over a fractional band"""
+    wa, ha, ca, pa = img_a
+    wb, hb, cb, pb = img_b
+    if (wa, ha) != (wb, hb):
+        fail("the two anim captures disagree on size (%dx%d vs %dx%d)"
+             % (wa, ha, wb, hb))
+    total = 0.0
+    count = 0
+    for y in range(int(y0 * ha), int(y1 * ha), 2):
+        for x in range(int(x0 * wa), int(x1 * wa), 2):
+            r0, g0, b0 = pixel(pa, ca, wa, x, y)
+            r1, g1, b1 = pixel(pb, cb, wb, x, y)
+            total += abs(r0 - r1) + abs(g0 - g1) + abs(b0 - b1)
+            count += 1
+    return total / (3.0 * max(count, 1))
+
+
+def probe_anim(img_a, img_b, output):
+    # the crowd band (upper-middle, ABOVE the 2D foreground): the skinned
+    # mannequins + the cross-fading hero must move the pixels between the two
+    # captures - the skinning-cost vignette's whole point is that they animate
+    crowd = band_diff(img_a, img_b, 0.15, 0.28, 0.85, 0.52)
+    # a top-corner sky reference band: the fixed sun + frozen camera keep it
+    # BYTE-STABLE frame to frame (the motion is the CROWD's, not the whole
+    # frame's - a flat-clear-colour backdrop, so this is exactly stable)
+    static = band_diff(img_a, img_b, 0.70, 0.03, 0.98, 0.13)
+    # the cutout hero's distinctive UNLIT parts in the lower foreground band:
+    # tan head (~240,170,90), yellow arm (~250,205,60) and saturated blue body
+    # (~40,110,220). Unlit vector-mesh colours, so DISTINCT from the LIT blue
+    # crystal hero (which reads ~100,180,240) and the tan-grey crowd.
+    wa, ha, ca, pa = img_a
+    cutout = 0
+    for y in range(int(ha * 0.50), int(ha * 0.99), 2):
+        for x in range(0, wa, 2):
+            r, g, b = pixel(pa, ca, wa, x, y)
+            tan = r >= 200 and 150 <= g <= 205 and b <= 130 and r > g > b
+            yellow = r >= 210 and g >= 170 and b <= 120
+            blue = b >= 180 and b - r >= 120 and b - g >= 70
+            if tan or yellow or blue:
+                cutout += 1
+    log("anim: crowd-band motion %.2f (want >= %.2f), static-band diff %.2f "
+        "(want <= %.2f), cutout-signature px %d (want >= %d)"
+        % (crowd, ANIM_MOTION_MIN, static, ANIM_STATIC_MAX, cutout,
+           ANIM_CUTOUT_MIN))
+    # the seam log evidence: every activated mannequin reports the self.animation
+    # + world.getAnimation drive worked, the director reports the hero handle
+    # resolved, and NOTHING reports a seam failure
+    if "mannequin: seam ok" not in output:
+        fail("no mannequin reported the animation seam working (self.animation "
+             "handle + reflected clip drive never ran)")
+    if "cast: hero anim ok" not in output:
+        fail("the director never resolved the hero rig via world.getAnimation")
+    if "seam FAIL" in output:
+        fail("a script reported an animation-seam failure")
+    if static > ANIM_STATIC_MAX:
+        fail("the static sky reference band changed between captures - the "
+             "whole frame is moving, not just the crowd")
+    if crowd < ANIM_MOTION_MIN:
+        fail("the character crowd band did not change between captures - the "
+             "skinned mannequins are not animating on this flavor")
+    if cutout < ANIM_CUTOUT_MIN:
+        fail("the 2D foreground cutout hero is missing its colour signature - "
+             "the textured cutout parts did not render")
+
+
 def probe_hud2x(img):
     width, height, channels, pixels = img
     # bright-glyph histogram over the HUD corner (rows are DEVICE pixels; the
@@ -231,10 +309,15 @@ def probe_hud2x(img):
              "bands - the rows overlap at this content scale")
 
 
-def run_player_capture(args, scene, shot, extra_cvars="", fake_scale=None):
-    """boot the player on one scene, capture the frame-60 screenshot, decode"""
+def run_player_capture(args, scene, shot, extra_cvars="", fake_scale=None,
+                       shot2=None, shot2_frame=None):
+    """boot the player on one scene, capture the frame-60 screenshot, decode.
+    With shot2 set, ALSO capture a second frame (shot2_frame) from the same
+    boot - the motion probe needs two frames apart in time."""
     if os.path.exists(shot):
         os.unlink(shot)
+    if shot2 is not None and os.path.exists(shot2):
+        os.unlink(shot2)
     env = dict(os.environ)
     env.update({
         "ORKIGE_DEMO_FRAMES": str(args.frames),
@@ -251,6 +334,9 @@ def run_player_capture(args, scene, shot, extra_cvars="", fake_scale=None):
     })
     if fake_scale is not None:
         env["ORKIGE_FAKE_CONTENT_SCALE"] = fake_scale
+    if shot2 is not None:
+        env["ORKIGE_DEMO_SCREENSHOT2"] = shot2
+        env["ORKIGE_DEMO_SHOT2_FRAME"] = str(shot2_frame or 105)
 
     cmd = [args.player, scene, "--project",
            os.path.join(args.repo, "projects/benchmark")]
@@ -264,6 +350,8 @@ def run_player_capture(args, scene, shot, extra_cvars="", fake_scale=None):
         fail("player exited %d" % result.returncode)
     if not os.path.exists(shot):
         fail("no screenshot written to " + shot)
+    if shot2 is not None and not os.path.exists(shot2):
+        fail("no second screenshot written to " + shot2)
     return decode_png(shot), output
 
 
@@ -314,7 +402,7 @@ def main():
     parser.add_argument("--dir", required=True)
     parser.add_argument("--probe", required=True,
                         choices=("lumens", "field", "hud2x", "flatland",
-                                 "vistashadow"))
+                                 "vistashadow", "anim"))
     parser.add_argument("--frames", type=int, default=240,
                         help="capture is at frame 60; later frames only pad "
                              "the clean-exit check")
@@ -334,6 +422,18 @@ def main():
             os.path.join(args.dir, "vistashadow_on.png"),
             extra_cvars=",r.shadowQuality=medium")
         probe_vistashadow(img_off, img_on)
+        log("OK")
+        return
+
+    if args.probe == "anim":
+        # the motion probe: one frozen-camera boot, two frames apart in time
+        shot_a = os.path.join(args.dir, "anim_frameA.png")
+        shot_b = os.path.join(args.dir, "anim_frameB.png")
+        img_a, output = run_player_capture(
+            args, "scenes/cast.oscene", shot_a,
+            shot2=shot_b, shot2_frame=105)
+        img_b = decode_png(shot_b)
+        probe_anim(img_a, img_b, output)
         log("OK")
         return
 

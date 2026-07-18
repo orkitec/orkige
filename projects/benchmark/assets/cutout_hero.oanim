@@ -1,0 +1,66 @@
+# orkige vector animation v3 - a textured cutout character
+version 3
+fps 30
+duration 60
+clip wave 0 60 loop
+layer shadow parent -1
+  shape k 1
+    kf 0
+      fill 0.24 0.24 0.35 1.0
+      contour 8
+      v -0.55 -1.06
+      v -0.30 -1.14
+      v 0.30 -1.14
+      v  0.55 -1.06
+      v  0.30 -0.98
+      v 0.10 -0.96
+      v -0.10 -0.96
+      v -0.30 -0.98
+layer body parent -1
+  pos k 3
+    kf 0 0 0
+    kf 30 0 0.08
+    kf 60 0 0
+  shape k 1
+    kf 0
+      fill 1 1 1 1
+      texture cutout_body.png -0.35 -1.0 0.7 1.0
+      contour 4
+      v -0.35 -1.0
+      v 0.35 -1.0
+      v  0.35  0.0
+      v -0.35 0.0
+layer head parent 1
+  pos k 1
+    kf 0 0 0.3
+  rot k 3
+    kf 0 0
+    kf 30 8
+    kf 60 0
+  shape k 1
+    kf 0
+      fill 1 1 1 1
+      texture cutout_head.png -0.3 0.0 0.6 0.6
+      contour 4
+      v -0.3 0.0
+      v 0.3 0.0
+      v  0.3 0.6
+      v -0.3 0.6
+layer arm parent 1
+  pos k 1
+    kf 0 0.35 -0.1
+  rot k 5
+    kf 0 -20
+    kf 15 60
+    kf 30 -20
+    kf 45 60
+    kf 60 -20
+  shape k 1
+    kf 0
+      fill 1 1 1 1
+      texture cutout_arm.png -0.1 -0.55 0.2 0.55
+      contour 4
+      v -0.1 -0.55
+      v 0.1 -0.55
+      v  0.1  0.0
+      v -0.1 0.0

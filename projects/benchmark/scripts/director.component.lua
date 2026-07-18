@@ -77,6 +77,11 @@ local camRadius, camHeight, camCenter = 16.0, 8.0, -8.0
 -- night leg flips it to the procedural dome so the sky darkens with the sun
 local vistaSkybox = false
 
+-- cast (character crowd) state: the front-and-centre hero's animation handle
+-- (reached via world.getAnimation) plus a small state machine that cross-fades
+-- it walk<->idle on a timer so the WEIGHTED blend reads on stage
+local castHeroAnim, castHeroState, castHeroTimer = nil, "walk", 0.0
+
 local PROJECT_GROUP = "OrkigeProject"
 
 --- helpers -------------------------------------------------------------------
@@ -316,7 +321,7 @@ end
 -- the fixed scene order for the results card (mirrors levels.olevels labels)
 SCENE_ORDER = SCENE_ORDER or {
 	"Terrace Vista", "Still Water", "Night Lumens", "Ember Swarm",
-	"Instance Field", "Flatland", "Console", "Cascade",
+	"Instance Field", "Character Cast", "Flatland", "Console", "Cascade",
 }
 
 --- console (GUI) mode --------------------------------------------------------
@@ -521,6 +526,28 @@ function init(self)
 		driveAtmosphere(0.15)
 		gatherPool()
 		buildHud()
+	elseif mode == "cast" then
+		setPerspectiveCamera(14.0, 5.0, -9.0)
+		-- a flat sky-blue backdrop (no HDR sky dome, which blew the stage's
+		-- exposure out) and a FIXED key light (no sun arc in update): the flat
+		-- background keeps the exposure neutral AND gives the anim probe a
+		-- guaranteed byte-stable static reference band
+		engine:setAtmosphere(false, 0, 0, 0, 0, 0)
+		engine:setWindowBackgroundColour(0.42, 0.55, 0.70)
+		driveSun(0.4)
+		gatherPool()
+		-- the front-and-centre hero: cache its rig via world.getAnimation (the
+		-- OTHER-object accessor leg of the seam) and start it walking; the
+		-- update loop cross-fades it walk<->idle so the blend shows
+		castHeroAnim = world.getAnimation("HeroCast")
+		castHeroState, castHeroTimer = "walk", 0.0
+		if castHeroAnim ~= nil then
+			castHeroAnim:playAnimation("walk", true)
+			print("cast: hero anim ok")
+		else
+			print("cast: hero anim FAIL - world.getAnimation('HeroCast') nil")
+		end
+		buildHud()
 	elseif mode == "flatland" then
 		engine:setAtmosphere(false, 0, 0, 0, 0, 0)
 		engine:setWindowBackgroundColour(0.20, 0.28, 0.42)
@@ -589,6 +616,25 @@ function update(self, dt)
 	elseif mode == "field" then
 		orbitCamera(elapsed * 0.3)
 		rampPool(frameMs, 8, 200)
+	elseif mode == "cast" then
+		orbitCamera(elapsed * 0.2)
+		-- the skinning stress ramp: activate mannequins until the frame budget
+		-- bends (default ~40 fps) or the pool is spent. Two per frame saturates
+		-- the pool quickly under the automation ceiling so the structural
+		-- budget capture reflects the full crowd.
+		rampPool(frameMs, 2, #pool)
+		-- one visible walk<->idle<->walk crossfade cycle on the hero
+		castHeroTimer = castHeroTimer + dt
+		if castHeroAnim ~= nil and castHeroTimer > 1.5 then
+			castHeroTimer = 0.0
+			if castHeroState == "walk" then
+				castHeroState = "idle"
+				castHeroAnim:crossFadeTo("idle", 0.4)
+			else
+				castHeroState = "walk"
+				castHeroAnim:crossFadeTo("walk", 0.4)
+			end
+		end
 	elseif mode == "flatland" then
 		-- nothing per-frame; tweens + morph + vector anim run themselves
 	elseif mode == "console" then

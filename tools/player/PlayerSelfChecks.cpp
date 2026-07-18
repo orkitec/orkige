@@ -3810,6 +3810,22 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 			render->saveWindowContents(shotPath);
 		}
 	}
+	// ORKIGE_DEMO_SCREENSHOT2: an OPTIONAL second capture at a later frame
+	// (ORKIGE_DEMO_SHOT2_FRAME, default 105) - a driver that needs two frames
+	// APART IN TIME from one boot (e.g. the motion-not-magnitude anim probe:
+	// an animated band must CHANGE while a static reference band holds)
+	if (const char* shot2Path = std::getenv("ORKIGE_DEMO_SCREENSHOT2"))
+	{
+		unsigned long shot2Frame = 105;
+		if (const char* f = std::getenv("ORKIGE_DEMO_SHOT2_FRAME"))
+		{
+			shot2Frame = std::strtoul(f, nullptr, 10);
+		}
+		if (frameCount == shot2Frame)
+		{
+			render->saveWindowContents(shot2Path);
+		}
+	}
 	// ORKIGE_FADE_SELFCHECK: drive a fade-out -> scene switch -> fade-in
 	// and observe the overlay alpha and the switch through the real loop
 	if (fadeCheck)
