@@ -20,11 +20,12 @@
 //! (@see VectorAnimEval) turns the parsed document into per-frame poses that
 //! feed VectorTessellator::Region streams.
 //!
-//! Grammar (v2), one token stream, `#` starts a line comment. Indentation is
+//! Grammar (v3), one token stream, `#` starts a line comment. Indentation is
 //! cosmetic; structure comes from the keywords alone. v2 ADDED the stroke/mask
-//! vocabulary, so every v1 file is a valid v2 file:
+//! vocabulary and v3 the texture vocabulary, so every v1/v2 file is a valid
+//! v3 file:
 //!
-//!   version 2
+//!   version 3
 //!   fps F                        frames per second (> 0); REQUIRED, before
 //!                                any clip/layer
 //!   duration D                   timeline length in frames (> 0); REQUIRED,
@@ -69,6 +70,22 @@
 //!                                `.oshape` vocabulary:
 //!   fill r g b a                 straight RGBA 0..1 (colour animates by
 //!                                differing per key)
+//!   texture NAME x y w h [u0 v0 u1 v1]
+//!                                makes the key's region a textured CUTOUT
+//!                                part (@see VectorShapeAsset::
+//!                                parseTextureSpec - the SAME grammar
+//!                                fragment): the texture NAME pasted into the
+//!                                shape-local rect (x, y)..(x+w, y+h), TOP row
+//!                                on the rect's top edge, optionally windowed
+//!                                by the uv sub-rect (v down). The key's
+//!                                `fill` is the multiply TINT. The rect and uv
+//!                                window animate across keys; the NAME does
+//!                                NOT (it is the block's identity, like a
+//!                                stroke's style). After the key's paint,
+//!                                before its contour; a textured key takes no
+//!                                `hole`, no `stroke` and no gradient, and its
+//!                                region renders with no baked feather
+//!                                (the texture's alpha is its edge).
 //!   linear sx sy ex ey N         linear gradient followed by N `stop`
 //!   radial sx sy ex ey N         radial centre/radius gradient; optional
 //!   focal fx fy                  off-centre focal point before its N stops

@@ -773,3 +773,101 @@ TEST_CASE("vectortessellator_feather_rides_its_own_region",
 	// the covering fill in draw order, so the cover hides all of it
 	CHECK(lastRed < firstBlue);
 }
+
+TEST_CASE("vectortessellator_textured_runs_and_uvs", "[unit][vectortess]")
+{
+	// a flat + textured + textured(same) + flat + textured(other) paint
+	// order: consecutive same-texture regions merge, so the run split is
+	// flat | tex_a (two regions) | flat | tex_b - one draw per run
+	auto quad = [](float cx, float cy, char const * texture)
+	{
+		VectorTessellator::Region region;
+		region.fill = VectorTessellator::Colour(1, 1, 1, 1);
+		region.outer.push_back(VectorTessellator::Point(cx - 1, cy - 1));
+		region.outer.push_back(VectorTessellator::Point(cx + 1, cy - 1));
+		region.outer.push_back(VectorTessellator::Point(cx + 1, cy + 1));
+		region.outer.push_back(VectorTessellator::Point(cx - 1, cy + 1));
+		if(texture != nullptr)
+		{
+			region.texture = texture;
+			region.textureRectMin = VectorTessellator::Point(cx - 1, cy - 1);
+			region.textureRectMax = VectorTessellator::Point(cx + 1, cy + 1);
+			VectorTessellator::projectTextureUVs(region);
+		}
+		return region;
+	};
+	std::vector<VectorTessellator::Region> regions;
+	regions.push_back(quad(0, 0, nullptr));
+	regions.push_back(quad(3, 0, "a.png"));
+	regions.push_back(quad(6, 0, "a.png"));
+	regions.push_back(quad(9, 0, nullptr));
+	regions.push_back(quad(12, 0, "b.png"));
+
+	VectorTessellator::Mesh mesh;
+	VectorTessellator::build(regions, 0.05f, mesh);
+
+	REQUIRE(mesh.runs.size() == 4u);
+	CHECK(mesh.runs[0].texture == "");
+	CHECK(mesh.runs[1].texture == "a.png");
+	CHECK(mesh.runs[2].texture == "");
+	CHECK(mesh.runs[3].texture == "b.png");
+	// the uv array parallels positions across every append path
+	CHECK(mesh.uvs.size() == mesh.positions.size());
+	// runs tile the arrays completely and contiguously
+	std::size_t vertexCursor = 0, indexCursor = 0;
+	for(VectorTessellator::Run const & run : mesh.runs)
+	{
+		CHECK(run.vertexStart == vertexCursor);
+		CHECK(run.indexStart == indexCursor);
+		vertexCursor += run.vertexCount;
+		indexCursor += run.indexCount;
+		// a run's indices address only its own vertex span
+		for(std::size_t i = 0; i < run.indexCount; ++i)
+		{
+			CHECK(mesh.indices[run.indexStart + i] >= run.vertexStart);
+			CHECK(mesh.indices[run.indexStart + i] <
+				run.vertexStart + run.vertexCount);
+		}
+	}
+	CHECK(vertexCursor == mesh.positions.size());
+	CHECK(indexCursor == mesh.indices.size());
+	// the textured quad (4 verts, 2 triangles) got NO feather rim while the
+	// flat quad did (its run carries more than the bare 6 indices)
+	CHECK(mesh.runs[3].indexCount == 6u);
+	CHECK(mesh.runs[0].indexCount > 6u);
+	// the merged a.png run is exactly two bare quads
+	CHECK(mesh.runs[1].indexCount == 12u);
+	// a textured vertex carries its projected uv (quad corner 0 = (0,1))
+	VectorTessellator::Run const & runA = mesh.runs[1];
+	CHECK(mesh.uvs[runA.vertexStart].x == Approx(0.0f));
+	CHECK(mesh.uvs[runA.vertexStart].y == Approx(1.0f));
+}
+
+TEST_CASE("vectortessellator_flat_build_single_run_identity",
+	"[unit][vectortess]")
+{
+	// an all-flat build is exactly ONE untextured run covering everything -
+	// the identity guard the facade's plain setMesh path keys on - and its
+	// geometry is byte-identical to the pre-run pipeline (uvs all zero)
+	std::vector<VectorTessellator::Region> regions;
+	VectorTessellator::Region region;
+	region.fill = VectorTessellator::Colour(0.9f, 0.4f, 0.3f, 1.0f);
+	region.outer.push_back(VectorTessellator::Point(0, 0));
+	region.outer.push_back(VectorTessellator::Point(2, 0));
+	region.outer.push_back(VectorTessellator::Point(0, 2));
+	regions.push_back(region);
+
+	VectorTessellator::Mesh mesh;
+	VectorTessellator::build(regions, 0.05f, mesh);
+	REQUIRE(mesh.runs.size() == 1u);
+	CHECK(mesh.runs[0].texture.empty());
+	CHECK(mesh.runs[0].vertexStart == 0u);
+	CHECK(mesh.runs[0].vertexCount == mesh.positions.size());
+	CHECK(mesh.runs[0].indexCount == mesh.indices.size());
+	CHECK(mesh.uvs.size() == mesh.positions.size());
+	for(VectorTessellator::Point const & uv : mesh.uvs)
+	{
+		CHECK(uv.x == 0.0f);
+		CHECK(uv.y == 0.0f);
+	}
+}

@@ -105,6 +105,7 @@ namespace Orkige
 		this->mRegions.clear();
 		this->mMorphTargets.clear();
 		this->mBuilt.clear();
+		this->mRuns.clear();
 		this->mDeform = SoftBodyDeform();	// drop the soft-body state
 		this->mDeformDirty = false;
 		this->setWantsUpdates(false);
@@ -229,6 +230,7 @@ namespace Orkige
 		this->mRegions.clear();
 		this->mMorphTargets.clear();
 		this->mBuilt.clear();
+		this->mRuns.clear();
 		this->mDeform = SoftBodyDeform();
 		this->mDeformDirty = false;
 		this->deinitSceneNodeGuard();
@@ -258,24 +260,14 @@ namespace Orkige
 		VectorTessellator::build(this->mRegions, feather, this->mBuilt);
 
 		// convert the POD mesh to facade vertices, multiplying the instance
-		// tint into every fill/feather colour. Kept as a member so the per-frame
-		// deform reuses it: the tinted COLOURS are fixed, only positions move.
-		this->mDeformVertices.resize(this->mBuilt.positions.size());
-		for(std::size_t each = 0; each < this->mBuilt.positions.size(); ++each)
-		{
-			VectorTessellator::Point const & point = this->mBuilt.positions[each];
-			VectorTessellator::Colour const & colour = this->mBuilt.colours[each];
-			VectorMesh::Vertex & vertex = this->mDeformVertices[each];
-			vertex.position = Vec2(point.x, point.y);
-			vertex.colour = Color(colour.r * this->mTint.r,
-				colour.g * this->mTint.g, colour.b * this->mTint.b,
-				colour.a * this->mTint.a);
-		}
-		this->mMesh->setMesh(
-			this->mDeformVertices.empty() ? NULL : this->mDeformVertices.data(),
-			this->mDeformVertices.size(),
-			this->mBuilt.indices.empty() ? NULL : this->mBuilt.indices.data(),
-			this->mBuilt.indices.size());
+		// tint into every fill/feather colour (textured regions' UVs ride
+		// along). Kept as a member so the per-frame deform reuses it: the
+		// tinted COLOURS and UVs are fixed, only positions move.
+		VectorMeshRuns::buildVertices(this->mBuilt, this->mTint,
+			this->mDeformVertices);
+		// an all-flat shape takes the plain setMesh identity path; textured
+		// runs split into one facade section (= one draw) per texture
+		this->mRuns.push(*this->mMesh, this->mBuilt, this->mDeformVertices);
 		this->applyStateToMesh();
 		// setMesh mapped the (dynamic) buffer this frame: the next backend forbids
 		// a second map before the frame renders, so defer any deform upload a tick
@@ -327,8 +319,7 @@ namespace Orkige
 			this->setWantsUpdates(false);
 			if(this->mMesh && !this->mDeformVertices.empty())
 			{
-				this->mMesh->updateVertices(this->mDeformVertices.data(),
-					this->mDeformVertices.size());
+				this->mRuns.update(*this->mMesh, this->mDeformVertices);
 			}
 		}
 	}
@@ -509,8 +500,7 @@ namespace Orkige
 				this->mDeformVertices[v].position = Vec2(
 					this->mDeformPositions[v].x, this->mDeformPositions[v].y);
 			}
-			this->mMesh->updateVertices(this->mDeformVertices.data(),
-				this->mDeformVertices.size());
+			this->mRuns.update(*this->mMesh, this->mDeformVertices);
 			this->mDeformDirty = !atRest;
 		}
 	}

@@ -10,10 +10,13 @@
 //! @file VectorMeshClassic.cpp
 //! @brief classic-OGRE implementation of the VectorMesh facade
 //! @remarks The arbitrary-triangle sibling of SpriteBatchClassic: one
-//! Ogre::ManualObject rebuilt from the owner's CPU vertex+index array.
-//! Untextured - all shapes share ONE generated "VectorFill" material (unlit,
-//! vertex colours tracked, alpha-blended, depth-checked/not-written,
-//! two-sided; no texture unit), so colour lives entirely in the vertex data.
+//! Ogre::ManualObject rebuilt from the owner's CPU section list (one
+//! ManualObject section per facade Section). Flat sections share ONE
+//! generated "VectorFill" material (unlit, vertex colours tracked,
+//! alpha-blended, depth-checked/not-written, two-sided; no texture unit), so
+//! their colour lives entirely in the vertex data; TEXTURED sections bind
+//! the per-(texture,sampler) sprite material (getOrCreateSpriteMaterial -
+//! reused wholesale, same 2D rules) and additionally emit a UV stream.
 //! zOrder maps onto the SAME render-queue painter window SpriteQuad uses.
 
 #include "engine_render_classic/ClassicBackend.h"
@@ -71,75 +74,145 @@ namespace Orkige
 		return handle;
 	}
 	//---------------------------------------------------------
-	void VectorMesh::Impl::rebuild(VectorMesh::Vertex const * vertices,
-		std::size_t vertexCount, unsigned int const * indices,
-		std::size_t indexCount)
+	//! @brief resolve one facade section to its material: the shared flat
+	//! "VectorFill" recipe, or the per-(texture,sampler) SPRITE material
+	//! (reused wholesale - same 2D rules, bilinear+clamp). A texture that
+	//! fails to load logs once (per mesh+name) and falls back to the flat
+	//! recipe, so bad content shows a tint-coloured silhouette, never crashes.
+	static String resolveVectorSectionMaterial(
+		VectorMesh::Section const & section, bool & outTextured)
 	{
-		oAssert(this->mesh);
-		this->mesh->clear();
-		this->triangleCount = indexCount / 3;
-		this->vertexCount = 0;
-		this->indices.clear();
-		if(vertexCount == 0 || vertices == NULL || indexCount < 3 ||
-			indices == NULL)
+		outTextured = false;
+		if(section.texture.empty())
 		{
-			this->triangleCount = 0;
-			return;	// nothing to draw
+			return "VectorFill";
 		}
-		// cache the topology so a later beginUpdate can re-emit it without the
-		// owner passing indices again (the dynamic deform only sends vertices)
-		this->vertexCount = vertexCount;
-		this->indices.resize(indexCount);
-		for(std::size_t each = 0; each < indexCount; ++each)
+		Ogre::TexturePtr texture;
+		try
 		{
-			this->indices[each] = static_cast<Ogre::uint32>(indices[each]);
+			// cooked-payload fallback (foo.png -> foo.dds/.ktx in exports),
+			// resolved through every resource group like a sprite texture
+			texture = Ogre::TextureManager::getSingleton().load(
+				RenderBackend::resolveTextureResourceName(section.texture),
+				Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
 		}
-		this->mesh->estimateVertexCount(vertexCount);
-		this->mesh->estimateIndexCount(indexCount);
-		this->mesh->begin("VectorFill", Ogre::RenderOperation::OT_TRIANGLE_LIST);
-		for(std::size_t each = 0; each < vertexCount; ++each)
+		catch(Ogre::Exception const & e)
 		{
-			VectorMesh::Vertex const & vertex = vertices[each];
-			this->mesh->position(
-				Ogre::Vector3(vertex.position.x, vertex.position.y, 0.0f));
-			this->mesh->colour(vertex.colour);
+			oDebugError("engine", 0, "RenderWorld: vector-mesh texture '"
+				<< section.texture << "' failed to load: "
+				<< e.getDescription());
+			return "VectorFill";
 		}
-		const std::size_t triangles = indexCount / 3;
-		for(std::size_t t = 0; t < triangles; ++t)
+		if(!texture)
 		{
-			this->mesh->triangle(this->indices[t * 3 + 0],
-				this->indices[t * 3 + 1], this->indices[t * 3 + 2]);
+			oDebugError("engine", 0, "RenderWorld: vector-mesh texture '"
+				<< section.texture << "' not found");
+			return "VectorFill";
 		}
-		this->mesh->end();
-		RenderBackend::applyZOrder(this->mesh, this->zOrder);
+		RenderBackend::getOrCreateSpriteMaterial(texture,
+			SpriteQuad::FILTER_BILINEAR, SpriteQuad::ADDRESS_CLAMP);
+		outTextured = true;
+		return SpriteQuad::samplerName(texture->getName(),
+			SpriteQuad::FILTER_BILINEAR, SpriteQuad::ADDRESS_CLAMP);
 	}
 	//---------------------------------------------------------
-	void VectorMesh::Impl::updateVertices(VectorMesh::Vertex const * vertices,
+	void VectorMesh::Impl::rebuild(VectorMesh::Section const * list,
 		std::size_t count)
 	{
 		oAssert(this->mesh);
-		// only a topology-preserving refresh of a built section (setMesh first);
-		// a mismatch falls back silently so a stale caller can't corrupt the buffer
-		if(this->vertexCount == 0 || count != this->vertexCount ||
-			vertices == NULL || this->indices.empty())
+		this->mesh->clear();
+		this->triangleCount = 0;
+		this->sections.clear();
+		std::size_t ogreSection = 0;
+		for(std::size_t s = 0; s < count; ++s)
+		{
+			VectorMesh::Section const & source = list[s];
+			if(source.vertexCount == 0 || source.vertices == NULL ||
+				source.indexCount < 3 || source.indices == NULL)
+			{
+				// keep a placeholder so the caller's section indices stay
+				// stable (its dynamic updates are ignored)
+				this->sections.push_back(BuiltSection());
+				continue;
+			}
+			BuiltSection built;
+			built.material = resolveVectorSectionMaterial(source,
+				built.textured);
+			built.ogreSection = ogreSection++;
+			// cache the topology so a later beginUpdate can re-emit it without
+			// the owner passing indices again (the dynamic upload only sends
+			// vertices)
+			built.vertexCount = source.vertexCount;
+			built.indices.resize(source.indexCount);
+			for(std::size_t each = 0; each < source.indexCount; ++each)
+			{
+				built.indices[each] =
+					static_cast<Ogre::uint32>(source.indices[each]);
+			}
+			this->mesh->estimateVertexCount(source.vertexCount);
+			this->mesh->estimateIndexCount(source.indexCount);
+			this->mesh->begin(built.material,
+				Ogre::RenderOperation::OT_TRIANGLE_LIST);
+			for(std::size_t each = 0; each < source.vertexCount; ++each)
+			{
+				VectorMesh::Vertex const & vertex = source.vertices[each];
+				this->mesh->position(
+					Ogre::Vector3(vertex.position.x, vertex.position.y, 0.0f));
+				this->mesh->colour(vertex.colour);
+				if(built.textured)
+				{
+					this->mesh->textureCoord(vertex.uv.x, vertex.uv.y);
+				}
+			}
+			const std::size_t triangles = source.indexCount / 3;
+			for(std::size_t t = 0; t < triangles; ++t)
+			{
+				this->mesh->triangle(built.indices[t * 3 + 0],
+					built.indices[t * 3 + 1], built.indices[t * 3 + 2]);
+			}
+			this->mesh->end();
+			this->triangleCount += triangles;
+			this->sections.push_back(std::move(built));
+		}
+		RenderBackend::applyZOrder(this->mesh, this->zOrder);
+	}
+	//---------------------------------------------------------
+	void VectorMesh::Impl::updateSection(std::size_t index,
+		VectorMesh::Vertex const * vertices, std::size_t count)
+	{
+		oAssert(this->mesh);
+		// only a topology-preserving refresh of a built section (setMesh
+		// first); a mismatch falls back silently so a stale caller can't
+		// corrupt the buffer
+		if(index >= this->sections.size() || vertices == NULL)
+		{
+			return;
+		}
+		BuiltSection const & built = this->sections[index];
+		if(built.vertexCount == 0 || count != built.vertexCount ||
+			built.indices.empty())
 		{
 			return;
 		}
 		// beginUpdate reuses the existing hardware buffers (no realloc when the
 		// counts match): re-emit the moved vertices and the cached topology
-		this->mesh->beginUpdate(0);
+		this->mesh->beginUpdate(built.ogreSection);
 		for(std::size_t each = 0; each < count; ++each)
 		{
 			VectorMesh::Vertex const & vertex = vertices[each];
 			this->mesh->position(
 				Ogre::Vector3(vertex.position.x, vertex.position.y, 0.0f));
 			this->mesh->colour(vertex.colour);
+			if(built.textured)
+			{
+				this->mesh->textureCoord(vertex.uv.x, vertex.uv.y);
+			}
 		}
-		const std::size_t triangles = this->indices.size() / 3;
+		const std::size_t triangles = built.indices.size() / 3;
 		for(std::size_t t = 0; t < triangles; ++t)
 		{
-			this->mesh->triangle(this->indices[t * 3 + 0],
-				this->indices[t * 3 + 1], this->indices[t * 3 + 2]);
+			this->mesh->triangle(built.indices[t * 3 + 0],
+				built.indices[t * 3 + 1], built.indices[t * 3 + 2]);
 		}
 		this->mesh->end();
 	}
@@ -185,13 +258,31 @@ namespace Orkige
 	void VectorMesh::setMesh(Vertex const * vertices, std::size_t vertexCount,
 		unsigned int const * indices, std::size_t indexCount)
 	{
-		this->mImpl->rebuild(vertices, vertexCount, indices, indexCount);
+		// exactly one untextured section (the flat identity path)
+		Section section;
+		section.vertices = vertices;
+		section.vertexCount = vertexCount;
+		section.indices = indices;
+		section.indexCount = indexCount;
+		this->mImpl->rebuild(&section, 1);
 	}
 	//---------------------------------------------------------
 	void VectorMesh::updateVertices(Vertex const * vertices,
 		std::size_t vertexCount)
 	{
-		this->mImpl->updateVertices(vertices, vertexCount);
+		this->mImpl->updateSection(0, vertices, vertexCount);
+	}
+	//---------------------------------------------------------
+	void VectorMesh::setMeshSections(Section const * sections,
+		std::size_t sectionCount)
+	{
+		this->mImpl->rebuild(sections, sectionCount);
+	}
+	//---------------------------------------------------------
+	void VectorMesh::updateSectionVertices(std::size_t sectionIndex,
+		Vertex const * vertices, std::size_t vertexCount)
+	{
+		this->mImpl->updateSection(sectionIndex, vertices, vertexCount);
 	}
 	//---------------------------------------------------------
 	std::size_t VectorMesh::getTriangleCount() const

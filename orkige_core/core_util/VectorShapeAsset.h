@@ -18,9 +18,27 @@
 //! headless (orkige_core), unit-tested without a renderer; it turns the text
 //! into VectorTessellator::Region lists the tessellator consumes.
 //!
-//! Grammar (v2), one token stream, `#` starts a line comment:
-//!   version 2
+//! Grammar (v3), one token stream, `#` starts a line comment. v3 ADDED the
+//! `texture` vocabulary, so every v1/v2 file is a valid v3 file:
+//!   version 3
 //!   fill  r g b a                 straight RGBA 0..1 - opens a region
+//!   texture NAME x y w h [u0 v0 u1 v1]
+//!                                 makes the open region a textured CUTOUT
+//!                                 part: NAME is the texture asset's file name
+//!                                 (no whitespace; resolved like a sprite
+//!                                 texture), pasted into the shape-local rect
+//!                                 (x, y) .. (x+w, y+h) with the texture's TOP
+//!                                 row on the rect's TOP edge; the optional
+//!                                 u0 v0 u1 v1 is an atlas sub-rect (default
+//!                                 the full texture, v down). The region's
+//!                                 `fill` becomes the multiply TINT (author
+//!                                 white for the art verbatim); its contour is
+//!                                 any polygon - each vertex samples where it
+//!                                 sits in the rect (a full quad = the rect's
+//!                                 4 corners). Comes after `fill`, before
+//!                                 `contour`; a textured region takes no
+//!                                 `hole` and no `stroke`, and gets no baked
+//!                                 feather (the texture's alpha is its edge).
 //!   stroke W CAP JOIN LIMIT ENDS  makes the open region a STROKE of width W:
 //!                                 its `contour` is a CENTRELINE the renderer
 //!                                 sweeps, not a filled boundary. CAP is
@@ -44,7 +62,8 @@
 //!                                 animation. Everything before the first `morph`
 //!                                 is the BASE pose; each `morph` starts another.
 //! Reserved words (gradient paint) are ignored when present. A v1 file is a
-//! valid v2 file (v2 only ADDS the stroke/mask vocabulary).
+//! valid v2 file (v2 only ADDS the stroke/mask vocabulary) and a v2 file a
+//! valid v3 file (v3 only ADDS the texture vocabulary).
 
 #include "core_util/VectorTessellator.h"
 #include <core_util/String.h>
@@ -95,6 +114,18 @@ namespace Orkige
 		//! definition of the stroke vocabulary, two assets.
 		//! @return false on a malformed spec (region left untouched)
 		static bool parseStrokeSpec(std::istringstream & tokens,
+			VectorTessellator::Region & region);
+
+		//! @brief parse the `texture NAME x y w h [u0 v0 u1 v1]` grammar
+		//! fragment from an open token stream into region (texture name,
+		//! shape-local rect, optional uv window). Shared with the `.oanim`
+		//! shape keys exactly like parseStrokeSpec - one definition of the
+		//! texture vocabulary, two assets. The derived per-vertex UVs are
+		//! projected later, once the region's contour is complete
+		//! (@see VectorTessellator::projectTextureUVs).
+		//! @return false on a malformed spec (w/h <= 0, a half-given uv
+		//! window); region is only written on success
+		static bool parseTextureSpec(std::istringstream & tokens,
 			VectorTessellator::Region & region);
 	};
 }

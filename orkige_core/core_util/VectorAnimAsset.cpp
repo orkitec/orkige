@@ -79,6 +79,12 @@ namespace Orkige
 			{
 				return false;
 			}
+			// a textured region keeps its texture NAME across keys (the
+			// block's identity - only the rect/uv window and contour animate)
+			if(a.texture != b.texture)
+			{
+				return false;
+			}
 			for(std::size_t h = 0; h < a.holes.size(); ++h)
 			{
 				if(a.holes[h].size() != b.holes[h].size())
@@ -196,14 +202,29 @@ namespace Orkige
 					return fail("hole contour needs at least 3 vertices");
 				}
 			}
+			if(!region.texture.empty())
+			{
+				// a textured cutout part is a plain flat fill: the texture is
+				// the paint, the fill its tint
+				if(isStroke || !region.holes.empty() ||
+					region.paintType != VectorTessellator::PAINT_SOLID)
+				{
+					return fail("a textured region takes no stroke, hole or "
+						"gradient (the texture is the paint, fill its tint)");
+				}
+			}
 			if(openShape->keys.size() > 1 && !sameRegionTopology(
 				openShape->keys.front().region, region))
 			{
 				// the fixed-topology law
 				return fail("shape key topology differs from the block's first "
-					"key (contour/hole/mask/stop counts and stroke style must "
-					"repeat exactly)");
+					"key (contour/hole/mask/stop counts, stroke style and "
+					"texture name must repeat exactly)");
 			}
+			// derive the per-vertex UVs now the key's contour is complete, so
+			// the evaluator lerps them like any other per-vertex quantity
+			VectorTessellator::projectTextureUVs(
+				openShape->keys.back().region);
 			inShapeKey = false;
 			target = TARGET_NONE;
 			return true;
@@ -455,11 +476,30 @@ namespace Orkige
 				if(!inShapeKey || !shapeKeyHasFill || vertsRemaining != 0 ||
 					stopsRemaining != 0 ||
 					!openShape->keys.back().region.outer.empty() ||
+					!openShape->keys.back().region.texture.empty() ||
 					!VectorShapeAsset::parseStrokeSpec(tokens,
 						openShape->keys.back().region))
 				{
 					return fail("malformed stroke spec, or stroke after the "
 						"key's contour");
+				}
+			}
+			else if(keyword == "texture")
+			{
+				// the open key's region becomes a textured cutout part: after
+				// the key's paint (the tint), before its contour, once
+				if(!inShapeKey || !shapeKeyHasFill || vertsRemaining != 0 ||
+					stopsRemaining != 0 ||
+					!openShape->keys.back().region.outer.empty() ||
+					!openShape->keys.back().region.texture.empty() ||
+					openShape->keys.back().region.kind !=
+						VectorTessellator::REGION_FILL ||
+					!VectorShapeAsset::parseTextureSpec(tokens,
+						openShape->keys.back().region))
+				{
+					return fail("malformed texture spec (want: texture name "
+						"x y w h [u0 v0 u1 v1], once per key, after its "
+						"paint, before its contour)");
 				}
 			}
 			else if(keyword == "mask")

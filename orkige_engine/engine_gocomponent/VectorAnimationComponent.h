@@ -12,6 +12,7 @@
 #include <core_game/GameObjectComponent.h>
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_render/VectorMesh.h"
+#include "engine_gocomponent/VectorMeshRuns.h"
 #include "engine_util/SceneNodeGuard.h"
 #include "core_util/VectorTessellator.h"
 #include "core_util/VectorAnimEval.h"
@@ -91,8 +92,9 @@ namespace Orkige
 
 		//--- reused per-frame buffers (allocation-free once warm) ---
 		std::vector<VectorTessellator::Region>	mScratchRegions;	//!< composed world-space pose
-		VectorTessellator::Mesh	mBuilt;		//!< tessellated pose (positions/colours/indices)
+		VectorTessellator::Mesh	mBuilt;		//!< tessellated pose (positions/colours/uvs/indices/runs)
 		std::vector<VectorMesh::Vertex>	mVertices;	//!< facade upload buffer (tinted)
+		VectorMeshRuns		mRuns;		//!< per-texture run -> facade section converter
 		optr<StringUtil::StringObject>	mEventData;	//!< ended-clip name payload
 	private:
 		//--- Methods -----------------------------------------------
@@ -117,6 +119,12 @@ namespace Orkige
 		std::size_t getTriangleCount() const;
 		//! vertices in the built pose (0 when empty) - selfcheck/introspection
 		std::size_t getVertexCount() const;
+		//! draw runs of the built pose (1 for an all-flat rig, one per
+		//! texture switch otherwise; 0 when empty) - selfcheck/introspection
+		std::size_t getRunCount() const;
+		//! how many of those runs bind a texture (0 for an all-flat rig) -
+		//! selfcheck/introspection
+		std::size_t getTexturedRunCount() const;
 		//! @brief a cheap deterministic signature of the CURRENT pose (the sum of
 		//! |x|+|y| over the composed vertices): it changes as the pose animates,
 		//! so a selfcheck detects motion / a crossfade blend by comparing it

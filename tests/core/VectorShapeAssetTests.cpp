@@ -222,3 +222,105 @@ TEST_CASE("vectorshape_parse_rejects_malformed_morph", "[unit][vectorshape]")
 	const String noBase = "morph early\nfill 1 1 1 1\ncontour 3\nv 0 0\nv 1 0\nv 0 1\n";
 	CHECK_FALSE(VectorShapeAsset::parse(noBase, parsed));
 }
+
+TEST_CASE("vectorshape_parse_textured_region", "[unit][vectorshape]")
+{
+	// a textured cutout part: the quad contour projects through the rect
+	// into per-vertex UVs (v runs top-down - texture row 0 on the rect's
+	// TOP edge), and the fill stays as the multiply tint
+	const String text =
+		"version 3\n"
+		"fill 1 1 1 1\n"
+		"texture head.png -1.0 -2.0 2.0 4.0\n"
+		"contour 4\n"
+		"v -1.0 -2.0\n"		// bottom-left  -> uv (0, 1)
+		"v  1.0 -2.0\n"		// bottom-right -> uv (1, 1)
+		"v  1.0  2.0\n"		// top-right    -> uv (1, 0)
+		"v -1.0  2.0\n";	// top-left     -> uv (0, 0)
+	std::vector<VectorTessellator::Region> regions;
+	REQUIRE(VectorShapeAsset::parse(text, regions));
+	REQUIRE(regions.size() == 1u);
+	CHECK(regions[0].texture == "head.png");
+	REQUIRE(regions[0].uvs.size() == 4u);
+	CHECK(regions[0].uvs[0].x == Approx(0.0f));
+	CHECK(regions[0].uvs[0].y == Approx(1.0f));
+	CHECK(regions[0].uvs[1].x == Approx(1.0f));
+	CHECK(regions[0].uvs[1].y == Approx(1.0f));
+	CHECK(regions[0].uvs[2].x == Approx(1.0f));
+	CHECK(regions[0].uvs[2].y == Approx(0.0f));
+	CHECK(regions[0].uvs[3].x == Approx(0.0f));
+	CHECK(regions[0].uvs[3].y == Approx(0.0f));
+}
+
+TEST_CASE("vectorshape_parse_textured_uv_window", "[unit][vectorshape]")
+{
+	// an atlas sub-rect windows the projection; a mid-rect vertex lands
+	// mid-window (arbitrary polygons project per vertex, not just quads)
+	const String text =
+		"version 3\n"
+		"fill 1 1 1 1\n"
+		"texture atlas.png 0 0 2 2 0.5 0.25 1.0 0.75\n"
+		"contour 3\n"
+		"v 0 0\n"		// rect bottom-left -> uv (0.5, 0.75)
+		"v 2 0\n"		// rect bottom-right -> uv (1.0, 0.75)
+		"v 1 2\n";		// rect top-centre -> uv (0.75, 0.25)
+	std::vector<VectorTessellator::Region> regions;
+	REQUIRE(VectorShapeAsset::parse(text, regions));
+	REQUIRE(regions.size() == 1u);
+	REQUIRE(regions[0].uvs.size() == 3u);
+	CHECK(regions[0].uvs[0].x == Approx(0.5f));
+	CHECK(regions[0].uvs[0].y == Approx(0.75f));
+	CHECK(regions[0].uvs[1].x == Approx(1.0f));
+	CHECK(regions[0].uvs[1].y == Approx(0.75f));
+	CHECK(regions[0].uvs[2].x == Approx(0.75f));
+	CHECK(regions[0].uvs[2].y == Approx(0.25f));
+}
+
+TEST_CASE("vectorshape_parse_rejects_bad_texture_specs", "[unit][vectorshape]")
+{
+	std::vector<VectorTessellator::Region> regions;
+	// zero-size rect
+	CHECK_FALSE(VectorShapeAsset::parse(
+		"fill 1 1 1 1\ntexture t.png 0 0 0 2\ncontour 3\nv 0 0\nv 1 0\nv 0 1\n",
+		regions));
+	// a half-given uv window
+	CHECK_FALSE(VectorShapeAsset::parse(
+		"fill 1 1 1 1\ntexture t.png 0 0 2 2 0.5 0.5\n"
+		"contour 3\nv 0 0\nv 1 0\nv 0 1\n", regions));
+	// texture after the contour
+	CHECK_FALSE(VectorShapeAsset::parse(
+		"fill 1 1 1 1\ncontour 3\nv 0 0\nv 1 0\nv 0 1\ntexture t.png 0 0 2 2\n",
+		regions));
+	// texture repeated
+	CHECK_FALSE(VectorShapeAsset::parse(
+		"fill 1 1 1 1\ntexture t.png 0 0 2 2\ntexture u.png 0 0 2 2\n"
+		"contour 3\nv 0 0\nv 1 0\nv 0 1\n", regions));
+	// a textured region takes no hole
+	CHECK_FALSE(VectorShapeAsset::parse(
+		"fill 1 1 1 1\ntexture t.png -2 -2 4 4\ncontour 4\n"
+		"v -1 -1\nv 1 -1\nv 1 1\nv -1 1\n"
+		"hole 3\nv -0.2 -0.2\nv 0.2 -0.2\nv 0 0.2\n", regions));
+	// a textured region takes no stroke (either order)
+	CHECK_FALSE(VectorShapeAsset::parse(
+		"fill 1 1 1 1\ntexture t.png 0 0 2 2\n"
+		"stroke 0.2 round round 4 open\ncontour 2\nv 0 0\nv 1 0\n", regions));
+	CHECK_FALSE(VectorShapeAsset::parse(
+		"fill 1 1 1 1\nstroke 0.2 round round 4 open\n"
+		"texture t.png 0 0 2 2\ncontour 2\nv 0 0\nv 1 0\n", regions));
+	CHECK(regions.empty());
+}
+
+TEST_CASE("vectorshape_parse_untextured_unchanged_by_v3", "[unit][vectorshape]")
+{
+	// the v3 vocabulary is purely additive: a v2 document parses to regions
+	// with NO texture and NO derived uvs (the byte-identity guarantee)
+	const String text =
+		"version 2\n"
+		"fill 0.2 0.4 0.6 1\n"
+		"contour 3\nv 0 0\nv 1 0\nv 0 1\n";
+	std::vector<VectorTessellator::Region> regions;
+	REQUIRE(VectorShapeAsset::parse(text, regions));
+	REQUIRE(regions.size() == 1u);
+	CHECK(regions[0].texture.empty());
+	CHECK(regions[0].uvs.empty());
+}

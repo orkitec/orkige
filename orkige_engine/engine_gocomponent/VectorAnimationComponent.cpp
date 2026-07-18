@@ -134,6 +134,7 @@ namespace Orkige
 		this->mBuilt.clear();
 		this->mScratchRegions.clear();
 		this->mVertices.clear();
+		this->mRuns.clear();
 		this->mFreshBuild = false;
 		this->mNeedsUpload = false;
 		this->mWasAtEnd = false;
@@ -149,6 +150,16 @@ namespace Orkige
 	std::size_t VectorAnimationComponent::getVertexCount() const
 	{
 		return this->mVertices.size();
+	}
+	//---------------------------------------------------------
+	std::size_t VectorAnimationComponent::getRunCount() const
+	{
+		return this->mRuns.runCount();
+	}
+	//---------------------------------------------------------
+	std::size_t VectorAnimationComponent::getTexturedRunCount() const
+	{
+		return this->mRuns.texturedRunCount();
 	}
 	//---------------------------------------------------------
 	float VectorAnimationComponent::getPoseSignature() const
@@ -437,6 +448,7 @@ namespace Orkige
 		this->mBuilt.clear();
 		this->mScratchRegions.clear();
 		this->mVertices.clear();
+		this->mRuns.clear();
 		this->mFreshBuild = false;
 		this->deinitSceneNodeGuard();
 	}
@@ -545,18 +557,9 @@ namespace Orkige
 
 		// convert the POD mesh to facade vertices, multiplying the instance tint
 		// into every fill/feather colour (the composed alpha already carries the
-		// animated layer opacity)
-		this->mVertices.resize(this->mBuilt.positions.size());
-		for(std::size_t each = 0; each < this->mBuilt.positions.size(); ++each)
-		{
-			VectorTessellator::Point const & point = this->mBuilt.positions[each];
-			VectorTessellator::Colour const & colour = this->mBuilt.colours[each];
-			VectorMesh::Vertex & vertex = this->mVertices[each];
-			vertex.position = Vec2(point.x, point.y);
-			vertex.colour = Color(colour.r * this->mTint.r,
-				colour.g * this->mTint.g, colour.b * this->mTint.b,
-				colour.a * this->mTint.a);
-		}
+		// animated layer opacity); textured regions' UVs ride along
+		VectorMeshRuns::buildVertices(this->mBuilt, this->mTint,
+			this->mVertices);
 	}
 	//---------------------------------------------------------
 	void VectorAnimationComponent::pushMesh()
@@ -565,11 +568,9 @@ namespace Orkige
 		{
 			return;
 		}
-		this->mMesh->setMesh(
-			this->mVertices.empty() ? NULL : this->mVertices.data(),
-			this->mVertices.size(),
-			this->mBuilt.indices.empty() ? NULL : this->mBuilt.indices.data(),
-			this->mBuilt.indices.size());
+		// an all-flat rig takes the plain setMesh identity path; textured
+		// runs split into one facade section (= one draw) per texture
+		this->mRuns.push(*this->mMesh, this->mBuilt, this->mVertices);
 		this->applyStateToMesh();
 		// setMesh mapped the (dynamic) buffer this frame: the next backend forbids
 		// a second map before the frame renders, so defer the first refill a tick
@@ -596,9 +597,7 @@ namespace Orkige
 			this->pushMesh();
 			return;
 		}
-		this->mMesh->updateVertices(
-			this->mVertices.empty() ? NULL : this->mVertices.data(),
-			this->mVertices.size());
+		this->mRuns.update(*this->mMesh, this->mVertices);
 	}
 	//---------------------------------------------------------
 	int VectorAnimationComponent::clipIndex(String const & clip) const
@@ -702,6 +701,8 @@ namespace Orkige
 		OFUNC(hasAnimation)
 		OFUNC(getTriangleCount)
 		OFUNC(getVertexCount)
+		OFUNC(getRunCount)
+		OFUNC(getTexturedRunCount)
 		OFUNC(getPoseSignature)
 		// playback drive (Lua self.anim + native): a script plays/blends clips,
 		// scrubs, queries state; the getters feed selfchecks/MCP
@@ -741,6 +742,8 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(hasAnimation)
 			OWEAKHANDLE_BASEMETHOD(getTriangleCount)
 			OWEAKHANDLE_BASEMETHOD(getVertexCount)
+			OWEAKHANDLE_BASEMETHOD(getRunCount)
+			OWEAKHANDLE_BASEMETHOD(getTexturedRunCount)
 			OWEAKHANDLE_BASEMETHOD(getPoseSignature)
 			OWEAKHANDLE_BASEMETHOD(play)
 			OWEAKHANDLE_BASEMETHOD(stop)

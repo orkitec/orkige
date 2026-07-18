@@ -12,6 +12,7 @@
 #include <core_game/GameObjectComponent.h>
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_render/VectorMesh.h"
+#include "engine_gocomponent/VectorMeshRuns.h"
 #include "engine_util/SceneNodeGuard.h"
 #include "core_util/VectorTessellator.h"
 #include "core_util/VectorShapeAsset.h"
@@ -83,6 +84,7 @@ namespace Orkige
 		bool				mDeformDirty;	//!< the deform uploaded geometry last tick (one settle upload owed)
 		bool				mDeformFreshBuild;	//!< a setMesh happened; defer the first dynamic upload one frame (the next backend forbids mapping a buffer twice per frame)
 		std::vector<VectorMesh::Vertex>	mDeformVertices;	//!< reused upload buffer (fixed tinted colours, moving positions)
+		VectorMeshRuns		mRuns;		//!< per-texture run -> facade section converter
 		std::vector<VectorTessellator::Point>	mDeformPositions;	//!< reused deformed-position scratch
 	private:
 		//--- Methods -----------------------------------------------

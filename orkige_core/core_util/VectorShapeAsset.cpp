@@ -29,16 +29,31 @@ namespace Orkige
 
 		//! @brief every region must be paintable: a fill needs outer >= 3 and
 		//! holes >= 3, a stroke needs a centreline of >= 2 points (a two-point
-		//! ribbon is a legitimate straight stroke) and no holes
+		//! ribbon is a legitimate straight stroke) and no holes, and a
+		//! TEXTURED region is a plain fill (no holes, no stroke, no gradient).
+		//! A valid textured region also gets its derived per-vertex UVs
+		//! projected here (the one place both the base pose and every morph
+		//! target funnel through).
 		bool validateRegions(
-			std::vector<VectorTessellator::Region> const & regions)
+			std::vector<VectorTessellator::Region> & regions)
 		{
 			if(regions.empty())
 			{
 				return false;
 			}
-			for(VectorTessellator::Region const & region : regions)
+			for(VectorTessellator::Region & region : regions)
 			{
+				if(!region.texture.empty())
+				{
+					// a textured cutout part: flat fill only - the texture IS
+					// the paint, the fill is its tint
+					if(region.kind != VectorTessellator::REGION_FILL ||
+						!region.holes.empty() ||
+						region.paintType != VectorTessellator::PAINT_SOLID)
+					{
+						return false;
+					}
+				}
 				if(region.kind == VectorTessellator::REGION_STROKE)
 				{
 					if(region.outer.size() < 2 || region.strokeWidth < 0.0f ||
@@ -64,6 +79,7 @@ namespace Orkige
 						return false;
 					}
 				}
+				VectorTessellator::projectTextureUVs(region);
 			}
 			return true;
 		}
@@ -96,6 +112,34 @@ namespace Orkige
 		region.kind = VectorTessellator::REGION_STROKE;
 		region.strokeWidth = width;
 		region.strokeMiterLimit = miterLimit;
+		return true;
+	}
+	//---------------------------------------------------------
+	bool VectorShapeAsset::parseTextureSpec(std::istringstream & tokens,
+		VectorTessellator::Region & region)
+	{
+		String name;
+		float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+		if(!(tokens >> name >> x >> y >> w >> h) || name.empty() ||
+			w <= 0.0f || h <= 0.0f)
+		{
+			return false;
+		}
+		// the optional uv window: all four values or none (a half-given
+		// window is malformed, never silently defaulted)
+		float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
+		if(tokens >> u0)
+		{
+			if(!(tokens >> v0 >> u1 >> v1))
+			{
+				return false;
+			}
+		}
+		region.texture = name;
+		region.textureRectMin = VectorTessellator::Point(x, y);
+		region.textureRectMax = VectorTessellator::Point(x + w, y + h);
+		region.uvMin = VectorTessellator::Point(u0, v0);
+		region.uvMax = VectorTessellator::Point(u1, v1);
 		return true;
 	}
 	//---------------------------------------------------------
@@ -194,7 +238,21 @@ namespace Orkige
 				// the open region becomes a stroke: its contour is a centreline
 				if(remaining != 0 || !haveRegion ||
 					!current->back().outer.empty() ||
+					!current->back().texture.empty() ||
 					!parseStrokeSpec(tokens, current->back()))
+				{
+					return false;
+				}
+			}
+			else if(keyword == "texture")
+			{
+				// the open region becomes a textured cutout part: after its
+				// fill (the tint), before its contour, once, never a stroke
+				if(remaining != 0 || !haveRegion ||
+					!current->back().outer.empty() ||
+					!current->back().texture.empty() ||
+					current->back().kind != VectorTessellator::REGION_FILL ||
+					!parseTextureSpec(tokens, current->back()))
 				{
 					return false;
 				}
@@ -275,7 +333,7 @@ namespace Orkige
 		{
 			return false;
 		}
-		for(MorphTarget const & morph : morphs)
+		for(MorphTarget & morph : morphs)
 		{
 			if(!validateRegions(morph.regions))
 			{

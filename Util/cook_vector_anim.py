@@ -35,12 +35,19 @@ has the identical vertex count - the .oanim topology law - and lerping the
 flattened vertices equals flattening the lerped bezier exactly (beziers are
 linear in their control points).
 
+IMAGE layers cook to textured cutout regions: the layer becomes one shape
+block whose region carries `texture NAME x y w h` (the image pasted into its
+layer-local rect; the layer transform channels animate it like any cutout
+part). The referenced image files ride along - a file-referenced asset (u+p)
+is copied beside the output, an embedded base64 PNG is decoded and written
+beside it - so the .oanim's bare texture names resolve in the project.
+
 Out of subset - each a named, per-layer cook error (never a silent skip):
-track mattes, layer effects, arbitrary expressions, image/text layers,
-repeaters, boolean merge paths, sequential trim, non-convex/multiple/subtract
-masks, zig-zag/offset/twist modifiers, skew, auto-orient, 3D layers, time
-stretch/remap and timed precomps. Direct layer-transform link expressions are
-resolved before validation.
+track mattes, layer effects, arbitrary expressions, text layers, repeaters,
+boolean merge paths, sequential trim, non-convex/multiple/subtract masks,
+masks on image layers, zig-zag/offset/twist modifiers, skew, auto-orient,
+3D layers, time stretch/remap and timed precomps. Direct layer-transform
+link expressions are resolved before validation.
 
 A document where NOTHING animates cooks to a plain .oshape instead (the
 static one-shape-core case) - the output path's suffix is switched.
@@ -58,10 +65,12 @@ unit test, which feeds the SAME .oanim through the real parser + evaluator.
 """
 
 import argparse
+import base64
 import copy
 import json
 import math
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -885,10 +894,14 @@ def _resolve_link_expressions(data):
             resolve_comp(asset.get("layers"))
 
 
-def _flatten_layers(data, errors):
+def _flatten_layers(data, errors, images=None):
     """Validate every layer and inline untimed precomps: the flat layer list
     (document order preserved; precomp children replace their precomp at its
-    stacking position, parented to a synthesized transform carrier)."""
+    stacking position, parented to a synthesized transform carrier). Image
+    layers record their referenced files into `images` (a list the caller
+    materializes beside the cooked output)."""
+    if images is None:
+        images = []
     assets = {a.get("id"): a for a in data.get("assets", [])
               if isinstance(a, dict)}
     comp_ip = float(data.get("ip", 0.0))
@@ -906,9 +919,10 @@ def _flatten_layers(data, errors):
                 name = prefix + "/" + name
             if raw.get("hd"):
                 continue    # hidden layers never render
-            if ty not in (0, 1, 3, 4):
+            if ty not in (0, 1, 2, 3, 4):
                 errors.append("unsupported %s layer '%s' - only shape, "
-                              "null, solid and untimed precomp layers cook" %
+                              "null, solid, image and untimed precomp layers "
+                              "cook" %
                               (_LAYER_TYPE_NAMES.get(ty, "type %s" % ty),
                                name))
                 continue
@@ -975,6 +989,15 @@ def _flatten_layers(data, errors):
                     block["masks"] = masks
             elif ty == 1:
                 entry["blocks"].append(_solid_block(raw, name, errors))
+            elif ty == 2:
+                if masks:
+                    errors.append("mask on image layer '%s' - not supported "
+                                  "(a textured cutout region is clipped by "
+                                  "its contour only)" % name)
+                    continue
+                block = _image_block(raw, name, assets, images, errors)
+                if block is not None:
+                    entry["blocks"].append(block)
             elif ty == 0:
                 ref = raw.get("refId")
                 asset = assets.get(ref)
@@ -1036,6 +1059,73 @@ def _solid_block(raw, name, errors):
             "o": {"a": 0, "k": 100}}
     return {"paths": [("rc", rect)], "fill": fill, "affines": [],
             "opacities": [], "layer": name}
+
+
+_DATA_URI = re.compile(r"^data:image/(png);base64,(.*)$", re.DOTALL)
+
+
+def _image_block(raw, name, assets, images, errors):
+    """An image layer as one static rect block carrying a texture paint: the
+    image pasted into its layer-local w x h rect (top-left at the layer
+    origin, like a solid), animated by the layer transform channels. The
+    referenced file is recorded into `images` for the caller to materialize
+    beside the cooked output; the emitted texture name is its bare file
+    name."""
+    ref = raw.get("refId")
+    asset = assets.get(ref)
+    if not isinstance(asset, dict):
+        errors.append("image layer '%s' references missing image asset '%s'"
+                      % (name, ref))
+        return None
+    w = float(asset.get("w", 0.0))
+    h = float(asset.get("h", 0.0))
+    p = str(asset.get("p", ""))
+    if w <= 0.0 or h <= 0.0 or not p:
+        errors.append("image asset '%s' of layer '%s' needs w/h and a file "
+                      "reference (p)" % (ref, name))
+        return None
+    entry = {"data": None, "source": None}
+    if p.startswith("data:"):
+        match = _DATA_URI.match(p)
+        if not match:
+            errors.append("embedded image on layer '%s' must be a base64 "
+                          "PNG data URI" % name)
+            return None
+        try:
+            entry["data"] = base64.b64decode(match.group(2), validate=False)
+        except ValueError:
+            errors.append("embedded image on layer '%s' has unreadable "
+                          "base64 data" % name)
+            return None
+        image_name = _sanitize_name(ref, "image%d" % len(images)) + ".png"
+    else:
+        image_name = p.replace("\\", "/").rsplit("/", 1)[-1]
+        entry["source"] = str(asset.get("u", "")) + p
+    if any(c.isspace() for c in image_name):
+        errors.append("image file name '%s' on layer '%s' contains "
+                      "whitespace - the texture grammar is one token"
+                      % (image_name, name))
+        return None
+    entry["name"] = image_name
+    for existing in images:
+        if existing["name"] == image_name:
+            if existing["data"] != entry["data"] or \
+                    existing["source"] != entry["source"]:
+                errors.append("two different image assets share the file "
+                              "name '%s'" % image_name)
+                return None
+            break
+    else:
+        images.append(entry)
+    rect = {"ty": "rc",
+            "p": {"a": 0, "k": [w * 0.5, h * 0.5]},
+            "s": {"a": 0, "k": [w, h]},
+            "r": {"a": 0, "k": 0}}
+    fill = {"ty": "fl",
+            "c": {"a": 0, "k": [1.0, 1.0, 1.0, 1.0]},
+            "o": {"a": 0, "k": 100}}
+    return {"paths": [("rc", rect)], "fill": fill, "texture": image_name,
+            "affines": [], "opacities": [], "layer": name}
 
 
 # ---------------------------------------------------------------------------
@@ -2214,7 +2304,12 @@ def _convert_block(block, duration, offset, tol, place, errors):
             keys.append({"frame": t, "ease": eases[t_idx], "paint": rgba,
                          "outer": outer, "holes": holes, "stroke": None,
                          "mask": None})
-        entries.append({"keys": keys})
+        entry = {"keys": keys}
+        if block.get("texture"):
+            # an image block: the region is a textured cutout part whose
+            # rect IS its contour's bounds (the whole image pasted in)
+            entry["texture"] = block["texture"]
+        entries.append(entry)
     return entries
 
 
@@ -2484,9 +2579,14 @@ def _emit_stroke(lines, indent, stroke):
 
 
 def _emit_oanim(fps, duration, clips, rig):
-    lines = ["# orkige vector animation v2 - cooked from Lottie JSON by "
-             "Util/cook_vector_anim.py",
-             "version 2",
+    # the version only climbs when the document actually uses the newer
+    # vocabulary, so untextured cooks stay byte-identical
+    textured = any(shape.get("texture")
+                   for layer in rig for shape in layer["shapes"])
+    version = 3 if textured else 2
+    lines = ["# orkige vector animation v%d - cooked from Lottie JSON by "
+             "Util/cook_vector_anim.py" % version,
+             "version %d" % version,
              "fps %s" % _fmt_frame(fps),
              "duration %s" % _fmt_frame(duration)]
     for name, start, end, loop in clips:
@@ -2512,6 +2612,15 @@ def _emit_oanim(fps, duration, clips, rig):
                 lines.append("    kf %s%s" % (_fmt_frame(key["frame"]),
                                               _fmt_ease(key["ease"])))
                 _emit_paint(lines, "      ", key["paint"])
+                if shape.get("texture"):
+                    # the image rect IS the contour's bounds (the block is
+                    # the whole image pasted into its layer-local rect)
+                    xs = [p[0] for p in key["outer"]]
+                    ys = [p[1] for p in key["outer"]]
+                    lines.append("      texture %s %s %s %s %s" % (
+                        shape["texture"], _fmt_val(min(xs)), _fmt_val(min(ys)),
+                        _fmt_val(max(xs) - min(xs)),
+                        _fmt_val(max(ys) - min(ys))))
                 if key["stroke"] is not None:
                     _emit_stroke(lines, "      ", key["stroke"])
                 lines.append("      contour %d" % len(key["outer"]))
@@ -2539,6 +2648,11 @@ def _rig_is_static(rig):
         for shape in layer["shapes"]:
             if shape["keys"] and isinstance(shape["keys"][0]["paint"], dict):
                 return False  # .oshape has no gradient paint vocabulary
+            if shape.get("texture"):
+                # the static .oshape emitter bakes transforms INTO the
+                # vertices, where a rotated axis-aligned texture rect cannot
+                # follow - textured documents always stay .oanim rigs
+                return False
             if len(shape["keys"]) > 1:
                 return False
     return True
@@ -2620,9 +2734,14 @@ def _emit_oshape_static(rig):
 # top level
 
 
-def cook(lottie_text, extent=2.0, tolerance=None, clips_override=None):
+def cook(lottie_text, extent=2.0, tolerance=None, clips_override=None,
+         images_out=None):
     """Cook Lottie JSON text. Returns (kind, text): kind is "oanim" for an
     animated document or "oshape" when nothing animates (the static case).
+    Image layers cook to textured regions; images_out (a list, optional)
+    collects their referenced files as {name, data, source} entries - `data`
+    bytes for embedded base64 PNGs, else `source` (a path relative to the
+    source .json) - which the caller materializes beside the output.
     Raises CookError listing EVERY unsupported feature, per layer."""
     try:
         data = json.loads(lottie_text)
@@ -2654,7 +2773,7 @@ def cook(lottie_text, extent=2.0, tolerance=None, clips_override=None):
     # flatten tolerance in composition units: 0.25% of the larger extent
     tol = tolerance if tolerance is not None else span * 0.0025
 
-    flat = _flatten_layers(data, errors)
+    flat = _flatten_layers(data, errors, images_out)
     clips = _build_clips(data, comp_ip, duration, clips_override, errors)
     if not errors:
         rig = _build_rig(flat, duration, comp_w, comp_h, scale, tol, errors)
@@ -2819,6 +2938,15 @@ def _parse_oanim(text):
             assert state["stops_left"] > 0
             key["fill"]["stops"].append(tuple(float(t) for t in tokens[1:6]))
             state["stops_left"] -= 1
+        elif word == "texture":
+            key = state["key"]
+            assert key is not None and key["fill"] is not None and \
+                not key["outer"] and key["stroke"] is None and \
+                "texture" not in key
+            assert len(tokens) in (6, 10), "bad texture spec"
+            assert float(tokens[4]) > 0.0 and float(tokens[5]) > 0.0
+            key["texture"] = {"name": tokens[1],
+                              "rect": tuple(float(t) for t in tokens[2:6])}
         elif word == "stroke":
             key = state["key"]
             assert key is not None and key["fill"] is not None and \
@@ -2889,7 +3017,7 @@ def _parse_oanim(text):
         elif word == "duration":
             doc["duration"] = float(tokens[1])
         elif word == "version":
-            assert int(tokens[1]) == 2
+            assert int(tokens[1]) in (2, 3)
         else:
             raise AssertionError("unknown keyword '%s'" % word)
     close_all()
@@ -3329,7 +3457,7 @@ def _selftest():
         "expression", "position", "hero")
     _expect_error(_fx_doc(layers=[
         {"ty": 2, "nm": "photo", "ind": 1, "refId": "img_0",
-         "ks": _fx_ks()}]), "image layer", "photo")
+         "ks": _fx_ks()}]), "missing image asset", "photo")
     _expect_error(_fx_doc(layers=[
         {"ty": 5, "nm": "caption", "ind": 1, "ks": _fx_ks()}]),
         "text layer", "caption")
@@ -3521,6 +3649,65 @@ def _selftest():
         "a clip-less rig must explain the implicit 'default' clip"
     checks += 1
 
+    # --- image layers cook to textured cutout regions ----------------------
+    def _fx_image_doc(p, u="", w=64, h=32):
+        return _fx_doc(
+            layers=[{"ty": 2, "nm": "photo", "ind": 1, "refId": "img_0",
+                     "ks": _fx_ks(p={"a": 1, "k": [
+                         {"t": 0, "s": [0, 0]}, {"t": 60, "s": [40, 0]}]})}],
+            assets=[{"id": "img_0", "w": w, "h": h, "u": u, "p": p}])
+    images = []
+    kind, cooked = cook(_fx_image_doc("arm.png", u="images/"),
+                        images_out=images)
+    assert kind == "oanim"
+    assert "version 3" in cooked, "a textured cook must stamp version 3"
+    texture_lines = [line.strip() for line in cooked.splitlines()
+                     if line.strip().startswith("texture ")]
+    assert texture_lines, "an image layer must emit a texture line"
+    parts = texture_lines[0].split()
+    assert parts[1] == "arm.png"
+    # the rect spans the image's w x h in cooked units (64px at extent
+    # 2/200px-comp = 0.64 wide, 0.32 tall)
+    assert abs(float(parts[4]) - 0.64) < 1e-4, texture_lines[0]
+    assert abs(float(parts[5]) - 0.32) < 1e-4, texture_lines[0]
+    assert images == [{"name": "arm.png", "data": None,
+                       "source": "images/arm.png"}]
+    # the emitted rig parses (the runtime grammar accepts the texture line)
+    parsed = _parse_oanim(cooked)
+    assert parsed["layers"], "textured rig must keep its layer"
+    # an embedded base64 PNG decodes into bytes to write beside the output
+    payload = base64.b64encode(b"png-bytes").decode("ascii")
+    images = []
+    kind, cooked = cook(_fx_image_doc("data:image/png;base64," + payload),
+                        images_out=images)
+    assert len(images) == 1 and images[0]["data"] == b"png-bytes" and \
+        images[0]["name"] == "img_0.png"
+    assert "texture img_0.png" in cooked
+    # a static image document still cooks to an .oanim (the .oshape emitter
+    # bakes transforms into vertices, which a texture rect cannot follow)
+    kind, _static_cooked = cook(_fx_doc(
+        layers=[{"ty": 2, "nm": "photo", "ind": 1, "refId": "img_0",
+                 "ks": _fx_ks()}],
+        assets=[{"id": "img_0", "w": 64, "h": 32, "u": "", "p": "arm.png"}]))
+    assert kind == "oanim"
+    # image-layer error paths stay named
+    _expect_error(_fx_doc(
+        layers=[{"ty": 2, "nm": "photo", "ind": 1, "refId": "img_0",
+                 "ks": _fx_ks()}],
+        assets=[{"id": "img_0", "w": 0, "h": 32, "p": "arm.png"}]),
+        "needs w/h", "photo")
+    _expect_error(_fx_doc(
+        layers=[{"ty": 2, "nm": "photo", "ind": 1, "refId": "img_0",
+                 "masksProperties": [{"mode": "a",
+                                      "pt": _fx_static(None)}],
+                 "ks": _fx_ks()}],
+        assets=[{"id": "img_0", "w": 64, "h": 32, "p": "arm.png"}]),
+        "mask on image layer", "photo")
+    _expect_error(_fx_image_doc("data:image/jpeg;base64,AAAA"),
+                  "base64 PNG", "photo")
+    _expect_error(_fx_image_doc("has space.png"), "whitespace", "photo")
+    checks += 1
+
     print("cook_vector_anim selftest OK: %d feature groups, every "
           "out-of-subset error named, round-trip fixture byte-identical" %
           checks)
@@ -3557,10 +3744,12 @@ def main():
         print("cook_vector_anim: cannot read %s: %s" % (args.input, exc),
               file=sys.stderr)
         return 1
+    images = []
     try:
         kind, cooked = cook(text, extent=args.extent,
                             tolerance=args.tolerance,
-                            clips_override=args.clips)
+                            clips_override=args.clips,
+                            images_out=images)
     except CookError as exc:
         print("cook_vector_anim: cannot cook %s:" % args.input,
               file=sys.stderr)
@@ -3572,6 +3761,23 @@ def main():
     if kind == "oshape":
         out_path = out_path.with_suffix(".oshape")
         print("nothing animates - cooked a static .oshape instead")
+    # materialize the referenced images beside the output FIRST (a missing
+    # source file refuses before any .oanim lands - never a rig whose
+    # textures cannot resolve)
+    for image in images:
+        dest = out_path.parent / image["name"]
+        if image["data"] is not None:
+            dest.write_bytes(image["data"])
+            print("wrote embedded image %s" % dest)
+            continue
+        src = (Path(args.input).parent / image["source"])
+        if not src.is_file():
+            print("cook_vector_anim: image file %s (referenced by %s) not "
+                  "found" % (src, args.input), file=sys.stderr)
+            return 1
+        if src.resolve() != dest.resolve():
+            shutil.copyfile(src, dest)
+            print("copied image %s -> %s" % (src, dest))
     with open(out_path, "w", encoding="utf-8") as handle:
         handle.write(cooked)
     print("cooked %s -> %s" % (args.input, out_path))

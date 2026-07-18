@@ -195,23 +195,33 @@ namespace Orkige
 
 	struct VectorMesh::Impl
 	{
+		//! one built ManualObject section: its resolved material, cached
+		//! topology (re-emitted by beginUpdate on a dynamic update) and
+		//! whether the vertex format carries a UV stream
+		struct BuiltSection
+		{
+			String						material;	//!< "VectorFill" or the per-texture sprite material
+			bool						textured = false;	//!< emit UVs (a texture is bound)
+			std::size_t					vertexCount = 0;	//!< dynamic-update guard (0 = section built nothing)
+			std::size_t					ogreSection = 0;	//!< ManualObject section ordinal (degenerate entries create none)
+			std::vector<Ogre::uint32>	indices;	//!< cached section topology
+		};
 		Ogre::ManualObject*	mesh = NULL;
 		Ogre::SceneManager*	creator = NULL;
 		int					zOrder = 0;
 		std::size_t			triangleCount = 0;		//!< triangles in the mesh right now
-		std::size_t			vertexCount = 0;		//!< vertices in the built section (dynamic-update guard)
-		std::vector<Ogre::uint32>	indices;		//!< cached topology, re-emitted by beginUpdate on a dynamic update
+		std::vector<BuiltSection>	sections;		//!< built sections, paint order
 		optr<RenderNode>	attachedTo;
 
-		//! (re)build the manual object from an arbitrary CPU vertex + index
-		//! array (untextured, vertex colour); empty arrays leave it geometry-free
-		void rebuild(VectorMesh::Vertex const * vertices, std::size_t vertexCount,
-			unsigned int const * indices, std::size_t indexCount);
-		//! rewrite ONLY the vertex positions/colours of the built section via
-		//! beginUpdate (topology reused from the cached indices); a count
-		//! mismatch or an un-built mesh is ignored
-		void updateVertices(VectorMesh::Vertex const * vertices,
-			std::size_t vertexCount);
+		//! (re)build the manual object from a section list (one ManualObject
+		//! section per entry: flat = "VectorFill", textured = the sprite
+		//! material + a UV stream); an empty list leaves it geometry-free
+		void rebuild(VectorMesh::Section const * list, std::size_t count);
+		//! rewrite ONLY one section's vertex data via beginUpdate (topology
+		//! reused from the cached indices); a count mismatch or an un-built
+		//! section is ignored
+		void updateSection(std::size_t index,
+			VectorMesh::Vertex const * vertices, std::size_t vertexCount);
 	};
 
 	struct RenderCamera::Impl

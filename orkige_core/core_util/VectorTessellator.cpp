@@ -789,7 +789,9 @@ namespace Orkige
 	{
 		this->positions.clear();
 		this->colours.clear();
+		this->uvs.clear();
 		this->indices.clear();
+		this->runs.clear();
 		this->bounds = Bounds();
 	}
 	//---------------------------------------------------------
@@ -857,10 +859,26 @@ namespace Orkige
 			return;
 		}
 		const unsigned int base = static_cast<unsigned int>(out.positions.size());
-		for(Point const & point : flatPoints)
+		// keep the uv array parallel: pad any predecessors appended without
+		// UVs (strokes, feathers), then emit this fill's own coordinates - the
+		// projected per-vertex UVs for a textured region ((0,0) elsewhere)
+		const bool textured = !region.texture.empty() &&
+			region.uvs.size() == region.outer.size();
+		if(textured)
 		{
-			out.positions.push_back(point);
+			out.uvs.resize(out.positions.size(), Point());
+		}
+		for(std::size_t v = 0; v < flatPoints.size(); ++v)
+		{
+			out.positions.push_back(flatPoints[v]);
 			out.colours.push_back(region.fill);
+			if(textured)
+			{
+				// flatPoints = outer then holes; a textured region carries no
+				// holes (parser-enforced), so index v addresses region.uvs
+				out.uvs.push_back(v < region.uvs.size()
+					? region.uvs[v] : Point());
+			}
 		}
 		for(unsigned int index : localIndices)
 		{
@@ -1018,8 +1036,35 @@ namespace Orkige
 		float featherWidth, Mesh & out)
 	{
 		out.clear();
+		// per-texture draw runs (paint order): open a fresh run whenever the
+		// region's texture differs from the running one, so consecutive
+		// same-texture regions (and all flat regions) merge into ONE span -
+		// the painter's contract a consumer turns into one draw per run
+		auto closeRun = [&out]()
+		{
+			if(out.runs.empty())
+			{
+				return;
+			}
+			Run & run = out.runs.back();
+			run.vertexCount = out.positions.size() - run.vertexStart;
+			run.indexCount = out.indices.size() - run.indexStart;
+			if(run.vertexCount == 0 && run.indexCount == 0)
+			{
+				out.runs.pop_back();	// a degenerate region painted nothing
+			}
+		};
 		for(Region const & region : regions)
 		{
+			if(out.runs.empty() || out.runs.back().texture != region.texture)
+			{
+				closeRun();
+				Run run;
+				run.texture = region.texture;
+				run.vertexStart = out.positions.size();
+				run.indexStart = out.indices.size();
+				out.runs.push_back(run);
+			}
 			// paint the region's body, then IMMEDIATELY its feather rim: the
 			// soft edge belongs to the region it wraps, so a region painted
 			// later occludes body and rim together. (Feathering every region
@@ -1036,6 +1081,13 @@ namespace Orkige
 			}
 			if(featherWidth <= 0.0f)
 			{
+				continue;
+			}
+			if(!region.texture.empty())
+			{
+				// a textured cutout part gets no baked feather: its soft edge
+				// is the texture's own alpha, and a fill-coloured rim would
+				// draw the TINT around art the tint only modulates
 				continue;
 			}
 			// clamp the shared edge width to this region's own thickness so
@@ -1067,7 +1119,34 @@ namespace Orkige
 					[&region](Point const &) { return region.fill; }, out);
 			}
 		}
+		closeRun();
+		// the uv array stays parallel to positions across every append path
+		// (only textured fills wrote real coordinates)
+		out.uvs.resize(out.positions.size(), Point());
 		out.bounds = computeBounds(regions);
+	}
+	//---------------------------------------------------------
+	void VectorTessellator::projectTextureUVs(Region & region)
+	{
+		const float width = region.textureRectMax.x - region.textureRectMin.x;
+		const float height = region.textureRectMax.y - region.textureRectMin.y;
+		if(region.texture.empty() || width <= 0.0f || height <= 0.0f)
+		{
+			return;	// not textured / degenerate rect: nothing to derive
+		}
+		region.uvs.resize(region.outer.size());
+		for(std::size_t v = 0; v < region.outer.size(); ++v)
+		{
+			Point const & point = region.outer[v];
+			// u runs left-to-right; v runs TOP-down (texture row 0 lands on
+			// the rect's TOP edge - the sprite convention), both mapped into
+			// the uvMin..uvMax window (atlas sub-rects work unchanged)
+			const float u = (point.x - region.textureRectMin.x) / width;
+			const float w = (region.textureRectMax.y - point.y) / height;
+			region.uvs[v] = Point(
+				region.uvMin.x + u * (region.uvMax.x - region.uvMin.x),
+				region.uvMin.y + w * (region.uvMax.y - region.uvMin.y));
+		}
 	}
 	//---------------------------------------------------------
 	VectorTessellator::Bounds VectorTessellator::computeBounds(

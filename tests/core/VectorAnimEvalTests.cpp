@@ -485,3 +485,69 @@ TEST_CASE("vectoranim_allocation_stability", "[unit][vectoranim]")
 	REQUIRE(out[0].holes.size() == 1u);
 	CHECK(out[0].holes[0].size() == 3u);
 }
+
+TEST_CASE("vectoranim_eval_textured_region_carries_uvs", "[unit][vectoranim]")
+{
+	// a textured shape key: mid-way between keys the rect and contour lerp
+	// while the projected UVs stay pinned to their vertices; composition
+	// transforms positions only - the texture rides the rotated geometry
+	const String text =
+		"fps 30\nduration 30\n"
+		"clip full 0 30 once\n"
+		"layer arm parent -1\n"
+		"rot k 2\n"
+		"kf 0 0\n"
+		"kf 30 90\n"
+		"shape k 2\n"
+		"kf 0\n"
+		"fill 1 1 1 1\n"
+		"texture arm.png -1 -1 2 2\n"
+		"contour 4\nv -1 -1\nv 1 -1\nv 1 1\nv -1 1\n"
+		"kf 30\n"
+		"fill 1 1 1 1\n"
+		"texture arm.png -3 -3 6 6\n"
+		"contour 4\nv -3 -3\nv 3 -3\nv 3 3\nv -3 3\n";
+	VectorAnimEval eval = makeEval(text);
+
+	VectorAnimEval::Pose pose;
+	REQUIRE(eval.evaluateAt(0, 0.5f, pose));	// frame 15, halfway
+	REQUIRE(pose.shapes.size() == 1u);
+	CHECK(pose.shapes[0].texture == "arm.png");
+	// the contour lerped (corner -1 -> -3 reads -2)...
+	CHECK(pose.shapes[0].outer[0].x == Approx(-2.0f));
+	// ...while the corner UVs are identical at both keys, so they hold
+	REQUIRE(pose.shapes[0].uvs.size() == 4u);
+	CHECK(pose.shapes[0].uvs[0].x == Approx(0.0f));
+	CHECK(pose.shapes[0].uvs[0].y == Approx(1.0f));
+
+	// compose at the rotated end: positions rotate, UVs are untouched
+	REQUIRE(eval.evaluateAt(0, 1.0f, pose));	// frame 30 (clamped end)
+	std::vector<Region> regions;
+	eval.composeRegions(pose, regions);
+	REQUIRE(regions.size() == 1u);
+	CHECK(regions[0].texture == "arm.png");
+	REQUIRE(regions[0].uvs.size() == 4u);
+	// 90 degrees CCW turns corner (-3,-3) into (3,-3)
+	CHECK(regions[0].outer[0].x == Approx(3.0f).margin(1e-4));
+	CHECK(regions[0].outer[0].y == Approx(-3.0f).margin(1e-4));
+	CHECK(regions[0].uvs[0].x == Approx(0.0f));
+	CHECK(regions[0].uvs[0].y == Approx(1.0f));
+}
+
+TEST_CASE("vectoranim_eval_blend_refuses_texture_mismatch",
+	"[unit][vectoranim]")
+{
+	// poses whose regions bind different textures never blend (the same
+	// different-rigs honesty as a vertex-count mismatch)
+	VectorAnimEval::Pose a = trianglePose(0.0f, 0.0f, 0.0f,
+		VectorTessellator::Colour(1, 0, 0, 1));
+	VectorAnimEval::Pose b = trianglePose(1.0f, 0.0f, 0.0f,
+		VectorTessellator::Colour(0, 1, 0, 1));
+	a.shapes[0].texture = "a.png";
+	b.shapes[0].texture = "b.png";
+	VectorAnimEval::Pose out;
+	CHECK_FALSE(VectorAnimEval::blendPose(a, b, 0.5f, out));
+	b.shapes[0].texture = "a.png";
+	CHECK(VectorAnimEval::blendPose(a, b, 0.5f, out));
+	CHECK(out.shapes[0].texture == "a.png");
+}

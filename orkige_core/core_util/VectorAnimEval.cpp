@@ -98,6 +98,13 @@ namespace Orkige
 			dst.strokeJoin = src.strokeJoin;
 			dst.strokeMiterLimit = src.strokeMiterLimit;
 			dst.strokeClosed = src.strokeClosed;
+			dst.texture = src.texture;
+			dst.textureRectMin = src.textureRectMin;
+			dst.textureRectMax = src.textureRectMax;
+			dst.uvMin = src.uvMin;
+			dst.uvMax = src.uvMax;
+			dst.uvs.resize(src.uvs.size());
+			std::copy(src.uvs.begin(), src.uvs.end(), dst.uvs.begin());
 			dst.outer.resize(src.outer.size());
 			std::copy(src.outer.begin(), src.outer.end(), dst.outer.begin());
 			dst.mask.resize(src.mask.size());
@@ -149,6 +156,27 @@ namespace Orkige
 			dst.strokeWidth = lerp(a.strokeWidth, b.strokeWidth, t);
 			dst.strokeMiterLimit = lerp(a.strokeMiterLimit, b.strokeMiterLimit,
 				t);
+			// the texture NAME is fixed across a block's keys (the parser
+			// enforces it); the rect/uv window and the derived per-vertex UVs
+			// lerp like any other per-vertex quantity
+			dst.texture = a.texture;
+			dst.textureRectMin = VectorTessellator::Point(
+				lerp(a.textureRectMin.x, b.textureRectMin.x, t),
+				lerp(a.textureRectMin.y, b.textureRectMin.y, t));
+			dst.textureRectMax = VectorTessellator::Point(
+				lerp(a.textureRectMax.x, b.textureRectMax.x, t),
+				lerp(a.textureRectMax.y, b.textureRectMax.y, t));
+			dst.uvMin = VectorTessellator::Point(
+				lerp(a.uvMin.x, b.uvMin.x, t), lerp(a.uvMin.y, b.uvMin.y, t));
+			dst.uvMax = VectorTessellator::Point(
+				lerp(a.uvMax.x, b.uvMax.x, t), lerp(a.uvMax.y, b.uvMax.y, t));
+			dst.uvs.resize(a.uvs.size());
+			for(std::size_t v = 0; v < a.uvs.size() && v < b.uvs.size(); ++v)
+			{
+				dst.uvs[v] = VectorTessellator::Point(
+					lerp(a.uvs[v].x, b.uvs[v].x, t),
+					lerp(a.uvs[v].y, b.uvs[v].y, t));
+			}
 			dst.outer.resize(a.outer.size());
 			for(std::size_t v = 0; v < a.outer.size(); ++v)
 			{
@@ -215,7 +243,8 @@ namespace Orkige
 				a.gradientStops.size() != b.gradientStops.size() ||
 				a.kind != b.kind || a.mask.size() != b.mask.size() ||
 				a.strokeCap != b.strokeCap || a.strokeJoin != b.strokeJoin ||
-				a.strokeClosed != b.strokeClosed)
+				a.strokeClosed != b.strokeClosed ||
+				a.texture != b.texture || a.uvs.size() != b.uvs.size())
 			{
 				return false;
 			}
@@ -317,6 +346,8 @@ namespace Orkige
 			region.strokeClosed = reference.strokeClosed;
 			region.strokeWidth = reference.strokeWidth;
 			region.strokeMiterLimit = reference.strokeMiterLimit;
+			region.texture = reference.texture;
+			region.uvs.resize(reference.uvs.size());
 			region.outer.resize(reference.outer.size());
 			region.mask.resize(reference.mask.size());
 			region.holes.resize(reference.holes.size());
@@ -584,6 +615,14 @@ namespace Orkige
 			const float determinant = std::fabs(world.a * world.d -
 				world.b * world.c);
 			dst.strokeWidth = src.strokeWidth * std::sqrt(determinant);
+			// the texture rides its vertices: UVs are pinned per vertex in
+			// the key's own space, so the world transform moves/rotates the
+			// art with the geometry (only positions transform)
+			dst.texture = src.texture;
+			dst.uvMin = src.uvMin;
+			dst.uvMax = src.uvMax;
+			dst.uvs.resize(src.uvs.size());
+			std::copy(src.uvs.begin(), src.uvs.end(), dst.uvs.begin());
 			dst.mask.resize(src.mask.size());
 			for(std::size_t v = 0; v < src.mask.size(); ++v)
 			{

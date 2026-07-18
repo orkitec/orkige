@@ -20,6 +20,7 @@
 //! output positions are shape-local XY (z comes from the node); colours are
 //! straight RGBA (the component multiplies its per-instance tint in).
 
+#include <string>
 #include <vector>
 
 namespace Orkige
@@ -111,9 +112,26 @@ namespace Orkige
 			//! clipped against it. Empty = unclipped. A fill region's contour is
 			//! clipped where it is authored/cooked, so this is stroke-only.
 			std::vector<Point>				mask;
+			//! optional TEXTURE paint (a cutout part): a non-empty name makes
+			//! this FILL region textured - the texture is pasted into the
+			//! shape-local textureRect (its TOP row at the rect's top edge, the
+			//! sprite v-down convention) windowed by uvMin..uvMax (an atlas
+			//! sub-rect; the full texture by default), and `fill` becomes the
+			//! multiply TINT (white = the art verbatim). `uvs` is the DERIVED
+			//! per-outer-vertex coordinate list the parsers project through the
+			//! rect (parallel to outer) - pinned to the vertices, so layer
+			//! transforms and deformation carry the texture with the geometry.
+			//! A textured region takes no holes, no gradient and no stroke.
+			std::string						texture;		//!< texture resource name; empty = flat paint
+			Point							textureRectMin;	//!< shape-local rect min corner
+			Point							textureRectMax;	//!< shape-local rect max corner
+			Point							uvMin;			//!< texture window min (default 0,0)
+			Point							uvMax;			//!< texture window max (default 1,1)
+			std::vector<Point>				uvs;			//!< per-outer-vertex UVs (derived)
 			Region() : paintType(PAINT_SOLID), kind(REGION_FILL),
 				strokeWidth(0.0f), strokeCap(CAP_BUTT), strokeJoin(JOIN_MITER),
-				strokeMiterLimit(4.0f), strokeClosed(false) {}
+				strokeMiterLimit(4.0f), strokeClosed(false),
+				uvMax(1.0f, 1.0f) {}
 		};
 		//! a 2D axis-aligned bounds (thumbnail/fit + feather-width derivation)
 		struct Bounds
@@ -128,13 +146,33 @@ namespace Orkige
 			//! bounding-box diagonal length (0 when invalid)
 			float diagonal() const;
 		};
-		//! the built mesh: parallel position/colour arrays + a triangle index
-		//! list (3 indices per triangle), plus the shape-local bounds
+		//! one contiguous draw run of the built mesh: the vertex/index span of
+		//! consecutive regions sharing ONE texture (empty = the untextured
+		//! flat/feather geometry). build() emits runs in paint order and merges
+		//! neighbours, so an all-flat mesh is exactly one untextured run - a
+		//! consumer turns each run into one draw (the sprite-run discipline).
+		//! Runs cover the arrays completely and contiguously: a run's indices
+		//! address only its own vertex span.
+		struct Run
+		{
+			std::string	texture;		//!< texture resource name; empty = flat
+			std::size_t	vertexStart;	//!< first vertex of the run
+			std::size_t	vertexCount;	//!< vertices in the run
+			std::size_t	indexStart;		//!< first index of the run
+			std::size_t	indexCount;		//!< indices in the run (3 per triangle)
+			Run() : vertexStart(0), vertexCount(0), indexStart(0),
+				indexCount(0) {}
+		};
+		//! the built mesh: parallel position/colour/uv arrays + a triangle
+		//! index list (3 indices per triangle), the per-texture draw runs and
+		//! the shape-local bounds
 		struct Mesh
 		{
 			std::vector<Point>			positions;	//!< shape-local XY, z=0
 			std::vector<Colour>			colours;	//!< per-vertex (fill or feather-ramped alpha)
+			std::vector<Point>			uvs;		//!< per-vertex texture coords ((0,0) on untextured geometry), parallel to positions
 			std::vector<unsigned int>	indices;	//!< 3 per triangle
+			std::vector<Run>			runs;		//!< per-texture draw runs, paint order (build() fills them)
 			Bounds						bounds;		//!< local 2D bounds of the fill regions
 			//! triangle count (indices/3)
 			std::size_t triangleCount() const { return this->indices.size() / 3; }
@@ -205,11 +243,23 @@ namespace Orkige
 		//! earlier region's body AND soft edge (a feather appended after all
 		//! bodies would redraw hidden contours above the geometry covering
 		//! them). featherWidth <= 0 skips the feather entirely. The mesh's
-		//! bounds cover the painted regions.
+		//! bounds cover the painted regions. TEXTURED regions triangulate with
+		//! their projected per-vertex UVs, get NO baked feather (cutout art
+		//! carries its own alpha edge in the texture) and split the mesh into
+		//! per-texture draw runs (Mesh::runs; consecutive same-texture regions
+		//! merge, so an all-flat build stays exactly one untextured run).
 		static void build(std::vector<Region> const & regions,
 			float featherWidth, Mesh & out);
 
 		//--- helpers -----------------------------------------------
+		//! @brief derive a textured region's per-outer-vertex UVs by
+		//! projecting its contour through textureRectMin/Max into the
+		//! uvMin..uvMax window (u left-to-right, v TOP-down: the texture's
+		//! top row lands on the rect's TOP edge - the sprite convention).
+		//! The parsers call this once per parsed region/key; the derived uvs
+		//! then ride the vertices through lerp/compose untouched. A region
+		//! with no texture or a degenerate rect is left untouched.
+		static void projectTextureUVs(Region & region);
 		//! @brief bounds over every region's painted extent (a fill's outer
 		//! contour; a stroke's centreline grown by its half width)
 		static Bounds computeBounds(std::vector<Region> const & regions);

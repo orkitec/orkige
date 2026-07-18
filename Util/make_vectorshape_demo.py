@@ -13,10 +13,15 @@ over write_project_file. This generator is the reproducible content example a
 human (or the player_vectorshape selfcheck) can load.
 """
 
+import hashlib
 import json
 import math
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import orkige_png      # noqa: E402  (sibling stdlib helper)
+import orkige_sidecar  # noqa: E402  (sibling stdlib helper)
 
 
 def fmt(value):
@@ -267,6 +272,108 @@ def hero_lottie():
     return json.dumps(doc, indent=2) + "\n"
 
 
+def solid_texture(width, height, rgb):
+    """A solid-colour RGBA texture (a distinct, pixel-probeable cutout part)."""
+    image = orkige_png.Image(width, height)
+    for y in range(height):
+        for x in range(width):
+            image.put(x, y, (rgb[0], rgb[1], rgb[2], 255))
+    return image
+
+
+def banded_texture(width, height, top_rgb, bottom_rgb):
+    """A two-band texture (top/bottom halves differ): the UV-orientation
+    probe - the top band must render ABOVE the bottom band on an unrotated
+    rig, pinning the texture-row-0-at-rect-top convention end to end."""
+    image = orkige_png.Image(width, height)
+    for y in range(height):
+        rgb = top_rgb if y < height // 2 else bottom_rgb
+        for x in range(width):
+            image.put(x, y, (rgb[0], rgb[1], rgb[2], 255))
+    return image
+
+
+def cutout_hero_oanim():
+    """A hand-authored textured cutout rig: a flat-colour shadow (proving
+    mixed flat + textured runs in one rig) under a textured body carrying a
+    textured head (two-band art - the UV orientation probe) and a waving
+    textured arm. Pure v3 grammar - the agent-authorable path."""
+    return "\n".join([
+        "# orkige vector animation v3 - a textured cutout character",
+        "version 3",
+        "fps 30",
+        "duration 60",
+        "clip wave 0 60 loop",
+        # a flat-colour ground shadow, painted first (behind everything)
+        "layer shadow parent -1",
+        "  shape k 1",
+        "    kf 0",
+        "      fill 0.24 0.24 0.35 1.0",
+        "      contour 8",
+        "      v -0.55 -1.06", "      v -0.30 -1.14", "      v 0.30 -1.14",
+        "      v  0.55 -1.06", "      v  0.30 -0.98", "      v 0.10 -0.96",
+        "      v -0.10 -0.96", "      v -0.30 -0.98",
+        # the body: a textured quad bobbing on its pos channel
+        "layer body parent -1",
+        "  pos k 3",
+        "    kf 0 0 0",
+        "    kf 30 0 0.08",
+        "    kf 60 0 0",
+        "  shape k 1",
+        "    kf 0",
+        "      fill 1 1 1 1",
+        "      texture cutout_body.png -0.35 -1.0 0.7 1.0",
+        "      contour 4",
+        "      v -0.35 -1.0", "      v 0.35 -1.0",
+        "      v  0.35  0.0", "      v -0.35 0.0",
+        # the head: two-band art, riding the body, swaying a little
+        "layer head parent 1",
+        "  pos k 1",
+        "    kf 0 0 0.3",
+        "  rot k 3",
+        "    kf 0 0",
+        "    kf 30 8",
+        "    kf 60 0",
+        "  shape k 1",
+        "    kf 0",
+        "      fill 1 1 1 1",
+        "      texture cutout_head.png -0.3 0.0 0.6 0.6",
+        "      contour 4",
+        "      v -0.3 0.0", "      v 0.3 0.0",
+        "      v  0.3 0.6", "      v -0.3 0.6",
+        # the arm: hangs from its shoulder (the layer origin) and waves
+        "layer arm parent 1",
+        "  pos k 1",
+        "    kf 0 0.35 -0.1",
+        "  rot k 5",
+        "    kf 0 -20",
+        "    kf 15 60",
+        "    kf 30 -20",
+        "    kf 45 60",
+        "    kf 60 -20",
+        "  shape k 1",
+        "    kf 0",
+        "      fill 1 1 1 1",
+        "      texture cutout_arm.png -0.1 -0.55 0.2 0.55",
+        "      contour 4",
+        "      v -0.1 -0.55", "      v 0.1 -0.55",
+        "      v  0.1  0.0", "      v -0.1 0.0",
+    ]) + "\n"
+
+
+def write_meta(project_dir, asset_path):
+    """Emit the asset's sidecar .orkmeta with a deterministic id (an existing
+    sidecar is preserved - its id is the asset's identity)."""
+    meta_path = Path(str(asset_path) + ".orkmeta")
+    if meta_path.exists():
+        return
+    relative = Path(asset_path).resolve().relative_to(
+        Path(project_dir).resolve()).as_posix()
+    asset_id = hashlib.md5(
+        ("orkige.vectorshapes:" + relative).encode("utf-8")).hexdigest()
+    meta_path.write_text('<orkmeta id="%s"/>\n' % asset_id)
+
+
 def main():
     default = Path(__file__).resolve().parent.parent / "projects/vectorshapes"
     project_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else default
@@ -392,6 +499,31 @@ def main():
         "    end\n"
         "end\n")
 
+    # the TEXTURED CUTOUT scene: a hand-authored v3 rig (a flat shadow +
+    # three textured parts - body, two-band head, waving arm) playing its
+    # `wave` clip. The textures are generated, distinctly coloured and (for
+    # the head) two-banded so the cutout selfcheck can pixel-probe that the
+    # texture really samples and that its v orientation is honoured.
+    orkige_png.encode_png(solid_texture(64, 96, (40, 110, 220)),
+                          str(assets / "cutout_body.png"))
+    orkige_png.encode_png(banded_texture(64, 64, (120, 70, 30),
+                                         (240, 170, 90)),
+                          str(assets / "cutout_head.png"))
+    orkige_png.encode_png(solid_texture(32, 64, (250, 205, 60)),
+                          str(assets / "cutout_arm.png"))
+    for name in ("cutout_body.png", "cutout_head.png", "cutout_arm.png"):
+        # generated flat-colour probe art never block-compresses
+        orkige_sidecar.stamp_texture_sidecar(str(assets / name), fmt="none")
+    (assets / "cutout_hero.oanim").write_text(cutout_hero_oanim())
+    write_meta(project_dir, assets / "cutout_hero.oanim")
+
+    cutout = SceneWriter()
+    cutout.add("Cutout",
+               cutout.transform(0.0, 0.2),
+               cutout.vector_animation("cutout_hero.oanim", clip="wave",
+                                       z_order=1))
+    cutout.write(scenes / "cutout.oscene")
+
     manifest = ('<?xml version="1.0" encoding="UTF-8"?>\n'
                 '<OrkigeProject version="1">\n'
                 '    <Name>VectorShapes</Name>\n'
@@ -399,8 +531,8 @@ def main():
                 '</OrkigeProject>\n')
     (project_dir / "project.orkproj").write_text(manifest)
 
-    print("wrote %s (4 shapes + hero animation, main + softbody + vectoranim "
-          "scenes)" % project_dir)
+    print("wrote %s (4 shapes + hero animation + cutout rig, main + softbody "
+          "+ vectoranim + cutout scenes)" % project_dir)
     return 0
 
 

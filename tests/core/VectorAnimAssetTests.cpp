@@ -445,3 +445,73 @@ TEST_CASE("vectoranim_parse_error_readback", "[unit][vectoranim]")
 		CHECK(doc.layers.empty());
 	}
 }
+
+TEST_CASE("vectoranim_parse_textured_shape_key", "[unit][vectoranim]")
+{
+	// a textured cutout part in a shape key: the texture NAME is the block's
+	// identity, the rect/uv window and contour animate; each key derives its
+	// own projected per-vertex UVs
+	const String text =
+		"version 3\n"
+		"fps 30\nduration 30\n"
+		"layer arm parent -1\n"
+		"shape k 2\n"
+		"kf 0\n"
+		"fill 1 1 1 1\n"
+		"texture arm.png -1 -1 2 2\n"
+		"contour 4\nv -1 -1\nv 1 -1\nv 1 1\nv -1 1\n"
+		"kf 30\n"
+		"fill 1 1 1 1\n"
+		"texture arm.png -2 -2 4 4\n"
+		"contour 4\nv -2 -2\nv 2 -2\nv 2 2\nv -2 2\n";
+	VectorAnimAsset::Document doc;
+	REQUIRE(VectorAnimAsset::parse(text, doc));
+	REQUIRE(doc.layers.size() == 1u);
+	REQUIRE(doc.layers[0].shapes.size() == 1u);
+	VectorAnimAsset::Shape const & shape = doc.layers[0].shapes[0];
+	REQUIRE(shape.keys.size() == 2u);
+	CHECK(shape.keys[0].region.texture == "arm.png");
+	CHECK(shape.keys[1].region.texture == "arm.png");
+	// both keys map their (differently sized) rect corners to the same UVs
+	for(std::size_t k = 0; k < 2; ++k)
+	{
+		REQUIRE(shape.keys[k].region.uvs.size() == 4u);
+		CHECK(shape.keys[k].region.uvs[0].x == Approx(0.0f));
+		CHECK(shape.keys[k].region.uvs[0].y == Approx(1.0f));
+		CHECK(shape.keys[k].region.uvs[2].x == Approx(1.0f));
+		CHECK(shape.keys[k].region.uvs[2].y == Approx(0.0f));
+	}
+}
+
+TEST_CASE("vectoranim_parse_texture_identity_law", "[unit][vectoranim]")
+{
+	VectorAnimAsset::Document doc;
+	VectorAnimAsset::ParseError error;
+	// a texture NAME differing across keys is a topology mismatch
+	const String renamed =
+		"fps 30\nduration 30\nlayer a parent -1\n"
+		"shape k 2\n"
+		"kf 0\nfill 1 1 1 1\ntexture a.png 0 0 2 2\n"
+		"contour 3\nv 0 0\nv 1 0\nv 0 1\n"
+		"kf 30\nfill 1 1 1 1\ntexture b.png 0 0 2 2\n"
+		"contour 3\nv 0 0\nv 1 0\nv 0 1\n";
+	CHECK_FALSE(VectorAnimAsset::parse(renamed, doc, &error));
+	CHECK(error.message.find("topology") != String::npos);
+	// a textured key never carries a hole
+	const String holed =
+		"fps 30\nduration 30\nlayer a parent -1\n"
+		"shape k 1\n"
+		"kf 0\nfill 1 1 1 1\ntexture a.png -2 -2 4 4\n"
+		"contour 4\nv -1 -1\nv 1 -1\nv 1 1\nv -1 1\n"
+		"hole 3\nv -0.2 -0.2\nv 0.2 -0.2\nv 0 0.2\n";
+	CHECK_FALSE(VectorAnimAsset::parse(holed, doc, &error));
+	CHECK(error.message.find("textured") != String::npos);
+	// a textured key never carries a stroke
+	const String stroked =
+		"fps 30\nduration 30\nlayer a parent -1\n"
+		"shape k 1\n"
+		"kf 0\nfill 1 1 1 1\ntexture a.png 0 0 2 2\n"
+		"stroke 0.2 round round 4 open\ncontour 2\nv 0 0\nv 1 0\n";
+	CHECK_FALSE(VectorAnimAsset::parse(stroked, doc, &error));
+	CHECK(doc.layers.empty());
+}
