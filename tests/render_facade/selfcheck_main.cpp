@@ -1462,6 +1462,149 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 				"the skybox sky samples the cubemap (+X face red, "
 				"not the procedural gradient)");
 
+			// --- image-based lighting (skybox-sourced, both flavors) ------
+			// A mirror-metal wall facing the camera under the debug cubemap:
+			// enabling image lighting adds the cubemap's -X face colour
+			// (cyan - the mirror reflection of the +X view direction) to the
+			// wall's shading; disabling restores the exact pixels (the
+			// toggle-identity discipline). Runs while the skybox leg's
+			// sky_faces cubemap is showing.
+			if(RenderSystem::get()->supports(RenderCaps::IblReflections))
+			{
+				// the quality knob round-trips (the `r.iblQuality` target)
+				world->setIblQuality(IblPreset::IQ_HIGH);
+				SELFCHECK(world->getIblQuality() == IblPreset::IQ_HIGH,
+					"the image-lighting quality knob round-trips");
+				// a smooth white metal: its shading is dominated by the
+				// reflected environment, so the cubemap signature shows
+				RenderMaterialDesc mirrorDesc;
+				mirrorDesc.albedo = Color(1.0f, 1.0f, 1.0f, 1.0f);
+				mirrorDesc.metalness = 1.0f;
+				mirrorDesc.roughness = 0.06f;
+				SELFCHECK(renderSystem->createMaterial("selfcheck.iblMirror",
+					mirrorDesc), "the mirror probe material builds");
+				// the wall: the slab rotated so its wide flat top faces the
+				// camera (which looks toward +X here) - the mirror
+				// reflection of the view ray samples the cubemap's -X face
+				optr<RenderNode> wallNode =
+					world->createNode("selfcheck.iblWall");
+				wallNode->setPosition(Vec3(20, 6, 0));
+				wallNode->setScale(Vec3(12, 1, 12));
+				wallNode->setOrientation(
+					Quat(Degree(90), Vec3::UNIT_Z));	// top (+Y) -> -X
+				optr<MeshInstance> wall =
+					world->createMeshInstance("jumper_platform.glb");
+				SELFCHECK(wall != NULL, "the mirror probe mesh loads");
+				wall->attachTo(wallNode);
+				wall->setCastShadows(false);
+				SELFCHECK(wall->setMaterial("selfcheck.iblMirror"),
+					"the mirror probe mesh takes the mirror material");
+				// probe the wall centre via projection (front face x=19.5)
+				const Vec3 wallPoint(19.5f, 6.0f, 0.0f);
+				auto probeWall = [&](std::string const & imageFile,
+					float & outRed, float & outGreen, float & outBlue) -> bool
+				{
+					Real nx = 0, ny = 0;
+					if(!camera->projectPoint(wallPoint, nx, ny))
+					{
+						return false;
+					}
+					return SelfcheckBootstrap::readImagePixel(imageFile,
+						static_cast<unsigned int>(nx * (atmoW - 1)),
+						static_cast<unsigned int>(ny * (atmoH - 1)),
+						outRed, outGreen, outBlue);
+				};
+
+				// OFF baseline (image lighting never enabled yet)
+				SELFCHECK(renderFrames(renderSystem, 3),
+					"frames render with the mirror wall (image lighting off)");
+				const std::string iblOffShot = outDir + "/selfcheck_ibl_off.png";
+				renderSystem->saveWindowContents(iblOffShot);
+				float offRed = 0, offGreen = 0, offBlue = 0;
+				SELFCHECK(probeWall(iblOffShot, offRed, offGreen, offBlue),
+					"the image-lighting-off probe decodes");
+
+				// ON: the wall gains the -X face's cyan (green + blue rise,
+				// red stays low - the debug cube's +X red can never leak in
+				// through a correct mirror direction)
+				world->setImageLighting(true, 1.0f);
+				SELFCHECK(world->getImageLightingEnabled() &&
+					world->getImageLightingIntensity() == Real(1),
+					"the image-lighting opt-in round-trips");
+				SELFCHECK(renderFrames(renderSystem, 3),
+					"frames render with image lighting on");
+				const std::string iblOnShot = outDir + "/selfcheck_ibl_on.png";
+				renderSystem->saveWindowContents(iblOnShot);
+				float onRed = 0, onGreen = 0, onBlue = 0;
+				SELFCHECK(probeWall(iblOnShot, onRed, onGreen, onBlue),
+					"the image-lighting-on probe decodes");
+				std::printf("render_facade_selfcheck: image-lighting probe - "
+					"off %.3f/%.3f/%.3f, on %.3f/%.3f/%.3f\n",
+					offRed, offGreen, offBlue, onRed, onGreen, onBlue);
+				SELFCHECK(onGreen > offGreen + 0.08f &&
+					onBlue > offBlue + 0.08f,
+					"image lighting adds the cubemap's -X cyan to the mirror");
+				SELFCHECK(onGreen > onRed + 0.1f,
+					"the mirror reflection is cyan-dominant (not the +X red)");
+
+				// live tier re-arm: a LOW knob under a LARGER source (the
+				// 128-texel day sky) exercises the tier-capped chain rebuild
+				// (leading mips dropped) on both flavors - the proof here is
+				// that the re-arm renders and the state keeps round-tripping
+				AtmosphereDesc daySkyboxDesc = skyboxDesc;
+				daySkyboxDesc.skyboxTexture = "sky_day.dds";
+				world->setAtmosphere(daySkyboxDesc);
+				world->setIblQuality(IblPreset::IQ_LOW);
+				SELFCHECK(world->getIblQuality() == IblPreset::IQ_LOW,
+					"the image-lighting quality knob re-arms on low");
+				SELFCHECK(renderFrames(renderSystem, 3),
+					"frames render with the tier-capped environment chain");
+
+				// toggle identity: back to the exact baseline state - the
+				// pixels must match the OFF baseline (image lighting left
+				// no residue on the materials or the ambient)
+				world->setAtmosphere(skyboxDesc);
+				world->setImageLighting(false, 1.0f);
+				world->setIblQuality(IblPreset::IQ_MEDIUM);
+				SELFCHECK(renderFrames(renderSystem, 3),
+					"frames render after image lighting turned off");
+				const std::string iblRestoredShot =
+					outDir + "/selfcheck_ibl_restored.png";
+				renderSystem->saveWindowContents(iblRestoredShot);
+				float restRed = 0, restGreen = 0, restBlue = 0;
+				SELFCHECK(probeWall(iblRestoredShot, restRed, restGreen,
+					restBlue), "the image-lighting-restored probe decodes");
+				SELFCHECK(std::fabs(restRed - offRed) < 0.004f &&
+					std::fabs(restGreen - offGreen) < 0.004f &&
+					std::fabs(restBlue - offBlue) < 0.004f,
+					"disabling image lighting restores the exact baseline "
+					"pixels (toggle identity)");
+
+				// drop the wall before the colour-sky leg below
+				wall.reset();
+				wallNode.reset();
+				SELFCHECK(renderFrames(renderSystem, 2),
+					"frames render after the mirror wall was dropped");
+			}
+			else
+			{
+				// the honest path of a flavor without the generated-IBL
+				// shader path: the opt-in and knob are ACCEPTED (round-trip,
+				// so scenes tuned elsewhere keep their setting) and frames
+				// keep rendering unchanged
+				world->setImageLighting(true, 1.0f);
+				world->setIblQuality(IblPreset::IQ_HIGH);
+				SELFCHECK(world->getImageLightingEnabled() &&
+					world->getIblQuality() == IblPreset::IQ_HIGH,
+					"the image-lighting state round-trips on an "
+					"unsupporting flavor");
+				SELFCHECK(renderFrames(renderSystem, 3),
+					"frames render after an image-lighting request on an "
+					"unsupporting flavor");
+				world->setImageLighting(false, 1.0f);
+				world->setIblQuality(IblPreset::IQ_MEDIUM);
+			}
+
 			// COLOUR: flat clear in the sky tint - no dome pixels, so two
 			// probe heights read the SAME colour (a gradient/cubemap sky
 			// would differ), and the tint's blue dominance shows
@@ -1527,6 +1670,34 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			SELFCHECK(identical,
 				"the procedural sky is pixel-identical after the sky-type "
 				"round-trip (toggle identity)");
+
+			// image lighting under a cubemap-less sky: the v1 scope is
+			// skybox-sourced, so an opt-in under the procedural sky renders
+			// unchanged and says so in EXACTLY ONE honest log line
+			{
+				world->setImageLighting(true, 1.0f);
+				SELFCHECK(renderFrames(renderSystem, 2),
+					"frames render after an image-lighting opt-in without "
+					"a skybox");
+				world->setImageLighting(true, 1.0f);	// a second call - still one line
+				std::ifstream logFile(outDir + "/render_facade_selfcheck.log");
+				SELFCHECK(logFile.good(),
+					"the backend log file opens (image lighting)");
+				std::stringstream buffered;
+				buffered << logFile.rdbuf();
+				const std::string logText = buffered.str();
+				const std::string marker = "without a skybox cubemap";
+				std::size_t occurrences = 0;
+				for(std::size_t at = logText.find(marker);
+					at != std::string::npos;
+					at = logText.find(marker, at + marker.size()))
+				{
+					++occurrences;
+				}
+				SELFCHECK(occurrences == 1,
+					"the no-skybox image-lighting log line appears exactly once");
+				world->setImageLighting(false, 1.0f);
+			}
 
 			// leave the leg the way the exposure block below expects it
 			cameraNode->lookAt(Vec3(0, 4, -50), RenderNode::TS_WORLD);

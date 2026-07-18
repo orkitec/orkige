@@ -155,9 +155,12 @@ namespace Orkige
 	{
 		this->mImpl->ambient = upperHemisphere;
 		this->mImpl->ambientLower = lowerHemisphere;
-		// Next carries the native two-colour sky/ground ambient term
+		// Next carries the native two-colour sky/ground ambient term; the
+		// envmapScale slot rides along so an ambient write never resets the
+		// image-lighting intensity (@see RenderBackend::applyImageLighting)
 		this->mImpl->sceneManager->setAmbientLight(upperHemisphere,
-			lowerHemisphere, Ogre::Vector3::UNIT_Y);
+			lowerHemisphere, Ogre::Vector3::UNIT_Y,
+			RenderBackend::imageLightingEnvmapScale());
 	}
 	//---------------------------------------------------------
 	Color const & RenderWorld::getAmbientHemisphereUpper() const
@@ -183,6 +186,44 @@ namespace Orkige
 	ShadowPreset::Quality RenderWorld::getShadowQuality() const
 	{
 		return this->mImpl->shadowQuality;
+	}
+	//---------------------------------------------------------
+	void RenderWorld::setImageLighting(bool enabled, Real intensity)
+	{
+		this->mImpl->iblEnabled = enabled;
+		this->mImpl->iblIntensity = static_cast<float>(intensity);
+		RenderBackend::applyImageLighting();
+		// the intensity rides the scene envmapScale, which the live
+		// atmosphere re-writes per sync - hand it the new value now
+		if(this->mImpl->atmosphere.enabled)
+		{
+			RenderBackend::applyAtmosphere(this->mImpl->atmosphere);
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderWorld::getImageLightingEnabled() const
+	{
+		return this->mImpl->iblEnabled;
+	}
+	//---------------------------------------------------------
+	Real RenderWorld::getImageLightingIntensity() const
+	{
+		return Real(this->mImpl->iblIntensity);
+	}
+	//---------------------------------------------------------
+	void RenderWorld::setIblQuality(IblPreset::Quality quality)
+	{
+		if(this->mImpl->iblQuality == quality)
+		{
+			return;
+		}
+		this->mImpl->iblQuality = quality;
+		RenderBackend::applyImageLighting();
+	}
+	//---------------------------------------------------------
+	IblPreset::Quality RenderWorld::getIblQuality() const
+	{
+		return this->mImpl->iblQuality;
 	}
 	//---------------------------------------------------------
 	void RenderWorld::setAtmosphere(AtmosphereDesc const & desc)

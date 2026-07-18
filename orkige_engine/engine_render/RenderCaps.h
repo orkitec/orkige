@@ -47,7 +47,7 @@ namespace Orkige
 	X(OffscreenOwnedLayers, "offscreenOwnedLayers", Asymmetric, "2D layers composited into an offscreen RenderTexture (the editor GUI Preview + preview_ui), not just the main window") \
 	X(ProjectedDecals, "projectedDecals", Asymmetric, "surface marks (impact/splat/footprint + blob-shadow fallback) as TRUE projected decals wrapping over geometry (next = HlmsPbs forward-clustered Decal) vs a surface-aligned textured quad floating above the surface (classic - flat, does not wrap uneven geometry)") \
 	X(ScreenSpaceRefraction, "screenSpaceRefraction", PlannedAbsent, "screen-space refraction distortion through transparent surfaces (a compositor refraction pass) - absent on both flavors") \
-	X(IblReflections, "iblReflections", PlannedAbsent, "image-based lighting: environment/reflection cubemaps on PBS materials - absent on both flavors")
+	X(IblReflections, "iblReflections", Asymmetric, "opt-in image-based lighting sourced from the scene's skybox cubemap: specular reflections + a diffuse fill ADDED to the analytic lights on PBS-lit facade materials (next = the HlmsPbs reflection map + diffuse-GI env feature; classic = the generated-shader image-based-lighting stage over the same cubemap - on a GLES context the bit is runtime-gated on GLSL ES 3.0), tiered by the `r.iblQuality` cvar (`core_util/IblPreset.h`)")
 
 	//! the capability identities (expanded from ORKIGE_RENDER_CAPS)
 	enum class RenderCaps

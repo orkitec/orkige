@@ -158,6 +158,29 @@ namespace Orkige
 		//! would overdraw non-depth-writing sprites/particles.
 		const unsigned char kSkyRenderQueue = 0;
 
+		//--- image-based lighting (skybox-sourced) - IBL block ------------
+		//! is image lighting realized on the generated PBS datablocks right
+		//! now? (the facade opt-in AND the quality knob AND a loaded skybox
+		//! cubemap - @see RenderBackend::applyImageLighting)
+		bool gIblActive = false;
+		//! the environment chain the PBS datablocks bind while active: the
+		//! skybox cubemap itself when it fits the tier cap, else the derived
+		//! tier-capped copy (leading mips dropped)
+		Ogre::TextureGpu* gIblTexture = NULL;
+		//! true while gIblTexture is the derived copy this backend created
+		//! (the name below); false while it aliases the skybox texture
+		bool gIblTextureOwned = false;
+		//! the one derived-chain texture name (recreated on source/tier change)
+		const char* const kIblChainTexture = "Orkige/IblChain";
+		//! which (skybox, tier) pair the bound chain was built from, so
+		//! repeated applies with unchanged inputs skip the rebuild
+		String gIblChainSource;
+		IblPreset::Quality gIblChainQuality = IblPreset::IQ_OFF;
+		//! the reason last warned about (the honest one-line degrade of an
+		//! opt-in without a usable skybox source), so it logs ONCE per state
+		String gIblWarnedReason;
+		//--- end IBL block ------------------------------------------------
+
 		//! give the linked sun its authored colour/power back (no-op when the
 		//! atmosphere holds no light)
 		void restoreLinkedSun()
@@ -466,9 +489,11 @@ namespace Orkige
 		// register leg of render_facade_selfcheck asserts this fill matches
 		// engine_render_next/RenderCapsExpectedNext.inc): the sky dome, dynamic
 		// shadows, hemisphere ambient, the atmosphere's sun-exposure linkage,
-		// animated normal-mapped water, and offscreen-owned 2D layers. Screen-space
-		// refraction + IBL reflections are absent on both flavors (v1 boundaries),
-		// so they stay out of the set.
+		// animated normal-mapped water, offscreen-owned 2D layers, and the
+		// skybox-sourced image-based lighting (the native HlmsPbs reflection
+		// map + diffuse-GI env feature - @see applyImageLighting). Screen-space
+		// refraction is absent on both flavors (a v1 boundary), so it stays
+		// out of the set.
 		system->mImpl->caps =
 			(1u << static_cast<int>(RenderCaps::SkyDome)) |
 			(1u << static_cast<int>(RenderCaps::DynamicShadows)) |
@@ -476,7 +501,8 @@ namespace Orkige
 			(1u << static_cast<int>(RenderCaps::SunExposureLinkage)) |
 			(1u << static_cast<int>(RenderCaps::AnimatedNormalMappedWater)) |
 			(1u << static_cast<int>(RenderCaps::OffscreenOwnedLayers)) |
-			(1u << static_cast<int>(RenderCaps::ProjectedDecals));
+			(1u << static_cast<int>(RenderCaps::ProjectedDecals)) |
+			(1u << static_cast<int>(RenderCaps::IblReflections));
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget), derived from the clustered-forward config set above
 		system->mImpl->lightBudget = RenderSystem::defaultLightBudget();
@@ -505,6 +531,14 @@ namespace Orkige
 		// only the bookkeeping resets here
 		gSkyboxTexture.clear();
 		gSkyboxWarnedTexture.clear();
+		// image lighting: the chain texture + the datablocks it was bound to
+		// die with the root; only the bookkeeping resets here
+		gIblActive = false;
+		gIblTexture = NULL;
+		gIblTextureOwned = false;
+		gIblChainSource.clear();
+		gIblChainQuality = IblPreset::IQ_OFF;
+		gIblWarnedReason.clear();
 		gDirectionalLights.clear();
 		gLinkedSun = NULL;	// the light dies with the scene manager - no restore
 		delete gRenderSystem;	// ~RenderSystem deletes the world first
@@ -954,6 +988,8 @@ namespace Orkige
 			applySceneSkybox(sceneManager, String());
 			// the linked sun returns EXACTLY to its authored colour/power
 			restoreLinkedSun();
+			// no skybox source left - image lighting deactivates with it
+			RenderBackend::applyImageLighting();
 			return;
 		}
 
@@ -1051,6 +1087,10 @@ namespace Orkige
 		{
 			applySceneSkybox(sceneManager, String());
 		}
+		// the environment chain follows the skybox shown above (activates,
+		// deactivates or rebuilds; a cheap no-op while the opt-in is off) -
+		// BEFORE the preset fill below, so envmapScale reads the fresh state
+		RenderBackend::applyImageLighting();
 
 		// SUN LINKAGE: the first directional light is the sun; read its current
 		// direction (authored via its node) so orienting the light sweeps the
@@ -1114,6 +1154,9 @@ namespace Orkige
 			0.1f * static_cast<float>(Ogre::Math::PI) * desc.ambientPower;
 		preset.linkedSceneAmbientLowerPower =
 			0.01f * static_cast<float>(Ogre::Math::PI) * desc.ambientPower;
+		// the atmosphere's ambient sync re-writes the scene envmapScale every
+		// frame - hand it the image-lighting intensity so the two never fight
+		preset.envmapScale = RenderBackend::imageLightingEnvmapScale();
 		gAtmosphere->setPreset(preset);			// preset first (syncToLight reads it)
 		// CONVENTION: AtmosphereNpr's Vector3 setSunDir takes the LIGHT-TRAVEL
 		// direction (sun -> surface, what Light::setDirection holds) - it
@@ -1133,6 +1176,228 @@ namespace Orkige
 			sunNode->setOrientation(sunNodeOrientation);
 		}
 	}
+	//--- image-based lighting (skybox-sourced) - IBL block ----------------
+	namespace
+	{
+		//! the honest one-line degrade: an image-lighting opt-in that cannot
+		//! render right now says WHY, once per distinct reason
+		void warnImageLightingOnce(String const & reason)
+		{
+			if(gIblWarnedReason != reason)
+			{
+				gIblWarnedReason = reason;
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige next backend: image lighting " + reason +
+					" - rendering unchanged");
+			}
+		}
+
+		//! @brief (re)build the environment chain texture for @p source under
+		//! @p quality and return it (NULL on failure). The chain is the skybox
+		//! cubemap's own mip chain (prefiltered offline - the roughness chain
+		//! both flavors sample); a tier cap below the source edge drops the
+		//! leading mips into the derived kIblChainTexture copy, otherwise the
+		//! loaded skybox texture binds directly.
+		Ogre::TextureGpu* buildIblChainTexture(String const & source,
+			IblPreset::Quality quality, bool & outOwned)
+		{
+			outOwned = false;
+			Ogre::TextureGpuManager* textureManager = Ogre::Root::getSingleton()
+				.getRenderSystem()->getTextureGpuManager();
+			Ogre::TextureGpu* skybox =
+				textureManager->findTextureNoThrow(source);
+			if(!skybox)
+			{
+				return NULL;	// the sky shows, so this cannot happen in practice
+			}
+			const IblPreset::Settings settings = IblPreset::forQuality(quality);
+			unsigned int skip = IblPreset::mipSkipForSource(
+				skybox->getWidth(), settings);
+			if(skip == 0u)
+			{
+				return skybox;	// within the tier cap - bind the skybox itself
+			}
+			try
+			{
+				// decode the cubemap again CPU-side (the baked .dds carries the
+				// full chain) and re-image the tail below the tier cap
+				Ogre::ResourceGroupManager & resourceGroups =
+					Ogre::ResourceGroupManager::getSingleton();
+				const String group =
+					resourceGroups.findGroupContainingResource(source);
+				Ogre::DataStreamPtr stream =
+					resourceGroups.openResource(source, group);
+				Ogre::Image2 image;
+				image.load2(stream, source);
+				const unsigned int sourceMips = image.getNumMipmaps();
+				if(skip >= sourceMips)
+				{
+					skip = sourceMips - 1u;	// keep at least the 1-texel tail
+				}
+				const unsigned int chainMips = sourceMips - skip;
+				const unsigned int chainEdge =
+					std::max(1u, image.getWidth() >> skip);
+				// one SIMD buffer in Image2's own layout (mip-major, the six
+				// faces inside each mip) filled from the source's tail mips
+				const size_t sizeBytes =
+					Ogre::PixelFormatGpuUtils::calculateSizeBytes(chainEdge,
+						chainEdge, 1u, 6u, image.getPixelFormat(),
+						static_cast<Ogre::uint8>(chainMips), 4u);
+				void* chainData = OGRE_MALLOC_SIMD(sizeBytes,
+					Ogre::MEMCATEGORY_RESOURCE);
+				size_t written = 0;
+				for(unsigned int mip = 0; mip < chainMips; ++mip)
+				{
+					Ogre::TextureBox box = image.getData(
+						static_cast<Ogre::uint8>(mip + skip));
+					const size_t mipBytes =
+						box.bytesPerImage * size_t(box.numSlices);
+					oAssert(written + mipBytes <= sizeBytes);
+					memcpy(static_cast<unsigned char*>(chainData) + written,
+						box.data, mipBytes);
+					written += mipBytes;
+				}
+				Ogre::Image2 chainImage;
+				chainImage.loadDynamicImage(chainData, chainEdge, chainEdge,
+					6u, Ogre::TextureTypes::TypeCube, image.getPixelFormat(),
+					true /*autoDelete*/,
+					static_cast<Ogre::uint8>(chainMips));
+				// a MANUAL texture: no file behind the name (a non-manual
+				// create would try to stream "Orkige/IblChain" from a
+				// resource group); uploaded synchronously below
+				Ogre::TextureGpu* chain = textureManager->createTexture(
+					kIblChainTexture, Ogre::GpuPageOutStrategy::Discard,
+					Ogre::TextureFlags::ManualTexture,
+					Ogre::TextureTypes::TypeCube);
+				chain->setResolution(chainEdge, chainEdge);
+				chain->setPixelFormat(image.getPixelFormat());
+				chain->setNumMipmaps(static_cast<Ogre::uint8>(chainMips));
+				chain->scheduleTransitionTo(Ogre::GpuResidency::Resident);
+				// wait for residency, then upload the whole chain (the chain
+				// lights the whole scene - it must be complete before the
+				// next frame samples it)
+				chain->waitForData();
+				chainImage.uploadTo(chain, 0u,
+					static_cast<Ogre::uint8>(chainMips - 1u));
+				outOwned = true;
+				return chain;
+			}
+			catch(Ogre::Exception const & e)
+			{
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige next backend: image-lighting chain for '" + source +
+					"' failed to build - binding the skybox cubemap unreduced: "
+					+ e.getDescription());
+				return skybox;	// honest fallback: full-resolution chain
+			}
+		}
+
+		//! destroy the derived chain copy if this backend owns one
+		void dropOwnedIblChainTexture()
+		{
+			if(gIblTexture && gIblTextureOwned)
+			{
+				Ogre::TextureGpuManager* textureManager =
+					Ogre::Root::getSingleton().getRenderSystem()
+						->getTextureGpuManager();
+				if(!gIblTexture->isDataReady())
+				{
+					gIblTexture->waitForData();	// a deferred destroy would
+				}								// hold the name (see destroyTexture2DByName)
+				textureManager->destroyTexture(gIblTexture);
+			}
+			gIblTexture = NULL;
+			gIblTextureOwned = false;
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyImageLighting()
+	{
+		if(!gRenderSystem)
+		{
+			return;
+		}
+		RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+		bool want = world->iblEnabled &&
+			world->iblQuality != IblPreset::IQ_OFF;
+		if(want && gSkyboxTexture.empty())
+		{
+			// the v1 scope is skybox-sourced: procedural/colour skies (and a
+			// disabled atmosphere) have no cubemap to sample
+			warnImageLightingOnce("is enabled without a skybox cubemap "
+				"(needs an enabled atmosphere showing a skybox sky)");
+			want = false;
+		}
+		if(!want)
+		{
+			if(gIblActive)
+			{
+				// unbind the reflection map from every generated PBS datablock
+				// (restore-exactly: an untouched datablock is a no-op write)
+				for(Ogre::HlmsDatablock* each : gContentDatablocks)
+				{
+					if(each->getCreator()->getType() == Ogre::HLMS_PBS)
+					{
+						static_cast<Ogre::HlmsPbsDatablock*>(each)->setTexture(
+							Ogre::PBSM_REFLECTION,
+							static_cast<Ogre::TextureGpu*>(NULL));
+					}
+				}
+				dropOwnedIblChainTexture();
+				gIblChainSource.clear();
+				gIblChainQuality = IblPreset::IQ_OFF;
+				gIblActive = false;
+			}
+			return;
+		}
+		gIblWarnedReason.clear();	// active again - a future refusal logs anew
+		// (re)build the chain when the source or the tier moved
+		if(!gIblActive || gIblChainSource != gSkyboxTexture ||
+			gIblChainQuality != world->iblQuality)
+		{
+			dropOwnedIblChainTexture();
+			gIblTexture = buildIblChainTexture(gSkyboxTexture,
+				world->iblQuality, gIblTextureOwned);
+			if(!gIblTexture)
+			{
+				warnImageLightingOnce(
+					"found no loaded skybox cubemap to source");
+				return;
+			}
+			gIblChainSource = gSkyboxTexture;
+			gIblChainQuality = world->iblQuality;
+		}
+		gIblActive = true;
+		// bind the chain to every generated PBS datablock (surface + water);
+		// datablocks created later register through registerContentDatablock,
+		// which routes them here via applyImageLightingToDatablock
+		for(Ogre::HlmsDatablock* each : gContentDatablocks)
+		{
+			RenderBackend::applyImageLightingToDatablock(each);
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyImageLightingToDatablock(
+		Ogre::HlmsDatablock* datablock)
+	{
+		if(!gIblActive || !gIblTexture || !datablock ||
+			datablock->getCreator()->getType() != Ogre::HLMS_PBS)
+		{
+			return;
+		}
+		static_cast<Ogre::HlmsPbsDatablock*>(datablock)->setTexture(
+			Ogre::PBSM_REFLECTION, gIblTexture);
+	}
+	//---------------------------------------------------------
+	float RenderBackend::imageLightingEnvmapScale()
+	{
+		if(!gIblActive || !gRenderSystem)
+		{
+			return 1.0f;
+		}
+		return gRenderSystem->getWorld()->mImpl->iblIntensity;
+	}
+	//--- end IBL block ----------------------------------------------------
 	//---------------------------------------------------------
 	void RenderBackend::recreateWindowWorkspace()
 	{
@@ -1863,6 +2128,8 @@ namespace Orkige
 	{
 		oAssert(datablock);
 		gContentDatablocks.push_back(datablock);
+		// late-created PBS content joins the active image-lighting set
+		RenderBackend::applyImageLightingToDatablock(datablock);
 		if(gWireframe)
 		{
 			applyWireframe(datablock, true);	// late-created content joins

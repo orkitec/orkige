@@ -20,6 +20,7 @@
 #include <core_debug/DebugMacros.h>
 
 #include <algorithm>
+#include <map>
 #include <set>
 #include <unordered_map>
 
@@ -39,6 +40,32 @@ namespace Orkige
 		//! plain material never pays for tangent generation.
 		std::set<String> gNormalMappedMaterials;
 
+		//--- image-based lighting (skybox-sourced) - IBL block ------------
+		//! the realized image-lighting state the shader-state builder reads:
+		//! while active, every generated Cook-Torrance material appends the
+		//! image-based-lighting stage over @c envTexture at @c luminance
+		//! (@see RenderBackend::applyImageLighting)
+		struct IblState
+		{
+			bool	active = false;		//!< append the IBL stage right now?
+			String	envTexture;			//!< the environment chain cubemap name
+			float	luminance = 1.0f;	//!< scales the added contribution
+		};
+		IblState gIbl;
+		//! every generated Cook-Torrance material (surface + water) by name,
+		//! with the normal-map texture-unit index its shader state was pinned
+		//! with - the re-derive set a live image-lighting toggle walks. An
+		//! entry whose material died (project switch) is skipped and pruned.
+		std::map<String, int> gSurfaceMaterials;
+		//! the one derived-chain texture name (recreated on source/tier change)
+		const char* const kIblChainTexture = "Orkige/IblChain";
+		//! which (skybox, tier) pair the chain was built from (skip rebuilds)
+		String gIblChainSource;
+		IblPreset::Quality gIblChainQuality = IblPreset::IQ_OFF;
+		//! the reason last warned about, so the honest degrade logs ONCE
+		String gIblWarnedReason;
+		//--- end IBL block ------------------------------------------------
+
 #ifdef USE_RTSHADER_SYSTEM
 		//! @brief pin @p material's RTSS render state to a metal-rough Cook-
 		//! Torrance lighting stage (reading albedo/metalness/roughness/emissive
@@ -54,6 +81,11 @@ namespace Orkige
 			const String & group = material->getGroup();
 			const String scheme =
 				Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME;
+			// the generator picks its clone source from the material's
+			// SUPPORTED techniques, which only exist once the material has
+			// compiled - a freshly created (never rendered) material answers
+			// none and the pin would silently fail (idempotent on updates)
+			material->load();
 			// drop any technique generated from a previous description, then
 			// clone the current fixed-function technique (all passes) into the
 			// shader scheme so the render state below drives freshly built shaders
@@ -91,6 +123,26 @@ namespace Orkige
 				normalMap->setParameter("normalmap_space", "tangent_space");
 				renderState->addTemplateSubRenderState(normalMap);
 			}
+			// while image lighting is active, the image-based-lighting stage
+			// runs after the Cook-Torrance stage and ADDS the environment
+			// chain's specular + diffuse contribution (it binds the DFG LUT +
+			// the chain cubemap as its own texture units on the generated
+			// pass, so the FFP unit indices above stay untouched) - @see
+			// RenderBackend::applyImageLighting, which re-derives this state
+			// on every toggle so an inactive state carries NO residue
+			if(gIbl.active)
+			{
+				Ogre::RTShader::SubRenderState* imageLighting =
+					generator->createSubRenderState(
+						Ogre::RTShader::SRS_IMAGE_BASED_LIGHTING);
+				imageLighting->setParameter("texture", gIbl.envTexture);
+				imageLighting->setParameter("luminance",
+					Ogre::StringConverter::toString(gIbl.luminance));
+				renderState->addTemplateSubRenderState(imageLighting);
+			}
+			// remember the pinned state so a live image-lighting toggle can
+			// re-derive every generated material with the same inputs
+			gSurfaceMaterials[name] = normalTuIndex;
 			generator->invalidateMaterial(scheme, name, group);
 		}
 #endif // USE_RTSHADER_SYSTEM
@@ -945,4 +997,252 @@ namespace Orkige
 	{
 		this->mImpl->engine->getRenderWindow(0)->resetStatistics();
 	}
+	//--- image-based lighting (skybox-sourced) - IBL block ----------------
+	namespace
+	{
+		//! the honest one-line degrade: an image-lighting opt-in that cannot
+		//! render right now says WHY, once per distinct reason
+		void warnImageLightingOnce(String const & reason)
+		{
+			if(gIblWarnedReason != reason)
+			{
+				gIblWarnedReason = reason;
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige classic backend: image-based lighting " + reason);
+			}
+		}
+
+#ifdef USE_RTSHADER_SYSTEM
+		//! @brief resolve the environment chain texture name for @p source
+		//! under @p quality ("" on failure). The chain is the skybox
+		//! cubemap's own mip chain (prefiltered offline); a tier cap below
+		//! the source edge blits the tail mips into the derived
+		//! kIblChainTexture cubemap, otherwise the loaded skybox texture
+		//! binds directly by name.
+		String ensureIblChainTexture(String const & source,
+			IblPreset::Quality quality)
+		{
+			Ogre::TextureManager & textureManager =
+				Ogre::TextureManager::getSingleton();
+			try
+			{
+				Ogre::TexturePtr skybox = textureManager.load(source,
+					Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME,
+					Ogre::TEX_TYPE_CUBE_MAP);
+				unsigned int skip = IblPreset::mipSkipForSource(
+					static_cast<unsigned int>(skybox->getWidth()),
+					IblPreset::forQuality(quality));
+				if(skip == 0u)
+				{
+					return source;	// within the tier cap - bind it directly
+				}
+				// re-decode the cubemap CPU-side and blit the tail mips into
+				// the derived tier-capped copy (replace-by-recreate)
+				if(Ogre::TexturePtr stale = textureManager.getByName(
+					kIblChainTexture,
+					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+				{
+					textureManager.remove(stale);
+				}
+				const String group = Ogre::ResourceGroupManager::getSingleton()
+					.findGroupContainingResource(source);
+				Ogre::Image image;
+				image.load(source, group);
+				// classic mip counts EXCLUDE the base level
+				const unsigned int sourceExtraMips = image.getNumMipmaps();
+				if(skip > sourceExtraMips)
+				{
+					skip = sourceExtraMips;	// keep at least the smallest mip
+				}
+				const unsigned int chainEdge = std::max(1u,
+					static_cast<unsigned int>(image.getWidth()) >> skip);
+				const unsigned int chainExtraMips = sourceExtraMips - skip;
+				Ogre::TexturePtr chain = textureManager.createManual(
+					kIblChainTexture,
+					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+					Ogre::TEX_TYPE_CUBE_MAP, chainEdge, chainEdge,
+					static_cast<int>(chainExtraMips), image.getFormat(),
+					Ogre::TU_DEFAULT);
+				for(size_t face = 0; face < 6; ++face)
+				{
+					for(unsigned int mip = 0; mip <= chainExtraMips; ++mip)
+					{
+						chain->getBuffer(face, mip)->blitFromMemory(
+							image.getPixelBox(face, mip + skip));
+					}
+				}
+				return kIblChainTexture;
+			}
+			catch(Ogre::Exception const & e)
+			{
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige classic backend: image-lighting chain for '" +
+					source + "' failed to build: " + e.getDescription());
+				return String();
+			}
+		}
+#endif // USE_RTSHADER_SYSTEM
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::imageBasedLightingSupported()
+	{
+#ifdef USE_RTSHADER_SYSTEM
+		Ogre::RTShader::ShaderGenerator* generator =
+			Ogre::RTShader::ShaderGenerator::getSingletonPtr();
+		if(!generator)
+		{
+			return false;	// no shader generator - no generated IBL stage
+		}
+		// the generated shader indexes the cubemap's mip chain per fragment
+		// (roughness -> lod), which a bare GLES2/WebGL1 context cannot do -
+		// the stage needs GLSL ES 3.0 there (desktop GLSL always qualifies)
+		if(generator->getTargetLanguage() == "glsles" &&
+			!Ogre::GpuProgramManager::getSingleton().isSyntaxSupported(
+				"glsl300es"))
+		{
+			return false;
+		}
+		return true;
+#else
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyImageLighting()
+	{
+#ifdef USE_RTSHADER_SYSTEM
+		RenderSystem* system = RenderBackend::system();
+		if(!system || !system->getWorld())
+		{
+			return;
+		}
+		RenderWorld::Impl* world = system->getWorld()->mImpl;
+		bool want = world->iblEnabled &&
+			world->iblQuality != IblPreset::IQ_OFF;
+		if(want && !RenderBackend::imageBasedLightingSupported())
+		{
+			// the honest per-device refusal - said ONCE, then the opt-in
+			// keeps round-tripping (the marker line the selfcheck greps)
+			warnImageLightingOnce("is not supported on this render backend - "
+				"the opt-in is recorded but no image lighting renders on "
+				"this flavor");
+			want = false;
+		}
+		const String source = RenderBackend::activeSkyboxTexture();
+		if(want && source.empty())
+		{
+			// the v1 scope is skybox-sourced: procedural/colour skies (and a
+			// disabled atmosphere) have no cubemap to sample
+			warnImageLightingOnce("is enabled without a skybox cubemap "
+				"(needs an enabled atmosphere showing a skybox sky) - "
+				"rendering unchanged");
+			want = false;
+		}
+		if(want)
+		{
+			// the split-sum lookup table the generated stage samples (ships
+			// with the shader-library media); load once, refuse honestly
+			// when the media set predates it
+			try
+			{
+				Ogre::TextureManager::getSingleton().load(
+					"dfgLUTmultiscatter.dds", Ogre::RGN_INTERNAL);
+			}
+			catch(Ogre::Exception const &)
+			{
+				warnImageLightingOnce("found no DFG lookup table in the "
+					"shader-library media - rendering unchanged");
+				want = false;
+			}
+		}
+		IblState desired;
+		desired.active = want;
+		desired.luminance = world->iblIntensity;
+		if(want)
+		{
+			if(gIblChainSource != source ||
+				gIblChainQuality != world->iblQuality || !gIbl.active)
+			{
+				desired.envTexture = ensureIblChainTexture(source,
+					world->iblQuality);
+				if(desired.envTexture.empty())
+				{
+					desired.active = false;
+					desired.luminance = 1.0f;
+				}
+				else
+				{
+					gIblChainSource = source;
+					gIblChainQuality = world->iblQuality;
+				}
+			}
+			else
+			{
+				desired.envTexture = gIbl.envTexture;	// unchanged chain
+			}
+		}
+		if(!desired.active)
+		{
+			desired.envTexture.clear();
+			desired.luminance = 1.0f;
+			gIblChainSource.clear();
+			gIblChainQuality = IblPreset::IQ_OFF;
+		}
+		else
+		{
+			gIblWarnedReason.clear();	// active - a future refusal logs anew
+		}
+		if(desired.active == gIbl.active &&
+			desired.envTexture == gIbl.envTexture &&
+			desired.luminance == gIbl.luminance)
+		{
+			return;	// nothing changes - no shader re-derive
+		}
+		gIbl = desired;
+		Ogre::RTShader::ShaderGenerator* generator =
+			Ogre::RTShader::ShaderGenerator::getSingletonPtr();
+		if(!generator)
+		{
+			return;	// fixed-function flavor: nothing was generated to re-derive
+		}
+		// re-derive every generated Cook-Torrance material with the new
+		// state (the stage appears/disappears/retunes); a dead entry (its
+		// material dropped on a project switch) prunes itself
+		Ogre::MaterialManager & materialManager =
+			Ogre::MaterialManager::getSingleton();
+		for(std::map<String, int>::iterator each = gSurfaceMaterials.begin();
+			each != gSurfaceMaterials.end();)
+		{
+			Ogre::MaterialPtr material = materialManager.getByName(each->first,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			if(!material)
+			{
+				each = gSurfaceMaterials.erase(each);
+				continue;
+			}
+			configureSurfaceShaderState(generator, material, each->second);
+			++each;
+		}
+#endif // USE_RTSHADER_SYSTEM
+	}
+	//---------------------------------------------------------
+	void RenderBackend::imageLightingTeardown()
+	{
+		gIbl = IblState();
+		gSurfaceMaterials.clear();
+		gIblChainSource.clear();
+		gIblChainQuality = IblPreset::IQ_OFF;
+		gIblWarnedReason.clear();
+		if(Ogre::TextureManager* textureManager =
+			Ogre::TextureManager::getSingletonPtr())
+		{
+			if(Ogre::TexturePtr chain = textureManager->getByName(
+				kIblChainTexture,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+			{
+				textureManager->remove(chain);
+			}
+		}
+	}
+	//--- end IBL block ----------------------------------------------------
 }

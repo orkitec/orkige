@@ -388,8 +388,21 @@ classic = RTSS Cook-Torrance metal-rough — BOTH honor normal + emissive maps
 (tolerance parity), plus `alphaTest`/`twoSided` (cutout casters shadow as
 cutouts on both flavors) and runtime per-instance accents
 (`MeshInstance::setTint`/`setEmissiveBoost`, PROP_TRANSIENT — never
-serialized); no IBL until the sky/atmosphere surface — `Docs/materials.md`,
+serialized) — `Docs/materials.md`,
 `demo_material` + the `material_*_right` probes per flavor;
+**image-based lighting** (opt-in, skybox-sourced, both flavors):
+`RenderWorld::setImageLighting` / `engine:setImageLighting(enabled,
+intensity)` adds cubemap specular reflections + a diffuse fill to the
+generated PBS materials ON TOP of the analytic lights (never replacing
+them; default OFF and byte-stable), sourced from the skybox cubemap the
+enabled atmosphere shows (its baked mip chain is the prefiltered roughness
+chain — `make_sky_assets.py`; procedural/colour skies refuse with one
+honest line); the `r.iblQuality` cvar (off/low/medium/high, live re-arm,
+pure tier table `core_util/IblPreset.h` capping the chain resolution);
+next = the native HlmsPbs reflection map + diffuse-GI env feature, classic
+= the RTSS image-based-lighting stage over the same cubemap (GLES2/WebGL1
+runtime-gates the `iblReflections` capability bit) — the
+`render_facade_selfcheck` image-lighting leg + `IblPresetTests`;
 **shadows**: integrated-PSSM texture shadows on BOTH flavors (next native,
 classic via the RTSS receiver injected into the generated-material scheme —
 `ClassicBackend::applyShadowConfig`); the `r.shadowQuality` cvar

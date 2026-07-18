@@ -355,6 +355,20 @@ protected:
 		//! tracks the sun (@see AtmosphereDesc).
 		void setAtmosphereSky(String const & skyType,
 			String const & skyboxTexture);
+		//! @brief opt into image-based lighting from Lua -
+		//! engine:setImageLighting(enabled, intensity)
+		//! @param enabled add cubemap-sourced reflections + diffuse fill to
+		//! the PBS-lit materials (composes with the analytic lights, never
+		//! replaces them); false restores the exact untouched lighting
+		//! @param intensity scales the added contribution (1 = the cubemap's
+		//! own brightness)
+		//! @remarks STICKY runtime state like the atmosphere. The source is
+		//! the skybox cubemap the enabled atmosphere shows
+		//! (setAtmosphereSky("skybox", ...)); enabling under a procedural/
+		//! colour sky logs one honest line and renders unchanged. Quality
+		//! tiers ride the `r.iblQuality` cvar (core_util/IblPreset.h);
+		//! capability probe: engine:supports("iblReflections").
+		void setImageLighting(bool enabled, float intensity);
 		//! @brief does this build carry the gui UI system?
 		//! @remarks true on BOTH flavors
 		//! (gui renders through the engine_render facade); the probe

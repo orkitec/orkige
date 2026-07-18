@@ -408,9 +408,11 @@ namespace Orkige
 		// the shared curve - core_util/AtmosphereSunDrive.h) and dynamic
 		// shadows (RTSS integrated PSSM, @see applyShadowConfig) - the shadow
 		// bit is RUNTIME-determined: a GLES2 context without depth-texture
-		// render targets answers false per device. The rest (hemisphere
+		// render targets answers false per device, and the image-lighting
+		// bit likewise (the generated stage needs GLSL ES 3.0 on a GLES
+		// context, @see imageBasedLightingSupported). The rest (hemisphere
 		// ambient, animated normal-mapped water, offscreen-owned 2D layers)
-		// are registered next-only deltas; screen-space refraction + IBL are
+		// are registered next-only deltas; screen-space refraction is
 		// absent on both.
 		system->mImpl->caps = (1u << static_cast<int>(RenderCaps::SkyDome)) |
 			(1u << static_cast<int>(RenderCaps::SunExposureLinkage));
@@ -418,6 +420,11 @@ namespace Orkige
 		{
 			system->mImpl->caps |=
 				(1u << static_cast<int>(RenderCaps::DynamicShadows));
+		}
+		if(RenderBackend::imageBasedLightingSupported())
+		{
+			system->mImpl->caps |=
+				(1u << static_cast<int>(RenderCaps::IblReflections));
 		}
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget): the classic forward renderer's per-pass headroom

@@ -200,13 +200,64 @@ content) are skipped by the accent quietly.
 
 - **Opaque or binary CUTOUT only** — `alphaTest` is a hard keep/discard; no
   alpha BLENDING on scene-content materials.
-- **No IBL yet**: the per-datablock reflection cubemap is deliberately NOT
-  wired — it interacts with the sky/atmosphere surface (`setSkyCubemap`) and
-  ships with that package so there is ONE cubemap mechanism, not two.
-  `RenderWorld::setAmbientHemisphere` (two-colour sky/ground ambient, native
-  on next) is the mobile-cheap stand-in until then.
 - No occlusion/specular/detail maps, no UV transforms, no per-sub-mesh
   assignment.
+
+## Image-based lighting (skybox-sourced, opt-in)
+
+The one cubemap mechanism the materials waited for is the atmosphere's
+skybox (`AtmosphereDesc::skyboxTexture`), and image-based lighting sources
+FROM it: with `engine:setImageLighting(true, intensity)` (Lua; facade
+`RenderWorld::setImageLighting`) every generated PBS material — `.omat`
+surfaces and water — gains cubemap specular reflections plus a cubemap
+diffuse fill, ADDED on top of the analytic lights and ambient, never
+replacing them. `intensity` scales only the added contribution.
+
+Three switches gate it, and all three must hold before anything renders
+(until then the scene pays neither memory nor per-frame cost and stays
+byte-identical):
+
+1. the runtime opt-in (`setImageLighting(true, …)` — sticky state like the
+   atmosphere; OFF by default),
+2. the `r.iblQuality` cvar (off/low/medium/high, default medium; the tier
+   caps the environment chain's resolution — pure table in
+   `core_util/IblPreset.h`, live re-arm like `r.shadowQuality`),
+3. an enabled atmosphere showing a **skybox** sky with a loaded cubemap.
+   Procedural/colour skies have no cubemap to sample — enabling under them
+   logs one honest line and renders unchanged (procedural-sky capture is
+   future work).
+
+The cubemap's mip chain IS the roughness chain: `Util/make_sky_assets.py`
+bakes a prefiltered chain (box downsample + widening in-face tent blur — an
+offline cosine-lobe approximation; the top mip stays untouched so the sky
+picture is unchanged), and both flavors' native samplers index it by surface
+roughness. A tier cap below the source's edge drops leading mips (a cheap
+re-upload, no re-filtering).
+
+Flavor mapping — both native, tolerance parity (not per-pixel):
+
+- **next**: the HlmsPbs reflection map (`PBSM_REFLECTION`) on every
+  generated PBS datablock + the scene's `envmapScale`/diffuse-GI env
+  feature — specular AND diffuse from the one cubemap, additive in the
+  shader.
+- **classic**: the shader-generator image-based-lighting stage appended to
+  the generated Cook-Torrance materials (split-sum DFG lookup table from
+  the shader-library media + the same cubemap; also specular + diffuse,
+  additive). A GLES2/WebGL1 context without GLSL ES 3.0 refuses with one
+  log line — the `iblReflections` capability bit is runtime-gated there.
+- Scope delta inside the tolerance: next's mesh importer emits PBS
+  datablocks, so glTF-embedded materials pick the reflection map up too;
+  classic's imported materials stay outside the generated Cook-Torrance
+  set and render without the added term (author an `.omat` where the
+  reflection matters on both flavors).
+
+Capability probe: `engine:supports("iblReflections")` / `RenderSystem::
+supports(RenderCaps::IblReflections)`. MCP: the cvar rides `set_cvar`
+(`r.iblQuality`), the opt-in is script state (`reload_script`/scene
+scripts), the capability shows in `get_state`. Verified by the
+`render_facade_selfcheck` image-lighting leg per flavor (cubemap colour
+signature on a mirror material, toggle-off pixel identity, tier re-arm,
+the honest no-skybox line) and the `IblPresetTests` unit suite.
 
 ## Sample + tests
 
@@ -361,9 +412,10 @@ legitimately differs between the flavors).
   The generator keeps this below ordinary visibility (domain-warped noise, so
   no lattice-straight features; a wrapped high-pass, so coarse mip levels are
   near-flat and the tile repeat carries no coherent low-frequency blobs), but
-  the residual is physics: the pipelines that would mask it — reflection
-  variety from IBL/screen-space refraction, or vertex waves breaking the
-  silhouette — are registered absent / out of v1 scope.
+  the residual is physics: skybox-sourced image lighting (opt-in, above) adds
+  reflection variety that masks some of it, while the stronger masks —
+  screen-space refraction, or vertex waves breaking the silhouette — remain
+  registered absent / out of v1 scope.
 
 ### Generator + tests
 

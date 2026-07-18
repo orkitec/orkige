@@ -11,12 +11,20 @@ type (AtmosphereDesc::skyType - see Docs/render-abstraction.md):
   * sky_faces.dds - a tiny six-colour debug cubemap (one flat colour per
                     face) for pixel probes and orientation checks
 
-Container: ONE uncompressed BGRA8 .dds cubemap per sky with a full box-filter
-mip chain - the single cubemap form BOTH render flavors load natively (the
-classic codec feeds SceneManager::setSkyBox, the next TextureGpuManager feeds
-SceneManager::setSky), and the export cook ships untouched (it only
-block-compresses .png payloads). Faces are written in the container's
-standard +X,-X,+Y,-Y,+Z,-Z order and orientation.
+Container: ONE uncompressed BGRA8 .dds cubemap per sky with a full
+PREFILTERED mip chain - the single cubemap form BOTH render flavors load
+natively (the classic codec feeds SceneManager::setSkyBox, the next
+TextureGpuManager feeds SceneManager::setSky), and the export cook ships
+untouched (it only block-compresses .png payloads). Faces are written in the
+container's standard +X,-X,+Y,-Y,+Z,-Z order and orientation.
+
+The mip chain doubles as the image-based-lighting roughness chain: both
+render flavors' IBL samplers index it by surface roughness (mip N = rougher
+reflections), so each mip below the top is the box downsample of the
+previous PLUS a widening in-face tent blur - an offline approximation of the
+cosine-lobe specular prefilter (cross-face seam blending is deliberately
+omitted; the in-face blur is edge-clamped). The top mip stays untouched, so
+the sky VISUAL renders identically with or without image lighting.
 
 Everything derives from an integer seed - re-running the tool reproduces the
 committed bytes exactly (--selftest asserts it).
@@ -154,11 +162,44 @@ def night_colour(direction, face, px, py, seed):
 
 # --- DDS cubemap writer -----------------------------------------------------
 
+# extra tent-blur passes per mip step, capped: mip 1 gets none (near-mirror
+# reflections stay crisp), mip 2 one pass, mip 3 two, deeper mips three
+PREFILTER_BLUR_CAP = 3
+
+
+def _blur3(face_pixels, dim):
+    """One edge-clamped in-face 3x3 tent-blur pass (weights 1-2-1)."""
+    out = []
+    for y in range(dim):
+        for x in range(dim):
+            acc = [0.0, 0.0, 0.0]
+            weight_sum = 0.0
+            for dy in (-1, 0, 1):
+                sy = min(dim - 1, max(0, y + dy))
+                wy = 2 if dy == 0 else 1
+                for dx in (-1, 0, 1):
+                    sx = min(dim - 1, max(0, x + dx))
+                    w = wy * (2 if dx == 0 else 1)
+                    p = face_pixels[sy * dim + sx]
+                    acc[0] += p[0] * w
+                    acc[1] += p[1] * w
+                    acc[2] += p[2] * w
+                    weight_sum += w
+            out.append((acc[0] / weight_sum, acc[1] / weight_sum,
+                        acc[2] / weight_sum))
+    return out
+
+
 def _mip_chain(face_pixels, size):
-    """Box-filtered mip chain of one face: [(size, rows-of-(r,g,b) floats)]
-    down to 1x1. face_pixels is a flat row-major list of (r,g,b)."""
+    """Prefiltered mip chain of one face: [(size, rows-of-(r,g,b) floats)]
+    down to 1x1. face_pixels is a flat row-major list of (r,g,b).
+
+    Each mip below the top is the 2x2 box downsample of the previous plus a
+    widening tent blur (PREFILTER_BLUR_CAP), so deeper mips approximate the
+    progressively wider cosine lobe the roughness-indexed IBL samplers of
+    both render flavors expect. The top mip is the untouched source."""
     chain = [(size, face_pixels)]
-    current, dim = face_pixels, size
+    current, dim, step = face_pixels, size, 0
     while dim > 1:
         half = dim // 2
         smaller = []
@@ -172,6 +213,10 @@ def _mip_chain(face_pixels, size):
                         acc[1] += p[1]
                         acc[2] += p[2]
                 smaller.append((acc[0] / 4.0, acc[1] / 4.0, acc[2] / 4.0))
+        step += 1
+        if half > 1:
+            for _ in range(min(PREFILTER_BLUR_CAP, step - 1)):
+                smaller = _blur3(smaller, half)
         chain.append((half, smaller))
         current, dim = smaller, half
     return chain
@@ -328,6 +373,26 @@ def selftest():
     check(build_faces() == faces, "faces bake is not deterministic")
     check(build_day(size, seed + 1) != day,
           "a different seed should change the day sky")
+
+    # the prefilter really widens the chain: an isolated bright texel must
+    # spread past the pure 2x2 box footprint (one texel) in a blurred mip
+    impulse_size = 16
+    impulse = [(0.0, 0.0, 0.0)] * (impulse_size * impulse_size)
+    impulse[(impulse_size // 2) * impulse_size + impulse_size // 2] = \
+        (1.0, 1.0, 1.0)
+    impulse_chain = _mip_chain(impulse, impulse_size)
+    mip2_dim, mip2 = impulse_chain[2]      # 4x4: one tent-blur pass applied
+    check(mip2_dim == 4, "impulse chain: unexpected mip layout")
+    lit = sum(1 for p in mip2 if p[0] > 1e-6)
+    check(lit > 1,
+          "prefilter: an impulse should blur wider than the box footprint "
+          "(%d lit texels)" % lit)
+    # energy stays put (the tent blur is normalised)
+    total = sum(p[0] for p in mip2)
+    check(abs(total - 1.0 / 16.0) < 1e-6,
+          "prefilter: blur must preserve energy (got %f)" % total)
+    check(_mip_chain(impulse, impulse_size) == impulse_chain,
+          "prefiltered chain is not deterministic")
 
     # the debug cubemap really carries one distinct colour per face
     parsed_faces = parse_dds(faces)

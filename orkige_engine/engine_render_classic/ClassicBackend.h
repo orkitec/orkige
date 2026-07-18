@@ -91,6 +91,13 @@ namespace Orkige
 		//! light); NULL until the first enabled setAtmosphere.
 		Ogre::ManualObject*		skyDome = NULL;
 		Ogre::SceneNode*		skyNode = NULL;
+		//! the image-lighting opt-in (@see RenderWorld::setImageLighting);
+		//! renders only with the quality knob on AND a loaded skybox cubemap
+		bool					iblEnabled = false;
+		//! scales the added cubemap contribution (the IBL stage's luminance)
+		float					iblIntensity = 1.0f;
+		//! the IBL quality knob (chain budgets in core_util/IblPreset.h)
+		IblPreset::Quality		iblQuality = IblPreset::IQ_MEDIUM;
 	};
 
 	struct RenderNode::Impl
@@ -383,6 +390,31 @@ namespace Orkige
 		//! re-resolve the sun-exposure linkage. Called when the sun registry
 		//! changes (@see noteDirectionalLight).
 		static void refreshSkyDome();
+		//! the cubemap the native sky box currently shows ("" = none) - the
+		//! image-lighting source (@see applyImageLighting)
+		static String const & activeSkyboxTexture();
+
+		//--- image-based lighting (skybox-sourced) -----------------------
+		//! @brief realize the facade image-lighting state (RenderWorld::
+		//! setImageLighting/setIblQuality): while active - enabled, knob on, a
+		//! loaded skybox cubemap showing, the generated-shader path available -
+		//! every generated Cook-Torrance material (surface + water) re-derives
+		//! with the image-based-lighting stage appended (DFG LUT + the
+		//! tier-capped environment chain, luminance = the intensity); inactive
+		//! re-derives them back without it. Also re-run at the end of every
+		//! setAtmosphere so the chain follows a skybox change; cheap no-op
+		//! while the state is off. Enabling without a skybox source (or on a
+		//! render system without the shader path) logs one honest line and
+		//! renders unchanged.
+		static void applyImageLighting();
+		//! @brief can this backend render image-based lighting at all: the
+		//! shader generator is active AND the generated shaders can index the
+		//! cubemap's mip chain (GLSL ES 3.0 on a GLES context - the
+		//! RenderCaps::IblReflections fill; runtime-determined per device)
+		static bool imageBasedLightingSupported();
+		//! drop the image-lighting bookkeeping + the derived chain texture
+		//! (world teardown; the generated materials die with the manager)
+		static void imageLightingTeardown();
 
 		//--- dynamic shadows (the scene-level RTSS integrated PSSM) ------
 		//! @brief (re)apply the shadow configuration: ARM the scene's

@@ -445,6 +445,8 @@ namespace Orkige
 			applySkyBox(this->mImpl->sceneManager, String());
 		}
 		gSkyBoxWarnedTexture.clear();
+		// image lighting dies with the world (its source cubemap just left)
+		RenderBackend::imageLightingTeardown();
 		// drop the sky dome (its ManualObject/node + the camera-follow listener)
 		// before the scene manager tears down
 		teardownSkyDome(this->mImpl->sceneManager, this->mImpl->skyDome,
@@ -595,6 +597,38 @@ namespace Orkige
 		return this->mImpl->ambientUpper;
 	}
 	//---------------------------------------------------------
+	void RenderWorld::setImageLighting(bool enabled, Real intensity)
+	{
+		this->mImpl->iblEnabled = enabled;
+		this->mImpl->iblIntensity = static_cast<float>(intensity);
+		RenderBackend::applyImageLighting();
+	}
+	//---------------------------------------------------------
+	bool RenderWorld::getImageLightingEnabled() const
+	{
+		return this->mImpl->iblEnabled;
+	}
+	//---------------------------------------------------------
+	Real RenderWorld::getImageLightingIntensity() const
+	{
+		return Real(this->mImpl->iblIntensity);
+	}
+	//---------------------------------------------------------
+	void RenderWorld::setIblQuality(IblPreset::Quality quality)
+	{
+		if(this->mImpl->iblQuality == quality)
+		{
+			return;
+		}
+		this->mImpl->iblQuality = quality;
+		RenderBackend::applyImageLighting();
+	}
+	//---------------------------------------------------------
+	IblPreset::Quality RenderWorld::getIblQuality() const
+	{
+		return this->mImpl->iblQuality;
+	}
+	//---------------------------------------------------------
 	void RenderWorld::setShadowQuality(ShadowPreset::Quality quality)
 	{
 		if(quality == this->mImpl->shadowQuality)
@@ -702,6 +736,9 @@ namespace Orkige
 						* 0.5f);
 			}
 		}
+		// the environment chain follows the skybox shown above (activates,
+		// deactivates or rebuilds; a cheap no-op while the opt-in is off)
+		RenderBackend::applyImageLighting();
 	}
 	//---------------------------------------------------------
 	AtmosphereDesc const & RenderWorld::getAtmosphere() const
@@ -727,6 +764,11 @@ namespace Orkige
 			gLinkedSunDiffuse = colour;
 		}
 		return true;
+	}
+	//---------------------------------------------------------
+	String const & RenderBackend::activeSkyboxTexture()
+	{
+		return gSkyBoxTexture;
 	}
 	//---------------------------------------------------------
 	void RenderBackend::refreshSkyDome()

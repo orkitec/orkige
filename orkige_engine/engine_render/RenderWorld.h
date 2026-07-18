@@ -15,6 +15,7 @@
 #include "engine_render/SpriteQuad.h"
 #include "engine_render/VectorMesh.h"
 #include <core_util/ShadowPreset.h>
+#include <core_util/IblPreset.h>
 #include <core_util/AtmosphereDesc.h>
 #include <core_util/String.h>
 #include <vector>
@@ -210,6 +211,43 @@ namespace Orkige
 		//! the number of decals currently VISIBLE under the budget (<= the cap;
 		//! selfcheck/introspection - the eviction and toggle-identity probe)
 		unsigned int getVisibleDecalCount() const;
+
+		//--- image-based lighting (skybox-sourced, opt-in) ---
+		//! whether this backend renders cubemap-sourced image-based lighting
+		//! at all is the `RenderCaps::IblReflections` capability
+		//! (`RenderSystem::supports` - classic answers per device: the
+		//! generated-shader path needs GLSL ES 3.0 on a GLES context).
+		//! @brief opt into image-based lighting sourced from the scene's
+		//! skybox cubemap (AtmosphereDesc::skyboxTexture): PBS-lit facade
+		//! materials (surface + water) gain cubemap specular reflections and
+		//! a cubemap diffuse fill, ADDED on top of the analytic lights and
+		//! ambient - never replacing them. @p intensity scales the added
+		//! contribution (1 = the cubemap's own brightness).
+		//! Renders only while enabled AND the quality knob is not IQ_OFF AND
+		//! an enabled skybox-type atmosphere shows a loaded cubemap; enabling
+		//! without a skybox source logs one honest line and renders unchanged
+		//! (procedural/colour skies have no cubemap to sample - v1 scope).
+		//! Default OFF: content that never opts in renders byte-identically.
+		//! map: next=HlmsPbs reflection map (PBSM_REFLECTION) on the generated
+		//! PBS datablocks + the scene envmapScale/diffuse-GI env features |
+		//! classic=the shader-generator image-based-lighting stage appended to
+		//! the generated Cook-Torrance materials (DFG LUT + the same cubemap;
+		//! needs GLSL ES 3.0 on GLES - refused honestly with one log line) |
+		//! filament=IndirectLight from the cubemap
+		void setImageLighting(bool enabled, Real intensity = Real(1));
+		//! the opt-in last set (default false)
+		bool getImageLightingEnabled() const;
+		//! the intensity last set (default 1)
+		Real getImageLightingIntensity() const;
+		//! @brief the coarse IBL quality knob (budgets per step in
+		//! core_util/IblPreset.h; live-tunable via the `r.iblQuality` cvar the
+		//! app host registers). A knob change while image lighting renders
+		//! re-arms the environment chain at the new tier (drop leading mips
+		//! of the skybox cubemap to the tier cap - cheap re-upload), so a
+		//! live cvar flip reconfigures mid-play; IQ_OFF disarms exactly.
+		void setIblQuality(IblPreset::Quality quality);
+		//! the knob position last set (default IQ_MEDIUM - the phone budget)
+		IblPreset::Quality getIblQuality() const;
 
 		//--- sky / fog / atmosphere ---
 		//! whether this backend renders a real atmospheric sky dome (vs a flat

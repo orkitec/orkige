@@ -288,6 +288,39 @@ namespace Orkige
 				}
 			});
 
+		// the image-lighting quality knob as a live cvar, the r.shadowQuality
+		// mold: the tier caps the prefiltered environment chain's resolution
+		// (core_util/IblPreset.h) and re-arms live; the knob alone renders
+		// nothing - image lighting also needs the runtime opt-in
+		// (engine:setImageLighting) and a skybox cubemap, so a plain boot
+		// stays byte-identical on every flavor.
+		CVarManager::getSingleton().registerCVar("r.iblQuality",
+			CVarType::String,
+			IblPreset::qualityName(this->mRenderWorld->getIblQuality()),
+			CVAR_PERSIST,
+			"image-based lighting quality: off, low, medium or high (the "
+			"prefiltered environment chain's resolution cap, see "
+			"core_util/IblPreset.h)",
+			[](CVar const & cvar)
+			{
+				RenderSystem* renderSystem = RenderSystem::get();
+				if (!renderSystem)
+				{
+					return;	// a set after render teardown changes nothing
+				}
+				IblPreset::Quality quality;
+				if (IblPreset::parseQuality(cvar.value, quality))
+				{
+					renderSystem->getWorld()->setIblQuality(quality);
+				}
+				else
+				{
+					oDebugWarning(false, "AppHost: r.iblQuality unknown value '"
+						<< cvar.value.c_str()
+						<< "' (off/low/medium/high) - keeping the current quality");
+				}
+			});
+
 		// the mobility-flag apply gate (@see TransformComponent::setStaticFlag):
 		// ON by default - static-flagged objects take the backend's immobile
 		// fast path (SCENE_STATIC / StaticGeometry). OFF leaves every object

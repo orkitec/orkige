@@ -119,6 +119,13 @@ namespace Orkige
 		//! the sky/fog atmosphere last set (@see RenderWorld::setAtmosphere); the
 		//! live Ogre::AtmosphereNpr is a backend static (NextBackend.cpp)
 		AtmosphereDesc			atmosphere;
+		//! the image-lighting opt-in (@see RenderWorld::setImageLighting);
+		//! renders only with the quality knob on AND a loaded skybox cubemap
+		bool					iblEnabled = false;
+		//! scales the added cubemap contribution (the scene envmapScale here)
+		float					iblIntensity = 1.0f;
+		//! the IBL quality knob (chain budgets in core_util/IblPreset.h)
+		IblPreset::Quality		iblQuality = IblPreset::IQ_MEDIUM;
 	};
 
 	struct RenderNode::Impl
@@ -752,6 +759,27 @@ namespace Orkige
 		//! without the atmosphere sky media degrades to an honest no-op (logged
 		//! once) - the flat window clear colour still follows the sky tint.
 		static void applyAtmosphere(AtmosphereDesc const & desc);
+
+		//--- image-based lighting (skybox-sourced) -------------------
+		//! @brief realize the facade image-lighting state (RenderWorld::
+		//! setImageLighting/setIblQuality): while active - enabled, knob on,
+		//! a loaded skybox cubemap showing - every generated PBS datablock
+		//! binds the tier-capped environment chain as its reflection map and
+		//! the scene envmapScale carries the intensity; inactive unbinds them
+		//! all and drops the derived chain texture. Also re-run at the end of
+		//! every applyAtmosphere so the chain follows a skybox change; cheap
+		//! no-op while the state is off. Enabling without a skybox source
+		//! logs one honest line and renders unchanged.
+		static void applyImageLighting();
+		//! bind the active environment chain to one freshly generated PBS
+		//! datablock (no-op while image lighting is inactive or for unlit
+		//! datablocks) - keeps late-created materials in the lit set
+		static void applyImageLightingToDatablock(Ogre::HlmsDatablock* datablock);
+		//! the scene envmapScale image lighting wants right now (1 while
+		//! inactive) - every sceneManager->setAmbientLight caller passes it
+		//! so an ambient write never resets the intensity
+		static float imageLightingEnvmapScale();
+
 		//! @brief a RenderLight became (isDirectional=true) or stopped being
 		//! (false) directional / is being destroyed. Maintains the directional
 		//! registry firstDirectionalLight reads and, while the atmosphere is

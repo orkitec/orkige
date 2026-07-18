@@ -1052,6 +1052,17 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void Engine::setImageLighting(bool enabled, float intensity)
+	{
+		if(RenderSystem* renderSystem = this->getRenderSystem())
+		{
+			if(RenderWorld* world = renderSystem->getWorld())
+			{
+				world->setImageLighting(enabled, Real(intensity));
+			}
+		}
+	}
+	//---------------------------------------------------------
 	bool Engine::supports(String const & name) const
 	{
 		const RenderCaps cap = parseRenderCap(name);
@@ -1109,6 +1120,8 @@ namespace Orkige
 		OFUNC(setAtmosphereBlend)
 		// sky visual type: engine:setAtmosphereSky("skybox", "night_sky.dds")
 		OFUNC(setAtmosphereSky)
+		// skybox-sourced IBL: engine:setImageLighting(enabled, intensity)
+		OFUNC(setImageLighting)
 		// UI capability probe: true here - the classic flavor carries
 		// gui; the next flavor's Engine sibling answers false and
 		// scripts skip their HUD honestly

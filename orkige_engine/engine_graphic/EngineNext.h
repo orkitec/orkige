@@ -125,6 +125,8 @@ namespace Orkige
 		//! @copydoc Engine::setAtmosphereSky (classic)
 		void setAtmosphereSky(String const & skyType,
 			String const & skyboxTexture);
+		//! @copydoc Engine::setImageLighting (classic)
+		void setImageLighting(bool enabled, float intensity);
 		//! @brief does this build carry the gui UI system?
 		//! @remarks true on BOTH flavors
 		//! (gui renders through the engine_render facade); the probe

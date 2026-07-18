@@ -306,6 +306,17 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void Engine::setImageLighting(bool enabled, float intensity)
+	{
+		if(RenderSystem* renderSystem = this->getRenderSystem())
+		{
+			if(RenderWorld* world = renderSystem->getWorld())
+			{
+				world->setImageLighting(enabled, Real(intensity));
+			}
+		}
+	}
+	//---------------------------------------------------------
 	bool Engine::supports(String const & name) const
 	{
 		const RenderCaps cap = parseRenderCap(name);
@@ -378,6 +389,8 @@ namespace Orkige
 		OFUNC(setAtmosphereBlend)
 		// sky visual type: engine:setAtmosphereSky("skybox", "night_sky.dds")
 		OFUNC(setAtmosphereSky)
+		// skybox-sourced IBL: engine:setImageLighting(enabled, intensity)
+		OFUNC(setImageLighting)
 		// UI capability probe: true on BOTH flavors since the DrawLayer2D
 		// port (gui renders through the engine_render facade); the probe
 		// stays so scripts can still gate honestly for a future UI-less flavor

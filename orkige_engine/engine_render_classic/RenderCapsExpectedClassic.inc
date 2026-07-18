@@ -19,4 +19,6 @@ X(OffscreenOwnedLayers, false)
 // decals, so the capability answers false (@see Docs/render-abstraction.md)
 X(ProjectedDecals, false)
 X(ScreenSpaceRefraction, false)
-X(IblReflections, false)
+// desktop truth (GL3Plus/Vulkan - what the selfcheck boots); a GLES2/WebGL
+// context without GLSL ES 3.0 answers false at runtime
+X(IblReflections, true)
