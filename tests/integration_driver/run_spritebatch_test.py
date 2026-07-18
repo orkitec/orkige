@@ -13,11 +13,13 @@ Assertions:
     regression shifts them): the realized run count is 3; the draw-batch
     counts match the flavor table below, including the live-toggle-off
     reading equalling the batching-off run.
-  * PIXEL IDENTITY: the ON and OFF screenshots must match - byte-exact on
-    classic (translation-only fixture); on next up to a 1-LSB rounding
-    fringe on sprite edges (the merged path bakes the world transform on
-    the CPU, the per-quad path applies it in the vertex shader - the sums
-    round differently at float32; measured 10 px of 921600 at delta 1).
+  * PIXEL IDENTITY: the ON and OFF screenshots must match up to a 1-LSB
+    rounding fringe on sprite edges, BOTH flavors (the merged path bakes
+    the world transform on the CPU, the per-quad path applies it in the
+    vertex shader - the sums round differently at float32, and no GL/
+    Vulkan implementation guarantees invariance across different vertex
+    data; measured: next 10 px of 921600 at delta 1 on Metal, classic 0 px
+    on macOS GL but 5 px at delta 1 on llvmpipe).
 
 Pure stdlib. Exit codes: 0 pass, 1 fail.
 """
@@ -41,8 +43,8 @@ EXPECTED = {
     "next": {"on": 3, "off": 4, "runs": 3},
 }
 
-NEXT_MAX_DELTA = 1            # per-channel LSB fringe allowed on next
-NEXT_OUTLIER_FRACTION = 0.0001
+MAX_DELTA = 1                 # per-channel LSB fringe, both flavors
+OUTLIER_FRACTION = 0.0001
 
 ON_PATTERN = re.compile(
     r"spritebatch selfcheck complete - batching on, batches=(\d+) "
@@ -64,17 +66,25 @@ def run_player(args, tag, batching_on):
     shot = os.path.join(args.dir, tag + ".png")
     if os.path.exists(shot):
         os.unlink(shot)
+    expected = EXPECTED[args.flavor]
     env = dict(os.environ)
     # the frame budget must cover the selfcheck's own worst-case path: the
-    # steady-state baseline may take until frame 90 to lock, the toggle waits
-    # for the frame-60 screenshot, and the restore leg converges under a
-    # 120-frame deadline - so a slow software-GPU host legitimately needs
-    # ~250 frames. The check's internal deadlines fire first, so a genuine
-    # failure still reports its specific message, never a generic run-end.
+    # baseline may converge as late as frame 120, the toggle waits for the
+    # frame-60 screenshot, and the live-off + restore legs each converge
+    # under their own deadlines - so a slow software-GPU host legitimately
+    # needs ~350 frames. The check's internal deadlines fire first, so a
+    # genuine failure still reports its specific message, never a generic
+    # run-end. The expected steady counts ride along because they are
+    # FLOORS: transients only ever add draw batches, so each leg locks on
+    # the first frame AT its expected count instead of trusting any frame
+    # ordinal to be past the transients.
     env.update({
-        "ORKIGE_DEMO_FRAMES": "300",
+        "ORKIGE_DEMO_FRAMES": "400",
         "ORKIGE_DEMO_SCREENSHOT": shot,
         "ORKIGE_SPRITEBATCH_SELFCHECK": "1",
+        "ORKIGE_SPRITEBATCH_EXPECT":
+            str(expected["on"] if batching_on else expected["off"]),
+        "ORKIGE_SPRITEBATCH_EXPECT_OFF": str(expected["off"]),
         "ORKIGE_CVARS": "r.spriteBatching=%d" % (1 if batching_on else 0),
     })
     cmd = [args.player, "scenes/fixture_sprites.oscene", "--project",
@@ -157,12 +167,8 @@ def main():
     frac = outliers / float(wa * ha)
     log("pixel identity: %d differing px (worst delta %d, %.6f%%)"
         % (outliers, worst, 100.0 * frac))
-    if args.flavor == "classic":
-        if outliers != 0:
-            fail("classic must render BYTE-IDENTICAL pixels batched vs not")
-    else:
-        if worst > NEXT_MAX_DELTA or frac > NEXT_OUTLIER_FRACTION:
-            fail("next exceeded the 1-LSB edge-rounding allowance")
+    if worst > MAX_DELTA or frac > OUTLIER_FRACTION:
+        fail("exceeded the 1-LSB edge-rounding allowance")
     log("OK")
 
 

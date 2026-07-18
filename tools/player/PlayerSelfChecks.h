@@ -326,7 +326,8 @@ struct PlayerSelfChecks
 	//! backends, so counts lock on two consecutive agreeing frames and the
 	//! restore converges under a deadline instead of asserting one frame
 	bool spriteBatchBaselineLocked = false;
-	std::size_t spriteBatchPrevSample = static_cast<std::size_t>(-1);
+	std::size_t spriteBatchExpect = 0;
+	std::size_t spriteBatchExpectOff = 0;
 	unsigned long spriteBatchToggleFrame = 0;
 	unsigned long spriteBatchRestoreDeadline = 0;
 	// --- ORKIGE_HOTRELOAD_SELFCHECK=1: Lua hot-reload, verified
