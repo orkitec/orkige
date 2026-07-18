@@ -775,6 +775,23 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_water PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_WATER=1;ORKIGE_DEMO_FRAMES=120")
 
+    # ORKIGE_DEMO_SKY: the sky-type + IBL + bloom showcase selfcheck - one lit
+    # scene cycles the three atmosphere sky types (procedural dome -> skybox
+    # cubemap -> flat colour, each round-tripped through world->getAtmosphere),
+    # turns skybox-sourced image-based lighting on a reflective metal cube
+    # (getImageLightingEnabled + the IblReflections capability), and enables LDR
+    # bloom on an emissive cube - asserting the bloom capability PER FLAVOR: it
+    # renders (the compositor pass builds) on the next flavor and is a gated
+    # honest no-op on classic (RenderCaps::Bloom = false; one log line, byte-
+    # identical output). The frame-60 ORKIGE_DEMO_SCREENSHOT hook dumps the
+    # final showcase frame. Runs on both flavors - a per-flavor selfcheck, NOT
+    # a pixel-parity case (the render_facade selfcheck pixel-proves the glow /
+    # reflection); see Docs/materials.md.
+    add_test(NAME demo_sky COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_sky PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_SKY=1;ORKIGE_DEMO_FRAMES=120")
+
     # water_looks_right: the PIXEL probe demo_water's triangle count could not be
     # (the fog-leg lesson - a near-black slab passed "renders"). Captures the
     # water at two frames and asserts it is LIT (not near-black), has a SPECULAR
@@ -2066,7 +2083,7 @@ endif()
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         demo_spriteanim demo_spriteatlas demo_particles demo_particles3d demo_vectorshape
-        demo_light demo_material demo_terrain demo_ui_scale demo_ui_safe_area demo_textentry demo_ttf
+        demo_light demo_material demo_terrain demo_sky demo_ui_scale demo_ui_safe_area demo_textentry demo_ttf
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
         player_example_scene player_example_project player_vectorshape_scene

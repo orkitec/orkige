@@ -11,6 +11,9 @@
 #include <engine_render/RenderNode.h>
 #include <engine_render/RenderCamera.h>
 #include <engine_render/MeshInstance.h>
+#include <engine_render/RenderMaterial.h>
+#include <engine_render/RenderCaps.h>
+#include <core_util/BloomPreset.h>
 #include <engine_util/PlatformWindow.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/LightComponent.h>
@@ -145,6 +148,13 @@ int main(int, char**)
 	// material (Util/make_water_mesh.py writes the plane + tiling normal to
 	// orkige_engine/media/water/, registered via ORKIGE_ENGINE_WATER_DIR)
 	const bool demoWater = (std::getenv("ORKIGE_DEMO_WATER") != nullptr);
+	// ORKIGE_DEMO_SKY=1: the sky-type + IBL + bloom showcase selfcheck (below) -
+	// one lit scene cycles the three atmosphere sky types (procedural dome ->
+	// skybox cubemap -> flat colour), turns skybox-sourced image-based lighting
+	// on a reflective metal cube and enables LDR bloom on an emissive cube,
+	// asserting the bloom capability PER FLAVOR (renders on next, honest no-op
+	// on classic). Sky cubemaps ship in the demo media dir (make_sky_assets.py).
+	const bool demoSky = (std::getenv("ORKIGE_DEMO_SKY") != nullptr);
 	// ORKIGE_DEMO_MATLOOKS=1|flat: the material pixel-probe rig (below) - a
 	// controlled lit scene (normal-mapped ground + hero cube + casting sun)
 	// whose frame-locked captures run_material_probe_test.py measures; the
@@ -203,6 +213,18 @@ int main(int, char**)
 			{
 				// the shared engine water media (plane mesh + tiling normal)
 				render->addResourceLocation(ORKIGE_ENGINE_WATER_DIR);
+			}
+			if (demoSky)
+			{
+				// the demo assets (demo_material_cube.glb + the sky_*.dds
+				// cubemaps make_sky_assets.py bakes into the demo media dir)
+				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
+#ifdef ORKIGE_ENGINE_BLOOM_DIR
+				// the bloom compositor media (bright/blur/combine material +
+				// shaders) - defined for the next flavor ONLY (classic bloom is
+				// gated off, so it needs no compositor media)
+				render->addResourceLocation(ORKIGE_ENGINE_BLOOM_DIR);
+#endif
 			}
 		}))
 	{
@@ -387,7 +409,8 @@ int main(int, char**)
 		// the pixel-probe rigs stage a CONTROLLED scene: the spinning default
 		// cubes would inject frame-dependent pixels into the frame-locked
 		// captures, so they stay hidden there (each rig brings its own content)
-		const bool probeRig = demoMatLooks || demoCutout || demoAccents;
+		const bool probeRig =
+			demoMatLooks || demoCutout || demoAccents || demoSky;
 		if (probeRig)
 		{
 			cube->setVisible(false);
@@ -1061,6 +1084,92 @@ int main(int, char**)
 
 		cameraNode->setPosition(Orkige::Vec3(0.0f, 2.0f, 6.0f));
 		cameraNode->lookAt(Orkige::Vec3::ZERO, Orkige::RenderNode::TS_WORLD);
+
+		// --- ORKIGE_DEMO_SKY=1: the sky-type + IBL + bloom showcase. One lit
+		// scene carries a reflective metal cube (the image-based-lighting
+		// subject - it picks up cubemap reflections) and a self-lit emissive
+		// cube (the bloom subject). The frame loop below cycles the three
+		// atmosphere sky types (procedural -> skybox -> colour), toggles
+		// skybox-sourced IBL and enables LDR bloom, asserting each step and the
+		// bloom capability PER FLAVOR. A screenshot is dumped for the report.
+		optr<Orkige::MeshInstance> skyMetal;
+		optr<Orkige::MeshInstance> skyEmissive;
+		optr<Orkige::RenderNode> skySunNode;
+		optr<Orkige::RenderLight> skySun;
+		if (demoSky)
+		{
+			// an enabled DAY atmosphere to start (procedural dome); the loop
+			// cycles the sky type through skybox and colour and back
+			world->setAtmosphere(Orkige::AtmospherePreset::forSky(
+				Orkige::AtmospherePreset::SKY_DAY));
+			// a reflective, near-mirror METAL cube - the IBL subject (a metal
+			// with nothing to reflect but the analytic sun reads flat; the
+			// cubemap reflection is what image lighting adds)
+			Orkige::RenderMaterialDesc metalDesc;
+			metalDesc.albedo = Orkige::Color(0.64f, 0.66f, 0.7f, 1.0f);
+			metalDesc.metalness = 0.95f;
+			metalDesc.roughness = 0.12f;
+			if (!render->createMaterial("demo_sky_metal", metalDesc))
+			{
+				SDL_Log("hello_orkige: FAILED - sky demo metal material build "
+					"failed");
+				return 1;
+			}
+			skyMetal = world->createMeshInstance("demo_material_cube.glb");
+			optr<Orkige::RenderNode> metalNode =
+				world->createNode("demo_sky_metal");
+			if (!skyMetal || !metalNode ||
+				!skyMetal->setMaterial("demo_sky_metal"))
+			{
+				SDL_Log("hello_orkige: FAILED - sky demo reflective cube did "
+					"not build");
+				return 1;
+			}
+			metalNode->setPosition(Orkige::Vec3(-1.5f, 0.0f, 0.0f));
+			skyMetal->attachTo(metalNode);
+			// a self-lit EMISSIVE cube - the bloom subject (near-white
+			// highlight the bright-pass catches)
+			Orkige::RenderMaterialDesc emitDesc;
+			emitDesc.albedo = Orkige::Color(0.0f, 0.0f, 0.0f, 1.0f);
+			emitDesc.emissive = Orkige::Color(1.0f, 0.95f, 0.72f, 1.0f);
+			if (!render->createMaterial("demo_sky_emissive", emitDesc))
+			{
+				SDL_Log("hello_orkige: FAILED - sky demo emissive material "
+					"build failed");
+				return 1;
+			}
+			skyEmissive = world->createMeshInstance("demo_material_cube.glb");
+			optr<Orkige::RenderNode> emitNode =
+				world->createNode("demo_sky_emissive");
+			if (!skyEmissive || !emitNode ||
+				!skyEmissive->setMaterial("demo_sky_emissive"))
+			{
+				SDL_Log("hello_orkige: FAILED - sky demo emissive cube did not "
+					"build");
+				return 1;
+			}
+			emitNode->setPosition(Orkige::Vec3(1.5f, 0.0f, 0.0f));
+			emitNode->setScale(Orkige::Vec3(0.62f, 0.62f, 0.62f));
+			skyEmissive->attachTo(emitNode);
+			skyEmissive->setCastShadows(false);
+			// a sun so the metal cube has an analytic light too (IBL ADDS to it)
+			skySunNode = world->createNode("demo_sky_sun");
+			skySunNode->setDirection(Orkige::Vec3(-0.3f, -0.7f, -0.55f),
+				Orkige::RenderNode::TS_WORLD);
+			skySun = world->createLight();
+			skySun->attachTo(skySunNode);
+			skySun->setType(Orkige::RenderLight::LT_DIRECTIONAL);
+			skySun->setDiffuseColour(Orkige::Color(1.0f, 0.97f, 0.9f));
+			skySun->setSpecularColour(Orkige::Color(1.0f, 0.97f, 0.9f));
+			cameraNode->setPosition(Orkige::Vec3(0.0f, 1.1f, 5.4f));
+			cameraNode->lookAt(Orkige::Vec3(0.0f, 0.0f, 0.0f),
+				Orkige::RenderNode::TS_WORLD);
+			SDL_Log("hello_orkige: sky demo up - reflective metal + emissive "
+				"cube (IblReflections=%d, Bloom=%d on this flavor)",
+				static_cast<int>(
+					render->supports(Orkige::RenderCaps::IblReflections)),
+				static_cast<int>(render->supports(Orkige::RenderCaps::Bloom)));
+		}
 
 		// --- ORKIGE_DEMO_MATLOOKS: the material pixel-probe rig. A dedicated
 		// lit scene proving the `.omat` maps RENDER on the flavor under test
@@ -4994,6 +5103,137 @@ int main(int, char**)
 				SDL_Log("hello_orkige: water selfcheck passed (water plane + "
 					"scrolling material rendering, ripple clock advancing on "
 					"this flavor)");
+			}
+			if (demoSky)
+			{
+				Orkige::AtmosphereDesc desc = world->getAtmosphere();
+				if (frameCount == 6)
+				{
+					// SKY TYPE 1: the procedural sky dome (the default look)
+					desc.skyType = Orkige::AtmosphereSky::ST_PROCEDURAL;
+					world->setAtmosphere(desc);
+					if (world->getAtmosphere().skyType !=
+						Orkige::AtmosphereSky::ST_PROCEDURAL)
+					{
+						SDL_Log("hello_orkige: FAILED - the procedural sky type "
+							"did not round-trip");
+						return 1;
+					}
+					SDL_Log("hello_orkige: sky demo - procedural dome");
+				}
+				else if (frameCount == 14)
+				{
+					// SKY TYPE 2: a skybox cubemap (the baked day sky) + the
+					// skybox-sourced image-based lighting the reflective metal
+					// cube picks up (composes with the analytic sun)
+					desc.skyType = Orkige::AtmosphereSky::ST_SKYBOX;
+					desc.skyboxTexture = "sky_day.dds";
+					world->setAtmosphere(desc);
+					world->setImageLighting(true, 1.0f);
+					const Orkige::AtmosphereDesc& got = world->getAtmosphere();
+					if (got.skyType != Orkige::AtmosphereSky::ST_SKYBOX ||
+						got.skyboxTexture != "sky_day.dds")
+					{
+						SDL_Log("hello_orkige: FAILED - the skybox sky type / "
+							"cubemap did not round-trip");
+						return 1;
+					}
+					if (!world->getImageLightingEnabled())
+					{
+						SDL_Log("hello_orkige: FAILED - image lighting did not "
+							"enable");
+						return 1;
+					}
+					SDL_Log("hello_orkige: sky demo - skybox cubemap + IBL on "
+						"the reflective cube (IblReflections=%d)",
+						static_cast<int>(render->supports(
+							Orkige::RenderCaps::IblReflections)));
+				}
+				else if (frameCount == 22)
+				{
+					// SKY TYPE 3: the flat colour clear (no dome, no cubemap);
+					// with no cubemap to source, image lighting drops honestly
+					world->setImageLighting(false, 1.0f);
+					desc.skyType = Orkige::AtmosphereSky::ST_COLOUR;
+					world->setAtmosphere(desc);
+					if (world->getAtmosphere().skyType !=
+						Orkige::AtmosphereSky::ST_COLOUR)
+					{
+						SDL_Log("hello_orkige: FAILED - the colour sky type did "
+							"not round-trip");
+						return 1;
+					}
+					SDL_Log("hello_orkige: sky demo - flat colour sky (three "
+						"sky types cycled)");
+				}
+				else if (frameCount == 28)
+				{
+					// settle on the SKYBOX sky + IBL as the showcase backdrop:
+					// a bounded LDR day cubemap (the reflective metal cube shows
+					// its reflection, the sky reads blue - not the un-tonemapped
+					// procedural dome that blows to white), the final frame the
+					// screenshot captures
+					desc.skyType = Orkige::AtmosphereSky::ST_SKYBOX;
+					desc.skyboxTexture = "sky_day.dds";
+					world->setAtmosphere(desc);
+					world->setImageLighting(true, 1.0f);
+				}
+				else if (frameCount == 34)
+				{
+					// LDR BLOOM on the emissive cube - asserted PER FLAVOR
+					// honestly (renders on next, honest no-op on classic)
+					world->setBloomQuality(Orkige::BloomPreset::BQ_MEDIUM);
+					Orkige::BloomDesc bloom;
+					bloom.enabled = true;
+					bloom.threshold = 0.6f;
+					bloom.intensity = 1.0f;
+					world->setBloom(bloom);
+					const bool bloomCap =
+						render->supports(Orkige::RenderCaps::Bloom);
+					if (bloomCap)
+					{
+						// next: the compositor bloom pass runs (its media
+						// resolved + the pass chain built - a broken pass would
+						// already have failed renderOneFrame); the desc must
+						// round-trip enabled so the emissive cube glows
+						if (!world->getBloom().enabled)
+						{
+							SDL_Log("hello_orkige: FAILED - bloom did not enable "
+								"on a bloom-capable flavor");
+							return 1;
+						}
+						SDL_Log("hello_orkige: sky demo - bloom ON (next "
+							"flavor): the emissive cube glows");
+					}
+					else
+					{
+						// classic: bloom is gated off (RenderCaps::Bloom false),
+						// so setBloom is an honest no-op that logs one gated
+						// line and renders nothing extra (byte-identical
+						// contract) - it must not have crashed to reach here
+						SDL_Log("hello_orkige: sky demo - bloom gated OFF "
+							"(classic flavor): the honest no-op path (one gated "
+							"log line)");
+					}
+				}
+				else if (frameCount == 45)
+				{
+					SDL_Log("hello_orkige: sky selfcheck passed (three sky types "
+						"cycled, IBL toggled on the reflective cube, bloom "
+						"asserted per flavor on this flavor)");
+				}
+				else if (frameCount == 70)
+				{
+					// reset the render state well before teardown (the frame-60
+					// ORKIGE_DEMO_SCREENSHOT hook already captured the
+					// skybox+IBL+bloom showcase). A real game resets state on a
+					// scene switch the same way; the demo mirrors that so its
+					// own teardown runs from the clean default state.
+					world->setImageLighting(false, 1.0f);
+					Orkige::BloomDesc bloomOff;
+					world->setBloom(bloomOff);
+					world->setAtmosphere(Orkige::AtmosphereDesc());
+				}
 			}
 			if (demoVectorShape && frameCount == 20)
 			{

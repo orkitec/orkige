@@ -259,6 +259,11 @@ scripts), the capability shows in `get_state`. Verified by the
 signature on a mirror material, toggle-off pixel identity, tier re-arm,
 the honest no-skybox line) and the `IblPresetTests` unit suite.
 
+**See it:** the `demo_sky` hello_orkige selfcheck cycles the three sky types
+and toggles IBL on a near-mirror metal cube; the benchmark **Terrace Vista**
+vignette runs a skybox sky + IBL over its PBS props end to end
+(`Docs/benchmark.md`).
+
 ## Sample + tests
 
 `Util/make_material_demo.py` (stdlib-only, committed outputs) generates the
@@ -547,6 +552,10 @@ capability gate turned `RenderCaps::DynamicShadows` false (see
 + a `DecalComponent` (`texture = "decal_blob.png"`, `sizeX`/`sizeZ` ≈ the
 character footprint, `lifetime = 0`), placed at the character's feet and moved
 with it. Because it is an ordinary decal it obeys the same `r.maxDecals` budget.
+
+**See it:** the benchmark **Cascade** vignette rains its bodies onto a lit PBS
+floor slab carrying a row of `decal_blob.png` blob-shadow decals — the projected
+mark on next, the surface-aligned quad on classic (`Docs/benchmark.md`).
 
 ### Generator + tests
 

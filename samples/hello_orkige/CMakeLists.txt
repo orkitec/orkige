@@ -79,3 +79,13 @@ target_compile_definitions(hello_orkige PRIVATE
     # loads to resolve loc_demo.oui's @key captions across languages
     ORKIGE_DEMO_LOC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/loc"
 )
+
+# the next-flavor bloom compositor media (bright/blur/combine material +
+# Metal/GLSL shaders) the ORKIGE_DEMO_SKY selfcheck's bloom leg registers.
+# Defined for the next backend ONLY - classic bloom is gated off
+# (RenderCaps::Bloom = false), so the demo takes the honest no-op branch and
+# never needs the compositor media (mirrors the player/render_facade wiring).
+if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    target_compile_definitions(hello_orkige PRIVATE
+        ORKIGE_ENGINE_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/bloom/next")
+endif()

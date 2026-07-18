@@ -25,7 +25,7 @@
     },
     "lumens.oscene": {
       "classic": { "batchesMin": 2, "batchesMax": 9, "trisMax": 5500 },
-      "next": { "batchesMin": 2, "batchesMax": 8, "trisMax": 3000 }
+      "next": { "batchesMin": 2, "batchesMax": 13, "trisMax": 3000 }
     },
     "swarm.oscene": {
       "classic": { "batchesMin": 4, "batchesMax": 16, "trisMax": 6500 },
@@ -44,7 +44,7 @@
       "next": { "batchesMin": 0, "batchesMax": 4, "trisMax": 300 }
     },
     "cascade.oscene": {
-      "classic": { "batchesMin": 1, "batchesMax": 10, "trisMax": 400 },
+      "classic": { "batchesMin": 1, "batchesMax": 15, "trisMax": 400 },
       "next": { "batchesMin": 1, "batchesMax": 10, "trisMax": 400 }
     },
     "tally.oscene": {

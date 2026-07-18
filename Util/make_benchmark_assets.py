@@ -112,6 +112,24 @@ class ComponentWriter:
             recs.append(("material", K_ASSETREF, material, ""))
         return self._reflected("ModelComponent", recs)
 
+    def decal(self, texture="decal_blob.png", size_x=2.0, size_z=2.0,
+              projection_depth=3.0, opacity=0.7, lifetime=0.0,
+              fade_duration=0.5):
+        """A DecalComponent: a projected surface mark (blob shadow / impact
+        splat). Fields mirror the reflected NAMED block DecalComponent
+        registers (texture/sizeX/sizeZ/projectionDepth/opacity/lifetime/
+        fadeDuration). The engine `decal_blob.png` is the soft dark ellipse
+        blob-shadow preset."""
+        return self._reflected("DecalComponent", [
+            ("texture", K_ASSETREF, texture, ""),
+            ("sizeX", K_FLOAT, fmt(float(size_x)), ""),
+            ("sizeZ", K_FLOAT, fmt(float(size_z)), ""),
+            ("projectionDepth", K_FLOAT, fmt(float(projection_depth)), ""),
+            ("opacity", K_FLOAT, fmt(float(opacity)), ""),
+            ("lifetime", K_FLOAT, fmt(float(lifetime)), ""),
+            ("fadeDuration", K_FLOAT, fmt(float(fade_duration)), ""),
+        ])
+
     def light(self, light_type=1, colour=(1.0, 1.0, 1.0), intensity=1.0,
               rng=10.0, inner=30.0, outer=45.0, casts=False):
         return self._reflected("LightComponent", [
@@ -827,13 +845,38 @@ def build_console():
 def build_cascade():
     s = SceneWriter()
     director(s, "cascade", "Cascade", 10.0)
-    # a static floor (planar bodies stack onto it, roller-proven)
+    # a low directional light so the PBS floor slab (the projected-decal
+    # RECEIVER on the next flavor) reads lit - a projected decal marks a lit
+    # PBS surface, the classic aligned quad is unlit and marks regardless, so
+    # ONE lit slab shows the blob-shadow decals on BOTH flavors. Aimed into
+    # the slab's camera-facing (+Z) front face. Sprites are unlit, so the
+    # cascade's falling bodies are unaffected.
+    s.add("Fill",
+          s.transform(0.0, 6.0, 0.0, quat=(0.6088, -0.3564, 0.0, 0.0)),
+          s.light(light_type=0, colour=(1.0, 0.96, 0.9), intensity=2.4),
+          tags=("sun",))
+    # the floor: a wide thin PBS slab (its +Z front face faces the ortho
+    # camera) is BOTH the visible ground and the blob-shadow decal receiver;
+    # the planar physics body stacks the falling bodies onto its top. Static
+    # scenery (immobile). Sits just BEHIND the falling-body sprite plane.
     s.add("Floor",
-          s.transform(0.0, -6.0, 0.0),
-          s.sprite("particle_dot.png", 26.0, 0.6, z_order=1,
-                   tint=(0.3, 0.3, 0.35, 1.0)),
+          s.transform(0.0, -6.0, -0.6, 13.0, 0.35, 0.5, static=True),
+          s.model("demo_material_cube.glb", "field_stone.omat"),
           s.rigid_box(13.0, 0.3, 0.5, body_type=0, planar=True,
                       friction=0.6, layer="ground"))
+    # blob-shadow decals: a row of soft dark ellipses (the engine
+    # `decal_blob.png` preset) projected onto the floor slab UNDER where the
+    # cascade lands - cheap contact shadows where the pile settles. Camera-
+    # facing (local +Y -> world +Z), projecting down local -Y (world -Z) INTO
+    # the slab's front face. Count kept modest (well under the r.maxDecals
+    # default) so the mobile-budget decal cap stays untouched.
+    for i, dx in enumerate(range(-8, 9, 2)):
+        s.add("Shadow%d" % i,
+              s.transform(float(dx), -5.55, -0.1,
+                          quat=(0.7071, 0.7071, 0.0, 0.0), static=True),
+              s.decal(texture="decal_blob.png", size_x=2.2, size_z=2.2,
+                      projection_depth=3.0, opacity=0.7),
+              tags=("shadow",))
     for i, x in enumerate([-11.0, 11.0]):
         s.add("Wall%d" % i,
               s.transform(x, -3.0, 0.0),
@@ -1113,6 +1156,10 @@ def build_all(project_dir):
     run_generator("make_material_demo.py", assets)
     run_generator("make_particle_textures.py", assets)
     run_generator("make_gui_atlas.py", assets, "gui_default")
+    # the stock sky cubemaps (sky_day/night/faces .dds) - the vista skybox sky
+    # + its skybox-sourced image-based lighting sample them; project assets, so
+    # id-tracked sidecars (the .dds is final art, format="none")
+    run_generator("make_sky_assets.py", "--out", assets, "--sidecars")
 
     # .omat variants
     for name, text in OMAT_VARIANTS.items():
@@ -1191,6 +1238,11 @@ def selftest():
     static_text = build_fixture_static().to_text()
     assert static_text.count('<String value="static"/>') == 8, \
         "fixture_static must flag exactly the 8 grid cubes"
+    # the cascade grows a lit PBS floor slab + a row of blob-shadow decals
+    cascade_text = build_cascade().to_text()
+    assert cascade_text.count('<DecalComponent create="0">') == 9, \
+        "cascade must carry the row of 9 blob-shadow decals"
+    assert 'decal_blob.png' in cascade_text, "the blob-shadow texture is missing"
     sprites = build_fixture_sprites()
     assert len(sprites.objects) == 11, "fixture_sprites is 11 sprites"
     assert 'particle_rain.png' in sprites.to_text(), \

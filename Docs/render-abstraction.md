@@ -824,7 +824,10 @@ enabled + quality, byte-stable when off. The 2D tier (sprites/vector meshes/gui)
 is excluded via a `SCENE_2D` visibility bit — the 3D scene renders into the
 bright-pass source WITHOUT it, then the 2D tier + gui draw un-bloomed over the
 combine (`render_facade_selfcheck` bloom leg, both the neighbourhood-glow and the
-crisp-sprite probes). On **classic** the same effect is IMPLEMENTED — the
+crisp-sprite probes). **See it:** the `demo_sky` hello_orkige selfcheck glows an
+emissive cube under bloom (next) / takes the gated no-op branch (classic), and
+the benchmark **Night Lumens** vignette blooms its emissive point-light pools
+(`Docs/benchmark.md`). On **classic** the same effect is IMPLEMENTED — the
 `OrkigeBloom` viewport compositor + material + `OgreUnifiedShader.h` shaders under
 `orkige_engine/media/bloom/classic/`, the facade `setBloom`, the visibility
 tagging (`tagScene3D`/`tagScene2D`) and the `DrawLayer2D` output-viewport guard —

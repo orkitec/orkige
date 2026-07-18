@@ -73,6 +73,10 @@ local rampCapped = false
 -- camera drive
 local camRadius, camHeight, camCenter = 16.0, 8.0, -8.0
 
+-- vista sky state: true while the day skybox cubemap + IBL are showing; the
+-- night leg flips it to the procedural dome so the sky darkens with the sun
+local vistaSkybox = false
+
 local PROJECT_GROUP = "OrkigeProject"
 
 --- helpers -------------------------------------------------------------------
@@ -449,11 +453,36 @@ function init(self)
 
 	shared.tour = shared.tour or {}
 
+	-- reset the STICKY render state so every scene starts from a clean look and
+	-- only the vignette that wants a feature opts into it below (the render
+	-- world persists across the LevelManager scene switches): the procedural
+	-- sky dome, no image-based lighting, no bloom. The vista re-enables the
+	-- skybox + IBL, lumens re-enables bloom.
+	engine:setAtmosphereSky("procedural", "")
+	engine:setImageLighting(false, 1.0)
+	engine:setBloom(false, 0.72, 0.9)
+	vistaSkybox = false
+
 	-- per-mode setup ---------------------------------------------------------
 	if mode == "vista" then
 		setPerspectiveCamera(18.0, 9.0, -8.0)
 		driveSun(0.0)
 		driveAtmosphere(0.0)
+		-- SKY VISUAL: a real skybox cubemap (the generated day sky) for the
+		-- bright day/sunset portion, plus skybox-sourced IMAGE-BASED LIGHTING
+		-- so the terrace's PBS props (the polished metal + the crystal) pick up
+		-- cubemap reflections and a diffuse sky fill. Sky-type and the sun arc
+		-- are INDEPENDENT by design (@see AtmosphereDesc): the sticky skybox
+		-- survives the setAtmosphereBlend exposure/fog arc that driveAtmosphere
+		-- keeps running. A fixed cubemap depicts ONE time of day, so it can NOT
+		-- darken with the descending sun - the night leg hands back to the
+		-- PROCEDURAL dome (in update, at p >= 0.6) so the sky actually goes
+		-- dark, and drops IBL (a day cubemap gives no honest night reflection).
+		-- On the classic flavor IBL rides the RTSS image-lighting stage; on next
+		-- the native HlmsPbs reflection/diffuse-GI env feature.
+		engine:setAtmosphereSky("skybox", "sky_day.dds")
+		engine:setImageLighting(true, 0.4)
+		vistaSkybox = true
 		buildHud()
 	elseif mode == "lake" then
 		setPerspectiveCamera(20.0, 7.0, -6.0)
@@ -466,6 +495,17 @@ function init(self)
 		-- the TRUE night look (no sunset dilution): a dark dome, a dim white
 		-- moon low over the horizon - the lamps are the stars of this scene
 		driveAtmosphere(1.0)
+		-- LDR BLOOM: the emissive point-lamp pools bleed a soft glow - the
+		-- showcase of this vignette. Called UNCONDITIONALLY: bloom renders on
+		-- the next flavor (RenderCaps::Bloom) and is an honest no-op on classic
+		-- (gated off, the byte-identical contract), so the per-flavor pixel
+		-- probes/budgets reflect each flavor's actual image. A high LDR
+		-- threshold catches only the near-white lamp cores so the moonlit
+		-- terrain does not wash out. The threshold sits just BELOW the lamp
+		-- pools' bright cores (which read ~0.5 in the un-tonemapped target) and
+		-- above the dim moonlit terrain (~0.28), so the coloured pools bloom
+		-- into soft haloes while the night ground stays dark.
+		engine:setBloom(true, 0.42, 1.1)
 		gatherPool()
 		buildHud()
 	elseif mode == "swarm" then
@@ -528,6 +568,14 @@ function update(self, dt)
 		orbitCamera(elapsed)
 		driveSun(p)
 		driveAtmosphere(p)
+		-- hand the day skybox back to the procedural dome for the night leg so
+		-- the sky darkens with the descending sun (a fixed day cubemap can't),
+		-- and drop the day IBL. One-shot at the sunset->night transition.
+		if vistaSkybox and p >= 0.6 then
+			vistaSkybox = false
+			engine:setAtmosphereSky("procedural", "")
+			engine:setImageLighting(false, 0.4)
+		end
 		-- rain weather phase in the back third
 		setActiveObject("Rain", p > 0.6)
 	elseif mode == "lake" then

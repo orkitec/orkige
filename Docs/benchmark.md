@@ -120,6 +120,39 @@ Hlms auto-batch), a flat-colour 2D showcase (vector soft-bodies, morph, sprite
 parallax, vector animation), a `.oui`/localisation GUI screen, a physics body
 cascade with a time-scale hitstop, and a GUI results card.
 
+Three of the vignettes double as demos of the atmosphere/lighting/decal
+systems, each engaged unconditionally so the per-flavor image is the honest
+capability record:
+
+- **Terrace Vista** shows a real **skybox** sky — the generated day cubemap
+  (`make_sky_assets.py`, baked into the project `assets/`) via
+  `engine:setAtmosphereSky("skybox", "sky_day.dds")` — plus **skybox-sourced
+  image-based lighting** (`engine:setImageLighting`), so the PBS props pick up
+  cubemap reflections + a diffuse sky fill (next = the native HlmsPbs env
+  feature, classic = the RTSS image-based-lighting stage over the same
+  cubemap). Sky-type and the sun arc are independent by design (the sticky
+  skybox survives the exposure/fog arc `driveAtmosphere` keeps running); the
+  fixed day cubemap can't darken with the descending sun, so the night leg
+  (p ≥ 0.6) hands back to the **procedural** dome and drops IBL, chosen for the
+  better-looking result (a real darkening sky vs. a day picture over a black
+  ground).
+- **Night Lumens** enables **LDR bloom** (`engine:setBloom`) so the emissive
+  point-light pools bleed a soft glow. Bloom is next-only (`RenderCaps::Bloom`)
+  and the director calls it unconditionally — it renders on next and is a gated
+  honest no-op on classic (one log line, byte-identical output) — so each
+  flavor's pixel probe / budget reflects its actual image (the next budget
+  carries the +4 bloom compositor passes).
+- **Cascade** rains its planar bodies onto a lit PBS floor slab carrying a row
+  of **blob-shadow decals** (the engine `decal_blob.png` preset, authored as
+  `DecalComponent` marks) — cheap contact shadows where the pile settles
+  (next = true projected decals folded into the clustered pass, classic =
+  surface-aligned textured quads, each a draw). The decal count stays well
+  under the `r.maxDecals` default.
+
+The same three systems have a dedicated `demo_sky` selfcheck in `hello_orkige`
+(cycling the three sky types + IBL on a reflective object + bloom on an
+emissive one; `Docs/materials.md`).
+
 The night point-light ramp is **capability-driven**: the director queries the
 active flavor's dynamic-light ceiling (`engine:getLightBudget()` /
 `RenderSystem::lightBudget`) and caps the lamp ramp at it — the RTSS forward
