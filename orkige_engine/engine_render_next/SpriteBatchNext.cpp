@@ -10,12 +10,16 @@
 //! @file SpriteBatchNext.cpp
 //! @brief Ogre-Next implementation of the SpriteBatch facade
 //! @remarks the v2 counterpart of the classic sprite batch: one v2
-//! Ogre::ManualObject (SCENE_DYNAMIC) rebuilt every frame from the owner's
-//! CPU vertex array (four vertices per quad, TL/TR/BR/BL) - the same
-//! clear + begin/end idiom SpriteQuad relies on for setUVRect, scaled to N
-//! quads so the whole particle system is ONE draw. Blends through the
-//! shared per-texture "Sprite/<tex>" (alpha) / "SpriteAdd/<tex>" (additive)
-//! HlmsUnlit datablock.
+//! Ogre::ManualObject (SCENE_DYNAMIC) refilled from the owner's CPU vertex
+//! array (four vertices per quad, TL/TR/BR/BL), scaled to N quads so the
+//! whole particle system is ONE draw. A refresh at the same quad count
+//! rewrites the live VaoManager buffers in place (beginUpdate - the
+//! VectorMesh dynamic idiom), which keeps the section's VAO identity
+//! stable so the render queue's multi-draw merge of same-layout dynamic
+//! objects survives re-uploads; only a quad-count change pays the
+//! clear + begin/end reallocation. Blends through the shared per-texture
+//! "Sprite/<tex>" (alpha) / "SpriteAdd/<tex>" (additive) HlmsUnlit
+//! datablock.
 
 #include "engine_render_next/NextBackend.h"
 
@@ -123,15 +127,32 @@ namespace Orkige
 		std::size_t quadCount)
 	{
 		oAssert(this->batch);
-		this->batch->clear();
 		this->quadCount = quadCount;
 		if(quadCount == 0 || vertices == NULL)
 		{
+			this->batch->clear();
+			this->allocatedQuads = 0;
 			return;	// nothing to draw this frame
 		}
-		this->batch->estimateVertexCount(quadCount * 4);
-		this->batch->estimateIndexCount(quadCount * 6);
-		this->batch->begin(this->datablockName, Ogre::OT_TRIANGLE_LIST);
+		if(quadCount == this->allocatedQuads)
+		{
+			// same quad count as the live buffers: refresh IN PLACE through
+			// beginUpdate (the VectorMesh dynamic idiom). Keeping the
+			// VaoManager buffers alive keeps the section's VAO identity
+			// stable, so the render queue's multi-draw merge of same-layout
+			// dynamic objects survives a re-upload (a clear+begin/end
+			// reallocates into a fresh buffer pool and permanently splits
+			// the merged draw - one extra draw call per re-uploaded batch)
+			// and the per-refresh buffer create/destroy churn disappears
+			this->batch->beginUpdate(0);
+		}
+		else
+		{
+			this->batch->clear();
+			this->batch->estimateVertexCount(quadCount * 4);
+			this->batch->estimateIndexCount(quadCount * 6);
+			this->batch->begin(this->datablockName, Ogre::OT_TRIANGLE_LIST);
+		}
 		for(std::size_t quad = 0; quad < quadCount; ++quad)
 		{
 			const std::size_t base = quad * 4;
@@ -148,6 +169,7 @@ namespace Orkige
 			this->batch->triangle(v0 + 0, v0 + 2, v0 + 1);
 		}
 		this->batch->end();
+		this->allocatedQuads = quadCount;
 		this->batch->setRenderQueueGroup(
 			RenderBackend::renderQueueForZOrder(this->zOrder));
 	}
