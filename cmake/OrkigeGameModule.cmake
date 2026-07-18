@@ -194,23 +194,35 @@ list(APPEND CMAKE_LIBRARY_PATH "${ORKIGE_VCPKG_PREFIX}/lib")
 # (the Windows job's evidence: header found, library not). Pre-seeding the
 # result cache variables short-circuits the search entirely; find_library
 # no-ops on an already-set entry.
-if(NOT DEFINED ZLIB_LIBRARY_RELEASE)
-    file(GLOB _orkige_zlib_release
-        "${ORKIGE_VCPKG_PREFIX}/lib/zlib*" "${ORKIGE_VCPKG_PREFIX}/lib/libz.*")
-    if(_orkige_zlib_release)
-        list(GET _orkige_zlib_release 0 _orkige_zlib_release_lib)
-        set(ZLIB_LIBRARY_RELEASE "${_orkige_zlib_release_lib}" CACHE FILEPATH
-            "zlib release library from the engine tree's vcpkg triplet")
-    endif()
-endif()
-if(NOT DEFINED ZLIB_LIBRARY_DEBUG)
-    file(GLOB _orkige_zlib_debug
-        "${ORKIGE_VCPKG_PREFIX}/debug/lib/zlib*"
-        "${ORKIGE_VCPKG_PREFIX}/debug/lib/libz.*")
+file(GLOB _orkige_zlib_release
+    "${ORKIGE_VCPKG_PREFIX}/lib/zlib*" "${ORKIGE_VCPKG_PREFIX}/lib/libz.*")
+file(GLOB _orkige_zlib_debug
+    "${ORKIGE_VCPKG_PREFIX}/debug/lib/zlib*"
+    "${ORKIGE_VCPKG_PREFIX}/debug/lib/libz.*")
+message(STATUS "vcpkg zlib seed: release='${_orkige_zlib_release}' "
+    "debug='${_orkige_zlib_debug}'")
+if(_orkige_zlib_release AND NOT DEFINED CACHE{ZLIB_LIBRARY})
+    list(GET _orkige_zlib_release 0 _orkige_zlib_release_lib)
+    set(ZLIB_LIBRARY_RELEASE "${_orkige_zlib_release_lib}" CACHE FILEPATH
+        "zlib release library from the engine tree's vcpkg triplet")
+    # seed the COMBINED result variable FindZLIB's found-check requires (the
+    # config-specific seeds alone did not satisfy it on the Windows job) plus
+    # the include dir, so the module never searches at all
     if(_orkige_zlib_debug)
         list(GET _orkige_zlib_debug 0 _orkige_zlib_debug_lib)
         set(ZLIB_LIBRARY_DEBUG "${_orkige_zlib_debug_lib}" CACHE FILEPATH
             "zlib debug library from the engine tree's vcpkg triplet")
+        set(ZLIB_LIBRARY
+            "optimized;${_orkige_zlib_release_lib};debug;${_orkige_zlib_debug_lib}"
+            CACHE STRING "zlib per-config libraries (vcpkg triplet)")
+    else()
+        set(ZLIB_LIBRARY "${_orkige_zlib_release_lib}" CACHE FILEPATH
+            "zlib library (vcpkg triplet)")
+    endif()
+    if(EXISTS "${ORKIGE_VCPKG_PREFIX}/include/zlib.h" AND
+        NOT DEFINED CACHE{ZLIB_INCLUDE_DIR})
+        set(ZLIB_INCLUDE_DIR "${ORKIGE_VCPKG_PREFIX}/include" CACHE PATH
+            "zlib headers (vcpkg triplet)")
     endif()
 endif()
 
