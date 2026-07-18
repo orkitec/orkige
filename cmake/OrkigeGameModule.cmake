@@ -106,19 +106,21 @@ if(EXISTS "${ORKIGE_ENGINE_BUILD_DIR}/CMakeCache.txt")
     if(_orkige_module_backend_line MATCHES "=next$")
         set(ORKIGE_MODULE_FLAVOR "next")
     endif()
-    # ABI-relevant flags ride along like the flavor: a sanitizer-instrumented
-    # engine's static libs reference runtime symbols (__asan_*/__ubsan_*) that
-    # only the same -fsanitize= compile AND link provide - a module built
-    # plain against such a tree dies at link with thousands of undefined
-    # sanitizer symbols.
+    # Sanitizer instrumentation rides along like the flavor: an instrumented
+    # engine's static libs reference runtime symbols (__asan_*/__ubsan_*)
+    # that only the same -fsanitize= compile AND link provide - a module
+    # built plain against such a tree dies at link with thousands of
+    # undefined sanitizer symbols. The engine carries the option as
+    # ORKIGE_ENABLE_SANITIZERS (the flags come from the root CMakeLists, not
+    # the flags cache), so read THAT and mirror the root's exact option set
+    # onto the module target in orkige_game_module() - target options
+    # survive project() ordering, directory-scope flag edits do not.
     file(STRINGS "${ORKIGE_ENGINE_BUILD_DIR}/CMakeCache.txt"
-        _orkige_module_cxxflags_line REGEX "^CMAKE_CXX_FLAGS:")
-    if(_orkige_module_cxxflags_line MATCHES "(-fsanitize=[^ ;]+)")
-        set(_orkige_module_sanitize "${CMAKE_MATCH_1}")
-        string(APPEND CMAKE_CXX_FLAGS " ${_orkige_module_sanitize} -fno-omit-frame-pointer")
-        string(APPEND CMAKE_EXE_LINKER_FLAGS " ${_orkige_module_sanitize}")
-        string(APPEND CMAKE_SHARED_LINKER_FLAGS " ${_orkige_module_sanitize}")
-        message(STATUS "engine tree is sanitizer-instrumented - module inherits ${_orkige_module_sanitize}")
+        _orkige_module_sanitize_line REGEX "^ORKIGE_ENABLE_SANITIZERS:")
+    if(_orkige_module_sanitize_line MATCHES "=ON$")
+        set(ORKIGE_MODULE_SANITIZERS ON)
+        message(STATUS "engine tree is sanitizer-instrumented - the module "
+            "target inherits ASan + UBSan")
     endif()
 endif()
 
@@ -185,6 +187,32 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND EXISTS "${ORKIGE_VCPKG_PREFIX}/debug/li
     list(PREPEND CMAKE_LIBRARY_PATH "${ORKIGE_VCPKG_PREFIX}/debug/lib")
 endif()
 list(APPEND CMAKE_LIBRARY_PATH "${ORKIGE_VCPKG_PREFIX}/lib")
+# zlib is the one MODULE-mode dependency in the closure (OGRE-Next's config
+# requires it), and vcpkg's zlib find wrapper steers FindZLIB toward vcpkg
+# directories the TOOLCHAIN would provide - without the toolchain those are
+# empty and the guided search finds nothing, whatever the search paths say
+# (the Windows job's evidence: header found, library not). Pre-seeding the
+# result cache variables short-circuits the search entirely; find_library
+# no-ops on an already-set entry.
+if(NOT DEFINED ZLIB_LIBRARY_RELEASE)
+    file(GLOB _orkige_zlib_release
+        "${ORKIGE_VCPKG_PREFIX}/lib/zlib*" "${ORKIGE_VCPKG_PREFIX}/lib/libz.*")
+    if(_orkige_zlib_release)
+        list(GET _orkige_zlib_release 0 _orkige_zlib_release_lib)
+        set(ZLIB_LIBRARY_RELEASE "${_orkige_zlib_release_lib}" CACHE FILEPATH
+            "zlib release library from the engine tree's vcpkg triplet")
+    endif()
+endif()
+if(NOT DEFINED ZLIB_LIBRARY_DEBUG)
+    file(GLOB _orkige_zlib_debug
+        "${ORKIGE_VCPKG_PREFIX}/debug/lib/zlib*"
+        "${ORKIGE_VCPKG_PREFIX}/debug/lib/libz.*")
+    if(_orkige_zlib_debug)
+        list(GET _orkige_zlib_debug 0 _orkige_zlib_debug_lib)
+        set(ZLIB_LIBRARY_DEBUG "${_orkige_zlib_debug_lib}" CACHE FILEPATH
+            "zlib debug library from the engine tree's vcpkg triplet")
+    endif()
+endif()
 
 # vcpkg packages resolve transitive dependencies (freetype's bzip2/brotli,
 # assimp's FindStb, lua's unofficial-lua redirection, ...) through per-port
@@ -247,6 +275,19 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 function(orkige_game_module target)
     target_compile_features(${target} PRIVATE cxx_std_20)
+    if(ORKIGE_MODULE_SANITIZERS)
+        # mirror the engine root CMakeLists' sanitizer option set exactly
+        # (vptr excluded there for RTTI-less static dependencies - same
+        # constraint applies to the module's link of those libs)
+        target_compile_options(${target} PRIVATE
+            "$<$<COMPILE_LANGUAGE:CXX>:-fsanitize=address,undefined>"
+            "$<$<COMPILE_LANGUAGE:CXX>:-fno-sanitize=vptr>"
+            "$<$<COMPILE_LANGUAGE:CXX>:-fno-omit-frame-pointer>"
+            "$<$<COMPILE_LANGUAGE:CXX>:-fno-sanitize-recover=undefined>"
+        )
+        target_link_options(${target} PRIVATE
+            -fsanitize=address,undefined -fno-sanitize=vptr)
+    endif()
     target_include_directories(${target} PRIVATE
         "${ORKIGE_ROOT}/orkige_core"
         "${ORKIGE_ROOT}/orkige_engine"

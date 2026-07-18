@@ -87,11 +87,26 @@ def main():
         print(marker)
         return 1
 
-    if first.returncode >= 0:
-        print(f"FAIL: run 1 exited {first.returncode} - it was expected to die "
-              "by a fatal signal (negative return code)")
-        return 1
-    print(f"ok: run 1 died by signal {-first.returncode} (the deliberate crash)")
+    # POSIX reports death-by-signal as a negative returncode; Windows has no
+    # signal exit - the CRT's default SIGSEGV path terminates with a small
+    # positive code (3 observed) - so the platform-portable expectation is
+    # simply "did not exit cleanly". The assertions that matter (the crash
+    # crumb in the rotated trail + the next boot's warning) are below and
+    # identical on every platform.
+    if sys.platform == "win32":
+        if first.returncode == 0:
+            print("FAIL: run 1 exited 0 - the deliberate crash did not "
+                  "terminate the run")
+            return 1
+        print(f"ok: run 1 terminated abnormally with code {first.returncode} "
+              "(the deliberate crash, Windows CRT semantics)")
+    else:
+        if first.returncode >= 0:
+            print(f"FAIL: run 1 exited {first.returncode} - it was expected "
+                  "to die by a fatal signal (negative return code)")
+            return 1
+        print(f"ok: run 1 died by signal {-first.returncode} "
+              "(the deliberate crash)")
 
     # --- run 2: a clean reboot must detect the previous crash ------------------
     try:
