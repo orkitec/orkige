@@ -590,10 +590,16 @@ look when touching one:
   **Flat-colour organic vector shapes**: `VectorShapeComponent` renders a
   tessellated `.oshape` (agent-authorable text asset, or SVG-cooked via
   `Util/cook_shapes.py`) through the facade `VectorMesh` (SpriteBatch's
-  untextured arbitrary-triangle sibling, one "VectorFill" unlit vertex-colour
-  datablock, same zOrder painter window as sprites, both flavors). The pure
-  geometry core is `core_util/VectorTessellator` (bezier flatten + earcut
-  triangulation + baked alpha-feather edge for portable AA — FSAA is 0),
+  arbitrary-triangle sibling: flat regions share one "VectorFill" unlit
+  vertex-colour datablock, and a v3 `texture NAME x y w h [uv]` region is a
+  TEXTURED CUTOUT PART — parse-time per-vertex UV projection through the
+  authored rect, per-texture tessellator draw runs rendered through the SAME
+  generated sprite material/datablock per texture (no feather on cutout art —
+  the texture's alpha is the edge), one draw per texture, tint = the fill
+  colour; same zOrder painter window as sprites, both flavors; all-flat
+  content still renders byte-identically through the one untextured run).
+  The pure geometry core is `core_util/VectorTessellator` (bezier flatten +
+  earcut triangulation + baked alpha-feather edge for portable AA — FSAA is 0),
   headless-unit-tested; `Util/make_vectorshape_demo.py` writes the
   `projects/vectorshapes/` sample. Editor integration: dropping/importing an
   `.svg` (browser or MCP `import_asset`) cooks it to `.oshape` in-place via
@@ -854,8 +860,12 @@ look when touching one:
   mannequin `Util/make_character_rig.py`); `AnimationComponent` grew
   `crossFadeTo`/weights/animated bounds (reflected, Lua + MCP). 2D
   characters: flipbook + `.oanim` cutout rigs + morph/soft-body ARE the
-  house answer (weighted 2D skinning rejected as doctrine); textured cutout
-  parts on `.oanim` rigs = the scoped open gap.
+  house answer (weighted 2D skinning rejected as doctrine), and textured
+  cutout parts SHIP on `.oanim`/`.oshape` rigs (the v3 texture-region
+  grammar, Lottie image layers cook to textured regions with the images
+  materialized beside the `.oanim`, soft-body/morph compose with UVs
+  pinned to vertices — `player_cutout_selfcheck` per flavor over the
+  generated `projects/vectorshapes` cutout hero).
 - **Light budget capability**: `RenderSystem::lightBudget()` +
   `engine:getLightBudget()` — classic 30 (RTSS forward headroom), next 96
   (derived from the clustered-forward `lightsPerCell` bound, constants
