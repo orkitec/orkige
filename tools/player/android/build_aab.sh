@@ -65,6 +65,11 @@ LAUNCH_COLOR="#12161f"
 ORIENTATION=""
 VERSION_CODE=""
 VERSION_NAME=""
+# assets packaging mode (mirrors package_apk.sh): "stored" keeps the module's
+# asset entries uncompressed AND passes bundletool a BundleConfig that keeps
+# them uncompressed in the generated APKs, so the installed app mounts + reads
+# them in place; "compressed" lets bundletool deflate them (extract path).
+ASSETS_MODE="stored"
 OUTPUT=""
 MODULE_ONLY=""
 KEYSTORE=""
@@ -81,6 +86,7 @@ while [ $# -gt 0 ]; do
         --orientation)     ORIENTATION="$2"; shift 2 ;;
         --version-code)    VERSION_CODE="$2"; shift 2 ;;
         --version-name)    VERSION_NAME="$2"; shift 2 ;;
+        --assets)          ASSETS_MODE="$2"; shift 2 ;;
         --output)          OUTPUT="$2"; shift 2 ;;
         --module-only)     MODULE_ONLY=1; shift ;;
         --keystore)        KEYSTORE="$2"; shift 2 ;;
@@ -112,7 +118,7 @@ mkdir -p "$WORK"
 
 # --- step 1: reuse package_apk.sh staging (dex + native lib + assets) ------
 echo "== staging (via package_apk.sh --stage-only)"
-STAGE_ARGS=(--stage-only --output "$WORK/stage.apk")
+STAGE_ARGS=(--stage-only --assets "$ASSETS_MODE" --output "$WORK/stage.apk")
 [ -n "$PROJECT_PAYLOAD" ] && STAGE_ARGS+=(--project-payload "$PROJECT_PAYLOAD")
 STAGE_OUT="$("$SCRIPT_DIR/package_apk.sh" "${STAGE_ARGS[@]}" "$BUILD_DIR")"
 echo "$STAGE_OUT"
@@ -215,9 +221,25 @@ fi
     || fail "bundletool jar not found ('$BUNDLETOOL') - install it and set ORKIGE_BUNDLETOOL (see Docs/store-release.md)"
 AAB="$WORK/app.aab"
 rm -f "$AAB"
-echo "== bundletool build-bundle"
+# stored mode: a BundleConfig keeps the asset entries UNCOMPRESSED in the APKs
+# bundletool generates, so the installed app can mount + read them in place
+# (bundletool otherwise re-compresses per its defaults). glob syntax is
+# bundletool's (assets/** under the module root).
+BUNDLE_CONFIG_ARG=()
+if [ "$ASSETS_MODE" = "stored" ]; then
+    cat > "$WORK/BundleConfig.json" <<'JSON'
+{
+  "compression": {
+    "uncompressedGlob": ["assets/**"]
+  }
+}
+JSON
+    BUNDLE_CONFIG_ARG=(--config="$WORK/BundleConfig.json")
+fi
+echo "== bundletool build-bundle (assets: $ASSETS_MODE)"
 "$JAVA_HOME/bin/java" -jar "$BUNDLETOOL" build-bundle \
-    --modules="$BASE_ZIP" --output="$AAB"
+    --modules="$BASE_ZIP" --output="$AAB" \
+    ${BUNDLE_CONFIG_ARG[@]+"${BUNDLE_CONFIG_ARG[@]}"}
 
 # --- step 5: jarsigner (release upload key) -------------------------------
 [ -f "$KEYSTORE" ] || fail "release keystore '$KEYSTORE' does not exist (see Docs/store-release.md)"

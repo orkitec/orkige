@@ -281,6 +281,20 @@ def check_android(apk_path, aapt2):
         for listed in ("orkige_project.txt", "project/project.orkproj"):
             require(listed in extraction_list.splitlines(),
                     "extraction manifest lists " + listed)
+        # export.android.assets defaults to `stored`: the APK's asset entries
+        # are UNCOMPRESSED so the player MOUNTS the APK and reads/streams them in
+        # place, and a marker tells it to mount rather than extract. (A
+        # `compressed` project would carry no marker and deflate its assets - the
+        # older extract-on-first-launch path; the mode parse is unit-covered by
+        # orkige_export --selftest.)
+        require("assets/orkige_mount.txt" in names,
+                "APK carries the stored-mode mount marker")
+        for info in apk.infolist():
+            if info.filename.startswith("assets/") \
+                    and not info.filename.endswith("/"):
+                require(info.compress_type == zipfile.ZIP_STORED,
+                        "asset '%s' is STORED (mount in place)"
+                        % info.filename)
     # launcher icon + label via aapt2 (build-tools are guaranteed by the skip
     # guard): badging reports the compiled application-icon densities + label
     badging = subprocess.run([aapt2, "dump", "badging", apk_path],
@@ -302,7 +316,11 @@ def check_android_aab_module(module_path):
                          "resources.pb", "lib/arm64-v8a/libmain.so",
                          "assets/orkige_project.txt",
                          "assets/project/project.orkproj",
-                         "assets/orkige_assets.txt"):
+                         "assets/orkige_assets.txt",
+                         # stored mode: the mount marker is staged; bundletool
+                         # keeps the assets uncompressed in the generated APKs
+                         # via the BundleConfig uncompressedGlob (build_aab.sh)
+                         "assets/orkige_mount.txt"):
             require(required in names, "module carries " + required)
         # the manifest must be PROTOBUF-encoded (bundletool rejects binary AXML
         # or plain-text XML). A proto manifest is not valid XML text; assert it

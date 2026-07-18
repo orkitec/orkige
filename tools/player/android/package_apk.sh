@@ -68,6 +68,11 @@ LAUNCH_COLOR="#12161f"
 ORIENTATION=""
 OUTPUT=""
 STAGE_ONLY=""
+# assets packaging mode: "stored" (the default) keeps the APK's asset entries
+# UNCOMPRESSED so the player mounts the APK and reads them in place - no
+# first-launch extraction (export.android.assets); "compressed" deflates them
+# for a smaller APK and the player extracts on first launch (the older path).
+ASSETS_MODE="stored"
 BUILD_DIR=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -77,12 +82,17 @@ while [ $# -gt 0 ]; do
         --res-dir)         RES_DIR="$2"; shift 2 ;;
         --launch-color)    LAUNCH_COLOR="$2"; shift 2 ;;
         --orientation)     ORIENTATION="$2"; shift 2 ;;
+        --assets)          ASSETS_MODE="$2"; shift 2 ;;
         --output)          OUTPUT="$2"; shift 2 ;;
         --stage-only)      STAGE_ONLY=1; shift ;;
         -*)                fail "unknown option '$1'" ;;
         *)                 BUILD_DIR="$1"; shift ;;
     esac
 done
+case "$ASSETS_MODE" in
+    stored|compressed) ;;
+    *) fail "--assets must be 'stored' or 'compressed' (got '$ASSETS_MODE')" ;;
+esac
 BUILD_DIR="${BUILD_DIR:-$REPO_ROOT/build/android-debug}"
 [ -d "$BUILD_DIR" ] || fail "no build directory at $BUILD_DIR"
 BUILD_DIR="$(cd "$BUILD_DIR" && pwd)"
@@ -240,8 +250,16 @@ if [ -n "$PROJECT_PAYLOAD" ]; then
     cp -R "$PROJECT_PAYLOAD" "$STAGE/assets/project"
     printf 'project\n' > "$STAGE/assets/orkige_project.txt"
 fi
+# the mount marker: in `stored` mode the player MOUNTS the APK and reads its
+# assets/ sub-tree in place (no extraction); its presence is how the player
+# picks mount vs. extract at boot (a compressed APK carries no marker and takes
+# the older extract-on-first-launch path). See PlayerBundle / tools/player/main.cpp.
+if [ "$ASSETS_MODE" = "stored" ]; then
+    printf 'stored\n' > "$STAGE/assets/orkige_mount.txt"
+fi
 # the extraction manifest the player reads at launch (paths relative to the
-# assets root = relative to the extracted <files>/bundle/ root)
+# assets root = relative to the extracted <files>/bundle/ root). Unused in the
+# `stored` mount path, but kept so a compressed APK (or a fallback) still lists.
 (cd "$STAGE/assets" && find . -type f ! -name orkige_assets.txt | sed 's|^\./||' | LC_ALL=C sort) \
     > "$STAGE/assets/orkige_assets.txt"
 echo "   $(wc -l < "$STAGE/assets/orkige_assets.txt" | tr -d ' ') bundled files"
@@ -322,8 +340,16 @@ echo "== aapt2 link"
     -I "$PLATFORM_JAR" \
     -o "$OUT_DIR/unaligned.apk" \
     ${RES_LINK[@]+"${RES_LINK[@]}"}
-echo "== packing"
-(cd "$STAGE" && zip -q -r -X "$OUT_DIR/unaligned.apk" classes.dex lib assets)
+echo "== packing (assets: $ASSETS_MODE)"
+if [ "$ASSETS_MODE" = "stored" ]; then
+    # dex + native libs stay deflated; the ASSET entries go in UNCOMPRESSED
+    # (zip -0) so the player mounts the APK and reads/streams them in place -
+    # a compressed zip entry is not randomly seekable (the OGG-stream case)
+    (cd "$STAGE" && zip -q -r -X "$OUT_DIR/unaligned.apk" classes.dex lib)
+    (cd "$STAGE" && zip -q -r -X -0 "$OUT_DIR/unaligned.apk" assets)
+else
+    (cd "$STAGE" && zip -q -r -X "$OUT_DIR/unaligned.apk" classes.dex lib assets)
+fi
 
 echo "== zipalign"
 "$BUILD_TOOLS/zipalign" -f 4 "$OUT_DIR/unaligned.apk" "$APK"

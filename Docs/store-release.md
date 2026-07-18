@@ -71,6 +71,28 @@ presents — the lock and the drawable agree. Verified by
    rejects a bundle whose version code it has already seen. `versionName` you bump
    when it matters to players (1.0.0 → 1.0.1 → 1.1.0).
 
+#### Assets: stored vs compressed
+
+`export.android.assets` decides how the game's media rides in the APK/AAB — a
+**performance vs. buildsize** choice:
+
+```xml
+<Setting key="export.android.assets" value="stored"/>     <!-- the default -->
+```
+
+- **`stored`** (default): the media stays **uncompressed** in the package, so the
+  installed app **mounts its own APK and reads the media in place** — no
+  first-launch extraction, and OGG music streams seekably straight from the APK.
+  The `.aab` keeps the assets uncompressed in the APKs Play generates via a
+  bundletool `BundleConfig` `uncompressedGlob`. Larger download, faster and
+  leaner at runtime.
+- **`compressed`**: the media is **deflated** for a smaller download and
+  extracted to the app's files dir on first launch (the older behaviour). Smaller
+  download, a one-time extraction cost and a second on-disk copy.
+
+See [filesystem.md](filesystem.md#android-mount-the-apk-instead-of-extracting-everything)
+for the mount mechanics.
+
 2. **Create a release (upload) keystore.** One keystore, kept forever — losing it
    means you can no longer update the app (unless you enrol in Play App Signing
    key reset). Generate it once with the JDK's `keytool`:

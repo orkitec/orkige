@@ -1283,6 +1283,20 @@ def android_version(settings):
     return int(code_text), name
 
 
+def android_assets_mode(settings):
+    """the APK/AAB asset packaging mode from export.android.assets: "stored"
+    (the DEFAULT - assets stay uncompressed in the package so the player mounts
+    the APK and reads them in place, no first-launch extraction) or "compressed"
+    (deflated for a smaller download, extracted on first launch). Pure + unit-
+    testable; raises ValueError on any other value. See Docs/store-release.md."""
+    mode = (settings.get("export.android.assets", "") or "").strip() or "stored"
+    if mode not in ("stored", "compressed"):
+        raise ValueError(
+            "export.android.assets '%s' is not 'stored' or 'compressed' "
+            "(see Docs/store-release.md)" % mode)
+    return mode
+
+
 def resolve_android_keystore(keystore_arg, alias_arg, environ):
     """resolve the release keystore + alias for a signed .aab: the CLI arg wins,
     else the environment. Passwords are NOT returned - they stay in the
@@ -1362,6 +1376,7 @@ def export_android(project, engine_build, output_dir):
                "--label", project.name,
                "--res-dir", res_dir,
                "--launch-color", launch_color,
+               "--assets", android_assets_mode(project.settings),
                "--output", apk_path]
     # only a non-auto lock injects android:screenOrientation; auto keeps the
     # template's default (unspecified) so the manifest stays byte-identical
@@ -1460,6 +1475,7 @@ def export_android_bundle(project, engine_build, output_dir, args, environ):
                "--launch-color", launch_color,
                "--version-code", str(version_code),
                "--version-name", version_name,
+               "--assets", android_assets_mode(project.settings),
                "--output", artifact]
     # only a non-auto lock injects android:screenOrientation (see export_android)
     orientation = orientation_setting(project.settings)
@@ -1694,6 +1710,23 @@ def selftest():
         try:
             android_version({"export.android.versionCode": bad})
             assert False, "versionCode '%s' should have raised" % bad
+        except ValueError:
+            pass
+
+    # Android assets mode: default stored (mount in place), explicit
+    # compressed (extract on first launch), anything else raises
+    assert android_assets_mode({}) == "stored", "assets default stored"
+    assert android_assets_mode({"export.android.assets": "  "}) == "stored", \
+        "blank assets defaults stored"
+    assert android_assets_mode(
+        {"export.android.assets": "compressed"}) == "compressed", \
+        "explicit compressed"
+    assert android_assets_mode(
+        {"export.android.assets": "stored"}) == "stored", "explicit stored"
+    for bad in ("zip", "none", "deflate", "STORED"):
+        try:
+            android_assets_mode({"export.android.assets": bad})
+            assert False, "assets '%s' should have raised" % bad
         except ValueError:
             pass
 

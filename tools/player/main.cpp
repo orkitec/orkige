@@ -64,6 +64,7 @@
 // assertions below run on BOTH render flavors
 #include <engine_gui/GuiManager.h>
 #include <engine_runtime/AppHost.h>
+#include <engine_filesystem/MiniZip.h>
 #include "PlayerContext.h"
 #include "PlayerSelfChecks.h"
 #ifdef __EMSCRIPTEN__
@@ -113,7 +114,12 @@
 #include <string>
 #include <memory>
 #include <optional>
+#include <set>
 #include <unordered_set>
+
+#ifdef __ANDROID__
+#include <jni.h>	// the APK path is a JNI call on the SDL activity (stored mode)
+#endif
 
 // the engine's shared-ownership alias, used throughout this TU
 using Orkige::optr;
@@ -148,6 +154,65 @@ using Orkige::pushMouseMove;
 using Orkige::pushMouseButton;
 
 #ifdef __ANDROID__
+//! @brief the APK sub-trees whose bulk binary media the player MOUNTS in place
+//! in `stored` mode (export.android.assets=stored) instead of extracting - the
+//! game textures/audio/meshes it references by resource name, the bulk of the
+//! bytes. The small fopen-consumed tree (manifest, scenes, scripts, config) and
+//! the engine shader/font media (a directory tree the Hlms/RTSS loaders want)
+//! stay extracted. Path is relative to the assets root (= extract destRoot).
+bool isMountedMediaPath(std::string const& rel)
+{
+	static const char* const prefixes[] =
+		{ "project/assets/", "assets/", "jumper_media/" };
+	for (const char* prefix : prefixes)
+	{
+		if (rel.rfind(prefix, 0) == 0)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+//! @brief the APK file's own path, via a JNI call on the SDL activity
+//! (Context.getPackageCodePath) - the file the player mounts in `stored` mode.
+//! "" when JNI/the activity is unavailable (the mount then falls back to
+//! extraction, the always-safe path).
+std::string androidApkPath()
+{
+	JNIEnv* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+	jobject activity = static_cast<jobject>(SDL_GetAndroidActivity());
+	if (!env || !activity)
+	{
+		return std::string();
+	}
+	std::string result;
+	jclass cls = env->GetObjectClass(activity);
+	if (cls)
+	{
+		jmethodID method = env->GetMethodID(cls, "getPackageCodePath",
+			"()Ljava/lang/String;");
+		if (method)
+		{
+			jstring jpath = static_cast<jstring>(
+				env->CallObjectMethod(activity, method));
+			if (jpath)
+			{
+				const char* chars = env->GetStringUTFChars(jpath, nullptr);
+				if (chars)
+				{
+					result = chars;
+					env->ReleaseStringUTFChars(jpath, chars);
+				}
+				env->DeleteLocalRef(jpath);
+			}
+		}
+		env->DeleteLocalRef(cls);
+	}
+	env->DeleteLocalRef(activity);
+	return result;
+}
+
 //! @brief extract the APK's bundled media into destRoot. APK assets are not
 //! files - OGRE's FileSystem archives, the scene loader (tinyxml2/fopen) and
 //! the sound loader all want real paths, so everything is materialized once
@@ -155,7 +220,10 @@ using Orkige::pushMouseButton;
 //! package_apk.sh) writes assets/orkige_assets.txt listing every bundled
 //! file; SDL_LoadFile with a relative path reads from the APK assets. A file
 //! that already exists with the same size is skipped (cheap re-launch).
-bool extractBundledAssets(std::string const& destRoot)
+//! @param mountMediaMode `stored` mode: skip the bulk binary media
+//! (isMountedMediaPath) - the player mounts those in place - and extract only
+//! the small fopen tree + shader/font media.
+bool extractBundledAssets(std::string const& destRoot, bool mountMediaMode)
 {
 	size_t manifestSize = 0;
 	char* manifestData = static_cast<char*>(
@@ -180,6 +248,10 @@ bool extractBundledAssets(std::string const& destRoot)
 		if (relativePath.empty())
 		{
 			continue;
+		}
+		if (mountMediaMode && isMountedMediaPath(relativePath))
+		{
+			continue;	// mounted in place from the APK, not extracted
 		}
 		size_t dataSize = 0;
 		void* data = SDL_LoadFile(relativePath.c_str(), &dataSize);
@@ -1015,9 +1087,41 @@ int main(int argc, char** argv)
 	// materialize the APK's bundled media (same set the iOS bundle carries)
 	const std::string bundleRoot =
 		Orkige::PlatformUtil::getResourceDirectory() + "bundle/";
-	if (!extractBundledAssets(bundleRoot))
+	// stored mode (export.android.assets=stored, the default): the packager
+	// left the APK assets UNCOMPRESSED and dropped an orkige_mount.txt marker,
+	// so the player MOUNTS the bulk game media in place (no extraction of the
+	// big textures/audio/meshes) and extracts only the small fopen tree +
+	// shader/font media. A resolvable APK path is required; if it or the marker
+	// is absent the run falls back to full extraction (the always-safe path).
+	bool androidMountAssets = false;
+	std::string androidApkForMount;
+	{
+		size_t markerSize = 0;
+		void* marker = SDL_LoadFile("orkige_mount.txt", &markerSize);
+		const bool storedMode = (marker != nullptr);
+		if (marker)
+		{
+			SDL_free(marker);
+		}
+		if (storedMode)
+		{
+			androidApkForMount = androidApkPath();
+			androidMountAssets = !androidApkForMount.empty();
+			if (!androidMountAssets)
+			{
+				SDL_Log("orkige_player: stored APK but no resolvable APK path "
+					"- falling back to full extraction");
+			}
+		}
+	}
+	if (!extractBundledAssets(bundleRoot, androidMountAssets))
 	{
 		return 1;
+	}
+	if (androidMountAssets)
+	{
+		SDL_Log("orkige_player: stored mode - mounting APK media in place "
+			"from '%s'", androidApkForMount.c_str());
 	}
 	// exported APK: the marker rides in the extracted assets - the same
 	// no-args default-project mechanism as the desktop/iOS bundles (SDL has
@@ -1470,6 +1574,52 @@ int main(int argc, char** argv)
 						"the resource locations", project.getName().c_str(),
 						project.getRootDirectory().c_str());
 				}
+#ifdef __ANDROID__
+				// stored mode: mount the APK's bulk game media in place. Each
+				// media DIRECTORY becomes its own flat pak mount so files
+				// resolve by BARE resource name, exactly like the loose-file
+				// registration above (a single sub-tree mount would only
+				// resolve by full sub-path). MiniZip enumerates the APK's own
+				// directory table.
+				if (androidMountAssets)
+				{
+					Orkige::MiniZip apk;
+					if (apk.open(androidApkForMount))
+					{
+						std::set<std::string> mediaDirs;
+						for (auto const& entry : apk.entries())
+						{
+							const std::string& full = entry.first;
+							if (full.rfind("assets/", 0) != 0)
+							{
+								continue;
+							}
+							if (!isMountedMediaPath(full.substr(7)))
+							{
+								continue;
+							}
+							const std::size_t slash = full.find_last_of('/');
+							if (slash != std::string::npos)
+							{
+								mediaDirs.insert(full.substr(0, slash + 1));
+							}
+						}
+						for (std::string const& dir : mediaDirs)
+						{
+							render->mountPak(androidApkForMount, dir,
+								Orkige::Project::RESOURCE_GROUP_NAME);
+						}
+						SDL_Log("orkige_player: mounted %zu APK media dirs in "
+							"place", mediaDirs.size());
+					}
+					else
+					{
+						SDL_Log("orkige_player: WARNING - could not open APK "
+							"'%s' to mount media in place",
+							androidApkForMount.c_str());
+					}
+				}
+#endif
 				// ORKIGE_PAK_SELFCHECK: mount the pak's sub-tree so its scene,
 				// textures and sounds resolve through the resource system like
 				// loose files (the reborn BigZip acceptance path, both flavors)

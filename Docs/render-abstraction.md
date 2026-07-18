@@ -137,7 +137,7 @@ abstracted): see per-file table below.
 | `engine_util/CameraUtil.h`, `OverlayUtil.h`, `SerializationUtil.*` | **unbuild (zero callers)** | Zero callers; SerializationUtil's Light/Entity round-trip is superseded by component save/load. |
 | `engine_util/NodeUtil` | **absorbed by facade RAII** | Its recursive destroy dance exists because raw SceneNodes have no ownership; `RenderNode`/`MeshInstance` handles are RAII. `getGameObjectFromNode` → `RenderNode::setUserPointer`/`findUserPointerUpwards` (used by picking). |
 | `engine_physic/CollisionTools` | **retire** | Legacy `RaySceneQuery` + triangle tests; already superseded by `PhysicsWorld::castRay` (physics) and `RenderWorld::queryRay` (editor AABB picking). Live callers: editor main.cpp (migrates), CameraDefaultModes (terrain follow — stub anyway), unbuilt tools. |
-| `engine_filesystem/BigZip*` | **backend-facing but portable to Next** | `Ogre::Archive`/`ArchiveFactory` exist in Ogre-Next too (minor API drift). Stays as-is for both Ogre backends behind `RenderSystem::addResourceLocation(LT_BIGZIP)`; Filament gets an impl-side VFS. |
+| `engine_filesystem/*` (pak mount) | **backend-neutral, both flavors** | `PakArchive` adapts the shared `MiniZip` reader (STORED + DEFLATE over zlib) to `Ogre::Archive`, behind `RenderSystem::mountPak`; the Ogre-Next build ships no zip, so one reader keeps the contract identical (`Docs/filesystem.md`). Filament gets an impl-side VFS. |
 | `engine_sound`, `engine_input` | **math-only leak** | `Ogre::Vector3`/`Ogre::Camera*` listener. Math: alias handles it. `SoundManager::setListener(Ogre::Camera*)` → takes `optr<RenderCamera>` or a node (one-line seam). |
 | `engine_runtime/PlayerRuntime` | **math-only leak + LogListener** | Wire-format vec/quat formatting (math alias) and an `Ogre::LogListener` (duplicated in the editor) — fold log forwarding into a small engine service (not part of the render facade; OGRE's LogManager is incidentally also present in Next). |
 | `engine_module/module.cpp` Lua exports | **migrate onto facade** | Currently registers `Ogre::SceneNode/SceneManager/Viewport/Camera` usertypes. Re-target the same Lua-facing names at `RenderNode`/`RenderWorld`/`RenderCamera` (optr binds natively in sol2). Math usertypes follow the math decision (aliases = unchanged today). |
@@ -156,7 +156,7 @@ carry per-method mapping comments for classic OGRE, Ogre-Next and Filament.
 |---|---|---|
 | `RenderPrerequisites.h` | — | export macro, facade forward decls, backend/ODR ground rules |
 | `RenderMath.h` | — | the math vocabulary + THE swap point (see math decision) |
-| `RenderSystem.h` | `RenderSystem` | frame loop, main-window camera/background/resize/size (`showCameraOnWindow` + `getWindowCamera` - the latter added so CameraComponent can take over the window camera while apps still set it up through Engine), screenshots, `FrameStats` (fps/triangles/batches), resource locations (FileSystem/Zip/BigZip), `createRenderTexture`, `getWorld` |
+| `RenderSystem.h` | `RenderSystem` | frame loop, main-window camera/background/resize/size (`showCameraOnWindow` + `getWindowCamera` - the latter added so CameraComponent can take over the window camera while apps still set it up through Engine), screenshots, `FrameStats` (fps/triangles/batches), resource locations (FileSystem/Zip) + pak mounting (`mountPak`, both flavors), `createRenderTexture`, `getWorld` |
 | `RenderWorld.h` | `RenderWorld` | root node, node/content factories, ambient light, dynamic-shadow control (the `RenderCaps::DynamicShadows` capability + the `setShadowQuality` off/low/medium/high knob over `core_util/ShadowPreset.h`), sky/fog atmosphere (the `RenderCaps::SkyDome` capability + `setAtmosphere(AtmosphereDesc)` — sun-linked atmospheric sky dome + object fog on next, a vertex-colour gradient sky dome + fog subset on classic), `queryRay` AABB picking (`RayQueryHit`: distance/node/userPointer), `createVertexColourCubeMesh` (the backend cube-mesh service - the editor's "Create Cube" resource every scene-loading app needs; classic impl reuses PrimitiveUtil) |
 | `RenderNode.h` | `RenderNode` | transform get/set (local + world), translate/yaw/pitch/roll/lookAt/setDirection/fixedYawAxis, child creation/re-parenting/navigation, visibility, world bounds, user-pointer back-mapping |
 | `MeshInstance.h` | `MeshInstance` | ModelComponent needs (load/attach/visible/shadows/bounds/query flags), vertex-colour-unlit fixup + sub-mesh introspection (self-checks), `setMaterial` (assign a `createMaterial` material to all sub-meshes), AnimationComponent's AnimationState control surface (names/enable/loop/time/length/ended) |
@@ -259,7 +259,7 @@ out.
 | **HUD (Gorilla/gui)** | RenderQueueListener + `manualRender` + hand-built vertex buffers + texel offsets (see audit) — every removed-in-Next API at once | Would need: v2 Renderable + VaoManager buffers + HlmsUnlit + compositor hook. A rewrite, per backend, forever | **Recommend: Gorilla classic-only; future HUD = facade `SpriteQuad` layer** (screen-space ortho camera + zOrder painter sorting — SpriteComponent already proves the primitives). One HUD implementation for every backend incl. Filament, instead of N ports of a dead library. jumper/roller HUDs migrate onto the facade HUD |
 | **Window/stats plumbing** | `RenderWindow::writeContentsToFile/getStatistics/ windowMovedOrResized`; `Viewport::getActualWidth` | `Ogre::Window` + `TextureGpu` readback; stats via RenderSystem metrics/workspace | All behind `RenderSystem` methods already |
 | **Ambient light** | `SceneManager::setAmbientLight(colour)` | `setAmbientLight(upperHemi, lowerHemi, dir)` | Facade `setAmbientLight` takes one colour (flat); `setAmbientHemisphere(upper, lower)` is native on Next and averaged-to-flat on classic (an honest subset) |
-| **Resources/archives** | `ResourceGroupManager`, `Archive`, BigZip subclass | Same subsystem exists (minor drift); HLMS additionally needs its library folders registered | `addResourceLocation` unchanged; Next backend registers HLMS data in setup |
+| **Resources/archives** | `ResourceGroupManager`, `Archive`, `PakArchive` (over `MiniZip`) | Same `ResourceGroupManager`; Ogre-Next ships no zip archive, so the shared MiniZip reader backs pak mounting on both; HLMS additionally needs its library folders registered | `addResourceLocation` + `mountPak` unchanged across flavors; Next backend registers HLMS data in setup |
 
 Filament notes are inline per method in the headers; the structural ones: no scene
 graph (TransformManager parent links — RenderNode maps cleanly), no material system to
@@ -666,10 +666,12 @@ the test suite, unchanged:
     polygon-mode decision): the v2 camera lost the polygon-mode toggle; the backend flips the
     macroblock polygon mode of every generated datablock instead. Fine for the
     debug-view call sites; noted in RenderCamera.h.
-  - Honest gap (`notImplementedOnce`): `LT_ZIP`/`LT_BIGZIP` resource
-    locations (zziplib port feature + engine_filesystem port pending).
-    (Skeletal glb import was the second gap here — closed by the skinned
-    fork of the assimp road above.)
+  - **Closed gap — pak mounting is now on both flavors.** `LT_ZIP` and
+    `RenderSystem::mountPak` back onto the shared `engine_filesystem/MiniZip`
+    reader (STORED + DEFLATE over zlib) instead of a stock Ogre zip archive,
+    because the Ogre-Next build ships no zip support. One reader, identical on
+    both flavors (`Docs/filesystem.md`). (Skeletal glb import was the other gap
+    here — closed by the skinned fork of the assimp road above.)
 - **Parity run**: real games run on the Next flavor. What landed:
   - **EnginePrerequisites de-classicified**: `engine_module/EnginePrerequisites.h`
     is backend-NEUTRAL (core prerequisites + Meta + the `RenderMath.h` alias
@@ -747,7 +749,7 @@ all in place. **Flavor capability matrix**:
 | editor (ImGui on DrawLayer2D since the editor-on-Next port) | yes | **yes** (the editor-stays-classic decision was superseded, see the editor-on-both-flavors section) |
 | pixel-level colour parity with classic (WYSIWYG) | — (the reference) | yes (`render_backend_parity`; gamma-space passthrough) |
 | jumper sample (C++ gui HUD) | yes | no (classic boot block only; the HUD itself is flavor-neutral now) |
-| BigZip / LT_ZIP resource locations | yes | honest `notImplementedOnce` stub |
+| pak mounting / `LT_ZIP` resource locations (`RenderSystem::mountPak`) | yes | yes — the shared `engine_filesystem/MiniZip` reader (STORED + DEFLATE over zlib) backs `PakArchive` on both, since the Ogre-Next build ships no zip (`Docs/filesystem.md`) |
 | project export (macOS/iOS/Android) | yes (RTSS media) | yes (bundles Hlms shader media) |
 | Vulkan/GL runtime RS pick | yes | no (classic-backend concern; next boots Metal) |
 | mobile: iOS + Android runtime | yes (GLES2) | yes (iOS Metal, Android Vulkan — the default) |
@@ -758,10 +760,10 @@ all in place. **Flavor capability matrix**:
 | same-mesh 3D instancing | no — gated out by verdict (RTSS generates no instanced vertex path; measured content never needs it — `Docs/performance.md`) | yes — native Hlms auto-instancing of identical Items (nothing to declare) |
 | per-scene structural budget gate (`benchmark_budget` ctest) | yes | yes |
 
-Remaining known gap on next (logged once at runtime):
-LT_ZIP/LT_BIGZIP locations. (The earlier "sRGB-swapchain colour difference"
-is GONE — see the colour-parity work below; the skeletal-glb-import gap
-closed with the skinned fork of the assimp road.)
+(The earlier "sRGB-swapchain colour difference" is GONE — see the colour-parity
+work below; the skeletal-glb-import gap closed with the skinned fork of the
+assimp road, and the LT_ZIP/pak-mount gap closed with the shared MiniZip reader
+— `Docs/filesystem.md`.)
 
 ### Render capability register
 
@@ -1063,7 +1065,7 @@ flavors, **Ogre-Next is the engine's default render backend** on desktop AND
 mobile (iOS boots Metal, Android boots Vulkan — the unsuffixed
 `ios-simulator-debug`/`android-debug` presets are next); classic stays the
 fully supported **compatibility flavor** — kept because it OWNS what next
-doesn't do yet: BigZip, the Vulkan/GL runtime RS pick and the jumper C++
+doesn't do yet: the Vulkan/GL runtime RS pick and the jumper C++
 sample. (The mobile GLES2 path is now the classic flavor's `-classic` mobile
 presets; project export AND native game modules ship on both flavors — a
 native module links the flavor's engine closure resolved from the engine
