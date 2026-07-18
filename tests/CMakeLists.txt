@@ -1665,6 +1665,27 @@ if(TARGET orkige_player)
         set_tests_properties(player_breadcrumb_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_BREADCRUMB_SELFCHECK=1;ORKIGE_BREADCRUMB_DIR=${CMAKE_CURRENT_BINARY_DIR}/breadcrumb_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}")
 
+        # the fatal-signal crash marker, end to end: the driver runs the player
+        # once with ORKIGE_CRASH_SELFCHECK arming the marker + raising SIGSEGV at
+        # a known frame (the run MUST die by the signal), then reboots it clean
+        # and asserts (a) the "previous run crashed" boot warning and (b) the
+        # rotated breadcrumbs.prev.jsonl ending in a "crash" crumb. NOTE: the
+        # deliberate crash drops a macOS DiagnosticReports / Linux core entry per
+        # run - expected. Under a sanitizer build the marker stands down (ASan
+        # owns the fatal handlers) and the driver SKIPs (77). Both flavors - the
+        # crash marker is renderer-neutral. Isolated breadcrumb dir in the build
+        # tree. See the ORKIGE_CRASH_SELFCHECK block in tools/player/main.cpp and
+        # Breadcrumbs::installCrashHandler.
+        add_test(NAME player_crash_marker_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+            "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_crash_marker_test.py"
+            --binary "$<TARGET_FILE:orkige_player>"
+            --project tests/projects/crash
+            --crash-dir "${CMAKE_CURRENT_BINARY_DIR}/crash_marker_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_crash_marker_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
+
         # full-screen fade transition, end to end: tests/projects/fade drives a
         # fade-out -> deferred scene switch (sceneA -> sceneB, applied while the
         # overlay is opaque) -> fade-in through the real render loop; asserts the

@@ -115,6 +115,12 @@ struct PlayerContext
 	bool automatedRun = false;
 	bool running = true;
 	unsigned long frameCount = 0;
+	//! whether the fatal-signal crash marker armed at boot (false on a
+	//! sanitizer build, where ASan owns the fatal handlers)
+	bool crashMarkerArmed = false;
+	//! ORKIGE_CRASH_SELFCHECK deliberate-crash frame (0 = off): the test hook
+	//! that raises SIGSEGV at this frame to exercise the crash-marker path
+	unsigned long crashSelfcheckFrame = 0;
 	//! script failures already recorded to the breadcrumb trail (once each)
 	std::unordered_set<std::string> breadcrumbedScriptErrors;
 	std::chrono::steady_clock::time_point lastFrameTime;

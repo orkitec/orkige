@@ -76,6 +76,50 @@ tags above ship a pre-registered `log.<tag>` cvar; extend `kKnownLogTags` in
 - `tests/core/LogLevelsTests.cpp` — gating, the disabled-path no-evaluation
   contract, the breadcrumb-on-error hook, and the cvar seam.
 
+## Crash breadcrumbs & the crash marker
+
+The breadcrumb trail (`core_debug/Breadcrumbs`) is an always-on, bounded ring of
+engine events (scene loads, script errors, warnings, boot/shutdown) FLUSHED to
+disk per entry so a hard crash leaves a readable tail. The player writes
+`breadcrumbs.jsonl` to its writable app dir and rotates it to
+`breadcrumbs.prev.jsonl` at boot; the editor reads the survived file over the MCP
+`get_breadcrumbs` verb.
+
+On top of that, a **fatal-signal crash marker** makes a crashed run
+machine-detectable — including on phones, where there is no crash dialog:
+
+- **The handler.** `Breadcrumbs::installCrashHandler()` (called once at boot,
+  after `setFile()`/`rotate()`) arms handlers for `SIGSEGV`/`SIGBUS`/`SIGILL`/
+  `SIGFPE`/`SIGABRT`. On a fatal signal the handler writes ONE final `"crash"`
+  breadcrumb naming the signal, then restores the default disposition and
+  re-raises so the OS still produces its crash report / core dump. The crash is
+  **marked, never swallowed**.
+- **Async-signal-safety** is the design constraint: the dedicated append fd and
+  one fully-formatted breadcrumb line per signal are prepared at install time, so
+  the handler only does `write(2)` + `raise(2)` — no `malloc`, no stdio, no JSON
+  formatting. The marker's `"t"` is the install-time (boot) second; the accurate
+  moment of death is the last ordinary crumb before it — the crash line only
+  records THAT the run died and to which signal.
+- **Sanitizer coexistence.** Under an AddressSanitizer build the marker stands
+  down (`installCrashHandler()` returns `false`) — ASan owns the fatal handlers
+  and its reports must stay intact.
+- **Platform tolerances.** POSIX is first-class (`sigaction` + `write(2)`).
+  Windows is best-effort over the four signals the MSVC CRT raises
+  (`SIGSEGV`/`SIGABRT`/`SIGFPE`/`SIGILL`, no `SIGBUS`); there is no SEH machinery
+  in this version.
+- **Detection at next boot.** After `rotate()` the player reads the rotated file;
+  when its LAST entry is a `"crash"` crumb it logs one honest warning
+  (`oDebugWarn("breadcrumbs", …)`), e.g. *"the previous run crashed (SIGSEGV) -
+  trail in breadcrumbs.prev.jsonl"*. The parse is the pure, headless-unit-tested
+  `Breadcrumbs::lastEntryIsCrash()`.
+- **MCP surfacing.** `get_breadcrumbs` gains `crashed` + `crashSignal`, derived
+  from that same helper over the `previous` trail — no new verb.
+
+Verified by `BreadcrumbsTests` (the parse + rotation flag) and the
+`player_crash_marker_selfcheck` integration selfcheck per flavor
+(`ORKIGE_CRASH_SELFCHECK`): a deliberate `raise(SIGSEGV)` at a known frame, the
+expected signal death, then a clean reboot that warns + carries the crash crumb.
+
 ## Not the accidental channel
 
 `SDL_Log` is *not* a diagnostic channel. It stays legitimate only for selfcheck /

@@ -104,6 +104,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <csignal>
 #include <ctime>
 #include <cstdio>
 #include <cstdlib>
@@ -938,6 +939,17 @@ static bool playerIterate(PlayerContext& context)
 	}
 	++frameCount;
 
+	// ORKIGE_CRASH_SELFCHECK: fire a deliberate SIGSEGV at the requested frame
+	// so the crash-marker path runs end to end (the crash handler stamps the
+	// "crash" crumb, then the OS report generates; the driver re-boots and
+	// expects the "previous run crashed" warning). Only when the marker actually
+	// armed - a sanitizer build leaves the fatal handlers to ASan and never
+	// self-crashes (the driver skips then).
+	if (context.crashSelfcheckFrame != 0 && context.crashMarkerArmed
+		&& frameCount >= context.crashSelfcheckFrame)
+	{
+		std::raise(SIGSEGV);
+	}
 
 	// the per-frame selfcheck chain (every ORKIGE_*_SELFCHECK
 	// script - see PlayerSelfChecks.cpp)
@@ -1253,7 +1265,42 @@ int main(int argc, char** argv)
 				std::filesystem::create_directories(breadcrumbDir, ignored);
 				breadcrumbs.setFile(breadcrumbDir + "breadcrumbs.jsonl");
 				breadcrumbs.rotate();
+				// the previous session's trail was just rotated aside; if it
+				// ends in a crash marker, say so ONCE - the machine-detectable
+				// "the last run died" signal (a phone shows no crash dialog).
+				{
+					Orkige::String prevTrail;
+					Orkige::String crashSignal;
+					if (Orkige::Breadcrumbs::loadFile(
+							breadcrumbs.getPreviousFile(), prevTrail)
+						&& Orkige::Breadcrumbs::lastEntryIsCrash(
+							prevTrail, crashSignal))
+					{
+						oDebugWarn("breadcrumbs", 0,
+							"the previous run crashed ("
+							<< (crashSignal.empty()
+								? "unknown signal" : crashSignal.c_str())
+							<< ") - trail in breadcrumbs.prev.jsonl");
+					}
+				}
 				breadcrumbs.record("boot", scenePath);
+				// arm the fatal-signal crash marker on the fresh live file: a
+				// SIGSEGV/OOM-kill/watchdog death now stamps a final "crash"
+				// crumb before the OS report generates. Returns false (marker
+				// stands down) on a sanitizer build - ASan owns the handlers.
+				context.crashMarkerArmed = breadcrumbs.installCrashHandler();
+				// ORKIGE_CRASH_SELFCHECK=<frame>: the deliberate crash-marker
+				// test hook (see the playerIterate raise() below). The marker
+				// line lets the driver decide arm-vs-skip from run 1's stdout.
+				if (const char* crashEnv =
+						std::getenv("ORKIGE_CRASH_SELFCHECK"))
+				{
+					context.crashSelfcheckFrame =
+						std::strtoul(crashEnv, nullptr, 10);
+					SDL_Log("orkige_player: crash marker %s",
+						context.crashMarkerArmed
+							? "armed" : "unavailable (sanitizer build)");
+				}
 			}
 			// per-scene benchmark capture: OPT-IN, armed only when ORKIGE_BENCHMARK
 			// is set. Writes a JSONL results artifact (benchmark-<utcstamp>.jsonl)

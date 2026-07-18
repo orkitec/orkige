@@ -4161,12 +4161,21 @@ namespace Orkige
 			String previous;
 			Breadcrumbs::loadFile(dir + "breadcrumbs.jsonl", live);
 			Breadcrumbs::loadFile(dir + "breadcrumbs.prev.jsonl", previous);
+			// the machine-detectable crash verdict: does the rotated (previous)
+			// trail END in a crash marker? Same pure helper the player uses at
+			// boot to warn - no new verb, so an agent reads "did the last run
+			// die, and to which signal" straight off get_breadcrumbs.
+			String crashSignal;
+			const bool crashed =
+				Breadcrumbs::lastEntryIsCrash(previous, crashSignal);
 			DebugMessage ok(MSG_OK);
 			ok.set("dir", dir);
 			ok.set("live", live);
 			ok.set("previous", previous);
 			ok.set("live_bytes", std::to_string(live.size()));
 			ok.set("previous_bytes", std::to_string(previous.size()));
+			ok.set("crashed", crashed ? "true" : "false");
+			ok.set("crashSignal", crashSignal);
 			this->sendOk(req, ok);
 			return;
 		}

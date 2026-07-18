@@ -93,6 +93,30 @@ namespace Orkige
 		//! survived file; the player may be dead - pure file I/O). false (outText
 		//! untouched) when the file is missing or unreadable.
 		static bool loadFile(String const & path, String & outText);
+
+		//! @brief arm the fatal-signal crash marker on the CURRENT live file: on
+		//! SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGABRT the handler writes ONE final
+		//! "crash" breadcrumb (naming the signal) to a pre-opened fd, then
+		//! restores the default disposition and re-raises so the OS crash report
+		//! still generates - the crash is marked, never swallowed. Returns true
+		//! when the handler installed. A no-op returning false when no file is
+		//! set OR the build is AddressSanitizer-instrumented (ASan owns the fatal
+		//! handlers and its reports must stay intact). Call once at boot, AFTER
+		//! setFile()/rotate() so the marker rides on the fresh session's file.
+		//! @remarks ASYNC-SIGNAL-SAFE by construction: the fd and one
+		//! fully-formatted line per signal are prepared here (at install time),
+		//! so the handler only does write(2) + raise(2) - no malloc, no stdio, no
+		//! JSON formatting. On Windows this is a best-effort signal() mapping over
+		//! the four signals MSVC raises (no SEH machinery in this version).
+		bool installCrashHandler();
+
+		//! @brief pure parse: does the trail's LAST entry mark a crash? true when
+		//! the last non-empty line is a "crash" breadcrumb this engine wrote (the
+		//! next-boot "the previous run died" signal, and the MCP crashed/
+		//! crashSignal fields); outSignalName then carries its signal name (e.g.
+		//! "SIGSEGV"), empty when absent. Dependency-free string scan over the
+		//! engine's own line shape - headless-unit-tested, no JSON reader needed.
+		static bool lastEntryIsCrash(String const & fileText, String & outSignalName);
 	protected:
 	private:
 		//! (re)open the live stream in append mode; recomputes mFileBytes
