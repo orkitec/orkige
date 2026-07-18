@@ -2189,8 +2189,13 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	// brightens a bright emissive 3D object's NEIGHBOURHOOD (a glow halo just
 	// outside its silhouette), (c) a bright 2D SPRITE stays crisp (its
 	// outside-silhouette samples do not gain luminance - the 2D-tier exclusion),
-	// (d) a live tier flip re-arms and off restores EXACTLY. Runs on an emptied
-	// scene after every parity-compared capture, writing only its own files.
+	// (d) a live tier flip re-arms and off restores EXACTLY. Runs on its own
+	// STAGE well away from the origin: the function-scope window-leg content
+	// (test_mesh.glb and friends) lives at the origin for the whole run, and an
+	// emissive cube placed there is almost fully occluded - the bloom source
+	// shrinks to silhouette slivers whose halo lands ON the assert threshold
+	// and flips with per-driver rasterisation phase. The isolated stage keeps
+	// the cube unoccluded, so the glow is strong on every conformant driver.
 	{
 		unsigned int bw = 0, bh = 0;
 		renderSystem->getWindowSize(bw, bh);
@@ -2227,16 +2232,20 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			return true;
 		};
 
-		// a dark scene so only the emissive cube + white sprite are bright
+		// a dark scene so only the emissive cube + white sprite are bright;
+		// the stage centre sits clear of the origin content (see above) and
+		// of the ortho-RTT corner at x=100
+		const Vec3 bloomStage(60, 0, 0);
 		renderSystem->setWindowBackgroundColour(Color(0, 0, 0, 1));
 		world->setAmbientLight(Color(0, 0, 0));
 		camera->setPerspective(Degree(55), Real(0.1), Real(100));
-		cameraNode->setPosition(Vec3(0, 0, 6));
-		cameraNode->lookAt(Vec3::ZERO, RenderNode::TS_WORLD);
+		cameraNode->setPosition(bloomStage + Vec3(0, 0, 6));
+		cameraNode->lookAt(bloomStage, RenderNode::TS_WORLD);
 
 		// a bright, lighting-INDEPENDENT emissive cube (the bloom source)
 		world->createVertexColourCubeMesh("selfcheck.bloomCube", Real(0.6));
 		optr<RenderNode> cubeNode = world->createNode("selfcheck.bloomCubeNode");
+		cubeNode->setPosition(bloomStage);
 		optr<MeshInstance> cube =
 			world->createMeshInstance("selfcheck.bloomCube");
 		SELFCHECK(cube != NULL, "the bloom emissive cube loads");
@@ -2246,7 +2255,8 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		emissiveDesc.emissive = Color(1, 1, 1, 1);	// pure white self-lit
 		SELFCHECK(renderSystem->createMaterial("selfcheck.bloomEmissive",
 			emissiveDesc), "the emissive bloom material builds");
-		cube->setMaterial("selfcheck.bloomEmissive");
+		SELFCHECK(cube->setMaterial("selfcheck.bloomEmissive"),
+			"the emissive bloom material applies to the cube");
 		cube->setCastShadows(false);
 
 		// a bright WHITE 2D sprite off to the right (the exclusion probe)
@@ -2258,7 +2268,7 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		SELFCHECK(brightSprite != NULL, "the bright bloom sprite creates");
 		optr<RenderNode> spriteNode =
 			world->createNode("selfcheck.bloomSpriteNode");
-		spriteNode->setPosition(Vec3(2.3f, 0, 0));
+		spriteNode->setPosition(bloomStage + Vec3(2.3f, 0, 0));
 		brightSprite->attachTo(spriteNode);
 		brightSprite->setSize(0.9f, 0.9f);
 
@@ -2276,10 +2286,11 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		};
 		int cubeX = 0, cubeY = 0, cubeEdgeX = 0, cubeEdgeY = 0;
 		int spriteX = 0, spriteY = 0, spriteEdgeX = 0, spriteEdgeY = 0;
-		SELFCHECK(projectPixel(Vec3::ZERO, cubeX, cubeY) &&
-			projectPixel(Vec3(0.6f, 0, 0), cubeEdgeX, cubeEdgeY) &&
-			projectPixel(Vec3(2.3f, 0, 0), spriteX, spriteY) &&
-			projectPixel(Vec3(2.75f, 0, 0), spriteEdgeX, spriteEdgeY),
+		SELFCHECK(projectPixel(bloomStage, cubeX, cubeY) &&
+			projectPixel(bloomStage + Vec3(0.6f, 0, 0), cubeEdgeX, cubeEdgeY) &&
+			projectPixel(bloomStage + Vec3(2.3f, 0, 0), spriteX, spriteY) &&
+			projectPixel(bloomStage + Vec3(2.75f, 0, 0), spriteEdgeX,
+				spriteEdgeY),
 			"the bloom probe points project");
 		const int cubeHalfPx = std::max(6, std::abs(cubeEdgeX - cubeX));
 		const int spriteHalfPx = std::max(6, std::abs(spriteEdgeX - spriteX));
