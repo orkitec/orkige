@@ -209,6 +209,7 @@ jobs:
           path: |
             build/linux-debug-classic/Testing/**/*.log
             build/linux-debug-classic/tests/**/*.log
+            build/linux-debug-classic/tests/**/*.png
             *.log
           if-no-files-found: ignore
 
@@ -332,6 +333,7 @@ jobs:
           path: |
             build/linux-debug-next/Testing/**/*.log
             build/linux-debug-next/tests/**/*.log
+            build/linux-debug-next/tests/**/*.png
             build/linux-debug-noscript/Testing/**/*.log
             *.log
           if-no-files-found: ignore
@@ -434,6 +436,7 @@ jobs:
           path: |
             build/linux-debug-sanitize/Testing/**/*.log
             build/linux-debug-sanitize/tests/**/*.log
+            build/linux-debug-sanitize/tests/**/*.png
           if-no-files-found: ignore
 
   # The browser flavor: the classic GLES2 player cross-compiled to
@@ -1035,6 +1038,7 @@ jobs:
           path: |
             build/macos-debug-classic/Testing/**/*.log
             build/macos-debug-classic/tests/**/*.log
+            build/macos-debug-classic/tests/**/*.png
           if-no-files-found: ignore
 
   # iOS Simulator on the default Ogre-Next/Metal flavor, as its own job:
@@ -1187,6 +1191,7 @@ jobs:
           path: |
             build/macos-debug/Testing/**/*.log
             build/macos-debug/tests/**/*.log
+            build/macos-debug/tests/**/*.png
             ~/Library/Logs/DiagnosticReports/**
           if-no-files-found: ignore
 
@@ -1298,6 +1303,7 @@ jobs:
           path: |
             build/macos-debug-classic/Testing/**/*.log
             build/macos-debug-classic/tests/**/*.log
+            build/macos-debug-classic/tests/**/*.png
             ~/Library/Logs/DiagnosticReports/**
           if-no-files-found: ignore
 
@@ -1456,6 +1462,7 @@ jobs:
           path: |
             build/windows-debug/Testing/**/*.log
             build/windows-debug/tests/**/*.log
+            build/windows-debug/tests/**/*.png
             *.log
           if-no-files-found: ignore
 
