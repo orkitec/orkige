@@ -302,12 +302,18 @@ if(TARGET orkige_engine)
     if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         target_compile_definitions(render_facade_selfcheck PRIVATE
             # backend-internal media the classic bootstrap registers (RTSS libs)
-            ORKIGE_SELFCHECK_OGRE_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media")
+            ORKIGE_SELFCHECK_OGRE_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media"
+            # the classic-flavor bloom compositor media (generated shaders +
+            # material) the bloom leg registers
+            ORKIGE_SELFCHECK_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/bloom/classic")
     elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
         target_compile_definitions(render_facade_selfcheck PRIVATE
             # backend-internal media the next bootstrap registers (the HLMS
             # shader templates the ogre-next overlay port ships)
-            ORKIGE_SELFCHECK_NEXT_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media")
+            ORKIGE_SELFCHECK_NEXT_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media"
+            # the next-flavor bloom compositor media (bright/blur/combine
+            # material + Metal/GLSL shaders) the bloom leg registers
+            ORKIGE_SELFCHECK_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/bloom/next")
     endif()
     target_compile_definitions(render_facade_selfcheck PRIVATE
         # facade-registered test assets: a vertex-coloured glb + a textured

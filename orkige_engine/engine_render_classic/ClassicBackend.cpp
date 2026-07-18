@@ -426,6 +426,16 @@ namespace Orkige
 			system->mImpl->caps |=
 				(1u << static_cast<int>(RenderCaps::IblReflections));
 		}
+		// LDR bloom (@see applyBloomConfig): the viewport compositor path is
+		// implemented but GATED off (bloomSupported returns false) pending the
+		// classic RTSS+compositor shader-generation integration - an enabled
+		// bloom degrades to no pass with one honest log line (bloom parity debt,
+		// see Docs/render-abstraction.md).
+		if(RenderBackend::bloomSupported())
+		{
+			system->mImpl->caps |=
+				(1u << static_cast<int>(RenderCaps::Bloom));
+		}
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget): the classic forward renderer's per-pass headroom
 		system->mImpl->lightBudget = RenderSystem::defaultLightBudget();

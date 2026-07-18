@@ -321,6 +321,40 @@ namespace Orkige
 				}
 			});
 
+		// the LDR bloom quality knob as a live cvar (the r.shadowQuality mold):
+		// off/low/medium/high sets the blur budget (downsample + pass count, see
+		// core_util/BloomPreset.h). Orthogonal to the per-scene setBloom opt-in -
+		// bloom renders only while this knob is on AND a scene enabled it; a live
+		// flip re-arms the pass. Persisted through the manifest
+		// ("cvar.r.bloomQuality"). setBloomQuality no-ops on an unchanged knob so
+		// a plain boot stays silent.
+		CVarManager::getSingleton().registerCVar("r.bloomQuality",
+			CVarType::String,
+			BloomPreset::qualityName(this->mRenderWorld->getBloomQuality()),
+			CVAR_PERSIST,
+			"LDR bloom quality: off, low, medium or high (bright-pass glow blur "
+			"budget, see core_util/BloomPreset.h); a scene opts in via "
+			"engine:setBloom",
+			[](CVar const & cvar)
+			{
+				RenderSystem* renderSystem = RenderSystem::get();
+				if (!renderSystem)
+				{
+					return;	// a set after render teardown changes nothing
+				}
+				BloomPreset::Quality quality;
+				if (BloomPreset::parseQuality(cvar.value, quality))
+				{
+					renderSystem->getWorld()->setBloomQuality(quality);
+				}
+				else
+				{
+					oDebugWarning(false, "AppHost: r.bloomQuality unknown value '"
+						<< cvar.value.c_str()
+						<< "' (off/low/medium/high) - keeping the current quality");
+				}
+			});
+
 		// the mobility-flag apply gate (@see TransformComponent::setStaticFlag):
 		// ON by default - static-flagged objects take the backend's immobile
 		// fast path (SCENE_STATIC / StaticGeometry). OFF leaves every object

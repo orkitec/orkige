@@ -16,6 +16,7 @@
 #include "engine_render/VectorMesh.h"
 #include <core_util/ShadowPreset.h>
 #include <core_util/IblPreset.h>
+#include <core_util/BloomPreset.h>
 #include <core_util/AtmosphereDesc.h>
 #include <core_util/String.h>
 #include <vector>
@@ -281,6 +282,50 @@ namespace Orkige
 		void setAtmosphere(AtmosphereDesc const & desc);
 		//! the atmosphere description last set (default: disabled)
 		AtmosphereDesc const & getAtmosphere() const;
+
+		//--- LDR bloom (highlight glow post-process) ---
+		//! whether this backend renders the bloom post-process at all is the
+		//! `RenderCaps::Bloom` capability (`RenderSystem::supports`) - true on
+		//! both desktop flavors, runtime-gated to false on the classic
+		//! GLES2/WebGL path (no floating-point/HDR-capable off-screen render
+		//! targets there), where an enabled bloom degrades to no pass + one
+		//! honest log line and the scene still renders correctly.
+		//! @brief set the scene's LDR bloom (@see BloomDesc). Per-scene OPT-IN
+		//! and DEFAULT OFF: while @c desc.enabled is false (or the quality knob
+		//! is BQ_OFF) NO bloom pass runs and the frame is byte-identical to a
+		//! build with no bloom code (the toggle-identity discipline).
+		//! Idempotent - call again to change the threshold/intensity or toggle.
+		//!
+		//! SCOPE: bloom wraps the 3D scene only. The 2D tier (sprites, vector
+		//! shapes, gui) is EXCLUDED by contract so UI whites and flat-colour 2D
+		//! art stay crisp - the backends sequence the bloom pass BEFORE the
+		//! 2D + UI composition (@see the per-flavor mechanism in
+		//! Docs/render-abstraction.md). LDR threshold: the bright-pass extracts
+		//! the pixels already brighter than @c threshold in the clamped [0;1]
+		//! target (near-white highlights) - it cannot bloom over-bright values
+		//! above 1.0 (there is no HDR/tonemap here yet - a future next-first
+		//! phase). @see BloomDesc for the threshold/intensity semantics.
+		//!
+		//! map: next=CompositorManager2 quad passes (bright-pass -> separable
+		//! blur -> additive combine) inserted between the 3D scene pass and the
+		//! 2D/UI pass in the window workspace, gated on enabled + quality |
+		//! classic=an Ogre::CompositorManager viewport compositor (the same
+		//! bright/blur/combine chain, generated in code) armed on the window
+		//! viewport while enabled + quality, disarmed restore-exactly |
+		//! filament=View bloom options
+		void setBloom(BloomDesc const & desc);
+		//! the bloom description last set (default: disabled - BloomDesc())
+		BloomDesc const & getBloom() const;
+		//! @brief the coarse bloom quality/cost knob (blur budget per step in
+		//! core_util/BloomPreset.h; live-tunable via the `r.bloomQuality` cvar
+		//! the app host registers). The bloom pass renders only while this knob
+		//! is not BQ_OFF AND a scene enabled bloom (@see setBloom). A knob change
+		//! while a scene has bloom on re-arms the pass with the new budget
+		//! (restore-exactly), so a live `r.bloomQuality` flip reconfigures
+		//! mid-play. Default BQ_MEDIUM (the phone budget).
+		void setBloomQuality(BloomPreset::Quality quality);
+		//! the bloom quality knob last set (default BQ_MEDIUM)
+		BloomPreset::Quality getBloomQuality() const;
 
 		//--- queries (editor picking) ---
 		//! @brief all scene content whose bounds the ray hits, nearest first

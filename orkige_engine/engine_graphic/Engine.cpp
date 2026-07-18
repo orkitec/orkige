@@ -1063,6 +1063,21 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void Engine::setBloom(bool enabled, float threshold, float intensity)
+	{
+		BloomDesc desc;
+		desc.enabled = enabled;
+		desc.threshold = threshold;
+		desc.intensity = intensity;
+		if(RenderSystem* renderSystem = this->getRenderSystem())
+		{
+			if(RenderWorld* world = renderSystem->getWorld())
+			{
+				world->setBloom(desc);
+			}
+		}
+	}
+	//---------------------------------------------------------
 	bool Engine::supports(String const & name) const
 	{
 		const RenderCaps cap = parseRenderCap(name);
@@ -1122,6 +1137,10 @@ namespace Orkige
 		OFUNC(setAtmosphereSky)
 		// skybox-sourced IBL: engine:setImageLighting(enabled, intensity)
 		OFUNC(setImageLighting)
+		// LDR bloom: engine:setBloom(enabled, threshold, intensity) - a
+		// per-scene highlight glow on the 3D tier (the r.bloomQuality knob
+		// sets the blur budget); the 2D tier stays crisp
+		OFUNC(setBloom)
 		// UI capability probe: true here - the classic flavor carries
 		// gui; the next flavor's Engine sibling answers false and
 		// scripts skip their HUD honestly

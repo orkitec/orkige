@@ -369,6 +369,20 @@ protected:
 		//! tiers ride the `r.iblQuality` cvar (core_util/IblPreset.h);
 		//! capability probe: engine:supports("iblReflections").
 		void setImageLighting(bool enabled, float intensity);
+		//! @brief set the scene's LDR bloom (a highlight glow on the 3D tier) -
+		//! engine:setBloom(enabled, threshold, intensity). Per-scene opt-in and
+		//! DEFAULT OFF: while @p enabled is false the frame is byte-identical to
+		//! a build with no bloom. @p threshold is the LDR bright-pass luminance
+		//! cutoff in [0;1) (near-white highlights bloom; a value at/above 1.0 is
+		//! clamped just below - nothing brighter exists in the un-tonemapped
+		//! target). @p intensity scales the additive glow (0 = invisible). The
+		//! 2D tier (sprites/vector shapes/gui) is EXCLUDED so UI stays crisp; the
+		//! blur budget is the r.bloomQuality cvar (off/low/medium/high). Renders
+		//! only where RenderCaps::Bloom holds - the next flavor (both desktop and
+		//! mobile); the classic flavor is gated off (bloom parity debt, see
+		//! Docs/render-abstraction.md) and degrades to no pass with one log line.
+		//! @remarks maps to RenderWorld::setBloom on both flavors.
+		void setBloom(bool enabled, float threshold, float intensity);
 		//! @brief does this build carry the gui UI system?
 		//! @remarks true on BOTH flavors
 		//! (gui renders through the engine_render facade); the probe

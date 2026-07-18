@@ -63,6 +63,12 @@
 #include <Compositor/OgreCompositorWorkspaceListener.h>
 #include <Compositor/Pass/OgreCompositorPass.h>
 #include <Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h>
+#include <Compositor/Pass/PassQuad/OgreCompositorPassQuadDef.h>	// bloom quad passes
+#include <OgreMaterialManager.h>	// bloom material param push
+#include <OgreTechnique.h>
+#include <OgrePass.h>
+#include <OgreGpuProgramParams.h>
+#include <OgreMovableObject.h>		// scene default visibility (bloom 2D split)
 
 #include <algorithm>
 #include <cstdint>
@@ -124,6 +130,11 @@ namespace Orkige
 		//! every live render target (RenderTexture) - applyShadowConfig
 		//! rebuilds their workspaces so scene passes follow the shadow state
 		std::vector<RenderTexture*> gRenderTargets;
+		//! did the four bloom materials (bright/blur-h/blur-v/combine) resolve at
+		//! first use? (false on a media-less/headless boot - setBloom then
+		//! degrades to no pass, byte-identical). Checked once (gBloomChecked).
+		bool gBloomMaterialsAvailable = false;
+		bool gBloomChecked = false;
 		//! the one live sky/fog atmosphere (RenderWorld::setAtmosphere), NULL
 		//! while disabled; owned here, destroyed before the root teardown
 		Ogre::AtmosphereNpr* gAtmosphere = NULL;
@@ -479,6 +490,12 @@ namespace Orkige
 			RenderBackend::FORWARD_CLUSTERED_DECALS_PER_CELL, 0u,
 			2.0f, 100.0f);
 
+		// clear the 2D-tier visibility bit from the process default so all 3D
+		// content is created without it (only tagScene2D sets it) - the bloom
+		// scene split relies on 3D and 2D content carrying disjoint bits. Inert
+		// while bloom is off (the scene pass masks nothing), so byte-stable.
+		RenderBackend::setSceneDefaultVisibility();
+
 		RenderSystem* system = new RenderSystem();
 		system->mImpl->root = root;
 		system->mImpl->window = window;
@@ -502,7 +519,8 @@ namespace Orkige
 			(1u << static_cast<int>(RenderCaps::AnimatedNormalMappedWater)) |
 			(1u << static_cast<int>(RenderCaps::OffscreenOwnedLayers)) |
 			(1u << static_cast<int>(RenderCaps::ProjectedDecals)) |
-			(1u << static_cast<int>(RenderCaps::IblReflections));
+			(1u << static_cast<int>(RenderCaps::IblReflections)) |
+			(1u << static_cast<int>(RenderCaps::Bloom));
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget), derived from the clustered-forward config set above
 		system->mImpl->lightBudget = RenderSystem::defaultLightBudget();
@@ -761,6 +779,126 @@ namespace Orkige
 		{
 			each->mImpl->recreate();
 		}
+	}
+	//--- LDR bloom (CompositorManager2 quad passes) ----------------------
+	//---------------------------------------------------------
+	bool RenderBackend::bloomSupported()
+	{
+		// desktop-capable Metal/Vulkan render systems all carry the RGBA8
+		// off-screen render targets the bloom chain needs; the flavor answers
+		// true unconditionally (the classic GLES2/WebGL runtime gate lives on
+		// the other backend).
+		return true;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::ensureBloomMaterials()
+	{
+		if(gBloomChecked)
+		{
+			return;
+		}
+		gBloomChecked = true;
+		// the four bloom materials come from the auto-parsed OrkigeBloom.material
+		// (the host registers orkige_engine/media/bloom/next before
+		// initialiseResourceGroups). A media-less/headless boot has none - bloom
+		// then degrades to no pass (byte-identical), logged once.
+		Ogre::MaterialManager & materials = Ogre::MaterialManager::getSingleton();
+		char const * names[4] = { "Orkige/Bloom/Bright", "Orkige/Bloom/BlurH",
+			"Orkige/Bloom/BlurV", "Orkige/Bloom/Combine" };
+		bool allPresent = true;
+		for(char const * name : names)
+		{
+			if(!materials.getByName(name))
+			{
+				allPresent = false;
+				break;
+			}
+		}
+		gBloomMaterialsAvailable = allPresent;
+		if(!allPresent)
+		{
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige next backend: bloom post-process media not registered - "
+				"rendering without bloom (an enabled scene bloom is ignored)");
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::bloomActive()
+	{
+		if(!gRenderSystem)
+		{
+			return false;
+		}
+		RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+		// the pass renders only while the tier knob is on AND a scene enabled
+		// bloom AND the materials resolved
+		if(world->bloomQuality == BloomPreset::BQ_OFF || !world->bloom.enabled)
+		{
+			return false;
+		}
+		RenderBackend::ensureBloomMaterials();
+		return gBloomMaterialsAvailable;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyBloomConfig()
+	{
+		if(!gRenderSystem)
+		{
+			return;
+		}
+		RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+		RenderBackend::ensureBloomMaterials();
+		if(gBloomMaterialsAvailable)
+		{
+			// push the live threshold + intensity onto the low-level bloom
+			// materials (the compositor quad passes read their pass params)
+			const BloomDesc desc = world->bloom.sanitised();
+			Ogre::MaterialManager & materials =
+				Ogre::MaterialManager::getSingleton();
+			if(Ogre::MaterialPtr bright = materials.getByName("Orkige/Bloom/Bright"))
+			{
+				bright->load();
+				bright->getTechnique(0)->getPass(0)->getFragmentProgramParameters()
+					->setNamedConstant("Threshold", Ogre::Real(desc.threshold));
+			}
+			if(Ogre::MaterialPtr combine =
+				materials.getByName("Orkige/Bloom/Combine"))
+			{
+				combine->load();
+				Ogre::GpuProgramParametersSharedPtr params =
+					combine->getTechnique(0)->getPass(0)
+						->getFragmentProgramParameters();
+				params->setNamedConstant("OriginalImageWeight", Ogre::Real(1.0));
+				params->setNamedConstant("Intensity", Ogre::Real(desc.intensity));
+			}
+		}
+		// the window workspace's pass structure references the bloom chain at
+		// BUILD time - rebuild it so it picks the chain up / drops it. Offscreen
+		// render targets never bloom (byte-stable), so they are not rebuilt here.
+		RenderBackend::recreateWindowWorkspace();
+	}
+	//---------------------------------------------------------
+	void RenderBackend::setSceneDefaultVisibility()
+	{
+		// clear the 2D-tier bit from the process default so all 3D content is
+		// created without it (only tagScene2D sets it); reserved layer bits are
+		// preserved by setDefaultVisibilityFlags's user-range write
+		Ogre::MovableObject::setDefaultVisibilityFlags(
+			Ogre::MovableObject::getDefaultVisibilityFlags() &
+			~RenderBackend::SCENE_2D_VISIBILITY);
+	}
+	//---------------------------------------------------------
+	void RenderBackend::tagScene2D(Ogre::MovableObject* movable)
+	{
+		if(!movable)
+		{
+			return;
+		}
+		// exactly the 2D bit (disjoint from 3D content, which lacks it): the
+		// bloom-on scene split renders the 3D bright-pass source without these
+		// and composites them un-bloomed on top. setVisibilityFlags preserves
+		// the reserved layer bits, so setVisible keeps working.
+		movable->setVisibilityFlags(RenderBackend::SCENE_2D_VISIBILITY);
 	}
 	//---------------------------------------------------------
 	String RenderBackend::shadowStateDescription()
@@ -1433,6 +1571,135 @@ namespace Orkige
 			compositorManager->addNodeDefinition(definitionName + "/Node");
 		nodeDefinition->addTextureSourceName("WindowRT", 0,
 			Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+		// ORKIGE_BLOOM_BEGIN (delimited so the concurrent IBL edits to this hub
+		// stay separable at landing): when a scene enabled LDR bloom and the tier
+		// knob is on, the window node grows a bright-pass -> separable blur ->
+		// additive-combine quad chain BETWEEN the 3D scene pass and the 2D/UI
+		// passes. The 3D scene renders into an off-screen SceneRT (masked to the
+		// 3D tier - the 2D bit is excluded), the chain glows it into WindowRT,
+		// then the 2D tier (sprites/vector meshes, the SCENE_2D_VISIBILITY bit)
+		// and the GUI draw un-bloomed on top. Bloom off -> the byte-identical
+		// two-pass node below.
+		const bool useBloom = !impl->uiOnlyWindow && backendCamera &&
+			RenderBackend::bloomActive();
+		if(useBloom)
+		{
+			RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+			const BloomPreset::Settings tier =
+				BloomPreset::forQuality(world->bloomQuality);
+			const float downFactor = 1.0f /
+				static_cast<float>(std::max(tier.downsampleFactor, 1));
+			const int blurPasses = std::max(tier.blurPasses, 1);
+			// off-screen textures: full-res scene (with depth), two downsampled
+			// ping-pong bloom buffers (no depth)
+			Ogre::TextureDefinitionBase::TextureDefinition* sceneTex =
+				nodeDefinition->addTextureDefinition("SceneRT");
+			sceneTex->widthFactor = 1.0f;
+			sceneTex->heightFactor = 1.0f;
+			sceneTex->format = Ogre::PFG_RGBA8_UNORM_SRGB;
+			nodeDefinition->addRenderTextureView("SceneRT")
+				->setForTextureDefinition("SceneRT", sceneTex);
+			for(char const * bloomBuf : { "BloomA", "BloomB" })
+			{
+				Ogre::TextureDefinitionBase::TextureDefinition* tex =
+					nodeDefinition->addTextureDefinition(bloomBuf);
+				tex->widthFactor = downFactor;
+				tex->heightFactor = downFactor;
+				tex->format = Ogre::PFG_RGBA8_UNORM_SRGB;
+				tex->depthBufferId = 0;	// a blurred quad target needs no depth
+				nodeDefinition->addRenderTextureView(bloomBuf)
+					->setForTextureDefinition(bloomBuf, tex);
+			}
+			// SceneRT(1) + bright(1) + 2*blur + WindowRT(1)
+			nodeDefinition->setNumTargetPass(3 + 2 * blurPasses);
+			// --- the 3D scene into SceneRT (2D tier masked out) ---
+			{
+				Ogre::CompositorTargetDef* sceneTarget =
+					nodeDefinition->addTargetPass("SceneRT");
+				sceneTarget->setNumPasses(1);
+				Ogre::CompositorPassSceneDef* scenePass =
+					static_cast<Ogre::CompositorPassSceneDef*>(
+						sceneTarget->addPass(Ogre::PASS_SCENE));
+				scenePass->setAllLoadActions(Ogre::LoadAction::Clear);
+				scenePass->setAllClearColours(impl->windowBackground);
+				scenePass->mFirstRQ = 0;
+				scenePass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+				scenePass->setVisibilityMask(
+					~RenderBackend::SCENE_2D_VISIBILITY);
+				const String shadowNode = RenderBackend::activeShadowNodeName();
+				if(!shadowNode.empty())
+				{
+					scenePass->mShadowNode = Ogre::IdString(shadowNode);
+				}
+			}
+			// --- bright-pass: SceneRT -> BloomA ---
+			{
+				Ogre::CompositorTargetDef* brightTarget =
+					nodeDefinition->addTargetPass("BloomA");
+				brightTarget->setNumPasses(1);
+				Ogre::CompositorPassQuadDef* brightPass =
+					static_cast<Ogre::CompositorPassQuadDef*>(
+						brightTarget->addPass(Ogre::PASS_QUAD));
+				brightPass->setAllLoadActions(Ogre::LoadAction::DontCare);
+				brightPass->mMaterialName = "Orkige/Bloom/Bright";
+				brightPass->addQuadTextureSource(0, "SceneRT");
+			}
+			// --- separable gaussian blur, ping-ponging A<->B (blurPasses V+H) ---
+			for(int pass = 0; pass < blurPasses; ++pass)
+			{
+				Ogre::CompositorTargetDef* vTarget =
+					nodeDefinition->addTargetPass("BloomB");
+				vTarget->setNumPasses(1);
+				Ogre::CompositorPassQuadDef* vPass =
+					static_cast<Ogre::CompositorPassQuadDef*>(
+						vTarget->addPass(Ogre::PASS_QUAD));
+				vPass->setAllLoadActions(Ogre::LoadAction::DontCare);
+				vPass->mMaterialName = "Orkige/Bloom/BlurV";
+				vPass->addQuadTextureSource(0, "BloomA");
+
+				Ogre::CompositorTargetDef* hTarget =
+					nodeDefinition->addTargetPass("BloomA");
+				hTarget->setNumPasses(1);
+				Ogre::CompositorPassQuadDef* hPass =
+					static_cast<Ogre::CompositorPassQuadDef*>(
+						hTarget->addPass(Ogre::PASS_QUAD));
+				hPass->setAllLoadActions(Ogre::LoadAction::DontCare);
+				hPass->mMaterialName = "Orkige/Bloom/BlurH";
+				hPass->addQuadTextureSource(0, "BloomB");
+			}
+			// --- combine + un-bloomed 2D + GUI onto WindowRT ---
+			{
+				Ogre::CompositorTargetDef* windowTarget =
+					nodeDefinition->addTargetPass("WindowRT");
+				windowTarget->setNumPasses(3);
+				Ogre::CompositorPassQuadDef* combinePass =
+					static_cast<Ogre::CompositorPassQuadDef*>(
+						windowTarget->addPass(Ogre::PASS_QUAD));
+				combinePass->setAllLoadActions(Ogre::LoadAction::DontCare);
+				combinePass->mMaterialName = "Orkige/Bloom/Combine";
+				combinePass->addQuadTextureSource(0, "SceneRT");
+				combinePass->addQuadTextureSource(1, "BloomA");
+				// the 2D tier (sprites/vector meshes) un-bloomed, on top
+				Ogre::CompositorPassSceneDef* twoDPass =
+					static_cast<Ogre::CompositorPassSceneDef*>(
+						windowTarget->addPass(Ogre::PASS_SCENE));
+				twoDPass->setAllLoadActions(Ogre::LoadAction::Load);
+				twoDPass->mFirstRQ = 0;
+				twoDPass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+				twoDPass->setVisibilityMask(RenderBackend::SCENE_2D_VISIBILITY);
+				// the GUI / 2D layers, un-bloomed, on top
+				Ogre::CompositorPassSceneDef* uiPass =
+					static_cast<Ogre::CompositorPassSceneDef*>(
+						windowTarget->addPass(Ogre::PASS_SCENE));
+				uiPass->setAllLoadActions(Ogre::LoadAction::Load);
+				uiPass->mFirstRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+				uiPass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE + 1;
+				uiPass->mCameraName = RenderBackend::drawLayer2DCameraName();
+				uiPass->setVisibilityMask(RenderBackend::UI_WINDOW_VISIBILITY);
+			}
+		}
+		else
+		{
 		nodeDefinition->setNumTargetPass(1);
 		Ogre::CompositorTargetDef* targetDefinition =
 			nodeDefinition->addTargetPass("WindowRT");
@@ -1475,6 +1742,8 @@ namespace Orkige
 			// bit, and this mask keeps them out of the window (and vice versa)
 			uiPass->setVisibilityMask(RenderBackend::UI_WINDOW_VISIBILITY);
 		}
+		}
+		// ORKIGE_BLOOM_END
 		Ogre::CompositorWorkspaceDef* workspaceDefinition =
 			compositorManager->addWorkspaceDefinition(definitionName);
 		workspaceDefinition->connectExternal(0, definitionName + "/Node", 0);

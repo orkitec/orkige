@@ -43,6 +43,7 @@ add_executable(orkige_core_tests
     CameraFitTests.cpp
     ShadowPresetTests.cpp
     IblPresetTests.cpp
+    BloomPresetTests.cpp
     AtmosphereDescTests.cpp
     AtmosphereSunDriveTests.cpp
     CameraFollowTests.cpp

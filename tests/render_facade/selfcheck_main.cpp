@@ -142,6 +142,10 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_MESH_DIR);
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_TEXTURE_DIR);
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_DECAL_DIR);
+	// the bloom post-process compositor media (bright/blur/combine material +
+	// shaders) - registered like the player/editor do so the bloom leg's pass
+	// chain can resolve its materials by name
+	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_BLOOM_DIR);
 	renderSystem->initialiseResourceGroups();
 
 	//--- ambient light --------------------------------------------------
@@ -2175,6 +2179,245 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		world->setMaxDecals(256u);	// restore the default cap
 
 		// all decal content drops via RAII as this block ends
+	}
+
+	//--- LDR bloom (highlight glow; a bloom-less flavor answers honestly) ----
+	// Four seams: (a) bloom off is byte-identical to the baseline, (b) bloom on
+	// brightens a bright emissive 3D object's NEIGHBOURHOOD (a glow halo just
+	// outside its silhouette), (c) a bright 2D SPRITE stays crisp (its
+	// outside-silhouette samples do not gain luminance - the 2D-tier exclusion),
+	// (d) a live tier flip re-arms and off restores EXACTLY. Runs on an emptied
+	// scene after every parity-compared capture, writing only its own files.
+	{
+		unsigned int bw = 0, bh = 0;
+		renderSystem->getWindowSize(bw, bh);
+		// average a small block's luminance from a saved shot (robust to a
+		// single pixel landing on an edge/dither)
+		auto blockLuminance = [&](std::string const & imageFile,
+			int px, int py, float & outLuminance) -> bool
+		{
+			float sum = 0.0f;
+			int samples = 0;
+			for(int dx = -2; dx <= 2; ++dx)
+			{
+				for(int dy = -2; dy <= 2; ++dy)
+				{
+					const int sx = px + dx, sy = py + dy;
+					if(sx < 0 || sy < 0 || sx >= static_cast<int>(bw) ||
+						sy >= static_cast<int>(bh))
+					{
+						continue;
+					}
+					float r = 0, g = 0, b = 0;
+					if(!SelfcheckBootstrap::readImagePixel(imageFile,
+						static_cast<unsigned int>(sx),
+						static_cast<unsigned int>(sy), r, g, b))
+					{
+						continue;
+					}
+					sum += (r + g + b) / 3.0f;
+					++samples;
+				}
+			}
+			if(samples == 0) { return false; }
+			outLuminance = sum / static_cast<float>(samples);
+			return true;
+		};
+
+		// a dark scene so only the emissive cube + white sprite are bright
+		renderSystem->setWindowBackgroundColour(Color(0, 0, 0, 1));
+		world->setAmbientLight(Color(0, 0, 0));
+		camera->setPerspective(Degree(55), Real(0.1), Real(100));
+		cameraNode->setPosition(Vec3(0, 0, 6));
+		cameraNode->lookAt(Vec3::ZERO, RenderNode::TS_WORLD);
+
+		// a bright, lighting-INDEPENDENT emissive cube (the bloom source)
+		world->createVertexColourCubeMesh("selfcheck.bloomCube", Real(0.6));
+		optr<RenderNode> cubeNode = world->createNode("selfcheck.bloomCubeNode");
+		optr<MeshInstance> cube =
+			world->createMeshInstance("selfcheck.bloomCube");
+		SELFCHECK(cube != NULL, "the bloom emissive cube loads");
+		cube->attachTo(cubeNode);
+		RenderMaterialDesc emissiveDesc;
+		emissiveDesc.albedo = Color(0, 0, 0, 1);
+		emissiveDesc.emissive = Color(1, 1, 1, 1);	// pure white self-lit
+		SELFCHECK(renderSystem->createMaterial("selfcheck.bloomEmissive",
+			emissiveDesc), "the emissive bloom material builds");
+		cube->setMaterial("selfcheck.bloomEmissive");
+		cube->setCastShadows(false);
+
+		// a bright WHITE 2D sprite off to the right (the exclusion probe)
+		std::vector<unsigned char> whitePixels(16u * 16u * 4u, 255u);
+		SELFCHECK(renderSystem->createTexture2D("selfcheck.bloomWhite",
+			whitePixels.data(), 16u, 16u), "the white bloom sprite uploads");
+		optr<SpriteQuad> brightSprite =
+			world->createSpriteQuad("selfcheck.bloomWhite");
+		SELFCHECK(brightSprite != NULL, "the bright bloom sprite creates");
+		optr<RenderNode> spriteNode =
+			world->createNode("selfcheck.bloomSpriteNode");
+		spriteNode->setPosition(Vec3(2.3f, 0, 0));
+		brightSprite->attachTo(spriteNode);
+		brightSprite->setSize(0.9f, 0.9f);
+
+		// project the cube centre + its right edge to size the silhouette in
+		// pixels, then pick a sample point JUST OUTSIDE it (background at
+		// baseline, the glow halo when bloom is on). Same for the sprite.
+		auto projectPixel = [&](Vec3 const & worldPoint, int & outX,
+			int & outY) -> bool
+		{
+			Real nx = 0, ny = 0;
+			if(!camera->projectPoint(worldPoint, nx, ny)) { return false; }
+			outX = static_cast<int>(nx * (bw - 1));
+			outY = static_cast<int>(ny * (bh - 1));
+			return true;
+		};
+		int cubeX = 0, cubeY = 0, cubeEdgeX = 0, cubeEdgeY = 0;
+		int spriteX = 0, spriteY = 0, spriteEdgeX = 0, spriteEdgeY = 0;
+		SELFCHECK(projectPixel(Vec3::ZERO, cubeX, cubeY) &&
+			projectPixel(Vec3(0.6f, 0, 0), cubeEdgeX, cubeEdgeY) &&
+			projectPixel(Vec3(2.3f, 0, 0), spriteX, spriteY) &&
+			projectPixel(Vec3(2.75f, 0, 0), spriteEdgeX, spriteEdgeY),
+			"the bloom probe points project");
+		const int cubeHalfPx = std::max(6, std::abs(cubeEdgeX - cubeX));
+		const int spriteHalfPx = std::max(6, std::abs(spriteEdgeX - spriteX));
+		// just outside each silhouette (background at baseline)
+		const int cubeGlowX = cubeX + cubeHalfPx + cubeHalfPx / 2;
+		const int spriteGlowX = spriteX + spriteHalfPx + spriteHalfPx / 2;
+
+		// make sure a bloom flip re-arms from a known tier
+		world->setBloomQuality(BloomPreset::BQ_MEDIUM);
+
+		// (a) BASELINE - bloom off (default): the neighbourhood is dark
+		BloomDesc off;	// enabled=false
+		world->setBloom(off);
+		SELFCHECK(!world->getBloom().enabled,
+			"the bloom desc round-trips (disabled)");
+		SELFCHECK(renderFrames(renderSystem, 3), "frames render with bloom off");
+		const std::string bloomBaseShot = outDir + "/selfcheck_bloom_off.png";
+		renderSystem->saveWindowContents(bloomBaseShot);
+		float cubeGlowBase = 0, spriteGlowBase = 0;
+		SELFCHECK(blockLuminance(bloomBaseShot, cubeGlowX, cubeY, cubeGlowBase) &&
+			blockLuminance(bloomBaseShot, spriteGlowX, spriteY, spriteGlowBase),
+			"the bloom-off neighbourhood probes decode");
+
+		if(RenderSystem::get()->supports(RenderCaps::Bloom))
+		{
+			// (b) BLOOM ON: the emissive cube's neighbourhood brightens
+			BloomDesc on;
+			on.enabled = true;
+			on.threshold = 0.6f;
+			on.intensity = 1.5f;
+			world->setBloom(on);
+			SELFCHECK(world->getBloom().enabled,
+				"the bloom desc round-trips (enabled)");
+			SELFCHECK(renderFrames(renderSystem, 3),
+				"frames render with bloom on");
+			const std::string bloomOnShot = outDir + "/selfcheck_bloom_on.png";
+			renderSystem->saveWindowContents(bloomOnShot);
+			float cubeGlowOn = 0, spriteGlowOn = 0;
+			SELFCHECK(
+				blockLuminance(bloomOnShot, cubeGlowX, cubeY, cubeGlowOn) &&
+				blockLuminance(bloomOnShot, spriteGlowX, spriteY, spriteGlowOn),
+				"the bloom-on neighbourhood probes decode");
+			std::printf("render_facade_selfcheck: bloom cube neighbourhood - "
+				"off %.3f, on %.3f\n", cubeGlowBase, cubeGlowOn);
+			SELFCHECK(cubeGlowOn > cubeGlowBase + 0.05f,
+				"bloom brightens the emissive object's neighbourhood (the glow "
+				"halo just outside its silhouette)");
+
+			// (c) the 2D SPRITE stays crisp: its outside-silhouette samples do
+			// NOT gain luminance (the 2D-tier exclusion)
+			std::printf("render_facade_selfcheck: bloom sprite neighbourhood - "
+				"off %.3f, on %.3f\n", spriteGlowBase, spriteGlowOn);
+			SELFCHECK(spriteGlowOn < spriteGlowBase + 0.03f,
+				"a bright 2D sprite does NOT bloom (its neighbourhood is "
+				"unchanged - the 2D tier is excluded)");
+
+			// (d) a LIVE tier flip re-arms (medium -> high renders a glow too)
+			world->setBloomQuality(BloomPreset::BQ_HIGH);
+			SELFCHECK(world->getBloomQuality() == BloomPreset::BQ_HIGH,
+				"the bloom quality knob re-arms on high");
+			SELFCHECK(renderFrames(renderSystem, 3),
+				"frames render after the live bloom tier change");
+			const std::string bloomHighShot =
+				outDir + "/selfcheck_bloom_high.png";
+			renderSystem->saveWindowContents(bloomHighShot);
+			float cubeGlowHigh = 0;
+			SELFCHECK(blockLuminance(bloomHighShot, cubeGlowX, cubeY,
+				cubeGlowHigh), "the high-tier bloom probe decodes");
+			SELFCHECK(cubeGlowHigh > cubeGlowBase + 0.05f,
+				"a live tier change re-arms the bloom (high renders a glow)");
+			world->setBloomQuality(BloomPreset::BQ_MEDIUM);
+		}
+		else
+		{
+			// the honest path of a bloom-less flavor: the knob + desc are
+			// ACCEPTED (round-trip, so scenes tuned on a bloom-capable flavor
+			// keep their setting), frames keep rendering, and the backend says
+			// so in EXACTLY ONE log line
+			BloomDesc on;
+			on.enabled = true;
+			world->setBloom(on);
+			SELFCHECK(world->getBloom().enabled,
+				"the bloom desc round-trips on a bloom-less flavor");
+			SELFCHECK(renderFrames(renderSystem, 3),
+				"frames render after a bloom request on a bloom-less flavor");
+			std::ifstream logFile(outDir + "/render_facade_selfcheck.log");
+			SELFCHECK(logFile.good(), "the backend log file opens (bloom)");
+			std::stringstream buffered;
+			buffered << logFile.rdbuf();
+			const std::string logText = buffered.str();
+			const std::string marker =
+				"bloom post-process is not supported";
+			std::size_t occurrences = 0;
+			for(std::size_t at = logText.find(marker); at != std::string::npos;
+				at = logText.find(marker, at + marker.size()))
+			{
+				++occurrences;
+			}
+			SELFCHECK(occurrences == 1,
+				"the unsupported-bloom log line appears exactly once");
+		}
+
+		// (a/d) toggle identity: bloom OFF reproduces the baseline pixels (a
+		// probe grid, zero-ish tolerance) - the bloom passes left no residue
+		world->setBloom(off);
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render after bloom returns to off");
+		const std::string bloomRestoredShot =
+			outDir + "/selfcheck_bloom_off_restored.png";
+		renderSystem->saveWindowContents(bloomRestoredShot);
+		bool identical = true;
+		for(unsigned int gy = 1; gy <= 4 && identical; ++gy)
+		{
+			for(unsigned int gx = 1; gx <= 4 && identical; ++gx)
+			{
+				const unsigned int px = bw * gx / 5u;
+				const unsigned int py = bh * gy / 5u;
+				float aR = 0, aG = 0, aB = 0, bR = 0, bG = 0, bB = 0;
+				if(!SelfcheckBootstrap::readImagePixel(
+						bloomBaseShot, px, py, aR, aG, aB) ||
+					!SelfcheckBootstrap::readImagePixel(
+						bloomRestoredShot, px, py, bR, bG, bB))
+				{
+					identical = false;
+					break;
+				}
+				if(std::fabs(aR - bR) > 0.004f || std::fabs(aG - bG) > 0.004f ||
+					std::fabs(aB - bB) > 0.004f)
+				{
+					std::printf("render_facade_selfcheck: bloom toggle differs "
+						"at %u,%u (%.3f/%.3f/%.3f vs %.3f/%.3f/%.3f)\n", px, py,
+						aR, aG, aB, bR, bG, bB);
+					identical = false;
+				}
+			}
+		}
+		SELFCHECK(identical,
+			"bloom off is pixel-identical after a bloom on/off round-trip "
+			"(toggle identity)");
+
+		// bloom content drops via RAII as this block ends
 	}
 
 	std::printf("render_facade_selfcheck: all checks passed\n");

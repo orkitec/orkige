@@ -1,0 +1,190 @@
+//---------------------------------------------------------------------------
+// Orkige LDR bloom post-process materials (the Ogre-Next flavor). The window
+// workspace inserts a bright-pass -> separable blur -> additive-combine quad
+// chain between the 3D scene pass and the 2D/UI pass (@see
+// RenderBackend::recreateWindowWorkspace). The bright-pass Threshold and the
+// combine Intensity are pushed live from RenderWorld::setBloom
+// (RenderBackend::applyBloomConfig). The gaussian blur reuses the well-known
+// separable 11-tap kernel. Metal + Vulkan/GL delegates only (this flavor never
+// boots a D3D render system).
+//---------------------------------------------------------------------------
+
+//------------------------ OpenGL GLSL ------------------------
+fragment_program Orkige/Bloom/Bright_ps_GLSL glsl
+{
+	source BloomBright_ps.glsl
+	default_params { param_named Threshold float 0.75 }
+}
+fragment_program Orkige/Bloom/BlurH_ps_GLSL glsl { source BloomBlurH_ps.glsl }
+fragment_program Orkige/Bloom/BlurV_ps_GLSL glsl { source BloomBlurV_ps.glsl }
+fragment_program Orkige/Bloom/Combine_ps_GLSL glsl
+{
+	source BloomCombine_ps.glsl
+	default_params
+	{
+		param_named OriginalImageWeight float 1.0
+		param_named Intensity float 1.0
+	}
+}
+
+//------------------------ Vulkan GLSL ------------------------
+fragment_program Orkige/Bloom/Bright_ps_VK glslvk
+{
+	source BloomBright_ps.glsl
+	default_params { param_named Threshold float 0.75 }
+}
+fragment_program Orkige/Bloom/BlurH_ps_VK glslvk { source BloomBlurH_ps.glsl }
+fragment_program Orkige/Bloom/BlurV_ps_VK glslvk { source BloomBlurV_ps.glsl }
+fragment_program Orkige/Bloom/Combine_ps_VK glslvk
+{
+	source BloomCombine_ps.glsl
+	default_params
+	{
+		param_named OriginalImageWeight float 1.0
+		param_named Intensity float 1.0
+	}
+}
+
+//------------------------ Metal ------------------------
+fragment_program Orkige/Bloom/Bright_ps_Metal metal
+{
+	source BloomBright_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+	default_params { param_named Threshold float 0.75 }
+}
+fragment_program Orkige/Bloom/BlurH_ps_Metal metal
+{
+	source BloomBlurH_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+}
+fragment_program Orkige/Bloom/BlurV_ps_Metal metal
+{
+	source BloomBlurV_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+}
+fragment_program Orkige/Bloom/Combine_ps_Metal metal
+{
+	source BloomCombine_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+	default_params
+	{
+		param_named OriginalImageWeight float 1.0
+		param_named Intensity float 1.0
+	}
+}
+
+//------------------------ Unified ------------------------
+fragment_program Orkige/Bloom/Bright_ps unified
+{
+	delegate Orkige/Bloom/Bright_ps_GLSL
+	delegate Orkige/Bloom/Bright_ps_VK
+	delegate Orkige/Bloom/Bright_ps_Metal
+}
+fragment_program Orkige/Bloom/BlurH_ps unified
+{
+	delegate Orkige/Bloom/BlurH_ps_GLSL
+	delegate Orkige/Bloom/BlurH_ps_VK
+	delegate Orkige/Bloom/BlurH_ps_Metal
+}
+fragment_program Orkige/Bloom/BlurV_ps unified
+{
+	delegate Orkige/Bloom/BlurV_ps_GLSL
+	delegate Orkige/Bloom/BlurV_ps_VK
+	delegate Orkige/Bloom/BlurV_ps_Metal
+}
+fragment_program Orkige/Bloom/Combine_ps unified
+{
+	delegate Orkige/Bloom/Combine_ps_GLSL
+	delegate Orkige/Bloom/Combine_ps_VK
+	delegate Orkige/Bloom/Combine_ps_Metal
+}
+
+//------------------------ Materials ------------------------
+// bright-pass: high-pass the scene into the downsampled bloom buffer
+material Orkige/Bloom/Bright
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+			vertex_program_ref Ogre/Compositor/Quad_vs {}
+			fragment_program_ref Orkige/Bloom/Bright_ps {}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering none
+			}
+		}
+	}
+}
+
+// horizontal gaussian blur
+material Orkige/Bloom/BlurH
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+			vertex_program_ref Ogre/Compositor/Quad_vs {}
+			fragment_program_ref Orkige/Bloom/BlurH_ps {}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering bilinear
+			}
+		}
+	}
+}
+
+// vertical gaussian blur
+material Orkige/Bloom/BlurV
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+			vertex_program_ref Ogre/Compositor/Quad_vs {}
+			fragment_program_ref Orkige/Bloom/BlurV_ps {}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering bilinear
+			}
+		}
+	}
+}
+
+// additive combine: sharp scene + blurred highlights * Intensity
+material Orkige/Bloom/Combine
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+			vertex_program_ref Ogre/Compositor/Quad_vs {}
+			fragment_program_ref Orkige/Bloom/Combine_ps {}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering none
+			}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering bilinear
+			}
+		}
+	}
+}

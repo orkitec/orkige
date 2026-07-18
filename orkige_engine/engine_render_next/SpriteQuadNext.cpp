@@ -63,6 +63,8 @@ namespace Orkige
 		handle->mImpl->quad->setQueryFlags(RenderWorld::QUERYFLAG_DEFAULT);
 		// 2D content never throws shadows into a lit 3D scene
 		handle->mImpl->quad->setCastShadows(false);
+		// tag the 2D tier so the bloom scene split keeps it out of the glow
+		RenderBackend::tagScene2D(handle->mImpl->quad);
 		handle->mImpl->rebuild();
 		return handle;
 	}

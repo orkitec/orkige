@@ -126,6 +126,11 @@ namespace Orkige
 		float					iblIntensity = 1.0f;
 		//! the IBL quality knob (chain budgets in core_util/IblPreset.h)
 		IblPreset::Quality		iblQuality = IblPreset::IQ_MEDIUM;
+		//! the LDR bloom knob + tunables (@see RenderWorld::setBloom); the pass
+		//! renders only while quality != BQ_OFF AND bloom.enabled (@see
+		//! RenderBackend::bloomActive). Default MEDIUM tier, bloom OFF.
+		BloomPreset::Quality	bloomQuality = BloomPreset::BQ_MEDIUM;
+		BloomDesc				bloom;
 	};
 
 	struct RenderNode::Impl
@@ -796,6 +801,42 @@ namespace Orkige
 		//! the first (creation order) directional light, or NULL - the sun the
 		//! atmosphere links to (@see RenderWorld::setAtmosphere)
 		static Ogre::Light* firstDirectionalLight();
+
+		//--- LDR bloom (CompositorManager2 quad passes) -------------
+		//! visibility bit carried by the 2D tier (sprite quads/batches + vector
+		//! meshes) so the bloom-on scene split can render the 3D scene into the
+		//! bright-pass source WITHOUT them and composite them un-bloomed on top.
+		//! A bare user bit (setVisibilityFlags preserves the reserved layer bits,
+		//! @see DrawLayer2DNext); disjoint from UI_WINDOW_VISIBILITY (bit 0). The
+		//! scene default clears it (setSceneDefaultVisibility), so 3D content
+		//! never carries it and the two bloom-on passes are mutually exclusive.
+		static unsigned int const SCENE_2D_VISIBILITY = 0x00000002u;
+		//! @brief tag a 2D-tier movable (sprite/batch/vector mesh) with
+		//! SCENE_2D_VISIBILITY so bloom can split it out of the 3D scene. Byte-
+		//! stable while bloom is off (the single scene pass masks nothing).
+		static void tagScene2D(Ogre::MovableObject* movable);
+		//! @brief clear SCENE_2D_VISIBILITY from the process-wide default movable
+		//! visibility flags at boot, so all 3D content is created without the 2D
+		//! bit (only tagScene2D sets it). Reserved layer bits are preserved.
+		static void setSceneDefaultVisibility();
+		//! @brief whether the bloom pass is currently ACTIVE: the world quality
+		//! knob is not BQ_OFF, a scene enabled bloom (BloomDesc::enabled), and the
+		//! backend supports it. While inactive the window/RTT workspaces build
+		//! their unchanged (byte-identical) pass structure.
+		static bool bloomActive();
+		//! whether this backend can render the bloom post-process at all (the
+		//! RenderCaps::Bloom fill; always true on this desktop-capable flavor)
+		static bool bloomSupported();
+		//! @brief re-apply the bloom configuration (RenderWorld::setBloom /
+		//! setBloomQuality): push the threshold/intensity onto the bloom
+		//! materials, then rebuild the window workspace so its passes pick the
+		//! bloom chain up / drop it. Idempotent; a no-op change still rebuilds
+		//! cheaply (the shadow-config precedent).
+		static void applyBloomConfig();
+		//! @brief register the bloom shader media location + build the four bloom
+		//! materials on first use (bright-pass/blur-h/blur-v/combine). Idempotent;
+		//! the media dir is the ORKIGE_*_BLOOM_DIR the host passes at boot.
+		static void ensureBloomMaterials();
 
 		//--- projected decals (RenderDecal) --------------------------
 		//! @brief load @p textureName into the shared decal-diffuse pool (a
