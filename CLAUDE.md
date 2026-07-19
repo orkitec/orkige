@@ -585,9 +585,10 @@ look when touching one:
   **Export-time GPU texture compression** (`Docs/textures.md`): the dev loop
   always renders raw PNGs; the export cook block-compresses the payload per
   sidecar settings (`format` defaults to `auto` — desktop BCn in `.dds`, iOS
-  ASTC / Android ETC2 in `.oitd` on next, PNG on web and the classic GLES2
-  mobile flavor; explicit formats validate per platform x flavor and refuse
-  impossible pairs). Encoding runs in `tools/texcook` (host CLI over vcpkg
+  and Android ASTC in `.oitd` on next (ETC2 stays an explicit override), PNG
+  on web and the classic GLES2 mobile flavor; explicit formats validate per
+  platform x flavor and refuse impossible pairs). Cubemaps cook too (six-face
+  `.dds` → the same containers, face order + prefiltered mip chain preserved). Encoding runs in `tools/texcook` (host CLI over vcpkg
   `ktx` — ASTC encoder + universal-transcoder ETC2/BCn); a cooked texture
   replaces its `.png` (sidecar renamed along, ids keep resolving; the
   backends fall back `.png`→`.dds`/`.oitd`/`.ktx` for bare-name refs).

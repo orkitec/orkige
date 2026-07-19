@@ -73,7 +73,7 @@ One shared vocabulary on every platform slot:
 | --- | --- | --- |
 | macOS (desktop) | opaque: `bc1` (`bc7` at quality `high`); alpha: `bc7` | opaque: `bc1`; alpha: `bc3` |
 | iOS | ASTC (block size by quality), all Metal-capable iOS hardware decodes ASTC | `none` (PNG) |
-| Android | `etc2` (guaranteed at the GLES3/Vulkan API-28 device floor) | `none` (PNG) |
+| Android | ASTC (block size by quality), Vulkan-capable arm64 at the API-28 floor decodes ASTC LDR | `none` (PNG) |
 | Web | `none` (PNG) | `none` (PNG) |
 
 Rationale for the corners:
@@ -102,17 +102,24 @@ Rationale for the corners:
   KTX2 with a supercompressed intermediate transcoded at load to whatever
   the visitor supports — is the planned **v2** of this pipeline and is
   deliberately not started here.
-* **Android v2 note**: shipping Android is Vulkan-first, and modern devices
-  broadly decode ASTC; once a device-capability story exists (v2, alongside
-  the KTX2 work), revisiting ASTC as the Android `auto` is worth a look.
-  Today `auto` stays ETC2 — the only format guaranteed at the floor. ASTC
-  remains an explicit override.
+* **Android auto is ASTC** (matching iOS): the next flavor on Android boots
+  Ogre-Next's Vulkan renderer, and every Vulkan-capable device at the shipping
+  floor — arm64, API 28+ — decodes ASTC LDR (it is near-universal on that
+  class of hardware, and the same encoder road iOS already ships). So `auto`
+  resolves to ASTC there, block size by `quality` exactly like iOS (`high`
+  4x4 / `normal` 6x6 / `low` 8x8), in the native `.oitd`. **ETC2 stays a
+  first-class explicit override** (`format="etc2"` → ETC2 RGB8/RGBA8 `.oitd`)
+  for a project targeting older or ASTC-less Android GPUs; the cook validates
+  and encodes it unchanged. The on-device load proof rides the Android
+  Play/export device tests; the host asserts the cook output + the `.oitd`
+  `PixelFormatGpu` (an ASTC value for `auto`, an ETC2 value for the explicit
+  override).
 * **Cubemaps cook through the same matrix**: a skybox cubemap
   (`AtmosphereDesc::skyboxTexture`) is a six-face `.dds` — one uncompressed
   BGRA8 container with a baked mip chain, baked by `Util/make_sky_assets.py`.
   A sidecar-carrying cubemap resolves its `format` through the SAME `auto`
   table and encoder as a 2D texture, so `auto` block-compresses it per
-  platform (desktop BCn `.dds`; iOS ASTC / Android ETC2 `.oitd` on next), and
+  platform (desktop BCn `.dds`; iOS/Android ASTC `.oitd` on next), and
   `none` (the sky baker's default stamp) ships it verbatim. Two properties of
   a cubemap are preserved exactly: the **face order** (`+X,-X,+Y,-Y,+Z,-Z`)
   and the **baked mip chain** — a sky cubemap's chain IS the prefiltered
@@ -225,8 +232,8 @@ inside `.glb` meshes ship as authored.
   are structural + device-tested, like the 2D `.oitd`).
 * `player_cooked_textures` (ctest, both flavors) — the real player renders a
   cooked payload from `.dds`, through both the asset-id rename and the
-  bare-name fallback; the iOS (ASTC) and Android (ETC2) `.oitd` cooks are
-  asserted structurally (their on-device load proof rides the
+  bare-name fallback; the iOS and Android `.oitd` cooks (both ASTC by
+  default) are asserted structurally (their on-device load proof rides the
   iOS-simulator/Android Play and export device tests).
 * `export_*` ctests — every exported payload's compressed-texture set
   matches what its source project's settings resolve to per platform.

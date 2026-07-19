@@ -15,9 +15,9 @@ container. Two references are proven per leg:
 Boot legs run the desktop cook (BCn -> .dds, both flavors). The MOBILE
 containers cannot boot on a desktop host - the next flavor's desktop
 renderer maps ASTC/ETC2 pixel formats only in its mobile builds - so the
-ios (ASTC) and android (ETC2) cooks are asserted structurally here (the
-next flavor's .oitd output shape) and load-proven by the iOS-simulator and
-Android Play/export device tests.
+ios and android cooks (both ASTC by default) are asserted structurally here
+(the next flavor's .oitd output shape) and load-proven by the iOS-simulator
+and Android Play/export device tests.
 
     run_cooked_textures_test.py --repo <root> --player <exe> --texcook <exe>
                                 --flavor next|classic
@@ -121,10 +121,10 @@ def main():
         if args.flavor == "next":
             # the mobile cooks, asserted structurally (a desktop host cannot
             # boot ASTC/ETC2 - the mobile Play/export device tests own that
-            # proof): the ios (ASTC) and android (ETC2) payloads must emit
-            # well-formed .oitd containers with the sidecar renamed along
-            for platform, leg in (("ios", "oitd-astc"),
-                                  ("android", "oitd-etc2")):
+            # proof): the ios and android payloads (both ASTC by default) must
+            # emit well-formed .oitd containers with the sidecar renamed along
+            for platform, leg in (("ios", "oitd-ios"),
+                                  ("android", "oitd-android")):
                 project = stage_and_cook(args.repo, cook_textures, platform,
                                          args.flavor, args.texcook,
                                          temp_root, leg, ".oitd")

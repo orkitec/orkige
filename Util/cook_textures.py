@@ -147,9 +147,10 @@ def resolve_format(settings, platform, flavor, alpha, warn=None):
       desktop+next     opaque bc1 (bc7 at quality high), alpha bc7
       desktop+classic  opaque bc1, alpha bc3 (the classic default GL renderer
                        has no BC7 support on every desktop it runs on)
-      ios+next         astc (quality high 4x4 / normal 6x6 / low 8x8)
-      android+next     etc2 (RGB8 opaque / RGBA8 alpha - guaranteed at the
-                       GLES3/Vulkan device floor)
+      ios/android+next astc (quality high 4x4 / normal 6x6 / low 8x8) - every
+                       Metal-capable iPhone AND every Vulkan-capable Android at
+                       our API-28 arm64 floor decodes ASTC LDR; etc2 stays a
+                       reachable explicit override
       ios/android+classic  none - ETC2/ASTC are NOT guaranteed in the classic
                        flavor's GLES2 context, so auto ships PNG there
       web              none - compressed-texture support in the browser is a
@@ -164,11 +165,9 @@ def resolve_format(settings, platform, flavor, alpha, warn=None):
             return None, None
         if flavor == "classic" and platform in ("ios", "android"):
             return None, None
-        if platform == "ios":
+        if platform in ("ios", "android"):
             fmt = {"high": "astc-4x4", "low": "astc-8x8"}.get(quality,
                                                               "astc-6x6")
-        elif platform == "android":
-            fmt = "etc2"
         else:  # desktop
             if flavor == "classic":
                 fmt = "bc3" if alpha else "bc1"
@@ -499,10 +498,19 @@ def _resolution_selftest(check):
     low = dict(auto, quality="low")
     check(resolved(low, "ios", "next", False) == ("astc-8x8", "oitd"),
           "ios quality low should pick astc-8x8")
-    check(resolved(auto, "android", "next", False) == ("etc2-rgb", "oitd"),
-          "android opaque should be etc2-rgb")
-    check(resolved(auto, "android", "next", True) == ("etc2-rgba", "oitd"),
-          "android alpha should be etc2-rgba (EAC alpha)")
+    check(resolved(auto, "android", "next", False) == ("astc-6x6", "oitd"),
+          "android auto should be astc-6x6/oitd at normal quality")
+    check(resolved(high, "android", "next", True) == ("astc-4x4", "oitd"),
+          "android quality high should pick astc-4x4")
+    check(resolved(low, "android", "next", False) == ("astc-8x8", "oitd"),
+          "android quality low should pick astc-8x8")
+    # etc2 stays reachable as an EXPLICIT override on android
+    check(resolved(dict(auto, format="etc2"), "android", "next", False)
+          == ("etc2-rgb", "oitd"),
+          "explicit etc2 on android should still resolve etc2-rgb")
+    check(resolved(dict(auto, format="etc2"), "android", "next", True)
+          == ("etc2-rgba", "oitd"),
+          "explicit etc2 alpha on android should resolve etc2-rgba")
     check(resolved(auto, "", "next", False) == ("bc1", "dds"),
           "desktop next opaque should be bc1")
     check(resolved(auto, "", "next", True) == ("bc7", "dds"),
@@ -683,7 +691,7 @@ def selftest(texcook=None):
             check(mip_count == 5, "20x12 with generateMips should bake 5 "
                   "levels, got %d" % mip_count)
         with tf.TemporaryDirectory() as tmp:
-            # opaque texture for android next: etc2-rgb in .oitd
+            # android next auto: ASTC in .oitd (the modern-Android default)
             tile = orkige_png.Image(16, 16,
                                     bytearray(bytes((60, 120, 60, 255)) * 256))
             tile_path = os.path.join(tmp, "tile.png")
@@ -693,8 +701,32 @@ def selftest(texcook=None):
             oitd_path = os.path.join(tmp, "tile.oitd")
             check(os.path.isfile(oitd_path), "android next should emit .oitd")
             with open(oitd_path, "rb") as handle:
-                magic = handle.read(4)
-            check(magic == b"OITD", "tile.oitd must carry the OITD magic")
+                head = handle.read(21)
+            check(head[:4] == b"OITD", "tile.oitd must carry the OITD magic")
+            # the .oitd PixelFormatGpu (offset 4 + 14, LE u16) must be an ASTC
+            # value (astc-4x4/6x6/8x8 = 126/130/133 in texcook's format table)
+            pixel_format = head[4 + 14] | (head[4 + 15] << 8)
+            check(pixel_format in (126, 130, 133),
+                  "android auto should now encode ASTC (got PixelFormatGpu %d)"
+                  % pixel_format)
+        with tf.TemporaryDirectory() as tmp:
+            # android next EXPLICIT etc2: still reachable, still .oitd
+            tile = orkige_png.Image(16, 16,
+                                    bytearray(bytes((60, 120, 60, 255)) * 256))
+            tile_path = os.path.join(tmp, "tile.png")
+            orkige_png.encode_png(tile, tile_path)
+            _write_meta(tile_path + META_EXTENSION,
+                        '<orkmeta id="e2"><texture format="etc2"/></orkmeta>')
+            cook_payload(tmp, "android", "next", texcook=texcook)
+            oitd_path = os.path.join(tmp, "tile.oitd")
+            check(os.path.isfile(oitd_path),
+                  "explicit etc2 on android next should still emit .oitd")
+            with open(oitd_path, "rb") as handle:
+                head = handle.read(21)
+            pixel_format = head[4 + 14] | (head[4 + 15] << 8)
+            check(pixel_format in (113, 115),
+                  "explicit etc2 should encode an ETC2 PixelFormatGpu "
+                  "(got %d)" % pixel_format)
         with tf.TemporaryDirectory() as tmp:
             # explicit etc2 on classic mobile: permitted, warned, KTX1
             tile = orkige_png.Image(16, 16,
@@ -744,7 +776,7 @@ def selftest(texcook=None):
             four_cc = header[84:88]
             check(four_cc == b"DXT1", "opaque desktop cube should be bc1/DXT1")
         with tf.TemporaryDirectory() as tmp:
-            # android next auto: etc2 -> .oitd cube (TypeCube), .dds removed,
+            # android next auto: astc -> .oitd cube (TypeCube), .dds removed,
             # sidecar renamed along
             cube_path = os.path.join(tmp, "sky.dds")
             with open(cube_path, "wb") as handle:
