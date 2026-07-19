@@ -9,12 +9,15 @@
 
 //! @file SpriteBatchClassic.cpp
 //! @brief classic-OGRE implementation of the SpriteBatch facade
-//! @remarks Ogre::ManualObject rebuilt every frame from the owner's CPU
-//! vertex array (four vertices per quad, TL/TR/BR/BL) - the same clear +
-//! begin/end idiom SpriteQuad uses on every setUVRect, scaled to N quads so
-//! the whole particle system is ONE draw. The alpha variant reuses the
-//! shared "Sprite/<tex>" sprite material; the additive variant its
-//! "SpriteAdd/<tex>" sibling (SBF_SOURCE_ALPHA/SBF_ONE glow).
+//! @remarks Ogre::ManualObject refilled from the owner's CPU vertex array
+//! (four vertices per quad, TL/TR/BR/BL), scaled to N quads so the whole
+//! particle system is ONE draw. A refresh at the same quad count rewrites the
+//! live hardware buffers in place (beginUpdate - the VectorMesh dynamic
+//! idiom), so a steady-count re-upload skips the buffer create/destroy round
+//! trip; only a quad-count change pays the clear + begin/end reallocation. The
+//! alpha variant reuses the shared "Sprite/<tex>" sprite material; the
+//! additive variant its "SpriteAdd/<tex>" sibling (SBF_SOURCE_ALPHA/SBF_ONE
+//! glow).
 
 #include "engine_render_classic/ClassicBackend.h"
 #include <core_debug/DebugMacros.h>
@@ -128,16 +131,29 @@ namespace Orkige
 		std::size_t quadCount)
 	{
 		oAssert(this->batch);
-		this->batch->clear();
 		this->quadCount = quadCount;
 		if(quadCount == 0 || vertices == NULL)
 		{
+			this->batch->clear();
+			this->allocatedQuads = 0;
 			return;	// nothing to draw this frame
 		}
-		this->batch->estimateVertexCount(quadCount * 4);
-		this->batch->estimateIndexCount(quadCount * 6);
-		this->batch->begin(this->materialName,
-			Ogre::RenderOperation::OT_TRIANGLE_LIST);
+		if(quadCount == this->allocatedQuads)
+		{
+			// same quad count as the live buffers: refresh IN PLACE through
+			// beginUpdate (the VectorMesh dynamic idiom). Reusing the hardware
+			// buffers skips the per-refresh buffer create/destroy round trip a
+			// clear + begin/end would pay through the buffer manager
+			this->batch->beginUpdate(0);
+		}
+		else
+		{
+			this->batch->clear();
+			this->batch->estimateVertexCount(quadCount * 4);
+			this->batch->estimateIndexCount(quadCount * 6);
+			this->batch->begin(this->materialName,
+				Ogre::RenderOperation::OT_TRIANGLE_LIST);
+		}
 		for(std::size_t quad = 0; quad < quadCount; ++quad)
 		{
 			const std::size_t base = quad * 4;
@@ -154,6 +170,7 @@ namespace Orkige
 			this->batch->triangle(v0 + 0, v0 + 2, v0 + 1);
 		}
 		this->batch->end();
+		this->allocatedQuads = quadCount;
 		RenderBackend::applyZOrder(this->batch, this->zOrder);
 	}
 	//---------------------------------------------------------

@@ -186,10 +186,13 @@ namespace Orkige
 		float				texelHeight = 0.0f;
 		int					zOrder = 0;
 		std::size_t			quadCount = 0;			//!< quads in the batch right now
+		std::size_t			allocatedQuads = 0;		//!< quads the live buffers were built for (in-place refresh guard)
 		optr<RenderNode>	attachedTo;
 
 		//! (re)build the manual object from a CPU vertex array (4 verts/quad,
-		//! TL/TR/BR/BL); an empty array leaves the object with no geometry
+		//! TL/TR/BR/BL); an empty array leaves the object with no geometry.
+		//! A refresh at the SAME quad count updates the live buffers in place
+		//! (beginUpdate - no per-frame buffer realloc); a count change rebuilds
 		void rebuild(SpriteBatch::Vertex const * vertices, std::size_t quadCount);
 	};
 
