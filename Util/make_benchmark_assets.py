@@ -719,11 +719,24 @@ def build_lake():
 def build_lumens():
     s = SceneWriter()
     director(s, "lumens", "Night Lumens", 12.0)
-    # a dim moon so the terrain reads under the point lights
+    # the atmosphere's linked sun anchor (the FIRST directional light): the
+    # night preset OWNS its colour/power while enabled, so it is the dim
+    # moon-drive the sky model derives, not an authored brightness.
     s.add("Sun",
           s.transform(0.0, 20.0, 0.0, quat=(0.9239, -0.3827, 0.0, 0.0)),
           s.light(light_type=0, colour=(0.3, 0.35, 0.5), intensity=0.5),
           tags=("sun",))
+    # a dedicated cool MOONLIGHT fill - a SECOND directional light, so the
+    # atmosphere linkage (which only owns the first directional) leaves its
+    # authored colour/intensity alone. The night preset's ambient alone left
+    # the terrain reading black between the lamp pools; this soft overhead
+    # moon fill lifts the ground to a visibly moonlit surface while the
+    # coloured lamp pools + their bloom stay the stars of the scene. Cool
+    # blue-white, no shadow pass (a fill, not a key).
+    s.add("MoonFill",
+          s.transform(0.0, 20.0, 0.0, quat=(0.8660, -0.5000, 0.0, 0.0)),
+          s.light(light_type=0, colour=(0.5, 0.62, 0.85), intensity=1.6),
+          tags=("moon",))
     terrain_object(s)
     # the point-light pool: laid out on a grid over the terrace, all INACTIVE;
     # the director ramps how many are on until the frame budget bends.

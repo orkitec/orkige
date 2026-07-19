@@ -40,7 +40,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 
 # lumens corridors (0..255 means over the band)
-LUMENS_TERRAIN_MIN = 8.0      # moonlit terrain floor (black-night regression)
+# The moonlit fill (a dedicated cool overhead directional, distinct from the
+# atmosphere-linked night sun) lifts the terrace band to a VISIBLY moonlit
+# ground so the coloured lamp pools read on top - measured on the clean debug
+# probe frame at next 54 / classic 84 (both climb, classic's Blinn-Phong reads
+# brighter). The floor sits well above the pre-fill black look (~28) so a
+# regression back to a black night fails; the ceiling still keeps it a NIGHT.
+LUMENS_TERRAIN_MIN = 36.0     # moonlit terrain floor (black-night regression)
 LUMENS_TERRAIN_MAX = 110.0    # still a NIGHT - a daylit terrain is a bug
 LUMENS_SKY_MAX = 90.0         # the upper sky band stays night-dark
 # a lamp-glow pixel: clearly brighter than the moonlit base AND colour-

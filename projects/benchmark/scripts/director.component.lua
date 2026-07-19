@@ -64,6 +64,7 @@ local fpsSmoothed = 60.0
 
 -- HUD
 local gui, factory, hudTitle, hudInfo, hasUI = nil, nil, nil, nil, false
+local hudScrim = nil
 
 -- ramp bookkeeping
 local pool = {}
@@ -223,17 +224,36 @@ local function buildHud()
 		factory = GuiFactory()
 		gui = GuiManager(factory, "gui_default", PROJECT_GROUP)
 		local safe = engine:getSafeAreaInsets()
+		local x0 = 16 + safe.mLeft
+		local y0 = 14 + safe.mTop
 		hudTitle = factory:createLabel("hud.title", 24, label,
-			Vector2(16 + safe.mLeft, 14 + safe.mTop), "", 12, false)
+			Vector2(x0, y0), "", 12, false)
 		-- the info line sits UNDER the MEASURED title: glyphs scale with the
 		-- display density (getSize folds the ui scale in), so a fixed second
 		-- row offset overlaps the title on a 2x-3x screen
-		local titleBottom = 14 + safe.mTop + hudTitle:getSize().y
-		hudInfo = factory:createLabel("hud.info", 9, "",
-			Vector2(16 + safe.mLeft, titleBottom + 4), "", 12, false)
+		local titleBottom = y0 + hudTitle:getSize().y
+		hudInfo = factory:createLabel("hud.info",
+			9, "Scene 00 / 00   00.0 ms   00 fps",
+			Vector2(x0, titleBottom + 4), "", 12, false)
+		-- a subtle dark scrim band BEHIND the HUD text (z below the labels'
+		-- 12) so the white glyphs stay legible on ANY vignette background - the
+		-- bright day/sunset skies and the pale water washed the title out. A
+		-- spriteless DecorWidget is a solid fill; a low alpha keeps it from
+		-- dominating. Sized from the MEASURED rows (the info row is seeded with
+		-- a representative string so the band covers the live stats too).
+		local pad = 8
+		local infoBottom = titleBottom + 4 + hudInfo:getSize().y
+		local bandW = math.max(hudTitle:getSize().x, hudInfo:getSize().x)
+			+ pad * 2
+		local bandH = infoBottom - y0 + pad * 2
+		hudScrim = factory:createDecorWidget("hud.scrim", "",
+			Vector2(math.floor(x0 - pad), math.floor(y0 - pad)),
+			Vector2(math.floor(bandW), math.floor(bandH)), "", 11)
+		hudScrim:setColour(0.0, 0.0, 0.0, 1.0)
+		hudScrim:setAlpha(0.42)
 	end)
 	if not ok then
-		gui, factory, hudTitle, hudInfo = nil, nil, nil, nil
+		gui, factory, hudTitle, hudInfo, hudScrim = nil, nil, nil, nil, nil
 	end
 end
 
@@ -486,7 +506,12 @@ function init(self)
 		-- On the classic flavor IBL rides the RTSS image-lighting stage; on next
 		-- the native HlmsPbs reflection/diffuse-GI env feature.
 		engine:setAtmosphereSky("skybox", "sky_day.dds")
-		engine:setImageLighting(true, 0.4)
+		-- a gentle image-based fill: the earlier 0.4 stacked a strong diffuse
+		-- sky wash on top of the day preset's exposure, flattening the terrace
+		-- to a bright, low-contrast haze (the tour's over-bright opener). Half
+		-- the fill restores the shadow contrast and calms the exposure while
+		-- the props keep their honest cubemap reflections + a soft sky fill.
+		engine:setImageLighting(true, 0.2)
 		vistaSkybox = true
 		buildHud()
 	elseif mode == "lake" then
@@ -505,12 +530,14 @@ function init(self)
 		-- the next flavor (RenderCaps::Bloom) and is an honest no-op on classic
 		-- (gated off, the byte-identical contract), so the per-flavor pixel
 		-- probes/budgets reflect each flavor's actual image. The threshold
-		-- sits just BELOW the lamp pools' bright cores and above the dim
-		-- moonlit terrain, so the coloured pools bloom into soft haloes while
-		-- the night ground stays dark - measured on the deterministic probe
-		-- frame: pool cores peak ~0.22 luminance, moonlit terrain ~0.09, so
-		-- 0.15 separates them cleanly.
-		engine:setBloom(true, 0.15, 2.2)
+		-- sits just ABOVE the moonlit terrain and below the lamp pools' bright
+		-- cores, so the coloured pools bloom into soft haloes ON TOP of the
+		-- night ground while the moonlit surface itself does not haze over.
+		-- The MoonFill directional lifts the terrain into the old 0.15 cutoff
+		-- (the moonlit ground now reads at ~0.13-0.22 luminance, the pool cores
+		-- at ~0.35+ on the deterministic probe frame), so the threshold rose to
+		-- 0.28 to keep the bloom a property of the pools, not the whole terrain.
+		engine:setBloom(true, 0.28, 2.2)
 		gatherPool()
 		buildHud()
 	elseif mode == "swarm" then
@@ -700,7 +727,7 @@ function shutdown(self)
 	if gui ~= nil then
 		pcall(function() gui:destroyAllWidgets() end)
 	end
-	gui, factory, hudTitle, hudInfo = nil, nil, nil, nil
+	gui, factory, hudTitle, hudInfo, hudScrim = nil, nil, nil, nil, nil
 	pool = {}
 	if world ~= nil then
 		pcall(function() world.setTimeScale(1.0) end)
