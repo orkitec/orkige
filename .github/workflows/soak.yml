@@ -1,0 +1,149 @@
+# Orkige nightly soak - long-run leak + stability watch.
+#
+# The push CI (ci.yml) runs the unit + desktop suites in seconds-to-minutes;
+# it cannot surface a SLOW leak or a long-run fault, which only show when the
+# game runs for minutes cycling its scenes. This scheduled job runs the
+# benchmark showcase in ATTRACT-LOOP mode (Util/orkige_soak.py: the exported
+# benchmark.loop=1 cvar keeps the tour cycling) for a bounded frame budget,
+# samples the player's resident set size across the run, and FAILS if the
+# player crashes/exits non-zero or if RSS trends upward past the documented
+# ceiling. See Docs/soak.md.
+#
+# Flavor: next (Ogre-Next) only - the default backend the shipping player uses
+# on every platform, so it is the one whose steady-state footprint a nightly
+# watch must protect. Vulkan renders through Mesa lavapipe under xvfb, exactly
+# like the linux-next desktop suite in ci.yml.
+#
+# It runs on a nightly schedule and on manual dispatch; it does NOT run per
+# push (a minutes-long soak has no place in the push gate).
+#
+# NOTE: `uses:` refs here are plain tags/majors for readability; the repo's
+# action pins are applied CENTRALLY by a separate pinning pass - do not hand-pin
+# here.
+
+name: Soak
+
+on:
+  schedule:
+    # 03:17 UTC nightly (an off-peak, non-round minute to dodge cron pile-ups)
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      frames:
+        description: "Frame budget for the soak loop"
+        required: false
+        default: "20000"
+
+concurrency:
+  group: soak-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VCPKG_COMMIT: 42e4e33e1505c9f47b58c21e0f557c1571b751ee
+  VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
+  VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
+  CCACHE_DIR: /home/runner/.ccache
+  CCACHE_MAXSIZE: 1G
+  CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+
+jobs:
+  soak-next:
+    name: Soak (Ogre-Next, attract loop) - RSS trend watch
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # cold vcpkg build headroom; cached runs take minutes
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        # the linux-next set: toolchain + X/Wayland dev libs (SDL3), plus the
+        # Mesa Vulkan software driver (lavapipe) and the loader's ICD tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang ninja-build ccache python3 pkg-config \
+            autoconf autoconf-archive automake libtool curl zip unzip tar \
+            libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
+            libx11-xcb-dev libxcb-randr0-dev libxtst-dev libxinerama-dev \
+            libxcb1-dev libxcb-keysyms1-dev libxcb-ewmh-dev libxcb-icccm4-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
+            libibus-1.0-dev \
+            xvfb mesa-utils libgl1-mesa-dri \
+            mesa-vulkan-drivers vulkan-tools
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        # shares the linux-next cache key so a nightly run restores the same
+        # binary set the push CI built (read-only here: no save step)
+        uses: actions/cache/restore@v6
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-next-v2-${{ runner.os }}-
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: /home/runner/.ccache
+          key: ccache-soak-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-soak-${{ runner.os }}-
+            ccache-next-${{ runner.os }}-
+
+      - name: Configure (linux-debug-next)
+        run: |
+          bash Util/ci_configure.sh --preset linux-debug-next \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      - name: Build the player (Ogre-Next)
+        run: cmake --build --preset linux-debug-next --target orkige_player
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/.ccache
+          key: ccache-soak-${{ runner.os }}-${{ github.sha }}
+
+      # the trend math is validated independently first (no player needed), then
+      # the real soak runs the benchmark attract loop under lavapipe and asserts
+      # the RSS trend stays within the ceiling.
+      - name: Soak driver self-check (RSS-trend math)
+        run: python3 Util/orkige_soak.py --selftest
+
+      - name: Run the soak (benchmark attract loop, RSS watch)
+        env:
+          ALSOFT_DRIVERS: "null"
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
+          echo "using ICD: $LVP_ICD"
+          export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
+          FRAMES="${{ github.event.inputs.frames || '20000' }}"
+          xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
+            python3 Util/orkige_soak.py \
+              --repo "$PWD" \
+              --player build/linux-debug-next/tools/player/orkige_player \
+              --frames "$FRAMES" \
+              --interval 2 \
+              --max-slope-mb-per-min 8
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: soak-next-logs
+          path: |
+            build/linux-debug-next/tools/player/soak/*.jsonl
+            *.log
+          if-no-files-found: ignore
