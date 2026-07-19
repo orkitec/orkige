@@ -46,6 +46,7 @@ add_executable(orkige_core_tests
     BloomPresetTests.cpp
     AtmosphereDescTests.cpp
     AtmosphereSunDriveTests.cpp
+    SkyEnvMapTests.cpp
     CameraFollowTests.cpp
     TimerManagerTests.cpp
     MusicFadeTests.cpp
