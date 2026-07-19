@@ -86,14 +86,32 @@ Rationale for the corners:
   renderer runs on desktops whose GL has no BC7 support, so `auto` stays at
   the universally supported `bc1`/`bc3` and an explicit `bc7` on the
   classic desktop slot is refused.
-* **Classic GLES2 mobile ships PNG**: ETC2 is GLES3-core — it is NOT
-  guaranteed in a GLES2 context; ETC1 has no alpha, and the legacy
-  square-power-of-two format family is not worth adding for a compatibility
-  flavor. Until the classic GLES2 loader path is proven on the device floor,
-  `auto` resolves to PNG there. An explicit `etc2`/ASTC override on the
-  classic mobile slots is permitted (it ships as KTX1, which the classic
-  loader parses) but the cook warns loudly that a GLES2 context may not
-  accept it — treat it as a per-device experiment, not a shipping default.
+* **Classic GLES2 mobile ships PNG — the transcode road is refused, with
+  reasons**: the `-classic` mobile presets ARE the **GLES2 compatibility
+  flavor**, and the universal-transcoder road (an ETC2 KTX1 out of the same
+  cooked pipeline) was audited against it. The machinery half works and the
+  device half does not:
+  * The cook CAN emit it — the CPU-side path is proven: an explicit
+    `format="etc2"` on a classic mobile slot already encodes an ETC2 KTX1
+    (`.ktx`) that the classic runtime's compressed-texture codec parses
+    (`cook_textures.py --selftest` builds and validates that container). So
+    "classic's image codec can take the container" is *true*.
+  * The **GPU floor cannot** — ETC2/EAC is **core only in OpenGL ES 3.0**; a
+    GLES2 context has no guaranteed ETC2 (the widely-present GLES2 extension
+    is ETC1 — RGB only, no alpha). `.oitd` is not an option either: it is
+    Ogre-Next's native container, which the classic runtime does not read. So
+    flipping `auto` to ETC2 would emit textures that the very devices this
+    flavor exists to serve — old GLES2 hardware — may refuse to upload, trading
+    a payload win for black textures on the target audience.
+
+  So `auto` stays PNG on classic mobile (universally uploadable raw texels),
+  the decision being about the GLES2 GPU floor, not the codec. An explicit
+  `etc2`/ASTC override is still permitted — it ships the KTX1 the codec
+  parses — but the cook warns loudly that a GLES2 context may not accept it:
+  a per-device experiment, never a shipping default. (A device-capability
+  probe that ships BOTH a PNG and a compressed variant and picks at load is
+  the only way this flips, and a fat dual-payload is not worth it for a
+  compatibility flavor.)
 * **Web ships PNG — the KTX2 transcoder road is refused, with reasons**:
   compressed-texture support in a browser is a property of the *visitor's*
   GPU — desktop visitors expose the BC family, phones expose ETC2/ASTC, all
