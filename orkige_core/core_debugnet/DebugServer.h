@@ -36,6 +36,7 @@ namespace Orkige
 		DebugSocketUtil::SocketHandle	listenHandle;		//!< listening socket
 		DebugLineConnection				connection;			//!< the single attached client
 		unsigned short					port;				//!< bound port (resolved when start() got 0)
+		bool							loopbackOnly;		//!< did start() bind 127.0.0.1 only
 		bool							clientAttached;		//!< is a client currently attached
 		bool							clientConnectedEvent;	//!< pending "client connected" edge
 		bool							clientDisconnectedEvent;//!< pending "client disconnected" edge
@@ -48,9 +49,13 @@ namespace Orkige
 		DebugServer();
 		//! destructor (stops listening, drops the client)
 		~DebugServer();
-		//! @brief start listening on 127.0.0.1:port (0 = pick a free port,
-		//! query it with getPort()); returns false when the socket setup fails
-		bool start(unsigned short listenPort);
+		//! @brief start listening on port (0 = pick a free port, query it with
+		//! getPort()); returns false when the socket setup fails. By DEFAULT
+		//! binds 127.0.0.1 ONLY - the play-mode debug link must not be
+		//! reachable off the machine. @p exposeNonLoopback is the explicit
+		//! opt-in that binds ALL interfaces (INADDR_ANY) instead - only safe
+		//! behind a trusted boundary.
+		bool start(unsigned short listenPort, bool exposeNonLoopback = false);
 		//! stop listening and drop the client
 		void stop();
 		//! accept/read/write pump - call once per frame, never blocks
@@ -59,6 +64,9 @@ namespace Orkige
 		inline bool isListening() const;
 		//! the bound port (valid after a successful start())
 		inline unsigned short getPort() const;
+		//! @brief did the last start() bind loopback (127.0.0.1) ONLY, rather
+		//! than every interface? The security-regression seam.
+		inline bool isLoopbackOnly() const;
 		//! is a client currently attached
 		inline bool hasClient() const;
 		//! true once per new client connection (edge, consumed by the call)
@@ -92,6 +100,11 @@ namespace Orkige
 	inline unsigned short DebugServer::getPort() const
 	{
 		return this->port;
+	}
+	//---------------------------------------------------------
+	inline bool DebugServer::isLoopbackOnly() const
+	{
+		return this->loopbackOnly;
 	}
 	//---------------------------------------------------------
 	inline bool DebugServer::hasClient() const

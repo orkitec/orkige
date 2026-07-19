@@ -18,6 +18,8 @@ add_executable(orkige_core_tests
     MemorySamplerTests.cpp
     BenchmarkRecorderTests.cpp
     JsonTests.cpp
+    ConstantTimeCompareTests.cpp
+    ControlAuthTests.cpp
     Sha1Tests.cpp
     PathJailTests.cpp
     WebSocketCodecTests.cpp
@@ -90,6 +92,7 @@ if(NOT EMSCRIPTEN)
     target_sources(orkige_core_tests PRIVATE
         DebugProtocolTests.cpp
         HttpServerTests.cpp
+        ServerBindTests.cpp
         DebugWebSocketLinkTests.cpp
         MemoryManagerTests.cpp
         ProfileManagerTests.cpp

@@ -214,6 +214,18 @@ namespace Orkige
 				arguments.debugPort = static_cast<unsigned short>(
 					std::strtoul(argv[++argIndex], nullptr, 10));
 			}
+			else if (std::strcmp(argv[argIndex], "--debug-bind") == 0 &&
+				argIndex + 1 < argc)
+			{
+				// the explicit network-exposure opt-in: all/any/0.0.0.0/* bind
+				// every interface; any other value keeps the loopback default
+				const char* value = argv[++argIndex];
+				arguments.debugExposeNonLoopback =
+					std::strcmp(value, "all") == 0 ||
+					std::strcmp(value, "any") == 0 ||
+					std::strcmp(value, "0.0.0.0") == 0 ||
+					std::strcmp(value, "*") == 0;
+			}
 			else if (std::strcmp(argv[argIndex], "--project") == 0 &&
 				argIndex + 1 < argc)
 			{
@@ -330,9 +342,9 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	bool PlayerDebugLink::start(unsigned short port)
+	bool PlayerDebugLink::start(unsigned short port, bool exposeNonLoopback)
 	{
-		if (mActive || !mServer.start(port))
+		if (mActive || !mServer.start(port, exposeNonLoopback))
 		{
 			return false;
 		}

@@ -107,11 +107,15 @@ namespace Orkige
 		EditorControlServer();
 		~EditorControlServer();
 
-		//! @brief listen on 127.0.0.1:port (0 = pick an ephemeral port, read it
-		//! back with getPort()) and, when tokenFilePath is non-empty, write the
-		//! freshly minted auth token there for the client to read. false on a
-		//! socket bind or token-file write failure.
-		bool start(unsigned short port, std::string const& tokenFilePath);
+		//! @brief listen on port (0 = pick an ephemeral port, read it back with
+		//! getPort()) and, when tokenFilePath is non-empty, write the freshly
+		//! minted auth token there for the client to read. false on a socket
+		//! bind or token-file write failure. Binds 127.0.0.1 ONLY by default;
+		//! @p exposeNonLoopback is the explicit opt-in that binds every
+		//! interface - it puts the FULL editor-control surface on the network
+		//! and is only safe behind a trusted boundary.
+		bool start(unsigned short port, std::string const& tokenFilePath,
+			bool exposeNonLoopback = false);
 		//! stop listening, drop clients, delete the token file
 		void stop();
 		bool isListening() const { return mServer.isListening(); }
@@ -172,8 +176,6 @@ namespace Orkige
 		void sendOk(String const& req);
 		//! buffer an "err" reply (message)
 		void sendErr(String const& req, String const& message);
-		//! is the request allowed to run a mutation verb (auth gate)?
-		bool requireAuth(String const& req);
 
 		//--- MCP transactions (begin_transaction .. end_transaction) ---
 		// One atomic-edit bracket for a REMOTE client: unlike an editor script,

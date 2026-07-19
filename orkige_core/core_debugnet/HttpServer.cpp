@@ -97,6 +97,7 @@ namespace Orkige
 	{
 		this->listenHandle = DebugSocketUtil::INVALID_SOCKET_HANDLE;
 		this->port = 0;
+		this->loopbackOnly = true;
 	}
 	//---------------------------------------------------------
 	HttpServer::~HttpServer()
@@ -104,9 +105,10 @@ namespace Orkige
 		this->stop();
 	}
 	//---------------------------------------------------------
-	bool HttpServer::start(unsigned short listenPort)
+	bool HttpServer::start(unsigned short listenPort, bool exposeNonLoopback)
 	{
 		this->stop();
+		this->loopbackOnly = !exposeNonLoopback;
 		DebugSocketUtil::SocketHandle handle =
 			DebugSocketUtil::createNonBlockingTcpSocket();
 		if (handle == DebugSocketUtil::INVALID_SOCKET_HANDLE)
@@ -116,7 +118,10 @@ namespace Orkige
 		struct sockaddr_in address;
 		std::memset(&address, 0, sizeof(address));
 		address.sin_family = AF_INET;
-		address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);	// 127.0.0.1 only
+		// 127.0.0.1 by default (the control surface stays on the machine);
+		// INADDR_ANY only on the explicit network-exposure opt-in
+		address.sin_addr.s_addr = htonl(
+			exposeNonLoopback ? INADDR_ANY : INADDR_LOOPBACK);
 		address.sin_port = htons(listenPort);
 		if (::bind(handle, reinterpret_cast<struct sockaddr*>(&address),
 			sizeof(address)) != 0)
@@ -157,6 +162,7 @@ namespace Orkige
 		}
 		this->connections.clear();
 		this->port = 0;
+		this->loopbackOnly = true;
 	}
 	//---------------------------------------------------------
 	void HttpServer::update(Handler const & handler)

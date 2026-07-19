@@ -46,6 +46,10 @@ namespace Orkige
 		String			orientation;
 		bool			debugRequested = false;	//!< --debug-port was given
 		unsigned short	debugPort = 0;			//!< requested port (0 = ephemeral)
+		//! --debug-bind all/0.0.0.0: bind the debug port to EVERY interface
+		//! instead of loopback (the explicit network-exposure opt-in); default
+		//! false keeps the link on 127.0.0.1
+		bool			debugExposeNonLoopback = false;
 		bool			valid = true;			//!< false on an unknown argument
 		String			unknownArgument;		//!< the offender when !valid
 
@@ -204,10 +208,13 @@ namespace Orkige
 		PlayerDebugLink();
 		~PlayerDebugLink();	//!< detaches the log capture (see shutdown)
 
-		//! @brief listen on 127.0.0.1:port and start forwarding the engine
-		//! log to the (future) editor client; false when the port
-		//! cannot be bound. Call after the engine is up (the log must exist).
-		bool start(unsigned short port);
+		//! @brief listen on port and start forwarding the engine log to the
+		//! (future) editor client; false when the port cannot be bound. Call
+		//! after the engine is up (the log must exist). Binds 127.0.0.1 ONLY by
+		//! default - the debug link must not be reachable off the machine;
+		//! @p exposeNonLoopback is the explicit opt-in that binds every
+		//! interface, only safe behind a trusted boundary.
+		bool start(unsigned short port, bool exposeNonLoopback = false);
 
 		//! @brief reverse-connect mode: DIAL the editor's debug endpoint
 		//! ("host:port", or just "port" for 127.0.0.1) instead of listening -

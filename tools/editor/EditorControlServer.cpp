@@ -20,6 +20,7 @@
 
 #include <core_base/PropertySchema.h>
 #include <core_base/TypeManager.h>
+#include <core_debugnet/ControlAuth.h>
 #include <core_debugnet/DebugSocket.h>
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectComponent.h>
@@ -28,6 +29,7 @@
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
 #include <core_debug/Breadcrumbs.h>
+#include <core_util/ConstantTimeCompare.h>
 #include <core_util/optr.h>
 #include <core_util/PlatformUtil.h>
 #include <core_util/PathJail.h>
@@ -780,25 +782,6 @@ namespace Orkige
 			}
 			const StringVector& paths = reply.getList("paths");
 			return paths.empty() ? std::string() : paths.front();
-		}
-		//---------------------------------------------------------
-		//! is this verb a pure read (allowed before authentication)?
-		bool isReadVerb(String const& type)
-		{
-			return type == "hello" || type == "ping" || type == "get_state" ||
-				type == "list_hierarchy" || type == "get_object" ||
-				type == "get_component" || type == "list_assets" ||
-				type == "console_tail" || type == "list_addable_components" ||
-				type == "list_tests" || type == "get_test_results" ||
-				type == "runtime_hierarchy" || type == "runtime_state" ||
-				type == "read_project_file" || type == "list_project_files" ||
-				type == "list_play_targets" || type == "get_export_results" ||
-				type == "list_paint_prefabs" ||
-				type == "list_paintable_assets" || type == "get_safe_area" ||
-				type == "get_ui_layout" || type == "get_breadcrumbs" ||
-				type == "get_benchmark_results" ||
-				type == "get_profile" || type == "get_lua_api" ||
-				type == "get_project_setting";
 		}
 		//---------------------------------------------------------
 		//! @brief verbs refused while a prefab edit stage is open: they address
@@ -1921,17 +1904,18 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	bool EditorControlServer::start(unsigned short port,
-		std::string const& tokenFilePath)
+		std::string const& tokenFilePath, bool exposeNonLoopback)
 	{
-		if (!this->mServer.start(port))
+		if (!this->mServer.start(port, exposeNonLoopback))
 		{
 			return false;
 		}
 		// auth policy: a token is only meaningful when we can PUBLISH it for the
 		// client to read. With a token-file path we mint a fresh secret (the
 		// same 128-bit hex generator the asset database uses) and enforce it on
-		// mutations; without one, auth is off (a hand-started dev port - a
-		// loopback reader is harmless, and there is no secret to present).
+		// EVERY request (reads included - see the handleMessage auth gate);
+		// without one, auth is off (a hand-started dev port - there is no
+		// secret to present).
 		this->mTokenFilePath = tokenFilePath;
 		if (!tokenFilePath.empty())
 		{
@@ -2140,9 +2124,13 @@ namespace Orkige
 		{
 			const String authorization = request.header("authorization");
 			const String prefix = "Bearer ";
+			// the "Bearer " scheme prefix is public, so an early-exit match on
+			// it leaks nothing; the TOKEN itself is compared in fixed time so
+			// the reply latency never reveals how many leading bytes matched
 			if (authorization.size() > prefix.size() &&
 				authorization.compare(0, prefix.size(), prefix) == 0 &&
-				authorization.substr(prefix.size()) == this->mToken)
+				constantTimeEquals(authorization.substr(prefix.size()),
+					this->mToken))
 			{
 				authenticated = true;
 			}
@@ -2343,7 +2331,7 @@ namespace Orkige
 		DebugMessage request(name);
 		applyArguments(request, params.get("arguments"));
 
-		// per-request auth: the verb handler's requireAuth reads mAuthenticated
+		// per-request auth: the verb handler's auth gate reads mAuthenticated
 		this->mAuthenticated = authenticated;
 		this->runVerb(request, context);
 
@@ -2505,19 +2493,6 @@ namespace Orkige
 		this->mReplyIsError = true;
 	}
 	//---------------------------------------------------------
-	bool EditorControlServer::requireAuth(String const& req)
-	{
-		// no token configured => auth disabled (developer convenience for a
-		// hand-started control port); with a token, a valid bearer is required
-		if (this->mToken.empty() || this->mAuthenticated)
-		{
-			return true;
-		}
-		this->sendErr(req,
-			"unauthenticated: present the Authorization: Bearer <token> header");
-		return false;
-	}
-	//---------------------------------------------------------
 	//--- the verb handler (reused wholesale) ----------
 	//---------------------------------------------------------
 	void EditorControlServer::handleMessage(DebugMessage const& request,
@@ -2529,9 +2504,17 @@ namespace Orkige
 		EditorCore& core = *context.core;
 		GameObjectManager& manager = *context.gameObjectManager;
 
-		// auth gate: everything but the pure reads needs a prior valid token
-		if (!isReadVerb(type) && !this->requireAuth(req))
+		// auth gate: with a token configured EVERY verb needs a valid bearer -
+		// reads included, so an unauthenticated peer cannot exfiltrate the
+		// project tree or source over the network; only the handshake/liveness
+		// verbs (hello/ping) stay reachable pre-auth. No token => dev mode, the
+		// port is open. The decision is the pure ControlAuth::verbAllowed so a
+		// unit test pins the policy and this handler cannot drift from it.
+		if (!ControlAuth::verbAllowed(!this->mToken.empty(),
+			this->mAuthenticated, type))
 		{
+			this->sendErr(req, "unauthenticated: present the "
+				"Authorization: Bearer <token> header");
 			return;
 		}
 
@@ -2588,7 +2571,8 @@ namespace Orkige
 		if (type == "hello")
 		{
 			if (!this->mToken.empty() &&
-				request.get(DebugProtocol::FIELD_TOKEN) != this->mToken)
+				!constantTimeEquals(request.get(DebugProtocol::FIELD_TOKEN),
+					this->mToken))
 			{
 				this->sendErr(req, "auth failed: wrong or missing token");
 				return;
@@ -6277,11 +6261,12 @@ namespace Orkige
 				"('McpProbe')");
 		}
 
-		// (5) tools/call list_hierarchy (read, no auth) must include it
+		// (5) tools/call list_hierarchy (an AUTHED read) must include it. With a
+		// token configured, reads need the bearer too - the network-exfil gate.
 		{
 			JsonValue params = JsonValue::object();
 			params.set("name", JsonValue("list_hierarchy"));
-			if (!post("tools/call", params, false, true, response))
+			if (!post("tools/call", params, true, true, response))
 			{
 				finish(false, "control self-test: list_hierarchy call failed");
 				return;
@@ -6302,8 +6287,32 @@ namespace Orkige
 					"list_hierarchy");
 				return;
 			}
-			SDL_Log("orkige_editor: control self-test - list_hierarchy OK "
+			SDL_Log("orkige_editor: control self-test - authed list_hierarchy OK "
 				"(%zu objects, McpProbe present)", ids.size());
+		}
+
+		// (5b) AUTH-ON-READS: with a token configured, the SAME read WITHOUT the
+		// bearer must be refused (isError) - an unauthenticated peer must not
+		// exfiltrate the project structure/source over the network. (In no-token
+		// dev mode reads stay open; that half of the policy is pinned by the
+		// ControlAuthTests unit, which the editor cannot host from a token run.)
+		{
+			JsonValue params = JsonValue::object();
+			params.set("name", JsonValue("list_hierarchy"));
+			if (!post("tools/call", params, false, true, response))
+			{
+				finish(false, "control self-test: unauthenticated read had a "
+					"transport failure");
+				return;
+			}
+			if (!response.get("result").get("isError").asBool(false))
+			{
+				finish(false, "control self-test: a READ without a token was NOT "
+					"rejected while a token is configured");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - unauthenticated read "
+				"correctly rejected (auth-on-reads)");
 		}
 
 		// (6) AUTH REJECTION: a mutation WITHOUT the bearer token must be
@@ -6477,7 +6486,7 @@ namespace Orkige
 		auto getState = [&](JsonValue& state) -> bool
 		{
 			bool isError = true;
-			return callTool("get_state", JsonValue::object(), false, state,
+			return callTool("get_state", JsonValue::object(), true, state,
 				isError) && !isError;
 		};
 
@@ -6487,7 +6496,7 @@ namespace Orkige
 		{
 			JsonValue structured;
 			bool isError = true;
-			if (!callTool("get_lua_api", JsonValue::object(), false,
+			if (!callTool("get_lua_api", JsonValue::object(), true,
 					structured, isError) || isError)
 			{
 				finish(false, "control self-test: get_lua_api call failed");
@@ -6522,7 +6531,7 @@ namespace Orkige
 			// debug session the page dials in
 			JsonValue structured;
 			bool isError = true;
-			if (!callTool("list_play_targets", JsonValue::object(), false,
+			if (!callTool("list_play_targets", JsonValue::object(), true,
 				structured, isError) || isError)
 			{
 				finish(false, "browser play test: list_play_targets failed");
@@ -6585,7 +6594,7 @@ namespace Orkige
 			String url;
 			for (int attempt = 0; attempt < 1200; ++attempt)
 			{
-				if (!callTool("get_state", JsonValue::object(), false,
+				if (!callTool("get_state", JsonValue::object(), true,
 					structured, isError) || isError)
 				{
 					finish(false, "browser play test: get_state failed");
@@ -6682,7 +6691,7 @@ namespace Orkige
 			{
 				for (int attempt = 0; attempt < maxAttempts; ++attempt)
 				{
-					if (callTool("get_state", JsonValue::object(), false,
+					if (callTool("get_state", JsonValue::object(), true,
 						structured, isError) && !isError &&
 						ready(structured))
 					{
@@ -6827,7 +6836,7 @@ namespace Orkige
 					{
 						JsonValue args = JsonValue::object();
 						args.set("count", JsonValue("200"));
-						if (callTool("console_tail", args, false, structured,
+						if (callTool("console_tail", args, true, structured,
 							isError) && !isError)
 						{
 							JsonValue const& lines = structured.get("lines");
@@ -6862,7 +6871,7 @@ namespace Orkige
 						++attempt)
 					{
 						if (callTool("runtime_hierarchy", JsonValue::object(),
-							false, structured, isError) && !isError &&
+							true, structured, isError) && !isError &&
 							structured.get("ids").size() > 0)
 						{
 							hierarchyOk = true;
@@ -7202,7 +7211,7 @@ namespace Orkige
 			int hierarchyWaits = 0;
 			for (int attempt = 0; attempt < kPlayerPollAttempts; ++attempt)
 			{
-				if (!callTool("runtime_hierarchy", JsonValue::object(), false,
+				if (!callTool("runtime_hierarchy", JsonValue::object(), true,
 						structured, isError) || isError)
 				{
 					finish(false, "control self-test: runtime_hierarchy failed");
@@ -7263,7 +7272,7 @@ namespace Orkige
 				++attempt)
 			{
 				bool stateError = true;
-				if (callTool("runtime_state", JsonValue::object(), false,
+				if (callTool("runtime_state", JsonValue::object(), true,
 						runtimeState, stateError) && !stateError &&
 					runtimeState.get("ready").asString() == "1" &&
 					runtimeState.get("object").asString() == firstId)
@@ -7339,7 +7348,7 @@ namespace Orkige
 				++attempt)
 			{
 				bool stateError = true;
-				if (callTool("runtime_state", JsonValue::object(), false,
+				if (callTool("runtime_state", JsonValue::object(), true,
 						runtimeState, stateError) && !stateError)
 				{
 					JsonValue const& pk = runtimeState.get("properties");
@@ -7482,7 +7491,7 @@ namespace Orkige
 						++attempt)
 					{
 						if (!callTool("get_profile", JsonValue::object(),
-								false, profile, isError) || isError)
+								true, profile, isError) || isError)
 						{
 							finish(false,
 								"control self-test: get_profile call failed");
@@ -7672,7 +7681,7 @@ namespace Orkige
 				{
 					JsonValue safeArea;
 					bool safeError = true;
-					return callTool("get_safe_area", JsonValue::object(), false,
+					return callTool("get_safe_area", JsonValue::object(), true,
 						safeArea, safeError) && !safeError &&
 						std::strtoll(safeArea.get("window_w").asString().c_str(),
 							nullptr, 10) > 0;
@@ -7684,7 +7693,7 @@ namespace Orkige
 			}
 			{
 				JsonValue safeArea;
-				if (!callTool("get_safe_area", JsonValue::object(), false,
+				if (!callTool("get_safe_area", JsonValue::object(), true,
 						safeArea, isError) || isError)
 				{
 					finish(false, "control self-test: get_safe_area failed");
@@ -7708,7 +7717,7 @@ namespace Orkige
 			// answer cleanly with the parallel ids/rects lists.
 			{
 				JsonValue layout;
-				if (!callTool("get_ui_layout", JsonValue::object(), false,
+				if (!callTool("get_ui_layout", JsonValue::object(), true,
 						layout, isError) || isError)
 				{
 					finish(false, "control self-test: get_ui_layout failed");
@@ -7766,7 +7775,7 @@ namespace Orkige
 			// reachable from the editor's side (the primary readback path).
 			{
 				JsonValue crumbs;
-				if (!callTool("get_breadcrumbs", JsonValue::object(), false,
+				if (!callTool("get_breadcrumbs", JsonValue::object(), true,
 						crumbs, isError) || isError)
 				{
 					finish(false, "control self-test: get_breadcrumbs failed");
@@ -7823,8 +7832,9 @@ namespace Orkige
 		{
 			JsonValue structured;
 			bool isError = false;
-			// runtime_hierarchy (read) with no player must error, not crash
-			if (!callTool("runtime_hierarchy", JsonValue::object(), false,
+			// runtime_hierarchy (an AUTHED read) with no player must error
+			// cleanly (the no-player path), not crash
+			if (!callTool("runtime_hierarchy", JsonValue::object(), true,
 					structured, isError) || !isError)
 			{
 				finish(false, "control self-test: runtime_hierarchy did not "
@@ -7832,7 +7842,7 @@ namespace Orkige
 				return;
 			}
 			isError = false;
-			if (!callTool("runtime_state", JsonValue::object(), false,
+			if (!callTool("runtime_state", JsonValue::object(), true,
 					structured, isError) || !isError)
 			{
 				finish(false, "control self-test: runtime_state did not error "
@@ -7917,7 +7927,7 @@ namespace Orkige
 			args.set("component", JsonValue("TransformComponent"));
 			JsonValue structured;
 			bool isError = true;
-			if (!callTool("get_component", args, false, structured, isError) ||
+			if (!callTool("get_component", args, true, structured, isError) ||
 				isError)
 			{
 				finish(false, "control self-test: generic get_component failed");
@@ -7968,7 +7978,7 @@ namespace Orkige
 			JsonValue readArgs = JsonValue::object();
 			readArgs.set("id", JsonValue("McpProbe"));
 			readArgs.set("component", JsonValue("TransformComponent"));
-			if (!callTool("get_component", readArgs, false, structured, isError) ||
+			if (!callTool("get_component", readArgs, true, structured, isError) ||
 				isError || structured.get("position").asString() != "4 5 6")
 			{
 				finish(false, "control self-test: set_component did not move the "
@@ -8010,7 +8020,7 @@ namespace Orkige
 			JsonValue readArgs = JsonValue::object();
 			readArgs.set("id", JsonValue("McpProbe"));
 			readArgs.set("component", JsonValue("SpriteComponent"));
-			if (!callTool("get_component", readArgs, false, structured, isError) ||
+			if (!callTool("get_component", readArgs, true, structured, isError) ||
 				isError || structured.get("zOrder").asString() != "7")
 			{
 				finish(false, "control self-test: SpriteComponent zOrder did not "
@@ -8031,7 +8041,7 @@ namespace Orkige
 				JsonValue args = JsonValue::object();
 				args.set("jobId", JsonValue(jobId));
 				bool isError = true;
-				if (!callTool("get_test_results", args, false, structured,
+				if (!callTool("get_test_results", args, true, structured,
 					isError) || isError)
 				{
 					return false;
@@ -8052,7 +8062,7 @@ namespace Orkige
 			args.set("filter", JsonValue("JsonValue"));
 			JsonValue structured;
 			bool isError = true;
-			if (!callTool("list_tests", args, false, structured, isError) ||
+			if (!callTool("list_tests", args, true, structured, isError) ||
 				isError)
 			{
 				finish(false, "control self-test: list_tests failed");
@@ -8235,7 +8245,7 @@ namespace Orkige
 		{
 			JsonValue structured;
 			bool isError = true;
-			if (!callTool("list_play_targets", JsonValue::object(), false,
+			if (!callTool("list_play_targets", JsonValue::object(), true,
 					structured, isError) || isError)
 			{
 				finish(false, "control self-test: list_play_targets failed");
@@ -8352,7 +8362,7 @@ namespace Orkige
 			}
 			JsonValue readArgs = JsonValue::object();
 			readArgs.set("path", JsonValue(scriptRel));
-			if (!callTool("read_project_file", readArgs, false, structured,
+			if (!callTool("read_project_file", readArgs, true, structured,
 					isError) || isError ||
 				structured.get("content").asString() != scriptExpected)
 			{
@@ -8395,7 +8405,7 @@ namespace Orkige
 			}
 			JsonValue getArgs = JsonValue::object();
 			getArgs.set("key", JsonValue("export.orientation"));
-			if (!callTool("get_project_setting", getArgs, false, structured,
+			if (!callTool("get_project_setting", getArgs, true, structured,
 					isError) || isError ||
 				structured.get("value").asString() != "landscape" ||
 				structured.get("has").asString() != "true")
@@ -8475,7 +8485,7 @@ namespace Orkige
 			args.set("glob", JsonValue(String("*.lua")));
 			JsonValue structured;
 			bool isError = true;
-			if (!callTool("list_project_files", args, false, structured,
+			if (!callTool("list_project_files", args, true, structured,
 					isError) || isError)
 			{
 				fs::remove_all(authRoot, authIgnored);
@@ -8528,7 +8538,7 @@ namespace Orkige
 			// the write rescanned the registry - the kind is now addable
 			JsonValue addable;
 			bool addableErr = true;
-			if (!callTool("list_addable_components", JsonValue::object(), false,
+			if (!callTool("list_addable_components", JsonValue::object(), true,
 					addable, addableErr) || addableErr)
 			{
 				fs::remove_all(authRoot, authIgnored);
@@ -8592,7 +8602,7 @@ namespace Orkige
 			JsonValue readArgs = JsonValue::object();
 			readArgs.set("id", JsonValue("ScriptedByMcp"));
 			readArgs.set("component", JsonValue("mcpkind"));
-			if (!callTool("get_component", readArgs, false, structured, isError) ||
+			if (!callTool("get_component", readArgs, true, structured, isError) ||
 				isError || structured.get("power").asString() != "5")
 			{
 				fs::remove_all(authRoot, authIgnored);
@@ -9016,7 +9026,7 @@ namespace Orkige
 			JsonValue listReply;
 			JsonValue listArgs = JsonValue::object();
 			bool listError = true;
-			if (!callTool("list_hierarchy", listArgs, false, listReply,
+			if (!callTool("list_hierarchy", listArgs, true, listReply,
 					listError) || listError)
 			{
 				fs::remove_all(authRoot, authIgnored);
@@ -9085,7 +9095,7 @@ namespace Orkige
 			bool isError = true;
 			// list_paint_prefabs (read): the prefab must be in the palette and
 			// the grid must report a positive cell size
-			if (!callTool("list_paint_prefabs", JsonValue::object(), false,
+			if (!callTool("list_paint_prefabs", JsonValue::object(), true,
 					structured, isError) || isError)
 			{
 				fs::remove_all(authRoot, authIgnored);
@@ -9154,7 +9164,7 @@ namespace Orkige
 			{
 				JsonValue list;
 				bool listError = true;
-				if (!callTool("list_hierarchy", JsonValue::object(), false, list,
+				if (!callTool("list_hierarchy", JsonValue::object(), true, list,
 						listError) || listError)
 				{
 					return false;
@@ -9234,7 +9244,7 @@ namespace Orkige
 				}
 				bool listErr = true;
 				bool hasTexture = false;
-				if (callTool("list_paintable_assets", JsonValue::object(), false,
+				if (callTool("list_paintable_assets", JsonValue::object(), true,
 						structured, listErr) && !listErr)
 				{
 					JsonValue const& paths = structured.get("paths");
@@ -9347,7 +9357,7 @@ namespace Orkige
 			JsonValue hier;
 			bool hierErr = true;
 			bool foundToolCube = false;
-			if (callTool("list_hierarchy", JsonValue::object(), false, hier,
+			if (callTool("list_hierarchy", JsonValue::object(), true, hier,
 					hierErr) && !hierErr)
 			{
 				JsonValue const& ids = hier.get("ids");
@@ -9442,7 +9452,7 @@ namespace Orkige
 			// the scene's McpToolCube is swapped out
 			JsonValue hier;
 			bool hierErr = true;
-			if (!callTool("list_hierarchy", JsonValue::object(), false, hier,
+			if (!callTool("list_hierarchy", JsonValue::object(), true, hier,
 					hierErr) || hierErr)
 			{
 				fs::remove_all(authRoot, authIgnored);
@@ -9513,7 +9523,7 @@ namespace Orkige
 			readArgs.set("id", JsonValue(String("PrefabStageChild")));
 			readArgs.set("component", JsonValue(String("TransformComponent")));
 			isError = true;
-			if (!callTool("get_component", readArgs, false, structured, isError) ||
+			if (!callTool("get_component", readArgs, true, structured, isError) ||
 				isError || structured.get("position").asString() != "5 6 7")
 			{
 				fs::remove_all(authRoot, authIgnored);
@@ -9601,7 +9611,7 @@ namespace Orkige
 			JsonValue restoredHier;
 			hierErr = true;
 			bool sceneRestored = false;
-			if (callTool("list_hierarchy", JsonValue::object(), false,
+			if (callTool("list_hierarchy", JsonValue::object(), true,
 					restoredHier, hierErr) && !hierErr)
 			{
 				JsonValue const& ids = restoredHier.get("ids");
@@ -9632,7 +9642,7 @@ namespace Orkige
 			{
 				JsonValue h;
 				bool e = true;
-				if (!callTool("list_hierarchy", JsonValue::object(), false, h, e) ||
+				if (!callTool("list_hierarchy", JsonValue::object(), true, h, e) ||
 					e)
 				{
 					return false;

@@ -2101,14 +2101,17 @@ int main(int argc, char** argv)
 		Orkige::PlayerDebugLink& debugLink = *context.debugLink;
 		if (arguments.debugRequested)
 		{
-			if (!debugLink.start(arguments.debugPort))
+			if (!debugLink.start(arguments.debugPort,
+				arguments.debugExposeNonLoopback))
 			{
 				SDL_Log("orkige_player: FAILED - could not listen on "
-					"127.0.0.1:%u",
+					"debug port %u",
 					static_cast<unsigned>(arguments.debugPort));
 				return 1;
 			}
-			SDL_Log("orkige_player: debug server listening on 127.0.0.1:%u",
+			SDL_Log("orkige_player: debug server listening on %s:%u",
+				arguments.debugExposeNonLoopback ? "0.0.0.0 (ALL interfaces)"
+					: "127.0.0.1",
 				static_cast<unsigned>(debugLink.getPort()));
 		}
 #ifdef __EMSCRIPTEN__

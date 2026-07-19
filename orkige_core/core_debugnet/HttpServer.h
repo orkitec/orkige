@@ -92,6 +92,7 @@ namespace Orkige
 	protected:
 		DebugSocketUtil::SocketHandle	listenHandle;	//!< listening socket
 		unsigned short					port;			//!< bound port (resolved when start() got 0)
+		bool							loopbackOnly;	//!< did start() bind 127.0.0.1 only
 		std::vector<Connection>			connections;	//!< live client connections
 		TakeoverHandler					takeoverHandler;	//!< upgrade destination (empty = takeovers close)
 	private:
@@ -101,9 +102,13 @@ namespace Orkige
 		HttpServer();
 		//! destructor (stops listening, drops all clients)
 		~HttpServer();
-		//! @brief start listening on 127.0.0.1:port (0 = pick a free port, query
-		//! it with getPort()); returns false when the socket setup fails
-		bool start(unsigned short listenPort);
+		//! @brief start listening on port (0 = pick a free port, query it with
+		//! getPort()); returns false when the socket setup fails. By DEFAULT
+		//! binds 127.0.0.1 ONLY - the MCP control surface it fronts must not be
+		//! reachable off the machine. @p exposeNonLoopback is the explicit
+		//! opt-in that binds ALL interfaces (INADDR_ANY) instead, putting the
+		//! endpoint on the network - only safe behind a trusted boundary.
+		bool start(unsigned short listenPort, bool exposeNonLoopback = false);
 		//! stop listening and drop all clients
 		void stop();
 		//! accept/read/dispatch/write pump - call once per frame, never blocks
@@ -122,6 +127,10 @@ namespace Orkige
 		}
 		//! the bound port (valid after a successful start())
 		unsigned short getPort() const { return this->port; }
+		//! @brief did the last start() bind loopback (127.0.0.1) ONLY, rather
+		//! than every interface? The security-regression seam: a test asserts
+		//! the default binds loopback and the opt-in flips this.
+		bool isLoopbackOnly() const { return this->loopbackOnly; }
 	protected:
 		//! accept every pending connection into connections
 		void acceptPending();

@@ -53,10 +53,56 @@ claude mcp add --transport http orkige http://127.0.0.1:9010/mcp \
 (If your `claude` CLI version uses a different flag for headers, pass the
 `Authorization: Bearer <token>` header however it accepts custom headers, or run
 the editor without a token file — `--mcp-port 9010` alone — to disable auth for a
-local dev session; a loopback reader is harmless, only mutations are gated.)
+local dev session; with no token the port is fully open, and with a token EVERY
+request needs it — reads included, see the security posture below.)
 
 Claude Desktop: add an entry under `mcpServers` with `"type": "http"` and
 `"url": "http://127.0.0.1:9010/mcp"` plus the `Authorization` header.
+
+## Security posture
+
+The MCP endpoint grants a remote client **full editor control** — scene
+authoring, project-file writes, arbitrary Lua/editor-script execution, and Play.
+The player's debug link (`core_debugnet/DebugServer`, the play-mode
+editor↔player protocol) is a second socket surface. **Threat model:** in an
+AI-agent development setting neither surface may be reachable by any process
+other than the intended local client, and the token that gates access must not
+leak through a timing side channel. Three properties enforce that; a future
+`Docs/security.md` will be the umbrella (endpoints, tokens, jails) and link back
+here.
+
+- **Loopback-only by default.** Both the MCP `HttpServer` and the player
+  `DebugServer` bind `127.0.0.1` **only** — they are not reachable off the
+  machine. Binding a non-loopback interface is an **explicit opt-in**:
+  `--mcp-bind 0.0.0.0` / `ORKIGE_MCP_BIND=0.0.0.0` (aliases `--control-bind` /
+  `ORKIGE_CONTROL_BIND`) for the editor endpoint and `--debug-bind 0.0.0.0` for
+  the player debug port (`any`/`all`/`*` are accepted spellings; anything
+  unrecognized stays loopback so a typo cannot silently expose the surface). It
+  **exposes the control/debug surface to the network — only do it behind a
+  trusted boundary** (a private lab network, an SSH tunnel's far end), and the
+  editor logs a warning when it does. The regression is pinned by
+  `ServerBindTests` (both servers assert loopback by default via the
+  `isLoopbackOnly()` seam plus a live loopback connect, and the opt-in flips it).
+
+- **Token required on reads, not just mutations.** When a token file is
+  configured, **every** verb needs the `Authorization: Bearer <token>` header —
+  reads (`get_state`, `list_hierarchy`, `read_project_file`, …) included, so an
+  unauthenticated peer cannot exfiltrate the project structure or source over the
+  network. Only the handshake/liveness verbs (`hello`, which itself carries and
+  checks the token, and `ping`) are reachable pre-auth; the MCP `initialize` /
+  `tools/list` discovery stays open (it exposes only the static tool schema). The
+  **no-token dev mode is unchanged** — with no token file the port is fully open
+  for a hand-started local session. The policy is the pure
+  `core_debugnet/ControlAuth::verbAllowed` (unit-tested by `ControlAuthTests`),
+  and the `editor_control` self-test drives a read WITHOUT the token and asserts
+  it is refused while a token is configured.
+
+- **Constant-time token comparison.** The bearer token is compared with
+  `core_util/constantTimeEquals` (unit-tested by `ConstantTimeCompareTests`),
+  which folds every byte into one accumulator with no early exit, so the reply
+  latency never reveals how many leading bytes of a guess matched — closing the
+  byte-at-a-time timing oracle a plain `==`/`strcmp` leaks. The public `Bearer `
+  scheme prefix is still matched normally (it is not secret).
 
 ## Architecture
 
@@ -89,8 +135,10 @@ filesystem.
 - **Transport**: POST-only. The optional Streamable-HTTP GET-SSE stream is not
   implemented — the tool surface is request/response; long ops (play boot)
   return an *accepted* result and are polled via `get_state`.
-- **Auth**: a mutation needs `Authorization: Bearer <token>` (the token from the
-  token file). Read verbs are open. No token file ⇒ auth off (dev convenience).
+- **Auth**: with a token file configured, EVERY verb needs the
+  `Authorization: Bearer <token>` header (the token from the token file) — reads
+  included (see "Security posture" above). No token file ⇒ auth off (dev
+  convenience). The bearer is compared in constant time.
 - **Path jail**: the file-authoring verbs (`write_project_file`,
   `read_project_file`, `list_project_files`, and `import_asset`'s `targetDir`)
   are **confined to the open project's root**. The requested path is normalized

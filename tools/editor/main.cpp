@@ -89,6 +89,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -115,6 +116,7 @@ int main(int argc, char** argv)
 	// A remote MCP client then connects to http://127.0.0.1:<port>/mcp.
 	int controlPort = -1;			// < 0 = the MCP endpoint stays off
 	std::string controlTokenFile;
+	std::string controlBindValue;	// --mcp-bind / ORKIGE_MCP_BIND ("" = default)
 	for (int argIndex = 1; argIndex < argc; ++argIndex)
 	{
 		if ((std::strcmp(argv[argIndex], "--mcp-port") == 0 ||
@@ -128,6 +130,12 @@ int main(int argc, char** argv)
 			argIndex + 1 < argc)
 		{
 			controlTokenFile = argv[++argIndex];
+		}
+		else if ((std::strcmp(argv[argIndex], "--mcp-bind") == 0 ||
+			std::strcmp(argv[argIndex], "--control-bind") == 0) &&
+			argIndex + 1 < argc)
+		{
+			controlBindValue = argv[++argIndex];
 		}
 	}
 	if (const char* portEnv = std::getenv("ORKIGE_MCP_PORT"))
@@ -145,6 +153,41 @@ int main(int argc, char** argv)
 	else if (const char* tokenEnv = std::getenv("ORKIGE_CONTROL_TOKEN_FILE"))
 	{
 		controlTokenFile = tokenEnv;
+	}
+	if (const char* bindEnv = std::getenv("ORKIGE_MCP_BIND"))
+	{
+		controlBindValue = bindEnv;
+	}
+	else if (const char* bindEnv = std::getenv("ORKIGE_CONTROL_BIND"))
+	{
+		controlBindValue = bindEnv;
+	}
+	// interpret the bind value: loopback (the safe default) unless the caller
+	// explicitly asks for every interface. Anything unrecognized stays
+	// loopback so a typo can never silently expose the control surface. Binding
+	// non-loopback puts FULL editor control on the network - only do it behind
+	// a trusted boundary.
+	bool controlExposeNonLoopback = false;
+	if (!controlBindValue.empty())
+	{
+		std::string lowered = controlBindValue;
+		for (char& character : lowered)
+		{
+			character = static_cast<char>(std::tolower(
+				static_cast<unsigned char>(character)));
+		}
+		if (lowered == "0.0.0.0" || lowered == "any" || lowered == "all" ||
+			lowered == "*")
+		{
+			controlExposeNonLoopback = true;
+		}
+		else if (lowered != "127.0.0.1" && lowered != "localhost" &&
+			lowered != "loopback")
+		{
+			SDL_Log("orkige_editor: unrecognized MCP bind '%s' - staying "
+				"loopback-only (use 0.0.0.0/any to expose to the network)",
+				controlBindValue.c_str());
+		}
 	}
 
 	// automated run? (any scripted-test/automation hook set) - decided up
@@ -901,7 +944,8 @@ int main(int argc, char** argv)
 		if (controlPort >= 0)
 		{
 			if (!controlServer.start(
-				static_cast<unsigned short>(controlPort), controlTokenFile))
+				static_cast<unsigned short>(controlPort), controlTokenFile,
+				controlExposeNonLoopback))
 			{
 				SDL_Log("orkige_editor: control port failed to start on "
 					"port %d", controlPort);
@@ -916,6 +960,15 @@ int main(int argc, char** argv)
 					"http://127.0.0.1:" << controlServer.getPort() << "/mcp" <<
 					(controlTokenFile.empty() ? " (no token file - auth off)"
 						: ""));
+				if (controlExposeNonLoopback)
+				{
+					// a network-exposed control surface is a deliberate, loud
+					// choice - the full editor is reachable off the machine
+					oDebugWarn("editor.mcp", 0, "MCP endpoint bound to ALL "
+						"interfaces (--mcp-bind) - the full editor-control "
+						"surface is reachable over the network; only do this "
+						"behind a trusted boundary");
+				}
 			}
 		}
 
