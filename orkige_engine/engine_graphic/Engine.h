@@ -374,8 +374,8 @@ protected:
 		//! target). @p intensity scales the additive glow (0 = invisible). The
 		//! 2D tier (sprites/vector shapes/gui) is EXCLUDED so UI stays crisp; the
 		//! blur budget is the r.bloomQuality cvar (off/low/medium/high). Renders
-		//! only where RenderCaps::Bloom holds - the next flavor (both desktop and
-		//! mobile); the classic flavor is gated off (bloom parity debt, see
+		//! only where RenderCaps::Bloom holds - both flavors on desktop, next on
+		//! mobile; a classic GLES2/WebGL context is runtime-gated (see
 		//! Docs/render-abstraction.md) and degrades to no pass with one log line.
 		//! @remarks maps to RenderWorld::setBloom on both flavors.
 		void setBloom(bool enabled, float threshold, float intensity);

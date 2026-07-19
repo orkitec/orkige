@@ -286,10 +286,11 @@ namespace Orkige
 		//--- LDR bloom (highlight glow post-process) ---
 		//! whether this backend renders the bloom post-process at all is the
 		//! `RenderCaps::Bloom` capability (`RenderSystem::supports`) - true on
-		//! both desktop flavors, runtime-gated to false on the classic
-		//! GLES2/WebGL path (no floating-point/HDR-capable off-screen render
-		//! targets there), where an enabled bloom degrades to no pass + one
-		//! honest log line and the scene still renders correctly.
+		//! both desktop flavors, runtime-gated to false on a classic
+		//! GLES2/WebGL context (unproven there pending an on-device/browser
+		//! run of the compositor chain, see Docs/render-abstraction.md), where
+		//! an enabled bloom degrades to no pass + one honest log line and the
+		//! scene still renders correctly.
 		//! @brief set the scene's LDR bloom (@see BloomDesc). Per-scene OPT-IN
 		//! and DEFAULT OFF: while @c desc.enabled is false (or the quality knob
 		//! is BQ_OFF) NO bloom pass runs and the frame is byte-identical to a

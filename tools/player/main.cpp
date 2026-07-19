@@ -1530,7 +1530,11 @@ int main(int argc, char** argv)
 				// the engine bloom compositor media (the bright/blur/combine
 				// material + shaders engine:setBloom needs), per flavor
 				// (bloom/next vs bloom/classic - the build sets both defines).
-				// Same bundled/dev-tree pair as the media above.
+				// EXCLUSIVE bundled-first pair, unlike the texture media above:
+				// this dir carries a material SCRIPT, and parsing it from both
+				// the bundle and the baked dev tree (an exported app run on a
+				// dev machine) would double-define its GpuPrograms and abort
+				// resource-group initialisation.
 				std::error_code bloomDirError;
 				if (std::filesystem::is_directory(
 					playerMediaDir + "/" ORKIGE_BLOOM_MEDIA_SUBDIR,
@@ -1539,7 +1543,7 @@ int main(int argc, char** argv)
 					render->addResourceLocation(
 						playerMediaDir + "/" ORKIGE_BLOOM_MEDIA_SUBDIR);
 				}
-				if (std::filesystem::is_directory(ORKIGE_PLAYER_BLOOM_DIR,
+				else if (std::filesystem::is_directory(ORKIGE_PLAYER_BLOOM_DIR,
 					bloomDirError))
 				{
 					render->addResourceLocation(ORKIGE_PLAYER_BLOOM_DIR);
