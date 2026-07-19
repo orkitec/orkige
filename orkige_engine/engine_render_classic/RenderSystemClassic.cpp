@@ -17,6 +17,7 @@
 
 #include "engine_render_classic/ClassicBackend.h"
 #include "engine_graphic/Engine.h"
+#include <core_util/SkyEnvMap.h>
 #include "engine_filesystem/PakMount.h"
 #include <core_debug/DebugMacros.h>
 
@@ -65,6 +66,17 @@ namespace Orkige
 		IblPreset::Quality gIblChainQuality = IblPreset::IQ_OFF;
 		//! the reason last warned about, so the honest degrade logs ONCE
 		String gIblWarnedReason;
+		//! the synthetic source identity of a runtime-captured procedural-sky
+		//! environment (the authored-skybox source is its cubemap name); the
+		//! two sources feed the ONE image-based-lighting stage below
+		const char* const kProceduralSource = "<procedural-sky>";
+		//! the atmosphere/sun inputs the bound procedural capture was built
+		//! from - recapture only when they move materially, never per frame
+		SkyEnvMap::CaptureKey gProceduralIblKey;
+		bool gProceduralIblHasKey = false;
+		//! the max sun swing (as a cosine) tolerated before a recapture (~6
+		//! degrees) - the same coarse cadence as the next flavor
+		const float kSunMoveCosThreshold = 0.9945f;	// cos(6 degrees)
 		//--- end IBL block ------------------------------------------------
 
 		//! @brief the shared 1x1 white texture behind the flat-emissive glow
@@ -1146,6 +1158,67 @@ namespace Orkige
 				return String();
 			}
 		}
+
+		//! @brief synthesize the procedural-sky environment cubemap into the
+		//! derived kIblChainTexture (the RTSS image-based-lighting stage samples
+		//! it by name, like the skybox chain) - the runtime SECOND source of the
+		//! ONE IBL path. Its RGBA8 mip chain is built on the CPU from the
+		//! atmosphere + sun (@see core_util/SkyEnvMap - the SAME sky model the
+		//! visible classic gradient dome draws, so the reflections match the
+		//! sky). "" on failure.
+		String ensureProceduralIblChainTexture(AtmosphereDesc const & desc,
+			Ogre::Vector3 const & toSun, IblPreset::Quality quality)
+		{
+			const unsigned int edge =
+				IblPreset::forQuality(quality).chainResolution;
+			if(edge == 0u)
+			{
+				return String();
+			}
+			std::vector<unsigned char> chain;
+			unsigned int mips = 0u;
+			SkyEnvMap::buildCubemapChainRgba8(edge, desc,
+				static_cast<float>(toSun.x), static_cast<float>(toSun.y),
+				static_cast<float>(toSun.z), chain, mips);
+			Ogre::TextureManager & textureManager =
+				Ogre::TextureManager::getSingleton();
+			try
+			{
+				if(Ogre::TexturePtr stale = textureManager.getByName(
+					kIblChainTexture,
+					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+				{
+					textureManager.remove(stale);
+				}
+				// classic mip counts EXCLUDE the base level
+				const unsigned int extraMips = mips - 1u;
+				Ogre::TexturePtr cube = textureManager.createManual(
+					kIblChainTexture,
+					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+					Ogre::TEX_TYPE_CUBE_MAP, edge, edge,
+					static_cast<int>(extraMips), Ogre::PF_BYTE_RGBA,
+					Ogre::TU_DEFAULT);
+				for(size_t face = 0; face < 6; ++face)
+				{
+					for(unsigned int mip = 0; mip <= extraMips; ++mip)
+					{
+						const unsigned int e = std::max(1u, edge >> mip);
+						Ogre::PixelBox box(e, e, 1u, Ogre::PF_BYTE_RGBA,
+							chain.data() + SkyEnvMap::faceMipOffset(edge, mip,
+								static_cast<unsigned int>(face)));
+						cube->getBuffer(face, mip)->blitFromMemory(box);
+					}
+				}
+				return kIblChainTexture;
+			}
+			catch(Ogre::Exception const & e)
+			{
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige classic backend: procedural-sky environment "
+					"capture failed: " + e.getDescription());
+				return String();
+			}
+		}
 #endif // USE_RTSHADER_SYSTEM
 	}
 	//---------------------------------------------------------
@@ -1193,15 +1266,29 @@ namespace Orkige
 				"this flavor");
 			want = false;
 		}
-		const String source = RenderBackend::activeSkyboxTexture();
+		// SOURCE selection - one IBL stage, two sources: an authored skybox
+		// cubemap (the offline-baked prefiltered chain) OR, when the procedural
+		// gradient sky is showing with no skybox, a runtime capture of it
+		// (@see ensureProceduralIblChainTexture). Colour skies / a disabled
+		// atmosphere still have no meaningful environment.
+		String source = RenderBackend::activeSkyboxTexture();
+		bool procedural = false;
 		if(want && source.empty())
 		{
-			// the v1 scope is skybox-sourced: procedural/colour skies (and a
-			// disabled atmosphere) have no cubemap to sample
-			warnImageLightingOnce("is enabled without a skybox cubemap "
-				"(needs an enabled atmosphere showing a skybox sky) - "
-				"rendering unchanged");
-			want = false;
+			if(world->atmosphere.enabled &&
+				world->atmosphere.skyType == AtmosphereSky::ST_PROCEDURAL &&
+				world->skyDome && world->skyDome->getVisible())
+			{
+				procedural = true;
+				source = kProceduralSource;
+			}
+			else
+			{
+				warnImageLightingOnce("is enabled without a skybox cubemap or "
+					"a procedural sky (needs an enabled atmosphere showing a "
+					"skybox or procedural sky) - rendering unchanged");
+				want = false;
+			}
 		}
 		if(want)
 		{
@@ -1223,8 +1310,54 @@ namespace Orkige
 		IblState desired;
 		desired.active = want;
 		desired.luminance = world->iblIntensity;
-		if(want)
+		if(want && procedural)
 		{
+			// the sun the sky is lit by (first directional light, toward-sun)
+			Ogre::Vector3 toSun(0.3f, 0.9f, 0.2f);
+			if(Ogre::Light* sun = RenderBackend::firstDirectionalLight())
+			{
+				toSun = -sun->getDerivedDirection();
+			}
+			toSun.normalise();
+			const SkyEnvMap::CaptureKey nowKey = SkyEnvMap::keyFor(
+				world->atmosphere, static_cast<float>(toSun.x),
+				static_cast<float>(toSun.y), static_cast<float>(toSun.z));
+			// recapture on a source/tier switch, a first capture, or a material
+			// sky move (sun swing / colour change) - never per frame otherwise
+			const bool rebuild = gIblChainSource != source ||
+				gIblChainQuality != world->iblQuality || !gIbl.active ||
+				!gProceduralIblHasKey ||
+				SkyEnvMap::materiallyDiffers(gProceduralIblKey, nowKey,
+					kSunMoveCosThreshold);
+			if(rebuild)
+			{
+				desired.envTexture = ensureProceduralIblChainTexture(
+					world->atmosphere, toSun, world->iblQuality);
+				if(desired.envTexture.empty())
+				{
+					desired.active = false;
+					desired.luminance = 1.0f;
+				}
+				else
+				{
+					gIblChainSource = source;
+					gIblChainQuality = world->iblQuality;
+					gProceduralIblKey = nowKey;
+					gProceduralIblHasKey = true;
+					// the observable recapture marker (one line per capture)
+					Ogre::LogManager::getSingleton().logMessage(
+						"Orkige classic backend: procedural-sky image-lighting "
+						"capture");
+				}
+			}
+			else
+			{
+				desired.envTexture = gIbl.envTexture;	// unchanged capture
+			}
+		}
+		else if(want)
+		{
+			gProceduralIblHasKey = false;	// not a procedural capture now
 			if(gIblChainSource != source ||
 				gIblChainQuality != world->iblQuality || !gIbl.active)
 			{
@@ -1252,6 +1385,7 @@ namespace Orkige
 			desired.luminance = 1.0f;
 			gIblChainSource.clear();
 			gIblChainQuality = IblPreset::IQ_OFF;
+			gProceduralIblHasKey = false;
 		}
 		else
 		{
@@ -1298,6 +1432,7 @@ namespace Orkige
 		gIblChainSource.clear();
 		gIblChainQuality = IblPreset::IQ_OFF;
 		gIblWarnedReason.clear();
+		gProceduralIblHasKey = false;
 		if(Ogre::TextureManager* textureManager =
 			Ogre::TextureManager::getSingletonPtr())
 		{

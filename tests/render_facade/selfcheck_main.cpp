@@ -1678,32 +1678,195 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 				"the procedural sky is pixel-identical after the sky-type "
 				"round-trip (toggle identity)");
 
-			// image lighting under a cubemap-less sky: the v1 scope is
-			// skybox-sourced, so an opt-in under the procedural sky renders
-			// unchanged and says so in EXACTLY ONE honest log line
+			// image lighting under the PROCEDURAL sky: the SECOND source of the
+			// ONE IBL path is a RUNTIME CAPTURE of the procedural sky itself (no
+			// authored skybox cubemap). On a flavor with the generated-IBL path
+			// a smooth-metal surface gains the captured sky's reflection, and a
+			// material sun move recaptures (observed via the capture log line);
+			// the honest refusal now belongs to the colour / disabled sky.
 			{
-				world->setImageLighting(true, 1.0f);
-				SELFCHECK(renderFrames(renderSystem, 2),
-					"frames render after an image-lighting opt-in without "
-					"a skybox");
-				world->setImageLighting(true, 1.0f);	// a second call - still one line
-				std::ifstream logFile(outDir + "/render_facade_selfcheck.log");
-				SELFCHECK(logFile.good(),
-					"the backend log file opens (image lighting)");
-				std::stringstream buffered;
-				buffered << logFile.rdbuf();
-				const std::string logText = buffered.str();
-				const std::string marker = "without a skybox cubemap";
-				std::size_t occurrences = 0;
-				for(std::size_t at = logText.find(marker);
-					at != std::string::npos;
-					at = logText.find(marker, at + marker.size()))
+				// count the backend's per-capture marker line (both flavors log
+				// "procedural-sky image-lighting capture") and any other marker
+				auto markerCount = [&](std::string const & marker) -> std::size_t
 				{
-					++occurrences;
+					std::ifstream logFile(outDir +
+						"/render_facade_selfcheck.log");
+					if(!logFile.good())
+					{
+						return 0;
+					}
+					std::stringstream buffered;
+					buffered << logFile.rdbuf();
+					const std::string text = buffered.str();
+					std::size_t count = 0;
+					for(std::size_t at = text.find(marker);
+						at != std::string::npos;
+						at = text.find(marker, at + marker.size()))
+					{
+						++count;
+					}
+					return count;
+				};
+				const std::string captureMarker =
+					"procedural-sky image-lighting capture";
+
+				if(RenderSystem::get()->supports(RenderCaps::IblReflections))
+				{
+					// a directional sun so the captured procedural sky has a
+					// defined sun (and so a MOVE can trigger a recapture)
+					optr<RenderNode> procSunNode =
+						world->createNode("selfcheck.procIblSun");
+					procSunNode->setDirection(Vec3(-0.6f, -0.7f, 0.0f),
+						RenderNode::TS_WORLD);
+					optr<RenderLight> procSun = world->createLight();
+					procSun->attachTo(procSunNode);
+					procSun->setType(RenderLight::LT_DIRECTIONAL);
+					world->setAtmosphere(onDesc);	// procedural, links the sun
+					world->setIblQuality(IblPreset::IQ_MEDIUM);
+
+					// a smooth white metal facing the +X-looking camera: its
+					// look is dominated by the reflected environment - the same
+					// probe idea as the skybox mirror leg, now under the
+					// CAPTURED procedural sky
+					RenderMaterialDesc metalDesc;
+					metalDesc.albedo = Color(1.0f, 1.0f, 1.0f, 1.0f);
+					metalDesc.metalness = 1.0f;
+					metalDesc.roughness = 0.12f;
+					SELFCHECK(renderSystem->createMaterial(
+						"selfcheck.procIblMetal", metalDesc),
+						"the procedural-sky IBL probe material builds");
+					optr<RenderNode> procMirrorNode =
+						world->createNode("selfcheck.procIblMirror");
+					procMirrorNode->setPosition(Vec3(20, 6, 0));
+					procMirrorNode->setScale(Vec3(12, 1, 12));
+					procMirrorNode->setOrientation(
+						Quat(Degree(90), Vec3::UNIT_Z));	// top (+Y) -> -X
+					optr<MeshInstance> procMirror =
+						world->createMeshInstance("jumper_platform.glb");
+					SELFCHECK(procMirror != NULL,
+						"the procedural-sky IBL probe mesh loads");
+					procMirror->attachTo(procMirrorNode);
+					procMirror->setCastShadows(false);
+					SELFCHECK(procMirror->setMaterial("selfcheck.procIblMetal"),
+						"the procedural-sky IBL probe mesh takes the metal "
+						"material");
+
+					const Vec3 probePoint(19.5f, 6.0f, 0.0f);
+					auto probeMetal = [&](std::string const & imageFile,
+						float & r, float & g, float & b) -> bool
+					{
+						Real nx = 0, ny = 0;
+						if(!camera->projectPoint(probePoint, nx, ny))
+						{
+							return false;
+						}
+						return SelfcheckBootstrap::readImagePixel(imageFile,
+							static_cast<unsigned int>(nx * (atmoW - 1)),
+							static_cast<unsigned int>(ny * (atmoH - 1)),
+							r, g, b);
+					};
+
+					// OFF baseline: a smooth metal away from the sun highlight
+					// reads dark with no environment
+					world->setImageLighting(false, 1.0f);
+					SELFCHECK(renderFrames(renderSystem, 3),
+						"frames render with the procedural-IBL probe (off)");
+					const std::string procOffShot =
+						outDir + "/selfcheck_ibl_proc_off.png";
+					renderSystem->saveWindowContents(procOffShot);
+					float pOffR = 0, pOffG = 0, pOffB = 0;
+					SELFCHECK(probeMetal(procOffShot, pOffR, pOffG, pOffB),
+						"the procedural-IBL-off probe decodes");
+
+					// ON: the FIRST capture of the procedural sky - the metal
+					// gains the sky reflection and brightens measurably
+					const std::size_t capturesBefore = markerCount(captureMarker);
+					world->setImageLighting(true, 1.0f);
+					SELFCHECK(world->getImageLightingEnabled(),
+						"the procedural-sky image-lighting opt-in round-trips");
+					SELFCHECK(renderFrames(renderSystem, 3),
+						"frames render with procedural-sky image lighting on");
+					const std::string procOnShot =
+						outDir + "/selfcheck_ibl_proc_on.png";
+					renderSystem->saveWindowContents(procOnShot);
+					float pOnR = 0, pOnG = 0, pOnB = 0;
+					SELFCHECK(probeMetal(procOnShot, pOnR, pOnG, pOnB),
+						"the procedural-IBL-on probe decodes");
+					std::printf("render_facade_selfcheck: procedural-IBL probe - "
+						"off %.3f/%.3f/%.3f, on %.3f/%.3f/%.3f\n",
+						pOffR, pOffG, pOffB, pOnR, pOnG, pOnB);
+					SELFCHECK((pOnR + pOnG + pOnB) >
+						(pOffR + pOffG + pOffB) + 0.15f,
+						"procedural-sky image lighting brightens the metal with "
+						"the captured sky (a scene lit by the procedural sky)");
+					const std::size_t capturesAfterOn =
+						markerCount(captureMarker);
+					SELFCHECK(capturesAfterOn == capturesBefore + 1,
+						"enabling image lighting captured the procedural sky "
+						"once");
+
+					// RECAPTURE: a material sun swing re-captures the sky (the
+					// day/night arc cadence) - a second capture log line
+					procSunNode->setDirection(Vec3(0.6f, -0.7f, 0.0f),
+						RenderNode::TS_WORLD);
+					world->setAtmosphere(onDesc);	// the sun moved materially
+					SELFCHECK(renderFrames(renderSystem, 2),
+						"frames render after the sun moved under procedural IBL");
+					const std::size_t capturesAfterMove =
+						markerCount(captureMarker);
+					SELFCHECK(capturesAfterMove == capturesAfterOn + 1,
+						"a material sun move triggers a fresh procedural-sky "
+						"capture");
+
+					// a tiny sun nudge does NOT recapture (the throttled cadence)
+					procSunNode->setDirection(Vec3(0.61f, -0.7f, 0.0f),
+						RenderNode::TS_WORLD);
+					world->setAtmosphere(onDesc);
+					SELFCHECK(renderFrames(renderSystem, 2),
+						"frames render after a tiny sun nudge under procedural "
+						"IBL");
+					SELFCHECK(markerCount(captureMarker) == capturesAfterMove,
+						"a sub-threshold sun nudge does not recapture (throttle)");
+
+					// toggle off + drop the probe content
+					world->setImageLighting(false, 1.0f);
+					procMirror.reset();
+					procMirrorNode.reset();
+					procSun.reset();
+					procSunNode.reset();
+					SELFCHECK(renderFrames(renderSystem, 2),
+						"frames render after the procedural-IBL probe was "
+						"dropped");
+
+					// HONEST REFUSAL now belongs to the colour sky: a flat clear
+					// has no environment to capture, so an opt-in there renders
+					// unchanged and says so in EXACTLY ONE honest line
+					AtmosphereDesc colourNoIbl = onDesc;
+					colourNoIbl.skyType = AtmosphereSky::ST_COLOUR;
+					world->setAtmosphere(colourNoIbl);
+					world->setImageLighting(true, 1.0f);
+					SELFCHECK(renderFrames(renderSystem, 2),
+						"frames render after an image-lighting opt-in under a "
+						"colour sky");
+					world->setImageLighting(true, 1.0f);	// second call, one line
+					SELFCHECK(markerCount(
+						"without a skybox cubemap or a procedural sky") == 1,
+						"the colour-sky image-lighting refusal logs exactly "
+						"once");
+					world->setImageLighting(false, 1.0f);
+					world->setAtmosphere(onDesc);	// restore for later blocks
 				}
-				SELFCHECK(occurrences == 1,
-					"the no-skybox image-lighting log line appears exactly once");
-				world->setImageLighting(false, 1.0f);
+				else
+				{
+					// a flavor without the generated-IBL path: the opt-in is
+					// recorded and frames render unchanged (the not-supported
+					// line is the mirror leg's)
+					world->setImageLighting(true, 1.0f);
+					SELFCHECK(renderFrames(renderSystem, 2),
+						"frames render after a procedural-sky image-lighting "
+						"opt-in on an unsupporting flavor");
+					world->setImageLighting(false, 1.0f);
+				}
 			}
 
 			// leave the leg the way the exposure block below expects it
