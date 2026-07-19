@@ -259,6 +259,27 @@ def probe_anim(img_a, img_b, output):
         "(want <= %.2f), cutout-signature px %d (want >= %d)"
         % (crowd, ANIM_MOTION_MIN, static, ANIM_STATIC_MAX, cutout,
            ANIM_CUTOUT_MIN))
+    if static > ANIM_STATIC_MAX:
+        # the band broke on a machine we cannot inspect (it has never
+        # reproduced on a dev box, even throttled to ~3 fps): print the
+        # evidence that names the mechanism - a coarse diff map over the WHOLE
+        # frame (uniform shift = a fade/exposure change; a localized blob =
+        # geometry reaching the band; speckle = a capture/driver artifact) and
+        # raw pixel pairs from the band's corners
+        log("static-band diagnostic: 8x6 whole-frame diff map (mean abs "
+            "per-channel):")
+        for gy in range(6):
+            row = []
+            for gx in range(8):
+                row.append("%6.1f" % band_diff(
+                    img_a, img_b, gx / 8.0, gy / 6.0,
+                    (gx + 1) / 8.0, (gy + 1) / 6.0))
+            log("  " + " ".join(row))
+        for fx, fy in ((0.72, 0.05), (0.85, 0.08), (0.96, 0.12)):
+            x, y = int(fx * wa), int(fy * ha)
+            log("  band pixel (%.2f,%.2f): A=%s B=%s"
+                % (fx, fy, pixel(pa, ca, wa, x, y), pixel(img_b[3],
+                   img_b[2], img_b[0], x, y)))
     # the seam log evidence: every activated mannequin reports the self.animation
     # + world.getAnimation drive worked, the director reports the hero handle
     # resolved, and NOTHING reports a seam failure
@@ -341,9 +362,12 @@ def run_player_capture(args, scene, shot, extra_cvars="", fake_scale=None,
     cmd = [args.player, scene, "--project",
            os.path.join(args.repo, "projects/benchmark")]
     log("running: " + " ".join(cmd))
+    # wall budget, not a pace assertion: the capture frames are frame-paced, so
+    # wall time scales with the machine (a loaded hosted CI runner has measured
+    # 4x slower than a dev laptop on the same commit)
     result = subprocess.run(cmd, cwd=args.repo, env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            timeout=180)
+                            timeout=480)
     output = result.stdout.decode("utf-8", "replace")
     if result.returncode != 0:
         log(output[-1500:])

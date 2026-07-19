@@ -1832,7 +1832,7 @@ if(TARGET orkige_player)
                 --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_vista${ORKIGE_FLAVOR_TEST_SUFFIX}"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_benchmark_vista${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-            LABELS integration TIMEOUT 240)
+            LABELS integration TIMEOUT 540)
         # the SAME traversal through the interactive fade-wipe switch (the
         # path a human playing the project sees; the bare-switch run above
         # cannot catch a wipe-path regression - the two switches must both
@@ -1846,7 +1846,7 @@ if(TARGET orkige_player)
                 --wipe 1 --frames 2600
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_benchmark_vista_wipe${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-            LABELS integration TIMEOUT 240)
+            LABELS integration TIMEOUT 540)
         # the static mobility flag's whole contract in one run, per flavor
         # (projects/benchmark scenes/fixture_static.oscene): toggle identity
         # (r.staticScene on/off renders the same pixels - byte-exact on next,
@@ -1947,7 +1947,7 @@ if(TARGET orkige_player)
                     --probe "${ORKIGE_SCENE_PROBE}"
                 WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
             set_tests_properties(player_benchmark_${ORKIGE_SCENE_PROBE}_probe${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-                LABELS integration TIMEOUT 240)
+                LABELS integration TIMEOUT 540)
         endforeach()
     endif()
 
@@ -2241,8 +2241,12 @@ if(TEST player_rotation_ios)
 endif()
 if(TEST editor_play_simulator_boot)
     # covers the editor's whole in-test chain: sim prep (900s) + debug-link
-    # connect (90s) + the playtest phase slack - see EditorApp.h budgets
-    set_tests_properties(editor_play_simulator_boot PROPERTIES TIMEOUT 1400)
+    # connect (90s) + the playtest phase slack - see EditorApp.h budgets. The
+    # slack scales with the runner: a loaded hosted machine has measured 3-4x
+    # slower end to end than the same commit's earlier run (453s green vs a
+    # 1400s cap blown), so the cap sits above the worst measured pace while
+    # the inner phase budgets still fail honestly first on a true hang
+    set_tests_properties(editor_play_simulator_boot PROPERTIES TIMEOUT 2100)
 endif()
 
 # device tests boot iOS simulators / Android emulators - by far the slowest

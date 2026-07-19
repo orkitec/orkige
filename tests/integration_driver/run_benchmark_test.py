@@ -82,9 +82,12 @@ def main():
 
     cmd = [args.player, "--project", str(repo / "projects/benchmark")]
     log("running: " + " ".join(cmd))
+    # wall budget, not a pace assertion: the run is frame-paced (2600 frames on
+    # the wipe leg), so its wall time scales with the machine - a loaded hosted
+    # CI runner has measured 4x slower than a dev laptop on the same commit
     result = subprocess.run(cmd, cwd=str(repo), env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            timeout=180)
+                            timeout=480)
     tail = result.stdout.decode("utf-8", "replace")[-1500:]
     if result.returncode != 0:
         log(tail)
