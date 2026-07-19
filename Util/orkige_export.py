@@ -431,12 +431,12 @@ def engine_decal_dir():
     return decals if os.path.isdir(decals) else ""
 
 
-def engine_bloom_dir():
+def engine_bloom_dir(flavor):
     """the engine bloom compositor media (bright/blur/combine material + shaders
-    engine:setBloom needs) - the NEXT flavor set only (classic bloom is gated
-    off, so its media is never bundled). Registered at runtime under
-    Media/bloom/next like the font/water/decal dirs. Empty when absent."""
-    bloom = os.path.join(REPO_ROOT, "orkige_engine", "media", "bloom", "next")
+    engine:setBloom needs) - PER FLAVOR: bloom/next (the quad-chain shaders) vs
+    bloom/classic (the viewport-compositor shaders). Registered at runtime under
+    Media/bloom/<flavor> like the font/water/decal dirs. Empty when absent."""
+    bloom = os.path.join(REPO_ROOT, "orkige_engine", "media", "bloom", flavor)
     return bloom if os.path.isdir(bloom) else ""
 
 
@@ -764,11 +764,11 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
         shutil.copytree(engine_decal_dir(),
                         os.path.join(resources, "Media", "decals"),
                         dirs_exist_ok=True)
-    # the engine bloom compositor media (next flavor only) so a scene's
+    # the engine bloom compositor media (per flavor) so a scene's
     # engine:setBloom ships self-contained
-    if flavor == "next" and engine_bloom_dir():
-        shutil.copytree(engine_bloom_dir(),
-                        os.path.join(resources, "Media", "bloom", "next"),
+    if engine_bloom_dir(flavor):
+        shutil.copytree(engine_bloom_dir(flavor),
+                        os.path.join(resources, "Media", "bloom", flavor),
                         dirs_exist_ok=True)
 
     staged = stage_project_payload(
@@ -1003,10 +1003,11 @@ def export_ios_simulator(project, engine_build, output_dir):
         shutil.copytree(engine_decal_dir(),
                         os.path.join(app_dir, "Media", "decals"),
                         dirs_exist_ok=True)
-    # the engine bloom compositor media (next flavor only)
-    if render_backend(engine_build) == "next" and engine_bloom_dir():
-        shutil.copytree(engine_bloom_dir(),
-                        os.path.join(app_dir, "Media", "bloom", "next"),
+    # the engine bloom compositor media (per flavor)
+    if engine_bloom_dir(render_backend(engine_build)):
+        shutil.copytree(engine_bloom_dir(render_backend(engine_build)),
+                        os.path.join(app_dir, "Media", "bloom",
+                                     render_backend(engine_build)),
                         dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),
@@ -1162,10 +1163,11 @@ def build_signed_ios_bundle(project, source_app, output_dir, identity, profile,
         shutil.copytree(engine_decal_dir(),
                         os.path.join(app_dir, "Media", "decals"),
                         dirs_exist_ok=True)
-    # the engine bloom compositor media (next flavor only)
-    if render_backend(engine_build) == "next" and engine_bloom_dir():
-        shutil.copytree(engine_bloom_dir(),
-                        os.path.join(app_dir, "Media", "bloom", "next"),
+    # the engine bloom compositor media (per flavor)
+    if engine_bloom_dir(render_backend(engine_build)):
+        shutil.copytree(engine_bloom_dir(render_backend(engine_build)),
+                        os.path.join(app_dir, "Media", "bloom",
+                                     render_backend(engine_build)),
                         dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),

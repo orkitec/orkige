@@ -10,7 +10,7 @@
 // shaders (GL3+/GLES/etc).
 //---------------------------------------------------------------------------
 
-vertex_program Orkige/Bloom/Quad_vp glsl
+vertex_program Orkige/Bloom/Quad_vp glsl glsles glslang
 {
 	source BloomQuad_vp.glsl
 	default_params
@@ -19,7 +19,7 @@ vertex_program Orkige/Bloom/Quad_vp glsl
 	}
 }
 
-fragment_program Orkige/Bloom/Bright_fp glsl
+fragment_program Orkige/Bloom/Bright_fp glsl glsles glslang
 {
 	source BloomBright_fp.glsl
 	default_params
@@ -29,19 +29,19 @@ fragment_program Orkige/Bloom/Bright_fp glsl
 	}
 }
 
-fragment_program Orkige/Bloom/BlurH_fp glsl
+fragment_program Orkige/Bloom/BlurH_fp glsl glsles glslang
 {
 	source BloomBlurH_fp.glsl
 	default_params { param_named Blur0 int 0 }
 }
 
-fragment_program Orkige/Bloom/BlurV_fp glsl
+fragment_program Orkige/Bloom/BlurV_fp glsl glsles glslang
 {
 	source BloomBlurV_fp.glsl
 	default_params { param_named Blur0 int 0 }
 }
 
-fragment_program Orkige/Bloom/Combine_fp glsl
+fragment_program Orkige/Bloom/Combine_fp glsl glsles glslang
 {
 	source BloomCombine_fp.glsl
 	default_params

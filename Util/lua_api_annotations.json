@@ -38,7 +38,7 @@
 	},
 	"Engine:setBloom": {
 		"sig": "(enabled, threshold, intensity) -> nil",
-		"doc": "set the scene's LDR bloom (a highlight glow on the 3D tier); default OFF and byte-identical when disabled. threshold is the bright-pass luminance cutoff in [0,1) (near-white highlights bloom), intensity scales the additive glow. The 2D tier (sprites/vector shapes/gui) stays crisp; the r.bloomQuality cvar sets the blur budget. Next flavor renders it; classic is gated off (bloom parity debt)"
+		"doc": "set the scene's LDR bloom (a highlight glow on the 3D tier); default OFF and byte-identical when disabled. threshold is the bright-pass luminance cutoff in [0,1) (near-white highlights bloom), intensity scales the additive glow. The 2D tier (sprites/vector shapes/gui) stays crisp; the r.bloomQuality cvar sets the blur budget. Renders on both flavors (next = compositor quad chain, classic = viewport compositor); a GLES2/WebGL classic context is runtime-gated and degrades honestly"
 	},
 	"Engine:supports": {
 		"sig": "(capabilityName) -> bool",

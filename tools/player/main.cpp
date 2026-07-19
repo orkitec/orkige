@@ -1528,15 +1528,16 @@ int main(int argc, char** argv)
 				}
 #ifdef ORKIGE_PLAYER_BLOOM_DIR
 				// the engine bloom compositor media (the bright/blur/combine
-				// material + shaders engine:setBloom needs). Next flavor ONLY -
-				// the define is set for the next backend, classic bloom is gated
-				// off (@see RenderBackend::bloomSupported). Same bundled/dev-tree
-				// pair as the media above.
+				// material + shaders engine:setBloom needs), per flavor
+				// (bloom/next vs bloom/classic - the build sets both defines).
+				// Same bundled/dev-tree pair as the media above.
 				std::error_code bloomDirError;
-				if (std::filesystem::is_directory(playerMediaDir + "/bloom/next",
+				if (std::filesystem::is_directory(
+					playerMediaDir + "/" ORKIGE_BLOOM_MEDIA_SUBDIR,
 					bloomDirError))
 				{
-					render->addResourceLocation(playerMediaDir + "/bloom/next");
+					render->addResourceLocation(
+						playerMediaDir + "/" ORKIGE_BLOOM_MEDIA_SUBDIR);
 				}
 				if (std::filesystem::is_directory(ORKIGE_PLAYER_BLOOM_DIR,
 					bloomDirError))

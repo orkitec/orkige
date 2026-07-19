@@ -507,11 +507,19 @@ namespace Orkige
 				return;
 			}
 			Ogre::Pass* pass = handle->getTechnique(0)->getPass(0);
-			if(pass->hasFragmentProgram())
+			if(!pass->hasFragmentProgram())
 			{
-				pass->getFragmentProgramParameters()->setNamedConstant(
-					name, Ogre::Real(value));
+				return;
 			}
+			// an unsupported/compile-broken program has no named constants -
+			// touching its params would throw mid-frame
+			Ogre::GpuProgramPtr program = pass->getFragmentProgram();
+			if(!program || !program->isSupported())
+			{
+				return;
+			}
+			pass->getFragmentProgramParameters()->setNamedConstant(
+				name, Ogre::Real(value));
 		}
 		//! the per-tier compositor resource name (each tier bakes its own blur
 		//! chain length and buffer resolution into the technique)

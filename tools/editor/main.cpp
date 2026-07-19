@@ -357,8 +357,8 @@ int main(int argc, char** argv)
 #ifdef ORKIGE_EDITOR_BLOOM_DIR
 				// the engine bloom compositor media (bright/blur/combine
 				// material + shaders) so a play session with engine:setBloom
-				// resolves its materials. Next flavor ONLY (classic bloom is
-				// gated off, @see RenderBackend::bloomSupported)
+				// resolves its materials - per flavor (bloom/next vs
+				// bloom/classic, the build bakes the matching dir)
 				std::error_code bloomDirError;
 				if (std::filesystem::is_directory(ORKIGE_EDITOR_BLOOM_DIR,
 					bloomDirError))

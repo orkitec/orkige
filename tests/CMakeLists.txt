@@ -778,10 +778,10 @@ if(TARGET hello_orkige)
     # cubemap -> flat colour, each round-tripped through world->getAtmosphere),
     # turns skybox-sourced image-based lighting on a reflective metal cube
     # (getImageLightingEnabled + the IblReflections capability), and enables LDR
-    # bloom on an emissive cube - asserting the bloom capability PER FLAVOR: it
-    # renders (the compositor pass builds) on the next flavor and is a gated
-    # honest no-op on classic (RenderCaps::Bloom = false; one log line, byte-
-    # identical output). The frame-60 ORKIGE_DEMO_SCREENSHOT hook dumps the
+    # bloom on an emissive cube - asserting the bloom capability PER CONTEXT: it
+    # renders (the compositor pass builds) on both desktop flavors and is a
+    # gated honest no-op on a bloom-less GLES2/WebGL classic context (one log
+    # line, byte-identical output). The frame-60 ORKIGE_DEMO_SCREENSHOT hook dumps the
     # final showcase frame. Runs on both flavors - a per-flavor selfcheck, NOT
     # a pixel-parity case (the render_facade selfcheck pixel-proves the glow /
     # reflection); see Docs/materials.md.

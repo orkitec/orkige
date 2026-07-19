@@ -158,11 +158,12 @@ capability record:
   better-looking result (a real darkening sky vs. a day picture over a black
   ground).
 - **Night Lumens** enables **LDR bloom** (`engine:setBloom`) so the emissive
-  point-light pools bleed a soft glow. Bloom is next-only (`RenderCaps::Bloom`)
-  and the director calls it unconditionally — it renders on next and is a gated
-  honest no-op on classic (one log line, byte-identical output) — so each
-  flavor's pixel probe / budget reflects its actual image (the next budget
-  carries the +4 bloom compositor passes).
+  point-light pools bleed a soft glow. Bloom renders on BOTH desktop flavors
+  (`RenderCaps::Bloom`; next = the workspace quad chain, classic = the per-tier
+  viewport compositor) and the director calls it unconditionally — a runtime-
+  gated bloom-less context (GLES2/WebGL classic) degrades to a no-op with one
+  log line and byte-identical output — so each flavor's pixel probe / budget
+  reflects its actual image (the budgets carry the bloom compositor passes).
 - **Cascade** rains its planar bodies onto a lit PBS floor slab carrying a row
   of **blob-shadow decals** (the engine `decal_blob.png` preset, authored as
   `DecalComponent` marks) — cheap contact shadows where the pile settles

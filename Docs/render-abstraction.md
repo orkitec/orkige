@@ -815,38 +815,58 @@ the live value equals it. A consumer that ramps live lights — the benchmark's
 many-lights showcase — caps at this instead of an authored constant, so next's
 signature many-lights headroom is not pinned to classic's floor.
 
-**Bloom parity debt — classic gated off (next-first landed).** LDR bloom (the
+**Bloom — both flavors (the classic parity debt is retired).** LDR bloom (the
 `bloom` capability: bright-pass → separable blur → additive combine, per-scene
 `engine:setBloom`, the `r.bloomQuality` tier, the pure `core_util/BloomPreset.h`)
-landed on the **next** flavor: a `CompositorManager2` quad chain inserted between
-the 3D scene pass and the 2D/UI pass in the window workspace, gated on
-enabled + quality, byte-stable when off. The 2D tier (sprites/vector meshes/gui)
-is excluded via a `SCENE_2D` visibility bit — the 3D scene renders into the
-bright-pass source WITHOUT it, then the 2D tier + gui draw un-bloomed over the
-combine (`render_facade_selfcheck` bloom leg, both the neighbourhood-glow and the
-crisp-sprite probes). **See it:** the `demo_sky` hello_orkige selfcheck glows an
-emissive cube under bloom (next) / takes the gated no-op branch (classic), and
+renders on BOTH flavors. **next**: a `CompositorManager2` quad chain inserted
+between the 3D scene pass and the 2D/UI pass in the window workspace, gated on
+enabled + quality, byte-stable when off. **classic**: the same chain as a
+per-tier viewport compositor built programmatically over the shared materials
+(`orkige_engine/media/bloom/classic/`, `OgreUnifiedShader.h` shaders —
+`RenderBackend::applyBloomConfig`/`buildBloomCompositor`). On both, the 2D tier
+(sprites/vector meshes/gui) is excluded via the `SCENE_2D` visibility bit — the
+3D scene renders into the bright-pass source WITHOUT it, then the 2D tier + gui
+draw un-bloomed over the combine (`render_facade_selfcheck` bloom leg on both
+flavors: neighbourhood-glow, below-threshold base preservation, crisp-sprite
+exclusion, tier re-arm, toggle identity). **See it:** the `demo_sky`
+hello_orkige selfcheck glows an emissive cube under bloom on both flavors, and
 the benchmark **Night Lumens** vignette blooms its emissive point-light pools
-(`Docs/benchmark.md`). On **classic** the same effect is IMPLEMENTED — the
-`OrkigeBloom` viewport compositor + material + `OgreUnifiedShader.h` shaders under
-`orkige_engine/media/bloom/classic/`, the facade `setBloom`, the visibility
-tagging (`tagScene3D`/`tagScene2D`) and the `DrawLayer2D` output-viewport guard —
-but **held off** (`RenderBackend::bloomSupported()` returns false, `RenderCaps::
-Bloom` = false, an enabled bloom logs one honest line and renders bloom-off, which
-stays byte-correct). Two structural walls block the classic path, both verified
-against the vcpkg OGRE 14 build: (1) classic OGRE's compositor `render_scene`
-pass does NOT drive the RTSS shader generation the shader-only render path
-requires — a scene material that renders fine on the main RTSS viewport crashes
-with `"... has no Vertex Shader"` inside the off-screen scene pass
-(`SceneManager::_setPass`); (2) the classic `CompositionPass` has no per-pass
-visibility mask (the Ogre-Next `visibility_mask` token is rejected by the classic
-script grammar and there is no C++ setter), worked around by setting the scene-RT
-and window viewport masks programmatically — but wall (1) blocks the render
-regardless. The fix (a follow-up, next like the refraction knob): make the classic
-bloom compositor's scene pass RTSS-validate its materials (hook the shader
-generator to the compositor render / pre-`validateScene` the scheme) so the
-off-screen pass generates shaders like the main viewport does. Since classic is
-the web (GLES2→WebGL) flavor, closing this lights bloom up in the browser too.
+(`Docs/benchmark.md`).
+
+The two walls the first classic attempt recorded both fell to evidence:
+
+- *"compositor `render_scene` passes don't drive RTSS shader generation"* was
+  never a compositor limitation — it was a scheme-name split. In the
+  `OGRE_STATIC` link the RTShaderSystem component's static initialisers can run
+  before OgreMain's, so `ShaderGenerator::DEFAULT_SCHEME_NAME` (initialised by
+  COPYING OgreMain's `MSN_SHADERGEN` global) captured an empty string; every
+  engine-side scheme registration rode the `""` scheme while OgreMain's runtime
+  defaults (compositor target passes via
+  `RenderSystem::_getDefaultViewportMaterialScheme`) answered the real name —
+  two schemes where there must be one, so the off-screen pass resolved FFP
+  techniques and threw `"has no Vertex Shader"`. `Engine::initializeRTShaderSystem`
+  now restores the canonical name before the generator initialises, and the
+  compositor's target passes carry the window viewport's scheme — the off-screen
+  scene pass generates shaders exactly like the main viewport. (Pass-level
+  `material_scheme` stays banned in the classic script grammar for us: it rides
+  `RSSetSchemeOperation`'s late-material-resolving, which bypasses queue-time
+  technique arbitration.)
+- *"no per-pass visibility mask"* — classic has TARGET-level masks
+  (`CompositionTargetPass::setVisibilityMask`), applied by the chain to the
+  operation's viewport and restored after, which is exactly the byte-identical
+  bloom-off contract the per-pass mask was wanted for. The scene target masks
+  `~SCENE_2D` (untagged movables default into the 3D tier via the boot
+  visibility-flag trim), the output target masks `SCENE_2D`. The one
+  mask-exempt renderable is the native sky (SceneManager queues it outside the
+  visibility walk), so the output scene pass starts above the sky queues — the
+  sky is already in the combined base image.
+
+Remaining honest per-context gate: a **GLES2/WebGL classic context** answers
+`bloomSupported()` false at runtime (an enabled bloom degrades to no pass with
+one log line). FBOs exist on those contexts, so this is an *unproven*, not an
+*incapable*, gate — flipping it needs an on-device (`android-debug-classic` /
+`ios-*-classic`) or in-browser (`web-release`) proof run of the compositor
+chain; until then desktop classic (GL3Plus/Vulkan) carries the capability.
 
 **Future desktop quality knob — water refraction/depth pass.** The animated
 water v1 is contained deliberately: it renders through the EXISTING single scene

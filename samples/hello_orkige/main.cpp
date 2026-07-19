@@ -221,8 +221,8 @@ int main(int, char**)
 				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
 #ifdef ORKIGE_ENGINE_BLOOM_DIR
 				// the bloom compositor media (bright/blur/combine material +
-				// shaders) - defined for the next flavor ONLY (classic bloom is
-				// gated off, so it needs no compositor media)
+				// shaders), per flavor (bloom/next vs bloom/classic - the
+				// build bakes the matching dir)
 				render->addResourceLocation(ORKIGE_ENGINE_BLOOM_DIR);
 #endif
 			}
@@ -5180,8 +5180,9 @@ int main(int, char**)
 				}
 				else if (frameCount == 34)
 				{
-					// LDR BLOOM on the emissive cube - asserted PER FLAVOR
-					// honestly (renders on next, honest no-op on classic)
+					// LDR BLOOM on the emissive cube - asserted PER CONTEXT
+					// honestly (the compositor renders on both desktop flavors;
+					// a GLES2/WebGL classic context is runtime-gated)
 					world->setBloomQuality(Orkige::BloomPreset::BQ_MEDIUM);
 					Orkige::BloomDesc bloom;
 					bloom.enabled = true;
@@ -5192,28 +5193,29 @@ int main(int, char**)
 						render->supports(Orkige::RenderCaps::Bloom);
 					if (bloomCap)
 					{
-						// next: the compositor bloom pass runs (its media
-						// resolved + the pass chain built - a broken pass would
-						// already have failed renderOneFrame); the desc must
-						// round-trip enabled so the emissive cube glows
+						// the compositor bloom pass runs on this flavor (its
+						// media resolved + the pass chain built - a broken pass
+						// would already have failed renderOneFrame); the desc
+						// must round-trip enabled so the emissive cube glows
+						// (the render_facade selfcheck pixel-proves the halo)
 						if (!world->getBloom().enabled)
 						{
 							SDL_Log("hello_orkige: FAILED - bloom did not enable "
 								"on a bloom-capable flavor");
 							return 1;
 						}
-						SDL_Log("hello_orkige: sky demo - bloom ON (next "
-							"flavor): the emissive cube glows");
+						SDL_Log("hello_orkige: sky demo - bloom ON: the "
+							"emissive cube glows on this flavor");
 					}
 					else
 					{
-						// classic: bloom is gated off (RenderCaps::Bloom false),
-						// so setBloom is an honest no-op that logs one gated
-						// line and renders nothing extra (byte-identical
-						// contract) - it must not have crashed to reach here
-						SDL_Log("hello_orkige: sky demo - bloom gated OFF "
-							"(classic flavor): the honest no-op path (one gated "
-							"log line)");
+						// a bloom-less context (a runtime-gated GLES2/WebGL
+						// classic context): setBloom is an honest no-op that
+						// logs one gated line and renders nothing extra
+						// (byte-identical contract) - it must not have crashed
+						SDL_Log("hello_orkige: sky demo - bloom gated OFF: the "
+							"honest no-op path on a bloom-less context (one "
+							"gated log line)");
 					}
 				}
 				else if (frameCount == 45)
