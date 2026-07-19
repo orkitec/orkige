@@ -68,7 +68,7 @@ The hardening lives entirely in the sol2 backend
 `Meta*.h` and the ScriptRuntime implementation. Denials are verified per sandbox:
 the game sandbox by `ScriptRuntimeTests` (`[security]`), the editor sandbox by the
 `editor_scripts` selfcheck's `fixture_security` tool. This is one facet of the
-engine's security posture — see `Docs/security.md` (planned) for the whole picture.
+engine's security posture — see [security.md](security.md) for the whole picture.
 
 ## Signature index
 

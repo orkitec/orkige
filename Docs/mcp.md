@@ -67,9 +67,9 @@ The player's debug link (`core_debugnet/DebugServer`, the play-mode
 editor↔player protocol) is a second socket surface. **Threat model:** in an
 AI-agent development setting neither surface may be reachable by any process
 other than the intended local client, and the token that gates access must not
-leak through a timing side channel. Three properties enforce that; a future
-`Docs/security.md` will be the umbrella (endpoints, tokens, jails) and link back
-here.
+leak through a timing side channel. Three properties enforce that;
+[security.md](security.md) is the engine-wide umbrella (endpoints, tokens, jails)
+this section details.
 
 - **Loopback-only by default.** Both the MCP `HttpServer` and the player
   `DebugServer` bind `127.0.0.1` **only** — they are not reachable off the

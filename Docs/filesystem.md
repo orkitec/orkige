@@ -95,8 +95,8 @@ project root (for the MCP file-authoring jail). The classic attacks are
 **zip-slip** (an archive entry named `../../foo` or `/abs/foo` that a naive
 extractor writes outside the extraction root) and **path traversal** in the
 file jail (`../x`, `/abs/x`, or a symlink component that resolves out of root).
-A future `Docs/security.md` will collect the engine-wide posture; this section
-is the filesystem boundary.
+[security.md](security.md) collects the engine-wide posture; this section is the
+filesystem boundary.
 
 **One containment primitive.** `core_util/PathJail` is the single, pure,
 headless-unit-tested guard both boundaries call:
