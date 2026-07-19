@@ -203,15 +203,30 @@ content) are skipped by the accent quietly.
 - No occlusion/specular/detail maps, no UV transforms, no per-sub-mesh
   assignment.
 
-## Image-based lighting (skybox-sourced, opt-in)
+## Image-based lighting (sky-sourced, opt-in)
 
-The one cubemap mechanism the materials waited for is the atmosphere's
-skybox (`AtmosphereDesc::skyboxTexture`), and image-based lighting sources
-FROM it: with `engine:setImageLighting(true, intensity)` (Lua; facade
+With `engine:setImageLighting(true, intensity)` (Lua; facade
 `RenderWorld::setImageLighting`) every generated PBS material — `.omat`
 surfaces and water — gains cubemap specular reflections plus a cubemap
 diffuse fill, ADDED on top of the analytic lights and ambient, never
 replacing them. `intensity` scales only the added contribution.
+
+**One IBL path, TWO sources** — the source is selected automatically from
+the sky the atmosphere shows, and there is NO separate verb to choose it:
+
+- a **skybox** atmosphere (`AtmosphereDesc::skyboxTexture`) feeds the
+  offline-baked prefiltered cubemap chain (the original source);
+- a **procedural** atmosphere feeds a **runtime capture** of that sky (see
+  below) — so a scene lit by the procedural sky gets matching image
+  lighting;
+- a **colour** sky or a disabled atmosphere still has no meaningful
+  environment: enabling under them logs one honest line and renders
+  unchanged.
+
+Both sources hand the SAME cubemap+mip chain to the SAME downstream consumer
+(next binds it as the HlmsPbs reflection map, classic as the RTSS
+image-based-lighting stage's cubemap), so everything below the source is one
+code path.
 
 Three switches gate it, and all three must hold before anything renders
 (until then the scene pays neither memory nor per-frame cost and stays
@@ -222,10 +237,9 @@ byte-identical):
 2. the `r.iblQuality` cvar (off/low/medium/high, default medium; the tier
    caps the environment chain's resolution — pure table in
    `core_util/IblPreset.h`, live re-arm like `r.shadowQuality`),
-3. an enabled atmosphere showing a **skybox** sky with a loaded cubemap.
-   Procedural/colour skies have no cubemap to sample — enabling under them
-   logs one honest line and renders unchanged (procedural-sky capture is
-   future work).
+3. an enabled atmosphere showing a **skybox** or a **procedural** sky.
+
+### Source 1 — the baked skybox chain
 
 The cubemap's mip chain IS the roughness chain: `Util/make_sky_assets.py`
 bakes a prefiltered chain (box downsample + widening in-face tent blur — an
@@ -233,6 +247,46 @@ offline cosine-lobe approximation; the top mip stays untouched so the sky
 picture is unchanged), and both flavors' native samplers index it by surface
 roughness. A tier cap below the source's edge drops leading mips (a cheap
 re-upload, no re-filtering).
+
+### Source 2 — the captured procedural sky
+
+When the procedural sky is showing with no authored skybox, the environment
+is **synthesized at runtime** from the atmosphere parameters + the sun by
+the pure, headless `core_util/SkyEnvMap` (unit-tested in `SkyEnvMapTests`):
+a small RGBA8 cubemap at the tier resolution, its faces from an analytic
+`zenith→horizon→ground` gradient plus a soft glow toward the sun, uploaded
+as a manual cubemap whose roughness mip chain is a per-face **box
+downsample** (the same box-filter prefilter stand-in the offline chain
+uses). It then binds through the ONE consumer above.
+
+- The sky model is EXACTLY the one the classic flavor draws its visible
+  gradient dome with, so classic reflections match the classic sky by
+  construction.
+- On next the VISIBLE sky is the native AtmosphereNpr dome (a different,
+  physically-based model); using this analytic gradient for its reflections
+  is a deliberate **tolerance-parity approximation** (the dominant cues —
+  sky tint from above, a warm sun reflection toward the sun — are captured),
+  consistent with IBL already being tolerance parity, not per-pixel. It is
+  also an approximation of a ground-truth GGX prefilter (the box-mip blur),
+  as the baked chain is.
+- Design note: a GPU cubemap-capture workspace (rendering the AtmosphereNpr
+  sky alone into a cube target) was considered and **rejected** — it would
+  be next-only (classic would still need CPU synthesis), harder to test, and
+  carries compositor-cubemap lifecycle risk. One pure generator serving both
+  flavors is less total code and more parity.
+
+**Capture cadence — on demand, never per frame.** A fresh capture happens
+only when the sky changes materially: the sun rotates past ~6° (a cosine
+threshold) or a sky colour / power / density moves (`SkyEnvMap::CaptureKey`
++ `materiallyDiffers`). A day→night sun arc (the benchmark's Terrace Vista
+sweep) therefore recaptures a handful of times, not every frame; a
+sub-threshold frame-to-frame nudge reuses the bound chain. The synthesis is
+a small allocation-plus-upload (six faces at 32/64/256 texels per the tier),
+so even the recaptures are cheap. Resolution rides the existing
+`r.iblQuality` tier (`chainResolution`) — no capture-resolution knob was
+added. Classic recapture updates the cubemap contents in place (the RTSS
+stage keeps its binding by name, like a skybox tier re-arm); next rebinds
+the fresh texture, so its reflection updates immediately.
 
 Flavor mapping — both native, tolerance parity (not per-pixel):
 
@@ -252,12 +306,17 @@ Flavor mapping — both native, tolerance parity (not per-pixel):
   reflection matters on both flavors).
 
 Capability probe: `engine:supports("iblReflections")` / `RenderSystem::
-supports(RenderCaps::IblReflections)`. MCP: the cvar rides `set_cvar`
-(`r.iblQuality`), the opt-in is script state (`reload_script`/scene
-scripts), the capability shows in `get_state`. Verified by the
-`render_facade_selfcheck` image-lighting leg per flavor (cubemap colour
-signature on a mirror material, toggle-off pixel identity, tier re-arm,
-the honest no-skybox line) and the `IblPresetTests` unit suite.
+supports(RenderCaps::IblReflections)` (the same bit gates BOTH sources — the
+procedural capture is a new source under the one capability, not a new one).
+MCP: the cvar rides `set_cvar` (`r.iblQuality`), the opt-in is script state
+(`reload_script`/scene scripts), the capability shows in `get_state`.
+Verified by the `render_facade_selfcheck` image-lighting leg per flavor: the
+skybox route (cubemap colour signature on a mirror material, toggle-off
+pixel identity, tier re-arm) AND the procedural route (a smooth-metal
+surface brightens with the captured sky, a material sun move triggers
+exactly one fresh capture while a sub-threshold nudge does not, the refusal
+under a colour sky), plus the `IblPresetTests` and `SkyEnvMapTests` unit
+suites.
 
 **See it:** the `demo_sky` hello_orkige selfcheck cycles the three sky types
 and toggles IBL on a near-mirror metal cube; the benchmark **Terrace Vista**

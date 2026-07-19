@@ -407,14 +407,20 @@ cutouts on both flavors) and runtime per-instance accents
 (`MeshInstance::setTint`/`setEmissiveBoost`, PROP_TRANSIENT — never
 serialized) — `Docs/materials.md`,
 `demo_material` + the `material_*_right` probes per flavor;
-**image-based lighting** (opt-in, skybox-sourced, both flavors):
+**image-based lighting** (opt-in, sky-sourced, both flavors):
 `RenderWorld::setImageLighting` / `engine:setImageLighting(enabled,
 intensity)` adds cubemap specular reflections + a diffuse fill to the
 generated PBS materials ON TOP of the analytic lights (never replacing
-them; default OFF and byte-stable), sourced from the skybox cubemap the
-enabled atmosphere shows (its baked mip chain is the prefiltered roughness
-chain — `make_sky_assets.py`; procedural/colour skies refuse with one
-honest line); the `r.iblQuality` cvar (off/low/medium/high, live re-arm,
+them; default OFF and byte-stable), sourced from the SKY the enabled
+atmosphere shows — ONE path, TWO sources selected automatically: a **skybox**
+atmosphere feeds the offline-baked prefiltered chain (`make_sky_assets.py`),
+a **procedural** atmosphere feeds a runtime CPU capture of the sky (the pure
+`core_util/SkyEnvMap` — a small cubemap synthesized from the atmosphere +
+sun with a box-downsampled roughness chain, recaptured on-demand only on a
+material sun swing / colour change, never per frame; a tolerance-parity
+approximation of the AtmosphereNpr dome on next, exact for the classic
+gradient sky); colour/disabled skies have no environment and refuse with one
+honest line; the `r.iblQuality` cvar (off/low/medium/high, live re-arm,
 pure tier table `core_util/IblPreset.h` capping the chain resolution);
 next = the native HlmsPbs reflection map + diffuse-GI env feature, classic
 = the RTSS image-based-lighting stage over the same cubemap (GLES2/WebGL1
