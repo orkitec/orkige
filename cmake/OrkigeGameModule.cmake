@@ -208,6 +208,19 @@ if(NOT _orkige_zlib_release)
     message(STATUS "vcpkg zlib seed found no library - prefix "
         "'${ORKIGE_VCPKG_PREFIX}', lib dir holds: ${_orkige_lib_listing}")
 endif()
+# the diagnosis must survive log-tail truncation: a CI job's error tail only
+# carries the last few KB of build output, which the find-failure chain fills
+# - persist the picked prefix + both lib listings to a file the job artifact
+# collects
+file(GLOB _orkige_debug_lib_listing "${ORKIGE_VCPKG_PREFIX}/debug/lib/*")
+file(GLOB _orkige_installed_listing "${ORKIGE_ENGINE_BUILD_DIR}/vcpkg_installed/*")
+file(WRITE "${CMAKE_BINARY_DIR}/orkige_module_diag.txt"
+    "prefix: ${ORKIGE_VCPKG_PREFIX}\n"
+    "vcpkg_installed entries: ${_orkige_installed_listing}\n"
+    "zlib release glob: ${_orkige_zlib_release}\n"
+    "zlib debug glob: ${_orkige_zlib_debug}\n"
+    "lib dir: ${_orkige_lib_listing}\n"
+    "debug/lib dir: ${_orkige_debug_lib_listing}\n")
 if(_orkige_zlib_release AND NOT DEFINED CACHE{ZLIB_LIBRARY})
     list(GET _orkige_zlib_release 0 _orkige_zlib_release_lib)
     set(ZLIB_LIBRARY_RELEASE "${_orkige_zlib_release_lib}" CACHE FILEPATH

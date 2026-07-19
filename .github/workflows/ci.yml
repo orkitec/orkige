@@ -1463,6 +1463,7 @@ jobs:
             build/windows-debug/Testing/**/*.log
             build/windows-debug/tests/**/*.log
             build/windows-debug/tests/**/*.png
+            projects/jumper-native/native/build*/orkige_module_diag.txt
             *.log
           if-no-files-found: ignore
 
