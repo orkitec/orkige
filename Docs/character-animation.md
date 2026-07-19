@@ -69,8 +69,22 @@ A script drives its OWN rig through the `self.animation` sibling handle and
 another object's rig through `world.getAnimation(id)` - the same weak-handle
 currency as the other component accessors.
 
-Runtime state (which clip, weights, time) does not serialize yet - a saved scene
-restores the model and re-auto-plays the default clip.
+### Playback state serialization
+
+A scene saved mid-animation round-trips: the reflected `clip` (the primary
+playing clip), `clipTime` (its phase in seconds), `clipLoop`, `speed` and
+`paused` properties carry the playback state through the ONE property registry
+(Inspector, scene serialization, the debug protocol, MCP). The component keeps
+these fields in step with the live mesh each tick (`refreshPrimaryClipState`),
+so a save captures the current clip at its current phase; a load records the
+intent and RESUMES it on the first runtime tick - the saved clip is enabled at
+its saved phase/loop/full weight, then playback continues (a saved-paused clip
+is posed at its exact frozen phase). An empty `clip` means nothing was playing,
+so the loaded scene auto-plays the default. The resume is applied only in a
+ticking runtime: the editor never ticks animations, so an edit-mode scene load
+stays at the bind pose (its dormancy is unchanged). Verified by the
+`AnimationComponent ... round-trips on a DETACHED component` reflection unit and
+the resume leg of `player_character_rig_selfcheck`.
 
 ### The generated test rig
 

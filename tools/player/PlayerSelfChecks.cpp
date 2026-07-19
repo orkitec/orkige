@@ -2798,18 +2798,67 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 			// the flavor with exact animated-amplitude bounds (next)
 			if (characterRigIdleBoundsMax - characterRigIdleBoundsMin > 0.01f)
 			{
-				SDL_Log("orkige_player: character rig selfcheck complete - walk "
-					"moved skeletal bounds (spread %.3f), a weighted crossfade "
-					"blended to idle, and idle's sway keeps moving the bounds "
-					"(spread %.3f) - 3D skeletal playback + blend verified",
+				SDL_Log("orkige_player: character rig selfcheck - walk moved "
+					"skeletal bounds (spread %.3f), a weighted crossfade blended "
+					"to idle, and idle's sway keeps moving the bounds (spread "
+					"%.3f); now testing playback-state resume",
 					characterRigBoundsMax - characterRigBoundsMin,
 					characterRigIdleBoundsMax - characterRigIdleBoundsMin);
-				characterRigPhase = CharacterRigPhase::Done;
-				running = false;
+				characterRigPhase = CharacterRigPhase::Resume;
+				characterRigDeadline = frameCount + 300;
 			}
 			else if (frameCount >= characterRigDeadline)
 			{
 				characterFail("the idle sway never moved the skeletal bounds");
+			}
+		}
+		else if (characterRigPhase == CharacterRigPhase::Resume)
+		{
+			if (!characterResumeArmed)
+			{
+				// simulate a scene LOAD of a mid-animation state through the
+				// reflected setters (the exact loadComponentProperties path):
+				// walk at 0.5 s while idle is the live clip. The resume is
+				// applied on the NEXT tick (@see AnimationComponent).
+				if (anim)
+				{
+					anim->setPlaybackClip("walk");
+					anim->setPlaybackLoop(true);
+					anim->setPlaybackTime(0.5f);
+					characterResumeArmed = true;
+				}
+			}
+			else
+			{
+				// after the restore tick, walk (not idle) plays at ~0.5 s: the
+				// loaded state resumed the saved clip AND phase
+				optr<Orkige::MeshInstance> mesh = rigMesh();
+				const bool walkPlaying = clipEnabled("walk");
+				const bool idleStopped = !clipEnabled("idle");
+				if (mesh && walkPlaying && idleStopped)
+				{
+					const float resumedTime = mesh->getAnimationTime("walk");
+					if (std::abs(resumedTime - 0.5f) < 0.1f)
+					{
+						SDL_Log("orkige_player: character rig selfcheck complete "
+							"- 3D skeletal playback + blend verified, and a "
+							"loaded mid-animation state resumed the saved clip at "
+							"the saved phase (walk at %.3f s, armed 0.5, idle "
+							"dropped) - playback serialization verified",
+							resumedTime);
+						characterRigPhase = CharacterRigPhase::Done;
+						running = false;
+					}
+					else if (frameCount >= characterRigDeadline)
+					{
+						characterFail("the resumed clip is at the wrong phase");
+					}
+				}
+				else if (frameCount >= characterRigDeadline)
+				{
+					characterFail("the loaded playback state did not resume the "
+						"saved clip");
+				}
 			}
 		}
 	}

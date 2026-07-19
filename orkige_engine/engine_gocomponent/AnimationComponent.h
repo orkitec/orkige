@@ -77,6 +77,25 @@ namespace Orkige
 		float							blendDuration;
 		float							blendElapsed;
 		bool							blending;
+		//! the serialized PLAYBACK STATE: the primary playing clip, its phase in
+		//! seconds and whether it loops - kept in step with the live mesh each
+		//! tick (@see refreshPrimaryClipState) so a scene saved mid-animation
+		//! round-trips. Empty clip = nothing playing (the loaded scene auto-plays
+		//! the default). The reflected clip/clipTime/clipLoop/speed/paused
+		//! properties drive these off the ONE registry.
+		String							primaryClip;
+		float							primaryTime;
+		bool							primaryLoop;
+		//! mirrors the pause state (getWantsUpdates is not const, so the
+		//! reflected `paused` getter reads this instead)
+		bool							paused;
+		//! a loaded playback state waiting to apply once the sibling mesh is
+		//! ready - applied on the FIRST runtime tick (never in the editor, which
+		//! does not tick animations, so an edit-mode load stays at the bind pose)
+		bool							pendingRestore;
+		//! the pause state to apply AFTER a pending restore poses the clip (so a
+		//! scene saved paused mid-clip resumes at its exact frozen phase)
+		bool							restorePaused;
 		//--- Methods -----------------------------------------------
 	public:
 		//! constructor
@@ -150,18 +169,50 @@ namespace Orkige
 		//! set animations speed
 		inline void setSpeed(float speed);
 		//! get animation speed
-		inline float getSpeed();
+		inline float getSpeed() const;
+
+		//--- SERIALIZED PLAYBACK STATE (reflected clip/clipTime/clipLoop/paused) ---
+		//! @brief the primary playing clip's name ("" = nothing playing). The
+		//! reflected `clip` property; a scene save records it, a load resumes it.
+		inline String const & getPlaybackClip() const;
+		//! @brief record the clip to resume on load (arms the pending restore
+		//! when non-empty); the live mesh is driven on the first runtime tick
+		void setPlaybackClip(String const & clip);
+		//! the primary clip's phase in seconds (the reflected `clipTime`)
+		inline float getPlaybackTime() const;
+		//! record the clip phase to resume on load
+		void setPlaybackTime(float seconds);
+		//! whether the primary clip loops (the reflected `clipLoop`)
+		inline bool getPlaybackLoop() const;
+		//! record the primary clip's loop flag to resume on load
+		void setPlaybackLoop(bool loop);
+		//! the pause state (the reflected `paused`; const mirror of the
+		//! wantsUpdates gate pause()/resume() drive)
+		inline bool getPaused() const;
+		//! set the pause state (deferred past a pending restore so the resumed
+		//! clip is posed before it freezes)
+		void setPaused(bool paused);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
 		//--- SERIALIZATION ---
-		//! @warning animation runtime state does not round-trip yet (logs a warning)
+		//! @brief write the reflected playback state (clip/clipTime/clipLoop/
+		//! speed/paused) off the ONE property schema, so a scene saved
+		//! mid-animation resumes on load (@see loadComponentProperties)
 		virtual void save(optr<IArchive> const & ar);
-		//! @warning animation runtime state does not round-trip yet
+		//! @brief read the reflected playback state; the resume is applied on the
+		//! first runtime tick (the editor never ticks, so it stays dormant)
 		virtual void load(optr<IArchive> const & ar);
 	private:
+		//! @brief snapshot the live primary playing clip + its phase into the
+		//! serialized playback fields (called every tick from updateAnimations)
+		void refreshPrimaryClipState(optr<MeshInstance> const & mesh);
+		//! @brief resume the loaded playback state on the sibling mesh (enable
+		//! the saved clip at its saved phase/loop); clears the pending flag once
+		//! the mesh is ready, leaves it armed to retry otherwise
+		void applyPlaybackRestore();
 		//! overridable to update the component
 		virtual void onUpdateComponent(float deltaTime);
 
@@ -278,11 +329,13 @@ namespace Orkige
 	//---------------------------------------------------------------
 	inline void AnimationComponent::pause()
 	{
+		this->paused = true;
 		this->setWantsUpdates(false);
 	}
 	//---------------------------------------------------------------
 	inline void AnimationComponent::resume()
 	{
+		this->paused = false;
 		this->setWantsUpdates(true);
 	}
 	//---------------------------------------------------------------
@@ -296,9 +349,29 @@ namespace Orkige
 		this->speed = speed;
 	}
 	//---------------------------------------------------------------
-	inline float AnimationComponent::getSpeed()
+	inline float AnimationComponent::getSpeed() const
 	{
 		return this->speed;
+	}
+	//---------------------------------------------------------------
+	inline String const & AnimationComponent::getPlaybackClip() const
+	{
+		return this->primaryClip;
+	}
+	//---------------------------------------------------------------
+	inline float AnimationComponent::getPlaybackTime() const
+	{
+		return this->primaryTime;
+	}
+	//---------------------------------------------------------------
+	inline bool AnimationComponent::getPlaybackLoop() const
+	{
+		return this->primaryLoop;
+	}
+	//---------------------------------------------------------------
+	inline bool AnimationComponent::getPaused() const
+	{
+		return this->paused;
 	}
 }
 

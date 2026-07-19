@@ -268,7 +268,11 @@ struct PlayerSelfChecks
 	//            the progress ramps to completion, then only idle remains.
 	//   Idle     idle is the sole playing clip and its sway still moves bounds.
 	// A missed deadline exits non-zero.
-	enum class CharacterRigPhase { Boot, Walk, Blend, Idle, Done };
+	//   Resume   the PLAYBACK-STATE serialization leg: a mid-animation state
+	//            (walk at 0.5 s) is applied through the reflected setters (the
+	//            loadComponentProperties path) while idle plays; the next tick
+	//            must RESUME walk at that exact phase and drop idle.
+	enum class CharacterRigPhase { Boot, Walk, Blend, Idle, Resume, Done };
 
 	CharacterRigPhase characterRigPhase = CharacterRigPhase::Boot;
 	bool characterRigCheckFailed = false;
@@ -282,6 +286,8 @@ struct PlayerSelfChecks
 	float characterRigIdleBoundsMax = 0.0f;
 	bool characterRigIdleSeeded = false;
 	unsigned long characterRigDeadline = 0;
+	// playback-state serialization leg (the Resume phase)
+	bool characterResumeArmed = false;		//!< the mid-animation state was applied
 	// --- ORKIGE_ROLLER_PROGRESSION_SELFCHECK=1: the level sequence + the
 	// DEFERRED scene switch + the progression save, end to end
 	// against projects/roller. Same discipline as the roller selfcheck

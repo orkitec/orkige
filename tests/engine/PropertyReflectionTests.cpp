@@ -25,6 +25,7 @@
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/WaterComponent.h>
 #include <engine_gocomponent/VectorAnimationComponent.h>
+#include <engine_gocomponent/AnimationComponent.h>
 #include <engine_gocomponent/ComponentPropertyReflect.h>
 #include <engine_render/RenderMath.h>
 
@@ -525,4 +526,84 @@ TEST_CASE("VectorAnimationComponent properties round-trip on a DETACHED componen
 	schema->find("animation")->set(instance,
 		PropertyValue::makeAssetRef("vectoranim", ""));
 	CHECK(anim.getAnimationName().empty());
+}
+//---------------------------------------------------------
+TEST_CASE("AnimationComponent declares its skeletal playback state schema",
+	"[reflection][animation]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		AnimationComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// the mid-animation playback state - the primary clip, its phase in seconds,
+	// the loop flag, the playback speed and the pause state - all reach the
+	// Inspector / scene serialization / MCP generically off ONE schema
+	REQUIRE(schema->find("clip") != nullptr);
+	CHECK(schema->find("clip")->kind == PropertyKind::String);
+	REQUIRE(schema->find("clipTime") != nullptr);
+	CHECK(schema->find("clipTime")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("clipLoop") != nullptr);
+	CHECK(schema->find("clipLoop")->kind == PropertyKind::Bool);
+	REQUIRE(schema->find("speed") != nullptr);
+	CHECK(schema->find("speed")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("paused") != nullptr);
+	CHECK(schema->find("paused")->kind == PropertyKind::Bool);
+	// every playback field is writable (a load must be able to restore it) and
+	// serialized (none is transient runtime-only state)
+	CHECK_FALSE(schema->find("clip")->isReadOnly());
+	CHECK_FALSE(schema->find("clipTime")->hasFlag(PROP_TRANSIENT));
+	CHECK_FALSE(schema->find("speed")->hasFlag(PROP_TRANSIENT));
+}
+//---------------------------------------------------------
+TEST_CASE("AnimationComponent playback state round-trips on a DETACHED component",
+	"[reflection][animation]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		AnimationComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// a DETACHED component (no scene node, no mesh) RECORDS the playback state
+	// through the type-erased get/set - the same setters the scene loader drives;
+	// the live resume happens on the first runtime tick once a mesh exists
+	AnimationComponent anim;
+	Object * instance = &anim;
+
+	// defaults: nothing playing, unit speed, looping, not paused
+	CHECK(schema->find("clip")->get(instance).asString().empty());
+	CHECK(schema->find("speed")->get(instance).asFloat() == Approx(1.0f));
+	CHECK(schema->find("clipLoop")->get(instance).asBool());
+	CHECK_FALSE(schema->find("paused")->get(instance).asBool());
+
+	// a scene saved mid-animation: the walk clip at 0.37 s, playing looped at
+	// 1.5x speed, paused
+	schema->find("clip")->set(instance, PropertyValue::makeString("walk"));
+	schema->find("clipTime")->set(instance, PropertyValue::makeFloat(0.37));
+	schema->find("clipLoop")->set(instance, PropertyValue::makeBool(true));
+	schema->find("speed")->set(instance, PropertyValue::makeFloat(1.5));
+	schema->find("paused")->set(instance, PropertyValue::makeBool(true));
+
+	CHECK(anim.getPlaybackClip() == "walk");
+	CHECK(anim.getPlaybackTime() == Approx(0.37f));
+	CHECK(anim.getPlaybackLoop());
+	CHECK(anim.getSpeed() == Approx(1.5f));
+	CHECK(anim.getPaused());
+
+	// the exact serialization path (capture -> apply, the same reflected schema
+	// save/loadComponentProperties use) carries every field to a fresh component
+	// so the loaded scene resumes the same clip at the same normalized phase
+	GameObject::ComponentPropertyMap captured =
+		SceneSerializer::captureComponentProperties(anim);
+	AnimationComponent restored;
+	SceneSerializer::applyComponentProperties(captured, restored);
+	CHECK(restored.getPlaybackClip() == "walk");
+	CHECK(restored.getPlaybackTime() == Approx(0.37f));
+	CHECK(restored.getPlaybackLoop());
+	CHECK(restored.getSpeed() == Approx(1.5f));
+	CHECK(restored.getPaused());
 }

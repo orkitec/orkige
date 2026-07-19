@@ -10,7 +10,9 @@
 #include "engine_gocomponent/AnimationComponent.h"
 #include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/ModelComponent.h"
+#include "engine_gocomponent/ComponentPropertyReflect.h"
 #include <core_game/GameObject.h>
+#include <core_game/SceneSerializer.h>
 #include "engine_gocomponent/TransformComponent.h"
 
 #ifdef ORKIGE_RENDER_CLASSIC
@@ -39,6 +41,14 @@ namespace Orkige
 		this->addDependency<ModelComponent>();
 		this->eventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
 		this->setWantsUpdates(true);
+		// the reflected state has defined values even on a DETACHED component
+		// (no onAdd runs there - the reflection round-trip tests exercise it)
+		this->speed = 1.f;
+		this->primaryTime = 0.f;
+		this->primaryLoop = true;
+		this->paused = false;
+		this->pendingRestore = false;
+		this->restorePaused = false;
 	}
 	//---------------------------------------------------------
 	AnimationComponent::~AnimationComponent()
@@ -75,6 +85,11 @@ namespace Orkige
 			Quat currentOrientation = transform->getOrientation();
 			currentOrientation.normalise();
 			this->initialStateTransforms[anim] = SimpleTransform(transform->getPosition(), currentOrientation, transform->getScale());
+
+			// the serialized playback intent (kept coherent even without a tick)
+			this->primaryClip = anim;
+			this->primaryLoop = loop;
+			this->primaryTime = 0.f;
 
 			return true;
 		}
@@ -125,6 +140,10 @@ namespace Orkige
 		mesh->setAnimationTime(anim, 0.f);
 		mesh->setAnimationEnabled(anim, true);
 		mesh->setAnimationLoop(anim, true);
+		// the target becomes the primary clip for a scene save (looping)
+		this->primaryClip = anim;
+		this->primaryLoop = true;
+		this->primaryTime = 0.f;
 		if(from.empty() || durationSeconds <= 0.f)
 		{
 			// nothing to blend from (or an instant switch): snap to the target
@@ -187,6 +206,27 @@ namespace Orkige
 			this->eventData->setValue(animationName);
 			this->getComponentOwner()->triggerEvent(Event(AnimationEndedEvent, this->eventData));
 		}
+		// track the live primary clip + phase so a scene save can resume here
+		this->refreshPrimaryClipState(mesh);
+	}
+	//---------------------------------------------------------
+	void AnimationComponent::refreshPrimaryClipState(optr<MeshInstance> const & mesh)
+	{
+		// mid-blend the incoming clip is the one to resume; otherwise the first
+		// enabled clip is the primary (single-clip playback, the common case)
+		String primary = this->blending ? this->blendTo : String();
+		if(primary.empty())
+		{
+			StringVector enabled = mesh->getEnabledAnimations();
+			if(!enabled.empty())
+			{
+				primary = enabled.front();
+			}
+		}
+		this->primaryClip = primary;
+		this->primaryTime = primary.empty()
+			? 0.f : mesh->getAnimationTime(primary);
+		// primaryLoop is set when a clip starts (playAnimation/crossFadeTo)
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -204,6 +244,12 @@ namespace Orkige
 		this->blending = false;
 		this->blendDuration = 0.f;
 		this->blendElapsed = 0.f;
+		this->primaryClip.clear();
+		this->primaryTime = 0.f;
+		this->primaryLoop = true;
+		this->paused = false;
+		this->pendingRestore = false;
+		this->restorePaused = false;
 		this->getAnimationsFromModel();
 	}
 	//---------------------------------------------------------
@@ -217,6 +263,19 @@ namespace Orkige
 	//---------------------------------------------------------
 	void AnimationComponent::onUpdateComponent(float deltaTime)
 	{
+		// resume a loaded playback state on the first tick the mesh is ready
+		// (this runs ONLY in a ticking runtime - the editor never reaches here,
+		// so an edit-mode scene load stays at the bind pose)
+		if(this->pendingRestore)
+		{
+			this->applyPlaybackRestore();
+			if(!this->pendingRestore && this->restorePaused)
+			{
+				// the clip is now posed at its saved phase - freeze it there
+				this->pause();
+				return;
+			}
+		}
 		if(this->hasAnimations())
 		{
 			if(!this->hasPlayingAnimations())
@@ -261,6 +320,8 @@ namespace Orkige
 		this->defaultAnimation.clear();
 		this->motionBone.clear();
 		this->boneNames.clear();
+		// the live playback is gone with the mesh; keep primaryClip as the
+		// resume intent so a swap back to an equivalent rig re-applies it
 		return true;
 	}
 	//---------------------------------------------------------
@@ -412,18 +473,100 @@ namespace Orkige
 #endif //ORKIGE_RENDER_CLASSIC
 	}
 	//---------------------------------------------------------
-	// @TODO(scene format v2): serialize the enabled animations, weights,
-	// time positions and speed - until then a saved scene only restores an
-	// empty AnimationComponent (the sibling ModelComponent restores the model)
+	void AnimationComponent::setPlaybackClip(String const & clip)
+	{
+		this->primaryClip = clip;
+		if(!clip.empty())
+		{
+			// arm the resume; the live mesh is driven on the first runtime tick
+			this->pendingRestore = true;
+		}
+	}
+	//---------------------------------------------------------
+	void AnimationComponent::setPlaybackTime(float seconds)
+	{
+		this->primaryTime = seconds < 0.f ? 0.f : seconds;
+	}
+	//---------------------------------------------------------
+	void AnimationComponent::setPlaybackLoop(bool loop)
+	{
+		this->primaryLoop = loop;
+	}
+	//---------------------------------------------------------
+	void AnimationComponent::setPaused(bool paused)
+	{
+		this->restorePaused = paused;
+		if(this->pendingRestore)
+		{
+			// defer: applyPlaybackRestore poses the clip first, then the tick
+			// applies this pause so it freezes at the saved phase (@see
+			// onUpdateComponent). The `paused` mirror already carries the intent.
+			this->paused = paused;
+			return;
+		}
+		if(paused)
+		{
+			this->pause();
+		}
+		else
+		{
+			this->resume();
+		}
+	}
+	//---------------------------------------------------------
+	void AnimationComponent::applyPlaybackRestore()
+	{
+		if(this->primaryClip.empty())
+		{
+			// nothing was playing when the scene was saved: let the normal
+			// auto-play-default path take over
+			this->pendingRestore = false;
+			return;
+		}
+		optr<MeshInstance> mesh = this->getAnimableMesh();
+		if(!mesh || !mesh->hasAnimation(this->primaryClip))
+		{
+			return;	// the model is not ready yet - stay armed to retry
+		}
+		// resume EXACTLY the saved clip: silence whatever auto-enabled, then
+		// enable the saved one at its saved phase/loop/full weight
+		for(String const & name : mesh->getEnabledAnimations())
+		{
+			mesh->setAnimationEnabled(name, false);
+		}
+		mesh->setAnimationEnabled(this->primaryClip, true);
+		mesh->setAnimationLoop(this->primaryClip, this->primaryLoop);
+		mesh->setAnimationWeight(this->primaryClip, 1.f);
+		mesh->setAnimationTime(this->primaryClip, this->primaryTime);
+		// the root-motion baseline, like playAnimation
+		if(optr<TransformComponent> transform =
+			this->getComponentOwner()->getComponent<TransformComponent>().lock())
+		{
+			Quat currentOrientation = transform->getOrientation();
+			currentOrientation.normalise();
+			this->initialStateTransforms[this->primaryClip] = SimpleTransform(
+				transform->getPosition(), currentOrientation,
+				transform->getScale());
+		}
+		this->blending = false;
+		this->pendingRestore = false;
+	}
+	//---------------------------------------------------------
 	void AnimationComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		oDebugMsg("scene",0,"AnimationComponent: animation runtime state (enabled animations, weights, time positions) is not serialized yet");
+		// reflection-driven NAMED serialization: the primary clip, its phase,
+		// the loop flag, the playback speed and the pause state are written by
+		// name off the declared schema, so a scene saved mid-animation resumes
+		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	void AnimationComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
+		// the setters record the resume intent (arming pendingRestore); the live
+		// mesh is driven on the first runtime tick (@see onUpdateComponent)
+		SceneSerializer::loadComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	OOBJECT_IMPL(AnimationComponent)
@@ -453,6 +596,17 @@ namespace Orkige
 		OFUNC(crossFadeTo)
 		OFUNC(isCrossFading)
 		OFUNC(getCrossFadeProgress)
+		// reflected PLAYBACK STATE: the primary clip, its phase in seconds, the
+		// loop flag, the playback speed and the pause state. Order-independent
+		// (matched by name on load) and every field drives a component setter -
+		// the ONE schema the Inspector, scene serialization, the debug protocol
+		// and MCP all consume. clipTime/speed serialize the mid-animation phase;
+		// the resume is applied on the first runtime tick (@see onUpdateComponent).
+		OPROPERTY("clip", Orkige::PropertyKind::String, getPlaybackClip, setPlaybackClip, Orkige::PROP_NONE)
+		OPROPERTY("clipTime", Orkige::PropertyKind::Float, getPlaybackTime, setPlaybackTime, Orkige::PROP_NONE)
+		OPROPERTY("clipLoop", Orkige::PropertyKind::Bool, getPlaybackLoop, setPlaybackLoop, Orkige::PROP_NONE)
+		OPROPERTY("speed", Orkige::PropertyKind::Float, getSpeed, setSpeed, Orkige::PROP_NONE)
+		OPROPERTY("paused", Orkige::PropertyKind::Bool, getPaused, setPaused, Orkige::PROP_NONE)
 		// self.animation / world.getAnimation(id) hand Lua a WEAK handle: locks
 		// per call, raises an honest error naming the owner once gone. This is
 		// the clip-drive surface a SCRIPT reaches (the OFUNC lines above bind
