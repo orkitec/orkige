@@ -7,6 +7,8 @@
 #                                    scripting-off gate)
 #   linux-sanitizer                  - the ASan/UBSan instrumented tree +
 #                                    full suite, zero retries
+#   linux-tsan                       - the ThreadSanitizer tree + headless
+#                                    unit gate, zero retries (no windowed set)
 #   android-emulator-next / -classic - x86_64 player build + emulator Play
 #   macos-next / macos-classic       - full desktop suites on Apple hardware
 #   ios-simulator-next / -classic    - Simulator player + device tests
@@ -437,6 +439,105 @@ jobs:
             build/linux-debug-sanitize/Testing/**/*.log
             build/linux-debug-sanitize/tests/**/*.log
             build/linux-debug-sanitize/tests/**/*.png
+          if-no-files-found: ignore
+
+  # ThreadSanitizer: a dedicated instrumented tree (TSan cannot share a runtime
+  # with ASan, so it is its own build). Runs the HEADLESS unit gate only - the
+  # contact-queue drain, the debug-protocol sockets and the relaxed-atomic
+  # tables in core_debug are exactly the threaded seams the unit suite exercises
+  # without a display. The windowed integration suite is deliberately excluded:
+  # under TSan the render backend's worker threads and the GL/Vulkan driver
+  # generate noise the engine cannot fix (only suppressible), which would drown
+  # a genuine Orkige race. See Docs/sanitizers.md. Zero retries, like the ASan
+  # gate. NOTE: uses:@vN refs are pinned to commit SHAs by the workflow-pinning
+  # pass; keep this job on the same refs as its siblings.
+  linux-tsan:
+    name: Linux ThreadSanitizer - headless unit gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang ninja-build ccache python3 pkg-config \
+            autoconf autoconf-archive automake libtool curl zip unzip tar \
+            libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
+            libx11-xcb-dev libxcb-randr0-dev libxtst-dev libxinerama-dev \
+            libxcb1-dev libxcb-keysyms1-dev libxcb-ewmh-dev libxcb-icccm4-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
+            libibus-1.0-dev
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-tsan-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-tsan-${{ runner.os }}-
+            vcpkg-next-v2-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: /home/runner/.ccache
+          key: ccache-tsan-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-tsan-${{ runner.os }}-
+
+      - name: Configure + build (ThreadSanitizer)
+        run: |
+          bash Util/ci_configure.sh --preset linux-debug-tsan \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+          cmake --build --preset linux-debug-tsan
+
+      - name: ThreadSanitizer headless unit gate (MUST pass)
+        id: linux_tsan
+        env:
+          # halt on the first real race; deeper history for readable reports.
+          # The suppressions file covers ONLY non-Orkige worker-thread races
+          # (Docs/sanitizers.md) - an Orkige race is a hard failure here.
+          TSAN_OPTIONS: halt_on_error=1:history_size=4:suppressions=${{ github.workspace }}/Util/tsan_suppressions.txt
+          ALSOFT_DRIVERS: "null"
+        run: ctest --preset unit-linux-tsan
+
+      - name: Save vcpkg binary cache
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-tsan-logs
+          path: |
+            build/linux-debug-tsan/Testing/**/*.log
+            build/linux-debug-tsan/tests/**/*.log
           if-no-files-found: ignore
 
   # The browser flavor: the classic GLES2 player cross-compiled to

@@ -1,0 +1,30 @@
+# ThreadSanitizer suppressions for the Orkige TSan gate (Docs/sanitizers.md).
+#
+# POLICY: this file suppresses ONLY races the engine cannot fix - third-party
+# worker threads whose internal synchronisation TSan cannot see through. Every
+# entry names its non-Orkige source and why. A race in Orkige's OWN code is a
+# real bug: it is fixed, never added here. Wired in via
+# TSAN_OPTIONS=suppressions=Util/tsan_suppressions.txt.
+#
+# These entries bite only the instrumented INTEGRATION/windowed runs (which
+# spin up the render backend and audio device threads); the CI unit gate is
+# headless and touches none of them, so it runs with no third-party noise.
+
+# Ogre-Next spreads scene-graph update and frustum culling across its own
+# worker-thread pool (SceneManager::_updateWorkerThread / cullFrustumExecute)
+# with an internal Barrier the engine does not own - the reported cross-thread
+# accesses are inside Ogre and cannot be resolved from Orkige code.
+race:Ogre::SceneManager::updateWorkerThread
+race:Ogre::SceneManager::cullFrustumExecute
+race:Ogre::SceneManager::updateAllTransformsThread
+race:Ogre::SceneManager::updateAllBoundsThread
+
+# The clustered-forward light-collection pass (ForwardClustered) fills its grid
+# from Ogre worker threads over the same internal Barrier - third-party.
+race:Ogre::ForwardClustered
+
+# Ogre-Next's low-level threading primitives (the pool/barrier that drive the
+# above); suppress at the primitive so any future Ogre threaded stage is covered
+# without a fresh entry - all strictly inside the third-party render backend.
+race:Ogre::ThreadHandle
+race:Ogre::Barrier

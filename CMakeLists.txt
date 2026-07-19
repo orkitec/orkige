@@ -94,6 +94,16 @@ option(ORKIGE_BUILD_ENGINE "Build the engine modules (requires OGRE)" OFF)
 option(ORKIGE_BUILD_TOOLS  "Build the tool executables" ${ORKIGE_BUILD_ENGINE})
 option(ORKIGE_BUILD_TESTS  "Build the unit tests and register the ctest suite" ON)
 option(ORKIGE_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(ORKIGE_TSAN "Enable ThreadSanitizer (data-race detection)" OFF)
+
+# ThreadSanitizer maintains its own shadow memory and runtime; it cannot share
+# an object closure with AddressSanitizer. The two are distinct instrumented
+# build trees - a single tree picks exactly one.
+if(ORKIGE_ENABLE_SANITIZERS AND ORKIGE_TSAN)
+    message(FATAL_ERROR
+        "ORKIGE_ENABLE_SANITIZERS (ASan/UBSan) and ORKIGE_TSAN are mutually "
+        "exclusive - use one instrumented build tree per sanitizer")
+endif()
 
 if(ORKIGE_ENABLE_SANITIZERS)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
@@ -111,6 +121,25 @@ if(ORKIGE_ENABLE_SANITIZERS)
         "$<$<COMPILE_LANGUAGE:CXX>:-fno-sanitize-recover=undefined>"
     )
     add_link_options(-fsanitize=address,undefined -fno-sanitize=vptr)
+endif()
+
+if(ORKIGE_TSAN)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        message(FATAL_ERROR
+            "ORKIGE_TSAN requires a Clang or GCC toolchain")
+    endif()
+
+    # ThreadSanitizer instruments the engine's threaded seams - the physics
+    # contact-event worker callbacks feeding the main-thread drain, the debug
+    # protocol sockets, and the relaxed-atomic tables in core_debug. Frame
+    # pointers are kept for readable race reports. TSAN_OPTIONS at run time
+    # points at Util/tsan_suppressions.txt for races the engine cannot fix
+    # (third-party worker threads); Orkige's own races are never suppressed.
+    add_compile_options(
+        "$<$<COMPILE_LANGUAGE:CXX>:-fsanitize=thread>"
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-omit-frame-pointer>"
+    )
+    add_link_options(-fsanitize=thread)
 endif()
 
 # Render backend: which renderer implements the engine_render facade

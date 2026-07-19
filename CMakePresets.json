@@ -131,6 +131,14 @@
       }
     },
     {
+      "name": "linux-debug-tsan",
+      "displayName": "Linux Debug (Ogre-Next, ThreadSanitizer - CI only)",
+      "inherits": "linux-debug-next",
+      "cacheVariables": {
+        "ORKIGE_TSAN": "ON"
+      }
+    },
+    {
       "name": "windows-base",
       "hidden": true,
       "generator": "Ninja",
@@ -421,6 +429,10 @@
     {
       "name": "linux-debug-sanitize",
       "configurePreset": "linux-debug-sanitize"
+    },
+    {
+      "name": "linux-debug-tsan",
+      "configurePreset": "linux-debug-tsan"
     },
     {
       "name": "linux-debug-next",
@@ -807,6 +819,22 @@
       },
       "execution": {
         "jobs": 2
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "unit-linux-tsan",
+      "displayName": "Linux CI ThreadSanitizer: headless unit tests (contact queue, sockets, atomics, breadcrumbs - no windowed GL)",
+      "configurePreset": "linux-debug-tsan",
+      "filter": {
+        "include": {
+          "label": "unit"
+        }
+      },
+      "execution": {
+        "jobs": 1
       },
       "output": {
         "outputOnFailure": true

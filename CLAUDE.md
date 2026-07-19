@@ -972,9 +972,10 @@ look when touching one:
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) builds + tests on every push —
-**twelve parallel jobs, one per platform x flavor**, so a failure names
-itself and every verdict lands as early as its own build allows (public-repo
-runners are free; the only cap is 5 concurrent macOS jobs):
+**thirteen parallel jobs** (one per platform x flavor, plus the two Linux
+sanitizer siblings), so a failure names itself and every verdict lands as
+early as its own build allows (public-repo runners are free; the only cap is
+5 concurrent macOS jobs):
 **web** cross-builds the wasm player + core test module on Ubuntu (pinned
 emsdk, cached; vcpkg binary cache keyed on the chainload wrapper too) and
 runs the full web suite — core units under the emsdk's node plus the export
@@ -982,8 +983,12 @@ structure/pixel-boot tests through the image's headless Chrome, with a
 may-not-skip guard on the boot test;
 **linux-next**/**linux-classic** run the full windowed desktop suites under
 xvfb (lavapipe / llvmpipe); linux-next adds the **`ORKIGE_SCRIPTING=OFF`**
-build + unit gate and the CI-only **ASan + UBSan** tree with the complete
-unit + desktop suite (the sanitizer suite runs with ZERO retries).
+build + unit gate. **linux-sanitizer** is the CI-only **ASan + UBSan** tree
+running the complete unit + desktop suite, and **linux-tsan** the sibling
+**ThreadSanitizer** tree running the headless unit gate only (windowed sets
+excluded — too noisy under TSan; `Util/tsan_suppressions.txt` covers only
+non-Orkige worker-thread races, `Docs/sanitizers.md`); both run with ZERO
+retries.
 **android-emulator-next**/**-classic** build the x86_64 emulator player
 FIRST (the fail-fast the job exists for), then the host editor, then run
 the adb Play test (shipping Android remains arm64-v8a).
