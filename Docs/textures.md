@@ -94,14 +94,39 @@ Rationale for the corners:
   classic mobile slots is permitted (it ships as KTX1, which the classic
   loader parses) but the cook warns loudly that a GLES2 context may not
   accept it — treat it as a per-device experiment, not a shipping default.
-* **Web ships PNG in v1**: compressed-texture support in a browser is a
-  property of the *visitor's* GPU — desktop visitors expose the BC family,
-  phones expose ETC2/ASTC, all as optional extensions, none guaranteed. An
-  explicit format on the `<web>` slot is permitted but warns loudly: it only
-  loads on clients exposing the matching extension. The universal answer —
-  KTX2 with a supercompressed intermediate transcoded at load to whatever
-  the visitor supports — is the planned **v2** of this pipeline and is
-  deliberately not started here.
+* **Web ships PNG — the KTX2 transcoder road is refused, with reasons**:
+  compressed-texture support in a browser is a property of the *visitor's*
+  GPU — desktop visitors expose the BC family, phones expose ETC2/ASTC, all
+  as optional extensions, **none guaranteed**. An explicit format on the
+  `<web>` slot is permitted but warns loudly: it only loads on clients
+  exposing the matching extension. The one universal answer — **KTX2** with a
+  supercompressed UASTC/ETC1S intermediate transcoded at page load to whatever
+  the visitor's context supports — was evaluated and **deliberately not
+  built**, because it cannot be done here without breaking the engine's
+  closure discipline:
+  * The browser player is the **classic GLES2 → WebGL** build, and **WebGL 1
+    is the floor** (`tools/player/CMakeLists.txt` allows a WebGL2 context only
+    where the driver asks for GLES3 features). WebGL 1 guarantees **no**
+    compressed format, so a single shipped artifact cannot pick a
+    GPU-native compressed format up front — it MUST transcode at load, or fall
+    back to uncompressed.
+  * Runtime transcoding needs the Basis Universal transcoder (libktx) compiled
+    into the **wasm** player. But `ktx` is scoped `!ios & !android &
+    !emscripten` in `vcpkg.json` — a **deliberate exclusion**: it is a
+    host-only encoder dep for `texcook`, never shipped in a player closure.
+    Pulling it into the emscripten build would reverse that decision, add the
+    transcoder's code + tables to every page's wasm download, and require a
+    KTX2/Basis loader in the classic backend (its texture codecs read KTX1,
+    not KTX2 — there is no transcode path today).
+  * The alternative — ship a WebGL-consumable compressed format **directly**,
+    no transcoder — fails on the WebGL 1 floor above: there is no format all
+    visitors accept, and the export cannot know a visitor's GPU.
+
+  So `auto` stays PNG on web (byte-identical raw texels, universally decodable
+  through the browser's own PNG path), and the `<web>` slot's explicit
+  formats stay the warned per-visitor lottery. The refusal is a
+  closure-discipline decision, not a capability gap; it would revisit only
+  alongside a KTX2 codec + a sanctioned wasm transcoder dependency.
 * **Android auto is ASTC** (matching iOS): the next flavor on Android boots
   Ogre-Next's Vulkan renderer, and every Vulkan-capable device at the shipping
   floor — arm64, API 28+ — decodes ASTC LDR (it is near-universal on that
