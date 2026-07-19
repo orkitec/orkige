@@ -194,11 +194,16 @@ list(APPEND CMAKE_LIBRARY_PATH "${ORKIGE_VCPKG_PREFIX}/lib")
 # (the Windows job's evidence: header found, library not). Pre-seeding the
 # result cache variables short-circuits the search entirely; find_library
 # no-ops on an already-set entry.
+# vcpkg names the static Windows zlib "zs.lib"/"zsd.lib" (the CI diag
+# artifact's listing settled it) - no generic zlib*/libz* pattern matches,
+# which is the whole reason the toolchain-guided wrapper exists upstream
 file(GLOB _orkige_zlib_release
-    "${ORKIGE_VCPKG_PREFIX}/lib/zlib*" "${ORKIGE_VCPKG_PREFIX}/lib/libz.*")
+    "${ORKIGE_VCPKG_PREFIX}/lib/zlib*" "${ORKIGE_VCPKG_PREFIX}/lib/libz.*"
+    "${ORKIGE_VCPKG_PREFIX}/lib/zs.lib")
 file(GLOB _orkige_zlib_debug
     "${ORKIGE_VCPKG_PREFIX}/debug/lib/zlib*"
-    "${ORKIGE_VCPKG_PREFIX}/debug/lib/libz.*")
+    "${ORKIGE_VCPKG_PREFIX}/debug/lib/libz.*"
+    "${ORKIGE_VCPKG_PREFIX}/debug/lib/zsd.lib")
 message(STATUS "vcpkg zlib seed: release='${_orkige_zlib_release}' "
     "debug='${_orkige_zlib_debug}'")
 if(NOT _orkige_zlib_release)
