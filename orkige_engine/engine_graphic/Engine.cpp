@@ -529,7 +529,19 @@ namespace Orkige
 		| Initialize the RT Shader system.	
 		-----------------------------------------------------------------------------*/
 		bool Engine::initializeRTShaderSystem(Ogre::SceneManager* sceneMgr)
-		{			
+		{
+			// ShaderGenerator::DEFAULT_SCHEME_NAME is a mutable static String
+			// initialised by COPYING OgreMain's MSN_SHADERGEN global. In a
+			// static-library link the RTShaderSystem TU's static initialisers can
+			// run BEFORE OgreMain's, so the copy captures a not-yet-constructed
+			// (empty) string - every engine-side scheme registration then rides
+			// the "" scheme while OgreMain's runtime defaults (viewport material
+			// schemes, compositor target passes via
+			// RenderSystem::_getDefaultViewportMaterialScheme) answer the real
+			// name, splitting one scheme into two and breaking any off-screen
+			// scene pass. Restore the canonical name BEFORE the generator
+			// initialises so both sides agree on one scheme.
+			Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME = Ogre::MSN_SHADERGEN;
 			if (Ogre::RTShader::ShaderGenerator::initialize())
 			{
 				mShaderGenerator = Ogre::RTShader::ShaderGenerator::getSingletonPtr();

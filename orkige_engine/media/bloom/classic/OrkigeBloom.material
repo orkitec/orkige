@@ -1,12 +1,13 @@
 //---------------------------------------------------------------------------
 // Orkige LDR bloom post-process materials (the classic OGRE flavor). The
-// OrkigeBloom compositor (OrkigeBloom.compositor) is enabled on the window
-// viewport while a scene enabled bloom and the r.bloomQuality knob is on
-// (@see RenderBackend::applyBloomConfig); it renders the 3D tier into an
-// off-screen scene texture, bright-passes -> separably blurs -> additively
-// combines it, then draws the 2D tier + GUI un-bloomed over the result. The
-// bright-pass Threshold and the combine Intensity are pushed live from
-// RenderWorld::setBloom. Portable OgreUnifiedShader.h shaders (GL3+/GLES/etc).
+// per-tier bloom compositor is built programmatically and enabled on the
+// window viewport while a scene enabled bloom and the r.bloomQuality knob is
+// on (@see RenderBackend::applyBloomConfig / buildBloomCompositor); it renders
+// the 3D tier into an off-screen scene texture, bright-passes -> separably
+// blurs -> additively combines it, then draws the 2D tier + GUI un-bloomed
+// over the result. The bright-pass Threshold and the combine Intensity are
+// pushed live from RenderWorld::setBloom. Portable OgreUnifiedShader.h
+// shaders (GL3+/GLES/etc).
 //---------------------------------------------------------------------------
 
 vertex_program Orkige/Bloom/Quad_vp glsl

@@ -67,6 +67,27 @@ namespace Orkige
 		String gIblWarnedReason;
 		//--- end IBL block ------------------------------------------------
 
+		//! @brief the shared 1x1 white texture behind the flat-emissive glow
+		//! pass: the emissive-map recipe (additive pass, LBX_MODULATE texture x
+		//! manual colour) with the map factored out to constant white, so a
+		//! plain emissive COLOUR glows too (@see createOrUpdateSurfaceMaterial)
+		Ogre::TexturePtr getOrCreateWhiteTexture()
+		{
+			char const * const kName = "Orkige/White1x1";
+			Ogre::TextureManager & textures = Ogre::TextureManager::getSingleton();
+			Ogre::TexturePtr texture = textures.getByName(kName,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			if(texture)
+			{
+				return texture;
+			}
+			unsigned char pixels[4] = { 255u, 255u, 255u, 255u };
+			Ogre::Image image;
+			image.loadDynamicImage(pixels, 1u, 1u, 1u, Ogre::PF_A8B8G8R8, false);
+			return textures.loadImage(kName,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, image);
+		}
+
 #ifdef USE_RTSHADER_SYSTEM
 		//! @brief pin @p material's RTSS render state to a metal-rough Cook-
 		//! Torrance lighting stage (reading albedo/metalness/roughness/emissive
@@ -608,6 +629,31 @@ namespace Orkige
 						outComplete = false;
 					}
 				}
+			}
+			// a plain emissive COLOUR (no map) as the SAME additive glow pass,
+			// over the shared 1x1 white texture: the Cook-Torrance stage folds
+			// self-illumination into the derived scene colour MULTIPLIED by the
+			// base colour (and drops it entirely in a light-less scene), so a
+			// dark-albedo emissive surface would not glow - the additive pass
+			// restores the other backend's independent emissive term (tolerance
+			// parity). Translucent surfaces keep the (weaker) self-illumination
+			// path - the additive pass is opaque-material only, like the map's.
+			if(desc.emissiveTexture.empty() && desc.albedo.a >= 1.0f &&
+				(desc.emissive.r > 0.0f || desc.emissive.g > 0.0f ||
+					desc.emissive.b > 0.0f))
+			{
+				Ogre::Pass* glow = technique->createPass();
+				glow->setLightingEnabled(false);
+				glow->setSceneBlending(Ogre::SBT_ADD);
+				glow->setDepthWriteEnabled(false);
+				Ogre::TextureUnitState* unit = glow->createTextureUnitState();
+				unit->setTexture(getOrCreateWhiteTexture());
+				unit->setColourOperationEx(Ogre::LBX_MODULATE,
+					Ogre::LBS_TEXTURE, Ogre::LBS_MANUAL,
+					Ogre::ColourValue::White, Ogre::ColourValue(
+						desc.emissive.r, desc.emissive.g, desc.emissive.b));
+				// the additive pass carries the whole emissive term now
+				pass->setSelfIllumination(0.0f, 0.0f, 0.0f);
 			}
 			// pin the shader render state LAST, so createShaderBasedTechnique
 			// clones both the surface pass and any emissive pass

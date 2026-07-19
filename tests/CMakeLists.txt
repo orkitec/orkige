@@ -302,12 +302,10 @@ if(TARGET orkige_engine)
     if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         target_compile_definitions(render_facade_selfcheck PRIVATE
             # backend-internal media the classic bootstrap registers (RTSS libs)
-            ORKIGE_SELFCHECK_OGRE_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media")
-            # NB: the classic bloom media (orkige_engine/media/bloom/classic) is
-            # NOT registered - bloom is gated off on classic (RenderCaps::Bloom
-            # = false, see RenderBackend::bloomSupported + the bloom parity debt
-            # in Docs/render-abstraction.md), so the bloom leg takes the honest
-            # "unsupported" branch and never needs the compositor media.
+            ORKIGE_SELFCHECK_OGRE_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media"
+            # the classic-flavor bloom compositor media (bright/blur/combine
+            # material + OgreUnifiedShader GLSL) the bloom leg registers
+            ORKIGE_SELFCHECK_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/bloom/classic")
     elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
         target_compile_definitions(render_facade_selfcheck PRIVATE
             # backend-internal media the next bootstrap registers (the HLMS

@@ -471,16 +471,17 @@ namespace Orkige
 		static bool shadowsArmed();
 
 		//--- LDR bloom (viewport compositor) -------------------------
-		//! visibility bit carried by the 3D tier (mesh instances + the sky
-		//! dome) - the bloom compositor's scene pass masks to this so only 3D
-		//! content reaches the bright-pass source. Disjoint from SCENE_2D.
+		//! visibility bit carried by explicitly tagged 3D-tier movables (mesh
+		//! instances). The tier split itself keys on SCENE_2D: the bloom scene
+		//! target masks to ~SCENE_2D, so untagged movables (sky dome, decals,
+		//! static regions) default into the 3D tier (@see createRenderSystem).
 		static unsigned int const SCENE_3D_VISIBILITY = 0x00000001u;
 		//! visibility bit carried by the 2D tier (sprite quads/batches + vector
-		//! meshes) - the bloom compositor's output scene pass masks to this so
-		//! the 2D tier draws un-bloomed over the combined 3D result.
+		//! meshes) - the bloom compositor's output target masks to this so the
+		//! 2D tier draws un-bloomed over the combined 3D result.
 		static unsigned int const SCENE_2D_VISIBILITY = 0x00000002u;
 		//! @brief tag a 3D-tier movable so the bloom scene split includes it in
-		//! the glow source. Byte-stable while bloom is off (the window viewport
+		//! the glow source. Byte-stable while bloom is off (every viewport
 		//! renders with the default 0xFFFFFFFF mask, matching every bit).
 		static void tagScene3D(Ogre::MovableObject* movable);
 		//! @brief tag a 2D-tier movable so the bloom scene split keeps it OUT of
@@ -492,12 +493,14 @@ namespace Orkige
 		//! whether this backend can render the bloom compositor at all: the RTSS
 		//! shader generator is active AND the render system can create the
 		//! off-screen colour render targets (the RenderCaps::Bloom fill,
-		//! runtime-determined - a bare GLES2/WebGL context answers false)
+		//! runtime-determined - a GLES2/WebGL context answers false, gated
+		//! pending an on-device/browser proof run of the compositor chain)
 		static bool bloomSupported();
 		//! @brief re-apply the bloom configuration (RenderWorld::setBloom /
-		//! setBloomQuality): enable/disable the OrkigeBloom compositor on the
-		//! window viewport and push the live threshold/intensity onto its
-		//! materials. Idempotent; a bare GLES2 context refuses with ONE log line.
+		//! setBloomQuality): build/enable/disable the per-tier bloom compositor
+		//! on the window viewport (@see buildBloomCompositor in the .cpp) and
+		//! push the live threshold/intensity onto its materials. Idempotent; a
+		//! bloom-less context refuses with ONE log line.
 		static void applyBloomConfig();
 		//! @brief is the given viewport the bloom compositor's OUTPUT viewport
 		//! (target_output renders through the window's own viewport, so the 2D

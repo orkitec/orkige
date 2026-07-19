@@ -145,8 +145,8 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 #ifdef ORKIGE_SELFCHECK_BLOOM_DIR
 	// the bloom post-process compositor media (bright/blur/combine material +
 	// shaders) - registered like the player/editor do so the bloom leg's pass
-	// chain can resolve its materials by name (next only; classic bloom is
-	// gated off, so its media is not registered - @see tests/CMakeLists.txt)
+	// chain can resolve its materials by name (per flavor: bloom/next vs
+	// bloom/classic - @see tests/CMakeLists.txt)
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_BLOOM_DIR);
 #endif
 	renderSystem->initialiseResourceGroups();
