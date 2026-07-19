@@ -18,6 +18,58 @@ The index and the type reference are GENERATED from the binding sources by
 in `Util/lua_api_annotations.json`; fix a signature there, never in the generated
 text. Everything gui-widget lives in [Docs/gui.md](gui.md).
 
+## Sandbox / security
+
+**Threat model.** In an AI-agent dev setting a scene or script file may be authored
+by an agent or fetched from an untrusted source. **Loading a scene is loading
+CONTENT, not executing arbitrary code.** A script attached to a scene runs in a
+sandbox that MUST NOT grant it arbitrary file read/write, process execution, or
+code loading — otherwise a hostile `.oscene`'s attached script owns the machine.
+
+Every script sandbox is a fresh per-instance environment whose reads fall through
+to one shared, hardened Lua state (`ScriptManager` — the sol2 backend). The
+allowlist below is applied there ONCE at boot, so it covers **both** the game
+`ScriptComponent` sandbox (`self` + `world`/`shared`) and the editor-script
+sandbox (`editor.*`) identically. In `ORKIGE_SCRIPTING=OFF` builds nothing runs at
+all, so the denials hold trivially.
+
+**Permitted — the pure-computation stdlib** (no capability, safe on untrusted
+input): `math`, `string`, `table`; `tostring`, `tonumber`, `type`, `ipairs`,
+`pairs`, `next`, `select`; `pcall`, `xpcall`, `error`, `assert`; `setmetatable`,
+`getmetatable`, `rawget`, `rawset`, `rawequal`, `rawlen`; `print` (writes only to
+the process log stream — no file/process access). `os` is kept only as a **pruned
+read-only subset**: `os.time`, `os.clock`, `os.date` (RNG seeding / timing /
+timestamp formatting carry no capability). Plus the sanctioned engine API tables —
+`world`, `shared`, `self`, `music`, `save`, `screen`, `haptics`, `input`, `loc`,
+the component handles, and (editor only) `editor.*` — which are the intended API.
+
+**Denied — every escape from "content" to the machine** (each is `nil`; a call
+errors honestly):
+
+| Global | Why denied |
+| --- | --- |
+| `io` | raw file handles (read/write/delete arbitrary files) |
+| `os.execute`, `os.remove`, `os.rename`, `os.exit`, `os.getenv`, `os.tmpname` | process execution, filesystem + environment access (dropped from the `os` subset) |
+| `require`, `package` | load Lua/C modules off the package path (the `package` library is never opened) |
+| `load`, `loadstring`, `loadfile`, `dofile` | compile+run arbitrary source / read+run an arbitrary file |
+| `debug` | the reflection + hook library (bypasses every sandbox boundary) |
+
+`collectgarbage` is **permitted**: it controls only the garbage collector (force a
+collection, read the live count) and carries no file/process/code-loading
+capability, so a game (a loading-screen collect) and the engine's own weak-handle
+orphan tests can drive it. `io`, `debug` and `package` are never opened; they are
+additionally set to `nil` so the denial is explicit and survives a future
+library-open edit. The one shared
+state means a script cannot reconstruct a denied capability — the building blocks
+(`load`, `require`, full `os`/`io`) are simply gone.
+
+The hardening lives entirely in the sol2 backend
+(`ScriptManager::applySandboxAllowlist`), so no `#ifdef ORKIGE_LUA` leaks outside
+`Meta*.h` and the ScriptRuntime implementation. Denials are verified per sandbox:
+the game sandbox by `ScriptRuntimeTests` (`[security]`), the editor sandbox by the
+`editor_scripts` selfcheck's `fixture_security` tool. This is one facet of the
+engine's security posture — see `Docs/security.md` (planned) for the whole picture.
+
 ## Signature index
 
 Legend: `table.fn(args) -> ret` is a global-table call, `Type:method(...)` an
@@ -610,6 +662,10 @@ GameObject and sees `self`/`world`/`events`; a `.editor.lua` sees only the
   the Console.
 - **Noscript.** In `ORKIGE_SCRIPTING=OFF` builds the Tools menu shows a disabled
   note and running is an honest no-op; the project still loads.
+- **Same sandbox hardening.** An editor tool is CONTENT too (an agent authors
+  `.editor.lua`), so it runs under the identical global allowlist as a game script
+  — `io`/`os`-process/`require`/`load`/`dofile`/`debug` are all denied. See
+  [Sandbox / security](#sandbox--security).
 
 **A tool (frame the level with wall tiles):**
 

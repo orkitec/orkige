@@ -184,6 +184,75 @@ TEST_CASE("ScriptRuntime global tables and function registration", "[script]")
 	CHECK(result.returnValues[0] == "42.0");
 }
 
+TEST_CASE("ScriptRuntime sandbox denies unsafe globals", "[script][security]")
+{
+	// THREAT MODEL: a scene/script file is CONTENT (an agent or an untrusted
+	// source may author it). Loading it must not grant file, process or
+	// arbitrary-code-loading access. Every game- AND editor-script sandbox
+	// shares the one hardened Lua state through loadScriptInstance, so this
+	// GAME-sandbox proof also covers the editor sandbox's global surface (the
+	// editor path is exercised end to end by the editor_scripts selfcheck).
+	Orkige::CoreTestEnvironment & env = Orkige::CoreTestEnvironment::get();
+	TempScriptDir dir("orkige_scriptruntime_security_test");
+	// the top-level chunk asserts every denied global is nil and every
+	// permitted one is present; an assert failure makes the load INVALID, so a
+	// clean load is the whole proof
+	dir.write("denied.lua", R"lua(
+		assert(io == nil, "io reachable")
+		assert(require == nil, "require reachable")
+		assert(package == nil, "package reachable")
+		assert(load == nil, "load reachable")
+		assert(loadstring == nil, "loadstring reachable")
+		assert(loadfile == nil, "loadfile reachable")
+		assert(dofile == nil, "dofile reachable")
+		assert(debug == nil, "debug reachable")
+		-- collectgarbage is PERMITTED: a GC control, no file/process/code
+		-- capability (a game or the weak-handle tests legitimately drive it)
+		assert(type(collectgarbage) == "function", "collectgarbage denied")
+		-- os is a pruned read-only table: the dangerous members are gone
+		assert(type(os) == "table", "os subset missing")
+		assert(os.execute == nil, "os.execute reachable")
+		assert(os.remove == nil, "os.remove reachable")
+		assert(os.rename == nil, "os.rename reachable")
+		assert(os.getenv == nil, "os.getenv reachable")
+		assert(os.exit == nil, "os.exit reachable")
+		assert(os.time and os.clock and os.date, "safe os subset missing")
+		-- the permitted computation stdlib still works
+		assert(math.floor(1.9) == 1, "math missing")
+		assert(string.upper("ab") == "AB", "string missing")
+		assert(table.concat({"a", "b"}) == "ab", "table missing")
+		assert(type(pcall) == "function", "pcall missing")
+		assert(type(setmetatable) == "function", "setmetatable missing")
+	)lua");
+	env.scriptRuntime.setScriptSearchRoot(dir.root.string());
+
+	Orkige::String error;
+	optr<Orkige::ScriptInstance> instance =
+		env.scriptRuntime.loadScriptInstance("scripts/denied.lua", &error);
+	if (!Orkige::ScriptRuntime::available())
+	{
+		// OFF configuration: the load is refused with the honest error, so the
+		// sandbox denies everything by construction (nothing runs at all)
+		CHECK(instance == nullptr);
+		CHECK(error.find("scripting disabled") != Orkige::String::npos);
+		env.scriptRuntime.setScriptSearchRoot("");
+		return;
+	}
+	INFO("sandbox assertion failure: " << error);
+	REQUIRE(instance);	// every denial + permission assertion held
+
+	// the shared global state is hardened too: a direct call to a denied
+	// global from the console path (global env) errors instead of loading code
+	const Orkige::ScriptRuntime::Result loadCall =
+		env.scriptRuntime.runString("return load('return 1')");
+	CHECK_FALSE(loadCall.success);
+	const Orkige::ScriptRuntime::Result requireCall =
+		env.scriptRuntime.runString("return require('os')");
+	CHECK_FALSE(requireCall.success);
+
+	env.scriptRuntime.setScriptSearchRoot("");
+}
+
 TEST_CASE("ScriptRuntime::readExportedProperties parses the exports table (P5b)",
 	"[script][export]")
 {

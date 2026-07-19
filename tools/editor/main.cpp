@@ -5039,6 +5039,28 @@ int main(int argc, char** argv)
 						   "mesh = \"cube\" }\n"
 						<< "local x = definitely_not_a_function()\n"
 						<< "editor.log(\"unreachable\")\n";
+					// a tool that asserts the EDITOR sandbox denies the unsafe
+					// globals (a scene/editor script is untrusted content) and
+					// still has the permitted computation stdlib. Every assert
+					// must hold, so a clean run is the editor-sandbox proof.
+					std::ofstream(scriptsDir / "fixture_security.editor.lua")
+						<< "-- tool: Fixture Security\n"
+						<< "assert(io == nil, \"io reachable\")\n"
+						<< "assert(require == nil, \"require reachable\")\n"
+						<< "assert(package == nil, \"package reachable\")\n"
+						<< "assert(load == nil, \"load reachable\")\n"
+						<< "assert(loadfile == nil, \"loadfile reachable\")\n"
+						<< "assert(dofile == nil, \"dofile reachable\")\n"
+						<< "assert(debug == nil, \"debug reachable\")\n"
+						<< "assert(type(collectgarbage) == \"function\", "
+						   "\"collectgarbage denied\")\n"
+						<< "assert(os.execute == nil, \"os.execute reachable\")\n"
+						<< "assert(os.remove == nil, \"os.remove reachable\")\n"
+						<< "assert(os.time and os.date, \"os subset missing\")\n"
+						<< "assert(math.floor(1.5) == 1, \"math missing\")\n"
+						<< "assert(string.upper(\"x\") == \"X\", "
+						   "\"string missing\")\n"
+						<< "editor.log(\"security denials verified\")\n";
 					editorScripts.scanProject(scriptsDir.string());
 
 					// DISCOVERY: the fixtures + the shipped sample are listed, the
@@ -5047,6 +5069,7 @@ int main(int argc, char** argv)
 						editorScripts.findByName("fixture_ok");
 					const bool discovered = okTool &&
 						editorScripts.findByName("fixture_err") &&
+						editorScripts.findByName("fixture_security") &&
 						editorScripts.findByName("border_walls");
 					if (!discovered)
 					{
@@ -5140,11 +5163,22 @@ int main(int argc, char** argv)
 							}
 							else
 							{
+								// RUN the SECURITY fixture: the editor sandbox
+								// must deny io/os-process/require/load/dofile/
+								// debug (its asserts hold -> a clean run)
+								const Orkige::EditorScriptHost::RunResult secResult =
+									editorScripts.runToolByName("fixture_security",
+										controlContext);
 								// RUN the shipped SAMPLE tool (roller frame)
 								const Orkige::EditorScriptHost::RunResult sample =
 									editorScripts.runToolByName("border_walls",
 										controlContext);
-								if (!sample.ran || !sample.ok)
+								if (!secResult.ran || !secResult.ok)
+								{
+									scriptFail("the editor sandbox did not deny an "
+										"unsafe global: " + secResult.error);
+								}
+								else if (!sample.ran || !sample.ok)
 								{
 									scriptFail("the shipped border_walls tool "
 										"failed: " + sample.error);

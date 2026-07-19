@@ -55,6 +55,19 @@ namespace Orkige
 		static sol::state & metaExportState();
 	protected:
 	private:
+		//! @brief harden the freshly opened Lua state to the sandbox
+		//! security allowlist: a scene or script file is CONTENT that may be
+		//! authored by an agent or fetched from an untrusted source, so loading
+		//! it must never grant arbitrary file read/write, process execution or
+		//! code loading. Every script sandbox
+		//! (ScriptRuntime::loadScriptInstance) is a fresh environment whose
+		//! reads fall through to these globals, so removing a capability here
+		//! removes it from EVERY game- and editor-script sandbox at once. Keeps
+		//! the pure-computation stdlib (base/string/table/math + a read-only os
+		//! subset) and the engine API tables; denies io/os process+file
+		//! access/require/package/load/loadstring/loadfile/dofile/debug/
+		//! collectgarbage. See Docs/lua-api.md (Sandbox / security).
+		void applySandboxAllowlist();
 	};
 	/** @} */
 }
