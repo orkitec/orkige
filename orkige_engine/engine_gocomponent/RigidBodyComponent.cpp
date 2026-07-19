@@ -8,6 +8,7 @@
 *********************************************************************/
 
 #include "engine_gocomponent/RigidBodyComponent.h"
+#include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ScriptComponent.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
@@ -566,5 +567,7 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(hasBody)
 			OWEAKHANDLE_BASEMETHOD(getBodyId)
 		OWEAKHANDLE_END
+		// self.rigidbody + world.getRigidBody(id) + getComponent("rigidbody")
+		OSCRIPT_HANDLE("rigidbody", true, "getRigidBody")
 	OOBJECT_END
 }

@@ -9,6 +9,8 @@
 
 #include "core_game/LevelComponent.h"
 #include "core_game/SceneSerializer.h"
+#include "core_game/GameObject.h"
+#include "core_script/ScriptRuntime.h"	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 
 namespace Orkige
 {
@@ -137,6 +139,8 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(slotCenterY)
 			OWEAKHANDLE_BASEMETHOD(starsForMoves)
 		OWEAKHANDLE_END
+		// world.getLevel(id) + getComponent("level") (no self.<name>)
+		OSCRIPT_HANDLE("level", false, "getLevel")
 	OOBJECT_END
 	//---------------------------------------------------------
 }

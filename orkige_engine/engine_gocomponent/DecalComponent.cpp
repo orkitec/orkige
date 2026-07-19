@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "engine_gocomponent/DecalComponent.h"
+#include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
 #include "engine_render/RenderSystem.h"
@@ -326,5 +327,7 @@ namespace Orkige
 		OPROPERTY("opacity", Orkige::PropertyKind::Float, getOpacity, setOpacity, Orkige::PROP_NONE)
 		OPROPERTY("lifetime", Orkige::PropertyKind::Float, getLifetime, setLifetime, Orkige::PROP_NONE)
 		OPROPERTY("fadeDuration", Orkige::PropertyKind::Float, getFadeDuration, setFadeDuration, Orkige::PROP_NONE)
+		// self.decal + getComponent("decal") (no world convenience accessor)
+		OSCRIPT_HANDLE("decal", true, "")
 	OOBJECT_END
 }

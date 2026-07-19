@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "engine_gocomponent/ParticleComponent.h"
+#include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/SpriteComponent.h"	// frameToUVRect (shared UV primitive)
 #include "engine_gocomponent/ComponentPropertyReflect.h"	// Vec3 pack/unpack for OPROPERTY
@@ -568,5 +569,7 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(isEmitting)
 			OWEAKHANDLE_BASEMETHOD(getLiveCount)
 		OWEAKHANDLE_END
+		// self.particles + world.getParticles(id) + getComponent("particles")
+		OSCRIPT_HANDLE("particles", true, "getParticles")
 	OOBJECT_END
 }

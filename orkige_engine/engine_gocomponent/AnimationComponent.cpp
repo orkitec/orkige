@@ -8,6 +8,7 @@
 *********************************************************************/
 
 #include "engine_gocomponent/AnimationComponent.h"
+#include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/ModelComponent.h"
 #include <core_game/GameObject.h>
 #include "engine_gocomponent/TransformComponent.h"
@@ -470,6 +471,9 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(hasAnimations)
 			OWEAKHANDLE_BASEMETHOD(hasPlayingAnimations)
 		OWEAKHANDLE_END
+		// ONE declaration wires self.animation + world.getAnimation(id) +
+		// getComponent("animation") off the ScriptComponentAccess registry
+		OSCRIPT_HANDLE("animation", true, "getAnimation")
 	OOBJECT_END
 
 

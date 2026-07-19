@@ -37,10 +37,11 @@ world.getModel(id) -> ModelComponent?  -- an object's ModelComponent (nil if non
 world.getAnimation(id) -> AnimationComponent?  -- an object's skeletal AnimationComponent (nil if none) - drive another rig's clip playback/crossfade/phase
 world.getSprite(id) -> SpriteComponent?  -- an object's SpriteComponent (nil if none)
 world.getParticles(id) -> ParticleComponent?  -- an object's ParticleComponent (nil if none)
-world.getScript(id) -> ScriptComponent?  -- an object's ScriptComponent (nil if none)
 world.getSound(id) -> SoundComponent?  -- an object's SoundComponent (nil if none)
 world.getCamera(id) -> CameraComponent  -- the object's CameraComponent (nil when absent); drives smooth follow
 world.getLevel(id) -> LevelComponent?  -- an object's LevelComponent (nil if none)
+world.getComponent(id, name) -> Component?  -- any component by script or reflected-kind name - the generic world.get* (nil if absent/unknown)
+world.getScript(id) -> ScriptComponent?  -- an object's ScriptComponent (nil if none)
 world.loadScene(path)  -- deferred scene switch at the next frame boundary
 world.findByTag(tag) -> {GameObject}  -- array of live objects carrying the tag
 world.setTimeScale(scale)  -- gameplay time scale (1 normal, 0 hitstop)
@@ -356,14 +357,23 @@ function onAppResume(self)             -- app foregrounded (mobile)
 
 **`self`** carries the owner and its sibling components, resolved at load:
 `self.id` (string), `self.gameObject`, `self.script`, and — when attached —
-`self.transform`, `self.rigidbody`, `self.model`, `self.sprite`, `self.particles`,
-`self.shape` (a `VectorShapeComponent`). Script-declared export properties are
+`self.transform`, `self.rigidbody`, `self.model`, `self.animation`, `self.sprite`,
+`self.particles`, `self.shape` (a `VectorShapeComponent`), `self.anim` (a
+`VectorAnimationComponent`) and `self.decal`. Each `self.<name>` is declared once at
+its component's registration site (the `OSCRIPT_HANDLE` macro), so the set grows by
+declaration, never by editing the script loader. Script-declared export properties are
 injected as `self.<name>` before `init` (so `self.moveSpeed` is a designer-tunable
-that also shows in the Inspector). Components added later are reached through
-`world`, not `self`.
+that also shows in the Inspector). Any declared component KIND — including one added
+after load — is also reachable generically with `self:getComponent("name")` (nil for
+an absent or unknown kind), by the same weak-handle currency as the named fields; the
+name is the script vocabulary name (`"transform"`) or the reflected kind name
+(`"TransformComponent"`, the one MCP `get_component` uses).
 
-**`world`** reaches OTHER objects by id (raw component pointers, valid while the
-object lives — re-fetch when in doubt rather than caching across frames).
+**`world`** reaches OTHER objects by id. The typed `world.getTransform(id)` … family
+and the generic `world.getComponent(id, "name")` both hand back a WEAK component
+handle (valid while the object lives — re-fetch when in doubt rather than caching
+across frames); both are driven by the same per-component `OSCRIPT_HANDLE` registry as
+`self`.
 
 **`shared`** is the one cross-instance table (per-instance sandboxes make sharing
 opt-in). Use it for game-wide state; `world`/`shared` are the two globals every
@@ -394,11 +404,11 @@ Accessors that hand a script a reference to an engine-owned object return a
   `getToggleGroup`, every factory `create*`;
 - every `world.*` lookup — `world.get(id)`, the per-component `world.getTransform`
   / `getRigidBody` / `getModel` / `getSprite` / `getParticles` / `getScript` /
-  `getSound` / `getCamera` / `getLevel`, and `world.findByTag` (an array of
-  handles);
+  `getSound` / `getCamera` / `getLevel`, the generic `world.getComponent(id, name)`,
+  and `world.findByTag` (an array of handles);
 - the `self` fields a `ScriptComponent` injects — `self.gameObject`, `self.script`
   and each sibling component (`self.transform`, `self.rigidbody`, `self.sprite`,
-  `self.shape`, `self.anim`, …);
+  `self.shape`, `self.anim`, …), plus the generic `self:getComponent(name)`;
 - the OTHER object delivered to `onContactBegin` / `onContactEnd`;
 - `GameObject:getParent()`;
 - `widget:getLayer()` — a screen-scoped `UiLayer` handle. A layer dies with its

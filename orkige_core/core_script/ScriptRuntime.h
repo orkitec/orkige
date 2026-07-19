@@ -37,6 +37,8 @@ namespace Orkige
 	/** \addtogroup Script
 	*  @{ */
 	class ScriptInstance;
+	class GameObject;			//core_game/GameObject.h - the scriptable-component registry resolves + injects handles over it
+	class TypeInfo;				//core_base/TypeInfo.h - the reflected component kind a script name maps to
 	struct ScriptEventPayload;	//core_script/ScriptEventBus.h - passed by reference
 
 	//! @brief header-visible RAII that scopes the ScriptEventBus's current
@@ -174,6 +176,38 @@ namespace Orkige
 	//! subsystems (the editor's script-tool host) stay free of backend types.
 	typedef std::function<bool(ScriptValueMap const & args,
 		ScriptValueMap & reply, String & error)> ScriptHostFunction;
+
+	//! @brief one scriptable component KIND, declared at its OWN meta-export
+	//! site through the OSCRIPT_HANDLE macro (@see core_base/Meta_Lua.h /
+	//! Meta_None.h). ONE declaration replaces the former hand-wired pair of
+	//! blocks a scriptable component needed: the `self.<name>` injection in
+	//! ScriptComponent::populateSelfTable AND the `world.<accessor>` handle
+	//! accessor - the registry drives BOTH surfaces plus the generic
+	//! `self:getComponent` / `world.getComponent` floor. The thunks are built
+	//! at the component's own translation unit (where the type is complete), so
+	//! the type-erased weak-handle push is the SAME MetaLuaDetail::makeHandle
+	//! path the hand-wired accessors used - a component is never silently
+	//! script-unreachable again. Backend-neutral by construction: the
+	//! self-injection thunk speaks only ScriptInstance::setSelfHandle; the Lua
+	//! handle-maker is compiled only in the Lua backend (absent, and never
+	//! referenced, in ORKIGE_SCRIPTING=OFF).
+	struct ScriptComponentAccess
+	{
+		String			name;				//!< the script vocabulary name: self.<name> + getComponent("<name>")
+		bool			injectSelf = true;	//!< populateSelfTable sets self.<name> when the owner carries the component
+		String			worldAccessor;		//!< "" or the legacy convenience accessor name (e.g. "getTransform")
+		TypeInfo const*	type = nullptr;		//!< the reflected component kind (links the script name to the MCP kind name)
+		//! set self[key] to a WEAK handle when the owner carries the component
+		//! (no-op otherwise) - neutral: speaks only ScriptInstance::setSelfHandle
+		std::function<void(GameObject &, ScriptInstance &, char const *)> injectHandle;
+#ifdef ORKIGE_LUA
+		//! the owner's component as a weak-handle-or-nil Lua value (backs
+		//! world.<accessor> / world.getComponent / self:getComponent) - built
+		//! where the component type is complete, so makeHandle can instantiate.
+		//! An absent component (has-component guarded) is nil, never a throw.
+		std::function<sol::object(sol::state_view, GameObject &)> makeHandleFor;
+#endif
+	};
 
 	//! @brief the backend-neutral scripting seam: everything outside the
 	//! core_base/Meta_*.h backends and core_script itself talks to scripting
@@ -425,10 +459,42 @@ namespace Orkige
 			(void)function;
 #endif
 		}
+
+		//! @brief register a scriptable-component access declaration (idempotent
+		//! BY NAME - a re-registration replaces the entry). Called at module-init
+		//! time by the OSCRIPT_HANDLE macro, so it must be safe BEFORE any
+		//! ScriptRuntime instance exists (the registry is a process-wide list).
+		static void registerComponentAccess(ScriptComponentAccess entry);
+		//! @brief the registered scriptable-component declarations, in
+		//! registration order - the self.<name> / world.<accessor> /
+		//! getComponent("<name>") vocabulary. Populated in both backends (the
+		//! None backend's OSCRIPT_HANDLE registers a handle-less entry, so
+		//! self.<name> injection stays honest there and world accessors no-op).
+		static std::vector<ScriptComponentAccess> const & componentAccessRegistry();
+		//! @brief install the registry-driven world.<accessor>(id) family and
+		//! the generic world.getComponent(id, name) onto the scripting state,
+		//! resolving ids through `resolveById`. Idempotent (called from
+		//! ScriptComponent::ensureScriptApi); a no-op without a scripting backend.
+		void installComponentAccessors(
+			std::function<GameObject * (String const &)> resolveById);
+#ifdef ORKIGE_LUA
+		//! @brief the owner-by-id + component-name resolution shared by
+		//! world.getComponent, the world.<accessor> convenience accessors and
+		//! self:getComponent: nil for an absent object, an unknown vocabulary
+		//! name, or a missing component (the quiet-probe contract, never a
+		//! throw); else the component's weak handle. A name matches either the
+		//! script vocabulary name ("transform") or the reflected kind name
+		//! ("TransformComponent", the MCP get_component name). Lua-backend only.
+		sol::object componentHandleFor(sol::state_view lua, String const & id,
+			String const & name);
+#endif
 	protected:
 	private:
 		//! the honest OFF-configuration error message
 		static String disabledError();
+		//! id -> live GameObject for the registry-driven accessors (set by
+		//! installComponentAccessors; empty until then)
+		std::function<GameObject * (String const &)> componentResolver;
 	};
 
 	//! @brief one loaded script file in its own sandboxed environment,
@@ -487,6 +553,14 @@ namespace Orkige
 		//! Backend-neutral (no-op without a scripting backend) so ScriptComponent
 		//! stays free of sol2 - the mapping lives in the ScriptRuntime impl.
 		void setSelfProperty(char const * key, PropertyValue const & value);
+
+		//! @brief install self:getComponent(name) on this instance's `self`
+		//! table - the generic floor resolving any declared component KIND
+		//! through the ScriptComponentAccess registry (nil for an absent or
+		//! unknown kind, never a throw), by the SAME vocabulary and weak-handle
+		//! currency as world.getComponent. Reads self.id at call time (so it
+		//! needs no owner captured). Backend-neutral (no-op without a backend).
+		void installComponentAccessor();
 
 		//! @brief run init(self) if the script defines one, then cache the
 		//! script's update function

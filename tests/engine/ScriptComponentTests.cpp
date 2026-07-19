@@ -27,11 +27,58 @@
 #include <core_base/PropertySchema.h>
 #include <core_base/PropertyValue.h>
 
+#include <core_script/ScriptRuntime.h>
+
 #include <filesystem>
 #include <fstream>
 
 using Orkige::optr;
 using Orkige::woptr;
+
+namespace Orkige
+{
+	//! @brief a headless test component that declares its script access with
+	//! nothing but an OSCRIPT_HANDLE line (self.probe + world.getProbe(id) +
+	//! getComponent("probe")). It carries ZERO render/physics dependency, so it
+	//! attaches on a bare GameObject - the proof that a component becomes fully
+	//! script-reachable purely by DECLARING, with no edit to ScriptComponent.
+	class ScriptHandleProbeComponent : public GameObjectComponent
+	{
+		OOBJECT(ScriptHandleProbeComponent, GameObjectComponent)
+	private:
+		int mValue;
+	public:
+		ScriptHandleProbeComponent() : mValue(7) {}
+		virtual ~ScriptHandleProbeComponent() {}
+		void setValue(int value) { this->mValue = value; }
+		//! the reflected drive method a script reaches through the handle
+		int ping() const { return this->mValue; }
+	};
+	//---------------------------------------------------------
+	OOBJECT_IMPL(ScriptHandleProbeComponent)
+		GAMEOBJECTCOMPONENT()
+		OFUNC(ping)
+		OWEAKHANDLE_BEGIN(Orkige::ScriptHandleProbeComponent,
+			"ScriptHandleProbeComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(ping)
+		OWEAKHANDLE_END
+		// the WHOLE script surface, declared in ONE line
+		OSCRIPT_HANDLE("probe", true, "getProbe")
+	OOBJECT_END
+	//---------------------------------------------------------
+	//! register the probe's meta export once (the OWEAKHANDLE usertype + the
+	//! OSCRIPT_HANDLE registry entry); addComponent<T> constructs the type
+	//! directly, so only the script surface needs this
+	void registerScriptHandleProbeComponent()
+	{
+		static bool registered = false;
+		if (!registered)
+		{
+			registered = true;
+			ScriptHandleProbeComponent::OrkigeMetaExport("orkige_engine_tests");
+		}
+	}
+}
 
 namespace
 {
@@ -717,6 +764,133 @@ TEST_CASE("ScriptComponent export discovery reconciles BY NAME (P5b)",
 	CHECK(script->getExportValue("added").asFloat() == Catch::Approx(7.0));
 	// dropped: removed export is gone from the schema
 	CHECK(schema.find("dropped") == nullptr);
+
+	env.gameObjectManager.clear();
+	env.scriptRuntime.setScriptSearchRoot("");
+}
+
+TEST_CASE("A component is script-reachable purely by its OSCRIPT_HANDLE declaration",
+	"[script][handle]")
+{
+	// (a) named handle injected by DECLARATION: ScriptHandleProbeComponent adds
+	// ZERO lines to ScriptComponent - self.probe / world.getProbe(id) /
+	// getComponent("probe") all come from its one OSCRIPT_HANDLE line, driven by
+	// the ScriptComponentAccess registry.
+	using namespace Orkige;
+	EngineTestEnvironment & env = EngineTestEnvironment::get();
+	if (!scriptingAvailable())
+	{
+		return;
+	}
+	registerScriptHandleProbeComponent();
+	TempScriptDir dir("orkige_script_declared_handle_test");
+	// NOTE the generic getComponent path (call-time registry lookup) is used
+	// for the world reach here rather than the world.getProbe convenience
+	// accessor: the typed world.<accessor> closures are installed from the
+	// registry snapshot at the FIRST ensureScriptApi, so a component registered
+	// after that (this test's late-registered probe) has no world.getProbe. In
+	// production every OSCRIPT_HANDLE component registers at module init, before
+	// any script loads, so the typed accessors are always present (proved by the
+	// jumper-lua / roller / benchmark selfchecks that call world.getTransform).
+	dir.write("probe.lua", R"lua(
+		function init(self)
+			shared.decl = {
+				-- self.<name> from the declaration, its reflected method drives
+				selfPing  = self.probe and self.probe:ping() or -1,
+				-- the generic floor by script name AND by reflected kind name
+				genPing   = self:getComponent("probe"):ping(),
+				kindPing  = self:getComponent("ScriptHandleProbeComponent"):ping(),
+				-- world reach by the generic (call-time) accessor
+				wcompPing = world.getComponent(self.id, "probe"):ping(),
+				-- unknown / absent kinds are a quiet nil (never a throw)
+				unknown   = (self:getComponent("nope") == nil) and 1 or 0,
+				absent    = (self:getComponent("camera") == nil) and 1 or 0,
+				wMissing  = (world.getComponent("no_such", "probe") == nil)
+					and 1 or 0,
+			}
+		end
+		function update(self, dt) end
+	)lua");
+	env.scriptRuntime.setScriptSearchRoot(dir.root.string());
+	env.gameObjectManager.clear();
+
+	optr<GameObject> hero =
+		env.gameObjectManager.createGameObject("Hero").lock();
+	REQUIRE(hero);
+	REQUIRE(hero->addComponent<ScriptHandleProbeComponent>());
+	hero->getComponentPtr<ScriptHandleProbeComponent>()->setValue(42);
+	REQUIRE(hero->addComponent<ScriptComponent>());
+	hero->getComponentPtr<ScriptComponent>()->setScriptFile("scripts/probe.lua");
+
+	env.gameObjectManager.update(0.016f);
+	REQUIRE_FALSE(hero->getComponentPtr<ScriptComponent>()->hasScriptError());
+	// the reflected method drove through every surface, returning the value set
+	CHECK(sharedNumber("decl", "selfPing")  == 42.0);
+	CHECK(sharedNumber("decl", "genPing")   == 42.0);
+	CHECK(sharedNumber("decl", "kindPing")  == 42.0);	// reflected kind name
+	CHECK(sharedNumber("decl", "wcompPing") == 42.0);
+	// (b) nil-for-absent / unknown, never a throw
+	CHECK(sharedNumber("decl", "unknown")  == 1.0);
+	CHECK(sharedNumber("decl", "absent")   == 1.0);
+	CHECK(sharedNumber("decl", "wMissing") == 1.0);
+
+	env.gameObjectManager.clear();
+	env.scriptRuntime.setScriptSearchRoot("");
+}
+
+TEST_CASE("A declared component handle dies honestly when the component is removed",
+	"[script][handle]")
+{
+	// (c) weak-handle death behavior is UNCHANGED by the registry: a handle
+	// stashed by a script raises a pcall-catchable error once the component is
+	// gone (never a crash / zombie / silent no-op).
+	using namespace Orkige;
+	EngineTestEnvironment & env = EngineTestEnvironment::get();
+	if (!scriptingAvailable())
+	{
+		return;
+	}
+	registerScriptHandleProbeComponent();
+	TempScriptDir dir("orkige_script_handle_death_test");
+	dir.write("keeper.lua", R"lua(
+		function init(self)
+			shared.death = { handle = self.probe,
+				alive = self.probe:ping() }
+		end
+		function update(self, dt)
+			local ok, err = pcall(function()
+				return shared.death.handle:ping()
+			end)
+			shared.death.ok = ok and 1 or 0
+			shared.death.dead = (not ok and tostring(err):find("dead"))
+				and 1 or 0
+		end
+	)lua");
+	env.scriptRuntime.setScriptSearchRoot(dir.root.string());
+	env.gameObjectManager.clear();
+
+	optr<GameObject> hero =
+		env.gameObjectManager.createGameObject("Keeper").lock();
+	REQUIRE(hero);
+	REQUIRE(hero->addComponent<ScriptHandleProbeComponent>());
+	REQUIRE(hero->addComponent<ScriptComponent>());
+	hero->getComponentPtr<ScriptComponent>()->setScriptFile("scripts/keeper.lua");
+
+	// init grabs the handle (alive), the first update locks it successfully
+	env.gameObjectManager.update(0.016f);
+	REQUIRE_FALSE(hero->getComponentPtr<ScriptComponent>()->hasScriptError());
+	CHECK(sharedNumber("death", "alive") == 7.0);
+	CHECK(sharedNumber("death", "ok") == 1.0);
+
+	// destroy the component the stashed handle points at
+	REQUIRE(hero->removeComponent<ScriptHandleProbeComponent>());
+
+	// the next touch of the stale handle raises honestly, caught by pcall - the
+	// ScriptComponent keeps running (no crash, no fatal script error)
+	env.gameObjectManager.update(0.016f);
+	CHECK_FALSE(hero->getComponentPtr<ScriptComponent>()->hasScriptError());
+	CHECK(sharedNumber("death", "ok") == 0.0);
+	CHECK(sharedNumber("death", "dead") == 1.0);
 
 	env.gameObjectManager.clear();
 	env.scriptRuntime.setScriptSearchRoot("");

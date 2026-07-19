@@ -64,6 +64,15 @@ INDEX_TABLE_ORDER = [
     "world", "screen", "sound", "music", "tween", "guitween", "screens",
     "haptics", "cvar", "save", "events",
 ]
+# the per-component world.<accessor>(id) lookups are declared at each
+# component's OSCRIPT_HANDLE site (not hand-wired in ScriptComponent.cpp), so
+# the generator recovers them from those declarations. This fixed order keeps
+# the generated index deterministic regardless of the source-file walk order;
+# an accessor not listed here is appended alphabetically after these.
+WORLD_ACCESSOR_ORDER = [
+    "getTransform", "getRigidBody", "getModel", "getAnimation",
+    "getSprite", "getParticles", "getSound", "getCamera", "getLevel",
+]
 # the value / singleton usertypes that belong in the compact TOP index (the
 # rest of the usertypes go to the fuller Type reference block lower down).
 INDEX_TYPES = [
@@ -300,6 +309,20 @@ def find_object_impl(class_name, source_index):
     return None
 
 
+def parse_script_handles(source_index):
+    """OSCRIPT_HANDLE("name", inject, "worldAccessor") declarations across the
+    component sources - the registry-driven self/world script access. Returns a
+    list of (scriptName, injectSelf, worldAccessor); worldAccessor is "" when
+    the component has no world.<accessor> convenience lookup."""
+    out = []
+    rx = re.compile(
+        r'OSCRIPT_HANDLE\(\s*"([^"]+)"\s*,\s*(true|false)\s*,\s*"([^"]*)"\s*\)')
+    for text in source_index:
+        for m in rx.finditer(text):
+            out.append((m.group(1), m.group(2) == "true", m.group(3)))
+    return out
+
+
 def parse_oexports(text):
     """OEXPORT(Name) references; only simple identifiers are resolvable."""
     names = []
@@ -344,6 +367,25 @@ def build_model():
     model.table_order, model.tables, model.globals = parse_script_component(sc)
 
     source_index = build_source_index()
+    # splice the registry-driven world accessors (getTransform ... getLevel)
+    # + the generic world.getComponent into the world table: they are declared
+    # at each component's OSCRIPT_HANDLE site + installed from the registry, so
+    # ScriptComponent.cpp no longer names them for parse_script_component to see
+    if "world" in model.tables:
+        accessors = [wa for (_n, _inject, wa)
+                     in parse_script_handles(source_index) if wa]
+
+        def accessor_key(name):
+            return (WORLD_ACCESSOR_ORDER.index(name)
+                    if name in WORLD_ACCESSOR_ORDER
+                    else len(WORLD_ACCESSOR_ORDER), name)
+        ordered = sorted(set(accessors), key=accessor_key)
+        extra = [Symbol("tablefn", "world", a) for a in ordered]
+        extra.append(Symbol("tablefn", "world", "getComponent"))
+        world = model.tables["world"]
+        after_get = next((i for i, s in enumerate(world)
+                          if s.name == "get"), len(world) - 1) + 1
+        model.tables["world"] = world[:after_get] + extra + world[after_get:]
     for module_path in (CORE_MODULE, ENGINE_MODULE):
         with open(module_path, "r") as f:
             mt = f.read()
@@ -842,13 +884,17 @@ def cmd_selftest():
     index_text = render_index(model, annotations)
     assert "music.play(id, file [, loop]) -> bool" in index_text, index_text
     assert "world.get(id) -> GameObject?" in index_text
+    # the registry-driven world accessors + the generic getComponent must render
+    assert "world.getTransform(id) -> TransformComponent?" in index_text
+    assert "world.getComponent(id, name) -> Component?" in index_text
     # (3) index size budget (agent one-shot ingest): a single comfortable read.
     # Grows as the scripting surface does (the `events` message bus added its
     # table + the EventSubscription handle; the `locale` table its four
     # entries; the gameplay pack added `timer`, camera follow, music.crossFade
-    # and `game` state); kept well inside one context read.
+    # and `game` state; the scriptable-component registry added the generic
+    # world.getComponent); kept well inside one context read.
     size = len(index_text.encode("utf-8"))
-    assert size < 9800, "index is %d bytes, over the budget" % size
+    assert size < 10000, "index is %d bytes, over the budget" % size
     # (4) gui hierarchy tree includes the root chain
     gui_tree = render_gui_mermaid()
     assert "IGuiObject --> GuiWidget" in gui_tree, gui_tree

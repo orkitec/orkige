@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "engine_gocomponent/SpriteComponent.h"
+#include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/SpriteBatcher.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
@@ -738,5 +739,7 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(setSpriteVisible)
 			OWEAKHANDLE_BASEMETHOD(isSpriteVisible)
 		OWEAKHANDLE_END
+		// self.sprite + world.getSprite(id) + getComponent("sprite")
+		OSCRIPT_HANDLE("sprite", true, "getSprite")
 	OOBJECT_END
 }

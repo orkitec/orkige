@@ -11,6 +11,7 @@
 #include "core_script/ScriptEventBus.h"
 #include "core_tween/TimerManager.h"
 #include "core_script/ScriptEventPayload.h"
+#include "core_base/TypeInfo.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -498,6 +499,116 @@ namespace Orkige
 		(void)tableName;
 		(void)functionName;
 		(void)function;
+#endif
+	}
+	//---------------------------------------------------------
+	namespace
+	{
+		//! the process-wide scriptable-component access registry: populated at
+		//! module-init time by OSCRIPT_HANDLE (each component's OrkigeMetaExport),
+		//! consumed by ScriptComponent's populateSelfTable / ensureScriptApi. A
+		//! function-local static, safe to touch before any ScriptRuntime exists.
+		std::vector<ScriptComponentAccess> & mutableComponentAccessRegistry()
+		{
+			static std::vector<ScriptComponentAccess> registry;
+			return registry;
+		}
+	}
+	//---------------------------------------------------------
+	void ScriptRuntime::registerComponentAccess(ScriptComponentAccess entry)
+	{
+		std::vector<ScriptComponentAccess> & registry =
+			mutableComponentAccessRegistry();
+		// idempotent BY NAME: a re-run of the OrkigeMetaExport blocks (a second
+		// module init in a test process) replaces the entry, never duplicates it
+		for (ScriptComponentAccess & existing : registry)
+		{
+			if (existing.name == entry.name)
+			{
+				existing = std::move(entry);
+				return;
+			}
+		}
+		registry.push_back(std::move(entry));
+	}
+	//---------------------------------------------------------
+	std::vector<ScriptComponentAccess> const &
+		ScriptRuntime::componentAccessRegistry()
+	{
+		return mutableComponentAccessRegistry();
+	}
+	//---------------------------------------------------------
+#ifdef ORKIGE_LUA
+	sol::object ScriptRuntime::componentHandleFor(sol::state_view lua,
+		String const & id, String const & name)
+	{
+		// resolve the declared component KIND by its script vocabulary name OR
+		// its reflected kind name (the MCP get_component name) - so
+		// getComponent("transform") and getComponent("TransformComponent") reach
+		// the same component; an unknown name is a quiet nil (never a throw)
+		for (ScriptComponentAccess const & access : componentAccessRegistry())
+		{
+			const bool nameMatches = access.name == name ||
+				(access.type && name == access.type->getName());
+			if (!nameMatches || !access.makeHandleFor)
+			{
+				continue;
+			}
+			GameObject * owner = this->componentResolver
+				? this->componentResolver(id) : NULL;
+			if (!owner)
+			{
+				return sol::object(lua, sol::in_place, sol::lua_nil);
+			}
+			// makeHandleFor yields nil for an absent component (it has-component
+			// guards the assert-on-absent typed getter), so this is the whole
+			// absent/present decision
+			return access.makeHandleFor(lua, *owner);
+		}
+		return sol::object(lua, sol::in_place, sol::lua_nil);
+	}
+#endif
+	//---------------------------------------------------------
+	void ScriptRuntime::installComponentAccessors(
+		std::function<GameObject * (String const &)> resolveById)
+	{
+#ifdef ORKIGE_LUA
+		this->componentResolver = std::move(resolveById);
+		sol::state & lua = this->luaManager.state();
+		if (!lua["world"].is<sol::table>())
+		{
+			lua["world"] = lua.create_table();
+		}
+		// the generic floor: world.getComponent(id, name) reaches ANY declared
+		// component KIND by its script (or reflected) name (nil for absent/unknown)
+		lua["world"]["getComponent"] =
+			[](sol::this_state ts, String const & id, String const & name)
+				-> sol::object
+			{
+				sol::state_view view(ts);
+				return ScriptRuntime::getSingleton().componentHandleFor(
+					view, id, name);
+			};
+		// the convenience accessors (world.getTransform, getRigidBody, ...
+		// getLevel) - each a declared component's own OSCRIPT_HANDLE, wired here
+		// from the registry rather than by a hand-written line per type
+		for (ScriptComponentAccess const & access : componentAccessRegistry())
+		{
+			if (access.worldAccessor.empty())
+			{
+				continue;
+			}
+			const String component = access.name;
+			lua["world"][access.worldAccessor] =
+				[component](sol::this_state ts, String const & id) -> sol::object
+				{
+					sol::state_view view(ts);
+					return ScriptRuntime::getSingleton().componentHandleFor(
+						view, id, component);
+				};
+		}
+#else
+		(void)resolveById;
 #endif
 	}
 	//---------------------------------------------------------
@@ -1054,6 +1165,33 @@ namespace Orkige
 #else
 		(void)key;
 		(void)value;
+#endif
+	}
+	//---------------------------------------------------------
+	void ScriptInstance::installComponentAccessor()
+	{
+#ifdef ORKIGE_LUA
+		if (!this->selfTable.valid())
+		{
+			return;
+		}
+		// self:getComponent(name) - the generic floor. Reads self.id at CALL
+		// time (never captures the owner), resolving any declared component KIND
+		// by its script or reflected name through the ONE registry, nil for an
+		// absent/unknown kind. Same weak-handle currency as world.getComponent.
+		this->selfTable["getComponent"] =
+			[](sol::this_state ts, sol::table self, String const & name)
+				-> sol::object
+			{
+				sol::state_view view(ts);
+				const sol::object idObject = self["id"];
+				if (!idObject.is<String>())
+				{
+					return sol::object(view, sol::in_place, sol::lua_nil);
+				}
+				return ScriptRuntime::getSingleton().componentHandleFor(
+					view, idObject.as<String>(), name);
+			};
 #endif
 	}
 	//---------------------------------------------------------

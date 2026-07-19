@@ -949,8 +949,13 @@ look when touching one:
   NOT under `assets/`, NOT id-tracked; bundled to exports via `CONFIG_SETTING_KEYS` in
   `orkige_export.py`); the **canonical player-loop tick order** (fenced block in
   `tools/player/main.cpp`: input → scripts → tweens → physics → deferred-load); the
-  **scene teardown hook** (`GameObjectManager::clear`, fenced); the **world-table
-  accessor convention** (fenced block in `ScriptComponent`). The backend-neutral
+  **scene teardown hook** (`GameObjectManager::clear`, fenced); the **scriptable-
+  component access registry** (a component declares its script surface — `self.<name>`,
+  `world.<accessor>(id)`, `getComponent("name")` — in ONE `OSCRIPT_HANDLE` line at its
+  meta-export site; `ScriptComponent::populateSelfTable` + `ensureScriptApi` drive
+  every surface off that ONE `ScriptRuntime` registry instead of a hand-wired per-type
+  block, so a new scriptable component is never silently script-unreachable). The
+  backend-neutral
   **property registry** (`core_base/PropertyReflect.h`/`PropertySchema.h`; the
   `OPROPERTY*` macros in the Meta backends register schema + Lua binding in one
   line) IS the single source of property truth — Inspector, scene/prefab

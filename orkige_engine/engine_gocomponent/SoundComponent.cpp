@@ -8,6 +8,7 @@
 *********************************************************************/
 
 #include "engine_gocomponent/SoundComponent.h"
+#include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/TransformComponent.h"
 #include <core_game/GameObject.h>
 #include "engine_graphic/Engine.h"
@@ -310,5 +311,7 @@ namespace Orkige
                         OWEAKHANDLE_BASEMETHOD(setPitchVariation)
                         OWEAKHANDLE_BASEMETHOD(setVolumeVariation)
                 OWEAKHANDLE_END
+                // world.getSound(id) + getComponent("sound") (no self.<name>)
+                OSCRIPT_HANDLE("sound", false, "getSound")
         OOBJECT_END
 }

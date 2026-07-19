@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "engine_gocomponent/VectorShapeComponent.h"
+#include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
@@ -621,5 +622,7 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(getControlPointCount)
 			OWEAKHANDLE_BASEMETHOD(getMorphTargetCount)
 		OWEAKHANDLE_END
+		// self.shape + getComponent("shape") (no world convenience accessor)
+		OSCRIPT_HANDLE("shape", true, "")
 	OOBJECT_END
 }

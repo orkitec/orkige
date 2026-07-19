@@ -52,6 +52,10 @@
 		"sig": "(id) -> GameObject?",
 		"doc": "the live GameObject by id (nil if gone)"
 	},
+	"world.getComponent": {
+		"sig": "(id, name) -> Component?",
+		"doc": "any component by script or reflected-kind name - the generic world.get* (nil if absent/unknown)"
+	},
 	"world.getTransform": {
 		"sig": "(id) -> TransformComponent?",
 		"doc": "an object's TransformComponent (nil if none)"

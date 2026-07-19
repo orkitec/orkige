@@ -631,59 +631,24 @@ namespace Orkige
 		instance->setSelfHandle("script",
 			componentOwner->getComponent<ScriptComponent>(
 				this->getComponentKey()));
-		if (componentOwner->hasComponent<TransformComponent>())
+		// self.<name> weak handles for every registered scriptable component the
+		// owner carries (self.transform, self.rigidbody, self.animation, ...).
+		// The ScriptComponentAccess registry - populated by each component's
+		// OSCRIPT_HANDLE declaration at its meta-export site - drives this, so a
+		// new scriptable component needs NO block here; the injectHandle thunk
+		// sets the field only when the owner actually carries that component.
+		foreach (ScriptComponentAccess const & access,
+			ScriptRuntime::componentAccessRegistry())
 		{
-			instance->setSelfHandle("transform",
-				componentOwner->getComponent<TransformComponent>());
+			if (access.injectSelf && access.injectHandle)
+			{
+				access.injectHandle(*componentOwner, *instance,
+					access.name.c_str());
+			}
 		}
-		if (componentOwner->hasComponent<RigidBodyComponent>())
-		{
-			instance->setSelfHandle("rigidbody",
-				componentOwner->getComponent<RigidBodyComponent>());
-		}
-		if (componentOwner->hasComponent<ModelComponent>())
-		{
-			instance->setSelfHandle("model",
-				componentOwner->getComponent<ModelComponent>());
-		}
-		if (componentOwner->hasComponent<AnimationComponent>())
-		{
-			// self.animation:playAnimation(...) / :crossFadeTo(...) /
-			// :setAnimationTime(...) / :setSpeed(...) drive the sibling
-			// skeletal AnimationComponent's clip playback and blending
-			instance->setSelfHandle("animation",
-				componentOwner->getComponent<AnimationComponent>());
-		}
-		if (componentOwner->hasComponent<SpriteComponent>())
-		{
-			instance->setSelfHandle("sprite",
-				componentOwner->getComponent<SpriteComponent>());
-		}
-		if (componentOwner->hasComponent<ParticleComponent>())
-		{
-			instance->setSelfHandle("particles",
-				componentOwner->getComponent<ParticleComponent>());
-		}
-		if (componentOwner->hasComponent<VectorShapeComponent>())
-		{
-			// self.shape:impulse(...) / :playMorph(...) drive the soft-body deform
-			instance->setSelfHandle("shape",
-				componentOwner->getComponent<VectorShapeComponent>());
-		}
-		if (componentOwner->hasComponent<VectorAnimationComponent>())
-		{
-			// self.anim:play(...) / :setClip(...) / :crossFade(...) drive the
-			// vector-animation rig's clip playback and blending
-			instance->setSelfHandle("anim",
-				componentOwner->getComponent<VectorAnimationComponent>());
-		}
-		if (componentOwner->hasComponent<DecalComponent>())
-		{
-			// self.decal:place(pos, normal) / :fade(sec) stamp + fade the
-			// projected surface mark
-			instance->setSelfHandle("decal",
-				componentOwner->getComponent<DecalComponent>());
-		}
+		// self:getComponent("name") - the generic floor over the SAME registry
+		// (a component added AFTER load, or any declared kind, nil when absent)
+		instance->installComponentAccessor();
 		// inject the EXPORTED property values as their natural
 		// Lua types BEFORE init runs, so the script reads them as tunables
 		// (self.moveSpeed, self.tint, ...) - script-declared properties
@@ -794,39 +759,34 @@ namespace Orkige
 		}
 
 		// ============= THE `world` TABLE (accessor convention) =============
-		// Reach OTHER GameObjects by id. Raw component pointers - valid while
-		// the object lives; scripts RE-FETCH when in doubt (the recommended
-		// closure style, see the tween block below).
-		// APPEND-ONLY convention: one world.get<Component>(id) accessor per
-		// component type, plus world.exists/get - later packages append THEIR
-		// accessor here (getParticles, findByTag, loadLevel)
-		// instead of inventing a second lookup vocabulary.
+		// Reach OTHER GameObjects by id. Component handles are WEAK (they lock
+		// per call and raise honestly once the object is gone); scripts RE-FETCH
+		// when in doubt (the recommended closure style, see the tween block).
+		// REGISTRY-DRIVEN convention: the per-component-kind accessors
+		// (world.getTransform / getRigidBody / getModel / getAnimation /
+		// getSprite / getParticles / getSound / getCamera / getLevel) and the
+		// generic world.getComponent(id, "name") are NOT hand-wired here - each
+		// is declared at its component's own meta-export site via OSCRIPT_HANDLE
+		// (@see core_script/ScriptRuntime.h ScriptComponentAccess) and installed
+		// from the ONE ScriptComponentAccess registry by installComponentAccessors
+		// below. A new scriptable component adds its accessor by declaring, not
+		// by editing this file. Only the object-level (get/exists) and the
+		// scan-based (getScript) accessors, which are not one-component-kind
+		// lookups, stay hand-wired here.
 		runtime.registerFunction("world", "exists", [](String const & id)
 		{
 			return worldGetGameObject(id) != NULL;
 		});
-		// every world.get* below hands Lua a WEAK handle (never a raw pointer):
-		// it locks per method call and raises an honest, pcall-catchable error
-		// naming the kind + id once the object is gone. registerHandleAccessor
-		// wraps the woptr resolver so this file names no scripting-backend detail.
+		// world.get(id) hands Lua a WEAK handle to the GameObject (never a raw
+		// pointer): it locks per method call and raises an honest, pcall-catchable
+		// error naming the id once the object is gone. registerHandleAccessor wraps
+		// the woptr resolver so this file names no scripting-backend detail.
 		runtime.registerHandleAccessor("world", "get", &worldGameObjectWeak);
-		runtime.registerHandleAccessor("world", "getTransform",
-			&worldComponentWeak<TransformComponent>);
-		runtime.registerHandleAccessor("world", "getRigidBody",
-			&worldComponentWeak<RigidBodyComponent>);
-		runtime.registerHandleAccessor("world", "getModel",
-			&worldComponentWeak<ModelComponent>);
-		// world.getAnimation(id) -> the object's AnimationComponent (nil when
-		// absent): reach a skeletal rig on ANOTHER object to drive its clip
-		// playback / crossfade / phase (playAnimation/stopAnimation/crossFadeTo/
-		// setSpeed/setAnimationTime) - the same weak-handle currency as its
-		// sibling accessors above; the reflected methods are the drive surface.
-		runtime.registerHandleAccessor("world", "getAnimation",
-			&worldComponentWeak<AnimationComponent>);
-		runtime.registerHandleAccessor("world", "getSprite",
-			&worldComponentWeak<SpriteComponent>);
-		runtime.registerHandleAccessor("world", "getParticles",
-			&worldComponentWeak<ParticleComponent>);
+		// the per-component-kind accessors (getTransform ... getLevel) + the
+		// generic world.getComponent(id, name) from the registry - resolving ids
+		// through the shared worldGetGameObject helper (no scripting-backend detail
+		// crosses this seam; the weak-handle push lives behind the registry thunk)
+		runtime.installComponentAccessors(&worldGetGameObject);
 		// world.getScript(id): a script component on the object. Script kinds are
 		// keyed by script name, not "ScriptComponent", so reach them by scan and
 		// return the FIRST as a weak handle (an object with several scripts is
@@ -851,21 +811,11 @@ namespace Orkige
 			return gameObject->getComponent<ScriptComponent>(
 				scripts.front()->getComponentKey());
 		});
-		runtime.registerHandleAccessor("world", "getSound",
-			&worldComponentWeak<SoundComponent>);
-		// world.getCamera(id) -> the object's CameraComponent (nil when absent);
-		// the accessor a script uses to drive smooth follow, e.g.
-		//   world.getCamera("Camera"):follow("Hero", 0.2)
-		// follow COMPOSES with the ortho fit policy (fit sizes the projection,
-		// follow moves the camera position). Reflected props (followTarget /
-		// followDamping / followOffset) reach get/set_component over MCP too.
-		runtime.registerHandleAccessor("world", "getCamera",
-			&worldComponentWeak<CameraComponent>);
-		// world.findByTag(tag) -> array of the GameObjects carrying that tag
-		// (empty table when none); tags are set in the editor Inspector or via
-		// GameObject:addTag, indexed by the GameObjectManager
-		runtime.registerHandleAccessor("world", "getLevel",
-			&worldComponentWeak<LevelComponent>);
+		// (world.getSound / getCamera / getLevel are registry-driven now -
+		//  declared via OSCRIPT_HANDLE on Sound/Camera/LevelComponent, installed
+		//  by installComponentAccessors above. getCamera drives smooth follow,
+		//  e.g. world.getCamera("Camera"):follow("Hero", 0.2), COMPOSING with the
+		//  ortho fit policy; its reflected props reach get/set_component over MCP.)
 		// world.loadScene(path): request a DEFERRED, re-entrant scene
 		// switch - the pending request is applied by the runtime at the frame
 		// boundary after physics (never mid-update), tearing the old world down

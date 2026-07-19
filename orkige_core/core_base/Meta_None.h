@@ -163,6 +163,29 @@
 #define OWEAKHANDLE_WIDGETPARAM(Method, ParamLeaf)
 #define OWEAKHANDLE_END
 
+//! declare this component KIND's script access (@see Meta_Lua.h). The None
+//! backend has no Lua handle currency, so it registers a HANDLE-LESS entry:
+//! the self-injection thunk stays (setSelfHandle is a no-op here, so it just
+//! keeps compiling and the registry still describes the component honestly),
+//! and the world/getComponent accessors that consume makeHandleFor no-op.
+#define OSCRIPT_HANDLE(ScriptName, InjectSelf, WorldAccessor)						\
+	{																				\
+		Orkige::ScriptComponentAccess orkigeScriptAccess;							\
+		orkigeScriptAccess.name = ScriptName;										\
+		orkigeScriptAccess.injectSelf = (InjectSelf);								\
+		orkigeScriptAccess.worldAccessor = WorldAccessor;							\
+		orkigeScriptAccess.type = &OSelf::getClassTypeInfo();						\
+		orkigeScriptAccess.injectHandle = [](Orkige::GameObject & orkigeOwner,		\
+			Orkige::ScriptInstance & orkigeInstance, char const * orkigeKey)		\
+		{																			\
+			if (orkigeOwner.hasComponent<OSelf>())									\
+				orkigeInstance.setSelfHandle(orkigeKey,								\
+					orkigeOwner.getComponent<OSelf>());								\
+		};																			\
+		Orkige::ScriptRuntime::registerComponentAccess(								\
+			std::move(orkigeScriptAccess));											\
+	}
+
 //standard function
 #define OVIRTUAL_FUNC(FunctionName)							
 

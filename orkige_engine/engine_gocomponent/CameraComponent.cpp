@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "engine_gocomponent/CameraComponent.h"
+#include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
 #include <core_game/GameObject.h>
@@ -394,5 +395,8 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(setFollowOffset)
 			OWEAKHANDLE_BASEMETHOD(getFollowOffset)
 		OWEAKHANDLE_END
+		// world.getCamera(id) + getComponent("camera") (no self.<name> - a
+		// camera is reached by id, not as a behavior sibling)
+		OSCRIPT_HANDLE("camera", false, "getCamera")
 	OOBJECT_END
 }

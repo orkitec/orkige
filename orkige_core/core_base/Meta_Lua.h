@@ -636,6 +636,46 @@ namespace Orkige
 
 #define OWEAKHANDLE_END										}
 
+//! declare this component KIND's SCRIPT access in ONE line at its
+//! OrkigeMetaExport site (beside its OWEAKHANDLE block): the script vocabulary
+//! name (self.<ScriptName> + self:getComponent("<ScriptName>") +
+//! world.getComponent(id,"<ScriptName>")), whether populateSelfTable injects
+//! self.<ScriptName>, and the optional legacy world.<WorldAccessor>(id)
+//! convenience accessor ("" for none). It registers a type-erased weak-handle
+//! thunk built HERE where OSelf is the complete component type, so the
+//! ScriptComponent registry drives ALL script-facing component access with no
+//! hand-wired per-type block. @see core_script/ScriptRuntime.h - the call site
+//! must include it (for ScriptComponentAccess/ScriptRuntime) and
+//! core_game/GameObject.h (for the owner's hasComponent/getComponent).
+#define OSCRIPT_HANDLE(ScriptName, InjectSelf, WorldAccessor)						\
+	{																				\
+		Orkige::ScriptComponentAccess orkigeScriptAccess;							\
+		orkigeScriptAccess.name = ScriptName;										\
+		orkigeScriptAccess.injectSelf = (InjectSelf);								\
+		orkigeScriptAccess.worldAccessor = WorldAccessor;							\
+		orkigeScriptAccess.type = &OSelf::getClassTypeInfo();						\
+		orkigeScriptAccess.injectHandle = [](Orkige::GameObject & orkigeOwner,		\
+			Orkige::ScriptInstance & orkigeInstance, char const * orkigeKey)		\
+		{																			\
+			if (orkigeOwner.hasComponent<OSelf>())									\
+				orkigeInstance.setSelfHandle(orkigeKey,								\
+					orkigeOwner.getComponent<OSelf>());								\
+		};																			\
+		orkigeScriptAccess.makeHandleFor = [](sol::state_view orkigeLua,			\
+			Orkige::GameObject & orkigeOwner) -> sol::object						\
+		{																			\
+			/* the typed getComponent<OSelf>() asserts on an absent component, */	\
+			/* so the has-component guard IS the absent/present decision (nil) */	\
+			if (!orkigeOwner.hasComponent<OSelf>())									\
+				return sol::object(orkigeLua, sol::in_place, sol::lua_nil);		\
+			return sol::make_object(orkigeLua,										\
+				Orkige::MetaLuaDetail::makeHandle(									\
+					orkigeOwner.getComponent<OSelf>()));							\
+		};																			\
+		Orkige::ScriptRuntime::registerComponentAccess(								\
+			std::move(orkigeScriptAccess));											\
+	}
+
 //standard function
 #define OVIRTUAL_FUNC(FunctionName)							OFUNC(FunctionName)
 

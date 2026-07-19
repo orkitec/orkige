@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "engine_gocomponent/VectorAnimationComponent.h"
+#include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
 #include "engine_render/RenderSystem.h"
@@ -759,5 +760,7 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(setSpeed)
 			OWEAKHANDLE_BASEMETHOD(getSpeed)
 		OWEAKHANDLE_END
+		// self.anim + getComponent("anim") (no world convenience accessor)
+		OSCRIPT_HANDLE("anim", true, "")
 	OOBJECT_END
 }

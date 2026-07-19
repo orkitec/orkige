@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "engine_gocomponent/ModelComponent.h"
+#include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
 #include "engine_render/RenderSystem.h"
@@ -353,5 +354,7 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(setTint)
 			OWEAKHANDLE_BASEMETHOD(setEmissiveBoost)
 		OWEAKHANDLE_END
+		// self.model + world.getModel(id) + getComponent("model")
+		OSCRIPT_HANDLE("model", true, "getModel")
 	OOBJECT_END
 }

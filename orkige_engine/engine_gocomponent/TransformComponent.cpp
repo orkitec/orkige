@@ -8,6 +8,8 @@
 ***************************************************************/
 
 #include "engine_gocomponent/TransformComponent.h"
+#include <core_game/GameObject.h>
+#include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
 #include "engine_render/RenderSystem.h"
@@ -439,5 +441,7 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(getStaticFlag)
 			OWEAKHANDLE_BASEMETHOD(setStaticFlag)
 		OWEAKHANDLE_END
+		// self.transform + world.getTransform(id) + getComponent("transform")
+		OSCRIPT_HANDLE("transform", true, "getTransform")
 	OOBJECT_END
 }
