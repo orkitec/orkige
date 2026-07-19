@@ -88,4 +88,7 @@ always-on **breadcrumbs** trail (a hard crash leaves a readable cause), the
 **boot/teardown cycling test** and **nightly soak** that catch lifetime and leak
 faults before a user does ([soak.md](soak.md)), and the **sanitizer gates** —
 ASan/UBSan and ThreadSanitizer ([sanitizers.md](sanitizers.md)) — that catch
-memory and data-race faults in CI.
+memory and data-race faults in CI, and the **supply-chain provenance** of the
+third-party code that parses that untrusted content — every dependency pinned,
+the single-file asset parsers tracked, the CI actions SHA-pinned
+([vendored-libs.md](vendored-libs.md)).

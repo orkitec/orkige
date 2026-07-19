@@ -8,6 +8,11 @@ port on every triplet (macOS + iOS + Android). Keep the in-port READMEs to a
 single pointer line and batch any real port edits (see "Build speed" in
 CLAUDE.md).
 
+For the supply-chain view — how the whole dependency closure is pinned (one
+vcpkg commit), which single-file asset parsers are vcpkg-managed vs. vendored
+in-tree, and the SHA-pinning of the GitHub Actions (and how to re-pin on a
+version bump) — see [vendored-libs.md](vendored-libs.md).
+
 ## ports/ogre
 
 Overlay of the upstream vcpkg `ogre` port, repinned from the v14.5.2 release

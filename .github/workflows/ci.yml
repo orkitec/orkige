@@ -85,7 +85,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - name: Generate the site (landing + portal + legal pages)
         run: python3 Util/make_help_portal.py --output _site
       - name: Install the API-reference tooling
@@ -97,19 +97,19 @@ jobs:
       - name: Pin the custom domain
         run: echo orkige.orkitec.com > _site/CNAME
       - name: Upload the site artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
         with:
           path: _site
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  # v5.0.0
 
   linux-classic:
     name: Linux classic (GL3Plus) - compatibility build + tests
     runs-on: ubuntu-latest
     timeout-minutes: 240 # cold vcpkg build headroom; cached runs take minutes
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Install system dependencies
         # - toolchain: build-essential, ninja, ccache, python3 (lint +
@@ -147,7 +147,7 @@ jobs:
       # the expensive cold build converges across runs instead of restarting
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-classic-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -156,7 +156,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ccache-classic-${{ runner.os }}-${{ github.sha }}
@@ -174,7 +174,7 @@ jobs:
         # save right after configure (which is when vcpkg builds/installs) -
         # and even when a later step fails
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -184,7 +184,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -205,7 +205,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: linux-classic-logs
           path: |
@@ -222,7 +222,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Install system dependencies
         # superset of the classic job plus the Mesa Vulkan software driver
@@ -253,7 +253,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -262,7 +262,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ccache-next-${{ runner.os }}-${{ github.sha }}
@@ -276,7 +276,7 @@ jobs:
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -322,14 +322,14 @@ jobs:
       # non-device Ogre-Next suite in a dedicated instrumented tree.
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: linux-next-logs
           path: |
@@ -351,7 +351,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Install system dependencies
         run: |
@@ -380,7 +380,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-sanitize-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -390,7 +390,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ccache-sanitize-${{ runner.os }}-${{ github.sha }}
@@ -418,21 +418,21 @@ jobs:
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: linux-sanitizer-logs
           path: |
@@ -449,14 +449,14 @@ jobs:
   # under TSan the render backend's worker threads and the GL/Vulkan driver
   # generate noise the engine cannot fix (only suppressible), which would drown
   # a genuine Orkige race. See Docs/sanitizers.md. Zero retries, like the ASan
-  # gate. NOTE: uses:@vN refs are pinned to commit SHAs by the workflow-pinning
-  # pass; keep this job on the same refs as its siblings.
+  # gate. NOTE: every `uses:` ref is pinned to a commit SHA (version in a
+  # trailing comment); keep this job on the same pinned refs as its siblings.
   linux-tsan:
     name: Linux ThreadSanitizer - headless unit gate
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Install system dependencies
         run: |
@@ -483,7 +483,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-tsan-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -493,7 +493,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ccache-tsan-${{ runner.os }}-${{ github.sha }}
@@ -518,21 +518,21 @@ jobs:
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: linux-tsan-logs
           path: |
@@ -555,7 +555,7 @@ jobs:
       EMSDK_VERSION: 6.0.3
       EMSDK: /home/runner/Development/emsdk
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Install system dependencies
         run: |
@@ -566,7 +566,7 @@ jobs:
 
       - name: Restore emsdk
         id: emsdk-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/Development/emsdk
           key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}
@@ -580,7 +580,7 @@ jobs:
 
       - name: Save emsdk
         if: always() && steps.emsdk-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/Development/emsdk
           key: ${{ steps.emsdk-cache.outputs.cache-primary-key }}
@@ -594,7 +594,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-web-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**', 'cmake/wasm32-emscripten-toolchain.cmake') }}-${{ env.VCPKG_COMMIT }}
@@ -603,7 +603,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ccache-web-${{ runner.os }}-${{ github.sha }}
@@ -618,7 +618,7 @@ jobs:
       # dependency work
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -630,7 +630,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -644,7 +644,7 @@ jobs:
 
       - name: Upload test diagnostics
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: web-diagnostics
           path: |
@@ -662,7 +662,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       # this job is the disk-heaviest (an Android cross tree + the host
       # editor tree + vcpkg caches + SDK/emulator images) and has hit the
@@ -716,7 +716,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-android-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -726,7 +726,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ccache-android-next-${{ runner.os }}-${{ github.sha }}
@@ -746,7 +746,7 @@ jobs:
       # dependency work
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -767,7 +767,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -780,7 +780,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Emulator Play test (MUST pass)
-        uses: reactivecircus/android-emulator-runner@v2.38.0
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d  # v2.38.0
         with:
           api-level: 35
           target: google_apis
@@ -799,7 +799,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: android-emulator-next-logs
           path: |
@@ -818,7 +818,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       # same disk ceiling as the next sibling: two build trees + the
       # emulator on one hosted disk - drop the unused preinstalled
@@ -871,7 +871,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-android-classic-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -881,7 +881,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ccache-android-classic-${{ runner.os }}-${{ github.sha }}
@@ -901,7 +901,7 @@ jobs:
       # dependency work
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -922,7 +922,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -935,7 +935,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Emulator Play test (MUST pass)
-        uses: reactivecircus/android-emulator-runner@v2.38.0
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d  # v2.38.0
         with:
           api-level: 35
           target: google_apis
@@ -954,7 +954,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: android-emulator-classic-logs
           path: |
@@ -976,7 +976,7 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: /Users/runner/vcpkg-binary-cache
       CCACHE_DIR: /Users/runner/.ccache
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Install system dependencies
         run: |
@@ -994,7 +994,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: vcpkg-macos-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -1003,7 +1003,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/.ccache
           key: ccache-macos-next-${{ runner.os }}-${{ github.sha }}
@@ -1017,7 +1017,7 @@ jobs:
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -1027,7 +1027,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -1064,7 +1064,7 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: /Users/runner/vcpkg-binary-cache
       CCACHE_DIR: /Users/runner/.ccache
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Install system dependencies
         run: |
@@ -1082,7 +1082,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: vcpkg-macos-classic-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -1092,7 +1092,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/.ccache
           key: ccache-macos-classic-${{ runner.os }}-${{ github.sha }}
@@ -1110,14 +1110,14 @@ jobs:
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -1133,7 +1133,7 @@ jobs:
       # Apple-hardware build + headless-unit line.
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: macos-classic-logs
           path: |
@@ -1155,7 +1155,7 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: /Users/runner/vcpkg-binary-cache
       CCACHE_DIR: /Users/runner/.ccache
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Install system dependencies
         run: |
@@ -1173,7 +1173,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: vcpkg-ios-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -1183,7 +1183,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/.ccache
           key: ccache-ios-next-${{ runner.os }}-${{ github.sha }}
@@ -1203,7 +1203,7 @@ jobs:
       # dependency work
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -1216,7 +1216,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -1286,7 +1286,7 @@ jobs:
 
       - name: Upload test diagnostics
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ios-simulator-next-diagnostics
           path: |
@@ -1319,7 +1319,7 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: /Users/runner/vcpkg-binary-cache
       CCACHE_DIR: /Users/runner/.ccache
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Install system dependencies
         run: |
@@ -1337,7 +1337,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: vcpkg-ios-classic-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -1347,7 +1347,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/.ccache
           key: ccache-ios-classic-${{ runner.os }}-${{ github.sha }}
@@ -1367,7 +1367,7 @@ jobs:
       # dependency work
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -1377,7 +1377,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /Users/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -1398,7 +1398,7 @@ jobs:
 
       - name: Upload test diagnostics
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ios-simulator-classic-diagnostics
           path: |
@@ -1422,7 +1422,7 @@ jobs:
       CC: cl
       CXX: cl
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Set up the MSVC environment for Ninja
         # first-party vcvarsall import (the third-party action for this stayed
@@ -1447,7 +1447,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: C:/Users/runneradmin/vcpkg-binary-cache
           key: vcpkg-windows-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -1461,7 +1461,7 @@ jobs:
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: C:/Users/runneradmin/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -1480,7 +1480,7 @@ jobs:
       # a hard gate on hosted runners without a GPU.
       - name: Install Mesa software Vulkan driver
         id: msys2
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884  # v2.32.0
         with:
           msystem: UCRT64
           update: true
@@ -1557,7 +1557,7 @@ jobs:
 
       - name: Upload Windows test diagnostics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: windows-next-logs
           path: |
@@ -1583,7 +1583,7 @@ jobs:
       CC: cl
       CXX: cl
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Set up the MSVC environment for Ninja
         # first-party vcvarsall import (the third-party action for this stayed
@@ -1608,7 +1608,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: C:/Users/runneradmin/vcpkg-binary-cache
           key: vcpkg-windows-classic-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -1622,7 +1622,7 @@ jobs:
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: C:/Users/runneradmin/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}

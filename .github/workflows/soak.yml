@@ -17,9 +17,9 @@
 # It runs on a nightly schedule and on manual dispatch; it does NOT run per
 # push (a minutes-long soak has no place in the push gate).
 #
-# NOTE: `uses:` refs here are plain tags/majors for readability; the repo's
-# action pins are applied CENTRALLY by a separate pinning pass - do not hand-pin
-# here.
+# NOTE: every `uses:` ref is pinned to a full commit SHA with the human-readable
+# version in a trailing comment - a supply-chain guard so a moving tag cannot
+# rerun as trusted CI. Re-pin on an intentional version bump per Docs/vendored-libs.md.
 
 name: Soak
 
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360 # cold vcpkg build headroom; cached runs take minutes
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Install system dependencies
         # the linux-next set: toolchain + X/Wayland dev libs (SDL3), plus the
@@ -84,7 +84,7 @@ jobs:
       - name: Restore vcpkg binary cache
         # shares the linux-next cache key so a nightly run restores the same
         # binary set the push CI built (read-only here: no save step)
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -92,7 +92,7 @@ jobs:
             vcpkg-next-v2-${{ runner.os }}-
 
       - name: Restore ccache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ccache-soak-${{ runner.os }}-${{ github.sha }}
@@ -110,7 +110,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ccache-soak-${{ runner.os }}-${{ github.sha }}
@@ -140,7 +140,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: soak-next-logs
           path: |

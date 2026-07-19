@@ -66,7 +66,7 @@ PREFERRED_ORDER = [
     "getting-started", "lua-api", "gui", "materials", "particles",
     "vector-animation", "character-animation", "localisation", "logging", "benchmark",
     "mcp", "mcp-workflows", "render-abstraction", "web-export",
-    "device-session", "ios-signing", "store-release", "ports",
+    "device-session", "ios-signing", "store-release", "ports", "vendored-libs",
 ]
 
 GENERATED_NOTE = ("Generated from the repository docs by "
