@@ -268,6 +268,12 @@ struct PlayerSelfChecks
 	//            the progress ramps to completion, then only idle remains.
 	//   Idle     idle is the sole playing clip and its sway still moves bounds.
 	// A missed deadline exits non-zero.
+	//
+	// BONE ATTACHMENT: at Boot a "BoneMarker" GameObject is created with a
+	// BoneAttachComponent following the mannequin's "armR" bone with a down-arm
+	// offset (a hand marker). Across the animated phases its world position must
+	// MOVE with the swinging arm and MATCH the facade bone pose - the
+	// weapon-in-hand attachment proof, both flavors.
 	//   Resume   the PLAYBACK-STATE serialization leg: a mid-animation state
 	//            (walk at 0.5 s) is applied through the reflected setters (the
 	//            loadComponentProperties path) while idle plays; the next tick
@@ -286,6 +292,12 @@ struct PlayerSelfChecks
 	float characterRigIdleBoundsMax = 0.0f;
 	bool characterRigIdleSeeded = false;
 	unsigned long characterRigDeadline = 0;
+	// bone-attachment leg (the BoneMarker following the armR bone)
+	bool characterMarkerCreated = false;
+	bool characterMarkerSeeded = false;
+	bool characterMarkerMatched = false;	//!< marker pose matched the facade bone pose
+	float characterMarkerMin = 0.0f;
+	float characterMarkerMax = 0.0f;
 	// playback-state serialization leg (the Resume phase)
 	bool characterResumeArmed = false;		//!< the mid-animation state was applied
 	// --- ORKIGE_ROLLER_PROGRESSION_SELFCHECK=1: the level sequence + the

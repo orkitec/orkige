@@ -158,6 +158,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/ParticleComponent.cpp
     engine_gocomponent/AnimationComponent.h
     engine_gocomponent/AnimationComponent.cpp
+    engine_gocomponent/BoneAttachComponent.h
+    engine_gocomponent/BoneAttachComponent.cpp
     engine_gocomponent/CameraComponent.h
     engine_gocomponent/CameraComponent.cpp
     engine_gocomponent/CameraDefaultModes.h

@@ -92,6 +92,10 @@
 		"sig": "(id) -> AnimationComponent?",
 		"doc": "an object's skeletal AnimationComponent (nil if none) - drive another rig's clip playback/crossfade/phase"
 	},
+	"world.getBoneAttach": {
+		"sig": "(id) -> BoneAttachComponent?",
+		"doc": "an object's BoneAttachComponent (nil if none) - retarget a bone follower"
+	},
 	"world.loadScene": {
 		"sig": "(path)",
 		"doc": "deferred scene switch at the next frame boundary"

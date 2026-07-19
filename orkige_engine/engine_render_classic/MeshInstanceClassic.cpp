@@ -604,4 +604,31 @@ namespace Orkige
 		Ogre::AnimationState* state = animationState(this->mImpl->entity, name);
 		return state ? state->hasEnded() : false;
 	}
+	//---------------------------------------------------------
+	bool MeshInstance::getBoneWorldTransform(String const & boneName,
+		Vec3 & outPosition, Quat & outOrientation, Vec3 & outScale) const
+	{
+		Ogre::Entity* entity = this->mImpl->entity;
+		if(!entity->hasSkeleton())
+		{
+			return false;
+		}
+		Ogre::SkeletonInstance* skeleton = entity->getSkeleton();
+		if(!skeleton || !skeleton->hasBone(boneName))
+		{
+			return false;
+		}
+		// pose the skeleton to its CURRENT animation state before reading, so a
+		// prop follows THIS frame's clip time (the entity would otherwise only
+		// update its bones when it renders)
+		entity->_updateAnimation();
+		Ogre::Bone* bone = skeleton->getBone(boneName);
+		Ogre::Node* node = entity->getParentNode();
+		// the bone's full transform is skeleton-local (relative to the entity's
+		// node); the node's full transform carries it to world space
+		const Ogre::Affine3 world = (node ? node->_getFullTransform()
+			: Ogre::Affine3::IDENTITY) * bone->_getFullTransform();
+		world.decomposition(outPosition, outScale, outOrientation);
+		return true;
+	}
 }

@@ -31,6 +31,7 @@
 #include "engine_gocomponent/SpriteAnimationComponent.h"
 #include "engine_gocomponent/ParticleComponent.h"
 #include "engine_gocomponent/AnimationComponent.h"
+#include "engine_gocomponent/BoneAttachComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/ScriptComponent.h"
 #include "engine_physic/PhysicsWorld.h"
@@ -74,6 +75,7 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(SpriteAnimationComponent)
 	OEXPORT(ParticleComponent)
 	OEXPORT(AnimationComponent)
+	OEXPORT(BoneAttachComponent)
 	OEXPORT(CameraComponent)
 	OEXPORT(LightComponent)
 	OEXPORT(SoundComponent)

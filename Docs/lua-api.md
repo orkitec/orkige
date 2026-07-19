@@ -40,6 +40,7 @@ world.getParticles(id) -> ParticleComponent?  -- an object's ParticleComponent (
 world.getSound(id) -> SoundComponent?  -- an object's SoundComponent (nil if none)
 world.getCamera(id) -> CameraComponent  -- the object's CameraComponent (nil when absent); drives smooth follow
 world.getLevel(id) -> LevelComponent?  -- an object's LevelComponent (nil if none)
+world.getBoneAttach(id) -> BoneAttachComponent?  -- an object's BoneAttachComponent (nil if none) - retarget a bone follower
 world.getComponent(id, name) -> Component?  -- any component by script or reflected-kind name - the generic world.get* (nil if absent/unknown)
 world.getScript(id) -> ScriptComponent?  -- an object's ScriptComponent (nil if none)
 world.loadScene(path)  -- deferred scene switch at the next frame boundary
@@ -359,7 +360,9 @@ function onAppResume(self)             -- app foregrounded (mobile)
 `self.id` (string), `self.gameObject`, `self.script`, and — when attached —
 `self.transform`, `self.rigidbody`, `self.model`, `self.animation`, `self.sprite`,
 `self.particles`, `self.shape` (a `VectorShapeComponent`), `self.anim` (a
-`VectorAnimationComponent`) and `self.decal`. Each `self.<name>` is declared once at
+`VectorAnimationComponent`), `self.boneAttach` (a `BoneAttachComponent` - a
+bone-follower: `setTarget`/`setBone`/`setOffsetXYZ`/`setFollowRotation`/
+`setFollowScale`/`applyAttachment`) and `self.decal`. Each `self.<name>` is declared once at
 its component's registration site (the `OSCRIPT_HANDLE` macro), so the set grows by
 declaration, never by editing the script loader. Script-declared export properties are
 injected as `self.<name>` before `init` (so `self.moveSpeed` is a designer-tunable
@@ -1040,6 +1043,28 @@ AnimationComponent:setMotionBone(...)
 AnimationComponent:crossFadeTo(...)
 AnimationComponent:isCrossFading(...)
 AnimationComponent:getCrossFadeProgress(...)
+AnimationComponent.clip
+AnimationComponent.clipTime
+AnimationComponent.clipLoop
+AnimationComponent.speed
+AnimationComponent.paused
+
+## BoneAttachComponent
+BoneAttachComponent:getTarget(...)
+BoneAttachComponent:setTarget(...)
+BoneAttachComponent:getBone(...)
+BoneAttachComponent:setBone(...)
+BoneAttachComponent:setOffsetXYZ(...)
+BoneAttachComponent:getFollowRotation(...)
+BoneAttachComponent:setFollowRotation(...)
+BoneAttachComponent:getFollowScale(...)
+BoneAttachComponent:setFollowScale(...)
+BoneAttachComponent:applyAttachment(...)
+BoneAttachComponent.target
+BoneAttachComponent.bone
+BoneAttachComponent.offset
+BoneAttachComponent.followRotation
+BoneAttachComponent.followScale
 
 ## CameraComponent
 CameraComponent:setProjectionMode(...)

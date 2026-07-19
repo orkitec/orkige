@@ -26,6 +26,7 @@
 #include <engine_gocomponent/WaterComponent.h>
 #include <engine_gocomponent/VectorAnimationComponent.h>
 #include <engine_gocomponent/AnimationComponent.h>
+#include <engine_gocomponent/BoneAttachComponent.h>
 #include <engine_gocomponent/ComponentPropertyReflect.h>
 #include <engine_render/RenderMath.h>
 
@@ -606,4 +607,74 @@ TEST_CASE("AnimationComponent playback state round-trips on a DETACHED component
 	CHECK(restored.getPlaybackLoop());
 	CHECK(restored.getSpeed() == Approx(1.5f));
 	CHECK(restored.getPaused());
+}
+//---------------------------------------------------------
+TEST_CASE("BoneAttachComponent declares its bone-follow schema",
+	"[reflection][boneattach]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		BoneAttachComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// the target character, the bone name, the bone-local offset and the follow
+	// flags all reach the Inspector / scene serialization / MCP off ONE schema
+	REQUIRE(schema->find("target") != nullptr);
+	CHECK(schema->find("target")->kind == PropertyKind::String);
+	REQUIRE(schema->find("bone") != nullptr);
+	CHECK(schema->find("bone")->kind == PropertyKind::String);
+	REQUIRE(schema->find("offset") != nullptr);
+	CHECK(schema->find("offset")->kind == PropertyKind::Vec3);
+	REQUIRE(schema->find("followRotation") != nullptr);
+	CHECK(schema->find("followRotation")->kind == PropertyKind::Bool);
+	REQUIRE(schema->find("followScale") != nullptr);
+	CHECK(schema->find("followScale")->kind == PropertyKind::Bool);
+	CHECK_FALSE(schema->find("bone")->isReadOnly());
+}
+//---------------------------------------------------------
+TEST_CASE("BoneAttachComponent properties round-trip on a DETACHED component",
+	"[reflection][boneattach]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		BoneAttachComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// a DETACHED follower (no scene node, no target) RECORDS its bone-follow
+	// intent through the type-erased get/set - the same setters the scene loader
+	// drives; the live follow happens when a ticking runtime resolves the target
+	BoneAttachComponent attach;
+	Object * instance = &attach;
+
+	// defaults: no target/bone, zero offset, follows rotation not scale
+	CHECK(schema->find("target")->get(instance).asString().empty());
+	CHECK(schema->find("followRotation")->get(instance).asBool());
+	CHECK_FALSE(schema->find("followScale")->get(instance).asBool());
+
+	schema->find("target")->set(instance, PropertyValue::makeString("Hero"));
+	schema->find("bone")->set(instance, PropertyValue::makeString("hand.R"));
+	PropVec3 offset; offset.x = 0.0f; offset.y = -0.5f; offset.z = 0.1f;
+	schema->find("offset")->set(instance, PropertyValue::makeVec3(offset));
+	schema->find("followScale")->set(instance, PropertyValue::makeBool(true));
+
+	CHECK(attach.getTarget() == "Hero");
+	CHECK(attach.getBone() == "hand.R");
+	CHECK(attach.getOffset().y == Approx(-0.5f));
+	CHECK(attach.getOffset().z == Approx(0.1f));
+	CHECK(attach.getFollowScale());
+
+	// the serialization path (capture -> apply) carries every field
+	GameObject::ComponentPropertyMap captured =
+		SceneSerializer::captureComponentProperties(attach);
+	BoneAttachComponent restored;
+	SceneSerializer::applyComponentProperties(captured, restored);
+	CHECK(restored.getTarget() == "Hero");
+	CHECK(restored.getBone() == "hand.R");
+	CHECK(restored.getOffset().y == Approx(-0.5f));
+	CHECK(restored.getOffset().z == Approx(0.1f));
+	CHECK(restored.getFollowScale());
 }

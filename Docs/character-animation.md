@@ -28,7 +28,7 @@ closed the former classic-only gap; see the matrix in
 | Weighted crossfade / blend | Yes - `AnimationComponent::crossFadeTo` ramps outgoing/incoming weights | Yes - same component code path over the v2 per-animation weights |
 | Skeleton-driven bounds (correct culling of a swinging limb) | Yes - `MeshInstance::setAnimatedBounds` (armed automatically when clips load) | Yes - derived in the facade: the armed instance rebuilds `getLocalBounds` from the live bone poses expanded by the import-time bone radius (Ogre-Next itself keeps the bind-pose Aabb) |
 | Root-motion extraction | Yes - a classic-only backdoor (`handleMotion`/`motionBone`) reads the bone keyframe track directly | No - inert (no cross-backend facade bone API) |
-| Bone/tag-point attachment (weapon-in-hand) | Not exposed through the facade | Not exposed |
+| Bone/tag-point attachment (weapon-in-hand) | Yes - `MeshInstance::getBoneWorldTransform` reads the posed bone (parent-node full transform x `Bone::_getFullTransform`, `_updateAnimation` forces the current pose first) | Yes - the same facade seam over the v2 skeleton (parent SceneNode derived transform x the bone pose TRS composed up the joint chain) |
 
 ### Two importer roads, one extraction (the drift alarm)
 
@@ -85,6 +85,29 @@ ticking runtime: the editor never ticks animations, so an edit-mode scene load
 stays at the bind pose (its dormancy is unchanged). Verified by the
 `AnimationComponent ... round-trips on a DETACHED component` reflection unit and
 the resume leg of `player_character_rig_selfcheck`.
+
+### Bone attachment (weapon-in-hand)
+
+A GameObject can follow a named bone of a skinned character on BOTH flavors
+through the facade seam `MeshInstance::getBoneWorldTransform(boneName, pos, rot,
+scale)` - it returns the bone's WORLD pose (the bone's live pose composed up the
+joint chain, carried through the instance's own world transform; classic forces
+`_updateAnimation` to the current clip time first, the derived-cache flavor reads
+the last applied pose, at most one clip-advance behind). `BoneAttachComponent`
+(depends on `TransformComponent`) copies that pose onto its OWN transform each
+tick: reflected `target` (the character GameObject id, empty = the owner's own
+mesh), `bone`, a bone-local `offset` (so "0.5 down the hand bone" reads the same
+as the hand turns) and `followRotation`/`followScale` flags. It writes the
+follower's WORLD pose (`setWorldPosition`/`setWorldOrientation`), so it works
+whether the follower is a root object or parented. TICK ORDER: the copy runs in
+the component-update phase and the facade poses the skeleton on read, so a prop
+tracks the current animation. Lua drives it through the `self.boneAttach` handle
+/ `world.getBoneAttach(id)` (`setTarget`/`setBone`/`setOffsetXYZ`/…) and MCP
+reaches it generically over `get`/`set_component`. Dormant in the editor (no tick
+= no follow). Verified by the bone-attachment leg of
+`player_character_rig_selfcheck` (a marker follows the mannequin's `armR` bone,
+tracking the swing and matching the facade bone pose on both flavors) and the
+`BoneAttachComponent ... round-trips on a DETACHED component` reflection unit.
 
 ### The generated test rig
 

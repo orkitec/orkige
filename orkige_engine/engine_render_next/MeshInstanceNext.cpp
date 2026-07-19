@@ -112,6 +112,31 @@ namespace Orkige
 			}
 			return position;
 		}
+
+		//! a bone's full pose transform in SKELETON-LOCAL space (the sibling of
+		//! boneLocalPosePosition carrying orientation + scale too), composed
+		//! from the live pose TRS up the parent chain - never the SoA derived
+		//! caches (@see boneLocalPosePosition)
+		void boneLocalPoseTransform(Ogre::Bone const * bone,
+			Ogre::Vector3 & outPosition, Ogre::Quaternion & outOrientation,
+			Ogre::Vector3 & outScale)
+		{
+			outPosition = bone->getPosition();
+			outOrientation = bone->getOrientation();
+			outScale = bone->getScale();
+			Ogre::Bone const * parent = bone->getParent();
+			while(parent)
+			{
+				const Ogre::Vector3 parentPos = parent->getPosition();
+				const Ogre::Quaternion parentRot = parent->getOrientation();
+				const Ogre::Vector3 parentScale = parent->getScale();
+				outPosition = parentPos +
+					parentRot * (parentScale * outPosition);
+				outOrientation = parentRot * outOrientation;
+				outScale = parentScale * outScale;
+				parent = parent->getParent();
+			}
+		}
 	}
 	//---------------------------------------------------------
 	void RenderBackend::resetMeshAccents(MeshInstance::Impl* impl)
@@ -627,5 +652,44 @@ namespace Orkige
 		}
 		return !animation->getLoop() &&
 			animation->getCurrentTime() >= animation->getDuration();
+	}
+	//---------------------------------------------------------
+	bool MeshInstance::getBoneWorldTransform(String const & boneName,
+		Vec3 & outPosition, Quat & outOrientation, Vec3 & outScale) const
+	{
+		Ogre::SkeletonInstance* skeleton =
+			this->mImpl->item->getSkeletonInstance();
+		// the IdString lookup is hash-based, so it resolves the bone in EVERY
+		// build config (a v2 Bone keeps a readable name only in debug builds)
+		const Ogre::IdString wanted(boneName);
+		if(!skeleton || !skeleton->hasBone(wanted))
+		{
+			return false;
+		}
+		Ogre::Bone* bone = skeleton->getBone(wanted);
+		// the bone's pose transform in skeleton-local space (relative to the
+		// item's node), composed from the LIVE pose TRS - the last animation
+		// frame applied, at most one clip-advance behind
+		Ogre::Vector3 boneLocalPos, boneLocalScale;
+		Ogre::Quaternion boneLocalRot;
+		boneLocalPoseTransform(bone, boneLocalPos, boneLocalRot, boneLocalScale);
+		// carry it through the item's own world transform
+		Ogre::Node* node = this->mImpl->item->getParentNode();
+		if(node)
+		{
+			const Ogre::Vector3 nodePos = node->_getDerivedPositionUpdated();
+			const Ogre::Quaternion nodeRot = node->_getDerivedOrientationUpdated();
+			const Ogre::Vector3 nodeScale = node->_getDerivedScaleUpdated();
+			outPosition = nodePos + nodeRot * (nodeScale * boneLocalPos);
+			outOrientation = nodeRot * boneLocalRot;
+			outScale = nodeScale * boneLocalScale;
+		}
+		else
+		{
+			outPosition = boneLocalPos;
+			outOrientation = boneLocalRot;
+			outScale = boneLocalScale;
+		}
+		return true;
 	}
 }

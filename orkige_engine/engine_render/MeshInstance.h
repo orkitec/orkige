@@ -164,6 +164,20 @@ namespace Orkige
 		//! non-looping animation reached its end
 		//! map: classic=AnimationState::hasEnded | next/filament=facade clock >= length
 		bool hasAnimationEnded(String const & name) const;
+
+		//--- bone attachment (weapon-in-hand / prop-on-bone) ---
+		//! @brief the WORLD-space pose of a skeleton bone by name - the seam a
+		//! bone-follower copies onto its render node so a prop tracks a
+		//! character's hand/head as the skeleton animates. The bone's live pose
+		//! is composed up the joint chain and carried through the instance's own
+		//! world transform. Classic forces the skeleton to its current animation
+		//! pose before reading (no lag); the derived-cache flavors read the last
+		//! applied pose (at most one frame behind the clip advance).
+		//! @return false when the instance carries no skeleton or the bone name
+		//! is unknown - the outputs are then left untouched
+		//! map: classic=Entity::_updateAnimation + parent-node full transform * Bone::_getFullTransform (decomposed) | next=parent SceneNode derived transform * the bone pose TRS composed up the parent chain
+		bool getBoneWorldTransform(String const & boneName, Vec3 & outPosition,
+			Quat & outOrientation, Vec3 & outScale) const;
 	protected:
 		//! instances are created by RenderWorld::createMeshInstance only
 		MeshInstance();

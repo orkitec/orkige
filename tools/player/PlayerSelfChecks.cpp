@@ -40,6 +40,7 @@
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/AnimationComponent.h>
+#include <engine_gocomponent/BoneAttachComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
@@ -2663,6 +2664,52 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		};
 		Orkige::AnimationComponent* anim = animComp();
 
+		// bone-attachment leg (runs every frame once the marker exists): the
+		// BoneMarker follows the mannequin's armR bone, so its world pose must
+		// MOVE with the swinging arm and MATCH the facade bone pose plus offset
+		if (characterMarkerCreated)
+		{
+			optr<Orkige::GameObject> marker =
+				gameObjectManager.getGameObject("BoneMarker").lock();
+			optr<Orkige::MeshInstance> mesh = rigMesh();
+			if (marker &&
+				marker->hasComponent<Orkige::TransformComponent>() && mesh)
+			{
+				// the marker is a ROOT object, so its local == world pose
+				Orkige::TransformComponent* markerTransform =
+					marker->getComponentPtr<Orkige::TransformComponent>();
+				const Orkige::Vec3 markerPos = markerTransform->getPosition();
+				const float markerSig = std::abs(markerPos.x) +
+					std::abs(markerPos.y) + std::abs(markerPos.z);
+				if (!characterMarkerSeeded)
+				{
+					characterMarkerMin = characterMarkerMax = markerSig;
+					characterMarkerSeeded = true;
+				}
+				characterMarkerMin = std::min(characterMarkerMin, markerSig);
+				characterMarkerMax = std::max(characterMarkerMax, markerSig);
+				// correctness: the marker sits at the facade bone pose plus the
+				// bone-local offset (the same math the component runs)
+				Orkige::Vec3 bonePos, boneScale;
+				Orkige::Quat boneRot;
+				if (mesh->getBoneWorldTransform("armR", bonePos, boneRot,
+					boneScale))
+				{
+					const Orkige::Vec3 expected =
+						bonePos + boneRot * Orkige::Vec3(0.0f, -0.5f, 0.0f);
+					// the marker sits ON the armR bone (offset down the arm),
+					// not at the origin - the wiring-correctness tolerance is
+					// generous enough to absorb the render-vs-update one-frame
+					// pose lag on the derived-cache flavor (a mis-wired marker
+					// misses by ~1 world unit, this catches it)
+					if ((expected - markerPos).length() < 0.1f)
+					{
+						characterMarkerMatched = true;
+					}
+				}
+			}
+		}
+
 		if (characterRigPhase == CharacterRigPhase::Boot)
 		{
 			if (frameCount == 5)
@@ -2706,6 +2753,27 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 						const float sig = boundsSignature();
 						characterRigBoundsMin = characterRigBoundsMax = sig;
 						characterRigBoundsSeeded = true;
+						// spawn a bone-follower marker on the mannequin's right
+						// arm (a hand marker: offset down the arm) - it must track
+						// the swinging arm across the animated phases (both flavors)
+						if (optr<Orkige::GameObject> marker =
+							gameObjectManager.createGameObject("BoneMarker").lock())
+						{
+							marker->addComponent<Orkige::BoneAttachComponent>();
+							if (Orkige::BoneAttachComponent* attach =
+								marker->getComponentPtr<Orkige::BoneAttachComponent>())
+							{
+								attach->setTarget("Mannequin");
+								attach->setBone("armR");
+								attach->setOffsetXYZ(0.0f, -0.5f, 0.0f);
+								characterMarkerCreated = true;
+							}
+						}
+						if (!characterMarkerCreated)
+						{
+							characterFail("could not create the bone-attach "
+								"marker");
+						}
 						characterRigPhase = CharacterRigPhase::Walk;
 						characterRigDeadline = frameCount + 600;
 					}
@@ -2798,14 +2866,32 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 			// the flavor with exact animated-amplitude bounds (next)
 			if (characterRigIdleBoundsMax - characterRigIdleBoundsMin > 0.01f)
 			{
-				SDL_Log("orkige_player: character rig selfcheck - walk moved "
-					"skeletal bounds (spread %.3f), a weighted crossfade blended "
-					"to idle, and idle's sway keeps moving the bounds (spread "
-					"%.3f); now testing playback-state resume",
-					characterRigBoundsMax - characterRigBoundsMin,
-					characterRigIdleBoundsMax - characterRigIdleBoundsMin);
-				characterRigPhase = CharacterRigPhase::Resume;
-				characterRigDeadline = frameCount + 300;
+				// the bone-attachment leg must have proven out by now: the
+				// marker tracked the facade bone pose AND swept with the arm
+				if (!characterMarkerMatched)
+				{
+					characterFail("the bone-attach marker never matched the "
+						"armR bone pose");
+				}
+				else if (characterMarkerMax - characterMarkerMin < 0.02f)
+				{
+					characterFail("the bone-attach marker never moved with the "
+						"animated arm");
+				}
+				else
+				{
+					SDL_Log("orkige_player: character rig selfcheck - walk moved "
+						"skeletal bounds (spread %.3f), a weighted crossfade "
+						"blended to idle, idle's sway keeps moving the bounds "
+						"(spread %.3f), and the armR-attached marker tracked the "
+						"animated bone (marker spread %.3f, pose matched); now "
+						"testing playback-state resume",
+						characterRigBoundsMax - characterRigBoundsMin,
+						characterRigIdleBoundsMax - characterRigIdleBoundsMin,
+						characterMarkerMax - characterMarkerMin);
+					characterRigPhase = CharacterRigPhase::Resume;
+					characterRigDeadline = frameCount + 300;
+				}
 			}
 			else if (frameCount >= characterRigDeadline)
 			{
@@ -2841,11 +2927,11 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 					if (std::abs(resumedTime - 0.5f) < 0.1f)
 					{
 						SDL_Log("orkige_player: character rig selfcheck complete "
-							"- 3D skeletal playback + blend verified, and a "
-							"loaded mid-animation state resumed the saved clip at "
-							"the saved phase (walk at %.3f s, armed 0.5, idle "
-							"dropped) - playback serialization verified",
-							resumedTime);
+							"- 3D skeletal playback + blend + bone attachment "
+							"verified, and a loaded mid-animation state resumed "
+							"the saved clip at the saved phase (walk at %.3f s, "
+							"armed 0.5, idle dropped) - playback serialization "
+							"verified", resumedTime);
 						characterRigPhase = CharacterRigPhase::Done;
 						running = false;
 					}
