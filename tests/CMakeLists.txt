@@ -327,6 +327,26 @@ if(TARGET orkige_engine)
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(render_facade_selfcheck PROPERTIES
         ENVIRONMENT "ORKIGE_SELFCHECK_OUT=${CMAKE_CURRENT_BINARY_DIR}/render_facade")
+
+    # cooked-cubemap runtime-load proof (both flavors): the driver
+    # block-compresses the stock debug cubemap through the REAL export cook
+    # (cook_textures.py + this tree's texcook) and boots the selfcheck against
+    # it - the skybox leg proves the compressed cube LOADS with its +X face and
+    # baked mip chain intact. Desktop-BC only here (a host cannot boot the
+    # mobile ASTC/ETC2 cube containers - those ride cook_textures --selftest +
+    # the device tests), so it registers wherever texcook builds.
+    if(TARGET texcook)
+        add_test(NAME render_cooked_cubemap
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_cooked_cubemap_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --selfcheck "$<TARGET_FILE:render_facade_selfcheck>"
+                --texcook "$<TARGET_FILE:texcook>"
+                --flavor "${ORKIGE_RENDER_BACKEND}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(render_cooked_cubemap PROPERTIES
+            LABELS integration TIMEOUT 300)
+    endif()
     if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         # the content stubs are now filled (Docs/render-abstraction.md):
         # the conformance suite runs ENABLED on this flavor, same

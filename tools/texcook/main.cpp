@@ -25,13 +25,19 @@
 //!
 //!   texcook --input <levels.rgba> --output <file> --width W --height H
 //!           --levels N --format <fmt> --quality low|normal|high
-//!           --container dds|ktx|oitd
+//!           --container dds|ktx|oitd [--faces 1|6]
 //!   texcook --selftest
 //!
-//! The input file is the concatenation of all mip levels' RGBA8 pixels, level
-//! i sized max(1, W>>i) x max(1, H>>i). Formats: bc1 bc3 bc7 etc2-rgb
-//! etc2-rgba astc-4x4 astc-6x6 astc-8x8. Exit 0 on success, 1 with a message
-//! on stderr otherwise - the cook treats any failure as a refused export.
+//! The input file is the concatenation of every FACE's mip levels' RGBA8
+//! pixels (face-major: face 0's whole chain, then face 1's, ... in the
+//! cubemap face order +X,-X,+Y,-Y,+Z,-Z), level i sized max(1, W>>i) x
+//! max(1, H>>i). --faces is 1 for a 2D texture (the default) or 6 for a
+//! cubemap (square faces); the six faces compress in one pass and the
+//! container carries the cubemap flags + the full per-face mip chain, so a
+//! skybox's prefiltered roughness chain survives the cook intact. Formats:
+//! bc1 bc3 bc7 etc2-rgb etc2-rgba astc-4x4 astc-6x6 astc-8x8. Exit 0 on
+//! success, 1 with a message on stderr otherwise - the cook treats any
+//! failure as a refused export.
 
 #include <ktx.h>
 
@@ -135,11 +141,15 @@ namespace
 	//---------------------------------------------------------
 	// encoding (libktx): RGBA levels in, per-level block payloads out
 	//---------------------------------------------------------
-	//! encode the RGBA8 mip levels to the requested block format; returns one
-	//! byte vector per level (base first)
-	std::vector<std::vector<uint8_t>> encodeLevels(FormatInfo const& info,
-		std::string const& quality, int width, int height,
-		std::vector<std::vector<uint8_t>> const& rgbaLevels)
+	//! encode the RGBA8 mip levels to the requested block format; returns the
+	//! per-level, per-face block payloads (levels[level][face], base level
+	//! first, faces in the container's standard order). @p faces is 1 for a 2D
+	//! texture and 6 for a cubemap (the six faces the encoder compresses in one
+	//! pass); the caller supplies rgbaLevels[level][face].
+	std::vector<std::vector<std::vector<uint8_t>>> encodeLevels(
+		FormatInfo const& info, std::string const& quality, int width,
+		int height, int faces,
+		std::vector<std::vector<std::vector<uint8_t>>> const& rgbaLevels)
 	{
 		constexpr uint32_t VK_FORMAT_R8G8B8A8_UNORM = 37;	// non-sRGB: the
 		// engine samples every content texture raw (gamma-space passthrough
@@ -153,7 +163,7 @@ namespace
 		createInfo.numDimensions = 2;
 		createInfo.numLevels = uint32_t(rgbaLevels.size());
 		createInfo.numLayers = 1;
-		createInfo.numFaces = 1;
+		createInfo.numFaces = uint32_t(faces);
 		createInfo.isArray = KTX_FALSE;
 		createInfo.generateMipmaps = KTX_FALSE;
 
@@ -167,13 +177,18 @@ namespace
 		}
 		for (size_t level = 0; level < rgbaLevels.size(); ++level)
 		{
-			result = ktxTexture_SetImageFromMemory(ktxTexture(texture),
-				ktx_uint32_t(level), 0, 0, rgbaLevels[level].data(),
-				rgbaLevels[level].size());
-			if (result != KTX_SUCCESS)
+			for (int face = 0; face < faces; ++face)
 			{
-				fail("could not stage level " + std::to_string(level) + ": " +
-					ktxErrorString(result));
+				result = ktxTexture_SetImageFromMemory(ktxTexture(texture),
+					ktx_uint32_t(level), 0, ktx_uint32_t(face),
+					rgbaLevels[level][size_t(face)].data(),
+					rgbaLevels[level][size_t(face)].size());
+				if (result != KTX_SUCCESS)
+				{
+					fail("could not stage level " + std::to_string(level) +
+						" face " + std::to_string(face) + ": " +
+						ktxErrorString(result));
+				}
 			}
 		}
 
@@ -235,18 +250,13 @@ namespace
 			}
 		}
 
-		std::vector<std::vector<uint8_t>> levels;
+		std::vector<std::vector<std::vector<uint8_t>>> levels;
 		levels.reserve(rgbaLevels.size());
 		const uint8_t* base = ktxTexture_GetData(ktxTexture(texture));
 		for (size_t level = 0; level < rgbaLevels.size(); ++level)
 		{
-			ktx_size_t offset = 0;
-			result = ktxTexture_GetImageOffset(ktxTexture(texture),
-				ktx_uint32_t(level), 0, 0, &offset);
-			if (result != KTX_SUCCESS)
-			{
-				fail("could not locate encoded level " + std::to_string(level));
-			}
+			// one image (face) size per level - identical across a cubemap's
+			// faces (square faces, same format), so GetImageSize suffices
 			const ktx_size_t size =
 				ktxTexture_GetImageSize(ktxTexture(texture), ktx_uint32_t(level));
 			const size_t expected = blockDataSize(info,
@@ -258,7 +268,22 @@ namespace
 					" size mismatch (got " + std::to_string(size_t(size)) +
 					", expected " + std::to_string(expected) + ")");
 			}
-			levels.emplace_back(base + offset, base + offset + size);
+			std::vector<std::vector<uint8_t>> perFace;
+			perFace.reserve(size_t(faces));
+			for (int face = 0; face < faces; ++face)
+			{
+				ktx_size_t offset = 0;
+				result = ktxTexture_GetImageOffset(ktxTexture(texture),
+					ktx_uint32_t(level), 0, ktx_uint32_t(face), &offset);
+				if (result != KTX_SUCCESS)
+				{
+					fail("could not locate encoded level " +
+						std::to_string(level) + " face " +
+						std::to_string(face));
+				}
+				perFace.emplace_back(base + offset, base + offset + size);
+			}
+			levels.push_back(std::move(perFace));
 		}
 		ktxTexture_Destroy(ktxTexture(texture));
 		return levels;
@@ -276,11 +301,15 @@ namespace
 	}
 
 	//! .dds: the legacy 124-byte header, plus the DX10 extension when the
-	//! format has no legacy fourCC (BC7)
+	//! format has no legacy fourCC (BC7). @p levels is levels[level][face];
+	//! a six-face payload writes the cubemap caps and stores the blocks
+	//! FACE-major (each face's whole mip chain, in +X,-X,+Y,-Y,+Z,-Z order -
+	//! the DDS cubemap layout both flavors' DDS codecs read)
 	std::vector<uint8_t> buildDds(FormatInfo const& info, int width, int height,
-		std::vector<std::vector<uint8_t>> const& levels)
+		std::vector<std::vector<std::vector<uint8_t>>> const& levels)
 	{
 		const uint32_t mipCount = uint32_t(levels.size());
+		const size_t faces = levels[0].size();
 		std::vector<uint8_t> out;
 		appendU32(out, fourCC('D', 'D', 'S', ' '));
 		appendU32(out, 124);							// header size
@@ -293,7 +322,7 @@ namespace
 		appendU32(out, flags);
 		appendU32(out, uint32_t(height));
 		appendU32(out, uint32_t(width));
-		appendU32(out, uint32_t(levels[0].size()));		// linear size (level 0)
+		appendU32(out, uint32_t(levels[0][0].size()));	// linear size (level 0)
 		appendU32(out, 0);								// depth
 		appendU32(out, mipCount > 1 ? mipCount : 0);
 		for (int i = 0; i < 11; ++i)
@@ -313,31 +342,46 @@ namespace
 		{
 			caps1 |= 0x8 | 0x400000;					// COMPLEX | MIPMAP
 		}
+		uint32_t caps2 = 0;
+		if (faces == 6)
+		{
+			caps1 |= 0x8;								// COMPLEX
+			caps2 = 0xFE00;								// CUBEMAP + all six faces
+		}
 		appendU32(out, caps1);
-		appendU32(out, 0);								// caps2
+		appendU32(out, caps2);
 		appendU32(out, 0);								// caps3
 		appendU32(out, 0);								// caps4
 		appendU32(out, 0);								// reserved
 		if (!info.ddsFourCC)
 		{
 			appendU32(out, info.dxgiFormat);			// DX10 extension
-			appendU32(out, 3);							// TEXTURE2D
-			appendU32(out, 0);							// misc
-			appendU32(out, 1);							// array size
+			appendU32(out, faces == 6 ? 3u : 3u);		// TEXTURE2D (cube = a
+			// TEXTURE2D array of 6 with the CUBEMAP misc flag below)
+			appendU32(out, faces == 6 ? 0x4u : 0u);		// misc: TEXTURECUBE
+			appendU32(out, faces == 6 ? 6u : 1u);		// array size (6 faces)
 			appendU32(out, 0);							// misc2
 		}
-		for (std::vector<uint8_t> const& level : levels)
+		// FACE-major storage: face 0's whole mip chain, then face 1's, ...
+		for (size_t face = 0; face < faces; ++face)
 		{
-			out.insert(out.end(), level.begin(), level.end());
+			for (std::vector<std::vector<uint8_t>> const& level : levels)
+			{
+				out.insert(out.end(), level[face].begin(), level[face].end());
+			}
 		}
 		return out;
 	}
 
 	//! .ktx: KTX1 - what the classic flavor's compressed-texture codec reads
-	//! (it maps the ETC2 and ASTC glInternalFormat values)
+	//! (it maps the ETC2 and ASTC glInternalFormat values). @p levels is
+	//! levels[level][face]; a six-face payload sets numberOfFaces to 6 and, per
+	//! the KTX1 layout, writes one imageSize (a SINGLE face's level size, the
+	//! non-array-cubemap rule) then each face's blocks for that mip
 	std::vector<uint8_t> buildKtx1(FormatInfo const& info, int width, int height,
-		std::vector<std::vector<uint8_t>> const& levels)
+		std::vector<std::vector<std::vector<uint8_t>>> const& levels)
 	{
+		const size_t faces = levels[0].size();
 		static const uint8_t identifier[12] =
 			{ 0xAB, 'K', 'T', 'X', ' ', '1', '1', 0xBB, '\r', '\n', 0x1A, '\n' };
 		std::vector<uint8_t> out(identifier, identifier + 12);
@@ -351,16 +395,19 @@ namespace
 		appendU32(out, uint32_t(height));
 		appendU32(out, 0);								// pixelDepth (2D)
 		appendU32(out, 0);								// arrayElements
-		appendU32(out, 1);								// faces
+		appendU32(out, uint32_t(faces));				// faces (1 or 6)
 		appendU32(out, uint32_t(levels.size()));
 		appendU32(out, 0);								// key/value bytes
-		for (std::vector<uint8_t> const& level : levels)
+		for (std::vector<std::vector<uint8_t>> const& level : levels)
 		{
-			appendU32(out, uint32_t(level.size()));
-			out.insert(out.end(), level.begin(), level.end());
-			while (out.size() % 4)						// mip padding
+			appendU32(out, uint32_t(level[0].size()));	// imageSize (one face)
+			for (std::vector<uint8_t> const& face : level)
 			{
-				out.push_back(0);
+				out.insert(out.end(), face.begin(), face.end());
+				while (out.size() % 4)					// cube/mip padding
+				{
+					out.push_back(0);
+				}
 			}
 		}
 		return out;
@@ -368,23 +415,33 @@ namespace
 
 	//! .oitd: Ogre-Next's native container - a packed 17-byte header (magic,
 	//! dimensions, mip count, texture type, PixelFormatGpu value, version 1)
-	//! over the tightly packed level payloads
+	//! over the tightly packed payloads. @p levels is levels[level][face]; a
+	//! six-face payload sets TypeCube + depthOrSlices 6 and stores the blocks
+	//! MIP-major with the six faces contiguous within each mip - the Ogre-Next
+	//! Image2/TextureBox slice layout its OITD codec bulk-reads
 	std::vector<uint8_t> buildOitd(FormatInfo const& info, int width, int height,
-		std::vector<std::vector<uint8_t>> const& levels)
+		std::vector<std::vector<std::vector<uint8_t>>> const& levels)
 	{
+		const size_t faces = levels[0].size();
 		std::vector<uint8_t> out;
 		appendU32(out, fourCC('O', 'I', 'T', 'D'));
 		appendU32(out, uint32_t(width));
 		appendU32(out, uint32_t(height));
-		appendU32(out, 1);								// depthOrSlices
+		appendU32(out, uint32_t(faces == 6 ? 6 : 1));	// depthOrSlices
 		out.push_back(uint8_t(levels.size()));			// numMipmaps
-		out.push_back(3);								// TextureTypes::Type2D
+		out.push_back(faces == 6 ? 5 : 3);				// TypeCube : Type2D
 		out.push_back(uint8_t(info.oitdPixelFormat));	// PixelFormatGpu (LE)
 		out.push_back(uint8_t(info.oitdPixelFormat >> 8));
 		out.push_back(1);								// version
-		for (std::vector<uint8_t> const& level : levels)
+		// MIP-major, faces contiguous within each mip: for compressed formats a
+		// block row is already a multiple of 4 bytes, so version 1's 4-byte row
+		// alignment needs no extra padding
+		for (std::vector<std::vector<uint8_t>> const& level : levels)
 		{
-			out.insert(out.end(), level.begin(), level.end());
+			for (std::vector<uint8_t> const& face : level)
+			{
+				out.insert(out.end(), face.begin(), face.end());
+			}
 		}
 		return out;
 	}
@@ -393,8 +450,9 @@ namespace
 	// the cook entry: read levels, encode, write the container
 	//---------------------------------------------------------
 	int cook(std::string const& inputPath, std::string const& outputPath,
-		int width, int height, int levelCount, std::string const& formatToken,
-		std::string const& quality, std::string const& container)
+		int width, int height, int levelCount, int faces,
+		std::string const& formatToken, std::string const& quality,
+		std::string const& container)
 	{
 		FormatInfo const* info = findFormat(formatToken);
 		if (!info)
@@ -411,30 +469,48 @@ namespace
 		{
 			fail("--width/--height/--levels must be positive");
 		}
+		if (faces != 1 && faces != 6)
+		{
+			fail("--faces must be 1 (2D) or 6 (cubemap)");
+		}
+		if (faces == 6 && width != height)
+		{
+			fail("a cubemap (--faces 6) must have square faces");
+		}
 
 		std::ifstream input(inputPath, std::ios::binary);
 		if (!input)
 		{
 			fail("could not open input '" + inputPath + "'");
 		}
-		std::vector<std::vector<uint8_t>> rgbaLevels;
-		for (int level = 0; level < levelCount; ++level)
+		// on disk the RGBA levels are FACE-major (each face's whole mip chain,
+		// faces in the container's +X,-X,+Y,-Y,+Z,-Z order); the encoder wants
+		// them indexed [level][face], so transpose while reading
+		const std::vector<std::vector<uint8_t>> emptyFaces(
+			static_cast<size_t>(faces));
+		std::vector<std::vector<std::vector<uint8_t>>> rgbaLevels(
+			static_cast<size_t>(levelCount), emptyFaces);
+		for (int face = 0; face < faces; ++face)
 		{
-			const size_t bytes = size_t(levelDimension(width, level)) *
-				size_t(levelDimension(height, level)) * 4;
-			std::vector<uint8_t> pixels(bytes);
-			input.read(reinterpret_cast<char*>(pixels.data()),
-				std::streamsize(bytes));
-			if (size_t(input.gcount()) != bytes)
+			for (int level = 0; level < levelCount; ++level)
 			{
-				fail("input '" + inputPath + "' is short at level " +
-					std::to_string(level));
+				const size_t bytes = size_t(levelDimension(width, level)) *
+					size_t(levelDimension(height, level)) * 4;
+				std::vector<uint8_t> pixels(bytes);
+				input.read(reinterpret_cast<char*>(pixels.data()),
+					std::streamsize(bytes));
+				if (size_t(input.gcount()) != bytes)
+				{
+					fail("input '" + inputPath + "' is short at face " +
+						std::to_string(face) + " level " +
+						std::to_string(level));
+				}
+				rgbaLevels[size_t(level)][size_t(face)] = std::move(pixels);
 			}
-			rgbaLevels.push_back(std::move(pixels));
 		}
 
-		const std::vector<std::vector<uint8_t>> encoded =
-			encodeLevels(*info, quality, width, height, rgbaLevels);
+		const std::vector<std::vector<std::vector<uint8_t>>> encoded =
+			encodeLevels(*info, quality, width, height, faces, rgbaLevels);
 		const std::vector<uint8_t> file =
 			container == "dds" ? buildDds(*info, width, height, encoded) :
 			container == "ktx" ? buildKtx1(*info, width, height, encoded) :
@@ -458,7 +534,8 @@ namespace
 	{
 		const int width = 20;	// deliberately NOT a block multiple: partial
 		const int height = 12;	// edge blocks must round up, never truncate
-		std::vector<std::vector<uint8_t>> rgbaLevels;
+		// the encoder indexes rgba[level][face]; the 2D leg carries one face
+		std::vector<std::vector<std::vector<uint8_t>>> rgbaLevels;
 		for (int level = 0; level < 2; ++level)
 		{
 			const int levelWidth = levelDimension(width, level);
@@ -475,7 +552,7 @@ namespace
 					pixels.push_back(uint8_t(255 - x));
 				}
 			}
-			rgbaLevels.push_back(std::move(pixels));
+			rgbaLevels.push_back({ std::move(pixels) });
 		}
 		int failures = 0;
 		auto check = [&failures](bool condition, std::string const& what)
@@ -489,12 +566,14 @@ namespace
 		};
 		for (FormatInfo const& info : FORMATS)
 		{
-			const std::vector<std::vector<uint8_t>> encoded =
-				encodeLevels(info, "low", width, height, rgbaLevels);
+			const std::vector<std::vector<std::vector<uint8_t>>> encoded =
+				encodeLevels(info, "low", width, height, 1, rgbaLevels);
 			check(encoded.size() == 2, std::string(info.token) + ": level count");
-			check(encoded[0].size() == blockDataSize(info, width, height),
+			check(encoded[0].size() == 1 && encoded[1].size() == 1,
+				std::string(info.token) + ": 2D face count");
+			check(encoded[0][0].size() == blockDataSize(info, width, height),
 				std::string(info.token) + ": level 0 payload size");
-			check(encoded[1].size() == blockDataSize(info, width / 2, height / 2),
+			check(encoded[1][0].size() == blockDataSize(info, width / 2, height / 2),
 				std::string(info.token) + ": level 1 payload size");
 			// container round: every format must build its shippable container
 			if (info.ddsFourCC || info.dxgiFormat)
@@ -508,14 +587,100 @@ namespace
 			{
 				const std::vector<uint8_t> ktx =
 					buildKtx1(info, width, height, encoded);
-				check(ktx.size() > 64 + encoded[0].size() &&
+				check(ktx.size() > 64 + encoded[0][0].size() &&
 					std::memcmp(ktx.data() + 1, "KTX 11", 6) == 0,
 					std::string(info.token) + ": KTX1 magic");
 				const std::vector<uint8_t> oitd =
 					buildOitd(info, width, height, encoded);
-				check(oitd.size() == 4 + 17 + encoded[0].size() + encoded[1].size()
-					&& std::memcmp(oitd.data(), "OITD", 4) == 0,
+				check(oitd.size() == 4 + 17 + encoded[0][0].size() +
+					encoded[1][0].size() && std::memcmp(oitd.data(), "OITD", 4) == 0,
 					std::string(info.token) + ": OITD layout");
+			}
+		}
+
+		// --- cubemap round-trip: six 8x8 faces, 4 mips, one format per
+		// container family - proves the encoder compresses all six faces and
+		// each cube container carries the face flags + the complete per-face
+		// mip chain (face order preserved, chain length preserved)
+		{
+			const int cubeSize = 8;			// square, power-of-two: a clean chain
+			const int cubeMips = 4;			// 8 -> 4 -> 2 -> 1
+			std::vector<std::vector<std::vector<uint8_t>>> cube(
+				static_cast<size_t>(cubeMips));
+			for (int level = 0; level < cubeMips; ++level)
+			{
+				const int dim = levelDimension(cubeSize, level);
+				for (int face = 0; face < 6; ++face)
+				{
+					std::vector<uint8_t> pixels;
+					pixels.reserve(size_t(dim) * size_t(dim) * 4);
+					for (int i = 0; i < dim * dim; ++i)
+					{
+						// a distinct flat colour per face (face index in R) so a
+						// decode could tell the faces apart; flat blocks stay
+						// crisp through BC/ASTC/ETC2
+						pixels.push_back(uint8_t(face * 40));
+						pixels.push_back(uint8_t(128));
+						pixels.push_back(uint8_t(255 - face * 30));
+						pixels.push_back(255);
+					}
+					cube[size_t(level)].push_back(std::move(pixels));
+				}
+			}
+			auto faceMipBytes = [&](FormatInfo const& info)
+			{
+				size_t total = 0;
+				for (int level = 0; level < cubeMips; ++level)
+				{
+					total += blockDataSize(info, levelDimension(cubeSize, level),
+						levelDimension(cubeSize, level));
+				}
+				return total;			// one face's whole chain
+			};
+			for (const char* token : { "bc1", "astc-4x4", "etc2-rgb" })
+			{
+				FormatInfo const* info = findFormat(token);
+				const std::vector<std::vector<std::vector<uint8_t>>> encoded =
+					encodeLevels(*info, "low", cubeSize, cubeSize, 6, cube);
+				check(encoded.size() == size_t(cubeMips),
+					std::string(token) + " cube: level count");
+				bool sixFaces = true;
+				for (auto const& level : encoded)
+				{
+					sixFaces = sixFaces && level.size() == 6;
+				}
+				check(sixFaces, std::string(token) + " cube: six faces per level");
+				if (info->ddsFourCC || info->dxgiFormat)
+				{
+					const std::vector<uint8_t> dds =
+						buildDds(*info, cubeSize, cubeSize, encoded);
+					// DDS caps2 (file offset 4 + 108) must carry CUBEMAP + faces
+					uint32_t caps2 = 0;
+					std::memcpy(&caps2, dds.data() + 4 + 108, 4);
+					check(caps2 == 0xFE00,
+						std::string(token) + " cube: DDS cubemap caps");
+					check(dds.size() == 4 + 124 + 6 * faceMipBytes(*info),
+						std::string(token) + " cube: DDS face-complete size");
+				}
+				if (info->glInternalFormat)
+				{
+					const std::vector<uint8_t> oitd =
+						buildOitd(*info, cubeSize, cubeSize, encoded);
+					check(oitd[4 + 13] == 5,
+						std::string(token) + " cube: OITD TypeCube");
+					uint32_t slices = 0;
+					std::memcpy(&slices, oitd.data() + 4 + 8, 4);
+					check(slices == 6,
+						std::string(token) + " cube: OITD depthOrSlices");
+					check(oitd.size() == 4 + 17 + 6 * faceMipBytes(*info),
+						std::string(token) + " cube: OITD face-complete size");
+					const std::vector<uint8_t> ktx =
+						buildKtx1(*info, cubeSize, cubeSize, encoded);
+					uint32_t ktxFaces = 0;
+					std::memcpy(&ktxFaces, ktx.data() + 12 + 10 * 4, 4);
+					check(ktxFaces == 6,
+						std::string(token) + " cube: KTX1 numberOfFaces");
+				}
 			}
 		}
 		if (failures)
@@ -523,7 +688,7 @@ namespace
 			return 1;
 		}
 		std::printf("texcook: self-test OK (8 formats encoded, container "
-			"layouts verified)\n");
+			"layouts verified, cubemap round-trip: 6-face DDS/OITD/KTX)\n");
 		return 0;
 	}
 }
@@ -533,7 +698,7 @@ int main(int argc, char** argv)
 {
 	std::string input, output, format, container;
 	std::string quality = "normal";
-	int width = 0, height = 0, levels = 1;
+	int width = 0, height = 0, levels = 1, faces = 1;
 	for (int i = 1; i < argc; ++i)
 	{
 		const std::string argument = argv[i];
@@ -554,6 +719,7 @@ int main(int argc, char** argv)
 		else if (argument == "--width") { width = std::atoi(value.c_str()); }
 		else if (argument == "--height") { height = std::atoi(value.c_str()); }
 		else if (argument == "--levels") { levels = std::atoi(value.c_str()); }
+		else if (argument == "--faces") { faces = std::atoi(value.c_str()); }
 		else { fail("unknown argument '" + argument + "'"); }
 	}
 	if (input.empty() || output.empty() || format.empty() || container.empty())
@@ -562,13 +728,14 @@ int main(int argc, char** argv)
 			"usage: texcook --input <levels.rgba> --output <file> --width W "
 			"--height H --levels N --format bc1|bc3|bc7|etc2-rgb|etc2-rgba|"
 			"astc-4x4|astc-6x6|astc-8x8 --quality low|normal|high "
-			"--container dds|ktx|oitd\n       texcook --selftest\n");
+			"--container dds|ktx|oitd [--faces 1|6]\n       texcook "
+			"--selftest\n");
 		return 2;
 	}
 	if (quality != "low" && quality != "normal" && quality != "high")
 	{
 		fail("unknown --quality '" + quality + "'");
 	}
-	return cook(input, output, width, height, levels, format, quality,
+	return cook(input, output, width, height, levels, faces, format, quality,
 		container);
 }

@@ -1057,8 +1057,13 @@ namespace Orkige
 		//! A missing/unloadable/non-cubemap file degrades honestly to the flat
 		//! sky tint with one log line per name.
 		void applySceneSkybox(Ogre::SceneManager* sceneManager,
-			String const & textureName)
+			String const & requestedName)
 		{
+			// a cooked cubemap ships block-compressed: BCn stays the .dds name,
+			// but ASTC/ETC2 renamed it to the native .oitd - resolve a missing
+			// .dds to its cooked sibling (the same fallback loadTexture2D uses)
+			const String textureName =
+				RenderBackend::resolveTextureResourceName(requestedName);
 			if(textureName == gSkyboxTexture)
 			{
 				return;	// already showing this cubemap (or already disabled)

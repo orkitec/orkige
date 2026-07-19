@@ -24,6 +24,16 @@ missing .png to its cooked siblings for bare-name references. A texture whose
 sidecar is id-only cooks with the DEFAULT settings (format "auto"); a texture
 without any sidecar ships untouched. Full model: Docs/textures.md.
 
+CUBEMAPS ride the same cook: a sidecar-carrying .dds whose container marks it a
+six-face cubemap (what Util/make_sky_assets.py bakes) block-compresses through
+the SAME format matrix and encoder, preserving the six faces (order
++X,-X,+Y,-Y,+Z,-Z) and the BAKED mip chain exactly - a skybox's chain is the
+prefiltered roughness chain the IBL samplers index, so it is re-encoded level by
+level, never regenerated. The BC container reuses the .dds name (in place); the
+mobile ASTC/ETC2 containers rename .dds -> .oitd/.ktx, and the skybox loaders
+fall back from a missing .dds to those cooked siblings. A non-cubemap .dds (or
+one already compressed) ships verbatim.
+
 Sampler settings (filter/wrap) are NOT cooked: they are honored LIVE at sprite
 material/datablock creation from the same sidecar (which ships alongside the
 texture), so the cook leaves them for the runtime.
@@ -260,6 +270,140 @@ def encode_compressed(png_path, image, fmt, container, quality, generate_mips,
     return out_path
 
 
+def decode_dds_cubemap(dds_path):
+    """decode an UNCOMPRESSED masked-32bpp cubemap .dds (what
+    Util/make_sky_assets.py bakes) into its faces and BAKED mip chain. Returns
+    (size, mips, faces) where faces is a list of 6 lists of RGBA bytearrays
+    (one per mip level, face order +X,-X,+Y,-Y,+Z,-Z), or None when the file is
+    not an uncompressed cubemap we can re-encode (already block-compressed, a
+    DX10/fourCC container, a 2D texture, an odd bit layout) - such a .dds ships
+    verbatim.
+
+    The mip chain is READ, never regenerated: a sky cubemap's chain is the
+    prefiltered roughness chain the IBL samplers index, so the cook preserves
+    it exactly (each level re-encoded into the compressed container as-is)."""
+    with open(dds_path, "rb") as handle:
+        data = handle.read()
+    if len(data) < 128 or data[:4] != b"DDS ":
+        return None
+    (header_size, _flags, height, width, _pitch, _depth, mips) = \
+        struct.unpack_from("<7I", data, 4)
+    if header_size != 124:
+        return None
+    (pf_size, pf_flags, _four_cc, bit_count, r_mask, g_mask, b_mask, a_mask) = \
+        struct.unpack_from("<8I", data, 76)
+    (_caps, caps2) = struct.unpack_from("<2I", data, 108)
+    # a real six-face cubemap (CUBEMAP bit + all six face bits)
+    if (caps2 & 0xFE00) != 0xFE00:
+        return None
+    # uncompressed 32bpp RGB(A) only: a fourCC/DX10 payload is already
+    # compressed (or an unsupported layout) and re-cooks from nothing
+    if (pf_flags & 0x4) or not (pf_flags & 0x40) or bit_count != 32:
+        return None
+    if width != height or mips < 1:
+        return None
+
+    def channel_shift(mask):
+        # byte index of a 0xFF-aligned channel mask in a little-endian pixel
+        for byte in range(4):
+            if mask == (0xFF << (byte * 8)):
+                return byte
+        return None
+    r_i, g_i, b_i = (channel_shift(r_mask), channel_shift(g_mask),
+                     channel_shift(b_mask))
+    a_i = channel_shift(a_mask) if (pf_flags & 0x1) else None
+    if None in (r_i, g_i, b_i):
+        return None
+
+    def level_bytes(level):
+        dim = max(1, width >> level)
+        return dim * dim * 4
+    face_stride = sum(level_bytes(level) for level in range(mips))
+    body = data[4 + 124:]
+    if len(body) < face_stride * 6:
+        return None
+    faces = []
+    for face in range(6):
+        levels = []
+        offset = face * face_stride
+        for level in range(mips):
+            count = level_bytes(level)
+            src = body[offset:offset + count]
+            rgba = bytearray(count)
+            for pixel in range(0, count, 4):
+                rgba[pixel] = src[pixel + r_i]
+                rgba[pixel + 1] = src[pixel + g_i]
+                rgba[pixel + 2] = src[pixel + b_i]
+                rgba[pixel + 3] = src[pixel + a_i] if a_i is not None else 255
+            levels.append(rgba)
+            offset += count
+        faces.append(levels)
+    return width, mips, faces
+
+
+def _cube_has_alpha(faces):
+    """any face texel with alpha below 255 (drives the etc2/BCn variant)"""
+    return any(level[i] != 255 for face in faces for level in face
+               for i in range(3, len(level), 4))
+
+
+def cook_cubemap(dds_path, settings, platform="", flavor="next",
+                 texcook=None, warn=None):
+    """block-compress one cubemap .dds per its resolved format; returns a short
+    report when it changed the file, else None. Only the `format`/`quality`
+    settings apply - a cubemap's size and prefiltered mip chain are authored,
+    so maxSize/premultiply/generateMips are ignored here."""
+    decoded = decode_dds_cubemap(dds_path)
+    if decoded is None:
+        return None  # not an uncompressed cubemap we cook - ships verbatim
+    size, mips, faces = decoded
+    fmt, container = resolve_format(settings, platform, flavor,
+                                    _cube_has_alpha(faces), warn=warn)
+    if not fmt:
+        return None  # auto/none on this platform ships the .dds verbatim
+    if not texcook or not os.path.isfile(texcook):
+        raise CookError(
+            "cubemap '%s' resolves to '%s' but no texcook encoder is "
+            "available - build a desktop engine tree (the texcook target) or "
+            "point ORKIGE_TEXCOOK at the binary; refusing a half-cooked export"
+            % (os.path.basename(dds_path), fmt))
+    out_path = os.path.splitext(dds_path)[0] + "." + container
+    raw = tempfile.NamedTemporaryFile(suffix=".rgba", delete=False)
+    try:
+        # FACE-major on disk: face 0's whole chain, then face 1's, ...
+        for face in faces:
+            for level in face:
+                raw.write(level)
+        raw.close()
+        # write to a temp then move into place - the BC container reuses the
+        # source's own .dds name, so a direct write could clobber the input
+        tmp_out = out_path + ".cooking"
+        result = subprocess.run(
+            [texcook, "--input", raw.name, "--output", tmp_out,
+             "--width", str(size), "--height", str(size),
+             "--levels", str(mips), "--faces", "6", "--format", fmt,
+             "--quality", settings.get("quality", "normal"),
+             "--container", container],
+            capture_output=True, text=True)
+        if result.returncode != 0:
+            if os.path.exists(tmp_out):
+                os.unlink(tmp_out)
+            raise CookError("texcook failed on '%s': %s"
+                            % (os.path.basename(dds_path),
+                               result.stderr.strip() or "exit %d"
+                               % result.returncode))
+        if out_path != dds_path:
+            os.unlink(dds_path)
+        os.replace(tmp_out, out_path)
+    finally:
+        os.unlink(raw.name)
+    meta_path = dds_path + META_EXTENSION
+    if os.path.isfile(meta_path) and out_path + META_EXTENSION != meta_path:
+        os.replace(meta_path, out_path + META_EXTENSION)
+    return "%s -> %s (cubemap, %d faces, %d mips)" \
+        % (fmt, os.path.basename(out_path), 6, mips)
+
+
 def cook_texture(png_path, settings, platform="", flavor="next",
                  texcook=None, warn=None):
     """apply the resolved settings to one payload PNG; returns a short report
@@ -299,17 +443,26 @@ def cook_payload(payload_dir, platform="", flavor="next", texcook=None,
     cooked = 0
     for parent, _dirs, files in os.walk(payload_dir):
         for name in sorted(files):
-            if not name.lower().endswith(".png"):
+            lowered = name.lower()
+            is_png = lowered.endswith(".png")
+            is_dds = lowered.endswith(".dds")
+            if not (is_png or is_dds):
                 continue
-            png_path = os.path.join(parent, name)
-            meta_path = png_path + META_EXTENSION
+            source_path = os.path.join(parent, name)
+            meta_path = source_path + META_EXTENSION
             if not os.path.isfile(meta_path):
                 continue
             settings = resolve_import_settings(meta_path, platform)
             if settings is None:
                 continue
-            report = cook_texture(png_path, settings, platform, flavor,
-                                  texcook, warn=log)
+            # a .png is a 2D texture; a .dds is a cubemap when its container
+            # says so (else it is final artwork and ships verbatim)
+            if is_png:
+                report = cook_texture(source_path, settings, platform, flavor,
+                                      texcook, warn=log)
+            else:
+                report = cook_cubemap(source_path, settings, platform, flavor,
+                                      texcook, warn=log)
             if report:
                 cooked += 1
                 if log:
@@ -481,6 +634,26 @@ def selftest(texcook=None):
         check(cooked == 0 and orkige_png.png_size(raw_path) == (20, 20),
               "web auto must ship the untouched PNG")
 
+    # a cubemap with an auto sidecar also needs the encoder on desktop (refuse,
+    # never ship a half-cooked cube), but ships verbatim where auto is PNG
+    with tf.TemporaryDirectory() as tmp:
+        import make_sky_assets  # sibling Util helper (the cube .dds baker)
+        cube_path = os.path.join(tmp, "sky.dds")
+        with open(cube_path, "wb") as handle:
+            handle.write(make_sky_assets.build_faces(8))
+        _write_meta(cube_path + META_EXTENSION, '<orkmeta id="j"/>')
+        before = os.path.getsize(cube_path)
+        try:
+            cook_payload(tmp, "", "next", texcook=None)
+            failures.append("cube compression without an encoder must refuse")
+        except CookError:
+            pass
+        check(os.path.isfile(cube_path),
+              "the refused cube payload must keep its .dds")
+        cooked = cook_payload(tmp, "web", "classic", texcook=None)
+        check(cooked == 0 and os.path.getsize(cube_path) == before,
+              "web auto must ship the cubemap .dds verbatim")
+
     # the encoder legs (run whenever a texcook binary is available - the
     # ctest registration always passes the tree's own)
     if texcook and os.path.isfile(texcook):
@@ -542,6 +715,66 @@ def selftest(texcook=None):
             with open(ktx_path, "rb") as handle:
                 magic = handle.read(7)
             check(magic[1:7] == b"KTX 11", "tile.ktx must be a KTX1 file")
+        # cubemap legs: a generated uncompressed six-face cube .dds (the sky
+        # baker's container) block-compresses through the same matrix, keeping
+        # all six faces + the baked mip chain
+        import make_sky_assets  # sibling Util helper (the cube .dds baker)
+        cube_dds = make_sky_assets.build_faces(8)   # 8px faces, 4 baked mips
+        src_mips = make_sky_assets._mip_count(8)
+        with tf.TemporaryDirectory() as tmp:
+            # desktop next auto: opaque -> bc1 in the SAME .dds name, in place
+            cube_path = os.path.join(tmp, "sky.dds")
+            with open(cube_path, "wb") as handle:
+                handle.write(cube_dds)
+            _write_meta(cube_path + META_EXTENSION, '<orkmeta id="g"/>')
+            cooked = cook_payload(tmp, "", "next", texcook=texcook)
+            check(cooked == 1 and os.path.isfile(cube_path),
+                  "desktop cube should cook in place to bc1 .dds")
+            with open(cube_path, "rb") as handle:
+                header = handle.read(128)
+            check(header[:4] == b"DDS ", "cooked cube must carry DDS magic")
+            (_hs, _fl, _h, _w, _p, _d, cube_mips) = \
+                struct.unpack_from("<7I", header, 4)
+            check(cube_mips == src_mips,
+                  "the baked mip chain must be preserved (%d vs %d)"
+                  % (cube_mips, src_mips))
+            caps2 = struct.unpack_from("<I", header, 4 + 108)[0]
+            check((caps2 & 0xFE00) == 0xFE00,
+                  "the cooked cube must keep the cubemap caps")
+            four_cc = header[84:88]
+            check(four_cc == b"DXT1", "opaque desktop cube should be bc1/DXT1")
+        with tf.TemporaryDirectory() as tmp:
+            # android next auto: etc2 -> .oitd cube (TypeCube), .dds removed,
+            # sidecar renamed along
+            cube_path = os.path.join(tmp, "sky.dds")
+            with open(cube_path, "wb") as handle:
+                handle.write(cube_dds)
+            _write_meta(cube_path + META_EXTENSION, '<orkmeta id="h"/>')
+            cook_payload(tmp, "android", "next", texcook=texcook)
+            oitd_path = os.path.join(tmp, "sky.oitd")
+            check(os.path.isfile(oitd_path) and not os.path.exists(cube_path),
+                  "android cube should rename .dds -> .oitd")
+            check(os.path.isfile(oitd_path + META_EXTENSION) and
+                  not os.path.exists(cube_path + META_EXTENSION),
+                  "the cube sidecar must rename along with the container")
+            with open(oitd_path, "rb") as handle:
+                head = handle.read(21)
+            check(head[:4] == b"OITD" and head[4 + 13] == 5,
+                  "the cooked cube .oitd must be a TypeCube container")
+        with tf.TemporaryDirectory() as tmp:
+            # a non-cubemap .dds ships verbatim (final artwork, not cooked)
+            flat = struct.pack("<4s7I44x8I2I12x", b"DDS ", 124, 0x0002100F,
+                               4, 4, 16, 0, 1, 32, 0x41, 0, 32, 0x00FF0000,
+                               0x0000FF00, 0x000000FF, 0xFF000000, 0x1000, 0)
+            flat += bytes(4 * 4 * 4)
+            flat_path = os.path.join(tmp, "flat.dds")
+            with open(flat_path, "wb") as handle:
+                handle.write(flat)
+            _write_meta(flat_path + META_EXTENSION, '<orkmeta id="i"/>')
+            before = os.path.getsize(flat_path)
+            cooked = cook_payload(tmp, "", "next", texcook=texcook)
+            check(cooked == 0 and os.path.getsize(flat_path) == before,
+                  "a non-cubemap .dds must ship verbatim")
     else:
         print("cook_textures: (encoder legs skipped - no texcook binary "
               "given; pass one or set ORKIGE_TEXCOOK)")
@@ -552,8 +785,9 @@ def selftest(texcook=None):
                   file=sys.stderr)
         sys.exit(1)
     print("cook_textures: self-test OK (resolution matrix + resize + "
-          "premultiply + per-platform/web overrides + refusals%s)"
-          % ("" if not texcook else " + encoder legs"))
+          "premultiply + per-platform/web overrides + cubemap ship/refuse + "
+          "refusals%s)" % ("" if not texcook else " + encoder legs incl. "
+                           "cubemap round-trip"))
 
 
 def main():

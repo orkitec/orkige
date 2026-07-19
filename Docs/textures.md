@@ -107,15 +107,25 @@ Rationale for the corners:
   the KTX2 work), revisiting ASTC as the Android `auto` is worth a look.
   Today `auto` stays ETC2 — the only format guaranteed at the floor. ASTC
   remains an explicit override.
-* **Cubemaps stay outside the cook (v2 note)**: a skybox cubemap
-  (`AtmosphereDesc::skyboxTexture`) is ONE uncompressed BGRA8 `.dds` with a
-  baked mip chain — the single container both flavors' native loaders accept
-  (classic codec → `setSkyBox`, next `TextureGpuManager` → `setSky`), baked
-  by `Util/make_sky_assets.py`. The cook only processes `.png`, so a cubemap
-  ships verbatim on every platform; block-compressing cubemap faces
-  (BCn/ASTC per platform, or KTX2 once v2 lands) is deliberately deferred —
-  a 128px-face sky is ~0.5 MB and the payload win doesn't yet justify a
-  second cook path.
+* **Cubemaps cook through the same matrix**: a skybox cubemap
+  (`AtmosphereDesc::skyboxTexture`) is a six-face `.dds` — one uncompressed
+  BGRA8 container with a baked mip chain, baked by `Util/make_sky_assets.py`.
+  A sidecar-carrying cubemap resolves its `format` through the SAME `auto`
+  table and encoder as a 2D texture, so `auto` block-compresses it per
+  platform (desktop BCn `.dds`; iOS ASTC / Android ETC2 `.oitd` on next), and
+  `none` (the sky baker's default stamp) ships it verbatim. Two properties of
+  a cubemap are preserved exactly: the **face order** (`+X,-X,+Y,-Y,+Z,-Z`)
+  and the **baked mip chain** — a sky cubemap's chain IS the prefiltered
+  roughness chain the IBL samplers index (`make_sky_assets.py`), so the cook
+  re-encodes each level as-is rather than regenerating it (`maxSize`/
+  `premultiply`/`generateMips` therefore do not apply to a cubemap). The BC
+  container reuses the source `.dds` name in place; the mobile ASTC/ETC2
+  containers rename `.dds` → `.oitd`/`.ktx`, and the skybox loaders on both
+  flavors resolve a missing `.dds` to its cooked sibling (the same
+  cooked-extension fallback the 2D paths use). The stock skies still stamp
+  `format="none"` (a 128px-face sky is ~0.5 MB and its prefiltered chain is
+  quality-sensitive), so shipping bytes are unchanged until a cubemap opts in
+  — the capability is there for any project that wants it.
 
 ### Containers and what the runtime loads
 
@@ -131,6 +141,11 @@ script-assigned sprite names) both render backends fall back from a missing
 | `bc1`/`bc3`/`bc7` | `.dds` | both flavors (each registers a DDS codec at boot) |
 | ASTC/ETC2, next flavor | `.oitd` | the next runtime's native image container |
 | ASTC/ETC2, classic flavor | `.ktx` (KTX1) | the classic runtime's compressed-texture codec |
+
+The same three containers carry a **cubemap** (six faces, the full mip chain):
+the `.dds` sets the cubemap caps + a face-major payload, the `.oitd` a `TypeCube`
+header with the faces mip-major (the Ogre-Next `Image2` slice layout), the KTX1
+`numberOfFaces` = 6. `texcook --faces 6` encodes all six faces in one pass.
 
 All shipped formats are the **non-sRGB (UNORM) variants**: the engine's
 render pipeline is deliberately gamma-space passthrough on both flavors
@@ -193,10 +208,21 @@ inside `.glb` meshes ship as authored.
 
 ## Verification
 
-* `texcook --selftest` — every format encodes, container layouts verify.
+* `texcook --selftest` — every format encodes, container layouts verify,
+  plus the cubemap round-trip (six faces to DDS/OITD/KTX, cube caps + a
+  face-complete payload).
 * `cook_textures.py --selftest` — the auto table, override precedence
-  (incl. the web slot), impossible-pair refusals, no-encoder refusal, and
-  real encode legs (rename + sidecar + mip chains) when given an encoder.
+  (incl. the web slot), impossible-pair refusals, no-encoder refusal, real
+  encode legs (rename + sidecar + mip chains) when given an encoder, and the
+  cubemap legs (decode an uncompressed six-face `.dds`, cook it in place to a
+  BC1 cube DDS with the mip chain + cube caps preserved, rename to a `.oitd`
+  cube on Android, ship a non-cubemap `.dds` verbatim, refuse without an
+  encoder).
+* `render_cooked_cubemap` (ctest, both flavors) — block-compresses the stock
+  debug cubemap through the real cook and boots the render-facade selfcheck
+  against it: the skybox leg proves the compressed cube LOADS with its +X face
+  and baked mip chain intact (desktop BC; the mobile ASTC/ETC2 cube containers
+  are structural + device-tested, like the 2D `.oitd`).
 * `player_cooked_textures` (ctest, both flavors) — the real player renders a
   cooked payload from `.dds`, through both the asset-id rename and the
   bare-name fallback; the iOS (ASTC) and Android (ETC2) `.oitd` cooks are

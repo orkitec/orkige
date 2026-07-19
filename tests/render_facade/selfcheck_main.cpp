@@ -149,6 +149,14 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	// bloom/classic - @see tests/CMakeLists.txt)
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_BLOOM_DIR);
 #endif
+	// an export-cooked BLOCK-COMPRESSED cubemap dir (the cooked-cubemap ctest
+	// stages a BCn-compressed sky_faces_cooked.dds here): registering it lets
+	// the skybox leg prove both flavors load a compressed cube - face order +
+	// baked mip chain intact - through the very same skybox path
+	if(const char* cookedCubeDir = std::getenv("ORKIGE_SELFCHECK_COOKED_CUBE_DIR"))
+	{
+		renderSystem->addResourceLocation(cookedCubeDir);
+	}
 	renderSystem->initialiseResourceGroups();
 
 	//--- ambient light --------------------------------------------------
@@ -1468,6 +1476,37 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			SELFCHECK(boxRed > 0.6f && boxGreen < 0.35f && boxBlue < 0.35f,
 				"the skybox sky samples the cubemap (+X face red, "
 				"not the procedural gradient)");
+
+			// COMPRESSED cube: when the cooked-cubemap ctest stages a
+			// BCn-compressed sky_faces_cooked.dds, load it through the SAME
+			// skybox path - its +X face must still read red (face order + the
+			// baked mip chain survived the block-compression cook), proving the
+			// loader consumes a cooked cube on this flavor. Restores the plain
+			// debug cube for the IBL leg that follows.
+			if(std::getenv("ORKIGE_SELFCHECK_COOKED_CUBE_DIR"))
+			{
+				AtmosphereDesc cookedCubeDesc = skyboxDesc;
+				cookedCubeDesc.skyboxTexture = "sky_faces_cooked.dds";
+				world->setAtmosphere(cookedCubeDesc);
+				SELFCHECK(renderFrames(renderSystem, 3),
+					"frames render with the compressed skybox cube");
+				const std::string cookedCubeShot =
+					outDir + "/selfcheck_sky_skybox_cooked.png";
+				renderSystem->saveWindowContents(cookedCubeShot);
+				float cookRed = 0, cookGreen = 0, cookBlue = 0;
+				SELFCHECK(SelfcheckBootstrap::readImagePixel(cookedCubeShot,
+					skyX, skyY, cookRed, cookGreen, cookBlue),
+					"the compressed-cube probe decodes");
+				std::printf("render_facade_selfcheck: compressed skybox cube "
+					"probe %.3f/%.3f/%.3f\n", cookRed, cookGreen, cookBlue);
+				SELFCHECK(cookRed > 0.6f && cookGreen < 0.35f &&
+					cookBlue < 0.35f,
+					"the compressed skybox cube samples its +X face red "
+					"(face order + mip chain survived the cook)");
+				world->setAtmosphere(skyboxDesc);
+				SELFCHECK(renderFrames(renderSystem, 2),
+					"frames render after restoring the plain debug cube");
+			}
 
 			// --- image-based lighting (skybox-sourced, both flavors) ------
 			// A mirror-metal wall facing the camera under the debug cubemap:

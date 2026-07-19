@@ -327,8 +327,13 @@ namespace Orkige
 		//! the shape SceneManager::setSkyBox requires. A missing/unloadable
 		//! cubemap degrades honestly to the flat sky tint with one log line.
 		void applySkyBox(Ogre::SceneManager* sceneManager,
-			String const & textureName)
+			String const & requestedName)
 		{
+			// a cooked cubemap ships block-compressed: BCn keeps the .dds name,
+			// but an ASTC/ETC2 export renamed it to .ktx - resolve a missing
+			// .dds to its cooked sibling (the fallback the sprite paths use)
+			const String textureName =
+				RenderBackend::resolveTextureResourceName(requestedName);
 			if(textureName == gSkyBoxTexture)
 			{
 				return;	// already showing this cubemap (or already disabled)
