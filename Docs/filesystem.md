@@ -84,6 +84,64 @@ choice (see [store-release.md](store-release.md#assets-stored-vs-compressed)):
 The App Bundle (`.aab`) path keeps the assets uncompressed in bundletool's
 generated APKs via a `BundleConfig` `uncompressedGlob` (`build_aab.sh`).
 
+## Security: zip-slip + the path jail
+
+**Threat model.** In an AI-agent development setting an agent authors project
+files and imports assets over MCP, and the content it handles — zips/paks,
+scenes, textures — may come from an **untrusted source** (fetched off the web).
+Neither the agent nor the content may write to or resolve a path **outside its
+intended root**: not the pak's mount root (for zip/pak contents), not the
+project root (for the MCP file-authoring jail). The classic attacks are
+**zip-slip** (an archive entry named `../../foo` or `/abs/foo` that a naive
+extractor writes outside the extraction root) and **path traversal** in the
+file jail (`../x`, `/abs/x`, or a symlink component that resolves out of root).
+A future `Docs/security.md` will collect the engine-wide posture; this section
+is the filesystem boundary.
+
+**One containment primitive.** `core_util/PathJail` is the single, pure,
+headless-unit-tested guard both boundaries call:
+
+- `isSafeRelativeEntry(name)` — a pure lexical predicate over an archive entry
+  name (or any untrusted relative path). It **refuses** an empty name, an
+  absolute path (leading `/` or `\`), a drive/UNC root (`C:…`, `\\server`), and
+  **any `..` traversal segment** (splitting on both `/` and `\`, so a
+  Windows-style `..\..\evil` is caught too). A legitimate nested name
+  (`assets/textures/foo.png`) passes; a filename that merely starts with dots
+  (`..foo`, `.hidden`) passes.
+- `escapesRoot(base, target)` — a pure containment test on two normalized paths
+  (true when `target` relativizes to a `..`-led or empty form). This is the
+  shared decision behind the MCP project-file jail (`jailProjectPath`) and
+  `AssetDatabase::resolveInsideRoot`, so the two sites no longer duplicate the
+  logic.
+- `resolveExtractPath(root, name, out)` — the **extract-to-disk** guard: it
+  runs `isSafeRelativeEntry` first, then joins under `root` and re-verifies
+  containment against **symlinks** (`weakly_canonical`), so a hostile entry can
+  never be written through a symlinked component out of the extraction root.
+  Called before any write.
+
+**Where the guard sits.** `MiniZip::open` validates every central-directory
+entry name at parse time and **drops** the unsafe ones with an honest
+`[warn][filesystem]` line — the ONE choke point, so a malicious entry can
+never be resolved in memory (`contains`/`read`/`names` never see it) NOR handed
+to any extract-to-disk consumer. `PakArchive` re-checks the prefix-stripped
+remainder as defense in depth, so a mounted sub-tree resolution can never leave
+the sub-tree. The Android first-launch extraction (`extractBundledAssets`, the
+`compressed` path) routes every destination through `resolveExtractPath` and
+refuses (fails closed) on an escape. The MCP file-authoring jail
+(`write/read/list_project_file(s)`, `import_asset`'s `targetDir`) normalizes +
+canonicalizes the requested path and verifies containment, refusing absolute
+paths, `..` escapes and symlink-out components with an honest error
+(see [mcp.md](mcp.md)).
+
+**Verification.** `PathJailTests` (unit, `[security]`) — crafted `..`/absolute/
+drive/backslash/symlink inputs refused, legitimate nested paths accepted, plus
+a 20 000-iteration fuzz loop asserting "a resolved path is always contained,
+never crashes". `MiniZipRejectsZipSlipTest` (unit) mounts a **malicious fixture
+zip** (`../../evil`, `/etc/evil`, `foo/../../bar`, `..\win_evil` + one benign
+nested entry) and asserts every escaper is dropped and only the benign entry
+reads back. The `editor_control` self-test's jail leg refuses absolute + nested
+`..` authoring paths and asserts nothing was written outside the project.
+
 ## Verification
 
 - `player_pak_selfcheck` (both flavors) — the reborn BigZip acceptance test: the

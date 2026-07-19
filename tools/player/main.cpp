@@ -60,6 +60,7 @@
 #include <engine_util/PlatformWindow.h>
 #include <core_util/StringTable.h>
 #include <core_util/LocaleMatch.h>
+#include <core_util/PathJail.h>
 // gui is flavor-neutral - the UI
 // assertions below run on BOTH render flavors
 #include <engine_gui/GuiManager.h>
@@ -263,8 +264,17 @@ bool extractBundledAssets(std::string const& destRoot, bool mountMediaMode)
 				SDL_GetError());
 			return false;
 		}
-		const std::filesystem::path destPath =
-			std::filesystem::path(destRoot) / relativePath;
+		// zip-slip guard on the extract-to-disk boundary: refuse any entry
+		// that (lexically or through a symlink) would land outside destRoot
+		// before a single byte is written (Docs/filesystem.md - Security)
+		std::filesystem::path destPath;
+		if (!Orkige::PathJail::resolveExtractPath(
+			std::filesystem::path(destRoot), relativePath, destPath))
+		{
+			SDL_Log("orkige_player: FAILED - refusing to extract '%s' "
+				"(escapes the asset root)", relativePath.c_str());
+			return false;
+		}
 		std::error_code ignored;
 		if (std::filesystem::exists(destPath, ignored) &&
 			std::filesystem::file_size(destPath, ignored) == dataSize)

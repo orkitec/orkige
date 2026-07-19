@@ -9,6 +9,9 @@
 
 #include "engine_filesystem/MiniZip.h"
 
+#include "core_util/PathJail.h"
+#include "core_debug/DebugMacros.h"
+
 #include <zlib.h>
 
 #include <cstring>
@@ -126,8 +129,19 @@ namespace Orkige
 				return false;
 			}
 			std::string name(reinterpret_cast<char const*>(c + 46), nameLength);
+			// zip-slip guard: an entry whose name is absolute, drive-rooted or
+			// carries a ".." traversal escapes the archive root - drop it here,
+			// the ONE choke point, so it can never be resolved in memory NOR
+			// written out by any extract-to-disk consumer (Docs/filesystem.md).
+			if(!name.empty() && name.back() != '/' &&
+				!PathJail::isSafeRelativeEntry(name))
+			{
+				oDebugWarn("filesystem", 0, "MiniZip: skipping unsafe zip "
+					"entry '" << name << "' in '" << this->mPath
+					<< "' (path traversal / absolute path)");
+			}
 			// directory entries (trailing '/') carry no data - skip them
-			if(!name.empty() && name.back() != '/')
+			else if(!name.empty() && name.back() != '/')
 			{
 				Entry entry;
 				entry.method = method;

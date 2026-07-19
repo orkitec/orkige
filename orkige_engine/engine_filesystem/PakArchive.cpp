@@ -9,6 +9,8 @@
 
 #include "engine_filesystem/PakArchive.h"
 
+#include "core_util/PathJail.h"
+
 #include <OgreDataStream.h>
 #include <OgreString.h>
 #include <OgreStringVector.h>
@@ -63,6 +65,14 @@ namespace Orkige
 			{
 				continue;	// the mount-point directory entry itself
 			}
+			// defence in depth: a prefix-stripped remainder must still resolve
+			// INSIDE the mounted sub-tree. MiniZip already dropped ".."/absolute
+			// entries at the archive root, so this only ever fires on a crafted
+			// pak, but keeps the mount contract honest at its own boundary.
+			if(!PathJail::isSafeRelativeEntry(rel))
+			{
+				continue;
+			}
 			Ogre::FileInfo out;
 			out.archive = this;
 			out.filename = rel;
@@ -90,6 +100,12 @@ namespace Orkige
 	{
 		(void)readOnly;	// the pak is read-only
 		std::lock_guard<std::mutex> lock(this->mMutex);
+		// a request must name an entry INSIDE the mounted sub-tree - a "../"
+		// in the requested name would compose a key reaching outside it
+		if(!PathJail::isSafeRelativeEntry(filename))
+		{
+			return Ogre::DataStreamPtr();
+		}
 		std::vector<unsigned char> bytes;
 		if(!this->mZip.read(this->mPrefix + filename, bytes))
 		{

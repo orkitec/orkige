@@ -51,6 +51,19 @@ if(NOT ORKIGE_MINIZIP_ZIP_RESULT EQUAL 0)
     message(FATAL_ERROR "failed to build the MiniZip test fixture zip")
 endif()
 
+# a MALICIOUS zip: its entry names carry zip-slip payloads (".." traversal,
+# an absolute path) alongside one benign nested entry. The MiniZip reader must
+# DROP every escaper at parse time and keep only the benign one (the guard is
+# unit-asserted headlessly - PakMountTests MiniZipRejectsZipSlipTest).
+set(ORKIGE_MINIZIP_EVIL_ZIP "${CMAKE_CURRENT_BINARY_DIR}/minizip_evil.zip")
+execute_process(COMMAND python3 -c
+    "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'w'); [z.writestr(n, b'PWNED', zipfile.ZIP_STORED) for n in ['../../evil.txt','/etc/evil.txt','foo/../../bar.txt','..\\\\win_evil.txt']]; z.writestr('good/nested.txt', b'benign payload', zipfile.ZIP_STORED); z.close()"
+    "${ORKIGE_MINIZIP_EVIL_ZIP}"
+    RESULT_VARIABLE ORKIGE_MINIZIP_EVIL_RESULT)
+if(NOT ORKIGE_MINIZIP_EVIL_RESULT EQUAL 0)
+    message(FATAL_ERROR "failed to build the malicious MiniZip test fixture zip")
+endif()
+
 target_link_libraries(orkige_engine_tests PRIVATE
     Orkige::Engine
     Catch2::Catch2WithMain
@@ -81,6 +94,7 @@ target_compile_definitions(orkige_engine_tests PRIVATE
     # the MiniZip fixture zip (STORED + DEFLATE) and a known non-zip file
     ORKIGE_MINIZIP_TEST_ZIP="${ORKIGE_MINIZIP_TEST_ZIP}"
     ORKIGE_MINIZIP_TEST_SRC="${CMAKE_CURRENT_SOURCE_DIR}/PakMountTests.cpp"
+    ORKIGE_MINIZIP_EVIL_ZIP="${ORKIGE_MINIZIP_EVIL_ZIP}"
 )
 if(TARGET orkige_generate_atlases)
     add_dependencies(orkige_engine_tests orkige_generate_atlases)

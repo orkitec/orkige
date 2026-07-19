@@ -96,6 +96,35 @@ TEST_CASE("MiniZipReadTest", "[filesystem]")
 	CHECK_FALSE(zip.read("missing.dat", missing));
 }
 
+TEST_CASE("MiniZipRejectsZipSlipTest", "[security][filesystem]")
+{
+	Orkige::MiniZip zip;
+	REQUIRE(zip.open(ORKIGE_MINIZIP_EVIL_ZIP));
+	REQUIRE(zip.isOpen());
+
+	// the malicious fixture packs four zip-slip entries ("../../evil.txt",
+	// "/etc/evil.txt", "foo/../../bar.txt", "..\\win_evil.txt") plus ONE benign
+	// nested entry ("good/nested.txt"). Every escaper must be DROPPED at parse
+	// time - only the benign entry survives, so it can never be resolved in
+	// memory nor written out by any extract-to-disk consumer.
+	REQUIRE(zip.names().size() == 1);
+	CHECK(zip.contains("good/nested.txt"));
+
+	CHECK_FALSE(zip.contains("../../evil.txt"));
+	CHECK_FALSE(zip.contains("/etc/evil.txt"));
+	CHECK_FALSE(zip.contains("foo/../../bar.txt"));
+	CHECK_FALSE(zip.contains("..\\win_evil.txt"));
+	CHECK_FALSE(zip.contains("bar.txt"));		// the traversal target name
+	CHECK_FALSE(zip.contains("evil.txt"));
+
+	// reads of the dropped names fail cleanly; the benign entry reads verbatim
+	std::vector<unsigned char> bytes;
+	CHECK_FALSE(zip.read("../../evil.txt", bytes));
+	CHECK_FALSE(zip.read("/etc/evil.txt", bytes));
+	REQUIRE(zip.read("good/nested.txt", bytes));
+	CHECK(asString(bytes) == "benign payload");
+}
+
 TEST_CASE("MiniZipRejectsNonZipTest", "[filesystem]")
 {
 	Orkige::MiniZip zip;

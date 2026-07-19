@@ -91,6 +91,16 @@ filesystem.
   return an *accepted* result and are polled via `get_state`.
 - **Auth**: a mutation needs `Authorization: Bearer <token>` (the token from the
   token file). Read verbs are open. No token file ⇒ auth off (dev convenience).
+- **Path jail**: the file-authoring verbs (`write_project_file`,
+  `read_project_file`, `list_project_files`, and `import_asset`'s `targetDir`)
+  are **confined to the open project's root**. The requested path is normalized
+  and canonicalized and its containment verified before any I/O — an absolute
+  path, a `..` traversal (even one that only escapes after normalization) and a
+  symlink component that resolves out of root are all **refused with an honest
+  error**, nothing written. Legitimate nested paths (`assets/textures/foo.png`)
+  work. The shared containment primitive is `core_util/PathJail`; the same guard
+  hardens pak/zip mounting against zip-slip (see
+  [filesystem.md](filesystem.md#security-zip-slip--the-path-jail)).
 - **Play control** (`play`/`stop`/`pause`/`resume`/`step`), the **run tools**
   (`list_play_targets`, `play`'s `scene`/`target`, the `build_*` fields of
   `get_state`) and the **runtime debug tools** (`runtime_hierarchy`/

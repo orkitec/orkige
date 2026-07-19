@@ -30,6 +30,7 @@
 #include <core_debug/Breadcrumbs.h>
 #include <core_util/optr.h>
 #include <core_util/PlatformUtil.h>
+#include <core_util/PathJail.h>
 #include <core_util/VectorAnimAsset.h>
 
 #include <engine_gocomponent/ScriptComponentRegistry.h>
@@ -869,17 +870,11 @@ namespace Orkige
 					"refused)";
 				return false;
 			}
-			auto escapes = [](fs::path const& base, fs::path const& target) -> bool
-			{
-				const fs::path relative = target.lexically_relative(base);
-				return relative.empty() ||
-					(relative.begin() != relative.end() &&
-						*relative.begin() == fs::path(".."));
-			};
 			const fs::path rootPath(root);
 			const fs::path absolute = (rootPath / requested).lexically_normal();
-			// lexical containment (the "../" escape) - matches resolveInsideRoot
-			if (escapes(rootPath.lexically_normal(), absolute))
+			// lexical containment (the "../" escape) - the shared PathJail
+			// primitive, also behind AssetDatabase::resolveInsideRoot
+			if (PathJail::escapesRoot(rootPath.lexically_normal(), absolute))
 			{
 				outError = "path escapes the project root";
 				return false;
@@ -891,7 +886,7 @@ namespace Orkige
 			const fs::path canonicalRoot = fs::weakly_canonical(rootPath, ec);
 			const fs::path canonicalTarget = fs::weakly_canonical(absolute, ec);
 			if (!canonicalRoot.empty() && !canonicalTarget.empty() &&
-				escapes(canonicalRoot, canonicalTarget))
+				PathJail::escapesRoot(canonicalRoot, canonicalTarget))
 			{
 				outError = "path escapes the project root (symlink)";
 				return false;
@@ -8418,7 +8413,11 @@ namespace Orkige
 		// refused (isError), without writing anything
 		{
 			const char* badPaths[] = {
-				"/etc/orkige_mcp_probe_escape", "../orkige_mcp_probe_escape" };
+				"/etc/orkige_mcp_probe_escape", "../orkige_mcp_probe_escape",
+				// a nested "../" that only escapes after normalisation, and a
+				// deeper multi-level traversal - both must still be refused
+				"assets/../../orkige_mcp_probe_escape",
+				"a/b/../../../orkige_mcp_probe_escape" };
 			for (const char* bad : badPaths)
 			{
 				JsonValue args = JsonValue::object();

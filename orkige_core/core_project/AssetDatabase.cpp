@@ -13,6 +13,7 @@
 #include "core_project/Project.h"
 #include "core_debug/LogManager.h"
 #include "core_util/Sha1.h"
+#include "core_util/PathJail.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -698,16 +699,10 @@ namespace Orkige
 		}
 		absolute = std::filesystem::absolute(absolute, fsError)
 			.lexically_normal();
-		const std::filesystem::path relative =
-			absolute.lexically_relative(this->mRootDirectory);
-		// containment: an outside path relativizes to a ".."-led one. Compare
-		// the first COMPONENT as a path (relative.native() is a wide string on
-		// Windows, and a plain prefix test would also reject a file literally
-		// named "..foo")
-		const bool escapesRoot = relative.empty() ||
-			(relative.begin() != relative.end() &&
-				*relative.begin() == std::filesystem::path(".."));
-		if (escapesRoot)
+		// containment: an outside path relativizes to a ".."-led one - the
+		// shared PathJail primitive, also behind the MCP project-file jail
+		if (PathJail::escapesRoot(
+			std::filesystem::path(this->mRootDirectory), absolute))
 		{
 			return false;
 		}
