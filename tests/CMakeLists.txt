@@ -328,6 +328,30 @@ if(TARGET orkige_engine)
     set_tests_properties(render_facade_selfcheck PROPERTIES
         ENVIRONMENT "ORKIGE_SELFCHECK_OUT=${CMAKE_CURRENT_BINARY_DIR}/render_facade")
 
+    # boot_cycle_selfcheck - the real-stack boot/teardown cycler (both
+    # flavors). Boots the full AppHost spine (window + Engine + render system +
+    # GameObjectManager), fills a scene with a live skybox + IBL + update-wanting
+    # ModelComponents, unloads it through GameObjectManager::clear, then tears the
+    # whole stack down - N times in one process. Catches teardown-ORDER / lifetime
+    # faults a single-boot selfcheck masks (the fixed skybox-reattach and
+    # GameObjectManager update-list use-after-frees). Desktop-labelled (not
+    # device), so the CI AddressSanitizer suite runs it - where a UAF actually
+    # gets caught.
+    add_executable(boot_cycle_selfcheck lifecycle/boot_cycle_main.cpp)
+    target_link_libraries(boot_cycle_selfcheck PRIVATE Orkige::Engine)
+    target_compile_definitions(boot_cycle_selfcheck PRIVATE
+        # the committed sky cubemap (sky_day.dds) the skybox leg loads by name
+        ORKIGE_CYCLE_MEDIA_DIR="${Orkige_SOURCE_DIR}/samples/hello_orkige/media")
+    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        target_compile_definitions(boot_cycle_selfcheck PRIVATE
+            # classic RTSS media, registered before Engine::setup (ignored on next)
+            ORKIGE_CYCLE_OGRE_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media")
+    endif()
+    add_test(NAME boot_cycle_selfcheck COMMAND boot_cycle_selfcheck
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(boot_cycle_selfcheck PROPERTIES
+        LABELS integration TIMEOUT 300)
+
     # cooked-cubemap runtime-load proof (both flavors): the driver
     # block-compresses the stock debug cubemap through the REAL export cook
     # (cook_textures.py + this tree's texcook) and boots the selfcheck against
