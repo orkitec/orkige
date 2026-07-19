@@ -12,9 +12,11 @@ Legs (--leg):
                run differs measurably from the flat run (same geometry, same
                light, same albedo - the difference IS the maps);
              * the cast shadow composes on the normal-mapped receiver: the
-               ground region in the hero's shadow is darker than the open
-               ground (the receiver stage and the normal-map stage feed the
-               same lighting stage);
+               cast shadow is located ANALYTICALLY (the coherent dark region on
+               the lit ground) and its mean is darker than the open ground (the
+               receiver stage and the normal-map stage feed the same lighting
+               stage) - content-anchored, so it follows the shadow when a
+               display clamps the window aspect;
              * emissive glows in the dark: after lights-out the mapped hero
                still shows bright emissive texels while the ground reads
                near-black; the flat hero's dark capture stays near-black.
@@ -34,7 +36,10 @@ Legs (--leg):
   accents  The runtime accent demo (ORKIGE_DEMO_ACCENTS): two instances of
            ONE material; asserts a tint+emissive-boost on instance A changes
            its pixels, leaves sibling B untouched, and that clearing the
-           accents restores instance A exactly (toggle identity).
+           accents restores instance A exactly (toggle identity). The two cube
+           instances are located ANALYTICALLY (warm blobs over the blue
+           backdrop) in the untouched pre-accent frame - A is the left, B the
+           right - so the sample boxes follow the content under an aspect clamp.
 
 Pure stdlib (zlib PNG decode). Runs per flavor.
 """
@@ -187,10 +192,51 @@ def check(failures, ok, message):
 
 # probe regions, fractions of the window (calibrated against the committed
 # rig: camera (0, 1.9, 5.6) looking at (0, -0.7, 0), hero cube at the centre,
-# sun from (+x, +z) so the shadow falls screen-right of the hero)
+# sun from (+x, +z) so the shadow falls screen-right of the hero). The cast
+# shadow is NOT a fixed rect - it is located by content (locate_ground_shadow).
 HERO_FACE = (0.42, 0.42, 0.58, 0.66)        # the hero cube's front face
-GROUND_SHADOW = (0.60, 0.60, 0.70, 0.74)    # ground inside the cast shadow
 GROUND_OPEN = (0.15, 0.64, 0.30, 0.74)      # open ground, same depth band
+
+# the receiver ground band (below the sky and the cube top); the cast shadow is
+# the largest connected region here darker than a fraction of the band's lit
+# median - small scattered dark checker texels never reach the min-area bar,
+# and the soft next-flavour shadow (a mild darkening) still forms one blob
+GROUND_BAND = (0.50, 0.92)
+SHADOW_DARK_FRACTION = 0.86     # a shadow cell is below this fraction of median
+SHADOW_MIN_AREA_FRAC = 0.02     # the cast shadow is a large coherent region
+
+
+def locate_ground_shadow(image):
+    """content-anchored cast shadow: the largest dark blob on the lit ground
+    band, returned with its mean luminance and an open-ground reference (the
+    lit band cells outside it). Returns None when no shadow-sized dark region
+    is present, so the caller can fail honestly instead of sampling a fixed
+    rect that layout drift has emptied."""
+    band = (0.02, GROUND_BAND[0], 0.98, GROUND_BAND[1])
+    lums = region_samples(image, band)
+    lums.sort()
+    median = lums[len(lums) // 2]
+    threshold = SHADOW_DARK_FRACTION * median
+    blobs = find_blobs(image, lambda r, g, b: (r + g + b) / 3.0 < threshold,
+                       min_area_frac=SHADOW_MIN_AREA_FRAC, y_band=GROUND_BAND)
+    if not blobs:
+        return None
+    shadow = blobs[0]
+    fx0, fy0 = shadow["x0"] / image.w, shadow["y0"] / image.h
+    fx1, fy1 = shadow["x1"] / image.w, shadow["y1"] / image.h
+    # open ground: the LIT band cells (>= the median) outside the shadow box
+    opens = []
+    fy = GROUND_BAND[0]
+    while fy < GROUND_BAND[1]:
+        fx = 0.02
+        while fx < 0.98:
+            lum = image.lum(fx, fy)
+            if lum >= median and not (fx0 <= fx <= fx1 and fy0 <= fy <= fy1):
+                opens.append(lum)
+            fx += 0.01
+        fy += 0.01
+    open_mean = sum(opens) / len(opens) if opens else median
+    return {"mean": shadow["lum_mean"], "open": open_mean}
 
 
 def leg_looks(binary, out_dir):
@@ -211,12 +257,16 @@ def leg_looks(binary, out_dir):
     check(failures, maps_delta > 6.0,
           f"normal/emissive maps change the lit hero (mean delta "
           f"{maps_delta:.1f} > 6.0)")
-    # 2. the cast shadow composes on the normal-mapped receiver
-    shadow_lum = region_mean(mapped, GROUND_SHADOW)
-    open_lum = region_mean(mapped, GROUND_OPEN)
-    check(failures, shadow_lum < 0.88 * open_lum,
-          f"cast shadow darkens the normal-mapped ground (shadow "
-          f"{shadow_lum:.1f} < 88% of open {open_lum:.1f})")
+    # 2. the cast shadow composes on the normal-mapped receiver - located by
+    # content (the coherent dark region on the lit ground), so it follows the
+    # shadow under an aspect clamp instead of sampling a fixed rect
+    shadow = locate_ground_shadow(mapped)
+    check(failures, shadow is not None,
+          "the cast shadow forms a coherent dark region on the receiver")
+    if shadow is not None:
+        check(failures, shadow["mean"] < 0.88 * shadow["open"],
+              f"cast shadow darkens the normal-mapped ground (shadow "
+              f"{shadow['mean']:.1f} < 88% of open {shadow['open']:.1f})")
     # 3. emissive survives lights-out on the mapped hero only
     glow = region_max(dark, HERO_FACE)
     glow_flat = region_max(dark_f, HERO_FACE)
@@ -247,25 +297,32 @@ def _blob_green(r, g, b):
     return g > r * 1.15 and g > b * 1.15 and g > 10
 
 
-def find_green_blobs(image, min_area_frac=0.005):
-    """Locate the leaf blobs ANALYTICALLY rather than at fixed screen rects, so
-    the probe follows the content when the window aspect shifts (a hosted CI
-    runner clamps 1280x720 to its 1024-wide display). Connected green-dominant
-    regions on a stride-reduced grid (resolution-independent, allocation-light);
-    each blob reports its pixel bounding box, centroid and area. Returns blobs
-    larger than `min_area_frac` of the frame, sorted largest-first."""
+def find_blobs(image, member, min_area_frac=0.005, y_band=None):
+    """Locate connected same-property blobs ANALYTICALLY rather than at fixed
+    screen rects, so a probe follows the content when the window aspect shifts
+    (a hosted CI runner clamps 1280x720 to its 1024-wide display). `member(r,
+    g, b) -> bool` selects the feature pixels; the scan runs on a stride-reduced
+    grid (resolution-independent, allocation-light). `y_band=(fy0, fy1)`
+    restricts the scanned rows to a fractional vertical band (None = the whole
+    frame). Each blob reports its pixel bounding box, centroid, area and
+    lum_mean (mean luminance of its member cells). Returns blobs larger than
+    `min_area_frac` of the frame, sorted largest-first."""
     from collections import deque
     w, h = image.w, image.h
     stride = max(1, min(w, h) // 360)
     gw = (w + stride - 1) // stride
     gh = (h + stride - 1) // stride
+    gy0 = 0 if y_band is None else max(0, int(y_band[0] * gh))
+    gy1 = gh if y_band is None else min(gh, int(y_band[1] * gh))
     mask = bytearray(gw * gh)
-    for gy in range(gh):
-        y = gy * stride
+    lumg = [0.0] * (gw * gh)
+    for gy in range(gy0, gy1):
+        y = min(gy * stride, h - 1)
         row = gy * gw
         for gx in range(gw):
-            r, g, b = image.rgb_px(gx * stride, y)
-            if _blob_green(r, g, b):
+            r, g, b = image.rgb_px(min(gx * stride, w - 1), y)
+            lumg[row + gx] = (r + g + b) / 3.0
+            if member(r, g, b):
                 mask[row + gx] = 1
     seen = bytearray(gw * gh)
     blobs = []
@@ -275,6 +332,7 @@ def find_green_blobs(image, min_area_frac=0.005):
         queue = deque([start])
         seen[start] = 1
         sx = sy = count = 0
+        lum_sum = 0.0
         minx = maxx = start % gw
         miny = maxy = start // gw
         while queue:
@@ -283,6 +341,7 @@ def find_green_blobs(image, min_area_frac=0.005):
             sx += cx
             sy += cy
             count += 1
+            lum_sum += lumg[cell]
             if cx < minx:
                 minx = cx
             if cx > maxx:
@@ -302,11 +361,18 @@ def find_green_blobs(image, min_area_frac=0.005):
             "x0": minx * stride, "x1": maxx * stride,
             "y0": miny * stride, "y1": maxy * stride,
             "cx": (sx / count) * stride, "cy": (sy / count) * stride,
+            "lum_mean": lum_sum / count,
         })
     min_area = min_area_frac * w * h
     blobs = [blob for blob in blobs if blob["area"] >= min_area]
     blobs.sort(key=lambda blob: blob["area"], reverse=True)
     return blobs
+
+
+def find_green_blobs(image, min_area_frac=0.005):
+    """the leaf-blob detector: green-dominant connected regions (see
+    find_blobs). The leaves are the cutout leg's content anchor."""
+    return find_blobs(image, _blob_green, min_area_frac)
 
 
 def box_rgb(image, x0, y0, x1, y1, step=2):
@@ -430,10 +496,23 @@ def leg_cutout(binary, out_dir):
     return analyze_cutout(Image(shot))
 
 
-# accent-rig regions: instance A (accented) left, instance B (the untouched
-# sibling of the SAME material) right
-ACCENT_A = (0.24, 0.40, 0.40, 0.70)
-ACCENT_B = (0.60, 0.40, 0.76, 0.70)
+def _cube_warm(r, g, b):
+    """membership test for the accent-cube blob detector: warm and r-dominant
+    (the orange/cream checker cube) over the pure-blue backdrop. The blue sky
+    is b-dominant with r ~ 0, so it never passes; the floor rejects near-black
+    noise. Both cube instances share this look in the untouched pre frame."""
+    return r >= 45 and r > b * 1.15 and r >= g
+
+
+def _blob_inset_region(image, blob, inset=0.22):
+    """a fractional (x0, y0, x1, y1) box inset into a blob's bounding box, so
+    the sample stays on the feature surface and clear of its edges/backdrop"""
+    w = blob["x1"] - blob["x0"]
+    h = blob["y1"] - blob["y0"]
+    return ((blob["x0"] + inset * w) / image.w,
+            (blob["y0"] + inset * h) / image.h,
+            (blob["x1"] - inset * w) / image.w,
+            (blob["y1"] - inset * h) / image.h)
 
 
 def leg_accents(binary, out_dir):
@@ -450,18 +529,31 @@ def leg_accents(binary, out_dir):
     restored = Image(restored_shot)
 
     failures = []
+    # locate the two cube instances by content in the untouched PRE frame (both
+    # are the SAME warm cube there; the accent has not landed yet). A is the
+    # left instance, B the right; the sample boxes are derived from each blob's
+    # measured geometry, so they follow the content under an aspect clamp.
+    cubes = find_blobs(pre, _cube_warm, min_area_frac=0.02)
+    check(failures, len(cubes) >= 2,
+          f"the accent rig shows two cube instances (found {len(cubes)}) - a "
+          f"degenerate render fails here rather than passing vacuously")
+    if len(cubes) < 2:
+        return failures
+    left, right = sorted(cubes[:2], key=lambda blob: blob["cx"])
+    region_a = _blob_inset_region(pre, left)
+    region_b = _blob_inset_region(pre, right)
     # 1. the accent changes instance A (tint + emissive boost visible)
-    delta_a = region_diff(pre, accented, ACCENT_A)
+    delta_a = region_diff(pre, accented, region_a)
     check(failures, delta_a > 8.0,
           f"tint + emissive boost change instance A (mean delta "
           f"{delta_a:.1f} > 8.0)")
     # 2. instance B - the SAME shared material - stays untouched
-    delta_b = region_diff(pre, accented, ACCENT_B)
+    delta_b = region_diff(pre, accented, region_b)
     check(failures, delta_b < 1.5,
           f"the sibling instance B stays untouched (mean delta "
           f"{delta_b:.2f} < 1.5)")
     # 3. toggle identity: clearing the accents restores A exactly
-    delta_restore = region_diff(pre, restored, ACCENT_A)
+    delta_restore = region_diff(pre, restored, region_a)
     check(failures, delta_restore < 1.5,
           f"clearing the accents restores instance A exactly (mean delta "
           f"{delta_restore:.2f} < 1.5)")
