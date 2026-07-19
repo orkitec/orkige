@@ -99,18 +99,6 @@ namespace Orkige
 			}
 			return GameObjectManager::getSingleton().getGameObject(id);
 		}
-		//! world.get<Component>(id) -> the component as a woptr (empty when the
-		//! object or the component is absent - the quiet-probe contract)
-		template<typename ComponentType>
-		inline woptr<ComponentType> worldComponentWeak(String const & id)
-		{
-			GameObject* gameObject = worldGetGameObject(id);
-			if (!gameObject)
-			{
-				return woptr<ComponentType>();
-			}
-			return gameObject->getComponent<ComponentType>();
-		}
 		//! world.findByTag(tag) -> the tagged GameObjects as woptrs (the manager
 		//! tag index drives the set)
 		std::vector<woptr<GameObject>> worldFindByTagWeak(String const & tag)
