@@ -37,8 +37,23 @@ namespace Orkige
 		//! get (and on first call boot) the shared test environment
 		static EngineTestEnvironment & get()
 		{
-			static EngineTestEnvironment environment;
-			return environment;
+			// Heap-allocated and intentionally never freed - the same pattern
+			// (and the same reason) as CoreTestEnvironment::get(): a test that
+			// runs an OrkigeMetaExport AFTER this environment exists (the
+			// script-handle probe component) creates sol2's per-usertype name
+			// statics LATER than the environment, so a by-value static here
+			// would close the Lua state during C++ static destruction AFTER
+			// those name strings are already destroyed - lua_close's usertype
+			// teardown then reads a freed std::string (a heap-use-after-free
+			// at process exit). Never destroying the environment skips that
+			// exit-time close; the static pointer keeps the object reachable
+			// so LeakSanitizer stays quiet. Production owns an ORDERED
+			// teardown (AppHost); static-destruction-order teardown is
+			// undefined-order behaviour no application hits. Do not "fix"
+			// this back to a by-value static.
+			static EngineTestEnvironment * environment =
+				new EngineTestEnvironment();
+			return *environment;
 		}
 	private:
 		EngineTestEnvironment()
