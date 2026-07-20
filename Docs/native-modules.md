@@ -47,21 +47,25 @@ target_link_libraries(my_game PRIVATE Orkige::Engine)
 
 ## The ABI-stamp version guard
 
-The package VERSION is not a marketing semver — it is an ABI stamp derived from
-the engine's SOURCE SURFACE (`cmake/OrkigeAbiStamp.cmake`). The fingerprint is
-SCOPED to exactly what defines the engine ABI: the committed content of the two
-engine layers `orkige_core/` and `orkige_engine/`, plus the cmake files that
-shape how a module compiles and links against them (`OrkigeGameModule.cmake`,
-`OrkigeConfig.cmake.in`, `OrkigePackage.cmake`, `OrkigeAbiStamp.cmake`,
-`OrkigeWriteVersion.cmake`) — AND any uncommitted edits to that same set. So an
-engine header/source change moves the stamp and fires the guard even before it
-is committed, while a change ANYWHERE ELSE — a game script, an asset, a doc, a
-test, anything under `projects/`, `samples/`, `tests/`, `Docs/`, `Util/`,
-`.github/` — does NOT touch it. That keeps the guard silent through the ordinary
-edit-your-game-and-replay loop (which would otherwise fire on every edit and
-train you to ignore it) while still catching a genuinely stale engine library.
-The commit id rides in the human-readable stamp for diagnostics but is NOT part
-of the fingerprint, so an unrelated commit never bumps the ABI version.
+The package VERSION is not a marketing semver — it is a **content fingerprint**
+of the engine's SOURCE SURFACE (`cmake/OrkigeAbiStamp.cmake`), git-INDEPENDENT:
+it hashes the actual on-disk bytes (and relative paths) of every engine source
+file. The surface is SCOPED to exactly what defines the engine ABI: the compiled
+source of the two engine layers `orkige_core/` and `orkige_engine/` (a recursive
+glob of `.h`/`.hpp`/`.inc`/`.cpp`/`.mm`/… — NOT `orkige_engine/media/`, which is
+runtime assets, not object layout), plus the cmake files that define how a module
+compiles and links against them (each engine layer's `CMakeLists.txt` and the
+package/link helpers `OrkigeGameModule.cmake`, `OrkigeConfig.cmake.in`,
+`OrkigePackage.cmake`, `OrkigeAbiStamp.cmake`, `OrkigeWriteVersion.cmake`).
+
+Because it reads files rather than VCS state, it covers EVERY case uniformly —
+a committed change, an uncommitted edit, a brand-new UNTRACKED header the module
+includes, or a plain tarball drop with no git at all — all move the stamp. A
+change ANYWHERE ELSE — a game script, an asset, a doc, a test, anything under
+`projects/`, `samples/`, `tests/`, `Docs/`, `Util/`, `.github/` — does NOT touch
+it. That keeps the guard silent through the ordinary edit-your-game-and-replay
+loop (which would otherwise fire on every edit and train you to ignore it) while
+still catching a genuinely stale engine library.
 
 The engine records the stamp of the sources its archives were built from —
 written at configure time and refreshed on every engine build so it stays in
@@ -85,13 +89,15 @@ match the current headers, then reconfigure this module.
 
 Both the editor's compile-on-Play and the exporter flow through this same path,
 so a stale engine tree refuses at configure rather than shipping a crashing app.
-The `module_abi_mismatch` ctest (per flavor) is the regression proof — it
-asserts BOTH directions: an engine-source change is refused, and a non-engine
-edit (a game file, a doc) does NOT trip the guard.
+The `module_abi_mismatch` ctest (per flavor) is the regression proof — it asserts
+the guard fires on a mismatch AND that the fingerprint is correctly scoped: an
+engine-source edit moves it, a brand-new untracked engine file moves it, and a
+non-engine edit (a game file, a doc) does NOT trip the guard.
 
-Honest limits: a non-git source drop collapses to one constant stamp (no
-source-change tracking); untracked new engine files are not folded into the
-stamp until tracked. The package resolves against the build tree only — a relocatable
-installed SDK, and migrating the editor/player/tests (which build in the engine
-graph itself and never drift, so they are deliberately left as-is) onto
-`find_package(Orkige)`, are the next bricks of a fuller SDK.
+Honest limits: the fingerprint tracks the engine SOURCE surface, not the exact
+compiler/flags/vcpkg toolchain (a different toolchain producing a different ABI
+from identical sources is out of scope — the flavor + ABI defines the package
+already carries cover the intended axes). The package resolves against the build
+tree only — a relocatable installed SDK, and migrating the editor/player/tests
+(which build in the engine graph itself and never drift, so they are deliberately
+left as-is) onto `find_package(Orkige)`, are the next bricks of a fuller SDK.

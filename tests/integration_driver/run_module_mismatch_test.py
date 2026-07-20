@@ -13,14 +13,16 @@ the stamp of the engine sources the module compiles against
      links a stale liborkige_engine.a whose object layout no longer matches the
      headers - the JumperNative null-deref).
 
-  2. The stamp SCOPING is correct (both directions): an ENGINE-source change
-     bumps the stamp (so it would be refused), while a NON-engine change - a
-     game file, a doc - does NOT, so the guard stays silent through the ordinary
-     edit-your-game-and-replay loop instead of firing on every edit.
+  2. The stamp SCOPING is correct. The stamp is a git-INDEPENDENT content
+     fingerprint of the engine source surface, so it must: bump on an ENGINE
+     source edit; bump on a brand-new UNTRACKED engine file (a git-diff stamp
+     would miss this - the very case the owner flagged); and NOT bump on a
+     NON-engine change (a game file, a doc), so the guard stays silent through
+     the ordinary edit-your-game-and-replay loop instead of firing on every edit.
 
-Configure-only and hermetic: it uses throwaway trees, and any source edit it
-makes to probe the scoping is restored byte-for-byte. Exit 0 = all held; non-zero
-(with a diagnostic) = a guard/scoping property regressed.
+Configure-only and hermetic: the scoping probe runs entirely inside a throwaway
+synthetic source tree (no git, no real working-tree file touched). Exit 0 = all
+held; non-zero (with a diagnostic) = a guard/scoping property regressed.
 """
 
 import argparse
@@ -38,13 +40,16 @@ MISMATCH_SENTINEL = "Orkige engine ABI mismatch"
 STAMP_MARKER = "ORKIGE_ABI_PROBE="
 
 # a path INSIDE the engine ABI surface and one OUTSIDE it, exercised in a
-# hermetic synthetic repo (below): editing the first must move the stamp, the
+# hermetic synthetic tree (below): editing the first must move the stamp, the
 # second must not
 ENGINE_PROBE_FILE = os.path.join("orkige_engine", "engine_graphic", "Engine.h")
 NON_ENGINE_PROBE_FILE = os.path.join(
     "projects", "jumper-native", "native", "main.cpp")
-# the minimal tree the scoping probe commits: one file inside each engine layer
-# + one cmake link file, plus a game file and a doc OUTSIDE the surface
+# a brand-new engine file that does not exist in the baseline tree - adding it
+# must move the stamp (the untracked-file case a git-diff stamp would miss)
+NEW_ENGINE_FILE = os.path.join("orkige_engine", "engine_graphic", "NewApi.h")
+# the minimal source tree the scoping probe builds: one file inside each engine
+# layer + one cmake link file, plus a game file and a doc OUTSIDE the surface
 SYNTH_FILES = {
     os.path.join("orkige_core", "Core.h"): "#pragma once\n",
     ENGINE_PROBE_FILE: "#pragma once\n",
@@ -59,16 +64,16 @@ def fail(message):
     sys.exit(1)
 
 
-def compute_stamp(abi_cmake_dir, git_root, cmake):
+def compute_stamp(abi_cmake_dir, source_root, cmake):
     """the ABI version orkige_compute_abi_stamp (the REAL function, included from
-    <abi_cmake_dir>/OrkigeAbiStamp.cmake) derives for the git tree at <git_root>
-    - run through a throwaway cmake -P so it is the EXACT code the module and the
-    engine both use"""
+    <abi_cmake_dir>/OrkigeAbiStamp.cmake) derives for the source tree at
+    <source_root> - run through a throwaway cmake -P so it is the EXACT code the
+    module and the engine both use"""
     script = ('include("%s/OrkigeAbiStamp.cmake")\n'
               'orkige_compute_abi_stamp("%s" _v _s)\n'
               'message("%s${_v}")\n'
               % (abi_cmake_dir.replace("\\", "/"),
-                 git_root.replace("\\", "/"), STAMP_MARKER))
+                 source_root.replace("\\", "/"), STAMP_MARKER))
     handle, path = tempfile.mkstemp(suffix=".cmake")
     try:
         with os.fdopen(handle, "w") as script_file:
@@ -92,22 +97,12 @@ def write_file(root, rel, text):
         handle.write(text)
 
 
-def git(root, *args):
-    subprocess.run(["git", "-C", root] + list(args),
-                   check=True, capture_output=True, text=True)
-
-
-def build_synthetic_repo(root):
-    """a tiny committed git repo mirroring the paths the ABI pathspec cares about
-    (and some it must NOT) - so the scoping probe never edits the real working
-    tree and can run alongside any other test"""
+def build_synthetic_tree(root):
+    """a tiny NON-git source tree mirroring the paths the ABI surface covers (and
+    some it must NOT) - the fingerprint is content-based, so no git is needed and
+    the probe never touches the real working tree, racing nothing"""
     for rel, text in SYNTH_FILES.items():
         write_file(root, rel, text)
-    git(root, "init", "-q")
-    git(root, "-c", "user.email=t@t", "-c", "user.name=t",
-        "add", "-A")
-    git(root, "-c", "user.email=t@t", "-c", "user.name=t",
-        "commit", "-q", "-m", "init")
 
 
 def main():
@@ -158,12 +153,12 @@ def main():
     finally:
         shutil.rmtree(build_dir, ignore_errors=True)
 
-    # 2. the stamp is scoped to the engine surface (both directions), probed in
-    # a hermetic synthetic repo so no real working-tree file is ever touched
+    # 2. the stamp is a correctly-scoped content fingerprint, probed entirely in
+    # a throwaway synthetic source tree (git-independent, no real file touched)
     abi_cmake_dir = os.path.join(args.repo, "cmake")
     synth = tempfile.mkdtemp(prefix="orkige_abi_scope_")
     try:
-        build_synthetic_repo(synth)
+        build_synthetic_tree(synth)
         baseline = compute_stamp(abi_cmake_dir, synth, args.cmake)
 
         # a NON-engine edit (a game file) must NOT move the stamp
@@ -184,10 +179,24 @@ def main():
         if engine == baseline:
             fail("an ENGINE-source edit (%s) did NOT change the ABI stamp - a "
                  "stale engine library would go undetected" % ENGINE_PROBE_FILE)
+        write_file(synth, ENGINE_PROBE_FILE,
+                   SYNTH_FILES[ENGINE_PROBE_FILE])  # restore
+
+        # a brand-NEW engine file (an untracked header a git-diff stamp would
+        # miss entirely) must move the stamp
+        new_path = os.path.join(synth, NEW_ENGINE_FILE)
+        if os.path.exists(new_path):
+            fail("probe file '%s' unexpectedly already exists" % NEW_ENGINE_FILE)
+        write_file(synth, NEW_ENGINE_FILE, "#pragma once\nstruct NewApi {};\n")
+        added = compute_stamp(abi_cmake_dir, synth, args.cmake)
+        if added == baseline:
+            fail("a NEW untracked engine file (%s) did NOT change the ABI stamp "
+                 "- a new engine header could skew a module undetected"
+                 % NEW_ENGINE_FILE)
     finally:
         shutil.rmtree(synth, ignore_errors=True)
-    print("ABI stamp is engine-scoped (an engine-source edit moves it, a game "
-          "edit does not)")
+    print("ABI stamp is an engine-scoped content fingerprint (engine edit AND a "
+          "new untracked engine file move it; a game edit does not)")
     return 0
 
 
