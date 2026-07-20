@@ -44,3 +44,14 @@ race:Ogre::Barrier
 # `called_from_lib` entry would not match - the symbol-namespace match is the
 # working form.
 race:JPH::
+
+# OpenAL Soft runs its audio mixer on its OWN thread (even the null backend used
+# in tests), racing internally on its lock-free voice-change list
+# (alu.cpp ProcessVoiceChanges and siblings). Unlike physics, the sound tests
+# carry NO Orkige-owned threading to protect - the engine drives OpenAL entirely
+# from the main thread (engine_sound/SoundManager; music refill is main-thread in
+# SoundManager::update), so the one test that spins a real AL device
+# (SoundManagerDestructorTearsDownAL) is EXCLUDED from the TSan unit gate at the
+# preset level (CMakePresets.json unit-*-tsan filter) rather than chasing OpenAL's
+# internal race sites here. Its AL-teardown memory safety is still covered by the
+# ASan gate. No race:AL... entry is needed as a result.

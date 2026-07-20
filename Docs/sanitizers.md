@@ -57,6 +57,17 @@ the physics tests drive Jolt's worker pool, so the gate does exercise
 third-party threads (this is why the suppression file is wired into
 `unit-linux-tsan`, not just the windowed presets).
 
+**Suppress vs exclude.** The physics tests are kept in the gate (with Jolt
+suppressed) because they also exercise Orkige's own contact-event queue — real
+TSan value. The one AL-device test (`SoundManagerDestructorTearsDownAL`) is
+instead **excluded** from the TSan presets outright: it spins OpenAL Soft's
+internal mixer thread but carries no Orkige-owned threading (the engine drives
+OpenAL entirely from the main thread), so under TSan it is pure third-party
+noise — and `halt_on_error=1` stops at the first of OpenAL's several internal
+race sites, so a suppression would be an open-ended chase. Its teardown
+memory-safety stays covered by the ASan gate. Exclusion lives in the
+`unit-*-tsan` test-preset `filter.exclude.name`.
+
 The file is wired in through `TSAN_OPTIONS`:
 
 ```sh
