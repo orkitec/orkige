@@ -1007,6 +1007,11 @@ int main(int argc, char** argv)
 	// desktop "scene required" gate. Read here (before that gate); the full
 	// selfcheck env read happens later, once the engine is up.
 	const bool pakSelfCheck = std::getenv("ORKIGE_PAK_SELFCHECK") != nullptr;
+	// ORKIGE_PAK_SCRIPT_SELFCHECK likewise needs no scene argument: it mounts a
+	// script-only pak and builds its own GameObject in the synchronous check, so
+	// it too exempts the desktop "scene required" gate below.
+	const bool pakScriptSelfCheck =
+		std::getenv("ORKIGE_PAK_SCRIPT_SELFCHECK") != nullptr;
 
 	// exported app, launched WITHOUT arguments (double-click): the
 	// orkige_project.txt marker next to the executable's resources names the
@@ -1076,7 +1081,7 @@ int main(int argc, char** argv)
 	// editor's play mode passes a scene path through the OrkigeActivity
 	// intent extras instead)
 #else
-	if (scenePath.empty() && !pakSelfCheck)
+	if (scenePath.empty() && !pakSelfCheck && !pakScriptSelfCheck)
 	{
 		SDL_Log("usage: orkige_player [--project <dir-or-.orkproj>] "
 			"[scene.oscene] [--debug-port N]");
@@ -1632,6 +1637,27 @@ int main(int argc, char** argv)
 							"not exist - not registered",
 							projectScenesDir.c_str());
 					}
+					// the project CONTENT ROOT as ONE location so EVERY content
+					// folder - scripts/, scenes/, config + the manifest, and
+					// anything added later - resolves by its project-relative
+					// SUB-PATH (e.g. "scripts/player.lua", "scenes/level.oscene")
+					// through the archive-aware resource read, WITHOUT a
+					// hand-picked subfolder list that could drift (that drift is
+					// exactly why scripts/ was never registered). This is what
+					// lets the fopen-tree loaders route through the resource
+					// system: a loose file and a mounted pak/APK entry resolve by
+					// the SAME name, so scripts read in place from a pak, no fopen.
+					// NON-recursive on purpose: Ogre resolves a sub-path name
+					// against a location on demand (a filesystem probe), so the
+					// content root does NOT have to be walked/indexed - it never
+					// descends into derived dirs (builds/, native/ build trees,
+					// .git), so no build junk is indexed and no exclusion list is
+					// needed. (Bulk media - textures by BARE name - keeps its own
+					// flat per-folder registration above.)
+					render->addResourceLocation(project.getRootDirectory(),
+						Orkige::RenderSystem::LT_FILESYSTEM,
+						Orkige::Project::RESOURCE_GROUP_NAME,
+						false);	// non-recursive: sub-paths resolve by on-demand probe
 					SDL_Log("orkige_player: project '%s' (root '%s') rooted "
 						"the resource locations", project.getName().c_str(),
 						project.getRootDirectory().c_str());
@@ -1693,6 +1719,17 @@ int main(int argc, char** argv)
 					SDL_Log("orkige_player: mounted pak '%s' (sub-tree '%s')",
 						context.selfChecks.pakPath.c_str(),
 						context.selfChecks.pakMountPoint.c_str());
+				}
+				// ORKIGE_PAK_SCRIPT_SELFCHECK: mount the whole pak so its
+				// "scripts/pak_script.lua" resolves by name through the resource
+				// system - the archive-in-place script read (no fopen, no
+				// --project, so there is provably no loose file on disk)
+				if (context.selfChecks.pakScriptCheck)
+				{
+					render->mountPak(context.selfChecks.pakScriptPath, "",
+						Orkige::Project::RESOURCE_GROUP_NAME);
+					SDL_Log("orkige_player: mounted script pak '%s'",
+						context.selfChecks.pakScriptPath.c_str());
 				}
 			}))
 		{
@@ -2068,6 +2105,14 @@ int main(int argc, char** argv)
 			scenePath = "pak:pak.oscene";
 			sceneLoaded = Orkige::SceneSerializer::loadSceneFromString(
 				sceneXml, gameObjectManager, scenePath);
+		}
+		else if (context.selfChecks.pakScriptCheck)
+		{
+			// no scene: the script-in-pak check builds its own GameObject +
+			// path-bound ScriptComponent in gameplaySynchronousChecks and
+			// drives it, so an empty world here is the correct starting point
+			scenePath = "pak:script";
+			sceneLoaded = true;
 		}
 		else
 		{

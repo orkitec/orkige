@@ -55,6 +55,12 @@ struct PlayerSelfChecks
 	bool pakCheck = false;
 	std::string pakPath;			//!< the zip/pak file to mount
 	std::string pakMountPoint;		//!< the sub-tree to expose ("game/" default)
+	//! the script-in-pak probe (@see gameplaySynchronousChecks): a path-bound
+	//! ScriptComponent loads and RUNS from a script mounted inside a pak, with
+	//! NO loose file on disk - the archive-in-place script read (Stage 1 of the
+	//! VFS unification that removes the Android fopen-tree extraction)
+	bool pakScriptCheck = false;
+	std::string pakScriptPath;		//!< the zip/pak carrying scripts/pak_script.lua
 
 	//--- per-check phase state (comments ride with each check) -----------
 	// --- ORKIGE_JUMPER_LUA_SELFCHECK=1: the ScriptComponent milestone,

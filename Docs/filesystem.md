@@ -84,6 +84,71 @@ choice (see [store-release.md](store-release.md#assets-stored-vs-compressed)):
 The App Bundle (`.aab`) path keeps the assets uncompressed in bundletool's
 generated APKs via a `BundleConfig` `uncompressedGlob` (`build_aab.sh`).
 
+## Script loading via the archive read
+
+Lua **scripts load through the resource system**, so a script mounted inside a
+pak/APK loads **in place** — no `fopen`, and (on the road to it) no Android
+first-launch extraction. The seam is deliberately GENERAL: scripts are the
+first consumer, scenes / the project manifest / the localisation string table
+are the intended next ones, with no interface change.
+
+- `core_filesystem/ResourceReader` — a PURE core interface
+  (`bool readText(name, out)`) with **zero** dependency beyond core. A core
+  loader (a script today) depends only on this; it never names the renderer.
+- `core_filesystem/ResourceAccess` — the process-wide provider: a settable,
+  **non-owning** `ResourceReader*`. A loader reaches the injected reader through
+  it WITHOUT threading a pointer through every load call — the same
+  process-wide-accessor shape the engine already uses for its singletons. This
+  is why it is a provider and not per-loader injection: the design goal is MANY
+  consumers, and the alternative (a `ResourceReader*` parameter on every load
+  call plus every loader's constructor) would touch a large surface for no gain.
+  **CONTRACT: when unset (`reader() == nullptr`), or when a reader MISSES a
+  name, the caller falls back to its own `fopen` path** — so headless core tests
+  and loose-file dev keep working with no provider installed.
+- `engine_runtime/RenderResourceReader` — the engine implementation: it reads a
+  name through `RenderSystem::readResourceText` (the archive-aware
+  `ResourceGroupManager::openResource` across loose files AND mounted paks/APKs),
+  so it is backend-neutral and works on both flavors. `AppHost` installs it into
+  `ResourceAccess` at boot **after `initialiseResourceGroups`** (every mount a
+  host registered is live) and de-registers it FIRST at teardown (no late read
+  routes into a dying renderer).
+- `ScriptRuntime::loadScriptInstance` (both the initial load and the play-time
+  hot-reload) AND `ScriptRuntime::readExportedProperties` are **archive-first**:
+  they try the reader by the script's name, and on a hit load the source from
+  memory (`safe_script` with the per-instance sandbox); on no-reader / a miss
+  they fall back to the on-disk `safe_script_file` path.
+- For `readResourceText` to resolve a project-relative name like
+  `scripts/player.lua` by sub-path, the player registers the **project content
+  root as ONE resource location** at project load. This is deliberately ONE root
+  location, not a hand-picked list of content subfolders (that list drifting
+  from reality is exactly why `scripts/` was never registered) — so every
+  content folder (`scripts/`, `scenes/`, config + the manifest, and anything
+  added later) resolves by its project-relative path with no code change. A
+  mounted pak/APK entry and a loose file then resolve by the SAME name. The root
+  is registered **non-recursively**: Ogre resolves a sub-path name against a
+  location on demand (a filesystem probe), so the content root is never walked
+  or indexed — it never descends into derived / non-content dirs (`builds/`,
+  `native/` build trees, `.git`), so no build junk is indexed and no exclusion
+  list is needed. Bulk media (textures referenced by BARE name) keeps its own
+  flat per-folder registration. On an exported bundle the payload root is already
+  only content, so the same one-location registration applies cleanly.
+
+**What routes through the archive now vs. what still extracts.** Stage 1 moves
+ONLY scripts onto the archive read. **Scenes, the project manifest and the
+localisation string table still load with `fopen`**, so the Android `stored`
+mode still extracts that small "fopen tree" (manifest / `scenes/` / `scripts/` /
+config + the shader/font media) — the bulk game media is already mounted in
+place (above). Scripts now READ in place from a mounted pak, but the Android
+first-launch extraction is deliberately **left in place as a working fallback**
+this stage; a later stage migrates scenes/config/localisation to the same reader
+and then removes the extraction.
+
+Verified by `player_pak_script_selfcheck` (both flavors — a path-bound
+`ScriptComponent` whose script lives ONLY inside a mounted pak, with no
+`--project` and no loose file, loads and runs) and the headless
+`ResourceReaderTests` (the provider seam, the memory-load path, and the
+fall-back-when-unset / on-miss paths; inert in `ORKIGE_SCRIPTING=OFF`).
+
 ## Security: zip-slip + the path jail
 
 **Threat model.** In an AI-agent development setting an agent authors project

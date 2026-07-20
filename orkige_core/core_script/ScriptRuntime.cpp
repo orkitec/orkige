@@ -12,6 +12,7 @@
 #include "core_tween/TimerManager.h"
 #include "core_script/ScriptEventPayload.h"
 #include "core_base/TypeInfo.h"
+#include "core_filesystem/ResourceReader.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -25,6 +26,17 @@ namespace Orkige
 #ifdef ORKIGE_LUA
 	namespace
 	{
+		//! @brief try the process-wide archive ResourceReader for a script's
+		//! source. Returns true with @p outSource filled on an archive hit (the
+		//! script resolved by name across loose files + mounted paks/APKs);
+		//! false means no reader is installed OR the name missed, so the caller
+		//! FALLS BACK to loading the on-disk file. This is the ONE routing point
+		//! that lets a pak/APK-resident script load in place instead of by fopen.
+		bool readScriptThroughReader(String const & scriptFile, String & outSource)
+		{
+			ResourceReader const * reader = ResourceAccess::reader();
+			return reader && reader->readText(scriptFile, outSource);
+		}
 		//! walk a global path like {"shared","jumper","wins"} to its value
 		//! (nil when any step is missing or not a table)
 		sol::object resolveGlobalPath(sol::state & lua, StringVector const & path)
@@ -143,6 +155,36 @@ namespace Orkige
 	{
 		oAssert(outError);
 #ifdef ORKIGE_LUA
+		sol::state & lua = this->luaManager.state();
+		optr<ScriptInstance> instance(new ScriptInstance());
+		// per-instance sandbox: a fresh table whose reads fall through to the
+		// real globals - writes stay in the instance (isolation between
+		// instances; deliberate sharing goes through the `shared` table)
+		instance->environment = sol::environment(lua, sol::create, lua.globals());
+
+		// ARCHIVE-FIRST: when an archive reader is installed AND it resolves the
+		// script by name, load the source from memory (the runString idiom, but
+		// into THIS instance's sandbox) - so a script mounted inside a pak/APK
+		// loads in place, no real file on disk. The chunk name is the script
+		// path so Lua errors still read "<file>:<line>". No reader, or a miss,
+		// falls through to the on-disk file below (headless core tests and
+		// loose-file dev keep working unchanged).
+		String source;
+		if (readScriptThroughReader(scriptFile, source))
+		{
+			const sol::protected_function_result loadResult = lua.safe_script(
+				source, instance->environment, sol::script_pass_on_error,
+				"@" + scriptFile);
+			if (!loadResult.valid())
+			{
+				const sol::error error = loadResult;
+				*outError = error.what();
+				return optr<ScriptInstance>();
+			}
+			instance->selfTable = lua.create_table();
+			return instance;
+		}
+
 		const String resolvedPath = this->resolveScriptPath(scriptFile);
 		if (resolvedPath.empty())
 		{
@@ -150,12 +192,6 @@ namespace Orkige
 				this->scriptSearchRoot + "' and the working directory)";
 			return optr<ScriptInstance>();
 		}
-		sol::state & lua = this->luaManager.state();
-		optr<ScriptInstance> instance(new ScriptInstance());
-		// per-instance sandbox: a fresh table whose reads fall through to the
-		// real globals - writes stay in the instance (isolation between
-		// instances; deliberate sharing goes through the `shared` table)
-		instance->environment = sol::environment(lua, sol::create, lua.globals());
 		const sol::protected_function_result loadResult = lua.safe_script_file(
 			resolvedPath, instance->environment, sol::script_pass_on_error);
 		if (!loadResult.valid())
@@ -294,22 +330,38 @@ namespace Orkige
 	{
 		std::vector<ScriptExportProperty> properties;
 #ifdef ORKIGE_LUA
-		const String resolvedPath = this->resolveScriptPath(scriptFile);
-		if (resolvedPath.empty())
-		{
-			return properties;	// no file -> no exports (honest, not an error)
-		}
 		sol::state & lua = this->luaManager.state();
 		// a throwaway sandbox: reads fall through to _G, top-level runs to
 		// populate `properties`, but we never call init/update. A parse/run
 		// error just means "no exports discovered" - a broken script's export
 		// set is empty, its load failure surfaces later through the component.
 		sol::environment probe(lua, sol::create, lua.globals());
-		const sol::protected_function_result loadResult = lua.safe_script_file(
-			resolvedPath, probe, sol::script_pass_on_error);
-		if (!loadResult.valid())
+		// ARCHIVE-FIRST, same routing as loadScriptInstance: read the source
+		// through the injected reader (pak/APK-resident scripts resolve by name)
+		// and fall back to the on-disk file when no reader is set or it misses.
+		String source;
+		if (readScriptThroughReader(scriptFile, source))
 		{
-			return properties;
+			const sol::protected_function_result loadResult = lua.safe_script(
+				source, probe, sol::script_pass_on_error, "@" + scriptFile);
+			if (!loadResult.valid())
+			{
+				return properties;
+			}
+		}
+		else
+		{
+			const String resolvedPath = this->resolveScriptPath(scriptFile);
+			if (resolvedPath.empty())
+			{
+				return properties;	// no file -> no exports (honest, not an error)
+			}
+			const sol::protected_function_result loadResult = lua.safe_script_file(
+				resolvedPath, probe, sol::script_pass_on_error);
+			if (!loadResult.valid())
+			{
+				return properties;
+			}
 		}
 		const sol::object propertiesObject = probe["properties"];
 		if (!propertiesObject.is<sol::table>())

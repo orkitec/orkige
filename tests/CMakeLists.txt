@@ -1472,6 +1472,29 @@ if(TARGET orkige_player)
         LABELS integration TIMEOUT 60
         ENVIRONMENT "ORKIGE_PAK_SELFCHECK=${ORKIGE_PAK_FIXTURE};ALSOFT_DRIVERS=null")
 
+    # THE archive-in-place SCRIPT read (Stage 1 of the VFS unification): a STORED
+    # zip carrying ONE "scripts/pak_script.lua" and nothing else. The player
+    # mounts it (RenderSystem::mountPak) and a path-bound ScriptComponent whose
+    # file lives ONLY in that pak - no --project, no loose file, so its on-disk
+    # resolution MUST miss - LOADS AND RUNS from the mounted archive through the
+    # injected ResourceReader (RenderSystem::readResourceText), no fopen. Both
+    # render flavors (mountPak + the reader are backend-neutral). See the
+    # ORKIGE_PAK_SCRIPT_SELFCHECK block in tools/player/PlayerSelfChecks.cpp.
+    set(ORKIGE_SCRIPT_PAK_FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/pak_fixture${ORKIGE_FLAVOR_TEST_SUFFIX}/script.pak")
+    add_test(NAME script_pak_fixture_build${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND python3 "${Orkige_SOURCE_DIR}/tests/pak/make_script_pak_fixture.py"
+            "${ORKIGE_SCRIPT_PAK_FIXTURE}")
+    set_tests_properties(script_pak_fixture_build${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        FIXTURES_SETUP SCRIPT_PAK_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
+        LABELS integration TIMEOUT 30)
+    add_test(NAME player_pak_script_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_player
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(player_pak_script_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        FIXTURES_REQUIRED SCRIPT_PAK_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
+        LABELS integration TIMEOUT 60
+        ENVIRONMENT "ORKIGE_PAK_SCRIPT_SELFCHECK=${ORKIGE_SCRIPT_PAK_FIXTURE};ALSOFT_DRIVERS=null")
+
     # whole-project run: --project loads projects/example's manifest,
     # registers its assets/ and scenes/ as resource locations and plays the
     # project's main scene (no scene argument)

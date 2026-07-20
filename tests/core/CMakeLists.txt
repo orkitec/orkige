@@ -28,6 +28,7 @@ add_executable(orkige_core_tests
     TypeManagerTests.cpp
     ScriptRuntimeTests.cpp
     ScriptEventBusTests.cpp
+    ResourceReaderTests.cpp
     SceneSerializerTests.cpp
     PrefabSerializerTests.cpp
     PrefabOverrideMergeTests.cpp

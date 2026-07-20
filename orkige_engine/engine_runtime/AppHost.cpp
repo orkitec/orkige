@@ -7,6 +7,7 @@
 	copyright:	(c) 2009-2026 orkitec
 ***************************************************************/
 #include "engine_runtime/AppHost.h"
+#include "engine_runtime/RenderResourceReader.h"
 
 #include "engine_graphic/Engine.h"
 #include "engine_render/RenderSystem.h"
@@ -25,6 +26,7 @@
 #include "core_util/Timer.h"
 #include "core_event/GlobalEventManager.h"
 #include "core_script/ScriptRuntime.h"
+#include "core_filesystem/ResourceReader.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -57,6 +59,11 @@ namespace Orkige
 		//      last. This deliberately breaks the strict reverse-of-bring-up
 		//      (ScriptRuntime came up before the Engine) because Lua holds
 		//      references INTO the Engine's systems and must go down first.
+		// FIRST de-register the archive reader so no late script load routes a
+		// read into a renderer that is about to be torn down below (it wraps
+		// RenderSystem::get(), still alive here) - then drop the impl object.
+		ResourceAccess::setReader(nullptr);
+		this->mResourceReader.reset();
 		this->mGameObjectManager.reset();
 		this->mScriptRuntime.reset();
 		this->mCameraNode.reset();
@@ -250,6 +257,16 @@ namespace Orkige
 			}
 		}
 		this->mRenderSystem->initialiseResourceGroups();
+
+		// install the archive-aware content reader NOW - after every mount a
+		// host registered (registerResources ran above) is live and the groups
+		// are indexed. Core loaders (scripts today; scenes/config/localisation
+		// next) resolve a name across loose files AND mounted paks/APKs through
+		// it, so pak/APK-resident content loads in place with no fopen. Unset
+		// until here means the pre-boot path (and any host that never boots the
+		// renderer) falls back to fopen - the honest default.
+		this->mResourceReader = uptr<ResourceReader>(new RenderResourceReader());
+		ResourceAccess::setReader(this->mResourceReader.get());
 
 		// the historical Engine default ambient
 		this->mRenderWorld->setAmbientLight(Color(0.2f, 0.2f, 0.2f));

@@ -276,6 +276,16 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 			pakMountPoint = mount;
 		}
 	}
+	// ORKIGE_PAK_SCRIPT_SELFCHECK=<pakfile>: the archive-in-place SCRIPT read.
+	// A path-bound ScriptComponent whose "scripts/pak_script.lua" lives ONLY
+	// inside the mounted pak (no loose file, no --project) must LOAD AND RUN -
+	// proving Lua scripts read through the resource system from an archive
+	// instead of via fopen (the extraction the Android stored mode still does).
+	if (const char* pakScript = std::getenv("ORKIGE_PAK_SCRIPT_SELFCHECK"))
+	{
+		pakScriptCheck = true;
+		pakScriptPath = pakScript;
+	}
 	// automated runs (ctest, the editor's play-mode tests - they inherit
 	// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 	// the machine allows; a HUMAN run gets vsync so games neither spin
@@ -554,6 +564,97 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 			return 0;
 		}
 		SDL_Log("orkige_pak_selfcheck: FAILED -%s", detail.c_str());
+		return 1;
+	}
+
+	// ORKIGE_PAK_SCRIPT_SELFCHECK: the archive-in-place SCRIPT read, end to end
+	// and synchronous. The script "scripts/pak_script.lua" lives ONLY inside the
+	// pak mounted at boot - there is no --project and no loose file, so its
+	// on-disk resolution MUST miss. A path-bound ScriptComponent that loads AND
+	// runs from that name therefore proves Lua scripts read through the resource
+	// system (RenderSystem::readResourceText, via the injected ResourceReader)
+	// off a mounted archive, no fopen - the read that removes the Android
+	// fopen-tree extraction. Flavor-neutral (mountPak + the reader are).
+	if (this->pakScriptCheck)
+	{
+		Orkige::ScriptRuntime& scripts = host.getScriptRuntime();
+		if (!Orkige::ScriptRuntime::available())
+		{
+			// noscript build: scripting is honestly off - nothing to prove here
+			SDL_Log("orkige_pak_script_selfcheck: scripting disabled - "
+				"skipping (the in-place read is a Lua-only concern)");
+			return 0;
+		}
+		bool ok = true;
+		std::string detail;
+
+		// (0) the DISK path must MISS: no project root, no cwd file for this
+		// name - so a load can only come from the mounted pak (the in-place proof)
+		if (!scripts.resolveScriptPath("scripts/pak_script.lua").empty())
+		{
+			ok = false;
+			detail += " loose-file-present(no-in-place-proof)";
+		}
+
+		// a global table the pak script writes into (its own sandbox writes fall
+		// through to this real global - the ScriptRuntime `shared`-table idiom)
+		scripts.ensureGlobalTable("pak_marker");
+
+		Orkige::optr<Orkige::GameObject> obj =
+			gameObjectManager.createGameObject("pak_script_obj").lock();
+		Orkige::ScriptComponent* script = nullptr;
+		if (obj && obj->addComponent<Orkige::ScriptComponent>())
+		{
+			script = obj->getComponentPtr<Orkige::ScriptComponent>();
+			script->setScriptFile("scripts/pak_script.lua");
+		}
+		if (!script)
+		{
+			SDL_Log("orkige_pak_script_selfcheck: FAILED - could not attach a "
+				"ScriptComponent");
+			return 1;
+		}
+
+		// tick the world: the ScriptComponent loads lazily on the first update,
+		// reading its source THROUGH the reader off the mounted pak, running the
+		// top-level chunk + init, then update on the second tick
+		gameObjectManager.update(1.0f / 60.0f);
+		gameObjectManager.update(1.0f / 60.0f);
+
+		if (script->hasScriptError())
+		{
+			ok = false;
+			detail += " script-error:" + script->getScriptError();
+		}
+		if (!script->isScriptStarted())
+		{
+			ok = false;
+			detail += " not-started";
+		}
+		if (!scripts.getBool({ "pak_marker", "loaded" }, false))
+		{
+			ok = false;
+			detail += " top-level-chunk-not-run";
+		}
+		if (!scripts.getBool({ "pak_marker", "inited" }, false))
+		{
+			ok = false;
+			detail += " init-not-run";
+		}
+		if (scripts.getNumber({ "pak_marker", "updates" }, 0.0) < 1.0)
+		{
+			ok = false;
+			detail += " update-not-run";
+		}
+
+		if (ok)
+		{
+			SDL_Log("orkige_pak_script_selfcheck: PASS - path-bound "
+				"ScriptComponent 'scripts/pak_script.lua' loaded and ran from "
+				"the mounted pak with NO loose file on disk (this flavor)");
+			return 0;
+		}
+		SDL_Log("orkige_pak_script_selfcheck: FAILED -%s", detail.c_str());
 		return 1;
 	}
 

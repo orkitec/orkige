@@ -35,6 +35,7 @@ namespace Orkige
 	class GlobalEventManager;
 	class ScriptRuntime;
 	class GameObjectManager;
+	class ResourceReader;	//core_filesystem/ResourceReader.h - the archive-read seam AppHost installs
 
 	//! @brief how AppHost boots the host window + engine; every field has a
 	//! working default, hosts override only what makes them special
@@ -84,6 +85,11 @@ namespace Orkige
 		bool						mSdlInitialised = false;
 		uptr<GlobalEventManager>	mEventManager;
 		uptr<ScriptRuntime>			mScriptRuntime;
+		//! the archive-aware content reader installed into the core
+		//! ResourceAccess provider once the render system + mounts are up, so
+		//! core loaders (scripts today) read through the resource system; torn
+		//! down (and de-registered) FIRST so no read routes into a dying renderer
+		uptr<ResourceReader>		mResourceReader;
 		uptr<Engine>				mEngine;
 		RenderSystem*				mRenderSystem = nullptr;
 		RenderWorld*				mRenderWorld = nullptr;
