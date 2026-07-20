@@ -143,6 +143,54 @@ if(ORKIGE_TSAN)
     add_link_options(-fsanitize=thread)
 endif()
 
+# Standard-library hardening: the cheap always-on bounds / iterator /
+# precondition checks the C++ standard library can insert into its own
+# containers. Enabled for Debug and the instrumented sanitizer trees, this
+# turns container misuse (out-of-range operator[], an invalidated iterator, a
+# bad range) into a clean abort instead of silent undefined behaviour - a
+# floor UNDER the sanitizers that also fires in a plain Debug build, at
+# negligible cost. The macro differs per standard library, so exactly the one
+# for the library in use is defined (detected by a compile probe). The define
+# is applied unguarded across the compile languages on purpose: libc++ folds
+# the hardening level into its ODR signature, so every C++ translation unit -
+# .cpp and .mm alike - must agree, and the macro is inert on C sources.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR ORKIGE_ENABLE_SANITIZERS OR ORKIGE_TSAN)
+    include(CheckCXXSourceCompiles)
+
+    # libc++ (the macOS / Apple-clang toolchain, and any -stdlib=libc++ build)
+    check_cxx_source_compiles("
+        #include <version>
+        #ifndef _LIBCPP_VERSION
+        #error not libc++
+        #endif
+        int main() { return 0; }" ORKIGE_STDLIB_LIBCXX)
+
+    if(ORKIGE_STDLIB_LIBCXX)
+        # Recent libc++ (LLVM >= 18) exposes the graduated hardening-mode
+        # selector; older libc++ used a plain enable-assertions switch. Probe
+        # for the modern spelling and fall back so both compile.
+        set(CMAKE_REQUIRED_DEFINITIONS
+            "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE")
+        check_cxx_source_compiles(
+            "#include <vector>\nint main() { std::vector<int> v; return static_cast<int>(v.size()); }"
+            ORKIGE_LIBCXX_HARDENING_MODE)
+        unset(CMAKE_REQUIRED_DEFINITIONS)
+        if(ORKIGE_LIBCXX_HARDENING_MODE)
+            set(_orkige_stdlib_harden "_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE")
+        else()
+            set(_orkige_stdlib_harden "_LIBCPP_ENABLE_ASSERTIONS=1")
+        endif()
+    else()
+        # libstdc++ (the Linux clang / gcc toolchain). _GLIBCXX_ASSERTIONS is
+        # the ABI-neutral hardening switch (unlike _GLIBCXX_DEBUG), so hardened
+        # Orkige code links cleanly against the unhardened vcpkg dependencies.
+        set(_orkige_stdlib_harden "_GLIBCXX_ASSERTIONS")
+    endif()
+
+    add_compile_definitions(${_orkige_stdlib_harden})
+    message(STATUS "Orkige stdlib hardening: ${_orkige_stdlib_harden}")
+endif()
+
 # Render backend: which renderer implements the engine_render facade
 # (Docs/render-abstraction.md). BUILD-time selection only - classic OGRE and
 # Ogre-Next share the Ogre:: symbol names, so linking both into one binary
