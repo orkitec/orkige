@@ -95,6 +95,7 @@ option(ORKIGE_BUILD_TOOLS  "Build the tool executables" ${ORKIGE_BUILD_ENGINE})
 option(ORKIGE_BUILD_TESTS  "Build the unit tests and register the ctest suite" ON)
 option(ORKIGE_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(ORKIGE_TSAN "Enable ThreadSanitizer (data-race detection)" OFF)
+option(ORKIGE_FUZZ "Build the libFuzzer harnesses over the pure parsers (tests/fuzz)" OFF)
 
 # ThreadSanitizer maintains its own shadow memory and runtime; it cannot share
 # an object closure with AddressSanitizer. The two are distinct instrumented
@@ -261,6 +262,21 @@ if(ORKIGE_BUILD_TOOLS)
     # the player builds on both render flavors (per-flavor boot
     # block; games choose their backend)
     add_subdirectory(tools/player)
+endif()
+
+# ============================================================================
+# Fuzzing (ORKIGE_FUZZ) - a NEW, self-delimited block. The libFuzzer harnesses
+# over the pure, headless parsers (MiniZip, .omat, .oanim, .oshape, JSON) live
+# in tests/fuzz and instrument themselves; they do NOT touch the global
+# sanitizer options above. Configure with -DORKIGE_FUZZ=ON (add
+# -DORKIGE_ENABLE_SANITIZERS=ON for full coverage). See Docs/fuzzing.md.
+# ============================================================================
+if(ORKIGE_FUZZ)
+    if(ORKIGE_MOBILE OR ORKIGE_WEB)
+        message(FATAL_ERROR "ORKIGE_FUZZ is a host-only build (desktop Clang)")
+    endif()
+    enable_testing()
+    add_subdirectory(tests/fuzz)
 endif()
 
 if(ORKIGE_BUILD_TESTS AND ORKIGE_WEB)

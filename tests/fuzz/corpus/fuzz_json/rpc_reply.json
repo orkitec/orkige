@@ -1,0 +1,1 @@
+{"jsonrpc": "2.0", "id": 7, "result": {"content": [{"type": "text", "text": "ok"}], "structuredContent": {"count": 3, "names": ["a", "b", "c"], "nested": {"flag": true, "ratio": 0.25, "empty": null}}, "isError": false}}

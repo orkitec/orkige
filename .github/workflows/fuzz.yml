@@ -1,0 +1,144 @@
+# Orkige fuzzing - libFuzzer coverage over the pure, headless parsers that
+# consume external / untrusted bytes (MiniZip zip central directories, the
+# .omat / .oanim / .oshape text assets and the hand-rolled JSON codec). This is
+# proactive bug discovery: each target runs for a BOUNDED time over its seed
+# corpus with -error_exitcode=1, so any crash / OOM / ASan / UBSan finding fails
+# the job. See Docs/fuzzing.md.
+#
+# Cadence: a nightly cron (the real mutation budget), manual dispatch (tune the
+# per-target seconds), and a SHORT per-pull-request smoke leg that mainly
+# replays the committed regression seeds and briefly mutates - a fast guard that
+# a parser change did not reopen a fixed crash.
+#
+# NOTE: `uses:` refs are written as plain version tags here; the repo's central
+# supply-chain pass pins every action to a full commit SHA (as in ci.yml /
+# soak.yml). Do not hand-pin in this file.
+
+name: Fuzz
+
+on:
+  schedule:
+    # 04:23 UTC nightly (off-peak, non-round minute to dodge cron pile-ups)
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Seconds to fuzz each target"
+        required: false
+        default: "120"
+  pull_request:
+    # only when a fuzzed parser, a harness or the fuzz plumbing changes
+    paths:
+      - "orkige_engine/engine_filesystem/MiniZip.*"
+      - "orkige_core/core_util/MaterialAsset.*"
+      - "orkige_core/core_util/VectorAnimAsset.*"
+      - "orkige_core/core_util/VectorShapeAsset.*"
+      - "orkige_core/core_util/VectorTessellator.*"
+      - "orkige_core/core_debugnet/Json.*"
+      - "tests/fuzz/**"
+      - ".github/workflows/fuzz.yml"
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # the vcpkg commit the dependency set is proven against (matches ci.yml)
+  VCPKG_COMMIT: 42e4e33e1505c9f47b58c21e0f557c1571b751ee
+  VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
+  VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
+  CCACHE_DIR: /home/runner/.ccache
+  CCACHE_MAXSIZE: 1G
+  CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+  # Orkige is clang-oriented; libFuzzer ships with clang's compiler-rt
+  CC: clang
+  CXX: clang++
+
+jobs:
+  fuzz:
+    name: Fuzz the pure parsers (ASan + UBSan + libFuzzer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240 # cold vcpkg build headroom; cached runs take minutes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        # the fuzz build is core-only (ORKIGE_BUILD_ENGINE=OFF), so no X / GL /
+        # audio dev libs are needed - just the toolchain + what the small vcpkg
+        # closure (tinyxml2, lua, zlib, earcut, sol2, catch2) builds against
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang lld ninja-build ccache python3 pkg-config \
+            autoconf autoconf-archive automake libtool libltdl-dev
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-fuzz-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-fuzz-${{ runner.os }}-
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.ccache
+          key: ccache-fuzz-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-fuzz-${{ runner.os }}-
+
+      - name: Configure (core-only fuzz tree)
+        run: |
+          cmake -S . -B build/fuzz -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT_DIR/scripts/buildsystems/vcpkg.cmake" \
+            -DORKIGE_BUILD_ENGINE=OFF -DORKIGE_BUILD_TOOLS=OFF -DORKIGE_BUILD_TESTS=OFF \
+            -DORKIGE_FUZZ=ON -DORKIGE_ENABLE_SANITIZERS=ON
+
+      - name: Build the fuzz targets
+        run: |
+          cmake --build build/fuzz --target \
+            fuzz_material fuzz_json fuzz_vectoranim fuzz_vectorshape fuzz_minizip
+
+      - name: Fuzz each target (bounded)
+        run: |
+          # nightly / dispatch get the full budget; a PR smoke leg stays short
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            SECS=20
+          else
+            SECS="${{ github.event.inputs.seconds || '120' }}"
+          fi
+          echo "fuzzing each target for ${SECS}s"
+          BIN=build/fuzz/tests/fuzz
+          CORPUS=tests/fuzz/corpus
+          mkdir -p /tmp/fuzz-artifacts
+          rc=0
+          for t in fuzz_material fuzz_json fuzz_vectoranim fuzz_vectorshape fuzz_minizip; do
+            echo "::group::$t"
+            run=$(mktemp -d)
+            if ! "$BIN/$t" \
+                -error_exitcode=1 -timeout=25 -rss_limit_mb=4096 \
+                -malloc_limit_mb=2048 -max_total_time="$SECS" \
+                -artifact_prefix="/tmp/fuzz-artifacts/${t}-" \
+                "$run" "$CORPUS/$t"; then
+              echo "FUZZ FINDING in $t"
+              rc=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $rc
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings
+          path: /tmp/fuzz-artifacts
+          if-no-files-found: ignore

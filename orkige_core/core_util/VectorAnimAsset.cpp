@@ -28,6 +28,19 @@ namespace Orkige
 			TARGET_MASK
 		};
 
+		//! @brief reserve capacity for a run whose length is a DECLARED count
+		//! from the (untrusted) asset. The count is only a capacity hint here -
+		//! the actual run is validated element by element as it is read, so a
+		//! forged huge count must never drive the up-front allocation. Capped so
+		//! the container still grows past it when a run is genuinely large.
+		template<typename V>
+		void reserveHint(V & vec, int declaredCount)
+		{
+			const int cap = 4096;
+			vec.reserve(static_cast<std::size_t>(
+				declaredCount < cap ? declaredCount : cap));
+		}
+
 		//! @brief the optional trailing easing spec of a `kf` line: absent =
 		//! linear, else `lin` / `hold` / `ease ox oy ix iy`. Anything else
 		//! (including trailing garbage) is malformed.
@@ -422,7 +435,7 @@ namespace Orkige
 				region.gradientStart = VectorTessellator::Point(sx, sy);
 				region.gradientEnd = VectorTessellator::Point(ex, ey);
 				region.gradientFocal = region.gradientStart;
-				region.gradientStops.reserve(count);
+				reserveHint(region.gradientStops, count);
 				stopsRemaining = count;
 				shapeKeyHasFill = true;
 			}
@@ -514,7 +527,7 @@ namespace Orkige
 					return fail("malformed mask (want: mask count>=3, once, "
 						"after the key's contour)");
 				}
-				openShape->keys.back().region.mask.reserve(count);
+				reserveHint(openShape->keys.back().region.mask, count);
 				target = TARGET_MASK;
 				vertsRemaining = count;
 			}
@@ -532,7 +545,7 @@ namespace Orkige
 					return fail("malformed contour (want: contour count, once "
 						"per shape key, after its paint)");
 				}
-				openShape->keys.back().region.outer.reserve(count);
+				reserveHint(openShape->keys.back().region.outer, count);
 				target = TARGET_OUTER;
 				vertsRemaining = count;
 			}
@@ -551,7 +564,7 @@ namespace Orkige
 				VectorTessellator::Region & region =
 					openShape->keys.back().region;
 				region.holes.push_back(std::vector<VectorTessellator::Point>());
-				region.holes.back().reserve(count);
+				reserveHint(region.holes.back(), count);
 				target = TARGET_HOLE;
 				vertsRemaining = count;
 			}
@@ -585,7 +598,7 @@ namespace Orkige
 				{
 					return fail("channel redefined on this layer");
 				}
-				channel->keys.reserve(count);
+				reserveHint(channel->keys, count);
 				openChannel = channel;
 				channelDim = (keyword == "rot" || keyword == "opacity") ? 1 : 2;
 				channelRemaining = count;
@@ -609,7 +622,7 @@ namespace Orkige
 				}
 				doc.layers[layerIdx].shapes.push_back(Shape());
 				openShape = &doc.layers[layerIdx].shapes.back();
-				openShape->keys.reserve(count);
+				reserveHint(openShape->keys, count);
 				shapeRemaining = count;
 			}
 			else if(keyword == "layer")

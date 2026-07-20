@@ -14,6 +14,7 @@
 
 #include <zlib.h>
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 
@@ -95,6 +96,18 @@ namespace Orkige
 		const std::uint16_t entryCount = readU16(e + 10);
 		const std::uint32_t centralDirSize = readU32(e + 12);
 		const std::uint32_t centralDirOffset = readU32(e + 16);
+
+		// bound the directory against the real file: it physically lives inside
+		// the archive, so an offset/size larger than the bytes on disk is a
+		// malformed (or hostile) EOCD - reject BEFORE allocating, so a forged
+		// record cannot drive a multi-gigabyte allocation from a tiny file (a
+		// downloaded pak / an APK is untrusted on every mobile boot)
+		if(centralDirOffset > static_cast<std::uint64_t>(fileSize) ||
+			centralDirSize >
+				static_cast<std::uint64_t>(fileSize) - centralDirOffset)
+		{
+			return false;
+		}
 
 		// read the whole central directory (small: one record per entry)
 		std::vector<unsigned char> central(centralDirSize);
@@ -202,6 +215,8 @@ namespace Orkige
 		{
 			return false;
 		}
+		file.seekg(0, std::ios::end);
+		const std::streamoff fileSize = file.tellg();
 		// the local header repeats the name/extra lengths; the data starts past
 		// them (the central-directory copies of those lengths may differ)
 		unsigned char localHeader[30];
@@ -218,6 +233,16 @@ namespace Orkige
 			static_cast<std::streamoff>(entry.localHeaderOffset) + 30 +
 			localNameLength + localExtraLength;
 
+		// the compressed bytes physically live in the archive; a compressedSize
+		// larger than what remains of the file past the data offset is malformed
+		// - reject before allocating so a forged directory record cannot drive a
+		// huge allocation (the same untrusted-archive guard as open())
+		if(dataOffset < 0 || dataOffset > fileSize ||
+			entry.compressedSize >
+				static_cast<std::uint64_t>(fileSize - dataOffset))
+		{
+			return false;
+		}
 		std::vector<unsigned char> compressed(
 			static_cast<std::size_t>(entry.compressedSize));
 		if(entry.compressedSize > 0)
@@ -242,7 +267,7 @@ namespace Orkige
 		}
 		if(entry.method == 8)	// DEFLATE - inflate via zlib (raw stream)
 		{
-			out.assign(static_cast<std::size_t>(entry.uncompressedSize), 0);
+			out.clear();
 			if(entry.uncompressedSize == 0)
 			{
 				return true;
@@ -256,12 +281,41 @@ namespace Orkige
 			}
 			stream.next_in = compressed.empty() ? Z_NULL : compressed.data();
 			stream.avail_in = static_cast<uInt>(compressed.size());
-			stream.next_out = out.data();
-			stream.avail_out = static_cast<uInt>(out.size());
-			const int result = inflate(&stream, Z_FINISH);
-			const bool ok = (result == Z_STREAM_END) &&
-				(stream.total_out == entry.uncompressedSize);
+			// inflate in chunks, GROWING the output only as bytes are actually
+			// produced. The directory's uncompressedSize is treated as a CEILING
+			// to verify against, NEVER a size to pre-allocate, so a forged huge
+			// size can never drive the allocation - it simply fails the exact
+			// size check below (the untrusted-archive DoS guard).
+			out.reserve(static_cast<std::size_t>(
+				std::min<std::uint64_t>(entry.uncompressedSize, 1u << 20)));
+			unsigned char chunk[65536];
+			int result = Z_OK;
+			bool overflow = false;
+			do
+			{
+				stream.next_out = chunk;
+				stream.avail_out = static_cast<uInt>(sizeof(chunk));
+				result = inflate(&stream, Z_NO_FLUSH);
+				if(result != Z_OK && result != Z_STREAM_END)
+				{
+					break;	// Z_DATA_ERROR / Z_BUF_ERROR / ... - corrupt stream
+				}
+				const std::size_t produced = sizeof(chunk) - stream.avail_out;
+				if(produced > entry.uncompressedSize - out.size())
+				{
+					overflow = true;	// more than declared - corrupt directory
+					break;
+				}
+				out.insert(out.end(), chunk, chunk + produced);
+			}
+			while(result != Z_STREAM_END);
 			inflateEnd(&stream);
+			const bool ok = !overflow && result == Z_STREAM_END &&
+				out.size() == entry.uncompressedSize;
+			if(!ok)
+			{
+				out.clear();
+			}
 			return ok;
 		}
 		return false;	// unsupported compression method
