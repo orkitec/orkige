@@ -48,12 +48,25 @@ target_link_libraries(my_game PRIVATE Orkige::Engine)
 ## The ABI-stamp version guard
 
 The package VERSION is not a marketing semver — it is an ABI stamp derived from
-the engine SOURCES (`cmake/OrkigeAbiStamp.cmake`: the committed HEAD plus the
-tracked working-tree diff, so it moves the instant a header changes, even
-uncommitted). The engine records the stamp of the sources its archives were
-built from — written at configure time and refreshed on every engine build so it
-stays in lock-step with the libraries. A module computes the CURRENT source
-stamp and requires the package match it EXACTLY.
+the engine's SOURCE SURFACE (`cmake/OrkigeAbiStamp.cmake`). The fingerprint is
+SCOPED to exactly what defines the engine ABI: the committed content of the two
+engine layers `orkige_core/` and `orkige_engine/`, plus the cmake files that
+shape how a module compiles and links against them (`OrkigeGameModule.cmake`,
+`OrkigeConfig.cmake.in`, `OrkigePackage.cmake`, `OrkigeAbiStamp.cmake`,
+`OrkigeWriteVersion.cmake`) — AND any uncommitted edits to that same set. So an
+engine header/source change moves the stamp and fires the guard even before it
+is committed, while a change ANYWHERE ELSE — a game script, an asset, a doc, a
+test, anything under `projects/`, `samples/`, `tests/`, `Docs/`, `Util/`,
+`.github/` — does NOT touch it. That keeps the guard silent through the ordinary
+edit-your-game-and-replay loop (which would otherwise fire on every edit and
+train you to ignore it) while still catching a genuinely stale engine library.
+The commit id rides in the human-readable stamp for diagnostics but is NOT part
+of the fingerprint, so an unrelated commit never bumps the ABI version.
+
+The engine records the stamp of the sources its archives were built from —
+written at configure time and refreshed on every engine build so it stays in
+lock-step with the libraries. A module computes the CURRENT source-surface stamp
+and requires the package match it EXACTLY.
 
 This closes a crash class: a module compiled against the current engine headers
 but linking a STALE `liborkige_engine.a` (e.g. a struct grew a member in
@@ -73,12 +86,12 @@ match the current headers, then reconfigure this module.
 Both the editor's compile-on-Play and the exporter flow through this same path,
 so a stale engine tree refuses at configure rather than shipping a crashing app.
 The `module_abi_mismatch` ctest (per flavor) is the regression proof — it
-configures the module against a version-mismatched package and asserts the
-refusal.
+asserts BOTH directions: an engine-source change is refused, and a non-engine
+edit (a game file, a doc) does NOT trip the guard.
 
 Honest limits: a non-git source drop collapses to one constant stamp (no
-source-change tracking); untracked new header files are not folded into the
-stamp. The package resolves against the build tree only — a relocatable
+source-change tracking); untracked new engine files are not folded into the
+stamp until tracked. The package resolves against the build tree only — a relocatable
 installed SDK, and migrating the editor/player/tests (which build in the engine
 graph itself and never drift, so they are deliberately left as-is) onto
 `find_package(Orkige)`, are the next bricks of a fuller SDK.

@@ -1216,13 +1216,18 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         ENVIRONMENT "ORKIGE_EDITOR_NATIVE_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-native;ORKIGE_EDITOR_NATIVE_PLAYTEST_BREAK=1")
 
     # the ABI-stamp guard regression (the crash this whole find_package(Orkige)
-    # package exists to prevent): configure the jumper-native module against
-    # THIS engine tree's package but with a version-mismatched expected stamp
-    # (a stand-in for a stale liborkige_engine.a whose object layout no longer
-    # matches the headers), and assert the module's cmake CONFIGURE refuses with
-    # the ABI-mismatch error. Configure-only, hermetic (a throwaway build tree),
-    # so it is fast and needs no full module compile. See
-    # cmake/OrkigeGameModule.cmake + integration_driver/run_module_mismatch_test.py.
+    # package exists to prevent). Two properties in one hermetic, configure-only
+    # run (no full module compile, so it stays fast): (1) the guard MECHANISM -
+    # configure the jumper-native module against THIS engine tree's package but
+    # with a version-mismatched expected stamp (a stand-in for a stale
+    # liborkige_engine.a whose object layout no longer matches the headers) and
+    # assert the module's cmake CONFIGURE refuses with the ABI-mismatch error;
+    # (2) the stamp SCOPING, both directions - an engine-source edit moves the
+    # stamp (a stale lib would be refused) while a game-file edit does NOT (the
+    # guard stays silent through the ordinary edit-and-replay loop). The scoping
+    # legs run against a throwaway synthetic git repo, so no real working-tree
+    # file is ever touched and this races nothing. See cmake/OrkigeGameModule.cmake
+    # + cmake/OrkigeAbiStamp.cmake + integration_driver/run_module_mismatch_test.py.
     add_test(NAME module_abi_mismatch${ORKIGE_FLAVOR_TEST_SUFFIX}
         COMMAND python3
             "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_module_mismatch_test.py"

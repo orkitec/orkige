@@ -9,12 +9,26 @@
 # libraries were built from) and cmake/OrkigeGameModule.cmake (the module
 # computes the CURRENT source stamp and requires the package match it).
 #
-# The fingerprint is the committed HEAD plus the tracked working-tree diff
-# (git diff HEAD): editing a committed header - even without committing - shifts
-# the diff and therefore the stamp, so the guard fires on an uncommitted change
-# too. Untracked new files do not shift it (both sides ignore them the same
-# way), and a non-git tree (an unpacked source drop) collapses to one constant
-# stamp - honest limits, documented in Docs/native-modules.md.
+# The fingerprint is SCOPED to the engine's ABI surface ONLY: the committed
+# content of the two engine layers (orkige_core/, orkige_engine/) plus the cmake
+# files that shape how a module compiles and links against them, AND any
+# uncommitted edits to that same set (git diff HEAD over the same pathspec). A
+# change here - committed or not - moves the stamp and fires the guard; a change
+# ANYWHERE ELSE (a game script, an asset, a doc, a test) does NOT, so the guard
+# never fires on the ordinary edit-your-game-and-replay loop. Untracked new
+# files do not shift it (both sides ignore them the same way), and a non-git
+# tree (an unpacked source drop) collapses to one constant stamp - honest
+# limits, documented in Docs/native-modules.md.
+
+# the engine ABI surface: the two engine layers + the cmake files that define
+# the module's compile/link surface (defines, imported-target interface, the
+# package/stamp machinery). A pathspec deliberately EXCLUDING projects/,
+# samples/, tests/, Docs/, Util/, .github/ - editing those must not bump the ABI.
+set(ORKIGE_ABI_PATHSPEC
+    orkige_core orkige_engine
+    cmake/OrkigeGameModule.cmake cmake/OrkigeConfig.cmake.in
+    cmake/OrkigePackage.cmake cmake/OrkigeAbiStamp.cmake
+    cmake/OrkigeWriteVersion.cmake)
 
 # orkige_compute_abi_stamp(<engine-source-root> <out_version_var> <out_stamp_var>)
 #   out_version_var  <- the numeric package version ("2.0.<hi>.<lo>") the
@@ -26,14 +40,26 @@ function(orkige_compute_abi_stamp root out_version out_stamp)
     set(_short "nogit")
     find_program(_orkige_abi_git git)
     if(_orkige_abi_git)
-        execute_process(COMMAND "${_orkige_abi_git}" -C "${root}" rev-parse HEAD
-            OUTPUT_VARIABLE _head RESULT_VARIABLE _rc
+        # committed content of the engine surface (recursive blob listing:
+        # <mode> blob <hash>\t<path> per file - changes when that content does)
+        execute_process(COMMAND "${_orkige_abi_git}" -C "${root}"
+                ls-tree -r HEAD -- ${ORKIGE_ABI_PATHSPEC}
+            OUTPUT_VARIABLE _tree RESULT_VARIABLE _rc
             OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-        if(_rc EQUAL 0 AND _head)
-            execute_process(COMMAND "${_orkige_abi_git}" -C "${root}" diff HEAD
+        if(_rc EQUAL 0 AND _tree)
+            # uncommitted edits to that SAME surface (a header change with no
+            # commit still shifts the diff, hence the stamp)
+            execute_process(COMMAND "${_orkige_abi_git}" -C "${root}"
+                    diff HEAD -- ${ORKIGE_ABI_PATHSPEC}
                 OUTPUT_VARIABLE _diff ERROR_QUIET)
-            set(_fingerprint "${_head}${_diff}")
-            string(SUBSTRING "${_head}" 0 10 _short)
+            # the commit short id is carried into the human stamp only (context
+            # for diagnostics); it is NOT part of the fingerprint, so an
+            # unrelated commit does not change the ABI version
+            execute_process(COMMAND "${_orkige_abi_git}" -C "${root}"
+                    rev-parse --short HEAD
+                OUTPUT_VARIABLE _short OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET)
+            set(_fingerprint "${_tree}${_diff}")
         endif()
     endif()
     if(_fingerprint STREQUAL "")
