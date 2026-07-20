@@ -511,8 +511,19 @@ RTSS-transient fix cleared the long-sequence fault, see `Docs/benchmark.md`);
 Settings `native.target`/`native.cmakeDir`/`native.buildDir`
 (`core_project/NativeModule.h`) mark a project as carrying compiled C++ game code
 under `native/`, built as a standalone CMake project against the engine build tree
-via `cmake/OrkigeGameModule.cmake` (no installed SDK yet — the helper file IS the
-interim contract). **Runs on BOTH render flavors**: the helper reads the engine
+via `cmake/OrkigeGameModule.cmake`. The engine is consumed as ONE
+`find_package(Orkige)` build-tree package (`cmake/OrkigePackage.cmake`, no install
+step) exporting two targets sharing ONE **ABI-stamp** version — `Orkige::Core`
+(OGRE-free) and `Orkige::Engine` (pulls Core); the module does
+`find_package(Orkige <stamp> EXACT REQUIRED)` so a module compiled against newer
+engine headers than the stale library it links is a HARD CONFIGURE ERROR, never
+the JumperNative runtime null-deref (the stamp is the engine's commit + tracked
+working diff, `cmake/OrkigeAbiStamp.cmake`; the editor's compile-on-Play AND the
+exporter both flow through it, so a stale tree refuses rather than shipping a
+crash — the `module_abi_mismatch` ctest is the regression proof, `Docs/native-modules.md`;
+the editor/player/tests build in the engine graph itself and never drift, so
+they stay off find_package — the first brick of a fuller SDK). **Runs on BOTH
+render flavors**: the helper reads the engine
 tree's flavor from its cache and links THAT flavor's engine closure + defines its
 ABI macro (`ORKIGE_RENDER_NEXT` / `ORKIGE_RENDER_CLASSIC`); game code is
 flavor-neutral by construction (only facade types, no `Ogre::`). A module tree is

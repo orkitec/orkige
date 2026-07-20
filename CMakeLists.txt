@@ -224,6 +224,15 @@ add_subdirectory(orkige_core)
 if(ORKIGE_BUILD_ENGINE)
     add_subdirectory(orkige_engine)
     if(NOT ORKIGE_MOBILE AND NOT ORKIGE_WEB)
+        # Emit the engine as a build-tree find_package(Orkige) package (the two
+        # archives + an EXACT ABI-stamp guard) so native game modules and the
+        # exporter link a version-checked engine instead of hand-globbing
+        # liborkige_engine.a - a stale/mismatched library is a hard configure
+        # error, never a runtime crash. Desktop host only (native modules are
+        # desktop-only). See cmake/OrkigePackage.cmake + cmake/OrkigeGameModule.cmake.
+        include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/OrkigePackage.cmake)
+        orkige_emit_package()
+
         # desktop-only SDL samples (plain executables, host asset paths).
         # hello_orkige builds on both render flavors (per-flavor boot
         # block); jumper stays classic-only - its HUD is gui, which

@@ -1215,6 +1215,26 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     set_tests_properties(editor_project_native_play_break${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_NATIVE_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-native;ORKIGE_EDITOR_NATIVE_PLAYTEST_BREAK=1")
 
+    # the ABI-stamp guard regression (the crash this whole find_package(Orkige)
+    # package exists to prevent): configure the jumper-native module against
+    # THIS engine tree's package but with a version-mismatched expected stamp
+    # (a stand-in for a stale liborkige_engine.a whose object layout no longer
+    # matches the headers), and assert the module's cmake CONFIGURE refuses with
+    # the ABI-mismatch error. Configure-only, hermetic (a throwaway build tree),
+    # so it is fast and needs no full module compile. See
+    # cmake/OrkigeGameModule.cmake + integration_driver/run_module_mismatch_test.py.
+    add_test(NAME module_abi_mismatch${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND python3
+            "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_module_mismatch_test.py"
+            --repo "${Orkige_SOURCE_DIR}"
+            --engine-build "${CMAKE_BINARY_DIR}"
+            --module-source "${Orkige_SOURCE_DIR}/projects/jumper-native/native"
+            --cmake "${CMAKE_COMMAND}"
+            --ninja "${CMAKE_MAKE_PROGRAM}"
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(module_abi_mismatch${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        LABELS integration TIMEOUT 120)
+
     # loud script failures: the hook copies projects/jumper-lua to a temp dir
     # (the real project is never touched), overwrites scripts/player.lua with
     # garbage and presses Play - the player must PUSH a script_error protocol

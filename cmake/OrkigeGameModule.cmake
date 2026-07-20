@@ -33,14 +33,25 @@
 # RenderMath.h). Game modules are flavor-neutral by construction: they spell
 # only facade types (Orkige::Vec3, engine_render/*), never Ogre::.
 #
+# The engine is resolved as ONE find_package(Orkige) build-tree package (no
+# install step - the config is emitted straight into the engine build tree by
+# cmake/OrkigePackage.cmake) that exports TWO imported targets sharing ONE ABI
+# stamp: Orkige::Core (the OGRE-free core) and Orkige::Engine (which pulls
+# Orkige::Core transitively). find_package requires an EXACT ABI-stamp match, so
+# a module compiled against newer engine headers than the archive it links fails
+# HERE at configure with a clear message - never as a runtime crash from a
+# skewed object layout. The stamp is the engine's commit + tracked working diff
+# (cmake/OrkigeAbiStamp.cmake). This is the first brick of a fuller
+# find_package(Orkige) SDK; the editor/player/tests still build in the engine
+# graph itself and never drift, so they are deliberately NOT migrated.
+#
 # What orkige_game_module(<target>) wires up:
-#   - include dirs + ABI defines of the engine (ORKIGE_STATIC, the flavor ABI
-#     macro, the scripting backend define matching ORKIGE_SCRIPTING, ...)
-#   - links liborkige_engine.a / liborkige_core.a straight out of the engine
-#     build tree plus their full dependency closure (the flavor's OGRE +
-#     render systems + codecs, SDL3, OpenAL, Jolt, tinyxml2, Lua/sol2, ...)
-#     resolved through the engine build's own vcpkg_installed/ tree - versions
-#     can never diverge
+#   - links Orkige::Engine (the find_package package's imported target), which
+#     carries the engine include roots + ABI defines (ORKIGE_STATIC, the flavor
+#     ABI macro, the scripting backend define) and pulls Orkige::Core
+#   - plus the full dependency closure (the flavor's OGRE + render systems +
+#     codecs, SDL3, OpenAL, Jolt, tinyxml2, Lua/sol2, ...) resolved through the
+#     engine build's own vcpkg_installed/ tree - versions can never diverge
 #   - C++20 and the ORKIGE_MODULE_MEDIA_DIR define (the flavor's OGRE Media dir:
 #     the classic RTSS shader library / the Ogre-Next Hlms shader templates -
 #     the fallback resolveMediaDirectory returns for a dev run, overridden by
@@ -63,9 +74,10 @@
 #
 # HONEST LIMITS (v1):
 #   - the ENGINE MUST BE BUILT FIRST for the same build type; the editor
-#     guarantees that (it runs out of that very build tree). There is no
-#     installed engine SDK yet - this file IS the interim contract, a proper
-#     install/find_package(Orkige) story is future work.
+#     guarantees that (it runs out of that very build tree). The find_package
+#     package resolves against the BUILD TREE (no install(EXPORT) step yet - a
+#     relocatable installed SDK is future work); this file still owns the vcpkg
+#     dependency-closure resolution the package declares.
 #   - desktop host builds only; iOS/Android native modules are out of scope
 #     until the export pipeline covers them.
 #   - scripting backend defaults to LUA (the tree default); pass
@@ -93,6 +105,50 @@ if(NOT DEFINED ORKIGE_ENGINE_BUILD_DIR)
     message(FATAL_ERROR "ORKIGE_ENGINE_BUILD_DIR is not set - pass the engine "
         "build tree to link against: -DORKIGE_ENGINE_BUILD_DIR="
         "${ORKIGE_ROOT}/build/macos-debug")
+endif()
+
+# --- engine package + ABI-stamp guard --------------------------------------
+# Resolve the engine as ONE find_package(Orkige) build-tree package (two
+# imported targets, Orkige::Core + Orkige::Engine, sharing ONE ABI stamp)
+# instead of hand-globbing liborkige_engine.a - and REQUIRE the package's stamp
+# match the stamp of the engine sources this module compiles against. A
+# stale/mismatched engine archive (headers grew a struct member but the library
+# was not rebuilt) is then a HARD CONFIGURE ERROR here, never a runtime crash
+# there (the JumperNative setWindowBackgroundColour null-deref class). The stamp
+# is derived from the engine sources at ORKIGE_ROOT (cmake/OrkigeAbiStamp.cmake:
+# committed HEAD + the tracked working diff), so it moves the instant a header
+# changes; the engine records the stamp of the sources ITS archives were built
+# from. Both the editor's compile-on-Play and Util/orkige_export.py flow through
+# this same path, so a stale engine tree refuses at configure rather than
+# shipping a crashing app.
+if(DEFINED ORKIGE_EXPECTED_ABI_VERSION)
+    # an explicit override of the expected ABI version; when unset it is
+    # computed from the engine sources
+    set(_orkige_expected "${ORKIGE_EXPECTED_ABI_VERSION}")
+else()
+    include("${ORKIGE_ROOT}/cmake/OrkigeAbiStamp.cmake")
+    orkige_compute_abi_stamp("${ORKIGE_ROOT}"
+        _orkige_expected _orkige_expected_stamp)
+endif()
+find_package(Orkige "${_orkige_expected}" EXACT QUIET CONFIG
+    PATHS "${ORKIGE_ENGINE_BUILD_DIR}" NO_DEFAULT_PATH)
+if(NOT Orkige_FOUND)
+    # discover what the tree DOES carry so the message names both versions
+    find_package(Orkige QUIET CONFIG
+        PATHS "${ORKIGE_ENGINE_BUILD_DIR}" NO_DEFAULT_PATH)
+    if(NOT Orkige_FOUND)
+        message(FATAL_ERROR "no Orkige engine package under "
+            "'${ORKIGE_ENGINE_BUILD_DIR}' - build the engine tree first "
+            "(cmake --build --preset <preset>), which emits OrkigeConfig.cmake, "
+            "or fix ORKIGE_ENGINE_BUILD_DIR.")
+    endif()
+    message(FATAL_ERROR "Orkige engine ABI mismatch: the package at "
+        "'${ORKIGE_ENGINE_BUILD_DIR}' is version ${Orkige_VERSION} (ABI stamp "
+        "${ORKIGE_ABI_STAMP}), but this module's engine headers expect version "
+        "${_orkige_expected}. The engine library is stale relative to the "
+        "sources at '${ORKIGE_ROOT}' - rebuild the engine tree (cmake --build "
+        "...) so its archives match the current headers, then reconfigure this "
+        "module.")
 endif()
 
 # The render flavor the engine tree was built with - read from ITS cache. The
@@ -144,19 +200,9 @@ set(ORKIGE_MODULE_FLAVOR_CONFIGURED "${ORKIGE_MODULE_FLAVOR}" CACHE INTERNAL
 set(ORKIGE_SCRIPTING "LUA" CACHE STRING
     "Scripting backend the engine build was configured with (LUA or OFF)")
 
-# the engine libraries this module links; their absence means the engine was
-# never built (or a wrong build dir) - fail with the fix, not a linker error
-set(_orkige_engine_lib
-    "${ORKIGE_ENGINE_BUILD_DIR}/orkige_engine/${CMAKE_STATIC_LIBRARY_PREFIX}orkige_engine${CMAKE_STATIC_LIBRARY_SUFFIX}")
-set(_orkige_core_lib
-    "${ORKIGE_ENGINE_BUILD_DIR}/orkige_core/${CMAKE_STATIC_LIBRARY_PREFIX}orkige_core${CMAKE_STATIC_LIBRARY_SUFFIX}")
-foreach(_orkige_lib IN ITEMS "${_orkige_engine_lib}" "${_orkige_core_lib}")
-    if(NOT EXISTS "${_orkige_lib}")
-        message(FATAL_ERROR "engine library '${_orkige_lib}' does not exist - "
-            "build the engine first (cmake --build --preset <preset>) or fix "
-            "ORKIGE_ENGINE_BUILD_DIR")
-    endif()
-endforeach()
+# The engine archives are the Orkige::Core + Orkige::Engine imported targets the
+# find_package(Orkige) above resolved (their existence is checked by the package
+# config); the game module links Orkige::Engine, which pulls Orkige::Core.
 
 # The engine's dependencies come from ITS build's vcpkg_installed tree (vcpkg
 # manifest mode installs into the build dir) - pointing CMAKE_PREFIX_PATH at
@@ -360,12 +406,12 @@ function(orkige_game_module target)
     else()
         target_compile_definitions(${target} PRIVATE ORKIGE_NOSCRIPT)
     endif()
-    # the engine build-tree archives first, then their dependency closure
-    # (mirrors the PUBLIC/PRIVATE link set of orkige_core + orkige_engine); the
-    # backend-agnostic deps are shared, the OGRE closure is per flavor.
+    # the engine build-tree archives first (Orkige::Engine pulls Orkige::Core),
+    # then their dependency closure (mirrors the PUBLIC/PRIVATE link set of
+    # orkige_core + orkige_engine); the backend-agnostic deps are shared, the
+    # OGRE closure is per flavor.
     target_link_libraries(${target} PRIVATE
-        "${_orkige_engine_lib}"
-        "${_orkige_core_lib}"
+        Orkige::Engine
         tinyxml2::tinyxml2
         SDL3::SDL3
         OpenAL::OpenAL
