@@ -1,0 +1,34 @@
+# LeakSanitizer suppressions for the Orkige ASan/LSan gate (Docs/sanitizers.md).
+#
+# POLICY: this file suppresses ONLY leaks the engine cannot own - genuinely
+# third-party allocations, or intentional process-lifetime singletons a
+# dependency never frees at exit. Every entry names its non-Orkige source and
+# why. A leak in Orkige's OWN code is a real bug: it is FIXED, never added
+# here. The goal is LSan catching FUTURE Orkige leaks, not a wall of
+# suppressions. Wired in via
+# LSAN_OPTIONS=suppressions=Util/lsan_suppressions.txt (ci.yml linux-sanitizer,
+# alongside ASAN_OPTIONS=detect_leaks=1).
+#
+# Suppression syntax: `leak:<substring>` matches a frame's function or shared-
+# object name anywhere in the allocation's call stack.
+#
+# WHY THIS FILE IS EMPTY OF ENTRIES.
+# LeakSanitizer reports only allocations that are UNREACHABLE at process exit
+# (definitely/indirectly lost) - never blocks still reachable from a global or
+# static pointer. The third-party engine singletons a game holds for its whole
+# life (the Ogre root, the SDL subsystems, Jolt's factory, the OpenAL device)
+# stay reachable through their owning globals at exit, so LSan does not flag
+# them and they need no suppression. Orkige's own teardown is leak-disciplined
+# (the GameObjectManager::clear hook, the event/manager destructors), so the
+# full unit + desktop integration suite runs CLEAN under detect_leaks=1 with no
+# entries below.
+#
+# (One genuine leak the flip surfaced - SDL's per-thread error buffer left
+# behind by the editor's non-SDL worker threads - was FIXED in the editor
+# rather than suppressed: the workers now call SDL_CleanupTLS before they exit,
+# which is SDL's documented mechanism for threads it did not create. That is
+# the policy in action: an Orkige-owned leak is fixed, never hushed here.)
+#
+# Add an entry ONLY when a run surfaces a genuinely third-party UNREACHABLE
+# leak (e.g. a dependency's one-shot allocation with no retained pointer), with
+# a one-line reason naming the library - never to hush an Orkige leak.

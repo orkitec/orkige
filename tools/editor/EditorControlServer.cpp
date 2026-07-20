@@ -137,6 +137,18 @@ namespace Orkige
 
 	namespace
 	{
+		//! @brief clean SDL's per-thread storage up before a worker thread ends.
+		//! SDL keeps its error message (and any other TLS) in per-thread storage
+		//! it can only free automatically for threads IT created; a thread Orkige
+		//! starts (std::thread / std::async) that calls an SDL function - as the
+		//! subprocess-capture and device-probe workers below all do - leaks that
+		//! per-thread buffer unless SDL_CleanupTLS runs before the thread exits
+		//! (SDL_Quit does not cover it). Declare one of these at the top of every
+		//! Orkige-owned worker that touches SDL: it fires on every exit path.
+		struct SdlThreadTlsGuard
+		{
+			~SdlThreadTlsGuard() { SDL_CleanupTLS(); }
+		};
 		//---------------------------------------------------------
 		//--- test-runner helpers (run_tests / list_tests) ----
 		//---------------------------------------------------------
@@ -420,6 +432,7 @@ namespace Orkige
 		void runTestJobWorker(EditorTestJob* job, TestRunResult params,
 			std::vector<std::string> buildTargets, bool doBuild)
 		{
+			SdlThreadTlsGuard sdlTls;	//!< free SDL's TLS before this thread ends
 			namespace fs = std::filesystem;
 			TestRunResult result = params;
 			const std::string cmakeExe = ORKIGE_EDITOR_CMAKE;
@@ -630,6 +643,7 @@ namespace Orkige
 		void runExportJobWorker(EditorExportJob* job, ExportRunResult params,
 			std::vector<std::string> command)
 		{
+			SdlThreadTlsGuard sdlTls;	//!< free SDL's TLS before this thread ends
 			ExportRunResult result = params;
 			std::string output;
 			int exitCode = 0;
@@ -3408,19 +3422,31 @@ namespace Orkige
 			ids.push_back("browser");
 			names.push_back("Browser (WebGL)");
 			states.push_back(isWebPlayerBuilt() ? "ready" : "gated");
+			// each probe spawns a device tool (adb / simctl) via SDL on its own
+			// worker thread, so the thread body frees SDL's per-thread storage
+			// (SdlThreadTlsGuard) before it ends - see runProcessCapture above.
 #ifdef __APPLE__
 			std::future<std::vector<SimulatorDevice>> simulatorProbe =
-				std::async(std::launch::async, listSimulators);
+				std::async(std::launch::async, []
+				{
+					SdlThreadTlsGuard sdlTls;
+					return listSimulators();
+				});
 			std::future<std::vector<IosHardwareDevice>> hardwareProbe =
 				std::async(std::launch::async, []
 				{
+					SdlThreadTlsGuard sdlTls;
 					return isIosSigningConfigured()
 						? listIosHardwareDevices()
 						: std::vector<IosHardwareDevice>();
 				});
 #endif
 			std::future<std::vector<AndroidDevice>> androidProbe =
-				std::async(std::launch::async, listAdbDevices);
+				std::async(std::launch::async, []
+				{
+					SdlThreadTlsGuard sdlTls;
+					return listAdbDevices();
+				});
 #ifdef __APPLE__
 			for (SimulatorDevice const& device : simulatorProbe.get())
 			{
@@ -6072,6 +6098,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void EditorControlSelfTest::run(unsigned short port)
 	{
+		SdlThreadTlsGuard sdlTls;	//!< free SDL's TLS before this thread ends
 		DebugSocketUtil::SocketHandle handle = connectBlocking(port);
 		auto finish = [this, &handle](bool passed, String const& message)
 		{
