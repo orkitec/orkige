@@ -38,6 +38,14 @@
       }
     },
     {
+      "name": "macos-debug-tsan",
+      "displayName": "macOS Debug (Ogre-Next, ThreadSanitizer - local repro)",
+      "inherits": "macos-debug",
+      "cacheVariables": {
+        "ORKIGE_TSAN": "ON"
+      }
+    },
+    {
       "name": "macos-release",
       "displayName": "macOS Release (Ogre-Next - the default backend)",
       "inherits": "macos-base",
@@ -403,6 +411,10 @@
       "configurePreset": "macos-debug"
     },
     {
+      "name": "macos-debug-tsan",
+      "configurePreset": "macos-debug-tsan"
+    },
+    {
       "name": "macos-release",
       "configurePreset": "macos-release"
     },
@@ -511,6 +523,22 @@
       },
       "execution": {
         "jobs": 10
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "unit-macos-tsan",
+      "displayName": "Local macOS ThreadSanitizer: headless unit tests (Jolt worker-thread repro; sibling of unit-linux-tsan)",
+      "configurePreset": "macos-debug-tsan",
+      "filter": {
+        "include": {
+          "label": "unit"
+        }
+      },
+      "execution": {
+        "jobs": 1
       },
       "output": {
         "outputOnFailure": true

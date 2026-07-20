@@ -6,9 +6,10 @@
 # real bug: it is fixed, never added here. Wired in via
 # TSAN_OPTIONS=suppressions=Util/tsan_suppressions.txt.
 #
-# These entries bite only the instrumented INTEGRATION/windowed runs (which
-# spin up the render backend and audio device threads); the CI unit gate is
-# headless and touches none of them, so it runs with no third-party noise.
+# The render-backend entries bite only the instrumented INTEGRATION/windowed
+# runs (which spin up the render backend threads). The Jolt entries also bite
+# the headless UNIT gate: the physics tests drive Jolt, which runs its OWN
+# worker-thread job system - third-party threads the unit gate does touch.
 
 # Ogre-Next spreads scene-graph update and frustum culling across its own
 # worker-thread pool (SceneManager::_updateWorkerThread / cullFrustumExecute)
@@ -28,3 +29,18 @@ race:Ogre::ForwardClustered
 # without a fresh entry - all strictly inside the third-party render backend.
 race:Ogre::ThreadHandle
 race:Ogre::Barrier
+
+# Jolt (JPH::) runs physics work across its OWN job-system worker threads over
+# lock-free atomics TSan cannot see through; the engine only drives Jolt from
+# the main thread (engine_physic/PhysicsWorld) and drains contact events through
+# an owned mutex queue (that queue is Orkige code, in the Orkige:: namespace, and
+# is NOT suppressed - a race there would be a real bug). Any race sited ENTIRELY
+# within the JPH:: namespace is Jolt-internal by construction (Orkige runs no
+# code on Jolt's worker threads), so suppress at the namespace - the simulation
+# step reaches many Jolt-internal sites (job system, scratch allocator, lock-free
+# islands/collision containers) and chasing each one is both fragile and
+# needless. Observed sites include JPH::JobSystem::Job::Execute and
+# JPH::TempAllocatorImpl::Allocate. Jolt is STATICALLY linked, so a
+# `called_from_lib` entry would not match - the symbol-namespace match is the
+# working form.
+race:JPH::

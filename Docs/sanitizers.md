@@ -40,14 +40,22 @@ lifecycle separately.
 
 `Util/tsan_suppressions.txt` suppresses **only races the engine cannot fix** —
 third-party worker threads whose internal synchronisation TSan cannot see
-through. Every entry names its non-Orkige source and the reason. The current
-entries are all Ogre-Next's own scene-update / frustum-culling / clustered-
-forward worker threads and the threading primitives that drive them.
+through. Every entry names its non-Orkige source and the reason. Two families:
+Ogre-Next's own scene-update / frustum-culling / clustered-forward worker
+threads (plus the threading primitives that drive them), and **Jolt** (`JPH::`),
+which runs the physics simulation across its own job-system worker pool over
+lock-free atomics. The Jolt entry is namespace-wide (`race:JPH::`) because a race
+sited anywhere in the `JPH::` namespace is Jolt-internal by construction — the
+engine drives Jolt only from the main thread (`engine_physic/PhysicsWorld`) and
+drains contact events through an owned mutex queue, which is `Orkige::` code and
+stays unsuppressed.
 
 **A race in Orkige's own code is a bug, not a suppression.** It is fixed, never
-added to the file. Because the CI gate is headless, none of the suppressed
-third-party threads even start there — the suppressions matter only for local
-windowed runs under TSan.
+added to the file. The Ogre-Next entries bite only local windowed runs (the
+render backend threads); the **Jolt entries bite the headless UNIT gate too** —
+the physics tests drive Jolt's worker pool, so the gate does exercise
+third-party threads (this is why the suppression file is wired into
+`unit-linux-tsan`, not just the windowed presets).
 
 The file is wired in through `TSAN_OPTIONS`:
 
@@ -57,28 +65,25 @@ export TSAN_OPTIONS="halt_on_error=1:history_size=4:suppressions=$PWD/Util/tsan_
 
 ## Running it locally
 
-The macOS Apple-clang toolchain carries TSan. There is no committed macOS TSan
-preset (like ASan, the instrumented presets are Linux-only); configure a tree
-by hand off the `macos-debug` settings with `-DORKIGE_TSAN=ON`:
+The macOS Apple-clang toolchain carries TSan, and the `macos-debug-tsan` preset
+(a sibling of `macos-debug` with `-DORKIGE_TSAN=ON`) drives it. The
+`unit-macos-tsan` test preset runs the same headless unit gate as CI's
+`unit-linux-tsan`:
 
 ```sh
 export PATH=/opt/homebrew/bin:$PATH
-VCPKG_ROOT=$HOME/Development/vcpkg cmake -S . -B build/macos-debug-tsan -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_OSX_SYSROOT=macosx \
-  -DCMAKE_IGNORE_PREFIX_PATH=/usr/local \
-  -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
-  -DPKG_CONFIG_EXECUTABLE=/opt/homebrew/bin/pkg-config \
-  -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets -DVCPKG_OVERLAY_PORTS=$PWD/ports \
-  -DORKIGE_RENDER_BACKEND=next -DVCPKG_MANIFEST_FEATURES=render-next \
-  -DORKIGE_TSAN=ON
-cmake --build build/macos-debug-tsan --target orkige_core_tests
+VCPKG_ROOT=$HOME/Development/vcpkg cmake --preset macos-debug-tsan \
+  -DPKG_CONFIG_EXECUTABLE=/opt/homebrew/bin/pkg-config
+cmake --build --preset macos-debug-tsan
 ALSOFT_DRIVERS=null \
-  TSAN_OPTIONS="suppressions=$PWD/Util/tsan_suppressions.txt" \
-  ./build/macos-debug-tsan/tests/core/orkige_core_tests
+  TSAN_OPTIONS="halt_on_error=1:suppressions=$PWD/Util/tsan_suppressions.txt" \
+  ctest --preset unit-macos-tsan
 ```
 
-A macOS TSan run proves the configuration builds, links and runs clean, but its
-libc++ runtime does not match CI exactly. The **container rig is the gold
+The physics tests reproduce Jolt's worker-thread races here (the `JPH::` symbols
+are platform-independent, so the suppression entries validate on macOS). A macOS
+TSan run proves the configuration builds, links and runs clean, but its libc++
+runtime does not match CI exactly. The **container rig is the gold
 proof**: `Util/linux_rig/run_container.sh` reproduces the CI libstdc++
 environment, where every `linux-*` preset works. Inside the container:
 
