@@ -1,0 +1,149 @@
+# Orkige nightly Valgrind Memcheck - the uninitialized-read watch.
+#
+# ASan/UBSan (ci.yml linux-sanitizer) and TSan (linux-tsan) cover memory
+# safety, undefined behaviour and data races, but NOT reads of uninitialized
+# memory - the one class the compile-time instrumented sanitizers miss.
+# Valgrind's Memcheck fills that gap: it shadows every byte's definedness on
+# an UNINSTRUMENTED binary, so it needs no special build and no dependency
+# rebuild (that is why Memcheck, not MemorySanitizer, which would demand an
+# MSan-instrumented libc++/vcpkg closure). It runs the HEADLESS unit binary -
+# the same core Catch2 suite the push gate runs - under Memcheck with
+# --error-exitcode=1, so an uninitialized read (or an invalid access) fails
+# the job. Util/valgrind.supp filters the unavoidable third-party init noise
+# (the C runtime / loader, SDL, Lua). See Docs/sanitizers.md.
+#
+# Bounded and scheduled: Memcheck's ~20-50x slowdown has no place in the push
+# gate, so this runs nightly + on manual dispatch, over the plain (non-
+# sanitizer) linux-debug-next tree. x86_64 Linux (ubuntu-latest) - the arch
+# the shipping desktop player targets and Memcheck's best-supported platform.
+#
+# NOTE: the `uses:` refs below are intentionally left UNPINNED (plain tags);
+# commit-SHA pinning is applied centrally across the workflows (the same
+# supply-chain guard the sibling workflows carry - a moving tag must not rerun
+# as trusted CI).
+
+name: Valgrind
+
+on:
+  schedule:
+    # 04:23 UTC nightly (off-peak, non-round minute to dodge cron pile-ups;
+    # offset from the soak job so the two nightlies do not contend)
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: valgrind-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VCPKG_COMMIT: 42e4e33e1505c9f47b58c21e0f557c1571b751ee
+  VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
+  VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
+  CCACHE_DIR: /home/runner/.ccache
+  CCACHE_MAXSIZE: 1G
+  CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+  CC: clang
+  CXX: clang++
+
+jobs:
+  valgrind-next:
+    name: Valgrind Memcheck (Ogre-Next, headless unit binary) - uninitialized-read watch
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # cold vcpkg build headroom; cached runs take minutes
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        # the linux-next toolchain + X/Wayland dev libs (the core unit suite
+        # boots the app singletons headlessly, so it links SDL), plus valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang ninja-build ccache python3 pkg-config \
+            autoconf autoconf-archive automake libtool curl zip unzip tar \
+            valgrind \
+            libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
+            libx11-xcb-dev libxcb-randr0-dev libxtst-dev libxinerama-dev \
+            libxcb1-dev libxcb-keysyms1-dev libxcb-ewmh-dev libxcb-icccm4-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
+            libibus-1.0-dev
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        # shares the linux-next cache key (read-only here: no save step) so a
+        # nightly run restores the same binary set the push CI built
+        uses: actions/cache/restore@v6
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-next-v2-${{ runner.os }}-
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: /home/runner/.ccache
+          key: ccache-valgrind-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-valgrind-${{ runner.os }}-
+            ccache-next-${{ runner.os }}-
+
+      - name: Configure (linux-debug-next, plain - no sanitizer instrumentation)
+        run: |
+          bash Util/ci_configure.sh --preset linux-debug-next \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      - name: Build the headless unit binary (MUST pass)
+        run: cmake --build --preset linux-debug-next --target orkige_core_tests
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/.ccache
+          key: ccache-valgrind-${{ runner.os }}-${{ github.sha }}
+
+      - name: Memcheck the headless unit suite (MUST pass, may not skip)
+        env:
+          ALSOFT_DRIVERS: "null"
+        run: |
+          BIN=build/linux-debug-next/tests/core/orkige_core_tests
+          # may-not-skip guard: the binary must exist, or the driver lost its
+          # subject and must fail loudly rather than silently pass
+          test -x "$BIN" || { echo "unit binary $BIN missing" >&2; exit 1; }
+          # --error-exitcode=1 turns any Memcheck finding (an uninitialized
+          # read, an invalid access) into a non-zero exit. The [perf] scope
+          # test iterates hundreds of thousands of times - excluded so the run
+          # stays bounded under Memcheck's slowdown without losing coverage of
+          # any distinct code path. --track-origins names where an
+          # uninitialized value was born (the whole point of this gate).
+          valgrind \
+            --tool=memcheck \
+            --error-exitcode=1 \
+            --leak-check=no \
+            --track-origins=yes \
+            --suppressions=Util/valgrind.supp \
+            "$BIN" "~[perf]" 2>&1 | tee valgrind-memcheck.log
+          # a second may-not-skip guard: prove Memcheck actually ran to its
+          # summary (a crash before the summary must not read as success)
+          grep -q "ERROR SUMMARY:" valgrind-memcheck.log \
+            || { echo "Memcheck produced no error summary - it did not run" >&2; exit 1; }
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: valgrind-next-logs
+          path: |
+            valgrind-memcheck.log
+          if-no-files-found: ignore

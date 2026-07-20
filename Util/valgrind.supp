@@ -1,0 +1,25 @@
+# Valgrind Memcheck suppressions for the Orkige nightly (Docs/sanitizers.md,
+# .github/workflows/valgrind.yml).
+#
+# POLICY: this file suppresses ONLY Memcheck findings the engine cannot own -
+# uninitialized-read / invalid-access false positives inside third-party init
+# code (a dependency, the C runtime, the dynamic loader). Every entry names its
+# non-Orkige source. A Memcheck error in Orkige's OWN code is a real bug: it is
+# FIXED, never suppressed here. Wired in via
+#   valgrind --tool=memcheck --suppressions=Util/valgrind.supp ...
+#
+# Suppression syntax is Valgrind's own (a { name; Memcheck:kind; frames... }
+# block). Note that Valgrind ALSO loads the platform's built-in default.supp,
+# which already covers the glibc dynamic linker (ld.so) and C-runtime startup
+# noise - so those need no entry here.
+#
+# WHY THIS FILE IS EMPTY OF ENTRIES.
+# The gate runs the HEADLESS core unit binary (orkige_core_tests), whose
+# third-party surface is small (Lua/sol2, tinyxml2, the app singletons). Under
+# Memcheck with --track-origins=yes and --error-exitcode=1 that suite currently
+# reports ZERO errors from ZERO contexts, so no third-party site needs
+# silencing yet - Valgrind's default.supp handles the loader/libc init.
+#
+# Add a { ... Memcheck:Cond/Value8/... } block ONLY when a run surfaces a
+# genuinely third-party false positive (name the library in the block name and
+# a comment) - never to hush an uninitialized read in Orkige code.
