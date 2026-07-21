@@ -143,9 +143,14 @@ def main():
             fail("module configure failed, but NOT with the ABI-mismatch guard "
                  "(sentinel '%s' absent) - it failed for another reason"
                  % MISMATCH_SENTINEL)
-        # the message must name BOTH the found and expected versions and the fix
+        # the message must name BOTH the found and expected versions and the fix.
+        # CMake hard-wraps a FATAL_ERROR message at its own width, and that width
+        # differs by platform/CMake version - so a multi-word phrase like "rebuild
+        # the engine tree" can be split across lines. Match against a whitespace-
+        # collapsed copy so the check is wrap-insensitive.
+        normalized = " ".join(output.split())
         for needed in (BOGUS_VERSION, "rebuild the engine tree"):
-            if needed not in output:
+            if needed not in normalized:
                 sys.stderr.write(output)
                 fail("ABI-mismatch message is missing '%s'" % needed)
         print("ABI-stamp guard fired as designed (module configure refused a "

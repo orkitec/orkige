@@ -406,64 +406,71 @@ function(orkige_game_module target)
     else()
         target_compile_definitions(${target} PRIVATE ORKIGE_NOSCRIPT)
     endif()
-    # the engine build-tree archives first (Orkige::Engine pulls Orkige::Core),
-    # then their dependency closure (mirrors the PUBLIC/PRIVATE link set of
-    # orkige_core + orkige_engine); the backend-agnostic deps are shared, the
-    # OGRE closure is per flavor.
-    target_link_libraries(${target} PRIVATE
+    # The whole static-archive closure (the Orkige archives + their PUBLIC/
+    # PRIVATE dependency set: backend-agnostic deps shared, the OGRE closure per
+    # flavor) is collected into one list and linked inside a RESCAN LINK GROUP.
+    # GNU ld resolves archives left-to-right in a single pass, so a provider
+    # listed before its consumer drops the symbols the consumer needs - and this
+    # closure has cross- and back-references a flat order cannot satisfy:
+    # tinyxml2 is consumed by orkige_core, and the classic OGRE archives
+    # (OgreMain <-> the codecs <-> the render systems) reference each other
+    # cyclically. RESCAN makes ld re-scan the group until every reference
+    # resolves, regardless of order. ld64 (macOS) ignores the grouping entirely,
+    # which is why a flat list silently linked there but dropped orkige_core's
+    # tinyxml2 symbols on Linux. Requires CMake >= 3.24 (we build on >= 3.28).
+    set(_orkige_archives
         Orkige::Engine
+        Orkige::Core
         tinyxml2::tinyxml2
         SDL3::SDL3
         OpenAL::OpenAL
         Jolt::Jolt
         NanoSVG::nanosvg
-        NanoSVG::nanosvgrast
-    )
+        NanoSVG::nanosvgrast)
     if(ORKIGE_MODULE_FLAVOR STREQUAL "next")
         # the Ogre-Next backend closure (see orkige_engine/CMakeLists.txt); one
         # render system per platform - Metal on Apple, Vulkan elsewhere
-        target_link_libraries(${target} PRIVATE
+        list(APPEND _orkige_archives
             OgreNext::Main
             OgreNext::HlmsPbs
             OgreNext::HlmsUnlit
             OgreNext::Atmosphere
-            assimp::assimp
-        )
+            assimp::assimp)
         if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
             message(FATAL_ERROR "native game modules are desktop-only for now "
                 "(mobile builds go through the export pipeline once it exists)")
         elseif(APPLE)
-            target_link_libraries(${target} PRIVATE OgreNext::RenderSystem_Metal)
+            list(APPEND _orkige_archives OgreNext::RenderSystem_Metal)
         else()
-            target_link_libraries(${target} PRIVATE OgreNext::RenderSystem_Vulkan)
+            list(APPEND _orkige_archives OgreNext::RenderSystem_Vulkan)
         endif()
     else()
-        target_link_libraries(${target} PRIVATE
+        list(APPEND _orkige_archives
             OgreOverlay
             OgreRTShaderSystem
             Codec_STBI
             Codec_Assimp
-            OgreMain
-        )
+            OgreMain)
         if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
             message(FATAL_ERROR "native game modules are desktop-only for now "
                 "(mobile builds go through the export pipeline once it exists)")
         else()
-            target_link_libraries(${target} PRIVATE RenderSystem_GL3Plus)
+            list(APPEND _orkige_archives RenderSystem_GL3Plus)
         endif()
         if(APPLE)
-            target_link_libraries(${target} PRIVATE RenderSystem_Metal)
+            list(APPEND _orkige_archives RenderSystem_Metal)
         endif()
         # classic Vulkan render system (present when OGRE's 'vulkan' feature is
         # on); runtime-selectable via ORKIGE_RENDERSYSTEM=Vulkan
         if(TARGET RenderSystem_Vulkan)
             target_compile_definitions(${target} PRIVATE ORKIGE_HAVE_VULKAN)
-            target_link_libraries(${target} PRIVATE
+            list(APPEND _orkige_archives
                 RenderSystem_Vulkan
                 Plugin_GLSLangProgramManager)
             if(APPLE)
                 # same loader arrangement as the engine build: vcpkg's Vulkan
-                # loader on the link line + rpath so volk's dlopen finds it
+                # loader on the link line + rpath so volk's dlopen finds it. The
+                # loader is a shared library, not part of the static rescan group.
                 find_library(ORKIGE_VULKAN_LOADER_LIBRARY NAMES vulkan
                     PATHS "${ORKIGE_VCPKG_PREFIX}/lib" REQUIRED)
                 target_link_libraries(${target} PRIVATE
@@ -472,8 +479,20 @@ function(orkige_game_module target)
         endif()
     endif()
     if(ORKIGE_SCRIPTING STREQUAL "LUA")
-        # after the engine archives (see the ordering note above)
-        target_link_libraries(${target} PRIVATE ${LUA_LIBRARIES})
+        # the Lua archive is a provider for orkige_core/sol2 (luaL_error etc.) -
+        # inside the rescan group it resolves regardless of position
+        list(APPEND _orkige_archives ${LUA_LIBRARIES})
+    endif()
+    # RESCAN wraps the closure in the linker's group directive (GNU ld's
+    # --start-group/--end-group) so cross-references resolve regardless of
+    # order. ld64 (macOS) neither needs nor supports it and resolves the flat
+    # list on its own, so use the group ONLY where the active linker supports
+    # it (CMake sets the *_SUPPORTED flag from the linker), flat otherwise.
+    if(CMAKE_LINK_GROUP_USING_RESCAN_SUPPORTED)
+        target_link_libraries(${target} PRIVATE
+            "$<LINK_GROUP:RESCAN,${_orkige_archives}>")
+    else()
+        target_link_libraries(${target} PRIVATE ${_orkige_archives})
     endif()
     if(APPLE)
         # same benign-duplicate silencing as the engine's root CMakeLists:
