@@ -47,11 +47,11 @@ env:
   VCPKG_COMMIT: 42e4e33e1505c9f47b58c21e0f557c1571b751ee
   VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
   VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
-  # the manifest resolves against the overlay ogre/ogre-next ports (which
-  # declare the metal/vulkan feature our vcpkg.json requests) and the overlay
-  # x64-linux triplet (the SDL iconv fix) - the same overlays the presets set.
-  # Without them the bare configure resolves against upstream ogre, which lacks
-  # the platform-gated metal feature and fails "does not have required feature".
+  # keep the same overlays the presets use so the ports that DO build (notably
+  # the overlay sol2) resolve identically to the main CI. The core-only fuzz
+  # manifest (tests/fuzz/vcpkg.json) is what keeps the closure small - it omits
+  # the OGRE/SDL/audio closure entirely, so these overlays only ever apply to
+  # the handful of core deps.
   VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/triplets
   VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/ports
   CCACHE_DIR: /home/runner/.ccache
@@ -72,7 +72,7 @@ jobs:
       - name: Install system dependencies
         # the fuzz build is core-only (ORKIGE_BUILD_ENGINE=OFF), so no X / GL /
         # audio dev libs are needed - just the toolchain + what the small vcpkg
-        # closure (tinyxml2, lua, zlib, earcut, sol2, catch2) builds against
+        # closure (tinyxml2, lua, sol2, earcut-hpp, zlib) builds against
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -92,7 +92,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /home/runner/vcpkg-binary-cache
-          key: vcpkg-fuzz-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          key: vcpkg-fuzz-${{ runner.os }}-${{ hashFiles('tests/fuzz/vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
           restore-keys: |
             vcpkg-fuzz-${{ runner.os }}-
 
@@ -109,6 +109,7 @@ jobs:
           cmake -S . -B build/fuzz -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT_DIR/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_MANIFEST_DIR="$GITHUB_WORKSPACE/tests/fuzz" \
             -DORKIGE_BUILD_ENGINE=OFF -DORKIGE_BUILD_TOOLS=OFF -DORKIGE_BUILD_TESTS=OFF \
             -DORKIGE_FUZZ=ON -DORKIGE_ENABLE_SANITIZERS=ON
 

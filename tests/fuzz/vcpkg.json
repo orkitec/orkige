@@ -1,0 +1,12 @@
+{
+  "name": "orkige-fuzz",
+  "version-string": "2.0.0-dev",
+  "description": "Core-only dependency closure for the libFuzzer harnesses (tests/fuzz). The fuzz targets link Orkige::Core only (no engine, no OGRE), so this manifest lists just what orkige_core and the MiniZip harness compile against - it deliberately omits the render/window/audio/physics closure the root vcpkg.json pulls, so the Fuzz workflow never builds OGRE. Point vcpkg at this via -DVCPKG_MANIFEST_DIR.",
+  "dependencies": [
+    "tinyxml2",
+    "lua",
+    "sol2",
+    "earcut-hpp",
+    "zlib"
+  ]
+}
