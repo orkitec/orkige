@@ -73,6 +73,16 @@ SHADOW_DARKEN_MIN = 12.0
 SHADOW_FRACTION_MIN = 0.004
 SHADOW_DAYLIT_FLOOR = 35.0
 
+# terraintex: a tiling ground texture must actually TILE. The high-frequency
+# detail of the terrain band - the mean absolute luminance difference between
+# horizontally adjacent pixels - stays high for a repeating grass texture and
+# collapses to near-zero when a clamped sampler flattens the tiling UVs (past
+# [0,1]) to one averaged colour. That was the next content-material WRAP
+# regression: the terrain read as a flat muddy tint instead of grass. Measured
+# ~0.22 (next) / ~0.26 (classic) with the texture tiling vs ~0.004 flat; the
+# floor sits an order of magnitude above the flat value and well below tiled.
+TERRAINTEX_MAD_MIN = 0.05
+
 
 def log(msg):
     print("run_benchmark_scene_probe: " + msg, flush=True)
@@ -139,6 +149,33 @@ def probe_field(img):
         % (median, FIELD_CUBE_LIT_MIN))
     if median < FIELD_CUBE_LIT_MIN:
         fail("the instance-field cubes render black (median %.1f)" % median)
+
+
+def probe_terraintex(img):
+    width, height, channels, pixels = img
+    # an open terrain-only band low in the lake frame (below the prop cubes, on
+    # the ground island). A tiling grass texture speckles here; the flat-clamp
+    # regression leaves only smooth shading, so the high-frequency detail dies.
+    x0, x1 = int(width * 0.30), int(width * 0.70)
+    y0, y1 = int(height * 0.74), int(height * 0.92)
+    total = 0.0
+    count = 0
+    for y in range(y0, y1, 2):
+        prev = None
+        for x in range(x0, x1):
+            r, g, b = pixel(pixels, channels, width, x, y)
+            lum = luminance(r, g, b)
+            if prev is not None:
+                total += abs(lum - prev)
+                count += 1
+            prev = lum
+    mad = total / max(count, 1)
+    log("terraintex: terrain high-freq detail (MAD) %.3f (want >= %.3f)"
+        % (mad, TERRAINTEX_MAD_MIN))
+    if mad < TERRAINTEX_MAD_MIN:
+        fail("the terrain band is flat (MAD %.3f) - a tiling texture collapsed "
+             "to a clamped averaged colour (the content-material wrap "
+             "regression)" % mad)
 
 
 # flatland: the flat-colour 2D vector showcase. Its shapes (a red soft-body
@@ -432,7 +469,7 @@ def main():
     parser.add_argument("--dir", required=True)
     parser.add_argument("--probe", required=True,
                         choices=("lumens", "field", "hud2x", "flatland",
-                                 "vistashadow", "anim"))
+                                 "vistashadow", "anim", "terraintex"))
     parser.add_argument("--frames", type=int, default=240,
                         help="capture is at frame 60; later frames only pad "
                              "the clean-exit check")
@@ -469,13 +506,15 @@ def main():
 
     scene = {"lumens": "scenes/lumens.oscene", "field": "scenes/field.oscene",
              "hud2x": "scenes/lumens.oscene",
-             "flatland": "scenes/flatland.oscene"}[args.probe]
+             "flatland": "scenes/flatland.oscene",
+             "terraintex": "scenes/lake.oscene"}[args.probe]
     shot = os.path.join(args.dir, args.probe + "_frame.png")
     img, output = run_player_capture(
         args, scene, shot,
         fake_scale="2" if args.probe == "hud2x" else None)
     { "lumens": probe_lumens, "field": probe_field,
-      "hud2x": probe_hud2x, "flatland": probe_flatland }[args.probe](img)
+      "hud2x": probe_hud2x, "flatland": probe_flatland,
+      "terraintex": probe_terraintex }[args.probe](img)
     # the lumens scene also carries the many-lights ramp MECHANISM assertion
     if args.probe == "lumens":
         probe_lumens_ramp(output)

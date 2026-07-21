@@ -2367,6 +2367,14 @@ namespace Orkige
 			{ desc.emissiveTexture,	Ogre::PBSM_EMISSIVE,	true },
 			{ desc.normalTexture,	Ogre::PBSM_NORMAL,		false },
 		};
+		// content-surface textures TILE: the baked terrain (and any tiling
+		// ground/wall material) carries UVs that run past [0,1], so the maps
+		// must WRAP or the texture collapses to a single averaged colour (a flat
+		// muddy tint instead of the repeating detail). The classic RTSS path
+		// wraps by default; next must set the addressing mode explicitly - the
+		// same reason the sprite path builds its own samplerblock above.
+		Ogre::HlmsSamplerblock samplerblock;
+		samplerblock.setAddressingMode(Ogre::TAM_WRAP);
 		for(MapBinding const & binding : bindings)
 		{
 			if(binding.textureName.empty())
@@ -2392,12 +2400,12 @@ namespace Orkige
 			{
 				Ogre::TextureGpu* texture =
 					RenderBackend::loadTexture2D(resolvedName);
-				datablock->setTexture(binding.slot, texture);
+				datablock->setTexture(binding.slot, texture, &samplerblock);
 				outComplete = outComplete && texture != NULL;
 			}
 			else
 			{
-				datablock->setTexture(binding.slot, resolvedName);
+				datablock->setTexture(binding.slot, resolvedName, &samplerblock);
 			}
 		}
 		return datablock;

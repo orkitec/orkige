@@ -2009,7 +2009,11 @@ if(TARGET orkige_player)
         # holds, the 2D foreground cutout hero must show its colour signature,
         # and the scripts must report the animation seam working (self.animation
         # + world.getAnimation drove the rigs).
-        foreach(ORKIGE_SCENE_PROBE lumens field hud2x flatland vistashadow anim)
+        # terraintex = the lake terrain's tiling grass texture must actually
+        # TILE: the terrain band must carry high-frequency detail, not collapse
+        # to a flat averaged colour (the content-material texture-WRAP regression
+        # that clamped tiling UVs on the next flavor).
+        foreach(ORKIGE_SCENE_PROBE lumens field hud2x flatland vistashadow anim terraintex)
             add_test(NAME player_benchmark_${ORKIGE_SCENE_PROBE}_probe${ORKIGE_FLAVOR_TEST_SUFFIX}
                 COMMAND python3
                     "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_benchmark_scene_probe.py"
