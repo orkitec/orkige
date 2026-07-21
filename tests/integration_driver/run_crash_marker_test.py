@@ -21,6 +21,7 @@ self-crashes; the driver then SKIPs (77). Stdlib only, per the toolchain policy.
 """
 
 import argparse
+import atexit
 import glob
 import os
 import shutil
@@ -46,6 +47,32 @@ def _diag_reports(binary):
         return set()
     stem = os.path.basename(binary)
     return set(glob.glob(os.path.join(_diag_report_dir(), stem + "*.ips")))
+
+
+def _get_crash_dialog():
+    """Read the current macOS CrashReporter DialogType (None if unset)."""
+    if sys.platform != "darwin":
+        return None
+    r = subprocess.run(["defaults", "read", "com.apple.CrashReporter",
+                        "DialogType"], stdout=subprocess.PIPE,
+                       stderr=subprocess.DEVNULL, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def _set_crash_dialog(value):
+    """Set (or, for '', clear) the CrashReporter dialog. 'none' stops the
+    'quit unexpectedly' dialog/notification from popping for the deliberate
+    crash below - the .ips is still written (and we delete it)."""
+    if sys.platform != "darwin":
+        return
+    if value == "" or value is None:
+        subprocess.run(["defaults", "delete", "com.apple.CrashReporter",
+                        "DialogType"], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+    else:
+        subprocess.run(["defaults", "write", "com.apple.CrashReporter",
+                        "DialogType", value], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
 
 
 def _clean_own_crash_report(binary, baseline, wait_seconds=8):
@@ -118,6 +145,11 @@ def main():
     # snapshot the crash-report dir so we delete ONLY the report the deliberate
     # crash below produces, never a pre-existing (possibly real) one
     crash_report_baseline = _diag_reports(args.binary)
+    # stop the OS "quit unexpectedly" dialog/notification from popping for our
+    # deliberate crash; restore the user's setting on ANY exit (atexit)
+    prior_dialog = _get_crash_dialog()
+    atexit.register(_set_crash_dialog, prior_dialog)
+    _set_crash_dialog("none")
     try:
         first = run_player(args.binary, args.project, {
             "ORKIGE_CRASH_SELFCHECK": str(args.crash_frame),
