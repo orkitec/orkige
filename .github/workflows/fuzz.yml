@@ -84,6 +84,9 @@ jobs:
           git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          # vcpkg requires the binary-cache dir to pre-exist; actions/cache only
+          # creates it on a hit, so make it here for the cold-cache first run
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
       - name: Restore vcpkg binary cache
         uses: actions/cache@v4
