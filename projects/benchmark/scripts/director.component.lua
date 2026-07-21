@@ -518,6 +518,15 @@ function init(self)
 		setPerspectiveCamera(20.0, 7.0, -6.0)
 		driveSun(0.55)
 		driveAtmosphere(0.6)
+		-- WATER VISUAL: image-based lighting sourced from the PROCEDURAL sky (a
+		-- runtime SkyEnvMap capture, not a baked cubemap), so the water surface
+		-- picks up sky reflections instead of reading as a flat tinted slab. A
+		-- gentle 0.2 fill matches the vista's calibration (a stronger fill washes
+		-- the terrain); the capture re-derives as the sun descends, so the water
+		-- reflection darkens naturally into the night leg. On a GLES2/WebGL1
+		-- context that can't run the IBL stage the capability gate keeps it off
+		-- and the water falls back to its analytic look - mobile/web safe.
+		engine:setImageLighting(true, 0.2)
 		buildHud()
 	elseif mode == "lumens" then
 		setPerspectiveCamera(18.0, 9.0, -8.0)
