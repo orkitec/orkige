@@ -1195,12 +1195,16 @@ int main(int, char**)
 				waterMarker = world->createMeshInstance(
 					Orkige::WaterComponent::PLANE_MESH_NAME);
 				waterMarkerNode = world->createNode("water.marker");
-				// a WIDE, tall standing wall behind the scene (water at y=-1): wide
-				// enough to flank the default cubes so its magenta MIRROR fills the
-				// near water band the probe samples on both sides of the cubes
-				waterMarkerNode->setPosition(Orkige::Vec3(0.0f, 2.0f, -2.5f));
+				// a LARGE, tall standing wall behind the scene (water at y=-1): a
+				// broad magenta backdrop so its MIRROR fills the water band the probe
+				// samples. Sized generously because the two flavors reflect it
+				// differently - classic paints the mirror RTT across the surface,
+				// next samples a physically-correct HlmsPbs planar reflection whose
+				// mirrored scene reads strongest toward the waterline - so a big,
+				// bright backdrop reads clearly in the water on BOTH.
+				waterMarkerNode->setPosition(Orkige::Vec3(0.0f, 5.0f, -3.0f));
 				waterMarkerNode->pitch(Orkige::Degree(90.0f));
-				waterMarkerNode->setScale(Orkige::Vec3(6.0f, 1.0f, 3.5f));
+				waterMarkerNode->setScale(Orkige::Vec3(16.0f, 1.0f, 14.0f));
 				if (waterMarker)
 				{
 					waterMarker->attachTo(waterMarkerNode);

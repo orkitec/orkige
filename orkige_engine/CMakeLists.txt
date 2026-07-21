@@ -489,6 +489,9 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
             # sky + object fog + sun-linked day/night (engine_render environment
             # surface; RenderWorld::setAtmosphere on the next flavor)
             OgreNext::Atmosphere
+            # mirror-of-scene planar water reflection (RenderCaps::
+            # PlanarReflection; engine_render_next drives Ogre::PlanarReflections)
+            OgreNext::PlanarReflections
     )
     # exactly one Ogre-Next render system per platform (the backend boot in
     # engine_render_next/NextBackend.cpp installs the matching plugin):

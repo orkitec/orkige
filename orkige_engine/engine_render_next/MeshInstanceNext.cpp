@@ -517,15 +517,24 @@ namespace Orkige
 		// own (receiving) shadow state - callers re-apply setReceiveShadows
 		// after it (@see MeshInstance::setReceiveShadows)
 		this->mImpl->receiveRestore.clear();
-		// screen-space water refraction: a refractive water surface renders in its
-		// OWN scene pass (after the opaque scene is captured), so it goes in the
-		// dedicated refraction render queue; any other surface (incl. water that
-		// stopped being refractive) restores to the default Item queue. Byte-stable
-		// for non-water meshes (they are default-queue Items already).
+		// water render queue: a refractive water surface renders in its OWN scene
+		// pass (after the opaque scene is captured), and a PLANAR-REFLECTIVE
+		// surface is kept in the SAME dedicated water queue so the reflection scene
+		// render (which stops below that queue) never draws the water into its own
+		// mirror. Any other surface (incl. water that stopped being either)
+		// restores to the default Item queue. Byte-stable for non-water meshes.
+		const bool waterSurfaceQueue =
+			RenderBackend::isRefractiveWaterMaterial(materialName) ||
+			RenderBackend::isPlanarReflectiveWaterMaterial(materialName);
 		this->mImpl->item->setRenderQueueGroup(
-			RenderBackend::isRefractiveWaterMaterial(materialName)
+			waterSurfaceQueue
 				? RenderBackend::WATER_REFRACTION_RENDER_QUEUE
 				: RenderBackend::DEFAULT_ITEM_RENDER_QUEUE);
+		// planar reflection: register (or drop) this Item's renderables with the
+		// reflection subsystem so HlmsPbs samples the mirror RTT for a reflective
+		// water surface, and restores them when the material is no longer reflective
+		RenderBackend::registerPlanarReflectionItem(this->mImpl->item,
+			RenderBackend::isPlanarReflectiveWaterMaterial(materialName));
 		return true;
 	}
 	//---------------------------------------------------------

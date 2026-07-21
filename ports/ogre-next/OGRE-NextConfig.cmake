@@ -6,6 +6,8 @@
 #   OgreNext::Main                core (OgreNextMainStatic)
 #   OgreNext::HlmsPbs             physically based material system
 #   OgreNext::HlmsUnlit           unlit material system
+#   OgreNext::Atmosphere          sky dome + object fog + sun linkage
+#   OgreNext::PlanarReflections   mirror-of-scene planar reflection subsystem
 #   OgreNext::RenderSystem_Metal  Metal render system (Apple; static plugin)
 #   OgreNext::RenderSystem_Vulkan Vulkan render system (Linux/Android; static)
 #
@@ -159,6 +161,17 @@ _ogre_next_add_library(OgreNext::Atmosphere OgreNextAtmosphereStatic FALSE)
 set_target_properties(OgreNext::Atmosphere PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${OGRE_NEXT_INCLUDE_DIR}/Atmosphere"
     INTERFACE_LINK_LIBRARIES "OgreNext::Main"
+)
+
+# PlanarReflections component (mirror-of-scene reflection: a camera reflected
+# across a plane renders the scene into a reflection RTT that HlmsPbs samples).
+# Built when OGRE_BUILD_COMPONENT_PLANAR_REFLECTIONS=ON in the portfile; its
+# HlmsPbs shader integration pieces (Pbs/Any/PlanarReflections_piece_*.any)
+# ride in the Pbs Hlms media. Depends on HlmsPbs (it drives its reflection map).
+_ogre_next_add_library(OgreNext::PlanarReflections OgreNextPlanarReflectionsStatic FALSE)
+set_target_properties(OgreNext::PlanarReflections PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${OGRE_NEXT_INCLUDE_DIR}/PlanarReflections"
+    INTERFACE_LINK_LIBRARIES "OgreNext::HlmsPbs;OgreNext::Main"
 )
 
 if(APPLE)

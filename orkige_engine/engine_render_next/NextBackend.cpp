@@ -45,6 +45,9 @@
 #include <OgreLight.h>
 #include <OgreMath.h>
 #include <OgreAtmosphereNpr.h>
+#include <OgreItem.h>				// planar-reflection renderable registration
+#include <OgreSubItem.h>
+#include <OgrePlanarReflections.h>	// mirror-of-scene water reflection subsystem
 #include <OgreRectangle2D2.h>
 #include <OgreMaterial.h>
 #include <OgreTextureGpuManager.h>
@@ -147,6 +150,42 @@ namespace Orkige
 		//! the byte-stable Transparent look). Checked once (gRefractionChecked).
 		bool gRefractionMaterialsAvailable = false;
 		bool gRefractionChecked = false;
+
+		//--- planar water reflection (Ogre::PlanarReflections) - PLANAR block ---
+		//! the live PLANAR-REFLECTIVE water materials (createOrUpdateWaterDatablock
+		//! records a name here when planar reflection is on + the cap is present).
+		//! Non-empty => the reflection subsystem below is stood up; MeshInstance::
+		//! setMaterial reads it (isPlanarReflectiveWaterMaterial) to keep the
+		//! surface out of its own mirror.
+		std::set<String> gPlanarReflectiveWaterMaterials;
+		//! the mirror-of-scene reflection subsystem, NULL while no scene opts in;
+		//! owned here, torn down BEFORE the root (its cameras/RTTs/workspaces live
+		//! on the scene manager + compositor manager). @see ensurePlanarReflections
+		Ogre::PlanarReflections* gPlanarReflections = NULL;
+		//! the single reflection actor (the water plane, normal +Y); its plane is
+		//! re-set as the water's world Y / extents change
+		Ogre::PlanarReflectionActor* gPlanarReflectionActor = NULL;
+		//! the HlmsPbs the subsystem is set on (to unset at teardown)
+		Ogre::HlmsPbs* gPlanarReflectionPbs = NULL;
+		//! the reflection RTT resolution baked at subsystem build (window size at
+		//! that moment, capped); quality only - the HlmsPbs reflection projection
+		//! is aspect-correct regardless (the reflection camera carries the aspect)
+		Ogre::uint32 gPlanarReflectionWidth = 0;
+		Ogre::uint32 gPlanarReflectionHeight = 0;
+		//! the plane the live actor mirrors across (world Y + surface half-extents),
+		//! so an unchanged re-apply skips the actor re-set
+		float gPlanarReflectionPlaneY = 0.0f;
+		float gPlanarReflectionHalfX = 0.0f;
+		float gPlanarReflectionHalfZ = 0.0f;
+		//! water Items currently tracked as reflection renderables (their SubItems
+		//! were addRenderable'd), so a material change / teardown can drop them and
+		//! reset each renderable's tracking parameter
+		std::set<Ogre::Item*> gPlanarTrackedItems;
+		//! the reflection scene-render workspace DEFINITION name ("" until built);
+		//! one hand-built node renders the scene (water excluded) into the RTT
+		String gPlanarReflectionWorkspaceDef;
+		//--- end PLANAR block --------------------------------------------
+
 		//! the one live sky/fog atmosphere (RenderWorld::setAtmosphere), NULL
 		//! while disabled; owned here, destroyed before the root teardown
 		Ogre::AtmosphereNpr* gAtmosphere = NULL;
@@ -261,6 +300,28 @@ namespace Orkige
 		//! one instance, attached to the window workspace on every rebuild
 		//! (a listener is a plain observer - the workspace does not own it)
 		RenderTargetSampleBarrier gRenderTargetSampleBarrier;
+
+		//! @brief drives the planar water reflection each frame from INSIDE the
+		//! window workspace update
+		//! @remarks the reflection subsystem renders a mirror camera into its RTT
+		//! by nesting a workspace _update, which culls against the scene manager -
+		//! so it MUST run AFTER Root::renderOneFrame's per-frame updateSceneGraph
+		//! populates the cull lists and BEFORE clearFrameData wipes them. The
+		//! window workspace's workspacePreUpdate fires exactly in that window (the
+		//! compositor updates workspaces after updateSceneGraph), so the reflection
+		//! renders here rather than ahead of renderOneFrame. No-op unless a scene
+		//! opted a water surface into planar reflection.
+		class PlanarReflectionUpdater
+			: public Ogre::CompositorWorkspaceListener
+		{
+		public:
+			virtual void workspacePreUpdate(Ogre::CompositorWorkspace* /*ws*/)
+			{
+				RenderBackend::updatePlanarReflections();
+			}
+		};
+		//! one instance, attached to the window workspace on every rebuild
+		PlanarReflectionUpdater gPlanarReflectionUpdater;
 
 		//! apply the global wireframe state to one datablock (keeps the
 		//! datablock's other macroblock state - culling, depth - intact)
@@ -550,6 +611,12 @@ namespace Orkige
 			(1u << static_cast<int>(RenderCaps::ProjectedDecals)) |
 			(1u << static_cast<int>(RenderCaps::IblReflections)) |
 			(1u << static_cast<int>(RenderCaps::ScreenSpaceRefraction)) |
+			// mirror-of-scene planar water reflection through the native
+			// Ogre::PlanarReflections subsystem (@see createOrUpdateWaterDatablock
+			// + updatePlanarReflections); the second scene render stands up only
+			// when a scene opts a water surface into it, so default water is
+			// byte-stable
+			(1u << static_cast<int>(RenderCaps::PlanarReflection)) |
 			(1u << static_cast<int>(RenderCaps::Bloom));
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget), derived from the clustered-forward config set above
@@ -565,6 +632,13 @@ namespace Orkige
 			return;
 		}
 		Ogre::Root* root = gRenderSystem->mImpl->root;
+		// the planar reflection subsystem owns reflection cameras, RTTs and
+		// workspaces on the scene + compositor managers, and holds a pointer set
+		// on HlmsPbs - it must die BEFORE the root tears the scene manager down
+		// (same rule as the atmosphere below)
+		RenderBackend::destroyPlanarReflections();
+		gPlanarReflectiveWaterMaterials.clear();
+		gPlanarReflectionWorkspaceDef.clear();	// its def dies with the compositor
 		// the atmosphere owns a sky Rectangle2D attached to the scene manager +
 		// a material/const buffer - it must die BEFORE the root tears the scene
 		// manager down (its dtor touches both)
@@ -1002,6 +1076,278 @@ namespace Orkige
 		{
 			RenderBackend::recreateWindowWorkspace();
 		}
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::isPlanarReflectiveWaterMaterial(String const & name)
+	{
+		return gPlanarReflectiveWaterMaterials.find(name) !=
+			gPlanarReflectiveWaterMaterials.end();
+	}
+	//---------------------------------------------------------
+	//! hand-build (once) the compositor workspace DEFINITION the reflection
+	//! subsystem renders each active actor's mirror through: one node whose
+	//! single target renders the scene (sky through the opaque + transparent
+	//! 3D content, but NOT the water surface itself - that sits in the water
+	//! render queue this pass stops below) into the reflection RTT the
+	//! subsystem supplies as external channel 0. Returns the definition name.
+	String RenderBackend::ensurePlanarReflectionWorkspaceDef()
+	{
+		if(!gPlanarReflectionWorkspaceDef.empty())
+		{
+			return gPlanarReflectionWorkspaceDef;
+		}
+		oAssert(gRenderSystem);
+		RenderSystem::Impl* impl = gRenderSystem->mImpl;
+		Ogre::CompositorManager2* compositorManager =
+			impl->root->getCompositorManager2();
+		const String definitionName =
+			RenderBackend::generateName("Orkige/PlanarReflectionWorkspace");
+		Ogre::CompositorNodeDef* nodeDefinition =
+			compositorManager->addNodeDefinition(definitionName + "/Node");
+		nodeDefinition->addTextureSourceName("ReflectionRT", 0,
+			Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+		nodeDefinition->setNumTargetPass(1);
+		Ogre::CompositorTargetDef* targetDefinition =
+			nodeDefinition->addTargetPass("ReflectionRT");
+		targetDefinition->setNumPasses(1);
+		Ogre::CompositorPassSceneDef* scenePass =
+			static_cast<Ogre::CompositorPassSceneDef*>(
+				targetDefinition->addPass(Ogre::PASS_SCENE));
+		scenePass->setAllLoadActions(Ogre::LoadAction::Clear);
+		scenePass->setAllClearColours(impl->windowBackground);
+		// the sky (queue 0) + all opaque/transparent 3D content, but STOP below
+		// the water queue so a reflective water surface never appears in its own
+		// mirror (@see isPlanarReflectiveWaterMaterial / MeshInstance::setMaterial)
+		scenePass->mFirstRQ = 0;
+		scenePass->mLastRQ = RenderBackend::WATER_REFRACTION_RENDER_QUEUE;
+		// no shadow node: the mirror renders the lit scene + sky without a
+		// second PSSM pass (a robust first tier; shadows-in-reflections is a
+		// later quality knob) - the reflection stays capability/tier honest
+		Ogre::CompositorWorkspaceDef* workspaceDefinition =
+			compositorManager->addWorkspaceDefinition(definitionName);
+		workspaceDefinition->connectExternal(0, definitionName + "/Node", 0);
+		gPlanarReflectionWorkspaceDef = definitionName;
+		return gPlanarReflectionWorkspaceDef;
+	}
+	//---------------------------------------------------------
+	//! stand the reflection subsystem up (idempotent): construct it against
+	//! the world scene manager + compositor manager, allocate ONE reflection
+	//! slot rendering through the workspace def above at (a capped) window
+	//! resolution, and hand it to HlmsPbs so tracked water samples the mirror.
+	void RenderBackend::ensurePlanarReflectionsSubsystem()
+	{
+		if(gPlanarReflections)
+		{
+			return;
+		}
+		oAssert(gRenderSystem);
+		RenderSystem::Impl* impl = gRenderSystem->mImpl;
+		Ogre::SceneManager* sceneManager =
+			RenderBackend::worldSceneManager();
+		Ogre::CompositorManager2* compositorManager =
+			impl->root->getCompositorManager2();
+		if(!sceneManager || !compositorManager)
+		{
+			return;
+		}
+		const String definitionName = ensurePlanarReflectionWorkspaceDef();
+		// maxDistance: how far an actor may be from the camera and still
+		// reflect - the single water plane reserves its slot, so this is a
+		// generous ceiling, not a per-actor cull knob
+		gPlanarReflections = new Ogre::PlanarReflections(
+			sceneManager, compositorManager, 200.0f, NULL);
+		// the reflection RTT resolution: the window size (quality only - the
+		// HlmsPbs reflection projection is aspect-correct via the reflection
+		// camera), capped so a huge window does not over-allocate; a headless/
+		// zero-size window falls back to a sane square
+		Ogre::uint32 width = impl->window ? impl->window->getWidth() : 0u;
+		Ogre::uint32 height = impl->window ? impl->window->getHeight() : 0u;
+		width = width ? std::min<Ogre::uint32>(width, 2048u) : 512u;
+		height = height ? std::min<Ogre::uint32>(height, 2048u) : 512u;
+		gPlanarReflectionWidth = width;
+		gPlanarReflectionHeight = height;
+		gPlanarReflections->setMaxActiveActors(1u,
+			Ogre::IdString(definitionName), true /*accurate lighting*/,
+			width, height, true /*mipmaps (glossy ripple)*/,
+			Ogre::PFG_RGBA8_UNORM_SRGB, false /*no compute mip filter*/);
+		Ogre::HlmsPbs* pbs = static_cast<Ogre::HlmsPbs*>(
+			impl->root->getHlmsManager()->getHlms(Ogre::HLMS_PBS));
+		pbs->setPlanarReflections(gPlanarReflections);
+		gPlanarReflectionPbs = pbs;
+		Ogre::LogManager::getSingleton().logMessage(
+			"Orkige next backend: planar water reflection subsystem up (" +
+			std::to_string(width) + "x" +
+			std::to_string(height) + " mirror)");
+	}
+	//---------------------------------------------------------
+	void RenderBackend::noteWaterMaterialPlanarReflective(String const & name,
+		bool reflective, float planeHeightY, float halfSizeX, float halfSizeZ)
+	{
+		if(reflective)
+		{
+			gPlanarReflectiveWaterMaterials.insert(name);
+		}
+		else
+		{
+			gPlanarReflectiveWaterMaterials.erase(name);
+		}
+		const bool activeNow = !gPlanarReflectiveWaterMaterials.empty();
+		if(!activeNow)
+		{
+			// the last reflective surface went away - tear the subsystem down
+			// (restores tracked renderables, frees the cameras/RTTs/workspaces)
+			RenderBackend::destroyPlanarReflections();
+			return;
+		}
+		ensurePlanarReflectionsSubsystem();
+		if(!gPlanarReflections)
+		{
+			return;	// headless/no scene manager - honest no-op
+		}
+		// the mirror plane (world Y, normal +Y) and the actor rectangle. The
+		// reflection math uses the (infinite) plane; the rectangle only gates
+		// frustum activation, so it is generous (and the slot is reserved) to keep
+		// the single water plane always reflecting. A quaternion whose local +Z
+		// maps to world +Y gives the plane its up-normal (getNormal() == zAxis()).
+		const Ogre::Quaternion orientation =
+			Ogre::Vector3::UNIT_Z.getRotationTo(Ogre::Vector3::UNIT_Y);
+		const Ogre::Vector3 center(0.0f, planeHeightY, 0.0f);
+		const Ogre::Vector2 halfSize(
+			std::max(halfSizeX, 1000.0f), std::max(halfSizeZ, 1000.0f));
+		const bool planeChanged =
+			!gPlanarReflectionActor ||
+			std::abs(planeHeightY - gPlanarReflectionPlaneY) > 1e-4f ||
+			std::abs(halfSize.x - gPlanarReflectionHalfX) > 1e-4f ||
+			std::abs(halfSize.y - gPlanarReflectionHalfZ) > 1e-4f;
+		if(!gPlanarReflectionActor)
+		{
+			gPlanarReflectionActor = gPlanarReflections->addActor(
+				Ogre::PlanarReflectionActor(center, halfSize, orientation));
+			// priority 0 = win any contention; reserve slot 0 so this single
+			// water plane never loses its reflection to distance sorting
+			gPlanarReflectionActor->mActivationPriority = 0;
+			gPlanarReflections->reserve(0, gPlanarReflectionActor);
+		}
+		else if(planeChanged)
+		{
+			gPlanarReflectionActor->setPlane(center, halfSize, orientation);
+		}
+		gPlanarReflectionPlaneY = planeHeightY;
+		gPlanarReflectionHalfX = halfSize.x;
+		gPlanarReflectionHalfZ = halfSize.y;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::registerPlanarReflectionItem(Ogre::Item* item,
+		bool reflective)
+	{
+		if(!item)
+		{
+			return;
+		}
+		const bool tracked = gPlanarTrackedItems.find(item) !=
+			gPlanarTrackedItems.end();
+		if(reflective && gPlanarReflections)
+		{
+			if(tracked)
+			{
+				return;	// already registered - idempotent (re-applies are frequent)
+			}
+			// the water plane mesh is a unit XZ grid centred at its node: its
+			// predominant reflection normal is local +Y, its centre local origin
+			const size_t subItems = item->getNumSubItems();
+			for(size_t each = 0; each < subItems; ++each)
+			{
+				Ogre::SubItem* subItem = item->getSubItem(each);
+				if(subItem->mCustomParameter != 0)
+				{
+					continue;	// already tracked by something - never double-add
+				}
+				gPlanarReflections->addRenderable(
+					Ogre::PlanarReflections::TrackedRenderable(subItem, item,
+						Ogre::Vector3::UNIT_Y, Ogre::Vector3::ZERO));
+			}
+			gPlanarTrackedItems.insert(item);
+		}
+		else if(tracked && gPlanarReflections)
+		{
+			// the surface stopped being reflective (or is being dropped) - restore
+			// its renderables so a later re-add does not trip the tracking guard
+			const size_t subItems = item->getNumSubItems();
+			for(size_t each = 0; each < subItems; ++each)
+			{
+				Ogre::SubItem* subItem = item->getSubItem(each);
+				if(subItem->mCustomParameter != 0)
+				{
+					gPlanarReflections->removeRenderable(subItem);
+				}
+			}
+			gPlanarTrackedItems.erase(item);
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::updatePlanarReflections()
+	{
+		if(!gPlanarReflections)
+		{
+			return;
+		}
+		oAssert(gRenderSystem);
+		Ogre::Camera* camera =
+			RenderBackend::ogreCamera(gRenderSystem->mImpl->windowCamera);
+		if(!camera)
+		{
+			return;	// UI-only window / no scene camera - nothing to mirror
+		}
+		// begin the reflection frame, then update against the window camera: the
+		// subsystem reflects a mirror camera across the actor plane and renders
+		// the scene into the reflection RTT NOW (before the window workspace
+		// renders and HlmsPbs samples it). Called ahead of every renderOneFrame.
+		// The window camera's aspect ratio is kept current by the window workspace
+		// build / resize path, so it is the mirror camera's aspect too.
+		gPlanarReflections->beginFrame();
+		gPlanarReflections->update(camera, camera->getAspectRatio());
+	}
+	//---------------------------------------------------------
+	void RenderBackend::destroyPlanarReflections()
+	{
+		if(!gPlanarReflections)
+		{
+			return;
+		}
+		// restore every tracked water renderable BEFORE the subsystem dies (they
+		// outlive a mid-session teardown; resets each renderable's Hlms hash +
+		// tracking parameter so a later reflective surface can re-register)
+		for(Ogre::Item* item : gPlanarTrackedItems)
+		{
+			const size_t subItems = item->getNumSubItems();
+			for(size_t each = 0; each < subItems; ++each)
+			{
+				Ogre::SubItem* subItem = item->getSubItem(each);
+				if(subItem->mCustomParameter != 0)
+				{
+					gPlanarReflections->removeRenderable(subItem);
+				}
+			}
+		}
+		gPlanarTrackedItems.clear();
+		if(gPlanarReflectionPbs)
+		{
+			gPlanarReflectionPbs->setPlanarReflections(NULL);
+			gPlanarReflectionPbs = NULL;
+		}
+		// ~PlanarReflections destroys the actors, reflection cameras, RTTs and
+		// workspaces (all on the still-live scene/compositor managers)
+		delete gPlanarReflections;
+		gPlanarReflections = NULL;
+		gPlanarReflectionActor = NULL;
+		gPlanarReflectionPlaneY = 0.0f;
+		gPlanarReflectionHalfX = 0.0f;
+		gPlanarReflectionHalfZ = 0.0f;
+		gPlanarReflectionWidth = 0;
+		gPlanarReflectionHeight = 0;
+		// the workspace DEFINITION (node + workspace def) is owned by the
+		// compositor manager and reusable - keep the name so a re-activation
+		// reuses it rather than leaking a fresh unique definition each time
 	}
 	//---------------------------------------------------------
 	void RenderBackend::setSceneDefaultVisibility()
@@ -2144,6 +2490,9 @@ namespace Orkige
 		// batch binds a RenderTexture): hand its passes the resource-layout
 		// barrier the compositor cannot derive (@see RenderTargetSampleBarrier)
 		impl->workspace->addListener(&gRenderTargetSampleBarrier);
+		// drive the planar water reflection from inside this workspace's update
+		// (after updateSceneGraph, before clearFrameData) - @see PlanarReflectionUpdater
+		impl->workspace->addListener(&gPlanarReflectionUpdater);
 		if(backendCamera && impl->window->getHeight() > 0)
 		{
 			backendCamera->setAspectRatio(
@@ -2750,6 +3099,52 @@ namespace Orkige
 		// track the live refractive-water set (rebuilds the workspace on an
 		// empty<->non-empty transition) - AFTER the datablock is otherwise ready
 		RenderBackend::noteWaterMaterialRefractive(name, useRefraction);
+
+		// planar reflection: opt-in + capability-gated (always present on this
+		// desktop-capable flavor). When on, the surface shows a MIRROR of the
+		// actual scene through the native Ogre::PlanarReflections subsystem
+		// instead of only the sky IBL cubemap - a stronger, glossier reflection
+		// so the mirrored scene reads across the surface (not just the grazing
+		// fresnel band). It COMPOSES with refraction (the datablock keeps its
+		// Refractive/Transparent mode above; the planar reflection replaces the
+		// cubemap reflection sampled on top). Off/unsupported keeps the byte-
+		// stable sky-reflection look. The subsystem + reflection actor stand up
+		// in noteWaterMaterialPlanarReflective; MeshInstance::setMaterial then
+		// registers the Item's renderables so HlmsPbs samples the mirror.
+		const bool usePlanarReflection = desc.planarReflection &&
+			RenderBackend::system() &&
+			RenderBackend::system()->supports(RenderCaps::PlanarReflection);
+		if(usePlanarReflection)
+		{
+			// reflectionStrength (0..1) drives how MIRROR-like the surface reads.
+			// The HlmsPbs planar reflection is fresnel/roughness-modulated and
+			// physically shows the mirrored scene concentrated near grazing angles
+			// (the reflected direction of near-normal water is the sky). To read as
+			// a genuine mirror-of-scene across the surface, a higher strength: (a)
+			// raises the base reflectivity F0 so the reflection carries at all
+			// angles, (b) DARKENS the water's own albedo + emissive so the
+			// reflection dominates rather than the water body colour, and (c)
+			// keeps a soft (rippled) reflection lobe so the surface reflection
+			// spreads over the ripples instead of a hard glassy line. strength 0
+			// leaves the base water look (@see RenderWaterDesc::reflectionStrength).
+			const float strength = std::clamp(desc.reflectionStrength, 0.0f, 1.0f);
+			const float mirrorF0 = std::clamp(0.05f + strength * 0.6f, 0.05f, 0.8f);
+			datablock->setFresnel(
+				Ogre::Vector3(mirrorF0, mirrorF0, mirrorF0), false);
+			datablock->setRoughness(0.16f + strength * 0.12f);
+			const float albedoScale = 1.0f - strength * 0.72f;
+			datablock->setDiffuse(Ogre::Vector3(desc.deepColour.r * albedoScale,
+				desc.deepColour.g * albedoScale, desc.deepColour.b * albedoScale));
+			datablock->setEmissive(Ogre::Vector3(
+				desc.shallowColour.r * scatter * (1.0f - strength),
+				desc.shallowColour.g * scatter * (1.0f - strength),
+				desc.shallowColour.b * scatter * (1.0f - strength)));
+		}
+		// stand up / tear down the reflection subsystem for this surface (world Y
+		// = the mirror plane; extents unknown here, the actor is generous +
+		// slot-reserved so a near-origin water plane always reflects)
+		RenderBackend::noteWaterMaterialPlanarReflective(name, usePlanarReflection,
+			desc.planeHeightY, 0.0f, 0.0f);
 
 		// TWO detail normal maps carry the ripple: same tiling water normal,
 		// bound to both detail slots and scrolled in different directions/

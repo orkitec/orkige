@@ -889,6 +889,44 @@ namespace Orkige
 		//! water surface restores to it when it stops being refractive
 		static unsigned char const DEFAULT_ITEM_RENDER_QUEUE = 10;
 
+		//--- planar water reflection (Ogre::PlanarReflections) -------------
+		//! @brief whether the named material is a live PLANAR-REFLECTIVE water
+		//! material (createOrUpdateWaterDatablock recorded it). MeshInstance::
+		//! setMaterial reads this - a reflective surface renders in the water
+		//! render queue (WATER_REFRACTION_RENDER_QUEUE) so the reflection scene
+		//! render excludes it (a surface must not appear in its own mirror), and
+		//! its Item is registered with the reflection subsystem
+		static bool isPlanarReflectiveWaterMaterial(String const & name);
+		//! @brief record whether the named water material renders PLANAR-REFLECTIVE
+		//! and, when it does, the world-space plane the reflection mirrors across
+		//! (@p planeHeightY, normal +Y) and the surface half-extents. Stands the
+		//! Ogre::PlanarReflections subsystem up on the first reflective material
+		//! and tears it down when the last one goes away; updates the reflection
+		//! actor plane. @see createOrUpdateWaterDatablock
+		static void noteWaterMaterialPlanarReflective(String const & name,
+			bool reflective, float planeHeightY, float halfSizeX, float halfSizeZ);
+		//! @brief register (or drop) a water Item's sub-renderables with the
+		//! reflection subsystem so the HlmsPbs datablock samples the reflection RTT.
+		//! Called from MeshInstance::setMaterial: @p reflective true tracks the
+		//! Item's SubItems (idempotent), false drops a previously-tracked Item.
+		//! No-op while the subsystem is absent. @see registerPlanarReflectionItem
+		static void registerPlanarReflectionItem(Ogre::Item* item, bool reflective);
+		//! @brief per-frame reflection drive: begins the reflection frame and
+		//! updates it against the window camera (which renders the mirror RTTs),
+		//! before the window workspace renders. No-op while the subsystem is
+		//! inactive. Called before every Root::renderOneFrame (@see
+		//! RenderSystem::renderOneFrame / saveWindowContents).
+		static void updatePlanarReflections();
+		//! drop the reflection subsystem (unset it on HlmsPbs, destroy its
+		//! cameras/RTTs/workspaces) BEFORE the root tears the scene manager down
+		static void destroyPlanarReflections();
+		//! hand-build (once) + return the compositor workspace DEFINITION name the
+		//! reflection subsystem renders each active actor's mirror through
+		static String ensurePlanarReflectionWorkspaceDef();
+		//! stand the reflection subsystem up (idempotent): construct it, allocate
+		//! its ONE reflection slot + RTT, and hand it to HlmsPbs
+		static void ensurePlanarReflectionsSubsystem();
+
 		//--- projected decals (RenderDecal) --------------------------
 		//! @brief load @p textureName into the shared decal-diffuse pool (a
 		//! fixed-size array so every decal texture shares ONE master the scene

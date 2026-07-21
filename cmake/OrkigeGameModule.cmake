@@ -441,6 +441,9 @@ function(orkige_game_module target)
             OgreNext::HlmsPbs
             OgreNext::HlmsUnlit
             OgreNext::Atmosphere
+            # mirror-of-scene planar water reflection (engine_render_next
+            # references Ogre::PlanarReflections; @see orkige_engine/CMakeLists.txt)
+            OgreNext::PlanarReflections
             assimp::assimp
         )
         if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")

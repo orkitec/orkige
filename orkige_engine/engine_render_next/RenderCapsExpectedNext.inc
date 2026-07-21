@@ -16,8 +16,11 @@ X(ProjectedDecals, true)
 X(Bloom, true)
 X(ScreenSpaceRefraction, true)
 X(IblReflections, true)
-// the native HlmsPbs planar-reflection component is not compiled into this
-// build, so a real mirror-of-scene reflection is not available; the water
-// reflection stays the sky IBL cubemap (a requested planar reflection logs one
-// honest line)
-X(PlanarReflection, false)
+// the native HlmsPbs planar-reflection subsystem (Ogre::PlanarReflections):
+// a camera reflected across the water plane renders the scene into a reflection
+// RTT that the HlmsPbs water datablock samples in its reflection slot (the
+// desktop-capable Metal/Vulkan render targets carry the second scene render).
+// A GLES/WebGL context would runtime-gate it, but the next flavor's mobile
+// targets are Metal/Vulkan, so the bit is unconditional here (default water is
+// byte-stable - the reflection subsystem stands up only when a scene opts in)
+X(PlanarReflection, true)

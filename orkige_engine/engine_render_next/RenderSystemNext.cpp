@@ -121,6 +121,9 @@ namespace Orkige
 		// metrics reset, so RenderingMetrics accumulate forever - reset
 		// here so getFrameStats reports the LAST frame (classic semantics)
 		this->mImpl->root->getRenderSystem()->_resetMetrics();
+		// mirror-of-scene planar water reflection renders from inside the window
+		// workspace update (@see PlanarReflectionUpdater), so it needs no call
+		// here - it must run after Root::renderOneFrame's per-frame updateSceneGraph
 		return this->mImpl->root->renderOneFrame();
 	}
 	//---------------------------------------------------------
@@ -187,7 +190,7 @@ namespace Orkige
 		Ogre::Window* window = this->mImpl->window;
 		window->setManualSwapRelease(true);
 		this->mImpl->root->getRenderSystem()->_resetMetrics();	// see renderOneFrame
-		this->mImpl->root->renderOneFrame();
+		this->mImpl->root->renderOneFrame();	// planar reflection rides the workspace listener
 		if(!window->canDownloadData())
 		{
 			window->performManualRelease();

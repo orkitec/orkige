@@ -160,13 +160,18 @@ vcpkg_cmake_configure(
         # engine_render environment surface wires (see Docs/ports.md); its sky
         # material media is installed below alongside the Hlms templates
         -DOGRE_BUILD_COMPONENT_ATMOSPHERE=ON
+        # PlanarReflections: the mirror-of-scene planar reflection component the
+        # water surface's planar reflection draws on (engine_render_next drives
+        # Ogre::PlanarReflections; RenderCaps::PlanarReflection). Its HlmsPbs
+        # shader integration pieces (Pbs/Any/PlanarReflections_piece_*.any) ride
+        # in the Pbs Hlms media copy below, like the Atmosphere pieces.
+        -DOGRE_BUILD_COMPONENT_PLANAR_REFLECTIONS=ON
         # everything else off until a phase needs it
         -DOGRE_BUILD_COMPONENT_OVERLAY=OFF
         -DOGRE_BUILD_COMPONENT_MESHLODGENERATOR=OFF
         -DOGRE_BUILD_COMPONENT_PAGING=OFF
         -DOGRE_BUILD_COMPONENT_VOLUME=OFF
         -DOGRE_BUILD_COMPONENT_PROPERTY=OFF
-        -DOGRE_BUILD_COMPONENT_PLANAR_REFLECTIONS=OFF
         -DOGRE_BUILD_COMPONENT_SCENE_FORMAT=OFF
         -DOGRE_BUILD_PLUGIN_PFX=OFF
         -DOGRE_BUILD_SAMPLES2=OFF
