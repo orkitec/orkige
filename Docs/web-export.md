@@ -1,9 +1,30 @@
 # Orkige in the browser (WebAssembly / WebGL)
 
-The classic (GLES2) render flavor compiles to WebAssembly through Emscripten
-and renders through WebGL on a page canvas. One preset builds the whole
-runtime; one exporter platform packages any Lua/scene project as a static
-directory every web server can host as-is.
+The classic render flavor compiles to WebAssembly through Emscripten and
+renders through WebGL on a page canvas — effectively a **GLES3/WebGL2** target.
+Two facts settle the tier from the code:
+
+- OGRE's EGL context creation (`RenderSystems/GLSupport/src/EGL/OgreEGLSupport.cpp`,
+  `EGLSupport::createNewContext`) requests **GLES 3.2** first
+  (`EGL_CONTEXT_MAJOR_VERSION=3, MINOR=2`) and only walks the major version DOWN
+  if `eglCreateContext` fails ("find maximal supported context version"). The ES
+  profile — which Emscripten uses (`EmscriptenEGLSupport` is `CONTEXT_ES`) —
+  keeps that `=3`, so it asks for an ES3 context.
+- The player links `-sMAX_WEBGL_VERSION=2` (`tools/player/CMakeLists.txt`), so an
+  ES3 request maps to a **WebGL2** context on any WebGL2-capable browser — which
+  is every current browser. WebGL1/GLES2 is only the fallback where WebGL2 is
+  genuinely absent, and the engine gates GLES3-level features on a `glsl300es`
+  probe for that floor.
+
+So depth textures, MRT and GLSL ES 3.00 are available on web wherever WebGL2
+runs (the norm), not just desktop. The *requested* tier is code-confirmed; a
+runtime **tier-assertion test is still a TODO** (read the GL context version
+from the boot log or the caps bitset over the debug protocol) to confirm
+delivery and catch a regression — the web suite today checks only boot + clean
+shutdown + a non-uniform screenshot.
+
+One preset builds the whole runtime; one exporter platform packages any
+Lua/scene project as a static directory every web server can host as-is.
 
     cmake --preset web-release                 # configure (vcpkg wasm ports)
     cmake --build --preset web-release         # player + core test binary

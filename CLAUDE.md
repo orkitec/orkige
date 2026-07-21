@@ -37,7 +37,16 @@ Metal, Android boots Vulkan**), `ios-simulator-debug-classic`,
 physical-device player, Ogre-Next/Metal**),
 `ios-device-debug-classic`/`ios-device-release-classic` (the classic
 GLES2 device flavor) and `web-release` (**wasm32 via Emscripten — the
-browser player, classic GLES2→WebGL**; needs the user-local emsdk, see
+browser player, the classic flavor through WebGL** — effectively a **GLES3**
+target: OGRE's EGL context creation requests GLES 3.2 first and only steps
+down on failure (`RenderSystems/GLSupport/src/EGL/OgreEGLSupport.cpp`
+`createNewContext`, the ES profile keeps `EGL_CONTEXT_MAJOR_VERSION=3`), and
+the player links `-sMAX_WEBGL_VERSION=2`, so a WebGL2/GLES3 context is what
+every current (WebGL2-capable) browser hands back; WebGL1/GLES2 is only the
+fallback where WebGL2 is genuinely absent, and the engine still gates
+GLES3-level features on a `glsl300es` probe for that floor. (A runtime
+tier-assertion test is a TODO — the requested tier is code-confirmed, not yet
+suite-asserted — see `Docs/web-export.md`.) Needs the user-local emsdk, see
 `triplets/wasm32-emscripten.cmake`; the chainload wrapper
 `cmake/wasm32-emscripten-toolchain.cmake` carries `-fwasm-exceptions` for
 the WHOLE closure because vcpkg silently drops triplet compiler flags on
