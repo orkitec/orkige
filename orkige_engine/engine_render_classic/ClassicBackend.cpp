@@ -794,6 +794,16 @@ namespace Orkige
 			system->mImpl->caps |=
 				(1u << static_cast<int>(RenderCaps::ScreenSpaceRefraction));
 		}
+		// planar (mirror-of-scene) water reflection (@see createOrUpdateWaterMaterial):
+		// a mirror-camera reflection RenderTexture sampled at the ripple-perturbed
+		// screen UV - RUNTIME-determined like refraction. Desktop GL3Plus answers
+		// true; a Vulkan/GLES/WebGL context answers false per device (byte-stable
+		// sky-reflection fallback pending its shader variant + proof run).
+		if(RenderBackend::screenSpacePlanarReflectionSupported())
+		{
+			system->mImpl->caps |=
+				(1u << static_cast<int>(RenderCaps::PlanarReflection));
+		}
 		// the bloom tier split rides visibility flags: the 2D tier carries the
 		// SCENE_2D bit (tagScene2D), so every OTHER movable must default into
 		// the 3D tier - clear the 2D bit from the process default (mirrors the

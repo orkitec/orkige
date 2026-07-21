@@ -143,6 +143,20 @@ namespace Orkige
 		void setRefractionStrength(float strength);
 		//! @see RenderWaterDesc::refractionStrength
 		inline float getRefractionStrength() const { return this->mDesc.refractionStrength; }
+		//! @brief whether the surface shows a MIRROR of the actual scene (sky +
+		//! terrain + objects), reflected `planarReflection`, default OFF. Opt-in +
+		//! capability-gated (RenderCaps::PlanarReflection): when the cap is absent
+		//! OR this is false the water renders the byte-stable sky-reflection look,
+		//! and a requested-but-unsupported reflection logs one honest line at
+		//! material build. @see RenderWaterDesc
+		void setPlanarReflection(bool reflect);
+		//! @see RenderWaterDesc::planarReflection
+		inline bool getPlanarReflection() const { return this->mDesc.planarReflection; }
+		//! @brief blend weight of the planar reflection over the base water look
+		//! (reflected `reflectionStrength`; inert unless planarReflection is on)
+		void setReflectionStrength(float strength);
+		//! @see RenderWaterDesc::reflectionStrength
+		inline float getReflectionStrength() const { return this->mDesc.reflectionStrength; }
 	protected:
 		//! component override: create the child scene node, build the surface
 		virtual void onAdd();

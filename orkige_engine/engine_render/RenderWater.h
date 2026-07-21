@@ -57,6 +57,21 @@ namespace Orkige
 	//! the Stage-1 look (a byte-stable fallback), and a requested-but-unsupported
 	//! refraction logs one honest line.
 	//!
+	//! Planar reflection (opt-in, capability-gated - RenderCaps::PlanarReflection):
+	//! with `planarReflection` on, the surface shows a MIRROR of the actual scene
+	//! (sky + terrain + objects) rather than just the sky IBL cubemap it already
+	//! samples. classic = the textbook mirror pass: a dedicated camera reflected
+	//! across the surface plane (y=`planeHeightY`, normal +Y) renders the scene
+	//! (the water surface itself hidden, geometry below the plane clipped) into a
+	//! reflection RenderTexture, which the water shader samples at the fragment's
+	//! screen UV perturbed by the ripple normal and blends over the base look by
+	//! `reflectionStrength`; it composes with screen-space refraction. next = the
+	//! reflection stays the sky IBL cubemap (the native HlmsPbs planar-reflection
+	//! subsystem is not compiled into this build) - a requested-but-unsupported
+	//! planar reflection logs one honest line and the surface renders the
+	//! byte-stable IBL look. When the capability is absent OR the flag is off the
+	//! surface is byte-identical to the sky-reflection look.
+	//!
 	//! Honest v1 boundaries (both flavors): NO true depth-graded deep->shallow
 	//! transmission (still needs a depth-graded pass - a future desktop quality
 	//! knob, see Docs/render-abstraction.md); vertex waves are out (the surface
@@ -86,6 +101,20 @@ namespace Orkige
 		//! a small value keeps the bend subtle). Inert unless
 		//! screenSpaceRefraction is on and the capability is present
 		float	refractionStrength = 0.02f;
+		//! whether the surface shows a MIRROR reflection of the actual scene
+		//! (sky + terrain + objects) instead of just the sky IBL cubemap it
+		//! already samples. Opt-in and capability-gated (RenderCaps::
+		//! PlanarReflection); default OFF so existing water is byte-stable.
+		//! @see the struct remarks
+		bool	planarReflection = false;
+		//! blend weight of the planar reflection over the base water look
+		//! (0 = none, 1 = a full mirror). Inert unless planarReflection is on
+		//! and the capability is present
+		float	reflectionStrength = 1.0f;
+		//! world-space Y of the mirror plane (the water surface, normal +Y);
+		//! WaterComponent fills it from the surface node's world Y at material
+		//! (re)apply. Only consulted when planarReflection is on
+		float	planeHeightY = 0.0f;
 	};
 }
 

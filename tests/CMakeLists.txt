@@ -867,6 +867,23 @@ if(TARGET hello_orkige)
     set_tests_properties(water_refraction_looks_right PROPERTIES
         LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
 
+    # water_reflection_looks_right: the planar (mirror-of-scene) reflection probe.
+    # Runs the demo_water reflection leg two ways (a TALL magenta marker wall
+    # above the surface): reflection ON (the marker's magenta mirror fills the
+    # water band) vs OFF (the byte-stable sky-reflection look), and asserts the
+    # marker's magenta appears in the water band ON, is essentially absent OFF,
+    # and the band ON differs strongly from the OFF baseline (the mirror renders).
+    # Capability-gated: a backend/context that cannot do planar reflection (next;
+    # a GLES/WebGL classic context) reflects the sky IBL cubemap and the probe
+    # SKIPS (77). Skips (77) too if the app is unbuilt.
+    add_test(NAME water_reflection_looks_right COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_water_reflection_probe_test.py"
+        --binary "$<TARGET_FILE:hello_orkige>"
+        --out "${CMAKE_CURRENT_BINARY_DIR}/water_reflection_looks_right"
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(water_reflection_looks_right PROPERTIES
+        LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
+
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs
     # and the TIMEOUT fails the test

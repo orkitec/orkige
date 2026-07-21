@@ -29,3 +29,8 @@ X(ScreenSpaceRefraction, true)
 // desktop truth (GL3Plus/Vulkan - what the selfcheck boots); a GLES2/WebGL
 // context without GLSL ES 3.0 answers false at runtime
 X(IblReflections, true)
+// desktop truth (GL3Plus - what the selfcheck boots): a mirror-camera reflection
+// RenderTexture sampled at the ripple-perturbed screen UV; a Vulkan/GLES/WebGL
+// context answers false at runtime (byte-stable, pending its shader variant + an
+// on-device proof)
+X(PlanarReflection, true)

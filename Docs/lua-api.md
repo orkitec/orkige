@@ -902,6 +902,8 @@ WaterComponent.normalTexture
 WaterComponent.receiveShadows
 WaterComponent.screenSpaceRefraction
 WaterComponent.refractionStrength
+WaterComponent.planarReflection
+WaterComponent.reflectionStrength
 
 ## DecalComponent
 DecalComponent:hasDecal(...)

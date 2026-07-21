@@ -642,8 +642,25 @@ namespace Orkige
 		//! @brief drop all screen-space refraction state (the grab target + the
 		//! entity/material registries) - called at render-system teardown BEFORE
 		//! the scene manager dies, so the auto-updated grab target stops
-		//! referencing a dying camera
+		//! referencing a dying camera. Also tears the planar-reflection state
+		//! (mirror camera + reflection target) down for the same reason.
 		static void refractionTeardown();
+		//! @brief can this backend do planar (mirror-of-scene) water reflection:
+		//! the same gate as screen-space refraction (RTSS active + desktop GLSL) -
+		//! a mirror-camera reflection RenderTexture sampled in the water program.
+		//! The RenderCaps::PlanarReflection fill. @see createOrUpdateWaterMaterial
+		static bool screenSpacePlanarReflectionSupported();
+		//! @brief (re)create the shared window-sized reflection render target on a
+		//! dedicated mirror camera reflected across the water plane @p planeHeightY
+		//! (idempotent per size + plane); NULL-safe on a missing window/viewport
+		static void ensureReflectionTexture(float planeHeightY);
+		//! @brief destroy the shared reflection target + its mirror camera (the
+		//! last reflective water left, or teardown)
+		static void destroyReflectionTexture();
+		//! @brief sync the mirror camera to the main camera reflected across the
+		//! water plane (called from the reflection target's pre-render listener;
+		//! reaches the protected render-system window/camera as a friend)
+		static void updateReflectionCamera();
 		//! restore a mesh instance's pre-accent materials and retire its
 		//! accent variant clones (@see MeshInstance::setTint; no-op unaccented)
 		static void resetMeshAccents(MeshInstance::Impl* impl);

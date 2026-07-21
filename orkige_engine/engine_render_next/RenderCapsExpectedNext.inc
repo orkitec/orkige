@@ -16,3 +16,8 @@ X(ProjectedDecals, true)
 X(Bloom, true)
 X(ScreenSpaceRefraction, true)
 X(IblReflections, true)
+// the native HlmsPbs planar-reflection component is not compiled into this
+// build, so a real mirror-of-scene reflection is not available; the water
+// reflection stays the sky IBL cubemap (a requested planar reflection logs one
+// honest line)
+X(PlanarReflection, false)

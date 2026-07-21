@@ -56,10 +56,12 @@ namespace Orkige
 		//! scroll update can re-push the FULL refractParams 4-vector (the scroll
 		//! rides its zw lane) without losing the build-time x/y knobs
 		std::unordered_map<String, std::pair<float, float>> gRefractiveWaterKnobs;
-		//! The mesh entities currently wearing a refractive water material - the
-		//! grab render target hides these (and restores their prior visibility)
-		//! while it captures the opaque scene the water refracts.
-		std::set<Ogre::Entity*> gRefractiveWaterEntities;
+		//! The mesh entities currently wearing a CUSTOM water material (refractive
+		//! OR planar-reflective) - both the scene-grab and the reflection render
+		//! targets hide these (and restore their prior visibility) while they
+		//! capture the scene the water samples (the surface cannot appear in the
+		//! grab it refracts, nor in the mirror it reflects).
+		std::set<Ogre::Entity*> gWaterHideEntities;
 		//! the ONE shared scene-grab render target: a window-sized colour texture
 		//! re-rendered from the main camera each frame with the refractive water
 		//! HIDDEN, so the water program can sample "the scene behind the surface"
@@ -81,7 +83,7 @@ namespace Orkige
 			void preRenderTargetUpdate(const Ogre::RenderTargetEvent&) override
 			{
 				this->mHidden.clear();
-				for(Ogre::Entity* entity : gRefractiveWaterEntities)
+				for(Ogre::Entity* entity : gWaterHideEntities)
 				{
 					this->mHidden.emplace_back(entity, entity->getVisible());
 					entity->setVisible(false);
@@ -98,6 +100,68 @@ namespace Orkige
 		};
 		SceneGrabListener gSceneGrabListener;
 		//--- end refraction block -----------------------------------------
+
+		//--- planar (mirror-of-scene) water reflection --- reflection block ---
+		//! Names of the LIVE planar-reflective water materials
+		//! (createOrUpdateWaterMaterial records them when planar reflection is on +
+		//! supported). Non-empty => the shared mirror camera + reflection render
+		//! target are live and setWaterMaterialTime scrolls the ripple through the
+		//! water program constants.
+		std::set<String> gReflectiveWaterMaterials;
+		//! per reflective-water-material build-time knobs, so the per-frame scroll
+		//! update re-pushes the FULL program 4-vectors (the scroll rides the zw
+		//! lane) without losing them: {reflectStrength, waveScale, refractStrength,
+		//! refractEnabled(0/1)}.
+		struct ReflectKnobs
+		{
+			float reflectStrength = 1.0f;
+			float waveScale = 6.0f;
+			float refractStrength = 0.02f;
+			float refractEnabled = 0.0f;
+		};
+		std::unordered_map<String, ReflectKnobs> gReflectiveWaterKnobs;
+		//! the ONE shared reflection render target: a window-sized colour texture
+		//! re-rendered each frame from the MIRROR camera (the main camera reflected
+		//! across the water plane, geometry below the plane custom-near-clipped, the
+		//! water surface hidden), so the water program can sample the mirror image
+		//! at the fragment's ripple-perturbed screen UV. NULL until the first
+		//! reflective water builds; recreated on a window-size change.
+		Ogre::TexturePtr gReflectionTexture;
+		unsigned int gReflectionWidth = 0;
+		unsigned int gReflectionHeight = 0;
+		//! the dedicated mirror camera (owned by the scene manager) + the node it
+		//! rides (OGRE positions cameras through a node); the node's transform is
+		//! synced to the main camera each frame and the camera reflected across the
+		//! plane. Both owned by the scene manager, destroyed at teardown.
+		Ogre::Camera* gMirrorCamera = NULL;
+		Ogre::SceneNode* gMirrorNode = NULL;
+		//! the mirror plane's world Y (the water surface height, normal +Y) the
+		//! reflection is currently built for - a change recreates the reflection.
+		float gReflectionPlaneY = 0.0f;
+		bool gReflectionPlaneSet = false;
+		//! the shared water-reflection GLSL programs, created once (GL3Plus)
+		bool gReflectionProgramsBuilt = false;
+		const char* const kReflectionTexture = "Orkige/WaterReflection/Mirror";
+		const char* const kMirrorCamera = "Orkige/WaterReflection/MirrorCam";
+		//! @brief hides the reflective water surface while the mirror target renders
+		//! (restoring its exact prior visibility after) AND syncs the mirror camera
+		//! to the main camera reflected across the water plane, so the captured
+		//! image is the mirror of the scene ABOVE the surface.
+		struct ReflectionListener : public Ogre::RenderTargetListener
+		{
+			std::vector<std::pair<Ogre::Entity*, bool>> mHidden;
+			void preRenderTargetUpdate(const Ogre::RenderTargetEvent&) override;
+			void postRenderTargetUpdate(const Ogre::RenderTargetEvent&) override
+			{
+				for(std::pair<Ogre::Entity*, bool> const & each : this->mHidden)
+				{
+					each.first->setVisible(each.second);
+				}
+				this->mHidden.clear();
+			}
+		};
+		ReflectionListener gReflectionListener;
+		//--- end reflection block -----------------------------------------
 
 		//--- image-based lighting (skybox-sourced) - IBL block ------------
 		//! the realized image-lighting state the shader-state builder reads:
@@ -828,6 +892,16 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
+	bool RenderBackend::screenSpacePlanarReflectionSupported()
+	{
+		// the mirror-camera reflection RenderTexture is sampled by the SAME desktop
+		// GLSL water program family as refraction, so the gate is identical: the
+		// RTSS generator active + a desktop GLSL target (GL3Plus, what the facade
+		// selfcheck boots). A Vulkan/GLES/WebGL context answers false per device
+		// (byte-stable sky-reflection fallback) pending its own shader variant.
+		return RenderBackend::screenSpaceRefractionSupported();
+	}
+	//---------------------------------------------------------
 	namespace
 	{
 		//! the shared water-refraction GLSL programs (GL3Plus), created once. The
@@ -922,6 +996,154 @@ namespace Orkige
 				std::max(desc.refractionStrength, 0.0f),
 				std::max(desc.waveScale, 0.001f), scrollX, scrollY));
 		}
+		//! the shared water-REFLECTION GLSL programs (GL3Plus), created once. The
+		//! fragment program samples the mirror render target at the fragment's
+		//! ripple-perturbed screen UV and blends it over the base water look by the
+		//! reflection strength; when refraction is ALSO on it composes the two (the
+		//! refracted scene becomes the base the reflection sits over). Authored
+		//! inline (not a material script), confined to this backend.
+		void ensureReflectionPrograms()
+		{
+			if(gReflectionProgramsBuilt)
+			{
+				return;
+			}
+			gReflectionProgramsBuilt = true;
+			Ogre::HighLevelGpuProgramManager & programs =
+				Ogre::HighLevelGpuProgramManager::getSingleton();
+			// the vertex program is identical to the refraction one (clip pos for
+			// the screen UV + the plane UV for the ripple) - reuse it
+			ensureRefractionPrograms();
+			if(!programs.getByName("Orkige/WaterReflect_fs", Ogre::RGN_INTERNAL))
+			{
+				Ogre::HighLevelGpuProgramPtr fs = programs.createProgram(
+					"Orkige/WaterReflect_fs", Ogre::RGN_INTERNAL, "glsl",
+					Ogre::GPT_FRAGMENT_PROGRAM);
+				fs->setSource(
+					"#version 150\n"
+					"uniform sampler2D reflectMap;\n"  // the mirror render target
+					"uniform sampler2D normalMap;\n"
+					"uniform sampler2D sceneMap;\n"    // the refraction grab (dummy when off)
+					"uniform vec4 deepColour;\n"       // rgb, a = opacity
+					"uniform vec4 shallowColour;\n"    // rgb
+					"uniform vec4 refractParams;\n"    // x=refractStrength y=waveScale z=scrollX w=scrollY
+					"uniform vec4 reflectParams;\n"    // x=reflectStrength y=refractEnabled
+					"in vec2 vUv;\n"
+					"in vec4 vClip;\n"
+					"out vec4 fragColour;\n"
+					"void main()\n"
+					"{\n"
+					"    vec2 ndc = vClip.xy / vClip.w;\n"
+					"    vec2 screenUv = ndc * 0.5 + 0.5;\n"
+					"    screenUv.y = 1.0 - screenUv.y;\n"  // GL render-target V flip
+					"    vec2 nuv0 = vUv * refractParams.y + vec2(refractParams.z, refractParams.w);\n"
+					"    vec2 nuv1 = vUv * refractParams.y * 1.7 - vec2(refractParams.w, refractParams.z);\n"
+					"    vec3 n0 = texture(normalMap, nuv0).xyz * 2.0 - 1.0;\n"
+					"    vec3 n1 = texture(normalMap, nuv1).xyz * 2.0 - 1.0;\n"
+					"    vec2 disp = (n0.xy + n1.xy * 0.6);\n"
+					// the base look: the refracted scene when refraction composes,
+					// else the water body tint
+					"    vec3 base;\n"
+					"    if(reflectParams.y > 0.5)\n"
+					"    {\n"
+					"        vec2 suv = clamp(screenUv + disp * refractParams.x,\n"
+					"            vec2(0.002), vec2(0.998));\n"
+					"        vec3 scene = texture(sceneMap, suv).rgb;\n"
+					"        base = mix(scene, deepColour.rgb, deepColour.a * 0.6)\n"
+					"             + shallowColour.rgb * 0.12;\n"
+					"    }\n"
+					"    else\n"
+					"    {\n"
+					"        base = mix(deepColour.rgb, shallowColour.rgb, 0.35);\n"
+					"    }\n"
+					// the mirror image, sampled at the fragment screen UV with a
+					// small ripple perturbation (the reflection camera shares the
+					// main projection, so the same-screen sample aligns the mirror)
+					"    vec2 ruv = clamp(screenUv + disp * 0.03,\n"
+					"        vec2(0.002), vec2(0.998));\n"
+					"    vec3 reflectCol = texture(reflectMap, ruv).rgb;\n"
+					"    float f = clamp(reflectParams.x, 0.0, 1.0);\n"
+					"    vec3 outc = mix(base, reflectCol, f * 0.9);\n"
+					"    fragColour = vec4(outc, 1.0);\n"
+					"}\n");
+				fs->load();
+			}
+		}
+		//! push the water body colour + refraction/reflection knobs onto a
+		//! reflective water material's fragment program (create + per-scroll update)
+		void applyReflectionParams(Ogre::Pass* pass, RenderWaterDesc const & desc,
+			bool refractComposed, float scrollX, float scrollY)
+		{
+			Ogre::GpuProgramParametersSharedPtr params =
+				pass->getFragmentProgramParameters();
+			params->setIgnoreMissingParams(true);
+			params->setNamedConstant("deepColour", Ogre::Vector4(
+				desc.deepColour.r, desc.deepColour.g, desc.deepColour.b,
+				std::clamp(desc.opacity, 0.0f, 1.0f)));
+			params->setNamedConstant("shallowColour", Ogre::Vector4(
+				desc.shallowColour.r, desc.shallowColour.g,
+				desc.shallowColour.b, 1.0f));
+			params->setNamedConstant("refractParams", Ogre::Vector4(
+				std::max(desc.refractionStrength, 0.0f),
+				std::max(desc.waveScale, 0.001f), scrollX, scrollY));
+			params->setNamedConstant("reflectParams", Ogre::Vector4(
+				std::max(desc.reflectionStrength, 0.0f),
+				refractComposed ? 1.0f : 0.0f, 0.0f, 0.0f));
+		}
+	}
+	//---------------------------------------------------------
+	// the water-hide, out-of-line (the mirror-camera sync needs the protected
+	// RenderSystem::mImpl, so it lives in a RenderBackend friend method the
+	// listener calls); same anonymous namespace as the ReflectionListener
+	// declaration, so the definition binds
+	namespace
+	{
+		void ReflectionListener::preRenderTargetUpdate(
+			const Ogre::RenderTargetEvent&)
+		{
+			this->mHidden.clear();
+			// hide every custom water surface: the mirror must not contain the
+			// water plane itself (it reflects the scene ABOVE the surface)
+			for(Ogre::Entity* entity : gWaterHideEntities)
+			{
+				this->mHidden.emplace_back(entity, entity->getVisible());
+				entity->setVisible(false);
+			}
+			// sync the mirror camera to the main camera reflected across the plane
+			RenderBackend::updateReflectionCamera();
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::updateReflectionCamera()
+	{
+		RenderSystem* system = RenderBackend::system();
+		if(!gMirrorCamera || !gMirrorNode || !system || !system->mImpl->engine)
+		{
+			return;
+		}
+		Ogre::RenderWindow* window = system->mImpl->engine->getRenderWindow(0);
+		if(!window || window->getNumViewports() == 0)
+		{
+			return;
+		}
+		Ogre::Camera* main = window->getViewport(0)->getCamera();
+		if(!main)
+		{
+			return;
+		}
+		// OGRE positions cameras through a node: drive the mirror node from the
+		// main camera's world (real) pose, then reflect the camera across the water
+		// plane (normal +Y at gReflectionPlaneY) and custom-near-clip so nothing
+		// below the water leaks into the mirror
+		gMirrorNode->setPosition(main->getRealPosition());
+		gMirrorNode->setOrientation(main->getRealOrientation());
+		gMirrorCamera->setNearClipDistance(main->getNearClipDistance());
+		gMirrorCamera->setFarClipDistance(main->getFarClipDistance());
+		gMirrorCamera->setFOVy(main->getFOVy());
+		gMirrorCamera->setAspectRatio(main->getAspectRatio());
+		Ogre::Plane plane(Ogre::Vector3::UNIT_Y, gReflectionPlaneY);
+		gMirrorCamera->enableReflection(plane);
+		gMirrorCamera->enableCustomNearClipPlane(plane);
 	}
 	//---------------------------------------------------------
 	void RenderBackend::ensureSceneGrabTexture()
@@ -1002,13 +1224,130 @@ namespace Orkige
 		gSceneGrabHeight = 0;
 	}
 	//---------------------------------------------------------
+	void RenderBackend::ensureReflectionTexture(float planeHeightY)
+	{
+		RenderSystem* system = RenderBackend::system();
+		if(!system || !system->mImpl->engine)
+		{
+			return;
+		}
+		Ogre::SceneManager* sceneManager =
+			system->mImpl->engine->getSceneManager();
+		Ogre::RenderWindow* window = system->mImpl->engine->getRenderWindow(0);
+		if(!sceneManager || !window || window->getNumViewports() == 0)
+		{
+			return;
+		}
+		Ogre::Viewport* mainViewport = window->getViewport(0);
+		const unsigned int width = static_cast<unsigned int>(
+			mainViewport->getActualWidth());
+		const unsigned int height = static_cast<unsigned int>(
+			mainViewport->getActualHeight());
+		if(width == 0 || height == 0)
+		{
+			return;
+		}
+		// the plane the mirror reflects across (the ReflectionListener reads it)
+		gReflectionPlaneY = planeHeightY;
+		gReflectionPlaneSet = true;
+		if(gReflectionTexture && gReflectionWidth == width &&
+			gReflectionHeight == height)
+		{
+			return;	// already the right size (the plane Y updated above)
+		}
+		if(gReflectionTexture)
+		{
+			Ogre::RenderTarget* old =
+				gReflectionTexture->getBuffer()->getRenderTarget();
+			old->removeAllListeners();
+			old->removeAllViewports();
+			Ogre::TextureManager::getSingleton().remove(gReflectionTexture);
+			gReflectionTexture.reset();
+		}
+		// the dedicated mirror camera on its own node (OGRE positions cameras
+		// through a node); the node's transform is driven each frame from the main
+		// camera and the camera reflected in updateReflectionCamera
+		if(!gMirrorCamera)
+		{
+			gMirrorCamera = sceneManager->createCamera(kMirrorCamera);
+			gMirrorCamera->setAutoAspectRatio(false);
+			gMirrorNode = sceneManager->getRootSceneNode()
+				->createChildSceneNode();
+			gMirrorNode->attachObject(gMirrorCamera);
+		}
+		gReflectionTexture = Ogre::TextureManager::getSingleton().createManual(
+			kReflectionTexture, Ogre::RGN_INTERNAL, Ogre::TEX_TYPE_2D,
+			width, height, 0, Ogre::PF_BYTE_RGB, Ogre::TU_RENDERTARGET);
+		Ogre::RenderTarget* target =
+			gReflectionTexture->getBuffer()->getRenderTarget();
+		Ogre::Viewport* viewport = target->addViewport(gMirrorCamera);
+		viewport->setClearEveryFrame(true);
+		// the mirror shows the sky + scene ABOVE the water: clear to the window's
+		// sky/background colour so an empty reflection reads as sky, not black
+		viewport->setBackgroundColour(mainViewport->getBackgroundColour());
+		viewport->setOverlaysEnabled(false);
+		// keep shadows enabled for the same reason the grab does (an armed
+		// integrated technique must not render receivers against stale projectors)
+		viewport->setShadowsEnabled(true);
+		RenderBackend::applyRTSSScheme(viewport);
+		target->addListener(&gReflectionListener);
+		// render BEFORE the window each frame, so the mirror is ready to sample
+		target->setAutoUpdated(true);
+		gReflectionWidth = width;
+		gReflectionHeight = height;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::destroyReflectionTexture()
+	{
+		if(gReflectionTexture)
+		{
+			Ogre::RenderTarget* target =
+				gReflectionTexture->getBuffer()->getRenderTarget();
+			target->removeAllListeners();
+			target->removeAllViewports();
+			Ogre::TextureManager::getSingleton().remove(gReflectionTexture);
+			gReflectionTexture.reset();
+		}
+		gReflectionWidth = 0;
+		gReflectionHeight = 0;
+		gReflectionPlaneSet = false;
+		// the mirror camera + its node are owned by the scene manager - destroy
+		// them via the manager (NULL-safe: only when a scene manager is alive)
+		if(gMirrorCamera || gMirrorNode)
+		{
+			RenderSystem* system = RenderBackend::system();
+			Ogre::SceneManager* sceneManager =
+				(system && system->mImpl->engine)
+					? system->mImpl->engine->getSceneManager() : NULL;
+			if(sceneManager)
+			{
+				if(gMirrorNode)
+				{
+					gMirrorNode->detachAllObjects();
+					sceneManager->destroySceneNode(gMirrorNode);
+				}
+				if(gMirrorCamera)
+				{
+					sceneManager->destroyCamera(gMirrorCamera);
+				}
+			}
+			gMirrorNode = NULL;
+			gMirrorCamera = NULL;
+		}
+	}
+	//---------------------------------------------------------
 	void RenderBackend::refractionTeardown()
 	{
 		destroySceneGrabTexture();
-		gRefractiveWaterEntities.clear();
 		gRefractiveWaterMaterials.clear();
 		gRefractiveWaterKnobs.clear();
 		gSceneGrabListener.mHidden.clear();
+		// planar reflection shares the water-hide set + teardown boundary
+		destroyReflectionTexture();
+		gReflectiveWaterMaterials.clear();
+		gReflectiveWaterKnobs.clear();
+		gReflectionListener.mHidden.clear();
+		gWaterHideEntities.clear();
 	}
 	//---------------------------------------------------------
 	void RenderBackend::noteMeshMaterialForRefraction(Ogre::Entity* entity,
@@ -1018,18 +1357,27 @@ namespace Orkige
 		{
 			return;
 		}
-		if(gRefractiveWaterMaterials.find(materialName) !=
-			gRefractiveWaterMaterials.end())
+		// a mesh wearing ANY custom water material (refractive OR reflective) must
+		// be hidden from the grab it refracts AND the mirror it reflects
+		const bool custom =
+			gRefractiveWaterMaterials.find(materialName) !=
+				gRefractiveWaterMaterials.end() ||
+			gReflectiveWaterMaterials.find(materialName) !=
+				gReflectiveWaterMaterials.end();
+		if(custom)
 		{
-			gRefractiveWaterEntities.insert(entity);
+			gWaterHideEntities.insert(entity);
 		}
 		else
 		{
-			gRefractiveWaterEntities.erase(entity);
-			if(gRefractiveWaterEntities.empty() &&
-				gRefractiveWaterMaterials.empty())
+			gWaterHideEntities.erase(entity);
+			if(gRefractiveWaterMaterials.empty())
 			{
 				destroySceneGrabTexture();
+			}
+			if(gReflectiveWaterMaterials.empty())
+			{
+				destroyReflectionTexture();
 			}
 		}
 	}
@@ -1077,6 +1425,102 @@ namespace Orkige
 		pass->setDepthWriteEnabled(false);
 		pass->removeAllTextureUnitStates();
 		gNormalMappedMaterials.erase(name);	// a re-create may have been mapped
+		// --- opt-in planar (mirror-of-scene) reflection ---
+		// When planar reflection is requested AND supported, the surface renders
+		// through a programmable pass that samples the MIRROR render target (the
+		// scene reflected across the surface plane, water hidden) at the fragment's
+		// ripple-perturbed screen UV and blends it over the base look. It composes
+		// with screen-space refraction: when refraction is also on the refracted
+		// scene becomes the base the reflection sits over. This REPLACES the
+		// RTSS-lit water below; off/unsupported -> the byte-stable Stage-1 look.
+		if(desc.planarReflection &&
+			RenderBackend::screenSpacePlanarReflectionSupported() &&
+			!desc.normalTexture.empty())
+		{
+			const bool composeRefract = desc.screenSpaceRefraction &&
+				RenderBackend::screenSpaceRefractionSupported();
+			try
+			{
+				Ogre::TexturePtr normal = Ogre::TextureManager::getSingleton()
+					.load(RenderBackend::resolveTextureResourceName(
+						desc.normalTexture),
+						Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+				ensureReflectionPrograms();
+				ensureReflectionTexture(desc.planeHeightY);
+				if(composeRefract)
+				{
+					ensureSceneGrabTexture();
+				}
+				// a plain opaque programmable pass: we composite the reflection (and
+				// optional refraction) ourselves, so no alpha blend, depth writes on
+				pass->setLightingEnabled(false);
+				pass->setSceneBlending(Ogre::SBT_REPLACE);
+				pass->setDepthWriteEnabled(true);
+				pass->setDepthCheckEnabled(true);
+				pass->setVertexProgram("Orkige/WaterRefract_vs");
+				pass->setFragmentProgram("Orkige/WaterReflect_fs");
+				// TU 0 = the mirror, TU 1 = the ripple normal, TU 2 = the refraction
+				// grab (or the mirror again as a harmless dummy when not composing)
+				Ogre::TextureUnitState* reflectUnit =
+					pass->createTextureUnitState();
+				reflectUnit->setTextureName(kReflectionTexture);
+				reflectUnit->setTextureAddressingMode(
+					Ogre::TextureUnitState::TAM_CLAMP);
+				reflectUnit->setTextureFiltering(Ogre::TFO_BILINEAR);
+				Ogre::TextureUnitState* normalUnit =
+					pass->createTextureUnitState();
+				normalUnit->setTexture(normal);
+				normalUnit->setTextureAddressingMode(
+					Ogre::TextureUnitState::TAM_WRAP);
+				normalUnit->setTextureFiltering(Ogre::TFO_BILINEAR);
+				Ogre::TextureUnitState* sceneUnit =
+					pass->createTextureUnitState();
+				sceneUnit->setTextureName(composeRefract
+					? kSceneGrabTexture : kReflectionTexture);
+				sceneUnit->setTextureAddressingMode(
+					Ogre::TextureUnitState::TAM_CLAMP);
+				sceneUnit->setTextureFiltering(Ogre::TFO_BILINEAR);
+				pass->getFragmentProgramParameters()->setNamedConstant(
+					"reflectMap", 0);
+				pass->getFragmentProgramParameters()->setNamedConstant(
+					"normalMap", 1);
+				pass->getFragmentProgramParameters()->setNamedConstant(
+					"sceneMap", 2);
+				applyReflectionParams(pass, desc, composeRefract, 0.0f, 0.0f);
+				gReflectiveWaterMaterials.insert(name);
+				ReflectKnobs knobs;
+				knobs.reflectStrength = std::max(desc.reflectionStrength, 0.0f);
+				knobs.waveScale = std::max(desc.waveScale, 0.001f);
+				knobs.refractStrength = std::max(desc.refractionStrength, 0.0f);
+				knobs.refractEnabled = composeRefract ? 1.0f : 0.0f;
+				gReflectiveWaterKnobs[name] = knobs;
+				// track the grab lifecycle when composing (keeps the grab alive as
+				// long as a composed reflective surface needs it)
+				if(composeRefract)
+				{
+					gRefractiveWaterMaterials.insert(name);
+				}
+				else
+				{
+					gRefractiveWaterMaterials.erase(name);
+					gRefractiveWaterKnobs.erase(name);
+				}
+				gWaterScrollSpeeds[name] = desc.waveSpeed;
+				return material;
+			}
+			catch(Ogre::Exception const & e)
+			{
+				oDebugError("engine", 0, "RenderSystem::createWaterMaterial('"
+					<< name << "'): planar reflection setup failed: "
+					<< e.getDescription() << " - falling back to the plain surface");
+				outComplete = false;
+				// fall through to the standard water path below
+			}
+		}
+		// not (or no longer) a reflective water material: drop it from the set so
+		// the mirror target hides only the surfaces that actually reflect
+		gReflectiveWaterMaterials.erase(name);
+		gReflectiveWaterKnobs.erase(name);
 		// --- opt-in screen-space refraction (grab-pass) ---
 		// When refraction is requested AND supported, the surface renders through
 		// a programmable pass that samples the scene GRABBED behind it (water
@@ -1270,6 +1714,32 @@ namespace Orkige
 			return;	// a flat (no-normal-map) water surface has nothing to scroll
 		}
 		const float travel = seconds * it->second;
+		// a REFLECTIVE water surface scrolls the ripple through its program's
+		// scroll constants (checked first: a composed reflect+refract material is
+		// in BOTH sets, and the combined program owns both param vectors) AND keeps
+		// its mirror (and, when composing, its grab) target sized to the window
+		if(gReflectiveWaterMaterials.find(name) != gReflectiveWaterMaterials.end())
+		{
+			ensureReflectionTexture(gReflectionPlaneSet ? gReflectionPlaneY : 0.0f);
+			std::unordered_map<String, ReflectKnobs>::const_iterator knobs =
+				gReflectiveWaterKnobs.find(name);
+			const ReflectKnobs k = knobs != gReflectiveWaterKnobs.end()
+				? knobs->second : ReflectKnobs();
+			if(k.refractEnabled > 0.5f)
+			{
+				ensureSceneGrabTexture();	// pick up a window resize
+			}
+			Ogre::GpuProgramParametersSharedPtr params =
+				pass->getFragmentProgramParameters();
+			params->setIgnoreMissingParams(true);
+			// re-push the FULL refract vector (x=strength y=waveScale z/w=scroll)
+			params->setNamedConstant("refractParams", Ogre::Vector4(
+				k.refractStrength, k.waveScale, travel, travel * 0.6f));
+			// reflectParams keeps its build-time strength + refract-enabled flag
+			params->setNamedConstant("reflectParams", Ogre::Vector4(
+				k.reflectStrength, k.refractEnabled, 0.0f, 0.0f));
+			return;
+		}
 		// a refractive water surface scrolls the ripple through its program's
 		// scroll constants (the normal is sampled in the shader, not a texture-
 		// unit scroll) AND keeps its grab target sized to the window

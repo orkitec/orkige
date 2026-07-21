@@ -1032,6 +1032,20 @@ int main(int, char**)
 			demoWaterRefractOff;
 		optr<Orkige::MeshInstance> waterBed;
 		optr<Orkige::RenderNode> waterBedNode;
+		// ORKIGE_DEMO_WATER_REFLECT=1: the planar-reflection leg. Places a TALL,
+		// brightly-coloured MARKER standing ABOVE the water and turns on
+		// WaterComponent planar reflection, so the marker's MIRROR image appears in
+		// the water surface (capability-gated: an unsupported backend renders the
+		// byte-stable sky-reflection look). ORKIGE_DEMO_WATER_REFLECT_OFF=1 places
+		// the SAME marker but leaves reflection OFF - the probe's absent-mirror
+		// baseline. Kept alive past the setup scope.
+		const bool demoWaterReflectOff =
+			(std::getenv("ORKIGE_DEMO_WATER_REFLECT_OFF") != nullptr);
+		const bool demoWaterReflect =
+			(std::getenv("ORKIGE_DEMO_WATER_REFLECT") != nullptr) ||
+			demoWaterReflectOff;
+		optr<Orkige::MeshInstance> waterMarker;
+		optr<Orkige::RenderNode> waterMarkerNode;
 		if (demoWater)
 		{
 			optr<Orkige::GameObject> waterObject =
@@ -1161,6 +1175,51 @@ int main(int, char**)
 					demoWaterRefractOff ? "plain" : "refractive",
 					render->supports(
 						Orkige::RenderCaps::ScreenSpaceRefraction) ? 1 : 0);
+			}
+			if (demoWaterReflect)
+			{
+				// a TALL, bright EMISSIVE marker standing ABOVE the water: a slim
+				// pillar in vivid magenta (high R + B, ~0 G - a hue neither the
+				// teal water nor the sky carries, so its mirror is unambiguous in
+				// the water band). Emissive so it reads at full contrast regardless
+				// of the scene lighting.
+				Orkige::RenderMaterialDesc markerDesc;
+				markerDesc.albedo = Orkige::Color(0.0f, 0.0f, 0.0f, 1.0f);
+				markerDesc.emissive = Orkige::Color(0.95f, 0.05f, 0.85f, 1.0f);
+				markerDesc.twoSided = true;	// a billboard-like wall, seen either face
+				render->createMaterial("demo_water_marker", markerDesc);
+				// the shared water plane mesh (always registered here) pitched
+				// UPRIGHT into a tall standing wall facing the camera - a guaranteed
+				// mesh, no extra media dir. Its normal is +Y; a +90 deg pitch stands
+				// it in the XY plane facing +Z (the camera).
+				waterMarker = world->createMeshInstance(
+					Orkige::WaterComponent::PLANE_MESH_NAME);
+				waterMarkerNode = world->createNode("water.marker");
+				// a WIDE, tall standing wall behind the scene (water at y=-1): wide
+				// enough to flank the default cubes so its magenta MIRROR fills the
+				// near water band the probe samples on both sides of the cubes
+				waterMarkerNode->setPosition(Orkige::Vec3(0.0f, 2.0f, -2.5f));
+				waterMarkerNode->pitch(Orkige::Degree(90.0f));
+				waterMarkerNode->setScale(Orkige::Vec3(6.0f, 1.0f, 3.5f));
+				if (waterMarker)
+				{
+					waterMarker->attachTo(waterMarkerNode);
+					waterMarker->setMaterial("demo_water_marker");
+					waterMarker->setCastShadows(false);
+				}
+				// a clearer, more mirror-like surface for the reflection leg
+				water->setOpacity(0.85f);
+				if (!demoWaterReflectOff)
+				{
+					water->setPlanarReflection(true);
+					water->setReflectionStrength(0.9f);
+					water->setWaveSpeed(0.25f);
+				}
+				SDL_Log("hello_orkige: water reflection leg up - tall marker above "
+					"a %s surface (supported=%d)",
+					demoWaterReflectOff ? "plain" : "reflective",
+					render->supports(
+						Orkige::RenderCaps::PlanarReflection) ? 1 : 0);
 			}
 			SDL_Log("hello_orkige: water demo up - water plane + scrolling "
 				"material '%s' applied", water->getMaterialName().c_str());

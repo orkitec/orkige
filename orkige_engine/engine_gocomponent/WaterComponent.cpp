@@ -124,6 +124,18 @@ namespace Orkige
 		this->applyMaterial();
 	}
 	//---------------------------------------------------------
+	void WaterComponent::setPlanarReflection(bool reflect)
+	{
+		this->mDesc.planarReflection = reflect;
+		this->applyMaterial();
+	}
+	//---------------------------------------------------------
+	void WaterComponent::setReflectionStrength(float strength)
+	{
+		this->mDesc.reflectionStrength = strength;
+		this->applyMaterial();
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void WaterComponent::onAdd()
@@ -259,6 +271,27 @@ namespace Orkige
 					"renders without it (the opt-in is recorded)");
 			}
 		}
+		// planar reflection is opt-in AND capability-gated the same way: an
+		// unsupported backend (RenderCaps::PlanarReflection false) renders the
+		// byte-stable sky-reflection look, and the desc still carries the flag
+		// so it re-activates on a capable backend. @see RenderWaterDesc
+		if(this->mDesc.planarReflection &&
+			!render->supports(RenderCaps::PlanarReflection))
+		{
+			static bool warned = false;
+			if(!warned)
+			{
+				warned = true;
+				oDebugWarning(false, "WaterComponent: planar reflection is not "
+					"supported on this render backend/context - the water reflects "
+					"the sky IBL cubemap instead (the opt-in is recorded)");
+			}
+		}
+		// the mirror plane is the surface's world Y (normal +Y) - fill it from the
+		// live node so the reflection camera reflects across the actual surface
+		// height (only consulted by the backend when planarReflection is on)
+		this->mDesc.planeHeightY = this->getNode()
+			? this->getNode()->getWorldPosition().y : 0.0f;
 		// ONE per-instance water material (create-or-update: a re-apply after a
 		// knob change updates the LIVE material). A missing normal map is logged
 		// and the surface renders flat.
@@ -308,5 +341,9 @@ namespace Orkige
 		// Stage-1 look is byte-stable when off/unsupported, @see remarks)
 		OPROPERTY("screenSpaceRefraction", Orkige::PropertyKind::Bool, getScreenSpaceRefraction, setScreenSpaceRefraction, Orkige::PROP_NONE)
 		OPROPERTY("refractionStrength", Orkige::PropertyKind::Float, getRefractionStrength, setRefractionStrength, Orkige::PROP_NONE)
+		// opt-in planar (mirror-of-scene) reflection (capability-gated, default
+		// OFF - the sky-reflection look is byte-stable when off/unsupported)
+		OPROPERTY("planarReflection", Orkige::PropertyKind::Bool, getPlanarReflection, setPlanarReflection, Orkige::PROP_NONE)
+		OPROPERTY("reflectionStrength", Orkige::PropertyKind::Float, getReflectionStrength, setReflectionStrength, Orkige::PROP_NONE)
 	OOBJECT_END
 }
