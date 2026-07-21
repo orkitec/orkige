@@ -517,6 +517,15 @@ namespace Orkige
 		// own (receiving) shadow state - callers re-apply setReceiveShadows
 		// after it (@see MeshInstance::setReceiveShadows)
 		this->mImpl->receiveRestore.clear();
+		// screen-space water refraction: a refractive water surface renders in its
+		// OWN scene pass (after the opaque scene is captured), so it goes in the
+		// dedicated refraction render queue; any other surface (incl. water that
+		// stopped being refractive) restores to the default Item queue. Byte-stable
+		// for non-water meshes (they are default-queue Items already).
+		this->mImpl->item->setRenderQueueGroup(
+			RenderBackend::isRefractiveWaterMaterial(materialName)
+				? RenderBackend::WATER_REFRACTION_RENDER_QUEUE
+				: RenderBackend::DEFAULT_ITEM_RENDER_QUEUE);
 		return true;
 	}
 	//---------------------------------------------------------

@@ -1,0 +1,33 @@
+//---------------------------------------------------------------------------
+// Orkige screen-space water refraction compositor media (the Ogre-Next flavor).
+// When a scene enables WaterComponent screen-space refraction the window
+// workspace splits into an opaque scene pass into a colour+depth target, then a
+// second scene pass rendering the refractive water (HlmsPbs Refractive
+// transparency) that samples the captured scene colour+depth, then a final
+// full-screen COPY that resolves that target onto the window (@see
+// RenderBackend::recreateWindowWorkspace). This one small copy program is that
+// resolve; it shares the fullscreen-quad vertex program shipped alongside the
+// bloom media (Ogre/Compositor/Quad_vs). Metal + Vulkan/GL delegates (this
+// flavor never boots a D3D render system).
+//---------------------------------------------------------------------------
+
+//------------------------ OpenGL GLSL ------------------------
+fragment_program Orkige/Refraction/Copy_ps_GLSL glsl { source RefractionCopy_ps.glsl }
+
+//------------------------ Vulkan GLSL ------------------------
+fragment_program Orkige/Refraction/Copy_ps_VK glslvk { source RefractionCopy_ps.glsl }
+
+//------------------------ Metal ------------------------
+fragment_program Orkige/Refraction/Copy_ps_Metal metal
+{
+	source RefractionCopy_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+}
+
+//------------------------ Unified ------------------------
+fragment_program Orkige/Refraction/Copy_ps unified
+{
+	delegate Orkige/Refraction/Copy_ps_GLSL
+	delegate Orkige/Refraction/Copy_ps_VK
+	delegate Orkige/Refraction/Copy_ps_Metal
+}

@@ -852,6 +852,43 @@ namespace Orkige
 		//! the media dir is the ORKIGE_*_BLOOM_DIR the host passes at boot.
 		static void ensureBloomMaterials();
 
+		//--- screen-space water refraction (HlmsPbs Refractive) ------------
+		//! whether this backend can render screen-space water refraction at all
+		//! (the RenderCaps::ScreenSpaceRefraction fill; always true on this
+		//! desktop-capable flavor - the Metal/Vulkan render targets carry the
+		//! scene-colour+depth split the HlmsPbs Refractive mode reads)
+		static bool screenSpaceRefractionSupported();
+		//! @brief whether the refraction workspace is currently ACTIVE: at least
+		//! one LIVE refractive water material exists AND the copy media resolved.
+		//! While inactive the window workspace builds its unchanged (byte-identical)
+		//! pass structure - default water is Transparent, so this is off by default.
+		static bool refractionActive();
+		//! @brief make sure the refraction copy material resolved (Orkige/Refraction/
+		//! Copy, shipped in the same media dir as the bloom chain). Idempotent; a
+		//! media-less/headless boot has none and refraction degrades to the
+		//! byte-stable Transparent look (createOrUpdateWaterDatablock keeps
+		//! Transparent), logged once.
+		static void ensureRefractionMaterials();
+		//! @brief record whether the named water material renders REFRACTIVE
+		//! (createOrUpdateWaterDatablock): tracks the live refractive-water set and,
+		//! on an empty<->non-empty transition, rebuilds the window workspace so the
+		//! refraction split appears / disappears. @see recreateWindowWorkspace
+		static void noteWaterMaterialRefractive(String const & name,
+			bool refractive);
+		//! @brief whether the named material is a live refractive water material -
+		//! MeshInstance::setMaterial reads this to put the surface in the dedicated
+		//! refraction render queue (WATER_REFRACTION_RENDER_QUEUE) the second scene
+		//! pass renders, or restore it to the default Item queue when not
+		static bool isRefractiveWaterMaterial(String const & name);
+		//! the dedicated render queue the refractive water surface renders in - its
+		//! OWN scene pass (rendered after the opaque scene is captured). Inside the
+		//! v2-FAST 0..99 band (an Item queue) and above all opaque 3D/sprite content
+		//! (Items 10, sprites 10..90), so the opaque pass ends BELOW it.
+		static unsigned char const WATER_REFRACTION_RENDER_QUEUE = 99;
+		//! the Ogre-Next default Item render queue (@see OgreRenderQueue.h) - a
+		//! water surface restores to it when it stops being refractive
+		static unsigned char const DEFAULT_ITEM_RENDER_QUEUE = 10;
+
 		//--- projected decals (RenderDecal) --------------------------
 		//! @brief load @p textureName into the shared decal-diffuse pool (a
 		//! fixed-size array so every decal texture shares ONE master the scene

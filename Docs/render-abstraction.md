@@ -796,7 +796,7 @@ renders it fails CI.
 | `offscreenOwnedLayers` | no | yes | 2D layers composited into an offscreen RenderTexture (the editor GUI Preview + preview_ui), not just the main window |
 | `projectedDecals` | no | yes | surface marks (impact/splat/footprint + blob-shadow fallback) as TRUE projected decals wrapping over geometry (next = HlmsPbs forward-clustered Decal) vs a surface-aligned textured quad floating above the surface (classic - flat, does not wrap uneven geometry) |
 | `bloom` | yes | yes | an LDR highlight-glow post-process on the 3D scene only (bright-pass -> separable blur -> additive combine, per-scene opt-in via engine:setBloom, the r.bloomQuality tier) - the 2D tier (sprites/vector shapes/gui) is excluded so UI stays crisp. next = CompositorManager2 quad passes inserted between the 3D scene pass and the 2D/UI pass; classic = the same chain as a viewport compositor over the generated-material scheme - on a GLES2/WebGL context the bit is runtime-gated (pending an on-device proof run) and an enabled bloom degrades to no pass with one log line |
-| `screenSpaceRefraction` | yes | no | opt-in screen-space refraction distortion through the water surface: the opaque scene colour is captured before the water draws and sampled at a normal-perturbed screen UV so what is under the water bends/wobbles (basic distortion, NOT depth-graded transmission). next = the HlmsPbs Refractive transparency mode fed by a compositor scene-colour+depth pass; classic = a grab-pass RenderTexture of the scene (water hidden) sampled at the perturbed screen UV - basic render-to-texture, so it reaches the GLES2/WebGL1 mobile/web path (runtime-gated where a context cannot render to a texture) |
+| `screenSpaceRefraction` | yes | yes | opt-in screen-space refraction distortion through the water surface: the opaque scene colour is captured before the water draws and sampled at a normal-perturbed screen UV so what is under the water bends/wobbles (basic distortion, NOT depth-graded transmission). next = the HlmsPbs Refractive transparency mode fed by a compositor scene-colour+depth pass; classic = a grab-pass RenderTexture of the scene (water hidden) sampled at the perturbed screen UV - basic render-to-texture, so it reaches the GLES2/WebGL1 mobile/web path (runtime-gated where a context cannot render to a texture) |
 | `iblReflections` | yes | yes | opt-in image-based lighting sourced from the scene's SKY: specular reflections + a diffuse fill ADDED to the analytic lights on PBS-lit facade materials (next = the HlmsPbs reflection map + diffuse-GI env feature; classic = the generated-shader image-based-lighting stage over the same cubemap - on a GLES context the bit is runtime-gated on GLSL ES 3.0), tiered by the `r.iblQuality` cvar (`core_util/IblPreset.h`). ONE path, TWO sources selected automatically: a skybox atmosphere feeds the offline-baked prefiltered chain (`Util/make_sky_assets.py`); a procedural atmosphere feeds a runtime CPU capture of the sky (`core_util/SkyEnvMap` - a small cubemap synthesized from the atmosphere + sun with a box-downsampled roughness chain, recaptured on-demand only when the sun swings past ~6 degrees or the sky colours change, never per frame; a tolerance-parity approximation of the AtmosphereNpr dome on next, exact for the classic gradient sky). Colour / disabled skies have no environment and refuse honestly (`Docs/materials.md`) |
 
 _A capability marked `no`/`no` is a `PlannedAbsent` v1 boundary (absent on both flavors, next-first when it lands); the rest are real classic/next deltas. Probe from code with `RenderSystem::get()->supports(RenderCaps::X)`, from Lua with `engine:supports("name")`, and over MCP from `get_state`'s `capabilities` object._
@@ -888,19 +888,29 @@ Stage-1 look + one honest log line. NOT depth-graded deep→shallow transmission
   run, the same honest per-context gate the shadow/bloom/IBL caps use. Verified by
   `water_refraction_looks_right` (a wavy-displacement vs straight-baseline pixel
   probe) — `RenderSystemClassic.cpp`.
-- **next (NOT wired yet — the remaining desktop knob):** HlmsPbs CAN do refraction
-  (`HlmsPbsDatablock::Refractive` + `setRefractionStrength`), but the datablock
-  doc is explicit that "the compositor scene pass must be set to render refractive
-  objects in its own pass" — i.e. splitting the `engine_render_next` window
-  workspace into an opaque scene pass into a colour+depth RT, a depth-copy pass,
-  then a second `PASS_SCENE` rendering the refractive water (its own render queue)
-  with `CompositorPassSceneDef::setUseRefractions(depthTex, sceneColour)`, plus a
-  copy of the scene colour onto the window (a new copy quad material). That is a
-  workspace RESTRUCTURE (the most complex function in the backend, composing with
-  bloom/shadows/atmosphere), consciously deferred. The datablock switch to
-  `Refractive` is gated behind that pass, so the next cap stays false until the
-  workspace lands; the `RenderWaterDesc`/`WaterComponent` authoring surface needs
-  no shape change to pick it up.
+- **next (SHIPS, Metal/Vulkan):** the `HlmsPbsDatablock::Refractive` transparency
+  mode (`setRefractionStrength`), which the datablock doc requires to "render
+  refractive objects in their own pass". When a scene turns on
+  `screenSpaceRefraction` for a water surface (and the copy media resolved),
+  `createOrUpdateWaterDatablock` switches that datablock from `Transparent` to
+  `Refractive` and `recreateWindowWorkspace` grows a refraction split (composing
+  with the bloom/shadow branches at the ONE workspace hub): the OPAQUE scene
+  renders into a colour `SceneRT` + a sampleable `SceneDepth`; a copy quad seeds
+  `WaterRT` from `SceneRT` (keeping the depth); the refractive water renders ONLY
+  its own render queue (`WATER_REFRACTION_RENDER_QUEUE`) INTO `WaterRT` with
+  `CompositorPassSceneDef::setUseRefractions(SceneDepth, SceneRT)` — so it depth-
+  tests read-only against the opaque scene and samples the untouched `SceneRT`
+  colour at the normal-perturbed screen UV; a final copy quad resolves `WaterRT`
+  onto the window (`Orkige/Refraction/Copy`, a generated low-level material in the
+  post-process media dir — NO material script for a surface). No resource is read
+  and written in the same pass (Metal returns garbage for such feedback, the
+  reason the water renders into a distinct `WaterRT` rather than the `SceneRT` it
+  samples). The abstract `refractionStrength` is scaled per backend because the
+  HlmsPbs shader divides the screen-UV offset by view-depth² (a strong distance
+  falloff the classic grab-pass lacks). Verified by the same
+  `water_refraction_looks_right` probe, now RUNNING (not skipping) on next.
+  Refraction and bloom are not yet nested: a scene that enables both renders
+  refraction without bloom (a v1 limitation).
 
 ### Cross-backend HUD + closure
 

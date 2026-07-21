@@ -219,13 +219,19 @@ int main(int, char**)
 				// the demo assets (demo_material_cube.glb + the sky_*.dds
 				// cubemaps make_sky_assets.py bakes into the demo media dir)
 				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
-#ifdef ORKIGE_ENGINE_BLOOM_DIR
-				// the bloom compositor media (bright/blur/combine material +
-				// shaders), per flavor (bloom/next vs bloom/classic - the
-				// build bakes the matching dir)
-				render->addResourceLocation(ORKIGE_ENGINE_BLOOM_DIR);
-#endif
 			}
+#ifdef ORKIGE_ENGINE_BLOOM_DIR
+			// the post-process compositor media (bloom bright/blur/combine
+			// material + shaders AND the screen-space water refraction copy
+			// material), per flavor. Registered ONCE - a material script parsed
+			// from the same dir twice double-defines its programs and aborts
+			// resource-group init - so both the bloom (demoSky) and the water
+			// refraction (demoWater) legs share this one registration.
+			if (demoSky || demoWater)
+			{
+				render->addResourceLocation(ORKIGE_ENGINE_BLOOM_DIR);
+			}
+#endif
 		}))
 	{
 		return 1;
@@ -1132,13 +1138,20 @@ int main(int, char**)
 					waterBed->attachTo(waterBedNode);
 					waterBed->setMaterial("demo_water_bed");
 				}
+				// a clearer surface for the refraction leg (both legs): the whole
+				// point is to SEE the lakebed through the water, so this leg drops
+				// the showcase opacity - a fairly opaque surface transmits little
+				// of the bed on either flavor (on next the HlmsPbs Refractive term
+				// scales with 1-opacity), and the wavy-vs-straight comparison needs
+				// the bed clearly visible in both.
+				water->setOpacity(0.5f);
 				// turn ON screen-space refraction (capability-gated in the
 				// component - unsupported backends log once + render Stage-1),
 				// UNLESS this is the OFF baseline leg (bed but no refraction)
 				if (!demoWaterRefractOff)
 				{
 					water->setScreenSpaceRefraction(true);
-					water->setRefractionStrength(0.05f);
+					water->setRefractionStrength(0.08f);
 					// a livelier scroll so the refracted bed visibly SHIFTS
 					// between the two probe frames (the temporal signal)
 					water->setWaveSpeed(0.45f);

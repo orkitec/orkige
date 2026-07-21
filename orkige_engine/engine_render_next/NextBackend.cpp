@@ -136,6 +136,17 @@ namespace Orkige
 		//! degrades to no pass, byte-identical). Checked once (gBloomChecked).
 		bool gBloomMaterialsAvailable = false;
 		bool gBloomChecked = false;
+		//! the live REFRACTIVE water materials (createOrUpdateWaterDatablock records
+		//! a name here when screen-space refraction is on + the copy media resolved).
+		//! Non-empty => the window workspace grows the refraction scene split
+		//! (@see recreateWindowWorkspace); MeshInstance::setMaterial reads it to put
+		//! a refractive surface in WATER_REFRACTION_RENDER_QUEUE.
+		std::set<String> gRefractiveWaterMaterials;
+		//! did the refraction copy material (Orkige/Refraction/Copy) resolve at
+		//! first use? (false on a media-less/headless boot - refraction then stays
+		//! the byte-stable Transparent look). Checked once (gRefractionChecked).
+		bool gRefractionMaterialsAvailable = false;
+		bool gRefractionChecked = false;
 		//! the one live sky/fog atmosphere (RenderWorld::setAtmosphere), NULL
 		//! while disabled; owned here, destroyed before the root teardown
 		Ogre::AtmosphereNpr* gAtmosphere = NULL;
@@ -523,11 +534,12 @@ namespace Orkige
 		// animated normal-mapped water, offscreen-owned 2D layers, and the
 		// skybox-sourced image-based lighting (the native HlmsPbs reflection
 		// map + diffuse-GI env feature - @see applyImageLighting). Screen-space
-		// refraction is asymmetric: the classic backend ships it (a grab-pass
-		// RenderTexture sampled at a normal-perturbed screen UV); the next path
-		// (the HlmsPbs Refractive transparency mode fed by a compositor
-		// scene-colour+depth split - @see createOrUpdateWaterDatablock's TODO) is
-		// not wired yet, so the bit stays out of this fill.
+		// refraction ships on BOTH flavors now: this flavor renders it through the
+		// HlmsPbs Refractive transparency mode fed by a compositor scene-colour+
+		// depth split (@see createOrUpdateWaterDatablock + recreateWindowWorkspace);
+		// the desktop-capable Metal/Vulkan render targets carry the split
+		// unconditionally, so the bit is set here like Bloom (default water stays
+		// Transparent, so the pass structure is byte-stable until a scene opts in).
 		system->mImpl->caps =
 			(1u << static_cast<int>(RenderCaps::SkyDome)) |
 			(1u << static_cast<int>(RenderCaps::DynamicShadows)) |
@@ -537,6 +549,7 @@ namespace Orkige
 			(1u << static_cast<int>(RenderCaps::OffscreenOwnedLayers)) |
 			(1u << static_cast<int>(RenderCaps::ProjectedDecals)) |
 			(1u << static_cast<int>(RenderCaps::IblReflections)) |
+			(1u << static_cast<int>(RenderCaps::ScreenSpaceRefraction)) |
 			(1u << static_cast<int>(RenderCaps::Bloom));
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget), derived from the clustered-forward config set above
@@ -601,6 +614,7 @@ namespace Orkige
 		gContentDatablocks.clear();	// owned by their Hlms, die with the root
 		gRetiredRTTDatablocks.clear();	// their datablocks died with the root
 		gWaterAnims.clear();		// datablocks die with the root
+		gRefractiveWaterMaterials.clear();	// datablocks die with the root
 		gWireframe = false;
 		gShadowCasterCount = 0;		// late light handles no-op (system() gate)
 		gRenderTargets.clear();		// their workspaces died with the root
@@ -920,6 +934,74 @@ namespace Orkige
 		// BUILD time - rebuild it so it picks the chain up / drops it. Offscreen
 		// render targets never bloom (byte-stable), so they are not rebuilt here.
 		RenderBackend::recreateWindowWorkspace();
+	}
+	//--- screen-space water refraction (HlmsPbs Refractive) -----------
+	//---------------------------------------------------------
+	bool RenderBackend::screenSpaceRefractionSupported()
+	{
+		// desktop-capable Metal/Vulkan render systems carry the colour+depth
+		// off-screen render targets the HlmsPbs Refractive mode reads; the flavor
+		// answers true unconditionally (the RenderCaps::ScreenSpaceRefraction fill).
+		// The PASS additionally needs the copy media (@see refractionActive).
+		return true;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::ensureRefractionMaterials()
+	{
+		if(gRefractionChecked)
+		{
+			return;
+		}
+		gRefractionChecked = true;
+		// the refraction copy material comes from the auto-parsed OrkigeRefraction.
+		// material (shipped in the same media dir as the bloom chain, registered by
+		// the host before initialiseResourceGroups). A media-less/headless boot has
+		// none - refraction then stays the byte-stable Transparent look, logged once.
+		gRefractionMaterialsAvailable = Ogre::MaterialManager::getSingleton()
+			.getByName("Orkige/Refraction/Copy").operator bool();
+		if(!gRefractionMaterialsAvailable)
+		{
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige next backend: water refraction media not registered - "
+				"the water renders without screen-space refraction");
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::refractionActive()
+	{
+		if(gRefractiveWaterMaterials.empty())
+		{
+			return false;
+		}
+		RenderBackend::ensureRefractionMaterials();
+		return gRefractionMaterialsAvailable;
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::isRefractiveWaterMaterial(String const & name)
+	{
+		return gRefractiveWaterMaterials.find(name) !=
+			gRefractiveWaterMaterials.end();
+	}
+	//---------------------------------------------------------
+	void RenderBackend::noteWaterMaterialRefractive(String const & name,
+		bool refractive)
+	{
+		const bool activeBefore = RenderBackend::refractionActive();
+		if(refractive)
+		{
+			gRefractiveWaterMaterials.insert(name);
+		}
+		else
+		{
+			gRefractiveWaterMaterials.erase(name);
+		}
+		// the refraction scene split is referenced at workspace BUILD time - a
+		// transition into / out of the active state rebuilds the window workspace
+		// so the split appears / disappears (the bloom/shadow-config precedent)
+		if(activeBefore != RenderBackend::refractionActive())
+		{
+			RenderBackend::recreateWindowWorkspace();
+		}
 	}
 	//---------------------------------------------------------
 	void RenderBackend::setSceneDefaultVisibility()
@@ -1760,9 +1842,135 @@ namespace Orkige
 		// then the 2D tier (sprites/vector meshes, the SCENE_2D_VISIBILITY bit)
 		// and the GUI draw un-bloomed on top. Bloom off -> the byte-identical
 		// two-pass node below.
+		// screen-space water refraction (@see createOrUpdateWaterDatablock): when a
+		// scene enabled it on a water surface the window node splits into an OPAQUE
+		// scene pass into a colour(+depth) SceneRT, then a SECOND scene pass
+		// rendering ONLY the refractive water (its own render queue) that samples
+		// the captured SceneRT colour+depth (HlmsPbs Refractive, setUseRefractions)
+		// so what sits under the surface bends, then a full-screen COPY resolving
+		// SceneRT onto the window. Refraction off -> the byte-identical structure
+		// below. (Refraction takes precedence over bloom for now: a scene that asks
+		// for both renders refraction without bloom - a v1 limitation, the two
+		// compositor splits are not yet nested.)
+		const bool useRefraction = !impl->uiOnlyWindow && backendCamera &&
+			RenderBackend::refractionActive();
 		const bool useBloom = !impl->uiOnlyWindow && backendCamera &&
-			RenderBackend::bloomActive();
-		if(useBloom)
+			!useRefraction && RenderBackend::bloomActive();
+		if(useRefraction)
+		{
+			// Three textures, chosen so NO resource is read and written in the same
+			// pass (Metal returns garbage for such feedback):
+			//   SceneRT   - the opaque scene colour the water refracts (SAMPLED by
+			//               the water pass, never written by it). NON-sRGB, so the
+			//               final copy to the non-sRGB window is a byte passthrough
+			//               (the colour-parity rule).
+			//   SceneDepth- an explicit, SAMPLEABLE depth texture: written by the
+			//               opaque pass, then read-only for the water pass (its
+			//               depth-test AND the refraction depth-fallback).
+			//   WaterRT   - the composited target the water renders INTO (a copy of
+			//               SceneRT with the refractive water on top); distinct from
+			//               SceneRT so the water samples a clean source.
+			for(char const * colourTex : { "SceneRT", "WaterRT" })
+			{
+				Ogre::TextureDefinitionBase::TextureDefinition* tex =
+					nodeDefinition->addTextureDefinition(colourTex);
+				tex->widthFactor = 1.0f;
+				tex->heightFactor = 1.0f;
+				tex->format = Ogre::PFG_RGBA8_UNORM;
+			}
+			Ogre::TextureDefinitionBase::TextureDefinition* depthTex =
+				nodeDefinition->addTextureDefinition("SceneDepth");
+			depthTex->widthFactor = 1.0f;
+			depthTex->heightFactor = 1.0f;
+			depthTex->format = Ogre::PFG_D32_FLOAT;
+			depthTex->preferDepthTexture = true;	// sampleable depth
+			// both colour targets share the one SceneDepth as their depth
+			// attachment (the opaque pass fills it; the water pass tests read-only
+			// against it), so the water depth-tests against the opaque scene
+			for(char const * colourTex : { "SceneRT", "WaterRT" })
+			{
+				Ogre::RenderTargetViewDef* rtv =
+					nodeDefinition->addRenderTextureView(colourTex);
+				rtv->colourAttachments.push_back(Ogre::RenderTargetViewEntry());
+				rtv->colourAttachments.back().textureName =
+					Ogre::IdString(colourTex);
+				rtv->depthAttachment.textureName = Ogre::IdString("SceneDepth");
+				rtv->preferDepthTexture = true;
+				rtv->depthBufferFormat = Ogre::PFG_D32_FLOAT;
+			}
+			// SceneRT opaque(1) + WaterRT copy+water(2) + WindowRT copy+UI(2)
+			nodeDefinition->setNumTargetPass(3);
+			const String shadowNode = RenderBackend::activeShadowNodeName();
+			// --- the opaque scene (below the water queue) into SceneRT ---
+			{
+				Ogre::CompositorTargetDef* sceneTarget =
+					nodeDefinition->addTargetPass("SceneRT");
+				sceneTarget->setNumPasses(1);
+				Ogre::CompositorPassSceneDef* scenePass =
+					static_cast<Ogre::CompositorPassSceneDef*>(
+						sceneTarget->addPass(Ogre::PASS_SCENE));
+				scenePass->setAllLoadActions(Ogre::LoadAction::Clear);
+				scenePass->setAllClearColours(impl->windowBackground);
+				scenePass->mFirstRQ = 0;
+				scenePass->mLastRQ = RenderBackend::WATER_REFRACTION_RENDER_QUEUE;
+				if(!shadowNode.empty())
+				{
+					scenePass->mShadowNode = Ogre::IdString(shadowNode);
+				}
+			}
+			// --- copy the opaque scene into WaterRT, then the refractive water
+			//     ONLY on top (sampling the untouched SceneRT + read-only depth) ---
+			{
+				Ogre::CompositorTargetDef* waterTarget =
+					nodeDefinition->addTargetPass("WaterRT");
+				waterTarget->setNumPasses(2);
+				Ogre::CompositorPassQuadDef* seedPass =
+					static_cast<Ogre::CompositorPassQuadDef*>(
+						waterTarget->addPass(Ogre::PASS_QUAD));
+				seedPass->setAllLoadActions(Ogre::LoadAction::DontCare);
+				// the depth was written by the opaque pass and must survive for the
+				// water depth-test - keep it (only the colour is seeded here)
+				seedPass->mLoadActionDepth = Ogre::LoadAction::Load;
+				seedPass->mMaterialName = "Orkige/Refraction/Copy";
+				seedPass->addQuadTextureSource(0, "SceneRT");
+				Ogre::CompositorPassSceneDef* waterPass =
+					static_cast<Ogre::CompositorPassSceneDef*>(
+						waterTarget->addPass(Ogre::PASS_SCENE));
+				waterPass->setAllLoadActions(Ogre::LoadAction::Load);
+				waterPass->mFirstRQ = RenderBackend::WATER_REFRACTION_RENDER_QUEUE;
+				waterPass->mLastRQ =
+					RenderBackend::WATER_REFRACTION_RENDER_QUEUE + 1u;
+				// the HlmsPbs Refractive datablocks read the captured scene colour
+				// at a normal-perturbed screen UV + the scene depth (the fallback
+				// when the refracted pixel is in front); read-only depth preserves
+				// the opaque depth this pass still tests against
+				waterPass->setUseRefractions(Ogre::IdString("SceneDepth"),
+					Ogre::IdString("SceneRT"));
+			}
+			// --- copy WaterRT onto the window, then the GUI / 2D layers on top ---
+			{
+				Ogre::CompositorTargetDef* windowTarget =
+					nodeDefinition->addTargetPass("WindowRT");
+				windowTarget->setNumPasses(2);
+				Ogre::CompositorPassQuadDef* copyPass =
+					static_cast<Ogre::CompositorPassQuadDef*>(
+						windowTarget->addPass(Ogre::PASS_QUAD));
+				copyPass->setAllLoadActions(Ogre::LoadAction::DontCare);
+				copyPass->mMaterialName = "Orkige/Refraction/Copy";
+				copyPass->addQuadTextureSource(0, "WaterRT");
+				// the GUI / 2D layers (the UI queue), un-refracted, on top - the
+				// window's own 2D batches only (the same mask the plain path uses)
+				Ogre::CompositorPassSceneDef* uiPass =
+					static_cast<Ogre::CompositorPassSceneDef*>(
+						windowTarget->addPass(Ogre::PASS_SCENE));
+				uiPass->setAllLoadActions(Ogre::LoadAction::Load);
+				uiPass->mFirstRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+				uiPass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE + 1;
+				uiPass->mCameraName = RenderBackend::drawLayer2DCameraName();
+				uiPass->setVisibilityMask(RenderBackend::UI_WINDOW_VISIBILITY);
+			}
+		}
+		else if(useBloom)
 		{
 			RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
 			const BloomPreset::Settings tier =
@@ -2389,7 +2597,21 @@ namespace Orkige
 			// cooked-payload fallback (foo.png -> foo.dds/.oitd in exports)
 			const String resolvedName =
 				RenderBackend::resolveTextureResourceName(binding.textureName);
-			if(!resourceGroups.resourceExistsInAnyGroup(resolvedName))
+			// a createTexture2D-uploaded texture (an emissive/albedo map handed in
+			// as raw pixels, e.g. a generated pattern) has NO resource-group entry
+			// but DOES exist as a backend texture - the resource-group gate would
+			// reject it. Only when the name is NOT in a group do we try the backend
+			// texture (loadTexture2D binds it), so the file-texture path stays
+			// byte-identical (loadTexture2D already finds a resident texture first).
+			const bool inGroup =
+				resourceGroups.resourceExistsInAnyGroup(resolvedName);
+			Ogre::TextureGpu* backendTexture =
+				(!inGroup && binding.viaLoadTexture2D)
+					? gRenderSystem->mImpl->root->getRenderSystem()
+						->getTextureGpuManager()->findTextureNoThrow(
+							binding.textureName)
+					: NULL;
+			if(!inGroup && !backendTexture)
 			{
 				Ogre::LogManager::getSingleton().logMessage(
 					"Orkige next backend: material '" + name + "' texture '" +
@@ -2401,8 +2623,9 @@ namespace Orkige
 			}
 			if(binding.viaLoadTexture2D)
 			{
-				Ogre::TextureGpu* texture =
-					RenderBackend::loadTexture2D(resolvedName);
+				Ogre::TextureGpu* texture = backendTexture
+					? backendTexture
+					: RenderBackend::loadTexture2D(resolvedName);
 				datablock->setTexture(binding.slot, texture, &samplerblock);
 				outComplete = outComplete && texture != NULL;
 			}
@@ -2487,9 +2710,46 @@ namespace Orkige
 		const float f0 = std::clamp(0.02f * std::max(desc.fresnelPower, 0.0f),
 			0.0f, 0.2f);
 		datablock->setFresnel(Ogre::Vector3(f0, f0, f0), false);
-		// realistic transparency that preserves the fresnel edge reflection
-		datablock->setTransparency(std::clamp(desc.opacity, 0.0f, 1.0f),
-			Ogre::HlmsPbsDatablock::Transparent);
+		// transparency: default water is Transparent (realistic, preserves the
+		// fresnel edge reflection). When the surface opts into screen-space
+		// refraction AND the copy media resolved, it goes Refractive instead - the
+		// HlmsPbs Refractive mode samples the captured scene colour at a
+		// normal-perturbed screen UV (the distortion), fed by the compositor
+		// scene-colour+depth split the window workspace grows for it (@see
+		// recreateWindowWorkspace). The refractive surface renders in its own
+		// dedicated render queue (WATER_REFRACTION_RENDER_QUEUE); MeshInstance::
+		// setMaterial reads isRefractiveWaterMaterial to place it. A media-less
+		// boot keeps Transparent (byte-stable), noted once by ensureRefractionMaterials.
+		bool useRefraction = desc.screenSpaceRefraction &&
+			RenderBackend::screenSpaceRefractionSupported();
+		if(useRefraction)
+		{
+			RenderBackend::ensureRefractionMaterials();
+			useRefraction = gRefractionMaterialsAvailable;
+		}
+		if(useRefraction)
+		{
+			datablock->setTransparency(std::clamp(desc.opacity, 0.0f, 1.0f),
+				Ogre::HlmsPbsDatablock::Refractive);
+			// map the abstract facade strength (roughly the screen fraction the
+			// surface displaces by, @see RenderWaterDesc) to HlmsPbs's knob. The
+			// HlmsPbs shader divides the screen-UV offset by the view-space depth
+			// SQUARED, so at the tens-of-units distances the engine's scenes sit at
+			// the raw offset all but vanishes; this scale compensates so the
+			// authored strength reads as a comparable bend to the classic grab-pass
+			// (which has no depth falloff). Tuned against the demo lake.
+			const float kNextRefractionStrengthScale = 26.0f;
+			datablock->setRefractionStrength(std::max(desc.refractionStrength, 0.0f)
+				* kNextRefractionStrengthScale);
+		}
+		else
+		{
+			datablock->setTransparency(std::clamp(desc.opacity, 0.0f, 1.0f),
+				Ogre::HlmsPbsDatablock::Transparent);
+		}
+		// track the live refractive-water set (rebuilds the workspace on an
+		// empty<->non-empty transition) - AFTER the datablock is otherwise ready
+		RenderBackend::noteWaterMaterialRefractive(name, useRefraction);
 
 		// TWO detail normal maps carry the ripple: same tiling water normal,
 		// bound to both detail slots and scrolled in different directions/
