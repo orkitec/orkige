@@ -2467,13 +2467,14 @@ namespace Orkige
 			desc.deepColour.r, desc.deepColour.g, desc.deepColour.b));
 		// the specular balance: a fairly tight lobe + a cool-tinted specular
 		// colour make the sun read as LIVELY glints riding the ripple instead
-		// of a diffuse sheen. Grazing-angle honesty still bounds both knobs:
-		// Schlick fresnel reaches 1 at the horizon no matter how small F0 is,
-		// and with no reflection source (no IBL yet) a mirror-tight lobe over
-		// a white specular colour would render the whole far plane as a white
-		// sheet - the roughness floor and the sub-unit specular colour are
-		// what keep the distance reading as water
-		datablock->setRoughness(0.24f);
+		// of a diffuse sheen. When image-based lighting is active the water
+		// reflects the SKY cubemap - it joins the same PBSM_REFLECTION seam as
+		// every PBS surface through registerContentDatablock below - so a lower
+		// roughness now reads as a genuine glossy reflection rather than a flat
+		// sheen. The sub-unit specular colour still bounds the grazing-angle
+		// Schlick fresnel (which reaches 1 at the horizon no matter how small F0
+		// is) so the far plane keeps reading as water, not a white sheet.
+		datablock->setRoughness(0.16f);
 		datablock->setSpecular(Ogre::Vector3(0.45f, 0.47f, 0.5f));
 		const float scatter = 0.18f;
 		datablock->setEmissive(Ogre::Vector3(desc.shallowColour.r * scatter,

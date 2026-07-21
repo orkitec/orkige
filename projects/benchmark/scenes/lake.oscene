@@ -201,7 +201,7 @@
         <String value=""/>
         <String value="normalTexture"/>
         <int value="8"/>
-        <String value="demo_terrain_normal.png"/>
+        <String value="water_normal.png"/>
         <String value=""/>
     </WaterComponent>
     <String value="Shore0"/>

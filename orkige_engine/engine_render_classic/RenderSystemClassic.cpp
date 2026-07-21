@@ -766,23 +766,27 @@ namespace Orkige
 		}
 		Ogre::Technique* technique = material->getTechnique(0);
 		Ogre::Pass* pass = technique->getPass(0);
-		// the water body colour: the deep/shallow colours blend into ONE tint
-		// (no depth-graded transmission here), alpha = opacity so the lakebed
-		// shows through. The metal-rough lighting below adds the sun reflection.
-		const float blend = 0.4f;	// lean toward the deep body colour
-		const Ogre::ColourValue tint(
-			desc.deepColour.r + (desc.shallowColour.r - desc.deepColour.r) * blend,
-			desc.deepColour.g + (desc.shallowColour.g - desc.deepColour.g) * blend,
-			desc.deepColour.b + (desc.shallowColour.b - desc.deepColour.b) * blend,
-			std::clamp(desc.opacity, 0.0f, 1.0f));
+		// the water body colour: mirror the next flavor's split so the two
+		// backends read the SAME colour instead of a collapsed tint. The DEEP
+		// colour is the diffuse body (alpha = opacity so the lakebed shows
+		// through), and the SHALLOW colour rides as a subtle scatter self-
+		// illumination at the SAME 0.18 weight the HlmsPbs water uses for its
+		// emissive - an honest stand-in for depth-graded transmission until a
+		// refraction pass lands. The metal-rough lighting below adds the sun
+		// reflection.
+		const float scatter = 0.18f;
+		const Ogre::ColourValue diffuse(desc.deepColour.r, desc.deepColour.g,
+			desc.deepColour.b, std::clamp(desc.opacity, 0.0f, 1.0f));
 		// water is a per-instance material, so the surface's receive flag maps
 		// 1:1 (@see RenderWaterDesc::receiveShadows); water never casts - the
 		// component turns its plane's caster flag off
 		material->setReceiveShadows(desc.receiveShadows);
 		pass->setLightingEnabled(true);
-		pass->setDiffuse(tint);				// alpha carries the opacity
-		pass->setAmbient(tint.r, tint.g, tint.b);
-		pass->setSelfIllumination(0.0f, 0.0f, 0.0f);
+		pass->setDiffuse(diffuse);			// alpha carries the opacity
+		pass->setAmbient(desc.deepColour.r, desc.deepColour.g,
+			desc.deepColour.b);
+		pass->setSelfIllumination(desc.shallowColour.r * scatter,
+			desc.shallowColour.g * scatter, desc.shallowColour.b * scatter);
 		// transparent surface: alpha-blend over the scene, no depth write (the
 		// lakebed shows through)
 		pass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
