@@ -900,6 +900,8 @@ WaterComponent.waveSpeed
 WaterComponent.fresnelPower
 WaterComponent.normalTexture
 WaterComponent.receiveShadows
+WaterComponent.screenSpaceRefraction
+WaterComponent.refractionStrength
 
 ## DecalComponent
 DecalComponent:hasDecal(...)

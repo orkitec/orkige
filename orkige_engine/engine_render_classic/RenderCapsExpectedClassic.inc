@@ -22,7 +22,10 @@ X(ProjectedDecals, false)
 // context answers false at runtime (gated pending an on-device/browser proof
 // run of the compositor chain - see RenderBackend::bloomSupported)
 X(Bloom, true)
-X(ScreenSpaceRefraction, false)
+// desktop truth (GL3Plus - what the selfcheck boots): a grab-pass RenderTexture
+// sampled at a normal-perturbed screen UV; a Vulkan/GLES/WebGL context answers
+// false at runtime (byte-stable, pending its shader variant + an on-device proof)
+X(ScreenSpaceRefraction, true)
 // desktop truth (GL3Plus/Vulkan - what the selfcheck boots); a GLES2/WebGL
 // context without GLSL ES 3.0 answers false at runtime
 X(IblReflections, true)

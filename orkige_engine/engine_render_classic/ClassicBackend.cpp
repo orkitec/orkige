@@ -784,6 +784,16 @@ namespace Orkige
 			system->mImpl->caps |=
 				(1u << static_cast<int>(RenderCaps::Bloom));
 		}
+		// screen-space water refraction (@see createOrUpdateWaterMaterial): a
+		// grab-pass RenderTexture sampled at a normal-perturbed screen UV -
+		// RUNTIME-determined like shadows/bloom. Desktop GL3Plus (what the facade
+		// selfcheck boots) answers true; a Vulkan/GLES/WebGL context answers false
+		// per device (byte-stable fallback pending its shader variant + proof run).
+		if(RenderBackend::screenSpaceRefractionSupported())
+		{
+			system->mImpl->caps |=
+				(1u << static_cast<int>(RenderCaps::ScreenSpaceRefraction));
+		}
 		// the bloom tier split rides visibility flags: the 2D tier carries the
 		// SCENE_2D bit (tagScene2D), so every OTHER movable must default into
 		// the 3D tier - clear the 2D bit from the process default (mirrors the
@@ -809,6 +819,9 @@ namespace Orkige
 		// static regions reference the dying scene manager - drop them first
 		RenderBackend::staticBakeTeardown();
 		RenderBackend::resetDecalState();	// facade-side decal registry statics
+		// the water-refraction grab target auto-updates off the main camera -
+		// destroy it (+ clear its registries) before the scene manager dies
+		RenderBackend::refractionTeardown();
 		delete gRenderSystem;	// ~RenderSystem deletes the world
 		gRenderSystem = NULL;
 		// handles may still be alive in script states (Lua userdata lives

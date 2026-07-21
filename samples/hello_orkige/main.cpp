@@ -1011,6 +1011,21 @@ int main(int, char**)
 		// alive past the setup scope.
 		optr<Orkige::RenderNode> waterSunNode;
 		optr<Orkige::RenderLight> waterSun;
+		// ORKIGE_DEMO_WATER_REFRACT=1: the screen-space refraction leg. Adds a
+		// high-contrast checkerboard LAKEBED under the water and turns on
+		// WaterComponent screen-space refraction, so the bed visibly bends/wobbles
+		// through the surface (capability-gated: unsupported backends render the
+		// byte-stable Stage-1 look). Kept alive past the setup scope.
+		// ORKIGE_DEMO_WATER_REFRACT_OFF=1 places the SAME lakebed but leaves
+		// refraction OFF (the byte-stable Stage-1 water over it) - the probe's
+		// straight/stable baseline to contrast the wavy, moving refraction.
+		const bool demoWaterRefractOff =
+			(std::getenv("ORKIGE_DEMO_WATER_REFRACT_OFF") != nullptr);
+		const bool demoWaterRefract =
+			(std::getenv("ORKIGE_DEMO_WATER_REFRACT") != nullptr) ||
+			demoWaterRefractOff;
+		optr<Orkige::MeshInstance> waterBed;
+		optr<Orkige::RenderNode> waterBedNode;
 		if (demoWater)
 		{
 			optr<Orkige::GameObject> waterObject =
@@ -1078,6 +1093,62 @@ int main(int, char**)
 			water->setDeepColour(Orkige::Color(0.04f, 0.20f, 0.30f, 1.0f));
 			water->setShallowColour(Orkige::Color(0.22f, 0.55f, 0.62f, 1.0f));
 			water->setOpacity(0.82f);
+			if (demoWaterRefract)
+			{
+				// a bright checkerboard LAKEBED just below the surface - the
+				// high-contrast pattern the refraction distorts (emissive so it
+				// reads at full contrast regardless of the scene lighting)
+				const unsigned int kBed = 256;
+				const unsigned int kCells = 8;	// checker cell count per side
+				std::vector<unsigned char> bedPixels(kBed * kBed * 4);
+				for (unsigned int py = 0; py < kBed; ++py)
+				{
+					for (unsigned int px = 0; px < kBed; ++px)
+					{
+						const bool on = ((px * kCells / kBed) +
+							(py * kCells / kBed)) % 2 == 0;
+						unsigned char* texel =
+							&bedPixels[(py * kBed + px) * 4];
+						texel[0] = on ? 250 : 12;	// bright yellow vs deep blue
+						texel[1] = on ? 232 : 20;
+						texel[2] = on ? 40 : 90;
+						texel[3] = 255;
+					}
+				}
+				render->createTexture2D("demo_water_bed.png", bedPixels.data(),
+					kBed, kBed);
+				Orkige::RenderMaterialDesc bedDesc;
+				bedDesc.albedo = Orkige::Color(0.0f, 0.0f, 0.0f, 1.0f);
+				bedDesc.emissive = Orkige::Color(1.0f, 1.0f, 1.0f, 1.0f);
+				bedDesc.emissiveTexture = "demo_water_bed.png";
+				render->createMaterial("demo_water_bed", bedDesc);
+				waterBed = world->createMeshInstance(
+					Orkige::WaterComponent::PLANE_MESH_NAME);
+				waterBedNode = world->createNode("water.bed");
+				waterBedNode->setPosition(Orkige::Vec3(0.0f, -1.4f, 0.0f));
+				waterBedNode->setScale(Orkige::Vec3(11.0f, 1.0f, 11.0f));
+				if (waterBed)
+				{
+					waterBed->attachTo(waterBedNode);
+					waterBed->setMaterial("demo_water_bed");
+				}
+				// turn ON screen-space refraction (capability-gated in the
+				// component - unsupported backends log once + render Stage-1),
+				// UNLESS this is the OFF baseline leg (bed but no refraction)
+				if (!demoWaterRefractOff)
+				{
+					water->setScreenSpaceRefraction(true);
+					water->setRefractionStrength(0.05f);
+					// a livelier scroll so the refracted bed visibly SHIFTS
+					// between the two probe frames (the temporal signal)
+					water->setWaveSpeed(0.45f);
+				}
+				SDL_Log("hello_orkige: water refraction leg up - checkerboard "
+					"lakebed under a %s surface (supported=%d)",
+					demoWaterRefractOff ? "plain" : "refractive",
+					render->supports(
+						Orkige::RenderCaps::ScreenSpaceRefraction) ? 1 : 0);
+			}
 			SDL_Log("hello_orkige: water demo up - water plane + scrolling "
 				"material '%s' applied", water->getMaterialName().c_str());
 		}

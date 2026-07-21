@@ -523,8 +523,11 @@ namespace Orkige
 		// animated normal-mapped water, offscreen-owned 2D layers, and the
 		// skybox-sourced image-based lighting (the native HlmsPbs reflection
 		// map + diffuse-GI env feature - @see applyImageLighting). Screen-space
-		// refraction is absent on both flavors (a v1 boundary), so it stays
-		// out of the set.
+		// refraction is asymmetric: the classic backend ships it (a grab-pass
+		// RenderTexture sampled at a normal-perturbed screen UV); the next path
+		// (the HlmsPbs Refractive transparency mode fed by a compositor
+		// scene-colour+depth split - @see createOrUpdateWaterDatablock's TODO) is
+		// not wired yet, so the bit stays out of this fill.
 		system->mImpl->caps =
 			(1u << static_cast<int>(RenderCaps::SkyDome)) |
 			(1u << static_cast<int>(RenderCaps::DynamicShadows)) |

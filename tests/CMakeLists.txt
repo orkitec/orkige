@@ -849,6 +849,24 @@ if(TARGET hello_orkige)
     set_tests_properties(water_looks_right PROPERTIES
         LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 240)
 
+    # water_refraction_looks_right: the Stage-3 screen-space refraction probe.
+    # Runs the demo_water refraction leg two ways (a high-contrast checkerboard
+    # LAKEBED under the surface): refraction ON (wavy, moving) vs OFF (the
+    # straight/stable Stage-1 baseline), captures two frames apart per run, and
+    # asserts the water band shows strong WAVY DISPLACEMENT of the bed vs the
+    # straight baseline AND that the refraction CHANGES between frames (the
+    # ripple scrolls it) while the baseline stays put. Capability-gated: a
+    # backend/context that cannot refract (next today; a GLES/WebGL classic
+    # context) renders the Stage-1 look and the probe SKIPS (77). Skips (77)
+    # too if the app is unbuilt.
+    add_test(NAME water_refraction_looks_right COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_water_refraction_probe_test.py"
+        --binary "$<TARGET_FILE:hello_orkige>"
+        --out "${CMAKE_CURRENT_BINARY_DIR}/water_refraction_looks_right"
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(water_refraction_looks_right PROPERTIES
+        LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
+
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs
     # and the TIMEOUT fails the test

@@ -129,6 +129,20 @@ namespace Orkige
 		void setReceiveShadows(bool receives);
 		//! @see RenderWaterDesc::receiveShadows
 		inline bool getReceiveShadows() const { return this->mDesc.receiveShadows; }
+		//! @brief whether the surface refracts the scene behind it (screen-space
+		//! distortion, reflected `screenSpaceRefraction`, default OFF). Opt-in +
+		//! capability-gated (RenderCaps::ScreenSpaceRefraction): when the cap is
+		//! absent OR this is false, the water renders exactly as the Stage-1 look
+		//! (a byte-stable fallback), and a requested-but-unsupported refraction
+		//! logs one honest line at material build. @see RenderWaterDesc
+		void setScreenSpaceRefraction(bool refract);
+		//! @see RenderWaterDesc::screenSpaceRefraction
+		inline bool getScreenSpaceRefraction() const { return this->mDesc.screenSpaceRefraction; }
+		//! @brief screen-UV perturbation strength of the refraction (reflected
+		//! `refractionStrength`; inert unless screenSpaceRefraction is on)
+		void setRefractionStrength(float strength);
+		//! @see RenderWaterDesc::refractionStrength
+		inline float getRefractionStrength() const { return this->mDesc.refractionStrength; }
 	protected:
 		//! component override: create the child scene node, build the surface
 		virtual void onAdd();

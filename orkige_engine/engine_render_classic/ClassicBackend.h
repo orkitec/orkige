@@ -620,6 +620,30 @@ namespace Orkige
 		//! (RenderSystem::setWaterTime) - a name with no registered water
 		//! material is a silent no-op (the dormancy rule)
 		static void setWaterMaterialTime(String const & name, float seconds);
+		//! @brief can this backend do screen-space water refraction: the RTSS
+		//! generator is active AND the target shading language is desktop GLSL
+		//! (GL3Plus - the grab-pass water program is authored for it; a
+		//! Vulkan/GLES context runtime-gates false, byte-stable). The
+		//! RenderCaps::ScreenSpaceRefraction fill. @see createOrUpdateWaterMaterial
+		static bool screenSpaceRefractionSupported();
+		//! @brief note a mesh entity's freshly-assigned material so the scene-grab
+		//! render target hides the refractive water while it captures the opaque
+		//! scene the water samples (registers the entity iff the material is a
+		//! live refractive water material). @see MeshInstance::setMaterial
+		static void noteMeshMaterialForRefraction(Ogre::Entity* entity,
+			String const & materialName);
+		//! @brief (re)create the shared window-sized scene-grab render target on
+		//! the main camera (idempotent - a no-op when it already matches the
+		//! window size); NULL-safe on a missing window/viewport
+		static void ensureSceneGrabTexture();
+		//! @brief destroy the shared scene-grab target (the last refractive water
+		//! left, or teardown)
+		static void destroySceneGrabTexture();
+		//! @brief drop all screen-space refraction state (the grab target + the
+		//! entity/material registries) - called at render-system teardown BEFORE
+		//! the scene manager dies, so the auto-updated grab target stops
+		//! referencing a dying camera
+		static void refractionTeardown();
 		//! restore a mesh instance's pre-accent materials and retire its
 		//! accent variant clones (@see MeshInstance::setTint; no-op unaccented)
 		static void resetMeshAccents(MeshInstance::Impl* impl);

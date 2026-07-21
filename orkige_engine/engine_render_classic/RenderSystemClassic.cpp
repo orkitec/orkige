@@ -25,6 +25,8 @@
 #include <map>
 #include <set>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace Orkige
 {
@@ -41,6 +43,61 @@ namespace Orkige
 		//! on the mesh a normal-mapped material lands on - and ONLY then, so a
 		//! plain material never pays for tangent generation.
 		std::set<String> gNormalMappedMaterials;
+
+		//--- screen-space water refraction (grab-pass) --- refraction block ---
+		//! Names of the LIVE refractive water materials (createOrUpdateWaterMaterial
+		//! records them when screen-space refraction is on + supported). Used to
+		//! decide which mesh entities the scene-grab render target must hide (a
+		//! refractive surface samples the scene BEHIND it, so it cannot be in the
+		//! grab) and which materials setWaterMaterialTime scrolls through their
+		//! program constants rather than a texture-unit scroll.
+		std::set<String> gRefractiveWaterMaterials;
+		//! per refractive-water-material (strength, waveScale), so the per-frame
+		//! scroll update can re-push the FULL refractParams 4-vector (the scroll
+		//! rides its zw lane) without losing the build-time x/y knobs
+		std::unordered_map<String, std::pair<float, float>> gRefractiveWaterKnobs;
+		//! The mesh entities currently wearing a refractive water material - the
+		//! grab render target hides these (and restores their prior visibility)
+		//! while it captures the opaque scene the water refracts.
+		std::set<Ogre::Entity*> gRefractiveWaterEntities;
+		//! the ONE shared scene-grab render target: a window-sized colour texture
+		//! re-rendered from the main camera each frame with the refractive water
+		//! HIDDEN, so the water program can sample "the scene behind the surface"
+		//! at a normal-perturbed screen UV. NULL until the first refractive water
+		//! builds; recreated on a window-size change.
+		Ogre::TexturePtr gSceneGrabTexture;
+		unsigned int gSceneGrabWidth = 0;
+		unsigned int gSceneGrabHeight = 0;
+		//! the shared water-refraction GLSL programs, created once (GL3Plus)
+		bool gRefractionProgramsBuilt = false;
+		//! the grab render target's name (a stable resource name)
+		const char* const kSceneGrabTexture = "Orkige/WaterRefraction/SceneGrab";
+		//! @brief hides the refractive water while the scene-grab target renders
+		//! (and restores its exact prior visibility after), so the captured scene
+		//! is what sits BEHIND the water - the colour it refracts.
+		struct SceneGrabListener : public Ogre::RenderTargetListener
+		{
+			std::vector<std::pair<Ogre::Entity*, bool>> mHidden;
+			void preRenderTargetUpdate(const Ogre::RenderTargetEvent&) override
+			{
+				this->mHidden.clear();
+				for(Ogre::Entity* entity : gRefractiveWaterEntities)
+				{
+					this->mHidden.emplace_back(entity, entity->getVisible());
+					entity->setVisible(false);
+				}
+			}
+			void postRenderTargetUpdate(const Ogre::RenderTargetEvent&) override
+			{
+				for(std::pair<Ogre::Entity*, bool> const & each : this->mHidden)
+				{
+					each.first->setVisible(each.second);
+				}
+				this->mHidden.clear();
+			}
+		};
+		SceneGrabListener gSceneGrabListener;
+		//--- end refraction block -----------------------------------------
 
 		//--- image-based lighting (skybox-sourced) - IBL block ------------
 		//! the realized image-lighting state the shader-state builder reads:
@@ -749,6 +806,233 @@ namespace Orkige
 	{
 		return gNormalMappedMaterials.find(name) != gNormalMappedMaterials.end();
 	}
+	//--- screen-space water refraction (grab-pass) --------------------
+	//---------------------------------------------------------
+	bool RenderBackend::screenSpaceRefractionSupported()
+	{
+#ifdef USE_RTSHADER_SYSTEM
+		Ogre::RTShader::ShaderGenerator* generator =
+			Ogre::RTShader::ShaderGenerator::getSingletonPtr();
+		if(!generator)
+		{
+			return false;	// no shader generator - no programmable water pass
+		}
+		// the grab-pass water program is authored in desktop GLSL (GL3Plus - the
+		// default classic render system and what the facade selfcheck boots). A
+		// Vulkan/GLES context runtime-gates false (byte-stable, the water renders
+		// the Stage-1 look) pending its own shader variant + an on-device proof
+		// run - the same honest per-context gate the shadow/bloom/IBL caps use.
+		return generator->getTargetLanguage() == "glsl";
+#else
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	namespace
+	{
+		//! the shared water-refraction GLSL programs (GL3Plus), created once. The
+		//! vertex program forwards the clip position (for the screen UV) and the
+		//! plane UV (for the scrolling ripple normal); the fragment program
+		//! samples the scene grab at a normal-perturbed screen UV and tints it by
+		//! the water body. Authored inline (not a material script) and confined to
+		//! this backend, mirroring the createManual RTT idiom.
+		void ensureRefractionPrograms()
+		{
+			if(gRefractionProgramsBuilt)
+			{
+				return;
+			}
+			gRefractionProgramsBuilt = true;
+			Ogre::HighLevelGpuProgramManager & programs =
+				Ogre::HighLevelGpuProgramManager::getSingleton();
+			if(!programs.getByName("Orkige/WaterRefract_vs",
+				Ogre::RGN_INTERNAL))
+			{
+				Ogre::HighLevelGpuProgramPtr vs = programs.createProgram(
+					"Orkige/WaterRefract_vs", Ogre::RGN_INTERNAL, "glsl",
+					Ogre::GPT_VERTEX_PROGRAM);
+				vs->setSource(
+					"#version 150\n"
+					"uniform mat4 worldViewProj;\n"
+					"in vec4 vertex;\n"
+					"in vec4 uv0;\n"
+					"out vec2 vUv;\n"
+					"out vec4 vClip;\n"
+					"void main()\n"
+					"{\n"
+					"    vec4 clip = worldViewProj * vertex;\n"
+					"    gl_Position = clip;\n"
+					"    vClip = clip;\n"
+					"    vUv = uv0.xy;\n"
+					"}\n");
+				vs->load();
+				vs->getDefaultParameters()->setNamedAutoConstant("worldViewProj",
+					Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
+			}
+			if(!programs.getByName("Orkige/WaterRefract_fs",
+				Ogre::RGN_INTERNAL))
+			{
+				Ogre::HighLevelGpuProgramPtr fs = programs.createProgram(
+					"Orkige/WaterRefract_fs", Ogre::RGN_INTERNAL, "glsl",
+					Ogre::GPT_FRAGMENT_PROGRAM);
+				fs->setSource(
+					"#version 150\n"
+					"uniform sampler2D sceneMap;\n"
+					"uniform sampler2D normalMap;\n"
+					"uniform vec4 deepColour;\n"     // rgb, a = opacity
+					"uniform vec4 shallowColour;\n"  // rgb
+					"uniform vec4 refractParams;\n"  // x=strength y=waveScale z=scrollX w=scrollY
+					"in vec2 vUv;\n"
+					"in vec4 vClip;\n"
+					"out vec4 fragColour;\n"
+					"void main()\n"
+					"{\n"
+					"    vec2 ndc = vClip.xy / vClip.w;\n"
+					"    vec2 screenUv = ndc * 0.5 + 0.5;\n"
+					"    screenUv.y = 1.0 - screenUv.y;\n"  // GL render-target V flip
+					"    vec2 nuv0 = vUv * refractParams.y + vec2(refractParams.z, refractParams.w);\n"
+					"    vec2 nuv1 = vUv * refractParams.y * 1.7 - vec2(refractParams.w, refractParams.z);\n"
+					"    vec3 n0 = texture(normalMap, nuv0).xyz * 2.0 - 1.0;\n"
+					"    vec3 n1 = texture(normalMap, nuv1).xyz * 2.0 - 1.0;\n"
+					"    vec2 disp = (n0.xy + n1.xy * 0.6) * refractParams.x;\n"
+					"    vec2 uv = clamp(screenUv + disp, vec2(0.002), vec2(0.998));\n"
+					"    vec3 scene = texture(sceneMap, uv).rgb;\n"
+					"    vec3 water = mix(scene, deepColour.rgb, deepColour.a * 0.6)\n"
+					"               + shallowColour.rgb * 0.12;\n"
+					"    fragColour = vec4(water, 1.0);\n"
+					"}\n");
+				fs->load();
+			}
+		}
+		//! push the per-instance water body colour + refraction knobs onto a
+		//! refractive water material's fragment program (create + per-knob update)
+		void applyRefractionParams(Ogre::Pass* pass, RenderWaterDesc const & desc,
+			float scrollX, float scrollY)
+		{
+			Ogre::GpuProgramParametersSharedPtr params =
+				pass->getFragmentProgramParameters();
+			params->setIgnoreMissingParams(true);
+			params->setNamedConstant("deepColour", Ogre::Vector4(
+				desc.deepColour.r, desc.deepColour.g, desc.deepColour.b,
+				std::clamp(desc.opacity, 0.0f, 1.0f)));
+			params->setNamedConstant("shallowColour", Ogre::Vector4(
+				desc.shallowColour.r, desc.shallowColour.g,
+				desc.shallowColour.b, 1.0f));
+			params->setNamedConstant("refractParams", Ogre::Vector4(
+				std::max(desc.refractionStrength, 0.0f),
+				std::max(desc.waveScale, 0.001f), scrollX, scrollY));
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::ensureSceneGrabTexture()
+	{
+		RenderSystem* system = RenderBackend::system();
+		if(!system || !system->mImpl->engine)
+		{
+			return;
+		}
+		Ogre::RenderWindow* window = system->mImpl->engine->getRenderWindow(0);
+		if(!window || window->getNumViewports() == 0)
+		{
+			return;
+		}
+		Ogre::Viewport* mainViewport = window->getViewport(0);
+		Ogre::Camera* camera = mainViewport->getCamera();
+		if(!camera)
+		{
+			return;
+		}
+		const unsigned int width = static_cast<unsigned int>(
+			mainViewport->getActualWidth());
+		const unsigned int height = static_cast<unsigned int>(
+			mainViewport->getActualHeight());
+		if(width == 0 || height == 0)
+		{
+			return;
+		}
+		if(gSceneGrabTexture && gSceneGrabWidth == width &&
+			gSceneGrabHeight == height)
+		{
+			return;	// already the right size
+		}
+		if(gSceneGrabTexture)
+		{
+			Ogre::RenderTarget* old =
+				gSceneGrabTexture->getBuffer()->getRenderTarget();
+			old->removeAllListeners();
+			old->removeAllViewports();
+			Ogre::TextureManager::getSingleton().remove(gSceneGrabTexture);
+			gSceneGrabTexture.reset();
+		}
+		gSceneGrabTexture = Ogre::TextureManager::getSingleton().createManual(
+			kSceneGrabTexture, Ogre::RGN_INTERNAL, Ogre::TEX_TYPE_2D,
+			width, height, 0, Ogre::PF_BYTE_RGB, Ogre::TU_RENDERTARGET);
+		Ogre::RenderTarget* target =
+			gSceneGrabTexture->getBuffer()->getRenderTarget();
+		Ogre::Viewport* viewport = target->addViewport(camera);
+		viewport->setClearEveryFrame(true);
+		viewport->setBackgroundColour(mainViewport->getBackgroundColour());
+		viewport->setOverlaysEnabled(false);
+		// the grab captures the same lit scene the window shows; keep shadows
+		// enabled so an armed integrated technique never renders receiver
+		// shaders against stale projectors (@see RenderTexture applyViewportState)
+		viewport->setShadowsEnabled(true);
+		RenderBackend::applyRTSSScheme(viewport);
+		target->addListener(&gSceneGrabListener);
+		// auto-updated render targets render BEFORE the window each frame, so
+		// the grab of the opaque (water-hidden) scene is ready to sample
+		target->setAutoUpdated(true);
+		gSceneGrabWidth = width;
+		gSceneGrabHeight = height;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::destroySceneGrabTexture()
+	{
+		if(!gSceneGrabTexture)
+		{
+			return;
+		}
+		Ogre::RenderTarget* target =
+			gSceneGrabTexture->getBuffer()->getRenderTarget();
+		target->removeAllListeners();
+		target->removeAllViewports();
+		Ogre::TextureManager::getSingleton().remove(gSceneGrabTexture);
+		gSceneGrabTexture.reset();
+		gSceneGrabWidth = 0;
+		gSceneGrabHeight = 0;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::refractionTeardown()
+	{
+		destroySceneGrabTexture();
+		gRefractiveWaterEntities.clear();
+		gRefractiveWaterMaterials.clear();
+		gRefractiveWaterKnobs.clear();
+		gSceneGrabListener.mHidden.clear();
+	}
+	//---------------------------------------------------------
+	void RenderBackend::noteMeshMaterialForRefraction(Ogre::Entity* entity,
+		String const & materialName)
+	{
+		if(!entity)
+		{
+			return;
+		}
+		if(gRefractiveWaterMaterials.find(materialName) !=
+			gRefractiveWaterMaterials.end())
+		{
+			gRefractiveWaterEntities.insert(entity);
+		}
+		else
+		{
+			gRefractiveWaterEntities.erase(entity);
+			if(gRefractiveWaterEntities.empty() &&
+				gRefractiveWaterMaterials.empty())
+			{
+				destroySceneGrabTexture();
+			}
+		}
+	}
 	//---------------------------------------------------------
 	Ogre::MaterialPtr RenderBackend::createOrUpdateWaterMaterial(
 		String const & name, RenderWaterDesc const & desc, bool & outComplete)
@@ -793,6 +1077,68 @@ namespace Orkige
 		pass->setDepthWriteEnabled(false);
 		pass->removeAllTextureUnitStates();
 		gNormalMappedMaterials.erase(name);	// a re-create may have been mapped
+		// --- opt-in screen-space refraction (grab-pass) ---
+		// When refraction is requested AND supported, the surface renders through
+		// a programmable pass that samples the scene GRABBED behind it (water
+		// hidden) at a normal-perturbed screen UV - basic distortion, so what sits
+		// under the water bends/wobbles. This REPLACES the RTSS-lit water below
+		// (basic distortion, not depth-graded transmission - @see RenderWaterDesc).
+		// Off/unsupported -> falls through to the byte-stable Stage-1 look.
+		if(desc.screenSpaceRefraction &&
+			RenderBackend::screenSpaceRefractionSupported() &&
+			!desc.normalTexture.empty())
+		{
+			try
+			{
+				Ogre::TexturePtr normal = Ogre::TextureManager::getSingleton()
+					.load(RenderBackend::resolveTextureResourceName(
+						desc.normalTexture),
+						Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+				ensureRefractionPrograms();
+				ensureSceneGrabTexture();
+				// a plain opaque programmable pass: we composite the scene
+				// ourselves, so no alpha blend and depth writes on (a solid
+				// surface over the lakebed)
+				pass->setLightingEnabled(false);
+				pass->setSceneBlending(Ogre::SBT_REPLACE);
+				pass->setDepthWriteEnabled(true);
+				pass->setDepthCheckEnabled(true);
+				pass->setVertexProgram("Orkige/WaterRefract_vs");
+				pass->setFragmentProgram("Orkige/WaterRefract_fs");
+				// TU 0 = the scene grab (screen-space), TU 1 = the ripple normal
+				Ogre::TextureUnitState* sceneUnit = pass->createTextureUnitState();
+				sceneUnit->setTextureName(kSceneGrabTexture);
+				sceneUnit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_CLAMP);
+				sceneUnit->setTextureFiltering(Ogre::TFO_BILINEAR);
+				Ogre::TextureUnitState* normalUnit = pass->createTextureUnitState();
+				normalUnit->setTexture(normal);
+				normalUnit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_WRAP);
+				normalUnit->setTextureFiltering(Ogre::TFO_BILINEAR);
+				pass->getFragmentProgramParameters()->setNamedConstant(
+					"sceneMap", 0);
+				pass->getFragmentProgramParameters()->setNamedConstant(
+					"normalMap", 1);
+				applyRefractionParams(pass, desc, 0.0f, 0.0f);
+				gRefractiveWaterMaterials.insert(name);
+				gRefractiveWaterKnobs[name] = std::make_pair(
+					std::max(desc.refractionStrength, 0.0f),
+					std::max(desc.waveScale, 0.001f));
+				gWaterScrollSpeeds[name] = desc.waveSpeed;
+				return material;
+			}
+			catch(Ogre::Exception const & e)
+			{
+				oDebugError("engine", 0, "RenderSystem::createWaterMaterial('"
+					<< name << "'): refraction setup failed: "
+					<< e.getDescription() << " - falling back to the plain surface");
+				outComplete = false;
+				// fall through to the standard water path below
+			}
+		}
+		// not (or no longer) a refractive water material: drop it from the set so
+		// the grab target hides only the surfaces that actually refract
+		gRefractiveWaterMaterials.erase(name);
+		gRefractiveWaterKnobs.erase(name);
 #ifdef USE_RTSHADER_SYSTEM
 		if(Ogre::RTShader::ShaderGenerator* generator =
 			Ogre::RTShader::ShaderGenerator::getSingletonPtr())
@@ -924,6 +1270,24 @@ namespace Orkige
 			return;	// a flat (no-normal-map) water surface has nothing to scroll
 		}
 		const float travel = seconds * it->second;
+		// a refractive water surface scrolls the ripple through its program's
+		// scroll constants (the normal is sampled in the shader, not a texture-
+		// unit scroll) AND keeps its grab target sized to the window
+		if(gRefractiveWaterMaterials.find(name) != gRefractiveWaterMaterials.end())
+		{
+			ensureSceneGrabTexture();	// pick up a window resize
+			std::unordered_map<String, std::pair<float, float>>::const_iterator
+				knobs = gRefractiveWaterKnobs.find(name);
+			const float strength = knobs != gRefractiveWaterKnobs.end()
+				? knobs->second.first : 0.02f;
+			const float waveScale = knobs != gRefractiveWaterKnobs.end()
+				? knobs->second.second : 6.0f;
+			// re-push the FULL 4-vector: x=strength y=waveScale z/w=scroll
+			pass->getFragmentProgramParameters()->setNamedConstant(
+				"refractParams",
+				Ogre::Vector4(strength, waveScale, travel, travel * 0.6f));
+			return;
+		}
 		pass->getTextureUnitState(0)->setTextureScroll(travel, travel * 0.6f);
 	}
 	//---------------------------------------------------------

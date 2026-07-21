@@ -43,11 +43,24 @@ namespace Orkige
 	//! ripple detail is STATIC; fully animated normal-mapped water - and the two
 	//! detail-normal ripple - is next-only.
 	//!
-	//! Honest v1 boundaries (both flavors): NO screen-space refraction
-	//! distortion and NO true depth-graded deep->shallow transmission (both
-	//! need a compositor refraction/depth pass - a future desktop quality knob,
-	//! see Docs/render-abstraction.md); vertex waves are out (the surface stays
-	//! flat, the ripple lives entirely in the scrolling normal maps).
+	//! Screen-space refraction (opt-in, capability-gated - RenderCaps::
+	//! ScreenSpaceRefraction): with `screenSpaceRefraction` on, the opaque scene
+	//! colour is captured BEFORE the water draws and the surface samples it at a
+	//! normal-map-perturbed screen UV, so what sits under the water bends/wobbles
+	//! (`refractionStrength` scales the offset). This is BASIC distortion only -
+	//! NOT depth-graded transmission (still a later stage). next = the HlmsPbs
+	//! Refractive transparency mode fed by a compositor scene-colour+depth pass;
+	//! classic = a grab-pass RenderTexture of the scene (water hidden) sampled by
+	//! the water shader at the perturbed screen UV - basic RTT, so it reaches the
+	//! GLES2/WebGL1 mobile/web path where a context can render to a texture. When
+	//! the capability is absent OR the flag is off the surface renders EXACTLY as
+	//! the Stage-1 look (a byte-stable fallback), and a requested-but-unsupported
+	//! refraction logs one honest line.
+	//!
+	//! Honest v1 boundaries (both flavors): NO true depth-graded deep->shallow
+	//! transmission (still needs a depth-graded pass - a future desktop quality
+	//! knob, see Docs/render-abstraction.md); vertex waves are out (the surface
+	//! stays flat, the ripple lives entirely in the scrolling normal maps).
 	struct ORKIGE_ENGINE_DLL RenderWaterDesc
 	{
 		Color	deepColour = Color(0.02f, 0.10f, 0.18f, 1.0f);		//!< colour of the water body (deep water)
@@ -63,6 +76,16 @@ namespace Orkige
 		//! map: classic=Material::setReceiveShadows (the RTSS receiver stage skips
 		//! the material) | next=HlmsDatablock::setReceiveShadows
 		bool	receiveShadows = true;
+		//! whether the surface refracts the scene behind it (screen-space
+		//! distortion of the opaque colour under the water). Opt-in and
+		//! capability-gated (RenderCaps::ScreenSpaceRefraction); default OFF so
+		//! existing water is byte-stable. @see the struct remarks
+		bool	screenSpaceRefraction = false;
+		//! screen-UV perturbation strength of the refraction (roughly the
+		//! fraction of the screen the normal displaces the sampled colour by;
+		//! a small value keeps the bend subtle). Inert unless
+		//! screenSpaceRefraction is on and the capability is present
+		float	refractionStrength = 0.02f;
 	};
 }
 

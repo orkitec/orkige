@@ -253,6 +253,11 @@ namespace Orkige
 		{
 			// a baked entity leaves the static regions with its handle
 			RenderBackend::staticBakeUnregister(this->mImpl->entity);
+			// drop a refractive-water entity from the grab-hide registry so the
+			// scene-grab listener never dereferences a dying handle (empty name
+			// = "not a refractive material" -> unregister)
+			RenderBackend::noteMeshMaterialForRefraction(this->mImpl->entity,
+				String());
 			// per-instance accent clones die with the instance
 			RenderBackend::resetMeshAccents(this->mImpl);
 			if(this->mImpl->entity->isAttached())
@@ -480,6 +485,11 @@ namespace Orkige
 		// own (receiving) shadow state - callers re-apply setReceiveShadows
 		// after it (@see MeshInstance::setReceiveShadows)
 		this->mImpl->receiveRestore.clear();
+		// register/unregister this entity with the screen-space refraction
+		// grab target: a refractive water surface must be HIDDEN from the grab it
+		// samples (a no-op for every non-refractive material)
+		RenderBackend::noteMeshMaterialForRefraction(this->mImpl->entity,
+			materialName);
 		return true;
 	}
 	//---------------------------------------------------------

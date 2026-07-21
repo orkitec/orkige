@@ -112,6 +112,18 @@ namespace Orkige
 		this->applyMaterial();
 	}
 	//---------------------------------------------------------
+	void WaterComponent::setScreenSpaceRefraction(bool refract)
+	{
+		this->mDesc.screenSpaceRefraction = refract;
+		this->applyMaterial();
+	}
+	//---------------------------------------------------------
+	void WaterComponent::setRefractionStrength(float strength)
+	{
+		this->mDesc.refractionStrength = strength;
+		this->applyMaterial();
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void WaterComponent::onAdd()
@@ -230,6 +242,23 @@ namespace Orkige
 		}
 		RenderSystem* render = RenderSystem::get();
 		oAssert(render);
+		// refraction is opt-in AND capability-gated: when requested on a backend/
+		// context that cannot do it (RenderCaps::ScreenSpaceRefraction false), say
+		// so ONCE, then the surface renders the byte-stable Stage-1 look (the desc
+		// still carries the flag - it round-trips and re-activates on a capable
+		// backend). @see RenderWaterDesc
+		if(this->mDesc.screenSpaceRefraction &&
+			!render->supports(RenderCaps::ScreenSpaceRefraction))
+		{
+			static bool warned = false;
+			if(!warned)
+			{
+				warned = true;
+				oDebugWarning(false, "WaterComponent: screen-space refraction is "
+					"not supported on this render backend/context - the water "
+					"renders without it (the opt-in is recorded)");
+			}
+		}
 		// ONE per-instance water material (create-or-update: a re-apply after a
 		// knob change updates the LIVE material). A missing normal map is logged
 		// and the surface renders flat.
@@ -275,5 +304,9 @@ namespace Orkige
 		OPROPERTY_REF("normalTexture", Orkige::PropertyKind::AssetRef, "texture", getNormalTexture, setNormalTexture, Orkige::PROP_NONE)
 		// receive-only shadow participation (water never casts, @see remarks)
 		OPROPERTY("receiveShadows", Orkige::PropertyKind::Bool, getReceiveShadows, setReceiveShadows, Orkige::PROP_NONE)
+		// opt-in screen-space refraction (capability-gated, default OFF - the
+		// Stage-1 look is byte-stable when off/unsupported, @see remarks)
+		OPROPERTY("screenSpaceRefraction", Orkige::PropertyKind::Bool, getScreenSpaceRefraction, setScreenSpaceRefraction, Orkige::PROP_NONE)
+		OPROPERTY("refractionStrength", Orkige::PropertyKind::Float, getRefractionStrength, setRefractionStrength, Orkige::PROP_NONE)
 	OOBJECT_END
 }
