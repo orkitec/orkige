@@ -21,10 +21,58 @@ self-crashes; the driver then SKIPs (77). Stdlib only, per the toolchain policy.
 """
 
 import argparse
+import glob
 import os
 import shutil
 import subprocess
 import sys
+import time
+
+
+# --- deliberate-crash report hygiene ---------------------------------------
+# This test crashes the player ON PURPOSE, which makes macOS ReportCrash write
+# a DiagnosticReports .ips (and pop the "quit unexpectedly" dialog) every run -
+# clutter that used to accumulate (dozens of stale reports) and made a REAL
+# crash indistinguishable from this expected one. Since WE caused this crash,
+# WE clean it up: snapshot the report dir before the crash, then delete only the
+# NEW report(s) our own binary produced, and dismiss the dialog. Only ever
+# touches reports named after the crashing binary that appeared during our run.
+def _diag_report_dir():
+    return os.path.expanduser("~/Library/Logs/DiagnosticReports")
+
+
+def _diag_reports(binary):
+    if sys.platform != "darwin":
+        return set()
+    stem = os.path.basename(binary)
+    return set(glob.glob(os.path.join(_diag_report_dir(), stem + "*.ips")))
+
+
+def _clean_own_crash_report(binary, baseline, wait_seconds=8):
+    """Delete the DiagnosticReports entry our deliberate crash just produced.
+    ReportCrash writes it asynchronously after the process dies, so poll."""
+    if sys.platform != "darwin":
+        return
+    # dismiss the crash dialog if one popped (background test runs usually get
+    # none, but be safe) - best effort, never fail the test on it
+    for proc in ("Problem Reporter", "UserNotificationCenter"):
+        subprocess.run(["pkill", "-x", proc],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + wait_seconds
+    removed = 0
+    while time.monotonic() < deadline:
+        fresh = _diag_reports(binary) - baseline
+        for path in fresh:
+            try:
+                os.unlink(path)
+                removed += 1
+            except OSError:
+                pass
+        if removed:
+            break
+        time.sleep(0.5)
+    print("crash-marker: cleaned %d deliberate-crash DiagnosticReports entr%s"
+          % (removed, "y" if removed == 1 else "ies"), flush=True)
 
 
 def run_player(binary, project, env_overrides, timeout):
@@ -67,6 +115,9 @@ def main():
     # a frame cap well past the crash frame lets an UNARMED (sanitizer) run still
     # exit instead of spinning forever
     frame_cap = str(args.crash_frame + 40)
+    # snapshot the crash-report dir so we delete ONLY the report the deliberate
+    # crash below produces, never a pre-existing (possibly real) one
+    crash_report_baseline = _diag_reports(args.binary)
     try:
         first = run_player(args.binary, args.project, {
             "ORKIGE_CRASH_SELFCHECK": str(args.crash_frame),
@@ -107,6 +158,11 @@ def main():
             return 1
         print(f"ok: run 1 died by signal {-first.returncode} "
               "(the deliberate crash)")
+
+    # our deliberate crash just wrote a macOS DiagnosticReports entry (and maybe
+    # popped a dialog) - clean up our OWN artifact so it neither clutters the
+    # report dir nor masquerades as a real crash to a watcher
+    _clean_own_crash_report(args.binary, crash_report_baseline)
 
     # --- run 2: a clean reboot must detect the previous crash ------------------
     try:
