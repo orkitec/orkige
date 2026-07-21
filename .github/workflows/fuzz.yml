@@ -47,6 +47,13 @@ env:
   VCPKG_COMMIT: 42e4e33e1505c9f47b58c21e0f557c1571b751ee
   VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
   VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
+  # the manifest resolves against the overlay ogre/ogre-next ports (which
+  # declare the metal/vulkan feature our vcpkg.json requests) and the overlay
+  # x64-linux triplet (the SDL iconv fix) - the same overlays the presets set.
+  # Without them the bare configure resolves against upstream ogre, which lacks
+  # the platform-gated metal feature and fails "does not have required feature".
+  VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/triplets
+  VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/ports
   CCACHE_DIR: /home/runner/.ccache
   CCACHE_MAXSIZE: 1G
   CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
