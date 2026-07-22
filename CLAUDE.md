@@ -406,7 +406,7 @@ the 2D camera, also reachable via `Engine::setCameraOrthographic`/`…Fit`),
 facade — reflected `type`/`colour`/`intensity`/`range`/`innerAngle`/`outerAngle`/
 `castsShadows`, serialized + Lua + MCP through the ONE property registry, follows
 the transform node, both flavors; `RenderWorld::setAmbientHemisphere` adds
-two-colour sky/ground ambient — native on next, averaged-flat on classic;
+two-colour sky/ground ambient — native on next, a generated-shader per-pixel hemisphere sub-render-state on classic (tolerance parity);
 **PBS materials**: a `.omat` text asset — `core_util/MaterialAsset`, pure parser —
 feeds `RenderSystem::createMaterial` + `MeshInstance::setMaterial` via
 `ModelComponent`'s reflected `material` AssetRef; next = native HlmsPbs metal-rough,

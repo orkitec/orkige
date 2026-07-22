@@ -773,19 +773,23 @@ namespace Orkige
 		// the classic backend's render capabilities (@see RenderSystem::supports;
 		// the register leg of render_facade_selfcheck asserts this fill matches
 		// engine_render_classic/RenderCapsExpectedClassic.inc): a vertex-colour
-		// gradient sky dome, the sun-exposure linkage (the atmosphere
-		// drives the linked sun's colour and an averaged-flat ambient through
-		// the shared curve - core_util/AtmosphereSunDrive.h) and dynamic
-		// shadows (RTSS integrated PSSM, @see applyShadowConfig) - the shadow
-		// bit is RUNTIME-determined: a GLES2 context without depth-texture
-		// render targets answers false per device, and the image-lighting
-		// bit likewise (the generated stage needs GLSL ES 3.0 on a GLES
-		// context, @see imageBasedLightingSupported). The rest (hemisphere
-		// ambient, animated normal-mapped water, offscreen-owned 2D layers)
-		// are registered next-only deltas; screen-space refraction is
-		// absent on both.
+		// gradient sky dome, the sun-exposure linkage (the atmosphere drives
+		// the linked sun's colour and a per-pixel hemisphere ambient fill
+		// through the shared curve - core_util/AtmosphereSunDrive.h), a
+		// two-colour hemisphere ambient (the generated-shader per-pixel
+		// sub-render-state, @see HemisphereAmbientSrs.h - it rides the RTSS
+		// built-in atom vocabulary, so it needs only the generator, present on
+		// every classic context incl. GLES2/WebGL) and dynamic shadows (RTSS
+		// integrated PSSM, @see applyShadowConfig) - the shadow bit is
+		// RUNTIME-determined: a GLES2 context without depth-texture render
+		// targets answers false per device, and the image-lighting bit likewise
+		// (the generated stage needs GLSL ES 3.0 on a GLES context, @see
+		// imageBasedLightingSupported). The rest (animated normal-mapped water,
+		// offscreen-owned 2D layers) are registered next-only deltas;
+		// screen-space refraction is absent on both.
 		system->mImpl->caps = (1u << static_cast<int>(RenderCaps::SkyDome)) |
-			(1u << static_cast<int>(RenderCaps::SunExposureLinkage));
+			(1u << static_cast<int>(RenderCaps::SunExposureLinkage)) |
+			(1u << static_cast<int>(RenderCaps::HemisphereAmbient));
 		if(RenderBackend::dynamicShadowsSupported())
 		{
 			system->mImpl->caps |=

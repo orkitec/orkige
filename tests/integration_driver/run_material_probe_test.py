@@ -483,9 +483,16 @@ def analyze_cutout(image):
         cx = sum(p[0] for p in dark) / len(dark)
         cy = sum(p[1] for p in dark) / len(dark)
         centre = box_lum(image, cx - 8, cy - 8, cx + 8, cy + 8, step=1)
-        check(failures, centre > 0.85 * open_lum,
+        # the lit hole must clearly outshine a filled-disc shadow (which puts its
+        # dark centroid on shadowed ground, ~0.5 of open). The floor is 0.70, not
+        # a tighter 0.85: the classic hemisphere-ambient fill softens its shadow
+        # ring (the ambient is unshadowed, matching next), thinning the dark ring
+        # so the centroid samples a touch of the ring edge - classic reads ~0.78
+        # of open (open ground itself matches next within ~3%), next ~1.03. 0.70
+        # keeps the filled-disc regression caught with margin on both flavors.
+        check(failures, centre > 0.70 * open_lum,
               f"the shadow has a LIT hole (ring centroid ({cx:.0f},{cy:.0f}) "
-              f"luminance {centre:.1f} > 85% of open {open_lum:.1f})")
+              f"luminance {centre:.1f} > 70% of open {open_lum:.1f})")
     return failures
 
 

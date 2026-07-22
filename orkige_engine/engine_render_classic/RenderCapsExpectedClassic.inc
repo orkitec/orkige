@@ -10,7 +10,13 @@ X(SkyDome, true)
 // desktop truth (GL3Plus/Vulkan - what the selfcheck boots); a GLES2/WebGL
 // context without depth-texture render targets answers false at runtime
 X(DynamicShadows, true)
-X(HemisphereAmbient, false)
+// the generated-shader per-pixel hemisphere-ambient sub-render-state (@see
+// HemisphereAmbientSrs.h) rides the RTSS built-in atom vocabulary, so it is
+// active on every classic context the generator serves (incl. GLES2/WebGL) -
+// unconditionally true, like SunExposureLinkage (tolerance parity, not the
+// native path: the fixed-function fallback + imported-mesh materials still
+// average, and the reflectance is gamma-recovered to match next's ambient)
+X(HemisphereAmbient, true)
 X(SunExposureLinkage, true)
 X(AnimatedNormalMappedWater, false)
 X(OffscreenOwnedLayers, false)

@@ -13,6 +13,7 @@
 //! owning it during the A1 migration window)
 
 #include "engine_render_classic/ClassicBackend.h"
+#include "engine_render_classic/HemisphereAmbientSrs.h"
 #include "engine_util/PrimitiveUtil.h"
 #include "core_util/AtmosphereSunDrive.h"
 #include "core_util/SkyEnvMap.h"
@@ -145,9 +146,23 @@ namespace Orkige
 					std::max(driven.g, driven.b));
 				RenderBackend::noteSunDimmedForShadows(sunPeak < 0.05f);
 			}
-			// the atmosphere's hemisphere fill, averaged flat (the classic
-			// setAmbientHemisphere subset) - written straight to the scene so
-			// the AUTHORED hemisphere cache stays the restore source
+			// generated surface materials evaluate the two-colour hemisphere PER
+			// PIXEL (@see HemisphereAmbientSrs.h): hand the sub-render-state the
+			// SAME raw-linear sky/ground colours the next flavor's HlmsPbs
+			// receives (drive.nextUpper/nextLower), so both flavors fill ambient
+			// from one sky/ground split - the softened averaged-flat classic
+			// value below is now ONLY for consumers off the generated scheme.
+#ifdef USE_RTSHADER_SYSTEM
+			noteHemisphereAmbientColours(
+				Ogre::ColourValue(drive.nextUpperRed, drive.nextUpperGreen,
+					drive.nextUpperBlue, 1.0f),
+				Ogre::ColourValue(drive.nextLowerRed, drive.nextLowerGreen,
+					drive.nextLowerBlue, 1.0f));
+#endif
+			// the atmosphere's hemisphere fill, averaged flat (the softened
+			// classic subset) - written straight to the scene for fixed-function
+			// fallback materials and imported meshes keeping their own materials;
+			// it also keeps the AUTHORED hemisphere cache as the restore source
 			sceneManager->setAmbientLight(Ogre::ColourValue(
 				drive.classicAmbientRed, drive.classicAmbientGreen,
 				drive.classicAmbientBlue, 1.0f));
@@ -571,10 +586,19 @@ namespace Orkige
 	void RenderWorld::setAmbientHemisphere(Color const & upperHemisphere,
 		Color const & lowerHemisphere)
 	{
-		// classic has flat ambient only: cache both hemisphere colours for the
-		// getters and drive the scene with their average (the honest subset)
+		// cache both hemisphere colours for the getters
 		this->mImpl->ambientUpper = upperHemisphere;
 		this->mImpl->ambientLower = lowerHemisphere;
+		// generated surface materials evaluate the two-colour hemisphere PER
+		// PIXEL through the hemisphere-ambient sub-render-state (@see
+		// HemisphereAmbientSrs.h); hand it the live colours (the atmosphere drive
+		// re-pushes ambient every frame, so this stays current)
+#ifdef USE_RTSHADER_SYSTEM
+		noteHemisphereAmbientColours(upperHemisphere, lowerHemisphere);
+#endif
+		// the scene manager still carries the flat average for any consumer NOT
+		// on the generated scheme (fixed-function fallback materials, imported
+		// meshes keeping their own materials) and for getAmbientLight()
 		this->mImpl->sceneManager->setAmbientLight(
 			(upperHemisphere + lowerHemisphere) * 0.5f);
 	}

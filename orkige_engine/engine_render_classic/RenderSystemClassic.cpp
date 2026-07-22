@@ -16,6 +16,7 @@
 //! bucket B). Engine::setup creates this via RenderBackend::createRenderSystem.
 
 #include "engine_render_classic/ClassicBackend.h"
+#include "engine_render_classic/HemisphereAmbientSrs.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/SkyEnvMap.h>
 #include "engine_filesystem/PakMount.h"
@@ -205,6 +206,11 @@ namespace Orkige
 		//! with - the re-derive set a live image-lighting toggle walks. An
 		//! entry whose material died (project switch) is skipped and pruned.
 		std::map<String, int> gSurfaceMaterials;
+		//! the subset of gSurfaceMaterials that carries the per-pixel hemisphere
+		//! ambient sub-render-state (surface materials, NOT water - water keeps
+		//! its own tuned flat ambient). The image-lighting re-derive consults it
+		//! so a rebuilt material re-grows (or keeps out) the hemisphere stage.
+		std::set<String> gHemisphereMaterials;
 		//! the one derived-chain texture name (recreated on source/tier change)
 		const char* const kIblChainTexture = "Orkige/IblChain";
 		//! which (skybox, tier) pair the chain was built from (skip rebuilds)
@@ -254,13 +260,27 @@ namespace Orkige
 		//! Rebuilds the shader technique so create AND update both re-derive
 		//! cleanly. A no-op when no shader generator is active (fixed function).
 		void configureSurfaceShaderState(Ogre::RTShader::ShaderGenerator* generator,
-			Ogre::MaterialPtr const & material, int normalTuIndex)
+			Ogre::MaterialPtr const & material, int normalTuIndex,
+			bool hemisphereAmbient)
 		{
 			oAssert(generator);
 			const String & name = material->getName();
 			const String & group = material->getGroup();
 			const String scheme =
 				Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME;
+			// per-pixel hemisphere ambient OWNS the ambient fill for generated
+			// surface materials: zero the source pass ambient reflectance so the
+			// Cook-Torrance stage's DERIVED_SCENE_COLOUR ambient contribution
+			// (sceneAmbient x material.ambient) collapses to nothing and the
+			// hemisphere sub-render-state added below is the sole ambient path -
+			// no double count. The scene manager still holds the flat average for
+			// any non-generated consumer (@see RenderWorld::setAmbientHemisphere).
+			// Water opts out (hemisphereAmbient=false) and keeps its tuned ambient.
+			if(hemisphereAmbient)
+			{
+				material->getTechnique(0)->getPass(0)->setAmbient(
+					Ogre::ColourValue::Black);
+			}
 			// the generator picks its clone source from the material's
 			// SUPPORTED techniques, which only exist once the material has
 			// compiled - a freshly created (never rendered) material answers
@@ -292,6 +312,14 @@ namespace Orkige
 			// diffuse = albedo, derived scene colour carries the emissive)
 			renderState->addTemplateSubRenderState(generator->createSubRenderState(
 				Ogre::RTShader::SRS_COOK_TORRANCE_LIGHTING));
+			// the per-pixel two-colour sky/ground ambient fill, evaluated right
+			// after the Cook-Torrance stage - the classic mirror of next's HlmsPbs
+			// ambient-hemisphere response (@see HemisphereAmbientSrs.h), so both
+			// flavors light a surface's ambient from the same sky/ground split
+			if(hemisphereAmbient)
+			{
+				addHemisphereAmbientSubRenderState(generator, renderState);
+			}
 			// the normal-map stage runs one step before lighting (it writes the
 			// view-space normal the lighting stage then reads)
 			if(normalTuIndex >= 0)
@@ -321,8 +349,17 @@ namespace Orkige
 				renderState->addTemplateSubRenderState(imageLighting);
 			}
 			// remember the pinned state so a live image-lighting toggle can
-			// re-derive every generated material with the same inputs
+			// re-derive every generated material with the same inputs (and whether
+			// this one carries the hemisphere stage, so the re-derive matches)
 			gSurfaceMaterials[name] = normalTuIndex;
+			if(hemisphereAmbient)
+			{
+				gHemisphereMaterials.insert(name);
+			}
+			else
+			{
+				gHemisphereMaterials.erase(name);
+			}
 			generator->invalidateMaterial(scheme, name, group);
 		}
 #endif // USE_RTSHADER_SYSTEM
@@ -814,8 +851,10 @@ namespace Orkige
 				pass->setSelfIllumination(0.0f, 0.0f, 0.0f);
 			}
 			// pin the shader render state LAST, so createShaderBasedTechnique
-			// clones both the surface pass and any emissive pass
-			configureSurfaceShaderState(generator, material, normalTuIndex);
+			// clones both the surface pass and any emissive pass. Surface
+			// materials carry the per-pixel hemisphere ambient (unlike water).
+			configureSurfaceShaderState(generator, material, normalTuIndex,
+				/*hemisphereAmbient*/ true);
 			// CUTOUT CASTER: the scene's derived-caster machinery mutates ONE
 			// shared plain-black pass per renderable at render time - state the
 			// RTSS-generated caster program (built once) cannot follow. A
@@ -2002,8 +2041,10 @@ namespace Orkige
 			}
 			// Cook-Torrance (+ the normal-map stage): the same metal-rough path
 			// the surface materials use, so the ripples light + the intrinsic
-			// Fresnel term brightens the grazing-angle reflection
-			configureSurfaceShaderState(generator, material, normalTuIndex);
+			// Fresnel term brightens the grazing-angle reflection. Water keeps its
+			// own tuned flat ambient - it opts OUT of the hemisphere fill.
+			configureSurfaceShaderState(generator, material, normalTuIndex,
+				/*hemisphereAmbient*/ false);
 			gWaterScrollSpeeds[name] = desc.waveSpeed;
 			return material;
 		}
@@ -2684,10 +2725,12 @@ namespace Orkige
 				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 			if(!material)
 			{
+				gHemisphereMaterials.erase(each->first);
 				each = gSurfaceMaterials.erase(each);
 				continue;
 			}
-			configureSurfaceShaderState(generator, material, each->second);
+			configureSurfaceShaderState(generator, material, each->second,
+				gHemisphereMaterials.find(each->first) != gHemisphereMaterials.end());
 			++each;
 		}
 #endif // USE_RTSHADER_SYSTEM
@@ -2697,6 +2740,7 @@ namespace Orkige
 	{
 		gIbl = IblState();
 		gSurfaceMaterials.clear();
+		gHemisphereMaterials.clear();
 		gIblChainSource.clear();
 		gIblChainQuality = IblPreset::IQ_OFF;
 		gIblWarnedReason.clear();
