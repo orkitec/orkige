@@ -1052,6 +1052,29 @@ namespace Orkige
 					Ogre::GpuProgramParameters::ACT_CAMERA_POSITION);
 			}
 		}
+		//! @brief pins a programmed water technique to the viewport's RTSS scheme.
+		//! The window viewport (and the grab/mirror render targets) render under
+		//! ShaderGenerator::DEFAULT_SCHEME_NAME. Our refraction/reflection water
+		//! carries EXPLICIT vertex/fragment programs on its default-scheme technique
+		//! - a technique RTSS does not manage. Left on the "Default" scheme, the
+		//! first render finds no technique matching the viewport scheme, so RTSS's
+		//! scheme-not-found handler CLONES the technique into an RTSS-scheme copy and
+		//! draws THAT clone; the per-frame parameter pushes (the ripple scroll and
+		//! the geometric swell clock) target the original technique and never reach
+		//! the rendered clone, freezing the water at its clone-time snapshot.
+		//! Labelling the technique with the viewport scheme makes it the matched
+		//! technique, so no clone is made and the per-frame pushes drive the drawn
+		//! pass directly. RTSS still ignores the material (it manages only techniques
+		//! it generated), so the explicit programs render verbatim.
+		void pinWaterTechniqueToViewportScheme(Ogre::MaterialPtr const & material)
+		{
+			if(Ogre::RTShader::ShaderGenerator::getSingletonPtr())
+			{
+				material->getTechnique(0)->setSchemeName(
+					Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+			}
+		}
+		//---------------------------------------------------------
 		//! push the per-instance water body colour + refraction knobs onto a
 		//! refractive water material's fragment program (create + per-knob update)
 		void applyRefractionParams(Ogre::Pass* pass, RenderWaterDesc const & desc,
@@ -1713,6 +1736,7 @@ namespace Orkige
 					gRefractiveWaterKnobs.erase(name);
 				}
 				gWaterScrollSpeeds[name] = desc.waveSpeed;
+				pinWaterTechniqueToViewportScheme(material);
 				return material;
 			}
 			catch(Ogre::Exception const & e)
@@ -1793,6 +1817,7 @@ namespace Orkige
 				refractKnobs.waveHeight = std::max(desc.waveHeight, 0.0f);
 				gRefractiveWaterKnobs[name] = refractKnobs;
 				gWaterScrollSpeeds[name] = desc.waveSpeed;
+				pinWaterTechniqueToViewportScheme(material);
 				return material;
 			}
 			catch(Ogre::Exception const & e)

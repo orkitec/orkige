@@ -1046,6 +1046,25 @@ int main(int, char**)
 			demoWaterReflectOff;
 		optr<Orkige::MeshInstance> waterMarker;
 		optr<Orkige::RenderNode> waterMarkerNode;
+		// ORKIGE_DEMO_WATER_SWELL=1: the geometric-swell leg. Turns on the vertex
+		// swell (WaterComponent waveHeight > 0) so the water surface DISPLACES -
+		// its silhouette against the background rises and falls as the swell
+		// travels. Screen-space refraction is requested so the CLASSIC flavor runs
+		// its swell vertex program (the classic swell rides the refract/reflect
+		// water program; the next flavor displaces the plain PBS surface directly,
+		// so refraction being unsupported there is harmless). A high-contrast
+		// backdrop wall stands behind the far water edge so the moving silhouette
+		// reads as a clear boundary band. ORKIGE_DEMO_WATER_SWELL_OFF=1 is the
+		// byte-stable baseline: the SAME scene with waveHeight 0 - the scrolling
+		// normal shimmer still animates PIXELS, but the geometry (the silhouette)
+		// does NOT move, the shipped waveHeight-0 compat guarantee.
+		const bool demoWaterSwellOff =
+			(std::getenv("ORKIGE_DEMO_WATER_SWELL_OFF") != nullptr);
+		const bool demoWaterSwell =
+			(std::getenv("ORKIGE_DEMO_WATER_SWELL") != nullptr) ||
+			demoWaterSwellOff;
+		optr<Orkige::MeshInstance> waterBackdrop;
+		optr<Orkige::RenderNode> waterBackdropNode;
 		if (demoWater)
 		{
 			optr<Orkige::GameObject> waterObject =
@@ -1224,6 +1243,55 @@ int main(int, char**)
 					demoWaterReflectOff ? "plain" : "reflective",
 					render->supports(
 						Orkige::RenderCaps::PlanarReflection) ? 1 : 0);
+			}
+			if (demoWaterSwell)
+			{
+				// a TALL, high-contrast BACKDROP wall standing well behind the far
+				// water edge: the water's silhouette is drawn against it, so when
+				// the swell lifts/drops the edge the boundary band flips between the
+				// bright backdrop and the darker water. Emissive so it reads at full
+				// contrast regardless of the scene lighting; the shared plane mesh
+				// pitched upright (its +Y normal → a +90deg pitch stands it in XY).
+				Orkige::RenderMaterialDesc backdropDesc;
+				backdropDesc.albedo = Orkige::Color(0.0f, 0.0f, 0.0f, 1.0f);
+				backdropDesc.emissive = Orkige::Color(0.95f, 0.92f, 0.35f, 1.0f);
+				backdropDesc.twoSided = true;
+				render->createMaterial("demo_water_backdrop", backdropDesc);
+				waterBackdrop = world->createMeshInstance(
+					Orkige::WaterComponent::PLANE_MESH_NAME);
+				waterBackdropNode = world->createNode("water.backdrop");
+				waterBackdropNode->setPosition(Orkige::Vec3(0.0f, 1.4f, -6.0f));
+				waterBackdropNode->pitch(Orkige::Degree(90.0f));
+				waterBackdropNode->setScale(Orkige::Vec3(16.0f, 1.0f, 8.0f));
+				if (waterBackdrop)
+				{
+					waterBackdrop->attachTo(waterBackdropNode);
+					waterBackdrop->setMaterial("demo_water_backdrop");
+					waterBackdrop->setCastShadows(false);
+				}
+				// request refraction so the classic flavor runs the swell vertex
+				// program (unsupported on next, which swells the plain PBS surface
+				// directly - harmless there); a slightly clearer surface so the
+				// backdrop reads behind the near water body.
+				water->setScreenSpaceRefraction(true);
+				water->setOpacity(0.7f);
+				// FREEZE the ripple scroll (waveSpeed 0) so the ONLY animation the
+				// two probe frames can catch is the GEOMETRIC swell - the scrolling
+				// normal shimmer, which animates the water body's SHADING (pixels)
+				// on both flavors, would otherwise swamp the classic flavor's small
+				// silhouette bob and defeat the geometry-vs-shading isolation. With
+				// the scroll frozen: the ON leg's only motion is the swell moving the
+				// surface; the OFF leg (waveHeight 0) is fully static - the shipped
+				// byte-stable waveHeight-0 guarantee, provable to the pixel.
+				water->setWaveSpeed(0.0f);
+				// the swell amplitude: a lively rise/fall so the surface moves a
+				// clear few pixels between the two probe frames; 0 = the byte-stable
+				// flat baseline (the shipped waveHeight-0 default).
+				water->setWaveHeight(demoWaterSwellOff ? 0.0f : 0.9f);
+				SDL_Log("hello_orkige: water swell leg up - %s surface "
+					"(waveHeight=%.2f)",
+					demoWaterSwellOff ? "flat" : "swelling",
+					water->getWaveHeight());
 			}
 			SDL_Log("hello_orkige: water demo up - water plane + scrolling "
 				"material '%s' applied", water->getMaterialName().c_str());
@@ -4824,15 +4892,22 @@ int main(int, char**)
 				soundManager.update(0.016f);
 				SDL_Delay(4);
 			}
-			cubeNode->yaw(Orkige::Degree(0.4f));
-			cubeNode->pitch(Orkige::Degree(0.13f));
-			// orbit the small cube around the main cube purely through the
-			// TransformComponent API - proves the component bridge end-to-end
-			const float orbitAngle = static_cast<float>(frameCount) * 0.02f;
-			orbiterTransform->setPosition(Orkige::Vec3(
-				3.0f * std::cos(orbitAngle), 0.8f, 3.0f * std::sin(orbitAngle)));
-			orbiterTransform->setOrientation(Orkige::Quat(
-				Orkige::Radian(-orbitAngle), Orkige::Vec3::UNIT_Y));
+			// the swell leg FREEZES the scene: the water refracts/reflects the
+			// scene, so an orbiting cube would move the water body between the two
+			// probe frames and mask the small geometric swell. With the cubes held
+			// still, the swell is the ONLY thing that can move the surface.
+			if (!demoWaterSwell)
+			{
+				cubeNode->yaw(Orkige::Degree(0.4f));
+				cubeNode->pitch(Orkige::Degree(0.13f));
+				// orbit the small cube around the main cube purely through the
+				// TransformComponent API - proves the component bridge end-to-end
+				const float orbitAngle = static_cast<float>(frameCount) * 0.02f;
+				orbiterTransform->setPosition(Orkige::Vec3(
+					3.0f * std::cos(orbitAngle), 0.8f, 3.0f * std::sin(orbitAngle)));
+				orbiterTransform->setOrientation(Orkige::Quat(
+					Orkige::Radian(-orbitAngle), Orkige::Vec3::UNIT_Y));
+			}
 			if (!render->renderOneFrame())
 			{
 				running = false;

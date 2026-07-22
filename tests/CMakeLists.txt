@@ -884,6 +884,24 @@ if(TARGET hello_orkige)
     set_tests_properties(water_reflection_looks_right PROPERTIES
         LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
 
+    # water_swell_looks_right: the GEOMETRIC swell probe. Runs the demo_water
+    # swell leg two ways (a high-contrast backdrop wall behind the far water edge,
+    # the scene orbit + ripple scroll FROZEN so the swell is the only thing that
+    # can move the surface): swell ON (waveHeight > 0) vs OFF (the byte-stable
+    # waveHeight 0 flat plane), captures two frames apart per run, and in the
+    # silhouette band asserts the swelling surface MOVES between the two frames
+    # (the swell clock advances) and that the waveHeight-0 baseline is byte-stable
+    # over time. Runs on BOTH flavors: next displaces the plain PBS surface via a
+    # custom vertex piece, classic via its refraction/reflection water vertex
+    # program. Skips (77) if the app is unbuilt.
+    add_test(NAME water_swell_looks_right COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_water_swell_probe_test.py"
+        --binary "$<TARGET_FILE:hello_orkige>"
+        --out "${CMAKE_CURRENT_BINARY_DIR}/water_swell_looks_right"
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(water_swell_looks_right PROPERTIES
+        LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
+
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs
     # and the TIMEOUT fails the test
