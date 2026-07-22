@@ -165,6 +165,20 @@ add_test(NAME make_benchmark_assets_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(make_benchmark_assets_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# benchmark showcase currency gate: --check regenerates the self-authored text
+# tree (scenes, levels, layers, manifest, the .omat/.oshape/.oui/.xlf assets)
+# into a temp dir and compares it byte-for-byte against the committed project,
+# exiting non-zero on any difference. A hand edit to a generated scene - like a
+# restaged water vignette - that was never back-ported to the generator fails
+# here, so the two never silently diverge. Deterministic, stdlib-only, no
+# subprocess or binary art (the shared binary/asset generators track their own
+# tooling, not this one, and are out of scope).
+add_test(NAME make_benchmark_assets_check
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_benchmark_assets.py" --check
+            "${Orkige_SOURCE_DIR}/projects/benchmark"
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(make_benchmark_assets_check PROPERTIES LABELS unit TIMEOUT 60)
+
 # tests/projects/integration fixture generator self-validation:
 # make_integration_assets.py builds its three scenes into a scratch dir and
 # asserts the emitted shape (the low-level path-bound ScriptComponent tag,

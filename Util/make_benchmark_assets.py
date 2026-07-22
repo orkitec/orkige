@@ -70,6 +70,13 @@ def fmt(value):
     return str(value)
 
 
+def coord(value):
+    """A vector component: a number formatted compactly, or a pre-formatted
+    string passed through verbatim (so an authored literal like -5.0 keeps its
+    trailing zero that the compact float format would drop)."""
+    return value if isinstance(value, str) else fmt(float(value))
+
+
 class ComponentWriter:
     @staticmethod
     def _base_fields():
@@ -96,9 +103,9 @@ class ComponentWriter:
     def transform(self, x=0.0, y=0.0, z=0.0, sx=1.0, sy=1.0, sz=1.0,
                   quat=(1.0, 0.0, 0.0, 0.0), static=False):
         records = [
-            ("position", K_VEC3, "%s %s %s" % (fmt(float(x)), fmt(float(y)), fmt(float(z))), ""),
+            ("position", K_VEC3, "%s %s %s" % (coord(x), coord(y), coord(z)), ""),
             ("orientation", K_QUAT, "%s %s %s %s" % tuple(fmt(float(q)) for q in quat), ""),
-            ("scale", K_VEC3, "%s %s %s" % (fmt(float(sx)), fmt(float(sy)), fmt(float(sz))), ""),
+            ("scale", K_VEC3, "%s %s %s" % (coord(sx), coord(sy), coord(sz)), ""),
         ]
         if static:
             # the mobility flag: immobile scenery takes the renderer's
@@ -152,8 +159,22 @@ class ComponentWriter:
 
     def water(self, size_x=40.0, size_z=40.0, deep=(0.02, 0.08, 0.12, 1.0),
               shallow=(0.1, 0.4, 0.45, 1.0), opacity=0.85, wave_scale=6.0,
-              wave_speed=0.05, fresnel=2.5, normal_tex="demo_terrain_normal.png"):
-        return self._reflected("WaterComponent", [
+              wave_speed=0.05, fresnel=2.5, normal_tex="demo_terrain_normal.png",
+              wave_height=None, screen_space_refraction=None,
+              planar_reflection=None):
+        # the surface-swell height and the reflection/refraction knobs lead the
+        # block when authored; they stay off the record set (the component keeps
+        # its constructed defaults) unless the vignette opts in.
+        recs = []
+        if wave_height is not None:
+            recs.append(("waveHeight", K_FLOAT, fmt(float(wave_height)), ""))
+        if screen_space_refraction is not None:
+            recs.append(("screenSpaceRefraction", K_BOOL,
+                         fmt(bool(screen_space_refraction)), ""))
+        if planar_reflection is not None:
+            recs.append(("planarReflection", K_BOOL,
+                         fmt(bool(planar_reflection)), ""))
+        recs += [
             ("sizeX", K_FLOAT, fmt(float(size_x)), ""),
             ("sizeZ", K_FLOAT, fmt(float(size_z)), ""),
             ("deepColour", K_COLOR, "%s %s %s %s" % tuple(fmt(float(c)) for c in deep), ""),
@@ -163,7 +184,8 @@ class ComponentWriter:
             ("waveSpeed", K_FLOAT, fmt(float(wave_speed)), ""),
             ("fresnelPower", K_FLOAT, fmt(float(fresnel)), ""),
             ("normalTexture", K_ASSETREF, normal_tex, ""),
-        ])
+        ]
+        return self._reflected("WaterComponent", recs)
 
     def sprite(self, texture, width, height, z_order=0, tint=(1, 1, 1, 1),
                visible=True):
@@ -696,22 +718,39 @@ def build_lake():
           s.light(light_type=0, colour=(1.0, 0.7, 0.5), intensity=1.0,
                   casts=True),
           tags=("sun",))
-    terrain_object(s, y=-4.5)
-    # the water expanse just below the shoreline. A READABLE showcase preset
+    # the far shore: the terrain ridge pushed well back so the lake reads as an
+    # expanse stretching to a distant bank rather than a pond at the camera.
+    # Static scenery (immobile, the renderer's fast path).
+    s.add("Terrain",
+          s.transform(0.0, "-5.0", -72.0, static=True),
+          s.model("demo_terrain.glb", "demo_terrain.omat"),
+          tags=("terrain",))
+    # the water expanse spanning the shoreline. A READABLE showcase preset
     # (brighter teal deep + a clear shallow scatter): the water() defaults are a
     # near-black deep-ocean blue that reads as a dark slab even lit, so the lake
     # vignette carries a lighter body that lets the ripples, the fresnel edge and
-    # the deep/shallow colour read.
+    # the deep/shallow colour read; a low swell height plus screen-space
+    # refraction give the surface motion and see-through depth. The engine water
+    # normal map tiles the ripples.
     s.add("Lake",
-          s.transform(0.0, -3.2, -6.0),
-          s.water(size_x=60.0, size_z=60.0,
+          s.transform(0.0, -3.2, -18.0),
+          s.water(size_x=90.0, size_z=90.0,
+                  wave_height=0.3, screen_space_refraction=True,
+                  planar_reflection=False,
                   deep=(0.04, 0.20, 0.30, 1.0),
-                  shallow=(0.22, 0.55, 0.62, 1.0)),
+                  shallow=(0.22, 0.55, 0.62, 1.0),
+                  normal_tex="water_normal.png"),
           tags=("water",))
-    # a couple of rocks along the shore
-    for i, (x, z) in enumerate([(-8.0, -3.0), (9.0, -5.0), (2.0, -10.0)]):
+    # the lakebed: a broad, sunken, scaled terrain slab under the water body so
+    # the transparent surface reads over a graded floor instead of empty space.
+    s.add("Lakebed",
+          s.transform(0.0, -8.5, -18.0, 1.7, 1.0, 1.7, static=True),
+          s.model("demo_terrain.glb", "demo_terrain.omat"))
+    # restaged shore rocks scattered along the far bank
+    shore = [(-14.0, -2.4, -40.0), (12.0, -2.2, -44.0), (3.0, -2.8, -30.0)]
+    for i, (x, y, z) in enumerate(shore):
         s.add("Shore%d" % i,
-              s.transform(x, 0.4, z, 1.3, 1.3, 1.3),
+              s.transform(x, y, z, 1.3, 1.3, 1.3),
               s.model("demo_material_cube.glb", "prop_rock.omat"))
     return s
 
@@ -1246,17 +1285,6 @@ def build_all(project_dir):
     # id-tracked sidecars (the .dds is final art, format="none")
     run_generator("make_sky_assets.py", "--out", assets, "--sidecars")
 
-    # .omat variants
-    for name, text in OMAT_VARIANTS.items():
-        (assets / name).write_text(text)
-
-    # .oshape blobs (a plain blob + a morphing blob)
-    base = blob_contour(12, 1.0, 0.25, 3)
-    write_oshape(assets / "blob.oshape", (0.95, 0.55, 0.45, 1.0), base)
-    star = blob_contour(12, 1.0, 0.55, 11)
-    write_oshape(assets / "morphblob.oshape", (0.5, 0.8, 0.9, 1.0), base,
-                 morph_verts=star)
-
     # the skinned mannequin rig for the character-cast vignette (the house 3D
     # skeletal-animation fixture) - written straight into the project assets
     run_generator("make_character_rig.py", assets)
@@ -1304,34 +1332,100 @@ def build_all(project_dir):
     if license_source.resolve() != license_dest.resolve():
         shutil.copy2(license_source, license_dest)
 
+    # the deterministic, self-authored text tree (scenes, config, materials,
+    # shapes, UI, localisation) - everything this generator emits directly
+    for rel in write_authored(project_dir):
+        print("wrote %s" % (project_dir / rel))
+
+
+# ---------------------------------------------------------------------------
+# the self-authored text tree. Everything below is pure string emission from
+# this generator (no subprocess, no binary art), so it is deterministic and
+# byte-comparable - the surface the --check drift gate guards. The shared
+# binary/asset generators (terrain, material demo, character rig, particles,
+# gui atlas, sky, lottie cooks) are NOT part of this set: their committed
+# copies track their own generators, not this one.
+# ---------------------------------------------------------------------------
+
+def write_authored(project_dir):
+    """Write the self-authored text files and return the project-relative
+    paths written (the set --check compares)."""
+    assets = project_dir / "assets"
+    scenes = project_dir / "scenes"
+    loc = project_dir / "loc"
+    for d in (assets, scenes, loc):
+        d.mkdir(parents=True, exist_ok=True)
+    written = []
+
+    # .omat variants
+    for name, text in OMAT_VARIANTS.items():
+        (assets / name).write_text(text)
+        written.append("assets/" + name)
+
+    # .oshape blobs (a plain blob + a morphing blob)
+    base = blob_contour(12, 1.0, 0.25, 3)
+    write_oshape(assets / "blob.oshape", (0.95, 0.55, 0.45, 1.0), base)
+    star = blob_contour(12, 1.0, 0.55, 11)
+    write_oshape(assets / "morphblob.oshape", (0.5, 0.8, 0.9, 1.0), base,
+                 morph_verts=star)
+    written += ["assets/blob.oshape", "assets/morphblob.oshape"]
+
     # localisation
     write_xliff(loc / "en.xlf", "en", None, translate=None)
     write_xliff(loc / "de.xlf", "en", "de", translate=lambda k, s: DE.get(k, s))
     write_xliff(loc / "en-XA.xlf", "en", "en-XA",
                 translate=lambda k, s: pseudo(s))
+    written += ["loc/en.xlf", "loc/de.xlf", "loc/en-XA.xlf"]
 
     # .oui screens
     (assets / "hud.oui").write_text(HUD_OUI)
     (assets / "settings.oui").write_text(SETTINGS_OUI)
+    written += ["assets/hud.oui", "assets/settings.oui"]
 
-    # scenes
+    # scenes + test fixtures (fixtures are director-free, not level-sequenced)
     for (file, label, mode, seconds) in SCENES:
-        s = BUILDERS[mode]()
-        s.write(scenes / file)
-        print("wrote %s (%d objects)" % (scenes / file, len(s.objects)))
-
-    # test fixtures (deterministic, director-free, not in the level sequence)
+        BUILDERS[mode]().write(scenes / file)
+        written.append("scenes/" + file)
     for (file, builder) in sorted(FIXTURES.items()):
-        s = builder()
-        s.write(scenes / file)
-        print("wrote %s (%d objects)" % (scenes / file, len(s.objects)))
+        builder().write(scenes / file)
+        written.append("scenes/" + file)
 
     # config + manifest + attribution
     write_levels(project_dir / "levels.olevels")
     write_layers(project_dir / "physics.olayers")
     (project_dir / "project.orkproj").write_text(MANIFEST)
     (project_dir / "ATTRIBUTION.md").write_text(ATTRIBUTION)
-    print("wrote manifest, levels.olevels, physics.olayers, ATTRIBUTION.md")
+    written += ["levels.olevels", "physics.olayers", "project.orkproj",
+                "ATTRIBUTION.md"]
+    return written
+
+
+def check(project_dir):
+    """Regenerate the self-authored text tree into a temp dir and compare it
+    against the committed project - a hand edit to a generated scene (or any
+    other authored file) that was never back-ported to this generator fails
+    here. Returns a process exit code (1 on drift)."""
+    import tempfile
+    drift = []
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        checked = write_authored(tmp)
+        for rel in checked:
+            fresh = (tmp / rel).read_bytes()
+            committed = project_dir / rel
+            if not committed.exists() or committed.read_bytes() != fresh:
+                drift.append(rel)
+    if drift:
+        print("benchmark generator drift: %d committed file(s) differ from a "
+              "fresh generate -" % len(drift))
+        for rel in sorted(drift):
+            print("  " + rel)
+        print("a generated file was hand-edited; back-port the change into "
+              "Util/make_benchmark_assets.py, then regenerate.")
+        return 1
+    print("benchmark authored tree matches the generator (%d files checked)"
+          % len(checked))
+    return 0
 
 
 def selftest():
@@ -1389,11 +1483,18 @@ def main():
     parser.add_argument("project_dir", nargs="?",
                         default=str(REPO / "projects/benchmark"))
     parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--check", action="store_true",
+                        help="regenerate the self-authored text tree into a "
+                             "temp dir and compare against the project - "
+                             "exit 1 on drift, writing nothing")
     args = parser.parse_args()
     if args.selftest:
         return selftest()
+    if args.check:
+        return check(Path(args.project_dir))
     build_all(Path(args.project_dir))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
