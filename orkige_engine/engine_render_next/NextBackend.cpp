@@ -69,6 +69,7 @@
 #include <Compositor/Pass/OgreCompositorPass.h>
 #include <Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h>
 #include <Compositor/Pass/PassQuad/OgreCompositorPassQuadDef.h>	// bloom quad passes
+#include <Compositor/Pass/PassMipmap/OgreCompositorPassMipmapDef.h>	// planar reflection mip chain
 #include <OgreMaterialManager.h>	// bloom material param push
 #include <OgreTechnique.h>
 #include <OgrePass.h>
@@ -1166,7 +1167,16 @@ namespace Orkige
 		nodeDefinition->setNumTargetPass(1);
 		Ogre::CompositorTargetDef* targetDefinition =
 			nodeDefinition->addTargetPass("ReflectionRT");
-		targetDefinition->setNumPasses(1);
+		// two passes: the scene render into mip 0, THEN a mipmap-generation pass
+		// that fills the RTT's mip chain. The reflection texture is allocated
+		// WITH a mip chain (PlanarReflections::setMaxActiveActors, mipmaps=true) so
+		// the water samples it at a roughness-driven LOD for a glossy ripple
+		// (HlmsPbs: perceptualRoughness * planarReflNumMips). Without this second
+		// pass the mips above 0 are never populated - the water reads uninitialised
+		// mip levels and the whole surface shows a uniform garbage wash instead of
+		// the mirrored scene. (The upstream default PlanarReflections workspace
+		// carries the same generate_mipmaps pass; our hand-built def must too.)
+		targetDefinition->setNumPasses(2);
 		Ogre::CompositorPassSceneDef* scenePass =
 			static_cast<Ogre::CompositorPassSceneDef*>(
 				targetDefinition->addPass(Ogre::PASS_SCENE));
@@ -1177,6 +1187,11 @@ namespace Orkige
 		// mirror (@see isPlanarReflectiveWaterMaterial / MeshInstance::setMaterial)
 		scenePass->mFirstRQ = 0;
 		scenePass->mLastRQ = RenderBackend::WATER_REFRACTION_RENDER_QUEUE;
+		// generate the mip chain from the just-rendered mirror. ApiDefault uses the
+		// graphics auto-mipmap path, which matches the texture's AllowAutomipmaps
+		// flag (the subsystem stands up with the non-compute mipmap method, so the
+		// RTT is NOT a UAV and a compute filter would not apply).
+		targetDefinition->addPass(Ogre::PASS_MIPMAP);
 		// no shadow node: the mirror renders the lit scene + sky without a
 		// second PSSM pass (a robust first tier; shadows-in-reflections is a
 		// later quality knob) - the reflection stays capability/tier honest
