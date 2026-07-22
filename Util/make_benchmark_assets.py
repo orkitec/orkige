@@ -371,7 +371,7 @@ class SceneWriter(ComponentWriter):
         return "\n".join(lines) + "\n"
 
     def write(self, path):
-        path.write_text(self.to_text())
+        path.write_text(self.to_text(), encoding="utf-8", newline="\n")
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +403,7 @@ def write_oshape(path, fill, verts, morph_verts=None):
         lines.append("contour %d" % len(morph_verts))
         for (x, y) in morph_verts:
             lines.append("v %.4f %.4f" % (x, y))
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +511,7 @@ def write_xliff(path, source_lang, target_lang, translate=None):
     lines.append("    </body>")
     lines.append("  </file>")
     lines.append("</xliff>")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 # ---------------------------------------------------------------------------
@@ -1118,7 +1118,7 @@ def write_levels(path):
         lines.append('    <String value="%s"/>' % label)
         lines.append('    <int value="0"/>')
     lines.append('</XMLArchive>')
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 def write_layers(path):
@@ -1141,7 +1141,7 @@ def write_layers(path):
     for row in matrix:
         lines.extend('    <bool value="%d"/>' % (1 if cell else 0) for cell in row)
     lines.append('</XMLArchive>')
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 MANIFEST = """<?xml version="1.0" encoding="UTF-8"?>
@@ -1307,12 +1307,12 @@ def build_all(project_dir):
     for name in ("cutout_body.png", "cutout_head.png", "cutout_arm.png"):
         # generated flat-colour probe art never block-compresses
         orkige_sidecar.stamp_texture_sidecar(str(assets / name), fmt="none")
-    (assets / "cutout_hero.oanim").write_text(vsd.cutout_hero_oanim())
+    (assets / "cutout_hero.oanim").write_text(vsd.cutout_hero_oanim(), encoding="utf-8", newline="\n")
 
     # vector animation: write the Lottie source and cook it in place
     import json
     walker_json = assets / "walker.json"
-    walker_json.write_text(json.dumps(walker_lottie(), indent=1) + "\n")
+    walker_json.write_text(json.dumps(walker_lottie(), indent=1) + "\n", encoding="utf-8", newline="\n")
     run_generator("cook_vector_anim.py", walker_json)
 
     # Pinned MIT character corpus: source JSON remains the editable/import
@@ -1359,7 +1359,7 @@ def write_authored(project_dir):
 
     # .omat variants
     for name, text in OMAT_VARIANTS.items():
-        (assets / name).write_text(text)
+        (assets / name).write_text(text, encoding="utf-8", newline="\n")
         written.append("assets/" + name)
 
     # .oshape blobs (a plain blob + a morphing blob)
@@ -1378,8 +1378,8 @@ def write_authored(project_dir):
     written += ["loc/en.xlf", "loc/de.xlf", "loc/en-XA.xlf"]
 
     # .oui screens
-    (assets / "hud.oui").write_text(HUD_OUI)
-    (assets / "settings.oui").write_text(SETTINGS_OUI)
+    (assets / "hud.oui").write_text(HUD_OUI, encoding="utf-8", newline="\n")
+    (assets / "settings.oui").write_text(SETTINGS_OUI, encoding="utf-8", newline="\n")
     written += ["assets/hud.oui", "assets/settings.oui"]
 
     # scenes + test fixtures (fixtures are director-free, not level-sequenced)
@@ -1393,8 +1393,8 @@ def write_authored(project_dir):
     # config + manifest + attribution
     write_levels(project_dir / "levels.olevels")
     write_layers(project_dir / "physics.olayers")
-    (project_dir / "project.orkproj").write_text(MANIFEST)
-    (project_dir / "ATTRIBUTION.md").write_text(ATTRIBUTION)
+    (project_dir / "project.orkproj").write_text(MANIFEST, encoding="utf-8", newline="\n")
+    (project_dir / "ATTRIBUTION.md").write_text(ATTRIBUTION, encoding="utf-8", newline="\n")
     written += ["levels.olevels", "physics.olayers", "project.orkproj",
                 "ATTRIBUTION.md"]
     return written
