@@ -125,13 +125,12 @@ TEST_CASE("AtmosphereSunDrive: the classic calibration tracks the linear drive",
 		previous = mapped;
 	}
 	CHECK(AtmosphereSunDrive::Detail::classicLevel(0.0f) == 0.0f);
-	// the calibration point: a mid-grey slab under the day exposure reads
-	// comparably on both flavors (0.5 * classicScale vs the encoded PBS
-	// response sqrt(0.5/pi * power))
+	// the calibration law: the gamma-naive display (albedo_encoded * scale
+	// * NdotL) matches the linear pipeline's encoded response at the
+	// reference incidence cos0 = 0.6 when the scale is the display-encoded
+	// drive level times the 1.15 regime factor (@see classicLevel)
 	const Drive day = driveFor(AtmospherePreset::SKY_DAY, 0.99f);
-	const float classicReading = 0.5f * day.classicSunScale;
-	const float nextReading =
-		std::sqrt(0.5f / 3.14159f * day.nextSunPower);
-	CHECK(classicReading ==
-		Catch::Approx(nextReading).epsilon(0.05f));
+	CHECK(day.classicSunScale ==
+		Catch::Approx(std::pow(day.nextSunPower, 1.0f / 2.2f) * 1.15f)
+			.epsilon(0.01f));
 }

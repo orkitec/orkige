@@ -64,6 +64,19 @@ equivalent features. Local additions:
   `DrawLayer2D` backend draws each 2D element through exactly that
   `manualRender` overload, so the whole gui/editor/UI surface died on it.
   The patch treats a null renderable as "no identity view/projection".
+- `assimp-single-key-interpolation.patch` - upstream candidate: the Assimp
+  plugin's animation import merges every channel's key TIMES into one map,
+  then fills each keyframe's missing lanes by searching the neighbouring
+  entries for that lane's nearest keys (`GetInterpolationIterators`). The
+  backward search constructs `reverse_iterator(it)` - which already refers
+  to the element BEFORE `it` - and then advances once more, skipping the
+  immediate predecessor. A channel with a SINGLE leading key (the constant
+  translation/scale track a glTF exporter emits for a rotation-only joint
+  animation) then finds no key on either side and falls back to a ZERO
+  vector, so every interpolated keyframe carries the joint's inverse bind
+  translation: skinned characters collapse limb-into-torso at mid-clip and
+  the animation reads as a rigid bounce. The patch drops the extra advance
+  so the search starts at the true predecessor.
 - `cpufeatures-build-interface.patch` - upstream candidate (submitted as
   OGRECave/ogre #3675): master's
   `target_link_libraries(OgreMain PRIVATE cpufeatures log z)` (new since

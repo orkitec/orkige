@@ -190,11 +190,24 @@ namespace Orkige
 				return colour;
 			}
 
-			//! the mid-grey-reference calibration: the classic gamma-space
-			//! level equivalent of a linear drive level (@see the header note)
+			//! the display-encode calibration: the classic gamma-space level
+			//! equivalent of a linear drive level. For a diffuse surface the
+			//! gamma-naive pipeline shows albedo_encoded * level * NdotL while
+			//! the linear pipeline shows encode(albedo_linear * L * NdotL);
+			//! under the 2.2 power-law gamma the two agree when
+			//! level = L^(1/2.2) * cos0^(1/2.2 - 1) at a REFERENCE incidence
+			//! cos0. The reference sits between head-on and the typical
+			//! lit-content regime (the 1.15 factor - a full cos0=0.6 factor of
+			//! 1.32 overshot the night scenes, where the ambient share
+			//! dominates); the flavors' NdotL falloff SHAPES differ (linear
+			//! here, power-law there), so one calibration point must pick a
+			//! middle. The earlier sqrt(2x/pi) mid-grey heuristic sat ~40%
+			//! darker across real day content (the classic-surfaces-read-darker
+			//! divergence).
 			inline float classicLevel(float linearLevel)
 			{
-				return std::sqrt(2.0f * std::max(linearLevel, 0.0f) / kPi);
+				return std::pow(std::max(linearLevel, 0.0f), 1.0f / 2.2f) *
+					1.15f;
 			}
 		}
 
@@ -278,16 +291,17 @@ namespace Orkige
 			out.nextLowerBlue = lower.z;
 			// classic has flat ambient only: average the hemisphere in linear
 			// first (the setAmbientHemisphere averaged-flat precedent), then
-			// DISPLAY-ENCODE each channel (x^(1/2.2)): for a diffuse surface
-			// the gamma-naive pipeline shows albedo_encoded * ambient, and
-			// matching the linear pipeline's encode(albedo_linear * ambient)
-			// under the power-law gamma needs exactly the encoded ambient -
-			// the sun's mid-grey calibration (classicLevel) under-fills the
-			// ambient-lit faces, which read a step darker than the next
-			// flavor's (the away-from-sun cube-face divergence)
+			// DISPLAY-ENCODE each channel with a SOFTENED exponent (x^(1/1.6)):
+			// the full display encode (1/2.2) matches the linear pipeline for a
+			// lone diffuse term, but the linear flavor's ambient path carries
+			// its own attenuations, and fully-encoded ambient OVERSHOT the
+			// night scenes ~2x (low levels lift hardest under the encode). The
+			// softened curve meets the measured night and day fills between
+			// the flavors; a raw linear ambient sat far too dark (the
+			// away-from-sun cube-face divergence)
 			auto encodeAmbient = [](float linear)
 			{
-				return std::pow(std::max(linear, 0.0f), 1.0f / 2.2f);
+				return std::pow(std::max(linear, 0.0f), 1.0f / 1.6f);
 			};
 			out.classicAmbientRed = encodeAmbient((upper.x + lower.x) * 0.5f);
 			out.classicAmbientGreen = encodeAmbient((upper.y + lower.y) * 0.5f);

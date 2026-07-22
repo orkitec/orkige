@@ -897,6 +897,7 @@ WaterComponent.shallowColour
 WaterComponent.opacity
 WaterComponent.waveScale
 WaterComponent.waveSpeed
+WaterComponent.waveHeight
 WaterComponent.fresnelPower
 WaterComponent.normalTexture
 WaterComponent.receiveShadows

@@ -113,6 +113,10 @@ namespace Orkige
 		void setWaveSpeed(float waveSpeed);
 		//! @see RenderWaterDesc::waveSpeed
 		inline float getWaveSpeed() const { return this->mDesc.waveSpeed; }
+		//! @see RenderWaterDesc::waveHeight (geometric swell amplitude; 0 = flat)
+		void setWaveHeight(float waveHeight);
+		//! @see RenderWaterDesc::waveHeight
+		inline float getWaveHeight() const { return this->mDesc.waveHeight; }
 		//! edge-reflection strength knob
 		void setFresnelPower(float fresnelPower);
 		//! @see RenderWaterDesc::fresnelPower

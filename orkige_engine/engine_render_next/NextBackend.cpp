@@ -48,6 +48,7 @@
 #include <OgreItem.h>				// planar-reflection renderable registration
 #include <OgreSubItem.h>
 #include <OgrePlanarReflections.h>	// mirror-of-scene water reflection subsystem
+#include <OgreHlmsListener.h>	// the pass-buffer seam the water swell clock rides
 #include <OgreRectangle2D2.h>
 #include <OgreMaterial.h>
 #include <OgreTextureGpuManager.h>
@@ -322,6 +323,59 @@ namespace Orkige
 		};
 		//! one instance, attached to the window workspace on every rebuild
 		PlanarReflectionUpdater gPlanarReflectionUpdater;
+
+		//--- geometric water swell (vertex-stage displacement) ------------
+		//! the world-space swell frequency + phase rate BOTH flavors' water
+		//! vertex stages share (the classic program pushes the same numbers
+		//! through its waveParams constant), so the two flavors' swells move
+		//! in lockstep. Wavelength ~12.5 world units, ~1.2 rad/s travel.
+		constexpr float kSwellWorldFrequency = 0.5f;
+		constexpr float kSwellPhaseRate = 1.2f;
+		//! the live swell clock (seconds, from setWaterDatablockTime - every
+		//! surface shares the one clock; per-surface amplitude bakes into the
+		//! surface's own custom piece)
+		float gWaterSwellClock = 0.0f;
+		//! the swell-displaced water materials (waveHeight > 0) - while any
+		//! exist, the listener below publishes the clock into the pass buffer
+		std::set<String> gSwellWaterMaterials;
+		//! @brief appends the swell clock to every PBS pass buffer while the
+		//! swell is live: the water datablock's custom vertex piece reads
+		//! passBuf.orkigeWaterSwell.x as its phase. The member sits at the
+		//! STRUCT TAIL (custom_passBuffer inserts last), so shaders that do
+		//! not declare it read their smaller view of the same buffer safely.
+		class WaterSwellHlmsListener : public Ogre::HlmsListener
+		{
+		public:
+			void preparePassHash(const Ogre::CompositorShadowNode*,
+				bool /*casterPass*/, bool /*dualParaboloid*/,
+				Ogre::SceneManager*, Ogre::Hlms* hlms) override
+			{
+				// the property gates the piece's passBuf declaration; setting
+				// it recompiles the PBS set ONCE when the first swell surface
+				// appears (cached afterwards)
+				hlms->_setProperty(Ogre::Hlms::kNoTid,
+					"orkige_water_swell", 1);
+			}
+			Ogre::uint32 getPassBufferSize(const Ogre::CompositorShadowNode*,
+				bool /*casterPass*/, bool /*dualParaboloid*/,
+				Ogre::SceneManager*) const override
+			{
+				return 16u;	// float4 orkigeWaterSwell (x = clock, yzw pad)
+			}
+			float* preparePassBuffer(const Ogre::CompositorShadowNode*,
+				bool /*casterPass*/, bool /*dualParaboloid*/,
+				Ogre::SceneManager*, float* passBufferPtr) override
+			{
+				*passBufferPtr++ = gWaterSwellClock;
+				*passBufferPtr++ = 0.0f;
+				*passBufferPtr++ = 0.0f;
+				*passBufferPtr++ = 0.0f;
+				return passBufferPtr;
+			}
+		};
+		WaterSwellHlmsListener gWaterSwellListener;
+		bool gWaterSwellListenerSet = false;
+		//--- end water swell ----------------------------------------------
 
 		//! apply the global wireframe state to one datablock (keeps the
 		//! datablock's other macroblock state - culling, depth - intact)
@@ -2160,6 +2214,16 @@ namespace Orkige
 		{
 			RenderBackend::applyImageLightingToDatablock(each);
 		}
+		// re-push the scene ambient so its envMapScale lane picks the fresh
+		// image-lighting intensity up: the scale rides the ambient write's
+		// alpha, and the LAST ambient write may predate this activation (a
+		// stale scale of 1.0 rendered the fill at full native strength no
+		// matter the authored intensity)
+		if(RenderWorld* world = gRenderSystem->getWorld())
+		{
+			world->setAmbientHemisphere(world->getAmbientHemisphereUpper(),
+				world->getAmbientHemisphereLower());
+		}
 	}
 	//---------------------------------------------------------
 	void RenderBackend::applyImageLightingToDatablock(
@@ -2180,7 +2244,16 @@ namespace Orkige
 		{
 			return 1.0f;
 		}
-		return gRenderSystem->getWorld()->mImpl->iblIntensity;
+		// cross-flavor fill calibration: at the same authored intensity the
+		// native env contribution lights surfaces ~5x stronger than the
+		// classic flavor's image-lighting stage (measured on the benchmark
+		// vista's terrain: +67 vs +12 display units at intensity 0.2), so the
+		// intensity is scaled down here to make the SAME scene read the same
+		// on both flavors - the flavor-parity contract outranks the native
+		// magnitude (@see Docs/render-abstraction.md)
+		const float kFillParityScale = 0.2f;
+		return gRenderSystem->getWorld()->mImpl->iblIntensity *
+			kFillParityScale;
 	}
 	//--- end IBL block ----------------------------------------------------
 	//---------------------------------------------------------
@@ -3186,11 +3259,16 @@ namespace Orkige
 		// bound to both detail slots and scrolled in different directions/
 		// speeds by setWaterDatablockTime so their interference reads as moving
 		// water. The detail normals go through the slot's own string setter
-		// (its suggested filters run the normal-map preparation).
+		// (its suggested filters run the normal-map preparation). The primary
+		// weight sits ABOVE unit so the ripple relief visibly catches the
+		// light like the classic flavor's full-strength lit normal map does
+		// (at 1.0/0.6 this surface read notably flatter than its classic
+		// sibling; far above ~1.4 the spread sparkle flattens the distinct
+		// sun glint the water probe rightly demands).
 		const Ogre::PbsTextureTypes detailSlots[2] =
 			{ Ogre::PBSM_DETAIL0_NM, Ogre::PBSM_DETAIL1_NM };
 		const float detailScales[2] = { desc.waveScale, desc.waveScale * 1.7f };
-		const float detailWeights[2] = { 1.0f, 0.6f };
+		const float detailWeights[2] = { 1.35f, 0.8f };
 		// cooked-payload fallback (foo.png -> foo.dds/.oitd in exports)
 		const String resolvedNormal =
 			RenderBackend::resolveTextureResourceName(desc.normalTexture);
@@ -3230,6 +3308,56 @@ namespace Orkige
 			}
 		}
 
+		// GEOMETRIC swell: a per-datablock custom vertex piece displaces the
+		// plane's vertices with the two-sine travelling swell (the classic
+		// water program runs the SAME formula/constants through its
+		// waveParams push - keep them in lockstep). The amplitude bakes into
+		// the piece source (a knob change re-sets the piece - rare); the
+		// phase reads the pass-buffer clock the swell listener publishes.
+		// waveHeight 0 clears the piece - the byte-stable flat plane.
+		{
+			Ogre::HlmsPbs* pbs = static_cast<Ogre::HlmsPbs*>(
+				hlmsManager->getHlms(Ogre::HLMS_PBS));
+			const float swell = std::max(desc.waveHeight, 0.0f);
+			if(swell > 0.0f)
+			{
+				char source[768];
+				std::snprintf(source, sizeof(source),
+					"@property( orkige_water_swell )\n"
+					"@piece( custom_passBuffer )\n"
+					"\tfloat4 orkigeWaterSwell;\n"
+					"@end\n"
+					"@piece( custom_vs_preTransform )\n"
+					"\tworldPos.y += %.6ff * ( sin( worldPos.x * %.4ff\n"
+					"\t\t+ passBuf.orkigeWaterSwell.x )\n"
+					"\t\t+ 0.6f * sin( ( worldPos.z * 1.3f + worldPos.x * 0.4f )\n"
+					"\t\t\t* %.4ff - passBuf.orkigeWaterSwell.x * 1.7f ) );\n"
+					"@end\n"
+					"@end\n",
+					swell, kSwellWorldFrequency, kSwellWorldFrequency);
+				datablock->setCustomPieceCodeFromMemory(
+					name + "_swell_piece_vs.any", source,
+					Ogre::CustomPieceStage::VertexShader);
+				gSwellWaterMaterials.insert(name);
+				if(!gWaterSwellListenerSet)
+				{
+					pbs->setListener(&gWaterSwellListener);
+					gWaterSwellListenerSet = true;
+				}
+			}
+			else
+			{
+				datablock->setCustomPieceCodeFromMemory(String(), String(),
+					Ogre::CustomPieceStage::VertexShader);
+				gSwellWaterMaterials.erase(name);
+				if(gSwellWaterMaterials.empty() && gWaterSwellListenerSet)
+				{
+					pbs->setListener(NULL);
+					gWaterSwellListenerSet = false;
+				}
+			}
+		}
+
 		// remember the wave tunables for the per-frame scroll
 		gWaterAnims[name] = WaterAnim{ desc.waveScale, desc.waveSpeed };
 		return datablock;
@@ -3243,6 +3371,9 @@ namespace Orkige
 		{
 			return;	// no water material by that name - silent no-op (dormancy)
 		}
+		// the shared swell clock (every swell surface reads the one phase;
+		// published into the pass buffer by the swell listener)
+		gWaterSwellClock = seconds * kSwellPhaseRate;
 		oAssert(gRenderSystem);
 		Ogre::HlmsManager* hlmsManager =
 			gRenderSystem->mImpl->root->getHlmsManager();

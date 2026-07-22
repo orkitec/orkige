@@ -63,6 +63,8 @@ namespace Orkige
 			//! the fresnel F0 for the sky-reflection blend (@see the refract
 			//! program's skyParams - the same F0 formula as the reflect path)
 			float skyF0 = 0.05f;
+			//! geometric swell amplitude (waveParams.x - @see RenderWaterDesc)
+			float waveHeight = 0.0f;
 		};
 		std::unordered_map<String, RefractKnobs> gRefractiveWaterKnobs;
 		//! The mesh entities currently wearing a CUSTOM water material (refractive
@@ -133,6 +135,8 @@ namespace Orkige
 			float refractEnabled = 0.0f;
 			//! the body-dim scale (reflectParams.z) - @see applyReflectionParams
 			float baseScale = 1.0f;
+			//! geometric swell amplitude (waveParams.x - @see RenderWaterDesc)
+			float waveHeight = 0.0f;
 		};
 		std::unordered_map<String, ReflectKnobs> gReflectiveWaterKnobs;
 		//! the ONE shared reflection render target: a window-sized colour texture
@@ -150,6 +154,12 @@ namespace Orkige
 		//! plane. Both owned by the scene manager, destroyed at teardown.
 		Ogre::Camera* gMirrorCamera = NULL;
 		Ogre::SceneNode* gMirrorNode = NULL;
+		//! the world-space swell frequency + phase rate BOTH flavors' water
+		//! vertex stages share (the next backend bakes the same numbers into
+		//! its water datablock piece), so the two flavors' swells move in
+		//! lockstep. Wavelength ~12.5 world units, ~1.2 rad/s travel.
+		constexpr float kSwellWorldFrequency = 0.5f;
+		constexpr float kSwellPhaseRate = 1.2f;
 		//! the mirror plane's world Y (the water surface height, normal +Y) the
 		//! reflection is currently built for - a change recreates the reflection.
 		float gReflectionPlaneY = 0.0f;
@@ -302,21 +312,12 @@ namespace Orkige
 			// on every toggle so an inactive state carries NO residue
 			if(gIbl.active)
 			{
-				// display calibration: this pipeline shows shader output RAW
-				// (gamma-naive) while the sibling flavor's linear fill gets
-				// hardware sRGB-encoded on display - a linear-magnitude fill
-				// here reads a step darker than the same fill there, so the
-				// stage luminance carries a fixed display gain (measured
-				// against the sibling flavor's lit-terrain fill; the water
-				// programs read the RAW intensity for their sky reflection)
-				const float kIblDisplayGain = 2.8f;
 				Ogre::RTShader::SubRenderState* imageLighting =
 					generator->createSubRenderState(
 						Ogre::RTShader::SRS_IMAGE_BASED_LIGHTING);
 				imageLighting->setParameter("texture", gIbl.envTexture);
 				imageLighting->setParameter("luminance",
-					Ogre::StringConverter::toString(
-						gIbl.luminance * kIblDisplayGain));
+					Ogre::StringConverter::toString(gIbl.luminance));
 				renderState->addTemplateSubRenderState(imageLighting);
 			}
 			// remember the pinned state so a live image-lighting toggle can
@@ -953,6 +954,7 @@ namespace Orkige
 					"#version 150\n"
 					"uniform mat4 worldViewProj;\n"
 					"uniform mat4 world;\n"
+					"uniform vec4 waveParams;\n"  // x=amplitude y=frequency z=phase w=unused
 					"in vec4 vertex;\n"
 					"in vec4 uv0;\n"
 					"out vec2 vUv;\n"
@@ -960,11 +962,21 @@ namespace Orkige
 					"out vec3 vWorldPos;\n"
 					"void main()\n"
 					"{\n"
-					"    vec4 clip = worldViewProj * vertex;\n"
+					// GEOMETRIC swell: a travelling two-sine sum over the plane's
+					// object-space footprint, phased by the water clock - real
+					// silhouette motion (amplitude 0 = the byte-stable flat plane).
+					// The next flavor's water runs the SAME formula in its vertex
+					// stage - keep the two in lockstep.
+					"    vec4 pos = vertex;\n"
+					"    pos.y += waveParams.x * (\n"
+					"        sin(pos.x * waveParams.y + waveParams.z) +\n"
+					"        0.6 * sin((pos.z * 1.3 + pos.x * 0.4) * waveParams.y\n"
+					"            - waveParams.z * 1.7));\n"
+					"    vec4 clip = worldViewProj * pos;\n"
 					"    gl_Position = clip;\n"
 					"    vClip = clip;\n"
 					"    vUv = uv0.xy;\n"
-					"    vWorldPos = (world * vertex).xyz;\n"
+					"    vWorldPos = (world * pos).xyz;\n"
 					"}\n");
 				vs->load();
 				vs->getDefaultParameters()->setNamedAutoConstant("worldViewProj",
@@ -1684,6 +1696,7 @@ namespace Orkige
 					0.02f, 0.3f);
 				knobs.baseScale = 1.0f -
 					std::clamp(desc.reflectionStrength, 0.0f, 1.0f) * 0.35f;
+				knobs.waveHeight = std::max(desc.waveHeight, 0.0f);
 				knobs.waveScale = std::max(desc.waveScale, 0.001f);
 				knobs.refractStrength = std::max(desc.refractionStrength, 0.0f);
 				knobs.refractEnabled = composeRefract ? 1.0f : 0.0f;
@@ -1777,6 +1790,7 @@ namespace Orkige
 						0.0f, 0.2f) +
 					std::clamp(desc.reflectionStrength, 0.0f, 1.0f) * 0.12f,
 					0.02f, 0.3f);
+				refractKnobs.waveHeight = std::max(desc.waveHeight, 0.0f);
 				gRefractiveWaterKnobs[name] = refractKnobs;
 				gWaterScrollSpeeds[name] = desc.waveSpeed;
 				return material;
@@ -1950,6 +1964,12 @@ namespace Orkige
 			// body-dim scale
 			params->setNamedConstant("reflectParams", Ogre::Vector4(
 				k.reflectStrength, k.refractEnabled, k.baseScale, 0.0f));
+			// the geometric swell (VS): amplitude + the shared world-space
+			// frequency, phased by the shared clock rate (the same formula
+			// and constants the next flavor's water vertex stage runs)
+			pass->getVertexProgramParameters()->setNamedConstant("waveParams",
+				Ogre::Vector4(k.waveHeight, kSwellWorldFrequency,
+					seconds * kSwellPhaseRate, 0.0f));
 			// the sun's direction/colour for the specular streak, pushed
 			// manually (the pass is lighting-disabled, so the auto light
 			// constants would not bind); w gates the streak off when no
@@ -1986,6 +2006,10 @@ namespace Orkige
 			// re-push the FULL 4-vector: x=strength y=waveScale z/w=scroll
 			params->setNamedConstant("refractParams",
 				Ogre::Vector4(k.strength, k.waveScale, travel, travel * 0.6f));
+			// the geometric swell (VS): the same push as the reflective branch
+			pass->getVertexProgramParameters()->setNamedConstant("waveParams",
+				Ogre::Vector4(k.waveHeight, kSwellWorldFrequency,
+					seconds * kSwellPhaseRate, 0.0f));
 			// the fresnel sky reflection tracks the LIVE image-lighting state
 			// (the director may toggle it after the water built): gate + level
 			// per frame, and rebind the sky unit when the environment cubemap

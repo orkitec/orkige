@@ -115,6 +115,17 @@ namespace Orkige
 		//! WaterComponent fills it from the surface node's world Y at material
 		//! (re)apply. Only consulted when planarReflection is on
 		float	planeHeightY = 0.0f;
+		//! GEOMETRIC wave amplitude in WORLD units (vertical). 0 (the default)
+		//! keeps the plane byte-stable FLAT - the ripple lives entirely in the
+		//! scrolling normal maps. When set, the surface's vertices displace
+		//! vertically in the vertex stage with a travelling two-sine swell
+		//! (world-space wavelength ~12.5 units, phased by setWaterTime - the
+		//! SAME formula/constants on both flavors), giving the visible
+		//! silhouette motion flat normal-mapped water lacks. ~0.2-0.5 reads as
+		//! a gentle lake swell. Realized on the flavors' PROGRAMMABLE water
+		//! paths; inert (flat, honest) elsewhere - the 17x17 plane grid bounds
+		//! how sharp a swell can render.
+		float	waveHeight = 0.0f;
 	};
 }
 

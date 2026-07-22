@@ -87,6 +87,12 @@ namespace Orkige
 		this->applyMaterial();
 	}
 	//---------------------------------------------------------
+	void WaterComponent::setWaveHeight(float waveHeight)
+	{
+		this->mDesc.waveHeight = waveHeight;
+		this->applyMaterial();
+	}
+	//---------------------------------------------------------
 	void WaterComponent::setFresnelPower(float fresnelPower)
 	{
 		this->mDesc.fresnelPower = fresnelPower;
@@ -333,6 +339,7 @@ namespace Orkige
 		OPROPERTY("opacity", Orkige::PropertyKind::Float, getOpacity, setOpacity, Orkige::PROP_NONE)
 		OPROPERTY("waveScale", Orkige::PropertyKind::Float, getWaveScale, setWaveScale, Orkige::PROP_NONE)
 		OPROPERTY("waveSpeed", Orkige::PropertyKind::Float, getWaveSpeed, setWaveSpeed, Orkige::PROP_NONE)
+		OPROPERTY("waveHeight", Orkige::PropertyKind::Float, getWaveHeight, setWaveHeight, Orkige::PROP_NONE)
 		OPROPERTY("fresnelPower", Orkige::PropertyKind::Float, getFresnelPower, setFresnelPower, Orkige::PROP_NONE)
 		OPROPERTY_REF("normalTexture", Orkige::PropertyKind::AssetRef, "texture", getNormalTexture, setNormalTexture, Orkige::PROP_NONE)
 		// receive-only shadow participation (water never casts, @see remarks)
