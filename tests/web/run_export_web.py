@@ -40,6 +40,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO_ROOT, "Util"))
 import orkige_png  # noqa: E402  (sibling Util helper - stdlib-only PNG codec)
+import make_benchmark_assets as bench  # noqa: E402  (SceneWriter - format-current)
 
 PROJECT = os.path.join(REPO_ROOT, "projects", "jumper-lua")
 ROLLER_PROJECT = os.path.join(REPO_ROOT, "projects", "roller")
@@ -51,6 +52,89 @@ ARTIFACT_FILES = ("index.html", "orkige_player.js", "orkige_player.wasm",
 
 BOOT_MARKER = "bundled project '/project'"
 EXIT_MARKER = "frame stats - "  # printed by the player's orderly shutdown
+
+# the water fixture's own boot log (water_probe.component.lua): the classic
+# backend's screen-space-refraction capability answers true only where the
+# advanced-water GLSL gate opened - on web that is the GLSL ES 3.0 variant on
+# a real WebGL2/GLES3 context (the desktop water probes cover the GL core one).
+WATER_SUPPORTED_MARKER = "water_probe: screenSpaceRefraction=true"
+# the classic backend's honest refusal when a water program fails to build (the
+# createWaterMaterial catch's oDebugError) - its ABSENCE proves the ES-300
+# refraction/reflection programs compiled + linked on the WebGL2 driver.
+WATER_SETUP_FAILED = ("refraction setup failed", "reflection setup failed")
+
+# a single-scene water project generated on the fly (from the benchmark's
+# SceneWriter, so it stays current with the .oscene format): a refractive water
+# expanse framed by a tiny probe script that logs the capability. The advanced
+# grab-pass path activates at scene load, so the boot both flips the cap and
+# renders the ES-300 water surface.
+WATER_PROBE_SCRIPT = """\
+-- water_probe.component.lua - the web (WebGL2/GLES3) advanced-water proof.
+-- Frames the refractive water surface and reports the classic backend's
+-- screen-space-refraction capability, so the web ctest can confirm the GLSL
+-- ES 3.0 water variant activated on a real WebGL2 context (not the byte-stable
+-- Stage-1 fallback the GLES2/WebGL1 floor renders).
+local TS = RenderNode.TransformSpace
+
+function init(self)
+\tlocal engine = Engine.getSingleton()
+\tengine:setCameraPerspective()
+\tlocal cam = engine:getCamera()
+\tlocal node = cam ~= nil and cam:getNode() or nil
+\tif node ~= nil then
+\t\tnode:setPosition(Vector3(0, 3, 8))
+\t\tnode:lookAt(Vector3(0, -1, -6), TS.TS_WORLD, Vector3(0, 0, -1))
+\tend
+\tprint("water_probe: screenSpaceRefraction=" ..
+\t\ttostring(engine:supports("screenSpaceRefraction")))
+end
+
+function update(self, dt)
+end
+"""
+
+
+def build_water_fixture(dest):
+    """write a minimal single-scene refractive-water project into `dest`
+    (manifest + scene + probe script). Reuses the benchmark SceneWriter so the
+    serialized .oscene tracks the live format."""
+    scenes = os.path.join(dest, "scenes")
+    scripts = os.path.join(dest, "scripts")
+    os.makedirs(scenes, exist_ok=True)
+    os.makedirs(scripts, exist_ok=True)
+    scene = bench.SceneWriter()
+    # the sun: the first directional light the water's PBS/RTSS surface reflects
+    scene.add("Sun",
+              scene.transform(0.0, 20.0, 0.0, quat=(0.9659, -0.2588, 0.0, 0.0)),
+              scene.light(light_type=0, colour=(1.0, 0.9, 0.8), intensity=1.0),
+              tags=("sun",))
+    # the refractive water expanse (the engine water plane + tiling normal, both
+    # bundled engine media): screenSpaceRefraction on + a normal map is exactly
+    # the trigger createWaterMaterial takes the advanced grab-pass path on
+    scene.add("Lake",
+              scene.transform(0.0, -1.0, -6.0),
+              scene.water(size_x=40.0, size_z=40.0, wave_height=0.3,
+                          screen_space_refraction=True, planar_reflection=False,
+                          deep=(0.04, 0.20, 0.30, 1.0),
+                          shallow=(0.22, 0.55, 0.62, 1.0),
+                          normal_tex="water_normal.png"),
+              tags=("water",))
+    scene.add("Probe",
+              scene.script("water_probe", "scripts/water_probe.component.lua"))
+    scene.write_path = os.path.join(scenes, "water.oscene")
+    with open(scene.write_path, "w", encoding="utf-8") as f:
+        f.write(scene.to_text())
+    with open(os.path.join(scripts, "water_probe.component.lua"), "w",
+              encoding="utf-8") as f:
+        f.write(WATER_PROBE_SCRIPT)
+    manifest = os.path.join(dest, "project.orkproj")
+    with open(manifest, "w", encoding="utf-8") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<OrkigeProject version="1">\n'
+                '    <Name>Water Fixture</Name>\n'
+                '    <MainScene>scenes/water.oscene</MainScene>\n'
+                '</OrkigeProject>\n')
+    return dest
 
 
 def fail(message):
@@ -235,31 +319,72 @@ def assert_roller(output_dir, browser):
         server.shutdown()
 
 
+def assert_water(output_dir, browser):
+    """boot the exported water fixture and prove the ADVANCED (screen-space
+    refraction) water activated on the real WebGL2/GLES3 context: the probe
+    script reports the capability true, the ES-300 grab-pass program builds
+    without a fallback refusal, and the run renders the water surface through to
+    the orderly shutdown (a shader link error would abort before it)."""
+    server, port = serve(output_dir)
+    try:
+        # frame-capped so the water surface actually draws (the ES-300 programs
+        # link on first use, so rendering is what proves they built on-driver)
+        url = ("http://127.0.0.1:%d/index.html"
+               "?env.ORKIGE_DEMO_FRAMES=90&env.ORKIGE_DEMO_FPS_LOG=1" % port)
+        log = run_browser(browser, url, deadline_seconds=180,
+                          needed_markers=(WATER_SUPPORTED_MARKER, EXIT_MARKER))
+        for failed in WATER_SETUP_FAILED:
+            if failed in log:
+                fail("a water program failed to build on WebGL2 ('%s') - the "
+                     "ES-300 variant did not compile/link - full log:\n%s"
+                     % (failed, log))
+        if WATER_SUPPORTED_MARKER not in log:
+            fail("the fixture did not report screenSpaceRefraction supported on "
+                 "WebGL2 - the ES-300 water gate did not open - full log:\n%s"
+                 % log)
+        if EXIT_MARKER not in log:
+            fail("the water fixture did not reach the orderly shutdown - the "
+                 "ES-300 water may have faulted at render - full log:\n%s" % log)
+        print("run_export_web: advanced water activated on WebGL2 (ES-300 "
+              "grab-pass, no fallback)", flush=True)
+    finally:
+        server.shutdown()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine-build", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--mode", choices=["structure", "boot", "roller"],
+    parser.add_argument("--mode",
+                        choices=["structure", "boot", "roller", "water"],
                         default="structure")
     args = parser.parse_args()
 
     browser = ""
-    if args.mode in ("boot", "roller"):
+    if args.mode in ("boot", "roller", "water"):
         browser = find_browser()
         if not browser:
             print("run_export_web: SKIPPED - no headless Chrome/Chromium on "
                   "this machine (set ORKIGE_CHROME to override)", flush=True)
             sys.exit(77)
 
-    project = ROLLER_PROJECT if args.mode == "roller" else PROJECT
-    title = "Roller" if args.mode == "roller" else "Jumper Lua"
-    export(os.path.abspath(args.engine_build), os.path.abspath(args.output),
-           project)
-    assert_structure(os.path.abspath(args.output), title)
+    output = os.path.abspath(args.output)
+    if args.mode == "water":
+        # the water fixture is generated next to the export output, then
+        # exported + booted like any project
+        project = build_water_fixture(output + "_project")
+        title = "Water Fixture"
+    else:
+        project = ROLLER_PROJECT if args.mode == "roller" else PROJECT
+        title = "Roller" if args.mode == "roller" else "Jumper Lua"
+    export(os.path.abspath(args.engine_build), output, project)
+    assert_structure(output, title)
     if args.mode == "boot":
-        assert_boot(os.path.abspath(args.output), browser)
+        assert_boot(output, browser)
     elif args.mode == "roller":
-        assert_roller(os.path.abspath(args.output), browser)
+        assert_roller(output, browser)
+    elif args.mode == "water":
+        assert_water(output, browser)
     print("run_export_web: PASSED (%s)" % args.mode, flush=True)
 
 

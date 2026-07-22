@@ -906,12 +906,27 @@ namespace Orkige
 		{
 			return false;	// no shader generator - no programmable water pass
 		}
-		// the grab-pass water program is authored in desktop GLSL (GL3Plus - the
-		// default classic render system and what the facade selfcheck boots). A
-		// Vulkan/GLES context runtime-gates false (byte-stable, the water renders
-		// the Stage-1 look) pending its own shader variant + an on-device proof
-		// run - the same honest per-context gate the shadow/bloom/IBL caps use.
-		return generator->getTargetLanguage() == "glsl";
+		// the grab-pass water program ships two GLSL variants (@see
+		// waterGlslProfile): desktop GL core (GL3Plus - the default classic
+		// render system and what the facade selfcheck boots) and GLSL ES 3.0.
+		// A desktop GLSL target always qualifies; a GLES/WebGL target qualifies
+		// only where GLSL ES 3.0 exists - the grab program indexes the sky
+		// cubemap's mip chain and needs the ES3 sampling that a bare
+		// GLES2/WebGL1 context lacks, so gate on glsl300es exactly like the IBL
+		// stage (WebGL2/GLES3 -> the advanced water; the GLES2/WebGL1 floor keeps
+		// rendering the byte-stable Stage-1 look). A Vulkan/Metal target stays
+		// false pending its own shader variant + an on-device proof run.
+		const String language = generator->getTargetLanguage();
+		if(language == "glsl")
+		{
+			return true;
+		}
+		if(language == "glsles")
+		{
+			return Ogre::GpuProgramManager::getSingleton().isSyntaxSupported(
+				"glsl300es");
+		}
+		return false;
 #else
 		return false;
 #endif
@@ -919,16 +934,63 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool RenderBackend::screenSpacePlanarReflectionSupported()
 	{
-		// the mirror-camera reflection RenderTexture is sampled by the SAME desktop
-		// GLSL water program family as refraction, so the gate is identical: the
-		// RTSS generator active + a desktop GLSL target (GL3Plus, what the facade
-		// selfcheck boots). A Vulkan/GLES/WebGL context answers false per device
-		// (byte-stable sky-reflection fallback) pending its own shader variant.
+		// the mirror-camera reflection RenderTexture is sampled by the SAME water
+		// program family as refraction (desktop GL core + GLSL ES 3.0), so the
+		// gate is identical: a desktop GLSL target (GL3Plus) OR a GLES/WebGL
+		// target with GLSL ES 3.0 (WebGL2/GLES3). The GLES2/WebGL1 floor answers
+		// false (byte-stable sky-reflection fallback); a Vulkan/Metal context
+		// answers false pending its own shader variant.
 		return RenderBackend::screenSpaceRefractionSupported();
 	}
 	//---------------------------------------------------------
 	namespace
 	{
+		//! the RTSS target-language profile the water programs are authored for.
+		//! The advanced-water programs carry two GLSL variants: the desktop GL
+		//! core profile (#version 150, what the facade selfcheck boots) and GLSL
+		//! ES 3.0 (#version 300 es - the WebGL2/GLES3 floor, enabled on the same
+		//! glsl300es probe the IBL stage gates on, @see
+		//! imageBasedLightingSupported). The program BODY is IDENTICAL between the
+		//! two; only this preamble differs (the ES profile's mandatory default-
+		//! precision declarations), so the desktop source stays byte-for-byte the
+		//! same and the two variants never drift.
+		struct WaterGlslProfile
+		{
+			const char* language;    //!< HighLevelGpuProgramManager language id
+			const char* vsPreamble;  //!< #version (+ ES precision) for a VS
+			const char* fsPreamble;  //!< #version (+ ES precision) for a FS
+		};
+		WaterGlslProfile waterGlslProfile()
+		{
+			bool es = false;
+#ifdef USE_RTSHADER_SYSTEM
+			if(Ogre::RTShader::ShaderGenerator* generator =
+				Ogre::RTShader::ShaderGenerator::getSingletonPtr())
+			{
+				es = generator->getTargetLanguage() == "glsles";
+			}
+#endif
+			if(es)
+			{
+				// GLSL ES 3.0: in/out + texture() are already the desktop
+				// spelling (the #version 150 body uses them), so only the
+				// version line and the ES-mandatory default precision differ.
+				// samplerCube precision is declared explicitly so the fresnel
+				// sky sample keeps its desktop fidelity (ES defaults samplers to
+				// lowp in the fragment stage).
+				return WaterGlslProfile{
+					"glsles",
+					"#version 300 es\n"
+					"precision highp float;\n"
+					"precision highp int;\n",
+					"#version 300 es\n"
+					"precision highp float;\n"
+					"precision highp int;\n"
+					"precision highp sampler2D;\n"
+					"precision highp samplerCube;\n"};
+			}
+			return WaterGlslProfile{ "glsl", "#version 150\n", "#version 150\n" };
+		}
 		//! the shared water-refraction GLSL programs (GL3Plus), created once. The
 		//! vertex program forwards the clip position (for the screen UV) and the
 		//! plane UV (for the scrolling ripple normal); the fragment program
@@ -942,16 +1004,16 @@ namespace Orkige
 				return;
 			}
 			gRefractionProgramsBuilt = true;
+			const WaterGlslProfile profile = waterGlslProfile();
 			Ogre::HighLevelGpuProgramManager & programs =
 				Ogre::HighLevelGpuProgramManager::getSingleton();
 			if(!programs.getByName("Orkige/WaterRefract_vs",
 				Ogre::RGN_INTERNAL))
 			{
 				Ogre::HighLevelGpuProgramPtr vs = programs.createProgram(
-					"Orkige/WaterRefract_vs", Ogre::RGN_INTERNAL, "glsl",
-					Ogre::GPT_VERTEX_PROGRAM);
-				vs->setSource(
-					"#version 150\n"
+					"Orkige/WaterRefract_vs", Ogre::RGN_INTERNAL,
+					profile.language, Ogre::GPT_VERTEX_PROGRAM);
+				vs->setSource(profile.vsPreamble + std::string(
 					"uniform mat4 worldViewProj;\n"
 					"uniform mat4 world;\n"
 					"uniform vec4 waveParams;\n"  // x=amplitude y=frequency z=phase w=unused
@@ -977,7 +1039,7 @@ namespace Orkige
 					"    vClip = clip;\n"
 					"    vUv = uv0.xy;\n"
 					"    vWorldPos = (world * pos).xyz;\n"
-					"}\n");
+					"}\n"));
 				vs->load();
 				vs->getDefaultParameters()->setNamedAutoConstant("worldViewProj",
 					Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
@@ -988,10 +1050,9 @@ namespace Orkige
 				Ogre::RGN_INTERNAL))
 			{
 				Ogre::HighLevelGpuProgramPtr fs = programs.createProgram(
-					"Orkige/WaterRefract_fs", Ogre::RGN_INTERNAL, "glsl",
-					Ogre::GPT_FRAGMENT_PROGRAM);
-				fs->setSource(
-					"#version 150\n"
+					"Orkige/WaterRefract_fs", Ogre::RGN_INTERNAL,
+					profile.language, Ogre::GPT_FRAGMENT_PROGRAM);
+				fs->setSource(profile.fsPreamble + std::string(
 					"uniform sampler2D sceneMap;\n"
 					"uniform sampler2D normalMap;\n"
 					"uniform samplerCube skyMap;\n"  // the live IBL environment chain
@@ -1046,7 +1107,7 @@ namespace Orkige
 					"    float spec = pow(clamp(dot(nrm, halfVec), 0.0, 1.0), 420.0);\n"
 					"    water += sunColour.rgb * (spec * 1.0 * sunTowards.w);\n"
 					"    fragColour = vec4(water, 1.0);\n"
-					"}\n");
+					"}\n"));
 				fs->load();
 				fs->getDefaultParameters()->setNamedAutoConstant("camPos",
 					Ogre::GpuProgramParameters::ACT_CAMERA_POSITION);
@@ -1106,6 +1167,7 @@ namespace Orkige
 				return;
 			}
 			gReflectionProgramsBuilt = true;
+			const WaterGlslProfile profile = waterGlslProfile();
 			Ogre::HighLevelGpuProgramManager & programs =
 				Ogre::HighLevelGpuProgramManager::getSingleton();
 			// the vertex program is identical to the refraction one (clip pos for
@@ -1114,10 +1176,9 @@ namespace Orkige
 			if(!programs.getByName("Orkige/WaterReflect_fs", Ogre::RGN_INTERNAL))
 			{
 				Ogre::HighLevelGpuProgramPtr fs = programs.createProgram(
-					"Orkige/WaterReflect_fs", Ogre::RGN_INTERNAL, "glsl",
-					Ogre::GPT_FRAGMENT_PROGRAM);
-				fs->setSource(
-					"#version 150\n"
+					"Orkige/WaterReflect_fs", Ogre::RGN_INTERNAL,
+					profile.language, Ogre::GPT_FRAGMENT_PROGRAM);
+				fs->setSource(profile.fsPreamble + std::string(
 					"uniform sampler2D reflectMap;\n"  // the mirror render target
 					"uniform sampler2D normalMap;\n"
 					"uniform sampler2D sceneMap;\n"    // the refraction grab (dummy when off)
@@ -1188,7 +1249,7 @@ namespace Orkige
 					"    float spec = pow(clamp(dot(nrm, halfVec), 0.0, 1.0), 420.0);\n"
 					"    outc += sunColour.rgb * (spec * 1.0 * sunTowards.w);\n"
 					"    fragColour = vec4(outc, 1.0);\n"
-					"}\n");
+					"}\n"));
 				fs->load();
 				fs->getDefaultParameters()->setNamedAutoConstant("camPos",
 					Ogre::GpuProgramParameters::ACT_CAMERA_POSITION);

@@ -23,14 +23,17 @@ X(ProjectedDecals, false)
 // run of the compositor chain - see RenderBackend::bloomSupported)
 X(Bloom, true)
 // desktop truth (GL3Plus - what the selfcheck boots): a grab-pass RenderTexture
-// sampled at a normal-perturbed screen UV; a Vulkan/GLES/WebGL context answers
-// false at runtime (byte-stable, pending its shader variant + an on-device proof)
+// sampled at a normal-perturbed screen UV. Also true on a GLES/WebGL context
+// with GLSL ES 3.0 (WebGL2/GLES3 - the ES-300 water variant); the GLES2/WebGL1
+// floor answers false (byte-stable Stage-1 look), as does a Vulkan/Metal context
+// (pending its shader variant + an on-device proof)
 X(ScreenSpaceRefraction, true)
 // desktop truth (GL3Plus/Vulkan - what the selfcheck boots); a GLES2/WebGL
 // context without GLSL ES 3.0 answers false at runtime
 X(IblReflections, true)
 // desktop truth (GL3Plus - what the selfcheck boots): a mirror-camera reflection
-// RenderTexture sampled at the ripple-perturbed screen UV; a Vulkan/GLES/WebGL
-// context answers false at runtime (byte-stable, pending its shader variant + an
-// on-device proof)
+// RenderTexture sampled at the ripple-perturbed screen UV. Also true on a
+// GLES/WebGL context with GLSL ES 3.0 (WebGL2/GLES3 - the ES-300 water variant);
+// the GLES2/WebGL1 floor answers false (byte-stable), as does a Vulkan/Metal
+// context (pending its shader variant + an on-device proof)
 X(PlanarReflection, true)

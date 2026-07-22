@@ -17,11 +17,24 @@ Two facts settle the tier from the code:
   probe for that floor.
 
 So depth textures, MRT and GLSL ES 3.00 are available on web wherever WebGL2
-runs (the norm), not just desktop. The *requested* tier is code-confirmed; a
-runtime **tier-assertion test is still a TODO** (read the GL context version
-from the boot log or the caps bitset over the debug protocol) to confirm
-delivery and catch a regression — the web suite today checks only boot + clean
-shutdown + a non-uniform screenshot.
+runs (the norm), not just desktop. The GLES3-level facade features gate on the
+`glsl300es` probe, so they light up on the WebGL2 context: **IBL reflections**
+(the same gate) and now **advanced water** — the screen-space refraction
+grab-pass and the planar mirror reflection carry a GLSL ES 3.00 program variant
+(`RenderSystemClassic.cpp` `waterGlslProfile`) alongside the desktop GL-core
+one, so a WebGL2 context renders the full refraction + geometric swell + fresnel
+sky rather than the byte-stable Stage-1 fallback (the GLES2/WebGL1 floor keeps
+that fallback). This is asserted on web: `export_web_water` boots a refractive
+water fixture headless and requires `screenSpaceRefraction` to answer supported
+on the live WebGL2 context with the ES-300 programs building (no fallback
+refusal) and the surface rendering through to the orderly shutdown. **Bloom
+stays runtime-gated off** on GLES/WebGL pending an in-browser proof of the
+compositor chain (the cap refuses honestly; see `RenderBackend::bloomSupported`).
+The *requested* GL tier itself is code-confirmed; a runtime **tier-assertion
+test is still a TODO** (read the GL context version from the boot log or the
+caps bitset over the debug protocol) to confirm delivery and catch a
+regression — the boot suite today checks only boot + clean shutdown + a
+non-uniform screenshot.
 
 One preset builds the whole runtime; one exporter platform packages any
 Lua/scene project as a static directory every web server can host as-is.

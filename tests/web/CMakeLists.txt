@@ -47,3 +47,20 @@ add_test(NAME export_web_roller
 set_tests_properties(export_web_roller PROPERTIES
     LABELS integration TIMEOUT 600
     SKIP_RETURN_CODE 77)
+
+#   export_web_water      the ADVANCED water bar IN the browser: a generated
+#                         single-scene refractive-water project booted headless
+#                         must report screenSpaceRefraction supported on the
+#                         WebGL2/GLES3 context (the ES-300 grab-pass water
+#                         variant), build its programs with no fallback refusal
+#                         and render the surface through to the orderly
+#                         shutdown. SKIPs (77) without a headless browser.
+add_test(NAME export_web_water
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/run_export_web.py"
+        --engine-build "${CMAKE_BINARY_DIR}"
+        --output "${CMAKE_CURRENT_BINARY_DIR}/export_web_water"
+        --mode water
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(export_web_water PROPERTIES
+    LABELS integration TIMEOUT 600
+    SKIP_RETURN_CODE 77)
