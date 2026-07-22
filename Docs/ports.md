@@ -77,6 +77,25 @@ equivalent features. Local additions:
   translation: skinned characters collapse limb-into-torso at mid-clip and
   the animation reads as a rigid bounce. The patch drops the extra advance
   so the search starts at the true predecessor.
+- `assimp-scale-track-fallback.patch` - upstream candidate: two more faults
+  in the same Assimp keyframe merge, exposed once a channel carries an
+  independent SCALE track. First, the scale-merge loop inserts a scale key
+  that has no coincident position/rotation keyframe into the merged map keyed
+  by `mRotationKeys[j].mTime` - a copy-paste from the rotation loop above -
+  so the scale key lands at a garbage time, and the read goes out of bounds
+  whenever the channel has fewer rotation keys than scale keys. Second, when
+  a channel has NO keys of one kind at all, the `getTranslate`/`getRotate`/
+  `getScale` fallbacks return a neutral placeholder ((0,0,0) / identity /
+  (1,1,1)); because each keyframe is composed into a full local transform and
+  premultiplied by the bone's inverse bind pose, that placeholder bakes the
+  inverse bind in as drift - the bone's rest translation collapses to the
+  origin and its descendants sink. The patch keys stray scale keys by their
+  own scaling time and, at the call site, falls each keyless component back to
+  the bone's bind-pose value (`bone->getPosition()`/`getOrientation()`/
+  `getScale()`) - the minimal, reviewable guard that leaves the three helper
+  signatures untouched. This is the classic-flavor twin of the next backend's
+  scale road: with it a bone's animated scale plays instead of freezing at
+  (1,1,1) and dragging its subtree down.
 - `cpufeatures-build-interface.patch` - upstream candidate (submitted as
   OGRECave/ogre #3675): master's
   `target_link_libraries(OgreMain PRIVATE cpufeatures log z)` (new since

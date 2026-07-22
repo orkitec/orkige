@@ -33,9 +33,12 @@ Rest transforms are translation-only, so a joint's inverse bind matrix is a
 translation by minus its world rest position, and at the rest pose every skin
 matrix is identity (the mesh loads undeformed).
 
-The two clips are pure joint ROTATIONS about X (limbs swinging forward/back),
-so playback visibly moves the skinned box vertices in world space:
-  * walk   1.0 s, looping   legs + arms swing in opposition (a stride)
+The clips are joint ROTATIONS about X (limbs swinging forward/back), so
+playback visibly moves the skinned box vertices in world space, plus one
+SCALE track (the walk clip pulses the head's scale) that pins the classic
+Assimp scale-track import on both flavors:
+  * walk   1.0 s, looping   legs + arms swing in opposition (a stride),
+                            the head pulses its scale (a scale-only channel)
   * idle   2.0 s, looping   a gentle spine/head/arm sway
 
 Usage:
@@ -89,9 +92,12 @@ BOXES = [
 TORSO_BOX = 1  # the box whose bottom face blends to the pelvis
 
 # --- the two animation clips -----------------------------------------------
-# A clip is a dict of joint_index -> list of (time_seconds, x_rotation_deg)
-# keys (rotation about the X axis; the sampler emits quaternions). Looping
-# clips repeat the first key's value at the end so the wrap is seamless.
+# A clip carries two channel dicts:
+#   rotation:  joint_index -> list of (time_seconds, x_rotation_deg) keys
+#              (rotation about the X axis; the sampler emits quaternions)
+#   scale:     joint_index -> list of (time_seconds, uniform_scale) keys
+#              (a uniform scale factor; the sampler emits VEC3 (s, s, s))
+# Looping clips repeat the first key's value at the end so the wrap is seamless.
 WALK_DURATION = 1.0
 IDLE_DURATION = 2.0
 
@@ -102,15 +108,27 @@ WALK_CLIP = {
     4: [(0.0,  20.0), (0.5, -20.0), (1.0,  20.0)],   # right arm
     1: [(0.0,   0.0), (0.5,   4.0), (1.0,   0.0)],   # spine bob
 }
+# The head PULSES its scale over the walk cycle - authored as a SCALE-ONLY
+# channel (no rotation, no translation samplers). It is the deterministic
+# scale-track fixture: a leaf joint (scaling it moves no other bone, so the
+# leg/arm pose probe is undisturbed), and on the classic Assimp import road it
+# drives the scale-track merge fault the fallback fix addresses - a stray scale
+# key must key the merged keyframe map by its OWN time (not a rotation time it
+# lacks, which reads out of bounds and corrupts the track), and the bind-pose
+# fallback keeps a keyless component from collapsing the head onto the spine.
+WALK_SCALE = {
+    2: [(0.0, 1.0), (0.5, 1.5), (1.0, 1.0)],         # head scale pulse (uniform)
+}
 IDLE_CLIP = {
     1: [(0.0, 0.0), (1.0,  4.0), (2.0, 0.0)],        # spine lean
     2: [(0.0, 0.0), (1.0, -3.0), (2.0, 0.0)],        # head nod
     3: [(0.0, 0.0), (1.0,  5.0), (2.0, 0.0)],        # arm sway
     4: [(0.0, 0.0), (1.0, -5.0), (2.0, 0.0)],
 }
+IDLE_SCALE = {}
 CLIPS = [
-    ("walk", WALK_DURATION, WALK_CLIP),
-    ("idle", IDLE_DURATION, IDLE_CLIP),
+    ("walk", WALK_DURATION, WALK_CLIP, WALK_SCALE),
+    ("idle", IDLE_DURATION, IDLE_CLIP, IDLE_SCALE),
 ]
 
 
@@ -245,17 +263,18 @@ def build_glb():
 
     # --- animation accessors (shared time input + a quaternion output per
     #     animated joint) ---
+    def add_time_sampler(times):
+        time_bin = b"".join(struct.pack("<f", t) for t in times)
+        return add_accessor(bufferView=add_view(time_bin),
+                            componentType=5126, count=len(times),
+                            type="SCALAR", min=[min(times)], max=[max(times)])
+
     animations = []
-    for clip_name, duration, channels in CLIPS:
+    for clip_name, duration, channels, scale_channels in CLIPS:
         samplers = []
         anim_channels = []
         for joint_index, keys in sorted(channels.items()):
-            times = [t for t, _ in keys]
-            time_bin = b"".join(struct.pack("<f", t) for t in times)
-            time_acc = add_accessor(bufferView=add_view(time_bin),
-                                    componentType=5126, count=len(times),
-                                    type="SCALAR", min=[min(times)],
-                                    max=[max(times)])
+            time_acc = add_time_sampler([t for t, _ in keys])
             quats = [quat_x(deg) for _, deg in keys]
             quat_bin = b"".join(struct.pack("<4f", *q) for q in quats)
             quat_acc = add_accessor(bufferView=add_view(quat_bin),
@@ -267,6 +286,18 @@ def build_glb():
             anim_channels.append({"sampler": sampler_index,
                                   "target": {"node": joint_index,
                                              "path": "rotation"}})
+        for joint_index, keys in sorted(scale_channels.items()):
+            time_acc = add_time_sampler([t for t, _ in keys])
+            scale_bin = b"".join(struct.pack("<3f", s, s, s) for _, s in keys)
+            scale_acc = add_accessor(bufferView=add_view(scale_bin),
+                                     componentType=5126, count=len(keys),
+                                     type="VEC3")
+            sampler_index = len(samplers)
+            samplers.append({"input": time_acc, "output": scale_acc,
+                             "interpolation": "LINEAR"})
+            anim_channels.append({"sampler": sampler_index,
+                                  "target": {"node": joint_index,
+                                             "path": "scale"}})
         animations.append({"name": clip_name, "samplers": samplers,
                            "channels": anim_channels})
 
@@ -396,24 +427,34 @@ def validate_glb(data):
 
     # --- animations / clips ---
     assert len(doc["animations"]) == len(CLIPS), "clip count wrong"
-    for (name, duration, channels), anim in zip(CLIPS, doc["animations"]):
+    for (name, duration, channels, scale_channels), anim in zip(
+            CLIPS, doc["animations"]):
         assert anim["name"] == name, "clip name mismatch"
-        assert len(anim["channels"]) == len(channels), "channel count wrong"
-        # the clip duration is the max sampler input time
+        assert len(anim["channels"]) == len(channels) + len(scale_channels), \
+            "channel count wrong"
+        # the clip duration is the max sampler input time; a rotation sampler
+        # emits VEC4 quaternions, a scale sampler VEC3 factors
         clip_max = 0.0
         for sampler in anim["samplers"]:
             in_acc = doc["accessors"][sampler["input"]]
             clip_max = max(clip_max, in_acc["max"][0])
             out_acc = doc["accessors"][sampler["output"]]
-            assert out_acc["type"] == "VEC4", "rotation output must be VEC4"
+            assert out_acc["type"] in ("VEC4", "VEC3"), \
+                "a sampler output is neither a quaternion nor a scale vector"
         assert abs(clip_max - duration) < 1e-6, \
             "clip '%s' duration %.3f != %.3f" % (name, clip_max, duration)
-        # every channel targets a real joint node's rotation
+        # every channel targets a real joint node's rotation or scale
+        saw_scale = False
         for channel in anim["channels"]:
-            assert channel["target"]["path"] == "rotation", \
-                "a channel does not drive rotation"
+            path = channel["target"]["path"]
+            assert path in ("rotation", "scale"), \
+                "a channel drives neither rotation nor scale"
             assert 0 <= channel["target"]["node"] < len(JOINTS), \
                 "a channel targets a non-joint node"
+            saw_scale = saw_scale or path == "scale"
+        # the scale-only channel is present when the clip declares one
+        assert saw_scale == bool(scale_channels), \
+            "clip '%s' scale-channel presence mismatch" % name
     return doc
 
 
@@ -438,7 +479,7 @@ def _selftest():
           "(per-face boxes), %d clips (%s), %d-byte .glb; deterministic; "
           "weights sum to 1 with a blended joint; rest pose undeformed"
           % (len(JOINTS), vcount, len(CLIPS),
-             ", ".join("%s %.1fs" % (n, d) for n, d, _ in CLIPS), len(glb)))
+             ", ".join("%s %.1fs" % (c[0], c[1]) for c in CLIPS), len(glb)))
     return 0
 
 

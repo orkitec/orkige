@@ -316,6 +316,9 @@ struct PlayerSelfChecks
 	float characterRigLegSeparation = 0.0f;	//!< |worldX(legL) - worldX(legR)| at the sample
 	float characterRigArmMinY = 0.0f;		//!< the lower of the two arm bones' world Y
 	float characterRigLegMaxY = 0.0f;		//!< the higher of the two leg bones' world Y
+	// scale-track leg (the walk clip's head scale channel - the classic Assimp
+	// scale-track import pin, both flavors)
+	float characterRigHeadScale = 0.0f;		//!< the head bone's animated world scale at the sample
 	// playback-state serialization leg (the Resume phase)
 	bool characterResumeArmed = false;		//!< the mid-animation state was applied
 	// --- ORKIGE_ROLLER_PROGRESSION_SELFCHECK=1: the level sequence + the

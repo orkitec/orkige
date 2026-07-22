@@ -2902,6 +2902,7 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				if (mesh && walkTime >= 0.2f && walkTime <= 0.45f)
 				{
 					Orkige::Vec3 legLPos, legRPos, armLPos, armRPos, boneScale;
+					Orkige::Vec3 headPos, headScaleVec;
 					Orkige::Quat boneRot;
 					const bool read =
 						mesh->getBoneWorldTransform("legL", legLPos, boneRot,
@@ -2911,7 +2912,9 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 						mesh->getBoneWorldTransform("armL", armLPos, boneRot,
 							boneScale) &&
 						mesh->getBoneWorldTransform("armR", armRPos, boneRot,
-							boneScale);
+							boneScale) &&
+						mesh->getBoneWorldTransform("head", headPos, boneRot,
+							headScaleVec);
 					if (!read)
 					{
 						characterFail("could not read the limb bone poses for the "
@@ -2930,6 +2933,18 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 						characterRigLegSeparation = legSep;
 						characterRigArmMinY = armMinY;
 						characterRigLegMaxY = legMaxY;
+						// (c) HEAD SCALE: the head carries a scale-only channel
+						// pulsing its uniform scale 1.0 -> 1.5 -> 1.0 over the
+						// walk cycle. Its animated world scale (uniform; ancestors
+						// are unscaled) is s(t) = 1 + walkTime here, so in the
+						// [0.2, 0.45] s window it sits in [1.2, 1.45]. On the
+						// classic Assimp import road this is the scale-track pin:
+						// without the scale-track fallback fix the head freezes at
+						// its bind scale (1.0) and sinks onto the spine. Both
+						// flavors must land the animated scale, so this leg pins
+						// their parity.
+						const float headScale = headScaleVec.x;
+						characterRigHeadScale = headScale;
 						const float bindSep = 0.44f;
 						if (legSep < 0.5f * bindSep || legSep > 2.0f * bindSep)
 						{
@@ -2948,13 +2963,24 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 							characterFail("the arm bones are not above the leg "
 								"bones (figure lost its upright shape)");
 						}
+						else if (headScale < 1.1f || headScale > 1.6f)
+						{
+							SDL_Log("orkige_player: character rig selfcheck - the "
+								"head SCALE track did not play at %.3f s (world scale "
+								"%.3f left the [1.10, 1.60] band around the authored "
+								"1 + t pulse - the scale-only channel froze at the "
+								"bind scale)", walkTime, headScale);
+							characterFail("the head scale track did not animate "
+								"(scale-only channel out of band)");
+						}
 						else
 						{
 							SDL_Log("orkige_player: character rig selfcheck - the "
 								"walk pose keeps its shape at %.3f s (leg world-X "
 								"separation %.3f in band around the %.3f bind gap; "
-								"arms Y %.3f above legs Y %.3f)", walkTime, legSep,
-								bindSep, armMinY, legMaxY);
+								"arms Y %.3f above legs Y %.3f; head scale %.3f "
+								"animating in band)", walkTime, legSep,
+								bindSep, armMinY, legMaxY, headScale);
 							characterRigPoseChecked = true;
 						}
 					}
@@ -3105,11 +3131,12 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 					if (std::abs(resumedTime - 0.5f) < 0.1f)
 					{
 						SDL_Log("orkige_player: character rig selfcheck complete "
-							"- 3D skeletal playback + blend + bone attachment "
+							"- 3D skeletal playback + blend + bone attachment + "
+							"the head scale track (world scale %.3f mid-clip) "
 							"verified, and a loaded mid-animation state resumed "
 							"the saved clip at the saved phase (walk at %.3f s, "
 							"armed 0.5, idle dropped) - playback serialization "
-							"verified", resumedTime);
+							"verified", characterRigHeadScale, resumedTime);
 						characterRigPhase = CharacterRigPhase::Done;
 						running = false;
 					}

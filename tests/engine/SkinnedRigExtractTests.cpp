@@ -149,27 +149,55 @@ TEST_CASE("SkinnedRigExtract: the walk and idle clips", "[skinnedrig]")
 	REQUIRE(rig.clips.size() == 2);
 
 	// clip names and durations straight from the generator (walk 1 s with
-	// five joint channels, idle 2 s with four)
+	// five rotation channels + one head scale channel = six; idle 2 s with
+	// four rotation channels)
 	CHECK(rig.clips[0].name == "walk");
 	CHECK(rig.clips[0].duration == Approx(1.0f).margin(1e-3));
-	CHECK(rig.clips[0].channels.size() == 5);
+	CHECK(rig.clips[0].channels.size() == 6);
 	CHECK(rig.clips[1].name == "idle");
 	CHECK(rig.clips[1].duration == Approx(2.0f).margin(1e-3));
 	CHECK(rig.clips[1].channels.size() == 4);
 
-	// every channel drives a real joint and carries rotation keys spanning
-	// the clip (the clips are pure joint rotations)
+	// every channel drives a real joint and carries keys of some kind (the
+	// glTF importer normalises each channel to all three key arrays, filling a
+	// track the source omits with a single bind-value key, so an authored
+	// track is the one with more than one key)
 	for(Orkige::SkinnedRig::Clip const & clip : rig.clips)
 	{
 		for(Orkige::SkinnedRig::Channel const & channel : clip.channels)
 		{
 			REQUIRE(channel.joint >= 0);
 			REQUIRE(static_cast<size_t>(channel.joint) < rig.joints.size());
-			REQUIRE_FALSE(channel.rotationKeys.empty());
-			CHECK(channel.rotationKeys.back().time ==
-				Approx(clip.duration).margin(1e-3));
+			REQUIRE_FALSE((channel.rotationKeys.empty() &&
+				channel.scaleKeys.empty() && channel.positionKeys.empty()));
 		}
 	}
+
+	// the head carries the walk clip's authored SCALE track (its rotation and
+	// position tracks are the importer's single bind-value fill; the real,
+	// multi-key track is the scale one). Its uniform scale pulses 1.0 -> 1.5x
+	// over the cycle. The neutral extraction reads the raw scale track straight;
+	// the classic Assimp merge road needs the scale-track fallback patch to land
+	// the same values (this is the pin's headless half).
+	const int head = jointIndex(rig, "head");
+	REQUIRE(head >= 0);
+	Orkige::SkinnedRig::Channel const * headScale = NULL;
+	for(Orkige::SkinnedRig::Channel const & channel : rig.clips[0].channels)
+	{
+		if(channel.joint == head && channel.scaleKeys.size() > 1)
+		{
+			headScale = &channel;
+		}
+	}
+	REQUIRE(headScale);
+	CHECK(headScale->scaleKeys.back().time == Approx(1.0f).margin(1e-3));
+	const Orkige::SkinnedRig::Vec3 unit{1.0f, 1.0f, 1.0f};
+	const Orkige::SkinnedRig::Vec3 restScale =
+		Orkige::SkinnedRig::sampleVecKeys(headScale->scaleKeys, 0.0f, unit);
+	const Orkige::SkinnedRig::Vec3 peakScale =
+		Orkige::SkinnedRig::sampleVecKeys(headScale->scaleKeys, 0.5f, unit);
+	CHECK(restScale.x == Approx(1.0f).margin(1e-3));
+	CHECK(peakScale.x == Approx(1.5f).margin(1e-3));
 
 	// sampling: the walk legs swing +/-25 degrees about X - at half time the
 	// left leg's sampled rotation crosses the opposite extreme, and the

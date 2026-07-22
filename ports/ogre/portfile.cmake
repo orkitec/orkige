@@ -29,6 +29,7 @@ vcpkg_from_github(
         manual-render-null-renderable.patch # upstream candidate: manualRender(RenderOperation*) passes the documented null renderable, which the GpuParamsDirty refactor now asserts on / dereferences
         cpufeatures-build-interface.patch # upstream candidate: static OgreMain's Android export leaks the internal cpufeatures target as -lcpufeatures, which no consumer can resolve
         assimp-single-key-interpolation.patch # upstream candidate: the Assimp loader's keyframe-neighbour search skips the immediate predecessor (single-key channels collapse to the inverse bind) and its interpolation factor mixes seconds with ticks (interpolated keys held the front neighbour)
+        assimp-scale-track-fallback.patch # upstream candidate: the Assimp loader keys stray scale keyframes by the rotation time (garbage times + an OOB read) and falls a track with no keys of a kind back to a neutral placeholder instead of the bind pose (missing tracks bake the inverse bind in as drift)
 )
 
 file(REMOVE "${SOURCE_PATH}/CMake/Packages/FindOpenEXR.cmake")
