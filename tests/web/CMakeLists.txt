@@ -64,3 +64,22 @@ add_test(NAME export_web_water
 set_tests_properties(export_web_water PROPERTIES
     LABELS integration TIMEOUT 600
     SKIP_RETURN_CODE 77)
+
+#   export_web_bloom      the LDR bloom bar IN the browser: a generated
+#                         single-scene emissive-cube project booted headless
+#                         must report bloom supported on the WebGL2/GLES3
+#                         context (the ES-300 quad-pass compositor), build its
+#                         chain with no fallback refusal, render through to the
+#                         orderly shutdown, AND prove the glow at the pixel
+#                         level - the same static scene is measurably brighter
+#                         with bloom on than off (the additive halo). SKIPs
+#                         (77) without a headless browser.
+add_test(NAME export_web_bloom
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/run_export_web.py"
+        --engine-build "${CMAKE_BINARY_DIR}"
+        --output "${CMAKE_CURRENT_BINARY_DIR}/export_web_bloom"
+        --mode bloom
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(export_web_bloom PROPERTIES
+    LABELS integration TIMEOUT 600
+    SKIP_RETURN_CODE 77)

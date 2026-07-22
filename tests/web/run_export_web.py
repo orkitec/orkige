@@ -35,6 +35,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import urllib.parse
 
 REPO_ROOT = os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))
@@ -92,6 +93,105 @@ end
 function update(self, dt)
 end
 """
+
+
+# the bloom fixture's own boot log (bloom_probe.component.lua): the classic
+# backend's LDR-bloom capability answers true only where the compositor gate
+# opened - on web that is the GLSL ES 3.0 profile on a real WebGL2/GLES3
+# context (the desktop demo_bloom selfcheck covers the GL core one). The
+# GLES2/WebGL1 floor answers false and logs an honest refusal.
+BLOOM_SUPPORTED_MARKER = "bloom_probe: bloom=true"
+# the classic backend's honest refusals when bloom is unsupported or the
+# compositor cannot be built (@see RenderBackend::applyBloomConfig) - their
+# ABSENCE proves the ES-300 quad-pass compositor built on the WebGL2 driver.
+BLOOM_SETUP_FAILED = ("bloom post-process is not supported",
+                      "compositor could not be created")
+
+# a single-scene bloom project generated on the fly: a bright emissive cube
+# framed against a dark field with a probe that logs the capability and opts the
+# scene into bloom. The emissive surface (luminance ~0.9, above the 0.75
+# bright-pass threshold) is exactly what the classic bloom bright-pass picks up
+# and blurs into a halo, so the boot both flips the cap and renders the glow.
+BLOOM_PROBE_SCRIPT = """\
+-- bloom_probe.component.lua - the web (WebGL2/GLES3) LDR-bloom proof.
+-- Frames a bright emissive cube and reports the classic backend's bloom
+-- capability, then opts the scene in, so the web ctest can confirm the GLSL
+-- ES 3.0 bloom compositor activated on a real WebGL2 context (not the honest
+-- refusal the GLES2/WebGL1 floor logs).
+local TS = RenderNode.TransformSpace
+
+function init(self)
+\tlocal engine = Engine.getSingleton()
+\tengine:setCameraPerspective()
+\tlocal cam = engine:getCamera()
+\tlocal node = cam ~= nil and cam:getNode() or nil
+\tif node ~= nil then
+\t\tnode:setPosition(Vector3(0, 0, 6))
+\t\tnode:lookAt(Vector3(0, 0, 0), TS.TS_WORLD, Vector3(0, 0, -1))
+\tend
+\t-- per-scene opt-in: a low threshold + strong intensity so the emissive
+\t-- cube's highlights bloom into a visible halo (the r.bloomQuality knob is
+\t-- on by default; the ctest's baseline run turns it off via ORKIGE_CVARS)
+\tengine:setBloom(true, 0.6, 1.5)
+\tprint("bloom_probe: bloom=" .. tostring(engine:supports("bloom")))
+end
+
+function update(self, dt)
+end
+"""
+
+
+def build_bloom_fixture(dest):
+    """write a minimal single-scene emissive-cube project into `dest` (manifest
+    + scene + probe script + a generated cube mesh and a strong emissive .omat).
+    Reuses the benchmark SceneWriter (so the .oscene tracks the live format) and
+    the material demo's cube geometry."""
+    sys.path.insert(0, os.path.join(REPO_ROOT, "Util"))
+    import make_material_demo as matdemo  # noqa: E402  (cube geometry + .glb)
+    scenes = os.path.join(dest, "scenes")
+    scripts = os.path.join(dest, "scripts")
+    assets = os.path.join(dest, "assets")
+    for directory in (scenes, scripts, assets):
+        os.makedirs(directory, exist_ok=True)
+    # the emissive cube: a 24-vertex unit cube mesh + a near-white emissive
+    # material (an unlit-bright surface via RTSS self-illumination, luminance
+    # ~0.9). Both are plain project assets resolved by name at runtime.
+    with open(os.path.join(assets, "bloom_cube.glb"), "wb") as f:
+        f.write(matdemo.build_glb("bloom_cube", matdemo.build_cube_geometry()))
+    with open(os.path.join(assets, "glow.omat"), "w", encoding="utf-8") as f:
+        f.write("# a bright emissive glow source for the bloom bright-pass\n"
+                "version 1\n"
+                "albedo 0.10 0.10 0.12 1.0\n"
+                "metalness 0.0\n"
+                "roughness 0.6\n"
+                "emissive 1.0 0.9 0.75\n")
+    scene = bench.SceneWriter()
+    # a dim sun so the dark cube body barely lifts off black - the emissive
+    # channel dominates, keeping the surrounding field dark for the halo
+    scene.add("Sun",
+              scene.transform(0.0, 20.0, 0.0, quat=(0.9659, -0.2588, 0.0, 0.0)),
+              scene.light(light_type=0, colour=(0.3, 0.3, 0.35), intensity=0.5),
+              tags=("sun",))
+    scene.add("Glow",
+              scene.transform(0.0, 0.0, 0.0),
+              scene.model("bloom_cube.glb", "glow.omat"),
+              tags=("glow",))
+    scene.add("Probe",
+              scene.script("bloom_probe", "scripts/bloom_probe.component.lua"))
+    with open(os.path.join(scenes, "bloom.oscene"), "w",
+              encoding="utf-8") as f:
+        f.write(scene.to_text())
+    with open(os.path.join(scripts, "bloom_probe.component.lua"), "w",
+              encoding="utf-8") as f:
+        f.write(BLOOM_PROBE_SCRIPT)
+    with open(os.path.join(dest, "project.orkproj"), "w",
+              encoding="utf-8") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<OrkigeProject version="1">\n'
+                '    <Name>Bloom Fixture</Name>\n'
+                '    <MainScene>scenes/bloom.oscene</MainScene>\n'
+                '</OrkigeProject>\n')
+    return dest
 
 
 def build_water_fixture(dest):
@@ -351,17 +451,114 @@ def assert_water(output_dir, browser):
         server.shutdown()
 
 
+def _screenshot_glow_stats(output_dir, browser, port, name, extra_query=""):
+    """capture one screenshot of the static bloom scene and return
+    (total sampled luminance, count of mid-band 'halo' pixels, sample count).
+
+    The scene is static, so any post-boot frame is identical - the only thing
+    that varies between calls is the bloom toggle. The discriminator is the
+    MID-BAND pixel count: the emissive cube core is saturated bright, the
+    background is black. With bloom OFF the transition is a hard anti-aliased
+    edge (very few mid-luminance pixels); with bloom ON the additive blurred
+    highlights lay a soft glow GRADIENT around the silhouette - a large
+    population of mid-luminance pixels that did not exist before. That gradient
+    is the halo, so its pixel count is a robust, localised proxy for the glow."""
+    shot = os.path.join(output_dir, name)
+    url = "http://127.0.0.1:%d/index.html%s" % (port, extra_query)
+    run_browser(browser, url, deadline_seconds=180, screenshot=shot,
+                budget_ms=9000)
+    if not os.path.isfile(shot) or os.path.getsize(shot) == 0:
+        fail("no screenshot written (%s)" % name)
+    image = orkige_png.decode_png(shot)
+    total = 0.0
+    halo = 0
+    samples = 0
+    stride = 4  # every pixel - the halo band is thin, do not undersample it
+    for off in range(0, len(image.pixels) - 4, stride):
+        r = image.pixels[off]
+        g = image.pixels[off + 1]
+        b = image.pixels[off + 2]
+        lum = 0.299 * r + 0.587 * g + 0.114 * b
+        total += lum
+        if 25.0 < lum < 205.0:  # the soft glow gradient (0..255 scale)
+            halo += 1
+        samples += 1
+    return total, halo, samples
+
+
+def assert_bloom(output_dir, browser):
+    """boot the exported bloom fixture and prove the LDR bloom compositor
+    activated on the real WebGL2/GLES3 context: the probe reports the capability
+    true, the ES-300 quad-pass chain builds without a fallback refusal, the run
+    renders through to the orderly shutdown (a shader link error would abort
+    first), AND a rendered-glow pixel proof - the same static scene is brighter
+    with bloom on than off (bloom's additive combine can only ADD luminance, so
+    the surplus is the halo spilling around the emissive cube)."""
+    server, port = serve(output_dir)
+    try:
+        # leg 1: capability + clean shutdown. Frame-capped so the bloom chain
+        # actually renders (the ES-300 quad programs link on first use).
+        url = ("http://127.0.0.1:%d/index.html"
+               "?env.ORKIGE_DEMO_FRAMES=90&env.ORKIGE_DEMO_FPS_LOG=1" % port)
+        log = run_browser(browser, url, deadline_seconds=180,
+                          needed_markers=(BLOOM_SUPPORTED_MARKER, EXIT_MARKER))
+        for failed in BLOOM_SETUP_FAILED:
+            if failed in log:
+                fail("bloom reported unsupported/failed on WebGL2 ('%s') - the "
+                     "GLSL ES 3.0 compositor gate did not open - full log:\n%s"
+                     % (failed, log))
+        if BLOOM_SUPPORTED_MARKER not in log:
+            fail("the fixture did not report bloom supported on WebGL2 - the "
+                 "bloom gate did not open - full log:\n%s" % log)
+        if EXIT_MARKER not in log:
+            fail("the bloom fixture did not reach the orderly shutdown - the "
+                 "bloom compositor may have faulted at render - full log:\n%s"
+                 % log)
+        print("run_export_web: bloom capability + clean shutdown OK",
+              flush=True)
+
+        # leg 2: the rendered-glow pixel proof. Two screenshots of the SAME
+        # static scene - bloom on (default r.bloomQuality) vs off (via
+        # ORKIGE_CVARS). Bloom lays a soft halo gradient around the emissive
+        # cube: a large population of mid-luminance pixels the hard-edged
+        # bloom-off frame does not have. That halo-pixel surplus (and the extra
+        # total luminance) is the additive glow the compositor produced.
+        lum_on, halo_on, samples = _screenshot_glow_stats(
+            output_dir, browser, port, "bloom_on.png")
+        off_query = "?env.ORKIGE_CVARS=" + urllib.parse.quote(
+            "r.bloomQuality=off")
+        lum_off, halo_off, _ = _screenshot_glow_stats(
+            output_dir, browser, port, "bloom_off.png", extra_query=off_query)
+        # the halo must be a clear population (guards against a stray edge
+        # pixel passing a bare inequality) AND clearly exceed the bloom-off
+        # baseline, and the frame must gain total luminance (additive combine)
+        if not (halo_on > halo_off * 1.5 and halo_on - halo_off > 500 and
+                lum_on > lum_off * 1.01):
+            fail("no measurable glow: bloom-on halo pixels %d vs bloom-off %d "
+                 "(of %d sampled), luminance on=%.0f off=%.0f - the compositor "
+                 "rendered but added no halo - check bloom_on.png / "
+                 "bloom_off.png"
+                 % (halo_on, halo_off, samples, lum_on, lum_off))
+        print("run_export_web: rendered glow proven (halo pixels on=%d off=%d, "
+              "+%d; total luminance on=%.0f off=%.0f, +%.1f%%)"
+              % (halo_on, halo_off, halo_on - halo_off, lum_on, lum_off,
+                 100.0 * (lum_on - lum_off) / max(lum_off, 1.0)), flush=True)
+    finally:
+        server.shutdown()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine-build", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--mode",
-                        choices=["structure", "boot", "roller", "water"],
+                        choices=["structure", "boot", "roller", "water",
+                                 "bloom"],
                         default="structure")
     args = parser.parse_args()
 
     browser = ""
-    if args.mode in ("boot", "roller", "water"):
+    if args.mode in ("boot", "roller", "water", "bloom"):
         browser = find_browser()
         if not browser:
             print("run_export_web: SKIPPED - no headless Chrome/Chromium on "
@@ -374,6 +571,9 @@ def main():
         # exported + booted like any project
         project = build_water_fixture(output + "_project")
         title = "Water Fixture"
+    elif args.mode == "bloom":
+        project = build_bloom_fixture(output + "_project")
+        title = "Bloom Fixture"
     else:
         project = ROLLER_PROJECT if args.mode == "roller" else PROJECT
         title = "Roller" if args.mode == "roller" else "Jumper Lua"
@@ -385,6 +585,8 @@ def main():
         assert_roller(output, browser)
     elif args.mode == "water":
         assert_water(output, browser)
+    elif args.mode == "bloom":
+        assert_bloom(output, browser)
     print("run_export_web: PASSED (%s)" % args.mode, flush=True)
 
 

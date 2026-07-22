@@ -27,9 +27,19 @@ sky rather than the byte-stable Stage-1 fallback (the GLES2/WebGL1 floor keeps
 that fallback). This is asserted on web: `export_web_water` boots a refractive
 water fixture headless and requires `screenSpaceRefraction` to answer supported
 on the live WebGL2 context with the ES-300 programs building (no fallback
-refusal) and the surface rendering through to the orderly shutdown. **Bloom
-stays runtime-gated off** on GLES/WebGL pending an in-browser proof of the
-compositor chain (the cap refuses honestly; see `RenderBackend::bloomSupported`).
+refusal) and the surface rendering through to the orderly shutdown. **LDR
+bloom** reaches the WebGL2 context on the same `glsl300es` gate: the classic
+bloom compositor's `OgreUnifiedShader.h` quad passes (bright-pass → separable
+blur → additive combine) run in the GLSL ES 3.0 profile, so an
+`engine:setBloom` scene glows in the browser rather than degrading to the
+honest no-op the GLES2/WebGL1 floor still logs (see
+`RenderBackend::bloomSupported`; the bloom compositor media
+`orkige_engine/media/bloom/classic/` now rides the web payload too). This is
+asserted on web: `export_web_bloom` boots an emissive-cube fixture headless,
+requires the `bloom` cap to answer supported on the live WebGL2 context with no
+fallback refusal and a clean shutdown, and pixel-proves the glow — the same
+static scene is measurably brighter with bloom on than off (the additive halo
+around the emissive cube).
 The *requested* GL tier itself is code-confirmed; a runtime **tier-assertion
 test is still a TODO** (read the GL context version from the boot log or the
 caps bitset over the debug protocol) to confirm delivery and catch a

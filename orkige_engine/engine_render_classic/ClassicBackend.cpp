@@ -22,6 +22,7 @@
 #include <OgreCompositionTechnique.h>
 #include <OgreCompositionTargetPass.h>
 #include <OgreCompositionPass.h>
+#include <OgreDepthBuffer.h>	// DepthBuffer::POOL_NO_DEPTH (bloom quad buffers)
 
 #include <algorithm>
 #include <sstream>
@@ -427,15 +428,27 @@ namespace Orkige
 		{
 			return false;	// no off-screen colour targets - no bloom chain
 		}
-		// GLES2/WebGL contexts are runtime-GATED pending an on-device/browser
-		// proof run of the compositor chain (FBOs exist there, so this is an
-		// unproven-not-incapable gate - the honest refusal line says so once,
-		// @see applyBloomConfig and Docs/render-abstraction.md)
-		if(generator->getTargetLanguage() == "glsles")
+		// a GLES/WebGL target qualifies only where GLSL ES 3.0 exists: the
+		// bloom compositor's OgreUnifiedShader.h quad passes (bright/blur/
+		// combine) run in the GLSL ES 3.0 profile on a WebGL2/GLES3 context,
+		// gated on the glsl300es probe exactly like the IBL stage and the
+		// advanced water (@see imageBasedLightingSupported,
+		// screenSpaceRefractionSupported). The GLES2/WebGL1 floor answers
+		// false (a bare context has no GLSL ES 3.0 syntax) and an enabled
+		// bloom degrades to no pass with one honest log line there (@see
+		// applyBloomConfig and Docs/render-abstraction.md); a Metal target
+		// (no MSL bloom variant) stays false too.
+		const Ogre::String language = generator->getTargetLanguage();
+		if(language == "glsl")
 		{
-			return false;
+			return true;	// desktop GL core - the facade selfcheck's target
 		}
-		return true;
+		if(language == "glsles")
+		{
+			return Ogre::GpuProgramManager::getSingleton().isSyntaxSupported(
+				"glsl300es");
+		}
+		return false;
 #else
 		return false;	// no shader generator built - no generated scene pass
 #endif
@@ -600,6 +613,14 @@ namespace Orkige
 				def->widthFactor = downFactor;
 				def->heightFactor = downFactor;
 				def->formatList.push_back(Ogre::PF_R8G8B8A8);
+				// no depth buffer: these are fullscreen quad targets (bright-pass
+				// / blur), no geometry to depth-test. The default depth pool would
+				// hand a downsampled colour target a window-sized pooled depth
+				// attachment, which desktop GL tolerates but GLES3/WebGL2 rejects
+				// as an INCOMPLETE framebuffer (attachments not all the same size)
+				// - dropping the bloom draws with no glow. A colour-only target is
+				// complete on every driver and correct here.
+				def->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
 			}
 			// --- the 3D scene into the off-screen texture (2D tier excluded) ---
 			{

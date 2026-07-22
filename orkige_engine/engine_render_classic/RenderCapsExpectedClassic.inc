@@ -18,9 +18,12 @@ X(OffscreenOwnedLayers, false)
 // surface-aligned textured quad (RenderDecal), which is NOT true projected
 // decals, so the capability answers false (@see Docs/render-abstraction.md)
 X(ProjectedDecals, false)
-// desktop truth (GL3Plus/Vulkan - what the selfcheck boots); a GLES2/WebGL
-// context answers false at runtime (gated pending an on-device/browser proof
-// run of the compositor chain - see RenderBackend::bloomSupported)
+// desktop truth (GL3Plus/Vulkan - what the selfcheck boots): the bloom
+// compositor's OgreUnifiedShader.h quad passes. Also true on a GLES/WebGL
+// context with GLSL ES 3.0 (WebGL2/GLES3 - the ES-300 profile the passes run
+// in); the GLES2/WebGL1 floor answers false at runtime (gated on glsl300es,
+// an enabled bloom degrades to no pass with one log line - see
+// RenderBackend::bloomSupported)
 X(Bloom, true)
 // desktop truth (GL3Plus - what the selfcheck boots): a grab-pass RenderTexture
 // sampled at a normal-perturbed screen UV. Also true on a GLES/WebGL context

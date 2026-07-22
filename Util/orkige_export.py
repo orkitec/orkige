@@ -931,6 +931,17 @@ def export_web(project, engine_build, output_dir):
             shutil.copytree(engine_decal_dir(),
                             os.path.join(staging, "Media", "decals"),
                             dirs_exist_ok=True)
+        # the engine bloom compositor media (bright/blur/combine material +
+        # shaders engine:setBloom needs): web is always the classic flavor, so
+        # the classic viewport-compositor shaders. Registered at runtime under
+        # Media/bloom/classic like the font/water/decal dirs (the player's
+        # bundled-first bloom pair). On a WebGL2/GLES3 context the bloom cap
+        # opens (@see RenderBackend::bloomSupported), so the chain needs its
+        # media present.
+        if engine_bloom_dir("classic"):
+            shutil.copytree(engine_bloom_dir("classic"),
+                            os.path.join(staging, "Media", "bloom", "classic"),
+                            dirs_exist_ok=True)
         staged = stage_project_payload(
             project, os.path.join(staging, PAYLOAD_DIR_NAME), "web",
             engine_build)
