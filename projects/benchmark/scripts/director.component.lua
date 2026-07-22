@@ -141,7 +141,11 @@ local function orbitCamera(t)
 end
 
 -- rotate the "Sun" directional light so the atmosphere sky sweeps with it;
--- pitch goes from dawn (low) through noon (high) to dusk over the arc `p` 0..1.
+-- pitch goes from dawn (low) through noon (high) to SETTING over the arc `p`
+-- 0..1 - the arc ends 15 degrees BELOW the horizon (pitch 195), so the tour
+-- reaches a true night with the sun down (the sky model needs a genuinely low
+-- sun for its sunset/night looks; a still-high sun under the sunset haze
+-- whites the sky out). The sun crosses the horizon at p ~0.92.
 -- The light's -Z is the LIGHT-TRAVEL direction (down for a daytime sun, like
 -- the scene's authored orientation), so the arc rotates NEGATIVE about X:
 -- toward-the-sun is the negation the atmosphere linkage derives itself.
@@ -150,7 +154,7 @@ local function driveSun(p)
 	if sun == nil then
 		return
 	end
-	local pitch = math.rad(15.0 + p * 150.0)   -- 15deg -> 165deg
+	local pitch = math.rad(15.0 + p * 180.0)   -- 15deg -> 195deg (below horizon)
 	local half = pitch * 0.5
 	sun:setOrientation(Quaternion(math.cos(half), -math.sin(half), 0, 0))
 end
@@ -161,14 +165,17 @@ end
 -- only picks the two looks + a weight, it authors no raw sky/fog/exposure values
 -- (raw guesses whited surfaces out / blacked the sky - see the preset ranges).
 -- The blend TRACKS driveSun's arc: full sunset lands where the sun is LOW
--- (p ~0.85+, near the end of its descent) - the sunset preset's thick haze
--- paired with a HIGH sun whites the whole sky out (the sky model divides its
--- density by the sun elevation, on both flavors).
+-- (p ~0.78, elevation ~0.35 and falling) and full night as the sun CROSSES
+-- the horizon (p ~0.92) - the sunset preset's thick haze paired with a HIGH
+-- sun whites the whole sky out (the sky model divides its density by the sun
+-- elevation, on both flavors), and a bright sky with the sun still up is not
+-- a night.
 local function driveAtmosphere(p)
-	if p < 0.85 then
-		engine:setAtmosphereBlend("day", "sunset", p / 0.85)
+	if p < 0.78 then
+		engine:setAtmosphereBlend("day", "sunset", p / 0.78)
 	else
-		engine:setAtmosphereBlend("sunset", "night", (p - 0.85) / 0.15)
+		engine:setAtmosphereBlend("sunset", "night",
+			math.min(1.0, (p - 0.78) / 0.14))
 	end
 end
 
@@ -527,8 +534,8 @@ function init(self)
 		-- golden hour: a LOW sun paired with the full sunset preset (the pairing
 		-- the sky model expects - a high sun under the sunset haze whites out),
 		-- so the lake mirrors a warm gradient sky instead of a blown white one
-		driveSun(0.97)
-		driveAtmosphere(0.85)
+		driveSun(0.81)
+		driveAtmosphere(0.78)
 		-- WATER VISUAL: image-based lighting sourced from the PROCEDURAL sky (a
 		-- runtime SkyEnvMap capture, not a baked cubemap), so the water surface
 		-- picks up sky reflections instead of reading as a flat tinted slab. A
@@ -541,7 +548,7 @@ function init(self)
 		buildHud()
 	elseif mode == "lumens" then
 		setPerspectiveCamera(18.0, 9.0, -8.0)
-		driveSun(0.9)
+		driveSun(0.75)
 		-- the TRUE night look (no sunset dilution): a dark dome, a dim white
 		-- moon low over the horizon - the lamps are the stars of this scene
 		driveAtmosphere(1.0)
@@ -569,7 +576,7 @@ function init(self)
 		buildHud()
 	elseif mode == "field" then
 		setPerspectiveCamera(22.0, 12.0, -12.0)
-		driveSun(0.2)
+		driveSun(0.17)
 		driveAtmosphere(0.15)
 		gatherPool()
 		buildHud()
@@ -581,7 +588,7 @@ function init(self)
 		-- guaranteed byte-stable static reference band
 		engine:setAtmosphere(false, 0, 0, 0, 0, 0)
 		engine:setWindowBackgroundColour(0.42, 0.55, 0.70)
-		driveSun(0.4)
+		driveSun(0.33)
 		gatherPool()
 		-- the front-and-centre hero: cache its rig via world.getAnimation (the
 		-- OTHER-object accessor leg of the seam) and start it walking; the

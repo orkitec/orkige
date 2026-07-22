@@ -302,12 +302,21 @@ namespace Orkige
 			// on every toggle so an inactive state carries NO residue
 			if(gIbl.active)
 			{
+				// display calibration: this pipeline shows shader output RAW
+				// (gamma-naive) while the sibling flavor's linear fill gets
+				// hardware sRGB-encoded on display - a linear-magnitude fill
+				// here reads a step darker than the same fill there, so the
+				// stage luminance carries a fixed display gain (measured
+				// against the sibling flavor's lit-terrain fill; the water
+				// programs read the RAW intensity for their sky reflection)
+				const float kIblDisplayGain = 2.8f;
 				Ogre::RTShader::SubRenderState* imageLighting =
 					generator->createSubRenderState(
 						Ogre::RTShader::SRS_IMAGE_BASED_LIGHTING);
 				imageLighting->setParameter("texture", gIbl.envTexture);
 				imageLighting->setParameter("luminance",
-					Ogre::StringConverter::toString(gIbl.luminance));
+					Ogre::StringConverter::toString(
+						gIbl.luminance * kIblDisplayGain));
 				renderState->addTemplateSubRenderState(imageLighting);
 			}
 			// remember the pinned state so a live image-lighting toggle can

@@ -213,7 +213,12 @@ namespace Orkige
 		{
 			using namespace Detail;
 			const V3 toSun = normalize({ toSunX, toSunY, toSunZ });
-			const float sunHeight = clampf(toSun.y, -1.0f, 1.0f);
+			// a BELOW-horizon sun parks the model at the horizon (floor 0):
+			// the haze weight exp2(-1/sunHeight) explodes for a small negative
+			// elevation (a just-set sun whited the night sky out on both
+			// flavors) - night darkness is the night preset's job. The next
+			// backend floors its native drive identically.
+			const float sunHeight = clampf(toSun.y, 0.0f, 1.0f);
 			const V3 colour = atmosphereAt(desc, toSun, sunHeight,
 				{ viewX, viewY, viewZ }, skipSun);
 			outR = colour.x;
@@ -230,8 +235,10 @@ namespace Orkige
 			using namespace Detail;
 			const V3 toSun = normalize({ toSunX, toSunY, toSunZ });
 			// the native phase convention: normTime = asin(elevation)/pi, and
-			// the model's sunHeight = sin(normTime*pi) - the elevation itself
-			const float sunHeight = clampf(toSun.y, -1.0f, 1.0f);
+			// the model's sunHeight = sin(normTime*pi) - the elevation itself,
+			// FLOORED at the horizon like skyModelColour (the model's haze
+			// weight explodes just below it; night darkness is the preset's)
+			const float sunHeight = clampf(toSun.y, 0.0f, 1.0f);
 
 			// the sun colour: the sky model sampled toward the sun,
 			// normalized so the max channel is 1 (the power knob carries the
@@ -271,10 +278,20 @@ namespace Orkige
 			out.nextLowerBlue = lower.z;
 			// classic has flat ambient only: average the hemisphere in linear
 			// first (the setAmbientHemisphere averaged-flat precedent), then
-			// map each channel through the calibration
-			out.classicAmbientRed = classicLevel((upper.x + lower.x) * 0.5f);
-			out.classicAmbientGreen = classicLevel((upper.y + lower.y) * 0.5f);
-			out.classicAmbientBlue = classicLevel((upper.z + lower.z) * 0.5f);
+			// DISPLAY-ENCODE each channel (x^(1/2.2)): for a diffuse surface
+			// the gamma-naive pipeline shows albedo_encoded * ambient, and
+			// matching the linear pipeline's encode(albedo_linear * ambient)
+			// under the power-law gamma needs exactly the encoded ambient -
+			// the sun's mid-grey calibration (classicLevel) under-fills the
+			// ambient-lit faces, which read a step darker than the next
+			// flavor's (the away-from-sun cube-face divergence)
+			auto encodeAmbient = [](float linear)
+			{
+				return std::pow(std::max(linear, 0.0f), 1.0f / 2.2f);
+			};
+			out.classicAmbientRed = encodeAmbient((upper.x + lower.x) * 0.5f);
+			out.classicAmbientGreen = encodeAmbient((upper.y + lower.y) * 0.5f);
+			out.classicAmbientBlue = encodeAmbient((upper.z + lower.z) * 0.5f);
 			return out;
 		}
 	}

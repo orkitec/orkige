@@ -1780,9 +1780,14 @@ namespace Orkige
 		gAtmosphere->setLight(sun);
 		// the native day/night phase from the sun's elevation: sunHeight in the
 		// shader is sin(normTime * PI), so normTime = asin(elevation)/PI maps
-		// overhead(+1)->0.5 (noon), horizon(0)->0 and below(-1)->-0.5 (night)
+		// overhead(+1)->0.5 (noon) and horizon(0)->0. A BELOW-horizon sun is
+		// parked AT the horizon for the sky model (floor 0): the model's haze
+		// weight is exp2(-1/sunHeight), which explodes for a small negative
+		// elevation (a just-set sun whited the whole night sky out) - the
+		// night look comes from the night PRESET's dark power/tint, while the
+		// linked light keeps its true below-horizon direction
 		const float elevation =
-			std::max(-1.0f, std::min(1.0f, static_cast<float>(toSun.y)));
+			std::max(0.0f, std::min(1.0f, static_cast<float>(toSun.y)));
 		const float normTime = std::asin(elevation) /
 			static_cast<float>(Ogre::Math::PI);
 
