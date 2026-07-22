@@ -1022,18 +1022,56 @@ namespace Orkige
 					"out vec2 vUv;\n"
 					"out vec4 vClip;\n"
 					"out vec3 vWorldPos;\n"
+					"out vec3 vSwellNormal;\n"  // world-space swell normal (flat = (0,1,0))
 					"void main()\n"
 					"{\n"
-					// GEOMETRIC swell: a travelling two-sine sum over the plane's
-					// object-space footprint, phased by the water clock - real
-					// silhouette motion (amplitude 0 = the byte-stable flat plane).
-					// The next flavor's water runs the SAME formula in its vertex
-					// stage - keep the two in lockstep.
+					// GEOMETRIC swell: a travelling two-sine sum evaluated over the
+					// plane's WORLD-space footprint. The water mesh is a unit plane
+					// scaled to world size (Y-scale 1), so reading the swell over WORLD
+					// x/z gives it the SAME world wavelength as the next flavor - the
+					// two run the SAME formula/constants over world x/z and stay in
+					// lockstep (a unit-plane object-space read would collapse the whole
+					// surface into one broad dome). The FLAT vertex's world position
+					// feeds the swell argument; the displacement adds to the object Y
+					// (Y-scale 1 => it IS the world Y delta), so the clip transform
+					// stays worldViewProj*pos and amplitude 0 leaves the flat plane
+					// byte-exact.
 					"    vec4 pos = vertex;\n"
-					"    pos.y += waveParams.x * (\n"
-					"        sin(pos.x * waveParams.y + waveParams.z) +\n"
-					"        0.6 * sin((pos.z * 1.3 + pos.x * 0.4) * waveParams.y\n"
-					"            - waveParams.z * 1.7));\n"
+					"    vec3 wp = (world * pos).xyz;\n"
+					"    float A = waveParams.x;\n"
+					"    float kf = waveParams.y;\n"
+					"    float ph = waveParams.z;\n"
+					// FOUR-component travelling spectrum (a pure two-sine swell reads
+					// as an even lattice - real water needs incommensurate wavelengths,
+					// skewed azimuths and unequal phase speeds so the interference
+					// never visibly repeats). The component table is LOCKSTEP with the
+					// next flavor's vertex piece (kSwellComponents there):
+					//   arg1 =  wp.x*kf                    + ph        weight 0.75
+					//   arg2 = (wp.z*1.3  + wp.x*0.4 )*kf  - ph*1.7    weight 0.45
+					//   arg3 = (wp.x*0.83 - wp.z*0.62)*kf*2.17 + ph*2.3  weight 0.17
+					//   arg4 = (wp.z*0.91 + wp.x*0.47)*kf*3.71 - ph*3.1  weight 0.09
+					// (weights sum ~1.46, slopes ~12% over the old two-sine tune -
+					// the calm point where the refraction distortion, tuned on the
+					// old slopes, keeps the shore edge legible).
+					"    float g1 = wp.x * kf + ph;\n"
+					"    float g2 = (wp.z * 1.3 + wp.x * 0.4) * kf - ph * 1.7;\n"
+					"    float g3 = (wp.x * 0.83 - wp.z * 0.62) * kf * 2.17 + ph * 2.3;\n"
+					"    float g4 = (wp.z * 0.91 + wp.x * 0.47) * kf * 3.71 - ph * 3.1;\n"
+					"    pos.y += A * (0.75 * sin(g1) + 0.45 * sin(g2)\n"
+					"        + 0.17 * sin(g3) + 0.09 * sin(g4));\n"
+					// analytic swell SLOPE -> world-space normal: the exact d/dx, d/dz
+					// of the displacement above (per component weight*axis-frequency:
+					// x: 0.75*1, 0.45*0.4=0.18, 0.17*0.83*2.17=0.3062, 0.09*0.47*3.71
+					// =0.1569; z: 0.45*1.3=0.585, -0.17*0.62*2.17=-0.2287,
+					// 0.09*0.91*3.71=0.3038 - the same bakes the next piece carries)
+					// so the shading rides the swell smoothly per pixel instead of
+					// faceting per triangle. Amplitude 0 collapses it to (0,1,0),
+					// keeping the flat path stable.
+					"    float dYdx = A * kf * (0.75 * cos(g1) + 0.18 * cos(g2)\n"
+					"        + 0.3062 * cos(g3) + 0.1569 * cos(g4));\n"
+					"    float dYdz = A * kf * (0.585 * cos(g2)\n"
+					"        - 0.2287 * cos(g3) + 0.3038 * cos(g4));\n"
+					"    vSwellNormal = normalize(vec3(-dYdx, 1.0, -dYdz));\n"
 					"    vec4 clip = worldViewProj * pos;\n"
 					"    gl_Position = clip;\n"
 					"    vClip = clip;\n"
@@ -1066,6 +1104,7 @@ namespace Orkige
 					"in vec2 vUv;\n"
 					"in vec4 vClip;\n"
 					"in vec3 vWorldPos;\n"
+					"in vec3 vSwellNormal;\n"
 					"out vec4 fragColour;\n"
 					"void main()\n"
 					"{\n"
@@ -1077,7 +1116,8 @@ namespace Orkige
 					"    vec3 n0 = texture(normalMap, nuv0).xyz * 2.0 - 1.0;\n"
 					"    vec3 n1 = texture(normalMap, nuv1).xyz * 2.0 - 1.0;\n"
 					"    vec2 disp = (n0.xy + n1.xy * 0.6) * refractParams.x;\n"
-					"    vec2 uv = clamp(screenUv + disp, vec2(0.002), vec2(0.998));\n"
+					"    vec2 uv = clamp(screenUv + disp + vSwellNormal.xz * 0.12,\n"
+					"        vec2(0.002), vec2(0.998));\n"
 					"    vec3 scene = texture(sceneMap, uv).rgb;\n"
 					"    vec3 water = mix(scene, deepColour.rgb, deepColour.a * 0.6)\n"
 					"               + shallowColour.rgb * 0.12;\n"
@@ -1088,15 +1128,18 @@ namespace Orkige
 					// capture stores clamped LINEAR values, so encode for this
 					// gamma-naive pipeline (the dome's display-encode sibling).
 					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
-					"    vec3 nrm = normalize(vec3(disp.x * 2.5, 1.0,\n"
-					"        disp.y * 2.5));\n"
+					"    vec3 nrm = normalize(vSwellNormal\n"
+					"        + vec3(disp.x * 2.5, 0.0, disp.y * 2.5));\n"
+					"    vec3 nF = normalize(vec3(\n"
+					"        disp.x * 2.5 + vSwellNormal.x * 0.2, 1.0,\n"
+					"        disp.y * 2.5 + vSwellNormal.z * 0.2));\n"
 					"    if(skyParams.y > 0.5)\n"
 					"    {\n"
 					"        vec3 refl = reflect(-viewDir, nrm);\n"
 					"        refl.y = abs(refl.y);\n"  // the water reflects SKY, never ground
 					"        vec3 sky = pow(max(texture(skyMap, refl).rgb,\n"
 					"            vec3(0.0)), vec3(1.0 / 2.2)) * skyParams.z;\n"
-					"        float cosv = clamp(dot(viewDir, nrm), 0.0, 1.0);\n"
+					"        float cosv = clamp(dot(viewDir, nF), 0.0, 1.0);\n"
 					"        float f0 = clamp(skyParams.x, 0.0, 1.0);\n"
 					"        float fres = f0 + (1.0 - f0) * pow(1.0 - cosv, 5.0);\n"
 					"        water = mix(water, sky, clamp(fres, 0.0, 1.0));\n"
@@ -1192,6 +1235,7 @@ namespace Orkige
 					"in vec2 vUv;\n"
 					"in vec4 vClip;\n"
 					"in vec3 vWorldPos;\n"
+					"in vec3 vSwellNormal;\n"
 					"out vec4 fragColour;\n"
 					"void main()\n"
 					"{\n"
@@ -1208,8 +1252,8 @@ namespace Orkige
 					"    vec3 base;\n"
 					"    if(reflectParams.y > 0.5)\n"
 					"    {\n"
-					"        vec2 suv = clamp(screenUv + disp * refractParams.x,\n"
-					"            vec2(0.002), vec2(0.998));\n"
+					"        vec2 suv = clamp(screenUv + disp * refractParams.x\n"
+					"            + vSwellNormal.xz * 0.12, vec2(0.002), vec2(0.998));\n"
 					"        vec3 scene = texture(sceneMap, suv).rgb;\n"
 					"        base = mix(scene, deepColour.rgb, deepColour.a * 0.6)\n"
 					"             + shallowColour.rgb * 0.12;\n"
@@ -1224,8 +1268,8 @@ namespace Orkige
 					// the mirror image, sampled at the fragment screen UV with a
 					// small ripple perturbation (the reflection camera shares the
 					// main projection, so the same-screen sample aligns the mirror)
-					"    vec2 ruv = clamp(screenUv + disp * 0.03,\n"
-					"        vec2(0.002), vec2(0.998));\n"
+					"    vec2 ruv = clamp(screenUv + disp * 0.03\n"
+					"        + vSwellNormal.xz * 0.06, vec2(0.002), vec2(0.998));\n"
 					"    vec3 reflectCol = texture(reflectMap, ruv).rgb;\n"
 					// Schlick fresnel against the ripple-tilted surface normal:
 					// looking DOWN shows the water body/refracted scene, grazing
@@ -1234,9 +1278,12 @@ namespace Orkige
 					// reflectParams.x carries the PRE-COMPUTED F0 (base water F0 +
 					// the reflectionStrength boost - @see applyReflectionParams).
 					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
-					"    vec3 nrm = normalize(vec3(disp.x * 0.15, 1.0,\n"
-					"        disp.y * 0.15));\n"
-					"    float cosv = clamp(dot(viewDir, nrm), 0.0, 1.0);\n"
+					"    vec3 nrm = normalize(vSwellNormal\n"
+					"        + vec3(disp.x * 0.15, 0.0, disp.y * 0.15));\n"
+					"    vec3 nF = normalize(vec3(\n"
+					"        disp.x * 0.15 + vSwellNormal.x * 0.2, 1.0,\n"
+					"        disp.y * 0.15 + vSwellNormal.z * 0.2));\n"
+					"    float cosv = clamp(dot(viewDir, nF), 0.0, 1.0);\n"
 					"    float f0 = clamp(reflectParams.x, 0.0, 1.0);\n"
 					"    float fres = f0 + (1.0 - f0) * pow(1.0 - cosv, 5.0);\n"
 					"    vec3 outc = mix(base, reflectCol, clamp(fres, 0.0, 1.0));\n"

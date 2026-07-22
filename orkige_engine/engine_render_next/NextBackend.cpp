@@ -213,6 +213,17 @@ namespace Orkige
 		Ogre::ColourValue gLinkedSunDiffuse;
 		Ogre::ColourValue gLinkedSunSpecular;
 		Ogre::Real gLinkedSunPower = 1.0f;
+		//! the AUTHORED local orientation of the linked sun's node, snapshotted
+		//! the moment the atmosphere takes the light (before it ever drives it).
+		//! AtmosphereNpr::syncToLight steers the linked light's node
+		//! (Light::setDirection writes it in PARENT space from a world-space sun
+		//! vector), which - on the sun's LightComponent mount, a child of the
+		//! authored transform - bakes the parent's rotation into the mount and
+		//! doubles the authored sun angle. The node's authored orientation is the
+		//! sun direction's single source of truth (identity for a mount, the
+		//! authored value for a directly-attached facade light), so it is pinned
+		//! back before each direction read and after each drive
+		Ogre::Quaternion gLinkedSunNodeLocal = Ogre::Quaternion::IDENTITY;
 
 		//! the render queue the atmosphere sky quad draws from: the FIRST v2
 		//! queue, before all scene content (depth-checked + write-off, so
@@ -267,6 +278,12 @@ namespace Orkige
 				gLinkedSun->setDiffuseColour(gLinkedSunDiffuse);
 				gLinkedSun->setSpecularColour(gLinkedSunSpecular);
 				gLinkedSun->setPowerScale(gLinkedSunPower);
+				// hand the node its authored orientation back too, so a released
+				// sun keeps pointing where it was authored (@see gLinkedSunNodeLocal)
+				if(Ogre::Node* node = gLinkedSun->getParentNode())
+				{
+					node->setOrientation(gLinkedSunNodeLocal);
+				}
 				gLinkedSun = NULL;
 			}
 		}
@@ -666,15 +683,15 @@ namespace Orkige
 			(1u << static_cast<int>(RenderCaps::ProjectedDecals)) |
 			(1u << static_cast<int>(RenderCaps::IblReflections)) |
 			(1u << static_cast<int>(RenderCaps::ScreenSpaceRefraction)) |
-			// PlanarReflection stays OFF: the native Ogre::PlanarReflections
-			// subsystem renders a correct mirror RTT here, but the HlmsPbs
-			// projective SAMPLING of it reads the wrong region on Metal (the
-			// water showed a uniform off-hue mirror, not the scene) - the bit
-			// answers what actually renders right, so it stays false until the
-			// sampling is fixed and probe-verified (the subsystem + wiring are
-			// retained behind this gate; classic's mirror-camera path is the
-			// working planar reflection today). Diagnose with
+			// PlanarReflection: the native Ogre::PlanarReflections subsystem
+			// renders the mirror RTT with its mip chain (the hand-built
+			// workspace's PASS_MIPMAP), and the planar-on water material
+			// compensates HlmsPbs's physically-attenuated env term (specular
+			// colour x env BRDF x roughness-mip blur) so the mirrored scene
+			// reads at the classic mirror-paint's strength - probe-verified by
+			// water_reflection_looks_right on this flavor. Diagnose with
 			// ORKIGE_DUMP_MIRROR=<png> (@see updatePlanarReflections).
+			(1u << static_cast<int>(RenderCaps::PlanarReflection)) |
 			(1u << static_cast<int>(RenderCaps::Bloom));
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget), derived from the clustered-forward config set above
@@ -1813,57 +1830,76 @@ namespace Orkige
 		// SUN LINKAGE: the first directional light is the sun; read its current
 		// direction (authored via its node) so orienting the light sweeps the
 		// day-night arc, then the atmosphere drives that light's colour/power.
-		// Read the direction and snapshot the light's node BEFORE any
-		// atmosphere call: setLight/setPreset/setSunDir each run
-		// AtmosphereNpr::syncToLight, which steers the node.
+		// The node's AUTHORED orientation - snapshotted CLEAN when the sun is
+		// first linked (@see gLinkedSunNodeLocal) - is pinned back before the
+		// direction read and after the drive, because setLight/setPreset/
+		// setSunDir each run AtmosphereNpr::syncToLight, which steers the node.
 		Ogre::Light* sun = RenderBackend::firstDirectionalLight();
 		Ogre::Vector3 toSun(0.3f, 0.9f, 0.2f);	// default: high daytime sun
 		Ogre::Node* sunNode = NULL;
-		Ogre::Quaternion sunNodeOrientation = Ogre::Quaternion::IDENTITY;
 		if(sun)
 		{
-			// -direction points FROM the surface TOWARD the sun
-			toSun = -sun->getDerivedDirectionUpdated();
 			sunNode = sun->getParentNode();
-			if(sunNode)
+			// restore-exactly: a sun-set change hands the PREVIOUS sun its
+			// authored colour/power (and node orientation) back, then snapshots
+			// the new one - CLEAN, before the atmosphere ever drives it - as the
+			// direction's source of truth (@see gLinkedSunNodeLocal)
+			if(gLinkedSun != sun)
 			{
-				sunNodeOrientation = sunNode->getOrientation();
-			}
-		}
-		toSun.normalise();
-		// restore-exactly: a sun-set change hands the PREVIOUS sun its
-		// authored colour/power back (it is still alive here - the registry
-		// is updated before a dying light is destroyed) and snapshots the new
-		// one before the atmosphere starts driving it
-		if(gLinkedSun != sun)
-		{
-			restoreLinkedSun();
-			if(sun)
-			{
+				restoreLinkedSun();
 				gLinkedSun = sun;
 				gLinkedSunDiffuse = sun->getDiffuseColour();
 				gLinkedSunSpecular = sun->getSpecularColour();
 				gLinkedSunPower = sun->getPowerScale();
+				gLinkedSunNodeLocal = sunNode ? sunNode->getOrientation()
+					: Ogre::Quaternion::IDENTITY;
 			}
+			else if(sunNode)
+			{
+				// an already-linked sun: undo the atmosphere's residual node
+				// steering BEFORE reading the authored direction below, so a
+				// prior sync's baked-in parent rotation never compounds
+				sunNode->setOrientation(gLinkedSunNodeLocal);
+			}
+			// -direction points FROM the surface TOWARD the sun
+			toSun = -sun->getDerivedDirectionUpdated();
 		}
+		else if(gLinkedSun)
+		{
+			// the sun left the scene: release the light we still hold
+			restoreLinkedSun();
+		}
+		toSun.normalise();
 		gAtmosphere->setLight(sun);
 		// the native day/night phase from the sun's elevation: sunHeight in the
 		// shader is sin(normTime * PI), so normTime = asin(elevation)/PI maps
 		// overhead(+1)->0.5 (noon) and horizon(0)->0. A BELOW-horizon sun is
-		// parked AT the horizon for the sky model (floor 0): the model's haze
-		// weight is exp2(-1/sunHeight), which explodes for a small negative
-		// elevation (a just-set sun whited the whole night sky out) - the
-		// night look comes from the night PRESET's dark power/tint, while the
-		// linked light keeps its true below-horizon direction
+		// parked NEAR the horizon for the sky model: the model's haze weight
+		// is exp2(-1/sunHeight) and its light-linkage terms divide by the sun
+		// elevation, so both a small negative elevation (a just-set sun
+		// whited the whole night sky out) AND an exact 0 (the linked
+		// sun/ambient colours clamp to a saturated blue that floods every lit
+		// surface once the sun sets - the night terrain wash) explode. A
+		// hair above the horizon keeps the model finite; the night look
+		// comes from the night PRESET's dark power/tint, while the linked
+		// light keeps its true below-horizon direction
 		const float elevation =
-			std::max(0.0f, std::min(1.0f, static_cast<float>(toSun.y)));
+			std::max(0.02f, std::min(1.0f, static_cast<float>(toSun.y)));
 		const float normTime = std::asin(elevation) /
 			static_cast<float>(Ogre::Math::PI);
+
+		// twilight fade: with the model parked just above the horizon, its
+		// light density (~1/elevation) would keep the DOME at full sunset
+		// blaze all night. The true (un-parked) elevation drives a short
+		// fade-to-dark as the sun sinks below the horizon, so dusk ends and
+		// night actually darkens while the presets keep shaping the colours.
+		const float duskFade = std::max(0.0f, std::min(1.0f,
+			(static_cast<float>(toSun.y) + 0.12f) / 0.12f));
 
 		Ogre::AtmosphereNpr::Preset preset;	// starts from the sane midday defaults
 		preset.skyColour =
 			Ogre::Vector3(desc.skyRed, desc.skyGreen, desc.skyBlue);
-		preset.skyPower = desc.skyPower;
+		preset.skyPower = desc.skyPower * duskFade;
 		preset.densityCoeff = desc.density;
 		preset.fogDensity = desc.fogDensity;
 		// EXPOSURE: this pipeline has no tonemapper, so the native sun/ambient
@@ -1891,12 +1927,11 @@ namespace Orkige
 		gAtmosphere->setSunDir(-toSun, normTime);	// then place the sun
 		if(sunNode)
 		{
-			// syncToLight steered the light's node (Light::setDirection
-			// writes the node in PARENT space, so repeated syncs COMPOUND
-			// with a transform-driven parent). The transform is the
-			// direction's source of truth here - restore the node, the
-			// atmosphere keeps only the light's colour/power
-			sunNode->setOrientation(sunNodeOrientation);
+			// syncToLight steered the light's node in PARENT space from the
+			// world-space sun vector; pin it back to its authored orientation so
+			// only the light's colour/power survive - the transform stays the
+			// sun direction's single source of truth (@see gLinkedSunNodeLocal)
+			sunNode->setOrientation(gLinkedSunNodeLocal);
 		}
 	}
 	//--- image-based lighting (skybox-sourced) - IBL block ----------------
@@ -3259,10 +3294,31 @@ namespace Orkige
 			const float mirrorF0 = std::clamp(f0 + strength * 0.12f, 0.02f, 0.3f);
 			datablock->setFresnel(
 				Ogre::Vector3(mirrorF0, mirrorF0, mirrorF0), false);
-			const float albedoScale = 1.0f - strength * 0.35f;
+			// HlmsPbs shows the mirror differently from classic's direct paint
+			// in FOUR compounding ways: the specular COLOUR multiplies the
+			// sample (~0.47 above), the roughness-driven env BRDF damps it,
+			// perceptual roughness picks a BLURRED mirror mip (0.16 lands ~2
+			// mips deep - the mirrored scene smears away), and the specular
+			// ADDS over an undimmed body while classic REPLACES body by the
+			// fresnel weight. With a live mirror the surface compensates all
+			// four: unit specular restores the sample's weight, a glassier
+			// roughness keeps it near mip 0, the body dims deeper than the
+			// shared 0.35 lockstep dim (matching classic's (1-F) body
+			// attenuation) and the scatter emissive halves so the mirrored
+			// scene - not the body glow - carries the surface. The fresnel
+			// gate still keeps the look water, not chrome.
+			const float albedoScale = 1.0f - strength * 0.55f;
 			datablock->setDiffuse(Ogre::Vector3(desc.deepColour.r * albedoScale,
 				desc.deepColour.g * albedoScale,
 				desc.deepColour.b * albedoScale));
+			datablock->setEmissive(Ogre::Vector3(
+				desc.shallowColour.r * scatter * 0.5f,
+				desc.shallowColour.g * scatter * 0.5f,
+				desc.shallowColour.b * scatter * 0.5f));
+			// 0.05: sharp enough that the mirrored scene stays legible, one
+			// soft mip down so residual tessellation edges melt away
+			datablock->setRoughness(0.05f);
+			datablock->setSpecular(Ogre::Vector3(1.0f, 1.0f, 1.0f));
 		}
 		// stand up / tear down the reflection subsystem for this surface (world Y
 		// = the mirror plane; extents unknown here, the actor is generous +
@@ -3336,20 +3392,72 @@ namespace Orkige
 			const float swell = std::max(desc.waveHeight, 0.0f);
 			if(swell > 0.0f)
 			{
-				char source[768];
+				// FOUR-component travelling spectrum (a pure two-sine swell
+				// reads as an even lattice - real water needs incommensurate
+				// wavelengths, skewed azimuths and unequal phase speeds so the
+				// interference never visibly repeats). The component table is
+				// LOCKSTEP with the classic water VS (WaterRefract_vs):
+				//   g1 =  x*kf                    + ph        weight 0.75
+				//   g2 = (z*1.3  + x*0.4 )*kf     - ph*1.7    weight 0.45
+				//   g3 = (x*0.83 - z*0.62)*kf*2.17 + ph*2.3   weight 0.17
+				//   g4 = (z*0.91 + x*0.47)*kf*3.71 - ph*3.1   weight 0.09
+				// (weights sum ~1.46, slopes ~12%% over the old two-sine tune -
+				// the calm point where the classic refraction distortion, tuned
+				// on the old slopes, keeps the shore edge legible.)
+				// The posExecution block re-derives the swell's analytic SLOPE
+				// (the exact d/dx, d/dz of the displacement) and tilts the
+				// output normal to match: without it the plane keeps its flat
+				// up-normal and the displaced surface shades/reflects
+				// piecewise-linearly per triangle - a sharp planar mirror
+				// makes the tessellation read as visible polygons. View-space
+				// via passBuf.view (pure rotation for normals), the
+				// detail-normal ripple composes on top in the pixel stage.
+				const float k1 = kSwellWorldFrequency;
+				const float a2x = 0.4f * k1, a2z = 1.3f * k1;
+				const float a3x = 0.83f * 2.17f * k1, a3z = 0.62f * 2.17f * k1;
+				const float a4x = 0.47f * 3.71f * k1, a4z = 0.91f * 3.71f * k1;
+				char source[2560];
 				std::snprintf(source, sizeof(source),
 					"@property( orkige_water_swell )\n"
 					"@piece( custom_passBuffer )\n"
 					"\tfloat4 orkigeWaterSwell;\n"
 					"@end\n"
 					"@piece( custom_vs_preTransform )\n"
-					"\tworldPos.y += %.6ff * ( sin( worldPos.x * %.4ff\n"
-					"\t\t+ passBuf.orkigeWaterSwell.x )\n"
-					"\t\t+ 0.6f * sin( ( worldPos.z * 1.3f + worldPos.x * 0.4f )\n"
-					"\t\t\t* %.4ff - passBuf.orkigeWaterSwell.x * 1.7f ) );\n"
+					"\tfloat orkP = passBuf.orkigeWaterSwell.x;\n"
+					"\tfloat orkG1 = worldPos.x * %.5ff + orkP;\n"
+					"\tfloat orkG2 = worldPos.z * %.5ff + worldPos.x * %.5ff\n"
+					"\t\t- orkP * 1.7f;\n"
+					"\tfloat orkG3 = worldPos.x * %.5ff - worldPos.z * %.5ff\n"
+					"\t\t+ orkP * 2.3f;\n"
+					"\tfloat orkG4 = worldPos.z * %.5ff + worldPos.x * %.5ff\n"
+					"\t\t- orkP * 3.1f;\n"
+					"\tworldPos.y += %.6ff * ( 0.75f * sin( orkG1 )\n"
+					"\t\t+ 0.45f * sin( orkG2 ) + 0.17f * sin( orkG3 )\n"
+					"\t\t+ 0.09f * sin( orkG4 ) );\n"
+					"@end\n"
+					"@piece( custom_vs_posExecution )\n"
+					"\tfloat orkQ = passBuf.orkigeWaterSwell.x;\n"
+					"\tfloat orkH1 = worldPos.x * %.5ff + orkQ;\n"
+					"\tfloat orkH2 = worldPos.z * %.5ff + worldPos.x * %.5ff\n"
+					"\t\t- orkQ * 1.7f;\n"
+					"\tfloat orkH3 = worldPos.x * %.5ff - worldPos.z * %.5ff\n"
+					"\t\t+ orkQ * 2.3f;\n"
+					"\tfloat orkH4 = worldPos.z * %.5ff + worldPos.x * %.5ff\n"
+					"\t\t- orkQ * 3.1f;\n"
+					"\tfloat orkDx = %.6ff * ( 0.75f * cos( orkH1 )\n"
+					"\t\t+ 0.18f * cos( orkH2 ) + 0.3062f * cos( orkH3 )\n"
+					"\t\t+ 0.1569f * cos( orkH4 ) );\n"
+					"\tfloat orkDz = %.6ff * ( 0.585f * cos( orkH2 )\n"
+					"\t\t- 0.2287f * cos( orkH3 ) + 0.3038f * cos( orkH4 ) );\n"
+					"\toutVs.normal = normalize( mul(\n"
+					"\t\tmidf3_c( -orkDx, 1.0f, -orkDz ),\n"
+					"\t\ttoMidf3x3( passBuf.view ) ) );\n"
 					"@end\n"
 					"@end\n",
-					swell, kSwellWorldFrequency, kSwellWorldFrequency);
+					k1, a2z, a2x, a3x, a3z, a4z, a4x,
+					swell,
+					k1, a2z, a2x, a3x, a3z, a4z, a4x,
+					swell * k1, swell * k1);
 				datablock->setCustomPieceCodeFromMemory(
 					name + "_swell_piece_vs.any", source,
 					Ogre::CustomPieceStage::VertexShader);

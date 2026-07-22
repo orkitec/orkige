@@ -52,7 +52,16 @@ CHUNK_BIN = 0x004E4942  # 'BIN\0'
 MAX_MESH_VERTS = 65535
 
 DEFAULT_SEED = 20260712
-DEFAULT_QUADS = 16          # 16x16 quads -> 17x17 = 289 verts, 512 triangles
+DEFAULT_QUADS = 64          # 64x64 quads -> 65x65 = 4225 verts, 8192 triangles.
+                            # The grid must SAMPLE the geometric swell: at the
+                            # water showcase's scale (a ~90-unit plane against
+                            # the ~12.6-unit swell wavelength) 16 quads gave
+                            # ~2.3 verts per wavelength - Nyquist-borderline,
+                            # so the displaced surface aliased into phantom
+                            # double crests and visible polygons. 64 lands ~9
+                            # verts per wavelength; the vertex cost is trivial
+                            # (the swell VS is two sins) and flat water is
+                            # unchanged visually.
 DEFAULT_UV_TILES = 1.0      # texture repeats across the unit plane (material scales further)
 TEXTURE_SIZE = 128          # tiling water-normal edge (power of two)
 

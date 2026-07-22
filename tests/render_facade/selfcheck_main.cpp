@@ -306,6 +306,19 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		const float theta = ndotlDeg * 3.14159265358979f / 180.0f;
 		world->setAmbientLight(Color(0, 0, 0));
 		renderSystem->setWindowBackgroundColour(Color(0, 0, 0, 1));
+		// optional two-colour hemisphere ambient (ORKIGE_PROBE_HEMISPHERE=
+		// "ur,ug,ub,lr,lg,lb"): the scene atmosphere sets a sky/ground ambient
+		// (native two-colour on next, averaged-flat on classic) - this isolates
+		// whether the hemisphere ambient itself diverges between flavors
+		if(const char* hemi = std::getenv("ORKIGE_PROBE_HEMISPHERE"))
+		{
+			float ur = 0, ug = 0, ub = 0, lr = 0, lg = 0, lb = 0;
+			if(std::sscanf(hemi, "%f,%f,%f,%f,%f,%f",
+				&ur, &ug, &ub, &lr, &lg, &lb) == 6)
+			{
+				world->setAmbientHemisphere(Color(ur, ug, ub), Color(lr, lg, lb));
+			}
+		}
 		// a matte grey PBS surface (roughness high, non-metal: the diffuse term
 		// dominates, the Cook-Torrance specular is minimal) - the same generated
 		// material path the terrain uses
@@ -313,6 +326,44 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		probeDesc.albedo = Color(0.5f, 0.5f, 0.5f, 1.0f);
 		probeDesc.roughness = 0.9f;
 		probeDesc.metalness = 0.0f;
+		// TEXTURED variant (ORKIGE_PROBE_TEXTURE=<byte 0..255>): drive the albedo
+		// from a flat COLOUR TEXTURE whose every texel is exactly that byte value,
+		// instead of the flat material colour. This isolates the sampled-albedo
+		// colour-space response of each flavor: a raw-uploaded texture (no PNG
+		// gamma metadata) gives an EXACT known input, so the printed center pixel
+		// vs the material-colour case reveals whether the flavor linearizes the
+		// texture sample. The material albedo is set to white so the texture
+		// alone drives the surface colour; the uploaded texture is resolved by the
+		// generated-material albedo load on BOTH flavors (next findTextureNoThrow,
+		// classic TextureManager already-loaded lookup).
+		// untextured albedo COLOUR override (ORKIGE_PROBE_ALBEDO=<byte 0..255>):
+		// drive the flat material colour to a known grey, so a colour sweep can be
+		// compared against the texture sweep WITHIN one flavor (the decisive test
+		// for a texture-sample-only transfer vs a whole-BRDF residue)
+		if(const char* probeAlbedoEnv = std::getenv("ORKIGE_PROBE_ALBEDO"))
+		{
+			const float a = std::clamp(std::atoi(probeAlbedoEnv), 0, 255)
+				/ 255.0f;
+			probeDesc.albedo = Color(a, a, a, 1.0f);
+		}
+		const char* probeTexEnv = std::getenv("ORKIGE_PROBE_TEXTURE");
+		if(probeTexEnv)
+		{
+			const int texByte =
+				std::clamp(std::atoi(probeTexEnv), 0, 255);
+			std::vector<unsigned char> texPixels(4u * 4u * 4u, 255u);
+			for(size_t pixel = 0; pixel < texPixels.size(); pixel += 4u)
+			{
+				texPixels[pixel] = static_cast<unsigned char>(texByte);
+				texPixels[pixel + 1u] = static_cast<unsigned char>(texByte);
+				texPixels[pixel + 2u] = static_cast<unsigned char>(texByte);
+				texPixels[pixel + 3u] = 255u;
+			}
+			renderSystem->createTexture2D("probe.albedoTex",
+				texPixels.data(), 4u, 4u);
+			probeDesc.albedo = Color(1.0f, 1.0f, 1.0f, 1.0f);
+			probeDesc.albedoTexture = "probe.albedoTex";
+		}
 		renderSystem->createMaterial("probe.grey", probeDesc);
 		optr<RenderNode> probeNode = world->createNode("selfcheck.lightProbe");
 		probeNode->setPosition(Vec3(0, 0, 0));
@@ -332,8 +383,22 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		probeLight->setType(RenderLight::LT_DIRECTIONAL);
 		probeLightNode->setDirection(
 			Vec3(0.0f, -std::sin(theta), -std::cos(theta)), RenderNode::TS_WORLD);
-		probeLight->setDiffuseColour(Color(intensity, intensity, intensity));
-		probeLight->setSpecularColour(Color(intensity, intensity, intensity));
+		// light colour override (ORKIGE_PROBE_LIGHT_RGB="r,g,b"): the scene sun
+		// is warm (1,0.7,0.5); this lets the probe test a coloured directional's
+		// per-channel response, not just a white one
+		float lr = intensity, lg = intensity, lb = intensity;
+		if(const char* lcol = std::getenv("ORKIGE_PROBE_LIGHT_RGB"))
+		{
+			float cr = 1, cg = 1, cb = 1;
+			if(std::sscanf(lcol, "%f,%f,%f", &cr, &cg, &cb) == 3)
+			{
+				lr = intensity * cr;
+				lg = intensity * cg;
+				lb = intensity * cb;
+			}
+		}
+		probeLight->setDiffuseColour(Color(lr, lg, lb));
+		probeLight->setSpecularColour(Color(lr, lg, lb));
 		probeLight->setCastShadows(false);
 		// camera dead-on the +Z face
 		cameraNode->setPosition(Vec3(0, 0, 12));
@@ -351,8 +416,9 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		const char* backendName = "classic";
 #endif
 		std::printf("LIGHTPROBE backend=%s intensity=%.4f ndotlDeg=%.2f "
-			"cosTheta=%.4f center=(%.4f,%.4f,%.4f)\n",
-			backendName, intensity, ndotlDeg, std::cos(theta), pr, pg, pb);
+			"cosTheta=%.4f texByte=%s center=(%.4f,%.4f,%.4f)\n",
+			backendName, intensity, ndotlDeg, std::cos(theta),
+			probeTexEnv ? probeTexEnv : "none", pr, pg, pb);
 		return 0;
 	}
 
@@ -2184,7 +2250,12 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		// stays ENABLED across both captures so only fogDensity varies.
 		world->setAmbientLight(Color(0.2f, 0.2f, 0.2f));
 		optr<RenderNode> fogSunNode = world->createNode("selfcheck.atmoSun");
-		fogSunNode->setDirection(Vec3(0.15f, 1.0f, 0.1f), RenderNode::TS_WORLD);
+		// TRAVEL direction points DOWN (-Y) so the sun sits high overhead
+		// (toSun ~ +Y): a near-vertical daytime sun, matching this leg's recipe.
+		// The light TRAVELS along this vector, so it must aim downward to light
+		// the slab top - an up-vector would place the sun below the horizon,
+		// where the atmosphere's day/night curve reads it as night (dark).
+		fogSunNode->setDirection(Vec3(0.15f, -1.0f, 0.1f), RenderNode::TS_WORLD);
 		optr<RenderLight> fogSun = world->createLight();
 		fogSun->attachTo(fogSunNode);
 		fogSun->setType(RenderLight::LT_DIRECTIONAL);
