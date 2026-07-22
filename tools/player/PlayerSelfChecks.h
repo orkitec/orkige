@@ -269,7 +269,13 @@ struct PlayerSelfChecks
 	//            the animated bounds.
 	//   Walk     the walk clip advances: the skeleton-driven local bounds SPREAD
 	//            (a swinging limb moves the skinned vertices - the bone-driven
-	//            deformation proof), then crossFadeTo("idle") is requested.
+	//            deformation proof). At an INTERPOLATED mid-clip frame it also
+	//            reads the four limb bones through the facade and asserts the
+	//            figure keeps its SHAPE: the legs' world-X separation holds near
+	//            the bind gap and the arms stay above the legs - a pose COLLAPSE
+	//            (every bone fused to the skeleton root) still satisfies the
+	//            motion-only bounds spread, so this shape leg is what catches it.
+	//            Then crossFadeTo("idle") is requested.
 	//   Blend    the crossfade transitions: BOTH clips are enabled mid-blend and
 	//            the progress ramps to completion, then only idle remains.
 	//   Idle     idle is the sole playing clip and its sway still moves bounds.
@@ -304,6 +310,12 @@ struct PlayerSelfChecks
 	bool characterMarkerMatched = false;	//!< marker pose matched the facade bone pose
 	float characterMarkerMin = 0.0f;
 	float characterMarkerMax = 0.0f;
+	// pose-SHAPE leg (the walk clip's mid-clip bone geometry - catches a pose
+	// COLLAPSE that motion-only bounds still satisfy)
+	bool characterRigPoseChecked = false;	//!< the mid-clip pose-shape sample ran + passed
+	float characterRigLegSeparation = 0.0f;	//!< |worldX(legL) - worldX(legR)| at the sample
+	float characterRigArmMinY = 0.0f;		//!< the lower of the two arm bones' world Y
+	float characterRigLegMaxY = 0.0f;		//!< the higher of the two leg bones' world Y
 	// playback-state serialization leg (the Resume phase)
 	bool characterResumeArmed = false;		//!< the mid-animation state was applied
 	// --- ORKIGE_ROLLER_PROGRESSION_SELFCHECK=1: the level sequence + the

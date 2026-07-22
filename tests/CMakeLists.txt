@@ -1671,9 +1671,13 @@ if(TARGET orkige_player)
         # character_rig.glb from Util/make_character_rig.py: a 7-joint skeleton,
         # per-vertex weights, walk + idle clips) with a ModelComponent +
         # AnimationComponent. The check plays walk and asserts the skeleton-driven
-        # bounds SPREAD (a swinging limb moves the skinned vertices), then
-        # crossFadeTo blends walk->idle (both clips run together, then walk drops)
-        # and idle's sway keeps moving the bounds. Runs on both flavors - the
+        # bounds SPREAD (a swinging limb moves the skinned vertices) and, at an
+        # interpolated mid-clip frame, reads the four limb bones through the
+        # facade to assert the figure keeps its SHAPE (legs' world-X separation
+        # near the bind gap, arms above legs) - closing the gap that motion-only
+        # bounds leave, since a pose COLLAPSE to the skeleton root still spreads
+        # the bounds. Then crossFadeTo blends walk->idle (both clips run together,
+        # then walk drops) and idle's sway keeps moving the bounds. Runs on both flavors - the
         # DRIFT ALARM between the two importer roads (classic = the upstream
         # assimp codec, next = MeshLoaderNext over the neutral SkinnedRig
         # extraction; Docs/character-animation.md): the same generated rig must

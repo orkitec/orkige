@@ -76,7 +76,8 @@ SHADOW_DARKEN_MIN = 12.0
 SHADOW_FRACTION_MIN = 0.004
 SHADOW_DAYLIT_FLOOR = 35.0
 
-# terraintex: a tiling ground texture must actually TILE. The high-frequency
+# terraintex: a tiling ground texture must actually TILE (probed on the vista,
+# whose near terrain fills the lower frame). The high-frequency
 # detail of the terrain band - the mean absolute luminance difference between
 # horizontally adjacent pixels - stays high for a repeating grass texture and
 # collapses to near-zero when a clamped sampler flattens the tiling UVs (past
@@ -156,7 +157,7 @@ def probe_field(img):
 
 def probe_terraintex(img):
     width, height, channels, pixels = img
-    # an open terrain-only band low in the lake frame (below the prop cubes, on
+    # an open terrain-only band low in the vista frame (below the prop cubes, on
     # the ground island). A tiling grass texture speckles here; the flat-clamp
     # regression leaves only smooth shading, so the high-frequency detail dies.
     x0, x1 = int(width * 0.30), int(width * 0.70)
@@ -510,7 +511,7 @@ def main():
     scene = {"lumens": "scenes/lumens.oscene", "field": "scenes/field.oscene",
              "hud2x": "scenes/lumens.oscene",
              "flatland": "scenes/flatland.oscene",
-             "terraintex": "scenes/lake.oscene"}[args.probe]
+             "terraintex": "scenes/vista.oscene"}[args.probe]
     shot = os.path.join(args.dir, args.probe + "_frame.png")
     img, output = run_player_capture(
         args, scene, shot,

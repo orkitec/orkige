@@ -2,7 +2,7 @@
 <XMLArchive Version="0">
     <String value="orkige.oscene"/>
     <int value="7"/>
-    <unsigned_int value="7"/>
+    <unsigned_int value="8"/>
     <String value="Director"/>
     <String value=""/>
     <bool value="1"/>
@@ -122,7 +122,7 @@
         <unsigned_int value="4"/>
         <String value="position"/>
         <int value="5"/>
-        <String value="0 -4.5 0"/>
+        <String value="0 -5.0 -72"/>
         <String value=""/>
         <String value="orientation"/>
         <int value="6"/>
@@ -151,7 +151,7 @@
         <unsigned_int value="3"/>
         <String value="position"/>
         <int value="5"/>
-        <String value="0 -3.2 -6"/>
+        <String value="0 -3.2 -18"/>
         <String value=""/>
         <String value="orientation"/>
         <int value="6"/>
@@ -181,11 +181,11 @@
         <String value=""/>
         <String value="sizeX"/>
         <int value="1"/>
-        <String value="60"/>
+        <String value="90"/>
         <String value=""/>
         <String value="sizeZ"/>
         <int value="1"/>
-        <String value="60"/>
+        <String value="90"/>
         <String value=""/>
         <String value="deepColour"/>
         <int value="7"/>
@@ -216,6 +216,48 @@
         <String value="water_normal.png"/>
         <String value=""/>
     </WaterComponent>
+    <String value="Lakebed"/>
+    <String value=""/>
+    <bool value="1"/>
+    <unsigned_int value="0"/>
+    <String value=""/>
+    <unsigned_int value="2"/>
+    <String value="ModelComponent"/>
+    <ModelComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <unsigned_int value="2"/>
+        <String value="mesh"/>
+        <int value="8"/>
+        <String value="demo_terrain.glb"/>
+        <String value=""/>
+        <String value="material"/>
+        <int value="8"/>
+        <String value="demo_terrain.omat"/>
+        <String value=""/>
+    </ModelComponent>
+    <String value="TransformComponent"/>
+    <TransformComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <unsigned_int value="4"/>
+        <String value="position"/>
+        <int value="5"/>
+        <String value="0 -8.5 -18"/>
+        <String value=""/>
+        <String value="orientation"/>
+        <int value="6"/>
+        <String value="1 0 0 0"/>
+        <String value=""/>
+        <String value="scale"/>
+        <int value="5"/>
+        <String value="1.7 1 1.7"/>
+        <String value=""/>
+        <String value="static"/>
+        <int value="2"/>
+        <String value="1"/>
+        <String value=""/>
+    </TransformComponent>
     <String value="Shore0"/>
     <String value=""/>
     <bool value="1"/>
@@ -243,7 +285,7 @@
         <unsigned_int value="3"/>
         <String value="position"/>
         <int value="5"/>
-        <String value="-8 0.4 -3"/>
+        <String value="-14 -2.4 -40"/>
         <String value=""/>
         <String value="orientation"/>
         <int value="6"/>
@@ -281,7 +323,7 @@
         <unsigned_int value="3"/>
         <String value="position"/>
         <int value="5"/>
-        <String value="9 0.4 -5"/>
+        <String value="12 -2.2 -44"/>
         <String value=""/>
         <String value="orientation"/>
         <int value="6"/>
@@ -319,7 +361,7 @@
         <unsigned_int value="3"/>
         <String value="position"/>
         <int value="5"/>
-        <String value="2 0.4 -10"/>
+        <String value="3 -2.8 -30"/>
         <String value=""/>
         <String value="orientation"/>
         <int value="6"/>

@@ -112,13 +112,17 @@ local function framingFit()
 	return fit
 end
 
-local function setPerspectiveCamera(radius, height, center)
+local camLookY = 1.0
+
+local function setPerspectiveCamera(radius, height, center, lookY)
 	engine:setCameraPerspective()
 	camRadius, camHeight, camCenter = radius, height, center
+	camLookY = lookY or 1.0
 	if camNode ~= nil then
 		local fit = framingFit()
 		camNode:setPosition(Vector3(0, height * fit, center + radius * fit))
-		camNode:lookAt(Vector3(0, 0, center), TS.TS_WORLD, Vector3(0, 0, -1))
+		camNode:lookAt(Vector3(0, camLookY, center), TS.TS_WORLD,
+			Vector3(0, 0, -1))
 	end
 end
 
@@ -137,7 +141,8 @@ local function orbitCamera(t)
 	local x = math.sin(a) * radius
 	local z = camCenter + math.cos(a) * radius
 	camNode:setPosition(Vector3(x, height, z))
-	camNode:lookAt(Vector3(0, 1, camCenter), TS.TS_WORLD, Vector3(0, 0, -1))
+	camNode:lookAt(Vector3(0, camLookY, camCenter), TS.TS_WORLD,
+		Vector3(0, 0, -1))
 end
 
 -- rotate the "Sun" directional light so the atmosphere sky sweeps with it;
@@ -530,7 +535,10 @@ function init(self)
 		vistaSkybox = true
 		buildHud()
 	elseif mode == "lake" then
-		setPerspectiveCamera(20.0, 7.0, -6.0)
+		-- the water showcase framing: a LOW camera looking ACROSS the surface
+		-- toward the sun (grazing angles maximise the fresnel sky mirror, the
+		-- specular streak and the swell silhouette)
+		setPerspectiveCamera(24.0, 2.0, -18.0, -2.6)
 		-- golden hour: a LOW sun paired with the full sunset preset (the pairing
 		-- the sky model expects - a high sun under the sunset haze whites out),
 		-- so the lake mirrors a warm gradient sky instead of a blown white one

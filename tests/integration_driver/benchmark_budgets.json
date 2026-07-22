@@ -16,44 +16,124 @@
   ],
   "scenes": {
     "vista.oscene": {
-      "classic": { "batchesMin": 4, "batchesMax": 14, "trisMax": 6000 },
-      "next": { "batchesMin": 4, "batchesMax": 12, "trisMax": 8500 }
+      "classic": {
+        "batchesMin": 4,
+        "batchesMax": 14,
+        "trisMax": 6000
+      },
+      "next": {
+        "batchesMin": 4,
+        "batchesMax": 12,
+        "trisMax": 8500
+      }
     },
     "lake.oscene": {
-      "classic": { "batchesMin": 4, "batchesMax": 30, "trisMax": 20000 },
-      "next": { "batchesMin": 4, "batchesMax": 16, "trisMax": 10500 }
+      "classic": {
+        "batchesMin": 4,
+        "batchesMax": 14,
+        "trisMax": 9000
+      },
+      "next": {
+        "batchesMin": 4,
+        "batchesMax": 16,
+        "trisMax": 12000
+      }
     },
     "lumens.oscene": {
-      "classic": { "batchesMin": 2, "batchesMax": 9, "trisMax": 5500 },
-      "next": { "batchesMin": 2, "batchesMax": 13, "trisMax": 3000 }
+      "classic": {
+        "batchesMin": 2,
+        "batchesMax": 9,
+        "trisMax": 5500
+      },
+      "next": {
+        "batchesMin": 2,
+        "batchesMax": 13,
+        "trisMax": 3000
+      }
     },
     "swarm.oscene": {
-      "classic": { "batchesMin": 4, "batchesMax": 16, "trisMax": 6500 },
-      "next": { "batchesMin": 4, "batchesMax": 12, "trisMax": 3000 }
+      "classic": {
+        "batchesMin": 4,
+        "batchesMax": 16,
+        "trisMax": 6500
+      },
+      "next": {
+        "batchesMin": 4,
+        "batchesMax": 12,
+        "trisMax": 3000
+      }
     },
     "field.oscene": {
-      "classic": { "batchesMin": 120, "batchesMax": 220, "trisMax": 7000 },
-      "next": { "batchesMin": 2, "batchesMax": 8, "trisMax": 7000 }
+      "classic": {
+        "batchesMin": 120,
+        "batchesMax": 220,
+        "trisMax": 7000
+      },
+      "next": {
+        "batchesMin": 2,
+        "batchesMax": 8,
+        "trisMax": 7000
+      }
     },
     "cast.oscene": {
-      "classic": { "batchesMin": 20, "batchesMax": 80, "trisMax": 7000 },
-      "next": { "batchesMin": 4, "batchesMax": 16, "trisMax": 8000 }
+      "classic": {
+        "batchesMin": 20,
+        "batchesMax": 80,
+        "trisMax": 7000
+      },
+      "next": {
+        "batchesMin": 4,
+        "batchesMax": 16,
+        "trisMax": 8000
+      }
     },
     "flatland.oscene": {
-      "classic": { "batchesMin": 3, "batchesMax": 14, "trisMax": 400 },
-      "next": { "batchesMin": 3, "batchesMax": 10, "trisMax": 400 }
+      "classic": {
+        "batchesMin": 3,
+        "batchesMax": 14,
+        "trisMax": 400
+      },
+      "next": {
+        "batchesMin": 3,
+        "batchesMax": 10,
+        "trisMax": 400
+      }
     },
     "console.oscene": {
-      "classic": { "batchesMin": 0, "batchesMax": 4, "trisMax": 300 },
-      "next": { "batchesMin": 0, "batchesMax": 4, "trisMax": 300 }
+      "classic": {
+        "batchesMin": 0,
+        "batchesMax": 4,
+        "trisMax": 300
+      },
+      "next": {
+        "batchesMin": 0,
+        "batchesMax": 4,
+        "trisMax": 300
+      }
     },
     "cascade.oscene": {
-      "classic": { "batchesMin": 1, "batchesMax": 15, "trisMax": 400 },
-      "next": { "batchesMin": 1, "batchesMax": 10, "trisMax": 400 }
+      "classic": {
+        "batchesMin": 1,
+        "batchesMax": 15,
+        "trisMax": 400
+      },
+      "next": {
+        "batchesMin": 1,
+        "batchesMax": 10,
+        "trisMax": 400
+      }
     },
     "tally.oscene": {
-      "classic": { "batchesMin": 0, "batchesMax": 4, "trisMax": 500 },
-      "next": { "batchesMin": 0, "batchesMax": 4, "trisMax": 500 }
+      "classic": {
+        "batchesMin": 0,
+        "batchesMax": 4,
+        "trisMax": 500
+      },
+      "next": {
+        "batchesMin": 0,
+        "batchesMax": 4,
+        "trisMax": 500
+      }
     }
   }
 }

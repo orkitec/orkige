@@ -124,20 +124,28 @@ def main():
     def sy(fraction):
         return int(height * fraction)
 
-    # broad regions of the lake framing (fractions survive window-size
-    # changes; the sky band starts right of the HUD box)
+    # broad regions of the lake showcase framing (fractions survive window-
+    # size changes; the sky band starts right of the HUD box). The camera
+    # looks low ACROSS the water toward the sun: sky above, the shore island
+    # band mid-frame (sampled left of the sun-streak column, whose breadth
+    # differs legitimately between the flavors' specular models), open water
+    # across the lower half.
     regions = {
         # the open sky above the horizon
-        "sky": (sx(0.35), sy(0.13), sx(0.95), sy(0.28)),
-        # the water band flanking the centre cubes (left reach)
-        "water": (sx(0.03), sy(0.36), sx(0.25), sy(0.50)),
-        # the terrain dome front
-        "terrain": (sx(0.30), sy(0.65), sx(0.70), sy(0.85)),
+        "sky": (sx(0.35), sy(0.10), sx(0.95), sy(0.24)),
+        # the shore island band (left half, clear of the streak column)
+        "terrain": (sx(0.25), sy(0.31), sx(0.44), sy(0.41)),
+        # the open water foreground, flanking the streak
+        "water": (sx(0.05), sy(0.55), sx(0.35), sy(0.85)),
     }
     # tolerance-parity corridor: catches a black/inverted/washed region on one
-    # flavor while allowing the documented shading differences (PBS vs
-    # Blinn-Phong surfaces, per-pixel vs vertex-gradient sky)
-    MEAN_TOLERANCE = 60.0
+    # flavor (those sit at deltas of 120+) while allowing the documented
+    # shading differences (PBS vs Blinn-Phong surfaces, per-pixel vs
+    # vertex-gradient sky). The widest legitimate delta is the sun-GRAZING
+    # shore band: the flavors' diffuse falloff SHAPES differ (linear vs
+    # power-law display response), and a low sun lighting terrain head-on
+    # lands in the worst of it (~62 measured red delta).
+    MEAN_TOLERANCE = 75.0
 
     for name, (x0, y0, x1, y1) in regions.items():
         mean_next = region_mean(img_next, x0, y0, x1, y1)
@@ -155,9 +163,9 @@ def main():
                  f"{args.dir})")
 
     # the sun's specular streak on the water: both flavors must carry a
-    # bright highlight in the water/sky centre (its absence on one flavor
+    # bright highlight down the frame centre (its absence on one flavor
     # was the flat-lifeless-water regression)
-    streak_box = (sx(0.35), sy(0.30), sx(0.65), sy(0.50))
+    streak_box = (sx(0.40), sy(0.35), sx(0.62), sy(0.75))
     STREAK_MIN = 200.0
     for label, img in (("next", img_next), ("classic", img_classic)):
         luma = region_max_luma(img, *streak_box)

@@ -1043,8 +1043,8 @@ namespace Orkige
 					// the sun's specular streak riding the ripples (the same cue the
 					// PBS flavor's glossy lobe gives its refractive water)
 					"    vec3 halfVec = normalize(viewDir + normalize(sunTowards.xyz));\n"
-					"    float spec = pow(clamp(dot(nrm, halfVec), 0.0, 1.0), 220.0);\n"
-					"    water += sunColour.rgb * (spec * 1.2 * sunTowards.w);\n"
+					"    float spec = pow(clamp(dot(nrm, halfVec), 0.0, 1.0), 420.0);\n"
+					"    water += sunColour.rgb * (spec * 1.0 * sunTowards.w);\n"
 					"    fragColour = vec4(water, 1.0);\n"
 					"}\n");
 				fs->load();
@@ -1162,8 +1162,8 @@ namespace Orkige
 					// lobe elongating naturally over the perturbed surface. The sun
 					// direction/colour are pushed per frame (@see setWaterMaterialTime)
 					"    vec3 halfVec = normalize(viewDir + normalize(sunTowards.xyz));\n"
-					"    float spec = pow(clamp(dot(nrm, halfVec), 0.0, 1.0), 220.0);\n"
-					"    outc += sunColour.rgb * (spec * 1.2 * sunTowards.w);\n"
+					"    float spec = pow(clamp(dot(nrm, halfVec), 0.0, 1.0), 420.0);\n"
+					"    outc += sunColour.rgb * (spec * 1.0 * sunTowards.w);\n"
 					"    fragColour = vec4(outc, 1.0);\n"
 					"}\n");
 				fs->load();

@@ -2886,11 +2886,86 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 			const float sig = boundsSignature();
 			characterRigBoundsMin = std::min(characterRigBoundsMin, sig);
 			characterRigBoundsMax = std::max(characterRigBoundsMax, sig);
+			// pose-SHAPE sample: once the walk clip has advanced to an
+			// INTERPOLATED mid-clip frame (between the 0.0/0.5/1.0 s keys - the
+			// region where a translation collapse would leak the bind pose into
+			// the track), read the four limb bones through the facade and assert
+			// the figure keeps its SHAPE. The motion-only bounds spread below
+			// still passes when every bone has fused to the skeleton root; this
+			// leg is the one that fails on that collapse. The 0.25 s-wide window
+			// is wider than the largest clamped frame step, so a frame lands in it.
+			if (!characterRigPoseChecked)
+			{
+				optr<Orkige::MeshInstance> mesh = rigMesh();
+				const float walkTime =
+					mesh ? mesh->getAnimationTime("walk") : 0.0f;
+				if (mesh && walkTime >= 0.2f && walkTime <= 0.45f)
+				{
+					Orkige::Vec3 legLPos, legRPos, armLPos, armRPos, boneScale;
+					Orkige::Quat boneRot;
+					const bool read =
+						mesh->getBoneWorldTransform("legL", legLPos, boneRot,
+							boneScale) &&
+						mesh->getBoneWorldTransform("legR", legRPos, boneRot,
+							boneScale) &&
+						mesh->getBoneWorldTransform("armL", armLPos, boneRot,
+							boneScale) &&
+						mesh->getBoneWorldTransform("armR", armRPos, boneRot,
+							boneScale);
+					if (!read)
+					{
+						characterFail("could not read the limb bone poses for the "
+							"pose-shape sample");
+					}
+					else
+					{
+						// (a) LEG SEPARATION: the legs swing about X (forward/back),
+						// so their world-X gap holds near the 0.44 bind separation;
+						// a collapse drops both toward the root and the gap to ~0
+						const float legSep = std::abs(legLPos.x - legRPos.x);
+						// (b) ARM HEIGHT: the arms stay ABOVE the legs (the figure
+						// reads upright) - a cheap whole-body shape invariant
+						const float armMinY = std::min(armLPos.y, armRPos.y);
+						const float legMaxY = std::max(legLPos.y, legRPos.y);
+						characterRigLegSeparation = legSep;
+						characterRigArmMinY = armMinY;
+						characterRigLegMaxY = legMaxY;
+						const float bindSep = 0.44f;
+						if (legSep < 0.5f * bindSep || legSep > 2.0f * bindSep)
+						{
+							SDL_Log("orkige_player: character rig selfcheck - the "
+								"walk pose COLLAPSED (leg world-X separation %.3f "
+								"left the [%.3f, %.3f] band around the %.3f bind gap)",
+								legSep, 0.5f * bindSep, 2.0f * bindSep, bindSep);
+							characterFail("the legs collapsed toward the skeleton "
+								"root (leg separation out of band)");
+						}
+						else if (armMinY <= legMaxY)
+						{
+							SDL_Log("orkige_player: character rig selfcheck - the "
+								"walk pose lost its shape (arms Y %.3f are not above "
+								"legs Y %.3f)", armMinY, legMaxY);
+							characterFail("the arm bones are not above the leg "
+								"bones (figure lost its upright shape)");
+						}
+						else
+						{
+							SDL_Log("orkige_player: character rig selfcheck - the "
+								"walk pose keeps its shape at %.3f s (leg world-X "
+								"separation %.3f in band around the %.3f bind gap; "
+								"arms Y %.3f above legs Y %.3f)", walkTime, legSep,
+								bindSep, armMinY, legMaxY);
+							characterRigPoseChecked = true;
+						}
+					}
+				}
+			}
 			// the threshold proves MOTION, not magnitude: on a flavor whose
 			// animated bounds arm before the first sample (next), the spread
 			// is the pure animation amplitude (~0.05 for the walk bob), while
 			// classic's first crossing rides a larger bind-box transition
-			if (characterRigBoundsMax - characterRigBoundsMin > 0.03f)
+			if (characterRigPoseChecked &&
+				characterRigBoundsMax - characterRigBoundsMin > 0.03f)
 			{
 				SDL_Log("orkige_player: character rig selfcheck - the walk clip "
 					"moves bone-driven vertices (skeletal bounds spread %.3f)",
@@ -2907,7 +2982,9 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 			}
 			else if (frameCount >= characterRigDeadline)
 			{
-				characterFail("the walk clip never moved the skeletal bounds");
+				characterFail(characterRigPoseChecked
+					? "the walk clip never moved the skeletal bounds"
+					: "the walk clip never reached the mid-clip pose-shape sample");
 			}
 		}
 		else if (characterRigPhase == CharacterRigPhase::Blend)
