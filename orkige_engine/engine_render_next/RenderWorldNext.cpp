@@ -263,6 +263,17 @@ namespace Orkige
 		return this->mImpl->bloomQuality;
 	}
 	//---------------------------------------------------------
+	void RenderWorld::setOutputGrade(GradeDesc const & desc)
+	{
+		this->mImpl->grade = desc.sanitised();
+		RenderBackend::applyGradeConfig();
+	}
+	//---------------------------------------------------------
+	GradeDesc const & RenderWorld::getOutputGrade() const
+	{
+		return this->mImpl->grade;
+	}
+	//---------------------------------------------------------
 	std::vector<RenderWorld::RayQueryHit> RenderWorld::queryRay(
 		Ray3 const & ray, unsigned int queryMask) const
 	{

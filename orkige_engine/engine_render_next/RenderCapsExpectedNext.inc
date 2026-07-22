@@ -16,6 +16,11 @@ X(ProjectedDecals, true)
 X(Bloom, true)
 X(ScreenSpaceRefraction, true)
 X(IblReflections, true)
+// the shared output look/grade stage - a native CompositorManager2 grade quad
+// after the scene pass; always available on this desktop/mobile-capable flavor
+// (Metal/Vulkan render targets carry the off-screen scene texture the grade
+// quad samples)
+X(OutputGrade, true)
 // the native HlmsPbs planar-reflection subsystem (Ogre::PlanarReflections):
 // the hand-built reflection workspace generates the mirror's mip chain and
 // the planar-on water material compensates the physically-attenuated HlmsPbs

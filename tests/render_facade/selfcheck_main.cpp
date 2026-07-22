@@ -149,6 +149,12 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	// bloom/classic - @see tests/CMakeLists.txt)
 	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_BLOOM_DIR);
 #endif
+#ifdef ORKIGE_SELFCHECK_GRADE_DIR
+	// the output-grade compositor media (the grade material + shaders) - the
+	// grade leg resolves its material by name; the next grade material reuses the
+	// bloom media's Ogre/Compositor/Quad_vs, so both dirs are registered
+	renderSystem->addResourceLocation(ORKIGE_SELFCHECK_GRADE_DIR);
+#endif
 	// an export-cooked BLOCK-COMPRESSED cubemap dir (the cooked-cubemap ctest
 	// stages a BCn-compressed sky_faces_cooked.dds here): registering it lets
 	// the skybox leg prove both flavors load a compressed cube - face order +
@@ -2821,6 +2827,251 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			"(toggle identity)");
 
 		// bloom content drops via RAII as this block ends
+	}
+
+	// --- output grade (the shared authored look; a grade-less flavor answers
+	//     honestly) -----------------------------------------------------------
+	// Four seams: (a) grade off is byte-identical to the baseline, (b) grade on
+	// changes the 3D scene's SATURATION and CONTRAST measurably, (c) a bright 2D
+	// SPRITE stays crisp (unchanged - the 2D-tier exclusion), (d) grade off
+	// restores EXACTLY. The measured off->on saturation + contrast deltas are
+	// PRINTED for the cross-flavor grade probe (run_grade_probe_test.py): the
+	// shared curve must move both flavors the same way, the look-parity
+	// guarantee (@see RenderWorld::setOutputGrade).
+	{
+		unsigned int gw = 0, gh = 0;
+		renderSystem->getWindowSize(gw, gh);
+
+		// a MID-saturation warm LIT surface filling the frame: a directional key
+		// light gives it a real luminance gradient (the contrast the grade
+		// S-curve expands) and a mid-saturation warm albedo (not near-primary, so
+		// the saturation boost is measurable and unclamped). Its own stage, clear
+		// of the origin content and the bloom stage at x=60.
+		// a big vertex-coloured cube filling the frame, UNLIT: its faces
+		// interpolate between corner primaries, so the frame carries a real
+		// spread of mid-saturation colours AND luminances (the material the grade
+		// acts on) with no lighting to introduce a per-flavor shading delta -
+		// deterministic content that isolates the grade curve itself. Rotated so
+		// three faces show (more colour + luminance variety).
+		const Vec3 gradeStage(90, 0, 0);
+		renderSystem->setWindowBackgroundColour(Color(0, 0, 0, 1));
+		world->setAmbientLight(Color(1, 1, 1));	// unlit; ambient is irrelevant
+		camera->setPerspective(Degree(45), Real(0.1), Real(100));
+		cameraNode->setPosition(gradeStage + Vec3(0, 0, 2.2f));
+		cameraNode->lookAt(gradeStage, RenderNode::TS_WORLD);
+
+		world->createVertexColourCubeMesh("selfcheck.gradeCube", Real(0.8));
+		optr<RenderNode> gradeNode = world->createNode("selfcheck.gradeNode");
+		gradeNode->setPosition(gradeStage);
+		gradeNode->setOrientation(
+			Quat(Degree(28), Vec3(0.4f, 1.0f, 0.15f).normalisedCopy()));
+		optr<MeshInstance> gradeMesh =
+			world->createMeshInstance("selfcheck.gradeCube");
+		SELFCHECK(gradeMesh != NULL, "the grade surface mesh loads");
+		gradeMesh->attachTo(gradeNode);
+		gradeMesh->setVertexColourUnlit();
+		gradeMesh->setCastShadows(false);
+
+		// a bright WHITE 2D sprite off to the side (the exclusion probe)
+		std::vector<unsigned char> gradeWhite(16u * 16u * 4u, 255u);
+		SELFCHECK(renderSystem->createTexture2D("selfcheck.gradeWhite",
+			gradeWhite.data(), 16u, 16u), "the white grade sprite uploads");
+		optr<SpriteQuad> gradeSprite =
+			world->createSpriteQuad("selfcheck.gradeWhite");
+		SELFCHECK(gradeSprite != NULL, "the grade exclusion sprite creates");
+		optr<RenderNode> gradeSpriteNode =
+			world->createNode("selfcheck.gradeSpriteNode");
+		gradeSpriteNode->setPosition(gradeStage + Vec3(0.7f, 0.5f, 0.6f));
+		gradeSprite->attachTo(gradeSpriteNode);
+		gradeSprite->setSize(0.35f, 0.35f);
+
+		// measure mean saturation + a p90-p10 luminance contrast over a grid in
+		// the CENTRAL 3D region (away from the corner sprite), from a saved shot
+		auto measureLook = [&](std::string const & imageFile, float & outSat,
+			float & outContrast) -> bool
+		{
+			std::vector<float> lumas;
+			float satSum = 0.0f;
+			int samples = 0;
+			for(unsigned int gy = 1; gy <= 12; ++gy)
+			{
+				for(unsigned int gx = 1; gx <= 12; ++gx)
+				{
+					// central band (0.2..0.8 of the frame) - the gradient mesh
+					const unsigned int px = gw * (2u + gx * 5u) / 80u;
+					const unsigned int py = gh * (2u + gy * 5u) / 80u;
+					float r = 0, g = 0, b = 0;
+					if(!SelfcheckBootstrap::readImagePixel(imageFile, px, py,
+						r, g, b))
+					{
+						continue;
+					}
+					const float l = (r + g + b) / 3.0f;
+					// sample the LIT surface only (skip the black background), so
+					// the metric reflects the graded 3D content, not the clear
+					if(l < 0.04f)
+					{
+						continue;
+					}
+					// mean chroma deviation from luma: directly sensitive to the
+					// saturation scale (unclamped mid-tones move measurably),
+					// unlike (max-min)/max which saturates on near-primaries
+					satSum += (std::fabs(r - l) + std::fabs(g - l) +
+						std::fabs(b - l)) / 3.0f;
+					lumas.push_back(l);
+					++samples;
+				}
+			}
+			if(samples < 10) { return false; }
+			outSat = satSum / static_cast<float>(samples);
+			std::sort(lumas.begin(), lumas.end());
+			const float p10 = lumas[lumas.size() / 10];
+			const float p90 = lumas[(lumas.size() * 9) / 10];
+			outContrast = p90 - p10;
+			return true;
+		};
+
+		// project the sprite centre for the exclusion probe
+		int spriteX = 0, spriteY = 0;
+		{
+			Real nx = 0, ny = 0;
+			SELFCHECK(camera->projectPoint(gradeStage + Vec3(0.7f, 0.5f, 0.6f),
+				nx, ny), "the grade sprite projects");
+			spriteX = static_cast<int>(nx * (gw - 1));
+			spriteY = static_cast<int>(ny * (gh - 1));
+		}
+		auto spriteLuma = [&](std::string const & imageFile,
+			float & outLuma) -> bool
+		{
+			float r = 0, g = 0, b = 0;
+			if(!SelfcheckBootstrap::readImagePixel(imageFile,
+				static_cast<unsigned int>(spriteX),
+				static_cast<unsigned int>(spriteY), r, g, b))
+			{
+				return false;
+			}
+			outLuma = (r + g + b) / 3.0f;
+			return true;
+		};
+
+		// (a) BASELINE - grade off (default)
+		GradeDesc gradeOff;
+		world->setOutputGrade(gradeOff);
+		SELFCHECK(!world->getOutputGrade().enabled,
+			"the grade desc round-trips (disabled)");
+		SELFCHECK(renderFrames(renderSystem, 3), "frames render with grade off");
+		const std::string gradeOffShot = outDir + "/selfcheck_grade_off.png";
+		renderSystem->saveWindowContents(gradeOffShot);
+		float satOff = 0, contrastOff = 0, spriteOff = 0;
+		SELFCHECK(measureLook(gradeOffShot, satOff, contrastOff) &&
+			spriteLuma(gradeOffShot, spriteOff),
+			"the grade-off look probes decode");
+		SELFCHECK(satOff > 0.02f && contrastOff > 0.03f,
+			"the grade-off scene has a real saturation + contrast spread");
+
+		if(RenderSystem::get()->supports(RenderCaps::OutputGrade))
+		{
+			// (b) GRADE ON (a strong test setting): saturation + contrast rise
+			GradeDesc gradeOn;
+			gradeOn.enabled = true;
+			gradeOn.contrast = 0.6f;
+			gradeOn.saturation = 1.4f;
+			world->setOutputGrade(gradeOn);
+			SELFCHECK(world->getOutputGrade().enabled,
+				"the grade desc round-trips (enabled)");
+			SELFCHECK(renderFrames(renderSystem, 3), "frames render with grade on");
+			const std::string gradeOnShot = outDir + "/selfcheck_grade_on.png";
+			renderSystem->saveWindowContents(gradeOnShot);
+			float satOn = 0, contrastOn = 0, spriteOn = 0;
+			SELFCHECK(measureLook(gradeOnShot, satOn, contrastOn) &&
+				spriteLuma(gradeOnShot, spriteOn),
+				"the grade-on look probes decode");
+			// machine-parseable metrics for the cross-flavor probe driver
+			std::printf("render_facade_selfcheck: grade-metrics satOff=%.4f "
+				"satOn=%.4f contrastOff=%.4f contrastOn=%.4f\n",
+				satOff, satOn, contrastOff, contrastOn);
+			std::printf("render_facade_selfcheck: grade delta - saturation "
+				"%.3f -> %.3f, contrast %.3f -> %.3f\n",
+				satOff, satOn, contrastOff, contrastOn);
+			SELFCHECK(satOn > satOff + 0.03f,
+				"the grade raises the scene saturation measurably");
+			SELFCHECK(contrastOn > contrastOff + 0.008f,
+				"the grade raises the scene contrast (p90-p10 luma) measurably");
+			// (c) the 2D SPRITE stays crisp: an un-graded white stays ~white
+			std::printf("render_facade_selfcheck: grade sprite luma - off %.3f, "
+				"on %.3f\n", spriteOff, spriteOn);
+			SELFCHECK(std::fabs(spriteOn - spriteOff) < 0.03f,
+				"a bright 2D sprite is NOT graded (the 2D tier is excluded)");
+		}
+		else
+		{
+			// the honest path of a grade-less flavor: the desc is ACCEPTED
+			// (round-trips), frames keep rendering, and the backend says so in
+			// EXACTLY ONE log line
+			GradeDesc gradeOn;
+			gradeOn.enabled = true;
+			gradeOn.contrast = 0.6f;
+			gradeOn.saturation = 1.4f;
+			world->setOutputGrade(gradeOn);
+			SELFCHECK(world->getOutputGrade().enabled,
+				"the grade desc round-trips on a grade-less flavor");
+			SELFCHECK(renderFrames(renderSystem, 3),
+				"frames render after a grade request on a grade-less flavor");
+			std::ifstream logFile(outDir + "/render_facade_selfcheck.log");
+			SELFCHECK(logFile.good(), "the backend log file opens (grade)");
+			std::stringstream buffered;
+			buffered << logFile.rdbuf();
+			const std::string logText = buffered.str();
+			const std::string marker = "output grade is not supported";
+			std::size_t occurrences = 0;
+			for(std::size_t at = logText.find(marker); at != std::string::npos;
+				at = logText.find(marker, at + marker.size()))
+			{
+				++occurrences;
+			}
+			SELFCHECK(occurrences == 1,
+				"the unsupported-grade log line appears exactly once");
+		}
+
+		// (a/d) toggle identity: grade OFF reproduces the baseline pixels (a
+		// probe grid, near-zero tolerance) - the grade pass left no residue
+		world->setOutputGrade(gradeOff);
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render after grade returns to off");
+		const std::string gradeRestoredShot =
+			outDir + "/selfcheck_grade_off_restored.png";
+		renderSystem->saveWindowContents(gradeRestoredShot);
+		bool gradeIdentical = true;
+		for(unsigned int gy = 1; gy <= 4 && gradeIdentical; ++gy)
+		{
+			for(unsigned int gx = 1; gx <= 4 && gradeIdentical; ++gx)
+			{
+				const unsigned int px = gw * gx / 5u;
+				const unsigned int py = gh * gy / 5u;
+				float aR = 0, aG = 0, aB = 0, bR = 0, bG = 0, bB = 0;
+				if(!SelfcheckBootstrap::readImagePixel(
+						gradeOffShot, px, py, aR, aG, aB) ||
+					!SelfcheckBootstrap::readImagePixel(
+						gradeRestoredShot, px, py, bR, bG, bB))
+				{
+					gradeIdentical = false;
+					break;
+				}
+				if(std::fabs(aR - bR) > 0.004f || std::fabs(aG - bG) > 0.004f ||
+					std::fabs(aB - bB) > 0.004f)
+				{
+					std::printf("render_facade_selfcheck: grade toggle differs "
+						"at %u,%u (%.3f/%.3f/%.3f vs %.3f/%.3f/%.3f)\n", px, py,
+						aR, aG, aB, bR, bG, bB);
+					gradeIdentical = false;
+				}
+			}
+		}
+		SELFCHECK(gradeIdentical,
+			"grade off is pixel-identical after a grade on/off round-trip "
+			"(toggle identity)");
+
+		// grade content drops via RAII as this block ends
 	}
 
 	// --- TEARDOWN with a skybox still active (regression guard) ----------

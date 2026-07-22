@@ -141,6 +141,11 @@ namespace Orkige
 		//! degrades to no pass, byte-identical). Checked once (gBloomChecked).
 		bool gBloomMaterialsAvailable = false;
 		bool gBloomChecked = false;
+		//! did the grade material (Orkige/Grade/Apply) resolve at first use?
+		//! (false on a media-less/headless boot - setOutputGrade then degrades to
+		//! no pass, byte-identical). Checked once (gGradeChecked).
+		bool gGradeMaterialsAvailable = false;
+		bool gGradeChecked = false;
 		//! the live REFRACTIVE water materials (createOrUpdateWaterDatablock records
 		//! a name here when screen-space refraction is on + the copy media resolved).
 		//! Non-empty => the window workspace grows the refraction scene split
@@ -692,6 +697,12 @@ namespace Orkige
 			// water_reflection_looks_right on this flavor. Diagnose with
 			// ORKIGE_DUMP_MIRROR=<png> (@see updatePlanarReflections).
 			(1u << static_cast<int>(RenderCaps::PlanarReflection)) |
+			// OutputGrade: the CompositorManager2 grade quad after the scene pass
+			// (and after the bloom combine when both are on); the desktop/mobile
+			// render targets carry the off-screen scene texture the quad samples,
+			// so the bit is set here like Bloom (default grade is OFF, so the pass
+			// structure is byte-stable until a scene opts in).
+			(1u << static_cast<int>(RenderCaps::OutputGrade)) |
 			(1u << static_cast<int>(RenderCaps::Bloom));
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget), derived from the clustered-forward config set above
@@ -1082,6 +1093,92 @@ namespace Orkige
 		// the window workspace's pass structure references the bloom chain at
 		// BUILD time - rebuild it so it picks the chain up / drops it. Offscreen
 		// render targets never bloom (byte-stable), so they are not rebuilt here.
+		RenderBackend::recreateWindowWorkspace();
+	}
+	//--- output grade (CompositorManager2 quad) -----------------------
+	//---------------------------------------------------------
+	bool RenderBackend::gradeSupported()
+	{
+		// desktop/mobile-capable Metal/Vulkan render systems all carry the RGBA8
+		// off-screen render targets the grade quad samples; true unconditionally
+		// (the classic GLES2/WebGL1 runtime gate lives on the other backend).
+		return true;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::ensureGradeMaterials()
+	{
+		if(gGradeChecked)
+		{
+			return;
+		}
+		gGradeChecked = true;
+		// the grade material comes from the auto-parsed OrkigeGrade.material (the
+		// host registers orkige_engine/media/grade/next before
+		// initialiseResourceGroups). A media-less/headless boot has none - grade
+		// then degrades to no pass (byte-identical), logged once.
+		// the primary sRGB-source material gates availability; the display-source
+		// sibling (the refraction path) ships in the same OrkigeGrade.material
+		gGradeMaterialsAvailable = Ogre::MaterialManager::getSingleton()
+			.getByName("Orkige/Grade/Apply").get() != NULL;
+		if(!gGradeMaterialsAvailable)
+		{
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige next backend: output grade media not registered - "
+				"rendering without a grade (an enabled scene grade is ignored)");
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::gradeActive()
+	{
+		if(!gRenderSystem)
+		{
+			return false;
+		}
+		RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+		if(!world->grade.enabled)
+		{
+			return false;
+		}
+		RenderBackend::ensureGradeMaterials();
+		return gGradeMaterialsAvailable;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyGradeConfig()
+	{
+		if(!gRenderSystem)
+		{
+			return;
+		}
+		RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+		RenderBackend::ensureGradeMaterials();
+		if(gGradeMaterialsAvailable)
+		{
+			// push the live contrast + saturation onto the grade material (the
+			// grade quad pass reads its pass params)
+			const GradeDesc desc = world->grade.sanitised();
+			Ogre::MaterialManager & materials =
+				Ogre::MaterialManager::getSingleton();
+			// both source variants share the same curve params (sRGB scene/bloom
+			// path + the display-source refraction path)
+			for(char const * name :
+				{ "Orkige/Grade/Apply", "Orkige/Grade/ApplyDisplay" })
+			{
+				if(Ogre::MaterialPtr grade = materials.getByName(name))
+				{
+					grade->load();
+					Ogre::GpuProgramParametersSharedPtr params =
+						grade->getTechnique(0)->getPass(0)
+							->getFragmentProgramParameters();
+					params->setNamedConstant("Contrast",
+						Ogre::Real(desc.contrast));
+					params->setNamedConstant("Saturation",
+						Ogre::Real(desc.saturation));
+				}
+			}
+		}
+		// the window workspace inserts/drops the grade quad at BUILD time -
+		// rebuild it so it picks the quad up / drops it. Offscreen render targets
+		// never grade (byte-stable), so they are not rebuilt here.
 		RenderBackend::recreateWindowWorkspace();
 	}
 	//--- screen-space water refraction (HlmsPbs Refractive) -----------
@@ -2360,10 +2457,21 @@ namespace Orkige
 		// below. (Refraction takes precedence over bloom for now: a scene that asks
 		// for both renders refraction without bloom - a v1 limitation, the two
 		// compositor splits are not yet nested.)
+		// the output grade (@see RenderBackend::applyGradeConfig): the shared
+		// look stage - a single grade quad appended AFTER the 3D result (and
+		// after the bloom combine when both are on), LAST before the 2D/UI pass.
+		// It composes with the plain path, with bloom (its own branch runs the
+		// bloom chain internally), and with refraction (the refraction path's
+		// final copy becomes a display-source grade). Grade off -> the
+		// byte-identical structure below.
 		const bool useRefraction = !impl->uiOnlyWindow && backendCamera &&
 			RenderBackend::refractionActive();
+		const bool useGrade = !impl->uiOnlyWindow && backendCamera &&
+			RenderBackend::gradeActive();
+		// the grade branch owns the bloom composition when both are on, so the
+		// standalone bloom branch only runs when grade is off
 		const bool useBloom = !impl->uiOnlyWindow && backendCamera &&
-			!useRefraction && RenderBackend::bloomActive();
+			!useRefraction && !useGrade && RenderBackend::bloomActive();
 		if(useRefraction)
 		{
 			// Three textures, chosen so NO resource is read and written in the same
@@ -2464,10 +2572,168 @@ namespace Orkige
 					static_cast<Ogre::CompositorPassQuadDef*>(
 						windowTarget->addPass(Ogre::PASS_QUAD));
 				copyPass->setAllLoadActions(Ogre::LoadAction::DontCare);
-				copyPass->mMaterialName = "Orkige/Refraction/Copy";
+				// grade composes onto refraction: the final resolve of the
+				// (display-space, non-sRGB) WaterRT onto the window becomes a
+				// display-source grade quad instead of a plain copy - the grade is
+				// still the LAST thing before the 2D/UI pass. Grade off -> the
+				// byte-identical plain copy.
+				copyPass->mMaterialName = useGrade
+					? "Orkige/Grade/ApplyDisplay" : "Orkige/Refraction/Copy";
 				copyPass->addQuadTextureSource(0, "WaterRT");
 				// the GUI / 2D layers (the UI queue), un-refracted, on top - the
 				// window's own 2D batches only (the same mask the plain path uses)
+				Ogre::CompositorPassSceneDef* uiPass =
+					static_cast<Ogre::CompositorPassSceneDef*>(
+						windowTarget->addPass(Ogre::PASS_SCENE));
+				uiPass->setAllLoadActions(Ogre::LoadAction::Load);
+				uiPass->mFirstRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+				uiPass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE + 1;
+				uiPass->mCameraName = RenderBackend::drawLayer2DCameraName();
+				uiPass->setVisibilityMask(RenderBackend::UI_WINDOW_VISIBILITY);
+			}
+		}
+		else if(useGrade)
+		{
+			// the shared output grade: render the 3D scene into an off-screen
+			// SceneRT, optionally run the bloom chain (grade owns the composition
+			// when both are on - the grade is applied AFTER the bloom combine),
+			// then a single grade quad resolves the 3D result onto the window,
+			// followed by the un-graded 2D tier + GUI.
+			RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+			const bool gradeBloom = RenderBackend::bloomActive();
+			const BloomPreset::Settings tier =
+				BloomPreset::forQuality(world->bloomQuality);
+			const float downFactor = 1.0f /
+				static_cast<float>(std::max(tier.downsampleFactor, 1));
+			const int blurPasses = std::max(tier.blurPasses, 1);
+			// full-res sRGB scene target (so the scene encodes to display on
+			// store, like the bloom path); the grade shader samples it and
+			// applies the curve in display space (@see GradeApply_ps.glsl)
+			Ogre::TextureDefinitionBase::TextureDefinition* sceneTex =
+				nodeDefinition->addTextureDefinition("SceneRT");
+			sceneTex->widthFactor = 1.0f;
+			sceneTex->heightFactor = 1.0f;
+			sceneTex->format = Ogre::PFG_RGBA8_UNORM_SRGB;
+			nodeDefinition->addRenderTextureView("SceneRT")
+				->setForTextureDefinition("SceneRT", sceneTex);
+			if(gradeBloom)
+			{
+				for(char const * bloomBuf : { "BloomA", "BloomB" })
+				{
+					Ogre::TextureDefinitionBase::TextureDefinition* tex =
+						nodeDefinition->addTextureDefinition(bloomBuf);
+					tex->widthFactor = downFactor;
+					tex->heightFactor = downFactor;
+					tex->format = Ogre::PFG_RGBA8_UNORM_SRGB;
+					tex->depthBufferId = 0;	// a blurred quad target needs no depth
+					nodeDefinition->addRenderTextureView(bloomBuf)
+						->setForTextureDefinition(bloomBuf, tex);
+				}
+				// the full-res combined (scene + glow) source the grade reads -
+				// distinct from SceneRT so the combine never reads and writes one
+				// target
+				Ogre::TextureDefinitionBase::TextureDefinition* postTex =
+					nodeDefinition->addTextureDefinition("PostRT");
+				postTex->widthFactor = 1.0f;
+				postTex->heightFactor = 1.0f;
+				postTex->format = Ogre::PFG_RGBA8_UNORM_SRGB;
+				nodeDefinition->addRenderTextureView("PostRT")
+					->setForTextureDefinition("PostRT", postTex);
+			}
+			// SceneRT(1) + WindowRT(1) [+ bright(1) + 2*blur + PostRT(1) if bloom]
+			nodeDefinition->setNumTargetPass(
+				gradeBloom ? 4 + 2 * blurPasses : 2);
+			// --- the 3D scene into SceneRT (2D tier masked out) ---
+			{
+				Ogre::CompositorTargetDef* sceneTarget =
+					nodeDefinition->addTargetPass("SceneRT");
+				sceneTarget->setNumPasses(1);
+				Ogre::CompositorPassSceneDef* scenePass =
+					static_cast<Ogre::CompositorPassSceneDef*>(
+						sceneTarget->addPass(Ogre::PASS_SCENE));
+				scenePass->setAllLoadActions(Ogre::LoadAction::Clear);
+				scenePass->setAllClearColours(impl->windowBackground);
+				scenePass->mFirstRQ = 0;
+				scenePass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+				scenePass->setVisibilityMask(~RenderBackend::SCENE_2D_VISIBILITY);
+				const String shadowNode = RenderBackend::activeShadowNodeName();
+				if(!shadowNode.empty())
+				{
+					scenePass->mShadowNode = Ogre::IdString(shadowNode);
+				}
+			}
+			if(gradeBloom)
+			{
+				// bright-pass: SceneRT -> BloomA
+				{
+					Ogre::CompositorTargetDef* brightTarget =
+						nodeDefinition->addTargetPass("BloomA");
+					brightTarget->setNumPasses(1);
+					Ogre::CompositorPassQuadDef* brightPass =
+						static_cast<Ogre::CompositorPassQuadDef*>(
+							brightTarget->addPass(Ogre::PASS_QUAD));
+					brightPass->setAllLoadActions(Ogre::LoadAction::DontCare);
+					brightPass->mMaterialName = "Orkige/Bloom/Bright";
+					brightPass->addQuadTextureSource(0, "SceneRT");
+				}
+				// separable gaussian blur, ping-ponging A<->B
+				for(int pass = 0; pass < blurPasses; ++pass)
+				{
+					Ogre::CompositorTargetDef* vTarget =
+						nodeDefinition->addTargetPass("BloomB");
+					vTarget->setNumPasses(1);
+					Ogre::CompositorPassQuadDef* vPass =
+						static_cast<Ogre::CompositorPassQuadDef*>(
+							vTarget->addPass(Ogre::PASS_QUAD));
+					vPass->setAllLoadActions(Ogre::LoadAction::DontCare);
+					vPass->mMaterialName = "Orkige/Bloom/BlurV";
+					vPass->addQuadTextureSource(0, "BloomA");
+
+					Ogre::CompositorTargetDef* hTarget =
+						nodeDefinition->addTargetPass("BloomA");
+					hTarget->setNumPasses(1);
+					Ogre::CompositorPassQuadDef* hPass =
+						static_cast<Ogre::CompositorPassQuadDef*>(
+							hTarget->addPass(Ogre::PASS_QUAD));
+					hPass->setAllLoadActions(Ogre::LoadAction::DontCare);
+					hPass->mMaterialName = "Orkige/Bloom/BlurH";
+					hPass->addQuadTextureSource(0, "BloomB");
+				}
+				// additive combine (scene + glow) into PostRT (the grade source)
+				{
+					Ogre::CompositorTargetDef* postTarget =
+						nodeDefinition->addTargetPass("PostRT");
+					postTarget->setNumPasses(1);
+					Ogre::CompositorPassQuadDef* combinePass =
+						static_cast<Ogre::CompositorPassQuadDef*>(
+							postTarget->addPass(Ogre::PASS_QUAD));
+					combinePass->setAllLoadActions(Ogre::LoadAction::DontCare);
+					combinePass->mMaterialName = "Orkige/Bloom/Combine";
+					combinePass->addQuadTextureSource(0, "SceneRT");
+					combinePass->addQuadTextureSource(1, "BloomA");
+				}
+			}
+			// --- grade the 3D result onto WindowRT, then 2D + GUI un-graded ---
+			{
+				Ogre::CompositorTargetDef* windowTarget =
+					nodeDefinition->addTargetPass("WindowRT");
+				windowTarget->setNumPasses(3);
+				Ogre::CompositorPassQuadDef* gradePass =
+					static_cast<Ogre::CompositorPassQuadDef*>(
+						windowTarget->addPass(Ogre::PASS_QUAD));
+				gradePass->setAllLoadActions(Ogre::LoadAction::DontCare);
+				gradePass->mMaterialName = "Orkige/Grade/Apply";
+				gradePass->addQuadTextureSource(0,
+					gradeBloom ? "PostRT" : "SceneRT");
+				// the 2D tier (sprites/vector meshes) un-graded, on top
+				Ogre::CompositorPassSceneDef* twoDPass =
+					static_cast<Ogre::CompositorPassSceneDef*>(
+						windowTarget->addPass(Ogre::PASS_SCENE));
+				twoDPass->setAllLoadActions(Ogre::LoadAction::Load);
+				twoDPass->mFirstRQ = 0;
+				twoDPass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+				twoDPass->setVisibilityMask(RenderBackend::SCENE_2D_VISIBILITY);
+				// the GUI / 2D layers, un-graded, on top
 				Ogre::CompositorPassSceneDef* uiPass =
 					static_cast<Ogre::CompositorPassSceneDef*>(
 						windowTarget->addPass(Ogre::PASS_SCENE));

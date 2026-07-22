@@ -152,3 +152,14 @@ endif()
 target_compile_definitions(orkige_player PRIVATE
     ORKIGE_PLAYER_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/${ORKIGE_BLOOM_MEDIA_SUBDIR}"
     ORKIGE_BLOOM_MEDIA_SUBDIR="${ORKIGE_BLOOM_MEDIA_SUBDIR}")
+# the engine output-grade compositor media (the grade material + shaders
+# engine:setGrade needs) - PER FLAVOR: grade/next vs grade/classic, wired like
+# the bloom media above (a material SCRIPT, so the exclusive bundled-first pair).
+if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    set(ORKIGE_GRADE_MEDIA_SUBDIR "grade/next")
+else()
+    set(ORKIGE_GRADE_MEDIA_SUBDIR "grade/classic")
+endif()
+target_compile_definitions(orkige_player PRIVATE
+    ORKIGE_PLAYER_GRADE_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/${ORKIGE_GRADE_MEDIA_SUBDIR}"
+    ORKIGE_GRADE_MEDIA_SUBDIR="${ORKIGE_GRADE_MEDIA_SUBDIR}")

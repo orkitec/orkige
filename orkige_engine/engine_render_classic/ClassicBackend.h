@@ -104,6 +104,10 @@ namespace Orkige
 		//! tier, bloom OFF.
 		BloomPreset::Quality	bloomQuality = BloomPreset::BQ_MEDIUM;
 		BloomDesc				bloom;
+		//! the output grade (@see RenderWorld::setOutputGrade); the OrkigeGrade
+		//! viewport compositor is armed only while grade.enabled (@see
+		//! RenderBackend::gradeActive). Default OFF (identity).
+		GradeDesc				grade;
 	};
 
 	struct RenderNode::Impl
@@ -509,6 +513,27 @@ namespace Orkige
 		//! (target_output renders through the window's own viewport, so the 2D
 		//! overlay-queue GUI listener composites there). @see DrawLayer2DClassic.
 		static bool isBloomOutputViewport(Ogre::Viewport* viewport);
+
+		//--- output grade (the shared authored look; viewport compositor) ---
+		//! whether the grade compositor is currently ACTIVE: a scene enabled the
+		//! grade (GradeDesc::enabled) and the backend supports it
+		static bool gradeActive();
+		//! whether this backend can render the grade compositor at all: the RTSS
+		//! shader generator is active AND the render system can create off-screen
+		//! colour render targets (the RenderCaps::OutputGrade fill,
+		//! runtime-determined - a GLES2/WebGL1 context answers false, gated on
+		//! GLSL ES 3.0 like bloom)
+		static bool gradeSupported();
+		//! @brief re-apply the grade configuration (RenderWorld::setOutputGrade):
+		//! build/enable/disable the grade compositor on the window viewport (@see
+		//! buildGradeCompositor in the .cpp) and push the live contrast/saturation
+		//! onto its material. Idempotent; a grade-less context refuses with ONE
+		//! log line.
+		static void applyGradeConfig();
+		//! @brief is the given viewport the grade compositor's OUTPUT viewport
+		//! (like isBloomOutputViewport - the 2D overlay-queue GUI listener
+		//! composites over the graded 3D result). @see DrawLayer2DClassic.
+		static bool isGradeOutputViewport(Ogre::Viewport* viewport);
 		//! live render-target registry: applyShadowConfig re-applies every
 		//! target's viewport state on arm/disarm (the shadow-toggle override
 		//! above), mirroring the next backend's registry

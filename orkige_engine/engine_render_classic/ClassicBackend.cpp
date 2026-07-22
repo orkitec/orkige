@@ -70,6 +70,17 @@ namespace Orkige
 		BloomPreset::Quality gBloomArmedQuality = BloomPreset::BQ_OFF;
 		//! the one honest per-process bloom refusal line was written
 		bool gBloomRefusalLogged = false;
+
+		//--- output grade state (@see RenderBackend::applyGradeConfig) ------
+		//! the grade compositor is added to this viewport (NULL = not added)
+		Ogre::Viewport* gGradeViewport = NULL;
+		//! is the grade compositor currently ENABLED on gGradeViewport
+		bool gGradeEnabled = false;
+		//! the one honest per-process grade refusal line was written
+		bool gGradeRefusalLogged = false;
+		//! the one honest per-process "grade suppresses bloom" line was written
+		bool gGradeSuppressesBloomLogged = false;
+
 		//! restore-exactly snapshot of the scene manager's shadow state,
 		//! taken at arm time and written back verbatim at disarm
 		size_t gPreArmTextureCount = 0;
@@ -465,6 +476,16 @@ namespace Orkige
 		{
 			return false;
 		}
+		// grade takes precedence on classic: the two are independent viewport
+		// compositors that do not currently nest here (unlike next, whose
+		// structured workspace inserts the grade quad after the bloom combine),
+		// so when a scene asks for BOTH the output grade wins and bloom is
+		// skipped - a v1 limitation, the "refraction takes precedence over bloom"
+		// precedent (@see applyGradeConfig for the one honest log line).
+		if(RenderBackend::gradeActive())
+		{
+			return false;
+		}
 		return RenderBackend::bloomSupported();
 	}
 	//---------------------------------------------------------
@@ -755,6 +776,207 @@ namespace Orkige
 			gBloomEnabled = false;
 		}
 	}
+	//--- output grade (viewport compositor) -----------------------------
+	//---------------------------------------------------------
+	bool RenderBackend::gradeSupported()
+	{
+		// same requirement as bloom: a generated-material scene pass into an
+		// off-screen colour target, then a fullscreen grade quad. GLSL desktop
+		// runs it; a GLES/WebGL context needs GLSL ES 3.0 (the ES-300 profile the
+		// OgreUnifiedShader.h grade quad compiles in), so the GLES2/WebGL1 floor
+		// answers false and an enabled grade degrades to no pass (@see
+		// bloomSupported for the identical gate reasoning).
+		return RenderBackend::bloomSupported();
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::gradeActive()
+	{
+		if(!gRenderSystem)
+		{
+			return false;
+		}
+		RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+		if(!world->grade.enabled)
+		{
+			return false;
+		}
+		return RenderBackend::gradeSupported();
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::isGradeOutputViewport(Ogre::Viewport* viewport)
+	{
+		// like isBloomOutputViewport: while grade is active the compositor's
+		// output pass renders to the WINDOW target, so the 2D overlay-queue GUI
+		// listener still composites over the graded 3D result
+		if(!gGradeEnabled || !viewport || !gRenderSystem ||
+			!gRenderSystem->mImpl->engine)
+		{
+			return false;
+		}
+		Ogre::RenderWindow* window =
+			gRenderSystem->mImpl->engine->getRenderWindow(0);
+		return window && viewport->getTarget() == window;
+	}
+	namespace
+	{
+		//! the single grade compositor resource name (no quality tier - the
+		//! grade is a single quad, unlike the per-tier bloom blur chain)
+		char const * const GRADE_COMPOSITOR_NAME = "Orkige/Grade";
+		//! @brief build (once) the grade compositor RESOURCE: the 3D scene into an
+		//! off-screen colour texture -> a single grade quad into the window, then
+		//! the 2D tier + GUI un-graded on top. Structurally the bloom compositor
+		//! without the bright/blur chain (@see buildBloomCompositor for the
+		//! material-scheme + visibility-mask integration seams it shares).
+		Ogre::CompositorPtr buildGradeCompositor(Ogre::Viewport* windowViewport)
+		{
+			Ogre::CompositorManager & manager =
+				Ogre::CompositorManager::getSingleton();
+			Ogre::CompositorPtr compositor = manager.getByName(
+				GRADE_COMPOSITOR_NAME,
+				Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME);
+			if(compositor)
+			{
+				return compositor;
+			}
+			const String & scheme = windowViewport->getMaterialScheme();
+			compositor = manager.create(GRADE_COMPOSITOR_NAME,
+				Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME);
+			Ogre::CompositionTechnique* technique = compositor->createTechnique();
+			// off-screen full-res scene texture (display-encoded, like bloom's)
+			Ogre::CompositionTechnique::TextureDefinition* sceneDef =
+				technique->createTextureDefinition("scene");
+			sceneDef->formatList.push_back(Ogre::PF_R8G8B8A8);
+			// --- the 3D scene into the off-screen texture (2D tier excluded) ---
+			{
+				Ogre::CompositionTargetPass* target =
+					technique->createTargetPass();
+				target->setOutputName("scene");
+				target->setInputMode(Ogre::CompositionTargetPass::IM_NONE);
+				target->setVisibilityMask(~RenderBackend::SCENE_2D_VISIBILITY);
+				target->setMaterialScheme(scheme);
+				Ogre::CompositionPass* clear =
+					target->createPass(Ogre::CompositionPass::PT_CLEAR);
+				clear->setAutomaticColour(true);	// the window background
+				Ogre::CompositionPass* scenePass =
+					target->createPass(Ogre::CompositionPass::PT_RENDERSCENE);
+				scenePass->setFirstRenderQueue(Ogre::RENDER_QUEUE_BACKGROUND);
+				scenePass->setLastRenderQueue(Ogre::RENDER_QUEUE_SKIES_LATE);
+			}
+			// --- grade quad into the window, 2D tier + GUI on top ---
+			{
+				Ogre::CompositionTargetPass* output =
+					technique->getOutputTargetPass();
+				output->setInputMode(Ogre::CompositionTargetPass::IM_NONE);
+				output->setVisibilityMask(RenderBackend::SCENE_2D_VISIBILITY);
+				output->setShadowsEnabled(false);	// no caster re-prep for 2D
+				output->setMaterialScheme(scheme);
+				// fresh colour+depth: the grade quad covers every pixel, the depth
+				// clear keeps the depth-checked 2D tier off stale 3D depth
+				output->createPass(Ogre::CompositionPass::PT_CLEAR);
+				Ogre::CompositionPass* grade =
+					output->createPass(Ogre::CompositionPass::PT_RENDERQUAD);
+				grade->setMaterialName("Orkige/Grade/Apply");
+				grade->setInput(0, "scene");
+				Ogre::CompositionPass* twoDPass =
+					output->createPass(Ogre::CompositionPass::PT_RENDERSCENE);
+				// above the mask-exempt sky queues (the sky is already in the
+				// graded base image), up to the overlay queue where the
+				// DrawLayer2D GUI listener fires
+				twoDPass->setFirstRenderQueue(Ogre::RENDER_QUEUE_SKIES_EARLY + 1);
+				twoDPass->setLastRenderQueue(Ogre::RENDER_QUEUE_OVERLAY);
+			}
+			compositor->load();
+			return compositor;
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyGradeConfig()
+	{
+		if(!gRenderSystem || !gRenderSystem->mImpl->engine)
+		{
+			return;
+		}
+		Ogre::Viewport* viewport = gRenderSystem->mImpl->engine->getViewport(0);
+		if(!viewport)
+		{
+			return;
+		}
+		Ogre::CompositorManager & compositors =
+			Ogre::CompositorManager::getSingleton();
+		RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+		const bool wantActive = RenderBackend::gradeActive();
+		// honest refusal on a grade-less context (a bare GLES2/WebGL1 context),
+		// said once - the desc keeps round-tripping, no compositor is added
+		if(!wantActive && world->grade.enabled &&
+			!RenderBackend::gradeSupported() && !gGradeRefusalLogged)
+		{
+			gGradeRefusalLogged = true;
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige classic backend: output grade is not supported on this "
+				"render backend - the setting is recorded but no grade renders "
+				"on this flavor");
+		}
+		// grade takes precedence over bloom on classic (@see bloomActive): note
+		// the suppression once so it is not a silent drop
+		if(wantActive && world->bloom.enabled &&
+			world->bloomQuality != BloomPreset::BQ_OFF &&
+			!gGradeSuppressesBloomLogged)
+		{
+			gGradeSuppressesBloomLogged = true;
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige classic backend: the output grade and bloom do not "
+				"compose on this flavor yet - rendering the grade, skipping bloom");
+		}
+		if(wantActive)
+		{
+			// push the live contrast + saturation onto the grade material (the
+			// setBloomFragParam helper pushes a float named constant to any
+			// material's fragment program)
+			const GradeDesc desc = world->grade.sanitised();
+			setBloomFragParam("Orkige/Grade/Apply", "Contrast", desc.contrast);
+			setBloomFragParam("Orkige/Grade/Apply", "Saturation", desc.saturation);
+			// re-add when the window viewport identity changed
+			if(gGradeViewport && gGradeViewport != viewport)
+			{
+				compositors.setCompositorEnabled(gGradeViewport,
+					GRADE_COMPOSITOR_NAME, false);
+				compositors.removeCompositor(gGradeViewport,
+					GRADE_COMPOSITOR_NAME);
+				gGradeViewport = NULL;
+			}
+			if(!gGradeViewport)
+			{
+				buildGradeCompositor(viewport);
+				if(!compositors.addCompositor(viewport, GRADE_COMPOSITOR_NAME))
+				{
+					if(!gGradeRefusalLogged)
+					{
+						gGradeRefusalLogged = true;
+						Ogre::LogManager::getSingleton().logMessage(
+							"Orkige classic backend: output grade is not "
+							"supported on this render backend - the compositor "
+							"could not be created");
+					}
+					return;
+				}
+				gGradeViewport = viewport;
+			}
+			compositors.setCompositorEnabled(viewport, GRADE_COMPOSITOR_NAME, true);
+			gGradeEnabled = true;
+		}
+		else if(gGradeViewport)
+		{
+			// disable only (the compositor stays added for a cheap re-enable): a
+			// fully disabled chain renders the viewport the normal path, so
+			// grade-off output is byte-identical - the toggle-identity contract
+			compositors.setCompositorEnabled(gGradeViewport,
+				GRADE_COMPOSITOR_NAME, false);
+			gGradeEnabled = false;
+		}
+		// grade toggling changes whether bloom may arm (grade wins): re-evaluate
+		// the bloom compositor now that the grade state settled
+		RenderBackend::applyBloomConfig();
+	}
 	//---------------------------------------------------------
 	RenderSystem* RenderBackend::createRenderSystem(Engine* engine)
 	{
@@ -808,6 +1030,16 @@ namespace Orkige
 		{
 			system->mImpl->caps |=
 				(1u << static_cast<int>(RenderCaps::Bloom));
+		}
+		// output grade (@see applyGradeConfig): the same generated-material
+		// scene pass + fullscreen quad as bloom, so it is RUNTIME-determined
+		// identically - desktop (GL3Plus/Vulkan) answers true, a GLES2/WebGL1
+		// context is gated on GLSL ES 3.0 and an enabled grade degrades to no
+		// pass with one honest log line there (@see gradeSupported).
+		if(RenderBackend::gradeSupported())
+		{
+			system->mImpl->caps |=
+				(1u << static_cast<int>(RenderCaps::OutputGrade));
 		}
 		// screen-space water refraction (@see createOrUpdateWaterMaterial): a
 		// grab-pass RenderTexture sampled at a normal-perturbed screen UV -

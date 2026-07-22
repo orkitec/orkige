@@ -1564,6 +1564,26 @@ int main(int argc, char** argv)
 					render->addResourceLocation(ORKIGE_PLAYER_BLOOM_DIR);
 				}
 #endif
+#ifdef ORKIGE_PLAYER_GRADE_DIR
+				// the engine output-grade compositor media (the grade material +
+				// shaders engine:setGrade needs), per flavor (grade/next vs
+				// grade/classic). EXCLUSIVE bundled-first pair like the bloom media
+				// above (a material SCRIPT - double-parsing aborts resource-group
+				// init).
+				std::error_code gradeDirError;
+				if (std::filesystem::is_directory(
+					playerMediaDir + "/" ORKIGE_GRADE_MEDIA_SUBDIR,
+					gradeDirError))
+				{
+					render->addResourceLocation(
+						playerMediaDir + "/" ORKIGE_GRADE_MEDIA_SUBDIR);
+				}
+				else if (std::filesystem::is_directory(ORKIGE_PLAYER_GRADE_DIR,
+					gradeDirError))
+				{
+					render->addResourceLocation(ORKIGE_PLAYER_GRADE_DIR);
+				}
+#endif
 				// sample assets (test_mesh.glb; scene meshes load lazily via
 				// Codec_Assimp) and the jumper sample assets, so the editor's
 				// play mode works on samples/* scenes too. Registered only when

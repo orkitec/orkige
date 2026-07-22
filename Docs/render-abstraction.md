@@ -798,6 +798,7 @@ renders it fails CI.
 | `bloom` | yes | yes | an LDR highlight-glow post-process on the 3D scene only (bright-pass -> separable blur -> additive combine, per-scene opt-in via engine:setBloom, the r.bloomQuality tier) - the 2D tier (sprites/vector shapes/gui) is excluded so UI stays crisp. next = CompositorManager2 quad passes inserted between the 3D scene pass and the 2D/UI pass; classic = the same chain as a viewport compositor over the generated-material scheme, the `OgreUnifiedShader.h` bright/blur/combine quad passes authored once and run in the GLSL ES 3.0 profile on a GLES/WebGL context - so it reaches the WebGL2/GLES3 web+device path too, gated on the glsl300es probe like the IBL stage; the GLES2/WebGL1 floor answers false and an enabled bloom degrades to no pass with one log line |
 | `screenSpaceRefraction` | yes | yes | opt-in screen-space refraction distortion through the water surface: the opaque scene colour is captured before the water draws and sampled at a normal-perturbed screen UV so what is under the water bends/wobbles (basic distortion, NOT depth-graded transmission). next = the HlmsPbs Refractive transparency mode fed by a compositor scene-colour+depth pass; classic = a grab-pass RenderTexture of the scene (water hidden) sampled at the perturbed screen UV, authored in two GLSL variants (desktop GL core + GLSL ES 3.0), so it reaches the WebGL2/GLES3 web+device path too - gated on the glsl300es probe like the IBL stage; the GLES2/WebGL1 floor keeps the byte-stable Stage-1 look, a Vulkan/Metal context answers false pending its own variant |
 | `iblReflections` | yes | yes | opt-in image-based lighting sourced from the scene's SKY: specular reflections + a diffuse fill ADDED to the analytic lights on PBS-lit facade materials (next = the HlmsPbs reflection map + diffuse-GI env feature; classic = the generated-shader image-based-lighting stage over the same cubemap - on a GLES context the bit is runtime-gated on GLSL ES 3.0), tiered by the `r.iblQuality` cvar (`core_util/IblPreset.h`). ONE path, TWO sources selected automatically: a skybox atmosphere feeds the offline-baked prefiltered chain (`Util/make_sky_assets.py`); a procedural atmosphere feeds a runtime CPU capture of the sky (`core_util/SkyEnvMap` - a small cubemap synthesized from the atmosphere + sun with a box-downsampled roughness chain, recaptured on-demand only when the sun swings past ~6 degrees or the sky colours change, never per frame; a tolerance-parity approximation of the AtmosphereNpr dome on next, exact for the classic gradient sky). Colour / disabled skies have no environment and refuse honestly (`Docs/materials.md`) |
+| `outputGrade` | yes | yes | the shared output LOOK/GRADE stage: an authored contrast (S-curve) + saturation transform applied IDENTICALLY on both flavors (the shared curve is core_util/GradeMath) to the 3D scene only - the 2D tier (sprites/vector shapes/gui) is excluded so UI stays crisp, and the pass sequences LAST (after bloom when both are on). next = a CompositorManager2 grade quad after the scene pass; classic = the same curve as a viewport compositor over the generated-material scheme, the `OgreUnifiedShader.h` grade quad authored once and run in the GLSL ES 3.0 profile on a GLES/WebGL context (so it reaches the WebGL2/GLES3 web+device path too, gated on the glsl300es probe like bloom/IBL); the GLES2/WebGL1 floor answers false and an enabled grade degrades to no pass with one honest log line. DEFAULT OFF and byte-stable - content that never opts in renders byte-identically |
 | `planarReflection` | yes | yes | opt-in MIRROR reflection of the actual scene (sky + terrain + objects) in the water surface, rather than just the sky IBL cubemap it already samples: a camera reflected across the surface plane (normal +Y at `planeHeightY`) renders the scene into a reflection RenderTexture with the water surface hidden, which the water material samples at a FRESNEL-modulated blend (`reflectionStrength` boosts the base reflectivity and dims the body colour moderately - the surface stays water, never chrome). classic = the working path: a hand-authored GLSL program (desktop GL core + GLSL ES 3.0 variants) samples the mirror-camera RenderTexture at the fragment's ripple-perturbed screen UV with a Schlick fresnel + the sun's specular streak - reaching the WebGL2/GLES3 web+device path on the glsl300es probe; the GLES2/WebGL1 floor and a Vulkan/Metal context answer false pending their variant. next = the native planar-reflections subsystem: the hand-built reflection workspace renders the mirror RTT WITH its mip chain, and the mirror-on water material compensates HlmsPbs's physically-attenuated env term (unit specular, near-mip-0 roughness, a deeper body dim + halved scatter) so the mirrored scene reads at the classic paint's strength - probe-verified on both flavors by water_reflection_looks_right (diagnose with ORKIGE_DUMP_MIRROR=<png>). Composes with screen-space refraction; off/unsupported keeps the byte-stable sky-reflection look |
 
 _A capability marked `no`/`no` is a `PlannedAbsent` v1 boundary (absent on both flavors, next-first when it lands); the rest are real classic/next deltas. Probe from code with `RenderSystem::get()->supports(RenderCaps::X)`, from Lua with `engine:supports("name")`, and over MCP from `get_state`'s `capabilities` object._
@@ -868,6 +869,57 @@ one log line). FBOs exist on those contexts, so this is an *unproven*, not an
 *incapable*, gate — flipping it needs an on-device (`android-debug-classic` /
 `ios-*-classic`) or in-browser (`web-release`) proof run of the compositor
 chain; until then desktop classic (GL3Plus/Vulkan) carries the capability.
+
+**Output grade — the shared look stage (`RenderCaps::OutputGrade`, opt-in,
+default OFF).** The engine has no tonemapper and shipped un-graded, so a scene's
+punch depended on flavor-specific shading residue rather than an authored choice.
+The grade is the ONE output look stage both flavors run IDENTICALLY: a contrast
+(S-curve) + saturation transform whose exact math is the pure, headless-unit-tested
+`core_util/GradeMath` (`GradeDesc` carries the tunables). Because both flavors'
+shaders implement that same curve, whatever look the content dials stays matched
+across flavors *by construction* — that is the point of the stage. Authored
+through `RenderWorld::setOutputGrade` / `engine:setGrade(enabled, contrast,
+saturation)`, reflected nowhere else (it is a render-world look, not a component),
+reachable over MCP through the runtime engine-call paths like `setBloom`.
+
+- **The curve (display space).** `mix(x, smoothstep(x), contrast)` per channel
+  around a 0.5 pivot (monotonic and clamp-safe on the un-tonemapped clip for
+  `contrast ∈ [0;1]` — the honest ceiling `GradeDesc::sanitised` enforces), then
+  `mix(luma, colour, saturation)` about the Rec.601 luma. The transform operates
+  in **display (gamma) space** — where contrast/saturation are conventionally
+  authored and the space the classic scene texture already stores. The next scene
+  texture is sRGB (samples LINEAR), so its grade shader wraps the curve with a
+  linear↔display adapter; that adapter is the *only* per-flavor difference (the
+  hemisphere-ambient "recover to display space to match" precedent), so the two
+  flavors apply the identical curve to comparable values and the induced delta
+  matches within a few readback levels.
+- **next**: a single `CompositorManager2` grade quad appended AFTER the 3D scene
+  pass and BEFORE the 2D/UI pass. It composes with the plain path (scene→SceneRT,
+  grade→window), with bloom (its branch runs the bright/blur/combine chain into a
+  full-res `PostRT`, then grades that — the grade is the LAST thing before 2D), and
+  with screen-space refraction (the refraction path's final display-space resolve
+  of `WaterRT`→window becomes a display-source grade quad). Off → the byte-stable
+  branch structure is untouched.
+- **classic**: a viewport compositor over the shared generated-material scheme
+  (`orkige_engine/media/grade/classic/`, `OgreUnifiedShader.h` grade quad —
+  `RenderBackend::applyGradeConfig`/`buildGradeCompositor`), structurally the bloom
+  compositor without the blur chain. **v1 limitation — grade takes precedence over
+  bloom when both are requested** (the two are independent viewport compositors
+  that do not nest here yet, mirroring the existing "refraction takes precedence
+  over bloom" precedent), noted in one honest log line; on next they DO compose.
+- **2D exclusion** on both: the grade wraps the 3D scene only, the 2D tier
+  (sprites/vector meshes/gui) draws un-graded over it via the `SCENE_2D` visibility
+  split — UI stays crisp and WYSIWYG.
+- **GLES floor**: like bloom, a **GLES2/WebGL1 classic context** answers
+  `gradeSupported()` false (needs GLSL ES 3.0), and an enabled grade degrades to no
+  pass + one log line; desktop (GL3Plus/Vulkan) and every next context carry it.
+- **Verified**: `GradeMathTests` (identity at neutral, monotonic S-curve, saturation
+  about luma, clamp-safety, sanitiser ceilings); the `render_facade_selfcheck` grade
+  leg on both flavors (measurable saturation + contrast rise, 2D-sprite exclusion,
+  toggle identity, honest no-op on an unsupported context); and the cross-flavor
+  `grade_look_parity` gate — both flavors' grade-OFF metrics agree (WYSIWYG) and
+  their grade-induced saturation/contrast DELTAS match within tolerance (the shared
+  curve moves both the same way). Default OFF: the owner dials the shipped preset.
 
 **Screen-space refraction (`RenderCaps::ScreenSpaceRefraction`, opt-in, default
 OFF).** Basic distortion — the opaque scene is captured before the water draws

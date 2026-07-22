@@ -237,6 +237,13 @@ fi
 [ -d "$REPO_ROOT/orkige_engine/media/bloom/next" ] \
     && mkdir -p "$STAGE/assets/Media/bloom" \
     && cp -R "$REPO_ROOT/orkige_engine/media/bloom/next" "$STAGE/assets/Media/bloom/next"
+# the engine output-grade compositor media (grade material + shaders) so an
+# Android next scene's engine:setGrade ships self-contained (the player registers
+# <extracted>/Media/grade/next on a NEXT build; a classic APK carrying it is a
+# harmless few KB).
+[ -d "$REPO_ROOT/orkige_engine/media/grade/next" ] \
+    && mkdir -p "$STAGE/assets/Media/grade" \
+    && cp -R "$REPO_ROOT/orkige_engine/media/grade/next" "$STAGE/assets/Media/grade/next"
 cp -R "$REPO_ROOT/samples/hello_orkige/media"         "$STAGE/assets/assets"
 cp -R "$REPO_ROOT/samples/jumper/media"               "$STAGE/assets/jumper_media"
 cp    "$REPO_ROOT/samples/scenes/example.oscene"      "$STAGE/assets/example.oscene"

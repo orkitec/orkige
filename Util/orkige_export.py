@@ -440,6 +440,14 @@ def engine_bloom_dir(flavor):
     return bloom if os.path.isdir(bloom) else ""
 
 
+def engine_grade_dir(flavor):
+    """the engine output-grade compositor media (the grade material + shaders
+    engine:setGrade needs) - PER FLAVOR: grade/next vs grade/classic. Registered
+    at runtime under Media/grade/<flavor> like the bloom dir. Empty when absent."""
+    grade = os.path.join(REPO_ROOT, "orkige_engine", "media", "grade", flavor)
+    return grade if os.path.isdir(grade) else ""
+
+
 def ogre_media_dir(build_dir):
     """the classic flavor's RTSS shader-library media (Main + RTShaderLib)"""
     triplet = vcpkg_triplet_dir(build_dir)
@@ -770,6 +778,12 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
         shutil.copytree(engine_bloom_dir(flavor),
                         os.path.join(resources, "Media", "bloom", flavor),
                         dirs_exist_ok=True)
+    # the engine output-grade compositor media (per flavor) so a scene's
+    # engine:setGrade ships self-contained
+    if engine_grade_dir(flavor):
+        shutil.copytree(engine_grade_dir(flavor),
+                        os.path.join(resources, "Media", "grade", flavor),
+                        dirs_exist_ok=True)
 
     staged = stage_project_payload(
         project, os.path.join(resources, PAYLOAD_DIR_NAME), "macos",
@@ -942,6 +956,10 @@ def export_web(project, engine_build, output_dir):
             shutil.copytree(engine_bloom_dir("classic"),
                             os.path.join(staging, "Media", "bloom", "classic"),
                             dirs_exist_ok=True)
+        if engine_grade_dir("classic"):
+            shutil.copytree(engine_grade_dir("classic"),
+                            os.path.join(staging, "Media", "grade", "classic"),
+                            dirs_exist_ok=True)
         staged = stage_project_payload(
             project, os.path.join(staging, PAYLOAD_DIR_NAME), "web",
             engine_build)
@@ -1018,6 +1036,11 @@ def export_ios_simulator(project, engine_build, output_dir):
     if engine_bloom_dir(render_backend(engine_build)):
         shutil.copytree(engine_bloom_dir(render_backend(engine_build)),
                         os.path.join(app_dir, "Media", "bloom",
+                                     render_backend(engine_build)),
+                        dirs_exist_ok=True)
+    if engine_grade_dir(render_backend(engine_build)):
+        shutil.copytree(engine_grade_dir(render_backend(engine_build)),
+                        os.path.join(app_dir, "Media", "grade",
                                      render_backend(engine_build)),
                         dirs_exist_ok=True)
     staged = stage_project_payload(project,
@@ -1178,6 +1201,12 @@ def build_signed_ios_bundle(project, source_app, output_dir, identity, profile,
     if engine_bloom_dir(render_backend(engine_build)):
         shutil.copytree(engine_bloom_dir(render_backend(engine_build)),
                         os.path.join(app_dir, "Media", "bloom",
+                                     render_backend(engine_build)),
+                        dirs_exist_ok=True)
+    # the engine output-grade compositor media (per flavor)
+    if engine_grade_dir(render_backend(engine_build)):
+        shutil.copytree(engine_grade_dir(render_backend(engine_build)),
+                        os.path.join(app_dir, "Media", "grade",
                                      render_backend(engine_build)),
                         dirs_exist_ok=True)
     staged = stage_project_payload(project,

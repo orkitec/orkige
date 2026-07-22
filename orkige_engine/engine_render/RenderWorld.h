@@ -17,6 +17,7 @@
 #include <core_util/ShadowPreset.h>
 #include <core_util/IblPreset.h>
 #include <core_util/BloomPreset.h>
+#include <core_util/GradeDesc.h>
 #include <core_util/AtmosphereDesc.h>
 #include <core_util/String.h>
 #include <vector>
@@ -327,6 +328,40 @@ namespace Orkige
 		void setBloomQuality(BloomPreset::Quality quality);
 		//! the bloom quality knob last set (default BQ_MEDIUM)
 		BloomPreset::Quality getBloomQuality() const;
+
+		//--- output grade (the shared authored look) ---
+		//! whether this backend renders the output grade at all is the
+		//! `RenderCaps::OutputGrade` capability (`RenderSystem::supports`) - true
+		//! on both desktop flavors, runtime-gated to false on a classic
+		//! GLES2/WebGL1 context (needs GLSL ES 3.0 on a GLES target, like bloom),
+		//! where an enabled grade degrades to no pass + one honest log line and
+		//! the scene still renders correctly.
+		//! @brief set the scene's output GRADE (@see GradeDesc): the ONE authored
+		//! look stage (contrast S-curve + saturation) both flavors run
+		//! IDENTICALLY (the shared curve is core_util/GradeMath), so whatever the
+		//! content dials stays matched across flavors by construction. Per-scene
+		//! OPT-IN and DEFAULT OFF: while @c desc.enabled is false NO grade pass
+		//! runs and the frame is byte-identical to a build with no grade code (the
+		//! toggle-identity discipline). Idempotent - call again to change the
+		//! contrast/saturation or toggle.
+		//!
+		//! SCOPE: the grade wraps the 3D scene only. The 2D tier (sprites, vector
+		//! shapes, gui) is EXCLUDED by contract so UI whites and flat-colour 2D art
+		//! stay crisp and WYSIWYG - the backends sequence the grade pass AFTER the
+		//! 3D scene (and after bloom when both are on: the grade is the LAST thing
+		//! before the 2D + UI composition) but BEFORE the 2D/UI passes. The curve
+		//! operates in display space (@see GradeMath for the colour-space contract
+		//! and the cross-flavor parity guarantee).
+		//!
+		//! map: next=a CompositorManager2 grade quad pass appended after the 3D
+		//! scene pass (and after the bloom combine when both are on) in the window
+		//! workspace, gated on enabled | classic=an Ogre::CompositorManager
+		//! viewport compositor (the grade quad over the generated-material scheme,
+		//! generated in code) armed on the window viewport while enabled, disarmed
+		//! restore-exactly | filament=View colour-grading options
+		void setOutputGrade(GradeDesc const & desc);
+		//! the grade description last set (default: disabled - GradeDesc())
+		GradeDesc const & getOutputGrade() const;
 
 		//--- queries (editor picking) ---
 		//! @brief all scene content whose bounds the ray hits, nearest first

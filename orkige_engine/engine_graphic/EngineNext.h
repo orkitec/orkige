@@ -129,6 +129,8 @@ namespace Orkige
 		void setImageLighting(bool enabled, float intensity);
 		//! @copydoc Engine::setBloom (classic)
 		void setBloom(bool enabled, float threshold, float intensity);
+		//! @copydoc Engine::setGrade (classic)
+		void setGrade(bool enabled, float contrast, float saturation);
 		//! @brief does this build carry the gui UI system?
 		//! @remarks true on BOTH flavors
 		//! (gui renders through the engine_render facade); the probe

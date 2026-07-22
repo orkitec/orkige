@@ -409,6 +409,17 @@ int main(int argc, char** argv)
 					render->addResourceLocation(ORKIGE_EDITOR_BLOOM_DIR);
 				}
 #endif
+#ifdef ORKIGE_EDITOR_GRADE_DIR
+				// the engine output-grade compositor media (the grade material +
+				// shaders) so a play session with engine:setGrade resolves its
+				// materials - per flavor (grade/next vs grade/classic)
+				std::error_code gradeDirError;
+				if (std::filesystem::is_directory(ORKIGE_EDITOR_GRADE_DIR,
+					gradeDirError))
+				{
+					render->addResourceLocation(ORKIGE_EDITOR_GRADE_DIR);
+				}
+#endif
 			}))
 		{
 			return 1;

@@ -1,0 +1,50 @@
+//---------------------------------------------------------------------------
+// Orkige output-grade post-process material (the classic OGRE flavor). The
+// grade compositor is built programmatically and enabled on the window viewport
+// while a scene enabled the grade (@see RenderBackend::applyGradeConfig /
+// buildGradeCompositor); it renders the 3D tier into an off-screen scene
+// texture, applies the shared contrast + saturation curve, then draws the 2D
+// tier + GUI un-graded over the result. The Contrast and Saturation are pushed
+// live from RenderWorld::setOutputGrade. Portable OgreUnifiedShader.h shaders
+// (GL3+/GLES/etc); the curve is the exact core_util/GradeMath transform.
+//---------------------------------------------------------------------------
+
+vertex_program Orkige/Grade/Quad_vp glsl glsles glslang
+{
+	source GradeQuad_vp.glsl
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
+fragment_program Orkige/Grade/Apply_fp glsl glsles glslang
+{
+	source GradeApply_fp.glsl
+	default_params
+	{
+		param_named RT int 0
+		param_named Contrast float 0.0
+		param_named Saturation float 1.0
+	}
+}
+
+material Orkige/Grade/Apply
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+			vertex_program_ref Orkige/Grade/Quad_vp {}
+			fragment_program_ref Orkige/Grade/Apply_fp {}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering none
+			}
+		}
+	}
+}

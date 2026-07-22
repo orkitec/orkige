@@ -442,7 +442,20 @@ classic via the RTSS receiver injected into the generated-material scheme —
 `core_util/ShadowPreset.h`), per-object `castShadows`/`receiveShadows` on
 ModelComponent (+receive on Water), arm/disarm restore-exactly, the
 night-dimmed sun skips the pass, GLES2 gates on a runtime depth-texture
-capability probe; **baked-mesh terrain** is content, not a facade feature:
+capability probe;
+**output grade** (the shared look stage, `RenderCaps::OutputGrade`, opt-in,
+default OFF, both flavors): the ONE authored output look — a contrast (S-curve) +
+saturation transform whose exact math is the pure `core_util/GradeMath`/`GradeDesc`,
+so both flavors apply the IDENTICAL curve and a dialed look stays matched across
+flavors by construction. `RenderWorld::setOutputGrade` / `engine:setGrade(enabled,
+contrast, saturation)`; next = a CompositorManager2 grade quad after the scene
+(composing with bloom + refraction), classic = a viewport compositor over the
+generated scheme (`media/grade/classic`, grade takes precedence over bloom when
+both are on — a v1 non-nesting limitation); 3D-only (2D/UI excluded, WYSIWYG),
+display-space curve, GLES2/WebGL1 classic runtime-gated like bloom — `GradeMathTests`
++ the `render_facade_selfcheck` grade leg + the cross-flavor `grade_look_parity`
+delta-match gate;
+**baked-mesh terrain** is content, not a facade feature:
 `Util/make_terrain_mesh.py` bakes a seeded fBm heightfield into a chunked glTF
 `.glb` (per-chunk sub-meshes, 16-bit-index budget, normals + tiling UVs) plus a
 tiling ground `.omat`, rendered through this same ModelComponent path —

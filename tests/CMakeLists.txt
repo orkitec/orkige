@@ -319,7 +319,9 @@ if(TARGET orkige_engine)
             ORKIGE_SELFCHECK_OGRE_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media"
             # the classic-flavor bloom compositor media (bright/blur/combine
             # material + OgreUnifiedShader GLSL) the bloom leg registers
-            ORKIGE_SELFCHECK_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/bloom/classic")
+            ORKIGE_SELFCHECK_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/bloom/classic"
+            # the classic-flavor output-grade compositor media the grade leg registers
+            ORKIGE_SELFCHECK_GRADE_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/grade/classic")
     elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
         target_compile_definitions(render_facade_selfcheck PRIVATE
             # backend-internal media the next bootstrap registers (the HLMS
@@ -327,7 +329,10 @@ if(TARGET orkige_engine)
             ORKIGE_SELFCHECK_NEXT_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media"
             # the next-flavor bloom compositor media (bright/blur/combine
             # material + Metal/GLSL shaders) the bloom leg registers
-            ORKIGE_SELFCHECK_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/bloom/next")
+            ORKIGE_SELFCHECK_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/bloom/next"
+            # the next-flavor output-grade compositor media the grade leg registers
+            # (its material reuses the bloom media's Ogre/Compositor/Quad_vs)
+            ORKIGE_SELFCHECK_GRADE_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/grade/next")
     endif()
     target_compile_definitions(render_facade_selfcheck PRIVATE
         # facade-registered test assets: a vertex-coloured glb + a textured
@@ -428,6 +433,23 @@ if(TARGET orkige_engine)
                 --repo "${Orkige_SOURCE_DIR}"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(render_backend_parity PROPERTIES
+            LABELS integration TIMEOUT 180 SKIP_RETURN_CODE 77)
+
+        # grade_look_parity - the shared-output-grade look-parity gate: run the
+        # selfcheck on BOTH flavors and assert the grade moves saturation +
+        # contrast measurably on each AND the induced deltas MATCH across flavors
+        # (the shared core_util/GradeMath curve moves both the same way). Same
+        # cross-preset skip-77 as render_backend_parity when the classic tree is
+        # absent. Registered on the NEXT (default) preset only.
+        add_test(NAME grade_look_parity
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_grade_probe_test.py"
+                --next-binary $<TARGET_FILE:render_facade_selfcheck>
+                --classic-binary "${Orkige_SOURCE_DIR}/${ORKIGE_PARITY_CLASSIC_TREE}/tests/render_facade_selfcheck"
+                --out "${CMAKE_CURRENT_BINARY_DIR}/grade_look_parity"
+                --repo "${Orkige_SOURCE_DIR}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(grade_look_parity PROPERTIES
             LABELS integration TIMEOUT 180 SKIP_RETURN_CODE 77)
     endif()
 endif()

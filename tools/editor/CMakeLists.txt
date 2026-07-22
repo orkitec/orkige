@@ -272,6 +272,16 @@ else()
     target_compile_definitions(orkige_editor PRIVATE
         ORKIGE_EDITOR_BLOOM_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/bloom/classic")
 endif()
+# the engine output-grade compositor media - PER FLAVOR (grade/next vs
+# grade/classic), so a Play session with engine:setGrade resolves its materials
+# in the editor's own render context on either backend
+if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    target_compile_definitions(orkige_editor PRIVATE
+        ORKIGE_EDITOR_GRADE_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/grade/next")
+else()
+    target_compile_definitions(orkige_editor PRIVATE
+        ORKIGE_EDITOR_GRADE_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/grade/classic")
+endif()
 
 # play mode needs the player binary present at runtime
 add_dependencies(orkige_editor orkige_player)

@@ -379,6 +379,21 @@ protected:
 		//! Docs/render-abstraction.md) and degrades to no pass with one log line.
 		//! @remarks maps to RenderWorld::setBloom on both flavors.
 		void setBloom(bool enabled, float threshold, float intensity);
+		//! @brief set the scene's output GRADE (the shared authored look) -
+		//! engine:setGrade(enabled, contrast, saturation). The ONE look stage both
+		//! flavors run IDENTICALLY (the shared curve is core_util/GradeMath), so a
+		//! dialed look stays matched across flavors by construction. Per-scene
+		//! opt-in and DEFAULT OFF: while @p enabled is false the frame is
+		//! byte-identical to a build with no grade. @p contrast is the S-curve
+		//! strength around the 0.5 pivot in [0;1] (0 = identity), @p saturation is
+		//! the colour saturation about luma (1 = identity, 0 = greyscale). The 2D
+		//! tier (sprites/vector shapes/gui) is EXCLUDED so UI stays crisp, and the
+		//! grade sequences LAST (after bloom when both are on). Renders only where
+		//! RenderCaps::OutputGrade holds - both flavors on desktop, next on mobile;
+		//! a classic GLES2/WebGL1 context is runtime-gated and degrades to no pass
+		//! with one log line.
+		//! @remarks maps to RenderWorld::setOutputGrade on both flavors.
+		void setGrade(bool enabled, float contrast, float saturation);
 		//! @brief does this build carry the gui UI system?
 		//! @remarks true on BOTH flavors
 		//! (gui renders through the engine_render facade); the probe

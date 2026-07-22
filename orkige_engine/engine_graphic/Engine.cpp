@@ -1083,6 +1083,21 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void Engine::setGrade(bool enabled, float contrast, float saturation)
+	{
+		GradeDesc desc;
+		desc.enabled = enabled;
+		desc.contrast = contrast;
+		desc.saturation = saturation;
+		if(RenderSystem* renderSystem = this->getRenderSystem())
+		{
+			if(RenderWorld* world = renderSystem->getWorld())
+			{
+				world->setOutputGrade(desc);
+			}
+		}
+	}
+	//---------------------------------------------------------
 	bool Engine::supports(String const & name) const
 	{
 		const RenderCaps cap = parseRenderCap(name);
@@ -1146,6 +1161,10 @@ namespace Orkige
 		// per-scene highlight glow on the 3D tier (the r.bloomQuality knob
 		// sets the blur budget); the 2D tier stays crisp
 		OFUNC(setBloom)
+		// output grade: engine:setGrade(enabled, contrast, saturation) - the
+		// shared authored look (contrast S-curve + saturation) on the 3D tier,
+		// identical on both flavors; the 2D tier stays crisp
+		OFUNC(setGrade)
 		// UI capability probe: true here - the classic flavor carries
 		// gui; the next flavor's Engine sibling answers false and
 		// scripts skip their HUD honestly

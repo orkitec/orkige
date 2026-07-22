@@ -413,6 +413,58 @@ namespace Orkige
 					value > 0 ? static_cast<unsigned int>(value) : 0u);
 			});
 
+		// the shared output GRADE as live cvars (the r.bloomQuality mold): the ONE
+		// authored look stage both flavors run identically (contrast S-curve +
+		// saturation, the pure core_util/GradeMath). Live-tunable + manifest-
+		// persisted, so the owner (or an MCP set_cvar) dials the look at runtime
+		// and it stays matched across flavors by construction. Default OFF
+		// (identity), byte-stable until enabled. Each callback reads the world's
+		// current grade, changes its one field and re-applies (@see
+		// RenderWorld::setOutputGrade); a no-op change stays byte-stable.
+		CVarManager::getSingleton().registerCVar("r.grade",
+			CVarType::Bool,
+			this->mRenderWorld->getOutputGrade().enabled ? "1" : "0",
+			CVAR_PERSIST,
+			"enable the shared output grade (contrast + saturation, applied "
+			"identically on both flavors; r.gradeContrast / r.gradeSaturation "
+			"set the amount)",
+			[](CVar const & cvar)
+			{
+				RenderSystem* renderSystem = RenderSystem::get();
+				if (!renderSystem) { return; }
+				GradeDesc desc = renderSystem->getWorld()->getOutputGrade();
+				desc.enabled = cvar.asBool();
+				renderSystem->getWorld()->setOutputGrade(desc);
+			});
+		CVarManager::getSingleton().registerCVar("r.gradeContrast",
+			CVarType::Float,
+			cvarToString(this->mRenderWorld->getOutputGrade().contrast),
+			CVAR_PERSIST,
+			"output-grade contrast: the S-curve strength around the 0.5 pivot in "
+			"[0;1] (0 = identity); takes effect while r.grade is on",
+			[](CVar const & cvar)
+			{
+				RenderSystem* renderSystem = RenderSystem::get();
+				if (!renderSystem) { return; }
+				GradeDesc desc = renderSystem->getWorld()->getOutputGrade();
+				desc.contrast = cvar.asFloat();
+				renderSystem->getWorld()->setOutputGrade(desc);
+			});
+		CVarManager::getSingleton().registerCVar("r.gradeSaturation",
+			CVarType::Float,
+			cvarToString(this->mRenderWorld->getOutputGrade().saturation),
+			CVAR_PERSIST,
+			"output-grade saturation about luma (1 = identity, 0 = greyscale); "
+			"takes effect while r.grade is on",
+			[](CVar const & cvar)
+			{
+				RenderSystem* renderSystem = RenderSystem::get();
+				if (!renderSystem) { return; }
+				GradeDesc desc = renderSystem->getWorld()->getOutputGrade();
+				desc.saturation = cvar.asFloat();
+				renderSystem->getWorld()->setOutputGrade(desc);
+			});
+
 		if (this->mConfig.createWindowCamera)
 		{
 			// the window camera on a facade rig (the

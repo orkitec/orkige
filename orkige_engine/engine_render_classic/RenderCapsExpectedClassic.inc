@@ -40,6 +40,13 @@ X(ScreenSpaceRefraction, true)
 // desktop truth (GL3Plus/Vulkan - what the selfcheck boots); a GLES2/WebGL
 // context without GLSL ES 3.0 answers false at runtime
 X(IblReflections, true)
+// desktop truth (GL3Plus/Vulkan - what the selfcheck boots): the grade viewport
+// compositor's OgreUnifiedShader.h grade quad over the generated-material scheme.
+// Also true on a GLES/WebGL context with GLSL ES 3.0 (WebGL2/GLES3 - the ES-300
+// profile the grade quad runs in); the GLES2/WebGL1 floor answers false at
+// runtime (gated on glsl300es like bloom, an enabled grade degrades to no pass
+// with one log line - see RenderBackend::gradeSupported)
+X(OutputGrade, true)
 // desktop truth (GL3Plus - what the selfcheck boots): a mirror-camera reflection
 // RenderTexture sampled at the ripple-perturbed screen UV. Also true on a
 // GLES/WebGL context with GLSL ES 3.0 (WebGL2/GLES3 - the ES-300 water variant);

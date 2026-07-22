@@ -131,6 +131,10 @@ namespace Orkige
 		//! RenderBackend::bloomActive). Default MEDIUM tier, bloom OFF.
 		BloomPreset::Quality	bloomQuality = BloomPreset::BQ_MEDIUM;
 		BloomDesc				bloom;
+		//! the output grade (@see RenderWorld::setOutputGrade); the grade quad is
+		//! inserted after the scene pass only while grade.enabled (@see
+		//! RenderBackend::gradeActive). Default OFF (identity).
+		GradeDesc				grade;
 	};
 
 	struct RenderNode::Impl
@@ -851,6 +855,28 @@ namespace Orkige
 		//! materials on first use (bright-pass/blur-h/blur-v/combine). Idempotent;
 		//! the media dir is the ORKIGE_*_BLOOM_DIR the host passes at boot.
 		static void ensureBloomMaterials();
+
+		//--- output grade (the shared authored look; CompositorManager2 quad) ---
+		//! whether this backend can render the grade quad at all (the
+		//! RenderCaps::OutputGrade fill; always true on this desktop/mobile-capable
+		//! flavor - the render targets carry the off-screen scene texture the grade
+		//! quad samples)
+		static bool gradeSupported();
+		//! @brief whether the grade quad is currently ACTIVE: a scene enabled the
+		//! grade (GradeDesc::enabled) AND the grade material resolved. While
+		//! inactive the window workspace builds its unchanged (byte-identical) pass
+		//! structure - grade is OFF by default.
+		static bool gradeActive();
+		//! @brief re-apply the grade configuration (RenderWorld::setOutputGrade):
+		//! push the contrast/saturation onto the grade material, then rebuild the
+		//! window workspace so its passes insert/drop the grade quad. Idempotent;
+		//! a no-op change still rebuilds cheaply (the bloom-config precedent).
+		static void applyGradeConfig();
+		//! @brief make sure the grade material resolved (Orkige/Grade/Apply,
+		//! shipped in the media/grade dir the host registers). Idempotent; a
+		//! media-less/headless boot has none and grade degrades to no pass
+		//! (byte-identical), logged once.
+		static void ensureGradeMaterials();
 
 		//--- screen-space water refraction (HlmsPbs Refractive) ------------
 		//! whether this backend can render screen-space water refraction at all
