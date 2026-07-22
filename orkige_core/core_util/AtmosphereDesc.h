@@ -213,7 +213,14 @@ namespace Orkige
 				desc.fogRed = 0.75f; desc.fogGreen = 0.85f; desc.fogBlue = 0.95f;
 				break;
 			case SKY_SUNSET:
-				desc.skyRed = 1.0f; desc.skyGreen = 0.5f; desc.skyBlue = 0.25f;
+				// the sky tint stays the DAY Rayleigh blue: in the sky model the
+				// tint is an ABSORPTION spectrum (high channels absorb at high
+				// density), so a warm-authored tint renders an inverted, cyan
+				// sunset. The sunset look comes from the THICK density + a LOW
+				// sun - blue zenith, warm horizon, an orange glow around the sun
+				// (pair this preset with a sun near the horizon; a high sun
+				// under this haze whites the sky out)
+				desc.skyRed = 0.334f; desc.skyGreen = 0.57f; desc.skyBlue = 1.0f;
 				desc.skyPower = 1.0f;
 				desc.density = 0.9f;
 				// a warm low sun reads dimmer than noon; a touch of fill keeps

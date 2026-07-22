@@ -52,10 +52,19 @@ namespace Orkige
 		//! grab) and which materials setWaterMaterialTime scrolls through their
 		//! program constants rather than a texture-unit scroll.
 		std::set<String> gRefractiveWaterMaterials;
-		//! per refractive-water-material (strength, waveScale), so the per-frame
-		//! scroll update can re-push the FULL refractParams 4-vector (the scroll
-		//! rides its zw lane) without losing the build-time x/y knobs
-		std::unordered_map<String, std::pair<float, float>> gRefractiveWaterKnobs;
+		//! per refractive-water-material build-time knobs, so the per-frame
+		//! scroll update can re-push the FULL refractParams/skyParams 4-vectors
+		//! (the scroll rides refractParams' zw lane; skyParams' yz lanes track
+		//! the LIVE image-lighting state) without losing the build-time values
+		struct RefractKnobs
+		{
+			float strength = 0.02f;
+			float waveScale = 6.0f;
+			//! the fresnel F0 for the sky-reflection blend (@see the refract
+			//! program's skyParams - the same F0 formula as the reflect path)
+			float skyF0 = 0.05f;
+		};
+		std::unordered_map<String, RefractKnobs> gRefractiveWaterKnobs;
 		//! The mesh entities currently wearing a CUSTOM water material (refractive
 		//! OR planar-reflective) - both the scene-grab and the reflection render
 		//! targets hide these (and restore their prior visibility) while they
@@ -88,6 +97,9 @@ namespace Orkige
 					this->mHidden.emplace_back(entity, entity->getVisible());
 					entity->setVisible(false);
 				}
+				// track the window's animated sky/background colour (friend method
+				// - needs the protected render-system window)
+				RenderBackend::updateSceneGrabViewport();
 			}
 			void postRenderTargetUpdate(const Ogre::RenderTargetEvent&) override
 			{
@@ -110,14 +122,17 @@ namespace Orkige
 		std::set<String> gReflectiveWaterMaterials;
 		//! per reflective-water-material build-time knobs, so the per-frame scroll
 		//! update re-pushes the FULL program 4-vectors (the scroll rides the zw
-		//! lane) without losing them: {reflectStrength, waveScale, refractStrength,
+		//! lane) without losing them: {reflectStrength (the PRE-COMPUTED fresnel
+		//! F0 - @see applyReflectionParams), waveScale, refractStrength,
 		//! refractEnabled(0/1)}.
 		struct ReflectKnobs
 		{
-			float reflectStrength = 1.0f;
+			float reflectStrength = 0.12f;
 			float waveScale = 6.0f;
 			float refractStrength = 0.02f;
 			float refractEnabled = 0.0f;
+			//! the body-dim scale (reflectParams.z) - @see applyReflectionParams
+			float baseScale = 1.0f;
 		};
 		std::unordered_map<String, ReflectKnobs> gReflectiveWaterKnobs;
 		//! the ONE shared reflection render target: a window-sized colour texture
@@ -928,20 +943,25 @@ namespace Orkige
 				vs->setSource(
 					"#version 150\n"
 					"uniform mat4 worldViewProj;\n"
+					"uniform mat4 world;\n"
 					"in vec4 vertex;\n"
 					"in vec4 uv0;\n"
 					"out vec2 vUv;\n"
 					"out vec4 vClip;\n"
+					"out vec3 vWorldPos;\n"
 					"void main()\n"
 					"{\n"
 					"    vec4 clip = worldViewProj * vertex;\n"
 					"    gl_Position = clip;\n"
 					"    vClip = clip;\n"
 					"    vUv = uv0.xy;\n"
+					"    vWorldPos = (world * vertex).xyz;\n"
 					"}\n");
 				vs->load();
 				vs->getDefaultParameters()->setNamedAutoConstant("worldViewProj",
 					Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
+				vs->getDefaultParameters()->setNamedAutoConstant("world",
+					Ogre::GpuProgramParameters::ACT_WORLD_MATRIX);
 			}
 			if(!programs.getByName("Orkige/WaterRefract_fs",
 				Ogre::RGN_INTERNAL))
@@ -953,11 +973,17 @@ namespace Orkige
 					"#version 150\n"
 					"uniform sampler2D sceneMap;\n"
 					"uniform sampler2D normalMap;\n"
+					"uniform samplerCube skyMap;\n"  // the live IBL environment chain
 					"uniform vec4 deepColour;\n"     // rgb, a = opacity
 					"uniform vec4 shallowColour;\n"  // rgb
 					"uniform vec4 refractParams;\n"  // x=strength y=waveScale z=scrollX w=scrollY
+					"uniform vec4 skyParams;\n"      // x=fresnel F0 y=sky enabled z=luminance
+					"uniform vec4 camPos;\n"         // world-space camera position
+					"uniform vec4 sunTowards;\n"     // xyz = toward-the-sun, w = specular gate
+					"uniform vec4 sunColour;\n"      // rgb = driven sun colour
 					"in vec2 vUv;\n"
 					"in vec4 vClip;\n"
+					"in vec3 vWorldPos;\n"
 					"out vec4 fragColour;\n"
 					"void main()\n"
 					"{\n"
@@ -973,9 +999,36 @@ namespace Orkige
 					"    vec3 scene = texture(sceneMap, uv).rgb;\n"
 					"    vec3 water = mix(scene, deepColour.rgb, deepColour.a * 0.6)\n"
 					"               + shallowColour.rgb * 0.12;\n"
+					// fresnel SKY reflection over the refracted base: the reflected
+					// ray sampled from the live IBL environment cubemap (the same
+					// capture the PBS flavor's Refractive water reflects) - looking
+					// down keeps the refracted bed, grazing mirrors the sky. The
+					// capture stores clamped LINEAR values, so encode for this
+					// gamma-naive pipeline (the dome's display-encode sibling).
+					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
+					"    vec3 nrm = normalize(vec3(disp.x * 2.5, 1.0,\n"
+					"        disp.y * 2.5));\n"
+					"    if(skyParams.y > 0.5)\n"
+					"    {\n"
+					"        vec3 refl = reflect(-viewDir, nrm);\n"
+					"        refl.y = abs(refl.y);\n"  // the water reflects SKY, never ground
+					"        vec3 sky = pow(max(texture(skyMap, refl).rgb,\n"
+					"            vec3(0.0)), vec3(1.0 / 2.2)) * skyParams.z;\n"
+					"        float cosv = clamp(dot(viewDir, nrm), 0.0, 1.0);\n"
+					"        float f0 = clamp(skyParams.x, 0.0, 1.0);\n"
+					"        float fres = f0 + (1.0 - f0) * pow(1.0 - cosv, 5.0);\n"
+					"        water = mix(water, sky, clamp(fres, 0.0, 1.0));\n"
+					"    }\n"
+					// the sun's specular streak riding the ripples (the same cue the
+					// PBS flavor's glossy lobe gives its refractive water)
+					"    vec3 halfVec = normalize(viewDir + normalize(sunTowards.xyz));\n"
+					"    float spec = pow(clamp(dot(nrm, halfVec), 0.0, 1.0), 220.0);\n"
+					"    water += sunColour.rgb * (spec * 1.2 * sunTowards.w);\n"
 					"    fragColour = vec4(water, 1.0);\n"
 					"}\n");
 				fs->load();
+				fs->getDefaultParameters()->setNamedAutoConstant("camPos",
+					Ogre::GpuProgramParameters::ACT_CAMERA_POSITION);
 			}
 		}
 		//! push the per-instance water body colour + refraction knobs onto a
@@ -1027,9 +1080,13 @@ namespace Orkige
 					"uniform vec4 deepColour;\n"       // rgb, a = opacity
 					"uniform vec4 shallowColour;\n"    // rgb
 					"uniform vec4 refractParams;\n"    // x=refractStrength y=waveScale z=scrollX w=scrollY
-					"uniform vec4 reflectParams;\n"    // x=reflectStrength y=refractEnabled
+					"uniform vec4 reflectParams;\n"    // x=fresnel F0 y=refractEnabled z=bodyDim
+					"uniform vec4 camPos;\n"           // world-space camera position
+					"uniform vec4 sunTowards;\n"       // xyz = toward-the-sun (world), w = specular gate
+					"uniform vec4 sunColour;\n"        // rgb = driven sun colour
 					"in vec2 vUv;\n"
 					"in vec4 vClip;\n"
+					"in vec3 vWorldPos;\n"
 					"out vec4 fragColour;\n"
 					"void main()\n"
 					"{\n"
@@ -1056,17 +1113,41 @@ namespace Orkige
 					"    {\n"
 					"        base = mix(deepColour.rgb, shallowColour.rgb, 0.35);\n"
 					"    }\n"
+					// body-dim: a stronger reflection dims the base so the mirror
+					// stays readable (the next flavor's albedo scale sibling)
+					"    base *= clamp(reflectParams.z, 0.0, 1.0);\n"
 					// the mirror image, sampled at the fragment screen UV with a
 					// small ripple perturbation (the reflection camera shares the
 					// main projection, so the same-screen sample aligns the mirror)
 					"    vec2 ruv = clamp(screenUv + disp * 0.03,\n"
 					"        vec2(0.002), vec2(0.998));\n"
 					"    vec3 reflectCol = texture(reflectMap, ruv).rgb;\n"
-					"    float f = clamp(reflectParams.x, 0.0, 1.0);\n"
-					"    vec3 outc = mix(base, reflectCol, f * 0.9);\n"
+					// Schlick fresnel against the ripple-tilted surface normal:
+					// looking DOWN shows the water body/refracted scene, grazing
+					// shows the mirror - the same modulation the next flavor's PBS
+					// applies natively, so the two flavors read alike.
+					// reflectParams.x carries the PRE-COMPUTED F0 (base water F0 +
+					// the reflectionStrength boost - @see applyReflectionParams).
+					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
+					"    vec3 nrm = normalize(vec3(disp.x * 0.15, 1.0,\n"
+					"        disp.y * 0.15));\n"
+					"    float cosv = clamp(dot(viewDir, nrm), 0.0, 1.0);\n"
+					"    float f0 = clamp(reflectParams.x, 0.0, 1.0);\n"
+					"    float fres = f0 + (1.0 - f0) * pow(1.0 - cosv, 5.0);\n"
+					"    vec3 outc = mix(base, reflectCol, clamp(fres, 0.0, 1.0));\n"
+					// the sun's specular streak riding the ripples (the signature
+					// low-sun water cue the PBS flavor gets from its glossy lobe):
+					// Blinn half-vector against the ripple-tilted normal, the tight
+					// lobe elongating naturally over the perturbed surface. The sun
+					// direction/colour are pushed per frame (@see setWaterMaterialTime)
+					"    vec3 halfVec = normalize(viewDir + normalize(sunTowards.xyz));\n"
+					"    float spec = pow(clamp(dot(nrm, halfVec), 0.0, 1.0), 220.0);\n"
+					"    outc += sunColour.rgb * (spec * 1.2 * sunTowards.w);\n"
 					"    fragColour = vec4(outc, 1.0);\n"
 					"}\n");
 				fs->load();
+				fs->getDefaultParameters()->setNamedAutoConstant("camPos",
+					Ogre::GpuProgramParameters::ACT_CAMERA_POSITION);
 			}
 		}
 		//! push the water body colour + refraction/reflection knobs onto a
@@ -1086,9 +1167,45 @@ namespace Orkige
 			params->setNamedConstant("refractParams", Ogre::Vector4(
 				std::max(desc.refractionStrength, 0.0f),
 				std::max(desc.waveScale, 0.001f), scrollX, scrollY));
+			// reflectParams.x = the fresnel F0 the program's Schlick term rides:
+			// the physical water F0 (0.02, scaled by fresnelPower like the base
+			// water look) plus a modest reflectionStrength boost. reflectParams.z
+			// = the BODY-dim scale (a higher strength dims the base so the
+			// mirrored scene stays readable over a bright body). BOTH are the
+			// SAME formulas the next flavor applies to its PBS fresnel/albedo,
+			// so the two flavors' reflection reads alike
+			// (@see createOrUpdateWaterDatablock)
+			const float baseF0 = std::clamp(
+				0.02f * std::max(desc.fresnelPower, 0.0f), 0.0f, 0.2f);
+			const float strength = std::clamp(desc.reflectionStrength, 0.0f, 1.0f);
+			const float f0 = std::clamp(baseF0 + strength * 0.12f, 0.02f, 0.3f);
+			const float baseScale = 1.0f - strength * 0.35f;
 			params->setNamedConstant("reflectParams", Ogre::Vector4(
-				std::max(desc.reflectionStrength, 0.0f),
-				refractComposed ? 1.0f : 0.0f, 0.0f, 0.0f));
+				f0, refractComposed ? 1.0f : 0.0f, baseScale, 0.0f));
+		}
+		//! the 1x1 black cube bound to the refract program's sky unit while
+		//! image lighting is off (GL validates the samplerCube binding even
+		//! when the shader's sky branch is dynamically skipped); created once
+		Ogre::TexturePtr ensureWaterSkyFallbackCube()
+		{
+			const char* const kName = "Orkige/WaterSkyFallback";
+			Ogre::TextureManager & textures = Ogre::TextureManager::getSingleton();
+			if(Ogre::TexturePtr existing = textures.getByName(kName,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+			{
+				return existing;
+			}
+			Ogre::TexturePtr cube = textures.createManual(kName,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+				Ogre::TEX_TYPE_CUBE_MAP, 1u, 1u, 0, Ogre::PF_BYTE_RGBA,
+				Ogre::TU_DEFAULT);
+			unsigned char black[4] = { 0, 0, 0, 255 };
+			for(size_t face = 0; face < 6; ++face)
+			{
+				Ogre::PixelBox box(1u, 1u, 1u, Ogre::PF_BYTE_RGBA, black);
+				cube->getBuffer(face, 0)->blitFromMemory(box);
+			}
+			return cube;
 		}
 	}
 	//---------------------------------------------------------
@@ -1131,6 +1248,19 @@ namespace Orkige
 		{
 			return;
 		}
+		// the mirror's "sky" is its clear colour: track the window background
+		// every frame (the atmosphere animates it - a sunset must not leave the
+		// mirror clearing to a stale colour, which read as black water)
+		if(gReflectionTexture)
+		{
+			Ogre::RenderTarget* target =
+				gReflectionTexture->getBuffer()->getRenderTarget();
+			if(target->getNumViewports() > 0)
+			{
+				target->getViewport(0)->setBackgroundColour(
+					window->getViewport(0)->getBackgroundColour());
+			}
+		}
 		// OGRE positions cameras through a node: drive the mirror node from the
 		// main camera's world (real) pose, then reflect the camera across the water
 		// plane (normal +Y at gReflectionPlaneY) and custom-near-clip so nothing
@@ -1144,6 +1274,53 @@ namespace Orkige
 		Ogre::Plane plane(Ogre::Vector3::UNIT_Y, gReflectionPlaneY);
 		gMirrorCamera->enableReflection(plane);
 		gMirrorCamera->enableCustomNearClipPlane(plane);
+	}
+	//---------------------------------------------------------
+	void RenderBackend::updateSceneGrabViewport()
+	{
+		RenderSystem* system = RenderBackend::system();
+		if(!gSceneGrabTexture || !system || !system->mImpl->engine)
+		{
+			return;
+		}
+		Ogre::RenderWindow* window = system->mImpl->engine->getRenderWindow(0);
+		if(!window || window->getNumViewports() == 0)
+		{
+			return;
+		}
+		Ogre::RenderTarget* target =
+			gSceneGrabTexture->getBuffer()->getRenderTarget();
+		if(target->getNumViewports() > 0)
+		{
+			target->getViewport(0)->setBackgroundColour(
+				window->getViewport(0)->getBackgroundColour());
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::isSceneCaptureCamera(Ogre::Camera const * camera)
+	{
+		if(!camera)
+		{
+			return false;
+		}
+		if(camera == gMirrorCamera)
+		{
+			return true;
+		}
+		// the refraction grab renders through the WINDOW camera (a shadow
+		// camera is a distinct object, so it stays excluded)
+		RenderSystem* system = RenderBackend::system();
+		if(system && system->mImpl->engine)
+		{
+			Ogre::RenderWindow* window =
+				system->mImpl->engine->getRenderWindow(0);
+			if(window && window->getNumViewports() > 0 &&
+				window->getViewport(0)->getCamera() == camera)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 	//---------------------------------------------------------
 	void RenderBackend::ensureSceneGrabTexture()
@@ -1489,7 +1666,15 @@ namespace Orkige
 				applyReflectionParams(pass, desc, composeRefract, 0.0f, 0.0f);
 				gReflectiveWaterMaterials.insert(name);
 				ReflectKnobs knobs;
-				knobs.reflectStrength = std::max(desc.reflectionStrength, 0.0f);
+				// stored PRE-COMPUTED F0 (the same formula applyReflectionParams
+				// pushes) - the per-frame scroll re-push sends it verbatim
+				knobs.reflectStrength = std::clamp(
+					std::clamp(0.02f * std::max(desc.fresnelPower, 0.0f),
+						0.0f, 0.2f) +
+					std::clamp(desc.reflectionStrength, 0.0f, 1.0f) * 0.12f,
+					0.02f, 0.3f);
+				knobs.baseScale = 1.0f -
+					std::clamp(desc.reflectionStrength, 0.0f, 1.0f) * 0.35f;
 				knobs.waveScale = std::max(desc.waveScale, 0.001f);
 				knobs.refractStrength = std::max(desc.refractionStrength, 0.0f);
 				knobs.refractEnabled = composeRefract ? 1.0f : 0.0f;
@@ -1549,7 +1734,10 @@ namespace Orkige
 				pass->setDepthCheckEnabled(true);
 				pass->setVertexProgram("Orkige/WaterRefract_vs");
 				pass->setFragmentProgram("Orkige/WaterRefract_fs");
-				// TU 0 = the scene grab (screen-space), TU 1 = the ripple normal
+				// TU 0 = the scene grab (screen-space), TU 1 = the ripple normal,
+				// TU 2 = the live IBL environment cubemap for the fresnel sky
+				// reflection (a 1x1 black fallback cube while image lighting is
+				// off - the per-frame update rebinds when the live state moves)
 				Ogre::TextureUnitState* sceneUnit = pass->createTextureUnitState();
 				sceneUnit->setTextureName(kSceneGrabTexture);
 				sceneUnit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_CLAMP);
@@ -1558,15 +1746,29 @@ namespace Orkige
 				normalUnit->setTexture(normal);
 				normalUnit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_WRAP);
 				normalUnit->setTextureFiltering(Ogre::TFO_BILINEAR);
+				Ogre::TextureUnitState* skyUnit = pass->createTextureUnitState();
+				skyUnit->setTexture(ensureWaterSkyFallbackCube());
+				skyUnit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_CLAMP);
+				skyUnit->setTextureFiltering(Ogre::TFO_TRILINEAR);
 				pass->getFragmentProgramParameters()->setNamedConstant(
 					"sceneMap", 0);
 				pass->getFragmentProgramParameters()->setNamedConstant(
 					"normalMap", 1);
+				pass->getFragmentProgramParameters()->setNamedConstant(
+					"skyMap", 2);
 				applyRefractionParams(pass, desc, 0.0f, 0.0f);
 				gRefractiveWaterMaterials.insert(name);
-				gRefractiveWaterKnobs[name] = std::make_pair(
-					std::max(desc.refractionStrength, 0.0f),
-					std::max(desc.waveScale, 0.001f));
+				RefractKnobs refractKnobs;
+				refractKnobs.strength = std::max(desc.refractionStrength, 0.0f);
+				refractKnobs.waveScale = std::max(desc.waveScale, 0.001f);
+				// the same F0 formula as the reflect path (base water F0 from
+				// fresnelPower + the reflectionStrength boost)
+				refractKnobs.skyF0 = std::clamp(
+					std::clamp(0.02f * std::max(desc.fresnelPower, 0.0f),
+						0.0f, 0.2f) +
+					std::clamp(desc.reflectionStrength, 0.0f, 1.0f) * 0.12f,
+					0.02f, 0.3f);
+				gRefractiveWaterKnobs[name] = refractKnobs;
 				gWaterScrollSpeeds[name] = desc.waveSpeed;
 				return material;
 			}
@@ -1735,9 +1937,28 @@ namespace Orkige
 			// re-push the FULL refract vector (x=strength y=waveScale z/w=scroll)
 			params->setNamedConstant("refractParams", Ogre::Vector4(
 				k.refractStrength, k.waveScale, travel, travel * 0.6f));
-			// reflectParams keeps its build-time strength + refract-enabled flag
+			// reflectParams keeps its build-time F0 + refract-enabled flag +
+			// body-dim scale
 			params->setNamedConstant("reflectParams", Ogre::Vector4(
-				k.reflectStrength, k.refractEnabled, 0.0f, 0.0f));
+				k.reflectStrength, k.refractEnabled, k.baseScale, 0.0f));
+			// the sun's direction/colour for the specular streak, pushed
+			// manually (the pass is lighting-disabled, so the auto light
+			// constants would not bind); w gates the streak off when no
+			// directional sun exists
+			if(Ogre::Light* sun = RenderBackend::firstDirectionalLight())
+			{
+				const Ogre::Vector3 towards = -sun->getDerivedDirection();
+				const Ogre::ColourValue colour = sun->getDiffuseColour();
+				params->setNamedConstant("sunTowards", Ogre::Vector4(
+					towards.x, towards.y, towards.z, 1.0f));
+				params->setNamedConstant("sunColour", Ogre::Vector4(
+					colour.r, colour.g, colour.b, 1.0f));
+			}
+			else
+			{
+				params->setNamedConstant("sunTowards",
+					Ogre::Vector4(0.0f, 1.0f, 0.0f, 0.0f));
+			}
 			return;
 		}
 		// a refractive water surface scrolls the ripple through its program's
@@ -1746,16 +1967,59 @@ namespace Orkige
 		if(gRefractiveWaterMaterials.find(name) != gRefractiveWaterMaterials.end())
 		{
 			ensureSceneGrabTexture();	// pick up a window resize
-			std::unordered_map<String, std::pair<float, float>>::const_iterator
-				knobs = gRefractiveWaterKnobs.find(name);
-			const float strength = knobs != gRefractiveWaterKnobs.end()
-				? knobs->second.first : 0.02f;
-			const float waveScale = knobs != gRefractiveWaterKnobs.end()
-				? knobs->second.second : 6.0f;
+			std::unordered_map<String, RefractKnobs>::const_iterator
+				knobsIt = gRefractiveWaterKnobs.find(name);
+			const RefractKnobs k = knobsIt != gRefractiveWaterKnobs.end()
+				? knobsIt->second : RefractKnobs();
+			Ogre::GpuProgramParametersSharedPtr params =
+				pass->getFragmentProgramParameters();
+			params->setIgnoreMissingParams(true);
 			// re-push the FULL 4-vector: x=strength y=waveScale z/w=scroll
-			pass->getFragmentProgramParameters()->setNamedConstant(
-				"refractParams",
-				Ogre::Vector4(strength, waveScale, travel, travel * 0.6f));
+			params->setNamedConstant("refractParams",
+				Ogre::Vector4(k.strength, k.waveScale, travel, travel * 0.6f));
+			// the fresnel sky reflection tracks the LIVE image-lighting state
+			// (the director may toggle it after the water built): gate + level
+			// per frame, and rebind the sky unit when the environment cubemap
+			// (re)appears - while off, the black fallback cube stays bound
+			const bool skyLive = gIbl.active && !gIbl.envTexture.empty();
+			params->setNamedConstant("skyParams", Ogre::Vector4(
+				k.skyF0, skyLive ? 1.0f : 0.0f,
+				std::max(gIbl.luminance, 0.0f), 0.0f));
+			if(pass->getNumTextureUnitStates() > 2)
+			{
+				Ogre::TextureUnitState* skyUnit = pass->getTextureUnitState(2);
+				const String wanted = skyLive
+					? gIbl.envTexture : String("Orkige/WaterSkyFallback");
+				if(skyUnit->getTextureName() != wanted)
+				{
+					// autodetect: the chain lives in DEFAULT, an authored
+					// skybox cubemap in its project's group
+					if(Ogre::TexturePtr texture =
+						Ogre::TextureManager::getSingleton().getByName(wanted,
+							Ogre::ResourceGroupManager::
+								AUTODETECT_RESOURCE_GROUP_NAME))
+					{
+						skyUnit->setTexture(texture);
+					}
+				}
+			}
+			// the sun's direction/colour for the specular streak (the same
+			// manual push as the reflective branch - the pass is
+			// lighting-disabled, so auto light constants would not bind)
+			if(Ogre::Light* sun = RenderBackend::firstDirectionalLight())
+			{
+				const Ogre::Vector3 towards = -sun->getDerivedDirection();
+				const Ogre::ColourValue colour = sun->getDiffuseColour();
+				params->setNamedConstant("sunTowards", Ogre::Vector4(
+					towards.x, towards.y, towards.z, 1.0f));
+				params->setNamedConstant("sunColour", Ogre::Vector4(
+					colour.r, colour.g, colour.b, 1.0f));
+			}
+			else
+			{
+				params->setNamedConstant("sunTowards",
+					Ogre::Vector4(0.0f, 1.0f, 0.0f, 0.0f));
+			}
 			return;
 		}
 		pass->getTextureUnitState(0)->setTextureScroll(travel, travel * 0.6f);

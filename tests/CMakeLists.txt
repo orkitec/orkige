@@ -2060,6 +2060,27 @@ if(TARGET orkige_player)
             set_tests_properties(player_benchmark_${ORKIGE_SCENE_PROBE}_probe${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
                 LABELS integration TIMEOUT 540)
         endforeach()
+
+        # cross-FLAVOR look parity (run_crossflavor_parity_test.py): the lake
+        # vignette captured on BOTH flavors' players and compared region-wise
+        # (sky/water/terrain band means + the water's sun-streak highlight) -
+        # the one gate that notices the two flavors drifting apart visually
+        # (every other probe bands each flavor separately). Registered on the
+        # next (default) tree only; SKIPS (exit 77) when the sibling classic
+        # tree's player is not built - CI builds one flavor per job, so this
+        # gate bites on a developer machine with both trees.
+        if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+            add_test(NAME benchmark_crossflavor_parity
+                COMMAND python3
+                    "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_crossflavor_parity_test.py"
+                    --repo "${Orkige_SOURCE_DIR}"
+                    --player-next "$<TARGET_FILE:orkige_player>"
+                    --player-classic "${CMAKE_BINARY_DIR}-classic/tools/player/$<TARGET_FILE_NAME:orkige_player>"
+                    --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_crossflavor_parity"
+                WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+            set_tests_properties(benchmark_crossflavor_parity PROPERTIES
+                LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
+        endif()
     endif()
 
     # asset-id rename survival end to end (the asset database): the fixture

@@ -23,16 +23,16 @@ namespace Orkige
 	//! IBL path with TWO sources: the offline-baked skybox chain
 	//! (Util/make_sky_assets.py) and this runtime capture.
 	//!
-	//! The sky colour model is the SAME analytic gradient the classic flavor
-	//! draws its visible procedural sky dome with (a zenith->horizon->ground
-	//! vertical gradient hazed by density, plus a soft glow toward the sun) -
-	//! so the classic reflections match the classic sky by construction. On
-	//! the next flavor the VISIBLE sky is the native AtmosphereNpr dome (a
-	//! different, physically-based model); using this analytic gradient for
-	//! its reflections is a deliberate tolerance-parity approximation (the
-	//! dominant cues - sky tint from above, a warm sun reflection toward the
-	//! sun - are captured), consistent with IBL already being tolerance
-	//! parity, not per-pixel (@see Docs/materials.md).
+	//! The sky colour model is a CPU port of the EXACT pixel formula the next
+	//! flavor's native sky dome shades (density coupled to the sun elevation,
+	//! Rayleigh-style channel absorption, the horizon diffusion and the sun
+	//! disk - the model knobs the facade does not expose keep the native
+	//! preset defaults). The classic flavor draws its visible procedural dome
+	//! through THIS function too, so the two flavors' skies - and the
+	//! reflections captured from them - agree by construction (the residual
+	//! gap is vertex-gradient resolution vs per-pixel shading, tolerance
+	//! parity - @see Docs/materials.md). Any sky-look retune must change this
+	//! model and the next flavor's dome together, or neither.
 	//!
 	//! Deliberately LDR + CPU-cheap: the environment is stored 8-bit and the
 	//! roughness mip chain is a per-face box downsample (@see halveFaceRgba8) -

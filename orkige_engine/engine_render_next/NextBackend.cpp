@@ -611,12 +611,15 @@ namespace Orkige
 			(1u << static_cast<int>(RenderCaps::ProjectedDecals)) |
 			(1u << static_cast<int>(RenderCaps::IblReflections)) |
 			(1u << static_cast<int>(RenderCaps::ScreenSpaceRefraction)) |
-			// mirror-of-scene planar water reflection through the native
-			// Ogre::PlanarReflections subsystem (@see createOrUpdateWaterDatablock
-			// + updatePlanarReflections); the second scene render stands up only
-			// when a scene opts a water surface into it, so default water is
-			// byte-stable
-			(1u << static_cast<int>(RenderCaps::PlanarReflection)) |
+			// PlanarReflection stays OFF: the native Ogre::PlanarReflections
+			// subsystem renders a correct mirror RTT here, but the HlmsPbs
+			// projective SAMPLING of it reads the wrong region on Metal (the
+			// water showed a uniform off-hue mirror, not the scene) - the bit
+			// answers what actually renders right, so it stays false until the
+			// sampling is fixed and probe-verified (the subsystem + wiring are
+			// retained behind this gate; classic's mirror-camera path is the
+			// working planar reflection today). Diagnose with
+			// ORKIGE_DUMP_MIRROR=<png> (@see updatePlanarReflections).
 			(1u << static_cast<int>(RenderCaps::Bloom));
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget), derived from the clustered-forward config set above
@@ -1282,6 +1285,14 @@ namespace Orkige
 				}
 			}
 			gPlanarTrackedItems.erase(item);
+			if(gPlanarTrackedItems.empty())
+			{
+				// the last mirrored surface died (a scene switch destroys the
+				// water while its datablock persists) - drop the subsystem so
+				// the rest of the session never pays for an unused mirror
+				// render each frame; a later reflective water re-stands it
+				RenderBackend::destroyPlanarReflections();
+			}
 		}
 	}
 	//---------------------------------------------------------
@@ -1306,6 +1317,29 @@ namespace Orkige
 		// build / resize path, so it is the mirror camera's aspect too.
 		gPlanarReflections->beginFrame();
 		gPlanarReflections->update(camera, camera->getAspectRatio());
+		// diagnostics: ORKIGE_DUMP_MIRROR=<path.png> writes the mirror RTT
+		// once, so a wrong-looking reflection can be inspected directly
+		static bool sMirrorDumped = false;
+		if(!sMirrorDumped)
+		{
+			if(char const * dumpPath = std::getenv("ORKIGE_DUMP_MIRROR"))
+			{
+				sMirrorDumped = true;
+				if(Ogre::TextureGpu* mirror = gPlanarReflections->getTexture(0u))
+				{
+					try
+					{
+						Ogre::Image2 image;
+						image.convertFromTexture(mirror, 0u, 0u);
+						image.save(dumpPath, 0u, 1u);
+					}
+					catch(Ogre::Exception const &)
+					{
+						// diagnostics only - never take the frame down
+					}
+				}
+			}
+		}
 	}
 	//---------------------------------------------------------
 	void RenderBackend::destroyPlanarReflections()
@@ -3116,29 +3150,26 @@ namespace Orkige
 			RenderBackend::system()->supports(RenderCaps::PlanarReflection);
 		if(usePlanarReflection)
 		{
-			// reflectionStrength (0..1) drives how MIRROR-like the surface reads.
-			// The HlmsPbs planar reflection is fresnel/roughness-modulated and
-			// physically shows the mirrored scene concentrated near grazing angles
-			// (the reflected direction of near-normal water is the sky). To read as
-			// a genuine mirror-of-scene across the surface, a higher strength: (a)
-			// raises the base reflectivity F0 so the reflection carries at all
-			// angles, (b) DARKENS the water's own albedo + emissive so the
-			// reflection dominates rather than the water body colour, and (c)
-			// keeps a soft (rippled) reflection lobe so the surface reflection
-			// spreads over the ripples instead of a hard glassy line. strength 0
-			// leaves the base water look (@see RenderWaterDesc::reflectionStrength).
+			// reflectionStrength (0..1) scales the reflection's BASE reflectivity
+			// on top of the physical water F0 - the mirror stays FRESNEL-modulated
+			// (Schlick reaches 1 at grazing regardless), so looking DOWN shows the
+			// water body/refracted scene and looking ACROSS shows the mirrored
+			// scene: the surface reads as water, never as chrome. A higher
+			// strength also DIMS the body albedo moderately (real water is
+			// reflection-forward - its own albedo is tiny; the authored deep
+			// colour is an artistic stand-in), so the mirrored scene stays
+			// readable over a bright lit body without the old chrome look. The
+			// SAME formulas drive the classic flavor's water program - keep the
+			// two in lockstep (@see RenderSystemClassic
+			// createOrUpdateWaterMaterial / applyReflectionParams).
 			const float strength = std::clamp(desc.reflectionStrength, 0.0f, 1.0f);
-			const float mirrorF0 = std::clamp(0.05f + strength * 0.6f, 0.05f, 0.8f);
+			const float mirrorF0 = std::clamp(f0 + strength * 0.12f, 0.02f, 0.3f);
 			datablock->setFresnel(
 				Ogre::Vector3(mirrorF0, mirrorF0, mirrorF0), false);
-			datablock->setRoughness(0.16f + strength * 0.12f);
-			const float albedoScale = 1.0f - strength * 0.72f;
+			const float albedoScale = 1.0f - strength * 0.35f;
 			datablock->setDiffuse(Ogre::Vector3(desc.deepColour.r * albedoScale,
-				desc.deepColour.g * albedoScale, desc.deepColour.b * albedoScale));
-			datablock->setEmissive(Ogre::Vector3(
-				desc.shallowColour.r * scatter * (1.0f - strength),
-				desc.shallowColour.g * scatter * (1.0f - strength),
-				desc.shallowColour.b * scatter * (1.0f - strength)));
+				desc.deepColour.g * albedoScale,
+				desc.deepColour.b * albedoScale));
 		}
 		// stand up / tear down the reflection subsystem for this surface (world Y
 		// = the mirror plane; extents unknown here, the actor is generous +

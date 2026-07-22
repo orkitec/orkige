@@ -161,8 +161,11 @@ namespace Orkige
 					std::pow(std::max(
 						dir.y / std::max(1.0f - sunHeight, 1e-4f), 0.0035f),
 						lerp(0.10f, kDensityDiffusion, std::pow(dir.y, 0.3f)));
+				// the native disk exponent carries a 0.25 scale; inert for the
+				// sun/ambient linkage (its samples sit at lDotV 1 or skip the
+				// sun) but it shapes the dome/IBL pixels sampled off-axis
 				const float sunDisk = std::pow(lDotV,
-					lerp(4.0f, 8500.0f, sunHeight)) * kSkySunDiskPower;
+					lerp(4.0f, 8500.0f, sunHeight) * 0.25f) * kSkySunDiskPower;
 				const float antiMie = std::max(sunHeightWeight, 0.08f);
 				const V3 skyAbsorption =
 					skyRayleighAbsorption(skyColour, ptDensity);
@@ -193,6 +196,29 @@ namespace Orkige
 			{
 				return std::sqrt(2.0f * std::max(linearLevel, 0.0f) / kPi);
 			}
+		}
+
+		//! @brief the sky model's colour along @p (viewX,viewY,viewZ) under
+		//! @p desc with the sun toward @p (toSunX,toSunY,toSunZ) - the ONE
+		//! shared CPU evaluation of the native sky pixel formula. The classic
+		//! dome, the SkyEnvMap IBL capture and the sun/ambient linkage below
+		//! all read THIS model, and the next flavor shades it natively, so
+		//! every sky-derived colour agrees across flavors by construction.
+		//! HDR: the result can exceed 1 near a bright sun/horizon (the callers
+		//! clip, like the un-tonemapped native pipeline).
+		inline void skyModelColour(AtmosphereDesc const & desc,
+			float toSunX, float toSunY, float toSunZ,
+			float viewX, float viewY, float viewZ, bool skipSun,
+			float & outR, float & outG, float & outB)
+		{
+			using namespace Detail;
+			const V3 toSun = normalize({ toSunX, toSunY, toSunZ });
+			const float sunHeight = clampf(toSun.y, -1.0f, 1.0f);
+			const V3 colour = atmosphereAt(desc, toSun, sunHeight,
+				{ viewX, viewY, viewZ }, skipSun);
+			outR = colour.x;
+			outG = colour.y;
+			outB = colour.z;
 		}
 
 		//! @brief evaluate the linkage for a desc + toward-the-sun direction

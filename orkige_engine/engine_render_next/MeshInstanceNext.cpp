@@ -255,6 +255,12 @@ namespace Orkige
 		// late destruction guard, same rule as RenderNode
 		if(this->mImpl->item && RenderBackend::system())
 		{
+			// a planar-reflective water surface must leave the reflection
+			// subsystem's tracked list BEFORE its Item dies (a scene switch
+			// destroys the water while the subsystem lives on - the dangling
+			// tracked renderable was a real mid-tour crash)
+			RenderBackend::registerPlanarReflectionItem(this->mImpl->item,
+				false);
 			// per-instance accent clones die with the instance
 			RenderBackend::resetMeshAccents(this->mImpl);
 			if(this->mImpl->item->isAttached())

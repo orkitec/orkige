@@ -14,12 +14,15 @@ TALL, brightly MAGENTA marker wall above the water, and runs it two ways:
   * REFLECTION OFF (ORKIGE_DEMO_WATER_REFLECT_OFF) - the byte-stable
     sky-reflection look, no marker mirror in the water
 
-In the water band (below the scene, full width) it asserts:
+In the water band (below the scene, full width) it asserts (the mirror is
+FRESNEL-modulated - a fraction of the marker blends over the water body, the
+physical look, so the thresholds sit at the blended level, not the old chrome
+mix):
 
-  * the MARKER'S MAGENTA appears in the band with reflection ON (a hue neither
-    the teal water nor the blue sky carries, so its mirror is unambiguous), and
-  * it is ABSENT with reflection OFF (the dark Stage-1 water), and
-  * the band ON differs strongly from the OFF baseline (the mirror renders).
+  * the MARKER'S MAGENTA measurably tints the band with reflection ON (a hue
+    neither the teal water nor the sky carries), clearly above the OFF
+    baseline, and
+  * the band ON differs measurably from the OFF baseline (the mirror renders).
 
 Capability-gated: the demo logs `supported=0/1`. A backend/context that cannot
 do planar reflection (the next flavor, a GLES/WebGL classic context) renders the
@@ -40,28 +43,21 @@ from run_water_probe_test import decode_png
 
 
 def _band(path):
-    """RGB samples over the WATER band (fy 0.76..0.96, below the scene, full
-    width) - the region the water surface fills and reflects into."""
+    """RGB samples over the water rows where the fresnel mirror reads
+    strongest: the UPPER water band (fy 0.56..0.84, just below the waterline
+    - grazing-angle rows, high fresnel) at the LEFT/RIGHT edge columns (the
+    centre columns carry the sun's bright specular streak and the demo cubes'
+    own reflections, which dilute the marker's magenta signal)."""
     width, height, channels, pixels = decode_png(path)
     samples = []
-    for fy in (0.78, 0.82, 0.86, 0.90, 0.94):
-        for step in range(2, 39):
-            fx = step / 40.0
+    for fy in (0.58, 0.63, 0.68, 0.73, 0.78, 0.83):
+        for fx100 in list(range(2, 30, 2)) + list(range(72, 98, 2)):
+            fx = fx100 / 100.0
             x = min(width - 1, int(fx * width))
             y = min(height - 1, int(fy * height))
             idx = (y * width + x) * channels
             samples.append((pixels[idx], pixels[idx + 1], pixels[idx + 2]))
     return samples
-
-
-def _magentaness(samples):
-    """mean 'how magenta' over the band: max(0, min(R,B) - G) / 255. Magenta
-    (high R+B, low G - the marker) scores high; teal water and blue sky (low R)
-    score ~0."""
-    total = 0.0
-    for r, g, b in samples:
-        total += max(0, min(r, b) - g)
-    return total / (len(samples) * 255.0) if samples else 0.0
 
 
 def _mean_abs_lum_diff(a, b):
@@ -71,6 +67,18 @@ def _mean_abs_lum_diff(a, b):
         lb = 0.299 * rb + 0.587 * gb + 0.114 * bb
         total += abs(la - lb)
     return total / len(a) if a else 0.0
+
+
+def _magentaness(samples):
+    """mean 'how magenta' over the band: max(0, min(R,B) - G) / 255. The
+    fresnel-modulated mirror blends a FRACTION of the marker's magenta over
+    the teal water body (the physical look - not the old chrome mix), so a
+    working mirror scores ~0.05-0.10 while the no-mirror water (teal: G
+    dominates R) scores ~0."""
+    total = 0.0
+    for r, g, b in samples:
+        total += max(0, min(r, b) - g)
+    return total / (len(samples) * 255.0) if samples else 0.0
 
 
 def _run(binary, out, reflect_on, tag):
@@ -128,13 +136,15 @@ def main():
     off_mag = _magentaness(off_band)
     lum_diff = _mean_abs_lum_diff(on_band, off_band)
 
-    # thresholds (measured, frame-locked/deterministic): the magenta marker's
-    # mirror fills a large part of the band ON (magentaness ~0.2+) while the OFF
-    # dark water carries essentially none (~0.01); the mirror changes the band
-    # luminance by tens of levels vs the dark baseline. Wide margins below.
-    MIN_ON_MAGENTA = 0.06       # the marker's mirror is clearly in the band
-    MIN_MAGENTA_RATIO = 4.0     # far more magenta ON than the dark OFF baseline
-    MIN_LUM_DIFF = 12.0         # the mirror renders (band differs from baseline)
+    # thresholds (measured, frame-locked/deterministic): the mirror is
+    # FRESNEL-modulated, so the marker's magenta arrives as a fraction blended
+    # over the teal body - the working look measures ~0.05-0.10 magentaness on
+    # both flavors, the no-mirror teal water ~0.00x. The ratio guards against
+    # a base tint accidentally scoring; the luminance delta proves the mirror
+    # renders at all.
+    MIN_ON_MAGENTA = 0.03       # the marker's mirror measurably tints the band
+    MIN_MAGENTA_RATIO = 3.0     # clearly more magenta ON than the OFF baseline
+    MIN_LUM_DIFF = 8.0          # the mirror renders (band differs from baseline)
 
     print(f"reflection probe: on_magenta={on_mag:.3f} (>{MIN_ON_MAGENTA}), "
           f"off_magenta={off_mag:.3f} (ratio>{MIN_MAGENTA_RATIO}), "
@@ -143,11 +153,11 @@ def main():
     failures = []
     if on_mag <= MIN_ON_MAGENTA:
         failures.append(f"the marker's magenta mirror is not in the water band "
-                        f"(magenta {on_mag:.3f}) - the reflection is not showing "
-                        f"the scene")
+                        f"(magenta {on_mag:.3f}) - the reflection is not "
+                        f"showing the scene")
     if on_mag <= MIN_MAGENTA_RATIO * max(off_mag, 0.005):
-        failures.append(f"the reflection's magenta ({on_mag:.3f}) is not clearly "
-                        f"more than the OFF baseline ({off_mag:.3f})")
+        failures.append(f"the reflection's magenta ({on_mag:.3f}) is not "
+                        f"clearly more than the OFF baseline ({off_mag:.3f})")
     if lum_diff <= MIN_LUM_DIFF:
         failures.append(f"the water band barely differs from the OFF baseline "
                         f"(lum diff {lum_diff:.1f}) - the mirror is not rendering")

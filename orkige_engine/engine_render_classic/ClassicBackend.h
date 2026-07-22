@@ -636,6 +636,11 @@ namespace Orkige
 		//! the main camera (idempotent - a no-op when it already matches the
 		//! window size); NULL-safe on a missing window/viewport
 		static void ensureSceneGrabTexture();
+		//! @brief sync the scene-grab viewport's clear colour to the window's
+		//! (called from the grab target's pre-render listener; the atmosphere
+		//! animates the sky/background colour, and stale clears read as black
+		//! where nothing renders behind the water)
+		static void updateSceneGrabViewport();
 		//! @brief destroy the shared scene-grab target (the last refractive water
 		//! left, or teardown)
 		static void destroySceneGrabTexture();
@@ -661,6 +666,14 @@ namespace Orkige
 		//! water plane (called from the reflection target's pre-render listener;
 		//! reaches the protected render-system window/camera as a friend)
 		static void updateReflectionCamera();
+		//! @brief is @p camera one of the SCENE-CAPTURE cameras (the water
+		//! mirror camera or the window camera driving the refraction grab)?
+		//! The sky-dome camera follower must recentre the dome for these RTT
+		//! passes too - the mirror shows the sky above the water and the grab
+		//! is the scene the water refracts - while still skipping shadow-
+		//! texture cameras (recentring the dome onto a caster rig would leave
+		//! it misplaced for the pass that follows); NULL-safe
+		static bool isSceneCaptureCamera(Ogre::Camera const * camera);
 		//! restore a mesh instance's pre-accent materials and retire its
 		//! accent variant clones (@see MeshInstance::setTint; no-op unaccented)
 		static void resetMeshAccents(MeshInstance::Impl* impl);

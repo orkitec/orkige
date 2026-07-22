@@ -166,7 +166,15 @@
     <WaterComponent create="0">
         <unsigned_int value="0"/>
         <String value=""/>
-        <unsigned_int value="9"/>
+        <unsigned_int value="11"/>
+        <String value="screenSpaceRefraction"/>
+        <int value="2"/>
+        <String value="1"/>
+        <String value=""/>
+        <String value="planarReflection"/>
+        <int value="2"/>
+        <String value="0"/>
+        <String value=""/>
         <String value="sizeX"/>
         <int value="1"/>
         <String value="60"/>

@@ -16,11 +16,11 @@ X(ProjectedDecals, true)
 X(Bloom, true)
 X(ScreenSpaceRefraction, true)
 X(IblReflections, true)
-// the native HlmsPbs planar-reflection subsystem (Ogre::PlanarReflections):
-// a camera reflected across the water plane renders the scene into a reflection
-// RTT that the HlmsPbs water datablock samples in its reflection slot (the
-// desktop-capable Metal/Vulkan render targets carry the second scene render).
-// A GLES/WebGL context would runtime-gate it, but the next flavor's mobile
-// targets are Metal/Vulkan, so the bit is unconditional here (default water is
-// byte-stable - the reflection subsystem stands up only when a scene opts in)
-X(PlanarReflection, true)
+// the native HlmsPbs planar-reflection subsystem (Ogre::PlanarReflections)
+// renders a correct mirror RTT, but its projective SAMPLING reads the wrong
+// region on Metal (a uniform off-hue mirror instead of the scene), so the
+// bit answers FALSE until the sampling is fixed and probe-verified - the
+// subsystem + wiring stay behind the gate (diagnose with
+// ORKIGE_DUMP_MIRROR=<png>); classic's mirror-camera path is the working
+// planar reflection today
+X(PlanarReflection, false)

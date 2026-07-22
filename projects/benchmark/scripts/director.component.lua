@@ -160,11 +160,15 @@ end
 -- unit-tested, un-tonemapped-safe) via engine:setAtmosphereBlend - the director
 -- only picks the two looks + a weight, it authors no raw sky/fog/exposure values
 -- (raw guesses whited surfaces out / blacked the sky - see the preset ranges).
+-- The blend TRACKS driveSun's arc: full sunset lands where the sun is LOW
+-- (p ~0.85+, near the end of its descent) - the sunset preset's thick haze
+-- paired with a HIGH sun whites the whole sky out (the sky model divides its
+-- density by the sun elevation, on both flavors).
 local function driveAtmosphere(p)
-	if p < 0.6 then
-		engine:setAtmosphereBlend("day", "sunset", p / 0.6)
+	if p < 0.85 then
+		engine:setAtmosphereBlend("day", "sunset", p / 0.85)
 	else
-		engine:setAtmosphereBlend("sunset", "night", (p - 0.6) / 0.4)
+		engine:setAtmosphereBlend("sunset", "night", (p - 0.85) / 0.15)
 	end
 end
 
@@ -182,6 +186,10 @@ end
 -- a hard ceiling was reached. `ceiling` keeps the ramp inside the compatibility
 -- flavour's forward-rendering headroom (the mobile-budget discipline): many
 -- dynamic point lights on the classic renderer must stay bounded.
+-- The ramp always reaches RAMP_MIN before the frame budget may cap it: the
+-- vignette must SHOW its content (a slow machine scores low instead of
+-- rendering an empty scene).
+local RAMP_MIN = 12
 local function rampPool(frameMs, n, ceiling)
 	ceiling = math.min(ceiling or #pool, #pool)
 	if rampCapped or activeCount >= ceiling then
@@ -192,7 +200,7 @@ local function rampPool(frameMs, n, ceiling)
 		end
 		return
 	end
-	if frameMs > rampBudgetMs and activeCount > 0 then
+	if frameMs > rampBudgetMs and activeCount >= math.min(RAMP_MIN, ceiling) then
 		rampCapped = true
 		print(string.format("director[%s]: ramp capped at %d (%.2f ms/frame)",
 			mode, activeCount, frameMs))
@@ -516,8 +524,11 @@ function init(self)
 		buildHud()
 	elseif mode == "lake" then
 		setPerspectiveCamera(20.0, 7.0, -6.0)
-		driveSun(0.55)
-		driveAtmosphere(0.6)
+		-- golden hour: a LOW sun paired with the full sunset preset (the pairing
+		-- the sky model expects - a high sun under the sunset haze whites out),
+		-- so the lake mirrors a warm gradient sky instead of a blown white one
+		driveSun(0.97)
+		driveAtmosphere(0.85)
 		-- WATER VISUAL: image-based lighting sourced from the PROCEDURAL sky (a
 		-- runtime SkyEnvMap capture, not a baked cubemap), so the water surface
 		-- picks up sky reflections instead of reading as a flat tinted slab. A

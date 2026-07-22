@@ -54,11 +54,14 @@ TEST_CASE("AtmosphereDesc: named looks are enabled and coherent",
 	CHECK(day.skyBlue > day.skyRed);
 	CHECK(day.skyPower >= 1.0f);
 
-	// sunset: warm (red-dominant) and hazy
+	// sunset: the same blue-dominant Rayleigh tint as day (the tint is an
+	// ABSORPTION spectrum in the sky model - a warm-authored tint renders an
+	// inverted cyan sunset), distinguished by the THICK haze: the warm look
+	// comes from density + a low sun
 	const AtmosphereDesc sunset =
 		AtmospherePreset::forSky(AtmospherePreset::SKY_SUNSET);
 	CHECK(sunset.enabled);
-	CHECK(sunset.skyRed > sunset.skyBlue);
+	CHECK(sunset.skyBlue > sunset.skyRed);
 	CHECK(sunset.density > day.density);
 	CHECK(sunset.fogDensity > 0.0f);
 

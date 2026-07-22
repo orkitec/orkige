@@ -15,6 +15,7 @@
 #include "engine_render_classic/ClassicBackend.h"
 #include "engine_util/PrimitiveUtil.h"
 #include "core_util/AtmosphereSunDrive.h"
+#include "core_util/SkyEnvMap.h"
 
 #include <cmath>
 
@@ -34,57 +35,31 @@ namespace Orkige
 		//! flavor's gAtmosphere - one world per process.
 		Ogre::SceneNode* gSkyDomeNode = NULL;
 
-		//! smoothstep 0..1 (Hermite), for the elevation gradient blend
-		inline float smoothstep01(float t)
+		//! sRGB-encode one linear channel: the next flavor renders the sky model
+		//! into an sRGB swapchain (hardware-encoded), while this classic pipeline
+		//! displays values RAW - so every sky-model colour must be encoded here
+		//! for the two flavors to display the same picture (the standard
+		//! piecewise sRGB transfer, matching the hardware encode)
+		inline float toDisplayGamma(float v)
 		{
-			t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
-			return t * t * (3.0f - 2.0f * t);
+			v = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+			return v <= 0.0031308f
+				? v * 12.92f
+				: 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
 		}
-		//! component-wise lerp of two colours
-		inline Ogre::ColourValue mixColour(Ogre::ColourValue const & a,
-			Ogre::ColourValue const & b, float t)
-		{
-			return Ogre::ColourValue(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t,
-				a.b + (b.b - a.b) * t, 1.0f);
-		}
-		//! saturate a colour to [0;1] per channel (the un-tonemapped sum can
-		//! exceed 1 where the sun glow stacks on a bright sky)
-		inline Ogre::ColourValue saturateColour(Ogre::ColourValue c)
-		{
-			c.r = std::min(1.0f, std::max(0.0f, c.r));
-			c.g = std::min(1.0f, std::max(0.0f, c.g));
-			c.b = std::min(1.0f, std::max(0.0f, c.b));
-			c.a = 1.0f;
-			return c;
-		}
-		//! the sky colour for a unit view direction: a zenith -> horizon ->
-		//! ground vertical gradient (horizon hazed/brightened by density) plus a
-		//! soft sun glow toward @p sunDir. Approximates the next flavor's
-		//! atmospheric look - "same sky, softer", not a pixel match.
+		//! the sky colour for a unit view direction: the ONE shared sky model
+		//! (SkyEnvMap::skyColour - the CPU port of the next flavor's native sky
+		//! pixel formula), sRGB-encoded for this gamma-naive pipeline, so the
+		//! visible classic dome and the next flavor's dome DISPLAY the same
+		//! picture. The residual gap is vertex-gradient resolution vs per-pixel
+		//! shading (tolerance parity).
 		Ogre::ColourValue skyDirectionColour(Ogre::Vector3 const & dir,
 			AtmosphereDesc const & desc, Ogre::Vector3 const & sunDir)
 		{
-			const float power = std::max(desc.skyPower, 0.0f);
-			const Ogre::ColourValue zenith(desc.skyRed * power,
-				desc.skyGreen * power, desc.skyBlue * power, 1.0f);
-			// density washes the horizon toward a bright haze (hazier = thicker)
-			const float haze = std::min(0.85f, std::max(0.0f, desc.density * 0.6f));
-			const float hazeLevel = std::min(1.2f, std::max(power, 0.15f));
-			const Ogre::ColourValue horizon = mixColour(zenith,
-				Ogre::ColourValue(hazeLevel, hazeLevel, hazeLevel, 1.0f), haze);
-			const Ogre::ColourValue ground(zenith.r * 0.35f, zenith.g * 0.35f,
-				zenith.b * 0.35f, 1.0f);
-			const float elevation = dir.y;	// unit sphere: y is the elevation
-			Ogre::ColourValue base = elevation >= 0.0f
-				? mixColour(horizon, zenith, smoothstep01(elevation))
-				: mixColour(horizon, ground, smoothstep01(-elevation));
-			// the sun glow: a tight bright core + a soft wide halo toward the sun
-			const float toward = std::max(0.0f, dir.dotProduct(sunDir));
-			const float glow = std::pow(toward, 160.0f) * 0.85f
-				+ std::pow(toward, 6.0f) * 0.25f;
-			const Ogre::ColourValue sunColour(1.0f, 0.92f, 0.78f, 1.0f);
-			return saturateColour(Ogre::ColourValue(base.r + sunColour.r * glow,
-				base.g + sunColour.g * glow, base.b + sunColour.b * glow, 1.0f));
+			const SkyEnvMap::Colour c = SkyEnvMap::skyColour(
+				dir.x, dir.y, dir.z, desc, sunDir.x, sunDir.y, sunDir.z);
+			return Ogre::ColourValue(toDisplayGamma(c.r), toDisplayGamma(c.g),
+				toDisplayGamma(c.b), 1.0f);
 		}
 		//! the sun direction the dome links to: -direction of the FIRST
 		//! directional light points FROM a surface TOWARD the sun (same rule as
@@ -260,8 +235,15 @@ namespace Orkige
 			{
 				// never follow a shadow-texture camera: the dome casts
 				// nothing, and re-centring it on the caster rig would leave
-				// it misplaced for the scene pass that follows
-				if(stage == Ogre::SceneManager::IRS_RENDER_TO_TEXTURE)
+				// it misplaced for the scene pass that follows. The SCENE-
+				// CAPTURE cameras are the exception: the water mirror shows
+				// the sky above the water (its under-water half is cut by the
+				// mirror's near-clip plane) and the refraction grab is the
+				// scene the water refracts - each pass needs the dome wrapped
+				// around ITS camera
+				if(stage == Ogre::SceneManager::IRS_RENDER_TO_TEXTURE &&
+					!RenderBackend::isSceneCaptureCamera(
+						viewport ? viewport->getCamera() : NULL))
 				{
 					return;
 				}
@@ -658,20 +640,39 @@ namespace Orkige
 	{
 		this->mImpl->atmosphere = desc;
 
-		// the window clear colour tracks the sky tint so the window edges / a
-		// disabled atmosphere still read as sky (the dome covers the rest)
+		// the window clear colour tracks the SKY MODEL's horizon look (not the
+		// raw Rayleigh tint, which is an absorption spectrum - the raw blue
+		// reads alien against a warm evaluated sky) so window edges and any
+		// pixel the dome misses still read as sky, matching the next flavor's
+		// below-horizon floor. A disabled atmosphere keeps the plain tint.
 		if(RenderSystem* system = RenderSystem::get())
 		{
-			system->setWindowBackgroundColour(
-				Color(desc.skyRed, desc.skyGreen, desc.skyBlue));
+			if(desc.enabled)
+			{
+				const Ogre::Vector3 toSun = resolveSunDirection();
+				const SkyEnvMap::Colour horizon = SkyEnvMap::skyColour(
+					0.0f, 0.0f, 1.0f, desc, toSun.x, toSun.y, toSun.z);
+				system->setWindowBackgroundColour(
+					Color(toDisplayGamma(horizon.r), toDisplayGamma(horizon.g),
+						toDisplayGamma(horizon.b)));
+			}
+			else
+			{
+				system->setWindowBackgroundColour(
+					Color(desc.skyRed, desc.skyGreen, desc.skyBlue));
+			}
 		}
 
 		// fixed-function exponential distance fog (the honest fog subset -
-		// colours will not match the next flavor's atmospheric fog)
+		// colours will not match the next flavor's atmospheric fog). The fog
+		// colour is authored linear like every desc colour, so it encodes for
+		// this gamma-naive pipeline like the sky does.
 		if(desc.enabled && desc.fogDensity > 0.0f)
 		{
 			this->mImpl->sceneManager->setFog(Ogre::FOG_EXP2,
-				Ogre::ColourValue(desc.fogRed, desc.fogGreen, desc.fogBlue),
+				Ogre::ColourValue(toDisplayGamma(desc.fogRed),
+					toDisplayGamma(desc.fogGreen),
+					toDisplayGamma(desc.fogBlue)),
 				desc.fogDensity);
 		}
 		else

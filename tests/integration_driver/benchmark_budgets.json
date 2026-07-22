@@ -20,8 +20,8 @@
       "next": { "batchesMin": 4, "batchesMax": 12, "trisMax": 8500 }
     },
     "lake.oscene": {
-      "classic": { "batchesMin": 4, "batchesMax": 14, "trisMax": 6500 },
-      "next": { "batchesMin": 4, "batchesMax": 12, "trisMax": 10500 }
+      "classic": { "batchesMin": 4, "batchesMax": 30, "trisMax": 20000 },
+      "next": { "batchesMin": 4, "batchesMax": 16, "trisMax": 10500 }
     },
     "lumens.oscene": {
       "classic": { "batchesMin": 2, "batchesMax": 9, "trisMax": 5500 },

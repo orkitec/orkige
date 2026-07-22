@@ -7,6 +7,7 @@
 	copyright:	(c) 2009-2026 orkitec
 ***************************************************************/
 #include "core_util/SkyEnvMap.h"
+#include "core_util/AtmosphereSunDrive.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,20 +18,9 @@ namespace Orkige
 	{
 		namespace
 		{
-			//! smoothstep 0..1 (Hermite), for the elevation gradient blend -
-			//! the SAME curve the classic gradient sky dome uses
-			inline float smoothstep01(float t)
-			{
-				t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
-				return t * t * (3.0f - 2.0f * t);
-			}
 			inline float clamp01(float v)
 			{
 				return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
-			}
-			inline float mix(float a, float b, float t)
-			{
-				return a + (b - a) * t;
 			}
 			inline unsigned char toByte(float linear)
 			{
@@ -42,45 +32,16 @@ namespace Orkige
 		Colour skyColour(float dx, float dy, float dz,
 			AtmosphereDesc const & desc, float sx, float sy, float sz)
 		{
-			// the vertical gradient - zenith -> horizon -> ground - hazed and
-			// brightened toward the horizon by the sky density (the exact model
-			// the classic flavor draws its visible procedural dome with)
-			const float power = std::max(desc.skyPower, 0.0f);
-			const float zenithR = desc.skyRed * power;
-			const float zenithG = desc.skyGreen * power;
-			const float zenithB = desc.skyBlue * power;
-			const float haze = std::min(0.85f, std::max(0.0f, desc.density * 0.6f));
-			const float hazeLevel = std::min(1.2f, std::max(power, 0.15f));
-			const float horizonR = mix(zenithR, hazeLevel, haze);
-			const float horizonG = mix(zenithG, hazeLevel, haze);
-			const float horizonB = mix(zenithB, hazeLevel, haze);
-			const float groundR = zenithR * 0.35f;
-			const float groundG = zenithG * 0.35f;
-			const float groundB = zenithB * 0.35f;
-			const float elevation = dy;	// unit sphere: y is the elevation
-			float baseR, baseG, baseB;
-			if(elevation >= 0.0f)
-			{
-				const float t = smoothstep01(elevation);
-				baseR = mix(horizonR, zenithR, t);
-				baseG = mix(horizonG, zenithG, t);
-				baseB = mix(horizonB, zenithB, t);
-			}
-			else
-			{
-				const float t = smoothstep01(-elevation);
-				baseR = mix(horizonR, groundR, t);
-				baseG = mix(horizonG, groundG, t);
-				baseB = mix(horizonB, groundB, t);
-			}
-			// the sun glow: a tight bright core + a soft wide halo toward the sun
-			const float toward = std::max(0.0f, dx * sx + dy * sy + dz * sz);
-			const float glow = std::pow(toward, 160.0f) * 0.85f
-				+ std::pow(toward, 6.0f) * 0.25f;
+			// the ONE shared sky model (AtmosphereSunDrive::skyModelColour - the
+			// CPU evaluation of the native sky pixel formula), saturated to the
+			// 8-bit capture range the same way the un-tonemapped pipeline clips
+			float r = 0.0f, g = 0.0f, b = 0.0f;
+			AtmosphereSunDrive::skyModelColour(desc, sx, sy, sz, dx, dy, dz,
+				false /*skipSun*/, r, g, b);
 			Colour out;
-			out.r = clamp01(baseR + 1.00f * glow);
-			out.g = clamp01(baseG + 0.92f * glow);
-			out.b = clamp01(baseB + 0.78f * glow);
+			out.r = clamp01(r);
+			out.g = clamp01(g);
+			out.b = clamp01(b);
 			return out;
 		}
 		//---------------------------------------------------------
