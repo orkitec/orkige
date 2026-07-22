@@ -28,7 +28,7 @@ vcpkg_from_github(
         zip-entry-open-nonstrict.patch # upstream candidate: the non-strict ZipArchive lookup calls a three-argument zip_entry_open the bundled zip does not have
         manual-render-null-renderable.patch # upstream candidate: manualRender(RenderOperation*) passes the documented null renderable, which the GpuParamsDirty refactor now asserts on / dereferences
         cpufeatures-build-interface.patch # upstream candidate: static OgreMain's Android export leaks the internal cpufeatures target as -lcpufeatures, which no consumer can resolve
-        assimp-single-key-interpolation.patch # upstream candidate: the Assimp loader's keyframe-neighbour search skips the immediate predecessor, so a single-key (constant) animation channel interpolates to ZERO at other channels' key times - skinned glTF bones collapse to the inverse bind
+        assimp-single-key-interpolation.patch # upstream candidate: the Assimp loader's keyframe-neighbour search skips the immediate predecessor (single-key channels collapse to the inverse bind) and its interpolation factor mixes seconds with ticks (interpolated keys held the front neighbour)
 )
 
 file(REMOVE "${SOURCE_PATH}/CMake/Packages/FindOpenEXR.cmake")
