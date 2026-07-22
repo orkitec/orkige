@@ -279,6 +279,83 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	SELFCHECK(windowWidth > 0 && windowHeight > 0,
 		"window reports a real drawable size");
 
+	//--- controlled single-directional shading probe (env-gated, print-only)
+	// A PERMANENT cross-flavor shading-parity diagnostic, INERT by default (only
+	// runs when ORKIGE_LIGHT_PROBE is set; no ctest registers it). It isolates
+	// the per-directional-light diffuse RESPONSE of THIS flavor with NO
+	// atmosphere/IBL/ambient/other lights: one flat cube face (normal +Z, viewed
+	// head-on) under one directional light of a controlled colour and angle,
+	// NdotL = cos(ORKIGE_PROBE_NDOTL_DEG). Same authored colour+intensity on both
+	// flavors, so a next-vs-classic diff is a PURE backend shading difference.
+	// This is the probe that disproved the "classic is gamma-naive" premise:
+	// sweeping intensity x elevation showed classic's RTSS Cook-Torrance already
+	// display-encodes (USE_LINEAR_COLOURS / COLOUR_TRANSFER pow(1/2.2)) and
+	// matches next's displayed transfer within ~10% - so a per-pixel sRGB encode
+	// on the lit path is a DOUBLE encode (it read back sqrt-shaped and blew the
+	// night terrace out). Keep it for the next time a shading-transfer question
+	// comes up. Returns early so a sweep run stays fast and touches nothing else.
+	if(const char* probeMode = std::getenv("ORKIGE_LIGHT_PROBE"))
+	{
+		(void)probeMode;
+		const float intensity = std::getenv("ORKIGE_PROBE_INTENSITY")
+			? static_cast<float>(std::atof(std::getenv("ORKIGE_PROBE_INTENSITY")))
+			: 1.0f;
+		const float ndotlDeg = std::getenv("ORKIGE_PROBE_NDOTL_DEG")
+			? static_cast<float>(std::atof(std::getenv("ORKIGE_PROBE_NDOTL_DEG")))
+			: 0.0f;
+		const float theta = ndotlDeg * 3.14159265358979f / 180.0f;
+		world->setAmbientLight(Color(0, 0, 0));
+		renderSystem->setWindowBackgroundColour(Color(0, 0, 0, 1));
+		// a matte grey PBS surface (roughness high, non-metal: the diffuse term
+		// dominates, the Cook-Torrance specular is minimal) - the same generated
+		// material path the terrain uses
+		RenderMaterialDesc probeDesc;
+		probeDesc.albedo = Color(0.5f, 0.5f, 0.5f, 1.0f);
+		probeDesc.roughness = 0.9f;
+		probeDesc.metalness = 0.0f;
+		renderSystem->createMaterial("probe.grey", probeDesc);
+		optr<RenderNode> probeNode = world->createNode("selfcheck.lightProbe");
+		probeNode->setPosition(Vec3(0, 0, 0));
+		probeNode->setScale(Vec3(5, 5, 5));
+		optr<MeshInstance> probeCube =
+			world->createMeshInstance("demo_material_cube.glb");
+		probeCube->attachTo(probeNode);
+		probeCube->setCastShadows(false);
+		probeCube->setMaterial("probe.grey");
+		// one directional light, colour*intensity on BOTH diffuse and specular
+		// (the LightComponent convention); direction tilts down-and-back so the
+		// +Z face NdotL = cos(theta)
+		optr<RenderLight> probeLight = world->createLight();
+		optr<RenderNode> probeLightNode =
+			world->createNode("selfcheck.lightProbeLight");
+		probeLight->attachTo(probeLightNode);
+		probeLight->setType(RenderLight::LT_DIRECTIONAL);
+		probeLightNode->setDirection(
+			Vec3(0.0f, -std::sin(theta), -std::cos(theta)), RenderNode::TS_WORLD);
+		probeLight->setDiffuseColour(Color(intensity, intensity, intensity));
+		probeLight->setSpecularColour(Color(intensity, intensity, intensity));
+		probeLight->setCastShadows(false);
+		// camera dead-on the +Z face
+		cameraNode->setPosition(Vec3(0, 0, 12));
+		cameraNode->lookAt(Vec3::ZERO, RenderNode::TS_WORLD);
+		camera->setPerspective(Degree(45), Real(0.1), Real(1000));
+		renderFrames(renderSystem, 4);
+		const std::string probeShot = outDir + "/light_probe.png";
+		renderSystem->saveWindowContents(probeShot);
+		float pr = 0, pg = 0, pb = 0;
+		SelfcheckBootstrap::readImagePixel(probeShot, windowWidth / 2,
+			windowHeight / 2, pr, pg, pb);
+#if defined(ORKIGE_RENDER_NEXT)
+		const char* backendName = "next";
+#else
+		const char* backendName = "classic";
+#endif
+		std::printf("LIGHTPROBE backend=%s intensity=%.4f ndotlDeg=%.2f "
+			"cosTheta=%.4f center=(%.4f,%.4f,%.4f)\n",
+			backendName, intensity, ndotlDeg, std::cos(theta), pr, pg, pb);
+		return 0;
+	}
+
 	//--- light ------------------------------------------------------------
 	optr<RenderLight> light = world->createLight();
 	SELFCHECK(light != NULL, "createLight works");

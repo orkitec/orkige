@@ -584,7 +584,7 @@ namespace Orkige
 			const float downFactor = 1.0f /
 				static_cast<float>(std::max(tier.downsampleFactor, 1));
 			const int blurPasses = std::max(tier.blurPasses, 1);
-			const String scheme = windowViewport->getMaterialScheme();
+			const String & scheme = windowViewport->getMaterialScheme();
 			compositor = manager.create(name,
 				Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME);
 			Ogre::CompositionTechnique* technique = compositor->createTechnique();
