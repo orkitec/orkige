@@ -76,6 +76,19 @@ def ground_y(x, z):
         x, z, TERRAIN_SEED, TERRAIN_HEIGHT, TERRAIN_WORLD)
 
 
+def ground_y_footprint(x, z, radius):
+    """World Y of the HIGHEST terrain point under a footprint of @p radius
+    around (x, z): a character/prop planted at the centre-point height BURIES
+    its uphill edge on a slope, so standing content plants on the footprint
+    max instead - the downhill edge may hover slightly, which reads far
+    better than knifing into the hill."""
+    best = ground_y(x, z)
+    for dx, dz in ((radius, 0.0), (-radius, 0.0), (0.0, radius),
+                   (0.0, -radius)):
+        best = max(best, ground_y(x + dx, z + dz))
+    return best
+
+
 # ---------------------------------------------------------------------------
 # scene / prefab serialization (the XMLArchive forms SceneSerializer produces).
 # The reflected components emit a count-prefixed NAMED (name, kind, value, ref)
@@ -912,9 +925,11 @@ def build_cast():
     # from the tan-stone crowd behind it.
     # the mannequin rig's feet sit at its local origin (leg boxes bottom at
     # y=0), so a mannequin's world feet Y == its transform Y regardless of
-    # scale; stand each one on the terrain height under its (x, z).
+    # scale; stand each one on the FOOTPRINT MAX of the terrain under it
+    # (leg boxes at local x +-0.22, half-width 0.07 -> footprint ~0.3*scale;
+    # centre-point planting buried the uphill foot on the mound's slope).
     s.add("HeroCast",
-          s.transform(0.0, ground_y(0.0, -6.0) - GROUND_SINK, -6.0,
+          s.transform(0.0, ground_y_footprint(0.0, -6.0, 0.3 * 2.2), -6.0,
                       2.2, 2.2, 2.2),
           s.model("character_rig.glb", "prop_crystal.omat"),
           s.animation(),
@@ -933,7 +948,7 @@ def build_cast():
             # a deterministic per-instance seed in [0, 1)
             seed = ((idx * 2654435761 + 1013904223) & 0xffff) / 65536.0
             s.add("Cast%d" % idx,
-                  s.transform(x, ground_y(x, z) - GROUND_SINK, z,
+                  s.transform(x, ground_y_footprint(x, z, 0.3 * 1.2), z,
                               1.2, 1.2, 1.2),
                   s.model("character_rig.glb", "field_stone.omat"),
                   s.animation(),
