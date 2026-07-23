@@ -1,8 +1,13 @@
 # settings.oui - a nine-slice settings-style card (console scene). A panel
 # holds a title, a vertical layout group of localised rows and a button - the
-# rows re-caption when the director cycles the active language.
+# rows re-caption when the director cycles the active language. The design
+# resolution scales the card's geometry with a dense display's doubled
+# glyphs (raw-pixel rects under 2x text overflowed the panel and truncated
+# the button caption); nine-slice keeps the panel/button borders crisp at
+# the scaled sizes.
 [Layout]
 atlas = gui_default
+design = 1280 720 0.5
 root = fullwindow
 
 [DecorWidget panel]
@@ -74,3 +79,4 @@ anchor = bottom
 pivot = 0.5 1
 anchoredPos = 0 -20
 sizeDelta = 260 40
+nineSlice = true

@@ -135,7 +135,7 @@ An ordered list of `[Type id]` sections, each a block of `key = value` lines
 | `padding = l t r b` / `spacing = 10` | container spacing |
 | `childAlign` / `childExpand` / `fit` | container child rules |
 | `cellSize = w h` / `gridConstraint = n` | grid-group geometry |
-| `nineSlice = true` \| `tiled = true` \| `color = r g b a` | decor draw modes |
+| `nineSlice = true` \| `tiled = true` \| `color = r g b a` | draw modes (decor + button; `color` decor-only) |
 | `items = A \| B \| C` | dropdown/select options (pipe-separated) |
 | `transition = fade 0.2` | enter/exit transition (see Animation) |
 | `modal = confirmId` | create on that modal's content layer + tear down with it |
@@ -500,7 +500,8 @@ anchor = center          # rect-anchor layout (opt-in; see below)
 `anchorMin`/`anchorMax`, `pivot`, `offsets`, `anchoredPos`, `sizeDelta`,
 `useSafeArea`. Group keys (on a container): `group` (`horizontal`/`vertical`/
 `grid`), `padding`, `spacing`, `childAlign`, `childExpand`, `cellSize`,
-`gridConstraint`, `fit`. Decor draw modes: `nineSlice`, `tiled`, `color`.
+`gridConstraint`, `fit`. Draw modes: `nineSlice`, `tiled` (decors and
+buttons), `color` (decor-only).
 
 ### Widget types
 

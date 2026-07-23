@@ -209,8 +209,9 @@ namespace Orkige
 				stream >> h >> vert;
 				widget->setContentSizeFit(h, vert);
 			}
-			// draw modes live on the decor widget (panels); a button/other widget
-			// keeps its default stretched fill
+			// draw modes live on the decor widget (panels) and on buttons
+			// (whose face is a decor underneath - the same setters Lua uses);
+			// other widgets keep their default stretched fill
 			if(GuiDecorWidget* decor = dynamic_cast<GuiDecorWidget*>(widget))
 			{
 				if(String const * v = s.find("nineSlice"))
@@ -227,6 +228,17 @@ namespace Orkige
 					float r = 1, g = 1, b = 1, a = 1;
 					stream >> r >> g >> b >> a;
 					decor->setColour(r, g, b, a);
+				}
+			}
+			else if(GuiButton* button = dynamic_cast<GuiButton*>(widget))
+			{
+				if(String const * v = s.find("nineSlice"))
+				{
+					button->setNineSlice(parseBool(*v, false));
+				}
+				if(String const * v = s.find("tiled"))
+				{
+					button->setTiled(parseBool(*v, false));
 				}
 			}
 			if(GuiScrollView* scroll = dynamic_cast<GuiScrollView*>(widget))

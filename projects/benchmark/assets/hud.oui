@@ -1,6 +1,10 @@
-# hud.oui - the live tour HUD (scene title + a progress bar)
+# hud.oui - the live tour HUD (scene title + a progress bar).
+# The design resolution keys the rect-anchor geometry to design units, so on
+# a dense (2x) display the layout scales WITH the density-scaled glyphs
+# instead of staying in raw window pixels under doubled text.
 [Layout]
 atlas = gui_default
+design = 1280 720 0.5
 root = fullwindow
 
 [DecorWidget hudBar]
