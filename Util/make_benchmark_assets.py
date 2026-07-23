@@ -767,6 +767,13 @@ def build_lake():
                   planar_reflection=False,
                   deep=(0.04, 0.20, 0.30, 1.0),
                   shallow=(0.30, 0.47, 0.62, 1.0),
+                  # 0.55: the water() default 0.85 gives the refracted scene
+                  # only 15% of the compose - over the deep dark lakebed the
+                  # showcase read as OPAQUE on both flavors. At 0.55 the
+                  # submerged island apron clearly shows through the surface
+                  # (capture-verified on both flavors) while the deep colour
+                  # still owns the far expanse.
+                  opacity=0.55,
                   normal_tex="water_normal.png"),
           tags=("water",))
     # the lakebed: a broad, sunken, scaled terrain slab under the water body so
