@@ -16,6 +16,7 @@
 //! bucket B). Engine::setup creates this via RenderBackend::createRenderSystem.
 
 #include "engine_render_classic/ClassicBackend.h"
+#include "engine_render_classic/AtmosphereFogSrs.h"
 #include "engine_render_classic/HemisphereAmbientSrs.h"
 #include "engine_render_classic/MetalRoughLightingSrs.h"
 #include "engine_graphic/Engine.h"
@@ -307,8 +308,17 @@ namespace Orkige
 				{ Ogre::RTShader::SRS_TRANSFORM,
 				  Ogre::RTShader::SRS_VERTEX_COLOUR,
 				  Ogre::RTShader::SRS_TEXTURING,
-				  Ogre::RTShader::SRS_FOG,
 				  Ogre::RTShader::SRS_ALPHA_TEST });
+			// the fog slot carries the ATMOSPHERIC object fog, not the
+			// fixed-function stage: the haze COLOUR is the shared sky model
+			// along the view ray (per vertex) and the weight the next flavor's
+			// exact per-pixel exp2 transmittance + luminance breakthrough, so
+			// fogged content - distant terrain, the water's refraction grab -
+			// reads the same on both flavors (@see AtmosphereFogSrs.h; the
+			// stock SRS_FOG's flat authored colour + gaussian curve were the
+			// two largest fogged-content divergences). Neutral while no
+			// atmosphere fog is live.
+			addAtmosphereFogSubRenderState(generator, renderState);
 			// the metal-rough lighting stage (specular.xy = roughness/metalness,
 			// diffuse = albedo, derived scene colour carries the emissive) - the
 			// ENGINE-OWNED stage that reproduces the other backend's per-light
@@ -351,6 +361,19 @@ namespace Orkige
 				imageLighting->setParameter("luminance",
 					Ogre::StringConverter::toString(gIbl.luminance));
 				renderState->addTemplateSubRenderState(imageLighting);
+			}
+			// EVERY extra pass (the additive emissive glow pass) also carries
+			// the atmospheric fog stage: it detects the additive blend and
+			// dims by the fog weight alone, so base + glow together fog like
+			// the other backend's single shader (the stage suppresses the
+			// default scheme's stock fog for the pass by execution order; the
+			// pass keeps its default-state transform/texturing)
+			for(unsigned short passIndex = 1;
+				passIndex < material->getTechnique(0)->getNumPasses();
+				++passIndex)
+			{
+				addAtmosphereFogSubRenderState(generator,
+					generator->getRenderState(scheme, name, group, passIndex));
 			}
 			// remember the pinned state so a live image-lighting toggle can
 			// re-derive every generated material with the same inputs (and whether
@@ -989,6 +1012,8 @@ namespace Orkige
 	namespace
 	{
 		//! the RTSS target-language profile the water programs are authored for.
+		//! (The struct itself is the backend-shared RenderBackend::GlslProfile -
+		//! the per-pixel sky dome creates its programs through the same profile.)
 		//! The advanced-water programs carry two GLSL variants: the desktop GL
 		//! core profile (#version 150, what the facade selfcheck boots) and GLSL
 		//! ES 3.0 (#version 300 es - the WebGL2/GLES3 floor, enabled on the same
@@ -997,12 +1022,7 @@ namespace Orkige
 		//! two; only this preamble differs (the ES profile's mandatory default-
 		//! precision declarations), so the desktop source stays byte-for-byte the
 		//! same and the two variants never drift.
-		struct WaterGlslProfile
-		{
-			const char* language;    //!< HighLevelGpuProgramManager language id
-			const char* vsPreamble;  //!< #version (+ ES precision) for a VS
-			const char* fsPreamble;  //!< #version (+ ES precision) for a FS
-		};
+		using WaterGlslProfile = RenderBackend::GlslProfile;
 		WaterGlslProfile waterGlslProfile()
 		{
 			bool es = false;
@@ -1034,6 +1054,84 @@ namespace Orkige
 			}
 			return WaterGlslProfile{ "glsl", "#version 150\n", "#version 150\n" };
 		}
+		//! the atmospheric object-fog block shared by BOTH water fragment
+		//! programs: the same haze-colour formula + exp2 weight + luminance
+		//! breakthrough the generated materials run (@see AtmosphereFogSrs -
+		//! the uniform packing mirrors its terms; fogSun.w = 0 disables), so
+		//! the water surface fogs with the scene exactly like the other
+		//! backend's water datablock does through its one object-fog path.
+		//! Evaluated per PIXEL here (the water plane is coarse; same formula,
+		//! finer sampling - tolerance parity with next's per-vertex colour).
+		const char* const kWaterFogGlsl =
+			"uniform vec4 fogSun;\n"     // xyz toward-sun, w fogDensity (0=off)
+			"uniform vec4 fogSky;\n"     // xyz sky tint, w 1/max(1-sunHeight,1e-4)
+			"uniform vec4 fogInvSky;\n"  // xyz 1/max(sky,1e-3), w raw density
+			"uniform vec4 fogSunAbs;\n"  // xyz sunAbsorption, w antiMie
+			"uniform vec4 fogMieAbs;\n"  // xyz mieAbsorption, w finalMultiplier
+			"uniform vec4 fogSkyAbs;\n"  // xyz skyLightAbsorption, w lightDensity
+			"vec3 orkAtmosphereFog(vec3 colourLin, vec3 worldPos, vec3 cameraPos)\n"
+			"{\n"
+			"    if(fogSun.w <= 0.0)\n"
+			"    {\n"
+			"        return colourLin;\n"
+			"    }\n"
+			"    vec3 span = worldPos - cameraPos;\n"
+			"    float dist = length(span);\n"
+			"    vec3 dir = span / max(dist, 1e-4);\n"
+			"    float bend = 1.0 - dir.y;\n"
+			"    dir.y += bend * bend * 0.15;\n"
+			"    dir = normalize(dir);\n"
+			"    dir.y = max(dir.y, 0.025);\n"
+			"    dir.y = dir.y * 0.9 + 0.1;\n"
+			"    dir = normalize(dir);\n"
+			"    float mie = dot(dir, fogSun.xyz) * 0.5 + 0.5;\n"
+			"    float ptArg = max(dir.y * fogSky.w, 0.0035);\n"
+			"    float ptDensity = fogInvSky.w / (ptArg * ptArg);\n"
+			"    vec3 absorb = exp2(fogSky.xyz * -ptDensity) * 2.0;\n"
+			"    vec3 grad = exp2(fogInvSky.xyz * -dir.y);\n"
+			"    grad = grad * sqrt(grad);\n"
+			"    vec3 sharedT = grad * absorb;\n"
+			"    vec3 haze = sharedT * fogSunAbs.xyz * fogSunAbs.w\n"
+			"        + sharedT * fogSkyAbs.xyz * (mie * ptDensity * fogSkyAbs.w)\n"
+			"        + fogMieAbs.xyz * mie;\n"
+			"    haze *= fogSkyAbs.w * fogMieAbs.w;\n"
+			"    float lum = dot(colourLin, vec3(0.212655, 0.715158, 0.072187));\n"
+			"    float lumWeight = max(exp2(0.025 - 0.1 * lum), 0.0);\n"
+			"    float weight = 1.0 + (exp2(-dist * fogSun.w) - 1.0) * lumWeight;\n"
+			"    return mix(haze, colourLin, weight);\n"
+			"}\n";
+
+		//! push the atmospheric-fog uniforms (the kWaterFogGlsl block) onto a
+		//! water fragment program from the live cached state - called at build
+		//! and per frame (the atmosphere animates)
+		void pushWaterFogParams(Ogre::GpuProgramParametersSharedPtr const & params)
+		{
+#ifdef USE_RTSHADER_SYSTEM
+			AtmosphereFogState const & fog = atmosphereFogState();
+			const float density = fog.enabled ? fog.fogDensity : 0.0f;
+			params->setNamedConstant("fogSun", Ogre::Vector4(
+				fog.sunDir.x, fog.sunDir.y, fog.sunDir.z, density));
+			params->setNamedConstant("fogSky", Ogre::Vector4(
+				fog.skyColour.x, fog.skyColour.y, fog.skyColour.z,
+				1.0f / std::max(1.0f - fog.sunHeight, 1e-4f)));
+			params->setNamedConstant("fogInvSky", Ogre::Vector4(
+				1.0f / std::max(fog.skyColour.x, 1e-3f),
+				1.0f / std::max(fog.skyColour.y, 1e-3f),
+				1.0f / std::max(fog.skyColour.z, 1e-3f), fog.density));
+			params->setNamedConstant("fogSunAbs", Ogre::Vector4(
+				fog.sunAbsorption.x, fog.sunAbsorption.y, fog.sunAbsorption.z,
+				fog.antiMie));
+			params->setNamedConstant("fogMieAbs", Ogre::Vector4(
+				fog.mieAbsorption.x, fog.mieAbsorption.y, fog.mieAbsorption.z,
+				fog.finalMultiplier));
+			params->setNamedConstant("fogSkyAbs", Ogre::Vector4(
+				fog.skyLightAbsorption.x, fog.skyLightAbsorption.y,
+				fog.skyLightAbsorption.z, fog.lightDensity));
+#else
+			(void)params;
+#endif
+		}
+
 		//! the shared water-refraction GLSL programs (GL3Plus), created once. The
 		//! vertex program forwards the clip position (for the screen UV) and the
 		//! plane UV (for the scrolling ripple normal); the fragment program
@@ -1133,7 +1231,7 @@ namespace Orkige
 				Ogre::HighLevelGpuProgramPtr fs = programs.createProgram(
 					"Orkige/WaterRefract_fs", Ogre::RGN_INTERNAL,
 					profile.language, Ogre::GPT_FRAGMENT_PROGRAM);
-				fs->setSource(profile.fsPreamble + std::string(
+				fs->setSource(std::string(profile.fsPreamble) + kWaterFogGlsl + std::string(
 					"uniform sampler2D sceneMap;\n"
 					"uniform sampler2D normalMap;\n"
 					"uniform samplerCube skyMap;\n"  // the live IBL environment chain
@@ -1257,6 +1355,12 @@ namespace Orkige
 					"            * 0.30;\n"
 					"        finalLin += skyLin * fres;\n"
 					"    }\n"
+					// atmospheric object fog over the composed LINEAR surface,
+					// exactly where the other backend fogs its water datablock
+					// (before the display transfer; the transmitted grab content
+					// was already fogged at its own depth in the grab pass - the
+					// same double composition next's pipeline produces)
+					"    finalLin = orkAtmosphereFog(finalLin, vWorldPos, camPos.xyz);\n"
 					"    vec3 water = sqrt(max(finalLin, vec3(0.0)));\n"
 					// the sun's specular streak riding the ripples (the same cue the
 					// PBS flavor's glossy lobe gives its refractive water); the add
@@ -1323,6 +1427,9 @@ namespace Orkige
 #endif
 			params->setNamedConstant("waterAmbient",
 				Ogre::Vector4(upper.r, upper.g, upper.b, 1.0f));
+			// the atmospheric-fog terms for the fragment fog block (the
+			// per-frame scroll update keeps them live)
+			pushWaterFogParams(params);
 		}
 		//! the shared water-REFLECTION GLSL programs (GL3Plus), created once. The
 		//! fragment program samples the mirror render target at the fragment's
@@ -1348,7 +1455,7 @@ namespace Orkige
 				Ogre::HighLevelGpuProgramPtr fs = programs.createProgram(
 					"Orkige/WaterReflect_fs", Ogre::RGN_INTERNAL,
 					profile.language, Ogre::GPT_FRAGMENT_PROGRAM);
-				fs->setSource(profile.fsPreamble + std::string(
+				fs->setSource(std::string(profile.fsPreamble) + kWaterFogGlsl + std::string(
 					"uniform sampler2D reflectMap;\n"  // the mirror render target
 					"uniform sampler2D normalMap;\n"
 					"uniform sampler2D sceneMap;\n"    // the refraction grab (dummy when off)
@@ -1414,6 +1521,12 @@ namespace Orkige
 					"    float f0 = clamp(reflectParams.x, 0.0, 1.0);\n"
 					"    float fres = f0 + (1.0 - f0) * pow(1.0 - cosv, 5.0);\n"
 					"    vec3 outc = mix(base, reflectCol, clamp(fres, 0.0, 1.0));\n"
+					// atmospheric object fog: this composition is DISPLAY-space,
+					// the fog blends in LINEAR (the other backend's order) - square
+					// to linear, fog, encode back through the same sqrt transfer
+					"    vec3 outcLin = outc * outc;\n"
+					"    outcLin = orkAtmosphereFog(outcLin, vWorldPos, camPos.xyz);\n"
+					"    outc = sqrt(max(outcLin, vec3(0.0)));\n"
 					// the sun's specular streak riding the ripples (the signature
 					// low-sun water cue the PBS flavor gets from its glossy lobe):
 					// Blinn half-vector against the ripple-tilted normal, the tight
@@ -1464,6 +1577,9 @@ namespace Orkige
 			const float baseScale = 1.0f - strength * 0.35f;
 			params->setNamedConstant("reflectParams", Ogre::Vector4(
 				f0, refractComposed ? 1.0f : 0.0f, baseScale, 0.0f));
+			// the atmospheric-fog terms for the fragment fog block (the
+			// per-frame scroll update keeps them live)
+			pushWaterFogParams(params);
 		}
 		//! push the water body's ambient FILL - the upper-hemisphere sky colour
 		//! the generated surface materials already receive - onto a water program,
@@ -1572,6 +1688,11 @@ namespace Orkige
 		Ogre::Plane plane(Ogre::Vector3::UNIT_Y, gReflectionPlaneY);
 		gMirrorCamera->enableReflection(plane);
 		gMirrorCamera->enableCustomNearClipPlane(plane);
+	}
+	//---------------------------------------------------------
+	RenderBackend::GlslProfile RenderBackend::glslProfile()
+	{
+		return waterGlslProfile();
 	}
 	//---------------------------------------------------------
 	void RenderBackend::updateSceneGrabViewport()
@@ -2269,6 +2390,8 @@ namespace Orkige
 				params->setNamedConstant("sunTowards",
 					Ogre::Vector4(0.0f, 1.0f, 0.0f, 0.0f));
 			}
+			// the atmosphere animates per frame - keep the fog terms live
+			pushWaterFogParams(params);
 			return;
 		}
 		// a refractive water surface scrolls the ripple through its program's
@@ -2335,6 +2458,8 @@ namespace Orkige
 					Ogre::Vector4(0.0f, 1.0f, 0.0f, 0.0f));
 			}
 			pushWaterAmbient(params);
+			// the atmosphere animates per frame - keep the fog terms live
+			pushWaterFogParams(params);
 			return;
 		}
 		pass->getTextureUnitState(0)->setTextureScroll(travel, travel * 0.6f);

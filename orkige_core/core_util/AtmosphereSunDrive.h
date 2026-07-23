@@ -115,14 +115,40 @@ namespace Orkige
 				return mul(exp2v(mul(dir, -density)), 2.0f);
 			}
 
-			//! the atmosphere colour along @p viewDir - the sky model sampled
-			//! on the CPU, mirroring the native evaluation (sun disk optional)
-			inline V3 atmosphereAt(AtmosphereDesc const & desc, V3 toSun,
-				float sunHeight, V3 viewDir, bool skipSun,
-				float sunDiskPower = kSkySunDiskPower)
+			//! the view-INDEPENDENT half of the sky model under one desc + sun:
+			//! everything a per-pixel evaluation shares across every view
+			//! direction. The CPU evaluation below consumes it directly, and
+			//! the classic backend uploads these exact numbers as the uniforms
+			//! of its per-pixel dome fragment program - ONE set of formulas
+			//! feeding both, so the dome pixels and every CPU-sampled sky
+			//! colour (IBL capture, window clear, sun linkage) agree by
+			//! construction.
+			struct SkyTerms
 			{
-				V3 dir = normalize(viewDir);
-				const V3 skyColour = { desc.skyRed, desc.skyGreen, desc.skyBlue };
+				V3 toSun;				//!< normalized toward-the-sun
+				float sunHeight;		//!< the caller-conditioned sun elevation
+				float sunHeightWeight;	//!< exp2(-1/h) day weight, capped
+				float lightDensity;		//!< density amplified by the low sun
+				float finalMultiplier;	//!< haze exposure (sky power folded in)
+				float antiMie;			//!< sun-toward haze floor
+				V3 skyColour;			//!< the desc's Rayleigh tint
+				float density;			//!< the desc's raw density coefficient
+				V3 sunAbsorption;
+				V3 mieAbsorption;
+				V3 skyLightAbsorption;
+			};
+
+			//! compute the shared view-independent terms (@see SkyTerms).
+			//! @p sunHeight arrives conditioned by the caller (the dome/IBL
+			//! path floors it at 0, the sun linkage at 0.02).
+			inline SkyTerms skyTerms(AtmosphereDesc const & desc, V3 toSun,
+				float sunHeight)
+			{
+				SkyTerms terms;
+				terms.toSun = normalize(toSun);
+				terms.sunHeight = sunHeight;
+				terms.skyColour = { desc.skyRed, desc.skyGreen, desc.skyBlue };
+				terms.density = desc.density;
 				// exp2(-1/sunHeight), the native day weight - which the model
 				// evaluates for BELOW-horizon suns too (negative sunHeight
 				// makes it >1: the night branch). Guard the h->0 singularity
@@ -131,24 +157,42 @@ namespace Orkige
 				const float guardedHeight = sunHeight >= 0.0f
 					? std::max(sunHeight, 1e-4f)
 					: std::min(sunHeight, -1e-4f);
-				const float sunHeightWeight = std::min(
+				terms.sunHeightWeight = std::min(
 					std::exp2(-1.0f / guardedHeight), 64.0f);
-				const float lightDensity = desc.density /
+				terms.lightDensity = desc.density /
 					std::pow(std::max(sunHeight, 0.0035f), 0.75f);
-				const float finalMultiplier =
-					(0.5f + smoothstep(0.02f, 0.4f, sunHeightWeight)) *
+				terms.finalMultiplier =
+					(0.5f + smoothstep(0.02f, 0.4f, terms.sunHeightWeight)) *
 					desc.skyPower;
-				const V3 one = { 1.0f, 1.0f, 1.0f };
-				const V3 sunAbsorption = skyRayleighAbsorption(
-					{ 1.0f - skyColour.x, 1.0f - skyColour.y,
-					  1.0f - skyColour.z }, lightDensity);
-				const V3 mieAbsorption = mul(
-					V3{ lerp(skyColour.x, 1.0f, sunHeightWeight),
-						lerp(skyColour.y, 1.0f, sunHeightWeight),
-						lerp(skyColour.z, 1.0f, sunHeightWeight) },
-					std::pow(std::max(1.0f - lightDensity, 0.1f), 4.0f));
-				const V3 skyLightAbsorption =
-					skyRayleighAbsorption(skyColour, lightDensity);
+				terms.antiMie = std::max(terms.sunHeightWeight, 0.08f);
+				terms.sunAbsorption = skyRayleighAbsorption(
+					{ 1.0f - terms.skyColour.x, 1.0f - terms.skyColour.y,
+					  1.0f - terms.skyColour.z }, terms.lightDensity);
+				terms.mieAbsorption = mul(
+					V3{ lerp(terms.skyColour.x, 1.0f, terms.sunHeightWeight),
+						lerp(terms.skyColour.y, 1.0f, terms.sunHeightWeight),
+						lerp(terms.skyColour.z, 1.0f, terms.sunHeightWeight) },
+					std::pow(std::max(1.0f - terms.lightDensity, 0.1f), 4.0f));
+				terms.skyLightAbsorption =
+					skyRayleighAbsorption(terms.skyColour, terms.lightDensity);
+				return terms;
+			}
+
+			//! the atmosphere colour along @p viewDir - the sky model sampled
+			//! on the CPU, mirroring the native evaluation (sun disk optional)
+			inline V3 atmosphereAt(AtmosphereDesc const & desc, V3 toSun,
+				float sunHeight, V3 viewDir, bool skipSun,
+				float sunDiskPower = kSkySunDiskPower)
+			{
+				V3 dir = normalize(viewDir);
+				const SkyTerms terms = skyTerms(desc, toSun, sunHeight);
+				const V3 skyColour = terms.skyColour;
+				const float sunHeightWeight = terms.sunHeightWeight;
+				const float lightDensity = terms.lightDensity;
+				const float finalMultiplier = terms.finalMultiplier;
+				const V3 sunAbsorption = terms.sunAbsorption;
+				const V3 mieAbsorption = terms.mieAbsorption;
+				const V3 skyLightAbsorption = terms.skyLightAbsorption;
 
 				const float lDotV = std::max(dot(dir, toSun), 0.0f);
 				dir.y += kDensityDiffusion * 0.075f *
@@ -198,7 +242,6 @@ namespace Orkige
 				{
 					colour = add(colour, mul(skyLightAbsorption, sunDisk));
 				}
-				(void)one;
 				return colour;
 			}
 		}
@@ -229,6 +272,23 @@ namespace Orkige
 			outR = colour.x;
 			outG = colour.y;
 			outB = colour.z;
+		}
+
+		//! @brief the view-independent sky-model terms under @p desc with the
+		//! sun toward @p (toSunX,toSunY,toSunZ), with skyModelColour's sun
+		//! conditioning (elevation floored at 0). This is what a per-pixel
+		//! GPU evaluation of the model uploads as its uniforms (the classic
+		//! dome fragment program): the EXACT numbers Detail::atmosphereAt
+		//! folds into every CPU sample, so shader pixels and CPU samples read
+		//! one model. The view-dependent remainder a shader mirrors is the
+		//! body of Detail::atmosphereAt below the terms (with the Detail
+		//! constants kDensityDiffusion/kHorizonLimit/kSkySunDiskPower).
+		inline Detail::SkyTerms skyModelTerms(AtmosphereDesc const & desc,
+			float toSunX, float toSunY, float toSunZ)
+		{
+			using namespace Detail;
+			const V3 toSun = normalize({ toSunX, toSunY, toSunZ });
+			return skyTerms(desc, toSun, clampf(toSun.y, 0.0f, 1.0f));
 		}
 
 		//! @brief evaluate the linkage for a desc + toward-the-sun direction

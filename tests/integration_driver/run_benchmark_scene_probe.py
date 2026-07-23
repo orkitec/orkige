@@ -43,18 +43,19 @@ from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 # The moonlit fill (a dedicated cool overhead directional, distinct from the
 # atmosphere-linked night sun) lifts the terrace band to a VISIBLY moonlit
 # ground so the coloured lamp pools read on top - measured on the clean debug
-# probe frame at next 60 / classic 137. Both flavors' per-light responses are
+# probe frame at next 60 / classic 134. Both flavors' per-light responses are
 # formula-matched now (the classic metal-rough stage mirrors the default
-# backend's maths exactly - byte-parity on the light probe), so the remaining
-# band spread is the documented FOG-subset divergence: next's atmospheric fog
-# dims the far moonlit terrain toward the dark night sky far more than
-# classic's fixed-function EXP2 distance fog, so classic keeps more of the
-# moon fill at distance. The floor sits well above the pre-fill black look
-# (~28) so a regression back to a black night fails; the ceiling still keeps
-# it a NIGHT (the sky bound below is the real night guard).
+# backend's maths exactly - byte-parity on the light probe), and so is the
+# object FOG (the classic atmospheric fog stage runs the default backend's
+# exact haze/transmittance formulas), which leaves the remaining band spread
+# attributed to the night-time FILL response (the moon fill/ambient reads
+# brighter on classic), not to the fog curve. The floor sits well above the
+# pre-fill black look (~28) so a regression back to a black night fails; the
+# ceiling still keeps it a NIGHT (the sky bound below is the real night
+# guard).
 LUMENS_TERRAIN_MIN = 36.0     # moonlit terrain floor (black-night regression)
 LUMENS_TERRAIN_MAX = 150.0    # still a NIGHT - a daylit terrain is a bug
-                              # (classic's weaker distance fog reads ~137 vs
+                              # (classic's brighter night fill reads ~134 vs
                               # next's ~60; the sky bound below is the real
                               # night guard)
 LUMENS_SKY_MAX = 90.0         # the upper sky band stays night-dark

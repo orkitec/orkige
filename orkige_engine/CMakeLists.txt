@@ -295,6 +295,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         # the classic backend implementing the engine_render facade
         engine_render_classic/ClassicBackend.h
         engine_render_classic/ClassicBackend.cpp
+        engine_render_classic/AtmosphereFogSrs.cpp
         engine_render_classic/HemisphereAmbientSrs.cpp
         engine_render_classic/MetalRoughLightingSrs.cpp
         engine_render_classic/RenderSystemClassic.cpp

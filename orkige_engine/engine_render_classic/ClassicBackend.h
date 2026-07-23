@@ -651,6 +651,18 @@ namespace Orkige
 		//! Vulkan/GLES context runtime-gates false, byte-stable). The
 		//! RenderCaps::ScreenSpaceRefraction fill. @see createOrUpdateWaterMaterial
 		static bool screenSpaceRefractionSupported();
+		//! @brief the GLSL program profile the backend's hand-authored programs
+		//! (water, the per-pixel sky dome) are created with: language id +
+		//! per-stage #version preambles. Two variants only - desktop GL core
+		//! (#version 150) and GLSL ES 3.0 - with byte-identical program bodies;
+		//! callers gate availability on screenSpaceRefractionSupported().
+		struct GlslProfile
+		{
+			const char* language;    //!< HighLevelGpuProgramManager language id
+			const char* vsPreamble;  //!< #version (+ ES precision) for a VS
+			const char* fsPreamble;  //!< #version (+ ES precision) for a FS
+		};
+		static GlslProfile glslProfile();
 		//! @brief note a mesh entity's freshly-assigned material so the scene-grab
 		//! render target hides the refractive water while it captures the opaque
 		//! scene the water samples (registers the entity iff the material is a

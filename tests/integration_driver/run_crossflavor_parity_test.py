@@ -140,15 +140,15 @@ def main():
     }
     # tolerance-parity corridor: catches a black/inverted/washed region on one
     # flavor (those sit at deltas of 120+) while allowing the documented
-    # residual differences (per-pixel vs vertex-gradient sky, the fog subset,
-    # the image-based-lighting stage's diffuse weighting). The classic
-    # metal-rough lighting stage now mirrors the default backend's per-light
-    # response exactly (byte-parity on the directional/point/hemisphere/
-    # driven-atmosphere probes), which dropped the sun-grazing shore band from
-    # its historical ~58 red delta to a measured 32 (the remainder rides the
-    # image-lighting fill, the one seam still calibrated rather than
-    # formula-matched); the water band measures <= 21.
-    MEAN_TOLERANCE = 45.0
+    # residual differences. The classic atmospheric object fog (the generated
+    # materials' fog stage + the water programs' fog block now run the default
+    # backend's exact haze-colour/transmittance formulas) dropped the shore
+    # band from its historical ~32 delta to a measured 10 and the sky to 7;
+    # the water band measures 20 (the remainder is the water surface's own
+    # mirror/fill energy split - the planar mirror of the saturated sunset sky
+    # reads brighter/greener than next's env-scaled reflection, a calibrated
+    # seam, not formula-matched).
+    MEAN_TOLERANCE = 30.0
 
     for name, (x0, y0, x1, y1) in regions.items():
         mean_next = region_mean(img_next, x0, y0, x1, y1)

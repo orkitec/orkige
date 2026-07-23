@@ -74,10 +74,12 @@ namespace Orkige
 	//!
 	//! Flavor honesty: on the Ogre-Next flavor every field drives the native
 	//! AtmosphereNpr (sky dome + HlmsPbs-integrated fog + sun colour/power). On
-	//! the classic compatibility flavor a vertex-colour gradient sky dome reads
-	//! @c sky* / @c skyPower / @c density for its zenith->horizon gradient and
-	//! the sun glow direction from the first directional light, while @c
-	//! fogDensity / @c fog* drive fixed-function exponential fog. @c sunPower /
+	//! the classic compatibility flavor the dome evaluates the SAME shared sky
+	//! model (per pixel on the programmable GLSL targets, a vertex-colour
+	//! gradient fallback elsewhere), @c fogDensity drives the SAME atmospheric
+	//! object fog on generated materials and the water programs (haze colour
+	//! from the shared model; @c fog* colours only the fixed-function scene-fog
+	//! fallback for non-generated materials, curve-matched). @c sunPower /
 	//! @c ambientPower drive the sun-exposure linkage on BOTH flavors: next
 	//! natively, classic through the same day/night curve evaluated on the CPU
 	//! (core_util/AtmosphereSunDrive.h - the linked sun's colour plus an

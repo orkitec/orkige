@@ -13,6 +13,7 @@
 //! owning it during the A1 migration window)
 
 #include "engine_render_classic/ClassicBackend.h"
+#include "engine_render_classic/AtmosphereFogSrs.h"
 #include "engine_render_classic/HemisphereAmbientSrs.h"
 #include "engine_util/PrimitiveUtil.h"
 #include "core_util/AtmosphereSunDrive.h"
@@ -24,12 +25,22 @@ namespace Orkige
 {
 	namespace
 	{
-		//! the sky dome's material name (generated once, RTSS auto-shaded)
+		//! the sky dome's vertex-colour material name (generated once, RTSS
+		//! auto-shaded) - the GLES2/WebGL1/Vulkan fallback look
 		const char* const kSkyDomeMaterial = "Orkige/SkyDome";
+		//! the per-pixel dome material: explicit programs evaluating the shared
+		//! sky model per fragment (the default on the programmable GLSL targets)
+		const char* const kSkyDomePixelMaterial = "Orkige/SkyDomePixel";
 		//! tessellation of the gradient sphere - enough rings/segments that the
 		//! vertical gradient and the sun glow read smooth, still trivially cheap
 		const unsigned int kSkyRings = 24;		//!< latitude divisions
 		const unsigned int kSkySegments = 48;	//!< longitude divisions
+		//! the material the current dome geometry was emitted with ("" = not
+		//! built): the per-pixel dome's geometry is sun-independent, so it is
+		//! emitted once and only its uniforms track the atmosphere, while the
+		//! vertex-colour fallback re-emits per change. File-scope like
+		//! gSkyDomeNode - one world per process.
+		String gSkyDomeBuiltMaterial;
 
 		//! the node the sky dome hangs off, followed to the rendering camera by
 		//! the listener below (NULL when no dome is up). File-scope like the next
@@ -176,6 +187,42 @@ namespace Orkige
 				drive.classicAmbientRed, drive.classicAmbientGreen,
 				drive.classicAmbientBlue, 1.0f));
 			gAtmosphereDrivesAmbient = true;
+			// the atmospheric fog stage on the generated materials reads the
+			// SAME view-independent sky-model terms the other backend uploads
+			// for its object fog, under the SAME input conditioning its
+			// linkage applies (elevation floor 0.02, the dusk fade folded
+			// into the sky power - @see AtmosphereSunDrive::compute)
+#ifdef USE_RTSHADER_SYSTEM
+			{
+				using namespace AtmosphereSunDrive::Detail;
+				const float sunHeight = clampf(toSun.y, 0.02f, 1.0f);
+				const float duskFade = clampf((toSun.y + 0.12f) / 0.12f,
+					0.0f, 1.0f);
+				AtmosphereDesc faded = desc;
+				faded.skyPower = desc.skyPower * duskFade;
+				const SkyTerms terms = skyTerms(faded,
+					{ toSun.x, toSun.y, toSun.z }, sunHeight);
+				AtmosphereFogState fogState;
+				fogState.enabled = desc.fogDensity > 0.0f;
+				fogState.fogDensity = desc.fogDensity;
+				fogState.sunDir = toSun;
+				fogState.sunHeight = sunHeight;
+				fogState.skyColour = Ogre::Vector3(terms.skyColour.x,
+					terms.skyColour.y, terms.skyColour.z);
+				fogState.density = terms.density;
+				fogState.lightDensity = terms.lightDensity;
+				fogState.finalMultiplier = terms.finalMultiplier;
+				fogState.antiMie = terms.antiMie;
+				fogState.sunAbsorption = Ogre::Vector3(terms.sunAbsorption.x,
+					terms.sunAbsorption.y, terms.sunAbsorption.z);
+				fogState.mieAbsorption = Ogre::Vector3(terms.mieAbsorption.x,
+					terms.mieAbsorption.y, terms.mieAbsorption.z);
+				fogState.skyLightAbsorption = Ogre::Vector3(
+					terms.skyLightAbsorption.x, terms.skyLightAbsorption.y,
+					terms.skyLightAbsorption.z);
+				noteAtmosphereFog(fogState);
+			}
+#endif
 		}
 		//! create the sky material once: unlit, vertex-colour, no depth test/
 		//! write, two-sided - drawn first (sky queue) as the backdrop. RTSS
@@ -201,15 +248,196 @@ namespace Orkige
 			pass->setDepthCheckEnabled(false);	// always behind everything drawn after
 			pass->setCullingMode(Ogre::CULL_NONE);
 		}
-		//! (re)emit the gradient sphere geometry into @p dome from @p desc + the
-		//! current sun. Rebuilt (clear + begin/end) on each atmosphere change -
-		//! infrequent, so a fresh section is simpler than a dynamic update.
-		void buildSkyDomeGeometry(Ogre::ManualObject* dome,
+		//--- per-pixel sky dome (the programmable-GLSL targets) -----------
+		//! can this context run the per-pixel dome programs: same two-variant
+		//! GLSL family (desktop core / ES 3.0) and gate as the advanced water
+		//! (@see RenderBackend::glslProfile); GLES2/WebGL1 and Vulkan keep the
+		//! vertex-colour gradient dome (the byte-stable fallback)
+		bool perPixelSkyDomeSupported()
+		{
+			return RenderBackend::screenSpaceRefractionSupported();
+		}
+		//! create the per-pixel dome programs once: the vertex program forwards
+		//! the object-space position (the dome is a camera-centred unit sphere,
+		//! so it IS the view direction), the fragment program evaluates the ONE
+		//! shared sky model along it. The fragment body is a transliteration of
+		//! the view-dependent half of AtmosphereSunDrive::Detail::atmosphereAt
+		//! (LOCKSTEP - the view-independent terms arrive as uniforms from
+		//! AtmosphereSunDrive::skyModelTerms, so shader pixels and every CPU
+		//! sample of the model read identical formulas), with the CPU path's
+		//! display encode (toDisplayGamma) folded onto the end. The Detail
+		//! constants are inlined: kDensityDiffusion 2.0, kHorizonLimit 0.025,
+		//! and the dome's neutral kSkySunDiskPower 1.0.
+		void ensureSkyDomePixelPrograms()
+		{
+			Ogre::HighLevelGpuProgramManager & programs =
+				Ogre::HighLevelGpuProgramManager::getSingleton();
+			if(programs.getByName("Orkige/SkyDome_vs", Ogre::RGN_INTERNAL))
+			{
+				return;
+			}
+			const RenderBackend::GlslProfile profile =
+				RenderBackend::glslProfile();
+			Ogre::HighLevelGpuProgramPtr vs = programs.createProgram(
+				"Orkige/SkyDome_vs", Ogre::RGN_INTERNAL,
+				profile.language, Ogre::GPT_VERTEX_PROGRAM);
+			vs->setSource(profile.vsPreamble + std::string(
+				"uniform mat4 worldViewProj;\n"
+				"in vec4 vertex;\n"
+				"out vec3 vDir;\n"
+				"void main()\n"
+				"{\n"
+				"    gl_Position = worldViewProj * vertex;\n"
+				"    vDir = vertex.xyz;\n"
+				"}\n"));
+			vs->load();
+			vs->getDefaultParameters()->setNamedAutoConstant("worldViewProj",
+				Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
+			Ogre::HighLevelGpuProgramPtr fs = programs.createProgram(
+				"Orkige/SkyDome_fs", Ogre::RGN_INTERNAL,
+				profile.language, Ogre::GPT_FRAGMENT_PROGRAM);
+			fs->setSource(profile.fsPreamble + std::string(
+				// uniform packing (@see updateSkyDomePixelParams):
+				//   sunDirHeight            = toward-the-sun xyz, sunHeight w
+				//   skyColourDensity        = Rayleigh tint xyz, raw density w
+				//   sunAbsorptionAntiMie    = sunAbsorption xyz, antiMie w
+				//   mieAbsorptionFinalMul   = mieAbsorption xyz, finalMultiplier w
+				//   skyLightAbsorptionLightDensity = skyLightAbsorption xyz,
+				//                                    lightDensity w
+				"uniform vec4 sunDirHeight;\n"
+				"uniform vec4 skyColourDensity;\n"
+				"uniform vec4 sunAbsorptionAntiMie;\n"
+				"uniform vec4 mieAbsorptionFinalMul;\n"
+				"uniform vec4 skyLightAbsorptionLightDensity;\n"
+				"in vec3 vDir;\n"
+				"out vec4 fragColour;\n"
+				"void main()\n"
+				"{\n"
+				"    vec3 dir = normalize(vDir);\n"
+				"    vec3 toSun = sunDirHeight.xyz;\n"
+				"    float sunHeight = sunDirHeight.w;\n"
+				"    float ldotv = max(dot(dir, toSun), 0.0);\n"
+				// the horizon bend + floor (densityDiffusion 2.0, limit 0.025)
+				"    dir.y += 2.0 * 0.075 * (1.0 - dir.y) * (1.0 - dir.y);\n"
+				"    dir = normalize(dir);\n"
+				"    dir.y = max(dir.y, 0.025);\n"
+				"    dir = normalize(dir);\n"
+				"    float ldotv360 = dot(dir, toSun) * 0.5 + 0.5;\n"
+				"    vec3 skyColour = skyColourDensity.xyz;\n"
+				"    float ptDensity = skyColourDensity.w\n"
+				"        / pow(max(dir.y / max(1.0 - sunHeight, 1e-4), 0.0035),\n"
+				"              mix(0.10, 2.0, pow(dir.y, 0.3)));\n"
+				"    float sunDisk =\n"
+				"        pow(ldotv, mix(4.0, 8500.0, sunHeight) * 0.25);\n"
+				"    vec3 skyAbsorption = exp2(skyColour * -ptDensity) * 2.0;\n"
+				"    vec3 gradient =\n"
+				"        pow(exp2(-dir.y / max(skyColour, vec3(1e-3))), vec3(1.5));\n"
+				"    vec3 sharedTerms = gradient * skyAbsorption;\n"
+				"    vec3 colour = sharedTerms * sunAbsorptionAntiMie.xyz\n"
+				"        * sunAbsorptionAntiMie.w;\n"
+				"    colour += sharedTerms * skyLightAbsorptionLightDensity.xyz\n"
+				"        * (ldotv360 * ptDensity\n"
+				"           * skyLightAbsorptionLightDensity.w);\n"
+				"    colour += mieAbsorptionFinalMul.xyz * ldotv360;\n"
+				"    colour *= skyLightAbsorptionLightDensity.w;\n"
+				"    colour *= mieAbsorptionFinalMul.w;\n"
+				"    colour += skyLightAbsorptionLightDensity.xyz * sunDisk;\n"
+				// the CPU path's display encode (toDisplayGamma - the standard
+				// piecewise sRGB transfer), so per-pixel and vertex-fallback
+				// domes and the window clear colour stay on one encode
+				"    vec3 v = clamp(colour, 0.0, 1.0);\n"
+				"    vec3 lo = v * 12.92;\n"
+				"    vec3 hi = 1.055 * pow(max(v, vec3(0.0031308)),\n"
+				"        vec3(1.0 / 2.4)) - 0.055;\n"
+				"    fragColour =\n"
+				"        vec4(mix(hi, lo, step(v, vec3(0.0031308))), 1.0);\n"
+				"}\n"));
+			fs->load();
+		}
+		//! create the per-pixel dome material once: the explicit program pair
+		//! over the same backdrop pass state as the vertex-colour dome. The
+		//! technique is pinned to the viewport's RTSS scheme so the per-frame
+		//! uniform pushes reach the drawn pass (the water-material precedent:
+		//! an unpinned explicit-program technique gets cloned by the RTSS
+		//! scheme-not-found handler and the pushes miss the clone).
+		void ensureSkyDomePixelMaterial()
+		{
+			Ogre::MaterialManager & materialManager =
+				Ogre::MaterialManager::getSingleton();
+			if(materialManager.resourceExists(kSkyDomePixelMaterial,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+			{
+				return;
+			}
+			ensureSkyDomePixelPrograms();
+			Ogre::MaterialPtr material = materialManager.create(
+				kSkyDomePixelMaterial,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			material->setReceiveShadows(false);
+			Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
+			pass->setLightingEnabled(false);
+			pass->setDepthWriteEnabled(false);
+			pass->setDepthCheckEnabled(false);	// always behind everything drawn after
+			pass->setCullingMode(Ogre::CULL_NONE);
+			pass->setVertexProgram("Orkige/SkyDome_vs");
+			pass->setFragmentProgram("Orkige/SkyDome_fs");
+#ifdef USE_RTSHADER_SYSTEM
+			if(Ogre::RTShader::ShaderGenerator::getSingletonPtr())
+			{
+				material->getTechnique(0)->setSchemeName(
+					Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+			}
+#endif
+		}
+		//! push the view-independent sky-model terms for @p desc + the current
+		//! sun onto the per-pixel dome's fragment program (the shared numbers
+		//! from AtmosphereSunDrive::skyModelTerms - the uniform half of the
+		//! LOCKSTEP contract with the fragment body above)
+		void updateSkyDomePixelParams(AtmosphereDesc const & desc)
+		{
+			Ogre::MaterialPtr material =
+				Ogre::MaterialManager::getSingleton().getByName(
+					kSkyDomePixelMaterial,
+					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			if(!material)
+			{
+				return;
+			}
+			const Ogre::Vector3 toSun = resolveSunDirection();
+			const AtmosphereSunDrive::Detail::SkyTerms terms =
+				AtmosphereSunDrive::skyModelTerms(desc,
+					toSun.x, toSun.y, toSun.z);
+			Ogre::GpuProgramParametersSharedPtr params =
+				material->getTechnique(0)->getPass(0)
+					->getFragmentProgramParameters();
+			params->setIgnoreMissingParams(true);
+			params->setNamedConstant("sunDirHeight", Ogre::Vector4(
+				terms.toSun.x, terms.toSun.y, terms.toSun.z, terms.sunHeight));
+			params->setNamedConstant("skyColourDensity", Ogre::Vector4(
+				terms.skyColour.x, terms.skyColour.y, terms.skyColour.z,
+				terms.density));
+			params->setNamedConstant("sunAbsorptionAntiMie", Ogre::Vector4(
+				terms.sunAbsorption.x, terms.sunAbsorption.y,
+				terms.sunAbsorption.z, terms.antiMie));
+			params->setNamedConstant("mieAbsorptionFinalMul", Ogre::Vector4(
+				terms.mieAbsorption.x, terms.mieAbsorption.y,
+				terms.mieAbsorption.z, terms.finalMultiplier));
+			params->setNamedConstant("skyLightAbsorptionLightDensity",
+				Ogre::Vector4(terms.skyLightAbsorption.x,
+					terms.skyLightAbsorption.y, terms.skyLightAbsorption.z,
+					terms.lightDensity));
+		}
+
+		//! (re)emit the dome sphere geometry into @p dome with @p materialName;
+		//! @p withColours bakes the vertex-gradient look (the fallback), the
+		//! per-pixel dome emits positions only (its look lives in uniforms)
+		void emitSkyDomeSphere(Ogre::ManualObject* dome,
+			char const * materialName, bool withColours,
 			AtmosphereDesc const & desc)
 		{
 			const Ogre::Vector3 sunDir = resolveSunDirection();
 			dome->clear();
-			dome->begin(kSkyDomeMaterial, Ogre::RenderOperation::OT_TRIANGLE_LIST);
+			dome->begin(materialName, Ogre::RenderOperation::OT_TRIANGLE_LIST);
 			for(unsigned int ring = 0; ring <= kSkyRings; ++ring)
 			{
 				const float theta =
@@ -223,7 +451,10 @@ namespace Orkige
 					const Ogre::Vector3 dir(r * std::cos(phi), y,
 						r * std::sin(phi));
 					dome->position(dir);
-					dome->colour(skyDirectionColour(dir, desc, sunDir));
+					if(withColours)
+					{
+						dome->colour(skyDirectionColour(dir, desc, sunDir));
+					}
 				}
 			}
 			const unsigned int stride = kSkySegments + 1;
@@ -243,6 +474,34 @@ namespace Orkige
 			dome->end();
 			// never frustum-cull the sky (it wraps whatever camera it follows)
 			dome->setBoundingBox(Ogre::AxisAlignedBox::BOX_INFINITE);
+			gSkyDomeBuiltMaterial = materialName;
+		}
+
+		//! refresh the dome's LOOK from @p desc + the current sun: the
+		//! per-pixel dome (where the GLSL profile supports it) keeps its
+		//! geometry and tracks the atmosphere through uniforms - the shared
+		//! model evaluated per FRAGMENT, so the narrow sunset horizon band
+		//! renders instead of falling between vertices; the vertex-colour
+		//! fallback re-emits its baked gradient (the GLES2/WebGL1/Vulkan
+		//! floor, resolution-limited by design).
+		void buildSkyDomeGeometry(Ogre::ManualObject* dome,
+			AtmosphereDesc const & desc)
+		{
+			if(perPixelSkyDomeSupported())
+			{
+				ensureSkyDomePixelMaterial();
+				if(gSkyDomeBuiltMaterial != kSkyDomePixelMaterial)
+				{
+					emitSkyDomeSphere(dome, kSkyDomePixelMaterial,
+						false, desc);
+				}
+				updateSkyDomePixelParams(desc);
+			}
+			else
+			{
+				ensureSkyDomeMaterial();
+				emitSkyDomeSphere(dome, kSkyDomeMaterial, true, desc);
+			}
 		}
 
 		//! keeps the sky dome centred on whatever camera is about to render
@@ -298,7 +557,6 @@ namespace Orkige
 			Ogre::ManualObject*& skyDome, Ogre::SceneNode*& skyNode,
 			AtmosphereDesc const & atmosphere)
 		{
-			ensureSkyDomeMaterial();
 			if(!skyDome)
 			{
 				skyDome = sceneManager->createManualObject(
@@ -416,6 +674,7 @@ namespace Orkige
 				gSkyFollowerRegistered = false;
 			}
 			gSkyDomeNode = NULL;
+			gSkyDomeBuiltMaterial.clear();
 			if(skyDome && sceneManager)
 			{
 				if(skyNode)
@@ -696,17 +955,26 @@ namespace Orkige
 			}
 		}
 
-		// fixed-function exponential distance fog (the honest fog subset -
-		// colours will not match the next flavor's atmospheric fog). The fog
-		// colour stays LINEAR: the generated metal-rough programs mix fog in
-		// linear before their sqrt display transfer, exactly like the next
-		// flavor's object fog (the retired gamma-space pipeline pre-encoded
-		// here because its programs decoded every colour uniform on upload).
+		// object fog rides TWO paths on this flavor. Generated surface
+		// materials and the water programs carry the ATMOSPHERIC fog - the
+		// exact next-flavor formulas (haze colour from the shared sky model +
+		// exp2 transmittance + luminance breakthrough), fed from
+		// driveSunExposure below (@see AtmosphereFogSrs.h). This SCENE fog is
+		// the fixed-function fallback for materials outside the generated set
+		// (imported meshes keeping their own materials): flat authored colour
+		// (LINEAR - the shaders mix fog pre-display-transfer), but with the
+		// TRANSMITTANCE curve matched to the next flavor's object fog
+		// EXACTLY: its weight is exp2(-distance * fogDensity)
+		// = exp(-distance * fogDensity * ln2), which is Ogre's FOG_EXP factor
+		// exp(-distance * density) at density = fogDensity * ln2 (the earlier
+		// FOG_EXP2 gaussian exp(-(d*density)^2) under-fogged the whole 5-100
+		// unit range at these small densities).
 		if(desc.enabled && desc.fogDensity > 0.0f)
 		{
-			this->mImpl->sceneManager->setFog(Ogre::FOG_EXP2,
+			const float ln2 = 0.6931472f;
+			this->mImpl->sceneManager->setFog(Ogre::FOG_EXP,
 				Ogre::ColourValue(desc.fogRed, desc.fogGreen, desc.fogBlue),
-				desc.fogDensity);
+				desc.fogDensity * ln2);
 		}
 		else
 		{
@@ -767,6 +1035,10 @@ namespace Orkige
 			// atmosphere-imposed night dim lifts with the atmosphere
 			RenderBackend::noteSunDimmedForShadows(false);
 			restoreLinkedSun();
+			// the atmospheric fog stage goes neutral with the atmosphere
+#ifdef USE_RTSHADER_SYSTEM
+			noteAtmosphereFog(AtmosphereFogState());
+#endif
 			if(gAtmosphereDrivesAmbient)
 			{
 				gAtmosphereDrivesAmbient = false;
