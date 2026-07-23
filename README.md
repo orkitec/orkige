@@ -1,5 +1,7 @@
 # Orkige
 
+![Orkige](Util/media/orkige_icon.png)
+
 **The orkitec game engine** — a C++20 game engine for desktop, mobile and web
 games (macOS, Windows, Linux, iOS, Android and the browser via WebAssembly —
 CI-verified on all six), with an AI-native editor that lets agents create, run,

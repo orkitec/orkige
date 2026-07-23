@@ -83,3 +83,24 @@ add_test(NAME export_web_bloom
 set_tests_properties(export_web_bloom PROPERTIES
     LABELS integration TIMEOUT 600
     SKIP_RETURN_CODE 77)
+
+#   export_web_embed_click  the benchmark export must render AND be clickable
+#                           inside a small iframe-sized viewport (the way the
+#                           public site embeds it), not just in a full tab. A
+#                           headless Chrome driven over the DevTools Protocol
+#                           at the exact embed viewport asserts the HUD title
+#                           renders (not cropped), then drives a REAL mouse
+#                           click on the results-card Restart button and
+#                           asserts the tour restarts - guarding both the
+#                           responsive-canvas crop fix and the results screen's
+#                           input-events wiring (the autoRestart seam does not
+#                           exercise the click path). SKIPs (77) without a
+#                           headless browser.
+add_test(NAME export_web_embed_click
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/run_embed_click.py"
+        --engine-build "${CMAKE_BINARY_DIR}"
+        --output "${CMAKE_CURRENT_BINARY_DIR}/export_web_embed_click"
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(export_web_embed_click PROPERTIES
+    LABELS integration TIMEOUT 600
+    SKIP_RETURN_CODE 77)

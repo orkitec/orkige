@@ -18,7 +18,7 @@ The deployed site has these parts:
 - `/benchmark` — the live benchmark page: the engine's benchmark showcase
   (`projects/benchmark`), compiled to WebAssembly and embedded in a 16:9
   frame directly below the site header, with context prose beneath it. It is
-  reached from the landing page's fifth nav button ("Live Benchmark") and
+  reached from the landing page's fifth nav button ("Benchmark") and
   loads the player on arrival (visitors navigate here deliberately). The
   iframe is never wider than the text column and scales down with it on narrow
   screens; its `src` is the staged export at [/play/](/play/).

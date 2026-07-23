@@ -6,11 +6,14 @@ make_gui_atlas.py): the roller ball - the engine's first modern game -
 as an orange sphere with a star, on a dark squircle matching the macOS
 Big Sur+ icon grid (824px squircle on a 1024px canvas).
 
-Usage:  make_editor_icon.py <output.iconset>
+Usage:  make_editor_icon.py <output.iconset>   the macOS iconset ladder
+        make_editor_icon.py --png <size> <path>  ONE square PNG at <size> px
 
-The output directory is filled with the ten icon_NxN[@2x].png entries
+The iconset directory is filled with the ten icon_NxN[@2x].png entries
 `iconutil -c icns` expects; CMake runs iconutil afterwards (build-time
-artifact, nothing is checked in).
+artifact, nothing is checked in). The `--png` form writes a single square PNG
+at any size from the SAME drawing (favicon / apple-touch / site logo / README
+mark) - the render function stays the one source of the artwork.
 """
 
 import math
@@ -174,6 +177,52 @@ def downscale(pixels, size, factor):
     return out
 
 
+def resample_to(base, base_size, target):
+    """Area-average the master down to an ARBITRARY target size (premultiplied,
+    so transparent texels do not bleed colour). The general form of downscale()
+    for sizes off the power-of-two ladder (e.g. a 180px apple-touch icon) - the
+    SAME rendered master, only a different sampling, never a second drawing."""
+    out = bytearray(target * target * 4)
+    scale = base_size / float(target)
+    for oy in range(target):
+        y0, y1 = oy * scale, (oy + 1) * scale
+        iy0, iy1 = int(y0), min(base_size, int(math.ceil(y1)))
+        for ox in range(target):
+            x0, x1 = ox * scale, (ox + 1) * scale
+            ix0, ix1 = int(x0), min(base_size, int(math.ceil(x1)))
+            r_sum = g_sum = b_sum = a_sum = w_sum = 0.0
+            for sy in range(iy0, iy1):
+                wy = min(y1, sy + 1) - max(y0, sy)
+                base_row = sy * base_size * 4
+                for sx in range(ix0, ix1):
+                    wx = min(x1, sx + 1) - max(x0, sx)
+                    w = wx * wy
+                    i = base_row + sx * 4
+                    aw = base[i + 3] * w
+                    r_sum += base[i] * aw
+                    g_sum += base[i + 1] * aw
+                    b_sum += base[i + 2] * aw
+                    a_sum += aw
+                    w_sum += w
+            o = (oy * target + ox) * 4
+            if a_sum > 0.0:
+                out[o] = int(r_sum / a_sum + 0.5)
+                out[o + 1] = int(g_sum / a_sum + 0.5)
+                out[o + 2] = int(b_sum / a_sum + 0.5)
+            out[o + 3] = int(a_sum / w_sum + 0.5) if w_sum > 0.0 else 0
+    return out
+
+
+def scale_master(base, target):
+    """The rendered master scaled to `target` px: an exact box-downscale on the
+    power-of-two ladder, an area resample otherwise. ONE drawing source."""
+    if target == BASE:
+        return base
+    if BASE % target == 0:
+        return downscale(base, BASE, BASE // target)
+    return resample_to(base, BASE, target)
+
+
 def write_png(path, pixels, size):
     raw = bytearray()
     stride = size * 4
@@ -205,8 +254,24 @@ ICONSET_ENTRIES = [
 
 
 def main():
+    # single-PNG form: write one square PNG at an arbitrary size (favicon,
+    # apple-touch, site logo, README mark) from the same drawing
+    if len(sys.argv) == 4 and sys.argv[1] == "--png":
+        try:
+            size = int(sys.argv[2])
+        except ValueError:
+            sys.exit("usage: make_editor_icon.py --png <size> <path>")
+        if size < 1 or size > BASE:
+            sys.exit("make_editor_icon: size must be 1..%d" % BASE)
+        path = sys.argv[3]
+        if os.path.dirname(path):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+        write_png(path, scale_master(render_base(), size), size)
+        print("make_editor_icon: wrote %dx%d -> %s" % (size, size, path))
+        return
     if len(sys.argv) != 2 or not sys.argv[1].endswith(".iconset"):
-        sys.exit("usage: make_editor_icon.py <output.iconset>")
+        sys.exit("usage: make_editor_icon.py <output.iconset> | "
+                 "--png <size> <path>")
     out_dir = sys.argv[1]
     os.makedirs(out_dir, exist_ok=True)
     base = render_base()

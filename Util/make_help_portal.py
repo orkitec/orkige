@@ -54,11 +54,16 @@ import json
 import io
 import os
 import re
+import shutil
 import sys
 import tempfile
 
 SCRIPT_PATH = os.path.abspath(__file__)
-ROOT = os.path.dirname(os.path.dirname(SCRIPT_PATH))
+UTIL_DIR = os.path.dirname(SCRIPT_PATH)
+ROOT = os.path.dirname(UTIL_DIR)
+if UTIL_DIR not in sys.path:
+    sys.path.insert(0, UTIL_DIR)
+import make_editor_icon  # noqa: E402  (sibling Util tool - the ONE icon drawing)
 
 # preferred reading order for the sidebar; corpus pages not listed here are
 # appended alphabetically, so a new doc shows up without touching this script
@@ -75,6 +80,31 @@ GENERATED_NOTE = ("Generated from the repository docs by "
 
 SITE_URL = "https://orkige.orkitec.com"
 GITHUB_URL = "https://github.com/orkitec/orkige"
+
+# the site identity: the editor's app icon (Util/make_editor_icon.py draws it),
+# generated at build time into the help/ directory at the sizes each surface
+# needs. Root-level pages reference them through "help/", portal pages directly
+# (the same prefix rule as help.css).
+FAVICON_PNG = "favicon-32.png"
+APPLE_TOUCH_PNG = "apple-touch-180.png"
+LOGO_PNG = "orkige-logo.png"        # header wordmark logo (64px, shown ~28px)
+SITE_ICONS = ((32, FAVICON_PNG), (180, APPLE_TOUCH_PNG), (64, LOGO_PNG))
+
+
+def head_icons(prefix):
+    """the favicon + apple-touch <link> tags for a page head (`prefix` is ""
+    for a portal page, "help/" for a root-level page)."""
+    return ('<link rel="icon" type="image/png" sizes="32x32" href="%s%s">\n'
+            '<link rel="apple-touch-icon" sizes="180x180" href="%s%s">\n'
+            % (prefix, FAVICON_PNG, prefix, APPLE_TOUCH_PNG))
+
+
+def home_link(prefix, href, text):
+    """the header wordmark: the site logo next to the name, linking home."""
+    return ('<a class="home" href="%s"><img class="logo" src="%s%s" alt="" '
+            'width="28" height="28">%s</a>'
+            % (html.escape(href, quote=True), prefix, LOGO_PNG,
+               html.escape(text)))
 
 # the sidebar/index groups, in order (the "Legal" group is deliberately
 # absent: its pages are footer-linked only and stay out of nav and search)
@@ -199,6 +229,25 @@ class RenderContext:
         self.line = 0                 # source line of the block being rendered
         self.pending_links = []       # (line, target_page, fragment) to verify
         self.issues = []              # LinkIssue list
+        self.images = []              # (repo_path, out_dir, name) to copy
+
+    def resolve_image(self, alt, target):
+        """One ![alt](target) -> HTML. A committed repository image (the README
+        mark) is COPIED into the site next to the page and shown as an <img>;
+        remote images (README badges) and missing files degrade to their alt
+        text - the portal ships no fetched artwork."""
+        if re.match(r'^[a-z][a-z0-9+.-]*:', target):   # http:, data:, ...
+            return html.escape(alt)
+        path = target.partition("#")[0]
+        source_dir = os.path.dirname(self.page.source)
+        repo_path = os.path.normpath(
+            os.path.join(source_dir, path)).replace(os.sep, "/")
+        if os.path.isfile(os.path.join(self.root, repo_path)):
+            name = os.path.basename(repo_path)
+            self.images.append((repo_path, self.page.directory, name))
+            return '<img class="doc-image" src="%s" alt="%s">' % (
+                html.escape(name, quote=True), html.escape(alt))
+        return html.escape(alt)
 
     def resolve_link(self, text_html, target):
         """One [text](target) -> HTML, offline discipline: corpus .md links
@@ -267,10 +316,10 @@ def render_inline(text, ctx):
     text = _CODE_SPAN_RE.sub(lift, text)
     text = html.escape(text, quote=False)
 
-    # images degrade to their alt text - the portal never fetches remote
-    # artwork (README badges) and bundles no image files
-    text = _IMAGE_RE.sub(lambda m: html.escape(m.group(1)) if m.group(1)
-                         else "", text)
+    # a committed repository image renders as <img> (copied into the site); a
+    # remote image (README badge) or a missing one degrades to its alt text
+    text = _IMAGE_RE.sub(lambda m: ctx.resolve_image(m.group(1), m.group(2)),
+                         text)
 
     def link(match):
         inner = _BOLD_RE.sub(r'<strong>\1</strong>', match.group(1))
@@ -604,8 +653,10 @@ def page_shell(page, pages, body, extra_head=""):
             '<meta name="viewport" content="width=device-width, '
             'initial-scale=1">\n'
             "<title>%s - Orkige Help</title>\n"
-            '<link rel="stylesheet" href="help.css">\n%s</head>\n<body>\n'
-            '<header>\n<a class="home" href="index.html">Orkige Help</a>\n'
+            '<link rel="stylesheet" href="help.css">\n'
+            + head_icons("") +
+            '%s</head>\n<body>\n'
+            '<header>\n' + home_link("", "index.html", "Orkige Help") + '\n'
             '<div class="searchbox"><input id="search" type="search" '
             'placeholder="Search the docs..." autocomplete="off">\n'
             '<div id="results" hidden></div></div>\n'
@@ -627,8 +678,10 @@ def legal_shell(page, pages, body):
             '<meta name="viewport" content="width=device-width, '
             'initial-scale=1">\n'
             "<title>%s - Orkige</title>\n"
-            '<link rel="stylesheet" href="help/help.css">\n</head>\n<body>\n'
-            '<header>\n<a class="home" href="index.html">Orkige</a>\n'
+            '<link rel="stylesheet" href="help/help.css">\n'
+            + head_icons("help/") +
+            '</head>\n<body>\n'
+            '<header>\n' + home_link("help/", "index.html", "Orkige") + '\n'
             '<span class="header-links">'
             '<a href="help/index.html">Documentation</a></span>\n</header>\n'
             '<div class="shell">\n<main><article>\n%s\n</article></main>\n'
@@ -736,7 +789,7 @@ def landing_page(pages):
     # the live browser benchmark (its own page; the /play/ export is staged by
     # the Pages workflow) - the landing page itself stays embed-free
     actions.append('<a class="action" href="benchmark.html">'
-                   "Live Benchmark</a>")
+                   "Benchmark</a>")
     actions.append('<a class="action" href="%s">GitHub</a>' % GITHUB_URL)
     features = "".join(
         '<section class="feature"><h3>%s</h3><p>%s</p></section>'
@@ -746,11 +799,13 @@ def landing_page(pages):
             '<meta name="viewport" content="width=device-width, '
             'initial-scale=1">\n'
             "<title>Orkige - the orkitec game engine</title>\n"
-            '<link rel="stylesheet" href="help/help.css">\n</head>\n<body>\n'
-            '<header>\n<a class="home" href="index.html">Orkige</a>\n'
+            '<link rel="stylesheet" href="help/help.css">\n'
+            + head_icons("help/") +
+            '</head>\n<body>\n'
+            '<header>\n' + home_link("help/", "index.html", "Orkige") + '\n'
             '<span class="header-links">'
             '<a href="help/index.html">Documentation</a>'
-            '<a href="benchmark.html">Live Benchmark</a>'
+            '<a href="benchmark.html">Benchmark</a>'
             '<a href="%s">GitHub</a></span>\n</header>\n'
             '<div class="hero">\n<h1>Orkige</h1>\n'
             '<p class="tagline">%s</p>\n'
@@ -765,27 +820,24 @@ def landing_page(pages):
 # ---------------------------------------------------------------------------
 # the live benchmark page (its own subpage; the LANDING page stays embed-free)
 # ---------------------------------------------------------------------------
-BENCHMARK_HEADING = "The Orkige benchmark, live in your browser"
+BENCHMARK_HEADING = "Benchmark"
 
-# the intro/context prose that sits UNDER the embedded player. Text-first, no
-# claims the repository docs do not make (see Docs/benchmark.md).
+# the intro/context prose that sits UNDER the embedded player. Plain and
+# declarative, no claims the repository docs do not make (see Docs/benchmark.md).
 BENCHMARK_INTRO = (
-    "This is the engine's benchmark showcase &mdash; the same project the "
-    "editor exports for every platform &mdash; compiled to WebAssembly and "
-    "running right here, with no install. It drives itself: a sequence of "
-    "self-running vignettes tours the engine's features (a terrain vista with "
-    "a day-to-night sun arc and shadows, a reflective water lake, a "
-    "night point-light ramp, 3D particles, an instance field, animated "
-    "characters, flat-colour 2D vector art, a localised UI screen and a "
-    "physics cascade) and scores each one, ending on a results card with a "
-    "Restart button to replay the tour.")
+    "This is the Orkige benchmark, running in the browser. It is the same "
+    "project the editor builds for every platform, compiled to WebAssembly. "
+    "It runs on its own with no input: a sequence of scenes shows the "
+    "engine's features and times each one. The scenes cover terrain with a "
+    "day-and-night cycle and shadows, water, many point lights, particles, an "
+    "instance field, animated characters, 2D vector art, a UI screen and a "
+    "physics test. The tour ends on a results card; the Restart button there "
+    "runs it again.")
 
 BENCHMARK_NOTE = (
-    "The player is a multi-megabyte WebAssembly module, so it can take a "
-    "moment to download and start on first load. It needs a WebGL2-capable "
-    "browser (every current desktop and mobile browser qualifies). The frame "
-    "below is the exact browser build the engine produces from a project; "
-    "nothing about it is specific to this site.")
+    "The player is a few megabytes, so it takes a moment to load. It needs a "
+    "browser with WebGL2, which current desktop and mobile browsers have. The "
+    "same build also runs on macOS, Windows, Linux, iOS and Android.")
 
 
 def benchmark_page(pages):
@@ -806,12 +858,14 @@ def benchmark_page(pages):
             '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, '
             'initial-scale=1">\n'
-            "<title>Live Benchmark - Orkige</title>\n"
-            '<link rel="stylesheet" href="help/help.css">\n</head>\n<body>\n'
-            '<header>\n<a class="home" href="index.html">Orkige</a>\n'
+            "<title>Benchmark - Orkige</title>\n"
+            '<link rel="stylesheet" href="help/help.css">\n'
+            + head_icons("help/") +
+            '</head>\n<body>\n'
+            '<header>\n' + home_link("help/", "index.html", "Orkige") + '\n'
             '<span class="header-links">'
             '<a href="help/index.html">Documentation</a>'
-            '<a href="benchmark.html">Live Benchmark</a>'
+            '<a href="benchmark.html">Benchmark</a>'
             '<a href="%s">GitHub</a></span>\n</header>\n'
             '<main class="benchmark-page"><article>\n'
             "%s\n"
@@ -848,7 +902,13 @@ header {
 	padding: 0.6rem 1.2rem; border-bottom: 1px solid var(--line);
 	position: sticky; top: 0; background: var(--bg); z-index: 10;
 }
-header .home { font-weight: 700; color: var(--fg); text-decoration: none; }
+header .home {
+	font-weight: 700; color: var(--fg); text-decoration: none;
+	display: inline-flex; align-items: center; gap: 0.5rem;
+}
+header .home .logo { height: 1.6rem; width: auto; display: block; }
+/* a committed doc image (the README mark): a small inline logo, not full-bleed */
+.doc-image { max-width: 128px; height: auto; display: block; margin: 0.2rem 0 1rem; }
 .searchbox { position: relative; flex: 1; max-width: 34rem; }
 #search {
 	width: 100%; padding: 0.4rem 0.7rem; border: 1px solid var(--line);
@@ -976,6 +1036,9 @@ header .header-links a:hover { color: var(--accent); }
 	position: absolute; inset: 0; display: flex; align-items: center;
 	justify-content: center; text-align: center; padding: 1rem;
 	color: var(--muted); font-size: 0.95rem;
+	/* purely a backdrop message: the iframe paints over it and its onload
+	   hides it, but it must never sit between the pointer and the player */
+	pointer-events: none;
 }
 .player {
 	position: absolute; inset: 0; width: 100%; height: 100%;
@@ -1153,6 +1216,9 @@ def corpus_stamp(root, by_source):
     digest = hashlib.sha256()
     with open(SCRIPT_PATH, "rb") as f:
         digest.update(f.read())
+    # the icon drawing is a build input too (it renders the site's identity)
+    with open(make_editor_icon.__file__, "rb") as f:
+        digest.update(f.read())
     for source in sorted(by_source):
         digest.update(source.encode("utf-8"))
         with open(os.path.join(root, source), "rb") as f:
@@ -1225,6 +1291,20 @@ def build(root, output_dir, if_stale=False):
                for record in page.sections]
     write("help", "search-index.json",
           json.dumps(records, ensure_ascii=False, separators=(",", ":")))
+    # the site identity icons (favicon / apple-touch / header logo): rendered
+    # from the editor's app-icon drawing at build time into help/ - one master
+    # render, scaled to each size the pages reference
+    master = make_editor_icon.render_base()
+    for size, name in SITE_ICONS:
+        make_editor_icon.write_png(os.path.join(help_dir, name),
+                                   make_editor_icon.scale_master(master, size),
+                                   size)
+    # committed repository images a page referenced (the README mark): copy
+    # each next to its page so the <img> resolves in the offline site too
+    for ctx in contexts:
+        for repo_path, directory, name in ctx.images:
+            shutil.copyfile(os.path.join(root, repo_path),
+                            os.path.join(output_dir, directory, name))
     write("", ".stamp", stamp + "\n")
     # a renamed/removed doc must not leave its stale page behind (the /api/
     # sibling the Pages workflow assembles is not this script's to clean)
@@ -1277,6 +1357,9 @@ Intro paragraph with `inline code`, **bold**, *italic* and a
 [link](other.md#target-section) plus [outside](../README.md), the
 [class reference](/api/) and the [live benchmark](/play/).
 
+A committed image ![Logo](logo.png) renders inline; a
+![remote badge](https://example.com/b.svg) degrades to its alt text.
+
 ## Lists and fences
 
 - first item with `code`
@@ -1328,6 +1411,10 @@ def _selftest_synthetic(temp_root):
         f.write("# Tiny\n\nOverview body.\n")
     with open(os.path.join(temp_root, "Docs", "synthetic.md"), "w") as f:
         f.write(SELFTEST_DOC)
+    # a committed image beside the doc: it must be copied into the site and
+    # rendered as <img>; a missing/remote one degrades to alt text
+    with open(os.path.join(temp_root, "Docs", "logo.png"), "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n synthetic image bytes")
     with open(os.path.join(temp_root, "Docs", "other.md"), "w") as f:
         f.write(SELFTEST_OTHER)
     with open(os.path.join(temp_root, "Docs", "legal", "imprint.md"),
@@ -1349,6 +1436,17 @@ def _selftest_synthetic(temp_root):
     assert '<a href="../api/index.html">class reference</a>' in page, page
     # the /play/ allowlist: the live benchmark export the workflow stages
     assert '<a href="../play/index.html">live benchmark</a>' in page, page
+    # a committed image renders as <img> and is copied next to the page; a
+    # remote image degrades to its alt text (the portal fetches no artwork)
+    assert '<img class="doc-image" src="logo.png" alt="Logo">' in page, page
+    assert os.path.isfile(os.path.join(out, "help", "logo.png"))
+    assert "remote badge" in page and "example.com" not in page, page
+    # the site identity: the favicon links + the header logo, generated icons
+    assert 'rel="apple-touch-icon"' in page and FAVICON_PNG in page, page
+    assert '<img class="logo" src="%s"' % LOGO_PNG in page, page
+    for _size, name in SITE_ICONS:
+        icon_path = os.path.join(out, "help", name)
+        assert os.path.getsize(icon_path) > 0, name
     assert '<pre><code class="lang-lua">print(&quot;fenced inside' in page
     assert "<ol>" in page and "nested ordered two" in page
     assert "pipe escape: a | b" in page
@@ -1373,7 +1471,7 @@ def _selftest_synthetic(temp_root):
     assert '<a href="imprint.html">Impressum</a>' in landing
     # the landing page links to the live benchmark subpage (the fifth nav
     # button) but embeds NO player itself
-    assert 'href="benchmark.html">Live Benchmark' in landing
+    assert 'href="benchmark.html">Benchmark' in landing
     assert "player-frame" not in landing
     # the live benchmark page: header, then the 16:9 iframe pointing at /play/,
     # then the context prose
@@ -1447,8 +1545,16 @@ def _selftest_real_corpus(temp_root):
     assert 'href="help/index.html"' in landing
     assert 'href="help/getting-started.html"' in landing
     assert 'href="api/index.html"' in landing
-    assert 'href="benchmark.html">Live Benchmark' in landing
+    assert 'href="benchmark.html">Benchmark' in landing
     assert '<a href="imprint.html">Impressum</a>' in landing
+    # the site identity: favicon + header logo on the landing and portal pages
+    assert 'rel="apple-touch-icon"' in landing and '<img class="logo"' in landing
+    # the README mark renders in the portal overview (copied beside the page)
+    with open(os.path.join(out, "help", "overview.html")) as f:
+        overview = f.read()
+    assert '<img class="doc-image" src="orkige_icon.png"' in overview, overview
+    assert os.path.getsize(os.path.join(out, "help", "orkige_icon.png")) > 0
+    assert 'rel="apple-touch-icon"' in overview and '<img class="logo"' in overview
     # the live benchmark page: the 16:9 player embed at /play/ + the prose,
     # the landing page's fifth nav button links here
     with open(os.path.join(out, "benchmark.html")) as f:
