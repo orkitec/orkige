@@ -175,6 +175,21 @@ namespace Orkige
 		gDecals.erase(std::remove(gDecals.begin(), gDecals.end(), decal),
 			gDecals.end());
 		RenderBackend::enforceDecalBudget();
+		// the LAST decal's death DISARMS the scene's decal stage (the planar-
+		// reflection subsystem's last-item precedent): a bound decals-diffuse
+		// array keeps the Hlms decal piece in every pixel shader generated
+		// afterwards - across a level switch that meant decal-free scenes
+		// paying the piece, and the piece's F0.xyz write meeting a scalar-
+		// fresnel (metallic-workflow) material, which the Metal compiler
+		// rejects. A later decal re-arms through the registration branch.
+		if(gDecals.empty() && gDecalDiffuseRegistered)
+		{
+			if(Ogre::SceneManager* sceneManager = worldSceneManager())
+			{
+				sceneManager->setDecalsDiffuse(NULL);
+			}
+			gDecalDiffuseRegistered = false;
+		}
 	}
 	//---------------------------------------------------------
 	void RenderBackend::setMaxDecals(unsigned int maxDecals)
