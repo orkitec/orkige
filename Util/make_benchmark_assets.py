@@ -1277,7 +1277,7 @@ def build_all(project_dir):
     # shared generators -> assets/
     run_generator("make_terrain_mesh.py", "--chunks", "8", "--chunk-quads", "32",
                   assets)
-    run_generator("make_material_demo.py", assets)
+    run_generator("make_material_demo.py", "--cube-only", assets)
     run_generator("make_particle_textures.py", assets)
     run_generator("make_gui_atlas.py", assets, "gui_default")
     # the stock sky cubemaps (sky_day/night/faces .dds) - the vista skybox sky

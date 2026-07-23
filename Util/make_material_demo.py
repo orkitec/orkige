@@ -31,9 +31,11 @@ same spirit as make_uvcheck_mesh.py / make_test_mesh.py:
       demo surface (alphaTest 0.5, twoSided 1)
 
 Usage:
-    python3 Util/make_material_demo.py [output_dir]
+    python3 Util/make_material_demo.py [--cube-only] [output_dir]
 Defaults to samples/hello_orkige/media/ next to this repo. The script
-re-opens the written .glb and validates the chunk layout.
+re-opens the written .glb and validates the chunk layout. --cube-only writes
+just the cube + its three maps + demo_material.omat (the set a consuming
+project references) and skips the hello_orkige-only leaf/flat/ground assets.
 """
 
 import json
@@ -324,23 +326,31 @@ def main():
     default = (
         Path(__file__).resolve().parent.parent / "samples/hello_orkige/media"
     )
-    out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else default
+    args = sys.argv[1:]
+    cube_only = "--cube-only" in args
+    args = [a for a in args if a != "--cube-only"]
+    out_dir = Path(args[0]) if args else default
     out_dir.mkdir(parents=True, exist_ok=True)
 
     glb = out_dir / "demo_material_cube.glb"
     glb.write_bytes(build_glb("demo_material_cube", build_cube_geometry()))
     doc = validate_glb(glb)
-    leaf_glb = out_dir / "demo_material_leaf.glb"
-    leaf_glb.write_bytes(build_glb("demo_material_leaf", build_quad_geometry()))
-    validate_glb(leaf_glb)
+    written = [glb]
+    if not cube_only:
+        leaf_glb = out_dir / "demo_material_leaf.glb"
+        leaf_glb.write_bytes(
+            build_glb("demo_material_leaf", build_quad_geometry()))
+        validate_glb(leaf_glb)
+        written.append(leaf_glb)
 
-    written = [glb, leaf_glb]
-    for name, payload in [
+    textures = [
         ("demo_mat_albedo.png", build_albedo_png()),
         ("demo_mat_normal.png", build_normal_png()),
         ("demo_mat_emissive.png", build_emissive_png()),
-        ("demo_mat_leaf.png", build_leaf_png()),
-    ]:
+    ]
+    if not cube_only:
+        textures.append(("demo_mat_leaf.png", build_leaf_png()))
+    for name, payload in textures:
         path = out_dir / name
         path.write_bytes(payload)
         written.append(path)
@@ -348,12 +358,14 @@ def main():
             # normal maps encode directions - block compression distorts
             # them, so the export cook ships this one as exact PNG texels
             orkige_sidecar.stamp_texture_sidecar(str(path))
-    for name, text in [
-        ("demo_material.omat", OMAT_TEXT),
-        ("demo_material_flat.omat", OMAT_FLAT_TEXT),
-        ("demo_material_ground.omat", OMAT_GROUND_TEXT),
-        ("demo_material_leaf.omat", OMAT_LEAF_TEXT),
-    ]:
+    omats = [("demo_material.omat", OMAT_TEXT)]
+    if not cube_only:
+        omats += [
+            ("demo_material_flat.omat", OMAT_FLAT_TEXT),
+            ("demo_material_ground.omat", OMAT_GROUND_TEXT),
+            ("demo_material_leaf.omat", OMAT_LEAF_TEXT),
+        ]
+    for name, text in omats:
         omat = out_dir / name
         omat.write_text(text)
         written.append(omat)
