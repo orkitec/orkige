@@ -16,14 +16,20 @@ version bump) — see [vendored-libs.md](vendored-libs.md).
 ## ports/ogre
 
 Overlay of the upstream vcpkg `ogre` port, repinned from the v14.5.2 release
-tag to master commit `7d25ffc3d7e1119160e5f0f23037c9577c916e96` (2026-07-12,
+tag to master commit `63c5e68c8200bb58044434ff0348067bcf733fa6` (2026-07-22,
 declares itself 14.6.0; `version-date` in the port's vcpkg.json) - the first
-reviewed pin that CONTAINS our three merged upstream PRs (OGRECave/ogre
-#3667/#3668/#3669, merged 2026-07-07/08). No release tag carries them yet;
-move the REF back to a release tag when one does. The pin moves like
-ogre-next's: a reviewed bump, full-suite verified, never implicit. Enabled
-from the root `vcpkg.json`. Delete this overlay if upstream ever grows
-equivalent features. Local additions:
+reviewed pin that CONTAINS all EIGHT of our merged upstream PRs: the
+Metal/Vulkan trio (OGRECave/ogre #3667/#3668/#3669, merged 2026-07-07/08),
+the classic-master build/runtime fixes (#3673 zip fallback, #3674 null
+manualRender, #3675 Android cpufeatures, merged 2026-07-17) and the two
+Assimp animation-import fixes (#3680 keyframe predecessor + interpolation
+units, #3681 stray-scale-key times + keyless-track bind-pose fallback, merged
+2026-07-22). Each was vendored as an overlay patch the day it went upstream
+and DROPPED here at this pin bump once it merged - the standing lifecycle.
+No release tag carries them yet; move the REF back to a release tag when one
+does. The pin moves like ogre-next's: a reviewed bump, full-suite verified,
+never implicit. Enabled from the root `vcpkg.json`. Delete this overlay if
+upstream ever grows equivalent features. Local additions:
 
 - `metal` feature (`OGRE_BUILD_RENDERSYSTEM_METAL=ON`, Apple platforms) so
   RenderSystem_Metal is available next to GL3Plus - the upstream port has no
@@ -43,74 +49,30 @@ equivalent features. Local additions:
   vcpkg.json). One patch remains:
   - `vulkan-vcpkg-deps.patch` - vcpkg-only: resolve vulkan-headers/glslang
     through their CMake configs and re-export them from OGREConfig.cmake.
-- `zip-entry-open-nonstrict.patch` - upstream candidate (submitted as
-  OGRECave/ogre #3673): master's
-  `OGRE_RESOURCEMANAGER_STRICT=0` fallback lookup in `ZipArchive::open` calls
-  a three-argument `zip_entry_open` the bundled zip library does not declare
-  (its case-sensitive variant is the separate `zip_entry_opencasesensitive`).
-  Upstream CI builds strict, which preprocesses the branch out; the port
-  builds non-strict (no `strict` feature requested), so the branch must
-  compile. Inside that `#else` branch the strict flag is 0 by definition -
-  the two-argument case-insensitive call is behavior-identical.
-- `manual-render-null-renderable.patch` - upstream candidate (submitted as
-  OGRECave/ogre #3674):
-  `SceneManager::manualRender(RenderOperation*, ...)` resets the auto-param
-  state with `setCurrentRenderable(0)` (the documented "matrices supplied
-  explicitly" contract the null-tolerant
-  `AutoParamDataSource::getViewMatrix`/`getProjectionMatrix` accessors
-  honor), but the GpuParamsDirty refactor on master dereferences the
-  renderable unconditionally there - every `manualRender(RenderOperation*)`
-  call asserts in debug and would null-deref in release. The classic
-  `DrawLayer2D` backend draws each 2D element through exactly that
-  `manualRender` overload, so the whole gui/editor/UI surface died on it.
-  The patch treats a null renderable as "no identity view/projection".
-- `assimp-single-key-interpolation.patch` - upstream candidate: the Assimp
-  plugin's animation import merges every channel's key TIMES into one map,
-  then fills each keyframe's missing lanes by searching the neighbouring
-  entries for that lane's nearest keys (`GetInterpolationIterators`). The
-  backward search constructs `reverse_iterator(it)` - which already refers
-  to the element BEFORE `it` - and then advances once more, skipping the
-  immediate predecessor. A channel with a SINGLE leading key (the constant
-  translation/scale track a glTF exporter emits for a rotation-only joint
-  animation) then finds no key on either side and falls back to a ZERO
-  vector, so every interpolated keyframe carries the joint's inverse bind
-  translation: skinned characters collapse limb-into-torso at mid-clip and
-  the animation reads as a rigid bounce. The patch drops the extra advance
-  so the search starts at the true predecessor.
-- `assimp-scale-track-fallback.patch` - upstream candidate: two more faults
-  in the same Assimp keyframe merge, exposed once a channel carries an
-  independent SCALE track. First, the scale-merge loop inserts a scale key
-  that has no coincident position/rotation keyframe into the merged map keyed
-  by `mRotationKeys[j].mTime` - a copy-paste from the rotation loop above -
-  so the scale key lands at a garbage time, and the read goes out of bounds
-  whenever the channel has fewer rotation keys than scale keys. Second, when
-  a channel has NO keys of one kind at all, the `getTranslate`/`getRotate`/
-  `getScale` fallbacks return a neutral placeholder ((0,0,0) / identity /
-  (1,1,1)); because each keyframe is composed into a full local transform and
-  premultiplied by the bone's inverse bind pose, that placeholder bakes the
-  inverse bind in as drift - the bone's rest translation collapses to the
-  origin and its descendants sink. The patch keys stray scale keys by their
-  own scaling time and, at the call site, falls each keyless component back to
-  the bone's bind-pose value (`bone->getPosition()`/`getOrientation()`/
-  `getScale()`) - the minimal, reviewable guard that leaves the three helper
-  signatures untouched. This is the classic-flavor twin of the next backend's
-  scale road: with it a bone's animated scale plays instead of freezing at
-  (1,1,1) and dragging its subtree down.
-- `cpufeatures-build-interface.patch` - upstream candidate (submitted as
-  OGRECave/ogre #3675): master's
-  `target_link_libraries(OgreMain PRIVATE cpufeatures log z)` (new since
-  14.5.2) leaks the NDK's source-only `cpufeatures` module - an internal,
-  never-exported CMake target - onto static OgreMain's installed link
-  interface as a bare `-lcpufeatures` no consumer can resolve (the NDK
-  ships it as a source module, not a library); every Android link against
-  the vcpkg-installed OgreTargets failed. The patch wraps the dependency in
-  `$<BUILD_INTERFACE:...>`: OGRE's own tree builds unchanged, and installed
-  consumers keep the long-standing contract of compiling
-  `cpu-features.c` themselves (our `orkige_ndk_cpufeatures` in
-  `orkige_engine/CMakeLists.txt`).
-- Future upstream-candidate fixes follow the same lifecycle those three had:
-  vendor the patch in the port the same day the PR goes upstream, then drop
-  the patch file at the next reviewed pin bump once it is merged.
+- Five former upstream-candidate patches were CONSUMED at the 2026-07-22 pin
+  bump, their PRs having merged into the range this REF spans - they now come
+  from upstream through the pin, exactly like the Metal/Vulkan trio above:
+  `zip-entry-open-nonstrict.patch` (#3673: master's non-strict
+  `ZipArchive::open` fallback called a three-argument `zip_entry_open` the
+  bundled zip library does not declare; upstream CI builds strict and
+  preprocessed the branch out, this port builds non-strict), the twin
+  `manual-render-null-renderable.patch` (#3674: the GpuParamsDirty refactor
+  dereferenced the null renderable that `manualRender(RenderOperation*)`
+  documents, killing the classic `DrawLayer2D` gui/editor surface),
+  `cpufeatures-build-interface.patch` (#3675: static OgreMain's Android export
+  leaked the internal `cpufeatures` target as a bare `-lcpufeatures` no
+  consumer can resolve), `assimp-single-key-interpolation.patch` (#3680: the
+  Assimp keyframe-neighbour search skipped the immediate predecessor and mixed
+  seconds with ticks in the interpolation factor - single-key channels
+  collapsed to the inverse bind) and `assimp-scale-track-fallback.patch`
+  (#3681: the Assimp loader keyed stray scale keyframes by the rotation time -
+  garbage times + an OOB read - and fell keyless tracks back to a neutral
+  placeholder instead of the bone's bind pose). The
+  `player_character_rig_selfcheck` head-scale/pose legs are the standing proof
+  the two Assimp fixes behave identically arriving from upstream.
+- Future upstream-candidate fixes follow the same lifecycle these did: vendor
+  the patch in the port the same day the PR goes upstream, then drop the patch
+  file at the next reviewed pin bump once it is merged.
 - `fix-dependencies.patch` (upstream vcpkg patch, locally amended): the
   OGREConfig.cmake template's `find_dependency(SDL2 CONFIG)` is now guarded
   by `if(NOT "@ANDROID@" AND NOT "@EMSCRIPTEN@")` - the same condition OGRE's

@@ -13,8 +13,8 @@ endif()
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO OGRECave/ogre
-    REF 7d25ffc3d7e1119160e5f0f23037c9577c916e96
-    SHA512 43149769170de7aeb4b2b984b3b1ace72475df9d4d4fbfa5d0519a62be24037da5a680fb6bb1b70c5e0274d6f8e760cffd06e3711fe85b1c5726c5d68a31fe82
+    REF 63c5e68c8200bb58044434ff0348067bcf733fa6
+    SHA512 4353983490cdf0918285df0fb402bcd47d9b33f027bf9cd8d6affa5e3cdf8553612160dd8d144c8c54953dfa27b8d74c18cbac00efb13e0ba51ba6a50c55d0df
     HEAD_REF master
     PATCHES
         fix-dependencies.patch
@@ -25,11 +25,6 @@ vcpkg_from_github(
         ios-ninja-and-install-paths.patch # iOS: no Xcode $(PLATFORM_NAME) in Ninja files, no lib/Release install split
         cmake4.patch
         vulkan-vcpkg-deps.patch       # vcpkg-only: resolve vulkan-headers/glslang through their CMake configs
-        zip-entry-open-nonstrict.patch # upstream candidate: the non-strict ZipArchive lookup calls a three-argument zip_entry_open the bundled zip does not have
-        manual-render-null-renderable.patch # upstream candidate: manualRender(RenderOperation*) passes the documented null renderable, which the GpuParamsDirty refactor now asserts on / dereferences
-        cpufeatures-build-interface.patch # upstream candidate: static OgreMain's Android export leaks the internal cpufeatures target as -lcpufeatures, which no consumer can resolve
-        assimp-single-key-interpolation.patch # upstream candidate: the Assimp loader's keyframe-neighbour search skips the immediate predecessor (single-key channels collapse to the inverse bind) and its interpolation factor mixes seconds with ticks (interpolated keys held the front neighbour)
-        assimp-scale-track-fallback.patch # upstream candidate: the Assimp loader keys stray scale keyframes by the rotation time (garbage times + an OOB read) and falls a track with no keys of a kind back to a neutral placeholder instead of the bind pose (missing tracks bake the inverse bind in as drift)
 )
 
 file(REMOVE "${SOURCE_PATH}/CMake/Packages/FindOpenEXR.cmake")
