@@ -198,7 +198,7 @@ class ComponentWriter:
               shallow=(0.1, 0.4, 0.45, 1.0), opacity=0.85, wave_scale=6.0,
               wave_speed=0.05, fresnel=2.5, normal_tex="demo_terrain_normal.png",
               wave_height=None, screen_space_refraction=None,
-              planar_reflection=None):
+              planar_reflection=None, refraction_strength=None):
         # the surface-swell height and the reflection/refraction knobs lead the
         # block when authored; they stay off the record set (the component keeps
         # its constructed defaults) unless the vignette opts in.
@@ -211,6 +211,9 @@ class ComponentWriter:
         if planar_reflection is not None:
             recs.append(("planarReflection", K_BOOL,
                          fmt(bool(planar_reflection)), ""))
+        if refraction_strength is not None:
+            recs.append(("refractionStrength", K_FLOAT,
+                         fmt(float(refraction_strength)), ""))
         recs += [
             ("sizeX", K_FLOAT, fmt(float(size_x)), ""),
             ("sizeZ", K_FLOAT, fmt(float(size_z)), ""),
@@ -787,6 +790,13 @@ def build_lake():
                   # (capture-verified on both flavors) while the deep colour
                   # still owns the far expanse.
                   opacity=0.55,
+                  # 0.13: the refraction offset rides the shared
+                  # distance-squared falloff, so the 0.02 default lands
+                  # subpixel at the lake's 20-40u viewing distances - this
+                  # value gives a gentle visible wobble near the camera and
+                  # a naturally fading one at distance (both flavors, same
+                  # formula)
+                  refraction_strength=1.0,
                   normal_tex="water_normal.png"),
           tags=("water",))
     # the lakebed: a broad, sunken, scaled terrain slab under the water body so

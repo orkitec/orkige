@@ -91,6 +91,7 @@ def build_scene():
                   deep=(0.05, 0.22, 0.32, 1.0),
                   shallow=(0.30, 0.47, 0.62, 1.0),
                   opacity=0.6,
+                  refraction_strength=0.13,
                   normal_tex="water_normal.png"),
           tags=("water",))
     # the bright checkered bed: a flattened demo cube, top ~2.1 under the
