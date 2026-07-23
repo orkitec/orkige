@@ -78,9 +78,14 @@ HUD_ROW_MIN = 8               # a text row carries at least this many glyph px
 # vistashadow corridors: a shadowed pixel darkens by at least this much
 # (0..255) between the off and on runs, and at least this fraction of the
 # terrain band must darken (5 props + terrain self-shadowing); the daylit
-# floor guards against a flavor that darkens by rendering BROKEN (black)
+# floor guards against a flavor that darkens by rendering BROKEN (black).
+# The fraction floor guards SHADOWS EXIST AT ALL (a missing pass measures
+# ~0.0000x): measured healthy bands are 0.0053 (macOS Metal) and 0.0032
+# (Windows lavapipe - the software rasterizer draws the vista's low-sun
+# band a little tighter), so the floor sits below both with headroom while
+# staying an order of magnitude above a shadowless frame
 SHADOW_DARKEN_MIN = 12.0
-SHADOW_FRACTION_MIN = 0.004
+SHADOW_FRACTION_MIN = 0.002
 SHADOW_DAYLIT_FLOOR = 35.0
 
 # terraintex: a tiling ground texture must actually TILE (probed on the vista,
