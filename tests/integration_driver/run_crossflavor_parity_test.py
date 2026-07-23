@@ -142,10 +142,12 @@ def main():
     # flavor (those sit at deltas of 120+) while allowing the documented
     # shading differences (PBS vs Blinn-Phong surfaces, per-pixel vs
     # vertex-gradient sky). The widest legitimate delta is the sun-GRAZING
-    # shore band: the flavors' diffuse falloff SHAPES differ (linear vs
-    # power-law display response), and a low sun lighting terrain head-on
-    # lands in the worst of it (~62 measured red delta).
-    MEAN_TOLERANCE = 75.0
+    # shore band: classic's lit response runs a systematic ~12% magnitude
+    # deficit vs next (the Cook-Torrance-vs-HlmsPbs tolerance-parity gap the
+    # calibrated seams absorb at noon but a warm low sun surfaces - ~58
+    # measured red delta). The water region maxes at ~16 after the
+    # transmission alignment.
+    MEAN_TOLERANCE = 65.0
 
     for name, (x0, y0, x1, y1) in regions.items():
         mean_next = region_mean(img_next, x0, y0, x1, y1)

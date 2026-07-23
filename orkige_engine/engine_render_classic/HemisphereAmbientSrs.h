@@ -40,6 +40,13 @@ namespace Orkige
 	void noteHemisphereAmbientColours(Ogre::ColourValue const & upperHemisphere,
 		Ogre::ColourValue const & lowerHemisphere);
 
+	//! @brief read back the cached two hemisphere colours (linear). The water
+	//! program - a hand-written pass outside the RTSS scheme - lights its body
+	//! from the SAME sky/ground fill the generated surface materials receive, so
+	//! its diffuse body reads at the calibrated ambient level instead of unlit.
+	void hemisphereAmbientColours(Ogre::ColourValue & outUpper,
+		Ogre::ColourValue & outLower);
+
 	//! @brief register the hemisphere-ambient sub-render-state factory with the
 	//! generator (idempotent) and add a fresh instance to @p renderState.
 	//! @remarks Mirrors how the Cook-Torrance and image-based-lighting stages are

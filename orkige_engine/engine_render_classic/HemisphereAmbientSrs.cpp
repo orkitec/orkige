@@ -235,6 +235,14 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
+	void hemisphereAmbientColours(Ogre::ColourValue & outUpper,
+		Ogre::ColourValue & outLower)
+	{
+		outUpper = gHemisphereUpper;
+		outLower = gHemisphereLower;
+	}
+
+	//---------------------------------------------------------
 	void addHemisphereAmbientSubRenderState(
 		Ogre::RTShader::ShaderGenerator * generator,
 		Ogre::RTShader::RenderState * renderState)

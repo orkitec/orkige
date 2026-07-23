@@ -406,6 +406,52 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		probeLight->setDiffuseColour(Color(lr, lg, lb));
 		probeLight->setSpecularColour(Color(lr, lg, lb));
 		probeLight->setCastShadows(false);
+		// DRIVEN-SUN leg (ORKIGE_PROBE_ATMOSPHERE=day|sunset|night): enable a
+		// named atmosphere so the probe light becomes the atmosphere-LINKED sun
+		// (the FIRST directional light) and reads its DRIVEN colour+power - next
+		// via the native AtmosphereNpr syncToLight, classic via the CPU port
+		// (core_util/AtmosphereSunDrive). The light's authored colour/intensity
+		// above are overwritten by the linkage; the surface reads back the
+		// DIRECT-sun contribution only, because the atmosphere's hemisphere fill
+		// is re-zeroed right after (isolating the sun the SAME way the untextured
+		// leg isolates one directional). The probe cube sits at the origin, close
+		// to the camera, so the object fog contribution is negligible. This is
+		// the diagnostic that decomposes the lake terrain warmth divergence into
+		// its direct-sun component.
+		if(const char* atmoName = std::getenv("ORKIGE_PROBE_ATMOSPHERE"))
+		{
+			AtmospherePreset::Sky sky = AtmospherePreset::SKY_DAY;
+			if(std::string(atmoName) == "sunset")
+			{
+				sky = AtmospherePreset::SKY_SUNSET;
+			}
+			else if(std::string(atmoName) == "night")
+			{
+				sky = AtmospherePreset::SKY_NIGHT;
+			}
+			world->setAtmosphere(AtmospherePreset::forSky(sky));
+			// isolate the DIRECT sun by default (the atmosphere also drove a
+			// hemisphere fill); ORKIGE_PROBE_KEEP_AMBIENT=1 keeps the driven
+			// hemisphere so the readback is the FULL atmosphere lighting a
+			// surface (sun + ambient) - the truer terrain-appearance proxy,
+			// since the direct-sun term alone is calibrated to compensate the
+			// ambient and is not representative in isolation.
+			if(!std::getenv("ORKIGE_PROBE_KEEP_AMBIENT") &&
+				!std::getenv("ORKIGE_PROBE_SUN_OFF"))
+			{
+				world->setAmbientHemisphere(Color(0, 0, 0), Color(0, 0, 0));
+				world->setAmbientLight(Color(0, 0, 0));
+			}
+			// ORKIGE_PROBE_SUN_OFF=1: kill the DIRECT sun after the atmosphere
+			// drove it, so the readback is the driven HEMISPHERE AMBIENT alone -
+			// the complement of the default (sun-only) leg, isolating whether a
+			// sunset terrain divergence lives in the sun or the ambient fill.
+			if(std::getenv("ORKIGE_PROBE_SUN_OFF"))
+			{
+				probeLight->setDiffuseColour(Color(0, 0, 0));
+				probeLight->setSpecularColour(Color(0, 0, 0));
+			}
+		}
 		// camera dead-on the +Z face
 		cameraNode->setPosition(Vec3(0, 0, 12));
 		cameraNode->lookAt(Vec3::ZERO, RenderNode::TS_WORLD);
@@ -421,10 +467,12 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 #else
 		const char* backendName = "classic";
 #endif
+		const char* atmoEnv = std::getenv("ORKIGE_PROBE_ATMOSPHERE");
 		std::printf("LIGHTPROBE backend=%s intensity=%.4f ndotlDeg=%.2f "
-			"cosTheta=%.4f texByte=%s center=(%.4f,%.4f,%.4f)\n",
+			"cosTheta=%.4f texByte=%s atmo=%s center=(%.4f,%.4f,%.4f)\n",
 			backendName, intensity, ndotlDeg, std::cos(theta),
-			probeTexEnv ? probeTexEnv : "none", pr, pg, pb);
+			probeTexEnv ? probeTexEnv : "none", atmoEnv ? atmoEnv : "none",
+			pr, pg, pb);
 		return 0;
 	}
 

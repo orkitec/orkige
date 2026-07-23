@@ -118,7 +118,8 @@ namespace Orkige
 			//! the atmosphere colour along @p viewDir - the sky model sampled
 			//! on the CPU, mirroring the native evaluation (sun disk optional)
 			inline V3 atmosphereAt(AtmosphereDesc const & desc, V3 toSun,
-				float sunHeight, V3 viewDir, bool skipSun)
+				float sunHeight, V3 viewDir, bool skipSun,
+				float sunDiskPower = kSkySunDiskPower)
 			{
 				V3 dir = normalize(viewDir);
 				const V3 skyColour = { desc.skyRed, desc.skyGreen, desc.skyBlue };
@@ -163,9 +164,20 @@ namespace Orkige
 						lerp(0.10f, kDensityDiffusion, std::pow(dir.y, 0.3f)));
 				// the native disk exponent carries a 0.25 scale; inert for the
 				// sun/ambient linkage (its samples sit at lDotV 1 or skip the
-				// sun) but it shapes the dome/IBL pixels sampled off-axis
+				// sun) but it shapes the dome/IBL pixels sampled off-axis. The
+				// disk MULTIPLIER, however, is NOT inert for the linkage: the
+				// native getAtmosphereAt scales the sun disk by the sun POWER
+				// (getSunDisk's sunPower arg), and since the disk term is added
+				// AFTER the haze is scaled by lightDensity*finalMultiplier, its
+				// weight relative to the (bluer) haze sets how warm the
+				// normalized sun colour reads. The dome/IBL callers keep the
+				// neutral kSkySunDiskPower default (their look is calibrated +
+				// byte-stable); the sun-colour linkage passes desc.sunPower so
+				// the classic driven sun carries the SAME grazing warmth the
+				// native atmosphere gives next (AtmosphereSunDriveTests locks the
+				// day/noon ratio; the render_facade driven-sun probe the sweep).
 				const float sunDisk = std::pow(lDotV,
-					lerp(4.0f, 8500.0f, sunHeight) * 0.25f) * kSkySunDiskPower;
+					lerp(4.0f, 8500.0f, sunHeight) * 0.25f) * sunDiskPower;
 				const float antiMie = std::max(sunHeightWeight, 0.08f);
 				const V3 skyAbsorption =
 					skyRayleighAbsorption(skyColour, ptDensity);
@@ -255,8 +267,10 @@ namespace Orkige
 
 			// the sun colour: the sky model sampled toward the sun,
 			// normalized so the max channel is 1 (the power knob carries the
-			// magnitude) - identical to the native linkage
-			V3 sunColour = atmosphereAt(desc, toSun, sunHeight, toSun, false);
+			// magnitude) - identical to the native linkage, which scales the
+			// sun disk by the sun power (@see atmosphereAt sunDiskPower)
+			V3 sunColour = atmosphereAt(desc, toSun, sunHeight, toSun, false,
+				desc.sunPower);
 			const float maxPower = std::max(
 				{ sunColour.x, sunColour.y, sunColour.z, 1e-6f });
 			sunColour = mul(sunColour, 1.0f / maxPower);

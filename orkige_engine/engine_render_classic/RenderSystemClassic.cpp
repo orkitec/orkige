@@ -1140,6 +1140,7 @@ namespace Orkige
 					"uniform vec4 camPos;\n"         // world-space camera position
 					"uniform vec4 sunTowards;\n"     // xyz = toward-the-sun, w = specular gate
 					"uniform vec4 sunColour;\n"      // rgb = driven sun colour
+					"uniform vec4 waterAmbient;\n"   // rgb = upper-hemisphere sky fill (linear-ish, calibrated)
 					"in vec2 vUv;\n"
 					"in vec4 vClip;\n"
 					"in vec3 vWorldPos;\n"
@@ -1158,8 +1159,37 @@ namespace Orkige
 					"    vec2 uv = clamp(screenUv + disp + vSwellNormal.xz * 0.12,\n"
 					"        vec2(0.002), vec2(0.998));\n"
 					"    vec3 scene = texture(sceneMap, uv).rgb;\n"
-					"    vec3 water = mix(scene, deepColour.rgb, deepColour.a * 0.6)\n"
-					"               + shallowColour.rgb * 0.12;\n"
+					// next's HlmsPbs Refractive composition, matched in its NATIVE
+					// space: finalColour(LINEAR) = bodyDiffuse + refraction*(1-opacity)
+					// + emissive, output = sqrt(finalColour). The critical point is the
+					// SPACE: next's refraction source is the LINEAR scene-colour buffer
+					// and it adds it PRE-sqrt, so the transmitted scene reads as
+					// sqrt(scene_linear*(1-op)) = scene_display*sqrt(1-op) - far more
+					// than a display-space scene*(1-op) (at op 0.85, 0.39 vs 0.15). The
+					// classic grab is the DISPLAY-space rendered scene and the authored
+					// tints are display-space, so square them to linear, compose the
+					// whole body in linear, and display-encode ONCE - the missing
+					// translucency was the gamma-space compose, not the formula. The
+					// body diffuse is the still plane's up-facing response to the driven
+					// sun (NdotL on the swell normal) + the same hemisphere sky fill the
+					// surface materials get (waterAmbient is already linear), scaled by
+					// opacity^2 (next scales the diffuse kD by the transparency squared);
+					// the shallow colour is next's depth-scatter emissive.
+					"    float op = clamp(deepColour.a, 0.0, 1.0);\n"
+					"    float ndl = max(dot(vSwellNormal, normalize(sunTowards.xyz)), 0.0);\n"
+					// per-term SPACE: the authored deep/shallow are next's LINEAR
+					// albedo/emissive (setDiffuse/setEmissive take them raw), and
+					// waterAmbient is already linear; only the DISPLAY-space grab and
+					// the display-driven sun colour are squared into linear.
+					"    vec3 sceneLin = scene * scene;\n"
+					"    vec3 deepLin = deepColour.rgb;\n"
+					"    vec3 shallowLin = shallowColour.rgb;\n"
+					"    vec3 lightLin = waterAmbient.rgb\n"
+					"        + (sunColour.rgb * sunColour.rgb) * (ndl * sunTowards.w);\n"
+					"    vec3 finalLin = deepLin * lightLin * (op * op)\n"
+					"                  + sceneLin * (1.0 - op)\n"
+					"                  + shallowLin * 0.18;\n"
+					"    vec3 water = sqrt(max(finalLin, vec3(0.0)));\n"
 					// fresnel SKY reflection over the refracted base: the reflected
 					// ray sampled from the live IBL environment cubemap (the same
 					// capture the PBS flavor's Refractive water reflects) - looking
@@ -1235,6 +1265,16 @@ namespace Orkige
 			params->setNamedConstant("refractParams", Ogre::Vector4(
 				std::max(desc.refractionStrength, 0.0f),
 				std::max(desc.waveScale, 0.001f), scrollX, scrollY));
+			// an initial ambient fill so a not-yet-ticked surface (editor / frame
+			// 0) lights its body; the per-frame setWaterMaterialTime re-pushes the
+			// live hemisphere as the atmosphere animates
+			Ogre::ColourValue upper(0.2f, 0.2f, 0.2f, 1.0f);
+#ifdef USE_RTSHADER_SYSTEM
+			Ogre::ColourValue lower;
+			hemisphereAmbientColours(upper, lower);
+#endif
+			params->setNamedConstant("waterAmbient",
+				Ogre::Vector4(upper.r, upper.g, upper.b, 1.0f));
 		}
 		//! the shared water-REFLECTION GLSL programs (GL3Plus), created once. The
 		//! fragment program samples the mirror render target at the fragment's
@@ -1373,6 +1413,22 @@ namespace Orkige
 			const float baseScale = 1.0f - strength * 0.35f;
 			params->setNamedConstant("reflectParams", Ogre::Vector4(
 				f0, refractComposed ? 1.0f : 0.0f, baseScale, 0.0f));
+		}
+		//! push the water body's ambient FILL - the upper-hemisphere sky colour
+		//! the generated surface materials already receive - onto a water program,
+		//! so the hand-written water pass lights its diffuse body at the SAME
+		//! calibrated ambient level instead of unlit (@see the water FS bodyLit).
+		//! Without the RTSS hemisphere (GLES2/no-RTSS floor) it falls back to a
+		//! neutral mid fill so the body still reads.
+		void pushWaterAmbient(Ogre::GpuProgramParametersSharedPtr const & params)
+		{
+			Ogre::ColourValue upper(0.2f, 0.2f, 0.2f, 1.0f);
+#ifdef USE_RTSHADER_SYSTEM
+			Ogre::ColourValue lower;
+			hemisphereAmbientColours(upper, lower);
+#endif
+			params->setNamedConstant("waterAmbient",
+				Ogre::Vector4(upper.r, upper.g, upper.b, 1.0f));
 		}
 		//! the 1x1 black cube bound to the refract program's sky unit while
 		//! image lighting is off (GL validates the samplerCube binding even
@@ -2227,6 +2283,7 @@ namespace Orkige
 				params->setNamedConstant("sunTowards",
 					Ogre::Vector4(0.0f, 1.0f, 0.0f, 0.0f));
 			}
+			pushWaterAmbient(params);
 			return;
 		}
 		pass->getTextureUnitState(0)->setTextureScroll(travel, travel * 0.6f);
