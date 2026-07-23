@@ -589,7 +589,9 @@ function init(self)
 		gatherPool()
 		buildHud()
 	elseif mode == "cast" then
-		setPerspectiveCamera(14.0, 5.0, -9.0)
+		-- pulled back far enough that the hero's full height and the crowd's
+		-- rim rows stay in frame on the standing-on-terrain staging
+		setPerspectiveCamera(18.0, 6.5, -9.0)
 		-- a flat sky-blue backdrop (no HDR sky dome, which blew the stage's
 		-- exposure out) and a FIXED key light (no sun arc in update): the flat
 		-- background keeps the exposure neutral AND gives the anim probe a

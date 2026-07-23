@@ -945,12 +945,16 @@ def build_cast():
     # a benchmark-local copy of the textured cutout hero playing its `wave`
     # clip, and a soft-body blob wobbling on a timer - the flat-colour 2D tier
     # composited in front of the 3D crowd (painter zOrder over the scene).
+    # both planar pieces stand ON the terrain under their (x, z) like the
+    # crowd does: the cutout's art hangs below its origin (feet/shadow) and
+    # the blob is origin-centred, so each gets a lift covering its
+    # below-origin extent at its scale - no more knifing into the hill
     s.add("Cutout",
-          s.transform(-4.8, -0.4, -3.0, 2.6, 2.6, 2.6),
+          s.transform(-4.8, ground_y(-4.8, -3.0) + 1.2, -3.0, 2.6, 2.6, 2.6),
           s.vectoranim("cutout_hero.oanim", clip="wave", z_order=6),
           tags=("cutout",))
     s.add("WobbleBlob",
-          s.transform(4.8, -1.0, -3.0),
+          s.transform(4.8, ground_y(4.8, -3.0) + 1.3, -3.0),
           s.vectorshape("blob.oshape", tint=(0.95, 0.55, 0.45, 1.0),
                         scale=2.4, z_order=6, soft_body=True,
                         wobble_amount=0.4),
