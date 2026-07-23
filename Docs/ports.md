@@ -311,6 +311,20 @@ upstream carries an equivalent fix. Local addition:
   cosmetic (the functions call luaL_error/trampolines anyway); the patch
   drops it. Upstream-candidate.
 
+## ports/imgui
+
+The stock vcpkg imgui port (docking branch, the editor's UI library) plus one
+behavioral patch:
+
+- `selected-tab-ignores-hover.patch` — a SELECTED tab keeps its own colour
+  while the cursor is over it; the hover colour applies only to UNSELECTED
+  tabs (and the held/drag state keeps its feedback everywhere). The editor
+  theme paints the selected tab in the exact panel-body colour so tab and
+  content read as one connected surface — a hover flash on the active tab
+  would break that surface apart. Upstream has no per-state colour slot for
+  a hovered-selected tab (one `ImGuiCol_TabHovered` covers all tabs), so
+  the split lives in the tab render.
+
 ## nanosvg (stock port — no overlay)
 
 `nanosvg` is a plain vcpkg-registry dependency (`vcpkg.json`), NOT an overlay

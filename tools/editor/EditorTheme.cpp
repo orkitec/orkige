@@ -74,7 +74,10 @@ namespace Orkige
 
 		//! macOS dark mode: dark surfaces, controls a step lighter than panels.
 		constexpr EditorPalette DARK_PALETTE = {
-			/*windowBg*/        rgba(0x232323),
+			// the panel body carries the brighter surface shade; the SELECTED
+			// tab matches it exactly (one connected surface at the brighter
+			// level - resting tabs recede below it)
+			/*windowBg*/        rgba(0x48484a),
 			/*dockspaceBg*/     rgba(0x1a1a1a),
 			/*popupBg*/         rgba(0x2a2a2c, 0.98f),
 			/*titleBg*/         rgba(0x2d2d2d),
@@ -94,10 +97,7 @@ namespace Orkige
 			/*scrollGrabHover*/ rgba(0x6e6e73, 0.90f),
 			/*tabResting*/      rgba(0x2d2d2d),
 			/*tabHover*/        rgba(0x3a3a3c),
-			// the SELECTED tab matches the panel body exactly, so tab and
-			// content read as one connected surface (resting tabs keep
-			// their own shade to recede)
-			/*tabSelected*/     rgba(0x232323),
+			/*tabSelected*/     rgba(0x48484a),
 			/*tabDimmed*/       rgba(0x262626),
 			/*rowStripe*/       rgba(0xffffff, 0.03f),
 			/*navDim*/          rgba(0x000000, 0.35f),
@@ -113,7 +113,8 @@ namespace Orkige
 		//! selected tab is a raised = brighter pill), so future tweaks to one
 		//! variant have an obvious counterpart in the other.
 		constexpr EditorPalette LIGHT_PALETTE = {
-			/*windowBg*/        rgba(0xececec),
+			// panel body at the brighter level; selected tab matches (below)
+			/*windowBg*/        rgba(0xffffff),
 			/*dockspaceBg*/     rgba(0xd2d2d2),
 			/*popupBg*/         rgba(0xffffff, 0.98f),
 			/*titleBg*/         rgba(0xe0e0e0),
@@ -133,8 +134,7 @@ namespace Orkige
 			/*scrollGrabHover*/ rgba(0x000000, 0.42f),
 			/*tabResting*/      rgba(0xdedede),
 			/*tabHover*/        rgba(0xe9e9e9),
-			// selected tab == panel body (one connected surface)
-			/*tabSelected*/     rgba(0xececec),
+			/*tabSelected*/     rgba(0xffffff),
 			/*tabDimmed*/       rgba(0xd8d8d8),
 			/*rowStripe*/       rgba(0x000000, 0.04f),
 			/*navDim*/          rgba(0x000000, 0.20f),
