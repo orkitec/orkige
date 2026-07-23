@@ -817,23 +817,65 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Emulator Play test (MUST pass)
+      # Bounded phases + one fresh-AVD self-heal. `emulator-boot-timeout`
+      # caps the action's own boot-poll (a hosted runner that never boots
+      # fails at 7 min, not the job wall), `timeout-minutes` is the hard
+      # outer wall (the 74-minute empty-log hang can never recur), and
+      # run_play_test.sh bounds the install + Play test phases so a wedge in
+      # either fails fast with the phase named. `continue-on-error` lets the
+      # self-heal step re-run the WHOLE chain once on a FRESH cold AVD
+      # (force-avd-creation); the verdict step turns a second failure into an
+      # honest red naming both attempts.
+      - name: Emulator Play test (bounded phases)
+        id: play_next
+        continue-on-error: true
+        timeout-minutes: 20
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d  # v2.38.0
         with:
           api-level: 35
           target: google_apis
           arch: x86_64
           profile: pixel_7_pro
+          emulator-boot-timeout: 420
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          # The emulator action runs EACH LINE of this script as its own
-          # `sh -c`: exports do not persist to the next line and a trailing
-          # backslash is passed through as a literal argument. Everything
-          # the ctest invocation needs must therefore share its one line.
+          # The action runs EACH LINE of this script as its own `sh -c`, so the
+          # whole invocation shares one line. run_play_test.sh waits for the
+          # emulator to be READY, installs the APK, then runs the ctest as its
+          # bounded test phase; `env VAR=... xvfb-run ... ctest` carries the
+          # host editor's Vulkan/audio/display environment (no nested quoting).
           script: |
-            adb install -r build/android-emulator-debug-ci/apk/OrkigePlayer.apk
-            adb shell pm path com.orkitec.orkigeplayer
-            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11; xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci --timeout 420 --repeat until-pass:2
+            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci --timeout 420 --repeat until-pass:2
+
+      - name: Emulator Play test - self-heal retry on a fresh AVD
+        id: play_next_retry
+        if: steps.play_next.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 20
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d  # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          force-avd-creation: true
+          emulator-boot-timeout: 420
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci --timeout 420 --repeat until-pass:2
+
+      - name: Emulator Play verdict (MUST pass)
+        if: always()
+        run: |
+          if [ "${{ steps.play_next.outcome }}" = "success" ]; then
+            echo "Play test passed on the first attempt."
+          elif [ "${{ steps.play_next_retry.outcome }}" = "success" ]; then
+            echo "::notice::Play test passed after one fresh-AVD self-heal retry."
+          else
+            echo "::error::Android emulator Play test failed on both the initial run and the fresh-AVD self-heal retry."
+            exit 1
+          fi
 
       - name: Upload logs
         if: always()
@@ -972,23 +1014,55 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Emulator Play test (MUST pass)
+      # Bounded phases + one fresh-AVD self-heal (see the next-flavor sibling
+      # for the rationale): emulator-boot-timeout caps boot, timeout-minutes is
+      # the hard wall, run_play_test.sh bounds install + Play, and the verdict
+      # step turns a second failure into an honest red.
+      - name: Emulator Play test (bounded phases)
+        id: play_classic
+        continue-on-error: true
+        timeout-minutes: 20
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d  # v2.38.0
         with:
           api-level: 35
           target: google_apis
           arch: x86_64
           profile: pixel_7_pro
+          emulator-boot-timeout: 420
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          # The emulator action runs EACH LINE of this script as its own
-          # `sh -c`: exports do not persist to the next line and a trailing
-          # backslash is passed through as a literal argument. Everything
-          # the ctest invocation needs must therefore share its one line.
           script: |
-            adb install -r build/android-emulator-debug-ci-classic/apk/OrkigePlayer.apk
-            adb shell pm path com.orkitec.orkigeplayer
-            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11; xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci-classic --timeout 420 --repeat until-pass:2
+            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci-classic/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci-classic --timeout 420 --repeat until-pass:2
+
+      - name: Emulator Play test - self-heal retry on a fresh AVD
+        id: play_classic_retry
+        if: steps.play_classic.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 20
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d  # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          force-avd-creation: true
+          emulator-boot-timeout: 420
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci-classic/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci-classic --timeout 420 --repeat until-pass:2
+
+      - name: Emulator Play verdict (MUST pass)
+        if: always()
+        run: |
+          if [ "${{ steps.play_classic.outcome }}" = "success" ]; then
+            echo "Play test passed on the first attempt."
+          elif [ "${{ steps.play_classic_retry.outcome }}" = "success" ]; then
+            echo "::notice::Play test passed after one fresh-AVD self-heal retry."
+          else
+            echo "::error::Android emulator Play test failed on both the initial run and the fresh-AVD self-heal retry."
+            exit 1
+          fi
 
       - name: Upload logs
         if: always()
@@ -1260,6 +1334,11 @@ jobs:
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
 
       - name: Prepare iPhone 16 simulators (main + pre-warmed boot device)
+        # the per-attempt bootstatus deadline (420s x 3) already bounds each
+        # boot; this outer wall guards the UNtimed calls around it (open
+        # Simulator.app, `simctl boot`) so a wedged CoreSimulator can never
+        # hang the whole job the way the Android emulator once did.
+        timeout-minutes: 30
         run: |
           DEVICE_TYPE=$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devicetypes"]; phones=[x for x in d if x["name"].startswith("iPhone") and "SE" not in x["name"]]; print(next((x["identifier"] for x in phones if "iPhone 16 Pro" in x["name"]), phones[0]["identifier"]))')
           RUNTIME=$(xcrun simctl list runtimes available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["runtimes"]; ios=[x for x in d if ".iOS-" in x["identifier"]]; print(max(ios, key=lambda x: tuple(map(int, x["version"].split("."))))["identifier"])')
@@ -1318,6 +1397,10 @@ jobs:
           xcrun simctl shutdown "$UDID2"
 
       - name: Simulator export + runtime tests (MUST pass)
+        # ctest --timeout bounds each test; this outer wall caps the whole
+        # suite so a wedge outside ctest's own timing cannot run to the job
+        # wall.
+        timeout-minutes: 60
         env:
           ALSOFT_DRIVERS: "null"
         run: ctest --preset device-macos-ios-ci --timeout 1400 --repeat until-pass:2
