@@ -94,7 +94,10 @@ namespace Orkige
 			/*scrollGrabHover*/ rgba(0x6e6e73, 0.90f),
 			/*tabResting*/      rgba(0x2d2d2d),
 			/*tabHover*/        rgba(0x3a3a3c),
-			/*tabSelected*/     rgba(0x48484a),
+			// the SELECTED tab matches the panel body exactly, so tab and
+			// content read as one connected surface (resting tabs keep
+			// their own shade to recede)
+			/*tabSelected*/     rgba(0x232323),
 			/*tabDimmed*/       rgba(0x262626),
 			/*rowStripe*/       rgba(0xffffff, 0.03f),
 			/*navDim*/          rgba(0x000000, 0.35f),
@@ -130,7 +133,8 @@ namespace Orkige
 			/*scrollGrabHover*/ rgba(0x000000, 0.42f),
 			/*tabResting*/      rgba(0xdedede),
 			/*tabHover*/        rgba(0xe9e9e9),
-			/*tabSelected*/     rgba(0xffffff),
+			// selected tab == panel body (one connected surface)
+			/*tabSelected*/     rgba(0xececec),
 			/*tabDimmed*/       rgba(0xd8d8d8),
 			/*rowStripe*/       rgba(0x000000, 0.04f),
 			/*navDim*/          rgba(0x000000, 0.20f),
