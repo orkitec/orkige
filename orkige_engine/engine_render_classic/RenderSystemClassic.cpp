@@ -1176,7 +1176,16 @@ namespace Orkige
 					// opacity^2 (next scales the diffuse kD by the transparency squared);
 					// the shallow colour is next's depth-scatter emissive.
 					"    float op = clamp(deepColour.a, 0.0, 1.0);\n"
-					"    float ndl = max(dot(vSwellNormal, normalize(sunTowards.xyz)), 0.0);\n"
+					// the BODY diffuse reads off a CALMED normal, not the raw swell:
+					// next's water body diffuse is dominated by the near-flat plane
+					// (its detail normals feed the specular lobe, not the diffuse
+					// response), so its body stays smooth/glassy. The full vSwellNormal
+					// here churns the body light/dark across every crest; damping it
+					// hard toward straight-up (0,1,0) gives the same glassy body while
+					// the sun STREAK below keeps the strong ripple normal (nrm, disp*2.5)
+					// that the parity gate's max-luma sparkle depends on.
+					"    vec3 bodyNrm = normalize(mix(vSwellNormal, vec3(0.0, 1.0, 0.0), 0.8));\n"
+					"    float ndl = max(dot(bodyNrm, normalize(sunTowards.xyz)), 0.0);\n"
 					// the GRAZING ENERGY SPLIT, matched to next's HlmsPbs: next weights
 					// its whole diffuse/ambient body by the DIFFUSE fresnel (1-F) and
 					// its env reflection by the SPECULAR fresnel F (BRDFs_piece:

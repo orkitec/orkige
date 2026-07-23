@@ -738,7 +738,7 @@ def build_lake():
                   wave_height=0.3, screen_space_refraction=True,
                   planar_reflection=False,
                   deep=(0.04, 0.20, 0.30, 1.0),
-                  shallow=(0.22, 0.55, 0.62, 1.0),
+                  shallow=(0.30, 0.47, 0.62, 1.0),
                   normal_tex="water_normal.png"),
           tags=("water",))
     # the lakebed: a broad, sunken, scaled terrain slab under the water body so
