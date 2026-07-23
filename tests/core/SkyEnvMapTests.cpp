@@ -19,6 +19,7 @@
 
 #include <core_util/SkyEnvMap.h>
 #include <core_util/AtmosphereDesc.h>
+#include <core_util/AtmosphereSunDrive.h>
 
 #include <cmath>
 #include <vector>
@@ -147,6 +148,89 @@ TEST_CASE("SkyEnvMap: box downsample averages a 2x2 block", "[skyenvmap]")
 	CHECK(int(dst[1]) == 90);	// (80+80+100+100)/4
 	CHECK(int(dst[2]) == 120);
 	CHECK(int(dst[3]) == 255);
+}
+
+TEST_CASE("SkyEnvMap: the scaled chain preserves the HDR horizon's hue ratio",
+	"[skyenvmap]")
+{
+	// the sunset look with a low sun: the sun-side horizon's unclamped model
+	// radiance runs far past 1 with red dominant - the clamped chain flattens
+	// it to equal R,G while the scaled chain must keep the ratio
+	const AtmosphereDesc desc =
+		AtmospherePreset::forSky(AtmospherePreset::SKY_SUNSET);
+	const float sx = 0.0f, sy = 0.33f, sz = -0.944f;
+	const unsigned int edge = 16u;
+
+	std::vector<unsigned char> scaled;
+	unsigned int mips = 0u;
+	float scale = 1.0f;
+	SkyEnvMap::buildCubemapChainScaledRgba8(edge, desc, sx, sy, sz,
+		scaled, mips, scale);
+
+	// the same tight layout as the clamped sibling
+	std::vector<unsigned char> clamped;
+	unsigned int clampedMips = 0u;
+	SkyEnvMap::buildCubemapChainRgba8(edge, desc, sx, sy, sz,
+		clamped, clampedMips);
+	CHECK(mips == clampedMips);
+	CHECK(scaled.size() == clamped.size());
+
+	// this sky is HDR: the exposure runs well past 1
+	CHECK(scale > 2.0f);
+
+	// a toward-sun horizon texel: reconstruct byte * scale and compare the
+	// hue ratio against the unclamped model (quantization tolerance); the
+	// clamped sibling reads exactly 255,255 there (the flattening this
+	// sibling exists to avoid). Row 6, column 8 of the -Z face (texel
+	// centres at (i+0.5)/16) is a direction slightly above the horizon
+	// toward the sun.
+	const unsigned int texelRow = 6u, texelCol = 8u;
+	float r = 0.0f, g = 0.0f, b = 0.0f;
+	float dirX, dirY, dirZ;
+	SkyEnvMap::faceDirection(5u,
+		(texelCol + 0.5f) / edge, (texelRow + 0.5f) / edge,
+		dirX, dirY, dirZ);
+	AtmosphereSunDrive::skyModelColour(desc, sx, sy, sz, dirX, dirY, dirZ,
+		false, r, g, b);
+	REQUIRE(r > 1.0f);				// the texel the clamp would flatten
+	REQUIRE(g > 1.0f);
+	const float modelRatio = r / g;
+	CHECK(modelRatio > 1.2f);		// red-dominant warm horizon
+
+	const size_t texel = SkyEnvMap::faceMipOffset(edge, 0u, 5u) +
+		(size_t(texelRow) * edge + texelCol) * 4u;
+	const float storedR = scaled[texel + 0] / 255.0f * scale;
+	const float storedG = scaled[texel + 1] / 255.0f * scale;
+	REQUIRE(storedG > 0.0f);
+	CHECK(std::fabs(storedR / storedG - modelRatio) < 0.1f);
+	CHECK(std::fabs(storedR - r) < scale / 255.0f + 1e-3f);
+	CHECK(int(clamped[texel + 0]) == 255);
+	CHECK(int(clamped[texel + 1]) == 255);
+}
+
+TEST_CASE("SkyEnvMap: a bounded sky captures scale 1 and matches the clamped "
+	"chain byte for byte", "[skyenvmap]")
+{
+	// the night look stays inside [0;1] everywhere: the scaled chain must
+	// store it verbatim (scale exactly 1) so a dim sky loses no precision
+	const AtmosphereDesc desc =
+		AtmospherePreset::forSky(AtmospherePreset::SKY_NIGHT);
+	const float sx = 0.0f, sy = 0.4f, sz = -0.9f;
+	const unsigned int edge = 16u;
+
+	std::vector<unsigned char> scaled;
+	unsigned int mips = 0u;
+	float scale = 0.0f;
+	SkyEnvMap::buildCubemapChainScaledRgba8(edge, desc, sx, sy, sz,
+		scaled, mips, scale);
+	std::vector<unsigned char> clamped;
+	unsigned int clampedMips = 0u;
+	SkyEnvMap::buildCubemapChainRgba8(edge, desc, sx, sy, sz,
+		clamped, clampedMips);
+
+	CHECK(scale == 1.0f);
+	CHECK(mips == clampedMips);
+	CHECK(scaled == clamped);
 }
 
 TEST_CASE("SkyEnvMap: recapture fires on a material sun swing, not a still sky",

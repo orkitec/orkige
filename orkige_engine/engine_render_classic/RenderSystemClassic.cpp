@@ -57,14 +57,17 @@ namespace Orkige
 		std::set<String> gRefractiveWaterMaterials;
 		//! per refractive-water-material build-time knobs, so the per-frame
 		//! scroll update can re-push the FULL refractParams/skyParams 4-vectors
-		//! (the scroll rides refractParams' zw lane; skyParams' yz lanes track
-		//! the LIVE image-lighting state) without losing the build-time values
+		//! (the scroll rides refractParams' zw lane; skyParams' yzw lanes track
+		//! the LIVE image-lighting state, the capture's HDR reconstruction
+		//! scale and the mirror-energy weight) without losing the build-time
+		//! values
 		struct RefractKnobs
 		{
 			float strength = 0.02f;
 			float waveScale = 6.0f;
 			//! the fresnel F0 for the sky-reflection blend (@see the refract
-			//! program's skyParams - the same F0 formula as the reflect path)
+			//! program's skyParams - the non-planar sibling's setFresnel input,
+			//! 0.02 x fresnelPower)
 			float skyF0 = 0.05f;
 			//! geometric swell amplitude (waveParams.x - @see RenderWaterDesc)
 			float waveHeight = 0.0f;
@@ -215,6 +218,17 @@ namespace Orkige
 		std::set<String> gHemisphereMaterials;
 		//! the one derived-chain texture name (recreated on source/tier change)
 		const char* const kIblChainTexture = "Orkige/IblChain";
+		//! the water mirror's RATIO-TRUE sibling of the procedural capture:
+		//! the same sky, stored exposure-normalized (texel * gWaterSkyScale
+		//! reconstructs the unclamped HDR radiance - @see
+		//! SkyEnvMap::buildCubemapChainScaledRgba8). Only the water fragment
+		//! program samples it; the image-lighting stage keeps the calibrated
+		//! clamped chain above. Live only while the procedural source is the
+		//! active capture (an authored skybox is LDR content - ratio-true as
+		//! stored, scale 1, and the water samples the chain directly).
+		const char* const kWaterSkyTexture = "Orkige/WaterSkyEnv";
+		float gWaterSkyScale = 1.0f;
+		bool gWaterSkyLive = false;
 		//! which (skybox, tier) pair the chain was built from (skip rebuilds)
 		String gIblChainSource;
 		IblPreset::Quality gIblChainQuality = IblPreset::IQ_OFF;
@@ -1238,7 +1252,7 @@ namespace Orkige
 					"uniform vec4 deepColour;\n"     // rgb, a = opacity
 					"uniform vec4 shallowColour;\n"  // rgb
 					"uniform vec4 refractParams;\n"  // x=strength y=waveScale z=scrollX w=scrollY
-					"uniform vec4 skyParams;\n"      // x=fresnel F0 y=sky enabled z=luminance
+					"uniform vec4 skyParams;\n"      // x=fresnel F0 y=sky enabled z=capture scale w=mirror weight
 					"uniform vec4 camPos;\n"         // world-space camera position
 					"uniform vec4 sunTowards;\n"     // xyz = toward-the-sun, w = specular gate
 					"uniform vec4 sunColour;\n"      // rgb = driven sun colour
@@ -1289,12 +1303,14 @@ namespace Orkige
 					"    vec3 bodyNrm = normalize(mix(vSwellNormal, vec3(0.0, 1.0, 0.0), 0.8));\n"
 					"    float ndl = max(dot(bodyNrm, normalize(sunTowards.xyz)), 0.0);\n"
 					// the GRAZING ENERGY SPLIT, matched to next's HlmsPbs: next weights
-					// its whole diffuse/ambient body by the DIFFUSE fresnel (1-F) and
-					// its env reflection by the SPECULAR fresnel F (BRDFs_piece:
-					// diffuse*fresnelD with fresnelD=1-F, Rs*fresnelS), so at a grazing
-					// view the teal body fades and the surface becomes a bright glassy
-					// SKY MIRROR - what the eye reads as "real water". Compute F first,
-					// then split the energy in LINEAR (next composes linear, sqrt once).
+					// its diffuse/ambient BODY by the diffuse fresnel and its env
+					// reflection by the specular fresnel (BRDF_EnvMap:
+					// envColourD*kD*fresnelD + envColourS*kS*fresnelS with
+					// fresnelD = 1 - fresnelS), while the transmitted refraction and
+					// the scatter emissive stay OUTSIDE the split - so at a grazing
+					// view the teal body fades toward the sky mirror but the scene
+					// seen THROUGH the surface stays. Compute F first, then split
+					// the energy in LINEAR (next composes linear, sqrt once).
 					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
 					"    vec3 nrm = normalize(vSwellNormal\n"
 					"        + vec3(disp.x * 2.5, 0.0, disp.y * 2.5));\n"
@@ -1303,7 +1319,14 @@ namespace Orkige
 					"        disp.y * 2.5 + vSwellNormal.z * 0.2));\n"
 					"    float cosv = clamp(dot(viewDir, nF), 0.0, 1.0);\n"
 					"    float f0 = clamp(skyParams.x, 0.0, 1.0);\n"
-					"    float fres = clamp(f0 + (1.0 - f0) * pow(1.0 - cosv, 5.0), 0.0, 1.0);\n"
+					// the ROUGHNESS-AWARE Schlick the other backend's env term
+					// rides (getSpecularFresnelWithRoughness: the grazing F90 is
+					// max(1-roughness, F0), not 1) at the shared water datablock
+					// roughness 0.16 - so the grazing split leaves the same ~16%
+					// of body/transmission visible on both flavors instead of
+					// fading classic's transmitted scene to zero
+					"    float f90 = max(1.0 - 0.16, f0);\n"
+					"    float fres = clamp(f0 + (f90 - f0) * pow(1.0 - cosv, 5.0), 0.0, 1.0);\n"
 					// per-term SPACE: the authored deep/shallow are next's LINEAR
 					// albedo/emissive (setDiffuse/setEmissive take them raw), the
 					// driven sun colour arrives LINEAR (the atmosphere linkage's
@@ -1316,43 +1339,42 @@ namespace Orkige
 					"    vec3 shallowLin = shallowColour.rgb;\n"
 					"    vec3 lightLin = waterAmbient.rgb\n"
 					"        + sunColour.rgb * (ndl * sunTowards.w);\n"
-					// the diffuse body + refracted transmission + scatter, faded by the
-					// diffuse fresnel (1-F) as the reflection takes F
-					"    vec3 bodyLin = deepLin * lightLin * (op * op)\n"
+					// ONLY the diffuse body fades by the diffuse fresnel (1-F) as
+					// the reflection takes F - the other backend adds its
+					// refraction at a plain (1-alpha) weight and its scatter
+					// emissive outside the BRDF entirely (Refractions_piece:
+					// finalColour += refractionCol * (1 - refractionAlpha), then
+					// += emissive), so a grazing view keeps the FULL transmitted
+					// scene; fading it with the body compressed the through-water
+					// contrast toward zero exactly where the mirror shows
+					"    vec3 finalLin = deepLin * lightLin * (op * op)\n"
+					"                    * (1.0 - fres)\n"
 					"                  + sceneLin * (1.0 - op)\n"
 					"                  + shallowLin * 0.18;\n"
-					"    vec3 finalLin = bodyLin * (1.0 - fres);\n"
-					// the SKY MIRROR takes F: the reflected ray sampled from the live
-					// IBL environment cubemap (LINEAR-stored, the same sky next's
-					// Refractive water reflects), at a mirror strength that reads as a
-					// bright glassy reflection at grazing - not the dim 0.2 diffuse FILL
-					// (next reflects the full sky, gated by F, so it never over-brightens
-					// the head-on foreground where F is small). Gated on the sky being
-					// live (IBL on); with it off the grazing surface keeps the faded
-					// body (byte-stable for the IBL-off water demos).
+					// the SKY MIRROR takes F: the reflected ray sampled from the
+					// ratio-true sky capture (exposure-normalized - skyParams.z
+					// reconstructs the HDR radiance, so the warm sunset horizon
+					// keeps its R:G ratio instead of the clamped chain's equal-R,G
+					// pale), weighted by skyParams.w = the other backend's exact
+					// env-term energy (envmapScale x datablock specular - @see the
+					// per-frame push). Gated on the sky being live (IBL on); with
+					// it off the grazing surface keeps the faded body (byte-stable
+					// for the IBL-off water demos).
 					"    if(skyParams.y > 0.5)\n"
 					"    {\n"
 					// reflect off a CALM normal, not the strong crest normal (nrm,
-					// disp*2.5) the streak needs: the shared sky model IS warm at the
-					// sun-side horizon (measured), but the strong ripple perturbation
-					// over-scatters the reflect ray up into the cooler green/blue sky
-					// and abs(refl.y) folds the downward rays up too - averaging to the
-					// grey-green cast. next mirrors the sharp warm horizon (roughness
-					// 0.16); a gently-perturbed normal here samples that same warm
-					// gradient, so the grazing surface reads warm like next.
+					// disp*2.5) the streak needs: next mirrors the sky through its
+					// gently-filtered detail normals (roughness 0.16), and a hard
+					// ripple perturbation would scatter the reflect ray across the
+					// whole dome instead of the horizon gradient a calm surface
+					// shows. The raw reflected direction samples the same capture
+					// next's env term reads - no horizon bias, the ratio-true
+					// storage carries the warm band on its own.
 					"        vec3 reflNrm = normalize(vSwellNormal\n"
 					"            + vec3(disp.x * 0.5, 0.0, disp.y * 0.5));\n"
 					"        vec3 refl = reflect(-viewDir, reflNrm);\n"
-					// bias the reflected ray toward the low horizon: a calm water
-					// surface at a grazing view mirrors the WARM sun-side HORIZON (R>G,
-					// e.g. 248,239,124), but the raw reflect + abs(y) points higher into
-					// the pale yellow-white / green upper sky, so the warm gradient next
-					// mirrors was lost. Compressing y toward the horizon samples that
-					// warm band. (abs keeps it above the horizon - water reflects sky,
-					// never ground.)
-					"        refl = normalize(vec3(refl.x, abs(refl.y) * 0.35, refl.z));\n"
 					"        vec3 skyLin = max(texture(skyMap, refl).rgb, vec3(0.0))\n"
-					"            * 0.30;\n"
+					"            * (skyParams.z * skyParams.w);\n"
 					"        finalLin += skyLin * fres;\n"
 					"    }\n"
 					// atmospheric object fog over the composed LINEAR surface,
@@ -2182,13 +2204,13 @@ namespace Orkige
 				RefractKnobs refractKnobs;
 				refractKnobs.strength = std::max(desc.refractionStrength, 0.0f);
 				refractKnobs.waveScale = std::max(desc.waveScale, 0.001f);
-				// the same F0 formula as the reflect path (base water F0 from
-				// fresnelPower + the reflectionStrength boost)
+				// the physical water F0 scaled by fresnelPower - the other
+				// backend's exact setFresnel input for a non-planar surface
+				// (its reflectionStrength boost belongs to the PLANAR mirror
+				// path only; carrying it here left classic's head-on fresnel
+				// 7x the sibling's, leaking mirror over the transmitted scene)
 				refractKnobs.skyF0 = std::clamp(
-					std::clamp(0.02f * std::max(desc.fresnelPower, 0.0f),
-						0.0f, 0.2f) +
-					std::clamp(desc.reflectionStrength, 0.0f, 1.0f) * 0.12f,
-					0.02f, 0.3f);
+					0.02f * std::max(desc.fresnelPower, 0.0f), 0.0f, 0.2f);
 				refractKnobs.waveHeight = std::max(desc.waveHeight, 0.0f);
 				gRefractiveWaterKnobs[name] = refractKnobs;
 				gWaterScrollSpeeds[name] = desc.waveSpeed;
@@ -2417,16 +2439,31 @@ namespace Orkige
 			// the fresnel sky reflection tracks the LIVE image-lighting state
 			// (the director may toggle it after the water built): gate + level
 			// per frame, and rebind the sky unit when the environment cubemap
-			// (re)appears - while off, the black fallback cube stays bound
+			// (re)appears - while off, the black fallback cube stays bound.
+			// The mirror's ENERGY mirrors the other backend's env term exactly
+			// (BRDF_EnvMap: sample * envmapScale * specular * fresnelS): its
+			// envmapScale is the authored intensity scaled by the cross-flavor
+			// fill calibration (0.2 - the same number its ambient write
+			// carries, @see the next backend's imageLightingEnvmapScale) and
+			// its water datablock specular ~0.47 multiplies the sample. The
+			// capture scale in z reconstructs the ratio-true HDR sky the
+			// procedural capture stores exposure-normalized (1 for an authored
+			// skybox - LDR content, sampled as stored).
 			const bool skyLive = gIbl.active && !gIbl.envTexture.empty();
+			const float kMirrorFillParityScale = 0.2f;
+			const float kMirrorSpecular = 0.47f;
 			params->setNamedConstant("skyParams", Ogre::Vector4(
 				k.skyF0, skyLive ? 1.0f : 0.0f,
-				std::max(gIbl.luminance, 0.0f), 0.0f));
+				gWaterSkyLive ? gWaterSkyScale : 1.0f,
+				std::max(gIbl.luminance, 0.0f) * kMirrorFillParityScale *
+					kMirrorSpecular));
 			if(pass->getNumTextureUnitStates() > 2)
 			{
 				Ogre::TextureUnitState* skyUnit = pass->getTextureUnitState(2);
 				const String wanted = skyLive
-					? gIbl.envTexture : String("Orkige/WaterSkyFallback");
+					? (gWaterSkyLive ? String(kWaterSkyTexture)
+						: gIbl.envTexture)
+					: String("Orkige/WaterSkyFallback");
 				if(skyUnit->getTextureName() != wanted)
 				{
 					// autodetect: the chain lives in DEFAULT, an authored
@@ -2701,13 +2738,65 @@ namespace Orkige
 			}
 		}
 
+		//! @brief upload a tightly packed SkyEnvMap RGBA8 mip chain into a
+		//! (re)created manual cubemap @p name (replace-by-recreate, per
+		//! face/mip blit - the shared body of the two capture uploads below)
+		void uploadSkyChainCubemap(char const * name, unsigned int edge,
+			unsigned int mips, std::vector<unsigned char> const & chain)
+		{
+			Ogre::TextureManager & textureManager =
+				Ogre::TextureManager::getSingleton();
+			if(Ogre::TexturePtr stale = textureManager.getByName(name,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+			{
+				textureManager.remove(stale);
+			}
+			// classic mip counts EXCLUDE the base level
+			const unsigned int extraMips = mips - 1u;
+			Ogre::TexturePtr cube = textureManager.createManual(name,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+				Ogre::TEX_TYPE_CUBE_MAP, edge, edge,
+				static_cast<int>(extraMips), Ogre::PF_BYTE_RGBA,
+				Ogre::TU_DEFAULT);
+			for(size_t face = 0; face < 6; ++face)
+			{
+				for(unsigned int mip = 0; mip <= extraMips; ++mip)
+				{
+					const unsigned int e = std::max(1u, edge >> mip);
+					Ogre::PixelBox box(e, e, 1u, Ogre::PF_BYTE_RGBA,
+						const_cast<unsigned char*>(chain.data()) +
+							SkyEnvMap::faceMipOffset(edge, mip,
+								static_cast<unsigned int>(face)));
+					cube->getBuffer(face, mip)->blitFromMemory(box);
+				}
+			}
+		}
+
+		//! drop the water mirror's ratio-true capture (skybox source / IBL
+		//! off): the per-frame water push falls back to the LDR chain, scale 1
+		void dropWaterSkyTexture()
+		{
+			gWaterSkyLive = false;
+			gWaterSkyScale = 1.0f;
+			Ogre::TextureManager & textureManager =
+				Ogre::TextureManager::getSingleton();
+			if(Ogre::TexturePtr stale = textureManager.getByName(
+				kWaterSkyTexture,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+			{
+				textureManager.remove(stale);
+			}
+		}
+
 		//! @brief synthesize the procedural-sky environment cubemap into the
 		//! derived kIblChainTexture (the RTSS image-based-lighting stage samples
 		//! it by name, like the skybox chain) - the runtime SECOND source of the
 		//! ONE IBL path. Its RGBA8 mip chain is built on the CPU from the
 		//! atmosphere + sun (@see core_util/SkyEnvMap - the SAME sky model the
 		//! visible classic gradient dome draws, so the reflections match the
-		//! sky). "" on failure.
+		//! sky). The SAME capture also refreshes the water mirror's ratio-true
+		//! sibling cubemap (kWaterSkyTexture + gWaterSkyScale) - one recapture
+		//! cadence, two encodes of one sky. "" on failure.
 		String ensureProceduralIblChainTexture(AtmosphereDesc const & desc,
 			Ogre::Vector3 const & toSun, IblPreset::Quality quality)
 		{
@@ -2722,36 +2811,9 @@ namespace Orkige
 			SkyEnvMap::buildCubemapChainRgba8(edge, desc,
 				static_cast<float>(toSun.x), static_cast<float>(toSun.y),
 				static_cast<float>(toSun.z), chain, mips);
-			Ogre::TextureManager & textureManager =
-				Ogre::TextureManager::getSingleton();
 			try
 			{
-				if(Ogre::TexturePtr stale = textureManager.getByName(
-					kIblChainTexture,
-					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
-				{
-					textureManager.remove(stale);
-				}
-				// classic mip counts EXCLUDE the base level
-				const unsigned int extraMips = mips - 1u;
-				Ogre::TexturePtr cube = textureManager.createManual(
-					kIblChainTexture,
-					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
-					Ogre::TEX_TYPE_CUBE_MAP, edge, edge,
-					static_cast<int>(extraMips), Ogre::PF_BYTE_RGBA,
-					Ogre::TU_DEFAULT);
-				for(size_t face = 0; face < 6; ++face)
-				{
-					for(unsigned int mip = 0; mip <= extraMips; ++mip)
-					{
-						const unsigned int e = std::max(1u, edge >> mip);
-						Ogre::PixelBox box(e, e, 1u, Ogre::PF_BYTE_RGBA,
-							chain.data() + SkyEnvMap::faceMipOffset(edge, mip,
-								static_cast<unsigned int>(face)));
-						cube->getBuffer(face, mip)->blitFromMemory(box);
-					}
-				}
-				return kIblChainTexture;
+				uploadSkyChainCubemap(kIblChainTexture, edge, mips, chain);
 			}
 			catch(Ogre::Exception const & e)
 			{
@@ -2760,6 +2822,28 @@ namespace Orkige
 					"capture failed: " + e.getDescription());
 				return String();
 			}
+			// the water mirror's ratio-true encode of the same capture; its
+			// failure only degrades the water's mirror hue (falls back to the
+			// LDR chain), never the image-lighting stage itself
+			try
+			{
+				float scale = 1.0f;
+				SkyEnvMap::buildCubemapChainScaledRgba8(edge, desc,
+					static_cast<float>(toSun.x), static_cast<float>(toSun.y),
+					static_cast<float>(toSun.z), chain, mips, scale);
+				uploadSkyChainCubemap(kWaterSkyTexture, edge, mips, chain);
+				gWaterSkyScale = scale;
+				gWaterSkyLive = true;
+			}
+			catch(Ogre::Exception const & e)
+			{
+				dropWaterSkyTexture();
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige classic backend: water sky-mirror capture failed "
+					"(the water reflects the LDR environment chain): " +
+					e.getDescription());
+			}
+			return kIblChainTexture;
 		}
 #endif // USE_RTSHADER_SYSTEM
 	}
@@ -2900,6 +2984,10 @@ namespace Orkige
 		else if(want)
 		{
 			gProceduralIblHasKey = false;	// not a procedural capture now
+			if(gWaterSkyLive)
+			{
+				dropWaterSkyTexture();	// skybox content is ratio-true as stored
+			}
 			if(gIblChainSource != source ||
 				gIblChainQuality != world->iblQuality || !gIbl.active)
 			{
@@ -2928,6 +3016,10 @@ namespace Orkige
 			gIblChainSource.clear();
 			gIblChainQuality = IblPreset::IQ_OFF;
 			gProceduralIblHasKey = false;
+			if(gWaterSkyLive)
+			{
+				dropWaterSkyTexture();
+			}
 		}
 		else
 		{

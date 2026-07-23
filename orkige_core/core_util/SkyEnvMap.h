@@ -100,6 +100,25 @@ namespace Orkige
 			AtmosphereDesc const & desc, float sx, float sy, float sz,
 			std::vector<unsigned char> & out, unsigned int & outMips);
 
+		//! @brief the RATIO-PRESERVING sibling of buildCubemapChainRgba8: the
+		//! same tightly packed RGBA8 layout, but every texel stores the
+		//! UNCLAMPED model radiance divided by ONE per-capture exposure
+		//! @p outScale (the capture's global max component, floored at 1), so
+		//! texel * outScale reconstructs the HDR sky with its per-channel
+		//! ratios intact. The clamped sibling saturates each channel to 1
+		//! independently, which flattens a bright warm horizon (e.g. linear
+		//! (5.1, 2.9, 0.7)) to an equal-R,G pale (1, 1, 0.7) - fine for the
+		//! calibrated LDR image-lighting fill, wrong for a mirror that needs
+		//! the sky's hue. The classic water's fresnel sky reflection consumes
+		//! this chain with the scale as a shader uniform; the image-lighting
+		//! consumers keep the clamped chain, whose bytes this function leaves
+		//! untouched (a sky already inside [0;1] captures scale 1 and the two
+		//! chains agree byte for byte).
+		void buildCubemapChainScaledRgba8(unsigned int edge,
+			AtmosphereDesc const & desc, float sx, float sy, float sz,
+			std::vector<unsigned char> & out, unsigned int & outMips,
+			float & outScale);
+
 		//! @brief byte offset of cube face @p face at mip @p mip inside a chain
 		//! built by buildCubemapChainRgba8 for base @p edge (the classic
 		//! per-face blit needs the pointer; also the layout's single source of

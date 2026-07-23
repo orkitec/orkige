@@ -144,11 +144,12 @@ def main():
     # materials' fog stage + the water programs' fog block now run the default
     # backend's exact haze-colour/transmittance formulas) dropped the shore
     # band from its historical ~32 delta to a measured 10 and the sky to 7;
-    # the water band measures 20 (the remainder is the water surface's own
-    # mirror/fill energy split - the planar mirror of the saturated sunset sky
-    # reads brighter/greener than next's env-scaled reflection, a calibrated
-    # seam, not formula-matched).
-    MEAN_TOLERANCE = 30.0
+    # the water surface's sky mirror now carries the default backend's exact
+    # env-term energy over a ratio-true HDR sky capture (the former visually
+    # dialed mirror of the CLAMPED capture read as a pale pedestal), which
+    # dropped the water band from its ~20 to a measured 5 and the shore band
+    # to 5 - the corridor tightened to track (measured max 7, the sky band).
+    MEAN_TOLERANCE = 15.0
 
     for name, (x0, y0, x1, y1) in regions.items():
         mean_next = region_mean(img_next, x0, y0, x1, y1)

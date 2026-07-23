@@ -176,6 +176,85 @@ namespace Orkige
 			}
 		}
 		//---------------------------------------------------------
+		void buildCubemapChainScaledRgba8(unsigned int edge,
+			AtmosphereDesc const & desc, float sx, float sy, float sz,
+			std::vector<unsigned char> & out, unsigned int & outMips,
+			float & outScale)
+		{
+			// evaluate the UNCLAMPED model for every base texel first: the
+			// per-capture exposure is its global max component, so the stored
+			// bytes divide by ONE scale and texel * outScale reconstructs the
+			// model's linear radiance - per-channel ratios survive by
+			// construction (the clamped sibling flattens every channel above
+			// 1 to exactly 1, which erases the warm horizon's R:G ratio)
+			const unsigned int mips = mipCountForEdge(edge);
+			outMips = mips;
+			std::vector<float> linear(size_t(edge) * edge * 6u * 3u, 0.0f);
+			const float inv = edge > 0u ? 1.0f / static_cast<float>(edge) : 0.0f;
+			float maxComponent = 0.0f;
+			float* write = linear.data();
+			for(unsigned int face = 0; face < 6u; ++face)
+			{
+				for(unsigned int row = 0; row < edge; ++row)
+				{
+					const float v = (static_cast<float>(row) + 0.5f) * inv;
+					for(unsigned int col = 0; col < edge; ++col)
+					{
+						const float u = (static_cast<float>(col) + 0.5f) * inv;
+						float dirX, dirY, dirZ;
+						faceDirection(face, u, v, dirX, dirY, dirZ);
+						float r = 0.0f, g = 0.0f, b = 0.0f;
+						AtmosphereSunDrive::skyModelColour(desc, sx, sy, sz,
+							dirX, dirY, dirZ, false /*skipSun*/, r, g, b);
+						r = std::max(r, 0.0f);
+						g = std::max(g, 0.0f);
+						b = std::max(b, 0.0f);
+						maxComponent = std::max({ maxComponent, r, g, b });
+						write[0] = r;
+						write[1] = g;
+						write[2] = b;
+						write += 3;
+					}
+				}
+			}
+			// a sky already inside [0;1] stores verbatim (scale 1 - the
+			// scaled chain then equals the clamped sibling byte for byte)
+			outScale = std::max(maxComponent, 1.0f);
+			const float invScale = 1.0f / outScale;
+			// quantize the base faces into the shared tight layout, then box
+			// downsample the tail mips exactly like the clamped chain (the
+			// scale is global, so every mip stays consistent under it)
+			size_t total = 0;
+			for(unsigned int m = 0; m < mips; ++m)
+			{
+				const unsigned int e = std::max(1u, edge >> m);
+				total += size_t(e) * e * 4u * 6u;
+			}
+			out.assign(total, 0);
+			float const * read = linear.data();
+			for(unsigned int face = 0; face < 6u; ++face)
+			{
+				unsigned char * texel = out.data() + faceMipOffset(edge, 0u, face);
+				for(unsigned int i = 0; i < edge * edge; ++i)
+				{
+					texel[0] = toByte(read[0] * invScale);
+					texel[1] = toByte(read[1] * invScale);
+					texel[2] = toByte(read[2] * invScale);
+					texel[3] = 255;
+					texel += 4;
+					read += 3;
+				}
+				for(unsigned int m = 1; m < mips; ++m)
+				{
+					const unsigned int srcEdge = std::max(1u, edge >> (m - 1u));
+					halveFaceRgba8(
+						out.data() + faceMipOffset(edge, m - 1u, face),
+						srcEdge,
+						out.data() + faceMipOffset(edge, m, face));
+				}
+			}
+		}
+		//---------------------------------------------------------
 		CaptureKey keyFor(AtmosphereDesc const & desc,
 			float sx, float sy, float sz)
 		{
