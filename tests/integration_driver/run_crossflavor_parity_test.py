@@ -150,13 +150,18 @@ def main():
     # dropped the water band from its ~20 to a measured 5 and the shore band
     # to 5. The showcase lake then opened its water to opacity 0.55 (the
     # refracted scene now carries 45% of the compose instead of 15%), which
-    # EXPOSES the remaining flavor seams at 3x their former weight. With
-    # the IBL fill and refraction offsets formula-matched, the water band
-    # measures 26 (sky 7, terrain 4): classic's body reads slightly DARKER
-    # than next's - the missing specular-hemisphere lane (classic's
-    # hemisphere ambient is diffuse-only where next's also rides the env
-    # specular), the named successor task. The corridor tracks that
-    # honestly and re-tightens when that lane lands.
+    # EXPOSES the remaining flavor seams at 3x their former weight. The
+    # specular-hemisphere ambient lane and the shared ratio-true water
+    # mirror source landed (probe-identical hemisphere response on both
+    # flavors; both mirrors read one HDR capture), which trimmed the water
+    # band from 26 to a measured 25 (sky 7, terrain 4): the residual is the
+    # flavors' ENV-FILL sampling of the environment chain's deep mips - the
+    # classic stage reads the mathematical face average there while the
+    # default backend's native env sample reads measurably darker from the
+    # SAME chain bytes (probe-isolated on the blue lane; its exact next-side
+    # mechanism is the named successor task, needing a fill-only probe leg
+    # that suspends the atmosphere's per-frame sun re-drive). The corridor
+    # tracks that honestly and re-tightens when that sampling seam closes.
     MEAN_TOLERANCE = 28.0
 
     for name, (x0, y0, x1, y1) in regions.items():

@@ -57,6 +57,7 @@
 #include <OgreImage2.h>
 #include <OgreDataStream.h>
 #include <OgrePixelFormatGpuUtils.h>
+#include <OgreBitwise.h>			// half-float encode for the water env chain
 #include <OgreException.h>
 #include <OgreResourceTransition.h>
 #include <OgreTextureGpu.h>
@@ -272,6 +273,24 @@ namespace Orkige
 		//! coarse cadence so a day/night arc recaptures a handful of times, not
 		//! every frame (~6 degrees; the capture is cheap but not free)
 		const float kSunMoveCosThreshold = 0.9945f;	// cos(6 degrees)
+		//! the water mirror's RATIO-TRUE sibling of the clamped chain: the SAME
+		//! procedural capture re-encoded HDR (RGBA16F, texel = the scaled-chain
+		//! ratio x the capture scale - the exact radiance the classic water
+		//! program reconstructs in-shader from the same capture bytes), bound
+		//! ONLY to water datablocks' reflection slot so both flavors' mirrors
+		//! read the same warm HDR sky and breathe equally under the swell.
+		//! Every OTHER IBL consumer stays on the clamped chain (the
+		//! image-lighting fill is deliberately calibrated LDR on both flavors -
+		//! @see applyImageLightingToDatablock for the routing). NULL while
+		//! image lighting is inactive or the source is an authored skybox
+		//! (LDR content: the mirror samples the clamped chain there, capture
+		//! scale 1, exactly like the classic water's skybox fallback).
+		Ogre::TextureGpu* gWaterEnvTexture = NULL;
+		const char* const kWaterEnvTexture = "Orkige/WaterSkyEnv";
+		//! the generated PBS water datablocks (createOrUpdateWaterDatablock) -
+		//! the identity the reflection bind routes on; pointers are stable
+		//! until the backend teardown (datablocks die with the root)
+		std::set<Ogre::HlmsDatablock*> gWaterDatablocks;
 		//--- end IBL block ------------------------------------------------
 
 		//! give the linked sun its authored colour/power back (no-op when the
@@ -477,7 +496,19 @@ namespace Orkige
 				}
 				Ogre::HlmsPbs* pbs =
 					OGRE_NEW Ogre::HlmsPbs(archivePbs, &libraryPbs);
-				pbs->setDebugOutputPath(false, false);	// as above
+				// ORKIGE_HLMS_DUMP_DIR: write every generated PBS shader into
+				// the given directory - the read-the-generated-shader
+				// diagnostic for cross-flavor shading questions (the classic
+				// sibling is ORKIGE_RTSS_DUMP_DIR, @see Engine.cpp). Inert
+				// without the env var: the debug dump stays silenced as above.
+				if(const char* dumpDir = std::getenv("ORKIGE_HLMS_DUMP_DIR"))
+				{
+					pbs->setDebugOutputPath(true, false, String(dumpDir) + "/");
+				}
+				else
+				{
+					pbs->setDebugOutputPath(false, false);	// as above
+				}
 				hlmsManager->registerHlms(pbs);
 			}
 		}
@@ -760,6 +791,8 @@ namespace Orkige
 		gIblActive = false;
 		gIblTexture = NULL;
 		gIblTextureOwned = false;
+		gWaterEnvTexture = NULL;	// dies with the root, like the chain
+		gWaterDatablocks.clear();	// datablocks die with the root
 		gIblChainSource.clear();
 		gIblChainQuality = IblPreset::IQ_OFF;
 		gIblWarnedReason.clear();
@@ -2239,6 +2272,111 @@ namespace Orkige
 			gIblTexture = NULL;
 			gIblTextureOwned = false;
 		}
+
+		//! destroy the water mirror's ratio-true chain if one is live (always
+		//! owned; the bound water datablocks are re-routed by the caller)
+		void dropWaterEnvTexture()
+		{
+			if(gWaterEnvTexture)
+			{
+				Ogre::TextureGpuManager* textureManager =
+					Ogre::Root::getSingleton().getRenderSystem()
+						->getTextureGpuManager();
+				if(!gWaterEnvTexture->isDataReady())
+				{
+					gWaterEnvTexture->waitForData();	// as above
+				}
+				textureManager->destroyTexture(gWaterEnvTexture);
+			}
+			gWaterEnvTexture = NULL;
+		}
+
+		//! @brief synthesize the water mirror's ratio-true environment sibling
+		//! from the SAME procedural capture the clamped chain came from: the
+		//! ratio-preserving scaled encode (SkyEnvMap::buildCubemapChainScaledRgba8)
+		//! decoded to half-float radiance at upload (texel/255 x the capture
+		//! scale), so the mirror SAMPLE is the HDR radiance directly - the
+		//! per-datablock scale lane the shader would otherwise need is folded
+		//! into the texels, and the numbers equal what the classic water
+		//! program reconstructs in-shader (texel x skyParams.z) from the
+		//! identical capture bytes. NULL on failure: the water keeps the
+		//! clamped chain - the mirror hue pales, never breaks.
+		Ogre::TextureGpu* buildProceduralWaterEnvTexture(
+			AtmosphereDesc const & desc, Ogre::Vector3 const & toSun,
+			IblPreset::Quality quality)
+		{
+			const unsigned int edge =
+				IblPreset::forQuality(quality).chainResolution;
+			if(edge == 0u)
+			{
+				return NULL;
+			}
+			std::vector<unsigned char> chain;
+			unsigned int chainMips = 0u;
+			float scale = 1.0f;
+			SkyEnvMap::buildCubemapChainScaledRgba8(edge, desc,
+				static_cast<float>(toSun.x), static_cast<float>(toSun.y),
+				static_cast<float>(toSun.z), chain, chainMips, scale);
+			try
+			{
+				Ogre::TextureGpuManager* textureManager =
+					Ogre::Root::getSingleton().getRenderSystem()
+						->getTextureGpuManager();
+				const Ogre::PixelFormatGpu format = Ogre::PFG_RGBA16_FLOAT;
+				const size_t sizeBytes =
+					Ogre::PixelFormatGpuUtils::calculateSizeBytes(edge, edge,
+						1u, 6u, format,
+						static_cast<Ogre::uint8>(chainMips), 4u);
+				if(sizeBytes != chain.size() * 2u)
+				{
+					// RGBA16F texels are 8 bytes (4-aligned rows for free), so
+					// the half chain must be exactly twice the tight RGBA8
+					// capture - a mismatch means a format/padding surprise;
+					// refuse rather than upload garbage
+					Ogre::LogManager::getSingleton().logMessage(
+						"Orkige next backend: water sky-mirror layout "
+						"mismatch - skipping capture");
+					return NULL;
+				}
+				Ogre::uint16* data = reinterpret_cast<Ogre::uint16*>(
+					OGRE_MALLOC_SIMD(sizeBytes, Ogre::MEMCATEGORY_RESOURCE));
+				const Ogre::uint16 halfOne = Ogre::Bitwise::floatToHalf(1.0f);
+				for(size_t i = 0; i < chain.size(); i += 4u)
+				{
+					data[i] = Ogre::Bitwise::floatToHalf(
+						chain[i] * (scale / 255.0f));
+					data[i + 1u] = Ogre::Bitwise::floatToHalf(
+						chain[i + 1u] * (scale / 255.0f));
+					data[i + 2u] = Ogre::Bitwise::floatToHalf(
+						chain[i + 2u] * (scale / 255.0f));
+					data[i + 3u] = halfOne;
+				}
+				Ogre::Image2 image;
+				image.loadDynamicImage(data, edge, edge, 6u,
+					Ogre::TextureTypes::TypeCube, format, true /*autoDelete*/,
+					static_cast<Ogre::uint8>(chainMips));
+				Ogre::TextureGpu* texture = textureManager->createTexture(
+					kWaterEnvTexture, Ogre::GpuPageOutStrategy::Discard,
+					Ogre::TextureFlags::ManualTexture,
+					Ogre::TextureTypes::TypeCube);
+				texture->setResolution(edge, edge);
+				texture->setPixelFormat(format);
+				texture->setNumMipmaps(static_cast<Ogre::uint8>(chainMips));
+				texture->scheduleTransitionTo(Ogre::GpuResidency::Resident);
+				texture->waitForData();
+				image.uploadTo(texture, 0u,
+					static_cast<Ogre::uint8>(chainMips - 1u));
+				return texture;
+			}
+			catch(Ogre::Exception const & e)
+			{
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige next backend: water sky-mirror capture failed "
+					"(the water reflects the clamped environment chain): " +
+					e.getDescription());
+				return NULL;
+			}
+		}
 	}
 	//---------------------------------------------------------
 	void RenderBackend::applyImageLighting()
@@ -2282,6 +2420,7 @@ namespace Orkige
 					}
 				}
 				dropOwnedIblChainTexture();
+				dropWaterEnvTexture();
 				gIblChainSource.clear();
 				gIblChainQuality = IblPreset::IQ_OFF;
 				gProceduralIblHasKey = false;
@@ -2295,9 +2434,22 @@ namespace Orkige
 			// the sun the sky is lit by (first directional light, toward-sun) -
 			// the same convention applyAtmosphere reads
 			Ogre::Vector3 toSun(0.3f, 0.9f, 0.2f);
-			if(Ogre::Light* sun = RenderBackend::firstDirectionalLight())
+			Ogre::Light* sun = RenderBackend::firstDirectionalLight();
+			if(sun)
 			{
 				toSun = -sun->getDerivedDirectionUpdated();
+			}
+			else if(gIblActive && gProceduralIblHasKey)
+			{
+				// no directional light RIGHT NOW (a transient state: scene
+				// teardown, a probe that blacked the sun out) but a capture of
+				// the real sky exists - the sky itself has not moved, so KEEP
+				// the capture instead of re-lighting the environment from the
+				// default sun (that wrong-sun recapture visibly re-colours the
+				// bound reflections; the classic backend keeps its capture in
+				// the same state)
+				toSun = Ogre::Vector3(gProceduralIblKey.sunX,
+					gProceduralIblKey.sunY, gProceduralIblKey.sunZ);
 			}
 			toSun.normalise();
 			const SkyEnvMap::CaptureKey nowKey = SkyEnvMap::keyFor(
@@ -2322,6 +2474,12 @@ namespace Orkige
 						"could not capture the procedural sky");
 					return;
 				}
+				// the water mirror's ratio-true sibling rides the SAME
+				// recapture cadence - one capture event, two encodes of one
+				// sky (the classic backend does exactly this)
+				dropWaterEnvTexture();
+				gWaterEnvTexture = buildProceduralWaterEnvTexture(
+					world->atmosphere, toSun, world->iblQuality);
 				gProceduralIblKey = nowKey;
 				gProceduralIblHasKey = true;
 				gIblChainSource = kProceduralSource;
@@ -2350,6 +2508,10 @@ namespace Orkige
 				}
 				gIblChainSource = gSkyboxTexture;
 				gIblChainQuality = world->iblQuality;
+				// an authored skybox is LDR content: the mirror samples the
+				// clamped chain as stored (capture scale 1), exactly like the
+				// classic water's skybox path - no ratio-true sibling
+				dropWaterEnvTexture();
 			}
 			gProceduralIblHasKey = false;	// not a procedural capture now
 		}
@@ -2381,8 +2543,18 @@ namespace Orkige
 		{
 			return;
 		}
+		// water datablocks mirror the sky RATIO-TRUE (the HDR sibling of the
+		// one capture) while every other PBS consumer keeps the calibrated
+		// clamped chain; without a live sibling (skybox source / capture
+		// failure) the water falls back to the clamped chain like the rest
+		Ogre::TextureGpu* chain = gIblTexture;
+		if(gWaterEnvTexture &&
+			gWaterDatablocks.find(datablock) != gWaterDatablocks.end())
+		{
+			chain = gWaterEnvTexture;
+		}
 		static_cast<Ogre::HlmsPbsDatablock*>(datablock)->setTexture(
-			Ogre::PBSM_REFLECTION, gIblTexture);
+			Ogre::PBSM_REFLECTION, chain);
 	}
 	//---------------------------------------------------------
 	float RenderBackend::imageLightingEnvmapScale()
@@ -3445,6 +3617,13 @@ namespace Orkige
 				Ogre::HlmsParamVec()));
 			RenderBackend::registerContentDatablock(datablock);
 		}
+		// water identity first, then re-apply the reflection bind: the water
+		// mirror samples the ratio-true HDR sibling of the environment chain
+		// while every other consumer keeps the clamped chain (@see
+		// applyImageLightingToDatablock; registerContentDatablock above bound
+		// the clamped chain before this datablock was known to be water)
+		gWaterDatablocks.insert(datablock);
+		RenderBackend::applyImageLightingToDatablock(datablock);
 
 		// water is a dielectric: the specular-as-fresnel workflow lets us set
 		// the fresnel (F0) directly (the metallic workflow derives it from

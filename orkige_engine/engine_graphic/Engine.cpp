@@ -610,6 +610,14 @@ namespace Orkige
 				mShaderGenerator->setShaderCachePath(shaderCachePath);
 #endif
 #endif
+				// ORKIGE_RTSS_DUMP_DIR: write every generated shader into the
+				// given directory - the read-the-generated-shader diagnostic
+				// for cross-flavor shading questions (the sibling backend's
+				// counterpart is ORKIGE_HLMS_DUMP_DIR). Inert without the env.
+				if(const char* dumpDir = std::getenv("ORKIGE_RTSS_DUMP_DIR"))
+				{
+					mShaderGenerator->setShaderCachePath(Ogre::String(dumpDir));
+				}
 				// Create and register the material manager listener if it doesn't exist yet.
 				if (mMaterialMgrListener == NULL) {
 					mMaterialMgrListener = new ShaderGeneratorTechniqueResolverListener(mShaderGenerator);

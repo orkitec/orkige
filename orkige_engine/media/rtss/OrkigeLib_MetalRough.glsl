@@ -286,6 +286,49 @@ void Orkige_ImageLighting(
     vOutColour += envScale * (envS * fresnelS + envD * pixel.diffuseColor);
 }
 
+//! the two-colour hemisphere ambient fill, consumed by the engine's
+//! OrkigeHemisphereAmbient sub-render-state (HemisphereAmbientSrs.cpp). It
+//! reproduces the default backend's ambient-hemisphere term EXACTLY as its
+//! generated pixel shader runs it: the hemisphere blend feeds the SAME
+//! envColourS/envColourD lanes the environment probe feeds, evaluated by the
+//! one env BRDF block (envBRDF (1,0,1), diffuse fresnel 1 - the same constants
+//! Orkige_ImageLighting runs), so the fill has TWO lanes:
+//!   Rs = lerp(lower, upper, dot(hemiDir, N)       * 0.5 + 0.5) * fresnelS
+//!   Rd = lerp(lower, upper, dot(hemiDir, reflDir) * 0.5 + 0.5)
+//!        * albedo * (1 - metalness)
+//! with fresnelS the roughness-aware Schlick of the env term
+//! (getSpecularFresnelWithRoughness - the same expression Orkige_ImageLighting
+//! carries) and kS = 1 on generated materials on both flavors. The lane
+//! weights are INTENTIONALLY swapped (specular blends by the NORMAL, diffuse
+//! by the REFLECTED view direction): the default backend's automatic ambient
+//! mode selects its hemisphere-INVERTED shader variant, verified against the
+//! generated source. Both lanes are LINEAR in the env colour, so adding the
+//! hemisphere here and the probe term in Orkige_ImageLighting separately is
+//! identical to the sibling's single summed envColour - no double count. All
+//! vectors are view-space; the fill adds linearly and the shared display
+//! transfer encodes it.
+void Orkige_HemisphereAmbient(
+                in PixelParams pixel,
+                in f32vec3 vNormal,
+                in vec3 viewPos,
+                in vec3 hemiDirView,
+                in vec3 upperHemi,
+                in vec3 lowerHemi,
+                inout vec3 vOutColour)
+{
+    vec3 n = normalize(vNormal);
+    vec3 v = -normalize(viewPos);
+    float NoV = saturate(dot(n, v));
+    vec3 r = 2.0 * dot(v, n) * n - v;
+    float weightS = dot(hemiDirView, n) * 0.5 + 0.5;
+    float weightD = dot(hemiDirView, r) * 0.5 + 0.5;
+    vec3 hemiS = mix(lowerHemi, upperHemi, weightS);
+    vec3 hemiD = mix(lowerHemi, upperHemi, weightD);
+    vec3 fresnelS = pixel.f0 + pow5(1.0 - NoV)
+        * (max(vec3_splat(1.0 - pixel.perceptualRoughness), pixel.f0) - pixel.f0);
+    vOutColour += hemiD * pixel.diffuseColor + hemiS * fresnelS;
+}
+
 //! the shared display transfer of the lit output: the default backend renders
 //! linear and applies sqrt() when the target is not an sRGB surface - the
 //! classic window is exactly that, so the SAME transfer keeps a lit pixel

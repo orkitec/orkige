@@ -15,16 +15,25 @@
 //! sky/ground hemisphere ambient into the generated lit result, mirroring the
 //! Ogre-Next HlmsPbs ambient-hemisphere response so both flavors light a
 //! surface's ambient fill from the same sky/ground split.
-//! @remarks Model (from HlmsPbs AmbientLighting_piece_ps): the diffuse ambient
-//! is @c lerp(lowerHemi, upperHemi, dot(hemisphereDir, N) * 0.5 + 0.5) scaled by
-//! the surface diffuse reflectance (albedo * (1 - metalness)) - single-albedo,
-//! evaluated in view space against the same view-space normal the Cook-Torrance
-//! stage lights with. It runs AFTER the Cook-Torrance lighting stage and ADDS
-//! its term to the lit output (the analytic lights are untouched, exactly as
-//! next adds the ambient on top of the direct lighting). The generated
-//! material's flat scene-ambient term is zeroed at its source (the pass ambient
-//! reflectance is set black in configureSurfaceShaderState), so this is the
-//! sole ambient path for generated surface materials - no double count.
+//! @remarks Model (the sibling's generated ambient-hemisphere shader, verified
+//! against the generated source - its automatic ambient mode selects the
+//! hemisphere-INVERTED variant): the hemisphere feeds BOTH env lanes of the
+//! one env BRDF block. The DIFFUSE lane is @c lerp(lowerHemi, upperHemi,
+//! dot(hemisphereDir, reflDir) * 0.5 + 0.5) scaled by the surface diffuse
+//! reflectance (albedo * (1 - metalness)); the SPECULAR lane is
+//! @c lerp(lowerHemi, upperHemi, dot(hemisphereDir, N) * 0.5 + 0.5) scaled by
+//! the env term's roughness-aware Schlick fresnel (the same expression the
+//! image-based-lighting stage carries) - all view-space, the response in the
+//! engine shader library's Orkige_HemisphereAmbient. It runs AFTER the
+//! Cook-Torrance lighting stage and ADDS its term to the lit output (the
+//! analytic lights are untouched, exactly as next adds the ambient on top of
+//! the direct lighting). The generated material's flat scene-ambient term is
+//! zeroed at its source (the pass ambient reflectance is set black in
+//! configureSurfaceShaderState), so this is the sole ambient path for
+//! generated surface materials - and because both env lanes are linear in the
+//! env colour, the hemisphere add composes with the image-based-lighting
+//! stage's probe add exactly like the sibling's single summed envColour: no
+//! double count.
 
 #include "engine_module/EnginePrerequisitesClassic.h"
 

@@ -48,10 +48,16 @@ namespace Orkige
 		//! the sub-render-state type name (the factory + createSubRenderState key)
 		const Ogre::String SRS_HEMISPHERE_AMBIENT = "OrkigeHemisphereAmbient";
 
+		//! the engine shader library carrying the hemisphere response (the same
+		//! library the metal-rough lighting stage depends on - PixelParams and
+		//! Orkige_HemisphereAmbient live there)
+		const char* const METAL_ROUGH_LIB = "OrkigeLib_MetalRough";
+
 		//---------------------------------------------------------
-		//! evaluates mix(lower, upper, dot(hemisphereDir, N)*0.5+0.5) per pixel
-		//! and adds it, scaled by the surface diffuse reflectance, to the lit
-		//! output - the classic mirror of the HlmsPbs ambient-hemisphere term.
+		//! calls the library's Orkige_HemisphereAmbient with the metal-rough
+		//! stage's PixelParams: the diffuse hemisphere fill PLUS the specular
+		//! hemisphere lane (the fresnelS-weighted env-specular add) - the
+		//! classic mirror of the full HlmsPbs ambient-hemisphere term.
 		class HemisphereAmbient : public SubRenderState
 		{
 		public:
@@ -89,24 +95,29 @@ namespace Orkige
 			Program * psProgram = programSet->getCpuProgram(GPT_FRAGMENT_PROGRAM);
 			Function * psMain = psProgram->getEntryPointFunction();
 
-			// the Cook-Torrance stage (lower execution order, so it built first)
-			// left the surface albedo in the 'baseColor' local; this stage is only
-			// ever added alongside it (@see addHemisphereAmbientSubRenderState), so
-			// a missing local means that pairing regressed - say so, add nothing
-			auto baseColor = psMain->getLocalParameter("baseColor");
-			if(!baseColor)
+			// the metal-rough lighting stage (lower execution order, so it built
+			// first) left its PixelParams local (raw albedo, metal-aware diffuse
+			// reflectance, f0, perceptual roughness - everything both hemisphere
+			// lanes consume); this stage is only ever added alongside it
+			// (@see addHemisphereAmbientSubRenderState), so a missing local means
+			// that pairing regressed - say so, add nothing
+			auto pixel = psMain->getLocalParameter("pixel");
+			if(!pixel)
 			{
 				oDebugWarning(false, "hemisphere ambient: the lighting stage left "
-					"no 'baseColor' local - the ambient fill is skipped");
+					"no 'pixel' params local - the ambient fill is skipped");
 				return true;
 			}
-			// metalness rides ormParams.z (occlusion/roughness/metalness); a pure
-			// metal has no diffuse ambient, matching next's pixelData.diffuse
-			auto ormParams = psMain->getLocalParameter("ormParams");
+
+			// the view-space position (the specular lane needs the view direction
+			// for reflDir + NoV) - resolved the way the image-based-lighting
+			// stage resolves it
+			auto vsOutViewPos =
+				vsMain->resolveOutputParameter(Parameter::SPC_POSITION_VIEW_SPACE);
+			auto viewPos = psMain->resolveInputParameter(vsOutViewPos);
 
 			// the view-space normal the lighting stage shades with (normal-mapped
-			// if the normal-map stage wrote one) - resolved the way the
-			// image-based-lighting stage resolves it
+			// if the normal-map stage wrote one)
 			auto viewNormal =
 				psMain->getLocalParameter(Parameter::SPC_NORMAL_VIEW_SPACE);
 			if(!viewNormal)
@@ -115,6 +126,8 @@ namespace Orkige
 					vsMain->resolveOutputParameter(Parameter::SPC_NORMAL_VIEW_SPACE);
 				viewNormal = psMain->resolveInputParameter(vsOutNormal);
 			}
+
+			psProgram->addDependency(METAL_ROUGH_LIB);
 
 			auto outColour =
 				psMain->resolveOutputParameter(Parameter::SPC_COLOR_DIFFUSE);
@@ -128,50 +141,14 @@ namespace Orkige
 			mHemiDirView =
 				psProgram->resolveParameter(GCT_FLOAT3, "orkigeAmbientHemiDirView");
 
-			auto normal = psMain->resolveLocalParameter(GCT_FLOAT3, "orkHemiNormal");
-			auto weight = psMain->resolveLocalParameter(GCT_FLOAT1, "orkHemiWeight");
-			auto ambient = psMain->resolveLocalParameter(GCT_FLOAT3, "orkHemiColour");
-			auto diffuse = psMain->resolveLocalParameter(GCT_FLOAT3, "orkHemiDiffuse");
-
-			// right after the Cook-Torrance lighting stage
+			// right after the Cook-Torrance lighting stage: both hemisphere lanes
+			// (diffuse fill + fresnelS-weighted specular) in one library call -
+			// the response lives in Orkige_HemisphereAmbient
+			// (media/rtss/OrkigeLib_MetalRough.glsl), shared by both GLSL profiles
 			auto stage = psMain->getStage(FFP_PS_PBR_LIGHTING_END + 1);
-
-			// weight = dot(hemisphereDir, normalize(N)) * 0.5 + 0.5
-			stage.callBuiltin("normalize", In(viewNormal), Out(normal));
-			stage.callBuiltin("dot", In(mHemiDirView), In(normal), Out(weight));
-			stage.mul(In(weight), In(0.5f), Out(weight));
-			stage.add(In(weight), In(0.5f), Out(weight));
-
-			// ambient = mix(lower, upper, weight) == lower + (upper - lower)*weight
-			// built from portable operators so it emits on glsl AND glsles
-			stage.sub(In(mUpperHemi), In(mLowerHemi), Out(ambient));
-			stage.mul(In(ambient), In(weight), Out(ambient));
-			stage.add(In(ambient), In(mLowerHemi), Out(ambient));
-
-			// the reflectance the sky ambient fills: the RAW surface albedo the
-			// metal-rough lighting stage left in baseColor - the engine-owned
-			// stage consumes colours raw (no linearisation), exactly the value
-			// next's HlmsPbs scales its ambient-hemisphere term by, so the
-			// isolated ambient response matches next with no recovery transform
-			// (the earlier pow(1/2.2) recovery compensated the stock stage's
-			// albedo decode, which is gone - @see MetalRoughLightingSrs.h).
-
-			// diffuse = albedo * (1 - metalness): the metal-aware reflectance the
-			// sky ambient fills (next scales its envColourD by pixelData.diffuse)
-			if(ormParams)
-			{
-				auto kd = psMain->resolveLocalParameter(GCT_FLOAT1, "orkHemiKd");
-				stage.sub(In(1.0f), In(ormParams).z(), Out(kd));
-				stage.mul(In(baseColor), In(kd), Out(diffuse));
-			}
-			else
-			{
-				stage.assign(In(baseColor), Out(diffuse));
-			}
-
-			// outColour.rgb += diffuse * ambient (added over the analytic lighting)
-			stage.mul(In(diffuse), In(ambient), Out(diffuse));
-			stage.add(In(outColour).xyz(), In(diffuse), Out(outColour).xyz());
+			stage.callFunction("Orkige_HemisphereAmbient",
+				{ In(pixel), In(viewNormal), In(viewPos), In(mHemiDirView),
+				  In(mUpperHemi), In(mLowerHemi), InOut(outColour).xyz() });
 			return true;
 		}
 
