@@ -26,6 +26,9 @@
       <trans-unit id="bench.of" resname="bench.of" xml:space="preserve">
         <source>of</source>
       </trans-unit>
+      <trans-unit id="bench.restart" resname="bench.restart" xml:space="preserve">
+        <source>Restart</source>
+      </trans-unit>
       <trans-unit id="bench.results" resname="bench.results" xml:space="preserve">
         <source>Results</source>
       </trans-unit>

@@ -33,6 +33,10 @@
         <source>of</source>
         <target state="translated">von</target>
       </trans-unit>
+      <trans-unit id="bench.restart" resname="bench.restart" xml:space="preserve">
+        <source>Restart</source>
+        <target state="translated">Neu starten</target>
+      </trans-unit>
       <trans-unit id="bench.results" resname="bench.results" xml:space="preserve">
         <source>Results</source>
         <target state="translated">Ergebnisse</target>

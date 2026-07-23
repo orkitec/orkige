@@ -1677,11 +1677,17 @@ namespace Orkige
 			// mirrored scene stays readable over a bright body). BOTH are the
 			// SAME formulas the next flavor applies to its PBS fresnel/albedo,
 			// so the two flavors' reflection reads alike
-			// (@see createOrUpdateWaterDatablock)
+			// (@see createOrUpdateWaterDatablock). The clamped F0 then scales by
+			// the authored OPACITY: the sibling's transparent/refractive const-
+			// buffer upload multiplies the fresnel by the transparency value on
+			// non-metallic workflows (its effective water F0 IS authored x
+			// opacity), so an opened-up water surface softens its fresnel edge
+			// identically on both flavors.
 			const float baseF0 = std::clamp(
 				0.02f * std::max(desc.fresnelPower, 0.0f), 0.0f, 0.2f);
 			const float strength = std::clamp(desc.reflectionStrength, 0.0f, 1.0f);
-			const float f0 = std::clamp(baseF0 + strength * 0.12f, 0.02f, 0.3f);
+			const float f0 = std::clamp(baseF0 + strength * 0.12f, 0.02f, 0.3f) *
+				std::clamp(desc.opacity, 0.0f, 1.0f);
 			const float baseScale = 1.0f - strength * 0.35f;
 			params->setNamedConstant("reflectParams", Ogre::Vector4(
 				f0, refractComposed ? 1.0f : 0.0f, baseScale, 0.0f));
@@ -2195,12 +2201,14 @@ namespace Orkige
 				gReflectiveWaterMaterials.insert(name);
 				ReflectKnobs knobs;
 				// stored PRE-COMPUTED F0 (the same formula applyReflectionParams
-				// pushes) - the per-frame scroll re-push sends it verbatim
+				// pushes, incl. its opacity scale - the sibling's transparency
+				// upload scales the fresnel) - the per-frame scroll re-push
+				// sends it verbatim
 				knobs.reflectStrength = std::clamp(
 					std::clamp(0.02f * std::max(desc.fresnelPower, 0.0f),
 						0.0f, 0.2f) +
 					std::clamp(desc.reflectionStrength, 0.0f, 1.0f) * 0.12f,
-					0.02f, 0.3f);
+					0.02f, 0.3f) * std::clamp(desc.opacity, 0.0f, 1.0f);
 				knobs.baseScale = 1.0f -
 					std::clamp(desc.reflectionStrength, 0.0f, 1.0f) * 0.35f;
 				knobs.waveHeight = std::max(desc.waveHeight, 0.0f);
@@ -2295,9 +2303,15 @@ namespace Orkige
 				// backend's exact setFresnel input for a non-planar surface
 				// (its reflectionStrength boost belongs to the PLANAR mirror
 				// path only; carrying it here left classic's head-on fresnel
-				// 7x the sibling's, leaking mirror over the transmitted scene)
+				// 7x the sibling's, leaking mirror over the transmitted scene) -
+				// then scaled by the authored OPACITY, because the sibling's
+				// transparent/refractive const-buffer upload multiplies the
+				// fresnel by the transparency value on non-metallic workflows:
+				// its effective water F0 IS setFresnel x opacity, and an
+				// opened-up surface (low opacity) softens its fresnel edge
 				refractKnobs.skyF0 = std::clamp(
-					0.02f * std::max(desc.fresnelPower, 0.0f), 0.0f, 0.2f);
+					0.02f * std::max(desc.fresnelPower, 0.0f), 0.0f, 0.2f) *
+					std::clamp(desc.opacity, 0.0f, 1.0f);
 				refractKnobs.waveHeight = std::max(desc.waveHeight, 0.0f);
 				gRefractiveWaterKnobs[name] = refractKnobs;
 				gWaterScrollSpeeds[name] = desc.waveSpeed;

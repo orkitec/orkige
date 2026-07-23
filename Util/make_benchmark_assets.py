@@ -495,6 +495,7 @@ STRINGS = {
     "bench.results": "Results",
     "bench.frameMs": "Frame time",
     "bench.done": "Tour complete",
+    "bench.restart": "Restart",
     # a non-Latin line to exercise lazy glyph paging
     "bench.hello": "Hello / Здравствуй / こんにちは",
 }
@@ -511,6 +512,7 @@ DE = {
     "bench.results": "Ergebnisse",
     "bench.frameMs": "Bildzeit",
     "bench.done": "Tour abgeschlossen",
+    "bench.restart": "Neu starten",
     "bench.hello": "Hallo / Здравствуй / こんにちは",
 }
 
@@ -790,14 +792,15 @@ def build_lake():
                   # (capture-verified on both flavors) while the deep colour
                   # still owns the far expanse.
                   opacity=0.55,
-                  # 0.2: the refraction offset rides the shared
+                  # 0.25: the refraction offset rides the shared
                   # distance-squared falloff, so the 0.02 default lands
                   # subpixel at the lake's 20-40u viewing distances; the
                   # measured clean band ends at ~0.3 (beyond it the offset
-                  # drags shoreline colour and goes blocky) - 0.2 is a
+                  # drags shoreline colour and goes blocky) - 0.25 is a
                   # clearly visible wobble near the camera, fading naturally
-                  # with distance (both flavors, same formula)
-                  refraction_strength=0.2,
+                  # with distance (both flavors, same formula), still inside
+                  # the clean band
+                  refraction_strength=0.25,
                   normal_tex="water_normal.png"),
           tags=("water",))
     # the lakebed: a broad, sunken, scaled terrain slab under the water body so
