@@ -1,0 +1,6 @@
+# watertest: bright checkered bed - the transparency read target
+version 1
+albedo 1.0 1.0 1.0 1.0
+albedoTexture demo_mat_albedo.png
+metalness 0.0
+roughness 0.8
