@@ -2,6 +2,13 @@
 # deploy lives as the `site` job INSIDE .github/workflows/ci.yml, so one
 # push shows one run. This workflow stays for the workflow_dispatch lever -
 # a site nudge without running the whole test matrix.
+#
+# This manual deploy is self-contained: besides the landing page + docs portal
+# + legal pages (make_help_portal.py) and the /api/ class reference (doxygen),
+# it cross-builds the benchmark project to WebAssembly and stages it under
+# /play/ so the site's Live Benchmark page has a player to embed. The wasm
+# build is modeled on ci.yml's `web` job (pinned emsdk + vcpkg, binary/ccache
+# caches keyed identically, so a warm run reuses the same artifacts).
 name: pages
 
 on:
@@ -17,14 +24,29 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+env:
+  # the vcpkg commit + emsdk release the wasm export is proven against - kept
+  # in lockstep with ci.yml's `web` job so the caches are shared
+  VCPKG_COMMIT: 42e4e33e1505c9f47b58c21e0f557c1571b751ee
+  VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
+  VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
+  CCACHE_DIR: /home/runner/.ccache
+  CCACHE_MAXSIZE: 2G
+  CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+  EMSDK_VERSION: 6.0.3
+  EMSDK: /home/runner/Development/emsdk
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 240 # cold vcpkg/wasm build headroom; cached runs take minutes
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      # --- the docs site (no engine build) --------------------------------
       - name: Generate the site (landing + portal + legal pages)
         run: python3 Util/make_help_portal.py --output _site
       - name: Install the API-reference tooling
@@ -33,6 +55,104 @@ jobs:
         run: |
           doxygen Docs/api/Doxyfile
           mv Docs/api/build/html _site/api
+
+      # --- the /play/ benchmark: cross-build the wasm player, then export --
+      - name: Install wasm build dependencies
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build ccache python3 pkg-config \
+            autoconf autoconf-archive automake libtool curl zip unzip tar
+
+      - name: Restore emsdk
+        id: emsdk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/Development/emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}
+
+      - name: Install emsdk
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git "$EMSDK"
+          "$EMSDK/emsdk" install "$EMSDK_VERSION"
+          "$EMSDK/emsdk" activate "$EMSDK_VERSION"
+
+      - name: Save emsdk
+        if: always() && steps.emsdk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/Development/emsdk
+          key: ${{ steps.emsdk-cache.outputs.cache-primary-key }}
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      # the cache keys mirror ci.yml's `web` job (incl. the chainload wrapper),
+      # so a manual deploy reuses the binary cache the push builds already warmed
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-web-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**', 'cmake/wasm32-emscripten-toolchain.cmake') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-web-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/.ccache
+          key: ccache-web-${{ runner.os }}-pages-${{ github.sha }}
+          restore-keys: |
+            ccache-web-${{ runner.os }}-
+
+      - name: Configure (web-release, vcpkg dependency builds)
+        run: bash Util/ci_configure.sh --preset web-release -DVCPKG_INSTALL_OPTIONS=--clean-buildtrees-after-build
+
+      - name: Save vcpkg binary cache
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build the wasm player + core test module
+        run: |
+          cmake --build --preset web-release --target orkige_player
+          cmake --build --preset web-release --target orkige_core_tests
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      # gate the /play/ export behind the WebGL suite - the same webgl gate the
+      # CI `web` job runs (core units under node + the headless-Chrome export
+      # boot). A broken WebGL build fails HERE, so this manual redeploy never
+      # stages or ships a broken player.
+      - name: WebGL suite (gate before staging /play/)
+        run: |
+          ctest --preset web --timeout 600 --output-log ctest-web.log
+          ! grep -q "Skipped" ctest-web.log
+
+      - name: Export the benchmark project to /play/
+        # packages the wasm player + the benchmark payload as a static site;
+        # index.html + orkige_player.js/.wasm + the preloaded .data image land
+        # directly in _site/play, which the Live Benchmark page embeds
+        run: |
+          python3 Util/orkige_export.py --project projects/benchmark \
+            --platform web --engine-build build/web-release \
+            --output _site/play
+          test -f _site/play/index.html
+
+      # --- deploy ----------------------------------------------------------
       - name: Pin the custom domain
         run: echo orkige.orkitec.com > _site/CNAME
       - name: Upload the site artifact

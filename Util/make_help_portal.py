@@ -210,10 +210,17 @@ class RenderContext:
         if target == "/api/":
             # the API reference the Pages workflow assembles NEXT TO this
             # generator's output (rendered from the engine headers by
-            # CI-only tooling, Docs/api/Doxyfile) - the ONE site-absolute
+            # CI-only tooling, Docs/api/Doxyfile) - a site-absolute
             # target the link gate accepts without a corpus page behind it
             prefix = "../" if self.page.directory == "help" else ""
             return '<a href="%sapi/index.html">%s</a>' % (prefix, text_html)
+        if target == "/play/":
+            # the live browser benchmark the Pages workflow stages next to this
+            # output (a wasm export of projects/benchmark) - like /api/, a
+            # site-absolute target with no corpus page behind it, so the link
+            # gate accepts it on faith
+            prefix = "../" if self.page.directory == "help" else ""
+            return '<a href="%splay/index.html">%s</a>' % (prefix, text_html)
         if target.startswith("#"):
             self.pending_links.append((self.line, self.page, target[1:]))
             return '<a href="#%s">%s</a>' % (
@@ -726,6 +733,10 @@ def landing_page(pages):
     # /api/ is assembled beside this output by the Pages workflow
     actions.append('<a class="action" href="api/index.html">'
                    "API Reference</a>")
+    # the live browser benchmark (its own page; the /play/ export is staged by
+    # the Pages workflow) - the landing page itself stays embed-free
+    actions.append('<a class="action" href="benchmark.html">'
+                   "Live Benchmark</a>")
     actions.append('<a class="action" href="%s">GitHub</a>' % GITHUB_URL)
     features = "".join(
         '<section class="feature"><h3>%s</h3><p>%s</p></section>'
@@ -739,6 +750,7 @@ def landing_page(pages):
             '<header>\n<a class="home" href="index.html">Orkige</a>\n'
             '<span class="header-links">'
             '<a href="help/index.html">Documentation</a>'
+            '<a href="benchmark.html">Live Benchmark</a>'
             '<a href="%s">GitHub</a></span>\n</header>\n'
             '<div class="hero">\n<h1>Orkige</h1>\n'
             '<p class="tagline">%s</p>\n'
@@ -748,6 +760,67 @@ def landing_page(pages):
             "%s\n</body>\n</html>\n") % (
         GITHUB_URL, LANDING_TAGLINE, "".join(actions), LANDING_INTRO,
         features, footer_html("", pages))
+
+
+# ---------------------------------------------------------------------------
+# the live benchmark page (its own subpage; the LANDING page stays embed-free)
+# ---------------------------------------------------------------------------
+BENCHMARK_HEADING = "The Orkige benchmark, live in your browser"
+
+# the intro/context prose that sits UNDER the embedded player. Text-first, no
+# claims the repository docs do not make (see Docs/benchmark.md).
+BENCHMARK_INTRO = (
+    "This is the engine's benchmark showcase &mdash; the same project the "
+    "editor exports for every platform &mdash; compiled to WebAssembly and "
+    "running right here, with no install. It drives itself: a sequence of "
+    "self-running vignettes tours the engine's features (a terrain vista with "
+    "a day-to-night sun arc and shadows, a reflective water lake, a "
+    "night point-light ramp, 3D particles, an instance field, animated "
+    "characters, flat-colour 2D vector art, a localised UI screen and a "
+    "physics cascade) and scores each one, ending on a results card with a "
+    "Restart button to replay the tour.")
+
+BENCHMARK_NOTE = (
+    "The player is a multi-megabyte WebAssembly module, so it can take a "
+    "moment to download and start on first load. It needs a WebGL2-capable "
+    "browser (every current desktop and mobile browser qualifies). The frame "
+    "below is the exact browser build the engine produces from a project; "
+    "nothing about it is specific to this site.")
+
+
+def benchmark_page(pages):
+    """The live in-browser benchmark: the site header, the embedded player
+    directly below it, then the context prose. The iframe is 100% of the text
+    column (never wider), a fixed 16:9 box that scales down with the column on
+    narrow screens. The wasm export is staged at /play/ by the Pages workflow;
+    a local portal preview lacks it (like /api/)."""
+    frame = (
+        '<div class="player-frame">\n'
+        '<div class="player-loading">Loading the live benchmark&hellip;</div>\n'
+        '<iframe class="player" src="play/index.html" '
+        'title="The Orkige benchmark running in the browser" '
+        'allow="autoplay; fullscreen" '
+        "onload=\"var l=this.parentNode.querySelector('.player-loading');"
+        "if(l){l.style.display='none';}\"></iframe>\n</div>")
+    return ("<!DOCTYPE html>\n"
+            '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+            '<meta name="viewport" content="width=device-width, '
+            'initial-scale=1">\n'
+            "<title>Live Benchmark - Orkige</title>\n"
+            '<link rel="stylesheet" href="help/help.css">\n</head>\n<body>\n'
+            '<header>\n<a class="home" href="index.html">Orkige</a>\n'
+            '<span class="header-links">'
+            '<a href="help/index.html">Documentation</a>'
+            '<a href="benchmark.html">Live Benchmark</a>'
+            '<a href="%s">GitHub</a></span>\n</header>\n'
+            '<main class="benchmark-page"><article>\n'
+            "%s\n"
+            "<h1>%s</h1>\n"
+            "<p>%s</p>\n<p>%s</p>\n"
+            "</article></main>\n"
+            "%s\n</body>\n</html>\n") % (
+        GITHUB_URL, frame, html.escape(BENCHMARK_HEADING), BENCHMARK_INTRO,
+        BENCHMARK_NOTE, footer_html("", pages))
 
 
 HELP_CSS = """\
@@ -889,6 +962,25 @@ header .header-links a:hover { color: var(--accent); }
 }
 .feature h3 { margin-bottom: 0.2rem; }
 .feature p { margin-top: 0.2rem; color: var(--muted); }
+/* the live benchmark page: the embedded player sits in the text column and is
+   never wider than the prose - a fixed 16:9 box that scales down with the
+   column on narrow screens (aspect-ratio holds the height) */
+.benchmark-page { max-width: 58rem; margin: 0 auto; }
+.benchmark-page article { max-width: none; }
+.player-frame {
+	position: relative; width: 100%; aspect-ratio: 16 / 9;
+	margin: 0 0 1.6rem; background: #000;
+	border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+}
+.player-loading {
+	position: absolute; inset: 0; display: flex; align-items: center;
+	justify-content: center; text-align: center; padding: 1rem;
+	color: var(--muted); font-size: 0.95rem;
+}
+.player {
+	position: absolute; inset: 0; width: 100%; height: 100%;
+	border: 0; display: block;
+}
 @media (max-width: 60rem) { nav, .toc { display: none; } }
 """
 
@@ -1123,6 +1215,9 @@ def build(root, output_dir, if_stale=False):
                   page_shell(page, pages, page.html))
     write("help", "index.html", page_shell(None, pages, index_body(pages)))
     write("", "index.html", landing_page(pages))
+    # the live in-browser benchmark: its own root-level page (the landing page
+    # stays embed-free); the /play/ wasm export is staged by the Pages workflow
+    write("", "benchmark.html", benchmark_page(pages))
     write("help", "help.css", HELP_CSS)
     write("help", "help.js", HELP_JS)
     # legal pages stay OUT of the search index by convention (footer-only)
@@ -1179,8 +1274,8 @@ SELFTEST_DOC = """\
 # Synthetic page
 
 Intro paragraph with `inline code`, **bold**, *italic* and a
-[link](other.md#target-section) plus [outside](../README.md) and the
-[class reference](/api/).
+[link](other.md#target-section) plus [outside](../README.md), the
+[class reference](/api/) and the [live benchmark](/play/).
 
 ## Lists and fences
 
@@ -1252,6 +1347,8 @@ def _selftest_synthetic(temp_root):
     assert '<a href="overview.html">outside</a>' in page, page
     # the /api/ allowlist: the reference the Pages workflow assembles
     assert '<a href="../api/index.html">class reference</a>' in page, page
+    # the /play/ allowlist: the live benchmark export the workflow stages
+    assert '<a href="../play/index.html">live benchmark</a>' in page, page
     assert '<pre><code class="lang-lua">print(&quot;fenced inside' in page
     assert "<ol>" in page and "nested ordered two" in page
     assert "pipe escape: a | b" in page
@@ -1274,6 +1371,17 @@ def _selftest_synthetic(temp_root):
     assert 'href="api/index.html"' in landing
     assert GITHUB_URL in landing
     assert '<a href="imprint.html">Impressum</a>' in landing
+    # the landing page links to the live benchmark subpage (the fifth nav
+    # button) but embeds NO player itself
+    assert 'href="benchmark.html">Live Benchmark' in landing
+    assert "player-frame" not in landing
+    # the live benchmark page: header, then the 16:9 iframe pointing at /play/,
+    # then the context prose
+    with open(os.path.join(out, "benchmark.html")) as f:
+        benchmark = f.read()
+    assert 'src="play/index.html"' in benchmark, benchmark
+    assert 'class="player-frame"' in benchmark, benchmark
+    assert 'class="player-loading"' in benchmark, benchmark
     _check_site_tags(out)
     with open(os.path.join(out, "help", "search-index.json")) as f:
         records = json.load(f)
@@ -1339,7 +1447,15 @@ def _selftest_real_corpus(temp_root):
     assert 'href="help/index.html"' in landing
     assert 'href="help/getting-started.html"' in landing
     assert 'href="api/index.html"' in landing
+    assert 'href="benchmark.html">Live Benchmark' in landing
     assert '<a href="imprint.html">Impressum</a>' in landing
+    # the live benchmark page: the 16:9 player embed at /play/ + the prose,
+    # the landing page's fifth nav button links here
+    with open(os.path.join(out, "benchmark.html")) as f:
+        benchmark = f.read()
+    assert 'src="play/index.html"' in benchmark
+    assert 'class="player-frame"' in benchmark
+    assert BENCHMARK_HEADING in benchmark
     with open(os.path.join(out, "imprint.html")) as f:
         imprint = f.read()
     assert "Impressum" in imprint and "orkitec" in imprint

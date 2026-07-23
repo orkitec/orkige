@@ -28,6 +28,7 @@ properties = {
 }
 
 local TS = RenderNode.TransformSpace
+local LA = GuiLabel and GuiLabel.LabelAlignment
 
 -- self-limit budget: a ramp stops adding load once a frame costs more than
 -- this (40 fps floor). Overridable via the `benchmark.rampBudgetMs` cvar so a
@@ -65,6 +66,15 @@ local fpsSmoothed = 60.0
 -- HUD
 local gui, factory, hudTitle, hudInfo, hasUI = nil, nil, nil, nil, false
 local hudScrim = nil
+
+-- results-card restart control + the tour-restart bookkeeping the button and
+-- the automation seam share: BOTH restart paths route through restartTour, so
+-- the interactive click and the headless self-check exercise the same wiring.
+local resRestartBtn = nil
+local restartFired = false
+local forcedNextIndex = nil   -- when set, the next level switch loads THIS index
+local autoRestart = 0.0       -- benchmark.autoRestart: replay the tour from the
+                              -- card after N frames (a kiosk/soak + test seam)
 
 -- ramp bookkeeping
 local pool = {}
@@ -288,6 +298,41 @@ end
 
 --- results card --------------------------------------------------------------
 
+-- a localised string with a literal fallback: the results card is localised
+-- through the project string table, but a missing key must never leave a raw
+-- "bench.foo" on a button, so fall back to the supplied text.
+local function locOr(key, fallback)
+	local ok, s = pcall(loc, key)
+	if not ok or s == nil or s == "" or s == key then
+		return fallback
+	end
+	return s
+end
+
+-- restart the whole tour from its first scene. Reached BOTH from the results
+-- card's Restart button (a deliberate replay) and from the benchmark.autoRestart
+-- automation seam - one path, so a headless run exercises the button's wiring.
+-- The switch always goes through the LEVEL sequence (loadLevel), like every
+-- other advance, and is guarded so a held card cannot fire it twice.
+local function restartTour()
+	if restartFired then
+		return
+	end
+	restartFired = true
+	if world ~= nil and world.getTimeScale() ~= 1.0 then
+		world.setTimeScale(1.0)
+	end
+	forcedNextIndex = 0
+	advancing = true
+	if wipe > 0.5 and screen ~= nil then
+		pcall(function() screen.fadeOut(0.3) end)
+		switchAtFrame = frames + 22   -- ~0.35 s at the vsync pace
+	else
+		switchAtFrame = frames        -- switch this frame
+	end
+	print("director[tally]: restart -> loadLevel 0")
+end
+
 local function buildResults()
 	if not hasUI then
 		return
@@ -355,6 +400,42 @@ local function buildResults()
 			y = y + lineH
 		end
 		frame:setPosition(px + pad, y)
+
+		-- the Restart button: a touch-friendly, safe-area-aware control that
+		-- replays the whole tour from its first scene. Placed BELOW the panel
+		-- (never over the tally content) and clamped inside the safe rect so
+		-- the notch/home-bar never eats it. The nine-slice "button" sprite
+		-- gives it hover/pressed states for free.
+		local safe = engine:getSafeAreaInsets()
+		local btnW = math.max(160, floor(panelW * 0.5))
+		local btnH = math.max(44, floor(rowH * 2.6))
+		local gap = floor(rowH * 1.2)
+		local btnX = floor(px + (panelW - btnW) * 0.5)
+		local btnY = py + panelH + gap
+		-- clamp horizontally into the safe rect
+		local minX = safe.mLeft
+		local maxX = w - safe.mRight - btnW
+		if btnX < minX then btnX = minX end
+		if maxX >= minX and btnX > maxX then btnX = maxX end
+		-- keep the whole button above the bottom safe inset; never push it back
+		-- up INTO the panel (that would overlap the results content)
+		local maxY = h - safe.mBottom - btnH - floor(rowH * 0.6)
+		if btnY > maxY and maxY >= py + panelH + floor(gap * 0.5) then
+			btnY = maxY
+		end
+		resRestartBtn = factory:createButton("res.restart", "button", 9,
+			locOr("bench.restart", "Restart"), Vector2(btnX, btnY),
+			LA and LA.LA_CENTER or 1, Vector2(btnW, btnH), "", 7, false, 0)
+		if resRestartBtn.setNineSlice ~= nil then
+			resRestartBtn:setNineSlice(true)
+		end
+		-- the readback the restart self-check parses: proves the button EXISTS
+		-- on the card and lands inside the safe area, clear of the panel below
+		print(string.format(
+			"director[tally]: restart button ready rect=(%d,%d,%d,%d) "
+			.. "panel=(%d,%d,%d,%d) safe=(%d,%d,%d,%d) window=(%d,%d)",
+			btnX, btnY, btnW, btnH, px, py, panelW, panelH,
+			safe.mLeft, safe.mTop, safe.mRight, safe.mBottom, w, h))
 	end)
 end
 
@@ -464,6 +545,7 @@ function init(self)
 	cvar.registerNumber("benchmark.lightCeiling", 0.0)
 	cvar.registerNumber("benchmark.rampBudgetMs", RAMP_BUDGET_MS)
 	cvar.registerNumber("benchmark.cameraOrbit", 1.0)
+	cvar.registerNumber("benchmark.autoRestart", 0.0)
 	scale = cvar.getNumber("benchmark.sceneScale", 1.0)
 	wipe = cvar.getNumber("benchmark.wipe", 1.0)
 	-- the flavor's queried dynamic-light ceiling drives the many-lights ramp
@@ -482,12 +564,16 @@ function init(self)
 		math.floor(engine:getLightBudget()), lightCeiling))
 	rampBudgetMs = cvar.getNumber("benchmark.rampBudgetMs", RAMP_BUDGET_MS)
 	cameraOrbit = cvar.getNumber("benchmark.cameraOrbit", 1.0)
+	autoRestart = cvar.getNumber("benchmark.autoRestart", 0.0)
 	budget = math.max(6, math.floor(seconds * 60.0 * scale))
 
 	frames = 0
 	elapsed = 0.0
 	advancing = false
 	switchAtFrame = nil
+	resRestartBtn = nil
+	restartFired = false
+	forcedNextIndex = nil
 
 	if benchmark ~= nil then
 		benchmark.begin(label)
@@ -706,7 +792,15 @@ function update(self, dt)
 	elseif mode == "cascade" then
 		driveCascade(dt, p)
 	elseif mode == "tally" then
-		-- idle on the card
+		-- the Restart button replays the tour from its first scene; the
+		-- automation seam fires the SAME path after autoRestart frames so a
+		-- headless run proves the wiring without a synthetic click
+		if resRestartBtn ~= nil and resRestartBtn:wasClicked() then
+			restartTour()
+		end
+		if autoRestart >= 1.0 and frames >= autoRestart then
+			restartTour()
+		end
 	end
 
 	local index = levels ~= nil and levels:currentIndex() or 0
@@ -748,10 +842,12 @@ function update(self, dt)
 	end
 	if advancing and switchAtFrame ~= nil and frames >= switchAtFrame then
 		switchAtFrame = nil
-		local nextIndex = index + 1
-		if nextIndex >= count then
+		-- a restart forces the first scene; a normal advance walks the sequence
+		local nextIndex = forcedNextIndex or (index + 1)
+		if forcedNextIndex == nil and nextIndex >= count then
 			nextIndex = 0	-- attract-mode loop (the hold case never gets here)
 		end
+		forcedNextIndex = nil
 		if levels ~= nil then
 			levels:loadLevel(nextIndex)
 		else
@@ -765,6 +861,7 @@ function shutdown(self)
 		pcall(function() gui:destroyAllWidgets() end)
 	end
 	gui, factory, hudTitle, hudInfo, hudScrim = nil, nil, nil, nil, nil
+	resRestartBtn = nil
 	pool = {}
 	if world ~= nil then
 		pcall(function() world.setTimeScale(1.0) end)

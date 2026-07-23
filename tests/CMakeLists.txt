@@ -2027,6 +2027,24 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_benchmark_vista_wipe${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 540)
+        # the results-card RESTART button, per flavor: run the tour to its
+        # results card, then the director's autoRestart seam fires the SAME
+        # restartTour() path the button's click calls. Asserts (off the
+        # director's own log) that the button EXISTS on the card with a
+        # touch-friendly, safe-area-clamped rect clear of the results panel,
+        # that the restart path fired, and that the sequence actually replayed
+        # from scene 1 (a fresh Terrace Vista init after the card). The
+        # interactive click and the seam share one restart path, so this proves
+        # the button's wiring without a synthetic mouse event.
+        add_test(NAME player_benchmark_restart${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_benchmark_restart_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --player "$<TARGET_FILE:orkige_player>"
+                --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_restart${ORKIGE_FLAVOR_TEST_SUFFIX}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_benchmark_restart${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 540)
         # the static mobility flag's whole contract in one run, per flavor
         # (projects/benchmark scenes/fixture_static.oscene): toggle identity
         # (r.staticScene on/off renders the same pixels - byte-exact on next,

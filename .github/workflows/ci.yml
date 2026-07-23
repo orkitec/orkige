@@ -68,11 +68,17 @@ jobs:
   # The public site (https://orkige.orkitec.com): landing page + docs portal +
   # legal pages from Util/make_help_portal.py plus the /api/ class reference
   # (Docs/api/Doxyfile - runner-only tooling). Lives INSIDE the CI workflow so
-  # one push shows ONE run; the job needs no engine build and runs in parallel
-  # with the test matrix. The generator's hard-failing broken-link gate means
+  # one push shows ONE run. The generator's hard-failing broken-link gate means
   # a broken docs state never deploys. Manual redeploys: the pages workflow
   # keeps a workflow_dispatch-only trigger.
+  #
+  # `needs: web` gates the WHOLE deploy on the WebGL suite: the Live Benchmark
+  # page embeds the /play/ export the `web` job stages, so a commit that breaks
+  # WebGL skips this job entirely - the last good deployment (docs + a working
+  # player) stays live rather than being rebuilt onto a broken build. The
+  # /play/ artifact is reused from the `web` job (no second wasm build here).
   site:
+    needs: web
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -94,6 +100,13 @@ jobs:
         run: |
           doxygen Docs/api/Doxyfile
           mv Docs/api/build/html _site/api
+      - name: Stage the live benchmark (/play/) from the web job
+        # the wasm export the `web` job produced ONLY after its WebGL suite
+        # passed; unpacked under /play/ for the Live Benchmark page to embed
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: benchmark-play
+          path: _site/play
       - name: Pin the custom domain
         run: echo orkige.orkitec.com > _site/CNAME
       - name: Upload the site artifact
@@ -648,6 +661,24 @@ jobs:
           # driver lost its browser discovery and must fail loudly
           ctest --preset web --timeout 600 --output-log ctest-web.log
           ! grep -q "Skipped" ctest-web.log
+
+      # The site's live-benchmark embed (/play/) is exported HERE, gated behind
+      # the WebGL suite above: this step only runs when the suite passed, so a
+      # commit that breaks WebGL produces NO new export. The `site` job consumes
+      # this artifact and is `needs: web`, so a red WebGL suite skips the site
+      # deploy entirely and the last good site (with a working player) stays
+      # live - we never rebuild the page onto a broken build.
+      - name: Export the benchmark project to /play/ (for the site job)
+        run: |
+          python3 Util/orkige_export.py --project projects/benchmark \
+            --platform web --engine-build build/web-release \
+            --output play-site
+          test -f play-site/index.html
+      - name: Upload the /play/ export for the site job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: benchmark-play
+          path: play-site
 
       - name: Upload test diagnostics
         if: failure()
