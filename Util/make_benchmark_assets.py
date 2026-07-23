@@ -790,13 +790,14 @@ def build_lake():
                   # (capture-verified on both flavors) while the deep colour
                   # still owns the far expanse.
                   opacity=0.55,
-                  # 0.13: the refraction offset rides the shared
+                  # 0.2: the refraction offset rides the shared
                   # distance-squared falloff, so the 0.02 default lands
-                  # subpixel at the lake's 20-40u viewing distances - this
-                  # value gives a gentle visible wobble near the camera and
-                  # a naturally fading one at distance (both flavors, same
-                  # formula)
-                  refraction_strength=1.0,
+                  # subpixel at the lake's 20-40u viewing distances; the
+                  # measured clean band ends at ~0.3 (beyond it the offset
+                  # drags shoreline colour and goes blocky) - 0.2 is a
+                  # clearly visible wobble near the camera, fading naturally
+                  # with distance (both flavors, same formula)
+                  refraction_strength=0.2,
                   normal_tex="water_normal.png"),
           tags=("water",))
     # the lakebed: a broad, sunken, scaled terrain slab under the water body so
@@ -971,11 +972,14 @@ def build_cast():
     # clip, and a soft-body blob wobbling on a timer - the flat-colour 2D tier
     # composited in front of the 3D crowd (painter zOrder over the scene).
     # both planar pieces stand ON the terrain under their (x, z) like the
-    # crowd does: the cutout's art hangs below its origin (feet/shadow) and
-    # the blob is origin-centred, so each gets a lift covering its
-    # below-origin extent at its scale - no more knifing into the hill
+    # crowd does. The cutout rig's own GROUND LINE is its shadow layer:
+    # the art spans local y -1.14 (shadow bottom) to +0.9, so the anchor
+    # sits 1.14*scale above the ground for the shadow to lie ON it -
+    # anything less slices the body into the hill (the footprint max keeps
+    # the sloping ground from swallowing the downhill half).
     s.add("Cutout",
-          s.transform(-4.8, ground_y(-4.8, -3.0) + 1.2, -3.0, 2.6, 2.6, 2.6),
+          s.transform(-4.8, ground_y_footprint(-4.8, -3.0, 1.7) + 2.9, -3.0,
+                      2.6, 2.6, 2.6),
           s.vectoranim("cutout_hero.oanim", clip="wave", z_order=6),
           tags=("cutout",))
     s.add("WobbleBlob",

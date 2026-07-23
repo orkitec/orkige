@@ -144,7 +144,7 @@
         <String value=""/>
         <String value="refractionStrength"/>
         <int value="1"/>
-        <String value="0.13"/>
+        <String value="0.2"/>
         <String value=""/>
         <String value="sizeX"/>
         <int value="1"/>
@@ -218,7 +218,7 @@
         <String value=""/>
         <String value="scale"/>
         <int value="5"/>
-        <String value="11 0.5 11"/>
+        <String value="20 0.5 20"/>
         <String value=""/>
         <String value="static"/>
         <int value="2"/>

@@ -63,7 +63,10 @@ DEFAULT_QUADS = 64          # 64x64 quads -> 65x65 = 4225 verts, 8192 triangles.
                             # (the swell VS is two sins) and flat water is
                             # unchanged visually.
 DEFAULT_UV_TILES = 1.0      # texture repeats across the unit plane (material scales further)
-TEXTURE_SIZE = 128          # tiling water-normal edge (power of two)
+TEXTURE_SIZE = 256          # tiling water-normal edge (power of two);
+                            # 128 texels magnified over a 30-90u plane
+                            # quantized the refraction offset field into
+                            # visible blocky steps
 
 GLB_NAME = "water_plane.glb"
 NORMAL_NAME = "water_normal.png"

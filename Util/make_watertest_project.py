@@ -91,13 +91,13 @@ def build_scene():
                   deep=(0.05, 0.22, 0.32, 1.0),
                   shallow=(0.30, 0.47, 0.62, 1.0),
                   opacity=0.6,
-                  refraction_strength=0.13,
+                  refraction_strength=0.2,
                   normal_tex="water_normal.png"),
           tags=("water",))
     # the bright checkered bed: a flattened demo cube, top ~2.1 under the
     # surface (cube half-extent 0.8 x scaleY 0.5 = 0.4)
     s.add("Bed",
-          s.transform(0.0, -2.5, 0.0, 11.0, 0.5, 11.0, static=True),
+          s.transform(0.0, -2.5, 0.0, 20.0, 0.5, 20.0, static=True),
           s.model("demo_material_cube.glb", "watertest_bed.omat"))
     # accent blocks: shallow / piercing / deep
     for name, (x, y, z, sc) in {

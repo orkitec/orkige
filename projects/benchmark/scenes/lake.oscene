@@ -181,7 +181,7 @@
         <String value=""/>
         <String value="refractionStrength"/>
         <int value="1"/>
-        <String value="1"/>
+        <String value="0.2"/>
         <String value=""/>
         <String value="sizeX"/>
         <int value="1"/>
