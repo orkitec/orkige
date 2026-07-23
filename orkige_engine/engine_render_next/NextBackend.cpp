@@ -2391,16 +2391,13 @@ namespace Orkige
 		{
 			return 1.0f;
 		}
-		// cross-flavor fill calibration: at the same authored intensity the
-		// native env contribution lights surfaces ~5x stronger than the
-		// classic flavor's image-lighting stage (measured on the benchmark
-		// vista's terrain: +67 vs +12 display units at intensity 0.2), so the
-		// intensity is scaled down here to make the SAME scene read the same
-		// on both flavors - the flavor-parity contract outranks the native
-		// magnitude (@see Docs/render-abstraction.md)
-		const float kFillParityScale = 0.2f;
+		// the effective env scale: authored intensity x the shared fill
+		// weight (@see IblPreset::fillScale - the one number BOTH flavors'
+		// env consumers carry; the classic image-lighting stage runs this
+		// backend's exact env term at this exact scale, so the flavors match
+		// by formula, not by calibration)
 		return gRenderSystem->getWorld()->mImpl->iblIntensity *
-			kFillParityScale;
+			IblPreset::fillScale();
 	}
 	//--- end IBL block ----------------------------------------------------
 	//---------------------------------------------------------

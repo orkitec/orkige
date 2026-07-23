@@ -493,6 +493,30 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 				probeLight->setSpecularColour(Color(0, 0, 0));
 			}
 		}
+		// ORKIGE_PROBE_IBL=1: enable image lighting sourced from the driven
+		// atmosphere's sky, so the centre pixel reads THIS flavor's environment
+		// fill. Compose with ORKIGE_PROBE_ATMOSPHERE=day ORKIGE_PROBE_NO_FOG=1
+		// ORKIGE_PROBE_SUN_OFF=1 for the fill ALONE on a black base (displayed
+		// = display-encoded fill, no fog/sun/ambient confound), then sweep
+		// ORKIGE_PROBE_ROUGHNESS / ORKIGE_PROBE_METALNESS / ORKIGE_PROBE_
+		// INTENSITY: metalness 1 isolates the REFLECTION lane (the head-on +Z
+		// face mirrors the sky behind the camera) across the roughness->mip
+		// mapping, metalness 0 the DIFFUSE-fill lane (last-mip irradiance x
+		// albedo). This is the leg that decomposed the cross-flavor image-
+		// lighting gap into its per-term mechanisms.
+		if(std::getenv("ORKIGE_PROBE_IBL"))
+		{
+			world->setIblQuality(IblPreset::IQ_HIGH);
+			world->setImageLighting(true, intensity);
+			// setImageLighting re-syncs the live atmosphere, which re-drives
+			// the linked sun's colour - re-assert the SUN_OFF isolation so the
+			// readback stays the environment fill alone
+			if(std::getenv("ORKIGE_PROBE_SUN_OFF"))
+			{
+				probeLight->setDiffuseColour(Color(0, 0, 0));
+				probeLight->setSpecularColour(Color(0, 0, 0));
+			}
+		}
 		// camera dead-on the +Z face
 		cameraNode->setPosition(Vec3(0, 0, 12));
 		cameraNode->lookAt(Vec3::ZERO, RenderNode::TS_WORLD);

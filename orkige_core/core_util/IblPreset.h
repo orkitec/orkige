@@ -86,6 +86,21 @@ namespace Orkige
 			return skip;
 		}
 
+		//! @brief the multiplier the authored image-lighting intensity is scaled
+		//! by before it reaches the shaders - the ONE number BOTH render flavors
+		//! consume (next: the HlmsPbs envmapScale lane the ambient write carries;
+		//! classic: the image-lighting stage's luminance AND the water mirror's
+		//! energy weight), so the same authored intensity lights the same scene
+		//! identically on both flavors by construction.
+		//! @remarks The value is a LOOK choice, not a derived constant: the
+		//! environment fill ADDS on top of the driven hemisphere ambient (which
+		//! already carries the sky's diffuse energy), so full-strength sky
+		//! radiance would double-count that ambient - this weight dials the
+		//! composed level. Cross-flavor parity does NOT depend on the value:
+		//! both flavors run the same env-term formula, so retuning the look is
+		//! a one-constant change that keeps the flavors matched.
+		inline float fillScale() { return 0.2f; }
+
 		//! @brief the canonical knob word for a quality step (the cvar dialect)
 		inline char const * qualityName(Quality quality)
 		{

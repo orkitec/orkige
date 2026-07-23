@@ -18,6 +18,7 @@
 #include "engine_render_classic/ClassicBackend.h"
 #include "engine_render_classic/AtmosphereFogSrs.h"
 #include "engine_render_classic/HemisphereAmbientSrs.h"
+#include "engine_render_classic/ImageLightingSrs.h"
 #include "engine_render_classic/MetalRoughLightingSrs.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/SkyEnvMap.h>
@@ -222,13 +223,26 @@ namespace Orkige
 		//! the same sky, stored exposure-normalized (texel * gWaterSkyScale
 		//! reconstructs the unclamped HDR radiance - @see
 		//! SkyEnvMap::buildCubemapChainScaledRgba8). Only the water fragment
-		//! program samples it; the image-lighting stage keeps the calibrated
-		//! clamped chain above. Live only while the procedural source is the
-		//! active capture (an authored skybox is LDR content - ratio-true as
-		//! stored, scale 1, and the water samples the chain directly).
+		//! program samples it; the image-lighting stage keeps the CLAMPED
+		//! chain above because that is the chain the other backend's env term
+		//! natively samples - both flavors read the same bytes through the
+		//! same formula, so the clamp's hue compression is shared, never a
+		//! cross-flavor difference. Live only while the procedural source is
+		//! the active capture (an authored skybox is LDR content - ratio-true
+		//! as stored, scale 1, and the water samples the chain directly).
 		const char* const kWaterSkyTexture = "Orkige/WaterSkyEnv";
 		float gWaterSkyScale = 1.0f;
 		bool gWaterSkyLive = false;
+		//! the mirror sample's mip level - the sibling backend's exact env
+		//! LOD (envSpecularRoughness: perceptualRoughness x mipCount x
+		//! (2 - perceptualRoughness) at the shared water roughness 0.16), so
+		//! both flavors reflect the SAME prefiltered blur of the sky; a
+		//! base-mip sample rode every normal wobble across the sunset's steep
+		//! horizon gradient and shimmered where next holds still. Derived
+		//! from the bound chain's mip count (capture or rebind site).
+		float gWaterSkyLod = 0.0f;
+		//! the shared water datablock roughness both flavors' env terms read
+		const float kWaterMirrorRoughness = 0.16f;
 		//! which (skybox, tier) pair the chain was built from (skip rebuilds)
 		String gIblChainSource;
 		IblPreset::Quality gIblChainQuality = IblPreset::IQ_OFF;
@@ -359,22 +373,19 @@ namespace Orkige
 				normalMap->setParameter("normalmap_space", "tangent_space");
 				renderState->addTemplateSubRenderState(normalMap);
 			}
-			// while image lighting is active, the image-based-lighting stage
-			// runs after the Cook-Torrance stage and ADDS the environment
-			// chain's specular + diffuse contribution (it binds the DFG LUT +
-			// the chain cubemap as its own texture units on the generated
-			// pass, so the FFP unit indices above stay untouched) - @see
+			// while image lighting is active, the ENGINE-OWNED image-lighting
+			// stage runs after the Cook-Torrance stage and ADDS the environment
+			// chain's specular + diffuse contribution with the other backend's
+			// exact live env term (it binds the chain cubemap as its own raw
+			// texture unit on the generated pass, so the FFP unit indices above
+			// stay untouched; @see ImageLightingSrs.h for the response
+			// differences vs the stock stage it replaced) - @see
 			// RenderBackend::applyImageLighting, which re-derives this state
 			// on every toggle so an inactive state carries NO residue
 			if(gIbl.active)
 			{
-				Ogre::RTShader::SubRenderState* imageLighting =
-					generator->createSubRenderState(
-						Ogre::RTShader::SRS_IMAGE_BASED_LIGHTING);
-				imageLighting->setParameter("texture", gIbl.envTexture);
-				imageLighting->setParameter("luminance",
-					Ogre::StringConverter::toString(gIbl.luminance));
-				renderState->addTemplateSubRenderState(imageLighting);
+				addImageLightingSubRenderState(generator, renderState,
+					gIbl.envTexture, gIbl.luminance);
 			}
 			// EVERY extra pass (the additive emissive glow pass) also carries
 			// the atmospheric fog stage: it detects the additive blend and
@@ -1254,9 +1265,11 @@ namespace Orkige
 					"uniform vec4 refractParams;\n"  // x=strength y=waveScale z=scrollX w=scrollY
 					"uniform vec4 skyParams;\n"      // x=fresnel F0 y=sky enabled z=capture scale w=mirror weight
 					"uniform vec4 camPos;\n"         // world-space camera position
+					"uniform mat4 viewMatrix;\n"     // world -> view (the refract offset is view-space)
+					"uniform vec4 viewportSize;\n"   // (w, h, 1/w, 1/h) - the aspect for the y offset
 					"uniform vec4 sunTowards;\n"     // xyz = toward-the-sun, w = specular gate
 					"uniform vec4 sunColour;\n"      // rgb = driven sun colour
-					"uniform vec4 waterAmbient;\n"   // rgb = upper-hemisphere sky fill (linear-ish, calibrated)
+					"uniform vec4 waterAmbient;\n"   // rgb = upper-hemisphere sky fill (linear), w = mirror sample LOD
 					"in vec2 vUv;\n"
 					"in vec4 vClip;\n"
 					"in vec3 vWorldPos;\n"
@@ -1272,7 +1285,40 @@ namespace Orkige
 					"    vec3 n0 = texture(normalMap, nuv0).xyz * 2.0 - 1.0;\n"
 					"    vec3 n1 = texture(normalMap, nuv1).xyz * 2.0 - 1.0;\n"
 					"    vec2 disp = (n0.xy + n1.xy * 0.6) * refractParams.x;\n"
-					"    vec2 uv = clamp(screenUv + disp + vSwellNormal.xz * 0.12,\n"
+					// the refraction UV offset - the other backend's applyRefractions
+					// math verbatim (Refractions_piece_ps): the VIEW-SPACE xy of
+					// OGRE_refract(viewDir, N, F0, NdotV) scaled by the strength
+					// (x) and strength*aspect (y), attenuated by the view depth
+					// SQUARED - so a distant lakebed sits nearly still while a
+					// near surface visibly bends. N folds the ripple details onto
+					// the swell normal at the sibling datablock's detail weights
+					// (1.35/0.8); eta is the material F0, exactly as next passes
+					// its refractF0. The former constant screen-space offset
+					// (disp + swell*0.12, no distance term) churned the whole
+					// refracted scene at every distance.
+					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
+					// the detail perturbation folds in as FULL tangent vectors
+					// (the sibling backend sums xyz and normalizes, so the
+					// combined z weight ~2.15 DIVIDES the tilt - adding bare xy
+					// to a unit normal over-tilts ~3x, measured on the wobble
+					// probe)
+					"    float rz = n0.z * 1.35 + n1.z * 0.8;\n"
+					"    vec3 refractN = normalize(vSwellNormal * max(rz, 0.5)\n"
+					"        + vec3(n0.x * 1.35 + n1.x * 0.8, 0.0,\n"
+					"               n0.y * 1.35 + n1.y * 0.8));\n"
+					"    float rNdotV = clamp(dot(refractN, viewDir), 0.0, 1.0);\n"
+					"    float eta = clamp(skyParams.x, 0.0, 1.0);\n"
+					"    float rk = 1.0 - eta * eta * (1.0 - rNdotV * rNdotV);\n"
+					"    vec3 refr = rk < 0.0 ? vec3(0.0)\n"
+					"        : -eta * viewDir - (sqrt(rk) - eta * rNdotV) * refractN;\n"
+					"    vec2 refrView = (mat3(viewMatrix) * refr).xy;\n"
+					"    float viewDepth = -(viewMatrix * vec4(vWorldPos, 1.0)).z;\n"
+					// 26.0 = the sibling backend's authored-strength mapping
+					// (kNextRefractionStrengthScale); aspect = viewport w/h
+					"    vec2 uv = clamp(screenUv + refrView\n"
+					"        * (refractParams.x * 26.0)\n"
+					"        * vec2(1.0, viewportSize.x * viewportSize.w)\n"
+					"        / ((viewDepth + 1.0) * (viewDepth + 1.0)),\n"
 					"        vec2(0.002), vec2(0.998));\n"
 					"    vec3 scene = texture(sceneMap, uv).rgb;\n"
 					// next's HlmsPbs Refractive composition, matched in its NATIVE
@@ -1311,7 +1357,6 @@ namespace Orkige
 					// view the teal body fades toward the sky mirror but the scene
 					// seen THROUGH the surface stays. Compute F first, then split
 					// the energy in LINEAR (next composes linear, sqrt once).
-					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
 					"    vec3 nrm = normalize(vSwellNormal\n"
 					"        + vec3(disp.x * 2.5, 0.0, disp.y * 2.5));\n"
 					"    vec3 nF = normalize(vec3(\n"
@@ -1373,8 +1418,14 @@ namespace Orkige
 					"        vec3 reflNrm = normalize(vSwellNormal\n"
 					"            + vec3(disp.x * 0.5, 0.0, disp.y * 0.5));\n"
 					"        vec3 refl = reflect(-viewDir, reflNrm);\n"
-					"        vec3 skyLin = max(texture(skyMap, refl).rgb, vec3(0.0))\n"
-					"            * (skyParams.z * skyParams.w);\n"
+					// sampled at the sibling's env LOD (envSpecularRoughness -
+					// waterAmbient.w, roughness-blurred chain mip), so the
+					// mirror reflects the SAME prefiltered sky: a base-mip
+					// sample shimmered with every normal wobble across the
+					// steep horizon gradient where next holds nearly still
+					"        vec3 skyLin = max(\n"
+					"            textureLod(skyMap, refl, waterAmbient.w).rgb,\n"
+					"            vec3(0.0)) * (skyParams.z * skyParams.w);\n"
 					"        finalLin += skyLin * fres;\n"
 					"    }\n"
 					// atmospheric object fog over the composed LINEAR surface,
@@ -1397,6 +1448,12 @@ namespace Orkige
 				fs->load();
 				fs->getDefaultParameters()->setNamedAutoConstant("camPos",
 					Ogre::GpuProgramParameters::ACT_CAMERA_POSITION);
+				// the refraction offset's view-space frame + aspect (the
+				// sibling backend reads both off its pass buffer)
+				fs->getDefaultParameters()->setNamedAutoConstant("viewMatrix",
+					Ogre::GpuProgramParameters::ACT_VIEW_MATRIX);
+				fs->getDefaultParameters()->setNamedAutoConstant("viewportSize",
+					Ogre::GpuProgramParameters::ACT_VIEWPORT_SIZE);
 			}
 		}
 		//! @brief pins a programmed water technique to the viewport's RTSS scheme.
@@ -1486,6 +1543,8 @@ namespace Orkige
 					"uniform vec4 refractParams;\n"    // x=refractStrength y=waveScale z=scrollX w=scrollY
 					"uniform vec4 reflectParams;\n"    // x=fresnel F0 y=refractEnabled z=bodyDim
 					"uniform vec4 camPos;\n"           // world-space camera position
+					"uniform mat4 viewMatrix;\n"       // world -> view (the refract offset is view-space)
+					"uniform vec4 viewportSize;\n"     // (w, h, 1/w, 1/h) - the aspect for the y offset
 					"uniform vec4 sunTowards;\n"       // xyz = toward-the-sun (world), w = specular gate
 					"uniform vec4 sunColour;\n"        // rgb = driven sun colour
 					"in vec2 vUv;\n"
@@ -1503,13 +1562,35 @@ namespace Orkige
 					"    vec3 n0 = texture(normalMap, nuv0).xyz * 2.0 - 1.0;\n"
 					"    vec3 n1 = texture(normalMap, nuv1).xyz * 2.0 - 1.0;\n"
 					"    vec2 disp = (n0.xy + n1.xy * 0.6);\n"
+					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
 					// the base look: the refracted scene when refraction composes,
-					// else the water body tint
+					// else the water body tint. The refraction UV offset is the
+					// other backend's applyRefractions math verbatim - the
+					// view-space xy of OGRE_refract, aspect-corrected, attenuated
+					// by the view depth SQUARED (@see the refract program above
+					// for the formula walkthrough; 26.0 = its authored-strength
+					// mapping kNextRefractionStrengthScale, eta = the material F0)
 					"    vec3 base;\n"
 					"    if(reflectParams.y > 0.5)\n"
 					"    {\n"
-					"        vec2 suv = clamp(screenUv + disp * refractParams.x\n"
-					"            + vSwellNormal.xz * 0.12, vec2(0.002), vec2(0.998));\n"
+					// z-weighted like the refract FS (the full-tangent-vector
+					// sum's combined z divides the tilt on normalize)
+					"        float rz = n0.z * 1.35 + n1.z * 0.8;\n"
+					"        vec3 refractN = normalize(vSwellNormal * max(rz, 0.5)\n"
+					"            + vec3(n0.x * 1.35 + n1.x * 0.8, 0.0,\n"
+					"                   n0.y * 1.35 + n1.y * 0.8));\n"
+					"        float rNdotV = clamp(dot(refractN, viewDir), 0.0, 1.0);\n"
+					"        float eta = clamp(reflectParams.x, 0.0, 1.0);\n"
+					"        float rk = 1.0 - eta * eta * (1.0 - rNdotV * rNdotV);\n"
+					"        vec3 refr = rk < 0.0 ? vec3(0.0)\n"
+					"            : -eta * viewDir - (sqrt(rk) - eta * rNdotV) * refractN;\n"
+					"        vec2 refrView = (mat3(viewMatrix) * refr).xy;\n"
+					"        float viewDepth = -(viewMatrix * vec4(vWorldPos, 1.0)).z;\n"
+					"        vec2 suv = clamp(screenUv + refrView\n"
+					"            * (refractParams.x * 26.0)\n"
+					"            * vec2(1.0, viewportSize.x * viewportSize.w)\n"
+					"            / ((viewDepth + 1.0) * (viewDepth + 1.0)),\n"
+					"            vec2(0.002), vec2(0.998));\n"
 					"        vec3 scene = texture(sceneMap, suv).rgb;\n"
 					"        base = mix(scene, deepColour.rgb, deepColour.a * 0.6)\n"
 					"             + shallowColour.rgb * 0.12;\n"
@@ -1533,7 +1614,6 @@ namespace Orkige
 					// applies natively, so the two flavors read alike.
 					// reflectParams.x carries the PRE-COMPUTED F0 (base water F0 +
 					// the reflectionStrength boost - @see applyReflectionParams).
-					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
 					"    vec3 nrm = normalize(vSwellNormal\n"
 					"        + vec3(disp.x * 0.15, 0.0, disp.y * 0.15));\n"
 					"    vec3 nF = normalize(vec3(\n"
@@ -1565,6 +1645,12 @@ namespace Orkige
 				fs->load();
 				fs->getDefaultParameters()->setNamedAutoConstant("camPos",
 					Ogre::GpuProgramParameters::ACT_CAMERA_POSITION);
+				// the refraction offset's view-space frame + aspect (the
+				// sibling backend reads both off its pass buffer)
+				fs->getDefaultParameters()->setNamedAutoConstant("viewMatrix",
+					Ogre::GpuProgramParameters::ACT_VIEW_MATRIX);
+				fs->getDefaultParameters()->setNamedAutoConstant("viewportSize",
+					Ogre::GpuProgramParameters::ACT_VIEWPORT_SIZE);
 			}
 		}
 		//! push the water body colour + refraction/reflection knobs onto a
@@ -1608,7 +1694,8 @@ namespace Orkige
 		//! so the hand-written water pass lights its diffuse body at the SAME
 		//! calibrated ambient level instead of unlit (@see the water FS bodyLit).
 		//! Without the RTSS hemisphere (GLES2/no-RTSS floor) it falls back to a
-		//! neutral mid fill so the body still reads.
+		//! neutral mid fill so the body still reads. The w lane rides along as
+		//! the sky-mirror sample LOD (@see gWaterSkyLod).
 		void pushWaterAmbient(Ogre::GpuProgramParametersSharedPtr const & params)
 		{
 			Ogre::ColourValue upper(0.2f, 0.2f, 0.2f, 1.0f);
@@ -1617,7 +1704,7 @@ namespace Orkige
 			hemisphereAmbientColours(upper, lower);
 #endif
 			params->setNamedConstant("waterAmbient",
-				Ogre::Vector4(upper.r, upper.g, upper.b, 1.0f));
+				Ogre::Vector4(upper.r, upper.g, upper.b, gWaterSkyLod));
 		}
 		//! the 1x1 black cube bound to the refract program's sky unit while
 		//! image lighting is off (GL validates the samplerCube binding even
@@ -2441,22 +2528,20 @@ namespace Orkige
 			// per frame, and rebind the sky unit when the environment cubemap
 			// (re)appears - while off, the black fallback cube stays bound.
 			// The mirror's ENERGY mirrors the other backend's env term exactly
-			// (BRDF_EnvMap: sample * envmapScale * specular * fresnelS): its
-			// envmapScale is the authored intensity scaled by the cross-flavor
-			// fill calibration (0.2 - the same number its ambient write
-			// carries, @see the next backend's imageLightingEnvmapScale) and
-			// its water datablock specular ~0.47 multiplies the sample. The
-			// capture scale in z reconstructs the ratio-true HDR sky the
-			// procedural capture stores exposure-normalized (1 for an authored
-			// skybox - LDR content, sampled as stored).
+			// (BRDF_EnvMap: sample * envmapScale * specular * fresnelS):
+			// gIbl.luminance IS that envmapScale (the authored intensity x the
+			// shared IblPreset::fillScale, the one number both flavors' env
+			// consumers carry) and the water datablock specular ~0.47
+			// multiplies the sample. The capture scale in z reconstructs the
+			// ratio-true HDR sky the procedural capture stores
+			// exposure-normalized (1 for an authored skybox - LDR content,
+			// sampled as stored).
 			const bool skyLive = gIbl.active && !gIbl.envTexture.empty();
-			const float kMirrorFillParityScale = 0.2f;
 			const float kMirrorSpecular = 0.47f;
 			params->setNamedConstant("skyParams", Ogre::Vector4(
 				k.skyF0, skyLive ? 1.0f : 0.0f,
 				gWaterSkyLive ? gWaterSkyScale : 1.0f,
-				std::max(gIbl.luminance, 0.0f) * kMirrorFillParityScale *
-					kMirrorSpecular));
+				std::max(gIbl.luminance, 0.0f) * kMirrorSpecular));
 			if(pass->getNumTextureUnitStates() > 2)
 			{
 				Ogre::TextureUnitState* skyUnit = pass->getTextureUnitState(2);
@@ -2474,6 +2559,20 @@ namespace Orkige
 								AUTODETECT_RESOURCE_GROUP_NAME))
 					{
 						skyUnit->setTexture(texture);
+						// a skybox-chain bind derives the mirror LOD from ITS
+						// mip count (classic counts exclude the base - +1
+						// matches the sibling's include-base convention); the
+						// procedural capture sets it at build, the fallback
+						// cube samples base (the branch is gated off anyway)
+						if(!gWaterSkyLive)
+						{
+							gWaterSkyLod = skyLive
+								? kWaterMirrorRoughness *
+									static_cast<float>(
+										texture->getNumMipmaps() + 1u) *
+									(2.0f - kWaterMirrorRoughness)
+								: 0.0f;
+						}
 					}
 				}
 			}
@@ -2778,6 +2877,7 @@ namespace Orkige
 		{
 			gWaterSkyLive = false;
 			gWaterSkyScale = 1.0f;
+			gWaterSkyLod = 0.0f;
 			Ogre::TextureManager & textureManager =
 				Ogre::TextureManager::getSingleton();
 			if(Ogre::TexturePtr stale = textureManager.getByName(
@@ -2833,6 +2933,10 @@ namespace Orkige
 					static_cast<float>(toSun.z), chain, mips, scale);
 				uploadSkyChainCubemap(kWaterSkyTexture, edge, mips, chain);
 				gWaterSkyScale = scale;
+				// mips counts the base level, matching the sibling backend's
+				// TextureGpu::getNumMipmaps the env LOD formula consumes
+				gWaterSkyLod = kWaterMirrorRoughness *
+					static_cast<float>(mips) * (2.0f - kWaterMirrorRoughness);
 				gWaterSkyLive = true;
 			}
 			catch(Ogre::Exception const & e)
@@ -2916,26 +3020,13 @@ namespace Orkige
 				want = false;
 			}
 		}
-		if(want)
-		{
-			// the split-sum lookup table the generated stage samples (ships
-			// with the shader-library media); load once, refuse honestly
-			// when the media set predates it
-			try
-			{
-				Ogre::TextureManager::getSingleton().load(
-					"dfgLUTmultiscatter.dds", Ogre::RGN_INTERNAL);
-			}
-			catch(Ogre::Exception const &)
-			{
-				warnImageLightingOnce("found no DFG lookup table in the "
-					"shader-library media - rendering unchanged");
-				want = false;
-			}
-		}
 		IblState desired;
 		desired.active = want;
-		desired.luminance = world->iblIntensity;
+		// the effective env scale: authored intensity x the shared fill
+		// weight - the SAME number the other backend's envmapScale lane
+		// carries (@see IblPreset::fillScale), consumed by the generated
+		// image-lighting stage AND the water mirror's energy push
+		desired.luminance = world->iblIntensity * IblPreset::fillScale();
 		if(want && procedural)
 		{
 			// the sun the sky is lit by (first directional light, toward-sun)

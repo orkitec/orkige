@@ -236,6 +236,56 @@ void PBR_MakeParams(in vec3 baseColor, in vec3 ormParam, inout PixelParams pixel
     pixel.energyCompensation = vec3_splat(1.0);
 }
 
+//! the image-based-lighting stage's environment fill, consumed by the engine's
+//! OrkigeImageLighting sub-render-state (ImageLightingSrs.cpp). It reproduces
+//! the default backend's LIVE env term (its BRDF env block with the constant
+//! envBRDF (1,0,1) and diffuse fresnel 1 - that backend loads no LTC lookup
+//! table and keeps the default BRDF, so those are the terms that actually run):
+//!   fresnelS = f0 + (1-NoV)^5 * (max(1-perceptualRoughness, f0) - f0)
+//!   Rs = envS(lod = pr * mipCount * (2 - pr)) * fresnelS   [kS = 1 on
+//!        generated materials on both flavors]
+//!   Rd = envD(last mip) * albedo * (1 - metalness)
+//!   colour += envScale * (Rs + Rd)
+//! The chain cubemap stores the sky model's CLAMPED LINEAR radiance and is
+//! sampled RAW (never sRGB-decoded), and the fill adds LINEARLY - the one
+//! sqrt display transfer at the end of the pixel shader encodes it together
+//! with the direct and ambient terms, exactly like the default backend's
+//! single linear accumulation. envScale carries the authored intensity times
+//! the shared fill weight (core_util/IblPreset.h fillScale), the SAME number
+//! the default backend's envmapScale lane carries.
+void Orkige_ImageLighting(
+                in PixelParams pixel,
+                in f32vec3 vNormal,
+                in vec3 viewPos,
+                in mat4 invViewMat,
+                in samplerCube envMap,
+                in float envExtraMips,
+                in float envScale,
+                inout vec3 vOutColour)
+{
+    vec3 n = normalize(vNormal);
+    vec3 v = -normalize(viewPos);
+    float NoV = saturate(dot(n, v));
+    vec3 r = reflect(-v, n);
+    // view -> world for cubemap sampling, with the stock stage's z-flip
+    // convention (the selfcheck's mirror-face leg pins this: the +X view
+    // reflects the -X face on both flavors)
+    r = normalize(mul(invViewMat, vec4(r, 0.0)).xyz);
+    r.z *= -1.0;
+    vec3 nWorld = normalize(mul(invViewMat, vec4(n, 0.0)).xyz);
+    nWorld.z *= -1.0;
+    // the default backend's roughness->lod map counts mips INCLUDING the
+    // base level; the classic texture-size autoparam excludes it
+    float mipCount = envExtraMips + 1.0;
+    float lodS = pixel.perceptualRoughness * mipCount
+        * (2.0 - pixel.perceptualRoughness);
+    vec3 envS = textureCubeLod(envMap, r, lodS).rgb;
+    vec3 envD = textureCubeLod(envMap, nWorld, envExtraMips).rgb;
+    vec3 fresnelS = pixel.f0 + pow5(1.0 - NoV)
+        * (max(vec3_splat(1.0 - pixel.perceptualRoughness), pixel.f0) - pixel.f0);
+    vOutColour += envScale * (envS * fresnelS + envD * pixel.diffuseColor);
+}
+
 //! the shared display transfer of the lit output: the default backend renders
 //! linear and applies sqrt() when the target is not an sRGB surface - the
 //! classic window is exactly that, so the SAME transfer keeps a lit pixel

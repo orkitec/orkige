@@ -298,17 +298,26 @@ added. Classic recapture updates the cubemap contents in place (the RTSS
 stage keeps its binding by name, like a skybox tier re-arm); next rebinds
 the fresh texture, so its reflection updates immediately.
 
-Flavor mapping — both native, tolerance parity (not per-pixel):
+Flavor mapping — ONE env-term formula at ONE scale (formula parity, not a
+calibrated approximation):
 
 - **next**: the HlmsPbs reflection map (`PBSM_REFLECTION`) on every
   generated PBS datablock + the scene's `envmapScale`/diffuse-GI env
   feature — specular AND diffuse from the one cubemap, additive in the
   shader.
-- **classic**: the shader-generator image-based-lighting stage appended to
-  the generated Cook-Torrance materials (split-sum DFG lookup table from
-  the shader-library media + the same cubemap; also specular + diffuse,
-  additive). A GLES2/WebGL1 context without GLSL ES 3.0 refuses with one
-  log line — the `iblReflections` capability bit is runtime-gated there.
+- **classic**: the engine-owned image-lighting sub-render-state
+  (`ImageLightingSrs`) appended to the generated Cook-Torrance materials —
+  it evaluates next's LIVE env term verbatim (the roughness-remapped
+  analytic fresnel weighs the reflection, the diffuse fill is unweighted;
+  no lookup table) over the same cubemap, sampled raw and added linearly
+  before the shared display transfer. A GLES2/WebGL1 context without
+  GLSL ES 3.0 refuses with one log line — the `iblReflections` capability
+  bit is runtime-gated there.
+- The authored intensity reaches both shaders through the ONE shared
+  multiplier (`IblPreset::fillScale` — next's `envmapScale` lane, classic's
+  stage luminance and the water mirror's energy weight), so the fill level
+  matches across flavors by construction and retuning the look is a
+  one-constant change.
 - Scope delta inside the tolerance: next's mesh importer emits PBS
   datablocks, so glTF-embedded materials pick the reflection map up too;
   classic's imported materials stay outside the generated Cook-Torrance
