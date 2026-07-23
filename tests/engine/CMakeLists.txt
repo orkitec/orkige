@@ -101,6 +101,10 @@ if(TARGET orkige_generate_atlases)
 endif()
 
 include(Catch)
+# ALSOFT_DRIVERS: the engine unit suite links OpenAL - keep any test that
+# opens a device on the silent null backend (SoundTeardownTests also forces
+# it in-code so a bare binary run stays silent too).
 catch_discover_tests(orkige_engine_tests
     PROPERTIES LABELS unit TIMEOUT 30
+        ENVIRONMENT_MODIFICATION "ALSOFT_DRIVERS=set:null"
 )

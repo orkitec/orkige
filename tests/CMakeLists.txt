@@ -2472,3 +2472,18 @@ if(APPLE AND TARGET orkige_editor)
     unset(_orkige_registered_tests)
     unset(_orkige_test)
 endif()
+
+# Tests are SILENT on a developer's machine: every test in this directory runs
+# with OpenAL Soft's null backend, so a player selfcheck's sfx, a benchmark
+# scene's music or an editor play session (child processes inherit the
+# environment) never reach the speakers. The null device behaves like a real
+# one - buffers drain, stream positions advance (SoundTeardownTests runs the
+# full SoundManager on it) - so sound-asserting tests pass unchanged, just
+# inaudibly. ENVIRONMENT_MODIFICATION layers over any per-test ENVIRONMENT.
+get_property(_orkige_registered_tests DIRECTORY PROPERTY TESTS)
+foreach(_orkige_test IN LISTS _orkige_registered_tests)
+    set_property(TEST "${_orkige_test}" APPEND PROPERTY
+        ENVIRONMENT_MODIFICATION "ALSOFT_DRIVERS=set:null")
+endforeach()
+unset(_orkige_registered_tests)
+unset(_orkige_test)
