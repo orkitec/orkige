@@ -37,6 +37,13 @@ namespace Orkige
 		//! replaces (@see noteHemisphereAmbientColours).
 		Ogre::ColourValue gHemisphereUpper(0.2f, 0.2f, 0.2f, 1.0f);
 		Ogre::ColourValue gHemisphereLower(0.2f, 0.2f, 0.2f, 1.0f);
+		//! the WORLD-space hemisphere axis the sky/ground split blends around:
+		//! straight up for the authored ambient (matching the other backend's
+		//! setAmbientHemisphere), TILTED toward the mirrored sun while an
+		//! atmosphere drives the fill (its native linkage points the axis at
+		//! normalize(up + halfTurnAboutUp(toSun)), so horizon-facing surfaces
+		//! read the warm horizon band instead of the zenith)
+		Ogre::Vector3 gHemisphereDir(Ogre::Vector3::UNIT_Y);
 
 		//! the sub-render-state type name (the factory + createSubRenderState key)
 		const Ogre::String SRS_HEMISPHERE_AMBIENT = "OrkigeHemisphereAmbient";
@@ -124,7 +131,6 @@ namespace Orkige
 			auto normal = psMain->resolveLocalParameter(GCT_FLOAT3, "orkHemiNormal");
 			auto weight = psMain->resolveLocalParameter(GCT_FLOAT1, "orkHemiWeight");
 			auto ambient = psMain->resolveLocalParameter(GCT_FLOAT3, "orkHemiColour");
-			auto albedo = psMain->resolveLocalParameter(GCT_FLOAT3, "orkHemiAlbedo");
 			auto diffuse = psMain->resolveLocalParameter(GCT_FLOAT3, "orkHemiDiffuse");
 
 			// right after the Cook-Torrance lighting stage
@@ -142,20 +148,13 @@ namespace Orkige
 			stage.mul(In(ambient), In(weight), Out(ambient));
 			stage.add(In(ambient), In(mLowerHemi), Out(ambient));
 
-			// the reflectance the sky ambient fills. Next's HlmsPbs consumes a
-			// FLAT material albedo / a raw (non-sRGB) texture in DISPLAY space for
-			// the ambient-hemisphere term, while classic's Cook-Torrance baseColor
-			// is linearised (USE_LINEAR_COLOURS): recover the display-space albedo
-			// so the ISOLATED ambient response matches next (the hemisphere probe -
-			// linear baseColor read HALF next's ambient at mid greys, closing
-			// toward parity only near white). For real sRGB-textured content both
-			// flavors already linearise the sample, so on a scene where direct
-			// light dominates this recovery is a small fraction of the pixel and
-			// leaves lake/vista/cutout byte-close either way; the residual gap it
-			// closes is the flat-colour albedo-space difference the two flavors
-			// carry surface-wide (the same one the direct path compensates for).
-			stage.callBuiltin("pow", In(baseColor),
-				In(Ogre::Vector3(1.0f / 2.2f)), Out(albedo));
+			// the reflectance the sky ambient fills: the RAW surface albedo the
+			// metal-rough lighting stage left in baseColor - the engine-owned
+			// stage consumes colours raw (no linearisation), exactly the value
+			// next's HlmsPbs scales its ambient-hemisphere term by, so the
+			// isolated ambient response matches next with no recovery transform
+			// (the earlier pow(1/2.2) recovery compensated the stock stage's
+			// albedo decode, which is gone - @see MetalRoughLightingSrs.h).
 
 			// diffuse = albedo * (1 - metalness): the metal-aware reflectance the
 			// sky ambient fills (next scales its envColourD by pixelData.diffuse)
@@ -163,11 +162,11 @@ namespace Orkige
 			{
 				auto kd = psMain->resolveLocalParameter(GCT_FLOAT1, "orkHemiKd");
 				stage.sub(In(1.0f), In(ormParams).z(), Out(kd));
-				stage.mul(In(albedo), In(kd), Out(diffuse));
+				stage.mul(In(baseColor), In(kd), Out(diffuse));
 			}
 			else
 			{
-				stage.assign(In(albedo), Out(diffuse));
+				stage.assign(In(baseColor), Out(diffuse));
 			}
 
 			// outColour.rgb += diffuse * ambient (added over the analytic lighting)
@@ -193,11 +192,11 @@ namespace Orkige
 			}
 			if(mHemiDirView && source)
 			{
-				// next rotates the world hemisphere direction (up, UNIT_Y) into
-				// view space and normalises it; the shader dots it with the
-				// view-space normal, so the split is frame-invariant
+				// next rotates the world hemisphere axis into view space and
+				// normalises it; the shader dots it with the view-space normal,
+				// so the split is frame-invariant
 				Ogre::Vector3 dir =
-					source->getViewMatrix().linear() * Ogre::Vector3::UNIT_Y;
+					source->getViewMatrix().linear() * gHemisphereDir;
 				dir.normalise();
 				mHemiDirView->setGpuParameter(dir);
 			}
@@ -232,6 +231,17 @@ namespace Orkige
 	{
 		gHemisphereUpper = upperHemisphere;
 		gHemisphereLower = lowerHemisphere;
+		gHemisphereDir = Ogre::Vector3::UNIT_Y;
+	}
+	//---------------------------------------------------------
+	void noteHemisphereAmbientColours(Ogre::ColourValue const & upperHemisphere,
+		Ogre::ColourValue const & lowerHemisphere,
+		Ogre::Vector3 const & worldDirection)
+	{
+		gHemisphereUpper = upperHemisphere;
+		gHemisphereLower = lowerHemisphere;
+		gHemisphereDir = worldDirection;
+		gHemisphereDir.normalise();
 	}
 
 	//---------------------------------------------------------

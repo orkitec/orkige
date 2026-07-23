@@ -201,26 +201,6 @@ namespace Orkige
 				(void)one;
 				return colour;
 			}
-
-			//! the display-encode calibration: the classic gamma-space level
-			//! equivalent of a linear drive level. For a diffuse surface the
-			//! gamma-naive pipeline shows albedo_encoded * level * NdotL while
-			//! the linear pipeline shows encode(albedo_linear * L * NdotL);
-			//! under the 2.2 power-law gamma the two agree when
-			//! level = L^(1/2.2) * cos0^(1/2.2 - 1) at a REFERENCE incidence
-			//! cos0. The reference sits between head-on and the typical
-			//! lit-content regime (the 1.15 factor - a full cos0=0.6 factor of
-			//! 1.32 overshot the night scenes, where the ambient share
-			//! dominates); the flavors' NdotL falloff SHAPES differ (linear
-			//! here, power-law there), so one calibration point must pick a
-			//! middle. The earlier sqrt(2x/pi) mid-grey heuristic sat ~40%
-			//! darker across real day content (the classic-surfaces-read-darker
-			//! divergence).
-			inline float classicLevel(float linearLevel)
-			{
-				return std::pow(std::max(linearLevel, 0.0f), 1.0f / 2.2f) *
-					1.15f;
-			}
 		}
 
 		//! @brief the sky model's colour along @p (viewX,viewY,viewZ) under
@@ -259,17 +239,28 @@ namespace Orkige
 		{
 			using namespace Detail;
 			const V3 toSun = normalize({ toSunX, toSunY, toSunZ });
-			// the native phase convention: normTime = asin(elevation)/pi, and
-			// the model's sunHeight = sin(normTime*pi) - the elevation itself,
-			// FLOORED at the horizon like skyModelColour (the model's haze
-			// weight explodes just below it; night darkness is the preset's)
-			const float sunHeight = clampf(toSun.y, 0.0f, 1.0f);
+			// the native linkage's INPUT CONDITIONING, mirrored exactly (the
+			// next flavor computes both before handing the model its preset):
+			//  - the phase parks a hair ABOVE the horizon (elevation floor
+			//    0.02): the model's haze weight and light density explode at
+			//    an exact 0 and a just-set sun otherwise whites the linkage;
+			//  - the sky POWER fades to zero across the last sliver of sunset
+			//    (elevation +0.12 -> 0): the parked model would keep the haze
+			//    at full sunset blaze all night, and because the sun-disk term
+			//    adds OUTSIDE the sky-power multiplier, the fade shifts the
+			//    normalized sun/ambient colours - it does NOT cancel.
+			// Night darkness itself stays the night preset's job.
+			const float sunHeight = clampf(toSun.y, 0.02f, 1.0f);
+			const float duskFade = clampf((toSun.y + 0.12f) / 0.12f,
+				0.0f, 1.0f);
+			AtmosphereDesc faded = desc;
+			faded.skyPower = desc.skyPower * duskFade;
 
 			// the sun colour: the sky model sampled toward the sun,
 			// normalized so the max channel is 1 (the power knob carries the
 			// magnitude) - identical to the native linkage, which scales the
 			// sun disk by the sun power (@see atmosphereAt sunDiskPower)
-			V3 sunColour = atmosphereAt(desc, toSun, sunHeight, toSun, false,
+			V3 sunColour = atmosphereAt(faded, toSun, sunHeight, toSun, false,
 				desc.sunPower);
 			const float maxPower = std::max(
 				{ sunColour.x, sunColour.y, sunColour.z, 1e-6f });
@@ -285,10 +276,10 @@ namespace Orkige
 			const float lowerPower =
 				0.01f * kPi * desc.ambientPower / maxPower;
 			const V3 upper = mul(
-				atmosphereAt(desc, toSun, sunHeight, upProbe, true),
+				atmosphereAt(faded, toSun, sunHeight, upProbe, true),
 				upperPower);
 			const V3 lower = mul(
-				atmosphereAt(desc, toSun, sunHeight, horizonProbe, true),
+				atmosphereAt(faded, toSun, sunHeight, horizonProbe, true),
 				lowerPower);
 
 			Drive out;
@@ -296,7 +287,15 @@ namespace Orkige
 			out.sunGreen = sunColour.y;
 			out.sunBlue = sunColour.z;
 			out.nextSunPower = desc.sunPower;
-			out.classicSunScale = classicLevel(desc.sunPower);
+			// the classic sun scale is the LINEAR power itself: the classic
+			// generated-material lighting evaluates the identical per-light
+			// response and display transfer as the next flavor (the engine-owned
+			// metal-rough stage, @see MetalRoughLightingSrs.h), so equal shader
+			// inputs give equal pixels by construction. The historical
+			// display-encoded scale (pow(1/2.2) * 1.15) compensated the retired
+			// gamma-space classic pipeline and, kept in place, read as a ~10x
+			// night sun overshoot (the lumens-probe night-wash).
+			out.classicSunScale = desc.sunPower;
 			out.nextUpperRed = upper.x;
 			out.nextUpperGreen = upper.y;
 			out.nextUpperBlue = upper.z;

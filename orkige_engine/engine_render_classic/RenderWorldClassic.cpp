@@ -141,10 +141,12 @@ namespace Orkige
 				sun->setSpecularColour(driven);
 				// a night-dark sun throws no visible shadow - skip the whole
 				// shadow pass below the intensity floor and re-arm at dawn
-				// (@see RenderBackend::noteSunDimmedForShadows)
+				// (@see RenderBackend::noteSunDimmedForShadows). The driven
+				// colour is LINEAR; the floor is a DISPLAY level of 0.05
+				// mapped through the sqrt display transfer (0.05^2)
 				const float sunPeak = std::max(driven.r,
 					std::max(driven.g, driven.b));
-				RenderBackend::noteSunDimmedForShadows(sunPeak < 0.05f);
+				RenderBackend::noteSunDimmedForShadows(sunPeak < 0.0025f);
 			}
 			// generated surface materials evaluate the two-colour hemisphere PER
 			// PIXEL (@see HemisphereAmbientSrs.h): hand the sub-render-state the
@@ -152,12 +154,19 @@ namespace Orkige
 			// receives (drive.nextUpper/nextLower), so both flavors fill ambient
 			// from one sky/ground split - the softened averaged-flat classic
 			// value below is now ONLY for consumers off the generated scheme.
+			// The blend AXIS mirrors the native linkage's tilt: up plus the
+			// toward-the-sun vector half-turned about up, so a horizon-facing
+			// surface fills from the warm horizon band on both flavors.
 #ifdef USE_RTSHADER_SYSTEM
+			Ogre::Vector3 hemiAxis = Ogre::Vector3::UNIT_Y +
+				Ogre::Vector3(-toSun.x, toSun.y, -toSun.z);
+			hemiAxis.normalise();
 			noteHemisphereAmbientColours(
 				Ogre::ColourValue(drive.nextUpperRed, drive.nextUpperGreen,
 					drive.nextUpperBlue, 1.0f),
 				Ogre::ColourValue(drive.nextLowerRed, drive.nextLowerGreen,
-					drive.nextLowerBlue, 1.0f));
+					drive.nextLowerBlue, 1.0f),
+				hemiAxis);
 #endif
 			// the atmosphere's hemisphere fill, averaged flat (the softened
 			// classic subset) - written straight to the scene for fixed-function
@@ -689,14 +698,14 @@ namespace Orkige
 
 		// fixed-function exponential distance fog (the honest fog subset -
 		// colours will not match the next flavor's atmospheric fog). The fog
-		// colour is authored linear like every desc colour, so it encodes for
-		// this gamma-naive pipeline like the sky does.
+		// colour stays LINEAR: the generated metal-rough programs mix fog in
+		// linear before their sqrt display transfer, exactly like the next
+		// flavor's object fog (the retired gamma-space pipeline pre-encoded
+		// here because its programs decoded every colour uniform on upload).
 		if(desc.enabled && desc.fogDensity > 0.0f)
 		{
 			this->mImpl->sceneManager->setFog(Ogre::FOG_EXP2,
-				Ogre::ColourValue(toDisplayGamma(desc.fogRed),
-					toDisplayGamma(desc.fogGreen),
-					toDisplayGamma(desc.fogBlue)),
+				Ogre::ColourValue(desc.fogRed, desc.fogGreen, desc.fogBlue),
 				desc.fogDensity);
 		}
 		else

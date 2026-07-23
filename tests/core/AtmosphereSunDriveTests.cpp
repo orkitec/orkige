@@ -110,27 +110,20 @@ TEST_CASE("AtmosphereSunDrive: day fills brighter than night",
 	CHECK(day.classicSunScale > night.classicSunScale);
 }
 
-TEST_CASE("AtmosphereSunDrive: the classic calibration tracks the linear drive",
+TEST_CASE("AtmosphereSunDrive: the classic sun scale is the linear power",
 	"[atmosphere][sundrive]")
 {
-	// classicLevel is the mid-grey-reference mapping of a linear level into
-	// the classic gamma-space pipeline: zero at zero, strictly increasing -
-	// so classic never reorders what next renders
-	float previous = -1.0f;
-	for(float level = 0.0f; level <= 4.0f; level += 0.25f)
+	// the classic generated-material lighting evaluates the identical
+	// per-light response and display transfer as the next flavor (the
+	// engine-owned metal-rough stage), so the classic sun scale IS the linear
+	// power - one drive value, no per-flavor mapping (@see
+	// MetalRoughLightingSrs.h; the retired gamma-space pipeline carried a
+	// display-encoded scale here)
+	for(float elevation : { 0.99f, 0.6f, 0.3f, 0.05f })
 	{
-		const float mapped = AtmosphereSunDrive::Detail::classicLevel(level);
-		CHECK(std::isfinite(mapped));
-		CHECK(mapped > previous);
-		previous = mapped;
+		const Drive day = driveFor(AtmospherePreset::SKY_DAY, elevation);
+		CHECK(day.classicSunScale == day.nextSunPower);
+		const Drive night = driveFor(AtmospherePreset::SKY_NIGHT, elevation);
+		CHECK(night.classicSunScale == night.nextSunPower);
 	}
-	CHECK(AtmosphereSunDrive::Detail::classicLevel(0.0f) == 0.0f);
-	// the calibration law: the gamma-naive display (albedo_encoded * scale
-	// * NdotL) matches the linear pipeline's encoded response at the
-	// reference incidence cos0 = 0.6 when the scale is the display-encoded
-	// drive level times the 1.15 regime factor (@see classicLevel)
-	const Drive day = driveFor(AtmospherePreset::SKY_DAY, 0.99f);
-	CHECK(day.classicSunScale ==
-		Catch::Approx(std::pow(day.nextSunPower, 1.0f / 2.2f) * 1.15f)
-			.epsilon(0.01f));
 }

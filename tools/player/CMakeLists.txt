@@ -94,6 +94,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
                 "$<TARGET_BUNDLE_CONTENT_DIR:orkige_player>/Media/Main"
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media/RTShaderLib"
+                "$<TARGET_BUNDLE_CONTENT_DIR:orkige_player>/Media/RTShaderLib"
+            # the engine-owned metal-rough shader library rides MERGED into the
+            # same RTShaderLib location (the bundle's one registered shader dir)
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/orkige_engine/media/rtss"
                 "$<TARGET_BUNDLE_CONTENT_DIR:orkige_player>/Media/RTShaderLib")
     endif()
     # bundle the backend media, the sample assets the scenes reference, and

@@ -542,6 +542,24 @@ namespace Orkige
 			// scene pass. Restore the canonical name BEFORE the generator
 			// initialises so both sides agree on one scheme.
 			Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME = Ogre::MSN_SHADERGEN;
+#ifdef ORKIGE_CLASSIC_RTSS_MEDIA_DIR
+			// the engine-owned metal-rough shader library (media/rtss,
+			// consumed by MetalRoughLightingSrs): the baked dev source-tree
+			// location, registered beside the RTShaderLib location the host
+			// added. Bundled/exported runs carry the same files MERGED into
+			// their Media/RTShaderLib instead (export + mobile packaging), so
+			// a missing baked path is not an error there - skip silently.
+			{
+				std::error_code rtssDirError;
+				if (std::filesystem::is_directory(ORKIGE_CLASSIC_RTSS_MEDIA_DIR,
+					rtssDirError))
+				{
+					Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
+						ORKIGE_CLASSIC_RTSS_MEDIA_DIR, "FileSystem",
+						Ogre::RGN_INTERNAL);
+				}
+			}
+#endif
 			if (Ogre::RTShader::ShaderGenerator::initialize())
 			{
 				mShaderGenerator = Ogre::RTShader::ShaderGenerator::getSingletonPtr();

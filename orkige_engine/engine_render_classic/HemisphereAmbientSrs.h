@@ -36,9 +36,19 @@ namespace Orkige
 	//! @brief cache the current two hemisphere colours (linear) so the
 	//! per-material sub-render-states push them to their generated shaders each
 	//! frame. Called from RenderWorld::setAmbientHemisphere (the atmosphere
-	//! drive re-pushes ambient every frame, so this stays live).
+	//! drive re-pushes ambient every frame, so this stays live). The blend axis
+	//! resets to straight up - the authored-ambient convention on both flavors.
 	void noteHemisphereAmbientColours(Ogre::ColourValue const & upperHemisphere,
 		Ogre::ColourValue const & lowerHemisphere);
+
+	//! @brief the driven-atmosphere overload: also sets the WORLD-space
+	//! hemisphere axis. The other backend's sun linkage tilts the axis toward
+	//! the mirrored sun (normalize(up + halfTurnAboutUp(toSun))) so a
+	//! horizon-facing surface fills from the warm horizon band; the classic
+	//! drive hands the SAME axis here (@see driveSunExposure).
+	void noteHemisphereAmbientColours(Ogre::ColourValue const & upperHemisphere,
+		Ogre::ColourValue const & lowerHemisphere,
+		Ogre::Vector3 const & worldDirection);
 
 	//! @brief read back the cached two hemisphere colours (linear). The water
 	//! program - a hand-written pass outside the RTSS scheme - lights its body

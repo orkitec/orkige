@@ -217,9 +217,12 @@ if [ "$RENDER_BACKEND" = "next" ]; then
     [ -d "$VCPKG_INSTALLED/share/ogre-next/Media/Atmosphere" ] \
         && cp -R "$VCPKG_INSTALLED/share/ogre-next/Media/Atmosphere" "$STAGE/assets/Media/Atmosphere"
 else
-    # classic flavor: the RTSS shader library
+    # classic flavor: the RTSS shader library, plus the engine-owned
+    # metal-rough shader library merged into the same registered location
     cp -R "$VCPKG_INSTALLED/share/ogre/Media/Main"        "$STAGE/assets/Media/Main"
     cp -R "$VCPKG_INSTALLED/share/ogre/Media/RTShaderLib" "$STAGE/assets/Media/RTShaderLib"
+    [ -d "$REPO_ROOT/orkige_engine/media/rtss" ] \
+        && cp -R "$REPO_ROOT/orkige_engine/media/rtss/." "$STAGE/assets/Media/RTShaderLib/"
 fi
 # the engine-default font (Nunito, SIL OFL) - flavor-independent; rides in the
 # same bundled Media dir so a project referencing it by name ships self-

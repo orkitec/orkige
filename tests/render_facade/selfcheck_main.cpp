@@ -332,6 +332,21 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		probeDesc.albedo = Color(0.5f, 0.5f, 0.5f, 1.0f);
 		probeDesc.roughness = 0.9f;
 		probeDesc.metalness = 0.0f;
+		// ORKIGE_PROBE_ROUGHNESS / ORKIGE_PROBE_METALNESS: sweep the specular
+		// axis. Head-on with the light near the view axis, NoH ~ 1: the GGX
+		// peak narrows and brightens as roughness drops, so a roughness sweep
+		// isolates the D*V specular response; metalness 1 kills the diffuse
+		// term entirely (F0 = albedo), isolating specular COLOUR + magnitude.
+		if(const char* probeRoughness = std::getenv("ORKIGE_PROBE_ROUGHNESS"))
+		{
+			probeDesc.roughness = std::clamp(
+				static_cast<float>(std::atof(probeRoughness)), 0.0f, 1.0f);
+		}
+		if(const char* probeMetalness = std::getenv("ORKIGE_PROBE_METALNESS"))
+		{
+			probeDesc.metalness = std::clamp(
+				static_cast<float>(std::atof(probeMetalness)), 0.0f, 1.0f);
+		}
 		// TEXTURED variant (ORKIGE_PROBE_TEXTURE=<byte 0..255>): drive the albedo
 		// from a flat COLOUR TEXTURE whose every texel is exactly that byte value,
 		// instead of the flat material colour. This isolates the sampled-albedo
@@ -386,9 +401,27 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		optr<RenderNode> probeLightNode =
 			world->createNode("selfcheck.lightProbeLight");
 		probeLight->attachTo(probeLightNode);
-		probeLight->setType(RenderLight::LT_DIRECTIONAL);
-		probeLightNode->setDirection(
-			Vec3(0.0f, -std::sin(theta), -std::cos(theta)), RenderNode::TS_WORLD);
+		// ORKIGE_PROBE_POINT="dist,range": a POINT light at +Z distance `dist`
+		// in front of the face with facade range `range`, instead of the
+		// directional - isolates the point-light response (attenuation formula
+		// + range cutoff) per flavor. NdotL stays 1 at the face centre.
+		float pointDist = 0.0f, pointRange = 0.0f;
+		const char* probePoint = std::getenv("ORKIGE_PROBE_POINT");
+		if(probePoint && std::sscanf(probePoint, "%f,%f",
+			&pointDist, &pointRange) == 2)
+		{
+			probeLight->setType(RenderLight::LT_POINT);
+			// the cube face sits at +Z 2.5 (scale 5 cube at the origin)
+			probeLightNode->setPosition(Vec3(0.0f, 0.0f, 2.5f + pointDist));
+			probeLight->setRange(pointRange);
+		}
+		else
+		{
+			probeLight->setType(RenderLight::LT_DIRECTIONAL);
+			probeLightNode->setDirection(
+				Vec3(0.0f, -std::sin(theta), -std::cos(theta)),
+				RenderNode::TS_WORLD);
+		}
 		// light colour override (ORKIGE_PROBE_LIGHT_RGB="r,g,b"): the scene sun
 		// is warm (1,0.7,0.5); this lets the probe test a coloured directional's
 		// per-channel response, not just a white one
@@ -429,7 +462,15 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			{
 				sky = AtmospherePreset::SKY_NIGHT;
 			}
-			world->setAtmosphere(AtmospherePreset::forSky(sky));
+			AtmosphereDesc probeAtmo = AtmospherePreset::forSky(sky);
+			// ORKIGE_PROBE_NO_FOG=1: zero the preset's fog so the centre-pixel
+			// readback is the SURFACE response alone (the night/day presets fog
+			// heavily enough to dominate the cube at probe distance otherwise)
+			if(std::getenv("ORKIGE_PROBE_NO_FOG"))
+			{
+				probeAtmo.fogDensity = 0.0f;
+			}
+			world->setAtmosphere(probeAtmo);
 			// isolate the DIRECT sun by default (the atmosphere also drove a
 			// hemisphere fill); ORKIGE_PROBE_KEEP_AMBIENT=1 keeps the driven
 			// hemisphere so the readback is the FULL atmosphere lighting a

@@ -296,6 +296,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_render_classic/ClassicBackend.h
         engine_render_classic/ClassicBackend.cpp
         engine_render_classic/HemisphereAmbientSrs.cpp
+        engine_render_classic/MetalRoughLightingSrs.cpp
         engine_render_classic/RenderSystemClassic.cpp
         engine_render_classic/RenderWorldClassic.cpp
         engine_render_classic/RenderNodeClassic.cpp
@@ -450,6 +451,12 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
     target_compile_definitions(orkige_engine PUBLIC
         ORKIGE_RENDER_CLASSIC
         USE_RTSHADER_SYSTEM
+    )
+    target_compile_definitions(orkige_engine PRIVATE
+        # dev-tree default for the engine-owned RTSS shader library
+        # (media/rtss - the metal-rough lighting stage's GLSL); bundled apps
+        # carry the same files merged into their Media/RTShaderLib instead
+        ORKIGE_CLASSIC_RTSS_MEDIA_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/rtss"
     )
 elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
     target_compile_definitions(orkige_engine PUBLIC ORKIGE_RENDER_NEXT)

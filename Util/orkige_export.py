@@ -457,6 +457,14 @@ def ogre_media_dir(build_dir):
     return media if os.path.isdir(media) else ""
 
 
+def engine_rtss_dir():
+    """the engine-owned classic shader library (the metal-rough lighting GLSL)
+    - merged INTO the bundled Media/RTShaderLib so the runtime's one registered
+    shader location serves it (a dev run registers the source dir instead)"""
+    rtss = os.path.join(REPO_ROOT, "orkige_engine", "media", "rtss")
+    return rtss if os.path.isdir(rtss) else ""
+
+
 def ogre_next_media_dir(build_dir):
     """the Ogre-Next flavor's media root (contains Hlms/ - the shader templates
     the runtime registers via Engine::setHlmsMediaDir - and Atmosphere/ - the
@@ -754,6 +762,12 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
     for media_subdir in media_subdirs:
         shutil.copytree(os.path.join(media_dir, media_subdir),
                         os.path.join(resources, "Media", media_subdir))
+    # the engine-owned metal-rough shader library rides merged into the
+    # bundled RTShaderLib (classic only - next's response is native)
+    if flavor != "next" and engine_rtss_dir():
+        shutil.copytree(engine_rtss_dir(),
+                        os.path.join(resources, "Media", "RTShaderLib"),
+                        dirs_exist_ok=True)
     # the engine-default font (Nunito, SIL OFL) rides in the same bundled Media
     # dir so a project referencing it by name ships self-contained
     if engine_font_dir():
@@ -933,6 +947,12 @@ def export_web(project, engine_build, output_dir):
             if os.path.isdir(source):
                 shutil.copytree(source,
                                 os.path.join(staging, "Media", subdir))
+        # the engine-owned metal-rough shader library, merged into the staged
+        # RTShaderLib (web is always the classic flavor)
+        if engine_rtss_dir():
+            shutil.copytree(engine_rtss_dir(),
+                            os.path.join(staging, "Media", "RTShaderLib"),
+                            dirs_exist_ok=True)
         if engine_font_dir():
             shutil.copytree(engine_font_dir(),
                             os.path.join(staging, "Media", "fonts"),

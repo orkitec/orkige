@@ -88,14 +88,24 @@ look. In the editor's asset browser a `.omat` classifies as kind
 | alphaTest (cutout) | native Hlms alpha test — the caster shader carries the test + diffuse texture, so cutouts SHADOW as cutouts | pass alpha rejection (the RTSS `SRS_ALPHA_TEST` stage discards in the generated shaders) + a generated `<name>/Caster` shadow-caster override material re-binding the albedo texture with the same rejection — see below |
 | twoSided | native (`CULL_NONE` + two-sided lighting: back faces light with the flipped normal) | `CULL_NONE`; back faces light with the FRONT normal (the registered subset) |
 
-Both flavors now light `.omat` content through a metal-rough model:
-Ogre-Next's HlmsPbs and classic's RTSS `SRS_COOK_TORRANCE_LIGHTING` stage
-(`SRS_NORMALMAP` when a normal map is present). Lit content still is **not
-pixel-parity-gated** — the shading models are not bit-identical and the
-ambient/exposure differs (classic's two-colour hemisphere ambient is
-averaged flat until the hemisphere-ambient parity step) — but the maps
-render on both. The `demo_material` selfcheck runs per flavor and asserts
-apply + render on each, not image equality.
+Both flavors now light `.omat` content through ONE metal-rough response:
+Ogre-Next's HlmsPbs, and on classic the ENGINE-OWNED
+`OrkigeMetalRoughLighting` RTSS stage
+(`engine_render_classic/MetalRoughLightingSrs.{h,cpp}` +
+`orkige_engine/media/rtss/OrkigeLib_MetalRough.glsl`; `SRS_NORMALMAP` when
+a normal map is present). The engine stage mirrors the HlmsPbs per-light
+maths exactly — raw (linear) albedo for material colours AND sampled
+texels, the renormalised-diffuse energy factor, VdotH fresnel with f90=1
+and no multi-scatter compensation, the identical GGX + height-correlated
+Smith terms, the clustered-forward point/spot falloff (0.5 constant + the
+linear range fade) and the same `sqrt()` display transfer — verified to
+BYTE-parity by the `render_facade_selfcheck` light probe across albedo x
+intensity x angle x roughness x metalness x point-distance and the
+driven-atmosphere day/sunset/night legs. Remaining tolerance-parity (not
+byte) areas: the image-based-lighting fill, the emissive glow composition
+and the fog model subset. The `demo_material` selfcheck runs per flavor and
+asserts apply + render on each; the cross-flavor lake gate
+(`benchmark_crossflavor_parity`) bands the composed scene.
 
 **Tangents**: both flavors need mesh tangents to perturb the lit normal from
 a normal map. Next builds them for every UV-mapped mesh at import

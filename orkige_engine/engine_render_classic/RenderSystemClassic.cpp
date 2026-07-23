@@ -17,6 +17,7 @@
 
 #include "engine_render_classic/ClassicBackend.h"
 #include "engine_render_classic/HemisphereAmbientSrs.h"
+#include "engine_render_classic/MetalRoughLightingSrs.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/SkyEnvMap.h>
 #include "engine_filesystem/PakMount.h"
@@ -308,10 +309,13 @@ namespace Orkige
 				  Ogre::RTShader::SRS_TEXTURING,
 				  Ogre::RTShader::SRS_FOG,
 				  Ogre::RTShader::SRS_ALPHA_TEST });
-			// the metal-rough lighting stage (specular.xy = metalness/roughness,
-			// diffuse = albedo, derived scene colour carries the emissive)
-			renderState->addTemplateSubRenderState(generator->createSubRenderState(
-				Ogre::RTShader::SRS_COOK_TORRANCE_LIGHTING));
+			// the metal-rough lighting stage (specular.xy = roughness/metalness,
+			// diffuse = albedo, derived scene colour carries the emissive) - the
+			// ENGINE-OWNED stage that reproduces the other backend's per-light
+			// response (raw albedo, renormalised diffuse, sqrt display transfer;
+			// @see MetalRoughLightingSrs.h for the four response-level
+			// differences it removes vs the stock Cook-Torrance stage)
+			addMetalRoughLightingSubRenderState(generator, renderState);
 			// the per-pixel two-colour sky/ground ambient fill, evaluated right
 			// after the Cook-Torrance stage - the classic mirror of next's HlmsPbs
 			// ambient-hemisphere response (@see HemisphereAmbientSrs.h), so both
@@ -1203,14 +1207,17 @@ namespace Orkige
 					"    float f0 = clamp(skyParams.x, 0.0, 1.0);\n"
 					"    float fres = clamp(f0 + (1.0 - f0) * pow(1.0 - cosv, 5.0), 0.0, 1.0);\n"
 					// per-term SPACE: the authored deep/shallow are next's LINEAR
-					// albedo/emissive (setDiffuse/setEmissive take them raw), and
-					// waterAmbient is already linear; only the DISPLAY-space grab and
-					// the display-driven sun colour are squared into linear.
+					// albedo/emissive (setDiffuse/setEmissive take them raw), the
+					// driven sun colour arrives LINEAR (the atmosphere linkage's
+					// classic scale is the linear power itself, matching the
+					// generated materials' linear lighting), and waterAmbient is
+					// already linear; only the DISPLAY-space grab is squared back
+					// to linear (the scene display transfer is sqrt).
 					"    vec3 sceneLin = scene * scene;\n"
 					"    vec3 deepLin = deepColour.rgb;\n"
 					"    vec3 shallowLin = shallowColour.rgb;\n"
 					"    vec3 lightLin = waterAmbient.rgb\n"
-					"        + (sunColour.rgb * sunColour.rgb) * (ndl * sunTowards.w);\n"
+					"        + sunColour.rgb * (ndl * sunTowards.w);\n"
 					// the diffuse body + refracted transmission + scatter, faded by the
 					// diffuse fresnel (1-F) as the reflection takes F
 					"    vec3 bodyLin = deepLin * lightLin * (op * op)\n"
@@ -1252,10 +1259,13 @@ namespace Orkige
 					"    }\n"
 					"    vec3 water = sqrt(max(finalLin, vec3(0.0)));\n"
 					// the sun's specular streak riding the ripples (the same cue the
-					// PBS flavor's glossy lobe gives its refractive water)
+					// PBS flavor's glossy lobe gives its refractive water); the add
+					// happens in DISPLAY space, so the linear sun enters through the
+					// same sqrt display transfer the body went through
 					"    vec3 halfVec = normalize(viewDir + normalize(sunTowards.xyz));\n"
 					"    float spec = pow(clamp(dot(nrm, halfVec), 0.0, 1.0), 420.0);\n"
-					"    water += sunColour.rgb * (spec * 1.0 * sunTowards.w);\n"
+					"    water += sqrt(max(sunColour.rgb, vec3(0.0)))\n"
+					"        * (spec * 1.0 * sunTowards.w);\n"
 					"    fragColour = vec4(water, 1.0);\n"
 					"}\n"));
 				fs->load();
@@ -1408,10 +1418,13 @@ namespace Orkige
 					// low-sun water cue the PBS flavor gets from its glossy lobe):
 					// Blinn half-vector against the ripple-tilted normal, the tight
 					// lobe elongating naturally over the perturbed surface. The sun
-					// direction/colour are pushed per frame (@see setWaterMaterialTime)
+					// direction/colour are pushed per frame (@see setWaterMaterialTime);
+					// the colour arrives LINEAR and this composition is DISPLAY-space,
+					// so it enters through the sqrt display transfer
 					"    vec3 halfVec = normalize(viewDir + normalize(sunTowards.xyz));\n"
 					"    float spec = pow(clamp(dot(nrm, halfVec), 0.0, 1.0), 420.0);\n"
-					"    outc += sunColour.rgb * (spec * 1.0 * sunTowards.w);\n"
+					"    outc += sqrt(max(sunColour.rgb, vec3(0.0)))\n"
+					"        * (spec * 1.0 * sunTowards.w);\n"
 					"    fragColour = vec4(outc, 1.0);\n"
 					"}\n"));
 				fs->load();

@@ -140,14 +140,15 @@ def main():
     }
     # tolerance-parity corridor: catches a black/inverted/washed region on one
     # flavor (those sit at deltas of 120+) while allowing the documented
-    # shading differences (PBS vs Blinn-Phong surfaces, per-pixel vs
-    # vertex-gradient sky). The widest legitimate delta is the sun-GRAZING
-    # shore band: classic's lit response runs a systematic ~12% magnitude
-    # deficit vs next (the Cook-Torrance-vs-HlmsPbs tolerance-parity gap the
-    # calibrated seams absorb at noon but a warm low sun surfaces - ~58
-    # measured red delta). The water region maxes at ~16 after the
-    # transmission alignment.
-    MEAN_TOLERANCE = 65.0
+    # residual differences (per-pixel vs vertex-gradient sky, the fog subset,
+    # the image-based-lighting stage's diffuse weighting). The classic
+    # metal-rough lighting stage now mirrors the default backend's per-light
+    # response exactly (byte-parity on the directional/point/hemisphere/
+    # driven-atmosphere probes), which dropped the sun-grazing shore band from
+    # its historical ~58 red delta to a measured 32 (the remainder rides the
+    # image-lighting fill, the one seam still calibrated rather than
+    # formula-matched); the water band measures <= 21.
+    MEAN_TOLERANCE = 45.0
 
     for name, (x0, y0, x1, y1) in regions.items():
         mean_next = region_mean(img_next, x0, y0, x1, y1)
