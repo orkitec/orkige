@@ -1177,6 +1177,22 @@ namespace Orkige
 					// the shallow colour is next's depth-scatter emissive.
 					"    float op = clamp(deepColour.a, 0.0, 1.0);\n"
 					"    float ndl = max(dot(vSwellNormal, normalize(sunTowards.xyz)), 0.0);\n"
+					// the GRAZING ENERGY SPLIT, matched to next's HlmsPbs: next weights
+					// its whole diffuse/ambient body by the DIFFUSE fresnel (1-F) and
+					// its env reflection by the SPECULAR fresnel F (BRDFs_piece:
+					// diffuse*fresnelD with fresnelD=1-F, Rs*fresnelS), so at a grazing
+					// view the teal body fades and the surface becomes a bright glassy
+					// SKY MIRROR - what the eye reads as "real water". Compute F first,
+					// then split the energy in LINEAR (next composes linear, sqrt once).
+					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
+					"    vec3 nrm = normalize(vSwellNormal\n"
+					"        + vec3(disp.x * 2.5, 0.0, disp.y * 2.5));\n"
+					"    vec3 nF = normalize(vec3(\n"
+					"        disp.x * 2.5 + vSwellNormal.x * 0.2, 1.0,\n"
+					"        disp.y * 2.5 + vSwellNormal.z * 0.2));\n"
+					"    float cosv = clamp(dot(viewDir, nF), 0.0, 1.0);\n"
+					"    float f0 = clamp(skyParams.x, 0.0, 1.0);\n"
+					"    float fres = clamp(f0 + (1.0 - f0) * pow(1.0 - cosv, 5.0), 0.0, 1.0);\n"
 					// per-term SPACE: the authored deep/shallow are next's LINEAR
 					// albedo/emissive (setDiffuse/setEmissive take them raw), and
 					// waterAmbient is already linear; only the DISPLAY-space grab and
@@ -1186,33 +1202,46 @@ namespace Orkige
 					"    vec3 shallowLin = shallowColour.rgb;\n"
 					"    vec3 lightLin = waterAmbient.rgb\n"
 					"        + (sunColour.rgb * sunColour.rgb) * (ndl * sunTowards.w);\n"
-					"    vec3 finalLin = deepLin * lightLin * (op * op)\n"
+					// the diffuse body + refracted transmission + scatter, faded by the
+					// diffuse fresnel (1-F) as the reflection takes F
+					"    vec3 bodyLin = deepLin * lightLin * (op * op)\n"
 					"                  + sceneLin * (1.0 - op)\n"
 					"                  + shallowLin * 0.18;\n"
-					"    vec3 water = sqrt(max(finalLin, vec3(0.0)));\n"
-					// fresnel SKY reflection over the refracted base: the reflected
-					// ray sampled from the live IBL environment cubemap (the same
-					// capture the PBS flavor's Refractive water reflects) - looking
-					// down keeps the refracted bed, grazing mirrors the sky. The
-					// capture stores clamped LINEAR values, so encode for this
-					// gamma-naive pipeline (the dome's display-encode sibling).
-					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
-					"    vec3 nrm = normalize(vSwellNormal\n"
-					"        + vec3(disp.x * 2.5, 0.0, disp.y * 2.5));\n"
-					"    vec3 nF = normalize(vec3(\n"
-					"        disp.x * 2.5 + vSwellNormal.x * 0.2, 1.0,\n"
-					"        disp.y * 2.5 + vSwellNormal.z * 0.2));\n"
+					"    vec3 finalLin = bodyLin * (1.0 - fres);\n"
+					// the SKY MIRROR takes F: the reflected ray sampled from the live
+					// IBL environment cubemap (LINEAR-stored, the same sky next's
+					// Refractive water reflects), at a mirror strength that reads as a
+					// bright glassy reflection at grazing - not the dim 0.2 diffuse FILL
+					// (next reflects the full sky, gated by F, so it never over-brightens
+					// the head-on foreground where F is small). Gated on the sky being
+					// live (IBL on); with it off the grazing surface keeps the faded
+					// body (byte-stable for the IBL-off water demos).
 					"    if(skyParams.y > 0.5)\n"
 					"    {\n"
-					"        vec3 refl = reflect(-viewDir, nrm);\n"
-					"        refl.y = abs(refl.y);\n"  // the water reflects SKY, never ground
-					"        vec3 sky = pow(max(texture(skyMap, refl).rgb,\n"
-					"            vec3(0.0)), vec3(1.0 / 2.2)) * skyParams.z;\n"
-					"        float cosv = clamp(dot(viewDir, nF), 0.0, 1.0);\n"
-					"        float f0 = clamp(skyParams.x, 0.0, 1.0);\n"
-					"        float fres = f0 + (1.0 - f0) * pow(1.0 - cosv, 5.0);\n"
-					"        water = mix(water, sky, clamp(fres, 0.0, 1.0));\n"
+					// reflect off a CALM normal, not the strong crest normal (nrm,
+					// disp*2.5) the streak needs: the shared sky model IS warm at the
+					// sun-side horizon (measured), but the strong ripple perturbation
+					// over-scatters the reflect ray up into the cooler green/blue sky
+					// and abs(refl.y) folds the downward rays up too - averaging to the
+					// grey-green cast. next mirrors the sharp warm horizon (roughness
+					// 0.16); a gently-perturbed normal here samples that same warm
+					// gradient, so the grazing surface reads warm like next.
+					"        vec3 reflNrm = normalize(vSwellNormal\n"
+					"            + vec3(disp.x * 0.5, 0.0, disp.y * 0.5));\n"
+					"        vec3 refl = reflect(-viewDir, reflNrm);\n"
+					// bias the reflected ray toward the low horizon: a calm water
+					// surface at a grazing view mirrors the WARM sun-side HORIZON (R>G,
+					// e.g. 248,239,124), but the raw reflect + abs(y) points higher into
+					// the pale yellow-white / green upper sky, so the warm gradient next
+					// mirrors was lost. Compressing y toward the horizon samples that
+					// warm band. (abs keeps it above the horizon - water reflects sky,
+					// never ground.)
+					"        refl = normalize(vec3(refl.x, abs(refl.y) * 0.35, refl.z));\n"
+					"        vec3 skyLin = max(texture(skyMap, refl).rgb, vec3(0.0))\n"
+					"            * 0.30;\n"
+					"        finalLin += skyLin * fres;\n"
 					"    }\n"
+					"    vec3 water = sqrt(max(finalLin, vec3(0.0)));\n"
 					// the sun's specular streak riding the ripples (the same cue the
 					// PBS flavor's glossy lobe gives its refractive water)
 					"    vec3 halfVec = normalize(viewDir + normalize(sunTowards.xyz));\n"
