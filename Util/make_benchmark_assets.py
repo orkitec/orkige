@@ -10,23 +10,28 @@ motion/ramp, and after a frame budget wipes to the next scene. No input is
 required; the sequence loops on the final results card.
 
 Scenes, in order (levels.olevels):
-  1. vista     baked terrain valley, a day->night sun arc through the atmosphere
-               facade, PSSM shadows, PBS-material props, a rain weather phase
-  2. lake      terrain shoreline + a WaterComponent expanse under a sunset sky,
-               a slow camera drift
-  3. lumens    the night preset + a pool of point lights ramped up over the
-               scene's budget (self-limiting on the frame delta)
-  4. swarm     3D particle stress: emitters ramped, additive + alpha mixes
-  5. field     hundreds of ModelComponents sharing one mesh + one material
-               (the Hlms auto-batch showcase), ramped like lumens
-  6. flatland  the flat-colour 2D look: soft-body vector blobs, a morph blob,
-               a sprite, parallax by zOrder, ortho camera
-  7. console   a .oui GUI stress: an animated HUD + a settings screen cycling
-               the project's languages, scroll views, nine-slice, TTF
-  8. cascade   a physics field: a rain of planar bodies onto a floor, a
-               time-scale hitstop beat
-  9. tally     a GUI results card (per-scene names + the live frame delta the
-               director tracked across the run) then loops
+  1. vista      baked terrain valley, a day->night sun arc through the atmosphere
+                facade, PSSM shadows, PBS-material props, a rain weather phase
+  2. lake       terrain shoreline + a WaterComponent expanse under a sunset sky,
+                screen-space refraction, a slow camera drift
+  3. mirrorlake the lake's planar sibling: the mirror ON over a calm surface,
+                waterline rocks + a close shore ridge worth reflecting (the
+                planar re-render is the scored load)
+  4. lumens     the night preset + a pool of point lights ramped up over the
+                scene's budget (self-limiting on the frame delta)
+  5. swarm      3D particle stress: emitters ramped, additive + alpha mixes
+  6. field      hundreds of ModelComponents sharing one mesh + one material
+                (the Hlms auto-batch showcase), ramped like lumens
+  7. cast       the character showcase: the skinned mannequin crowd + the 2D
+                cutout hero over a flat stage
+  8. flatland   the flat-colour 2D look: soft-body vector blobs, a morph blob,
+                a sprite, parallax by zOrder, ortho camera
+  9. console    a .oui GUI stress: an animated HUD + a settings screen cycling
+                the project's languages, scroll views, nine-slice, TTF
+ 10. cascade    a physics field: a rain of planar bodies onto a floor, a
+                time-scale hitstop beat
+ 11. tally      a GUI results card (per-scene names + the live frame delta the
+                director tracked across the run) then loops
 
 Everything is generated or hand-authored and license-clean:
   * terrain / material-prop / particle / GUI-atlas assets come from the tree's
@@ -560,9 +565,13 @@ def write_xliff(path, source_lang, target_lang, translate=None):
 # .oui screens
 # ---------------------------------------------------------------------------
 
-HUD_OUI = """# hud.oui - the live tour HUD (scene title + a progress bar)
+HUD_OUI = """# hud.oui - the live tour HUD (scene title + a progress bar).
+# The design resolution keys the rect-anchor geometry to design units, so on
+# a dense (2x) display the layout scales WITH the density-scaled glyphs
+# instead of staying in raw window pixels under doubled text.
 [Layout]
 atlas = gui_default
+design = 1280 720 0.5
 root = fullwindow
 
 [DecorWidget hudBar]
@@ -591,9 +600,14 @@ offsets = 16 -18 -16 -6
 
 SETTINGS_OUI = """# settings.oui - a nine-slice settings-style card (console scene). A panel
 # holds a title, a vertical layout group of localised rows and a button - the
-# rows re-caption when the director cycles the active language.
+# rows re-caption when the director cycles the active language. The design
+# resolution scales the card's geometry with a dense display's doubled
+# glyphs (raw-pixel rects under 2x text overflowed the panel and truncated
+# the button caption); nine-slice keeps the panel/button borders crisp at
+# the scaled sizes.
 [Layout]
 atlas = gui_default
+design = 1280 720 0.5
 root = fullwindow
 
 [DecorWidget panel]
@@ -665,6 +679,7 @@ anchor = bottom
 pivot = 0.5 1
 anchoredPos = 0 -20
 sizeDelta = 260 40
+nineSlice = true
 """
 
 
@@ -679,6 +694,7 @@ sizeDelta = 260 40
 SCENES = [
     ("vista.oscene", "Terrace Vista", "vista", 12.0),
     ("lake.oscene", "Still Water", "lake", 10.0),
+    ("mirrorlake.oscene", "Mirror Lake", "mirrorlake", 10.0),
     ("lumens.oscene", "Night Lumens", "lumens", 12.0),
     ("swarm.oscene", "Ember Swarm", "swarm", 10.0),
     ("field.oscene", "Instance Field", "field", 12.0),
@@ -813,6 +829,66 @@ def build_lake():
     for i, (x, y, z) in enumerate(shore):
         s.add("Shore%d" % i,
               s.transform(x, y, z, 1.3, 1.3, 1.3),
+              s.model("demo_material_cube.glb", "prop_rock.omat"))
+    return s
+
+
+def build_mirrorlake():
+    # the lake's PLANAR sibling: the refraction-only "Still Water" stays the
+    # transmission showcase, this scene turns the mirror ON over the same
+    # golden-hour water so the tour carries the on/off pair (and the planar
+    # re-render's cost becomes a scored vignette of its own). Staged FOR a
+    # mirror: a near-flat swell (a tall swell shreds the mirrored image),
+    # the shore ridge pulled close and rocks at the waterline so there are
+    # SILHOUETTES to reflect, and (via the director) a low sun + a lower,
+    # closer camera so the reflected sky/shore band dominates the surface.
+    # On a context without the planar capability (the GLES2/WebGL1 floor)
+    # the component gates the mirror off and the scene degrades to the
+    # plain water look - the honest benchmark behavior.
+    s = SceneWriter()
+    director(s, "mirrorlake", "Mirror Lake", 10.0)
+    s.add("Sun",
+          s.transform(0.0, 20.0, 0.0, quat=(0.9659, -0.2588, 0.0, 0.0)),
+          s.light(light_type=0, colour=(1.0, 0.7, 0.5), intensity=1.0,
+                  casts=True),
+          tags=("sun",))
+    # the shore ridge pulled well forward of the lake's -72 and WIDENED into a
+    # valley bowl that spans the water's whole far edge: the mirror then
+    # reflects TERRAIN and rocks across the surface instead of the open
+    # below-horizon sky (content both flavors render alike - the mirrored
+    # band stays comparable where a mirrored open sky would expose the sky
+    # models' below-horizon seam that nothing but a mirror ever sees)
+    s.add("Terrain",
+          s.transform(0.0, "-4.8", -56.0, 2.6, 1.2, 1.0, static=True),
+          s.model("demo_terrain.glb", "demo_terrain.omat"),
+          tags=("terrain",))
+    # the mirror surface: the lake's readable body preset with a calm swell
+    # (0.08 - mirrors read best near-flat) and BOTH screen-space passes on;
+    # the flavors compose refraction under the mirror on their shared
+    # formulas. Opacity a touch above the lake's 0.55: the effective mirror
+    # fresnel scales by authored opacity on both flavors, and the mirror -
+    # not the lakebed - is this scene's star.
+    s.add("Lake",
+          s.transform(0.0, -3.2, -18.0),
+          s.water(size_x=90.0, size_z=90.0,
+                  wave_height=0.08, screen_space_refraction=True,
+                  planar_reflection=True,
+                  deep=(0.04, 0.20, 0.30, 1.0),
+                  shallow=(0.30, 0.47, 0.62, 1.0),
+                  opacity=0.7,
+                  refraction_strength=0.25,
+                  normal_tex="water_normal.png"),
+          tags=("water",))
+    s.add("Lakebed",
+          s.transform(0.0, -8.5, -18.0, 1.7, 1.0, 1.7, static=True),
+          s.model("demo_terrain.glb", "demo_terrain.omat"))
+    # waterline rocks: standing tall right at the near bank so their mirrored
+    # doubles read in the foreground water (the content worth reflecting)
+    shore = [(-9.0, -1.8, -30.0, 1.8), (7.0, -1.5, -33.0, 2.1),
+             (-1.5, -2.2, -27.0, 1.4)]
+    for i, (x, y, z, sc) in enumerate(shore):
+        s.add("Shore%d" % i,
+              s.transform(x, y, z, sc, sc, sc),
               s.model("demo_material_cube.glb", "prop_rock.omat"))
     return s
 
@@ -1164,7 +1240,8 @@ def build_fixture_sprites():
 
 
 BUILDERS = {
-    "vista": build_vista, "lake": build_lake, "lumens": build_lumens,
+    "vista": build_vista, "lake": build_lake, "mirrorlake": build_mirrorlake,
+    "lumens": build_lumens,
     "swarm": build_swarm, "field": build_field, "cast": build_cast,
     "flatland": build_flatland,
     "console": build_console, "cascade": build_cascade, "tally": build_tally,

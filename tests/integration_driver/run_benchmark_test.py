@@ -28,9 +28,9 @@ from pathlib import Path
 # every scene's recorder label (the director's sceneLabel export); these are the
 # lines the artifact must contain for the run to have visited the whole tour.
 EXPECTED_LABELS = [
-    "Terrace Vista", "Still Water", "Night Lumens", "Ember Swarm",
-    "Instance Field", "Character Cast", "Flatland", "Console", "Cascade",
-    "Tally",
+    "Terrace Vista", "Still Water", "Mirror Lake", "Night Lumens",
+    "Ember Swarm", "Instance Field", "Character Cast", "Flatland", "Console",
+    "Cascade", "Tally",
 ]
 
 

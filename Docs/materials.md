@@ -104,8 +104,11 @@ intensity x angle x roughness x metalness x point-distance and the
 driven-atmosphere day/sunset/night legs. Remaining tolerance-parity (not
 byte) areas: the image-based-lighting fill, the emissive glow composition
 and the fog model subset. The `demo_material` selfcheck runs per flavor and
-asserts apply + render on each; the cross-flavor lake gate
-(`benchmark_crossflavor_parity`) bands the composed scene.
+asserts apply + render on each; the cross-flavor lake gates
+(`benchmark_crossflavor_parity` for the refraction lake,
+`benchmark_crossflavor_parity_mirror` for its planar-mirror sibling — the
+standing gate on the two flavors' planar mirror strengths staying equal)
+band the composed scenes.
 
 **Tangents**: both flavors need mesh tangents to perturb the lit normal from
 a normal map. Next builds them for every UV-mapped mesh at import

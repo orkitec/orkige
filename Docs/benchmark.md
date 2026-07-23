@@ -113,9 +113,14 @@ A single shared director script (`scripts/director.component.lua`, one
 `director` component kind whose `mode` export picks the vignette) runs each
 scene with **no input**: it sets up the camera + atmosphere, drives the scene's
 motion or stress ramp, draws a small HUD, and after a frame budget wipes to the
-next scene — looping on the results card. The ten scenes are a terrain vista
-with a day→night sun arc + PSSM shadows + weather, a water lake, a night point-
-light ramp, a 3D-particle swarm, an instance field (one mesh + one material,
+next scene — looping on the results card. The eleven scenes are a terrain
+vista with a day→night sun arc + PSSM shadows + weather, a water lake
+(screen-space refraction, mirror off), a **mirror lake** (the lake's planar
+sibling: planar reflection ON over a calm surface, waterline rocks + a shore
+ridge worth reflecting — the planar re-render of the scene is the scored
+load; on a GLES2/WebGL1-floor context the capability gate keeps the mirror
+off and the scene degrades to the plain water look), a night point-light
+ramp, a 3D-particle swarm, an instance field (one mesh + one material,
 Hlms auto-batch), a **character cast** (a skinned-mannequin crowd stress ramp +
 a front-and-centre hero the director cross-fades walk↔idle, over a 2D cutout-
 hero + soft-body-blob foreground), a flat-colour 2D showcase (vector soft-

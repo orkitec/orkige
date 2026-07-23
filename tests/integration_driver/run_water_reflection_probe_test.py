@@ -142,20 +142,22 @@ def main():
     # both flavors, the no-mirror teal water ~0.00x. The ratio guards against
     # a base tint accidentally scoring; the luminance delta proves the mirror
     # renders at all.
-    # the absolute floor sits below BOTH flavors' measured healthy values:
-    # next 0.062 (its planar calibration block boosts the env term - tuned
-    # against the OLD unscaled classic mirror) vs classic 0.022 (formula-true
-    # since the water fresnel scales by authored opacity exactly like the
-    # sibling's transparency upload). Equalizing the two planar strengths is
-    # the named open derivation; the RATIO guard below carries the real
-    # regression class (a mirror that stops showing the scene reads ~0.001).
-    MIN_ON_MAGENTA = 0.012      # the marker's mirror measurably tints the band
+    # the absolute floor sits just below the flavors' measured healthy value,
+    # which is now EQUAL by calibration: 0.022 on both (classic formula-true -
+    # its water fresnel scales by authored opacity exactly like the sibling's
+    # transparency upload - and the next planar block's mirror specular is
+    # probe-calibrated to that classic strength; the derivation lives at the
+    # kMirrorSpecular constant in NextBackend.cpp). The floor keeps ~30%
+    # headroom over deterministic frame-locked captures; a mirror that stops
+    # showing the scene reads ~0.001, which the RATIO guard also catches.
+    MIN_ON_MAGENTA = 0.015      # the marker's mirror measurably tints the band
     MIN_MAGENTA_RATIO = 3.0     # clearly more magenta ON than the OFF baseline
     # the mirror renders (band differs from baseline). The magenta assertions
     # above carry the real proof; this residual luminance guard sits below the
-    # classic flavor's measured 5.1 (the mirror-on body dim and the added
-    # mirrored scene nearly cancel in MEAN luminance under the shared sqrt
-    # display transfer, while the hue signal stays strong at ratio ~22x).
+    # measured classic 7.3 / next 15.5 (each flavor's ON is compared against
+    # its OWN sky-reflection OFF baseline, and those baselines differ - next's
+    # OFF carries the brighter IBL sky mirror - so the deltas legitimately
+    # differ while the hue signal stays matched at 0.022 / ratio ~22x).
     MIN_LUM_DIFF = 3.0
 
     print(f"reflection probe: on_magenta={on_mag:.3f} (>{MIN_ON_MAGENTA}), "

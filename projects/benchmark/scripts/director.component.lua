@@ -340,6 +340,9 @@ local function buildResults()
 	pcall(function()
 		factory = GuiFactory()
 		gui = GuiManager(factory, "gui_default", PROJECT_GROUP)
+		-- feed engine input events to this screen so the Restart button below
+		-- is clickable (a GuiManager subscribes to mouse/touch only on request)
+		gui:enableInputEvents()
 		local w, h = engine:getWindowWidth(), engine:getWindowHeight()
 		-- The card is laid out from the ACTUAL rendered text extents, measured
 		-- off the real labels (getSize folds in the device ui-scale), so the
@@ -385,9 +388,36 @@ local function buildResults()
 		local titleGap = floor(titleSize.y + rowH * 0.9)
 		local nlines = #rowLabels + 1               -- scene lines + frame line
 		local panelW = floor(math.min(widest + pad * 2, w - pad))
-		local panelH = pad + titleGap + nlines * lineH + pad
+
+		-- the Restart button sits UNDER the panel; reserve its height + a gap so
+		-- the panel AND the button both fit the window. A small embed viewport
+		-- (the browser page) is much shorter than a desktop window, so the card
+		-- must not push the button off the bottom. Button height stays
+		-- touch-friendly (>= 44).
+		local safe = engine:getSafeAreaInsets()
+		local btnH = math.max(44, floor(rowH * 2.6))
+		local gap = floor(rowH * 1.2)
+		local margin = floor(rowH * 0.7) + 4
+		local function panelHeight()
+			return pad + titleGap + nlines * lineH + pad
+		end
+		-- FIT: if the panel plus its reserved button strip is taller than the
+		-- window, shrink the vertical SPACING so everything stays on screen (row
+		-- text is never scaled below one line). Only bites on a short window; a
+		-- roomy desktop window keeps its natural spacing.
+		local avail = h - safe.mTop - safe.mBottom - margin * 2 - gap - btnH
+		if panelHeight() > avail and avail > 0 then
+			local f = avail / panelHeight()
+			pad = math.max(2, floor(pad * f))
+			lineH = math.max(rowH, floor(lineH * f))
+			titleGap = math.max(floor(titleSize.y), floor(titleGap * f))
+		end
+		local panelH = panelHeight()
 		local px = floor((w - panelW) * 0.5)
-		local py = floor((h - panelH) * 0.5)
+		-- centre the panel in the space ABOVE the reserved button strip
+		local reserve = gap + btnH + margin
+		local py = floor((h + safe.mTop - safe.mBottom - reserve - panelH) * 0.5)
+		if py < safe.mTop + margin then py = safe.mTop + margin end
 
 		panel:setPosition(px, py)
 		panel:setSize(panelW, panelH)
@@ -401,15 +431,9 @@ local function buildResults()
 		end
 		frame:setPosition(px + pad, y)
 
-		-- the Restart button: a touch-friendly, safe-area-aware control that
-		-- replays the whole tour from its first scene. Placed BELOW the panel
-		-- (never over the tally content) and clamped inside the safe rect so
-		-- the notch/home-bar never eats it. The nine-slice "button" sprite
-		-- gives it hover/pressed states for free.
-		local safe = engine:getSafeAreaInsets()
+		-- the Restart button: touch-friendly, placed in the reserved strip below
+		-- the panel and clamped inside the safe rect (notch/home-bar safe).
 		local btnW = math.max(160, floor(panelW * 0.5))
-		local btnH = math.max(44, floor(rowH * 2.6))
-		local gap = floor(rowH * 1.2)
 		local btnX = floor(px + (panelW - btnW) * 0.5)
 		local btnY = py + panelH + gap
 		-- clamp horizontally into the safe rect
@@ -417,11 +441,11 @@ local function buildResults()
 		local maxX = w - safe.mRight - btnW
 		if btnX < minX then btnX = minX end
 		if maxX >= minX and btnX > maxX then btnX = maxX end
-		-- keep the whole button above the bottom safe inset; never push it back
-		-- up INTO the panel (that would overlap the results content)
-		local maxY = h - safe.mBottom - btnH - floor(rowH * 0.6)
-		if btnY > maxY and maxY >= py + panelH + floor(gap * 0.5) then
-			btnY = maxY
+		-- keep the whole button above the bottom safe inset
+		local maxY = h - safe.mBottom - btnH - margin
+		if btnY > maxY then btnY = maxY end
+		if btnY < py + panelH + floor(gap * 0.3) then
+			btnY = py + panelH + floor(gap * 0.3)
 		end
 		resRestartBtn = factory:createButton("res.restart", "button", 9,
 			locOr("bench.restart", "Restart"), Vector2(btnX, btnY),
@@ -441,8 +465,9 @@ end
 
 -- the fixed scene order for the results card (mirrors levels.olevels labels)
 SCENE_ORDER = SCENE_ORDER or {
-	"Terrace Vista", "Still Water", "Night Lumens", "Ember Swarm",
-	"Instance Field", "Character Cast", "Flatland", "Console", "Cascade",
+	"Terrace Vista", "Still Water", "Mirror Lake", "Night Lumens",
+	"Ember Swarm", "Instance Field", "Character Cast", "Flatland", "Console",
+	"Cascade",
 }
 
 --- console (GUI) mode --------------------------------------------------------
@@ -640,6 +665,21 @@ function init(self)
 		-- and the water falls back to its analytic look - mobile/web safe.
 		engine:setImageLighting(true, 0.2)
 		buildHud()
+	elseif mode == "mirrorlake" then
+		-- the lake's planar sibling: the same golden-hour water with the
+		-- MIRROR on, framed so the reflection is the star - a LOWER, CLOSER
+		-- vantage than the lake's (the surface fills the frame and the
+		-- grazing rows carry the mirrored shore/sky), the sun a notch lower
+		-- so the ridge and waterline rocks stand as reflectable silhouettes
+		setPerspectiveCamera(14.0, 2.4, -19.0, -2.9)
+		driveSun(0.84)
+		driveAtmosphere(0.8)
+		-- the same gentle procedural-sky image fill as the lake: the shore
+		-- props keep their env response; the water's own env sample is the
+		-- planar mirror where supported (elsewhere the capability gate keeps
+		-- the plain look - the honest degraded scene)
+		engine:setImageLighting(true, 0.2)
+		buildHud()
 	elseif mode == "lumens" then
 		setPerspectiveCamera(18.0, 9.0, -8.0)
 		driveSun(0.75)
@@ -757,6 +797,10 @@ function update(self, dt)
 		setActiveObject("Rain", p > 0.6)
 	elseif mode == "lake" then
 		orbitCamera(elapsed * 0.6)
+	elseif mode == "mirrorlake" then
+		-- a slower drift than the lake's: the mirrored image is the payload
+		-- and a fast pan smears its read
+		orbitCamera(elapsed * 0.4)
 	elseif mode == "lumens" then
 		orbitCamera(elapsed * 0.5)
 		rampPool(frameMs, 1, lightCeiling)

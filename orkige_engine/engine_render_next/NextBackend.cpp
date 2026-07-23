@@ -3736,31 +3736,59 @@ namespace Orkige
 			const float mirrorF0 = std::clamp(f0 + strength * 0.12f, 0.02f, 0.3f);
 			datablock->setFresnel(
 				Ogre::Vector3(mirrorF0, mirrorF0, mirrorF0), false);
-			// HlmsPbs shows the mirror differently from classic's direct paint
-			// in FOUR compounding ways: the specular COLOUR multiplies the
-			// sample (~0.47 above), the roughness-driven env BRDF damps it,
-			// perceptual roughness picks a BLURRED mirror mip (0.16 lands ~2
-			// mips deep - the mirrored scene smears away), and the specular
-			// ADDS over an undimmed body while classic REPLACES body by the
-			// fresnel weight. With a live mirror the surface compensates all
-			// four: unit specular restores the sample's weight, a glassier
-			// roughness keeps it near mip 0, the body dims deeper than the
-			// shared 0.35 lockstep dim (matching classic's (1-F) body
-			// attenuation) and the scatter emissive halves so the mirrored
-			// scene - not the body glow - carries the surface. The fresnel
-			// gate still keeps the look water, not chrome.
-			const float albedoScale = 1.0f - strength * 0.55f;
+			// COMPOSITION-ORDER parity with the classic mirror paint: classic
+			// composes its mirror in DISPLAY space - out = mix(base, mirror, F)
+			// after its sqrt display transfer - while HlmsPbs ADDS the env term
+			// in LINEAR light before the same transfer. Both flavors ride the
+			// SAME Schlick F (classic pushes F0 * opacity explicitly; HlmsPbs
+			// premultiplies its fresnel by the transparency value), and the env
+			// term here is kS * (F * envBRDF.x + envBRDF.y) * mirror
+			// (envBRDF.x ~ 1 at this near-zero roughness), so kS is the one
+			// angle-independent dial on the mirror's weight. Classic's
+			// display-mix weight F is the target; kS sits where the water
+			// reflection probe MEASURES the two flavors' mirrors equal:
+			// probe-measured on_magenta over kS = 0.009 @ 0.151,
+			// 0.017 @ 0.355, 0.020 @ 0.41, 0.022 @ 0.43, 0.032 @ 0.5,
+			// 0.062 @ 1.0 (the response bends because the probe's per-sample
+			// hue clamp gates how much of the band counts) - 0.43 lands next
+			// at classic's measured 0.022 exactly. The former UNIT specular
+			// was tuned against the pre-opacity-scaled classic mirror and
+			// measured 3x strong once classic's fresnel took its opacity
+			// scale. Constant-kS keeps the authored strength/opacity response
+			// in lockstep: both flavors' mirror weights stay proportional to
+			// the same premultiplied F.
+			const float kMirrorSpecular = 0.43f;
+			datablock->setSpecular(Ogre::Vector3(
+				kMirrorSpecular, kMirrorSpecular, kMirrorSpecular));
+			// the body under the mirror: classic's base carries the display
+			// weight (1 - 0.35 * strength) * (1 - F) - the lockstep body dim
+			// times the mix's own (1-F) attenuation. The body IS the dominant
+			// term where the mirror is weak (the down-look), so there the sqrt
+			// transfer maps a linear factor to its square root on screen -
+			// next dims its LINEAR albedo (and the scatter emissive riding in
+			// that base) by the SQUARE of classic's display weight, evaluated
+			// at the view-independent mean fresnel Fmean = F0eff +
+			// (1 - F0eff)/21 (the cosine-weighted hemisphere mean of Schlick:
+			// the (1-cos)^5 lobe integrates to 1/21). The mirrored scene, not
+			// the body glow, carries the surface; the fresnel gate still keeps
+			// the look water, not chrome.
+			const float effectiveF0 =
+				mirrorF0 * std::clamp(desc.opacity, 0.0f, 1.0f);
+			const float meanFresnel =
+				effectiveF0 + (1.0f - effectiveF0) / 21.0f;
+			const float classicBodyWeight =
+				(1.0f - strength * 0.35f) * (1.0f - meanFresnel);
+			const float albedoScale = classicBodyWeight * classicBodyWeight;
 			datablock->setDiffuse(Ogre::Vector3(desc.deepColour.r * albedoScale,
 				desc.deepColour.g * albedoScale,
 				desc.deepColour.b * albedoScale));
 			datablock->setEmissive(Ogre::Vector3(
-				desc.shallowColour.r * scatter * 0.5f,
-				desc.shallowColour.g * scatter * 0.5f,
-				desc.shallowColour.b * scatter * 0.5f));
+				desc.shallowColour.r * scatter * albedoScale,
+				desc.shallowColour.g * scatter * albedoScale,
+				desc.shallowColour.b * scatter * albedoScale));
 			// 0.05: sharp enough that the mirrored scene stays legible, one
 			// soft mip down so residual tessellation edges melt away
 			datablock->setRoughness(0.05f);
-			datablock->setSpecular(Ogre::Vector3(1.0f, 1.0f, 1.0f));
 		}
 		// stand up / tear down the reflection subsystem for this surface (world Y
 		// = the mirror plane; extents unknown here, the actor is generous +
@@ -3831,7 +3859,16 @@ namespace Orkige
 		{
 			Ogre::HlmsPbs* pbs = static_cast<Ogre::HlmsPbs*>(
 				hlmsManager->getHlms(Ogre::HLMS_PBS));
-			const float swell = std::max(desc.waveHeight, 0.0f);
+			// quantized to 1e-5: the amplitude is BAKED into the piece source
+			// below AND joins the piece FILENAME - Hlms keys custom pieces by
+			// filename globally for the process lifetime and THROWS when one
+			// filename re-registers with different content (a scene switch
+			// reusing a water material name with another waveHeight, or a
+			// live inspector edit). Quantizing first makes filename equality
+			// imply content equality, so every registration is collision-free
+			// by construction.
+			const float swell = std::round(
+				std::max(desc.waveHeight, 0.0f) * 100000.0f) / 100000.0f;
 			if(swell > 0.0f)
 			{
 				// FOUR-component travelling spectrum (a pure two-sine swell
@@ -3900,8 +3937,15 @@ namespace Orkige
 					swell,
 					k1, a2z, a2x, a3x, a3z, a4z, a4x,
 					swell * k1, swell * k1);
+				// the amplitude-keyed piece name (@see the swell quantization
+				// above): one filename per (material, amplitude), so a swell
+				// change registers a FRESH name instead of colliding with the
+				// old registration's content
+				char swellTag[32];
+				std::snprintf(swellTag, sizeof(swellTag),
+					"_swell_%.5f", swell);
 				datablock->setCustomPieceCodeFromMemory(
-					name + "_swell_piece_vs.any", source,
+					name + swellTag + "_piece_vs.any", source,
 					Ogre::CustomPieceStage::VertexShader);
 				gSwellWaterMaterials.insert(name);
 				if(!gWaterSwellListenerSet)

@@ -2171,6 +2171,23 @@ if(TARGET orkige_player)
                 WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
             set_tests_properties(benchmark_crossflavor_parity PROPERTIES
                 LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
+            # the planar-mirror sibling scene, its own measured regions
+            # (waterline mirror strips, the rock-mirror band, the open
+            # water) - the standing cross-flavor gate on planar mirror
+            # STRENGTH parity: the water-reflection probe floors each
+            # flavor separately, only this comparison notices the two
+            # calibrations drifting apart on real scene content.
+            add_test(NAME benchmark_crossflavor_parity_mirror
+                COMMAND python3
+                    "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_crossflavor_parity_test.py"
+                    --repo "${Orkige_SOURCE_DIR}"
+                    --player-next "$<TARGET_FILE:orkige_player>"
+                    --player-classic "${CMAKE_BINARY_DIR}-classic/tools/player/$<TARGET_FILE_NAME:orkige_player>"
+                    --scene "scenes/mirrorlake.oscene"
+                    --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_crossflavor_parity_mirror"
+                WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+            set_tests_properties(benchmark_crossflavor_parity_mirror PROPERTIES
+                LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
         endif()
     endif()
 

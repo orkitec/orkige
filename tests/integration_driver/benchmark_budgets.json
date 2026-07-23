@@ -40,6 +40,19 @@
         "trisMax": 19000
       }
     },
+    "mirrorlake.oscene": {
+      "_comment": "The planar-mirror sibling of the lake. Measured (deterministic 240-frame recipe): next 12.1 batches / 20968 tris - the compositor stat COUNTS the mirror pass's re-render (the lake's 17330 + the mirrored terrain/rocks/sky), so the next ceilings sit above the lake's. classic 8.1 / 13594: its primary-target stat does NOT include the mirror RTT pass, so its corridor matches the lake's (the mirror's cost shows in frame-ms, which is reported, not gated).",
+      "classic": {
+        "batchesMin": 4,
+        "batchesMax": 14,
+        "trisMax": 15000
+      },
+      "next": {
+        "batchesMin": 4,
+        "batchesMax": 18,
+        "trisMax": 24000
+      }
+    },
     "lumens.oscene": {
       "classic": {
         "batchesMin": 2,
