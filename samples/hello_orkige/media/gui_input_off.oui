@@ -1,0 +1,15 @@
+# gui_input_off.oui - a screen that carries an interactive widget yet opts OUT
+# of input with the screen-level `input off` key. Loading it must NOT trip the
+# first-interactive-widget auto-enable (explicit beats auto). The counterpart
+# with the key absent auto-enables; @see the ORKIGE_DEMO_GUI_INPUT selfcheck.
+
+[Layout]
+atlas = gui_default
+input = off
+
+[Button go]
+sprite = button
+font = 9
+text = Go
+position = 40 40
+size = 120 40

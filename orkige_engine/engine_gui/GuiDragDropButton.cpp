@@ -39,6 +39,7 @@ namespace Orkige
 		isActionButton(false),
 		isRightSide(true)
 	{
+		this->markInteractive();	// a drag-drop button consumes press/drag input
 		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
 
 		this->background = onew(new GuiDecorWidget(id + ".background", spriteName, position, size, atlas, z));

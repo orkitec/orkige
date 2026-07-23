@@ -54,6 +54,7 @@ font = 9
 sprite = button
 text = Graphics
 size = 260 40
+nineSlice = true
 
 [Button rowOption2]
 parent = settingsContent
@@ -62,6 +63,7 @@ font = 9
 sprite = button
 text = Controls
 size = 260 40
+tiled = true
 
 [Button rowOption3]
 parent = settingsContent

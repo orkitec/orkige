@@ -22,6 +22,7 @@ namespace Orkige
 	GuiSelectMenu::GuiSelectMenu(String const & id, String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, GuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z) 
 		: GuiWidget(id, atlas, z)
 	{
+		this->markInteractive();	// a select-menu (and its slider subclass) consumes input
 		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
 
 		this->decor = onew(new GuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));

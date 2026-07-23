@@ -29,6 +29,7 @@ namespace Orkige
 		width(size.x), height(size.y), scrollY(0.0f), viewportExtent(size.y),
 		contentExtent(size.y), dragging(false), dragLastY(0.0f)
 	{
+		this->markInteractive();	// a scroll viewport consumes drag / wheel input
 	}
 	//---------------------------------------------------------
 	GuiScrollView::~GuiScrollView()

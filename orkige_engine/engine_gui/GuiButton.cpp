@@ -20,6 +20,7 @@ namespace Orkige
 	GuiButton::GuiButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, GuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z, bool _nostate) :
 		GuiWidget(id, atlas, z)
 	{
+		this->markInteractive();	// a button consumes press/release input
 		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
 
 		this->nostate = _nostate;

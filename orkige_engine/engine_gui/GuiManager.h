@@ -160,6 +160,16 @@ namespace Orkige
 		unsigned short statsMarkupColorIndex;
 		String defaultAtlas;
 		bool cancelInputUpdate;
+		//! @brief are the key/mouse/touch input events currently subscribed?
+		//! Tracked so enable/disable are idempotent (a double enable never
+		//! re-registers a handler) and so the auto-enable only fires once.
+		bool inputEventsEnabled;
+		//! @brief did something EXPLICITLY choose the input state - a Lua/C++
+		//! enable/disableInputEvents OR an .oui `input` key? Once set, the
+		//! first-interactive-widget auto-enable stands down (explicit beats
+		//! auto), so a deliberate `input off` / disableInputEvents keeps sticking
+		//! even as more interactive widgets are created after it. @see addWidget
+		bool inputExplicitlySet;
         bool scaleStats;
 		//! the single focused text-entry field, or NULL (@see focusTextEntry)
 		GuiTextEntry* focusedTextEntry;
@@ -237,10 +247,17 @@ namespace Orkige
 		//! @brief is this manager rendering into an offscreen preview surface
 		//! (the editor GUI Preview stage) rather than the live window?
 		bool hasPreviewSurface() const { return this->previewActive; }
-		//! enable key and mouse events
+		//! @brief enable key and mouse events. EXPLICIT: this stands the
+		//! auto-enable down (a later interactive widget will not re-toggle the
+		//! state on its own), and a subsequent disableInputEvents still wins.
+		//! Idempotent - calling it when already enabled is a harmless no-op.
 		void enableInputEvents();
-		//! disable key and mouse events
+		//! @brief disable key and mouse events. EXPLICIT (as enableInputEvents):
+		//! it sticks even if more interactive widgets are created afterwards.
 		void disableInputEvents();
+		//! @brief are the gui input events currently subscribed? (the readback a
+		//! selfcheck asserts the auto-enable / explicit-override behaviour against)
+		bool isInputEnabled() const { return this->inputEventsEnabled; }
 		//! Displays Cursor
 		void showCursor(String const & atlas, String const & sprite);
 		//! hide cursor
@@ -635,6 +652,13 @@ namespace Orkige
 		bool onTouchMoved(Orkige::Event const & event);
 
 	private:
+		//! @brief the ONE chokepoint that (un)subscribes the input events. Every
+		//! path - explicit enable/disable, the .oui `input` key, the interactive-
+		//! widget auto-enable - routes through here. Idempotent (gated on
+		//! inputEventsEnabled) and inert on a preview surface (the editor GUI
+		//! Preview stage never runs game input, so it stays exactly as inert as
+		//! before this seam existed).
+		void applyInputEnabled(bool enable);
 	};
 	//---------------------------------------------------------------
 	inline woptr<GuiFactory> GuiManager::getFactory()

@@ -533,6 +533,22 @@ namespace Orkige
 			{
 				manager.setRootSpace(*root);
 			}
+			// screen-level input enablement: an EXPLICIT choice (like a Lua
+			// enable/disableInputEvents), so it beats the first-interactive-widget
+			// auto-enable. Applied here, BEFORE pass 1 creates the widgets, so an
+			// `input off` is already latched when the buttons come in and thus
+			// suppresses the auto-enable. Absent -> the auto path decides.
+			if(String const * input = layout->find("input"))
+			{
+				if(parseBool(*input, true))
+				{
+					manager.enableInputEvents();
+				}
+				else
+				{
+					manager.disableInputEvents();
+				}
+			}
 		}
 
 		// modal pass: raise each declared modal (a consuming scrim on its own

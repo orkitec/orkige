@@ -44,7 +44,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group, PreviewSurface const * previewSurface) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), modalSavedFocus(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0), modalSerial(0), groupAlphaDirty(false), screenExiting(false), previewActive(false), previewWidth(0), previewHeight(0)
+	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group, PreviewSurface const * previewSurface) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), inputEventsEnabled(false), inputExplicitlySet(false), scaleStats(false), focusedTextEntry(NULL), modalSavedFocus(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0), modalSerial(0), groupAlphaDirty(false), screenExiting(false), previewActive(false), previewWidth(0), previewHeight(0)
 	{
 		oAssert(this->factory);
 		// the editor GUI Preview stage points this whole manager at an offscreen
@@ -110,35 +110,63 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GuiManager::enableInputEvents()
 	{
-		this->registerEvent(Orkige::InputManager::KeyPressedEvent,				&GuiManager::onKeyPressed,				this);
-		this->registerEvent(Orkige::InputManager::KeyReleasedEvent,				&GuiManager::onKeyReleased,				this);
-		this->registerEvent(Orkige::InputManager::TextInputEvent,				&GuiManager::onTextInput,				this);
-#if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
-		this->registerEvent(Orkige::InputManager::TouchPressedEvent,			&GuiManager::onTouchPressed,			this);
-		this->registerEvent(Orkige::InputManager::TouchReleasedEvent,			&GuiManager::onTouchReleased,			this);
-		this->registerEvent(Orkige::InputManager::TouchMovedEvent,				&GuiManager::onTouchMoved,				this);
-#else
-		this->registerEvent(Orkige::InputManager::MousePressedEvent,			&GuiManager::onMousePressed,			this);
-		this->registerEvent(Orkige::InputManager::MouseReleasedEvent,			&GuiManager::onMouseReleased,			this);
-		this->registerEvent(Orkige::InputManager::MouseMovedEvent,				&GuiManager::onMouseMoved,				this);
-#endif
-		this->refreshCursor();
+		// an explicit choice: from here the auto-enable stands down (a later
+		// interactive widget will not re-toggle the state) and a subsequent
+		// disableInputEvents still wins
+		this->inputExplicitlySet = true;
+		this->applyInputEnabled(true);
 	}
 	//---------------------------------------------------------
 	void GuiManager::disableInputEvents()
 	{
-		this->unregisterEvent(Orkige::InputManager::KeyPressedEvent);
-		this->unregisterEvent(Orkige::InputManager::KeyReleasedEvent);
-		this->unregisterEvent(Orkige::InputManager::TextInputEvent);
+		this->inputExplicitlySet = true;
+		this->applyInputEnabled(false);
+	}
+	//---------------------------------------------------------
+	void GuiManager::applyInputEnabled(bool enable)
+	{
+		// the editor GUI Preview stage never runs game input - keep it exactly as
+		// inert as it was before the auto-enable seam existed
+		if(this->previewActive)
+		{
+			return;
+		}
+		if(enable == this->inputEventsEnabled)
+		{
+			return;	// idempotent: never double-register / double-unregister
+		}
+		this->inputEventsEnabled = enable;
+		if(enable)
+		{
+			this->registerEvent(Orkige::InputManager::KeyPressedEvent,				&GuiManager::onKeyPressed,				this);
+			this->registerEvent(Orkige::InputManager::KeyReleasedEvent,				&GuiManager::onKeyReleased,				this);
+			this->registerEvent(Orkige::InputManager::TextInputEvent,				&GuiManager::onTextInput,				this);
 #if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
-		this->unregisterEvent(Orkige::InputManager::TouchPressedEvent);
-		this->unregisterEvent(Orkige::InputManager::TouchReleasedEvent);
-		this->unregisterEvent(Orkige::InputManager::TouchMovedEvent);
+			this->registerEvent(Orkige::InputManager::TouchPressedEvent,			&GuiManager::onTouchPressed,			this);
+			this->registerEvent(Orkige::InputManager::TouchReleasedEvent,			&GuiManager::onTouchReleased,			this);
+			this->registerEvent(Orkige::InputManager::TouchMovedEvent,				&GuiManager::onTouchMoved,				this);
 #else
-		this->unregisterEvent(Orkige::InputManager::MousePressedEvent);
-		this->unregisterEvent(Orkige::InputManager::MouseReleasedEvent);
-		this->unregisterEvent(Orkige::InputManager::MouseMovedEvent);
+			this->registerEvent(Orkige::InputManager::MousePressedEvent,			&GuiManager::onMousePressed,			this);
+			this->registerEvent(Orkige::InputManager::MouseReleasedEvent,			&GuiManager::onMouseReleased,			this);
+			this->registerEvent(Orkige::InputManager::MouseMovedEvent,				&GuiManager::onMouseMoved,				this);
 #endif
+			this->refreshCursor();
+		}
+		else
+		{
+			this->unregisterEvent(Orkige::InputManager::KeyPressedEvent);
+			this->unregisterEvent(Orkige::InputManager::KeyReleasedEvent);
+			this->unregisterEvent(Orkige::InputManager::TextInputEvent);
+#if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
+			this->unregisterEvent(Orkige::InputManager::TouchPressedEvent);
+			this->unregisterEvent(Orkige::InputManager::TouchReleasedEvent);
+			this->unregisterEvent(Orkige::InputManager::TouchMovedEvent);
+#else
+			this->unregisterEvent(Orkige::InputManager::MousePressedEvent);
+			this->unregisterEvent(Orkige::InputManager::MouseReleasedEvent);
+			this->unregisterEvent(Orkige::InputManager::MouseMovedEvent);
+#endif
+		}
 	}
 	//---------------------------------------------------------
 	void GuiManager::showCursor(String const & atlas, String const & sprite)
@@ -289,6 +317,17 @@ namespace Orkige
 		this->widgets[widget->getObjectID()] = widget;
 		this->sortedWidgets.push_back(widget);
 		this->sortedWidgets.sort(GuiWidgetOptrCmp());
+		// auto-enable input the first time a screen gains an interactive widget,
+		// unless something already chose the input state explicitly (a Lua/C++
+		// enable/disable or an .oui `input` key). A label/decor-only screen never
+		// takes this path, so a pure HUD pays nothing. Explicit beats auto: once
+		// inputExplicitlySet is true this never fires, so a deliberate `input off`
+		// keeps sticking even as more interactive widgets are added.
+		if(!this->inputExplicitlySet && !this->inputEventsEnabled &&
+			widget->isInteractive())
+		{
+			this->applyInputEnabled(true);
+		}
 		return true;
 	}
 	//---------------------------------------------------------

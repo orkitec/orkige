@@ -610,6 +610,17 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_oui PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_OUI=1;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_GUI_INPUT: the gui input-enablement selfcheck - proves the
+    # ratified policy on a real GuiManager: input events subscribe themselves
+    # the first time a screen gains an interactive widget, a label-only screen
+    # stays inert, an explicit disable (before OR after) sticks against the
+    # auto-enable, and an .oui `input off` suppresses the auto-enable for a
+    # screen with buttons. Flavor-neutral (gui on DrawLayer2D).
+    add_test(NAME demo_gui_input COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_gui_input PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_GUI_INPUT=1;ORKIGE_DEMO_FRAMES=4")
+
     # ORKIGE_DEMO_LOC: the localisation-runtime selfcheck - loads a project's
     # XLIFF loc/ registry (en source + de target + the generated en-XA pseudo-
     # locale) into the StringTable, loads a committed .oui whose captions are all

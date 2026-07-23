@@ -42,6 +42,7 @@
 #include <engine_gui/GuiTextEdit.h>
 #include <engine_gui/GuiLabel.h>
 #include <engine_gui/GuiButton.h>
+#include <engine_gui/GuiDecorWidget.h>
 #include <engine_gui/UiAtlas.h>
 #include <core_util/StringTable.h>
 #include <engine_gocomponent/ScriptComponent.h>
@@ -3178,6 +3179,53 @@ int main(int, char**)
 				factory->loadLayout("settings_screen.oui");
 				render->renderOneFrame();	// runs the two-pass resolve
 
+				// the .oui nineSlice / tiled keys apply to BUTTON widgets (not
+				// just decor): the loader flips the button's decor draw mode. Two
+				// rows carry the keys; assert the applied DrawMode (queryable via
+				// the button's decor rect - the same widget surface the tests use)
+				{
+					Orkige::optr<Orkige::GuiButton> nineBtn =
+						gui.widgetExists("rowOption1")
+							? gui.getWidgetAs<Orkige::GuiButton>("rowOption1").lock()
+							: Orkige::optr<Orkige::GuiButton>();
+					Orkige::optr<Orkige::GuiButton> tiledBtn =
+						gui.widgetExists("rowOption2")
+							? gui.getWidgetAs<Orkige::GuiButton>("rowOption2").lock()
+							: Orkige::optr<Orkige::GuiButton>();
+					Orkige::optr<Orkige::GuiDecorWidget> nineDecor =
+						nineBtn ? nineBtn->getDecor().lock()
+							: Orkige::optr<Orkige::GuiDecorWidget>();
+					Orkige::optr<Orkige::GuiDecorWidget> tiledDecor =
+						tiledBtn ? tiledBtn->getDecor().lock()
+							: Orkige::optr<Orkige::GuiDecorWidget>();
+					if (!nineDecor || !tiledDecor ||
+						!nineDecor->getRectangle() || !tiledDecor->getRectangle())
+					{
+						SDL_Log("hello_orkige: FAILED - .oui buttons / decor for the "
+							"nineSlice/tiled rows not created");
+						ouiOk = false;
+					}
+					else
+					{
+						if (nineDecor->getRectangle()->getDrawMode() !=
+							Orkige::UiRect::DM_NineSlice)
+						{
+							SDL_Log("hello_orkige: FAILED - .oui `nineSlice = true` on "
+								"a button did not set DM_NineSlice (mode %d)",
+								(int)nineDecor->getRectangle()->getDrawMode());
+							ouiOk = false;
+						}
+						if (tiledDecor->getRectangle()->getDrawMode() !=
+							Orkige::UiRect::DM_Tiled)
+						{
+							SDL_Log("hello_orkige: FAILED - .oui `tiled = true` on a "
+								"button did not set DM_Tiled (mode %d)",
+								(int)tiledDecor->getRectangle()->getDrawMode());
+							ouiOk = false;
+						}
+					}
+				}
+
 				Orkige::optr<Orkige::GuiScrollView> scroll;
 				Orkige::optr<Orkige::GuiCheckBox> check;
 				if (gui.widgetExists("settingsScroll"))
@@ -3272,6 +3320,155 @@ int main(int, char**)
 			SDL_Log("hello_orkige: .oui selfcheck passed (declarative settings "
 				"screen loaded from one file, vertical group + scroll, scissor "
 				"clip == viewport, scrolled checkbox hit-tests correctly)");
+		}
+
+		// ORKIGE_DEMO_GUI_INPUT=1: the gui input-enablement selfcheck (flavor-
+		// neutral). Proves the ratified policy on a real GuiManager over the
+		// committed atlas: input events subscribe themselves the first time a
+		// screen gains an INTERACTIVE widget (button/checkbox/...), a display-
+		// only (label) screen never enters the input path, an explicit disable
+		// stands the auto-enable down BOTH before and after the interactive
+		// widget is created, and an .oui `input off` suppresses the auto-enable
+		// for a screen that carries buttons. Runs identically on classic + next.
+		if (std::getenv("ORKIGE_DEMO_GUI_INPUT"))
+		{
+			Orkige::PlatformWindow::setContentScaleOverride(1.0f);
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
+			render->addResourceLocation(ORKIGE_DEMO_OUI_DIR);
+			render->initialiseResourceGroups();
+
+			bool inOk = true;
+
+			// A) a label leaves input off; the first interactive widget turns it on
+			{
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
+				if (gui.isInputEnabled())
+				{
+					SDL_Log("hello_orkige: FAILED - a fresh GuiManager already "
+						"has input enabled");
+					inOk = false;
+				}
+				factory->createLabel("giLabel", 9, "Score",
+					Orkige::Vec2(20, 20), "", 5, false);
+				if (gui.isInputEnabled())
+				{
+					SDL_Log("hello_orkige: FAILED - a label-only screen enabled "
+						"input (a display widget must not enter the input path)");
+					inOk = false;
+				}
+				factory->createButton("giButton", "button", 9, "Go",
+					Orkige::Vec2(20, 60), Orkige::GuiLabel::LA_CENTER,
+					Orkige::Vec2(120, 40), "", 5, false,
+					Orkige::GuiButtonBlink::BBLINK_NONE);
+				if (!gui.isInputEnabled())
+				{
+					SDL_Log("hello_orkige: FAILED - the first interactive widget "
+						"did not auto-enable input");
+					inOk = false;
+				}
+			}
+
+			// B) a label-only screen never enters the input path (zero-cost HUD)
+			{
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
+				factory->createLabel("giHudA", 9, "10",
+					Orkige::Vec2(20, 20), "", 5, false);
+				factory->createLabel("giHudB", 9, "x3",
+					Orkige::Vec2(20, 44), "", 5, false);
+				if (gui.isInputEnabled())
+				{
+					SDL_Log("hello_orkige: FAILED - a two-label HUD enabled input");
+					inOk = false;
+				}
+			}
+
+			// C) an explicit disable BEFORE the interactive widget sticks (auto
+			//    stands down - explicit beats auto)
+			{
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
+				gui.disableInputEvents();
+				factory->createButton("giBtnC", "button", 9, "Go",
+					Orkige::Vec2(20, 20), Orkige::GuiLabel::LA_CENTER,
+					Orkige::Vec2(120, 40), "", 5, false,
+					Orkige::GuiButtonBlink::BBLINK_NONE);
+				if (gui.isInputEnabled())
+				{
+					SDL_Log("hello_orkige: FAILED - a button after an explicit "
+						"disable re-enabled input (auto must not override explicit)");
+					inOk = false;
+				}
+			}
+
+			// D) an explicit disable AFTER the auto-enable sticks against later
+			//    interactive widgets
+			{
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
+				factory->createButton("giBtnD1", "button", 9, "One",
+					Orkige::Vec2(20, 20), Orkige::GuiLabel::LA_CENTER,
+					Orkige::Vec2(120, 40), "", 5, false,
+					Orkige::GuiButtonBlink::BBLINK_NONE);
+				if (!gui.isInputEnabled())
+				{
+					SDL_Log("hello_orkige: FAILED - the first button did not "
+						"auto-enable input (case D setup)");
+					inOk = false;
+				}
+				gui.disableInputEvents();
+				if (gui.isInputEnabled())
+				{
+					SDL_Log("hello_orkige: FAILED - an explicit disable did not "
+						"turn input off");
+					inOk = false;
+				}
+				factory->createButton("giBtnD2", "button", 9, "Two",
+					Orkige::Vec2(20, 70), Orkige::GuiLabel::LA_CENTER,
+					Orkige::Vec2(120, 40), "", 5, false,
+					Orkige::GuiButtonBlink::BBLINK_NONE);
+				if (gui.isInputEnabled())
+				{
+					SDL_Log("hello_orkige: FAILED - a button created after an "
+						"explicit disable re-enabled input (disable must stick)");
+					inOk = false;
+				}
+			}
+
+			// E) an .oui `input off` suppresses the auto-enable for a screen that
+			//    carries an interactive widget
+			{
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
+				factory->loadLayout("gui_input_off.oui");
+				if (!gui.widgetExists("go"))
+				{
+					SDL_Log("hello_orkige: FAILED - gui_input_off.oui button not "
+						"created");
+					inOk = false;
+				}
+				if (gui.isInputEnabled())
+				{
+					SDL_Log("hello_orkige: FAILED - an .oui `input off` did not "
+						"suppress the auto-enable on a screen with a button");
+					inOk = false;
+				}
+			}
+
+			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
+			if (!inOk)
+			{
+				return 1;
+			}
+			SDL_Log("hello_orkige: gui input selfcheck passed (first interactive "
+				"widget auto-enables input, label-only stays inert, explicit "
+				"disable before/after sticks, .oui `input off` suppresses auto)");
 		}
 
 		// ORKIGE_DEMO_TEXTENTRY=1: the gui TextEntry selfcheck (flavor-

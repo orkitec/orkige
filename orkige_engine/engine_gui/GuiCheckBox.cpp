@@ -26,6 +26,7 @@ namespace Orkige
 		baseSpriteName(spriteName),
 		toggleGroup(NULL)
     {
+		this->markInteractive();	// a checkbox consumes press input
 		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
 
 		if (useCheckbox)

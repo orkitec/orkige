@@ -43,6 +43,10 @@ namespace Orkige
 		//! disabled widget (@see GuiManager) so it neither reacts nor consumes,
 		//! and the widget dims its visuals via onEnabledChanged. Default true.
 		bool enabled;
+		//! @brief does this widget kind consume input (@see isInteractive)? A
+		//! class fact set once by an interactive leaf's ctor via markInteractive;
+		//! default false (display-only). Drives GuiManager's input auto-enable.
+		bool interactive;
 		//! @brief rect-anchor layout (opt-in). A widget with layoutEnabled is
 		//! placed by GuiManager's per-frame resolve pass against its parent
 		//! (or the screen root) instead of the absolute pixels it was authored
@@ -122,6 +126,19 @@ namespace Orkige
 		//! A disabled group/panel disables its whole subtree - the manager gates
 		//! input on this, not the local flag. Walks the layout-parent chain.
 		bool isEffectivelyEnabled() const;
+
+		//! @brief does this widget kind consume pointer/key input, so a screen
+		//! that gains one wants gui input events running? Display-only widgets
+		//! (label/decor/textbox/progressbar) are false; the interactive leaves
+		//! (button, checkbox, select-menu/slider, scroll view, text entry, the
+		//! drag button) call markInteractive() in their constructor. Drives
+		//! GuiManager's input auto-enable (@see GuiManager::addWidget) - a class
+		//! fact set once at construction, independent of the runtime enabled flag.
+		//! @remarks A stored flag rather than a virtual on purpose: these are
+		//! Meta/OOBJECT classes whose macro-generated getTypeInfo override cannot
+		//! be marked `override`, so introducing ONE marked virtual override in a
+		//! leaf would trip -Winconsistent-missing-override for the whole class.
+		bool isInteractive() const { return this->interactive; }
 
 		//--- widget animation: render transform + cascading alpha (@see the tween
 		//--- surface widget:tween(...) and the manager's per-frame alpha pass) ---
@@ -267,6 +284,9 @@ namespace Orkige
 		//! node from the widget's current on-screen rect so it stays put until
 		//! anchors/offsets change
 		void ensureLayout();
+		//! @brief an interactive leaf marks itself input-consuming from its
+		//! constructor (@see isInteractive). One call, class-wide by convention.
+		void markInteractive() { this->interactive = true; }
 	private:
 	};
 	//---------------------------------------------------------------

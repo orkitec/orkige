@@ -32,7 +32,7 @@ namespace Orkige
 	const float GuiWidget::DISABLED_ALPHA = 0.5f;
 	const float GuiWidget::ALPHA_INPUT_THRESHOLD = 0.05f;
 	//---------------------------------------------------------
-	GuiWidget::GuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id), visible(true), enabled(true), layoutEnabled(false), layoutUseSafeArea(false), renderScaleX(1.0f), renderScaleY(1.0f), renderRotationDeg(0.0f), groupAlpha(1.0f), alphaBlocksInput(true)
+	GuiWidget::GuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id), visible(true), enabled(true), interactive(false), layoutEnabled(false), layoutUseSafeArea(false), renderScaleX(1.0f), renderScaleY(1.0f), renderRotationDeg(0.0f), groupAlpha(1.0f), alphaBlocksInput(true)
 	{
 		this->view = GuiManager::getSingleton().getCreateView(atlas);
 		oAssert(view.lock());

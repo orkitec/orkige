@@ -38,6 +38,7 @@ namespace Orkige
 		, mMaxLength(maxLength), mFocused(false), mSubmitted(false)
 		, mBlinkTimer(0.0f), mCaretVisible(true), mFontIndex(defaultGlyphIndex)
 	{
+		this->markInteractive();	// a text-entry field consumes focus / key / text input
 		this->mBackground = this->layer->createRectangle(position, size);
 		if(spriteName.empty() || spriteName == "none")
 		{
