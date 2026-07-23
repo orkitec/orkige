@@ -140,13 +140,36 @@ def _fbm(fx, fy, seed, octaves, period=None):
 
 # --- heightfield + geometry ------------------------------------------------
 
+def height_at_uv(u, v, seed, height_amp, base_frequency=3.0, octaves=5):
+    """Terrain height in world units at a normalised (u, v) in [0, 1]^2.
+
+    THE single source of the baked heightfield: build_heightfield samples it on
+    the vertex grid, and downstream tools sample it at arbitrary points to place
+    content ON the terrain (never duplicate this expression - the two must not
+    drift). A centre-weighted radial falloff sinks the rim so the patch reads as
+    a self-contained valley/hill island rather than a clipped tile."""
+    noise = _fbm(u * base_frequency, v * base_frequency, seed, octaves)
+    dx = (u - 0.5) * 2.0
+    dz = (v - 0.5) * 2.0
+    radial = max(0.0, 1.0 - (dx * dx + dz * dz))
+    return (noise * 0.7 + 0.3) * radial * height_amp
+
+
+def height_at_world(wx, wz, seed, height_amp, world_size=DEFAULT_WORLD_SIZE,
+                    base_frequency=3.0, octaves=5):
+    """Terrain height at a WORLD (x, z), matching build_chunks' vertex placement
+    (wx = (u - 0.5) * world_size), for a terrain generated at these parameters.
+    Sample this to stand content on the baked terrain surface."""
+    u = wx / world_size + 0.5
+    v = wz / world_size + 0.5
+    return height_at_uv(u, v, seed, height_amp, base_frequency, octaves)
+
+
 def build_heightfield(verts_per_side, seed, height_amp,
                       base_frequency=3.0, octaves=5):
     """A (verts_per_side x verts_per_side) grid of heights in world units.
 
-    Sampled once over the WHOLE terrain so chunk borders share exact heights.
-    A radial falloff sinks the rim so the patch reads as a self-contained
-    valley/hill island rather than a clipped tile."""
+    Sampled once over the WHOLE terrain so chunk borders share exact heights."""
     grid = []
     last = verts_per_side - 1
     for gz in range(verts_per_side):
@@ -154,12 +177,8 @@ def build_heightfield(verts_per_side, seed, height_amp,
         for gx in range(verts_per_side):
             u = gx / last
             v = gz / last
-            noise = _fbm(u * base_frequency, v * base_frequency, seed, octaves)
-            # centre-weighted falloff: 1 at the middle, 0 at the rim
-            dx = (u - 0.5) * 2.0
-            dz = (v - 0.5) * 2.0
-            radial = max(0.0, 1.0 - (dx * dx + dz * dz))
-            row.append((noise * 0.7 + 0.3) * radial * height_amp)
+            row.append(height_at_uv(u, v, seed, height_amp,
+                                    base_frequency, octaves))
         grid.append(row)
     return grid
 

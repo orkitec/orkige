@@ -51,6 +51,30 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 UTIL = REPO / "Util"
 
+sys.path.insert(0, str(UTIL))
+import make_terrain_mesh as terrain  # noqa: E402  (the baked-terrain generator)
+
+# The tour's terrain is baked by make_terrain_mesh at these parameters (only the
+# chunk grid is overridden in build_all; seed/height/world-size stay defaults),
+# and every terrain node is authored at translation (0, TERRAIN_BASE_Y, 0),
+# scale 1. Content that stands on it samples the SAME height function so a
+# placement can never drift from the baked mesh.
+TERRAIN_SEED = terrain.DEFAULT_SEED
+TERRAIN_HEIGHT = terrain.DEFAULT_HEIGHT
+TERRAIN_WORLD = terrain.DEFAULT_WORLD_SIZE
+TERRAIN_BASE_Y = -4.0
+# sink a base/feet slightly into the ground so a hill's slope never opens a
+# visible air gap under a placed object
+GROUND_SINK = 0.03
+
+
+def ground_y(x, z):
+    """World Y of the baked-terrain SURFACE under (x, z), for a terrain node at
+    translation (0, TERRAIN_BASE_Y, 0), scale 1 (how the tour authors terrain).
+    Reuses make_terrain_mesh's height function - never re-derive the fBm here."""
+    return TERRAIN_BASE_Y + terrain.height_at_world(
+        x, z, TERRAIN_SEED, TERRAIN_HEIGHT, TERRAIN_WORLD)
+
 
 # ---------------------------------------------------------------------------
 # scene / prefab serialization (the XMLArchive forms SceneSerializer produces).
@@ -660,7 +684,7 @@ def director(scene_writer, mode, label, seconds, extra_exports=()):
                                          exports=exports))
 
 
-def terrain_object(scene, y=-4.0):
+def terrain_object(scene, y=TERRAIN_BASE_Y):
     # terrain never moves: static scenery (the renderer's immobile fast path)
     scene.add("Terrain",
               scene.transform(0.0, y, 0.0, static=True),
@@ -680,16 +704,20 @@ def build_vista():
                   casts=True),
           tags=("sun",))
     terrain_object(s)
-    # PBS-material props scattered on the terrace
+    # PBS-material props scattered on the terrace. The demo cube is centred on
+    # its origin with a 0.8 half-extent, so its bottom sits 0.8*scale below the
+    # transform; place each so that bottom rests on the terrain under its (x, z).
     props = [
-        (-6.0, 1.0, -4.0, "prop_rock.omat", 1.2),
-        (5.0, 1.2, -6.0, "prop_metal.omat", 1.4),
-        (0.0, 0.8, -9.0, "prop_crystal.omat", 1.0),
-        (-3.0, 0.9, -12.0, "prop_rock.omat", 1.1),
-        (7.0, 1.0, -13.0, "prop_crystal.omat", 0.9),
+        (-6.0, -4.0, "prop_rock.omat", 1.2),
+        (5.0, -6.0, "prop_metal.omat", 1.4),
+        (0.0, -9.0, "prop_crystal.omat", 1.0),
+        (-3.0, -12.0, "prop_rock.omat", 1.1),
+        (7.0, -13.0, "prop_crystal.omat", 0.9),
     ]
-    for i, (x, y, z, mat, sc) in enumerate(props):
+    cube_half = 0.8
+    for i, (x, z, mat, sc) in enumerate(props):
         # scattered props never move: static scenery
+        y = ground_y(x, z) + cube_half * sc - GROUND_SINK
         s.add("Prop%d" % i,
               s.transform(x, y, z, sc, sc, sc, static=True),
               s.model("demo_material_cube.glb", mat))
@@ -875,8 +903,12 @@ def build_cast():
     # cross-fades walk<->idle (reached via world.getAnimation) so the WEIGHTED
     # blend reads on stage. The glowing-crystal material makes it stand out
     # from the tan-stone crowd behind it.
+    # the mannequin rig's feet sit at its local origin (leg boxes bottom at
+    # y=0), so a mannequin's world feet Y == its transform Y regardless of
+    # scale; stand each one on the terrain height under its (x, z).
     s.add("HeroCast",
-          s.transform(0.0, -3.0, -6.0, 2.2, 2.2, 2.2),
+          s.transform(0.0, ground_y(0.0, -6.0) - GROUND_SINK, -6.0,
+                      2.2, 2.2, 2.2),
           s.model("character_rig.glb", "prop_crystal.omat"),
           s.animation(),
           tags=("hero",))
@@ -894,7 +926,8 @@ def build_cast():
             # a deterministic per-instance seed in [0, 1)
             seed = ((idx * 2654435761 + 1013904223) & 0xffff) / 65536.0
             s.add("Cast%d" % idx,
-                  s.transform(x, -3.0, z, 1.2, 1.2, 1.2),
+                  s.transform(x, ground_y(x, z) - GROUND_SINK, z,
+                              1.2, 1.2, 1.2),
                   s.model("character_rig.glb", "field_stone.omat"),
                   s.animation(),
                   s.script("mannequin", "scripts/mannequin.component.lua",
