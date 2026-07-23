@@ -36,9 +36,10 @@
 #include <OgreAssimpLoader.h>
 #endif
 #include <cctype>
+// unconditional: the baked RTSS media-dir registration probes it too
+#include <filesystem>
 #ifdef ORKIGE_HAVE_VULKAN
 #include <cstdlib>
-#include <filesystem>
 #endif
 #ifdef ORKIGE_IPHONE
 #   ifdef __OBJC__
