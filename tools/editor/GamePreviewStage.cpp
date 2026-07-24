@@ -191,21 +191,18 @@ namespace OrkigeEditor
 		return this->mOverlay.getPreviewLanguage();
 	}
 	//---------------------------------------------------------
-	GameObject* GamePreviewStage::resolveCamera(GameObjectManager& world,
-		std::string const& sourceCameraId) const
+	Orkige::GameObject* resolveActiveSceneCamera(
+		Orkige::GameObjectManager& world)
 	{
+		// the active scene camera: a "Main Camera" if present, else the first
+		// object carrying a CameraComponent (stable map order). Shared between
+		// the preview's camera tracking and the Hierarchy's camera-owner glyph
+		// so the two never disagree about which camera "is" the game view.
 		auto usable = [](GameObject* go) -> bool
 		{
 			return go && go->hasComponent<CameraComponent>() &&
 				go->hasComponent<TransformComponent>();
 		};
-		if(!sourceCameraId.empty())
-		{
-			GameObject* go = world.getGameObject(sourceCameraId).lock().get();
-			return usable(go) ? go : NULL;
-		}
-		// the active scene camera: a "Main Camera" if present, else the first
-		// object carrying a CameraComponent (stable map order)
 		GameObject* first = NULL;
 		for(auto const& entry : world.getGameObjects())
 		{
@@ -224,6 +221,18 @@ namespace OrkigeEditor
 			}
 		}
 		return first;
+	}
+	//---------------------------------------------------------
+	GameObject* GamePreviewStage::resolveCamera(GameObjectManager& world,
+		std::string const& sourceCameraId) const
+	{
+		if(!sourceCameraId.empty())
+		{
+			GameObject* go = world.getGameObject(sourceCameraId).lock().get();
+			return (go && go->hasComponent<CameraComponent>() &&
+				go->hasComponent<TransformComponent>()) ? go : NULL;
+		}
+		return resolveActiveSceneCamera(world);
 	}
 	//---------------------------------------------------------
 	void GamePreviewStage::update(GameObjectManager& world,

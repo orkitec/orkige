@@ -99,6 +99,7 @@ world.getParticles(id) -> ParticleComponent?  -- an object's ParticleComponent (
 world.getSound(id) -> SoundComponent?  -- an object's SoundComponent (nil if none)
 world.getCamera(id) -> CameraComponent  -- the object's CameraComponent (nil when absent); drives smooth follow
 world.getLevel(id) -> LevelComponent?  -- an object's LevelComponent (nil if none)
+world.getAtmosphere(id) -> AtmosphereComponent?  -- an object's AtmosphereComponent (nil if none) - the scene-authored sky/fog base (the first active instance owns the world atmosphere)
 world.getBoneAttach(id) -> BoneAttachComponent?  -- an object's BoneAttachComponent (nil if none) - retarget a bone follower
 world.getComponent(id, name) -> Component?  -- any component by script or reflected-kind name - the generic world.get* (nil if absent/unknown)
 world.getScript(id) -> ScriptComponent?  -- an object's ScriptComponent (nil if none)
@@ -1188,6 +1189,34 @@ LightComponent.range
 LightComponent.innerAngle
 LightComponent.outerAngle
 LightComponent.castsShadows
+
+## AtmosphereComponent
+AtmosphereComponent:isAtmosphereOwner() -> bool  -- does THIS instance currently own the world atmosphere (dormant siblings store state only)
+AtmosphereComponent:setEnabled(enabled) -> nil  -- master switch of the armed desc (false = the owner arms a plain clear background)
+AtmosphereComponent:getEnabled() -> bool  -- the armed desc's master switch
+AtmosphereComponent:setPreset(name) -> nil  -- seed every look field from a named preset ('day'/'sunset'/'night'; 'custom' seeds nothing; unknown words warn and keep the state)
+AtmosphereComponent:getPreset() -> string  -- the last seed word
+AtmosphereComponent:setSkyColour(r, g, b) -> nil  -- zenith sky tint, linear 0..1
+AtmosphereComponent:setSkyPower(power) -> nil  -- HDR sky-dome brightness multiplier (1 = neutral)
+AtmosphereComponent:getSkyPower() -> number  -- the sky-dome brightness multiplier
+AtmosphereComponent:setDensity(density) -> nil  -- sky Rayleigh density coefficient (thicker = hazier horizon)
+AtmosphereComponent:getDensity() -> number  -- the sky Rayleigh density coefficient
+AtmosphereComponent:setSunPower(power) -> nil  -- linked directional light power - the exposure knob
+AtmosphereComponent:getSunPower() -> number  -- the linked sun power
+AtmosphereComponent:setAmbientPower(power) -> nil  -- scales the atmosphere-driven hemisphere ambient fill (1 = native)
+AtmosphereComponent:getAmbientPower() -> number  -- the ambient fill scale
+AtmosphereComponent:setFogDensity(density) -> nil  -- per-object exponential distance fog (0 = none)
+AtmosphereComponent:getFogDensity() -> number  -- the object-fog density
+AtmosphereComponent:setFogColour(r, g, b) -> nil  -- fog colour, linear 0..1 (classic fixed-function fallback fog)
+AtmosphereComponent.enabled
+AtmosphereComponent.preset
+AtmosphereComponent.skyColour
+AtmosphereComponent.skyPower
+AtmosphereComponent.density
+AtmosphereComponent.sunPower
+AtmosphereComponent.ambientPower
+AtmosphereComponent.fogDensity
+AtmosphereComponent.fogColour
 
 ## SoundComponent
 SoundComponent:addSound(...)

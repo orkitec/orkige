@@ -2054,6 +2054,23 @@ namespace OrkigeEditor
 		std::string		trackedCameraId;
 	};
 	CameraInsetDebug& cameraInsetDebug();
+
+	//! @brief the Hierarchy owner-component glyph seam (the same non-pixel
+	//! selfcheck pattern): every glyph the LAST edit-mode Hierarchy pass drew -
+	//! which row, which owner-component kind, accent (owner) or dimmed
+	//! (dormant). Reset at the top of each drawLocalHierarchy pass
+	//! (EditorHierarchyPanel.cpp; @see OwnerComponentBadges.h).
+	struct HierarchyBadgeDebug
+	{
+		struct Entry
+		{
+			std::string	objectId;
+			std::string	componentTypeName;
+			bool		owner = false;	//!< accent (owner) vs dimmed (dormant)
+		};
+		std::vector<Entry>	entries;
+	};
+	HierarchyBadgeDebug& hierarchyBadgeDebug();
 }
 
 // the shared preview WIDGET body (clip dropdown, Play/Pause/Reset, time scrub,

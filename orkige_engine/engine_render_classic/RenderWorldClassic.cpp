@@ -81,6 +81,19 @@ namespace Orkige
 			Ogre::Vector3 dir(0.3f, 0.9f, 0.2f);
 			if(Ogre::Light* sun = RenderBackend::firstDirectionalLight())
 			{
+				// force the light node's derived transform FRESH before the
+				// read: the node lazily caches it, and a PARENT orientation
+				// change does not invalidate an already-computed child until
+				// the render pass updates the graph. Without this, an
+				// atmosphere armed DURING scene load (a scene-authored
+				// AtmosphereComponent ahead of the sun in file order) caches
+				// the identity direction at the light-add refresh and every
+				// pre-first-frame re-apply - the director's boot arm included
+				// - reads the stale horizontal sun (a night-dark day).
+				if(Ogre::Node* parentNode = sun->getParentNode())
+				{
+					parentNode->_update(false, true);
+				}
 				dir = -sun->getDerivedDirection();
 			}
 			dir.normalise();
@@ -94,8 +107,9 @@ namespace Orkige
 		//! linkage), so the light's authored diffuse/specular are snapshotted
 		//! the moment the atmosphere takes it and written back EXACTLY when
 		//! it lets go (disable, sun-set change, world teardown) - the
-		//! recover-then-reapply rule (@see ScreenShake). The editor never
-		//! enables an atmosphere, so editing stays untouched.
+		//! recover-then-reapply rule (@see ScreenShake). The editor arms a
+		//! scene's AtmosphereComponent too (WYSIWYG), and the same snapshot/
+		//! restore keeps the authored light values exact there as well.
 		Ogre::Light* gLinkedSun = NULL;
 		Ogre::ColourValue gLinkedSunDiffuse;
 		Ogre::ColourValue gLinkedSunSpecular;

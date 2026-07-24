@@ -4,6 +4,8 @@
 // remote play-mode tree.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorTheme.h"
+#include "OwnerComponentBadges.h"
 
 #include <core_game/PrefabSerializer.h>
 
@@ -12,6 +14,16 @@
 
 using Orkige::optr;
 using Orkige::woptr;
+
+namespace OrkigeEditor
+{
+	//! the Hierarchy owner-glyph seam (@see HierarchyBadgeDebug)
+	HierarchyBadgeDebug& hierarchyBadgeDebug()
+	{
+		static HierarchyBadgeDebug debug;
+		return debug;
+	}
+}
 
 void startRenameSelected(EditorState& state, Orkige::EditorCore& core)
 {
@@ -203,6 +215,45 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 	{
 		ImGui::PopStyleColor();
 	}
+	// owner-component glyphs: a row whose object carries a GLOBAL-OWNER
+	// component (camera / atmosphere) shows that kind's glyph inline after the
+	// name - ACCENT-coloured when THIS instance owns the global, DIMMED when
+	// it is dormant behind another instance (@see OwnerComponentBadges.h).
+	// Drawn straight on the draw list (no ImGui item): the row's click/drag/
+	// context logic below reads the LAST ITEM, which must stay the tree node.
+	{
+		const float rowHeight = ImGui::GetItemRectSize().y;
+		const float glyphY = ImGui::GetItemRectMin().y +
+			(rowHeight - ImGui::GetTextLineHeight()) * 0.5f;
+		float glyphX = rowCursor.x + ImGui::GetTreeNodeToLabelSpacing() +
+			ImGui::CalcTextSize(id.c_str()).x +
+			ImGui::GetStyle().ItemInnerSpacing.x * 2.0f;
+		for (OrkigeEditor::OwnerComponentBadge const& badge :
+			OrkigeEditor::ownerComponentBadges())
+		{
+			if (!gameObject->hasComponent(
+				Orkige::TypeInfo(badge.componentTypeName)))
+			{
+				continue;
+			}
+			const bool owner = badge.owns(manager, *gameObject);
+			const ImVec4 colour = owner ? Orkige::editorAccentColor()
+				: ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+			const ImVec2 glyphSize = ImGui::CalcTextSize(badge.glyph);
+			ImGui::GetWindowDrawList()->AddText(ImVec2(glyphX, glyphY),
+				ImGui::GetColorU32(colour), badge.glyph);
+			if (ImGui::IsItemHovered() && ImGui::IsMouseHoveringRect(
+				ImVec2(glyphX, glyphY),
+				ImVec2(glyphX + glyphSize.x, glyphY + glyphSize.y)))
+			{
+				ImGui::SetTooltip(owner ? "owns %s" : "dormant - another "
+					"instance owns %s", badge.ownedNoun);
+			}
+			OrkigeEditor::hierarchyBadgeDebug().entries.push_back(
+				{ id, badge.componentTypeName, owner });
+			glyphX += glyphSize.x + ImGui::GetStyle().ItemInnerSpacing.x;
+		}
+	}
 	// click selects (Cmd/Ctrl+click toggles membership); the arrow region
 	// only expands/collapses (ImGui reports no click for it)
 	if (ImGui::IsItemClicked(ImGuiMouseButton_Left) &&
@@ -322,6 +373,8 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 void drawLocalHierarchy(EditorState& state, Orkige::EditorCore& core,
 	optr<Orkige::RenderCamera> const& sceneCamera)
 {
+	// the owner-glyph seam records what THIS pass draws (reset per draw)
+	OrkigeEditor::hierarchyBadgeDebug().entries.clear();
 	std::vector<std::string> orderedIds;
 	// iterate a copy of the root list: tree edits mutate it mid-loop
 	const Orkige::StringVector rootIds =

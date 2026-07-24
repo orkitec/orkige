@@ -89,6 +89,7 @@ add_executable(orkige_editor
     GuiPreviewStage.cpp
     GamePreviewStage.h
     GamePreviewStage.cpp
+    OwnerComponentBadges.cpp
     MeshPreviewStage.h
     MeshPreviewStage.cpp
     EditorGamePreviewPanel.cpp

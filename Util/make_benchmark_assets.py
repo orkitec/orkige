@@ -199,6 +199,18 @@ class ComponentWriter:
             ("castsShadows", K_BOOL, fmt(bool(casts)), ""),
         ])
 
+    def atmosphere(self, preset="day", enabled=True):
+        """An AtmosphereComponent: the scene-authored BASE sky - the ENTRY
+        state a vignette shows the moment it boots, armed before any script
+        ticks. The director's runtime setAtmosphereBlend/driveAtmosphere arc
+        then overrides it (the designed layering: component = authored base,
+        scripts win at runtime). The preset seeds every look field
+        (day/sunset/night, the tested vocabulary)."""
+        return self._reflected("AtmosphereComponent", [
+            ("enabled", K_BOOL, fmt(bool(enabled)), ""),
+            ("preset", K_STRING, preset, ""),
+        ])
+
     def water(self, size_x=40.0, size_z=40.0, deep=(0.02, 0.08, 0.12, 1.0),
               shallow=(0.1, 0.4, 0.45, 1.0), opacity=0.85, wave_scale=6.0,
               wave_speed=0.05, fresnel=2.5, normal_tex="demo_terrain_normal.png",
@@ -726,9 +738,22 @@ def terrain_object(scene, y=TERRAIN_BASE_Y):
               tags=("terrain",))
 
 
+def environment_object(scene, preset):
+    # the scene-authored BASE atmosphere (the vignette's ENTRY sky): the
+    # component arms it at scene boot before the director ever ticks, so the
+    # scene carries its own look even without scripts; the director's runtime
+    # arc overrides it from its first setAtmosphere on (@see
+    # ComponentWriter.atmosphere).
+    scene.add("Environment",
+              scene.atmosphere(preset=preset),
+              scene.transform(0.0, 0.0, 0.0))
+
+
 def build_vista():
     s = SceneWriter()
     director(s, "vista", "Terrace Vista", 12.0)
+    # entry state: the day-arc starts at driveAtmosphere(0) = the DAY look
+    environment_object(s, "day")
     # the sun: the FIRST directional light (the atmosphere facade links its
     # sky to this light's direction); the director rotates it through the arc.
     s.add("Sun",
@@ -775,6 +800,8 @@ def build_vista():
 def build_lake():
     s = SceneWriter()
     director(s, "lake", "Still Water", 10.0)
+    # entry state: golden hour - driveAtmosphere(0.78) = the SUNSET look
+    environment_object(s, "sunset")
     s.add("Sun",
           s.transform(0.0, 20.0, 0.0, quat=(0.9659, -0.2588, 0.0, 0.0)),
           s.light(light_type=0, colour=(1.0, 0.7, 0.5), intensity=1.0,
@@ -847,6 +874,8 @@ def build_mirrorlake():
     # plain water look - the honest benchmark behavior.
     s = SceneWriter()
     director(s, "mirrorlake", "Mirror Lake", 10.0)
+    # entry state: the lake's golden hour (driveAtmosphere(0.8) ~ sunset)
+    environment_object(s, "sunset")
     s.add("Sun",
           s.transform(0.0, 20.0, 0.0, quat=(0.9659, -0.2588, 0.0, 0.0)),
           s.light(light_type=0, colour=(1.0, 0.7, 0.5), intensity=1.0,
@@ -896,6 +925,8 @@ def build_mirrorlake():
 def build_lumens():
     s = SceneWriter()
     director(s, "lumens", "Night Lumens", 12.0)
+    # entry state: driveAtmosphere(1.0) = the true NIGHT look
+    environment_object(s, "night")
     # the atmosphere's linked sun anchor (the FIRST directional light): the
     # night preset OWNS its colour/power while enabled, so it is the dim
     # moon-drive the sky model derives, not an authored brightness.
@@ -947,6 +978,8 @@ def build_lumens():
 def build_swarm():
     s = SceneWriter()
     director(s, "swarm", "Ember Swarm", 10.0)
+    # entry state: the embers glow against the clean NIGHT sky
+    environment_object(s, "night")
     s.add("Sun",
           s.transform(0.0, 20.0, 0.0, quat=(0.9239, -0.3827, 0.0, 0.0)),
           s.light(light_type=0, colour=(0.4, 0.4, 0.5), intensity=0.8),
@@ -977,6 +1010,8 @@ def build_swarm():
 def build_field():
     s = SceneWriter()
     director(s, "field", "Instance Field", 12.0)
+    # entry state: driveAtmosphere(0.15) sits early on the day arc - DAY
+    environment_object(s, "day")
     s.add("Sun",
           s.transform(0.0, 20.0, 0.0, quat=(0.9239, -0.3827, 0.0, 0.0)),
           s.light(light_type=0, colour=(1.0, 0.96, 0.9), intensity=1.1,
@@ -1239,6 +1274,70 @@ def build_fixture_sprites():
     return s
 
 
+def _atmo_fixture_base(s):
+    """the shared staging of the atmosphere fixtures: a sun anchor for the
+    atmosphere's sky linkage plus a couple of props in the default player
+    camera's view (position (0,2.5,9) looking at the origin), so the sky
+    band above them is the probe surface."""
+    s.add("Sun",
+          s.transform(0.0, 20.0, 0.0, quat=(0.9239, -0.3827, 0.0, 0.0)),
+          s.light(light_type=0, colour=(1.0, 0.95, 0.85), intensity=1.1))
+    for i, x in enumerate((-2.5, 2.5)):
+        s.add("Prop%d" % i,
+              s.transform(x, -1.0, -6.0),
+              s.model("demo_material_cube.glb", "prop_rock.omat"))
+
+
+def build_fixture_atmo_control():
+    """AtmosphereComponent CONTROL: the identical staging with NO component -
+    the sky band shows the player's plain default background. The
+    player_atmosphere test diffs the component scene against this."""
+    s = SceneWriter()
+    _atmo_fixture_base(s)
+    return s
+
+
+def build_fixture_atmo():
+    """AtmosphereComponent, NO scripts: the Environment's enabled DAY preset
+    must arm the sky purely from scene load - the component-boots-the-sky
+    leg of the player_atmosphere test."""
+    s = SceneWriter()
+    _atmo_fixture_base(s)
+    environment_object(s, "day")
+    return s
+
+
+def build_fixture_atmo_switch():
+    """the take-over contract at runtime: EnvironmentA (day) owns at boot,
+    EnvironmentB (night) is dormant; the driver script deactivates A at
+    frame 80, promoting B - the sky visibly switches day -> night between
+    the test's two captures (frames 60 and 130)."""
+    s = SceneWriter()
+    _atmo_fixture_base(s)
+    s.add("EnvironmentA", s.atmosphere(preset="day"),
+          s.transform(0.0, 0.0, 0.0))
+    s.add("EnvironmentB", s.atmosphere(preset="night"),
+          s.transform(0.0, 0.0, 0.0))
+    s.add("Driver",
+          s.script("atmofixture", "scripts/atmofixture.component.lua",
+                   exports=[("action", K_STRING, "switch", ""),
+                            ("switchFrame", K_FLOAT, "80", "")]))
+    return s
+
+
+def build_fixture_atmo_override():
+    """scripts win over the component base: the Environment arms DAY at boot,
+    the driver's init immediately arms the NIGHT look through
+    engine:setAtmosphereBlend - the frame-60 capture must show night."""
+    s = SceneWriter()
+    _atmo_fixture_base(s)
+    environment_object(s, "day")
+    s.add("Driver",
+          s.script("atmofixture", "scripts/atmofixture.component.lua",
+                   exports=[("action", K_STRING, "override", "")]))
+    return s
+
+
 BUILDERS = {
     "vista": build_vista, "lake": build_lake, "mirrorlake": build_mirrorlake,
     "lumens": build_lumens,
@@ -1251,6 +1350,10 @@ BUILDERS = {
 FIXTURES = {
     "fixture_static.oscene": build_fixture_static,
     "fixture_sprites.oscene": build_fixture_sprites,
+    "fixture_atmo_control.oscene": build_fixture_atmo_control,
+    "fixture_atmo.oscene": build_fixture_atmo,
+    "fixture_atmo_switch.oscene": build_fixture_atmo_switch,
+    "fixture_atmo_override.oscene": build_fixture_atmo_override,
 }
 
 
@@ -1614,6 +1717,34 @@ def selftest():
     assert len(sprites.objects) == 11, "fixture_sprites is 11 sprites"
     assert 'particle_rain.png' in sprites.to_text(), \
         "the run-breaking B sprite is missing"
+    # the atmosphere entry states: every tour scene the director arms carries
+    # its authored base (the component = the ENTRY look), the rest carry none
+    entry_presets = {"vista": "day", "lake": "sunset", "mirrorlake": "sunset",
+                     "lumens": "night", "swarm": "night", "field": "day"}
+    for mode, builder in BUILDERS.items():
+        text = builder().to_text()
+        if mode in entry_presets:
+            assert '<AtmosphereComponent create="0">' in text, \
+                "%s must carry its Environment base atmosphere" % mode
+            assert '<String value="preset"/>' in text and \
+                '<String value="%s"/>' % entry_presets[mode] in text, \
+                "%s must seed the '%s' preset" % (mode, entry_presets[mode])
+        else:
+            assert '<AtmosphereComponent create="0">' not in text, \
+                "%s arms no atmosphere at entry - no Environment" % mode
+    # the atmosphere fixtures: a component-less control, the script-less
+    # component scene, the two-instance switch and the script override
+    assert '<AtmosphereComponent create="0">' not in \
+        build_fixture_atmo_control().to_text()
+    atmo_text = build_fixture_atmo().to_text()
+    assert atmo_text.count('<AtmosphereComponent create="0">') == 1
+    assert 'ScriptComponent' not in atmo_text, \
+        "fixture_atmo must arm the sky with NO scripts"
+    switch_text = build_fixture_atmo_switch().to_text()
+    assert switch_text.count('<AtmosphereComponent create="0">') == 2
+    assert 'scripts/atmofixture.component.lua' in switch_text
+    override_text = build_fixture_atmo_override().to_text()
+    assert 'scripts/atmofixture.component.lua' in override_text
     # xliff round-trips its keys
     import io
     buf = io.StringIO()

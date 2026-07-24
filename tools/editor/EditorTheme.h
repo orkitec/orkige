@@ -91,6 +91,11 @@ namespace Orkige
 	ImVec4 editorWarningTextColor();
 	ImVec4 editorErrorTextColor();
 
+	//! the active variant's accent colour (the macOS accent blue) for the few
+	//! accent-tinted marks drawn outside the ImGuiStyle slots - e.g. the
+	//! Hierarchy's owner-component glyphs (owner = accent, dormant = disabled).
+	ImVec4 editorAccentColor();
+
 	//! @brief try to load the macOS system font (San Francisco) from
 	//! /System/Library/Fonts/SFNS.ttf into the given atlas.
 	//! Must be called BEFORE the font atlas is built (for the editor: after

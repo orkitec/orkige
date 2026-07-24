@@ -618,5 +618,77 @@
 	"world.getCamera": {
 		"sig": "(id) -> CameraComponent",
 		"doc": "the object's CameraComponent (nil when absent); drives smooth follow"
+	},
+	"world.getAtmosphere": {
+		"sig": "(id) -> AtmosphereComponent?",
+		"doc": "an object's AtmosphereComponent (nil if none) - the scene-authored sky/fog base (the first active instance owns the world atmosphere)"
+	},
+	"AtmosphereComponent:isAtmosphereOwner": {
+		"sig": "() -> bool",
+		"doc": "does THIS instance currently own the world atmosphere (dormant siblings store state only)"
+	},
+	"AtmosphereComponent:setEnabled": {
+		"sig": "(enabled) -> nil",
+		"doc": "master switch of the armed desc (false = the owner arms a plain clear background)"
+	},
+	"AtmosphereComponent:getEnabled": {
+		"sig": "() -> bool",
+		"doc": "the armed desc's master switch"
+	},
+	"AtmosphereComponent:setPreset": {
+		"sig": "(name) -> nil",
+		"doc": "seed every look field from a named preset ('day'/'sunset'/'night'; 'custom' seeds nothing; unknown words warn and keep the state)"
+	},
+	"AtmosphereComponent:getPreset": {
+		"sig": "() -> string",
+		"doc": "the last seed word"
+	},
+	"AtmosphereComponent:setSkyColour": {
+		"sig": "(r, g, b) -> nil",
+		"doc": "zenith sky tint, linear 0..1"
+	},
+	"AtmosphereComponent:setSkyPower": {
+		"sig": "(power) -> nil",
+		"doc": "HDR sky-dome brightness multiplier (1 = neutral)"
+	},
+	"AtmosphereComponent:getSkyPower": {
+		"sig": "() -> number",
+		"doc": "the sky-dome brightness multiplier"
+	},
+	"AtmosphereComponent:setDensity": {
+		"sig": "(density) -> nil",
+		"doc": "sky Rayleigh density coefficient (thicker = hazier horizon)"
+	},
+	"AtmosphereComponent:getDensity": {
+		"sig": "() -> number",
+		"doc": "the sky Rayleigh density coefficient"
+	},
+	"AtmosphereComponent:setSunPower": {
+		"sig": "(power) -> nil",
+		"doc": "linked directional light power - the exposure knob"
+	},
+	"AtmosphereComponent:getSunPower": {
+		"sig": "() -> number",
+		"doc": "the linked sun power"
+	},
+	"AtmosphereComponent:setAmbientPower": {
+		"sig": "(power) -> nil",
+		"doc": "scales the atmosphere-driven hemisphere ambient fill (1 = native)"
+	},
+	"AtmosphereComponent:getAmbientPower": {
+		"sig": "() -> number",
+		"doc": "the ambient fill scale"
+	},
+	"AtmosphereComponent:setFogDensity": {
+		"sig": "(density) -> nil",
+		"doc": "per-object exponential distance fog (0 = none)"
+	},
+	"AtmosphereComponent:getFogDensity": {
+		"sig": "() -> number",
+		"doc": "the object-fog density"
+	},
+	"AtmosphereComponent:setFogColour": {
+		"sig": "(r, g, b) -> nil",
+		"doc": "fog colour, linear 0..1 (classic fixed-function fallback fog)"
 	}
 }

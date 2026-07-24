@@ -24,6 +24,7 @@ namespace Orkige
 		"world.getSound(id) -> SoundComponent?  -- an object's SoundComponent (nil if none)\n"
 		"world.getCamera(id) -> CameraComponent  -- the object's CameraComponent (nil when absent); drives smooth follow\n"
 		"world.getLevel(id) -> LevelComponent?  -- an object's LevelComponent (nil if none)\n"
+		"world.getAtmosphere(id) -> AtmosphereComponent?  -- an object's AtmosphereComponent (nil if none) - the scene-authored sky/fog base (the first active instance owns the world atmosphere)\n"
 		"world.getBoneAttach(id) -> BoneAttachComponent?  -- an object's BoneAttachComponent (nil if none) - retarget a bone follower\n"
 		"world.getComponent(id, name) -> Component?  -- any component by script or reflected-kind name - the generic world.get* (nil if absent/unknown)\n"
 		"world.getScript(id) -> ScriptComponent?  -- an object's ScriptComponent (nil if none)\n"

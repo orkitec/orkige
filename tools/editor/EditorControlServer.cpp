@@ -54,6 +54,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -3099,6 +3100,25 @@ namespace Orkige
 				this->sendErr(req, "set_component: no writable properties given "
 					"for " + component);
 				return;
+			}
+			// apply in SCHEMA DECLARATION order (stable), the same order the
+			// scene loader uses - so a setter-cascade component (an
+			// AtmosphereComponent preset that SEEDS the look fields declared
+			// after it) composes deterministically in one call: the seed
+			// applies first, the explicit fields override it
+			{
+				std::map<String, size_t> declarationIndex;
+				size_t index = 0;
+				for (PropertyDesc const& desc : schema->properties())
+				{
+					declarationIndex[desc.name] = index++;
+				}
+				std::stable_sort(pending.begin(), pending.end(),
+					[&declarationIndex](Pending const& a, Pending const& b)
+					{
+						return declarationIndex[a.name] <
+							declarationIndex[b.name];
+					});
 			}
 			// merge the whole set into ONE undo step
 			const unsigned int session = core.beginMergeSession();
@@ -9179,6 +9199,67 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - generic Sprite property "
 				"(zOrder -> 7) OK");
+		}
+
+		// (10b) AtmosphereComponent by name end to end: add it, seed the NIGHT
+		// preset through set_component, override one explicit field, and read
+		// the seeded-then-overridden state back (the precedence rule over MCP:
+		// preset seeds every look field, an explicit field wins over its seed).
+		{
+			JsonValue addArgs = JsonValue::object();
+			addArgs.set("id", JsonValue("McpProbe"));
+			addArgs.set("component", JsonValue("AtmosphereComponent"));
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("add_component", addArgs, true, structured, isError) ||
+				isError)
+			{
+				finish(false, "control self-test: add AtmosphereComponent failed");
+				return;
+			}
+			JsonValue props = JsonValue::object();
+			props.set("preset", JsonValue("night"));
+			props.set("density", JsonValue("0.2"));
+			JsonValue setArgs = JsonValue::object();
+			setArgs.set("id", JsonValue("McpProbe"));
+			setArgs.set("component", JsonValue("AtmosphereComponent"));
+			setArgs.set("properties", props);
+			if (!callTool("set_component", setArgs, true, structured, isError) ||
+				isError)
+			{
+				finish(false, "control self-test: set AtmosphereComponent "
+					"preset/density failed");
+				return;
+			}
+			JsonValue readArgs = JsonValue::object();
+			readArgs.set("id", JsonValue("McpProbe"));
+			readArgs.set("component", JsonValue("AtmosphereComponent"));
+			if (!callTool("get_component", readArgs, true, structured, isError) ||
+				isError || structured.get("preset").asString() != "night")
+			{
+				finish(false, "control self-test: AtmosphereComponent preset did "
+					"not read back as 'night'");
+				return;
+			}
+			// float fields compare parsed (the stringified precision is the
+			// registry's business): skyPower carries the NIGHT seed (0.1),
+			// density the explicit override (0.2), enabled stays on
+			const float skyPower =
+				std::atof(structured.get("skyPower").asString().c_str());
+			const float density =
+				std::atof(structured.get("density").asString().c_str());
+			if (std::abs(skyPower - 0.1f) > 1e-4f ||
+				std::abs(density - 0.2f) > 1e-4f ||
+				structured.get("enabled").asString() != "1")
+			{
+				finish(false, "control self-test: AtmosphereComponent did not "
+					"hold the night seed + density override (skyPower " +
+					structured.get("skyPower").asString() + ", density " +
+					structured.get("density").asString() + ")");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - AtmosphereComponent over "
+				"MCP (night seed + density override) OK");
 		}
 
 		// a get_test_results poller: spins on the job (100ms between polls, hard

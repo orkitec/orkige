@@ -1043,6 +1043,19 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_GAME_PREVIEW_SELFCHECK=1;ORKIGE_DEMO_FRAMES=40"
         LABELS integration TIMEOUT 120)
 
+    # Scene-authored atmosphere (AtmosphereComponent), BOTH flavors: the
+    # new-scene Environment template arms the DAY sky, save/reload re-arms,
+    # a live property edit re-arms with the preset-seeds/fields-override
+    # precedence, a second instance stays dormant and the take-over contract
+    # promotes/takes back on (de)activation; the Hierarchy owner glyphs draw
+    # accent-vs-dimmed (seam) and the Game Preview's captured PIXELS show the
+    # day sky band vs the disabled backdrop (editor_atmosphere).
+    add_test(NAME editor_atmosphere${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_atmosphere${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_ATMOSPHERE_SELFCHECK=${CMAKE_CURRENT_BINARY_DIR}/editor_atmosphere.oscene;ORKIGE_DEMO_FRAMES=60"
+        LABELS integration TIMEOUT 120)
+
     # Refractive-water crash guard, BOTH flavors: opening a scene whose water
     # carries screen-space refraction with the Game Preview panel active renders
     # it through offscreen RTTs whose workspaces cannot satisfy an HlmsPbs
@@ -2161,6 +2174,23 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_spritebatch${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 240)
+
+        # the scene-authored atmosphere end to end, per flavor
+        # (projects/benchmark fixture_atmo* scenes): a component-carrying
+        # scene boots the DAY sky with NO scripts (pixel band vs the
+        # component-less control), deactivating the owning instance promotes
+        # the dormant night sibling (the sky visibly switches between two
+        # captures of one boot), and a script's engine:setAtmosphere beats
+        # the component base after boot.
+        add_test(NAME player_atmosphere${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_atmosphere_component_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --player "$<TARGET_FILE:orkige_player>"
+                --dir "${CMAKE_CURRENT_BINARY_DIR}/atmosphere${ORKIGE_FLAVOR_TEST_SUFFIX}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_atmosphere${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 480)
 
         # the standing structural budget gate: every benchmark scene boots
         # deterministically and its draw-batch count must land INSIDE the

@@ -50,11 +50,14 @@ void newScene(EditorState& state, Orkige::EditorCore& core)
 // The USER-facing File > New Scene / Cmd+N: a fresh scene gains a default "Main
 // Camera" so it renders through an authored camera out of the box (a camera-
 // less scene still plays via the player's default-window-camera fallback - this
-// just gives new scenes one to start from). The template stays PRISTINE: the
-// camera is a direct instantiate (no command, no dirty), so the scene starts
-// with an empty undo history and a clean flag. Seeding is skipped when the
-// world reset itself refused (a prefab stage is open - newScene is a no-op
-// then, and adding a stray camera into the staged prefab would be wrong).
+// just gives new scenes one to start from) plus a default "Environment"
+// carrying an enabled DAY-preset AtmosphereComponent, so the new scene shows a
+// living sky in the editor viewport, the Game Preview and the player
+// identically. The template stays PRISTINE: both are direct instantiates (no
+// command, no dirty), so the scene starts with an empty undo history and a
+// clean flag. Seeding is skipped when the world reset itself refused (a prefab
+// stage is open - newScene is a no-op then, and adding stray objects into the
+// staged prefab would be wrong).
 void newDefaultScene(EditorState& state, Orkige::EditorCore& core)
 {
 	const bool prefabStaged = isPrefabEditActive(state);
@@ -62,6 +65,7 @@ void newDefaultScene(EditorState& state, Orkige::EditorCore& core)
 	if (!prefabStaged)
 	{
 		core.createDefaultSceneCamera();
+		core.createDefaultSceneEnvironment();
 	}
 }
 

@@ -832,6 +832,14 @@ namespace Orkige
 		//! so the template starts pristine. Returns the created object's id ("" on
 		//! failure). NOT undoable on its own - it is part of the new-scene reset.
 		String createDefaultSceneCamera();
+		//! @brief add the default "Environment" object a fresh scene ships with
+		//! beside the Main Camera: a TransformComponent + an AtmosphereComponent
+		//! carrying its constructed DAY-preset sky (enabled), so a new scene
+		//! shows a living sky in the editor, the Game Preview and the player
+		//! identically. Same contract as createDefaultSceneCamera: part of the
+		//! new-scene reset, NOT undoable on its own. Returns the created
+		//! object's id ("" on failure).
+		String createDefaultSceneEnvironment();
 		//! @brief remember the editor's current view-camera world pose so a later
 		//! createCamera() spawns the new camera object right there (the Scene
 		//! panel pushes this each frame). Pure bookkeeping, no scene mutation.

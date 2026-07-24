@@ -42,6 +42,7 @@
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/VectorShapeComponent.h>
 #include <engine_gocomponent/CameraComponent.h>
+#include <engine_gocomponent/AtmosphereComponent.h>
 #include <engine_gocomponent/WaterComponent.h>
 #include <core_util/DevicePreset.h>
 #include <core_base/PropertySchema.h>
@@ -1819,6 +1820,21 @@ int main(int argc, char** argv)
 		const char* cameraSelfcheckEnv =
 			std::getenv("ORKIGE_EDITOR_CAMERA_SELFCHECK");
 		bool cameraSelfcheckPart1Ok = false;	// frame-10 result, checked at 20
+
+		// ORKIGE_EDITOR_ATMOSPHERE_SELFCHECK=<temp scene path>: the scene-
+		// authored atmosphere selfcheck (editor_atmosphere ctest, both flavors).
+		// Frame 10 drives the whole authoring loop through the exact verbs the
+		// UI/MCP call: the new-scene Environment template arms the DAY sky, the
+		// save/reload re-arm, live property re-arm (preset seed + explicit
+		// override precedence), the take-over contract on a second instance
+		// (dormant, promotes on deactivation, first-active takes back). Frame
+		// 20 asserts the Hierarchy owner-glyph seam (accent vs dimmed) and the
+		// Game Preview's PIXELS (day sky band vs disabled).
+		const char* atmosphereSelfcheckEnv =
+			std::getenv("ORKIGE_EDITOR_ATMOSPHERE_SELFCHECK");
+		bool atmospherePart1Ok = false;		// frame-10 result, checked at 20
+		std::string atmosphereEnvId;		// the template Environment object
+		std::string atmosphereSecondId;		// the second (dormant) instance
 
 		// ORKIGE_EDITOR_GAME_PREVIEW_SELFCHECK=1: the Game Preview panel + the
 		// Scene-panel selected-camera inset, both flavors. Frame 10 builds a
@@ -5723,6 +5739,301 @@ int main(int argc, char** argv)
 							SDL_Log("orkige_editor: camera selfcheck OK");
 							running = false;
 						}
+					}
+				}
+			}
+
+			// --- scene-authored atmosphere selfcheck (both flavors) ---
+			// (ORKIGE_EDITOR_ATMOSPHERE_SELFCHECK=<temp scene path>) frame 10
+			// drives the whole authoring loop; frame 20 asserts the Hierarchy
+			// owner-glyph seam + the Game Preview's sky pixels.
+			if (atmosphereSelfcheckEnv && frameCount == 10)
+			{
+				auto atmoFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: atmosphere selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 23;
+					running = false;
+				};
+				Orkige::RenderWorld* world =
+					Orkige::RenderSystem::get()->getWorld();
+				// (1) a NEW scene ships with an Environment whose enabled DAY
+				// atmosphere ARMS the world right away (the template + the
+				// scene-load arming in one)
+				newDefaultScene(state, editorCore);
+				// identified by ID only - holding a GameObject handle across
+				// the reload below would keep the OLD component alive (and
+				// owning) past the world clear
+				atmosphereEnvId.clear();
+				for (auto const& [id, go] : gameObjectManager.getGameObjects())
+				{
+					if (go->hasComponent<Orkige::AtmosphereComponent>())
+					{
+						atmosphereEnvId = id;
+					}
+				}
+				if (atmosphereEnvId.rfind("Environment", 0) != 0)
+				{
+					atmoFail("a new scene did not gain an Environment with an "
+						"AtmosphereComponent");
+				}
+				else if (!world || !world->getAtmosphere().enabled ||
+					std::abs(world->getAtmosphere().skyPower - 1.0f) > 1e-4f)
+				{
+					atmoFail("the new-scene Environment did not arm the DAY "
+						"atmosphere");
+				}
+				// (2) save + reload re-arms from the scene file (the reload
+				// tears the world down - the hand-back disables - and the
+				// loaded component takes over again)
+				else if (!saveSceneToPath(state, editorCore,
+					atmosphereSelfcheckEnv))
+				{
+					atmoFail("saving the atmosphere scene failed");
+				}
+				else if (!openSceneFromPath(state, editorCore,
+					atmosphereSelfcheckEnv))
+				{
+					atmoFail("reloading the atmosphere scene failed");
+				}
+				else if (!world->getAtmosphere().enabled)
+				{
+					atmoFail("the reloaded scene did not re-arm the atmosphere");
+				}
+				// (3) LIVE property re-arm + the precedence rule: the NIGHT
+				// preset seeds every look field (skyPower 0.1), an explicit
+				// density then overrides its seed - all visible in the armed
+				// world state immediately
+				else if (!editorCore.setObjectProperty(atmosphereEnvId,
+					"AtmosphereComponent", "preset", "night") ||
+					std::abs(world->getAtmosphere().skyPower - 0.1f) > 1e-4f)
+				{
+					atmoFail("the night preset did not re-arm the world live");
+				}
+				else if (!editorCore.setObjectProperty(atmosphereEnvId,
+					"AtmosphereComponent", "density", "0.2") ||
+					std::abs(world->getAtmosphere().density - 0.2f) > 1e-4f ||
+					std::abs(world->getAtmosphere().skyPower - 0.1f) > 1e-4f)
+				{
+					atmoFail("the explicit density did not override its seed "
+						"(preset seeds, fields override)");
+				}
+				// (4) the seeded-then-overridden state survives save/reload
+				// (serialization writes preset before the fields)
+				else if (!saveSceneToPath(state, editorCore,
+					atmosphereSelfcheckEnv) ||
+					!openSceneFromPath(state, editorCore,
+						atmosphereSelfcheckEnv) ||
+					std::abs(world->getAtmosphere().density - 0.2f) > 1e-4f ||
+					std::abs(world->getAtmosphere().skyPower - 0.1f) > 1e-4f)
+				{
+					atmoFail("the night+density state did not round-trip "
+						"through the scene file");
+				}
+				// (5) the take-over contract: a SECOND instance stays dormant
+				// (the world keeps the first instance's night sky)...
+				else if (!editorCore.createCube() ||
+					!editorCore.addComponentToObject("Cube1",
+						"AtmosphereComponent"))
+				{
+					atmoFail("could not add the second AtmosphereComponent by "
+						"name (the MCP add_component path)");
+				}
+				else
+				{
+					atmosphereSecondId = "Cube1";
+					optr<Orkige::GameObject> first =
+						gameObjectManager.getGameObject(
+							atmosphereEnvId).lock();
+					optr<Orkige::GameObject> second =
+						gameObjectManager.getGameObject(
+							atmosphereSecondId).lock();
+					const bool firstOwns = first && first
+						->getComponentPtr<Orkige::AtmosphereComponent>()
+						->isAtmosphereOwner();
+					const bool secondOwns = second && second
+						->getComponentPtr<Orkige::AtmosphereComponent>()
+						->isAtmosphereOwner();
+					if (!firstOwns || secondOwns ||
+						std::abs(world->getAtmosphere().skyPower - 0.1f) >
+							1e-4f)
+					{
+						atmoFail("the second instance did not stay dormant "
+							"behind the first");
+					}
+					// ...deactivating the owner PROMOTES the second (the sky
+					// switches to its DAY default)...
+					else if (!editorCore.setObjectActive(atmosphereEnvId,
+						false) ||
+						!second->getComponentPtr<
+							Orkige::AtmosphereComponent>()
+							->isAtmosphereOwner() ||
+						std::abs(world->getAtmosphere().skyPower - 1.0f) >
+							1e-4f)
+					{
+						atmoFail("deactivating the owner did not promote the "
+							"second instance");
+					}
+					// ...and reactivating the FIRST takes the ownership back
+					// (the owner is always the first active instance)
+					else if (!editorCore.setObjectActive(atmosphereEnvId,
+						true) ||
+						!first->getComponentPtr<
+							Orkige::AtmosphereComponent>()
+							->isAtmosphereOwner() ||
+						std::abs(world->getAtmosphere().skyPower - 0.1f) >
+							1e-4f)
+					{
+						atmoFail("reactivating the first instance did not "
+							"take the ownership back");
+					}
+					else
+					{
+						// back to the DAY look for the frame-20 pixel probe
+						// (a night sky is too close to the neutral backdrop),
+						// and leave both instances for the glyph seam
+						editorCore.setObjectProperty(atmosphereEnvId,
+							"AtmosphereComponent", "preset", "day");
+						atmospherePart1Ok = true;
+					}
+				}
+			}
+			if (atmosphereSelfcheckEnv && frameCount == 20 && exitCode == 0)
+			{
+				auto atmoFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: atmosphere selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 23;
+					running = false;
+				};
+				// (6) the Hierarchy owner-glyph seam: the owning Environment
+				// drew ACCENT, the dormant second instance DIMMED, and the
+				// Main Camera drew its (owning) camera glyph
+				bool envAccent = false;
+				bool secondDimmed = false;
+				bool cameraAccent = false;
+				for (OrkigeEditor::HierarchyBadgeDebug::Entry const& entry :
+					OrkigeEditor::hierarchyBadgeDebug().entries)
+				{
+					if (entry.componentTypeName == "AtmosphereComponent" &&
+						entry.objectId == atmosphereEnvId && entry.owner)
+					{
+						envAccent = true;
+					}
+					if (entry.componentTypeName == "AtmosphereComponent" &&
+						entry.objectId == atmosphereSecondId && !entry.owner)
+					{
+						secondDimmed = true;
+					}
+					if (entry.componentTypeName == "CameraComponent" &&
+						entry.owner)
+					{
+						cameraAccent = true;
+					}
+				}
+				if (!atmospherePart1Ok)
+				{
+					atmoFail("frame-10 authoring did not complete");
+				}
+				else if (!envAccent || !secondDimmed || !cameraAccent)
+				{
+					atmoFail("the Hierarchy owner glyphs did not draw "
+						"accent-vs-dimmed (env accent " +
+						std::to_string(envAccent) + ", second dimmed " +
+						std::to_string(secondDimmed) + ", camera accent " +
+						std::to_string(cameraAccent) + ")");
+				}
+				else
+				{
+					// (7) THE PIXELS: the Game Preview (rendering through the
+					// template Main Camera) shows the armed DAY sky - a bright,
+					// blue-leaning upper band - and disabling the atmosphere
+					// changes the picture (the neutral no-sky backdrop)
+					auto skyBand = [](std::string const& path, float& outLum,
+						float& outRed, float& outBlue) -> bool
+					{
+						std::vector<unsigned char> rgba;
+						int width = 0;
+						int height = 0;
+						if (!OrkigeEditor::decodeImageRgba(path, rgba, width,
+							height) || width <= 0 || height <= 0)
+						{
+							return false;
+						}
+						double lum = 0.0, red = 0.0, blue = 0.0;
+						std::size_t count = 0;
+						for (int y = height / 20; y < height / 4; y += 2)
+						{
+							for (int x = 0; x < width; x += 2)
+							{
+								const unsigned char* px = &rgba[
+									(static_cast<std::size_t>(y) * width + x)
+										* 4];
+								red += px[0];
+								blue += px[2];
+								lum += (px[0] + px[1] + px[2]) / 3.0;
+								++count;
+							}
+						}
+						outLum = static_cast<float>(lum / count);
+						outRed = static_cast<float>(red / count);
+						outBlue = static_cast<float>(blue / count);
+						return count > 0;
+					};
+					const std::string dayPng =
+						(std::filesystem::temp_directory_path() /
+							"orkige_atmo_day.png").string();
+					const std::string offPng =
+						(std::filesystem::temp_directory_path() /
+							"orkige_atmo_off.png").string();
+					std::string capErr;
+					gamePreviewStage.update(gameObjectManager, "", false, 0.0f);
+					float dayLum = 0.0f, dayRed = 0.0f, dayBlue = 0.0f;
+					float offLum = 0.0f, offRed = 0.0f, offBlue = 0.0f;
+					if (!gamePreviewStage.renderAndCapture(dayPng, capErr) ||
+						!skyBand(dayPng, dayLum, dayRed, dayBlue))
+					{
+						atmoFail("could not capture the day-sky preview: " +
+							capErr);
+					}
+					else if (!editorCore.setObjectProperty(atmosphereEnvId,
+						"AtmosphereComponent", "enabled", "0"))
+					{
+						atmoFail("could not disable the atmosphere");
+					}
+					else if (!gamePreviewStage.renderAndCapture(offPng,
+						capErr) || !skyBand(offPng, offLum, offRed, offBlue))
+					{
+						atmoFail("could not capture the disabled preview: " +
+							capErr);
+					}
+					else if (dayLum < 40.0f || dayBlue <= dayRed)
+					{
+						atmoFail("the preview sky band does not read as a day "
+							"sky (lum " + std::to_string(dayLum) + ", red " +
+							std::to_string(dayRed) + ", blue " +
+							std::to_string(dayBlue) + ")");
+					}
+					else if (std::abs(dayLum - offLum) < 10.0f)
+					{
+						atmoFail("disabling the atmosphere did not change the "
+							"preview sky band (day lum " +
+							std::to_string(dayLum) + " vs off lum " +
+							std::to_string(offLum) + ")");
+					}
+					else
+					{
+						std::error_code rmErr;
+						std::filesystem::remove(dayPng, rmErr);
+						std::filesystem::remove(offPng, rmErr);
+						SDL_Log("orkige_editor: atmosphere selfcheck OK "
+							"(template + reload arming, live re-arm with "
+							"preset/override precedence, take-over promotion "
+							"and take-back, owner glyphs, day-sky preview "
+							"pixels)");
+						running = false;
 					}
 				}
 			}

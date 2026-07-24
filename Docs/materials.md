@@ -345,6 +345,56 @@ and toggles IBL on a near-mirror metal cube; the benchmark **Terrace Vista**
 vignette runs a skybox sky + IBL over its PBS props end to end
 (`Docs/benchmark.md`).
 
+## Sky / atmosphere — the scene-authored AtmosphereComponent
+
+The sky/fog atmosphere has TWO drive surfaces over the ONE facade call
+(`RenderWorld::setAtmosphere(AtmosphereDesc)`, `Docs/render-abstraction.md`):
+the runtime Lua API (`engine:setAtmosphere` / `setAtmosphereBlend` /
+`setAtmosphereSky`) and, since the component landed, the **scene-authored
+base**: `engine_gocomponent/AtmosphereComponent` — a normal reflected
+component, so the sky serializes with the scene, edits live in the Inspector,
+and reaches MCP/Lua through the one property registry. Both flavors by
+construction (the component only calls the facade).
+
+**Authoring model — preset seeds, explicit fields override.** The reflected
+`preset` ("day"/"sunset"/"night"/"custom", the tested `AtmospherePreset`
+vocabulary) SEEDS every look field when set; the explicit fields
+(`skyColour`/`skyPower`/`density`/`sunPower`/`ambientPower`/`fogDensity`/
+`fogColour`) then override individual values and are the stored truth. The
+schema declares `preset` before the fields and loads apply in declaration
+order, so a seeded-then-overridden look round-trips exactly. `enabled` maps
+to `AtmosphereDesc::enabled` independently (an owner with `enabled=false`
+arms the authored "no sky"). The sky VISUAL stays the procedural dome —
+cubemap skies remain `engine:setAtmosphereSky` script territory.
+
+**Take-over contract** (the atmosphere is global render state): the FIRST
+instance in add order whose object is active in the hierarchy OWNS the world
+atmosphere; further instances are dormant (one log line; the Inspector shows
+the dormancy note, the Hierarchy shows a dimmed sun glyph vs the owner's
+accent one). Deactivating/removing the owner PROMOTES the next active
+instance — multi-environment switching by object activation — and
+reactivating an earlier instance takes ownership back (the owner is always
+the first active instance). When the last instance goes away the component
+hands back EXACTLY the atmosphere armed before any instance took over.
+
+**Layering:** the component is the authored BASE, applied at scene boot
+before scripts ever tick; it never re-applies per frame, so a script's
+`engine:setAtmosphere`/`setAtmosphereBlend` wins from its first call until
+the next ownership change (the benchmark's day-arc director rides exactly
+this: each vignette's `Environment` object carries the ENTRY look, the
+director drives the arc on top). The EDITOR arms the component on scene load
+and re-arms live on every property edit — render state only — so the Scene
+view and the Game Preview show the authored sky; a fresh File > New Scene
+ships an "Environment" object (enabled DAY preset) beside the Main Camera.
+
+Tests: `AtmosphereComponentTests` (unit: schema/precedence/ownership),
+`player_atmosphere` (both flavors: a scriptless component scene boots the
+sky vs a component-less control, activation promotes the night sibling
+mid-run, a script override beats the base) and `editor_atmosphere` (both
+flavors: template + reload arming, live re-arm, owner glyphs, Game Preview
+sky pixels); MCP coverage rides the `editor_control` AtmosphereComponent
+leg.
+
 ## Sample + tests
 
 `Util/make_material_demo.py` (stdlib-only, committed outputs) generates the

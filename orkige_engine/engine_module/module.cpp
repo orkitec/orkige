@@ -21,6 +21,7 @@
 #include "engine_gocomponent/SoundComponent.h"
 #include "engine_gocomponent/CameraComponent.h"
 #include "engine_gocomponent/LightComponent.h"
+#include "engine_gocomponent/AtmosphereComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/WaterComponent.h"
@@ -78,6 +79,7 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(BoneAttachComponent)
 	OEXPORT(CameraComponent)
 	OEXPORT(LightComponent)
+	OEXPORT(AtmosphereComponent)
 	OEXPORT(SoundComponent)
 	OEXPORT(RigidBodyComponent)
 	OEXPORT(ScriptComponent)

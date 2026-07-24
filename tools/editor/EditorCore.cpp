@@ -7,6 +7,7 @@
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/VectorShapeComponent.h>
 #include <engine_gocomponent/CameraComponent.h>
+#include <engine_gocomponent/AtmosphereComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_render/RenderWorld.h>
@@ -1881,6 +1882,24 @@ namespace Orkige
 		const String id = generateObjectId("Main Camera");
 		if (!instantiateCameraObject(id, Vec3(0.0f, 0.0f, 10.0f),
 			Quat::IDENTITY))
+		{
+			return String();
+		}
+		return id;
+	}
+	//---------------------------------------------------------
+	String EditorCore::createDefaultSceneEnvironment()
+	{
+		// a fresh scene's "Environment": the AtmosphereComponent's constructed
+		// state IS the pleasant default (the tested DAY preset, enabled), so a
+		// direct instantiate arms a living sky right away. Like the default
+		// camera this is NOT routed through the command stack - the new-scene
+		// reset owns the history.
+		const String id = generateObjectId("Environment");
+		optr<GameObject> gameObject =
+			mGameObjectManager.createGameObject(id).lock();
+		if (!gameObject || !gameObject->addComponent<TransformComponent>() ||
+			!gameObject->addComponent<AtmosphereComponent>())
 		{
 			return String();
 		}

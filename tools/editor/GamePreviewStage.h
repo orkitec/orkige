@@ -44,6 +44,15 @@ namespace Orkige
 
 namespace OrkigeEditor
 {
+	//! @brief the camera object the editor treats as THE game camera of the
+	//! current scene: a "Main Camera" if present, else the first object
+	//! carrying a CameraComponent (stable map order) - the exact rule the Game
+	//! Preview tracks with no explicit source. Shared with the Hierarchy's
+	//! camera-owner glyph so both surfaces agree. NULL when no usable camera
+	//! (CameraComponent + TransformComponent) exists.
+	Orkige::GameObject* resolveActiveSceneCamera(
+		Orkige::GameObjectManager& world);
+
 	//! @brief the render visibility-flag bit that EDITOR-ONLY 3D content (the
 	//! ground grid, the camera-frustum gizmos) carries so the Game Preview RTT
 	//! can mask it OFF (MeshInstance::setVisibilityFlags + RenderTexture::

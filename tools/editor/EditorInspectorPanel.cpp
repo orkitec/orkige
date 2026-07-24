@@ -10,6 +10,7 @@
 #include "EditorLabelFormat.h"
 #include "EditorPropertyWidgets.h"
 #include "EditorTheme.h"
+#include "OwnerComponentBadges.h"
 #include "SyntaxHighlight.h"
 #include "ImGuiFacadeRenderer.h"
 #include "MeshPreviewStage.h"
@@ -2209,6 +2210,18 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 				{
 					ImGui::PopID();
 					continue;
+				}
+				// a GLOBAL-OWNER component kind (camera / atmosphere) that is
+				// DORMANT on this object explains itself: another instance owns
+				// the global, so edits here store but do not show until this
+				// one takes over (@see OwnerComponentBadges.h)
+				if (OrkigeEditor::OwnerComponentBadge const* badge =
+					OrkigeEditor::findOwnerComponentBadge(typeName))
+				{
+					if (!badge->owns(core.getGameObjectManager(), *gameObject))
+					{
+						ImGui::TextDisabled("%s", badge->dormantNote);
+					}
 				}
 				// AUTO Inspector: render this component's editable properties
 				// off its reflection schema (label left / value right), skipping

@@ -245,7 +245,7 @@ namespace Orkige
 		const ImWchar ICON_GLYPH_RANGES[] = {
 			0xf001, 0xf001,		// music (audio)
 			0xf008, 0xf008,		// film (scene)
-			0xf03e, 0xf03e,		// image (texture)
+			0xf03d, 0xf03e,		// video (camera-owner glyph) / image (texture)
 			0xf047, 0xf047,		// arrows-up-down-left-right (Translate tool)
 			0xf04b, 0xf04b,		// play (debug Continue)
 			0xf28b, 0xf28b,		// circle-pause (debug Break on Next Statement)
@@ -253,6 +253,7 @@ namespace Orkige
 			0xf07b, 0xf07c,		// folder / folder-open
 			0xf0b0, 0xf0b0,		// filter (the type-filter funnel button)
 			0xf15b, 0xf15b,		// file (unknown)
+			0xf185, 0xf185,		// sun (atmosphere-owner glyph)
 			0xf188, 0xf188,		// bug (the Debug panel)
 			0xf1b2, 0xf1b2,		// cube (mesh)
 			0xf1c9, 0xf1c9,		// file-code (script)
@@ -327,6 +328,11 @@ namespace Orkige
 	ImVec4 editorErrorTextColor()
 	{
 		return activePalette().errorText;
+	}
+	//---------------------------------------------------------
+	ImVec4 editorAccentColor()
+	{
+		return activePalette().accent;
 	}
 	//---------------------------------------------------------
 	void applyEditorTheme(ImGuiStyle& style, EditorThemeVariant variant,
