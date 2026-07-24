@@ -28,6 +28,39 @@
 #include <sstream>
 #include <unordered_map>
 
+#ifdef __EMSCRIPTEN__
+#	include <emscripten.h>
+//! @brief is the live WebGL context backed by a SOFTWARE rasterizer?
+//! @remarks A GPU-less or GPU-blocklisted browser silently falls back to a
+//! software WebGL implementation (Chrome: SwiftShader; Firefox: llvmpipe).
+//! Chrome MASKS the plain GL_RENDERER string to "WebKit WebGL", so the real
+//! driver is only legible through WEBGL_debug_renderer_info's UNMASKED
+//! renderer - e.g. "ANGLE (Google, Vulkan ... SwiftShader driver)". GLctx is
+//! emscripten's live WebGL context handle. Returns 1 = software, 0 = a GPU
+//! renderer (or no context / no unmask extension - "not proven software").
+EM_JS(int, orkige_webgl_is_software_rasterizer, (), {
+	try {
+		var gl = (typeof GLctx !== "undefined") ? GLctx : null;
+		if (!gl && typeof Module !== "undefined" && Module["canvas"]) {
+			gl = Module["canvas"].getContext("webgl2") ||
+				Module["canvas"].getContext("webgl");
+		}
+		if (!gl) { return 0; }
+		var name = "";
+		var ext = gl.getExtension("WEBGL_debug_renderer_info");
+		if (ext) { name = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || ""; }
+		if (!name) { name = gl.getParameter(gl.RENDERER) || ""; }
+		name = ("" + name).toLowerCase();
+		if (name.indexOf("swiftshader") >= 0 ||
+			name.indexOf("llvmpipe") >= 0 ||
+			name.indexOf("softpipe") >= 0 ||
+			name.indexOf("software") >= 0 ||
+			name.indexOf("microsoft basic render") >= 0) { return 1; }
+		return 0;
+	} catch (e) { return 0; }
+});
+#endif // __EMSCRIPTEN__
+
 namespace Orkige
 {
 	namespace
@@ -95,6 +128,18 @@ namespace Orkige
 		//! @see RenderBackend::shadowsArmed)
 		std::vector<RenderTexture*> gRenderTargets;
 
+#ifdef __EMSCRIPTEN__
+		//! is the browser rendering WebGL through a SOFTWARE rasterizer (no GPU
+		//! / a blocklisted GPU)? Read once - the context does not change - and
+		//! cached (@see orkige_webgl_is_software_rasterizer, the unmasked-
+		//! renderer probe this wraps)
+		bool softwareWebGLRasterizer()
+		{
+			static const bool sSoftware =
+				orkige_webgl_is_software_rasterizer() != 0;
+			return sSoftware;
+		}
+#endif
 		//! does any live directional light ask to cast (the arming trigger -
 		//! v1 shadow maps are directional-only on both flavors)
 		bool anyDirectionalCaster()
@@ -153,6 +198,20 @@ namespace Orkige
 		{
 			return false;	// no shader generator - no receiver injection
 		}
+#ifdef __EMSCRIPTEN__
+		// a SOFTWARE WebGL rasterizer (SwiftShader / llvmpipe - the fallback a
+		// GPU-less or GPU-blocklisted browser hands back) DROPS the WebGL
+		// context the moment the RTSS integrated-PSSM receiver samples the
+		// depth shadow map, taking the whole game down (a lost context cannot
+		// render another frame). A real GPU-backed WebGL2 context renders the
+		// same pass fine, so the refusal is scoped to the software fallback -
+		// depth-texture render targets ARE advertised there, so this is the
+		// gate that keeps shadows off it (@see Docs/web-export.md).
+		if(softwareWebGLRasterizer())
+		{
+			return false;
+		}
+#endif
 		// depth-texture render targets are the ONE hardware requirement: the
 		// caster pass writes real depth, the receiver samples it with a
 		// hardware-compare fetch. GL3Plus/Vulkan always have them; a GLES2/
@@ -217,10 +276,21 @@ namespace Orkige
 			if(!gShadowRefusalLogged)
 			{
 				gShadowRefusalLogged = true;
-				Ogre::LogManager::getSingleton().logMessage(
+				String message =
 					"Orkige classic backend: dynamic shadows are not supported "
 					"on this render backend - the quality knob is recorded but "
-					"no shadow maps render on this flavor");
+					"no shadow maps render on this flavor";
+#ifdef __EMSCRIPTEN__
+				if(softwareWebGLRasterizer())
+				{
+					message =
+						"Orkige classic backend: dynamic shadows disabled - this "
+						"browser falls back to a software WebGL rasterizer "
+						"(SwiftShader/llvmpipe), where the RTSS shadow pass drops "
+						"the WebGL context; shadows render on GPU-backed WebGL2";
+				}
+#endif
+				Ogre::LogManager::getSingleton().logMessage(message);
 			}
 			target = ShadowPreset::SQ_OFF;
 		}

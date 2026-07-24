@@ -40,6 +40,32 @@ requires the `bloom` cap to answer supported on the live WebGL2 context with no
 fallback refusal and a clean shutdown, and pixel-proves the glow — the same
 static scene is measurably brighter with bloom on than off (the additive halo
 around the emissive cube).
+
+**Dynamic shadows are conditional on a GPU-backed context.** The RTSS
+integrated-PSSM shadow pass renders correctly on real GPU-backed WebGL2, but a
+**software WebGL rasterizer** — the fallback a GPU-less or GPU-blocklisted
+browser silently hands back (Chrome's SwiftShader, Firefox's llvmpipe) — DROPS
+the WebGL context the moment the shadow receiver samples the depth shadow map,
+which takes the whole game down (a lost context renders no further frame). The
+classic backend therefore detects the software rasterizer and refuses the
+shadow pass there, with one honest log line, while GPU-backed WebGL2 keeps
+shadows. The detection lives in `RenderBackend::dynamicShadowsSupported`
+(`ClassicBackend.cpp`): Chrome MASKS the plain `GL_RENDERER` string to
+`WebKit WebGL`, so the real driver is read through the
+`WEBGL_debug_renderer_info` extension's UNMASKED renderer (e.g.
+`ANGLE (Google, Vulkan … SwiftShader driver)`) via a tiny `EM_JS` probe,
+matched against `swiftshader`/`llvmpipe`/`softpipe`/`software`. The
+`dynamicShadows` capability bit answers false on such a context, so
+`engine:supports("dynamicShadows")` and the MCP caps read report it honestly.
+The gate is `#ifdef __EMSCRIPTEN__`, so desktop and the classic GLES2 mobile
+presets (real device GPUs) are untouched. This is what the CI `export_web_embed_click`
+test relies on: CI's headless Chrome has no GPU and always falls back to
+SwiftShader, and the benchmark tour there runs its scenes with shadows at the
+default quality and completes because the pass is refused rather than crashing
+(a GPU-backed browser runs the same tour with shadows visible). A latent RTSS
+GLSL-ES-3.0 shadow-shader fix that would make the pass strict-driver-safe (and
+so let SwiftShader render shadows too) is an OGRE-port change tracked separately.
+
 The *requested* GL tier itself is code-confirmed; a runtime **tier-assertion
 test is still a TODO** (read the GL context version from the boot log or the
 caps bitset over the debug protocol) to confirm delivery and catch a

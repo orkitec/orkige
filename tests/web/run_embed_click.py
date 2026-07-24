@@ -274,14 +274,16 @@ def main():
                  {"width": VIEW_W, "height": VIEW_H, "deviceScaleFactor": 1,
                   "mobile": False})
         # reach the results card fast; NO autoRestart - the ONLY restart path
-        # is the browser click below. Shadows run OFF here: the classic PSSM
-        # pass loses the WebGL2 context under a software-rasterized browser
-        # (the only browser CI has; hardware browsers render the tour fine),
-        # killing the tour at the first scene - bisected via these cvars, and
-        # this test asserts embed sizing/clicks/tour completion, not shadow
-        # content. Drop the override once the shadow pass is rasterizer-safe.
+        # is the browser click below. Shadows run at their DEFAULT (on): the
+        # classic backend detects a software WebGL rasterizer (the SwiftShader
+        # fallback CI's headless Chrome uses) through the unmasked WebGL
+        # renderer and refuses the RTSS shadow pass there - which used to drop
+        # the WebGL2 context and kill the tour at the first scene - while a
+        # GPU-backed browser still renders shadows (@see Docs/web-export.md,
+        # RenderBackend::dynamicShadowsSupported). So the tour completes here
+        # WITHOUT the old r.shadowQuality=off override.
         cvars = urllib.parse.quote(
-            "benchmark.sceneScale=0.05,benchmark.wipe=0,r.shadowQuality=off")
+            "benchmark.sceneScale=0.05,benchmark.wipe=0")
         cdp.call("Page.navigate", {"url":
                  "http://127.0.0.1:%d/index.html?env.ORKIGE_CVARS=%s"
                  % (port, cvars)})
