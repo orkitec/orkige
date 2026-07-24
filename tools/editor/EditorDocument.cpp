@@ -53,6 +53,15 @@ bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,
 		return false;
 	}
 	Orkige::GameObjectManager& gameObjectManager = core.getGameObjectManager();
+	// a save reached while a play session mirrors the running game would
+	// serialize the MIRRORED node poses, not the authored ones - restore the
+	// authored transforms first (the mirror re-applies from the next stream, so
+	// the Scene view keeps moving). Keeps "the edit document is never touched"
+	// true even through a Cmd+S mid-play.
+	if (gPlaySession != nullptr)
+	{
+		revertPlayMirror(*gPlaySession);
+	}
 	// keep one backup generation: copy the existing on-disk scene aside to its
 	// ".bak" sibling BEFORE the save overwrites it (a no-op for a first save /
 	// Save As to a new path)

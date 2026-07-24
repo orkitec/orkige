@@ -5,8 +5,11 @@
 #include "EditorApp.h"
 
 #include <core_debugnet/DebugServer.h>
+#include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
 #include <core_project/NativeModule.h>
+#include <engine_gocomponent/TransformComponent.h>
+#include <engine_render/RenderNode.h>
 
 #include <algorithm>
 #include <cctype>
@@ -105,11 +108,163 @@ void clearRemoteState(PlaySession& session)
 	session.remoteMusic.clear();
 }
 
+namespace
+{
+//! @brief the play mirror over the editor's live GameObjectManager: drives the
+//! TransformComponent render nodes (never the reflected component values, so no
+//! serialization/dirty/undo consequence) and each object's OWN drawable
+//! visibility (the content child nodes below the transform node, no cross-object
+//! cascade - each object owns its visibility). A borrowed manager reference,
+//! constructed on the stack per mirror call.
+class EditorWorldMirrorScene : public OrkigeEditor::MirrorScene
+{
+public:
+	explicit EditorWorldMirrorScene(Orkige::GameObjectManager& manager)
+		: mManager(manager) {}
+
+	std::vector<std::string> transformableIds() const override
+	{
+		std::vector<std::string> ids;
+		for (auto const& entry : mManager.getGameObjects())
+		{
+			if (entry.second && !entry.first.empty() &&
+				entry.second->hasComponent<Orkige::TransformComponent>())
+			{
+				ids.push_back(entry.first);
+			}
+		}
+		return ids;
+	}
+
+	bool getLocalTransform(std::string const& id,
+		OrkigeEditor::MirrorTransform& out) const override
+	{
+		Orkige::TransformComponent* transform = resolveTransform(id);
+		if (!transform)
+		{
+			return false;
+		}
+		const Orkige::Vec3 position = transform->getPosition();
+		const Orkige::Quat orientation = transform->getOrientation();
+		const Orkige::Vec3 scale = transform->getScale();
+		out.m = { position.x, position.y, position.z,
+			orientation.w, orientation.x, orientation.y, orientation.z,
+			scale.x, scale.y, scale.z };
+		return true;
+	}
+
+	void setLocalTransform(std::string const& id,
+		OrkigeEditor::MirrorTransform const& value) override
+	{
+		Orkige::TransformComponent* transform = resolveTransform(id);
+		if (!transform)
+		{
+			return;
+		}
+		transform->setPosition(
+			Orkige::Vec3(value.m[0], value.m[1], value.m[2]));
+		transform->setOrientation(
+			Orkige::Quat(value.m[3], value.m[4], value.m[5], value.m[6]));
+		transform->setScale(
+			Orkige::Vec3(value.m[7], value.m[8], value.m[9]));
+	}
+
+	bool getBaselineVisible(std::string const& id) const override
+	{
+		optr<Orkige::GameObject> gameObject = mManager.getGameObject(id).lock();
+		return gameObject ? gameObject->isActiveInHierarchy() : true;
+	}
+
+	void setVisible(std::string const& id, bool visible) override
+	{
+		Orkige::TransformComponent* transform = resolveTransform(id);
+		if (!transform || !transform->getNode())
+		{
+			return;
+		}
+		// hide/show ONLY this object's own drawable content: the child nodes
+		// its sibling components (Model/Sprite/...) attached under the transform
+		// node carry NO user pointer, whereas a CHILD GameObject's own
+		// TransformComponent node does (getComponentFromNode). Toggling just the
+		// pointerless content nodes leaves child objects to mirror their own
+		// effective visibility - order-independent, no cross-object cascade.
+		optr<Orkige::RenderNode> node = transform->getNode();
+		const std::size_t childCount = node->numChildren();
+		for (std::size_t i = 0; i < childCount; ++i)
+		{
+			optr<Orkige::RenderNode> child = node->getChild(i);
+			if (child && child->getUserPointer() == nullptr)
+			{
+				child->setVisible(visible, true);
+			}
+		}
+	}
+
+private:
+	Orkige::TransformComponent* resolveTransform(std::string const& id) const
+	{
+		optr<Orkige::GameObject> gameObject = mManager.getGameObject(id).lock();
+		return gameObject
+			? gameObject->getComponentPtr<Orkige::TransformComponent>()
+			: nullptr;
+	}
+
+	Orkige::GameObjectManager& mManager;
+};
+} // namespace
+
+//! @brief drive the editor world's render nodes from a MSG_SCENE_TRANSFORMS
+//! delta - the running-scene motion mirror. Snapshots the authored poses on the
+//! first apply (the edit world still holds authored truth: play mode routes
+//! editing to the remote panels and the editor never ticks its own world).
+void applyPlayMirrorTransforms(PlaySession& session,
+	Orkige::StringVector const& ids, Orkige::StringVector const& transforms)
+{
+	if (!session.editorWorld)
+	{
+		return;
+	}
+	EditorWorldMirrorScene scene(*session.editorWorld);
+	session.mirror.applyTransforms(scene, ids, transforms);
+}
+
+//! @brief drive the mirrored objects' visibility from the latest remote
+//! hierarchy (effective activeInHierarchy composed off the streamed
+//! ids/parents/active lists).
+void applyPlayMirrorActive(PlaySession& session)
+{
+	if (!session.editorWorld || session.remoteHierarchy.empty())
+	{
+		return;
+	}
+	EditorWorldMirrorScene scene(*session.editorWorld);
+	session.mirror.applyActive(scene,
+		OrkigeEditor::computeEffectiveActive(session.remoteHierarchy,
+			session.remoteParents, session.remoteActive));
+}
+
+//! @brief restore the editor world to its AUTHORED transforms + visibility and
+//! drop the mirror snapshot (the exact-restore path). A no-op when nothing is
+//! mirrored, so it is safe to call unconditionally on every teardown/save.
+void revertPlayMirror(PlaySession& session)
+{
+	if (!session.editorWorld || !session.mirror.active())
+	{
+		return;
+	}
+	EditorWorldMirrorScene scene(*session.editorWorld);
+	session.mirror.restore(scene);
+}
+
 //! @brief tear the session down (reap/kill the player, drop the link,
 //! delete the temp scene) and revert to edit mode - the single exit path
 //! for Stop, crash detection and editor shutdown
 void endPlaySession(PlaySession& session, std::string const& reason)
 {
+	// FIRST of all: put the editor's Scene view back to exactly how it was
+	// authored (the mirror only moved render nodes; this writes the snapshotted
+	// authored floats back). Done before any teardown so no exit path skips it.
+	revertPlayMirror(session);
 	if (session.buildProcess)
 	{
 		// a running native module build dies with the session (Stop while
@@ -196,6 +351,7 @@ void endPlaySession(PlaySession& session, std::string const& reason)
 		session.tempScenePath.clear();
 	}
 	clearRemoteState(session);
+	session.editorWorld = nullptr;	// the mirror is restored + released
 	session.projectRoot.clear();
 	session.mode = PlaySession::Mode::Edit;
 	oDebugMsg("editor.play", 0, "play mode ended (" << reason << ")");
@@ -641,6 +797,9 @@ bool startPlay(PlaySession& session,
 		return false;
 	}
 	session.projectRoot = projectRoot;
+	// the mirror drives THIS world's nodes while the session runs (borrowed;
+	// released + restored by endPlaySession)
+	session.editorWorld = &gameObjectManager;
 	// temp play file (never the user's file - saveScene is called directly,
 	// EditorState::currentScenePath/sceneDirty are not involved)
 	const std::string tempName = "orkige_play_" + std::to_string(
@@ -1405,6 +1564,19 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 				session.remoteActive.clear();
 			}
 			session.hierarchyReceived = true;
+			// mirror the running game's active/visibility state onto the
+			// editor Scene view (the transform half rides MSG_SCENE_TRANSFORMS)
+			applyPlayMirrorActive(session);
+		}
+		else if (message.type == Protocol::MSG_SCENE_TRANSFORMS)
+		{
+			// the running game's whole-scene motion: drive the editor world's
+			// render nodes so the Scene view shows objects moving live (the
+			// authored poses are snapshotted on the first apply and restored
+			// exactly on Stop - the edit document is never touched)
+			applyPlayMirrorTransforms(session,
+				message.getList(Protocol::LIST_IDS),
+				message.getList(Protocol::LIST_TRANSFORMS));
 		}
 		else if (message.type == Protocol::MSG_OBJECT_STATE)
 		{

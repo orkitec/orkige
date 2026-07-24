@@ -296,6 +296,7 @@ void ViewSettings::resetPanelVisibility()
 // the editor-wide globals (declared extern in EditorApp.h)
 ViewSettings* gViewSettings = nullptr;
 EditorState* gEditorState = nullptr;
+PlaySession* gPlaySession = nullptr;
 Orkige::ImGuiFacadeRenderer* gImGuiRenderer = nullptr;
 bool gRecordRecents = true;
 bool gAutomatedRun = false;

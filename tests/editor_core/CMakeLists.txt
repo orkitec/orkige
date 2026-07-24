@@ -13,6 +13,7 @@ add_executable(orkige_editor_core_tests
     EditorScriptToolsTests.cpp
     EditorLabelFormatTests.cpp
     EditorEulerTests.cpp
+    PlayMirrorTests.cpp
     PythonToolchainTests.cpp
 	EditorCameraTests.cpp
 	EditorPanelRegistryTests.cpp

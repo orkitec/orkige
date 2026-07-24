@@ -201,6 +201,28 @@ namespace Orkige
 		//! MSG_STATS cadence while the profiler is enabled; fire-and-forget.
 		//! Additive since protocol v1: old editors ignore unknown types.
 		extern ORKIGE_CORE_DLL const String MSG_PROFILE_DATA;
+		//! @brief periodic FULL-SCENE transform stream: every GameObject's
+		//! LOCAL transform (position/orientation/scale) as two parallel lists
+		//! LIST_IDS / LIST_TRANSFORMS (each transform a flat
+		//! "px py pz qw qx qy qz sx sy sz" string). Unlike MSG_OBJECT_STATE
+		//! (which streams only the SELECTED object's reflected properties), this
+		//! covers the WHOLE scene so an editor can MIRROR the running game's
+		//! object motion into its own Scene view live and restore the authored
+		//! poses on stop. Streamed as a DELTA - only the objects whose local
+		//! transform changed since the last send ride each message (a full set
+		//! goes out on the first send after a client attaches / a mid-play scene
+		//! switch), so a settled or paused scene sends nothing. Fire-and-forget
+		//! on the ~15Hz object-state cadence; a paused game freezes it (nothing
+		//! moves), a step advances it by exactly the tick's motion. Additive
+		//! since protocol v1: old editors ignore the unknown type. The active/
+		//! visibility half of a mirror rides the EXISTING MSG_HIERARCHY
+		//! LIST_ACTIVE + LIST_PARENTS (no new field).
+		//! @remarks No new MCP verb: this stream feeds the editor's own Scene
+		//! view (a visual mirror), and an agent already reads any object's live
+		//! runtime transform through MSG_SELECT + MSG_OBJECT_STATE (the
+		//! runtime_* / get_state surface). The whole-scene delta exists only so
+		//! the editor can move ALL its authored nodes at once, cheaply.
+		extern ORKIGE_CORE_DLL const String MSG_SCENE_TRANSFORMS;
 		extern ORKIGE_CORE_DLL const String MSG_BYE;				//!< orderly shutdown notice
 
 		//--- field names ---
@@ -307,6 +329,12 @@ namespace Orkige
 		//! one flat "depth calls milliseconds maxMilliseconds" per name.
 		extern ORKIGE_CORE_DLL const String LIST_PROFILE_NAMES;
 		extern ORKIGE_CORE_DLL const String LIST_PROFILE_INFO;
+		//! @brief MSG_SCENE_TRANSFORMS: one flat "px py pz qw qx qy qz sx sy sz"
+		//! local-transform string per id in LIST_IDS (10 space-separated floats:
+		//! position, orientation quaternion w/x/y/z, scale). Kept a parallel
+		//! string list beside LIST_IDS so the message stays flat (no nested
+		//! objects), like the ui-rect / profile-info lists.
+		extern ORKIGE_CORE_DLL const String LIST_TRANSFORMS;
 	}
 
 	//! @brief one protocol message: a type plus flat string fields and flat

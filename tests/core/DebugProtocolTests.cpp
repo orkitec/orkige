@@ -170,6 +170,21 @@ TEST_CASE("DebugMessage round-trips every protocol message type", "[debugnet]")
 		CHECK(out.type == "script_error");
 		CHECK(out.get(Protocol::FIELD_ID) == "Player");
 	}
+	SECTION("scene_transforms (whole-scene motion mirror, parallel lists)")
+	{
+		DebugMessage transforms(Protocol::MSG_SCENE_TRANSFORMS);
+		transforms.setList(Protocol::LIST_IDS, { "FallCube", "Group/Tile1" });
+		// one flat "px py pz qw qx qy qz sx sy sz" string per id
+		transforms.setList(Protocol::LIST_TRANSFORMS,
+			{ "0 4.87 0 1 0 0 0 1 1 1",
+			  "-2.5 0 1.25 0.7071 0 0.7071 0 2 2 2" });
+		const DebugMessage out = roundTrip(transforms);
+		CHECK(out.type == "scene_transforms");
+		REQUIRE(out.getList(Protocol::LIST_IDS).size() == 2);
+		CHECK(out.getList(Protocol::LIST_IDS)[0] == "FallCube");
+		CHECK(out.getList(Protocol::LIST_TRANSFORMS)[0] ==
+			"0 4.87 0 1 0 0 0 1 1 1");
+	}
 }
 
 TEST_CASE("DebugMessage carries request-correlation and auth fields",

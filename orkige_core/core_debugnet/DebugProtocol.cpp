@@ -49,6 +49,7 @@ namespace Orkige
 		const String MSG_GUI_DISMISS_MODAL	= "gui_dismiss_modal";
 		const String MSG_PROFILE			= "profile";
 		const String MSG_PROFILE_DATA		= "profile_data";
+		const String MSG_SCENE_TRANSFORMS	= "scene_transforms";
 		const String MSG_BYE				= "bye";
 
 		const String FIELD_ID				= "id";
@@ -96,6 +97,7 @@ namespace Orkige
 		const String FIELD_GAME_STATE		= "game_state";
 		const String LIST_PROFILE_NAMES		= "prof_names";
 		const String LIST_PROFILE_INFO		= "prof_info";
+		const String LIST_TRANSFORMS		= "xforms";
 	}
 
 	namespace

@@ -38,6 +38,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <sstream>
@@ -112,6 +113,30 @@ namespace
 		std::istringstream stream(state.get("TransformComponent.position"));
 		double x = 0.0;
 		return static_cast<bool>(stream >> x >> outY);
+	}
+
+	//! pull one named object's local-transform y (index 1 of the 10-float
+	//! "px py pz qw qx qy qz sx sy sz" string) out of a MSG_SCENE_TRANSFORMS
+	//! message (parallel LIST_IDS / LIST_TRANSFORMS); false when the id is
+	//! absent from this delta (it did not move this tick)
+	bool sceneTransformY(Orkige::DebugMessage const & message,
+		Orkige::String const & id, double & outY)
+	{
+		Orkige::StringVector const & ids =
+			message.getList(Protocol::LIST_IDS);
+		Orkige::StringVector const & transforms =
+			message.getList(Protocol::LIST_TRANSFORMS);
+		for (std::size_t i = 0; i < ids.size() && i < transforms.size(); ++i)
+		{
+			if (ids[i] != id)
+			{
+				continue;
+			}
+			std::istringstream stream(transforms[i]);
+			double x = 0.0;
+			return static_cast<bool>(stream >> x >> outY);
+		}
+		return false;
 	}
 
 	//! discard everything buffered/inflight for the given settle time, then
@@ -240,6 +265,50 @@ int main(int argc, char** argv)
 		}
 	}
 	log("hello + hierarchy ok");
+
+	// 1b. the WHOLE-SCENE transform stream (MSG_SCENE_TRANSFORMS) flows without
+	// a select and carries the falling cube: two samples must show y dropping.
+	// This is the editor's motion-mirror source (delta-only, ~15Hz).
+	{
+		Orkige::DebugMessage transforms;
+		if (!waitForMessage(client, Protocol::MSG_SCENE_TRANSFORMS, transforms,
+			30000))
+		{
+			return fail("no scene_transforms stream within 30s");
+		}
+		double firstY = 0.0;
+		if (!sceneTransformY(transforms, "FallCube", firstY))
+		{
+			return fail("scene_transforms did not carry FallCube");
+		}
+		// wait until a later scene_transforms shows the cube has fallen further
+		const std::chrono::steady_clock::time_point deadline = deadlineIn(30000);
+		double laterY = firstY;
+		for (;;)
+		{
+			Orkige::DebugMessage sample;
+			if (waitForMessage(client, Protocol::MSG_SCENE_TRANSFORMS, sample,
+				5000))
+			{
+				double y = 0.0;
+				if (sceneTransformY(sample, "FallCube", y))
+				{
+					laterY = y;
+				}
+			}
+			if (laterY < firstY - 0.1)
+			{
+				break;	// the mirror stream reports the fall
+			}
+			if (std::chrono::steady_clock::now() >= deadline)
+			{
+				return fail("scene_transforms never showed FallCube falling "
+					"(y stuck near " + std::to_string(firstY) + ")");
+			}
+		}
+		log("scene_transforms streams the fall (" + std::to_string(firstY) +
+			" -> " + std::to_string(laterY) + ")");
+	}
 
 	// 2. select the cube and receive object_state carrying all components
 	Orkige::DebugMessage select(Protocol::MSG_SELECT);

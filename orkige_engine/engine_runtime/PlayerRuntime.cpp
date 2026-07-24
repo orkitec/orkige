@@ -46,7 +46,9 @@
 #include <SDL3/SDL_filesystem.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <iomanip>
@@ -64,6 +66,7 @@ namespace Orkige
 
 	const unsigned long PlayerDebugLink::HIERARCHY_CHECK_INTERVAL = 15;
 	const int PlayerDebugLink::OBJECT_STATE_INTERVAL_MS = 66;
+	const int PlayerDebugLink::SCENE_TRANSFORM_INTERVAL_MS = 66;
 	const int PlayerDebugLink::DIAL_RETRY_INTERVAL_MS = 500;
 	const int PlayerDebugLink::DIAL_GIVE_UP_SECONDS = 20;
 	//---------------------------------------------------------
@@ -108,6 +111,24 @@ namespace Orkige
 				return desc.referenceHint;
 			}
 			return String();
+		}
+
+		//! @brief have two streamed local transforms diverged enough to resend?
+		//! (a small epsilon quiets the resting-body micro-jitter that would
+		//! otherwise churn the delta stream every frame - the comparison is
+		//! against the last SENT value, so a slow drift still accumulates past
+		//! the threshold and goes out)
+		bool transformChanged(std::array<float, 10> const & a,
+			std::array<float, 10> const & b)
+		{
+			for (std::size_t i = 0; i < a.size(); ++i)
+			{
+				if (std::fabs(a[i] - b[i]) > 1e-5f)
+				{
+					return true;
+				}
+			}
+			return false;
 		}
 
 		//! @brief all GameObject ids plus their parent ids ("" = root) and
@@ -801,6 +822,10 @@ namespace Orkige
 			DebugMessage hello(Protocol::MSG_HELLO);
 			hello.set(Protocol::FIELD_SCENE, scenePath);
 			linkSend(hello);
+			// a fresh editor learns the whole scene's poses: force the next
+			// transform stream to carry EVERY object (not just what moved)
+			mSceneTransformsFullResend = true;
+			mLastSentTransforms.clear();
 			sendHierarchyIfChanged(gameObjectManager, true);
 			// goes through the log capture - guarantees the editor Console
 			// receives at least one [remote] line per session
@@ -815,6 +840,9 @@ namespace Orkige
 			mPendingSteps = 0;
 			mSelectedObjectId.clear();
 			mHierarchySent = false;
+			// the transform mirror re-baselines for the next editor session
+			mSceneTransformsFullResend = true;
+			mLastSentTransforms.clear();
 			// a NEW editor session must learn about existing failures again
 			mReportedScriptErrors.clear();
 			if (mDialMode)
@@ -853,6 +881,9 @@ namespace Orkige
 			streamProfile();
 		}
 		streamObjectState(gameObjectManager);
+		// the whole scene's motion, so an editor mirrors the running game into
+		// its own Scene view (rides the object-state cadence, delta-only)
+		streamSceneTransforms(gameObjectManager);
 		// forward the engine-log lines captured since the last frame
 		for (EngineLogCapture::Line const & line : mLogCapture->drain())
 		{
@@ -879,6 +910,10 @@ namespace Orkige
 		mLastSentHierarchy.clear();
 		mLastSentParents.clear();
 		mLastSentActives.clear();
+		// the new world's objects are unrelated to the torn-down ones: force a
+		// full transform re-send and drop the stale per-id baseline
+		mSceneTransformsFullResend = true;
+		mLastSentTransforms.clear();
 		// a deferred level/scene switch happened mid-play - mark it in the trace
 		traceEvent("sceneLoad", {});
 	}
@@ -1485,6 +1520,77 @@ namespace Orkige
 		}
 		linkSend(buildObjectState(gameObject));
 		mLastStateSend = now;
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::streamSceneTransforms(
+		GameObjectManager & gameObjectManager)
+	{
+		if (!linkHasClient())
+		{
+			return;
+		}
+		const std::chrono::steady_clock::time_point now =
+			std::chrono::steady_clock::now();
+		if (!mSceneTransformsFullResend &&
+			now - mLastTransformSend <
+				std::chrono::milliseconds(SCENE_TRANSFORM_INTERVAL_MS))
+		{
+			return;
+		}
+		const bool full = mSceneTransformsFullResend;
+		StringVector ids;
+		StringVector transforms;
+		for (auto const & [id, gameObject] : gameObjectManager.getGameObjects())
+		{
+			if (id.empty() || !gameObject)
+			{
+				continue;	// only NAMED objects (unnamed have no mirror key)
+			}
+			// probe BEFORE fetching: getComponentPtr is a must-exist accessor
+			// (it asserts on absence), and a pure-logic object legitimately
+			// carries no transform - nothing to mirror
+			if (!gameObject->hasComponent<TransformComponent>())
+			{
+				continue;
+			}
+			TransformComponent * transform =
+				gameObject->getComponentPtr<TransformComponent>();
+			// the LOCAL transform (what the scene serializes and what the
+			// editor's matching node consumes so the hierarchy composes the
+			// same world pose it does in the running game)
+			const Vec3 position = transform->getPosition();
+			const Quat orientation = transform->getOrientation();
+			const Vec3 scale = transform->getScale();
+			const std::array<float, 10> current = {
+				position.x, position.y, position.z,
+				orientation.w, orientation.x, orientation.y, orientation.z,
+				scale.x, scale.y, scale.z };
+			std::map<String, std::array<float, 10>>::iterator previous =
+				mLastSentTransforms.find(id);
+			if (!full && previous != mLastSentTransforms.end() &&
+				!transformChanged(previous->second, current))
+			{
+				continue;	// unchanged since the last send - stays out of the delta
+			}
+			char buffer[160];
+			std::snprintf(buffer, sizeof(buffer),
+				"%.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g",
+				current[0], current[1], current[2], current[3], current[4],
+				current[5], current[6], current[7], current[8], current[9]);
+			ids.push_back(id);
+			transforms.push_back(buffer);
+			mLastSentTransforms[id] = current;
+		}
+		mLastTransformSend = now;
+		mSceneTransformsFullResend = false;
+		if (ids.empty())
+		{
+			return;	// a settled / paused scene moves nothing - send nothing
+		}
+		DebugMessage message(Protocol::MSG_SCENE_TRANSFORMS);
+		message.setList(Protocol::LIST_IDS, ids);
+		message.setList(Protocol::LIST_TRANSFORMS, transforms);
+		linkSend(message);
 	}
 	//---------------------------------------------------------
 	std::size_t PlayerDebugLink::sampleMemory()

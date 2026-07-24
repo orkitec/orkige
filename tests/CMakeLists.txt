@@ -1149,6 +1149,15 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     set_tests_properties(editor_play_crash${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_PLAYTEST=crash")
 
+    # play-mode SCENE-VIEW MIRROR: play a scene with a falling RigidBody cube
+    # and require the editor's OWN Scene-view node to mirror the running game's
+    # motion (moving live, without dirtying the document), then be restored
+    # EXACTLY to its authored pose on Stop. Both flavors.
+    add_test(NAME editor_play_mirror${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_play_mirror${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_MIRROR_PLAYTEST=${Orkige_SOURCE_DIR}/tests/scenes/falling_cube.oscene")
+
     # the tile-prefab level-authoring loop end to end: on a temp copy of the
     # roller project, paint/replace/erase prefab instances snapped to a
     # LevelComponent grid through the EditorCore paint seams (one undo step per
@@ -2395,9 +2404,10 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_hotreload_selfcheck player_hotreload_selfcheck_next
         player_scriptprop_selfcheck player_scriptprop_selfcheck_next
         player_assetid_selfcheck player_assetid_selfcheck_next
-        editor_play_stop editor_play_crash editor_project_play
+        editor_play_stop editor_play_crash editor_play_mirror editor_project_play
         editor_play_script_error editor_play_hotreload editor_ui_hotreload
         editor_anim_hotreload
+        editor_play_mirror_next
         editor_play_stop_next editor_play_crash_next editor_project_play_next
         editor_play_script_error_next editor_play_hotreload_next
         editor_ui_hotreload_next editor_anim_hotreload_next
@@ -2422,6 +2432,7 @@ endforeach()
 # selfcheck simulates a whole scripted play session (jump flight, fall past
 # the kill plane, goal walk-in), so it gets the same headroom
 foreach(play_test player_debug_pause editor_play_stop editor_play_crash
+        editor_play_mirror editor_play_mirror_next
         editor_project_play editor_play_script_error editor_play_hotreload
         editor_ui_hotreload editor_ui_hotreload_next
         editor_anim_hotreload editor_anim_hotreload_next

@@ -23,6 +23,7 @@
 #include "EditorTheme.h"
 #include "FileDialog.h"
 #include "MarqueeSelection.h"
+#include "PlayMirror.h"
 #include "SyntaxHighlight.h"
 
 #include <core_debug/DebugMacros.h>	// tagged oDebug* diagnostics (SDL_Log policy)
@@ -56,6 +57,7 @@ namespace Orkige
 	class ImGuiFacadeRenderer;
 	class ImGuiSDL3Input;
 	class RenderWorld;
+	class GameObjectManager;	//!< the play mirror drives the editor world's nodes
 	class EditorScriptHost;	//!< editor-tool host (EditorScriptHost.h)
 }
 
@@ -383,6 +385,14 @@ extern ViewSettings* gViewSettings;
 // to the main loop without threading EditorState& through every widget helper.
 struct EditorState; // defined below
 extern EditorState* gEditorState;
+
+// The live PlaySession (owned by main). Global so a scene SAVE (saveSceneToPath,
+// reachable via Cmd+S even during play) can restore the mirror's authored
+// transforms before serializing - the play mirror moves render nodes, so a save
+// mid-play would otherwise write mirrored poses. Null-safe: "" outside main's
+// wiring. See revertPlayMirror.
+struct PlaySession; // defined below
+extern PlaySession* gPlaySession;
 
 // the ImGui-on-facade renderer (owned by main; global so drawScenePanel can
 // register the scene RTT for ImGui::Image without threading it through every
@@ -884,6 +894,17 @@ struct PlaySession
 	Orkige::DebugClient client;
 	unsigned short port = 0;
 	std::string tempScenePath;
+	//! @brief the editor's OWN scene world (set at startPlay/beginBrowserPlay),
+	//! whose render nodes the play mirror drives so the Scene view shows the
+	//! running game's object motion live and is restored EXACTLY on stop. A
+	//! borrowed pointer (the editor holds exactly one GameObjectManager for its
+	//! whole life); null outside an active session.
+	Orkige::GameObjectManager* editorWorld = nullptr;
+	//! @brief the running-scene motion mirror: snapshots the authored transforms
+	//! + visibility once, drives the editorWorld nodes from the streamed
+	//! MSG_SCENE_TRANSFORMS / MSG_HIERARCHY, and restores them on session end.
+	//! The edit DOCUMENT is never touched (render nodes only) - see PlayMirror.
+	OrkigeEditor::PlayMirror mirror;
 	//! project root the ACTIVE session plays in ("" = loose-scene mode);
 	//! passed to the player as --project so its assets/scenes (and, from
 	//! milestone 2 on, scripts) resolve against the same roots as the editor
@@ -1324,6 +1345,22 @@ std::string formatPlayFloats(const float* values, int count);
 
 //! forget everything streamed by the (previous) player
 void clearRemoteState(PlaySession& session);
+
+//! @brief drive the editor world's render nodes from a MSG_SCENE_TRANSFORMS
+//! delta (ids parallel to transform strings): the running-scene motion mirror.
+//! Snapshots the authored poses on the first apply. A no-op without editorWorld.
+void applyPlayMirrorTransforms(PlaySession& session,
+	Orkige::StringVector const& ids, Orkige::StringVector const& transforms);
+
+//! @brief drive the mirrored objects' visibility from the latest remote
+//! hierarchy (effective activeInHierarchy). A no-op without editorWorld.
+void applyPlayMirrorActive(PlaySession& session);
+
+//! @brief restore the editor world to its AUTHORED transforms + visibility and
+//! drop the mirror snapshot - the exact-restore path, called on session end
+//! (and before a manual save while playing so the document stays authored). A
+//! no-op when nothing is mirrored.
+void revertPlayMirror(PlaySession& session);
 
 //! @brief tear the session down (reap/kill the player, drop the link,
 //! delete the temp scene) and revert to edit mode - the single exit path

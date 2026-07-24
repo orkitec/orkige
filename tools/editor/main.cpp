@@ -205,6 +205,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_EDITTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_OPEN_SCENE") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_MIRROR_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_EXPORT_EXAMPLE") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_PROJECT_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr ||
@@ -661,6 +662,10 @@ int main(int argc, char** argv)
 
 		// play mode session (idle until the Play button / playtest hook)
 		PlaySession playSession;
+		// global handle so a scene save can restore the play mirror first (the
+		// mirror moves render nodes; a mid-play Cmd+S must still write authored
+		// poses - see saveSceneToPath / revertPlayMirror)
+		gPlaySession = &playSession;
 		// project export job (idle until Build > Build for <platform>)
 		ExportJob exportJob;
 		// Play-in-Browser static server: one loopback HttpServer instance for
@@ -1136,6 +1141,15 @@ int main(int argc, char** argv)
 		const bool playtest = (playtestEnv != nullptr);
 		const bool playtestCrash =
 			playtest && (std::strcmp(playtestEnv, "crash") == 0);
+
+		// ORKIGE_EDITOR_MIRROR_PLAYTEST=<scene.oscene>: the play-mode motion
+		// mirror run (the editor_play_mirror ctest). Frame 10 opens a scene with
+		// a falling RigidBody cube; frame 40 presses Play. While playing, the
+		// editor's OWN Scene-view node for the cube must MOVE (mirrored from the
+		// running player) without dirtying the document; after Stop it must be
+		// restored to its authored pose EXACTLY. Exits non-zero on any miss.
+		const char* mirrorPlaytestEnv =
+			std::getenv("ORKIGE_EDITOR_MIRROR_PLAYTEST");
 
 		// ORKIGE_EDITOR_EXPORT_EXAMPLE=path: fixture export (frame 20 below)
 		const char* exportExampleEnv =
@@ -1623,6 +1637,16 @@ int main(int argc, char** argv)
 		unsigned long playtestScreenshotFrame = 0;
 		unsigned long playtestInterfereFrame = 0;
 
+		// motion-mirror run state (ORKIGE_EDITOR_MIRROR_PLAYTEST)
+		enum class MirrorPhase { Idle, WaitMirror, WaitRevert, Done };
+		MirrorPhase mirrorPhase = MirrorPhase::Idle;
+		std::chrono::steady_clock::time_point mirrorDeadline;
+		//! the authored local-Y of the falling cube's editor node, captured
+		//! before Play; the exact value a clean Stop must restore
+		double mirrorAuthoredY = 0.0;
+		bool mirrorSawMotion = false;	//!< the mirror moved the node during play
+		const char* const MIRROR_CUBE_ID = "FallCube";
+
 		// safe-area device run state (ORKIGE_EDITOR_SAFEAREA_CHECK)
 		enum class SafeAreaPhase { Idle, WaitStream, WaitStop, Done };
 		SafeAreaPhase safeAreaPhase = SafeAreaPhase::Idle;
@@ -2046,6 +2070,10 @@ int main(int argc, char** argv)
 						std::to_string(browserServe.server.getPort());
 					state.browserPlayUrl = url;
 					state.browserPlayStatus = "serving";
+					// the served page plays the SAME temp scene the editor
+					// world holds, so the motion mirror works over the
+					// WebSocket link like a desktop session (same protocol)
+					playSession.editorWorld = &gameObjectManager;
 					beginBrowserPlaySession(playSession,
 						state.project.isLoaded()
 							? state.project.getRootDirectory()
@@ -7562,6 +7590,154 @@ int main(int argc, char** argv)
 				}
 			}
 
+			// --- scripted motion-mirror run (ORKIGE_EDITOR_MIRROR_PLAYTEST) ---
+			// Play a scene with a falling cube; assert the editor's own Scene-
+			// view node MIRRORS the running game's motion (without dirtying the
+			// document) and is restored EXACTLY on Stop.
+			if (mirrorPlaytestEnv)
+			{
+				const std::chrono::steady_clock::time_point mirrorNow =
+					std::chrono::steady_clock::now();
+				bool mirrorFailed = false;
+				std::string mirrorFailure;
+				// read the falling cube's editor-node LOCAL y (the value the
+				// mirror drives and a Stop restores)
+				auto mirrorCubeY = [&](double& out) -> bool
+				{
+					optr<Orkige::GameObject> cube =
+						gameObjectManager.getGameObject(MIRROR_CUBE_ID).lock();
+					if (!cube)
+					{
+						return false;
+					}
+					Orkige::TransformComponent* transform =
+						cube->getComponentPtr<Orkige::TransformComponent>();
+					if (!transform)
+					{
+						return false;
+					}
+					out = transform->getPosition().y;
+					return true;
+				};
+				if (mirrorPhase == MirrorPhase::Idle && frameCount == 10)
+				{
+					if (!openSceneFromPath(state, editorCore, mirrorPlaytestEnv))
+					{
+						mirrorFailed = true;
+						mirrorFailure = std::string("could not open scene '") +
+							mirrorPlaytestEnv + "'";
+					}
+					else if (!mirrorCubeY(mirrorAuthoredY))
+					{
+						mirrorFailed = true;
+						mirrorFailure =
+							"scene has no FallCube TransformComponent";
+					}
+				}
+				else if (mirrorPhase == MirrorPhase::Idle && frameCount == 40)
+				{
+					if (!startPlay(playSession, gameObjectManager,
+						state.project))
+					{
+						mirrorFailed = true;
+						mirrorFailure = "startPlay failed";
+					}
+					else
+					{
+						mirrorPhase = MirrorPhase::WaitMirror;
+						mirrorDeadline = mirrorNow + std::chrono::seconds(90);
+					}
+				}
+				else if (mirrorPhase == MirrorPhase::WaitMirror)
+				{
+					double y = mirrorAuthoredY;
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						mirrorFailed = true;
+						mirrorFailure = "play session ended before the mirror "
+							"moved the editor node";
+					}
+					// the running cube falls; once the mirror has driven the
+					// editor node meaningfully below its authored pose, the
+					// document must still be undirtied by any of it
+					else if (mirrorCubeY(y) && y < mirrorAuthoredY - 0.25)
+					{
+						if (editorCore.isSceneDirty())
+						{
+							mirrorFailed = true;
+							mirrorFailure = "the mirror dirtied the edit "
+								"document (it must touch render nodes only)";
+						}
+						else
+						{
+							mirrorSawMotion = true;
+							SDL_Log("orkige_editor: mirror playtest - editor "
+								"node mirrored the fall (authored y=%.3f, "
+								"mirrored y=%.3f)", mirrorAuthoredY, y);
+							requestStopPlay(playSession);
+							mirrorPhase = MirrorPhase::WaitRevert;
+							mirrorDeadline =
+								mirrorNow + std::chrono::seconds(30);
+						}
+					}
+				}
+				else if (mirrorPhase == MirrorPhase::WaitRevert)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						double y = 0.0;
+						if (!mirrorCubeY(y))
+						{
+							mirrorFailed = true;
+							mirrorFailure =
+								"FallCube vanished from the editor scene";
+						}
+						else if (y != mirrorAuthoredY)
+						{
+							mirrorFailed = true;
+							mirrorFailure = "editor node not restored exactly "
+								"(authored " + std::to_string(mirrorAuthoredY) +
+								", got " + std::to_string(y) + ")";
+						}
+						else if (editorCore.isSceneDirty())
+						{
+							mirrorFailed = true;
+							mirrorFailure =
+								"scene left dirty after the play session";
+						}
+						else if (!mirrorSawMotion)
+						{
+							mirrorFailed = true;
+							mirrorFailure = "the mirror never moved the node "
+								"during play";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: mirror playtest PASSED - "
+								"editor node mirrored the running game and was "
+								"restored EXACTLY to y=%.3f", mirrorAuthoredY);
+							mirrorPhase = MirrorPhase::Done;
+							running = false;
+						}
+					}
+				}
+				if (!mirrorFailed && mirrorPhase != MirrorPhase::Idle &&
+					mirrorPhase != MirrorPhase::Done &&
+					mirrorNow >= mirrorDeadline)
+				{
+					mirrorFailed = true;
+					mirrorFailure = "deadline exceeded in phase " +
+						std::to_string(static_cast<int>(mirrorPhase));
+				}
+				if (mirrorFailed)
+				{
+					SDL_Log("orkige_editor: mirror playtest FAILED - %s",
+						mirrorFailure.c_str());
+					exitCode = 2;
+					running = false;
+				}
+			}
+
 			// --- scripted safe-area DEVICE run (ORKIGE_EDITOR_SAFEAREA_CHECK) -
 			// plays a project on a booted iOS simulator and asserts, over the
 			// debug protocol, that the notch top inset is reported > 0 and every
@@ -9161,6 +9337,7 @@ int main(int argc, char** argv)
 		// ImGui teardown: destroying the context writes the ini; the facade
 		// 2D layer + font texture die with the renderer/engine afterwards
 		gImGuiRenderer = nullptr;
+		gPlaySession = nullptr;	// the stack session is about to go out of scope
 		ImGui::DestroyContext();
 		// the console dies with this scope - detach the log hooks first
 		// (the engine log capture detaches itself in its destructor). Clearing

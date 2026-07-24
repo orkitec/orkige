@@ -14,8 +14,10 @@
 #include "core_debugnet/DebugClient.h"
 #include "core_debugnet/DebugServer.h"
 
+#include <array>
 #include <chrono>
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <set>
 #include <utility>
@@ -129,6 +131,9 @@ namespace Orkige
 		static const unsigned long HIERARCHY_CHECK_INTERVAL;
 		//! minimum milliseconds between object_state messages (~15 Hz)
 		static const int OBJECT_STATE_INTERVAL_MS;
+		//! minimum milliseconds between full-scene transform messages (~15 Hz):
+		//! the whole-scene motion mirror rides the same cadence as object_state
+		static const int SCENE_TRANSFORM_INTERVAL_MS;
 		//! @brief reverse-connect retry cadence: the editor listens BEFORE
 		//! it opens the page, so the first dial normally lands - retries
 		//! only cover an editor briefly stalled in a synchronous UI moment
@@ -195,6 +200,14 @@ namespace Orkige
 		std::set<String>	mReportedScriptErrors;
 		//! default-constructed = clock epoch, so the first send never waits
 		std::chrono::steady_clock::time_point mLastStateSend;
+		//! whole-scene transform mirror bookkeeping: the last LOCAL transform
+		//! streamed per object id (10 floats: pos, orientation w/x/y/z, scale),
+		//! so only CHANGED objects ride each delta. mSceneTransformsFullResend
+		//! forces the next stream to carry EVERY object (a fresh client, a
+		//! mid-play scene switch); it is armed on connect and on scene reload.
+		std::map<String, std::array<float, 10>> mLastSentTransforms;
+		bool			mSceneTransformsFullResend = true;
+		std::chrono::steady_clock::time_point mLastTransformSend;
 		//! peak resident set size observed while streaming (bytes); 0 until the
 		//! first sample or on a platform without a memory query
 		std::size_t		mPeakResidentBytes = 0;
@@ -338,6 +351,11 @@ namespace Orkige
 			std::vector<std::pair<String, String>> const & fields);
 		void processMessages(GameObjectManager & gameObjectManager);
 		void streamObjectState(GameObjectManager & gameObjectManager);
+		//! @brief stream the whole scene's LOCAL transforms as MSG_SCENE_TRANSFORMS
+		//! (a delta - only objects whose transform changed since the last send;
+		//! a full set on the first send after connect / a scene switch), on the
+		//! ~15Hz cadence. Fire-and-forget; nothing goes out when nothing moved.
+		void streamSceneTransforms(GameObjectManager & gameObjectManager);
 		//! query the process resident set size, fold it into the session peak
 		//! and return the current value (0 when the platform cannot query it)
 		std::size_t sampleMemory();

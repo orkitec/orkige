@@ -26,6 +26,8 @@ add_library(orkige_editor_core STATIC
     MeshImport.cpp
     EditorScriptTools.h
     EditorScriptTools.cpp
+    PlayMirror.h
+    PlayMirror.cpp
     EditorLabelFormat.h
     EditorLabelFormat.cpp
     EditorEuler.h
