@@ -883,20 +883,33 @@ look when touching one:
   poses once, drives the matching render nodes and restores them EXACTLY on
   Stop/crash/mid-play-save; the edit document is never dirtied, runtime-
   spawned objects are the documented v1 skip; `editor_play_mirror` per flavor).
-- **Script editor + Lua debugger** (`Docs/script-debugging.md`, editor Script
-  panel + MCP): an embedded Lua code editor — the `ports/imgui-color-text-edit`
-  overlay port (goossens widget, commit-pinned like imgui; bump the two ports
-  as a COUPLED PAIR — it includes imgui_internal.h) with Lua highlight, tabs,
-  theme-mapped palette, error markers off the streamed script errors, Cmd/
-  Ctrl+S save riding the existing hot-reload watcher, and COMPLETION generated
-  from the ONE reflection/script-surface registry (TypeManager + PropertySchema
-  + `OSCRIPT_HANDLE` + live `ScriptRuntime::globalNames/globalMemberNames`
-  introspection — never a hand-kept list; pure `ScriptCompletion` in
-  editor_core). The DEBUGGER: gutter breakpoints (persisted per project in
+- **Script editor + Lua debugger** (`Docs/script-debugging.md`, editor + MCP):
+  an embedded code editor — the `ports/imgui-color-text-edit` overlay port
+  (goossens widget, commit-pinned like imgui; bump the two ports as a COUPLED
+  PAIR — it includes imgui_internal.h; two local patches: 2-glyph left margin,
+  quiet empty completion popup — upstream PRs prepared). ONE docked window per
+  open file (filename tab, dirty marker, Save/Revert controls, save/discard/
+  cancel ask on dirty close — the queue choreography is selfcheck-verified;
+  Close/Others/Right/All on document tabs, a shared Close on every panel tab
+  via `EditorTabMenu.h`, pure close-set in editor_core `EditorTabActions`).
+  Highlighting per kind (Lua/C/C++/JSON/Markdown + a custom XML def);
+  double-click-to-internal-editor is a user-editable extension set (View
+  Settings). LIVE PARSE DIAGNOSTICS through each format's own parser
+  (`ScriptRuntime::checkSyntax` compiles without running; tinyxml2 for the
+  XML kinds; pure `EditorTextDiagnostics` in editor_core): a red "!" in front
+  of the line number + red number underline + hover message, and a clickable
+  first-problem STATUS FOOTER strip under the dockspace. COMPLETION comes
+  from the ONE reflection/script-surface registry (TypeManager +
+  PropertySchema + `OSCRIPT_HANDLE` + live `ScriptRuntime::globalNames/
+  globalMemberNames` introspection — never a hand-kept list; pure
+  `ScriptCompletion` in editor_core). The ImGui/SDL3 bridge applies mouse-
+  cursor requests (I-beam/resize — `ImGuiSDL3Input::updateMouseCursor`).
+  The DEBUGGER: gutter breakpoints (persisted per project in
   `<project>/.orkige/breakpoints`, gitignored, `ScriptBreakpointStore` the one
   truth for gutter + session push + MCP), continue/step in/over/out (F5/F10/
-  F11/Shift+F11 + Cmd alternates), call-stack pane with frame-scoped locals/
-  upvalues (bounded table expansion). Runtime side is seam-clean behind
+  F11/Shift+F11 + Cmd alternates) living in the bottom-docked DEBUG panel
+  beside Console (icon transport; auto-opens on break) with the call-stack
+  pane and frame-scoped locals/upvalues (bounded table expansion). Runtime side is seam-clean behind
   `ScriptRuntime` (`setDebugBreakpoints`/`debugResume`/`debugVariables`/
   `debugDetach`; ALL lua_sethook/C-API inside the sol2 backend, pure decisions
   in `core_script/ScriptDebugCore.h`): the line hook installs ONLY while
