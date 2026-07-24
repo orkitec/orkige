@@ -364,7 +364,21 @@ the session serviced, and exposes the call stack + live locals. Break-hit is
 asynchronous: `get_debug_state` is the poll. Design + panel counterpart:
 [script-debugging.md](script-debugging.md).
 
+When you don't even know WHERE the scripts run — "where does code even run
+right now?" — `debug_break_next` is the orientation move: with a game already
+playing (no breakpoint needed), it pauses into the first script line executed
+next, landing on `get_debug_state` exactly like a breakpoint hit, so you can
+read the stack + locals and step from wherever that turns out to be.
+
 ```jsonc
+// 0. (orientation) no breakpoint, game already playing: pause into the next
+//    script line to see where code runs. Async like a hit - poll break_seq.
+debug_break_next {}                                         // authed
+//   → { "accepted":"1", "prev_break_seq":"0" }             // then poll:
+get_debug_state {}
+//   → { "paused_at_breakpoint":"1", "file":"scripts/player.lua", "line":"42",
+//       "break_seq":"1", "stack_sources":[...], ... }      // step/continue from here
+
 // 1. set the breakpoint BEFORE (or during) play - the set is per-project,
 //    persisted, and pushed to the player automatically on connect/change.
 set_breakpoint { "file":"scripts/player.lua", "line":42 }   // authed

@@ -1561,6 +1561,20 @@ namespace Orkige
 				  "Release the held break and pause once the current function "
 				  "returned. Async; poll get_debug_state.",
 				  {} },
+				{ "debug_break_next",
+				  "BREAK ON NEXT STATEMENT - the orientation move: pause into "
+				  "wherever the running scripts execute next, WITHOUT a known "
+				  "file/line (answering 'where does code even run right now?'). "
+				  "Arms a one-shot break on the first script line the player "
+				  "runs next; works while play_mode is 'playing' or 'paused' "
+				  "(a frame-paused arm persists until the sim resumes). Errors "
+				  "unless a live player is running and not already paused. The "
+				  "hit is asynchronous like a breakpoint - returns accepted + "
+				  "prev_break_seq; poll get_debug_state until break_seq exceeds "
+				  "prev_break_seq, then inspect with get_locals and drive "
+				  "debug_step_*/debug_continue. Refused for a browser play "
+				  "session and by scripting-disabled players.",
+				  {} },
 				{ "get_locals",
 				  "Variables at a frame of the held script break: pass 'frame' "
 				  "(0 = innermost, matching get_debug_state's stack) and "
@@ -4733,6 +4747,37 @@ namespace Orkige
 			ok.set("accepted", "1");
 			ok.set("prev_break_seq", std::to_string(play.debugBreakSeq));
 			sendDebugCommand(play, messageType);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "debug_break_next")
+		{
+			PlaySession& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			if (play.onBrowser)
+			{
+				this->sendErr(req, "break on next statement is not supported in "
+					"the browser player (the page's main thread cannot block at "
+					"a break)");
+				return;
+			}
+			if (play.debugBroken)
+			{
+				this->sendErr(req, "already paused at a script break - use "
+					"debug_step_*/debug_continue (break_next arms from a "
+					"running session)");
+				return;
+			}
+			// async like a breakpoint hit: arm now, poll get_debug_state until
+			// break_seq advances (a frame-paused arm waits for the sim to resume)
+			DebugMessage ok(MSG_OK);
+			ok.set("accepted", "1");
+			ok.set("prev_break_seq", std::to_string(play.debugBreakSeq));
+			sendDebugBreakNext(play);
 			this->sendOk(req, ok);
 			return;
 		}
@@ -8348,8 +8393,106 @@ namespace Orkige
 						"resume free running after clear + continue");
 					return;
 				}
+				// BREAK ON NEXT STATEMENT: with NO breakpoint set and the game
+				// free-running, arm debug_break_next and it must pause on the
+				// next script line (the ticker's update body) all the same
+				{
+					const std::string breakNextSeqBefore =
+						debug.get("break_seq").asString();
+					if (!callTool("debug_break_next", JsonValue::object(), true,
+							structured, isError) || isError ||
+						structured.get("accepted").asString() != "1")
+					{
+						finish(false, "control self-test: debug - "
+							"debug_break_next was not accepted");
+						return;
+					}
+					if (!pollDebug([&](JsonValue const& s)
+						{
+							return s.get("paused_at_breakpoint").asString() ==
+									"1" &&
+								s.get("break_seq").asString() !=
+									breakNextSeqBefore;
+						}, kPlayerPollAttempts, debug))
+					{
+						finish(false, "control self-test: debug - break_next "
+							"never paused (no breakpoint was set - the arm "
+							"should catch the next line)");
+						return;
+					}
+					// a real file/line + stack, exactly like a breakpoint hit
+					if (debug.get("file").asString().empty() ||
+						debug.get("line").asString() == "0" ||
+						debug.get("stack_sources").size() == 0)
+					{
+						finish(false, "control self-test: debug - break_next "
+							"paused without a real location/stack (file '" +
+							debug.get("file").asString() + "' line " +
+							debug.get("line").asString() + ")");
+						return;
+					}
+					// locals are readable at the break_next pause too
+					bool breakNextLocals = false;
+					for (int attempt = 0; attempt < kPlayerPollAttempts &&
+						!breakNextLocals; ++attempt)
+					{
+						JsonValue locals;
+						bool localsError = true;
+						JsonValue localsArgs = JsonValue::object();
+						localsArgs.set("frame", JsonValue(0.0));
+						if (!callTool("get_locals", localsArgs, true, locals,
+								localsError) || localsError)
+						{
+							finish(false, "control self-test: debug - "
+								"break_next get_locals failed");
+							return;
+						}
+						if (locals.get("pending").asString() != "1")
+						{
+							breakNextLocals = true;
+							break;
+						}
+						std::this_thread::sleep_for(
+							std::chrono::milliseconds(100));
+					}
+					if (!breakNextLocals)
+					{
+						finish(false, "control self-test: debug - break_next "
+							"get_locals never left pending");
+						return;
+					}
+					// arming while already broken is refused honestly
+					isError = false;
+					if (!callTool("debug_break_next", JsonValue::object(), true,
+							structured, isError) || !isError)
+					{
+						finish(false, "control self-test: debug - "
+							"debug_break_next did not error while already "
+							"paused");
+						return;
+					}
+					// release it: the game runs free again
+					if (!callTool("debug_continue", JsonValue::object(), true,
+							structured, isError) || isError)
+					{
+						finish(false, "control self-test: debug - the "
+							"break_next release (debug_continue) failed");
+						return;
+					}
+					if (!pollDebug([](JsonValue const& s)
+						{
+							return s.get("paused_at_breakpoint").asString() ==
+									"0" &&
+								s.get("play_mode").asString() == "playing";
+						}, kPlayerPollAttempts, debug))
+					{
+						finish(false, "control self-test: debug - the game did "
+							"not resume after the break_next release");
+						return;
+					}
+				}
 				SDL_Log("orkige_editor: control self-test - MCP script debug "
-					"loop OK (hit/locals/step/re-hit/clear/resume)");
+					"loop OK (hit/locals/step/re-hit/clear/resume/break_next)");
 				// stop + drop the temp project
 				if (!callTool("stop", JsonValue::object(), true, structured,
 						isError) || isError)
@@ -8425,7 +8568,7 @@ namespace Orkige
 			// each runtime mutation WITHOUT auth must be rejected
 			const char* mutations[] = { "runtime_select", "set_runtime_property",
 				"set_cvar", "reload_script", "screenshot_game", "record_trace",
-				"stop_recording", "debug_continue" };
+				"stop_recording", "debug_continue", "debug_break_next" };
 			for (const char* mutation : mutations)
 			{
 				isError = false;

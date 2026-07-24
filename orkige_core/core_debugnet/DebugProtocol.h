@@ -171,6 +171,19 @@ namespace Orkige
 		//! an error. Editor->player it is the request, player->editor the
 		//! reply.
 		extern ORKIGE_CORE_DLL const String MSG_DEBUG_LOCALS;
+		//! @brief BREAK ON NEXT STATEMENT: arm a ONE-SHOT break that fires on
+		//! the first script line the runtime executes next, wherever it runs -
+		//! the "pause into wherever the scripts are" move, with no known
+		//! file/line. Works while running (the next line catches) OR while
+		//! frame-paused (the arm persists; the first line after the sim resumes
+		//! catches). The pause is reported over the SAME MSG_DEBUG_BREAK path as
+		//! a breakpoint hit, so the editor's transport takes over unchanged.
+		//! Refused honestly (an error reply) where the runtime cannot block at a
+		//! break: the browser player and scripting-disabled builds. Ignored (a
+		//! quiet accept) while already broken. An additive protocol-extension
+		//! message riding the ONE debug protocol; old players answer "unknown
+		//! command".
+		extern ORKIGE_CORE_DLL const String MSG_DEBUG_BREAK_NEXT;
 		//! @brief ask the runtime to DESCRIBE runtime-spawned objects: LIST_IDS
 		//! names the GameObject ids the editor's scene mirror could not match
 		//! against its authored document (they exist only in the running game -

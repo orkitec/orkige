@@ -1644,6 +1644,13 @@ namespace Orkige
 				// paused-frame variable readback (locals / one expanded table)
 				handleDebugLocals(message);
 			}
+			else if (message.type == Protocol::MSG_DEBUG_BREAK_NEXT)
+			{
+				// break on next statement: arm a one-shot next-line break. When
+				// frame-paused the arm persists until scripts tick again (the
+				// hit rides the MSG_DEBUG_BREAK path once a line runs).
+				handleDebugBreakNext(message);
+			}
 			// --- protocol-extension slot -------------------------------------
 			// Additive editor->runtime messages ride THIS one debug protocol as
 			// new else-if branches (old players hit the unknown-else below and
@@ -1696,11 +1703,38 @@ namespace Orkige
 		// from the first successful set on, this link IS the break pump: while
 		// a break holds script execution the runtime calls serviceBreakPump()
 		// in a loop and the editor keeps its session
+		ensureDebugPumpInstalled(*runtime);
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::ensureDebugPumpInstalled(ScriptRuntime & runtime)
+	{
 		if (!mDebugPumpInstalled)
 		{
-			runtime->setDebugPumpHandler([this]() { serviceBreakPump(); });
+			runtime.setDebugPumpHandler([this]() { serviceBreakPump(); });
 			mDebugPumpInstalled = true;
 		}
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::handleDebugBreakNext(DebugMessage const & message)
+	{
+		(void)message;
+		ScriptRuntime * runtime = ScriptRuntime::getSingletonPtr();
+		if (runtime == NULL)
+		{
+			sendError("debug_break_next: no scripting runtime in this player");
+			return;
+		}
+		String error;
+		if (!runtime->debugBreakNext(&error))
+		{
+			// the honest refusal: the browser player cannot block its main
+			// thread at a break, and a no-scripting build has nothing to hook
+			sendError("debug_break_next: " + error);
+			return;
+		}
+		// the arm reports its hit over the SAME break pump the breakpoint path
+		// uses, so this link must be the pump even if no breakpoint was ever set
+		ensureDebugPumpInstalled(*runtime);
 	}
 	//---------------------------------------------------------
 	void PlayerDebugLink::handleDebugResume(DebugMessage const & message)

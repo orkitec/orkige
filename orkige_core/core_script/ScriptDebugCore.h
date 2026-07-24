@@ -192,6 +192,18 @@ namespace Orkige
 			std::multiset<int>				mLines;
 		};
 
+		//! @brief the step mode that arms a BREAK ON NEXT STATEMENT: a one-shot
+		//! pause on the very first script line executed next, wherever it runs
+		//! (the "pause into wherever the scripts are" move, no file/line known
+		//! up front). It is exactly ScriptStepMode::In evaluated from a fresh,
+		//! UNBROKEN state: In breaks at any call depth (@see stepShouldBreak),
+		//! so the next LINE event in ANY instance pauses. The base depth is
+		//! irrelevant (In ignores it) - callers arm it from depth 0.
+		inline ScriptStepMode breakNextStepMode()
+		{
+			return ScriptStepMode::In;
+		}
+
 		//! @brief the step-mode decision: should a line event at call depth
 		//! `currentDepth` pause execution, given the mode armed at depth
 		//! `baseDepth` (the depth where the previous pause released)?

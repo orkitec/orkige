@@ -196,6 +196,7 @@ The endpoint advertises 88 tools (the `toolSpecs` table in
 | `get_debug_state()` | THE poll for the asynchronous break-hit: `paused_at_breakpoint` (`1` while the player is held MID-STATEMENT at a script break — distinct from the frame-boundary `pause`), the paused `file`/`line`, `break_seq` (increments per break — a landing step raises a new one), `locals_seq`, and the call stack as parallel `stack_sources`/`stack_lines`/`stack_functions` (innermost first; host-call frames read `[host]`). Answers in every mode |
 | `debug_continue()` | **auth** — release the held break and run free until the next hit (`MSG_DEBUG_RESUME`); returns `accepted` + `prev_break_seq` — poll `get_debug_state` |
 | `debug_step_in()` / `debug_step_over()` / `debug_step_out()` | **auth** — release the held break and pause again at the next executed line / the next line at the same-or-shallower call depth / the first line after the current function returns (`MSG_DEBUG_STEP_*`); async like `debug_continue` — poll `get_debug_state` until `break_seq` advances |
+| `debug_break_next()` | **auth** — BREAK ON NEXT STATEMENT, the orientation move: pause into wherever the running scripts execute next, WITHOUT a known file/line (answering "where does code even run right now?"). Arms a one-shot break on the first script line the player runs next (`MSG_DEBUG_BREAK_NEXT`); works while `play_mode` is `playing` or `paused` (a frame-paused arm persists until the sim resumes). Errors unless a live player is running and NOT already paused; refused for a browser session and by scripting-disabled players. Async like `debug_continue` — returns `accepted` + `prev_break_seq`, poll `get_debug_state` until `break_seq` advances, then inspect with `get_locals` |
 | `get_locals(frame?, expand?)` | variables at a frame of the held break (`MSG_DEBUG_LOCALS`): `frame` indexes `get_debug_state`'s stack (0 = innermost); `expand` names a root variable plus a chain of table keys (`[3]` bracket form for non-string keys) to list ONE nested table — bounded, never a whole-state dump. ASYNC: a first call may answer `pending='1'` — call again (a frame or two of editor pumping). A ready reply carries parallel `names`/`scopes` (`local`/`upvalue`/`field`)/`types`/`values`/`expandable` |
 | `list_assets()` | `AssetDatabase::listAssets` + `Project::listScenes` |
 | `write_project_file(path, content)` | write a text file under the open project's root (jailed; LF endings; parent dirs created) |
@@ -605,7 +606,10 @@ mode is never ambiguous.
   (paused file/line + call stack), `get_locals` reads a paused frame's
   locals/upvalues (tables expand on explicit request, bounded), and
   `debug_continue` / `debug_step_in` / `debug_step_over` / `debug_step_out`
-  release the break. The worked loop is in `Docs/mcp-workflows.md`; the design
+  release the break. `debug_break_next` needs no breakpoint at all — it pauses
+  into wherever the scripts run next (the "where does code even run right now?"
+  orientation move), the async break-hit landing on `get_debug_state` just like
+  a breakpoint. The worked loop is in `Docs/mcp-workflows.md`; the design
   (hook lifecycle, pause semantics, the web/noscript refusals) in
   `Docs/script-debugging.md`. These are the SAME breakpoints the editor's
   Script panel shows — an agent and the human share one store.

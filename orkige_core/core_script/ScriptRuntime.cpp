@@ -1237,6 +1237,35 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
+	bool ScriptRuntime::debugBreakNext(String * outError)
+	{
+		oAssert(outError);
+#if defined(__EMSCRIPTEN__)
+		*outError = "break on next statement is not supported in the browser "
+			"player (the page's main thread cannot block at a break)";
+		return false;
+#elif defined(ORKIGE_LUA)
+		LuaDebugState & debug = luaDebug();
+		if (debug.broken)
+		{
+			// already paused: the held break IS the pause - nothing to arm
+			// (the editor disables the Break control while broken anyway)
+			return true;
+		}
+		// arm a one-shot next-line break from this UNBROKEN state: In breaks at
+		// the very next LINE event, any depth (@see ScriptDebugCore). The base
+		// depth is irrelevant to In; 0 keeps it honest. luaApplyHookInstallation
+		// installs the hook if it was not already carrying breakpoints/a step.
+		debug.stepMode = ScriptDebugCore::breakNextStepMode();
+		debug.stepBaseDepth = 0;
+		luaApplyHookInstallation(this->luaManager.state().lua_state());
+		return true;
+#else
+		*outError = ScriptRuntime::disabledError();
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
 	void ScriptRuntime::setDebugPumpHandler(std::function<void()> handler)
 	{
 #ifdef ORKIGE_LUA

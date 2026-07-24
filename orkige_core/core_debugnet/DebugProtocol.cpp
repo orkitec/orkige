@@ -40,6 +40,7 @@ namespace Orkige
 		const String MSG_DEBUG_STEP_OVER	= "debug_step_over";
 		const String MSG_DEBUG_STEP_OUT		= "debug_step_out";
 		const String MSG_DEBUG_LOCALS		= "debug_locals";
+		const String MSG_DEBUG_BREAK_NEXT	= "debug_break_next";
 
 		const String MSG_HELLO				= "hello";
 		const String MSG_HIERARCHY			= "hierarchy";

@@ -246,6 +246,7 @@ namespace Orkige
 			0xf03e, 0xf03e,		// image (texture)
 			0xf047, 0xf047,		// arrows-up-down-left-right (Translate tool)
 			0xf04b, 0xf04b,		// play (debug Continue)
+			0xf28b, 0xf28b,		// circle-pause (debug Break on Next Statement)
 			0xf061, 0xf063,		// arrow-right/up/down (debug Step Over/Out/In)
 			0xf07b, 0xf07c,		// folder / folder-open
 			0xf0b0, 0xf0b0,		// filter (the type-filter funnel button)

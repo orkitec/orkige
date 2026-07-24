@@ -149,14 +149,15 @@ struct PendingRefAction
 };
 
 //! resolve a parsed console reference to an absolute path (project-relative refs
-//! resolve against the open project root) and open it in the external editor
+//! resolve against the open project root) and open it in the EMBEDDED code
+//! editor at that line (the context menu keeps the external-editor route)
 void openConsoleRef(EditorState& state, Orkige::FileLineRef const& ref)
 {
 	const std::string absolute =
 		resolveProjectFilePath(state.project, ref.path);
 	if (gViewSettings)
 	{
-		openInExternalEditor(absolute, ref.line, *gViewSettings);
+		scriptPanelOpenFile(state, *gViewSettings, absolute, ref.line);
 	}
 }
 

@@ -540,6 +540,22 @@ namespace Orkige
 		bool setDebugBreakpoints(
 			std::vector<ScriptBreakpoint> const & breakpoints,
 			String * outError);
+		//! @brief BREAK ON NEXT STATEMENT: arm a ONE-SHOT break that pauses on
+		//! the first script line executed next, wherever it runs - the
+		//! "pause into wherever the scripts are" move, answering "where does
+		//! code even run right now?" without a known file/line. Installs the
+		//! line hook if absent (armed from an UNBROKEN state; @see
+		//! ScriptDebugCore::breakNextStepMode - it is a StepMode::In from
+		//! depth 0), so the next LINE event in ANY instance is a normal break
+		//! hit reported over the SAME break path. Zero cost once it fires (the
+		//! hook drops itself when no breakpoint/step remains) or is cancelled by
+		//! debugDetach. While frame-paused (a runtime that has stopped ticking
+		//! scripts) the arm simply PERSISTS until a script line runs again.
+		//! False with *outError set when scripting is disabled or the platform
+		//! cannot block for a break (the browser player) - the same refusals as
+		//! setDebugBreakpoints. A no-op-shaped true when already broken (the
+		//! held break IS the pause; nothing to arm).
+		bool debugBreakNext(String * outError);
 		//! @brief register the handler the runtime calls IN A LOOP while a
 		//! break holds execution: each call should service the debug transport
 		//! once (and pace itself - a short sleep); a resume/step command from

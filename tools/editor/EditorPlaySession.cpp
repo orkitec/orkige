@@ -1546,6 +1546,22 @@ void sendDebugCommand(PlaySession& session, Orkige::String const& messageType)
 	session.debugLocalsPending.clear();
 }
 
+void sendDebugBreakNext(PlaySession& session)
+{
+	// break-on-next arms from a RUNNING (or frame-paused) session, so - unlike
+	// sendDebugCommand - it must NOT require debugBroken. The browser player
+	// cannot block its main thread, so a dialed-in web session is skipped.
+	if (!session.client.isConnected() || session.debugBroken ||
+		session.onBrowser)
+	{
+		return;
+	}
+	session.client.send(
+		Orkige::DebugMessage(Protocol::MSG_DEBUG_BREAK_NEXT));
+	// the hit arrives asynchronously as MSG_DEBUG_BREAK (the same path a
+	// breakpoint uses), which flips debugBroken - nothing to do here
+}
+
 //! request variables at a frame of the held break (deduped while in flight)
 void requestDebugLocals(PlaySession& session, int frameIndex,
 	std::vector<std::string> const& expandPath)

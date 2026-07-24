@@ -1598,6 +1598,13 @@ void sendDebugBreakpoints(EditorState& state, PlaySession& session);
 //! step raises a fresh MSG_DEBUG_BREAK). A no-op unless broken and connected.
 void sendDebugCommand(PlaySession& session, Orkige::String const& messageType);
 
+//! @brief BREAK ON NEXT STATEMENT: ask the running player to pause on the first
+//! script line it executes next (MSG_DEBUG_BREAK_NEXT). Unlike sendDebugCommand
+//! this fires while the session is RUNNING or frame-paused (not broken) - the
+//! hit arrives asynchronously as MSG_DEBUG_BREAK, so nothing flips here. A no-op
+//! unless connected, and never for a browser session (it cannot block).
+void sendDebugBreakNext(PlaySession& session);
+
 //! @brief request variables at a frame of the held break (MSG_DEBUG_LOCALS;
 //! empty expandPath = the frame's locals/upvalues, else one nested table).
 //! The reply lands in session.debugLocalsCache under "<frame>|<joined path>".

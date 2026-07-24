@@ -29,6 +29,7 @@ namespace Orkige
 	class GameObjectManager;
 	class EngineLogCapture;
 	class TraceWriter;
+	class ScriptRuntime;	//core_script/ScriptRuntime.h - the debug seam the break pump installs onto
 
 	//! @brief THE player CLI contract, parsed: every runtime the editor's
 	//! play mode can launch (tools/player, a project's native module built
@@ -376,6 +377,17 @@ namespace Orkige
 		//! @brief release a held break: resume freely or arm a step, then
 		//! confirm with MSG_DEBUG_RESUMED; an un-paused runtime answers an error
 		void handleDebugResume(DebugMessage const & message);
+		//! @brief BREAK ON NEXT STATEMENT: arm a one-shot break on the first
+		//! script line the runtime executes next (installing this link as the
+		//! break pump on first use, like a breakpoint). Works while running and
+		//! while frame-paused (the arm persists until scripts tick again); the
+		//! hit rides the SAME MSG_DEBUG_BREAK path. Refusals (browser player,
+		//! scripting off) answer with an error.
+		void handleDebugBreakNext(DebugMessage const & message);
+		//! @brief make THIS link the runtime's break pump on first use (the
+		//! shared install both handleDebugBreakpoints and handleDebugBreakNext
+		//! need, so a break-next armed without any breakpoint still reports)
+		void ensureDebugPumpInstalled(ScriptRuntime & runtime);
 		//! @brief answer a MSG_DEBUG_LOCALS request from the held break's
 		//! frames (locals/upvalues, or one expanded table) - error outside one
 		void handleDebugLocals(DebugMessage const & message);

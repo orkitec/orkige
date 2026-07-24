@@ -102,6 +102,18 @@ TEST_CASE("ScriptDebugCore step machine decides per mode and depth",
 	CHECK(stepShouldBreak(ScriptStepMode::Out, 2, 1));
 }
 
+TEST_CASE("ScriptDebugCore break-next arms an unbroken In step",
+	"[script][debug]")
+{
+	// break-on-next-statement IS a StepMode::In evaluated from a fresh state:
+	// In breaks at the very next line, any depth, so the next line anywhere
+	// pauses (the base depth is irrelevant - callers arm from 0)
+	CHECK(Debug::breakNextStepMode() == ScriptStepMode::In);
+	CHECK(Debug::stepShouldBreak(Debug::breakNextStepMode(), 0, 0));
+	CHECK(Debug::stepShouldBreak(Debug::breakNextStepMode(), 0, 7));
+	CHECK(Debug::stepShouldBreak(Debug::breakNextStepMode(), 0, 1));
+}
+
 TEST_CASE("ScriptDebugCore parses and formats wire breakpoints",
 	"[script][debug]")
 {
@@ -425,6 +437,91 @@ TEST_CASE("ScriptRuntime step-over lands on the following line",
 	CHECK(lines[0] == 2);
 	CHECK(lines[1] == 3);
 	CHECK(lines[2] == 4);
+	env.scriptRuntime.setDebugPumpHandler(std::function<void()>());
+	env.scriptRuntime.debugDetach();
+	env.scriptRuntime.setScriptSearchRoot("");
+}
+
+TEST_CASE("ScriptRuntime break-next pauses on the next executed line",
+	"[script][debug]")
+{
+	CoreTestEnvironment & env = CoreTestEnvironment::get();
+	String error;
+	if (!ScriptRuntime::available())
+	{
+		// the OFF configuration: break-next refuses with the honest disabled
+		// error, exactly like setDebugBreakpoints
+		CHECK_FALSE(env.scriptRuntime.debugBreakNext(&error));
+		CHECK(error.find("scripting disabled") != String::npos);
+		return;
+	}
+	if (!ScriptRuntime::debugBreakSupported())
+	{
+		// scripting runs but a break cannot block (the browser player): the
+		// arm refuses with the platform-honest "not supported" error
+		CHECK_FALSE(env.scriptRuntime.debugBreakNext(&error));
+		CHECK(error.find("not supported") != String::npos);
+		CHECK_FALSE(env.scriptRuntime.isDebugBroken());
+		env.scriptRuntime.debugDetach();
+		return;
+	}
+
+	TempScriptDir dir("orkige_scriptdebug_breaknext_test");
+	dir.write("runner.lua",
+		"function update(self, dt)\n"	// 1
+		"\tlocal a = 1\n"				// 2  <- break-next should catch here
+		"\tlocal b = a + 1\n"			// 3
+		"end\n");
+	env.scriptRuntime.setScriptSearchRoot(dir.root.string());
+	optr<ScriptInstance> instance = env.scriptRuntime.loadScriptInstance(
+		"scripts/runner.lua", &error);
+	REQUIRE(instance);
+	REQUIRE(instance->callInit(&error));	// caches update; no break armed yet
+
+	static std::vector<int> hits;
+	hits.clear();
+	CoreTestEnvironment * environment = &env;
+	env.scriptRuntime.setDebugPumpHandler([environment]()
+	{
+		ScriptRuntime & runtime = environment->scriptRuntime;
+		REQUIRE(runtime.isDebugBroken());
+		hits.push_back(runtime.debugBreakLine());
+		runtime.debugResume(ScriptStepMode::None);	// one-shot: just release
+	});
+
+	// NO breakpoints set: arm break-next from a fully unbroken, running state
+	REQUIRE_FALSE(env.scriptRuntime.isDebugBroken());
+	REQUIRE(env.scriptRuntime.debugBreakNext(&error));
+	// the very next line executed (update's first statement) pauses
+	REQUIRE(instance->callUpdate(0.1f, &error));
+	REQUIRE(hits.size() == 1);
+	CHECK(hits[0] == 2);
+	CHECK(env.scriptRuntime.debugBreakFile() == "");	// running again
+	CHECK_FALSE(env.scriptRuntime.isDebugBroken());
+
+	// one-shot: with the arm consumed and no breakpoints, the next update runs
+	// free (the hook uninstalled itself)
+	hits.clear();
+	REQUIRE(instance->callUpdate(0.1f, &error));
+	CHECK(hits.empty());
+
+	// arming while already broken is a quiet accept (nothing new to catch): the
+	// held break is the pause
+	env.scriptRuntime.setDebugPumpHandler([environment]()
+	{
+		ScriptRuntime & runtime = environment->scriptRuntime;
+		hits.push_back(runtime.debugBreakLine());
+		// arm break-next from INSIDE the break: it must not wedge or re-arm
+		String innerError;
+		CHECK(runtime.debugBreakNext(&innerError));
+		runtime.debugResume(ScriptStepMode::None);
+	});
+	hits.clear();
+	REQUIRE(env.scriptRuntime.debugBreakNext(&error));
+	REQUIRE(instance->callUpdate(0.1f, &error));
+	REQUIRE(hits.size() == 1);
+	CHECK_FALSE(env.scriptRuntime.isDebugBroken());
+
 	env.scriptRuntime.setDebugPumpHandler(std::function<void()>());
 	env.scriptRuntime.debugDetach();
 	env.scriptRuntime.setScriptSearchRoot("");

@@ -26,6 +26,10 @@
 //   6. continue with the breakpoint still set re-hits on a later frame
 //   7. clearing the set + resume lets the game run free (stats keep
 //      streaming, no further breaks)
+//   7b/7c. BREAK ON NEXT STATEMENT (MSG_DEBUG_BREAK_NEXT): with NO breakpoint
+//      set, arming it while RUNNING pauses on the next executed line (real
+//      file/line + stack); arming it while FRAME-PAUSED persists (no break
+//      fires) and the first line after the sim resumes catches it
 //   8. a client that DISCONNECTS mid-break must not wedge the player: a
 //      fresh connection gets hello + streams, and no stale break holds
 //   9. quit shuts the player down with exit code 0
@@ -427,6 +431,70 @@ int main(int argc, char** argv)
 		}
 	}
 	log("cleared set runs free");
+
+	// 7b. BREAK ON NEXT STATEMENT while RUNNING: no breakpoint set - arm
+	// break-next and the very next script line the game runs must pause, with a
+	// real file/line + stack, exactly like a breakpoint hit
+	{
+		client.send(Orkige::DebugMessage(Protocol::MSG_DEBUG_BREAK_NEXT));
+		if (!waitForMessage(client, Protocol::MSG_DEBUG_BREAK, message, 15000))
+		{
+			return fail("break_next never paused while running");
+		}
+		if (message.get(Protocol::FIELD_PATH).empty() ||
+			message.get(Protocol::FIELD_LINE) == "0" ||
+			message.getList(Protocol::LIST_STACK_SOURCES).empty())
+		{
+			return fail("break_next paused without a real location/stack");
+		}
+		log("break_next (running) paused at " +
+			message.get(Protocol::FIELD_PATH) + ":" +
+			message.get(Protocol::FIELD_LINE));
+		client.send(Orkige::DebugMessage(Protocol::MSG_DEBUG_RESUME));
+		if (!waitForMessage(client, Protocol::MSG_DEBUG_RESUMED, message,
+			10000))
+		{
+			return fail("no debug_resumed after the running break_next");
+		}
+	}
+
+	// 7c. BREAK ON NEXT STATEMENT armed while FRAME-PAUSED: the arm PERSISTS (no
+	// script line runs while paused, so no break may fire yet); the first line
+	// after the sim resumes catches it
+	{
+		client.send(Orkige::DebugMessage(Protocol::MSG_PAUSE));
+		// let the pause take effect (the player consumes it within a frame),
+		// then drain anything buffered so the absence window below is clean
+		std::this_thread::sleep_for(std::chrono::milliseconds(300));
+		client.update();
+		{
+			Orkige::DebugMessage drain;
+			while (client.receive(drain)) {}
+		}
+		client.send(Orkige::DebugMessage(Protocol::MSG_DEBUG_BREAK_NEXT));
+		// paused: scripts do not tick, so NO break may arrive while the arm waits
+		if (!absentForWindow(client, Protocol::MSG_DEBUG_BREAK, 700))
+		{
+			return fail("break_next fired while frame-paused (scripts should "
+				"not tick under a frame pause)");
+		}
+		// resume the sim: the first script line now catches the armed break
+		client.send(Orkige::DebugMessage(Protocol::MSG_RESUME));
+		if (!waitForMessage(client, Protocol::MSG_DEBUG_BREAK, message, 15000))
+		{
+			return fail("break_next never paused after resuming from a frame "
+				"pause (the arm did not persist)");
+		}
+		log("break_next (armed while paused) caught the first line after "
+			"resume at " + message.get(Protocol::FIELD_PATH) + ":" +
+			message.get(Protocol::FIELD_LINE));
+		client.send(Orkige::DebugMessage(Protocol::MSG_DEBUG_RESUME));
+		if (!waitForMessage(client, Protocol::MSG_DEBUG_RESUMED, message,
+			10000))
+		{
+			return fail("no debug_resumed after the paused break_next");
+		}
+	}
 
 	// 8. disconnect-while-broken auto-resumes (never a wedged player): re-set
 	// the breakpoint, wait for the hit, then drop the socket abruptly

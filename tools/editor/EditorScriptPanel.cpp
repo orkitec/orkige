@@ -233,6 +233,16 @@ namespace
 		{
 			return TextEditor::Language::C();
 		}
+		// the engine's shader sources (the generated-shader library, the
+		// grade shaders) - engine-dev editing; game materials stay generated
+		if (ext == ".glsl" || ext == ".vert" || ext == ".frag")
+		{
+			return TextEditor::Language::Glsl();
+		}
+		if (ext == ".hlsl")
+		{
+			return TextEditor::Language::Hlsl();
+		}
 		if (ext == ".cpp" || ext == ".cc" || ext == ".cxx" || ext == ".h" ||
 			ext == ".hpp" || ext == ".hh" || ext == ".inl" || ext == ".mm")
 		{
@@ -909,11 +919,33 @@ namespace
 		return clicked;
 	}
 
-	//! the debug transport (Continue / Step Over / In / Out) - the keyboard
-	//! shortcuts stay global (handleScriptDebugShortcuts); disabled when idle
+	//! @brief can we arm a BREAK ON NEXT STATEMENT right now? A live desktop-ish
+	//! session that is running or frame-paused and NOT already broken (the
+	//! browser player cannot block its main thread, so a web session is out).
+	bool canBreakNext(PlaySession const& session)
+	{
+		return session.client.isConnected() && !session.debugBroken &&
+			!session.onBrowser &&
+			(session.mode == PlaySession::Mode::Playing ||
+				session.mode == PlaySession::Mode::Paused);
+	}
+
+	//! the debug transport (Break / Continue / Step Over / In / Out) - the
+	//! keyboard shortcuts stay global (handleScriptDebugShortcuts). Break arms
+	//! while running/paused; the rest drive a held break.
 	void drawDebugTransport(PlaySession& session)
 	{
 		namespace Protocol = Orkige::DebugProtocol;
+		// Break on Next Statement: the ONE control enabled while NOT broken -
+		// it pauses into wherever the scripts run next
+		ImGui::BeginDisabled(!canBreakNext(session));
+		if (transportButton(ICON_FA_CIRCLE_PAUSE,
+			"Break on Next Statement (Cmd/Ctrl+Alt+B)"))
+		{
+			sendDebugBreakNext(session);
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
 		ImGui::BeginDisabled(!session.debugBroken);
 		if (transportButton(ICON_FA_PLAY, "Continue (F5)"))
 		{
@@ -1142,12 +1174,20 @@ void handleScriptDebugShortcuts(EditorState& state, PlaySession& session)
 {
 	namespace Protocol = Orkige::DebugProtocol;
 	(void)state;
+	ImGuiIO& io = ImGui::GetIO();
+	const bool commandAlt = (io.KeySuper || io.KeyCtrl) && io.KeyAlt;
+	// Break on Next Statement (Cmd/Ctrl+Alt+B): the one debug shortcut that
+	// fires while the session is RUNNING (or frame-paused), not broken - it
+	// arms a one-shot pause into wherever the scripts execute next
+	if (canBreakNext(session) &&
+		commandAlt && ImGui::IsKeyPressed(ImGuiKey_B, false))
+	{
+		sendDebugBreakNext(session);
+	}
 	if (!session.debugBroken)
 	{
 		return;
 	}
-	ImGuiIO& io = ImGui::GetIO();
-	const bool commandAlt = (io.KeySuper || io.KeyCtrl) && io.KeyAlt;
 	// platform-conventional function keys, plus Cmd/Ctrl+Alt letter alternates
 	// for keyboards where the F-row is awkward (macOS defaults)
 	if (ImGui::IsKeyPressed(ImGuiKey_F5, false) ||

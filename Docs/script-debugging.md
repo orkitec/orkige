@@ -38,9 +38,18 @@ live locals; Continue/Step In/Step Over/Step Out walk the code like any debugger
   expand on demand, bounded) and its transport drives Continue (`F5`), Step
   Over (`F10`), Step In (`F11`), Step Out (`Shift+F11`) — plus
   `Cmd/Ctrl+Alt+C/O/I/U` alternates where the F-row is awkward.
+- **Break on Next Statement** (`Cmd/Ctrl+Alt+B`, the circle-pause glyph at the
+  left of the Debug transport): a one-shot break with NO breakpoint needed —
+  it pauses into the first script line the game runs next, wherever that is
+  (the "where does code even run right now?" move). The one transport control
+  enabled while the session is *running or frame-paused* rather than broken;
+  arming it while frame-paused persists the arm until the sim resumes and the
+  first line then catches. The hit is a normal break — stack, locals and the
+  step/continue transport take over unchanged.
 - **MCP parity**: `set_breakpoint` / `clear_breakpoint` /
   `list_breakpoints`, `get_debug_state` (the break-hit poll),
-  `debug_continue` / `debug_step_*`, `get_locals` — the worked agent loop is
+  `debug_continue` / `debug_step_*`, `debug_break_next` (break on next
+  statement — no breakpoint needed), `get_locals` — the worked agent loop is
   in [mcp-workflows.md](mcp-workflows.md).
 - **Honest refusals**: the browser player cannot block its main thread, so
   breakpoint sets refuse with one line there; `ORKIGE_SCRIPTING=OFF` builds
@@ -91,9 +100,13 @@ with two panes:
   rows. A table row expands on demand (each expansion is its own bounded
   request — the debugger never dumps whole object graphs).
 
-The transport (Continue / Step In / Over / Out, FontAwesome glyphs) sits at
-the top of the Debug panel; its keyboard shortcuts work editor-wide (they
-never type text, so they run even while the code editor has keyboard focus).
+The transport (Break on Next Statement / Continue / Step In / Over / Out,
+FontAwesome glyphs) sits at the top of the Debug panel; its keyboard shortcuts
+work editor-wide (they never type text, so they run even while the code editor
+has keyboard focus). Break on Next Statement (`Cmd/Ctrl+Alt+B`) is the one
+control enabled while the session is *running or frame-paused* rather than
+broken — it arms a one-shot next-line break so you can pause into wherever the
+scripts run without a breakpoint (see At a glance).
 
 ## The runtime design
 
@@ -125,6 +138,18 @@ break at its line.
 line wherever it is; Step Over pauses at the next line at the same or a
 shallower depth (calls run through); Step Out pauses once the current
 function returned.
+
+**Break on Next Statement** (`ScriptRuntime::debugBreakNext`,
+`MSG_DEBUG_BREAK_NEXT`) reuses the Step-In machinery from an UNBROKEN state:
+it arms a `ScriptStepMode::In` (which breaks on the next line at any depth —
+`ScriptDebugCore::breakNextStepMode`) and installs the hook if none was
+running, so the next line in ANY instance is a normal break hit reported over
+the same `MSG_DEBUG_BREAK` path. The arm carries no cost once it fires (the
+hook drops itself when no breakpoint/step remains) or when `debugDetach`
+cancels it. **Frame-pause interplay**: a frame-paused runtime is not ticking
+scripts, so an arm placed then simply persists — the first line executed once
+the sim resumes catches it (the pump is installed on the arm even when no
+breakpoint was ever set, so the hit still reports).
 
 **Pause semantics**: a break holds the player MID-FRAME, inside script
 execution — the toolbar's Pause/Resume is a different, frame-boundary state

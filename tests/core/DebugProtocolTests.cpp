@@ -192,10 +192,11 @@ TEST_CASE("DebugMessage round-trips every protocol message type", "[debugnet]")
 		CHECK(out.get(Protocol::FIELD_PATH) == "scripts/player.lua");
 		CHECK(out.get(Protocol::FIELD_LINE) == "12");
 		REQUIRE(out.getList(Protocol::LIST_STACK_SOURCES).size() == 2);
-		// the plain release commands
+		// the plain release commands + the break-on-next-statement arm
 		for (Orkige::String const & type : { Protocol::MSG_DEBUG_RESUME,
 			Protocol::MSG_DEBUG_STEP_IN, Protocol::MSG_DEBUG_STEP_OVER,
-			Protocol::MSG_DEBUG_STEP_OUT, Protocol::MSG_DEBUG_RESUMED })
+			Protocol::MSG_DEBUG_STEP_OUT, Protocol::MSG_DEBUG_RESUMED,
+			Protocol::MSG_DEBUG_BREAK_NEXT })
 		{
 			roundTrip(DebugMessage(type));
 		}
