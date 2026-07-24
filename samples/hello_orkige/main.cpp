@@ -5007,6 +5007,13 @@ int main(int, char**)
 		float musicPosStart = 0.0f;
 		float musicPosLast = 0.0f;
 		int musicWraps = 0;
+		// the playhead advances in WALL time (the mixer thread consumes in
+		// real time) while frames run at render speed - a fast headless run
+		// burns the whole frame window in milliseconds, so the verdict is
+		// condition-driven: pass as soon as advancement shows, fail only
+		// after the mixer demonstrably had seconds of wall time
+		bool musicJudged = false;
+		std::chrono::steady_clock::time_point musicSampleTime;
 		std::chrono::steady_clock::time_point lastFrameTime =
 			std::chrono::steady_clock::now();
 		while (running)
@@ -5697,8 +5704,9 @@ int main(int, char**)
 				Orkige::MusicStreamPtr track = soundManager.getMusic("bgm");
 				musicPosStart = track ? track->getPlayPosition() : 0.0f;
 				musicPosLast = musicPosStart;
+				musicSampleTime = std::chrono::steady_clock::now();
 			}
-			if (demoMusic && frameCount > 20 && frameCount < 110)
+			if (demoMusic && frameCount > 20 && !musicJudged)
 			{
 				// the playhead of a LOOPING track wraps at the duration
 				// (documented on getPlayPosition) - on a slow host the sample
@@ -5713,37 +5721,60 @@ int main(int, char**)
 				}
 				musicPosLast = pos;
 			}
-			if (demoMusic && frameCount == 110)
+			if (demoMusic && !musicJudged && frameCount >= 110)
 			{
 				Orkige::MusicStreamPtr track = soundManager.getMusic("bgm");
 				const float musicPosEnd =
 					track ? track->getPlayPosition() : 0.0f;
 				const bool playing = soundManager.isMusicPlaying("bgm");
-				SDL_Log("hello_orkige: music posStart=%.4f posEnd=%.4f "
-					"playing=%d audioUp=%d", musicPosStart, musicPosEnd,
-					static_cast<int>(playing), static_cast<int>(musicAudioUp));
 				if (musicAudioUp)
 				{
 					// device present: the track must be playing AND its playhead
 					// must have advanced (proves the queued-buffer ring
 					// refilled). A looping playhead WRAPS at the duration, and a
 					// slow host spans whole loops between the two samples - a
-					// counted wrap is advancement too.
-					if (!playing || !(musicWraps > 0 || musicPosEnd > musicPosStart))
+					// counted wrap is advancement too. The mixer consumes in
+					// WALL time: no advancement yet only means the thread has
+					// not run - keep sampling until it had real seconds, and
+					// only then call the ring dead.
+					const float wallSinceSample = std::chrono::duration<float>(
+						std::chrono::steady_clock::now() -
+						musicSampleTime).count();
+					const bool advanced =
+						musicWraps > 0 || musicPosEnd > musicPosStart;
+					if (playing && advanced)
 					{
+						musicJudged = true;
+						SDL_Log("hello_orkige: music posStart=%.4f posEnd=%.4f "
+							"playing=%d audioUp=%d", musicPosStart, musicPosEnd,
+							static_cast<int>(playing),
+							static_cast<int>(musicAudioUp));
+						SDL_Log("hello_orkige: music selfcheck passed (streamed "
+							"OGG playhead advanced across frames, %d loop "
+							"wrap(s))", musicWraps);
+					}
+					else if (wallSinceSample >= 3.0f)
+					{
+						SDL_Log("hello_orkige: music posStart=%.4f posEnd=%.4f "
+							"playing=%d audioUp=%d", musicPosStart, musicPosEnd,
+							static_cast<int>(playing),
+							static_cast<int>(musicAudioUp));
 						SDL_Log("hello_orkige: FAILED - music playhead did not "
-							"advance (ring did not refill; wraps=%d)",
-							musicWraps);
+							"advance in %.1fs (ring did not refill; wraps=%d)",
+							wallSinceSample, musicWraps);
 						return 1;
 					}
-					SDL_Log("hello_orkige: music selfcheck passed (streamed OGG "
-						"playhead advanced across frames, %d loop wrap(s))",
-						musicWraps);
 				}
 				else
 				{
 					// headless: the honest no-op path - nothing plays, nothing
-					// advances, and no query crashed to get here
+					// advances, and no query crashed to get here (no wall wait:
+					// non-advancement is the EXPECTED state, judged at once)
+					musicJudged = true;
+					SDL_Log("hello_orkige: music posStart=%.4f posEnd=%.4f "
+						"playing=%d audioUp=%d", musicPosStart, musicPosEnd,
+						static_cast<int>(playing),
+						static_cast<int>(musicAudioUp));
 					if (playing || musicPosEnd != 0.0f)
 					{
 						SDL_Log("hello_orkige: FAILED - music no-op path "
@@ -5754,7 +5785,10 @@ int main(int, char**)
 						"without an audio device)");
 				}
 			}
-			if (frameLimit != 0 && frameCount >= frameLimit)
+			// the music verdict is wall-clock-driven - the frame cap must not
+			// cut the run before it lands
+			if (frameLimit != 0 && frameCount >= frameLimit &&
+				(!demoMusic || musicJudged))
 			{
 				running = false;
 			}
