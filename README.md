@@ -78,14 +78,25 @@ game can be purely 2D, purely 3D, or mix both freely.
   macOS menu + file dialogs, and Help > Orkige Help opening the engine's
   **published documentation site** at
   [orkige.orkitec.com](https://orkige.orkitec.com). Ships as `Orkige.app`.
+- **Code editor & Lua debugger, built in** — every text asset opens in an
+  embedded code editor (a docked window per file, Lua/C/C++/JSON/XML
+  highlighting, completion generated from the engine's own reflected API, live
+  syntax checking with error badges as you type, save wired into hot-reload).
+  The **script debugger** is the real thing: click breakpoints into the gutter,
+  the game pauses mid-statement, step in/over/out, walk the call stack and
+  inspect locals in a docked Debug panel — and the whole loop is equally
+  drivable by an AI agent over MCP (see `Docs/script-debugging.md`).
 - **Play mode, out of process** — Play spawns the standalone player as a separate
   process over a TCP debug protocol: live remote hierarchy/inspector, pause/step/
-  stop, live property + cvar editing, script hot-reload. A crashing game can never
+  stop, live property + cvar editing, script + UI hot-reload, and the Scene view
+  **mirrors the running game's motion live**, restoring the authored scene
+  exactly on Stop. A crashing game can never
   take the editor down. The same protocol reaches **iOS simulators, Android
   devices and the browser** — press Play, pick a target, debug the game running
   there (a browser tab dials the same protocol back in over a WebSocket).
 - **AI-native** — the editor exposes a **Model Context Protocol (MCP)** server so
-  an AI agent can open projects, edit scenes, add/reparent objects, drive Play, and
+  an AI agent can open projects, edit scenes, add/reparent objects, drive Play,
+  set breakpoints and inspect a paused game's locals, and
   read back state and viewport screenshots (see `Docs/mcp.md`).
 - **Projects & mobile** — a game is a folder with a `project.orkproj` manifest,
   scenes, assets, scripts and optional project-config assets; the editor opens
