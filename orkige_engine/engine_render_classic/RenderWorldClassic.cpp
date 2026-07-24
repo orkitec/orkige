@@ -854,6 +854,26 @@ namespace Orkige
 		this->mImpl->sceneManager->destroyManualObject(lines);
 	}
 	//---------------------------------------------------------
+	void RenderWorld::destroyLineListMesh(String const & meshName)
+	{
+		// the .manual ManualObject is already gone (destroyed at create time),
+		// so the only registered resource is the mesh itself - drop it from the
+		// MeshManager. remove() is a no-op when the name is absent.
+		Ogre::MeshManager & meshManager = Ogre::MeshManager::getSingleton();
+		if(meshManager.resourceExists(meshName,
+			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+		{
+			meshManager.remove(meshName,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderWorld::lineListMeshExists(String const & meshName) const
+	{
+		return Ogre::MeshManager::getSingleton().resourceExists(meshName,
+			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+	}
+	//---------------------------------------------------------
 	void RenderWorld::setAmbientLight(Color const & colour)
 	{
 		// the flat ambient is the hemisphere term with both colours equal

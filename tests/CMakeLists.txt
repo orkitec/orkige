@@ -1029,6 +1029,18 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_CAMERA_SELFCHECK=${CMAKE_CURRENT_BINARY_DIR}/editor_camera.oscene;ORKIGE_DEMO_FRAMES=60"
         LABELS integration TIMEOUT 120)
 
+    # Scene view display-option overlays, BOTH flavors: the toolbar Display
+    # dropdown's toggles drive editor-only facade line meshes (colliders /
+    # bounding boxes / all-camera frames). The leg round-trips the view-option
+    # persistence, arms every toggle over a renderable-cube + rigid-body + camera
+    # fixture and asserts each overlay built its vertices (the uploaded-vertex
+    # seam, not pixels), then disarms and asserts they clear (editor_overlays).
+    add_test(NAME editor_overlays${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_overlays${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_OVERLAY_SELFCHECK=1;ORKIGE_DEMO_FRAMES=40"
+        LABELS integration TIMEOUT 120)
+
     # Game Preview panel + the Scene-panel selected-camera inset, BOTH flavors:
     # the composite renders the scene through its OWN CameraComponent at a notch
     # device preset with the procedural device frame + safe-area guides, the

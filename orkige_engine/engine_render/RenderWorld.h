@@ -142,6 +142,20 @@ namespace Orkige
 		//! map: classic=ManualObject OT_LINE_LIST -> convertToMesh | next=v1 ManualObject line list -> createByImportingV1 (the cube-service recipe) | filament=RenderableManager PRIMITIVE_TYPE LINES + unlit filamat
 		void createLineListMesh(String const & meshName,
 			Vec3 const * points, Color const * colours, size_t pointCount);
+		//! @brief destroy a line-list mesh resource created by createLineListMesh
+		//! (the honest sibling: a caller that regenerates helper geometry under a
+		//! fresh name every rebuild must drop the old mesh or leak GPU meshes).
+		//! @warning ONLY call with NO live MeshInstance still using the mesh -
+		//! destroy the instance first. A no-op when the name does not exist.
+		//! map: classic=MeshManager::remove (the .manual object was destroyed at
+		//! create time) | next=MeshManager::remove for the v2 mesh AND v1::Mesh-
+		//! Manager::remove for the "meshName/v1import" intermediate the import
+		//! recipe keeps alive | filament=destroy the VertexBuffer/IndexBuffer
+		void destroyLineListMesh(String const & meshName);
+		//! @brief does a line-list (or any) mesh resource of this name exist -
+		//! the create/destroy round-trip probe helper geometry callers assert on.
+		//! map: classic=MeshManager::resourceExists | next=MeshManager::getByName (the v2 mesh) | filament=facade registry lookup
+		bool lineListMeshExists(String const & meshName) const;
 
 		//--- global lighting ---
 		//! @brief the ambient light minimum every app sets today

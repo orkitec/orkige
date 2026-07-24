@@ -10,11 +10,15 @@
 #include <ImGuizmo.h>
 
 #include "EditorCameraGizmo.h"
+#include "EditorOverlayGeometry.h"
 #include "GamePreviewStage.h"
 
 #include <core_util/DevicePreset.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/CameraComponent.h>
+#include <engine_gocomponent/ModelComponent.h>
+#include <engine_gocomponent/RigidBodyComponent.h>
+#include <engine_render/MeshInstance.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderTexture.h>
 #include <engine_render/RenderWorld.h>
@@ -330,6 +334,330 @@ void updateCameraFrustumGizmo(Orkige::EditorCore& core, bool editMode,
 	gizmo.node->setOrientation(transform->getWorldOrientation());
 	gizmo.node->setVisible(true);
 	gizmo.objectId = core.getSelectedObjectId();
+}
+
+// The Scene panel's display-option overlays (Colliders, Bounding Boxes, all-
+// Camera Frames): each toggled from the toolbar Display dropdown, each a facade
+// line-mesh built EXACTLY like the reference grid and the frustum gizmo (shared
+// unlit "VertexColour" look, both flavors, editor-only visibility bit so the Game
+// Preview RTT never shows them). One COMBINED world-space mesh per category rides
+// a persistent identity root node; the pure builders (EditorOverlayGeometry.h /
+// EditorCameraGizmo.h) fill the vertices. Rebuilt only when a signature (toggle +
+// per-object pose/shape/aspect) changes - a plain view orbit never re-uploads.
+namespace Orkige
+{
+	namespace
+	{
+		//! one combined line-mesh overlay: a persistent root node, the current
+		//! mesh instance (RAII), the last-built signature and a unique mesh-name
+		//! counter (createLineListMesh is idempotent per name, so each rebuild
+		//! takes a fresh counter-suffixed name and drops the old instance).
+		struct OverlayMesh
+		{
+			optr<RenderNode>	node;
+			optr<MeshInstance>	instance;
+			std::string			signature;
+			std::string			meshName;		//!< the uploaded mesh ("" = none) - destroyed on rebuild
+			std::size_t			vertexCount = 0;
+			unsigned int		meshCounter = 0;
+		};
+		struct SceneOverlays
+		{
+			OverlayMesh	collider;
+			OverlayMesh	boundingBox;
+			OverlayMesh	cameraFrames;
+		};
+		SceneOverlays& sceneOverlays()
+		{
+			static SceneOverlays overlays;
+			return overlays;
+		}
+
+		//! append the world-space position of a body/camera-local point
+		Vec3 overlayLocalToWorld(Vec3 const& worldPosition,
+			Quat const& worldOrientation, Vec3 const& localPoint)
+		{
+			return worldPosition + worldOrientation * localPoint;
+		}
+
+		//! append a quantised float to a signature string (1e-3 granularity, so a
+		//! sub-milli jitter never churns the mesh)
+		void overlaySigNum(std::string& signature, float value)
+		{
+			signature += std::to_string(
+				static_cast<long long>(std::lround(value * 1000.0f)));
+			signature += ',';
+		}
+
+		//! (re)build one overlay mesh from freshly gathered geometry: skip the GPU
+		//! upload when the signature is unchanged, drop the instance + hide the node
+		//! when there is nothing to draw. Mirrors the frustum gizmo's rebuild path.
+		void applyOverlayMesh(OverlayMesh& mesh, RenderWorld* world,
+			char const* namePrefix, std::string const& signature,
+			std::vector<Vec3> const& points, std::vector<Color> const& colours)
+		{
+			if (!mesh.node)
+			{
+				mesh.node = world->createNode(
+					std::string(namePrefix) + "Node");
+			}
+			if (signature == mesh.signature && (mesh.instance || points.empty()))
+			{
+				mesh.node->setVisible(!points.empty());
+				return;
+			}
+			mesh.instance.reset();	// RAII detaches the previous mesh instance
+			// drop the previous mesh RESOURCE (create takes a fresh name every
+			// rebuild - without this every overlay rebuild leaks a GPU mesh, and
+			// a gizmo drag with an overlay armed rebuilds every frame)
+			if (!mesh.meshName.empty())
+			{
+				world->destroyLineListMesh(mesh.meshName);
+				mesh.meshName.clear();
+			}
+			if (!points.empty())
+			{
+				++mesh.meshCounter;
+				const std::string meshName = std::string(namePrefix) + "_" +
+					std::to_string(mesh.meshCounter) + ".mesh";
+				world->createLineListMesh(meshName, points.data(),
+					colours.data(), points.size());
+				mesh.instance = world->createMeshInstance(meshName);
+				if (mesh.instance)
+				{
+					mesh.instance->setCastShadows(false);
+					mesh.instance->setQueryFlags(0);	// never a picking hit
+					// editor-only: masked OUT of the Game Preview RTT (grid too)
+					mesh.instance->setVisibilityFlags(
+						OrkigeEditor::EDITOR_ONLY_VISIBILITY);
+					mesh.instance->attachTo(mesh.node);
+				}
+				mesh.meshName = meshName;
+			}
+			mesh.node->setVisible(!points.empty());
+			mesh.signature = signature;
+			mesh.vertexCount = points.size();
+		}
+	}
+	//---------------------------------------------------------
+	std::size_t editorSceneColliderOverlayVertexCount()
+	{
+		return sceneOverlays().collider.vertexCount;
+	}
+	//---------------------------------------------------------
+	String const& editorSceneColliderOverlayMeshName()
+	{
+		static String value;
+		value = sceneOverlays().collider.meshName;
+		return value;
+	}
+	//---------------------------------------------------------
+	std::size_t editorSceneBoundingBoxOverlayVertexCount()
+	{
+		return sceneOverlays().boundingBox.vertexCount;
+	}
+	//---------------------------------------------------------
+	std::size_t editorSceneCameraFramesOverlayVertexCount()
+	{
+		return sceneOverlays().cameraFrames.vertexCount;
+	}
+	//---------------------------------------------------------
+	void editorSceneOverlaysRelease()
+	{
+		SceneOverlays& overlays = sceneOverlays();
+		RenderWorld* world = RenderSystem::get() ?
+			RenderSystem::get()->getWorld() : nullptr;
+		OverlayMesh* meshes[] = { &overlays.collider, &overlays.boundingBox,
+			&overlays.cameraFrames };
+		for (OverlayMesh* mesh : meshes)
+		{
+			// instance first, then the mesh resource (no live Item left on it),
+			// then the node - all before the backend goes (process-lifetime state)
+			mesh->instance.reset();
+			if (world && !mesh->meshName.empty())
+			{
+				world->destroyLineListMesh(mesh->meshName);
+			}
+			mesh->meshName.clear();
+			mesh->node.reset();
+			mesh->signature.clear();
+			mesh->vertexCount = 0;
+		}
+	}
+}
+
+// drive the display-option overlays for the current scene. All three hide (empty
+// mesh) while playing (editMode false); otherwise each armed toggle gathers its
+// world-space geometry and (re)builds its combined mesh. panelAspect is the Scene
+// viewport aspect the frustums derive their width from; deviceAspect is the Game
+// Preview preset aspect (<= 0 = panel-sized/no preset -> no design-aspect rect).
+void updateSceneOverlays(Orkige::EditorCore& core, bool editMode,
+	float panelAspect, float deviceAspect)
+{
+	using namespace Orkige;
+	SceneOverlays& overlays = sceneOverlays();
+	ViewSettings const* view = gViewSettings;
+	RenderWorld* world = RenderSystem::get()->getWorld();
+	const bool anyOn = view != nullptr && editMode &&
+		(view->showColliders || view->showBoundingBoxes ||
+			view->showAllCameraFrames);
+	if (!world || !anyOn)
+	{
+		// hide every overlay with an empty rebuild (keeps the seams truthful)
+		const std::vector<Vec3> noPoints;
+		const std::vector<Color> noColours;
+		if (world)
+		{
+			applyOverlayMesh(overlays.collider, world, "EditorColliderOverlay",
+				"off", noPoints, noColours);
+			applyOverlayMesh(overlays.boundingBox, world,
+				"EditorBoundingBoxOverlay", "off", noPoints, noColours);
+			applyOverlayMesh(overlays.cameraFrames, world,
+				"EditorCameraFramesOverlay", "off", noPoints, noColours);
+		}
+		else
+		{
+			overlays.collider.vertexCount = 0;
+			overlays.boundingBox.vertexCount = 0;
+			overlays.cameraFrames.vertexCount = 0;
+		}
+		return;
+	}
+
+	const float quantPanel = std::round(panelAspect * 100.0f) / 100.0f;
+	const float quantDevice = std::round(deviceAspect * 100.0f) / 100.0f;
+	GameObjectManager& manager = core.getGameObjectManager();
+
+	std::vector<Vec3> colliderPts, boxPts, framePts;
+	std::vector<Color> colliderCols, boxCols, frameCols;
+	std::string colliderSig = "on|", boxSig = "on|", frameSig = "on|";
+	overlaySigNum(frameSig, quantPanel);
+	overlaySigNum(frameSig, quantDevice);
+
+	for (auto const& entry : manager.getGameObjects())
+	{
+		optr<GameObject> const& gameObject = entry.second;
+		if (!gameObject ||
+			!gameObject->hasComponent<TransformComponent>())
+		{
+			continue;
+		}
+		TransformComponent* transform =
+			gameObject->getComponentPtr<TransformComponent>();
+		const Vec3 worldPos = transform->getWorldPosition();
+		const Quat worldOrient = transform->getWorldOrientation();
+
+		// (1) colliders: the RigidBodyComponent shape at the body world pose
+		if (view->showColliders &&
+			gameObject->hasComponent<RigidBodyComponent>())
+		{
+			PhysicsWorld::BodyDesc const& desc =
+				gameObject->getComponentPtr<RigidBodyComponent>()->getBodyDesc();
+			appendColliderOutline(static_cast<int>(desc.shapeType), worldPos,
+				worldOrient, desc.halfExtents, desc.radius, desc.halfHeight,
+				editorColliderCircleSegments(), editorColliderColour(),
+				colliderPts, colliderCols);
+			colliderSig += entry.first;
+			colliderSig += '#';
+			colliderSig += std::to_string(static_cast<int>(desc.shapeType));
+			overlaySigNum(colliderSig, worldPos.x);
+			overlaySigNum(colliderSig, worldPos.y);
+			overlaySigNum(colliderSig, worldPos.z);
+			overlaySigNum(colliderSig, worldOrient.x);
+			overlaySigNum(colliderSig, worldOrient.y);
+			overlaySigNum(colliderSig, worldOrient.z);
+			overlaySigNum(colliderSig, worldOrient.w);
+			overlaySigNum(colliderSig, desc.halfExtents.x);
+			overlaySigNum(colliderSig, desc.halfExtents.y);
+			overlaySigNum(colliderSig, desc.halfExtents.z);
+			overlaySigNum(colliderSig, desc.radius);
+			overlaySigNum(colliderSig, desc.halfHeight);
+		}
+
+		// (2) bounding boxes: the renderable's world AABB (facade node bounds)
+		if (view->showBoundingBoxes &&
+			gameObject->hasComponent<ModelComponent>())
+		{
+			optr<RenderNode> const& node =
+				gameObject->getComponentPtr<ModelComponent>()->getNode();
+			if (node)
+			{
+				const AABB bounds = node->getWorldBounds();
+				if (!bounds.isNull() && !bounds.isInfinite())
+				{
+					const Vec3 minCorner = bounds.getMinimum();
+					const Vec3 maxCorner = bounds.getMaximum();
+					appendOverlayAabb(minCorner, maxCorner,
+						editorBoundingBoxColour(), boxPts, boxCols);
+					boxSig += entry.first;
+					overlaySigNum(boxSig, minCorner.x);
+					overlaySigNum(boxSig, minCorner.y);
+					overlaySigNum(boxSig, minCorner.z);
+					overlaySigNum(boxSig, maxCorner.x);
+					overlaySigNum(boxSig, maxCorner.y);
+					overlaySigNum(boxSig, maxCorner.z);
+				}
+			}
+		}
+
+		// (3) all-camera frames: every camera's frustum (panel aspect) + the
+		// design-aspect rect (device aspect) when a Game Preview preset is active
+		if (view->showAllCameraFrames &&
+			gameObject->hasComponent<CameraComponent>())
+		{
+			CameraComponent* camera =
+				gameObject->getComponentPtr<CameraComponent>();
+			CameraFrustumParams params;
+			params.projectionMode =
+				static_cast<int>(camera->getProjectionMode());
+			params.orthoSize = camera->getOrthoSize();
+			params.fitMode = static_cast<int>(camera->getFitMode());
+			params.designWidth = camera->getDesignWidth();
+			params.designHeight = camera->getDesignHeight();
+
+			std::vector<Vec3> localPts;
+			std::vector<Color> localCols;
+			buildCameraFrustumLines(params, quantPanel, localPts, localCols);
+			for (std::size_t i = 0; i < localPts.size(); ++i)
+			{
+				framePts.push_back(overlayLocalToWorld(worldPos, worldOrient,
+					localPts[i]));
+				frameCols.push_back(localCols[i]);
+			}
+			if (quantDevice > 1.0e-4f)
+			{
+				buildCameraAspectFrame(params, quantDevice, localPts, localCols);
+				for (std::size_t i = 0; i < localPts.size(); ++i)
+				{
+					framePts.push_back(overlayLocalToWorld(worldPos,
+						worldOrient, localPts[i]));
+					frameCols.push_back(localCols[i]);
+				}
+			}
+			frameSig += entry.first;
+			frameSig += '#';
+			frameSig += std::to_string(params.projectionMode);
+			overlaySigNum(frameSig, params.orthoSize);
+			frameSig += std::to_string(params.fitMode);
+			overlaySigNum(frameSig, params.designWidth);
+			overlaySigNum(frameSig, params.designHeight);
+			overlaySigNum(frameSig, worldPos.x);
+			overlaySigNum(frameSig, worldPos.y);
+			overlaySigNum(frameSig, worldPos.z);
+			overlaySigNum(frameSig, worldOrient.x);
+			overlaySigNum(frameSig, worldOrient.y);
+			overlaySigNum(frameSig, worldOrient.z);
+			overlaySigNum(frameSig, worldOrient.w);
+		}
+	}
+
+	// off toggles keep an empty (hidden) mesh so their seams read 0
+	applyOverlayMesh(overlays.collider, world, "EditorColliderOverlay",
+		view->showColliders ? colliderSig : "off", colliderPts, colliderCols);
+	applyOverlayMesh(overlays.boundingBox, world, "EditorBoundingBoxOverlay",
+		view->showBoundingBoxes ? boxSig : "off", boxPts, boxCols);
+	applyOverlayMesh(overlays.cameraFrames, world, "EditorCameraFramesOverlay",
+		view->showAllCameraFrames ? frameSig : "off", framePts, frameCols);
 }
 
 // F: frame the selected object - retarget the orbit to the object's world
@@ -887,8 +1215,62 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 			}
 			// the frustum gizmo for a selected camera object (facade line mesh;
 			// hidden when nothing camera-shaped is selected / during play)
-			updateCameraFrustumGizmo(core, editMode,
-				avail.y > 0.0f ? avail.x / avail.y : 1.0f);
+			const float panelAspect =
+				avail.y > 0.0f ? avail.x / avail.y : 1.0f;
+			updateCameraFrustumGizmo(core, editMode, panelAspect);
+			// the Scene display-option overlays (Colliders / Bounding Boxes /
+			// all-Camera Frames from the toolbar Display dropdown). The design-
+			// aspect rect follows the Game Preview panel's device preset.
+			float deviceAspect = 0.0f;
+			if (viewSettings.showGamePreviewPanel)
+			{
+				Orkige::DevicePreset::Preset const& preset =
+					Orkige::DevicePreset::forKind(
+						static_cast<Orkige::DevicePreset::Kind>(
+							viewSettings.gamePreviewPreset));
+				if (preset.width > 0 && preset.height > 0)
+				{
+					deviceAspect = static_cast<float>(preset.width) /
+						static_cast<float>(preset.height);
+				}
+			}
+			updateSceneOverlays(core, editMode, panelAspect, deviceAspect);
+			// Display dropdown: a compact overlay button in the viewport's top-
+			// left corner (its own Scene-panel toolbar) that houses the per-view
+			// display toggles, matching the main toolbar's snap-popover style.
+			// Persisted in orkige_editor_view.ini like the other view flags.
+			bool displayMenuOwnsMouse = false;
+			{
+				const float menuInset = 8.0f * contentScale;
+				ImGui::SetCursorScreenPos(ImVec2(rectMin.x + menuInset,
+					rectMin.y + menuInset));
+				ImGui::PushID("##SceneDisplayMenu");
+				if (ImGui::Button("Display"))
+				{
+					ImGui::OpenPopup("##SceneDisplayOptions");
+				}
+				ImGui::SetItemTooltip("Scene view display options");
+				displayMenuOwnsMouse = ImGui::IsItemHovered();
+				if (ImGui::BeginPopup("##SceneDisplayOptions"))
+				{
+					displayMenuOwnsMouse = true;
+					ImGui::TextDisabled("Display");
+					bool changed = false;
+					changed |= ImGui::Checkbox("Grid", &viewSettings.showGrid);
+					changed |= ImGui::Checkbox("Colliders",
+						&viewSettings.showColliders);
+					changed |= ImGui::Checkbox("Bounding Boxes",
+						&viewSettings.showBoundingBoxes);
+					changed |= ImGui::Checkbox("Camera Frames",
+						&viewSettings.showAllCameraFrames);
+					if (changed)
+					{
+						viewSettings.save();
+					}
+					ImGui::EndPopup();
+				}
+				ImGui::PopID();
+			}
 			// selected-camera picture-in-picture inset: when the selection
 			// carries a CameraComponent, show ITS view live in a bottom-right
 			// corner box while the author moves/rotates it. The same preview
@@ -909,8 +1291,6 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				{
 					float insetX = 0.0f, insetY = 0.0f;
 					float insetW = 0.0f, insetH = 0.0f;
-					const float panelAspect =
-						avail.y > 0.0f ? avail.x / avail.y : 1.0f;
 					Orkige::DevicePreset::insetRect(avail.x, avail.y,
 						panelAspect, 0.25f, 10.0f * contentScale,
 						insetX, insetY, insetW, insetH);
@@ -1016,7 +1396,7 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 			// pick path stands down); pan + scroll-zoom keep working
 			bool paintOwnsMouse = false;
 			if (state.scenePanelHovered && !gizmoOwnsMouse &&
-				!viewGizmoOwnsMouse)
+				!viewGizmoOwnsMouse && !displayMenuOwnsMouse)
 			{
 				paintOwnsMouse = handleScenePaintInput(state, core,
 					sceneTarget.camera, rectMin, avail, editMode, viewSettings);
@@ -1032,7 +1412,7 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
 			}
 			if (state.scenePanelHovered && !gizmoOwnsMouse &&
-				!viewGizmoOwnsMouse)
+				!viewGizmoOwnsMouse && !displayMenuOwnsMouse)
 			{
 				// Alt+left starts an orbit drag, a plain left click picks
 				if (!paintOwnsMouse && !handMode &&

@@ -162,3 +162,58 @@ TEST_CASE("orthographic FM_WIDTH derives the half-height via CameraFit",
 		aspect);
 	REQUIRE(maxAbsX(points) == Catch::Approx(expectedHalfHeight * aspect));
 }
+
+TEST_CASE("design-aspect frame is a rectangle sized by the DEVICE aspect",
+	"[editor][camera][gizmo]")
+{
+	std::vector<Orkige::Vec3> points;
+	std::vector<Orkige::Color> colours;
+
+	Orkige::CameraFrustumParams ortho;
+	ortho.projectionMode = 1;			// PM_ORTHOGRAPHIC, FM_HEIGHT
+	ortho.fitMode = 0;
+	ortho.orthoSize = 4.0f;
+	const float deviceAspect = 9.0f / 16.0f;	// a tall phone
+	Orkige::buildCameraAspectFrame(ortho, deviceAspect, points, colours);
+
+	// a single rectangle: 4 segments, 8 vertices
+	REQUIRE(points.size() == 8);
+	REQUIRE(colours.size() == 8);
+	REQUIRE(points.size() == static_cast<std::size_t>(
+		2 * Orkige::editorCameraAspectFrameSegmentCount()));
+	// FM_HEIGHT: half-height is the orthoSize, half-width follows the device
+	// aspect (NOT the panel aspect the frustum uses)
+	REQUIRE(maxAbsYAtDepth(points, Orkige::editorCameraFrustumFar()) ==
+		Catch::Approx(ortho.orthoSize));
+	REQUIRE(maxAbsXAtDepth(points, Orkige::editorCameraFrustumFar()) ==
+		Catch::Approx(ortho.orthoSize * deviceAspect));
+	// every vertex carries the amber design-aspect colour
+	const Orkige::Color expected = Orkige::editorCameraAspectFrameColour();
+	for (auto const& c : colours)
+	{
+		REQUIRE(c.r == expected.r);
+		REQUIRE(c.g == expected.g);
+		REQUIRE(c.b == expected.b);
+	}
+}
+
+TEST_CASE("perspective design-aspect frame keeps the device aspect ratio",
+	"[editor][camera][gizmo]")
+{
+	std::vector<Orkige::Vec3> points;
+	std::vector<Orkige::Color> colours;
+	Orkige::CameraFrustumParams perspective;	// PM_PERSPECTIVE
+	const float deviceAspect = 2.0f;
+	Orkige::buildCameraAspectFrame(perspective, deviceAspect, points, colours);
+
+	const float farZ = Orkige::editorCameraFrustumFar();
+	const float halfW = maxAbsXAtDepth(points, farZ);
+	const float halfH = maxAbsYAtDepth(points, farZ);
+	REQUIRE(halfH > 0.0f);
+	REQUIRE(halfW == Catch::Approx(halfH * deviceAspect));
+	// the frame sits at the far plane (looking down -Z)
+	for (auto const& p : points)
+	{
+		REQUIRE(p.z == Catch::Approx(-farZ));
+	}
+}

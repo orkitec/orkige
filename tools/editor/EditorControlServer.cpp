@@ -1234,6 +1234,21 @@ namespace Orkige
 				    { "component", "string", "component type name", true } } },
 				{ "list_addable_components",
 				  "Component type names that can be added to a GameObject.", {} },
+				{ "get_view_options",
+				  "Read the Scene view display options (the toolbar Display "
+				  "dropdown): 'show_grid', 'show_colliders', 'show_bounding_boxes', "
+				  "'show_all_camera_frames', 'show_view_gizmo' and 'mode_2d', each "
+				  "'1'/'0'. Pair with screenshot_editor to verify an overlay "
+				  "visually.", {} },
+				{ "set_view_option",
+				  "Set one Scene view display option (persisted like the toolbar "
+				  "dropdown). 'option' is one of grid/colliders/bounding_boxes/"
+				  "camera_frames/view_gizmo/mode_2d; 'value' is '1' or '0'. Takes "
+				  "effect on the next editor frame.",
+				  { { "option", "string",
+				      "grid | colliders | bounding_boxes | camera_frames | "
+				      "view_gizmo | mode_2d", true },
+				    { "value", "string", "'1' on, '0' off", true } } },
 				{ "undo", "Undo the last command.", {} },
 				{ "redo", "Redo the last undone command.", {} },
 				{ "begin_transaction",
@@ -3302,6 +3317,70 @@ namespace Orkige
 			DebugMessage ok(MSG_OK);
 			ok.setList(DebugProtocol::LIST_COMPONENTS,
 				core.getAddableComponentTypes());
+			this->sendOk(req, ok);
+			return;
+		}
+
+		//--- Scene view display options (the toolbar Display dropdown) --------
+		if (type == "get_view_options")
+		{
+			DebugMessage ok(MSG_OK);
+			if (gViewSettings != nullptr)
+			{
+				ok.set("show_grid", gViewSettings->showGrid ? "1" : "0");
+				ok.set("show_colliders",
+					gViewSettings->showColliders ? "1" : "0");
+				ok.set("show_bounding_boxes",
+					gViewSettings->showBoundingBoxes ? "1" : "0");
+				ok.set("show_all_camera_frames",
+					gViewSettings->showAllCameraFrames ? "1" : "0");
+				ok.set("show_view_gizmo",
+					gViewSettings->showViewGizmo ? "1" : "0");
+				ok.set("mode_2d", gViewSettings->editor2D ? "1" : "0");
+			}
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "set_view_option")
+		{
+			if (gViewSettings == nullptr)
+			{
+				this->sendErr(req, "view options are unavailable in this run");
+				return;
+			}
+			const String option = request.get("option");
+			const bool value = request.get("value") == "1";
+			bool* target = nullptr;
+			if (option == "grid") { target = &gViewSettings->showGrid; }
+			else if (option == "colliders")
+			{
+				target = &gViewSettings->showColliders;
+			}
+			else if (option == "bounding_boxes")
+			{
+				target = &gViewSettings->showBoundingBoxes;
+			}
+			else if (option == "camera_frames")
+			{
+				target = &gViewSettings->showAllCameraFrames;
+			}
+			else if (option == "view_gizmo")
+			{
+				target = &gViewSettings->showViewGizmo;
+			}
+			else if (option == "mode_2d") { target = &gViewSettings->editor2D; }
+			if (target == nullptr)
+			{
+				this->sendErr(req, "unknown view option '" + option + "' (use "
+					"grid/colliders/bounding_boxes/camera_frames/view_gizmo/"
+					"mode_2d)");
+				return;
+			}
+			*target = value;
+			gViewSettings->save();
+			DebugMessage ok(MSG_OK);
+			ok.set("option", option);
+			ok.set("value", value ? "1" : "0");
 			this->sendOk(req, ok);
 			return;
 		}
@@ -7141,6 +7220,65 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - get_lua_api OK "
 				"(%zu byte inventory)", inventory.size());
+		}
+
+		// (8b) view options: read the defaults, flip the collider overlay on
+		// (mutation, auth required), read it back, then restore it - the Scene
+		// display-dropdown surface an agent toggles before screenshot_editor.
+		{
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("get_view_options", JsonValue::object(), true,
+					structured, isError) || isError)
+			{
+				finish(false, "control self-test: get_view_options call failed");
+				return;
+			}
+			if (structured.get("show_colliders").asString() != "0")
+			{
+				finish(false, "control self-test: colliders overlay should "
+					"default off");
+				return;
+			}
+			JsonValue setArgs = JsonValue::object();
+			setArgs.set("option", JsonValue("colliders"));
+			setArgs.set("value", JsonValue("1"));
+			if (!callTool("set_view_option", setArgs, true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: set_view_option colliders "
+					"failed");
+				return;
+			}
+			if (!callTool("get_view_options", JsonValue::object(), true,
+					structured, isError) || isError ||
+				structured.get("show_colliders").asString() != "1")
+			{
+				finish(false, "control self-test: the colliders overlay did not "
+					"read back on");
+				return;
+			}
+			// an unknown option is refused (isError), the value untouched
+			JsonValue badArgs = JsonValue::object();
+			badArgs.set("option", JsonValue("not_a_view_option"));
+			badArgs.set("value", JsonValue("1"));
+			if (!callTool("set_view_option", badArgs, true, structured,
+					isError) || !isError)
+			{
+				finish(false, "control self-test: an unknown view option should "
+					"be refused");
+				return;
+			}
+			// restore the default so the run leaves no view state behind
+			setArgs.set("value", JsonValue("0"));
+			if (!callTool("set_view_option", setArgs, true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: restoring the colliders "
+					"overlay failed");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - view options OK");
 		}
 
 		// --- the BROWSER PLAY conversation (a separate ctest): pick the

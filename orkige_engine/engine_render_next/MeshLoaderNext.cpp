@@ -905,4 +905,33 @@ namespace Orkige
 			v2Mesh->getSubMesh(0)->setMaterialName("VertexColour");
 		}
 	}
+	//---------------------------------------------------------
+	void RenderBackend::destroyVertexColourLineListMesh(String const & meshName)
+	{
+		// createVertexColourLineListMesh leaves TWO resources: the v2 mesh under
+		// meshName (Ogre::MeshManager) and the v1 intermediate under
+		// meshName + "/v1import" (Ogre::v1::MeshManager, kept alive as the
+		// device-lost reload source). Drop BOTH or every regenerated name leaks a
+		// mesh pair. remove() is a no-op when the name is absent.
+		Ogre::MeshManager & meshManager = Ogre::MeshManager::getSingleton();
+		if(meshManager.getByName(meshName,
+			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+		{
+			meshManager.remove(meshName);
+		}
+		Ogre::v1::MeshManager & v1MeshManager =
+			Ogre::v1::MeshManager::getSingleton();
+		const String v1Name = meshName + "/v1import";
+		if(v1MeshManager.getByName(v1Name,
+			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+		{
+			v1MeshManager.remove(v1Name);
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::vertexColourLineListMeshExists(String const & meshName)
+	{
+		return static_cast<bool>(Ogre::MeshManager::getSingleton().getByName(
+			meshName, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME));
+	}
 }

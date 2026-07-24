@@ -579,6 +579,12 @@ namespace Orkige
 		static void createVertexColourLineListMesh(
 			Ogre::SceneManager* sceneManager, String const & meshName,
 			Vec3 const * points, Color const * colours, size_t pointCount);
+		//! destroy a line-list mesh (RenderWorld::destroyLineListMesh): drops the
+		//! v2 mesh AND the "meshName/v1import" v1 intermediate the import recipe
+		//! keeps alive. No-op when absent; call only with no live Item on it.
+		static void destroyVertexColourLineListMesh(String const & meshName);
+		//! does a v2 mesh of this name exist (RenderWorld::lineListMeshExists)
+		static bool vertexColourLineListMeshExists(String const & meshName);
 
 		//--- texture / datablock services (the material surface) -----
 		//! @brief resolve a texture resource name against the cooked-payload

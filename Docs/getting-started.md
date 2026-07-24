@@ -138,6 +138,35 @@ When you're ready to ship, use the **Build** menu:
 Export runs asynchronously; progress streams into the **Console**. Output lands in
 `<project>/builds/<platform>/`. Bundle and package ids come from the manifest.
 
+## Scene view display options
+
+The Scene viewport has a **Display** dropdown in its top-left corner — its own
+little toolbar for what the view draws. Each toggle is remembered per machine (in
+`orkige_editor_view.ini`, like the other view state) and every overlay is drawn
+through the same facade line-mesh path as the reference grid, so it renders
+identically on both render backends and is masked out of the Game Preview panel
+(overlays are editor chrome, never part of the game image).
+
+- **Grid** — the ground-plane reference grid (on by default; hidden anyway in 2D
+  mode, where it lies edge-on).
+- **Colliders** — green wireframes of every `RigidBodyComponent`'s Jolt shape
+  (box / sphere / capsule) at its world pose. Planar 2D bodies read correctly in
+  the 2D top-down view. Off by default.
+- **Bounding Boxes** — the cyan world-space axis-aligned bounding box of every
+  renderable (mesh) object. Off by default.
+- **Camera Frames** — the frustum of *every* `CameraComponent` (the selected
+  camera always shows its frustum regardless of this toggle). When the **Game
+  Preview** panel has a device preset selected, each camera also draws an **amber
+  design-aspect rectangle** — the framing that device would render at — so you can
+  see at a glance where the on-device frame differs from the editor viewport. Off
+  by default.
+
+Overlays rebuild only when something they depend on changes (selection, an object
+move, a shape edit, the device preset or a toggle) — a plain camera orbit never
+re-uploads them. Agents can flip the same toggles over MCP with `set_view_option`
+/ `get_view_options` (see [Docs/mcp.md](mcp.md)) and confirm the result with
+`screenshot_editor`.
+
 ## Where to go next
 
 - **[Docs/lua-api.md](lua-api.md)** — the Lua scripting API reference: a one-line

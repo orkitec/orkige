@@ -270,6 +270,14 @@ struct ViewSettings
 
 	bool showGrid = true;			//!< reference grid on the ground plane
 	bool showViewGizmo = true;		//!< axis orientation gizmo (top-right)
+	//! Scene view display options (the toolbar dropdown; @see drawScenePanel).
+	//! Each gates an editor-only facade line-mesh overlay masked out of the Game
+	//! Preview RTT. Colliders/bounding boxes default OFF; the selected-camera
+	//! frustum stays on unconditionally, showAllCameraFrames extends it to EVERY
+	//! camera plus the design-aspect rect of the active Game Preview device.
+	bool showColliders = false;			//!< RigidBodyComponent shape wireframes
+	bool showBoundingBoxes = false;		//!< world AABB of renderable objects
+	bool showAllCameraFrames = false;	//!< every camera's frustum + aspect rect
 	//! 2D editor mode: the Scene viewport's OWN camera switches to an
 	//! orthographic top-down look at the XY plane (orbit/fly disabled, pan+zoom
 	//! kept, the transform gizmo constrains to that plane). A pure view/

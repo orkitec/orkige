@@ -72,6 +72,7 @@
 
 #include "EditorCamera.h"
 #include "EditorCameraGizmo.h"
+#include "EditorOverlayGeometry.h"
 #include "EditorCore.h"
 #include "EditorSceneTemplate.h"
 #include "EditorTheme.h"
@@ -235,6 +236,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_AUTOSAVETEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CAMERA_SELFCHECK") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_OVERLAY_SELFCHECK") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr;
 
 	int exitCode = 0;
@@ -1835,6 +1837,20 @@ int main(int argc, char** argv)
 		bool atmospherePart1Ok = false;		// frame-10 result, checked at 20
 		std::string atmosphereEnvId;		// the template Environment object
 		std::string atmosphereSecondId;		// the second (dormant) instance
+
+		// ORKIGE_EDITOR_OVERLAY_SELFCHECK=1: the Scene display-option overlays.
+		// Frame 10 authors a scene (renderable cube + a rigid body + a camera),
+		// runs the view-options persistence round-trip and arms every toggle;
+		// frame 20 (after a render pass built the overlays) asserts each overlay's
+		// vertex seam is non-empty + captures the collider mesh name, then MOVES
+		// the object; frame 25 proves the moved-object rebuild DESTROYED the old
+		// mesh (no GPU leak) and built a fresh one, then disarms; frame 30 asserts
+		// they all cleared AND the last mesh is gone. editor_overlays, both flavors.
+		const bool overlaySelfcheckEnv =
+			std::getenv("ORKIGE_EDITOR_OVERLAY_SELFCHECK") != nullptr;
+		bool overlaySelfcheckArmed = false;		// frame-10 result, checked at 20
+		std::string overlayColliderMeshAt20;	// name captured before the move
+		std::string overlayColliderMeshAt25;	// name after the move (destroyed at 30)
 
 		// ORKIGE_EDITOR_GAME_PREVIEW_SELFCHECK=1: the Game Preview panel + the
 		// Scene-panel selected-camera inset, both flavors. Frame 10 builds a
@@ -6037,6 +6053,214 @@ int main(int argc, char** argv)
 					}
 				}
 			}
+
+			// --- Scene display-option overlays selfcheck (both flavors) ---
+			// (ORKIGE_EDITOR_OVERLAY_SELFCHECK) frame 10 authors a renderable cube
+			// with a rigid body + a camera, round-trips the view-option persistence
+			// and arms every display toggle; frame 20 asserts each overlay built its
+			// vertices (the non-pixel draw seams) and disarms; frame 30 asserts they
+			// all cleared. editor_overlays ctest.
+			if (overlaySelfcheckEnv && frameCount == 10)
+			{
+				auto overlayFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: overlay selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 25;
+					running = false;
+				};
+				// (1) view-option persistence round-trip (a pure save/reload of the
+				// three new flags through the ViewSettings ini writer)
+				const std::filesystem::path overlayIni =
+					std::filesystem::temp_directory_path() /
+					"orkige_overlay_view.ini";
+				ViewSettings written;
+				written.path = overlayIni.string();
+				written.showColliders = true;
+				written.showBoundingBoxes = true;
+				written.showAllCameraFrames = true;
+				written.save();
+				ViewSettings reloaded;
+				reloaded.path = overlayIni.string();
+				reloaded.load();
+				ViewSettings defaults;
+				defaults.path = overlayIni.string();
+				defaults.save();
+				ViewSettings reloadedDefaults;
+				reloadedDefaults.path = overlayIni.string();
+				reloadedDefaults.load();
+				std::error_code overlayIniErr;
+				std::filesystem::remove(overlayIni, overlayIniErr);
+				if (!reloaded.showColliders || !reloaded.showBoundingBoxes ||
+					!reloaded.showAllCameraFrames)
+				{
+					overlayFail("the armed view options did not survive the "
+						"ini round-trip");
+				}
+				else if (reloadedDefaults.showColliders ||
+					reloadedDefaults.showBoundingBoxes ||
+					reloadedDefaults.showAllCameraFrames)
+				{
+					overlayFail("the default (off) view options did not survive "
+						"the ini round-trip");
+				}
+				else
+				{
+					// (2) author the fixture: a renderable cube carrying a rigid
+					// body, plus a camera (each overlay's kind of object)
+					newScene(state, editorCore);	// empty baseline
+					if (!editorCore.createCube())
+					{
+						overlayFail("could not create the renderable cube");
+					}
+					else if (!editorCore.addComponentToObject("Cube1",
+						"RigidBodyComponent"))
+					{
+						overlayFail("could not add the RigidBodyComponent");
+					}
+					else if (!editorCore.createCamera())
+					{
+						overlayFail("could not create the camera");
+					}
+					else
+					{
+						// (3) arm every display toggle so the next panel draw
+						// builds all three overlays
+						viewSettings.showColliders = true;
+						viewSettings.showBoundingBoxes = true;
+						viewSettings.showAllCameraFrames = true;
+						overlaySelfcheckArmed = true;
+					}
+				}
+			}
+			if (overlaySelfcheckEnv && frameCount == 20 && exitCode == 0)
+			{
+				auto overlayFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: overlay selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 25;
+					running = false;
+				};
+				const std::size_t colliderVerts =
+					Orkige::editorSceneColliderOverlayVertexCount();
+				const std::size_t boxVerts =
+					Orkige::editorSceneBoundingBoxOverlayVertexCount();
+				const std::size_t frameVerts =
+					Orkige::editorSceneCameraFramesOverlayVertexCount();
+				const std::size_t boxSegs = static_cast<std::size_t>(
+					2 * Orkige::editorCameraFrustumSegmentCount());
+				if (!overlaySelfcheckArmed)
+				{
+					overlayFail("frame-10 authoring did not complete");
+				}
+				// the default box rigid body draws a 12-edge (24-vertex) wireframe;
+				// the renderable AABB is the same 12-edge box; one camera's frustum
+				// is 12 segments too (no device-aspect rect - the Game Preview panel
+				// is closed in this run)
+				else if (colliderVerts != boxSegs)
+				{
+					overlayFail("the collider overlay drew the wrong vertex count");
+				}
+				else if (boxVerts != boxSegs)
+				{
+					overlayFail("the bounding-box overlay drew the wrong vertex "
+						"count");
+				}
+				else if (frameVerts != boxSegs)
+				{
+					overlayFail("the camera-frames overlay drew the wrong vertex "
+						"count");
+				}
+				else
+				{
+					// capture the current mesh name and MOVE the object so the
+					// next panel draw rebuilds under a fresh name (frame 25 proves
+					// the old mesh was destroyed, not leaked)
+					overlayColliderMeshAt20 =
+						Orkige::editorSceneColliderOverlayMeshName();
+					editorCore.setObjectProperty("Cube1", "TransformComponent",
+						"position", "3 1 0");
+				}
+			}
+			if (overlaySelfcheckEnv && frameCount == 25 && exitCode == 0)
+			{
+				auto overlayFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: overlay selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 25;
+					running = false;
+				};
+				Orkige::RenderWorld* world =
+					Orkige::RenderSystem::get()->getWorld();
+				overlayColliderMeshAt25 =
+					Orkige::editorSceneColliderOverlayMeshName();
+				if (!world)
+				{
+					overlayFail("no render world for the leak probe");
+				}
+				else if (overlayColliderMeshAt20.empty() ||
+					overlayColliderMeshAt25.empty())
+				{
+					overlayFail("the collider overlay mesh name seam was empty");
+				}
+				// the rebuild after the move must take a FRESH name...
+				else if (overlayColliderMeshAt25 == overlayColliderMeshAt20)
+				{
+					overlayFail("the moved-object rebuild did not take a fresh "
+						"mesh name");
+				}
+				// ...and DESTROY the old one (the leak this test guards): without
+				// destroyLineListMesh the old name stays registered forever
+				else if (world->lineListMeshExists(overlayColliderMeshAt20))
+				{
+					overlayFail("the previous collider overlay mesh leaked (still "
+						"registered after the rebuild)");
+				}
+				else if (!world->lineListMeshExists(overlayColliderMeshAt25))
+				{
+					overlayFail("the current collider overlay mesh is missing");
+				}
+				else
+				{
+					// disarm every toggle - frame 30 proves they all clear +
+					// destroy their meshes
+					viewSettings.showColliders = false;
+					viewSettings.showBoundingBoxes = false;
+					viewSettings.showAllCameraFrames = false;
+				}
+			}
+			if (overlaySelfcheckEnv && frameCount == 30 && exitCode == 0)
+			{
+				Orkige::RenderWorld* world =
+					Orkige::RenderSystem::get()->getWorld();
+				if (Orkige::editorSceneColliderOverlayVertexCount() != 0 ||
+					Orkige::editorSceneBoundingBoxOverlayVertexCount() != 0 ||
+					Orkige::editorSceneCameraFramesOverlayVertexCount() != 0)
+				{
+					SDL_Log("orkige_editor: overlay selfcheck - FAILED: an "
+						"overlay did not clear when its toggle went off");
+					exitCode = 25;
+					running = false;
+				}
+				// the hide (toggle-off) path also destroys the mesh - no leak on
+				// disarm either
+				else if (world && !overlayColliderMeshAt25.empty() &&
+					world->lineListMeshExists(overlayColliderMeshAt25))
+				{
+					SDL_Log("orkige_editor: overlay selfcheck - FAILED: the "
+						"collider overlay mesh leaked when its toggle went off");
+					exitCode = 25;
+					running = false;
+				}
+				else
+				{
+					SDL_Log("orkige_editor: overlay selfcheck OK");
+					running = false;
+				}
+			}
+
 
 			// --- Game Preview + selected-camera inset selfcheck (both flavors) ---
 			// (ORKIGE_EDITOR_GAME_PREVIEW_SELFCHECK) frame 10 builds a camera + a
@@ -10744,6 +10968,9 @@ int main(int argc, char** argv)
 		// render system is still up (its state is process-lifetime, so its
 		// facade handles must not outlive the backend)
 		Orkige::editorSceneCameraGizmoRelease();
+		// and the display-option overlays (colliders / bounding boxes / camera
+		// frames) - same process-lifetime facade-handle contract
+		Orkige::editorSceneOverlaysRelease();
 
 		// ImGui teardown: destroying the context writes the ini; the facade
 		// 2D layer + font texture die with the renderer/engine afterwards

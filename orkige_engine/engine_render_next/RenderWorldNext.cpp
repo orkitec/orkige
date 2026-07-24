@@ -139,6 +139,16 @@ namespace Orkige
 			this->mImpl->sceneManager, meshName, points, colours, pointCount);
 	}
 	//---------------------------------------------------------
+	void RenderWorld::destroyLineListMesh(String const & meshName)
+	{
+		RenderBackend::destroyVertexColourLineListMesh(meshName);
+	}
+	//---------------------------------------------------------
+	bool RenderWorld::lineListMeshExists(String const & meshName) const
+	{
+		return RenderBackend::vertexColourLineListMeshExists(meshName);
+	}
+	//---------------------------------------------------------
 	void RenderWorld::setAmbientLight(Color const & colour)
 	{
 		// the flat ambient is the hemisphere term with both colours equal

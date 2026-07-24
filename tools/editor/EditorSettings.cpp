@@ -28,6 +28,18 @@ void ViewSettings::load()
 		{
 			this->showViewGizmo = (value == "1");
 		}
+		else if (key == "show_colliders")
+		{
+			this->showColliders = (value == "1");
+		}
+		else if (key == "show_bounding_boxes")
+		{
+			this->showBoundingBoxes = (value == "1");
+		}
+		else if (key == "show_all_camera_frames")
+		{
+			this->showAllCameraFrames = (value == "1");
+		}
 		else if (key == "mode_2d")
 		{
 			this->editor2D = (value == "1");
@@ -209,6 +221,10 @@ void ViewSettings::save() const
 	std::ofstream file(this->path, std::ios::trunc);
 	file << "show_grid=" << (this->showGrid ? 1 : 0) << "\n"
 		<< "show_view_gizmo=" << (this->showViewGizmo ? 1 : 0) << "\n"
+		<< "show_colliders=" << (this->showColliders ? 1 : 0) << "\n"
+		<< "show_bounding_boxes=" << (this->showBoundingBoxes ? 1 : 0) << "\n"
+		<< "show_all_camera_frames="
+		<< (this->showAllCameraFrames ? 1 : 0) << "\n"
 		<< "mode_2d=" << (this->editor2D ? 1 : 0) << "\n"
 		<< "orbit_speed=" << this->orbitSpeed << "\n"
 		<< "look_speed=" << this->lookSpeed << "\n"
@@ -320,6 +336,9 @@ void ViewSettings::resetCameraAndDisplayDefaults()
 	const ViewSettings defaults;
 	this->showGrid = defaults.showGrid;
 	this->showViewGizmo = defaults.showViewGizmo;
+	this->showColliders = defaults.showColliders;
+	this->showBoundingBoxes = defaults.showBoundingBoxes;
+	this->showAllCameraFrames = defaults.showAllCameraFrames;
 	this->orbitSpeed = defaults.orbitSpeed;
 	this->lookSpeed = defaults.lookSpeed;
 	this->zoomSpeed = defaults.zoomSpeed;

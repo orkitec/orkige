@@ -159,7 +159,7 @@ filesystem.
 
 ## Tools
 
-The endpoint advertises 89 tools (the `toolSpecs` table in
+The endpoint advertises 93 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -175,6 +175,8 @@ The endpoint advertises 89 tools (the `toolSpecs` table in
 | `rename_object(id, new_id)` / `reparent_object(id, parent)` / `set_active(id, value)` | `EditorCore::renameObject` / `reparentObject` / `setObjectActive` |
 | `add_component(id, component)` / `remove_component(id, component)` / `list_addable_components()` | `addComponentToObject` / `removeComponentFromObject` / `getAddableComponentTypes` |
 | `select(id)` / `undo()` / `redo()` | `EditorCore::selectObject` / `undo` / `redo` |
+| `get_view_options()` | the Scene view display options (the toolbar **Display** dropdown), each `1`/`0`: `show_grid`, `show_colliders`, `show_bounding_boxes`, `show_all_camera_frames`, `show_view_gizmo`, `mode_2d`. Read to know what the Scene view is drawing before a `screenshot_editor` |
+| `set_view_option(option, value)` | **auth** — set one Scene view display option (persisted in `orkige_editor_view.ini` like the toolbar dropdown, applied next editor frame). `option` ∈ `grid`/`colliders`/`bounding_boxes`/`camera_frames`/`view_gizmo`/`mode_2d`; `value` `1`/`0`. Colliders draw each `RigidBodyComponent` Jolt shape, bounding boxes the renderable world AABBs, camera frames every `CameraComponent` frustum plus the Game Preview device's design-aspect rect — editor-only facade line meshes, so pair with `screenshot` (editor) to verify an overlay visually. An unknown `option` is refused |
 | `begin_transaction()` / `end_transaction(commit)` | **auth** — one atomic-edit bracket for a remote client, over `EditorCore::begin`/`endScriptTransaction` (the SAME one-undo primitive `.editor.lua` tools use). Everything run between them folds into ONE undo step on `commit=true`, or unexecutes wholesale on `commit=false`. A double begin / an end with no begin is an honest error. `get_state` reports `transaction_open`. The bracket spans many HTTP requests, so it AUTO-ABORTS (rolls back, one Console line) if the editor switches scene/project/prefab, starts Play, or shuts down under it — keep it short-lived (a manual editor edit the owner makes in between is folded in too; the fold is origin-blind) |
 | `play(scene?, target?, force?)` / `stop()` / `pause()` / `resume()` / `step()` | `startPlay` / `requestStopPlay` / pause·resume·step over the player protocol; `scene` opens+plays a scene (jailed), `target` picks the device (`applyPlayTarget`) |
 | `list_play_targets()` | the Play target picker's enumeration (`listSimulators`/`listIosHardwareDevices`/`listAdbDevices`) → `target_kinds`/`target_ids`/`target_names`/`target_states` |

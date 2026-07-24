@@ -1064,7 +1064,14 @@ classic-backend app is SUPERSEDED.** What landed:
     recipe with OT_LINE_LIST — the operation type survives both
     conversions), instantiated like any mesh, query flags 0. Replaces the
     sanctioned "editor-grid" block. `RenderWorld::CUBE_MESH_NAME` is the
-    flavor-neutral home of PrimitiveUtil's constant.
+    flavor-neutral home of PrimitiveUtil's constant. Its lifecycle siblings
+    `RenderWorld::destroyLineListMesh(name)` +
+    `RenderWorld::lineListMeshExists(name)` let a caller that regenerates
+    helper geometry under a fresh name each rebuild (the Scene panel's
+    collider/bounding-box/camera-frame overlays) drop the old mesh instead of
+    leaking one — classic removes the MeshManager entry, next removes BOTH the
+    v2 mesh and the `name + "/v1import"` v1 intermediate the import recipe
+    keeps alive.
   - Fixed in passing (classic): per-texture 2D layer materials were CLONES
     of the master — cloning copies an already-RTSS-generated technique
     built for the SOURCE's (empty) texture-unit layout, so textured batches

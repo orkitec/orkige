@@ -144,6 +144,72 @@ namespace Orkige
 	//! selfcheck asserts the panel actually built the gizmo against this.
 	inline int editorCameraFrustumSegmentCount() { return 12; }
 
+	//! the design-aspect frame colour - a warm amber so the device-aspect rect
+	//! reads apart from the neutral frustum lines it sits inside
+	inline Color editorCameraAspectFrameColour()
+	{
+		return Color(0.95f, 0.72f, 0.28f);
+	}
+
+	//! @brief build the DESIGN-ASPECT framing rectangle for a camera in its LOCAL
+	//! space - the rect the camera would render at a chosen DEVICE aspect (the
+	//! Game Preview preset), as a single rectangle (4 segments) at the frustum's
+	//! far depth. Drawn ON TOP of the frustum gizmo (which uses the live PANEL
+	//! aspect), it makes the framing mismatch between the editor viewport and the
+	//! target device visible. Mirrors buildCameraFrustumLines' half-extent math
+	//! but with the device aspect substituted in.
+	//! @param params the reflected projection state
+	//! @param deviceAspect the target device aspect (width/height)
+	//! @param outPoints  receives 8 points (4 segments), cleared first
+	//! @param outColours receives one colour per point
+	inline void buildCameraAspectFrame(CameraFrustumParams const& params,
+		float deviceAspect, std::vector<Vec3>& outPoints,
+		std::vector<Color>& outColours)
+	{
+		outPoints.clear();
+		outColours.clear();
+		const float safeAspect = deviceAspect > 1.0e-4f ? deviceAspect : 1.0f;
+		const float farZ = editorCameraFrustumFar();
+
+		float halfH = 0.0f;
+		if (params.projectionMode == 1)	// PM_ORTHOGRAPHIC
+		{
+			halfH = params.orthoSize;
+			if (params.fitMode != static_cast<int>(CameraFit::FIT_HEIGHT))
+			{
+				halfH = CameraFit::orthoHalfHeight(
+					static_cast<CameraFit::FitMode>(params.fitMode),
+					params.designWidth, params.designHeight, safeAspect);
+			}
+		}
+		else	// PM_PERSPECTIVE: the far-plane half-height at the gizmo FOV
+		{
+			const float pi = 3.14159265358979323846f;
+			const float halfFovRad = 0.5f *
+				editorCameraFrustumFovDegrees() * pi / 180.0f;
+			halfH = farZ * std::tan(halfFovRad);
+		}
+		const float halfW = halfH * safeAspect;
+
+		const Vec3 corners[4] = {
+			Vec3(-halfW,  halfH, -farZ),	// top-left
+			Vec3( halfW,  halfH, -farZ),	// top-right
+			Vec3( halfW, -halfH, -farZ),	// bottom-right
+			Vec3(-halfW, -halfH, -farZ)		// bottom-left
+		};
+		const Color colour = editorCameraAspectFrameColour();
+		for (int i = 0; i < 4; ++i)
+		{
+			outPoints.push_back(corners[i]);
+			outPoints.push_back(corners[(i + 1) % 4]);
+			outColours.push_back(colour);
+			outColours.push_back(colour);
+		}
+	}
+
+	//! @brief the number of SEGMENTS the design-aspect frame emits (a rectangle).
+	inline int editorCameraAspectFrameSegmentCount() { return 4; }
+
 	//--- panel-side gizmo state (defined in EditorScenePanel.cpp) --------------
 	//! @brief the object id whose camera frustum the Scene panel last drew, or ""
 	//! when no camera-carrying object is selected. The editor camera selfcheck
