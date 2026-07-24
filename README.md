@@ -21,7 +21,9 @@ reference.
 
 ## What's in the box
 
-A full 3D engine with a first-class 2D layer on top — not a 2D engine.
+A full 3D engine that treats 2D as a first-class citizen: sprites, vector
+shapes and the UI all render through the same facade as the 3D scene, so a
+game can be purely 2D, purely 3D, or mix both freely.
 
 - **Rendering** — dual backends behind one facade: **Ogre-Next (the default —
   Metal on macOS/iOS, Vulkan on Android)** and classic OGRE 14.6 (GL3+ on desktop,
