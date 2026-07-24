@@ -101,6 +101,8 @@ add_test(NAME export_web_embed_click
         --engine-build "${CMAKE_BINARY_DIR}"
         --output "${CMAKE_CURRENT_BINARY_DIR}/export_web_embed_click"
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+# the wall covers the driver's own worst-case waits (180s vista + 600s tour
+# on CI's software-rasterized WebGL + export/boot/replay overhead) with slack
 set_tests_properties(export_web_embed_click PROPERTIES
-    LABELS integration TIMEOUT 600
+    LABELS integration TIMEOUT 1100
     SKIP_RETURN_CODE 77)

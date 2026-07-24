@@ -520,6 +520,11 @@ namespace Orkige
 		// the honest disabled error; on the browser player (which cannot block
 		// its main thread) setDebugBreakpoints refuses honestly instead.
 
+		//! @brief can this build pause script execution at a breakpoint at
+		//! all? False in scripting-disabled builds AND on the browser player
+		//! (its main thread cannot block at a break) - on both,
+		//! setDebugBreakpoints refuses with the matching honest error.
+		static bool debugBreakSupported();
 		//! @brief replace the WHOLE breakpoint set (the protocol's full-list
 		//! replace; an empty list clears everything and uninstalls the hook).
 		//! False with *outError set when scripting is disabled or the platform

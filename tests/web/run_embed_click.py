@@ -46,7 +46,15 @@ def log(m):
     print("run_embed_click: " + m, flush=True)
 
 
-def fail(m):
+def fail(m, cdp=None):
+    # on a tour-progress failure the browser console tail says WHERE the run
+    # stalled (which director scene last reported) - without it a timeout is
+    # undiagnosable from the harness log alone
+    if cdp is not None:
+        with cdp.lock:
+            tail = cdp.console[-25:]
+        for line in tail:
+            print("run_embed_click: console| " + line, flush=True)
     print("run_embed_click: FAILED - " + m, flush=True)
     sys.exit(1)
 
@@ -266,21 +274,30 @@ def main():
                  {"width": VIEW_W, "height": VIEW_H, "deviceScaleFactor": 1,
                   "mobile": False})
         # reach the results card fast; NO autoRestart - the ONLY restart path
-        # is the browser click below
+        # is the browser click below. Shadows run OFF here: the classic PSSM
+        # pass loses the WebGL2 context under a software-rasterized browser
+        # (the only browser CI has; hardware browsers render the tour fine),
+        # killing the tour at the first scene - bisected via these cvars, and
+        # this test asserts embed sizing/clicks/tour completion, not shadow
+        # content. Drop the override once the shadow pass is rasterizer-safe.
         cvars = urllib.parse.quote(
-            "benchmark.sceneScale=0.05,benchmark.wipe=0")
+            "benchmark.sceneScale=0.05,benchmark.wipe=0,r.shadowQuality=off")
         cdp.call("Page.navigate", {"url":
                  "http://127.0.0.1:%d/index.html?env.ORKIGE_CVARS=%s"
                  % (port, cvars)})
 
         if not cdp.wait_console(r"director\[vista\]: 'Terrace Vista' ready",
                                 180):
-            fail("the vista scene never initialised in the browser")
+            fail("the vista scene never initialised in the browser", cdp)
         assert_hud_title(cdp, out)
 
-        btn = cdp.wait_console(r"director\[tally\]: restart button ready", 180)
+        # the whole tour must complete before the tally card appears; hosted
+        # CI Chrome renders WebGL through a software rasterizer several times
+        # slower than local hardware, so this wall covers the worst measured
+        # CI pace (the 180s local-derived budget starved there every run)
+        btn = cdp.wait_console(r"director\[tally\]: restart button ready", 600)
         if not btn:
-            fail("the results card never built the Restart button")
+            fail("the results card never built the Restart button", cdp)
         cdp.wait_console(r"director\[tally\]: 'Tally' ready", 30)
         time.sleep(0.5)
 
@@ -316,10 +333,10 @@ def main():
                                 30, after=before):
             fail("the browser click did NOT restart the tour - the Restart "
                  "button is not clickable at the embed size (crop or missing "
-                 "input events)")
+                 "input events)", cdp)
         if not cdp.wait_console(r"director\[vista\]: 'Terrace Vista' ready",
-                                90, after=before):
-            fail("restart fired but the tour did not replay from scene 1")
+                                180, after=before):
+            fail("restart fired but the tour did not replay from scene 1", cdp)
         log("OK: HUD title visible + Restart button clickable at the embed "
             "size, tour replayed from scene 1")
     finally:

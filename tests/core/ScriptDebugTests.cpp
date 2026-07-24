@@ -171,6 +171,17 @@ TEST_CASE("ScriptRuntime debug seam refuses honestly or pauses a real script",
 		env.scriptRuntime.debugDetach();	// must be a safe no-op
 		return;
 	}
+	if (!ScriptRuntime::debugBreakSupported())
+	{
+		// scripting runs but a break cannot block (the browser player): the
+		// breakpoint entry point refuses with the platform-honest error
+		CHECK_FALSE(env.scriptRuntime.setDebugBreakpoints(
+			{ ScriptBreakpoint("scripts/a.lua", 1) }, &error));
+		CHECK(error.find("not supported") != String::npos);
+		CHECK_FALSE(env.scriptRuntime.isDebugBroken());
+		env.scriptRuntime.debugDetach();	// must be a safe no-op
+		return;
+	}
 
 	TempScriptDir dir("orkige_scriptdebug_test");
 	dir.write("debuggee.lua",
@@ -345,9 +356,9 @@ TEST_CASE("ScriptRuntime step-over lands on the following line",
 	"[script][debug]")
 {
 	CoreTestEnvironment & env = CoreTestEnvironment::get();
-	if (!ScriptRuntime::available())
+	if (!ScriptRuntime::debugBreakSupported())
 	{
-		return;	// covered by the refusal assertions above
+		return;	// noscript AND browser: the refusal assertions above cover it
 	}
 	TempScriptDir dir("orkige_scriptdebug_step_test");
 	dir.write("steps.lua",

@@ -139,9 +139,9 @@ def main():
     # thresholds (measured, frame-locked/deterministic): the mirror is
     # FRESNEL-modulated, so the marker's magenta arrives as a fraction blended
     # over the teal body - the working look measures ~0.05-0.10 magentaness on
-    # both flavors, the no-mirror teal water ~0.00x. The ratio guards against
-    # a base tint accidentally scoring; the luminance delta proves the mirror
-    # renders at all.
+    # both flavors, the no-mirror teal water ~0.00x. The ON-minus-OFF magenta
+    # delta guards against a base tint accidentally scoring; the luminance
+    # delta proves the mirror renders at all.
     # the absolute floor sits just below the flavors' measured healthy value,
     # which is now EQUAL by calibration: 0.022 on both (classic formula-true -
     # its water fresnel scales by authored opacity exactly like the sibling's
@@ -149,9 +149,16 @@ def main():
     # probe-calibrated to that classic strength; the derivation lives at the
     # kMirrorSpecular constant in NextBackend.cpp). The floor keeps ~30%
     # headroom over deterministic frame-locked captures; a mirror that stops
-    # showing the scene reads ~0.001, which the RATIO guard also catches.
+    # showing the scene reads ~0.001, which the DELTA guard also catches.
     MIN_ON_MAGENTA = 0.015      # the marker's mirror measurably tints the band
-    MIN_MAGENTA_RATIO = 3.0     # clearly more magenta ON than the OFF baseline
+    # the ON band must exceed the OFF baseline by an absolute magenta margin
+    # (not a ratio): software rasterizers carry a brighter OFF baseline
+    # (measured 0.011 on the CI lavapipe run vs ~0.00x on hardware), which a
+    # ratio gate misreads as a weak mirror while the reflection is plainly
+    # there (measured ON 0.027 there, delta 0.016). A dead mirror reads
+    # ON ~= OFF (delta ~0.000 on every driver), so the delta guards existence
+    # without judging the rasterizer's base-tint level.
+    MIN_MAGENTA_DELTA = 0.010
     # the mirror renders (band differs from baseline). The magenta assertions
     # above carry the real proof; this residual luminance guard sits below the
     # measured classic 7.3 / next 15.5 (each flavor's ON is compared against
@@ -161,7 +168,7 @@ def main():
     MIN_LUM_DIFF = 3.0
 
     print(f"reflection probe: on_magenta={on_mag:.3f} (>{MIN_ON_MAGENTA}), "
-          f"off_magenta={off_mag:.3f} (ratio>{MIN_MAGENTA_RATIO}), "
+          f"off_magenta={off_mag:.3f} (delta>{MIN_MAGENTA_DELTA}), "
           f"lum_diff={lum_diff:.1f} (>{MIN_LUM_DIFF})")
 
     failures = []
@@ -169,7 +176,7 @@ def main():
         failures.append(f"the marker's magenta mirror is not in the water band "
                         f"(magenta {on_mag:.3f}) - the reflection is not "
                         f"showing the scene")
-    if on_mag <= MIN_MAGENTA_RATIO * max(off_mag, 0.005):
+    if on_mag - off_mag <= MIN_MAGENTA_DELTA:
         failures.append(f"the reflection's magenta ({on_mag:.3f}) is not "
                         f"clearly more than the OFF baseline ({off_mag:.3f})")
     if lum_diff <= MIN_LUM_DIFF:

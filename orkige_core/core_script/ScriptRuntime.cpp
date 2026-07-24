@@ -1183,6 +1183,15 @@ namespace Orkige
 	}
 #endif //ORKIGE_LUA
 	//---------------------------------------------------------
+	bool ScriptRuntime::debugBreakSupported()
+	{
+#if defined(__EMSCRIPTEN__) || !defined(ORKIGE_LUA)
+		return false;
+#else
+		return true;
+#endif
+	}
+	//---------------------------------------------------------
 	bool ScriptRuntime::setDebugBreakpoints(
 		std::vector<ScriptBreakpoint> const & breakpoints, String * outError)
 	{
