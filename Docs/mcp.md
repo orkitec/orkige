@@ -159,7 +159,7 @@ filesystem.
 
 ## Tools
 
-The endpoint advertises 79 tools (the `toolSpecs` table in
+The endpoint advertises 88 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -190,6 +190,13 @@ The endpoint advertises 79 tools (the `toolSpecs` table in
 | `screenshot_game(path)` | screenshot the RUNNING game's frame (`MSG_SCREENSHOT`, desktop play) → poll `get_state` (async: the file is written after the accepted reply, so this verb stays path-only — no inline image) |
 | `record_trace(path, seconds?, everyNth?, objects?)` | record a temporal TRACE of the RUNNING game to a `.jsonl` flight recorder (`MSG_RECORD_START`, desktop play) — per-frame object samples (pos/vel/active/visible + dt + `mem` process footprint) with contact/scene/error/warning events → poll `get_state` for `record_seq` |
 | `stop_recording()` | end an in-progress `record_trace` early (`MSG_RECORD_STOP`); the player writes what it captured → poll `get_state` |
+| `set_breakpoint(file, line)` | **auth** — set a script breakpoint (project-relative script path + 1-based line) in the editor's per-project store (`ScriptBreakpointStore`, persisted under `.orkige/breakpoints`); the play session pushes the whole set to a running player automatically (`MSG_DEBUG_BREAKPOINTS`, on connect and live on any change) — so set it before OR during Play. Refused for a browser play session and by scripting-disabled players (the honest one-line reply). Returns the full set. See `Docs/script-debugging.md` |
+| `clear_breakpoint(file?, line?, all?)` | **auth** — clear one breakpoint, or every one with `all='1'`; pushed live like `set_breakpoint`. Returns the remaining set |
+| `list_breakpoints()` | the per-project breakpoint set as `file:line` entries (read-only) |
+| `get_debug_state()` | THE poll for the asynchronous break-hit: `paused_at_breakpoint` (`1` while the player is held MID-STATEMENT at a script break — distinct from the frame-boundary `pause`), the paused `file`/`line`, `break_seq` (increments per break — a landing step raises a new one), `locals_seq`, and the call stack as parallel `stack_sources`/`stack_lines`/`stack_functions` (innermost first; host-call frames read `[host]`). Answers in every mode |
+| `debug_continue()` | **auth** — release the held break and run free until the next hit (`MSG_DEBUG_RESUME`); returns `accepted` + `prev_break_seq` — poll `get_debug_state` |
+| `debug_step_in()` / `debug_step_over()` / `debug_step_out()` | **auth** — release the held break and pause again at the next executed line / the next line at the same-or-shallower call depth / the first line after the current function returns (`MSG_DEBUG_STEP_*`); async like `debug_continue` — poll `get_debug_state` until `break_seq` advances |
+| `get_locals(frame?, expand?)` | variables at a frame of the held break (`MSG_DEBUG_LOCALS`): `frame` indexes `get_debug_state`'s stack (0 = innermost); `expand` names a root variable plus a chain of table keys (`[3]` bracket form for non-string keys) to list ONE nested table — bounded, never a whole-state dump. ASYNC: a first call may answer `pending='1'` — call again (a frame or two of editor pumping). A ready reply carries parallel `names`/`scopes` (`local`/`upvalue`/`field`)/`types`/`values`/`expandable` |
 | `list_assets()` | `AssetDatabase::listAssets` + `Project::listScenes` |
 | `write_project_file(path, content)` | write a text file under the open project's root (jailed; LF endings; parent dirs created) |
 | `read_project_file(path)` | read a text file under the project root (jailed; 1 MiB cap) |
@@ -591,6 +598,17 @@ mode is never ambiguous.
   `[remote]` lines) and its script errors — the player forwards its engine log
   over the debug protocol and the editor folds it into the same Console store, so
   no separate remote-log verb is needed.
+- **Script breakpoints** pause the running game MID-STATEMENT inside a Lua
+  script (a distinct state from the frame-boundary `pause`): `set_breakpoint`
+  / `clear_breakpoint` / `list_breakpoints` manage the per-project set (pushed
+  to the player live), `get_debug_state` polls the asynchronous break-hit
+  (paused file/line + call stack), `get_locals` reads a paused frame's
+  locals/upvalues (tables expand on explicit request, bounded), and
+  `debug_continue` / `debug_step_in` / `debug_step_over` / `debug_step_out`
+  release the break. The worked loop is in `Docs/mcp-workflows.md`; the design
+  (hook lifecycle, pause semantics, the web/noscript refusals) in
+  `Docs/script-debugging.md`. These are the SAME breakpoints the editor's
+  Script panel shows — an agent and the human share one store.
 - `screenshot_game(path)` captures the RUNNING game's next rendered frame (the
   most-cited verification primitive). Desktop play only — the path lives on the
   player's filesystem, which the editor shares on desktop. It is ASYNC: the tool

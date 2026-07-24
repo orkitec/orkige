@@ -213,6 +213,16 @@ namespace Orkige
 		std::size_t		mPeakResidentBytes = 0;
 		//! engine-log -> editor-Console capture (attached while active)
 		Orkige::uptr<EngineLogCapture> mLogCapture;
+		//! @brief script-debugger session state: non-debug messages that
+		//! arrived during a break's nested pump are DEFERRED here and replayed
+		//! by the next normal processMessages (a set_property mid-break must
+		//! not run inside script execution); mNotifiedBreakSequence tracks the
+		//! last ScriptRuntime break the editor was told about (one
+		//! MSG_DEBUG_BREAK per pause); mDebugPumpInstalled says the runtime's
+		//! break pump handler points at this link.
+		std::vector<DebugMessage> mDeferredMessages;
+		unsigned int	mNotifiedBreakSequence = 0;
+		bool			mDebugPumpInstalled = false;
 		//! reused snapshot buffer for the profile stream (steady state keeps
 		//! its capacity - the readback must not become churn itself)
 		std::vector<ProfileManager::SnapshotNode> mProfileScratch;
@@ -345,6 +355,36 @@ namespace Orkige
 			DebugMessage const & message);
 		void handleSetCvar(DebugMessage const & message);
 		void handleRecordStart(DebugMessage const & message);
+		//--- script debugger (the MSG_DEBUG_* family) ---
+		//! @brief apply a full breakpoint-set replace through the ScriptRuntime
+		//! debug seam (installing this link as the break pump on first use);
+		//! refusals (browser player, scripting off) answer with an error
+		void handleDebugBreakpoints(DebugMessage const & message);
+		//! @brief release a held break: resume freely or arm a step, then
+		//! confirm with MSG_DEBUG_RESUMED; an un-paused runtime answers an error
+		void handleDebugResume(DebugMessage const & message);
+		//! @brief answer a MSG_DEBUG_LOCALS request from the held break's
+		//! frames (locals/upvalues, or one expanded table) - error outside one
+		void handleDebugLocals(DebugMessage const & message);
+		//! @brief ONE iteration of the nested break pump the ScriptRuntime
+		//! calls in a loop while script execution is paused at a break: sends
+		//! the break notification once, services the transport (debug commands
+		//! + quit inline, everything else deferred to the next normal frame
+		//! drain), keeps the OS event queue pumped and paces itself. A client
+		//! that vanishes mid-break auto-resumes - the game never stays wedged.
+		void serviceBreakPump();
+		//! announce the current break to the editor (MSG_DEBUG_BREAK with the
+		//! paused location + call stack)
+		void sendDebugBreakNotification();
+		//! @brief shared client-loss bookkeeping (update() and the break pump):
+		//! un-pause, drop selection/stream baselines, clear the reported-error
+		//! dedupe AND detach the script debugger (clear breakpoints, resume a
+		//! held break) - a vanished editor must never leave the game frozen
+		void onEditorClientLost();
+		//! @brief dispatch ONE received editor command (the message chain
+		//! processMessages and the deferred replay share)
+		void handleOneMessage(GameObjectManager & gameObjectManager,
+			DebugMessage const & message);
 		//! record an event on the active trace (a no-op when idle): the hook
 		//! the scene-reload / script-error / warning observers funnel through
 		void traceEvent(String const & event,

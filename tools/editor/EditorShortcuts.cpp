@@ -24,6 +24,10 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 	SDL_Window* window)
 {
 	ImGuiIO& io = ImGui::GetIO();
+	// the script debugger's Continue/Step keys work while a break is held -
+	// BEFORE the text-input stand-down, since the code editor holds keyboard
+	// focus exactly then (F-keys and Cmd/Ctrl+Alt chords never type text)
+	handleScriptDebugShortcuts(state, session);
 	if (io.WantTextInput)
 	{
 		return;

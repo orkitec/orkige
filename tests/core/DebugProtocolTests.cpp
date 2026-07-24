@@ -170,6 +170,49 @@ TEST_CASE("DebugMessage round-trips every protocol message type", "[debugnet]")
 		CHECK(out.type == "script_error");
 		CHECK(out.get(Protocol::FIELD_ID) == "Player");
 	}
+	SECTION("script debugger family (breakpoints/break/step/locals)")
+	{
+		// the full-list breakpoint replace
+		DebugMessage breakpoints(Protocol::MSG_DEBUG_BREAKPOINTS);
+		breakpoints.setList(Protocol::LIST_BREAKPOINTS,
+			{ "scripts/player.lua:12", "scripts/enemy.lua:3" });
+		DebugMessage out = roundTrip(breakpoints);
+		REQUIRE(out.getList(Protocol::LIST_BREAKPOINTS).size() == 2);
+		CHECK(out.getList(Protocol::LIST_BREAKPOINTS)[0] ==
+			"scripts/player.lua:12");
+		// the break-hit notification with its parallel stack lists
+		DebugMessage breakHit(Protocol::MSG_DEBUG_BREAK);
+		breakHit.set(Protocol::FIELD_PATH, "scripts/player.lua");
+		breakHit.set(Protocol::FIELD_LINE, "12");
+		breakHit.setList(Protocol::LIST_STACK_SOURCES,
+			{ "scripts/player.lua", "[host]" });
+		breakHit.setList(Protocol::LIST_STACK_LINES, { "12", "-1" });
+		breakHit.setList(Protocol::LIST_STACK_FUNCTIONS, { "update", "" });
+		out = roundTrip(breakHit);
+		CHECK(out.get(Protocol::FIELD_PATH) == "scripts/player.lua");
+		CHECK(out.get(Protocol::FIELD_LINE) == "12");
+		REQUIRE(out.getList(Protocol::LIST_STACK_SOURCES).size() == 2);
+		// the plain release commands
+		for (Orkige::String const & type : { Protocol::MSG_DEBUG_RESUME,
+			Protocol::MSG_DEBUG_STEP_IN, Protocol::MSG_DEBUG_STEP_OVER,
+			Protocol::MSG_DEBUG_STEP_OUT, Protocol::MSG_DEBUG_RESUMED })
+		{
+			roundTrip(DebugMessage(type));
+		}
+		// the locals request (frame + expand path) and its reply lists
+		DebugMessage locals(Protocol::MSG_DEBUG_LOCALS);
+		locals.set(Protocol::FIELD_FRAME, "1");
+		locals.setList(Protocol::LIST_EXPAND_PATH, { "self", "[3]" });
+		locals.setList(Protocol::LIST_VAR_NAMES, { "id", "speed" });
+		locals.setList(Protocol::LIST_VAR_SCOPES, { "field", "field" });
+		locals.setList(Protocol::LIST_VAR_TYPES, { "string", "number" });
+		locals.setList(Protocol::LIST_VAR_VALUES, { "\"Player\"", "4.5" });
+		locals.setList(Protocol::LIST_VAR_EXPANDABLE, { "0", "0" });
+		out = roundTrip(locals);
+		CHECK(out.get(Protocol::FIELD_FRAME) == "1");
+		REQUIRE(out.getList(Protocol::LIST_EXPAND_PATH).size() == 2);
+		CHECK(out.getList(Protocol::LIST_VAR_VALUES)[0] == "\"Player\"");
+	}
 	SECTION("scene_transforms (whole-scene motion mirror, parallel lists)")
 	{
 		DebugMessage transforms(Protocol::MSG_SCENE_TRANSFORMS);

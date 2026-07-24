@@ -514,6 +514,12 @@ int main(int argc, char** argv)
 			Orkige::loadEditorIconFont(ImGui::GetIO(), iconFontPath.c_str(),
 				14.0f, editorContentScale);
 		}
+		// the monospace sibling for the Script panel's code editor - loaded
+		// AFTER the icon merge (which targets the last-added base font) so the
+		// inline icons stay in the UI font; never fatal (the panel falls back
+		// to the UI font when no mono font exists)
+		Orkige::loadMacSystemMonoFont(ImGui::GetIO(), 13.0f,
+			editorContentScale);
 		Orkige::ImGuiFacadeRenderer imguiRenderer;
 		if (!imguiRenderer.initialise(300 /*layer zOrder*/))
 		{
@@ -2154,6 +2160,24 @@ int main(int argc, char** argv)
 			if (selfCheck && frameCount == 5)
 			{
 				viewSettings.showGuiPreviewPanel = true;
+				// the Script panel too: it must dock beside Scene and render
+				// (the frame-30 probe asserts both windows joined that node).
+				// Open a real script tab so the code editor's document +
+				// breakpoint-gutter render path executes, not just the
+				// empty-panel placeholder.
+				viewSettings.showScriptPanel = true;
+				const std::filesystem::path selfcheckScript =
+					std::filesystem::temp_directory_path() /
+						"orkige_selfcheck_script.lua";
+				{
+					std::ofstream file(selfcheckScript, std::ios::trunc);
+					file << "-- selfcheck fixture\n"
+						"function update(self, dt)\n"
+						"\tlocal beat = dt\n"
+						"end\n";
+				}
+				scriptPanelOpenFile(state, viewSettings,
+					selfcheckScript.string());
 			}
 
 			// snapshot the panel visibility: a close-button click (the x in
@@ -2282,6 +2306,17 @@ int main(int argc, char** argv)
 			{
 				drawGuiPreviewPanel(state, guiPreviewStage, editorCore,
 					viewSettings);
+			}
+			// a pending script-open request pulls the Script panel up even
+			// when it was closed (scriptPanelOpenFile flips the flag)
+			if (viewSettings.showScriptPanel)
+			{
+				drawScriptPanel(state, playSession, editorCore, viewSettings,
+					&viewSettings.showScriptPanel);
+			}
+			else
+			{
+				state.scriptPanelFocused = false;
 			}
 			bool panelVisibilityChanged = false;
 #define ORKIGE_CHECK_PANEL_VISIBILITY(id, label, visible, member) \
@@ -2534,9 +2569,13 @@ int main(int argc, char** argv)
 				ImGuiWindow* sceneWindow = ImGui::FindWindowByName("Scene");
 				ImGuiWindow* guiPreviewWindow =
 					ImGui::FindWindowByName("GuiPreview");
+				ImGuiWindow* scriptWindow =
+					ImGui::FindWindowByName("Script###Script");
 				const bool previewDockOk = sceneWindow &&
 					sceneWindow->DockId != 0 && guiPreviewWindow &&
-					guiPreviewWindow->DockId == sceneWindow->DockId;
+					guiPreviewWindow->DockId == sceneWindow->DockId &&
+					scriptWindow != nullptr &&
+					scriptWindow->DockId == sceneWindow->DockId;
 				SDL_Log("orkige_editor: selfcheck frame 30 - gameobjects=%zu "
 					"(fixture cubes + test mesh %s), test_mesh.glb resource %s, "
 					"imgui vertices=%d, scene RTT %dx%d (panel wants %dx%d), "

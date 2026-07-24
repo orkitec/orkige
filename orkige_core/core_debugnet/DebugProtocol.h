@@ -136,6 +136,41 @@ namespace Orkige
 		//! @brief stop an in-progress trace NOW and write what was captured
 		//! (@see MSG_RECORD_START). A no-op when nothing is recording.
 		extern ORKIGE_CORE_DLL const String MSG_RECORD_STOP;
+		//! @brief replace the runtime's script-breakpoint set (the editor's
+		//! script debugger): LIST_BREAKPOINTS carries the WHOLE set as
+		//! "<file>:<line>" entries (project-relative script path, 1-based
+		//! line) - a full-list replace, so clearing one breakpoint just sends
+		//! the remaining set and an empty list clears everything. The player
+		//! applies it through the ScriptRuntime debug seam, which installs a
+		//! script line hook only while the set is non-empty (zero overhead
+		//! otherwise). Refused honestly (an error reply) where the runtime
+		//! cannot block at a break: the browser player and scripting-disabled
+		//! builds. An additive protocol-extension message riding the ONE debug
+		//! protocol; old players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_DEBUG_BREAKPOINTS;
+		//! @brief release a held script break and continue freely (@see
+		//! MSG_DEBUG_BREAK). Only meaningful while the runtime is paused at a
+		//! break; ignored otherwise. The player answers MSG_DEBUG_RESUMED.
+		extern ORKIGE_CORE_DLL const String MSG_DEBUG_RESUME;
+		//! release a held break and pause again at the very next executed
+		//! script line, stepping INTO calls (@see MSG_DEBUG_RESUME)
+		extern ORKIGE_CORE_DLL const String MSG_DEBUG_STEP_IN;
+		//! release a held break and pause at the next line in the SAME (or a
+		//! shallower) function - calls run through (@see MSG_DEBUG_RESUME)
+		extern ORKIGE_CORE_DLL const String MSG_DEBUG_STEP_OUT;
+		//! release a held break and pause once the current function returned
+		//! (@see MSG_DEBUG_RESUME)
+		extern ORKIGE_CORE_DLL const String MSG_DEBUG_STEP_OVER;
+		//! @brief read variables at a frame of the held break: FIELD_FRAME is
+		//! the stack-frame index (0 = innermost, matching MSG_DEBUG_BREAK's
+		//! stack lists); an optional LIST_EXPAND_PATH names a root variable
+		//! plus a chain of table keys to list ONE nested table (bounded - the
+		//! explicit-expand contract, never a whole-state dump). The player
+		//! echoes the request fields and answers with the same message type
+		//! carrying the parallel LIST_VAR_* lists; outside a break it answers
+		//! an error. Editor->player it is the request, player->editor the
+		//! reply.
+		extern ORKIGE_CORE_DLL const String MSG_DEBUG_LOCALS;
 
 		//--- runtime -> editor ---
 		extern ORKIGE_CORE_DLL const String MSG_HELLO;				//!< first message after connect; FIELD_SCENE: loaded scene path
@@ -223,6 +258,21 @@ namespace Orkige
 		//! runtime_* / get_state surface). The whole-scene delta exists only so
 		//! the editor can move ALL its authored nodes at once, cheaply.
 		extern ORKIGE_CORE_DLL const String MSG_SCENE_TRANSFORMS;
+		//! @brief script execution PAUSED at a breakpoint / step landing: the
+		//! player is blocked inside the script hook (mid-frame - distinct from
+		//! the frame-boundary MSG_PAUSE state) and keeps servicing the debug
+		//! link from a bounded nested pump. FIELD_PATH + FIELD_LINE carry the
+		//! paused location (project-relative script path, 1-based line);
+		//! LIST_STACK_SOURCES / LIST_STACK_LINES / LIST_STACK_FUNCTIONS the
+		//! call stack innermost-first (a host-call frame reads "[host]").
+		//! Released by MSG_DEBUG_RESUME / the step commands; a vanished client
+		//! auto-resumes (the runtime must never stay wedged in a break).
+		//! Additive since protocol v1: old editors ignore unknown types.
+		extern ORKIGE_CORE_DLL const String MSG_DEBUG_BREAK;
+		//! @brief the break released (a resume or step command was applied and
+		//! execution continues; a step that lands raises a fresh
+		//! MSG_DEBUG_BREAK). Additive since protocol v1.
+		extern ORKIGE_CORE_DLL const String MSG_DEBUG_RESUMED;
 		extern ORKIGE_CORE_DLL const String MSG_BYE;				//!< orderly shutdown notice
 
 		//--- field names ---
@@ -335,6 +385,32 @@ namespace Orkige
 		//! string list beside LIST_IDS so the message stays flat (no nested
 		//! objects), like the ui-rect / profile-info lists.
 		extern ORKIGE_CORE_DLL const String LIST_TRANSFORMS;
+		//! MSG_DEBUG_BREAK: the paused 1-based line (FIELD_PATH is the file)
+		extern ORKIGE_CORE_DLL const String FIELD_LINE;
+		//! MSG_DEBUG_LOCALS: the stack-frame index (0 = innermost)
+		extern ORKIGE_CORE_DLL const String FIELD_FRAME;
+		//! MSG_DEBUG_BREAKPOINTS: the whole breakpoint set, one
+		//! "<file>:<line>" entry per element (full-list replace)
+		extern ORKIGE_CORE_DLL const String LIST_BREAKPOINTS;
+		//! @brief MSG_DEBUG_BREAK: the paused call stack as three parallel
+		//! lists, innermost first - the normalized chunk path per frame (or
+		//! "[host]" for a host-call frame), the 1-based current line per frame
+		//! and the best-effort function name per frame ("" = anonymous).
+		extern ORKIGE_CORE_DLL const String LIST_STACK_SOURCES;
+		extern ORKIGE_CORE_DLL const String LIST_STACK_LINES;
+		extern ORKIGE_CORE_DLL const String LIST_STACK_FUNCTIONS;
+		//! MSG_DEBUG_LOCALS request: root variable name + table-key chain
+		//! ("[3]" bracket form for non-string keys) selecting ONE nested table
+		extern ORKIGE_CORE_DLL const String LIST_EXPAND_PATH;
+		//! @brief MSG_DEBUG_LOCALS reply: the variable rows as five parallel
+		//! lists - name, scope ("local"/"upvalue"/"field"), type name, bounded
+		//! display value and the "1"/"0" may-expand flag (a table whose fields
+		//! a follow-up LIST_EXPAND_PATH request can list).
+		extern ORKIGE_CORE_DLL const String LIST_VAR_NAMES;
+		extern ORKIGE_CORE_DLL const String LIST_VAR_SCOPES;
+		extern ORKIGE_CORE_DLL const String LIST_VAR_TYPES;
+		extern ORKIGE_CORE_DLL const String LIST_VAR_VALUES;
+		extern ORKIGE_CORE_DLL const String LIST_VAR_EXPANDABLE;
 	}
 
 	//! @brief one protocol message: a type plus flat string fields and flat

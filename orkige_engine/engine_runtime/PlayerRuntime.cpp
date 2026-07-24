@@ -25,6 +25,7 @@
 #include "core_game/GameState.h"
 #include "core_debugnet/TraceWriter.h"
 #include "core_script/ScriptEventBus.h"
+#include "core_script/ScriptRuntime.h"
 #include "engine_base/EngineLog.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
@@ -835,16 +836,7 @@ namespace Orkige
 		}
 		if (linkConsumeDisconnected())
 		{
-			// a vanished editor must not leave the game frozen
-			mPaused = false;
-			mPendingSteps = 0;
-			mSelectedObjectId.clear();
-			mHierarchySent = false;
-			// the transform mirror re-baselines for the next editor session
-			mSceneTransformsFullResend = true;
-			mLastSentTransforms.clear();
-			// a NEW editor session must learn about existing failures again
-			mReportedScriptErrors.clear();
+			onEditorClientLost();
 			if (mDialMode)
 			{
 				// the dialed-out session ended (the editor stopped it or the
@@ -923,6 +915,15 @@ namespace Orkige
 		if (!mActive)
 		{
 			return;
+		}
+		// the script debugger must not call back into a dead link: drop the
+		// pump handler, clear breakpoints and release any held break
+		if (mDebugPumpInstalled && ScriptRuntime::getSingletonPtr() != NULL)
+		{
+			ScriptRuntime::getSingleton().setDebugPumpHandler(
+				std::function<void()>());
+			ScriptRuntime::getSingleton().debugDetach();
+			mDebugPumpInstalled = false;
 		}
 		// the capture may outlive the engine otherwise - detach it from
 		// the engine log first
@@ -1287,12 +1288,56 @@ namespace Orkige
 			"' = " + value);
 	}
 	//---------------------------------------------------------
+	//! @brief the shared client-loss bookkeeping (see the header) - update()'s
+	//! disconnect edge and the break pump's mid-break loss both land here
+	void PlayerDebugLink::onEditorClientLost()
+	{
+		// a vanished editor must not leave the game frozen
+		mPaused = false;
+		mPendingSteps = 0;
+		mSelectedObjectId.clear();
+		mHierarchySent = false;
+		// the transform mirror re-baselines for the next editor session
+		mSceneTransformsFullResend = true;
+		mLastSentTransforms.clear();
+		// a NEW editor session must learn about existing failures again
+		mReportedScriptErrors.clear();
+		// commands deferred during a break belonged to the vanished session
+		mDeferredMessages.clear();
+		// the script debugger too: clear breakpoints and release a held break
+		// (client disconnect => auto-resume; a new session re-sends its set)
+		if (ScriptRuntime::getSingletonPtr() != NULL)
+		{
+			ScriptRuntime::getSingleton().debugDetach();
+		}
+	}
+	//---------------------------------------------------------
 	//! drain and act on every queued editor command
 	void PlayerDebugLink::processMessages(
 		GameObjectManager & gameObjectManager)
 	{
+		// FIRST replay what a break's nested pump deferred (in arrival order),
+		// then drain the live transport
+		if (!mDeferredMessages.empty())
+		{
+			std::vector<DebugMessage> deferred;
+			deferred.swap(mDeferredMessages);
+			for (DebugMessage const & message : deferred)
+			{
+				handleOneMessage(gameObjectManager, message);
+			}
+		}
 		DebugMessage message;
 		while (linkReceive(message))
+		{
+			handleOneMessage(gameObjectManager, message);
+		}
+	}
+	//---------------------------------------------------------
+	//! dispatch one received editor command
+	void PlayerDebugLink::handleOneMessage(
+		GameObjectManager & gameObjectManager, DebugMessage const & message)
+	{
 		{
 			if (message.type == Protocol::MSG_PAUSE)
 			{
@@ -1478,6 +1523,26 @@ namespace Orkige
 					}
 				}
 			}
+			else if (message.type == Protocol::MSG_DEBUG_BREAKPOINTS)
+			{
+				// the script debugger's full breakpoint-set replace (the same
+				// handler answers during a break's nested pump)
+				handleDebugBreakpoints(message);
+			}
+			else if (message.type == Protocol::MSG_DEBUG_RESUME ||
+				message.type == Protocol::MSG_DEBUG_STEP_IN ||
+				message.type == Protocol::MSG_DEBUG_STEP_OVER ||
+				message.type == Protocol::MSG_DEBUG_STEP_OUT)
+			{
+				// release a held script break (normally consumed inside the
+				// break pump; reaching it here just means "not paused")
+				handleDebugResume(message);
+			}
+			else if (message.type == Protocol::MSG_DEBUG_LOCALS)
+			{
+				// paused-frame variable readback (locals / one expanded table)
+				handleDebugLocals(message);
+			}
 			// --- protocol-extension slot -------------------------------------
 			// Additive editor->runtime messages ride THIS one debug protocol as
 			// new else-if branches (old players hit the unknown-else below and
@@ -1492,6 +1557,216 @@ namespace Orkige
 				sendError("unknown command '" + message.type + "'");
 			}
 		}
+	}
+	//---------------------------------------------------------
+	//--- script debugger (the MSG_DEBUG_* family) ------------
+	//---------------------------------------------------------
+	void PlayerDebugLink::handleDebugBreakpoints(DebugMessage const & message)
+	{
+		ScriptRuntime * runtime = ScriptRuntime::getSingletonPtr();
+		if (runtime == NULL)
+		{
+			sendError("debug_breakpoints: no scripting runtime in this player");
+			return;
+		}
+		std::vector<ScriptBreakpoint> breakpoints;
+		for (String const & entry :
+			message.getList(Protocol::LIST_BREAKPOINTS))
+		{
+			ScriptBreakpoint breakpoint;
+			if (ScriptDebugCore::parseBreakpoint(entry, breakpoint))
+			{
+				breakpoints.push_back(breakpoint);
+			}
+			else
+			{
+				sendError("debug_breakpoints: bad entry '" + entry +
+					"' (expected <file>:<line>)");
+			}
+		}
+		String error;
+		if (!runtime->setDebugBreakpoints(breakpoints, &error))
+		{
+			// the honest refusal: the browser player cannot block its main
+			// thread at a break, and a no-scripting build has nothing to hook
+			sendError("debug_breakpoints: " + error);
+			return;
+		}
+		// from the first successful set on, this link IS the break pump: while
+		// a break holds script execution the runtime calls serviceBreakPump()
+		// in a loop and the editor keeps its session
+		if (!mDebugPumpInstalled)
+		{
+			runtime->setDebugPumpHandler([this]() { serviceBreakPump(); });
+			mDebugPumpInstalled = true;
+		}
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::handleDebugResume(DebugMessage const & message)
+	{
+		ScriptRuntime * runtime = ScriptRuntime::getSingletonPtr();
+		if (runtime == NULL || !runtime->isDebugBroken())
+		{
+			sendError(message.type + ": not paused at a script break");
+			return;
+		}
+		ScriptStepMode mode = ScriptStepMode::None;
+		if (message.type == Protocol::MSG_DEBUG_STEP_IN)
+		{
+			mode = ScriptStepMode::In;
+		}
+		else if (message.type == Protocol::MSG_DEBUG_STEP_OVER)
+		{
+			mode = ScriptStepMode::Over;
+		}
+		else if (message.type == Protocol::MSG_DEBUG_STEP_OUT)
+		{
+			mode = ScriptStepMode::Out;
+		}
+		runtime->debugResume(mode);
+		linkSend(DebugMessage(Protocol::MSG_DEBUG_RESUMED));
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::handleDebugLocals(DebugMessage const & message)
+	{
+		ScriptRuntime * runtime = ScriptRuntime::getSingletonPtr();
+		if (runtime == NULL || !runtime->isDebugBroken())
+		{
+			sendError("debug_locals: not paused at a script break");
+			return;
+		}
+		const int frameIndex =
+			std::atoi(message.get(Protocol::FIELD_FRAME).c_str());
+		StringVector const & expandPath =
+			message.getList(Protocol::LIST_EXPAND_PATH);
+		String error;
+		const std::vector<ScriptDebugVariable> variables =
+			runtime->debugVariables(frameIndex, expandPath, 64, &error);
+		if (!error.empty())
+		{
+			sendError("debug_locals: " + error);
+			return;
+		}
+		DebugMessage reply(Protocol::MSG_DEBUG_LOCALS);
+		reply.set(Protocol::FIELD_FRAME,
+			std::to_string(frameIndex));
+		reply.setList(Protocol::LIST_EXPAND_PATH, expandPath);
+		StringVector names;
+		StringVector scopes;
+		StringVector types;
+		StringVector values;
+		StringVector expandable;
+		for (ScriptDebugVariable const & variable : variables)
+		{
+			names.push_back(variable.name);
+			scopes.push_back(variable.scope);
+			types.push_back(variable.type);
+			values.push_back(variable.value);
+			expandable.push_back(variable.expandable ? "1" : "0");
+		}
+		reply.setList(Protocol::LIST_VAR_NAMES, names);
+		reply.setList(Protocol::LIST_VAR_SCOPES, scopes);
+		reply.setList(Protocol::LIST_VAR_TYPES, types);
+		reply.setList(Protocol::LIST_VAR_VALUES, values);
+		reply.setList(Protocol::LIST_VAR_EXPANDABLE, expandable);
+		linkSend(reply);
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::sendDebugBreakNotification()
+	{
+		ScriptRuntime * runtime = ScriptRuntime::getSingletonPtr();
+		if (runtime == NULL)
+		{
+			return;
+		}
+		DebugMessage note(Protocol::MSG_DEBUG_BREAK);
+		note.set(Protocol::FIELD_PATH, runtime->debugBreakFile());
+		note.set(Protocol::FIELD_LINE,
+			std::to_string(runtime->debugBreakLine()));
+		StringVector sources;
+		StringVector lines;
+		StringVector functions;
+		for (ScriptStackFrame const & frame : runtime->debugStackFrames())
+		{
+			sources.push_back(frame.source);
+			lines.push_back(std::to_string(frame.line));
+			functions.push_back(frame.function);
+		}
+		note.setList(Protocol::LIST_STACK_SOURCES, sources);
+		note.setList(Protocol::LIST_STACK_LINES, lines);
+		note.setList(Protocol::LIST_STACK_FUNCTIONS, functions);
+		linkSend(note);
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::serviceBreakPump()
+	{
+		// REENTRANCY: this runs INSIDE script execution (the runtime's line
+		// hook), inside the frame loop's script update. Only the debugger's
+		// own commands (and quit) are handled here; every other editor command
+		// is deferred to the next normal frame drain so nothing mutates the
+		// world mid-script. The loop around this method lives in the runtime;
+		// one call = one bounded service pass.
+		ScriptRuntime * runtime = ScriptRuntime::getSingletonPtr();
+		if (runtime == NULL)
+		{
+			return;
+		}
+		if (!mActive || !linkHasClient())
+		{
+			// no editor session (or it just ended): auto-resume, never wedge
+			runtime->debugDetach();
+			return;
+		}
+		// announce the pause exactly once per break entry
+		if (runtime->debugBreakSequence() != mNotifiedBreakSequence)
+		{
+			mNotifiedBreakSequence = runtime->debugBreakSequence();
+			sendDebugBreakNotification();
+		}
+		linkUpdate();
+		if (linkConsumeDisconnected() || !linkHasClient())
+		{
+			// the editor vanished mid-break: the shared loss bookkeeping
+			// detaches the debugger, which resumes the held break
+			onEditorClientLost();
+			return;
+		}
+		DebugMessage message;
+		while (linkReceive(message))
+		{
+			if (message.type == Protocol::MSG_DEBUG_BREAKPOINTS)
+			{
+				handleDebugBreakpoints(message);
+			}
+			else if (message.type == Protocol::MSG_DEBUG_RESUME ||
+				message.type == Protocol::MSG_DEBUG_STEP_IN ||
+				message.type == Protocol::MSG_DEBUG_STEP_OVER ||
+				message.type == Protocol::MSG_DEBUG_STEP_OUT)
+			{
+				handleDebugResume(message);
+			}
+			else if (message.type == Protocol::MSG_DEBUG_LOCALS)
+			{
+				handleDebugLocals(message);
+			}
+			else if (message.type == Protocol::MSG_QUIT)
+			{
+				// an editor Stop while broken: acknowledge, release the break
+				// and let the frame loop unwind into its normal quit path
+				mQuitRequested = true;
+				linkSend(DebugMessage(Protocol::MSG_BYE));
+				runtime->debugDetach();
+			}
+			else
+			{
+				// everything else runs at the next frame boundary, not inside
+				// script execution
+				mDeferredMessages.push_back(message);
+			}
+		}
+		// keep the OS from declaring the window unresponsive while blocked
+		SDL_PumpEvents();
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
 	}
 	//---------------------------------------------------------
 	//! stream the selected object's state at ~15Hz

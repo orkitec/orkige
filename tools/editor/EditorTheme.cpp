@@ -206,6 +206,21 @@ namespace Orkige
 			"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",	// Noto fallback
 		};
 
+		//! monospace font candidates for the Script panel's code editor (system
+		//! fonts loaded at runtime, never shipped); no match -> nullptr -> the
+		//! panel renders in the UI font
+		const char* const SYSTEM_MONO_FONT_PATHS[] = {
+			"/System/Library/Fonts/SFNSMono.ttf",					// macOS
+			"/System/Library/Fonts/Menlo.ttc",						// macOS fallback
+			"C:/Windows/Fonts/consola.ttf",							// Windows
+			"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",	// Debian/Ubuntu
+			"/usr/share/fonts/TTF/DejaVuSansMono.ttf",				// Arch/Fedora-ish
+		};
+
+		//! the standalone monospace font (Script panel); null until a
+		//! successful loadMacSystemMonoFont
+		ImFont* gMonoFont = nullptr;
+
 		//! the standalone larger icon font (grid-tile drawing); null until a
 		//! successful loadEditorIconFont, which is also the "icons available" flag
 		ImFont* gIconFontLarge = nullptr;
@@ -435,6 +450,34 @@ namespace Orkige
 				sizePoints * contentScale, &config);
 		}
 		return nullptr; // no system font found - keep the default font
+	}
+	//---------------------------------------------------------
+	ImFont* loadMacSystemMonoFont(ImGuiIO& io, float sizePoints,
+		float contentScale)
+	{
+		gMonoFont = nullptr;
+		for (const char* fontPath : SYSTEM_MONO_FONT_PATHS)
+		{
+			std::error_code ignored;
+			if (!std::filesystem::exists(fontPath, ignored))
+			{
+				continue;
+			}
+			ImFontConfig config;
+			config.SizePixels = 0.0f;
+			gMonoFont = io.Fonts->AddFontFromFileTTF(fontPath,
+				sizePoints * contentScale, &config);
+			if (gMonoFont != nullptr)
+			{
+				return gMonoFont;
+			}
+		}
+		return nullptr; // no mono font found - the panel keeps the UI font
+	}
+	//---------------------------------------------------------
+	ImFont* editorMonoFont()
+	{
+		return gMonoFont;
 	}
 	//---------------------------------------------------------
 	void loadEditorIconFont(ImGuiIO& io, const char* fontPath, float sizePoints,

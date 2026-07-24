@@ -12,10 +12,11 @@ TEST_CASE("ImGui and macOS menus share one complete panel registry",
 	using namespace Orkige;
 	REQUIRE(EDITOR_PANEL_REGISTRY.size() ==
 		static_cast<std::size_t>(PANEL_COUNT));
-	REQUIRE(PANEL_COUNT == 8);
+	REQUIRE(PANEL_COUNT == 9);
 
 	const char* expected[] = { "Scene Hierarchy", "Inspector", "Console",
-		"Stats", "Scene", "Assets", "Tile Palette", "GUI Preview" };
+		"Stats", "Scene", "Assets", "Tile Palette", "GUI Preview",
+		"Script" };
 	std::set<std::string> uniqueLabels;
 	for (int each = 0; each < PANEL_COUNT; ++each)
 	{
@@ -28,4 +29,7 @@ TEST_CASE("ImGui and macOS menus share one complete panel registry",
 	CHECK(EDITOR_PANEL_REGISTRY[PANEL_GUI_PREVIEW].defaultVisible == false);
 	// the Tile Palette is closed by default (it auto-opens on entering 2D mode)
 	CHECK(EDITOR_PANEL_REGISTRY[PANEL_TILE_PALETTE].defaultVisible == false);
+	// the Script panel is closed by default (it auto-opens on a script
+	// double-click and on a debugger break-hit)
+	CHECK(EDITOR_PANEL_REGISTRY[PANEL_SCRIPT].defaultVisible == false);
 }

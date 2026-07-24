@@ -34,6 +34,12 @@ namespace Orkige
 		const String MSG_SCREENSHOT			= "screenshot";
 		const String MSG_RECORD_START		= "record_start";
 		const String MSG_RECORD_STOP		= "record_stop";
+		const String MSG_DEBUG_BREAKPOINTS	= "debug_breakpoints";
+		const String MSG_DEBUG_RESUME		= "debug_resume";
+		const String MSG_DEBUG_STEP_IN		= "debug_step_in";
+		const String MSG_DEBUG_STEP_OVER	= "debug_step_over";
+		const String MSG_DEBUG_STEP_OUT		= "debug_step_out";
+		const String MSG_DEBUG_LOCALS		= "debug_locals";
 
 		const String MSG_HELLO				= "hello";
 		const String MSG_HIERARCHY			= "hierarchy";
@@ -50,6 +56,8 @@ namespace Orkige
 		const String MSG_PROFILE			= "profile";
 		const String MSG_PROFILE_DATA		= "profile_data";
 		const String MSG_SCENE_TRANSFORMS	= "scene_transforms";
+		const String MSG_DEBUG_BREAK		= "debug_break";
+		const String MSG_DEBUG_RESUMED		= "debug_resumed";
 		const String MSG_BYE				= "bye";
 
 		const String FIELD_ID				= "id";
@@ -98,6 +106,18 @@ namespace Orkige
 		const String LIST_PROFILE_NAMES		= "prof_names";
 		const String LIST_PROFILE_INFO		= "prof_info";
 		const String LIST_TRANSFORMS		= "xforms";
+		const String FIELD_LINE				= "line";
+		const String FIELD_FRAME			= "frame";
+		const String LIST_BREAKPOINTS		= "breakpoints";
+		const String LIST_STACK_SOURCES		= "stack_sources";
+		const String LIST_STACK_LINES		= "stack_lines";
+		const String LIST_STACK_FUNCTIONS	= "stack_functions";
+		const String LIST_EXPAND_PATH		= "expand";
+		const String LIST_VAR_NAMES			= "var_names";
+		const String LIST_VAR_SCOPES		= "var_scopes";
+		const String LIST_VAR_TYPES			= "var_types";
+		const String LIST_VAR_VALUES		= "var_values";
+		const String LIST_VAR_EXPANDABLE	= "var_expandable";
 	}
 
 	namespace

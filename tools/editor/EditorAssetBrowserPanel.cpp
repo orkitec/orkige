@@ -1774,9 +1774,18 @@ void openAssetEntry(EditorState& state, Orkige::EditorCore& core,
 	case AssetKind::Prefab:
 		openPrefabForEdit(state, core, entry.absolutePath);
 		break;
+	case AssetKind::Script:
+		// a project script opens in the embedded Script panel (the external
+		// editor stays reachable via the context menu)
+		if (gViewSettings)
+		{
+			scriptPanelOpenFile(state, *gViewSettings, entry.absolutePath);
+			break;
+		}
+		openWithDefaultApp(entry.absolutePath);
+		break;
 	case AssetKind::Mesh:
 	case AssetKind::Texture:
-	case AssetKind::Script:
 	case AssetKind::Unknown:
 	default:
 		openWithDefaultApp(entry.absolutePath);

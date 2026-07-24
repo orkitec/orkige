@@ -24,6 +24,7 @@
 #include "FileDialog.h"
 #include "MarqueeSelection.h"
 #include "PlayMirror.h"
+#include "ScriptBreakpoints.h"
 #include "SyntaxHighlight.h"
 
 #include <core_debug/DebugMacros.h>	// tagged oDebug* diagnostics (SDL_Log policy)
@@ -296,6 +297,10 @@ struct ViewSettings
 	//! GUI Preview panel (project-only; renders a .oui screen at a simulated
 	//! device context into an offscreen target - the collaborative UI loop)
 	bool showGuiPreviewPanel = false;
+	//! Script panel (the embedded Lua editor + debugger). Closed by default -
+	//! it auto-opens on a script double-click in the Asset browser and on a
+	//! debugger break-hit; a saved layout in orkige_editor_view.ini wins.
+	bool showScriptPanel = false;
 	//! GUI Preview language axis: the language tag the preview resolves `@key`
 	//! captions in ("" = the project's source language). Persisted so the tab
 	//! reopens on the last previewed language.
@@ -844,6 +849,20 @@ struct EditorState
 	//! "Add Component" popup search state (Inspector)
 	char addComponentSearch[128] = "";
 	bool addComponentFocusPending = false;
+	//! @brief the per-project script breakpoint store (the Script panel's
+	//! gutter, the MCP set/clear/list_breakpoint verbs and the play session's
+	//! MSG_DEBUG_BREAKPOINTS push all share it). Attached/detached by the
+	//! project open/close path; persists under <project>/.orkige/breakpoints.
+	Orkige::ScriptBreakpointStore breakpoints;
+	//! @brief one-shot Script panel open request (consumed by drawScriptPanel):
+	//! open/focus this script - absolute or project-relative path - and, when
+	//! scriptOpenLine > 0, scroll to that 1-based line. Raised by the Asset
+	//! browser double-click, the debugger break-hit and the error markers.
+	std::string scriptOpenRequest;
+	int scriptOpenLine = 0;
+	//! the Script panel held keyboard focus while drawing (gates its local
+	//! shortcuts, mirrors scenePanelFocused / hierarchyFocused)
+	bool scriptPanelFocused = false;
 	// (the ModelComponent mesh / ScriptComponent script / SpriteComponent
 	// texture field buffers are gone: the auto Inspector's generic property
 	// widgets keep their own per-field state)
@@ -1027,6 +1046,52 @@ struct PlaySession
 	//! line, the toolbar warning marker and the remote hierarchy tint;
 	//! cleared on Stop / a new session (clearRemoteState)
 	std::set<std::string> scriptErrorIds;
+	//! the raw script-error texts of this session (script_error + [remote]
+	//! error lines): the Script panel parses their "file:line" references
+	//! into error markers on the open document. Bounded (newest kept);
+	//! cleared on Stop / a new session (clearRemoteState).
+	std::vector<std::string> scriptErrorMessages;
+	//--- script debugger session state (MSG_DEBUG_*) ---
+	//! paused at a script breakpoint/step (a MID-FRAME pause, visually and
+	//! semantically distinct from the toolbar's frame-boundary Paused mode -
+	//! the session mode stays Playing while broken)
+	bool debugBroken = false;
+	std::string debugBreakFile;		//!< paused script (project-relative)
+	int debugBreakLine = 0;			//!< paused 1-based line
+	//! increments per received MSG_DEBUG_BREAK (a step landing raises a new
+	//! one), so the panel can re-focus the hit line exactly once per pause
+	unsigned int debugBreakSeq = 0;
+	//! one captured stack frame of the held break (innermost first)
+	struct DebugStackFrame
+	{
+		std::string source;
+		int line = 0;
+		std::string function;
+	};
+	std::vector<DebugStackFrame> debugStack;
+	//! the panel's selected stack frame (locals shown for it; 0 = innermost)
+	int debugSelectedFrame = 0;
+	//! one variable row of a MSG_DEBUG_LOCALS reply
+	struct DebugVariableRow
+	{
+		std::string name;
+		std::string scope;
+		std::string type;
+		std::string value;
+		bool expandable = false;
+	};
+	//! locals/expansion cache: "<frame>|<joined expand path>" -> the reply's
+	//! rows. Filled by MSG_DEBUG_LOCALS replies; dropped whenever a new break
+	//! arrives or the session resumes (the values are stale then).
+	std::map<std::string, std::vector<DebugVariableRow>> debugLocalsCache;
+	//! requests already in flight (same key) so panel redraws do not spam
+	std::set<std::string> debugLocalsPending;
+	//! increments per received MSG_DEBUG_LOCALS reply (the MCP get_locals
+	//! poll freshness signal)
+	unsigned int debugLocalsSeq = 0;
+	//! the breakpoint-store revision last pushed to this player (0 = never;
+	//! updatePlaySession re-sends on any change while the link is up)
+	unsigned int sentBreakpointRevision = 0;
 	//! Lua hot-reload watcher: poll <projectRoot>/scripts for edits
 	//! (~4 Hz) while playing and send MSG_RELOAD_SCRIPT (reload-ALL v1) to the
 	//! running player on any change. DESKTOP play only - the exported player
@@ -1450,6 +1515,31 @@ void requestRemoteRecord(PlaySession& session, std::string const& path,
 //! is connected.
 void stopRemoteRecord(PlaySession& session);
 
+//--- script debugger (the MSG_DEBUG_* family) --------------------------------
+
+//! @brief push the CURRENT breakpoint set to the running player
+//! (MSG_DEBUG_BREAKPOINTS full-list replace) and record the pushed revision.
+//! A no-op when no player is connected. updatePlaySession calls it on connect
+//! and on every store change; verbs/panels just mutate the store.
+void sendDebugBreakpoints(EditorState& state, PlaySession& session);
+
+//! @brief release the held script break (MSG_DEBUG_RESUME or one of the step
+//! messages - pass the DebugProtocol MSG_DEBUG_* type). Optimistically clears
+//! the broken flag (the player confirms with MSG_DEBUG_RESUMED; a landing
+//! step raises a fresh MSG_DEBUG_BREAK). A no-op unless broken and connected.
+void sendDebugCommand(PlaySession& session, Orkige::String const& messageType);
+
+//! @brief request variables at a frame of the held break (MSG_DEBUG_LOCALS;
+//! empty expandPath = the frame's locals/upvalues, else one nested table).
+//! The reply lands in session.debugLocalsCache under "<frame>|<joined path>".
+//! Deduped while a same-key request is in flight. A no-op unless broken.
+void requestDebugLocals(PlaySession& session, int frameIndex,
+	std::vector<std::string> const& expandPath);
+
+//! the cache key requestDebugLocals / the reply handler / readers share
+std::string debugLocalsKey(int frameIndex,
+	std::vector<std::string> const& expandPath);
+
 //! per-frame pump: connection progress, protocol messages, build/process
 //! supervision, crash detection. @p state backs the hot-reload watcher's
 //! animation re-cook (project resolution + the import revision); the session
@@ -1846,6 +1936,43 @@ void drawStatsPanel(PlaySession const& play, bool* visible);
 // (the session lets a `set` cvar line during Play tune the running player)
 void drawConsolePanel(EditorState& state, PlaySession& session,
 	EditorConsole& console, bool* visible);
+
+//--- Script panel (EditorScriptPanel.cpp) -----------------------------------
+
+// The embedded Lua script editor + debugger panel: tabbed TextEditor widgets
+// over the open project's scripts (syntax highlight, engine-API completion,
+// Cmd/Ctrl+S save), a click-to-toggle breakpoint gutter over
+// state.breakpoints, and - while the play session is paused at a break - the
+// debug toolbar (Continue / Step In / Over / Out), the call-stack pane and
+// the locals/upvalues pane. Open-file state lives inside the TU (the tabs are
+// UI-internal); everything shared rides EditorState/PlaySession.
+void drawScriptPanel(EditorState& state, PlaySession& session,
+	Orkige::EditorCore& core, ViewSettings& viewSettings, bool* visible);
+
+//! @brief open a script in the Script panel (raising the panel): absolute or
+//! project-relative path; line > 0 scrolls/highlights that 1-based line. The
+//! request is consumed on the panel's next draw. The Asset browser's script
+//! double-click and the break-hit handler route through here.
+void scriptPanelOpenFile(EditorState& state, ViewSettings& viewSettings,
+	std::string const& path, int line = 0);
+
+//! drop every open tab (project close / switch - unsaved edits are discarded
+//! after the confirm the caller runs; v1 asks nothing and logs instead)
+void scriptPanelCloseAll();
+
+//! any open Script tab with unsaved edits? (the quit-confirm surfaces it)
+bool scriptPanelHasUnsavedEdits();
+
+//! @brief Cmd/Ctrl+S routing: when the Script panel holds keyboard focus,
+//! save ITS active tab (returns true - the caller skips the scene save).
+//! saveCurrentDocument consults this so the one shortcut always saves what
+//! the user is looking at, including through the native macOS menu.
+bool scriptPanelSaveActiveIfFocused(EditorState& state);
+
+//! @brief the debug-shortcut dispatch (F5/F10/F11/Shift+F11 and the
+//! Cmd/Ctrl-based alternates) - called from handleEditorShortcuts while a
+//! break is held so the steps work wherever focus sits
+void handleScriptDebugShortcuts(EditorState& state, PlaySession& session);
 
 //--- asset browser (EditorAssetBrowserPanel.cpp) --------------------
 

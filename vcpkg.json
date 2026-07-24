@@ -52,6 +52,10 @@
       "platform": "!ios & !android & !emscripten"
     },
     {
+      "name": "imgui-color-text-edit",
+      "platform": "!ios & !android & !emscripten"
+    },
+    {
       "name": "catch2",
       "platform": "!ios & !android"
     },

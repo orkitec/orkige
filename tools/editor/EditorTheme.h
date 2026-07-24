@@ -103,6 +103,18 @@ namespace Orkige
 	ImFont* loadMacSystemFont(ImGuiIO& io, float sizePoints,
 		float contentScale = 1.0f);
 
+	//! @brief try to load the macOS system MONOSPACE font (SF Mono, Menlo as
+	//! the fallback) as a standalone font for the Script panel's code editor.
+	//! Same runtime-load policy and failure semantics as loadMacSystemFont;
+	//! on any failure editorMonoFont() stays nullptr and the panel renders in
+	//! the UI font. Call before the atlas is built.
+	ImFont* loadMacSystemMonoFont(ImGuiIO& io, float sizePoints,
+		float contentScale = 1.0f);
+
+	//! the standalone monospace font loaded by loadMacSystemMonoFont, or
+	//! nullptr when unavailable (the Script panel then keeps the current font)
+	ImFont* editorMonoFont();
+
 	//! @brief merge the editor icon font (Font Awesome 6 Free, Solid) into the
 	//! font atlas. The glyphs are added twice from the same .ttf: MergeMode into
 	//! the last-added (base UI) font so icons render inline with text at UI size,

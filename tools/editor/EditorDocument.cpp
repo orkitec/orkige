@@ -308,6 +308,10 @@ bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	// the collision-layer config feeds the RigidBody Inspector's layer dropdown
 	// (the editor never simulates; this is purely for authoring)
 	core.loadPhysicsLayers(state.project);
+	// the Script panel's tabs belong to the previous project; the breakpoint
+	// store swaps to this project's persisted set (.orkige/breakpoints)
+	scriptPanelCloseAll();
+	state.breakpoints.attachProject(state.project.getRootDirectory());
 	oDebugMsg("editor.project", 0, "project '" << state.project.getName() <<
 		"' opened (root '" << state.project.getRootDirectory() << "', " <<
 		state.project.listScenes().size() << " scenes)");
@@ -356,6 +360,10 @@ void closeProject(EditorState& state, Orkige::EditorCore& core)
 	}
 	// back to the built-in default layers (loose-scene mode)
 	core.resetPhysicsLayers();
+	// drop the closing project's script tabs + breakpoints (the store detaches
+	// and stops persisting; loose-scene mode keeps an in-memory set only)
+	scriptPanelCloseAll();
+	state.breakpoints.attachProject("");
 }
 
 // File > New Project...: create the skeleton (project name = the picked
@@ -1424,6 +1432,12 @@ void requestClosePrefabEdit(EditorState& state, Orkige::EditorCore& core,
 void saveCurrentDocument(EditorState& state, Orkige::EditorCore& core,
 	SDL_Window* window)
 {
+	// a focused Script panel owns Cmd/Ctrl+S: the shortcut saves the script
+	// being edited, not the scene behind it
+	if (scriptPanelSaveActiveIfFocused(state))
+	{
+		return;
+	}
 	if (isPrefabEditActive(state))
 	{
 		savePrefabEdit(state, core);

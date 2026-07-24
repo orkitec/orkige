@@ -9,6 +9,8 @@
 find_package(imgui CONFIG REQUIRED)
 # transform gizmos in the Scene panel (built against the same docking imgui)
 find_package(imguizmo CONFIG REQUIRED)
+# the Script panel's code editor widget (built against the same docking imgui)
+find_package(imgui-color-text-edit CONFIG REQUIRED)
 
 # EditorCore: the UI-independent editor logic (selection, undo/redo command
 # stack, object operations). Split into its own library so the headless unit
@@ -38,6 +40,10 @@ add_library(orkige_editor_core STATIC
     SyntaxHighlight.cpp
     PythonToolchain.h
     PythonToolchain.cpp
+    ScriptBreakpoints.h
+    ScriptBreakpoints.cpp
+    ScriptCompletion.h
+    ScriptCompletion.cpp
 )
 target_include_directories(orkige_editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(orkige_editor_core PUBLIC Orkige::Engine)
@@ -83,6 +89,7 @@ add_executable(orkige_editor
     EditorPropertyWidgets.cpp
     EditorScriptHost.h
     EditorScriptHost.cpp
+    EditorScriptPanel.cpp
     ExternalEditorLaunch.cpp
     EditorScenePanel.cpp
     EditorSettings.cpp
@@ -102,6 +109,7 @@ target_link_libraries(orkige_editor PRIVATE
     orkige_editor_core
     imgui::imgui
     imguizmo::imguizmo
+    imgui-color-text-edit::imgui-color-text-edit
 )
 
 # PCH: every editor TU pulls in OGRE (via the engine) and ImGui. CXX-only

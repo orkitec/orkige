@@ -84,6 +84,10 @@ void ViewSettings::load()
 		{
 			this->showGuiPreviewPanel = (value == "1");
 		}
+		else if (key == "panel_script")
+		{
+			this->showScriptPanel = (value == "1");
+		}
 		else if (key == "snap_enabled")
 		{
 			this->snapEnabled = (value == "1");
@@ -193,6 +197,7 @@ void ViewSettings::save() const
 		<< "panel_assets=" << (this->showAssetBrowserPanel ? 1 : 0) << "\n"
 		<< "panel_tilepalette=" << (this->showTilePalettePanel ? 1 : 0) << "\n"
 		<< "panel_gui_preview=" << (this->showGuiPreviewPanel ? 1 : 0) << "\n"
+		<< "panel_script=" << (this->showScriptPanel ? 1 : 0) << "\n"
 		<< "rotation_as_euler=" << (this->rotationAsEuler ? 1 : 0) << "\n"
 		<< "snap_enabled=" << (this->snapEnabled ? 1 : 0) << "\n"
 		<< "snap_translate=" << this->snapTranslate << "\n"

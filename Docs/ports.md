@@ -325,6 +325,29 @@ behavioral patch:
   a hovered-selected tab (one `ImGuiCol_TabHovered` covers all tabs), so
   the split lives in the tab render.
 
+## ports/imgui-color-text-edit
+
+The Script panel's code-editor widget (`goossens/ImGuiColorTextEdit` — the
+actively maintained rework of the classic syntax-highlighting editor widget:
+language tokenizers, markers, line decorators, find/replace, autocomplete
+hooks), pinned to a known-good commit because the upstream repo tags no
+releases and ships no library CMake. Not in the vcpkg registry, hence the
+overlay port — same conventions as `ports/imgui`:
+
+- our `CMakeLists.txt` + config template are installed OVER the source; the
+  static lib builds from `TextEditor.{h,cpp}` ONLY. `TextDiff.*` and its
+  bundled `dtl.h` diff library are deliberately omitted (unused by the
+  editor, and leaving them out keeps the port's license inventory MIT-only).
+- PUBLIC dependency on `imgui::imgui`, so it always compiles against the
+  same docking imgui the editor uses (the widget speaks the modern key API;
+  it needs no imgui internals and no texture API). `IMGUI_USE_WCHAR32`
+  intentionally matches the imgui port's configuration (unset — the widget
+  works on `ImWchar` either way, but the two must agree).
+- `cxx_std_17` (the widget's own requirement; the engine builds C++20).
+
+Consumed only by `orkige_editor` (desktop platforms — the same
+`!ios & !android & !emscripten` gate as imgui itself).
+
 ## nanosvg (stock port — no overlay)
 
 `nanosvg` is a plain vcpkg-registry dependency (`vcpkg.json`), NOT an overlay

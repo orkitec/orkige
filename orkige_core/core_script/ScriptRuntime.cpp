@@ -15,7 +15,10 @@
 #include "core_filesystem/ResourceReader.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -192,8 +195,23 @@ namespace Orkige
 				this->scriptSearchRoot + "' and the working directory)";
 			return optr<ScriptInstance>();
 		}
-		const sol::protected_function_result loadResult = lua.safe_script_file(
-			resolvedPath, instance->environment, sol::script_pass_on_error);
+		// load the on-disk file through a memory chunk so the chunk NAME stays
+		// the path the component asked for (project-relative), never the
+		// machine-local absolute path resolveScriptPath found. Every instance
+		// of one script then shares ONE chunk name - the key the script
+		// debugger's breakpoints and the error file:line prefixes agree on.
+		std::ifstream file(resolvedPath, std::ios::binary);
+		if (!file)
+		{
+			*outError = "script file could not be read: " + resolvedPath;
+			return optr<ScriptInstance>();
+		}
+		std::ostringstream buffer;
+		buffer << file.rdbuf();
+		source = buffer.str();
+		const sol::protected_function_result loadResult = lua.safe_script(
+			source, instance->environment, sol::script_pass_on_error,
+			"@" + scriptFile);
 		if (!loadResult.valid())
 		{
 			const sol::error error = loadResult;
@@ -725,6 +743,65 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
+#ifdef ORKIGE_LUA
+	namespace
+	{
+		//! collect a table's own string keys into out (values untouched)
+		void collectStringKeys(sol::table const & table, StringVector & out)
+		{
+			for (auto const & pair : table)
+			{
+				if (pair.first.is<String>())
+				{
+					out.push_back(pair.first.as<String>());
+				}
+			}
+		}
+	}
+#endif //ORKIGE_LUA
+	//---------------------------------------------------------
+	StringVector ScriptRuntime::globalNames()
+	{
+		StringVector names;
+#ifdef ORKIGE_LUA
+		collectStringKeys(this->luaManager.state().globals(), names);
+		std::sort(names.begin(), names.end());
+		names.erase(std::unique(names.begin(), names.end()), names.end());
+#endif
+		return names;
+	}
+	//---------------------------------------------------------
+	StringVector ScriptRuntime::globalMemberNames(String const & name)
+	{
+		StringVector names;
+#ifdef ORKIGE_LUA
+		sol::state & lua = this->luaManager.state();
+		const sol::object value = lua[name];
+		if (value.is<sol::table>())
+		{
+			// the table's own keys (an API table's functions)...
+			collectStringKeys(value.as<sol::table>(), names);
+			// ...plus, for a registered usertype (whose methods live behind
+			// the metatable's __index), the method names too
+			const sol::object meta =
+				value.as<sol::table>()[sol::metatable_key];
+			if (meta.is<sol::table>())
+			{
+				const sol::object index = meta.as<sol::table>()["__index"];
+				if (index.is<sol::table>())
+				{
+					collectStringKeys(index.as<sol::table>(), names);
+				}
+			}
+		}
+		std::sort(names.begin(), names.end());
+		names.erase(std::unique(names.begin(), names.end()), names.end());
+#else
+		(void)name;
+#endif
+		return names;
+	}
+	//---------------------------------------------------------
 	double ScriptRuntime::numberArg(ScriptArgs const & args, int index,
 		double fallback)
 	{
@@ -807,6 +884,576 @@ namespace Orkige
 	String ScriptRuntime::disabledError()
 	{
 		return "scripting disabled (built with ORKIGE_SCRIPTING=OFF)";
+	}
+	//---------------------------------------------------------
+	//--- script debugger -------------------------------------
+	//---------------------------------------------------------
+	// The Lua half of the backend-neutral debug seam declared in
+	// ScriptRuntime.h: a lua_sethook line hook (installed only while
+	// breakpoints exist or a step is pending), the blocking break pump and the
+	// C-API stack/local/upvalue readback. All of it lives here because this
+	// file IS the sanctioned scripting-backend seam - no other translation
+	// unit may name a Lua type or test ORKIGE_LUA. The pure decision logic
+	// (chunk matching, the step state machine) is ScriptDebugCore, unit-tested
+	// headlessly.
+#ifdef ORKIGE_LUA
+	namespace
+	{
+		//! the debugger's process-wide state (one Lua state per process; the
+		//! hook is a plain C function, so the state is file-static by design)
+		struct LuaDebugState
+		{
+			ScriptDebugCore::BreakpointIndex	breakpoints;
+			ScriptStepMode	stepMode = ScriptStepMode::None;	//!< armed step
+			int				stepBaseDepth = 0;	//!< depth the step released at
+			bool			broken = false;		//!< blocked inside the hook now
+			ScriptStepMode	resumeStep = ScriptStepMode::None;	//!< step asked by debugResume
+			unsigned int	breakSequence = 0;	//!< increments per break entry
+			String			breakFile;			//!< normalized paused chunk
+			int				breakLine = 0;		//!< paused 1-based line
+			std::vector<ScriptStackFrame>	frames;	//!< captured at break
+			std::vector<int>	frameLevels;	//!< lua stack level per frame
+			std::function<void()>	pumpHandler;	//!< the transport pump
+			lua_State *		hookedState = nullptr;	//!< where the hook lives
+		};
+		LuaDebugState & luaDebug()
+		{
+			static LuaDebugState state;
+			return state;
+		}
+
+		//! current call depth (number of activation records on the stack)
+		int luaStackDepth(lua_State * L)
+		{
+			lua_Debug activation;
+			int depth = 0;
+			while (lua_getstack(L, depth, &activation))
+			{
+				++depth;
+			}
+			return depth;
+		}
+
+		//! @brief a bounded, metamethod-free display string for the value at
+		//! `index` (raw type inspection only - a break must never run script
+		//! code to render a variable). Fills the type name and whether the
+		//! value is a table (expandable via an explicit expand request).
+		String luaDescribeValue(lua_State * L, int index, String & outType,
+			bool & outExpandable)
+		{
+			outExpandable = false;
+			const int type = lua_type(L, index);
+			outType = lua_typename(L, type);
+			switch (type)
+			{
+			case LUA_TNIL:
+				return "nil";
+			case LUA_TBOOLEAN:
+				return lua_toboolean(L, index) ? "true" : "false";
+			case LUA_TNUMBER:
+			{
+				char buffer[48];
+				if (lua_isinteger(L, index))
+				{
+					std::snprintf(buffer, sizeof(buffer), "%lld",
+						static_cast<long long>(lua_tointeger(L, index)));
+				}
+				else
+				{
+					std::snprintf(buffer, sizeof(buffer), "%.14g",
+						lua_tonumber(L, index));
+				}
+				return buffer;
+			}
+			case LUA_TSTRING:
+			{
+				std::size_t length = 0;
+				char const * text = lua_tolstring(L, index, &length);
+				const std::size_t kCap = 120;
+				String value(text, std::min(length, kCap));
+				if (length > kCap)
+				{
+					value += "...";
+				}
+				return "\"" + value + "\"";
+			}
+			case LUA_TTABLE:
+			{
+				outExpandable = true;
+				const long long length = static_cast<long long>(
+					lua_rawlen(L, index));
+				return length > 0
+					? ("table[" + std::to_string(length) + "]") : "table";
+			}
+			case LUA_TFUNCTION:
+				return "function";
+			case LUA_TUSERDATA:
+			case LUA_TLIGHTUSERDATA:
+				return "userdata";
+			case LUA_TTHREAD:
+				return "thread";
+			default:
+				return outType;
+			}
+		}
+
+		//! @brief render a table KEY (at `index`) as the display/expand name:
+		//! plain string keys stay as-is, everything else becomes the bracket
+		//! form ("[3]", "[true]") ScriptRuntime::debugVariables can walk back.
+		String luaDescribeKey(lua_State * L, int index)
+		{
+			if (lua_type(L, index) == LUA_TSTRING)
+			{
+				return lua_tostring(L, index);
+			}
+			String type;
+			bool expandable = false;
+			return "[" + luaDescribeValue(L, index, type, expandable) + "]";
+		}
+
+		//! @brief push the table field named by `key` (raw access, never a
+		//! metamethod): a "[...]" bracket name resolves as integer / number /
+		//! boolean, everything else as a string key. The table sits at -1;
+		//! true = the field value replaced nothing (it is now at -1 on TOP of
+		//! the table - the caller manages the stack).
+		bool luaPushFieldByName(lua_State * L, String const & key)
+		{
+			if (key.size() >= 3 && key.front() == '[' && key.back() == ']')
+			{
+				const String inner = key.substr(1, key.size() - 2);
+				if (inner == "true" || inner == "false")
+				{
+					lua_pushboolean(L, inner == "true");
+				}
+				else
+				{
+					try
+					{
+						std::size_t consumed = 0;
+						const double number = std::stod(inner, &consumed);
+						if (consumed != inner.size())
+						{
+							return false;
+						}
+						if (number == static_cast<long long>(number))
+						{
+							lua_pushinteger(L,
+								static_cast<lua_Integer>(number));
+						}
+						else
+						{
+							lua_pushnumber(L, number);
+						}
+					}
+					catch (std::exception const &)
+					{
+						return false;
+					}
+				}
+			}
+			else
+			{
+				lua_pushlstring(L, key.c_str(), key.size());
+			}
+			lua_rawget(L, -2);
+			return true;
+		}
+
+		//! capture the paused call stack (innermost first) + the lua level of
+		//! each captured frame so a later locals request can address it
+		void luaCaptureFrames(lua_State * L)
+		{
+			LuaDebugState & debug = luaDebug();
+			debug.frames.clear();
+			debug.frameLevels.clear();
+			lua_Debug activation;
+			for (int level = 0; lua_getstack(L, level, &activation); ++level)
+			{
+				if (!lua_getinfo(L, "Sln", &activation))
+				{
+					continue;
+				}
+				ScriptStackFrame frame;
+				frame.isScript = activation.what != nullptr &&
+					std::strcmp(activation.what, "C") != 0;
+				frame.source = frame.isScript
+					? ScriptDebugCore::normalizeChunk(activation.source)
+					: String("[host]");
+				frame.line = activation.currentline;
+				if (activation.name != nullptr)
+				{
+					frame.function = activation.name;
+				}
+				else if (activation.what != nullptr &&
+					std::strcmp(activation.what, "main") == 0)
+				{
+					frame.function = "(main chunk)";
+				}
+				debug.frames.push_back(frame);
+				debug.frameLevels.push_back(level);
+			}
+		}
+
+		//! the line hook: the fast rejects run first (armed step / a breakpoint
+		//! on this line number), then the blocking break pump on a hit
+		void luaDebugHook(lua_State * L, lua_Debug * activation)
+		{
+			LuaDebugState & debug = luaDebug();
+			if (debug.broken || activation->event != LUA_HOOKLINE)
+			{
+				// never re-enter: a deferred command running script code while
+				// broken must not open a second nested break
+				return;
+			}
+			const int line = activation->currentline;
+			bool hit = false;
+			if (debug.stepMode != ScriptStepMode::None)
+			{
+				hit = ScriptDebugCore::stepShouldBreak(debug.stepMode,
+					debug.stepBaseDepth, luaStackDepth(L));
+			}
+			if (!hit && debug.breakpoints.anyOnLine(line))
+			{
+				lua_getinfo(L, "S", activation);
+				hit = debug.breakpoints.matches(
+					ScriptDebugCore::normalizeChunk(activation->source), line);
+			}
+			if (!hit)
+			{
+				return;
+			}
+			lua_getinfo(L, "S", activation);
+			debug.breakFile = ScriptDebugCore::normalizeChunk(
+				activation->source);
+			debug.breakLine = line;
+			luaCaptureFrames(L);
+			debug.stepMode = ScriptStepMode::None;	// the armed step landed
+			debug.resumeStep = ScriptStepMode::None;
+			++debug.breakSequence;
+			// the blocking pump: the transport handler runs until a resume /
+			// step command clears `broken`. No handler = resume immediately
+			// (a headless run must never wedge).
+			if (debug.pumpHandler)
+			{
+				debug.broken = true;
+				while (debug.broken)
+				{
+					debug.pumpHandler();
+				}
+			}
+			debug.breakFile.clear();
+			debug.breakLine = 0;
+			debug.frames.clear();
+			debug.frameLevels.clear();
+			// a requested step arms relative to the depth we release at
+			if (debug.resumeStep != ScriptStepMode::None)
+			{
+				debug.stepMode = debug.resumeStep;
+				debug.stepBaseDepth = luaStackDepth(L);
+				debug.resumeStep = ScriptStepMode::None;
+			}
+			// with neither breakpoints nor a step left, drop the hook so free
+			// running scripts pay nothing
+			if (debug.breakpoints.empty() &&
+				debug.stepMode == ScriptStepMode::None)
+			{
+				lua_sethook(L, nullptr, 0, 0);
+				debug.hookedState = nullptr;
+			}
+		}
+
+		//! install/remove the line hook to match the wanted state (breakpoints
+		//! set or a step armed = installed; neither = removed)
+		void luaApplyHookInstallation(lua_State * L)
+		{
+			LuaDebugState & debug = luaDebug();
+			const bool wanted = !debug.breakpoints.empty() ||
+				debug.stepMode != ScriptStepMode::None;
+			if (wanted && debug.hookedState == nullptr)
+			{
+				lua_sethook(L, luaDebugHook, LUA_MASKLINE, 0);
+				debug.hookedState = L;
+			}
+			else if (!wanted && debug.hookedState != nullptr)
+			{
+				lua_sethook(debug.hookedState, nullptr, 0, 0);
+				debug.hookedState = nullptr;
+			}
+		}
+	}
+#endif //ORKIGE_LUA
+	//---------------------------------------------------------
+	bool ScriptRuntime::setDebugBreakpoints(
+		std::vector<ScriptBreakpoint> const & breakpoints, String * outError)
+	{
+		oAssert(outError);
+#if defined(__EMSCRIPTEN__)
+		(void)breakpoints;
+		*outError = "script breakpoints are not supported in the browser "
+			"player (the page's main thread cannot block at a break)";
+		return false;
+#elif defined(ORKIGE_LUA)
+		LuaDebugState & debug = luaDebug();
+		debug.breakpoints.assign(breakpoints);
+		luaApplyHookInstallation(this->luaManager.state().lua_state());
+		return true;
+#else
+		(void)breakpoints;
+		*outError = ScriptRuntime::disabledError();
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	void ScriptRuntime::setDebugPumpHandler(std::function<void()> handler)
+	{
+#ifdef ORKIGE_LUA
+		luaDebug().pumpHandler = std::move(handler);
+#else
+		(void)handler;
+#endif
+	}
+	//---------------------------------------------------------
+	bool ScriptRuntime::isDebugBroken() const
+	{
+#ifdef ORKIGE_LUA
+		return luaDebug().broken;
+#else
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	unsigned int ScriptRuntime::debugBreakSequence() const
+	{
+#ifdef ORKIGE_LUA
+		return luaDebug().breakSequence;
+#else
+		return 0;
+#endif
+	}
+	//---------------------------------------------------------
+	String ScriptRuntime::debugBreakFile() const
+	{
+#ifdef ORKIGE_LUA
+		return luaDebug().broken ? luaDebug().breakFile : String();
+#else
+		return String();
+#endif
+	}
+	//---------------------------------------------------------
+	int ScriptRuntime::debugBreakLine() const
+	{
+#ifdef ORKIGE_LUA
+		return luaDebug().broken ? luaDebug().breakLine : 0;
+#else
+		return 0;
+#endif
+	}
+	//---------------------------------------------------------
+	std::vector<ScriptStackFrame> ScriptRuntime::debugStackFrames() const
+	{
+#ifdef ORKIGE_LUA
+		return luaDebug().broken ? luaDebug().frames
+			: std::vector<ScriptStackFrame>();
+#else
+		return std::vector<ScriptStackFrame>();
+#endif
+	}
+	//---------------------------------------------------------
+	void ScriptRuntime::debugResume(ScriptStepMode stepMode)
+	{
+#ifdef ORKIGE_LUA
+		LuaDebugState & debug = luaDebug();
+		if (!debug.broken)
+		{
+			return;
+		}
+		debug.resumeStep = stepMode;
+		debug.broken = false;	// releases the pump loop inside the hook
+#else
+		(void)stepMode;
+#endif
+	}
+	//---------------------------------------------------------
+	std::vector<ScriptDebugVariable> ScriptRuntime::debugVariables(
+		int frameIndex, StringVector const & expandPath, int maxEntries,
+		String * outError)
+	{
+		oAssert(outError);
+		std::vector<ScriptDebugVariable> variables;
+#ifdef ORKIGE_LUA
+		LuaDebugState & debug = luaDebug();
+		if (!debug.broken)
+		{
+			*outError = "not paused at a script break";
+			return variables;
+		}
+		if (frameIndex < 0 ||
+			static_cast<std::size_t>(frameIndex) >= debug.frameLevels.size())
+		{
+			*outError = "no such stack frame";
+			return variables;
+		}
+		if (maxEntries <= 0)
+		{
+			maxEntries = 64;
+		}
+		lua_State * L = this->luaManager.state().lua_state();
+		const int stackTop = lua_gettop(L);
+		lua_Debug activation;
+		if (!lua_getstack(L, debug.frameLevels[frameIndex], &activation))
+		{
+			*outError = "stack frame vanished";
+			return variables;
+		}
+		const auto describeTop = [&](String const & name,
+			String const & scope)
+		{
+			ScriptDebugVariable variable;
+			variable.name = name;
+			variable.scope = scope;
+			variable.value = luaDescribeValue(L, -1, variable.type,
+				variable.expandable);
+			variables.push_back(variable);
+		};
+		if (expandPath.empty())
+		{
+			// the frame's locals (skip the compiler's "(...)" temporaries)...
+			for (int index = 1;; ++index)
+			{
+				char const * name = lua_getlocal(L, &activation, index);
+				if (name == nullptr)
+				{
+					break;
+				}
+				if (name[0] != '(' &&
+					static_cast<int>(variables.size()) < maxEntries)
+				{
+					describeTop(name, "local");
+				}
+				lua_pop(L, 1);
+			}
+			// ...then the function's upvalues (the enclosing-scope captures)
+			if (lua_getinfo(L, "f", &activation))
+			{
+				for (int index = 1;; ++index)
+				{
+					char const * name = lua_getupvalue(L, -1, index);
+					if (name == nullptr)
+					{
+						break;
+					}
+					if (name[0] != '(' &&
+						static_cast<int>(variables.size()) < maxEntries)
+					{
+						describeTop(name, "upvalue");
+					}
+					lua_pop(L, 1);
+				}
+			}
+			lua_settop(L, stackTop);
+			return variables;
+		}
+		// expand request: resolve the ROOT variable by name among the frame's
+		// locals first, then its upvalues, then walk the table-key chain
+		bool rootFound = false;
+		for (int index = 1; !rootFound; ++index)
+		{
+			char const * name = lua_getlocal(L, &activation, index);
+			if (name == nullptr)
+			{
+				break;
+			}
+			if (expandPath[0] == name)
+			{
+				rootFound = true;	// value stays on the stack
+				break;
+			}
+			lua_pop(L, 1);
+		}
+		if (!rootFound && lua_getinfo(L, "f", &activation))
+		{
+			for (int index = 1; !rootFound; ++index)
+			{
+				char const * name = lua_getupvalue(L, -1, index);
+				if (name == nullptr)
+				{
+					break;
+				}
+				if (expandPath[0] == name)
+				{
+					lua_remove(L, -2);	// drop the function under the value
+					rootFound = true;
+					break;
+				}
+				lua_pop(L, 1);
+			}
+			if (!rootFound)
+			{
+				lua_pop(L, 1);	// the function
+			}
+		}
+		if (!rootFound)
+		{
+			lua_settop(L, stackTop);
+			*outError = "no variable '" + expandPath[0] + "' in this frame";
+			return variables;
+		}
+		for (std::size_t step = 1; step < expandPath.size(); ++step)
+		{
+			if (lua_type(L, -1) != LUA_TTABLE ||
+				!luaPushFieldByName(L, expandPath[step]))
+			{
+				lua_settop(L, stackTop);
+				*outError = "'" + expandPath[step - 1] +
+					"' is not an expandable table";
+				return variables;
+			}
+			lua_remove(L, -2);	// keep only the field value
+		}
+		if (lua_type(L, -1) != LUA_TTABLE)
+		{
+			lua_settop(L, stackTop);
+			*outError = "'" + expandPath.back() + "' is not a table";
+			return variables;
+		}
+		// list the target table's entries (raw iteration, bounded)
+		lua_pushnil(L);
+		while (lua_next(L, -2) != 0)
+		{
+			if (static_cast<int>(variables.size()) >= maxEntries)
+			{
+				lua_pop(L, 2);	// key + value - stop the walk
+				break;
+			}
+			describeTop(luaDescribeKey(L, -2), "field");
+			lua_pop(L, 1);	// the value; the key stays for lua_next
+		}
+		lua_settop(L, stackTop);
+		return variables;
+#else
+		(void)frameIndex;
+		(void)expandPath;
+		(void)maxEntries;
+		*outError = ScriptRuntime::disabledError();
+		return variables;
+#endif
+	}
+	//---------------------------------------------------------
+	void ScriptRuntime::debugDetach()
+	{
+#ifdef ORKIGE_LUA
+		LuaDebugState & debug = luaDebug();
+		debug.breakpoints.clear();
+		if (debug.broken)
+		{
+			this->debugResume(ScriptStepMode::None);
+		}
+		else
+		{
+			debug.stepMode = ScriptStepMode::None;
+			luaApplyHookInstallation(this->luaManager.state().lua_state());
+		}
+#endif
 	}
 	//---------------------------------------------------------
 	//--- ScriptCallback --------------------------------------

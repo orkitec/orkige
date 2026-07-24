@@ -1502,6 +1502,81 @@ namespace Orkige
 				  "record_path/record_ok carry the trace). Errors when no player "
 				  "is connected.",
 				  {} },
+				{ "set_breakpoint",
+				  "Set a script breakpoint (project-relative script path + "
+				  "1-based line) in the editor's per-project store - persisted "
+				  "across sessions and pushed to a running player automatically "
+				  "(on Play connect and live on any change), so set it before OR "
+				  "during Play. When a running script reaches the line the "
+				  "player PAUSES MID-STATEMENT (distinct from the frame-boundary "
+				  "pause verb) and keeps the session serviced; break-hit is "
+				  "asynchronous - poll get_debug_state until "
+				  "paused_at_breakpoint is 1, then inspect with get_locals and "
+				  "drive debug_step_*/debug_continue. Refused for a browser "
+				  "play session (the page cannot block) and by "
+				  "scripting-disabled players. Returns the full breakpoint set.",
+				  { { "file", "string",
+				      "project-relative script path (e.g. 'scripts/player.lua')",
+				      true },
+				    { "line", "number", "1-based line number", true } } },
+				{ "clear_breakpoint",
+				  "Clear one script breakpoint (file + line), or every "
+				  "breakpoint with all='1'. Pushed to a running player "
+				  "automatically. Returns the remaining set.",
+				  { { "file", "string", "project-relative script path",
+				      false },
+				    { "line", "number", "1-based line number", false },
+				    { "all", "string", "'1' clears every breakpoint", false } } },
+				{ "list_breakpoints",
+				  "The per-project script breakpoint set, as 'file:line' "
+				  "entries. Read-only.",
+				  {} },
+				{ "get_debug_state",
+				  "The script debugger's state - THE poll for an asynchronous "
+				  "break-hit: 'paused_at_breakpoint' ('1' while the player is "
+				  "held at a script break), the paused 'file'/'line', "
+				  "'break_seq' (increments per break - a landing step raises a "
+				  "new one), 'locals_seq' (advances per get_locals reply) and "
+				  "the call stack as parallel 'stack_sources'/'stack_lines'/"
+				  "'stack_functions' (innermost first; host-call frames read "
+				  "'[host]'). play_mode rides along. Read-only; answers in "
+				  "every mode.",
+				  {} },
+				{ "debug_continue",
+				  "Release the held script break and continue freely (until the "
+				  "next breakpoint hit). Errors unless paused_at_breakpoint. "
+				  "Returns accepted + prev_break_seq; poll get_debug_state.",
+				  {} },
+				{ "debug_step_in",
+				  "Release the held break and pause at the very next executed "
+				  "script line, stepping INTO calls. Async like debug_continue: "
+				  "poll get_debug_state until break_seq exceeds prev_break_seq.",
+				  {} },
+				{ "debug_step_over",
+				  "Release the held break and pause at the next line in the "
+				  "same (or a shallower) function - calls run through. Async; "
+				  "poll get_debug_state.",
+				  {} },
+				{ "debug_step_out",
+				  "Release the held break and pause once the current function "
+				  "returned. Async; poll get_debug_state.",
+				  {} },
+				{ "get_locals",
+				  "Variables at a frame of the held script break: pass 'frame' "
+				  "(0 = innermost, matching get_debug_state's stack) and "
+				  "optionally 'expand' (a root variable name plus a chain of "
+				  "table keys - '[3]' bracket form for non-string keys - to "
+				  "list ONE nested table; bounded, never a whole-state dump). "
+				  "ASYNC: the first call may return pending='1' - call again "
+				  "(the reply lands within a frame or two; locals_seq in "
+				  "get_debug_state advances). A ready reply carries the "
+				  "parallel lists 'names'/'scopes' (local/upvalue/field)/"
+				  "'types'/'values'/'expandable'. Errors unless "
+				  "paused_at_breakpoint.",
+				  { { "frame", "number", "stack-frame index (default 0)",
+				      false },
+				    { "expand", "array",
+				      "root variable + table-key chain to expand", false } } },
 				{ "list_assets",
 				  "List the open project's assets and scenes.", {} },
 				{ "write_project_file",
@@ -4550,6 +4625,163 @@ namespace Orkige
 			ok.set("accepted", "1");
 			ok.set("prev_record_seq", std::to_string(play.recordSeq));
 			stopRemoteRecord(play);
+			this->sendOk(req, ok);
+			return;
+		}
+
+		//--- script debugger (breakpoints / break-state / step / locals) ---
+		// The verbs mutate the EDITOR's per-project breakpoint store; the play
+		// session pushes the set to a running player automatically (on connect
+		// and on every change), so they work before AND during Play. Break-hit
+		// is asynchronous - get_debug_state is the poll.
+		if (type == "set_breakpoint" || type == "clear_breakpoint")
+		{
+			const String& file = request.get("file");
+			const int line = static_cast<int>(request.getFloat("line", 0.0f));
+			if (type == "clear_breakpoint" && request.get("all") == "1")
+			{
+				state.breakpoints.clearAll();
+				this->sendOk(req);
+				return;
+			}
+			if (file.empty() || line <= 0)
+			{
+				this->sendErr(req, type + " needs 'file' (project-relative "
+					"script path) and 'line' (1-based)");
+				return;
+			}
+			if (context.play->onBrowser && context.play->client.isConnected())
+			{
+				this->sendErr(req, "script breakpoints are not supported in "
+					"the browser player (the page's main thread cannot block "
+					"at a break)");
+				return;
+			}
+			if (type == "set_breakpoint")
+			{
+				state.breakpoints.set(file, line);
+			}
+			else
+			{
+				state.breakpoints.clear(file, line);
+			}
+			DebugMessage ok(MSG_OK);
+			ok.setList("breakpoints", state.breakpoints.wireList());
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "list_breakpoints")
+		{
+			DebugMessage ok(MSG_OK);
+			ok.setList("breakpoints", state.breakpoints.wireList());
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "get_debug_state")
+		{
+			PlaySession const& play = *context.play;
+			DebugMessage ok(MSG_OK);
+			ok.set("play_mode", playSessionModeName(play));
+			ok.set("paused_at_breakpoint", play.debugBroken ? "1" : "0");
+			ok.set("file", play.debugBreakFile);
+			ok.set("line", std::to_string(play.debugBreakLine));
+			ok.set("break_seq", std::to_string(play.debugBreakSeq));
+			ok.set("locals_seq", std::to_string(play.debugLocalsSeq));
+			StringVector sources;
+			StringVector lines;
+			StringVector functions;
+			for (PlaySession::DebugStackFrame const& frame : play.debugStack)
+			{
+				sources.push_back(frame.source);
+				lines.push_back(std::to_string(frame.line));
+				functions.push_back(frame.function);
+			}
+			ok.setList("stack_sources", sources);
+			ok.setList("stack_lines", lines);
+			ok.setList("stack_functions", functions);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "debug_continue" || type == "debug_step_in" ||
+			type == "debug_step_over" || type == "debug_step_out")
+		{
+			PlaySession& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			if (!play.debugBroken)
+			{
+				this->sendErr(req, "not paused at a script break - set a "
+					"breakpoint and poll get_debug_state until "
+					"paused_at_breakpoint is 1");
+				return;
+			}
+			const String& messageType =
+				type == "debug_continue" ? DebugProtocol::MSG_DEBUG_RESUME
+				: type == "debug_step_in" ? DebugProtocol::MSG_DEBUG_STEP_IN
+				: type == "debug_step_over" ? DebugProtocol::MSG_DEBUG_STEP_OVER
+				: DebugProtocol::MSG_DEBUG_STEP_OUT;
+			DebugMessage ok(MSG_OK);
+			ok.set("accepted", "1");
+			ok.set("prev_break_seq", std::to_string(play.debugBreakSeq));
+			sendDebugCommand(play, messageType);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "get_locals")
+		{
+			PlaySession& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			if (!play.debugBroken)
+			{
+				this->sendErr(req, "not paused at a script break - poll "
+					"get_debug_state until paused_at_breakpoint is 1");
+				return;
+			}
+			const int frameIndex =
+				static_cast<int>(request.getFloat("frame", 0.0f));
+			StringVector const& expandList = request.getList("expand");
+			const std::vector<std::string> expandPath(expandList.begin(),
+				expandList.end());
+			const std::string key = debugLocalsKey(frameIndex, expandPath);
+			const auto cached = play.debugLocalsCache.find(key);
+			if (cached == play.debugLocalsCache.end())
+			{
+				// async like the break-hit itself: request now, poll again -
+				// the reply lands within a frame or two of editor pumping
+				requestDebugLocals(play, frameIndex, expandPath);
+				DebugMessage ok(MSG_OK);
+				ok.set("pending", "1");
+				this->sendOk(req, ok);
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("pending", "0");
+			ok.set("frame", std::to_string(frameIndex));
+			StringVector names;
+			StringVector scopes;
+			StringVector types;
+			StringVector values;
+			StringVector expandable;
+			for (PlaySession::DebugVariableRow const& row : cached->second)
+			{
+				names.push_back(row.name);
+				scopes.push_back(row.scope);
+				types.push_back(row.type);
+				values.push_back(row.value);
+				expandable.push_back(row.expandable ? "1" : "0");
+			}
+			ok.setList("names", names);
+			ok.setList("scopes", scopes);
+			ok.setList("types", types);
+			ok.setList("values", values);
+			ok.setList("expandable", expandable);
 			this->sendOk(req, ok);
 			return;
 		}
@@ -7846,8 +8078,297 @@ namespace Orkige
 					"mode after stop");
 				return;
 			}
+			// (R10) the SCRIPT DEBUGGER over MCP - the whole agent loop: author
+			// a ticking script in a temp project, set a breakpoint, play, poll
+			// the asynchronous break-hit, read locals, step, hit again on
+			// continue, clear + resume free, stop. Uses only the MCP verbs.
+			{
+				const std::string debugRoot =
+					(std::filesystem::temp_directory_path() /
+						("orkige_ctrl_debug_project_" +
+							std::to_string(port))).string();
+				std::error_code prepErr;
+				std::filesystem::remove_all(debugRoot, prepErr);
+				JsonValue newArgs = JsonValue::object();
+				newArgs.set("path", JsonValue(String(debugRoot)));
+				newArgs.set("force", JsonValue("1"));
+				if (!callTool("new_project", newArgs, true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: debug - new_project for "
+						"the temp debug project failed");
+					return;
+				}
+				// the ticking script; the asserted lines are 3 (breakpoint)
+				// and 4 (the step-over landing)
+				JsonValue writeArgs = JsonValue::object();
+				writeArgs.set("path",
+					JsonValue(String("scripts/ticker.lua")));
+				writeArgs.set("content", JsonValue(String(
+					"local ticks = 0\n"
+					"function update(self, dt)\n"
+					"\tlocal beat = ticks + 1\n"
+					"\tticks = beat\n"
+					"end\n")));
+				if (!callTool("write_project_file", writeArgs, true,
+						structured, isError) || isError)
+				{
+					finish(false, "control self-test: debug - could not write "
+						"the ticker script");
+					return;
+				}
+				JsonValue createArgs = JsonValue::object();
+				createArgs.set("id", JsonValue(String("Ticker")));
+				if (!callTool("create_object", createArgs, true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: debug - create_object "
+						"Ticker failed");
+					return;
+				}
+				JsonValue addArgs = JsonValue::object();
+				addArgs.set("id", JsonValue(String("Ticker")));
+				addArgs.set("component", JsonValue(String("ScriptComponent")));
+				if (!callTool("add_component", addArgs, true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: debug - add_component "
+						"ScriptComponent failed");
+					return;
+				}
+				JsonValue setArgs = JsonValue::object();
+				setArgs.set("id", JsonValue(String("Ticker")));
+				setArgs.set("component", JsonValue(String("ScriptComponent")));
+				JsonValue props = JsonValue::object();
+				props.set("script", JsonValue(String("scripts/ticker.lua")));
+				setArgs.set("properties", props);
+				if (!callTool("set_component", setArgs, true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: debug - set_component "
+						"script path failed");
+					return;
+				}
+				// breakpoint BEFORE play: the session must push it on connect
+				JsonValue breakArgs = JsonValue::object();
+				breakArgs.set("file",
+					JsonValue(String("scripts/ticker.lua")));
+				breakArgs.set("line", JsonValue(3.0));
+				if (!callTool("set_breakpoint", breakArgs, true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: debug - set_breakpoint "
+						"failed");
+					return;
+				}
+				if (!callTool("list_breakpoints", JsonValue::object(), true,
+						structured, isError) || isError ||
+					structured.get("breakpoints").size() != 1 ||
+					structured.get("breakpoints").at(0).asString() !=
+						"scripts/ticker.lua:3")
+				{
+					finish(false, "control self-test: debug - list_breakpoints "
+						"did not report scripts/ticker.lua:3");
+					return;
+				}
+				JsonValue playDebugArgs = JsonValue::object();
+				playDebugArgs.set("target", JsonValue("desktop"));
+				if (!callTool("play", playDebugArgs, true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: debug - play was not "
+						"accepted");
+					return;
+				}
+				// poll the ASYNC break-hit (the boot pays engine startup)
+				auto debugState = [&](JsonValue& out) -> bool
+				{
+					bool stateError = true;
+					return callTool("get_debug_state", JsonValue::object(),
+						true, out, stateError) && !stateError;
+				};
+				auto pollDebug = [&](auto&& ready, int maxAttempts,
+					JsonValue& out) -> bool
+				{
+					for (int attempt = 0; attempt < maxAttempts; ++attempt)
+					{
+						if (debugState(out) && ready(out))
+						{
+							return true;
+						}
+						std::this_thread::sleep_for(
+							std::chrono::milliseconds(100));
+					}
+					return false;
+				};
+				JsonValue debug;
+				if (!pollDebug([](JsonValue const& s)
+					{
+						return s.get("paused_at_breakpoint").asString() == "1";
+					}, 600, debug))
+				{
+					finish(false, "control self-test: debug - the breakpoint "
+						"never hit (paused_at_breakpoint stayed 0)");
+					return;
+				}
+				if (debug.get("file").asString() != "scripts/ticker.lua" ||
+					debug.get("line").asString() != "3" ||
+					debug.get("stack_sources").size() == 0)
+				{
+					finish(false, "control self-test: debug - break state "
+						"wrong (file '" + debug.get("file").asString() +
+						"' line " + debug.get("line").asString() + ")");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - breakpoint hit at "
+					"%s:%s (stack depth %zu)",
+					debug.get("file").asString().c_str(),
+					debug.get("line").asString().c_str(),
+					debug.get("stack_sources").size());
+				// locals at the innermost frame (async: poll pending out)
+				bool sawDt = false;
+				for (int attempt = 0; attempt < kPlayerPollAttempts &&
+					!sawDt; ++attempt)
+				{
+					JsonValue locals;
+					bool localsError = true;
+					JsonValue localsArgs = JsonValue::object();
+					localsArgs.set("frame", JsonValue(0.0));
+					if (!callTool("get_locals", localsArgs, true, locals,
+							localsError) || localsError)
+					{
+						finish(false, "control self-test: debug - get_locals "
+							"failed");
+						return;
+					}
+					if (locals.get("pending").asString() != "1")
+					{
+						for (size_t i = 0; i < locals.get("names").size(); ++i)
+						{
+							if (locals.get("names").at(i).asString() == "dt")
+							{
+								sawDt = true;
+							}
+						}
+						if (!sawDt)
+						{
+							finish(false, "control self-test: debug - locals "
+								"of update() did not include 'dt'");
+							return;
+						}
+						break;
+					}
+					std::this_thread::sleep_for(
+						std::chrono::milliseconds(100));
+				}
+				if (!sawDt)
+				{
+					finish(false, "control self-test: debug - get_locals never "
+						"left pending");
+					return;
+				}
+				// step over: a NEW break lands on the next line
+				const std::string breakSeqBefore =
+					debug.get("break_seq").asString();
+				if (!callTool("debug_step_over", JsonValue::object(), true,
+						structured, isError) || isError)
+				{
+					finish(false, "control self-test: debug - debug_step_over "
+						"failed");
+					return;
+				}
+				if (!pollDebug([&](JsonValue const& s)
+					{
+						return s.get("paused_at_breakpoint").asString() == "1" &&
+							s.get("break_seq").asString() != breakSeqBefore;
+					}, kPlayerPollAttempts, debug))
+				{
+					finish(false, "control self-test: debug - the step never "
+						"landed");
+					return;
+				}
+				if (debug.get("line").asString() != "4")
+				{
+					finish(false, "control self-test: debug - step over landed "
+						"on line " + debug.get("line").asString() +
+						" (expected 4)");
+					return;
+				}
+				// continue with the breakpoint still set: it hits again on a
+				// later frame's update
+				const std::string continueSeqBefore =
+					debug.get("break_seq").asString();
+				if (!callTool("debug_continue", JsonValue::object(), true,
+						structured, isError) || isError)
+				{
+					finish(false, "control self-test: debug - debug_continue "
+						"failed");
+					return;
+				}
+				if (!pollDebug([&](JsonValue const& s)
+					{
+						return s.get("paused_at_breakpoint").asString() == "1" &&
+							s.get("break_seq").asString() != continueSeqBefore;
+					}, kPlayerPollAttempts, debug))
+				{
+					finish(false, "control self-test: debug - the breakpoint "
+						"did not re-hit after continue");
+					return;
+				}
+				// clear everything and resume: the game runs free again
+				JsonValue clearArgs = JsonValue::object();
+				clearArgs.set("all", JsonValue("1"));
+				if (!callTool("clear_breakpoint", clearArgs, true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: debug - clear_breakpoint "
+						"all failed");
+					return;
+				}
+				if (!callTool("debug_continue", JsonValue::object(), true,
+						structured, isError) || isError)
+				{
+					finish(false, "control self-test: debug - the final "
+						"debug_continue failed");
+					return;
+				}
+				if (!pollDebug([](JsonValue const& s)
+					{
+						return s.get("paused_at_breakpoint").asString() == "0" &&
+							s.get("play_mode").asString() == "playing";
+					}, kPlayerPollAttempts, debug))
+				{
+					finish(false, "control self-test: debug - the game did not "
+						"resume free running after clear + continue");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - MCP script debug "
+					"loop OK (hit/locals/step/re-hit/clear/resume)");
+				// stop + drop the temp project
+				if (!callTool("stop", JsonValue::object(), true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: debug - stop failed");
+					return;
+				}
+				if (!pollState([](JsonValue const& s)
+					{
+						return s.get("play_mode").asString() == "edit";
+					}, 300, state))
+				{
+					finish(false, "control self-test: debug - play did not "
+						"revert to edit mode after the debug leg");
+					return;
+				}
+				JsonValue closeArgs = JsonValue::object();
+				closeArgs.set("force", JsonValue("1"));
+				callTool("close_project", closeArgs, true, structured, isError);
+				std::filesystem::remove_all(debugRoot, prepErr);
+			}
+
 			SDL_Log("orkige_editor: control self-test - runtime debug loop "
-				"PASSED (play/inspect/pause/step/set/screenshot/stop)");
+				"PASSED (play/inspect/pause/step/set/screenshot/stop + the "
+				"script-debugger loop)");
 			finish(true, "");
 			return;
 		}
@@ -7876,10 +8397,29 @@ namespace Orkige
 					"with no live player");
 				return;
 			}
+			// get_debug_state answers in EVERY mode (headless: not paused)
+			isError = true;
+			if (!callTool("get_debug_state", JsonValue::object(), true,
+					structured, isError) || isError ||
+				structured.get("paused_at_breakpoint").asString() != "0")
+			{
+				finish(false, "control self-test: get_debug_state did not "
+					"answer 'not paused' with no live player");
+				return;
+			}
+			// a step command with no player errors honestly
+			isError = false;
+			if (!callTool("debug_continue", JsonValue::object(), true,
+					structured, isError) || !isError)
+			{
+				finish(false, "control self-test: debug_continue did not error "
+					"with no live player");
+				return;
+			}
 			// each runtime mutation WITHOUT auth must be rejected
 			const char* mutations[] = { "runtime_select", "set_runtime_property",
 				"set_cvar", "reload_script", "screenshot_game", "record_trace",
-				"stop_recording" };
+				"stop_recording", "debug_continue" };
 			for (const char* mutation : mutations)
 			{
 				isError = false;

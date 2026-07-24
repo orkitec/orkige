@@ -15,3 +15,6 @@ __pycache__/
 breadcrumbs.jsonl
 breadcrumbs.prev.jsonl
 *.oscene.autosave
+
+# per-project editor-side state (script breakpoints - ScriptBreakpointStore)
+.orkige/

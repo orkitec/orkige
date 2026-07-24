@@ -315,7 +315,7 @@ internal DebugMessage request/reply and returns the reply as MCP tool content
 file; reads are open; no token file ⇒ auth off for dev). Correlation is JSON-RPC's
 native `id`. POST-only (no SSE); long ops (play boot) return an accepted result
 and are polled via `get_state`. Play control is translated into the ONE existing
-player debug protocol — never a second player port. The 79 tools cover the whole
+player debug protocol — never a second player port. The 88 tools cover the whole
 agent dev-loop: scene authoring (project/scene lifecycle, hierarchy CRUD,
 get/set_component generically over the reflected property registry, prefabs),
 project-file authoring (write/read/list jailed to the project root, import_asset),
@@ -323,8 +323,11 @@ UI/animation preview (preview_ui renders a `.oui`; preview_animation renders a
 `.oanim` pose + blend on the editor's own clock, no play session),
 running (play {scene, target}, list_play_targets, async export_project + build
 status in get_state), testing (run_tests/list_tests/get_test_results with
-build-errors-first short-circuit) and live debugging (runtime_* state, pause/step,
-set_runtime_property/set_cvar/reload_script, reload_ui, screenshot_game) — all mapped onto
+build-errors-first short-circuit), live debugging (runtime_* state, pause/step,
+set_runtime_property/set_cvar/reload_script, reload_ui, screenshot_game) and
+script debugging (set/clear/list_breakpoint(s), get_debug_state as the
+break-hit poll, debug_continue/step_in/step_over/step_out, frame-scoped
+get_locals — the whole breakpoint loop headlessly, `Docs/script-debugging.md`) — all mapped onto
 existing `EditorCore` methods + the `EditorDocument` free functions. Verified headlessly by the `editor_control` ctest
 (a worker thread drives a raw socket through the whole MCP conversation incl. auth
 rejection) plus the `JsonTests`/`HttpServerTests` unit tests. Full reference:
@@ -871,7 +874,43 @@ look when touching one:
   `editor_ui_hotreload` both flavors);
   **level system** (`core_game/Level*`: deferred mid-play scene switch via the
   `LevelManager` pending-load applied at the player-loop frame boundary;
-  `levels.olevels`; progression save in `getDocumentsDirectory`).
+  `levels.olevels`; progression save in `getDocumentsDirectory`);
+  **live scene mirror during Play** (the editor Scene view shows the RUNNING
+  game's object motion: `MSG_SCENE_TRANSFORMS` streams a ~15Hz whole-scene
+  local-transform delta over the ONE debug link — full set on attach/scene
+  switch, epsilon-quieted; visibility rides the existing hierarchy stream —
+  and `tools/editor/PlayMirror` (pure, unit-tested) snapshots the authored
+  poses once, drives the matching render nodes and restores them EXACTLY on
+  Stop/crash/mid-play-save; the edit document is never dirtied, runtime-
+  spawned objects are the documented v1 skip; `editor_play_mirror` per flavor).
+- **Script editor + Lua debugger** (`Docs/script-debugging.md`, editor Script
+  panel + MCP): an embedded Lua code editor — the `ports/imgui-color-text-edit`
+  overlay port (goossens widget, commit-pinned like imgui; bump the two ports
+  as a COUPLED PAIR — it includes imgui_internal.h) with Lua highlight, tabs,
+  theme-mapped palette, error markers off the streamed script errors, Cmd/
+  Ctrl+S save riding the existing hot-reload watcher, and COMPLETION generated
+  from the ONE reflection/script-surface registry (TypeManager + PropertySchema
+  + `OSCRIPT_HANDLE` + live `ScriptRuntime::globalNames/globalMemberNames`
+  introspection — never a hand-kept list; pure `ScriptCompletion` in
+  editor_core). The DEBUGGER: gutter breakpoints (persisted per project in
+  `<project>/.orkige/breakpoints`, gitignored, `ScriptBreakpointStore` the one
+  truth for gutter + session push + MCP), continue/step in/over/out (F5/F10/
+  F11/Shift+F11 + Cmd alternates), call-stack pane with frame-scoped locals/
+  upvalues (bounded table expansion). Runtime side is seam-clean behind
+  `ScriptRuntime` (`setDebugBreakpoints`/`debugResume`/`debugVariables`/
+  `debugDetach`; ALL lua_sethook/C-API inside the sol2 backend, pure decisions
+  in `core_script/ScriptDebugCore.h`): the line hook installs ONLY while
+  breakpoints/step exist (zero cost otherwise), a hit BLOCKS in-hook while
+  `PlayerDebugLink::serviceBreakPump` services debug commands + quit and
+  DEFERS every other message to the frame boundary (the world never mutates
+  mid-script); script chunks load under their project-relative names (one
+  breakpoint hits every instance; error file:line is project-relative too);
+  client loss mid-break auto-resumes — wedge-proof. Additive messages on the
+  ONE debug protocol (browser sessions inherit over the WebSocket; the wasm
+  player refuses breakpoints honestly — its main thread cannot block; noscript
+  refuses honestly and keeps building). Verified by `ScriptDebugTests`/
+  `ScriptCompletionTests`/`ScriptBreakpointStoreTests` units + the
+  `player_script_debug` and `editor_control_debug` ctests per flavor.
 - **Device polish**: **haptics** (`engine_input/HapticManager`: phone-body
   vibration — iOS UIFeedbackGenerator in `HapticBridgeApple.mm`, Android
   `Vibrator`/`VibrationEffect` over JNI, desktop honest no-op; Lua `haptics`

@@ -355,6 +355,77 @@ profiled - these instruments serve the running GAME.
 
 ---
 
+## 3c. Breakpoint-debug a script (pause mid-statement, inspect, step)
+
+When log lines and property readback are not enough — "WHY is this variable
+wrong at this line?" — set a breakpoint and walk the code. A hit pauses the
+player MID-STATEMENT (distinct from the frame-boundary `pause` verb), keeps
+the session serviced, and exposes the call stack + live locals. Break-hit is
+asynchronous: `get_debug_state` is the poll. Design + panel counterpart:
+[script-debugging.md](script-debugging.md).
+
+```jsonc
+// 1. set the breakpoint BEFORE (or during) play - the set is per-project,
+//    persisted, and pushed to the player automatically on connect/change.
+set_breakpoint { "file":"scripts/player.lua", "line":42 }   // authed
+//   → { "breakpoints":["scripts/player.lua:42"] }
+list_breakpoints {}                                         // confirm anytime
+
+// 2. play, then poll for the hit (the update loop reaches line 42 within a
+//    frame once the script ticks):
+play { "target":"desktop" }                                 // authed
+get_debug_state {}
+//   → { "paused_at_breakpoint":"0", ... }                  // not yet - poll
+get_debug_state {}
+//   → { "paused_at_breakpoint":"1", "file":"scripts/player.lua", "line":"42",
+//       "break_seq":"1",
+//       "stack_sources":["scripts/player.lua","[host]"],
+//       "stack_lines":["42","-1"], "stack_functions":["update",""] }
+
+// 3. inspect the paused frame (frame 0 = innermost). ASYNC like the hit
+//    itself: a first call may answer pending, call again.
+get_locals { "frame":0 }
+//   → { "pending":"1" }                                    // once more:
+get_locals { "frame":0 }
+//   → { "pending":"0",
+//       "names":["self","dt","grounded"], "scopes":["local","local","local"],
+//       "types":["table","number","boolean"],
+//       "values":["table","0.0166667","false"], "expandable":["1","0","0"] }
+// expand ONE table explicitly (bounded - never a whole-state dump); the
+// chain walks table keys, "[3]" bracket form for non-string keys:
+get_locals { "frame":0, "expand":["self"] }
+//   → rows with scope "field": id, transform, rigidbody, ...
+
+// 4. step. Each release is accepted immediately; the landing raises a NEW
+//    break - poll until break_seq advances past prev_break_seq:
+debug_step_over {}                                          // authed
+//   → { "accepted":"1", "prev_break_seq":"1" }
+get_debug_state {}
+//   → { "paused_at_breakpoint":"1", "line":"43", "break_seq":"2", ... }
+// debug_step_in dives into the call on the current line; debug_step_out
+// runs until the current function returns.
+
+// 5. resume. With the breakpoint still set the NEXT frame's update hits it
+//    again (poll break_seq); when done, clear and run free:
+debug_continue {}                                           // authed
+clear_breakpoint { "all":"1" }                              // authed
+debug_continue {}
+get_debug_state {}
+//   → { "paused_at_breakpoint":"0", "play_mode":"playing", ... }
+```
+
+Honesty notes: while broken, the frame never finishes — the streamed
+hierarchy/state/stats freeze until the resume (only the debug link stays
+serviced; any other verb you send mid-break is DEFERRED to the next frame
+boundary, so a `set_runtime_property` lands after the resume, never inside
+script execution). A vanished client auto-resumes the game — a breakpoint
+can never wedge a player you lost. The browser play target refuses
+`set_breakpoint` honestly (a page cannot block its main thread); scripting-
+disabled players refuse too. Variables are READ-only in v1 (no eval at a
+frame) — live tuning stays `set_runtime_property`/`set_cvar`.
+
+---
+
 ## 4. Author levels
 
 Build a tile-based level by stamping prefabs onto a snap grid, then wire the

@@ -106,6 +106,19 @@ void clearRemoteState(PlaySession& session)
 	session.remoteProfileFrameMs = -1.0;
 	session.profileSeq = 0;
 	session.remoteMusic.clear();
+	session.scriptErrorMessages.clear();
+	// the script debugger's per-session state: a fresh player is not broken
+	// and has no breakpoints applied yet (the connect push re-sends the store)
+	session.debugBroken = false;
+	session.debugBreakFile.clear();
+	session.debugBreakLine = 0;
+	session.debugBreakSeq = 0;
+	session.debugStack.clear();
+	session.debugSelectedFrame = 0;
+	session.debugLocalsCache.clear();
+	session.debugLocalsPending.clear();
+	session.debugLocalsSeq = 0;
+	session.sentBreakpointRevision = 0;
 }
 
 namespace
@@ -1197,6 +1210,71 @@ void stopRemoteRecord(PlaySession& session)
 	session.client.send(stop);
 }
 
+//--- script debugger (the MSG_DEBUG_* family) --------------------------------
+
+std::string debugLocalsKey(int frameIndex,
+	std::vector<std::string> const& expandPath)
+{
+	std::string key = std::to_string(frameIndex);
+	for (std::string const& step : expandPath)
+	{
+		key += "|";
+		key += step;
+	}
+	return key;
+}
+
+//! push the CURRENT breakpoint set to the running player (full-list replace)
+void sendDebugBreakpoints(EditorState& state, PlaySession& session)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage message(Protocol::MSG_DEBUG_BREAKPOINTS);
+	message.setList(Protocol::LIST_BREAKPOINTS, state.breakpoints.wireList());
+	session.client.send(message);
+	session.sentBreakpointRevision = state.breakpoints.revision();
+}
+
+//! release the held break (resume or one of the steps)
+void sendDebugCommand(PlaySession& session, Orkige::String const& messageType)
+{
+	if (!session.client.isConnected() || !session.debugBroken)
+	{
+		return;
+	}
+	session.client.send(Orkige::DebugMessage(messageType));
+	// optimistic: the player confirms with MSG_DEBUG_RESUMED (and a landing
+	// step raises a fresh MSG_DEBUG_BREAK); flipping here keeps the UI honest
+	// even if that confirmation interleaves behind streamed messages
+	session.debugBroken = false;
+	session.debugLocalsCache.clear();
+	session.debugLocalsPending.clear();
+}
+
+//! request variables at a frame of the held break (deduped while in flight)
+void requestDebugLocals(PlaySession& session, int frameIndex,
+	std::vector<std::string> const& expandPath)
+{
+	if (!session.client.isConnected() || !session.debugBroken)
+	{
+		return;
+	}
+	const std::string key = debugLocalsKey(frameIndex, expandPath);
+	if (session.debugLocalsCache.count(key) != 0 ||
+		session.debugLocalsPending.count(key) != 0)
+	{
+		return;
+	}
+	Orkige::DebugMessage request(Protocol::MSG_DEBUG_LOCALS);
+	request.set(Protocol::FIELD_FRAME, std::to_string(frameIndex));
+	Orkige::StringVector path(expandPath.begin(), expandPath.end());
+	request.setList(Protocol::LIST_EXPAND_PATH, path);
+	session.client.send(request);
+	session.debugLocalsPending.insert(key);
+}
+
 //! Lua hot-reload: tell the running player to recompile-and-swap
 void reloadRemoteScripts(PlaySession& session, EditorConsole& console)
 {
@@ -1638,6 +1716,18 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 			console.addLine(level,
 				"[remote] " + message.get(Protocol::FIELD_MESSAGE));
 			session.remoteLogSeen = true;
+			if (level == ConsoleLevel::Error)
+			{
+				// keep the raw text so the Script panel can surface any
+				// "file:line" it carries as an error marker (bounded)
+				session.scriptErrorMessages.push_back(
+					message.get(Protocol::FIELD_MESSAGE));
+				if (session.scriptErrorMessages.size() > 64)
+				{
+					session.scriptErrorMessages.erase(
+						session.scriptErrorMessages.begin());
+				}
+			}
 		}
 		else if (message.type == Protocol::MSG_SCRIPT_ERROR)
 		{
@@ -1652,6 +1742,95 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 					"[remote] SCRIPT ERROR on '" + id + "': " +
 					message.get(Protocol::FIELD_MESSAGE));
 			}
+			session.scriptErrorMessages.push_back(
+				message.get(Protocol::FIELD_MESSAGE));
+			if (session.scriptErrorMessages.size() > 64)
+			{
+				session.scriptErrorMessages.erase(
+					session.scriptErrorMessages.begin());
+			}
+		}
+		else if (message.type == Protocol::MSG_DEBUG_BREAK)
+		{
+			// script execution paused at a breakpoint / step landing: record
+			// the location + stack, and pull the Script panel to the hit line
+			session.debugBroken = true;
+			session.debugBreakFile = message.get(Protocol::FIELD_PATH);
+			session.debugBreakLine =
+				std::atoi(message.get(Protocol::FIELD_LINE).c_str());
+			++session.debugBreakSeq;
+			session.debugSelectedFrame = 0;
+			session.debugStack.clear();
+			session.debugLocalsCache.clear();
+			session.debugLocalsPending.clear();
+			Orkige::StringVector const& sources =
+				message.getList(Protocol::LIST_STACK_SOURCES);
+			Orkige::StringVector const& lines =
+				message.getList(Protocol::LIST_STACK_LINES);
+			Orkige::StringVector const& functions =
+				message.getList(Protocol::LIST_STACK_FUNCTIONS);
+			for (std::size_t i = 0; i < sources.size(); ++i)
+			{
+				PlaySession::DebugStackFrame frame;
+				frame.source = sources[i];
+				frame.line = i < lines.size()
+					? std::atoi(lines[i].c_str()) : 0;
+				frame.function = i < functions.size() ? functions[i] : "";
+				session.debugStack.push_back(frame);
+			}
+			console.addLine(ConsoleLevel::Info,
+				"[debug] paused at " + session.debugBreakFile + ":" +
+				std::to_string(session.debugBreakLine));
+			// auto-open/focus the Script panel on the hit line and prefetch
+			// the innermost frame's locals
+			if (gViewSettings != nullptr)
+			{
+				scriptPanelOpenFile(state, *gViewSettings,
+					session.debugBreakFile, session.debugBreakLine);
+			}
+			requestDebugLocals(session, 0, {});
+		}
+		else if (message.type == Protocol::MSG_DEBUG_RESUMED)
+		{
+			// the break released (our command, or the player detached)
+			session.debugBroken = false;
+			session.debugStack.clear();
+			session.debugLocalsCache.clear();
+			session.debugLocalsPending.clear();
+		}
+		else if (message.type == Protocol::MSG_DEBUG_LOCALS)
+		{
+			// a variables reply: cache under its request key
+			const int frameIndex =
+				std::atoi(message.get(Protocol::FIELD_FRAME).c_str());
+			Orkige::StringVector const& expand =
+				message.getList(Protocol::LIST_EXPAND_PATH);
+			const std::string key = debugLocalsKey(frameIndex,
+				std::vector<std::string>(expand.begin(), expand.end()));
+			Orkige::StringVector const& names =
+				message.getList(Protocol::LIST_VAR_NAMES);
+			Orkige::StringVector const& scopes =
+				message.getList(Protocol::LIST_VAR_SCOPES);
+			Orkige::StringVector const& types =
+				message.getList(Protocol::LIST_VAR_TYPES);
+			Orkige::StringVector const& values =
+				message.getList(Protocol::LIST_VAR_VALUES);
+			Orkige::StringVector const& expandable =
+				message.getList(Protocol::LIST_VAR_EXPANDABLE);
+			std::vector<PlaySession::DebugVariableRow> rows;
+			for (std::size_t i = 0; i < names.size(); ++i)
+			{
+				PlaySession::DebugVariableRow row;
+				row.name = names[i];
+				row.scope = i < scopes.size() ? scopes[i] : "";
+				row.type = i < types.size() ? types[i] : "";
+				row.value = i < values.size() ? values[i] : "";
+				row.expandable = i < expandable.size() && expandable[i] == "1";
+				rows.push_back(row);
+			}
+			session.debugLocalsCache[key] = rows;
+			session.debugLocalsPending.erase(key);
+			++session.debugLocalsSeq;
 		}
 		else if (message.type == Protocol::MSG_SCREENSHOT_SAVED)
 		{
@@ -1932,6 +2111,16 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 		{
 			session.mode = PlaySession::Mode::Playing;
 			oDebugMsg("editor.play", 0, "play - connected to the player");
+			// the fresh player carries no breakpoints yet: push the project's
+			// persisted set so a pre-set breakpoint hits from the first frame
+			if (!state.breakpoints.list().empty())
+			{
+				sendDebugBreakpoints(state, session);
+			}
+			else
+			{
+				session.sentBreakpointRevision = state.breakpoints.revision();
+			}
 			// arm the scripts/.oui hot-reload baseline NOW, at the instant the
 			// session becomes playable - not lazily on the next Playing-mode
 			// poll. The message drain above can deliver the player's first UI
@@ -1998,6 +2187,12 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 		// Lua hot-reload: watch the project's scripts/ and tell the
 		// running player to recompile-and-swap on any edit (desktop play only)
 		watchProjectScripts(state, session, console, now);
+		// script breakpoints: any store change (gutter click, MCP verb) since
+		// the last push re-sends the whole set (full-list replace)
+		if (session.sentBreakpointRevision != state.breakpoints.revision())
+		{
+			sendDebugBreakpoints(state, session);
+		}
 		// crash resilience: a vanished process or a dropped link reverts
 		// the editor to edit mode cleanly
 		if (processExited)

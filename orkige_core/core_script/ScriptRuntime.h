@@ -14,6 +14,7 @@
 #include "core_util/String.h"
 #include "core_util/optr.h"
 #include "core_base/PropertyValue.h"
+#include "core_script/ScriptDebugCore.h"
 
 #include <functional>
 #include <map>
@@ -324,6 +325,16 @@ namespace Orkige
 		//! create the global table if it does not exist yet
 		void ensureGlobalTable(String const & name);
 
+		//! @brief the string-keyed GLOBAL names of the scripting state (the
+		//! engine API tables, registered types, script-created globals) -
+		//! the editor's completion source. Sorted; empty without a backend.
+		StringVector globalNames();
+		//! @brief the string-keyed member names of one global: a table's own
+		//! keys, plus (for a registered usertype/global object) the keys of
+		//! its metatable's __index table - so a type's methods enumerate too.
+		//! Sorted; empty for an unknown name or without a backend.
+		StringVector globalMemberNames(String const & name);
+
 		//! read optional trailing argument #index (0-based) as a number
 		//! (fallback when absent or not a number) - @see ScriptArgs
 		static double numberArg(ScriptArgs const & args, int index,
@@ -488,6 +499,69 @@ namespace Orkige
 		sol::object componentHandleFor(sol::state_view lua, String const & id,
 			String const & name);
 #endif
+
+		//--- script debugger -------------------------------------------------
+		// The backend-neutral debug seam: breakpoints, stepping and paused-frame
+		// introspection for the editor's script debugger. The line-hook
+		// machinery, call-stack walking and local/upvalue readback are an
+		// implementation detail of the Lua backend behind these methods; call
+		// sites (the player debug link, the editor, tests) never see a backend
+		// type. Everything here is MAIN-THREAD only: a break blocks inside
+		// script execution and the pump handler runs on that same thread.
+		//
+		// Lifecycle: the line hook is installed ONLY while at least one
+		// breakpoint is set or a step is pending - with neither, script
+		// execution carries zero debug overhead. On a hit the runtime blocks
+		// inside the hook and calls the registered pump handler in a loop until
+		// debugResume() releases it; the handler services the debug transport
+		// (and must eventually resume - a vanished client calls debugDetach()).
+		// Without a registered handler a hit resumes immediately (never a
+		// wedge). In ORKIGE_SCRIPTING=OFF builds every operation refuses with
+		// the honest disabled error; on the browser player (which cannot block
+		// its main thread) setDebugBreakpoints refuses honestly instead.
+
+		//! @brief replace the WHOLE breakpoint set (the protocol's full-list
+		//! replace; an empty list clears everything and uninstalls the hook).
+		//! False with *outError set when scripting is disabled or the platform
+		//! cannot block for a break (the browser player).
+		bool setDebugBreakpoints(
+			std::vector<ScriptBreakpoint> const & breakpoints,
+			String * outError);
+		//! @brief register the handler the runtime calls IN A LOOP while a
+		//! break holds execution: each call should service the debug transport
+		//! once (and pace itself - a short sleep); a resume/step command from
+		//! the transport releases the loop. Pass an empty function to clear
+		//! (a break then resumes immediately).
+		void setDebugPumpHandler(std::function<void()> handler);
+		//! is script execution currently paused at a break
+		bool isDebugBroken() const;
+		//! @brief increments on every break entry, so a transport can send its
+		//! break notification exactly once per pause (0 until the first break)
+		unsigned int debugBreakSequence() const;
+		//! the paused location's normalized script path ("" while running)
+		String debugBreakFile() const;
+		//! the paused location's 1-based line (0 while running)
+		int debugBreakLine() const;
+		//! the call stack captured at the break (innermost first; empty while
+		//! running)
+		std::vector<ScriptStackFrame> debugStackFrames() const;
+		//! @brief release a held break: continue freely (None) or arm a step
+		//! (In/Over/Out) that pauses again at the next matching line. A no-op
+		//! while not broken.
+		void debugResume(ScriptStepMode stepMode = ScriptStepMode::None);
+		//! @brief read variables at a paused frame. An empty expandPath lists
+		//! the frame's locals + upvalues; a non-empty one names a root variable
+		//! and a chain of table keys ("[3]" for a non-string key) and lists
+		//! THAT table's fields. Bounded by maxEntries; results are shallow
+		//! (type + display string, tables marked expandable). Empty with
+		//! *outError set while not broken / on a bad frame or path.
+		std::vector<ScriptDebugVariable> debugVariables(int frameIndex,
+			StringVector const & expandPath, int maxEntries,
+			String * outError);
+		//! @brief the disconnect path: clear every breakpoint and, when broken,
+		//! resume - a client that vanished mid-break must never leave the
+		//! runtime wedged inside the hook. Safe to call at any time.
+		void debugDetach();
 	protected:
 	private:
 		//! the honest OFF-configuration error message

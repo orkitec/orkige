@@ -2349,6 +2349,21 @@ if(TARGET orkige_player)
             COMMAND player_debug_driver $<TARGET_FILE:orkige_player>
                 "${Orkige_SOURCE_DIR}/tests/scenes/falling_cube.oscene"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+
+        # script-debugger contract: the driver spawns a real player on the
+        # jumper-lua project, sets a breakpoint on update()'s first statement
+        # (located by scanning scripts/player.lua - never a hardcoded line),
+        # and asserts break-hit/stack/locals/expand/step/re-hit/mid-break
+        # deferral/clear/disconnect-auto-resume end to end (see
+        # script_debug_driver.cpp). Both flavors register it - the debugger
+        # rides the flavor-neutral script runtime.
+        add_executable(script_debug_driver
+            integration_driver/script_debug_driver.cpp)
+        target_link_libraries(script_debug_driver PRIVATE Orkige::Core)
+        add_test(NAME player_script_debug${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND script_debug_driver $<TARGET_FILE:orkige_player>
+                "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     endif()
 endif()
 
@@ -2391,7 +2406,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
         player_example_scene player_example_project player_vectorshape_scene
-        player_debug_pause
+        player_debug_pause player_script_debug player_script_debug_next
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
         player_softbody_selfcheck player_softbody_selfcheck_next
@@ -2431,7 +2446,8 @@ endforeach()
 # run - give them more headroom than the single-process tests; the jumper
 # selfcheck simulates a whole scripted play session (jump flight, fall past
 # the kill plane, goal walk-in), so it gets the same headroom
-foreach(play_test player_debug_pause editor_play_stop editor_play_crash
+foreach(play_test player_debug_pause player_script_debug
+        player_script_debug_next editor_play_stop editor_play_crash
         editor_play_mirror editor_play_mirror_next
         editor_project_play editor_play_script_error editor_play_hotreload
         editor_ui_hotreload editor_ui_hotreload_next
