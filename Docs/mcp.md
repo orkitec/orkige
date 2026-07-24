@@ -193,7 +193,8 @@ The endpoint advertises 88 tools (the `toolSpecs` table in
 | `set_breakpoint(file, line)` | **auth** — set a script breakpoint (project-relative script path + 1-based line) in the editor's per-project store (`ScriptBreakpointStore`, persisted under `.orkige/breakpoints`); the play session pushes the whole set to a running player automatically (`MSG_DEBUG_BREAKPOINTS`, on connect and live on any change) — so set it before OR during Play. Refused for a browser play session and by scripting-disabled players (the honest one-line reply). Returns the full set. See `Docs/script-debugging.md` |
 | `clear_breakpoint(file?, line?, all?)` | **auth** — clear one breakpoint, or every one with `all='1'`; pushed live like `set_breakpoint`. Returns the remaining set |
 | `list_breakpoints()` | the per-project breakpoint set as `file:line` entries (read-only) |
-| `get_debug_state()` | THE poll for the asynchronous break-hit: `paused_at_breakpoint` (`1` while the player is held MID-STATEMENT at a script break — distinct from the frame-boundary `pause`), the paused `file`/`line`, `break_seq` (increments per break — a landing step raises a new one), `locals_seq`, and the call stack as parallel `stack_sources`/`stack_lines`/`stack_functions` (innermost first; host-call frames read `[host]`). Answers in every mode |
+| `get_debug_state()` | THE poll for the asynchronous break-hit: `paused_at_breakpoint` (`1` while the player is held MID-STATEMENT at a script break — distinct from the frame-boundary `pause`), the paused `file`/`line`, `break_error` (the crash text when the pause came from an uncaught error — see `set_break_on_errors`; empty for a breakpoint/step pause), `break_seq` (increments per break — a landing step raises a new one), `locals_seq`, and the call stack as parallel `stack_sources`/`stack_lines`/`stack_functions` (innermost first; host-call frames read `[host]`). Answers in every mode |
+| `set_break_on_errors(on)` | **auth** — BREAK ON SCRIPT ERRORS: arm (`on='1'`) or disarm (`on='0'`) pausing the running game AT an uncaught Lua error (`MSG_DEBUG_BREAK_ON_ERRORS`). Armed, a thrown error pauses the player at the error point like a breakpoint — poll `get_debug_state` until `paused_at_breakpoint`, then `break_error`/`file`/`line`/stack point at the fault; inspect with `get_locals` and release with `debug_continue` (on Continue the error still disables the instance — arming only DEFERS the honest failure). Persisted in the editor and pushed to a running player on connect + on change. Refused for a browser session and by scripting-disabled players; on those the error still flows its normal path |
 | `debug_continue()` | **auth** — release the held break and run free until the next hit (`MSG_DEBUG_RESUME`); returns `accepted` + `prev_break_seq` — poll `get_debug_state` |
 | `debug_step_in()` / `debug_step_over()` / `debug_step_out()` | **auth** — release the held break and pause again at the next executed line / the next line at the same-or-shallower call depth / the first line after the current function returns (`MSG_DEBUG_STEP_*`); async like `debug_continue` — poll `get_debug_state` until `break_seq` advances |
 | `debug_break_next()` | **auth** — BREAK ON NEXT STATEMENT, the orientation move: pause into wherever the running scripts execute next, WITHOUT a known file/line (answering "where does code even run right now?"). Arms a one-shot break on the first script line the player runs next (`MSG_DEBUG_BREAK_NEXT`); works while `play_mode` is `playing` or `paused` (a frame-paused arm persists until the sim resumes). Errors unless a live player is running and NOT already paused; refused for a browser session and by scripting-disabled players. Async like `debug_continue` — returns `accepted` + `prev_break_seq`, poll `get_debug_state` until `break_seq` advances, then inspect with `get_locals` |
@@ -433,6 +434,18 @@ pattern, so none needs a dedicated verb:
   `set_runtime_property` (live) — no bespoke verb, exactly like every other
   component property. The script-driven `engine:setCameraOrthographicFit` is a
   Lua call authored the same way as `setCameraOrthographic`.
+- **Camera authoring** — a camera is a plain GameObject carrying a
+  `CameraComponent`. In the editor: GameObject > **Create Camera** (also the
+  Hierarchy right-click menu / native menu) spawns one at the current view pose
+  (the new camera sees what the author sees), the selected camera draws a
+  **frustum gizmo** in the Scene view (a wireframe view volume — perspective cone
+  or orthographic box honouring `fitMode`), and every **new scene ships with a
+  default `Main Camera`**. A camera-less scene still plays through the player's
+  default-window-camera fallback. Over MCP there is NO bespoke verb: `add_object`
+  then `add_component` with `"CameraComponent"` adds one by name (the reflected
+  component registry), and `set_component` dials `projectionMode` / `orthoSize` /
+  `fitMode` / `designWidth` / `designHeight` — the same generic path as any
+  component. The camera round-trips through `save`/reload like any object.
 - **Screen shake** (`screen.shake` / `stopShake` / `isShaking`) and **time
   scale** (`world.setTimeScale` / `getTimeScale`) — runtime Lua calls, authored +
   `reload_script`-iterated; the shake is observable in `screenshot_game`, and
@@ -609,7 +622,11 @@ mode is never ambiguous.
   release the break. `debug_break_next` needs no breakpoint at all — it pauses
   into wherever the scripts run next (the "where does code even run right now?"
   orientation move), the async break-hit landing on `get_debug_state` just like
-  a breakpoint. The worked loop is in `Docs/mcp-workflows.md`; the design
+  a breakpoint. `set_break_on_errors` arms a break AT an uncaught script error —
+  the crash pauses the game at the fault (`get_debug_state`'s `break_error`
+  carries the message; file/line/stack/locals show the real crash), and Continue
+  still lets the honest failure flow (the instance disables). The worked loop is
+  in `Docs/mcp-workflows.md`; the design
   (hook lifecycle, pause semantics, the web/noscript refusals) in
   `Docs/script-debugging.md`. These are the SAME breakpoints the editor's
   Script panel shows — an agent and the human share one store.

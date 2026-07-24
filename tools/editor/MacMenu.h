@@ -65,6 +65,7 @@ namespace Orkige
 		std::function<void()> groupSelected;
 		// GameObject
 		std::function<void()> createCube;
+		std::function<void()> createCamera;
 		std::function<void()> createTestMesh;
 		//! Create Prefab from the primary selection (needs an open project)
 		std::function<void()> createPrefab;

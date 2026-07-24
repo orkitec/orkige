@@ -1651,6 +1651,13 @@ namespace Orkige
 				// hit rides the MSG_DEBUG_BREAK path once a line runs).
 				handleDebugBreakNext(message);
 			}
+			else if (message.type == Protocol::MSG_DEBUG_BREAK_ON_ERRORS)
+			{
+				// break on script errors: arm/disarm pausing AT an uncaught
+				// script error (the hit rides the MSG_DEBUG_BREAK path, with the
+				// error text). Full-state push on connect + live on change.
+				handleDebugBreakOnErrors(message);
+			}
 			// --- protocol-extension slot -------------------------------------
 			// Additive editor->runtime messages ride THIS one debug protocol as
 			// new else-if branches (old players hit the unknown-else below and
@@ -1737,6 +1744,33 @@ namespace Orkige
 		ensureDebugPumpInstalled(*runtime);
 	}
 	//---------------------------------------------------------
+	void PlayerDebugLink::handleDebugBreakOnErrors(DebugMessage const & message)
+	{
+		ScriptRuntime * runtime = ScriptRuntime::getSingletonPtr();
+		if (runtime == NULL)
+		{
+			sendError("debug_break_on_errors: no scripting runtime in this "
+				"player");
+			return;
+		}
+		const bool armed = message.get(Protocol::FIELD_VALUE) == "1";
+		String error;
+		if (!runtime->setDebugBreakOnErrors(armed, &error))
+		{
+			// the honest refusal: the browser player cannot block its main
+			// thread, and a no-scripting build has nothing to hook. The error
+			// itself still flows today's path - arming is the only no-op.
+			sendError("debug_break_on_errors: " + error);
+			return;
+		}
+		// an error break reports over the SAME break pump the breakpoint path
+		// uses, so arming installs this link as the pump even with no breakpoint
+		if (armed)
+		{
+			ensureDebugPumpInstalled(*runtime);
+		}
+	}
+	//---------------------------------------------------------
 	void PlayerDebugLink::handleDebugResume(DebugMessage const & message)
 	{
 		ScriptRuntime * runtime = ScriptRuntime::getSingletonPtr();
@@ -1818,6 +1852,13 @@ namespace Orkige
 		note.set(Protocol::FIELD_PATH, runtime->debugBreakFile());
 		note.set(Protocol::FIELD_LINE,
 			std::to_string(runtime->debugBreakLine()));
+		// carry the error text ONLY on an error break (empty for a breakpoint /
+		// step landing, which is not an error) - the additive `error` field
+		const String breakError = runtime->debugBreakError();
+		if (!breakError.empty())
+		{
+			note.set(Protocol::FIELD_ERROR, breakError);
+		}
 		StringVector sources;
 		StringVector lines;
 		StringVector functions;

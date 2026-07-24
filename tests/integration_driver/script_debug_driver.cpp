@@ -192,18 +192,97 @@ namespace
 		}
 		return 0;
 	}
+
+	//! the 1-based line CONTAINING the given needle in the script (0 if absent)
+	//! - the error legs locate the fault site by scanning so an edit to the
+	//! fixture moves the assertion along, never a hardcoded line
+	int findLineContaining(std::string const & scriptPath,
+		std::string const & needle)
+	{
+		std::ifstream file(scriptPath);
+		std::string line;
+		int lineNumber = 0;
+		while (std::getline(file, line))
+		{
+			++lineNumber;
+			if (line.find(needle) != std::string::npos)
+			{
+				return lineNumber;
+			}
+		}
+		return 0;
+	}
+
+	//! probe a free localhost port (same idiom as the port probe in main)
+	unsigned short probeFreePort()
+	{
+		Orkige::DebugServer portProbe;
+		if (!portProbe.start(0))
+		{
+			return 0;
+		}
+		return portProbe.getPort();
+	}
+
+	//! spawn a player on a project + debug port; -1 on a spawn failure
+	pid_t spawnPlayerOnProject(std::string const & playerBinary,
+		std::string const & projectDir, std::string const & portString)
+	{
+		const char* args[] = { playerBinary.c_str(),
+			"--project", projectDir.c_str(),
+			"--debug-port", portString.c_str(), nullptr };
+		pid_t pid = -1;
+		if (::posix_spawn(&pid, playerBinary.c_str(), nullptr, nullptr,
+			const_cast<char* const*>(args), environ) != 0)
+		{
+			return -1;
+		}
+		return pid;
+	}
+
+	//! quit a player over the link and reap it; kills after a grace deadline.
+	//! Resets the given pid slot to -1. Best-effort (the phase is done anyway).
+	void quitAndReap(Orkige::DebugClient & client, pid_t & pid)
+	{
+		if (client.isConnected())
+		{
+			client.send(Orkige::DebugMessage(Protocol::MSG_QUIT));
+		}
+		const std::chrono::steady_clock::time_point deadline = deadlineIn(8000);
+		while (pid > 0)
+		{
+			int status = 0;
+			if (::waitpid(pid, &status, WNOHANG) == pid)
+			{
+				pid = -1;
+				return;
+			}
+			if (std::chrono::steady_clock::now() >= deadline)
+			{
+				::kill(pid, SIGKILL);
+				::waitpid(pid, &status, 0);
+				pid = -1;
+				return;
+			}
+			client.update();
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+	}
 }
 
 int main(int argc, char** argv)
 {
-	if (argc != 3)
+	if (argc < 3 || argc > 4)
 	{
 		std::fprintf(stderr,
-			"usage: script_debug_driver <orkige_player> <projectDir>\n");
+			"usage: script_debug_driver <orkige_player> <projectDir> "
+			"[errorProjectDir]\n");
 		return 2;
 	}
 	const std::string playerBinary = argv[1];
 	const std::string projectDir = argv[2];
+	// optional: the fixture project for the BREAK-ON-SCRIPT-ERROR legs (argv[3])
+	const std::string errorProjectDir = (argc == 4) ? argv[3] : std::string();
 	const std::string scriptFile = "scripts/player.lua";
 
 	const int breakLine =
@@ -583,7 +662,194 @@ int main(int argc, char** argv)
 				std::to_string(status) + ")");
 		}
 	}
+	log("jumper-lua phase PASSED (break/stack/locals/step/re-hit/defer/clear/"
+		"disconnect/quit)");
+
+	// --- BREAK ON SCRIPT ERROR legs (a fresh player per leg on the fixture
+	// whose boom.lua throws an uncaught error once cvar test.boom is set) ---
+	if (!errorProjectDir.empty())
+	{
+		const std::string boomScript = "scripts/boom.lua";
+		const int faultLine = findLineContaining(
+			errorProjectDir + "/" + boomScript, "return bad.field");
+		if (faultLine <= 0)
+		{
+			return fail("could not locate the fault line in " + boomScript);
+		}
+		log("error-leg fault target: " + boomScript + ":" +
+			std::to_string(faultLine));
+
+		// helper: spawn a fixture player, connect + hello. Returns false on any
+		// setup failure (playerPid is set so fail() cleans up).
+		auto spawnFixture = [&](Orkige::DebugClient & client) -> bool
+		{
+			const unsigned short ePort = probeFreePort();
+			if (ePort == 0)
+			{
+				log("FAILED - could not probe a port for the error leg");
+				return false;
+			}
+			playerPid = spawnPlayerOnProject(playerBinary, errorProjectDir,
+				std::to_string(ePort));
+			if (playerPid <= 0)
+			{
+				log("FAILED - could not spawn the fixture player");
+				return false;
+			}
+			if (!connectWithRetries(client, ePort, 30000))
+			{
+				log("FAILED - could not connect to the fixture player");
+				return false;
+			}
+			Orkige::DebugMessage hello;
+			return waitForMessage(client, Protocol::MSG_HELLO, hello, 30000);
+		};
+
+		// set cvar test.boom AFTER the loop is running (a MSG_STATS proves the
+		// first frame - and so boom.lua's load-time cvar registration - is done)
+		auto triggerFault = [&](Orkige::DebugClient & client) -> bool
+		{
+			if (!waitForMessage(client, Protocol::MSG_STATS, message, 20000))
+			{
+				return false;	// the game never started streaming
+			}
+			Orkige::DebugMessage setCvar(Protocol::MSG_SET_CVAR);
+			setCvar.set(Protocol::FIELD_CVAR_NAME, "test.boom");
+			setCvar.set(Protocol::FIELD_VALUE, "1");
+			client.send(setCvar);
+			return true;
+		};
+
+		// --- ARMED leg: the error PAUSES at its site with text + stack ---
+		{
+			Orkige::DebugClient client;
+			if (!spawnFixture(client))
+			{
+				return fail("armed error leg: no hello from the fixture player");
+			}
+			log("armed error leg: fixture player up");
+			// arm break-on-errors (full-state push, value "1")
+			Orkige::DebugMessage arm(Protocol::MSG_DEBUG_BREAK_ON_ERRORS);
+			arm.set(Protocol::FIELD_VALUE, "1");
+			client.send(arm);
+			if (!triggerFault(client))
+			{
+				return fail("armed error leg: the game never streamed stats "
+					"(cvar not set)");
+			}
+			if (!waitForMessage(client, Protocol::MSG_DEBUG_BREAK, message,
+				20000))
+			{
+				return fail("armed error leg: the uncaught error did not break "
+					"the game");
+			}
+			// the pause IS an error: the error text rides along
+			if (message.get(Protocol::FIELD_ERROR).empty())
+			{
+				return fail("armed error leg: the break carried no error text");
+			}
+			if (message.get(Protocol::FIELD_PATH) != boomScript ||
+				message.get(Protocol::FIELD_LINE) != std::to_string(faultLine))
+			{
+				return fail("armed error leg: the break location is wrong ('" +
+					message.get(Protocol::FIELD_PATH) + ":" +
+					message.get(Protocol::FIELD_LINE) + "', expected " +
+					boomScript + ":" + std::to_string(faultLine) + ")");
+			}
+			{
+				Orkige::StringVector const & sources =
+					message.getList(Protocol::LIST_STACK_SOURCES);
+				Orkige::StringVector const & lines =
+					message.getList(Protocol::LIST_STACK_LINES);
+				if (sources.empty() || sources.size() != lines.size() ||
+					sources[0] != boomScript ||
+					lines[0] != std::to_string(faultLine))
+				{
+					return fail("armed error leg: the innermost stack frame is "
+						"not the erroring script line");
+				}
+			}
+			log("armed error leg: paused AT the error " +
+				message.get(Protocol::FIELD_PATH) + ":" +
+				message.get(Protocol::FIELD_LINE) + " - " +
+				message.get(Protocol::FIELD_ERROR));
+			// locals at the fault frame are readable
+			{
+				Orkige::DebugMessage request(Protocol::MSG_DEBUG_LOCALS);
+				request.set(Protocol::FIELD_FRAME, "0");
+				client.send(request);
+				if (!waitForMessage(client, Protocol::MSG_DEBUG_LOCALS, message,
+					10000))
+				{
+					return fail("armed error leg: no locals reply at the fault");
+				}
+				Orkige::StringVector const & names =
+					message.getList(Protocol::LIST_VAR_NAMES);
+				bool sawDt = false;
+				for (Orkige::String const & name : names)
+				{
+					if (name == "dt") { sawDt = true; }
+				}
+				if (!sawDt)
+				{
+					return fail("armed error leg: update's 'dt' local was not "
+						"readable at the error break");
+				}
+			}
+			// Continue: today's error path flows - the instance disables itself
+			// and reports MSG_SCRIPT_ERROR (arming only DEFERRED it)
+			client.send(Orkige::DebugMessage(Protocol::MSG_DEBUG_RESUME));
+			if (!waitForMessage(client, Protocol::MSG_DEBUG_RESUMED, message,
+				10000))
+			{
+				return fail("armed error leg: no debug_resumed after continue");
+			}
+			if (!waitForMessage(client, Protocol::MSG_SCRIPT_ERROR, message,
+				15000))
+			{
+				return fail("armed error leg: MSG_SCRIPT_ERROR did not flow "
+					"after Continue (today's honest failure must still fire)");
+			}
+			log("armed error leg: on Continue the honest failure flowed "
+				"(script_error reported, instance disabled)");
+			quitAndReap(client, playerPid);
+		}
+
+		// --- UNARMED leg: byte-identical to today - the error streams, no break
+		{
+			Orkige::DebugClient client;
+			if (!spawnFixture(client))
+			{
+				return fail("unarmed error leg: no hello from the fixture "
+					"player");
+			}
+			log("unarmed error leg: fixture player up");
+			// do NOT arm break-on-errors; just trigger the fault
+			if (!triggerFault(client))
+			{
+				return fail("unarmed error leg: the game never streamed stats");
+			}
+			// today's path: the instance disables + reports, with NO pause
+			if (!waitForMessage(client, Protocol::MSG_SCRIPT_ERROR, message,
+				15000))
+			{
+				return fail("unarmed error leg: MSG_SCRIPT_ERROR did not flow");
+			}
+			if (!absentForWindow(client, Protocol::MSG_DEBUG_BREAK, 700))
+			{
+				return fail("unarmed error leg: a break arrived with "
+					"break-on-errors OFF (must be byte-identical to today)");
+			}
+			log("unarmed error leg: the error streamed with no pause "
+				"(today's behavior unchanged)");
+			quitAndReap(client, playerPid);
+		}
+		log("break-on-error phase PASSED (armed pauses at the fault with "
+			"text/stack/locals; unarmed is unchanged)");
+	}
+
 	log("PASSED - the full script-debugger contract holds "
-		"(break/stack/locals/step/re-hit/defer/clear/disconnect/quit)");
+		"(break/stack/locals/step/re-hit/defer/clear/disconnect/quit + "
+		"break-on-errors)");
 	return 0;
 }

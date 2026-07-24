@@ -29,6 +29,7 @@ namespace
 		TAG_DELETE,
 		TAG_GROUP_SELECTION,
 		TAG_CREATE_CUBE,
+		TAG_CREATE_CAMERA,
 		TAG_CREATE_TEST_MESH,
 		TAG_CREATE_PREFAB,
 		TAG_EXPORT_MACOS,			//!< Build > Build for macOS
@@ -139,6 +140,7 @@ namespace
 	case TAG_DELETE:			action = &gActions.deleteSelected; break;
 	case TAG_GROUP_SELECTION:	action = &gActions.groupSelected; break;
 	case TAG_CREATE_CUBE:		action = &gActions.createCube; break;
+	case TAG_CREATE_CAMERA:		action = &gActions.createCamera; break;
 	case TAG_CREATE_TEST_MESH:	action = &gActions.createTestMesh; break;
 	case TAG_CREATE_PREFAB:		action = &gActions.createPrefab; break;
 	case TAG_RESET_LAYOUT:		action = &gActions.resetLayout; break;
@@ -444,6 +446,7 @@ namespace Orkige
 
 		NSMenu* gameObjectMenu = ensureTopLevelMenu(@"GameObject");
 		addItem(gameObjectMenu, @"Create Cube", TAG_CREATE_CUBE, @"", 0);
+		addItem(gameObjectMenu, @"Create Camera", TAG_CREATE_CAMERA, @"", 0);
 		addItem(gameObjectMenu, @"Create Test Mesh", TAG_CREATE_TEST_MESH,
 			@"", 0);
 		[gameObjectMenu addItem:[NSMenuItem separatorItem]];

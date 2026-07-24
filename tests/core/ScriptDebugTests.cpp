@@ -114,6 +114,47 @@ TEST_CASE("ScriptDebugCore break-next arms an unbroken In step",
 	CHECK(Debug::stepShouldBreak(Debug::breakNextStepMode(), 0, 1));
 }
 
+TEST_CASE("ScriptDebugCore gates an error break", "[script][debug]")
+{
+	// the exact gate luaErrorBreakHandler applies: armed AND a pump exists AND
+	// not already inside a break. Any of those failing = the error flows its
+	// normal path (today's instance-disable), never a pause.
+	CHECK(Debug::errorShouldBreak(true, true, false));
+	CHECK_FALSE(Debug::errorShouldBreak(false, true, false));	// disarmed
+	CHECK_FALSE(Debug::errorShouldBreak(true, false, false));	// no pump
+	CHECK_FALSE(Debug::errorShouldBreak(true, true, true));		// nested
+	CHECK_FALSE(Debug::errorShouldBreak(false, false, false));
+}
+
+TEST_CASE("ScriptDebugCore picks the erroring script frame", "[script][debug]")
+{
+	// the paused location is the first SCRIPT frame with a real line, so a
+	// leading host frame (the error() builtin) is skipped
+	std::vector<ScriptStackFrame> frames;
+	ScriptStackFrame host;
+	host.source = "[host]";
+	host.line = -1;
+	host.isScript = false;
+	frames.push_back(host);
+	ScriptStackFrame script;
+	script.source = "scripts/boom.lua";
+	script.line = 12;
+	script.isScript = true;
+	frames.push_back(script);
+	String file;
+	int line = 0;
+	REQUIRE(Debug::errorBreakLocation(frames, file, line));
+	CHECK(file == "scripts/boom.lua");
+	CHECK(line == 12);
+	// a stack with no script frame that carries a line: nothing to point at
+	std::vector<ScriptStackFrame> hostOnly(1, host);
+	String noFile;
+	int noLine = 0;
+	CHECK_FALSE(Debug::errorBreakLocation(hostOnly, noFile, noLine));
+	CHECK(noFile.empty());
+	CHECK(noLine == 0);
+}
+
 TEST_CASE("ScriptDebugCore parses and formats wire breakpoints",
 	"[script][debug]")
 {
@@ -521,6 +562,124 @@ TEST_CASE("ScriptRuntime break-next pauses on the next executed line",
 	REQUIRE(instance->callUpdate(0.1f, &error));
 	REQUIRE(hits.size() == 1);
 	CHECK_FALSE(env.scriptRuntime.isDebugBroken());
+
+	env.scriptRuntime.setDebugPumpHandler(std::function<void()>());
+	env.scriptRuntime.debugDetach();
+	env.scriptRuntime.setScriptSearchRoot("");
+}
+
+TEST_CASE("ScriptRuntime break-on-errors pauses AT an uncaught error",
+	"[script][debug]")
+{
+	CoreTestEnvironment & env = CoreTestEnvironment::get();
+	String error;
+	if (!ScriptRuntime::available())
+	{
+		// the OFF configuration: arming refuses with the honest disabled error,
+		// but DISARMING is a safe no-op success (nothing to turn off)
+		CHECK_FALSE(env.scriptRuntime.setDebugBreakOnErrors(true, &error));
+		CHECK(error.find("scripting disabled") != String::npos);
+		CHECK(env.scriptRuntime.setDebugBreakOnErrors(false, &error));
+		CHECK_FALSE(env.scriptRuntime.isDebugBreakOnErrors());
+		return;
+	}
+	if (!ScriptRuntime::debugBreakSupported())
+	{
+		// scripting runs but a break cannot block (the browser player): arming
+		// refuses with the platform-honest error; disarming still succeeds so
+		// the error itself keeps flowing its normal path
+		CHECK_FALSE(env.scriptRuntime.setDebugBreakOnErrors(true, &error));
+		CHECK(error.find("not supported") != String::npos);
+		CHECK(env.scriptRuntime.setDebugBreakOnErrors(false, &error));
+		CHECK_FALSE(env.scriptRuntime.isDebugBreakOnErrors());
+		return;
+	}
+
+	TempScriptDir dir("orkige_scriptdebug_error_test");
+	dir.write("boom.lua",
+		"function update(self, dt)\n"		// 1
+		"\tlocal ok = true\n"				// 2
+		"\tif ok then\n"					// 3
+		"\t\tlocal bad = nil\n"				// 4
+		"\t\treturn bad.field\n"			// 5  <- the uncaught error site
+		"\tend\n"							// 6
+		"end\n");							// 7
+	env.scriptRuntime.setScriptSearchRoot(dir.root.string());
+	optr<ScriptInstance> instance = env.scriptRuntime.loadScriptInstance(
+		"scripts/boom.lua", &error);
+	REQUIRE(instance);
+	REQUIRE(instance->callInit(&error));
+
+	struct ErrorBreak
+	{
+		int breaks = 0;
+		String file;
+		int line = 0;
+		String errorText;
+		std::vector<ScriptStackFrame> frames;
+		std::vector<ScriptDebugVariable> locals;
+	};
+	static ErrorBreak record;
+	record = ErrorBreak();
+	CoreTestEnvironment * environment = &env;
+	env.scriptRuntime.setDebugPumpHandler([environment]()
+	{
+		ScriptRuntime & runtime = environment->scriptRuntime;
+		REQUIRE(runtime.isDebugBroken());
+		record.file = runtime.debugBreakFile();
+		record.line = runtime.debugBreakLine();
+		record.errorText = runtime.debugBreakError();
+		record.frames = runtime.debugStackFrames();
+		String localsError;
+		record.locals = runtime.debugVariables(0, {}, 16, &localsError);
+		CHECK(localsError.empty());
+		++record.breaks;
+		runtime.debugResume(ScriptStepMode::None);	// Continue: the error flows
+	});
+
+	// unarmed FIRST: today's behavior - the error flows straight out, no pause
+	REQUIRE_FALSE(env.scriptRuntime.isDebugBreakOnErrors());
+	CHECK_FALSE(instance->callUpdate(0.1f, &error));	// the error propagates
+	CHECK_FALSE(error.empty());
+	CHECK(record.breaks == 0);							// no break happened
+
+	// armed: the SAME error now PAUSES at the error site before flowing
+	record = ErrorBreak();
+	error.clear();
+	REQUIRE(env.scriptRuntime.setDebugBreakOnErrors(true, &error));
+	CHECK(env.scriptRuntime.isDebugBreakOnErrors());
+	// callUpdate STILL returns the failure (arming only DEFERS it, the honest
+	// path proceeds on Continue), and the pump saw the break at the error line
+	CHECK_FALSE(instance->callUpdate(0.1f, &error));
+	CHECK_FALSE(error.empty());
+	REQUIRE(record.breaks == 1);
+	CHECK(record.file == "scripts/boom.lua");
+	CHECK(record.line == 5);
+	CHECK_FALSE(record.errorText.empty());
+	// the innermost captured frame is the erroring script line (no leading host
+	// frame for a VM error), and the fault's locals are readable
+	REQUIRE_FALSE(record.frames.empty());
+	CHECK(record.frames[0].source == "scripts/boom.lua");
+	CHECK(record.frames[0].line == 5);
+	bool sawBad = false;
+	bool sawDt = false;
+	for (ScriptDebugVariable const & variable : record.locals)
+	{
+		if (variable.name == "bad") { sawBad = true; }
+		if (variable.name == "dt")  { sawDt = true; }
+	}
+	CHECK(sawBad);
+	CHECK(sawDt);
+	// after Continue the runtime is running again (not held)
+	CHECK_FALSE(env.scriptRuntime.isDebugBroken());
+	CHECK(env.scriptRuntime.debugBreakError().empty());
+
+	// disarm: the error flows with no pause again (byte-identical to today)
+	record = ErrorBreak();
+	REQUIRE(env.scriptRuntime.setDebugBreakOnErrors(false, &error));
+	error.clear();
+	CHECK_FALSE(instance->callUpdate(0.1f, &error));
+	CHECK(record.breaks == 0);
 
 	env.scriptRuntime.setDebugPumpHandler(std::function<void()>());
 	env.scriptRuntime.debugDetach();

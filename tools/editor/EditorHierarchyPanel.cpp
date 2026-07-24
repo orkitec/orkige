@@ -376,6 +376,10 @@ void drawLocalHierarchy(EditorState& state, Orkige::EditorCore& core,
 		{
 			core.createCube();
 		}
+		if (ImGui::MenuItem("Create Camera"))
+		{
+			core.createCamera();
+		}
 		if (ImGui::MenuItem("Create Test Mesh"))
 		{
 			core.createTestMesh();

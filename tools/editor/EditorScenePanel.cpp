@@ -9,7 +9,10 @@
 
 #include <ImGuizmo.h>
 
+#include "EditorCameraGizmo.h"
+
 #include <engine_gocomponent/TransformComponent.h>
+#include <engine_gocomponent/CameraComponent.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderWorld.h>
 
@@ -154,6 +157,159 @@ optr<Orkige::MeshInstance> createEditorGrid(Orkige::RenderWorld* world,
 		grid->attachTo(gridNode);
 	}
 	return grid;
+}
+
+// The camera frustum gizmo: the SELECTED object that carries a CameraComponent
+// draws its view volume in the Scene panel. Facade line-mesh, exactly like the
+// grid (shared unlit "VertexColour" look, both render flavors), but on a
+// persistent ROOT node the panel re-poses to the camera object's world pose
+// every frame (so it follows moves/orbit without polluting the object's own
+// AABB or picking). The geometry (pure, unit-tested EditorCameraGizmo builder)
+// is rebuilt only when the projection SIGNATURE changes - selecting a different
+// camera, editing a projection property, or a viewport-aspect change - never on
+// a plain object move. createLineListMesh is idempotent per name, so a rebuild
+// takes a fresh (counter-suffixed) name; the previous mesh instance is dropped
+// (RAII detaches it). Hidden while nothing camera-shaped is selected and during
+// play (editMode false).
+namespace Orkige
+{
+	namespace
+	{
+		struct CameraFrustumGizmo
+		{
+			optr<RenderNode>		node;			//!< persistent root, re-posed per frame
+			optr<MeshInstance>		instance;		//!< current line mesh (RAII)
+			std::string				signature;		//!< last-built shape signature
+			std::string				objectId;		//!< tracked camera object ("" = none)
+			std::size_t				vertexCount = 0;//!< vertices last uploaded (seam)
+			unsigned int			meshCounter = 0;//!< unique mesh-name generator
+		};
+		CameraFrustumGizmo& cameraFrustumGizmo()
+		{
+			static CameraFrustumGizmo gizmo;
+			return gizmo;
+		}
+	}
+	//---------------------------------------------------------
+	String const& editorSceneCameraGizmoObjectId()
+	{
+		static String value;
+		value = cameraFrustumGizmo().objectId;
+		return value;
+	}
+	//---------------------------------------------------------
+	std::size_t editorSceneCameraGizmoVertexCount()
+	{
+		return cameraFrustumGizmo().vertexCount;
+	}
+	//---------------------------------------------------------
+	void editorSceneCameraGizmoRelease()
+	{
+		CameraFrustumGizmo& gizmo = cameraFrustumGizmo();
+		// drop the mesh instance before its node, both before the backend goes
+		gizmo.instance.reset();
+		gizmo.node.reset();
+		gizmo.objectId.clear();
+		gizmo.signature.clear();
+		gizmo.vertexCount = 0;
+	}
+}
+
+// drive the frustum gizmo for the current selection. editMode false (playing)
+// or no camera-carrying selection hides it. aspect is the Scene viewport aspect
+// (width/height) the perspective/ortho width is derived from.
+void updateCameraFrustumGizmo(Orkige::EditorCore& core, bool editMode,
+	float aspect)
+{
+	Orkige::CameraFrustumGizmo& gizmo = Orkige::cameraFrustumGizmo();
+	auto hide = [&]()
+	{
+		if (gizmo.node)
+		{
+			gizmo.node->setVisible(false);
+		}
+		gizmo.objectId.clear();
+		gizmo.vertexCount = 0;
+	};
+
+	// resolve the selected camera-carrying object (primary selection)
+	optr<Orkige::GameObject> gameObject;
+	if (editMode && core.hasSelection())
+	{
+		gameObject = core.getGameObjectManager()
+			.getGameObject(core.getSelectedObjectId()).lock();
+	}
+	if (!gameObject || !gameObject->hasComponent<Orkige::CameraComponent>() ||
+		!gameObject->hasComponent<Orkige::TransformComponent>())
+	{
+		hide();
+		return;
+	}
+	Orkige::CameraComponent* cameraComponent =
+		gameObject->getComponentPtr<Orkige::CameraComponent>();
+	Orkige::TransformComponent* transform =
+		gameObject->getComponentPtr<Orkige::TransformComponent>();
+
+	Orkige::RenderWorld* world = Orkige::RenderSystem::get()->getWorld();
+	if (!world)
+	{
+		hide();
+		return;
+	}
+	// lazily create the persistent root node the mesh rides on
+	if (!gizmo.node)
+	{
+		gizmo.node = world->createNode("EditorCameraFrustumNode");
+	}
+
+	// gather the reflected projection params + build the shape signature
+	Orkige::CameraFrustumParams params;
+	params.projectionMode =
+		static_cast<int>(cameraComponent->getProjectionMode());
+	params.orthoSize = cameraComponent->getOrthoSize();
+	params.fitMode = static_cast<int>(cameraComponent->getFitMode());
+	params.designWidth = cameraComponent->getDesignWidth();
+	params.designHeight = cameraComponent->getDesignHeight();
+	// quantise the aspect so a sub-pixel resize does not churn the mesh
+	const float quantAspect = std::round(aspect * 100.0f) / 100.0f;
+	std::string signature = core.getSelectedObjectId() + "|" +
+		std::to_string(params.projectionMode) + "|" +
+		std::to_string(params.orthoSize) + "|" +
+		std::to_string(params.fitMode) + "|" +
+		std::to_string(params.designWidth) + "|" +
+		std::to_string(params.designHeight) + "|" +
+		std::to_string(quantAspect);
+
+	if (signature != gizmo.signature || !gizmo.instance)
+	{
+		std::vector<Orkige::Vec3> pointsVec;
+		std::vector<Orkige::Color> coloursVec;
+		Orkige::buildCameraFrustumLines(params, quantAspect, pointsVec,
+			coloursVec);
+		++gizmo.meshCounter;
+		const std::string meshName = "EditorCameraFrustum_" +
+			std::to_string(gizmo.meshCounter) + ".mesh";
+		world->createLineListMesh(meshName, pointsVec.data(),
+			coloursVec.data(), pointsVec.size());
+		// drop the old instance first (RAII detaches it), then attach the new
+		gizmo.instance.reset();
+		gizmo.instance = world->createMeshInstance(meshName);
+		if (gizmo.instance)
+		{
+			gizmo.instance->setCastShadows(false);
+			gizmo.instance->setQueryFlags(0);	// never a picking hit
+			gizmo.instance->attachTo(gizmo.node);
+		}
+		gizmo.signature = signature;
+		gizmo.vertexCount = pointsVec.size();
+	}
+
+	// re-pose the root node onto the camera object's world transform (the mesh
+	// is authored in the camera's local space: looks down -Z from the origin)
+	gizmo.node->setPosition(transform->getWorldPosition());
+	gizmo.node->setOrientation(transform->getWorldOrientation());
+	gizmo.node->setVisible(true);
+	gizmo.objectId = core.getSelectedObjectId();
 }
 
 // F: frame the selected object - retarget the orbit to the object's world
@@ -701,6 +857,17 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				handleSceneDropTarget(state, core, sceneTarget.camera,
 					rectMin, avail, viewSettings.editor2D);
 			}
+			// remember the current view-camera world pose so "Create Camera"
+			// spawns the new camera object right where the author is looking
+			if (editMode && cameraNode)
+			{
+				core.setViewCameraPose(cameraNode->getWorldPosition(),
+					cameraNode->getWorldOrientation());
+			}
+			// the frustum gizmo for a selected camera object (facade line mesh;
+			// hidden when nothing camera-shaped is selected / during play)
+			updateCameraFrustumGizmo(core, editMode,
+				avail.y > 0.0f ? avail.x / avail.y : 1.0f);
 			// gizmo first: while it is hovered/dragged the click-pick and
 			// the camera drags stand down (input priority). Editing the
 			// local scene is pointless while the panels show the remote one.

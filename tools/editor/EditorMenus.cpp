@@ -4,6 +4,7 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 #include "EditorAutosave.h"
+#include "EditorSceneTemplate.h"
 #include "EditorScriptHost.h"
 
 #include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
@@ -293,7 +294,7 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			if (ImGui::MenuItem("New Scene", ORKIGE_EDITOR_MOD_LABEL "+N",
 				false, !prefabMode))
 			{
-				newScene(state, core);
+				newDefaultScene(state, core);
 			}
 			if (ImGui::MenuItem("Open Scene...",
 				ORKIGE_EDITOR_MOD_LABEL "+O", false, !prefabMode))
@@ -399,6 +400,10 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			if (ImGui::MenuItem("Create Cube"))
 			{
 				core.createCube();
+			}
+			if (ImGui::MenuItem("Create Camera"))
+			{
+				core.createCamera();
 			}
 			if (ImGui::MenuItem("Create Test Mesh"))
 			{

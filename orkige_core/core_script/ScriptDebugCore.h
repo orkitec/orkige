@@ -224,6 +224,42 @@ namespace Orkige
 			}
 		}
 
+		//! @brief BREAK ON SCRIPT ERROR gate: should an armed break-on-error
+		//! actually enter the break state at the error point? True only when
+		//! arming is on, a pump handler is present (something can service and
+		//! release the held break - without one a break would wedge, so an
+		//! unpumped runtime must let the error flow its normal path) AND we are
+		//! not ALREADY inside a break (the error handler must never open a nested
+		//! break). Pure so the unit test pins the exact gate the Lua error handler
+		//! applies; the "not armed" case is simply this returning false, which
+		//! leaves today's error semantics (instance disabled + reported) untouched.
+		inline bool errorShouldBreak(bool armed, bool hasPump, bool alreadyBroken)
+		{
+			return armed && hasPump && !alreadyBroken;
+		}
+
+		//! @brief choose the paused FILE/LINE for an error break from a captured
+		//! stack (innermost first): the first frame that runs SCRIPT code with a
+		//! real 1-based line, so a leading host frame (e.g. the `error()` builtin,
+		//! which reads "[host]") is skipped and the break lands on the actual
+		//! erroring script line - what the editor jumps to. Leaves outFile/outLine
+		//! untouched and returns false when no script frame carries a line (an
+		//! error raised entirely in host code).
+		inline bool errorBreakLocation(std::vector<ScriptStackFrame> const & frames,
+			String & outFile, int & outLine)
+		{
+			for (ScriptStackFrame const & frame : frames)
+			{
+				if (frame.isScript && frame.line > 0)
+				{
+					outFile = frame.source;
+					outLine = frame.line;
+					return true;
+				}
+			}
+			return false;
+		}
+
 		//! @brief parse one wire breakpoint entry "<file>:<line>" (the debug
 		//! protocol's list element and the per-project persistence line).
 		//! False on a missing/garbage line number or an empty file part.

@@ -41,6 +41,7 @@
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/VectorShapeComponent.h>
+#include <engine_gocomponent/CameraComponent.h>
 #include <core_base/PropertySchema.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <core_project/AssetDatabase.h>
@@ -67,7 +68,9 @@
 #include <core_debug/CVarManager.h> // the r.staticScene edit-mode gate
 
 #include "EditorCamera.h"
+#include "EditorCameraGizmo.h"
 #include "EditorCore.h"
+#include "EditorSceneTemplate.h"
 #include "EditorTheme.h"
 #include "FileDialog.h"
 #include "ImGuiFacadeRenderer.h"
@@ -227,6 +230,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_AUTOSAVETEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_CAMERA_SELFCHECK") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr;
 
 	int exitCode = 0;
@@ -1029,7 +1033,7 @@ int main(int argc, char** argv)
 			menuActions.closeProject = [statePtr, corePtr]()
 				{ closeProject(*statePtr, *corePtr); };
 			menuActions.newScene = [statePtr, corePtr]()
-				{ newScene(*statePtr, *corePtr); };
+				{ newDefaultScene(*statePtr, *corePtr); };
 			menuActions.openScene = [statePtr, windowPtr]()
 				{ requestFileDialog(*statePtr, windowPtr,
 					Orkige::FileDialogAction::OpenScene); };
@@ -1061,6 +1065,7 @@ int main(int argc, char** argv)
 			menuActions.groupSelected = [corePtr]()
 				{ corePtr->groupSelected(); };
 			menuActions.createCube = [corePtr]() { corePtr->createCube(); };
+			menuActions.createCamera = [corePtr]() { corePtr->createCamera(); };
 			menuActions.createTestMesh = [corePtr]()
 				{ corePtr->createTestMesh(); };
 			menuActions.createPrefab = [statePtr, corePtr]()
@@ -1789,6 +1794,14 @@ int main(int argc, char** argv)
 		// wired paths on a temp loose scene end to end.
 		const char* autosaveTestEnv = std::getenv("ORKIGE_EDITOR_AUTOSAVETEST");
 		std::string autosaveTestDir;
+		// ORKIGE_EDITOR_CAMERA_SELFCHECK=<scene path>: the camera authoring
+		// selfcheck (editor_camera ctest). Frame 10 drives the Create Camera
+		// command + the new-scene Main Camera template + the reflected
+		// add-component/set-property (MCP-parity) path, asserting the frustum
+		// gizmo drew and the camera round-trips through save/reload.
+		const char* cameraSelfcheckEnv =
+			std::getenv("ORKIGE_EDITOR_CAMERA_SELFCHECK");
+		bool cameraSelfcheckPart1Ok = false;	// frame-10 result, checked at 20
 
 		// ORKIGE_EDITOR_PREFABEDIT=<roller project dir>: the prefab edit-mode
 		// selfcheck (editor_prefab_edit ctest). Frame 10 copies the project to
@@ -5497,6 +5510,176 @@ int main(int argc, char** argv)
 									running = false;
 								}
 							}
+						}
+					}
+				}
+			}
+
+			// --- camera authoring selfcheck (ORKIGE_EDITOR_CAMERA_SELFCHECK) ---
+			// frame 10 authors cameras through the exact command/verb functions
+			// the menus + MCP call; frame 20 (after a render pass drew the gizmo)
+			// asserts the frustum gizmo, the new-scene Main Camera template and
+			// the save/reload round-trip. editor_camera ctest, both flavors.
+			if (cameraSelfcheckEnv && frameCount == 10)
+			{
+				auto camFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: camera selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 21;
+					running = false;
+				};
+				// (1) Create Camera at the editor's view pose (the command the
+				// GameObject menu + hierarchy context menu + native menu run)
+				newScene(state, editorCore);	// empty baseline
+				const Orkige::Vec3 viewPos(4.0f, 3.0f, 12.0f);
+				const Orkige::Quat viewOrient(Orkige::Degree(20.0f),
+					Orkige::Vec3::UNIT_Y);
+				editorCore.setViewCameraPose(viewPos, viewOrient);
+				const bool created = editorCore.createCamera();
+				// generateObjectId suffixes: the first "Camera" is "Camera1"
+				optr<Orkige::GameObject> cam =
+					gameObjectManager.getGameObject("Camera1").lock();
+				if (!created || !cam)
+				{
+					camFail("createCamera did not make a 'Camera1' object");
+				}
+				else if (!cam->hasComponent<Orkige::CameraComponent>() ||
+					!cam->hasComponent<Orkige::TransformComponent>())
+				{
+					camFail("the camera object lacks Camera/Transform components");
+				}
+				else if ((cam->getComponentPtr<Orkige::TransformComponent>()
+					->getPosition() - viewPos).length() > 1e-3f)
+				{
+					camFail("the camera did not spawn at the view pose");
+				}
+				// (2) MCP parity: add_component + set_component reach
+				// CameraComponent by NAME through the reflected registry (the
+				// exact EditorCore verbs the MCP add_component/set_component map
+				// to - EditorControlServer dispatches straight into these)
+				else if (!editorCore.createCube())
+				{
+					camFail("could not create the parity test object");
+				}
+				else if (!editorCore.addComponentToObject("Cube1",
+					"CameraComponent"))
+				{
+					camFail("add_component could not add CameraComponent by name");
+				}
+				else if (!editorCore.setObjectProperty("Cube1",
+					"CameraComponent", "fitMode", "1" /* FM_WIDTH */))
+				{
+					camFail("set_component could not set the camera fitMode");
+				}
+				else
+				{
+					std::string readBack;
+					const bool readOk = editorCore.getObjectProperty("Cube1",
+						"CameraComponent", "fitMode", readBack);
+					if (!readOk || readBack != "1")
+					{
+						camFail("the camera fitMode did not round-trip in memory");
+					}
+					// (3) save the scene (both camera-carrying objects) for the
+					// frame-20 reload assertion
+					else if (!saveSceneToPath(state, editorCore,
+						cameraSelfcheckEnv))
+					{
+						camFail("saving the camera scene failed");
+					}
+					else
+					{
+						// leave the "Camera" object selected so the Scene panel
+						// draws its frustum gizmo this frame (asserted at 20)
+						editorCore.selectObject("Camera1");
+						cameraSelfcheckPart1Ok = true;
+					}
+				}
+			}
+			if (cameraSelfcheckEnv && frameCount == 20 && exitCode == 0)
+			{
+				auto camFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: camera selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 21;
+					running = false;
+				};
+				// (4) the frustum gizmo drew for the selected camera object (a
+				// non-pixel seam: the vertices the Scene panel uploaded)
+				if (!cameraSelfcheckPart1Ok)
+				{
+					camFail("frame-10 authoring did not complete");
+				}
+				else if (Orkige::editorSceneCameraGizmoObjectId() != "Camera1")
+				{
+					camFail("the frustum gizmo did not track the selected camera");
+				}
+				else if (Orkige::editorSceneCameraGizmoVertexCount() !=
+					static_cast<std::size_t>(
+						2 * Orkige::editorCameraFrustumSegmentCount()))
+				{
+					camFail("the frustum gizmo drew the wrong vertex count");
+				}
+				// (5) a NEW scene ships with a default Main Camera
+				else
+				{
+					newDefaultScene(state, editorCore);
+					std::size_t cameraCount = 0;
+					bool hasMainCamera = false;
+					for (auto const& [id, go] :
+						gameObjectManager.getGameObjects())
+					{
+						if (go->hasComponent<Orkige::CameraComponent>())
+						{
+							++cameraCount;
+							if (id.rfind("Main Camera", 0) == 0)
+							{
+								hasMainCamera = true;
+							}
+						}
+					}
+					if (cameraCount != 1 || !hasMainCamera)
+					{
+						camFail("a new scene did not gain exactly one Main Camera");
+					}
+					// (6) the saved scene reloads with both cameras + the set
+					// property intact (the player-side default-window-camera
+					// fallback keeps camera-less scenes working; here we prove the
+					// authored camera round-trips)
+					else if (!openSceneFromPath(state, editorCore,
+						cameraSelfcheckEnv))
+					{
+						camFail("reloading the camera scene failed");
+					}
+					else
+					{
+						optr<Orkige::GameObject> reCam =
+							gameObjectManager.getGameObject("Camera1").lock();
+						optr<Orkige::GameObject> reCube =
+							gameObjectManager.getGameObject("Cube1").lock();
+						std::string reFit;
+						const bool fitOk = editorCore.getObjectProperty("Cube1",
+							"CameraComponent", "fitMode", reFit);
+						if (!reCam ||
+							!reCam->hasComponent<Orkige::CameraComponent>())
+						{
+							camFail("the reloaded scene lost the Camera object");
+						}
+						else if (!reCube ||
+							!reCube->hasComponent<Orkige::CameraComponent>())
+						{
+							camFail("the reloaded scene lost the parity camera");
+						}
+						else if (!fitOk || reFit != "1")
+						{
+							camFail("the camera fitMode did not survive reload");
+						}
+						else
+						{
+							SDL_Log("orkige_editor: camera selfcheck OK");
+							running = false;
 						}
 					}
 				}
@@ -9926,6 +10109,11 @@ int main(int argc, char** argv)
 		// render system is still up - manual textures are not resource-group
 		// content, so nothing else frees them in time for strict backends
 		clearCachedThumbnails(state.assetBrowser);
+
+		// drop the camera frustum gizmo's persistent node + mesh while the
+		// render system is still up (its state is process-lifetime, so its
+		// facade handles must not outlive the backend)
+		Orkige::editorSceneCameraGizmoRelease();
 
 		// ImGui teardown: destroying the context writes the ini; the facade
 		// 2D layer + font texture die with the renderer/engine afterwards

@@ -264,6 +264,27 @@ namespace Orkige
 		Vec3 mPosition;
 	};
 
+	//! @brief create a new GameObject carrying a CameraComponent (+ its
+	//! required TransformComponent) - the "Create Camera" authoring command.
+	//! Mirrors CreateObjectCommand: execute instantiates + selects, undo
+	//! deselects + deletes. The object is spawned at the given world pose (the
+	//! editor camera's own position/orientation, so the new camera sees what the
+	//! author sees); the CameraComponent keeps its house defaults.
+	class CreateCameraObjectCommand : public EditorCommand
+	{
+	public:
+		CreateCameraObjectCommand(String const& objectId,
+			Vec3 const& position, Quat const& orientation);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		Vec3 mPosition;
+		Quat mOrientation;
+	};
+
 	//! @brief instantiate a .oprefab asset into the scene as a NEW prefab
 	//! instance (Asset browser drag/double-click). Unlike
 	//! MakePrefabCommand (which converts an EXISTING subtree), this creates the
@@ -799,6 +820,22 @@ namespace Orkige
 		bool createCube();
 		//! auto-named glTF test mesh at the origin, selected afterwards
 		bool createTestMesh();
+		//! @brief auto-named "Camera" object (TransformComponent +
+		//! CameraComponent), selected afterwards, spawned at the last view-camera
+		//! pose (@see setViewCameraPose) - the new camera looks where the author
+		//! looks. Undoable (one step). The CameraComponent keeps its defaults.
+		bool createCamera();
+		//! @brief add the default "Main Camera" object a fresh scene ships with:
+		//! a CameraComponent at a 2D-friendly pose (identity orientation looking
+		//! down -Z at the XY plane, a short standoff in +Z). Used by File > New
+		//! Scene AFTER the world is cleared; the caller then clears history/dirty
+		//! so the template starts pristine. Returns the created object's id ("" on
+		//! failure). NOT undoable on its own - it is part of the new-scene reset.
+		String createDefaultSceneCamera();
+		//! @brief remember the editor's current view-camera world pose so a later
+		//! createCamera() spawns the new camera object right there (the Scene
+		//! panel pushes this each frame). Pure bookkeeping, no scene mutation.
+		void setViewCameraPose(Vec3 const& position, Quat const& orientation);
 		//! clone ALL selected objects (slightly offset, copies selected);
 		//! multiple clones batch into one undo step (CompositeCommand)
 		bool duplicateSelected();
@@ -1097,6 +1134,12 @@ namespace Orkige
 		//! shape only logs (the shape stays empty); requires a booted engine.
 		bool instantiateVectorShapeObject(String const& id, String const& shapeName,
 			Vec3 const& position);
+		//! @brief create a GameObject carrying a CameraComponent through
+		//! TransformComponent + CameraComponent at the given world pose (NOT
+		//! undoable - CreateCameraObjectCommand / createDefaultSceneCamera wrap
+		//! it). Requires a booted engine.
+		bool instantiateCameraObject(String const& id, Vec3 const& position,
+			Quat const& orientation);
 		//! @brief create a NEW prefab instance from a .oprefab file: the
 		//! deterministic instance-namespace subtree plus the marked root at the
 		//! given position (NOT undoable - CreatePrefabInstanceCommand wraps it).
@@ -1127,6 +1170,10 @@ namespace Orkige
 		float mSnapRotateDegrees;
 		float mSnapScale;
 		bool mSceneDirty = false;
+		//! the editor view-camera world pose remembered for createCamera (@see
+		//! setViewCameraPose); identity/origin until the Scene panel pushes one
+		Vec3 mViewCameraPosition = Vec3::ZERO;
+		Quat mViewCameraOrientation = Quat::IDENTITY;
 		std::map<String, int> mNameCounters;	//!< generateObjectId state
 		std::vector<optr<EditorCommand>> mUndoStack;
 		std::vector<optr<EditorCommand>> mRedoStack;

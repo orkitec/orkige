@@ -96,6 +96,10 @@ void ViewSettings::load()
 		{
 			this->rotationAsEuler = (value == "1");
 		}
+		else if (key == "break_on_script_errors")
+		{
+			this->breakOnScriptErrors = (value == "1");
+		}
 		else if (key == "internal_editor_extensions")
 		{
 			this->internalEditorExtensions = value;
@@ -203,6 +207,8 @@ void ViewSettings::save() const
 		<< "panel_gui_preview=" << (this->showGuiPreviewPanel ? 1 : 0) << "\n"
 		<< "panel_debug=" << (this->showDebugPanel ? 1 : 0) << "\n"
 		<< "rotation_as_euler=" << (this->rotationAsEuler ? 1 : 0) << "\n"
+		<< "break_on_script_errors="
+		<< (this->breakOnScriptErrors ? 1 : 0) << "\n"
 		<< "internal_editor_extensions=" << this->internalEditorExtensions
 		<< "\n"
 		<< "snap_enabled=" << (this->snapEnabled ? 1 : 0) << "\n"

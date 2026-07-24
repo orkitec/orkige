@@ -384,6 +384,13 @@ namespace Orkige
 		//! hit rides the SAME MSG_DEBUG_BREAK path. Refusals (browser player,
 		//! scripting off) answer with an error.
 		void handleDebugBreakNext(DebugMessage const & message);
+		//! @brief BREAK ON SCRIPT ERROR: arm/disarm pausing at an uncaught script
+		//! error (FIELD_VALUE "1"/"0"). Arming installs this link as the break
+		//! pump (like a breakpoint) so a subsequent error break can report over
+		//! the SAME MSG_DEBUG_BREAK path (with FIELD_ERROR). Refusals (browser
+		//! player, scripting off) answer with an error; on those the error itself
+		//! still flows today's path. Pushed as full state on connect + on change.
+		void handleDebugBreakOnErrors(DebugMessage const & message);
 		//! @brief make THIS link the runtime's break pump on first use (the
 		//! shared install both handleDebugBreakpoints and handleDebugBreakNext
 		//! need, so a break-next armed without any breakpoint still reports)

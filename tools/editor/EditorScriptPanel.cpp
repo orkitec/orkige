@@ -1414,7 +1414,16 @@ void drawDebugPanel(EditorState& state, PlaySession& session,
 		return;
 	}
 
-	if (session.debugBroken)
+	if (session.debugBroken && !session.debugBreakError.empty())
+	{
+		// an error break: the crash message is the headline (distinct from a
+		// breakpoint pause). The honest failure still flows on Continue.
+		ImGui::TextColored(Orkige::editorErrorTextColor(),
+			"SCRIPT ERROR %s:%d", session.debugBreakFile.c_str(),
+			session.debugBreakLine);
+		ImGui::TextWrapped("%s", session.debugBreakError.c_str());
+	}
+	else if (session.debugBroken)
 	{
 		ImGui::TextColored(ImVec4(0.90f, 0.71f, 0.24f, 1.0f), "Paused %s:%d",
 			session.debugBreakFile.c_str(), session.debugBreakLine);
@@ -1425,6 +1434,17 @@ void drawDebugPanel(EditorState& state, PlaySession& session,
 			"document) and Play to debug.");
 	}
 	drawDebugTransport(session);
+	ImGui::SameLine();
+	// "Break on Errors": persisted in ViewSettings and pushed to a running
+	// player on connect + on toggle (updatePlaySession). Armed = a runtime Lua
+	// error PAUSES the game at the error instead of just disabling the instance.
+	if (ImGui::Checkbox("Break on Errors", &viewSettings.breakOnScriptErrors))
+	{
+		viewSettings.save();
+	}
+	ImGui::SetItemTooltip("%s", "Pause the game AT an uncaught Lua error (jump "
+		"to the erroring line with its stack + locals). On Continue the error "
+		"still disables the instance - this only defers it.");
 	ImGui::Separator();
 
 	if (session.debugBroken)

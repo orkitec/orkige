@@ -4,6 +4,7 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 #include "EditorAutosave.h"
+#include "EditorSceneTemplate.h"
 #include "MeshImport.h"
 #include "PythonToolchain.h"
 
@@ -31,7 +32,10 @@ using Orkige::optr;
 using Orkige::woptr;
 
 // File > New Scene: clear all GameObjects - removing the components tears
-// down their scene nodes (TransformComponent::onRemove wipes via NodeUtil)
+// down their scene nodes (TransformComponent::onRemove wipes via NodeUtil).
+// This is the low-level "clear the world" primitive the MCP new_scene verb and
+// the selfchecks reuse - it stays EMPTY on purpose. The interactive File > New
+// Scene stamps a default Main Camera on top (@see newDefaultScene).
 void newScene(EditorState& state, Orkige::EditorCore& core)
 {
 	if (prefabEditBlocks(state, "New Scene"))
@@ -41,6 +45,24 @@ void newScene(EditorState& state, Orkige::EditorCore& core)
 	core.getGameObjectManager().clear();
 	core.resetForScene();
 	state.currentScenePath.clear();
+}
+
+// The USER-facing File > New Scene / Cmd+N: a fresh scene gains a default "Main
+// Camera" so it renders through an authored camera out of the box (a camera-
+// less scene still plays via the player's default-window-camera fallback - this
+// just gives new scenes one to start from). The template stays PRISTINE: the
+// camera is a direct instantiate (no command, no dirty), so the scene starts
+// with an empty undo history and a clean flag. Seeding is skipped when the
+// world reset itself refused (a prefab stage is open - newScene is a no-op
+// then, and adding a stray camera into the staged prefab would be wrong).
+void newDefaultScene(EditorState& state, Orkige::EditorCore& core)
+{
+	const bool prefabStaged = isPrefabEditActive(state);
+	newScene(state, core);
+	if (!prefabStaged)
+	{
+		core.createDefaultSceneCamera();
+	}
 }
 
 bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,

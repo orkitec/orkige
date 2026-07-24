@@ -46,10 +46,20 @@ live locals; Continue/Step In/Step Over/Step Out walk the code like any debugger
   arming it while frame-paused persists the arm until the sim resumes and the
   first line then catches. The hit is a normal break — stack, locals and the
   step/continue transport take over unchanged.
+- **Break on Errors** (the persisted checkbox in the Debug transport row): when
+  armed, an uncaught runtime Lua error PAUSES the game AT the error — the editor
+  jumps to the erroring `file:line`, the Debug panel shows the crash's real stack
+  + locals and the error message prominently (in the error colour, distinct from
+  a breakpoint pause). On **Continue** today's error semantics proceed unchanged
+  (the instance disables itself + reports over the Console) — arming only DEFERS
+  the honest failure, never replaces it. Off by default = exactly today's
+  behavior. Pushed to a running player on connect + on toggle, like the
+  breakpoint set.
 - **MCP parity**: `set_breakpoint` / `clear_breakpoint` /
-  `list_breakpoints`, `get_debug_state` (the break-hit poll),
-  `debug_continue` / `debug_step_*`, `debug_break_next` (break on next
-  statement — no breakpoint needed), `get_locals` — the worked agent loop is
+  `list_breakpoints`, `get_debug_state` (the break-hit poll; `break_error` on an
+  error break), `debug_continue` / `debug_step_*`, `debug_break_next` (break on
+  next statement — no breakpoint needed), `set_break_on_errors` (break on script
+  errors), `get_locals` — the worked agent loop is
   in [mcp-workflows.md](mcp-workflows.md).
 - **Honest refusals**: the browser player cannot block its main thread, so
   breakpoint sets refuse with one line there; `ORKIGE_SCRIPTING=OFF` builds
@@ -106,7 +116,11 @@ work editor-wide (they never type text, so they run even while the code editor
 has keyboard focus). Break on Next Statement (`Cmd/Ctrl+Alt+B`) is the one
 control enabled while the session is *running or frame-paused* rather than
 broken — it arms a one-shot next-line break so you can pause into wherever the
-scripts run without a breakpoint (see At a glance).
+scripts run without a breakpoint (see At a glance). A **Break on Errors**
+checkbox sits beside the transport (persisted in `ViewSettings`); armed, a
+runtime script error pauses the game at the fault with its message shown in the
+error colour, and while broken-from-error the panel headlines the crash text
+above the stack/locals.
 
 ## The runtime design
 
@@ -151,6 +165,29 @@ scripts, so an arm placed then simply persists — the first line executed once
 the sim resumes catches it (the pump is installed on the arm even when no
 breakpoint was ever set, so the hit still reports).
 
+**Break on Errors** (`ScriptRuntime::setDebugBreakOnErrors`,
+`MSG_DEBUG_BREAK_ON_ERRORS`) breaks at an UNCAUGHT script error without a line
+hook. By the time a sol2 protected call returns, the Lua stack is already
+unwound — too late. So the entry point is the protected call's error/message
+HANDLER, which Lua runs AT the error point with the stack intact: the seam
+installs one C message handler as sol2's default error handler at boot
+(`ScriptRuntime::installDebugErrorHandler`), so every script lifecycle call
+(init/update/shutdown, event hooks — and any tween/event callback) adopts it.
+The handler is a pure pass-through until armed (disarmed behavior is
+byte-identical to no handler); armed, it enters the SAME break state a
+breakpoint uses — captures the crash message + stack (from level 1, skipping the
+handler frame, so the innermost reported frame is the code that faulted;
+`ScriptDebugCore::errorBreakLocation` picks the first script frame for the
+paused file/line) and BLOCKS in the same nested pump — then returns the error
+object UNCHANGED so the lifecycle call still sees the failure and today's error
+path proceeds (the instance disables + reports). An error break never re-arms a
+step (the stack unwinds as the error propagates). Only an UNCAUGHT error breaks:
+a script's own `pcall` that catches an error keeps its own handler, so our
+handler never fires. The break rides the same `MSG_DEBUG_BREAK` path with an
+additive `error` field, and the arm installs the pump like a breakpoint. The
+gate the handler applies (armed AND a pump exists AND not already broken) is the
+pure `ScriptDebugCore::errorShouldBreak`, unit-tested.
+
 **Pause semantics**: a break holds the player MID-FRAME, inside script
 execution — the toolbar's Pause/Resume is a different, frame-boundary state
 (`MSG_PAUSE`), and the two compose: a deferred pause applies at the frame
@@ -163,12 +200,16 @@ cleanly (the quit is handled inside the pump); the runtime with no pump
 handler installed never blocks at all.
 
 **Web player**: a browser page cannot block its main thread — a nested pump
-would hang the tab — so `MSG_DEBUG_BREAKPOINTS` refuses there with one
-honest line (the `screenshot`/`record_trace` precedent on the web target).
-The wasm build compiles the same code; only the set is refused.
+would hang the tab — so `MSG_DEBUG_BREAKPOINTS`, break-next AND
+`MSG_DEBUG_BREAK_ON_ERRORS` (arming) refuse there with one honest line each (the
+`screenshot`/`record_trace` precedent on the web target). The wasm build
+compiles the same code; only the block is refused — a script error on the web
+player still flows its normal path (disabling break-on-errors is a no-op
+success, and the error itself is never suppressed).
 
 **Scripting off** (`ORKIGE_SCRIPTING=OFF`): everything compiles and every
-debug operation reports the standard "scripting disabled" error.
+debug operation reports the standard "scripting disabled" error (disarming
+break-on-errors is a safe no-op).
 
 ## The MCP loop (agents)
 

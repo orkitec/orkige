@@ -311,6 +311,12 @@ struct ViewSettings
 	//! degrees (default) vs the raw quaternion x/y/z/w. Display-only; the tiny
 	//! per-row toggle flips it globally so the choice sticks.
 	bool rotationAsEuler = true;
+	//! Debug panel: "Break on Errors" - when armed, a running Lua error pauses
+	//! the game AT the error (the debugger jumps to the erroring file:line and
+	//! shows the crash's real stack + locals). Persisted here and pushed to a
+	//! running player on connect + on any change (like the breakpoint set).
+	//! Default off = exactly today's behavior (the instance disables + reports).
+	bool breakOnScriptErrors = false;
 	//! @brief which file extensions double-click into the EMBEDDED code editor
 	//! (space/comma-separated, dot-prefixed; editable in View Settings). Kinds
 	//! with a richer double-click (.oscene/.oprefab/.oanim/.oui) ignore this -
@@ -1092,6 +1098,10 @@ struct PlaySession
 	bool debugBroken = false;
 	std::string debugBreakFile;		//!< paused script (project-relative)
 	int debugBreakLine = 0;			//!< paused 1-based line
+	//! the error text when THIS pause came from an uncaught script error
+	//! (Break on Errors); "" for a breakpoint / step landing. Shown prominently
+	//! in the Debug panel and returned as break_error over MCP get_debug_state.
+	std::string debugBreakError;
 	//! increments per received MSG_DEBUG_BREAK (a step landing raises a new
 	//! one), so the panel can re-focus the hit line exactly once per pause
 	unsigned int debugBreakSeq = 0;
@@ -1126,6 +1136,10 @@ struct PlaySession
 	//! the breakpoint-store revision last pushed to this player (0 = never;
 	//! updatePlaySession re-sends on any change while the link is up)
 	unsigned int sentBreakpointRevision = 0;
+	//! the Break-on-Errors state last pushed to this player: -1 never sent,
+	//! else 0/1. updatePlaySession pushes it on connect and re-sends whenever
+	//! the persisted ViewSettings flag changes while the link is up.
+	int sentBreakOnErrors = -1;
 	//! Lua hot-reload watcher: poll <projectRoot>/scripts for edits
 	//! (~4 Hz) while playing and send MSG_RELOAD_SCRIPT (reload-ALL v1) to the
 	//! running player on any change. DESKTOP play only - the exported player
@@ -1591,6 +1605,12 @@ void stopRemoteRecord(PlaySession& session);
 //! A no-op when no player is connected. updatePlaySession calls it on connect
 //! and on every store change; verbs/panels just mutate the store.
 void sendDebugBreakpoints(EditorState& state, PlaySession& session);
+
+//! @brief push the persisted "Break on Errors" state (gViewSettings) to the
+//! running player (MSG_DEBUG_BREAK_ON_ERRORS) and record it in
+//! session.sentBreakOnErrors. A no-op when no player is connected.
+//! updatePlaySession calls it on connect and whenever the setting changes.
+void sendDebugBreakOnErrors(PlaySession& session, bool armed);
 
 //! @brief release the held script break (MSG_DEBUG_RESUME or one of the step
 //! messages - pass the DebugProtocol MSG_DEBUG_* type). Optimistically clears

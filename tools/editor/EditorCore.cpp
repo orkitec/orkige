@@ -424,6 +424,36 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
+	//--- CreateCameraObjectCommand ----------------------------
+	//---------------------------------------------------------
+	CreateCameraObjectCommand::CreateCameraObjectCommand(String const& objectId,
+		Vec3 const& position, Quat const& orientation)
+		: mObjectId(objectId), mPosition(position), mOrientation(orientation)
+	{
+	}
+	//---------------------------------------------------------
+	bool CreateCameraObjectCommand::execute(EditorCore& core)
+	{
+		if (!core.instantiateCameraObject(mObjectId, mPosition, mOrientation))
+		{
+			return false;
+		}
+		core.selectObject(mObjectId);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool CreateCameraObjectCommand::unexecute(EditorCore& core)
+	{
+		core.deselectObject(mObjectId);
+		return core.getGameObjectManager().delGameObject(mObjectId);
+	}
+	//---------------------------------------------------------
+	String CreateCameraObjectCommand::getDescription() const
+	{
+		return "Create " + mObjectId;
+	}
+
+	//---------------------------------------------------------
 	//--- CreatePrefabInstanceCommand --------------------------
 	//---------------------------------------------------------
 	CreatePrefabInstanceCommand::CreatePrefabInstanceCommand(
@@ -1824,6 +1854,39 @@ namespace Orkige
 			"test_mesh.glb", Vec3::ZERO)));
 	}
 	//---------------------------------------------------------
+	void EditorCore::setViewCameraPose(Vec3 const& position,
+		Quat const& orientation)
+	{
+		mViewCameraPosition = position;
+		mViewCameraOrientation = orientation;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::createCamera()
+	{
+		// spawn at the editor's own view pose so the new camera sees what the
+		// author sees (the familiar convention) - the Scene panel keeps the pose
+		// current via setViewCameraPose
+		const String id = generateObjectId("Camera");
+		return executeCommand(onew(new CreateCameraObjectCommand(id,
+			mViewCameraPosition, mViewCameraOrientation)));
+	}
+	//---------------------------------------------------------
+	String EditorCore::createDefaultSceneCamera()
+	{
+		// a fresh scene's "Main Camera": identity orientation looks straight down
+		// -Z at the XY plane (the 2D-friendly pose the editor's own 2D camera
+		// uses), placed a short standoff in +Z so XY-plane content sits in front.
+		// NOT routed through the command stack - the new-scene reset owns the
+		// history, so this is a direct instantiate the caller finalises.
+		const String id = generateObjectId("Main Camera");
+		if (!instantiateCameraObject(id, Vec3(0.0f, 0.0f, 10.0f),
+			Quat::IDENTITY))
+		{
+			return String();
+		}
+		return id;
+	}
+	//---------------------------------------------------------
 	bool EditorCore::duplicateSelected()
 	{
 		// only selected ids that still exist take part (the set may carry
@@ -3162,6 +3225,23 @@ namespace Orkige
 		}
 		gameObject->getComponentPtr<TransformComponent>()
 			->setPosition(position);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::instantiateCameraObject(String const& id,
+		Vec3 const& position, Quat const& orientation)
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.createGameObject(id).lock();
+		// CameraComponent depends on TransformComponent - added automatically
+		if (!gameObject || !gameObject->addComponent<CameraComponent>())
+		{
+			return false;
+		}
+		TransformComponent* transform =
+			gameObject->getComponentPtr<TransformComponent>();
+		transform->setPosition(position);
+		transform->setOrientation(orientation);
 		return true;
 	}
 	//---------------------------------------------------------

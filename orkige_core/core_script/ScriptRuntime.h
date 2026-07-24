@@ -556,6 +556,26 @@ namespace Orkige
 		//! setDebugBreakpoints. A no-op-shaped true when already broken (the
 		//! held break IS the pause; nothing to arm).
 		bool debugBreakNext(String * outError);
+		//! @brief BREAK ON SCRIPT ERROR: arm (or disarm) pausing the game AT an
+		//! uncaught runtime Lua error. When armed, an error propagating out of a
+		//! script lifecycle call (init/update/shutdown/an event hook) enters the
+		//! SAME break state a breakpoint hit uses - the runtime blocks at the
+		//! error point (the stack still intact) and the pump handler services the
+		//! debug transport, so the editor jumps to the erroring file:line and
+		//! shows the crash's real stack + locals + the error text
+		//! (debugBreakError). On the Continue that releases it, today's error
+		//! semantics proceed UNCHANGED (the lifecycle call still returns its
+		//! failure, so the instance is disabled and the error reported) - arming
+		//! only DEFERS the honest failure, never replaces it. When disarmed
+		//! (the default) behavior is exactly today's: the error flows straight to
+		//! its normal handling with no pause. False with *outError set when
+		//! scripting is disabled or the platform cannot block for a break (the
+		//! browser player) - the same refusals as setDebugBreakpoints; on those,
+		//! the error itself still flows today's path (arming is the only no-op).
+		//! Disarming always succeeds. @see debugBreakSupported.
+		bool setDebugBreakOnErrors(bool armed, String * outError);
+		//! is break-on-script-error currently armed (false in unsupported builds)
+		bool isDebugBreakOnErrors() const;
 		//! @brief register the handler the runtime calls IN A LOOP while a
 		//! break holds execution: each call should service the debug transport
 		//! once (and pace itself - a short sleep); a resume/step command from
@@ -571,6 +591,11 @@ namespace Orkige
 		String debugBreakFile() const;
 		//! the paused location's 1-based line (0 while running)
 		int debugBreakLine() const;
+		//! @brief the error text that CAUSED the current pause, when the break
+		//! came from an uncaught script error (@see setDebugBreakOnErrors); ""
+		//! while running and for a breakpoint/step pause (which is not an error).
+		//! The additive `error` field the break notification carries.
+		String debugBreakError() const;
 		//! the call stack captured at the break (innermost first; empty while
 		//! running)
 		std::vector<ScriptStackFrame> debugStackFrames() const;
@@ -593,6 +618,14 @@ namespace Orkige
 		void debugDetach();
 	protected:
 	private:
+		//! @brief install the break-on-script-error message handler as the sol
+		//! default error handler (Lua backend only, called once from the ctor):
+		//! it runs AT an uncaught-error point with the stack intact and, when
+		//! break-on-errors is armed, enters the shared break state before the
+		//! stack unwinds. A pass-through no-op (the error object returned
+		//! unchanged) whenever break-on-errors is off - so disarmed behavior is
+		//! byte-identical to having no handler at all.
+		void installDebugErrorHandler();
 		//! the honest OFF-configuration error message
 		static String disabledError();
 		//! id -> live GameObject for the registry-driven accessors (set by

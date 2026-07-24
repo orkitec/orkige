@@ -184,6 +184,22 @@ namespace Orkige
 		//! message riding the ONE debug protocol; old players answer "unknown
 		//! command".
 		extern ORKIGE_CORE_DLL const String MSG_DEBUG_BREAK_NEXT;
+		//! @brief BREAK ON SCRIPT ERROR: arm/disarm pausing the game AT an
+		//! uncaught runtime Lua error. FIELD_VALUE "1" arms, "0" disarms. When
+		//! armed, an error propagating out of a script lifecycle call PAUSES the
+		//! player at the error point (stack intact) and reports it over the SAME
+		//! MSG_DEBUG_BREAK path a breakpoint uses - additionally carrying the
+		//! error text in FIELD_ERROR - so the editor jumps to the erroring
+		//! file:line and shows the crash's real stack + locals. On Continue,
+		//! today's error semantics proceed unchanged (the instance disables +
+		//! MSG_SCRIPT_ERROR flows); arming only DEFERS the honest failure. Pushed
+		//! as full state on connect (like the breakpoint set) and live on any
+		//! change. Refused honestly (an error reply) where the runtime cannot
+		//! block at a break (the browser player) and by scripting-disabled builds
+		//! - on those the error itself still flows today's path, arming is the
+		//! only no-op. An additive protocol-extension message riding the ONE
+		//! debug protocol; old players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_DEBUG_BREAK_ON_ERRORS;
 		//! @brief ask the runtime to DESCRIBE runtime-spawned objects: LIST_IDS
 		//! names the GameObject ids the editor's scene mirror could not match
 		//! against its authored document (they exist only in the running game -
@@ -452,6 +468,10 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String LIST_SPAWN_REFS;
 		//! MSG_DEBUG_BREAK: the paused 1-based line (FIELD_PATH is the file)
 		extern ORKIGE_CORE_DLL const String FIELD_LINE;
+		//! @brief MSG_DEBUG_BREAK: the error TEXT when the pause is an error break
+		//! (@see MSG_DEBUG_BREAK_ON_ERRORS) - absent/"" for a breakpoint or step
+		//! landing, which is not an error. Additive since protocol v1.
+		extern ORKIGE_CORE_DLL const String FIELD_ERROR;
 		//! MSG_DEBUG_LOCALS: the stack-frame index (0 = innermost)
 		extern ORKIGE_CORE_DLL const String FIELD_FRAME;
 		//! MSG_DEBUG_BREAKPOINTS: the whole breakpoint set, one

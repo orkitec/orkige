@@ -1575,6 +1575,21 @@ namespace Orkige
 				  "debug_step_*/debug_continue. Refused for a browser play "
 				  "session and by scripting-disabled players.",
 				  {} },
+				{ "set_break_on_errors",
+				  "BREAK ON SCRIPT ERRORS: arm ('on'='1', the default is off) or "
+				  "disarm ('on'='0') pausing the running game AT an uncaught Lua "
+				  "error. When armed, an error thrown from a script pauses the "
+				  "player at the error point (like a breakpoint) - poll "
+				  "get_debug_state until paused_at_breakpoint is 1, then "
+				  "'break_error' carries the crash text and file/line/stack point "
+				  "at the erroring line; inspect with get_locals and release with "
+				  "debug_continue (on Continue the error still disables the "
+				  "instance - arming only defers the honest failure). Persisted in "
+				  "the editor and pushed to a running player on connect + on "
+				  "change. Refused for a browser play session and by "
+				  "scripting-disabled players; on those the error still flows its "
+				  "normal path.",
+				  { { "on", "string", "'1' arms, '0' disarms", true } } },
 				{ "get_locals",
 				  "Variables at a frame of the held script break: pass 'frame' "
 				  "(0 = innermost, matching get_debug_state's stack) and "
@@ -4705,6 +4720,9 @@ namespace Orkige
 			ok.set("paused_at_breakpoint", play.debugBroken ? "1" : "0");
 			ok.set("file", play.debugBreakFile);
 			ok.set("line", std::to_string(play.debugBreakLine));
+			// present (and non-empty) ONLY when the pause came from an uncaught
+			// script error (set_break_on_errors) - the crash text
+			ok.set("break_error", play.debugBreakError);
 			ok.set("break_seq", std::to_string(play.debugBreakSeq));
 			ok.set("locals_seq", std::to_string(play.debugLocalsSeq));
 			StringVector sources;
@@ -4778,6 +4796,35 @@ namespace Orkige
 			ok.set("accepted", "1");
 			ok.set("prev_break_seq", std::to_string(play.debugBreakSeq));
 			sendDebugBreakNext(play);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "set_break_on_errors")
+		{
+			PlaySession& play = *context.play;
+			const bool armed = request.get("on") == "1";
+			if (play.onBrowser && play.client.isConnected())
+			{
+				this->sendErr(req, "break on script errors is not supported in "
+					"the browser player (the page's main thread cannot block at "
+					"a break)");
+				return;
+			}
+			// persist the setting (the editor checkbox + the connect push read
+			// it) and push it live to a running player (updatePlaySession would
+			// also catch the change next frame, but push now so an agent that
+			// immediately triggers an error does not race the poll)
+			if (gViewSettings != nullptr)
+			{
+				gViewSettings->breakOnScriptErrors = armed;
+				gViewSettings->save();
+			}
+			if (play.client.isConnected())
+			{
+				sendDebugBreakOnErrors(play, armed);
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("break_on_errors", armed ? "1" : "0");
 			this->sendOk(req, ok);
 			return;
 		}
@@ -8150,16 +8197,23 @@ namespace Orkige
 						"the temp debug project failed");
 					return;
 				}
-				// the ticking script; the asserted lines are 3 (breakpoint)
-				// and 4 (the step-over landing)
+				// the ticking script; the asserted lines are 4 (breakpoint), 5
+				// (the step-over landing) and 8 (the break-on-error site - it
+				// faults only once cvar "test.boom" is set, which the error leg
+				// flips). registerNumber runs at load so set_cvar is accepted.
 				JsonValue writeArgs = JsonValue::object();
 				writeArgs.set("path",
 					JsonValue(String("scripts/ticker.lua")));
 				writeArgs.set("content", JsonValue(String(
 					"local ticks = 0\n"
+					"cvar.registerNumber(\"test.boom\", 0)\n"
 					"function update(self, dt)\n"
 					"\tlocal beat = ticks + 1\n"
 					"\tticks = beat\n"
+					"\tif cvar.getNumber(\"test.boom\", 0) >= 1 then\n"
+					"\t\tlocal bad = nil\n"
+					"\t\treturn bad.field\n"
+					"\tend\n"
 					"end\n")));
 				if (!callTool("write_project_file", writeArgs, true,
 						structured, isError) || isError)
@@ -8204,7 +8258,7 @@ namespace Orkige
 				JsonValue breakArgs = JsonValue::object();
 				breakArgs.set("file",
 					JsonValue(String("scripts/ticker.lua")));
-				breakArgs.set("line", JsonValue(3.0));
+				breakArgs.set("line", JsonValue(4.0));
 				if (!callTool("set_breakpoint", breakArgs, true, structured,
 						isError) || isError)
 				{
@@ -8216,10 +8270,10 @@ namespace Orkige
 						structured, isError) || isError ||
 					structured.get("breakpoints").size() != 1 ||
 					structured.get("breakpoints").at(0).asString() !=
-						"scripts/ticker.lua:3")
+						"scripts/ticker.lua:4")
 				{
 					finish(false, "control self-test: debug - list_breakpoints "
-						"did not report scripts/ticker.lua:3");
+						"did not report scripts/ticker.lua:4");
 					return;
 				}
 				JsonValue playDebugArgs = JsonValue::object();
@@ -8263,7 +8317,7 @@ namespace Orkige
 					return;
 				}
 				if (debug.get("file").asString() != "scripts/ticker.lua" ||
-					debug.get("line").asString() != "3" ||
+					debug.get("line").asString() != "4" ||
 					debug.get("stack_sources").size() == 0)
 				{
 					finish(false, "control self-test: debug - break state "
@@ -8338,11 +8392,11 @@ namespace Orkige
 						"landed");
 					return;
 				}
-				if (debug.get("line").asString() != "4")
+				if (debug.get("line").asString() != "5")
 				{
 					finish(false, "control self-test: debug - step over landed "
 						"on line " + debug.get("line").asString() +
-						" (expected 4)");
+						" (expected 5)");
 					return;
 				}
 				// continue with the breakpoint still set: it hits again on a
@@ -8491,8 +8545,137 @@ namespace Orkige
 						return;
 					}
 				}
+				// BREAK ON SCRIPT ERRORS: arm set_break_on_errors, then make the
+				// ticker throw (set the cvar its update guards on). The player
+				// must PAUSE at the erroring line carrying the crash text in
+				// break_error; get_debug_state's file/line point at the fault,
+				// locals are readable, and Continue resumes free-running (the
+				// instance disables itself - today's path still flows).
+				{
+					JsonValue armArgs = JsonValue::object();
+					armArgs.set("on", JsonValue(String("1")));
+					if (!callTool("set_break_on_errors", armArgs, true,
+							structured, isError) || isError ||
+						structured.get("break_on_errors").asString() != "1")
+					{
+						finish(false, "control self-test: debug - "
+							"set_break_on_errors was not accepted");
+						return;
+					}
+					const std::string errorSeqBefore =
+						debug.get("break_seq").asString();
+					// flip the cvar the ticker guards on: its next update faults.
+					// set both the schema name and the wire field so the trigger
+					// is robust to the arg spelling.
+					JsonValue boomArgs = JsonValue::object();
+					boomArgs.set("name", JsonValue(String("test.boom")));
+					boomArgs.set("cvar", JsonValue(String("test.boom")));
+					boomArgs.set("value", JsonValue(String("1")));
+					if (!callTool("set_cvar", boomArgs, true, structured,
+							isError) || isError)
+					{
+						finish(false, "control self-test: debug - set_cvar "
+							"test.boom failed");
+						return;
+					}
+					if (!pollDebug([&](JsonValue const& s)
+						{
+							return s.get("paused_at_breakpoint").asString() ==
+									"1" &&
+								s.get("break_seq").asString() != errorSeqBefore;
+						}, kPlayerPollAttempts, debug))
+					{
+						finish(false, "control self-test: debug - the script "
+							"error never broke (break_on_errors armed - the "
+							"fault should pause the game)");
+						return;
+					}
+					// the pause IS an error: break_error carries the crash text,
+					// file/line point at the erroring line (8)
+					if (debug.get("break_error").asString().empty())
+					{
+						finish(false, "control self-test: debug - the error "
+							"break carried no break_error text");
+						return;
+					}
+					if (debug.get("file").asString() != "scripts/ticker.lua" ||
+						debug.get("line").asString() != "8")
+					{
+						finish(false, "control self-test: debug - the error "
+							"break location was wrong (file '" +
+							debug.get("file").asString() + "' line " +
+							debug.get("line").asString() + ", expected "
+							"scripts/ticker.lua:8)");
+						return;
+					}
+					SDL_Log("orkige_editor: control self-test - error break at "
+						"%s:%s - %s", debug.get("file").asString().c_str(),
+						debug.get("line").asString().c_str(),
+						debug.get("break_error").asString().c_str());
+					// locals are readable at the error frame (async: poll pending)
+					bool errorLocals = false;
+					for (int attempt = 0; attempt < kPlayerPollAttempts &&
+						!errorLocals; ++attempt)
+					{
+						JsonValue locals;
+						bool localsError = true;
+						JsonValue localsArgs = JsonValue::object();
+						localsArgs.set("frame", JsonValue(0.0));
+						if (!callTool("get_locals", localsArgs, true, locals,
+								localsError) || localsError)
+						{
+							finish(false, "control self-test: debug - error "
+								"break get_locals failed");
+							return;
+						}
+						if (locals.get("pending").asString() != "1")
+						{
+							errorLocals = true;
+							break;
+						}
+						std::this_thread::sleep_for(
+							std::chrono::milliseconds(100));
+					}
+					if (!errorLocals)
+					{
+						finish(false, "control self-test: debug - error break "
+							"get_locals never left pending");
+						return;
+					}
+					// Continue: today's error path flows (the instance disables
+					// itself) and the game keeps running free
+					if (!callTool("debug_continue", JsonValue::object(), true,
+							structured, isError) || isError)
+					{
+						finish(false, "control self-test: debug - the error "
+							"break release (debug_continue) failed");
+						return;
+					}
+					if (!pollDebug([](JsonValue const& s)
+						{
+							return s.get("paused_at_breakpoint").asString() ==
+									"0" &&
+								s.get("play_mode").asString() == "playing";
+						}, kPlayerPollAttempts, debug))
+					{
+						finish(false, "control self-test: debug - the game did "
+							"not resume free-running after the error break");
+						return;
+					}
+					// disarm again so the leg leaves clean state
+					JsonValue disarmArgs = JsonValue::object();
+					disarmArgs.set("on", JsonValue(String("0")));
+					if (!callTool("set_break_on_errors", disarmArgs, true,
+							structured, isError) || isError)
+					{
+						finish(false, "control self-test: debug - disarming "
+							"set_break_on_errors failed");
+						return;
+					}
+				}
 				SDL_Log("orkige_editor: control self-test - MCP script debug "
-					"loop OK (hit/locals/step/re-hit/clear/resume/break_next)");
+					"loop OK (hit/locals/step/re-hit/clear/resume/break_next/"
+					"break_on_errors)");
 				// stop + drop the temp project
 				if (!callTool("stop", JsonValue::object(), true, structured,
 						isError) || isError)

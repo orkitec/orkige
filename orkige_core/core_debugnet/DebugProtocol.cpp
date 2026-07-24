@@ -41,6 +41,7 @@ namespace Orkige
 		const String MSG_DEBUG_STEP_OUT		= "debug_step_out";
 		const String MSG_DEBUG_LOCALS		= "debug_locals";
 		const String MSG_DEBUG_BREAK_NEXT	= "debug_break_next";
+		const String MSG_DEBUG_BREAK_ON_ERRORS = "debug_break_on_errors";
 
 		const String MSG_HELLO				= "hello";
 		const String MSG_HIERARCHY			= "hierarchy";
@@ -116,6 +117,7 @@ namespace Orkige
 		const String LIST_SPAWN_REFS		= "sp_refs";
 		const String FIELD_LINE				= "line";
 		const String FIELD_FRAME			= "frame";
+		const String FIELD_ERROR			= "error";
 		const String LIST_BREAKPOINTS		= "breakpoints";
 		const String LIST_STACK_SOURCES		= "stack_sources";
 		const String LIST_STACK_LINES		= "stack_lines";

@@ -2,6 +2,7 @@
 // ops, play toggle, frame/rename/delete/duplicate).
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorSceneTemplate.h"
 
 // The keyboard shortcut map (checked once per frame, after the panels have
 // recorded their hover/focus state; inactive while a text field is being
@@ -72,7 +73,7 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 	}
 	if (commandDown && ImGui::IsKeyPressed(ImGuiKey_N, false))
 	{
-		newScene(state, core);	// refuses itself while a prefab is staged
+		newDefaultScene(state, core);	// refuses itself while a prefab is staged
 		return;
 	}
 	if (commandDown && ImGui::IsKeyPressed(ImGuiKey_O, false))

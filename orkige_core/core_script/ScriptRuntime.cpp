@@ -66,6 +66,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	ScriptRuntime::ScriptRuntime()
 	{
+#ifdef ORKIGE_LUA
+		// wire the break-on-script-error message handler as sol's default error
+		// handler NOW, before any lifecycle script runs: it is a pass-through
+		// no-op until break-on-errors is armed (@see installDebugErrorHandler),
+		// so disarmed behavior stays byte-identical to today's.
+		this->installDebugErrorHandler();
+#endif
 	}
 	//---------------------------------------------------------
 	ScriptRuntime::~ScriptRuntime()
@@ -907,10 +914,12 @@ namespace Orkige
 			ScriptStepMode	stepMode = ScriptStepMode::None;	//!< armed step
 			int				stepBaseDepth = 0;	//!< depth the step released at
 			bool			broken = false;		//!< blocked inside the hook now
+			bool			breakOnErrors = false;	//!< pause at an uncaught script error
 			ScriptStepMode	resumeStep = ScriptStepMode::None;	//!< step asked by debugResume
 			unsigned int	breakSequence = 0;	//!< increments per break entry
 			String			breakFile;			//!< normalized paused chunk
 			int				breakLine = 0;		//!< paused 1-based line
+			String			breakError;			//!< error text when the pause is an error break ("" otherwise)
 			std::vector<ScriptStackFrame>	frames;	//!< captured at break
 			std::vector<int>	frameLevels;	//!< lua stack level per frame
 			std::function<void()>	pumpHandler;	//!< the transport pump
@@ -1059,15 +1068,46 @@ namespace Orkige
 			return true;
 		}
 
+		//! @brief a bounded, metamethod-free rendering of a Lua error object at
+		//! `index`: a string/number error message is taken verbatim (raw,
+		//! never __tostring - a break must not run script code), any other error
+		//! object becomes a short "(<typename> error object)" note. The message
+		//! the editor shows on an error break and the wire `error` field.
+		String luaErrorObjectToString(lua_State * L, int index)
+		{
+			const int type = lua_type(L, index);
+			if (type == LUA_TSTRING || type == LUA_TNUMBER)
+			{
+				std::size_t length = 0;
+				// lua_tolstring converts a number IN PLACE, but the error object
+				// is our argument (not a stack slot we must preserve), so this is
+				// safe and stays metamethod-free
+				char const * text = lua_tolstring(L, index, &length);
+				const std::size_t kCap = 1024;
+				String value(text, std::min(length, kCap));
+				if (length > kCap)
+				{
+					value += "...";
+				}
+				return value;
+			}
+			return String("(") + lua_typename(L, type) + " error object)";
+		}
+
 		//! capture the paused call stack (innermost first) + the lua level of
-		//! each captured frame so a later locals request can address it
-		void luaCaptureFrames(lua_State * L)
+		//! each captured frame so a later locals request can address it. Frames
+		//! are gathered from `startLevel` up: a breakpoint pause starts at 0 (the
+		//! running function); an ERROR pause starts at 1 to skip the message-
+		//! handler frame the error mechanism placed on top, so the innermost
+		//! reported frame is the code that actually faulted.
+		void luaCaptureFrames(lua_State * L, int startLevel = 0)
 		{
 			LuaDebugState & debug = luaDebug();
 			debug.frames.clear();
 			debug.frameLevels.clear();
 			lua_Debug activation;
-			for (int level = 0; lua_getstack(L, level, &activation); ++level)
+			for (int level = startLevel; lua_getstack(L, level, &activation);
+				++level)
 			{
 				if (!lua_getinfo(L, "Sln", &activation))
 				{
@@ -1180,8 +1220,72 @@ namespace Orkige
 				debug.hookedState = nullptr;
 			}
 		}
+
+		//! @brief the sol default error handler (a Lua message handler): it runs
+		//! AT an uncaught-error point, before pcall unwinds the stack, with the
+		//! error object as its single argument. When break-on-errors is armed it
+		//! enters the SAME break state a breakpoint hit uses - capturing the crash
+		//! stack/location/message and BLOCKING in the pump loop until a resume -
+		//! then returns the error object UNCHANGED so today's error path proceeds
+		//! (the lifecycle call still sees the failure and disables the instance).
+		//! A pure pass-through (returns the argument untouched, no side effect)
+		//! whenever break-on-errors is off, on an unpumped runtime, or already
+		//! inside a break: disarmed behavior is byte-identical to no handler.
+		int luaErrorBreakHandler(lua_State * L)
+		{
+			LuaDebugState & debug = luaDebug();
+			if (!ScriptDebugCore::errorShouldBreak(debug.breakOnErrors,
+				static_cast<bool>(debug.pumpHandler), debug.broken))
+			{
+				return 1;	// leave the error object at index 1 unchanged
+			}
+			// capture the crash: the message (metamethod-free) and the stack from
+			// level 1 (skip THIS handler frame at level 0), then land the paused
+			// file/line on the first script frame (skipping a leading host frame
+			// such as the error() builtin)
+			debug.breakError = luaErrorObjectToString(L, 1);
+			luaCaptureFrames(L, 1);
+			debug.breakFile.clear();
+			debug.breakLine = 0;
+			ScriptDebugCore::errorBreakLocation(debug.frames, debug.breakFile,
+				debug.breakLine);
+			++debug.breakSequence;
+			// the blocking pump: identical machinery to the line hook's break -
+			// the transport handler runs until a resume/step clears `broken`
+			debug.broken = true;
+			while (debug.broken)
+			{
+				debug.pumpHandler();
+			}
+			// an error break never re-arms a step: the stack is about to unwind
+			// as the error propagates, so a step would be meaningless. Drop any
+			// step the resume asked for and clear the paused state.
+			debug.resumeStep = ScriptStepMode::None;
+			debug.breakError.clear();
+			debug.breakFile.clear();
+			debug.breakLine = 0;
+			debug.frames.clear();
+			debug.frameLevels.clear();
+			return 1;	// return the UNCHANGED error object -> today's path flows
+		}
 	}
 #endif //ORKIGE_LUA
+	//---------------------------------------------------------
+	void ScriptRuntime::installDebugErrorHandler()
+	{
+#ifdef ORKIGE_LUA
+		// register our C message handler as sol's process-wide default error
+		// handler: every protected_function sol constructs afterwards (the script
+		// lifecycle calls, event/tween callbacks) adopts it, so an uncaught error
+		// from any of them routes through luaErrorBreakHandler. It is a
+		// pass-through until break-on-errors is armed.
+		lua_State * L = this->luaManager.state().lua_state();
+		lua_pushcfunction(L, &luaErrorBreakHandler);
+		sol::stack_reference handler(L, -1);
+		sol::protected_function::set_default_handler(handler);
+		lua_pop(L, 1);
+#endif
+	}
 	//---------------------------------------------------------
 	bool ScriptRuntime::checkSyntax(String const & source,
 		String const & chunkName, String * outError)
@@ -1266,6 +1370,44 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
+	bool ScriptRuntime::setDebugBreakOnErrors(bool armed, String * outError)
+	{
+		oAssert(outError);
+#if defined(__EMSCRIPTEN__)
+		if (!armed)
+		{
+			return true;	// disarming is always a safe no-op
+		}
+		*outError = "break on script errors is not supported in the browser "
+			"player (the page's main thread cannot block at a break)";
+		return false;
+#elif defined(ORKIGE_LUA)
+		// arm/disarm the flag the always-installed error handler consults; the
+		// handler needs no hook (it rides the protected-call message handler),
+		// so there is nothing else to install here. The player installs the
+		// break pump when it arms (a break can only report through a pump).
+		luaDebug().breakOnErrors = armed;
+		return true;
+#else
+		(void)armed;
+		if (!armed)
+		{
+			return true;
+		}
+		*outError = ScriptRuntime::disabledError();
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	bool ScriptRuntime::isDebugBreakOnErrors() const
+	{
+#ifdef ORKIGE_LUA
+		return luaDebug().breakOnErrors;
+#else
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
 	void ScriptRuntime::setDebugPumpHandler(std::function<void()> handler)
 	{
 #ifdef ORKIGE_LUA
@@ -1308,6 +1450,15 @@ namespace Orkige
 		return luaDebug().broken ? luaDebug().breakLine : 0;
 #else
 		return 0;
+#endif
+	}
+	//---------------------------------------------------------
+	String ScriptRuntime::debugBreakError() const
+	{
+#ifdef ORKIGE_LUA
+		return luaDebug().broken ? luaDebug().breakError : String();
+#else
+		return String();
 #endif
 	}
 	//---------------------------------------------------------
@@ -1506,6 +1657,10 @@ namespace Orkige
 #ifdef ORKIGE_LUA
 		LuaDebugState & debug = luaDebug();
 		debug.breakpoints.clear();
+		// a vanished client also drops break-on-errors: a reconnecting session
+		// re-pushes its setting (the full-state connect push), and a runtime with
+		// no client must not keep breaking (the handler needs the pump anyway)
+		debug.breakOnErrors = false;
 		if (debug.broken)
 		{
 			this->debugResume(ScriptStepMode::None);

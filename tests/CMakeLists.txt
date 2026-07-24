@@ -1018,6 +1018,17 @@ if(TARGET orkige_editor)
     set_tests_properties(editor_edittest${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_EDITTEST=1;ORKIGE_DEMO_FRAMES=150;ORKIGE_EDITOR_EDITTEST_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_edittest.oscene")
 
+    # camera authoring: Create Camera command (spawns at the view pose), the
+    # frustum gizmo (asserted via the uploaded-vertex seam, not pixels), the
+    # new-scene default Main Camera template, add_component/set_component
+    # reaching CameraComponent by name (MCP-parity path) and a save/reload
+    # round-trip. Runs the editor windowed on both flavors (editor_camera).
+    add_test(NAME editor_camera${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_camera${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_CAMERA_SELFCHECK=${CMAKE_CURRENT_BINARY_DIR}/editor_camera.oscene;ORKIGE_DEMO_FRAMES=60"
+        LABELS integration TIMEOUT 120)
+
     # MCP endpoint, headless end to end: the editor hosts its MCP
     # server on an ephemeral in-process port over Streamable HTTP and, on a
     # worker thread, drives a RAW TCP socket through a real MCP conversation -
@@ -2403,9 +2414,14 @@ if(TARGET orkige_player)
         add_executable(script_debug_driver
             integration_driver/script_debug_driver.cpp)
         target_link_libraries(script_debug_driver PRIVATE Orkige::Core)
+        # the fixture project (tests/projects/scripterror) whose boom.lua throws
+        # an uncaught error once cvar test.boom is set drives the BREAK ON SCRIPT
+        # ERROR legs (argv[3]): armed pauses AT the fault with text/stack/locals
+        # and the honest failure still flows on Continue; unarmed is unchanged.
         add_test(NAME player_script_debug${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND script_debug_driver $<TARGET_FILE:orkige_player>
                 "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                "${Orkige_SOURCE_DIR}/tests/projects/scripterror"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     endif()
 endif()

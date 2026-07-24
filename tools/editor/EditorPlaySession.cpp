@@ -112,6 +112,7 @@ void clearRemoteState(PlaySession& session)
 	session.debugBroken = false;
 	session.debugBreakFile.clear();
 	session.debugBreakLine = 0;
+	session.debugBreakError.clear();
 	session.debugBreakSeq = 0;
 	session.debugStack.clear();
 	session.debugSelectedFrame = 0;
@@ -119,6 +120,9 @@ void clearRemoteState(PlaySession& session)
 	session.debugLocalsPending.clear();
 	session.debugLocalsSeq = 0;
 	session.sentBreakpointRevision = 0;
+	// a fresh player has break-on-errors OFF until the connect push re-sends the
+	// persisted setting; -1 forces that push (never "already sent this value")
+	session.sentBreakOnErrors = -1;
 }
 
 namespace
@@ -1530,6 +1534,19 @@ void sendDebugBreakpoints(EditorState& state, PlaySession& session)
 	session.sentBreakpointRevision = state.breakpoints.revision();
 }
 
+//! push the "Break on Errors" state to the running player (full-state replace)
+void sendDebugBreakOnErrors(PlaySession& session, bool armed)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage message(Protocol::MSG_DEBUG_BREAK_ON_ERRORS);
+	message.set(Protocol::FIELD_VALUE, armed ? "1" : "0");
+	session.client.send(message);
+	session.sentBreakOnErrors = armed ? 1 : 0;
+}
+
 //! release the held break (resume or one of the steps)
 void sendDebugCommand(PlaySession& session, Orkige::String const& messageType)
 {
@@ -1542,6 +1559,7 @@ void sendDebugCommand(PlaySession& session, Orkige::String const& messageType)
 	// step raises a fresh MSG_DEBUG_BREAK); flipping here keeps the UI honest
 	// even if that confirmation interleaves behind streamed messages
 	session.debugBroken = false;
+	session.debugBreakError.clear();
 	session.debugLocalsCache.clear();
 	session.debugLocalsPending.clear();
 }
@@ -2096,6 +2114,9 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 			session.debugBreakFile = message.get(Protocol::FIELD_PATH);
 			session.debugBreakLine =
 				std::atoi(message.get(Protocol::FIELD_LINE).c_str());
+			// the error text is present ONLY on an error break (Break on Errors);
+			// empty for a breakpoint / step landing
+			session.debugBreakError = message.get(Protocol::FIELD_ERROR);
 			++session.debugBreakSeq;
 			session.debugSelectedFrame = 0;
 			session.debugStack.clear();
@@ -2116,9 +2137,21 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 				frame.function = i < functions.size() ? functions[i] : "";
 				session.debugStack.push_back(frame);
 			}
-			console.addLine(ConsoleLevel::Info,
-				"[debug] paused at " + session.debugBreakFile + ":" +
-				std::to_string(session.debugBreakLine));
+			if (session.debugBreakError.empty())
+			{
+				console.addLine(ConsoleLevel::Info,
+					"[debug] paused at " + session.debugBreakFile + ":" +
+					std::to_string(session.debugBreakLine));
+			}
+			else
+			{
+				// an error break: surface the crash message loud (the honest
+				// failure still flows on Continue - this only DEFERS it)
+				console.addLine(ConsoleLevel::Error,
+					"[debug] paused at SCRIPT ERROR " + session.debugBreakFile +
+					":" + std::to_string(session.debugBreakLine) + " - " +
+					session.debugBreakError);
+			}
 			// auto-open/focus the Script panel on the hit line and prefetch
 			// the innermost frame's locals
 			if (gViewSettings != nullptr)
@@ -2132,6 +2165,7 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 		{
 			// the break released (our command, or the player detached)
 			session.debugBroken = false;
+			session.debugBreakError.clear();
 			session.debugStack.clear();
 			session.debugLocalsCache.clear();
 			session.debugLocalsPending.clear();
@@ -2459,6 +2493,18 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 			{
 				session.sentBreakpointRevision = state.breakpoints.revision();
 			}
+			// push the persisted "Break on Errors" setting too, so an armed
+			// setting catches an error from the first frame (full-state push,
+			// like the breakpoint set). Only when armed - a fresh player defaults
+			// to off, so an off setting needs no wire traffic.
+			if (gViewSettings != nullptr && gViewSettings->breakOnScriptErrors)
+			{
+				sendDebugBreakOnErrors(session, true);
+			}
+			else
+			{
+				session.sentBreakOnErrors = 0;
+			}
 			// arm the scripts/.oui hot-reload baseline NOW, at the instant the
 			// session becomes playable - not lazily on the next Playing-mode
 			// poll. The message drain above can deliver the player's first UI
@@ -2530,6 +2576,14 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 		if (session.sentBreakpointRevision != state.breakpoints.revision())
 		{
 			sendDebugBreakpoints(state, session);
+		}
+		// break-on-errors: a Debug-panel checkbox toggle (or the MCP verb) since
+		// the last push re-sends the current state
+		if (gViewSettings != nullptr &&
+			session.sentBreakOnErrors !=
+				(gViewSettings->breakOnScriptErrors ? 1 : 0))
+		{
+			sendDebugBreakOnErrors(session, gViewSettings->breakOnScriptErrors);
 		}
 		// crash resilience: a vanished process or a dropped link reverts
 		// the editor to edit mode cleanly
