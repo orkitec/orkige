@@ -1,6 +1,7 @@
 {
   "name": "imgui-color-text-edit",
   "version-date": "2026-05-03",
+  "port-version": 1,
   "description": "Syntax highlighting text editor widget for Dear ImGui (goossens fork: language tokenizers, markers, line decorators, autocomplete).",
   "homepage": "https://github.com/goossens/ImGuiColorTextEdit",
   "license": "MIT",

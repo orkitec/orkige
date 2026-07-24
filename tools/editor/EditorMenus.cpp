@@ -111,6 +111,29 @@ bool drawViewSettingsWidgets(ViewSettings& viewSettings,
 			"{line} placeholders (e.g. \"code -g {file}:{line}\"). Empty "
 			"auto-detects a CLI editor on PATH, else opens with the OS default.");
 	}
+	// which extensions double-click into the EMBEDDED code editor (formats
+	// with a richer double-click - scenes, prefabs, .oui, .oanim - keep it)
+	{
+		char buffer[1024];
+		SDL_strlcpy(buffer, viewSettings.internalEditorExtensions.c_str(),
+			sizeof(buffer));
+		ImGui::SetNextItemWidth(240.0f);
+		if (ImGui::InputText("Internal Editor Files", buffer, sizeof(buffer)))
+		{
+			viewSettings.internalEditorExtensions = buffer;
+			settingsChanged = true;
+		}
+		ImGui::SetItemTooltip("extensions that double-click into the embedded "
+			"code editor (space-separated, e.g. \".lua .omat .md\"); scenes, "
+			"prefabs, .oui and .oanim keep their richer double-click");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Reset##internalExt"))
+		{
+			viewSettings.internalEditorExtensions =
+				ViewSettings().internalEditorExtensions;
+			settingsChanged = true;
+		}
+	}
 	ImGui::Separator();
 	ImGui::TextDisabled("Camera");
 	ImGui::SetNextItemWidth(160.0f);
@@ -751,13 +774,13 @@ void drawEditorModals(EditorState& state, Orkige::EditorCore& core)
 // state.resetDockLayout, which reruns the builder from scratch (and re-opens
 // every panel).
 void drawDockspace(EditorState& state, float toolbarHeight,
-	ViewSettings& viewSettings, float contentScale)
+	ViewSettings& viewSettings, float contentScale, float footerHeight)
 {
 	const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
 	ImGui::SetNextWindowPos(ImVec2(mainViewport->WorkPos.x,
 		mainViewport->WorkPos.y + toolbarHeight));
 	const ImVec2 hostSize(mainViewport->WorkSize.x,
-		mainViewport->WorkSize.y - toolbarHeight);
+		mainViewport->WorkSize.y - toolbarHeight - footerHeight);
 	ImGui::SetNextWindowSize(hostSize);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -831,6 +854,9 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	ImGui::DockBuilderDockWindow(INSPECTOR_WINDOW_EDIT, rightId);
 	ImGui::DockBuilderDockWindow("Console", bottomId);
 	ImGui::DockBuilderDockWindow("Stats", bottomId);
+	// the debugger's Debug panel tabs into the bottom node beside Console (it
+	// opens on demand - on a break-hit; a tab slot waits here for it)
+	ImGui::DockBuilderDockWindow("Debug###Debug", bottomId);
 	ImGui::DockBuilderDockWindow("Assets###Assets", bottomId);
 	// the Tile Palette tabs into the bottom node beside the Asset Browser
 	// (both are asset pickers; it auto-opens here when the Scene enters 2D)

@@ -1255,6 +1255,15 @@ bool drawTextPreviewSection(EditorState& state)
 	refreshTextPreview(state, rel);
 	AssetBrowserState& browser = state.assetBrowser;
 
+	// a text asset opens two ways: the embedded code editor (a docked document
+	// window) or the user's external code editor / OS default app. Both inherit
+	// the Inspector's header-bar button shade pushed for the panel.
+	if (gViewSettings && ImGui::Button("Open in Internal Editor"))
+	{
+		scriptPanelOpenFile(state, *gViewSettings,
+			resolveProjectFilePath(state.project, rel));
+	}
+	ImGui::SameLine();
 	if (gViewSettings && ImGui::Button("Open in External Editor"))
 	{
 		openInExternalEditor(resolveProjectFilePath(state.project, rel), 0,

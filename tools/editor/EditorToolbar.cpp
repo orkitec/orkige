@@ -3,6 +3,7 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 #include "EditorTheme.h"
+#include "ExternalEditor.h"	// parseFileLineRefs (the footer's click target)
 #include "IconsFontAwesome6.h"
 
 #include <imgui_internal.h> // SeparatorEx (the vertical toolbar separators)
@@ -696,4 +697,73 @@ float drawToolbar(EditorState& state, PlaySession& session,
 	ImGui::End();
 	ImGui::PopStyleColor();	// chrome WindowBg
 	return toolbarHeight;
+}
+
+float drawStatusFooter(EditorState& state, PlaySession& session)
+{
+	const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+	const float footerHeight = ImGui::GetFrameHeight() +
+		ImGui::GetStyle().WindowPadding.y;
+	ImGui::SetNextWindowPos(ImVec2(mainViewport->WorkPos.x,
+		mainViewport->WorkPos.y + mainViewport->WorkSize.y - footerHeight));
+	ImGui::SetNextWindowSize(ImVec2(mainViewport->WorkSize.x, footerHeight));
+	// the footer is CHROME like the toolbar - the darker strip framing the
+	// panel surfaces
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, Orkige::editorChromeBackground());
+	if (ImGui::Begin("##StatusFooter", nullptr,
+		ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+		ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+		ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
+		ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
+		ImGuiWindowFlags_NoNavFocus))
+	{
+		// the FIRST live problem wins the strip: a syntax error in an open
+		// document, else the newest streamed script error of the session
+		std::string jumpPath;
+		int jumpLine = 0;
+		std::string message = scriptPanelActiveSyntaxError(jumpPath, jumpLine);
+		if (message.empty() && !session.scriptErrorMessages.empty())
+		{
+			message = session.scriptErrorMessages.back();
+			for (Orkige::FileLineRef const& reference :
+				Orkige::parseFileLineRefs(message))
+			{
+				jumpPath = reference.path;
+				jumpLine = reference.line;
+				break;
+			}
+		}
+		if (!message.empty())
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text,
+				Orkige::editorErrorTextColor());
+			ImGui::Selectable(message.c_str(), false,
+				ImGuiSelectableFlags_None);
+			ImGui::PopStyleColor();
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("%s%s", message.c_str(),
+					jumpPath.empty() ? "" : "\n(click to open at the line)");
+			}
+			if (!jumpPath.empty() && ImGui::IsItemClicked() && gViewSettings)
+			{
+				scriptPanelOpenFile(state, *gViewSettings,
+					resolveProjectFilePath(state.project, jumpPath), jumpLine);
+			}
+		}
+		else
+		{
+			// a quiet strip states the session plainly
+			ImGui::TextDisabled("%s",
+				session.mode == PlaySession::Mode::Edit ? "Ready"
+				: session.mode == PlaySession::Mode::Playing ? "Playing"
+				: session.mode == PlaySession::Mode::Paused ? "Paused"
+				: session.mode == PlaySession::Mode::Building ? "Building..."
+				: session.mode == PlaySession::Mode::Launching ? "Starting..."
+				: "Stopping...");
+		}
+	}
+	ImGui::End();
+	ImGui::PopStyleColor();	// chrome WindowBg
+	return footerHeight;
 }

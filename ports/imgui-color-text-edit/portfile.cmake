@@ -6,6 +6,9 @@ vcpkg_from_github(
     REF a74fb090d2ea9276ae6c35c2f6ab39491c7d404f
     SHA512 eb8ef12565b43b79ac2f571a6933f64531578dfc001e66d50e89f2497bdfa0e8c18edd745266fe9919559ca04faa3d67d4cb36ff0e53b2a04aca49f6eb918d16
     HEAD_REF master
+    PATCHES
+        wider-left-margin.patch # a 2-glyph left margin so the editor's error badge sits in front of the line numbers with breathing room
+        quiet-empty-autocomplete.patch # typing with zero completion matches dismisses the popup instead of overlapping the code with a useless label (manual trigger keeps the feedback)
 )
 
 # our CMakeLists installed over the source (the upstream repo ships none for

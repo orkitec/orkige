@@ -1,0 +1,11 @@
+--- a/TextEditor.h	2026-07-24 13:37:10
++++ b/TextEditor.h	2026-07-24 13:37:10
+@@ -1347,7 +1347,7 @@
+ 	int contextMenuLine = 0;
+ 	int contextMenuColumn = 0;
+ 
+-	static constexpr int leftMargin = 1; // margins are expressed in glyphs
++	static constexpr int leftMargin = 2; // margins are expressed in glyphs
+ 	static constexpr int decorationMargin = 1;
+ 	static constexpr int textMargin = 2;
+ 	static constexpr int cursorWidth = 1;

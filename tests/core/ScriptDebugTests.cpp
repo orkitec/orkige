@@ -352,6 +352,40 @@ TEST_CASE("ScriptRuntime debug seam refuses honestly or pauses a real script",
 	env.scriptRuntime.setScriptSearchRoot("");
 }
 
+TEST_CASE("ScriptRuntime checkSyntax compiles without running",
+	"[script][debug]")
+{
+	CoreTestEnvironment & env = CoreTestEnvironment::get();
+	String error;
+	if (!ScriptRuntime::available())
+	{
+		CHECK_FALSE(env.scriptRuntime.checkSyntax(
+			"return 1", "scripts/a.lua", &error));
+		CHECK(error.find("scripting disabled") != String::npos);
+		return;
+	}
+	// valid code compiles; the chunk must NOT run (the side effect stays off)
+	CHECK(env.scriptRuntime.checkSyntax(
+		"sideEffect = (sideEffect or 0) + 1\nreturn 1",
+		"scripts/valid.lua", &error));
+	const ScriptRuntime::Result probe = env.scriptRuntime.runString(
+		"assert(sideEffect == nil, 'checkSyntax ran the chunk') return true");
+	CHECK(probe.success);
+	// a parse error names the project-relative chunk (the editor anchors its
+	// squiggle off the "chunk:line:" prefix)
+	error.clear();
+	CHECK_FALSE(env.scriptRuntime.checkSyntax(
+		"function broken(\n\tlocal x = \n", "scripts/broken.lua", &error));
+	CHECK(error.find("scripts/broken.lua") != String::npos);
+	// the reported line is EXACT for a same-line mistake: the bad token sits
+	// on line 2 and the error must say :2: (the editor's badge anchors on it)
+	error.clear();
+	CHECK_FALSE(env.scriptRuntime.checkSyntax(
+		"local a = 1\nlocal b = = 2\nlocal c = 3\n",
+		"scripts/lines.lua", &error));
+	CHECK(error.find("scripts/lines.lua:2:") != String::npos);
+}
+
 TEST_CASE("ScriptRuntime step-over lands on the following line",
 	"[script][debug]")
 {

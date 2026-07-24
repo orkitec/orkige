@@ -44,9 +44,15 @@ add_library(orkige_editor_core STATIC
     ScriptBreakpoints.cpp
     ScriptCompletion.h
     ScriptCompletion.cpp
+    EditorTabActions.h
+    EditorTabActions.cpp
+    EditorTextDiagnostics.h
+    EditorTextDiagnostics.cpp
 )
 target_include_directories(orkige_editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+find_package(tinyxml2 CONFIG REQUIRED)	# the live XML document diagnostics
 target_link_libraries(orkige_editor_core PUBLIC Orkige::Engine)
+target_link_libraries(orkige_editor_core PRIVATE tinyxml2::tinyxml2)
 
 # PCH (no imgui here - EditorCore stays UI-independent and does not link it)
 target_precompile_headers(orkige_editor_core PRIVATE

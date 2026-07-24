@@ -116,7 +116,66 @@ namespace Orkige
 
 	ImGuiSDL3Input::~ImGuiSDL3Input()
 	{
+		for (SDL_Cursor*& cursor : mCursors)
+		{
+			if (cursor != nullptr)
+			{
+				SDL_DestroyCursor(cursor);
+				cursor = nullptr;
+			}
+		}
 		SDL_StopTextInput(mWindow);
+	}
+
+	void ImGuiSDL3Input::updateMouseCursor()
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		if ((io.ConfigFlags & ImGuiConfigFlags_NoMouseCursorChange) != 0 ||
+			mRelativeMode)
+		{
+			return;	// the app (or fly-mode capture) owns the cursor
+		}
+		const ImGuiMouseCursor wanted = ImGui::GetMouseCursor();
+		if (wanted == mAppliedCursor)
+		{
+			return;
+		}
+		if (wanted == ImGuiMouseCursor_None || io.MouseDrawCursor)
+		{
+			SDL_HideCursor();	// ImGui hides it / draws its own
+			mAppliedCursor = -1;
+			return;
+		}
+		if (wanted < 0 || wanted >= ImGuiMouseCursor_COUNT)
+		{
+			return;
+		}
+		if (mCursors[wanted] == nullptr)
+		{
+			SDL_SystemCursor kind = SDL_SYSTEM_CURSOR_DEFAULT;
+			switch (wanted)
+			{
+			case ImGuiMouseCursor_TextInput:	kind = SDL_SYSTEM_CURSOR_TEXT; break;
+			case ImGuiMouseCursor_ResizeAll:	kind = SDL_SYSTEM_CURSOR_MOVE; break;
+			case ImGuiMouseCursor_ResizeNS:		kind = SDL_SYSTEM_CURSOR_NS_RESIZE; break;
+			case ImGuiMouseCursor_ResizeEW:		kind = SDL_SYSTEM_CURSOR_EW_RESIZE; break;
+			case ImGuiMouseCursor_ResizeNESW:	kind = SDL_SYSTEM_CURSOR_NESW_RESIZE; break;
+			case ImGuiMouseCursor_ResizeNWSE:	kind = SDL_SYSTEM_CURSOR_NWSE_RESIZE; break;
+			case ImGuiMouseCursor_Hand:			kind = SDL_SYSTEM_CURSOR_POINTER; break;
+			case ImGuiMouseCursor_Wait:			kind = SDL_SYSTEM_CURSOR_WAIT; break;
+			case ImGuiMouseCursor_Progress:		kind = SDL_SYSTEM_CURSOR_PROGRESS; break;
+			case ImGuiMouseCursor_NotAllowed:	kind = SDL_SYSTEM_CURSOR_NOT_ALLOWED; break;
+			default:							kind = SDL_SYSTEM_CURSOR_DEFAULT; break;
+			}
+			mCursors[wanted] = SDL_CreateSystemCursor(kind);
+			if (mCursors[wanted] == nullptr)
+			{
+				return;	// creation failed - keep whatever the OS shows
+			}
+		}
+		SDL_SetCursor(mCursors[wanted]);
+		SDL_ShowCursor();
+		mAppliedCursor = wanted;
 	}
 
 	void ImGuiSDL3Input::newFrame(float renderTargetWidth, float renderTargetHeight)
@@ -149,6 +208,10 @@ namespace Orkige
 			? renderTargetWidth / static_cast<float>(windowWidth) : 1.0f;
 		mMouseScaleY = (windowHeight > 0 && renderTargetHeight > 0.0f)
 			? renderTargetHeight / static_cast<float>(windowHeight) : 1.0f;
+
+		// reflect ImGui's cursor request (set by LAST frame's widgets - the
+		// one-frame lag is the standard platform-backend contract) onto the OS
+		updateMouseCursor();
 	}
 
 	bool ImGuiSDL3Input::processEvent(SDL_Event const& event)

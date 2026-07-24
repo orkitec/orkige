@@ -11,6 +11,7 @@
 #include <imgui.h>
 
 struct SDL_Window;
+struct SDL_Cursor;
 union SDL_Event;
 
 namespace Orkige
@@ -65,9 +66,19 @@ namespace Orkige
 		void consumeRelativeDelta(float& deltaX, float& deltaY);
 
 	private:
+		//! @brief apply ImGui's requested mouse cursor to the OS cursor (the
+		//! platform-backend half the hand-rolled bridge was missing): map
+		//! ImGuiMouseCursor_* to lazily-created SDL system cursors, hide on
+		//! ImGuiMouseCursor_None, and skip while fly-mode capture owns the
+		//! cursor. Honors ImGuiConfigFlags_NoMouseCursorChange.
+		void updateMouseCursor();
+
 		SDL_Window* mWindow;
 		float mMouseScaleX = 1.0f;
 		float mMouseScaleY = 1.0f;
+		//! lazily-created SDL system cursors per ImGui cursor kind
+		SDL_Cursor* mCursors[ImGuiMouseCursor_COUNT] = {};
+		int mAppliedCursor = -2;	//!< last applied kind (-2 = never, -1 = hidden)
 		unsigned long long mLastFrameCounter = 0;	//!< SDL performance counter of the last newFrame (io.DeltaTime)
 		bool mRelativeMode = false;		//!< fly-mode capture active?
 		float mRelativeDeltaX = 0.0f;	//!< accumulated xrel (raw counts)

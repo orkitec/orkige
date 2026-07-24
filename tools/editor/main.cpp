@@ -2160,12 +2160,10 @@ int main(int argc, char** argv)
 			if (selfCheck && frameCount == 5)
 			{
 				viewSettings.showGuiPreviewPanel = true;
-				// the Script panel too: it must dock beside Scene and render
-				// (the frame-30 probe asserts both windows joined that node).
-				// Open a real script tab so the code editor's document +
-				// breakpoint-gutter render path executes, not just the
-				// empty-panel placeholder.
-				viewSettings.showScriptPanel = true;
+				// a code-editor document window too: it must dock beside Scene
+				// and render (the frame-30 probe asserts it joined that node).
+				// Open a real script so the editor document + breakpoint-gutter
+				// render path executes, not just an idle frame.
 				const std::filesystem::path selfcheckScript =
 					std::filesystem::temp_directory_path() /
 						"orkige_selfcheck_script.lua";
@@ -2212,8 +2210,10 @@ int main(int argc, char** argv)
 				!viewSettings.editor2D);
 			const float toolbarHeight =
 				drawToolbar(state, playSession, editorCore);
+			const float footerHeight =
+				drawStatusFooter(state, playSession);
 			drawDockspace(state, toolbarHeight, viewSettings,
-				editorContentScale);
+				editorContentScale, footerHeight);
 			if (viewSettings.showScenePanel)
 			{
 				drawScenePanel(state, editorCore, !playSession.isActive(),
@@ -2307,16 +2307,19 @@ int main(int argc, char** argv)
 				drawGuiPreviewPanel(state, guiPreviewStage, editorCore,
 					viewSettings);
 			}
-			// a pending script-open request pulls the Script panel up even
-			// when it was closed (scriptPanelOpenFile flips the flag)
-			if (viewSettings.showScriptPanel)
+			// the code editor is a window per open file, drawn every frame
+			// (zero open files draws nothing); each opens on demand
+			drawScriptDocuments(state, playSession, editorCore, viewSettings);
+			// the Debug panel auto-opens/focuses on a break-hit
+			if (playSession.debugBroken && !viewSettings.showDebugPanel)
 			{
-				drawScriptPanel(state, playSession, editorCore, viewSettings,
-					&viewSettings.showScriptPanel);
+				viewSettings.showDebugPanel = true;
+				viewSettings.save();
 			}
-			else
+			if (viewSettings.showDebugPanel)
 			{
-				state.scriptPanelFocused = false;
+				drawDebugPanel(state, playSession, viewSettings,
+					&viewSettings.showDebugPanel);
 			}
 			bool panelVisibilityChanged = false;
 #define ORKIGE_CHECK_PANEL_VISIBILITY(id, label, visible, member) \
@@ -2569,13 +2572,12 @@ int main(int argc, char** argv)
 				ImGuiWindow* sceneWindow = ImGui::FindWindowByName("Scene");
 				ImGuiWindow* guiPreviewWindow =
 					ImGui::FindWindowByName("GuiPreview");
-				ImGuiWindow* scriptWindow =
-					ImGui::FindWindowByName("Script###Script");
+				// the open code-editor document window must share Scene's dock
+				// node (documents dock as sibling tabs beside the Scene panel)
 				const bool previewDockOk = sceneWindow &&
 					sceneWindow->DockId != 0 && guiPreviewWindow &&
 					guiPreviewWindow->DockId == sceneWindow->DockId &&
-					scriptWindow != nullptr &&
-					scriptWindow->DockId == sceneWindow->DockId;
+					scriptDocumentDockedWithNode(sceneWindow->DockId);
 				SDL_Log("orkige_editor: selfcheck frame 30 - gameobjects=%zu "
 					"(fixture cubes + test mesh %s), test_mesh.glb resource %s, "
 					"imgui vertices=%d, scene RTT %dx%d (panel wants %dx%d), "
@@ -2615,6 +2617,118 @@ int main(int argc, char** argv)
 				if (editorCore.getSelectedObjectId() != "Cube1")
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (scene panel pick)");
+					exitCode = 2;
+					running = false;
+				}
+			}
+			// self-check: the dirty-close modal CHOREOGRAPHY over three dirty
+			// documents - close-all must ask per document, in order, through
+			// the same functions the modal buttons call: Discard drops the
+			// first, Save writes the second to disk, Cancel keeps the third
+			// open. (Frames in between let the sweep promote the next ask.)
+			if ((frameCount == 48 || frameCount == 50) && selfCheck)
+			{
+				// one per frame: the open request is a single slot consumed on
+				// the next documents pass
+				const int extra = frameCount == 48 ? 2 : 3;
+				const std::filesystem::path path =
+					std::filesystem::temp_directory_path() /
+						("orkige_selfcheck_doc" + std::to_string(extra) +
+							".lua");
+				std::ofstream file(path, std::ios::trunc);
+				file << "-- selfcheck fixture " << extra << "\n";
+				file.close();
+				scriptPanelOpenFile(state, viewSettings, path.string());
+			}
+			if (frameCount == 52 && selfCheck)
+			{
+				bool dirtied = true;
+				const std::filesystem::path temp =
+					std::filesystem::temp_directory_path();
+				dirtied &= scriptPanelTestDirtyDocument(
+					(temp / "orkige_selfcheck_script.lua").string(),
+					"-- edited1\n");
+				dirtied &= scriptPanelTestDirtyDocument(
+					(temp / "orkige_selfcheck_doc2.lua").string(),
+					"-- edited2\n");
+				dirtied &= scriptPanelTestDirtyDocument(
+					(temp / "orkige_selfcheck_doc3.lua").string(),
+					"-- edited3\n");
+				if (!dirtied || scriptPanelTestDocumentCount() != 3)
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (could not dirty "
+						"the three documents; open=%zu)",
+						scriptPanelTestDocumentCount());
+					exitCode = 2;
+					running = false;
+				}
+				scriptPanelTestCloseAll();
+			}
+			if (frameCount == 54 && selfCheck)
+			{
+				// the FIRST document asks first; Discard drops it
+				const std::string asking = scriptPanelTestConfirmPath();
+				if (asking.find("orkige_selfcheck_script.lua") ==
+						std::string::npos ||
+					!scriptPanelTestResolveConfirm(1))
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (close-all modal "
+						"ask 1 was '%s')", asking.c_str());
+					exitCode = 2;
+					running = false;
+				}
+			}
+			if (frameCount == 56 && selfCheck)
+			{
+				// the second asks next; Save must land the edit on disk
+				const std::string asking = scriptPanelTestConfirmPath();
+				if (asking.find("orkige_selfcheck_doc2.lua") ==
+						std::string::npos ||
+					!scriptPanelTestResolveConfirm(0))
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (close-all modal "
+						"ask 2 was '%s')", asking.c_str());
+					exitCode = 2;
+					running = false;
+				}
+			}
+			if (frameCount == 58 && selfCheck)
+			{
+				// the third asks last; Cancel keeps it open with its edits
+				const std::string asking = scriptPanelTestConfirmPath();
+				if (asking.find("orkige_selfcheck_doc3.lua") ==
+						std::string::npos ||
+					!scriptPanelTestResolveConfirm(2))
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (close-all modal "
+						"ask 3 was '%s')", asking.c_str());
+					exitCode = 2;
+					running = false;
+				}
+			}
+			if (frameCount == 60 && selfCheck)
+			{
+				std::string savedText;
+				{
+					std::ifstream file(std::filesystem::temp_directory_path() /
+						"orkige_selfcheck_doc2.lua");
+					std::ostringstream buffer;
+					buffer << file.rdbuf();
+					savedText = buffer.str();
+				}
+				const bool savedOk =
+					savedText.find("-- edited2") != std::string::npos;
+				const bool countOk = scriptPanelTestDocumentCount() == 1;
+				const bool quietOk = scriptPanelTestConfirmPath().empty();
+				SDL_Log("orkige_editor: selfcheck frame 60 - dirty-close "
+					"choreography: discarded+saved+cancelled -> open=%zu, "
+					"doc2 saved=%s, modal quiet=%s",
+					scriptPanelTestDocumentCount(), savedOk ? "yes" : "NO",
+					quietOk ? "yes" : "NO");
+				if (!savedOk || !countOk || !quietOk)
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (dirty-close "
+						"choreography)");
 					exitCode = 2;
 					running = false;
 				}

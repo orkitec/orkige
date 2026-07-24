@@ -84,9 +84,9 @@ void ViewSettings::load()
 		{
 			this->showGuiPreviewPanel = (value == "1");
 		}
-		else if (key == "panel_script")
+		else if (key == "panel_debug")
 		{
-			this->showScriptPanel = (value == "1");
+			this->showDebugPanel = (value == "1");
 		}
 		else if (key == "snap_enabled")
 		{
@@ -95,6 +95,10 @@ void ViewSettings::load()
 		else if (key == "rotation_as_euler")
 		{
 			this->rotationAsEuler = (value == "1");
+		}
+		else if (key == "internal_editor_extensions")
+		{
+			this->internalEditorExtensions = value;
 		}
 		else if (key == "snap_translate")
 		{
@@ -197,8 +201,10 @@ void ViewSettings::save() const
 		<< "panel_assets=" << (this->showAssetBrowserPanel ? 1 : 0) << "\n"
 		<< "panel_tilepalette=" << (this->showTilePalettePanel ? 1 : 0) << "\n"
 		<< "panel_gui_preview=" << (this->showGuiPreviewPanel ? 1 : 0) << "\n"
-		<< "panel_script=" << (this->showScriptPanel ? 1 : 0) << "\n"
+		<< "panel_debug=" << (this->showDebugPanel ? 1 : 0) << "\n"
 		<< "rotation_as_euler=" << (this->rotationAsEuler ? 1 : 0) << "\n"
+		<< "internal_editor_extensions=" << this->internalEditorExtensions
+		<< "\n"
 		<< "snap_enabled=" << (this->snapEnabled ? 1 : 0) << "\n"
 		<< "snap_translate=" << this->snapTranslate << "\n"
 		<< "snap_rotate_deg=" << this->snapRotateDegrees << "\n"

@@ -297,10 +297,12 @@ struct ViewSettings
 	//! GUI Preview panel (project-only; renders a .oui screen at a simulated
 	//! device context into an offscreen target - the collaborative UI loop)
 	bool showGuiPreviewPanel = false;
-	//! Script panel (the embedded Lua editor + debugger). Closed by default -
-	//! it auto-opens on a script double-click in the Asset browser and on a
-	//! debugger break-hit; a saved layout in orkige_editor_view.ini wins.
-	bool showScriptPanel = false;
+	//! Debug panel (the script debugger's call-stack + locals + transport).
+	//! Closed by default - it auto-opens/focuses on a debugger break-hit; a
+	//! saved layout in orkige_editor_view.ini wins. The code editor itself is
+	//! no longer a single panel: each open script/text file is its OWN docked
+	//! window (see drawScriptDocuments), so it carries no visibility flag.
+	bool showDebugPanel = false;
 	//! GUI Preview language axis: the language tag the preview resolves `@key`
 	//! captions in ("" = the project's source language). Persisted so the tab
 	//! reopens on the last previewed language.
@@ -309,6 +311,14 @@ struct ViewSettings
 	//! degrees (default) vs the raw quaternion x/y/z/w. Display-only; the tiny
 	//! per-row toggle flips it globally so the choice sticks.
 	bool rotationAsEuler = true;
+	//! @brief which file extensions double-click into the EMBEDDED code editor
+	//! (space/comma-separated, dot-prefixed; editable in View Settings). Kinds
+	//! with a richer double-click (.oscene/.oprefab/.oanim/.oui) ignore this -
+	//! their behavior is fixed; the external editor stays reachable from the
+	//! Inspector/context menu for everything.
+	std::string internalEditorExtensions =
+		".lua .ogui .omat .oshape .oactions .olayers .olevels .xlf .txt .md "
+		".json .jsonl .c .cpp .cc .cxx .h .hpp .hh .inl .mm .cmake .py .glsl";
 	//! snap settings (toolbar toggle + editable step values);
 	//! mirrored into EditorCore on startup, persisted on every popover edit
 	bool snapEnabled = false;
@@ -854,14 +864,14 @@ struct EditorState
 	//! MSG_DEBUG_BREAKPOINTS push all share it). Attached/detached by the
 	//! project open/close path; persists under <project>/.orkige/breakpoints.
 	Orkige::ScriptBreakpointStore breakpoints;
-	//! @brief one-shot Script panel open request (consumed by drawScriptPanel):
-	//! open/focus this script - absolute or project-relative path - and, when
+	//! @brief one-shot document-open request (consumed by drawScriptDocuments):
+	//! open/focus this file - absolute or project-relative path - and, when
 	//! scriptOpenLine > 0, scroll to that 1-based line. Raised by the Asset
 	//! browser double-click, the debugger break-hit and the error markers.
 	std::string scriptOpenRequest;
 	int scriptOpenLine = 0;
-	//! the Script panel held keyboard focus while drawing (gates its local
-	//! shortcuts, mirrors scenePanelFocused / hierarchyFocused)
+	//! a code-editor document window held keyboard focus while drawing (gates
+	//! the Cmd/Ctrl+S save routing, mirrors scenePanelFocused / hierarchyFocused)
 	bool scriptPanelFocused = false;
 	// (the ModelComponent mesh / ScriptComponent script / SpriteComponent
 	// texture field buffers are gone: the auto Inspector's generic property
@@ -1878,12 +1888,20 @@ void drawEditorModals(EditorState& state, Orkige::EditorCore& core);
 float drawToolbar(EditorState& state, PlaySession& session,
 	Orkige::EditorCore& core);
 
+//! @brief the status footer strip pinned under the dockspace: the FIRST live
+//! problem - the focused document's syntax error, else the newest streamed
+//! script error of the play session - as one red clickable line that jumps to
+//! its file:line; a quiet session shows the muted session state instead.
+//! Returns the height the dockspace must leave free - EditorToolbar.cpp
+float drawStatusFooter(EditorState& state, PlaySession& session);
+
 // fullscreen dockspace + first-run DockBuilder layout - EditorMenus.cpp.
 // contentScale is the live UI scale: a persisted layout saved at a different
 // scale is rebuilt from the ratio-based default rather than restored verbatim
 // (absolute-pixel node sizes would otherwise mis-proportion the panels).
+// footerHeight = the status strip pinned at the BOTTOM of the work area.
 void drawDockspace(EditorState& state, float toolbarHeight,
-	ViewSettings& viewSettings, float contentScale);
+	ViewSettings& viewSettings, float contentScale, float footerHeight = 0.0f);
 
 //! Put a newly opened preview into the Scene panel's dock node. Existing saved
 //! docking wins, and the one-shot flag lets users undock it afterwards.
@@ -1937,37 +1955,81 @@ void drawStatsPanel(PlaySession const& play, bool* visible);
 void drawConsolePanel(EditorState& state, PlaySession& session,
 	EditorConsole& console, bool* visible);
 
-//--- Script panel (EditorScriptPanel.cpp) -----------------------------------
+//--- Script document windows + Debug panel (EditorScriptPanel.cpp) -----------
 
-// The embedded Lua script editor + debugger panel: tabbed TextEditor widgets
-// over the open project's scripts (syntax highlight, engine-API completion,
-// Cmd/Ctrl+S save), a click-to-toggle breakpoint gutter over
-// state.breakpoints, and - while the play session is paused at a break - the
-// debug toolbar (Continue / Step In / Over / Out), the call-stack pane and
-// the locals/upvalues pane. Open-file state lives inside the TU (the tabs are
-// UI-internal); everything shared rides EditorState/PlaySession.
-void drawScriptPanel(EditorState& state, PlaySession& session,
-	Orkige::EditorCore& core, ViewSettings& viewSettings, bool* visible);
+// The embedded code editor is a set of TextEditor widgets (syntax highlight,
+// engine-API completion, click-to-toggle breakpoint gutter over
+// state.breakpoints for .lua) - but each open file is its OWN docked window
+// (title = filename, dirty marker, stable ###path id) so multiple files read
+// as sibling tabs in one dock node, like every other panel. Open-file state
+// lives inside the TU; everything shared rides EditorState/PlaySession.
+// Drawn unconditionally each frame: zero open files draws nothing.
+void drawScriptDocuments(EditorState& state, PlaySession& session,
+	Orkige::EditorCore& core, ViewSettings& viewSettings);
 
-//! @brief open a script in the Script panel (raising the panel): absolute or
-//! project-relative path; line > 0 scrolls/highlights that 1-based line. The
-//! request is consumed on the panel's next draw. The Asset browser's script
-//! double-click and the break-hit handler route through here.
+// The Debug panel: the script debugger's transport (Continue / Step In / Over
+// / Out, FontAwesome glyphs), call-stack pane and locals/upvalues pane - a
+// docked panel (bottom group, beside Console) that auto-opens/focuses on a
+// break-hit. Idle when no break is held.
+void drawDebugPanel(EditorState& state, PlaySession& session,
+	ViewSettings& viewSettings, bool* visible);
+
+//! @brief open a script/text file as a docked document window: absolute or
+//! project-relative path; line > 0 scrolls/highlights that 1-based line. An
+//! already-open file is focused instead of reopened. The request is consumed
+//! on the next drawScriptDocuments pass. The Asset browser double-click, the
+//! debugger break-hit and the error markers route through here. (viewSettings
+//! is accepted for signature stability; document windows carry no panel flag.)
 void scriptPanelOpenFile(EditorState& state, ViewSettings& viewSettings,
 	std::string const& path, int line = 0);
 
-//! drop every open tab (project close / switch - unsaved edits are discarded
-//! after the confirm the caller runs; v1 asks nothing and logs instead)
+//! drop every open document window (project close / switch - unsaved edits are
+//! discarded after the confirm the caller runs; v1 asks nothing and logs)
 void scriptPanelCloseAll();
 
-//! any open Script tab with unsaved edits? (the quit-confirm surfaces it)
+//! any open document window with unsaved edits? (the quit-confirm surfaces it)
 bool scriptPanelHasUnsavedEdits();
 
-//! @brief Cmd/Ctrl+S routing: when the Script panel holds keyboard focus,
-//! save ITS active tab (returns true - the caller skips the scene save).
-//! saveCurrentDocument consults this so the one shortcut always saves what
-//! the user is looking at, including through the native macOS menu.
+//! @brief Cmd/Ctrl+S routing: when a code-editor document window holds
+//! keyboard focus, save THAT document (returns true - the caller skips the
+//! scene save). saveCurrentDocument consults this so the one shortcut always
+//! saves what the user is looking at, including through the native macOS menu.
 bool scriptPanelSaveActiveIfFocused(EditorState& state);
+
+//! @brief editor selfcheck hook: is at least one code-editor document window
+//! open AND docked into @p sceneDockId (the shared script dock node lands
+//! beside the Scene panel on first open)? Non-zero @p sceneDockId required.
+bool scriptDocumentDockedWithNode(unsigned int sceneDockId);
+
+//--- code-editor selfcheck seams (the dirty-close modal choreography) --------
+// The scripted selfcheck drives the SAME functions the modal buttons call -
+// everything short of the literal mouse click - so the queue semantics
+// (close-all over several dirty documents asking one at a time) are asserted,
+// not just hand-traced.
+
+//! make the open document at `path` dirty via an undo-recorded edit (the
+//! editor-buffer equivalent of typing); false when it is not open
+bool scriptPanelTestDirtyDocument(std::string const& path,
+	std::string const& text);
+
+//! request Close All through the tab-action machinery (as the context menu does)
+void scriptPanelTestCloseAll();
+
+//! the absolute path of the document currently asking save/discard/cancel
+//! ("" = no modal showing)
+std::string scriptPanelTestConfirmPath();
+
+//! resolve the showing confirm as the modal buttons would:
+//! 0 = Save, 1 = Discard, 2 = Cancel. False when no modal is showing.
+bool scriptPanelTestResolveConfirm(int choice);
+
+//! how many document windows are open
+std::size_t scriptPanelTestDocumentCount();
+
+//! @brief the current live SYNTAX error among the open documents (the focused
+//! one first), for the status footer: returns the message ("" = none) and
+//! fills the file + 1-based line to jump to on click.
+std::string scriptPanelActiveSyntaxError(std::string& outPath, int& outLine);
 
 //! @brief the debug-shortcut dispatch (F5/F10/F11/Shift+F11 and the
 //! Cmd/Ctrl-based alternates) - called from handleEditorShortcuts while a

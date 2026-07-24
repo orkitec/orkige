@@ -6,6 +6,7 @@
 // prefab/reflection machinery - the editor knows nothing game-specific.
 // Split out of main.cpp's panel set (see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorTabMenu.h"
 #include "EditorTheme.h"
 
 #include <core_game/PrefabSerializer.h>
@@ -287,7 +288,9 @@ ImTextureID paletteTileThumbnail(EditorState& state,
 void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 	bool* visible)
 {
-	if (!ImGui::Begin("Tile Palette###TilePalette", visible))
+	const bool paletteShown = ImGui::Begin("Tile Palette###TilePalette", visible);
+	OrkigeEditor::editorPanelTabMenu(visible);
+	if (!paletteShown)
 	{
 		ImGui::End();
 		return;

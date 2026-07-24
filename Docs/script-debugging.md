@@ -1,17 +1,25 @@
 # Script editing & debugging
 
 The editor embeds a Lua script EDITOR and a breakpoint DEBUGGER, built for
-humans in the Script panel and for agents over MCP — one machinery, two
-surfaces. Scripts open, highlight, complete and save inside the editor;
-breakpoints pause the running game mid-statement with a call stack and live
-locals; Continue/Step In/Step Over/Step Out walk the code like any debugger.
+humans in the code editor and Debug panel and for agents over MCP — one
+machinery, two surfaces. Scripts open, highlight, complete and save inside the
+editor; breakpoints pause the running game mid-statement with a call stack and
+live locals; Continue/Step In/Step Over/Step Out walk the code like any debugger.
 
 ## At a glance
 
-- **Script panel** (View > Panels > Script; closed by default): tabbed code
-  editor over the open project's scripts. Opens on a script double-click in
-  the Assets browser, from its own Open picker, and automatically on a
-  debugger break-hit.
+- **A window per open file**: each script/text file opens as its OWN docked
+  window (title = file name, dirty marker, stable id) so several open files
+  read as sibling tabs in one dock node, like every other panel. A file opens
+  on double-click in the Assets browser, from the Inspector's **Open in
+  Internal Editor** button, and automatically on a debugger break-hit. Syntax
+  highlight follows the file kind (Lua, JSON, Markdown, an XML definition for
+  the engine's `.oscene`/`.oprefab`/`.orkproj`/`.xlf` formats, plain text
+  otherwise); completion and the breakpoint gutter are Lua-only.
+- **Debug panel** (View > Panels > Debug; closed by default): the debugger's
+  transport (Continue / Step In / Over / Out), call-stack pane and
+  locals/upvalues pane. Docks in the bottom group beside Console and
+  auto-opens/focuses on a break-hit.
 - **Editing is live**: Cmd/Ctrl+S writes the file; during Play the editor's
   scripts watcher hot-reloads the running game automatically (the same
   compile-before-swap reload a disk edit triggers — no second reload path).
@@ -25,11 +33,11 @@ locals; Continue/Step In/Step Over/Step Out walk the code like any debugger.
   gitignored) and pushed to the running player live — set them before or
   during Play, from the gutter or over MCP.
 - **A break pauses MID-STATEMENT** — a distinct state from the toolbar's
-  frame-boundary Pause. The panel jumps to the hit line, shows the call
-  stack and the locals/upvalues (tables expand on demand, bounded), and the
-  debug toolbar drives Continue (`F5`), Step Over (`F10`), Step In (`F11`),
-  Step Out (`Shift+F11`) — plus `Cmd/Ctrl+Alt+C/O/I/U` alternates where the
-  F-row is awkward.
+  frame-boundary Pause. The hit file's window is raised and scrolled to the
+  line; the Debug panel shows the call stack and the locals/upvalues (tables
+  expand on demand, bounded) and its transport drives Continue (`F5`), Step
+  Over (`F10`), Step In (`F11`), Step Out (`Shift+F11`) — plus
+  `Cmd/Ctrl+Alt+C/O/I/U` alternates where the F-row is awkward.
 - **MCP parity**: `set_breakpoint` / `clear_breakpoint` /
   `list_breakpoints`, `get_debug_state` (the break-hit poll),
   `debug_continue` / `debug_step_*`, `get_locals` — the worked agent loop is
@@ -39,45 +47,53 @@ locals; Continue/Step In/Step Over/Step Out walk the code like any debugger.
   refuse with the standard disabled error. A client that vanishes mid-break
   auto-resumes the game — never a wedged player.
 
-## The Script panel (human workflow)
+## The code editor (human workflow)
 
-Open a script by double-clicking it in the Assets browser (the context menu
-keeps "Open in External Editor" for the heavyweight-IDE path), or through the
-panel's **Open** picker, which lists every project script. Each script is a
-tab; an unsaved tab carries the dot marker, and closing one discards its
-edits (logged to the Console — save first).
+Open a file by double-clicking it in the Assets browser (text formats —
+`.lua`, `.oui`, `.omat`, `.oshape`, `.oactions`, `.olayers`, `.olevels`,
+`.xlf`, `.txt`, `.md`, `.json` — open in the embedded editor; `.oscene`
+opens the scene, `.oprefab` its edit stage, images/audio their defaults), or
+from the Inspector's **Open in Internal Editor** button (the neighbouring
+**Open in External Editor** keeps the heavyweight-IDE path, as does the
+Assets context menu). Each file becomes its OWN docked window whose tab is the
+file name; an unsaved window carries the dot marker, and closing one discards
+its edits (logged to the Console — save first). Opening an already-open file
+focuses its window. Multiple open files dock as sibling tabs in one node.
 
-The editor renders in the system monospace font with Lua syntax highlight;
-the palette follows the editor theme (dark/light). Find/replace, multi-cursor
-editing, bracket matching and auto-indent come with the widget.
+The editor renders in the system monospace font; syntax highlight follows the
+file kind (Lua, JSON, Markdown, an XML definition for the engine's XML
+formats, plain text otherwise), and the palette follows the editor theme
+(dark/light). Find/replace, multi-cursor editing, bracket matching and
+auto-indent come with the widget. The mouse shows the text I-beam over the
+code area.
 
-**Saving**: Cmd/Ctrl+S with the panel focused saves the ACTIVE SCRIPT (the
-File menu's Save routes there too while the panel has focus; otherwise it
+**Saving**: Cmd/Ctrl+S with a document window focused saves THAT file (the
+File menu's Save routes there too while a document has focus; otherwise it
 saves the scene as always). During Play a save lands on disk and the scripts
 watcher hot-reloads the player within its poll interval — a broken edit
 keeps the old instance running and surfaces a `[remote]` error, which the
-panel also turns into a red line marker when it carries a `file:line`.
+document also turns into a red line marker when it carries a `file:line`.
 
-**Breakpoints**: click the gutter left of a line number to toggle; the red
-dot is a breakpoint. The set belongs to the PROJECT (not the scene) and
-survives editor restarts. Breakpoints work on every play target that shares
-the loopback debug link (desktop, simulators, adb devices) — the browser
-target refuses honestly.
+**Breakpoints** (Lua documents only): click the gutter left of a line number
+to toggle; the red dot is a breakpoint. The set belongs to the PROJECT (not
+the scene) and survives editor restarts. Breakpoints work on every play target
+that shares the loopback debug link (desktop, simulators, adb devices) — the
+browser target refuses honestly.
 
-**While paused at a break** the panel pulls itself up, focuses the hit file,
-scrolls to the line (amber marker + gutter arrow) and shows two panes under
-the code:
+**While paused at a break** the hit file's window is raised and scrolled to
+the line (amber marker + gutter arrow) and the **Debug panel** opens/focuses
+with two panes:
 
 - **Call Stack** — innermost frame first; a host-call frame reads `[host]`.
   Clicking a frame selects it (locals switch to that frame) and jumps the
-  editor to its line.
+  code editor to its line.
 - **Locals** — the selected frame's locals and upvalues as name/value/scope
   rows. A table row expands on demand (each expansion is its own bounded
   request — the debugger never dumps whole object graphs).
 
-The debug toolbar sits in the panel's header row while paused; the shortcuts
-work editor-wide (they never type text, so they run even while the code
-editor has keyboard focus).
+The transport (Continue / Step In / Over / Out, FontAwesome glyphs) sits at
+the top of the Debug panel; its keyboard shortcuts work editor-wide (they
+never type text, so they run even while the code editor has keyboard focus).
 
 ## The runtime design
 
@@ -157,8 +173,8 @@ The full worked walkthrough lives in
 - **Main-thread scripts only**: the hook rides the one scripting state's
   main thread; a coroutine-driven script body would not pause (the engine's
   script surface runs no coroutines today).
-- **Closing a dirty tab discards silently** (one Console line, no confirm
-  modal); the quit flow does not yet ask about unsaved script tabs.
+- **Closing a dirty document discards silently** (one Console line, no
+  confirm modal); the quit flow does not yet ask about unsaved documents.
 - **Breakpoints pause on the line's first instruction** — there are no
   conditional breakpoints or hit counts.
 - **iOS hardware** plays standalone (no debug link over USB —

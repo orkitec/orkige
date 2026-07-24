@@ -41,6 +41,7 @@
 // Split out of main.cpp's per-panel decomposition (see EditorApp.h).
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorApp.h"
+#include "EditorTabMenu.h"
 #include "AssetTilePresentation.h"
 #include "EditorImageDecode.h"
 #include "EditorTheme.h"
@@ -1728,17 +1729,49 @@ void folderDropTarget(EditorState& state, std::string const& destDir)
 	ImGui::EndDragDropTarget();
 }
 
+//! does this file open in the embedded code editor on double-click? The set
+//! is the USER's (ViewSettings::internalEditorExtensions, editable in View
+//! Settings, space/comma-separated). Kinds with a richer double-click -
+//! .oscene (opens the scene), .oprefab (edit stage), .oanim (Inspector
+//! preview), .oui (the GUI Preview - its text source stays reachable via the
+//! Inspector's Open in Internal Editor), images/audio - are handled BEFORE
+//! this and never consult the set.
+bool opensInInternalEditor(std::string const& extension)
+{
+	if (extension.empty() || gViewSettings == nullptr)
+	{
+		return false;
+	}
+	std::string const& configured = gViewSettings->internalEditorExtensions;
+	std::size_t start = 0;
+	while (start < configured.size())
+	{
+		const std::size_t end =
+			configured.find_first_of(" ,;", start);
+		const std::size_t stop =
+			end == std::string::npos ? configured.size() : end;
+		if (stop > start &&
+			configured.compare(start, stop - start, extension) == 0)
+		{
+			return true;
+		}
+		start = stop + 1;
+	}
+	return false;
+}
+
 //! open a file per its kind on double-click: a scene opens into the editor, a
 //! prefab opens the prefab EDIT stage (instantiating stays on drag-and-drop
 //! into the viewport - double-click mirrors how a scene opens rather than
-//! embeds); everything else - script, image, mesh (no in-editor viewer yet),
-//! unknown - opens with the OS default app
+//! embeds), a text format opens in the embedded code editor; everything else -
+//! image, mesh (no in-editor viewer yet), unknown - opens with the OS default app
 void openAssetEntry(EditorState& state, Orkige::EditorCore& core,
 	AssetBrowserItem const& entry)
 {
-	// A cooked vector animation previews in the Inspector when selected; a
-	// double-click selects it and surfaces the Inspector.
 	const std::string extension = lowerExtension(entry.absolutePath);
+	// a .oui double-click opens the GUI Preview (the richer view of a layout);
+	// its text source stays reachable via the Inspector's Open in Internal
+	// Editor and the context menu
 	if (extension == ".oui")
 	{
 		state.requestedGuiPreviewAsset =
@@ -1765,6 +1798,13 @@ void openAssetEntry(EditorState& state, Orkige::EditorCore& core,
 		}
 		return;
 	}
+	// text formats open in the embedded code editor (the external editor / OS
+	// default app stay reachable from the context menu and the Inspector)
+	if (opensInInternalEditor(extension) && gViewSettings)
+	{
+		scriptPanelOpenFile(state, *gViewSettings, entry.absolutePath);
+		return;
+	}
 
 	switch (entry.kind)
 	{
@@ -1775,15 +1815,6 @@ void openAssetEntry(EditorState& state, Orkige::EditorCore& core,
 		openPrefabForEdit(state, core, entry.absolutePath);
 		break;
 	case AssetKind::Script:
-		// a project script opens in the embedded Script panel (the external
-		// editor stays reachable via the context menu)
-		if (gViewSettings)
-		{
-			scriptPanelOpenFile(state, *gViewSettings, entry.absolutePath);
-			break;
-		}
-		openWithDefaultApp(entry.absolutePath);
-		break;
 	case AssetKind::Mesh:
 	case AssetKind::Texture:
 	case AssetKind::Unknown:
@@ -2797,7 +2828,9 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	bool* visible)
 {
-	if (!ImGui::Begin("Assets###Assets", visible))
+	const bool assetsShown = ImGui::Begin("Assets###Assets", visible);
+	OrkigeEditor::editorPanelTabMenu(visible);
+	if (!assetsShown)
 	{
 		ImGui::End();
 		return;

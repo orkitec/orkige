@@ -3,6 +3,7 @@
 // gizmo and the Scene panel itself.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorTabMenu.h"
 #include "ImGuiFacadeRenderer.h"
 #include "ImGuiSDL3Input.h"
 
@@ -596,6 +597,7 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 {
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 	const bool open = ImGui::Begin("Scene", &viewSettings.showScenePanel);
+	OrkigeEditor::editorPanelTabMenu(&viewSettings.showScenePanel);
 	ImGui::PopStyleVar();
 	state.scenePanelHovered = false;
 	state.scenePanelFocused = open && ImGui::IsWindowFocused();

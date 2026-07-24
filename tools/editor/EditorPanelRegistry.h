@@ -15,7 +15,7 @@
 	X(PANEL_ASSETS, "Assets", true, showAssetBrowserPanel) \
 	X(PANEL_TILE_PALETTE, "Tile Palette", false, showTilePalettePanel) \
 	X(PANEL_GUI_PREVIEW, "GUI Preview", false, showGuiPreviewPanel) \
-	X(PANEL_SCRIPT, "Script", false, showScriptPanel)
+	X(PANEL_DEBUG, "Debug", false, showDebugPanel)
 
 namespace Orkige
 {

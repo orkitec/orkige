@@ -520,6 +520,14 @@ namespace Orkige
 		// the honest disabled error; on the browser player (which cannot block
 		// its main thread) setDebugBreakpoints refuses honestly instead.
 
+		//! @brief COMPILE-ONLY syntax check: load `source` as a chunk named
+		//! `chunkName` (the project-relative path convention, so errors read
+		//! "path:line: message") without ever running it - the compiled chunk
+		//! is discarded. True = compiles; false with *outError = the parse
+		//! error (or the honest disabled error in scripting-off builds -
+		//! callers that only want live diagnostics should gate on available()).
+		bool checkSyntax(String const & source, String const & chunkName,
+			String * outError);
 		//! @brief can this build pause script execution at a breakpoint at
 		//! all? False in scripting-disabled builds AND on the browser player
 		//! (its main thread cannot block at a break) - on both,

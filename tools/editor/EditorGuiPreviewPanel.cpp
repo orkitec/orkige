@@ -16,6 +16,7 @@
 //! GuiPreviewStage with the preview_ui MCP verb - the collaborative loop.
 
 #include "EditorApp.h"
+#include "EditorTabMenu.h"
 #include "GuiPreviewStage.h"
 #include "ImGuiFacadeRenderer.h"
 
@@ -158,7 +159,10 @@ void drawGuiPreviewPanel(EditorState& state, OrkigeEditor::GuiPreviewStage& stag
 		ImGui::SetNextWindowFocus();
 	}
 
-	if (!ImGui::Begin("GuiPreview", &viewSettings.showGuiPreviewPanel))
+	const bool previewShown =
+		ImGui::Begin("GuiPreview", &viewSettings.showGuiPreviewPanel);
+	OrkigeEditor::editorPanelTabMenu(&viewSettings.showGuiPreviewPanel);
+	if (!previewShown)
 	{
 		ImGui::End();
 		return;

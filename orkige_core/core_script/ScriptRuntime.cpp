@@ -1183,6 +1183,30 @@ namespace Orkige
 	}
 #endif //ORKIGE_LUA
 	//---------------------------------------------------------
+	bool ScriptRuntime::checkSyntax(String const & source,
+		String const & chunkName, String * outError)
+	{
+		oAssert(outError);
+#ifdef ORKIGE_LUA
+		// load = compile only; the resulting chunk is dropped unrun (no
+		// environment, no side effects - the live-diagnostics seam)
+		const sol::load_result chunk = this->luaManager.state().load(
+			source, "@" + chunkName);
+		if (!chunk.valid())
+		{
+			const sol::error error = chunk;
+			*outError = error.what();
+			return false;
+		}
+		return true;
+#else
+		(void)source;
+		(void)chunkName;
+		*outError = ScriptRuntime::disabledError();
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
 	bool ScriptRuntime::debugBreakSupported()
 	{
 #if defined(__EMSCRIPTEN__) || !defined(ORKIGE_LUA)

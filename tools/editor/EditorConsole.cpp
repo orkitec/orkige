@@ -2,6 +2,7 @@
 // store pump, the SDL log output hook, the Lua REPL and the Console panel.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorTabMenu.h"
 #include "EditorTheme.h"
 #include "ExternalEditor.h"
 
@@ -439,6 +440,7 @@ void drawConsolePanel(EditorState& state, PlaySession& session,
 {
 	if (ImGui::Begin("Console", visible))
 	{
+		OrkigeEditor::editorPanelTabMenu(visible);
 		if (ImGui::BeginTabBar("##consoletabs"))
 		{
 			if (ImGui::BeginTabItem("Log"))

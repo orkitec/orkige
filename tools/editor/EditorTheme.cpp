@@ -245,9 +245,12 @@ namespace Orkige
 			0xf008, 0xf008,		// film (scene)
 			0xf03e, 0xf03e,		// image (texture)
 			0xf047, 0xf047,		// arrows-up-down-left-right (Translate tool)
+			0xf04b, 0xf04b,		// play (debug Continue)
+			0xf061, 0xf063,		// arrow-right/up/down (debug Step Over/Out/In)
 			0xf07b, 0xf07c,		// folder / folder-open
 			0xf0b0, 0xf0b0,		// filter (the type-filter funnel button)
 			0xf15b, 0xf15b,		// file (unknown)
+			0xf188, 0xf188,		// bug (the Debug panel)
 			0xf1b2, 0xf1b2,		// cube (mesh)
 			0xf1c9, 0xf1c9,		// file-code (script)
 			0xf1fc, 0xf1fc,		// paintbrush (Paint tool)

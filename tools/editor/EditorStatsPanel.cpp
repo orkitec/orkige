@@ -2,6 +2,7 @@
 // stats + rolling frame-time plot).
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorTabMenu.h"
 
 #include <engine_render/RenderSystem.h>
 
@@ -40,6 +41,7 @@ void drawStatsPanel(PlaySession const& play, bool* visible)
 {
 	if (ImGui::Begin("Stats", visible))
 	{
+		OrkigeEditor::editorPanelTabMenu(visible);
 		const Orkige::RenderSystem::FrameStats stats =
 			Orkige::RenderSystem::get()->getFrameStats();
 
