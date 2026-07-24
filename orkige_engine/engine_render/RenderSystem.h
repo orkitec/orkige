@@ -199,7 +199,7 @@ namespace Orkige
 		//! (the material is still created/updated with everything that DID
 		//! resolve) or when the name collides with a different material
 		//! family (a generated sprite/unlit material)
-		//! map: classic=MaterialManager Blinn-Phong material (approximation, @see RenderMaterialDesc) | next=HlmsPbs datablock (metallic workflow) | filament=lit material instance
+		//! map: classic=RTSS Cook-Torrance metal-rough generated material (MetalRoughLightingSrs; fixed-function Blinn-Phong only as the no-shader-generator fallback, @see RenderMaterialDesc) | next=HlmsPbs datablock (metallic workflow) | filament=lit material instance
 		bool createMaterial(String const & name, RenderMaterialDesc const & desc);
 
 		//--- animated water surfaces ---

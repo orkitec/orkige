@@ -484,9 +484,10 @@ Lua `engine:setAtmosphere(enabled, r,g,b, density, fog)` — next = native
 `AtmosphereNpr` (atmospheric sky dome + HlmsPbs object fog + sun linkage: the
 sun is the FIRST directional `RenderLight`, its direction drives the sky, the
 atmosphere drives its colour/power; sky material media ships from the
-`ports/ogre-next` `Media/Atmosphere`), classic = fixed-function fog + flat sky
-clear-colour subset, no sky dome (one log line) — `render_facade_selfcheck`
-atmosphere leg, `AtmosphereDescTests`), the Lua
+`ports/ogre-next` `Media/Atmosphere`), classic = fixed-function fog + a
+sky DOME evaluating the SAME shared sky model per pixel on GL3Plus/GLSL-ES3
+(`AtmosphereSunDrive`; vertex-gradient fallback on the GLES2/WebGL1/Vulkan
+floor) — `render_facade_selfcheck` atmosphere leg, `AtmosphereDescTests`), the Lua
 `ScriptComponent` — dormant unless a
 runtime ticks GameObjects, so the editor never runs scripts); `engine_input` is SDL3-based
 (KC_* keycodes preserved; `isKeyDown` reads the injectEvent-fed state, so synthetic
