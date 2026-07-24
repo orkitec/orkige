@@ -6,6 +6,7 @@
 // prefab/reflection machinery - the editor knows nothing game-specific.
 // Split out of main.cpp's panel set (see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorTheme.h"
 
 #include <core_game/PrefabSerializer.h>
 #include <core_game/TileComponent.h>
@@ -347,6 +348,9 @@ void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 			"Select a tile to arm the Paint tool (B).");
 	}
 
+	// the tile grid sits on a recessed region ground (a step darker than the
+	// panel) so the browsing area separates from the controls/hint strip above
+	ImGui::PushStyleColor(ImGuiCol_ChildBg, Orkige::editorRegionBackground());
 	ImGui::BeginChild("##paintgrid", ImVec2(0.0f, 0.0f), false);
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	const ImGuiStyle& style = ImGui::GetStyle();
@@ -428,6 +432,7 @@ void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 		ImGui::PopID();
 	}
 	ImGui::EndChild();
+	ImGui::PopStyleColor();	// region ground
 
 	if (!palette.armedAssetPath.empty())
 	{

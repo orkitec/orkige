@@ -298,6 +298,10 @@ struct ViewSettings
 	//! captions in ("" = the project's source language). Persisted so the tab
 	//! reopens on the last previewed language.
 	std::string guiPreviewLanguage;
+	//! Inspector: show rotation (Quat) properties as human-readable Euler X/Y/Z
+	//! degrees (default) vs the raw quaternion x/y/z/w. Display-only; the tiny
+	//! per-row toggle flips it globally so the choice sticks.
+	bool rotationAsEuler = true;
 	//! snap settings (toolbar toggle + editable step values);
 	//! mirrored into EditorCore on startup, persisted on every popover edit
 	bool snapEnabled = false;
@@ -705,10 +709,12 @@ struct EditorState
 	bool orbitActive = false;	//!< Alt+left orbit drag in progress
 	bool panActive = false;		//!< middle-drag pan in progress
 	bool flyActive = false;		//!< right-hold fly mode in progress
+	bool handPanActive = false;	//!< Hand-tool / space left-drag pan in progress
 	//! first-frame delta swallow per drag kind (see CameraDragGate)
 	Orkige::CameraDragGate flyLookGate;
 	Orkige::CameraDragGate orbitDragGate;
 	Orkige::CameraDragGate panDragGate;
+	Orkige::CameraDragGate handPanDragGate;
 	//! deferred popup opens (menus - native or ImGui - set these; the modals
 	//! are drawn once per frame by drawEditorModals)
 	bool openAboutPopup = false;

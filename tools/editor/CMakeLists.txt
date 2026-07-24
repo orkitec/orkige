@@ -26,6 +26,10 @@ add_library(orkige_editor_core STATIC
     MeshImport.cpp
     EditorScriptTools.h
     EditorScriptTools.cpp
+    EditorLabelFormat.h
+    EditorLabelFormat.cpp
+    EditorEuler.h
+    EditorEuler.cpp
     ExternalEditor.h
     ExternalEditor.cpp
     SyntaxHighlight.h

@@ -88,6 +88,10 @@ void ViewSettings::load()
 		{
 			this->snapEnabled = (value == "1");
 		}
+		else if (key == "rotation_as_euler")
+		{
+			this->rotationAsEuler = (value == "1");
+		}
 		else if (key == "snap_translate")
 		{
 			this->snapTranslate = std::strtof(value.c_str(), nullptr);
@@ -189,6 +193,7 @@ void ViewSettings::save() const
 		<< "panel_assets=" << (this->showAssetBrowserPanel ? 1 : 0) << "\n"
 		<< "panel_tilepalette=" << (this->showTilePalettePanel ? 1 : 0) << "\n"
 		<< "panel_gui_preview=" << (this->showGuiPreviewPanel ? 1 : 0) << "\n"
+		<< "rotation_as_euler=" << (this->rotationAsEuler ? 1 : 0) << "\n"
 		<< "snap_enabled=" << (this->snapEnabled ? 1 : 0) << "\n"
 		<< "snap_translate=" << this->snapTranslate << "\n"
 		<< "snap_rotate_deg=" << this->snapRotateDegrees << "\n"

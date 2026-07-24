@@ -69,6 +69,22 @@ namespace Orkige
 	//! The UI-only editor window clears to this so the gaps between docked
 	//! panels match the theme.
 	ImVec4 editorDockspaceBackground();
+	//! the non-tabbed chrome strip colour (toolbar) - darker than panels
+	ImVec4 editorChromeBackground();
+
+	//! the Inspector component-header bar surface (a step off the panel body so
+	//! each component reads as a titled bar) and its hover shade.
+	ImVec4 editorComponentHeaderColor();
+	ImVec4 editorComponentHeaderHoverColor();
+	//! the 1px hairline that draws a recessed field's edge (input wells,
+	//! checkboxes). Paired with a pushed FrameBorderSize where fields render.
+	ImVec4 editorFieldBorderColor();
+
+	//! a recessed region ground (a step darker than the panel) for browsing
+	//! areas - the asset browser's folder tree and the tile palette's grid -
+	//! so the scrollable area reads as distinct from its header/toolbar strip.
+	//! Pushed as ImGuiCol_ChildBg around those child regions.
+	ImVec4 editorRegionBackground();
 
 	//! console log line colours for the active variant: a warning amber and an
 	//! error red picked to stay legible on the variant's console background.

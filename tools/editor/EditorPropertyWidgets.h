@@ -30,6 +30,10 @@ struct PropertyWidgetDesc
 	//! the asset-kind / object-type hint; unused for scalar/math kinds
 	std::string hint;
 	bool readOnly = false;				//!< render disabled, never report an edit
+	//! Quat only: show the rotation as human-readable Euler X/Y/Z degrees
+	//! (default) vs the raw quaternion x/y/z/w. Display-only - the committed
+	//! value is always the quaternion string either way.
+	bool quatAsEuler = true;
 };
 
 //! @brief one candidate for a Reference-kind property picker: the value the
@@ -69,8 +73,14 @@ bool assetMatchesKind(std::string const& fileName, std::string const& kind);
 //! @param refProvider optional candidate supplier for the Reference kinds; when
 //! present AND it yields candidates, AssetRef/ObjectRef render a searchable
 //! combo, else they render the free-text field (the default remote-safe path).
+//! @param outActivated optional: set true when the widget became active this
+//! frame (a drag/combo/field grab). Composite kinds (Vec3/Quat, drawn as
+//! several sub-items) OR the grab across their axes, so a per-axis drag still
+//! opens the caller's undo-merge session exactly once - use this instead of
+//! ImGui::IsItemActivated(), which would only see the last axis.
 bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 	std::string const& value, std::string& outValue,
-	PropertyRefProvider const& refProvider = PropertyRefProvider());
+	PropertyRefProvider const& refProvider = PropertyRefProvider(),
+	bool* outActivated = nullptr);
 
 #endif // __EditorPropertyWidgets_h__9_7_2026__16_00_00__

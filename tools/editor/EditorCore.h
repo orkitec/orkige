@@ -33,7 +33,8 @@ namespace Orkige
 		Translate,	//!< move gizmo (W)
 		Rotate,		//!< rotate gizmo (E)
 		Scale,		//!< scale gizmo (R)
-		Paint		//!< prefab grid painting in 2D mode (B)
+		Paint,		//!< prefab grid painting in 2D mode (B)
+		Hand		//!< grab-the-world camera pan (H); left-drag pans, 2D + 3D
 	};
 
 	//! @brief the paint grid the 2D grid-paint tool snaps to. Cells are square

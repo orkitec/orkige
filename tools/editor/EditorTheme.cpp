@@ -32,15 +32,31 @@ namespace Orkige
 		{
 			// window/panel surfaces
 			ImVec4 windowBg;		//!< panel body
+			ImVec4 chromeBg;		//!< non-tabbed strips (toolbar) - darker chrome
 			ImVec4 dockspaceBg;		//!< empty dock area (recessed vs panels)
 			ImVec4 popupBg;			//!< menus/popups (elevated)
 			ImVec4 titleBg;			//!< flat title/tab strip
 			ImVec4 menubarBg;
-			// controls (buttons, input fields, combos) - lighter than the panel
+			// controls (buttons, combos) - lighter than the panel
 			// in dark, whiter/raised than the panel in light
 			ImVec4 controlBg;
 			ImVec4 controlHover;
 			ImVec4 controlActive;
+			// input fields (text/number wells, checkboxes) - RECESSED below the
+			// panel so a field reads as a well: darker than the panel in dark,
+			// off-white grey in light. Hover/active stay calm (no bright flash).
+			ImVec4 fieldBg;
+			ImVec4 fieldHover;
+			ImVec4 fieldActive;
+			ImVec4 fieldBorder;		//!< the field's 1px recess hairline
+			// component header bars in the Inspector - a slightly distinct
+			// surface from the panel body so each component reads as a titled bar
+			ImVec4 headerBar;
+			ImVec4 headerBarHover;
+			// recessed region ground for browsing areas (asset folder tree, tile
+			// grid) - a step darker than the panel so the area reads as distinct
+			// from the header strip above it
+			ImVec4 regionBg;
 			// the macOS accent blue and its derivatives
 			ImVec4 accent;
 			ImVec4 accentHover;
@@ -77,7 +93,8 @@ namespace Orkige
 			// the panel body carries the brighter surface shade; the SELECTED
 			// tab matches it exactly (one connected surface at the brighter
 			// level - resting tabs recede below it)
-			/*windowBg*/        rgba(0x48484a),
+			/*windowBg*/        rgba(0x3a3a3c),
+			/*chromeBg*/        rgba(0x232323),
 			/*dockspaceBg*/     rgba(0x1a1a1a),
 			/*popupBg*/         rgba(0x2a2a2c, 0.98f),
 			/*titleBg*/         rgba(0x2d2d2d),
@@ -85,6 +102,17 @@ namespace Orkige
 			/*controlBg*/       rgba(0x3a3a3c),
 			/*controlHover*/    rgba(0x48484a),
 			/*controlActive*/   rgba(0x545456),
+			// fields sit clearly BELOW the panel body (0x3a3a3c) and the
+			// selected tab so an input never blends into either; hover/active
+			// ladder UP from the recessed base so focus still reads, staying
+			// under the panel shade. A near-black 1px border draws the recess.
+			/*fieldBg*/         rgba(0x28282a),
+			/*fieldHover*/      rgba(0x2f2f32),
+			/*fieldActive*/     rgba(0x353539),
+			/*fieldBorder*/     rgba(0x1f1f1f),
+			/*headerBar*/       rgba(0x323234),
+			/*headerBarHover*/  rgba(0x2a2a2c),	// DARKER under the cursor
+			/*regionBg*/        rgba(0x2f2f31),	// between fieldBg and windowBg
 			/*accent*/          rgba(0x0a84ff),
 			/*accentHover*/     rgba(0x409cff),
 			/*accentSelection*/ rgba(0x0a84ff, 0.55f),
@@ -96,8 +124,8 @@ namespace Orkige
 			/*scrollGrab*/      rgba(0x5a5a5e, 0.80f),
 			/*scrollGrabHover*/ rgba(0x6e6e73, 0.90f),
 			/*tabResting*/      rgba(0x2d2d2d),
-			/*tabHover*/        rgba(0x3a3a3c),
-			/*tabSelected*/     rgba(0x48484a),
+			/*tabHover*/        rgba(0x434345),
+			/*tabSelected*/     rgba(0x3a3a3c),
 			/*tabDimmed*/       rgba(0x262626),
 			/*rowStripe*/       rgba(0xffffff, 0.03f),
 			/*navDim*/          rgba(0x000000, 0.35f),
@@ -115,6 +143,7 @@ namespace Orkige
 		constexpr EditorPalette LIGHT_PALETTE = {
 			// panel body at the brighter level; selected tab matches (below)
 			/*windowBg*/        rgba(0xffffff),
+			/*chromeBg*/        rgba(0xececec),
 			/*dockspaceBg*/     rgba(0xd2d2d2),
 			/*popupBg*/         rgba(0xffffff, 0.98f),
 			/*titleBg*/         rgba(0xe0e0e0),
@@ -122,6 +151,16 @@ namespace Orkige
 			/*controlBg*/       rgba(0xffffff),
 			/*controlHover*/    rgba(0xf1f1f3),
 			/*controlActive*/   rgba(0xe3e3e6),
+			// a recessed grey against the white panel (0xffffff); hover/active
+			// press DOWN a touch so focus reads without going dark. A light-grey
+			// 1px border draws the recess.
+			/*fieldBg*/         rgba(0xe8e8ea),
+			/*fieldHover*/      rgba(0xe0e0e3),
+			/*fieldActive*/     rgba(0xd8d8dc),
+			/*fieldBorder*/     rgba(0xc8c8ca),
+			/*headerBar*/       rgba(0xededf0),
+			/*headerBarHover*/  rgba(0xe0e0e5),	// DARKER under the cursor
+			/*regionBg*/        rgba(0xf1f1f3),	// between fieldBg and windowBg
 			/*accent*/          rgba(0x007aff),
 			/*accentHover*/     rgba(0x2f95ff),
 			/*accentSelection*/ rgba(0x007aff, 0.28f),
@@ -190,12 +229,20 @@ namespace Orkige
 			0xf001, 0xf001,		// music (audio)
 			0xf008, 0xf008,		// film (scene)
 			0xf03e, 0xf03e,		// image (texture)
+			0xf047, 0xf047,		// arrows-up-down-left-right (Translate tool)
 			0xf07b, 0xf07c,		// folder / folder-open
 			0xf0b0, 0xf0b0,		// filter (the type-filter funnel button)
 			0xf15b, 0xf15b,		// file (unknown)
 			0xf1b2, 0xf1b2,		// cube (mesh)
 			0xf1c9, 0xf1c9,		// file-code (script)
+			0xf1fc, 0xf1fc,		// paintbrush (Paint tool)
+			0xf245, 0xf245,		// arrow-pointer (Select tool)
 			0xf24d, 0xf24d,		// clone (prefab)
+			0xf256, 0xf256,		// hand (Hand/pan tool)
+			0xf2f1, 0xf2f1,		// rotate (Rotate tool)
+			0xf424, 0xf424,		// up-right-and-down-left-from-center (Scale tool)
+			0xf53f, 0xf53f,		// palette (material)
+			0xf61f, 0xf61f,		// shapes (vector shape)
 			0,
 		};
 	}
@@ -224,6 +271,31 @@ namespace Orkige
 	ImVec4 editorDockspaceBackground()
 	{
 		return activePalette().dockspaceBg;
+	}
+	//---------------------------------------------------------
+	ImVec4 editorChromeBackground()
+	{
+		return activePalette().chromeBg;
+	}
+	//---------------------------------------------------------
+	ImVec4 editorComponentHeaderColor()
+	{
+		return activePalette().headerBar;
+	}
+	//---------------------------------------------------------
+	ImVec4 editorComponentHeaderHoverColor()
+	{
+		return activePalette().headerBarHover;
+	}
+	//---------------------------------------------------------
+	ImVec4 editorFieldBorderColor()
+	{
+		return activePalette().fieldBorder;
+	}
+	//---------------------------------------------------------
+	ImVec4 editorRegionBackground()
+	{
+		return activePalette().regionBg;
 	}
 	//---------------------------------------------------------
 	ImVec4 editorWarningTextColor()
@@ -278,9 +350,11 @@ namespace Orkige
 		colors[ImGuiCol_PopupBg] = p.popupBg;
 		colors[ImGuiCol_Border] = p.border;
 		colors[ImGuiCol_BorderShadow] = TRANSPARENT_;
-		colors[ImGuiCol_FrameBg] = p.controlBg;
-		colors[ImGuiCol_FrameBgHovered] = p.controlHover;
-		colors[ImGuiCol_FrameBgActive] = p.controlActive;
+		// input fields read as recessed wells (darker than the panel), so text
+		// inputs / number drags / combos / checkboxes sit BELOW the surface
+		colors[ImGuiCol_FrameBg] = p.fieldBg;
+		colors[ImGuiCol_FrameBgHovered] = p.fieldHover;
+		colors[ImGuiCol_FrameBgActive] = p.fieldActive;
 		// flat title/tab strips (docked panels mostly show tabs, not titles)
 		colors[ImGuiCol_TitleBg] = p.titleBg;
 		colors[ImGuiCol_TitleBgActive] = p.titleBg;
@@ -290,7 +364,14 @@ namespace Orkige
 		colors[ImGuiCol_ScrollbarGrab] = p.scrollGrab;
 		colors[ImGuiCol_ScrollbarGrabHovered] = p.scrollGrabHover;
 		colors[ImGuiCol_ScrollbarGrabActive] = p.scrollGrabHover;
-		colors[ImGuiCol_CheckMark] = p.accent;
+		// the checkbox/radio tick reads as a TEXT mark in a recessed field well
+		// (matching the text-input look), NOT an accent-blue fill - the accent
+		// stays for genuinely accent-y things (list selection, focus, sliders).
+		// A CHECKED box keeps the same recessed field ground as an unchecked one
+		// (this ImGui fills a checked box with CheckboxSelectedBg, accent-blue by
+		// default) - the text-coloured tick is the on/off cue.
+		colors[ImGuiCol_CheckMark] = p.textPrimary;
+		colors[ImGuiCol_CheckboxSelectedBg] = p.fieldBg;
 		colors[ImGuiCol_SliderGrab] = p.accent;
 		colors[ImGuiCol_SliderGrabActive] = p.accentHover;
 		colors[ImGuiCol_Button] = p.controlBg;

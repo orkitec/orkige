@@ -31,6 +31,22 @@ namespace
 //! drag & drop payload tag for hierarchy re-parenting (payload = the id text)
 const char* const HIERARCHY_DND_PAYLOAD = "ORKIGE_HIERARCHY_OBJECT";
 
+
+//! @brief a subtle vertical indent guide from the top of a parent's child block
+//! (guideTop) to the vertical centre of its last child (guideBottom), at the
+//! half-indent x. Drawn only when the block advanced the cursor (visible
+//! children exist under the active filter).
+void drawIndentGuide(float guideX, float guideTop, float guideBottom)
+{
+	if (guideBottom <= guideTop)
+	{
+		return;
+	}
+	ImGui::GetWindowDrawList()->AddLine(ImVec2(guideX, guideTop),
+		ImVec2(guideX, guideBottom),
+		ImGui::GetColorU32(ImGuiCol_TextDisabled, 0.30f), 1.0f);
+}
+
 // commit/cancel handling for the inline rename field in the Hierarchy
 void drawHierarchyRenameField(EditorState& state, Orkige::EditorCore& core,
 	std::string const& id)
@@ -144,8 +160,10 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 		return;
 	}
 	Orkige::StringVector const& childIds = manager.getChildren(id);
+	// SpanFullWidth: the selection highlight spans the whole row edge-to-edge
+	// (including the indent gutter), not just the label extent
 	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
-		ImGuiTreeNodeFlags_SpanAvailWidth;
+		ImGuiTreeNodeFlags_SpanFullWidth;
 	if (childIds.empty())
 	{
 		flags |= ImGuiTreeNodeFlags_Leaf;
@@ -178,6 +196,8 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 		ImGui::PushStyleColor(ImGuiCol_Text,
 			ImVec4(0.55f, 0.76f, 1.0f, 1.0f));
 	}
+	// capture the row origin BEFORE the node for the child indent guide below
+	const ImVec2 rowCursor = ImGui::GetCursorScreenPos();
 	const bool open = ImGui::TreeNodeEx("##node", flags, "%s", id.c_str());
 	if (dimmed || prefabTinted)
 	{
@@ -280,6 +300,9 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 	}
 	if (open)
 	{
+		const float guideX =
+			rowCursor.x + ImGui::GetStyle().IndentSpacing * 0.5f;
+		const float guideTop = ImGui::GetCursorScreenPos().y;
 		// iterate a copy: a context-menu delete/reparent above mutates the
 		// child index mid-loop
 		const Orkige::StringVector children = childIds;
@@ -288,6 +311,8 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 			drawLocalHierarchyNode(state, core, sceneCamera, childId,
 				orderedIds);
 		}
+		drawIndentGuide(guideX, guideTop,
+			ImGui::GetCursorScreenPos().y - ImGui::GetTextLineHeight() * 0.5f);
 		ImGui::TreePop();
 	}
 	ImGui::PopID();
@@ -301,10 +326,16 @@ void drawLocalHierarchy(EditorState& state, Orkige::EditorCore& core,
 	// iterate a copy of the root list: tree edits mutate it mid-loop
 	const Orkige::StringVector rootIds =
 		core.getGameObjectManager().getRootObjectIds();
+	// tight, consistent row height for the tree rows (the loose panel spacing
+	// reads as gaps between list rows)
+	const ImVec2 rowSpacing = ImGui::GetStyle().ItemSpacing;
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+		ImVec2(rowSpacing.x, rowSpacing.y * 0.34f));
 	for (Orkige::String const& id : rootIds)
 	{
 		drawLocalHierarchyNode(state, core, sceneCamera, id, orderedIds);
 	}
+	ImGui::PopStyleVar();
 	// while a hierarchy drag is in flight, offer a drop strip that
 	// un-parents (drop "into empty space" = make it a root)
 	if (ImGuiPayload const* payload = ImGui::GetDragDropPayload())
@@ -457,7 +488,7 @@ void drawRemoteHierarchyNode(EditorState& state, PlaySession& session,
 	const bool hasChildren =
 		childIt != tree.children.end() && !childIt->second.empty();
 	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
-		ImGuiTreeNodeFlags_SpanAvailWidth;
+		ImGuiTreeNodeFlags_SpanFullWidth;
 	if (!hasChildren)
 	{
 		flags |= ImGuiTreeNodeFlags_Leaf;
@@ -485,6 +516,7 @@ void drawRemoteHierarchyNode(EditorState& state, PlaySession& session,
 		ImGui::PushStyleColor(ImGuiCol_Text,
 			ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
 	}
+	const ImVec2 rowCursor = ImGui::GetCursorScreenPos();
 	const bool open = ImGui::TreeNodeEx("##node", flags, "%s", id.c_str());
 	if (scriptError || dimmed)
 	{
@@ -501,6 +533,9 @@ void drawRemoteHierarchyNode(EditorState& state, PlaySession& session,
 	}
 	if (open)
 	{
+		const float guideX =
+			rowCursor.x + ImGui::GetStyle().IndentSpacing * 0.5f;
+		const float guideTop = ImGui::GetCursorScreenPos().y;
 		if (hasChildren)
 		{
 			for (std::string const& childId : childIt->second)
@@ -508,6 +543,8 @@ void drawRemoteHierarchyNode(EditorState& state, PlaySession& session,
 				drawRemoteHierarchyNode(state, session, tree, childId);
 			}
 		}
+		drawIndentGuide(guideX, guideTop,
+			ImGui::GetCursorScreenPos().y - ImGui::GetTextLineHeight() * 0.5f);
 		ImGui::TreePop();
 	}
 	ImGui::PopID();
@@ -582,10 +619,14 @@ void drawRemoteHierarchy(EditorState& state, PlaySession& session)
 			}
 		}
 	}
+	const ImVec2 rowSpacing = ImGui::GetStyle().ItemSpacing;
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+		ImVec2(rowSpacing.x, rowSpacing.y * 0.34f));
 	for (std::string const& id : tree.roots)
 	{
 		drawRemoteHierarchyNode(state, session, tree, id);
 	}
+	ImGui::PopStyleVar();
 }
 
 } // namespace

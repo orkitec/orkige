@@ -1072,6 +1072,8 @@ int main(int argc, char** argv)
 				{ statePtr->resetDockLayout = true; };
 			menuActions.viewSettings = [statePtr]()
 				{ statePtr->showViewSettingsWindow = true; };
+			menuActions.setRotationDisplay = [viewPtr](bool euler)
+				{ viewPtr->rotationAsEuler = euler; viewPtr->save(); };
 			menuActions.projectSettings = [statePtr]()
 				{ statePtr->showProjectSettingsWindow = true; };
 			menuActions.helpPortal = [statePtr]()
@@ -2226,15 +2228,20 @@ int main(int argc, char** argv)
 					state.migratePaletteDock = false;
 				}
 			}
-			// entering 2D editor mode auto-opens the Tile Palette (it docks
-			// beside the Asset Browser); leaving 2D never auto-closes it, and a
-			// saved layout that had it open/closed is left untouched
+			// the Tile Palette is a 2D-ONLY panel: entering 2D editor mode
+			// auto-opens it (docked beside the Asset Browser), leaving 2D
+			// auto-closes it so it is not even a tab outside 2D. It is only ever
+			// submitted while in 2D, so no window/tab exists in 3D.
 			if (viewSettings.editor2D && !prevEditor2D)
 			{
 				viewSettings.showTilePalettePanel = true;
 			}
+			else if (!viewSettings.editor2D && prevEditor2D)
+			{
+				viewSettings.showTilePalettePanel = false;
+			}
 			prevEditor2D = viewSettings.editor2D;
-			if (viewSettings.showTilePalettePanel)
+			if (viewSettings.editor2D && viewSettings.showTilePalettePanel)
 			{
 				drawTilePalettePanel(state, editorCore,
 					&viewSettings.showTilePalettePanel);
@@ -2282,6 +2289,7 @@ int main(int argc, char** argv)
 #undef ORKIGE_SYNC_PANEL_STATUS
 				menuStatus.recentScenes = viewSettings.recentScenes;
 				menuStatus.recentProjects = viewSettings.recentProjects;
+				menuStatus.rotationAsEuler = viewSettings.rotationAsEuler;
 				menuStatus.prefabEditActive = isPrefabEditActive(state);
 				menuStatus.saveLabel = menuStatus.prefabEditActive
 					? "Save Prefab" : "Save Scene";

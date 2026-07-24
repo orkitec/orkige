@@ -1829,7 +1829,11 @@ void drawFolderTree(EditorState& state, std::string const& dir, int depth)
 	{
 		name = dir;
 	}
+	// OpenOnArrow keeps the arrow toggling the fold; OpenOnDoubleClick makes a
+	// double-click on the ROW expand/collapse the node too (single click still
+	// selects + navigates, guarded by !IsItemToggledOpen below)
 	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
+		ImGuiTreeNodeFlags_OpenOnDoubleClick |
 		ImGuiTreeNodeFlags_SpanAvailWidth;
 	if (subfolders.empty())
 	{
@@ -1898,6 +1902,14 @@ void drawBreadcrumb(EditorState& state)
 		}
 	}
 	std::reverse(chain.begin(), chain.end());
+	// the segments are TRANSPARENT buttons so the breadcrumb reads as one flush
+	// strip on the recessed region (no button-coloured two-tone band); hover
+	// gives a subtle highlight, and SmallButton keeps the strip text-height
+	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+		ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+		ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
 	for (std::size_t i = 0; i < chain.size(); ++i)
 	{
 		if (i != 0)
@@ -1920,6 +1932,7 @@ void drawBreadcrumb(EditorState& state)
 		folderDropTarget(state, chain[i].string());
 		ImGui::PopID();
 	}
+	ImGui::PopStyleColor(3);
 }
 
 //! the accent colour of a kind's glyph icon (folders share one warm tone)
@@ -2797,7 +2810,7 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	const std::string root = state.project.getRootDirectory();
 	ImGuiStyle& style = ImGui::GetStyle();
 
-	// --- toolbar row 1: back/forward history, Create, breadcrumb -----------
+	// --- toolbar (one row): back/forward history, Create, search, filter ---
 	ImGui::BeginDisabled(browser.backHistory.empty());
 	if (ImGui::ArrowButton("##back", ImGuiDir_Left))
 	{
@@ -2835,9 +2848,9 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	ImGui::SameLine();
 	ImGui::TextUnformatted("|");
 	ImGui::SameLine();
-	drawBreadcrumb(state);
-
-	// --- toolbar row 2: search + type-filter funnel + recursive ------------
+	// search + type filter + recursive share this ONE toolbar row with the
+	// nav/create buttons (the breadcrumb moved into the content region below,
+	// saving a toolbar row)
 	ImGui::SetNextItemWidth(180.0f);
 	ImGui::InputTextWithHint("##assetSearch", "Search", browser.searchText,
 		sizeof(browser.searchText));
@@ -2930,12 +2943,16 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 		ImGui::GetContentRegionAvail().x * 0.35f);
 	const float panesTop = ImGui::GetCursorScreenPos().y;
 	const float paneHeight = ImGui::GetContentRegionAvail().y - footerHeight;
+	// the folder tree sits on a recessed region ground (a step darker than the
+	// panel) so it reads as a distinct area from the toolbar strip above it
+	ImGui::PushStyleColor(ImGuiCol_ChildBg, Orkige::editorRegionBackground());
 	if (ImGui::BeginChild("##assetTree", ImVec2(treeWidth, paneHeight),
 		ImGuiChildFlags_ResizeX))
 	{
 		drawFolderTree(state, root, 0);
 	}
 	ImGui::EndChild();
+	ImGui::PopStyleColor();
 	ImGui::SameLine();
 	// the divider sits in the item-spacing gap between the two panes
 	const ImVec2 contentTop = ImGui::GetCursorScreenPos();
@@ -3017,9 +3034,15 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 
 	const bool listMode =
 		browser.thumbnailSize < AssetBrowserState::LIST_THRESHOLD;
-	// the content grid sits above a one-line status footer
+	// the content grid sits above a one-line status footer, on the same recessed
+	// region ground as the folder tree (a step darker than the panel)
+	ImGui::PushStyleColor(ImGuiCol_ChildBg, Orkige::editorRegionBackground());
 	if (ImGui::BeginChild("##assetContents", ImVec2(0.0f, -footerHeight)))
 	{
+		// the breadcrumb path lives at the top of the content region (moved off
+		// the toolbar to save a row); it sits flush on the same recessed ground
+		// as one strip (no separator band), exactly its own content height
+		drawBreadcrumb(state);
 		const int count = static_cast<int>(entries.size());
 		if (count == 0)
 		{
@@ -3134,6 +3157,7 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 		}
 	}
 	ImGui::EndChild();
+	ImGui::PopStyleColor();	// content region ground
 
 	// --- status footer -----------------------------------------------------
 	ImGui::Separator();

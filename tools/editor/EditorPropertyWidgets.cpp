@@ -2,6 +2,7 @@
 // See EditorPropertyWidgets.h for the contract.
 #include "EditorPropertyWidgets.h"
 #include "EditorAssetDnd.h"
+#include "EditorEuler.h"
 #include "EditorTheme.h"
 
 #include <imgui.h>
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -50,6 +52,61 @@ std::string formatFloats(const float* values, int count)
 		result += buffer;
 	}
 	return result;
+}
+
+//! @brief draw `count` per-axis DragFloats sharing the value column, each with a
+//! dimmed micro-label ("X"/"Y"/"Z"/"W") before it. The fields split the column
+//! width evenly so a Vec3/Quat row stays balanced. Reports IsItemActivated-style
+//! edit through the aggregate return (any axis dragged). `idBase` seeds unique
+//! per-axis ids; `axes` supplies the labels. Mirrors DragFloatN behaviour.
+bool drawAxisDrags(char const* idBase, char const* const* axes, float* values,
+	int count, float speed, bool* activated)
+{
+	ImGuiStyle const& style = ImGui::GetStyle();
+	const float gap = style.ItemInnerSpacing.x;
+	// widest axis glyph so every field lines up regardless of label
+	float labelWidth = 0.0f;
+	for (int i = 0; i < count; ++i)
+	{
+		labelWidth = ImGui::CalcTextSize(axes[i]).x > labelWidth
+			? ImGui::CalcTextSize(axes[i]).x : labelWidth;
+	}
+	const float total = ImGui::GetContentRegionAvail().x;
+	// each axis cell = [label][gap][field], cells separated by a gap
+	float fieldWidth = (total - count * (labelWidth + gap) -
+		(count - 1) * gap) / static_cast<float>(count);
+	if (fieldWidth < 20.0f)
+	{
+		fieldWidth = 20.0f; // a very narrow Inspector still shows a usable field
+	}
+	bool edited = false;
+	for (int i = 0; i < count; ++i)
+	{
+		if (i != 0)
+		{
+			ImGui::SameLine(0.0f, gap);
+		}
+		// the dimmed axis marker, baseline-aligned to the field
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextDisabled("%s", axes[i]);
+		ImGui::SameLine(0.0f, gap);
+		char id[32];
+		std::snprintf(id, sizeof(id), "##%s%d", idBase, i);
+		ImGui::SetNextItemWidth(fieldWidth);
+		// "%.9g" trims trailing zeros for display; precision/step unchanged
+		if (ImGui::DragFloat(id, &values[i], speed, 0.0f, 0.0f, "%.9g"))
+		{
+			edited = true;
+		}
+		// a composite field must open the caller's merge session on ANY axis
+		// grab (each axis is its own ImGui item), so a per-axis drag still
+		// collapses into one undo step
+		if (activated && ImGui::IsItemActivated())
+		{
+			*activated = true;
+		}
+	}
+	return edited;
 }
 
 //! split an enum hint ("label=value,label=value,...") into parallel arrays
@@ -268,15 +325,22 @@ bool acceptAssetRefDrop(std::string const& hint, std::string& outValue)
 
 bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 	std::string const& value, std::string& outValue,
-	PropertyRefProvider const& refProvider)
+	PropertyRefProvider const& refProvider, bool* outActivated)
 {
 	using Orkige::PropertyKind;
 	char const* label = desc.label.c_str();
+	if (outActivated)
+	{
+		*outActivated = false;
+	}
 	if (desc.readOnly)
 	{
 		ImGui::BeginDisabled();
 	}
 	bool edited = false;
+	// composite kinds (Vec3/Quat) record their own activation across sub-items;
+	// single-item kinds read the last submitted item at the end
+	bool compositeActivated = false;
 	switch (desc.kind)
 	{
 	case PropertyKind::Int:
@@ -292,7 +356,10 @@ bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 	case PropertyKind::Float:
 	{
 		float scalar = static_cast<float>(std::atof(value.c_str()));
-		if (ImGui::DragFloat(label, &scalar, 0.05f))
+		// "%.9g" trims trailing zeros for display (0.500 -> 0.5, 1.0 -> 1) while
+		// keeping full float precision when a value is not round; the drag step
+		// and the stored round-trip precision (formatFloats) are unchanged
+		if (ImGui::DragFloat(label, &scalar, 0.05f, 0.0f, 0.0f, "%.9g"))
 		{
 			outValue = formatFloats(&scalar, 1);
 			edited = true;
@@ -314,7 +381,9 @@ bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 		float vec[3] = { 0.0f, 0.0f, 0.0f };
 		if (parseFloats(value, vec, 3))
 		{
-			if (ImGui::DragFloat3(label, vec, 0.05f))
+			// three per-axis fields with dimmed X/Y/Z markers
+			static char const* const AXES[] = { "X", "Y", "Z" };
+			if (drawAxisDrags(label, AXES, vec, 3, 0.05f, &compositeActivated))
 			{
 				outValue = formatFloats(vec, 3);
 				edited = true;
@@ -329,18 +398,64 @@ bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 	case PropertyKind::Quat:
 	{
 		float quat[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
-		if (parseFloats(value, quat, 4))
+		if (!parseFloats(value, quat, 4))
 		{
-			// wxyz drag; the runtime re-normalizes the quaternion on set
-			if (ImGui::DragFloat4(label, quat, 0.01f))
+			ImGui::TextDisabled("%s: %s", label, value.c_str());
+			break;
+		}
+		if (!desc.quatAsEuler)
+		{
+			// raw quaternion view (power users): wxyz drag; the runtime
+			// re-normalizes on set
+			static char const* const AXES[] = { "W", "X", "Y", "Z" };
+			if (drawAxisDrags(label, AXES, quat, 4, 0.01f, &compositeActivated))
 			{
 				outValue = formatFloats(quat, 4);
 				edited = true;
 			}
+			break;
 		}
-		else
+		// Euler X/Y/Z degrees view (default). A cached Euler triple per field
+		// (keyed by ImGui id) keeps typed values stable (90 stays 90, not
+		// 89.9999; 370 stays 370 during the session): the cache re-derives from
+		// the quaternion ONLY when the quat changed from OUTSIDE these fields
+		// (gizmo/undo/selection/remote), detected by comparing the incoming quat
+		// to the last quat the fields themselves produced. See EditorEuler.h for
+		// the Y-X-Z order.
+		struct EulerFieldState
 		{
-			ImGui::TextDisabled("%s: %s", label, value.c_str());
+			float euler[3] = { 0.0f, 0.0f, 0.0f };
+			float lastQuat[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+			bool valid = false;
+		};
+		static std::unordered_map<ImGuiID, EulerFieldState> eulerStates;
+		const ImGuiID id = ImGui::GetID(label);
+		EulerFieldState& st = eulerStates[id];
+		const float dot = quat[0] * st.lastQuat[0] + quat[1] * st.lastQuat[1] +
+			quat[2] * st.lastQuat[2] + quat[3] * st.lastQuat[3];
+		const bool externalChange = !st.valid || std::abs(dot) < 1.0f - 1e-5f;
+		if (externalChange)
+		{
+			Orkige::quatToEulerDegrees(quat, st.euler);
+			st.lastQuat[0] = quat[0];
+			st.lastQuat[1] = quat[1];
+			st.lastQuat[2] = quat[2];
+			st.lastQuat[3] = quat[3];
+			st.valid = true;
+		}
+		static char const* const AXES[] = { "X", "Y", "Z" };
+		if (drawAxisDrags(label, AXES, st.euler, 3, 0.5f, &compositeActivated))
+		{
+			// recompose the quaternion from the cached Euler and stamp it as the
+			// last-produced quat so the next frame's echo is NOT seen as external
+			float produced[4];
+			Orkige::eulerDegreesToQuat(st.euler, produced);
+			st.lastQuat[0] = produced[0];
+			st.lastQuat[1] = produced[1];
+			st.lastQuat[2] = produced[2];
+			st.lastQuat[3] = produced[3];
+			outValue = formatFloats(produced, 4);
+			edited = true;
 		}
 		break;
 	}
@@ -435,6 +550,12 @@ bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 	{
 		ImGui::EndDisabled();
 		return false; // a disabled widget cannot report a real edit
+	}
+	// activation for the caller's undo-merge bracketing: composite kinds already
+	// OR'd their sub-item grabs; single-item kinds are the last submitted item
+	if (outActivated)
+	{
+		*outActivated = compositeActivated || ImGui::IsItemActivated();
 	}
 	return edited;
 }

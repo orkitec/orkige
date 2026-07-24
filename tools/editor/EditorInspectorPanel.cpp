@@ -4,6 +4,7 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "AnimationPreviewStage.h"
 #include "EditorApp.h"
+#include "EditorLabelFormat.h"
 #include "EditorPropertyWidgets.h"
 #include "EditorTheme.h"
 #include "SyntaxHighlight.h"
@@ -25,6 +26,7 @@
 #include <engine_render/RenderMaterial.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -118,95 +120,195 @@ std::string propertyWidgetHint(Orkige::PropertyDesc const& desc)
 // PROP_READONLY and getter-less properties render disabled. Drags collapse to
 // one undo step via the merge session (IsItemActivated opens it, matching the
 // gizmo/old-inspector drag bracketing).
+//! the label/value property grid for ONE component, rendered off `schema`
+//! (fetched once by the caller so the header can also read it). A two-column
+//! table lays out a left-aligned label column (~40%) and a value column that
+//! fills with the typed widget - so labels read LEFT, values RIGHT. `skipName`
+//! is a property the header already hosts (the enable toggle) and must not
+//! repeat in the body; pass "" to show every property.
 void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
-	std::string const& objectId, Orkige::TypeInfo const& componentType)
+	std::string const& objectId, std::string const& componentName,
+	Orkige::PropertySchema const& schema, std::string const& skipName)
 {
-	const std::string& componentName = componentType.getName();
-	// the union schema (static per-type + dynamic per-instance) so a
-	// ScriptComponent's exported script properties render in the Inspector too
-	// - discovered per instance since a script's exports are
-	// known only once a specific .lua is attached
-	const Orkige::PropertySchema schema =
-		core.getComponentPropertySchema(objectId, componentName);
 	if (schema.empty())
 	{
 		ImGui::TextDisabled("(no editable properties yet)");
 		return;
 	}
+	// the two-column grid: a proportional 40/60 split that follows the panel
+	// width (labels left, value widgets right). A recessed 1px field border
+	// makes each input read as a well; the table itself draws no borders.
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+	ImGui::PushStyleColor(ImGuiCol_Border, Orkige::editorFieldBorderColor());
 	bool any = false;
-	for (Orkige::PropertyDesc const& desc : schema.properties())
+	// no PadOuterX: the value column runs to the panel's right edge (no
+	// artificial outer margin), only the panel's own window padding remains
+	if (ImGui::BeginTable("##props", 2, ImGuiTableFlags_SizingStretchProp))
 	{
-		// edit-mode filtering: never show a hidden property or transient
-		// runtime telemetry (velocities, has_body, script started/error);
-		// a property with no getter has nothing to read/display
-		if (desc.hasFlag(Orkige::PROP_HIDDEN) ||
-			desc.hasFlag(Orkige::PROP_TRANSIENT) || !desc.get)
+		ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthStretch,
+			0.40f);
+		ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch,
+			0.60f);
+		for (Orkige::PropertyDesc const& desc : schema.properties())
 		{
-			continue;
-		}
-		std::string value;
-		if (!core.getObjectProperty(objectId, componentName, desc.name, value))
-		{
-			continue;
-		}
-		PropertyWidgetDesc widget;
-		widget.label = desc.name;
-		widget.kind = desc.kind;
-		widget.hint = propertyWidgetHint(desc);
-		widget.readOnly = desc.isReadOnly();
-		std::string edited;
-		// the reference-picker provider (AssetRef/ObjectRef): backed by the
-		// project's AssetDatabase and the scene's object ids. Scalar/math
-		// widgets ignore it; the remote inspector passes none (text field).
-		PropertyRefProvider refProvider =
-			[&state, &core](PropertyWidgetDesc const& w)
+			// edit-mode filtering: never show a hidden property or transient
+			// runtime telemetry (velocities, has_body, script started/error);
+			// a property with no getter has nothing to read/display; the header
+			// already hosts skipName (the enable toggle)
+			if (desc.hasFlag(Orkige::PROP_HIDDEN) ||
+				desc.hasFlag(Orkige::PROP_TRANSIENT) || !desc.get ||
+				desc.name == skipName)
 			{
-				return collectReferenceOptions(state, core, w);
-			};
-		const bool committed =
-			drawPropertyWidget(widget, value, edited, refProvider);
-		// bracket a drag/interaction into ONE undo step: a fresh merge session
-		// opens when the widget becomes active (drag start / combo open / click)
-		// and every edited frame of that interaction shares it (mergeWith
-		// collapses them); the next interaction opens a new session
-		if (ImGui::IsItemActivated())
-		{
-			state.inspectorMergeSession = core.beginMergeSession();
-		}
-		if (committed)
-		{
-			core.applyPropertyChange(objectId, componentName, desc.name,
-				value, edited, state.inspectorMergeSession);
-		}
-		if (!desc.meta.tooltip.empty())
-		{
-			ImGui::SetItemTooltip("%s", desc.meta.tooltip.c_str());
-		}
-		// a text-editable asset reference (a ScriptComponent's script path, a
-		// .oui/.omat ref) offers "Open in External Editor" on right-click - the
-		// context action that jumps to the file in the user's code editor
-		if (desc.kind == Orkige::PropertyKind::AssetRef && !value.empty() &&
-			isTextEditableAsset(value))
-		{
-			const std::string popupId =
-				componentName + "." + desc.name + "##openext";
-			if (ImGui::BeginPopupContextItem(popupId.c_str()))
-			{
-				if (ImGui::MenuItem("Open in External Editor") && gViewSettings)
-				{
-					openInExternalEditor(
-						resolveProjectFilePath(state.project, value), 0,
-						*gViewSettings);
-				}
-				ImGui::EndPopup();
+				continue;
 			}
+			std::string value;
+			if (!core.getObjectProperty(objectId, componentName, desc.name,
+				value))
+			{
+				continue;
+			}
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			ImGui::AlignTextToFramePadding();
+			// display-only prettified label; the schema key (desc.name) is
+			// untouched and drives the edit/serialization path below
+			ImGui::TextUnformatted(
+				Orkige::prettifyPropertyLabel(desc.name).c_str());
+			const bool isRotation =
+				desc.kind == Orkige::PropertyKind::Quat && gViewSettings;
+			if (!desc.meta.tooltip.empty())
+			{
+				ImGui::SetItemTooltip("%s", desc.meta.tooltip.c_str());
+			}
+			else if (isRotation)
+			{
+				ImGui::SetItemTooltip(
+					"right-click to change rotation display (Euler / Quaternion)");
+			}
+			// a rotation row opens the Euler/Quaternion display chooser on
+			// right-click (of the label OR the fields); the View menu carries the
+			// same choice. The setting is global + persisted.
+			const std::string rotPopupId = "rotdisp##" + desc.name;
+			if (isRotation)
+			{
+				ImGui::OpenPopupOnItemClick(rotPopupId.c_str(),
+					ImGuiPopupFlags_MouseButtonRight);
+			}
+			ImGui::TableSetColumnIndex(1);
+			PropertyWidgetDesc widget;
+			// hide the widget's own label - the label column carries the name;
+			// the "##name" seed keeps the ImGui id unique within this component
+			widget.label = "##" + desc.name;
+			widget.kind = desc.kind;
+			widget.hint = propertyWidgetHint(desc);
+			widget.readOnly = desc.isReadOnly();
+			widget.quatAsEuler = gViewSettings
+				? gViewSettings->rotationAsEuler : true;
+			std::string edited;
+			ImGui::SetNextItemWidth(-FLT_MIN);	// value widget fills the column
+			// the reference-picker provider (AssetRef/ObjectRef): backed by the
+			// project's AssetDatabase and the scene's object ids. Scalar/math
+			// widgets ignore it; the remote inspector passes none (text field).
+			PropertyRefProvider refProvider =
+				[&state, &core](PropertyWidgetDesc const& w)
+				{
+					return collectReferenceOptions(state, core, w);
+				};
+			bool activated = false;
+			const bool committed = drawPropertyWidget(widget, value, edited,
+				refProvider, &activated);
+			// bracket a drag/interaction into ONE undo step: a fresh merge
+			// session opens when the widget becomes active (drag start / combo
+			// open / click) and every edited frame of that interaction shares
+			// it (mergeWith collapses them); the next interaction opens a new
+			// session
+			if (activated)
+			{
+				state.inspectorMergeSession = core.beginMergeSession();
+			}
+			if (committed)
+			{
+				core.applyPropertyChange(objectId, componentName, desc.name,
+					value, edited, state.inspectorMergeSession);
+			}
+			if (!desc.meta.tooltip.empty())
+			{
+				ImGui::SetItemTooltip("%s", desc.meta.tooltip.c_str());
+			}
+			// rotation display chooser: right-click on the fields opens the same
+			// popup as the label (above); the shared body is drawn once here
+			if (isRotation)
+			{
+				ImGui::OpenPopupOnItemClick(rotPopupId.c_str(),
+					ImGuiPopupFlags_MouseButtonRight);
+				if (ImGui::BeginPopup(rotPopupId.c_str()))
+				{
+					const bool euler = gViewSettings->rotationAsEuler;
+					if (ImGui::MenuItem("Euler Angles", nullptr, euler))
+					{
+						gViewSettings->rotationAsEuler = true;
+						gViewSettings->save();
+					}
+					if (ImGui::MenuItem("Quaternion", nullptr, !euler))
+					{
+						gViewSettings->rotationAsEuler = false;
+						gViewSettings->save();
+					}
+					ImGui::EndPopup();
+				}
+			}
+			// a text-editable asset reference (a ScriptComponent's script path,
+			// a .oui/.omat ref) offers "Open in External Editor" on right-click
+			// - the context action that jumps to the file in the code editor
+			if (desc.kind == Orkige::PropertyKind::AssetRef && !value.empty() &&
+				isTextEditableAsset(value))
+			{
+				const std::string popupId =
+					componentName + "." + desc.name + "##openext";
+				if (ImGui::BeginPopupContextItem(popupId.c_str()))
+				{
+					if (ImGui::MenuItem("Open in External Editor") &&
+						gViewSettings)
+					{
+						openInExternalEditor(
+							resolveProjectFilePath(state.project, value), 0,
+							*gViewSettings);
+					}
+					ImGui::EndPopup();
+				}
+			}
+			any = true;
 		}
-		any = true;
+		ImGui::EndTable();
 	}
+	ImGui::PopStyleColor();		// field border
+	ImGui::PopStyleVar();		// FrameBorderSize
 	if (!any)
 	{
 		ImGui::TextDisabled("(no editable properties yet)");
 	}
+}
+
+//! @brief the reflected property a component's header hosts as an enable toggle:
+//! a live, editable Bool named "enabled". Returns its name, or "" when the
+//! component has no such property (most components - only a header checkbox is
+//! offered where one exists). A rendering-visibility flag ("visible") is a
+//! DIFFERENT concept and stays a normal body row, so this looks for "enabled"
+//! only.
+std::string componentEnableProperty(Orkige::PropertySchema const& schema)
+{
+	for (Orkige::PropertyDesc const& desc : schema.properties())
+	{
+		if (desc.name == "enabled" &&
+			desc.kind == Orkige::PropertyKind::Bool &&
+			desc.get && desc.set && !desc.isReadOnly() &&
+			!desc.hasFlag(Orkige::PROP_HIDDEN) &&
+			!desc.hasFlag(Orkige::PROP_TRANSIENT))
+		{
+			return desc.name;
+		}
+	}
+	return std::string();
 }
 
 //! case-insensitive substring match for the Add Component search box
@@ -228,21 +330,23 @@ void drawAddComponentButton(EditorState& state, Orkige::EditorCore& core,
 	optr<Orkige::GameObject> const& gameObject)
 {
 	ImGui::Spacing();
-	// size the button to its label instead of a fixed width: the scaled font at
-	// 2x/3x display scale (and the denser theme padding) overflowed the old
-	// 180pt box, clipping "Add Component". Text width + both frame paddings + a
-	// little breathing room, clamped so a very narrow Inspector still fits.
+	// a comfortable, inviting primary action: a generously wide (~70% of the
+	// panel, at least the label) and TALLER-than-default button, centred. Width
+	// stays clamped so a very narrow Inspector still fits and the scaled font at
+	// 2x/3x never clips "Add Component".
 	const char* addLabel = "Add Component";
 	const float labelWidth = ImGui::CalcTextSize(addLabel).x +
 		ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetTextLineHeight();
 	const float availableWidth = ImGui::GetContentRegionAvail().x;
-	const float buttonWidth = std::min(labelWidth, availableWidth);
+	const float buttonWidth = std::min(availableWidth,
+		std::max(labelWidth, availableWidth * 0.70f));
+	const float buttonHeight = ImGui::GetFrameHeight() * 1.6f;
 	if (availableWidth > buttonWidth)
 	{
 		ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
 			(availableWidth - buttonWidth) * 0.5f);
 	}
-	if (ImGui::Button(addLabel, ImVec2(buttonWidth, 0.0f)))
+	if (ImGui::Button(addLabel, ImVec2(buttonWidth, buttonHeight)))
 	{
 		state.addComponentSearch[0] = '\0';
 		state.addComponentFocusPending = true;
@@ -299,7 +403,9 @@ void drawRemoteProperty(PlaySession& session, std::string const& key,
 		return;
 	}
 	PropertyWidgetDesc desc;
-	desc.label = property;
+	// the label column carries the name; hide the widget's own label (a unique
+	// "##name" id keeps ImGui state stable per property)
+	desc.label = "##" + property;
 	std::map<std::string, int>::const_iterator kind =
 		session.statePropKind.find(key);
 	desc.kind = (kind != session.statePropKind.end())
@@ -312,6 +418,7 @@ void drawRemoteProperty(PlaySession& session, std::string const& key,
 		desc.hint = hint->second;
 	}
 	desc.readOnly = session.statePropReadonly.count(key) != 0;
+	desc.quatAsEuler = gViewSettings ? gViewSettings->rotationAsEuler : true;
 	std::string edited;
 	if (drawPropertyWidget(desc, value->second, edited))
 	{
@@ -369,17 +476,21 @@ void drawRemoteInspector(PlaySession& session)
 	ImGui::Text("%s", session.stateObjectId.c_str());
 	ImGui::TextDisabled("remote object (live)");
 	ImGui::Separator();
-	// neutral component headers, same reasoning as the edit-mode inspector
+	// component header bars, matching the edit-mode inspector's look
 	ImGui::PushStyleColor(ImGuiCol_Header,
-		ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+		Orkige::editorComponentHeaderColor());
 	ImGui::PushStyleColor(ImGuiCol_HeaderHovered,
-		ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+		Orkige::editorComponentHeaderHoverColor());
 	ImGui::PushStyleColor(ImGuiCol_HeaderActive,
-		ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+		Orkige::editorComponentHeaderHoverColor());
 	for (std::string const& component : session.stateComponents)
 	{
-		if (!ImGui::CollapsingHeader(component.c_str(),
-			ImGuiTreeNodeFlags_DefaultOpen))
+		const std::string headerLabel =
+			Orkige::prettifyComponentTitle(component) + "###" + component;
+		const bool headerOpen = ImGui::CollapsingHeader(headerLabel.c_str(),
+			ImGuiTreeNodeFlags_DefaultOpen);
+		ImGui::SetItemTooltip("%s", component.c_str());
+		if (!headerOpen)
 		{
 			continue;
 		}
@@ -388,17 +499,76 @@ void drawRemoteInspector(PlaySession& session)
 		bool any = false;
 		if (!session.statePropKeys.empty())
 		{
-			// typed widgets, in the schema's declaration order
-			for (std::string const& key : session.statePropKeys)
+			// typed widgets in a label-left / value-right grid, same as the
+			// edit-mode inspector (declaration order preserved)
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+			ImGui::PushStyleColor(ImGuiCol_Border,
+				Orkige::editorFieldBorderColor());
+			if (ImGui::BeginTable("##rprops", 2,
+				ImGuiTableFlags_SizingStretchProp))
 			{
-				if (key.rfind(prefix, 0) != 0)
+				ImGui::TableSetupColumn("label",
+					ImGuiTableColumnFlags_WidthStretch, 0.40f);
+				ImGui::TableSetupColumn("value",
+					ImGuiTableColumnFlags_WidthStretch, 0.60f);
+				for (std::string const& key : session.statePropKeys)
 				{
-					continue;
+					if (key.rfind(prefix, 0) != 0)
+					{
+						continue;
+					}
+					const std::string prop = key.substr(prefix.size());
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::AlignTextToFramePadding();
+					ImGui::TextUnformatted(
+						Orkige::prettifyPropertyLabel(prop).c_str());
+					// a streamed Quat row gets the same right-click Euler/
+					// Quaternion chooser as the edit-mode inspector (label OR
+					// fields open it; the View menu carries it too)
+					std::map<std::string, int>::const_iterator kindIt =
+						session.statePropKind.find(key);
+					const bool remoteRotation = gViewSettings &&
+						kindIt != session.statePropKind.end() &&
+						static_cast<Orkige::PropertyKind>(kindIt->second) ==
+							Orkige::PropertyKind::Quat;
+					const std::string rotPopupId = "rotdisp##" + key;
+					if (remoteRotation)
+					{
+						ImGui::SetItemTooltip("right-click to change rotation "
+							"display (Euler / Quaternion)");
+						ImGui::OpenPopupOnItemClick(rotPopupId.c_str(),
+							ImGuiPopupFlags_MouseButtonRight);
+					}
+					ImGui::TableSetColumnIndex(1);
+					ImGui::SetNextItemWidth(-FLT_MIN);
+					drawRemoteProperty(session, key, component, prop);
+					if (remoteRotation)
+					{
+						ImGui::OpenPopupOnItemClick(rotPopupId.c_str(),
+							ImGuiPopupFlags_MouseButtonRight);
+						if (ImGui::BeginPopup(rotPopupId.c_str()))
+						{
+							const bool euler = gViewSettings->rotationAsEuler;
+							if (ImGui::MenuItem("Euler Angles", nullptr, euler))
+							{
+								gViewSettings->rotationAsEuler = true;
+								gViewSettings->save();
+							}
+							if (ImGui::MenuItem("Quaternion", nullptr, !euler))
+							{
+								gViewSettings->rotationAsEuler = false;
+								gViewSettings->save();
+							}
+							ImGui::EndPopup();
+						}
+					}
+					any = true;
 				}
-				drawRemoteProperty(session, key, component,
-					key.substr(prefix.size()));
-				any = true;
+				ImGui::EndTable();
 			}
+			ImGui::PopStyleColor();	// field border
+			ImGui::PopStyleVar();	// FrameBorderSize
 		}
 		else
 		{
@@ -420,7 +590,7 @@ void drawRemoteInspector(PlaySession& session)
 		}
 		ImGui::PopID();
 	}
-	ImGui::PopStyleColor(3); // neutral component headers
+	ImGui::PopStyleColor(3); // component header bars
 }
 
 //! draw the editable fields of one texture import block (filter/wrap combos,
@@ -1645,9 +1815,21 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 	if (ImGui::Begin(remote ? INSPECTOR_WINDOW_REMOTE : INSPECTOR_WINDOW_EDIT,
 		visible))
 	{
+		// buttons in the Inspector (Add Component, Apply/Revert, pickers, ...)
+		// take the darker header-bar shade so they stand off the panel body
+		// (controlBg equals the panel here, so they'd otherwise vanish); hover
+		// darkens, matching the component headers. Scoped to THIS panel so the
+		// toolbar transport keeps its own control look.
+		ImGui::PushStyleColor(ImGuiCol_Button,
+			Orkige::editorComponentHeaderColor());
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+			Orkige::editorComponentHeaderHoverColor());
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+			Orkige::editorComponentHeaderHoverColor());
 		if (remote)
 		{
 			drawRemoteInspector(session);
+			ImGui::PopStyleColor(3); // inspector button shade
 			ImGui::End();
 			return;
 		}
@@ -1683,10 +1865,46 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 			}
 			ImGui::SetItemTooltip("Active");
 			ImGui::SameLine();
-			ImGui::Text("%s", objectId.c_str());
+			// the object name is an inline RENAME field (a recessed well), on the
+			// SAME rename command path as the hierarchy's F2 - one undo step,
+			// identical validation. The buffer resyncs when the selection changes
+			// (and after a rename, when objectId becomes the new name); commit is
+			// on Enter/defocus (IsItemDeactivatedAfterEdit), Escape cancels.
+			{
+				static std::string nameEditId;
+				static char nameBuffer[256];
+				if (nameEditId != objectId)
+				{
+					SDL_strlcpy(nameBuffer, objectId.c_str(), sizeof(nameBuffer));
+					nameEditId = objectId;
+				}
+				ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+				ImGui::PushStyleColor(ImGuiCol_Border,
+					Orkige::editorFieldBorderColor());
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				ImGui::InputText("##objname", nameBuffer, sizeof(nameBuffer),
+					ImGuiInputTextFlags_AutoSelectAll);
+				ImGui::PopStyleColor();
+				ImGui::PopStyleVar();
+				if (ImGui::IsItemDeactivatedAfterEdit())
+				{
+					const Orkige::EditorCore::NameValidation validation =
+						core.validateRename(objectId, nameBuffer);
+					if (validation == Orkige::EditorCore::NameValidation::Ok)
+					{
+						core.renameObject(objectId, nameBuffer);
+					}
+					else if (validation !=
+						Orkige::EditorCore::NameValidation::Unchanged)
+					{
+						// empty/duplicate rejected: restore the current name
+						SDL_strlcpy(nameBuffer, objectId.c_str(),
+							sizeof(nameBuffer));
+					}
+				}
+			}
 			if (!gameObject->isActiveInHierarchy())
 			{
-				ImGui::SameLine();
 				ImGui::TextDisabled("%s", gameObject->isActiveSelf()
 					? "(inactive via parent)" : "(inactive)");
 			}
@@ -1755,15 +1973,15 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 					"(world.findByTag); Enter to apply");
 			}
 			ImGui::Separator();
-			// the theme's accent Header colour is for list selection; the
-			// component CollapsingHeaders read better neutral (macOS
-			// disclosure groups are grey, not blue)
+			// component header bars: a slightly distinct surface from the panel
+			// body so each component reads as a titled bar (a grey disclosure
+			// group, not the accent list-selection blue)
 			ImGui::PushStyleColor(ImGuiCol_Header,
-				ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+				Orkige::editorComponentHeaderColor());
 			ImGui::PushStyleColor(ImGuiCol_HeaderHovered,
-				ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+				Orkige::editorComponentHeaderHoverColor());
 			ImGui::PushStyleColor(ImGuiCol_HeaderActive,
-				ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+				Orkige::editorComponentHeaderHoverColor());
 			// iterate a snapshot of the attached types: the remove button
 			// mutates the component map mid-loop
 			std::vector<Orkige::TypeInfo> componentTypes;
@@ -1776,13 +1994,24 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 			{
 				const std::string typeName = componentType.getName();
 				ImGui::PushID(typeName.c_str());
+				// fetch the schema ONCE: the header hosts an enable toggle when
+				// the component exposes one, and the body renders the rest
+				const Orkige::PropertySchema schema =
+					core.getComponentPropertySchema(objectId, typeName);
+				const std::string enableProp = componentEnableProperty(schema);
 				// remember where the header's line ends so the small remove
-				// button can overlap its right edge
+				// button (and the enable toggle) can overlap its right edge
 				const float headerRight = ImGui::GetCursorPosX() +
 					ImGui::GetContentRegionAvail().x;
+				// clean display title (no "Component" suffix); the "###" keeps
+				// the header ID = raw type name, so its persisted collapse state
+				// is stable regardless of the display text
+				const std::string headerLabel =
+					Orkige::prettifyComponentTitle(typeName) + "###" + typeName;
 				const bool headerOpen = ImGui::CollapsingHeader(
-					typeName.c_str(), ImGuiTreeNodeFlags_DefaultOpen |
+					headerLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen |
 					ImGuiTreeNodeFlags_AllowOverlap);
+				ImGui::SetItemTooltip("%s", typeName.c_str()); // raw name, honest
 				// remove affordances: a small x on the header + context menu.
 				// Removal is blocked while another attached component depends
 				// on this one (honest check against the addDependency info).
@@ -1840,6 +2069,29 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 				{
 					ImGui::SetItemTooltip("Remove Component");
 				}
+				// the enable toggle (where the component exposes one): a small
+				// recessed checkbox on the header, left of the remove control,
+				// bound to the reflected "enabled" property through the same
+				// undoable edit path as the body fields
+				if (!enableProp.empty())
+				{
+					std::string enabledValue;
+					if (core.getObjectProperty(objectId, typeName, enableProp,
+						enabledValue))
+					{
+						bool enabled = (enabledValue == "1");
+						const float boxWidth = ImGui::GetFrameHeight();
+						ImGui::SameLine(headerRight - removeButtonWidth -
+							ImGui::GetStyle().ItemInnerSpacing.x - boxWidth);
+						if (Orkige::compactCheckbox("##enabled", &enabled))
+						{
+							core.applyPropertyChange(objectId, typeName,
+								enableProp, enabledValue, enabled ? "1" : "0",
+								core.beginMergeSession());
+						}
+						ImGui::SetItemTooltip("Enabled");
+					}
+				}
 				if (removedNow || !gameObject->hasComponent(componentType))
 				{
 					ImGui::PopID();
@@ -1851,15 +2103,18 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 					continue;
 				}
 				// AUTO Inspector: render this component's editable properties
-				// off its reflection schema - no per-component
+				// off its reflection schema (label left / value right), skipping
+				// the enable toggle the header already hosts - no per-component
 				// code, no dynamic_cast dispatch
-				drawComponentProperties(state, core, objectId, componentType);
+				drawComponentProperties(state, core, objectId, typeName, schema,
+					enableProp);
 				ImGui::PopID();
 			}
-			ImGui::PopStyleColor(3); // neutral component headers
+			ImGui::PopStyleColor(3); // component header bars
 			ImGui::Separator();
 			drawAddComponentButton(state, core, gameObject);
 		}
+		ImGui::PopStyleColor(3); // inspector button shade
 	}
 	ImGui::End();
 }

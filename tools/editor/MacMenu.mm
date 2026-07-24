@@ -40,6 +40,8 @@ namespace
 		TAG_VIEW_SETTINGS,
 		TAG_ABOUT,
 		TAG_HELP_PORTAL,			//!< Help > Orkige Help (the doc portal)
+		TAG_ROTATION_EULER,			//!< View > Rotation Display > Euler Angles
+		TAG_ROTATION_QUAT,			//!< View > Rotation Display > Quaternion
 		TAG_PANEL_BASE = 100
 	};
 
@@ -67,6 +69,15 @@ namespace
 			const bool nowVisible = ([sender state] != NSControlStateValueOn);
 			gActions.setPanelVisible(
 				static_cast<int>(tag - TAG_PANEL_BASE), nowVisible);
+		}
+		return;
+	}
+	if (tag == TAG_ROTATION_EULER || tag == TAG_ROTATION_QUAT)
+	{
+		// the checkmarks are refreshed by macMenuUpdate from the applied setting
+		if (gActions.setRotationDisplay)
+		{
+			gActions.setRotationDisplay(tag == TAG_ROTATION_EULER);
 		}
 		return;
 	}
@@ -191,6 +202,8 @@ namespace
 	NSMenu* gOpenRecentProjectMenu = nil;
 	NSMenu* gToolsMenu = nil;			//!< Tools > editor scripts (dynamic)
 	NSMenuItem* gPanelItems[Orkige::PANEL_COUNT] = {};
+	NSMenuItem* gRotationEulerItem = nil;	//!< View > Rotation Display > Euler
+	NSMenuItem* gRotationQuatItem = nil;	//!< View > Rotation Display > Quaternion
 
 	//! find (by title) or create+insert a top-level menu. SDL pre-creates the
 	//! app, Window and View menus - reusing by title keeps its items (e.g.
@@ -477,6 +490,20 @@ namespace Orkige
 		}
 		addItem(viewMenu, @"Reset Layout", TAG_RESET_LAYOUT, @"", 0);
 		[viewMenu addItem:[NSMenuItem separatorItem]];
+		// Rotation Display: how the Inspector shows rotation (Quat) properties
+		NSMenuItem* rotationItem = [[NSMenuItem alloc]
+			initWithTitle:@"Rotation Display" action:nil keyEquivalent:@""];
+		NSMenu* rotationMenu =
+			[[NSMenu alloc] initWithTitle:@"Rotation Display"];
+		[rotationItem setSubmenu:rotationMenu];
+		[viewMenu addItem:rotationItem];
+		gRotationEulerItem =
+			addItem(rotationMenu, @"Euler Angles", TAG_ROTATION_EULER, @"", 0);
+		gRotationQuatItem =
+			addItem(rotationMenu, @"Quaternion", TAG_ROTATION_QUAT, @"", 0);
+		[gRotationEulerItem setState:NSControlStateValueOn];
+		[gRotationQuatItem setState:NSControlStateValueOff];
+		[viewMenu addItem:[NSMenuItem separatorItem]];
 		addItem(viewMenu, @"View Settings…", TAG_VIEW_SETTINGS, @"", 0);
 
 		NSMenu* helpMenu = ensureTopLevelMenu(@"Help");
@@ -519,6 +546,14 @@ namespace Orkige
 				[gPanelItems[panel] setState:status.panelVisible[panel]
 					? NSControlStateValueOn : NSControlStateValueOff];
 			}
+		}
+		if (gRotationEulerItem &&
+			status.rotationAsEuler != gStatus.rotationAsEuler)
+		{
+			[gRotationEulerItem setState:status.rotationAsEuler
+				? NSControlStateValueOn : NSControlStateValueOff];
+			[gRotationQuatItem setState:status.rotationAsEuler
+				? NSControlStateValueOff : NSControlStateValueOn];
 		}
 		if (status.recentScenes != gStatus.recentScenes)
 		{

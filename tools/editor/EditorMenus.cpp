@@ -482,6 +482,24 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			ImGui::Separator();
 			settingsChanged |=
 				drawViewSettingsWidgets(viewSettings, sceneCamera);
+			// how the Inspector shows rotation (Quat) properties: Euler X/Y/Z
+			// degrees (default) or the raw quaternion. Same global setting the
+			// per-row right-click chooser flips.
+			if (ImGui::BeginMenu("Rotation Display"))
+			{
+				const bool euler = viewSettings.rotationAsEuler;
+				if (ImGui::MenuItem("Euler Angles", nullptr, euler))
+				{
+					viewSettings.rotationAsEuler = true;
+					settingsChanged = true;
+				}
+				if (ImGui::MenuItem("Quaternion", nullptr, !euler))
+				{
+					viewSettings.rotationAsEuler = false;
+					settingsChanged = true;
+				}
+				ImGui::EndMenu();
+			}
 			if (settingsChanged)
 			{
 				viewSettings.save();
@@ -822,6 +840,13 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	// it - the human flips between the 3D scene and the UI screen)
 	ImGui::DockBuilderDockWindow("GuiPreview", centerId);
 	ImGui::DockBuilderFinish(dockspaceId);
+	// the Asset Browser is the default-selected tab of the bottom node (Console
+	// docks first and would otherwise be the initial selection); the Tile
+	// Palette is 2D-only and never a tab here on a fresh 3D-mode boot
+	if (ImGuiDockNode* bottomNode = ImGui::DockBuilderGetNode(bottomId))
+	{
+		bottomNode->SelectedTabId = ImGui::GetID("Assets###Assets");
+	}
 }
 
 void dockPreviewBesideSceneOnce(const char* panelWindowName, bool& attempted)

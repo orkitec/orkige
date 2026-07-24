@@ -79,6 +79,9 @@ namespace Orkige
 		std::function<void(int panel, bool visible)> setPanelVisible;
 		std::function<void()> resetLayout;
 		std::function<void()> viewSettings;
+		//! View > Rotation Display: show Inspector rotations as Euler (true) or
+		//! the raw quaternion (false)
+		std::function<void(bool euler)> setRotationDisplay;
 		// Help
 		//! Help > Orkige Help: the published documentation site
 		std::function<void()> helpPortal;
@@ -102,6 +105,8 @@ namespace Orkige
 		//! Close Prefab enables (mirrors the ImGui menu gating)
 		bool prefabEditActive = false;
 		std::string saveLabel = "Save Scene";	//!< "Save Prefab" while staged
+		//! View > Rotation Display checkmark: Euler (true) vs Quaternion (false)
+		bool rotationAsEuler = true;
 		bool panelVisible[PANEL_COUNT] = {
 #define ORKIGE_EDITOR_PANEL_DEFAULT(id, label, visible, member) visible,
 			ORKIGE_EDITOR_PANEL_LIST(ORKIGE_EDITOR_PANEL_DEFAULT)

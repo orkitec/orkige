@@ -471,10 +471,11 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 	// relative to its parent); the undoable command stores LOCAL values
 	Orkige::EditorTransform current;
 	Orkige::EditorTransform currentLocal;
-	// Select and Paint show no transform gizmo (Paint consumes clicks for grid
-	// painting; the pick path is bypassed for both)
+	// Select, Paint and Hand show no transform gizmo (Paint consumes clicks for
+	// grid painting; Hand pans the camera; the pick path is bypassed for all)
 	if (tool == Orkige::EditorTool::Select ||
-		tool == Orkige::EditorTool::Paint || !core.hasSelection() ||
+		tool == Orkige::EditorTool::Paint ||
+		tool == Orkige::EditorTool::Hand || !core.hasSelection() ||
 		!core.getObjectWorldTransform(core.getSelectedObjectId(), current) ||
 		!core.getObjectTransform(core.getSelectedObjectId(), currentLocal))
 	{
@@ -742,11 +743,21 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				paintOwnsMouse = handleScenePaintInput(state, core,
 					sceneTarget.camera, rectMin, avail, editMode, viewSettings);
 			}
+			// Hand tool (or a held Space) turns left-drag into a grab-the-world
+			// camera pan; picking/marquee stand down while it is engaged, and
+			// the cursor reads as a hand over the viewport
+			const bool handMode =
+				(core.getActiveTool() == Orkige::EditorTool::Hand) ||
+				ImGui::IsKeyDown(ImGuiKey_Space);
+			if (handMode && state.scenePanelHovered)
+			{
+				ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+			}
 			if (state.scenePanelHovered && !gizmoOwnsMouse &&
 				!viewGizmoOwnsMouse)
 			{
 				// Alt+left starts an orbit drag, a plain left click picks
-				if (!paintOwnsMouse &&
+				if (!paintOwnsMouse && !handMode &&
 					ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt)
 				{
 					// a scene click that reaches here is NOT a paint stroke
@@ -823,6 +834,14 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				{
 					state.panActive = true;
 				}
+				// Hand tool / Space: left-drag pans (Alt+left still orbits)
+				if (handMode &&
+					ImGui::IsMouseDown(ImGuiMouseButton_Left) && !io.KeyAlt &&
+					!state.flyActive && !state.orbitActive &&
+					!state.panActive && !state.handPanActive)
+				{
+					state.handPanActive = true;
+				}
 			}
 			// fly/orbit/pan keep going while their button is held, even when
 			// the cursor leaves the panel mid-drag.
@@ -894,6 +913,31 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 						-85.0f, 85.0f);
 				}
 			}
+			// slide the orbit target along the camera plane; the factor scales
+			// with distance so a point of mouse travel moves the scene about the
+			// same visual amount. Shared by the middle-drag pan and the Hand-tool
+			// / Space left-drag pan.
+			auto applyPanDelta = [&]()
+			{
+				const float panScale = state.camera.distance * 0.003f;
+				if (viewSettings.editor2D)
+				{
+					// 2D: the view is axis-aligned (screen right = world +X,
+					// screen up = world +Y), so pan the target directly in the
+					// XY plane - never through the node orientation, which may
+					// still be the orbit pose on the transition frame
+					state.camera.target += Orkige::Vec3(
+						-io.MouseDelta.x / contentScale * panScale,
+						io.MouseDelta.y / contentScale * panScale, 0.0f);
+				}
+				else
+				{
+					state.camera.target += cameraNode->getOrientation() *
+						Orkige::Vec3(
+							-io.MouseDelta.x / contentScale * panScale,
+							io.MouseDelta.y / contentScale * panScale, 0.0f);
+				}
+			};
 			if (state.panActive)
 			{
 				if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle))
@@ -903,28 +947,21 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				}
 				else if (state.panDragGate.update(true))
 				{
-					// slide the orbit target along the camera plane; the
-					// factor scales with distance so a point of mouse travel
-					// moves the scene about the same visual amount
-					const float panScale = state.camera.distance * 0.003f;
-					if (viewSettings.editor2D)
-					{
-						// 2D: the view is axis-aligned (screen right = world +X,
-						// screen up = world +Y), so pan the target directly in
-						// the XY plane - never through the node orientation,
-						// which may still be the orbit pose on the transition
-						// frame
-						state.camera.target += Orkige::Vec3(
-							-io.MouseDelta.x / contentScale * panScale,
-							io.MouseDelta.y / contentScale * panScale, 0.0f);
-					}
-					else
-					{
-						state.camera.target += cameraNode->getOrientation() *
-							Orkige::Vec3(
-								-io.MouseDelta.x / contentScale * panScale,
-								io.MouseDelta.y / contentScale * panScale, 0.0f);
-					}
+					applyPanDelta();
+				}
+			}
+			if (state.handPanActive)
+			{
+				// grab-the-world pan on the LEFT button while the Hand tool /
+				// Space engages it; ends when the button (or the mode) releases
+				if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+				{
+					state.handPanActive = false;
+					state.handPanDragGate.update(false);
+				}
+				else if (state.handPanDragGate.update(true))
+				{
+					applyPanDelta();
 				}
 			}
 			// marquee (rubber-band) box select: continues while the left

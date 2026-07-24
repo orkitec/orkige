@@ -149,6 +149,12 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 		{
 			core.setActiveTool(Orkige::EditorTool::Scale);
 		}
+		// H is the grab-the-world Hand (pan) tool; a momentary Space-drag pans
+		// too (handled in the Scene panel) without changing the active tool
+		if (ImGui::IsKeyPressed(ImGuiKey_H, false))
+		{
+			core.setActiveTool(Orkige::EditorTool::Hand);
+		}
 		// B arms the 2D grid-paint tool - only meaningful once a prefab is
 		// armed in the Tile Palette (a no-op otherwise)
 		if (ImGui::IsKeyPressed(ImGuiKey_B, false) &&

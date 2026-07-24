@@ -3,6 +3,7 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 #include "EditorTheme.h"
+#include "IconsFontAwesome6.h"
 
 #include <imgui_internal.h> // SeparatorEx (the vertical toolbar separators)
 
@@ -13,6 +14,93 @@
 // the main menu bar, above the dockspace) carrying Play/Pause(Resume)/Step/
 // Stop with state-appropriate enabling plus a session status line. Returns
 // the height the dockspace below must leave free.
+
+namespace
+{
+	//! transport-icon kinds drawn as vector primitives inside the button (the
+	//! loaded UI font need not carry media-glyph codepoints)
+	enum class TransportIcon { Play, Stop, Pause, Step };
+
+	//! a toolbar button carrying a small drawn icon PLUS its text label
+	bool transportButton(char const* label, TransportIcon icon)
+	{
+		ImGuiStyle const & style = ImGui::GetStyle();
+		const float iconSide = ImGui::GetFontSize() * 0.62f;
+		ImVec2 const textSize = ImGui::CalcTextSize(label);
+		ImVec2 const size(
+			style.FramePadding.x * 2.0f + iconSide +
+				style.ItemInnerSpacing.x + textSize.x,
+			0.0f);
+		ImVec2 const origin = ImGui::GetCursorScreenPos();
+		const bool pressed = ImGui::Button(label, size);
+		// paint over the button: icon at the left inside the padding, the
+		// label shifted right (the Button drew the label centred - cover the
+		// frame interior with the frame colour first, then draw both parts)
+		ImDrawList* draw = ImGui::GetWindowDrawList();
+		ImVec2 const min = origin;
+		ImVec2 const max = ImGui::GetItemRectMax();
+		ImU32 const frameColour = ImGui::GetColorU32(
+			ImGui::IsItemActive() ? ImGuiCol_ButtonActive :
+			ImGui::IsItemHovered() ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
+		draw->AddRectFilled(
+			ImVec2(min.x + 1.0f, min.y + 1.0f),
+			ImVec2(max.x - 1.0f, max.y - 1.0f),
+			frameColour, style.FrameRounding);
+		ImU32 const textColour = ImGui::GetColorU32(ImGuiCol_Text);
+		const float iconLeft = min.x + style.FramePadding.x;
+		const float iconTop = min.y + (max.y - min.y - iconSide) * 0.5f;
+		switch (icon)
+		{
+		case TransportIcon::Play:
+			draw->AddTriangleFilled(
+				ImVec2(iconLeft, iconTop),
+				ImVec2(iconLeft, iconTop + iconSide),
+				ImVec2(iconLeft + iconSide, iconTop + iconSide * 0.5f),
+				textColour);
+			break;
+		case TransportIcon::Stop:
+			draw->AddRectFilled(
+				ImVec2(iconLeft + 0.5f, iconTop + 0.5f),
+				ImVec2(iconLeft + iconSide - 0.5f, iconTop + iconSide - 0.5f),
+				textColour, 1.0f);
+			break;
+		case TransportIcon::Pause:
+		{
+			const float barWidth = iconSide * 0.32f;
+			draw->AddRectFilled(
+				ImVec2(iconLeft, iconTop),
+				ImVec2(iconLeft + barWidth, iconTop + iconSide),
+				textColour, 1.0f);
+			draw->AddRectFilled(
+				ImVec2(iconLeft + iconSide - barWidth, iconTop),
+				ImVec2(iconLeft + iconSide, iconTop + iconSide),
+				textColour, 1.0f);
+			break;
+		}
+		case TransportIcon::Step:
+		{
+			const float barWidth = iconSide * 0.28f;
+			draw->AddTriangleFilled(
+				ImVec2(iconLeft, iconTop),
+				ImVec2(iconLeft, iconTop + iconSide),
+				ImVec2(iconLeft + iconSide - barWidth - 1.5f,
+					iconTop + iconSide * 0.5f),
+				textColour);
+			draw->AddRectFilled(
+				ImVec2(iconLeft + iconSide - barWidth, iconTop),
+				ImVec2(iconLeft + iconSide, iconTop + iconSide),
+				textColour, 1.0f);
+			break;
+		}
+		}
+		draw->AddText(
+			ImVec2(iconLeft + iconSide + style.ItemInnerSpacing.x,
+				min.y + (max.y - min.y - textSize.y) * 0.5f),
+			textColour, label);
+		return pressed;
+	}
+}
+
 float drawToolbar(EditorState& state, PlaySession& session,
 	Orkige::EditorCore& core)
 {
@@ -22,6 +110,9 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		ImGui::GetStyle().WindowPadding.y * 2.0f;
 	ImGui::SetNextWindowPos(mainViewport->WorkPos);
 	ImGui::SetNextWindowSize(ImVec2(mainViewport->WorkSize.x, toolbarHeight));
+	// the toolbar is CHROME, not a tabbed panel - it keeps the darker strip
+	// colour while panel bodies carry the brighter tab-matched surface
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, Orkige::editorChromeBackground());
 	if (ImGui::Begin("##PlayToolbar", nullptr,
 		ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
 		ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
@@ -276,8 +367,18 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		}
 		ImGui::EndDisabled();
 		ImGui::SameLine();
-		ImGui::BeginDisabled(mode != PlaySession::Mode::Edit || prefabMode);
-		if (ImGui::Button("Play"))
+		// ONE slot for Play/Stop: in edit mode it starts a session; while a
+		// session runs the same button IS the stop control
+		if (mode != PlaySession::Mode::Edit)
+		{
+			ImGui::BeginDisabled(mode == PlaySession::Mode::Stopping);
+			if (transportButton("Stop", TransportIcon::Stop))
+			{
+				requestStopPlay(session);
+			}
+			ImGui::EndDisabled();
+		}
+		else if (ImGui::BeginDisabled(prefabMode), transportButton("Play", TransportIcon::Play))
 		{
 			if (!session.iosDeviceUdid.empty())
 			{
@@ -303,11 +404,14 @@ float drawToolbar(EditorState& state, PlaySession& session,
 				startPlay(session, gameObjectManager, state.project);
 			}
 		}
-		ImGui::EndDisabled();
+		if (mode == PlaySession::Mode::Edit)
+		{
+			ImGui::EndDisabled();
+		}
 		ImGui::SameLine();
 		if (mode == PlaySession::Mode::Paused)
 		{
-			if (ImGui::Button("Resume"))
+			if (transportButton("Resume", TransportIcon::Play))
 			{
 				session.client.send(
 					Orkige::DebugMessage(Protocol::MSG_RESUME));
@@ -317,7 +421,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		else
 		{
 			ImGui::BeginDisabled(mode != PlaySession::Mode::Playing);
-			if (ImGui::Button("Pause"))
+			if (transportButton("Pause", TransportIcon::Pause))
 			{
 				session.client.send(Orkige::DebugMessage(Protocol::MSG_PAUSE));
 				session.mode = PlaySession::Mode::Paused;
@@ -326,17 +430,9 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		}
 		ImGui::SameLine();
 		ImGui::BeginDisabled(mode != PlaySession::Mode::Paused);
-		if (ImGui::Button("Step"))
+		if (transportButton("Step", TransportIcon::Step))
 		{
 			session.client.send(Orkige::DebugMessage(Protocol::MSG_STEP));
-		}
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		ImGui::BeginDisabled(!session.isActive() ||
-			mode == PlaySession::Mode::Stopping);
-		if (ImGui::Button("Stop"))
-		{
-			requestStopPlay(session);
 		}
 		ImGui::EndDisabled();
 		ImGui::SameLine();
@@ -345,7 +441,11 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		// the tool strip: Q/W/E/R, world/local space, snap toggle - the
 		// buttons call the exact functions the keyboard shortcuts invoke
 		ImGui::BeginDisabled(session.isActive());
-		auto toolButton = [&core](char const* label, Orkige::EditorTool tool)
+		// each tool button shows an FA glyph (falling back to its shortcut
+		// letter when the icon font is unavailable) and a "<Name> (<Key>)"
+		// tooltip - the letter is the keyboard shortcut, always named
+		auto toolButton = [&core](char const* glyph, char const* letter,
+			char const* name, Orkige::EditorTool tool)
 		{
 			const bool active = (core.getActiveTool() == tool);
 			if (active)
@@ -353,20 +453,27 @@ float drawToolbar(EditorState& state, PlaySession& session,
 				ImGui::PushStyleColor(ImGuiCol_Button,
 					ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
 			}
-			if (ImGui::Button(label))
+			ImGui::PushID(letter);
+			if (ImGui::Button(Orkige::editorIconFont() ? glyph : letter))
 			{
 				core.setActiveTool(tool);
 			}
+			ImGui::PopID();
 			if (active)
 			{
 				ImGui::PopStyleColor();
 			}
+			ImGui::SetItemTooltip("%s (%s)", name, letter);
 			ImGui::SameLine();
 		};
-		toolButton("Q", Orkige::EditorTool::Select);
-		toolButton("W", Orkige::EditorTool::Translate);
-		toolButton("E", Orkige::EditorTool::Rotate);
-		toolButton("R", Orkige::EditorTool::Scale);
+		toolButton(ICON_FA_ARROW_POINTER, "Q", "Select",
+			Orkige::EditorTool::Select);
+		toolButton(ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, "W", "Translate",
+			Orkige::EditorTool::Translate);
+		toolButton(ICON_FA_ROTATE, "E", "Rotate", Orkige::EditorTool::Rotate);
+		toolButton(ICON_FA_UP_RIGHT_AND_DOWN_LEFT_FROM_CENTER, "R", "Scale",
+			Orkige::EditorTool::Scale);
+		toolButton(ICON_FA_HAND, "H", "Hand", Orkige::EditorTool::Hand);
 		// Paint (B): 2D grid painting, usable once a prefab is armed in the
 		// Tile Palette - the button greys out until then (and while a prefab
 		// stage is open: paint places ROOT-level grid objects, incompatible
@@ -382,17 +489,20 @@ float drawToolbar(EditorState& state, PlaySession& session,
 				ImGui::PushStyleColor(ImGuiCol_Button,
 					ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
 			}
-			if (ImGui::Button("B"))
+			ImGui::PushID("B");
+			if (ImGui::Button(Orkige::editorIconFont()
+				? ICON_FA_PAINTBRUSH : "B"))
 			{
 				core.setActiveTool(Orkige::EditorTool::Paint);
 			}
+			ImGui::PopID();
 			if (active)
 			{
 				ImGui::PopStyleColor();
 			}
 			ImGui::EndDisabled();
-			ImGui::SetItemTooltip(armed ? "paint prefab on the grid (2D)"
-				: "paint prefab (arm one in the Tile Palette)");
+			ImGui::SetItemTooltip(armed ? "Paint (B) - paint on the grid (2D)"
+				: "Paint (B) - arm a tile in the Tile Palette first");
 			ImGui::SameLine();
 		}
 		if (ImGui::Button(core.getTransformSpace() ==
@@ -562,5 +672,6 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		}
 	}
 	ImGui::End();
+	ImGui::PopStyleColor();	// chrome WindowBg
 	return toolbarHeight;
 }
