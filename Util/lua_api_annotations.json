@@ -100,6 +100,14 @@
 		"sig": "(path)",
 		"doc": "deferred scene switch at the next frame boundary"
 	},
+	"world.spawn": {
+		"sig": "(prefabRef, id) -> bool",
+		"doc": "instantiate a .oprefab (project-relative ref) as a NEW object under id; false + error log on a taken id / missing file (reach it via world.get(id))"
+	},
+	"world.despawn": {
+		"sig": "(id) -> bool",
+		"doc": "queue an object for deletion at the next world update (safe mid-script, incl. the caller's own object)"
+	},
 	"world.findByTag": {
 		"sig": "(tag) -> {GameObject}",
 		"doc": "array of live objects carrying the tag"

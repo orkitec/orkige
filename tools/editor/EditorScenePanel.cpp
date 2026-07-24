@@ -640,7 +640,40 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 		}
 		ImGui::Spacing();
 	}
-	if (open)
+	if (open && gPlaySession != nullptr && gPlaySession->isActive() &&
+		gPlaySession->mirrorDocument)
+	{
+		// mirror-document banner: a mid-play scene switch swapped the Scene
+		// view to a view-only load of the RUNNING scene - say so unmissably
+		// (the authored document returns on Stop; editing stays routed to the
+		// remote panels like in every play session)
+		ImGui::Spacing();
+		ImGui::SameLine(0.0f, 6.0f);
+		ImGui::Text("Viewing running scene: %s",
+			gPlaySession->mirrorSceneName.c_str());
+		ImGui::SameLine();
+		ImGui::TextDisabled("(view only - the authored scene returns on Stop)");
+		ImGui::Spacing();
+	}
+	// the play-mode contract: the Scene view either MIRRORS the running game
+	// or goes dark with one honest line - never a silently stale scene. This
+	// is the dark half: the game switched to a scene the editor could not
+	// load for viewing, so instead of showing the frozen authored scene the
+	// viewport blanks until Stop (or the next switch the editor CAN follow).
+	const bool mirrorUnavailable = open && gPlaySession != nullptr &&
+		gPlaySession->isActive() && gPlaySession->mirrorSwapFailed;
+	if (mirrorUnavailable)
+	{
+		const ImVec2 avail = ImGui::GetContentRegionAvail();
+		const char* const notice = "Scene preview not available during play";
+		const ImVec2 textSize = ImGui::CalcTextSize(notice);
+		ImGui::SetCursorPos(ImVec2(
+			ImGui::GetCursorPosX() + (avail.x - textSize.x) * 0.5f,
+			ImGui::GetCursorPosY() + (avail.y - textSize.y) * 0.5f));
+		ImGui::TextDisabled("%s", notice);
+		state.scenePanelHovered = false;
+	}
+	if (open && !mirrorUnavailable)
 	{
 		const ImVec2 avail = ImGui::GetContentRegionAvail();
 		state.scenePanelWidth = static_cast<int>(avail.x);

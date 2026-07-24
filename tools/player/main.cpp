@@ -342,7 +342,22 @@ bool PlayerContext::reloadSceneFrom(std::string const & newScenePath)
 			return false;
 		}
 	}
-	debugLink.onSceneReloaded();
+	// the editor learns the switch by its portable identity: project-relative
+	// when this run plays a project (the editor resolves it against ITS copy
+	// of the same files), the load path otherwise
+	{
+		std::string reportedScene = newScenePath;
+		if (this->project.isLoaded())
+		{
+			const std::string relative =
+				this->project.makeProjectRelative(newScenePath);
+			if (!relative.empty())
+			{
+				reportedScene = relative;
+			}
+		}
+		debugLink.onSceneReloaded(reportedScene);
+	}
 	// the old scene's subscriptions were cancelled as its ScriptInstances
 	// were destroyed above; flush any events it left on the engine bus so
 	// a stale emit (e.g. a last-frame physics contact) is never delivered

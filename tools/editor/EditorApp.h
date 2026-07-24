@@ -929,6 +929,30 @@ struct PlaySession
 	//! borrowed pointer (the editor holds exactly one GameObjectManager for its
 	//! whole life); null outside an active session.
 	Orkige::GameObjectManager* editorWorld = nullptr;
+	//! @brief the editor core (borrowed, set once at startup beside
+	//! gPlaySession): the mirror-document swap needs its scene lifecycle
+	//! (resetForScene, dirty flag, selection) - only ever used while a session
+	//! is active (editorWorld set)
+	Orkige::EditorCore* editorCore = nullptr;
+	//! @brief MIRROR DOCUMENT state (a mid-play scene switch): the running
+	//! game loaded another scene, so the editor's ONE world was swapped to a
+	//! VIEW-ONLY load of that scene file (no undo, never dirty, edit
+	//! affordances stay off as in every play session) and the AUTHORED
+	//! document was serialized aside to authoredSnapshotPath first (after an
+	//! exact mirror revert, so the snapshot holds authored truth). Stop/crash
+	//! reload the snapshot - the document-swap extension of the v1
+	//! exact-restore contract; a mid-play save writes the SNAPSHOT to the
+	//! scene file, never the mirror content (saveSceneToPath's guard).
+	bool mirrorDocument = false;
+	std::string mirrorScenePath;		//!< absolute path of the mirror scene
+	std::string mirrorSceneName;		//!< display name (project-relative)
+	std::string authoredSnapshotPath;	//!< temp .oscene of the authored doc
+	bool authoredSceneDirty = false;	//!< the authored doc's stashed dirty flag
+	Orkige::StringVector authoredSelection;	//!< stashed selection (best-effort)
+	//! a switch arrived but its scene file could not be resolved/loaded here
+	//! (e.g. a path outside this project) - the mirror stays dark for the
+	//! switched scene and spawn queries stand down until the next switch/stop
+	bool mirrorSwapFailed = false;
 	//! @brief the running-scene motion mirror: snapshots the authored transforms
 	//! + visibility once, drives the editorWorld nodes from the streamed
 	//! MSG_SCENE_TRANSFORMS / MSG_HIERARCHY, and restores them on session end.
@@ -1431,11 +1455,46 @@ void applyPlayMirrorTransforms(PlaySession& session,
 //! hierarchy (effective activeInHierarchy). A no-op without editorWorld.
 void applyPlayMirrorActive(PlaySession& session);
 
-//! @brief restore the editor world to its AUTHORED transforms + visibility and
-//! drop the mirror snapshot - the exact-restore path, called on session end
-//! (and before a manual save while playing so the document stays authored). A
-//! no-op when nothing is mirrored.
+//! @brief restore the editor world to its AUTHORED transforms + visibility,
+//! destroy every runtime-spawn mirror stand-in and drop the mirror snapshot -
+//! the exact-restore path, called on session end (and before a manual save
+//! while playing so the document stays authored). A no-op when nothing is
+//! mirrored.
 void revertPlayMirror(PlaySession& session);
+
+//! @brief the running game switched scenes mid-play (MSG_SCENE_LOADED, or a
+//! hello reporting a different scene): swap the editor's Scene view to a
+//! VIEW-ONLY load of that scene file - the authored document is serialized
+//! aside first (once per session, after an exact mirror revert) and restored
+//! by endPlaySession. scenePath is the player-reported identity
+//! (project-relative preferred); an unresolvable/unloadable file degrades
+//! honestly: the authored document stays, the mirror goes dark for the
+//! switched scene.
+void handleRemoteSceneLoaded(PlaySession& session,
+	std::string const& scenePath);
+
+//! @brief undo the mirror-document swap: reload the AUTHORED document from
+//! its snapshot (dirty flag + selection restored, snapshot file removed). A
+//! no-op when no swap happened. Called by endPlaySession after the mirror
+//! revert.
+void restoreAuthoredDocument(PlaySession& session);
+
+//! @brief ask the player to describe hierarchy ids the mirror cannot match
+//! (runtime-spawned objects) and prune stand-ins whose ids vanished - called
+//! on every received hierarchy. A no-op without a world / after a failed
+//! mirror-document swap.
+void updatePlayMirrorSpawns(PlaySession& session);
+
+//! @brief materialize mirror stand-ins from a MSG_SCENE_SPAWNS reply
+void applyPlayMirrorSpawns(PlaySession& session,
+	Orkige::DebugMessage const& message);
+
+//! @brief the mid-play save path while a mirror document holds the world:
+//! copy the authored snapshot to targetPath (the honest "save the AUTHORED
+//! scene" - the world holds the running scene's mirror content, which must
+//! never reach disk). False when no snapshot exists or the copy failed.
+bool saveAuthoredSnapshotTo(PlaySession& session,
+	std::string const& targetPath);
 
 //! @brief tear the session down (reap/kill the player, drop the link,
 //! delete the temp scene) and revert to edit mode - the single exit path

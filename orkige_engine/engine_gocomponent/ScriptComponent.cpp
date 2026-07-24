@@ -29,6 +29,7 @@
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
+#include <core_game/PrefabSerializer.h>
 #include <core_game/LevelComponent.h>
 #include <core_game/LevelManager.h>
 #include <core_game/SaveStore.h>
@@ -44,6 +45,8 @@
 #include <core_tween/TimerManager.h>
 #include <core_util/MusicFade.h>
 #include <core_game/PropertyTween.h>
+
+#include <filesystem>
 
 namespace Orkige
 {
@@ -825,6 +828,84 @@ namespace Orkige
 		});
 		runtime.registerHandleListAccessor("world", "findByTag",
 			&worldFindByTagWeak);
+		// world.spawn(prefabRef, id): instantiate a .oprefab subtree as a NEW
+		// runtime object under the given id, immediately (mid-update object
+		// creation is safe by the manager's cursor-adjusting update loop; a
+		// spawned ScriptComponent inits on the next world tick). The prefab
+		// reference resolves against the script search root - the open
+		// project's root, the same base ScriptComponent paths use - so game
+		// code spawns by the SAME project-relative reference scenes store.
+		// Returns true on success; a taken id, missing file or corrupt prefab
+		// logs an honest error and returns false (nothing half-created - the
+		// instantiate rolls its children back). Reach the new object through
+		// world.get(id) / the component accessors.
+		runtime.registerFunction("world", "spawn",
+			[](String const & prefabRef, String const & id) -> bool
+		{
+			GameObjectManager* manager = GameObjectManager::getSingletonPtr();
+			if(!manager)
+			{
+				EngineLogCapture::logError("world.spawn: no GameObjectManager");
+				return false;
+			}
+			if(prefabRef.empty() || id.empty())
+			{
+				EngineLogCapture::logError(
+					"world.spawn: prefab reference and id must be non-empty");
+				return false;
+			}
+			if(manager->objectExists(id))
+			{
+				EngineLogCapture::logError("world.spawn: id '" + id +
+					"' already exists");
+				return false;
+			}
+			// resolve like script paths: project-relative against the script
+			// search root first, then the reference as given
+			String prefabPath = prefabRef;
+			std::error_code ignored;
+			if(ScriptRuntime::getSingletonPtr())
+			{
+				String const & root =
+					ScriptRuntime::getSingleton().getScriptSearchRoot();
+				if(!root.empty() && !std::filesystem::exists(prefabPath, ignored))
+				{
+					prefabPath = root + "/" + prefabRef;
+				}
+			}
+			const PrefabSerializer::InstantiateResult result =
+				PrefabSerializer::instantiatePrefab(prefabPath, *manager, id,
+					StringVector());
+			if(result != PrefabSerializer::INSTANTIATE_OK)
+			{
+				// instantiatePrefab rolled partially-created children back but
+				// leaves the root for the caller - a failed spawn leaves nothing
+				if(manager->objectExists(id))
+				{
+					manager->delGameObject(id);
+				}
+				EngineLogCapture::logError("world.spawn: could not instantiate "
+					"prefab '" + prefabRef + "' as '" + id + "'" +
+					(result == PrefabSerializer::INSTANTIATE_FILE_MISSING
+						? " (file not found)" : " (see the log)"));
+				return false;
+			}
+			return true;
+		});
+		// world.despawn(id): QUEUE the object for deletion at the start of the
+		// next world update (never destroys mid-dispatch - the safe way for a
+		// script to remove any object, including its own). True when the id
+		// existed and was queued.
+		runtime.registerFunction("world", "despawn",
+			[](String const & id) -> bool
+		{
+			GameObjectManager* manager = GameObjectManager::getSingletonPtr();
+			if(!manager || !manager->objectExists(id))
+			{
+				return false;
+			}
+			return manager->queueDelGameObject(id);
+		});
 		// world.setTimeScale(s) / getTimeScale(): the gameplay time scale the
 		// player loop applies to the delta it feeds scripts, tweens and physics
 		// (1 = normal, 0.5 = slow motion, 0 = hitstop - the world freezes but

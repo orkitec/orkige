@@ -3796,6 +3796,106 @@ namespace Orkige
 		RenderBackend::noteWaterMaterialPlanarReflective(name, usePlanarReflection,
 			desc.planeHeightY, 0.0f, 0.0f);
 
+		// MIRROR RIPPLE: Ogre's native planar reflection samples the mirror at
+		// the fragment's FLAT screen-projected position - the ripple normal only
+		// gates the plane distance/facing, never the sample UV, so the reflected
+		// scene reads glassy no matter how the surface ripples (a flat-mirror
+		// design). The classic water program wobbles its mirror by perturbing the
+		// sample UV with the wave normal's horizontal slope (screenUv +
+		// swellNormal.xz - @see RenderSystemClassic WaterReflect_fs); to match
+		// that physical look, override the upstream DoPlanarReflectionsPS piece
+		// for THIS datablock so the planar UV rides the swell + detail-normal
+		// slope (a flat plane normal contributes 0 - calm water stays byte-stable)
+		// and widen the harsh 20-degree normal-tilt gate that would otherwise
+		// blank the mirror across wave crests. Custom PS pieces parse AFTER the
+		// library piece (@see Ogre::Hlms::compileShaderCode order), so this
+		// redefinition wins for the water shader only; the PixelShader piece slot
+		// is independent of the swell VS piece, so the two coexist. Off/
+		// unsupported clears the piece (the glassy sky-mirror look).
+		if(usePlanarReflection)
+		{
+			// the mirror-UV distortion scale (planar UV units per unit of
+			// horizontal ripple slope): calibrated so the mirrored scene wobbles
+			// at the classic water program's measured strength without smearing
+			// the reflection into noise. BAKED into the piece filename (like the
+			// swell amplitude) so filename-equality implies content-equality -
+			// Hlms throws when one custom-piece filename re-registers with
+			// different content, and a fixed constant makes every registration
+			// collision-free by construction.
+			// ORKIGE_WATER_FLAT_MIRROR: a diagnostic seam (like ORKIGE_DUMP_MIRROR)
+			// that zeroes the ripple perturbation so the planar mirror renders FLAT
+			// - the water_mirror_wobble gate captures the same frame with and
+			// without it and asserts the mirror region MOVES between them, a
+			// wall-clock-pacing-INDEPENDENT existence check (both frames sit at the
+			// identical wave phase, so only the perturbation differs; a mirror that
+			// stopped rippling makes the two frames identical).
+			float distort = 0.09f;
+			if(std::getenv("ORKIGE_WATER_FLAT_MIRROR")) distort = 0.0f;
+			char mirrorSource[2048];
+			std::snprintf(mirrorSource, sizeof(mirrorSource),
+				"@property( use_planar_reflections )\n"
+				"@piece( DoPlanarReflectionsPS )\n"
+				"\t@property( syntax == metal || lower_gpu_overhead )\n"
+				"\t\tushort planarReflectionIdx = inPs.planarReflectionIdx;\n"
+				"\t@else\n"
+				"\t\tuint planarReflectionIdx = worldMaterialIdx[inPs.drawId].w;\n"
+				"\t@end\n"
+				"\tfloat4 planarReflection = passBuf.planarReflections[planarReflectionIdx];\n"
+				"\tfloat distanceToPlanarReflPlane = dot( planarReflection.xyz, inPs.pos.xyz )\n"
+				"\t\t+ planarReflection.w;\n"
+				"\tfloat3 pointInPlane = inPs.pos.xyz - pixelData.normal * distanceToPlanarReflPlane;\n"
+				"\tfloat3 projPointInPlane = mul( float4( pointInPlane.xyz, 1.0 ),\n"
+				"\t\tpassBuf.planarReflProjectionMat ).xyw;\n"
+				"\tfloat2 planarReflUVs = projPointInPlane.xy / projPointInPlane.z;\n"
+				// ORKIGE ripple: the wave normal's horizontal slope (x/z of the
+				// world normal - 0 on the flat plane, so calm water is unchanged)
+				// shifts the mirror sample UV, the analog of the classic
+				// program's screenUv + swellNormal.xz perturbation
+				"\tplanarReflUVs.xy += float2( pixelData.normal.x, pixelData.normal.z )\n"
+				"\t\t* %.5ff;\n"
+				"\tfloat3 planarReflectionS = OGRE_SampleLevel( planarReflectionTex,\n"
+				"\t\tplanarReflectionSampler, planarReflUVs.xy,\n"
+				"\t\tpixelData.perceptualRoughness * passBuf.planarReflNumMips ).xyz;\n"
+				"\tfloat planarWeight = max( 1.0 - abs( distanceToPlanarReflPlane )\n"
+				"\t\t* passBuf.invMaxDistanceToPlanarRefl.x, 0.0 );\n"
+				"\tplanarWeight = sqrt( planarWeight );\n"
+				"\tplanarWeight = smoothstep( 0.0, 1.0, planarWeight );\n"
+				"\tfloat2 boundary = abs( planarReflUVs.xy - float2(0.5, 0.5) ) * 2.0;\n"
+				"\tfloat fadeOnBorder = 1.0 - saturate( (boundary.x - 0.975) * 40 );\n"
+				"\tfadeOnBorder *= 1.0 - saturate( (boundary.y - 0.975) * 40 );\n"
+				"\tfadeOnBorder = smoothstep( 0.0, 1.0, fadeOnBorder );\n"
+				"\tplanarWeight *= lerp( fadeOnBorder, 1.0,\n"
+				"\t\t1.0 - min( abs(distanceToPlanarReflPlane) * 1000.0, 1.0 ) );\n"
+				// ORKIGE: the upstream 20-degree tilt gate (dot*16.58-15.58)
+				// zeroes the mirror where the ripple normal tilts past tolerance,
+				// blanking the reflection across every wave crest; the classic
+				// mirror has no such gate, so widen it to a gentle grazing rolloff
+				// (fades only past ~60 degrees) - the water plane stays near-
+				// horizontal and ripples only tilt it a little
+				"\tplanarWeight *= saturate( dot( planarReflection.xyz,\n"
+				"\t\tpixelData.normal.xyz ) * 2.0 - 1.0 );\n"
+				"\t@property( hlms_use_ssr || vct_num_probes || ((envprobe_map &&\n"
+				"\t\tenvprobe_map != target_envprobe_map) || parallax_correct_cubemaps) )\n"
+				"\t\tpixelData.envColourS = lerp( pixelData.envColourS,\n"
+				"\t\t\tplanarReflectionS, planarWeight );\n"
+				"\t@else\n"
+				"\t\tpixelData.envColourS += planarReflectionS * planarWeight;\n"
+				"\t@end\n"
+				"@end\n"
+				"@end\n",
+				distort);
+			char mirrorTag[48];
+			std::snprintf(mirrorTag, sizeof(mirrorTag),
+				"_mirror_%.5f_piece_ps.any", distort);
+			datablock->setCustomPieceCodeFromMemory(name + mirrorTag, mirrorSource,
+				Ogre::CustomPieceStage::PixelShader);
+		}
+		else
+		{
+			datablock->setCustomPieceCodeFromMemory(String(), String(),
+				Ogre::CustomPieceStage::PixelShader);
+		}
+
 		// TWO detail normal maps carry the ripple: same tiling water normal,
 		// bound to both detail slots and scrolled in different directions/
 		// speeds by setWaterDatablockTime so their interference reads as moving

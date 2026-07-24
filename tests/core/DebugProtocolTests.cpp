@@ -228,6 +228,46 @@ TEST_CASE("DebugMessage round-trips every protocol message type", "[debugnet]")
 		CHECK(out.getList(Protocol::LIST_TRANSFORMS)[0] ==
 			"0 4.87 0 1 0 0 0 1 1 1");
 	}
+	SECTION("scene_loaded (mid-play scene switch notice)")
+	{
+		DebugMessage loaded(Protocol::MSG_SCENE_LOADED);
+		loaded.set(Protocol::FIELD_SCENE, "scenes/second.oscene");
+		const DebugMessage out = roundTrip(loaded);
+		CHECK(out.type == "scene_loaded");
+		CHECK(out.get(Protocol::FIELD_SCENE) == "scenes/second.oscene");
+	}
+	SECTION("query_spawns / scene_spawns (runtime-spawn descriptors)")
+	{
+		DebugMessage query(Protocol::MSG_QUERY_SPAWNS);
+		query.setList(Protocol::LIST_IDS, { "RuntimeProbe" });
+		const DebugMessage queryOut = roundTrip(query);
+		CHECK(queryOut.type == "query_spawns");
+		REQUIRE(queryOut.getList(Protocol::LIST_IDS).size() == 1);
+
+		DebugMessage spawns(Protocol::MSG_SCENE_SPAWNS);
+		spawns.setList(Protocol::LIST_IDS, { "RuntimeProbe" });
+		spawns.setList(Protocol::LIST_PARENTS, { "" });
+		spawns.setList(Protocol::LIST_COMPONENTS,
+			{ "TransformComponent ModelComponent" });
+		// the flat per-property quintuple (object by INDEX into LIST_IDS; the
+		// value list is its own list, so no value ever needs escaping)
+		spawns.setList(Protocol::LIST_SPAWN_OBJECTS, { "0", "0" });
+		spawns.setList(Protocol::LIST_PROP_KEYS,
+			{ "TransformComponent.position", "ModelComponent.mesh" });
+		spawns.setList(Protocol::LIST_SPAWN_KINDS, { "5", "8" });
+		spawns.setList(Protocol::LIST_SPAWN_VALUES,
+			{ "0 1 0", "EditorCube.mesh" });
+		spawns.setList(Protocol::LIST_SPAWN_REFS, { "", "asset-id-9" });
+		const DebugMessage out = roundTrip(spawns);
+		CHECK(out.type == "scene_spawns");
+		REQUIRE(out.getList(Protocol::LIST_IDS).size() == 1);
+		CHECK(out.getList(Protocol::LIST_COMPONENTS)[0] ==
+			"TransformComponent ModelComponent");
+		REQUIRE(out.getList(Protocol::LIST_SPAWN_VALUES).size() == 2);
+		CHECK(out.getList(Protocol::LIST_SPAWN_VALUES)[1] ==
+			"EditorCube.mesh");
+		CHECK(out.getList(Protocol::LIST_SPAWN_REFS)[1] == "asset-id-9");
+	}
 }
 
 TEST_CASE("DebugMessage carries request-correlation and auth fields",

@@ -98,6 +98,7 @@
 #include <functional>	// the break-variant's filtered project copy
 #include <limits>		// the hot-reload playtest's NaN sentinel
 #include <mutex>
+#include <sstream>	// the mirror playtests' world-serialize byte compare
 #include <string>
 #include <vector>
 
@@ -206,6 +207,8 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_OPEN_SCENE") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIRROR_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_MIRROR_SPAWN_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_MIRROR_SWITCH_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_EXPORT_EXAMPLE") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_PROJECT_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr ||
@@ -672,6 +675,10 @@ int main(int argc, char** argv)
 		// mirror moves render nodes; a mid-play Cmd+S must still write authored
 		// poses - see saveSceneToPath / revertPlayMirror)
 		gPlaySession = &playSession;
+		// the mirror-document swap (a mid-play scene switch) drives the scene
+		// lifecycle through the core: a startup-lifetime borrow, only ever used
+		// while a session is active
+		playSession.editorCore = &editorCore;
 		// project export job (idle until Build > Build for <platform>)
 		ExportJob exportJob;
 		// Play-in-Browser static server: one loopback HttpServer instance for
@@ -1156,6 +1163,27 @@ int main(int argc, char** argv)
 		// restored to its authored pose EXACTLY. Exits non-zero on any miss.
 		const char* mirrorPlaytestEnv =
 			std::getenv("ORKIGE_EDITOR_MIRROR_PLAYTEST");
+
+		// ORKIGE_EDITOR_MIRROR_SPAWN_PLAYTEST=<project dir>: the mirror's
+		// runtime-SPAWN leg (the editor_play_mirror_spawn ctest). On a temp
+		// copy of the fixture project, Play a scene whose script spawns a
+		// moving object ("RuntimeProbe") mid-play: the editor world must gain
+		// a mirror stand-in that MOVES (without dirtying the document), lose
+		// it again when the script despawns it, and after Stop the authored
+		// scene must re-serialize BYTE-EXACTLY. Exits non-zero on any miss.
+		const char* mirrorSpawnPlaytestEnv =
+			std::getenv("ORKIGE_EDITOR_MIRROR_SPAWN_PLAYTEST");
+
+		// ORKIGE_EDITOR_MIRROR_SWITCH_PLAYTEST=<project dir>: the mirror's
+		// mid-play SCENE-SWITCH leg (the editor_play_mirror_switch ctest). On
+		// a temp copy of the fixture project, Play a scene whose script
+		// requests a deferred switch to scenes/second.oscene: the editor's
+		// Scene view must swap to a view-only mirror document of the second
+		// scene (session.mirrorDocument, the sentinel object present, the
+		// authored one gone, document untouched), and after Stop the authored
+		// document must be restored byte-exactly. Exits non-zero on any miss.
+		const char* mirrorSwitchPlaytestEnv =
+			std::getenv("ORKIGE_EDITOR_MIRROR_SWITCH_PLAYTEST");
 
 		// ORKIGE_EDITOR_EXPORT_EXAMPLE=path: fixture export (frame 20 below)
 		const char* exportExampleEnv =
@@ -1652,6 +1680,23 @@ int main(int argc, char** argv)
 		double mirrorAuthoredY = 0.0;
 		bool mirrorSawMotion = false;	//!< the mirror moved the node during play
 		const char* const MIRROR_CUBE_ID = "FallCube";
+
+		// runtime-spawn mirror run state (ORKIGE_EDITOR_MIRROR_SPAWN_PLAYTEST)
+		enum class MirrorSpawnPhase { Idle, WaitSpawn, WaitMove, WaitDespawn,
+			WaitRevert, Done };
+		MirrorSpawnPhase mirrorSpawnPhase = MirrorSpawnPhase::Idle;
+		std::chrono::steady_clock::time_point mirrorSpawnDeadline;
+		//! the authored document serialized before Play (the byte-exact
+		//! restore reference) and the stand-in's first observed x
+		std::string mirrorSpawnBaseline;
+		double mirrorSpawnFirstX = 0.0;
+
+		// scene-switch mirror run state (ORKIGE_EDITOR_MIRROR_SWITCH_PLAYTEST)
+		enum class MirrorSwitchPhase { Idle, WaitSwap, WaitRevert, Done };
+		MirrorSwitchPhase mirrorSwitchPhase = MirrorSwitchPhase::Idle;
+		std::chrono::steady_clock::time_point mirrorSwitchDeadline;
+		std::string mirrorSwitchBaseline;	//!< pre-play serialized document
+		std::string mirrorSwitchScenePath;	//!< the authored switch.oscene path
 
 		// safe-area device run state (ORKIGE_EDITOR_SAFEAREA_CHECK)
 		enum class SafeAreaPhase { Idle, WaitStream, WaitStop, Done };
@@ -7886,6 +7931,401 @@ int main(int argc, char** argv)
 				{
 					SDL_Log("orkige_editor: mirror playtest FAILED - %s",
 						mirrorFailure.c_str());
+					exitCode = 2;
+					running = false;
+				}
+			}
+
+			// --- scripted runtime-SPAWN mirror run -------------------------
+			// (ORKIGE_EDITOR_MIRROR_SPAWN_PLAYTEST) Play a project whose
+			// script spawns a moving object mid-play: the editor world must
+			// gain a mirror stand-in that moves (document untouched), lose it
+			// on the script's despawn, and re-serialize byte-exactly after
+			// Stop.
+			if (mirrorSpawnPlaytestEnv)
+			{
+				const std::chrono::steady_clock::time_point spawnNow =
+					std::chrono::steady_clock::now();
+				bool spawnFailed = false;
+				std::string spawnFailure;
+				// serialize the editor world to a string (the byte-exact
+				// restore comparison; SceneSerializer output is deterministic
+				// for identical worlds)
+				auto serializeWorld = [&](std::string& out) -> bool
+				{
+					const std::string tempPath =
+						(std::filesystem::temp_directory_path() /
+							("orkige_mirror_probe_" + std::to_string(
+								std::chrono::steady_clock::now()
+									.time_since_epoch().count()) +
+								".oscene")).string();
+					if (!Orkige::SceneSerializer::saveScene(tempPath,
+						gameObjectManager))
+					{
+						return false;
+					}
+					std::ifstream file(tempPath, std::ios::binary);
+					std::ostringstream bytes;
+					bytes << file.rdbuf();
+					out = bytes.str();
+					std::error_code ignored;
+					std::filesystem::remove(tempPath, ignored);
+					return !out.empty();
+				};
+				// the stand-in's local x (false when absent / transform-less)
+				auto probeX = [&](double& out) -> bool
+				{
+					optr<Orkige::GameObject> probe = gameObjectManager
+						.getGameObject("RuntimeProbe").lock();
+					if (!probe ||
+						!probe->hasComponent<Orkige::TransformComponent>())
+					{
+						return false;
+					}
+					out = probe->getComponentPtr<
+						Orkige::TransformComponent>()->getPosition().x;
+					return true;
+				};
+				if (mirrorSpawnPhase == MirrorSpawnPhase::Idle &&
+					frameCount == 10)
+				{
+					// temp COPY - the committed fixture is never touched
+					const std::string tempRoot =
+						(std::filesystem::temp_directory_path() /
+							("orkige_mirror_spawn_" + std::to_string(
+								std::chrono::steady_clock::now()
+									.time_since_epoch().count()))).string();
+					std::error_code copyError;
+					std::filesystem::copy(mirrorSpawnPlaytestEnv, tempRoot,
+						std::filesystem::copy_options::recursive, copyError);
+					if (copyError ||
+						!openProjectFromPath(state, editorCore, tempRoot))
+					{
+						spawnFailed = true;
+						spawnFailure = "could not prepare/open the temp "
+							"project copy at " + tempRoot;
+					}
+					else if (!serializeWorld(mirrorSpawnBaseline))
+					{
+						spawnFailed = true;
+						spawnFailure = "could not serialize the authored "
+							"baseline";
+					}
+				}
+				else if (mirrorSpawnPhase == MirrorSpawnPhase::Idle &&
+					frameCount == 40)
+				{
+					if (!startPlay(playSession, gameObjectManager,
+						state.project))
+					{
+						spawnFailed = true;
+						spawnFailure = "startPlay failed";
+					}
+					else
+					{
+						mirrorSpawnPhase = MirrorSpawnPhase::WaitSpawn;
+						mirrorSpawnDeadline =
+							spawnNow + std::chrono::seconds(90);
+					}
+				}
+				else if (mirrorSpawnPhase == MirrorSpawnPhase::WaitSpawn)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						spawnFailed = true;
+						spawnFailure = "play session ended before the spawned "
+							"stand-in appeared";
+					}
+					else if (probeX(mirrorSpawnFirstX))
+					{
+						SDL_Log("orkige_editor: mirror spawn playtest - "
+							"stand-in appeared (x=%.3f)", mirrorSpawnFirstX);
+						mirrorSpawnPhase = MirrorSpawnPhase::WaitMove;
+						mirrorSpawnDeadline =
+							spawnNow + std::chrono::seconds(30);
+					}
+				}
+				else if (mirrorSpawnPhase == MirrorSpawnPhase::WaitMove)
+				{
+					double x = mirrorSpawnFirstX;
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						spawnFailed = true;
+						spawnFailure = "play session ended before the "
+							"stand-in moved";
+					}
+					else if (probeX(x) &&
+						std::fabs(x - mirrorSpawnFirstX) > 0.2)
+					{
+						if (editorCore.isSceneDirty())
+						{
+							spawnFailed = true;
+							spawnFailure = "the spawned stand-in dirtied the "
+								"edit document";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: mirror spawn playtest - "
+								"stand-in moves (x %.3f -> %.3f)",
+								mirrorSpawnFirstX, x);
+							mirrorSpawnPhase = MirrorSpawnPhase::WaitDespawn;
+							mirrorSpawnDeadline =
+								spawnNow + std::chrono::seconds(60);
+						}
+					}
+				}
+				else if (mirrorSpawnPhase == MirrorSpawnPhase::WaitDespawn)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						spawnFailed = true;
+						spawnFailure = "play session ended before the script "
+							"despawned the object";
+					}
+					else if (!gameObjectManager.objectExists("RuntimeProbe"))
+					{
+						SDL_Log("orkige_editor: mirror spawn playtest - "
+							"stand-in removed with the runtime despawn");
+						requestStopPlay(playSession);
+						mirrorSpawnPhase = MirrorSpawnPhase::WaitRevert;
+						mirrorSpawnDeadline =
+							spawnNow + std::chrono::seconds(30);
+					}
+				}
+				else if (mirrorSpawnPhase == MirrorSpawnPhase::WaitRevert)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						std::string restored;
+						if (gameObjectManager.objectExists("RuntimeProbe"))
+						{
+							spawnFailed = true;
+							spawnFailure = "the stand-in survived Stop";
+						}
+						else if (editorCore.isSceneDirty())
+						{
+							spawnFailed = true;
+							spawnFailure = "scene left dirty after the "
+								"session";
+						}
+						else if (!serializeWorld(restored) ||
+							restored != mirrorSpawnBaseline)
+						{
+							spawnFailed = true;
+							spawnFailure = "the restored document does not "
+								"re-serialize byte-exactly";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: mirror spawn playtest "
+								"PASSED - stand-in mirrored the runtime "
+								"spawn/move/despawn and the authored scene "
+								"restored byte-exactly");
+							mirrorSpawnPhase = MirrorSpawnPhase::Done;
+							running = false;
+						}
+					}
+				}
+				if (!spawnFailed &&
+					mirrorSpawnPhase != MirrorSpawnPhase::Idle &&
+					mirrorSpawnPhase != MirrorSpawnPhase::Done &&
+					spawnNow >= mirrorSpawnDeadline)
+				{
+					spawnFailed = true;
+					spawnFailure = "deadline exceeded in phase " +
+						std::to_string(static_cast<int>(mirrorSpawnPhase));
+				}
+				if (spawnFailed)
+				{
+					SDL_Log("orkige_editor: mirror spawn playtest FAILED - %s",
+						spawnFailure.c_str());
+					exitCode = 2;
+					running = false;
+				}
+			}
+
+			// --- scripted mid-play SCENE-SWITCH mirror run -----------------
+			// (ORKIGE_EDITOR_MIRROR_SWITCH_PLAYTEST) Play a scene whose
+			// script requests a deferred switch: the Scene view must swap to
+			// a view-only mirror document of the new scene, and Stop must
+			// restore the authored document byte-exactly.
+			if (mirrorSwitchPlaytestEnv)
+			{
+				const std::chrono::steady_clock::time_point switchNow =
+					std::chrono::steady_clock::now();
+				bool switchFailed = false;
+				std::string switchFailure;
+				auto serializeWorld = [&](std::string& out) -> bool
+				{
+					const std::string tempPath =
+						(std::filesystem::temp_directory_path() /
+							("orkige_mirror_probe_" + std::to_string(
+								std::chrono::steady_clock::now()
+									.time_since_epoch().count()) +
+								".oscene")).string();
+					if (!Orkige::SceneSerializer::saveScene(tempPath,
+						gameObjectManager))
+					{
+						return false;
+					}
+					std::ifstream file(tempPath, std::ios::binary);
+					std::ostringstream bytes;
+					bytes << file.rdbuf();
+					out = bytes.str();
+					std::error_code ignored;
+					std::filesystem::remove(tempPath, ignored);
+					return !out.empty();
+				};
+				if (mirrorSwitchPhase == MirrorSwitchPhase::Idle &&
+					frameCount == 10)
+				{
+					const std::string tempRoot =
+						(std::filesystem::temp_directory_path() /
+							("orkige_mirror_switch_" + std::to_string(
+								std::chrono::steady_clock::now()
+									.time_since_epoch().count()))).string();
+					std::error_code copyError;
+					std::filesystem::copy(mirrorSwitchPlaytestEnv, tempRoot,
+						std::filesystem::copy_options::recursive, copyError);
+					if (copyError ||
+						!openProjectFromPath(state, editorCore, tempRoot))
+					{
+						switchFailed = true;
+						switchFailure = "could not prepare/open the temp "
+							"project copy at " + tempRoot;
+					}
+					else
+					{
+						mirrorSwitchScenePath =
+							tempRoot + "/scenes/switch.oscene";
+						if (!openSceneFromPath(state, editorCore,
+							mirrorSwitchScenePath))
+						{
+							switchFailed = true;
+							switchFailure = "could not open switch.oscene";
+						}
+						else if (!serializeWorld(mirrorSwitchBaseline))
+						{
+							switchFailed = true;
+							switchFailure = "could not serialize the authored "
+								"baseline";
+						}
+					}
+				}
+				else if (mirrorSwitchPhase == MirrorSwitchPhase::Idle &&
+					frameCount == 40)
+				{
+					if (!startPlay(playSession, gameObjectManager,
+						state.project))
+					{
+						switchFailed = true;
+						switchFailure = "startPlay failed";
+					}
+					else
+					{
+						mirrorSwitchPhase = MirrorSwitchPhase::WaitSwap;
+						mirrorSwitchDeadline =
+							switchNow + std::chrono::seconds(90);
+					}
+				}
+				else if (mirrorSwitchPhase == MirrorSwitchPhase::WaitSwap)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						switchFailed = true;
+						switchFailure = "play session ended before the Scene "
+							"view swapped to the running scene";
+					}
+					else if (playSession.mirrorDocument &&
+						gameObjectManager.objectExists("SecondSentinel") &&
+						!gameObjectManager.objectExists("Switcher"))
+					{
+						if (state.currentScenePath != mirrorSwitchScenePath)
+						{
+							switchFailed = true;
+							switchFailure = "the swap changed the authored "
+								"scene path";
+						}
+						else if (editorCore.isSceneDirty())
+						{
+							switchFailed = true;
+							switchFailure =
+								"the mirror document reads as dirty";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: mirror switch playtest - "
+								"Scene view mirrors the running scene '%s'",
+								playSession.mirrorSceneName.c_str());
+							requestStopPlay(playSession);
+							mirrorSwitchPhase = MirrorSwitchPhase::WaitRevert;
+							mirrorSwitchDeadline =
+								switchNow + std::chrono::seconds(30);
+						}
+					}
+				}
+				else if (mirrorSwitchPhase == MirrorSwitchPhase::WaitRevert)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						std::string restored;
+						if (playSession.mirrorDocument)
+						{
+							switchFailed = true;
+							switchFailure =
+								"mirror document flag survived Stop";
+						}
+						else if (!gameObjectManager.objectExists("Switcher") ||
+							gameObjectManager.objectExists("SecondSentinel"))
+						{
+							switchFailed = true;
+							switchFailure = "the authored world did not come "
+								"back on Stop";
+						}
+						else if (editorCore.isSceneDirty())
+						{
+							switchFailed = true;
+							switchFailure = "scene left dirty after the "
+								"session";
+						}
+						else if (state.currentScenePath !=
+							mirrorSwitchScenePath)
+						{
+							switchFailed = true;
+							switchFailure = "the authored scene path was "
+								"lost";
+						}
+						else if (!serializeWorld(restored) ||
+							restored != mirrorSwitchBaseline)
+						{
+							switchFailed = true;
+							switchFailure = "the restored document does not "
+								"re-serialize byte-exactly";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: mirror switch playtest "
+								"PASSED - Scene view followed the mid-play "
+								"scene switch and the authored document "
+								"restored byte-exactly");
+							mirrorSwitchPhase = MirrorSwitchPhase::Done;
+							running = false;
+						}
+					}
+				}
+				if (!switchFailed &&
+					mirrorSwitchPhase != MirrorSwitchPhase::Idle &&
+					mirrorSwitchPhase != MirrorSwitchPhase::Done &&
+					switchNow >= mirrorSwitchDeadline)
+				{
+					switchFailed = true;
+					switchFailure = "deadline exceeded in phase " +
+						std::to_string(static_cast<int>(mirrorSwitchPhase));
+				}
+				if (switchFailed)
+				{
+					SDL_Log("orkige_editor: mirror switch playtest FAILED - "
+						"%s", switchFailure.c_str());
 					exitCode = 2;
 					running = false;
 				}

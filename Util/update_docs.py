@@ -892,9 +892,10 @@ def cmd_selftest():
     # table + the EventSubscription handle; the `locale` table its four
     # entries; the gameplay pack added `timer`, camera follow, music.crossFade
     # and `game` state; the scriptable-component registry added the generic
-    # world.getComponent); kept well inside one context read.
+    # world.getComponent; the runtime object lifecycle added world.spawn /
+    # world.despawn); kept well inside one context read.
     size = len(index_text.encode("utf-8"))
-    assert size < 10000, "index is %d bytes, over the budget" % size
+    assert size < 11000, "index is %d bytes, over the budget" % size
     # (4) gui hierarchy tree includes the root chain
     gui_tree = render_gui_mermaid()
     assert "IGuiObject --> GuiWidget" in gui_tree, gui_tree

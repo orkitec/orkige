@@ -36,8 +36,13 @@ namespace
 			MirrorTransform transform;
 			bool baselineVisible = true;	//!< authored activeInHierarchy
 			bool visible = true;			//!< current (mirror-driven) visibility
+			//! how spawnObject created it (empty for a hand-authored object)
+			std::string spawnedParent;
+			std::vector<std::string> spawnedComponents;
+			std::size_t spawnedPropertyCount = 0;
 		};
 		std::map<std::string, Object> objects;
+		std::vector<std::string> spawnOrder;	//!< spawnObject call order
 
 		std::vector<std::string> transformableIds() const override
 		{
@@ -47,6 +52,28 @@ namespace
 				ids.push_back(entry.first);
 			}
 			return ids;
+		}
+		bool hasObject(std::string const& id) const override
+		{
+			return this->objects.find(id) != this->objects.end();
+		}
+		bool spawnObject(MirrorSpawnDesc const& desc) override
+		{
+			if (this->hasObject(desc.id))
+			{
+				return false;
+			}
+			Object object;
+			object.spawnedParent = desc.parent;
+			object.spawnedComponents = desc.components;
+			object.spawnedPropertyCount = desc.properties.size();
+			this->objects[desc.id] = object;
+			this->spawnOrder.push_back(desc.id);
+			return true;
+		}
+		void destroyObject(std::string const& id) override
+		{
+			this->objects.erase(id);
 		}
 		bool getLocalTransform(std::string const& id,
 			MirrorTransform& out) const override
@@ -205,4 +232,128 @@ TEST_CASE("PlayMirror mirrors visibility and restores the baseline",
 	// back to the authored baselines
 	CHECK(scene.objects["Cube"].visible == true);
 	CHECK(scene.objects["Hidden"].visible == false);
+}
+
+TEST_CASE("parseSpawnDescriptors round-trips the wire lists", "[playmirror]")
+{
+	// two objects; the flat per-property records reference them by index
+	const std::vector<MirrorSpawnDesc> parsed = parseSpawnDescriptors(
+		{ "RuntimeProbe", "RuntimeProbe/Child" },
+		{ "", "RuntimeProbe" },
+		{ "TransformComponent ModelComponent", "SpriteComponent" },
+		{ "0", "0", "1", "junk", "7" },	// junk / out-of-range records skipped
+		{ "TransformComponent.position", "ModelComponent.mesh",
+		  "SpriteComponent.texture", "SpriteComponent.width",
+		  "SpriteComponent.height" },
+		{ "5", "8", "8", "1", "1" },
+		{ "0 1 0", "EditorCube.mesh", "ball.png", "2", "2" },
+		{ "", "asset-id-1", "", "", "" });
+	REQUIRE(parsed.size() == 2);
+	CHECK(parsed[0].id == "RuntimeProbe");
+	CHECK(parsed[0].parent == "");
+	REQUIRE(parsed[0].components.size() == 2);
+	CHECK(parsed[0].components[0] == "TransformComponent");
+	CHECK(parsed[0].components[1] == "ModelComponent");
+	REQUIRE(parsed[0].properties.size() == 2);
+	CHECK(parsed[0].properties[0].component == "TransformComponent");
+	CHECK(parsed[0].properties[0].name == "position");
+	CHECK(parsed[0].properties[0].kind == 5);
+	CHECK(parsed[0].properties[0].value == "0 1 0");
+	CHECK(parsed[0].properties[1].reference == "asset-id-1");
+	CHECK(parsed[1].parent == "RuntimeProbe");
+	REQUIRE(parsed[1].properties.size() == 1);	// junk + out-of-range skipped
+	CHECK(parsed[1].properties[0].name == "texture");
+}
+
+TEST_CASE("isMirrorVisualComponent allows looks, refuses behavior",
+	"[playmirror]")
+{
+	CHECK(isMirrorVisualComponent("TransformComponent"));
+	CHECK(isMirrorVisualComponent("ModelComponent"));
+	CHECK(isMirrorVisualComponent("SpriteComponent"));
+	CHECK(isMirrorVisualComponent("VectorShapeComponent"));
+	CHECK(isMirrorVisualComponent("LightComponent"));
+	CHECK_FALSE(isMirrorVisualComponent("ScriptComponent"));
+	CHECK_FALSE(isMirrorVisualComponent("RigidBodyComponent"));
+	CHECK_FALSE(isMirrorVisualComponent("SoundComponent"));
+	CHECK_FALSE(isMirrorVisualComponent("player"));	// a script kind
+}
+
+TEST_CASE("PlayMirror asks once per unmatched id and tracks stand-ins",
+	"[playmirror]")
+{
+	FakeScene scene;
+	scene.objects["Authored"].transform = makeTransform(0.0f, 0.0f, 0.0f);
+	PlayMirror mirror;
+
+	// the hierarchy streams an authored id and a runtime-spawned one
+	std::vector<std::string> ask =
+		mirror.idsToQuery(scene, { "Authored", "Spawned" });
+	REQUIRE(ask.size() == 1);
+	CHECK(ask[0] == "Spawned");
+	// asked exactly once while unresolved
+	CHECK(mirror.idsToQuery(scene, { "Authored", "Spawned" }).empty());
+
+	// the descriptor reply materializes the stand-in
+	MirrorSpawnDesc desc;
+	desc.id = "Spawned";
+	desc.components = { "TransformComponent" };
+	mirror.applySpawns(scene, { desc });
+	CHECK(scene.hasObject("Spawned"));
+	CHECK(mirror.instanceCount() == 1);
+	CHECK(mirror.isMirrorInstance("Spawned"));
+
+	// transforms now drive the stand-in like any matched object
+	mirror.applyTransforms(scene, { "Spawned" },
+		{ formatMirrorTransform(makeTransform(3.0f, 4.0f, 5.0f)) });
+	CHECK(scene.objects["Spawned"].transform.m[0] == 3.0f);
+
+	SECTION("a vanished id prunes the stand-in and may be re-asked")
+	{
+		mirror.pruneInstances(scene, { "Authored" });
+		CHECK_FALSE(scene.hasObject("Spawned"));
+		CHECK(mirror.instanceCount() == 0);
+		// reappearing means asking again (a fresh spawn under the same id)
+		std::vector<std::string> reAsk =
+			mirror.idsToQuery(scene, { "Authored", "Spawned" });
+		REQUIRE(reAsk.size() == 1);
+		CHECK(reAsk[0] == "Spawned");
+	}
+
+	SECTION("restore destroys stand-ins and exact-restores authored state")
+	{
+		// move the authored object too, then restore everything
+		mirror.applyTransforms(scene, { "Authored" },
+			{ formatMirrorTransform(makeTransform(9.0f, 9.0f, 9.0f)) });
+		mirror.restore(scene);
+		CHECK_FALSE(mirror.active());
+		CHECK(mirror.instanceCount() == 0);
+		CHECK_FALSE(scene.hasObject("Spawned"));	// destroyed, not restored
+		CHECK(scene.objects["Authored"].transform.m[0] == 0.0f);	// exact
+	}
+}
+
+TEST_CASE("PlayMirror spawns parents before children across a batch",
+	"[playmirror]")
+{
+	FakeScene scene;
+	PlayMirror mirror;
+	// child listed FIRST - the ordering pass must defer it until the parent
+	MirrorSpawnDesc child;
+	child.id = "Root/Child";
+	child.parent = "Root";
+	MirrorSpawnDesc root;
+	root.id = "Root";
+	mirror.applySpawns(scene, { child, root });
+	REQUIRE(scene.spawnOrder.size() == 2);
+	CHECK(scene.spawnOrder[0] == "Root");
+	CHECK(scene.spawnOrder[1] == "Root/Child");
+	CHECK(scene.objects["Root/Child"].spawnedParent == "Root");
+
+	// an unresolvable parent never blocks the stand-in itself (lands as root)
+	MirrorSpawnDesc orphan;
+	orphan.id = "Orphan";
+	orphan.parent = "NeverArrives";
+	mirror.applySpawns(scene, { orphan });
+	CHECK(scene.hasObject("Orphan"));
 }

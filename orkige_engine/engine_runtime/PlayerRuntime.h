@@ -311,11 +311,15 @@ namespace Orkige
 			unsigned long frameCount);
 
 		//! @brief a mid-play scene switch happened (deferred level load):
-		//! the previous world was town down and a new one loaded, so any
+		//! the previous world was torn down and a new one loaded, so any
 		//! remembered selection id now dangles and the last-sent hierarchy is
-		//! stale. Drop the selection and force the next stream() to re-send the
-		//! full hierarchy of the new scene.
-		void onSceneReloaded();
+		//! stale. Drop the selection, force the next stream() to re-send the
+		//! full hierarchy of the new scene and tell the editor which scene runs
+		//! now (MSG_SCENE_LOADED with @p scenePath - project-relative when the
+		//! run plays a project, so the editor resolves it against ITS copy of
+		//! the same files; sent from here so it always precedes the new
+		//! scene's hierarchy/transform streams).
+		void onSceneReloaded(String const & scenePath);
 
 		//! @brief orderly protocol shutdown: detach the log forwarder, tell
 		//! the editor we are going down (unless quit was its idea) and give
@@ -355,6 +359,15 @@ namespace Orkige
 			DebugMessage const & message);
 		void handleSetCvar(DebugMessage const & message);
 		void handleRecordStart(DebugMessage const & message);
+		//! @brief answer MSG_QUERY_SPAWNS with MSG_SCENE_SPAWNS descriptors
+		//! (component kinds + the reflected property records) for every
+		//! requested id the world still holds - the editor's scene mirror
+		//! instantiates lightweight stand-ins for runtime-spawned objects from
+		//! them. Batched into several messages when many ids are asked at once
+		//! (each batch internally consistent) so no reply outgrows the
+		//! transport line cap.
+		void handleQuerySpawns(GameObjectManager & gameObjectManager,
+			DebugMessage const & message);
 		//--- script debugger (the MSG_DEBUG_* family) ---
 		//! @brief apply a full breakpoint-set replace through the ScriptRuntime
 		//! debug seam (installing this link as the break pump on first use);

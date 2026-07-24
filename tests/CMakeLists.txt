@@ -1158,6 +1158,27 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     set_tests_properties(editor_play_mirror${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_MIRROR_PLAYTEST=${Orkige_SOURCE_DIR}/tests/scenes/falling_cube.oscene")
 
+    # mirror v2, runtime-SPAWN leg: on a temp copy of the mirror fixture
+    # project, Play a scene whose script SPAWNS a moving object mid-play
+    # (world.spawn off the project prefab). The editor world must gain a
+    # mirror stand-in that MOVES (document untouched), lose it on the script's
+    # despawn, and after Stop the authored scene must re-serialize
+    # byte-exactly. Both flavors.
+    add_test(NAME editor_play_mirror_spawn${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_play_mirror_spawn${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_MIRROR_SPAWN_PLAYTEST=${Orkige_SOURCE_DIR}/tests/projects/mirror")
+
+    # mirror v2, mid-play SCENE-SWITCH leg: same fixture project, playing a
+    # scene whose script requests a deferred switch (world.loadScene). The
+    # editor's Scene view must swap to a VIEW-ONLY mirror document of the new
+    # scene (sentinel present, authored object gone, path/dirty untouched) and
+    # Stop must restore the authored document byte-exactly. Both flavors.
+    add_test(NAME editor_play_mirror_switch${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_play_mirror_switch${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_MIRROR_SWITCH_PLAYTEST=${Orkige_SOURCE_DIR}/tests/projects/mirror")
+
     # the tile-prefab level-authoring loop end to end: on a temp copy of the
     # roller project, paint/replace/erase prefab instances snapped to a
     # LevelComponent grid through the EditorCore paint seams (one undo step per
@@ -2208,6 +2229,28 @@ if(TARGET orkige_player)
                 WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
             set_tests_properties(benchmark_crossflavor_parity_mirror PROPERTIES
                 LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
+            # water_mirror_wobble: the wave-perturbed mirror EXISTENCE gate.
+            # Ogre's native planar reflection is a flat screen-projected mirror
+            # (glassy no matter the ripple); the next backend overrides the
+            # DoPlanarReflectionsPS piece so the mirror UV rides the wave slope,
+            # matching the classic water program. This gate boots Mirror Lake
+            # with the camera frozen, captures several wave phases and asserts
+            # the reflective band's between-phase luminance change clears the
+            # glassy floor - guarding the fix from silently regressing back to a
+            # static mirror. Gates the next flavor ALWAYS (runs on next-only CI
+            # too, unlike the sibling parity gates); also gates classic when its
+            # sibling player is built. SKIPS (77) only if the next player is
+            # absent.
+            add_test(NAME water_mirror_wobble
+                COMMAND python3
+                    "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_water_wobble_probe_test.py"
+                    --repo "${Orkige_SOURCE_DIR}"
+                    --player-next "$<TARGET_FILE:orkige_player>"
+                    --player-classic "${CMAKE_BINARY_DIR}-classic/tools/player/$<TARGET_FILE_NAME:orkige_player>"
+                    --dir "${CMAKE_CURRENT_BINARY_DIR}/water_mirror_wobble"
+                WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+            set_tests_properties(water_mirror_wobble PROPERTIES
+                LABELS integration TIMEOUT 1200 SKIP_RETURN_CODE 77)
         endif()
     endif()
 
@@ -2423,6 +2466,8 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         editor_play_script_error editor_play_hotreload editor_ui_hotreload
         editor_anim_hotreload
         editor_play_mirror_next
+        editor_play_mirror_spawn editor_play_mirror_spawn_next
+        editor_play_mirror_switch editor_play_mirror_switch_next
         editor_play_stop_next editor_play_crash_next editor_project_play_next
         editor_play_script_error_next editor_play_hotreload_next
         editor_ui_hotreload_next editor_anim_hotreload_next
@@ -2449,6 +2494,8 @@ endforeach()
 foreach(play_test player_debug_pause player_script_debug
         player_script_debug_next editor_play_stop editor_play_crash
         editor_play_mirror editor_play_mirror_next
+        editor_play_mirror_spawn editor_play_mirror_spawn_next
+        editor_play_mirror_switch editor_play_mirror_switch_next
         editor_project_play editor_play_script_error editor_play_hotreload
         editor_ui_hotreload editor_ui_hotreload_next
         editor_anim_hotreload editor_anim_hotreload_next

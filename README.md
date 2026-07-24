@@ -90,7 +90,9 @@ game can be purely 2D, purely 3D, or mix both freely.
 - **Play mode, out of process** — Play spawns the standalone player as a separate
   process over a TCP debug protocol: live remote hierarchy/inspector, pause/step/
   stop, live property + cvar editing, script + UI hot-reload, and the Scene view
-  **mirrors the running game's motion live**, restoring the authored scene
+  **mirrors the running game live** — object motion, runtime-spawned objects
+  (lightweight view-only stand-ins), even a mid-play scene switch swaps the view
+  to the running scene — restoring the authored scene
   exactly on Stop. A crashing game can never
   take the editor down. The same protocol reaches **iOS simulators, Android
   devices and the browser** — press Play, pick a target, debug the game running

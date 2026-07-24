@@ -53,14 +53,52 @@ bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,
 		return false;
 	}
 	Orkige::GameObjectManager& gameObjectManager = core.getGameObjectManager();
+	// a save reached while a mid-play scene switch swapped the world to a
+	// VIEW-ONLY mirror document must never serialize the mirror content: the
+	// honest save writes the AUTHORED document from its swap-time snapshot
+	// (which holds exactly the mirror-reverted authored state - play mode
+	// blocks local edits, so nothing can have changed since).
+	if (gPlaySession != nullptr && gPlaySession->mirrorDocument)
+	{
+		if (!Orkige::EditorAutosave::writeBackup(path))
+		{
+			oDebugWarn("editor.scene", 0, "could not back up scene '" << path <<
+				"' before saving");
+		}
+		if (!saveAuthoredSnapshotTo(*gPlaySession, path))
+		{
+			oDebugError("editor.scene", 0, "saving scene '" << path <<
+				"' failed - the authored snapshot could not be copied");
+			return false;
+		}
+		oDebugMsg("editor.scene", 0, "scene saved to '" << path <<
+			"' (authored document, written from its play-session snapshot)");
+		state.currentScenePath = path;
+		// the authored document is clean on disk now: a later Stop restores a
+		// clean document, and the mirror world was never dirty to begin with
+		gPlaySession->authoredSceneDirty = false;
+		core.clearSceneDirty();
+		Orkige::EditorAutosave::removeAutosave(path);
+		recordRecentScene(path);
+		return true;
+	}
 	// a save reached while a play session mirrors the running game would
 	// serialize the MIRRORED node poses, not the authored ones - restore the
 	// authored transforms first (the mirror re-applies from the next stream, so
-	// the Scene view keeps moving). Keeps "the edit document is never touched"
-	// true even through a Cmd+S mid-play.
+	// the Scene view keeps moving; the runtime-spawn stand-ins are destroyed
+	// and re-acquired from a fresh hierarchy, so they never reach the file).
+	// Keeps "the edit document is never touched" true even through a Cmd+S
+	// mid-play.
 	if (gPlaySession != nullptr)
 	{
 		revertPlayMirror(*gPlaySession);
+		if (gPlaySession->client.isConnected())
+		{
+			// the stand-ins were just destroyed - a fresh hierarchy makes the
+			// mirror re-ask for them right after the save
+			gPlaySession->client.send(
+				Orkige::DebugMessage(Protocol::MSG_REQUEST_HIERARCHY));
+		}
 	}
 	// keep one backup generation: copy the existing on-disk scene aside to its
 	// ".bak" sibling BEFORE the save overwrites it (a no-op for a first save /

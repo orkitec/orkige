@@ -1604,9 +1604,17 @@ namespace Orkige
 					"    base *= clamp(reflectParams.z, 0.0, 1.0);\n"
 					// the mirror image, sampled at the fragment screen UV with a
 					// small ripple perturbation (the reflection camera shares the
-					// main projection, so the same-screen sample aligns the mirror)
-					"    vec2 ruv = clamp(screenUv + disp * 0.03\n"
-					"        + vSwellNormal.xz * 0.06, vec2(0.002), vec2(0.998));\n"
+					// main projection, so the same-screen sample aligns the mirror).
+					// ORKIGE_WATER_FLAT_MIRROR (a build-time diagnostic seam, read
+					// once here) drops the perturbation so the mirror renders FLAT -
+					// the water_mirror_wobble gate captures the same frame with and
+					// without it to prove the ripple moves the mirror, a
+					// pacing-independent existence check (@see the next backend).
+					+ std::string(std::getenv("ORKIGE_WATER_FLAT_MIRROR")
+					? "    vec2 ruv = clamp(screenUv, vec2(0.002), vec2(0.998));\n"
+					: "    vec2 ruv = clamp(screenUv + disp * 0.03\n"
+					"        + vSwellNormal.xz * 0.06, vec2(0.002), vec2(0.998));\n")
+					+ std::string(
 					"    vec3 reflectCol = texture(reflectMap, ruv).rgb;\n"
 					// Schlick fresnel against the ripple-tilted surface normal:
 					// looking DOWN shows the water body/refracted scene, grazing
@@ -1641,7 +1649,7 @@ namespace Orkige
 					"    outc += sqrt(max(sunColour.rgb, vec3(0.0)))\n"
 					"        * (spec * 1.0 * sunTowards.w);\n"
 					"    fragColour = vec4(outc, 1.0);\n"
-					"}\n"));
+					"}\n")));
 				fs->load();
 				fs->getDefaultParameters()->setNamedAutoConstant("camPos",
 					Ogre::GpuProgramParameters::ACT_CAMERA_POSITION);

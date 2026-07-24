@@ -64,6 +64,7 @@ function init(self)
 	local node = cam ~= nil and cam:getNode() or nil
 	if node ~= nil then
 		node:setPosition(Vector3(0, 7, 13))
+		local TS = RenderNode.TransformSpace
 		node:lookAt(Vector3(0, -1.0, -2.0), TS.TS_WORLD, Vector3(0, 0, -1))
 	end
 end

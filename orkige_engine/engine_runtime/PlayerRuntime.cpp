@@ -23,6 +23,7 @@
 #include "core_game/GameObjectComponent.h"
 #include "core_game/GameObjectManager.h"
 #include "core_game/GameState.h"
+#include "core_game/SceneSerializer.h"
 #include "core_debugnet/TraceWriter.h"
 #include "core_script/ScriptEventBus.h"
 #include "core_script/ScriptRuntime.h"
@@ -892,7 +893,7 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void PlayerDebugLink::onSceneReloaded()
+	void PlayerDebugLink::onSceneReloaded(String const & scenePath)
 	{
 		// the selected object belonged to the torn-down world - forget it so
 		// the object_state stream does not chase a dangling id
@@ -906,6 +907,15 @@ namespace Orkige
 		// full transform re-send and drop the stale per-id baseline
 		mSceneTransformsFullResend = true;
 		mLastSentTransforms.clear();
+		// tell the editor which scene runs NOW, before any of the new scene's
+		// hierarchy/transform streams go out - the editor's scene mirror swaps
+		// its view-only Scene view to this file on receipt
+		if (linkHasClient())
+		{
+			DebugMessage loaded(Protocol::MSG_SCENE_LOADED);
+			loaded.set(Protocol::FIELD_SCENE, scenePath);
+			linkSend(loaded);
+		}
 		// a deferred level/scene switch happened mid-play - mark it in the trace
 		traceEvent("sceneLoad", {});
 	}
@@ -1288,6 +1298,91 @@ namespace Orkige
 			"' = " + value);
 	}
 	//---------------------------------------------------------
+	void PlayerDebugLink::handleQuerySpawns(
+		GameObjectManager & gameObjectManager, DebugMessage const & message)
+	{
+		StringVector const & requested = message.getList(Protocol::LIST_IDS);
+		// per-object batches keep every reply comfortably under the transport
+		// line cap (a descriptor is a handful of short property records)
+		const std::size_t BATCH_OBJECTS = 8;
+		StringVector ids;
+		StringVector parents;
+		StringVector components;
+		StringVector propObjects;
+		StringVector propKeys;
+		StringVector propKinds;
+		StringVector propValues;
+		StringVector propRefs;
+		auto flushBatch = [&]()
+		{
+			if (ids.empty())
+			{
+				return;
+			}
+			DebugMessage reply(Protocol::MSG_SCENE_SPAWNS);
+			reply.setList(Protocol::LIST_IDS, ids);
+			reply.setList(Protocol::LIST_PARENTS, parents);
+			reply.setList(Protocol::LIST_COMPONENTS, components);
+			reply.setList(Protocol::LIST_SPAWN_OBJECTS, propObjects);
+			reply.setList(Protocol::LIST_PROP_KEYS, propKeys);
+			reply.setList(Protocol::LIST_SPAWN_KINDS, propKinds);
+			reply.setList(Protocol::LIST_SPAWN_VALUES, propValues);
+			reply.setList(Protocol::LIST_SPAWN_REFS, propRefs);
+			linkSend(reply);
+			ids.clear();
+			parents.clear();
+			components.clear();
+			propObjects.clear();
+			propKeys.clear();
+			propKinds.clear();
+			propValues.clear();
+			propRefs.clear();
+		};
+		for (String const & id : requested)
+		{
+			optr<GameObject> gameObject =
+				gameObjectManager.getGameObject(id).lock();
+			if (id.empty() || !gameObject)
+			{
+				continue;	// died again already - the hierarchy stream dropped it
+			}
+			const std::size_t objectIndex = ids.size();
+			ids.push_back(id);
+			parents.push_back(gameObject->getParentId());
+			// component kinds, space-joined (type/kind names carry no spaces),
+			// plus every reflected property as the SAME record dialect the
+			// prefab baseline capture produces - the ONE property registry
+			String kindNames;
+			for (auto const & componentEntry : gameObject->getComponents())
+			{
+				const String componentTypeName =
+					componentEntry.first.getName();
+				if (!kindNames.empty())
+				{
+					kindNames += ' ';
+				}
+				kindNames += componentTypeName;
+				const GameObject::ComponentPropertyMap properties =
+					SceneSerializer::captureComponentProperties(
+						*componentEntry.second);
+				for (auto const & [propertyName, record] : properties)
+				{
+					propObjects.push_back(std::to_string(objectIndex));
+					propKeys.push_back(componentTypeName + "." + propertyName);
+					propKinds.push_back(std::to_string(record.kind));
+					propValues.push_back(record.value);
+					propRefs.push_back(record.reference);
+				}
+			}
+			components.push_back(kindNames);
+			if (ids.size() >= BATCH_OBJECTS)
+			{
+				flushBatch();
+			}
+		}
+		flushBatch();
+	}
+	//---------------------------------------------------------
 	//! @brief the shared client-loss bookkeeping (see the header) - update()'s
 	//! disconnect edge and the break pump's mid-break loss both land here
 	void PlayerDebugLink::onEditorClientLost()
@@ -1403,6 +1498,12 @@ namespace Orkige
 			else if (message.type == Protocol::MSG_REQUEST_HIERARCHY)
 			{
 				sendHierarchyIfChanged(gameObjectManager, true);
+			}
+			else if (message.type == Protocol::MSG_QUERY_SPAWNS)
+			{
+				// the editor's scene mirror asks for the visual identity of
+				// runtime-spawned objects it cannot match
+				handleQuerySpawns(gameObjectManager, message);
 			}
 			else if (message.type == Protocol::MSG_RELOAD_SCRIPT)
 			{

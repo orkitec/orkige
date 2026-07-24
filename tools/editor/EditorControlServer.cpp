@@ -2729,6 +2729,12 @@ namespace Orkige
 			PlaySession const& play = *context.play;
 			ok.set("remote_connected", play.client.isConnected() ? "1" : "0");
 			ok.set("remote_scene", play.remoteScenePath);
+			// scene-mirror document swap (a mid-play scene switch): "1" while
+			// the Scene view holds a view-only load of the RUNNING scene
+			// (named by mirror_scene, project-relative); scene_path above keeps
+			// reporting the AUTHORED document, which returns on stop
+			ok.set("mirror_document", play.mirrorDocument ? "1" : "0");
+			ok.set("mirror_scene", play.mirrorSceneName);
 			ok.set("remote_selected", play.remoteSelectedId);
 			ok.set("remote_object_count",
 				std::to_string(play.remoteHierarchy.size()));

@@ -97,6 +97,8 @@ world.getComponent(id, name) -> Component?  -- any component by script or reflec
 world.getScript(id) -> ScriptComponent?  -- an object's ScriptComponent (nil if none)
 world.loadScene(path)  -- deferred scene switch at the next frame boundary
 world.findByTag(tag) -> {GameObject}  -- array of live objects carrying the tag
+world.spawn(prefabRef, id) -> bool  -- instantiate a .oprefab (project-relative ref) as a NEW object under id; false + error log on a taken id / missing file (reach it via world.get(id))
+world.despawn(id) -> bool  -- queue an object for deletion at the next world update (safe mid-script, incl. the caller's own object)
 world.setTimeScale(scale)  -- gameplay time scale (1 normal, 0 hitstop)
 world.getTimeScale() -> number  -- the current gameplay time scale
 

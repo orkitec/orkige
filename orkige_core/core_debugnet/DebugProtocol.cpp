@@ -56,6 +56,9 @@ namespace Orkige
 		const String MSG_PROFILE			= "profile";
 		const String MSG_PROFILE_DATA		= "profile_data";
 		const String MSG_SCENE_TRANSFORMS	= "scene_transforms";
+		const String MSG_SCENE_LOADED		= "scene_loaded";
+		const String MSG_QUERY_SPAWNS		= "query_spawns";
+		const String MSG_SCENE_SPAWNS		= "scene_spawns";
 		const String MSG_DEBUG_BREAK		= "debug_break";
 		const String MSG_DEBUG_RESUMED		= "debug_resumed";
 		const String MSG_BYE				= "bye";
@@ -106,6 +109,10 @@ namespace Orkige
 		const String LIST_PROFILE_NAMES		= "prof_names";
 		const String LIST_PROFILE_INFO		= "prof_info";
 		const String LIST_TRANSFORMS		= "xforms";
+		const String LIST_SPAWN_OBJECTS		= "sp_obj";
+		const String LIST_SPAWN_KINDS		= "sp_kinds";
+		const String LIST_SPAWN_VALUES		= "sp_values";
+		const String LIST_SPAWN_REFS		= "sp_refs";
 		const String FIELD_LINE				= "line";
 		const String FIELD_FRAME			= "frame";
 		const String LIST_BREAKPOINTS		= "breakpoints";

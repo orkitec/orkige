@@ -171,6 +171,19 @@ namespace Orkige
 		//! an error. Editor->player it is the request, player->editor the
 		//! reply.
 		extern ORKIGE_CORE_DLL const String MSG_DEBUG_LOCALS;
+		//! @brief ask the runtime to DESCRIBE runtime-spawned objects: LIST_IDS
+		//! names the GameObject ids the editor's scene mirror could not match
+		//! against its authored document (they exist only in the running game -
+		//! script/native-spawned). The runtime answers with MSG_SCENE_SPAWNS
+		//! descriptors for every requested id it still holds (an id that
+		//! already died again is simply omitted; the hierarchy stream has
+		//! dropped it anyway). The EDITOR asks (rather than the player pushing
+		//! unrequested) because only the matcher knows which ids its document
+		//! cannot resolve - the runtime has no notion of what the editor's
+		//! authored world holds. Idempotent and self-limiting: the editor asks
+		//! once per unmatched id. An additive protocol-extension message riding
+		//! the ONE debug protocol; old players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_QUERY_SPAWNS;
 
 		//--- runtime -> editor ---
 		extern ORKIGE_CORE_DLL const String MSG_HELLO;				//!< first message after connect; FIELD_SCENE: loaded scene path
@@ -258,6 +271,36 @@ namespace Orkige
 		//! runtime_* / get_state surface). The whole-scene delta exists only so
 		//! the editor can move ALL its authored nodes at once, cheaply.
 		extern ORKIGE_CORE_DLL const String MSG_SCENE_TRANSFORMS;
+		//! @brief a MID-PLAY SCENE SWITCH happened (the deferred level load:
+		//! world.loadScene / LevelManager): the previous world was torn down
+		//! and FIELD_SCENE now runs (project-relative when the runtime plays a
+		//! project, so an editor resolves it against ITS copy of the same
+		//! project; the load path otherwise). Sent from the reload point, so it
+		//! always PRECEDES the new scene's hierarchy/transform streams - an
+		//! editor mirroring the running game swaps its Scene view to a
+		//! view-only load of that scene file before the new ids arrive. A
+		//! client that attaches AFTER a switch learns the current scene from
+		//! MSG_HELLO's FIELD_SCENE instead (which always carries the scene the
+		//! runtime is on). Additive since protocol v1: old editors ignore the
+		//! unknown type.
+		extern ORKIGE_CORE_DLL const String MSG_SCENE_LOADED;
+		//! @brief the answer to MSG_QUERY_SPAWNS: enough VISUAL identity per
+		//! runtime-spawned object for an editor to instantiate a lightweight
+		//! mirror stand-in. Parallel per-object lists LIST_IDS / LIST_PARENTS /
+		//! LIST_COMPONENTS (per id: its space-separated component type names -
+		//! type/kind names never contain spaces), plus a flat per-PROPERTY
+		//! record across four parallel lists: LIST_SPAWN_OBJECTS (the owning
+		//! object as a decimal INDEX into LIST_IDS - ids may contain spaces,
+		//! an index cannot), LIST_PROP_KEYS ("<Component>.<property>"),
+		//! LIST_SPAWN_KINDS (PropertyKind as int), LIST_SPAWN_VALUES (the
+		//! canonical value string, isolated in its own list so no value ever
+		//! needs escaping) and LIST_SPAWN_REFS (the AssetRef resolving id, ""
+		//! otherwise). The records are exactly what the reflected
+		//! property-capture used for prefab baselines produces, so both ends
+		//! speak the ONE property registry's dialect. Batched: a reply may
+		//! split across several messages (each internally consistent) to stay
+		//! under the transport line cap. Additive since protocol v1.
+		extern ORKIGE_CORE_DLL const String MSG_SCENE_SPAWNS;
 		//! @brief script execution PAUSED at a breakpoint / step landing: the
 		//! player is blocked inside the script hook (mid-frame - distinct from
 		//! the frame-boundary MSG_PAUSE state) and keeps servicing the debug
@@ -385,6 +428,15 @@ namespace Orkige
 		//! string list beside LIST_IDS so the message stays flat (no nested
 		//! objects), like the ui-rect / profile-info lists.
 		extern ORKIGE_CORE_DLL const String LIST_TRANSFORMS;
+		//! @brief MSG_SCENE_SPAWNS per-property record lists (parallel to each
+		//! other, NOT to LIST_IDS): the owning object as a decimal index into
+		//! LIST_IDS, the PropertyKind int, the canonical value string and the
+		//! AssetRef resolving id ("" for every other kind). The property KEY
+		//! rides the existing LIST_PROP_KEYS ("<Component>.<property>").
+		extern ORKIGE_CORE_DLL const String LIST_SPAWN_OBJECTS;
+		extern ORKIGE_CORE_DLL const String LIST_SPAWN_KINDS;
+		extern ORKIGE_CORE_DLL const String LIST_SPAWN_VALUES;
+		extern ORKIGE_CORE_DLL const String LIST_SPAWN_REFS;
 		//! MSG_DEBUG_BREAK: the paused 1-based line (FIELD_PATH is the file)
 		extern ORKIGE_CORE_DLL const String FIELD_LINE;
 		//! MSG_DEBUG_LOCALS: the stack-frame index (0 = innermost)

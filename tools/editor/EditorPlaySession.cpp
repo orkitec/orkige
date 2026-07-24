@@ -149,6 +149,87 @@ public:
 		return ids;
 	}
 
+	bool hasObject(std::string const& id) const override
+	{
+		return mManager.objectExists(id);
+	}
+
+	bool spawnObject(OrkigeEditor::MirrorSpawnDesc const& desc) override
+	{
+		if (desc.id.empty() || mManager.objectExists(desc.id))
+		{
+			return false;
+		}
+		optr<Orkige::GameObject> gameObject =
+			mManager.createGameObject(desc.id).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		// only the VISUAL components materialize (the stand-in must never
+		// simulate; behavioral kinds - scripts, bodies, sound - stay out), each
+		// with its reflected properties applied through the ONE registry - the
+		// same named-record apply the scene loader and prefab overrides use
+		for (std::string const& kind : desc.components)
+		{
+			if (!OrkigeEditor::isMirrorVisualComponent(kind))
+			{
+				continue;
+			}
+			const Orkige::TypeInfo componentType(kind);
+			if (!Orkige::GameObject::isComponentRegistered(componentType))
+			{
+				continue;
+			}
+			// dependencies may already have added it (Model pulls in Transform)
+			if (!gameObject->hasComponent(componentType) &&
+				!gameObject->addComponent(componentType))
+			{
+				oDebugWarn("editor.play", 0, "mirror - could not add component '"
+					<< kind << "' to spawned stand-in '" << desc.id << "'");
+				continue;
+			}
+			Orkige::GameObject::ComponentPropertyMap properties;
+			for (OrkigeEditor::MirrorSpawnProperty const& property :
+				desc.properties)
+			{
+				if (property.component != kind)
+				{
+					continue;
+				}
+				Orkige::GameObject::ComponentPropertyRecord record;
+				record.kind = property.kind;
+				record.value = property.value;
+				record.reference = property.reference;
+				properties[property.name] = record;
+			}
+			// probe-then-fetch: the component exists (verified/added above)
+			if (gameObject->hasComponent(componentType))
+			{
+				Orkige::GameObjectComponent* component =
+					gameObject->getComponentPtr(componentType);
+				Orkige::SceneSerializer::applyComponentProperties(properties,
+					*component);
+			}
+		}
+		// parent under an existing object (authored or an earlier stand-in);
+		// local transforms stream separately, so the world pose composes the
+		// same way it does in the running game
+		if (!desc.parent.empty() && mManager.objectExists(desc.parent))
+		{
+			gameObject->setParent(desc.parent, false);
+		}
+		return true;
+	}
+
+	void destroyObject(std::string const& id) override
+	{
+		if (mManager.objectExists(id))
+		{
+			mManager.delGameObject(id);
+		}
+	}
+
 	bool getLocalTransform(std::string const& id,
 		OrkigeEditor::MirrorTransform& out) const override
 	{
@@ -233,7 +314,11 @@ private:
 void applyPlayMirrorTransforms(PlaySession& session,
 	Orkige::StringVector const& ids, Orkige::StringVector const& transforms)
 {
-	if (!session.editorWorld)
+	// after a FAILED mirror-document swap the world still holds the PREVIOUS
+	// scene while the stream describes the new one - an id that exists in both
+	// would be moved wrongly, so the mirror stands down until the next
+	// switch/stop resolves the situation
+	if (!session.editorWorld || session.mirrorSwapFailed)
 	{
 		return;
 	}
@@ -246,7 +331,8 @@ void applyPlayMirrorTransforms(PlaySession& session,
 //! ids/parents/active lists).
 void applyPlayMirrorActive(PlaySession& session)
 {
-	if (!session.editorWorld || session.remoteHierarchy.empty())
+	if (!session.editorWorld || session.mirrorSwapFailed ||
+		session.remoteHierarchy.empty())
 	{
 		return;
 	}
@@ -256,17 +342,219 @@ void applyPlayMirrorActive(PlaySession& session)
 			session.remoteParents, session.remoteActive));
 }
 
+//! @brief runtime-SPAWN bookkeeping on every received hierarchy: destroy
+//! stand-ins whose ids vanished (the running game destroyed them) and ask the
+//! player to describe ids the mirror cannot match (each asked exactly once).
+void updatePlayMirrorSpawns(PlaySession& session)
+{
+	if (!session.editorWorld || session.mirrorSwapFailed ||
+		session.remoteHierarchy.empty() || !session.client.isConnected())
+	{
+		return;
+	}
+	EditorWorldMirrorScene scene(*session.editorWorld);
+	session.mirror.pruneInstances(scene, session.remoteHierarchy);
+	const std::vector<std::string> unmatched =
+		session.mirror.idsToQuery(scene, session.remoteHierarchy);
+	if (unmatched.empty())
+	{
+		return;
+	}
+	Orkige::DebugMessage query(Protocol::MSG_QUERY_SPAWNS);
+	query.setList(Protocol::LIST_IDS,
+		Orkige::StringVector(unmatched.begin(), unmatched.end()));
+	session.client.send(query);
+}
+
+//! @brief a MSG_SCENE_SPAWNS reply: materialize mirror stand-ins for the
+//! described runtime-spawned objects (visual components only; transforms and
+//! visibility ride the existing streams from here on)
+void applyPlayMirrorSpawns(PlaySession& session,
+	Orkige::DebugMessage const& message)
+{
+	if (!session.editorWorld || session.mirrorSwapFailed)
+	{
+		return;
+	}
+	const std::vector<OrkigeEditor::MirrorSpawnDesc> descriptors =
+		OrkigeEditor::parseSpawnDescriptors(
+			message.getList(Protocol::LIST_IDS),
+			message.getList(Protocol::LIST_PARENTS),
+			message.getList(Protocol::LIST_COMPONENTS),
+			message.getList(Protocol::LIST_SPAWN_OBJECTS),
+			message.getList(Protocol::LIST_PROP_KEYS),
+			message.getList(Protocol::LIST_SPAWN_KINDS),
+			message.getList(Protocol::LIST_SPAWN_VALUES),
+			message.getList(Protocol::LIST_SPAWN_REFS));
+	if (descriptors.empty())
+	{
+		return;
+	}
+	EditorWorldMirrorScene scene(*session.editorWorld);
+	session.mirror.applySpawns(scene, descriptors);
+}
+
 //! @brief restore the editor world to its AUTHORED transforms + visibility and
 //! drop the mirror snapshot (the exact-restore path). A no-op when nothing is
 //! mirrored, so it is safe to call unconditionally on every teardown/save.
 void revertPlayMirror(PlaySession& session)
 {
-	if (!session.editorWorld || !session.mirror.active())
+	if (!session.editorWorld ||
+		(!session.mirror.active() && session.mirror.instanceCount() == 0))
 	{
 		return;
 	}
 	EditorWorldMirrorScene scene(*session.editorWorld);
 	session.mirror.restore(scene);
+}
+
+void handleRemoteSceneLoaded(PlaySession& session,
+	std::string const& scenePath)
+{
+	if (!session.editorWorld || !session.editorCore || scenePath.empty())
+	{
+		return;
+	}
+	Orkige::GameObjectManager& world = *session.editorWorld;
+	Orkige::EditorCore& core = *session.editorCore;
+	// resolve the player-reported identity against THIS editor's copy of the
+	// project (the player sends a project-relative path when it plays one)
+	std::error_code ignored;
+	std::string resolved = scenePath;
+	if (!std::filesystem::is_regular_file(resolved, ignored) &&
+		!session.projectRoot.empty())
+	{
+		resolved = session.projectRoot + "/" + scenePath;
+	}
+	if (!std::filesystem::is_regular_file(resolved, ignored))
+	{
+		// a scene this machine cannot read (e.g. a device-local path outside
+		// the project): the authored document stays and the mirror goes dark
+		// for the switched scene - honest, never a guess
+		revertPlayMirror(session);
+		session.mirrorSwapFailed = true;
+		oDebugWarn("editor.play", 0, "play - the running game switched to '" <<
+			scenePath << "', which does not resolve here - the Scene view "
+			"keeps the authored document (mirror paused)");
+		return;
+	}
+	// authored truth first: put the poses back and drop the stand-ins BEFORE
+	// anything is serialized or discarded (the exact-restore invariant)
+	revertPlayMirror(session);
+	if (!session.mirrorDocument)
+	{
+		// first switch of this session: serialize the AUTHORED document aside
+		// (endPlaySession reloads it; a mid-play save copies it to the file)
+		const std::string snapshotName = "orkige_mirror_authored_" +
+			std::to_string(std::chrono::steady_clock::now()
+				.time_since_epoch().count()) + ".oscene";
+		session.authoredSnapshotPath =
+			(std::filesystem::temp_directory_path() / snapshotName).string();
+		if (!Orkige::SceneSerializer::saveScene(session.authoredSnapshotPath,
+			world))
+		{
+			oDebugError("editor.play", 0, "play - could not snapshot the "
+				"authored scene to '" << session.authoredSnapshotPath <<
+				"' - the Scene view keeps the authored document");
+			session.authoredSnapshotPath.clear();
+			session.mirrorSwapFailed = true;
+			return;
+		}
+		session.authoredSceneDirty = core.isSceneDirty();
+		session.authoredSelection = core.getSelection();
+	}
+	// the swap is committed from here: restoreAuthoredDocument knows to bring
+	// the snapshot back even when the mirror load below fails
+	session.mirrorDocument = true;
+	// swap the ONE world to a VIEW-ONLY load of the running scene. The undo
+	// history refers to the authored world, so it goes too (the prefab-stage
+	// precedent); play mode already routes editing to the remote panels.
+	core.resetForScene();
+	if (!Orkige::SceneSerializer::loadScene(resolved, world))
+	{
+		// never strand on an empty world: the authored document comes back NOW
+		oDebugError("editor.play", 0, "play - could not load the running "
+			"scene '" << resolved << "' into the Scene view; restoring the "
+			"authored document");
+		restoreAuthoredDocument(session);
+		session.mirrorSwapFailed = true;
+		return;
+	}
+	applyUnlitFixToLoadedModels(core);
+	session.mirrorScenePath = resolved;
+	session.mirrorSceneName = scenePath;
+	session.mirrorSwapFailed = false;
+	oDebugMsg("editor.play", 0, "play - Scene view now mirrors the running "
+		"scene '" << scenePath << "' (view-only; the authored document "
+		"returns on Stop)");
+}
+
+void restoreAuthoredDocument(PlaySession& session)
+{
+	if (!session.mirrorDocument)
+	{
+		session.mirrorSwapFailed = false;
+		return;
+	}
+	session.mirrorDocument = false;
+	session.mirrorScenePath.clear();
+	session.mirrorSceneName.clear();
+	session.mirrorSwapFailed = false;
+	if (!session.editorWorld || !session.editorCore)
+	{
+		return;
+	}
+	Orkige::GameObjectManager& world = *session.editorWorld;
+	Orkige::EditorCore& core = *session.editorCore;
+	// the mirror-document world is discarded; the authored snapshot replaces it
+	core.resetForScene();
+	if (!Orkige::SceneSerializer::loadScene(session.authoredSnapshotPath,
+		world))
+	{
+		// the snapshot was written by handleRemoteSceneLoaded - failing to
+		// read it back is exceptional; report loudly, keep the file for rescue
+		oDebugError("editor.play", 0, "play - restoring the authored scene "
+			"from '" << session.authoredSnapshotPath << "' FAILED; the "
+			"snapshot file is kept");
+		session.authoredSnapshotPath.clear();
+		session.authoredSelection.clear();
+		session.authoredSceneDirty = false;
+		return;
+	}
+	applyUnlitFixToLoadedModels(core);
+	if (session.authoredSceneDirty)
+	{
+		core.markSceneDirty();
+	}
+	// best-effort selection restore (ids persist across the round-trip)
+	for (Orkige::String const& id : session.authoredSelection)
+	{
+		if (world.objectExists(id))
+		{
+			core.addToSelection(id);
+		}
+	}
+	std::error_code ignored;
+	std::filesystem::remove(session.authoredSnapshotPath, ignored);
+	oDebugMsg("editor.play", 0, "play - authored document restored (" <<
+		world.getGameObjects().size() << " GameObjects)");
+	session.authoredSnapshotPath.clear();
+	session.authoredSelection.clear();
+	session.authoredSceneDirty = false;
+}
+
+bool saveAuthoredSnapshotTo(PlaySession& session,
+	std::string const& targetPath)
+{
+	std::error_code error;
+	if (session.authoredSnapshotPath.empty() ||
+		!std::filesystem::is_regular_file(session.authoredSnapshotPath, error))
+	{
+		return false;
+	}
+	std::filesystem::copy_file(session.authoredSnapshotPath, targetPath,
+		std::filesystem::copy_options::overwrite_existing, error);
+	return !error;
 }
 
 //! @brief tear the session down (reap/kill the player, drop the link,
@@ -276,8 +564,13 @@ void endPlaySession(PlaySession& session, std::string const& reason)
 {
 	// FIRST of all: put the editor's Scene view back to exactly how it was
 	// authored (the mirror only moved render nodes; this writes the snapshotted
-	// authored floats back). Done before any teardown so no exit path skips it.
+	// authored floats back and destroys the runtime-spawn stand-ins). Done
+	// before any teardown so no exit path skips it.
 	revertPlayMirror(session);
+	// and if a mid-play scene switch swapped the world to a view-only mirror
+	// document, the AUTHORED document replaces it now (dirty flag + selection
+	// restored from the swap-time stash - the document half of exact restore)
+	restoreAuthoredDocument(session);
 	if (session.buildProcess)
 	{
 		// a running native module build dies with the session (Stop while
@@ -1625,6 +1918,32 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 					"(player " << message.version << ", editor " <<
 					Protocol::VERSION << ")");
 			}
+			// a client that attaches AFTER a mid-play scene switch learns the
+			// current scene from the hello: a temp-scene session whose player
+			// reports a DIFFERENT scene is already elsewhere - swap the Scene
+			// view like a live MSG_SCENE_LOADED would (browser sessions have no
+			// temp scene and are excluded - their hello legitimately differs)
+			if (!session.tempScenePath.empty() &&
+				!session.remoteScenePath.empty() &&
+				session.remoteScenePath != session.tempScenePath)
+			{
+				handleRemoteSceneLoaded(session, session.remoteScenePath);
+			}
+		}
+		else if (message.type == Protocol::MSG_SCENE_LOADED)
+		{
+			// the running game switched scenes mid-play (deferred level load):
+			// swap the Scene view to a view-only mirror of the new scene; the
+			// authored document was/is stashed and returns on Stop
+			session.remoteScenePath = message.get(Protocol::FIELD_SCENE);
+			handleRemoteSceneLoaded(session, session.remoteScenePath);
+		}
+		else if (message.type == Protocol::MSG_SCENE_SPAWNS)
+		{
+			// descriptors for runtime-spawned objects the mirror asked about:
+			// materialize their stand-ins (transforms/visibility ride the
+			// existing streams from here on)
+			applyPlayMirrorSpawns(session, message);
 		}
 		else if (message.type == Protocol::MSG_HIERARCHY)
 		{
@@ -1645,6 +1964,9 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 			// mirror the running game's active/visibility state onto the
 			// editor Scene view (the transform half rides MSG_SCENE_TRANSFORMS)
 			applyPlayMirrorActive(session);
+			// runtime spawns/destroys: prune stand-ins whose ids vanished and
+			// ask the player to describe ids the mirror cannot match
+			updatePlayMirrorSpawns(session);
 		}
 		else if (message.type == Protocol::MSG_SCENE_TRANSFORMS)
 		{
