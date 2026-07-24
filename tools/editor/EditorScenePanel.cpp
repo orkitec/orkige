@@ -10,16 +10,30 @@
 #include <ImGuizmo.h>
 
 #include "EditorCameraGizmo.h"
+#include "GamePreviewStage.h"
 
+#include <core_util/DevicePreset.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_render/RenderSystem.h>
+#include <engine_render/RenderTexture.h>
 #include <engine_render/RenderWorld.h>
 
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <vector>
+
+namespace OrkigeEditor
+{
+	//! the Scene panel's selected-camera inset last-draw seam
+	//! (@see CameraInsetDebug)
+	CameraInsetDebug& cameraInsetDebug()
+	{
+		static CameraInsetDebug debug;
+		return debug;
+	}
+}
 
 // (re)size the scene RTT: first call creates it (camera + editor viewport
 // state), later calls resize-by-recreate behind the facade - the ImGui
@@ -154,6 +168,9 @@ optr<Orkige::MeshInstance> createEditorGrid(Orkige::RenderWorld* world,
 	{
 		grid->setCastShadows(false);
 		grid->setQueryFlags(0); // never a picking hit
+		// editor-only: the grid shows in the Scene RTT but is masked OUT of the
+		// Game Preview RTT (which renders the game, not the editor chrome)
+		grid->setVisibilityFlags(OrkigeEditor::EDITOR_ONLY_VISIBILITY);
 		grid->attachTo(gridNode);
 	}
 	return grid;
@@ -298,6 +315,9 @@ void updateCameraFrustumGizmo(Orkige::EditorCore& core, bool editMode,
 		{
 			gizmo.instance->setCastShadows(false);
 			gizmo.instance->setQueryFlags(0);	// never a picking hit
+			// editor-only: masked OUT of the Game Preview RTT (the grid too)
+			gizmo.instance->setVisibilityFlags(
+				OrkigeEditor::EDITOR_ONLY_VISIBILITY);
 			gizmo.instance->attachTo(gizmo.node);
 		}
 		gizmo.signature = signature;
@@ -749,7 +769,8 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 	bool editMode, SceneRenderTarget& sceneTarget,
 	optr<Orkige::RenderNode> const& cameraNode,
 	ViewSettings& viewSettings, float contentScale,
-	Orkige::ImGuiSDL3Input& imguiInput)
+	Orkige::ImGuiSDL3Input& imguiInput, Orkige::GameObjectManager& world,
+	OrkigeEditor::GamePreviewStage& cameraInset)
 {
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 	const bool open = ImGui::Begin("Scene", &viewSettings.showScenePanel);
@@ -868,6 +889,61 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 			// hidden when nothing camera-shaped is selected / during play)
 			updateCameraFrustumGizmo(core, editMode,
 				avail.y > 0.0f ? avail.x / avail.y : 1.0f);
+			// selected-camera picture-in-picture inset: when the selection
+			// carries a CameraComponent, show ITS view live in a bottom-right
+			// corner box while the author moves/rotates it. The same preview
+			// RTT + camera-copy path as the Game Preview panel, but pointed at
+			// the SELECTED camera (the panel tracks the active one), at the
+			// panel aspect, scene-only (no overlay, no guides, no frame). It
+			// disappears on deselect; hidden during play.
+			OrkigeEditor::CameraInsetDebug& insetDbg =
+				OrkigeEditor::cameraInsetDebug();
+			insetDbg = OrkigeEditor::CameraInsetDebug();
+			if (editMode && core.hasSelection())
+			{
+				optr<Orkige::GameObject> selected =
+					world.getGameObject(core.getSelectedObjectId()).lock();
+				if (selected &&
+					selected->hasComponent<Orkige::CameraComponent>() &&
+					selected->hasComponent<Orkige::TransformComponent>())
+				{
+					float insetX = 0.0f, insetY = 0.0f;
+					float insetW = 0.0f, insetH = 0.0f;
+					const float panelAspect =
+						avail.y > 0.0f ? avail.x / avail.y : 1.0f;
+					Orkige::DevicePreset::insetRect(avail.x, avail.y,
+						panelAspect, 0.25f, 10.0f * contentScale,
+						insetX, insetY, insetW, insetH);
+					OrkigeEditor::GuiPreviewContext insetCtx;
+					insetCtx.width = static_cast<unsigned int>(
+						std::max(16.0f, insetW));
+					insetCtx.height = static_cast<unsigned int>(
+						std::max(16.0f, insetH));
+					insetCtx.contentScale = 1.0f;
+					cameraInset.setContext(insetCtx);
+					cameraInset.update(world, core.getSelectedObjectId(),
+						false, 0.0f);
+					if (cameraInset.hasCamera() && cameraInset.getTarget())
+					{
+						ImDrawList* insetDraw = ImGui::GetWindowDrawList();
+						const ImVec2 a(rectMin.x + insetX, rectMin.y + insetY);
+						const ImVec2 b(a.x + insetW, a.y + insetH);
+						// a subtle dark backing so the framed image reads on
+						// any scene content
+						insetDraw->AddRectFilled(
+							ImVec2(a.x - 2.0f, a.y - 2.0f),
+							ImVec2(b.x + 2.0f, b.y + 2.0f),
+							IM_COL32(0, 0, 0, 200), 3.0f);
+						insetDraw->AddImage(gImGuiRenderer->textureIdFor(
+							cameraInset.getTarget()), a, b);
+							insetDbg.drew = true;
+							insetDbg.trackedCameraId =
+								cameraInset.getTrackedCameraId();
+						insetDraw->AddRect(a, b, IM_COL32(120, 175, 255, 220),
+							3.0f, 0, 1.5f);
+					}
+				}
+			}
 			// gizmo first: while it is hovered/dragged the click-pick and
 			// the camera drags stand down (input priority). Editing the
 			// local scene is pointless while the panels show the remote one.

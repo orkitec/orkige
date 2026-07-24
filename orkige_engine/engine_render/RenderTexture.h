@@ -77,6 +77,14 @@ namespace Orkige
 		void setShadowsEnabled(bool enabled);
 
 		//--- size ---
+		//! @brief the scene-pass visibility mask: this target renders a mesh
+		//! only where (the mesh's MeshInstance::setVisibilityFlags & this mask)
+		//! is non-zero. Default 0xFFFFFFFF (everything). The Game Preview RTT
+		//! masks OFF the editor-only bit so the grid / camera-frustum gizmos never
+		//! reach the preview, while the Scene RTT keeps the default and shows them.
+		//! map: classic=Viewport::setVisibilityMask | next=CompositorPassSceneDef::setVisibilityMask (rebuilt into the workspace) | filament=View::setVisibleLayers
+		void setVisibilityMask(unsigned int mask);
+
 		//! @brief recreate the target at a new size (editor panel resize);
 		//! keeps camera and viewport settings
 		void resize(unsigned int width, unsigned int height);

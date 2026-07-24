@@ -42,6 +42,8 @@
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/VectorShapeComponent.h>
 #include <engine_gocomponent/CameraComponent.h>
+#include <engine_gocomponent/WaterComponent.h>
+#include <core_util/DevicePreset.h>
 #include <core_base/PropertySchema.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <core_project/AssetDatabase.h>
@@ -87,6 +89,7 @@
 #include "AnimationPreviewStage.h"
 #include "EditorImageDecode.h"
 #include "GuiPreviewStage.h"
+#include "GamePreviewStage.h"
 #include "MeshPreviewStage.h"
 
 #include <algorithm>
@@ -265,13 +268,13 @@ int main(int argc, char** argv)
 		ViewSettings migrated;
 		migrated.path = testIni;
 		migrated.load();
-		check(migrated.showTilePalettePanel && migrated.showGuiPreviewPanel,
+		check(migrated.showTilePalettePanel && migrated.showGamePreviewPanel,
 			"old ini loaded with both panels open");
 		check(migrated.layoutVersion == 0, "old ini has no version stamp");
 		const bool dockPending = migrated.migrateLayoutDefaults();
 		migrated.save();
 		check(!migrated.showTilePalettePanel, "tile palette closed");
-		check(!migrated.showGuiPreviewPanel, "gui preview closed");
+		check(!migrated.showGamePreviewPanel, "game preview closed");
 		check(dockPending, "palette re-dock flagged");
 		check(migrated.layoutVersion == ViewSettings::CURRENT_LAYOUT_VERSION,
 			"version stamped");
@@ -521,6 +524,11 @@ int main(int argc, char** argv)
 			Orkige::loadEditorIconFont(ImGui::GetIO(), iconFontPath.c_str(),
 				14.0f, editorContentScale);
 		}
+		// the smaller value-field font (Inspector property values) - baked
+		// into the same boot atlas so it rasterizes crisp; loaded AFTER the
+		// icon merge so the icons stay in the base UI font
+		Orkige::loadMacSystemSmallFont(ImGui::GetIO(), 13.0f,
+			editorContentScale);
 		// the monospace sibling for the Script panel's code editor - loaded
 		// AFTER the icon merge (which targets the last-added base font) so the
 		// inline icons stay in the UI font; never fatal (the panel falls back
@@ -912,6 +920,14 @@ int main(int argc, char** argv)
 		// the shared GUI Preview stage: one gui-into-offscreen-target stack
 		// driven by BOTH the GUI Preview tab and the preview_ui MCP verb
 		OrkigeEditor::GuiPreviewStage guiPreviewStage;
+		// the shared Game Preview stage: the authored scene rendered through its
+		// own scene camera at a device preset (+ optional .oui overlay), driven
+		// by BOTH the Game Preview tab and the preview_game MCP verb
+		OrkigeEditor::GamePreviewStage gamePreviewStage("EditorGamePreviewRT");
+		// a SECOND game-preview stage for the Scene panel's selected-camera
+		// picture-in-picture inset: same camera-copy path, its own small RTT, it
+		// tracks the SELECTED camera (the panel stage tracks the active one)
+		OrkigeEditor::GamePreviewStage cameraInsetStage("EditorCameraInsetRT");
 		// the shared vector-animation preview stage: one .oanim-on-CPU-raster
 		// stack driven by the Inspector's animation section and the
 		// preview_animation MCP verb
@@ -933,6 +949,7 @@ int main(int argc, char** argv)
 		controlContext.sceneTarget = &sceneTarget;
 		controlContext.gameObjectManager = &gameObjectManager;
 		controlContext.previewStage = &guiPreviewStage;
+		controlContext.gamePreviewStage = &gamePreviewStage;
 		controlContext.animPreviewStage = &animPreviewStage;
 		// editor-tool host: discovers *.editor.lua tools in the open project and
 		// runs one on demand (Tools menu / run_editor_script) in a sandbox whose
@@ -1803,6 +1820,30 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_EDITOR_CAMERA_SELFCHECK");
 		bool cameraSelfcheckPart1Ok = false;	// frame-10 result, checked at 20
 
+		// ORKIGE_EDITOR_GAME_PREVIEW_SELFCHECK=1: the Game Preview panel + the
+		// Scene-panel selected-camera inset, both flavors. Frame 10 builds a
+		// camera + a water object and opens the panel at a notch device preset;
+		// frame 20 asserts (through the non-pixel draw seams) the composite drew
+		// through the SCENE camera at the preset size with its device frame, the
+		// animate-materials clock advances water time, the selected-camera inset
+		// drew tracking that camera, and deleting the camera yields the honest
+		// no-camera state. The .oui overlay leg is next-only (editor_previews).
+		const char* gamePreviewSelfcheckEnv =
+			std::getenv("ORKIGE_EDITOR_GAME_PREVIEW_SELFCHECK");
+		bool gamePreviewPart1Ok = false;	// frame-10 build result, checked at 20
+
+		// ORKIGE_EDITOR_REFRACTION_SELFCHECK=<project dir>: the refractive-water
+		// crash guard, both flavors. Opens a project + its lake scene (whose
+		// water carries screenSpaceRefraction) with the Game Preview panel active,
+		// so the scene renders through the offscreen RTTs (Scene + preview + inset)
+		// whose workspaces cannot satisfy an HlmsPbs Refractive datablock. The
+		// editor must NOT abort: the water is downgraded to a transparent look
+		// (next) / renders natively (classic - its water is not Hlms), and any
+		// stray shader-generation exception is contained at the render entry.
+		const char* refractionSelfcheckEnv =
+			std::getenv("ORKIGE_EDITOR_REFRACTION_SELFCHECK");
+		bool refractionOpenOk = false;	// frame-10 open result, checked at 30
+
 		// ORKIGE_EDITOR_PREFABEDIT=<roller project dir>: the prefab edit-mode
 		// selfcheck (editor_prefab_edit ctest). Frame 10 copies the project to
 		// a temp dir, authors a tile instance with a per-instance override,
@@ -2213,11 +2254,11 @@ int main(int argc, char** argv)
 			ImGui::NewFrame();
 			ImGuizmo::BeginFrame();
 			// Exercise the real preview-panel docking path in the editor selfcheck:
-			// the GUI Preview panel must join Scene's dock node, not appear as a
+			// the Game Preview panel must join Scene's dock node, not appear as a
 			// loose window.
 			if (selfCheck && frameCount == 5)
 			{
-				viewSettings.showGuiPreviewPanel = true;
+				viewSettings.showGamePreviewPanel = true;
 				// a code-editor document window too: it must dock beside Scene
 				// and render (the frame-30 probe asserts it joined that node).
 				// Open a real script so the editor document + breakpoint-gutter
@@ -2276,7 +2317,8 @@ int main(int argc, char** argv)
 			{
 				drawScenePanel(state, editorCore, !playSession.isActive(),
 					sceneTarget, sceneCameraNode, viewSettings,
-					editorContentScale, imguiInput);
+					editorContentScale, imguiInput, gameObjectManager,
+					cameraInsetStage);
 			}
 			else
 			{
@@ -2360,10 +2402,10 @@ int main(int argc, char** argv)
 			{
 				state.tilePalette.focused = false;
 			}
-			if (viewSettings.showGuiPreviewPanel)
+			if (viewSettings.showGamePreviewPanel)
 			{
-				drawGuiPreviewPanel(state, guiPreviewStage, editorCore,
-					viewSettings);
+				drawGamePreviewPanel(state, gamePreviewStage, editorCore,
+					gameObjectManager, viewSettings);
 			}
 			// the code editor is a window per open file, drawn every frame
 			// (zero open files draws nothing); each opens on demand
@@ -2455,7 +2497,7 @@ int main(int argc, char** argv)
 			// CLOSED (the panel drives the stage when open), render one frame,
 			// read the target back, and upload it as a cached named texture.
 			if (!state.assetBrowser.ouiPreviewRequest.empty() &&
-				!viewSettings.showGuiPreviewPanel && state.project.isLoaded())
+				!viewSettings.showGamePreviewPanel && state.project.isLoaded())
 			{
 				const std::string ouiAbs = state.assetBrowser.ouiPreviewRequest;
 				state.assetBrowser.ouiPreviewRequest.clear();
@@ -2629,7 +2671,7 @@ int main(int argc, char** argv)
 #endif
 				ImGuiWindow* sceneWindow = ImGui::FindWindowByName("Scene");
 				ImGuiWindow* guiPreviewWindow =
-					ImGui::FindWindowByName("GuiPreview");
+					ImGui::FindWindowByName("Game Preview");
 				// the open code-editor document window must share Scene's dock
 				// node (documents dock as sibling tabs beside the Scene panel)
 				const bool previewDockOk = sceneWindow &&
@@ -5685,6 +5727,256 @@ int main(int argc, char** argv)
 				}
 			}
 
+			// --- Game Preview + selected-camera inset selfcheck (both flavors) ---
+			// (ORKIGE_EDITOR_GAME_PREVIEW_SELFCHECK) frame 10 builds a camera + a
+			// water object and opens the panel at a notch device preset with the
+			// animate-materials clock on; frame 20 asserts the non-pixel draw seams.
+			if (gamePreviewSelfcheckEnv && frameCount == 10)
+			{
+				newScene(state, editorCore);	// empty baseline
+				const bool camOk = editorCore.createCamera();
+				const bool cubeOk = editorCore.createCube();
+				const bool waterOk = cubeOk &&
+					editorCore.addComponentToObject("Cube1", "WaterComponent");
+				if (!camOk || !cubeOk || !waterOk)
+				{
+					SDL_Log("orkige_editor: game-preview selfcheck - FAILED: could not "
+						"build the camera/water fixture");
+					exitCode = 22;
+					running = false;
+				}
+				else
+				{
+					// the Scene panel's inset tracks the SELECTED camera
+					editorCore.selectObject("Camera1");
+					// drive a notch device preset with its frame + the animate clock
+					viewSettings.gamePreviewPreset =
+						static_cast<int>(Orkige::DevicePreset::DP_IPHONE_NOTCH);
+					viewSettings.gamePreviewShowFrame = true;
+					viewSettings.gamePreviewSafeAreaGuides = true;
+					viewSettings.gamePreviewAnimateMaterials = true;
+					viewSettings.showGamePreviewPanel = true;
+					gamePreviewPart1Ok = true;
+				}
+			}
+			if (gamePreviewSelfcheckEnv && frameCount == 20 && exitCode == 0)
+			{
+				auto gpFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: game-preview selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 22;
+					running = false;
+				};
+				OrkigeEditor::GamePreviewPanelDebug const& dbg =
+					OrkigeEditor::gamePreviewPanelDebug();
+				OrkigeEditor::CameraInsetDebug const& inset =
+					OrkigeEditor::cameraInsetDebug();
+				optr<Orkige::GameObject> water =
+					gameObjectManager.getGameObject("Cube1").lock();
+				const float scroll = (water &&
+					water->hasComponent<Orkige::WaterComponent>())
+					? water->getComponentPtr<Orkige::WaterComponent>()->getScrollTime()
+					: -1.0f;
+				if (!gamePreviewPart1Ok)
+				{
+					gpFail("frame-10 fixture did not complete");
+				}
+				// (1) the composite rendered through the SCENE camera at the preset size
+				else if (!dbg.drewImage || !dbg.hasCamera)
+				{
+					gpFail("the preview did not render the scene through a camera");
+				}
+				else if (dbg.trackedCameraId != "Camera1")
+				{
+					gpFail("the preview did not track the scene camera");
+				}
+				else if (dbg.targetWidth != 1170 || dbg.targetHeight != 2532)
+				{
+					gpFail("the device preset did not drive the RTT size");
+				}
+				// (2) the procedural device frame drew its notch (occluding cutout)
+				else if (!dbg.framed || dbg.cutout !=
+					static_cast<int>(Orkige::DevicePreset::CUT_NOTCH))
+				{
+					gpFail("the device frame notch did not draw");
+				}
+				// (3) the safe-area guide drew (the notch preset carries insets)
+				else if (!dbg.safeAreaDrawn)
+				{
+					gpFail("the safe-area guide did not draw");
+				}
+				// (4) animate-materials advanced the water scroll clock (material params
+				// only - no gameplay ran)
+				else if (!(scroll > 0.0f))
+				{
+					gpFail("animate-materials did not advance the water time");
+				}
+				// (5) the Scene panel's selected-camera inset drew, tracking Camera1
+				else if (!inset.drew || inset.trackedCameraId != "Camera1")
+				{
+					gpFail("the selected-camera inset did not draw");
+				}
+				else
+				{
+					// (6) a camera-less scene RENDERS through the default window
+					// camera (mirrors the game), never blanking: after clearing the
+					// scene the preview still builds a target + falls back to the
+					// default view. The empty scene keeps ONLY the editor grid, so
+					// it doubles as the EDITOR-EXCLUSION proof: the default view
+					// (0,2.5,9 looking at origin) sees the grid.
+					newScene(state, editorCore);
+					gamePreviewStage.update(gameObjectManager, "", false, 0.0f);
+					auto readPng = [](std::string const& path) -> std::vector<char>
+					{
+						std::ifstream in(path, std::ios::binary);
+						return std::vector<char>(
+							std::istreambuf_iterator<char>(in),
+							std::istreambuf_iterator<char>());
+					};
+					const std::string maskedPng =
+						(std::filesystem::temp_directory_path() /
+							"orkige_gp_masked.png").string();
+					const std::string unmaskedPng =
+						(std::filesystem::temp_directory_path() /
+							"orkige_gp_unmasked.png").string();
+					std::string capErr;
+					if (gamePreviewStage.hasCamera())
+					{
+						gpFail("the preview still reports a camera after clearing it");
+					}
+					else if (!gamePreviewStage.usedDefaultCamera() ||
+						!gamePreviewStage.getTarget())
+					{
+						gpFail("the camera-less preview did not fall back to the "
+							"default window camera");
+					}
+					// (7) the editor-only grid is MASKED OUT of the preview: the same
+					// view rendered with the editor mask (grid excluded) vs an all-
+					// visible mask (grid shown) must DIFFER, proving the grid is
+					// absent from the game preview (present in the Scene RTT, which
+					// keeps the default mask)
+					else if (!gamePreviewStage.renderAndCapture(maskedPng, capErr))
+					{
+						gpFail("could not capture the masked preview: " + capErr);
+					}
+					else
+					{
+						gamePreviewStage.getTarget()->setVisibilityMask(0xFFFFFFFFu);
+						const bool unmaskedOk =
+							gamePreviewStage.renderAndCapture(unmaskedPng, capErr);
+						gamePreviewStage.getTarget()->setVisibilityMask(
+							0xFFFFFFFFu & ~OrkigeEditor::EDITOR_ONLY_VISIBILITY);
+						const std::vector<char> masked = readPng(maskedPng);
+						const std::vector<char> unmasked = readPng(unmaskedPng);
+						std::error_code rmErr;
+						std::filesystem::remove(maskedPng, rmErr);
+						std::filesystem::remove(unmaskedPng, rmErr);
+						if (!unmaskedOk || masked.empty() || unmasked.empty())
+						{
+							gpFail("could not capture the grid-exclusion frames");
+						}
+						else if (masked == unmasked)
+						{
+							gpFail("the editor grid was NOT masked out of the game "
+								"preview (masked == unmasked render)");
+						}
+						else
+						{
+							SDL_Log("orkige_editor: game-preview selfcheck OK "
+								"(scene camera, device frame, safe area, animate "
+								"materials, inset, default-camera fallback, editor "
+								"grid excluded)");
+							running = false;
+						}
+					}
+				}
+			}
+
+			// --- refractive-water crash guard (ORKIGE_EDITOR_REFRACTION_SELFCHECK) ---
+			// frame 10 opens the project + its lake scene (refractive water) with the
+			// Game Preview panel active; frame 30 asserts the editor SURVIVED the
+			// render (no HlmsPbs abort) and the water is present.
+			if (refractionSelfcheckEnv && frameCount == 10)
+			{
+				auto rfFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: refraction selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 24;
+					running = false;
+				};
+				if (!openProjectFromPath(state, editorCore, refractionSelfcheckEnv))
+				{
+					rfFail("could not open the project");
+				}
+				else
+				{
+					const std::string lakeScene =
+						std::string(refractionSelfcheckEnv) + "/scenes/lake.oscene";
+					if (!openSceneFromPath(state, editorCore, lakeScene))
+					{
+						rfFail("could not open the lake scene");
+					}
+					else
+					{
+						// render the scene through the offscreen preview RTTs too (the
+						// crash path): open the Game Preview panel and select the first
+						// camera so the Scene-panel inset renders as well
+						viewSettings.showGamePreviewPanel = true;
+						viewSettings.gamePreviewPreset = static_cast<int>(
+							Orkige::DevicePreset::DP_IPHONE_NOTCH);
+						for (auto const& entry : gameObjectManager.getGameObjects())
+						{
+							if (entry.second->hasComponent<Orkige::CameraComponent>())
+							{
+								editorCore.selectObject(entry.first);
+								break;
+							}
+						}
+						refractionOpenOk = true;
+					}
+				}
+			}
+			if (refractionSelfcheckEnv && frameCount == 30 && exitCode == 0)
+			{
+				// reaching here at all proves the render did NOT abort (the refractive
+				// water would otherwise throw out of Root::renderOneFrame). Confirm the
+				// scene loaded and a water surface is present (the downgraded look).
+				Orkige::GameObject* waterObject = NULL;
+				for (auto const& entry : gameObjectManager.getGameObjects())
+				{
+					if (entry.second->hasComponent<Orkige::WaterComponent>())
+					{
+						waterObject = entry.second.get();
+						break;
+					}
+				}
+				const bool waterPresent = waterObject &&
+					waterObject->getComponentPtr<Orkige::WaterComponent>()->hasSurface();
+				if (!refractionOpenOk)
+				{
+					SDL_Log("orkige_editor: refraction selfcheck - FAILED: "
+						"frame-10 open did not complete");
+					exitCode = 24;
+					running = false;
+				}
+				else if (!waterPresent)
+				{
+					SDL_Log("orkige_editor: refraction selfcheck - FAILED: "
+						"the lake scene has no built water surface");
+					exitCode = 24;
+					running = false;
+				}
+				else
+				{
+					SDL_Log("orkige_editor: refraction selfcheck OK (lake scene with "
+						"refractive water rendered through the preview RTTs without a "
+						"crash; water present)");
+					running = false;
+				}
+			}
+
 			// --- autosave + backup + component copy/paste selfcheck ---
 			// (ORKIGE_EDITOR_AUTOSAVETEST=1) drives the WIRED paths on a temp
 			// loose scene: a clean save, a dirty autosave sibling, a clean save
@@ -7021,7 +7313,8 @@ int main(int argc, char** argv)
 			if (previewSelfcheckEnv && frameCount == 34 && exitCode == 0)
 			{
 				// the Inspector baked the .oui GUI-screen thumbnail (a real texture,
-				// not the placeholder); then the Open Preview button opens the panel
+				// not the placeholder); then Open Preview opens the Game Preview panel
+				// with hud.oui as the SCREEN OVERLAY over the scene.
 				unsigned int ouiTw = 0;
 				unsigned int ouiTh = 0;
 				const bool ouiThumbOk =
@@ -7038,9 +7331,31 @@ int main(int argc, char** argv)
 				}
 				else
 				{
-					// the Open Preview button opens the full panel on this screen
+					// the Game Preview renders the scene through its camera - ensure the
+					// benchmark scene has one so the composite draws (else the honest
+					// no-camera line hides the image + overlay)
+					bool hasSceneCamera = false;
+					for (auto const& entry : gameObjectManager.getGameObjects())
+					{
+						if (entry.second->hasComponent<Orkige::CameraComponent>())
+						{
+							hasSceneCamera = true;
+							break;
+						}
+					}
+					if (!hasSceneCamera)
+					{
+						editorCore.createCamera();
+					}
+					// drive a device preset with a notch + its frame (asserted at 40);
+					// seeded into the panel on its first draw next frame
+					viewSettings.gamePreviewPreset =
+						static_cast<int>(Orkige::DevicePreset::DP_IPHONE_NOTCH);
+					viewSettings.gamePreviewShowFrame = true;
+					viewSettings.gamePreviewSafeAreaGuides = true;
+					// Open Preview opens the full panel with this screen as the OVERLAY
 					state.requestedGuiPreviewAsset = "assets/hud.oui";
-					viewSettings.showGuiPreviewPanel = true;
+					viewSettings.showGamePreviewPanel = true;
 				}
 			}
 			if (previewSelfcheckEnv && frameCount == 40 && exitCode == 0)
@@ -7055,21 +7370,33 @@ int main(int argc, char** argv)
 							if (command.GetTexID() == wanted) return true;
 					return false;
 				};
-				const Orkige::optr<Orkige::RenderTexture> guiTarget =
-					guiPreviewStage.getTarget();
-				const ImTextureID guiTexture = gImGuiRenderer
-					? gImGuiRenderer->textureIdFor(guiTarget) : 0;
+				const Orkige::optr<Orkige::RenderTexture> gameTarget =
+					gamePreviewStage.getTarget();
+				const ImTextureID gameTexture = gImGuiRenderer
+					? gImGuiRenderer->textureIdFor(gameTarget) : 0;
 				ImGuiWindow* sceneWindow = ImGui::FindWindowByName("Scene");
-				ImGuiWindow* guiWindow = ImGui::FindWindowByName("GuiPreview");
-				const bool guiOk = guiPreviewStage.isLoaded() && guiTarget &&
-					guiPreviewStage.getLastBatchCount() > 0 &&
-					drawDataUses(guiTexture) && sceneWindow && guiWindow &&
-					sceneWindow->DockId != 0 &&
-					guiWindow->DockId == sceneWindow->DockId;
-				SDL_Log("orkige_editor: preview selfcheck - GUI live image %s "
-					"(%zu batches)", guiOk ? "OK" : "FAILED",
-					guiPreviewStage.getLastBatchCount());
-				if (!guiOk)
+				ImGuiWindow* gameWindow = ImGui::FindWindowByName("Game Preview");
+				OrkigeEditor::GamePreviewPanelDebug const& dbg =
+					OrkigeEditor::gamePreviewPanelDebug();
+				// the composite rendered through the SCENE camera (not the editor view
+				// camera), the device preset drove the RTT size, the device frame drew
+				// its notch, the .oui overlay composited, and the panel docked by Scene
+				const bool overlayComposited =
+					gamePreviewStage.getOverlayScreen() == "assets/hud.oui" &&
+					!gamePreviewStage.getOverlayWidgetRects().empty();
+				const bool gameOk = dbg.drewImage && dbg.hasCamera &&
+					dbg.framed && dbg.cutout ==
+						static_cast<int>(Orkige::DevicePreset::CUT_NOTCH) &&
+					dbg.targetWidth == 1170 && dbg.targetHeight == 2532 &&
+					overlayComposited && gameTarget && drawDataUses(gameTexture) &&
+					sceneWindow && gameWindow && sceneWindow->DockId != 0 &&
+					gameWindow->DockId == sceneWindow->DockId;
+				SDL_Log("orkige_editor: preview selfcheck - Game Preview composite %s "
+					"(cam=%s %ux%u framed=%d cutout=%d overlay=%s)",
+					gameOk ? "OK" : "FAILED", dbg.trackedCameraId.c_str(),
+					dbg.targetWidth, dbg.targetHeight, dbg.framed ? 1 : 0, dbg.cutout,
+					overlayComposited ? "yes" : "no");
+				if (!gameOk)
 				{
 					exitCode = 13;
 					running = false;
@@ -7080,21 +7407,16 @@ int main(int argc, char** argv)
 				if (const char* shot =
 					std::getenv("ORKIGE_EDITOR_INSPECTOR_PREVIEW_DIR"))
 				{
-					render->saveWindowContents(std::string(shot) + "/oui_panel.png");
+					render->saveWindowContents(std::string(shot) + "/game_preview.png");
 				}
 			}
-			// Device-preset SWITCH stress: selecting a different phone in the
-			// GUI Preview combo setContext()s + re-show()s,
-			// tearing the preview surface down and rebuilding it while the dying
-			// incarnation's UI camera still lives (2D batches hold the old target
-			// an extra frame). A stable camera name collides on createCamera ->
-			// abort; per-incarnation naming must let N switches rebuild without a
-			// crash and still render.
+			// Device-preset SWITCH stress: resizing the Game Preview target across a
+			// matrix of device sizes must resize its scene RTT (not recreate its camera,
+			// which would collide on the stable camera name) and keep rendering.
 			if (previewSelfcheckEnv && exitCode == 0 &&
 				(frameCount == 42 || frameCount == 44 || frameCount == 46))
 			{
-				OrkigeEditor::GuiPreviewContext ctx =
-					guiPreviewStage.getContext();
+				OrkigeEditor::GuiPreviewContext ctx = gamePreviewStage.getContext();
 				if (frameCount == 42)
 				{
 					ctx.width = 1284; ctx.height = 2778; ctx.contentScale = 3.0f;
@@ -7107,16 +7429,15 @@ int main(int argc, char** argv)
 				{
 					ctx.width = 1170; ctx.height = 2532; ctx.contentScale = 3.0f;
 				}
-				guiPreviewStage.setContext(ctx);
-				std::string switchError;
-				const bool shown = guiPreviewStage.show(
-					state.project.getRootDirectory(), "assets/hud.oui",
-					switchError);
-				const bool switchOk = shown && guiPreviewStage.isLoaded() &&
-					guiPreviewStage.getTarget();
-				SDL_Log("orkige_editor: preview selfcheck - device switch %ux%u "
-					"%s (%s)", ctx.width, ctx.height, switchOk ? "OK" : "FAILED",
-					switchError.c_str());
+				gamePreviewStage.setContext(ctx);
+				gamePreviewStage.update(gameObjectManager, "", false, 0.0f);
+				const Orkige::optr<Orkige::RenderTexture> switched =
+					gamePreviewStage.getTarget();
+				const bool switchOk = switched &&
+					switched->getWidth() == ctx.width &&
+					switched->getHeight() == ctx.height && gamePreviewStage.hasCamera();
+				SDL_Log("orkige_editor: preview selfcheck - device switch %ux%u %s",
+					ctx.width, ctx.height, switchOk ? "OK" : "FAILED");
 				if (!switchOk)
 				{
 					exitCode = 13;
@@ -7125,14 +7446,12 @@ int main(int argc, char** argv)
 			}
 			if (previewSelfcheckEnv && frameCount == 48 && exitCode == 0)
 			{
-				// reaching here at all proves no duplicate-camera abort; the
-				// rebuilt surface must also still submit its batch
-				const bool recovered = guiPreviewStage.isLoaded() &&
-					guiPreviewStage.getTarget() &&
-					guiPreviewStage.getLastBatchCount() > 0;
-				SDL_Log("orkige_editor: preview selfcheck - survived device "
-					"switches %s (%zu batches)", recovered ? "OK" : "FAILED",
-					guiPreviewStage.getLastBatchCount());
+				// reaching here at all proves no duplicate-camera abort; the resized
+				// surface still renders through its scene camera
+				const bool recovered = gamePreviewStage.getTarget() &&
+					gamePreviewStage.hasCamera();
+				SDL_Log("orkige_editor: preview selfcheck - survived device switches %s",
+					recovered ? "OK" : "FAILED");
 				if (!recovered)
 				{
 					exitCode = 13;

@@ -1029,6 +1029,35 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_CAMERA_SELFCHECK=${CMAKE_CURRENT_BINARY_DIR}/editor_camera.oscene;ORKIGE_DEMO_FRAMES=60"
         LABELS integration TIMEOUT 120)
 
+    # Game Preview panel + the Scene-panel selected-camera inset, BOTH flavors:
+    # the composite renders the scene through its OWN CameraComponent at a notch
+    # device preset with the procedural device frame + safe-area guides, the
+    # animate-materials clock advances water time, the selected-camera inset
+    # draws tracking that camera, and deleting the camera yields the honest
+    # no-camera state - all asserted through non-pixel draw seams (the camera
+    # gizmo vertex-seam pattern). The .oui overlay leg is next-only, covered by
+    # editor_previews + the editor_control preview_game leg (editor_game_preview).
+    add_test(NAME editor_game_preview${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_game_preview${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_GAME_PREVIEW_SELFCHECK=1;ORKIGE_DEMO_FRAMES=40"
+        LABELS integration TIMEOUT 120)
+
+    # Refractive-water crash guard, BOTH flavors: opening a scene whose water
+    # carries screen-space refraction with the Game Preview panel active renders
+    # it through offscreen RTTs whose workspaces cannot satisfy an HlmsPbs
+    # Refractive datablock - the editor used to ABORT (SIGABRT out of
+    # Root::renderOneFrame). The next backend downgrades such water to a
+    # transparent look in the editor, and any stray shader-generation exception
+    # is contained at the render entry; classic renders its (non-Hlms) water
+    # natively. The leg opens the benchmark lake scene and asserts no crash +
+    # water present (editor_refraction).
+    add_test(NAME editor_refraction${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_refraction${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_REFRACTION_SELFCHECK=${Orkige_SOURCE_DIR}/projects/benchmark;ORKIGE_DEMO_FRAMES=40"
+        LABELS integration TIMEOUT 120)
+
     # MCP endpoint, headless end to end: the editor hosts its MCP
     # server on an ephemeral in-process port over Streamable HTTP and, on a
     # worker thread, drives a RAW TCP socket through a real MCP conversation -

@@ -4,6 +4,9 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "AnimationPreviewStage.h"
 #include "EditorApp.h"
+
+#include <cmath>
+#include <imgui_internal.h>	// CloseButton (the component header's real cross)
 #include "EditorLabelFormat.h"
 #include "EditorPropertyWidgets.h"
 #include "EditorTheme.h"
@@ -135,10 +138,16 @@ void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 		ImGui::TextDisabled("(no editable properties yet)");
 		return;
 	}
-	// the two-column grid: a proportional 40/60 split that follows the panel
+	// the two-column grid: a proportional 30/70 split that follows the panel
 	// width (labels left, value widgets right). A recessed 1px field border
 	// makes each input read as a well; the table itself draws no borders.
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+	// the dense grid: tighter row spacing, shorter inputs, edgier corners
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+		ImVec2(ImGui::GetStyle().FramePadding.x, 2.0f));
+	ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,
+		ImVec2(ImGui::GetStyle().CellPadding.x, 1.0f));
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
 	ImGui::PushStyleColor(ImGuiCol_Border, Orkige::editorFieldBorderColor());
 	bool any = false;
 	// no PadOuterX: the value column runs to the panel's right edge (no
@@ -146,9 +155,9 @@ void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 	if (ImGui::BeginTable("##props", 2, ImGuiTableFlags_SizingStretchProp))
 	{
 		ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthStretch,
-			0.40f);
+			0.30f);
 		ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch,
-			0.60f);
+			0.70f);
 		for (Orkige::PropertyDesc const& desc : schema.properties())
 		{
 			// edit-mode filtering: never show a hidden property or transient
@@ -195,6 +204,11 @@ void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 					ImGuiPopupFlags_MouseButtonRight);
 			}
 			ImGui::TableSetColumnIndex(1);
+			// value text one notch smaller than the labels: long numbers and
+			// paths fit the field more often (the labels keep the UI size)
+			ImFont* const smallFont = Orkige::editorSmallFont();
+			ImGui::PushFont(smallFont != nullptr ? smallFont : ImGui::GetFont(),
+				smallFont != nullptr ? Orkige::editorSmallFontSize() : 0.0f);
 			PropertyWidgetDesc widget;
 			// hide the widget's own label - the label column carries the name;
 			// the "##name" seed keeps the ImGui id unique within this component
@@ -217,6 +231,7 @@ void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 			bool activated = false;
 			const bool committed = drawPropertyWidget(widget, value, edited,
 				refProvider, &activated);
+			ImGui::PopFont();
 			// bracket a drag/interaction into ONE undo step: a fresh merge
 			// session opens when the widget becomes active (drag start / combo
 			// open / click) and every edited frame of that interaction shares
@@ -282,7 +297,7 @@ void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 		ImGui::EndTable();
 	}
 	ImGui::PopStyleColor();		// field border
-	ImGui::PopStyleVar();		// FrameBorderSize
+	ImGui::PopStyleVar(4);		// FrameBorderSize + density vars
 	if (!any)
 	{
 		ImGui::TextDisabled("(no editable properties yet)");
@@ -483,7 +498,14 @@ void drawRemoteInspector(PlaySession& session)
 		Orkige::editorComponentHeaderHoverColor());
 	ImGui::PushStyleColor(ImGuiCol_HeaderActive,
 		Orkige::editorComponentHeaderHoverColor());
-	for (std::string const& component : session.stateComponents)
+	// Transform pins to the top here too (mirrors the edit-mode order)
+	std::vector<std::string> orderedComponents = session.stateComponents;
+	std::stable_partition(orderedComponents.begin(), orderedComponents.end(),
+		[](std::string const& name)
+		{
+			return name == "TransformComponent";
+		});
+	for (std::string const& component : orderedComponents)
 	{
 		const std::string headerLabel =
 			Orkige::prettifyComponentTitle(component) + "###" + component;
@@ -502,13 +524,18 @@ void drawRemoteInspector(PlaySession& session)
 			// typed widgets in a label-left / value-right grid, same as the
 			// edit-mode inspector (declaration order preserved)
 			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+				ImVec2(ImGui::GetStyle().FramePadding.x, 2.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,
+				ImVec2(ImGui::GetStyle().CellPadding.x, 1.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
 			ImGui::PushStyleColor(ImGuiCol_Border,
 				Orkige::editorFieldBorderColor());
 			if (ImGui::BeginTable("##rprops", 2,
 				ImGuiTableFlags_SizingStretchProp))
 			{
 				ImGui::TableSetupColumn("label",
-					ImGuiTableColumnFlags_WidthStretch, 0.40f);
+					ImGuiTableColumnFlags_WidthStretch, 0.30f);
 				ImGui::TableSetupColumn("value",
 					ImGuiTableColumnFlags_WidthStretch, 0.60f);
 				for (std::string const& key : session.statePropKeys)
@@ -542,7 +569,13 @@ void drawRemoteInspector(PlaySession& session)
 					}
 					ImGui::TableSetColumnIndex(1);
 					ImGui::SetNextItemWidth(-FLT_MIN);
+					ImFont* const smallRemote = Orkige::editorSmallFont();
+					ImGui::PushFont(
+						smallRemote != nullptr ? smallRemote : ImGui::GetFont(),
+						smallRemote != nullptr
+							? Orkige::editorSmallFontSize() : 0.0f);
 					drawRemoteProperty(session, key, component, prop);
+					ImGui::PopFont();
 					if (remoteRotation)
 					{
 						ImGui::OpenPopupOnItemClick(rotPopupId.c_str(),
@@ -568,7 +601,7 @@ void drawRemoteInspector(PlaySession& session)
 				ImGui::EndTable();
 			}
 			ImGui::PopStyleColor();	// field border
-			ImGui::PopStyleVar();	// FrameBorderSize
+			ImGui::PopStyleVar(4);	// FrameBorderSize + density vars
 		}
 		else
 		{
@@ -1236,7 +1269,7 @@ void drawGuiPreviewInspectorHeader(EditorState& state)
 		state.requestedGuiPreviewAsset = rel;
 		if (gViewSettings)
 		{
-			gViewSettings->showGuiPreviewPanel = true;
+			gViewSettings->showGamePreviewPanel = true;
 			gViewSettings->save();
 		}
 	}
@@ -1923,63 +1956,82 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 				ImGui::TextDisabled("%zu selected - showing primary",
 					core.getSelectionCount());
 			}
-			ImGui::TextDisabled("type: %s",
-				gameObject->getTypeInfo().getName().c_str());
-			// tags: comma-separated multi-tag labels (the manager tag index /
-			// world.findByTag). Applied on Enter as one undoable SetTagsCommand;
-			// the buffer rebuilds when the selection or the cleaned tag set
-			// changes.
+			// tags as CHIPS: each tag a rounded pill removed by its own x,
+			// new tags typed into the trailing add field (Enter). Every change
+			// = one undoable SetTagsCommand. The canonical wrap pattern: after
+			// each chip, SameLine only if the NEXT one fits the row.
 			{
 				Orkige::StringVector currentTags;
 				core.getObjectTags(objectId, currentTags);
-				std::string joined;
-				for (Orkige::String const& tag : currentTags)
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextUnformatted("Tags");
+				ImGui::SameLine();
+				ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 9.0f);
+				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+					ImVec2(8.0f, 2.0f));
+				const float rowRight = ImGui::GetCursorScreenPos().x +
+					ImGui::GetContentRegionAvail().x;
+				int removeIndex = -1;
+				for (int i = 0; i < static_cast<int>(currentTags.size()); ++i)
 				{
-					if (!joined.empty())
+					const std::string chipLabel =
+						currentTags[i] + " \xc3\x97##tag" + std::to_string(i);
+					if (ImGui::Button(chipLabel.c_str()))
 					{
-						joined += ", ";
+						removeIndex = i;
 					}
-					joined += tag;
+					ImGui::SetItemTooltip("remove tag '%s'",
+						currentTags[i].c_str());
+					// keep the row while the next chip (or the add field's
+					// minimum) still fits; wrap otherwise
+					const float nextWidth =
+						(i + 1 < static_cast<int>(currentTags.size()))
+							? ImGui::CalcTextSize(
+								(currentTags[i + 1] + " \xc3\x97").c_str()).x +
+								16.0f
+							: 120.0f;
+					if (ImGui::GetItemRectMax().x +
+						ImGui::GetStyle().ItemSpacing.x + nextWidth < rowRight)
+					{
+						ImGui::SameLine();
+					}
 				}
-				if (state.tagsEditObjectId != objectId ||
-					state.tagsEditCurrent != joined)
+				ImGui::PopStyleVar(2);
+				if (removeIndex >= 0)
+				{
+					Orkige::StringVector newTags = currentTags;
+					newTags.erase(newTags.begin() + removeIndex);
+					core.setObjectTags(objectId, newTags);
+				}
+				if (state.tagsEditObjectId != objectId)
 				{
 					state.tagsEditObjectId = objectId;
-					state.tagsEditCurrent = joined;
-					SDL_strlcpy(state.tagsEditBuffer, joined.c_str(),
-						sizeof(state.tagsEditBuffer));
+					state.tagsEditBuffer[0] = '\0';
 				}
-				if (ImGui::InputTextWithHint("Tags", "tag1, tag2, ...",
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				if (ImGui::InputTextWithHint("##addtag", "add tag...",
 					state.tagsEditBuffer, sizeof(state.tagsEditBuffer),
 					ImGuiInputTextFlags_EnterReturnsTrue))
 				{
-					Orkige::StringVector newTags;
-					const std::string buffer = state.tagsEditBuffer;
-					std::size_t pos = 0;
-					while (pos <= buffer.size())
+					std::string token = state.tagsEditBuffer;
+					const std::size_t begin = token.find_first_not_of(" \t,");
+					const std::size_t last = token.find_last_not_of(" \t,");
+					if (begin != std::string::npos)
 					{
-						const std::size_t comma = buffer.find(',', pos);
-						const std::string token = buffer.substr(pos,
-							comma == std::string::npos ? std::string::npos
-								: comma - pos);
-						const std::size_t begin = token.find_first_not_of(" \t");
-						const std::size_t end = token.find_last_not_of(" \t");
-						if (begin != std::string::npos)
+						token = token.substr(begin, last - begin + 1);
+						Orkige::StringVector newTags = currentTags;
+						if (std::find(newTags.begin(), newTags.end(), token) ==
+							newTags.end())
 						{
-							newTags.push_back(
-								token.substr(begin, end - begin + 1));
+							newTags.push_back(token);
+							core.setObjectTags(objectId, newTags);
 						}
-						if (comma == std::string::npos)
-						{
-							break;
-						}
-						pos = comma + 1;
+						state.tagsEditBuffer[0] = '\0';
+						ImGui::SetKeyboardFocusHere(-1);	// keep typing tags
 					}
-					core.setObjectTags(objectId, newTags);
-					state.tagsEditCurrent.clear();	// force a rebuild from the cleaned set
 				}
-				ImGui::SetItemTooltip("comma-separated tags "
-					"(world.findByTag); Enter to apply");
+				ImGui::SetItemTooltip(
+					"type a tag and press Enter (world.findByTag)");
 			}
 			ImGui::Separator();
 			// component header bars: a slightly distinct surface from the panel
@@ -1993,11 +2045,27 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 				Orkige::editorComponentHeaderHoverColor());
 			// iterate a snapshot of the attached types: the remove button
 			// mutates the component map mid-loop
+			// Transform pins to the top WHEN PRESENT (it is not mandatory);
+			// the rest keep their stable order. Two passes - the type carries
+			// no move construction, so no reordering algorithms.
 			std::vector<Orkige::TypeInfo> componentTypes;
 			for (auto const& [componentType, component] :
 				gameObject->getComponents())
 			{
-				componentTypes.push_back(componentType);
+				if (std::string(componentType.getName()) ==
+					"TransformComponent")
+				{
+					componentTypes.push_back(componentType);
+				}
+			}
+			for (auto const& [componentType, component] :
+				gameObject->getComponents())
+			{
+				if (std::string(componentType.getName()) !=
+					"TransformComponent")
+				{
+					componentTypes.push_back(componentType);
+				}
 			}
 			for (Orkige::TypeInfo const& componentType : componentTypes)
 			{
@@ -2063,11 +2131,42 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 				bool removedNow = false;
 				const float removeButtonWidth = ImGui::GetFrameHeight();
 				ImGui::SameLine(headerRight - removeButtonWidth);
+				// a drawn close CROSS on a proper layout item (the title-bar
+				// primitive skips ItemSize and wrecks the rows after it): an
+				// InvisibleButton the height of the bar, the cross rendered
+				// centred in its rect, hover disc like the native close
 				ImGui::BeginDisabled(!removable);
-				if (ImGui::SmallButton("x"))
+				const float closeSide = ImGui::GetFrameHeight();
+				if (ImGui::InvisibleButton("##removeComponent",
+					ImVec2(closeSide, closeSide)))
 				{
 					removedNow =
 						core.removeComponentFromObject(objectId, typeName);
+				}
+				{
+					ImDrawList* crossDraw = ImGui::GetWindowDrawList();
+					const ImVec2 rectMin = ImGui::GetItemRectMin();
+					const ImVec2 crossCentre(rectMin.x + closeSide * 0.5f,
+						rectMin.y + closeSide * 0.5f);
+					if (ImGui::IsItemHovered())
+					{
+						crossDraw->AddCircleFilled(crossCentre,
+							closeSide * 0.36f,
+							ImGui::GetColorU32(ImGuiCol_ButtonHovered));
+					}
+					const float crossExtent = ImGui::GetFontSize() * 0.22f;
+					const ImU32 crossColour = ImGui::GetColorU32(
+						removable ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+					crossDraw->AddLine(
+						ImVec2(crossCentre.x - crossExtent,
+							crossCentre.y - crossExtent),
+						ImVec2(crossCentre.x + crossExtent,
+							crossCentre.y + crossExtent), crossColour, 1.0f);
+					crossDraw->AddLine(
+						ImVec2(crossCentre.x - crossExtent,
+							crossCentre.y + crossExtent),
+						ImVec2(crossCentre.x + crossExtent,
+							crossCentre.y - crossExtent), crossColour, 1.0f);
 				}
 				ImGui::EndDisabled();
 				if (!removable && !blockedBy.empty())

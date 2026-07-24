@@ -396,6 +396,11 @@ namespace Orkige
 		this->mImpl->entity->setQueryFlags(flags);
 	}
 	//---------------------------------------------------------
+	void MeshInstance::setVisibilityFlags(unsigned int flags)
+	{
+		this->mImpl->entity->setVisibilityFlags(flags);
+	}
+	//---------------------------------------------------------
 	void MeshInstance::setVertexColourUnlit()
 	{
 		// PrimitiveUtil::makeEntityVertexColourUnlit, folded into the

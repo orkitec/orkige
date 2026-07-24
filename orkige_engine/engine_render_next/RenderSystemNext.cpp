@@ -20,6 +20,8 @@
 #include "engine_filesystem/PakMount.h"
 
 #include <OgreRoot.h>
+#include <OgreLogManager.h>
+#include <OgreException.h>
 #include <OgreWindow.h>
 #include <OgreTextureGpu.h>
 #include <OgreImage2.h>
@@ -124,7 +126,29 @@ namespace Orkige
 		// mirror-of-scene planar water reflection renders from inside the window
 		// workspace update (@see PlanarReflectionUpdater), so it needs no call
 		// here - it must run after Root::renderOneFrame's per-frame updateSceneGraph
-		return this->mImpl->root->renderOneFrame();
+		//
+		// BELT-AND-BRACES: an Hlms shader-generation exception during render (the
+		// classic case being a datablock fed into a pass that cannot satisfy it -
+		// screen-space water refraction outside the window's refraction split)
+		// would otherwise fly UNCAUGHT out of Root::renderOneFrame and terminate
+		// the process. Contain it here (the ONE render entry): log the description
+		// so a REAL error is never masked silently, and skip this frame. The
+		// editor-side downgrade (createOrUpdateWaterDatablock) prevents the known
+		// case at the source; this is the safety net for any other generation fault.
+		try
+		{
+			return this->mImpl->root->renderOneFrame();
+		}
+		catch(Ogre::Exception const& e)
+		{
+			// KEEP RUNNING (return true): a contained render exception skips only
+			// the faulted frame - returning false would tell the host loop the
+			// window closed and quit the editor
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige next backend: RENDER EXCEPTION contained (frame skipped) - "
+				+ e.getFullDescription());
+			return true;
+		}
 	}
 	//---------------------------------------------------------
 	void RenderSystem::showCameraOnWindow(optr<RenderCamera> const & camera)

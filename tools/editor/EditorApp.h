@@ -32,6 +32,7 @@
 #include <core_debugnet/HttpServer.h>	// Play-in-Browser static server
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
+#include <core_project/ProjectPaths.h>
 #include <core_util/MaterialAsset.h>
 #include <core_util/String.h>
 #include <engine_base/EngineLog.h>
@@ -64,7 +65,8 @@ namespace Orkige
 
 namespace OrkigeEditor
 {
-	class GuiPreviewStage;	//!< the GUI Preview stage (GuiPreviewStage.h)
+	class GuiPreviewStage;	//!< the .oui overlay stage (GuiPreviewStage.h)
+	class GamePreviewStage;	//!< the Game Preview stage (GamePreviewStage.h)
 	class AnimationPreviewStage;	//!< the animation preview stage
 	class MeshPreviewStage;	//!< the 3D mesh/material preview stage (MeshPreviewStage.h)
 }
@@ -294,19 +296,30 @@ struct ViewSettings
 	//! Closed by default - it auto-opens when the Scene enters 2D editor mode
 	//! (and never auto-closes); a saved layout in orkige_editor_view.ini wins.
 	bool showTilePalettePanel = false;
-	//! GUI Preview panel (project-only; renders a .oui screen at a simulated
-	//! device context into an offscreen target - the collaborative UI loop)
-	bool showGuiPreviewPanel = false;
+	//! Game Preview panel (project-only; renders the authored scene through its
+	//! own scene camera at a simulated device context into an offscreen target,
+	//! with an optional .oui screen overlay + safe-area guides + a procedural
+	//! device frame - "what will this look like on the device?" without playing)
+	bool showGamePreviewPanel = false;
 	//! Debug panel (the script debugger's call-stack + locals + transport).
 	//! Closed by default - it auto-opens/focuses on a debugger break-hit; a
 	//! saved layout in orkige_editor_view.ini wins. The code editor itself is
 	//! no longer a single panel: each open script/text file is its OWN docked
 	//! window (see drawScriptDocuments), so it carries no visibility flag.
 	bool showDebugPanel = false;
-	//! GUI Preview language axis: the language tag the preview resolves `@key`
-	//! captions in ("" = the project's source language). Persisted so the tab
-	//! reopens on the last previewed language.
+	//! Game Preview language axis: the language tag the .oui overlay resolves
+	//! `@key` captions in ("" = the project's source language). Persisted (key
+	//! `gui_preview_language`, kept for a clean migration) so the tab reopens on
+	//! the last previewed language.
 	std::string guiPreviewLanguage;
+	//! Game Preview persisted panel state: the device preset index (into the
+	//! pure DevicePreset table), the safe-area guide overlay, the animate-
+	//! materials clock (the owner's water look-dev workflow, default off) and the
+	//! procedural device frame (default on; Free/Custom never frame).
+	int gamePreviewPreset = 0;
+	bool gamePreviewSafeAreaGuides = true;
+	bool gamePreviewAnimateMaterials = false;
+	bool gamePreviewShowFrame = true;
 	//! Inspector: show rotation (Quat) properties as human-readable Euler X/Y/Z
 	//! degrees (default) vs the raw quaternion x/y/z/w. Display-only; the tiny
 	//! per-row toggle flips it globally so the choice sticks.
@@ -1999,12 +2012,49 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 	bool editMode, SceneRenderTarget& sceneTarget,
 	optr<Orkige::RenderNode> const& cameraNode,
 	ViewSettings& viewSettings, float contentScale,
-	Orkige::ImGuiSDL3Input& imguiInput);
+	Orkige::ImGuiSDL3Input& imguiInput, Orkige::GameObjectManager& world,
+	OrkigeEditor::GamePreviewStage& cameraInset);
 
-// the GUI Preview panel: a real gui screen (.oui) rendered at a simulated
-// device context into an offscreen target, shown here - EditorGuiPreviewPanel.cpp
-void drawGuiPreviewPanel(EditorState& state, OrkigeEditor::GuiPreviewStage& stage,
-	Orkige::EditorCore& core, ViewSettings& viewSettings);
+// the Game Preview panel: the authored scene rendered through its own scene
+// camera at a simulated device context (+ optional .oui overlay, safe-area
+// guides, a procedural device frame and an animate-materials clock), shown
+// here - EditorGamePreviewPanel.cpp. Needs the editor world for camera
+// resolution and material ticking.
+void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& stage,
+	Orkige::EditorCore& core, Orkige::GameObjectManager& world,
+	ViewSettings& viewSettings);
+
+namespace OrkigeEditor
+{
+	//! @brief the Game Preview panel's last-draw state - a non-pixel selfcheck
+	//! seam (the camera-gizmo-vertex-count pattern): did the composite image
+	//! draw, was a device frame + which cutout drawn, did a camera resolve (and
+	//! which), did the safe-area guide draw, at what target size.
+	struct GamePreviewPanelDebug
+	{
+		bool			drewImage = false;
+		bool			framed = false;
+		int				cutout = 0;			//!< Orkige::DevicePreset::Cutout
+		bool			hasCamera = false;	//!< resolved a scene CameraComponent
+		bool			usedDefaultCamera = false;	//!< fell back to the default window camera
+		bool			safeAreaDrawn = false;
+		std::string		trackedCameraId;
+		unsigned int	targetWidth = 0;
+		unsigned int	targetHeight = 0;
+	};
+	//! the Game Preview panel's last-draw seam (EditorGamePreviewPanel.cpp)
+	GamePreviewPanelDebug& gamePreviewPanelDebug();
+
+	//! @brief the Scene panel's selected-camera inset last-draw seam: did the
+	//! picture-in-picture inset draw this frame, and which camera it tracked
+	//! (EditorScenePanel.cpp)
+	struct CameraInsetDebug
+	{
+		bool			drew = false;
+		std::string		trackedCameraId;
+	};
+	CameraInsetDebug& cameraInsetDebug();
+}
 
 // the shared preview WIDGET body (clip dropdown, Play/Pause/Reset, time scrub,
 // blend try-out, status line + the rasterised pose image), stage-backed so it

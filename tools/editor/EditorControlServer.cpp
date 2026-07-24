@@ -16,6 +16,8 @@
 #include "PythonToolchain.h"
 #include "AnimationPreviewStage.h"
 #include "GuiPreviewStage.h"
+#include "GamePreviewStage.h"
+#include <core_util/DevicePreset.h>
 #include "GeneratedLuaApi.h"
 
 #include <core_base/PropertySchema.h>
@@ -786,7 +788,7 @@ namespace Orkige
 			DebugMessage const& reply)
 		{
 			if (verb != "screenshot" && verb != "preview_ui" &&
-				verb != "preview_animation")
+				verb != "preview_game" && verb != "preview_animation")
 			{
 				return std::string();
 			}
@@ -1685,6 +1687,55 @@ namespace Orkige
 				    { "inline", "boolean", "inline the screenshot (the first "
 				      "sweep context) as an image content block (default true)",
 				      false } } },
+				{ "preview_game",
+				  "Render the AUTHORED SCENE through its own scene camera at a "
+				  "SIMULATED device preset into an offscreen target and return a "
+				  "screenshot - 'what will this look like on the device?' WITHOUT "
+				  "playing (no scripts, no gameplay ticking). Renders the CURRENT "
+				  "editor scene through the CameraComponent's reflected projection + "
+				  "its object's world transform (a 'Main Camera' if present, else the "
+				  "first camera; override with 'camera' = an object id). 'preset' is a "
+				  "real-device token (free / iphone_se / iphone_notch / "
+				  "iphone_notch_landscape / iphone_island / android_compact / "
+				  "android_large / ipad / ipad_pro_11 / ipad_pro_129 / "
+				  "ipad_landscape / fold_cover / fold_main / galaxy_flip / "
+				  "custom); OR pass explicit 'width'/'height' "
+				  "(device pixels) + optional 'scale'. Optional 'screen' composites a "
+				  "project .oui OVER the scene (Ogre-Next only, needs an open "
+				  "project); optional 'language' resolves its '@key' captions. "
+				  "Optional 'animate' (true) + 'animate_time' (seconds, default 0.5) "
+				  "advance MATERIAL-parameter animation only (e.g. water scroll) "
+				  "before the shot - the world still never runs gameplay. Returns "
+				  "'path', the resolved 'width'/'height', the tracked 'camera' and "
+				  "the composited 'overlay'. A camera-less scene still renders - through "
+				  "the DEFAULT window camera the player boots with (preview mirrors the "
+				  "game), with 'default_camera':'true' and an empty 'camera'. The "
+				  "screenshot is inlined as an image content block unless "
+				  "inline=false or it exceeds 4 MiB. Does not disturb the human's "
+				  "Game Preview tab.",
+				  { { "preset", "string",
+				      "device preset token (e.g. 'iphone_notch'); omit to use "
+				      "explicit width/height", false },
+				    { "width", "number",
+				      "device width in pixels (with 'height'; overrides a free/custom "
+				      "preset)", false },
+				    { "height", "number", "device height in pixels", false },
+				    { "scale", "number", "content scale 1/2/3 (default from the preset "
+				      "or 2)", false },
+				    { "camera", "string", "object id of the camera to render through "
+				      "(default the active scene camera)", false },
+				    { "screen", "string", "project-relative .oui to overlay on the "
+				      "scene (Ogre-Next only)", false },
+				    { "language", "string", "overlay preview language; omit for the "
+				      "source language", false },
+				    { "animate", "boolean", "advance material animation before the "
+				      "shot (default false)", false },
+				    { "animate_time", "number", "seconds of material animation to "
+				      "advance (default 0.5 when animate)", false },
+				    { "path", "string", "output PNG path (default a temp file)",
+				      false },
+				    { "inline", "boolean", "inline the screenshot as an image content "
+				      "block (default true)", false } } },
 				{ "preview_animation",
 				  "Render a vector-animation asset (.oanim) at a chosen clip and "
 				  "time into a PNG and return the pose readback - no running player "
@@ -4096,6 +4147,197 @@ namespace Orkige
 				return;
 			}
 
+			// preview_game: render the AUTHORED scene through its own scene
+			// camera at a device preset (+ optional .oui overlay, + optional
+			// material animation) into an offscreen target and return a
+			// screenshot. The same GamePreviewStage the Game Preview tab uses;
+			// snapshot/restore keeps the human's tab undisturbed. The world
+			// never runs gameplay (editor safety contract). No running player.
+			if (type == "preview_game")
+			{
+				OrkigeEditor::GamePreviewStage* stage =
+					context.gamePreviewStage;
+				if (!stage || !context.gameObjectManager)
+				{
+					this->sendErr(req, "game preview stage unavailable");
+					return;
+				}
+				// resolve the device context from a preset token, else from
+				// explicit width/height (a free/custom preset also needs dims)
+				OrkigeEditor::GuiPreviewContext ctx;
+				const String presetToken = request.get("preset");
+				const String widthStr = request.get("width");
+				const String heightStr = request.get("height");
+				const String scaleStr = request.get("scale");
+				bool haveDims = !widthStr.empty() && !heightStr.empty();
+				if (!presetToken.empty())
+				{
+					Orkige::DevicePreset::Kind kind;
+					if (!Orkige::DevicePreset::parseToken(presetToken, kind))
+					{
+						this->sendErr(req, "preview_game: unknown preset '" +
+							presetToken + "'");
+						return;
+					}
+					const Orkige::DevicePreset::Preset& preset =
+						Orkige::DevicePreset::forKind(kind);
+					if (preset.panelSized || preset.custom)
+					{
+						if (!haveDims)
+						{
+							this->sendErr(req, "preview_game: the '" +
+								presetToken + "' preset needs explicit "
+								"'width'+'height'");
+							return;
+						}
+						ctx.width = static_cast<unsigned int>(
+							std::atoi(widthStr.c_str()));
+						ctx.height = static_cast<unsigned int>(
+							std::atoi(heightStr.c_str()));
+						ctx.contentScale = scaleStr.empty()
+							? preset.contentScale
+							: std::strtof(scaleStr.c_str(), nullptr);
+					}
+					else
+					{
+						ctx.width = preset.width;
+						ctx.height = preset.height;
+						ctx.contentScale = scaleStr.empty()
+							? preset.contentScale
+							: std::strtof(scaleStr.c_str(), nullptr);
+						ctx.insets = preset.insets;
+					}
+				}
+				else if (haveDims)
+				{
+					ctx.width = static_cast<unsigned int>(
+						std::atoi(widthStr.c_str()));
+					ctx.height = static_cast<unsigned int>(
+						std::atoi(heightStr.c_str()));
+					ctx.contentScale = scaleStr.empty() ? 2.0f
+						: std::strtof(scaleStr.c_str(), nullptr);
+				}
+				else
+				{
+					this->sendErr(req, "preview_game needs a 'preset' or "
+						"'width'+'height'");
+					return;
+				}
+				if (ctx.width == 0 || ctx.height == 0)
+				{
+					this->sendErr(req, "preview_game: width/height must be > 0");
+					return;
+				}
+
+				// snapshot the human's tab so we can restore it afterwards
+				const OrkigeEditor::GuiPreviewContext savedContext =
+					stage->getContext();
+				const std::string savedScreen = stage->getOverlayScreen();
+				const std::string savedLanguage = stage->getPreviewLanguage();
+				const std::string root = state.project.isLoaded()
+					? state.project.getRootDirectory() : std::string();
+
+				stage->setContext(ctx);
+
+				// optional .oui overlay (needs a project + offscreen layers)
+				const String screen = request.get("screen");
+				std::string err;
+				if (!screen.empty())
+				{
+					if (!state.project.isLoaded())
+					{
+						this->sendErr(req, "preview_game: a 'screen' overlay "
+							"needs an open project");
+						return;
+					}
+					if (!Orkige::RenderSystem::get()->supports(
+						Orkige::RenderCaps::OffscreenOwnedLayers))
+					{
+						this->sendErr(req, "preview_game: the .oui overlay is "
+							"Ogre-Next only (classic has no offscreen 2D "
+							"composition)");
+						return;
+					}
+					stage->loadLocalisation(state.project);
+					stage->setPreviewLanguage(request.get("language"));
+					if (!stage->setOverlayScreen(root, screen, err))
+					{
+						this->sendErr(req, "preview_game overlay: " + err);
+						return;
+					}
+				}
+				else
+				{
+					stage->setOverlayScreen(root, "", err);	// scene only
+				}
+
+				// advance material animation (material params ONLY - the world
+				// never runs gameplay) over the requested time before capture
+				const String cameraId = request.get("camera");
+				const bool animate = request.get("animate") == "true" ||
+					!request.get("animate_time").empty();
+				float animTime = 0.0f;
+				if (!request.get("animate_time").empty())
+				{
+					animTime = std::strtof(
+						request.get("animate_time").c_str(), nullptr);
+				}
+				else if (animate)
+				{
+					animTime = 0.5f;
+				}
+				if (animate && animTime > 0.0f)
+				{
+					const int steps = 8;
+					const float sub = animTime / steps;
+					for (int i = 0; i < steps; ++i)
+					{
+						stage->update(*context.gameObjectManager, cameraId,
+							true, sub);
+					}
+				}
+				else
+				{
+					stage->update(*context.gameObjectManager, cameraId,
+						false, 0.0f);
+				}
+
+					// a camera-less scene still renders - through the DEFAULT window
+					// camera the player boots with (the preview mirrors the game),
+					// so preview_game never refuses for a missing camera; the reply's
+					// 'camera' is "" and 'default_camera' is "true" in that case.
+					const bool usedDefault = stage->usedDefaultCamera();
+
+				const std::string outPath = request.get("path").empty()
+					? (std::filesystem::temp_directory_path() /
+						"orkige_preview_game.png").string()
+					: request.get("path");
+				const bool captured = stage->renderAndCapture(outPath, err);
+				const std::string trackedCamera = stage->getTrackedCameraId();
+				const std::string overlay = stage->getOverlayScreen();
+
+				// restore the human's tab view (undisturbed collaboration)
+				stage->setContext(savedContext);
+				stage->setPreviewLanguage(savedLanguage);
+				std::string restoreErr;
+				stage->setOverlayScreen(root, savedScreen, restoreErr);
+
+				if (!captured)
+				{
+					this->sendErr(req, "preview_game failed: " + err);
+					return;
+				}
+				DebugMessage okMsg(MSG_OK);
+				okMsg.set("path", outPath);
+				okMsg.set("width", std::to_string(ctx.width));
+				okMsg.set("height", std::to_string(ctx.height));
+				okMsg.set("camera", trackedCamera);
+				okMsg.set("default_camera", usedDefault ? "true" : "false");
+				okMsg.set("overlay", overlay);
+				this->sendOk(req, okMsg);
+				return;
+			}
+
 			// preview_animation: evaluate a project .oanim at a clip/time (+ an
 			// optional same-rig blend) on the editor-owned animation stage, CPU-
 			// rasterize the pose to a PNG and return the pose readback. The same
@@ -5146,6 +5388,15 @@ namespace Orkige
 			for (std::filesystem::directory_entry const& entry : entries)
 			{
 				const String name = entry.path().filename().string();
+				// reserved output / editor-private dirs (builds/, .orkige/,
+				// native/build*/) are never listed - generated copies, not
+				// project source (@see ProjectPaths)
+				std::error_code dirErr;
+				if (entry.is_directory(dirErr) &&
+					Orkige::ProjectPaths::isReservedOutputDir(entry.path()))
+				{
+					continue;
+				}
 				if (!glob.empty() && !globMatch(glob, name))
 				{
 					continue;
@@ -11147,6 +11398,111 @@ namespace Orkige
 				SDL_Log("orkige_editor: control self-test - preview_ui language axis "
 					"OK (source vs de renders differ; unknown errored)");
 			}
+			}
+			// preview_game: render the AUTHORED scene through a scene camera at a
+			// device preset, then (Ogre-Next) with the .oui overlay, then with
+			// material animation; a bogus preset + an unauthenticated call error.
+			// Needs a camera in the scene, so create one first.
+			{
+				JsonValue s;
+				bool e = true;
+				JsonValue camCreate = JsonValue::object();
+				camCreate.set("id", JsonValue(String("PreviewCam")));
+				callTool("create_object", camCreate, true, s, e);
+				JsonValue camAdd = JsonValue::object();
+				camAdd.set("id", JsonValue(String("PreviewCam")));
+				camAdd.set("component", JsonValue(String("CameraComponent")));
+				if (!callTool("add_component", camAdd, true, s, e) || e)
+				{
+					finish(false, "control self-test: preview_game - could not add a "
+						"scene camera");
+					return;
+				}
+				const std::string gamePng =
+					(std::filesystem::temp_directory_path() /
+						("orkige_preview_game_test_" + std::to_string(port) +
+							".png")).string();
+				// (a) a device preset, scene only - both flavors (no offscreen layers)
+				JsonValue gargs = JsonValue::object();
+				gargs.set("preset", JsonValue(String("iphone_notch")));
+				gargs.set("path", JsonValue(String(gamePng)));
+				if (!callTool("preview_game", gargs, true, s, e) || e)
+				{
+					finish(false, "control self-test: preview_game - scene render failed");
+					return;
+				}
+				std::error_code ig;
+				if (s.get("width").asString() != "1170" ||
+					!std::filesystem::exists(gamePng, ig) ||
+					std::filesystem::file_size(gamePng, ig) == 0)
+				{
+					finish(false, "control self-test: preview_game did not render the "
+						"preset to a PNG");
+					return;
+				}
+				if (s.get("camera").asString().empty())
+				{
+					finish(false, "control self-test: preview_game did not track a "
+						"scene camera");
+					return;
+				}
+				// (b) with the .oui overlay - Ogre-Next only (classic errors honestly)
+				JsonValue overlayArgs = JsonValue::object();
+				overlayArgs.set("preset", JsonValue(String("iphone_notch")));
+				overlayArgs.set("screen", JsonValue(String("screens/preview_test.oui")));
+				overlayArgs.set("path", JsonValue(String(gamePng)));
+				if (Orkige::RenderSystem::get()->supports(
+					Orkige::RenderCaps::OffscreenOwnedLayers))
+				{
+					if (!callTool("preview_game", overlayArgs, true, s, e) || e ||
+						s.get("overlay").asString() != "screens/preview_test.oui")
+					{
+						finish(false, "control self-test: preview_game overlay did not "
+							"composite the .oui");
+						return;
+					}
+				}
+				else
+				{
+					if (!callTool("preview_game", overlayArgs, true, s, e) || !e)
+					{
+						finish(false, "control self-test: preview_game overlay should "
+							"error on the classic backend");
+						return;
+					}
+				}
+				// (c) material animation (both flavors)
+				JsonValue animArgs = JsonValue::object();
+				animArgs.set("preset", JsonValue(String("ipad_landscape")));
+				animArgs.set("animate", JsonValue(String("true")));
+				animArgs.set("animate_time", JsonValue(String("0.5")));
+				animArgs.set("path", JsonValue(String(gamePng)));
+				if (!callTool("preview_game", animArgs, true, s, e) || e)
+				{
+					finish(false, "control self-test: preview_game animate failed");
+					return;
+				}
+				// (d) a bogus preset errors
+				JsonValue badArgs = JsonValue::object();
+				badArgs.set("preset", JsonValue(String("nonsense_device")));
+				if (!callTool("preview_game", badArgs, true, s, e) || !e)
+				{
+					finish(false, "control self-test: preview_game did not error on a "
+						"bad preset");
+					return;
+				}
+				// (e) unauthenticated preview_game (a mutation - writes a file) rejected
+				JsonValue unauth = JsonValue::object();
+				unauth.set("preset", JsonValue(String("iphone_notch")));
+				if (!callTool("preview_game", unauth, false, s, e) || !e)
+				{
+					finish(false, "control self-test: unauthenticated preview_game was "
+						"not rejected");
+					return;
+				}
+				std::filesystem::remove(gamePng, ig);
+				SDL_Log("orkige_editor: control self-test - preview_game OK (scene "
+					"camera, overlay, animate, bad preset errored, auth enforced)");
 			}
 		}
 

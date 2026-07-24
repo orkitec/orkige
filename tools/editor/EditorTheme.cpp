@@ -220,6 +220,8 @@ namespace Orkige
 		//! the standalone monospace font (Script panel); null until a
 		//! successful loadMacSystemMonoFont
 		ImFont* gMonoFont = nullptr;
+		ImFont* gSmallFont = nullptr;
+		float gSmallFontSize = 0.0f;
 
 		//! the standalone larger icon font (grid-tile drawing); null until a
 		//! successful loadEditorIconFont, which is also the "icons available" flag
@@ -330,6 +332,18 @@ namespace Orkige
 	void applyEditorTheme(ImGuiStyle& style, EditorThemeVariant variant,
 		float contentScale)
 	{
+		// tooltips behave like OS hints: appear only after the cursor has
+		// RESTED on the item, and hide again the moment it moves
+		{
+			ImGuiStyle& hintStyle = ImGui::GetStyle();
+			hintStyle.HoverStationaryDelay = 0.35f;
+			hintStyle.HoverDelayShort = 0.60f;
+			hintStyle.HoverDelayNormal = 0.80f;
+			hintStyle.HoverFlagsForTooltipMouse =
+				ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_Stationary |
+				ImGuiHoveredFlags_AllowWhenDisabled;
+		}
+
 		gActiveVariant = variant;
 		const EditorPalette& p = activePalette();
 
@@ -454,6 +468,41 @@ namespace Orkige
 				sizePoints * contentScale, &config);
 		}
 		return nullptr; // no system font found - keep the default font
+	}
+	//---------------------------------------------------------
+	ImFont* loadMacSystemSmallFont(ImGuiIO& io, float sizePoints,
+		float contentScale)
+	{
+		gSmallFont = nullptr;
+		gSmallFontSize = 0.0f;
+		for (const char* fontPath : SYSTEM_FONT_PATHS)
+		{
+			std::error_code ignored;
+			if (!std::filesystem::exists(fontPath, ignored))
+			{
+				continue;
+			}
+			ImFontConfig config;
+			config.SizePixels = 0.0f;
+			gSmallFont = io.Fonts->AddFontFromFileTTF(fontPath,
+				sizePoints * contentScale, &config);
+			if (gSmallFont != nullptr)
+			{
+				gSmallFontSize = sizePoints * contentScale;
+				return gSmallFont;
+			}
+		}
+		return nullptr;
+	}
+	//---------------------------------------------------------
+	ImFont* editorSmallFont()
+	{
+		return gSmallFont;
+	}
+	//---------------------------------------------------------
+	float editorSmallFontSize()
+	{
+		return gSmallFontSize;
 	}
 	//---------------------------------------------------------
 	ImFont* loadMacSystemMonoFont(ImGuiIO& io, float sizePoints,

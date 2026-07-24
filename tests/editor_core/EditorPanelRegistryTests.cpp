@@ -15,7 +15,7 @@ TEST_CASE("ImGui and macOS menus share one complete panel registry",
 	REQUIRE(PANEL_COUNT == 9);
 
 	const char* expected[] = { "Scene Hierarchy", "Inspector", "Console",
-		"Stats", "Scene", "Assets", "Tile Palette", "GUI Preview",
+		"Stats", "Scene", "Assets", "Tile Palette", "Game Preview",
 		"Debug" };
 	std::set<std::string> uniqueLabels;
 	for (int each = 0; each < PANEL_COUNT; ++each)
@@ -26,7 +26,7 @@ TEST_CASE("ImGui and macOS menus share one complete panel registry",
 		CHECK(uniqueLabels.insert(EDITOR_PANEL_REGISTRY[each].label).second);
 	}
 
-	CHECK(EDITOR_PANEL_REGISTRY[PANEL_GUI_PREVIEW].defaultVisible == false);
+	CHECK(EDITOR_PANEL_REGISTRY[PANEL_GAME_PREVIEW].defaultVisible == false);
 	// the Tile Palette is closed by default (it auto-opens on entering 2D mode)
 	CHECK(EDITOR_PANEL_REGISTRY[PANEL_TILE_PALETTE].defaultVisible == false);
 	// the Debug panel is closed by default (it auto-opens on a debugger

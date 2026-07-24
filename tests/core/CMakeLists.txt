@@ -46,6 +46,8 @@ add_executable(orkige_core_tests
     SaveStoreTests.cpp
     AppLifecycleTests.cpp
     CameraFitTests.cpp
+    DevicePresetTests.cpp
+    ProjectPathsTests.cpp
     ShadowPresetTests.cpp
     IblPresetTests.cpp
     BloomPresetTests.cpp

@@ -118,7 +118,7 @@ editor verb is surfaced as an MCP **tool** with a JSON `inputSchema`; a
 `tools/call` converts the tool arguments into the handler's internal request and
 the reply back into MCP tool content (a text block + `structuredContent`, or
 `isError` for a refused/failed verb). The image-capturing verbs
-(`screenshot`, `preview_ui`, `preview_animation`) additionally inline the
+(`screenshot`, `preview_ui`, `preview_game`, `preview_animation`) additionally inline the
 just-written PNG as an MCP **image content block**
 (`{"type":"image","data":"<base64>","mimeType":"image/png"}`) so a remote client
 sees the render directly — the path stays in `structuredContent` for pixel
@@ -159,7 +159,7 @@ filesystem.
 
 ## Tools
 
-The endpoint advertises 88 tools (the `toolSpecs` table in
+The endpoint advertises 89 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -204,6 +204,7 @@ The endpoint advertises 88 tools (the `toolSpecs` table in
 | `read_project_file(path)` | read a text file under the project root (jailed; 1 MiB cap) |
 | `list_project_files(dir?, glob?)` | list one directory level under the project root (jailed) → `names`/`paths`/`types` |
 | `preview_ui(file, language?, width?, height?, scale?, insets?, contexts?, path?, inline?)` | **auth** — render a project `.oui` screen at a SIMULATED device context into an offscreen target and return a screenshot + resolved widget rects, **no running player needed** (the centrepiece of the collaborative UI loop). Renders through the REAL gui stack, isolated from any running game. Single context from `width`/`height` (pixels) + `scale` (1/2/3) + `insets` (`"l t r b"`); OR `contexts` for a device-matrix sweep (`;`-separated `WxH[@scale][/l,t,r,b]`). Optional `language` resolves the screen's `@key` captions in that target language (from the project's `loc/` directory); omit for the source language — preview a screen in German without a play session. Returns `path` (single) or `paths`+`context_labels` (sweep), `width`/`height`, `batch_count`, parallel `ids`/`rects` (each rect `"left top width height visible enabled modal"`, first context for a sweep), the applied `language` and the available `languages` (a project with no `loc/` directory ignores `language` with a `language_note`). The screenshot is also inlined as an image content block (the FIRST context for a sweep, to bound payload; `inline:false` or >4 MiB opts out). **Ogre-Next only** (classic reports an honest error); does not disturb the human's GUI Preview tab |
+| `preview_game(preset?, width?, height?, scale?, camera?, screen?, language?, animate?, animate_time?, path?, inline?)` | **auth** — render the AUTHORED SCENE through its own scene camera at a SIMULATED device preset into an offscreen target and return a screenshot — "what will this look like on the device?" **without playing** (no scripts, no gameplay ticking; the editor safety contract). Renders the CURRENT editor scene through the `CameraComponent`'s reflected projection + its object's world transform (a `"Main Camera"` if present, else the first camera; override with `camera` = an object id). `preset` is a real-device token (`free` / `iphone_se` / `iphone_notch` / `iphone_notch_landscape` / `iphone_island` / `android_compact` / `android_large` / `ipad` / `ipad_pro_11` / `ipad_pro_129` / `ipad_landscape` / `fold_cover` / `fold_main` / `galaxy_flip` / `custom`) OR explicit `width`/`height` (pixels) + optional `scale`. Optional `screen` composites a project `.oui` OVER the scene (**Ogre-Next only**, needs an open project); optional `language` resolves its `@key` captions. Optional `animate:true` + `animate_time` (seconds, default 0.5) advance MATERIAL-parameter animation only (e.g. water scroll) before the shot — the world still never runs gameplay. Returns `path`, the resolved `width`/`height`, the tracked `camera` and the composited `overlay`. A camera-less scene still renders — through the DEFAULT window camera the player boots with (the preview mirrors the game), reported as `default_camera:true` with an empty `camera`. The screenshot is inlined as an image content block (`inline:false` or >4 MiB opts out); the device-preset table is the pure `core_util/DevicePreset`. Does not disturb the human's Game Preview tab. **Both flavors** (the scene render; the `.oui` overlay is Ogre-Next only) |
 | `preview_animation(asset, clip?, time?, blendClip?, blendWeight?, size?, path?, inline?)` | **auth** — render a vector-animation rig (`.oanim`) at a chosen `clip`/`time` into a PNG + return the pose readback, **no running player needed** (the animation twin of `preview_ui`). The rig is evaluated on the editor's own clock (`core_util/VectorAnimEval`) and CPU-rasterized (the same raster that draws `.oanim` thumbnails), so an agent can scrub a cycle (t=0 / mid / end) and try a same-rig blend (`blendClip` + `blendWeight` 0..1, mixed at the same time) without a play session. Returns `path` (the PNG), the resolved `clip`/`frame`/`time`, the rig `duration` (frames)/`fps`, `layer_count`/`shape_count`/`vertex_count`, `visible_pixel_count`/`coloured_pixel_count`, `at_end`, and the available `clips`. The pixel counts make blank or all-white regressions machine-detectable. The PNG is also inlined as an image content block (`inline:false` or >4 MiB opts out). **Both flavors** (pure CPU raster — no offscreen target); does not disturb the human's Inspector animation preview |
 | `import_asset(sourcePath, targetDir?, clips?, extent?, tolerance?)` | copy an OUTSIDE file into the project via `importAssetFile` (sidecar minted, id returned; optional relocate via `AssetDatabase::moveAsset`). An `.svg` source is cooked to a native `.oshape` on the way in (`Util/cook_shapes.py`); a Lottie `.json` is cooked to a native `.oanim` (`Util/cook_vector_anim.py`) with the SOURCE `.json` KEPT beside it (both id-tracked, re-cooked on re-import) — the returned `path`/`assetId` point at the cooked `.oanim` (or `.oshape` for a document where nothing animates), and a `.oanim` reply also carries the rig's `clips` (names in rig order — clip discovery lands with the import). The optional cook params (`clips` = `name:start:end[:loop\|once],...` marker override, `extent`, `tolerance`) are applied to the Lottie cook AND recorded on the kept source's sidecar as the per-asset intent (`Docs/vector-animation.md#import-records-and-automatic-re-cooks`) |
 | `reimport_asset(asset, clips?, extent?, tolerance?)` | **auth** — re-cook an imported animation pair IN PLACE via `recookAnimationPair` (the MCP face of the Asset browser's "Reimport"): run the Lottie cook on the project's kept `.json` source — the re-cook trigger a source edited via `write_project_file` needs, since a plain file write never cooks. `asset` is the project-relative `.json` (or its cooked `.oanim`/`.oshape` — the pair resolves either way); optional cook params update the sidecar's recorded settings first, omitted ones keep the recorded values. Returns the produced `path`, the `source`, the recorded settings (`clips_setting`/`extent_setting`/`tolerance_setting`), the recorded input hashes (`source_hash`/`tool_hash`/`settings_hash`) and a fresh rig's `clips`. During Play, follow with `reload_anim` |
@@ -366,13 +367,28 @@ safe-area notch), and returns a screenshot plus the resolved rects for that
 context (or a matrix of contexts in one call). It is the agent's half of the
 collaborative UI loop: author a screen with `write_project_file`, `preview_ui` it
 across a phone and a tablet, read the rects to check the layout holds on both,
-iterate — while a human watching the editor's **GUI Preview** tab (which shares
-the same offscreen stage) sees each edit live, because the tab watches the `.oui`
-file's mtime. The `editor_control` self-test drives exactly this loop
+iterate. The `editor_control` self-test drives exactly this loop
 (write → preview → edit → preview → assert the rects moved; a missing file errors).
 It is Ogre-Next only (the offscreen 2D composition the preview needs is a
 Next-flavor capability — see `Docs/render-abstraction.md`); the classic editor
-reports an honest error and disables the tab.
+reports an honest error.
+
+Its scene-side sibling is `preview_game`: the same "see it before playing"
+idea, but for the whole SCENE rendered through its own `CameraComponent` at a
+device preset — the agent's half of the look-dev loop the human drives from the
+editor's **Game Preview** tab (both share the one `GamePreviewStage`, so an edit
+an agent makes shows live in the tab). `preview_game` answers "what will this
+look like on the device?" without booting the game: it renders the current scene
+through the scene camera at a device preset (from the pure `core_util/DevicePreset`
+table — real device names with real logical resolutions / scales / safe-areas;
+the drawn device frame is our own generic silhouette, never third-party art),
+optionally
+composites a project `.oui` screen over it and optionally advances
+material-parameter animation (water scroll) for the shot, all with the world
+kept dormant. The scene render is **both flavors**; the `.oui` overlay is
+Ogre-Next only like `preview_ui`. The `editor_control` self-test drives it
+end to end (a scene camera, the overlay on Next, material animation, a bad
+preset error, and auth enforcement).
 
 The machine-checkable "HUD respects the notch" assertion is: for every
 visible widget from `get_ui_layout`, its rect lies inside

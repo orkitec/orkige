@@ -11,6 +11,7 @@
 
 #include "core_project/AssetDatabase.h"
 #include "core_project/Project.h"
+#include "core_project/ProjectPaths.h"
 #include "core_debug/LogManager.h"
 #include "core_util/Sha1.h"
 #include "core_util/PathJail.h"
@@ -725,6 +726,16 @@ namespace Orkige
 			iterator(directory, fsError), end;
 			!fsError && iterator != end; iterator.increment(fsError))
 		{
+			// never descend into reserved output / editor-private dirs (builds/,
+			// .orkige/, native/build*/, VCS): the exporter copies the whole asset
+			// payload under builds/, so indexing it would duplicate every asset
+			// and churn sidecars (@see ProjectPaths)
+			if (iterator->is_directory(fsError) &&
+				ProjectPaths::isReservedOutputDir(iterator->path()))
+			{
+				iterator.disable_recursion_pending();
+				continue;
+			}
 			if (!iterator->is_regular_file(fsError) ||
 				isHiddenFileName(iterator->path()))
 			{

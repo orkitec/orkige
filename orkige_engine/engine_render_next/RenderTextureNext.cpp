@@ -167,6 +167,10 @@ namespace Orkige
 			scenePass->setAllClearColours(this->background);
 			scenePass->mFirstRQ = 0;
 			scenePass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+			// per-target visibility: a mesh renders here only where its
+			// MeshInstance visibility flags overlap this mask (the Game
+			// Preview RTT masks off the editor-only bit)
+			scenePass->setVisibilityMask(this->visibilityMask);
 			// dynamic shadows: an enabled target renders with the world's
 			// PSSM shadow node while shadows are active (the facade
 			// setShadowsEnabled(false) opt-out keeps e.g. the parity RTT
@@ -276,6 +280,21 @@ namespace Orkige
 		{
 			// the shadow node reference lives in the workspace definition -
 			// rebuild (same cheap path as setBackgroundColour)
+			this->mImpl->recreate();
+		}
+	}
+	//---------------------------------------------------------
+	void RenderTexture::setVisibilityMask(unsigned int mask)
+	{
+		if(this->mImpl->visibilityMask == mask)
+		{
+			return;
+		}
+		this->mImpl->visibilityMask = mask;
+		if(this->mImpl->workspace)
+		{
+			// the mask lives in the scene-pass definition - rebuild (the cheap
+			// editor-frequency path, same as setBackgroundColour/setShadowsEnabled)
 			this->mImpl->recreate();
 		}
 	}

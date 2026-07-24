@@ -1686,11 +1686,11 @@ void scanProjectAnimFiles(std::string const& root,
 		{
 			break;
 		}
-		// never descend into build outputs / VCS metadata
+		// never descend into reserved output / editor-private dirs (builds/,
+		// .orkige/, native/build*/, VCS - @see ProjectPaths)
 		if (it->is_directory(ec))
 		{
-			const std::string name = it->path().filename().string();
-			if (name == "builds" || name == "build" || name == ".git")
+			if (Orkige::ProjectPaths::isReservedOutputDir(it->path()))
 			{
 				it.disable_recursion_pending();
 			}
@@ -1755,11 +1755,11 @@ std::map<std::string, long long> scanProjectOuiFiles(std::string const& root)
 		{
 			break;
 		}
-		// never descend into build outputs / VCS metadata
+		// never descend into reserved output / editor-private dirs (builds/,
+		// .orkige/, native/build*/, VCS - @see ProjectPaths)
 		if (it->is_directory(ec))
 		{
-			const std::string name = it->path().filename().string();
-			if (name == "builds" || name == "build" || name == ".git")
+			if (Orkige::ProjectPaths::isReservedOutputDir(it->path()))
 			{
 				it.disable_recursion_pending();
 			}

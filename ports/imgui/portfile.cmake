@@ -9,6 +9,7 @@ if ("docking-experimental" IN_LIST FEATURES)
         HEAD_REF docking
         PATCHES
             selected-tab-ignores-hover.patch # a SELECTED tab keeps its own colour under the cursor (hover feedback stays on unselected tabs; held/drag feedback stays everywhere)
+            smaller-carets.patch # combo arrows + tree carets at 0.75x - the full-size arrows read oversized against the editor's dense fields
     )
 else()
     vcpkg_from_github(

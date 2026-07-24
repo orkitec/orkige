@@ -114,6 +114,10 @@ namespace Orkige
 		// restored the moment the technique disarms (restore-exactly).
 		viewport->setShadowsEnabled(this->shadowsEnabled ||
 			RenderBackend::shadowsArmed());
+		// per-target visibility: a mesh renders here only where its MeshInstance
+		// visibility flags overlap this mask (the Game Preview RTT masks off the
+		// editor-only bit so the grid / frustum gizmos stay out)
+		viewport->setVisibilityMask(this->visibilityMask);
 	}
 	//---------------------------------------------------------
 	RenderTexture::RenderTexture()
@@ -155,6 +159,12 @@ namespace Orkige
 	void RenderTexture::setShadowsEnabled(bool enabled)
 	{
 		this->mImpl->shadowsEnabled = enabled;
+		this->mImpl->applyViewportState();
+	}
+	//---------------------------------------------------------
+	void RenderTexture::setVisibilityMask(unsigned int mask)
+	{
+		this->mImpl->visibilityMask = mask;
 		this->mImpl->applyViewportState();
 	}
 	//---------------------------------------------------------

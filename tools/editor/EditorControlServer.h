@@ -55,7 +55,8 @@ struct SceneRenderTarget;
 
 namespace OrkigeEditor
 {
-	class GuiPreviewStage;	//!< the GUI Preview stage (GuiPreviewStage.h)
+	class GuiPreviewStage;	//!< the .oui overlay stage (GuiPreviewStage.h)
+	class GamePreviewStage;	//!< the Game Preview stage (GamePreviewStage.h)
 	class AnimationPreviewStage;	//!< the vector-animation preview stage
 }
 
@@ -83,9 +84,12 @@ namespace Orkige
 		EditorConsole* console = nullptr;
 		SceneRenderTarget* sceneTarget = nullptr;
 		GameObjectManager* gameObjectManager = nullptr;
-		//! the shared GUI Preview stage (the preview_ui verb drives it; the
-		//! GUI Preview tab shares the same instance) - GuiPreviewStage.h
+		//! the shared .oui overlay stage (the preview_ui verb drives it) -
+		//! GuiPreviewStage.h
 		OrkigeEditor::GuiPreviewStage* previewStage = nullptr;
+		//! the shared Game Preview stage (the preview_game verb drives it; the
+		//! Game Preview tab shares the same instance) - GamePreviewStage.h
+		OrkigeEditor::GamePreviewStage* gamePreviewStage = nullptr;
 		//! the shared vector-animation preview stage (the preview_animation verb
 		//! drives it; the Inspector's animation section shares the same instance)
 		//! - AnimationPreviewStage.h

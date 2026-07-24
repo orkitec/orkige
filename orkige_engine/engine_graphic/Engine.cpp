@@ -395,7 +395,25 @@ namespace Orkige
 		OPROFILEFUNC();
 		// OGRE 14: WindowEventUtilities moved to OgreBites - SDL owns the event loop now
 
-		return this->root->renderOneFrame();
+		// BELT-AND-BRACES render exception net (the ONE entry the editor's frame
+		// loop AND RenderSystem::renderOneFrame both funnel through on this
+		// flavor): a shader/pass/shadow-camera exception a material or an
+		// offscreen preview target provokes must NEVER abort the host - contain
+		// it here, log the description (a real error is never masked silently)
+		// and KEEP RUNNING (return true), skipping only the faulted frame. The
+		// editor-side downgrades prevent the known refractive-water case at the
+		// source; this catches anything else (e.g. a fragile shadow setup).
+		try
+		{
+			return this->root->renderOneFrame();
+		}
+		catch(Ogre::Exception const & e)
+		{
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige: RENDER EXCEPTION contained (frame skipped) - " +
+				e.getFullDescription());
+			return true;
+		}
 	}
 	//---------------------------------------------------------
 	bool Engine::renderOneFrameFast()

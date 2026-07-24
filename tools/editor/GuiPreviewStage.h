@@ -82,6 +82,16 @@ namespace OrkigeEditor
 		bool setContext(GuiPreviewContext const& context);
 		GuiPreviewContext const& getContext() const { return this->mContext; }
 
+		//! @brief render the overlay INTO an externally-owned target instead of
+		//! the stage's own UI-only one - the Game Preview composites a `.oui`
+		//! screen OVER a scene RTT (GamePreviewStage owns that RTT + its scene
+		//! camera; the gui overlay layers composite AFTER the 3D scene pass by
+		//! the RenderTexture contract). When set, rebuild() points the gui's
+		//! PreviewSurface at this target and never creates/clears one of its own.
+		//! Passing NULL restores the self-owned-target path (the preview_ui / GUI
+		//! Preview tab behaviour, untouched). A change forces a rebuild.
+		void setExternalTarget(Orkige::optr<Orkige::RenderTexture> const& target);
+
 		//! @brief load the open project's localisation directory (manifest
 		//! Settings "localisation", config-asset convention) into the stage's
 		//! OWN StringTable so a previewed screen's `@key` captions resolve. The
@@ -161,9 +171,16 @@ namespace OrkigeEditor
 		//! apply mPreviewLanguage to the stage's StringTable (empty => the source
 		//! language, so keys resolve to source text without miss-logging)
 		void applyPreviewLanguage();
+		//! @brief the effective localisation table: the owned one, else the
+		//! process StringTable singleton a first-constructed sibling stage owns
+		//! (several preview stages coexist; only one owns the Singleton)
+		Orkige::StringTable* stringTable() const;
 
 		GuiPreviewContext					mContext;
 		Orkige::optr<Orkige::RenderTexture>	mTarget;
+		//! an externally-owned composite target (the Game Preview's scene RTT);
+		//! NULL = the self-owned UI-only target path (@see setExternalTarget)
+		Orkige::optr<Orkige::RenderTexture>	mExternalTarget;
 		Orkige::optr<Orkige::GuiFactory>	mFactory;
 		Orkige::optr<Orkige::GuiManager>	mGui;
 		std::string							mAtlas;			//!< the atlas the gui was built with

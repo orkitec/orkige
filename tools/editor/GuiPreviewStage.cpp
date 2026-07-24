@@ -45,7 +45,16 @@ namespace OrkigeEditor
 		// editor has no game string table, so the previewed gui's `@key` captions
 		// resolve through this one. Empty until a project's loc/ directory loads,
 		// which just echoes keys back - the pre-localisation preview behaviour.
-		this->mStringTable = onew(new StringTable());
+		// Several preview stages coexist now (the .oui overlay stage, the Game
+		// Preview stage's overlay, the Scene-panel inset's overlay), but the
+		// StringTable is a process Singleton - only the FIRST-constructed stage
+		// OWNS it; the rest BORROW it through the singleton (mStringTable null).
+		// The owner (constructed first) is destroyed last, so borrowers never
+		// outlive it. @see stringTable().
+		if(StringTable::getSingletonPtr() == NULL)
+		{
+			this->mStringTable = onew(new StringTable());
+		}
 	}
 	//---------------------------------------------------------
 	GuiPreviewStage::~GuiPreviewStage()
@@ -64,6 +73,24 @@ namespace OrkigeEditor
 		// fixed at creation, so a context change forces a full rebuild
 		this->mContextDirty = true;
 		return true;
+	}
+	//---------------------------------------------------------
+	void GuiPreviewStage::setExternalTarget(optr<RenderTexture> const& target)
+	{
+		if(this->mExternalTarget == target)
+		{
+			return;
+		}
+		this->mExternalTarget = target;
+		// the surface changed under the gui - rebuild against it on the next show
+		this->mContextDirty = true;
+	}
+	//---------------------------------------------------------
+	StringTable* GuiPreviewStage::stringTable() const
+	{
+		// the owned table, else the borrowed process singleton (@see the ctor)
+		return this->mStringTable ? this->mStringTable.get()
+			: StringTable::getSingletonPtr();
 	}
 	//---------------------------------------------------------
 	void GuiPreviewStage::loadLocalisation(Project const& project)
@@ -88,24 +115,27 @@ namespace OrkigeEditor
 			return;	// same project + directory already loaded (or both empty)
 		}
 		this->mLocSignature = signature;
-		this->mStringTable->clear();
+		StringTable* table = this->stringTable();
+		table->clear();
 		if(!absDir.empty())
 		{
 			// a missing/broken directory just leaves the table empty (keys echo)
-			this->mStringTable->loadXliffDirectory(absDir);
+			table->loadXliffDirectory(absDir);
 		}
 		this->applyPreviewLanguage();
 	}
 	//---------------------------------------------------------
 	std::vector<std::string> GuiPreviewStage::getLanguages() const
 	{
-		return this->mStringTable ? this->mStringTable->getLanguages()
+		StringTable* table = this->stringTable();
+		return table ? table->getLanguages()
 			: std::vector<std::string>();
 	}
 	//---------------------------------------------------------
 	std::string GuiPreviewStage::getSourceLanguage() const
 	{
-		return this->mStringTable ? this->mStringTable->getSourceLanguage()
+		StringTable* table = this->stringTable();
+		return table ? table->getSourceLanguage()
 			: std::string();
 	}
 	//---------------------------------------------------------
@@ -117,16 +147,17 @@ namespace OrkigeEditor
 	//---------------------------------------------------------
 	void GuiPreviewStage::applyPreviewLanguage()
 	{
-		if(!this->mStringTable)
+		StringTable* table = this->stringTable();
+		if(!table)
 		{
 			return;
 		}
 		// an empty preview language previews the source language directly, so a
 		// source-text lookup hits the source table (no once-per-key miss log)
 		const std::string language = this->mPreviewLanguage.empty()
-			? this->mStringTable->getSourceLanguage()
+			? table->getSourceLanguage()
 			: this->mPreviewLanguage;
-		this->mStringTable->setLanguage(language);
+		table->setLanguage(language);
 	}
 	//---------------------------------------------------------
 	std::string GuiPreviewStage::peekAtlas(std::string const& absOuiPath)
@@ -211,16 +242,26 @@ namespace OrkigeEditor
 				"Ogre-Next only";
 			return false;
 		}
-		// a UI-only offscreen target at the simulated device resolution: no 3D
-		// camera, just a clear + the gui's own 2D layers (createLayer)
-		this->mTarget = render->createRenderTexture(PREVIEW_TARGET_NAME,
-			this->mContext.width, this->mContext.height);
-		if(!this->mTarget)
+		if(this->mExternalTarget)
 		{
-			this->mLastError = "could not create the preview render target";
-			return false;
+			// the Game Preview owns the target (a scene RTT with its own camera);
+			// the gui overlay layers composite AFTER that 3D scene pass. We do NOT
+			// create or clear a target here - just point the gui at the owner's.
+			this->mTarget = this->mExternalTarget;
 		}
-		this->mTarget->setBackgroundColour(PREVIEW_BACKGROUND);
+		else
+		{
+			// a UI-only offscreen target at the simulated device resolution: no 3D
+			// camera, just a clear + the gui's own 2D layers (createLayer)
+			this->mTarget = render->createRenderTexture(PREVIEW_TARGET_NAME,
+				this->mContext.width, this->mContext.height);
+			if(!this->mTarget)
+			{
+				this->mLastError = "could not create the preview render target";
+				return false;
+			}
+			this->mTarget->setBackgroundColour(PREVIEW_BACKGROUND);
+		}
 
 		GuiManager::PreviewSurface surface;
 		surface.target = this->mTarget;

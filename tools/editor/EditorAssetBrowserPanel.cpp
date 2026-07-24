@@ -395,6 +395,14 @@ void addTree(std::string const& directory, Orkige::Project const& project,
 	for (fs::recursive_directory_iterator it(directory, ec), end;
 		!ec && it != end; it.increment(ec))
 	{
+		// never descend into reserved output / editor-private dirs (@see
+		// ProjectPaths): builds/ holds copies of the whole asset payload
+		if (it->is_directory(ec) &&
+			Orkige::ProjectPaths::isReservedOutputDir(it->path()))
+		{
+			it.disable_recursion_pending();
+			continue;
+		}
 		if (!it->is_regular_file(ec))
 		{
 			continue;
@@ -752,6 +760,11 @@ AssetFolderListing enumerateAssetFolder(Orkige::Project const& project,
 	{
 		if (it->is_directory(ec))
 		{
+			// reserved output / editor-private dirs are never browsed
+			if (Orkige::ProjectPaths::isReservedOutputDir(it->path()))
+			{
+				continue;
+			}
 			listing.subfolders.push_back(it->path().string());
 			continue;
 		}
@@ -884,6 +897,12 @@ std::vector<AssetBrowserItem> searchAssets(Orkige::Project const& project,
 		for (fs::recursive_directory_iterator it(rootDir, ec), end;
 			!ec && it != end; it.increment(ec))
 		{
+			if (it->is_directory(ec) &&
+				Orkige::ProjectPaths::isReservedOutputDir(it->path()))
+			{
+				it.disable_recursion_pending();	// never search build output
+				continue;
+			}
 			if (it->is_regular_file(ec))
 			{
 				consider(it->path());
@@ -899,6 +918,11 @@ std::vector<AssetBrowserItem> searchAssets(Orkige::Project const& project,
 		for (fs::directory_iterator it(rootDir, ec), end; !ec && it != end;
 			it.increment(ec))
 		{
+			if (it->is_directory(ec) &&
+				Orkige::ProjectPaths::isReservedOutputDir(it->path()))
+			{
+				continue;
+			}
 			if (it->is_regular_file(ec))
 			{
 				consider(it->path());
@@ -1778,7 +1802,7 @@ void openAssetEntry(EditorState& state, Orkige::EditorCore& core,
 			state.project.makeProjectRelative(entry.absolutePath);
 		if (gViewSettings)
 		{
-			gViewSettings->showGuiPreviewPanel = true;
+			gViewSettings->showGamePreviewPanel = true;
 			gViewSettings->save();
 		}
 		return;
@@ -1857,7 +1881,8 @@ void drawFolderTree(EditorState& state, std::string const& dir, int depth)
 	for (fs::directory_iterator it(dir, ec), end; !ec && it != end;
 		it.increment(ec))
 	{
-		if (it->is_directory(ec))
+		if (it->is_directory(ec) &&
+			!Orkige::ProjectPaths::isReservedOutputDir(it->path()))
 		{
 			subfolders.push_back(it->path().string());
 		}

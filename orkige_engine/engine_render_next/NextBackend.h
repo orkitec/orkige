@@ -361,6 +361,10 @@ namespace Orkige
 		//! active (@see RenderBackend::activeShadowNodeName); false keeps the
 		//! target shadow-free regardless of the world knob (the parity RTT)
 		bool				shadowsEnabled = true;
+		//! per-target scene-pass visibility mask (RenderTexture::setVisibilityMask);
+		//! default all-visible. The Game Preview RTT masks off the editor-only bit
+		//! so the grid / frustum gizmos stay out of the preview.
+		unsigned int		visibilityMask = 0xFFFFFFFFu;
 
 		//--- offscreen 2D composition (RenderTexture::createLayer) ---
 		//! this target owns 2D layers: its workspace grows a UI pass drawing

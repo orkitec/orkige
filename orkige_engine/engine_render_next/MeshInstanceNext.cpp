@@ -431,6 +431,11 @@ namespace Orkige
 		this->mImpl->item->setQueryFlags(flags);
 	}
 	//---------------------------------------------------------
+	void MeshInstance::setVisibilityFlags(unsigned int flags)
+	{
+		this->mImpl->item->setVisibilityFlags(flags);
+	}
+	//---------------------------------------------------------
 	void MeshInstance::setVertexColourUnlit()
 	{
 		// the Next analog of classic's pass fixup: per sub-item, swap the

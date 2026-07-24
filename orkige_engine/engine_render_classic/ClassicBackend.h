@@ -316,6 +316,9 @@ namespace Orkige
 		Ogre::ColourValue	background = Ogre::ColourValue(0.0f, 0.0f, 0.0f, 1.0f);
 		bool				overlaysEnabled = true;
 		bool				shadowsEnabled = true;
+		//! per-target scene visibility mask (RenderTexture::setVisibilityMask);
+		//! default all-visible. The Game Preview RTT masks off the editor-only bit.
+		unsigned int		visibilityMask = 0xFFFFFFFFu;
 
 		//! (re)create the backend texture + viewport from the state above
 		//! (resize-by-recreate, the editor's proven RTT pattern)

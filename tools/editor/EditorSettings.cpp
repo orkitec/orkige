@@ -80,9 +80,27 @@ void ViewSettings::load()
 		{
 			this->showTilePalettePanel = (value == "1");
 		}
-		else if (key == "panel_gui_preview")
+		else if (key == "panel_gui_preview" || key == "panel_game_preview")
 		{
-			this->showGuiPreviewPanel = (value == "1");
+			// the GUI Preview panel became the Game Preview panel (clean cutover);
+			// an older ini's `panel_gui_preview` migrates into the new visibility
+			this->showGamePreviewPanel = (value == "1");
+		}
+		else if (key == "game_preview_preset")
+		{
+			this->gamePreviewPreset = std::atoi(value.c_str());
+		}
+		else if (key == "game_preview_safe_area")
+		{
+			this->gamePreviewSafeAreaGuides = (value == "1");
+		}
+		else if (key == "game_preview_animate_materials")
+		{
+			this->gamePreviewAnimateMaterials = (value == "1");
+		}
+		else if (key == "game_preview_show_frame")
+		{
+			this->gamePreviewShowFrame = (value == "1");
 		}
 		else if (key == "panel_debug")
 		{
@@ -204,7 +222,7 @@ void ViewSettings::save() const
 		<< "panel_scene=" << (this->showScenePanel ? 1 : 0) << "\n"
 		<< "panel_assets=" << (this->showAssetBrowserPanel ? 1 : 0) << "\n"
 		<< "panel_tilepalette=" << (this->showTilePalettePanel ? 1 : 0) << "\n"
-		<< "panel_gui_preview=" << (this->showGuiPreviewPanel ? 1 : 0) << "\n"
+		<< "panel_game_preview=" << (this->showGamePreviewPanel ? 1 : 0) << "\n"
 		<< "panel_debug=" << (this->showDebugPanel ? 1 : 0) << "\n"
 		<< "rotation_as_euler=" << (this->rotationAsEuler ? 1 : 0) << "\n"
 		<< "break_on_script_errors="
@@ -226,7 +244,14 @@ void ViewSettings::save() const
 		<< "\n"
 		<< "layout_content_scale=" << this->layoutContentScale << "\n"
 		<< "layout_version=" << this->layoutVersion << "\n"
-		<< "gui_preview_language=" << this->guiPreviewLanguage << "\n";
+		<< "gui_preview_language=" << this->guiPreviewLanguage << "\n"
+		<< "game_preview_preset=" << this->gamePreviewPreset << "\n"
+		<< "game_preview_safe_area="
+		<< (this->gamePreviewSafeAreaGuides ? 1 : 0) << "\n"
+		<< "game_preview_animate_materials="
+		<< (this->gamePreviewAnimateMaterials ? 1 : 0) << "\n"
+		<< "game_preview_show_frame="
+		<< (this->gamePreviewShowFrame ? 1 : 0) << "\n";
 	for (std::string const& recent : this->recentScenes)
 	{
 		file << "recent_scene=" << recent << "\n";
@@ -246,13 +271,13 @@ bool ViewSettings::migrateLayoutDefaults()
 	bool paletteRedockPending = false;
 	if (this->layoutVersion < 1)
 	{
-		// v1 - the panel-defaults rework: the Tile Palette and GUI Preview are
+		// v1 - the panel-defaults rework: the Tile Palette and Game Preview are
 		// closed by default (they appear on intent: 2D mode / Open Preview),
 		// and the palette homes in the bottom (Assets) node. An ini from before
 		// the rework kept both open in their old slots; close them and flag the
 		// palette re-dock. Everything else in the user's layout is untouched.
 		this->showTilePalettePanel = false;
-		this->showGuiPreviewPanel = false;
+		this->showGamePreviewPanel = false;
 		paletteRedockPending = true;
 	}
 	this->layoutVersion = CURRENT_LAYOUT_VERSION;

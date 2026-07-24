@@ -115,6 +115,18 @@ namespace Orkige
 	//! nullptr when unavailable (the Script panel then keeps the current font)
 	ImFont* editorMonoFont();
 
+	//! @brief the SMALLER UI font baked at boot for dense value fields (the
+	//! Inspector's property values): a second instance of the system font at
+	//! ~0.9x the base size, rasterized into the same boot-built atlas so it
+	//! renders crisp (the facade renderer uploads a static atlas - runtime
+	//! size changes could only bitmap-scale). nullptr when unavailable -
+	//! callers keep the base font. editorSmallFontSize() = its baked pixel
+	//! size (the size to pass to PushFont).
+	ImFont* editorSmallFont();
+	float editorSmallFontSize();
+	ImFont* loadMacSystemSmallFont(ImGuiIO& io, float sizePoints,
+		float contentScale);
+
 	//! @brief merge the editor icon font (Font Awesome 6 Free, Solid) into the
 	//! font atlas. The glyphs are added twice from the same .ttf: MergeMode into
 	//! the last-added (base UI) font so icons render inline with text at UI size,

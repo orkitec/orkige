@@ -138,6 +138,46 @@ TEST_CASE("AssetDatabase fresh import mints sidecars and answers lookups",
 	REQUIRE(database.idForFileName("no_such.png").empty());
 }
 
+TEST_CASE("AssetDatabase never indexes reserved output/editor-private dirs",
+	"[assetdb]")
+{
+	// the exporter writes <project>/builds/<platform>/ with COPIES of the whole
+	// asset payload, native modules build under native/build*/, and the editor
+	// keeps .orkige/ - none must be indexed or sidecar'd (@see ProjectPaths).
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_reserved");
+	project.writeAsset("assets/keep.png");
+	// reserved dirs planted UNDER assets/ (the scan reaches there) - the prune
+	// must skip them by name (builds/.orkige) and by native/build* structure
+	project.writeAsset("assets/builds/exported.png");
+	project.writeAsset("assets/.orkige/state.png");
+	project.writeAsset("assets/native/build-next/obj.png");
+	// and a root-level builds/ payload (the real exporter output)
+	project.writeAsset("builds/macos/assets/shipped.png");
+
+	Orkige::AssetDatabase database;
+	database.refresh(project.root.string(), true);
+
+	// the real asset is indexed + sidecar'd
+	REQUIRE(std::filesystem::is_regular_file(project.metaPath("assets/keep.png")));
+	REQUIRE(!database.idForPath("assets/keep.png").empty());
+	REQUIRE(database.getAssetCount() == 1);	// ONLY keep.png
+
+	// nothing under a reserved dir is indexed or sidecar'd
+	CHECK(database.idForPath("assets/builds/exported.png").empty());
+	CHECK(database.idForPath("assets/.orkige/state.png").empty());
+	CHECK(database.idForPath("assets/native/build-next/obj.png").empty());
+	CHECK(database.idForPath("builds/macos/assets/shipped.png").empty());
+	CHECK_FALSE(std::filesystem::exists(
+		project.metaPath("assets/builds/exported.png")));
+	CHECK_FALSE(std::filesystem::exists(
+		project.metaPath("assets/.orkige/state.png")));
+	CHECK_FALSE(std::filesystem::exists(
+		project.metaPath("assets/native/build-next/obj.png")));
+	CHECK_FALSE(std::filesystem::exists(
+		project.metaPath("builds/macos/assets/shipped.png")));
+}
+
 TEST_CASE("AssetDatabase rescan is stable - same ids every time", "[assetdb]")
 {
 	Orkige::CoreTestEnvironment::get();

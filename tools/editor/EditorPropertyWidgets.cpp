@@ -6,6 +6,7 @@
 #include "EditorTheme.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>	// TempInputIsActive (display-vs-edit format switch)
 
 #include <algorithm>
 #include <cctype>
@@ -55,6 +56,27 @@ std::string formatFloats(const float* values, int count)
 }
 
 //! @brief draw `count` per-axis DragFloats sharing the value column, each with a
+//! format a float for DISPLAY the way a rounded editor shows it: up to four
+//! decimals, trailing zeros (and a bare dot) trimmed - 280.1637 stays
+//! 280.1637, 0.9000 reads 0.9, float dust (0.899999976) reads 0.9. DISPLAY
+//! ONLY: while a field is text-edited it switches to full round-trip
+//! precision ("%.9g"), so editing shows and commits the REAL value - the
+//! trim can never alter data.
+static void trimmedFloatFormat(float value, char* out, std::size_t size)
+{
+	std::snprintf(out, size, "%.4f", value);
+	char* end = out + std::strlen(out);
+	while (end > out && *(end - 1) == '0')
+	{
+		--end;
+	}
+	if (end > out && *(end - 1) == '.')
+	{
+		--end;
+	}
+	*end = '\0';
+}
+
 //! dimmed micro-label ("X"/"Y"/"Z"/"W") before it. The fields split the column
 //! width evenly so a Vec3/Quat row stays balanced. Reports IsItemActivated-style
 //! edit through the aggregate return (any axis dragged). `idBase` seeds unique
@@ -63,7 +85,9 @@ bool drawAxisDrags(char const* idBase, char const* const* axes, float* values,
 	int count, float speed, bool* activated)
 {
 	ImGuiStyle const& style = ImGui::GetStyle();
-	const float gap = style.ItemInnerSpacing.x;
+	// a HALF inner gap between an axis letter and its field packs the row
+	// tighter, handing the recovered width to the fields themselves
+	const float gap = style.ItemInnerSpacing.x * 0.5f;
 	// widest axis glyph so every field lines up regardless of label
 	float labelWidth = 0.0f;
 	for (int i = 0; i < count; ++i)
@@ -93,8 +117,17 @@ bool drawAxisDrags(char const* idBase, char const* const* axes, float* values,
 		char id[32];
 		std::snprintf(id, sizeof(id), "##%s%d", idBase, i);
 		ImGui::SetNextItemWidth(fieldWidth);
-		// "%.9g" trims trailing zeros for display; precision/step unchanged
-		if (ImGui::DragFloat(id, &values[i], speed, 0.0f, 0.0f, "%.9g"))
+		// browsing shows the trimmed display form; an active text edit shows
+		// full round-trip precision so commits never lose data
+		char shown[32];
+		const bool editingField =
+			ImGui::TempInputIsActive(ImGui::GetID(id));
+		if (!editingField)
+		{
+			trimmedFloatFormat(values[i], shown, sizeof(shown));
+		}
+		if (ImGui::DragFloat(id, &values[i], speed, 0.0f, 0.0f,
+			editingField ? "%.9g" : shown))
 		{
 			edited = true;
 		}
@@ -356,10 +389,18 @@ bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 	case PropertyKind::Float:
 	{
 		float scalar = static_cast<float>(std::atof(value.c_str()));
-		// "%.9g" trims trailing zeros for display (0.500 -> 0.5, 1.0 -> 1) while
+		// trimmed display / full-precision editing, like the axis fields
 		// keeping full float precision when a value is not round; the drag step
 		// and the stored round-trip precision (formatFloats) are unchanged
-		if (ImGui::DragFloat(label, &scalar, 0.05f, 0.0f, 0.0f, "%.9g"))
+		char shownScalar[32];
+		const bool editingScalar =
+			ImGui::TempInputIsActive(ImGui::GetID(label));
+		if (!editingScalar)
+		{
+			trimmedFloatFormat(scalar, shownScalar, sizeof(shownScalar));
+		}
+		if (ImGui::DragFloat(label, &scalar, 0.05f, 0.0f, 0.0f,
+			editingScalar ? "%.9g" : shownScalar))
 		{
 			outValue = formatFloats(&scalar, 1);
 			edited = true;
@@ -369,6 +410,9 @@ bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 	case PropertyKind::Bool:
 	{
 		bool flag = (value == "1");
+		// the compact box sits a touch high in the dense grid rows - drop it
+		// onto the row's text baseline
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f);
 		if (Orkige::compactCheckbox(label, &flag))
 		{
 			outValue = flag ? "1" : "0";

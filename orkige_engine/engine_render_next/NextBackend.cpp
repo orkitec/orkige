@@ -3675,6 +3675,27 @@ namespace Orkige
 		// boot keeps Transparent (byte-stable), noted once by ensureRefractionMaterials.
 		bool useRefraction = desc.screenSpaceRefraction &&
 			RenderBackend::screenSpaceRefractionSupported();
+		// EDITOR DOWNGRADE: with a UI-only window (the editor shell) there is NO
+		// window scene workspace to grow the refraction scene-split pass, so the
+		// scene renders ONLY through offscreen RTTs (Scene / Game Preview / the
+		// selected-camera inset) whose single-pass workspaces cannot satisfy a
+		// Refractive datablock - HlmsPbs THROWS during shader generation and the
+		// editor aborts. Downgrade to the byte-stable Transparent fallback look
+		// (one log line); a real player window keeps full screen-space refraction.
+		if(useRefraction && gRenderSystem->mImpl->uiOnlyWindow)
+		{
+			static bool loggedEditorRefractionDowngrade = false;
+			if(!loggedEditorRefractionDowngrade)
+			{
+				loggedEditorRefractionDowngrade = true;
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige next backend: screen-space water refraction is "
+					"downgraded to a transparent look in the editor (no window "
+					"scene workspace to render the refraction pass); it renders "
+					"fully in the player");
+			}
+			useRefraction = false;
+		}
 		if(useRefraction)
 		{
 			RenderBackend::ensureRefractionMaterials();

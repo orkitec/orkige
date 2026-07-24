@@ -470,6 +470,8 @@ namespace Orkige
 		// coalesced static-region maintenance: membership/visibility changes
 		// since the last frame land as ONE rebuild (@see StaticBakeClassic.cpp)
 		RenderBackend::staticBakeFlush();
+		// the render exception net lives in Engine::renderOneFrame (the ONE entry
+		// the editor's frame loop AND this path both funnel through) - @see there
 		return this->mImpl->engine->renderOneFrame();
 	}
 	//---------------------------------------------------------
@@ -509,6 +511,14 @@ namespace Orkige
 		{
 			this->mImpl->uiOnlyCamera = sceneManager->createCamera(
 				RenderBackend::generateName("Orkige/UIOnlyCamera"));
+			// a SANE near/far: this camera never renders scene content, but it is
+			// the window's viewport camera, and applyShadowConfig seeds the PSSM
+			// shadow-split NEAR plane from the window camera. Ogre's default near
+			// (100) exceeds the shadow max-distance and degenerates the split math
+			// into a 0 near-clip assert during updateShadowTextures (the editor's
+			// scene RTTs render at near=1) - keep it at the engine's own default.
+			this->mImpl->uiOnlyCamera->setNearClipDistance(Ogre::Real(1.0));
+			this->mImpl->uiOnlyCamera->setFarClipDistance(Ogre::Real(100000.0));
 			sceneManager->getRootSceneNode()->createChildSceneNode()
 				->attachObject(this->mImpl->uiOnlyCamera);
 		}
@@ -990,6 +1000,28 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool RenderBackend::screenSpaceRefractionSupported()
 	{
+		// EDITOR DOWNGRADE: the editor shows a UI-ONLY window - there is NO scene
+		// window camera to render the refraction scene-grab (and the mirror pass)
+		// through, so screen-space refraction + planar reflection cannot render.
+		// Standing them up copies the UI-only camera's degenerate (0) near clip
+		// into the grab/mirror camera and ABORTS on Ogre's nearPlane>0 assert.
+		// Downgrade water to the byte-stable Stage-1 look (logged once); a real
+		// player window keeps full refraction/reflection.
+		RenderSystem* system = RenderBackend::system();
+		if(system && system->mImpl->uiOnlyWindow)
+		{
+			static bool loggedEditorWaterDowngrade = false;
+			if(!loggedEditorWaterDowngrade)
+			{
+				loggedEditorWaterDowngrade = true;
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige classic backend: screen-space water refraction / "
+					"planar reflection are downgraded to a transparent look in "
+					"the editor (UI-only window, no scene-grab camera); they "
+					"render fully in the player");
+			}
+			return false;
+		}
 #ifdef USE_RTSHADER_SYSTEM
 		Ogre::RTShader::ShaderGenerator* generator =
 			Ogre::RTShader::ShaderGenerator::getSingletonPtr();

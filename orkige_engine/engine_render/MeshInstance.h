@@ -84,6 +84,14 @@ namespace Orkige
 		//! @see RenderWorld::queryRay - content only shows up in queries whose mask overlaps these flags
 		//! map: classic/next=MovableObject::setQueryFlags | filament=facade-side filter in the impl AABB walk
 		void setQueryFlags(unsigned int flags);
+		//! @brief per-object RENDER visibility flags: this instance renders into a
+		//! target only where (these flags & the target's RenderTexture::setVisibilityMask)
+		//! is non-zero. Used to keep EDITOR-ONLY content (the grid, camera-frustum
+		//! gizmos) out of the Game Preview RTT while it still shows in the Scene
+		//! RTT - tag the editor content with a bit, mask that bit OFF the preview
+		//! target. Content left at the default renders everywhere (byte-stable).
+		//! map: classic/next=MovableObject::setVisibilityFlags | filament=View layer/visibility mask on the impl
+		void setVisibilityFlags(unsigned int flags);
 
 		//--- material services (the audited call sites, not a material system) ---
 		//! @brief render all sub-entities unlit with vertex colours (the
