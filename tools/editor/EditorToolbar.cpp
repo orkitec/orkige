@@ -7,6 +7,7 @@
 
 #include <imgui_internal.h> // SeparatorEx (the vertical toolbar separators)
 
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 
@@ -19,9 +20,11 @@ namespace
 {
 	//! transport-icon kinds drawn as vector primitives inside the button (the
 	//! loaded UI font need not carry media-glyph codepoints)
-	enum class TransportIcon { Play, Stop, Pause, Step };
+	enum class TransportIcon { Play, Stop, Pause, Step, Spinner };
 
-	//! a toolbar button carrying a small drawn icon PLUS its text label
+	//! a toolbar button carrying a small drawn icon PLUS its text label; the
+	//! Button itself renders label-less (hidden ## id) so the icon and the
+	//! left-aligned text are the ONLY glyphs on the frame
 	bool transportButton(char const* label, TransportIcon icon)
 	{
 		ImGuiStyle const & style = ImGui::GetStyle();
@@ -32,20 +35,12 @@ namespace
 				style.ItemInnerSpacing.x + textSize.x,
 			0.0f);
 		ImVec2 const origin = ImGui::GetCursorScreenPos();
-		const bool pressed = ImGui::Button(label, size);
-		// paint over the button: icon at the left inside the padding, the
-		// label shifted right (the Button drew the label centred - cover the
-		// frame interior with the frame colour first, then draw both parts)
+		char hiddenLabel[64];
+		std::snprintf(hiddenLabel, sizeof(hiddenLabel), "##%s", label);
+		const bool pressed = ImGui::Button(hiddenLabel, size);
 		ImDrawList* draw = ImGui::GetWindowDrawList();
 		ImVec2 const min = origin;
 		ImVec2 const max = ImGui::GetItemRectMax();
-		ImU32 const frameColour = ImGui::GetColorU32(
-			ImGui::IsItemActive() ? ImGuiCol_ButtonActive :
-			ImGui::IsItemHovered() ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
-		draw->AddRectFilled(
-			ImVec2(min.x + 1.0f, min.y + 1.0f),
-			ImVec2(max.x - 1.0f, max.y - 1.0f),
-			frameColour, style.FrameRounding);
 		ImU32 const textColour = ImGui::GetColorU32(ImGuiCol_Text);
 		const float iconLeft = min.x + style.FramePadding.x;
 		const float iconTop = min.y + (max.y - min.y - iconSide) * 0.5f;
@@ -90,6 +85,20 @@ namespace
 				ImVec2(iconLeft + iconSide - barWidth, iconTop),
 				ImVec2(iconLeft + iconSide, iconTop + iconSide),
 				textColour, 1.0f);
+			break;
+		}
+		case TransportIcon::Spinner:
+		{
+			// a rotating three-quarter arc; the gap sweeping around reads as
+			// "starting" until the session reaches Playing
+			const float radius = iconSide * 0.5f;
+			ImVec2 const centre(iconLeft + radius,
+				iconTop + iconSide * 0.5f);
+			const float angle = static_cast<float>(
+				ImGui::GetTime() * 6.0);
+			draw->PathArcTo(centre, radius - 0.5f, angle,
+				angle + IM_PI * 1.5f, 16);
+			draw->PathStroke(textColour, ImDrawFlags_None, 1.6f);
 			break;
 		}
 		}
@@ -367,9 +376,22 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		}
 		ImGui::EndDisabled();
 		ImGui::SameLine();
-		// ONE slot for Play/Stop: in edit mode it starts a session; while a
-		// session runs the same button IS the stop control
-		if (mode != PlaySession::Mode::Edit)
+		// ONE slot for Play/Stop: in edit mode it starts a session; while the
+		// session is still coming up the slot spins (click cancels); once the
+		// player window is live the same button IS the stop control
+		if (mode == PlaySession::Mode::Building ||
+			mode == PlaySession::Mode::Launching)
+		{
+			if (transportButton("Play", TransportIcon::Spinner))
+			{
+				requestStopPlay(session);
+			}
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("Starting... (click to cancel)");
+			}
+		}
+		else if (mode != PlaySession::Mode::Edit)
 		{
 			ImGui::BeginDisabled(mode == PlaySession::Mode::Stopping);
 			if (transportButton("Stop", TransportIcon::Stop))
