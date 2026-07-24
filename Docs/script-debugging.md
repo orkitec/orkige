@@ -6,6 +6,10 @@ machinery, two surfaces. Scripts open, highlight, complete and save inside the
 editor; breakpoints pause the running game mid-statement with a call stack and
 live locals; Continue/Step In/Step Over/Step Out walk the code like any debugger.
 
+The API those scripts program against — `self`, `world`, `engine`, the global
+tables — is [lua-api.md](lua-api.md); the completion popup here is generated
+from the same registry that page documents.
+
 ## At a glance
 
 - **A window per open file**: each script/text file opens as its OWN docked

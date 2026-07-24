@@ -18,6 +18,13 @@ The index and the type reference are GENERATED from the binding sources by
 in `Util/lua_api_annotations.json`; fix a signature there, never in the generated
 text. Everything gui-widget lives in [Docs/gui.md](gui.md).
 
+Scripts written against this API are edited and debugged inside the editor:
+the embedded code editor (completion generated from this same registry, live
+syntax checking) and the breakpoint debugger (pause mid-statement, step, stack
++ locals, break on next statement or on errors) are covered in
+[script-debugging.md](script-debugging.md) — including the MCP verbs that give
+an AI agent the identical debug loop.
+
 ## Sandbox / security
 
 **Threat model.** In an AI-agent dev setting a scene or script file may be authored

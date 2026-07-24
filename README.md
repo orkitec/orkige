@@ -10,11 +10,12 @@ App Store (*Pudding Panic*), revived and fully modernized in 2026. Licensed
 under [Apache-2.0](LICENSE).
 
 [![CI](https://github.com/orkitec/orkige/actions/workflows/ci.yml/badge.svg)](https://github.com/orkitec/orkige/actions/workflows/ci.yml)
-![Platforms](https://img.shields.io/badge/platforms-macOS%20·%20Windows%20·%20Linux%20·%20iOS%20·%20Android%20·%20Web-blue)
-![Renderer](https://img.shields.io/badge/renderer-Ogre--Next%20·%20OGRE%2014%20·%20Metal%20·%20Vulkan%20·%20GL3%2B%20·%20GLES2-green)
-![Physics](https://img.shields.io/badge/physics-Jolt%205-orange)
-![Scripting](https://img.shields.io/badge/scripting-Lua%20(sol2)%20·%20breakpoint%20debugger-purple)
-![License](https://img.shields.io/badge/license-Apache--2.0-lightgrey)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20·%20Windows%20·%20Linux%20·%20iOS%20·%20Android%20·%20Web-blue)](https://orkige.orkitec.com/help/getting-started.html)
+[![Renderer](https://img.shields.io/badge/renderer-Ogre--Next%20·%20OGRE%2014%20·%20Metal%20·%20Vulkan%20·%20GL3%2B%20·%20GLES2-green)](https://orkige.orkitec.com/help/render-abstraction.html)
+[![Physics](https://img.shields.io/badge/physics-Jolt%205-orange)](https://github.com/jrouwe/JoltPhysics)
+[![Scripting](https://img.shields.io/badge/scripting-Lua%20(sol2)-purple)](https://orkige.orkitec.com/help/lua-api.html)
+[![Editor](https://img.shields.io/badge/editor-code%20editor%20·%20breakpoint%20debugger-8a2be2)](https://orkige.orkitec.com/help/script-debugging.html)
+[![License](https://img.shields.io/badge/license-Apache--2.0-lightgrey)](LICENSE)
 
 **Website & documentation:** [orkige.orkitec.com](https://orkige.orkitec.com)
 — this documentation as a searchable site, plus the generated C++ API
