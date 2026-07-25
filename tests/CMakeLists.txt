@@ -1802,6 +1802,24 @@ if(TARGET orkige_player)
         set_tests_properties(player_softbody_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_SOFTBODY_SELFCHECK=1")
 
+        # DYNAMIC 3D LINES, end to end: tests/projects/lines scenes/lines.oscene
+        # - an authored LineComponent strip (its points round-trip through the
+        # scene file), reshaped every frame at the SAME point count by a script
+        # so it rides the LineMesh dynamic updateVertices fast path (the rebuild
+        # count stays the small boot constant, no per-frame churn), plus the
+        # immediate-mode `draw` table queuing line/box/sphere primitives whose
+        # DebugDraw mesh reaches the expected segment vertex count and then
+        # DRAINS once the script stops drawing (frame-only + TTL lifetimes). Runs
+        # on both render flavors (the line mesh + collector are renderer-neutral;
+        # the upload rides the LineMesh dynamic path on each backend). See the
+        # ORKIGE_LINES_SELFCHECK block in tools/player/PlayerSelfChecks.cpp.
+        add_test(NAME player_lines_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player tests/projects/lines/scenes/lines.oscene
+                --project tests/projects/lines
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_lines_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_LINES_SELFCHECK=1")
+
         # VECTOR (Lottie) ANIMATION RIGS, end to end: projects/vectorshapes
         # scenes/vectoranim.oscene - a two-blob hero (assets/hero.json cooked to
         # hero.oanim) whose VectorAnimationComponent plays an `idle` clip (the

@@ -94,6 +94,11 @@ namespace Orkige
 		return RenderBackend::createVectorMesh(this->mImpl->sceneManager);
 	}
 	//---------------------------------------------------------
+	optr<LineMesh> RenderWorld::createLineMesh()
+	{
+		return RenderBackend::createLineMesh(this->mImpl->sceneManager);
+	}
+	//---------------------------------------------------------
 	optr<RenderCamera> RenderWorld::createCamera(String const & name)
 	{
 		return RenderBackend::createCamera(this->mImpl->sceneManager,

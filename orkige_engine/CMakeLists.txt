@@ -79,6 +79,7 @@ set(ORKIGE_ENGINE_SOURCES
     engine_render/MeshInstance.h
     engine_render/SpriteQuad.h
     engine_render/SpriteBatch.h
+    engine_render/LineMesh.h
     engine_render/RenderCamera.h
     engine_render/RenderLight.h
     engine_render/RenderDecal.h
@@ -112,6 +113,10 @@ set(ORKIGE_ENGINE_SOURCES
     engine_graphic/ScreenFade.cpp
     engine_graphic/ScreenShake.h
     engine_graphic/ScreenShake.cpp
+    engine_graphic/DebugDrawBuffer.h
+    engine_graphic/DebugDrawBuffer.cpp
+    engine_graphic/DebugDraw.h
+    engine_graphic/DebugDraw.cpp
     engine_base/EngineLog.h
     engine_base/EngineLog.cpp
     engine_input/KeyEventData.h
@@ -143,6 +148,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/DecalComponent.cpp
     engine_gocomponent/SpriteComponent.h
     engine_gocomponent/SpriteComponent.cpp
+    engine_gocomponent/LineComponent.h
+    engine_gocomponent/LineComponent.cpp
     engine_gocomponent/SpriteBatcher.h
     engine_gocomponent/SpriteBatcher.cpp
     engine_gocomponent/VectorMeshRuns.h
@@ -283,15 +290,12 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_module/EnginePrerequisitesClassic.h
         engine_util/PrimitiveUtil.h
         engine_graphic/Engine.cpp
-        # ColoredBoundingBox, LightMap and MovableText were unbuilt AND deleted
-        # (zero callers - see Docs/render-abstraction.md;
-        # recoverable from git). DynamicRenderable/DynamicLines stay compiled: the
-        # editor-era debug-line drawing is expected back, but they are now
-        # caller-less too - candidates for the same treatment later.
-        engine_graphic/DynamicRenderable.h
-        engine_graphic/DynamicRenderable.cpp
-        engine_graphic/DynamicLines.h
-        engine_graphic/DynamicLines.cpp
+        # ColoredBoundingBox, LightMap, MovableText, DynamicRenderable and
+        # DynamicLines were unbuilt AND deleted (zero callers - see
+        # Docs/render-abstraction.md; recoverable from git). The editor-era
+        # debug-line drawing came back MODERN on the facade: the LineMesh
+        # renderable + LineComponent + the immediate-mode DebugDraw `draw` table
+        # (both flavors), so the raw-Ogre 2010 utility was retired.
         engine_graphic/IngameConsole.h
         engine_graphic/IngameConsole.cpp
         # the classic backend implementing the engine_render facade
@@ -309,6 +313,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_render_classic/SpriteQuadClassic.cpp
         engine_render_classic/SpriteBatchClassic.cpp
         engine_render_classic/VectorMeshClassic.cpp
+        engine_render_classic/LineMeshClassic.cpp
         engine_render_classic/RenderCameraClassic.cpp
         engine_render_classic/RenderLightClassic.cpp
         engine_render_classic/RenderDecalClassic.cpp
@@ -332,6 +337,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         engine_render_next/SpriteQuadNext.cpp
         engine_render_next/SpriteBatchNext.cpp
         engine_render_next/VectorMeshNext.cpp
+        engine_render_next/LineMeshNext.cpp
         engine_render_next/RenderCameraNext.cpp
         engine_render_next/RenderLightNext.cpp
         engine_render_next/RenderDecalNext.cpp

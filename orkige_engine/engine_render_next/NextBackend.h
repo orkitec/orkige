@@ -279,6 +279,27 @@ namespace Orkige
 			VectorMesh::Vertex const * vertices, std::size_t vertexCount);
 	};
 
+	struct LineMesh::Impl
+	{
+		Ogre::ManualObject*	mesh = NULL;			//!< v2 manual object (VaoManager-backed)
+		Ogre::SceneManager*	creator = NULL;
+		std::size_t			vertexCount = 0;		//!< dynamic-update guard (0 = nothing built)
+		bool				depthTest = true;		//!< datablock pick (@see getOrCreateLineDatablock)
+		LineMesh::Topology	topology = LineMesh::TOPOLOGY_STRIP;
+		optr<RenderNode>	attachedTo;
+
+		//! (re)build the v2 manual object line section from the vertex array; an
+		//! empty/degenerate array leaves it geometry-free
+		void rebuild(LineMesh::Vertex const * vertices, std::size_t count,
+			LineMesh::Topology topo);
+		//! rewrite the vertex positions/colours via beginUpdate (topology +
+		//! count reused); a count mismatch or an un-built mesh is ignored
+		void updateVertices(LineMesh::Vertex const * vertices,
+			std::size_t count);
+		//! swap the section datablock for the current depthTest flag
+		void applyDatablock();
+	};
+
 	struct RenderCamera::Impl
 	{
 		Ogre::Camera*		camera = NULL;
@@ -508,6 +529,9 @@ namespace Orkige
 		//! create a world-space untextured vertex-coloured triangle mesh
 		//! (@see VectorMesh; the shared "VectorFill" HlmsUnlit datablock)
 		static optr<VectorMesh> createVectorMesh(Ogre::SceneManager* sceneManager);
+		//! create a world/local-space vertex-coloured 3D line renderable
+		//! (@see LineMesh; the shared unlit vertex-colour datablock)
+		static optr<LineMesh> createLineMesh(Ogre::SceneManager* sceneManager);
 		static optr<RenderLight> createLight(Ogre::SceneManager* sceneManager);
 		//! create a projected decal (@see RenderDecalNext.cpp); joins the world
 		//! visible-decal budget on creation
@@ -669,6 +693,12 @@ namespace Orkige
 		//! backs setVertexColourUnlit and the cube-mesh service
 		static Ogre::HlmsDatablock* getOrCreateVertexColourUnlitDatablock(
 			String const & datablockName, Ogre::TextureGpu* texture);
+		//! @brief the shared unlit vertex-colour LINE datablock (@see LineMesh):
+		//! @p depthTest true = the "VertexColour" unlit datablock (opaque, depth
+		//! checked+written - the cube/grid look reused); false =
+		//! "VertexColourOverlay" (a macroblock with depth check AND write off, an
+		//! on-top overlay). Idempotent per name.
+		static Ogre::HlmsDatablock* getOrCreateLineDatablock(bool depthTest);
 		//! @brief create OR UPDATE the named HLMS PBS datablock from a facade
 		//! surface description (RenderSystem::createMaterial). Metallic
 		//! workflow - every RenderMaterialDesc field is native on this

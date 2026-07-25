@@ -22,6 +22,7 @@
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/LightComponent.h>
+#include <engine_gocomponent/LineComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/WaterComponent.h>
 #include <engine_gocomponent/VectorAnimationComponent.h>
@@ -228,6 +229,71 @@ TEST_CASE("LightComponent properties round-trip on a DETACHED component",
 	CHECK(restored.getInnerAngle() == Approx(25.0f));
 	CHECK(restored.getOuterAngle() == Approx(55.0f));
 	CHECK(restored.getCastsShadows());
+}
+//---------------------------------------------------------
+TEST_CASE("LineComponent declares its scalar look through the registry, points ride a setter",
+	"[reflection][line]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		LineComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// the reflected SCALAR look (mode enum + colour + depthTest + visibility) is
+	// reachable generically - Inspector, scene serialization AND the MCP
+	// get/set_component verbs all consume this one schema
+	PropertyDesc const * mode = schema->find("mode");
+	REQUIRE(mode != nullptr);
+	CHECK(mode->kind == PropertyKind::Enum);
+	CHECK(mode->enumTypeName == "LineMode");
+	REQUIRE(schema->find("colour") != nullptr);
+	CHECK(schema->find("colour")->kind == PropertyKind::Color);
+	REQUIRE(schema->find("depthTest") != nullptr);
+	CHECK(schema->find("depthTest")->kind == PropertyKind::Bool);
+	REQUIRE(schema->find("visible") != nullptr);
+	// POINTS are bulk data, NOT a per-point reflected property
+	CHECK(schema->find("points") == nullptr);
+
+	EnumInfo const * modeEnum = TypeManager::getSingleton().findEnum("LineMode");
+	REQUIRE(modeEnum != nullptr);
+	CHECK(modeEnum->size() == 2);
+	long long segments = -1;
+	REQUIRE(modeEnum->valueOf("LM_SEGMENTS", segments));
+	CHECK(segments == LineComponent::LM_SEGMENTS);
+
+	// a DETACHED line (no world, no mesh) round-trips the scalar schema through
+	// the exact MCP path (capture -> apply)
+	LineComponent line;
+	Object * instance = &line;
+	CHECK(mode->get(instance).asInt() == LineComponent::LM_STRIP);
+	mode->set(instance, PropertyValue::makeEnum("LineMode",
+		LineComponent::LM_SEGMENTS));
+	schema->find("depthTest")->set(instance, PropertyValue::makeBool(false));
+	CHECK(line.getMode() == LineComponent::LM_SEGMENTS);
+	CHECK_FALSE(line.getDepthTest());
+	GameObject::ComponentPropertyMap captured =
+		SceneSerializer::captureComponentProperties(line);
+	LineComponent restored;
+	SceneSerializer::applyComponentProperties(captured, restored);
+	CHECK(restored.getMode() == LineComponent::LM_SEGMENTS);
+	CHECK_FALSE(restored.getDepthTest());
+
+	// the POINTS setter surface (bulk data): the vector<Vec3> API and the
+	// scalar incremental builder both land the same four points
+	std::vector<Vec3> pts = { Vec3(0,0,0), Vec3(1,1,0), Vec3(2,0,0) };
+	line.setPoints(pts);
+	CHECK(line.getPointCount() == 3);
+	line.beginPoints();
+	line.addPoint(0, 0, 0);
+	line.addPoint(1, 1, 0);
+	line.addPoint(2, 2, 0);
+	line.addPoint(3, 3, 0);
+	line.commitPoints();
+	CHECK(line.getPointCount() == 4);
+	line.clearPoints();
+	CHECK(line.getPointCount() == 0);
 }
 //---------------------------------------------------------
 TEST_CASE("ModelComponent declares mesh AND material references in its schema",

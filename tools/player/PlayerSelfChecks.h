@@ -29,6 +29,7 @@ struct PlayerSelfChecks
 	bool rollerCheck = false;
 	std::string rollerShotDir;
 	bool softbodyCheck = false;
+	bool linesCheck = false;
 	bool vectorAnimCheck = false;
 	bool characterRigCheck = false;
 	bool rollerProgressionCheck = false;
@@ -210,6 +211,22 @@ struct PlayerSelfChecks
 	float softbodyMorphPeak = 0.0f;
 	unsigned long softbodyPhaseDeadline = 0;
 	bool softbodyMorphStarted = false;
+	// --- ORKIGE_LINES_SELFCHECK=1: dynamic 3D lines end to end (LineComponent
+	// + the immediate-mode `draw` table, tests/projects/lines). Draw phase: the
+	// script queues line/box/sphere and reshapes the LineComponent every frame;
+	// the check confirms the authored strip round-tripped, the DebugDraw mesh
+	// reached the expected segment vertex count and the LineComponent never
+	// churned (one rebuild). Drain phase: the script stops drawing and the
+	// frame-only + TTL primitives fall away.
+	enum class LinesPhase { Draw, Drain, Done };
+	LinesPhase linesPhase = LinesPhase::Draw;
+	bool linesCheckFailed = false;
+	bool linesSawDebugPeak = false;		//!< the DebugDraw mesh hit the expected vertex count
+	std::size_t linesDebugPeakVerts = 0;	//!< the largest DebugDraw mesh vertex count seen
+	std::size_t linesLineVerts = 0;		//!< the LineComponent's mesh vertex count last seen
+	std::size_t linesRebuilds = 0;		//!< the LineComponent's rebuild count last seen
+	bool linesDrainVerified = false;	//!< the debug primitives drained after the draw phase
+	unsigned long linesPhaseDeadline = 0;
 	// --- ORKIGE_VECTORANIM_SELFCHECK=1: vector (Lottie) animation rigs end
 	// to end against projects/vectorshapes (scenes/vectoranim.oscene). The
 	// hero rig carries an `idle` (loop) and a `hop` (once) clip; a script

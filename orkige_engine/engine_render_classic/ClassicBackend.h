@@ -241,6 +241,29 @@ namespace Orkige
 			VectorMesh::Vertex const * vertices, std::size_t vertexCount);
 	};
 
+	struct LineMesh::Impl
+	{
+		Ogre::ManualObject*	mesh = NULL;
+		Ogre::SceneManager*	creator = NULL;
+		std::size_t			vertexCount = 0;		//!< dynamic-update guard (0 = nothing built)
+		bool				depthTest = true;		//!< material pick (@see getOrCreateLineMaterial)
+		LineMesh::Topology	topology = LineMesh::TOPOLOGY_STRIP;
+		optr<RenderNode>	attachedTo;
+
+		//! (re)build the manual object line section from the vertex array; an
+		//! empty/degenerate array leaves it geometry-free
+		void rebuild(LineMesh::Vertex const * vertices, std::size_t count,
+			LineMesh::Topology topo);
+		//! rewrite the vertex positions/colours via beginUpdate (topology +
+		//! count reused); a count mismatch or an un-built mesh is ignored
+		void updateVertices(LineMesh::Vertex const * vertices,
+			std::size_t count);
+		//! swap the material for the current depthTest flag (@see setDepthTest)
+		void applyMaterial();
+		//! the Ogre operation type for the current topology
+		Ogre::RenderOperation::OperationType operationType() const;
+	};
+
 	struct RenderCamera::Impl
 	{
 		Ogre::Camera*		camera = NULL;
@@ -410,6 +433,9 @@ namespace Orkige
 		//! create a world-space untextured vertex-coloured triangle mesh
 		//! (@see VectorMesh; the shared "VectorFill" material)
 		static optr<VectorMesh> createVectorMesh(Ogre::SceneManager* sceneManager);
+		//! create a world/local-space vertex-coloured 3D line renderable
+		//! (@see LineMesh; the shared unlit vertex-colour material)
+		static optr<LineMesh> createLineMesh(Ogre::SceneManager* sceneManager);
 		static optr<RenderCamera> createCamera(
 			Ogre::SceneManager* sceneManager, String const & name);
 		//! wrap an EXISTING backend camera into a facade handle (owned=false
@@ -655,6 +681,11 @@ namespace Orkige
 		//! depth-checked/not-written, two-sided, NO texture unit. Idempotent -
 		//! every vector shape renders through this one material.
 		static Ogre::MaterialPtr getOrCreateVectorFillMaterial();
+		//! @brief the shared unlit vertex-colour LINE material (@see LineMesh):
+		//! @p depthTest true = "VertexColour" (opaque, depth-checked+written -
+		//! the cube/grid look reused wholesale); false = "VertexColourOverlay"
+		//! (depth check AND write off, an on-top overlay). Idempotent per name.
+		static Ogre::MaterialPtr getOrCreateLineMaterial(bool depthTest);
 		//! @brief create OR UPDATE the named lit scene-content material from a
 		//! facade surface description (RenderSystem::createMaterial). When the
 		//! RTSS shader generator is active (the shader-only render systems this

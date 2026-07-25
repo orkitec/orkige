@@ -561,6 +561,7 @@ static bool playerIterate(PlayerContext& context)
 	Orkige::LevelManager& levelManager = *context.levelManager;
 	Orkige::ScreenFade& screenFade = *context.screenFade;
 	Orkige::ScreenShake& screenShake = *context.screenShake;
+	Orkige::DebugDraw& debugDraw = *context.debugDraw;
 	Orkige::TimeControl& timeControl = *context.timeControl;
 	Orkige::PlayerDebugLink& debugLink = *context.debugLink;
 	Orkige::FrameStatsUtil& frameStats = *context.frameStats;
@@ -823,6 +824,14 @@ static bool playerIterate(PlayerContext& context)
 		{
 			OPROFILE("present");
 			screenShake.update(deltaTime);
+		}
+		// immediate-mode debug lines are a PRESENTATION layer too: flushed after
+		// the scripts of this frame queued their draw.* primitives, so the mesh
+		// shows this frame's shapes, then their lifetimes age (frame-only shapes
+		// drop). Real delta so a hitstop (timeScale 0) still ages TTLs correctly.
+		{
+			OPROFILE("present");
+			debugDraw.update(deltaTime);
 		}
 	}
 
@@ -2038,6 +2047,12 @@ int main(int argc, char** argv)
 		// presentation effect), like the fade. The editor never makes one.
 		context.screenShake.emplace();
 		Orkige::ScreenShake& screenShake = *context.screenShake;
+		// immediate-mode 3D debug drawing (engine-owned, both flavors): scripts
+		// draw lines/boxes/spheres through the Lua `draw` table, flushed into one
+		// dynamic line mesh per frame. Ticked LAST (a presentation effect), like
+		// the fade/shake. The editor never makes one, so `draw.*` is a no-op there.
+		context.debugDraw.emplace();
+		Orkige::DebugDraw& debugDraw = *context.debugDraw;
 		// sprite-run batching (contiguous same-material sprite runs merge
 		// into one draw each): SpriteComponents register themselves against
 		// the singleton on sprite load; the loop resolves runs right before

@@ -46,6 +46,9 @@
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_gocomponent/ParticleComponent.h>
 #include <engine_gocomponent/VectorShapeComponent.h>
+#include <engine_gocomponent/LineComponent.h>
+#include <engine_graphic/DebugDraw.h>
+#include <engine_graphic/DebugDrawBuffer.h>
 #include <engine_gocomponent/VectorAnimationComponent.h>
 #include <engine_gui/GuiManager.h>
 #include <engine_render/RenderSystem.h>
@@ -108,6 +111,15 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// cost (the mobile-viability budget number).
 	softbodyCheck =
 		(std::getenv("ORKIGE_SOFTBODY_SELFCHECK") != nullptr);
+	// ORKIGE_LINES_SELFCHECK verifies dynamic 3D lines end to end against
+	// tests/projects/lines (scenes/lines.oscene): a LineComponent strip is
+	// authored + serialized (its points round-trip), a script reshapes it every
+	// frame at the SAME point count (so it rides the dynamic fast path - the
+	// rebuild count stays 1, no churn), and the immediate-mode `draw` table
+	// queues line/box/sphere primitives (the DebugDraw mesh reaches the expected
+	// vertex count) whose frame-only + TTL lifetimes then drain.
+	linesCheck =
+		(std::getenv("ORKIGE_LINES_SELFCHECK") != nullptr);
 	// ORKIGE_VECTORANIM_SELFCHECK verifies vector (Lottie) animation rigs end
 	// to end against projects/vectorshapes (scenes/vectoranim.oscene): the
 	// hero's `idle` clip advances (the pose changes as frames tick), a
@@ -302,7 +314,8 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		hotreloadCheck || scriptPropCheck ||
 		integrationContactCheck || integrationLevelCheck || persistentCheck ||
 		breadcrumbCheck || fadeCheck || lifecycleCheck || resizeCheck ||
-		softbodyCheck || perfCheck || benchmarkCheck || vectorAnimCheck ||
+		softbodyCheck || linesCheck || perfCheck || benchmarkCheck ||
+		vectorAnimCheck ||
 		characterRigCheck || staticMoveCheck || spriteBatchCheck ||
 		!assetIdCheckTexture.empty() || !cookedCheckTexture.empty() ||
 		frameLimit != 0;
@@ -2471,6 +2484,144 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		}
 	}
 	if (softbodyCheck && softbodyCheckFailed)
+	{
+		exitCode = 1;
+		running = false;
+	}
+
+	// --- dynamic-lines selfcheck (ORKIGE_LINES_SELFCHECK) ------------
+	// Two consumer surfaces over the one line mechanism: the authored
+	// LineComponent (self.line, reshaped every frame at a stable point count)
+	// and the immediate-mode `draw` table (DebugDraw). The check confirms the
+	// authored strip round-tripped through the scene file, the LineComponent
+	// rides the dynamic fast path (its rebuild count stays small - it never
+	// churns a mesh per frame), the DebugDraw mesh reaches the expected
+	// segment vertex count during the draw window and then DRAINS to empty
+	// once the script stops drawing (frame-only + TTL lifetimes).
+	if (linesCheck && !linesCheckFailed)
+	{
+		auto lineComp = [&gameObjectManager]() -> Orkige::LineComponent*
+		{
+			optr<Orkige::GameObject> gameObject =
+				gameObjectManager.getGameObject("LineObject").lock();
+			if (!gameObject ||
+				!gameObject->hasComponent<Orkige::LineComponent>())
+			{
+				return nullptr;
+			}
+			return gameObject->getComponentPtr<Orkige::LineComponent>();
+		};
+		auto linesFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: LINES SELFCHECK FAILED - %s "
+				"(debugPeak=%zu lineVerts=%zu rebuilds=%zu)", what.c_str(),
+				linesDebugPeakVerts, linesLineVerts, linesRebuilds);
+			linesCheckFailed = true;
+		};
+		Orkige::LineComponent* line = lineComp();
+		Orkige::DebugDraw* debug = Orkige::DebugDraw::getSingletonPtr();
+		// line(2) + box(24) + sphere(3 great circles * SPHERE_SEGMENTS * 2)
+		const std::size_t expectedDebugVerts = 2 + 24 +
+			3 * Orkige::DebugDrawBuffer::SPHERE_SEGMENTS * 2;
+		if (line)
+		{
+			linesLineVerts = line->getVertexCount();
+			linesRebuilds = line->getRebuildCount();
+		}
+		if (debug)
+		{
+			linesDebugPeakVerts = std::max(linesDebugPeakVerts,
+				debug->getMeshVertexCount());
+			if (linesDebugPeakVerts >= expectedDebugVerts)
+			{
+				linesSawDebugPeak = true;
+			}
+		}
+		if (frameCount == 5)
+		{
+			if (!line)
+			{
+				linesFail("no LineObject with a LineComponent");
+			}
+			else if (line->getPointCount() != 4)
+			{
+				linesFail("the authored strip did not round-trip "
+					"(point count != 4)");
+			}
+			else if (line->getVertexCount() != 4)
+			{
+				linesFail("the line mesh did not build the 4 authored "
+					"vertices");
+			}
+			else
+			{
+				linesPhaseDeadline = frameCount + 900;
+			}
+		}
+		else if (frameCount > 5 && linesPhase == LinesPhase::Draw)
+		{
+			// the script closes its draw window (shared.lines.drawing=false)
+			const bool scriptDrawing =
+				Orkige::ScriptRuntime::getSingleton().getBool(
+					{"shared", "lines", "drawing"}, true);
+			if (!scriptDrawing)
+			{
+				if (!linesSawDebugPeak)
+				{
+					linesFail("the DebugDraw mesh never reached the "
+						"expected segment vertex count");
+				}
+				else if (linesLineVerts != 4)
+				{
+					linesFail("the reshaped line changed vertex count "
+						"(should stay 4)");
+				}
+				else if (linesRebuilds > 2)
+				{
+					// a same-count setPoints every frame must ride the
+					// dynamic fast path: the rebuild count is the small
+					// boot constant, never ~one-per-frame
+					linesFail("the reshaped line CHURNED (rebuilt every "
+						"frame instead of the dynamic fast path)");
+				}
+				else
+				{
+					SDL_Log("orkige_player: lines selfcheck - draw window "
+						"done (DebugDraw peaked at %zu verts, line held 4 "
+						"verts over %zu rebuild(s))", linesDebugPeakVerts,
+						linesRebuilds);
+					linesPhase = LinesPhase::Drain;
+					linesPhaseDeadline = frameCount + 900;
+				}
+			}
+			else if (frameCount >= linesPhaseDeadline)
+			{
+				linesFail("the draw window never closed");
+			}
+		}
+		else if (linesPhase == LinesPhase::Drain)
+		{
+			// after the script stops drawing, the frame-only primitives are
+			// gone next frame and the last TTL box ages out - the mesh empties
+			if (debug && debug->getPrimitiveCount() == 0 &&
+				debug->getMeshVertexCount() == 0)
+			{
+				SDL_Log("orkige_player: LINES SELFCHECK PASSED - authored "
+					"strip round-tripped, the reshaped line rode the "
+					"dynamic fast path (%zu rebuild(s)), and the debug "
+					"primitives drained after the draw window",
+					linesRebuilds);
+				linesDrainVerified = true;
+				linesPhase = LinesPhase::Done;
+				running = false;
+			}
+			else if (frameCount >= linesPhaseDeadline)
+			{
+				linesFail("the debug primitives never drained");
+			}
+		}
+	}
+	if (linesCheck && linesCheckFailed)
 	{
 		exitCode = 1;
 		running = false;

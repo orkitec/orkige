@@ -27,6 +27,7 @@
 #include "engine_gocomponent/WaterComponent.h"
 #include "engine_gocomponent/DecalComponent.h"
 #include "engine_gocomponent/SpriteComponent.h"
+#include "engine_gocomponent/LineComponent.h"
 #include "engine_gocomponent/VectorShapeComponent.h"
 #include "engine_gocomponent/VectorAnimationComponent.h"
 #include "engine_gocomponent/SpriteAnimationComponent.h"
@@ -71,6 +72,7 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(WaterComponent)
 	OEXPORT(DecalComponent)
 	OEXPORT(SpriteComponent)
+	OEXPORT(LineComponent)
 	OEXPORT(VectorShapeComponent)
 	OEXPORT(VectorAnimationComponent)
 	OEXPORT(SpriteAnimationComponent)

@@ -24,6 +24,7 @@
 #include <engine_gocomponent/SpriteBatcher.h>
 #include <engine_graphic/ScreenFade.h>
 #include <engine_graphic/ScreenShake.h>
+#include <engine_graphic/DebugDraw.h>
 #include <engine_input/InputManager.h>
 #include <engine_input/HapticManager.h>
 #include <engine_input/InputActionMap.h>
@@ -102,6 +103,7 @@ struct PlayerContext
 	std::optional<Orkige::LevelManager> levelManager;
 	std::optional<Orkige::ScreenFade> screenFade;
 	std::optional<Orkige::ScreenShake> screenShake;
+	std::optional<Orkige::DebugDraw> debugDraw;
 	std::optional<Orkige::SpriteBatcher> spriteBatcher;
 	std::optional<Orkige::TimeControl> timeControl;
 	std::optional<Orkige::SaveStore> saveStore;

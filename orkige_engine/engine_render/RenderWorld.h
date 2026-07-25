@@ -14,6 +14,7 @@
 #include "engine_render/SpriteBatch.h"
 #include "engine_render/SpriteQuad.h"
 #include "engine_render/VectorMesh.h"
+#include "engine_render/LineMesh.h"
 #include <core_util/ShadowPreset.h>
 #include <core_util/IblPreset.h>
 #include <core_util/BloomPreset.h>
@@ -103,6 +104,15 @@ namespace Orkige
 		//! ManualObject + shared HlmsUnlit vertex-colour datablock | filament=
 		//! dynamic VB/IB + unlit filamat instance
 		optr<VectorMesh> createVectorMesh();
+		//! @brief create a world/local-space vertex-coloured 3D LINE renderable
+		//! - a polyline (strip) or independent-segment list, refilled from a CPU
+		//! vertex array (static once, dynamically per change) and depth-tested
+		//! against the scene or drawn as an overlay (@see LineMesh). Line width
+		//! is hairline-only (@see LineMesh - no thickness knob yet).
+		//! map: classic=ManualObject OT_LINE_STRIP/OT_LINE_LIST + the shared
+		//! unlit vertex-colour material | next=v2 ManualObject (SCENE_DYNAMIC) +
+		//! the HlmsUnlit vertex-colour datablock | filament=dynamic VB + LINES
+		optr<LineMesh> createLineMesh();
 		//! @brief create a camera (attach it to a node to place it)
 		//! map: classic/next=SceneManager::createCamera | filament=Engine::createCamera(entity)
 		optr<RenderCamera> createCamera(String const & name = "");

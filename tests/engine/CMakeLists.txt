@@ -33,6 +33,7 @@ add_executable(orkige_engine_tests
     CVarProtocolBehaviourTests.cpp
     ScreenFadeTests.cpp
     ScreenShakeTests.cpp
+    DebugDrawBufferTests.cpp
     TextEntryEditTests.cpp
     HapticTests.cpp
     AppHostPolicyTests.cpp

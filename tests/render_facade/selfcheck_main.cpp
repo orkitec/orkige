@@ -31,6 +31,7 @@
 #include <engine_render/MeshInstance.h>
 #include <engine_render/SpriteQuad.h>
 #include <engine_render/VectorMesh.h>
+#include <engine_render/LineMesh.h>
 #include <engine_render/RenderCamera.h>
 #include <engine_render/RenderLight.h>
 #include <engine_render/RenderDecal.h>
@@ -625,6 +626,54 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	vectorShape->attachTo(shapeNode);
 	vectorShape->setZOrder(6);
 	vectorShape->setVisible(true);
+
+	//--- 3D line mesh: strip + segments, depth toggle ---------------------
+	// the facade LineMesh (@see LineMesh): a strip polyline reports N-1
+	// segments, a segment list reports pairs, an odd segment count drops the
+	// dangling vertex, and setDepthTest flips the overlay look without changing
+	// geometry. The DYNAMIC updateVertices fast path needs a frame boundary
+	// between rebuild and update (the next backend forbids mapping a buffer
+	// twice per frame), so it is exercised in the player line selfcheck where
+	// frames advance - never inline here.
+	optr<LineMesh> strip = world->createLineMesh();
+	SELFCHECK(strip != NULL, "createLineMesh works");
+	LineMesh::Vertex stripVerts[4] = {
+		LineMesh::Vertex(Vec3(96.0f, 0.0f, 0.2f), Color(1, 0, 0, 1)),
+		LineMesh::Vertex(Vec3(96.5f, 0.5f, 0.2f), Color(0, 1, 0, 1)),
+		LineMesh::Vertex(Vec3(97.0f, 0.0f, 0.2f), Color(0, 0, 1, 1)),
+		LineMesh::Vertex(Vec3(97.5f, 0.5f, 0.2f), Color(1, 1, 0, 1))
+	};
+	strip->setLines(stripVerts, 4, LineMesh::TOPOLOGY_STRIP);
+	SELFCHECK(strip->getVertexCount() == 4,
+		"line strip reports the vertex count it was filled with");
+	SELFCHECK(strip->getLineCount() == 3,
+		"a 4-point strip is three segments");
+	SELFCHECK(strip->getDepthTest(),
+		"line meshes depth-test against the scene by default");
+	strip->setDepthTest(false);
+	SELFCHECK(!strip->getDepthTest(),
+		"setDepthTest flips the overlay look");
+	optr<RenderNode> stripNode = world->createNode("selfcheck.lineStrip");
+	strip->attachTo(stripNode);
+	// kept OUT of the compared RTT: hairline rasterisation can differ between
+	// backends, so the cross-flavor render_backend_parity gate must not see
+	// these lines. The facade API is validated here; the actual RENDERING is
+	// proven end to end by the player line selfcheck on each flavor.
+	strip->setVisible(false);
+
+	optr<LineMesh> segments = world->createLineMesh();
+	LineMesh::Vertex segVerts[5] = {
+		LineMesh::Vertex(Vec3(0, 0, 0), Color(1, 1, 1, 1)),
+		LineMesh::Vertex(Vec3(1, 0, 0), Color(1, 1, 1, 1)),
+		LineMesh::Vertex(Vec3(0, 1, 0), Color(1, 1, 1, 1)),
+		LineMesh::Vertex(Vec3(0, 0, 1), Color(1, 1, 1, 1)),
+		LineMesh::Vertex(Vec3(1, 1, 1), Color(1, 1, 1, 1))	// dangling odd vertex
+	};
+	segments->setLines(segVerts, 5, LineMesh::TOPOLOGY_SEGMENTS);
+	SELFCHECK(segments->getVertexCount() == 4,
+		"a segment list drops the dangling odd vertex (5 -> 4)");
+	SELFCHECK(segments->getLineCount() == 2,
+		"four segment-list vertices are two segments");
 
 	//--- textured mesh with a vertical-gradient texture (V-flip gate) -----
 	// a glTF quad whose baseColor texture runs RED (top) -> BLUE (bottom);

@@ -194,6 +194,11 @@ save.flush() -> bool  -- autosave point - write to disk now
 events.subscribe(name, fn) -> EventSubscription  -- subscribe fn(payload) to an event (script phase, subscription order)
 events.emit(name [, payload])  -- queue an event; payload a table of string/number/bool (one nesting level)
 
+## draw
+draw.line(x1, y1, z1, x2, y2, z2, r, g, b [, seconds])  -- world-space debug line; seconds omitted/0 = this frame only, else a TTL
+draw.box(cx, cy, cz, hx, hy, hz, r, g, b [, seconds])  -- world-space wireframe box (centre + half extents); seconds = frame-only or TTL
+draw.sphere(cx, cy, cz, radius, r, g, b [, seconds])  -- world-space wireframe sphere; seconds = frame-only or TTL
+
 ## locale
 locale.set(tag) -> bool  -- switch the active language (true if the tag is loaded); re-push screens after
 locale.get() -> string  -- the active language code
@@ -1001,6 +1006,29 @@ SpriteComponent.flipY
 SpriteComponent.zOrder
 SpriteComponent.visible
 SpriteComponent.texture
+
+## LineComponent
+LineComponent:hasMesh(...)
+LineComponent:setPoints(...)
+LineComponent:setPointsFlat(...)
+LineComponent:beginPoints(...)
+LineComponent:addPoint(...)
+LineComponent:commitPoints(...)
+LineComponent:clearPoints(...)
+LineComponent:getPointCount(...)
+LineComponent:getVertexCount(...)
+LineComponent:getRebuildCount(...)
+LineComponent:setMode(...)
+LineComponent:getMode(...)
+LineComponent:setColour(...)
+LineComponent:setDepthTest(...)
+LineComponent:getDepthTest(...)
+LineComponent:setLineVisible(...)
+LineComponent:isLineVisible(...)
+LineComponent.mode
+LineComponent.colour
+LineComponent.depthTest
+LineComponent.visible
 
 ## VectorShapeComponent
 VectorShapeComponent:loadShape(...)

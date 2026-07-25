@@ -176,6 +176,18 @@
 		"sig": "() -> bool",
 		"doc": "is the camera currently shaking"
 	},
+	"draw.line": {
+		"sig": "(x1, y1, z1, x2, y2, z2, r, g, b [, seconds])",
+		"doc": "world-space debug line; seconds omitted/0 = this frame only, else a TTL"
+	},
+	"draw.box": {
+		"sig": "(cx, cy, cz, hx, hy, hz, r, g, b [, seconds])",
+		"doc": "world-space wireframe box (centre + half extents); seconds = frame-only or TTL"
+	},
+	"draw.sphere": {
+		"sig": "(cx, cy, cz, radius, r, g, b [, seconds])",
+		"doc": "world-space wireframe sphere; seconds = frame-only or TTL"
+	},
 	"haptics.play": {
 		"sig": "(strength, ms)",
 		"doc": "generic vibration; no-op off-device"

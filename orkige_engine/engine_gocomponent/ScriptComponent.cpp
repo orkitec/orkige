@@ -23,6 +23,7 @@
 #include "engine_sound/SoundManager.h"
 #include "engine_graphic/ScreenFade.h"
 #include "engine_graphic/ScreenShake.h"
+#include "engine_graphic/DebugDraw.h"
 #include "engine_input/HapticManager.h"
 #include "engine_gui/GuiManager.h"
 #include "engine_base/EngineLog.h"
@@ -1016,6 +1017,50 @@ namespace Orkige
 		{
 			return ScreenShake::getSingletonPtr() &&
 				ScreenShake::getSingleton().isShaking();
+		});
+
+		// ================= THE `draw` TABLE (debug lines) =================
+		// Immediate-mode 3D debug drawing: draw.line / draw.box / draw.sphere
+		// queue WORLD-space wireframes flushed into one dynamic line mesh per
+		// frame (one draw call). The trailing `seconds` is optional - omitted or
+		// 0 draws for THIS frame only, a positive value gives a lifetime (a TTL).
+		// Colours are RGB in 0..1. Honest no-op without a DebugDraw (editor edit
+		// mode - no runtime ticks the flush). Zero cost until the first call.
+		runtime.registerFunction("draw", "line",
+			[](float x1, float y1, float z1, float x2, float y2, float z2,
+				float r, float g, float b, ScriptArgs args)
+		{
+			if(DebugDraw::getSingletonPtr())
+			{
+				const float seconds = static_cast<float>(
+					ScriptRuntime::numberArg(args, 0, 0.0));
+				DebugDraw::getSingleton().line(Vec3(x1, y1, z1),
+					Vec3(x2, y2, z2), Color(r, g, b, 1.0f), seconds);
+			}
+		});
+		runtime.registerFunction("draw", "box",
+			[](float cx, float cy, float cz, float hx, float hy, float hz,
+				float r, float g, float b, ScriptArgs args)
+		{
+			if(DebugDraw::getSingletonPtr())
+			{
+				const float seconds = static_cast<float>(
+					ScriptRuntime::numberArg(args, 0, 0.0));
+				DebugDraw::getSingleton().box(Vec3(cx, cy, cz),
+					Vec3(hx, hy, hz), Color(r, g, b, 1.0f), seconds);
+			}
+		});
+		runtime.registerFunction("draw", "sphere",
+			[](float cx, float cy, float cz, float radius,
+				float r, float g, float b, ScriptArgs args)
+		{
+			if(DebugDraw::getSingletonPtr())
+			{
+				const float seconds = static_cast<float>(
+					ScriptRuntime::numberArg(args, 0, 0.0));
+				DebugDraw::getSingleton().sphere(Vec3(cx, cy, cz), radius,
+					Color(r, g, b, 1.0f), seconds);
+			}
 		});
 
 		// ================= THE `haptics` TABLE (rumble) ===================
