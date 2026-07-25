@@ -45,6 +45,13 @@ env:
   CCACHE_DIR: /home/runner/.ccache
   CCACHE_MAXSIZE: 1G
   CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+  # Build with clang, NOT the runner-default gcc - the same policy ci.yml,
+  # valgrind.yml and fuzz.yml carry. Orkige is a clang-oriented codebase
+  # (AppleClang on the dev Macs, .clangd, the containment lint); the engine's
+  # reflected data-member script bindings (the OVAR macro over vcpkg sol2 3.3.0)
+  # do not compile under gcc, so a gcc soak build fails before it ever runs.
+  CC: clang
+  CXX: clang++
 
 jobs:
   soak-next:
