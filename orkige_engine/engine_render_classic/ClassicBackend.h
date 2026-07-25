@@ -78,6 +78,16 @@ namespace Orkige
 		//! facade getters read them back honestly (the scene sees their average)
 		Ogre::ColourValue	ambientUpper = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);
 		Ogre::ColourValue	ambientLower = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);
+		//! lighting-suppression state (@see RenderWorld::setLightingSuppressed): the
+		//! editor's flat "unlit" inspection view. While armed, the ambient goes
+		//! flat-white and every light is hidden; the snapshot restores them EXACTLY
+		//! on release (recover-then-reapply, the ScreenShake precedent).
+		bool				lightingSuppressed = false;
+		Ogre::ColourValue	savedAmbientUpper;		//!< ambient at arm time (restore)
+		Ogre::ColourValue	savedAmbientLower;
+		//! every light's visibility at arm time (restored by re-iterating the
+		//! CURRENT lights, so a destroyed light is skipped, a new one defaults visible)
+		std::vector<std::pair<Ogre::Light*, bool>>	savedLightVisibility;
 		//! the shadow quality knob position (@see RenderWorld::setShadowQuality;
 		//! RenderBackend::applyShadowConfig arms/disarms the scene-level RTSS
 		//! integrated-PSSM technique from it)
@@ -325,6 +335,15 @@ namespace Orkige
 		//! so the sky never reaches this target (the editor Scene view sky-less
 		//! mode) while every other target keeps it
 		bool				skyVisible = true;
+		//! per-target polygon fill mode (RenderTexture::setViewMode): the target's
+		//! own viewport camera flips to the matching Ogre::PolygonMode (per-camera,
+		//! leak-free - @see RenderCaps::SceneWireframeView). Default Shaded (solid).
+		RenderViewMode		viewMode = RenderViewMode::Shaded;
+		//! per-frame render gate (RenderTexture::setAutoRender): while false the
+		//! render target is not auto-updated so this target skips its per-frame
+		//! render and keeps its last contents (the editor's Scene-vs-Game-Preview
+		//! render invariant)
+		bool				autoRender = true;
 
 		//! (re)create the backend texture + viewport from the state above
 		//! (resize-by-recreate, the editor's proven RTT pattern)

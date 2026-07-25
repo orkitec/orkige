@@ -13,6 +13,7 @@
 #include "EditorControlServer.h"
 #include "EditorApp.h"
 #include "EditorScriptHost.h"
+#include "EditorViewModes.h"
 #include "PythonToolchain.h"
 #include "AnimationPreviewStage.h"
 #include "GuiPreviewStage.h"
@@ -1238,19 +1239,27 @@ namespace Orkige
 				  "Read the Scene view display options (the toolbar Display "
 				  "dropdown): 'show_grid', 'show_colliders', 'show_bounding_boxes', "
 				  "'show_all_camera_frames', 'show_sky', 'show_view_gizmo' and "
-				  "'mode_2d', each '1'/'0'. Pair with screenshot_editor to verify "
-				  "an overlay visually.", {} },
+				  "'mode_2d', each '1'/'0'; plus 'view_mode' "
+				  "(shaded|wireframe|shaded_wireframe) and 'lighting' ('1'/'0') for "
+				  "the Scene RTT, with 'wireframe_supported' / 'lighting_supported' "
+				  "('1'/'0') telling which the current render backend can do. Pair "
+				  "with screenshot_editor to verify an overlay visually.", {} },
 				{ "set_view_option",
 				  "Set one Scene view display option (persisted like the toolbar "
 				  "dropdown). 'option' is one of grid/colliders/bounding_boxes/"
-				  "camera_frames/sky/view_gizmo/mode_2d; 'value' is '1' or '0'. "
-				  "'sky' shows the scene sky (dome/cubemap) in the Scene view "
-				  "(default off; the Game Preview and Play always show it). Takes "
-				  "effect on the next editor frame.",
+				  "camera_frames/sky/view_gizmo/mode_2d (value '1'/'0'), 'view_mode' "
+				  "(value shaded|wireframe|shaded_wireframe) or 'lighting' (value "
+				  "'1' lit / '0' unlit). 'sky' shows the scene sky (dome/cubemap) in "
+				  "the Scene view (default off; the Game Preview and Play always show "
+				  "it). 'view_mode' and 'lighting' are per-backend capabilities "
+				  "(query get_view_options first): an unsupported value is refused "
+				  "with the reason. Takes effect on the next editor frame.",
 				  { { "option", "string",
 				      "grid | colliders | bounding_boxes | camera_frames | sky | "
-				      "view_gizmo | mode_2d", true },
-				    { "value", "string", "'1' on, '0' off", true } } },
+				      "view_gizmo | mode_2d | view_mode | lighting", true },
+				    { "value", "string",
+				      "'1'/'0' for the toggles; shaded|wireframe|shaded_wireframe "
+				      "for view_mode; '1' lit / '0' unlit for lighting", true } } },
 				{ "undo", "Undo the last command.", {} },
 				{ "redo", "Redo the last undone command.", {} },
 				{ "begin_transaction",
@@ -3340,6 +3349,20 @@ namespace Orkige
 				ok.set("show_view_gizmo",
 					gViewSettings->showViewGizmo ? "1" : "0");
 				ok.set("mode_2d", gViewSettings->editor2D ? "1" : "0");
+				// Scene view mode + lighting (the Display dropdown's radio +
+				// checkbox), plus the per-flavor capability so an agent knows
+				// which are selectable before it sets one
+				ok.set("view_mode", OrkigeEditor::sceneViewModeName(
+					static_cast<Orkige::RenderViewMode>(
+						gViewSettings->sceneViewMode)));
+				ok.set("lighting",
+					gViewSettings->sceneLightingEnabled ? "1" : "0");
+				ok.set("wireframe_supported",
+					Orkige::RenderSystem::get()->supports(
+						Orkige::RenderCaps::SceneWireframeView) ? "1" : "0");
+				ok.set("lighting_supported",
+					Orkige::RenderSystem::get()->supports(
+						Orkige::RenderCaps::SceneUnlitView) ? "1" : "0");
 			}
 			this->sendOk(req, ok);
 			return;
@@ -3352,6 +3375,58 @@ namespace Orkige
 				return;
 			}
 			const String option = request.get("option");
+			// view_mode carries a STRING value (shaded/wireframe/shaded_wireframe)
+			// and is gated by the backend's per-target wireframe capability -
+			// handled before the bool-valued options below
+			if (option == "view_mode")
+			{
+				const String modeName = request.get("value");
+				Orkige::RenderViewMode mode = Orkige::RenderViewMode::Shaded;
+				if (!OrkigeEditor::parseSceneViewMode(modeName, mode))
+				{
+					this->sendErr(req, "unknown view_mode '" + modeName +
+						"' (use shaded/wireframe/shaded_wireframe)");
+					return;
+				}
+				const OrkigeEditor::SceneViewModeInfo info =
+					OrkigeEditor::sceneViewModeInfo(mode,
+						Orkige::RenderSystem::get()->supports(
+							Orkige::RenderCaps::SceneWireframeView));
+				if (!info.available)
+				{
+					this->sendErr(req, info.reason);
+					return;
+				}
+				gViewSettings->sceneViewMode = static_cast<int>(mode);
+				gViewSettings->save();
+				DebugMessage ok(MSG_OK);
+				ok.set("option", option);
+				ok.set("value", modeName);
+				this->sendOk(req, ok);
+				return;
+			}
+			// lighting is bool but capability-gated: turning it OFF (unlit) needs
+			// the backend's per-target lighting override; ON is always the default
+			if (option == "lighting")
+			{
+				const bool lit = request.get("value") == "1";
+				const OrkigeEditor::SceneViewModeInfo info =
+					OrkigeEditor::sceneLightingToggleInfo(
+						Orkige::RenderSystem::get()->supports(
+							Orkige::RenderCaps::SceneUnlitView));
+				if (!lit && !info.available)
+				{
+					this->sendErr(req, info.reason);
+					return;
+				}
+				gViewSettings->sceneLightingEnabled = lit;
+				gViewSettings->save();
+				DebugMessage ok(MSG_OK);
+				ok.set("option", option);
+				ok.set("value", lit ? "1" : "0");
+				this->sendOk(req, ok);
+				return;
+			}
 			const bool value = request.get("value") == "1";
 			bool* target = nullptr;
 			if (option == "grid") { target = &gViewSettings->showGrid; }
@@ -3377,7 +3452,7 @@ namespace Orkige
 			{
 				this->sendErr(req, "unknown view option '" + option + "' (use "
 					"grid/colliders/bounding_boxes/camera_frames/sky/view_gizmo/"
-					"mode_2d)");
+					"mode_2d/view_mode/lighting)");
 				return;
 			}
 			*target = value;
@@ -7318,7 +7393,132 @@ namespace Orkige
 					"failed");
 				return;
 			}
-			SDL_Log("orkige_editor: control self-test - view options OK");
+			// Scene view MODE + LIGHTING (Display dropdown v2): per-backend
+				// capabilities. Read what this flavor supports, then assert the
+				// supported path works AND the unsupported one refuses honestly.
+				if (!callTool("get_view_options", JsonValue::object(), true,
+						structured, isError) || isError)
+				{
+					finish(false, "control self-test: get_view_options (v2) "
+						"failed");
+					return;
+				}
+				const bool wireframeSupported =
+					structured.get("wireframe_supported").asString() == "1";
+				const bool lightingSupported =
+					structured.get("lighting_supported").asString() == "1";
+				if (structured.get("view_mode").asString() != "shaded")
+				{
+					finish(false, "control self-test: view_mode should default to "
+						"shaded");
+					return;
+				}
+				auto setViewMode = [&](char const* mode) -> bool
+				{
+					JsonValue a = JsonValue::object();
+					a.set("option", JsonValue("view_mode"));
+					a.set("value", JsonValue(mode));
+					return callTool("set_view_option", a, true, structured,
+						isError);
+				};
+				// shaded is always accepted
+				if (!setViewMode("shaded") || isError)
+				{
+					finish(false, "control self-test: set view_mode shaded failed");
+					return;
+				}
+				// wireframe: accepted where supported (classic), refused otherwise
+				if (!setViewMode("wireframe"))
+				{
+					finish(false, "control self-test: set view_mode wireframe call "
+						"failed");
+					return;
+				}
+				if (wireframeSupported)
+				{
+					if (isError)
+					{
+						finish(false, "control self-test: wireframe is supported "
+							"but was refused");
+						return;
+					}
+					if (!callTool("get_view_options", JsonValue::object(), true,
+							structured, isError) || isError ||
+						structured.get("view_mode").asString() != "wireframe")
+					{
+						finish(false, "control self-test: view_mode did not read "
+							"back as wireframe");
+						return;
+					}
+					if (!setViewMode("shaded") || isError)	// restore
+					{
+						finish(false, "control self-test: restoring view_mode "
+							"failed");
+						return;
+					}
+				}
+				else if (!isError)
+				{
+					finish(false, "control self-test: wireframe is unsupported on "
+						"this backend but was NOT refused");
+					return;
+				}
+				// shaded_wireframe is not built in this version: refused on both
+				if (!setViewMode("shaded_wireframe") || !isError)
+				{
+					finish(false, "control self-test: shaded_wireframe should be "
+						"refused in this version");
+					return;
+				}
+				// an unknown view_mode string is refused
+				if (!setViewMode("solid") || !isError)
+				{
+					finish(false, "control self-test: an unknown view_mode should "
+						"be refused");
+					return;
+				}
+				// lighting: unlit accepted where supported (next), refused otherwise
+				JsonValue litArgs = JsonValue::object();
+				litArgs.set("option", JsonValue("lighting"));
+				litArgs.set("value", JsonValue("0"));
+				if (!callTool("set_view_option", litArgs, true, structured,
+						isError))
+				{
+					finish(false, "control self-test: set lighting call failed");
+					return;
+				}
+				if (lightingSupported)
+				{
+					if (isError)
+					{
+						finish(false, "control self-test: the lighting toggle is "
+							"supported but unlit was refused");
+						return;
+					}
+					if (!callTool("get_view_options", JsonValue::object(), true,
+							structured, isError) || isError ||
+						structured.get("lighting").asString() != "0")
+					{
+						finish(false, "control self-test: lighting did not read "
+							"back off");
+						return;
+					}
+					litArgs.set("value", JsonValue("1"));	// restore lit
+					if (!callTool("set_view_option", litArgs, true, structured,
+							isError) || isError)
+					{
+						finish(false, "control self-test: restoring lighting "
+							"failed");
+						return;
+					}
+				}
+				else if (!isError)
+				{
+					finish(false, "control self-test: the lighting toggle is "
+						"unsupported on this backend but unlit was NOT refused");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - view options OK");
 		}
 
 		// --- the BROWSER PLAY conversation (a separate ctest): pick the

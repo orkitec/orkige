@@ -53,3 +53,12 @@ X(OutputGrade, true)
 // the GLES2/WebGL1 floor answers false (byte-stable), as does a Vulkan/Metal
 // context (pending its shader variant + an on-device proof)
 X(PlanarReflection, true)
+// the editor Scene view's per-target wireframe: the target's own viewport camera
+// flips to Ogre::PolygonMode wireframe (per-camera, leak-free on every classic
+// context, so unconditionally true - unlike the runtime-gated shader stages above)
+X(SceneWireframeView, true)
+// the editor Scene view's flat lighting-off inspection look: a GLOBAL per-frame
+// state (snapshot + hide every light + flat-white ambient over the hemisphere SRS
+// and the flat term, exact restore) armed only on a Scene-only frame via the
+// dock-tab visibility rule (@see RenderWorld::setLightingSuppressed)
+X(SceneUnlitView, true)

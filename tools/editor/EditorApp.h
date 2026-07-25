@@ -21,6 +21,7 @@
 #include "EditorCore.h"
 #include "EditorPanelRegistry.h"
 #include "EditorTheme.h"
+#include "EditorViewModes.h"
 #include "FileDialog.h"
 #include "MarqueeSelection.h"
 #include "PlayMirror.h"
@@ -284,6 +285,21 @@ struct ViewSettings
 	//! real sky. Objects stay lit + fogged like the game either way (only the sky
 	//! VISUAL is per-target; the lighting drive and object fog are global).
 	bool showSky = false;
+	//! Scene view display MODE (the Display dropdown radio): 0 = Shaded (default),
+	//! 1 = Wireframe, 2 = Shaded+Wireframe - matches Orkige::RenderViewMode. A
+	//! per-target look applied to the Scene RTT only (RenderTexture::setViewMode);
+	//! the Game Preview, camera inset and Play always render Shaded. Capability-
+	//! gated per flavor (RenderCaps::SceneWireframeView): the editor greys the modes
+	//! this backend cannot do and never persists an unsupported one.
+	int sceneViewMode = 0;
+	//! Scene view LIGHTING (the Display dropdown checkbox): true = lit like the game
+	//! (default), false = flat albedo + ambient (the analytic scene lights
+	//! suppressed). Scene RTT only (RenderTexture::setLightingEnabled). Gated by
+	//! RenderCaps::SceneUnlitView, which is FALSE on both backends in this version
+	//! (the per-pass light mask cannot suppress the directional sun), so the toggle
+	//! is greyed everywhere and MCP refuses it - the field/plumbing stay for the
+	//! future per-target route. Kept lit by the apply-site coercion.
+	bool sceneLightingEnabled = true;
 	//! 2D editor mode: the Scene viewport's OWN camera switches to an
 	//! orthographic top-down look at the XY plane (orbit/fly disabled, pan+zoom
 	//! kept, the transform gizmo constrains to that plane). A pure view/
@@ -853,6 +869,35 @@ struct EditorState
 	bool scenePanelHovered = false;
 	bool scenePanelFocused = false;
 	bool hierarchyFocused = false;
+	//! per-frame panel VISIBILITY (the drawn/active-tab state, recorded during the
+	//! panel draws), read by the global lighting-suppression decision (@see
+	//! OrkigeEditor::shouldSuppressLighting): lighting-off is a whole-frame state, so
+	//! it is armed only when the Scene view is the visible tab AND the Game Preview
+	//! is not (a Scene-only frame). Reset false each frame before the panels draw.
+	bool scenePanelVisibleThisFrame = false;
+	bool gamePreviewVisibleThisFrame = false;
+	//! the Scene-vs-Game-Preview render INVARIANT (@see
+	//! OrkigeEditor::chooseGameViewRenderer): at most ONE of the two game views
+	//! renders its RTT per frame; the other freezes its last texture + shows a
+	//! dimmed "Paused" note. lastFocusedGameView is the both-visible tiebreak
+	//! (updated when either panel gains focus); gameViewRenderer is this frame's
+	//! decision (drives the frozen overlays + the setAutoRender gating + the
+	//! lighting rule). The *RenderFrames counters are the selfcheck seam: at most
+	//! one increments per frame.
+	OrkigeEditor::GameViewRenderer lastFocusedGameView =
+		OrkigeEditor::GameViewRenderer::Scene;
+	OrkigeEditor::GameViewRenderer gameViewRenderer =
+		OrkigeEditor::GameViewRenderer::Scene;
+	unsigned int sceneRenderFrames = 0;
+	unsigned int previewRenderFrames = 0;
+	//! selfcheck-only override of the render-invariant decision (default off): the
+	//! editor_viewmode invariant leg forces the renderer here to exercise the
+	//! wiring (setAutoRender gating + the render counters + the lighting rule)
+	//! deterministically, without driving ImGui focus. The DECISION itself is
+	//! covered by the chooseGameViewRenderer unit test.
+	bool overrideGameViewRenderer = false;
+	OrkigeEditor::GameViewRenderer forcedGameViewRenderer =
+		OrkigeEditor::GameViewRenderer::Scene;
 	//! gizmo drag bracketing: the whole drag merges into ONE undo command
 	bool gizmoWasUsing = false;
 	unsigned int gizmoMergeSession = 0;

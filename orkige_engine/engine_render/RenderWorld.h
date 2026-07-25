@@ -298,6 +298,30 @@ namespace Orkige
 		//! the atmosphere description last set (default: disabled)
 		AtmosphereDesc const & getAtmosphere() const;
 
+		//--- lighting suppression (the editor's flat "unlit" inspection view) ---
+		//! @brief render the WHOLE world flat (albedo + a bright flat ambient, every
+		//! analytic light's contribution removed) - the editor Scene view's "unlit"
+		//! inspection look. GLOBAL, not per-target: the previous-attempt per-target
+		//! route is impossible (Ogre-Next gathers directional lights from the global
+		//! light list, unfiltered by the per-pass mask - @see RenderCaps::
+		//! SceneUnlitView; classic has no per-viewport lighting override), so this is
+		//! a per-frame GLOBAL state. The editor drives it from panel visibility (it
+		//! is only armed when the Scene view is the visible tab AND the Game Preview
+		//! is not, so the frame the flat look applies to is a Scene-only frame - see
+		//! Docs). RECOVER-THEN-REAPPLY (the ScreenShake precedent): arming snapshots
+		//! the ambient + every light's visibility and applies the flat look;
+		//! releasing restores them EXACTLY (a suppressed frame followed by a restored
+		//! frame leaves the light/ambient state byte-identical). Idempotent: a no-op
+		//! unless the flag changes, so the editor calls it every frame and it flips
+		//! only on the visibility decision change. Flips on tab switches, not per
+		//! frame, so the zero-light Hlms shader variant caches after first use.
+		//! map: next=snapshot+hide every Ogre::Light + flat-white SceneManager
+		//! ambient, restore on release | classic=the same (Ogre lights + ambient) |
+		//! filament=disable LightManager instances + IndirectLight, restore
+		void setLightingSuppressed(bool suppressed);
+		//! @see RenderWorld::setLightingSuppressed (default false)
+		bool getLightingSuppressed() const;
+
 		//--- LDR bloom (highlight glow post-process) ---
 		//! whether this backend renders the bloom post-process at all is the
 		//! `RenderCaps::Bloom` capability (`RenderSystem::supports`) - true on

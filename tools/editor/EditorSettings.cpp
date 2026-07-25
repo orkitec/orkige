@@ -48,6 +48,17 @@ void ViewSettings::load()
 		{
 			this->editor2D = (value == "1");
 		}
+		else if (key == "scene_view_mode")
+		{
+			// clamp to the valid RenderViewMode range (0=Shaded, 1=Wireframe,
+			// 2=Shaded+Wireframe); an out-of-range ini value falls back to Shaded
+			const int mode = std::atoi(value.c_str());
+			this->sceneViewMode = (mode >= 0 && mode <= 2) ? mode : 0;
+		}
+		else if (key == "scene_lighting")
+		{
+			this->sceneLightingEnabled = (value == "1");
+		}
 		else if (key == "orbit_speed")
 		{
 			this->orbitSpeed = std::strtof(value.c_str(), nullptr);
@@ -230,6 +241,8 @@ void ViewSettings::save() const
 		<< "show_all_camera_frames="
 		<< (this->showAllCameraFrames ? 1 : 0) << "\n"
 		<< "show_sky=" << (this->showSky ? 1 : 0) << "\n"
+		<< "scene_view_mode=" << this->sceneViewMode << "\n"
+		<< "scene_lighting=" << (this->sceneLightingEnabled ? 1 : 0) << "\n"
 		<< "mode_2d=" << (this->editor2D ? 1 : 0) << "\n"
 		<< "orbit_speed=" << this->orbitSpeed << "\n"
 		<< "look_speed=" << this->lookSpeed << "\n"
@@ -345,6 +358,8 @@ void ViewSettings::resetCameraAndDisplayDefaults()
 	this->showBoundingBoxes = defaults.showBoundingBoxes;
 	this->showAllCameraFrames = defaults.showAllCameraFrames;
 	this->showSky = defaults.showSky;
+	this->sceneViewMode = defaults.sceneViewMode;
+	this->sceneLightingEnabled = defaults.sceneLightingEnabled;
 	this->orbitSpeed = defaults.orbitSpeed;
 	this->lookSpeed = defaults.lookSpeed;
 	this->zoomSpeed = defaults.zoomSpeed;

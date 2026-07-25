@@ -36,6 +36,7 @@
 #include <OgreHlmsManager.h>
 #include <OgreHlmsUnlitDatablock.h>
 #include <Compositor/OgreCompositorManager2.h>
+#include <Compositor/OgreCompositorWorkspace.h>
 #include <Compositor/OgreCompositorNodeDef.h>
 #include <Compositor/OgreCompositorWorkspaceDef.h>
 #include <Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h>
@@ -214,7 +215,7 @@ namespace Orkige
 		this->workspace = compositorManager->addWorkspace(
 			RenderBackend::worldSceneManager(), this->texture,
 			backendCamera ? backendCamera : this->uiCamera, definitionName,
-			true /*enabled*/);
+			this->autoRender /*enabled - the per-frame render gate*/);
 		if(backendCamera)
 		{
 			backendCamera->setAspectRatio(
@@ -320,6 +321,42 @@ namespace Orkige
 	bool RenderTexture::getSkyVisible() const
 	{
 		return this->mImpl->skyVisible;
+	}
+	//---------------------------------------------------------
+	void RenderTexture::setViewMode(RenderViewMode mode)
+	{
+		// facade cache only: Ogre-Next bakes polygon mode into the pipeline state
+		// object, so there is no per-pass wireframe override this flavor could
+		// scope to one target (@see RenderCaps::SceneWireframeView answers false).
+		// The editor greys every non-Shaded mode and MCP refuses it, so a request
+		// for another mode never arrives - stored for getViewMode symmetry only.
+		this->mImpl->viewMode = mode;
+	}
+	//---------------------------------------------------------
+	RenderViewMode RenderTexture::getViewMode() const
+	{
+		return this->mImpl->viewMode;
+	}
+	//---------------------------------------------------------
+	void RenderTexture::setAutoRender(bool enabled)
+	{
+		if(this->mImpl->autoRender == enabled)
+		{
+			return;
+		}
+		this->mImpl->autoRender = enabled;
+		if(this->mImpl->workspace)
+		{
+			// enabling/disabling the workspace skips (or resumes) this target's
+			// per-frame render without a rebuild; a disabled target keeps its
+			// last-rendered contents (the frozen frame)
+			this->mImpl->workspace->setEnabled(enabled);
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderTexture::getAutoRender() const
+	{
+		return this->mImpl->autoRender;
 	}
 	//---------------------------------------------------------
 	void RenderTexture::resize(unsigned int width, unsigned int height)

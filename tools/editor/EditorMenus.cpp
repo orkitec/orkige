@@ -870,6 +870,10 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	// the GUI Preview shares the center node with the Scene (a tab beside
 	// it - the human flips between the 3D scene and the UI screen)
 	ImGui::DockBuilderDockWindow("GuiPreview", centerId);
+	// the Game Preview is a TAB of the SAME center node as the Scene (the
+	// render invariant: the two game views are never both the visible tab, so
+	// only one renders per frame - @see chooseGameViewRenderer)
+	ImGui::DockBuilderDockWindow("Game Preview", centerId);
 	ImGui::DockBuilderFinish(dockspaceId);
 	// the Asset Browser is the default-selected tab of the bottom node (Console
 	// docks first and would otherwise be the initial selection); the Tile

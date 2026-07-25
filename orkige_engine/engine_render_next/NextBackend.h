@@ -113,6 +113,17 @@ namespace Orkige
 		optr<RenderNode>	rootNode;				//!< stable facade handle of the root node (owned=false)
 		Ogre::ColourValue	ambient = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);	//!< upper-hemisphere/flat ambient facade cache
 		Ogre::ColourValue	ambientLower = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);	//!< lower-hemisphere ambient facade cache
+		//! lighting-suppression state (@see RenderWorld::setLightingSuppressed): the
+		//! editor's flat "unlit" inspection view. While armed, the ambient goes
+		//! flat-white and every light is hidden; the snapshot restores them EXACTLY
+		//! on release (recover-then-reapply, the ScreenShake precedent).
+		bool				lightingSuppressed = false;
+		Ogre::ColourValue	savedAmbientUpper;		//!< ambient at arm time (restore)
+		Ogre::ColourValue	savedAmbientLower;
+		//! every light's visibility at arm time, keyed by the Ogre::Light (restored
+		//! by re-iterating the CURRENT lights, so a light destroyed while armed is
+		//! simply skipped and one created while armed defaults visible)
+		std::vector<std::pair<Ogre::Light*, bool>>	savedLightVisibility;
 		//! the shadow quality knob; maps render only while != SQ_OFF AND a
 		//! light casts (@see RenderBackend::activeShadowNodeName)
 		ShadowPreset::Quality	shadowQuality = ShadowPreset::SQ_MEDIUM;
@@ -371,6 +382,15 @@ namespace Orkige
 		//! the sky dome never reaches this target while every other target keeps
 		//! it - the editor Scene view's sky-less mode
 		bool				skyVisible = true;
+		//! per-frame render gate (RenderTexture::setAutoRender): while false the
+		//! workspace is disabled so this target skips its per-frame render and keeps
+		//! its last contents (the editor's Scene-vs-Game-Preview render invariant)
+		bool				autoRender = true;
+		//! per-target polygon fill mode (RenderTexture::setViewMode): a facade cache
+		//! only on this flavor - Ogre-Next bakes polygon mode into the PSO with no
+		//! per-pass override, so only Shaded renders (@see RenderCaps::
+		//! SceneWireframeView answers false; the editor never sends another mode)
+		RenderViewMode		viewMode = RenderViewMode::Shaded;
 
 		//--- offscreen 2D composition (RenderTexture::createLayer) ---
 		//! this target owns 2D layers: its workspace grows a UI pass drawing

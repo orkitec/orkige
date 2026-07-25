@@ -1167,6 +1167,16 @@ namespace Orkige
 			system->mImpl->caps |=
 				(1u << static_cast<int>(RenderCaps::PlanarReflection));
 		}
+		// the editor Scene view's per-target WIREFRAME (@see
+		// RenderTexture::setViewMode): the target's own viewport camera flips to
+		// Ogre::PolygonMode wireframe - a per-camera state supported on every classic
+		// context, so unconditionally true. SceneUnlitView (the editor Scene view's
+		// flat lighting-off inspection look, @see RenderWorld::setLightingSuppressed)
+		// is a GLOBAL per-frame state armed via the dock-tab visibility rule -
+		// available on this flavor too, so it is set as well.
+		system->mImpl->caps |=
+			(1u << static_cast<int>(RenderCaps::SceneWireframeView)) |
+			(1u << static_cast<int>(RenderCaps::SceneUnlitView));
 		// the bloom tier split rides visibility flags: the 2D tier carries the
 		// SCENE_2D bit (tagScene2D), so every OTHER movable must default into
 		// the 3D tier - clear the 2D bit from the process default (mirrors the

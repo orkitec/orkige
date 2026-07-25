@@ -247,6 +247,75 @@ namespace Orkige
 		return this->mImpl->atmosphere;
 	}
 	//---------------------------------------------------------
+	void RenderWorld::setLightingSuppressed(bool suppressed)
+	{
+		if(this->mImpl->lightingSuppressed == suppressed)
+		{
+			return;	// idempotent: flips only on the visibility-decision change
+		}
+		this->mImpl->lightingSuppressed = suppressed;
+		Ogre::SceneManager* sceneManager = this->mImpl->sceneManager;
+		if(suppressed)
+		{
+			// snapshot the LIVE ambient (not just the facade cache - the atmosphere
+			// may have pushed its own) + every light's visibility, then apply the
+			// flat "unlit" look: hide every light and set a flat-white ambient so
+			// albedo/texture reads clearly
+			this->mImpl->savedAmbientUpper =
+				sceneManager->getAmbientLightUpperHemisphere();
+			this->mImpl->savedAmbientLower =
+				sceneManager->getAmbientLightLowerHemisphere();
+			this->mImpl->savedLightVisibility.clear();
+			Ogre::SceneManager::MovableObjectIterator lights =
+				sceneManager->getMovableObjectIterator(
+					Ogre::LightFactory::FACTORY_TYPE_NAME);
+			while(lights.hasMoreElements())
+			{
+				Ogre::Light* light =
+					static_cast<Ogre::Light*>(lights.getNext());
+				this->mImpl->savedLightVisibility.push_back(
+					{ light, light->getVisible() });
+				light->setVisible(false);
+			}
+			sceneManager->setAmbientLight(Ogre::ColourValue::White,
+				Ogre::ColourValue::White, Ogre::Vector3::UNIT_Y,
+				RenderBackend::imageLightingEnvmapScale());
+		}
+		else
+		{
+			// restore EXACTLY: re-iterate the CURRENT lights and restore each from
+			// the snapshot (a light created while armed defaults visible; one
+			// destroyed while armed is simply absent from this iteration)
+			Ogre::SceneManager::MovableObjectIterator lights =
+				sceneManager->getMovableObjectIterator(
+					Ogre::LightFactory::FACTORY_TYPE_NAME);
+			while(lights.hasMoreElements())
+			{
+				Ogre::Light* light =
+					static_cast<Ogre::Light*>(lights.getNext());
+				bool visible = true;
+				for(auto const& saved : this->mImpl->savedLightVisibility)
+				{
+					if(saved.first == light)
+					{
+						visible = saved.second;
+						break;
+					}
+				}
+				light->setVisible(visible);
+			}
+			this->mImpl->savedLightVisibility.clear();
+			sceneManager->setAmbientLight(this->mImpl->savedAmbientUpper,
+				this->mImpl->savedAmbientLower, Ogre::Vector3::UNIT_Y,
+				RenderBackend::imageLightingEnvmapScale());
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderWorld::getLightingSuppressed() const
+	{
+		return this->mImpl->lightingSuppressed;
+	}
+	//---------------------------------------------------------
 	void RenderWorld::setBloom(BloomDesc const & desc)
 	{
 		this->mImpl->bloom = desc.sanitised();

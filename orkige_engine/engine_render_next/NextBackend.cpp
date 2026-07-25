@@ -739,6 +739,15 @@ namespace Orkige
 			// so the bit is set here like Bloom (default grade is OFF, so the pass
 			// structure is byte-stable until a scene opts in).
 			(1u << static_cast<int>(RenderCaps::OutputGrade)) |
+			// SceneUnlitView: the editor Scene view's flat lighting-off inspection
+			// look (@see RenderWorld::setLightingSuppressed) - a GLOBAL per-frame
+			// state (snapshot + hide every light + flat-white ambient, exact
+			// restore) armed only on a Scene-only frame via the dock-tab visibility
+			// rule; available here (a per-TARGET route is impossible on next, so the
+			// editor uses the global path). The per-target WIREFRAME
+			// (RenderCaps::SceneWireframeView) is a classic-only delta (Ogre-Next
+			// bakes polygon mode into the PSO), so it is NOT set here.
+			(1u << static_cast<int>(RenderCaps::SceneUnlitView)) |
 			(1u << static_cast<int>(RenderCaps::Bloom));
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget), derived from the clustered-forward config set above

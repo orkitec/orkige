@@ -140,12 +140,15 @@ Export runs asynchronously; progress streams into the **Console**. Output lands 
 
 ## Scene view display options
 
-The Scene viewport has a **Display** dropdown in its top-left corner — its own
-little toolbar for what the view draws. Each toggle is remembered per machine (in
-`orkige_editor_view.ini`, like the other view state) and every overlay is drawn
-through the same facade line-mesh path as the reference grid, so it renders
-identically on both render backends and is masked out of the Game Preview panel
-(overlays are editor chrome, never part of the game image).
+The Scene viewport has a **Display** dropdown (the **eye** button) in its top-left
+corner — its own little toolbar for what the view draws. Each choice is remembered
+per machine (in `orkige_editor_view.ini`, like the other view state). The
+**overlays** are drawn through the same facade line-mesh path as the reference
+grid, so they render identically on both render backends and are masked out of the
+Game Preview panel (overlays are editor chrome, never part of the game image); the
+**View Mode** and **Lighting** choices below them re-style *only* the Scene view —
+the Game Preview, the selected-camera inset and Play always show the real game
+look.
 
 - **Grid** — the ground-plane reference grid (on by default; hidden anyway in 2D
   mode, where it lies edge-on).
@@ -163,9 +166,47 @@ identically on both render backends and is masked out of the Game Preview panel
 
 Overlays rebuild only when something they depend on changes (selection, an object
 move, a shape edit, the device preset or a toggle) — a plain camera orbit never
-re-uploads them. Agents can flip the same toggles over MCP with `set_view_option`
-/ `get_view_options` (see [Docs/mcp.md](mcp.md)) and confirm the result with
-`screenshot_editor`.
+re-uploads them.
+
+Below the overlays the dropdown carries two **Scene-view-only** looks:
+
+- **View Mode** — a radio of **Shaded** (the default solid look), **Wireframe** and
+  **Shaded + Wireframe**. Wireframe renders the Scene view as line-fill for
+  inspecting geometry. This is a per-backend capability: on the **classic** backend
+  it flips the Scene view camera's polygon mode (leak-free, since that camera only
+  ever draws the Scene RTT); on **Ogre-Next**, polygon mode is baked into
+  pipeline-state objects with no per-target override, so a Scene-only wireframe is
+  not possible and the mode is **greyed** with the reason in its tooltip.
+  **Shaded + Wireframe** (a solid pass with a wireframe overlay) needs a second
+  depth-biased pass and is not built in this version, so it is greyed on both
+  backends.
+- **Lighting** — when off, the Scene view renders flat (**albedo + a bright flat
+  ambient**, every analytic light suppressed) for inspecting materials without the
+  light rig. It works on **both** backends, but as a **global per-frame** state, not a
+  per-target one — a per-target route is impossible (Ogre-Next gathers directional
+  lights from the scene's global light list, unfiltered by the per-pass mask; classic
+  has no per-viewport lighting override). This is safe because of the render invariant
+  below: the flat look is armed **only on a frame the Scene view is the one rendering**
+  (the toggle is off and the Scene view is the render). The Game Preview, whenever it
+  renders, is always the real lit look; Play is always lit. The selected-camera inset
+  lives in the Scene panel and goes flat with it. Arming/releasing snapshots and
+  restores the scene's lights + ambient exactly.
+
+**The one-game-view-renders-at-a-time invariant.** The Scene view and the Game
+Preview never render in the same frame — one renders, the other pauses. In the
+default layout they are **tabs of the same center pane**, so only the visible tab
+renders. If you split them into a side-by-side layout, only the **most recently
+focused** of the two renders each frame; the other freezes its last image and shows
+a small centered "Paused while … is active" note (no flicker — the frozen texture
+persists, and clicking the paused view hands rendering back to it). This is what lets
+the global lighting-off (and any future global render mode) apply cleanly: whatever is
+rendering owns the frame.
+
+Agents can flip the overlays, the view mode and the lighting over MCP with
+`set_view_option` / `get_view_options` — the latter reports `view_mode`, `lighting`
+and the `wireframe_supported` / `lighting_supported` capability flags, and an
+unsupported value is refused with its reason (see [Docs/mcp.md](mcp.md)) — and
+confirm the result with `screenshot_editor`.
 
 ## Where to go next
 

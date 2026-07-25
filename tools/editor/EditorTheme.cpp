@@ -250,6 +250,7 @@ namespace Orkige
 			0xf04b, 0xf04b,		// play (debug Continue)
 			0xf28b, 0xf28b,		// circle-pause (debug Break on Next Statement)
 			0xf061, 0xf063,		// arrow-right/up/down (debug Step Over/Out/In)
+			0xf06e, 0xf06e,		// eye (Scene Display dropdown)
 			0xf07b, 0xf07c,		// folder / folder-open
 			0xf0b0, 0xf0b0,		// filter (the type-filter funnel button)
 			0xf15b, 0xf15b,		// file (unknown)

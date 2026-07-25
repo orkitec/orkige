@@ -190,6 +190,13 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 	const bool shown =
 		ImGui::Begin("Game Preview", &viewSettings.showGamePreviewPanel);
 	OrkigeEditor::editorPanelTabMenu(&viewSettings.showGamePreviewPanel);
+	// the Game Preview being the visible/active tab this frame vetoes the global
+	// lighting-suppression (the real game look wins - @see shouldSuppressLighting)
+	state.gamePreviewVisibleThisFrame = shown;
+	if (shown && ImGui::IsWindowFocused())
+	{
+		state.lastFocusedGameView = OrkigeEditor::GameViewRenderer::Preview;
+	}
 	if (!shown)
 	{
 		ImGui::End();
@@ -530,6 +537,21 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		: static_cast<int>(Orkige::DevicePreset::CUT_NONE);
 	dbg.targetWidth = target->getWidth();
 	dbg.targetHeight = target->getHeight();
+
+	// render invariant: when the Game Preview is NOT the frame's renderer (both
+	// game views are up and the Scene view is focused), its RTT was FROZEN this
+	// frame - dim the frozen image and say so (@see chooseGameViewRenderer). The
+	// texture persists, so there is no flicker on focus handoff.
+	if (state.gameViewRenderer != OrkigeEditor::GameViewRenderer::Preview)
+	{
+		draw->AddRectFilled(imageMin, imageMax, IM_COL32(8, 10, 14, 150));
+		char const* pausedNote = "Paused while Scene is active";
+		const ImVec2 noteSize = ImGui::CalcTextSize(pausedNote);
+		draw->AddText(ImVec2(
+			(imageMin.x + imageMax.x - noteSize.x) * 0.5f,
+			(imageMin.y + imageMax.y - noteSize.y) * 0.5f),
+			ImGui::GetColorU32(ImGuiCol_Text, 0.85f), pausedNote);
+	}
 
 	// the device frame's occluding intrusions, drawn OVER the image so, with
 	// the safe-area guides on, the user sees precisely what the device steals

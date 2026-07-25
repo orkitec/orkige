@@ -1113,6 +1113,77 @@ namespace Orkige
 		return this->mImpl->atmosphere;
 	}
 	//---------------------------------------------------------
+	void RenderWorld::setLightingSuppressed(bool suppressed)
+	{
+		if(this->mImpl->lightingSuppressed == suppressed)
+		{
+			return;	// idempotent: flips only on the visibility-decision change
+		}
+		this->mImpl->lightingSuppressed = suppressed;
+		Ogre::SceneManager* sceneManager = this->mImpl->sceneManager;
+		if(suppressed)
+		{
+			// snapshot the intended hemisphere ambient (the facade cache) + every
+			// light's visibility, then apply the flat "unlit" look: hide every light
+			// and set flat-white ambient (both the per-pixel hemisphere SRS the
+			// generated materials read AND the flat term for fixed-function/imported)
+			this->mImpl->savedAmbientUpper = this->mImpl->ambientUpper;
+			this->mImpl->savedAmbientLower = this->mImpl->ambientLower;
+			this->mImpl->savedLightVisibility.clear();
+			// Ogre 1.x: getMovableObjects(typeName) is the non-deprecated query
+			// ("Light" is the light factory's type name)
+			Ogre::SceneManager::MovableObjectMap const& lights =
+				sceneManager->getMovableObjects("Light");
+			for(auto const& entry : lights)
+			{
+				Ogre::Light* light = static_cast<Ogre::Light*>(entry.second);
+				this->mImpl->savedLightVisibility.push_back(
+					{ light, light->getVisible() });
+				light->setVisible(false);
+			}
+#ifdef USE_RTSHADER_SYSTEM
+			noteHemisphereAmbientColours(Ogre::ColourValue::White,
+				Ogre::ColourValue::White);
+#endif
+			sceneManager->setAmbientLight(Ogre::ColourValue::White);
+		}
+		else
+		{
+			// restore EXACTLY: re-iterate the CURRENT lights and restore each from
+			// the snapshot (a light created while armed defaults visible; one
+			// destroyed while armed is simply absent from this iteration)
+			Ogre::SceneManager::MovableObjectMap const& lights =
+				sceneManager->getMovableObjects("Light");
+			for(auto const& entry : lights)
+			{
+				Ogre::Light* light = static_cast<Ogre::Light*>(entry.second);
+				bool visible = true;
+				for(auto const& saved : this->mImpl->savedLightVisibility)
+				{
+					if(saved.first == light)
+					{
+						visible = saved.second;
+						break;
+					}
+				}
+				light->setVisible(visible);
+			}
+			this->mImpl->savedLightVisibility.clear();
+#ifdef USE_RTSHADER_SYSTEM
+			noteHemisphereAmbientColours(this->mImpl->savedAmbientUpper,
+				this->mImpl->savedAmbientLower);
+#endif
+			sceneManager->setAmbientLight(
+				(this->mImpl->savedAmbientUpper +
+					this->mImpl->savedAmbientLower) * 0.5f);
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderWorld::getLightingSuppressed() const
+	{
+		return this->mImpl->lightingSuppressed;
+	}
+	//---------------------------------------------------------
 	void RenderWorld::setBloom(BloomDesc const & desc)
 	{
 		this->mImpl->bloom = desc.sanitised();

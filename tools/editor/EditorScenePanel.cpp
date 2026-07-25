@@ -11,7 +11,9 @@
 
 #include "EditorCameraGizmo.h"
 #include "EditorOverlayGeometry.h"
+#include "EditorViewModes.h"
 #include "GamePreviewStage.h"
+#include "IconsFontAwesome6.h"
 
 #include <core_util/DevicePreset.h>
 #include <engine_gocomponent/TransformComponent.h>
@@ -1106,6 +1108,13 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 	ImGui::PopStyleVar();
 	state.scenePanelHovered = false;
 	state.scenePanelFocused = open && ImGui::IsWindowFocused();
+	// the Scene tab is the visible/active tab this frame (drives the render
+	// invariant + lighting decision - @see OrkigeEditor::chooseGameViewRenderer)
+	state.scenePanelVisibleThisFrame = open;
+	if (state.scenePanelFocused)
+	{
+		state.lastFocusedGameView = OrkigeEditor::GameViewRenderer::Scene;
+	}
 	if (open && isPrefabEditActive(state))
 	{
 		// prefab edit breadcrumb: "<scene> ▸ <prefab>" - clicking the scene
@@ -1192,6 +1201,23 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				avail);
 			const ImVec2 rectMin = ImGui::GetItemRectMin();
 			state.scenePanelHovered = ImGui::IsItemHovered();
+			// render invariant: when the Game Preview is the frame's renderer (both
+			// game views up, Preview focused) the Scene RTT was FROZEN this frame -
+			// dim the frozen image + say so (@see chooseGameViewRenderer)
+			if (state.gameViewRenderer ==
+				OrkigeEditor::GameViewRenderer::Preview)
+			{
+				ImDrawList* frozenDraw = ImGui::GetWindowDrawList();
+				const ImVec2 frozenMax(rectMin.x + avail.x, rectMin.y + avail.y);
+				frozenDraw->AddRectFilled(rectMin, frozenMax,
+					IM_COL32(8, 10, 14, 150));
+				char const* frozenNote = "Paused while Game Preview is active";
+				const ImVec2 frozenSize = ImGui::CalcTextSize(frozenNote);
+				frozenDraw->AddText(ImVec2(
+					(rectMin.x + frozenMax.x - frozenSize.x) * 0.5f,
+					(rectMin.y + frozenMax.y - frozenSize.y) * 0.5f),
+					ImGui::GetColorU32(ImGuiCol_Text, 0.85f), frozenNote);
+			}
 			// record the image's screen rect (render-target pixels) so the
 			// selfchecks can synthesise mouse events at known viewport positions
 			state.sceneImageMin = rectMin;
@@ -1245,16 +1271,18 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				ImGui::SetCursorScreenPos(ImVec2(rectMin.x + menuInset,
 					rectMin.y + menuInset));
 				ImGui::PushID("##SceneDisplayMenu");
-				if (ImGui::Button("Display"))
+				// the eye glyph names the dropdown (matching the toolbar's icon
+				// buttons); the tooltip spells it out for discoverability
+				if (ImGui::Button(ICON_FA_EYE))
 				{
 					ImGui::OpenPopup("##SceneDisplayOptions");
 				}
-				ImGui::SetItemTooltip("Scene view display options");
+				ImGui::SetItemTooltip("Display options");
 				displayMenuOwnsMouse = ImGui::IsItemHovered();
 				if (ImGui::BeginPopup("##SceneDisplayOptions"))
 				{
 					displayMenuOwnsMouse = true;
-					ImGui::TextDisabled("Display");
+					ImGui::TextDisabled("Overlays");
 					bool changed = false;
 					changed |= ImGui::Checkbox("Grid", &viewSettings.showGrid);
 					changed |= ImGui::Checkbox("Colliders",
@@ -1270,6 +1298,76 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 					ImGui::SetItemTooltip("Show the scene sky (dome / cubemap) in "
 						"the Scene view.\nThe Game Preview and Play always show "
 						"it. Lighting and fog are unaffected.");
+
+					// View Mode (Shaded / Wireframe / Shaded+Wireframe): a
+					// per-target look on the Scene RTT only. Each mode is greyed
+					// per flavor by its render capability (@see EditorViewModes /
+					// RenderCaps::SceneWireframeView), with the reason as a tooltip.
+					ImGui::Separator();
+					ImGui::TextDisabled("View Mode");
+					const bool wireCap = Orkige::RenderSystem::get()->supports(
+						Orkige::RenderCaps::SceneWireframeView);
+					const bool unlitCap = Orkige::RenderSystem::get()->supports(
+						Orkige::RenderCaps::SceneUnlitView);
+					struct ModeRow { Orkige::RenderViewMode mode; char const* label; };
+					const ModeRow modeRows[] = {
+						{ Orkige::RenderViewMode::Shaded, "Shaded" },
+						{ Orkige::RenderViewMode::Wireframe, "Wireframe" },
+						{ Orkige::RenderViewMode::ShadedWireframe,
+							"Shaded + Wireframe" },
+					};
+					for (ModeRow const& row : modeRows)
+					{
+						const OrkigeEditor::SceneViewModeInfo info =
+							OrkigeEditor::sceneViewModeInfo(row.mode, wireCap);
+						const int modeInt = static_cast<int>(row.mode);
+						ImGui::BeginDisabled(!info.available);
+						if (ImGui::RadioButton(row.label,
+							viewSettings.sceneViewMode == modeInt) &&
+							info.available)
+						{
+							viewSettings.sceneViewMode = modeInt;
+							changed = true;
+						}
+						ImGui::EndDisabled();
+						// a greyed mode still reports its reason on hover
+						// (AllowWhenDisabled - a plain SetItemTooltip skips
+						// disabled items)
+						if (!info.available && !info.reason.empty() &&
+							ImGui::IsItemHovered(
+								ImGuiHoveredFlags_AllowWhenDisabled))
+						{
+							ImGui::SetTooltip("%s", info.reason.c_str());
+						}
+					}
+
+					// Lighting (lit / unlit): the Scene RTT renders flat albedo +
+					// ambient when off. Greyed on a flavor without a per-view
+					// lighting override (@see RenderCaps::SceneUnlitView).
+					ImGui::Separator();
+					const OrkigeEditor::SceneViewModeInfo litInfo =
+						OrkigeEditor::sceneLightingToggleInfo(unlitCap);
+					ImGui::BeginDisabled(!litInfo.available);
+					if (ImGui::Checkbox("Lighting",
+						&viewSettings.sceneLightingEnabled) && litInfo.available)
+					{
+						changed = true;
+					}
+					ImGui::EndDisabled();
+					if (litInfo.available)
+					{
+						ImGui::SetItemTooltip("Light the Scene view with the "
+							"scene's lights.\nOff = flat albedo + ambient for "
+							"inspecting materials.\nApplies only when the Game "
+							"Preview is not also visible; the Game Preview and "
+							"Play always stay lit.");
+					}
+					else if (!litInfo.reason.empty() && ImGui::IsItemHovered(
+						ImGuiHoveredFlags_AllowWhenDisabled))
+					{
+						ImGui::SetTooltip("%s", litInfo.reason.c_str());
+					}
+
 					if (changed)
 					{
 						viewSettings.save();

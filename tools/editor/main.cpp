@@ -33,6 +33,7 @@
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderWorld.h>
 #include <engine_render/RenderNode.h>
+#include <engine_render/RenderLight.h>
 #include <engine_render/RenderCamera.h>
 #include <engine_render/RenderTexture.h>
 #include <engine_render/MeshInstance.h>
@@ -76,6 +77,7 @@
 #include "EditorCore.h"
 #include "EditorSceneTemplate.h"
 #include "EditorTheme.h"
+#include "EditorViewModes.h"
 #include "FileDialog.h"
 #include "ImGuiFacadeRenderer.h"
 #include "ImGuiSDL3Input.h"
@@ -1858,6 +1860,29 @@ int main(int argc, char** argv)
 		std::string overlayColliderMeshAt20;	// name captured before the move
 		std::string overlayColliderMeshAt25;	// name after the move (destroyed at 30)
 
+		// ORKIGE_EDITOR_VIEWMODE_SELFCHECK=1: the Display dropdown v2 view mode +
+		// lighting, both flavors. ONE lit fixture (an engine water plane with a PBS
+		// material + a directional light + a camera) serves both legs. The WIREFRAME
+		// leg (classic only, PER-TARGET) proves the Scene RTT pixels change while the
+		// Game Preview stays byte-identical (the per-target constraint proof). The
+		// LIGHTING leg (both flavors, GLOBAL) proves arming lighting-off flattens the
+		// Scene RTT and disarming restores it EXACTLY (the visibility rule itself is
+		// unit-tested - shouldSuppressLighting). editor_viewmode.
+		const bool viewModeSelfcheckEnv =
+			std::getenv("ORKIGE_EDITOR_VIEWMODE_SELFCHECK") != nullptr;
+		bool viewModeArmedWireframe = false;
+		bool viewModeLightingArmed = false;
+		optr<Orkige::RenderLight> viewModeLight;	// the fixture sun, kept alive
+		std::vector<unsigned char> viewModeSceneBaseline;	// Scene RTT lit (wireframe leg)
+		std::vector<unsigned char> viewModePreviewBaseline;	// Game Preview lit
+		std::vector<unsigned char> viewModeLitBaseline;		// Scene RTT lit (lighting leg)
+		int viewModeSceneW = 0, viewModeSceneH = 0;
+		int viewModePreviewW = 0, viewModePreviewH = 0;
+		int viewModeLitW = 0, viewModeLitH = 0;
+		// render-invariant leg counters (frames 60+): the frame the counters
+		// were sampled at, to prove the frozen view does NOT render
+		unsigned int invPrevScene = 0, invPrevPreview = 0, invScene2 = 0;
+
 		// ORKIGE_EDITOR_GAME_PREVIEW_SELFCHECK=1: the Game Preview panel + the
 		// Scene-panel selected-camera inset, both flavors. Frame 10 builds a
 		// camera + a water object and opens the panel at a notch device preset;
@@ -2351,6 +2376,12 @@ int main(int argc, char** argv)
 				drawStatusFooter(state, playSession);
 			drawDockspace(state, toolbarHeight, viewSettings,
 				editorContentScale, footerHeight);
+			// reset the per-frame panel-VISIBILITY flags before the panels draw;
+			// each panel sets its own when it draws as the visible tab, and the
+			// global lighting-suppression decision (below, before renderOneFrame)
+			// reads them (@see OrkigeEditor::shouldSuppressLighting)
+			state.scenePanelVisibleThisFrame = false;
+			state.gamePreviewVisibleThisFrame = false;
 			if (viewSettings.showScenePanel)
 			{
 				drawScenePanel(state, editorCore, !playSession.isActive(),
@@ -2512,12 +2543,74 @@ int main(int argc, char** argv)
 			handleEditorShortcuts(state, editorCore, playSession,
 				sceneTarget.camera, window);
 
-			// the Scene RTT shows the scene sky only when the Display toggle asks
-			// (default off - the Game Preview / inset / Play RTTs keep their own
-			// full-sky targets). Idempotent: a no-op unless the flag changed.
+			// the Scene RTT's per-target Display options (sky / view mode /
+			// lighting) - applied ONLY to sceneTarget.texture, so the Game Preview,
+			// camera inset and Play RTTs keep the real game look. Idempotent: each
+			// setter no-ops unless its value changed. A persisted mode/toggle this
+			// backend cannot do (e.g. an ini written on the other flavor) is coerced
+			// back to the default so the Scene RTT and the dropdown never disagree.
 			if (sceneTarget.texture)
 			{
+				const bool wireCap = Orkige::RenderSystem::get()->supports(
+					Orkige::RenderCaps::SceneWireframeView);
+				Orkige::RenderViewMode mode = static_cast<Orkige::RenderViewMode>(
+					viewSettings.sceneViewMode);
+				if (!OrkigeEditor::sceneViewModeInfo(mode, wireCap).available)
+				{
+					mode = Orkige::RenderViewMode::Shaded;
+					viewSettings.sceneViewMode = 0;
+				}
 				sceneTarget.texture->setSkyVisible(viewSettings.showSky);
+				sceneTarget.texture->setViewMode(mode);
+			}
+			// THE RENDER INVARIANT: the Scene view and the Game Preview never both
+			// render in the same frame. Pick the ONE that renders (the visible one, or
+			// the most-recently-focused when a split layout shows both); freeze the
+			// other's RTT (setAutoRender false -> it keeps its last frame, its panel
+			// dims it with a "Paused" note). The camera inset rides the Scene view.
+			const OrkigeEditor::GameViewRenderer gameRenderer =
+				state.overrideGameViewRenderer
+				? state.forcedGameViewRenderer
+				: OrkigeEditor::chooseGameViewRenderer(
+					state.scenePanelVisibleThisFrame,
+					state.gamePreviewVisibleThisFrame,
+					state.lastFocusedGameView);
+			state.gameViewRenderer = gameRenderer;
+			const bool sceneIsRenderer =
+				(gameRenderer == OrkigeEditor::GameViewRenderer::Scene);
+			const bool previewIsRenderer =
+				(gameRenderer == OrkigeEditor::GameViewRenderer::Preview);
+			if (sceneIsRenderer)
+			{
+				++state.sceneRenderFrames;
+			}
+			if (previewIsRenderer)
+			{
+				++state.previewRenderFrames;
+			}
+			if (sceneTarget.texture)
+			{
+				sceneTarget.texture->setAutoRender(sceneIsRenderer);
+			}
+			if (cameraInsetStage.getTarget())
+			{
+				cameraInsetStage.getTarget()->setAutoRender(sceneIsRenderer);
+			}
+			if (gamePreviewStage.getTarget())
+			{
+				gamePreviewStage.getTarget()->setAutoRender(previewIsRenderer);
+			}
+			// Lighting-off is a GLOBAL per-frame flat look (a per-target route is
+			// impossible - @see RenderWorld::setLightingSuppressed). Under the invariant
+			// it simplifies to: flat only when the toggle is off AND the Scene view is
+			// this frame's renderer (the preview, whenever it renders, is always lit).
+			// setLightingSuppressed is idempotent + snapshots/restores lights + ambient.
+			if (Orkige::RenderWorld* renderWorld =
+				Orkige::RenderSystem::get()->getWorld())
+			{
+				renderWorld->setLightingSuppressed(
+					OrkigeEditor::shouldSuppressLighting(
+						viewSettings.sceneLightingEnabled, sceneIsRenderer));
 			}
 
 			// finalize the ImGui frame and resubmit its draw data as the
@@ -6402,6 +6495,392 @@ int main(int argc, char** argv)
 				}
 			}
 
+
+			// --- Display dropdown v2 view mode / lighting selfcheck (both flavors)
+			// (ORKIGE_EDITOR_VIEWMODE_SELFCHECK). Frame 10 authors a lit water plane +
+			// a directional light + a camera. The WIREFRAME leg (classic): frame 20
+			// captures the lit baseline + arms wireframe, frame 30 asserts the Scene RTT
+			// changed while the Game Preview stayed byte-identical (per-target proof).
+			// The LIGHTING leg (both): frame 40 captures the lit baseline + arms
+			// lighting-off (a GLOBAL suppress via the Scene-only visibility decision),
+			// frame 50 asserts the Scene RTT flattened, frame 60 asserts disarming
+			// restored it EXACTLY (byte-identical).
+			if (viewModeSelfcheckEnv && frameCount == 10)
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				newScene(state, editorCore);	// empty baseline
+				Orkige::GameObjectManager& gm =
+					editorCore.getGameObjectManager();
+				// a LIT surface with real normals: the engine water plane (a flat
+				// +Y-normal mesh, always-registered engine media) as a plain mesh with a
+				// PBS material, turned to FACE the camera so a directional light shades
+				// it (the vertex-colour cube has no normals and cannot be PBS-lit). It
+				// fills the centre, so it serves the wireframe leg too.
+				optr<Orkige::GameObject> panel =
+					gm.createGameObject("LitPanel").lock();
+				bool matOk = false;
+				if (panel &&
+					panel->addComponent<Orkige::TransformComponent>() &&
+					panel->addComponent<Orkige::ModelComponent>())
+				{
+					Orkige::ModelComponent* model =
+						panel->getComponentPtr<Orkige::ModelComponent>();
+					model->loadModel("water_plane.glb");
+					optr<Orkige::MeshInstance> mesh = model->getMeshInstance();
+					Orkige::RenderMaterialDesc matDesc;
+					matDesc.albedo = Orkige::Color(0.85f, 0.35f, 0.25f);
+					matDesc.roughness = 0.55f;
+					matDesc.metalness = 0.0f;
+					matOk = mesh && Orkige::RenderSystem::get()->createMaterial(
+						"EditorViewModeLit", matDesc) &&
+						mesh->setMaterial("EditorViewModeLit");
+					panel->getComponentPtr<Orkige::TransformComponent>()
+						->setWorldOrientation(Orkige::Quat(Orkige::Degree(90.0f),
+							Orkige::Vec3::UNIT_X));
+					editorCore.setObjectProperty("LitPanel",
+						"TransformComponent", "scale", "6 6 6");
+				}
+				// a bright directional light along -Z hits the plane's +Z face head-on
+				// (facade light + explicit world direction, the render_facade probe's
+				// proven setup), so suppressing the analytic lights clearly darkens it
+				Orkige::RenderWorld* vmWorld =
+					Orkige::RenderSystem::get()->getWorld();
+				viewModeLight =
+					vmWorld ? vmWorld->createLight() : optr<Orkige::RenderLight>();
+				if (viewModeLight)
+				{
+					optr<Orkige::RenderNode> vmLightNode =
+						vmWorld->createNode("viewmode.sunLight");
+					viewModeLight->attachTo(vmLightNode);
+					viewModeLight->setType(Orkige::RenderLight::LT_DIRECTIONAL);
+					viewModeLight->setDiffuseColour(Orkige::Color(4.0f, 4.0f, 4.0f));
+					vmLightNode->setDirection(Orkige::Vec3(0.0f, -0.2f, -1.0f),
+						Orkige::RenderNode::TS_WORLD);
+				}
+				const bool camOk =
+					!editorCore.createDefaultSceneCamera().empty();
+				if (!matOk)
+				{
+					vmFail("could not build the lit water-plane material");
+				}
+				else if (!viewModeLight)
+				{
+					vmFail("could not create the directional light");
+				}
+				else if (!camOk)
+				{
+					vmFail("could not create the scene camera");
+				}
+			}
+			// mean absolute per-channel difference of two same-size RGBA buffers
+			auto viewModeMeanDiff = [](std::vector<unsigned char> const& a,
+				std::vector<unsigned char> const& b) -> double
+			{
+				if (a.empty() || a.size() != b.size())
+				{
+					return -1.0;
+				}
+				double sum = 0.0;
+				for (std::size_t i = 0; i < a.size(); ++i)
+				{
+					sum += std::abs(static_cast<int>(a[i]) -
+						static_cast<int>(b[i]));
+				}
+				return sum / static_cast<double>(a.size());
+			};
+			(void)viewModeMeanDiff;
+			// (a) WIREFRAME leg (classic): frame 20 captures the lit baseline + arms
+			if (viewModeSelfcheckEnv && frameCount == 20 && exitCode == 0)
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				const std::string scenePng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_scene_base.png").string();
+				const std::string prevPng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_prev_base.png").string();
+				std::string capErr;
+				sceneTarget.texture->writeContentsToFile(scenePng);
+				gamePreviewStage.update(gameObjectManager, "", false, 0.0f);
+				if (!OrkigeEditor::decodeImageRgba(scenePng,
+					viewModeSceneBaseline, viewModeSceneW, viewModeSceneH))
+				{
+					vmFail("could not capture the Scene RTT baseline");
+				}
+				else if (!gamePreviewStage.renderAndCapture(prevPng, capErr) ||
+					!OrkigeEditor::decodeImageRgba(prevPng,
+						viewModePreviewBaseline, viewModePreviewW,
+						viewModePreviewH))
+				{
+					vmFail("could not capture the Game Preview baseline: " +
+						capErr);
+				}
+				else
+				{
+					std::error_code rmErr;
+					std::filesystem::remove(scenePng, rmErr);
+					std::filesystem::remove(prevPng, rmErr);
+					if (Orkige::RenderSystem::get()->supports(
+						Orkige::RenderCaps::SceneWireframeView))
+					{
+						viewSettings.sceneViewMode = 1;		// Wireframe
+						viewModeArmedWireframe = true;
+					}
+				}
+			}
+			if (viewModeSelfcheckEnv && exitCode == 0 &&
+				viewModeArmedWireframe && frameCount == 30)
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				const std::string scenePng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_scene_wire.png").string();
+				const std::string prevPng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_prev_wire.png").string();
+				std::string capErr;
+				std::vector<unsigned char> sceneWire, prevWire;
+				int sw = 0, sh = 0, pw = 0, ph = 0;
+				sceneTarget.texture->writeContentsToFile(scenePng);
+				gamePreviewStage.update(gameObjectManager, "", false, 0.0f);
+				const bool ok =
+					OrkigeEditor::decodeImageRgba(scenePng, sceneWire, sw, sh) &&
+					gamePreviewStage.renderAndCapture(prevPng, capErr) &&
+					OrkigeEditor::decodeImageRgba(prevPng, prevWire, pw, ph);
+				if (!ok)
+				{
+					vmFail("could not capture the wireframe frame: " + capErr);
+				}
+				else if (sw != viewModeSceneW || sh != viewModeSceneH ||
+					pw != viewModePreviewW || ph != viewModePreviewH)
+				{
+					vmFail("the capture size changed between baseline and wireframe");
+				}
+				else
+				{
+					const double sceneDiff =
+						viewModeMeanDiff(viewModeSceneBaseline, sceneWire);
+					const double prevDiff =
+						viewModeMeanDiff(viewModePreviewBaseline, prevWire);
+					if (sceneDiff < 2.0)
+					{
+						vmFail("the Scene RTT did not change when wireframe was "
+							"armed (mean diff " + std::to_string(sceneDiff) + ")");
+					}
+					else if (prevDiff > 1.5)
+					{
+						vmFail("the Game Preview changed when the Scene view "
+							"wireframe was armed - the per-target scoping leaked "
+							"(mean diff " + std::to_string(prevDiff) + ")");
+					}
+					else
+					{
+						std::error_code rmErr;
+						std::filesystem::remove(scenePng, rmErr);
+						std::filesystem::remove(prevPng, rmErr);
+						viewSettings.sceneViewMode = 0;		// disarm wireframe
+					}
+				}
+			}
+			// (b) LIGHTING leg (both flavors, GLOBAL): frame 40 captures the lit
+			// baseline (after wireframe disarmed) + arms lighting-off. The visibility
+			// decision suppresses (Scene panel visible, Game Preview not open).
+			if (viewModeSelfcheckEnv && frameCount == 40 && exitCode == 0)
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				const std::string litPng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_lit_base.png").string();
+				sceneTarget.texture->writeContentsToFile(litPng);
+				if (!OrkigeEditor::decodeImageRgba(litPng, viewModeLitBaseline,
+					viewModeLitW, viewModeLitH))
+				{
+					vmFail("could not capture the lit baseline (lighting leg)");
+				}
+				else
+				{
+					std::error_code rmErr;
+					std::filesystem::remove(litPng, rmErr);
+					viewSettings.sceneLightingEnabled = false;	// arm lighting-off
+					viewModeLightingArmed = true;
+				}
+			}
+			if (viewModeSelfcheckEnv && exitCode == 0 && viewModeLightingArmed &&
+				frameCount == 50)
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				const std::string offPng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_unlit.png").string();
+				std::vector<unsigned char> sceneOff;
+				int sw = 0, sh = 0;
+				sceneTarget.texture->writeContentsToFile(offPng);
+				if (!OrkigeEditor::decodeImageRgba(offPng, sceneOff, sw, sh))
+				{
+					vmFail("could not capture the lighting-off frame");
+				}
+				else if (sw != viewModeLitW || sh != viewModeLitH)
+				{
+					vmFail("the capture size changed under lighting-off");
+				}
+				else if (viewModeMeanDiff(viewModeLitBaseline, sceneOff) < 2.0)
+				{
+					vmFail("the Scene RTT did not flatten when lighting-off was "
+						"armed (mean diff " + std::to_string(
+							viewModeMeanDiff(viewModeLitBaseline, sceneOff)) + ")");
+				}
+				else
+				{
+					std::error_code rmErr;
+					std::filesystem::remove(offPng, rmErr);
+					viewSettings.sceneLightingEnabled = true;	// disarm (restore)
+				}
+			}
+			if (viewModeSelfcheckEnv && exitCode == 0 && viewModeLightingArmed &&
+				frameCount == 60)
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				const std::string restoredPng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_restored.png").string();
+				std::vector<unsigned char> sceneRestored;
+				int sw = 0, sh = 0;
+				sceneTarget.texture->writeContentsToFile(restoredPng);
+				if (!OrkigeEditor::decodeImageRgba(restoredPng, sceneRestored,
+					sw, sh))
+				{
+					vmFail("could not capture the restored frame");
+				}
+				// EXACT restore: lighting back on must be byte-identical to the lit
+				// baseline (the snapshot restored lights + ambient exactly)
+				else if (viewModeMeanDiff(viewModeLitBaseline, sceneRestored) > 1.0)
+				{
+					vmFail("disarming lighting-off did not restore the lit scene "
+						"exactly (mean diff " + std::to_string(
+							viewModeMeanDiff(viewModeLitBaseline, sceneRestored)) +
+						")");
+				}
+				else if (state.previewRenderFrames != 0)
+				{
+					// the render INVARIANT: the Game Preview was CLOSED the whole
+					// run, so its RTT must never have rendered (it was gated/frozen -
+					// only the Scene view rendered, never both)
+					vmFail("the closed Game Preview rendered its RTT (" +
+						std::to_string(state.previewRenderFrames) + " frames) - the "
+						"render invariant leaked");
+				}
+				else if (state.sceneRenderFrames == 0)
+				{
+					vmFail("the Scene view never rendered (the invariant seam is "
+						"not wired)");
+				}
+				else
+				{
+					std::error_code rmErr;
+					std::filesystem::remove(restoredPng, rmErr);
+					// arm the render-invariant leg: FORCE the Game Preview to be the
+					// renderer (a deterministic stand-in for focusing it in a split
+					// layout - the DECISION is the chooseGameViewRenderer unit test)
+					invPrevScene = state.sceneRenderFrames;
+					invPrevPreview = state.previewRenderFrames;
+					state.overrideGameViewRenderer = true;
+					state.forcedGameViewRenderer =
+						OrkigeEditor::GameViewRenderer::Preview;
+				}
+			}
+			if (viewModeSelfcheckEnv && exitCode == 0 &&
+				state.overrideGameViewRenderer && frameCount == 70)
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				// the Game Preview became the renderer -> its RTT advanced while the
+				// Scene view FROZE (never both in the same frame - the invariant)
+				if (state.previewRenderFrames <= invPrevPreview)
+				{
+					vmFail("forcing the Game Preview did not make its RTT render");
+				}
+				else if (state.sceneRenderFrames != invPrevScene)
+				{
+					vmFail("the Scene view kept rendering while the Game Preview "
+						"was the renderer - the invariant leaked (" +
+						std::to_string(state.sceneRenderFrames) + " vs " +
+						std::to_string(invPrevScene) + ")");
+				}
+				else
+				{
+					// hand back to the Scene view
+					invScene2 = state.sceneRenderFrames;
+					state.forcedGameViewRenderer =
+						OrkigeEditor::GameViewRenderer::Scene;
+				}
+			}
+			if (viewModeSelfcheckEnv && exitCode == 0 &&
+				state.overrideGameViewRenderer && invScene2 != 0 &&
+				frameCount == 78)
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				if (state.sceneRenderFrames <= invScene2)
+				{
+					vmFail("handing back to the Scene view did not resume its "
+						"render");
+				}
+				else
+				{
+					state.overrideGameViewRenderer = false;	// restore
+					SDL_Log("orkige_editor: view-mode selfcheck OK (wireframe "
+						"per-target proof where supported; global lighting-off "
+						"flatten + exact restore; render invariant + focus "
+						"handoff - only one game view renders per frame)");
+					running = false;
+				}
+			}
 
 			// --- Game Preview + selected-camera inset selfcheck (both flavors) ---
 			// (ORKIGE_EDITOR_GAME_PREVIEW_SELFCHECK) frame 10 builds a camera + a

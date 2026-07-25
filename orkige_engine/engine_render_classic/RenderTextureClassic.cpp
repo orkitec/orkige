@@ -86,6 +86,16 @@ namespace Orkige
 		Ogre::Viewport* viewport = renderTarget->addViewport(backendCamera);
 		RenderBackend::applyRTSSScheme(viewport);
 		this->applyViewportState();
+		// per-frame render gate (@see RenderTexture::setAutoRender): re-applied on
+		// recreate so a resize keeps a frozen target frozen
+		renderTarget->setAutoUpdated(this->autoRender);
+		// per-target polygon fill mode (@see RenderTexture::setViewMode): reuse the
+		// per-camera wireframe facade (RenderCamera::setWireframe = setPolygonMode on
+		// classic). The fill is CAMERA state, and this camera renders only into this
+		// target's viewport, so the flip stays scoped to this target. Re-applied on
+		// every recreate so a resize / camera swap keeps the authored mode; RTSS
+		// passes are polygon-mode overrideable, so the camera's mode wins.
+		this->camera->setWireframe(this->viewMode == RenderViewMode::Wireframe);
 		backendCamera->setAspectRatio(
 			Ogre::Real(this->width) / Ogre::Real(this->height));
 	}
@@ -181,6 +191,46 @@ namespace Orkige
 	bool RenderTexture::getSkyVisible() const
 	{
 		return this->mImpl->skyVisible;
+	}
+	//---------------------------------------------------------
+	void RenderTexture::setViewMode(RenderViewMode mode)
+	{
+		this->mImpl->viewMode = mode;
+		if(this->mImpl->camera)
+		{
+			// only Wireframe flips the fill; Shaded and the not-yet-built
+			// ShadedWireframe both render solid (@see RenderCaps::
+			// SceneWireframeView - a wireframe overlay needs a second depth-biased
+			// pass, so the editor greys ShadedWireframe on both flavors). Reuse the
+			// per-camera wireframe facade (setPolygonMode on classic).
+			this->mImpl->camera->setWireframe(mode == RenderViewMode::Wireframe);
+		}
+	}
+	//---------------------------------------------------------
+	RenderViewMode RenderTexture::getViewMode() const
+	{
+		return this->mImpl->viewMode;
+	}
+	//---------------------------------------------------------
+	void RenderTexture::setAutoRender(bool enabled)
+	{
+		if(this->mImpl->autoRender == enabled)
+		{
+			return;
+		}
+		this->mImpl->autoRender = enabled;
+		if(this->mImpl->texture)
+		{
+			// a non-auto-updated render target is skipped by _updateAllRenderTargets
+			// and keeps its last contents (the frozen frame)
+			this->mImpl->texture->getBuffer()->getRenderTarget()
+				->setAutoUpdated(enabled);
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderTexture::getAutoRender() const
+	{
+		return this->mImpl->autoRender;
 	}
 	//---------------------------------------------------------
 	void RenderTexture::resize(unsigned int width, unsigned int height)

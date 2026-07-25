@@ -48,6 +48,8 @@ add_library(orkige_editor_core STATIC
     EditorTabActions.cpp
     EditorTextDiagnostics.h
     EditorTextDiagnostics.cpp
+    EditorViewModes.h
+    EditorViewModes.cpp
 )
 target_include_directories(orkige_editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(tinyxml2 CONFIG REQUIRED)	# the live XML document diagnostics

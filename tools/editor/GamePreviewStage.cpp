@@ -357,11 +357,17 @@ namespace OrkigeEditor
 		// settle within a few frames - the DrawLayer2D visibility contract),
 		// then read it back. The MCP pump runs before the editor's own
 		// NewFrame/renderOneFrame, so the extra renders here are safe.
+		// An on-demand capture always renders fresh, so temporarily force this
+		// target's per-frame render on (the Scene-vs-Preview invariant may have
+		// frozen it) and restore the gate afterwards.
+		const bool savedAutoRender = this->mTarget->getAutoRender();
+		this->mTarget->setAutoRender(true);
 		this->mOverlay.tick(0.0f);
 		for(int settleFrame = 0; settleFrame < 3; ++settleFrame)
 		{
 			RenderSystem::get()->renderOneFrame();
 		}
+		this->mTarget->setAutoRender(savedAutoRender);
 		try
 		{
 			this->mTarget->writeContentsToFile(pngPath);

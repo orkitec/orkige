@@ -16,6 +16,20 @@
 
 namespace Orkige
 {
+	//! @brief the Scene-view polygon fill mode (@see RenderTexture::setViewMode).
+	//! Shaded is the default EVERY target renders; Wireframe / ShadedWireframe are
+	//! the editor Scene view's inspection modes, capability-gated per flavor
+	//! (@see RenderCaps::SceneWireframeView). Only the editor Scene RTT ever sets a
+	//! non-default mode - it is a per-target look, never global scene state.
+	enum class RenderViewMode
+	{
+		Shaded,			//!< solid fill (the default)
+		Wireframe,		//!< line fill only
+		//! solid pass + wireframe overlay - needs a second depth-biased pass and is
+		//! not built in this version (answers unsupported on both flavors)
+		ShadedWireframe
+	};
+
 	//! @brief an offscreen render target - the editor's RTT scene panel
 	//! @remarks API sized by tools/editor's SceneRenderTarget: create at a
 	//! size, show a camera, resize on panel changes, hand the texture to
@@ -101,6 +115,32 @@ namespace Orkige
 		void setSkyVisible(bool visible);
 		//! @see RenderTexture::setSkyVisible (default true)
 		bool getSkyVisible() const;
+
+		//! @brief the polygon fill mode this target renders (Shaded default). Only
+		//! the editor Scene RTT sets a non-default mode; every other target stays
+		//! Shaded, so this never leaks into the Game Preview / camera inset / Play.
+		//! A mode the flavor does not support (@see RenderCaps::SceneWireframeView)
+		//! is a safe no-op - the editor greys it and MCP refuses it, so an
+		//! unsupported mode never reaches a target.
+		//! map: classic=Camera::setPolygonMode(PM_WIREFRAME/PM_SOLID) on the
+		//! target's OWN viewport camera (per-camera, leak-free) | next=no per-pass
+		//! polygon override (Ogre-Next bakes polygon mode into the pipeline state
+		//! object), so only Shaded takes effect | filament=n/a
+		void setViewMode(RenderViewMode mode);
+		//! @see RenderTexture::setViewMode (default Shaded)
+		RenderViewMode getViewMode() const;
+
+		//! @brief whether this target re-renders each frame (default true). When
+		//! false the target's per-frame render is SKIPPED and its texture keeps its
+		//! last contents (a frozen frame) - the editor uses this to enforce that its
+		//! two "game view" RTTs (the Scene view and the Game Preview) never both
+		//! render in the same frame: only the focused one renders, the other freezes.
+		//! Idempotent. Cheap (an editor-frequency toggle, no rebuild).
+		//! map: classic=RenderTarget::setAutoUpdated | next=CompositorWorkspace::
+		//! setEnabled | filament=skip the View's render call
+		void setAutoRender(bool enabled);
+		//! @see RenderTexture::setAutoRender (default true)
+		bool getAutoRender() const;
 
 		//! @brief recreate the target at a new size (editor panel resize);
 		//! keeps camera and viewport settings
