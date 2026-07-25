@@ -35,6 +35,7 @@ namespace Orkige
 		this->eventManager = new EventManager();
 		this->activeSelf = true;
 		this->activeInHierarchy = true;
+		this->persistent = false;
 	}
 	//---------------------------------------------------------
 	GameObject::~GameObject()
@@ -556,6 +557,9 @@ namespace Orkige
 		OFUNC(setActive)
 		OFUNC(isActiveSelf)
 		OFUNC(isActiveInHierarchy)
+		//--- persistence (survive a mid-play scene switch) ---
+		OFUNC(setPersistent)
+		OFUNC(isPersistent)
 		//--- tags (multi-tag labels) ---
 		OFUNC(hasTag)
 		OFUNC(addTag)
@@ -583,6 +587,8 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(setActive)
 			OWEAKHANDLE_BASEMETHOD(isActiveSelf)
 			OWEAKHANDLE_BASEMETHOD(isActiveInHierarchy)
+			OWEAKHANDLE_BASEMETHOD(setPersistent)
+			OWEAKHANDLE_BASEMETHOD(isPersistent)
 			OWEAKHANDLE_BASEMETHOD(hasTag)
 			OWEAKHANDLE_BASEMETHOD(addTag)
 			OWEAKHANDLE_BASEMETHOD(removeTag)

@@ -39,6 +39,7 @@ struct PlayerSelfChecks
 	bool scriptPropCheck = false;
 	bool integrationContactCheck = false;
 	bool integrationLevelCheck = false;
+	bool persistentCheck = false;
 	bool breadcrumbCheck = false;
 	bool fadeCheck = false;
 	bool lifecycleCheck = false;
@@ -478,6 +479,26 @@ struct PlayerSelfChecks
 	bool integLevelFailed = false;
 	double integLevelTicksAtEntry = -1.0;
 	unsigned long integLevelVerifyFrame = 0;
+	// --- ORKIGE_PERSISTENT_SELFCHECK=1: a GameObject marked persistent
+	// survives the level system's mid-play scene switch with its WHOLE live
+	// state, verified against tests/projects/persistent (run with --project).
+	// Hero (persistent, a rigid body + a counting sandbox) lands on levelA's
+	// ground then requests a switch to levelB; the check asserts the survivor's
+	// SANDBOX kept counting (init ran once, ticks never reset), its BODY
+	// re-collided with levelB's ground, the non-persistent sibling is gone and
+	// levelB's own object loaded. Condition-driven:
+	//   [ObserveA]     Hero landed on levelA's ground (contacts >= 1) and its
+	//                  sandbox is counting
+	//   [AwaitSwitch]  wait for levelB to boot (the deferred switch applied)
+	//   [VerifyB]      Hero survived (init still 1, ticks kept climbing), its
+	//                  body re-collided (contacts >= 2), AlphaSibling is gone,
+	//                  BravoMarker loaded
+	enum class PersistPhase { ObserveA, AwaitSwitch, VerifyB, Done };
+
+	PersistPhase persistPhase = PersistPhase::ObserveA;
+	bool persistFailed = false;
+	double persistTicksAtEntry = -1.0;
+	unsigned long persistVerifyFrame = 0;
 	// ORKIGE_LIFECYCLE_SELFCHECK phased state (the block lives at the loop
 	// bottom): Init -> Backgrounded -> Foregrounded -> Done
 	enum class LifecyclePhase { Init, Backgrounded, Foregrounded, Done };

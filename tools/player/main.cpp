@@ -306,9 +306,10 @@ bool extractBundledAssets(std::string const& destRoot, bool mountMediaMode)
 // the re-entrant scene load: the SAME steps the initial load
 // above runs, factored so the deferred-load pump at the frame boundary
 // (in the player loop's tick order) can reuse them. SceneSerializer::
-// loadScene tears the old world down via GameObjectManager::clear (the
-// teardown hook - scripts get their shutdown, tweens are reaped,
-// rigid bodies leave the sim); we then re-apply the unlit fix, bring
+// loadScenePreservingPersistent tears the old world down via
+// GameObjectManager::clearExceptPersistent (the teardown hook - non-persistent
+// scripts get their shutdown, tweens are reaped, rigid bodies leave the sim;
+// objects marked persistent survive whole); we then re-apply the unlit fix, bring
 // physics up lazily if the new level introduces bodies (PhysicsWorld
 // persists - inited once, never torn down), drop the debug-link
 // selection so a stale id cannot dangle and let the hierarchy
@@ -323,7 +324,11 @@ bool PlayerContext::reloadSceneFrom(std::string const & newScenePath)
 	Orkige::PlayerDebugLink& debugLink = *this->debugLink;
 	bool& physicsNeeded = this->physicsNeeded;
 
-	if (!Orkige::SceneSerializer::loadScene(newScenePath,
+	// the level system's mid-play switch: objects marked persistent survive
+	// the teardown with their whole live state (render node, physics body,
+	// script sandbox) and the arriving scene loads in beside them; a duplicate
+	// id the survivor already owns is skipped (SceneSerializer duplicate rule)
+	if (!Orkige::SceneSerializer::loadScenePreservingPersistent(newScenePath,
 		gameObjectManager))
 	{
 		SDL_Log("orkige_player: deferred load FAILED - could not load "

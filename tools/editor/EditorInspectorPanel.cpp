@@ -1957,6 +1957,21 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 				ImGui::TextDisabled("%zu selected - showing primary",
 					core.getSelectionCount());
 			}
+			// persistent flag: the object survives the level system's
+			// mid-play scene switch with its whole live state (a persistent
+			// parent keeps its subtree). Authored data - inert in the editor.
+			{
+				bool persistent = gameObject->isPersistent();
+				if (Orkige::compactCheckbox("##persistent", &persistent))
+				{
+					core.setObjectPersistent(objectId, persistent);
+				}
+				ImGui::SetItemTooltip(
+					"Persistent (survives a mid-play scene switch)");
+				ImGui::SameLine();
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextUnformatted("Persistent");
+			}
 			// tags as CHIPS: each tag a rounded pill removed by its own x,
 			// new tags typed into the trailing add field (Enter). Every change
 			// = one undoable SetTagsCommand. The canonical wrap pattern: after

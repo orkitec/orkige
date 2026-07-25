@@ -427,6 +427,23 @@ namespace Orkige
 		bool mBefore = true;			//!< captured on execute
 	};
 
+	//! toggle a GameObject's persistent flag (Inspector checkbox) - the object
+	//! survives the level system's mid-play scene switch. Authored data only:
+	//! the editor never runs the level system, so this just records the flag.
+	class SetPersistentObjectCommand : public EditorCommand
+	{
+	public:
+		SetPersistentObjectCommand(String const& objectId, bool persistent);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		bool mPersistent;
+		bool mBefore = false;			//!< captured on execute
+	};
+
 	//! @brief set a GameObject's tag list (Inspector tags field) - one
 	//! undoable step; the manager tag index is updated by GameObject::setTags
 	class SetTagsCommand : public EditorCommand
@@ -863,6 +880,10 @@ namespace Orkige
 		bool reparentObject(String const& id, String const& newParentId);
 		//! set the object's own active flag (undoable)
 		bool setObjectActive(String const& id, bool active);
+		//! @brief set the object's persistent flag (undoable): survives the
+		//! level system's mid-play scene switch. Refused if the object is
+		//! missing or the flag did not change.
+		bool setObjectPersistent(String const& id, bool persistent);
 		//! @brief replace an object's tag list (undoable); refused if the object
 		//! is missing or the tags did not change
 		bool setObjectTags(String const& id, StringVector const& tags);

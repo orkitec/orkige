@@ -141,6 +141,110 @@ namespace Orkige
 		this->objects.clear();
 	}
 	//---------------------------------------------------------
+	// The persistence-aware teardown: the level system's deferred scene switch
+	// funnels through HERE instead of clear() so a persistent object survives
+	// with its WHOLE live state. Because a survivor is never destroyed, its
+	// components are never removed - the render node, physics body, sound
+	// source and script sandbox (its counters, subscriptions) all live on by
+	// construction; only the non-survivors run their component teardown. This
+	// EXTENDS the one scene-teardown hook rather than inventing a second path.
+	void GameObjectManager::clearExceptPersistent()
+	{
+		// running tweens/timers die with the OUTGOING scene exactly as in
+		// clear(): their callbacks close over objects that may be torn down
+		// here. A persistent object's SCRIPT state survives, but an in-flight
+		// tween/timer it started does not (a documented first-version limit).
+		if(TweenManager::getSingletonPtr() != 0)
+		{
+			TweenManager::getSingleton().clear();
+		}
+		if(TimerManager::getSingletonPtr() != 0)
+		{
+			TimerManager::getSingleton().clear();
+		}
+
+		// the survivor set: an object survives iff it (or any ancestor) is
+		// persistent, so a persistent parent keeps its whole subtree
+		std::set<String> survivors;
+		foreach(GameObjectMap::value_type const & entry, this->objects)
+		{
+			if(this->isPersistentInHierarchy(entry.first))
+			{
+				survivors.insert(entry.first);
+			}
+		}
+
+		// re-root every survivor whose parent will NOT survive (a persistent
+		// child of a dying parent): it becomes a scene root and lives on,
+		// keeping its world transform. A survivor inside a surviving subtree
+		// keeps its parent link untouched.
+		foreach(String const & survivorId, survivors)
+		{
+			GameObjectMap::iterator it = this->objects.find(survivorId);
+			if(it == this->objects.end())
+			{
+				continue;
+			}
+			String const parentId = it->second->getParentId();
+			if(!parentId.empty() && survivors.find(parentId) == survivors.end())
+			{
+				oDebugMsg("core",0,"GameObjectManager: persistent object "
+					<< survivorId << " re-roots to the scene root (its parent "
+					<< parentId << " does not survive the scene switch)");
+				it->second->setParent(String(), true);
+			}
+		}
+
+		// destroy every non-survivor. Erasing it from the objects map runs its
+		// component teardown (render nodes, physics bodies) and keeps the
+		// update list in sync through disableUpdates; its tag + child index
+		// entries are pruned per id so the survivors' entries - and their
+		// child ORDER - stay intact. After the re-root pass every survivor's
+		// parent is a survivor and every doomed object's children are doomed,
+		// so no survivor is ever orphaned here.
+		StringVector doomed;
+		foreach(GameObjectMap::value_type const & entry, this->objects)
+		{
+			if(survivors.find(entry.first) == survivors.end())
+			{
+				doomed.push_back(entry.first);
+			}
+		}
+		foreach(String const & id, doomed)
+		{
+			GameObjectMap::iterator it = this->objects.find(id);
+			if(it == this->objects.end())
+			{
+				continue;
+			}
+			optr<GameObject> gameObject = it->second;
+			this->onObjectTagsChanged(id, gameObject->getTags(), StringVector());
+			this->onObjectReparented(id, gameObject->getParentId(), String());
+			this->objects.erase(it);
+		}
+	}
+	//---------------------------------------------------------
+	bool GameObjectManager::isPersistentInHierarchy(String const & id) const
+	{
+		GameObjectMap::const_iterator it = this->objects.find(id);
+		// guard against a malformed parent chain (setParent refuses cycles)
+		std::size_t guard = this->objects.size() + 1;
+		while(it != this->objects.end() && guard-- > 0)
+		{
+			if(it->second->isPersistent())
+			{
+				return true;
+			}
+			String const & parentId = it->second->getParentId();
+			if(parentId.empty())
+			{
+				return false;
+			}
+			it = this->objects.find(parentId);
+		}
+		return false;
+	}
+	//---------------------------------------------------------
 	StringVector GameObjectManager::findByTag(String const & tag) const
 	{
 		StringVector result;

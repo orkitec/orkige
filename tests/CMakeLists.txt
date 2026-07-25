@@ -2108,6 +2108,23 @@ if(TARGET orkige_player)
             ENVIRONMENT "ORKIGE_INTEGRATION_LEVELSWITCH_SELFCHECK=1"
             LABELS integration TIMEOUT 120)
 
+        # persistent objects across a mid-play scene switch, end to end
+        # (tests/projects/persistent): Hero is marked persistent in levelA and
+        # carries a rigid body + a counting script sandbox. It lands on levelA's
+        # ground then requests world.loadScene("scenes/levelB.oscene"); the
+        # deferred switch must SPARE Hero (whole live state) while the rest of
+        # the world tears down. The selfcheck asserts post-switch that Hero's
+        # sandbox kept counting (init once, ticks never reset), its body
+        # re-collided with levelB's ground, the non-persistent sibling is gone
+        # and levelB's own object loaded (see the ORKIGE_PERSISTENT_SELFCHECK
+        # block in tools/player/PlayerSelfChecks.cpp). Both flavors.
+        add_test(NAME player_persistent_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player scenes/levelA.oscene --project tests/projects/persistent
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_persistent_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_PERSISTENT_SELFCHECK=1"
+            LABELS integration TIMEOUT 120)
+
         # the benchmark showcase (projects/benchmark), end to end: the driver
         # runs the standalone player over the WHOLE autonomous scene sequence,
         # armed (ORKIGE_BENCHMARK) and driven fast + deterministically (a tiny

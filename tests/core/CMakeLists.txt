@@ -34,6 +34,7 @@ add_executable(orkige_core_tests
     PrefabSerializerTests.cpp
     PrefabOverrideMergeTests.cpp
     HierarchyTests.cpp
+    PersistentObjectsTests.cpp
     GameObjectManagerTeardownTests.cpp
     GlobalEventManagerTeardownTests.cpp
     TagTests.cpp

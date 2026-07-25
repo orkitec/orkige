@@ -19,6 +19,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <map>
+#include <set>
+#include <string>
 #include <vector>
 
 namespace Orkige
@@ -63,11 +65,24 @@ namespace Orkige
 	// component creation through the factory, so a scene mixing named kinds and
 	// plain components round-trips at v7; the explicit-file ScriptComponent kind
 	// still loads unchanged (the honest back-compat for any pre-existing scene).
+	// PERSISTENT OBJECTS (2026-07) rode in WITHOUT a version bump: a GameObject
+	// marked to survive the level system's mid-play scene switch carries a
+	// per-object `persistent` flag serialized as an OPTIONAL side attribute on
+	// the id element (writeAttributed / readAttributed - the same additive
+	// mechanism the asset-id reference uses). A non-persistent object (the
+	// default) writes the plain id element BYTE-IDENTICALLY, so no existing
+	// scene changes and the format-era marker stays at 7; a persistent object
+	// carries persistent="1" and an older reader that does not know the
+	// attribute honestly reads the object as non-persistent.
 	const int SceneSerializer::SCENE_FORMAT_VERSION = 7;
 	const String SceneSerializer::SCENE_FORMAT_MAGIC = "orkige.oscene";
 	//---------------------------------------------------------
 	namespace
 	{
+		//! the side-attribute name carrying a GameObject's persistent flag on
+		//! its id element ("1" when set, omitted otherwise)
+		const String PERSISTENT_ATTRIBUTE = "persistent";
+
 		//! @brief which AssetDatabase reference flavour a reflected AssetRef
 		//! property uses, decided by its asset-kind hint: script paths are
 		//! project-relative, every other asset (mesh/texture/sound) is a bare
@@ -297,7 +312,13 @@ namespace Orkige
 		foreach(optr<GameObject> const & gameObject, savedObjects)
 		{
 			String id = gameObject->getObjectID();
-			ar << id;
+			// the persistent flag rides as an OPTIONAL attribute on the id
+			// element: a non-persistent object writes the plain id element
+			// byte-identically (empty attribute is omitted), so no format
+			// version bump and no scene rewrite - see the note by
+			// SCENE_FORMAT_VERSION
+			ar->writeAttributed(id, PERSISTENT_ATTRIBUTE,
+				gameObject->isPersistent() ? String("1") : String());
 
 			// v2: the hierarchy fields ("" = root; the parent reference is the
 			// object id, like every other object reference in the format)
@@ -411,6 +432,20 @@ namespace Orkige
 		return loadSceneFromArchive(ar, gameObjectManager, fileName);
 	}
 	//---------------------------------------------------------
+	bool SceneSerializer::loadScenePreservingPersistent(String const & fileName,
+		GameObjectManager & gameObjectManager)
+	{
+		oAssert(!fileName.empty());
+		optr<XMLArchive> ar = onew(new XMLArchive());
+		if(!ar->startReading(fileName))
+		{
+			oDebugMsg("scene",0,"SceneSerializer: could not open scene file: "<<fileName);
+			return false;
+		}
+		return loadSceneFromArchive(ar, gameObjectManager, fileName,
+			/*keepPersistent*/ true);
+	}
+	//---------------------------------------------------------
 	bool SceneSerializer::loadSceneFromString(String const & xml,
 		GameObjectManager & gameObjectManager, String const & sourceLabel)
 	{
@@ -429,7 +464,8 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	bool SceneSerializer::loadSceneFromArchive(optr<XMLArchive> const & ar,
-		GameObjectManager & gameObjectManager, String const & fileName)
+		GameObjectManager & gameObjectManager, String const & fileName,
+		bool keepPersistent)
 	{
 		String magic;
 		ar >> magic;
@@ -451,8 +487,32 @@ namespace Orkige
 		}
 
 		// replace the current world; component removal tears down the
-		// scene-side state (e.g. TransformComponent destroys its scene nodes)
-		gameObjectManager.clear();
+		// scene-side state (e.g. TransformComponent destroys its scene nodes).
+		// The persistence-aware path spares persistent objects and their
+		// subtrees (they carry their whole live state into this scene).
+		if(keepPersistent)
+		{
+			gameObjectManager.clearExceptPersistent();
+		}
+		else
+		{
+			gameObjectManager.clear();
+		}
+		// the ids the survivors already own: an arriving object with one of
+		// these is the DUPLICATE the survivor wins over (skipped below)
+		std::set<String> survivorIds;
+		if(keepPersistent)
+		{
+			foreach(GameObjectManager::GameObjectMap::value_type const & entry,
+				gameObjectManager.getGameObjects())
+			{
+				survivorIds.insert(entry.first);
+			}
+		}
+		// arriving objects whose id a survivor owns are read into a throwaway
+		// namespace so the archive cursor still advances, then deleted after
+		// the load (the survivor keeps the real id)
+		StringVector skippedDuplicateRoots;
 
 		bool loaded = true;
 		unsigned int objectCount = 0;
@@ -467,7 +527,26 @@ namespace Orkige
 		for(unsigned int objectIndex = 0; objectIndex < objectCount && loaded; ++objectIndex)
 		{
 			String id;
-			ar >> id;
+			// the persistent flag rides as the OPTIONAL side attribute on the
+			// id element (absent => "" => non-persistent, the default)
+			String persistentAttribute;
+			ar->readAttributed(id, PERSISTENT_ATTRIBUTE, persistentAttribute);
+			const bool persistent = (persistentAttribute == "1");
+
+			// DUPLICATE RULE: when a surviving persistent object already owns
+			// this id, the survivor wins - read the incoming object into a
+			// throwaway id (so its whole envelope is consumed) and drop it after
+			// the load. Every downstream step (hierarchy, prefab, overrides)
+			// then uses the throwaway id naturally.
+			if(keepPersistent && survivorIds.find(id) != survivorIds.end())
+			{
+				oDebugMsg("scene",0,"SceneSerializer: scene "<<fileName
+					<<" carries object id \""<<id<<"\" that a surviving persistent "
+					"object already owns - the survivor wins, the incoming "
+					"duplicate is skipped");
+				id = "\x01dupskip/" + std::to_string(objectIndex) + "/" + id;
+				skippedDuplicateRoots.push_back(id);
+			}
 			optr<GameObject> gameObject = gameObjectManager.createGameObject(id).lock();
 			if(!gameObject)
 			{
@@ -475,6 +554,7 @@ namespace Orkige
 				loaded = false;
 				break;
 			}
+			gameObject->setPersistent(persistent);
 
 			// the per-object envelope (hierarchy, tags, prefab reference) is
 			// always present in the current format - no version gates
@@ -652,6 +732,18 @@ namespace Orkige
 				optr<GameObject> gameObject = gameObjectManager.getGameObject(state.first).lock();
 				oAssert(gameObject);
 				gameObject->setActive(state.second);
+			}
+			// drop the throwaway duplicates the survivors won over: delete each
+			// subtree leaves-first so no delGameObject re-parents a child up
+			foreach(String const & skipRootId, skippedDuplicateRoots)
+			{
+				const StringVector subtree =
+					gameObjectManager.collectSubtreeIds(skipRootId);
+				for(StringVector::const_reverse_iterator it = subtree.rbegin();
+					it != subtree.rend(); ++it)
+				{
+					gameObjectManager.delGameObject(*it);
+				}
 			}
 		}
 

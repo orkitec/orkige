@@ -68,6 +68,7 @@ namespace Orkige
 		String										parentId;				//!< id of the parent GameObject ("" = root, GameObject tree)
 		bool										activeSelf;				//!< own active flag (default true)
 		bool										activeInHierarchy;		//!< cached effective state: activeSelf AND all ancestors active
+		bool										persistent;				//!< survive the level system's mid-play scene switch (default false)
 		String										prefabRef;				//!< project-relative .oprefab path ("" = not a prefab instance root)
 		String										prefabAssetId;			//!< stable asset id riding next to prefabRef (rename survival)
 		StringVector								suppressedPrefabChildren;	//!< prefab-LOCAL ids dropped at instantiate (structural override)
@@ -123,6 +124,19 @@ namespace Orkige
 		//! GameObjectComponent::onSetActive - inactive objects stop ticking,
 		//! engine components hide/silence/park their scene state
 		void setActive(bool active);
+		//--- PERSISTENCE (survive a mid-play scene switch) ---
+		//! does this object survive the level system's runtime scene switch
+		//! (default false)
+		inline bool isPersistent() const;
+		//! @brief mark (or unmark) this object to survive the level system's
+		//! mid-play scene switch: its whole LIVE state (component set, render
+		//! node, physics body, sound, script sandbox) is carried into the
+		//! arriving scene instead of torn down with the rest of the world. A
+		//! persistent PARENT keeps its whole subtree; a persistent child of a
+		//! non-persistent parent re-roots to the scene root on the switch (@see
+		//! GameObjectManager::clearExceptPersistent). Authored data only -
+		//! inert in the editor, where no runtime ticks the level system.
+		inline void setPersistent(bool persistent);
 		//--- PREFAB INSTANCE (see core_game/PrefabSerializer) ---
 		//! project-relative .oprefab path this object is an instance root of
 		//! ("" = a plain GameObject)
@@ -212,6 +226,16 @@ namespace Orkige
 	inline bool GameObject::isActiveInHierarchy() const
 	{
 		return this->activeInHierarchy;
+	}
+	//---------------------------------------------------------
+	inline bool GameObject::isPersistent() const
+	{
+		return this->persistent;
+	}
+	//---------------------------------------------------------
+	inline void GameObject::setPersistent(bool persistent)
+	{
+		this->persistent = persistent;
 	}
 	//---------------------------------------------------------
 	inline String const & GameObject::getPrefabRef() const

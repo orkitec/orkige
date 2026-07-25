@@ -815,6 +815,50 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
+	//--- SetPersistentObjectCommand ---------------------------
+	//---------------------------------------------------------
+	SetPersistentObjectCommand::SetPersistentObjectCommand(String const& objectId,
+		bool persistent)
+		: mObjectId(objectId), mPersistent(persistent)
+	{
+	}
+	//---------------------------------------------------------
+	bool SetPersistentObjectCommand::execute(EditorCore& core)
+	{
+		optr<GameObject> gameObject = core.getGameObjectManager()
+			.getGameObject(mObjectId).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		mBefore = gameObject->isPersistent();
+		if (mBefore == mPersistent)
+		{
+			return false;	// no-op toggles never enter the undo stack
+		}
+		gameObject->setPersistent(mPersistent);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool SetPersistentObjectCommand::unexecute(EditorCore& core)
+	{
+		optr<GameObject> gameObject = core.getGameObjectManager()
+			.getGameObject(mObjectId).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		gameObject->setPersistent(mBefore);
+		return true;
+	}
+	//---------------------------------------------------------
+	String SetPersistentObjectCommand::getDescription() const
+	{
+		return (mPersistent ? "Mark persistent " : "Clear persistent ")
+			+ mObjectId;
+	}
+
+	//---------------------------------------------------------
 	//--- SetTagsCommand ---------------------------------------
 	//---------------------------------------------------------
 	SetTagsCommand::SetTagsCommand(String const& objectId,
@@ -2071,6 +2115,16 @@ namespace Orkige
 			return false;
 		}
 		return executeCommand(onew(new SetActiveObjectCommand(id, active)));
+	}
+	//---------------------------------------------------------
+	bool EditorCore::setObjectPersistent(String const& id, bool persistent)
+	{
+		if (!mGameObjectManager.objectExists(id))
+		{
+			return false;
+		}
+		return executeCommand(
+			onew(new SetPersistentObjectCommand(id, persistent)));
 	}
 	//---------------------------------------------------------
 	bool EditorCore::setObjectTags(String const& id, StringVector const& tags)

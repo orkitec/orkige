@@ -202,6 +202,13 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// script lifecycle + teardown in one run.
 	integrationLevelCheck =
 		(std::getenv("ORKIGE_INTEGRATION_LEVELSWITCH_SELFCHECK") != nullptr);
+	// ORKIGE_PERSISTENT_SELFCHECK verifies that a GameObject marked persistent
+	// SURVIVES the level system's mid-play scene switch with its whole live
+	// state (sandbox + rigid body) while the rest of the world tears down and
+	// the arriving scene loads in beside it - the persistent-objects feature
+	// end to end (tests/projects/persistent).
+	persistentCheck =
+		(std::getenv("ORKIGE_PERSISTENT_SELFCHECK") != nullptr);
 	// ORKIGE_BREADCRUMB_SELFCHECK verifies the crash breadcrumb trail against
 	// tests/projects/breadcrumb: a ScriptComponent raises a Lua error at init;
 	// the player must record it as a "script_error" line in breadcrumbs.jsonl
@@ -293,7 +300,7 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	automatedRun = jumperLuaCheck || rollerCheck ||
 		rollerProgressionCheck || tweenCheck ||
 		hotreloadCheck || scriptPropCheck ||
-		integrationContactCheck || integrationLevelCheck ||
+		integrationContactCheck || integrationLevelCheck || persistentCheck ||
 		breadcrumbCheck || fadeCheck || lifecycleCheck || resizeCheck ||
 		softbodyCheck || perfCheck || benchmarkCheck || vectorAnimCheck ||
 		characterRigCheck || staticMoveCheck || spriteBatchCheck ||
@@ -1511,6 +1518,19 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 			integLevelNum("carrySeen", -1.0),
 			integLevelNum("levelBTicks", -1.0));
 		integLevelFailed = true;
+	};
+	auto persistNum = [](const char* key, double fallback) -> double
+	{
+		return Orkige::ScriptRuntime::getSingleton().getNumber(
+			{"shared", "persist", key}, fallback);
+	};
+	auto persistFail = [&](std::string const& what)
+	{
+		SDL_Log("orkige_player: PERSISTENT SELFCHECK FAILED - %s (inits=%.0f "
+			"ticks=%.0f contacts=%.0f levelBBooted=%.0f)", what.c_str(),
+			persistNum("inits", -1.0), persistNum("ticks", -1.0),
+			persistNum("contacts", -1.0), persistNum("levelBBooted", -1.0));
+		persistFailed = true;
 	};
 
 	// --- jumper-lua selfcheck script (see the block above the loop) --
@@ -4141,6 +4161,107 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		running = false;
 	}
 
+	// --- persistent-object survival across a mid-play scene switch
+	// (tests/projects/persistent). Condition-driven throughout.
+	if (persistentCheck && !persistFailed &&
+		persistPhase != PersistPhase::Done)
+	{
+		if (persistPhase == PersistPhase::ObserveA)
+		{
+			// Hero's sandbox is counting and it has landed on levelA's
+			// ground (its own onContactBegin fired) - the pre-switch state
+			if (persistNum("levelBBooted", 0.0) >= 1.0)
+			{
+				persistFail("levelB booted before Hero could be observed "
+					"alive on levelA");
+			}
+			else if (persistNum("inits", 0.0) == 1.0 &&
+				persistNum("ticks", 0.0) > 0.0 &&
+				persistNum("contacts", 0.0) >= 1.0)
+			{
+				SDL_Log("orkige_player: persistent selfcheck - Hero live on "
+					"levelA (ticks=%.0f, landed with %.0f contact(s))",
+					persistNum("ticks", 0.0), persistNum("contacts", 0.0));
+				persistPhase = PersistPhase::AwaitSwitch;
+			}
+			else if (frameCount > 1200)
+			{
+				persistFail("Hero never landed + counted on levelA");
+			}
+		}
+		else if (persistPhase == PersistPhase::AwaitSwitch)
+		{
+			if (persistNum("levelBBooted", 0.0) >= 1.0)
+			{
+				// capture the survivor's tick count at the moment levelB
+				// booted: a surviving sandbox keeps climbing PAST this
+				persistTicksAtEntry = persistNum("ticks", 0.0);
+				persistVerifyFrame = frameCount;
+				persistPhase = PersistPhase::VerifyB;
+			}
+			else if (frameCount > 1200)
+			{
+				persistFail("the deferred switch to levelB never applied");
+			}
+		}
+		else if (persistPhase == PersistPhase::VerifyB)
+		{
+			const bool heroAlive =
+				gameObjectManager.getGameObject("Hero").lock() != nullptr;
+			const bool siblingGone =
+				gameObjectManager.getGameObject("AlphaSibling").lock() ==
+				nullptr;
+			const bool bravoHere =
+				gameObjectManager.getGameObject("BravoMarker").lock() !=
+				nullptr;
+			if (!heroAlive)
+			{
+				persistFail("the persistent Hero did NOT survive the switch");
+			}
+			else if (!siblingGone)
+			{
+				persistFail("the non-persistent AlphaSibling survived the "
+					"switch (teardown did not clear it)");
+			}
+			else if (!bravoHere)
+			{
+				persistFail("levelB's own object (BravoMarker) did not load");
+			}
+			else if (persistNum("inits", 0.0) != 1.0)
+			{
+				// init running twice means Hero was destroyed + recreated,
+				// not carried over - its sandbox state would be lost
+				persistFail("Hero's init ran again - the sandbox was NOT "
+					"preserved (the object was recreated, not carried)");
+			}
+			else if (persistNum("ticks", 0.0) > persistTicksAtEntry &&
+				persistNum("contacts", 0.0) >= 2.0)
+			{
+				// the sandbox kept counting (same live instance) AND the
+				// rigid body re-collided with levelB's ground (it survived
+				// the physics-world teardown, not a dangling body)
+				SDL_Log("orkige_player: PERSISTENT SELFCHECK complete - the "
+					"persistent Hero survived the scene switch (init once, "
+					"ticks %.0f>%.0f, body re-collided contacts=%.0f), the "
+					"sibling was cleared and levelB loaded",
+					persistNum("ticks", 0.0), persistTicksAtEntry,
+					persistNum("contacts", 0.0));
+				persistPhase = PersistPhase::Done;
+				running = false;
+			}
+			else if (frameCount > persistVerifyFrame + 900)
+			{
+				persistFail("Hero survived but its sandbox stopped counting "
+					"or its body never re-collided on levelB");
+			}
+		}
+	}
+	if (persistentCheck && persistFailed)
+	{
+		exitCode = 1;
+		running = false;
+	}
+
 	if (frameCount == 60)
 	{
 		// ORKIGE_DEMO_SCREENSHOT: dump the framebuffer for automated
@@ -4776,6 +4897,13 @@ void PlayerSelfChecks::atLoopEnd(PlayerContext& context)
 		SDL_Log("orkige_player: INTEGRATION LEVELSWITCH SELFCHECK FAILED "
 			"- run ended in phase %d",
 			static_cast<int>(integLevelPhase));
+		exitCode = 1;
+	}
+	if (persistentCheck && !persistFailed &&
+		persistPhase != PersistPhase::Done)
+	{
+		SDL_Log("orkige_player: PERSISTENT SELFCHECK FAILED - run ended in "
+			"phase %d", static_cast<int>(persistPhase));
 		exitCode = 1;
 	}
 	if (hotreloadCheck)

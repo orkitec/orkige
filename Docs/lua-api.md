@@ -525,6 +525,34 @@ handle — `self.gameObject` stored across frames, a contact OTHER stashed for l
 — is always safe: it locks per call and raises honestly once its object is
 destroyed, never dereferencing freed engine state.
 
+## Persistent objects (survive a scene switch)
+
+A `world.loadScene(path)` / `LevelManager:loadLevel(i)` is a **deferred scene
+switch**: at the next frame boundary the running world is torn down and the new
+scene loads. An object marked **persistent** is the exception — it is carried
+into the arriving scene WHOLE (its components, render node, physics body, sound
+and its script sandbox, with every counter and subscription intact) while
+everything non-persistent tears down as usual and the new scene's objects load
+in beside it.
+
+```lua
+obj:setPersistent(true)   -- carry this object across the next scene switch
+obj:isPersistent()        -- read the flag back
+-- a runtime-spawned object can be made persistent too:
+world.spawn("assets/hero.oprefab", "Hero")
+world.get("Hero"):setPersistent(true)
+```
+
+Rules to know: a persistent **parent** keeps its whole subtree (its children need
+no flag of their own); a persistent **child** of a non-persistent parent re-roots
+to the scene root and survives. If the arriving scene contains an object with the
+**same id** as a surviving persistent object, the **survivor wins** and the
+incoming duplicate is skipped (with one log line). The flag is authored data on
+the object (Inspector checkbox / MCP `set_persistent` / the scene file), so it is
+inert in the editor, which never runs the level system. Running tweens and timers
+still end at the switch (they close over the outgoing scene) — a survivor keeps
+its own state but should restart any tween it needs in the new scene.
+
 ## Canonical snippets
 
 **Screen from a `.oui` + wire it.**
@@ -747,6 +775,8 @@ GameObject:getPrefabRef(...)
 GameObject:setActive(...)
 GameObject:isActiveSelf(...)
 GameObject:isActiveInHierarchy(...)
+GameObject:setPersistent(...)
+GameObject:isPersistent(...)
 GameObject:hasTag(...)
 GameObject:addTag(...)
 GameObject:removeTag(...)

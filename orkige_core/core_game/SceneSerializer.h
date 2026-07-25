@@ -43,6 +43,16 @@ namespace Orkige
 		//! removed (their components tear down their scene-side state) before
 		//! the saved GameObjects are recreated through the component factories
 		static bool loadScene(String const & fileName, GameObjectManager & gameObjectManager);
+		//! @brief load a scene the way the level system's mid-play switch does:
+		//! objects marked persistent (@see GameObject::setPersistent) SURVIVE
+		//! the teardown with their whole live state instead of being cleared,
+		//! and the arriving scene's objects load in beside them. THE DUPLICATE
+		//! RULE: an arriving object whose id a surviving persistent object
+		//! already owns is SKIPPED (the survivor wins) with one warn line.
+		//! Everything non-persistent tears down as loadScene does. Used by the
+		//! player's deferred-load pump; the editor never calls it (inert there).
+		static bool loadScenePreservingPersistent(String const & fileName,
+			GameObjectManager & gameObjectManager);
 		//! @brief load a scene from an in-memory XML string (no file to fopen)
 		//! @remarks the mounted-pak / resource-system path: the scene bytes are
 		//! read through the resource system (RenderSystem) from a mounted pak and
@@ -109,8 +119,13 @@ namespace Orkige
 		//! and hierarchy/active application over an ALREADY-started archive
 		//! (loadScene opens a file, loadSceneFromString parses a string, both
 		//! funnel here). fileName labels errors + roots prefab resolution.
+		//! @param keepPersistent when true, tear the world down through
+		//! GameObjectManager::clearExceptPersistent (survivors kept) instead of
+		//! clear(), and skip any arriving object whose id a survivor owns (the
+		//! duplicate rule) - the level-system deferred-load path
 		static bool loadSceneFromArchive(optr<XMLArchive> const & ar,
-			GameObjectManager & gameObjectManager, String const & fileName);
+			GameObjectManager & gameObjectManager, String const & fileName,
+			bool keepPersistent = false);
 	};
 	//---------------------------------------------------------
 }

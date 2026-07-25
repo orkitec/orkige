@@ -1222,6 +1222,15 @@ namespace Orkige
 				  "Set a GameObject's own active flag.",
 				  { { "id", "string", "GameObject id", true },
 				    { "value", "string", "'1' active, '0' inactive", true } } },
+				{ "set_persistent",
+				  "Set a GameObject's persistent flag: when '1' the object "
+				  "survives the level system's mid-play scene switch with its "
+				  "whole live state (components, physics body, script sandbox) "
+				  "and the arriving scene loads in beside it; a persistent "
+				  "parent keeps its whole subtree. Authored data (inert in the "
+				  "editor). Read it back from get_object's 'persistent' field.",
+				  { { "id", "string", "GameObject id", true },
+				    { "value", "string", "'1' persistent, '0' not", true } } },
 				{ "select",
 				  "Select a GameObject ('' clears the selection).",
 				  { { "id", "string", "GameObject id ('' clears)", false } } },
@@ -2978,6 +2987,7 @@ namespace Orkige
 			ok.set("active_self", gameObject->isActiveSelf() ? "1" : "0");
 			ok.set("active_hierarchy",
 				gameObject->isActiveInHierarchy() ? "1" : "0");
+			ok.set("persistent", gameObject->isPersistent() ? "1" : "0");
 			ok.setList(DebugProtocol::LIST_COMPONENTS, components);
 			this->sendOk(req, ok);
 			return;
@@ -3271,6 +3281,19 @@ namespace Orkige
 				request.get(DebugProtocol::FIELD_VALUE) == "1"))
 			{
 				this->sendErr(req, "set_active on '" + id + "' was refused");
+				return;
+			}
+			this->sendOk(req);
+			return;
+		}
+		if (type == "set_persistent")
+		{
+			const String& id = request.get(DebugProtocol::FIELD_ID);
+			if (!core.setObjectPersistent(id,
+				request.get(DebugProtocol::FIELD_VALUE) == "1"))
+			{
+				this->sendErr(req,
+					"set_persistent on '" + id + "' was refused");
 				return;
 			}
 			this->sendOk(req);
@@ -7099,6 +7122,48 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - unauthenticated read "
 				"correctly rejected (auth-on-reads)");
+		}
+
+		// (5c) the object-level PERSISTENT flag over MCP: set_persistent
+		// writes it (authed mutation) and get_object reads it back - the
+		// object survives a mid-play scene switch when set.
+		{
+			JsonValue params = JsonValue::object();
+			params.set("name", JsonValue("set_persistent"));
+			JsonValue args = JsonValue::object();
+			args.set("id", JsonValue("McpProbe"));
+			args.set("value", JsonValue("1"));
+			params.set("arguments", args);
+			if (!post("tools/call", params, true, true, response))
+			{
+				finish(false, "control self-test: set_persistent call failed");
+				return;
+			}
+			if (response.get("result").get("isError").asBool(true))
+			{
+				finish(false, "control self-test: set_persistent was refused");
+				return;
+			}
+			// read it back through get_object's 'persistent' field
+			JsonValue getParams = JsonValue::object();
+			getParams.set("name", JsonValue("get_object"));
+			JsonValue getArgs = JsonValue::object();
+			getArgs.set("id", JsonValue("McpProbe"));
+			getParams.set("arguments", getArgs);
+			if (!post("tools/call", getParams, true, true, response))
+			{
+				finish(false, "control self-test: get_object call failed");
+				return;
+			}
+			if (response.get("result").get("structuredContent")
+					.get("persistent").asString() != "1")
+			{
+				finish(false, "control self-test: get_object did not report the "
+					"persistent flag set");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - set_persistent + "
+				"get_object round-trip OK (McpProbe persistent=1)");
 		}
 
 		// (6) AUTH REJECTION: a mutation WITHOUT the bearer token must be

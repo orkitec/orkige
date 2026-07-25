@@ -69,6 +69,19 @@ namespace Orkige
 		//! (also clears cross-object runtime state like running tweens);
 		//! implemented in GameObjectManager.cpp
 		void clear();
+		//! @brief the persistence-aware sibling of clear(): tear the scene
+		//! down but SPARE persistent objects and their subtrees (the level
+		//! system's mid-play scene switch calls this instead of clear() so a
+		//! marked object carries its whole live state into the arriving scene).
+		//! A survivor whose parent does NOT survive re-roots to the scene root
+		//! (one info line). Running tweens/timers still die exactly as in
+		//! clear() (they close over the outgoing scene). @see clear(),
+		//! GameObject::setPersistent
+		void clearExceptPersistent();
+		//! @brief is the object (or ANY of its ancestors) marked persistent -
+		//! the survival predicate clearExceptPersistent uses, so a persistent
+		//! parent keeps its whole subtree. False for an unknown id.
+		bool isPersistentInHierarchy(String const & id) const;
 		//! triggers an event on all GameObjects
 		bool triggerEvent(Event const & event) const;
 		//! forward given Event to all GameObjects
