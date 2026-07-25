@@ -78,6 +78,12 @@ namespace Orkige
 		//! to is the FIRST of these (@see RenderBackend::firstDirectionalLight,
 		//! mirrors the next flavor's registry)
 		std::vector<Ogre::Light*> gDirectionalLights;
+		//! a directional light was added/removed/retyped since the last frame:
+		//! re-resolve the enabled atmosphere's sun once at the next frame
+		//! boundary, when all scene transforms are composed (@see
+		//! RenderBackend::flushAtmosphereSunReresolve - the red-sky-on-load fix,
+		//! mirrors the next flavor)
+		bool gAtmosphereSunReresolvePending = false;
 
 		//--- dynamic-shadow state (@see RenderBackend::applyShadowConfig) --
 		//! the tier the scene technique is currently ARMED with (SQ_OFF =
@@ -189,6 +195,36 @@ namespace Orkige
 		// and a directional caster may have appeared/left - recompute the
 		// shadow arming (a dying caster disarms, a fresh one arms)
 		RenderBackend::applyShadowConfig();
+		// the refresh above may have read the sun before its TransformComponent
+		// oriented the node (a light registers directional ahead of its
+		// transform in scene-load order - a horizon sun, a red dome). The
+		// forced _update in resolveSunDirection only composes the CURRENT node
+		// orientation, still identity here; latch a re-resolve for the next
+		// frame boundary, by when the load has composed every transform
+		// (@see flushAtmosphereSunReresolve)
+		gAtmosphereSunReresolvePending = true;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::flushAtmosphereSunReresolve()
+	{
+		if(!gAtmosphereSunReresolvePending)
+		{
+			return;
+		}
+		gAtmosphereSunReresolvePending = false;
+		// re-read the sun and re-arm the whole sky (window clear, dome, fog,
+		// sun-exposure drive) only when an atmosphere is live and enabled; the
+		// idempotent setAtmosphere does not re-latch, so this runs exactly once
+		// per directional-set change.
+		RenderSystem* system = RenderBackend::system();
+		if(system && system->getWorld() &&
+			system->getWorld()->getAtmosphere().enabled)
+		{
+			// a COPY: setAtmosphere reassigns the world's stored desc from its
+			// argument, so it must not alias the member it is about to overwrite
+			const AtmosphereDesc desc = system->getWorld()->getAtmosphere();
+			system->getWorld()->setAtmosphere(desc);
+		}
 	}
 	//---------------------------------------------------------
 	bool RenderBackend::dynamicShadowsSupported()
@@ -1169,6 +1205,7 @@ namespace Orkige
 		gNodeRegistry.clear();
 		// the sun registry points at lights the scene manager is tearing down
 		gDirectionalLights.clear();
+		gAtmosphereSunReresolvePending = false;
 		// the shadow state dies with the scene manager - reset the arming
 		// bookkeeping for a future render system (no restore: the snapshot's
 		// scene manager is gone)

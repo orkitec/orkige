@@ -40,6 +40,10 @@ void ViewSettings::load()
 		{
 			this->showAllCameraFrames = (value == "1");
 		}
+		else if (key == "show_sky")
+		{
+			this->showSky = (value == "1");
+		}
 		else if (key == "mode_2d")
 		{
 			this->editor2D = (value == "1");
@@ -225,6 +229,7 @@ void ViewSettings::save() const
 		<< "show_bounding_boxes=" << (this->showBoundingBoxes ? 1 : 0) << "\n"
 		<< "show_all_camera_frames="
 		<< (this->showAllCameraFrames ? 1 : 0) << "\n"
+		<< "show_sky=" << (this->showSky ? 1 : 0) << "\n"
 		<< "mode_2d=" << (this->editor2D ? 1 : 0) << "\n"
 		<< "orbit_speed=" << this->orbitSpeed << "\n"
 		<< "look_speed=" << this->lookSpeed << "\n"
@@ -339,6 +344,7 @@ void ViewSettings::resetCameraAndDisplayDefaults()
 	this->showColliders = defaults.showColliders;
 	this->showBoundingBoxes = defaults.showBoundingBoxes;
 	this->showAllCameraFrames = defaults.showAllCameraFrames;
+	this->showSky = defaults.showSky;
 	this->orbitSpeed = defaults.orbitSpeed;
 	this->lookSpeed = defaults.lookSpeed;
 	this->zoomSpeed = defaults.zoomSpeed;

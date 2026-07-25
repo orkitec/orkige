@@ -365,6 +365,12 @@ namespace Orkige
 		//! default all-visible. The Game Preview RTT masks off the editor-only bit
 		//! so the grid / frustum gizmos stay out of the preview.
 		unsigned int		visibilityMask = 0xFFFFFFFFu;
+		//! per-target sky visibility (RenderTexture::setSkyVisible): while false
+		//! this target's scene pass skips the sky render queue (kSkyRenderQueue,
+		//! where BOTH the procedural NprSky quad and the cubemap sky live), so
+		//! the sky dome never reaches this target while every other target keeps
+		//! it - the editor Scene view's sky-less mode
+		bool				skyVisible = true;
 
 		//--- offscreen 2D composition (RenderTexture::createLayer) ---
 		//! this target owns 2D layers: its workspace grows a UI pass drawing
@@ -829,6 +835,17 @@ namespace Orkige
 		//! the first (creation order) directional light, or NULL - the sun the
 		//! atmosphere links to (@see RenderWorld::setAtmosphere)
 		static Ogre::Light* firstDirectionalLight();
+		//! @brief at the frame boundary, re-resolve an enabled atmosphere's sun
+		//! ONCE if a directional light was just added/removed/retyped
+		//! (noteDirectionalLight latched it). A sun authored ahead of its
+		//! transform in scene-load order (the light registers directional before
+		//! its TransformComponent orients the node) makes the load-time apply read
+		//! the still-identity node - a horizon sun, a red sky - and nothing
+		//! re-syncs once the transform composes. This flush, run before the frame
+		//! renders (all scene transforms are composed by then), reads the sun
+		//! fresh and re-arms the sky. Cheap: the latch only fires on a rare
+		//! directional-set change, never per animated-arc frame.
+		static void flushAtmosphereSunReresolve();
 
 		//--- LDR bloom (CompositorManager2 quad passes) -------------
 		//! visibility bit carried by the 2D tier (sprite quads/batches + vector

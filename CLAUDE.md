@@ -505,7 +505,26 @@ the runtime drive), and the Hierarchy shows OWNER GLYPHS (camera/sun,
 accent = owns / dimmed = dormant) through the generic
 `tools/editor/OwnerComponentBadges` registry with a dormancy line in the
 Inspector — `AtmosphereComponentTests` + `editor_atmosphere`/
-`player_atmosphere` per flavor), the Lua
+`player_atmosphere` per flavor. Under the master `enabled` sit two PART
+switches `sky` (the visible dome) and `fog` (the distance fog) — either
+off leaves the other and the sun/ambient lighting drive live; default
+true, preset reseeds never clobber them, both backends honor them
+(sky=false keeps the honest no-sky-environment IBL refusal). The sun
+linkage does a ONE-SHOT re-resolve at the next frame boundary whenever a
+directional light is added/removed/retyped
+(`RenderBackend::flushAtmosphereSunReresolve`, both backends): components
+serialize alphabetically so a sun's LightComponent registers before its
+TransformComponent composes, and without the flush a load-time atmosphere
+baked a horizon-sun red sky (`fixture_atmo_sunlast` regression). The
+editor's Scene RTT is sky-less by DEFAULT via the per-target facade
+`RenderTexture::setSkyVisible` (next = sky render queue excluded from the
+target's pass, classic = skies-disabled + dome visibility bit; the Display
+dropdown "Sky" toggle / MCP view option `sky` opts back in) while Game
+Preview/inset/Play keep the real sky; fog + lighting stay GLOBAL scene
+state — only the dome is per-target, documented in `Docs/materials.md`;
+NOTE the editor renders ALL its targets inside ONE `renderOneFrame` via
+auto compositor workspaces, so per-target view effects must be
+visibility/render-queue based, never global-state bracketing), the Lua
 `ScriptComponent` — dormant unless a
 runtime ticks GameObjects, so the editor never runs scripts); `engine_input` is SDL3-based
 (KC_* keycodes preserved; `isKeyDown` reads the injectEvent-fed state, so synthetic

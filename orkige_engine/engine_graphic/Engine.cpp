@@ -1055,10 +1055,13 @@ namespace Orkige
 		{
 			if(RenderWorld* world = renderSystem->getWorld())
 			{
-				// the sky VISUAL is sticky (@see setAtmosphereSky): this call
-				// authors the look/exposure scalars, not the sky type
+				// the sky VISUAL + the two part switches are sticky (@see
+				// setAtmosphereSky / setAtmosphereParts): this call authors the
+				// look/exposure scalars, not the sky type or the sky/fog parts
 				desc.skyType = world->getAtmosphere().skyType;
 				desc.skyboxTexture = world->getAtmosphere().skyboxTexture;
+				desc.sky = world->getAtmosphere().sky;
+				desc.fog = world->getAtmosphere().fog;
 				world->setAtmosphere(desc);
 			}
 		}
@@ -1076,10 +1079,27 @@ namespace Orkige
 		{
 			if(RenderWorld* world = renderSystem->getWorld())
 			{
-				// the sky VISUAL is sticky (@see setAtmosphereSky): a blend
-				// drives the day/night arc under whatever sky type is chosen
+				// the sky VISUAL + the two part switches are sticky (@see
+				// setAtmosphereSky / setAtmosphereParts): a blend drives the
+				// day/night arc under whatever sky type + parts are chosen
 				desc.skyType = world->getAtmosphere().skyType;
 				desc.skyboxTexture = world->getAtmosphere().skyboxTexture;
+				desc.sky = world->getAtmosphere().sky;
+				desc.fog = world->getAtmosphere().fog;
+				world->setAtmosphere(desc);
+			}
+		}
+	}
+	//---------------------------------------------------------
+	void Engine::setAtmosphereParts(bool sky, bool fog)
+	{
+		if(RenderSystem* renderSystem = this->getRenderSystem())
+		{
+			if(RenderWorld* world = renderSystem->getWorld())
+			{
+				AtmosphereDesc desc = world->getAtmosphere();
+				desc.sky = sky;
+				desc.fog = fog;
 				world->setAtmosphere(desc);
 			}
 		}
@@ -1200,6 +1220,8 @@ namespace Orkige
 		OFUNC(setAtmosphereBlend)
 		// sky visual type: engine:setAtmosphereSky("skybox", "night_sky.dds")
 		OFUNC(setAtmosphereSky)
+		// the two part switches: engine:setAtmosphereParts(sky, fog)
+		OFUNC(setAtmosphereParts)
 		// skybox-sourced IBL: engine:setImageLighting(enabled, intensity)
 		OFUNC(setImageLighting)
 		// LDR bloom: engine:setBloom(enabled, threshold, intensity) - a

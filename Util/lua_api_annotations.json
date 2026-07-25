@@ -32,6 +32,10 @@
 		"sig": "(skyType, skyboxTexture) -> nil",
 		"doc": "choose the sky visual: 'procedural' (default), 'skybox' (a cubemap .dds resource, e.g. baked by make_sky_assets.py) or 'colour' (flat sky tint); sticky across setAtmosphere/setAtmosphereBlend calls - fog and the sun drive are sky-type-independent"
 	},
+	"Engine:setAtmosphereParts": {
+		"sig": "(sky, fog) -> nil",
+		"doc": "toggle the enabled atmosphere's two part switches: sky = the visible dome/cubemap (false keeps lighting + fog, drops the sky), fog = the distance object fog (false keeps the dome + lighting); sticky across setAtmosphere/setAtmosphereBlend calls, gated by the master enabled"
+	},
 	"Engine:setImageLighting": {
 		"sig": "(enabled, intensity) -> nil",
 		"doc": "opt into image-based lighting sourced from the skybox cubemap the enabled atmosphere shows: cubemap specular reflections + a diffuse fill ADDED to the analytic lights on PBS materials, intensity scaling the added part; sticky like the atmosphere, OFF by default (off renders byte-identically). Quality tiers ride the r.iblQuality cvar; enabling under a procedural/colour sky logs one honest line and renders unchanged. Probe: engine:supports('iblReflections')"
@@ -642,6 +646,22 @@
 	"AtmosphereComponent:getPreset": {
 		"sig": "() -> string",
 		"doc": "the last seed word"
+	},
+	"AtmosphereComponent:setSky": {
+		"sig": "(sky) -> nil",
+		"doc": "the visible-sky part switch: false hides the dome/cubemap while the lighting drive + fog stay live (independent of the preset)"
+	},
+	"AtmosphereComponent:getSky": {
+		"sig": "() -> bool",
+		"doc": "whether the visible sky part is on"
+	},
+	"AtmosphereComponent:setFog": {
+		"sig": "(fog) -> nil",
+		"doc": "the distance-fog part switch: false drops the object fog while the dome + lighting drive stay live (independent of the preset)"
+	},
+	"AtmosphereComponent:getFog": {
+		"sig": "() -> bool",
+		"doc": "whether the distance-fog part is on"
 	},
 	"AtmosphereComponent:setSkyColour": {
 		"sig": "(r, g, b) -> nil",

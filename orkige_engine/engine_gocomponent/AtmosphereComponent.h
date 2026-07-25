@@ -93,6 +93,18 @@ namespace Orkige
 		void setPreset(String const & preset);
 		//! @see AtmosphereComponent::mPreset
 		inline String const & getPreset() const;
+		//! the VISIBLE sky part switch: false hides the dome/cubemap/tint while
+		//! the lighting drive + fog stay live (@see AtmosphereDesc::sky). A
+		//! look field, INDEPENDENT of the preset (presets never seed it).
+		void setSky(bool sky);
+		//! @see AtmosphereDesc::sky
+		inline bool getSky() const;
+		//! the distance FOG part switch: false drops the object fog while the
+		//! dome + lighting drive stay live (@see AtmosphereDesc::fog). A look
+		//! field, INDEPENDENT of the preset (presets never seed it).
+		void setFog(bool fog);
+		//! @see AtmosphereDesc::fog
+		inline bool getFog() const;
 		//! zenith sky tint (linear; alpha ignored) - @see AtmosphereDesc::skyRed
 		void setSkyColour(float red, float green, float blue);
 		//! sky tint as a Color (@see setSkyColour)
@@ -156,6 +168,16 @@ namespace Orkige
 	inline String const & AtmosphereComponent::getPreset() const
 	{
 		return this->mPreset;
+	}
+	//---------------------------------------------------------------
+	inline bool AtmosphereComponent::getSky() const
+	{
+		return this->mDesc.sky;
+	}
+	//---------------------------------------------------------------
+	inline bool AtmosphereComponent::getFog() const
+	{
+		return this->mDesc.fog;
 	}
 	//---------------------------------------------------------------
 	inline Color AtmosphereComponent::getSkyColour() const

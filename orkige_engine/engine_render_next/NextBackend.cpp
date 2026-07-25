@@ -204,6 +204,11 @@ namespace Orkige
 		//! sky VISUAL follows AtmosphereDesc::skyType; fog + sun linkage stay
 		//! with gAtmosphere on every type)
 		bool gAtmosphereSkyVisible = false;
+		//! a directional light was added/removed/retyped since the last frame:
+		//! re-resolve the enabled atmosphere's sun once at the next frame
+		//! boundary, when all scene transforms are composed (@see
+		//! RenderBackend::flushAtmosphereSunReresolve - the red-sky-on-load fix)
+		bool gAtmosphereSunReresolvePending = false;
 		//! the cubemap the native SceneManager sky quad currently shows
 		//! ("" = none), so per-frame atmosphere re-applies skip the rebuild
 		String gSkyboxTexture;
@@ -766,6 +771,7 @@ namespace Orkige
 		}
 		gAtmosphereMediaAvailable = false;
 		gAtmosphereSkyVisible = false;
+		gAtmosphereSunReresolvePending = false;
 		// tear the cubemap sky quad down BEFORE the root teardown, same rule as
 		// gAtmosphere above: setSky created a Rectangle2D (mSky) attached to the
 		// SCENE_STATIC root, and SceneManager::clearScene (run from
@@ -1727,6 +1733,30 @@ namespace Orkige
 			RenderBackend::applyAtmosphere(
 				gRenderSystem->getWorld()->mImpl->atmosphere);
 		}
+		// this apply may have read the sun before its TransformComponent
+		// oriented the node (a light registers directional ahead of its
+		// transform in scene-load order - a horizon sun, a red sky). Latch a
+		// re-resolve for the next frame boundary, by when the load has
+		// composed every transform (@see flushAtmosphereSunReresolve)
+		gAtmosphereSunReresolvePending = true;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::flushAtmosphereSunReresolve()
+	{
+		if(!gAtmosphereSunReresolvePending)
+		{
+			return;
+		}
+		gAtmosphereSunReresolvePending = false;
+		// re-read the sun and re-arm the sky only when an atmosphere is live and
+		// enabled; a disabled/absent atmosphere has no sun to resolve. applyAtmosphere
+		// does not re-latch, so this runs exactly once per directional-set change.
+		if(gAtmosphere && gRenderSystem &&
+			gRenderSystem->getWorld()->mImpl->atmosphere.enabled)
+		{
+			RenderBackend::applyAtmosphere(
+				gRenderSystem->getWorld()->mImpl->atmosphere);
+		}
 	}
 	namespace
 	{
@@ -1893,8 +1923,10 @@ namespace Orkige
 		// NprSky quad, the cubemap sky quad, or neither (flat sky-tint clear).
 		// gAtmosphere itself stays alive on EVERY type - it owns the HlmsPbs
 		// object fog and the native sun linkage, which are sky-type-
-		// independent by the desc's contract.
-		const bool wantProceduralSky =
+		// independent by the desc's contract. The `sky` part switch hides the
+		// visible dome/cubemap entirely (fog + sun linkage stay live): with
+		// sky=false NOTHING draws over the flat sky-tint clear, whatever the type.
+		const bool wantProceduralSky = desc.sky &&
 			desc.skyType == AtmosphereSky::ST_PROCEDURAL;
 		if(wantProceduralSky != gAtmosphereSkyVisible)
 		{
@@ -1928,7 +1960,7 @@ namespace Orkige
 				}
 			}
 		}
-		if(desc.skyType == AtmosphereSky::ST_SKYBOX)
+		if(desc.sky && desc.skyType == AtmosphereSky::ST_SKYBOX)
 		{
 			if(desc.skyboxTexture.empty())
 			{
@@ -2031,7 +2063,9 @@ namespace Orkige
 			Ogre::Vector3(desc.skyRed, desc.skyGreen, desc.skyBlue);
 		preset.skyPower = desc.skyPower * duskFade;
 		preset.densityCoeff = desc.density;
-		preset.fogDensity = desc.fogDensity;
+		// the `fog` part switch drops the HlmsPbs object fog while the dome +
+		// sun linkage stay live (fog=false = a clear-air look, still lit/skied)
+		preset.fogDensity = desc.fog ? desc.fogDensity : 0.0f;
 		// EXPOSURE: this pipeline has no tonemapper, so the native sun/ambient
 		// powers (linkedLightPower = PI, linkedSceneAmbient*Power = 0.1/0.01 PI)
 		// clip lit surfaces to white. Drive them from the desc's un-tonemapped

@@ -1837,6 +1837,12 @@ int main(int argc, char** argv)
 		bool atmospherePart1Ok = false;		// frame-10 result, checked at 20
 		std::string atmosphereEnvId;		// the template Environment object
 		std::string atmosphereSecondId;		// the second (dormant) instance
+		// the Scene-view Sky toggle leg (item: per-target sky suppression). Frame
+		// 20 arms it (re-enabled day atmosphere, showSky off); frame 25 proves the
+		// Scene RTT is sky-less while the Game Preview keeps the sky; frame 30
+		// proves toggling showSky on brings the Scene RTT sky back.
+		bool atmoSkyLegArmed = false;
+		float atmoSceneSkylessLum = -1.0f;	// Scene RTT sky band, showSky off (frame 25)
 
 		// ORKIGE_EDITOR_OVERLAY_SELFCHECK=1: the Scene display-option overlays.
 		// Frame 10 authors a scene (renderable cube + a rigid body + a camera),
@@ -2505,6 +2511,14 @@ int main(int argc, char** argv)
 			// just recorded (Q/W/E/R, undo/redo, duplicate, delete, ...)
 			handleEditorShortcuts(state, editorCore, playSession,
 				sceneTarget.camera, window);
+
+			// the Scene RTT shows the scene sky only when the Display toggle asks
+			// (default off - the Game Preview / inset / Play RTTs keep their own
+			// full-sky targets). Idempotent: a no-op unless the flag changed.
+			if (sceneTarget.texture)
+			{
+				sceneTarget.texture->setSkyVisible(viewSettings.showSky);
+			}
 
 			// finalize the ImGui frame and resubmit its draw data as the
 			// facade 2D layer; renderOneFrame then composites it over the
@@ -6044,13 +6058,140 @@ int main(int argc, char** argv)
 						std::error_code rmErr;
 						std::filesystem::remove(dayPng, rmErr);
 						std::filesystem::remove(offPng, rmErr);
-						SDL_Log("orkige_editor: atmosphere selfcheck OK "
-							"(template + reload arming, live re-arm with "
-							"preset/override precedence, take-over promotion "
-							"and take-back, owner glyphs, day-sky preview "
-							"pixels)");
-						running = false;
+						// arm the Scene-view Sky toggle leg: re-enable the day
+						// atmosphere (frame 20 disabled it for the off capture)
+						// and leave the Scene RTT sky-less (showSky default off)
+						// so frame 25 can prove per-target suppression.
+						editorCore.setObjectProperty(atmosphereEnvId,
+							"AtmosphereComponent", "enabled", "1");
+						viewSettings.showSky = false;
+						atmoSkyLegArmed = true;
 					}
+				}
+			}
+			// Scene-view Sky toggle leg: with the day atmosphere armed, the Scene
+			// RTT (showSky off) must be sky-less while the Game Preview keeps the
+			// sky - the per-target suppression proof. Frame 25 captures both;
+			// frame 30 flips showSky on and proves the Scene RTT sky returns.
+			auto atmoSkyBand = [](std::string const& path, float& outLum) -> bool
+			{
+				std::vector<unsigned char> rgba;
+				int width = 0;
+				int height = 0;
+				if (!OrkigeEditor::decodeImageRgba(path, rgba, width, height) ||
+					width <= 0 || height <= 0)
+				{
+					return false;
+				}
+				double lum = 0.0;
+				std::size_t count = 0;
+				for (int y = height / 20; y < height / 4; y += 2)
+				{
+					for (int x = 0; x < width; x += 2)
+					{
+						const unsigned char* px = &rgba[
+							(static_cast<std::size_t>(y) * width + x) * 4];
+						lum += (px[0] + px[1] + px[2]) / 3.0;
+						++count;
+					}
+				}
+				outLum = count > 0 ? static_cast<float>(lum / count) : 0.0f;
+				return count > 0;
+			};
+			if (atmosphereSelfcheckEnv && atmoSkyLegArmed && exitCode == 0 &&
+				frameCount == 25)
+			{
+				auto atmoFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: atmosphere sky-toggle - FAILED: %s",
+						why.c_str());
+					exitCode = 23;
+					running = false;
+				};
+				const std::string sceneSkylessPng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_atmo_scene_skyless.png").string();
+				const std::string previewSkyPng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_atmo_preview_sky.png").string();
+				std::string capErr;
+				float previewLum = 0.0f;
+				// the Scene RTT rendered sky-less over the last frames (showSky
+				// off since frame 20); the Game Preview always renders full-sky
+				sceneTarget.texture->writeContentsToFile(sceneSkylessPng);
+				gamePreviewStage.update(gameObjectManager, "", false, 0.0f);
+				if (!atmoSkyBand(sceneSkylessPng, atmoSceneSkylessLum))
+				{
+					atmoFail("could not probe the sky-less Scene RTT band");
+				}
+				else if (!gamePreviewStage.renderAndCapture(previewSkyPng,
+					capErr) || !atmoSkyBand(previewSkyPng, previewLum))
+				{
+					atmoFail("could not capture the Game Preview sky band: " +
+						capErr);
+				}
+				// the Game Preview keeps the bright day sky; the Scene RTT shows
+				// its dark backdrop (sky-less) - MUCH darker, the per-target proof
+				else if (previewLum < 40.0f)
+				{
+					atmoFail("the Game Preview lost its sky while the Scene view "
+						"was toggled sky-less (preview lum " +
+						std::to_string(previewLum) + ")");
+				}
+				else if (atmoSceneSkylessLum > previewLum - 20.0f)
+				{
+					atmoFail("the Scene view is not sky-less with the Sky toggle "
+						"off (scene lum " + std::to_string(atmoSceneSkylessLum) +
+						" vs preview lum " + std::to_string(previewLum) + ")");
+				}
+				else
+				{
+					// flip the Scene-view Sky toggle ON for the frame-30 check
+					viewSettings.showSky = true;
+					std::error_code rmErr;
+					std::filesystem::remove(previewSkyPng, rmErr);
+				}
+			}
+			if (atmosphereSelfcheckEnv && atmoSkyLegArmed && exitCode == 0 &&
+				frameCount == 30)
+			{
+				auto atmoFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: atmosphere sky-toggle - FAILED: %s",
+						why.c_str());
+					exitCode = 23;
+					running = false;
+				};
+				const std::string sceneSkyPng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_atmo_scene_sky.png").string();
+				float sceneSkyLum = 0.0f;
+				// the Scene RTT rendered with the sky over the last frames
+				// (showSky on since frame 25)
+				sceneTarget.texture->writeContentsToFile(sceneSkyPng);
+				if (!atmoSkyBand(sceneSkyPng, sceneSkyLum))
+				{
+					atmoFail("could not probe the sky-on Scene RTT band");
+				}
+				// the same Scene view now shows the sky - clearly BRIGHTER than
+				// its sky-less band, proving the toggle drives the Scene RTT
+				else if (sceneSkyLum < atmoSceneSkylessLum + 20.0f)
+				{
+					atmoFail("the Sky toggle on did not bring the sky back to the "
+						"Scene view (sky-less lum " +
+						std::to_string(atmoSceneSkylessLum) + " vs sky-on lum " +
+						std::to_string(sceneSkyLum) + ")");
+				}
+				else
+				{
+					std::error_code rmErr;
+					std::filesystem::remove(sceneSkyPng, rmErr);
+					SDL_Log("orkige_editor: atmosphere selfcheck OK "
+						"(template + reload arming, live re-arm with "
+						"preset/override precedence, take-over promotion "
+						"and take-back, owner glyphs, day-sky preview "
+						"pixels, per-target Scene-view sky suppression)");
+					running = false;
 				}
 			}
 

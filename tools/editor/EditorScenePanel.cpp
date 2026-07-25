@@ -1263,6 +1263,13 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 						&viewSettings.showBoundingBoxes);
 					changed |= ImGui::Checkbox("Camera Frames",
 						&viewSettings.showAllCameraFrames);
+					// the scene atmosphere's visible sky in the Scene RTT only
+					// (default off - the Game Preview / inset / Play always show
+					// it). Objects stay lit + fogged like the game either way.
+					changed |= ImGui::Checkbox("Sky", &viewSettings.showSky);
+					ImGui::SetItemTooltip("Show the scene sky (dome / cubemap) in "
+						"the Scene view.\nThe Game Preview and Play always show "
+						"it. Lighting and fog are unaffected.");
 					if (changed)
 					{
 						viewSettings.save();

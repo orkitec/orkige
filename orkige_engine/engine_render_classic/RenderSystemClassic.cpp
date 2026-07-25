@@ -470,6 +470,11 @@ namespace Orkige
 		// coalesced static-region maintenance: membership/visibility changes
 		// since the last frame land as ONE rebuild (@see StaticBakeClassic.cpp)
 		RenderBackend::staticBakeFlush();
+		// re-resolve an enabled atmosphere's sun once if a directional light was
+		// added/removed/retyped since the last frame - before anything renders,
+		// so a sun authored ahead of its transform no longer bakes a red horizon
+		// sky into the load-time apply (@see flushAtmosphereSunReresolve)
+		RenderBackend::flushAtmosphereSunReresolve();
 		// the render exception net lives in Engine::renderOneFrame (the ONE entry
 		// the editor's frame loop AND this path both funnel through) - @see there
 		return this->mImpl->engine->renderOneFrame();

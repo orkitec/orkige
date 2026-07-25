@@ -351,6 +351,17 @@ protected:
 		//! tracks the sun (@see AtmosphereDesc).
 		void setAtmosphereSky(String const & skyType,
 			String const & skyboxTexture);
+		//! @brief toggle the enabled atmosphere's two PART switches -
+		//! engine:setAtmosphereParts(sky, fog)
+		//! @param sky the VISIBLE dome/cubemap/tint (false = no sky drawn, the
+		//! lighting drive + fog stay live)
+		//! @param fog the distance object fog (false = clear air, the dome +
+		//! lighting drive stay live)
+		//! @remarks STICKY like setAtmosphereSky: the two switches survive later
+		//! setAtmosphere/setAtmosphereBlend calls (those author the look/exposure
+		//! scalars, not the parts), until the next setAtmosphereParts. The master
+		//! `enabled` (the first setAtmosphere arg) gates both (@see AtmosphereDesc).
+		void setAtmosphereParts(bool sky, bool fog);
 		//! @brief opt into image-based lighting from Lua -
 		//! engine:setImageLighting(enabled, intensity)
 		//! @param enabled add cubemap-sourced reflections + diffuse fill to

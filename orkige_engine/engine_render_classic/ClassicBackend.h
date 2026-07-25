@@ -319,6 +319,12 @@ namespace Orkige
 		//! per-target scene visibility mask (RenderTexture::setVisibilityMask);
 		//! default all-visible. The Game Preview RTT masks off the editor-only bit.
 		unsigned int		visibilityMask = 0xFFFFFFFFu;
+		//! per-target sky visibility (RenderTexture::setSkyVisible): while false
+		//! the viewport disables the SceneManager sky box AND masks off the sky
+		//! dome's visibility bit (@see RenderBackend::SKY_DOME_VISIBILITY_FLAG),
+		//! so the sky never reaches this target (the editor Scene view sky-less
+		//! mode) while every other target keeps it
+		bool				skyVisible = true;
 
 		//! (re)create the backend texture + viewport from the state above
 		//! (resize-by-recreate, the editor's proven RTT pattern)
@@ -411,11 +417,29 @@ namespace Orkige
 		//! way (the caller then skips the live write).
 		static bool noteAuthoredSunColour(Ogre::Light* light,
 			Ogre::ColourValue const & colour, bool specular);
+		//! the visibility bit the gradient sky DOME carries so a render target
+		//! can mask it off (RenderTexture::setSkyVisible - the editor Scene
+		//! view's sky-less mode). A high user bit, distinct from the editor-only
+		//! bit and clear of the 2D/UI visibility scheme. The dome carries EXACTLY
+		//! this bit (like the editor-only geometry pattern), so a target whose
+		//! mask clears it hides the dome while the default all-bits mask shows it.
+		static unsigned int const SKY_DOME_VISIBILITY_FLAG = 0x00200000u;
 		//! recompute the live sky dome's vertex colours from the cached
 		//! atmosphere + the current sun (a no-op when no dome is up) AND
 		//! re-resolve the sun-exposure linkage. Called when the sun registry
 		//! changes (@see noteDirectionalLight).
 		static void refreshSkyDome();
+		//! @brief at the frame boundary, re-resolve an enabled atmosphere's sun
+		//! ONCE if a directional light was just added/removed/retyped
+		//! (noteDirectionalLight latched it). A sun authored ahead of its
+		//! transform in scene-load order makes the load-time refresh read the
+		//! still-identity node - a horizon sun, a red dome - and nothing
+		//! re-syncs once the transform composes (the forced _update only
+		//! composes the CURRENT, still-identity, orientation). This flush, run
+		//! before the frame renders, re-arms the whole sky from the composed
+		//! transform. Cheap: the latch only fires on a rare directional-set
+		//! change, never per animated-arc frame (mirrors the next flavor).
+		static void flushAtmosphereSunReresolve();
 		//! the cubemap the native sky box currently shows ("" = none) - the
 		//! image-lighting source (@see applyImageLighting)
 		static String const & activeSkyboxTexture();

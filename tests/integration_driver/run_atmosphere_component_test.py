@@ -130,6 +130,29 @@ def main():
         fail("the component sky band does not read as a day sky "
              "(lum %.1f, r %.1f, b %.1f)" % (luminance(day), day[0], day[2]))
 
+    # (2b) the red-sky-on-load regression: the SAME enabled DAY Environment,
+    # but authored BEFORE the Sun in file order (fixture_atmo_sunlast). The
+    # sun's light registers directional - and the atmosphere resolves its sky -
+    # before the sun's TransformComponent orients the node, so the load-time
+    # apply reads an identity (horizon) sun and bakes a RED sky; with no script
+    # to re-arm, only the frame-boundary sun re-resolve recovers it. The band
+    # must read as a DAY sky (never red-dominant) and match the sun-first day
+    # band closely - the load order must not change the result.
+    run_player(args, "fixture_atmo_sunlast.oscene", shot("sunlast"), 100)
+    sunlast = sky_band(decode_png(shot("sunlast")))
+    log("sun-last band: %s (day %s)" % (
+        ["%.1f" % c for c in sunlast], ["%.1f" % c for c in day]))
+    if luminance(sunlast) < DAY_BAND_LUM_MIN or sunlast[2] < sunlast[0] - 25.0:
+        fail("the sun-last scene shows a red/horizon sky on load - the "
+             "atmosphere resolved its sun before the transform composed "
+             "(lum %.1f, r %.1f, b %.1f)"
+             % (luminance(sunlast), sunlast[0], sunlast[2]))
+    if band_diff(day, sunlast) > NIGHT_DARKEN_MIN:
+        fail("the sun-last day sky differs from the sun-first day sky - the "
+             "scene-load order changed the atmosphere result (day %s, "
+             "sun-last %s)" % (["%.1f" % c for c in day],
+                               ["%.1f" % c for c in sunlast]))
+
     # (3) the switch: day at frame 60, promoted NIGHT by frame 130
     output = run_player(args, "fixture_atmo_switch.oscene",
                         shot("switch_day"), 160,

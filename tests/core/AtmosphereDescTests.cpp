@@ -36,6 +36,31 @@ TEST_CASE("AtmosphereDesc: the default is disabled and fog-free",
 	CHECK(desc.sunPower > 0.0f);
 	CHECK(desc.sunPower < 3.14159f);
 	CHECK(desc.ambientPower > 0.0f);
+	// both part switches default ON: an enabled atmosphere shows its dome AND
+	// its fog unless a field explicitly turns one off (byte-compatible with
+	// every existing caller/scene, which never named them)
+	CHECK(desc.sky);
+	CHECK(desc.fog);
+}
+
+TEST_CASE("AtmosphereDesc: named looks default both part switches on",
+	"[atmosphere]")
+{
+	// presets author the LOOK, not the part switches: forSky/blend leave sky/fog
+	// at their defaults (true), so a preset never silently hides the dome or fog
+	const AtmosphereDesc day =
+		AtmospherePreset::forSky(AtmospherePreset::SKY_DAY);
+	CHECK(day.sky);
+	CHECK(day.fog);
+	const AtmosphereDesc night =
+		AtmospherePreset::forSky(AtmospherePreset::SKY_NIGHT);
+	CHECK(night.sky);
+	CHECK(night.fog);
+	const AtmosphereDesc mid =
+		AtmospherePreset::blend(AtmospherePreset::SKY_DAY,
+			AtmospherePreset::SKY_NIGHT, 0.5f);
+	CHECK(mid.sky);
+	CHECK(mid.fog);
 }
 
 TEST_CASE("AtmosphereDesc: named looks are enabled and coherent",

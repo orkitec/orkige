@@ -278,6 +278,12 @@ struct ViewSettings
 	bool showColliders = false;			//!< RigidBodyComponent shape wireframes
 	bool showBoundingBoxes = false;		//!< world AABB of renderable objects
 	bool showAllCameraFrames = false;	//!< every camera's frustum + aspect rect
+	//! the scene ATMOSPHERE's visible sky (dome / cubemap) in the SCENE RTT.
+	//! DEFAULT OFF: the Scene view starts sky-less (RenderTexture::setSkyVisible),
+	//! while the Game Preview, the selected-camera inset and Play always show the
+	//! real sky. Objects stay lit + fogged like the game either way (only the sky
+	//! VISUAL is per-target; the lighting drive and object fog are global).
+	bool showSky = false;
 	//! 2D editor mode: the Scene viewport's OWN camera switches to an
 	//! orthographic top-down look at the XY plane (orbit/fly disabled, pan+zoom
 	//! kept, the transform gizmo constrains to that plane). A pure view/

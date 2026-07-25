@@ -1307,6 +1307,28 @@ def build_fixture_atmo():
     return s
 
 
+def build_fixture_atmo_sunlast():
+    """the red-sky-on-load regression: the enabled DAY Environment is authored
+    BEFORE the Sun in file order. The sun's directional light registers - and
+    the atmosphere resolves its sky - while the sun's TransformComponent has
+    not yet oriented the node (components serialize alphabetically, so a Sun
+    object always loads LightComponent before TransformComponent). Reading the
+    still-identity node yields a horizon sun and a red sky; with NO script to
+    re-arm per frame, only the frame-boundary sun re-resolve recovers it. The
+    captured sky must read as a DAY sky, not the red horizon. Same staging as
+    the other atmo fixtures, sun-last."""
+    s = SceneWriter()
+    environment_object(s, "day")
+    s.add("Sun",
+          s.transform(0.0, 20.0, 0.0, quat=(0.9239, -0.3827, 0.0, 0.0)),
+          s.light(light_type=0, colour=(1.0, 0.95, 0.85), intensity=1.1))
+    for i, x in enumerate((-2.5, 2.5)):
+        s.add("Prop%d" % i,
+              s.transform(x, -1.0, -6.0),
+              s.model("demo_material_cube.glb", "prop_rock.omat"))
+    return s
+
+
 def build_fixture_atmo_switch():
     """the take-over contract at runtime: EnvironmentA (day) owns at boot,
     EnvironmentB (night) is dormant; the driver script deactivates A at
@@ -1352,6 +1374,7 @@ FIXTURES = {
     "fixture_sprites.oscene": build_fixture_sprites,
     "fixture_atmo_control.oscene": build_fixture_atmo_control,
     "fixture_atmo.oscene": build_fixture_atmo,
+    "fixture_atmo_sunlast.oscene": build_fixture_atmo_sunlast,
     "fixture_atmo_switch.oscene": build_fixture_atmo_switch,
     "fixture_atmo_override.oscene": build_fixture_atmo_override,
 }

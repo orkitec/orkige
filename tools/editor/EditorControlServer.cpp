@@ -1237,16 +1237,18 @@ namespace Orkige
 				{ "get_view_options",
 				  "Read the Scene view display options (the toolbar Display "
 				  "dropdown): 'show_grid', 'show_colliders', 'show_bounding_boxes', "
-				  "'show_all_camera_frames', 'show_view_gizmo' and 'mode_2d', each "
-				  "'1'/'0'. Pair with screenshot_editor to verify an overlay "
-				  "visually.", {} },
+				  "'show_all_camera_frames', 'show_sky', 'show_view_gizmo' and "
+				  "'mode_2d', each '1'/'0'. Pair with screenshot_editor to verify "
+				  "an overlay visually.", {} },
 				{ "set_view_option",
 				  "Set one Scene view display option (persisted like the toolbar "
 				  "dropdown). 'option' is one of grid/colliders/bounding_boxes/"
-				  "camera_frames/view_gizmo/mode_2d; 'value' is '1' or '0'. Takes "
+				  "camera_frames/sky/view_gizmo/mode_2d; 'value' is '1' or '0'. "
+				  "'sky' shows the scene sky (dome/cubemap) in the Scene view "
+				  "(default off; the Game Preview and Play always show it). Takes "
 				  "effect on the next editor frame.",
 				  { { "option", "string",
-				      "grid | colliders | bounding_boxes | camera_frames | "
+				      "grid | colliders | bounding_boxes | camera_frames | sky | "
 				      "view_gizmo | mode_2d", true },
 				    { "value", "string", "'1' on, '0' off", true } } },
 				{ "undo", "Undo the last command.", {} },
@@ -3334,6 +3336,7 @@ namespace Orkige
 					gViewSettings->showBoundingBoxes ? "1" : "0");
 				ok.set("show_all_camera_frames",
 					gViewSettings->showAllCameraFrames ? "1" : "0");
+				ok.set("show_sky", gViewSettings->showSky ? "1" : "0");
 				ok.set("show_view_gizmo",
 					gViewSettings->showViewGizmo ? "1" : "0");
 				ok.set("mode_2d", gViewSettings->editor2D ? "1" : "0");
@@ -3364,6 +3367,7 @@ namespace Orkige
 			{
 				target = &gViewSettings->showAllCameraFrames;
 			}
+			else if (option == "sky") { target = &gViewSettings->showSky; }
 			else if (option == "view_gizmo")
 			{
 				target = &gViewSettings->showViewGizmo;
@@ -3372,7 +3376,7 @@ namespace Orkige
 			if (target == nullptr)
 			{
 				this->sendErr(req, "unknown view option '" + option + "' (use "
-					"grid/colliders/bounding_boxes/camera_frames/view_gizmo/"
+					"grid/colliders/bounding_boxes/camera_frames/sky/view_gizmo/"
 					"mode_2d)");
 				return;
 			}
@@ -7276,6 +7280,42 @@ namespace Orkige
 			{
 				finish(false, "control self-test: restoring the colliders "
 					"overlay failed");
+				return;
+			}
+			// the Scene-view Sky toggle: defaults off (the Scene view starts
+			// sky-less), reads back on when set, restores. Re-read first: the
+			// last call above was a set_view_option, whose reply omits show_sky.
+			if (!callTool("get_view_options", JsonValue::object(), true,
+					structured, isError) || isError ||
+				structured.get("show_sky").asString() != "0")
+			{
+				finish(false, "control self-test: the Scene-view sky should "
+					"default off");
+				return;
+			}
+			JsonValue skyArgs = JsonValue::object();
+			skyArgs.set("option", JsonValue("sky"));
+			skyArgs.set("value", JsonValue("1"));
+			if (!callTool("set_view_option", skyArgs, true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: set_view_option sky failed");
+				return;
+			}
+			if (!callTool("get_view_options", JsonValue::object(), true,
+					structured, isError) || isError ||
+				structured.get("show_sky").asString() != "1")
+			{
+				finish(false, "control self-test: the Scene-view sky did not "
+					"read back on");
+				return;
+			}
+			skyArgs.set("value", JsonValue("0"));
+			if (!callTool("set_view_option", skyArgs, true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: restoring the Scene-view sky "
+					"failed");
 				return;
 			}
 			SDL_Log("orkige_editor: control self-test - view options OK");

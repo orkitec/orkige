@@ -165,7 +165,10 @@ namespace Orkige
 					targetDefinition->addPass(Ogre::PASS_SCENE));
 			scenePass->setAllLoadActions(Ogre::LoadAction::Clear);
 			scenePass->setAllClearColours(this->background);
-			scenePass->mFirstRQ = 0;
+			// skip the sky render queue (kSkyRenderQueue = 0, sky-only) when this
+			// target suppresses the sky (@see RenderTexture::setSkyVisible); the
+			// clear colour then shows through where the dome would have drawn
+			scenePass->mFirstRQ = this->skyVisible ? 0u : 1u;
 			scenePass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
 			// per-target visibility: a mesh renders here only where its
 			// MeshInstance visibility flags overlap this mask (the Game
@@ -297,6 +300,26 @@ namespace Orkige
 			// editor-frequency path, same as setBackgroundColour/setShadowsEnabled)
 			this->mImpl->recreate();
 		}
+	}
+	//---------------------------------------------------------
+	void RenderTexture::setSkyVisible(bool visible)
+	{
+		if(this->mImpl->skyVisible == visible)
+		{
+			return;
+		}
+		this->mImpl->skyVisible = visible;
+		if(this->mImpl->workspace)
+		{
+			// the sky-queue skip lives in the scene-pass definition - rebuild
+			// (the cheap editor-frequency path, same as setVisibilityMask)
+			this->mImpl->recreate();
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderTexture::getSkyVisible() const
+	{
+		return this->mImpl->skyVisible;
 	}
 	//---------------------------------------------------------
 	void RenderTexture::resize(unsigned int width, unsigned int height)

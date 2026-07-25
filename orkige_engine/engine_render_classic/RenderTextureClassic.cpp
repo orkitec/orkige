@@ -116,8 +116,12 @@ namespace Orkige
 			RenderBackend::shadowsArmed());
 		// per-target visibility: a mesh renders here only where its MeshInstance
 		// visibility flags overlap this mask (the Game Preview RTT masks off the
-		// editor-only bit so the grid / frustum gizmos stay out)
-		viewport->setVisibilityMask(this->visibilityMask);
+		// editor-only bit so the grid / frustum gizmos stay out). A sky-less
+		// target ALSO clears the sky-dome bit (the dome carries exactly that bit)
+		// and disables the SceneManager sky box, so no sky reaches it.
+		viewport->setVisibilityMask(this->skyVisible ? this->visibilityMask
+			: (this->visibilityMask & ~RenderBackend::SKY_DOME_VISIBILITY_FLAG));
+		viewport->setSkiesEnabled(this->skyVisible);
 	}
 	//---------------------------------------------------------
 	RenderTexture::RenderTexture()
@@ -166,6 +170,17 @@ namespace Orkige
 	{
 		this->mImpl->visibilityMask = mask;
 		this->mImpl->applyViewportState();
+	}
+	//---------------------------------------------------------
+	void RenderTexture::setSkyVisible(bool visible)
+	{
+		this->mImpl->skyVisible = visible;
+		this->mImpl->applyViewportState();
+	}
+	//---------------------------------------------------------
+	bool RenderTexture::getSkyVisible() const
+	{
+		return this->mImpl->skyVisible;
 	}
 	//---------------------------------------------------------
 	void RenderTexture::resize(unsigned int width, unsigned int height)

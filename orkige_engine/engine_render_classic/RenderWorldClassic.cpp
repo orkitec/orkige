@@ -217,7 +217,9 @@ namespace Orkige
 				const SkyTerms terms = skyTerms(faded,
 					{ toSun.x, toSun.y, toSun.z }, sunHeight);
 				AtmosphereFogState fogState;
-				fogState.enabled = desc.fogDensity > 0.0f;
+				// the `fog` part switch drops the atmospheric object fog while
+				// the dome + sun linkage stay live (@see AtmosphereDesc::fog)
+				fogState.enabled = desc.fog && desc.fogDensity > 0.0f;
 				fogState.fogDensity = desc.fogDensity;
 				fogState.sunDir = toSun;
 				fogState.sunHeight = sunHeight;
@@ -577,6 +579,12 @@ namespace Orkige
 					RenderBackend::generateName("Orkige/SkyDome"));
 				skyDome->setRenderQueueGroup(Ogre::RENDER_QUEUE_SKIES_EARLY);
 				skyDome->setCastShadows(false);
+				// carry EXACTLY the sky-dome visibility bit so a render target
+				// can mask the dome off (RenderTexture::setSkyVisible - the
+				// editor Scene view's sky-less mode); the default all-bits
+				// target mask still shows it everywhere else
+				skyDome->setVisibilityFlags(
+					RenderBackend::SKY_DOME_VISIBILITY_FLAG);
 				skyNode = sceneManager->getRootSceneNode()->createChildSceneNode();
 				skyNode->attachObject(skyDome);
 				gSkyDomeNode = skyNode;
@@ -973,7 +981,7 @@ namespace Orkige
 		// below-horizon floor. A disabled atmosphere keeps the plain tint.
 		if(RenderSystem* system = RenderSystem::get())
 		{
-			if(desc.enabled)
+			if(desc.enabled && desc.sky)
 			{
 				const Ogre::Vector3 toSun = resolveSunDirection();
 				const SkyEnvMap::Colour horizon = SkyEnvMap::skyColour(
@@ -984,6 +992,9 @@ namespace Orkige
 			}
 			else
 			{
+				// disabled, OR the `sky` part switch hid the dome: the flat raw
+				// tint clear (no dome draws over it, so the evaluated horizon
+				// would be a stale sky colour behind hidden geometry)
 				system->setWindowBackgroundColour(
 					Color(desc.skyRed, desc.skyGreen, desc.skyBlue));
 			}
@@ -1003,7 +1014,7 @@ namespace Orkige
 		// exp(-distance * density) at density = fogDensity * ln2 (the earlier
 		// FOG_EXP2 gaussian exp(-(d*density)^2) under-fogged the whole 5-100
 		// unit range at these small densities).
-		if(desc.enabled && desc.fogDensity > 0.0f)
+		if(desc.enabled && desc.fog && desc.fogDensity > 0.0f)
 		{
 			const float ln2 = 0.6931472f;
 			this->mImpl->sceneManager->setFog(Ogre::FOG_EXP,
@@ -1020,7 +1031,18 @@ namespace Orkige
 		// contract, so a skybox/colour scene keeps the same day/night arc
 		if(desc.enabled)
 		{
-			if(desc.skyType == AtmosphereSky::ST_PROCEDURAL)
+			if(!desc.sky)
+			{
+				// the `sky` part switch hides the visible dome/cubemap entirely
+				// (fog + sun linkage below stay live): nothing draws over the
+				// flat sky-tint clear, whatever the type
+				if(this->mImpl->skyDome)
+				{
+					this->mImpl->skyDome->setVisible(false);
+				}
+				applySkyBox(this->mImpl->sceneManager, String());
+			}
+			else if(desc.skyType == AtmosphereSky::ST_PROCEDURAL)
 			{
 				applySkyBox(this->mImpl->sceneManager, String());
 				// the gradient sky dome: build/refresh it while enabled (kept

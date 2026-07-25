@@ -1196,6 +1196,10 @@ AtmosphereComponent:setEnabled(enabled) -> nil  -- master switch of the armed de
 AtmosphereComponent:getEnabled() -> bool  -- the armed desc's master switch
 AtmosphereComponent:setPreset(name) -> nil  -- seed every look field from a named preset ('day'/'sunset'/'night'; 'custom' seeds nothing; unknown words warn and keep the state)
 AtmosphereComponent:getPreset() -> string  -- the last seed word
+AtmosphereComponent:setSky(sky) -> nil  -- the visible-sky part switch: false hides the dome/cubemap while the lighting drive + fog stay live (independent of the preset)
+AtmosphereComponent:getSky() -> bool  -- whether the visible sky part is on
+AtmosphereComponent:setFog(fog) -> nil  -- the distance-fog part switch: false drops the object fog while the dome + lighting drive stay live (independent of the preset)
+AtmosphereComponent:getFog() -> bool  -- whether the distance-fog part is on
 AtmosphereComponent:setSkyColour(r, g, b) -> nil  -- zenith sky tint, linear 0..1
 AtmosphereComponent:setSkyPower(power) -> nil  -- HDR sky-dome brightness multiplier (1 = neutral)
 AtmosphereComponent:getSkyPower() -> number  -- the sky-dome brightness multiplier
@@ -1210,6 +1214,8 @@ AtmosphereComponent:getFogDensity() -> number  -- the object-fog density
 AtmosphereComponent:setFogColour(r, g, b) -> nil  -- fog colour, linear 0..1 (classic fixed-function fallback fog)
 AtmosphereComponent.enabled
 AtmosphereComponent.preset
+AtmosphereComponent.sky
+AtmosphereComponent.fog
 AtmosphereComponent.skyColour
 AtmosphereComponent.skyPower
 AtmosphereComponent.density
@@ -1306,6 +1312,7 @@ Engine:setWindowBackgroundColour(...)
 Engine:setAtmosphere(enabled, skyRed, skyGreen, skyBlue, density, fogDensity) -> nil  -- set the scene sky/fog atmosphere; sun = the first directional light (next renders the native atmospheric dome, classic a gradient-dome subset)
 Engine:setAtmosphereBlend(...)
 Engine:setAtmosphereSky(skyType, skyboxTexture) -> nil  -- choose the sky visual: 'procedural' (default), 'skybox' (a cubemap .dds resource, e.g. baked by make_sky_assets.py) or 'colour' (flat sky tint); sticky across setAtmosphere/setAtmosphereBlend calls - fog and the sun drive are sky-type-independent
+Engine:setAtmosphereParts(sky, fog) -> nil  -- toggle the enabled atmosphere's two part switches: sky = the visible dome/cubemap (false keeps lighting + fog, drops the sky), fog = the distance object fog (false keeps the dome + lighting); sticky across setAtmosphere/setAtmosphereBlend calls, gated by the master enabled
 Engine:setImageLighting(enabled, intensity) -> nil  -- opt into image-based lighting sourced from the skybox cubemap the enabled atmosphere shows: cubemap specular reflections + a diffuse fill ADDED to the analytic lights on PBS materials, intensity scaling the added part; sticky like the atmosphere, OFF by default (off renders byte-identically). Quality tiers ride the r.iblQuality cvar; enabling under a procedural/colour sky logs one honest line and renders unchanged. Probe: engine:supports('iblReflections')
 Engine:setBloom(enabled, threshold, intensity) -> nil  -- set the scene's LDR bloom (a highlight glow on the 3D tier); default OFF and byte-identical when disabled. threshold is the bright-pass luminance cutoff in [0,1) (near-white highlights bloom), intensity scales the additive glow. The 2D tier (sprites/vector shapes/gui) stays crisp; the r.bloomQuality cvar sets the blur budget. Renders on both flavors (next = compositor quad chain, classic = viewport compositor); a GLES2/WebGL classic context is runtime-gated and degrades honestly
 Engine:setGrade(...)

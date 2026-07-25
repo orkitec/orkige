@@ -119,6 +119,11 @@ namespace Orkige
 		// 2D layer upkeep: UI camera follows window resizes, painter
 		// depths reassign after layer/batch changes (DrawLayer2DNext.cpp)
 		RenderBackend::updateDrawLayer2DFrame();
+		// re-resolve an enabled atmosphere's sun once if a directional light was
+		// added/removed/retyped since the last frame - before anything renders,
+		// so a sun authored ahead of its transform no longer bakes a red
+		// horizon sky into the load-time apply (@see flushAtmosphereSunReresolve)
+		RenderBackend::flushAtmosphereSunReresolve();
 		// the Metal RS never passes through _beginFrameOnce's per-frame
 		// metrics reset, so RenderingMetrics accumulate forever - reset
 		// here so getFrameStats reports the LAST frame (classic semantics)

@@ -63,8 +63,11 @@ namespace Orkige
 	//! @brief pure, renderer-independent description of a scene's sky/fog
 	//! atmosphere - what RenderWorld::setAtmosphere consumes.
 	//!
-	//! Deliberately minimal + honest: a master switch, a sky tint + a couple of
-	//! look scalars, and one exponential per-object fog knob. Colours are plain
+	//! Deliberately minimal + honest: a master switch (@c enabled), two part
+	//! switches under it (@c sky = the visible dome, @c fog = the distance fog -
+	//! either can be turned off while the other and the sun/ambient lighting
+	//! drive stay live), a sky tint + a couple of look scalars, and one
+	//! exponential per-object fog knob. Colours are plain
 	//! linear [0;1] floats (this header sits below the render math layer, so it
 	//! carries no Color type) - the backends map them to their native colour
 	//! type. The SUN is NOT in here: the atmosphere links to the FIRST
@@ -139,6 +142,19 @@ namespace Orkige
 	{
 		bool	enabled;		//!< master switch: false = plain clear background, no fog
 
+		//--- component switches (an enabled atmosphere's parts) ---
+		//! the VISIBLE sky. true = the sky dome / cubemap / flat tint draws (per
+		//! skyType); false = no sky renders, but the lighting drive (sun colour/
+		//! power, ambient) and fog stay live - the "lit like day, no dome" state.
+		//! The procedural sky IBL environment sources from the visible sky, so
+		//! sky=false leaves an enabled image-lighting opt-in with no source (the
+		//! honest no-environment refusal). Only meaningful while enabled.
+		bool	sky;
+		//! the distance FOG. true = per-object exponential fog draws (fogDensity);
+		//! false = no object fog, while the sky dome + lighting drive stay live.
+		//! Only meaningful while enabled.
+		bool	fog;
+
 		//--- sky visual type ---
 		AtmosphereSky::Type	skyType;	//!< what fills the sky pixels (@see AtmosphereSky)
 		String	skyboxTexture;	//!< cubemap resource name for ST_SKYBOX (a single
@@ -168,6 +184,8 @@ namespace Orkige
 		//! enabled-only desc lights surfaces without blowing out to white.
 		AtmosphereDesc()
 			: enabled(false)
+			, sky(true)
+			, fog(true)
 			, skyType(AtmosphereSky::ST_PROCEDURAL)
 			, skyRed(0.334f), skyGreen(0.57f), skyBlue(1.0f)
 			, skyPower(1.0f)

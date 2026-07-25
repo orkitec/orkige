@@ -70,6 +70,17 @@ TEST_CASE("AtmosphereComponent declares its reflected schema with preset "
 	REQUIRE(preset != nullptr);
 	CHECK(preset->kind == PropertyKind::String);
 
+	// the two PART switches are Bool and sit AFTER preset in declaration order
+	// (so a load applies them after the preset seed), yet they are NOT
+	// preset-seeded look fields - a preset never touches them
+	for(char const * name : { "sky", "fog" })
+	{
+		PropertyDesc const * desc = schema->find(name);
+		INFO("property " << name);
+		REQUIRE(desc != nullptr);
+		CHECK(desc->kind == PropertyKind::Bool);
+	}
+
 	for(char const * name : { "skyPower", "density", "sunPower",
 		"ambientPower", "fogDensity" })
 	{
@@ -108,6 +119,66 @@ TEST_CASE("AtmosphereComponent declares its reflected schema with preset "
 	REQUIRE(presetIndex >= 0);
 	REQUIRE(firstLookIndex >= 0);
 	CHECK(presetIndex < firstLookIndex);
+
+	// the sky/fog part switches are declared after preset too (so a serialized
+	// preset re-seeds first and a serialized part switch applies after - a
+	// load never has the preset silently turn a hidden part back on)
+	int skyIndex = -1;
+	int fogIndex = -1;
+	index = 0;
+	for(PropertyDesc const & desc : schema->properties())
+	{
+		if(desc.name == "sky") { skyIndex = index; }
+		else if(desc.name == "fog") { fogIndex = index; }
+		++index;
+	}
+	REQUIRE(skyIndex >= 0);
+	REQUIRE(fogIndex >= 0);
+	CHECK(presetIndex < skyIndex);
+	CHECK(presetIndex < fogIndex);
+}
+//---------------------------------------------------------
+TEST_CASE("AtmosphereComponent part switches default on, round-trip and "
+	"survive a preset reseed", "[atmosphere]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	AtmosphereComponent atmosphere;
+	// both parts default ON (a placed Environment shows its dome AND its fog)
+	CHECK(atmosphere.getSky());
+	CHECK(atmosphere.getFog());
+	// they ride the armed desc alongside the master switch
+	CHECK(atmosphere.buildDesc().sky);
+	CHECK(atmosphere.buildDesc().fog);
+
+	// toggling a part is independent of enabled and of every look field
+	atmosphere.setSky(false);
+	CHECK_FALSE(atmosphere.getSky());
+	CHECK(atmosphere.getFog());
+	CHECK_FALSE(atmosphere.buildDesc().sky);
+	CHECK(atmosphere.getEnabled());			// master untouched
+
+	// a PRESET RESEED must NOT clobber the parts (presets author the look, not
+	// the switches - a reseed that turned a hidden dome back on would be a trap)
+	atmosphere.setPreset("night");
+	CHECK_FALSE(atmosphere.getSky());		// still hidden
+	CHECK(atmosphere.getFog());
+	atmosphere.setFog(false);
+	atmosphere.setPreset("day");
+	CHECK_FALSE(atmosphere.getSky());
+	CHECK_FALSE(atmosphere.getFog());
+
+	// the reflected registry drives both (Inspector/serialization/MCP path)
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		AtmosphereComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+	Object * instance = &atmosphere;
+	PropertyDesc const * sky = schema->find("sky");
+	REQUIRE(sky != nullptr);
+	sky->set(instance, PropertyValue::makeBool(true));
+	CHECK(atmosphere.getSky());
+	CHECK(sky->get(instance).asBool());
 }
 //---------------------------------------------------------
 TEST_CASE("AtmosphereComponent presets seed and explicit fields override",

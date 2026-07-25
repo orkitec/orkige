@@ -171,9 +171,29 @@ namespace Orkige
 		{
 			// seed EVERY look field from the tested preset; the explicit field
 			// setters then override individual values (the precedence rule).
-			// mEnabled stays what it is - the master switch is independent.
+			// mEnabled stays what it is - the master switch is independent. The
+			// sky/fog PART switches are look fields the preset does NOT own, so
+			// carry them across the reseed (forSky returns them at their true
+			// defaults - a reseed must never silently turn a hidden dome/fog back
+			// on).
+			const bool keepSky = this->mDesc.sky;
+			const bool keepFog = this->mDesc.fog;
 			this->mDesc = AtmospherePreset::forSky(sky);
+			this->mDesc.sky = keepSky;
+			this->mDesc.fog = keepFog;
 		}
+		this->applyIfOwner();
+	}
+	//---------------------------------------------------------
+	void AtmosphereComponent::setSky(bool sky)
+	{
+		this->mDesc.sky = sky;
+		this->applyIfOwner();
+	}
+	//---------------------------------------------------------
+	void AtmosphereComponent::setFog(bool fog)
+	{
+		this->mDesc.fog = fog;
 		this->applyIfOwner();
 	}
 	//---------------------------------------------------------
@@ -297,6 +317,10 @@ namespace Orkige
 		OFUNC(getEnabled)
 		OFUNC(setPreset)
 		OFUNC(getPreset)
+		OFUNC(setSky)
+		OFUNC(getSky)
+		OFUNC(setFog)
+		OFUNC(getFog)
 		OFUNC(setSkyColour)
 		OFUNC(setSkyPower)
 		OFUNC(getSkyPower)
@@ -314,6 +338,12 @@ namespace Orkige
 		// apply in this order, so seeded-then-overridden state round-trips)
 		OPROPERTY("enabled", Orkige::PropertyKind::Bool, getEnabled, setEnabled, Orkige::PROP_NONE)
 		OPROPERTY("preset", Orkige::PropertyKind::String, getPreset, setPreset, Orkige::PROP_NONE)
+		// the two PART switches sit AFTER preset (so a load applies them after
+		// the preset seed, never clobbered by it) but are NOT preset-seeded look
+		// fields - the master enabled gates both, sky = the visible dome, fog =
+		// the distance fog (@see AtmosphereDesc::sky / fog)
+		OPROPERTY("sky", Orkige::PropertyKind::Bool, getSky, setSky, Orkige::PROP_NONE)
+		OPROPERTY("fog", Orkige::PropertyKind::Bool, getFog, setFog, Orkige::PROP_NONE)
 		OPROPERTY("skyColour", Orkige::PropertyKind::Color, getSkyColour, setSkyColourValue, Orkige::PROP_NONE)
 		OPROPERTY("skyPower", Orkige::PropertyKind::Float, getSkyPower, setSkyPower, Orkige::PROP_NONE)
 		OPROPERTY("density", Orkige::PropertyKind::Float, getDensity, setDensity, Orkige::PROP_NONE)
@@ -330,6 +360,10 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(getEnabled)
 			OWEAKHANDLE_BASEMETHOD(setPreset)
 			OWEAKHANDLE_BASEMETHOD(getPreset)
+			OWEAKHANDLE_BASEMETHOD(setSky)
+			OWEAKHANDLE_BASEMETHOD(getSky)
+			OWEAKHANDLE_BASEMETHOD(setFog)
+			OWEAKHANDLE_BASEMETHOD(getFog)
 			OWEAKHANDLE_BASEMETHOD(setSkyColour)
 			OWEAKHANDLE_BASEMETHOD(setSkyPower)
 			OWEAKHANDLE_BASEMETHOD(getSkyPower)

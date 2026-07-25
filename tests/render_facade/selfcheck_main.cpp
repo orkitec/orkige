@@ -1664,6 +1664,29 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		SELFCHECK(skyOnLum > skyOffLum + 0.1f,
 			"enabling the atmosphere brightens the sky background");
 
+		// the `sky` PART switch: enabled atmosphere, dome/cubemap hidden (fog +
+		// lighting stay live). The visible sky must drop back toward the no-sky
+		// clear - materially DIFFERENT from the dome-on band above, proving the
+		// dome is suppressed without disabling the whole atmosphere.
+		AtmosphereDesc skyHiddenDesc = onDesc;
+		skyHiddenDesc.sky = false;	// fog stays true
+		world->setAtmosphere(skyHiddenDesc);
+		SELFCHECK(world->getAtmosphere().enabled && !world->getAtmosphere().sky,
+			"the sky-hidden desc round-trips (enabled, sky off)");
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render with the sky part switch off");
+		const std::string skyHiddenShot =
+			outDir + "/selfcheck_atmosphere_skyoff.png";
+		renderSystem->saveWindowContents(skyHiddenShot);
+		float skyHiddenLum = 0;
+		SELFCHECK(blockLuminance(skyHiddenShot, skyX, skyY, skyHiddenLum),
+			"the sky-hidden sky probe decodes");
+		std::printf("render_facade_selfcheck: atmosphere sky part - on %.3f, "
+			"sky-off %.3f\n", skyOnLum, skyHiddenLum);
+		SELFCHECK(std::abs(skyOnLum - skyHiddenLum) > 0.1f,
+			"hiding the sky part suppresses the dome (band differs from sky-on)");
+		world->setAtmosphere(onDesc);	// restore for the sky-type blocks below
+
 		// capability honesty: a shadowless-of-sky flavor says so ONCE
 		if(RenderSystem::get()->supports(RenderCaps::SkyDome))
 		{
@@ -2438,6 +2461,32 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		const float fogDelta = std::abs(objFoggyLum - objClearLum);
 		SELFCHECK(fogDelta > 0.2f * std::max(objClearLum, 0.03f),
 			"fog changes the distant object's contrast");
+
+		// the `fog` PART switch: the SAME heavy fogDensity, but fog=false must
+		// suppress the object fog entirely (the dome + lighting stay live). The
+		// object reads back at its clear luminance - the switch beats the density.
+		AtmosphereDesc fogSwitchedOffDesc = foggyDesc;
+		fogSwitchedOffDesc.fog = false;	// sky stays true, fogDensity stays 1.0
+		world->setAtmosphere(fogSwitchedOffDesc);
+		SELFCHECK(world->getAtmosphere().enabled && world->getAtmosphere().sky &&
+			!world->getAtmosphere().fog,
+			"the fog-off desc round-trips (enabled, sky on, fog off)");
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render with the fog part switch off");
+		const std::string fogSwitchOffShot =
+			outDir + "/selfcheck_fog_switchoff.png";
+		renderSystem->saveWindowContents(fogSwitchOffShot);
+		float objSwitchOffLum = 0;
+		SELFCHECK(blockLuminance(fogSwitchOffShot, fogObjX, fogObjY,
+			objSwitchOffLum), "the fog-switched-off object probe decodes");
+		std::printf("render_facade_selfcheck: fog part - foggy %.3f, "
+			"switch-off %.3f, clear %.3f\n", objFoggyLum, objSwitchOffLum,
+			objClearLum);
+		// the switch pulls the object back to (near) its clear reading - much
+		// closer to clear than to the heavy-fog reading it started from
+		SELFCHECK(std::abs(objSwitchOffLum - objClearLum) <
+			std::abs(objSwitchOffLum - objFoggyLum),
+			"the fog part switch suppresses fog despite the density (clear-like)");
 
 		// restore the neutral state + tear the atmosphere probe content down
 		world->setAtmosphere(AtmosphereDesc());	// disabled

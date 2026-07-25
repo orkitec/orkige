@@ -85,6 +85,23 @@ namespace Orkige
 		//! map: classic=Viewport::setVisibilityMask | next=CompositorPassSceneDef::setVisibilityMask (rebuilt into the workspace) | filament=View::setVisibleLayers
 		void setVisibilityMask(unsigned int mask);
 
+		//! @brief whether the scene ATMOSPHERE's visible sky (the procedural
+		//! dome / cubemap sky) renders INTO this target. Default true (every
+		//! target shows the sky the enabled atmosphere draws). The editor's
+		//! Scene RTT sets false so the Scene view starts sky-less while the Game
+		//! Preview / camera inset / player keep the real sky - a PER-TARGET
+		//! suppression of GLOBAL atmosphere state (the sky is one dome shared by
+		//! every target, so it cannot be turned off per-target through the
+		//! atmosphere desc). Only the SKY VISUAL is per-target here: the sun/
+		//! ambient LIGHTING drive and the distance FOG are global scene state
+		//! (objects stay lit + fogged like the game in every target).
+		//! map: classic=Viewport::setSkiesEnabled + a sky-dome visibility bit |
+		//! next=exclude the sky render queue from this target's scene pass |
+		//! filament=View skybox toggle
+		void setSkyVisible(bool visible);
+		//! @see RenderTexture::setSkyVisible (default true)
+		bool getSkyVisible() const;
+
 		//! @brief recreate the target at a new size (editor panel resize);
 		//! keeps camera and viewport settings
 		void resize(unsigned int width, unsigned int height);

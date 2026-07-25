@@ -362,10 +362,40 @@ vocabulary) SEEDS every look field when set; the explicit fields
 (`skyColour`/`skyPower`/`density`/`sunPower`/`ambientPower`/`fogDensity`/
 `fogColour`) then override individual values and are the stored truth. The
 schema declares `preset` before the fields and loads apply in declaration
-order, so a seeded-then-overridden look round-trips exactly. `enabled` maps
-to `AtmosphereDesc::enabled` independently (an owner with `enabled=false`
-arms the authored "no sky"). The sky VISUAL stays the procedural dome —
-cubemap skies remain `engine:setAtmosphereSky` script territory.
+order, so a seeded-then-overridden look round-trips exactly. The sky VISUAL
+stays the procedural dome — cubemap skies remain `engine:setAtmosphereSky`
+script territory.
+
+**Three switches — the master and its two parts.** `enabled`
+(`AtmosphereDesc::enabled`) is the master: false arms the authored "no sky"
+(plain clear, no fog, no lighting drive). Under it sit two independent part
+switches, both defaulting ON and declared AFTER `preset` (so a preset reseed
+never turns a hidden part back on — presets author the LOOK, not the
+switches):
+
+- `sky` — the VISIBLE dome/cubemap. Off = no sky drawn, but the sun/ambient
+  lighting drive and the fog stay live (objects stay lit + fogged, just no
+  dome). The procedural IBL environment sources from the visible sky, so
+  `sky=false` leaves an enabled image-lighting opt-in with no source (the
+  honest no-environment refusal, said once).
+- `fog` — the distance object fog. Off = clear air, while the dome and
+  lighting drive stay live.
+
+Scripts toggle the parts through `engine:setAtmosphereParts(sky, fog)`
+(sticky like `setAtmosphereSky` — the two switches survive later
+`setAtmosphere`/`setAtmosphereBlend` look calls).
+
+**Sun resolution on load** — the atmosphere links to the FIRST directional
+light and reads its node direction as the sun. A sun authored ahead of its
+transform in scene-load order (components serialize alphabetically, so a Sun
+object always loads `LightComponent` before `TransformComponent`) would make
+the load-time apply read a still-identity node — a horizon sun, a red sky —
+and nothing re-synced once the transform composed. Both backends now latch a
+one-shot sun re-resolve at the next frame boundary (when every scene
+transform is composed), so an Environment-before-Sun scene boots the correct
+sky on its first rendered frame (`RenderSystem::flushAtmosphereSunReresolve`,
+the `player_atmosphere` `fixture_atmo_sunlast` leg; the latch fires only on a
+directional-set change, never per animated-arc frame).
 
 **Take-over contract** (the atmosphere is global render state): the FIRST
 instance in add order whose object is active in the hierarchy OWNS the world
@@ -383,17 +413,35 @@ before scripts ever tick; it never re-applies per frame, so a script's
 the next ownership change (the benchmark's day-arc director rides exactly
 this: each vignette's `Environment` object carries the ENTRY look, the
 director drives the arc on top). The EDITOR arms the component on scene load
-and re-arms live on every property edit — render state only — so the Scene
-view and the Game Preview show the authored sky; a fresh File > New Scene
-ships an "Environment" object (enabled DAY preset) beside the Main Camera.
+and re-arms live on every property edit — render state only — so the Game
+Preview shows the authored sky; a fresh File > New Scene ships an
+"Environment" object (enabled DAY preset) beside the Main Camera.
 
-Tests: `AtmosphereComponentTests` (unit: schema/precedence/ownership),
-`player_atmosphere` (both flavors: a scriptless component scene boots the
-sky vs a component-less control, activation promotes the night sibling
-mid-run, a script override beats the base) and `editor_atmosphere` (both
-flavors: template + reload arming, live re-arm, owner glyphs, Game Preview
-sky pixels); MCP coverage rides the `editor_control` AtmosphereComponent
-leg.
+**Scene-view Sky toggle** (Display dropdown, DEFAULT OFF): the Scene viewport
+starts sky-less while the Game Preview panel, the selected-camera inset and
+Play always show the real sky. This is a PER-TARGET suppression of global
+atmosphere state — the sky is one dome shared by every render target, so it
+cannot be turned off per-target through the desc. Only the sky VISUAL is
+per-target here (`RenderTexture::setSkyVisible`: next skips the sky-only
+render queue from the Scene RTT's scene pass; classic disables the viewport's
+sky box and masks off the dome's visibility bit). The sun/ambient lighting
+drive and the distance FOG are global scene state and stay in every target
+(objects stay lit + fogged like the game either way) — an honest v1 boundary,
+since neither backend suppresses object fog per-target without a dedicated
+compositor pass. Persisted in `orkige_editor_view.ini`; reachable over MCP as
+the `sky` `set_view_option`/`get_view_options` value.
+
+Tests: `AtmosphereComponentTests` (unit: schema/precedence/ownership + the
+sky/fog part switches), `AtmosphereDescTests` (unit: the two flags default
+on, presets leave them alone), `player_atmosphere` (both flavors: a scriptless
+component scene boots the sky vs a component-less control, the
+`fixture_atmo_sunlast` red-sky-on-load regression, activation promotes the
+night sibling mid-run, a script override beats the base), the
+`render_facade_selfcheck` atmosphere leg (both flavors: sky-off and fog-off
+part switches visibly discriminate) and `editor_atmosphere` (both flavors:
+template + reload arming, live re-arm, owner glyphs, Game Preview sky pixels,
+per-target Scene-view sky suppression); MCP coverage rides the
+`editor_control` AtmosphereComponent + `sky` view-option legs.
 
 ## Sample + tests
 
