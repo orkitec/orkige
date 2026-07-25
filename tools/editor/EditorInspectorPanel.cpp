@@ -2192,6 +2192,11 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 						const float boxWidth = ImGui::GetFrameHeight();
 						ImGui::SameLine(headerRight - removeButtonWidth -
 							ImGui::GetStyle().ItemInnerSpacing.x - boxWidth);
+						// compactCheckbox trims ~20% off the square and line
+						// items top-align, so the smaller box rides high beside
+						// the full-height remove control - drop it half the trim
+						ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
+							ImGui::GetFrameHeight() * 0.1f);
 						if (Orkige::compactCheckbox("##enabled", &enabled))
 						{
 							core.applyPropertyChange(objectId, typeName,
