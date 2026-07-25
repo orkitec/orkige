@@ -904,7 +904,24 @@ look when touching one:
 - **Physics** (`engine_physic/PhysicsWorld`, Jolt): a data-driven **collision layer
   matrix** (`physics.olayers`), `RigidBodyComponent` layer + **sensor** flag, and
   **contact events** (worker-thread callbacks → mutex queue → main-thread drain →
-  `ScriptComponent` `onContactBegin/End` + C++ events).
+  `ScriptComponent` `onContactBegin/End` + C++ events). **Shape colliders**
+  (`ST_SHAPE`): collision from a tessellated `.oshape`'s outer contours (pure
+  `core_util/ShapeCollider` — contour extraction, convexity gate, hull,
+  extruded prism), defaulting to the sibling `VectorShapeComponent`'s shape
+  with a reflected `shapeAsset` AssetRef override; static/kinematic = the true
+  concave mesh prism, dynamic = the convex hull (concave dynamic degrades with
+  one warn), holes/scale sit out v1 (documented), soft bodies collide as their
+  rest shape, the Scene Colliders overlay draws the real contour —
+  `ShapeColliderTests` + `player_shapecollider_selfcheck` per flavor (a ball
+  settling inside a concave cup is the existence proof).
+- **World text** (`engine_gocomponent/WorldTextComponent`, both flavors): 3D
+  billboard (or transform-locked) labels through the SAME baked gui font page
+  (one shared engine `FontAtlas`, kerning + lazy CJK paging), laid out by the
+  pure `engine_gui/WorldTextLayout` (multi-line, center-anchored,
+  world-units-per-line) into camera-facing `SpriteBatch` quads the 3D-particle
+  way, rebuilt only on property change (next's one-tick-deferred first upload);
+  `text`/`size`/`colour`/`billboard`/`visible` reflected, `self.worldtext`
+  script handle — `WorldTextLayoutTests` + `demo_worldtext` per flavor.
 - **Gameplay**: `engine_input/InputActionMap` (named actions over keys/tilt,
   `input.oactions`); `engine_sound` mixer groups + master; `core_tween`
   (`TweenManager` + `EaseLibrary`); `core_debug/CVarManager` (typed cvars, live-tunable
