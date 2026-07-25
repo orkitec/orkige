@@ -12,6 +12,7 @@ add_executable(orkige_engine_tests
     FontPackerTests.cpp
     FontBakeTests.cpp
     FontAtlasTests.cpp
+    WorldTextLayoutTests.cpp
     LightBudgetTests.cpp
     ScriptComponentTests.cpp
     ScriptComponentKindTests.cpp

@@ -80,6 +80,10 @@
 		"sig": "(id) -> ParticleComponent?",
 		"doc": "an object's ParticleComponent (nil if none)"
 	},
+	"world.getWorldText": {
+		"sig": "(id) -> WorldTextComponent?",
+		"doc": "an object's WorldTextComponent (nil if none)"
+	},
 	"world.getScript": {
 		"sig": "(id) -> ScriptComponent?",
 		"doc": "an object's ScriptComponent (nil if none)"

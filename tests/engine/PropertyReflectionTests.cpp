@@ -23,6 +23,7 @@
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/LightComponent.h>
 #include <engine_gocomponent/LineComponent.h>
+#include <engine_gocomponent/WorldTextComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/WaterComponent.h>
 #include <engine_gocomponent/VectorAnimationComponent.h>
@@ -743,4 +744,75 @@ TEST_CASE("BoneAttachComponent properties round-trip on a DETACHED component",
 	CHECK(restored.getOffset().y == Approx(-0.5f));
 	CHECK(restored.getOffset().z == Approx(0.1f));
 	CHECK(restored.getFollowScale());
+}
+//---------------------------------------------------------
+TEST_CASE("WorldTextComponent declares its world-label schema through the registry",
+	"[reflection][worldtext]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		WorldTextComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// the reflected surface MCP get/set_component, the inspector and scene
+	// serialization all consume: the literal text, the world-unit size, the
+	// tint, the billboard flag and visibility
+	REQUIRE(schema->find("text") != nullptr);
+	CHECK(schema->find("text")->kind == PropertyKind::String);
+	REQUIRE(schema->find("size") != nullptr);
+	CHECK(schema->find("size")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("colour") != nullptr);
+	CHECK(schema->find("colour")->kind == PropertyKind::Color);
+	REQUIRE(schema->find("billboard") != nullptr);
+	CHECK(schema->find("billboard")->kind == PropertyKind::Bool);
+	REQUIRE(schema->find("visible") != nullptr);
+	CHECK(schema->find("visible")->kind == PropertyKind::Bool);
+	// every field is writable (not read-only)
+	CHECK_FALSE(schema->find("text")->isReadOnly());
+}
+//---------------------------------------------------------
+TEST_CASE("WorldTextComponent properties round-trip on a DETACHED component",
+	"[reflection][worldtext]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		WorldTextComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// a DETACHED label (no render system, no batch) RECORDS its look through the
+	// type-erased get/set - the exact path MCP set_component and the scene loader
+	// drive; the glyph batch builds later when a render system exists
+	WorldTextComponent label;
+	Object * instance = &label;
+
+	// defaults: white, billboarded, visible, unit size, empty text
+	CHECK(schema->find("text")->get(instance).asString().empty());
+	CHECK(schema->find("billboard")->get(instance).asBool());
+	CHECK(schema->find("visible")->get(instance).asBool());
+	CHECK(schema->find("size")->get(instance).asFloat() == Approx(1.0f));
+
+	schema->find("text")->set(instance, PropertyValue::makeString("HP 100"));
+	schema->find("size")->set(instance, PropertyValue::makeFloat(2.5f));
+	PropColor tint; tint.r = 0.2f; tint.g = 1.0f; tint.b = 0.3f; tint.a = 1.0f;
+	schema->find("colour")->set(instance, PropertyValue::makeColor(tint));
+	schema->find("billboard")->set(instance, PropertyValue::makeBool(false));
+
+	CHECK(label.getText() == "HP 100");
+	CHECK(label.getSize() == Approx(2.5f));
+	CHECK(label.getColour().g == Approx(1.0f));
+	CHECK_FALSE(label.getBillboard());
+
+	// the serialization path (capture -> apply) carries every field
+	GameObject::ComponentPropertyMap captured =
+		SceneSerializer::captureComponentProperties(label);
+	WorldTextComponent restored;
+	SceneSerializer::applyComponentProperties(captured, restored);
+	CHECK(restored.getText() == "HP 100");
+	CHECK(restored.getSize() == Approx(2.5f));
+	CHECK(restored.getColour().b == Approx(0.3f));
+	CHECK_FALSE(restored.getBillboard());
 }

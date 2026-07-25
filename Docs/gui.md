@@ -682,3 +682,58 @@ Poll the click and play a UI sound (no engine hook needed):
 ```lua
 if button:wasClicked() then sound:play("ui_click") end
 ```
+
+## World-space text (`WorldTextComponent`)
+
+Text placed IN the 3D scene — floating damage numbers, name tags, world-space
+labels — is `engine_gocomponent/WorldTextComponent`, not a gui widget. It is a
+composition of two existing systems, so it reuses this page's font machinery
+rather than inventing its own:
+
+- **Glyphs** come from the SAME baked font page the gui uses (`FontAtlas` /
+  `UiFont` — kerning, design-pixel metrics and lazy CJK/Cyrillic paging all
+  included). A shared engine-default page (`orkige_engine/media/fonts/
+  world_text.ogui`, Nunito) is baked ONCE and reused by every world-text
+  component — never a second bake per label.
+- **Quads** are CPU-billboarded camera-facing textured quads through the facade
+  `SpriteBatch` (the same recipe `ParticleComponent` uses for 3D particles), with
+  glyph UVs in place of a particle atlas frame. The pure layout is
+  `engine_gui/WorldTextLayout` (headless-tested).
+
+It is AUTHORED scene content (like a sprite or a particle emitter), so it renders
+in edit mode, in Game Preview and in Play — there is no editor-only bit.
+
+### Reflected look (inspector / serialization / Lua / MCP — the ONE registry)
+
+| property    | type   | meaning                                                        |
+|-------------|--------|----------------------------------------------------------------|
+| `text`      | String | the literal string (`\n` opens a new line; center-justified)   |
+| `size`      | Float  | world units per line height                                    |
+| `colour`    | Color  | tint, multiplied over the glyph coverage                       |
+| `billboard` | Bool   | face the camera (default) or lie in the object's local XY plane |
+| `visible`   | Bool   | show / hide                                                    |
+
+```lua
+-- a name tag over a character (a script sets the literal; loc() stays in Lua)
+self.worldtext.text = loc("enemy_name")
+self.worldtext:setColour(1.0, 0.3, 0.2, 1.0)
+```
+
+### Behavior & caveats
+
+- **Placement.** `billboard = true` (default) hangs the glyph batch off the world
+  root and re-faces it to the window camera each frame at the object's world
+  position (the 3D-particle attachment). `billboard = false` attaches the batch
+  to the transform node, so the object's rotation orients the text in its local
+  XY plane. The text is CENTER-anchored on the node (v1).
+- **Layout vs. refresh.** The glyph layout rebuilds only on a `text`/`size`
+  change; a moving camera or object re-runs just the cheap per-frame quad refresh
+  (allocation-free steady state).
+- **Transparency.** Like `SpriteComponent`, the glyph quads are alpha-blended and
+  depth-tested but NOT depth-sorted against other transparent 3D content — two
+  overlapping labels can resolve in submission order. Keep labels from
+  overlapping where ordering matters.
+- **Editor facing (v1).** In edit mode the text renders and faces the camera as
+  sampled at build time (on any property change); the editor does not tick
+  GameObjects, so it does not continuously re-face as the Scene camera orbits.
+  Play / Game Preview re-face live.

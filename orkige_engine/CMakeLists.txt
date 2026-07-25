@@ -150,6 +150,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/SpriteComponent.cpp
     engine_gocomponent/LineComponent.h
     engine_gocomponent/LineComponent.cpp
+    engine_gocomponent/WorldTextComponent.h
+    engine_gocomponent/WorldTextComponent.cpp
     engine_gocomponent/SpriteBatcher.h
     engine_gocomponent/SpriteBatcher.cpp
     engine_gocomponent/VectorMeshRuns.h
@@ -220,6 +222,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gui/SvgRasterImpl.cpp
     engine_gui/FontAtlas.h
     engine_gui/FontAtlas.cpp
+    engine_gui/WorldTextLayout.h
+    engine_gui/WorldTextLayout.cpp
     engine_gui/UiRenderer.h
     engine_gui/UiRenderer.cpp
     engine_gui/IGuiObject.h

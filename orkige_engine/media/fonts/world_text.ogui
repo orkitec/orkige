@@ -1,0 +1,12 @@
+# The engine-default WORLD-TEXT font page: the committed engine font (Nunito,
+# SIL OFL) baked at boot into ONE in-memory GPU page by engine_gui/FontAtlas
+# and SHARED by every WorldTextComponent (floating labels / damage numbers /
+# name tags in the 3D scene). Like gui_ttf_demo.ogui it carries NO [Texture]
+# file - the page is generated at the display's content scale. A single face
+# (index 0) at a generous design size keeps world text crisp when scaled up.
+[Texture]
+page 1024
+
+[Font.0]
+ttf Nunito-Regular.ttf
+size 48

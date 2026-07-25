@@ -22,6 +22,7 @@
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/SpriteAnimationComponent.h>
 #include <engine_gocomponent/ParticleComponent.h>
+#include <engine_gocomponent/WorldTextComponent.h>
 #include <engine_gocomponent/VectorShapeComponent.h>
 #include <engine_gocomponent/VectorAnimationComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
@@ -125,6 +126,11 @@ int main(int, char**)
 	// runs world-space rain + snow emitters (Util/make_particle_textures.py)
 	const bool demoParticles3D =
 		(std::getenv("ORKIGE_DEMO_PARTICLES3D") != nullptr);
+	// ORKIGE_DEMO_WORLDTEXT=1: the WorldTextComponent selfcheck (below) - a
+	// world-space text label rendered as camera-facing glyph quads on the
+	// shared gui font page; needs the engine-default font dir registered
+	const bool demoWorldText =
+		(std::getenv("ORKIGE_DEMO_WORLDTEXT") != nullptr);
 	// ORKIGE_DEMO_MUSIC=1: the streamed-music selfcheck (below) needs the
 	// committed loopable OGG on a resource location so playMusic resolves
 	// it (music_loop.ogg lives in the sample media dir)
@@ -220,6 +226,12 @@ int main(int, char**)
 				// the demo assets (demo_material_cube.glb + the sky_*.dds
 				// cubemaps make_sky_assets.py bakes into the demo media dir)
 				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
+			}
+			if (demoWorldText)
+			{
+				// the engine-default font dir carries Nunito + world_text.ogui
+				// (the shared world-text font page baked by FontAtlas)
+				render->addResourceLocation(ORKIGE_ENGINE_FONT_DIR);
 			}
 #ifdef ORKIGE_ENGINE_BLOOM_DIR
 			// the post-process compositor media (bloom bright/blur/combine
@@ -720,6 +732,83 @@ int main(int, char**)
 		int particles3DSnowLive = 0;
 		double particles3DTickMicrosSum = 0.0;
 		int particles3DTickSamples = 0;
+
+		// --- ORKIGE_DEMO_WORLDTEXT=1: the WorldTextComponent selfcheck. A
+		// GameObject carrying a WorldTextComponent (auto-adds its
+		// TransformComponent dependency) shows a world-space label built from
+		// the shared gui font page (engine_gui/FontAtlas / UiFont) as
+		// camera-facing glyph quads through one SpriteBatch - the SAME
+		// billboard recipe the 3D particles use, with glyph UVs. The checks
+		// here assert the layout is one quad per INKED glyph (spaces excluded),
+		// that a text change re-lays-out (a distinct inked count) and that a
+		// non-Latin string pages its glyphs without breaking; the frame loop
+		// adds the it-renders triangle-count hide/show delta. All state/stat
+		// reads (no pixel readback), so it runs identically on both flavors.
+		Orkige::GameObject* worldTextObject = nullptr;
+		Orkige::WorldTextComponent* worldText = nullptr;
+		if (demoWorldText)
+		{
+			optr<Orkige::GameObject> textObject =
+				gameObjectManager.createGameObject("worldlabel").lock();
+			if (!textObject ||
+				!textObject->addComponent<Orkige::WorldTextComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - WorldTextComponent creation "
+					"failed");
+				return 1;
+			}
+			worldTextObject = textObject.get();
+			worldText = textObject->getComponentPtr<Orkige::WorldTextComponent>();
+			Orkige::TransformComponent* textTransform =
+				textObject->getComponentPtr<Orkige::TransformComponent>();
+			if (!worldText || !textTransform)
+			{
+				SDL_Log("hello_orkige: FAILED - WorldTextComponent siblings "
+					"missing");
+				return 1;
+			}
+			// a label at the origin, sized in WORLD units, tinted green,
+			// camera-facing (the default). "HP 100" -> five INKED glyphs
+			// (H,P,1,0,0); the space advances the pen but draws nothing.
+			textTransform->setPosition(Orkige::Vec3(0.0f, 0.0f, 0.0f));
+			worldText->setSize(1.5f);
+			worldText->setColour(0.2f, 1.0f, 0.3f, 1.0f);
+			worldText->setBillboard(true);
+			worldText->setText("HP 100");
+			if (worldText->getQuadCount() != 5)
+			{
+				SDL_Log("hello_orkige: FAILED - 'HP 100' laid out %zu quads "
+					"(expected 5 inked glyphs)",
+					worldText->getQuadCount());
+				return 1;
+			}
+			// a text change re-runs the layout to a different inked count
+			// ("Level 12" -> L,e,v,e,l,1,2 = 7 inked, the space excluded)
+			worldText->setText("Level 12");
+			if (worldText->getQuadCount() != 7)
+			{
+				SDL_Log("hello_orkige: FAILED - text change laid out %zu quads "
+					"(expected 7)", worldText->getQuadCount());
+				return 1;
+			}
+			// a non-Latin (Cyrillic) string pages its glyphs on demand through
+			// the font provider (the loc()/CJK unblocker) - three inked glyphs,
+			// none dropped
+			worldText->setText("\xD0\x9F\xD1\x80\xD0\xB8");	// "При"
+			if (worldText->getQuadCount() != 3)
+			{
+				SDL_Log("hello_orkige: FAILED - non-Latin string laid out %zu "
+					"quads (expected 3, glyph paging broken)",
+					worldText->getQuadCount());
+				return 1;
+			}
+			// back to the label the render probe measures
+			worldText->setText("HP 100");
+			SDL_Log("hello_orkige: WorldTextComponent up - shared font page, "
+				"%zu inked quads, billboard (submitted=%zu)",
+				worldText->getQuadCount(), worldText->getSubmittedQuadCount());
+		}
+		std::size_t worldTextShownTriangles = 0;
 
 		// --- ORKIGE_DEMO_VECTORSHAPE=1: the flat-colour vector-shape selfcheck.
 		// A GameObject carrying a VectorShapeComponent (auto-adds its
@@ -5088,6 +5177,13 @@ int main(int, char**)
 				// dormancy path a real runtime exercises
 				gameObjectManager.update(0.05f);
 			}
+			if (demoWorldText)
+			{
+				// fixed tick: the label re-faces the window camera each frame
+				// (WorldTextComponent::onUpdateComponent), the same billboard
+				// tick the 3D particles run
+				gameObjectManager.update(0.05f);
+			}
 			if (demoMusic)
 			{
 				// refill the ring on the main thread; the small real-time delay
@@ -5413,6 +5509,48 @@ int main(int, char**)
 				SDL_Log("hello_orkige: 3D particle selfcheck passed (world-space "
 					"rain streaks + snow flutter, camera-facing billboards, "
 					"one draw per emitter)");
+			}
+			if (demoWorldText && frameCount == 30)
+			{
+				// steady state: the billboard has re-faced the camera each tick
+				// (onUpdateComponent) and its single-draw glyph batch raised the
+				// triangle count. Capture the shown count, then hide the label.
+				worldTextShownTriangles =
+					render->getFrameStats().triangleCount;
+				SDL_Log("hello_orkige: world text shownTris=%zu (quads=%zu, "
+					"submitted=%zu)", worldTextShownTriangles,
+					worldText->getQuadCount(),
+					worldText->getSubmittedQuadCount());
+				if (worldText->getSubmittedQuadCount() != 5)
+				{
+					SDL_Log("hello_orkige: FAILED - the live batch holds %zu "
+						"quads (expected 5)",
+						worldText->getSubmittedQuadCount());
+					return 1;
+				}
+				worldTextObject->setActive(false);
+			}
+			if (demoWorldText && frameCount == 33)
+			{
+				// hidden: the glyph batch no longer renders, so the triangle
+				// count fell by ~2 per glyph quad (a quad = 2 triangles). Five
+				// inked glyphs -> a drop of about 10.
+				const std::size_t hiddenTriangles =
+					render->getFrameStats().triangleCount;
+				const std::size_t risen =
+					(worldTextShownTriangles > hiddenTriangles)
+					? worldTextShownTriangles - hiddenTriangles : 0;
+				SDL_Log("hello_orkige: world text hidden delta=%zu (5 glyph "
+					"quads)", risen);
+				if (risen < 8)		// 5 quads * 2 tris, minus slack
+				{
+					SDL_Log("hello_orkige: FAILED - hiding the world-text label "
+						"did not drop the expected triangle count");
+					return 1;
+				}
+				SDL_Log("hello_orkige: WorldTextComponent selfcheck passed "
+					"(shared font page, camera-facing glyph quads, one draw, "
+					"CJK paging)");
 			}
 			if (demoMaterial && frameCount == 20)
 			{

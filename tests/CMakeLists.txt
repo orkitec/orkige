@@ -751,6 +751,19 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_particles3d PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_PARTICLES3D=1;ORKIGE_DEMO_FRAMES=120")
 
+    # ORKIGE_DEMO_WORLDTEXT: the WorldTextComponent headed selfcheck - a
+    # world-space text label built from the shared gui font page as
+    # camera-facing glyph quads through one SpriteBatch (the 3D-particle
+    # billboard recipe, with glyph UVs). Asserts one quad per INKED glyph
+    # (spaces excluded), that a text change re-lays-out, that a non-Latin
+    # (Cyrillic) string pages its glyphs, and that a hide/show toggle moves the
+    # frame-stats triangle count (it renders). Reads state/stats, not pixels -
+    # runs on both render flavors.
+    add_test(NAME demo_worldtext COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_worldtext PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_WORLDTEXT=1;ORKIGE_DEMO_FRAMES=60")
+
     # ORKIGE_DEMO_VECTORSHAPE: the flat-colour vector-shape headed selfcheck -
     # a VectorShapeComponent loads demo_blob.oshape (concave blob + accent
     # region), which is tessellated (earcut) with a baked alpha-feather edge
@@ -2582,6 +2595,7 @@ endif()
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         demo_spriteanim demo_spriteatlas demo_particles demo_particles3d demo_vectorshape
+        demo_worldtext
         demo_light demo_material demo_terrain demo_sky demo_ui_scale demo_ui_safe_area demo_textentry demo_ttf
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
