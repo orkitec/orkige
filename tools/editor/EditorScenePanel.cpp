@@ -20,6 +20,9 @@
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
+#include <engine_gocomponent/VectorShapeComponent.h>
+#include <core_util/ShapeCollider.h>
+#include <core_util/VectorShapeAsset.h>
 #include <engine_render/MeshInstance.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderTexture.h>
@@ -382,6 +385,54 @@ namespace Orkige
 			return worldPosition + worldOrientation * localPoint;
 		}
 
+		//! @brief resolve the shape-local collider CONTOURS (closed XY loops, z=0)
+		//! of an ST_SHAPE rigid body for the overlay: the sibling
+		//! VectorShapeComponent's live rest regions when it names the same shape
+		//! (or the body has no explicit override), otherwise the explicit
+		//! `.oshape` read through the render facade. Empty when nothing resolves.
+		std::vector<std::vector<Vec3> > resolveShapeColliderContours(
+			GameObject& gameObject, RigidBodyComponent& body)
+		{
+			std::vector<std::vector<Vec3> > out;
+			std::vector<VectorTessellator::Region> parsed;
+			std::vector<VectorTessellator::Region> const* regions = nullptr;
+			VectorShapeComponent* sibling =
+				gameObject.hasComponent<VectorShapeComponent>() ?
+				gameObject.getComponentPtr<VectorShapeComponent>() : nullptr;
+			String const& assetName = body.getShapeAsset();
+			if (sibling && sibling->hasShape() && (assetName.empty() ||
+				assetName == sibling->getShapeName()))
+			{
+				regions = &sibling->getRegions();
+			}
+			else if (!assetName.empty())
+			{
+				String text;
+				if (RenderSystem::get()->readResourceText(assetName, text) &&
+					VectorShapeAsset::parse(text, parsed))
+				{
+					regions = &parsed;
+				}
+			}
+			if (!regions)
+			{
+				return out;
+			}
+			std::vector<std::vector<ShapeCollider::Point> > contours;
+			ShapeCollider::extractContours(*regions, contours);
+			for (std::vector<ShapeCollider::Point> const& contour : contours)
+			{
+				std::vector<Vec3> loop;
+				loop.reserve(contour.size());
+				for (ShapeCollider::Point const& p : contour)
+				{
+					loop.push_back(Vec3(p.x, p.y, 0.0f));
+				}
+				out.push_back(std::move(loop));
+			}
+			return out;
+		}
+
 		//! append a quantised float to a signature string (1e-3 granularity, so a
 		//! sub-milli jitter never churns the mesh)
 		void overlaySigNum(std::string& signature, float value)
@@ -553,15 +604,44 @@ void updateSceneOverlays(Orkige::EditorCore& core, bool editMode,
 		if (view->showColliders &&
 			gameObject->hasComponent<RigidBodyComponent>())
 		{
-			PhysicsWorld::BodyDesc const& desc =
-				gameObject->getComponentPtr<RigidBodyComponent>()->getBodyDesc();
-			appendColliderOutline(static_cast<int>(desc.shapeType), worldPos,
-				worldOrient, desc.halfExtents, desc.radius, desc.halfHeight,
-				editorColliderCircleSegments(), editorColliderColour(),
-				colliderPts, colliderCols);
+			RigidBodyComponent* body =
+				gameObject->getComponentPtr<RigidBodyComponent>();
+			PhysicsWorld::BodyDesc const& desc = body->getBodyDesc();
 			colliderSig += entry.first;
 			colliderSig += '#';
 			colliderSig += std::to_string(static_cast<int>(desc.shapeType));
+			if (desc.shapeType == PhysicsWorld::ST_SHAPE)
+			{
+				// draw the ACTUAL `.oshape` outline the collider is built from.
+				// The editor has no created body (no baked geometry), so resolve
+				// the contours from the sibling VectorShapeComponent's live regions
+				// (or the explicit shapeAsset file) exactly as the runtime does.
+				std::vector<std::vector<Vec3>> contours =
+					resolveShapeColliderContours(*gameObject, *body);
+				appendColliderShapeOutline(contours, worldPos, worldOrient,
+					editorColliderColour(), colliderPts, colliderCols);
+				// the asset name AND every contour coordinate ride the signature,
+				// so a re-cooked shape (same id, changed geometry) rebuilds
+				colliderSig += '|';
+				colliderSig += body->getShapeAsset();
+				for (std::vector<Vec3> const& contour : contours)
+				{
+					overlaySigNum(colliderSig,
+						static_cast<float>(contour.size()));
+					for (Vec3 const& p : contour)
+					{
+						overlaySigNum(colliderSig, p.x);
+						overlaySigNum(colliderSig, p.y);
+					}
+				}
+			}
+			else
+			{
+				appendColliderOutline(static_cast<int>(desc.shapeType), worldPos,
+					worldOrient, desc.halfExtents, desc.radius, desc.halfHeight,
+					editorColliderCircleSegments(), editorColliderColour(),
+					colliderPts, colliderCols);
+			}
 			overlaySigNum(colliderSig, worldPos.x);
 			overlaySigNum(colliderSig, worldPos.y);
 			overlaySigNum(colliderSig, worldPos.z);

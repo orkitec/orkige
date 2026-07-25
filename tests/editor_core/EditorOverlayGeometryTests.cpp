@@ -149,3 +149,40 @@ TEST_CASE("collider dispatch selects the shape by ShapeType value",
 	REQUIRE(build(2) == static_cast<std::size_t>(
 		2 * Orkige::editorCapsuleSegmentCount(segments)));			// ST_CAPSULE
 }
+
+TEST_CASE("shape collider overlay draws each contour as a closed loop",
+	"[editor][overlay]")
+{
+	// two contours: a triangle (3 pts) and a quad (4 pts)
+	std::vector<std::vector<Orkige::Vec3>> contours = {
+		{ Orkige::Vec3(0.0f, 0.0f, 0.0f), Orkige::Vec3(1.0f, 0.0f, 0.0f),
+		  Orkige::Vec3(0.0f, 1.0f, 0.0f) },
+		{ Orkige::Vec3(2.0f, 0.0f, 0.0f), Orkige::Vec3(3.0f, 0.0f, 0.0f),
+		  Orkige::Vec3(3.0f, 1.0f, 0.0f), Orkige::Vec3(2.0f, 1.0f, 0.0f) }
+	};
+	std::vector<Orkige::Vec3> points;
+	std::vector<Orkige::Color> colours;
+	Orkige::appendColliderShapeOutline(contours, Orkige::Vec3::ZERO,
+		Orkige::Quat::IDENTITY, Orkige::editorColliderColour(), points, colours);
+
+	// N points -> N segments -> 2N vertices, summed over the contours (3+4)
+	REQUIRE(points.size() == static_cast<std::size_t>(2 * (3 + 4)));
+	REQUIRE(colours.size() == points.size());
+}
+
+TEST_CASE("shape collider overlay applies the body world pose",
+	"[editor][overlay]")
+{
+	std::vector<std::vector<Orkige::Vec3>> contours = {
+		{ Orkige::Vec3(1.0f, 0.0f, 0.0f), Orkige::Vec3(0.0f, 1.0f, 0.0f),
+		  Orkige::Vec3(-1.0f, 0.0f, 0.0f) }
+	};
+	std::vector<Orkige::Vec3> points;
+	std::vector<Orkige::Color> colours;
+	const Orkige::Vec3 centre(5.0f, 2.0f, 0.0f);
+	Orkige::appendColliderShapeOutline(contours, centre, Orkige::Quat::IDENTITY,
+		Orkige::editorColliderColour(), points, colours);
+	// the first segment starts at the first contour point offset by the centre
+	REQUIRE(points.front().x == Catch::Approx(6.0f));
+	REQUIRE(points.front().y == Catch::Approx(2.0f));
+}

@@ -10,13 +10,17 @@
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include <core_script/ScriptRuntime.h>	// OSCRIPT_HANDLE: ScriptComponentAccess registry
 #include "engine_gocomponent/TransformComponent.h"
+#include "engine_gocomponent/VectorShapeComponent.h"
 #include "engine_gocomponent/ScriptComponent.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
+#include "engine_render/RenderSystem.h"
 #include <core_script/ScriptEventBus.h>
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
 #include <core_util/StringUtil.h>
+#include <core_util/ShapeCollider.h>
+#include <core_util/VectorShapeAsset.h>
 
 #include "engine_module/EnginePrerequisites.h"
 
@@ -79,6 +83,25 @@ namespace Orkige
 		this->mBodyDesc.shapeType = PhysicsWorld::ST_CAPSULE;
 		this->mBodyDesc.halfHeight = halfHeight;
 		this->mBodyDesc.radius = radius;
+	}
+	//---------------------------------------------------------
+	void RigidBodyComponent::setShapeAsset(String const & shapeAsset)
+	{
+		if (this->hasBody())
+		{
+			oDebugWarning(false, "RigidBodyComponent::setShapeAsset ignored - body already created");
+			return;
+		}
+		this->mBodyDesc.shapeType = PhysicsWorld::ST_SHAPE;
+		this->setShapeReference(shapeAsset);
+	}
+	//---------------------------------------------------------
+	void RigidBodyComponent::setShapeReference(String const & shapeAsset)
+	{
+		// only record the reference; the stable id rides the serialized record
+		// (SceneSerializer resolves it for every AssetRef) and the geometry is
+		// derived lazily at createBody
+		this->mShapeAsset = shapeAsset;
 	}
 	//---------------------------------------------------------
 	void RigidBodyComponent::setMass(float mass)
@@ -397,6 +420,12 @@ namespace Orkige
 		optr<TransformComponent> transformComponent =
 			componentOwner->getComponent<TransformComponent>().lock();
 		oAssert(transformComponent);
+		// an ST_SHAPE body derives its collision geometry from an `.oshape`
+		// outline just before creation (the resources are up by the first update)
+		if (this->mBodyDesc.shapeType == PhysicsWorld::ST_SHAPE)
+		{
+			this->buildShapeGeometry();
+		}
 		// bodies are created at the WORLD pose (local == world for roots). The
 		// body is tagged with THIS component pointer so the contact drain can map
 		// a colliding body back to its owning GameObject; the tag is cleared in
@@ -404,6 +433,114 @@ namespace Orkige
 		this->mBodyId = PhysicsWorld::getSingleton().createBody(this->mBodyDesc,
 			transformComponent->getWorldPosition(), transformComponent->getWorldOrientation(),
 			reinterpret_cast<PhysicsWorld::BodyUserData>(this));
+	}
+	//---------------------------------------------------------
+	void RigidBodyComponent::buildShapeGeometry()
+	{
+		// clear any previous geometry so a rebuild (a re-created body) is clean
+		this->mBodyDesc.shapeHull.clear();
+		this->mBodyDesc.shapeMeshVertices.clear();
+		this->mBodyDesc.shapeMeshIndices.clear();
+
+		GameObject* componentOwner = this->getComponentOwner();
+		oAssert(componentOwner);
+		const String objectId = componentOwner->getObjectID();
+
+		// resolve the source contours: prefer the sibling VectorShapeComponent's
+		// already-parsed rest regions (the obvious authoring path, no re-read)
+		// when no explicit override names a DIFFERENT shape; otherwise read the
+		// named `.oshape` through the render facade (backend-neutral text read)
+		std::vector<VectorTessellator::Region> parsedRegions;
+		std::vector<VectorTessellator::Region> const * regions = nullptr;
+		optr<VectorShapeComponent> siblingShape =
+			componentOwner->hasComponent<VectorShapeComponent>() ?
+			componentOwner->getComponent<VectorShapeComponent>().lock() :
+			optr<VectorShapeComponent>();
+		const bool useSibling = siblingShape && siblingShape->hasShape() &&
+			(this->mShapeAsset.empty() ||
+				this->mShapeAsset == siblingShape->getShapeName());
+		if (useSibling)
+		{
+			regions = &siblingShape->getRegions();
+		}
+		else if (!this->mShapeAsset.empty())
+		{
+			String text;
+			if (RenderSystem::get()->readResourceText(this->mShapeAsset, text) &&
+				VectorShapeAsset::parse(text, parsedRegions))
+			{
+				regions = &parsedRegions;
+			}
+			else
+			{
+				oDebugWarning(false, "RigidBodyComponent '" << objectId
+					<< "': shape collider '" << this->mShapeAsset
+					<< "' could not be loaded - using the box fallback");
+				return;
+			}
+		}
+		else
+		{
+			oDebugWarning(false, "RigidBodyComponent '" << objectId
+				<< "': ST_SHAPE with no shapeAsset and no sibling "
+				"VectorShapeComponent - using the box fallback");
+			return;
+		}
+
+		std::vector<std::vector<ShapeCollider::Point> > contours;
+		ShapeCollider::extractContours(*regions, contours);
+		if (contours.empty())
+		{
+			oDebugWarning(false, "RigidBodyComponent '" << objectId
+				<< "': shape collider outline is empty - using the box fallback");
+			return;
+		}
+
+		// the convex hull of ALL outline points (the DYNAMIC collider and the
+		// STATIC/KINEMATIC fallback). A concave DYNAMIC request degrades to it.
+		std::vector<ShapeCollider::Point> allPoints;
+		bool anyConcave = false;
+		for (std::vector<ShapeCollider::Point> const & contour : contours)
+		{
+			allPoints.insert(allPoints.end(), contour.begin(), contour.end());
+			if (!ShapeCollider::isConvex(contour))
+			{
+				anyConcave = true;
+			}
+		}
+		const std::vector<ShapeCollider::Point> hull =
+			ShapeCollider::convexHull(allPoints);
+		this->mBodyDesc.shapeHull.reserve(hull.size());
+		for (ShapeCollider::Point const & p : hull)
+		{
+			this->mBodyDesc.shapeHull.push_back(Vec3(p.x, p.y, 0.0f));
+		}
+
+		if (this->mBodyDesc.bodyType == PhysicsWorld::BT_DYNAMIC)
+		{
+			// dynamic bodies must be convex; a concave outline can only be the hull
+			if (anyConcave || contours.size() > 1)
+			{
+				oDebugWarning(false, "RigidBodyComponent '" << objectId
+					<< "': a DYNAMIC shape collider is convex-only - the concave "
+					"outline degrades to its convex hull");
+			}
+			return;	// the hull above is the whole geometry
+		}
+
+		// STATIC / KINEMATIC: the true concave extruded mesh. The prism half-depth
+		// reuses halfExtents.z (the same 2D thickness the box uses).
+		const float halfDepth = this->mBodyDesc.halfExtents.z > 0.0f ?
+			this->mBodyDesc.halfExtents.z : 0.5f;
+		std::vector<ShapeCollider::Vertex> vertices;
+		std::vector<unsigned int> indices;
+		ShapeCollider::buildExtrudedMesh(contours, halfDepth, vertices, indices);
+		this->mBodyDesc.shapeMeshVertices.reserve(vertices.size());
+		for (ShapeCollider::Vertex const & v : vertices)
+		{
+			this->mBodyDesc.shapeMeshVertices.push_back(Vec3(v.x, v.y, v.z));
+		}
+		this->mBodyDesc.shapeMeshIndices.assign(indices.begin(), indices.end());
 	}
 	//---------------------------------------------------------
 	void RigidBodyComponent::onSetActive(bool activeInHierarchy)
@@ -489,6 +626,7 @@ namespace Orkige
 		OFUNC(setBoxShape)
 		OFUNC(setSphereShape)
 		OFUNC(setCapsuleShape)
+		OFUNC(setShapeAsset)
 		OFUNC(setMass)
 		OFUNC(setFriction)
 		OFUNC(setRestitution)
@@ -518,6 +656,7 @@ namespace Orkige
 			OENUM_REGISTER_VALUE(ST_BOX)
 			OENUM_REGISTER_VALUE(ST_SPHERE)
 			OENUM_REGISTER_VALUE(ST_CAPSULE)
+			OENUM_REGISTER_VALUE(ST_SHAPE)
 		OENUM_REGISTER_END
 		// reflected BodyDesc schema: the full creation-parameter set
 		OPROPERTY_ENUM("bodyType", "PhysicsBodyType", getBodyType, setBodyType, Orkige::PROP_NONE)
@@ -525,6 +664,7 @@ namespace Orkige
 		OPROPERTY("halfExtents", Orkige::PropertyKind::Vec3, getHalfExtents, setHalfExtents, Orkige::PROP_NONE)
 		OPROPERTY("radius", Orkige::PropertyKind::Float, getRadius, setRadiusValue, Orkige::PROP_NONE)
 		OPROPERTY("halfHeight", Orkige::PropertyKind::Float, getHalfHeight, setHalfHeightValue, Orkige::PROP_NONE)
+		OPROPERTY_REF("shapeAsset", Orkige::PropertyKind::AssetRef, "shape", getShapeAsset, setShapeReference, Orkige::PROP_NONE)
 		OPROPERTY("mass", Orkige::PropertyKind::Float, getMass, setMass, Orkige::PROP_NONE)
 		OPROPERTY("friction", Orkige::PropertyKind::Float, getFriction, setFriction, Orkige::PROP_NONE)
 		OPROPERTY("restitution", Orkige::PropertyKind::Float, getRestitution, setRestitution, Orkige::PROP_NONE)
@@ -548,6 +688,7 @@ namespace Orkige
 			OWEAKHANDLE_BASEMETHOD(setBoxShape)
 			OWEAKHANDLE_BASEMETHOD(setSphereShape)
 			OWEAKHANDLE_BASEMETHOD(setCapsuleShape)
+			OWEAKHANDLE_BASEMETHOD(setShapeAsset)
 			OWEAKHANDLE_BASEMETHOD(setMass)
 			OWEAKHANDLE_BASEMETHOD(setFriction)
 			OWEAKHANDLE_BASEMETHOD(setRestitution)

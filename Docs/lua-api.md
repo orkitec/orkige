@@ -1316,6 +1316,7 @@ RigidBodyComponent:setBodyType(...)
 RigidBodyComponent:setBoxShape(...)
 RigidBodyComponent:setSphereShape(...)
 RigidBodyComponent:setCapsuleShape(...)
+RigidBodyComponent:setShapeAsset(...)
 RigidBodyComponent:setMass(...)
 RigidBodyComponent:setFriction(...)
 RigidBodyComponent:setRestitution(...)
@@ -1339,6 +1340,7 @@ RigidBodyComponent.shapeType
 RigidBodyComponent.halfExtents
 RigidBodyComponent.radius
 RigidBodyComponent.halfHeight
+RigidBodyComponent.shapeAsset
 RigidBodyComponent.mass
 RigidBodyComponent.friction
 RigidBodyComponent.restitution

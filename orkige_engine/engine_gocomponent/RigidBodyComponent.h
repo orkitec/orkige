@@ -46,6 +46,7 @@ namespace Orkige
 	protected:
 		PhysicsWorld::BodyDesc	mBodyDesc;	//!< creation parameters, applied when the body is created
 		PhysicsWorld::BodyId	mBodyId;	//!< body handle or INVALID_BODY_ID before creation
+		String				mShapeAsset;	//!< ST_SHAPE: `.oshape` reference name (empty = default to the sibling VectorShapeComponent's shape); its stable id rides the serialized record (@see SceneSerializer AssetRef handling)
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -63,6 +64,14 @@ namespace Orkige
 		void setSphereShape(float radius);
 		//! use a capsule collision shape (before body creation)
 		void setCapsuleShape(float halfHeight, float radius);
+		//! @brief use a collider derived from a tessellated `.oshape` outline
+		//! (before body creation): STATIC/KINEMATIC bodies get the concave extruded
+		//! mesh, DYNAMIC bodies the convex hull of the outline (a concave dynamic
+		//! request degrades to the hull with one warn line). An empty name defaults
+		//! to the sibling VectorShapeComponent's shape.
+		void setShapeAsset(String const & shapeAsset);
+		//! the `.oshape` reference name of the shape collider ("" unless set)
+		inline String const & getShapeAsset() const { return this->mShapeAsset; }
 		//! set the mass in kg for dynamic bodies (before body creation; <= 0 = derived from shape)
 		void setMass(float mass);
 		//! set the friction coefficient (before body creation)
@@ -104,6 +113,11 @@ namespace Orkige
 		inline float getMass() const { return this->mBodyDesc.mass; }
 		inline float getFriction() const { return this->mBodyDesc.friction; }
 		inline float getRestitution() const { return this->mBodyDesc.restitution; }
+		//! @brief reflected AssetRef setter for the shape-collider `.oshape` (the
+		//! property drive / scene load path): records the reference and its stable
+		//! id. Tolerant (never asserts); the geometry is derived lazily at
+		//! createBody. @see setShapeAsset
+		void setShapeReference(String const & shapeAsset);
 
 		//! set linear velocity in m/s (needs the created body)
 		void setLinearVelocity(Vec3 const & velocity);
@@ -178,6 +192,14 @@ namespace Orkige
 		virtual void onSetActive(bool activeInHierarchy);
 		//! create the rigid body at the sibling TransformComponent's current pose
 		void createBody();
+		//! @brief for an ST_SHAPE body, resolve the `.oshape` outline and populate
+		//! mBodyDesc's shape geometry (hull for DYNAMIC, extruded mesh for
+		//! STATIC/KINEMATIC) before the body is created. Uses the sibling
+		//! VectorShapeComponent's parsed regions when mShapeAsset is empty (or names
+		//! that same shape), otherwise reads mShapeAsset through the render facade.
+		//! A concave DYNAMIC request degrades to the hull with one warn line naming
+		//! the object; an unresolvable shape leaves the box fallback with a warn.
+		void buildShapeGeometry();
 		//! destroy the rigid body
 		void destroyBody();
 		//--- SERIALIZATION ---

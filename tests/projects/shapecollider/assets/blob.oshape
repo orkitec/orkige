@@ -1,0 +1,13 @@
+# a convex octagon blob (radius ~0.6): a DYNAMIC ST_SHAPE body's outline. Its
+# convex hull is the octagon itself, so the dynamic collider rests on a floor.
+version 3
+fill 0.90 0.60 0.40 1.0
+contour 8
+v 0.6 0.0
+v 0.42 0.42
+v 0.0 0.6
+v -0.42 0.42
+v -0.6 0.0
+v -0.42 -0.42
+v 0.0 -0.6
+v 0.42 -0.42

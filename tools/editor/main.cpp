@@ -49,6 +49,8 @@
 #include <core_base/PropertySchema.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <core_project/AssetDatabase.h>
+#include <core_util/ShapeCollider.h>
+#include <core_util/VectorShapeAsset.h>
 #include <engine_input/InputManager.h>
 #include <engine_render/DrawLayer2D.h>
 #include <engine_util/StringUtil.h>
@@ -1859,6 +1861,7 @@ int main(int argc, char** argv)
 		bool overlaySelfcheckArmed = false;		// frame-10 result, checked at 20
 		std::string overlayColliderMeshAt20;	// name captured before the move
 		std::string overlayColliderMeshAt25;	// name after the move (destroyed at 30)
+		bool overlayShapeArmed = false;			// the ST_SHAPE collider leg armed at 30
 
 		// ORKIGE_EDITOR_VIEWMODE_SELFCHECK=1: the Display dropdown v2 view mode +
 		// lighting, both flavors. ONE lit fixture (an engine water plane with a PBS
@@ -6490,9 +6493,82 @@ int main(int argc, char** argv)
 				}
 				else
 				{
-					SDL_Log("orkige_editor: overlay selfcheck OK");
-					running = false;
+					// the box/aabb/frustum legs passed; now arm the ST_SHAPE
+					// collider leg: open the shape-collider fixture project (so its
+					// `.oshape` assets resolve), author an object carrying a
+					// VectorShapeComponent + an ST_SHAPE rigid body, and re-arm the
+					// collider overlay. Frame 42 asserts the overlay drew the actual
+					// contour outline (the pure builder's vertex count).
+					if (openProjectFromPath(state, editorCore,
+						"tests/projects/shapecollider"))
+					{
+						newScene(state, editorCore);
+						if (editorCore.createCube() &&
+							editorCore.addComponentToObject("Cube1",
+								"VectorShapeComponent") &&
+							editorCore.setObjectProperty("Cube1",
+								"VectorShapeComponent", "shape", "ushape.oshape") &&
+							editorCore.addComponentToObject("Cube1",
+								"RigidBodyComponent") &&
+							editorCore.setObjectProperty("Cube1",
+								"RigidBodyComponent", "shapeType", "3"))
+						{
+							viewSettings.showColliders = true;
+							viewSettings.showBoundingBoxes = false;
+							viewSettings.showAllCameraFrames = false;
+							overlayShapeArmed = true;
+						}
+					}
+					if (!overlayShapeArmed)
+					{
+						SDL_Log("orkige_editor: overlay selfcheck OK (shape leg "
+							"skipped - fixture unavailable)");
+						running = false;
+					}
 				}
+			}
+			if (overlaySelfcheckEnv && overlayShapeArmed && frameCount == 42 &&
+				exitCode == 0)
+			{
+				// the expected outline vertex count is the pure builder's output
+				// over the SAME parsed `.oshape`: N contour points -> N segments ->
+				// 2N vertices, summed over the fill contours (so this tracks the
+				// builder, never a magic number)
+				std::size_t expected = 0;
+				std::string text;
+				std::vector<Orkige::VectorTessellator::Region> regions;
+				if (Orkige::RenderSystem::get()->readResourceText("ushape.oshape",
+						text) &&
+					Orkige::VectorShapeAsset::parse(text, regions))
+				{
+					std::vector<std::vector<Orkige::ShapeCollider::Point>> contours;
+					Orkige::ShapeCollider::extractContours(regions, contours);
+					for (auto const& c : contours)
+					{
+						expected += 2 * c.size();
+					}
+				}
+				const std::size_t drew =
+					Orkige::editorSceneColliderOverlayVertexCount();
+				if (expected == 0)
+				{
+					SDL_Log("orkige_editor: overlay selfcheck - FAILED: the shape "
+						"fixture `.oshape` did not resolve");
+					exitCode = 25;
+				}
+				else if (drew != expected)
+				{
+					SDL_Log("orkige_editor: overlay selfcheck - FAILED: the shape "
+						"collider overlay drew %zu vertices, expected %zu",
+						drew, expected);
+					exitCode = 25;
+				}
+				else
+				{
+					SDL_Log("orkige_editor: overlay selfcheck OK (shape collider "
+						"outline drew %zu vertices)", drew);
+				}
+				running = false;
 			}
 
 

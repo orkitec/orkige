@@ -1,0 +1,14 @@
+# a U-cup (open upward): the canonical CONCAVE collider fixture. The interior
+# x in [-1,1], y in [-0.5,1.5] is OUTSIDE the solid - a ball drops into it and
+# settles on the inner floor (y=-0.5), a spot a box approximation cannot reach.
+version 3
+fill 0.40 0.70 0.90 1.0
+contour 8
+v -2 -1.5
+v 2 -1.5
+v 2 1.5
+v 1 1.5
+v 1 -0.5
+v -1 -0.5
+v -1 1.5
+v -2 1.5

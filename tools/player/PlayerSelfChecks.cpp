@@ -120,6 +120,13 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// vertex count) whose frame-only + TTL lifetimes then drain.
 	linesCheck =
 		(std::getenv("ORKIGE_LINES_SELFCHECK") != nullptr);
+	// ORKIGE_SHAPECOLLIDER_SELFCHECK verifies shape colliders end to end against
+	// tests/projects/shapecollider (scenes/shapecollider.oscene): a dynamic ball
+	// settles INSIDE a static concave U-cup collider (below the rim - the concavity
+	// proof a box approximation cannot pass) and a dynamic ST_SHAPE body rests on a
+	// floor as its convex hull.
+	shapeColliderCheck =
+		(std::getenv("ORKIGE_SHAPECOLLIDER_SELFCHECK") != nullptr);
 	// ORKIGE_VECTORANIM_SELFCHECK verifies vector (Lottie) animation rigs end
 	// to end against projects/vectorshapes (scenes/vectoranim.oscene): the
 	// hero's `idle` clip advances (the pose changes as frames tick), a
@@ -314,8 +321,8 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		hotreloadCheck || scriptPropCheck ||
 		integrationContactCheck || integrationLevelCheck || persistentCheck ||
 		breadcrumbCheck || fadeCheck || lifecycleCheck || resizeCheck ||
-		softbodyCheck || linesCheck || perfCheck || benchmarkCheck ||
-		vectorAnimCheck ||
+		softbodyCheck || linesCheck || shapeColliderCheck || perfCheck ||
+		benchmarkCheck || vectorAnimCheck ||
 		characterRigCheck || staticMoveCheck || spriteBatchCheck ||
 		!assetIdCheckTexture.empty() || !cookedCheckTexture.empty() ||
 		frameLimit != 0;
@@ -2622,6 +2629,83 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		}
 	}
 	if (linesCheck && linesCheckFailed)
+	{
+		exitCode = 1;
+		running = false;
+	}
+
+	// --- shape-collider selfcheck (ORKIGE_SHAPECOLLIDER_SELFCHECK) ----
+	// A dynamic ball drops into a STATIC concave U-cup collider (ST_SHAPE,
+	// defaulting to the sibling VectorShapeComponent's shape) and must settle
+	// INSIDE the notch - well below the cup rim (y=1.5), a spot a solid box
+	// approximation of the same outline would make unreachable (it would rest
+	// the ball on top at ~y=1.9). A second DYNAMIC ST_SHAPE body (explicit
+	// shapeAsset, no sibling shape) drops onto a floor and rests as its convex
+	// hull. The bodies' world Y after settling is the whole verdict.
+	if (shapeColliderCheck && !shapeColliderCheckFailed && !shapeColliderDone)
+	{
+		auto worldY = [&gameObjectManager](char const* id, bool& found) -> float
+		{
+			optr<Orkige::GameObject> gameObject =
+				gameObjectManager.getGameObject(id).lock();
+			if (!gameObject ||
+				!gameObject->hasComponent<Orkige::TransformComponent>())
+			{
+				found = false;
+				return 0.0f;
+			}
+			found = true;
+			return gameObject->getComponentPtr<Orkige::TransformComponent>()
+				->getWorldPosition().y;
+		};
+		auto shapeFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: SHAPECOLLIDER SELFCHECK FAILED - %s",
+				what.c_str());
+			shapeColliderCheckFailed = true;
+		};
+		// give the sim time to settle (fixed 1/60 steps), then read once
+		if (frameCount == 240)
+		{
+			bool haveBall = false, haveHull = false;
+			const float ballY = worldY("Ball", haveBall);
+			const float hullY = worldY("HullBody", haveHull);
+			if (!haveBall || !haveHull)
+			{
+				shapeFail("the Ball / HullBody objects are missing");
+			}
+			// the ball rests on the cup's inner floor (~ -0.1), which is far
+			// below the rim (y=1.5): a box collider would hold it at ~1.9
+			else if (ballY > 0.8f)
+			{
+				SDL_Log("orkige_player: SHAPECOLLIDER - ball Y=%.3f", ballY);
+				shapeFail("the ball did not settle inside the concave cup (it "
+					"rests at or above the rim - the collider is not concave)");
+			}
+			// ...but it did not fall THROUGH the cup floor either
+			else if (ballY < -1.0f)
+			{
+				SDL_Log("orkige_player: SHAPECOLLIDER - ball Y=%.3f", ballY);
+				shapeFail("the ball fell through the cup floor");
+			}
+			// the hull body rests on the floor (top y=-2.5) as its hull, not
+			// tunnelling through it
+			else if (hullY < -2.5f || hullY > -1.0f)
+			{
+				SDL_Log("orkige_player: SHAPECOLLIDER - hull Y=%.3f", hullY);
+				shapeFail("the dynamic hull body did not rest on the floor");
+			}
+			else
+			{
+				SDL_Log("orkige_player: SHAPECOLLIDER SELFCHECK PASSED - ball "
+					"settled inside the concave cup at Y=%.3f (rim at 1.5) and "
+					"the dynamic hull body rested at Y=%.3f", ballY, hullY);
+				shapeColliderDone = true;
+				running = false;
+			}
+		}
+	}
+	if (shapeColliderCheck && shapeColliderCheckFailed)
 	{
 		exitCode = 1;
 		running = false;

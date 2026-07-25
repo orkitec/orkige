@@ -219,6 +219,37 @@ namespace Orkige
 		}
 	}
 
+	//! @brief append the collider outline for an ST_SHAPE body: each shape-local
+	//! contour (a closed loop of XY points, z ignored) drawn as connected line
+	//! segments at the body's world pose (worldCentre + worldOrientation * local).
+	//! A contour of N points emits N segments (2N vertices) - the closing edge
+	//! back to the first point is included. This draws the ACTUAL collidable
+	//! outline the shape collider is built from (@see core_util/ShapeCollider);
+	//! the extruded prism's depth is not drawn (a 2D outline reads cleaner in the
+	//! XY authoring view). Transform / shape scale is not applied, matching the
+	//! collider geometry.
+	inline void appendColliderShapeOutline(
+		std::vector<std::vector<Vec3> > const& contours, Vec3 const& worldCentre,
+		Quat const& worldOrientation, Color const& colour,
+		std::vector<Vec3>& outPoints, std::vector<Color>& outColours)
+	{
+		for (std::vector<Vec3> const& contour : contours)
+		{
+			const std::size_t n = contour.size();
+			if (n < 2)
+			{
+				continue;
+			}
+			for (std::size_t i = 0; i < n; ++i)
+			{
+				const Vec3 a = worldCentre + worldOrientation * contour[i];
+				const Vec3 b = worldCentre +
+					worldOrientation * contour[(i + 1) % n];
+				appendOverlaySegment(a, b, colour, outPoints, outColours);
+			}
+		}
+	}
+
 	//--- panel-side overlay state (defined in EditorScenePanel.cpp) ------------
 	//! @brief line vertices the Scene panel last uploaded for the collider
 	//! wireframe overlay (0 when the toggle is off / no bodies) - a non-pixel

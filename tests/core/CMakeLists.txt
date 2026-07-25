@@ -71,6 +71,7 @@ add_executable(orkige_core_tests
     LocaleMatchTests.cpp
     VectorTessellatorTests.cpp
     VectorShapeAssetTests.cpp
+    ShapeColliderTests.cpp
     MaterialAssetTests.cpp
     VectorShapeRasterTests.cpp
     VectorAnimAssetTests.cpp

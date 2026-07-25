@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OrkigeProject version="1">
+    <Name>Shape Collider Fixture</Name>
+    <MainScene>scenes/shapecollider.oscene</MainScene>
+    <Settings>
+    </Settings>
+</OrkigeProject>

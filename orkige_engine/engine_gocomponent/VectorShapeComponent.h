@@ -107,6 +107,15 @@ namespace Orkige
 		inline bool hasShape() const;
 		//! triangles in the built mesh (0 when empty) - selfcheck/introspection
 		std::size_t getTriangleCount() const;
+		//! @brief the parsed REST-pose contours of the loaded shape (empty when no
+		//! shape). The sibling RigidBodyComponent reads these to derive a shape
+		//! collider without re-reading the asset, and the editor's collider overlay
+		//! draws their outline. Soft-body deformation does NOT touch them - the
+		//! collider is built from the rest shape (@see the class remarks).
+		inline std::vector<VectorTessellator::Region> const & getRegions() const
+		{
+			return this->mRegions;
+		}
 
 		//! colour tint, multiplied over the asset's fill colours (default white)
 		void setTint(float red, float green, float blue, float alpha);

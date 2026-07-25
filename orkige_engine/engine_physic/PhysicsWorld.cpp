@@ -32,6 +32,8 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
@@ -466,6 +468,81 @@ namespace Orkige
 		return toOgre(this->mImpl->mPhysicsSystem.GetGravity());
 	}
 	//---------------------------------------------------------
+	namespace
+	{
+		//! @brief realize the ST_SHAPE collision geometry a BodyDesc carries into a
+		//! Jolt shape. STATIC/KINEMATIC bodies get the concave extruded triangle
+		//! MESH (MeshShape - static-only in Jolt, but that is exactly this motion
+		//! class, and it honours the true concave outline). DYNAMIC bodies (and the
+		//! fallback when no mesh was built) get the CONVEX HULL of the outline
+		//! extruded to a prism (ConvexHullShape - Jolt dynamic bodies must be
+		//! convex; a concave dynamic request already degraded to this hull in the
+		//! owner, @see RigidBodyComponent). A failed build falls back to the box.
+		JPH::ShapeRefC buildShapeCollider(PhysicsWorld::BodyDesc const & desc)
+		{
+			const bool staticOrKinematic =
+				desc.bodyType != PhysicsWorld::BT_DYNAMIC;
+			if (staticOrKinematic && !desc.shapeMeshVertices.empty() &&
+				desc.shapeMeshIndices.size() >= 3)
+			{
+				JPH::VertexList vertices;
+				vertices.reserve(desc.shapeMeshVertices.size());
+				for (Ogre::Vector3 const & v : desc.shapeMeshVertices)
+				{
+					vertices.push_back(JPH::Float3(v.x, v.y, v.z));
+				}
+				JPH::IndexedTriangleList triangles;
+				triangles.reserve(desc.shapeMeshIndices.size() / 3);
+				for (std::size_t i = 0; i + 3 <= desc.shapeMeshIndices.size();
+					i += 3)
+				{
+					triangles.push_back(JPH::IndexedTriangle(
+						desc.shapeMeshIndices[i], desc.shapeMeshIndices[i + 1],
+						desc.shapeMeshIndices[i + 2], 0));
+				}
+				JPH::MeshShapeSettings settings(vertices, triangles);
+				settings.Sanitize();	// drop degenerate/duplicate triangles
+				auto result = settings.Create();
+				if (!result.HasError())
+				{
+					return result.Get();
+				}
+				oDebugError("physic", 0, "PhysicsWorld: shape-collider mesh build "
+					"failed (" << result.GetError().c_str()
+					<< ") - using the box fallback");
+			}
+			// the convex-hull prism: the outline duplicated at +/- the box's z
+			// thickness so a planar hull has real depth
+			if (!desc.shapeHull.empty())
+			{
+				const float halfDepth =
+					desc.halfExtents.z > 0.0f ? desc.halfExtents.z : 0.5f;
+				JPH::Array<JPH::Vec3> points;
+				points.reserve(desc.shapeHull.size() * 2);
+				for (Ogre::Vector3 const & p : desc.shapeHull)
+				{
+					points.push_back(JPH::Vec3(p.x, p.y, halfDepth));
+					points.push_back(JPH::Vec3(p.x, p.y, -halfDepth));
+				}
+				JPH::ConvexHullShapeSettings settings(points);
+				auto result = settings.Create();
+				if (!result.HasError())
+				{
+					return result.Get();
+				}
+				oDebugError("physic", 0, "PhysicsWorld: shape-collider hull build "
+					"failed (" << result.GetError().c_str()
+					<< ") - using the box fallback");
+			}
+			else
+			{
+				oDebugWarning(false, "PhysicsWorld: ST_SHAPE body carries no "
+					"collision geometry - using the box fallback");
+			}
+			return new JPH::BoxShape(toJolt(desc.halfExtents));
+		}
+	}
+	//---------------------------------------------------------
 	PhysicsWorld::BodyId PhysicsWorld::createBody(BodyDesc const & desc,
 		Ogre::Vector3 const & position, Ogre::Quaternion const & orientation,
 		BodyUserData userData)
@@ -479,6 +556,9 @@ namespace Orkige
 			break;
 		case PhysicsWorld::ST_CAPSULE:
 			shape = new JPH::CapsuleShape(desc.halfHeight, desc.radius);
+			break;
+		case PhysicsWorld::ST_SHAPE:
+			shape = buildShapeCollider(desc);
 			break;
 		case PhysicsWorld::ST_BOX:
 		default:

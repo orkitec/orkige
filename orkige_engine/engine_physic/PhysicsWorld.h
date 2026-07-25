@@ -54,7 +54,8 @@ namespace Orkige
 		{
 			ST_BOX = 0,			//!< box from halfExtents
 			ST_SPHERE = 1,		//!< sphere from radius
-			ST_CAPSULE = 2		//!< capsule from halfHeight (cylinder part) + radius
+			ST_CAPSULE = 2,		//!< capsule from halfHeight (cylinder part) + radius
+			ST_SHAPE = 3		//!< collider derived from a tessellated `.oshape` outline (@see the shape* BodyDesc fields), planar-extruded to a prism: STATIC/KINEMATIC take the concave mesh, DYNAMIC the convex hull
 		};
 		//! @brief result of a castRayHit query - plain data, so scripting
 		//! languages get the whole answer as one value (castRay's C++ out
@@ -80,6 +81,15 @@ namespace Orkige
 			bool			planar;			//!< 2D mode: lock translation to X/Y and rotation to Z (dynamic bodies)
 			String			layer;			//!< collision layer NAME (LayerConfig); "" / "Default" = the collide-with-all layer 0
 			bool			isSensor;		//!< trigger volume: detects overlaps (fires contacts) with NO collision response - composes with layer (only detects bodies its layer collides with)
+			//--- ST_SHAPE collision geometry (populated by the owner before
+			//! createBody; empty for the primitive shapes). Derived from a
+			//! tessellated `.oshape` by ShapeCollider, in the shape's authored
+			//! units. The z extrusion HALF-DEPTH reuses halfExtents.z (the same
+			//! 2D thickness the box uses). @see engine_gocomponent/RigidBodyComponent,
+			//! core_util/ShapeCollider.
+			std::vector<Ogre::Vector3>	shapeHull;			//!< convex outline (2D, z=0): the DYNAMIC hull, and the STATIC/KINEMATIC fallback when no mesh was built
+			std::vector<Ogre::Vector3>	shapeMeshVertices;	//!< concave extruded mesh vertices (3D): the STATIC/KINEMATIC collider
+			std::vector<Ogre::uint32>	shapeMeshIndices;	//!< triangle indices into shapeMeshVertices (3 per triangle)
 			BodyDesc() : bodyType(BT_DYNAMIC), shapeType(ST_BOX),
 				halfExtents(0.5f, 0.5f, 0.5f), radius(0.5f), halfHeight(0.5f),
 				mass(1.0f), friction(0.5f), restitution(0.0f), planar(false),

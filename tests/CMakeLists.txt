@@ -1051,7 +1051,7 @@ if(TARGET orkige_editor)
     add_test(NAME editor_overlays${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_overlays${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_OVERLAY_SELFCHECK=1;ORKIGE_DEMO_FRAMES=40"
+        ENVIRONMENT "ORKIGE_EDITOR_OVERLAY_SELFCHECK=1;ORKIGE_DEMO_FRAMES=60"
         LABELS integration TIMEOUT 120)
 
     # Display dropdown v2 view mode + lighting, BOTH flavors, over one lit
@@ -1833,6 +1833,25 @@ if(TARGET orkige_player)
         set_tests_properties(player_lines_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_LINES_SELFCHECK=1")
 
+        # SHAPE COLLIDERS, end to end: tests/projects/shapecollider
+        # scenes/shapecollider.oscene - a dynamic ball drops into a STATIC
+        # CONCAVE U-cup collider (RigidBodyComponent ST_SHAPE defaulting to the
+        # sibling VectorShapeComponent's `.oshape`) and settles INSIDE the notch,
+        # well below the cup rim - a position a box approximation of the same
+        # outline makes unreachable (the concavity existence proof); a second
+        # DYNAMIC ST_SHAPE body (explicit shapeAsset, no sibling shape) drops onto
+        # a floor and rests as its convex HULL. Runs on both render flavors (the
+        # collision geometry is renderer-neutral - built by the pure
+        # core_util/ShapeCollider and consumed by the Jolt facade). See the
+        # ORKIGE_SHAPECOLLIDER_SELFCHECK block in tools/player/PlayerSelfChecks.cpp.
+        add_test(NAME player_shapecollider_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player
+                tests/projects/shapecollider/scenes/shapecollider.oscene
+                --project tests/projects/shapecollider
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_shapecollider_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_SHAPECOLLIDER_SELFCHECK=1")
+
         # VECTOR (Lottie) ANIMATION RIGS, end to end: projects/vectorshapes
         # scenes/vectoranim.oscene - a two-blob hero (assets/hero.json cooked to
         # hero.oanim) whose VectorAnimationComponent plays an `idle` clip (the
@@ -2604,6 +2623,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
         player_softbody_selfcheck player_softbody_selfcheck_next
+        player_shapecollider_selfcheck player_shapecollider_selfcheck_next
         player_character_rig_selfcheck player_character_rig_selfcheck_next
         player_roller_progression_selfcheck
         player_roller_progression_selfcheck_next

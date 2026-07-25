@@ -58,6 +58,18 @@ translation to the X/Y plane and rotation to the Z axis, so a body can only move
 and spin the way a 2D game expects. The `TransformComponent` a rigid body needs is
 added automatically.
 
+The **shapeType** picks the collision geometry: `box` / `sphere` / `capsule`, or
+**`shape`** — a collider derived from a flat-colour vector shape (`.oshape`) so an
+organic outline collides without hand-approximating boxes. A `shape` body uses its
+sibling `VectorShapeComponent`'s shape by default, or an explicit **shapeAsset**
+reference. A **static** or **kinematic** `shape` body keeps the true CONCAVE outline
+(an L or U cup collides on its inner edges); a **dynamic** one uses the outline's
+**convex hull** (dynamic rigid bodies must be convex — a concave dynamic outline
+degrades to its hull, logged once). The collider is planar-extruded to a thin prism
+(its depth reuses the box `halfExtents.z`), built from the shape's authored units;
+transform scale is not applied (matching the box/sphere/capsule shapes). A soft-body
+`VectorShapeComponent`'s collider is built from the REST shape and stays rigid.
+
 ## 5. Attach a Lua script
 
 In the Assets panel, right-click and choose **New Script** to create a `.lua` file
@@ -153,8 +165,9 @@ look.
 - **Grid** — the ground-plane reference grid (on by default; hidden anyway in 2D
   mode, where it lies edge-on).
 - **Colliders** — green wireframes of every `RigidBodyComponent`'s Jolt shape
-  (box / sphere / capsule) at its world pose. Planar 2D bodies read correctly in
-  the 2D top-down view. Off by default.
+  (box / sphere / capsule) at its world pose, or — for a `shape` collider — the
+  actual `.oshape` contour outline (re-drawn when the shape is re-cooked). Planar
+  2D bodies read correctly in the 2D top-down view. Off by default.
 - **Bounding Boxes** — the cyan world-space axis-aligned bounding box of every
   renderable (mesh) object. Off by default.
 - **Camera Frames** — the frustum of *every* `CameraComponent` (the selected

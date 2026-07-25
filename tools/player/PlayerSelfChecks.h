@@ -30,6 +30,7 @@ struct PlayerSelfChecks
 	std::string rollerShotDir;
 	bool softbodyCheck = false;
 	bool linesCheck = false;
+	bool shapeColliderCheck = false;
 	bool vectorAnimCheck = false;
 	bool characterRigCheck = false;
 	bool rollerProgressionCheck = false;
@@ -227,6 +228,16 @@ struct PlayerSelfChecks
 	std::size_t linesRebuilds = 0;		//!< the LineComponent's rebuild count last seen
 	bool linesDrainVerified = false;	//!< the debug primitives drained after the draw phase
 	unsigned long linesPhaseDeadline = 0;
+	// --- ORKIGE_SHAPECOLLIDER_SELFCHECK=1: shape colliders end to end against
+	// tests/projects/shapecollider (scenes/shapecollider.oscene). A dynamic ball
+	// drops into a STATIC concave U-cup collider (ST_SHAPE, default to the sibling
+	// VectorShapeComponent) and must settle INSIDE the notch - BELOW the cup rim,
+	// a position a box approximation of the same shape makes unreachable (the
+	// concavity proof). A second DYNAMIC body (ST_SHAPE with an explicit shapeAsset,
+	// no sibling shape) drops onto a floor and rests as its convex HULL. The check
+	// reads the two bodies' world Y after settling.
+	bool shapeColliderCheckFailed = false;
+	bool shapeColliderDone = false;
 	// --- ORKIGE_VECTORANIM_SELFCHECK=1: vector (Lottie) animation rigs end
 	// to end against projects/vectorshapes (scenes/vectoranim.oscene). The
 	// hero rig carries an `idle` (loop) and a `hop` (once) clip; a script
