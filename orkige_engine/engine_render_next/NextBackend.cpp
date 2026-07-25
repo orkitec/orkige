@@ -3862,11 +3862,18 @@ namespace Orkige
 		// for THIS datablock so the planar UV rides the swell + detail-normal
 		// slope (a flat plane normal contributes 0 - calm water stays byte-stable)
 		// and widen the harsh 20-degree normal-tilt gate that would otherwise
-		// blank the mirror across wave crests. Custom PS pieces parse AFTER the
-		// library piece (@see Ogre::Hlms::compileShaderCode order), so this
-		// redefinition wins for the water shader only; the PixelShader piece slot
-		// is independent of the swell VS piece, so the two coexist. Off/
-		// unsupported clears the piece (the glassy sky-mirror look).
+		// blank the mirror across wave crests. DoPlanarReflectionsPS lives in a
+		// LIBRARY folder (Hlms/Pbs/Any, @see HlmsPbs::getDefaultPaths), and
+		// library piece files are collected BEFORE datablock custom pieces in
+		// Ogre::Hlms::compileShaderCode; collectPieces is first-definition-wins
+		// and REJECTS a plain @piece redefinition ("@piece 'X' already defined"),
+		// silently leaving the flat library piece in the shader on EVERY backend.
+		// So the custom source @undefpiece's the library definition first (the
+		// sanctioned override route - @see the Terra Hlms pieces) and then defines
+		// its own; parseUndefPieces runs before collectPieces in parseCustomPiece,
+		// so the slot is free when ours lands. The PixelShader piece slot is
+		// independent of the swell VS piece, so the two coexist. Off/unsupported
+		// clears the piece (the glassy sky-mirror look).
 		if(usePlanarReflection)
 		{
 			// the mirror-UV distortion scale (planar UV units per unit of
@@ -3886,9 +3893,12 @@ namespace Orkige
 			// stopped rippling makes the two frames identical).
 			float distort = 0.09f;
 			if(std::getenv("ORKIGE_WATER_FLAT_MIRROR")) distort = 0.0f;
-			char mirrorSource[2048];
+			char mirrorSource[2560];
 			std::snprintf(mirrorSource, sizeof(mirrorSource),
 				"@property( use_planar_reflections )\n"
+				// free the piece slot the library already claimed - a plain
+				// redefinition is a first-definition-wins error otherwise
+				"@undefpiece( DoPlanarReflectionsPS )\n"
 				"@piece( DoPlanarReflectionsPS )\n"
 				"\t@property( syntax == metal || lower_gpu_overhead )\n"
 				"\t\tushort planarReflectionIdx = inPs.planarReflectionIdx;\n"
