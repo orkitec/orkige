@@ -86,8 +86,8 @@ move is its own tested commit.
 ## GitHub Actions are SHA-pinned
 
 Every `uses:` step across all workflows (`.github/workflows/ci.yml`, `pages.yml`,
-`soak.yml`) is pinned to a **full 40-hex commit SHA** with the human-readable
-version in a trailing comment, e.g.:
+the `soak-next` job in `nightly.yml`) is pinned to a **full 40-hex commit SHA**
+with the human-readable version in a trailing comment, e.g.:
 
     uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 

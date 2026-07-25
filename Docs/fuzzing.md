@@ -118,10 +118,11 @@ truncation), add the input as a regression seed, and note the finding.
 
 ## CI cadence
 
-`.github/workflows/fuzz.yml`:
+The `fuzz` job in `.github/workflows/nightly.yml`:
 
 - **nightly cron** - each target fuzzed for the full per-target budget;
-- **workflow_dispatch** - manual run with a tunable `seconds` per target;
+- **workflow_dispatch** - manual run gated by the `run_fuzz` input, with a
+  tunable `seconds` per target;
 - **per-pull-request smoke** - a short leg (triggered only when a fuzzed
   parser / harness / the fuzz plumbing changes) that mainly replays the
   regression seeds and briefly mutates, so a reopened crash is caught fast.

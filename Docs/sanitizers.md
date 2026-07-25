@@ -20,9 +20,10 @@ Two more layers sit beside the compile-time gates:
 - **Standard-library hardening** — the cheap always-on STL bounds / iterator /
   precondition checks, compiled into every Debug and sanitizer build (see
   [below](#standard-library-hardening)).
-- **Valgrind Memcheck** (`valgrind.yml`, nightly) — the uninitialized-read
-  watch the compile-time sanitizers do not cover, on an uninstrumented binary
-  (see [below](#valgrind-memcheck-nightly--the-uninitialized-read-watch)).
+- **Valgrind Memcheck** (`nightly.yml`'s `valgrind-next` job) — the
+  uninitialized-read watch the compile-time sanitizers do not cover, on an
+  uninstrumented binary (see
+  [below](#valgrind-memcheck-nightly--the-uninitialized-read-watch)).
 
 ## LeakSanitizer on the ASan gate
 
@@ -199,9 +200,10 @@ that gap: it shadows every byte's definedness on an **uninstrumented** binary,
 so it needs no special build and no dependency rebuild. That is precisely why
 this gate uses Valgrind, not MSan.
 
-`.github/workflows/valgrind.yml` is a **scheduled** workflow (nightly cron +
-`workflow_dispatch`, never on push — Memcheck's ~20–50× slowdown has no place in
-the push gate). On an x86_64 Linux runner it builds the plain (non-sanitizer)
+The `valgrind-next` job in `.github/workflows/nightly.yml` is **scheduled**
+(nightly cron + `workflow_dispatch` gated by the `run_valgrind` input, never on
+push — Memcheck's ~20–50× slowdown has no place in the push gate). On an
+x86_64 Linux runner it builds the plain (non-sanitizer)
 `linux-debug-next` tree and runs the **headless core unit binary**
 (`orkige_core_tests`) — the same Catch2 suite the push gate runs — under:
 

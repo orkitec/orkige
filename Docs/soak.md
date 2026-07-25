@@ -63,7 +63,7 @@ ALSOFT_DRIVERS=null ctest --test-dir build/macos-debug-classic -R boot_cycle_sel
 The cycle count is `ORKIGE_BOOT_CYCLES` (default 6); raise it for a longer
 in-process soak of the boot/teardown path itself.
 
-## The nightly soak (`soak.yml` + `Util/orkige_soak.py`)
+## The nightly soak (`nightly.yml`'s `soak-next` job + `Util/orkige_soak.py`)
 
 `Util/orkige_soak.py` runs the standalone player over `projects/benchmark` in
 **attract-loop mode** (the exported `benchmark.loop=1` cvar keeps the scene tour
@@ -89,11 +89,12 @@ the loop is the pass; a rising floor is a leak suspect. Ceiling: **8 MB/min**
 Flavor: **next** (Ogre-Next) only — the default backend the shipping player uses
 on every platform, so it is the footprint a nightly watch must protect.
 
-`soak.yml` runs on a nightly `schedule:` cron and on manual `workflow_dispatch`
-(never per push — a minutes-long soak has no place in the push gate). It builds
-the `orkige_player` target from the `linux-debug-next` tree and runs the soak
-under xvfb + Mesa lavapipe, exactly like the linux-next desktop suite. Its
-`uses:` refs are plain tags; the repo's action SHA-pins are applied centrally.
+The `soak-next` job in `.github/workflows/nightly.yml` runs on the shared
+nightly `schedule:` cron and on manual `workflow_dispatch` (gated by the
+`run_soak` input; never per push — a minutes-long soak has no place in the
+push gate). It builds the `orkige_player` target from the `linux-debug-next`
+tree and runs the soak under xvfb + Mesa lavapipe, exactly like the
+linux-next desktop suite. Its `uses:` refs are pinned to full commit SHAs.
 
 Validate the trend math locally without a player (the stdlib-only self-check):
 
