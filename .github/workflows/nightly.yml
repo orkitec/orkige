@@ -14,11 +14,12 @@ name: Nightly
 
 on:
   schedule:
-    # 00:23 UTC - right after the UTC day ends, but OFF the round minute
-    # (GitHub delays/drops cron runs piled on exact hours, midnight worst of
-    # all); the three jobs run on this one trigger and parallelize on
+    # 23:07 UTC = shortly after 01:00 in the owner's summer timezone (cron is
+    # UTC-only, so the local hour drifts by one across DST - fine for a
+    # nightly), OFF the round minute (GitHub delays/drops cron runs piled on
+    # exact hours); the three jobs run on this one trigger and parallelize on
     # separate runners, so no second offset cron is needed.
-    - cron: "23 0 * * *"
+    - cron: "7 23 * * *"
   workflow_dispatch:
     inputs:
       run_soak:
