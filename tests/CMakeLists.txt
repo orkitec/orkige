@@ -1054,6 +1054,20 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_OVERLAY_SELFCHECK=1;ORKIGE_DEMO_FRAMES=60"
         LABELS integration TIMEOUT 120)
 
+    # Visual .oui editor edit loop, BOTH flavors: the Game Preview panel's Edit UI
+    # mode drives the ONE GuiLayout document through the same hook API the mouse
+    # uses. The leg writes a starter screen, then load -> select -> move (asserts
+    # anchoredPos updated + an undo step) -> undo (asserts restored) -> add widget
+    # -> save -> reload, asserting the widget landed and the saved file is canonical
+    # (the round-trip contract). Doc-and-file level, so it passes on classic too
+    # (the overlay render is Ogre-Next only; the editing plumbing is not). The pure
+    # hit-test/drag/palette/undo math is the EditorUiEdit unit suite (editor_uiedit).
+    add_test(NAME editor_uiedit${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_uiedit${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_UIEDIT_SELFCHECK=1;ORKIGE_DEMO_FRAMES=60"
+        LABELS integration TIMEOUT 120)
+
     # Display dropdown v2 view mode + lighting, BOTH flavors, over one lit
     # water-plane + directional-light + camera fixture. WIREFRAME leg (classic, a
     # PER-TARGET per-camera polygon-mode flip): the Scene RTT PIXELS change while the

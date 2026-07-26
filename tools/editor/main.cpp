@@ -96,6 +96,7 @@
 #include "EditorImageDecode.h"
 #include "GuiPreviewStage.h"
 #include "GamePreviewStage.h"
+#include "EditorUiEditorPanel.h"
 #include "MeshPreviewStage.h"
 
 #include <algorithm>
@@ -241,6 +242,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CAMERA_SELFCHECK") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_OVERLAY_SELFCHECK") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_UIEDIT_SELFCHECK") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr;
 
 	int exitCode = 0;
@@ -1858,6 +1860,14 @@ int main(int argc, char** argv)
 		// they all cleared AND the last mesh is gone. editor_overlays, both flavors.
 		const bool overlaySelfcheckEnv =
 			std::getenv("ORKIGE_EDITOR_OVERLAY_SELFCHECK") != nullptr;
+		// ORKIGE_EDITOR_UIEDIT_SELFCHECK=1: the visual .oui editor's edit loop.
+		// Frame 10 writes a starter screen to a temp dir and drives the SAME hook
+		// API the panel's mouse handlers use (load -> select -> move -> undo ->
+		// add -> save -> reload), asserting the document changed/restored/persisted.
+		// Doc-and-file level, so it proves the editing plumbing on BOTH flavors
+		// (the overlay render is Ogre-Next only; the edit loop is not). editor_uiedit.
+		const bool uiEditSelfcheckEnv =
+			std::getenv("ORKIGE_EDITOR_UIEDIT_SELFCHECK") != nullptr;
 		bool overlaySelfcheckArmed = false;		// frame-10 result, checked at 20
 		std::string overlayColliderMeshAt20;	// name captured before the move
 		std::string overlayColliderMeshAt25;	// name after the move (destroyed at 30)
@@ -6338,6 +6348,127 @@ int main(int argc, char** argv)
 			// and arms every display toggle; frame 20 asserts each overlay built its
 			// vertices (the non-pixel draw seams) and disarms; frame 30 asserts they
 			// all cleared. editor_overlays ctest.
+			if (uiEditSelfcheckEnv && frameCount == 10)
+			{
+				namespace fs = std::filesystem;
+				bool ok = true;
+				auto uiFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: uiedit selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 26;
+					running = false;
+					ok = false;
+				};
+				const fs::path dir = fs::temp_directory_path() /
+					"orkige_uiedit_selfcheck";
+				std::error_code uiEc;
+				fs::create_directories(dir, uiEc);
+				const fs::path file = dir / "screen.oui";
+				{
+					std::ofstream out(file, std::ios::binary | std::ios::trunc);
+					out << "[Layout]\natlas = gui_default\n\n"
+						"[Label title]\ntext = Hello\nanchor = topleft\n"
+						"anchoredPos = 20 20\n\n"
+						"[Button ok]\nsprite = button\ntext = OK\n"
+						"anchor = topleft\nanchoredPos = 40 120\n"
+						"sizeDelta = 160 44\n";
+				}
+				OrkigeEditor::UiEditSession session;
+				std::string uiErr;
+				// load (the overlay render is best-effort - classic refuses; the
+				// document loads from the file regardless, which is what we drive)
+				OrkigeEditor::uiEditLoad(session, gamePreviewStage, dir.string(),
+					"screen.oui", uiErr);
+				if (ok && !session.loaded) { uiFail("document did not load"); }
+				auto anchoredPosOf = [&](std::string const& id) -> std::string
+				{
+					const int idx = OrkigeEditor::sectionIndex(
+						session.doc.doc(), id);
+					if (idx < 0) { return "<absent>"; }
+					Orkige::String const* v = session.doc.doc()
+						.sections[static_cast<size_t>(idx)].find("anchoredPos");
+					return v ? *v : std::string("<none>");
+				};
+				// select + move (a design-less doc -> surface px == design units)
+				if (ok)
+				{
+					OrkigeEditor::uiEditSelect(session, "title");
+					if (session.selected != "title")
+					{
+						uiFail("select did not take");
+					}
+				}
+				if (ok)
+				{
+					OrkigeEditor::uiEditNudge(session, 10.0f, 5.0f);
+					if (anchoredPosOf("title") != "30 25")
+					{
+						uiFail("move did not update anchoredPos (got '" +
+							anchoredPosOf("title") + "')");
+					}
+					else if (!session.doc.canUndo())
+					{
+						uiFail("move produced no undo step");
+					}
+				}
+				if (ok)
+				{
+					OrkigeEditor::uiEditUndo(session);
+					if (anchoredPosOf("title") != "20 20")
+					{
+						uiFail("undo did not restore anchoredPos (got '" +
+							anchoredPosOf("title") + "')");
+					}
+				}
+				// add a widget + save, then re-read the file and assert it landed
+				std::string added;
+				if (ok)
+				{
+					added = OrkigeEditor::uiEditAddWidget(session, "checkbox");
+					if (added.empty() ||
+						OrkigeEditor::sectionIndex(session.doc.doc(), added) < 0)
+					{
+						uiFail("add widget did not create a section");
+					}
+				}
+				if (ok)
+				{
+					if (!OrkigeEditor::uiEditSave(session, gamePreviewStage, uiErr))
+					{
+						uiFail("save failed: " + uiErr);
+					}
+				}
+				if (ok)
+				{
+					std::ifstream in(file, std::ios::binary);
+					std::ostringstream ss;
+					ss << in.rdbuf();
+					Orkige::GuiLayoutDoc reloaded;
+					std::string parseErr;
+					if (!Orkige::GuiLayoutDoc::parse(ss.str(), reloaded, parseErr))
+					{
+						uiFail("saved file did not reparse: " + parseErr);
+					}
+					else if (OrkigeEditor::sectionIndex(reloaded, added) < 0)
+					{
+						uiFail("saved file is missing the added widget");
+					}
+					else if (reloaded.serialize() != ss.str())
+					{
+						uiFail("saved file is not canonical (round-trip drift)");
+					}
+				}
+				fs::remove_all(dir, uiEc);
+				if (ok)
+				{
+					SDL_Log("orkige_editor: uiedit selfcheck PASSED - "
+						"load/select/move/undo/add/save/reload verified");
+					exitCode = 0;
+					running = false;
+				}
+			}
+
 			if (overlaySelfcheckEnv && frameCount == 10)
 			{
 				auto overlayFail = [&](std::string const& why)

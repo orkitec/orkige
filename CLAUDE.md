@@ -887,6 +887,23 @@ look when touching one:
   loaded from one file, scroll shifts the rects, a scrolled checkbox still
   hit-tests). Agents author `.oui` over MCP `write_project_file` and verify the
   resolve via `get_ui_layout` — no new MCP verb (see `Docs/mcp.md`).
+  **Full widget tier**: toggle groups (`GuiToggleGroup`), dropdowns
+  (`GuiDropDown`), modals (`GuiModalScrim`/`showModal`), toasts, confirm/
+  alert dialogs, **`GuiTabBar`** (toggle group + panel alpha-cascade
+  pairing, one sync/frame) and **`GuiListView`** (a scroll viewport with an
+  add/remove/clear item API over a content-size-fit vertical group, no
+  virtualization) — all `.oui`-authorable round-trip; an image widget IS a
+  decor panel, a toggle switch IS a checkbox sprite skin, wrap-to-width
+  labels and multi-line text entry are known future tasks.
+  **Visual `.oui` editor** (the Game Preview panel's EDIT MODE — GuiManager
+  is a singleton, so the one preview render path IS the canvas):
+  click-select + synced widget tree, anchor-preserving drag/resize pinned
+  to the ONE UiLayout resolver, widget palette, per-gesture undo in the
+  editor's own snapshot document; saves flow through `GuiLayout::serialize`
+  (byte-identical no-op, Play hot-reload fires like any text save; first
+  edit canonicalises comments/spacing), the live canvas is next-flavor
+  while document editing works everywhere, MCP unchanged (the file is the
+  interface) — `EditorUiEditTests` + `editor_uiedit` per flavor.
 - **Level authoring**: the editor's **Tile Palette** panel arms a paintable
   asset and the **grid-paint tool** (Paint tool, `B`) paints/erases tiles snapped
   to a grid in 2D mode. Two occupant kinds through ONE seam

@@ -50,6 +50,8 @@ add_library(orkige_editor_core STATIC
     EditorTextDiagnostics.cpp
     EditorViewModes.h
     EditorViewModes.cpp
+    EditorUiEdit.h
+    EditorUiEdit.cpp
 )
 target_include_directories(orkige_editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(tinyxml2 CONFIG REQUIRED)	# the live XML document diagnostics
@@ -95,6 +97,8 @@ add_executable(orkige_editor
     MeshPreviewStage.h
     MeshPreviewStage.cpp
     EditorGamePreviewPanel.cpp
+    EditorUiEditorPanel.h
+    EditorUiEditorPanel.cpp
     EditorPlaySession.cpp
     EditorPropertyWidgets.h
     EditorPropertyWidgets.cpp

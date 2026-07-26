@@ -607,6 +607,59 @@ offsets = 8 8 -8 -8
 items = Sword | Shield | Potion    # pipe-separated initial rows (optional)
 ```
 
+## Visual editor (Game Preview → Edit UI)
+
+The Game Preview panel edits the picked `.oui` visually. Pick a screen in the
+**Overlay** dropdown, tick **Edit UI**, and the panel splits into a canvas (the
+screen rendered through the SAME preview gui stack) and a sidebar. The `.oui`
+text file stays the source of truth — the visual editor and hand/agent editing
+are two views of the one `GuiLayoutDoc`.
+
+**Canvas.** Click a widget to select it (a hit-test over the resolved widget
+rects the runtime reports). The selection draws an outline with eight resize
+handles; hovering another widget outlines it. Drag the body to move, a handle to
+resize. Hold **Shift** while dragging to snap to a coarse design-unit grid.
+
+**Anchor-preserving edits.** A drag edits the widget's own geometry form and
+never rewrites its anchors:
+
+- A **layout** widget in `offsets` form shifts all four offsets (move) or the
+  dragged edge (resize); in `anchoredPos`/`sizeDelta` form it shifts
+  `anchoredPos` (move) or grows `sizeDelta` about the pivot (resize).
+- A legacy **absolute** widget edits its `position` / `size`.
+
+Screen pixels convert to design units through the layout's `[Layout] design`
+reference scale, so a drag moves the widget by exactly the on-screen distance.
+
+**Sidebar.** A widget **tree** (the `.oui` section order, children indented by
+`parent`) with synced selection; a **properties** block for the selection (text,
+z, sprite, an anchor-preset picker, and the geometry fields for the widget's
+mode); and a **palette** — click a kind (`label`, `button`, `checkbox`,
+`slider`, `progressbar`, `selectmenu`, `dropdown`, `textentry`, `textbox`,
+`panel`, `scrollview`) to add it under the selection (or at the root) with sane
+defaults and a unique id. **Delete widget** removes the selected subtree.
+**Undo**/**Redo** step one gesture at a time (a drag is one step).
+
+**Save & round-trip.** Each gesture writes the `.oui` through `GuiLayout`'s
+serializer and reloads the canvas, so the panel is WYSIWYG and — because the
+write goes to the real file — a running Play session **hot-reloads** it (below),
+the same as a hand save. The writer emits the canonical form: **the first edit
+normalises spacing and drops comments** (the document model does not preserve
+them); thereafter edits are minimal, clean diffs. An unedited screen is never
+rewritten, so opening it and leaving edit mode leaves the bytes untouched.
+
+The editing core is UI-independent and headless-tested: `EditorUiEdit`
+(hit-testing, the drag→offset/resize math, palette placement, add/remove, the
+snapshot undo document) with `editor_uiedit` unit coverage plus the round-trip
+assertion on the shipped sample screens; the panel wiring is the `editor_uiedit`
+selfcheck on both flavors. The canvas render is Ogre-Next only (the offscreen UI
+composition capability); on the classic flavor the document editing still works,
+the live canvas does not.
+
+Agents do not need this panel: they author `.oui` text with `write_project_file`
+and verify the resolve with `preview_ui` / `get_ui_layout` — the visual editor
+is the human front-end onto the same file and the same resolver.
+
 ## Hot-reload during Play (`.oui` iteration)
 
 Editing an `.oui` while a Play session runs updates the running game's screen

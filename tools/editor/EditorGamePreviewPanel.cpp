@@ -20,6 +20,7 @@
 #include "EditorApp.h"
 #include "EditorTabMenu.h"
 #include "GamePreviewStage.h"
+#include "EditorUiEditorPanel.h"
 #include "ImGuiFacadeRenderer.h"
 
 #include <core_util/DevicePreset.h>
@@ -58,6 +59,9 @@ namespace
 		bool						animateMaterials = false;	//!< material clock
 		bool						showFrame = true;		//!< procedural device frame
 		bool						overlayRects = false;	//!< draw the widget rect overlay
+		bool						editUi = false;			//!< visual .oui edit mode
+		OrkigeEditor::UiEditSession	editSession;			//!< the edit document + selection
+		std::string					editAppliedFile;		//!< the file the session holds
 		bool						usingDefaultCamera = false;	//!< last frame fell back to the default camera (drives the hint)
 		std::string					selectedFile;		//!< project-relative .oui ("" = none)
 		std::string					projectRoot;		//!< the project the file list is for
@@ -365,6 +369,12 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 	{
 		ImGui::SameLine();
 		Orkige::compactCheckbox("Widget rects", &ui.overlayRects);
+		ImGui::SameLine();
+		// Edit UI: the visual .oui editor, available once a screen is picked
+		ImGui::BeginDisabled(ui.selectedFile.empty());
+		Orkige::compactCheckbox("Edit UI", &ui.editUi);
+		ImGui::EndDisabled();
+		if (ui.selectedFile.empty()) { ui.editUi = false; }
 	}
 
 	// a subtle dimmed hint in the control row (NOT over the image) when the
@@ -389,9 +399,16 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		return;
 	}
 
+	// Edit UI reserves a sidebar on the right; the composite image fits the
+	// remaining canvas column (the Free preset sizes its RTT to that column too)
+	const bool editActive = ui.editUi && !ui.selectedFile.empty();
+	const float sidebarW = editActive ? 320.0f : 0.0f;
+	const float canvasW = std::max(16.0f, avail.x - sidebarW -
+		(editActive ? 8.0f : 0.0f));
+
 	//--- apply controls to the shared stage --------------------------------
 	const OrkigeEditor::GuiPreviewContext ctx = currentContext(ui,
-		static_cast<int>(avail.x), static_cast<int>(avail.y));
+		static_cast<int>(canvasW), static_cast<int>(avail.y));
 	const bool contextChanged = !ui.appliedValid || ctx != ui.appliedContext;
 	const bool fileChanged = !ui.appliedValid || ui.selectedFile != ui.appliedFile;
 	const bool languageChanged =
@@ -467,11 +484,12 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 
 	const ImVec2 origin = ImGui::GetCursorScreenPos();
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	const bool framed = ui.showFrame && canFrame;
+	// Edit UI wants a flat canvas (no device frame) in the reserved column
+	const bool framed = ui.showFrame && canFrame && !editActive;
 
-	// fit the SCREEN into the panel, leaving room for the bezel when framed
-	float drawW = avail.x;
-	float drawH = avail.x / targetAspect;
+	// fit the SCREEN into the canvas column, leaving room for the bezel when framed
+	float drawW = canvasW;
+	float drawH = canvasW / targetAspect;
 	if (drawH > avail.y)
 	{
 		drawH = avail.y;
@@ -481,11 +499,11 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 	if (framed)
 	{
 		// shrink the screen so the derived bezel still fits the panel
-		float screenX = origin.x + (avail.x - drawW) * 0.5f;
+		float screenX = origin.x + (canvasW - drawW) * 0.5f;
 		float screenY = origin.y + (avail.y - drawH) * 0.5f;
 		frame = DevicePreset::deriveFrame(preset, screenX, screenY, drawW, drawH);
 		const float scaleX = frame.bezelW > 0.0f
-			? std::min(1.0f, avail.x / frame.bezelW) : 1.0f;
+			? std::min(1.0f, canvasW / frame.bezelW) : 1.0f;
 		const float scaleY = frame.bezelH > 0.0f
 			? std::min(1.0f, avail.y / frame.bezelH) : 1.0f;
 		const float scale = std::min(scaleX, scaleY);
@@ -494,7 +512,7 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 			drawW *= scale;
 			drawH *= scale;
 		}
-		screenX = origin.x + (avail.x - drawW) * 0.5f;
+		screenX = origin.x + (canvasW - drawW) * 0.5f;
 		screenY = origin.y + (avail.y - drawH) * 0.5f;
 		frame = DevicePreset::deriveFrame(preset, screenX, screenY, drawW, drawH);
 
@@ -508,7 +526,7 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 	}
 
 	const float imageX = framed ? frame.screenX
-		: origin.x + (avail.x - drawW) * 0.5f;
+		: origin.x + (canvasW - drawW) * 0.5f;
 	const float imageY = framed ? frame.screenY
 		: origin.y + (avail.y - drawH) * 0.5f;
 	const ImVec2 imageMin(imageX, imageY);
@@ -653,7 +671,60 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		}
 	}
 
-	// reserve the drawn region so ImGui scrolling/sizing accounts for it
-	ImGui::Dummy(avail);
+	// EDIT MODE: the visual .oui editor. The overlay is rendered through the SAME
+	// GamePreviewStage; here we draw the selection/handle adornments over its
+	// image and a sidebar (tree/properties/palette/save) in the reserved column,
+	// all driving the ONE GuiLayout document (@see EditorUiEditorPanel).
+	OrkigeEditor::UiEditorDebug& editDbg = OrkigeEditor::uiEditorDebug();
+	editDbg = OrkigeEditor::UiEditorDebug();
+	if (editActive)
+	{
+		// (re)load the document when the picked file changes
+		if (ui.editAppliedFile != ui.selectedFile || !ui.editSession.loaded)
+		{
+			std::string err;
+			OrkigeEditor::uiEditLoad(ui.editSession, stage, root,
+				ui.selectedFile, err);
+			ui.editAppliedFile = ui.selectedFile;
+		}
+		OrkigeEditor::UiEditCanvas canvas;
+		canvas.imageX = imageMin.x;
+		canvas.imageY = imageMin.y;
+		canvas.drawW = drawW;
+		canvas.drawH = drawH;
+		canvas.surfaceW = targetW;
+		canvas.surfaceH = targetH;
+		// modifier-snap to a coarse design grid (like the scene gizmos' snap key)
+		const float snap = ImGui::GetIO().KeyShift ? 10.0f : 0.0f;
+		OrkigeEditor::uiEditDrawCanvas(ui.editSession, stage, canvas, draw, snap);
+
+		// the sidebar in the reserved right column
+		ImGui::SetCursorScreenPos(ImVec2(origin.x + canvasW + 8.0f, origin.y));
+		OrkigeEditor::uiEditDrawSidebar(ui.editSession, stage, sidebarW);
+
+		editDbg.active = true;
+		editDbg.loaded = ui.editSession.loaded;
+		editDbg.sectionCount =
+			static_cast<int>(ui.editSession.doc.doc().sections.size());
+		editDbg.widgetRectCount =
+			static_cast<int>(stage.getOverlayWidgetRects().size());
+		editDbg.selected = ui.editSession.selected;
+		editDbg.dirty = ui.editSession.doc.dirty();
+		editDbg.canUndo = ui.editSession.doc.canUndo();
+	}
+	else if (ui.editSession.loaded)
+	{
+		// leaving edit mode releases the session (the next entry reloads fresh)
+		ui.editSession = OrkigeEditor::UiEditSession();
+		ui.editAppliedFile.clear();
+	}
+
+	// reserve the drawn region so ImGui scrolling/sizing accounts for it. In edit
+	// mode the canvas InvisibleButton + the sidebar child already reserve their
+	// extents, so a full-avail Dummy on top of them would over-grow the window.
+	if (!editActive)
+	{
+		ImGui::Dummy(avail);
+	}
 	ImGui::End();
 }

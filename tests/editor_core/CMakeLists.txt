@@ -25,6 +25,7 @@ add_executable(orkige_editor_core_tests
 	ScriptCompletionTests.cpp
 	EditorTabActionsTests.cpp
 	EditorViewModesTests.cpp
+	EditorUiEditTests.cpp
     FileDialogTests.cpp
     MeshImportTests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../core/TestComponents.cpp
@@ -37,6 +38,14 @@ target_include_directories(orkige_editor_core_tests PRIVATE
 target_link_libraries(orkige_editor_core_tests PRIVATE
     orkige_editor_core
     Catch2::Catch2WithMain
+)
+
+# the shipped sample .oui files the round-trip test reads from the source tree
+target_compile_definitions(orkige_editor_core_tests PRIVATE
+    ORKIGE_UI_SAMPLE_SETTINGS="${Orkige_SOURCE_DIR}/samples/hello_orkige/media/settings_screen.oui"
+    ORKIGE_UI_SAMPLE_MATRIX="${Orkige_SOURCE_DIR}/samples/hello_orkige/media/matrix_screen.oui"
+    ORKIGE_UI_SAMPLE_BENCH_HUD="${Orkige_SOURCE_DIR}/projects/benchmark/assets/hud.oui"
+    ORKIGE_UI_SAMPLE_BENCH_SETTINGS="${Orkige_SOURCE_DIR}/projects/benchmark/assets/settings.oui"
 )
 
 include(Catch)
