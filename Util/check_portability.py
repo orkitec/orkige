@@ -55,7 +55,9 @@ SKIP_DIR_NAMES = {"build", "build-export"}
 # modify, and they carry their own cross-platform include hygiene. Reason per
 # entry (path is repo-relative, forward slashes).
 VENDORED_FILES = {
-        "David Tschumperle) - manages its own portability, not ours to edit",
+	# path (repo-relative) -> reason; empty today - the tree vendors no
+	# third-party C++ sources inside the scan roots (FastDelegate and the
+	# stb-family confinements carry the house includes and pass the checks)
 }
 
 # --- Check A: banned Windows-macro identifier names -----------------------
