@@ -33,6 +33,11 @@ X(PlanarReflection, true)
 // line-fill (the 2D/UI set stays solid) only on a Scene-only frame, so it never
 // leaks into the other targets (@see RenderWorld::setSceneWireframe)
 X(SceneWireframeView, true)
+// the editor Scene view's SHADED+WIREFRAME look: OVERLAY ITEMS (a second Ogre::Item
+// per scene mesh with a shared unlit wireframe datablock, depth-biased onto the
+// shaded surface), never a mid-frame polygon flip - available on both flavors by the
+// same road (@see RenderWorld::setSceneWireframeOverlay)
+X(SceneWireframeOverlayView, true)
 // the editor Scene view's flat lighting-off inspection look: a GLOBAL per-frame
 // state (snapshot + hide every light + flat-white ambient, exact restore) armed
 // only on a Scene-only frame via the dock-tab visibility rule (@see

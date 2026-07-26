@@ -235,6 +235,9 @@ namespace Orkige
 		entity->setQueryFlags(RenderWorld::QUERYFLAG_DEFAULT);
 		// tag the 3D tier so the bloom scene split feeds it to the glow source
 		RenderBackend::tagScene3D(entity);
+		// record it as a scene-tier source so the SHADED+WIREFRAME overlay can
+		// shadow it with a wireframe companion (@see setSceneWireframeOverlay)
+		RenderBackend::registerSceneEntity(entity);
 		optr<MeshInstance> handle(new MeshInstance());
 		handle->mImpl->entity = entity;
 		handle->mImpl->creator = sceneManager;
@@ -251,6 +254,10 @@ namespace Orkige
 	{
 		if(this->mImpl->entity)
 		{
+			// drop it from the scene-entity registry AND destroy its wireframe
+			// overlay companion (if armed) while the entity + node are still alive,
+			// so no companion dangles on a freed node (@see setSceneWireframeOverlay)
+			RenderBackend::unregisterSceneEntity(this->mImpl->entity);
 			// a baked entity leaves the static regions with its handle
 			RenderBackend::staticBakeUnregister(this->mImpl->entity);
 			// drop a refractive-water entity from the grab-hide registry so the

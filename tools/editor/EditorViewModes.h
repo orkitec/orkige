@@ -15,7 +15,8 @@
 //! @file EditorViewModes.h
 //! @brief pure availability + string mapping for the Scene view's display modes
 //! (the Display dropdown's view-mode radio + lighting toggle). The per-flavor
-//! capability comes from RenderCaps (SceneWireframeView / SceneUnlitView) queried
+//! capability comes from RenderCaps (SceneWireframeView /
+//! SceneWireframeOverlayView / SceneUnlitView) queried
 //! at the editor's call sites; this header holds only the pure decision so the
 //! editor UI (greying + tooltips), the MCP verb (refusal reasons) and the unit
 //! test share ONE truth. No render backend is touched here - the caps arrive as
@@ -31,13 +32,14 @@ namespace OrkigeEditor
 		Orkige::String	reason;
 	};
 
-	//! @brief is @p mode selectable on a backend whose per-target wireframe
-	//! capability is @p wireframeViewCap (RenderCaps::SceneWireframeView)? Shaded is
-	//! always available; Wireframe follows the cap; ShadedWireframe (a solid pass
-	//! with a wireframe overlay) needs a second depth-biased pass and is not built
-	//! in this version, so it is unavailable on every flavor.
+	//! @brief is @p mode selectable on a backend whose wireframe-FLIP capability
+	//! is @p wireframeViewCap (RenderCaps::SceneWireframeView) and whose
+	//! shaded+wireframe OVERLAY capability is @p wireframeOverlayViewCap
+	//! (RenderCaps::SceneWireframeOverlayView)? Shaded is always available;
+	//! Wireframe follows the flip cap; ShadedWireframe (the solid look with a
+	//! wireframe drawn on top via overlay items) follows the overlay cap.
 	SceneViewModeInfo sceneViewModeInfo(Orkige::RenderViewMode mode,
-		bool wireframeViewCap);
+		bool wireframeViewCap, bool wireframeOverlayViewCap);
 
 	//! @brief is the Scene-view lighting (lit/unlit) toggle available on a backend
 	//! whose unlit capability is @p unlitViewCap (RenderCaps::SceneUnlitView)?
@@ -71,6 +73,18 @@ namespace OrkigeEditor
 	//! (Classic ignores this - it wireframes per-target via RenderTexture::
 	//! setViewMode; the editor calls both routes, each flavor honors its own.)
 	bool shouldWireframeScene(Orkige::RenderViewMode mode, bool sceneIsRenderer);
+
+	//! @brief should the Scene view arm the SHADED+WIREFRAME OVERLAY this frame
+	//! (@see RenderWorld::setSceneWireframeOverlay)? The overlay adds a second
+	//! wireframe renderable per scene mesh ON TOP of the untouched shaded pass, so
+	//! - unlike the wireframe FLIP - it is not a global look-changing state; but it
+	//! is still armed ONLY when the Scene view is the ONE game view rendering this
+	//! frame (@p sceneIsRenderer), the same dock-tab discipline, so the overlay
+	//! items' editor-only visibility bit never even gets a chance to reach a
+	//! Game-Preview frame. Armed when @p mode is ShadedWireframe AND the Scene view
+	//! is the renderer. Radio-exclusive with shouldWireframeScene by construction
+	//! (the two modes are distinct RenderViewMode values).
+	bool shouldWireframeOverlay(Orkige::RenderViewMode mode, bool sceneIsRenderer);
 
 	//! @brief the stable string for a Scene-view mode (MCP value + ini persistence):
 	//! "shaded" / "wireframe" / "shaded_wireframe"

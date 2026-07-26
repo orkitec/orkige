@@ -87,6 +87,11 @@ namespace Orkige
 		//! so the getter answers consistently - classic wireframes PER TARGET via
 		//! RenderTexture::setViewMode, so the global route is a no-op here
 		bool				sceneWireframe = false;
+		//! shaded+wireframe OVERLAY state (@see RenderWorld::setSceneWireframeOverlay):
+		//! the facade tracks the armed flag + the editor-only visibility bit the
+		//! wireframe companion Entities carry; the backend owns the companion registry
+		bool				sceneWireframeOverlay = false;
+		unsigned int		sceneWireframeOverlayFlags = 0;
 		Ogre::ColourValue	savedAmbientUpper;		//!< ambient at arm time (restore)
 		Ogre::ColourValue	savedAmbientLower;
 		//! every light's visibility at arm time (restored by re-iterating the
@@ -570,6 +575,26 @@ namespace Orkige
 		//! @brief tag a 2D-tier movable so the bloom scene split keeps it OUT of
 		//! the glow source (drawn un-bloomed over the combine instead).
 		static void tagScene2D(Ogre::MovableObject* movable);
+
+		//--- shaded+wireframe overlay (@see RenderWorld::setSceneWireframeOverlay) --
+		//! @brief record a scene-tier mesh Entity so the SHADED+WIREFRAME overlay
+		//! can shadow every mesh with a wireframe companion. createMeshInstance
+		//! registers each source Entity; ~MeshInstance unregisters it (destroying
+		//! its companion first, so a companion never dangles on a freed source/node)
+		static void registerSceneEntity(Ogre::Entity* entity);
+		//! @brief drop a scene-tier Entity from the overlay registry AND destroy its
+		//! wireframe companion if one exists (@see registerSceneEntity). Called from
+		//! ~MeshInstance BEFORE the source Entity/node is torn down.
+		static void unregisterSceneEntity(Ogre::Entity* entity);
+		//! @brief arm/disarm the SHADED+WIREFRAME overlay (@see RenderWorld::
+		//! setSceneWireframeOverlay). Arming syncs a wireframe companion Entity onto
+		//! every eligible scene-tier source (@p editorVisibilityFlags is the editor-
+		//! only visibility bit); disarming destroys every companion. Idempotent.
+		static void setSceneWireframeOverlay(bool enabled,
+			unsigned int editorVisibilityFlags);
+		//! how many wireframe companion Entities are live (@see RenderWorld::
+		//! getSceneWireframeOverlayCount - self-check introspection)
+		static size_t sceneWireframeOverlayCount();
 		//! whether the bloom compositor is currently ACTIVE: the world quality
 		//! knob is not BQ_OFF, a scene enabled bloom, and the backend supports it
 		static bool bloomActive();

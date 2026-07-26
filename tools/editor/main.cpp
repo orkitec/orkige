@@ -1893,6 +1893,16 @@ int main(int argc, char** argv)
 		// render-invariant leg counters (frames 60+): the frame the counters
 		// were sampled at, to prove the frozen view does NOT render
 		unsigned int invPrevScene = 0, invPrevPreview = 0, invScene2 = 0;
+		// SHADED+WIREFRAME OVERLAY leg (frames 80+): the pure-wireframe frame
+		// captured at frame 30, kept so the armed overlay can be proven DISTINCT
+		// from BOTH the shaded baseline and the pure-wireframe flip
+		std::vector<unsigned char> viewModeWireBaseline;
+		bool viewModeOverlayArmed = false;			// leg gate (set at frame 78)
+		bool viewModeOverlayDisarmPending = false;	// frame-112 restore check
+		// the overlay count with the fixture scene alone (one companion per
+		// eligible scene mesh); the live add/delete legs assert +1/-1 against it,
+		// robust to however many meshes the editor fixture holds
+		size_t viewModeOverlayBaseCount = 0;
 
 		// ORKIGE_EDITOR_GAME_PREVIEW_SELFCHECK=1: the Game Preview panel + the
 		// Scene-panel selected-camera inset, both flavors. Frame 10 builds a
@@ -2562,9 +2572,12 @@ int main(int argc, char** argv)
 			// back to the default so the Scene RTT and the dropdown never disagree.
 			const bool wireCap = Orkige::RenderSystem::get()->supports(
 				Orkige::RenderCaps::SceneWireframeView);
+			const bool wireOverlayCap = Orkige::RenderSystem::get()->supports(
+				Orkige::RenderCaps::SceneWireframeOverlayView);
 			Orkige::RenderViewMode sceneViewMode =
 				static_cast<Orkige::RenderViewMode>(viewSettings.sceneViewMode);
-			if (!OrkigeEditor::sceneViewModeInfo(sceneViewMode, wireCap).available)
+			if (!OrkigeEditor::sceneViewModeInfo(sceneViewMode, wireCap,
+				wireOverlayCap).available)
 			{
 				sceneViewMode = Orkige::RenderViewMode::Shaded;
 				viewSettings.sceneViewMode = 0;
@@ -2631,6 +2644,17 @@ int main(int argc, char** argv)
 				renderWorld->setSceneWireframe(
 					OrkigeEditor::shouldWireframeScene(sceneViewMode,
 						sceneIsRenderer));
+				// Shaded+Wireframe: OVERLAY ITEMS on BOTH flavors (a second
+				// wireframe renderable per scene mesh ON TOP of the untouched
+				// shaded pass, never a mid-frame polygon flip). Armed only on a
+				// Scene-only frame like the flip; the companions carry the
+				// editor-only visibility bit so they stay OUT of the Game Preview
+				// / Play (masked off that target - belt-and-suspenders over the
+				// one-game-view invariant). @see setSceneWireframeOverlay.
+				renderWorld->setSceneWireframeOverlay(
+					OrkigeEditor::shouldWireframeOverlay(sceneViewMode,
+						sceneIsRenderer),
+					OrkigeEditor::EDITOR_ONLY_VISIBILITY);
 			}
 
 			// finalize the ImGui frame and resubmit its draw data as the
@@ -6791,6 +6815,10 @@ int main(int argc, char** argv)
 				{
 					std::error_code rmErr;
 					std::filesystem::remove(scenePng, rmErr);
+					// keep the pure-wireframe frame so the SHADED+WIREFRAME overlay
+					// leg (frames 80+) can prove the armed overlay is DISTINCT from
+					// it (shaded fill + lines, not bare lines on a flat clear)
+					viewModeWireBaseline = sceneWire;
 					bool previewOk = true;
 					if (!renderIsNext)
 					{
@@ -7126,11 +7154,231 @@ int main(int argc, char** argv)
 				else
 				{
 					state.overrideGameViewRenderer = false;	// restore
+					// hand off to the SHADED+WIREFRAME OVERLAY leg (frames 80+),
+					// which owns the final verdict + termination
+					viewModeOverlayArmed = true;
+				}
+			}
+			// (c) SHADED+WIREFRAME OVERLAY leg (both flavors): the shaded scene with
+			// a wireframe drawn ON TOP via overlay items (a second renderable per
+			// scene mesh, never a polygon flip). Frame 80 arms it; frame 88 asserts
+			// the armed frame differs from BOTH the shaded baseline AND the pure
+			// wireframe flip, and one overlay exists per scene mesh; a LIVE-ADD then
+			// grows the set (frame 96) and a LIVE-DELETE shrinks it (frame 104);
+			// the Game Preview stays byte-identical to its shaded baseline (the
+			// editor-only visibility bit proof); disarm restores the Scene RTT
+			// byte-exact and destroys the overlays (frame 112).
+			if (viewModeSelfcheckEnv && exitCode == 0 && viewModeOverlayArmed &&
+				frameCount == 80 &&
+				Orkige::RenderSystem::get()->supports(
+					Orkige::RenderCaps::SceneWireframeOverlayView))
+			{
+				viewSettings.sceneViewMode = 2;		// ShadedWireframe (overlay)
+			}
+			if (viewModeSelfcheckEnv && exitCode == 0 && viewModeOverlayArmed &&
+				frameCount == 88 &&
+				Orkige::RenderSystem::get()->supports(
+					Orkige::RenderCaps::SceneWireframeOverlayView))
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				const std::string overlayPng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_overlay.png").string();
+				std::vector<unsigned char> overlayFrame;
+				int sw = 0, sh = 0;
+				sceneTarget.texture->writeContentsToFile(overlayPng);
+				Orkige::RenderWorld* ovWorld =
+					Orkige::RenderSystem::get()->getWorld();
+				const size_t overlayCount =
+					ovWorld ? ovWorld->getSceneWireframeOverlayCount() : 0;
+				if (!OrkigeEditor::decodeImageRgba(overlayPng, overlayFrame, sw, sh))
+				{
+					vmFail("could not capture the shaded+wireframe overlay frame");
+				}
+				else if (viewModeMeanDiff(viewModeSceneBaseline, overlayFrame) < 2.0)
+				{
+					vmFail("the overlay did not change the Scene RTT vs the shaded "
+						"baseline (mean diff " + std::to_string(viewModeMeanDiff(
+							viewModeSceneBaseline, overlayFrame)) + ")");
+				}
+				else if (!viewModeWireBaseline.empty() &&
+					viewModeMeanDiff(viewModeWireBaseline, overlayFrame) < 2.0)
+				{
+					vmFail("the shaded+wireframe overlay matched the pure-wireframe "
+						"flip - it is not a shaded pass with lines on top (mean diff " +
+						std::to_string(viewModeMeanDiff(
+							viewModeWireBaseline, overlayFrame)) + ")");
+				}
+				else if (overlayCount < 1)
+				{
+					vmFail("no wireframe overlay was created for the shaded scene");
+				}
+				else
+				{
+					std::error_code rmErr;
+					std::filesystem::remove(overlayPng, rmErr);
+					// one companion per eligible scene mesh - remember it so the
+					// live add/delete legs can assert +1/-1 against it
+					viewModeOverlayBaseCount = overlayCount;
+					// LIVE-ADD: a second scene mesh must gain its own overlay on the
+					// next armed frame (createMeshInstance registers the source)
+					Orkige::GameObjectManager& gm =
+						editorCore.getGameObjectManager();
+					optr<Orkige::GameObject> extra =
+						gm.createGameObject("WireOverlayAdd").lock();
+					if (extra &&
+						extra->addComponent<Orkige::TransformComponent>() &&
+						extra->addComponent<Orkige::ModelComponent>())
+					{
+						extra->getComponentPtr<Orkige::ModelComponent>()
+							->loadModel("water_plane.glb");
+						editorCore.setObjectProperty("WireOverlayAdd",
+							"TransformComponent", "position", "20 0 0");
+					}
+					else
+					{
+						vmFail("could not build the live-add scene mesh");
+					}
+				}
+			}
+			if (viewModeSelfcheckEnv && exitCode == 0 && viewModeOverlayArmed &&
+				frameCount == 96 &&
+				Orkige::RenderSystem::get()->supports(
+					Orkige::RenderCaps::SceneWireframeOverlayView))
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				Orkige::RenderWorld* ovWorld =
+					Orkige::RenderSystem::get()->getWorld();
+				const size_t overlayCount =
+					ovWorld ? ovWorld->getSceneWireframeOverlayCount() : 0;
+				if (overlayCount != viewModeOverlayBaseCount + 1)
+				{
+					vmFail("a live-added scene mesh did not gain a wireframe overlay "
+						"(count " + std::to_string(overlayCount) + ", expected " +
+						std::to_string(viewModeOverlayBaseCount + 1) + ")");
+				}
+				else
+				{
+					// LIVE-DELETE: destroying the object must retire its overlay
+					editorCore.getGameObjectManager().delGameObject(
+						"WireOverlayAdd");
+				}
+			}
+			if (viewModeSelfcheckEnv && exitCode == 0 && viewModeOverlayArmed &&
+				frameCount == 104 &&
+				Orkige::RenderSystem::get()->supports(
+					Orkige::RenderCaps::SceneWireframeOverlayView))
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				Orkige::RenderWorld* ovWorld =
+					Orkige::RenderSystem::get()->getWorld();
+				const size_t overlayCount =
+					ovWorld ? ovWorld->getSceneWireframeOverlayCount() : 0;
+				// the Game Preview must stay byte-identical to its shaded baseline:
+				// the overlay items carry the editor-only visibility bit, masked OFF
+				// the preview target, so they never leak into preview / Play
+				const std::string prevPng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_overlay_prev.png").string();
+				std::string capErr;
+				std::vector<unsigned char> prevOverlay;
+				int pw = 0, ph = 0;
+				gamePreviewStage.update(gameObjectManager, "", false, 0.0f);
+				if (overlayCount != viewModeOverlayBaseCount)
+				{
+					vmFail("deleting the live-added mesh did not retire its overlay "
+						"(count " + std::to_string(overlayCount) + ", expected " +
+						std::to_string(viewModeOverlayBaseCount) + ")");
+				}
+				else if (!gamePreviewStage.renderAndCapture(prevPng, capErr) ||
+					!OrkigeEditor::decodeImageRgba(prevPng, prevOverlay, pw, ph))
+				{
+					vmFail("could not capture the overlay-armed Game Preview: " +
+						capErr);
+				}
+				else if (pw != viewModePreviewW || ph != viewModePreviewH)
+				{
+					vmFail("the Game Preview size changed under the overlay");
+				}
+				else if (viewModeMeanDiff(viewModePreviewBaseline, prevOverlay) > 1.5)
+				{
+					vmFail("the wireframe overlay leaked into the Game Preview - the "
+						"editor-only visibility bit did not mask it (mean diff " +
+						std::to_string(viewModeMeanDiff(
+							viewModePreviewBaseline, prevOverlay)) + ")");
+				}
+				else
+				{
+					std::error_code rmErr;
+					std::filesystem::remove(prevPng, rmErr);
+					viewSettings.sceneViewMode = 0;		// disarm (destroys overlays)
+					viewModeOverlayDisarmPending = true;
+				}
+			}
+			if (viewModeSelfcheckEnv && exitCode == 0 &&
+				viewModeOverlayDisarmPending && frameCount == 112)
+			{
+				viewModeOverlayDisarmPending = false;
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				const std::string restorePng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_overlay_restore.png").string();
+				std::vector<unsigned char> restored;
+				int sw = 0, sh = 0;
+				sceneTarget.texture->writeContentsToFile(restorePng);
+				Orkige::RenderWorld* ovWorld =
+					Orkige::RenderSystem::get()->getWorld();
+				const size_t overlayCount =
+					ovWorld ? ovWorld->getSceneWireframeOverlayCount() : 0;
+				if (!OrkigeEditor::decodeImageRgba(restorePng, restored, sw, sh))
+				{
+					vmFail("could not capture the overlay-restored Scene RTT");
+				}
+				else if (overlayCount != 0)
+				{
+					vmFail("disarming the overlay did not destroy the companions "
+						"(count " + std::to_string(overlayCount) + ")");
+				}
+				else if (viewModeMeanDiff(viewModeSceneBaseline, restored) > 1.0)
+				{
+					vmFail("disarming the shaded+wireframe overlay did not restore the "
+						"Scene RTT exactly (mean diff " + std::to_string(
+							viewModeMeanDiff(viewModeSceneBaseline, restored)) + ")");
+				}
+				else
+				{
+					std::error_code rmErr;
+					std::filesystem::remove(restorePng, rmErr);
 					SDL_Log("orkige_editor: view-mode selfcheck OK (wireframe "
 						"scene-changed + preview-protected + exact restore, both "
 						"flavors; wireframe+lighting-off compose + restore; global "
 						"lighting-off flatten + exact restore; render invariant + "
-						"focus handoff - only one game view renders per frame)");
+						"focus handoff; shaded+wireframe overlay distinct + "
+						"live add/delete + preview-masked + exact restore)");
 					running = false;
 				}
 			}

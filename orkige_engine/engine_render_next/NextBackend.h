@@ -152,6 +152,13 @@ namespace Orkige
 		//! split in NextBackend.cpp), armed by the editor only on a Scene-only
 		//! frame under the one-game-view render invariant. Restores byte-exact.
 		bool					sceneWireframe = false;
+		//! the editor Scene view's SHADED+WIREFRAME OVERLAY state (@see RenderWorld::
+		//! setSceneWireframeOverlay): while armed, every scene-tier Item gains a
+		//! companion wireframe Item (@see RenderBackend::syncSceneWireframeOverlay).
+		//! The facade tracks the armed flag + the editor-only visibility bit the
+		//! overlays carry; the backend owns the companion-item registry.
+		bool					sceneWireframeOverlay = false;
+		unsigned int			sceneWireframeOverlayFlags = 0;
 	};
 
 	struct RenderNode::Impl
@@ -801,6 +808,26 @@ namespace Orkige
 		//! datablock, and only the polygon-mode lane is touched, so a concurrent
 		//! macroblock change - shadows, alpha-test cull - composes cleanly).
 		static void setGlobalWireframe(bool enabled);
+		//! @brief record a scene-tier mesh Item so the SHADED+WIREFRAME overlay
+		//! (@see RenderWorld::setSceneWireframeOverlay) can find every mesh to
+		//! shadow with a wireframe companion. createMeshInstance registers each
+		//! source Item; ~MeshInstance unregisters it (destroying its companion
+		//! first, so a companion never dangles on a freed source/node).
+		static void registerSceneItem(Ogre::Item* item);
+		//! @brief drop a scene-tier Item from the overlay registry AND destroy its
+		//! wireframe companion if one exists (@see registerSceneItem). Called from
+		//! ~MeshInstance BEFORE the source Item/node is torn down.
+		static void unregisterSceneItem(Ogre::Item* item);
+		//! @brief arm/disarm the SHADED+WIREFRAME overlay (@see RenderWorld::
+		//! setSceneWireframeOverlay). Arming syncs a wireframe companion Item onto
+		//! every eligible scene-tier source Item (@p editorVisibilityFlags is the
+		//! editor-only visibility bit the companions carry); disarming destroys
+		//! every companion. Idempotent + resyncs the live set on each armed call.
+		static void setSceneWireframeOverlay(bool enabled,
+			unsigned int editorVisibilityFlags);
+		//! how many wireframe companion Items are live (@see RenderWorld::
+		//! getSceneWireframeOverlayCount - self-check introspection)
+		static size_t sceneWireframeOverlayCount();
 		//! zOrder -> render queue id (painter's sorting, queue 50+z like
 		//! classic; v2 objects render from the FAST queues 0..99)
 		static unsigned char renderQueueForZOrder(int zOrder);

@@ -195,10 +195,20 @@ Below the overlays the dropdown carries two **Scene-view-only** looks:
   the geometry wireframes while the editor UI and 2D content stay solid. Because it is
   global, it rides the **one-game-view invariant** (below): it is armed only on a frame
   the Scene view owns, so it never leaks into the Game Preview or Play, and it composes
-  with the Lighting toggle (flat unlit wireframe). **Shaded + Wireframe** (a solid pass
-  with a wireframe overlay) needs a second depth-biased pass — on Ogre-Next the editor
-  renders all its targets inside one frame with no per-target mid-frame state
-  bracketing, and neither backend has the overlay pass built — so it is greyed on both.
+  with the Lighting toggle (flat unlit wireframe). **Shaded + Wireframe** keeps the
+  solid shaded look and draws a thin wireframe **on top** of it (line edges over the lit
+  surfaces) — also on **both** backends, by the SAME road: **overlay items**, never a
+  mid-frame polygon flip (which Ogre-Next's baked pipeline-state cannot bracket
+  per-target, and classic never had as a second pass). While armed, every scene mesh
+  gets a second renderable sharing its mesh and node, drawn with one shared unlit
+  near-black wireframe material that sits right on the shaded surface; the shaded pass
+  renders untouched and the overlay items add the lines. The overlays carry the same
+  editor-only visibility bit as the grid/gizmos, so they never leak into the Game
+  Preview or Play, cast no shadows and are never clickable; the set rebuilds live as you
+  add, delete or swap objects, and disarming destroys it (the shaded scene was never
+  changed). It composes with the Lighting toggle (flat unlit + lines) and is
+  radio-exclusive with Wireframe. Animated/skinned meshes are left out in this version —
+  static scene geometry is the mode's habitat.
 - **Lighting** — when off, the Scene view renders flat (**albedo + a bright flat
   ambient**, every analytic light suppressed) for inspecting materials without the
   light rig. It works on **both** backends, but as a **global per-frame** state, not a

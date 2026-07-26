@@ -13,7 +13,7 @@ namespace OrkigeEditor
 {
 	//---------------------------------------------------------
 	SceneViewModeInfo sceneViewModeInfo(Orkige::RenderViewMode mode,
-		bool wireframeViewCap)
+		bool wireframeViewCap, bool wireframeOverlayViewCap)
 	{
 		SceneViewModeInfo info;
 		switch(mode)
@@ -32,10 +32,15 @@ namespace OrkigeEditor
 			}
 			break;
 		case Orkige::RenderViewMode::ShadedWireframe:
-			// a solid pass with a wireframe overlay needs a second depth-biased
-			// pass - not built in this version, so unavailable on every flavor
-			info.available = false;
-			info.reason = "Shaded + Wireframe is not available in this version.";
+			// the solid look with a wireframe drawn ON TOP via overlay items
+			// (a second renderable per scene mesh, depth-biased onto the shaded
+			// surface) - available on both flavors by the same road
+			info.available = wireframeOverlayViewCap;
+			if(!info.available)
+			{
+				info.reason = "Shaded + Wireframe view is not available on this "
+					"render backend.";
+			}
 			break;
 		}
 		return info;
@@ -87,8 +92,19 @@ namespace OrkigeEditor
 		// wireframe only when the selected mode is Wireframe AND the Scene view is
 		// the one game view rendering this frame - next's global flip cannot leak
 		// into the preview/Play because they never render in a Scene-view frame.
-		// (ShadedWireframe is unbuilt, so it never reaches here as a scene flip.)
+		// (ShadedWireframe drives the OVERLAY path - @see shouldWireframeOverlay -
+		// not the flip, so it never arms the scene wireframe here.)
 		return mode == Orkige::RenderViewMode::Wireframe && sceneIsRenderer;
+	}
+	//---------------------------------------------------------
+	bool shouldWireframeOverlay(Orkige::RenderViewMode mode, bool sceneIsRenderer)
+	{
+		// the shaded+wireframe overlay only when the selected mode is
+		// ShadedWireframe AND the Scene view is the one game view rendering this
+		// frame - the overlay items' editor-only visibility bit then never even
+		// reaches a Game-Preview / Play frame. Distinct from shouldWireframeScene
+		// by the RenderViewMode value, so the two are radio-exclusive.
+		return mode == Orkige::RenderViewMode::ShadedWireframe && sceneIsRenderer;
 	}
 	//---------------------------------------------------------
 	char const* sceneViewModeName(Orkige::RenderViewMode mode)

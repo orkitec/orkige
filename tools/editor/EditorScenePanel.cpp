@@ -1382,11 +1382,15 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 					// View Mode (Shaded / Wireframe / Shaded+Wireframe): a
 					// per-target look on the Scene RTT only. Each mode is greyed
 					// per flavor by its render capability (@see EditorViewModes /
-					// RenderCaps::SceneWireframeView), with the reason as a tooltip.
+					// RenderCaps::SceneWireframeView + SceneWireframeOverlayView),
+					// with the reason as a tooltip.
 					ImGui::Separator();
 					ImGui::TextDisabled("View Mode");
 					const bool wireCap = Orkige::RenderSystem::get()->supports(
 						Orkige::RenderCaps::SceneWireframeView);
+					const bool wireOverlayCap =
+						Orkige::RenderSystem::get()->supports(
+							Orkige::RenderCaps::SceneWireframeOverlayView);
 					const bool unlitCap = Orkige::RenderSystem::get()->supports(
 						Orkige::RenderCaps::SceneUnlitView);
 					struct ModeRow { Orkige::RenderViewMode mode; char const* label; };
@@ -1399,7 +1403,8 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 					for (ModeRow const& row : modeRows)
 					{
 						const OrkigeEditor::SceneViewModeInfo info =
-							OrkigeEditor::sceneViewModeInfo(row.mode, wireCap);
+							OrkigeEditor::sceneViewModeInfo(row.mode, wireCap,
+								wireOverlayCap);
 						const int modeInt = static_cast<int>(row.mode);
 						ImGui::BeginDisabled(!info.available);
 						if (ImGui::RadioButton(row.label,

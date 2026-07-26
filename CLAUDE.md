@@ -565,8 +565,10 @@ carries a **View Mode radio** (Shaded everywhere; Wireframe REAL on BOTH
 flavors — classic per-camera polygon mode, next via the scene-vs-UI
 datablock-tier split (`RenderWorld::setSceneWireframe`, polygon-lane-only
 flip with byte-exact restore, armed only when the Scene view renders);
-Shaded+Wireframe honestly greyed both — next would need per-target
-mid-frame PSO bracketing, classic a second depth-biased pass) and
+Shaded+Wireframe REAL on both via OVERLAY ITEMS — each scene mesh gains a
+companion on one shared unlit wireframe material, coincident depth
+LESS_EQUAL/no-write so no bias is needed, editor-only visibility bit,
+skinned meshes sit out v1, cap `SceneWireframeOverlayView`) and
 a **Lighting toggle** (both flavors: `RenderWorld::setLightingSuppressed`
 — snapshot every light + flat-white ambient, byte-exact restore). Both
 ride the ONE-GAME-VIEW INVARIANT: the Scene view and Game Preview are

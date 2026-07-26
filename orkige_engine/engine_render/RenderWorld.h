@@ -364,6 +364,53 @@ namespace Orkige
 		//! @see RenderWorld::setSceneWireframe (default false)
 		bool getSceneWireframe() const;
 
+		//--- scene wireframe OVERLAY (the editor's Scene-view SHADED+WIREFRAME) ---
+		//! @brief render the shaded scene with a thin wireframe drawn ON TOP of it
+		//! (line edges over the lit surfaces) - the editor Scene view's
+		//! SHADED+WIREFRAME look (@see RenderCaps::SceneWireframeOverlayView).
+		//! THE TRIO of Scene-view polygon looks, three DIFFERENT mechanics:
+		//!  - Shaded: the default solid look, nothing armed;
+		//!  - Wireframe: a polygon-mode FLIP (@see setSceneWireframe) - the scene
+		//!    geometry renders line-fill INSTEAD of solid (classic per-target,
+		//!    next the DT_SCENE macroblock flip);
+		//!  - ShadedWireframe: OVERLAY ITEMS (this seam) - the shaded pass renders
+		//!    UNTOUCHED and a second renderable per scene mesh adds the lines,
+		//!    never a mid-frame state flip (impossible to bracket per-target on
+		//!    next's baked PSO, unbuilt as a second pass on classic).
+		//! The two flips are RADIO-EXCLUSIVE with this overlay: only one is armed
+		//! at a time, and Wireframe->ShadedWireframe->Shaded all restore byte-exact.
+		//! While armed, every scene-tier MESH INSTANCE gets a SECOND renderable
+		//! sharing its mesh + node, drawn with ONE shared unlit near-black
+		//! wireframe datablock/material whose macroblock carries polygon-mode
+		//! wireframe + a small DEPTH BIAS so the lines sit on the shaded surface
+		//! without z-fighting. The overlays: inherit the source node/transform;
+		//! carry @p editorVisibilityFlags (the editor-only visibility bit, masked
+		//! OFF the Game Preview target - so overlays never leak into preview/Play,
+		//! belt-and-suspenders over the one-game-view invariant that already keeps
+		//! this armed only on a Scene-view frame); cast no shadows; are never
+		//! pickable (query flags 0). Composes with lighting-off (flat unlit + lines
+		//! is a legitimate combo). The overlay set REBUILDS when the scene item set
+		//! changes (live create/delete/mesh-swap): a source created while armed
+		//! gains an overlay, a destroyed one loses it; disarm destroys the whole
+		//! set and restores nothing else (nothing else changed). ANIMATED/SKINNED
+		//! meshes are EXCLUDED in this version - static scene geometry is the
+		//! mode's habitat, a skinned overlay would need its own animation state;
+		//! soft-body/vector 2D content is scene-tier-excluded by construction.
+		//! Idempotent: the editor calls it every frame with the armed decision.
+		//! map: next=a second Ogre::Item per source Item with the shared HlmsUnlit
+		//! wireframe datablock (RenderBackend scene-item registry) | classic=a
+		//! second Ogre::Entity per source with the shared wireframe Material |
+		//! filament=n/a
+		void setSceneWireframeOverlay(bool enabled,
+			unsigned int editorVisibilityFlags);
+		//! @see RenderWorld::setSceneWireframeOverlay (default false)
+		bool getSceneWireframeOverlay() const;
+		//! @brief how many wireframe companion renderables are live right now
+		//! (self-check introspection): 0 while disarmed, else one per eligible
+		//! scene-tier mesh instance. The editor selfcheck watches this grow/shrink
+		//! as objects are added/removed while armed (@see setSceneWireframeOverlay).
+		size_t getSceneWireframeOverlayCount() const;
+
 		//--- LDR bloom (highlight glow post-process) ---
 		//! whether this backend renders the bloom post-process at all is the
 		//! `RenderCaps::Bloom` capability (`RenderSystem::supports`) - true on

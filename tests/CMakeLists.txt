@@ -1062,11 +1062,17 @@ if(TARGET orkige_editor)
     # rule - @see RenderWorld::setLightingSuppressed): arming lighting-off flattens
     # the Scene RTT and disarming restores it EXACTLY (byte-identical). The
     # visibility rule + capability gating are the EditorViewModes unit test; the MCP
-    # verbs are editor_control (editor_viewmode).
+    # verbs are editor_control (editor_viewmode). SHADED+WIREFRAME OVERLAY leg (both,
+    # OVERLAY ITEMS - a second wireframe renderable per scene mesh ON TOP of the
+    # untouched shaded pass, @see RenderWorld::setSceneWireframeOverlay): the armed
+    # frame differs from BOTH the shaded baseline AND the pure-wireframe flip, one
+    # overlay exists per scene mesh, a live add/delete grows/shrinks the set, the
+    # Game Preview stays byte-identical (the editor-only-bit mask proof) and disarm
+    # restores the Scene RTT byte-exact + destroys the companions.
     add_test(NAME editor_viewmode${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_viewmode${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_VIEWMODE_SELFCHECK=1;ORKIGE_DEMO_FRAMES=85"
+        ENVIRONMENT "ORKIGE_EDITOR_VIEWMODE_SELFCHECK=1;ORKIGE_DEMO_FRAMES=120"
         LABELS integration TIMEOUT 120)
 
     # Game Preview panel + the Scene-panel selected-camera inset, BOTH flavors:

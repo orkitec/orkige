@@ -341,6 +341,28 @@ namespace Orkige
 		return this->mImpl->sceneWireframe;
 	}
 	//---------------------------------------------------------
+	void RenderWorld::setSceneWireframeOverlay(bool enabled,
+		unsigned int editorVisibilityFlags)
+	{
+		this->mImpl->sceneWireframeOverlay = enabled;
+		this->mImpl->sceneWireframeOverlayFlags = editorVisibilityFlags;
+		// the shaded pass renders UNTOUCHED; the backend adds/removes a wireframe
+		// companion Item per scene mesh. Not idempotent-early-out here: an armed
+		// call RESYNCS the live source set (a mesh created/destroyed since the last
+		// call gains/loses its companion), while a disarmed call destroys the set.
+		RenderBackend::setSceneWireframeOverlay(enabled, editorVisibilityFlags);
+	}
+	//---------------------------------------------------------
+	bool RenderWorld::getSceneWireframeOverlay() const
+	{
+		return this->mImpl->sceneWireframeOverlay;
+	}
+	//---------------------------------------------------------
+	size_t RenderWorld::getSceneWireframeOverlayCount() const
+	{
+		return RenderBackend::sceneWireframeOverlayCount();
+	}
+	//---------------------------------------------------------
 	void RenderWorld::setBloom(BloomDesc const & desc)
 	{
 		this->mImpl->bloom = desc.sanitised();

@@ -18,38 +18,46 @@ using OrkigeEditor::parseSceneViewMode;
 
 TEST_CASE("scene view mode: Shaded is always available", "[editor][viewmode]")
 {
-	// available regardless of the wireframe capability, with no greyed reason
-	REQUIRE(sceneViewModeInfo(RenderViewMode::Shaded, true).available);
-	REQUIRE(sceneViewModeInfo(RenderViewMode::Shaded, false).available);
-	REQUIRE(sceneViewModeInfo(RenderViewMode::Shaded, false).reason.empty());
+	// available regardless of either wireframe capability, with no greyed reason
+	REQUIRE(sceneViewModeInfo(RenderViewMode::Shaded, true, true).available);
+	REQUIRE(sceneViewModeInfo(RenderViewMode::Shaded, false, false).available);
+	REQUIRE(sceneViewModeInfo(RenderViewMode::Shaded, false, false)
+		.reason.empty());
 }
 
-TEST_CASE("scene view mode: Wireframe follows the backend capability",
+TEST_CASE("scene view mode: Wireframe follows the wireframe-flip capability",
 	"[editor][viewmode]")
 {
-	// a backend that reports the capability (both flavors do now - classic
-	// per-target, next global-under-the-invariant) offers it with no reason
-	REQUIRE(sceneViewModeInfo(RenderViewMode::Wireframe, true).available);
-	REQUIRE(sceneViewModeInfo(RenderViewMode::Wireframe, true).reason.empty());
+	// a backend that reports the flip capability (both flavors do now - classic
+	// per-target, next global-under-the-invariant) offers it with no reason; the
+	// OVERLAY capability is irrelevant to the plain Wireframe flip
+	REQUIRE(sceneViewModeInfo(RenderViewMode::Wireframe, true, false).available);
+	REQUIRE(sceneViewModeInfo(RenderViewMode::Wireframe, true, true)
+		.reason.empty());
 
-	// a hypothetical backend without the capability greys it with a reason
+	// a hypothetical backend without the flip capability greys it with a reason
 	const OrkigeEditor::SceneViewModeInfo noCap =
-		sceneViewModeInfo(RenderViewMode::Wireframe, false);
+		sceneViewModeInfo(RenderViewMode::Wireframe, false, true);
 	REQUIRE_FALSE(noCap.available);
 	REQUIRE_FALSE(noCap.reason.empty());
 }
 
-TEST_CASE("scene view mode: ShadedWireframe is unavailable on every flavor",
+TEST_CASE("scene view mode: ShadedWireframe follows the overlay capability",
 	"[editor][viewmode]")
 {
-	// the v1 boundary - a wireframe overlay needs a second depth-biased pass,
-	// so it is greyed whether or not the plain wireframe capability is present
-	REQUIRE_FALSE(sceneViewModeInfo(RenderViewMode::ShadedWireframe, true)
+	// the overlay-items road: available whenever the overlay capability is
+	// present (both flavors report it now), INDEPENDENT of the plain-wireframe
+	// flip capability
+	REQUIRE(sceneViewModeInfo(RenderViewMode::ShadedWireframe, false, true)
 		.available);
-	REQUIRE_FALSE(sceneViewModeInfo(RenderViewMode::ShadedWireframe, false)
-		.available);
-	REQUIRE_FALSE(sceneViewModeInfo(RenderViewMode::ShadedWireframe, true)
+	REQUIRE(sceneViewModeInfo(RenderViewMode::ShadedWireframe, true, true)
 		.reason.empty());
+
+	// a hypothetical backend without the overlay capability greys it with a reason
+	const OrkigeEditor::SceneViewModeInfo noCap =
+		sceneViewModeInfo(RenderViewMode::ShadedWireframe, true, false);
+	REQUIRE_FALSE(noCap.available);
+	REQUIRE_FALSE(noCap.reason.empty());
 }
 
 TEST_CASE("scene lighting toggle follows the backend capability",
@@ -98,9 +106,40 @@ TEST_CASE("scene wireframe under the render invariant", "[editor][viewmode]")
 	REQUIRE(shouldWireframeScene(RenderViewMode::Wireframe, /*sceneIsRenderer*/true));
 	// Wireframe selected but the preview renders this frame -> stay solid
 	REQUIRE_FALSE(shouldWireframeScene(RenderViewMode::Wireframe, false));
-	// Shaded (or the unbuilt ShadedWireframe) never arms the scene wireframe
+	// Shaded (or ShadedWireframe - the OVERLAY road, not a flip) never arms the
+	// scene wireframe flip
 	REQUIRE_FALSE(shouldWireframeScene(RenderViewMode::Shaded, true));
 	REQUIRE_FALSE(shouldWireframeScene(RenderViewMode::ShadedWireframe, true));
+}
+
+TEST_CASE("scene wireframe OVERLAY under the render invariant",
+	"[editor][viewmode]")
+{
+	using OrkigeEditor::shouldWireframeOverlay;
+	using OrkigeEditor::shouldWireframeScene;
+	// the shaded+wireframe overlay arms only when the mode is ShadedWireframe AND
+	// the Scene view is the frame's renderer (the editor-only-bit companions then
+	// never reach a Game-Preview / Play frame)
+	REQUIRE(shouldWireframeOverlay(RenderViewMode::ShadedWireframe,
+		/*sceneIsRenderer*/true));
+	// ShadedWireframe selected but the preview renders this frame -> no overlay
+	REQUIRE_FALSE(shouldWireframeOverlay(RenderViewMode::ShadedWireframe, false));
+	// the flip modes never arm the overlay
+	REQUIRE_FALSE(shouldWireframeOverlay(RenderViewMode::Shaded, true));
+	REQUIRE_FALSE(shouldWireframeOverlay(RenderViewMode::Wireframe, true));
+	// RADIO-EXCLUSIVE: the flip and the overlay are never both armed in one frame
+	// (the two modes are distinct RenderViewMode values)
+	for(bool sceneIsRenderer : { true, false })
+	{
+		const bool wireBoth =
+			shouldWireframeScene(RenderViewMode::Wireframe, sceneIsRenderer) &&
+			shouldWireframeOverlay(RenderViewMode::Wireframe, sceneIsRenderer);
+		REQUIRE_FALSE(wireBoth);
+		const bool overlayBoth =
+			shouldWireframeScene(RenderViewMode::ShadedWireframe, sceneIsRenderer) &&
+			shouldWireframeOverlay(RenderViewMode::ShadedWireframe, sceneIsRenderer);
+		REQUIRE_FALSE(overlayBoth);
+	}
 }
 
 TEST_CASE("scene view mode string round-trips", "[editor][viewmode]")

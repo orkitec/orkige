@@ -57,6 +57,12 @@ X(PlanarReflection, true)
 // flips to Ogre::PolygonMode wireframe (per-camera, leak-free on every classic
 // context, so unconditionally true - unlike the runtime-gated shader stages above)
 X(SceneWireframeView, true)
+// the editor Scene view's SHADED+WIREFRAME look: OVERLAY ITEMS (a second Ogre::Entity
+// per scene mesh with a shared unlit wireframe Material, depth-biased onto the shaded
+// surface), never a second in-place polygon pass - available on both flavors by the
+// same road, so unconditionally true like the wireframe flip
+// (@see RenderWorld::setSceneWireframeOverlay)
+X(SceneWireframeOverlayView, true)
 // the editor Scene view's flat lighting-off inspection look: a GLOBAL per-frame
 // state (snapshot + hide every light + flat-white ambient over the hemisphere SRS
 // and the flat term, exact restore) armed only on a Scene-only frame via the

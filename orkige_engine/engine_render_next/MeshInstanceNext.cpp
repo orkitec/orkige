@@ -238,6 +238,9 @@ namespace Orkige
 			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
 			Ogre::SCENE_DYNAMIC);
 		item->setQueryFlags(RenderWorld::QUERYFLAG_DEFAULT);
+		// record it as a scene-tier source so the SHADED+WIREFRAME overlay can
+		// shadow it with a wireframe companion (@see setSceneWireframeOverlay)
+		RenderBackend::registerSceneItem(item);
 		optr<MeshInstance> handle(new MeshInstance());
 		handle->mImpl->item = item;
 		handle->mImpl->creator = sceneManager;
@@ -255,6 +258,10 @@ namespace Orkige
 		// late destruction guard, same rule as RenderNode
 		if(this->mImpl->item && RenderBackend::system())
 		{
+			// drop it from the scene-item registry AND destroy its wireframe
+			// overlay companion (if armed) while the item + node are still alive,
+			// so no companion dangles on a freed node (@see setSceneWireframeOverlay)
+			RenderBackend::unregisterSceneItem(this->mImpl->item);
 			// a planar-reflective water surface must leave the reflection
 			// subsystem's tracked list BEFORE its Item dies (a scene switch
 			// destroys the water while the subsystem lives on - the dangling

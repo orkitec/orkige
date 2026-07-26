@@ -85,6 +85,23 @@ namespace Orkige
 		//! mirrors the next flavor)
 		bool gAtmosphereSunReresolvePending = false;
 
+		//--- shaded+wireframe overlay (@see RenderWorld::setSceneWireframeOverlay) --
+		//! every scene-tier mesh Entity the backend created (@see
+		//! createMeshInstance; unregistered by ~MeshInstance) - the source set the
+		//! SHADED+WIREFRAME overlay shadows with wireframe companions
+		std::vector<Ogre::Entity*> gSceneEntities;
+		//! the live wireframe companion per source Entity while the overlay is armed;
+		//! a companion shares its source's mesh + node and dies with its source
+		//! (unregisterSceneEntity) or on disarm
+		std::unordered_map<Ogre::Entity*, Ogre::Entity*> gWireframeOverlays;
+		//! the SHADED+WIREFRAME overlay armed flag + the editor-only visibility bit
+		//! the companions carry (masked off the Game Preview target)
+		bool gOverlayArmed = false;
+		unsigned int gOverlayFlags = 0;
+		//! the shared unlit wireframe material name the companions render with
+		//! (near-black, polygon-mode wireframe + a small depth bias); created lazily
+		const char* const kWireframeOverlayMaterial = "Orkige/SceneWireframeOverlay";
+
 		//--- dynamic-shadow state (@see RenderBackend::applyShadowConfig) --
 		//! the tier the scene technique is currently ARMED with (SQ_OFF =
 		//! disarmed); a recompute that lands on the same value is a no-op
@@ -609,6 +626,173 @@ namespace Orkige
 		{
 			movable->setVisibilityFlags(RenderBackend::SCENE_2D_VISIBILITY);
 		}
+	}
+	//---------------------------------------------------------
+	namespace
+	{
+		//! the ONE shared unlit wireframe material the SHADED+WIREFRAME overlay's
+		//! companion Entities render with (idempotent by name): lighting off with
+		//! no vertex-colour tracking, so the RTSS colour source is the flat pass
+		//! diffuse (a neutral dark tone). Polygon mode wireframe, depth compare
+		//! LESS_EQUAL + no depth write - the companion shares the SOURCE mesh, so
+		//! its rasterized depth equals the shaded surface's and the coincident lines
+		//! pass the test with no depth bias / z-fighting, leaving the shaded depth
+		//! buffer untouched.
+		void ensureWireframeOverlayMaterial()
+		{
+			Ogre::MaterialManager& materialManager =
+				Ogre::MaterialManager::getSingleton();
+			if(materialManager.resourceExists(kWireframeOverlayMaterial,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+			{
+				return;
+			}
+			Ogre::MaterialPtr material = materialManager.create(
+				kWireframeOverlayMaterial,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			material->setReceiveShadows(false);	// unlit lines never receive
+			Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
+			pass->setLightingEnabled(false);
+			// with lighting off and no vertex-colour tracking, the RTSS emits the
+			// pass diffuse as the flat surface colour - a neutral dark tone that
+			// reads on both light and dark lit surfaces
+			pass->setDiffuse(Ogre::ColourValue(0.04f, 0.04f, 0.05f, 1.0f));
+			pass->setPolygonMode(Ogre::PM_WIREFRAME);
+			pass->setDepthFunction(Ogre::CMPF_LESS_EQUAL);	// coincident lines pass
+			pass->setDepthWriteEnabled(false);	// shaded pass already wrote depth
+		}
+		//! is a source Entity eligible for a wireframe companion? Static scene
+		//! geometry is the mode's habitat: SKINNED/animated meshes are excluded (a
+		//! companion shares the mesh but NOT the source's AnimationState, so its
+		//! lines would freeze at the bind pose) - the documented v1 boundary.
+		bool overlayEligible(Ogre::Entity* source)
+		{
+			return source && !source->hasSkeleton();
+		}
+		//! destroy the wireframe companion of @p source if one exists (guarded
+		//! detach - a companion whose node already died is auto-detached by Ogre)
+		void destroyWireframeOverlayFor(Ogre::Entity* source)
+		{
+			std::unordered_map<Ogre::Entity*, Ogre::Entity*>::iterator found =
+				gWireframeOverlays.find(source);
+			if(found == gWireframeOverlays.end())
+			{
+				return;
+			}
+			Ogre::Entity* companion = found->second;
+			if(companion->isAttached())
+			{
+				companion->detachFromParent();
+			}
+			companion->_getManager()->destroyEntity(companion);
+			gWireframeOverlays.erase(found);
+		}
+		//! create the wireframe companion of @p source: a second Ogre::Entity over
+		//! the source's SAME mesh resource attached to the source's SAME node, all
+		//! sub-entities on the shared wireframe material, editor-only-visible,
+		//! shadowless and unpickable (@see setSceneWireframeOverlay)
+		void createWireframeOverlayFor(Ogre::Entity* source)
+		{
+			Ogre::SceneNode* node = source->getParentSceneNode();
+			if(!node)
+			{
+				return;	// source not placed yet - a later armed sync catches it
+			}
+			ensureWireframeOverlayMaterial();
+			Ogre::SceneManager* manager = source->_getManager();
+			Ogre::Entity* companion = manager->createEntity(
+				RenderBackend::generateName("RenderFacade/WireOverlay"),
+				source->getMesh()->getName(),
+				source->getMesh()->getGroup());
+			companion->setMaterialName(kWireframeOverlayMaterial,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			companion->setCastShadows(false);
+			companion->setQueryFlags(0);					// never pickable
+			companion->setVisibilityFlags(gOverlayFlags);	// editor-only bit
+			node->attachObject(companion);
+			gWireframeOverlays[source] = companion;
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::registerSceneEntity(Ogre::Entity* entity)
+	{
+		// createMeshInstance path: the entity is NOT attached to a node yet
+		// (attachTo comes later), so a companion is created on the next armed
+		// sync (the editor re-arms every frame) rather than here
+		gSceneEntities.push_back(entity);
+	}
+	//---------------------------------------------------------
+	void RenderBackend::unregisterSceneEntity(Ogre::Entity* entity)
+	{
+		// ~MeshInstance path: destroy the companion FIRST, while the source entity
+		// and its node are still alive, so a companion never dangles on a freed node
+		destroyWireframeOverlayFor(entity);
+		gSceneEntities.erase(std::remove(gSceneEntities.begin(),
+			gSceneEntities.end(), entity), gSceneEntities.end());
+	}
+	//---------------------------------------------------------
+	void RenderBackend::setSceneWireframeOverlay(bool enabled,
+		unsigned int editorVisibilityFlags)
+	{
+		gOverlayFlags = editorVisibilityFlags;
+		if(!enabled)
+		{
+			if(!gOverlayArmed && gWireframeOverlays.empty())
+			{
+				return;	// idempotent while already disarmed
+			}
+			// tear the whole companion set down; restore nothing else (nothing
+			// else changed - the shaded scene rendered untouched throughout)
+			std::vector<Ogre::Entity*> sources;
+			sources.reserve(gWireframeOverlays.size());
+			for(std::pair<Ogre::Entity* const, Ogre::Entity*> const & each :
+				gWireframeOverlays)
+			{
+				sources.push_back(each.first);
+			}
+			for(Ogre::Entity* source : sources)
+			{
+				destroyWireframeOverlayFor(source);
+			}
+			gOverlayArmed = false;
+			return;
+		}
+		gOverlayArmed = true;
+		// RESYNC the companion set to the live source set every armed call: an
+		// eligible unshadowed source gains a companion, an ineligible or reparented
+		// one loses its stale companion - so live create/delete/mesh-swap track
+		for(Ogre::Entity* source : gSceneEntities)
+		{
+			std::unordered_map<Ogre::Entity*, Ogre::Entity*>::iterator found =
+				gWireframeOverlays.find(source);
+			const bool eligible = overlayEligible(source) &&
+				source->getParentSceneNode() != NULL;
+			if(found != gWireframeOverlays.end())
+			{
+				// drop a companion whose source became ineligible or reparented
+				// (the companion hangs off the old node) - rebuilt below if eligible
+				if(!eligible ||
+					found->second->getParentNode() != source->getParentNode())
+				{
+					destroyWireframeOverlayFor(source);
+					found = gWireframeOverlays.end();
+				}
+				else
+				{
+					// keep it live at the current visibility bit (flags may change)
+					found->second->setVisibilityFlags(gOverlayFlags);
+				}
+			}
+			if(found == gWireframeOverlays.end() && eligible)
+			{
+				createWireframeOverlayFor(source);
+			}
+		}
+	}
+	//---------------------------------------------------------
+	size_t RenderBackend::sceneWireframeOverlayCount()
+	{
+		return gWireframeOverlays.size();
 	}
 	//---------------------------------------------------------
 	bool RenderBackend::isBloomOutputViewport(Ogre::Viewport* viewport)
@@ -1176,6 +1360,12 @@ namespace Orkige
 		// available on this flavor too, so it is set as well.
 		system->mImpl->caps |=
 			(1u << static_cast<int>(RenderCaps::SceneWireframeView)) |
+			// SceneWireframeOverlayView: the editor Scene view's SHADED+WIREFRAME
+			// look (@see RenderWorld::setSceneWireframeOverlay) - a second
+			// Ogre::Entity per scene mesh with a shared unlit wireframe Material,
+			// depth-biased onto the shaded surface (not a second in-place polygon
+			// pass); available on every classic context like the wireframe flip.
+			(1u << static_cast<int>(RenderCaps::SceneWireframeOverlayView)) |
 			(1u << static_cast<int>(RenderCaps::SceneUnlitView));
 		// the bloom tier split rides visibility flags: the 2D tier carries the
 		// SCENE_2D bit (tagScene2D), so every OTHER movable must default into
@@ -1213,6 +1403,13 @@ namespace Orkige
 		// and free facade memory only. Drop the mappings so late lookups
 		// resolve to NULL instead of dangling.
 		gNodeRegistry.clear();
+		// the scene-entity + overlay bookkeeping dies with the scene manager
+		// (the companion Entities were owned by the manager, the material by
+		// the MaterialManager) - drop the dangling pointers for a clean re-init
+		gSceneEntities.clear();
+		gWireframeOverlays.clear();
+		gOverlayArmed = false;
+		gOverlayFlags = 0;
 		// the sun registry points at lights the scene manager is tearing down
 		gDirectionalLights.clear();
 		gAtmosphereSunReresolvePending = false;

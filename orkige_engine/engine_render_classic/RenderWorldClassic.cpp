@@ -1203,6 +1203,28 @@ namespace Orkige
 		return this->mImpl->sceneWireframe;
 	}
 	//---------------------------------------------------------
+	void RenderWorld::setSceneWireframeOverlay(bool enabled,
+		unsigned int editorVisibilityFlags)
+	{
+		this->mImpl->sceneWireframeOverlay = enabled;
+		this->mImpl->sceneWireframeOverlayFlags = editorVisibilityFlags;
+		// the shaded pass renders UNTOUCHED; the backend adds/removes a wireframe
+		// companion Entity per scene mesh (an armed call resyncs the live source
+		// set, a disarmed call destroys the companions). Unlike setSceneWireframe,
+		// this is REAL on classic - overlay Entities are a per-target-safe route.
+		RenderBackend::setSceneWireframeOverlay(enabled, editorVisibilityFlags);
+	}
+	//---------------------------------------------------------
+	bool RenderWorld::getSceneWireframeOverlay() const
+	{
+		return this->mImpl->sceneWireframeOverlay;
+	}
+	//---------------------------------------------------------
+	size_t RenderWorld::getSceneWireframeOverlayCount() const
+	{
+		return RenderBackend::sceneWireframeOverlayCount();
+	}
+	//---------------------------------------------------------
 	void RenderWorld::setBloom(BloomDesc const & desc)
 	{
 		this->mImpl->bloom = desc.sanitised();

@@ -3383,6 +3383,9 @@ namespace Orkige
 				ok.set("wireframe_supported",
 					Orkige::RenderSystem::get()->supports(
 						Orkige::RenderCaps::SceneWireframeView) ? "1" : "0");
+				ok.set("wireframe_overlay_supported",
+					Orkige::RenderSystem::get()->supports(
+						Orkige::RenderCaps::SceneWireframeOverlayView) ? "1" : "0");
 				ok.set("lighting_supported",
 					Orkige::RenderSystem::get()->supports(
 						Orkige::RenderCaps::SceneUnlitView) ? "1" : "0");
@@ -3414,7 +3417,9 @@ namespace Orkige
 				const OrkigeEditor::SceneViewModeInfo info =
 					OrkigeEditor::sceneViewModeInfo(mode,
 						Orkige::RenderSystem::get()->supports(
-							Orkige::RenderCaps::SceneWireframeView));
+							Orkige::RenderCaps::SceneWireframeView),
+						Orkige::RenderSystem::get()->supports(
+							Orkige::RenderCaps::SceneWireframeOverlayView));
 				if (!info.available)
 				{
 					this->sendErr(req, info.reason);
@@ -7470,6 +7475,8 @@ namespace Orkige
 				}
 				const bool wireframeSupported =
 					structured.get("wireframe_supported").asString() == "1";
+				const bool wireframeOverlaySupported =
+					structured.get("wireframe_overlay_supported").asString() == "1";
 				const bool lightingSupported =
 					structured.get("lighting_supported").asString() == "1";
 				if (structured.get("view_mode").asString() != "shaded")
@@ -7528,11 +7535,41 @@ namespace Orkige
 						"this backend but was NOT refused");
 					return;
 				}
-				// shaded_wireframe is not built in this version: refused on both
-				if (!setViewMode("shaded_wireframe") || !isError)
+				// shaded_wireframe: the OVERLAY road, accepted where supported (both
+				// flavors now), refused on a hypothetical backend without the cap
+				if (!setViewMode("shaded_wireframe"))
 				{
-					finish(false, "control self-test: shaded_wireframe should be "
-						"refused in this version");
+					finish(false, "control self-test: set view_mode shaded_wireframe "
+						"call failed");
+					return;
+				}
+				if (wireframeOverlaySupported)
+				{
+					if (isError)
+					{
+						finish(false, "control self-test: shaded_wireframe is "
+							"supported but was refused");
+						return;
+					}
+					if (!callTool("get_view_options", JsonValue::object(), true,
+							structured, isError) || isError ||
+						structured.get("view_mode").asString() != "shaded_wireframe")
+					{
+						finish(false, "control self-test: view_mode did not read "
+							"back as shaded_wireframe");
+						return;
+					}
+					if (!setViewMode("shaded") || isError)	// restore
+					{
+						finish(false, "control self-test: restoring view_mode from "
+							"shaded_wireframe failed");
+						return;
+					}
+				}
+				else if (!isError)
+				{
+					finish(false, "control self-test: shaded_wireframe is unsupported "
+						"on this backend but was NOT refused");
 					return;
 				}
 				// an unknown view_mode string is refused
