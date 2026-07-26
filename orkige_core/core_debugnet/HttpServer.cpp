@@ -20,7 +20,6 @@
 #	include <sys/socket.h>
 #endif
 
-#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>

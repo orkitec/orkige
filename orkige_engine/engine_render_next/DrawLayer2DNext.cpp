@@ -44,7 +44,6 @@
 #include <OgreHlmsUnlitDatablock.h>
 
 #include <algorithm>
-#include <cmath>
 #include <set>
 #include <utility>
 #include <vector>

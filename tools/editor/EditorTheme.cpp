@@ -41,7 +41,6 @@ namespace Orkige
 			// in dark, whiter/raised than the panel in light
 			ImVec4 controlBg;
 			ImVec4 controlHover;
-			ImVec4 controlActive;
 			// input fields (text/number wells, checkboxes) - RECESSED below the
 			// panel so a field reads as a well: darker than the panel in dark,
 			// off-white grey in light. Hover/active stay calm (no bright flash).
@@ -101,7 +100,6 @@ namespace Orkige
 			/*menubarBg*/       rgba(0x282828),
 			/*controlBg*/       rgba(0x3a3a3c),
 			/*controlHover*/    rgba(0x48484a),
-			/*controlActive*/   rgba(0x545456),
 			// fields sit clearly BELOW the panel body (0x3a3a3c) and the
 			// selected tab so an input never blends into either; hover/active
 			// ladder UP from the recessed base so focus still reads, staying
@@ -150,7 +148,6 @@ namespace Orkige
 			/*menubarBg*/       rgba(0xe6e6e6),
 			/*controlBg*/       rgba(0xffffff),
 			/*controlHover*/    rgba(0xf1f1f3),
-			/*controlActive*/   rgba(0xe3e3e6),
 			// a recessed grey against the white panel (0xffffff); hover/active
 			// press DOWN a touch so focus reads without going dark. A light-grey
 			// 1px border draws the recess.

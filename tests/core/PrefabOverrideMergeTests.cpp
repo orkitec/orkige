@@ -35,7 +35,6 @@
 #include <core_game/SceneSerializer.h>
 #include <core_project/AssetDatabase.h>
 
-#include <algorithm>
 #include <filesystem>
 #ifdef _WIN32
 #include <process.h>	// _getpid - unique temp fixture names (parallel ctest)

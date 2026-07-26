@@ -42,14 +42,12 @@
 #include <engine_render/RenderNode.h>
 #include <engine_render/RenderTexture.h>
 
-#include <atomic>
 #include <chrono>
 #include <deque>
 #include <map>
 #include <mutex>
 #include <set>
 #include <string>
-#include <thread>
 #include <vector>
 
 using Orkige::optr;

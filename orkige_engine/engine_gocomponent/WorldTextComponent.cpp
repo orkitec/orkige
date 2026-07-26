@@ -14,7 +14,6 @@
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include "engine_render/RenderCamera.h"	// view matrix -> camera billboard axes
-#include "engine_render/RenderNode.h"
 #include "engine_gui/FontAtlas.h"
 #include "engine_gui/UiAtlas.h"
 #include <core_game/GameObject.h>

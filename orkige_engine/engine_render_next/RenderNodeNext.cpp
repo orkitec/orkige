@@ -25,7 +25,6 @@
 #include <OgreSceneNode.h>
 #include <OgreMovableObject.h>
 
-#include <algorithm>
 
 namespace Orkige
 {

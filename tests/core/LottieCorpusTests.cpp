@@ -12,7 +12,6 @@
 #include "core_util/VectorShapeRaster.h"
 #include "core_util/VectorTessellator.h"
 
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <fstream>

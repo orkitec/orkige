@@ -12,7 +12,6 @@
 #include "core_debug/LogChannel.h"
 #include "core_debug/LogConfig.h"
 #include <string>
-#include <sstream>
 #include <tinyxml2.h>
 
 #include <time.h>//is this standard c?

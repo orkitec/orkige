@@ -5,7 +5,6 @@
 #include "AnimationPreviewStage.h"
 #include "EditorApp.h"
 
-#include <cmath>
 #include <imgui_internal.h>	// CloseButton (the component header's real cross)
 #include "EditorLabelFormat.h"
 #include "EditorPropertyWidgets.h"

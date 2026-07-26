@@ -14,7 +14,6 @@
 
 #include <core_base/Object.h>
 
-#include <algorithm>
 
 using Orkige::optr;
 using Orkige::woptr;

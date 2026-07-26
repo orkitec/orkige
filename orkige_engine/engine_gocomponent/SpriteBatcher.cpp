@@ -14,7 +14,6 @@
 #include "engine_render/RenderNode.h"
 #include <core_debug/CVarManager.h>
 
-#include <algorithm>
 
 namespace Orkige
 {

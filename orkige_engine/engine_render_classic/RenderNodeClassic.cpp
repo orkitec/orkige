@@ -16,7 +16,6 @@
 #include "engine_render_classic/ClassicBackend.h"
 #include <core_debug/DebugMacros.h>
 
-#include <algorithm>
 
 namespace Orkige
 {

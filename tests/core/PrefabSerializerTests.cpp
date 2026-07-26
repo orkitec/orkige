@@ -24,7 +24,6 @@
 #include <core_project/AssetDatabase.h>
 #include <core_serialization/XMLArchive.h>
 
-#include <algorithm>
 #include <filesystem>
 #ifdef _WIN32
 #include <process.h>	// _getpid - unique temp fixture names (parallel ctest)

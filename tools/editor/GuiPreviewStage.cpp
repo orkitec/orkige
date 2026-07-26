@@ -20,8 +20,6 @@
 
 #include <fstream>
 #include <filesystem>
-#include <sstream>
-#include <algorithm>
 #include <cctype>
 
 namespace OrkigeEditor
