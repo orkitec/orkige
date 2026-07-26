@@ -289,6 +289,11 @@ everyone's confidence in the suite.
   strings, or docs. Never name competing game engines or other third-party products
   in comments, strings, or docs; describe the behavior and mechanics directly. Commit
   messages MAY reference dev history, but code, comments, strings, and docs must not.
+  Docs are PRESENT-TENSE reference: describe how things are and how they work —
+  never change-log narration ("now supports", "the old X was retired", "formerly").
+  When history encodes a constraint, state the constraint plainly and drop the
+  archaeology. The sanctioned exceptions are the record-genre files (Docs/upstream/,
+  ports.md provenance, render-abstraction.md's design ledger).
 
 ## MCP endpoint (AI-agent editor control)
 
