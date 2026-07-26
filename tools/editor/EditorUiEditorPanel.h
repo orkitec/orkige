@@ -50,14 +50,30 @@ namespace OrkigeEditor
 		bool			loaded = false;	//!< a file is loaded into `doc`
 		std::string		projectRoot;	//!< the project the file belongs to
 		std::string		relPath;		//!< project-relative .oui path
-		std::string		selected;		//!< selected widget id ("" = none)
+		std::string		selected;		//!< the KEY widget id ("" = none); == selection[0]
+		//! the ordered multi-selection (first = the align key object). `selected`
+		//! mirrors selection.front(); an empty selection clears both.
+		std::vector<std::string>	selection;
+		// a marquee in progress (surface px, set while dragging on empty canvas)
+		bool			marquee = false;
+		float			marqueeX0 = 0.0f, marqueeY0 = 0.0f;
+		float			marqueeX1 = 0.0f, marqueeY1 = 0.0f;
+		//! what a canvas drag manipulates (a widget body/handle, an anchor
+		//! triangle, the pivot dot, or a marquee rubber-band)
+		enum class DragKind { None, Widget, AnchorMin, AnchorMax,
+			AnchorMinXMaxY, AnchorMaxXMinY, Pivot, Marquee };
 		// in-progress drag
 		bool			dragging = false;
-		UiHandle		dragHandle = UiHandle::None;
+		DragKind		dragKind = DragKind::None;
+		UiHandle		dragHandle = UiHandle::None;	//!< the widget grab (Move/resize)
 		float			dragStartX = 0.0f;	//!< screen px at grab
 		float			dragStartY = 0.0f;
 		// the selected widget's overlay rect (surface px) captured at grab
 		UiRect			dragRect;
+		// the parent rect + scale the anchor/pivot drag resolves against (grab-time)
+		float			dragParentX = 0.0f, dragParentY = 0.0f;
+		float			dragParentW = 1.0f, dragParentH = 1.0f;
+		float			dragScale = 1.0f;
 		bool			needsReload = false;	//!< the overlay must re-show after a save
 	};
 
@@ -72,6 +88,7 @@ namespace OrkigeEditor
 		std::string	selected;				//!< the selected widget id
 		bool		dirty = false;			//!< unsaved edits pending
 		bool		canUndo = false;
+		int			selectionCount = 0;		//!< widgets in the multi-selection
 	};
 	//! the process-wide edit-mode debug seam (@see UiEditorDebug)
 	UiEditorDebug& uiEditorDebug();
@@ -84,8 +101,31 @@ namespace OrkigeEditor
 		std::string const& projectRoot, std::string const& relPath,
 		std::string& error);
 	void uiEditSelect(UiEditSession& s, std::string const& widgetId);
+	//! @brief multi-selection edits (the ordered set, first = align key).
+	//! @{
+	//! toggle @p widgetId in the selection (shift-click): add to the end if
+	//! absent, remove if present; keeps `selected` = the front (key).
+	void uiEditSelectToggle(UiEditSession& s, std::string const& widgetId);
+	//! replace the whole selection with @p ids (first becomes the key)
+	void uiEditSetSelection(UiEditSession& s, std::vector<std::string> const& ids);
+	//! select every widget whose rect intersects the marquee (surface px)
+	void uiEditMarqueeSelect(UiEditSession& s, GamePreviewStage& stage,
+		float x0, float y0, float x1, float y1);
+	//! @}
 	//! move the selected widget by a surface-pixel delta (one undo step)
 	void uiEditNudge(UiEditSession& s, float dxSurfacePx, float dySurfacePx);
+	//! @brief nudge the whole selection by a DESIGN-unit delta (arrow keys: 1,
+	//! or 10 with shift). Consecutive bursts on the same selection fold into ONE
+	//! undo step (the drag contract), so a held arrow is one entry.
+	void uiEditNudgeKey(UiEditSession& s, float dxDesign, float dyDesign);
+	//! align the selection to the key object's edge/centre (one undo step)
+	void uiEditAlign(UiEditSession& s, GamePreviewStage& stage, UiAlignOp op);
+	//! distribute the selection evenly on an axis (one undo step)
+	void uiEditDistribute(UiEditSession& s, GamePreviewStage& stage,
+		UiDistributeOp op);
+	//! apply an anchor preset to the KEY widget with the gizmo modifiers
+	void uiEditApplyAnchorPreset(UiEditSession& s, GamePreviewStage& stage,
+		Orkige::LayoutAnchorPreset preset, AnchorPresetMods mods);
 	//! add a palette widget of `type` (parented to the selection), select it
 	std::string uiEditAddWidget(UiEditSession& s, std::string const& type);
 	//! remove the selected widget subtree (one undo step)

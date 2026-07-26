@@ -711,6 +711,8 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		editDbg.selected = ui.editSession.selected;
 		editDbg.dirty = ui.editSession.doc.dirty();
 		editDbg.canUndo = ui.editSession.doc.canUndo();
+		editDbg.selectionCount =
+			static_cast<int>(ui.editSession.selection.size());
 	}
 	else if (ui.editSession.loaded)
 	{

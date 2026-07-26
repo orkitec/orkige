@@ -6459,11 +6459,96 @@ int main(int argc, char** argv)
 						uiFail("saved file is not canonical (round-trip drift)");
 					}
 				}
+				// --- alignment tooling: multi-select + align + undo (both flavors,
+				// off the doc-resolve fallback so it works headless/classic too) ---
+				if (ok)
+				{
+					OrkigeEditor::uiEditSetSelection(session, { "title", "ok" });
+					if (session.selection.size() != 2 || session.selected != "title")
+					{
+						uiFail("multi-select did not take (key must be 'title')");
+					}
+				}
+				if (ok)
+				{
+					OrkigeEditor::uiEditAlign(session, gamePreviewStage,
+						OrkigeEditor::UiAlignOp::Left);
+					// 'ok' (anchoredPos 40 120) aligns its left to the key 'title'
+					// (anchoredPos 20 20): its anchoredPos x converges on 20
+					const std::string ap = anchoredPosOf("ok");
+					if (ap.rfind("20 ", 0) != 0)
+					{
+						uiFail("align-left did not converge 'ok' (got '" + ap + "')");
+					}
+					else if (!session.doc.canUndo())
+					{
+						uiFail("align produced no undo step");
+					}
+				}
+				if (ok)
+				{
+					OrkigeEditor::uiEditUndo(session);
+					if (anchoredPosOf("ok") != "40 120")
+					{
+						uiFail("undo did not restore the aligned widget (got '" +
+							anchoredPosOf("ok") + "')");
+					}
+				}
+				// --- marquee: a full-canvas rubber-band selects every widget ---
+				if (ok)
+				{
+					OrkigeEditor::uiEditMarqueeSelect(session, gamePreviewStage,
+						-100000.0f, -100000.0f, 100000.0f, 100000.0f);
+					const int count = static_cast<int>(session.selection.size());
+					const int widgets = static_cast<int>(std::count_if(
+						session.doc.doc().sections.begin(),
+						session.doc.doc().sections.end(),
+						[](Orkige::GuiLayoutSection const& sec)
+						{ return !sec.id.empty(); }));
+					if (count != widgets)
+					{
+						uiFail("marquee count " + std::to_string(count) +
+							" != widget count " + std::to_string(widgets));
+					}
+				}
+				// --- anchor preset with keep-rect: anchors change, rect holds ---
+				if (ok)
+				{
+					Orkige::GuiLayoutSection probe;
+					probe.type = "DecorWidget";
+					probe.id = "probe";
+					probe.set("anchor", "topleft");
+					probe.set("anchoredPos", "100 100");
+					probe.set("sizeDelta", "200 80");
+					const Orkige::LayoutRect parent{ 0.0f, 0.0f, 1000.0f, 1000.0f };
+					const Orkige::LayoutRect before = Orkige::resolveRect(parent,
+						OrkigeEditor::sectionLayoutNode(probe), 1.0f);
+					OrkigeEditor::AnchorPresetMods mods;
+					mods.alsoKeepRect = true;
+					OrkigeEditor::applyAnchorPresetToSection(probe, Orkige::LAP_CENTER,
+						mods, parent, 1.0f);
+					const Orkige::LayoutRect after = Orkige::resolveRect(parent,
+						OrkigeEditor::sectionLayoutNode(probe), 1.0f);
+					const bool held = std::fabs(after.x - before.x) < 0.05f &&
+						std::fabs(after.y - before.y) < 0.05f &&
+						std::fabs(after.w - before.w) < 0.05f &&
+						std::fabs(after.h - before.h) < 0.05f;
+					Orkige::String const* an = probe.find("anchor");
+					if (!held)
+					{
+						uiFail("anchor-preset keep-rect moved the resolved rect");
+					}
+					else if (!an || *an != "center")
+					{
+						uiFail("anchor-preset keep-rect did not change the anchor");
+					}
+				}
 				fs::remove_all(dir, uiEc);
 				if (ok)
 				{
 					SDL_Log("orkige_editor: uiedit selfcheck PASSED - "
-						"load/select/move/undo/add/save/reload verified");
+						"load/select/move/undo/add/save/reload + multi-select/align/"
+						"marquee/anchor-gizmo verified");
 					exitCode = 0;
 					running = false;
 				}

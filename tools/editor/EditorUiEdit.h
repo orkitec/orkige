@@ -106,6 +106,108 @@ namespace OrkigeEditor
 	void applyResize(Orkige::GuiLayoutSection& s, UiHandle handle,
 		float dxPx, float dyPx, float layoutScale, float snapDesign);
 
+	//=========================================================
+	//=== alignment tooling (pure, resolver-pinned) ===========
+	//=========================================================
+
+	//! @brief the modifier variants a preset-gizmo click carries. Plain click
+	//! sets the anchor only (offsets untouched, so the widget follows its new
+	//! anchor). @c alsoPivot ALSO moves the pivot to the preset point; @c
+	//! alsoKeepRect ALSO recomputes offsets so the on-screen rect is unchanged
+	//! (the widget stays put under the new anchor). The two compose.
+	struct AnchorPresetMods
+	{
+		bool	alsoPivot = false;		//!< move the pivot to the preset point too
+		bool	alsoKeepRect = false;	//!< keep the on-screen rect (recompute offsets)
+	};
+
+	//! @brief the unit-square point a preset visually centres on (the midpoint
+	//! of its anchor rect: the fraction for a point anchor, the band centre for
+	//! a stretch). Used to place the pivot on an alsoPivot click.
+	Orkige::LayoutVec2 anchorPresetPoint(Orkige::LayoutAnchorPreset preset);
+
+	//! @brief apply an anchor preset to @p s, honouring @p mods. @p parentRect
+	//! (surface px) and @p layoutScale (design->surface) are the resolve context
+	//! the keep-rect recomputation needs. Writes back in the section's own
+	//! geometry form (offsets vs friendly) and drops any raw anchorMin/anchorMax
+	//! in favour of the named `anchor` key. Pure.
+	void applyAnchorPresetToSection(Orkige::GuiLayoutSection& s,
+		Orkige::LayoutAnchorPreset preset, AnchorPresetMods mods,
+		Orkige::LayoutRect const& parentRect, float layoutScale);
+
+	//! @brief which anchor-rect corner an on-canvas anchor triangle drags.
+	//! Min = (anchorMin.x, anchorMin.y), Max = (anchorMax.x, anchorMax.y),
+	//! the two mixed corners carry one component of each.
+	enum class UiAnchorCorner { Min, Max, MinXMaxY, MaxXMinY };
+
+	//! @brief drag an anchor triangle to a new parent-relative fraction
+	//! (@p fracX, @p fracY in 0..1, clamped). Updates anchorMin/anchorMax and
+	//! recomputes offsets so the widget's on-screen rect does not jump. Writes
+	//! the raw anchorMin/anchorMax (a custom anchor drops the named preset).
+	void applyAnchorDrag(Orkige::GuiLayoutSection& s, UiAnchorCorner corner,
+		float fracX, float fracY, Orkige::LayoutRect const& parentRect,
+		float layoutScale);
+
+	//! @brief drag the pivot dot to (@p pivotX, @p pivotY) in 0..1 (clamped),
+	//! keeping the on-screen rect visually fixed (offsets stay; a friendly-form
+	//! widget's anchoredPos is recomputed from the fixed offsets + new pivot).
+	void applyPivotDrag(Orkige::GuiLayoutSection& s, float pivotX, float pivotY);
+
+	//! @brief the alignment ops, taken against the KEY object's matching edge
+	//! or centre (the key is rects[0] and never moves).
+	enum class UiAlignOp { Left, HCenter, Right, Top, VCenter, Bottom };
+	//! @brief distribute so the gaps between consecutive rects are equal on the
+	//! axis (the two extreme rects hold; needs >= 3 rects to do anything).
+	enum class UiDistributeOp { Horizontal, Vertical };
+
+	//! @brief the per-rect surface-px translation an align produces. @p rects[0]
+	//! is the key and gets (0,0); every other rect gets the delta that snaps its
+	//! matching edge/centre to the key's. Operates purely on resolved rects, so
+	//! it is space-agnostic (a screen-space translation the caller replays into
+	//! each widget's own geometry via applyMove).
+	std::vector<Orkige::LayoutVec2> alignDeltas(std::vector<UiRect> const& rects,
+		UiAlignOp op);
+	//! @brief the per-rect surface-px translation an even distribute produces.
+	std::vector<Orkige::LayoutVec2> distributeDeltas(
+		std::vector<UiRect> const& rects, UiDistributeOp op);
+
+	//! @brief the ids whose rect intersects the marquee (surface px, any corner
+	//! order), returned in painter order (the rects' own order).
+	std::vector<Orkige::String> widgetsInMarquee(std::vector<UiRect> const& rects,
+		float x0, float y0, float x1, float y1);
+
+	//! @brief one smart-guide candidate line. @c vertical => a vertical line at
+	//! x == @c pos (a left/centre/right alignment source); else a horizontal
+	//! line at y == @c pos.
+	struct UiGuide
+	{
+		bool	vertical = true;
+		float	pos = 0.0f;
+	};
+
+	//! @brief the guide candidates a drag can snap to: every sibling's
+	//! left/centre/right (vertical) and top/centre/bottom (horizontal), the
+	//! parent rect's edges + centre, and - when @p hasDesignCenter - the design
+	//! resolution centre. Surface px throughout.
+	std::vector<UiGuide> guideCandidates(std::vector<UiRect> const& others,
+		UiRect const& parentRect, bool hasDesignCenter,
+		float designCenterX, float designCenterY);
+
+	//! @brief the snap a moving rect takes toward the nearest candidate on each
+	//! axis within @p threshold (surface px). dx/dy is the correction to apply
+	//! to the moving rect; guideX/guideY carry the snapped line for drawing.
+	struct UiSnap
+	{
+		float	dx = 0.0f;
+		float	dy = 0.0f;
+		bool	snappedX = false;
+		bool	snappedY = false;
+		float	guideX = 0.0f;
+		float	guideY = 0.0f;
+	};
+	UiSnap snapToGuides(UiRect const& moving, std::vector<UiGuide> const& candidates,
+		float threshold);
+
 	//! @brief a fresh section for @p type (a palette kind) with sane defaults and
 	//! an id unique within @p doc; @p parentId (when non-empty and present) is
 	//! stamped as the widget's parent. An unknown/empty type falls back to a
@@ -144,6 +246,13 @@ namespace OrkigeEditor
 		//! capture the pre-edit snapshot (once per gesture); the caller then
 		//! mutates doc() freely. Nested begins fold into the outer gesture.
 		void beginEdit();
+		//! @brief begin a COALESCING gesture keyed by @p key: when the previous
+		//! commit carried the same key (and nothing non-coalesced happened since),
+		//! this gesture MERGES into it instead of pushing a fresh undo step - the
+		//! arrow-nudge burst contract, the same way a drag's many mutations fold
+		//! into one step. A different key (or any plain beginEdit/undo/redo in
+		//! between) starts a new step.
+		void beginCoalesced(Orkige::String const& key);
 		//! close the gesture: push ONE undo entry iff the text actually changed
 		//! (a no-op gesture leaves the history untouched), clearing the redo stack.
 		void commitEdit();
@@ -165,6 +274,8 @@ namespace OrkigeEditor
 		std::vector<Orkige::String>	mRedo;
 		Orkige::String			mSaved;		//!< text at the last save
 		Orkige::String			mPending;	//!< pre-edit snapshot during a gesture
+		Orkige::String			mPendingKey;	//!< coalesce key of the open gesture
+		Orkige::String			mLastKey;	//!< coalesce key of the last commit ("" = none)
 		bool					mEditing = false;
 	};
 }

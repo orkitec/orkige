@@ -305,6 +305,285 @@ TEST_CASE("ui-edit: a no-op gesture leaves the history untouched", "[unit][uiedi
 	CHECK_FALSE(edit.dirty());
 }
 
+namespace
+{
+	// a helper to build a friendly-form layout section
+	GuiLayoutSection layoutSection(std::string id, std::string anchor,
+		std::string anchoredPos, std::string sizeDelta)
+	{
+		GuiLayoutSection s;
+		s.type = "DecorWidget";
+		s.id = std::move(id);
+		s.set("anchor", anchor);
+		s.set("anchoredPos", anchoredPos);
+		s.set("sizeDelta", sizeDelta);
+		return s;
+	}
+	// a surface rect that is absolute-mode aware (position/size relative to the
+	// parent origin) - the same resolution the panel's docRectOf uses
+	UiRect rectOf(GuiLayoutSection const& s, LayoutRect const& parent, float scale)
+	{
+		if(geomMode(s) == UiGeomMode::Absolute)
+		{
+			float p[2] = { 0, 0 };
+			float sz[2] = { 0, 0 };
+			if(String const* v = s.find("position"))
+			{
+				std::istringstream in(*v); in >> p[0] >> p[1];
+			}
+			if(String const* v = s.find("size"))
+			{
+				std::istringstream in(*v); in >> sz[0] >> sz[1];
+			}
+			return { s.id, parent.x + p[0] * scale, parent.y + p[1] * scale,
+				sz[0] * scale, sz[1] * scale };
+		}
+		const LayoutRect r = resolveSection(s, parent, scale);
+		return { s.id, r.x, r.y, r.w, r.h };
+	}
+}
+
+TEST_CASE("ui-edit: anchor preset point is the anchor-rect centre", "[unit][uiedit]")
+{
+	CHECK_THAT(anchorPresetPoint(LAP_TOPLEFT).x, WithinAbs(0.0f, 1e-4f));
+	CHECK_THAT(anchorPresetPoint(LAP_TOPLEFT).y, WithinAbs(0.0f, 1e-4f));
+	CHECK_THAT(anchorPresetPoint(LAP_CENTER).x, WithinAbs(0.5f, 1e-4f));
+	CHECK_THAT(anchorPresetPoint(LAP_BOTTOMRIGHT).x, WithinAbs(1.0f, 1e-4f));
+	CHECK_THAT(anchorPresetPoint(LAP_BOTTOMRIGHT).y, WithinAbs(1.0f, 1e-4f));
+	// a full stretch centres at (0.5, 0.5)
+	CHECK_THAT(anchorPresetPoint(LAP_STRETCH_ALL).x, WithinAbs(0.5f, 1e-4f));
+	CHECK_THAT(anchorPresetPoint(LAP_STRETCH_ALL).y, WithinAbs(0.5f, 1e-4f));
+}
+
+TEST_CASE("ui-edit: anchor preset gizmo - all 16 presets and the modifier "
+	"variants", "[unit][uiedit]")
+{
+	const LayoutRect parent{ 0, 0, 400, 800 };
+	const float scale = 2.0f;
+	for(int i = 0; i < 16; ++i)
+	{
+		const LayoutAnchorPreset preset = static_cast<LayoutAnchorPreset>(i);
+
+		// plain: anchors move to the preset, the on-screen rect is NOT kept
+		GuiLayoutSection plain = layoutSection("w", "topleft", "40 60", "100 30");
+		applyAnchorPresetToSection(plain, preset, {}, parent, scale);
+		LayoutNode pn;
+		applyAnchorPreset(pn, preset);
+		const LayoutNode got = sectionLayoutNode(plain);
+		CHECK_THAT(got.anchorMin.x, WithinAbs(pn.anchorMin.x, 1e-4f));
+		CHECK_THAT(got.anchorMax.y, WithinAbs(pn.anchorMax.y, 1e-4f));
+
+		// keep-rect: anchors change but the resolved rect is unchanged
+		GuiLayoutSection keep = layoutSection("w", "topleft", "40 60", "100 30");
+		const LayoutRect before = resolveSection(keep, parent, scale);
+		AnchorPresetMods mods; mods.alsoKeepRect = true;
+		applyAnchorPresetToSection(keep, preset, mods, parent, scale);
+		const LayoutRect after = resolveSection(keep, parent, scale);
+		CHECK_THAT(after.x, WithinAbs(before.x, 1e-2f));
+		CHECK_THAT(after.y, WithinAbs(before.y, 1e-2f));
+		CHECK_THAT(after.w, WithinAbs(before.w, 1e-2f));
+		CHECK_THAT(after.h, WithinAbs(before.h, 1e-2f));
+		// the anchor really changed to the preset
+		const LayoutNode kn = sectionLayoutNode(keep);
+		CHECK_THAT(kn.anchorMin.x, WithinAbs(pn.anchorMin.x, 1e-4f));
+
+		// also-pivot: the pivot lands on the preset point
+		GuiLayoutSection piv = layoutSection("w", "topleft", "40 60", "100 30");
+		AnchorPresetMods pmods; pmods.alsoPivot = true;
+		applyAnchorPresetToSection(piv, preset, pmods, parent, scale);
+		REQUIRE(piv.find("pivot") != nullptr);
+		const LayoutVec2 pt = anchorPresetPoint(preset);
+		const LayoutNode pvn = sectionLayoutNode(piv);
+		CHECK_THAT(pvn.pivot.x, WithinAbs(pt.x, 1e-3f));
+		CHECK_THAT(pvn.pivot.y, WithinAbs(pt.y, 1e-3f));
+	}
+}
+
+TEST_CASE("ui-edit: anchor drag keeps the on-screen rect", "[unit][uiedit]")
+{
+	const LayoutRect parent{ 0, 0, 1000, 1000 };
+	const float scale = 1.0f;
+	GuiLayoutSection s = layoutSection("w", "topleft", "100 100", "200 80");
+	const LayoutRect before = resolveSection(s, parent, scale);
+
+	// drag the min corner to the parent centre; rect must not jump
+	applyAnchorDrag(s, UiAnchorCorner::Min, 0.5f, 0.5f, parent, scale);
+	const LayoutRect after = resolveSection(s, parent, scale);
+	CHECK_THAT(after.x, WithinAbs(before.x, 1e-2f));
+	CHECK_THAT(after.y, WithinAbs(before.y, 1e-2f));
+	CHECK_THAT(after.w, WithinAbs(before.w, 1e-2f));
+	CHECK_THAT(after.h, WithinAbs(before.h, 1e-2f));
+	// the raw anchor was written (custom drops the named preset)
+	CHECK(s.find("anchor") == nullptr);
+	REQUIRE(s.find("anchorMin") != nullptr);
+}
+
+TEST_CASE("ui-edit: pivot drag keeps the rect and re-derives anchoredPos",
+	"[unit][uiedit]")
+{
+	const LayoutRect parent{ 0, 0, 1000, 1000 };
+	const float scale = 1.0f;
+	GuiLayoutSection s = layoutSection("w", "center", "0 0", "200 100");
+	s.set("pivot", "0.5 0.5");
+	const LayoutRect before = resolveSection(s, parent, scale);
+
+	applyPivotDrag(s, 0.0f, 0.0f);	// pivot to the top-left corner
+	const LayoutRect after = resolveSection(s, parent, scale);
+	// the visible rect is unchanged
+	CHECK_THAT(after.x, WithinAbs(before.x, 1e-2f));
+	CHECK_THAT(after.y, WithinAbs(before.y, 1e-2f));
+	CHECK_THAT(after.w, WithinAbs(before.w, 1e-2f));
+	// anchoredPos was re-derived against the new pivot (offsetMin, since pivot=0)
+	const LayoutNode n = sectionLayoutNode(s);
+	CHECK_THAT(n.pivot.x, WithinAbs(0.0f, 1e-4f));
+	CHECK_THAT(n.anchoredPosition().x, WithinAbs(n.offsetMin.x, 1e-3f));
+}
+
+TEST_CASE("ui-edit: align deltas snap each rect to the key's edge/centre",
+	"[unit][uiedit]")
+{
+	std::vector<UiRect> rects = {
+		{ "key",  100, 100, 200, 100 },	// key: x 100..300, cx 200, y 100..200, cy 150
+		{ "a",     50,  50, 100,  40 },
+		{ "b",    400, 400, 300, 200 },
+	};
+	// left: every rect's left -> 100
+	auto dl = alignDeltas(rects, UiAlignOp::Left);
+	CHECK_THAT(dl[0].x, WithinAbs(0.0f, 1e-4f));	// key holds
+	CHECK_THAT(rects[1].left + dl[1].x, WithinAbs(100.0f, 1e-4f));
+	CHECK_THAT(rects[2].left + dl[2].x, WithinAbs(100.0f, 1e-4f));
+	// right: right edges -> 300
+	auto dr = alignDeltas(rects, UiAlignOp::Right);
+	CHECK_THAT(rects[1].left + rects[1].width + dr[1].x, WithinAbs(300.0f, 1e-4f));
+	// hcenter: centres -> 200
+	auto dc = alignDeltas(rects, UiAlignOp::HCenter);
+	CHECK_THAT(rects[1].left + rects[1].width * 0.5f + dc[1].x,
+		WithinAbs(200.0f, 1e-4f));
+	// top: tops -> 100 ; bottom: bottoms -> 200 ; vcenter -> 150
+	auto dt = alignDeltas(rects, UiAlignOp::Top);
+	CHECK_THAT(rects[1].top + dt[1].y, WithinAbs(100.0f, 1e-4f));
+	auto db = alignDeltas(rects, UiAlignOp::Bottom);
+	CHECK_THAT(rects[2].top + rects[2].height + db[2].y, WithinAbs(200.0f, 1e-4f));
+	auto dm = alignDeltas(rects, UiAlignOp::VCenter);
+	CHECK_THAT(rects[2].top + rects[2].height * 0.5f + dm[2].y,
+		WithinAbs(150.0f, 1e-4f));
+}
+
+TEST_CASE("ui-edit: align writes back through each widget's own geometry mode, "
+	"across parents", "[unit][uiedit]")
+{
+	// key friendly-form at parent centre; a is offsets-form; c is absolute
+	const LayoutRect parent{ 0, 0, 1000, 500 };
+	const float scale = 1.0f;
+	GuiLayoutSection key = layoutSection("key", "topleft", "100 100", "200 50");
+	GuiLayoutSection a; a.type = "Label"; a.id = "a";
+	a.set("anchor", "topleft"); a.set("offsets", "300 40 460 90");	// x 300..460
+	GuiLayoutSection c; c.type = "Label"; c.id = "c";
+	c.set("position", "500 200"); c.set("size", "80 30");
+
+	std::vector<UiRect> rects = { rectOf(key, parent, scale),
+		rectOf(a, parent, scale), rectOf(c, parent, scale) };
+	const auto deltas = alignDeltas(rects, UiAlignOp::Left);
+	// replay each surface delta through the per-mode writer (the panel's path)
+	applyMove(a, deltas[1].x, deltas[1].y, scale, 0.0f);
+	applyMove(c, deltas[2].x, deltas[2].y, scale, 0.0f);
+
+	const float keyLeft = rectOf(key, parent, scale).left;
+	CHECK_THAT(rectOf(a, parent, scale).left, WithinAbs(keyLeft, 1e-2f));
+	CHECK_THAT(rectOf(c, parent, scale).left, WithinAbs(keyLeft, 1e-2f));
+	// the forms are preserved (offsets stays offsets, absolute stays position)
+	CHECK(a.find("offsets") != nullptr);
+	CHECK(c.find("position") != nullptr);
+}
+
+TEST_CASE("ui-edit: distribute equalises the gaps between rects", "[unit][uiedit]")
+{
+	// three unequal-gap rects; distribute so the two gaps match
+	std::vector<UiRect> rects = {
+		{ "l",   0, 0, 100, 20 },	// 0..100
+		{ "m", 150, 0,  50, 20 },	// 150..200
+		{ "r", 500, 0, 100, 20 },	// 500..600
+	};
+	const auto d = distributeDeltas(rects, UiDistributeOp::Horizontal);
+	// extremes hold
+	CHECK_THAT(d[0].x, WithinAbs(0.0f, 1e-4f));
+	CHECK_THAT(d[2].x, WithinAbs(0.0f, 1e-4f));
+	// span 0..600, extents 100+50+100=250, free 350, gap 175
+	// m's new left = 100 + 175 = 275
+	CHECK_THAT(rects[1].left + d[1].x, WithinAbs(275.0f, 1e-3f));
+	// fewer than three is a no-op
+	std::vector<UiRect> pair = { rects[0], rects[2] };
+	const auto none = distributeDeltas(pair, UiDistributeOp::Horizontal);
+	CHECK_THAT(none[0].x, WithinAbs(0.0f, 1e-4f));
+	CHECK_THAT(none[1].x, WithinAbs(0.0f, 1e-4f));
+}
+
+TEST_CASE("ui-edit: marquee selects intersecting rects", "[unit][uiedit]")
+{
+	std::vector<UiRect> rects = {
+		{ "in",   10, 10, 20, 20 },	// inside
+		{ "edge", 90, 90, 40, 40 },	// straddles the corner
+		{ "out", 300, 300, 10, 10 },
+	};
+	// marquee 0,0 -> 100,100 (any corner order)
+	const auto hit = widgetsInMarquee(rects, 100, 100, 0, 0);
+	REQUIRE(hit.size() == 2);
+	CHECK(hit[0] == "in");
+	CHECK(hit[1] == "edge");
+}
+
+TEST_CASE("ui-edit: guide candidates + snap within the threshold", "[unit][uiedit]")
+{
+	std::vector<UiRect> others = { { "s", 100, 50, 40, 40 } };	// left 100, cx 120
+	const UiRect parent{ "", 0, 0, 400, 400 };	// centre 200,200
+	const auto cands = guideCandidates(others, parent, true, 200, 200);
+	// 3 vlines + 3 hlines per sibling, +3+3 parent, +1+1 design centre = 14
+	CHECK(cands.size() == 14);
+
+	// a moving rect whose left is 3px shy of the sibling's left (100) snaps
+	UiRect moving{ "m", 97, 300, 30, 30 };
+	const UiSnap near = snapToGuides(moving, cands, 6.0f);
+	CHECK(near.snappedX);
+	CHECK_THAT(near.dx, WithinAbs(3.0f, 1e-4f));	// +3 -> left == 100
+	CHECK_THAT(near.guideX, WithinAbs(100.0f, 1e-4f));
+
+	// out of threshold on every edge/centre: no snap (left 60, cx 70, right 80;
+	// nearest candidate is the sibling left at 100, a 20px gap)
+	UiRect farRect{ "m", 60, 300, 20, 20 };
+	const UiSnap far = snapToGuides(farRect, cands, 6.0f);
+	CHECK_FALSE(far.snappedX);
+}
+
+TEST_CASE("ui-edit: coalesced nudges fold into one undo step", "[unit][uiedit]")
+{
+	UiEditDoc edit;
+	std::string error;
+	REQUIRE(edit.load("[Label a]\nanchoredPos = 0 0\n", error));
+
+	// three nudges on the same key -> ONE undo step back to the start
+	for(int i = 0; i < 3; ++i)
+	{
+		edit.beginCoalesced("nudge:a");
+		applyMove(mutableSection(edit.doc(), "a"), 5, 0, 1.0f, 0.0f);
+		edit.commitEdit();
+	}
+	CHECK(*sectionById(edit.doc(), "a").find("anchoredPos") == "15 0");
+	CHECK(edit.canUndo());
+	edit.undo();
+	CHECK(*sectionById(edit.doc(), "a").find("anchoredPos") == "0 0");
+	CHECK_FALSE(edit.canUndo());	// the whole burst was one step
+
+	// a different key starts a fresh step (no merge)
+	edit.beginCoalesced("nudge:a");
+	applyMove(mutableSection(edit.doc(), "a"), 5, 0, 1.0f, 0.0f);
+	edit.commitEdit();
+	edit.beginCoalesced("nudge:other");
+	applyMove(mutableSection(edit.doc(), "a"), 5, 0, 1.0f, 0.0f);
+	edit.commitEdit();
+	edit.undo();	// undoes only the "other" burst
+	CHECK(*sectionById(edit.doc(), "a").find("anchoredPos") == "5 0");
+}
+
 TEST_CASE("ui-edit: serialize round-trip is a fixed point on the sample .oui set",
 	"[unit][uiedit][oui]")
 {

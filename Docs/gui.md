@@ -616,9 +616,29 @@ text file stays the source of truth — the visual editor and hand/agent editing
 are two views of the one `GuiLayoutDoc`.
 
 **Canvas.** Click a widget to select it (a hit-test over the resolved widget
-rects the runtime reports). The selection draws an outline with eight resize
-handles; hovering another widget outlines it. Drag the body to move, a handle to
-resize. Hold **Shift** while dragging to snap to a coarse design-unit grid.
+rects the runtime reports). The selection draws an outline (the align **key**
+object in amber, the rest in blue) with eight resize handles; hovering another
+widget outlines it. Drag the body to move, a handle to resize. Hold **Shift**
+while dragging to snap to a coarse design-unit grid.
+
+**Multi-select.** Shift-click on the canvas or Shift/Ctrl(Cmd)-click in the tree
+adds or removes a widget from an **ordered** selection whose FIRST member is the
+align key object; a drag on empty canvas rubber-bands a **marquee** that selects
+every intersecting widget. Dragging any selected widget moves the whole set as
+one undo step. Arrow keys **nudge** the selection by one design unit (Shift = ten);
+a held-key burst folds into a single undo step.
+
+**Smart guides.** While a widget moves, candidate lines from the siblings'
+edges/centres, the parent rect's edges/centre and the design-resolution centre
+light up when an edge or centre of the dragged rect comes within a few screen
+pixels, and the widget snaps to the line. The grid snap (**Shift**) takes over
+when held — guides are off then.
+
+**Anchors on the canvas.** A layout widget shows four anchor triangles at its
+parent-relative anchor fractions and a pivot dot at its pivot. Drag a triangle to
+retarget an anchor corner (`anchorMin`/`anchorMax`) — the offsets recompute so
+the on-screen rect does not jump; drag the pivot dot to move the pivot while the
+rect stays visually fixed (`anchoredPos` re-derives from the unchanged offsets).
 
 **Anchor-preserving edits.** A drag edits the widget's own geometry form and
 never rewrites its anchors:
@@ -632,13 +652,26 @@ Screen pixels convert to design units through the layout's `[Layout] design`
 reference scale, so a drag moves the widget by exactly the on-screen distance.
 
 **Sidebar.** A widget **tree** (the `.oui` section order, children indented by
-`parent`) with synced selection; a **properties** block for the selection (text,
-z, sprite, an anchor-preset picker, and the geometry fields for the widget's
-mode); and a **palette** — click a kind (`label`, `button`, `checkbox`,
-`slider`, `progressbar`, `selectmenu`, `dropdown`, `textentry`, `textbox`,
-`panel`, `scrollview`) to add it under the selection (or at the root) with sane
-defaults and a unique id. **Delete widget** removes the selected subtree.
-**Undo**/**Redo** step one gesture at a time (a drag is one step).
+`parent`) with synced multi-selection; an **align/distribute** row when two or
+more widgets are selected (align left/centre/right/top/middle/bottom to the key
+object's matching edge or centre, distribute horizontally/vertically to equal
+gaps between the extremes); a **properties** block for the key object (text, z,
+sprite, geometry fields for the widget's mode) carrying the **anchor-preset
+gizmo** — a 4×3 point grid plus a stretch column and row, one click per the 16
+`LayoutAnchorPreset`s. A plain click sets the anchor; **Alt** also moves the
+pivot to the preset point; **Shift** also keeps the on-screen rect (recomputing
+offsets). A **palette** — click a kind (`label`, `button`, `checkbox`, `slider`,
+`progressbar`, `selectmenu`, `dropdown`, `textentry`, `textbox`, `panel`,
+`scrollview`) — adds it under the selection (or at the root) with sane defaults
+and a unique id. **Delete widget** removes the selected subtree(s). **Undo**/
+**Redo** step one gesture at a time (a drag, an align, a nudge burst are each one
+step).
+
+**Alignment write-back.** Align and distribute operate on the resolved surface
+rects, so a selection spanning different parents aligns in screen space; the
+resulting per-widget translation is replayed through each widget's OWN geometry
+form (offsets / friendly `anchoredPos` / legacy `position`), so no widget changes
+representation and the whole command is one undo step.
 
 **Save & round-trip.** Each gesture writes the `.oui` through `GuiLayout`'s
 serializer and reloads the canvas, so the panel is WYSIWYG and — because the
@@ -649,12 +682,18 @@ them); thereafter edits are minimal, clean diffs. An unedited screen is never
 rewritten, so opening it and leaving edit mode leaves the bytes untouched.
 
 The editing core is UI-independent and headless-tested: `EditorUiEdit`
-(hit-testing, the drag→offset/resize math, palette placement, add/remove, the
-snapshot undo document) with `editor_uiedit` unit coverage plus the round-trip
-assertion on the shipped sample screens; the panel wiring is the `editor_uiedit`
-selfcheck on both flavors. The canvas render is Ogre-Next only (the offscreen UI
-composition capability); on the classic flavor the document editing still works,
-the live canvas does not.
+(hit-testing, the drag→offset/resize math, the anchor-preset gizmo and anchor/
+pivot drag math, align/distribute over rect lists, marquee intersection, smart-
+guide candidates + snapping, palette placement, add/remove, the snapshot undo
+document with nudge-burst coalescing) with `EditorUiEditTests` unit coverage plus
+the round-trip assertion on the shipped sample screens; the panel wiring — load,
+multi-select, align, marquee, keep-rect anchor preset, undo — is the
+`editor_uiedit` selfcheck on both flavors. All alignment tooling resolves each
+widget's rect through the ONE `UiLayout` resolver: the live overlay rects on the
+Ogre-Next canvas, and a document-side resolve of the same math elsewhere, so the
+tools work whether or not the live canvas is available. The canvas RENDER is
+Ogre-Next only (the offscreen UI composition capability); on the classic flavor
+the document editing still works, the live canvas does not.
 
 Agents do not need this panel: they author `.oui` text with `write_project_file`
 and verify the resolve with `preview_ui` / `get_ui_layout` — the visual editor
