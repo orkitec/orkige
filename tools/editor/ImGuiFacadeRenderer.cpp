@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Wednesday 2026/07/08 at 12:00
+	filename: 	ImGuiFacadeRenderer.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // ImGuiFacadeRenderer - Dear ImGui drawn through the engine_render facade
 // (see header for the design).
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec

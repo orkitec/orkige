@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Tuesday 2026/07/07 at 12:00
+	filename: 	main.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // orkige_player - the standalone scene player.
 //
 // Boots the engine exactly like samples/hello_orkige (SDL3 owns the window

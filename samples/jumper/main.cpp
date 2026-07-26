@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Wednesday 2026/07/08 at 12:00
+	filename: 	main.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // jumper - the first real game content since 2012: a small jump-and-run.
 //
 // Boots the engine exactly like tools/player (SDL3 owns the window and event

@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Saturday 2026/07/25 at 12:00
+	filename: 	WorldTextLayoutTests.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // Unit tests for the pure world-text glyph layout (engine_gui/
 // WorldTextLayout.h). Headless: a UiFont is baked from the committed
 // engine-default TTF through FontAtlas (no render system), then the pure

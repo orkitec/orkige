@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Sunday 2026/07/12 at 12:00
+	filename: 	EditorScriptHost.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorScriptHost - runs EDITOR SCRIPT TOOLS (*.editor.lua) on demand.
 //
 // An editor tool is a project script the human runs from the Tools menu (and an

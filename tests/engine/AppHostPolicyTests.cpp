@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Sunday 2026/07/12 at 12:00
+	filename: 	AppHostPolicyTests.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // AppHost policy tests - the pure, headless corners of the shared boot
 // scaffold (engine_runtime/AppHost.h): the frame-delta clamp policy, the
 // boot-option defaults and the shared quit-on-ESC listener. The windowed

@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Sunday 2026/07/12 at 12:00
+	filename: 	PythonToolchain.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // PythonToolchain - a lazy preflight for the editor's python3 subprocess use.
 //
 // The editor delegates a handful of asset/build transforms to the stdlib-only

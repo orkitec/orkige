@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Tuesday 2026/07/14 at 12:00
+	filename: 	SyntaxHighlight.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // SyntaxHighlight.h - the lightweight, per-line source highlighter behind the
 // Inspector's read-only text-asset preview. Pure and headless (no ImGui/SDL)
 // so the editor_core unit suite pins it down.

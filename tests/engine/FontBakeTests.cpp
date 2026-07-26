@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Saturday 2026/07/11 at 12:00
+	filename: 	FontBakeTests.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // Unit tests for the TrueType rasterisation seam (engine_gui/FontBake.h),
 // exercised against the committed engine-default font (Nunito, SIL OFL). No
 // GPU: the seam bakes glyph coverage into CPU buffers and reports metrics.

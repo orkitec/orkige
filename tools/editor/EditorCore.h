@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Tuesday 2026/07/07 at 12:00
+	filename: 	EditorCore.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorCore - the UI-independent heart of the Orkige editor.
 //
 // Everything a different UI shell (or a test) needs to drive the editor lives

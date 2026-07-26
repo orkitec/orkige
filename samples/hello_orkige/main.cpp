@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Tuesday 2026/07/07 at 12:00
+	filename: 	main.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // hello_orkige - feature demo.
 // SDL3 owns the window and event loop; Orkige::Engine boots the renderer into
 // it via the externalWindowHandle path, everything AFTER boot goes through the

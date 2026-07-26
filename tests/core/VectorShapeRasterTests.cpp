@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Saturday 2026/07/11 at 12:00
+	filename: 	VectorShapeRasterTests.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // VectorShapeRasterTests.cpp - the pure CPU shape-thumbnail rasterizer:
 // a known opaque triangle fills the expected pixels with the exact flat
 // colour and leaves the outside transparent, per-vertex alpha interpolates

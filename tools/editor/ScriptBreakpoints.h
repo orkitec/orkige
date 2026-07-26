@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Friday 2026/07/24 at 12:00
+	filename: 	ScriptBreakpoints.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // ScriptBreakpoints - the editor's per-project script breakpoint store.
 //
 // Breakpoints are keyed (project-relative script path, 1-based line) - the

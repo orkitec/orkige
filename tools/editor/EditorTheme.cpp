@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Wednesday 2026/07/08 at 12:00
+	filename: 	EditorTheme.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorTheme - macOS-inspired ImGui style, light and dark (see header).
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorTheme.h"

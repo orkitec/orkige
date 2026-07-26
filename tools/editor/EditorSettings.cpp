@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Thursday 2026/07/09 at 12:00
+	filename: 	EditorSettings.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorSettings.cpp - ViewSettings persistence (orkige_editor_view.ini:
 // grid/camera-feel/panel-visibility/snap/recents) plus the editor-wide
 // globals. Split out of main.cpp (mechanical decomposition, see EditorApp.h).

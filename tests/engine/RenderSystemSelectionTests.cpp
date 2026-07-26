@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Tuesday 2026/07/07 at 12:00
+	filename: 	RenderSystemSelectionTests.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // Unit tests for Engine::matchRenderSystemName - the pure matching rule
 // behind Engine::setPreferredRenderSystem and the apps' ORKIGE_RENDERSYSTEM
 // environment variable. Uses the real OGRE render system names as fixtures;

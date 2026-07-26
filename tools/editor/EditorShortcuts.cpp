@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Thursday 2026/07/09 at 12:00
+	filename: 	EditorShortcuts.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorShortcuts.cpp - the editor-wide keyboard map (tool switching, file
 // ops, play toggle, frame/rename/delete/duplicate).
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).

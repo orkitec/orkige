@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Sunday 2026/07/12 at 12:00
+	filename: 	PythonToolchain.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // PythonToolchain - python3 preflight for the editor's subprocess use
 // (see the header for the design). The parse/compare halves are pure and
 // unit-tested; the probe spawns `<exe> --version` through SDL's process API

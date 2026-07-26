@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Saturday 2026/07/11 at 12:00
+	filename: 	FontAtlasTests.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // Unit tests for the runtime-baked font/vector atlas (engine_gui/
 // FontAtlas.h) and the SVG rasteriser seam (SvgRaster.h). Headless: FontAtlas
 // bakes into a CPU page and builds the UiAtlas view without a render system,

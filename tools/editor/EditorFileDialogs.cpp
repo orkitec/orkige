@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Thursday 2026/07/09 at 12:00
+	filename: 	EditorFileDialogs.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorFileDialogs.cpp - the native SDL3 file dialogs (async callback +
 // main-thread mailbox dispatch) and the "Scene Path" fallback modal request.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).

@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Wednesday 2026/07/08 at 12:00
+	filename: 	MeshImport.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // MeshImport - path handling for "File > Import Mesh..." / drag & drop.
 //
 // The import rule: an imported mesh file is COPIED into the scene's media

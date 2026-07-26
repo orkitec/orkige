@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Monday 2026/07/13 at 12:00
+	filename: 	LottieCorpusTests.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 /**************************************************************
 	LottieCorpusTests.cpp - end-to-end native-vector conformance for the
 	pinned, MIT-licensed character corpus. Every cooked asset traverses the

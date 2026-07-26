@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Sunday 2026/07/12 at 12:00
+	filename: 	EditorScriptHost.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorScriptHost - editor-tool execution (see the header).
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorScriptHost.h"

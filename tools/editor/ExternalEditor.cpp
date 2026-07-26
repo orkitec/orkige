@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Monday 2026/07/13 at 12:00
+	filename: 	ExternalEditor.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // ExternalEditor.cpp - the pure open-at-line service (see ExternalEditor.h).
 #include "ExternalEditor.h"
 

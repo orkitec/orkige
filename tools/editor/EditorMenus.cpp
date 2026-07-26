@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Thursday 2026/07/09 at 12:00
+	filename: 	EditorMenus.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorMenus.cpp - the ImGui menu bar (mirrored natively by MacMenu.mm),
 // the View Settings window, the modal popups (About/Scene Path/Unsaved
 // Changes/target pickers) and the dockspace + first-run DockBuilder layout.

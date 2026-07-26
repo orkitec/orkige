@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Wednesday 2026/07/08 at 12:00
+	filename: 	JumperLogicTests.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // Unit tests for the jumper sample's pure gameplay math (JumperLogic.h) -
 // the grounded-probe geometry, the kill plane, the exponential approach the
 // movement/camera use, and the goal radius check. Headless: no engine boot.

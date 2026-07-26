@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Sunday 2026/07/12 at 12:00
+	filename: 	EditorScriptTools.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorScriptTools - discovery of EDITOR SCRIPT TOOLS (*.editor.lua).
 //
 // An editor tool is a project script whose file name ends in ".editor.lua": a

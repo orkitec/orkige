@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Tuesday 2026/07/14 at 12:00
+	filename: 	SyntaxHighlight.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // SyntaxHighlight.cpp - the pure per-line highlighter (see SyntaxHighlight.h).
 #include "SyntaxHighlight.h"
 

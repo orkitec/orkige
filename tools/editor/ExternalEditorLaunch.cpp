@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Monday 2026/07/13 at 12:00
+	filename: 	ExternalEditorLaunch.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // ExternalEditorLaunch.cpp - the editor-shell side of the open-at-line service:
 // a PATH probe, the detached process launch (SDL_CreateProcess, never blocking
 // the editor and never piping its stdio into the child) and the project-ref ->

@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Friday 2026/07/24 at 12:00
+	filename: 	ScriptBreakpointStoreTests.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // ScriptBreakpointStoreTests - the editor's per-project breakpoint store:
 // set/clear/toggle semantics, the wire list, and persistence under a temp
 // project root (.orkige/breakpoints, reloaded on attach). Headless.

@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Sunday 2026/07/12 at 12:00
+	filename: 	MarqueeSelection.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // MarqueeSelection - pure, UI-free geometry for the Scene viewport's rubber-band
 // (marquee) box select, split out so the headless unit tests exercise exactly
 // the decisions the panel drives with (no ImGui, no camera).

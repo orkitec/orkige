@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Thursday 2026/07/09 at 12:00
+	filename: 	EditorDocument.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorDocument.cpp - scene/project document operations: New/Open/Save
 // scene, the project open/close/create (with the dedicated
 // resource group) and the mesh import (asset database wiring included).

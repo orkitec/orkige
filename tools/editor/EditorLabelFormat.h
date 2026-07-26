@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Friday 2026/07/24 at 12:00
+	filename: 	EditorLabelFormat.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorLabelFormat - pure display-name prettifiers for the Inspector.
 //
 // The reflected property/type names are terse identifiers (camelCase, a

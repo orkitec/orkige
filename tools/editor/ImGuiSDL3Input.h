@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Tuesday 2026/07/07 at 12:00
+	filename: 	ImGuiSDL3Input.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // ImGuiSDL3Input - translates SDL3 events into Dear ImGui IO events.
 //
 // Deliberately hand-rolled instead of imgui's own SDL3 platform backend:

@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Wednesday 2026/07/08 at 12:00
+	filename: 	MacMenu.mm
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // MacMenu - native macOS menu bar implementation (see header for the design
 // and the SDL3 interplay notes).
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec

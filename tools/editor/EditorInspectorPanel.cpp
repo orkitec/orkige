@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Thursday 2026/07/09 at 12:00
+	filename: 	EditorInspectorPanel.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorInspectorPanel.cpp - the Inspector panel: the per-component editors
 // (Transform/Model/Script/RigidBody/Camera/Sprite), the Add Component popup
 // and the remote play-mode object_state view.

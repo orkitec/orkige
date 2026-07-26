@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Thursday 2026/07/09 at 12:00
+	filename: 	EditorDeviceTargets.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorDeviceTargets.cpp - play-target device enumeration: adb devices/
 // emulators, iOS simulators (simctl) and gated iOS hardware (devicectl).
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).

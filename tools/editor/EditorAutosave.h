@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Sunday 2026/07/12 at 12:00
+	filename: 	EditorAutosave.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorAutosave - scene autosave + backup conventions and their decision
 // logic, kept UI-independent in the orkige_editor_core library so the headless
 // editor-core unit tests exercise the naming, the timed-autosave gate and the

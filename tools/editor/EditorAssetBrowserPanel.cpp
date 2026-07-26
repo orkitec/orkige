@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Thursday 2026/07/09 at 12:00
+	filename: 	EditorAssetBrowserPanel.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorAssetBrowserPanel.cpp - the project Asset browser (v3):
 // a content browser over the open project's assets/, scripts/ and scenes/. It
 // is the codebase's FIRST user of ImGui drag & drop across panels (the

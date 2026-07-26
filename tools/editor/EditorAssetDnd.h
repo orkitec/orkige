@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Friday 2026/07/10 at 12:00
+	filename: 	EditorAssetDnd.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorAssetDnd.h - the cross-panel asset drag & drop vocabulary.
 //
 // The Asset browser is a drag SOURCE; the Scene viewport, the Hierarchy, a

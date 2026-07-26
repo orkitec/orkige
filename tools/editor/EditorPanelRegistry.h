@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Monday 2026/07/13 at 12:00
+	filename: 	EditorPanelRegistry.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 //! @file EditorPanelRegistry.h
 //! @brief One authoritative panel list shared by the ImGui and macOS menus.
 #pragma once

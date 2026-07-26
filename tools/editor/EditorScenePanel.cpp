@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Thursday 2026/07/09 at 12:00
+	filename: 	EditorScenePanel.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorScenePanel.cpp - the Scene viewport: the offscreen RTT, the editor
 // grid, camera orbit/fly navigation, click-picking, the ImGuizmo transform
 // gizmo and the Scene panel itself.

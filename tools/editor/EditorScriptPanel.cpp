@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Friday 2026/07/24 at 12:00
+	filename: 	EditorScriptPanel.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // EditorScriptPanel.cpp - the embedded code editor (a docked window per open
 // file) and the script debugger's Debug panel.
 //

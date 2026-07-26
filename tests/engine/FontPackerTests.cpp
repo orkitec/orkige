@@ -1,3 +1,11 @@
+/********************************************************************
+	created:	Saturday 2026/07/11 at 12:00
+	filename: 	FontPackerTests.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 // Unit tests for the pure shelf allocator behind the runtime font atlas
 // (engine_gui/FontPacker.h). No render system, no image data - just the
 // geometry: placements stay in bounds, never overlap, and the page fills and
