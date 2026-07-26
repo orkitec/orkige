@@ -228,6 +228,13 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// end to end (tests/projects/persistent).
 	persistentCheck =
 		(std::getenv("ORKIGE_PERSISTENT_SELFCHECK") != nullptr);
+	// ORKIGE_COMPONENT_ENABLE_SELFCHECK verifies the generic component
+	// enable/disable feature's LIVE side effects on both flavors: a disabled
+	// RigidBodyComponent leaves the simulation and re-enters at rest, and the
+	// enabled flag composes with the owner's active state. Self-contained
+	// (spawns its own objects + inits physics), so it runs against any scene.
+	componentEnableCheck =
+		(std::getenv("ORKIGE_COMPONENT_ENABLE_SELFCHECK") != nullptr);
 	// ORKIGE_BREADCRUMB_SELFCHECK verifies the crash breadcrumb trail against
 	// tests/projects/breadcrumb: a ScriptComponent raises a Lua error at init;
 	// the player must record it as a "script_error" line in breadcrumbs.jsonl
@@ -320,6 +327,7 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		rollerProgressionCheck || tweenCheck ||
 		hotreloadCheck || scriptPropCheck ||
 		integrationContactCheck || integrationLevelCheck || persistentCheck ||
+		componentEnableCheck ||
 		breadcrumbCheck || fadeCheck || lifecycleCheck || resizeCheck ||
 		softbodyCheck || linesCheck || shapeColliderCheck || perfCheck ||
 		benchmarkCheck || vectorAnimCheck ||
@@ -503,6 +511,122 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 	Orkige::ScreenShake& screenShake = *context.screenShake;
 	Orkige::TimeControl& timeControl = *context.timeControl;
 	Orkige::SaveStore& saveStore = *context.saveStore;
+
+	// ORKIGE_COMPONENT_ENABLE_SELFCHECK: the generic component enable/disable
+	// feature's LIVE side effects, self-contained and synchronous on both
+	// flavors. Spawns its own objects (the render system is up here) and inits
+	// physics, so it needs no fixture scene. Proves the two effects with the
+	// clearest observable side effect beyond the flag itself: a disabled
+	// RigidBodyComponent LEAVES the Jolt simulation and re-enters AT REST, and
+	// the enabled flag COMPOSES with the owner's active state (the headless unit
+	// ComponentEnableTests cover the schema/inheritance/serialization half).
+	if (this->componentEnableCheck)
+	{
+		bool ok = true;
+		std::string detail;
+		Orkige::PhysicsWorld& physicsWorld = *context.physicsWorld;
+		if (!physicsWorld.isInitialized())
+		{
+			physicsWorld.init();
+		}
+
+		// --- RigidBody: disable takes the body OUT of the sim, re-enable
+		//     re-enters at the current pose AT REST ---
+		{
+			Orkige::optr<Orkige::GameObject> object =
+				gameObjectManager.createGameObject("EnableBody").lock();
+			object->addComponent<Orkige::RigidBodyComponent>();
+			Orkige::RigidBodyComponent* body =
+				object->getComponentPtr<Orkige::RigidBodyComponent>();
+			// tick once so the lazy body is created (first update)
+			gameObjectManager.update(Orkige::PhysicsWorld::FIXED_TIMESTEP);
+			if (!body->hasBody())
+			{
+				ok = false; detail += " body-not-created";
+			}
+			else
+			{
+				const Orkige::PhysicsWorld::BodyId id = body->getBodyId();
+				if (!physicsWorld.isBodyEnabled(id))
+				{
+					ok = false; detail += " body-not-in-sim";
+				}
+				// give it motion, then disable -> it leaves the simulation
+				body->setLinearVelocity(Orkige::Vec3(3.0f, 0.0f, 0.0f));
+				body->setEnabled(false);
+				if (physicsWorld.isBodyEnabled(id))
+				{
+					ok = false; detail += " body-still-in-sim-when-disabled";
+				}
+				if (body->effectivelyEnabled())
+				{
+					ok = false; detail += " body-effective-when-disabled";
+				}
+				// re-enable -> back in the sim, woken at rest (velocities zeroed)
+				body->setEnabled(true);
+				if (!physicsWorld.isBodyEnabled(id))
+				{
+					ok = false; detail += " body-not-readded";
+				}
+				if (body->getLinearVelocity().length() > 0.01f)
+				{
+					ok = false; detail += " body-not-at-rest-on-reenable";
+				}
+				SDL_Log("orkige_component_enable_selfcheck: rigidbody leaves the "
+					"sim on disable and re-enters at rest on enable");
+			}
+			gameObjectManager.delGameObject("EnableBody");
+		}
+
+		// --- Composition: a component is live only when enabled AND its owner is
+		//     active in the hierarchy (the sprite visibility flag = the ONE
+		//     enabled switch) ---
+		{
+			Orkige::optr<Orkige::GameObject> object =
+				gameObjectManager.createGameObject("EnableSprite").lock();
+			object->addComponent<Orkige::SpriteComponent>();
+			Orkige::SpriteComponent* sprite =
+				object->getComponentPtr<Orkige::SpriteComponent>();
+			if (!sprite->effectivelyEnabled())
+			{
+				ok = false; detail += " sprite-not-effective";
+			}
+			// the visible alias drives the one enabled flag
+			sprite->setSpriteVisible(false);
+			if (sprite->isSpriteVisible() || sprite->effectivelyEnabled())
+			{
+				ok = false; detail += " sprite-shown-when-disabled";
+			}
+			sprite->setSpriteVisible(true);
+			// deactivating the owner suspends the (still enabled) component
+			object->setActive(false);
+			if (sprite->effectivelyEnabled())
+			{
+				ok = false; detail += " sprite-effective-when-owner-inactive";
+			}
+			if (!sprite->isEnabled())
+			{
+				ok = false; detail += " sprite-flag-clobbered-by-owner";
+			}
+			object->setActive(true);
+			if (!sprite->effectivelyEnabled())
+			{
+				ok = false; detail += " sprite-not-restored";
+			}
+			SDL_Log("orkige_component_enable_selfcheck: enabled composes with the "
+				"owner active state (both required)");
+			gameObjectManager.delGameObject("EnableSprite");
+		}
+
+		if (ok)
+		{
+			SDL_Log("orkige_component_enable_selfcheck: PASS - live suspend/restore "
+				"holds on this flavor");
+			return 0;
+		}
+		SDL_Log("orkige_component_enable_selfcheck: FAILED -%s", detail.c_str());
+		return 1;
+	}
 
 	// ORKIGE_PAK_SELFCHECK: the pak-mount contract, end to end and synchronous
 	// (the classic BigZip acceptance test reborn, flavor-neutral). The pak was

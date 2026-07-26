@@ -253,7 +253,10 @@ TEST_CASE("LineComponent declares its scalar look through the registry, points r
 	CHECK(schema->find("colour")->kind == PropertyKind::Color);
 	REQUIRE(schema->find("depthTest") != nullptr);
 	CHECK(schema->find("depthTest")->kind == PropertyKind::Bool);
-	REQUIRE(schema->find("visible") != nullptr);
+	// line visibility folded into the generic base `enabled` switch inherited
+	// from GameObjectComponent (verified in the GameObjectComponentEnableTests),
+	// so this OWN schema no longer declares `visible`
+	CHECK(schema->find("visible") == nullptr);
 	// POINTS are bulk data, NOT a per-point reflected property
 	CHECK(schema->find("points") == nullptr);
 
@@ -539,8 +542,9 @@ TEST_CASE("VectorAnimationComponent declares its playback + rig schema",
 	CHECK(schema->find("scale")->kind == PropertyKind::Float);
 	REQUIRE(schema->find("zOrder") != nullptr);
 	CHECK(schema->find("zOrder")->kind == PropertyKind::Int);
-	REQUIRE(schema->find("visible") != nullptr);
-	CHECK(schema->find("visible")->kind == PropertyKind::Bool);
+	// rig visibility folded into the generic base `enabled` switch inherited
+	// from GameObjectComponent (@see GameObjectComponentEnableTests)
+	CHECK(schema->find("visible") == nullptr);
 }
 //---------------------------------------------------------
 TEST_CASE("VectorAnimationComponent properties round-trip on a DETACHED component",
@@ -767,8 +771,9 @@ TEST_CASE("WorldTextComponent declares its world-label schema through the regist
 	CHECK(schema->find("colour")->kind == PropertyKind::Color);
 	REQUIRE(schema->find("billboard") != nullptr);
 	CHECK(schema->find("billboard")->kind == PropertyKind::Bool);
-	REQUIRE(schema->find("visible") != nullptr);
-	CHECK(schema->find("visible")->kind == PropertyKind::Bool);
+	// text visibility folded into the generic base `enabled` switch inherited
+	// from GameObjectComponent (@see GameObjectComponentEnableTests)
+	CHECK(schema->find("visible") == nullptr);
 	// every field is writable (not read-only)
 	CHECK_FALSE(schema->find("text")->isReadOnly());
 }
@@ -789,10 +794,11 @@ TEST_CASE("WorldTextComponent properties round-trip on a DETACHED component",
 	WorldTextComponent label;
 	Object * instance = &label;
 
-	// defaults: white, billboarded, visible, unit size, empty text
+	// defaults: white, billboarded, visible (via the inherited enabled), unit
+	// size, empty text
 	CHECK(schema->find("text")->get(instance).asString().empty());
 	CHECK(schema->find("billboard")->get(instance).asBool());
-	CHECK(schema->find("visible")->get(instance).asBool());
+	CHECK(label.isTextVisible());	// the enabled-backed visibility alias
 	CHECK(schema->find("size")->get(instance).asFloat() == Approx(1.0f));
 
 	schema->find("text")->set(instance, PropertyValue::makeString("HP 100"));

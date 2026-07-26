@@ -149,8 +149,9 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
-		//! deactivated GameObjects hide their model
-		virtual void onSetActive(bool activeInHierarchy);
+		//! a disabled component or a deactivated GameObject hides the model (the
+		//! ONE suspend path both axes funnel through - @see effectivelyEnabled)
+		virtual void applyEffectiveEnabled();
 		//! @brief read + parse the recorded `.omat` and render the live mesh
 		//! with it (@see class remarks); no-op without a mesh or a reference.
 		//! Any failure (missing/malformed asset, unsupported mesh) logs and

@@ -182,13 +182,14 @@ namespace Orkige
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
-	void DecalComponent::onSetActive(bool activeInHierarchy)
+	void DecalComponent::applyEffectiveEnabled()
 	{
 		if(this->mDecal)
 		{
-			// the facade decal's own (owner) visibility gate - ANDed with the
-			// world budget inside the facade (@see RenderDecal)
-			this->mDecal->setVisible(activeInHierarchy);
+			// the facade decal's own visibility gate - ANDed with the world
+			// budget inside the facade (@see RenderDecal); enabled AND
+			// owner-active compose into effectivelyEnabled()
+			this->mDecal->setVisible(this->effectivelyEnabled());
 		}
 	}
 	//---------------------------------------------------------

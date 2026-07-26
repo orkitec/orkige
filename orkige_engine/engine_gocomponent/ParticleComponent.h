@@ -53,6 +53,7 @@ namespace Orkige
 		String				mTextureAssetId;	//!< stable asset id of the texture ("" = none/engine media)
 		bool				mEmitOnStart;	//!< auto-begin continuous emission on the first play update
 		bool				mPrimed;		//!< the first-update priming (mEmitOnStart) has run
+		bool				mEmitSuspended;	//!< emission was on when the component was disabled (restore on re-enable)
 		float				mPlaneZ;		//!< world Z plane the particles live in (emitter's Z)
 		std::vector<SpriteBatch::Vertex>	mVertexScratch;	//!< per-frame vertex build buffer (4/particle)
 	private:
@@ -153,8 +154,15 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override - called before the component is removed
 		virtual void onRemove();
-		//! deactivated GameObjects hide their batch (emission keeps its state)
-		virtual void onSetActive(bool activeInHierarchy);
+		//! @brief a deactivated owner hides+freezes the batch; a DISABLED (but
+		//! active) component stops EMITTING while its live particles finish their
+		//! lifetimes (the graceful contract - the batch stays visible and keeps
+		//! ticking, @see ticksWhileDisabled). Re-enabling resumes emission.
+		//! The ONE suspend path both axes funnel through (@see effectivelyEnabled).
+		virtual void applyEffectiveEnabled();
+		//! @brief keep ticking while disabled so live particles drain gracefully
+		//! (emission is self-gated - @see applyEffectiveEnabled)
+		virtual bool ticksWhileDisabled() const { return true; }
 		//! simulate one step and refill the batch (dormant in the editor)
 		virtual void onUpdateComponent(float deltaTime);
 

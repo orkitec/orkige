@@ -66,9 +66,11 @@ namespace Orkige
 		virtual void onRemove();
 		//! overridable to update the component
 		virtual void onUpdateComponent(float deltaTime);
-		//! deactivated GameObjects stop all their sounds (updates are gated
-		//! centrally, so nothing restarts them until reactivation plays again)
-		virtual void onSetActive(bool activeInHierarchy);
+		//! a disabled component or deactivated GameObject stops all its sounds
+		//! and refuses new playback; re-enabling does not resume (stopped is
+		//! stopped). The ONE suspend path both axes funnel through
+		//! (@see effectivelyEnabled).
+		virtual void applyEffectiveEnabled();
 		//--- SERIALIZATION ---
 		//! @warning attached sounds do not round-trip yet (logs a warning)
 		virtual void save(optr<IArchive> const & ar);

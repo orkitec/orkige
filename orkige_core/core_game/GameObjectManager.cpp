@@ -96,10 +96,19 @@ namespace Orkige
 			for(this->currentUpdatableComponentIndex = 0; this->currentUpdatableComponentIndex < this->numUpdatableComponents; this->currentUpdatableComponentIndex++)
 			{
 				GameObjectComponent* component = this->updatableComponents[this->currentUpdatableComponentIndex];
-				// deactivated objects stop ticking - the
-				// cached activeInHierarchy flag makes this an O(1) gate
+				// deactivated objects AND disabled components stop ticking - the
+				// composed effectivelyEnabled() query (cached activeInHierarchy
+				// flag AND the component enable flag) keeps this an O(1) gate. A
+				// disabled component that must wind down gracefully opts back in
+				// via ticksWhileDisabled and self-gates its emission (Particle);
+				// an inactive OWNER always suspends, regardless.
 				GameObject* componentOwner = component->getGameObject();
-				if(componentOwner && !componentOwner->isActiveInHierarchy())
+				const bool ownerActive = !componentOwner || componentOwner->isActiveInHierarchy();
+				if(!ownerActive)
+				{
+					continue;
+				}
+				if(!component->isEnabled() && !component->ticksWhileDisabled())
 				{
 					continue;
 				}

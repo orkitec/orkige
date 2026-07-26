@@ -186,10 +186,12 @@ namespace Orkige
 		virtual void onRemove();
 		//! creates the body on first call, then syncs poses with the simulation
 		virtual void onUpdateComponent(float deltaTime);
-		//! @brief deactivated GameObjects take their body OUT of the simulation
-		//! (PhysicsWorld::setBodyEnabled - no collisions, no motion, state
-		//! kept); reactivation re-enters at the transform's current world pose
-		virtual void onSetActive(bool activeInHierarchy);
+		//! @brief a disabled component OR deactivated owner takes the body OUT of
+		//! the simulation (PhysicsWorld::setBodyEnabled - no collisions, no
+		//! motion, shape kept); resuming re-enters at the transform's current
+		//! world pose and wakes AT REST (velocities zeroed). The ONE suspend path
+		//! both axes funnel through - @see effectivelyEnabled.
+		virtual void applyEffectiveEnabled();
 		//! create the rigid body at the sibling TransformComponent's current pose
 		void createBody();
 		//! @brief for an ST_SHAPE body, resolve the `.oshape` outline and populate

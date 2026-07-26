@@ -121,6 +121,9 @@ namespace Orkige
 	public:
 		//! append desc, or replace the existing descriptor of the same name
 		void add(PropertyDesc const & desc);
+		//! remove the descriptor of the given name (a no-op when absent); returns
+		//! true when one was removed
+		bool remove(String const & name);
 		//! the descriptor for name, or NULL when absent
 		PropertyDesc const * find(String const & name) const;
 		//! the ordered descriptors

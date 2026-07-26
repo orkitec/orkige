@@ -121,8 +121,9 @@ namespace Orkige
 		virtual void onAdd();
 		//! Component override gets called before the Component is removed from a GameObject
 		virtual void onRemove();
-		//! a deactivated GameObject turns its light off (the node's visibility)
-		virtual void onSetActive(bool activeInHierarchy);
+		//! a disabled component or deactivated GameObject turns the light off (the
+		//! node's visibility; the ONE suspend path - @see effectivelyEnabled)
+		virtual void applyEffectiveEnabled();
 		//! push every stored parameter onto the facade light (needs a light)
 		void applyStateToLight();
 		//! push colour*intensity onto the facade light's diffuse+specular terms

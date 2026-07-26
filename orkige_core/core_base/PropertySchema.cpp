@@ -66,6 +66,20 @@ namespace Orkige
 		this->mProperties.push_back(desc);
 	}
 	//---------------------------------------------------------
+	bool PropertySchema::remove(String const & name)
+	{
+		for (std::vector<PropertyDesc>::iterator it = this->mProperties.begin();
+			it != this->mProperties.end(); ++it)
+		{
+			if (it->name == name)
+			{
+				this->mProperties.erase(it);
+				return true;
+			}
+		}
+		return false;
+	}
+	//---------------------------------------------------------
 	PropertyDesc const * PropertySchema::find(String const & name) const
 	{
 		for (PropertyDesc const & desc : this->mProperties)

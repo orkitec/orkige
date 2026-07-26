@@ -86,7 +86,9 @@
 #define OOBJECT_IMPL(ClassName)																				\
 	OTYPE_INFO_IMPL(ClassName,ClassName)																	\
 	void ClassName::OrkigeMetaExport(const char * currentOrkigeModuleName) {									\
-		Orkige::TypeManager::getSingleton().registerType<ClassName>(#ClassName);
+		Orkige::TypeManager::getSingleton().registerType<ClassName>(#ClassName);							\
+		Orkige::TypeManager::getSingleton().registerParentType(												\
+			ClassName::getClassTypeInfo().getId(), OParent::getClassTypeInfo().getId());
 
 #define OOBJECT_TEMPLATE_IMPL(ClassName,TemplateArgument)													\
 	OTEMPLATE_TYPE_INFO_IMPL(ClassName<TemplateArgument>,ClassName##TemplateArgument)								\

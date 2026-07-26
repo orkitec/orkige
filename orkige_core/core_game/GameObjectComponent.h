@@ -38,6 +38,7 @@ namespace Orkige
 	protected:
 	private:
 		bool wantsUpdates; //!< mark if this Componenets ::onUpdate method should be called when the GameObject is updated!
+		bool mEnabled;	//!< the component's OWN enabled flag (@see setEnabled)
 		//--- Methods -----------------------------------------
 	public:
 		//! constructor
@@ -63,10 +64,57 @@ namespace Orkige
 		virtual void onParentChanged(GameObject * newParent, bool keepWorldTransform) {};
 		//! @brief overridable - called when the owning GameObject's EFFECTIVE
 		//! active state (activeInHierarchy) changed (@see GameObject::setActive)
-		//! @remarks components gate their own scene state here: render content
-		//! hides, physics bodies leave the simulation, sounds stop; ticking is
-		//! gated centrally in GameObjectManager::update
-		virtual void onSetActive(bool activeInHierarchy) {};
+		//! @remarks the base default funnels into applyEffectiveEnabled() so a
+		//! kind implements its suspend/resume ONCE, keyed on the composed
+		//! effectivelyEnabled() state (object-active AND the component `enabled`
+		//! flag). Ticking is gated centrally in GameObjectManager::update.
+		//! Override this directly only for a kind whose active semantics differ
+		//! from its enabled semantics (AtmosphereComponent).
+		virtual void onSetActive(bool activeInHierarchy) { this->applyEffectiveEnabled(); }
+
+		//--- ENABLED (the generic per-component disable switch) ---
+		//! @brief the component's own enabled flag. A disabled component is
+		//! suspended: it stops ticking (the effectivelyEnabled gate in
+		//! GameObjectManager::update) and takes its per-kind suspend path
+		//! (@see applyEffectiveEnabled). Default true; composes with the owner's
+		//! active state (@see effectivelyEnabled). Reflected ONCE here on the
+		//! base, so every subclass inherits the `enabled` property with no
+		//! per-kind declaration (a kind opts OUT via supportsDisable).
+		inline bool isEnabled() const { return this->mEnabled; }
+		//! @brief set the enabled flag. A change funnels into
+		//! applyEffectiveEnabled() so the concrete component suspends/resumes
+		//! (hide, leave the sim, stop playing, ...) EXACTLY. Idempotent - setting
+		//! the current value does nothing. Inert on a kind that cannot be
+		//! disabled (@see supportsDisable).
+		void setEnabled(bool enabled);
+		//! @brief the ONE per-kind suspend/resume hook. Fired by setEnabled AND
+		//! by the default onSetActive, so a disabled component and a deactivated
+		//! object take the IDENTICAL path and the two axes compose. A kind reads
+		//! effectivelyEnabled() and applies it (setVisible, leave/re-add the
+		//! physics body, stop sounds, ...). Default no-op - the central tick gate
+		//! already suspends a purely-updated component.
+		virtual void applyEffectiveEnabled() {};
+		//! @brief the composed runtime state: this component is enabled AND its
+		//! owner is active in the hierarchy. THE gate every consumer keys on -
+		//! the central update loop and each kind's suspend/resume.
+		bool effectivelyEnabled() const;
+		//! @brief does disabling this component KIND have honest, coherent
+		//! semantics? Default true. A kind whose disable is meaningless
+		//! (TransformComponent, TileComponent, LevelComponent, CameraComponent)
+		//! overrides to false: the `enabled` property is then dropped from its
+		//! schema (no lying checkbox in the inspector / MCP / serialization) and
+		//! setEnabled is inert. @see getComponentSchema.
+		virtual bool supportsDisable() const { return true; }
+		//! @brief may this component's onUpdateComponent still run while the
+		//! component is disabled (but its owner active)? Default false - a
+		//! disabled component is skipped by the central tick gate. A kind that
+		//! must keep ticking to wind DOWN gracefully overrides to true and
+		//! self-gates inside onUpdateComponent (ParticleComponent: stop emitting
+		//! but let live particles finish their lifetimes). Never runs while the
+		//! OWNER is inactive - that gate is unconditional.
+		virtual bool ticksWhileDisabled() const { return false; }
+		//! the schema key of the generic base `enabled` property (@see setEnabled)
+		static const char * const ENABLED_PROPERTY;
 		//--- SERIALIZATION ---
 		//! @brief components are created through the ComponentHolder factory
 		//! (GameObject::addComponent) before their state is loaded, never by
@@ -129,6 +177,16 @@ namespace Orkige
 	//! ::add is by-name idempotent) - in practice the two name spaces are
 	//! disjoint (a script component's small static schema vs. its exports).
 	ORKIGE_CORE_DLL PropertySchema getComponentSchema(
+		GameObjectComponent const & component);
+	//---------------------------------------------------------
+	//! @brief the STATIC per-type schema of a component instance COMPOSED along
+	//! its reflection base chain (TypeManager::getInheritedPropertySchema), with
+	//! the generic `enabled` property dropped for a kind that opts out of
+	//! disabling (@see GameObjectComponent::supportsDisable). This is the static
+	//! half getComponentSchema unions with the dynamic per-instance schema, and
+	//! the schema the serializer's static pass iterates - so inheritance and the
+	//! opt-out apply uniformly across the inspector, MCP and scene/prefab I/O.
+	ORKIGE_CORE_DLL PropertySchema getComponentStaticSchema(
 		GameObjectComponent const & component);
 	//---------------------------------------------------------
 #define REGISTERGOCOMPONENT(Class) ::Orkige::ComponentHolder< ::Orkige::GameObjectComponent >::registerComponent<Class>();

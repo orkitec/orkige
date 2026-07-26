@@ -23,7 +23,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	LineComponent::LineComponent()
 		: mMode(LM_STRIP), mColour(Color::White), mDepthTest(true)
-		, mVisible(true), mUploadedCount(0), mRebuildCount(0)
+		, mUploadedCount(0), mRebuildCount(0)
 		, mUploadedMode(LM_STRIP), mDirty(false), mTicked(false)
 		, mFreshBuild(false)
 	{
@@ -130,16 +130,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	void LineComponent::setLineVisible(bool visible)
 	{
-		this->mVisible = visible;
-		if(this->mNode)
-		{
-			this->applyVisibility();
-		}
+		// line visibility IS the generic component enable switch - ONE flag
+		this->setEnabled(visible);
 	}
 	//---------------------------------------------------------
 	bool LineComponent::isLineVisible() const
 	{
-		return this->mVisible;
+		return this->isEnabled();
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -182,7 +179,7 @@ namespace Orkige
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
-	void LineComponent::onSetActive(bool activeInHierarchy)
+	void LineComponent::applyEffectiveEnabled()
 	{
 		if(this->mNode)
 		{
@@ -258,10 +255,8 @@ namespace Orkige
 	void LineComponent::applyVisibility()
 	{
 		oAssert(this->mNode);
-		GameObject* componentOwner = this->getComponentOwner();
-		const bool ownerActive =
-			!componentOwner || componentOwner->isActiveInHierarchy();
-		this->setVisible(this->mVisible && ownerActive);
+		// enabled AND owner-active compose into effectivelyEnabled()
+		this->setVisible(this->effectivelyEnabled());
 	}
 	//---------------------------------------------------------
 	void LineComponent::save(optr<IArchive> const & ar)
@@ -348,7 +343,8 @@ namespace Orkige
 		OPROPERTY_ENUM("mode", "LineMode", getMode, setMode, Orkige::PROP_NONE)
 		OPROPERTY("colour", Orkige::PropertyKind::Color, getColour, setColourValue, Orkige::PROP_NONE)
 		OPROPERTY("depthTest", Orkige::PropertyKind::Bool, getDepthTest, setDepthTest, Orkige::PROP_NONE)
-		OPROPERTY("visible", Orkige::PropertyKind::Bool, isLineVisible, setLineVisible, Orkige::PROP_NONE)
+		// no reflected `visible` - line visibility IS the inherited base
+		// `enabled` property; setLineVisible/isLineVisible stay as script aliases
 
 		// self.line / getComponent("line") hand Lua a WEAK handle: locks per
 		// call, raises an honest error naming the owner once gone. @see LightComponent.

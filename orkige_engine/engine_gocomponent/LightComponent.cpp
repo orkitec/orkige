@@ -145,7 +145,7 @@ namespace Orkige
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
-	void LightComponent::onSetActive(bool activeInHierarchy)
+	void LightComponent::applyEffectiveEnabled()
 	{
 		if(this->mNode)
 		{
@@ -182,11 +182,10 @@ namespace Orkige
 	void LightComponent::applyVisibility()
 	{
 		oAssert(this->mNode);
-		GameObject* componentOwner = this->getComponentOwner();
-		const bool ownerActive =
-			!componentOwner || componentOwner->isActiveInHierarchy();
-		// a hidden node stops its attached light from contributing
-		this->setVisible(ownerActive);
+		// a hidden node stops its attached light from contributing; enabled AND
+		// owner-active compose into effectivelyEnabled() (a disabled light casts
+		// no light, restored exactly on re-enable)
+		this->setVisible(this->effectivelyEnabled());
 	}
 	//---------------------------------------------------------
 	void LightComponent::save(optr<IArchive> const & ar)

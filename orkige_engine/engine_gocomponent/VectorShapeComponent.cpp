@@ -40,7 +40,6 @@ namespace Orkige
 		this->mScale = 1.0f;
 		this->mEdgeSoftness = 0.0f;	// auto: derived from the shape bounds
 		this->mZOrder = 0;
-		this->mVisible = true;
 		this->mSoftBody = false;
 		this->mMorphClip = -1;
 		this->mMorphSpeed = 1.0f;
@@ -159,16 +158,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	void VectorShapeComponent::setShapeVisible(bool visible)
 	{
-		this->mVisible = visible;
-		if(this->mNode)
-		{
-			this->applyVisibility();
-		}
+		// shape visibility IS the generic component enable switch - ONE flag
+		this->setEnabled(visible);
 	}
 	//---------------------------------------------------------
 	bool VectorShapeComponent::isShapeVisible() const
 	{
-		return this->mVisible;
+		return this->isEnabled();
 	}
 	//---------------------------------------------------------
 	void VectorShapeComponent::setShapeReference(String const & shapeName)
@@ -237,7 +233,7 @@ namespace Orkige
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
-	void VectorShapeComponent::onSetActive(bool activeInHierarchy)
+	void VectorShapeComponent::applyEffectiveEnabled()
 	{
 		if(this->mNode)
 		{
@@ -291,11 +287,9 @@ namespace Orkige
 	void VectorShapeComponent::applyVisibility()
 	{
 		oAssert(this->mNode);
-		GameObject* componentOwner = this->getComponentOwner();
-		const bool ownerActive =
-			!componentOwner || componentOwner->isActiveInHierarchy();
-		// only over the shape's OWN node (child GameObjects gate themselves)
-		this->setVisible(this->mVisible && ownerActive);
+		// only over the shape's OWN node (child GameObjects gate themselves);
+		// enabled AND owner-active compose into effectivelyEnabled()
+		this->setVisible(this->effectivelyEnabled());
 	}
 	//---------------------------------------------------------
 	//--- soft body -------------------------------------------
@@ -581,7 +575,8 @@ namespace Orkige
 		OPROPERTY("scale", Orkige::PropertyKind::Float, getScale, setScale, Orkige::PROP_NONE)
 		OPROPERTY("edgeSoftness", Orkige::PropertyKind::Float, getEdgeSoftness, setEdgeSoftness, Orkige::PROP_NONE)
 		OPROPERTY("zOrder", Orkige::PropertyKind::Int, getZOrder, setZOrder, Orkige::PROP_NONE)
-		OPROPERTY("visible", Orkige::PropertyKind::Bool, isShapeVisible, setShapeVisible, Orkige::PROP_NONE)
+		// no reflected `visible` - shape visibility IS the inherited base
+		// `enabled` property; setShapeVisible/isShapeVisible stay as script aliases
 		// soft-body tunables (set before the shape, so the deformer that the
 		// shape reference builds picks them up): inspector/serialization/MCP free
 		OPROPERTY("softBody", Orkige::PropertyKind::Bool, isSoftBodyEnabled, setSoftBodyEnabled, Orkige::PROP_NONE)

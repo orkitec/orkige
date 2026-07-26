@@ -169,6 +169,10 @@ namespace Orkige
 		virtual void onAdd();
 		//! Component override gets called before the Component is removed from a GameObject
 		virtual void onRemove();
+		//! @brief camera enable/disable is OUT of v1: its natural "off" semantics
+		//! collide with the window-camera take-over contract (which owns the live
+		//! camera), so no `enabled` property and no inspector checkbox for now.
+		virtual bool supportsDisable() const { return false; }
 		//--- SERIALIZATION ---
 		//! @brief save projection mode + orthoSize
 		//! @warning the camera MODE FUNCTION and node offsets do not round-trip

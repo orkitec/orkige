@@ -96,6 +96,10 @@ namespace Orkige
 		//! @param anyChildStatic any direct child object's flag set
 		static char const * staticFlagChangeError(bool wantStatic,
 			bool parentStatic, bool anyChildStatic);
+		//! @brief a transform cannot be "disabled" - it is the object's place in
+		//! space, meaningless to switch off (use the GameObject's active state to
+		//! hide a whole object). No `enabled` property, no inspector checkbox.
+		virtual bool supportsDisable() const { return false; }
 	protected:
 		//! @brief push the current flag onto the render nodes: the owned node
 		//! plus the sibling components' content nodes below it (facade

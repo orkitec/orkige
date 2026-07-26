@@ -42,6 +42,7 @@ struct PlayerSelfChecks
 	bool integrationContactCheck = false;
 	bool integrationLevelCheck = false;
 	bool persistentCheck = false;
+	bool componentEnableCheck = false;
 	bool breadcrumbCheck = false;
 	bool fadeCheck = false;
 	bool lifecycleCheck = false;

@@ -66,7 +66,6 @@ namespace Orkige
 		SpriteQuad::FilterMode	mFilter;	//!< texture filter (bilinear default; from import settings)
 		SpriteQuad::AddressMode	mAddressing;	//!< texture addressing (clamp default; from import settings)
 		int					mZOrder;		//!< sprite sort order (see class remarks)
-		bool				mVisible;		//!< sprite visibility (applied to the scene node)
 		unsigned int		mStateVersion;	//!< bumped by every sprite-state mutation (batch dirty tracking)
 		optr<StringUtil::StringObject> mEventData;	//!< name of the set/removed texture
 	private:
@@ -146,9 +145,13 @@ namespace Orkige
 		void setZOrder(int zOrder);
 		//! @see SpriteComponent::mZOrder
 		inline int getZOrder() const;
-		//! show/hide the sprite (the scene node's visibility)
+		//! @brief show/hide the sprite - an ALIAS for the generic component
+		//! enable switch (@see GameObjectComponent::setEnabled): sprite
+		//! visibility IS the component's enabled state, so there is ONE flag
+		//! (no separate `visible` property). Kept for script/host convenience.
 		void setSpriteVisible(bool visible);
-		//! is the sprite visible (true when no quad exists yet - it will show)
+		//! @brief is the sprite visible - the component's enabled state
+		//! (@see GameObjectComponent::isEnabled)
 		bool isSpriteVisible() const;
 
 		//--- reflected property accessors ---
@@ -255,8 +258,9 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
-		//! deactivated GameObjects hide their sprite (setSpriteVisible state is kept)
-		virtual void onSetActive(bool activeInHierarchy);
+		//! a disabled component or deactivated GameObject hides the sprite (the
+		//! ONE suspend path both axes funnel through - @see effectivelyEnabled)
+		virtual void applyEffectiveEnabled();
 		//! push the stored sprite state onto the facade quad (needs a quad)
 		void applyStateToQuad();
 		//! @brief apply the loaded texture's import-settings sampler (filter +

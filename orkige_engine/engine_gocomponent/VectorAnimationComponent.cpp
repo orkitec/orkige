@@ -50,7 +50,6 @@ namespace Orkige
 		this->mScale = 1.0f;
 		this->mEdgeSoftness = 0.0f;	// auto: derived from the pose bounds
 		this->mZOrder = 0;
-		this->mVisible = true;
 		this->mFreshBuild = false;
 		this->mNeedsUpload = false;
 		this->mWasAtEnd = false;
@@ -410,11 +409,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	void VectorAnimationComponent::setAnimationVisible(bool visible)
 	{
-		this->mVisible = visible;
-		if(this->mNode)
-		{
-			this->applyVisibility();
-		}
+		// rig visibility IS the generic component enable switch - ONE flag.
+		// Disabling ALSO pauses playback (the central tick gate skips the single
+		// per-frame advance/upload), so a re-enable resumes at the paused pose.
+		this->setEnabled(visible);
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -454,7 +452,7 @@ namespace Orkige
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
-	void VectorAnimationComponent::onSetActive(bool activeInHierarchy)
+	void VectorAnimationComponent::applyEffectiveEnabled()
 	{
 		if(this->mNode)
 		{
@@ -641,11 +639,9 @@ namespace Orkige
 	void VectorAnimationComponent::applyVisibility()
 	{
 		oAssert(this->mNode);
-		GameObject* componentOwner = this->getComponentOwner();
-		const bool ownerActive =
-			!componentOwner || componentOwner->isActiveInHierarchy();
-		// only over the rig's OWN node (child GameObjects gate themselves)
-		this->setVisible(this->mVisible && ownerActive);
+		// only over the rig's OWN node (child GameObjects gate themselves);
+		// enabled AND owner-active compose into effectivelyEnabled()
+		this->setVisible(this->effectivelyEnabled());
 	}
 	//---------------------------------------------------------
 	void VectorAnimationComponent::fireEnded(String const & clip)
@@ -731,7 +727,8 @@ namespace Orkige
 		OPROPERTY("scale", Orkige::PropertyKind::Float, getScale, setScale, Orkige::PROP_NONE)
 		OPROPERTY("edgeSoftness", Orkige::PropertyKind::Float, getEdgeSoftness, setEdgeSoftness, Orkige::PROP_NONE)
 		OPROPERTY("zOrder", Orkige::PropertyKind::Int, getZOrder, setZOrder, Orkige::PROP_NONE)
-		OPROPERTY("visible", Orkige::PropertyKind::Bool, isAnimationVisible, setAnimationVisible, Orkige::PROP_NONE)
+		// no reflected `visible` - rig visibility IS the inherited base `enabled`
+		// property; setAnimationVisible/isAnimationVisible stay as script aliases
 		OPROPERTY_REF("animation", Orkige::PropertyKind::AssetRef, "vectoranim", getAnimationName, setAnimationReference, Orkige::PROP_NONE)
 
 		// self.anim / world.get(id):getAnim... hand Lua a WEAK handle: locks per

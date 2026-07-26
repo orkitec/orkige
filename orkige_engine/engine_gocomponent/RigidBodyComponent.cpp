@@ -543,12 +543,12 @@ namespace Orkige
 		this->mBodyDesc.shapeMeshIndices.assign(indices.begin(), indices.end());
 	}
 	//---------------------------------------------------------
-	void RigidBodyComponent::onSetActive(bool activeInHierarchy)
+	void RigidBodyComponent::applyEffectiveEnabled()
 	{
 		if (!this->hasBody())
 		{
-			// no body yet: an inactive object does not tick, so the lazy
-			// creation simply waits for the first update after activation
+			// no body yet: a suspended component does not tick, so the lazy
+			// creation simply waits for the first update after it resumes
 			return;
 		}
 		PhysicsWorld* physicsWorld = PhysicsWorld::getSingletonPtr();
@@ -556,11 +556,16 @@ namespace Orkige
 		{
 			return;
 		}
-		physicsWorld->setBodyEnabled(this->mBodyId, activeInHierarchy);
-		if (activeInHierarchy)
+		// a disabled component OR a deactivated owner both take the body OUT of
+		// the simulation (Jolt RemoveBody - no collision, no motion), keyed on the
+		// composed effectivelyEnabled() state
+		const bool effective = this->effectivelyEnabled();
+		physicsWorld->setBodyEnabled(this->mBodyId, effective);
+		if (effective)
 		{
-			// the transform may have moved while the body was out of the
-			// simulation - re-enter at the node's current world pose
+			// re-enter at the node's CURRENT world pose (the transform may have
+			// moved while the body was out) and wake AT REST - the honest simple
+			// contract: a re-enabled body carries no stale momentum
 			GameObject* componentOwner = this->getComponentOwner();
 			oAssert(componentOwner);
 			optr<TransformComponent> transformComponent =
@@ -571,6 +576,8 @@ namespace Orkige
 					transformComponent->getWorldPosition(),
 					transformComponent->getWorldOrientation());
 			}
+			physicsWorld->setLinearVelocity(this->mBodyId, Vec3::ZERO);
+			physicsWorld->setAngularVelocity(this->mBodyId, Vec3::ZERO);
 		}
 	}
 	//---------------------------------------------------------

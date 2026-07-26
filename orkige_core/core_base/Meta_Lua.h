@@ -150,6 +150,8 @@
 	OTYPE_INFO_IMPL(ClassName,ClassName)																	\
 	void ClassName::OrkigeMetaExport(const char * currentOrkigeModuleName) {								\
 		Orkige::TypeManager::getSingleton().registerType<ClassName>(#ClassName);							\
+		Orkige::TypeManager::getSingleton().registerParentType(												\
+			ClassName::getClassTypeInfo().getId(), OParent::getClassTypeInfo().getId());					\
 		ORKIGE_LUA_USERTYPE_BASED(ClassName::getClassTypeInfo().getName(), OParent, ClassName)
 
 #define OOBJECT_TEMPLATE_IMPL(ClassName,TemplateArgument)													\

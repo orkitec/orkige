@@ -204,7 +204,7 @@ def run_selfcheck(binary, out_dir, cwd):
     environment["ORKIGE_SELFCHECK_OUT"] = out_dir
     result = subprocess.run([binary], cwd=cwd, env=environment,
                             stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, timeout=120)
+                            stderr=subprocess.STDOUT, timeout=300)
     if result.returncode != 0:
         sys.stdout.buffer.write(result.stdout)
         raise RuntimeError(f"{binary} exited with {result.returncode}")

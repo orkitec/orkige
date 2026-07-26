@@ -60,6 +60,12 @@ namespace Orkige
                 {
                         return false;
                 }
+                // a disabled component (or deactivated owner) makes no new sound -
+                // the honest "muted" contract (@see effectivelyEnabled)
+                if(!this->effectivelyEnabled())
+                {
+                        return false;
+                }
                 SoundSourceMap::iterator it = this->attachedSoundObjects.find(id);
                 if(it == this->attachedSoundObjects.end())
                 {
@@ -249,12 +255,14 @@ namespace Orkige
                 }
         }
         //---------------------------------------------------------
-        void SoundComponent::onSetActive(bool activeInHierarchy)
+        void SoundComponent::applyEffectiveEnabled()
         {
-                if(!activeInHierarchy)
+                if(!this->effectivelyEnabled())
                 {
-                        // a deactivated GameObject falls silent; reactivation does
-                        // NOT resume - game code plays sounds again when it wants them
+                        // a disabled component or deactivated GameObject falls
+                        // silent; re-enabling does NOT resume - stopped is stopped,
+                        // game code plays sounds again when it wants them (the ONE
+                        // suspend path both axes funnel through)
                         this->stopAllSounds();
                 }
         }

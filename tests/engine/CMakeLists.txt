@@ -21,6 +21,7 @@ add_executable(orkige_engine_tests
     TwoDSupportTests.cpp
     PropertyReflectionTests.cpp
     StaticFlagTests.cpp
+    ComponentEnableTests.cpp
     DecalComponentTests.cpp
     AtmosphereComponentTests.cpp
     PhysicsLayerTests.cpp

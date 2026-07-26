@@ -29,7 +29,7 @@ namespace Orkige
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	ParticleComponent::ParticleComponent()
-		: mEmitOnStart(true), mPrimed(false), mPlaneZ(0.0f)
+		: mEmitOnStart(true), mPrimed(false), mEmitSuspended(false), mPlaneZ(0.0f)
 	{
 		this->mTextureName = "";
 		this->mTextureAssetId = "";
@@ -235,11 +235,31 @@ namespace Orkige
 		this->mBatch.reset();
 	}
 	//---------------------------------------------------------
-	void ParticleComponent::onSetActive(bool activeInHierarchy)
+	void ParticleComponent::applyEffectiveEnabled()
 	{
+		// batch visibility follows the OWNER's active state only: a disabled but
+		// active emitter stays VISIBLE so its live particles are seen draining
+		GameObject* owner = this->getComponentOwner();
+		const bool ownerActive = !owner || owner->isActiveInHierarchy();
 		if(this->mBatch)
 		{
-			this->mBatch->setVisible(activeInHierarchy);
+			this->mBatch->setVisible(ownerActive);
+		}
+		// emission gate: a disabled component STOPS emitting (live particles keep
+		// simulating - the tick gate lets us drain via ticksWhileDisabled), and a
+		// re-enabled one resumes emitting exactly if it was emitting before
+		if(!this->isEnabled())
+		{
+			if(this->mSim.isEmitting())
+			{
+				this->mEmitSuspended = true;
+				this->mSim.stop();
+			}
+		}
+		else if(this->mEmitSuspended)
+		{
+			this->mEmitSuspended = false;
+			this->mSim.start();
 		}
 	}
 	//---------------------------------------------------------

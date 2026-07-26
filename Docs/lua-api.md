@@ -531,6 +531,43 @@ handle — `self.gameObject` stored across frames, a contact OTHER stashed for l
 — is always safe: it locks per call and raises honestly once its object is
 destroyed, never dereferencing freed engine state.
 
+## Component enable / disable
+
+Every component carries a generic **`enabled`** flag (default `true`) — declared
+ONCE on the component base and inherited by every kind, so it surfaces uniformly
+in the Inspector (the header checkbox), over MCP (`get_component` /
+`set_component` on the reflected `enabled` property) and in serialization (a scene
+records the flag ONLY when a component is disabled, so untouched scenes stay
+byte-identical). Disabling a component **suspends** it and re-enabling restores it
+exactly; the flag composes with the owning object's active state — a component is
+live only when it is enabled AND its object is active in the hierarchy
+(`effectivelyEnabled`), so `GameObject:setActive(false)` and disabling a single
+component route through the ONE suspend path.
+
+Per-kind meaning of *disabled* (each restores to the identical state on re-enable):
+
+| Kind | Disabled means |
+|------|----------------|
+| Model / Sprite / VectorShape / VectorAnimation / Line / WorldText / Water / Decal | render node hidden (physics untouched) |
+| Light | contributes no light |
+| RigidBody | body leaves the simulation (no collision, no motion); re-enable re-enters at the current transform, at rest (velocities zeroed) |
+| Sound | playing sounds stop and no new playback starts; re-enable does NOT resume |
+| Particle | emission stops, live particles finish their lifetimes; re-enable resumes emitting |
+| Animation / SpriteAnimation / VectorAnimation | playback pauses; re-enable resumes at the paused position |
+| Script | no `update` while disabled (its existing semantics) |
+| Atmosphere | `enabled=false` is the authored "no sky" (its existing meaning) |
+
+Kinds where switching off is meaningless expose **no** checkbox and no `enabled`
+property: `TransformComponent` (an object's place in space — deactivate the whole
+object instead), `TileComponent`, `LevelComponent` and `CameraComponent` (its
+disable collides with the window-camera take-over contract; out of v1).
+
+The one flag also **replaces** the old per-component `visible` bool on the visual
+kinds — there is no separate `visible` property. The convenience aliases stay:
+`SpriteComponent`'s `setSpriteVisible` / `isSpriteVisible`, and the equivalents on
+`VectorShapeComponent`, `LineComponent`, `VectorAnimationComponent` and
+`WorldTextComponent`, now drive that ONE enabled flag.
+
 ## Persistent objects (survive a scene switch)
 
 A `world.loadScene(path)` / `LevelManager:loadLevel(i)` is a **deferred scene
@@ -1005,7 +1042,6 @@ SpriteComponent.tint
 SpriteComponent.flipX
 SpriteComponent.flipY
 SpriteComponent.zOrder
-SpriteComponent.visible
 SpriteComponent.texture
 
 ## LineComponent
@@ -1029,7 +1065,6 @@ LineComponent:isLineVisible(...)
 LineComponent.mode
 LineComponent.colour
 LineComponent.depthTest
-LineComponent.visible
 
 ## WorldTextComponent
 WorldTextComponent:setText(...)
@@ -1045,7 +1080,6 @@ WorldTextComponent.text
 WorldTextComponent.size
 WorldTextComponent.colour
 WorldTextComponent.billboard
-WorldTextComponent.visible
 
 ## VectorShapeComponent
 VectorShapeComponent:loadShape(...)
@@ -1076,7 +1110,6 @@ VectorShapeComponent.tint
 VectorShapeComponent.scale
 VectorShapeComponent.edgeSoftness
 VectorShapeComponent.zOrder
-VectorShapeComponent.visible
 VectorShapeComponent.softBody
 VectorShapeComponent.wobbleStiffness
 VectorShapeComponent.wobbleDamping
@@ -1118,7 +1151,6 @@ VectorAnimationComponent.tint
 VectorAnimationComponent.scale
 VectorAnimationComponent.edgeSoftness
 VectorAnimationComponent.zOrder
-VectorAnimationComponent.visible
 VectorAnimationComponent.animation
 
 ## SpriteAnimationComponent

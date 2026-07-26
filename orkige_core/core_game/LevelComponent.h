@@ -79,6 +79,11 @@ namespace Orkige
 		//! star rating for finishing this level in `moves` slides (@see LevelGrid)
 		int starsForMoves(int moves) const;
 
+		//! @brief a level grid descriptor has no coherent "disabled" state - it
+		//! defines the scene's cell geometry; no `enabled` property, no inspector
+		//! checkbox.
+		virtual bool supportsDisable() const { return false; }
+
 		//--- SERIALIZATION ---
 		virtual void save(optr<IArchive> const & ar);
 		virtual void load(optr<IArchive> const & ar);

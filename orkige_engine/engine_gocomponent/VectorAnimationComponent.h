@@ -82,7 +82,6 @@ namespace Orkige
 		float				mScale;			//!< uniform rig scale in world units (default 1)
 		float				mEdgeSoftness;	//!< feather width, rig-local (0 = auto from bounds)
 		int					mZOrder;		//!< rig sort order (see remarks)
-		bool				mVisible;		//!< rig visibility (applied to the scene node)
 
 		//--- live playback cursor (NOT serialized) ---
 		bool				mFreshBuild;	//!< a setMesh happened; defer the first dynamic upload one frame
@@ -204,17 +203,21 @@ namespace Orkige
 		void setZOrder(int zOrder);
 		//! @see VectorAnimationComponent::mZOrder
 		inline int getZOrder() const { return this->mZOrder; }
-		//! show/hide the rig (the scene node's visibility)
+		//! @brief show/hide the rig - an ALIAS for the generic component enable
+		//! switch (@see GameObjectComponent::setEnabled): rig visibility IS the
+		//! component's enabled state, so there is ONE flag (no `visible`
+		//! property). Disabling also PAUSES playback (the tick gate).
 		void setAnimationVisible(bool visible);
-		//! is the rig visible (true when no mesh exists yet - it will show)
-		bool isAnimationVisible() const { return this->mVisible; }
+		//! @brief is the rig visible - the component's enabled state
+		bool isAnimationVisible() const { return this->isEnabled(); }
 	protected:
 		//! component override: create the child scene node (SpriteComponent recipe)
 		virtual void onAdd();
 		//! component override: drop the mesh + node
 		virtual void onRemove();
-		//! deactivated GameObjects hide their rig (setAnimationVisible state kept)
-		virtual void onSetActive(bool activeInHierarchy);
+		//! a disabled component or deactivated GameObject hides the rig (the ONE
+		//! suspend path both axes funnel through - @see effectivelyEnabled)
+		virtual void applyEffectiveEnabled();
 		//! per-tick playback: advance the clip(s), compose the pose and upload
 		//! the moved vertices (dormant unless a runtime ticks GameObjects)
 		virtual void onUpdateComponent(float deltaTime);

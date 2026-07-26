@@ -48,6 +48,12 @@ namespace Orkige
 	private:
 		//! per-type declared property schemas (the static reflection half)
 		std::map<TypeInfo::TypeId, PropertySchema>	mSchemas;
+		//! @brief child TypeId -> its DIRECT base TypeId, the reflection parent
+		//! chain the OOBJECT_IMPL macro records generically (@see
+		//! registerParentType). Backs getInheritedPropertySchema so a property
+		//! declared once on a base type is inherited by every subclass without a
+		//! per-kind redeclaration.
+		std::map<TypeInfo::TypeId, TypeInfo::TypeId>	mParentTypes;
 		//! enum value<->label tables keyed by enum-type name
 		std::map<String, EnumInfo>					mEnums;
 		//--- Methods -----------------------------------------------
@@ -64,8 +70,23 @@ namespace Orkige
 		//! macros in every scripting config.
 		void registerProperty(TypeInfo::TypeId typeId, PropertyDesc const & desc);
 		//! the declared property schema of a type, or NULL when the type declared
-		//! none
+		//! none. This is the type's OWN half only (NOT inherited) - use
+		//! getInheritedPropertySchema for the full composed schema.
 		PropertySchema const * getPropertySchema(TypeInfo::TypeId typeId) const;
+
+		//! @brief record a type's DIRECT reflection base so inherited schema
+		//! composition can walk the chain. Called generically by the OOBJECT_IMPL
+		//! macro (child = the exported class, parent = OParent). Idempotent.
+		void registerParentType(TypeInfo::TypeId childId, TypeInfo::TypeId parentId);
+		//! @brief the FULL property schema of a type composed along its base
+		//! chain: each ancestor's own schema BASE-FIRST, then the type's own, so a
+		//! subclass property REPLACES an inherited one of the same name (by-name
+		//! idempotent add). This is how a property declared once on a base type
+		//! (e.g. the component `enabled` flag on GameObjectComponent) surfaces on
+		//! every subclass with zero per-kind declarations. Returned by value (the
+		//! composition is a fresh list); empty when neither the type nor any
+		//! ancestor declared a property.
+		PropertySchema getInheritedPropertySchema(TypeInfo::TypeId typeId) const;
 
 		//--- enum registry -----------------------------------------
 		//! @brief get (creating on first touch) the EnumInfo for an enum-type

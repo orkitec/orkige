@@ -83,6 +83,36 @@ namespace Orkige
 		//! its id element ("1" when set, omitted otherwise)
 		const String PERSISTENT_ATTRIBUTE = "persistent";
 
+		//! @brief is `desc` the GENERIC per-component enable switch inherited from
+		//! GameObjectComponent (as opposed to a frozen kind's OWN `enabled`)? The
+		//! generic one is NOT declared on the component's own type schema - it only
+		//! appears through base-chain inheritance. Only the generic one is omitted
+		//! at its default true (@see isDefaultedGenericEnable); a frozen kind's own
+		//! `enabled` serializes unconditionally, byte-identical to existing scenes.
+		bool isGenericEnableProperty(GameObjectComponent const & component,
+			PropertyDesc const & desc)
+		{
+			if(desc.name != GameObjectComponent::ENABLED_PROPERTY)
+			{
+				return false;
+			}
+			PropertySchema const * ownSchema =
+				TypeManager::getSingleton().getPropertySchema(
+					component.getTypeInfo().getId());
+			return ownSchema == NULL || ownSchema->find(
+				GameObjectComponent::ENABLED_PROPERTY) == NULL;
+		}
+
+		//! @brief should this field be OMITTED from serialization because it is the
+		//! generic `enabled` switch sitting at its default (true)? Keeps untouched
+		//! scenes byte-identical: only a DISABLED generic component records a field.
+		bool isDefaultedGenericEnable(GameObjectComponent const & component,
+			PropertyDesc const & desc)
+		{
+			return isGenericEnableProperty(component, desc)
+				&& component.isEnabled();
+		}
+
 		//! @brief which AssetDatabase reference flavour a reflected AssetRef
 		//! property uses, decided by its asset-kind hint: script paths are
 		//! project-relative, every other asset (mesh/texture/sound) is a bare
@@ -827,6 +857,12 @@ namespace Orkige
 			{
 				continue;
 			}
+			// omit the generic `enabled` switch when it sits at its default (true)
+			// so an untouched component records nothing (byte-identical)
+			if(isDefaultedGenericEnable(component, desc))
+			{
+				continue;
+			}
 			GameObject::ComponentPropertyRecord record;
 			record.kind = static_cast<int>(desc.kind);
 			PropertyValue value = desc.get(instance);
@@ -878,18 +914,15 @@ namespace Orkige
 				desc.set(instance, value);
 			}
 		};
-		// PASS 1 static per-type schema (a ScriptComponent's script path lands
-		// here, discovering its dynamic exports); PASS 2 the now-populated
-		// dynamic per-instance schema - the same two-pass order the named field
-		// loader uses (@see loadComponentProperties)
-		if(PropertySchema const * staticSchema =
-			TypeManager::getSingleton().getPropertySchema(
-				component.getTypeInfo().getId()))
+		// PASS 1 static per-type schema COMPOSED along the base chain (a
+		// ScriptComponent's script path lands here, discovering its dynamic
+		// exports); PASS 2 the now-populated dynamic per-instance schema - the
+		// same two-pass order the named field loader uses (@see
+		// loadComponentProperties)
+		const PropertySchema staticSchema = getComponentStaticSchema(component);
+		foreach(PropertyDesc const & desc, staticSchema.properties())
 		{
-			foreach(PropertyDesc const & desc, staticSchema->properties())
-			{
-				assignProperty(desc);
-			}
+			assignProperty(desc);
 		}
 		const PropertySchema dynamicSchema = component.getInstancePropertySchema();
 		foreach(PropertyDesc const & desc, dynamicSchema.properties())
@@ -908,7 +941,11 @@ namespace Orkige
 		std::vector<PropertyDesc const *> fields;
 		foreach(PropertyDesc const & desc, schema.properties())
 		{
-			if(isSerializedProperty(desc))
+			// omit the generic `enabled` switch at its default (true) so an
+			// untouched scene stays byte-identical - only a disabled component
+			// writes the field (@see isDefaultedGenericEnable)
+			if(isSerializedProperty(desc)
+				&& !isDefaultedGenericEnable(component, desc))
 			{
 				fields.push_back(&desc);
 			}
@@ -999,17 +1036,14 @@ namespace Orkige
 				desc.set(instance, value);
 			}
 		};
-		// PASS 1 - the STATIC per-type schema. Assigning it sets the authoring
-		// state INCLUDING a ScriptComponent's script path, whose setter discovers
-		// the dynamic export schema - so pass 2 can see it.
-		if(PropertySchema const * staticSchema =
-			TypeManager::getSingleton().getPropertySchema(
-				component.getTypeInfo().getId()))
+		// PASS 1 - the STATIC per-type schema COMPOSED along the base chain.
+		// Assigning it sets the authoring state INCLUDING a ScriptComponent's
+		// script path, whose setter discovers the dynamic export schema - so
+		// pass 2 can see it.
+		const PropertySchema staticSchema = getComponentStaticSchema(component);
+		foreach(PropertyDesc const & desc, staticSchema.properties())
 		{
-			foreach(PropertyDesc const & desc, staticSchema->properties())
-			{
-				assignField(desc);
-			}
+			assignField(desc);
 		}
 		// PASS 2 - the DYNAMIC per-instance schema, now populated (the script's
 		// exported property values restore per-instance from the same records).

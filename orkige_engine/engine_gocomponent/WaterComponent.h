@@ -166,8 +166,8 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override: drop the mesh + node
 		virtual void onRemove();
-		//! deactivated GameObjects hide their surface
-		virtual void onSetActive(bool activeInHierarchy);
+		//! a disabled component or deactivated GameObject hides the surface
+		virtual void applyEffectiveEnabled();
 		//! per-tick ripple: advance the scroll clock and drive setWaterTime
 		//! (dormant unless a runtime ticks GameObjects)
 		virtual void onUpdateComponent(float deltaTime);

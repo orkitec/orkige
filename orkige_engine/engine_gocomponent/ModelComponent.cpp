@@ -287,12 +287,13 @@ namespace Orkige
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
-	void ModelComponent::onSetActive(bool activeInHierarchy)
+	void ModelComponent::applyEffectiveEnabled()
 	{
 		if(this->mNode)
 		{
-			// only over the model's OWN node (child GameObjects gate themselves)
-			this->setVisible(activeInHierarchy);
+			// only over the model's OWN node (child GameObjects gate themselves);
+			// physics is untouched - a hidden model can still collide
+			this->setVisible(this->effectivelyEnabled());
 		}
 	}
 	//---------------------------------------------------------

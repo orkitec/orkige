@@ -69,6 +69,11 @@ namespace Orkige
 		String const & getSourceAssetId() const { return mSourceAssetId; }
 		void setSourceAssetId(String const & id) { mSourceAssetId = id; }
 
+		//! @brief a tile marker has no coherent "disabled" state - it stamps a
+		//! grid cell's source asset; no `enabled` property, no inspector checkbox
+		//! (hide the tile's sibling sprite/shape or the whole object instead).
+		virtual bool supportsDisable() const { return false; }
+
 		//--- SERIALIZATION ---
 		virtual void save(optr<IArchive> const & ar);
 		virtual void load(optr<IArchive> const & ar);

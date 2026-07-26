@@ -142,8 +142,9 @@ namespace Orkige
 		virtual void onAdd();
 		//! Component override: drop the decal + node
 		virtual void onRemove();
-		//! a deactivated GameObject hides its mark
-		virtual void onSetActive(bool activeInHierarchy);
+		//! a disabled component or deactivated GameObject hides its mark (the ONE
+		//! suspend path both axes funnel through - @see effectivelyEnabled)
+		virtual void applyEffectiveEnabled();
 		//! per-tick: age the mark, ramp the fade, expire at end of life (dormant
 		//! unless a runtime ticks GameObjects)
 		virtual void onUpdateComponent(float deltaTime);

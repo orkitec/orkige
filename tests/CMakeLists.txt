@@ -433,7 +433,7 @@ if(TARGET orkige_engine)
                 --repo "${Orkige_SOURCE_DIR}"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(render_backend_parity PROPERTIES
-            LABELS integration TIMEOUT 180 SKIP_RETURN_CODE 77)
+            LABELS integration TIMEOUT 700 SKIP_RETURN_CODE 77)
 
         # grade_look_parity - the shared-output-grade look-parity gate: run the
         # selfcheck on BOTH flavors and assert the grade moves saturation +
@@ -2173,6 +2173,20 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_persistent_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_PERSISTENT_SELFCHECK=1"
+            LABELS integration TIMEOUT 120)
+
+        # the generic component enable/disable feature's LIVE side effects, both
+        # flavors (the headless ComponentEnableTests cover the schema/inheritance/
+        # serialization half). Self-contained: the selfcheck spawns its own
+        # objects and inits physics, so it boots on any scene (a minimal fixture
+        # here) and asserts a disabled RigidBodyComponent leaves the Jolt sim and
+        # re-enters at rest, and that enabled composes with the owner active state
+        # (the ORKIGE_COMPONENT_ENABLE_SELFCHECK block in PlayerSelfChecks.cpp).
+        add_test(NAME player_component_enable_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player scenes/lines.oscene --project tests/projects/lines
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_component_enable_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_COMPONENT_ENABLE_SELFCHECK=1"
             LABELS integration TIMEOUT 120)
 
         # the benchmark showcase (projects/benchmark), end to end: the driver

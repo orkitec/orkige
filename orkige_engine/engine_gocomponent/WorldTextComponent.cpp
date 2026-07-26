@@ -76,7 +76,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	WorldTextComponent::WorldTextComponent()
 		: mSize(1.0f), mColour(1.0f, 1.0f, 1.0f, 1.0f), mBillboard(true),
-		mVisible(true), mLayoutDirty(true), mTicked(false), mFreshBuild(false)
+		mLayoutDirty(true), mTicked(false), mFreshBuild(false)
 	{
 		this->addDependency<TransformComponent>();
 		// receive per-frame ticks under a runtime so billboard text re-faces the
@@ -150,8 +150,8 @@ namespace Orkige
 	//---------------------------------------------------------
 	void WorldTextComponent::setTextVisible(bool visible)
 	{
-		this->mVisible = visible;
-		this->applyVisibility();
+		// text visibility IS the generic component enable switch - ONE flag
+		this->setEnabled(visible);
 	}
 	//---------------------------------------------------------
 	std::size_t WorldTextComponent::getSubmittedQuadCount() const
@@ -195,7 +195,7 @@ namespace Orkige
 		this->mBatch.reset();
 	}
 	//---------------------------------------------------------
-	void WorldTextComponent::onSetActive(bool activeInHierarchy)
+	void WorldTextComponent::applyEffectiveEnabled()
 	{
 		this->applyVisibility();
 	}
@@ -429,9 +429,8 @@ namespace Orkige
 		{
 			return;
 		}
-		GameObject * owner = this->getComponentOwner();
-		const bool ownerActive = !owner || owner->isActiveInHierarchy();
-		this->mBatch->setVisible(this->mVisible && ownerActive);
+		// enabled AND owner-active compose into effectivelyEnabled()
+		this->mBatch->setVisible(this->effectivelyEnabled());
 	}
 	//---------------------------------------------------------
 	void WorldTextComponent::save(optr<IArchive> const & ar)
@@ -497,7 +496,8 @@ namespace Orkige
 		OPROPERTY("size", Orkige::PropertyKind::Float, getSize, setSize, Orkige::PROP_NONE)
 		OPROPERTY("colour", Orkige::PropertyKind::Color, getColour, setColourValue, Orkige::PROP_NONE)
 		OPROPERTY("billboard", Orkige::PropertyKind::Bool, getBillboard, setBillboard, Orkige::PROP_NONE)
-		OPROPERTY("visible", Orkige::PropertyKind::Bool, isTextVisible, setTextVisible, Orkige::PROP_NONE)
+		// no reflected `visible` - text visibility IS the inherited base `enabled`
+		// property; setTextVisible/isTextVisible stay as script aliases onto it
 
 		// self.worldtext / world.getWorldText(id) / getComponent("worldtext")
 		// hand Lua a WEAK handle: locks per call, raises an honest error naming

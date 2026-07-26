@@ -67,7 +67,6 @@ namespace Orkige
 		LineMode			mMode;			//!< strip (default) or segments
 		Color				mColour;		//!< one colour for the whole line (default white)
 		bool				mDepthTest;		//!< depth-test against the scene (default true)
-		bool				mVisible;		//!< line visibility (applied to the node)
 		std::vector<Vec3>	mPoints;		//!< the polyline points (LOCAL space)
 		std::vector<Vec3>	mStaging;		//!< incremental builder buffer (beginPoints/addPoint/commitPoints)
 
@@ -133,9 +132,11 @@ namespace Orkige
 		void setDepthTest(bool depthTest);
 		//! @see LineComponent::mDepthTest
 		inline bool getDepthTest() const { return this->mDepthTest; }
-		//! show/hide the line (the scene node's visibility)
+		//! @brief show/hide the line - an ALIAS for the generic component enable
+		//! switch (@see GameObjectComponent::setEnabled): line visibility IS the
+		//! component's enabled state, so there is ONE flag (no `visible` property)
 		void setLineVisible(bool visible);
-		//! is the line visible (true when no mesh exists yet - it will show)
+		//! @brief is the line visible - the component's enabled state
 		bool isLineVisible() const;
 
 		//--- reflected property accessors ---
@@ -149,8 +150,9 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override: drop the mesh + node
 		virtual void onRemove();
-		//! deactivated GameObjects hide their line (setLineVisible state kept)
-		virtual void onSetActive(bool activeInHierarchy);
+		//! a disabled component or deactivated GameObject hides the line (the
+		//! ONE suspend path both axes funnel through - @see effectivelyEnabled)
+		virtual void applyEffectiveEnabled();
 		//! @brief the SINGLE per-frame upload site under a ticking runtime: a
 		//! dirty line uploads here (coalesced, next-backend-safe). Dormant unless
 		//! a runtime ticks GameObjects (the editor uploads synchronously instead).

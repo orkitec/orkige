@@ -171,12 +171,12 @@ namespace Orkige
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
-	void WaterComponent::onSetActive(bool activeInHierarchy)
+	void WaterComponent::applyEffectiveEnabled()
 	{
 		if(this->mNode)
 		{
 			// only over the surface's OWN node (child GameObjects gate themselves)
-			this->setVisible(activeInHierarchy);
+			this->setVisible(this->effectivelyEnabled());
 		}
 	}
 	//---------------------------------------------------------

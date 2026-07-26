@@ -77,7 +77,6 @@ namespace Orkige
 		this->mFilter = SpriteQuad::FILTER_BILINEAR;
 		this->mAddressing = SpriteQuad::ADDRESS_CLAMP;
 		this->mZOrder = 0;
-		this->mVisible = true;
 		this->mStateVersion = 0;
 		this->addDependency<TransformComponent>();
 		this->mEventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
@@ -332,17 +331,15 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SpriteComponent::setSpriteVisible(bool visible)
 	{
-		++this->mStateVersion;
-		this->mVisible = visible;
-		if(this->mNode)
-		{
-			this->applyVisibility();
-		}
+		// sprite visibility IS the generic component enable switch - ONE flag
+		// (setEnabled funnels into applyEffectiveEnabled, which bumps the state
+		// version and applies the node visibility)
+		this->setEnabled(visible);
 	}
 	//---------------------------------------------------------
 	bool SpriteComponent::isSpriteVisible() const
 	{
-		return this->mVisible;
+		return this->isEnabled();
 	}
 	//--- sprite-run batching seams (@see SpriteBatcher) ---
 	//---------------------------------------------------------
@@ -357,11 +354,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SpriteComponent::isEffectivelyVisible() const
 	{
-		GameObject* componentOwner =
-			const_cast<SpriteComponent*>(this)->getComponentOwner();
-		const bool ownerActive =
-			!componentOwner || componentOwner->isActiveInHierarchy();
-		return this->mVisible && ownerActive;
+		// the sprite's own enable flag composed with owner-active (@see
+		// GameObjectComponent::effectivelyEnabled)
+		return this->effectivelyEnabled();
 	}
 	//---------------------------------------------------------
 	bool SpriteComponent::buildWorldQuad(SpriteBatch::Vertex outVertices[4]) const
@@ -567,8 +562,11 @@ namespace Orkige
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
-	void SpriteComponent::onSetActive(bool activeInHierarchy)
+	void SpriteComponent::applyEffectiveEnabled()
 	{
+		// the batcher re-evaluates this sprite's effective visibility off the
+		// state version, so bump it whenever either axis flips
+		++this->mStateVersion;
 		if(this->mNode)
 		{
 			this->applyVisibility();
@@ -578,10 +576,9 @@ namespace Orkige
 	void SpriteComponent::applyVisibility()
 	{
 		oAssert(this->mNode);
-		GameObject* componentOwner = this->getComponentOwner();
-		const bool ownerActive = !componentOwner || componentOwner->isActiveInHierarchy();
-		// only over the sprite's OWN node (child GameObjects gate themselves)
-		this->setVisible(this->mVisible && ownerActive);
+		// only over the sprite's OWN node (child GameObjects gate themselves);
+		// enabled AND owner-active compose into effectivelyEnabled()
+		this->setVisible(this->effectivelyEnabled());
 	}
 	//---------------------------------------------------------
 	void SpriteComponent::applyStateToQuad()
@@ -713,7 +710,9 @@ namespace Orkige
 		OPROPERTY("flipX", Orkige::PropertyKind::Bool, getFlipX, setFlipXValue, Orkige::PROP_NONE)
 		OPROPERTY("flipY", Orkige::PropertyKind::Bool, getFlipY, setFlipYValue, Orkige::PROP_NONE)
 		OPROPERTY("zOrder", Orkige::PropertyKind::Int, getZOrder, setZOrder, Orkige::PROP_NONE)
-		OPROPERTY("visible", Orkige::PropertyKind::Bool, isSpriteVisible, setSpriteVisible, Orkige::PROP_NONE)
+		// no reflected `visible` - sprite visibility IS the generic base `enabled`
+		// property (inherited from GameObjectComponent); setSpriteVisible/
+		// isSpriteVisible remain as script aliases onto that ONE flag
 		OPROPERTY_REF("texture", Orkige::PropertyKind::AssetRef, "texture", getTextureName, setTextureReference, Orkige::PROP_NONE)
 
 		// self.sprite / world.getSprite(id) hand Lua a WEAK handle: locks per call,

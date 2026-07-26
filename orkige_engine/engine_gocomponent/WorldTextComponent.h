@@ -67,7 +67,6 @@ namespace Orkige
 		float					mSize;			//!< world units per line height
 		Color					mColour;		//!< text colour (multiplied over the glyph coverage)
 		bool					mBillboard;		//!< face the camera (true) or lie in the local XY plane
-		bool					mVisible;		//!< own visibility flag (AND-ed with owner active)
 		WorldTextLayout::Result	mLayout;		//!< the built glyph quads (text-local 2D)
 		bool					mLayoutDirty;	//!< text/size changed - a rebuild is owed
 		bool					mTicked;		//!< a runtime ticks us (defer uploads to onUpdate)
@@ -104,10 +103,12 @@ namespace Orkige
 		void setBillboard(bool billboard);
 		//! @see WorldTextComponent::mBillboard
 		inline bool getBillboard() const { return this->mBillboard; }
-		//! show/hide the text (its scene visibility)
+		//! @brief show/hide the text - an ALIAS for the generic component enable
+		//! switch (@see GameObjectComponent::setEnabled): text visibility IS the
+		//! component's enabled state, so there is ONE flag (no `visible` property)
 		void setTextVisible(bool visible);
-		//! @see WorldTextComponent::mVisible
-		inline bool isTextVisible() const { return this->mVisible; }
+		//! @brief is the text visible - the component's enabled state
+		inline bool isTextVisible() const { return this->isEnabled(); }
 
 		//--- introspection (selfcheck / tools) ---
 		//! how many glyph quads the current text lays out to (= inked, non-space
@@ -127,8 +128,9 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override - drop the batch
 		virtual void onRemove();
-		//! deactivated GameObjects hide their text (the visible flag is kept)
-		virtual void onSetActive(bool activeInHierarchy);
+		//! a disabled component or deactivated GameObject hides the text (the
+		//! ONE suspend path both axes funnel through - @see effectivelyEnabled)
+		virtual void applyEffectiveEnabled();
 		//! @brief the per-frame re-face site under a ticking runtime (billboard
 		//! text follows the moving camera/object here). Dormant unless a runtime
 		//! ticks GameObjects; the editor re-faces through faceCamera instead.

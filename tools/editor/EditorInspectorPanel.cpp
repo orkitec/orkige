@@ -307,10 +307,10 @@ void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 
 //! @brief the reflected property a component's header hosts as an enable toggle:
 //! a live, editable Bool named "enabled". Returns its name, or "" when the
-//! component has no such property (most components - only a header checkbox is
-//! offered where one exists). A rendering-visibility flag ("visible") is a
-//! DIFFERENT concept and stays a normal body row, so this looks for "enabled"
-//! only.
+//! component has no such property (a kind that opts out of disabling -
+//! TransformComponent and friends - drops it from its schema). Every other
+//! component inherits it from GameObjectComponent; the frozen
+//! ScriptComponent/AtmosphereComponent expose their OWN `enabled` (same name).
 std::string componentEnableProperty(Orkige::PropertySchema const& schema)
 {
 	for (Orkige::PropertyDesc const& desc : schema.properties())
