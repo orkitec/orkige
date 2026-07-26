@@ -8,7 +8,7 @@ an agent fetched off the web reaches those parsers first. This page is the map;
 the runtime input-trust guarantees around them live in
 [security.md](security.md).
 
-## The finding: almost everything is vcpkg-pinned
+## Almost everything is vcpkg-pinned
 
 The library set is resolved from `vcpkg.json` in manifest mode against a **single
 checked-out vcpkg commit**, not a moving registry. The manifest carries no

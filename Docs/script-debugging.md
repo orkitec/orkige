@@ -54,9 +54,9 @@ from the same registry that page documents.
   armed, an uncaught runtime Lua error PAUSES the game AT the error — the editor
   jumps to the erroring `file:line`, the Debug panel shows the crash's real stack
   + locals and the error message prominently (in the error colour, distinct from
-  a breakpoint pause). On **Continue** today's error semantics proceed unchanged
-  (the instance disables itself + reports over the Console) — arming only DEFERS
-  the honest failure, never replaces it. Off by default = exactly today's
+  a breakpoint pause). On **Continue** the normal error semantics proceed
+  unchanged (the instance disables itself + reports over the Console) — arming
+  only DEFERS the honest failure, never replaces it. Off by default = the normal
   behavior. Pushed to a running player on connect + on toggle, like the
   breakpoint set.
 - **MCP parity**: `set_breakpoint` / `clear_breakpoint` /
@@ -183,8 +183,8 @@ breakpoint uses — captures the crash message + stack (from level 1, skipping t
 handler frame, so the innermost reported frame is the code that faulted;
 `ScriptDebugCore::errorBreakLocation` picks the first script frame for the
 paused file/line) and BLOCKS in the same nested pump — then returns the error
-object UNCHANGED so the lifecycle call still sees the failure and today's error
-path proceeds (the instance disables + reports). An error break never re-arms a
+object UNCHANGED so the lifecycle call still sees the failure and the normal
+error path proceeds (the instance disables + reports). An error break never re-arms a
 step (the stack unwinds as the error propagates). Only an UNCAUGHT error breaks:
 a script's own `pcall` that catches an error keeps its own handler, so our
 handler never fires. The break rides the same `MSG_DEBUG_BREAK` path with an

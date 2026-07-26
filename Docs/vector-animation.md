@@ -98,7 +98,7 @@ Textured cutout rules (both assets):
 
 Rendering: the tessellator splits the built mesh into per-texture draw runs
 (consecutive same-texture regions merge; an all-flat rig stays exactly one
-untextured run — its output is byte-identical to the pre-texture pipeline).
+untextured run).
 Each run renders as one facade `VectorMesh` section binding the
 per-(texture,sampler) SPRITE material/datablock (`Sprite/<tex>#bilinear-clamp`
 — reused wholesale on both flavors: unlit, alpha-blended, depth-checked/
@@ -346,8 +346,8 @@ carries a record gets its current inputs compared against the recorded ones —
 any mismatch (fresh source bytes, an updated cook script, edited settings, or
 a vanished artifact) re-cooks the pair with the RECORDED settings, reported
 as `[import]` Console lines like a manual import. A sidecar **without** a
-record is never auto-re-cooked — every sidecar from before records existed
-(and any plain data `.json`) behaves exactly as it always did. The `.svg` →
+record is never auto-re-cooked — a record-less sidecar (or any plain data
+`.json`) is left untouched. The `.svg` →
 `.oshape` on-ramp is deliberately OUTSIDE this system (morph `--targets`
 included): the `.svg` source is not kept, so there is nothing to hash, watch
 or re-cook from — extending records to shapes would first mean reversing the

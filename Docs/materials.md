@@ -88,7 +88,7 @@ look. In the editor's asset browser a `.omat` classifies as kind
 | alphaTest (cutout) | native Hlms alpha test — the caster shader carries the test + diffuse texture, so cutouts SHADOW as cutouts | pass alpha rejection (the RTSS `SRS_ALPHA_TEST` stage discards in the generated shaders) + a generated `<name>/Caster` shadow-caster override material re-binding the albedo texture with the same rejection — see below |
 | twoSided | native (`CULL_NONE` + two-sided lighting: back faces light with the flipped normal) | `CULL_NONE`; back faces light with the FRONT normal (the registered subset) |
 
-Both flavors now light `.omat` content through ONE metal-rough response:
+Both flavors light `.omat` content through ONE metal-rough response:
 Ogre-Next's HlmsPbs, and on classic the ENGINE-OWNED
 `OrkigeMetalRoughLighting` RTSS stage
 (`engine_render_classic/MetalRoughLightingSrs.{h,cpp}` +
@@ -124,9 +124,9 @@ off, `SBT_ADD`, the emissive map modulated by the emissive colour). Surface
 materials are opaque, so additive-over-scene is safe; a translucent albedo
 skips the glow pass with one log line. When a map is present the emissive
 COLOUR is the map's tint only — the surface pass's flat self-illumination is
-zeroed, matching next's `emissive = colour × texture` (the
-`material_looks_right` probe caught the double application: the whole
-surface glowed instead of just the map's texels). Without a map, both
+zeroed, matching next's `emissive = colour × texture`; the
+`material_looks_right` probe guards against the double application (the whole
+surface glowing instead of just the map's texels). Without a map, both
 flavors emit the uniform colour.
 
 **Colour space (next)**: PBS textures load raw (no sRGB flag), matching the
@@ -140,8 +140,8 @@ the non-sRGB swapchain; unlit/2D content stays raw passthrough.
 **Metal-rough on classic (order note)**: the Cook-Torrance lighting stage
 reads ROUGHNESS from `specular.x` and METALNESS from `specular.y` (the
 occlusion/roughness/metalness layout). The backend writes them in that
-order; a swapped write turns every rough dielectric into a mirror-smooth
-metal (black diffuse plus a pin highlight) — the historical field-cube bug.
+order; a swapped write would turn every rough dielectric into a mirror-smooth
+metal (black diffuse plus a pin highlight).
 
 **Shadows**: `.omat` content participates in dynamic shadows on BOTH
 flavors (the `r.shadowQuality` knob + a casting directional light — the
@@ -193,7 +193,7 @@ black boost) restore the original assignment EXACTLY and retire the clones
 resets the accents and the component re-applies them — assign material →
 shadow flags → accents, the one ordering contract.
 
-Per-renderable **custom shader parameters were audited and rejected** as the
+Per-renderable **custom shader parameters do not serve** as the
 transport: classic's generated RTSS programs expose no per-renderable
 uniform without authoring a bespoke sub-render-state (a parallel shader
 mechanism), and Ogre-Next's HlmsPbs reads material const buffers, not
@@ -283,7 +283,7 @@ uses). It then binds through the ONE consumer above.
   also an approximation of a ground-truth GGX prefilter (the box-mip blur),
   as the baked chain is.
 - Design note: a GPU cubemap-capture workspace (rendering the AtmosphereNpr
-  sky alone into a cube target) was considered and **rejected** — it would
+  sky alone into a cube target) is deliberately **not used** — it would
   be next-only (classic would still need CPU synthesis), harder to test, and
   carries compositor-cubemap lifecycle risk. One pure generator serving both
   flavors is less total code and more parity.
@@ -296,8 +296,8 @@ sweep) therefore recaptures a handful of times, not every frame; a
 sub-threshold frame-to-frame nudge reuses the bound chain. The synthesis is
 a small allocation-plus-upload (six faces at 32/64/256 texels per the tier),
 so even the recaptures are cheap. Resolution rides the existing
-`r.iblQuality` tier (`chainResolution`) — no capture-resolution knob was
-added. Classic recapture updates the cubemap contents in place (the RTSS
+`r.iblQuality` tier (`chainResolution`) — there is no separate
+capture-resolution knob. Classic recapture updates the cubemap contents in place (the RTSS
 stage keeps its binding by name, like a skybox tier re-arm); next rebinds
 the fresh texture, so its reflection updates immediately.
 
@@ -350,7 +350,7 @@ vignette runs a skybox sky + IBL over its PBS props end to end
 The sky/fog atmosphere has TWO drive surfaces over the ONE facade call
 (`RenderWorld::setAtmosphere(AtmosphereDesc)`, `Docs/render-abstraction.md`):
 the runtime Lua API (`engine:setAtmosphere` / `setAtmosphereBlend` /
-`setAtmosphereSky`) and, since the component landed, the **scene-authored
+`setAtmosphereSky`) and the **scene-authored
 base**: `engine_gocomponent/AtmosphereComponent` — a normal reflected
 component, so the sky serializes with the scene, edits live in the Inspector,
 and reaches MCP/Lua through the one property registry. Both flavors by
@@ -388,11 +388,11 @@ Scripts toggle the parts through `engine:setAtmosphereParts(sky, fog)`
 **Sun resolution on load** — the atmosphere links to the FIRST directional
 light and reads its node direction as the sun. A sun authored ahead of its
 transform in scene-load order (components serialize alphabetically, so a Sun
-object always loads `LightComponent` before `TransformComponent`) would make
-the load-time apply read a still-identity node — a horizon sun, a red sky —
-and nothing re-synced once the transform composed. Both backends now latch a
-one-shot sun re-resolve at the next frame boundary (when every scene
-transform is composed), so an Environment-before-Sun scene boots the correct
+object always loads `LightComponent` before `TransformComponent`) would
+otherwise make the load-time apply read a still-identity node — a horizon
+sun, a red sky. Both backends latch a one-shot sun re-resolve at the next
+frame boundary (when every scene transform is composed), so an
+Environment-before-Sun scene boots the correct
 sky on its first rendered frame (`RenderSystem::flushAtmosphereSunReresolve`,
 the `player_atmosphere` `fixture_atmo_sunlast` leg; the latch fires only on a
 directional-set change, never per animated-arc frame).

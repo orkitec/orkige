@@ -2,9 +2,8 @@
 
 A **pak** is a zip mounted as read-only content: the engine registers its
 entries with the resource system so a scene, texture, sound or script inside it
-resolves **exactly like a loose file**. It is the backend-neutral successor to
-the 2012 classic-only *BigZip* capability, and its original purpose — reading an
-Android APK's assets in place — is now the default on mobile.
+resolves **exactly like a loose file**. It is backend-neutral, and its primary
+purpose — reading an Android APK's assets in place — is the default on mobile.
 
 ## The one call
 
@@ -22,7 +21,7 @@ render->unmountPak(pakPath, "game/", group);  // idempotent
   resolves by its bare name (`Media/foo.png`, `scene.oscene`, …). An empty mount
   point mounts the whole zip. Multiple paks (and multiple sub-trees of one zip)
   can be mounted at once.
-- `LT_ZIP` on `addResourceLocation` also works on both flavors now — it is the
+- `LT_ZIP` on `addResourceLocation` also works on both flavors — it is the
   whole-zip case without the sub-tree remap.
 
 ## Why a bespoke reader
@@ -79,7 +78,7 @@ choice (see [store-release.md](store-release.md#assets-stored-vs-compressed)):
   path or the marker is missing, the run falls back to full extraction — the
   always-safe path.
 - **`compressed`**: assets are deflated for a smaller download and extracted to
-  the app files dir on first launch — the older behaviour.
+  the app files dir on first launch.
 
 The App Bundle (`.aab`) path keeps the assets uncompressed in bundletool's
 generated APKs via a `BundleConfig` `uncompressedGlob` (`build_aab.sh`).
@@ -87,10 +86,9 @@ generated APKs via a `BundleConfig` `uncompressedGlob` (`build_aab.sh`).
 ## Script loading via the archive read
 
 Lua **scripts load through the resource system**, so a script mounted inside a
-pak/APK loads **in place** — no `fopen`, and (on the road to it) no Android
-first-launch extraction. The seam is deliberately GENERAL: scripts are the
-first consumer, scenes / the project manifest / the localisation string table
-are the intended next ones, with no interface change.
+pak/APK loads **in place** — no `fopen`. The seam is deliberately GENERAL:
+scripts are the first consumer, scenes / the project manifest / the
+localisation string table are the intended next ones, with no interface change.
 
 - `core_filesystem/ResourceReader` — a PURE core interface
   (`bool readText(name, out)`) with **zero** dependency beyond core. A core
@@ -133,15 +131,14 @@ are the intended next ones, with no interface change.
   flat per-folder registration. On an exported bundle the payload root is already
   only content, so the same one-location registration applies cleanly.
 
-**What routes through the archive now vs. what still extracts.** Stage 1 moves
-ONLY scripts onto the archive read. **Scenes, the project manifest and the
-localisation string table still load with `fopen`**, so the Android `stored`
-mode still extracts that small "fopen tree" (manifest / `scenes/` / `scripts/` /
-config + the shader/font media) — the bulk game media is already mounted in
-place (above). Scripts now READ in place from a mounted pak, but the Android
-first-launch extraction is deliberately **left in place as a working fallback**
-this stage; a later stage migrates scenes/config/localisation to the same reader
-and then removes the extraction.
+**What routes through the archive vs. what still extracts.** Only scripts read
+through the archive. **Scenes, the project manifest and the localisation string
+table still load with `fopen`**, so the Android `stored` mode still extracts
+that small "fopen tree" (manifest / `scenes/` / `scripts/` / config + the
+shader/font media) — the bulk game media is already mounted in place (above).
+Scripts READ in place from a mounted pak; the Android first-launch extraction
+stays as a working fallback, and migrating scenes/config/localisation to the
+same reader is what would let it be removed.
 
 Verified by `player_pak_script_selfcheck` (both flavors — a path-bound
 `ScriptComponent` whose script lives ONLY inside a mounted pak, with no
@@ -209,7 +206,7 @@ reads back. The `editor_control` self-test's jail leg refuses absolute + nested
 
 ## Verification
 
-- `player_pak_selfcheck` (both flavors) — the reborn BigZip acceptance test: the
+- `player_pak_selfcheck` (both flavors) — the pak acceptance test: the
   player mounts a STORED pak, loads its scene through the resource system,
   resolves a texture from it and streams an OGG from it, all like loose files.
 - `MiniZipTests` / the mount-point resolver unit tests — STORED + DEFLATE reads,

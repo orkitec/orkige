@@ -33,15 +33,14 @@ Each cycle:
    `Engine::~Engine` → `RenderBackend::destroyRenderSystem` **with the skybox and
    IBL still armed**.
 
-It exists because two shipped teardown bugs would each have failed here:
+It guards two teardown-order faults the render backend is prone to:
 
-- a **skybox re-attach on `clearScene`** that dereferenced freed memory at
-  shutdown. `SceneManager::clearScene` (run from `Root::shutdown`) re-attaches
-  its cached sky quad unconditionally; a still-live skybox left that pointer
-  dangling. The fix detaches the sky in `destroyRenderSystem` BEFORE the root
-  tears the scene manager down — and this test keeps a skybox live at every
-  teardown, so a regression trips it. (Confirmed live: each cycle logs
-  `Parsing script SkyCubemap.material` / the sky shader compile.)
+- a **skybox re-attach on `clearScene`** dereferencing freed memory at
+  shutdown: `SceneManager::clearScene` (run from `Root::shutdown`) re-attaches
+  its cached sky quad unconditionally, so a still-live skybox leaves that
+  pointer dangling. The engine detaches the sky in `destroyRenderSystem` BEFORE
+  the root tears the scene manager down; this test keeps a skybox live at every
+  teardown so a regression trips it (each cycle logs the sky shader compile).
 - a **heap-use-after-free in the `GameObjectManager` update-list teardown**
   (the update vector freed before the objects map, whose destructors re-enter
   it). The pure path has its own unit test (`GameObjectManagerTeardownTests`);

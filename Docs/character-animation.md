@@ -16,8 +16,7 @@ frame; a `crossFadeTo` blends two clips by weight.
 
 ### Capability by render flavor
 
-Skinned glTF import runs on BOTH flavors (the next importer's skinned road
-closed the former classic-only gap; see the matrix in
+Skinned glTF import runs on BOTH flavors (see the matrix in
 `render-abstraction.md`).
 
 | Capability | Classic (compatibility flavor) | Next (default flavor) |
@@ -149,8 +148,8 @@ character-motion taxonomy - all renderer-neutral, identical on both flavors:
 | Soft body | smooth squash/stretch/wobble deformation | `VectorShapeComponent` softBody (control-point skinning) | Shipping |
 | Textured cutout parts | TEXTURED art pieces (hand-drawn PNG limbs/heads) driven by a cutout rig's transforms | `.oanim`/`.oshape` v3 `texture` regions (Lottie image layers cook to them) | Shipping |
 
-Textured cutout parts close the former gap: a `.oanim` (or `.oshape`) region
-can bind a texture (`texture NAME x y w h [uv window]` - the v3 grammar, see
+Textured cutout parts let a `.oanim` (or `.oshape`) region bind a texture
+(`texture NAME x y w h [uv window]` - the v3 grammar, see
 `vector-animation.md`), with per-vertex UVs projected through the rect at
 parse time and pinned to the vertices, so the SAME parent-chain transforms,
 clip blending (`crossFadeTo`), morphs and soft-body deformation that drive
@@ -158,10 +157,10 @@ flat shapes drive painted art. Rendering splits the tessellated mesh into
 per-texture draw runs realized as facade `VectorMesh` sections binding the
 per-texture SPRITE material/datablock (one draw per texture, both flavors);
 flat and textured regions mix freely in one rig, and an all-flat rig renders
-byte-identically to before. Lottie image layers are the authoring on-ramp
+through the one untextured run. Lottie image layers are the authoring on-ramp
 (`cook_vector_anim.py` cooks them to textured regions and carries the image
-files along); the text grammar is the agent-authorable path. With this, 2D
-cutout characters - flat-colour AND textured - are fully covered by the house
+files along); the text grammar is the agent-authorable path. 2D cutout
+characters - flat-colour AND textured - are fully covered by the house
 taxonomy. Reference: `projects/vectorshapes/scenes/cutout.oscene` +
 `player_cutout_selfcheck` per flavor.
 

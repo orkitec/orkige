@@ -19,12 +19,12 @@ Two facts settle the tier from the code:
 So depth textures, MRT and GLSL ES 3.00 are available on web wherever WebGL2
 runs (the norm), not just desktop. The GLES3-level facade features gate on the
 `glsl300es` probe, so they light up on the WebGL2 context: **IBL reflections**
-(the same gate) and now **advanced water** — the screen-space refraction
+(the same gate) and **advanced water** — the screen-space refraction
 grab-pass and the planar mirror reflection carry a GLSL ES 3.00 program variant
 (`RenderSystemClassic.cpp` `waterGlslProfile`) alongside the desktop GL-core
 one, so a WebGL2 context renders the full refraction + geometric swell + fresnel
-sky rather than the byte-stable Stage-1 fallback (the GLES2/WebGL1 floor keeps
-that fallback). This is asserted on web: `export_web_water` boots a refractive
+sky rather than the byte-stable flat-shimmer fallback (the GLES2/WebGL1 floor
+keeps that fallback). This is asserted on web: `export_web_water` boots a refractive
 water fixture headless and requires `screenSpaceRefraction` to answer supported
 on the live WebGL2 context with the ES-300 programs building (no fallback
 refusal) and the surface rendering through to the orderly shutdown. **LDR
@@ -34,7 +34,7 @@ blur → additive combine) run in the GLSL ES 3.0 profile, so an
 `engine:setBloom` scene glows in the browser rather than degrading to the
 honest no-op the GLES2/WebGL1 floor still logs (see
 `RenderBackend::bloomSupported`; the bloom compositor media
-`orkige_engine/media/bloom/classic/` now rides the web payload too). This is
+`orkige_engine/media/bloom/classic/` rides the web payload too). This is
 asserted on web: `export_web_bloom` boots an emissive-cube fixture headless,
 requires the `bloom` cap to answer supported on the live WebGL2 context with no
 fallback refusal and a clean shutdown, and pixel-proves the glow — the same
@@ -215,10 +215,9 @@ a headless browser). The transport itself is unit-tested browser-free
 - **Saves are in-memory.** The module filesystem is MEMFS: the save store
   works within a session but does not survive a reload (persistent browser
   storage is a future knob).
-- **Mesh import only, and OgreZip owns zip.** The wasm assimp builds with
-  its exporters off (a per-port option in the triplet): the runtime never
-  writes meshes, and the 3MF exporter was the one consumer of the standalone
-  zip library whose full source OgreMain also embeds (OgreZip) — with it
-  gone, the module carries exactly ONE zip/miniz implementation and the
-  linker's duplicate-symbol warning is gone. Import formats (glb/gltf/obj/
-  3mf/...) are unchanged.
+- **Mesh import only.** The wasm assimp builds with its exporters off (a
+  per-port option in the triplet): the runtime never writes meshes. Disabling
+  them also drops assimp's 3MF exporter — the one consumer of the standalone
+  zip library OgreMain also embeds (OgreZip) — so the module carries exactly
+  ONE zip/miniz implementation with no duplicate-symbol clash. Import formats
+  (glb/gltf/obj/3mf/...) are unchanged.

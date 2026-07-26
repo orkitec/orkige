@@ -102,7 +102,7 @@ Adreno 6xx workaround - plus it absorbed part of this port's Apple patches
 (below). The current pin contains our merged OGRECave/ogre-next #582 (the
 NEON Math/Array include-order fix, merged 2026-07-15), which un-breaks the
 arm64 Linux build - the `linux-debug-sanitize` preset in the Linux rig
-container cold-builds this port natively now. The pin moves deliberately (a
+container cold-builds this port natively. The pin moves deliberately (a
 reviewed bump, full-suite verified, roughly monthly), never implicitly. The Ogre-Next backend of
 the `engine_render` facade (Docs/render-abstraction.md); pulled in ONLY by the
 `render-next` manifest feature (root vcpkg.json), so classic-only development
@@ -118,8 +118,8 @@ requirement and holds by construction: `OGRE_USE_NEW_PROJECT_NAME=ON` gives
 `libOgre*.a`, `libRenderSystem_Metal.a` - file-disjoint even for the Metal
 RS), CMake config + HLMS media live under `share/ogre-next/`
 (classic: `share/ogre/`). Verified live: a `render-next` tree (the default
-`macos-debug`/`macos-release` presets since the 2026-07-08 default flip)
-installs both into one `vcpkg_installed` tree.
+`macos-debug`/`macos-release` presets) installs both into one
+`vcpkg_installed` tree.
 
 Configuration: ONE render system per platform (four-way in the portfile) -
 Metal on macOS and iOS (first-class on Ogre-Next; the legacy GL3+ 4.1 path

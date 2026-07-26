@@ -202,7 +202,7 @@ backend gets sprite batching for free by implementing `SpriteBatch` once.
 The measured gap (Instance Field, ~190 ramped same-mesh cubes, Debug,
 Apple M-series): classic ~187 draw batches vs next ~4 — Ogre-Next's Hlms
 auto-instances identical Items natively, classic draws each entity. The
-InstanceManager promote/demote seam was **not built**, on evidence:
+InstanceManager promote/demote seam is **not built**, on evidence:
 
 1. **RTSS cannot derive the instanced vertex path.** OGRE 14.5's
    InstanceManager techniques (ShaderBased/VTF/HW) all require materials

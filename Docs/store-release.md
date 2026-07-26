@@ -87,8 +87,8 @@ presents — the lock and the drawable agree. Verified by
   bundletool `BundleConfig` `uncompressedGlob`. Larger download, faster and
   leaner at runtime.
 - **`compressed`**: the media is **deflated** for a smaller download and
-  extracted to the app's files dir on first launch (the older behaviour). Smaller
-  download, a one-time extraction cost and a second on-disk copy.
+  extracted to the app's files dir on first launch. Smaller download, a one-time
+  extraction cost and a second on-disk copy.
 
 See [filesystem.md](filesystem.md#android-mount-the-apk-instead-of-extracting-everything)
 for the mount mechanics.

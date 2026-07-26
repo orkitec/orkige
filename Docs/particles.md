@@ -37,7 +37,7 @@ content is byte-identical). When on it runs the 3D world-space path:
   `ParticleSim::streakCorners` to elongate the quad along the particle
   velocity's on-screen direction (rain streaks). Corners are world-space Vec3
   positions fed to the same `SpriteBatch` (it renders in the 3D scene pass with
-  the perspective camera), so no new backend object was needed — one draw per
+  the perspective camera), so no new backend object is needed — one draw per
   emitter, textured, alpha or additive.
 
 ### Weather presets

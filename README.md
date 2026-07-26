@@ -157,7 +157,7 @@ ctest --preset desktop-classic # the classic-flavor suite (exports, Vulkan, nati
 ctest --preset all             # classic + simulator/emulator device tests
 ```
 
-Every push runs a **twelve-job CI matrix** — one job per platform × flavor, so
+Every push runs a **thirteen-job CI matrix** — one job per platform × flavor, so
 a failure names itself (`.github/workflows/ci.yml`). Both Linux render flavors
 run their full windowed suites under a virtual display; Ogre-Next additionally
 owns scripting-off and an ASan + UBSan pass. macOS (Metal) and Windows (Mesa

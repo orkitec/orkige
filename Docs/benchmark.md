@@ -246,15 +246,15 @@ discipline.
 
 ### Backend note
 
-Each scene runs on BOTH render flavors in isolation, and the whole tour now runs
-cleanly on both. The classic GL/RTSS backend previously faulted over the long
-sequence: its 2D-overlay (HUD) materials share the RTSS scheme, so when the
-scene's dynamic light count changes (two-plus dynamic point lights over an
-`.omat`-lit mesh mark every scheme technique for rebuild) or a scene teardown
-churns materials, the RTSS transiently drops those materials' generated
-technique — and the `DrawLayer2D` composite dereferenced a null best technique.
-The classic composite now recompiles-or-skips on that transient
-(`engine_render_classic/DrawLayer2DClassic.cpp`), so the `player_benchmark_vista`
-and `player_benchmark_selfcheck` ctests run on both flavors. The night-lights
-ramp is bounded by the flavor's queried dynamic-light budget (above); the
-`benchmark.lightCeiling` cvar can cap it lower still for a tighter budget.
+Each scene runs on BOTH render flavors in isolation, and the whole tour runs on
+both. On the classic GL/RTSS backend the 2D-overlay (HUD) materials share the
+RTSS scheme, so when a scene's dynamic light count changes (two-plus dynamic
+point lights over an `.omat`-lit mesh mark every scheme technique for rebuild)
+or a scene teardown churns materials, the RTSS can transiently drop those
+materials' generated technique — which would leave the `DrawLayer2D` composite
+dereferencing a null best technique. The classic composite recompiles-or-skips
+on that transient (`engine_render_classic/DrawLayer2DClassic.cpp`), so the
+`player_benchmark_vista` and `player_benchmark_selfcheck` ctests run on both
+flavors. The night-lights ramp is bounded by the flavor's queried dynamic-light
+budget (above); the `benchmark.lightCeiling` cvar can cap it lower still for a
+tighter budget.

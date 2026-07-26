@@ -5,9 +5,8 @@ The engine's public site lives at
 deployed by CI on every push to `main` (`.github/workflows/pages.yml`) —
 nothing on a dev machine serves it, and the editor's Help > **Orkige Help**
 simply opens the published documentation in the default browser (a network
-connection is required; the earlier offline, editor-served portal was
-retired by design — a distributed editor carries no repository and no python
-toolchain, so it can never generate the site itself).
+connection is required — a distributed editor carries no repository and no
+python toolchain, so it cannot generate the site itself).
 
 The deployed site has these parts:
 

@@ -13,9 +13,8 @@ per-tool semantics). For worked agent walkthroughs — authoring a feature, the
 edit→test loop, debugging a live game — see the tutorial companion
 [`Docs/mcp-workflows.md`](mcp-workflows.md).
 
-There is **no Python sidecar and no extra pip dependency** — the editor now
-hosts the endpoint in-process, retiring the old `Util/orkige_mcp.py` stdio
-bridge (and its `mcp` SDK requirement). The HTTP
+There is **no Python sidecar and no extra pip dependency** — the editor hosts
+the endpoint in-process. The HTTP
 server is hand-rolled on the engine's own non-blocking socket layer
 (`core_debugnet/HttpServer`), with a minimal nested-JSON value type
 (`core_debugnet/Json`) for the JSON-RPC surface.
@@ -90,8 +89,8 @@ this section details.
   unauthenticated peer cannot exfiltrate the project structure or source over the
   network. Only the handshake/liveness verbs (`hello`, which itself carries and
   checks the token, and `ping`) are reachable pre-auth; the MCP `initialize` /
-  `tools/list` discovery stays open (it exposes only the static tool schema). The
-  **no-token dev mode is unchanged** — with no token file the port is fully open
+  `tools/list` discovery stays open (it exposes only the static tool schema). In
+  **no-token dev mode the port is fully open** — with no token file it is open
   for a hand-started local session. The policy is the pure
   `core_debugnet/ControlAuth::verbAllowed` (unit-tested by `ControlAuthTests`),
   and the `editor_control` self-test drives a read WITHOUT the token and asserts
@@ -228,7 +227,7 @@ The endpoint advertises 93 tools (the `toolSpecs` table in
 | `get_ui_layout()` | the RUNNING game's gui widget rects: parallel `ids`/`rects` (each rect `"left top width height visible enabled modal"`, pixels; the three flags are `1`/`0` — `enabled`=interactive, `modal`=part of an active modal dialog; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box, or read `modal` to assert a dialog is up |
 | `gui_press(id)` | **auth** — synthesize a press on a gui widget by id in the RUNNING game, routed through the REAL input path so modal/disabled semantics apply (a button under a modal scrim does NOT fire; a disabled widget stays inert) (`MSG_GUI_PRESS`) |
 | `dismiss_modal(id?)` | **auth** — close a modal dialog in the RUNNING game by id, or the topmost one when omitted (`MSG_GUI_DISMISS_MODAL`) |
-| `get_breadcrumbs()` | the player's on-disk crash trail (pure file I/O — the player may be dead): `live` (this/most-recent session's `breadcrumbs.jsonl` text) and `previous` (the prior session's, rotated aside at boot — the one to read after a crash), one JSON object per line, plus the resolved `dir`. Two derived fields answer "did the last run die?" straight off the `previous` trail: `crashed` (`"true"`/`"false"` — true when its LAST entry is a fatal-signal `"crash"` marker) and `crashSignal` (the signal name, e.g. `"SIGSEGV"`, empty when not crashed) — the machine-detectable crash verdict a phone can't show as a dialog. Mobile app-lifecycle transitions ride this same trail — `"background"`/`"foreground"`/`"terminating"`/`"low_memory"` kinds — so no new readback verb was needed to observe backgrounding on device |
+| `get_breadcrumbs()` | the player's on-disk crash trail (pure file I/O — the player may be dead): `live` (this/most-recent session's `breadcrumbs.jsonl` text) and `previous` (the prior session's, rotated aside at boot — the one to read after a crash), one JSON object per line, plus the resolved `dir`. Two derived fields answer "did the last run die?" straight off the `previous` trail: `crashed` (`"true"`/`"false"` — true when its LAST entry is a fatal-signal `"crash"` marker) and `crashSignal` (the signal name, e.g. `"SIGSEGV"`, empty when not crashed) — the machine-detectable crash verdict a phone can't show as a dialog. Mobile app-lifecycle transitions ride this same trail — `"background"`/`"foreground"`/`"terminating"`/`"low_memory"` kinds — so no new readback verb is needed to observe backgrounding on device |
 | `get_benchmark_results(file?)` | the per-scene performance artifact the player captured when armed for a benchmark run (`ORKIGE_BENCHMARK`): pure file I/O from the player's writable app dir (its project jail can't reach it, like `get_breadcrumbs`). Picks the newest `benchmark-*.jsonl`, or the named `file`. Returns the raw `text`, the parsed `meta`/`summary` lines, a `scenes` array (one JSON object per scene — frame-ms min/avg/p50/p95/p99/max, per-phase means, alloc mean+peak, RSS peak, triangle/batch/texture means), `scene_count`, `aborted` and the resolved `dir`/`file`. Empty when no artifact exists. Schema: `Docs/benchmark.md`. Starting a run is the existing `play` verb with `ORKIGE_BENCHMARK` armed; on-device artifacts are pulled by the CLI harness (`adb pull` / `simctl get_app_container`), not MCP |
 | `get_profile()` | the RUNNING game's hierarchical CPU frame profile: parallel `names`/`info` lists (each info `"depth calls milliseconds maxMilliseconds"`; depth-0 rows are the canonical tick phases — `input scripts events tweens physics load audio present debug render`), plus `frame_ms` and `profile_seq` (poll until it advances for a fresh frame). A Debug player streams snapshots unprompted (`MSG_PROFILE_DATA` on the stats cadence); on a Release player the first call arms the profiler (`MSG_PROFILE`), so call again shortly after. Pair with `get_state`'s `alloc_per_frame`/`alloc_tags` to answer "where does the frame go, and what allocates?" |
 | `get_lua_api()` | the generated Lua scripting API signature index (`inventory` text + `doc` path) — the global tables (`world`/`screen`/`sound`/`music`/`tween`/`guitween`/`haptics`/`cvar`/`save` + the `loc` global) and core value types, one line per symbol; read-only, needs no project/Play. Embedded from `Docs/lua-api.md`'s generated block (`GeneratedLuaApi.h`), so an MCP-only agent learns the scripting surface self-contained; see `Docs/lua-api.md` for conventions and the full type reference |
@@ -792,7 +791,7 @@ tools/call export_project { "platform":"macos" }   // authed → { accepted:"1",
 tools/call get_export_results { "jobId":"..." }     // poll → status:"done", ok:"1", artifactPath:".../MyGame.app"
 ```
 
-**Icon / launch-screen / signing config — no new verb.** The exporter now
+**Icon / launch-screen / signing config — no new verb.** The exporter
 generates a per-project app icon (from the manifest `export.icon`, or a neutral
 engine default) and launch screen, and gates a signed `--platform ios` device
 build on a resolvable identity + provisioning profile. Every new failure mode —

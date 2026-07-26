@@ -39,8 +39,8 @@ content to route them to. Three signals decide it, highest priority first:
    choice at load time (it beats auto); absent, the auto path decides. `input off`
    on a screen that has buttons deliberately keeps input off.
 
-`enableInputEvents()` is idempotent (a double enable never re-registers), so the
-existing explicit calls in older scripts are harmless no-ops. The editor GUI
+`enableInputEvents()` is idempotent (a double enable never re-registers), so an
+explicit call in a script is a harmless no-op. The editor GUI
 Preview stage never runs game input, so none of this applies there — a preview
 manager stays fully input-inert.
 

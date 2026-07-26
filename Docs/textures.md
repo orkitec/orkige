@@ -88,9 +88,8 @@ Rationale for the corners:
   classic desktop slot is refused.
 * **Classic GLES2 mobile ships PNG — the transcode road is refused, with
   reasons**: the `-classic` mobile presets ARE the **GLES2 compatibility
-  flavor**, and the universal-transcoder road (an ETC2 KTX1 out of the same
-  cooked pipeline) was audited against it. The machinery half works and the
-  device half does not:
+  flavor**, and on the universal-transcoder road (an ETC2 KTX1 out of the same
+  cooked pipeline) the machinery half works while the device half does not:
   * The cook CAN emit it — the CPU-side path is proven: an explicit
     `format="etc2"` on a classic mobile slot already encodes an ETC2 KTX1
     (`.ktx`) that the classic runtime's compressed-texture codec parses
@@ -119,9 +118,8 @@ Rationale for the corners:
   `<web>` slot is permitted but warns loudly: it only loads on clients
   exposing the matching extension. The one universal answer — **KTX2** with a
   supercompressed UASTC/ETC1S intermediate transcoded at page load to whatever
-  the visitor's context supports — was evaluated and **deliberately not
-  built**, because it cannot be done here without breaking the engine's
-  closure discipline:
+  the visitor's context supports — is **deliberately not built**, because it
+  cannot be done here without breaking the engine's closure discipline:
   * The browser player is the **classic GLES2 → WebGL** build, and **WebGL 1
     is the floor** (`tools/player/CMakeLists.txt` allows a WebGL2 context only
     where the driver asks for GLES3 features). WebGL 1 guarantees **no**

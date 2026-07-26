@@ -132,22 +132,22 @@ crashing artifacts are uploaded for triage.
 
 ## Findings on record
 
-The initial sweep found two unbounded-allocation denial-of-service bugs, both
-where an **untrusted declared size / count drove an up-front allocation** with
-no bound against the actual input - fixed by rejecting sizes that exceed the
-physical input (MiniZip) and by treating declared counts as capacity hints,
-never allocation sizes (VectorAnimAsset):
+Two unbounded-allocation denial-of-service classes are guarded here, both where
+an **untrusted declared size / count could drive an up-front allocation** with
+no bound against the actual input — the parser rejects sizes that exceed the
+physical input (MiniZip) and treats declared counts as capacity hints, never
+allocation sizes (VectorAnimAsset):
 
-- **MiniZip** - a forged End-Of-Central-Directory could declare a
+- **MiniZip** — a forged End-Of-Central-Directory can declare a
   `centralDirSize` / entry `compressedSize` / `uncompressedSize` of up to 4 GB
-  on a tiny file, driving a multi-gigabyte allocation on mount (a downloaded
-  pak / an APK is untrusted on every mobile boot). Fixed by bounding the
-  directory and each entry's compressed span against the real file size, and by
-  inflating DEFLATE incrementally (the declared uncompressed size is verified as
+  on a tiny file, which would drive a multi-gigabyte allocation on mount (a
+  downloaded pak / an APK is untrusted on every mobile boot). The parser bounds
+  the directory and each entry's compressed span against the real file size and
+  inflates DEFLATE incrementally (the declared uncompressed size is verified as
   a ceiling, never pre-allocated). Regression seed:
   `corpus/fuzz_minizip/regression_oom_centraldir_size.zip`.
-- **VectorAnimAsset** - a `shape k <N>` / channel / `contour` / `hole` / `mask`
-  / gradient count reserved `N` elements up front; `shape k 45000250` in a
-  115-byte file reserved ~12.6 GB. Fixed by capping the reservation (the run is
+- **VectorAnimAsset** — a `shape k <N>` / channel / `contour` / `hole` / `mask`
+  / gradient count would reserve `N` elements up front (`shape k 45000250` in a
+  115-byte file reserves ~12.6 GB). The reservation is capped (the run is
   validated element by element as it is read anyway). Regression seed:
   `corpus/fuzz_vectoranim/regression_oom_shape_count.oanim`.

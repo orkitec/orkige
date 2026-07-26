@@ -562,11 +562,11 @@ property: `TransformComponent` (an object's place in space — deactivate the wh
 object instead), `TileComponent`, `LevelComponent` and `CameraComponent` (its
 disable collides with the window-camera take-over contract; out of v1).
 
-The one flag also **replaces** the old per-component `visible` bool on the visual
-kinds — there is no separate `visible` property. The convenience aliases stay:
-`SpriteComponent`'s `setSpriteVisible` / `isSpriteVisible`, and the equivalents on
+The one flag is also the visibility control on the visual kinds — there is no
+separate `visible` property. The convenience aliases (`SpriteComponent`'s
+`setSpriteVisible` / `isSpriteVisible`, and the equivalents on
 `VectorShapeComponent`, `LineComponent`, `VectorAnimationComponent` and
-`WorldTextComponent`, now drive that ONE enabled flag.
+`WorldTextComponent`) drive that ONE enabled flag.
 
 ## Persistent objects (survive a scene switch)
 

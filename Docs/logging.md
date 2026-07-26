@@ -12,8 +12,8 @@ raise it, live, per tag.
   - `oDebugWarning(condition, "message " << detail);` — a warn, emitted only when
     the condition is false (tag `engine`).
   - `oDebugMsg("scene", 0, "loaded " << n << " objects");` — verbose detail.
-  - The historical second argument (`0` above) is accepted for source
-    compatibility and ignored; the severity is fixed by the macro.
+  - The second argument (`0` above) is accepted for source compatibility and
+    ignored; the severity is fixed by the macro.
 - **Levels**: `error` < `warn` < `info` < `debug` (plus `off`). A tag emits a
   message only when its severity is at or above the tag's threshold.
 - **Defaults**: `error` + `warn` on in every build config, `info` additionally on

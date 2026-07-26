@@ -48,16 +48,16 @@ in Orkige's own code is a bug, not a suppression** — it is fixed, never added
 to the file. The file currently carries no entries (the suite is leak-clean);
 the goal is LSan catching FUTURE Orkige leaks, not a wall of suppressions.
 
-Turning the gate on surfaced exactly one leak, and it was **fixed rather than
-suppressed** — the pattern the policy exists to enforce. The editor's async
+One class of leak the gate would otherwise catch is handled in code rather than
+suppressed — the pattern the policy exists to enforce. The editor's async
 workers (the `run_tests` / export capture and the `adb`/`simctl` device probes
 in `EditorControlServer`) are raw `std::thread` / `std::async` tasks that call
 SDL functions. SDL stores its error message in per-thread storage it can only
-reclaim for threads IT created, so each of those non-SDL workers left a small
-error buffer behind when it exited (SDL's `SDL_CleanupTLS` was never run;
-`SDL_Quit` does not cover it — the documented mechanism is to call
-`SDL_CleanupTLS` before a non-SDL thread that touched SDL exits). The fix is an
-RAII guard at the top of every such worker; no suppression was needed.
+reclaim for threads IT created, so a non-SDL worker that touches SDL leaves a
+small error buffer behind on exit unless `SDL_CleanupTLS` runs (`SDL_Quit` does
+not cover it — the documented mechanism is to call `SDL_CleanupTLS` before a
+non-SDL thread that touched SDL exits). An RAII guard at the top of every such
+worker calls it; no suppression is needed.
 
 ### UBSan check set
 
@@ -187,8 +187,8 @@ exactly the one for the library in use:
   (`.cpp` and `.mm` alike) on purpose: libc++ folds the hardening level into its
   ODR signature, so every TU must agree.
 
-Both configs were rebuilt and the full unit suite re-run under hardening
-(libc++ on macOS, libstdc++ in the container) with no new assertion trips.
+The full unit suite runs clean under hardening on both configs (libc++ on
+macOS, libstdc++ in the container), with no assertion trips.
 
 ## Valgrind Memcheck nightly — the uninitialized-read watch
 
