@@ -51,15 +51,6 @@ SCAN_ROOTS = ["orkige_core", "orkige_engine", "samples", "projects",
               "tools", "tests"]
 SOURCE_SUFFIXES = {".h", ".hpp", ".cpp", ".cxx"}
 SKIP_DIR_NAMES = {"build", "build-export"}
-# Vendored third-party sources living inside the scan roots: not ours to
-# modify, and they carry their own cross-platform include hygiene. Reason per
-# entry (path is repo-relative, forward slashes).
-VENDORED_FILES = {
-	# path (repo-relative) -> reason; empty today - the tree vendors no
-	# third-party C++ sources inside the scan roots (FastDelegate and the
-	# stb-family confinements carry the house includes and pass the checks)
-}
-
 # --- Check A: banned Windows-macro identifier names -----------------------
 # token -> WHY it is a hazard (all are windef.h / rpcndr.h legacy macros).
 BANNED_IDENTIFIERS = {
@@ -324,8 +315,6 @@ def iter_sources():
                 continue
             rel = path.relative_to(REPO_ROOT)
             if any(part in SKIP_DIR_NAMES for part in rel.parts):
-                continue
-            if rel.as_posix() in VENDORED_FILES:
                 continue
             yield rel, path
 
