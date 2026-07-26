@@ -1161,7 +1161,20 @@ look when touching one:
   `world.<accessor>(id)`, `getComponent("name")` — in ONE `OSCRIPT_HANDLE` line at its
   meta-export site; `ScriptComponent::populateSelfTable` + `ensureScriptApi` drive
   every surface off that ONE `ScriptRuntime` registry instead of a hand-wired per-type
-  block, so a new scriptable component is never silently script-unreachable). The
+  block, so a new scriptable component is never silently script-unreachable). **Component
+  enabled** is a BASE-SYSTEM feature: the property registry supports SCHEMA
+  INHERITANCE (TypeManager records the OParent chain, composes base-first,
+  by-name shadowing), so the ONE base-declared `enabled` reaches every
+  component — disable means the honest per-kind thing (renderables hide,
+  lights dark, rigid bodies leave the sim and re-enter at rest, sounds stop,
+  particles stop emitting while live ones drain, animations pause) with
+  object-active and component-enabled funneling through the SINGLE
+  `applyEffectiveEnabled` suspend path; Transform/Tile/Level/Camera opt out
+  via `supportsDisable` (no lying checkboxes), the ad-hoc `visible` bools are
+  gone (`enabled` is the one vocabulary, Lua `setXVisible` aliases kept),
+  true serializes as silence (untouched scenes byte-identical), Script and
+  Atmosphere keep their frozen semantics — `ComponentEnableTests` +
+  `player_component_enable_selfcheck` per flavor. The
   backend-neutral
   **property registry** (`core_base/PropertyReflect.h`/`PropertySchema.h`; the
   `OPROPERTY*` macros in the Meta backends register schema + Lua binding in one
