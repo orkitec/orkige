@@ -46,6 +46,26 @@ add_test(NAME python_stdlib_lint
 set_tests_properties(python_stdlib_lint PROPERTIES
     LABELS unit TIMEOUT 30)
 
+# portability lint (Docs/render-abstraction.md): mechanical guard for two
+# Windows-only compile hazards invisible to a local clang/libc++ build -
+# identifiers colliding with windef.h macros (near/far/small/interface) and
+# curated std symbols used without their header directly included (libc++
+# leaks the header transitively, MSVC does not). Pure source scan, headless,
+# LABELS unit so it runs in the unit AND desktop presets.
+add_test(NAME portability_lint
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_portability.py"
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(portability_lint PROPERTIES
+    LABELS unit TIMEOUT 30)
+
+# portability lint's own self-test: runs both checks over embedded fixtures
+# (each hazard class caught, each legit pattern passes, suppression works).
+add_test(NAME portability_lint_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_portability.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(portability_lint_selftest PROPERTIES
+    LABELS unit TIMEOUT 30)
+
 # sprite-atlas packer self-validation: make_sprite_atlas.py packs a
 # handful of synthetic sprites, re-parses its own .oatlas and asserts no region
 # overlaps, all rects in bounds, deterministic order. Stdlib-only, headless -

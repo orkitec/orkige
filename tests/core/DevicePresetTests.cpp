@@ -241,16 +241,16 @@ TEST_CASE("DevicePreset: the frame scales proportionately with the screen",
 {
 	const DevicePreset::Preset& notch =
 		DevicePreset::forKind(DevicePreset::DP_IPHONE_NOTCH);
-	const DevicePreset::FrameGeometry small =
+	const DevicePreset::FrameGeometry smallFrame =
 		DevicePreset::deriveFrame(notch, 0.0f, 0.0f, 100.0f, 210.0f);
 	const DevicePreset::FrameGeometry big =
 		DevicePreset::deriveFrame(notch, 0.0f, 0.0f, 200.0f, 420.0f);
-	const float smallBezel = small.screenX - small.bezelX;
+	const float smallBezel = smallFrame.screenX - smallFrame.bezelX;
 	const float bigBezel = big.screenX - big.bezelX;
 	CHECK(bigBezel > smallBezel * 1.9f);
 	CHECK(bigBezel < smallBezel * 2.1f);
-	CHECK(big.cutoutW > small.cutoutW * 1.9f);
-	CHECK(big.cutoutW < small.cutoutW * 2.1f);
+	CHECK(big.cutoutW > smallFrame.cutoutW * 1.9f);
+	CHECK(big.cutoutW < smallFrame.cutoutW * 2.1f);
 }
 
 TEST_CASE("DevicePreset: the picture-in-picture inset stays inside the panel",

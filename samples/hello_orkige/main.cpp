@@ -73,6 +73,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <memory>
 
 using Orkige::optr;
 using Orkige::woptr;

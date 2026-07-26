@@ -24,6 +24,7 @@
 #include <OgreDataStream.h>
 
 #include <algorithm>
+#include <sstream>
 
 
 namespace Orkige

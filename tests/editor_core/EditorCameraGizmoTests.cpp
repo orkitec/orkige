@@ -18,6 +18,7 @@
 #include <EditorCameraGizmo.h>
 
 #include <cmath>
+#include <algorithm>
 
 namespace
 {

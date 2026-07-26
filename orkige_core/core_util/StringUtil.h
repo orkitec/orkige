@@ -12,6 +12,7 @@
 #include "core_util/String.h"
 #include "core_base/Value.h"
 #include <algorithm>
+#include <cctype>
 
 namespace Orkige
 {

@@ -38,6 +38,7 @@
 #include <iomanip>
 #include <set>
 #include <sstream>
+#include <functional>
 
 namespace Orkige
 {

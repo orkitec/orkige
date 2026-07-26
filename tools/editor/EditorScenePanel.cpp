@@ -32,6 +32,7 @@
 #include <cmath>
 #include <filesystem>
 #include <vector>
+#include <cstring>
 
 namespace OrkigeEditor
 {

@@ -40,6 +40,7 @@
 #include <filesystem>
 #ifdef ORKIGE_HAVE_VULKAN
 #include <cstdlib>
+#include <sstream>
 #endif
 #ifdef ORKIGE_IPHONE
 #   ifdef __OBJC__

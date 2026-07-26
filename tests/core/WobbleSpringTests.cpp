@@ -18,6 +18,7 @@
 #include "core_util/WobbleSpring.h"
 
 #include <cmath>
+#include <algorithm>
 
 using namespace Orkige;
 

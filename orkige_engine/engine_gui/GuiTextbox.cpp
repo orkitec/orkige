@@ -9,6 +9,7 @@
 
 #include "engine_gui/GuiTextbox.h"
 #include "engine_gui/GuiManager.h"
+#include <functional>
 
 namespace Orkige
 {

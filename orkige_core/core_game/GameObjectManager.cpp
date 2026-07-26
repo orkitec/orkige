@@ -13,6 +13,7 @@
 #include "core_tween/TweenManager.h"
 #include "core_tween/TimerManager.h"
 #include "core_debug/Profile.h"
+#include <algorithm>
 
 namespace Orkige
 {

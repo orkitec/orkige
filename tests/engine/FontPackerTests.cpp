@@ -59,10 +59,10 @@ TEST_CASE("font packer refuses a box that cannot fit",
 	CHECK_FALSE(packer.allocate(0, 8, r));
 
 	// fill the page top to bottom, then the next shelf must be refused
-	FontPacker small(16, 16, 0);
-	REQUIRE(small.allocate(16, 8, r));	// shelf 0 (y 0..8)
-	REQUIRE(small.allocate(16, 8, r));	// shelf 1 (y 8..16)
-	CHECK_FALSE(small.allocate(16, 8, r));	// no vertical room left
+	FontPacker smallPage(16, 16, 0);
+	REQUIRE(smallPage.allocate(16, 8, r));	// shelf 0 (y 0..8)
+	REQUIRE(smallPage.allocate(16, 8, r));	// shelf 1 (y 8..16)
+	CHECK_FALSE(smallPage.allocate(16, 8, r));	// no vertical room left
 }
 
 TEST_CASE("font packer fills a shelf then opens the next",

@@ -61,6 +61,7 @@
 #include <sstream>
 #include <system_error>
 #include <thread>
+#include <functional>
 
 namespace Orkige
 {

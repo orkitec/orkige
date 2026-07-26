@@ -10,6 +10,7 @@
 #define __GuiLabel_h__29_10_2010__18_16_51__
 
 #include "engine_gui/GuiWidget.h"
+#include <functional>
 
 namespace Orkige
 {

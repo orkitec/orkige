@@ -22,6 +22,7 @@
 
 #include <cmath>
 #include <vector>
+#include <algorithm>
 
 using namespace Orkige;
 using Catch::Approx;
@@ -235,13 +236,13 @@ TEST_CASE("SoftBodyDeform morph targets require matching topology", "[softbody]"
 	REQUIRE(deform.morphTargetCount() == 1);
 
 	// a different vertex count - rejected, nothing added
-	Region small;
-	small.fill = VectorTessellator::Colour(1, 1, 1, 1);
-	small.outer.push_back(Point(-1, -1));
-	small.outer.push_back(Point(1, -1));
-	small.outer.push_back(Point(0, 1));
+	Region smallRegion;
+	smallRegion.fill = VectorTessellator::Colour(1, 1, 1, 1);
+	smallRegion.outer.push_back(Point(-1, -1));
+	smallRegion.outer.push_back(Point(1, -1));
+	smallRegion.outer.push_back(Point(0, 1));
 	std::vector<Region> triangle;
-	triangle.push_back(small);
+	triangle.push_back(smallRegion);
 	REQUIRE_FALSE(SoftBodyDeform::sameTopology(regions, triangle));
 	REQUIRE_FALSE(deform.addMorphTarget("bad", regions, triangle));
 	REQUIRE(deform.morphTargetCount() == 1);

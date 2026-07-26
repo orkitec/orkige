@@ -14,6 +14,7 @@
 // exist identically in classic OGRE 14 and Ogre-Next
 #include <OgreDataStream.h>
 #include <OgreResourceGroupManager.h>
+#include <cstring>
 
 namespace Orkige
 {

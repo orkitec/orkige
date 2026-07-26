@@ -16,6 +16,7 @@
 #include <cmath>
 #include <sstream>
 #include <utility>
+#include <cctype>
 
 namespace OrkigeEditor
 {

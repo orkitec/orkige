@@ -14,6 +14,7 @@
 #include "core_tween/EaseLibrary.h"
 
 #include <algorithm>
+#include <functional>
 
 namespace Orkige
 {

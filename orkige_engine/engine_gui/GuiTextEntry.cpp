@@ -12,6 +12,7 @@
 #include "engine_gui/GuiManager.h"
 
 #include <cmath>
+#include <algorithm>
 
 namespace Orkige
 {

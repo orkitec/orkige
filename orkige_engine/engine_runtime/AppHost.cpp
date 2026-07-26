@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <functional>
 
 //! the platform window handle Engine::setup embeds into
 //! (engine_util/SDLNativeWindow*.{mm,cpp})

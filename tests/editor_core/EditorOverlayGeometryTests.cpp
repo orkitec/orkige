@@ -19,6 +19,7 @@
 #include <EditorOverlayGeometry.h>
 
 #include <cmath>
+#include <algorithm>
 
 namespace
 {

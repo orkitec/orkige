@@ -24,6 +24,7 @@
 #include <chrono>
 #include <cstring>
 #include <thread>
+#include <algorithm>
 
 using Orkige::DebugMessage;
 using Orkige::DebugClient;

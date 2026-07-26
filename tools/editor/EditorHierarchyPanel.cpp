@@ -11,6 +11,7 @@
 
 #include <cfloat>
 #include <map>
+#include <algorithm>
 
 using Orkige::optr;
 using Orkige::woptr;

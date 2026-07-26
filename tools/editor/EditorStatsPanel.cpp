@@ -8,6 +8,7 @@
 
 #include <cstdio>
 #include <string>
+#include <algorithm>
 
 // Stats panel: samples getFrameStats() every frame but refreshes the
 // DISPLAYED numbers at ~4 Hz - lastFPS is the reciprocal of a single frame's

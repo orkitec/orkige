@@ -29,6 +29,7 @@
 #include <OgreRenderSystem.h>
 #include <OgreResourceGroupManager.h>
 #include <OgreDataStream.h>
+#include <algorithm>
 
 namespace Orkige
 {

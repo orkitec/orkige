@@ -13,6 +13,7 @@
 #include <sstream>
 #include <stdlib.h>
 #include <string.h>
+#include <cstring>
 
 namespace Orkige
 {

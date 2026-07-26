@@ -10,6 +10,7 @@
 #define __GuiTextbox_h__1_11_2010__13_44_54__
 
 #include "engine_gui/GuiWidget.h"
+#include <functional>
 
 namespace Orkige
 {

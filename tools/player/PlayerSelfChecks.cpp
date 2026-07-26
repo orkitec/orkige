@@ -68,6 +68,8 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <cstring>
+#include <sstream>
 
 // the engine's shared-ownership alias, used throughout this TU
 using Orkige::optr;

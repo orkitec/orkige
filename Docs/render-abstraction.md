@@ -543,6 +543,25 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
     violation count: **0**. Bonus de-leak: ScriptComponent's error logging
     moved onto `EngineLogCapture::logError` (the engine log service grew the
     stderr-fallback error path).
+  - **Portability lint**:
+    `Util/check_portability.py`, wired as ctest `portability_lint` (+ its
+    `portability_lint_selftest` sibling; LABELS unit → unit AND desktop
+    presets). It guards two Windows-only compile hazards a local clang/libc++
+    build never sees. **Check A** bans C++ identifiers spelled like the
+    windef.h/rpcndr.h legacy macros `near`/`far`/`small`/`interface` (the
+    Win32 preprocessor erases or redefines them); it flags the bare token
+    only, so `nearest`/`smallFont` are fine. **Check B** requires a file that
+    uses a curated std symbol to include its header DIRECTLY — libc++ leaks
+    many standard headers transitively, MSVC's STL does not, so
+    `std::adjacent_find` without `<algorithm>` compiles on macOS and only
+    reds on the MSVC job. The curated symbol→header table and a minimal
+    umbrella-alias table (a file including `core_util/optr.h` is credited for
+    `<memory>`) are data tables at the top of the script; the leak set is
+    deliberately curated, NOT a full include-what-you-use pass. `.mm`/`.m`
+    Objective-C sources are out of scope (Apple-only, never reach MSVC) and
+    vendored third-party sources (CImg) are excluded. An inline
+    `// portability-ok: <reason>` on the finding or preceding line suppresses
+    a single hit. Current violation count: **0**.
 
 ### Classic backend status
 

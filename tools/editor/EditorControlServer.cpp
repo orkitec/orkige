@@ -67,6 +67,7 @@
 #include <mutex>
 #include <sstream>
 #include <vector>
+#include <functional>
 
 namespace Orkige
 {

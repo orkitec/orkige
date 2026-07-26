@@ -242,13 +242,13 @@ TEST_CASE("vectortess_default_feather_scales_with_bounds", "[unit][vectortess]")
 {
 	// the default feather is a fraction of the bounding diagonal, so a bigger
 	// shape gets a proportionally wider soft edge (constant visual weight)
-	std::vector<Region> small;
-	small.push_back(squareRegion(1.0f));
+	std::vector<Region> smallShape;
+	smallShape.push_back(squareRegion(1.0f));
 	std::vector<Region> big;
 	big.push_back(squareRegion(10.0f));
 	const float smallWidth =
 		VectorTessellator::defaultFeatherWidth(
-			VectorTessellator::computeBounds(small));
+			VectorTessellator::computeBounds(smallShape));
 	const float bigWidth =
 		VectorTessellator::defaultFeatherWidth(
 			VectorTessellator::computeBounds(big));

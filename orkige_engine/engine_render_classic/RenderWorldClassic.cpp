@@ -20,6 +20,7 @@
 #include "core_util/SkyEnvMap.h"
 
 #include <cmath>
+#include <algorithm>
 
 namespace Orkige
 {

@@ -20,6 +20,7 @@
 #include <engine_graphic/ScreenShake.h>
 
 #include <cmath>
+#include <algorithm>
 
 using Catch::Approx;
 using Orkige::ScreenShake;

@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <fstream>
 #include <vector>
+#include <functional>
 
 using namespace Orkige;
 namespace Debug = Orkige::ScriptDebugCore;
