@@ -55,8 +55,6 @@ SKIP_DIR_NAMES = {"build", "build-export"}
 # modify, and they carry their own cross-platform include hygiene. Reason per
 # entry (path is repo-relative, forward slashes).
 VENDORED_FILES = {
-    "orkige_engine/engine_util/CImg.h":
-        "vendored third-party single-header (the CImg Library, "
         "David Tschumperle) - manages its own portability, not ours to edit",
 }
 

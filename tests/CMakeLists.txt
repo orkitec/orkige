@@ -64,6 +64,7 @@ add_test(NAME portability_lint_selftest
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_portability.py" --selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(portability_lint_selftest PROPERTIES
+    LABELS unit TIMEOUT 30)
 
 # doctrine lint: four source-hygiene gates the project brief mandates -
 # meta-macro containment (raw ORKIGE_LUA/ORKIGE_NOSCRIPT only in the meta

@@ -202,7 +202,9 @@ pass before committing.
 the CI-pinned vcpkg) and starts the long-lived `orkige-ci` container with the
 repo bind-mounted and build trees/caches in named volumes — a local twin of
 the CI Linux jobs for anything macOS can't reproduce. Every linux-* preset
-works inside; the important one is `linux-debug-sanitize`: the ASan/UBSan
+works inside (the image installs a git GUARD that refuses git targeting the
+bind-mounted repo — it would move the HOST HEAD; override
+`ORKIGE_CONTAINER_GIT=1`); the important one is `linux-debug-sanitize`: the ASan/UBSan
 gate runs on **libstdc++**, which exposes memory bugs libc++ (macOS) masks
 even under a local macOS ASan build (destroyed-container internals differ) —
 memory-safety findings from CI are reproduced and fixes proven in the
@@ -272,7 +274,9 @@ everyone's confidence in the suite.
   2026-07-15, so the whole tree carries the ONE notice.
 - Line endings are LF everywhere, enforced by `.gitattributes` (the tree was normalized
   in a dedicated commit on 2026-07-08; the old preserve-CRLF rule is obsolete).
-- Commit messages: no `Co-Authored-By` trailers.
+- Commit messages: no `Co-Authored-By` trailers. Enforced by the `commit-msg`
+  hook `Util/install_git_hooks.sh` installs (skip once with
+  `ORKIGE_NO_COMMIT_MSG_LINT=1`).
 - Renderer containment (decided 2026-07; since 2026-07-08 **Ogre-Next is the default
   backend** and classic OGRE the fully supported compatibility flavor): code above the
   render backend goes through the `engine_render` facade — no `Ogre::` outside
@@ -282,7 +286,18 @@ everyone's confidence in the suite.
   part of the unit and desktop presets) fails on any unsanctioned `Ogre::` spelling in
   code; the sanctioned files/blocks (classic-only zones, math-alias residue, the marked
   app boot blocks) live in `Util/ogre_containment.json` — a new exception needs an entry
-  there, with a reason, in the same change. Don't add reliance on features Ogre-Next
+  there, with a reason, in the same change. Two sibling gates enforce more of
+  this file mechanically: `portability_lint` (`Util/check_portability.py`)
+  fails on Windows-macro identifiers (near/far/small/interface) and on the
+  curated std symbols used without their own include (libc++ leaks headers
+  transitively, MSVC does not — add the direct `#include`; suppress a false
+  hit with `// portability-ok: <reason>`), and `doctrine_lint`
+  (`Util/check_doctrine.py` + `Util/doctrine_lint.json`) locks the
+  ORKIGE_LUA/NOSCRIPT meta-macro seam, bans competing-product names in
+  comments/strings/Docs, gates core+engine raw filesystem access (the
+  pre-funnel backlog lives as shrink-only `legacy` entries in the json) and
+  requires the standard copyright block across core/engine/tools/tests/
+  samples (vendored + generated files sanctioned by name). Don't add reliance on features Ogre-Next
   dropped (OGRE material scripts especially — keep materials simple/generated).
 - Open-source hygiene: comments and user-facing strings describe the CODE, not the
   development process — no phase, work-package, or task references in comments,
