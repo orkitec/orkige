@@ -542,16 +542,16 @@ TEST_CASE("ui-edit: guide candidates + snap within the threshold", "[unit][uiedi
 
 	// a moving rect whose left is 3px shy of the sibling's left (100) snaps
 	UiRect moving{ "m", 97, 300, 30, 30 };
-	const UiSnap near = snapToGuides(moving, cands, 6.0f);
-	CHECK(near.snappedX);
-	CHECK_THAT(near.dx, WithinAbs(3.0f, 1e-4f));	// +3 -> left == 100
-	CHECK_THAT(near.guideX, WithinAbs(100.0f, 1e-4f));
+	const UiSnap nearSnap = snapToGuides(moving, cands, 6.0f);
+	CHECK(nearSnap.snappedX);
+	CHECK_THAT(nearSnap.dx, WithinAbs(3.0f, 1e-4f));	// +3 -> left == 100
+	CHECK_THAT(nearSnap.guideX, WithinAbs(100.0f, 1e-4f));
 
 	// out of threshold on every edge/centre: no snap (left 60, cx 70, right 80;
 	// nearest candidate is the sibling left at 100, a 20px gap)
 	UiRect farRect{ "m", 60, 300, 20, 20 };
-	const UiSnap far = snapToGuides(farRect, cands, 6.0f);
-	CHECK_FALSE(far.snappedX);
+	const UiSnap farSnap = snapToGuides(farRect, cands, 6.0f);
+	CHECK_FALSE(farSnap.snappedX);
 }
 
 TEST_CASE("ui-edit: coalesced nudges fold into one undo step", "[unit][uiedit]")
