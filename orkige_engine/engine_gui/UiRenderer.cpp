@@ -16,6 +16,7 @@
 *********************************************************************/
 
 #include "engine_gui/UiRenderer.h"
+#include "engine_gui/TextWrap.h"
 #include "engine_render/RenderSystem.h"
 #include "core_util/StringUtil.h"
 #include <core_debug/DebugMacros.h>
@@ -25,6 +26,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace Orkige
 {
@@ -761,7 +763,7 @@ namespace Orkige
 		mLeft(left), mTop(top), mWidth(0), mHeight(0),
 		mAlignment(TextAlign_Left), mVerticalAlign(VerticalAlign_Top),
 		mText(caption), mColour(1, 1, 1, 1), mDirty(true), mScaled(true),
-		mRenderAlpha(1.0f)
+		mWrap(false), mRenderAlpha(1.0f)
 	{
 		oAssertDesc(this->mFont, "UiCaption: font (glyph index) not in atlas");
 		if(this->mFont == NULL)
@@ -852,6 +854,37 @@ namespace Orkige
 		this->mLayer->_markDirty();
 	}
 	//---------------------------------------------------------
+	void UiCaption::setWrap(bool wrap)
+	{
+		if(this->mWrap == wrap)
+		{
+			return;
+		}
+		this->mWrap = wrap;
+		this->mDirty = true;
+		this->mLayer->_markDirty();
+	}
+	//---------------------------------------------------------
+	Real UiCaption::measureWrappedHeight(Real width) const
+	{
+		if(this->mFont == NULL)
+		{
+			return 0;
+		}
+		const Real lineHeight = this->mFont->getLineHeightScaled();
+		if(this->mText.empty())
+		{
+			return lineHeight;
+		}
+		std::vector<WrapCell> cells;
+		std::vector<UiGlyph const *> glyphs;
+		TextWrap::buildRun(*this->mFont, this->mText, cells, glyphs);
+		WrapResult wrapped;
+		TextWrap::wrap(cells, width, wrapped);
+		const int lines = wrapped.lineCount > 0 ? wrapped.lineCount : 1;
+		return lineHeight * Real(lines);
+	}
+	//---------------------------------------------------------
 	void UiCaption::_calculateDrawSize(Vec2 & size)
 	{
 		oAssertDesc(this->mFont != NULL,
@@ -910,6 +943,15 @@ namespace Orkige
 		}
 		oAssertDesc(this->mFont != NULL,
 			"Font rendering can't find glyph data. Font size correctly specified?");
+
+		// wrap-to-width labels break across lines (@see _redrawWrapped); the
+		// single-line clipped path below is byte-identical when wrap is off
+		if(this->mWrap && this->mWidth > 0)
+		{
+			this->_redrawWrapped();
+			this->mDirty = false;
+			return;
+		}
 
 		Real cursorX = 0, cursorY = 0, kerning = 0;
 		Vec2 knownSize;
@@ -1033,13 +1075,77 @@ namespace Orkige
 		this->mDirty = false;
 	}
 	//---------------------------------------------------------
+	void UiCaption::_redrawWrapped()
+	{
+		// caller guarantees mFont, non-empty text and mWidth > 0
+		const Real lineHeight = this->mFont->getLineHeightScaled();
+		std::vector<WrapCell> cells;
+		std::vector<UiGlyph const *> glyphs;
+		TextWrap::buildRun(*this->mFont, this->mText, cells, glyphs);
+		WrapResult wrapped;
+		TextWrap::wrap(cells, this->mWidth, wrapped);
+		const int lineCount = wrapped.lineCount > 0 ? wrapped.lineCount : 1;
+		const Real blockHeight = lineHeight * Real(lineCount);
+
+		// the whole block sits inside height() by the vertical alignment
+		Real baseY = this->mTop;
+		if(this->mVerticalAlign == VerticalAlign_Middle)
+		{
+			baseY = this->mTop + (this->mHeight - blockHeight) * 0.5f;
+		}
+		else if(this->mVerticalAlign == VerticalAlign_Bottom)
+		{
+			baseY = this->mTop + this->mHeight - blockHeight;
+		}
+
+		for(size_t each = 0; each < cells.size(); ++each)
+		{
+			UiGlyph const * glyph = glyphs[each];
+			if(glyph == NULL)
+			{
+				continue;	// a space / newline emits nothing
+			}
+			const int line = wrapped.lineOf[each];
+			// each line honours the horizontal alignment inside width()
+			Real lineStart = this->mLeft;
+			const Real lineWidth = wrapped.lineWidth[size_t(line)];
+			if(this->mAlignment == TextAlign_Centre)
+			{
+				lineStart = this->mLeft + (this->mWidth - lineWidth) * 0.5f;
+			}
+			else if(this->mAlignment == TextAlign_Right)
+			{
+				lineStart = this->mLeft + this->mWidth - lineWidth;
+			}
+			const Real left = std::floor(lineStart + wrapped.penX[each]);
+			const Real top = std::floor(baseY + Real(line) * lineHeight);
+			const Real right = left + glyph->getGlyphWidthScaled();
+			const Real bottom = top + glyph->getGlyphHeightScaled();
+
+			pushVertex(this->mVertices, left, bottom,
+				glyph->texCoords[BottomLeft], this->mColour);
+			pushVertex(this->mVertices, right, top,
+				glyph->texCoords[TopRight], this->mColour);
+			pushVertex(this->mVertices, left, top,
+				glyph->texCoords[TopLeft], this->mColour);
+
+			pushVertex(this->mVertices, left, bottom,
+				glyph->texCoords[BottomLeft], this->mColour);
+			pushVertex(this->mVertices, right, bottom,
+				glyph->texCoords[BottomRight], this->mColour);
+			pushVertex(this->mVertices, right, top,
+				glyph->texCoords[TopRight], this->mColour);
+		}
+	}
+	//---------------------------------------------------------
 	//--- UiMarkupText ----------------------------------------
 	//---------------------------------------------------------
 	UiMarkupText::UiMarkupText(uint defaultFontIndex, Real left, Real top,
 		String const & text, UiLayer* parent)
 		: mLayer(parent), mDefaultFont(parent->_getFont(defaultFontIndex)),
 		mLeft(left), mTop(top), mWidth(0), mHeight(0), mText(text),
-		mDirty(true), mTextDirty(true), mScaled(true), mRenderAlpha(1.0f)
+		mDirty(true), mTextDirty(true), mScaled(true), mWrap(false),
+		mWrapWidth(0), mRenderAlpha(1.0f)
 	{
 		oAssertDesc(this->mDefaultFont,
 			"UiMarkupText: font (glyph index) not in atlas");
@@ -1110,6 +1216,47 @@ namespace Orkige
 		this->mLayer->_markDirty();
 	}
 	//---------------------------------------------------------
+	void UiMarkupText::setWrap(bool wrap)
+	{
+		if(this->mWrap == wrap)
+		{
+			return;
+		}
+		this->mWrap = wrap;
+		this->mDirty = true;
+		this->mTextDirty = true;
+		this->mLayer->_markDirty();
+	}
+	//---------------------------------------------------------
+	void UiMarkupText::wrapWidth(Real width)
+	{
+		if(this->mWrapWidth == width)
+		{
+			return;
+		}
+		this->mWrapWidth = width;
+		if(this->mWrap)
+		{
+			this->mDirty = true;
+			this->mTextDirty = true;
+			this->mLayer->_markDirty();
+		}
+	}
+	//---------------------------------------------------------
+	Real UiMarkupText::measureWrappedHeight(Real width) const
+	{
+		if(this->mDefaultFont == NULL)
+		{
+			return 0;
+		}
+		std::vector<Character> throwaway;
+		Real measuredWidth = 0, measuredHeight = 0;
+		UiMarkupText::_layoutMarkup(this->mLayer, this->mDefaultFont, this->mText,
+			this->mLeft, this->mTop, width, throwaway, measuredWidth,
+			measuredHeight);
+		return measuredHeight;
+	}
+	//---------------------------------------------------------
 	void UiMarkupText::_calculateCharacters()
 	{
 		if(this->mTextDirty == false)
@@ -1118,25 +1265,252 @@ namespace Orkige
 		}
 		oAssertDesc(this->mDefaultFont,
 			"Font rendering can't find glyph data. Font size correctly specified?");
+		if(this->mDefaultFont == NULL)
+		{
+			this->mTextDirty = false;
+			return;
+		}
+		// wrap to the box width when armed; 0 = the historical single-line-per-
+		// paragraph layout (byte-identical when wrap is off)
+		const Real wrapTo = this->mWrap ? this->mWrapWidth : Real(0);
+		UiMarkupText::_layoutMarkup(this->mLayer, this->mDefaultFont, this->mText,
+			this->mLeft, this->mTop, wrapTo, this->mCharacters, this->mWidth,
+			this->mHeight);
+		this->mTextDirty = false;
+	}
+	//---------------------------------------------------------
+	void UiMarkupText::_layoutMarkup(UiLayer* layer, UiFont const * defaultFont,
+		String const & text, Real originX, Real originY, Real wrapWidth,
+		std::vector<Character> & out, Real & width, Real & height)
+	{
+		out.clear();
+		width = 0;
+		height = 0;
+		if(defaultFont == NULL)
+		{
+			return;
+		}
+		const bool doWrap = (wrapWidth > 0);
 
-		Real cursorX = this->mLeft, cursorY = this->mTop, kerning = 0;
+		//--- wrapped path: build cells + tokens, break, then place ---
+		if(doWrap)
+		{
+			// one placeable token (glyph or sprite) staged before positioning
+			struct Tok { Vec2 uv[4]; Color colour; Real w, h; };
+			std::vector<WrapCell>	cells;
+			std::vector<int>		cellTok;	//!< tok index per cell (-1 = none)
+			std::vector<Tok>		toks;
+			Real lineHeight = defaultFont->getLineHeightScaled();
+
+			bool markupMode = false;
+			bool fixedWidth = false;
+			Color colour = layer->_getMarkupColour(0);
+			UiFont const * font = defaultFont;
+			uint lastChar = 0;	//!< previous glyph on the run for kerning (0 resets)
+
+			for(size_t i = 0; i < text.length(); ++i)
+			{
+				wchar_t unicodeChar;
+				const std::size_t multiByteLength =
+					StringUtil::multibyteCharStringToWideCharString(
+						&unicodeChar, &text[i], 5);
+				const uint thisChar = uint(unicodeChar);
+
+				if(thisChar == ' ')
+				{
+					WrapCell cell;
+					cell.space = true;
+					cell.advance = font->getSpaceLengthScaled();
+					cells.push_back(cell);
+					cellTok.push_back(-1);
+					lastChar = 0;
+					if(multiByteLength > 0) i += multiByteLength - 1;
+					continue;
+				}
+				if(thisChar == '\n')
+				{
+					WrapCell cell;
+					cell.forcedBreak = true;
+					cells.push_back(cell);
+					cellTok.push_back(-1);
+					lastChar = 0;
+					if(multiByteLength > 0) i += multiByteLength - 1;
+					continue;
+				}
+				if(thisChar < font->getRangeBegin())
+				{
+					if(multiByteLength > 0) i += multiByteLength - 1;
+					continue;
+				}
+				if(thisChar == '%' && markupMode == false)
+				{
+					markupMode = true;
+					continue;
+				}
+				if(markupMode == true)
+				{
+					if(thisChar == '%')
+					{
+						// escape - falls through and draws '%'
+					}
+					else
+					{
+						markupMode = false;
+						if(thisChar >= '0' && thisChar <= '9')
+						{
+							colour = layer->_getMarkupColour(uint(thisChar - '0'));
+						}
+						else if(thisChar == 'R' || thisChar == 'r')
+						{
+							colour = layer->_getMarkupColour(0);
+						}
+						else if(thisChar == 'M' || thisChar == 'm')
+						{
+							fixedWidth = !fixedWidth;
+						}
+						else if(thisChar == '@')
+						{
+							bool foundIt = false;
+							const size_t begin = i;
+							while(i < text.size())
+							{
+								if(text[i] == '%') { foundIt = true; break; }
+								++i;
+							}
+							if(foundIt == false) { break; }
+							const uint index = Ogre::StringConverter::parseUnsignedInt(
+								text.substr(begin + 1, i - begin - 1));
+							font = layer->_getFont(index);
+							if(font == NULL) { break; }
+							lineHeight = std::max(lineHeight,
+								font->getLineHeightScaled());
+							continue;
+						}
+						else if(thisChar == ':')
+						{
+							bool foundIt = false;
+							const size_t begin = i;
+							while(i < text.size())
+							{
+								if(text[i] == '%') { foundIt = true; break; }
+								++i;
+							}
+							if(foundIt == false) { break; }
+							const String spriteName =
+								text.substr(begin + 1, i - begin - 1);
+							UiSprite const * sprite = layer->_getSprite(spriteName);
+							if(sprite == NULL) { continue; }
+							// a sprite is one atomic token: it moves whole to the
+							// next line when it does not fit (@see TextWrap)
+							Tok tok;
+							tok.uv[0] = sprite->texCoords[0];
+							tok.uv[1] = sprite->texCoords[1];
+							tok.uv[2] = sprite->texCoords[2];
+							tok.uv[3] = sprite->texCoords[3];
+							tok.colour = colour;
+							tok.w = sprite->spriteWidth;
+							tok.h = sprite->spriteHeight;
+							WrapCell cell;
+							cell.advance = sprite->spriteWidth;
+							cell.width = sprite->spriteWidth;
+							cells.push_back(cell);
+							cellTok.push_back(int(toks.size()));
+							toks.push_back(tok);
+							lineHeight = std::max(lineHeight, sprite->spriteHeight);
+							lastChar = 0;	// a sprite breaks the kerning pair
+							continue;
+						}
+						continue;
+					}
+					markupMode = false;
+				}
+
+				UiGlyph const * glyph = font->getGlyph(thisChar);
+				if(glyph == NULL) { continue; }
+				WrapCell cell;
+				if(fixedWidth)
+				{
+					cell.advance = font->getMonoWidthScaled();
+				}
+				else
+				{
+					// leadKern = the gap to the PREVIOUS glyph on this run;
+					// TextWrap drops it at a line start (kerning within lines,
+					// never across a break)
+					Real kerning = glyph->getKerningScaled(lastChar);
+					if(kerning == 0)
+					{
+						kerning = font->getLetterSpacingScaled();
+					}
+					cell.leadKern = kerning;
+					cell.advance = glyph->getGlyphAdvanceScaled();
+				}
+				cell.width = glyph->getGlyphWidthScaled();
+				cell.breakBefore = TextWrap::isBreakableIdeograph(thisChar);
+				Tok tok;
+				tok.uv[0] = glyph->texCoords[0];
+				tok.uv[1] = glyph->texCoords[1];
+				tok.uv[2] = glyph->texCoords[2];
+				tok.uv[3] = glyph->texCoords[3];
+				tok.colour = colour;
+				tok.w = glyph->getGlyphWidthScaled();
+				tok.h = glyph->getGlyphHeightScaled();
+				cells.push_back(cell);
+				cellTok.push_back(int(toks.size()));
+				toks.push_back(tok);
+				lastChar = thisChar;
+				if(multiByteLength > 0) i += multiByteLength - 1;
+			}
+
+			WrapResult wrapped;
+			TextWrap::wrap(cells, wrapWidth, wrapped);
+			const int lineCount = wrapped.lineCount > 0 ? wrapped.lineCount : 1;
+
+			for(size_t c = 0; c < cells.size(); ++c)
+			{
+				const int ti = cellTok[c];
+				if(ti < 0) { continue; }
+				Tok const & tok = toks[size_t(ti)];
+				const int line = wrapped.lineOf[c];
+				const Real left = std::floor(originX + wrapped.penX[c]);
+				const Real top = std::floor(originY + Real(line) * lineHeight);
+				const Real right = left + tok.w;
+				const Real bottom = top + tok.h;
+				Character character;
+				character.position[TopLeft] = Vec2(left, top);
+				character.position[TopRight] = Vec2(right, top);
+				character.position[BottomLeft] = Vec2(left, bottom);
+				character.position[BottomRight] = Vec2(right, bottom);
+				character.uv[0] = tok.uv[0];
+				character.uv[1] = tok.uv[1];
+				character.uv[2] = tok.uv[2];
+				character.uv[3] = tok.uv[3];
+				character.colour = tok.colour;
+				out.push_back(character);
+			}
+			for(int l = 0; l < lineCount; ++l)
+			{
+				width = std::max(width, wrapped.lineWidth[size_t(l)]);
+			}
+			height = lineHeight * Real(lineCount);
+			return;
+		}
+
+		//--- historical single-line-per-paragraph path (wrap off) ---
+		Real cursorX = originX, cursorY = originY, kerning = 0;
 		uint thisChar = 0, lastChar = 0;
-		this->mWidth = 0;
-		this->mHeight = 0;
-		this->mCharacters.clear();
-
 		bool markupMode = false;
 		bool fixedWidth = false;
-		Color colour = this->mLayer->_getMarkupColour(0);
-		UiFont const * font = this->mDefaultFont;
+		Color colour = layer->_getMarkupColour(0);
+		UiFont const * font = defaultFont;
 		Real lineHeight = font->getLineHeightScaled();
 
-		for(size_t i = 0; i < this->mText.length(); ++i)
+		for(size_t i = 0; i < text.length(); ++i)
 		{
 			wchar_t unicodeChar;
 			const std::size_t multiByteLength =
 				StringUtil::multibyteCharStringToWideCharString(
-					&unicodeChar, &this->mText[i], 5);
+					&unicodeChar, &text[i], 5);
 			thisChar = uint(unicodeChar);
 
 			if(thisChar == ' ')
@@ -1148,15 +1522,11 @@ namespace Orkige
 			if(thisChar == '\n')
 			{
 				lastChar = thisChar;
-				cursorX = this->mLeft;
+				cursorX = originX;
 				cursorY += lineHeight;
 				lineHeight = font->getLineHeightScaled();
 				continue;
 			}
-			// skip control codes below the range; codepoints ABOVE it fall
-			// through to getGlyph, which bakes them on demand for a runtime
-			// (TTF) font and returns NULL for a bitmap font (skipped below,
-			// exactly as before) - this is what lets markup text page CJK too
 			if(thisChar < font->getRangeBegin())
 			{
 				lastChar = 0;
@@ -1178,12 +1548,11 @@ namespace Orkige
 					markupMode = false;
 					if(thisChar >= '0' && thisChar <= '9')
 					{
-						colour = this->mLayer->_getMarkupColour(
-							uint(thisChar - '0'));
+						colour = layer->_getMarkupColour(uint(thisChar - '0'));
 					}
 					else if(thisChar == 'R' || thisChar == 'r')
 					{
-						colour = this->mLayer->_getMarkupColour(0);
+						colour = layer->_getMarkupColour(0);
 					}
 					else if(thisChar == 'M' || thisChar == 'm')
 					{
@@ -1194,27 +1563,16 @@ namespace Orkige
 						// %@<fontIndex>% switches the font
 						bool foundIt = false;
 						const size_t begin = i;
-						while(i < this->mText.size())
+						while(i < text.size())
 						{
-							if(this->mText[i] == '%')
-							{
-								foundIt = true;
-								break;
-							}
+							if(text[i] == '%') { foundIt = true; break; }
 							++i;
 						}
-						if(foundIt == false)
-						{
-							return;
-						}
-						const uint index =
-							Ogre::StringConverter::parseUnsignedInt(
-								this->mText.substr(begin + 1, i - begin - 1));
-						font = this->mLayer->_getFont(index);
-						if(font == NULL)
-						{
-							return;
-						}
+						if(foundIt == false) { return; }
+						const uint index = Ogre::StringConverter::parseUnsignedInt(
+							text.substr(begin + 1, i - begin - 1));
+						font = layer->_getFont(index);
+						if(font == NULL) { return; }
 						lineHeight = std::max(lineHeight,
 							font->getLineHeightScaled());
 						continue;
@@ -1224,27 +1582,16 @@ namespace Orkige
 						// %:<spriteName>% inserts a sprite inline
 						bool foundIt = false;
 						const size_t begin = i;
-						while(i < this->mText.size())
+						while(i < text.size())
 						{
-							if(this->mText[i] == '%')
-							{
-								foundIt = true;
-								break;
-							}
+							if(text[i] == '%') { foundIt = true; break; }
 							++i;
 						}
-						if(foundIt == false)
-						{
-							return;
-						}
+						if(foundIt == false) { return; }
 						const String spriteName =
-							this->mText.substr(begin + 1, i - begin - 1);
-						UiSprite const * sprite =
-							this->mLayer->_getSprite(spriteName);
-						if(sprite == NULL)
-						{
-							continue;
-						}
+							text.substr(begin + 1, i - begin - 1);
+						UiSprite const * sprite = layer->_getSprite(spriteName);
+						if(sprite == NULL) { continue; }
 						const Real left = cursorX;
 						const Real top = cursorY;
 						const Real right = left + sprite->spriteWidth;
@@ -1260,11 +1607,10 @@ namespace Orkige
 						character.uv[2] = sprite->texCoords[2];
 						character.uv[3] = sprite->texCoords[3];
 						character.colour = colour;
-						this->mCharacters.push_back(character);
+						out.push_back(character);
 
 						cursorX += sprite->spriteWidth;
-						lineHeight = std::max(lineHeight,
-							sprite->spriteHeight);
+						lineHeight = std::max(lineHeight, sprite->spriteHeight);
 						continue;
 					}
 					continue;
@@ -1273,10 +1619,7 @@ namespace Orkige
 			}
 
 			UiGlyph const * glyph = font->getGlyph(thisChar);
-			if(glyph == NULL)
-			{
-				continue;
-			}
+			if(glyph == NULL) { continue; }
 			if(!fixedWidth)
 			{
 				kerning = glyph->getKerningScaled(lastChar);
@@ -1302,7 +1645,7 @@ namespace Orkige
 			character.uv[2] = glyph->texCoords[2];
 			character.uv[3] = glyph->texCoords[3];
 			character.colour = colour;
-			this->mCharacters.push_back(character);
+			out.push_back(character);
 
 			if(fixedWidth)
 			{
@@ -1315,23 +1658,16 @@ namespace Orkige
 			lastChar = thisChar;
 
 			// track the laid-out extents
-			if(this->mWidth < cursorX)
-			{
-				this->mWidth = cursorX;
-			}
-			if(this->mHeight < cursorY)
-			{
-				this->mHeight = cursorY;
-			}
+			if(width < cursorX) { width = cursorX; }
+			if(height < cursorY) { height = cursorY; }
 			if(multiByteLength > 0)
 			{
 				i += multiByteLength - 1;
 			}
 		}
-		this->mHeight -= this->mTop;
-		this->mHeight += lineHeight;
-		this->mWidth -= this->mLeft;
-		this->mTextDirty = false;
+		height -= originY;
+		height += lineHeight;
+		width -= originX;
 	}
 	//---------------------------------------------------------
 	void UiMarkupText::_redraw()

@@ -472,6 +472,19 @@ namespace Orkige
 		//! follows the global UiGlyph::scale, exactly like Gorilla did)
 		inline void scaled(bool scaled) { this->mScaled = scaled; }
 
+		//! @brief wrap the text to the caption's width() instead of a single
+		//! clipped line. Break rules (@see TextWrap): break at spaces (latin),
+		//! between CJK glyphs, hard-break a single over-wide word at the glyph
+		//! limit; explicit '\n' forces a break. Each wrapped line honours the
+		//! horizontal alignment inside width(); the block honours the vertical
+		//! alignment inside height(). Default off (a single clipped line).
+		void setWrap(bool wrap);
+		inline bool getWrap() const { return this->mWrap; }
+		//! @brief the wrapped height for a given box width (px): line count times
+		//! the line height. width() is not touched. Feeds the layout resolver's
+		//! height-for-width. A non-positive width or empty text measures one line.
+		Real measureWrappedHeight(Real width) const;
+
 		//! @brief per-frame scale/rotation about a pivot (@see UiRect::renderTransform)
 		void renderTransform(Ui2DTransform const & transform);
 		inline Ui2DTransform const & renderTransform() const { return this->mRenderTransform; }
@@ -498,9 +511,12 @@ namespace Orkige
 		Color					mColour;
 		bool					mDirty;
 		bool					mScaled;
+		bool					mWrap;				//!< wrap to width() (@see setWrap)
 		Ui2DTransform			mRenderTransform;	//!< animation transform (post-pass)
 		Real					mRenderAlpha;		//!< cascade alpha multiplier
 		std::vector<UiVertex>	mVertices;
+		//! emit the vertices for the wrapped (multi-line) layout (@see _redraw)
+		void _redrawWrapped();
 	};
 
 	//! @brief multi-line text with the light markup language: %0-%9
@@ -529,6 +545,22 @@ namespace Orkige
 
 		//! historical flag (@see UiCaption::scaled)
 		inline void scaled(bool scaled) { this->mScaled = scaled; }
+
+		//! @brief wrap the markup to @c wrapWidth instead of laying out one long
+		//! line per paragraph. Markup runs (colour/font/mono) and inline sprites
+		//! flow across the breaks - a run split by a wrap keeps its style, a
+		//! sprite that does not fit moves whole to the next line; explicit '\n'
+		//! still forces breaks (@see TextWrap). Default off (byte-identical to
+		//! the historical layout).
+		void setWrap(bool wrap);
+		inline bool getWrap() const { return this->mWrap; }
+		//! @brief the box width wrapping fits into (px); 0 or a non-positive value
+		//! disables width wrapping even when wrap is on. Set from the widget size.
+		void wrapWidth(Real width);
+		inline Real wrapWidth() const { return this->mWrapWidth; }
+		//! @brief the laid-out height for a given box width (px), the resolver's
+		//! height-for-width hook. Does not mutate the live layout.
+		Real measureWrappedHeight(Real width) const;
 
 		//! @brief per-frame scale/rotation about a pivot (@see UiRect::renderTransform)
 		void renderTransform(Ui2DTransform const & transform);
@@ -561,10 +593,21 @@ namespace Orkige
 		String					mText;
 		bool					mDirty, mTextDirty;
 		bool					mScaled;
+		bool					mWrap;				//!< wrap to mWrapWidth (@see setWrap)
+		Real					mWrapWidth;			//!< box width for wrapping (px)
 		Ui2DTransform			mRenderTransform;	//!< animation transform (post-pass)
 		Real					mRenderAlpha;		//!< cascade alpha multiplier
 		std::vector<Character>	mCharacters;
 		std::vector<UiVertex>	mVertices;
+
+		//! @brief the shared markup walk: parse @p text into positioned
+		//! Characters, wrapping to @p wrapWidth px when > 0 (0 = the historical
+		//! single-line-per-paragraph layout). Fills @p out + @p width + @p height.
+		//! Static so @c measureWrappedHeight can run it into a throwaway buffer
+		//! without disturbing the live layout.
+		static void _layoutMarkup(UiLayer* layer, UiFont const * defaultFont,
+			String const & text, Real originX, Real originY, Real wrapWidth,
+			std::vector<Character> & out, Real & width, Real & height);
 	};
 }
 

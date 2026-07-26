@@ -8,6 +8,7 @@
 *********************************************************************/
 
 #include "engine_gui/GuiTextbox.h"
+#include "engine_gui/GuiManager.h"
 
 namespace Orkige
 {
@@ -41,6 +42,45 @@ namespace Orkige
 	{
 		this->markupText->width(width);
 		this->markupText->height(height);
+		// wrap fits the box width (markupText->width is an OUTPUT extent, so the
+		// wrap width rides a dedicated channel the layout resolver feeds)
+		this->markupText->wrapWidth(width);
+	}
+	//---------------------------------------------------------
+	void GuiTextbox::setWrap(bool wrap)
+	{
+		this->markupText->setWrap(wrap);
+		GuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	bool GuiTextbox::getWrap() const
+	{
+		return this->markupText->getWrap();
+	}
+	//---------------------------------------------------------
+	Ogre::Vector2 GuiTextbox::getPreferredSize()
+	{
+		this->markupText->_calculateCharacters();
+		Ogre::Vector2 size(this->markupText->width(), this->markupText->height());
+		if(this->markupText->getWrap())
+		{
+			size.y = this->markupText->measureWrappedHeight(
+				this->markupText->wrapWidth());
+		}
+		return size;
+	}
+	//---------------------------------------------------------
+	std::function<float(float)> GuiTextbox::getHeightForWidthMeasurer()
+	{
+		if(!this->markupText->getWrap())
+		{
+			return {};
+		}
+		UiMarkupText* markup = this->markupText;
+		return [markup](float width) -> float
+		{
+			return float(markup->measureWrappedHeight(Ogre::Real(width)));
+		};
 	}
 	//---------------------------------------------------------
 	Ogre::Vector2 GuiTextbox::getSize()
@@ -81,5 +121,6 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	OABSTRACT_IMPL(GuiTextbox)
+		OFUNC(setWrap)
 	OOBJECT_END
 }

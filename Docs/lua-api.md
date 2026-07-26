@@ -1514,6 +1514,9 @@ GuiWidget:getEffectiveAlpha(...)
 GuiWidget:setAlphaBlocksInput(...)
 GuiWidget:setTransition(...)
 
+## GuiTextbox
+GuiTextbox:setWrap(...)
+
 ## GuiTextEntry
 GuiTextEntry:setPosition(...)
 GuiTextEntry:setSize(...)
@@ -1601,6 +1604,7 @@ GuiManager:getScratchCapacity(...)
 GuiLabel:setText(...)
 GuiLabel:setAlignment(...)
 GuiLabel:setAlpha(...)
+GuiLabel:setWrap(...)
 GuiLabel.LabelAlignment = { LA_TOPLEFT, LA_TOP, LA_TOPRIGHT, LA_LEFT, LA_CENTER, LA_RIGHT, LA_BOTTOMLEFT, LA_BOTTOM, LA_BOTTOMRIGHT }
 
 ## GuiDecorWidget

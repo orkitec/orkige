@@ -22,6 +22,7 @@
 
 #include "core_module/OrkigePrerequisites.h"
 
+#include <functional>
 #include <vector>
 
 namespace Orkige
@@ -225,6 +226,15 @@ namespace Orkige
 		//! a pixel offset added to this node's children positions - the scroll
 		//! amount of a scroll viewport (0 for everything else). NOT scaled.
 		LayoutVec2				scrollOffset;
+		//! @brief optional height-for-width measurer (wrapped text). When set AND
+		//! the vertical content-fit is Preferred, the node's height is measured
+		//! from its RESOLVED width instead of the width-independent @c preferred.y
+		//! - a wrapped label grows taller as its column narrows. Pure: the gui
+		//! side supplies the closure (it holds the caption + font), the unit tests
+		//! pass a synthetic one; the argument is the node's final WINDOW-pixel
+		//! width, the return its measured WINDOW-pixel height. Empty = the
+		//! width-independent measure, exactly as before.
+		std::function<float(float)>	measureHeightForWidth;
 		std::vector<LayoutItem*> children;		//!< child nodes (not owned)
 		void*					userData = nullptr;	//!< opaque back-reference
 

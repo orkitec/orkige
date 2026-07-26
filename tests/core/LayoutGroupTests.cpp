@@ -19,6 +19,9 @@
 
 #include "core_util/UiLayout.h"
 
+#include <algorithm>
+#include <cmath>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -255,4 +258,90 @@ TEST_CASE("layout group: an anchored child nests inside a group child",
 	// the badge pins to the row's top-right, 4px in: right edge at 300-4 = 296
 	CHECK((badge->resolved.x + badge->resolved.w) == Approx(296.0f));
 	CHECK(badge->resolved.y == Approx(4.0f));
+}
+
+// a synthetic wrapped-text measurer: a fixed area of "ink" flowed into `width`
+// columns, ceil-ing to whole lines of a fixed line height (the shape of a real
+// caption's height-for-width, without a font)
+namespace
+{
+	std::function<float(float)> inkMeasurer(float inkWidth, float lineHeight)
+	{
+		return [inkWidth, lineHeight](float width) -> float
+		{
+			if (width <= 0.0f) { return lineHeight; }
+			const float lines =
+				std::max(1.0f, std::ceil(inkWidth / width));
+			return lines * lineHeight;
+		};
+	}
+}
+
+TEST_CASE("height-for-width: a wrapped node measures its height from the "
+	"resolved width", "[unit][uilayout][wrap]")
+{
+	// a label stretched across a parent, vertical content-size-fit, whose height
+	// comes from the height-for-width closure (300px of ink, 20px lines)
+	LayoutItem label;
+	applyAnchorPreset(label.node, LAP_STRETCH_TOP);	// stretch horizontally
+	label.node.pivot.y = 0.0f;
+	label.fit.vertical = LFM_Preferred;
+	label.contentSize.x = 300;	// the width-independent fallback (unused here)
+	label.contentSize.y = 20;
+	label.measureHeightForWidth = inkMeasurer(300.0f, 20.0f);
+
+	// a wide parent: the 300px of ink fits on ~2 lines at 150px
+	resolveTree(label, LayoutRect{0, 0, 150, 500}, 1.0f);
+	CHECK(label.resolved.w == Approx(150.0f));
+	CHECK(label.resolved.h == Approx(40.0f));		// ceil(300/150) = 2 lines
+
+	// a narrower parent grows the height (more lines) - width change propagates
+	resolveTree(label, LayoutRect{0, 0, 60, 500}, 1.0f);
+	CHECK(label.resolved.w == Approx(60.0f));
+	CHECK(label.resolved.h == Approx(100.0f));		// ceil(300/60) = 5 lines
+
+	// a wider parent shrinks it back to one line
+	resolveTree(label, LayoutRect{0, 0, 400, 500}, 1.0f);
+	CHECK(label.resolved.h == Approx(20.0f));		// ceil(300/400) = 1 line
+
+	// without a measurer the width-independent preferred height is used
+	label.measureHeightForWidth = {};
+	resolveTree(label, LayoutRect{0, 0, 60, 500}, 1.0f);
+	CHECK(label.resolved.h == Approx(20.0f));		// contentSize.y, width-blind
+}
+
+TEST_CASE("height-for-width: a wrapped label nested in a vertical group grows "
+	"the stack", "[unit][uilayout][wrap][group]")
+{
+	std::vector<std::unique_ptr<LayoutItem>> pool;
+	// a fixed 30px header, then a force-expanded wrapped label (240px of ink,
+	// 24px lines) inside a vertical group
+	LayoutItem* header = leaf(pool, 100, 30);
+	auto label = std::make_unique<LayoutItem>();
+	label->fit.vertical = LFM_Preferred;
+	label->contentSize.x = 240;
+	label->contentSize.y = 24;
+	label->measureHeightForWidth = inkMeasurer(240.0f, 24.0f);
+
+	LayoutItem group;
+	group.group.type = LGT_Vertical;
+	group.group.childForceExpand = true;	// children take the group's width
+	group.children.push_back(header);
+	group.children.push_back(label.get());
+
+	// group 120px wide: the label wraps 240px of ink to 2 lines = 48px, so it
+	// sits below the 30px header
+	measurePreferred(group, 1.0f);
+	assignRects(group, LayoutRect{0, 0, 120, 400}, 1.0f);
+	CHECK(header->resolved.h == Approx(30.0f));
+	CHECK(label->resolved.w == Approx(120.0f));
+	CHECK(label->resolved.h == Approx(48.0f));		// ceil(240/120) = 2 lines
+	CHECK(label->resolved.y == Approx(30.0f));		// stacked under the header
+
+	// narrower group -> the label grows and the label's y is unchanged (still
+	// right under the header), the stack simply gets taller
+	assignRects(group, LayoutRect{0, 0, 60, 400}, 1.0f);
+	CHECK(label->resolved.w == Approx(60.0f));
+	CHECK(label->resolved.h == Approx(96.0f));		// ceil(240/60) = 4 lines
+	CHECK(label->resolved.y == Approx(30.0f));
 }

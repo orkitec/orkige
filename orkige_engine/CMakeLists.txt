@@ -224,6 +224,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gui/FontAtlas.cpp
     engine_gui/WorldTextLayout.h
     engine_gui/WorldTextLayout.cpp
+    engine_gui/TextWrap.h
+    engine_gui/TextWrap.cpp
     engine_gui/UiRenderer.h
     engine_gui/UiRenderer.cpp
     engine_gui/IGuiObject.h

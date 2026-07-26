@@ -16,6 +16,8 @@
 #include <core_util/Ui2DTransform.h>
 #include <core_util/UiTransition.h>
 
+#include <functional>
+
 namespace Orkige
 {
 	class ORKIGE_ENGINE_DLL GuiWidget : public IGuiObject
@@ -254,6 +256,13 @@ namespace Orkige
 		//! group arrangement. The base is the widget's current size; text widgets
 		//! override to measure their caption.
 		virtual Ogre::Vector2 getPreferredSize();
+		//! @brief a wrapped-text widget's height-for-width measurer for the layout
+		//! resolver: a closure that returns the widget's WINDOW-pixel height for a
+		//! given WINDOW-pixel width. Empty (the default) for everything that does
+		//! not wrap - the resolver then uses the width-independent preferred
+		//! height. A wrapped label/textbox overrides it (@see setWrap). The
+		//! resolver consults it during assignRects once the width is settled.
+		virtual std::function<float(float)> getHeightForWidthMeasurer() { return {}; }
 		//! @brief a scroll viewport's current scroll offset in window pixels
 		//! (0 for every other widget); the resolver shifts this widget's children
 		//! by it. @see GuiScrollView

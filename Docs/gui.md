@@ -176,8 +176,8 @@ Widget `Type`s: `label`, `textbox`, `button`, `checkbox`, `selectmenu`,
 
 | Widget | Purpose | Key API (poll / set) |
 |---|---|---|
-| `GuiLabel` | one line of text | `setText` |
-| `GuiTextbox` | multi-line markup text (`UiMarkupText`, wrapped) | `setText` |
+| `GuiLabel` | one line of text, or wrap-to-width | `setText` / `setWrap` |
+| `GuiTextbox` | multi-line markup text (`UiMarkupText`), wrap-to-width | `setText` / `setWrap` |
 | `GuiButton` | pressable button | `wasClicked` / `ButtonHitEvent`, `setPressFeedback` |
 | `GuiCheckBox` | on/off toggle (may join a toggle group) | `isChecked` / `setChecked` |
 | `GuiSelectMenu` | an option **cycler** (‹ value ›) | `getSelectedIndex` / `setItemsString` |
@@ -207,6 +207,34 @@ Common to every widget (`GuiWidget`): `setEnabled`/`isEnabled`, the rect-anchor
 layout setters (`setParent`/`setAnchorPreset`/`setPivot`/`setOffsets`/…),
 `setGroupAlpha`/`getEffectiveAlpha`, `setTransition`, and `getLayer()` for
 per-layer visibility.
+
+### Wrap-to-width text
+
+A label or textbox with `setWrap(true)` (`.oui` key `wrap true`, Lua `setWrap`)
+wraps to its **resolved width** instead of drawing one clipped line. The break
+rules are the standard ones: a Latin run breaks at spaces; a CJK codepoint may
+break between any two glyphs; a single word wider than the column hard-breaks at
+the glyph that no longer fits (never overflowing); an explicit `\n` still forces
+a break; kerning applies within a line and never across a break. A textbox's
+markup runs and inline sprites flow across the breaks — a run split by a wrap
+keeps its colour/font, and a sprite that does not fit moves whole to the next
+line. The pure greedy line-breaker is `engine_gui/TextWrap`; the pixel layout is
+`UiCaption`/`UiMarkupText`.
+
+Pair `wrap` with a width (anchors, `setSize`, or a stretch anchor) and a
+`preferred` vertical content-size-fit (`fit none preferred`) to let the widget
+**grow taller as its column narrows**: the layout resolver measures a wrapped
+node's height from the width it settles on (height-for-width), so a wrapped label
+in a content-fit panel re-flows and re-heights on a resize or a `loc()` text swap
+with no script maths.
+
+```
+[Label body]
+anchor  = stretchtop      # stretch across the parent, pinned to the top
+offsets = 16 8 -16 0
+wrap    = true
+fit     = none preferred  # grow the height to fit the wrapped lines
+```
 
 ### Widget class hierarchy
 
@@ -543,7 +571,8 @@ anchor = center          # rect-anchor layout (opt-in; see below)
 `useSafeArea`. Group keys (on a container): `group` (`horizontal`/`vertical`/
 `grid`), `padding`, `spacing`, `childAlign`, `childExpand`, `cellSize`,
 `gridConstraint`, `fit`. Draw modes: `nineSlice`, `tiled` (decors and
-buttons), `color` (decor-only).
+buttons), `color` (decor-only). Text: `wrap` (label/textbox; wrap to the
+resolved width — see [Wrap-to-width text](#wrap-to-width-text)).
 
 ### Widget types
 

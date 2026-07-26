@@ -36,8 +36,16 @@ namespace Orkige
 		virtual Ogre::Vector2 getPosition();
 		//! set box text
 		void setText(String const & text);
+		//! @brief wrap the markup to the box width (@see UiMarkupText::setWrap):
+		//! runs and inline sprites flow across the breaks. Give it a width via
+		//! setSize/anchors; a `preferred` vertical content-size-fit grows it.
+		void setWrap(bool wrap);
+		//! @brief is wrap-to-width on?
+		bool getWrap() const;
 		//! get gorilla Caption
 		inline UiMarkupText* getMarkupText();
+		virtual Ogre::Vector2 getPreferredSize();
+		virtual std::function<float(float)> getHeightForWidthMeasurer();
 		virtual void applyRenderTransform(Ui2DTransform const & transform);
 		virtual void applyRenderAlpha(float alphaMultiplier);
 	protected:

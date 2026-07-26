@@ -2721,6 +2721,110 @@ int main(int, char**)
 						}
 					}
 				}
+
+				// wrap-to-width leg: a label wrapping to a content-fit column
+				// grows TALLER as the column narrows (height-for-width through
+				// the resolver, end to end), a markup textbox wraps its coloured
+				// runs, and a non-Latin (Cyrillic, lazily paged) wrapped label
+				// draws without error.
+				if (layoutOk)
+				{
+					gui.setDesignResolution(W, H, 0.0f);
+					gui.setRootSpace("FullWindow");
+
+					Orkige::woptr<Orkige::GuiLabel> wrapWeak =
+						factory->createLabel("wrapLabel", 9,
+							"The quick brown fox jumps over the lazy dog again "
+							"and again to force several wrapped lines",
+							Orkige::Vec2(40, 300), "", 7, true);
+					Orkige::optr<Orkige::GuiLabel> wrapLabel = wrapWeak.lock();
+					if (!wrapLabel)
+					{
+						SDL_Log("hello_orkige: FAILED - wrap label not created");
+						layoutOk = false;
+					}
+					else
+					{
+						wrapLabel->setWrap(true);
+						wrapLabel->setAnchorPreset("TopLeft");
+						wrapLabel->setPivot(0, 0);
+						wrapLabel->setAnchoredPosition(40, 300);
+						wrapLabel->setSizeDelta(360, 20);
+						wrapLabel->setContentSizeFit("none", "preferred");
+						render->renderOneFrame();
+						const float wideH = wrapLabel->getCaption()->height();
+
+						// narrow the column: more lines, so the resolved height
+						// GROWS (the whole point of height-for-width)
+						wrapLabel->setSizeDelta(140, 20);
+						render->renderOneFrame();
+						const float narrowH = wrapLabel->getCaption()->height();
+						if (!(narrowH > wideH) || wideH <= 0.0f)
+						{
+							SDL_Log("hello_orkige: FAILED - wrapped label height "
+								"did not grow when narrowed (wide %.1f, narrow "
+								"%.1f)", wideH, narrowH);
+							layoutOk = false;
+						}
+						else
+						{
+							SDL_Log("hello_orkige: wrap OK - narrowing the column "
+								"grew the label %.0f -> %.0f px (more lines)",
+								wideH, narrowH);
+						}
+					}
+
+					// a markup textbox wraps its coloured runs across lines
+					Orkige::woptr<Orkige::GuiTextbox> boxWeak =
+						factory->createTextbox("wrapBox", 9,
+							"%1important%R body text that is quite long and must "
+							"flow onto several wrapped lines inside the box",
+							Orkige::Vec2(40, 460), "", 7, true);
+					if (Orkige::optr<Orkige::GuiTextbox> box = boxWeak.lock())
+					{
+						box->setWrap(true);
+						box->setSize(160, 20);
+						render->renderOneFrame();
+						const float boxH = box->getMarkupText()->height();
+						const float oneLine =
+							box->getMarkupText()->measureWrappedHeight(1.0e6f);
+						if (!(boxH > oneLine * 1.5f))
+						{
+							SDL_Log("hello_orkige: FAILED - markup textbox did not "
+								"wrap (height %.1f, one line %.1f)", boxH, oneLine);
+							layoutOk = false;
+						}
+					}
+
+					// a Cyrillic (lazily paged) wrapped label draws without error
+					Orkige::woptr<Orkige::GuiLabel> cyrWeak =
+						factory->createLabel("wrapCyr", 9,
+							"\xD0\x9F\xD1\x80\xD0\xB8\xD0\xBC\xD0\xB5\xD1\x80 "
+							"\xD1\x82\xD0\xB5\xD0\xBA\xD1\x81\xD1\x82\xD0\xB0 "
+							"\xD0\xB4\xD0\xBB\xD1\x8F \xD0\xBF\xD0\xB5\xD1\x80"
+							"\xD0\xB5\xD0\xBD\xD0\xBE\xD1\x81\xD0\xB0",
+							Orkige::Vec2(240, 300), "", 7, true);
+					if (Orkige::optr<Orkige::GuiLabel> cyr = cyrWeak.lock())
+					{
+						cyr->setWrap(true);
+						cyr->setAnchorPreset("TopLeft");
+						cyr->setPivot(0, 0);
+						cyr->setAnchoredPosition(240, 300);
+						cyr->setSizeDelta(120, 20);
+						cyr->setContentSizeFit("none", "preferred");
+						render->renderOneFrame();
+						Orkige::woptr<Orkige::GuiView> view =
+							gui.getView("gui_default");
+						const size_t verts = view.lock()
+							? view.lock()->getScreen()->getLastVertexCount() : 0;
+						if (verts == 0)
+						{
+							SDL_Log("hello_orkige: FAILED - wrapped HUD drew "
+								"nothing (paged Cyrillic wrap)");
+							layoutOk = false;
+						}
+					}
+				}
 			}
 			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
 			Orkige::PlatformWindow::clearSafeAreaInsetsOverride();

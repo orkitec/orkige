@@ -51,11 +51,19 @@ namespace Orkige
 		void setText(String const & text);
 		//! set text alignment inside the label
 		void setAlignment(LabelAlignment alignment);
+		//! @brief wrap the label text to its width instead of a single clipped
+		//! line (@see UiCaption::setWrap). Pair with setSize/anchors to give it a
+		//! width and a `preferred` vertical content-size-fit to grow with the text.
+		void setWrap(bool wrap);
+		//! @brief is wrap-to-width on?
+		bool getWrap() const;
 		//! @brief set the text opacity 0..1 (keeps the current colour); used to
 		//! dim a label when its owning widget is disabled
 		void setAlpha(float alpha);
 		//! get gorilla Caption
 		inline UiCaption* getCaption();
+		virtual Ogre::Vector2 getPreferredSize();
+		virtual std::function<float(float)> getHeightForWidthMeasurer();
 		virtual void applyRenderTransform(Ui2DTransform const & transform);
 		virtual void applyRenderAlpha(float alphaMultiplier);
 	protected:

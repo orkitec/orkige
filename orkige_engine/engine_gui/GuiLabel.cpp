@@ -122,6 +122,48 @@ namespace Orkige
 		this->caption->colour(colour);
 	}
 	//---------------------------------------------------------
+	void GuiLabel::setWrap(bool wrap)
+	{
+		this->caption->setWrap(wrap);
+		// re-measure this label's content: a wrapped label's height depends on
+		// its resolved width, so it wants a layout resolve on the change
+		GuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	bool GuiLabel::getWrap() const
+	{
+		return this->caption->getWrap();
+	}
+	//---------------------------------------------------------
+	Ogre::Vector2 GuiLabel::getPreferredSize()
+	{
+		Ogre::Vector2 size;
+		this->caption->_calculateDrawSize(size);
+		if(this->caption->getWrap())
+		{
+			// the width-independent fallback height (the resolver overrides it via
+			// getHeightForWidthMeasurer once the width is settled); measure at the
+			// caption's current width so an unconstrained axis still reads sanely
+			size.y = this->caption->measureWrappedHeight(this->caption->width());
+		}
+		return size;
+	}
+	//---------------------------------------------------------
+	std::function<float(float)> GuiLabel::getHeightForWidthMeasurer()
+	{
+		if(!this->caption->getWrap())
+		{
+			return {};
+		}
+		// the transient closure is consulted synchronously inside the resolve
+		// pass while this label (and its caption) is alive
+		UiCaption* cap = this->caption;
+		return [cap](float width) -> float
+		{
+			return float(cap->measureWrappedHeight(Ogre::Real(width)));
+		};
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 
@@ -148,6 +190,7 @@ namespace Orkige
 		OFUNC(setText)
 		OFUNC(setAlignment)
 		OFUNC(setAlpha)
+		OFUNC(setWrap)
 		OENUM_START(LabelAlignment)
 			OENUM_VALUE(LA_TOPLEFT)
 			OENUM_VALUE(LA_TOP)

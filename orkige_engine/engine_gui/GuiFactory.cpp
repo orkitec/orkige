@@ -212,6 +212,20 @@ namespace Orkige
 				stream >> h >> vert;
 				widget->setContentSizeFit(h, vert);
 			}
+			// wrap-to-width lives on the text-bearing widgets (label/textbox);
+			// pair it with a width (anchors/size) and `fit ... preferred` to grow
+			if(String const * v = s.find("wrap"))
+			{
+				const bool doWrap = parseBool(*v, false);
+				if(GuiLabel* label = dynamic_cast<GuiLabel*>(widget))
+				{
+					label->setWrap(doWrap);
+				}
+				else if(GuiTextbox* box = dynamic_cast<GuiTextbox*>(widget))
+				{
+					box->setWrap(doWrap);
+				}
+			}
 			// draw modes live on the decor widget (panels) and on buttons
 			// (whose face is a decor underneath - the same setters Lua uses);
 			// other widgets keep their default stretched fill

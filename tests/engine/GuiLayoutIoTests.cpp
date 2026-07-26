@@ -240,6 +240,34 @@ TEST_CASE("oui: a [ListView] section round-trips (items pipe-separated)",
 	CHECK(*doc2.sections[0].find("items") == "Sword | Shield | Potion of Healing");
 }
 
+TEST_CASE("oui: a label's wrap key round-trips", "[unit][oui]")
+{
+	// wrap-to-width rides a [Label] (or [Textbox]) section as a plain value the
+	// generic document model preserves; GuiFactory::loadLayout applies it to the
+	// caption. The APPLY (the label wraps + grows under content-size-fit) is
+	// asserted end to end in the demo_layout selfcheck.
+	const String text =
+		"[Label body]\n"
+		"anchor = stretchtop\n"
+		"offsets = 0 0 0 0\n"
+		"fit = none preferred\n"
+		"wrap = true\n";
+
+	GuiLayoutDoc doc;
+	String error;
+	REQUIRE(GuiLayoutDoc::parse(text, doc, error));
+	REQUIRE(doc.sections.size() == 1);
+	REQUIRE(doc.sections[0].find("wrap") != nullptr);
+	CHECK(*doc.sections[0].find("wrap") == "true");
+
+	const String canonical = doc.serialize();
+	GuiLayoutDoc doc2;
+	REQUIRE(GuiLayoutDoc::parse(canonical, doc2, error));
+	CHECK(doc2.serialize() == canonical);
+	REQUIRE(doc2.sections[0].find("wrap") != nullptr);
+	CHECK(*doc2.sections[0].find("wrap") == "true");
+}
+
 TEST_CASE("oui: a key before any section fails honestly", "[unit][oui]")
 {
 	const String text = "atlas = gui_default\n[Label a]\ntext = x\n";

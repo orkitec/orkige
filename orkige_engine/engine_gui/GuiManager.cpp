@@ -1811,6 +1811,9 @@ namespace Orkige
 			const Ogre::Vector2 preferred = widget->getPreferredSize();
 			item.contentSize.x = preferred.x;
 			item.contentSize.y = preferred.y;
+			// a wrapped text widget measures its height from the width the
+			// resolver settles on (height-for-width); empty for everything else
+			item.measureHeightForWidth = widget->getHeightForWidthMeasurer();
 			item.scrollOffset = widget->getScrollOffset();
 			item.userData = widget.get();
 		}

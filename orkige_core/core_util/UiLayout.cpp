@@ -55,6 +55,16 @@ namespace Orkige
 			if(rows < 1) rows = 1;
 			if(columns < 1) columns = 1;
 		}
+		//! this node's height for a settled width: the height-for-width measurer
+		//! (wrapped text) when present, else the width-independent preferred height
+		inline float heightForWidth(LayoutItem const & item, float width)
+		{
+			if(item.measureHeightForWidth)
+			{
+				return item.measureHeightForWidth(width);
+			}
+			return item.preferred.y;
+		}
 		//! this group's preferred size from its (already measured) children
 		LayoutVec2 measureGroupPreferred(LayoutItem const & item, float scale)
 		{
@@ -162,9 +172,13 @@ namespace Orkige
 				}
 				else
 				{
-					const float ch = child->preferred.y;
 					const float cw = g.childForceExpand ? content.w
 						: child->preferred.x;
+					// a wrapped child in a column takes its height from the width
+					// the group just handed it (height-for-width); a plain child
+					// keeps its width-independent preferred height
+					const float ch = (child->fit.vertical == LFM_Preferred)
+						? heightForWidth(*child, cw) : child->preferred.y;
 					r.x = content.x + (g.childForceExpand ? 0.0f
 						: crossAlignOffset(g.childAlign, content.w, cw));
 					r.y = cursor;
@@ -331,7 +345,10 @@ namespace Orkige
 		}
 		if(item.fit.vertical == LFM_Preferred)
 		{
-			const float newH = item.preferred.y;
+			// the width is settled above, so a wrapped node measures its height
+			// from that resolved width (height-for-width); non-wrapping content
+			// falls back to the width-independent preferred height
+			const float newH = heightForWidth(item, rect.w);
 			rect.y += (rect.h - newH) * item.node.pivot.y;
 			rect.h = newH;
 		}

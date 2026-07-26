@@ -1,0 +1,104 @@
+/********************************************************************
+	created:	Sunday 2026/07/26 at 10:00
+	filename: 	TextWrap.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
+#ifndef __TextWrap_h__26_7_2026__10_00_00__
+#define __TextWrap_h__26_7_2026__10_00_00__
+
+//! @file TextWrap.h
+//! @brief the PURE greedy line-breaker shared by the wrap-to-width text
+//! widgets (a label's UiCaption and a textbox's UiMarkupText). The caller
+//! turns its glyph/sprite/space stream into a flat list of WrapCells (plain
+//! floats + flags, no font or renderer types) and this decides where the
+//! lines break to fit a pixel width; the caller reads the per-cell line index
+//! and line-relative pen back out and places its quads.
+//! @remarks Break rules (the standard ones): a latin run breaks at spaces; a
+//! CJK codepoint may break between any two glyphs (the caller flags each CJK
+//! cell breakBefore); a single run wider than the width HARD-breaks at the
+//! glyph that no longer fits (no overflow); an explicit '\n' (a forcedBreak
+//! cell) always starts a new line; kerning that a cell carries as leadKern is
+//! DROPPED when the cell begins a line, so it applies within a line and never
+//! across a break. Being pure floats, the algorithm is unit-tested headlessly
+//! against synthetic widths as well as through a real baked font.
+
+#include "engine_module/EnginePrerequisites.h"
+#include <core_util/String.h>
+
+#include <vector>
+
+namespace Orkige
+{
+	class UiFont;
+	class UiGlyph;
+
+	//! @brief one placeable unit on a line (a glyph, an inline sprite, a space
+	//! or a '\n'). Lengths are DEVICE pixels (already *Scaled by the caller).
+	struct ORKIGE_ENGINE_DLL WrapCell
+	{
+		//! kerning added BEFORE this cell (the gap to the previous cell). Dropped
+		//! when the cell begins a line, so kerning never leaks across a break.
+		float	leadKern = 0.0f;
+		//! the cell's own pen advance (a glyph's advance, a sprite's width, the
+		//! space length). The next cell's pen = this cell's pen + leadKern + advance.
+		float	advance = 0.0f;
+		//! the cell's inked width (used for the right-edge overflow test). 0 for a
+		//! space / '\n' (they never trigger a wrap).
+		float	width = 0.0f;
+		//! a whitespace cell: it never triggers a wrap and its width is excluded
+		//! from a line's measured extent (trailing spaces collapse at a break).
+		bool	space = false;
+		//! a break opportunity exists BEFORE this cell (a CJK boundary). A break
+		//! after a space is derived automatically (the first non-space wins).
+		bool	breakBefore = false;
+		//! a hard '\n': ends the current line and emits nothing.
+		bool	forcedBreak = false;
+	};
+
+	//! @brief the broken layout: a line index + line-relative left pen per input
+	//! cell, plus each line's measured width and the line count.
+	struct ORKIGE_ENGINE_DLL WrapResult
+	{
+		std::vector<int>	lineOf;		//!< line index of each input cell
+		std::vector<float>	penX;		//!< line-relative left pen of each cell (px)
+		std::vector<float>	lineWidth;	//!< measured width of each line (px)
+		int					lineCount = 0;
+
+		void clear()
+		{
+			this->lineOf.clear();
+			this->penX.clear();
+			this->lineWidth.clear();
+			this->lineCount = 0;
+		}
+	};
+
+	namespace TextWrap
+	{
+		//! @brief is a codepoint a CJK / Kana / Hangul glyph that may break
+		//! between any two neighbours (the standard no-inter-word-space scripts)?
+		ORKIGE_ENGINE_DLL bool isBreakableIdeograph(unsigned int codepoint);
+
+		//! @brief greedily break @p cells to fit @p maxWidth pixels. @p maxWidth
+		//! <= 0 disables width wrapping (only forcedBreak cells split lines). The
+		//! result has one lineOf/penX entry per input cell; lineWidth/lineCount
+		//! summarise the lines. @see the file header for the break rules.
+		ORKIGE_ENGINE_DLL void wrap(std::vector<WrapCell> const & cells,
+			float maxWidth, WrapResult & out);
+
+		//! @brief build the wrap cells for a single-font UTF-8 run (a caption).
+		//! Each glyph, space and '\n' becomes one cell (in @p cells); @p glyphs
+		//! carries the glyph pointer per cell (NULL for a space/newline) so the
+		//! caller emits quads for the inked ones. A glyph carries its leading
+		//! kerning as leadKern (dropped at a line start) and CJK glyphs are
+		//! flagged breakBefore. Metrics come through the font's *Scaled getters.
+		ORKIGE_ENGINE_DLL void buildRun(UiFont const & font, String const & utf8,
+			std::vector<WrapCell> & cells,
+			std::vector<UiGlyph const *> & glyphs);
+	}
+}
+
+#endif //__TextWrap_h__26_7_2026__10_00_00__
