@@ -184,15 +184,21 @@ re-uploads them.
 Below the overlays the dropdown carries two **Scene-view-only** looks:
 
 - **View Mode** — a radio of **Shaded** (the default solid look), **Wireframe** and
-  **Shaded + Wireframe**. Wireframe renders the Scene view as line-fill for
-  inspecting geometry. This is a per-backend capability: on the **classic** backend
-  it flips the Scene view camera's polygon mode (leak-free, since that camera only
-  ever draws the Scene RTT); on **Ogre-Next**, polygon mode is baked into
-  pipeline-state objects with no per-target override, so a Scene-only wireframe is
-  not possible and the mode is **greyed** with the reason in its tooltip.
-  **Shaded + Wireframe** (a solid pass with a wireframe overlay) needs a second
-  depth-biased pass and is not built in this version, so it is greyed on both
-  backends.
+  **Shaded + Wireframe**. Wireframe renders the Scene view's 3D geometry as line-fill
+  for inspecting geometry, on **both** backends by different roads. On **classic** it
+  flips the Scene view camera's polygon mode (per-camera, leak-free, since that camera
+  only ever draws the Scene RTT). On **Ogre-Next**, polygon mode is baked into
+  pipeline-state objects with no per-target override, so wireframe is a **global**
+  state: the backend keeps the generated datablocks split into a 3D-scene set (mesh /
+  material / water) and a 2D-UI set (sprites, vector shapes, dynamic lines, the
+  editor's own ImGui chrome + gui), and wireframe flips **only** the 3D-scene set — so
+  the geometry wireframes while the editor UI and 2D content stay solid. Because it is
+  global, it rides the **one-game-view invariant** (below): it is armed only on a frame
+  the Scene view owns, so it never leaks into the Game Preview or Play, and it composes
+  with the Lighting toggle (flat unlit wireframe). **Shaded + Wireframe** (a solid pass
+  with a wireframe overlay) needs a second depth-biased pass — on Ogre-Next the editor
+  renders all its targets inside one frame with no per-target mid-frame state
+  bracketing, and neither backend has the overlay pass built — so it is greyed on both.
 - **Lighting** — when off, the Scene view renders flat (**albedo + a bright flat
   ambient**, every analytic light suppressed) for inspecting materials without the
   light rig. It works on **both** backends, but as a **global per-frame** state, not a

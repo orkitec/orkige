@@ -321,6 +321,26 @@ namespace Orkige
 		return this->mImpl->lightingSuppressed;
 	}
 	//---------------------------------------------------------
+	void RenderWorld::setSceneWireframe(bool enabled)
+	{
+		if(this->mImpl->sceneWireframe == enabled)
+		{
+			return;	// idempotent: flips only on the visibility-decision change
+		}
+		this->mImpl->sceneWireframe = enabled;
+		// next has no per-target polygon override, so this is the GLOBAL road:
+		// flip the 3D-scene datablock set (DT_SCENE) and leave the 2D/UI set
+		// solid. The editor arms it only on a Scene-only frame under the render
+		// invariant, so it cannot leak into the Game Preview / Play (@see
+		// RenderWorld::setSceneWireframe). Byte-exact restore on release.
+		RenderBackend::setGlobalWireframe(enabled);
+	}
+	//---------------------------------------------------------
+	bool RenderWorld::getSceneWireframe() const
+	{
+		return this->mImpl->sceneWireframe;
+	}
+	//---------------------------------------------------------
 	void RenderWorld::setBloom(BloomDesc const & desc)
 	{
 		this->mImpl->bloom = desc.sanitised();

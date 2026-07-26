@@ -82,6 +82,15 @@ namespace OrkigeEditor
 		return !lightingOn && sceneIsRenderer;
 	}
 	//---------------------------------------------------------
+	bool shouldWireframeScene(Orkige::RenderViewMode mode, bool sceneIsRenderer)
+	{
+		// wireframe only when the selected mode is Wireframe AND the Scene view is
+		// the one game view rendering this frame - next's global flip cannot leak
+		// into the preview/Play because they never render in a Scene-view frame.
+		// (ShadedWireframe is unbuilt, so it never reaches here as a scene flip.)
+		return mode == Orkige::RenderViewMode::Wireframe && sceneIsRenderer;
+	}
+	//---------------------------------------------------------
 	char const* sceneViewModeName(Orkige::RenderViewMode mode)
 	{
 		switch(mode)

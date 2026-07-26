@@ -83,6 +83,10 @@ namespace Orkige
 		//! flat-white and every light is hidden; the snapshot restores them EXACTLY
 		//! on release (recover-then-reapply, the ScreenShake precedent).
 		bool				lightingSuppressed = false;
+		//! scene-wireframe state (@see RenderWorld::setSceneWireframe): tracked only
+		//! so the getter answers consistently - classic wireframes PER TARGET via
+		//! RenderTexture::setViewMode, so the global route is a no-op here
+		bool				sceneWireframe = false;
 		Ogre::ColourValue	savedAmbientUpper;		//!< ambient at arm time (restore)
 		Ogre::ColourValue	savedAmbientLower;
 		//! every light's visibility at arm time (restored by re-iterating the

@@ -27,14 +27,16 @@ TEST_CASE("scene view mode: Shaded is always available", "[editor][viewmode]")
 TEST_CASE("scene view mode: Wireframe follows the backend capability",
 	"[editor][viewmode]")
 {
-	// classic (cap true) offers it; next (cap false) greys it with a reason
+	// a backend that reports the capability (both flavors do now - classic
+	// per-target, next global-under-the-invariant) offers it with no reason
 	REQUIRE(sceneViewModeInfo(RenderViewMode::Wireframe, true).available);
 	REQUIRE(sceneViewModeInfo(RenderViewMode::Wireframe, true).reason.empty());
 
-	const OrkigeEditor::SceneViewModeInfo next =
+	// a hypothetical backend without the capability greys it with a reason
+	const OrkigeEditor::SceneViewModeInfo noCap =
 		sceneViewModeInfo(RenderViewMode::Wireframe, false);
-	REQUIRE_FALSE(next.available);
-	REQUIRE_FALSE(next.reason.empty());
+	REQUIRE_FALSE(noCap.available);
+	REQUIRE_FALSE(noCap.reason.empty());
 }
 
 TEST_CASE("scene view mode: ShadedWireframe is unavailable on every flavor",
@@ -86,6 +88,19 @@ TEST_CASE("lighting suppression under the render invariant", "[editor][viewmode]
 	REQUIRE_FALSE(shouldSuppressLighting(true, true));
 	// Scene is NOT the renderer (preview renders) -> stay lit (real look)
 	REQUIRE_FALSE(shouldSuppressLighting(false, false));
+}
+
+TEST_CASE("scene wireframe under the render invariant", "[editor][viewmode]")
+{
+	using OrkigeEditor::shouldWireframeScene;
+	// next arms its GLOBAL wireframe only when the mode is Wireframe AND the
+	// Scene view is the frame's renderer (the invariant keeps it off the preview)
+	REQUIRE(shouldWireframeScene(RenderViewMode::Wireframe, /*sceneIsRenderer*/true));
+	// Wireframe selected but the preview renders this frame -> stay solid
+	REQUIRE_FALSE(shouldWireframeScene(RenderViewMode::Wireframe, false));
+	// Shaded (or the unbuilt ShadedWireframe) never arms the scene wireframe
+	REQUIRE_FALSE(shouldWireframeScene(RenderViewMode::Shaded, true));
+	REQUIRE_FALSE(shouldWireframeScene(RenderViewMode::ShadedWireframe, true));
 }
 
 TEST_CASE("scene view mode string round-trips", "[editor][viewmode]")

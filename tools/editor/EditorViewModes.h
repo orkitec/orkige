@@ -62,6 +62,16 @@ namespace OrkigeEditor
 	//! suppressed frame, so it is always the real lit look.
 	bool shouldSuppressLighting(bool lightingOn, bool sceneIsRenderer);
 
+	//! @brief should the WHOLE frame render the 3D scene in WIREFRAME? On the next
+	//! flavor wireframe is a GLOBAL state (@see RenderWorld::setSceneWireframe), so
+	//! like lighting-off it may be armed ONLY when the Scene view is the ONE game
+	//! view rendering this frame (@p sceneIsRenderer) - the render invariant then
+	//! guarantees the Game Preview / Play are not in a wireframe frame. Armed when
+	//! the selected @p mode is Wireframe AND the Scene view is the renderer.
+	//! (Classic ignores this - it wireframes per-target via RenderTexture::
+	//! setViewMode; the editor calls both routes, each flavor honors its own.)
+	bool shouldWireframeScene(Orkige::RenderViewMode mode, bool sceneIsRenderer);
+
 	//! @brief the stable string for a Scene-view mode (MCP value + ini persistence):
 	//! "shaded" / "wireframe" / "shaded_wireframe"
 	char const* sceneViewModeName(Orkige::RenderViewMode mode);

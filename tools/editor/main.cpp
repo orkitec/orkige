@@ -1882,6 +1882,14 @@ int main(int argc, char** argv)
 		int viewModeSceneW = 0, viewModeSceneH = 0;
 		int viewModePreviewW = 0, viewModePreviewH = 0;
 		int viewModeLitW = 0, viewModeLitH = 0;
+		// the Game Preview render count sampled when wireframe armed - on next the
+		// invariant PROTECTS the preview by keeping it frozen (it never renders in a
+		// wireframe frame, so the shared datablock never wireframes it); the count
+		// must not advance while armed (@see the wireframe leg's next branch)
+		unsigned int viewModeWirePrevFrames = 0;
+		bool viewModeWireRestorePending = false;	// frame-33 exact-restore check
+		bool viewModeComposeArmed = false;			// frames 34/36/38 compose leg
+		bool viewModeComposeRestorePending = false;
 		// render-invariant leg counters (frames 60+): the frame the counters
 		// were sampled at, to prove the frozen view does NOT render
 		unsigned int invPrevScene = 0, invPrevPreview = 0, invScene2 = 0;
@@ -2552,19 +2560,19 @@ int main(int argc, char** argv)
 			// setter no-ops unless its value changed. A persisted mode/toggle this
 			// backend cannot do (e.g. an ini written on the other flavor) is coerced
 			// back to the default so the Scene RTT and the dropdown never disagree.
+			const bool wireCap = Orkige::RenderSystem::get()->supports(
+				Orkige::RenderCaps::SceneWireframeView);
+			Orkige::RenderViewMode sceneViewMode =
+				static_cast<Orkige::RenderViewMode>(viewSettings.sceneViewMode);
+			if (!OrkigeEditor::sceneViewModeInfo(sceneViewMode, wireCap).available)
+			{
+				sceneViewMode = Orkige::RenderViewMode::Shaded;
+				viewSettings.sceneViewMode = 0;
+			}
 			if (sceneTarget.texture)
 			{
-				const bool wireCap = Orkige::RenderSystem::get()->supports(
-					Orkige::RenderCaps::SceneWireframeView);
-				Orkige::RenderViewMode mode = static_cast<Orkige::RenderViewMode>(
-					viewSettings.sceneViewMode);
-				if (!OrkigeEditor::sceneViewModeInfo(mode, wireCap).available)
-				{
-					mode = Orkige::RenderViewMode::Shaded;
-					viewSettings.sceneViewMode = 0;
-				}
 				sceneTarget.texture->setSkyVisible(viewSettings.showSky);
-				sceneTarget.texture->setViewMode(mode);
+				sceneTarget.texture->setViewMode(sceneViewMode);
 			}
 			// THE RENDER INVARIANT: the Scene view and the Game Preview never both
 			// render in the same frame. Pick the ONE that renders (the visible one, or
@@ -2614,6 +2622,15 @@ int main(int argc, char** argv)
 				renderWorld->setLightingSuppressed(
 					OrkigeEditor::shouldSuppressLighting(
 						viewSettings.sceneLightingEnabled, sceneIsRenderer));
+				// Scene wireframe: classic already flipped the Scene RTT's own
+				// camera per-target (setViewMode above), so this GLOBAL route is a
+				// no-op there; on next it is the road (no per-target polygon mode),
+				// armed ONLY on a Scene-only frame like lighting-off so it never
+				// leaks into the Game Preview / Play. Both compose (flat unlit
+				// wireframe). Idempotent + byte-exact restore. @see setSceneWireframe.
+				renderWorld->setSceneWireframe(
+					OrkigeEditor::shouldWireframeScene(sceneViewMode,
+						sceneIsRenderer));
 			}
 
 			// finalize the ImGui frame and resubmit its draw data as the
@@ -6574,13 +6591,18 @@ int main(int argc, char** argv)
 
 			// --- Display dropdown v2 view mode / lighting selfcheck (both flavors)
 			// (ORKIGE_EDITOR_VIEWMODE_SELFCHECK). Frame 10 authors a lit water plane +
-			// a directional light + a camera. The WIREFRAME leg (classic): frame 20
-			// captures the lit baseline + arms wireframe, frame 30 asserts the Scene RTT
-			// changed while the Game Preview stayed byte-identical (per-target proof).
-			// The LIGHTING leg (both): frame 40 captures the lit baseline + arms
-			// lighting-off (a GLOBAL suppress via the Scene-only visibility decision),
-			// frame 50 asserts the Scene RTT flattened, frame 60 asserts disarming
-			// restored it EXACTLY (byte-identical).
+			// a directional light + a camera. The WIREFRAME leg (both flavors now):
+			// frame 20 captures the lit baseline + arms wireframe, frame 30 asserts the
+			// Scene RTT changed AND the Game Preview is protected - classic renders the
+			// preview out-of-band and proves it stayed byte-identical (per-target),
+			// next proves the preview stayed FROZEN (the invariant keeps the shared
+			// datablock from wireframing it); frame 33 asserts disarm restored the Scene
+			// RTT byte-identical. The COMPOSE leg: frames 34/36/38 arm wireframe AND
+			// lighting-off together (flat unlit wireframe) and prove both restore. The
+			// LIGHTING leg (both): frame 40 captures the lit baseline + arms lighting-off
+			// (a GLOBAL suppress via the Scene-only visibility decision), frame 50
+			// asserts the Scene RTT flattened, frame 60 asserts disarming restored it
+			// EXACTLY (byte-identical).
 			if (viewModeSelfcheckEnv && frameCount == 10)
 			{
 				auto vmFail = [&](std::string const& why)
@@ -6671,7 +6693,7 @@ int main(int argc, char** argv)
 				return sum / static_cast<double>(a.size());
 			};
 			(void)viewModeMeanDiff;
-			// (a) WIREFRAME leg (classic): frame 20 captures the lit baseline + arms
+			// (a) WIREFRAME leg (both flavors): frame 20 captures the lit baseline + arms
 			if (viewModeSelfcheckEnv && frameCount == 20 && exitCode == 0)
 			{
 				auto vmFail = [&](std::string const& why)
@@ -6713,6 +6735,10 @@ int main(int argc, char** argv)
 					{
 						viewSettings.sceneViewMode = 1;		// Wireframe
 						viewModeArmedWireframe = true;
+						// on next the invariant protects the preview by keeping it
+						// FROZEN while wireframe is armed (the datablock is shared, so
+						// a rendered preview WOULD wireframe) - sample its render count
+						viewModeWirePrevFrames = state.previewRenderFrames;
 					}
 				}
 			}
@@ -6726,54 +6752,204 @@ int main(int argc, char** argv)
 					exitCode = 27;
 					running = false;
 				};
+				// the flavor decides HOW wireframe is scoped: classic per-target (the
+				// Scene RTT's own camera flips, so an out-of-band preview render stays
+				// solid - a live per-target proof); next GLOBAL under the invariant
+				// (the datablock is shared, so the preview is protected only by never
+				// rendering in a wireframe frame - proven by its FROZEN render count)
+				const bool renderIsNext =
+					std::string(ORKIGE_EDITOR_RENDER_BACKEND) == "next";
 				const std::string scenePng =
 					(std::filesystem::temp_directory_path() /
 						"orkige_viewmode_scene_wire.png").string();
-				const std::string prevPng =
-					(std::filesystem::temp_directory_path() /
-						"orkige_viewmode_prev_wire.png").string();
-				std::string capErr;
-				std::vector<unsigned char> sceneWire, prevWire;
-				int sw = 0, sh = 0, pw = 0, ph = 0;
+				std::vector<unsigned char> sceneWire;
+				int sw = 0, sh = 0;
 				sceneTarget.texture->writeContentsToFile(scenePng);
-				gamePreviewStage.update(gameObjectManager, "", false, 0.0f);
-				const bool ok =
-					OrkigeEditor::decodeImageRgba(scenePng, sceneWire, sw, sh) &&
-					gamePreviewStage.renderAndCapture(prevPng, capErr) &&
-					OrkigeEditor::decodeImageRgba(prevPng, prevWire, pw, ph);
-				if (!ok)
+				if (!OrkigeEditor::decodeImageRgba(scenePng, sceneWire, sw, sh))
 				{
-					vmFail("could not capture the wireframe frame: " + capErr);
+					vmFail("could not capture the wireframe Scene RTT");
 				}
-				else if (sw != viewModeSceneW || sh != viewModeSceneH ||
-					pw != viewModePreviewW || ph != viewModePreviewH)
+				else if (sw != viewModeSceneW || sh != viewModeSceneH)
 				{
 					vmFail("the capture size changed between baseline and wireframe");
 				}
+				else if (viewModeMeanDiff(viewModeSceneBaseline, sceneWire) < 2.0)
+				{
+					vmFail("the Scene RTT did not change when wireframe was armed "
+						"(mean diff " + std::to_string(
+							viewModeMeanDiff(viewModeSceneBaseline, sceneWire)) + ")");
+				}
+				else if (renderIsNext &&
+					state.previewRenderFrames != viewModeWirePrevFrames)
+				{
+					// next: the shared datablock means a rendered preview would show
+					// wireframe - the invariant MUST have kept it frozen throughout
+					vmFail("the Game Preview rendered while the global wireframe was "
+						"armed - the render invariant did not protect it");
+				}
 				else
 				{
-					const double sceneDiff =
-						viewModeMeanDiff(viewModeSceneBaseline, sceneWire);
-					const double prevDiff =
-						viewModeMeanDiff(viewModePreviewBaseline, prevWire);
-					if (sceneDiff < 2.0)
+					std::error_code rmErr;
+					std::filesystem::remove(scenePng, rmErr);
+					bool previewOk = true;
+					if (!renderIsNext)
 					{
-						vmFail("the Scene RTT did not change when wireframe was "
-							"armed (mean diff " + std::to_string(sceneDiff) + ")");
-					}
-					else if (prevDiff > 1.5)
-					{
-						vmFail("the Game Preview changed when the Scene view "
-							"wireframe was armed - the per-target scoping leaked "
-							"(mean diff " + std::to_string(prevDiff) + ")");
-					}
-					else
-					{
-						std::error_code rmErr;
-						std::filesystem::remove(scenePng, rmErr);
+						// classic: render the preview out-of-band and prove the
+						// per-target wireframe did NOT leak into it (it stays solid)
+						const std::string prevPng =
+							(std::filesystem::temp_directory_path() /
+								"orkige_viewmode_prev_wire.png").string();
+						std::string capErr;
+						std::vector<unsigned char> prevWire;
+						int pw = 0, ph = 0;
+						gamePreviewStage.update(gameObjectManager, "", false, 0.0f);
+						if (!gamePreviewStage.renderAndCapture(prevPng, capErr) ||
+							!OrkigeEditor::decodeImageRgba(prevPng, prevWire, pw, ph))
+						{
+							vmFail("could not capture the wireframe Game Preview: " +
+								capErr);
+							previewOk = false;
+						}
+						else if (pw != viewModePreviewW || ph != viewModePreviewH)
+						{
+							vmFail("the Game Preview size changed under wireframe");
+							previewOk = false;
+						}
+						else if (viewModeMeanDiff(viewModePreviewBaseline, prevWire) >
+							1.5)
+						{
+							vmFail("the Game Preview changed when the Scene view "
+								"wireframe was armed - the per-target scoping leaked "
+								"(mean diff " + std::to_string(viewModeMeanDiff(
+									viewModePreviewBaseline, prevWire)) + ")");
+							previewOk = false;
+						}
 						std::filesystem::remove(prevPng, rmErr);
-						viewSettings.sceneViewMode = 0;		// disarm wireframe
 					}
+					if (previewOk)
+					{
+						viewSettings.sceneViewMode = 0;		// disarm wireframe
+						viewModeWireRestorePending = true;	// frame 33 checks restore
+					}
+				}
+			}
+			// (a2) WIREFRAME exact restore: after disarm, the Scene RTT must return
+			// byte-identical to the never-armed shaded baseline (the datablock's
+			// polygon mode restored to PM_SOLID - the recover-then-reapply contract)
+			if (viewModeSelfcheckEnv && exitCode == 0 &&
+				viewModeWireRestorePending && frameCount == 33)
+			{
+				viewModeWireRestorePending = false;
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				const std::string restorePng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_scene_wirerestore.png").string();
+				std::vector<unsigned char> sceneRestored;
+				int sw = 0, sh = 0;
+				sceneTarget.texture->writeContentsToFile(restorePng);
+				if (!OrkigeEditor::decodeImageRgba(restorePng, sceneRestored, sw, sh))
+				{
+					vmFail("could not capture the wireframe-restored Scene RTT");
+				}
+				else if (viewModeMeanDiff(viewModeSceneBaseline, sceneRestored) > 1.0)
+				{
+					vmFail("disarming wireframe did not restore the Scene RTT exactly "
+						"(mean diff " + std::to_string(viewModeMeanDiff(
+							viewModeSceneBaseline, sceneRestored)) + ")");
+				}
+				else
+				{
+					std::error_code rmErr;
+					std::filesystem::remove(restorePng, rmErr);
+				}
+			}
+			// (a3) COMPOSE leg (both flavors): wireframe AND lighting-off armed
+			// TOGETHER render a flat-unlit wireframe (the two states own different
+			// lanes - polygon mode vs lights/ambient - so they compose). Frame 34
+			// arms both, frame 36 asserts a large change vs the shaded-lit baseline
+			// and disarms, frame 38 asserts BOTH restored the Scene RTT exactly.
+			if (viewModeSelfcheckEnv && exitCode == 0 && frameCount == 34 &&
+				Orkige::RenderSystem::get()->supports(
+					Orkige::RenderCaps::SceneWireframeView) &&
+				Orkige::RenderSystem::get()->supports(
+					Orkige::RenderCaps::SceneUnlitView))
+			{
+				viewSettings.sceneViewMode = 1;				// Wireframe
+				viewSettings.sceneLightingEnabled = false;	// unlit
+				viewModeComposeArmed = true;
+			}
+			if (viewModeSelfcheckEnv && exitCode == 0 && viewModeComposeArmed &&
+				frameCount == 36)
+			{
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				const std::string composePng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_compose.png").string();
+				std::vector<unsigned char> composeFrame;
+				int sw = 0, sh = 0;
+				sceneTarget.texture->writeContentsToFile(composePng);
+				if (!OrkigeEditor::decodeImageRgba(composePng, composeFrame, sw, sh))
+				{
+					vmFail("could not capture the compose (wireframe+unlit) frame");
+				}
+				else if (viewModeMeanDiff(viewModeSceneBaseline, composeFrame) < 2.0)
+				{
+					vmFail("wireframe+lighting-off armed together did not change the "
+						"Scene RTT (mean diff " + std::to_string(viewModeMeanDiff(
+							viewModeSceneBaseline, composeFrame)) + ")");
+				}
+				else
+				{
+					std::error_code rmErr;
+					std::filesystem::remove(composePng, rmErr);
+					viewSettings.sceneViewMode = 0;				// disarm wireframe
+					viewSettings.sceneLightingEnabled = true;	// re-light
+					viewModeComposeRestorePending = true;
+				}
+			}
+			if (viewModeSelfcheckEnv && exitCode == 0 &&
+				viewModeComposeRestorePending && frameCount == 38)
+			{
+				viewModeComposeRestorePending = false;
+				auto vmFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: view-mode selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 27;
+					running = false;
+				};
+				const std::string composeRestorePng =
+					(std::filesystem::temp_directory_path() /
+						"orkige_viewmode_composerestore.png").string();
+				std::vector<unsigned char> restored;
+				int sw = 0, sh = 0;
+				sceneTarget.texture->writeContentsToFile(composeRestorePng);
+				if (!OrkigeEditor::decodeImageRgba(composeRestorePng, restored, sw, sh))
+				{
+					vmFail("could not capture the compose-restored Scene RTT");
+				}
+				else if (viewModeMeanDiff(viewModeSceneBaseline, restored) > 1.0)
+				{
+					vmFail("disarming wireframe+lighting-off did not restore the Scene "
+						"RTT exactly (mean diff " + std::to_string(viewModeMeanDiff(
+							viewModeSceneBaseline, restored)) + ")");
+				}
+				else
+				{
+					std::error_code rmErr;
+					std::filesystem::remove(composeRestorePng, rmErr);
 				}
 			}
 			// (b) LIGHTING leg (both flavors, GLOBAL): frame 40 captures the lit
@@ -6951,9 +7127,10 @@ int main(int argc, char** argv)
 				{
 					state.overrideGameViewRenderer = false;	// restore
 					SDL_Log("orkige_editor: view-mode selfcheck OK (wireframe "
-						"per-target proof where supported; global lighting-off "
-						"flatten + exact restore; render invariant + focus "
-						"handoff - only one game view renders per frame)");
+						"scene-changed + preview-protected + exact restore, both "
+						"flavors; wireframe+lighting-off compose + restore; global "
+						"lighting-off flatten + exact restore; render invariant + "
+						"focus handoff - only one game view renders per frame)");
 					running = false;
 				}
 			}

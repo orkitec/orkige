@@ -27,10 +27,12 @@ X(OutputGrade, true)
 // env term so the mirror reads at classic's strength - probe-verified
 // (water_reflection_looks_right runs on BOTH flavors)
 X(PlanarReflection, true)
-// the editor Scene view's per-target wireframe is a classic-only delta: Ogre-Next
-// bakes polygon mode into the pipeline state object with no per-pass override, so
-// a Scene-only wireframe would leak into the other targets in the same frame
-X(SceneWireframeView, false)
+// the editor Scene view's WIREFRAME look: Ogre-Next bakes polygon mode into the
+// pipeline state object with no per-target override, so it is the SAME global-
+// under-the-invariant road as SceneUnlitView - the 3D-scene datablock set flips to
+// line-fill (the 2D/UI set stays solid) only on a Scene-only frame, so it never
+// leaks into the other targets (@see RenderWorld::setSceneWireframe)
+X(SceneWireframeView, true)
 // the editor Scene view's flat lighting-off inspection look: a GLOBAL per-frame
 // state (snapshot + hide every light + flat-white ambient, exact restore) armed
 // only on a Scene-only frame via the dock-tab visibility rule (@see

@@ -58,7 +58,11 @@ namespace Orkige
 			static_cast<Ogre::HlmsUnlitDatablock*>(unlit->createDatablock(
 				name, name, macroblock, Ogre::HlmsBlendblock(),
 				Ogre::HlmsParamVec()));
-		RenderBackend::registerContentDatablock(datablock);
+		// dynamic lines + debug/editor overlays are the 2D/overlay tier - never
+		// wireframed (line lists ignore polygon mode anyway, and the editor's own
+		// grid/gizmo overlays must stay solid while the Scene wireframe is armed)
+		RenderBackend::registerContentDatablock(datablock,
+			RenderBackend::DT_UI);
 		return datablock;
 	}
 	//---------------------------------------------------------

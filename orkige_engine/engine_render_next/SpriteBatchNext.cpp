@@ -83,7 +83,9 @@ namespace Orkige
 			samplerblock.setAddressingMode(Ogre::TAM_CLAMP);
 			datablock->setTexture(0u, texture, &samplerblock);
 		}
-		RenderBackend::registerContentDatablock(datablock);
+		// sprite batches are the 2D tier - never wireframed
+		RenderBackend::registerContentDatablock(datablock,
+			RenderBackend::DT_UI);
 		return datablock;
 	}
 	//---------------------------------------------------------

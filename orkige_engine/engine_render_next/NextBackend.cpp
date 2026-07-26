@@ -111,9 +111,17 @@ namespace Orkige
 		std::unordered_map<Ogre::SceneNode*, woptr<RenderNode>> gNodeRegistry;
 		//! monotonic counter behind RenderBackend::generateName
 		unsigned long gNameCounter = 0;
-		//! every datablock the backend generated (wireframe toggle target);
-		//! datablocks are shared by name and live until teardown
-		std::vector<Ogre::HlmsDatablock*> gContentDatablocks;
+		//! every 3D-SCENE datablock the backend generated (PBS mesh/material/
+		//! water - @see RenderBackend::DT_SCENE): the Scene-view wireframe toggle
+		//! target AND the image-lighting bind set (all PBS live here). Datablocks
+		//! are shared by name and live until teardown.
+		std::vector<Ogre::HlmsDatablock*> gSceneDatablocks;
+		//! every 2D/UI datablock the backend generated (sprites, vector shapes,
+		//! dynamic lines, DrawLayer2D - the editor's own ImGui chrome + gui go
+		//! through here - @see RenderBackend::DT_UI): NEVER wireframed, so the
+		//! editor UI stays solid while the Scene-view wireframe is armed. Kept
+		//! only for the teardown clear + the RTT-datablock retire bookkeeping.
+		std::vector<Ogre::HlmsDatablock*> gUiDatablocks;
 		//! per-incarnation RTT datablocks whose incarnation has died but whose
 		//! batch may still link them; destroyed once unlinked (@see
 		//! RenderBackend::retireRTTDatablock / flushRetiredRTTDatablocks)
@@ -744,10 +752,16 @@ namespace Orkige
 			// state (snapshot + hide every light + flat-white ambient, exact
 			// restore) armed only on a Scene-only frame via the dock-tab visibility
 			// rule; available here (a per-TARGET route is impossible on next, so the
-			// editor uses the global path). The per-target WIREFRAME
-			// (RenderCaps::SceneWireframeView) is a classic-only delta (Ogre-Next
-			// bakes polygon mode into the PSO), so it is NOT set here.
+			// editor uses the global path).
 			(1u << static_cast<int>(RenderCaps::SceneUnlitView)) |
+			// SceneWireframeView: the editor Scene view's WIREFRAME look (@see
+			// RenderWorld::setSceneWireframe). Ogre-Next bakes polygon mode into the
+			// PSO with no per-target override, so this is the SAME global-under-the-
+			// invariant road as SceneUnlitView: the 3D-scene datablock set (DT_SCENE)
+			// flips to line-fill while the 2D/UI set (the editor's own ImGui chrome +
+			// gui/sprites) stays solid, armed only on a Scene-only frame so it never
+			// leaks into the Game Preview / Play. classic does it per-target instead.
+			(1u << static_cast<int>(RenderCaps::SceneWireframeView)) |
 			(1u << static_cast<int>(RenderCaps::Bloom));
 		// the sane concurrent dynamic-light ceiling (@see RenderSystem::
 		// lightBudget), derived from the clustered-forward config set above
@@ -819,7 +833,8 @@ namespace Orkige
 		// same late-handle rule as classic: handles that outlive the
 		// backend free facade memory only (their dtors check system())
 		gNodeRegistry.clear();
-		gContentDatablocks.clear();	// owned by their Hlms, die with the root
+		gSceneDatablocks.clear();	// owned by their Hlms, die with the root
+		gUiDatablocks.clear();		// owned by their Hlms, die with the root
 		gRetiredRTTDatablocks.clear();	// their datablocks died with the root
 		gWaterAnims.clear();		// datablocks die with the root
 		gRefractiveWaterMaterials.clear();	// datablocks die with the root
@@ -2452,8 +2467,10 @@ namespace Orkige
 			if(gIblActive)
 			{
 				// unbind the reflection map from every generated PBS datablock
-				// (restore-exactly: an untouched datablock is a no-op write)
-				for(Ogre::HlmsDatablock* each : gContentDatablocks)
+				// (restore-exactly: an untouched datablock is a no-op write).
+				// Every PBS datablock lives in the scene set (the UI set is all
+				// unlit), so this is the whole image-lighting consumer set.
+				for(Ogre::HlmsDatablock* each : gSceneDatablocks)
 				{
 					if(each->getCreator()->getType() == Ogre::HLMS_PBS)
 					{
@@ -2561,8 +2578,9 @@ namespace Orkige
 		gIblActive = true;
 		// bind the chain to every generated PBS datablock (surface + water);
 		// datablocks created later register through registerContentDatablock,
-		// which routes them here via applyImageLightingToDatablock
-		for(Ogre::HlmsDatablock* each : gContentDatablocks)
+		// which routes them here via applyImageLightingToDatablock. Every PBS
+		// datablock lives in the scene set (the UI set is all unlit).
+		for(Ogre::HlmsDatablock* each : gSceneDatablocks)
 		{
 			RenderBackend::applyImageLightingToDatablock(each);
 		}
@@ -3445,7 +3463,8 @@ namespace Orkige
 				? Ogre::TAM_WRAP : Ogre::TAM_CLAMP);
 			datablock->setTexture(0u, texture, &samplerblock);
 		}
-		RenderBackend::registerContentDatablock(datablock);
+		// sprites are the 2D tier - never wireframed
+		RenderBackend::registerContentDatablock(datablock, DT_UI);
 		return datablock;
 	}
 	//---------------------------------------------------------
@@ -3473,7 +3492,8 @@ namespace Orkige
 		{
 			datablock->setTexture(0u, texture);
 		}
-		RenderBackend::registerContentDatablock(datablock);
+		// vertex-colour unlit backs vector shapes + dynamic lines - the 2D tier
+		RenderBackend::registerContentDatablock(datablock, DT_UI);
 		return datablock;
 	}
 	//---------------------------------------------------------
@@ -3509,7 +3529,8 @@ namespace Orkige
 			datablock = static_cast<Ogre::HlmsPbsDatablock*>(pbs->createDatablock(
 				name, name, Ogre::HlmsMacroblock(), Ogre::HlmsBlendblock(),
 				Ogre::HlmsParamVec()));
-			RenderBackend::registerContentDatablock(datablock);
+			// a PBS surface material is 3D scene geometry - the wireframe target
+			RenderBackend::registerContentDatablock(datablock, DT_SCENE);
 		}
 
 		// metallic workflow: metalness/roughness are native scalars - exactly
@@ -3658,7 +3679,8 @@ namespace Orkige
 			datablock = static_cast<Ogre::HlmsPbsDatablock*>(pbs->createDatablock(
 				name, name, Ogre::HlmsMacroblock(), Ogre::HlmsBlendblock(),
 				Ogre::HlmsParamVec()));
-			RenderBackend::registerContentDatablock(datablock);
+			// the water surface is 3D scene geometry - the wireframe target
+			RenderBackend::registerContentDatablock(datablock, DT_SCENE);
 		}
 		// water identity first, then re-apply the reflection bind: the water
 		// mirror samples the ratio-true HDR sibling of the environment chain
@@ -4203,15 +4225,25 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void RenderBackend::registerContentDatablock(Ogre::HlmsDatablock* datablock)
+	void RenderBackend::registerContentDatablock(Ogre::HlmsDatablock* datablock,
+		DatablockTier tier)
 	{
 		oAssert(datablock);
-		gContentDatablocks.push_back(datablock);
-		// late-created PBS content joins the active image-lighting set
-		RenderBackend::applyImageLightingToDatablock(datablock);
-		if(gWireframe)
+		if(tier == DT_SCENE)
 		{
-			applyWireframe(datablock, true);	// late-created content joins
+			gSceneDatablocks.push_back(datablock);
+			// late-created PBS content joins the active image-lighting set
+			RenderBackend::applyImageLightingToDatablock(datablock);
+			// a scene datablock created WHILE wireframe is armed joins it (so it
+			// restores to solid on disarm like its siblings); the UI set never does
+			if(gWireframe)
+			{
+				applyWireframe(datablock, true);
+			}
+		}
+		else
+		{
+			gUiDatablocks.push_back(datablock);
 		}
 	}
 	//---------------------------------------------------------
@@ -4248,8 +4280,12 @@ namespace Orkige
 				++it;
 				continue;
 			}
-			gContentDatablocks.erase(std::remove(gContentDatablocks.begin(),
-				gContentDatablocks.end(), datablock), gContentDatablocks.end());
+			// an RTT datablock is a DT_UI 2D-layer block, but drop it from both
+			// sets so no dangling pointer survives whichever it landed in
+			gSceneDatablocks.erase(std::remove(gSceneDatablocks.begin(),
+				gSceneDatablocks.end(), datablock), gSceneDatablocks.end());
+			gUiDatablocks.erase(std::remove(gUiDatablocks.begin(),
+				gUiDatablocks.end(), datablock), gUiDatablocks.end());
 			datablock->getCreator()->destroyDatablock(datablock->getName());
 			it = gRetiredRTTDatablocks.erase(it);
 		}
@@ -4262,7 +4298,9 @@ namespace Orkige
 			return;
 		}
 		gWireframe = enabled;
-		for(Ogre::HlmsDatablock* each : gContentDatablocks)
+		// only the 3D-scene set flips - the 2D/UI set (sprites, vector shapes,
+		// dynamic lines, the editor's own ImGui chrome + gui) stays solid
+		for(Ogre::HlmsDatablock* each : gSceneDatablocks)
 		{
 			applyWireframe(each, enabled);
 		}

@@ -146,6 +146,12 @@ namespace Orkige
 		//! inserted after the scene pass only while grade.enabled (@see
 		//! RenderBackend::gradeActive). Default OFF (identity).
 		GradeDesc				grade;
+		//! the editor Scene view's WIREFRAME state (@see RenderWorld::
+		//! setSceneWireframe): a GLOBAL flip of the 3D-scene datablock set's
+		//! macroblock polygon mode (never the 2D/UI set - @see the DatablockTier
+		//! split in NextBackend.cpp), armed by the editor only on a Scene-only
+		//! frame under the one-game-view render invariant. Restores byte-exact.
+		bool					sceneWireframe = false;
 	};
 
 	struct RenderNode::Impl
@@ -763,20 +769,37 @@ namespace Orkige
 		//! diffuse slot / Unlit slot 0 - the subMeshHasTexture probe)
 		static Ogre::TextureGpu* datablockDiffuseTexture(
 			Ogre::HlmsDatablock* datablock);
-		//! @brief every datablock the backend generates registers here
-		//! @remarks backs the global wireframe toggle; datablocks live
-		//! until teardown (they are tiny and shared by name)
-		static void registerContentDatablock(Ogre::HlmsDatablock* datablock);
+		//! @brief which rendered tier a generated datablock belongs to - the
+		//! wireframe split. DT_SCENE = the 3D scene geometry (PBS mesh/material/
+		//! water); DT_UI = the 2D/UI tier (sprites, vector shapes, dynamic lines,
+		//! DrawLayer2D - the editor's own ImGui chrome and gui go through here).
+		//! The Scene-view wireframe (@see setSceneWireframe) flips DT_SCENE only,
+		//! so the editor chrome and 2D content stay solid while it is armed.
+		enum DatablockTier
+		{
+			DT_SCENE,	//!< 3D scene geometry (wireframe target)
+			DT_UI		//!< 2D/UI tier (never wireframed)
+		};
+		//! @brief every datablock the backend generates registers here, tagged by
+		//! the tier that created it (@see DatablockTier - the wireframe split)
+		//! @remarks datablocks live until teardown (they are tiny and shared by
+		//! name); the scene set backs the Scene-view wireframe toggle
+		static void registerContentDatablock(Ogre::HlmsDatablock* datablock,
+			DatablockTier tier);
 		//! restore a mesh instance's pre-accent datablocks and retire its
 		//! accent variant clones (@see MeshInstance::setTint; no-op unaccented)
 		static void resetMeshAccents(MeshInstance::Impl* impl);
 		//! realize a mesh instance's accent state (@see MeshInstance::setTint)
 		static void applyMeshAccents(MeshInstance::Impl* impl);
-		//! @brief RenderCamera::setWireframe on this backend: flip the
-		//! macroblock polygon mode of every backend-generated datablock
-		//! @remarks recorded deviation (see RenderCamera.h): Next's v2
-		//! camera lost the per-camera polygon-mode toggle, so wireframe
-		//! is GLOBAL here - fine for the debug-toggle call sites
+		//! @brief flip the macroblock polygon mode of every 3D-SCENE datablock
+		//! (DT_SCENE - PBS mesh/material/water; the DT_UI set is left solid)
+		//! @remarks recorded deviation (see RenderCamera.h): Next's v2 camera
+		//! lost the per-camera polygon-mode toggle, so wireframe is GLOBAL here.
+		//! Backs both RenderCamera::setWireframe (the script debug toggle) and
+		//! RenderWorld::setSceneWireframe (the editor Scene view). Idempotent;
+		//! restores byte-exact (PM_SOLID is the created state of every generated
+		//! datablock, and only the polygon-mode lane is touched, so a concurrent
+		//! macroblock change - shadows, alpha-test cull - composes cleanly).
 		static void setGlobalWireframe(bool enabled);
 		//! zOrder -> render queue id (painter's sorting, queue 50+z like
 		//! classic; v2 objects render from the FAST queues 0..99)

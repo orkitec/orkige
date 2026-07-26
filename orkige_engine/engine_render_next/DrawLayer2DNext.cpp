@@ -327,7 +327,10 @@ namespace Orkige
 			samplerblock.setAddressingMode(Ogre::TAM_CLAMP);
 			datablock->setTexture(0u, texture, &samplerblock);
 		}
-		RenderBackend::registerContentDatablock(datablock);
+		// DrawLayer2D backs the editor's own ImGui chrome + gui - the 2D/UI tier,
+		// NEVER wireframed (the whole reason the scene set is split out)
+		RenderBackend::registerContentDatablock(datablock,
+			RenderBackend::DT_UI);
 		return datablock;
 	}
 	//---------------------------------------------------------
@@ -390,7 +393,9 @@ namespace Orkige
 		samplerblock.setFiltering(Ogre::TFO_NONE);
 		samplerblock.setAddressingMode(Ogre::TAM_CLAMP);
 		datablock->setTexture(0u, current, &samplerblock);
-		RenderBackend::registerContentDatablock(datablock);
+		// a DrawLayer2D render-texture datablock is the 2D/UI tier - never wireframed
+		RenderBackend::registerContentDatablock(datablock,
+			RenderBackend::DT_UI);
 		return datablock;
 	}
 

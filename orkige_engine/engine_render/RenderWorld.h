@@ -332,6 +332,38 @@ namespace Orkige
 		//! @see RenderWorld::setLightingSuppressed (default false)
 		bool getLightingSuppressed() const;
 
+		//--- scene wireframe (the editor's Scene-view WIREFRAME inspection) ---
+		//! @brief render the 3D SCENE geometry in wireframe (line-fill) polygon
+		//! mode - the editor Scene view's wireframe look. The seam is ASYMMETRIC
+		//! by construction (@see RenderCaps::SceneWireframeView):
+		//!  - classic honors a PER-TARGET wireframe (@see RenderTexture::
+		//!    setViewMode) - the Scene RTT's own camera flips to PM_WIREFRAME,
+		//!    leak-free, and this GLOBAL route is a no-op there;
+		//!  - next has no per-pass/per-target polygon override (Ogre-Next bakes
+		//!    polygon mode into the pipeline state object), so this GLOBAL route
+		//!    is the road: it flips the macroblock polygon mode of the 3D-SCENE
+		//!    datablock set ONLY (PBS mesh/material/water) and NEVER the 2D/UI set
+		//!    (sprites, vector shapes, dynamic lines, the editor's own ImGui
+		//!    chrome + gui), so the scene wireframes while the editor UI stays
+		//!    solid. Being global, the editor arms it ONLY on a frame where the
+		//!    Scene view is the ONE game view rendering (the one-game-view render
+		//!    invariant guarantees the Game Preview / camera inset / Play never
+		//!    share that frame, so wireframe cannot leak into them) - exactly the
+		//!    dock-tab discipline setLightingSuppressed uses, and the two compose
+		//!    (wireframe + lighting-off = flat unlit wireframe).
+		//! RECOVER-THEN-REAPPLY: releasing restores every scene datablock's
+		//! polygon mode to PM_SOLID (the created state), byte-exact; only the
+		//! polygon-mode lane is touched, so a concurrent macroblock change
+		//! (shadows, alpha-test cull) composes. Idempotent - flips only on the
+		//! decision change (tab switch), never per frame, so the wireframe PSO
+		//! variant caches after first use.
+		//! map: next=flip the DT_SCENE datablock set's macroblock polygon mode
+		//! (RenderBackend::setGlobalWireframe) | classic=no-op (per-target via
+		//! RenderTexture::setViewMode) | filament=n/a
+		void setSceneWireframe(bool enabled);
+		//! @see RenderWorld::setSceneWireframe (default false)
+		bool getSceneWireframe() const;
+
 		//--- LDR bloom (highlight glow post-process) ---
 		//! whether this backend renders the bloom post-process at all is the
 		//! `RenderCaps::Bloom` capability (`RenderSystem::supports`) - true on

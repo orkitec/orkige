@@ -1189,6 +1189,20 @@ namespace Orkige
 		return this->mImpl->lightingSuppressed;
 	}
 	//---------------------------------------------------------
+	void RenderWorld::setSceneWireframe(bool enabled)
+	{
+		// classic owns wireframe PER TARGET (@see RenderTexture::setViewMode -
+		// the Scene RTT's own camera flips to PM_WIREFRAME, leak-free), so this
+		// GLOBAL route is deliberately a no-op here; the field is kept only so
+		// getSceneWireframe answers consistently. @see RenderWorld::setSceneWireframe.
+		this->mImpl->sceneWireframe = enabled;
+	}
+	//---------------------------------------------------------
+	bool RenderWorld::getSceneWireframe() const
+	{
+		return this->mImpl->sceneWireframe;
+	}
+	//---------------------------------------------------------
 	void RenderWorld::setBloom(BloomDesc const & desc)
 	{
 		this->mImpl->bloom = desc.sanitised();

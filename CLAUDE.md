@@ -561,9 +561,12 @@ with the `destroyLineListMesh`/`lineListMeshExists` lifecycle siblings so
 rebuilds never leak meshes; persisted in the view ini, MCP
 `get_view_options`/`set_view_option` — `editor_overlays` per flavor +
 `EditorOverlayGeometryTests`. The dropdown (an eye-glyph button) also
-carries a **View Mode radio** (Shaded everywhere; Wireframe = classic's
-per-camera polygon mode, greyed on next — its only global flip would
-wireframe the shared 2D-UI datablocks too; Shaded+Wireframe deferred) and
+carries a **View Mode radio** (Shaded everywhere; Wireframe REAL on BOTH
+flavors — classic per-camera polygon mode, next via the scene-vs-UI
+datablock-tier split (`RenderWorld::setSceneWireframe`, polygon-lane-only
+flip with byte-exact restore, armed only when the Scene view renders);
+Shaded+Wireframe honestly greyed both — next would need per-target
+mid-frame PSO bracketing, classic a second depth-biased pass) and
 a **Lighting toggle** (both flavors: `RenderWorld::setLightingSuppressed`
 — snapshot every light + flat-white ambient, byte-exact restore). Both
 ride the ONE-GAME-VIEW INVARIANT: the Scene view and Game Preview are

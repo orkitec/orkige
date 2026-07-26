@@ -59,7 +59,9 @@ namespace Orkige
 		Ogre::HlmsUnlitDatablock* datablock =
 			static_cast<Ogre::HlmsUnlitDatablock*>(unlit->createDatablock(
 				name, name, macroblock, blendblock, Ogre::HlmsParamVec()));
-		RenderBackend::registerContentDatablock(datablock);
+		// flat-colour vector shapes are the 2D tier - never wireframed
+		RenderBackend::registerContentDatablock(datablock,
+			RenderBackend::DT_UI);
 		return datablock;
 	}
 	//---------------------------------------------------------

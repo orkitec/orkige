@@ -165,7 +165,9 @@ namespace Orkige
 			{
 				datablock->setTexture(Ogre::PBSM_DIFFUSE, texture);
 			}
-			RenderBackend::registerContentDatablock(datablock);
+			// an imported mesh's PBS material is 3D scene geometry - wireframe target
+			RenderBackend::registerContentDatablock(datablock,
+				RenderBackend::DT_SCENE);
 			return name;
 		}
 
