@@ -1,3 +1,11 @@
+/**************************************************************
+	created:	2026/07/09
+	filename: 	SDLNativeWindowLinux.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+***************************************************************/
 // Bridges an SDL3 window to the native window handle OGRE's render systems
 // expect on Linux - the desktop counterpart of engine_util/SDLNativeWindow.mm
 // (macOS/iOS) and SDLNativeWindowAndroid.cpp, same contract, declared by apps

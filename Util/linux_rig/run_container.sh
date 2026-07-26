@@ -22,3 +22,7 @@ docker run -d --name orkige-ci \
   -w /work/orkige \
   orkige-ci-linux sleep infinity
 echo "ready: docker exec -it orkige-ci bash"
+# NOTE: /work/orkige is the HOST repo bind-mounted in, so git INSIDE the
+# container moves the host index/HEAD. The image installs a git guard that
+# refuses git targeting /work/orkige - run git on the host, or override with
+# ORKIGE_CONTAINER_GIT=1 for the rare in-container git you really mean.

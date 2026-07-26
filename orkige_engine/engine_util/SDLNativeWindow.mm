@@ -1,3 +1,11 @@
+/**************************************************************
+	created:	2026/07/07
+	filename: 	SDLNativeWindow.mm
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+***************************************************************/
 // Bridges an SDL3 window to the native window pointer OGRE's render systems
 // expect as "externalWindowHandle": the NSWindow on macOS, the UIWindow on
 // iOS (OGRE's EAGL2 window attaches its own GLES view + view controller to it).

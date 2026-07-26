@@ -1,3 +1,11 @@
+/**************************************************************
+	created:	2026/07/10
+	filename: 	OgreMetalViewBridge.mm
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+***************************************************************/
 // Splices a render-system-created Metal view into an SDL-hosted UIKit window
 // on iOS. The Ogre-Next Metal window builds its own view detached from SDL's
 // UIWindow (the Metal window path only adopts a view that is already an

@@ -1,0 +1,217 @@
+{
+ "_comment": [
+  "Doctrine lint config (checked by Util/check_doctrine.py = ctest",
+  "doctrine_lint). Four independent source-hygiene gates the project brief",
+  "mandates; each has its own scope + suppression section here, each fails on",
+  "a NEW offence and carries its existing backlog as visible data (the",
+  "Util/ogre_containment.json model). Adding a sanctioned exception means",
+  "editing THIS file, with a reason, in the same change - the review speed",
+  "bump the lints exist for."
+ ],
+ "meta_macro": {
+  "_comment": [
+   "Raw ORKIGE_LUA/ORKIGE_NOSCRIPT preprocessor use is allowed ONLY in the",
+   "meta seam: the Meta.h backend selector, its two backends, and the",
+   "ScriptRuntime implementation. Everything else selects a backend through",
+   "the OMETA/OUSERTYPE macros, complete in both backends by design."
+  ],
+  "scan_roots": [
+   "orkige_core",
+   "orkige_engine",
+   "samples",
+   "projects",
+   "tools",
+   "tests"
+  ],
+  "allowed_files": [
+   "orkige_core/core_base/Meta.h",
+   "orkige_core/core_base/Meta_Lua.h",
+   "orkige_core/core_base/Meta_None.h",
+   "orkige_core/core_script/ScriptRuntime.h",
+   "orkige_core/core_script/ScriptRuntime.cpp"
+  ]
+ },
+ "banned_terms": {
+  "_comment": [
+   "Competing game-engine and third-party product names must not appear in",
+   "code comments, string literals or Docs prose (identifiers are not",
+   "scanned). This table is the ONE sanctioned place for the names. The",
+   "project's OWN stack (OGRE/Ogre-Next, SDL, Jolt, vcpkg, ImGui, sol2, Lua,",
+   "OpenAL, Emscripten, WebGL, Metal, Vulkan, Lottie, ...) is never listed.",
+   "exempt_files carries vendored third-party sources (whose own docs may",
+   "mention anything) and the factual DevicePreset device table (real phone",
+   "model names are platform-target data, not a product comparison)."
+  ],
+  "scan_roots": [
+   "orkige_core",
+   "orkige_engine",
+   "tools",
+   "tests",
+   "samples",
+   "projects",
+   "Util",
+   "Docs"
+  ],
+  "terms": [
+   {
+    "pattern": "unity",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "unreal",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "godot",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "cryengine",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "gamemaker",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "game maker",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "cocos2d",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "cocos2dx",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "cocos creator",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "phaser",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "defold",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "libgdx",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "monogame",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "panda3d",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "urho3d",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "playcanvas",
+    "reason": "game engine"
+   },
+   {
+    "pattern": "roblox",
+    "reason": "game platform"
+   },
+   {
+    "pattern": "rive",
+    "reason": "vector-animation tool"
+   },
+   {
+    "pattern": "spine2d",
+    "reason": "2D skeletal-animation tool"
+   },
+   {
+    "pattern": "esoteric software",
+    "reason": "maker of the Spine tool"
+   },
+   {
+    "pattern": "scirra",
+    "reason": "maker of the Construct engine"
+   }
+  ],
+  "exempt_files": [
+   "orkige_core/core_util/FastDelegate.h",
+   "orkige_core/core_util/MacroRepeat.h",
+   "orkige_core/core_util/ObjectFactory.h",
+   "orkige_core/core_util/DevicePreset.h",
+   "Util/check_doctrine.py"
+  ]
+ },
+ "filesystem": {
+  "_comment": [
+   "Ratified funnel doctrine (2026-07-23): core+engine runtime content reads",
+   "route through core_filesystem/ResourceReader so a mounted APK/pak",
+   "resolves in place with no extraction. Migration is incomplete; this",
+   "GATES - the funnel plumbing (the reader impl + the archive backends) is",
+   "allowed, every current raw-fs offender sits in `legacy` (visible",
+   "backlog), and a NEW raw-fs call in an unlisted core/engine file fails.",
+   "As call sites migrate, their legacy entry goes stale (= a lint failure)",
+   "and is removed, so the backlog can only shrink. Editor/tools/tests are",
+   "out of the runtime funnel's scope and not scanned here."
+  ],
+  "scan_roots": [
+   "orkige_core",
+   "orkige_engine"
+  ],
+  "funnel_files": {
+   "orkige_engine/engine_filesystem/MiniZip.cpp": "the funnel's archive backend - MiniZip reads pak/APK bytes in place; this IS the plumbing core_filesystem/ResourceReader resolves through"
+  },
+  "legacy": {
+   "orkige_core/core_debug/BenchmarkRecorder.h": "legacy pre-funnel: diagnostic/output writer to the writable app dir (the read-through funnel does not yet cover writes)",
+   "orkige_core/core_debug/Breadcrumbs.cpp": "legacy pre-funnel: diagnostic/output writer to the writable app dir (the read-through funnel does not yet cover writes)",
+   "orkige_core/core_debug/Breadcrumbs.h": "legacy pre-funnel: diagnostic/output writer to the writable app dir (the read-through funnel does not yet cover writes)",
+   "orkige_core/core_debug/LogManager.h": "legacy pre-funnel: diagnostic/output writer to the writable app dir (the read-through funnel does not yet cover writes)",
+   "orkige_core/core_debug/MemorySampler.cpp": "legacy pre-funnel: diagnostic/output writer to the writable app dir (the read-through funnel does not yet cover writes)",
+   "orkige_core/core_debugnet/TraceWriter.cpp": "legacy pre-funnel: diagnostic/output writer to the writable app dir (the read-through funnel does not yet cover writes)",
+   "orkige_core/core_game/PrefabSerializer.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_game/SaveStore.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_game/SceneSerializer.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_project/AssetDatabase.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_project/AssetDatabase.h": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_project/NativeModule.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_project/Project.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_project/ProjectPaths.h": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_script/ScriptRuntime.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_util/PathJail.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_util/PathJail.h": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_util/PngWriter.cpp": "legacy pre-funnel: diagnostic/output writer to the writable app dir (the read-through funnel does not yet cover writes)",
+   "orkige_core/core_util/Sha1.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_util/StringTable.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_engine/engine_gocomponent/ScriptComponent.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_engine/engine_gocomponent/ScriptComponentRegistry.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_engine/engine_graphic/Engine.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_engine/engine_graphic/IngameConsole.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_engine/engine_input/InputManager.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_engine/engine_render_next/NextBackend.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_engine/engine_runtime/PlayerRuntime.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader"
+  }
+ },
+ "copyright": {
+  "_comment": [
+   "Every .h/.cpp/.mm in the core + engine libraries carries the standard",
+   "header block (the 'part of orkige' notice line + 'copyright: (c)",
+   "2009-2026 orkitec'). third_party carries vendored sources that keep",
+   "their own upstream licence header. tools/ and tests/ never adopted a",
+   "per-file header block (a separate convention decision) and are out of",
+   "scope here."
+  ],
+  "scan_roots": [
+   "orkige_core",
+   "orkige_engine"
+  ],
+  "third_party": {
+   "orkige_core/core_util/FastDelegate.h": "vendored FastDelegate (Don Clugston, CodeProject) - keeps its upstream notice",
+   "orkige_core/core_util/MacroRepeat.h": "vendored MacroRepeat (Robert Geiman, 2004) - keeps its upstream notice",
+   "orkige_core/core_util/ObjectFactory.h": "vendored ObjectFactory (Robert Geiman, 2004) - keeps its upstream notice"
+  }
+ }
+}

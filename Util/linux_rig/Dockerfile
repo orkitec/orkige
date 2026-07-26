@@ -42,5 +42,30 @@ RUN git clone https://github.com/microsoft/vcpkg /root/Development/vcpkg \
     && git -C /root/Development/vcpkg checkout ${VCPKG_COMMIT} \
     && /root/Development/vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
+# git guard: /work/orkige is the HOST repo bind-mounted in (run_container.sh),
+# so any git run there mutates the HOST index/HEAD - the bind-mount trap. This
+# wrapper (early in PATH at /usr/local/bin) refuses git that TARGETS the orkige
+# work tree and passes everything else straight through (vcpkg's own repo under
+# /root, a fresh clone, `git --version`). The engine build never runs git on
+# the source (the ABI stamp is a content fingerprint), so this never blocks a
+# build. Override with ORKIGE_CONTAINER_GIT=1 (the honest escape hatch).
+RUN printf '%s\n' \
+  '#!/bin/sh' \
+  '# Installed by the linux_rig Dockerfile - see its git-guard comment.' \
+  'REAL=/usr/bin/git' \
+  '[ "${ORKIGE_CONTAINER_GIT:-0}" = "1" ] && exec "$REAL" "$@"' \
+  'probe=.' \
+  'prev=' \
+  'for a in "$@"; do if [ "$prev" = "-C" ]; then probe=$a; break; fi; prev=$a; done' \
+  'top=$("$REAL" -C "$probe" rev-parse --show-toplevel 2>/dev/null || true)' \
+  'case "$top" in' \
+  '  /work/orkige|/work/orkige/*)' \
+  '    echo "git refused: /work/orkige is the bind-mounted HOST repo - git here moves the HOST index/HEAD." >&2' \
+  '    echo "Run git on the host instead, or set ORKIGE_CONTAINER_GIT=1 to override (the honest escape hatch)." >&2' \
+  '    exit 1 ;;' \
+  'esac' \
+  'exec "$REAL" "$@"' \
+  > /usr/local/bin/git && chmod +x /usr/local/bin/git
+
 WORKDIR /work/orkige
 CMD ["/bin/bash"]

@@ -1,3 +1,11 @@
+/**************************************************************
+	created:	2026/07/08
+	filename: 	SDLNativeWindowAndroid.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+***************************************************************/
 // Bridges an SDL3 window to the native window pointer OGRE's render systems
 // expect as "externalWindowHandle": the ANativeWindow* on Android (OGRE's
 // AndroidEGLWindow creates its EGL surface directly on it). The Android

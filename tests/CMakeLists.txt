@@ -64,6 +64,28 @@ add_test(NAME portability_lint_selftest
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_portability.py" --selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(portability_lint_selftest PROPERTIES
+
+# doctrine lint: four source-hygiene gates the project brief mandates -
+# meta-macro containment (raw ORKIGE_LUA/ORKIGE_NOSCRIPT only in the meta
+# seam), banned third-party product names (comments/strings/docs), the
+# core+engine filesystem funnel gate (raw fs only through the sanctioned
+# backlog) and the core+engine copyright header block. Each sub-check has its
+# own scope + suppression section in Util/doctrine_lint.json (the
+# ogre_containment model). Pure source scan, headless, LABELS unit so it runs
+# in the unit AND desktop presets.
+add_test(NAME doctrine_lint
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_doctrine.py"
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(doctrine_lint PROPERTIES
+    LABELS unit TIMEOUT 30)
+
+# doctrine lint's own self-test: embedded fixture trees prove every sub-check
+# passes on a clean tree, flags its violation and honours its suppression -
+# no real source touched. Stdlib-only, headless.
+add_test(NAME doctrine_lint_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_doctrine.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(doctrine_lint_selftest PROPERTIES
     LABELS unit TIMEOUT 30)
 
 # sprite-atlas packer self-validation: make_sprite_atlas.py packs a
