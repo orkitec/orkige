@@ -332,11 +332,18 @@ struct ViewSettings
 	//! Closed by default - it auto-opens when the Scene enters 2D editor mode
 	//! (and never auto-closes); a saved layout in orkige_editor_view.ini wins.
 	bool showTilePalettePanel = false;
-	//! Game Preview panel (project-only; renders the authored scene through its
+	//! Preview panel (project-only; renders the authored scene through its
 	//! own scene camera at a simulated device context into an offscreen target,
 	//! with an optional .oui screen overlay + safe-area guides + a procedural
-	//! device frame - "what will this look like on the device?" without playing)
-	bool showGamePreviewPanel = false;
+	//! device frame - "what will this look like on the device?" without playing;
+	//! its Edit UI mode is the visual .oui editor's canvas)
+	bool showPreviewPanel = false;
+	//! UI Editor panel (project-only; the visual .oui editor's tool surface -
+	//! widget tree, properties, anchor gizmo, align/distribute, add/delete and
+	//! the undo/redo/save controls. Meaningful only while a .oui is open in the
+	//! Preview panel's Edit UI mode; an honest empty state otherwise. Default a
+	//! tab beside the Inspector)
+	bool showUiEditorPanel = false;
 	//! Debug panel (the script debugger's call-stack + locals + transport).
 	//! Closed by default - it auto-opens/focuses on a debugger break-hit; a
 	//! saved layout in orkige_editor_view.ini wins. The code editor itself is
@@ -978,6 +985,8 @@ const char* const HIERARCHY_WINDOW_REMOTE =
 	"Scene Hierarchy (Remote)###SceneHierarchy";
 const char* const INSPECTOR_WINDOW_EDIT = "Inspector###Inspector";
 const char* const INSPECTOR_WINDOW_REMOTE = "Inspector (Remote)###Inspector";
+// the visual .oui editor's tool panel (tabbed beside the Inspector by default)
+const char* const UI_EDITOR_WINDOW_EDIT = "UI Editor###UiEditor";
 
 // The editor's out-of-process play mode: Play saves the CURRENT scene to a
 // temp file (never the user's file), spawns ./orkige_player <tempScene>
@@ -2070,6 +2079,9 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 //! Put a newly opened preview into the Scene panel's dock node. Existing saved
 //! docking wins, and the one-shot flag lets users undock it afterwards.
 void dockPreviewBesideSceneOnce(const char* panelWindowName, bool& attempted);
+// dock the UI Editor panel as a tab beside the Inspector on its first open over
+// a restored layout (the fresh/reset layout already docks it there)
+void dockUiEditorBesideInspectorOnce(bool& attempted);
 
 // the Scene panel: RTT image, gizmos, picking, camera navigation -
 // EditorScenePanel.cpp

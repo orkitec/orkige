@@ -636,19 +636,28 @@ offsets = 8 8 -8 -8
 items = Sword | Shield | Potion    # pipe-separated initial rows (optional)
 ```
 
-## Visual editor (Game Preview → Edit UI)
+## Visual editor (Preview → Edit UI + the UI Editor panel)
 
-The Game Preview panel edits the picked `.oui` visually. Pick a screen in the
-**Overlay** dropdown, tick **Edit UI**, and the panel splits into a canvas (the
-screen rendered through the SAME preview gui stack) and a sidebar. The `.oui`
-text file stays the source of truth — the visual editor and hand/agent editing
-are two views of the one `GuiLayoutDoc`.
+The **Preview** panel edits the picked `.oui` visually. Pick a screen in the
+**Overlay** dropdown and tick **Edit UI**: the Preview panel becomes the CANVAS
+(the screen rendered through the SAME preview gui stack, with the edit
+adornments) and its slim toolbar keeps only the Edit UI toggle, a **+ Add**
+dropdown and a **Delete** button; the TOOL SURFACE — widget tree, properties,
+anchor gizmo, align/distribute, add/delete and the undo/redo/save controls —
+lives in the dockable **UI Editor** panel (a tab beside the Inspector by
+default), which auto-opens on entering Edit UI and shows an honest empty state
+otherwise. The `.oui` text file stays the source of truth — the canvas, the
+UI Editor panel and hand/agent editing are views of the one `GuiLayoutDoc`.
 
 **Canvas.** Click a widget to select it (a hit-test over the resolved widget
 rects the runtime reports). The selection draws an outline (the align **key**
 object in amber, the rest in blue) with eight resize handles; hovering another
 widget outlines it. Drag the body to move, a handle to resize. Hold **Shift**
-while dragging to snap to a coarse design-unit grid.
+while dragging to snap to a coarse design-unit grid. Every adornment (outline,
+handles, anchor grips, pivot, guides, marquee) is CLIPPED to the canvas image
+rect, so an edge grip of a stretch widget never bleeds across the neighbouring
+panels; the surface->screen transform (`mapSurfaceRectToScreen`) maps a
+full-width widget to exactly the device screen, never wider.
 
 **Multi-select.** Shift-click on the canvas or Shift/Ctrl(Cmd)-click in the tree
 adds or removes a widget from an **ordered** selection whose FIRST member is the
@@ -680,21 +689,26 @@ never rewrites its anchors:
 Screen pixels convert to design units through the layout's `[Layout] design`
 reference scale, so a drag moves the widget by exactly the on-screen distance.
 
-**Sidebar.** A widget **tree** (the `.oui` section order, children indented by
-`parent`) with synced multi-selection; an **align/distribute** row when two or
-more widgets are selected (align left/centre/right/top/middle/bottom to the key
-object's matching edge or centre, distribute horizontally/vertically to equal
-gaps between the extremes); a **properties** block for the key object (text, z,
-sprite, geometry fields for the widget's mode) carrying the **anchor-preset
-gizmo** — a 4×3 point grid plus a stretch column and row, one click per the 16
-`LayoutAnchorPreset`s. A plain click sets the anchor; **Alt** also moves the
-pivot to the preset point; **Shift** also keeps the on-screen rect (recomputing
-offsets). A **palette** — click a kind (`label`, `button`, `checkbox`, `slider`,
-`progressbar`, `selectmenu`, `dropdown`, `textentry`, `textbox`, `panel`,
-`scrollview`) — adds it under the selection (or at the root) with sane defaults
-and a unique id. **Delete widget** removes the selected subtree(s). **Undo**/
-**Redo** step one gesture at a time (a drag, an align, a nudge burst are each one
-step).
+**UI Editor panel.** Its header carries **Undo** / **Redo** / **Save** and the
+save-state indicator (`* unsaved` / `saved`). Below sits a widget **tree** (the
+`.oui` section order, children indented by `parent`) with synced multi-selection —
+selecting in the tree selects on the canvas and vice versa; an **align/distribute**
+row when two or more widgets are selected (align left/centre/right/top/middle/
+bottom to the key object's matching edge or centre, distribute horizontally/
+vertically to equal gaps between the extremes); a **properties** block for the
+key object (text, z, sprite, geometry fields for the widget's mode) carrying the
+**anchor-preset gizmo** — a 4×3 point grid plus a stretch column and row, one
+click per the 16 `LayoutAnchorPreset`s. A plain click sets the anchor; **Alt**
+also moves the pivot to the preset point; **Shift** also keeps the on-screen rect
+(recomputing offsets). A **palette** — click a kind (`label`, `button`,
+`checkbox`, `slider`, `progressbar`, `selectmenu`, `dropdown`, `textentry`,
+`textbox`, `panel`, `scrollview`) — adds it under the selection (or at the root)
+with sane defaults and a unique id (the Preview panel's slim **+ Add** dropdown is
+the canvas-adjacent shortcut for the same). **Delete** removes the selected
+subtree(s). **Undo** / **Redo** step one gesture at a time (a drag, an align, a
+nudge burst are each one step); global **Cmd/Ctrl+Z** routes to the document
+while the UI Editor panel or the canvas holds focus, so it never edits the scene
+from the UI-editing context.
 
 **Alignment write-back.** Align and distribute operate on the resolved surface
 rects, so a selection spanning different parents aligns in screen space; the
@@ -884,7 +898,7 @@ rather than inventing its own:
   `engine_gui/WorldTextLayout` (headless-tested).
 
 It is AUTHORED scene content (like a sprite or a particle emitter), so it renders
-in edit mode, in Game Preview and in Play — there is no editor-only bit.
+in edit mode, in Preview and in Play — there is no editor-only bit.
 
 ### Reflected look (inspector / serialization / Lua / MCP — the ONE registry)
 
@@ -919,4 +933,4 @@ self.worldtext:setColour(1.0, 0.3, 0.2, 1.0)
 - **Editor facing (v1).** In edit mode the text renders and faces the camera as
   sampled at build time (on any property change); the editor does not tick
   GameObjects, so it does not continuously re-face as the Scene camera orbits.
-  Play / Game Preview re-face live.
+  Play / Preview re-face live.

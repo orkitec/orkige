@@ -418,7 +418,7 @@ Preview shows the authored sky; a fresh File > New Scene ships an
 "Environment" object (enabled DAY preset) beside the Main Camera.
 
 **Scene-view Sky toggle** (Display dropdown, DEFAULT OFF): the Scene viewport
-starts sky-less while the Game Preview panel, the selected-camera inset and
+starts sky-less while the Preview panel, the selected-camera inset and
 Play always show the real sky. This is a PER-TARGET suppression of global
 atmosphere state — the sky is one dome shared by every render target, so it
 cannot be turned off per-target through the desc. Only the sky VISUAL is
@@ -439,7 +439,7 @@ component scene boots the sky vs a component-less control, the
 night sibling mid-run, a script override beats the base), the
 `render_facade_selfcheck` atmosphere leg (both flavors: sky-off and fog-off
 part switches visibly discriminate) and `editor_atmosphere` (both flavors:
-template + reload arming, live re-arm, owner glyphs, Game Preview sky pixels,
+template + reload arming, live re-arm, owner glyphs, Preview sky pixels,
 per-target Scene-view sky suppression); MCP coverage rides the
 `editor_control` AtmosphereComponent + `sky` view-option legs.
 

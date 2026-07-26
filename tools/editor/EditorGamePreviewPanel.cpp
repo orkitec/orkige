@@ -184,15 +184,15 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		ui.seededFromSettings = true;
 	}
 
-	dockPreviewBesideSceneOnce("Game Preview", ui.autoDockAttempted);
+	dockPreviewBesideSceneOnce("Preview", ui.autoDockAttempted);
 	if (!state.requestedGuiPreviewAsset.empty())
 	{
 		ImGui::SetNextWindowFocus();
 	}
 
 	const bool shown =
-		ImGui::Begin("Game Preview", &viewSettings.showGamePreviewPanel);
-	OrkigeEditor::editorPanelTabMenu(&viewSettings.showGamePreviewPanel);
+		ImGui::Begin("Preview", &viewSettings.showPreviewPanel);
+	OrkigeEditor::editorPanelTabMenu(&viewSettings.showPreviewPanel);
 	// the Game Preview being the visible/active tab this frame vetoes the global
 	// lighting-suppression (the real game look wins - @see shouldSuppressLighting)
 	state.gamePreviewVisibleThisFrame = shown;
@@ -370,11 +370,51 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		ImGui::SameLine();
 		Orkige::compactCheckbox("Widget rects", &ui.overlayRects);
 		ImGui::SameLine();
-		// Edit UI: the visual .oui editor, available once a screen is picked
+		// Edit UI: the visual .oui editor, available once a screen is picked. The
+		// canvas + adornments live here; the widget tree/properties/anchor gizmo
+		// live in the dockable UI Editor panel (auto-opened on entering Edit UI).
 		ImGui::BeginDisabled(ui.selectedFile.empty());
+		const bool editUiWas = ui.editUi;
 		Orkige::compactCheckbox("Edit UI", &ui.editUi);
 		ImGui::EndDisabled();
 		if (ui.selectedFile.empty()) { ui.editUi = false; }
+		if (ui.editUi && !editUiWas)
+		{
+			// entering Edit UI reveals the tool panel (a fresh launch has it closed)
+			viewSettings.showUiEditorPanel = true;
+			viewSettings.save();
+		}
+		// the slim edit row: a quick + Add dropdown and a Delete, canvas-adjacent
+		// (the full palette + tree live in the UI Editor panel)
+		if (ui.editUi && !ui.selectedFile.empty() && ui.editSession.loaded)
+		{
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(90.0f);
+			if (ImGui::BeginCombo("##ui_add", "+ Add",
+				ImGuiComboFlags_HeightLargest))
+			{
+				for (OrkigeEditor::UiWidgetKind const& kind :
+					OrkigeEditor::uiWidgetKinds())
+				{
+					if (ImGui::Selectable(kind.label))
+					{
+						OrkigeEditor::uiEditAddWidget(ui.editSession, kind.type);
+						std::string addErr;
+						OrkigeEditor::uiEditSave(ui.editSession, stage, addErr);
+					}
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::SameLine();
+			ImGui::BeginDisabled(ui.editSession.selection.empty());
+			if (ImGui::SmallButton("Delete"))
+			{
+				OrkigeEditor::uiEditDeleteSelected(ui.editSession);
+				std::string delErr;
+				OrkigeEditor::uiEditSave(ui.editSession, stage, delErr);
+			}
+			ImGui::EndDisabled();
+		}
 	}
 
 	// a subtle dimmed hint in the control row (NOT over the image) when the
@@ -399,12 +439,11 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		return;
 	}
 
-	// Edit UI reserves a sidebar on the right; the composite image fits the
-	// remaining canvas column (the Free preset sizes its RTT to that column too)
+	// Edit UI keeps ONLY the canvas + adornments here (the tools moved to the
+	// dockable UI Editor panel), so the composite image fills the whole panel on
+	// both flavors - no reserved sidebar column.
 	const bool editActive = ui.editUi && !ui.selectedFile.empty();
-	const float sidebarW = editActive ? 320.0f : 0.0f;
-	const float canvasW = std::max(16.0f, avail.x - sidebarW -
-		(editActive ? 8.0f : 0.0f));
+	const float canvasW = std::max(16.0f, avail.x);
 
 	//--- apply controls to the shared stage --------------------------------
 	const OrkigeEditor::GuiPreviewContext ctx = currentContext(ui,
@@ -673,10 +712,12 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 
 	// EDIT MODE: the visual .oui editor. The overlay is rendered through the SAME
 	// GamePreviewStage; here we draw the selection/handle adornments over its
-	// image and a sidebar (tree/properties/palette/save) in the reserved column,
-	// all driving the ONE GuiLayout document (@see EditorUiEditorPanel).
+	// image (the canvas). The tool surface (tree/properties/palette/undo/save)
+	// lives in the dockable UI Editor panel, fed the session through
+	// UiEditorPanelLink (@see EditorUiEditorPanel).
 	OrkigeEditor::UiEditorDebug& editDbg = OrkigeEditor::uiEditorDebug();
 	editDbg = OrkigeEditor::UiEditorDebug();
+	OrkigeEditor::UiEditorPanelLink& editLink = OrkigeEditor::uiEditorPanelLink();
 	if (editActive)
 	{
 		// (re)load the document when the picked file changes
@@ -698,9 +739,14 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		const float snap = ImGui::GetIO().KeyShift ? 10.0f : 0.0f;
 		OrkigeEditor::uiEditDrawCanvas(ui.editSession, stage, canvas, draw, snap);
 
-		// the sidebar in the reserved right column
-		ImGui::SetCursorScreenPos(ImVec2(origin.x + canvasW + 8.0f, origin.y));
-		OrkigeEditor::uiEditDrawSidebar(ui.editSession, stage, sidebarW);
+		// hand the session to the UI Editor panel (drawn later this frame); the
+		// canvas holding focus also routes Cmd/Ctrl+Z to the document
+		editLink.session = &ui.editSession;
+		editLink.stage = &stage;
+		editLink.editActive = true;
+		editLink.projectRoot = root;
+		editLink.contextFocused |=
+			ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
 		editDbg.active = true;
 		editDbg.loaded = ui.editSession.loaded;
@@ -722,8 +768,8 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 	}
 
 	// reserve the drawn region so ImGui scrolling/sizing accounts for it. In edit
-	// mode the canvas InvisibleButton + the sidebar child already reserve their
-	// extents, so a full-avail Dummy on top of them would over-grow the window.
+	// mode the canvas InvisibleButton already reserves its extent, so a full-avail
+	// Dummy on top of it would over-grow the window.
 	if (!editActive)
 	{
 		ImGui::Dummy(avail);

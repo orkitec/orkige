@@ -115,11 +115,16 @@ void ViewSettings::load()
 		{
 			this->showTilePalettePanel = (value == "1");
 		}
-		else if (key == "panel_gui_preview" || key == "panel_game_preview")
+		else if (key == "panel_gui_preview" || key == "panel_game_preview" ||
+			key == "panel_preview")
 		{
-			// the GUI Preview panel became the Game Preview panel (clean cutover);
-			// an older ini's `panel_gui_preview` migrates into the new visibility
-			this->showGamePreviewPanel = (value == "1");
+			// the panel's stored key evolved GUI Preview -> Game Preview -> Preview
+			// (clean cutover); an older ini's key migrates into the one visibility
+			this->showPreviewPanel = (value == "1");
+		}
+		else if (key == "panel_ui_editor")
+		{
+			this->showUiEditorPanel = (value == "1");
 		}
 		else if (key == "game_preview_preset")
 		{
@@ -264,7 +269,8 @@ void ViewSettings::save() const
 		<< "panel_scene=" << (this->showScenePanel ? 1 : 0) << "\n"
 		<< "panel_assets=" << (this->showAssetBrowserPanel ? 1 : 0) << "\n"
 		<< "panel_tilepalette=" << (this->showTilePalettePanel ? 1 : 0) << "\n"
-		<< "panel_game_preview=" << (this->showGamePreviewPanel ? 1 : 0) << "\n"
+		<< "panel_preview=" << (this->showPreviewPanel ? 1 : 0) << "\n"
+		<< "panel_ui_editor=" << (this->showUiEditorPanel ? 1 : 0) << "\n"
 		<< "panel_debug=" << (this->showDebugPanel ? 1 : 0) << "\n"
 		<< "rotation_as_euler=" << (this->rotationAsEuler ? 1 : 0) << "\n"
 		<< "break_on_script_errors="
@@ -319,7 +325,7 @@ bool ViewSettings::migrateLayoutDefaults()
 		// the rework kept both open in their old slots; close them and flag the
 		// palette re-dock. Everything else in the user's layout is untouched.
 		this->showTilePalettePanel = false;
-		this->showGamePreviewPanel = false;
+		this->showPreviewPanel = false;
 		paletteRedockPending = true;
 	}
 	this->layoutVersion = CURRENT_LAYOUT_VERSION;

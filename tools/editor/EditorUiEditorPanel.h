@@ -10,14 +10,16 @@
 #define __EditorUiEditorPanel_h__26_7_2026__12_00_00__
 
 //! @file EditorUiEditorPanel.h
-//! @brief the visual `.oui` editor - an EDIT MODE hosted by the Game Preview
-//! panel. It reuses the ONE `.oui` render path (the panel's GamePreviewStage
-//! overlay - a second live gui stack would trip the GuiManager singleton) and
-//! the ONE document model (GuiLayoutDoc via EditorUiEdit's UiEditDoc), drawing
-//! editor adornments (selection outline, resize handles) over the composited
-//! image and a sidebar (widget tree, properties, palette, save) beside it.
-//! Click-select hit-tests the resolved overlay rects; drag/handles edit the
-//! LayoutNode/position anchor-preservingly; Save serialises through GuiLayout.
+//! @brief the visual `.oui` editor. Its EDIT MODE lives in the Preview panel
+//! (the canvas + adornments, reusing the ONE `.oui` render path - the panel's
+//! GamePreviewStage overlay, since a second live gui stack would trip the
+//! GuiManager singleton) and its TOOL SURFACE is the dockable "UI Editor" panel
+//! (widget tree, properties, anchor gizmo, align/distribute, add/delete, undo).
+//! Both drive the ONE document model (GuiLayoutDoc via EditorUiEdit's UiEditDoc)
+//! owned by the Preview panel and handed to the tool panel through
+//! UiEditorPanelLink. Click-select hit-tests the resolved overlay rects;
+//! drag/handles edit the LayoutNode/position anchor-preservingly; Save
+//! serialises through GuiLayout.
 
 #include "EditorUiEdit.h"
 
@@ -89,6 +91,14 @@ namespace OrkigeEditor
 		bool		dirty = false;			//!< unsaved edits pending
 		bool		canUndo = false;
 		int			selectionCount = 0;		//!< widgets in the multi-selection
+		//! the adornment CLIP the canvas draw applied this frame: true when
+		//! PushClipRect(canvas image rect) bracketed every adornment draw, plus
+		//! the clip rect itself and the pre-clip bounding box of the selection
+		//! adornments (@see adornmentBoundsScreen) - the selfcheck reads these to
+		//! prove the outline/handles/anchors never bleed past the canvas.
+		bool		adornClipApplied = false;
+		float		clipLeft = 0.0f, clipTop = 0.0f, clipRight = 0.0f, clipBottom = 0.0f;
+		float		adornLeft = 0.0f, adornTop = 0.0f, adornRight = 0.0f, adornBottom = 0.0f;
 	};
 	//! the process-wide edit-mode debug seam (@see UiEditorDebug)
 	UiEditorDebug& uiEditorDebug();
@@ -139,13 +149,42 @@ namespace OrkigeEditor
 
 	//! @brief draw the edit adornments over the canvas AND handle mouse
 	//! select/drag/resize (an invisible button covers the image). Called by the
-	//! Game Preview panel when edit mode is on and a screen is selected.
+	//! Preview panel when Edit UI mode is on and a screen is selected.
 	void uiEditDrawCanvas(UiEditSession& s, GamePreviewStage& stage,
 		UiEditCanvas const& canvas, ImDrawList* draw, float snapDesign);
 
-	//! @brief draw the edit sidebar (tree / properties / palette / save+undo)
-	//! inside the current ImGui region. @p width is the sidebar width in points.
-	void uiEditDrawSidebar(UiEditSession& s, GamePreviewStage& stage, float width);
+	//! @brief the once-per-frame hand-off from the Preview panel (which OWNS the
+	//! edit session + the canvas) to the dockable UI Editor panel (the tool
+	//! surface: tree / properties / anchor gizmo / align / add-delete / undo). The
+	//! Preview panel fills this each frame it draws Edit UI; the loop clears it
+	//! before the panels draw, so a stale pointer never survives a closed Preview.
+	struct UiEditorPanelLink
+	{
+		UiEditSession*		session = nullptr;	//!< the live edit session (owned by the Preview panel)
+		GamePreviewStage*	stage = nullptr;	//!< the overlay stage the tools resolve against
+		bool				editActive = false;	//!< Edit UI is on with a screen loaded this frame
+		//! the edit context holds keyboard focus (the UI Editor panel OR the
+		//! Preview canvas) - drives whether global Cmd/Ctrl+Z routes to the doc
+		bool				contextFocused = false;
+		std::string			projectRoot;		//!< the loaded screen's project root
+	};
+	//! the process-wide Preview->UI-Editor link (@see UiEditorPanelLink)
+	UiEditorPanelLink& uiEditorPanelLink();
+
+	//! @brief draw the dockable "UI Editor" panel: the visual `.oui` editor's
+	//! tool surface (widget tree, properties, anchor gizmo, align/distribute,
+	//! add/delete and the undo/redo/save controls in its header). Meaningful only
+	//! while a screen is open in the Preview panel's Edit UI mode - an honest
+	//! empty state otherwise. Selection stays synced with the canvas both ways.
+	void drawUiEditorPanel(bool* open);
+
+	//! @brief the global-undo routing hooks the editor shortcut handler calls so
+	//! Cmd/Ctrl+Z edits the `.oui` document (not the scene) whenever the edit
+	//! context is focused. @{
+	bool uiEditContextWantsUndo();	//!< editActive && the edit context is focused
+	void uiEditUndoShared();		//!< undo the shared session + persist/reload
+	void uiEditRedoShared();		//!< redo the shared session + persist/reload
+	//! @}
 }
 
 #endif //__EditorUiEditorPanel_h__26_7_2026__12_00_00__

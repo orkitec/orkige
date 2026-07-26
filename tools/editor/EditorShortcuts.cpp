@@ -11,6 +11,7 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 #include "EditorSceneTemplate.h"
+#include "EditorUiEditorPanel.h"
 
 // The keyboard shortcut map (checked once per frame, after the panels have
 // recorded their hover/focus state; inactive while a text field is being
@@ -69,6 +70,15 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 	}
 	if (commandDown && ImGui::IsKeyPressed(ImGuiKey_Z, false))
 	{
+		// the visual .oui editor context (its panel or the Preview canvas focused)
+		// routes undo/redo to the GuiLayout document, not the scene - the same
+		// context-routing the script editor uses for its own documents
+		if (OrkigeEditor::uiEditContextWantsUndo())
+		{
+			if (io.KeyShift) { OrkigeEditor::uiEditRedoShared(); }
+			else { OrkigeEditor::uiEditUndoShared(); }
+			return;
+		}
 		if (io.KeyShift)
 		{
 			core.redo();

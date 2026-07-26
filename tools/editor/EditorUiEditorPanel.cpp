@@ -11,6 +11,8 @@
 *********************************************************************/
 
 #include "EditorUiEditorPanel.h"
+#include "EditorApp.h"
+#include "EditorTabMenu.h"
 #include "GamePreviewStage.h"
 #include "GuiPreviewStage.h"
 #include "EditorTheme.h"
@@ -520,15 +522,23 @@ namespace OrkigeEditor
 		const ImU32 GUIDE_COL = IM_COL32(255, 90, 160, 220);
 		const ImU32 MARQUEE_COL = IM_COL32(120, 180, 255, 90);
 
+		//! the pure canvas placement behind the ImGui-facing helpers (@see
+		//! mapSurfaceRectToScreen - the ONE surface->screen transform)
+		UiCanvasPlacement placementOf(UiEditCanvas const& c)
+		{
+			UiCanvasPlacement p;
+			p.imageX = c.imageX; p.imageY = c.imageY;
+			p.drawW = c.drawW; p.drawH = c.drawH;
+			p.surfaceW = c.surfaceW; p.surfaceH = c.surfaceH;
+			return p;
+		}
 		//! map a surface-pixel rect to the on-screen image rect
 		void mapRect(UiEditCanvas const& c, UiRect const& r,
 			ImVec2& a, ImVec2& b)
 		{
-			const float sx = c.drawW / (c.surfaceW > 0 ? c.surfaceW : 1.0f);
-			const float sy = c.drawH / (c.surfaceH > 0 ? c.surfaceH : 1.0f);
-			a = ImVec2(c.imageX + r.left * sx, c.imageY + r.top * sy);
-			b = ImVec2(c.imageX + (r.left + r.width) * sx,
-				c.imageY + (r.top + r.height) * sy);
+			const UiRect m = mapSurfaceRectToScreen(placementOf(c), r);
+			a = ImVec2(m.left, m.top);
+			b = ImVec2(m.left + m.width, m.top + m.height);
 		}
 		//! map a surface-pixel point to the on-screen image point
 		ImVec2 mapPoint(UiEditCanvas const& c, float sxSurface, float sySurface)
@@ -617,6 +627,21 @@ namespace OrkigeEditor
 			return std::find(s.selection.begin(), s.selection.end(), id) !=
 				s.selection.end();
 		};
+
+		// clip EVERY adornment (outline, handles, anchors, pivot, guides, marquee,
+		// drag ghosts) to the canvas image rect: the selection outline and the
+		// edge/anchor grips of a stretch widget sit ON the surface edges and would
+		// otherwise bleed across the sidebar / past the device frame (the draw list
+		// is the whole panel window's). intersect_with_current keeps the panel's
+		// own clip too. Balanced by PopClipRect at the end.
+		const ImVec2 clipMin(canvas.imageX, canvas.imageY);
+		const ImVec2 clipMax(canvas.imageX + canvas.drawW,
+			canvas.imageY + canvas.drawH);
+		draw->PushClipRect(clipMin, clipMax, true);
+		UiEditorDebug& dbg = uiEditorDebug();
+		dbg.adornClipApplied = true;
+		dbg.clipLeft = clipMin.x; dbg.clipTop = clipMin.y;
+		dbg.clipRight = clipMax.x; dbg.clipBottom = clipMax.y;
 
 		// an invisible button over the image captures clicks/drags on the canvas
 		ImGui::SetCursorScreenPos(ImVec2(canvas.imageX, canvas.imageY));
@@ -983,6 +1008,20 @@ namespace OrkigeEditor
 				draw->AddCircle(pv, 4.0f, IM_COL32(0, 0, 0, 200));
 			}
 		}
+
+		// record the pre-clip adornment bounds (the selection outlines grown by the
+		// grip radius) so the selfcheck can prove they are what the clip bounds
+		std::vector<UiRect> selRects;
+		for(UiRect const& r : rects)
+		{
+			if(selected(r.id)) { selRects.push_back(r); }
+		}
+		const UiRect adorn = adornmentBoundsScreen(placementOf(canvas), selRects, 7.0f);
+		dbg.adornLeft = adorn.left; dbg.adornTop = adorn.top;
+		dbg.adornRight = adorn.left + adorn.width;
+		dbg.adornBottom = adorn.top + adorn.height;
+
+		draw->PopClipRect();
 	}
 	//=========================================================
 	//=== the sidebar (tree / properties / palette / save) ====
@@ -1138,33 +1177,15 @@ namespace OrkigeEditor
 			return ran;
 		}
 	}
-	//---------------------------------------------------------
-	void uiEditDrawSidebar(UiEditSession& s, GamePreviewStage& stage, float width)
+	//=========================================================
+	//=== the dockable "UI Editor" tool panel =================
+	//=========================================================
+	namespace
 	{
-		ImGui::BeginChild("##ui_edit_sidebar", ImVec2(width, 0.0f), true);
-
-		// toolbar: undo/redo + a save/refresh + the dirty dot
-		if(ImGui::SmallButton("Undo") && s.doc.canUndo())
+		//! the tools body (tree / properties / anchor gizmo / align / add-delete),
+		//! rendered inside the UI Editor panel window after its undo/save header
+		void drawUiEditToolsBody(UiEditSession& s, GamePreviewStage& stage)
 		{
-			uiEditUndo(s);
-			String err; persist(s, stage, err);
-		}
-		ImGui::SameLine();
-		if(ImGui::SmallButton("Redo") && s.doc.canRedo())
-		{
-			s.doc.redo();
-			pruneSelection(s);
-			String err; persist(s, stage, err);
-		}
-		ImGui::SameLine();
-		if(ImGui::SmallButton("Save"))
-		{
-			String err; persist(s, stage, err);
-		}
-		ImGui::SameLine();
-		ImGui::TextDisabled(s.doc.dirty() ? "*" : "saved");
-
-		ImGui::Separator();
 
 		// align/distribute over a multi-selection (the key holds; others move)
 		if(s.selection.size() >= 2)
@@ -1277,7 +1298,91 @@ namespace OrkigeEditor
 				String err; persist(s, stage, err);
 			}
 		}
+		}	// drawUiEditToolsBody
+	}
+	//---------------------------------------------------------
+	UiEditorPanelLink& uiEditorPanelLink()
+	{
+		static UiEditorPanelLink link;
+		return link;
+	}
+	//---------------------------------------------------------
+	bool uiEditContextWantsUndo()
+	{
+		UiEditorPanelLink const& link = uiEditorPanelLink();
+		return link.editActive && link.contextFocused &&
+			link.session != nullptr && link.session->loaded;
+	}
+	//---------------------------------------------------------
+	void uiEditUndoShared()
+	{
+		UiEditorPanelLink const& link = uiEditorPanelLink();
+		if(!link.editActive || !link.session || !link.stage) { return; }
+		if(!link.session->doc.canUndo()) { return; }
+		uiEditUndo(*link.session);
+		String err; persist(*link.session, *link.stage, err);
+	}
+	//---------------------------------------------------------
+	void uiEditRedoShared()
+	{
+		UiEditorPanelLink const& link = uiEditorPanelLink();
+		if(!link.editActive || !link.session || !link.stage) { return; }
+		if(!link.session->doc.canRedo()) { return; }
+		link.session->doc.redo();
+		pruneSelection(*link.session);
+		String err; persist(*link.session, *link.stage, err);
+	}
+	//---------------------------------------------------------
+	void drawUiEditorPanel(bool* open)
+	{
+		static bool dockAttempted = false;
+		dockUiEditorBesideInspectorOnce(dockAttempted);
+		const bool shown = ImGui::Begin(UI_EDITOR_WINDOW_EDIT, open);
+		editorPanelTabMenu(open);
+		if(!shown)
+		{
+			ImGui::End();
+			return;
+		}
+		UiEditorPanelLink& link = uiEditorPanelLink();
+		// the panel holding focus makes Cmd/Ctrl+Z edit the document (not the scene)
+		link.contextFocused |=
+			ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
-		ImGui::EndChild();
+		if(!link.editActive || !link.session || !link.session->loaded ||
+			!link.stage)
+		{
+			// honest empty state (the house dormant-panel pattern)
+			ImGui::TextDisabled("No UI open.");
+			ImGui::TextWrapped(
+				"Open a .oui screen in the Preview panel and turn on Edit UI to "
+				"edit its widgets here.");
+			ImGui::End();
+			return;
+		}
+
+		UiEditSession& s = *link.session;
+		GamePreviewStage& stage = *link.stage;
+
+		// header: undo / redo / save + the dirty indicator (the save state reads
+		// best beside its controls - the Preview slim row carries no indicator)
+		ImGui::BeginDisabled(!s.doc.canUndo());
+		if(ImGui::SmallButton("Undo")) { uiEditUndoShared(); }
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::BeginDisabled(!s.doc.canRedo());
+		if(ImGui::SmallButton("Redo")) { uiEditRedoShared(); }
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if(ImGui::SmallButton("Save"))
+		{
+			String err; persist(s, stage, err);
+		}
+		ImGui::SameLine();
+		ImGui::TextDisabled(s.doc.dirty() ? "* unsaved" : "saved");
+		ImGui::Separator();
+
+		drawUiEditToolsBody(s, stage);
+		ImGui::End();
 	}
 }

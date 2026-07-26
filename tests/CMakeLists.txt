@@ -1097,7 +1097,7 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_OVERLAY_SELFCHECK=1;ORKIGE_DEMO_FRAMES=60"
         LABELS integration TIMEOUT 120)
 
-    # Visual .oui editor edit loop, BOTH flavors: the Game Preview panel's Edit UI
+    # Visual .oui editor edit loop, BOTH flavors: the Preview panel's Edit UI
     # mode drives the ONE GuiLayout document through the same hook API the mouse
     # uses. The leg writes a starter screen, then load -> select -> move (asserts
     # anchoredPos updated + an undo step) -> undo (asserts restored) -> add widget
@@ -1114,7 +1114,7 @@ if(TARGET orkige_editor)
     # Display dropdown v2 view mode + lighting, BOTH flavors, over one lit
     # water-plane + directional-light + camera fixture. WIREFRAME leg (classic, a
     # PER-TARGET per-camera polygon-mode flip): the Scene RTT PIXELS change while the
-    # Game Preview stays byte-identical (the per-target scoping proof). LIGHTING leg
+    # Preview stays byte-identical (the per-target scoping proof). LIGHTING leg
     # (both, a GLOBAL per-frame flatten armed via the Scene-only dock-tab visibility
     # rule - @see RenderWorld::setLightingSuppressed): arming lighting-off flattens
     # the Scene RTT and disarming restores it EXACTLY (byte-identical). The
@@ -1124,7 +1124,7 @@ if(TARGET orkige_editor)
     # untouched shaded pass, @see RenderWorld::setSceneWireframeOverlay): the armed
     # frame differs from BOTH the shaded baseline AND the pure-wireframe flip, one
     # overlay exists per scene mesh, a live add/delete grows/shrinks the set, the
-    # Game Preview stays byte-identical (the editor-only-bit mask proof) and disarm
+    # Preview stays byte-identical (the editor-only-bit mask proof) and disarm
     # restores the Scene RTT byte-exact + destroys the companions.
     add_test(NAME editor_viewmode${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
@@ -1132,7 +1132,7 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_VIEWMODE_SELFCHECK=1;ORKIGE_DEMO_FRAMES=120"
         LABELS integration TIMEOUT 120)
 
-    # Game Preview panel + the Scene-panel selected-camera inset, BOTH flavors:
+    # Preview panel + the Scene-panel selected-camera inset, BOTH flavors:
     # the composite renders the scene through its OWN CameraComponent at a notch
     # device preset with the procedural device frame + safe-area guides, the
     # animate-materials clock advances water time, the selected-camera inset
@@ -1151,7 +1151,7 @@ if(TARGET orkige_editor)
     # a live property edit re-arms with the preset-seeds/fields-override
     # precedence, a second instance stays dormant and the take-over contract
     # promotes/takes back on (de)activation; the Hierarchy owner glyphs draw
-    # accent-vs-dimmed (seam) and the Game Preview's captured PIXELS show the
+    # accent-vs-dimmed (seam) and the Preview's captured PIXELS show the
     # day sky band vs the disabled backdrop (editor_atmosphere).
     add_test(NAME editor_atmosphere${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
@@ -1160,7 +1160,7 @@ if(TARGET orkige_editor)
         LABELS integration TIMEOUT 120)
 
     # Refractive-water crash guard, BOTH flavors: opening a scene whose water
-    # carries screen-space refraction with the Game Preview panel active renders
+    # carries screen-space refraction with the Preview panel active renders
     # it through offscreen RTTs whose workspaces cannot satisfy an HlmsPbs
     # Refractive datablock - the editor used to ABORT (SIGABRT out of
     # Root::renderOneFrame). The next backend downgrades such water to a

@@ -640,3 +640,68 @@ TEST_CASE("ui-edit: edit -> save -> reload -> resolve equality", "[unit][uiedit]
 	CHECK_THAT(after.x - before.x, WithinAbs(12.0f, 1e-3f));
 	CHECK_THAT(after.y - before.y, WithinAbs(8.0f, 1e-3f));
 }
+
+TEST_CASE("ui-edit: surface->screen rect mapping under a device preset",
+	"[unit][uiedit]")
+{
+	// a real notch-phone-like preset surface (device pixels), fit into a canvas
+	// column and centred the way the Preview panel places the composite image.
+	UiCanvasPlacement c;
+	c.surfaceW = 1179.0f;	// device px (content scale is baked into the surface)
+	c.surfaceH = 2556.0f;
+	c.imageX = 100.0f;		// screen offset of the fitted image
+	c.imageY = 40.0f;
+	c.drawH = 900.0f;		// height-fit
+	c.drawW = c.drawH * (c.surfaceW / c.surfaceH);	// keep aspect
+
+	// a stretchtop widget resolves to the FULL surface width - it must map to
+	// EXACTLY the image rect, never wider than the device screen (bug (b) guard)
+	const UiRect stretchTop{ "bar", 0.0f, 0.0f, c.surfaceW, 160.0f };
+	const UiRect m = mapSurfaceRectToScreen(c, stretchTop);
+	CHECK_THAT(m.left, WithinAbs(c.imageX, 1e-3f));
+	CHECK_THAT(m.width, WithinAbs(c.drawW, 1e-3f));
+	CHECK(m.left + m.width <= c.imageX + c.drawW + 1e-3f);
+
+	// an interior widget maps proportionally and stays inside the canvas
+	const UiRect inner{ "btn", 300.0f, 500.0f, 400.0f, 120.0f };
+	const UiRect mi = mapSurfaceRectToScreen(c, inner);
+	const float sx = c.drawW / c.surfaceW;
+	CHECK_THAT(mi.left, WithinAbs(c.imageX + 300.0f * sx, 1e-3f));
+	CHECK_THAT(mi.width, WithinAbs(400.0f * sx, 1e-3f));
+	CHECK(mi.left >= c.imageX - 1e-3f);
+	CHECK(mi.left + mi.width <= c.imageX + c.drawW + 1e-3f);
+}
+
+TEST_CASE("ui-edit: adornment bounds vs the canvas clip rect", "[unit][uiedit]")
+{
+	// the canvas image rect the panel pushes as the adornment clip
+	UiCanvasPlacement c;
+	c.surfaceW = 1179.0f; c.surfaceH = 2556.0f;
+	c.imageX = 100.0f; c.imageY = 40.0f;
+	c.drawH = 900.0f;
+	c.drawW = c.drawH * (c.surfaceW / c.surfaceH);
+	const float canvasRight = c.imageX + c.drawW;
+
+	// a full-width (stretch) selection: its outline maps to the image edges, so
+	// the grips (handlePad) reach JUST PAST the canvas - exactly why the panel
+	// clips to the canvas rect. The bounds prove the mapping is in-surface (the
+	// outline itself never exceeds the canvas) while the pad is what the clip trims.
+	std::vector<UiRect> sel{ { "bar", 0.0f, 0.0f, c.surfaceW, 160.0f } };
+	const UiRect noPad = adornmentBoundsScreen(c, sel, 0.0f);
+	CHECK(noPad.left >= c.imageX - 1e-3f);
+	CHECK(noPad.left + noPad.width <= canvasRight + 1e-3f);
+	const UiRect withPad = adornmentBoundsScreen(c, sel, 7.0f);
+	CHECK(withPad.left < c.imageX);				// a grip pokes left of the canvas
+	CHECK(withPad.left + withPad.width > canvasRight);	// and right of it
+
+	// an interior selection: even with the grip pad it stays inside the canvas
+	std::vector<UiRect> inner{ { "btn", 300.0f, 500.0f, 400.0f, 120.0f } };
+	const UiRect ib = adornmentBoundsScreen(c, inner, 7.0f);
+	CHECK(ib.left >= c.imageX - 1e-3f);
+	CHECK(ib.left + ib.width <= canvasRight + 1e-3f);
+
+	// an empty selection yields a zero box (nothing to bound)
+	const UiRect empty = adornmentBoundsScreen(c, {}, 7.0f);
+	CHECK(empty.width == 0.0f);
+	CHECK(empty.height == 0.0f);
+}

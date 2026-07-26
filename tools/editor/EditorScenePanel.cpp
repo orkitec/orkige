@@ -1337,7 +1337,7 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 			// all-Camera Frames from the toolbar Display dropdown). The design-
 			// aspect rect follows the Game Preview panel's device preset.
 			float deviceAspect = 0.0f;
-			if (viewSettings.showGamePreviewPanel)
+			if (viewSettings.showPreviewPanel)
 			{
 				Orkige::DevicePreset::Preset const& preset =
 					Orkige::DevicePreset::forKind(

@@ -865,6 +865,10 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 		&bottomId, &centerId);
 	ImGui::DockBuilderDockWindow(HIERARCHY_WINDOW_EDIT, leftId);
 	ImGui::DockBuilderDockWindow(INSPECTOR_WINDOW_EDIT, rightId);
+	// the UI Editor (the visual .oui editor's tool surface) tabs into the right
+	// column beside the Inspector - it opens on demand (Edit UI in the Preview
+	// panel), a tab slot waits here for it
+	ImGui::DockBuilderDockWindow(UI_EDITOR_WINDOW_EDIT, rightId);
 	ImGui::DockBuilderDockWindow("Console", bottomId);
 	ImGui::DockBuilderDockWindow("Stats", bottomId);
 	// the debugger's Debug panel tabs into the bottom node beside Console (it
@@ -878,10 +882,10 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	// the GUI Preview shares the center node with the Scene (a tab beside
 	// it - the human flips between the 3D scene and the UI screen)
 	ImGui::DockBuilderDockWindow("GuiPreview", centerId);
-	// the Game Preview is a TAB of the SAME center node as the Scene (the
-	// render invariant: the two game views are never both the visible tab, so
-	// only one renders per frame - @see chooseGameViewRenderer)
-	ImGui::DockBuilderDockWindow("Game Preview", centerId);
+	// the Preview is a TAB of the SAME center node as the Scene (the render
+	// invariant: the two game views are never both the visible tab, so only one
+	// renders per frame - @see chooseGameViewRenderer)
+	ImGui::DockBuilderDockWindow("Preview", centerId);
 	ImGui::DockBuilderFinish(dockspaceId);
 	// the Asset Browser is the default-selected tab of the bottom node (Console
 	// docks first and would otherwise be the initial selection); the Tile
@@ -907,6 +911,25 @@ void dockPreviewBesideSceneOnce(const char* panelWindowName, bool& attempted)
 	if (!preview || preview->DockId == 0)
 	{
 		ImGui::SetNextWindowDockID(scene->DockId, ImGuiCond_Always);
+	}
+	attempted = true;
+}
+
+void dockUiEditorBesideInspectorOnce(bool& attempted)
+{
+	if (attempted)
+	{
+		return;
+	}
+	ImGuiWindow* inspector = ImGui::FindWindowByName(INSPECTOR_WINDOW_EDIT);
+	if (!inspector || inspector->DockId == 0)
+	{
+		return; // the Inspector may not have been submitted yet; retry next frame
+	}
+	ImGuiWindow* uiEditor = ImGui::FindWindowByName(UI_EDITOR_WINDOW_EDIT);
+	if (!uiEditor || uiEditor->DockId == 0)
+	{
+		ImGui::SetNextWindowDockID(inspector->DockId, ImGuiCond_Always);
 	}
 	attempted = true;
 }

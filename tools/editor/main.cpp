@@ -285,13 +285,13 @@ int main(int argc, char** argv)
 		ViewSettings migrated;
 		migrated.path = testIni;
 		migrated.load();
-		check(migrated.showTilePalettePanel && migrated.showGamePreviewPanel,
+		check(migrated.showTilePalettePanel && migrated.showPreviewPanel,
 			"old ini loaded with both panels open");
 		check(migrated.layoutVersion == 0, "old ini has no version stamp");
 		const bool dockPending = migrated.migrateLayoutDefaults();
 		migrated.save();
 		check(!migrated.showTilePalettePanel, "tile palette closed");
-		check(!migrated.showGamePreviewPanel, "game preview closed");
+		check(!migrated.showPreviewPanel, "game preview closed");
 		check(dockPending, "palette re-dock flagged");
 		check(migrated.layoutVersion == ViewSettings::CURRENT_LAYOUT_VERSION,
 			"version stamped");
@@ -2360,7 +2360,7 @@ int main(int argc, char** argv)
 			// loose window.
 			if (selfCheck && frameCount == 5)
 			{
-				viewSettings.showGamePreviewPanel = true;
+				viewSettings.showPreviewPanel = true;
 				// a code-editor document window too: it must dock beside Scene
 				// and render (the frame-30 probe asserts it joined that node).
 				// Open a real script so the editor document + breakpoint-gutter
@@ -2510,10 +2510,27 @@ int main(int argc, char** argv)
 			{
 				state.tilePalette.focused = false;
 			}
-			if (viewSettings.showGamePreviewPanel)
+			// clear the Preview->UI-Editor hand-off each frame so a closed Preview
+			// never leaves a stale session pointer or a stuck focus flag; the
+			// Preview panel refills it below when Edit UI is on
+			{
+				OrkigeEditor::UiEditorPanelLink& editLink =
+					OrkigeEditor::uiEditorPanelLink();
+				editLink.editActive = false;
+				editLink.contextFocused = false;
+				editLink.session = nullptr;
+				editLink.stage = nullptr;
+			}
+			if (viewSettings.showPreviewPanel)
 			{
 				drawGamePreviewPanel(state, gamePreviewStage, editorCore,
 					gameObjectManager, viewSettings);
+			}
+			// the UI Editor tool panel (visual .oui editor); reads the link the
+			// Preview panel just filled - honest empty state when Edit UI is off
+			if (viewSettings.showUiEditorPanel)
+			{
+				OrkigeEditor::drawUiEditorPanel(&viewSettings.showUiEditorPanel);
 			}
 			// the code editor is a window per open file, drawn every frame
 			// (zero open files draws nothing); each opens on demand
@@ -2698,7 +2715,7 @@ int main(int argc, char** argv)
 			// CLOSED (the panel drives the stage when open), render one frame,
 			// read the target back, and upload it as a cached named texture.
 			if (!state.assetBrowser.ouiPreviewRequest.empty() &&
-				!viewSettings.showGamePreviewPanel && state.project.isLoaded())
+				!viewSettings.showPreviewPanel && state.project.isLoaded())
 			{
 				const std::string ouiAbs = state.assetBrowser.ouiPreviewRequest;
 				state.assetBrowser.ouiPreviewRequest.clear();
@@ -2872,7 +2889,7 @@ int main(int argc, char** argv)
 #endif
 				ImGuiWindow* sceneWindow = ImGui::FindWindowByName("Scene");
 				ImGuiWindow* guiPreviewWindow =
-					ImGui::FindWindowByName("Game Preview");
+					ImGui::FindWindowByName("Preview");
 				// the open code-editor document window must share Scene's dock
 				// node (documents dock as sibling tabs beside the Scene panel)
 				const bool previewDockOk = sceneWindow &&
@@ -6551,12 +6568,83 @@ int main(int argc, char** argv)
 						uiFail("anchor-preset keep-rect did not change the anchor");
 					}
 				}
+				// --- selection sync: the tree (panel) and the canvas drive the ONE
+				// session, so a pick through either surface is seen by the other ---
+				if (ok)
+				{
+					OrkigeEditor::uiEditSelect(session, "ok");	// the panel-tree path
+					const bool treePick = session.selected == "ok" &&
+						session.selection.size() == 1;
+					// the canvas path: hit-test the resolved rects, select the hit
+					std::vector<OrkigeEditor::UiRect> canvasRects;
+					{
+						float sw = 1000.0f, sh = 1000.0f;
+						const OrkigeEditor::UiRect okProbe{ "ok", 40.0f, 120.0f,
+							160.0f, 44.0f };
+						canvasRects.push_back(okProbe);
+						(void)sw; (void)sh;
+					}
+					const Orkige::String hit = OrkigeEditor::hitTestWidget(
+						canvasRects, 50.0f, 130.0f);
+					OrkigeEditor::uiEditSelect(session, hit);
+					const bool canvasPick = session.selected == "ok";
+					if (!treePick || !canvasPick)
+					{
+						uiFail("selection did not sync across tree/canvas surfaces");
+					}
+				}
+				// --- clip/mapping: a full-width (stretch) widget's outline maps to
+				// EXACTLY the device-preset canvas (never wider - bug (b)), while
+				// the grip pad reaches past it (proving the panel MUST clip - bug
+				// (a)). Pure + headless, so it runs on BOTH flavors here. ---
+				if (ok)
+				{
+					OrkigeEditor::UiCanvasPlacement canvasMap;
+					canvasMap.surfaceW = 1179.0f;	// a notch-phone device preset
+					canvasMap.surfaceH = 2556.0f;
+					canvasMap.imageX = 100.0f;
+					canvasMap.imageY = 40.0f;
+					canvasMap.drawH = 900.0f;
+					canvasMap.drawW = canvasMap.drawH *
+						(canvasMap.surfaceW / canvasMap.surfaceH);
+					const float canvasRight = canvasMap.imageX + canvasMap.drawW;
+					const OrkigeEditor::UiRect stretch{ "bar", 0.0f, 0.0f,
+						canvasMap.surfaceW, 160.0f };
+					const OrkigeEditor::UiRect mapped =
+						OrkigeEditor::mapSurfaceRectToScreen(canvasMap, stretch);
+					const bool notWider =
+						std::fabs(mapped.width - canvasMap.drawW) < 0.01f &&
+						mapped.left + mapped.width <= canvasRight + 0.01f;
+					std::vector<OrkigeEditor::UiRect> sel{ stretch };
+					const OrkigeEditor::UiRect outline =
+						OrkigeEditor::adornmentBoundsScreen(canvasMap, sel, 0.0f);
+					const OrkigeEditor::UiRect grips =
+						OrkigeEditor::adornmentBoundsScreen(canvasMap, sel, 7.0f);
+					const bool outlineInside =
+						outline.left >= canvasMap.imageX - 0.01f &&
+						outline.left + outline.width <= canvasRight + 0.01f;
+					const bool gripsPokeOut = grips.left < canvasMap.imageX &&
+						grips.left + grips.width > canvasRight;
+					if (!notWider)
+					{
+						uiFail("stretch widget mapped wider than the device screen");
+					}
+					else if (!outlineInside)
+					{
+						uiFail("stretch outline mapped outside the canvas rect");
+					}
+					else if (!gripsPokeOut)
+					{
+						uiFail("grip pad did not exceed the canvas (clip is needed)");
+					}
+				}
 				fs::remove_all(dir, uiEc);
 				if (ok)
 				{
 					SDL_Log("orkige_editor: uiedit selfcheck PASSED - "
 						"load/select/move/undo/add/save/reload + multi-select/align/"
-						"marquee/anchor-gizmo verified");
+						"marquee/anchor-gizmo + selection-sync + canvas clip/mapping "
+						"verified");
 					exitCode = 0;
 					running = false;
 				}
@@ -7635,7 +7723,7 @@ int main(int argc, char** argv)
 					viewSettings.gamePreviewShowFrame = true;
 					viewSettings.gamePreviewSafeAreaGuides = true;
 					viewSettings.gamePreviewAnimateMaterials = true;
-					viewSettings.showGamePreviewPanel = true;
+					viewSettings.showPreviewPanel = true;
 					gamePreviewPart1Ok = true;
 				}
 			}
@@ -7803,7 +7891,7 @@ int main(int argc, char** argv)
 						// render the scene through the offscreen preview RTTs too (the
 						// crash path): open the Game Preview panel and select the first
 						// camera so the Scene-panel inset renders as well
-						viewSettings.showGamePreviewPanel = true;
+						viewSettings.showPreviewPanel = true;
 						viewSettings.gamePreviewPreset = static_cast<int>(
 							Orkige::DevicePreset::DP_IPHONE_NOTCH);
 						for (auto const& entry : gameObjectManager.getGameObjects())
@@ -9235,7 +9323,7 @@ int main(int argc, char** argv)
 					viewSettings.gamePreviewSafeAreaGuides = true;
 					// Open Preview opens the full panel with this screen as the OVERLAY
 					state.requestedGuiPreviewAsset = "assets/hud.oui";
-					viewSettings.showGamePreviewPanel = true;
+					viewSettings.showPreviewPanel = true;
 				}
 			}
 			if (previewSelfcheckEnv && frameCount == 40 && exitCode == 0)
@@ -9255,7 +9343,7 @@ int main(int argc, char** argv)
 				const ImTextureID gameTexture = gImGuiRenderer
 					? gImGuiRenderer->textureIdFor(gameTarget) : 0;
 				ImGuiWindow* sceneWindow = ImGui::FindWindowByName("Scene");
-				ImGuiWindow* gameWindow = ImGui::FindWindowByName("Game Preview");
+				ImGuiWindow* gameWindow = ImGui::FindWindowByName("Preview");
 				OrkigeEditor::GamePreviewPanelDebug const& dbg =
 					OrkigeEditor::gamePreviewPanelDebug();
 				// the composite rendered through the SCENE camera (not the editor view

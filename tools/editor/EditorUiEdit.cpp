@@ -922,4 +922,49 @@ namespace OrkigeEditor
 	{
 		this->mSaved = this->text();
 	}
+	//=========================================================
+	//=== the canvas transform (pure - shared by the panel + tests) ===
+	//=========================================================
+	UiRect mapSurfaceRectToScreen(UiCanvasPlacement const& c,
+		UiRect const& surfaceRect)
+	{
+		const float sx = c.drawW / (c.surfaceW > 0.0f ? c.surfaceW : 1.0f);
+		const float sy = c.drawH / (c.surfaceH > 0.0f ? c.surfaceH : 1.0f);
+		UiRect out;
+		out.id = surfaceRect.id;
+		out.left = c.imageX + surfaceRect.left * sx;
+		out.top = c.imageY + surfaceRect.top * sy;
+		out.width = surfaceRect.width * sx;
+		out.height = surfaceRect.height * sy;
+		return out;
+	}
+	//---------------------------------------------------------
+	UiRect adornmentBoundsScreen(UiCanvasPlacement const& c,
+		std::vector<UiRect> const& selectionSurfaceRects, float handlePad)
+	{
+		if(selectionSurfaceRects.empty()) { return UiRect(); }
+		float minX = 0.0f, minY = 0.0f, maxX = 0.0f, maxY = 0.0f;
+		bool first = true;
+		for(UiRect const& r : selectionSurfaceRects)
+		{
+			const UiRect m = mapSurfaceRectToScreen(c, r);
+			const float l = m.left - handlePad;
+			const float t = m.top - handlePad;
+			const float rr = m.left + m.width + handlePad;
+			const float bb = m.top + m.height + handlePad;
+			if(first)
+			{
+				minX = l; minY = t; maxX = rr; maxY = bb; first = false;
+			}
+			else
+			{
+				minX = std::min(minX, l); minY = std::min(minY, t);
+				maxX = std::max(maxX, rr); maxY = std::max(maxY, bb);
+			}
+		}
+		UiRect out;
+		out.left = minX; out.top = minY;
+		out.width = maxX - minX; out.height = maxY - minY;
+		return out;
+	}
 }

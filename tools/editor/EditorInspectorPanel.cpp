@@ -1277,7 +1277,7 @@ void drawGuiPreviewInspectorHeader(EditorState& state)
 		state.requestedGuiPreviewAsset = rel;
 		if (gViewSettings)
 		{
-			gViewSettings->showGamePreviewPanel = true;
+			gViewSettings->showPreviewPanel = true;
 			gViewSettings->save();
 		}
 	}

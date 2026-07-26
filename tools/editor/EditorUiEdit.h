@@ -73,6 +73,39 @@ namespace OrkigeEditor
 	//! half-size in surface pixels (the pointer tolerance around each edge/corner).
 	UiHandle handleAt(UiRect const& r, float px, float py, float grab);
 
+	//! @brief the on-screen placement of the composited overlay image plus the
+	//! surface it represents - the pure subset of the panel's UiEditCanvas the
+	//! adornment geometry needs. Kept here so the surface->screen rect transform
+	//! AND the adornment-bounds computation are pure and unit-tested without ImGui.
+	struct UiCanvasPlacement
+	{
+		float	imageX = 0.0f;		//!< screen x of the image top-left
+		float	imageY = 0.0f;		//!< screen y of the image top-left
+		float	drawW = 1.0f;		//!< image width on screen
+		float	drawH = 1.0f;		//!< image height on screen
+		float	surfaceW = 1.0f;	//!< the overlay RTT width (pixels)
+		float	surfaceH = 1.0f;	//!< the overlay RTT height (pixels)
+	};
+
+	//! @brief map a surface-pixel rect to the on-screen image rect - the ONE
+	//! canvas transform every adornment draws through. A full-surface rect
+	//! (left 0, width surfaceW) maps EXACTLY to the image ([imageX, imageX+drawW])
+	//! by construction, so a stretch widget never draws wider than the device
+	//! screen; the clip that keeps edge grips inside the canvas is the panel's
+	//! PushClipRect over this same image rect. Pure.
+	UiRect mapSurfaceRectToScreen(UiCanvasPlacement const& c,
+		UiRect const& surfaceRect);
+
+	//! @brief the screen-space bounding box the selection adornments occupy: the
+	//! union of the mapped selection outlines grown by @p handlePad (the resize
+	//! grips / anchor grips / pivot dot all sit at or just past the outline and
+	//! parent corners). The panel clips its draw list to the canvas image rect, so
+	//! this box is what WOULD be drawn unclipped - a test/selfcheck asserts it
+	//! against the canvas to prove the mapping is in-surface and the clip is what
+	//! bounds the edge grips. Empty selection => a zero-size box at the origin.
+	UiRect adornmentBoundsScreen(UiCanvasPlacement const& c,
+		std::vector<UiRect> const& selectionSurfaceRects, float handlePad);
+
 	//! @brief a section's geometry model: Layout when it carries any explicit
 	//! rect-anchor key (anchor / anchorMin / pivot / offsets / anchoredPos /
 	//! sizeDelta), else Absolute (the legacy position/size pair).

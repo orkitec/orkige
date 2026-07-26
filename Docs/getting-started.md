@@ -157,9 +157,9 @@ corner — its own little toolbar for what the view draws. Each choice is rememb
 per machine (in `orkige_editor_view.ini`, like the other view state). The
 **overlays** are drawn through the same facade line-mesh path as the reference
 grid, so they render identically on both render backends and are masked out of the
-Game Preview panel (overlays are editor chrome, never part of the game image); the
+Preview panel (overlays are editor chrome, never part of the game image); the
 **View Mode** and **Lighting** choices below them re-style *only* the Scene view —
-the Game Preview, the selected-camera inset and Play always show the real game
+the Preview, the selected-camera inset and Play always show the real game
 look.
 
 - **Grid** — the ground-plane reference grid (on by default; hidden anyway in 2D
@@ -194,7 +194,7 @@ Below the overlays the dropdown carries two **Scene-view-only** looks:
   editor's own ImGui chrome + gui), and wireframe flips **only** the 3D-scene set — so
   the geometry wireframes while the editor UI and 2D content stay solid. Because it is
   global, it rides the **one-game-view invariant** (below): it is armed only on a frame
-  the Scene view owns, so it never leaks into the Game Preview or Play, and it composes
+  the Scene view owns, so it never leaks into the Preview or Play, and it composes
   with the Lighting toggle (flat unlit wireframe). **Shaded + Wireframe** keeps the
   solid shaded look and draws a thin wireframe **on top** of it (line edges over the lit
   surfaces) — also on **both** backends, by the SAME road: **overlay items**, never a
@@ -216,7 +216,7 @@ Below the overlays the dropdown carries two **Scene-view-only** looks:
   lights from the scene's global light list, unfiltered by the per-pass mask; classic
   has no per-viewport lighting override). This is safe because of the render invariant
   below: the flat look is armed **only on a frame the Scene view is the one rendering**
-  (the toggle is off and the Scene view is the render). The Game Preview, whenever it
+  (the toggle is off and the Scene view is the render). The Preview, whenever it
   renders, is always the real lit look; Play is always lit. The selected-camera inset
   lives in the Scene panel and goes flat with it. Arming/releasing snapshots and
   restores the scene's lights + ambient exactly.

@@ -307,8 +307,9 @@ everyone's confidence in the suite.
   Docs are PRESENT-TENSE reference: describe how things are and how they work —
   never change-log narration ("now supports", "the old X was retired", "formerly").
   When history encodes a constraint, state the constraint plainly and drop the
-  archaeology. The sanctioned exceptions are the record-genre files (Docs/upstream/,
-  ports.md provenance, render-abstraction.md's design ledger).
+  archaeology. This holds for every doc, including `render-abstraction.md`. The
+  only sanctioned record-genre exceptions are `Docs/upstream/` and the `ports.md`
+  provenance notes (both document external artifacts, not our own current code).
 
 ## MCP endpoint (AI-agent editor control)
 
@@ -560,13 +561,19 @@ both flavors — `Docs/filesystem.md`);
 gizmos, undo/redo in the UI-agnostic `orkige_editor_core`, native macOS menu + file
 dialogs, play/pause/step/stop spawning `tools/player` with live remote
 hierarchy/inspector over the debug protocol; Play targets: desktop, iOS simulators,
-adb devices). The **Game Preview panel** shows the scene through its own
+adb devices). The **Preview panel** shows the scene through its own
 `CameraComponent` at REAL device presets (`core_util/DevicePreset.h` — iPhones/
 iPads/Pixels/foldables, resolution + safe-area + procedural frame with genuinely
 occluding notch/punch-hole), `.oui` overlay picker, an animate-materials clock
 (water look-dev without Play), a selected-camera PiP inset in the Scene view and
 the `preview_game` MCP verb; when no camera exists it falls back to the player's
-EXACT default camera (with a hint). Editor-only visuals (grid, gizmos, overlays)
+EXACT default camera (with a hint). Its **Edit UI mode** is the visual `.oui`
+editor's canvas (selection outlines / resize + anchor grips, all clipped to the
+canvas image rect); the tool surface — widget tree, properties, anchor gizmo,
+align/distribute, add/delete and undo/redo/save — is the separate dockable
+**UI Editor panel** (a tab beside the Inspector by default), fed the one edit
+session through `UiEditorPanelLink`, with global Cmd/Ctrl+Z routed to the
+GuiLayout document while that panel or the canvas holds focus. Editor-only visuals (grid, gizmos, overlays)
 are masked out of that RTT via the facade visibility-mask route
 (`MeshInstance::setVisibilityFlags` + `RenderTexture::setVisibilityMask`, editor
 bit 22). Reserved output dirs (`builds/`, `.orkige/`, `native/build*`, VCS) are
@@ -574,7 +581,7 @@ excluded from every project walker via `core_project/ProjectPaths.h`.
 The Scene panel's **Display dropdown** toggles the reference grid, collider
 wireframes (box/sphere/capsule at the body's world pose), renderable AABBs
 and all-camera frames (every frustum + the amber design-aspect rect of the
-active Game Preview preset, via `CameraFit`) — each a facade line-list mesh
+active Preview panel preset, via `CameraFit`) — each a facade line-list mesh
 on the camera-gizmo path (pure builders in `tools/editor/
 EditorOverlayGeometry.h`), editor-only visibility, signature-gated rebuilds
 with the `destroyLineListMesh`/`lineListMeshExists` lifecycle siblings so
@@ -591,7 +598,7 @@ LESS_EQUAL/no-write so no bias is needed, editor-only visibility bit,
 skinned meshes sit out v1, cap `SceneWireframeOverlayView`) and
 a **Lighting toggle** (both flavors: `RenderWorld::setLightingSuppressed`
 — snapshot every light + flat-white ambient, byte-exact restore). Both
-ride the ONE-GAME-VIEW INVARIANT: the Scene view and Game Preview are
+ride the ONE-GAME-VIEW INVARIANT: the Scene view and Preview are
 center-pane tabs that NEVER both render a frame
 (`RenderTexture::setAutoRender` freezes the non-renderer's last texture;
 a split layout dims it with a paused note, most-recently-focused wins —
@@ -690,7 +697,7 @@ from history); `Util/*.py` are the live asset generators.
 
 **Docs/**: `Docs/ports.md` (overlay-port rationale), `Docs/upstream/` (OGRE PR
 package — submitted as OGRECave/ogre #3667-3669), `Docs/mcp.md` (the MCP
-endpoint), `Docs/render-abstraction.md` (the facade design/audit), `Docs/api/`
+endpoint), `Docs/render-abstraction.md` (the render backend facade), `Docs/api/`
 (the public site's `/api/` class-reference config + footer), `Docs/legal/`
 (the site's imprint + privacy notice).
 
@@ -910,15 +917,24 @@ look when touching one:
   virtualization) — all `.oui`-authorable round-trip; an image widget IS a
   decor panel, a toggle switch IS a checkbox sprite skin, wrap-to-width
   labels and multi-line text entry are known future tasks.
-  **Visual `.oui` editor** (the Game Preview panel's EDIT MODE — GuiManager
-  is a singleton, so the one preview render path IS the canvas):
-  click-select + synced widget tree, anchor-preserving drag/resize pinned
-  to the ONE UiLayout resolver, widget palette, per-gesture undo in the
-  editor's own snapshot document; saves flow through `GuiLayout::serialize`
-  (byte-identical no-op, Play hot-reload fires like any text save; first
-  edit canonicalises comments/spacing), the live canvas is next-flavor
-  while document editing works everywhere, MCP unchanged (the file is the
-  interface) — `EditorUiEditTests` + `editor_uiedit` per flavor.
+  **Visual `.oui` editor** (the Preview panel's EDIT MODE — GuiManager is a
+  singleton, so the one preview render path IS the canvas): click-select +
+  synced widget tree, anchor-preserving drag/resize pinned to the ONE UiLayout
+  resolver, widget palette, per-gesture undo in the editor's own snapshot
+  document. The CANVAS (selection outlines / resize + anchor grips / guides /
+  marquee) lives in the Preview panel, clipped to the canvas image rect so an
+  edge grip of a stretch widget never bleeds past it (the surface->screen
+  transform is the pure `mapSurfaceRectToScreen`; a full-width widget maps to
+  exactly the device screen). The TOOL SURFACE (widget tree, properties, anchor
+  gizmo, align/distribute, add/delete, undo/redo/save) is the dockable
+  **UI Editor** panel (a tab beside the Inspector by default; honest empty state
+  when no `.oui` is in Edit UI mode), fed the one edit session through
+  `UiEditorPanelLink`; selection stays synced canvas<->tree both ways and global
+  Cmd/Ctrl+Z routes to the document while the panel or canvas is focused. Saves
+  flow through `GuiLayout::serialize` (byte-identical no-op, Play hot-reload
+  fires like any text save; first edit canonicalises comments/spacing), the live
+  canvas is next-flavor while document editing works everywhere, MCP unchanged
+  (the file is the interface) — `EditorUiEditTests` + `editor_uiedit` per flavor.
 - **Level authoring**: the editor's **Tile Palette** panel arms a paintable
   asset and the **grid-paint tool** (Paint tool, `B`) paints/erases tiles snapped
   to a grid in 2D mode. Two occupant kinds through ONE seam

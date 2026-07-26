@@ -1810,7 +1810,7 @@ void openAssetEntry(EditorState& state, Orkige::EditorCore& core,
 			state.project.makeProjectRelative(entry.absolutePath);
 		if (gViewSettings)
 		{
-			gViewSettings->showGamePreviewPanel = true;
+			gViewSettings->showPreviewPanel = true;
 			gViewSettings->save();
 		}
 		return;

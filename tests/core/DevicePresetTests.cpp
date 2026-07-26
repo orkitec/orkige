@@ -6,7 +6,7 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
 
-	Headless device-preset policy for the Game Preview panel: the
+	Headless device-preset policy for the Preview panel: the
 	real-device preset table is self-consistent (orientation matches
 	the dimensions, notch/punch presets carry insets), the token
 	dialect round-trips, and the pure device-FRAME geometry encloses
