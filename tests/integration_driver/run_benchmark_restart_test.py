@@ -79,7 +79,17 @@ def main():
         "ORKIGE_DEMO_FRAMES": str(args.frames),
         "ORKIGE_PROGRESS_RESET": "1",
         "ORKIGE_PROGRESS_DIR": str(out),
+        # write the crash-breadcrumb trail beside the run: it is flushed to disk
+        # per entry, so it survives a hard abort even when the last buffered
+        # stdout lines are lost - the reliable scene-load trail after an exit 3
+        "ORKIGE_BREADCRUMB_DIR": str(out),
     })
+
+    crumb_path = out / "breadcrumbs.jsonl"
+    try:
+        crumb_path.unlink()
+    except OSError:
+        pass
 
     cmd = [args.player, "--project", str(repo / "projects/benchmark")]
     log("running: " + " ".join(cmd))
@@ -88,6 +98,15 @@ def main():
                             timeout=480)
     output = result.stdout.decode("utf-8", "replace")
     if result.returncode != 0:
+        # a non-zero exit is the crash path (exit 3 = a Debug abort/assert on
+        # Windows) - print the flushed breadcrumb trail alongside the log tail so
+        # the last scenes reached before death are named even if stdout was lost
+        crumbs = ""
+        try:
+            crumbs = crumb_path.read_text("utf-8", "replace")
+        except OSError:
+            crumbs = "(no breadcrumbs.jsonl written)"
+        log("breadcrumb trail before exit:\n" + crumbs[-1500:])
         fail("player exited %d" % result.returncode, output[-1500:])
 
     lines = output.splitlines()
@@ -149,8 +168,20 @@ def main():
              "init after the results card (loadLevel 0 did not take effect)",
              output[-1500:])
 
+    # (4) the crash-breadcrumb trail was written and carries the scene the tour
+    # crashed on in CI (mirrorlake): this is the plumbing the failure path above
+    # dumps, so a passing run proves the trail is present for the NEXT crash
+    try:
+        crumbs = crumb_path.read_text("utf-8", "replace")
+    except OSError:
+        crumbs = ""
+    if "mirrorlake" not in crumbs:
+        fail("the crash-breadcrumb trail is missing or has no scene entries "
+             "(ORKIGE_BREADCRUMB_DIR wiring) - a future exit-3 would name no "
+             "scenes", crumbs[-1500:])
+
     log("OK: Restart button present + safe-area-placed, restart fired, tour "
-        "replayed from scene 1")
+        "replayed from scene 1, breadcrumb trail present")
 
 
 if __name__ == "__main__":

@@ -39,6 +39,11 @@
 // SDL_main.h in the translation unit defining main(): a no-op on desktop,
 // on iOS it wraps main() in SDL's UIKit application bootstrap
 #include <SDL3/SDL_main.h>
+#if defined(_WIN32) && defined(_DEBUG)
+// _CrtSetReportMode / _CrtSetReportFile: main() routes Debug assert reporting
+// to stderr so a failed assert names itself in a headless CI log
+#include <crtdbg.h>
+#endif
 #include <engine_graphic/Engine.h>
 #include <engine_graphic/ScreenFade.h>
 #include <engine_graphic/ScreenShake.h>
@@ -1010,6 +1015,21 @@ static bool playerIterate(PlayerContext& context)
 
 int main(int argc, char** argv)
 {
+#if defined(_WIN32) && defined(_DEBUG)
+	// Windows Debug: route CRT assertion reporting to stderr. A failed assert -
+	// ours through _ASSERTE, Ogre-Next's through the CRT assert(), or the CRT's
+	// own runtime checks - reports by default through a modal window /
+	// OutputDebugString and then terminates the process. On a headless CI runner
+	// that terminates with exit code 3 (abort) and NOTHING in the captured log,
+	// so the failure cannot name itself. Reporting to stderr instead prints the
+	// file:line:expression into the test's captured output while the process
+	// still terminates (the assert still fails the test) - the next occurrence
+	// is diagnosable from the log alone.
+	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+	_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+	_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+#endif
 	// the player's whole world lives on ONE heap context
 	// (PlayerContext.h): main() fills it in boot order, playerIterate
 	// reads it back per frame. Owned here for the desktop teardown; the
