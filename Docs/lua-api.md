@@ -889,6 +889,13 @@ GuiToggleGroup:setAllowNone(...)
 GuiToggleGroup:getMemberCount(...)
 GuiToggleGroup:pollChanged(...)
 
+## GuiTabBar
+GuiTabBar:addTab(...)
+GuiTabBar:getSelected(...)
+GuiTabBar:setSelected(...)
+GuiTabBar:getTabCount(...)
+GuiTabBar:pollChanged(...)
+
 ## RenderNode
 RenderNode:getPosition(...)
 RenderNode:setPosition(...)
@@ -1580,6 +1587,9 @@ GuiManager:cancelCurrentInputUpdate(...)
 GuiManager:createToggleGroup(...)
 GuiManager:getToggleGroup(...)
 GuiManager:destroyToggleGroup(...)
+GuiManager:createTabBar(...)
+GuiManager:getTabBar(...)
+GuiManager:destroyTabBar(...)
 GuiManager:showToast(...)
 GuiManager:isToastVisible(...)
 GuiManager:getLastBatchCount(...)
@@ -1627,6 +1637,13 @@ GuiDropDown:isMenuOpen(...)
 GuiScrollView:setScroll(...)
 GuiScrollView:getScroll(...)
 GuiScrollView:getMaxScroll(...)
+
+## GuiListView
+GuiListView:addItem(...)
+GuiListView:removeItem(...)
+GuiListView:clear(...)
+GuiListView:getItemCount(...)
+GuiListView:getItemId(...)
 
 ## DragEventData
 DragEventData.button

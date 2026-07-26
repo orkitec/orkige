@@ -57,6 +57,8 @@
 #include "engine_gui/GuiSelectMenu.h"
 #include "engine_gui/GuiTextEntry.h"
 #include "engine_gui/GuiToggleGroup.h"
+#include "engine_gui/GuiTabBar.h"
+#include "engine_gui/GuiListView.h"
 #include "engine_gui/GuiDropDown.h"
 #include "engine_gui/GuiToast.h"
 #include "engine_gui/GuiModalScrim.h"
@@ -190,6 +192,18 @@ ORKIGE_MODULE(orkige_engine)
 		OFUNC(pollChanged)
 	OSIMPLEEXPORT_END
 
+	// the tab bar: a single-selection group of tab checkboxes, each paired with a
+	// content panel shown while its tab is selected. Created via
+	// gui:createTabBar(id); tabs paired with :addTab(checkboxId, panelId); scripts
+	// poll :getSelected() / :pollChanged()
+	OSIMPLEEXPORT(Orkige::GuiTabBar,GuiTabBar)
+		OFUNC(addTab)
+		OFUNC(getSelected)
+		OFUNC(setSelected)
+		OFUNC(getTabCount)
+		OFUNC(pollChanged)
+	OSIMPLEEXPORT_END
+
 	// safe-area insets (notch / rounded corners / home indicator) in PIXELS:
 	// engine:getSafeAreaInsets() answers this value type; scripts read the
 	// fields to anchor HUD/menus inside the drawable box (all zero on desktop)
@@ -241,6 +255,10 @@ ORKIGE_MODULE(orkige_engine)
 	// the scroll viewport: setScroll(y)/getScroll()/getMaxScroll() plus the
 	// GuiWidget layout setters (setParent/setAnchorPreset/...)
 	OEXPORT(GuiScrollView)
+	// the vertical list (a GuiScrollView with a built-in vertical-group content
+	// container): addItem(text)/removeItem(id)/clear()/getItemCount() manage the
+	// rows; the scroll surface (setScroll/getScroll/getMaxScroll) rides the base
+	OEXPORT(GuiListView)
 	OEXPORT(DragEventData)
 
 	// Weak Lua widget handles (option C). A finder or a factory create* hands Lua
@@ -326,6 +344,11 @@ ORKIGE_MODULE(orkige_engine)
 		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiScrollView, setScroll)
 		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiScrollView, getScroll)
 		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiScrollView, getMaxScroll)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiListView, addItem)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiListView, removeItem)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiListView, clear)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiListView, getItemCount)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiListView, getItemId)
 		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiSelectMenu, getSelectedItemIndex)
 		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiSelectMenu, selectItemIndex)
 		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiSelectMenu, selectItem)
@@ -353,6 +376,7 @@ ORKIGE_MODULE(orkige_engine)
 		OWEAKHANDLE_HANDLEMETHOD(createDecorWidget)
 		OWEAKHANDLE_HANDLEMETHOD(createTextEntry)
 		OWEAKHANDLE_HANDLEMETHOD(createScrollView)
+		OWEAKHANDLE_HANDLEMETHOD(createListView)
 		OWEAKHANDLE_HANDLEMETHOD(createDropDown)
 	OWEAKHANDLE_END
 
@@ -365,6 +389,17 @@ ORKIGE_MODULE(orkige_engine)
 		OWEAKHANDLE_BASEMETHOD(setSelected)
 		OWEAKHANDLE_BASEMETHOD(setAllowNone)
 		OWEAKHANDLE_BASEMETHOD(getMemberCount)
+		OWEAKHANDLE_BASEMETHOD(pollChanged)
+	OWEAKHANDLE_END
+
+	// TabBarHandle: create/getTabBar hand Lua a WEAK handle over the GuiTabBar.
+	// addTab takes plain widget ids (resolved through the manager inside the
+	// wrapper), so no widget-handle parameter narrowing is needed.
+	OWEAKHANDLE_BEGIN(Orkige::GuiTabBar, "TabBarHandle", "tab bar handle", "tab bar")
+		OWEAKHANDLE_BASEMETHOD(addTab)
+		OWEAKHANDLE_BASEMETHOD(getSelected)
+		OWEAKHANDLE_BASEMETHOD(setSelected)
+		OWEAKHANDLE_BASEMETHOD(getTabCount)
 		OWEAKHANDLE_BASEMETHOD(pollChanged)
 	OWEAKHANDLE_END
 

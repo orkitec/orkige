@@ -21,6 +21,7 @@
 #include "engine_gui/GuiSlider.h"
 #include "engine_gui/GuiTextEntry.h"
 #include "engine_gui/GuiScrollView.h"
+#include "engine_gui/GuiListView.h"
 #include "engine_gui/GuiDropDown.h"
 #include <core_util/StringUtil.h>
 
@@ -87,6 +88,11 @@ namespace Orkige
 		//! widgets with the SAME z and parent them under it; a layout child that
 		//! is taller/wider than the viewport scrolls by drag / mouse wheel.
 		virtual woptr<GuiScrollView> createScrollView(String const & id, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z);
+		//! create a vertical list: a scroll viewport with a built-in vertical-group
+		//! content container. Populate it with list:addItem(text) (each item a
+		//! label the group arranges + scrolls); removeItem / clear / getItemCount
+		//! manage the rows. A v1 convenience (one widget per item, no recycling).
+		virtual woptr<GuiListView> createListView(String const & id, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z, uint fontIndex = 9);
 		//! create a dropdown: a button that opens a scrollable option list on a
 		//! light-dismiss modal. Set the options with setItems({...}); poll
 		//! getSelectedIndex(). Use it for long option sets (the SelectMenu cycler
@@ -150,6 +156,7 @@ namespace Orkige
 			std::vector<String> widgetIds;			//!< every widget section id (+ modal scrims)
 			std::vector<String> modalIds;			//!< [modal] section ids
 			std::vector<String> toggleGroupIds;		//!< [togglegroup] section ids
+			std::vector<String> tabBarIds;			//!< [tabbar] section ids
 		};
 		//! per-.oui tracking keyed by the exact name passed to loadLayout
 		std::map<String, LoadedLayout> loadedLayouts;

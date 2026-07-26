@@ -160,15 +160,17 @@ An ordered list of `[Type id]` sections, each a block of `key = value` lines
 | `childAlign` / `childExpand` / `fit` | container child rules |
 | `cellSize = w h` / `gridConstraint = n` | grid-group geometry |
 | `nineSlice = true` \| `tiled = true` \| `color = r g b a` | draw modes (decor + button; `color` decor-only) |
-| `items = A \| B \| C` | dropdown/select options (pipe-separated) |
+| `items = A \| B \| C` | dropdown / listview options (pipe-separated) |
 | `transition = fade 0.2` | enter/exit transition (see Animation) |
 | `modal = confirmId` | create on that modal's content layer + tear down with it |
 | `[Modal id]` + `scrim = r g b a` / `lightDismiss = bool` | a modal scrim |
 | `[ToggleGroup id]` + `members = a b c` / `selected` / `allowNone` | a radio group |
+| `[TabBar id]` + `tabs = a b` / `panels = pa pb` / `selected` | a tab bar (panel visibility follows the tab) |
+| `[ListView id]` + `items = A \| B` | a scrolling vertical list (seed rows) |
 
 Widget `Type`s: `label`, `textbox`, `button`, `checkbox`, `selectmenu`,
 `slider`, `progressbar`, `textentry`, `decorwidget` / `panel`, `scrollview`,
-`dropdown`.
+`listview`, `dropdown`.
 
 ## Widget set
 
@@ -185,8 +187,21 @@ Widget `Type`s: `label`, `textbox`, `button`, `checkbox`, `selectmenu`,
 | `GuiTextEntry` | single-line text field (focus, caret, max) | `getText` / `wasSubmitted` / `setText` |
 | `GuiDecorWidget` | sprite panel OR (empty sprite) solid fill; nine-slice / tiled | `setColour` / `setAlpha` |
 | `GuiScrollView` | a clipping viewport whose content scrolls | `setScroll` / `getScroll` / `getMaxScroll` |
+| `GuiListView` | a vertical list: a scroll viewport with a built-in vertical-group content container | `addItem` / `removeItem` / `clear` / `getItemCount` |
 | `GuiToast` | a passive, timed, self-dismissing notification | (built via `gui:showToast`) |
 | `GuiModalScrim` | the consuming backdrop of a modal dialog | (built via `gui:showModal`) |
+
+The **tab bar** (`GuiTabBar`) is not a widget but a manager-owned composition: a
+single-selection group of tab checkboxes, each paired with a content panel whose
+visibility follows the selection. Build it with `gui:createTabBar(id)` then
+`bar:addTab(checkboxId, panelId)`, poll `bar:getSelected()`/`bar:pollChanged()`.
+
+An **image** is a `GuiDecorWidget` (a sprite panel, with nine-slice / tiled draw
+modes) — there is no separate image widget. A **toggle switch** (the mobile
+on/off pill) is a `GuiCheckBox` skinned with a two-state pill sprite: the checkbox
+already swaps `<sprite>_off`/`<sprite>_on` sprites, so a switch is a look, not a
+class. A **radio group** is a toggle group (`GuiToggleGroup`, single selection
+over checkboxes).
 
 Common to every widget (`GuiWidget`): `setEnabled`/`isEnabled`, the rect-anchor
 layout setters (`setParent`/`setAnchorPreset`/`setPivot`/`setOffsets`/…),
@@ -203,6 +218,8 @@ graph TD
     GuiDropDown["GuiDropDown<br/><i>a button that, when tapped, opens a scrollable li...</i>"]
     GuiDecorWidget["GuiDecorWidget"]
     GuiModalScrim["GuiModalScrim<br/><i>the input-consuming backdrop of a modal dialog: a...</i>"]
+    GuiScrollView["GuiScrollView<br/><i>a scroll viewport: a clipping container whose lay...</i>"]
+    GuiListView["GuiListView<br/><i>a vertical list: a scroll viewport whose content...</i>"]
     GuiSelectMenu["GuiSelectMenu"]
     GuiSlider["GuiSlider"]
     GuiWidget["GuiWidget"]
@@ -210,7 +227,6 @@ graph TD
     GuiDragDropButton["GuiDragDropButton"]
     GuiLabel["GuiLabel"]
     GuiProgressBar["GuiProgressBar"]
-    GuiScrollView["GuiScrollView<br/><i>a scroll viewport: a clipping container whose lay...</i>"]
     GuiTextEntry["GuiTextEntry<br/><i>a single-line text input field: SDL text-input dr...</i>"]
     GuiTextbox["GuiTextbox"]
     GuiToast["GuiToast<br/><i>a passive timed notification: a rounded backing p...</i>"]
@@ -218,6 +234,7 @@ graph TD
     GuiButton --> GuiButtonBlink
     GuiButton --> GuiDropDown
     GuiDecorWidget --> GuiModalScrim
+    GuiScrollView --> GuiListView
     GuiSelectMenu --> GuiSlider
     GuiWidget --> GuiButton
     GuiWidget --> GuiCheckBox
@@ -531,9 +548,10 @@ buttons), `color` (decor-only).
 ### Widget types
 
 `label`, `textbox`, `button`, `checkbox`, `selectmenu`, `slider`, `progressbar`,
-`textentry`, `decorwidget` / `panel`, `scrollview`, `dropdown`.
+`textentry`, `decorwidget` / `panel`, `scrollview`, `listview`, `dropdown`.
 
-A `dropdown` takes `items = A | B | C` (pipe-separated so labels may hold spaces).
+A `dropdown` and a `listview` both take `items = A | B | C` (pipe-separated so
+labels may hold spaces); a `listview` seeds its rows from them.
 
 ### Modals in `.oui`
 
@@ -560,6 +578,33 @@ scrim) and freed when the modal is dismissed.
 members = optLow optMed optHigh    # space-separated checkbox ids
 selected = 1                       # optional
 allowNone = false                  # optional
+```
+
+### Tab bars in `.oui`
+
+A tab bar pairs each tab checkbox with a content panel shown while that tab is
+selected (the tabs join a single-selection group; the selected tab's panel gets
+group-alpha 1, the rest 0 — cascaded and input-inert). Author the tab
+checkboxes and the panels as ordinary widgets, then wire them:
+
+```
+[TabBar mainTabs]
+tabs = tabItems tabStats           # space-separated tab checkbox ids
+panels = panelItems panelStats     # content widget ids, index-aligned with tabs
+selected = 0                       # initial tab (optional; default 0)
+```
+
+### List views in `.oui`
+
+A list view is a scroll viewport with a built-in vertical-group content
+container; `items` seeds its rows and it scrolls when they overflow. Add / remove
+rows at runtime with `list:addItem(text)` / `removeItem(id)` / `clear()`.
+
+```
+[ListView inventory]
+anchor = stretchall
+offsets = 8 8 -8 -8
+items = Sword | Shield | Potion    # pipe-separated initial rows (optional)
 ```
 
 ## Hot-reload during Play (`.oui` iteration)
@@ -646,16 +691,33 @@ See `Docs/mcp.md` for the full endpoint.
 
 ### Tabs
 
-A horizontal button group plus one `UiLayer` per tab; show the picked tab's layer
-and hide the rest.
+Use a **tab bar**: a single-selection group of tab checkboxes, each paired with a
+content panel whose visibility follows the selection. The bar wires the radio
+semantics and swaps the panels for you (group-alpha, cascaded + input-inert).
 
 ```lua
-local pages = { general = pageGeneralLayer, audio = pageAudioLayer }
-local function showTab(name)
-    for k, layer in pairs(pages) do layer:setVisible(k == name) end
-end
--- in update: if tabAudio:wasClicked() then showTab("audio") end
+local tabs = gui:createTabBar("mainTabs")
+tabs:addTab("tabGeneral", "panelGeneral")   -- (tab checkbox id, content panel id)
+tabs:addTab("tabAudio",   "panelAudio")
+tabs:setSelected(0)
+-- in update: if tabs:pollChanged() then ... end   -- the panels already swapped
 ```
+
+Or author the whole thing declaratively with the `.oui` `[TabBar]` section
+(see [Tab bars in `.oui`](#tab-bars-in-oui)).
+
+### Lists
+
+Use a **list view**: a scroll viewport with a built-in vertical content group.
+
+```lua
+local list = gui:getFactory():createListView("inventory", pos, size, "gui_default", 6)
+list:addItem("Sword")
+list:addItem("Shield")
+-- list:removeItem(id) / list:clear() / list:getItemCount()
+```
+
+Or author it with the `.oui` `[ListView]` section (seed rows with `items`).
 
 ### Show / hide transitions
 

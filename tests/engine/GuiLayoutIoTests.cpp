@@ -177,6 +177,69 @@ TEST_CASE("oui: a button's nineSlice / tiled draw-mode keys round-trip",
 	CHECK(*doc2.sections[1].find("tiled") == "true");
 }
 
+TEST_CASE("oui: a [TabBar] section round-trips (tabs/panels/selected)",
+	"[unit][oui]")
+{
+	// the tab bar is pure composition the loader wires after the widgets exist:
+	// `tabs` names the tab checkboxes, `panels` the sibling content widgets shown
+	// per selection, `selected` the initial tab. The generic document model
+	// preserves the keys through a parse -> serialize -> parse round-trip; the
+	// APPLY (panel visibility follows the selected tab) is asserted end to end in
+	// the demo_oui selfcheck.
+	const String text =
+		"[TabBar mainTabs]\n"
+		"tabs = tabA tabB tabC\n"
+		"panels = panelA panelB panelC\n"
+		"selected = 1\n";
+
+	GuiLayoutDoc doc;
+	String error;
+	REQUIRE(GuiLayoutDoc::parse(text, doc, error));
+	REQUIRE(doc.sections.size() == 1);
+	CHECK(doc.sections[0].type == "TabBar");
+	CHECK(doc.sections[0].id == "mainTabs");
+	REQUIRE(doc.sections[0].find("tabs") != nullptr);
+	CHECK(*doc.sections[0].find("tabs") == "tabA tabB tabC");
+	CHECK(*doc.sections[0].find("panels") == "panelA panelB panelC");
+	CHECK(*doc.sections[0].find("selected") == "1");
+
+	const String canonical = doc.serialize();
+	GuiLayoutDoc doc2;
+	REQUIRE(GuiLayoutDoc::parse(canonical, doc2, error));
+	CHECK(doc2.serialize() == canonical);
+}
+
+TEST_CASE("oui: a [ListView] section round-trips (items pipe-separated)",
+	"[unit][oui]")
+{
+	// the list view is a scroll viewport with a built-in vertical content group;
+	// `items` seeds initial rows (pipe-separated so a label may hold spaces). The
+	// doc model preserves it; the APPLY (rows created, list re-flows + scrolls) is
+	// asserted in the demo_oui selfcheck.
+	const String text =
+		"[ListView inventory]\n"
+		"z = 6\n"
+		"anchor = stretchall\n"
+		"offsets = 8 8 -8 -8\n"
+		"items = Sword | Shield | Potion of Healing\n";
+
+	GuiLayoutDoc doc;
+	String error;
+	REQUIRE(GuiLayoutDoc::parse(text, doc, error));
+	REQUIRE(doc.sections.size() == 1);
+	CHECK(doc.sections[0].type == "ListView");
+	CHECK(doc.sections[0].id == "inventory");
+	REQUIRE(doc.sections[0].find("items") != nullptr);
+	CHECK(*doc.sections[0].find("items") == "Sword | Shield | Potion of Healing");
+
+	const String canonical = doc.serialize();
+	GuiLayoutDoc doc2;
+	REQUIRE(GuiLayoutDoc::parse(canonical, doc2, error));
+	CHECK(doc2.serialize() == canonical);
+	REQUIRE(doc2.sections.size() == 1);
+	CHECK(*doc2.sections[0].find("items") == "Sword | Shield | Potion of Healing");
+}
+
 TEST_CASE("oui: a key before any section fails honestly", "[unit][oui]")
 {
 	const String text = "atlas = gui_default\n[Label a]\ntext = x\n";

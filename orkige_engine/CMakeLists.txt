@@ -257,6 +257,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gui/GuiDecorWidget.cpp
     engine_gui/GuiScrollView.h
     engine_gui/GuiScrollView.cpp
+    engine_gui/GuiListView.h
+    engine_gui/GuiListView.cpp
     engine_gui/GuiLayout.h
     engine_gui/GuiLayout.cpp
     engine_gui/GuiCheckBox.h
@@ -269,6 +271,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gui/GuiModalScrim.cpp
     engine_gui/GuiToggleGroup.h
     engine_gui/GuiToggleGroup.cpp
+    engine_gui/GuiTabBar.h
+    engine_gui/GuiTabBar.cpp
     engine_gui/GuiToast.h
     engine_gui/GuiToast.cpp
     engine_gui/GuiDropDown.h

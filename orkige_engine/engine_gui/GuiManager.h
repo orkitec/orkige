@@ -41,6 +41,7 @@ namespace Orkige
 	class GuiScrollView;
 	class FontAtlas;
 	class GuiToggleGroup;
+	class GuiTabBar;
 	class GuiToast;
 	class FrameEventData;
 
@@ -200,6 +201,8 @@ namespace Orkige
 		unsigned int modalSerial;
 		//! single-selection groups by id (owned so they outlive a script frame)
 		std::map<String, optr<GuiToggleGroup> > toggleGroups;
+		//! tab bars by id (owned; synced once per frame in tickFrame)
+		std::map<String, optr<GuiTabBar> > tabBars;
 		//! the single active toast + the pure queue that sequences/times toasts
 		optr<GuiToast> toast;
 		ToastQueue toastQueue;
@@ -410,6 +413,19 @@ namespace Orkige
 		woptr<GuiToggleGroup> getToggleGroup(String const & id);
 		//! @brief destroy a toggle group (its member checkboxes keep existing)
 		void destroyToggleGroup(String const & id);
+
+		//--- tab bars -----------------------------------------------
+		//! @brief create a tab bar (a single-selection group of tab checkboxes,
+		//! each paired with a content panel whose visibility follows the
+		//! selection). Owns its own toggle group (id + ".tabs"); pair tabs with
+		//! bar:addTab(checkboxId, panelId). Owned by the manager (outlives a
+		//! frame); synced once per frame in the tick.
+		woptr<GuiTabBar> createTabBar(String const & id);
+		//! @brief the tab bar with the given id, or empty
+		woptr<GuiTabBar> getTabBar(String const & id);
+		//! @brief destroy a tab bar (its tabs/panels keep existing); also drops the
+		//! internal toggle group it created
+		void destroyTabBar(String const & id);
 
 		//--- toasts -------------------------------------------------
 		//! @brief queue a timed notification. It slides no widgets and takes no

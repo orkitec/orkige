@@ -1,0 +1,67 @@
+# gui_widgets.oui - the tab bar + list view widgets authored as one text file.
+# A row of tab checkboxes drives which content panel is visible; one panel holds
+# a scrolling list whose rows are seeded here. Loaded by GuiFactory::loadLayout
+# and exercised by the demo_oui selfcheck (tab switch flips panel visibility,
+# list add/remove re-flows). Renders identically on classic + next.
+
+[Layout]
+atlas = gui_default
+root = fullwindow
+
+# --- the two tabs (checkboxes the tab bar wires into a single-selection group) ---
+[CheckBox tabItems]
+z = 5
+font = 9
+sprite = checkbox
+text = Items
+anchor = topleft
+anchoredPos = 20 20
+size = 120 40
+
+[CheckBox tabStats]
+z = 5
+font = 9
+sprite = checkbox
+text = Stats
+anchor = topleft
+anchoredPos = 150 20
+size = 120 40
+
+# --- one content panel per tab (visibility follows the selected tab) ---
+[DecorWidget panelItems]
+z = 4
+sprite = panel
+anchor = topleft
+anchoredPos = 20 70
+sizeDelta = 300 150
+nineSlice = true
+
+[DecorWidget panelStats]
+z = 4
+sprite = panel
+anchor = topleft
+anchoredPos = 20 70
+sizeDelta = 300 150
+nineSlice = true
+
+[Label statsLabel]
+parent = panelStats
+z = 5
+font = 9
+text = No stats yet
+anchor = stretchtop
+offsets = 12 12 -12 40
+
+# --- the scrolling list inside the Items panel, seeded with rows ---
+[ListView itemList]
+parent = panelItems
+z = 6
+anchor = stretchall
+offsets = 8 8 -8 -8
+items = Sword | Shield | Potion | Bow | Arrow | Helm | Boots | Cloak | Ring | Amulet
+
+# --- the tab bar: pair each tab checkbox with its panel; tab 0 shows first ---
+[TabBar mainTabs]
+tabs = tabItems tabStats
+panels = panelItems panelStats
+selected = 0

@@ -19,6 +19,7 @@
 #include "engine_gui/GuiTextEntry.h"
 #include "engine_gui/GuiModalScrim.h"
 #include "engine_gui/GuiToggleGroup.h"
+#include "engine_gui/GuiTabBar.h"
 #include "engine_gui/GuiToast.h"
 #include "engine_gui/GuiDecorWidget.h"
 #include "engine_gui/GuiLabel.h"
@@ -98,6 +99,7 @@ namespace Orkige
 		this->cursor.reset();
 		this->toast.reset();
 		this->toggleGroups.clear();
+		this->tabBars.clear();
 		this->modalRecords.clear();
 		this->sortedWidgets.clear();
 		this->widgets.clear();
@@ -1540,6 +1542,36 @@ namespace Orkige
 		this->toggleGroups.erase(id);
 	}
 	//---------------------------------------------------------
+	woptr<GuiTabBar> GuiManager::createTabBar(String const & id)
+	{
+		std::map<String, optr<GuiTabBar> >::iterator it = this->tabBars.find(id);
+		if(it != this->tabBars.end())
+		{
+			return it->second;
+		}
+		// the tab bar owns a private single-selection group for its tab checkboxes
+		woptr<GuiToggleGroup> group = this->createToggleGroup(id + ".tabs");
+		optr<GuiTabBar> bar = onew(new GuiTabBar(id, group));
+		this->tabBars[id] = bar;
+		return bar;
+	}
+	//---------------------------------------------------------
+	woptr<GuiTabBar> GuiManager::getTabBar(String const & id)
+	{
+		std::map<String, optr<GuiTabBar> >::iterator it = this->tabBars.find(id);
+		if(it != this->tabBars.end())
+		{
+			return it->second;
+		}
+		return woptr<GuiTabBar>();
+	}
+	//---------------------------------------------------------
+	void GuiManager::destroyTabBar(String const & id)
+	{
+		this->tabBars.erase(id);
+		this->destroyToggleGroup(id + ".tabs");
+	}
+	//---------------------------------------------------------
 	void GuiManager::showToast(String const & text, float seconds)
 	{
 		const String resolved = resolveDialogText(text);
@@ -1949,6 +1981,13 @@ namespace Orkige
 		{
 			widget->onFrameStarted(*data);
 		}
+		// reconcile every tab bar's panel visibility with its selected tab (the
+		// tab tap was dispatched above, so the selection is current); applies only
+		// on a change, so a steady tab bar costs a compare
+		for(std::map<String, optr<GuiTabBar> >::value_type const & vt : this->tabBars)
+		{
+			vt.second->sync();
+		}
 		// tear down any modal asked to close this frame, then advance the toast
 		this->drainModalDismissals();
 		this->updateToast(data->timeSinceLastFrame);
@@ -2342,6 +2381,11 @@ namespace Orkige
 		OFUNCWEAK(createToggleGroup)
 		OFUNCWEAK(getToggleGroup)
 		OFUNC(destroyToggleGroup)
+		// tab bars: createTabBar(id):addTab(checkboxId, panelId); the selected
+		// tab's panel shows, the rest hide. poll bar:getSelected()/pollChanged()
+		OFUNCWEAK(createTabBar)
+		OFUNCWEAK(getTabBar)
+		OFUNC(destroyTabBar)
 		// timed notification: showToast(text, seconds); poll isToastVisible()
 		OFUNC(showToast)
 		OFUNC(isToastVisible)

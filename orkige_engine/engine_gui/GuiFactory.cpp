@@ -10,6 +10,7 @@
 #include "engine_gui/GuiFactory.h"
 #include "engine_gui/GuiManager.h"
 #include "engine_gui/GuiToggleGroup.h"
+#include "engine_gui/GuiTabBar.h"
 #include "engine_gui/UiAtlas.h"
 #include "engine_gui/GuiLayout.h"
 #include "engine_util/StringUtil.h"
@@ -21,6 +22,8 @@
 
 #include <OgreResourceGroupManager.h>
 #include <OgreDataStream.h>
+
+#include <algorithm>
 
 
 namespace Orkige
@@ -419,6 +422,23 @@ namespace Orkige
 		return widget;
 	}
 	//---------------------------------------------------------
+	woptr<GuiListView> GuiFactory::createListView(String const & id, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z, uint fontIndex)
+	{
+		optr<GuiListView> widget;
+
+		if(GuiManager::getSingleton().widgetExists(id))
+		{
+			oAssertDesc(!GuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
+			return widget;
+		}
+		widget = onew(new GuiListView(id, position, scaleAuthoredSize(size), atlas, z));
+		GuiManager::getSingleton().addWidget(widget);
+		// the content container is built AFTER registration (it parents itself to
+		// the now-registered list and needs the owning shared_ptr)
+		widget->initContent(fontIndex);
+		return widget;
+	}
+	//---------------------------------------------------------
 	woptr<GuiDropDown> GuiFactory::createDropDown(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, GuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z)
 	{
 		optr<GuiDropDown> widget;
@@ -512,6 +532,10 @@ namespace Orkige
 				{
 					manager.destroyToggleGroup(id);
 				}
+				foreach(String const & id, prev->second.tabBarIds)
+				{
+					manager.destroyTabBar(id);
+				}
 			}
 		}
 		// record what this build produces so a later reload can tear it down
@@ -590,7 +614,7 @@ namespace Orkige
 			String type = s.type;
 			Ogre::StringUtil::toLowerCase(type);
 			if(type == "layout" || type == "modal" || type == "togglegroup" ||
-				s.id.empty())
+				type == "tabbar" || s.id.empty())
 			{
 				continue;	// non-widget sections are handled elsewhere
 			}
@@ -672,6 +696,25 @@ namespace Orkige
 			else if(type == "scrollview")
 			{
 				this->createScrollView(s.id, position, size, atlas, z);
+			}
+			else if(type == "listview")
+			{
+				woptr<GuiListView> list = this->createListView(s.id, position,
+					size, atlas, z, font);
+				// optional initial rows: "items = a | b | c" (pipe-separated so a
+				// label may hold spaces; '@'-prefixed entries resolve via loc)
+				if(optr<GuiListView> l = list.lock())
+				{
+					if(String const * v = s.find("items"))
+					{
+						for(String const & part : Ogre::StringUtil::split(*v, "|"))
+						{
+							String label = part;
+							Ogre::StringUtil::trim(label);
+							l->addItem(resolveText(label));
+						}
+					}
+				}
 			}
 			else if(type == "dropdown")
 			{
@@ -763,6 +806,51 @@ namespace Orkige
 			if(String const * v = s.find("selected"))
 			{
 				group->setSelected(Ogre::StringConverter::parseInt(*v, -1));
+			}
+		}
+
+		// tab-bar pass: pair each tab checkbox with a content panel (both already
+		// created), then apply the initial selection. Runs after the widgets AND
+		// the toggle-group pass so every referenced widget exists.
+		for(GuiLayoutSection const & s : doc.sections)
+		{
+			String type = s.type;
+			Ogre::StringUtil::toLowerCase(type);
+			if(type != "tabbar" || s.id.empty())
+			{
+				continue;
+			}
+			optr<GuiTabBar> bar = manager.createTabBar(s.id).lock();
+			if(!bar)
+			{
+				continue;
+			}
+			tracked.tabBarIds.push_back(s.id);
+			// tabs = the checkbox ids; panels = the content widget ids (aligned by
+			// position; both space-separated). A missing count on either side just
+			// pairs as far as the shorter list reaches.
+			Ogre::StringVector tabs;
+			Ogre::StringVector panels;
+			if(String const * v = s.find("tabs"))
+			{
+				tabs = Ogre::StringUtil::split(*v);
+			}
+			if(String const * v = s.find("panels"))
+			{
+				panels = Ogre::StringUtil::split(*v);
+			}
+			const std::size_t pairs = std::min(tabs.size(), panels.size());
+			for(std::size_t i = 0; i < pairs; ++i)
+			{
+				bar->addTab(tabs[i], panels[i]);
+			}
+			if(String const * v = s.find("selected"))
+			{
+				bar->setSelected(Ogre::StringConverter::parseInt(*v, 0));
+			}
+			else
+			{
+				bar->setSelected(0);	// default: the first tab shows
 			}
 		}
 

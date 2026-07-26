@@ -35,6 +35,9 @@
 #include <engine_gui/GuiManager.h>
 #include <engine_gui/GuiFactory.h>
 #include <engine_gui/GuiToggleGroup.h>
+#include <engine_gui/GuiTabBar.h>
+#include <engine_gui/GuiListView.h>
+#include <engine_gui/GuiCheckBox.h>
 #include <engine_gui/GuiSlider.h>
 #include <engine_gui/GuiProgressBar.h>
 #include <engine_gui/GuiTextEntry.h>
@@ -3401,6 +3404,130 @@ int main(int, char**)
 					}
 				}
 			}
+
+			// a second screen from one file: a tab bar (tab checkboxes drive which
+			// content panel is visible) and a list view (a scroll viewport with a
+			// built-in vertical group seeded with rows). Asserts: the selected tab's
+			// panel is shown and the others hidden (group-alpha), a tab tap flips the
+			// visibility on the real input path, and the list's item API grows /
+			// shrinks the rows and re-flows the scroll extent. Fresh GuiManager so it
+			// does not disturb the settings screen above.
+			{
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
+				gui.enableInputEvents();
+
+				factory->loadLayout("gui_widgets.oui");
+				render->renderOneFrame();	// runs the two-pass resolve + tab sync
+
+				Orkige::optr<Orkige::GuiTabBar> tabs =
+					gui.getTabBar("mainTabs").lock();
+				Orkige::optr<Orkige::GuiWidget> panelItems =
+					gui.widgetExists("panelItems")
+						? gui.getWidget("panelItems").lock()
+						: Orkige::optr<Orkige::GuiWidget>();
+				Orkige::optr<Orkige::GuiWidget> panelStats =
+					gui.widgetExists("panelStats")
+						? gui.getWidget("panelStats").lock()
+						: Orkige::optr<Orkige::GuiWidget>();
+				if (!tabs || !panelItems || !panelStats)
+				{
+					SDL_Log("hello_orkige: FAILED - .oui tab bar / panels not created");
+					ouiOk = false;
+				}
+				else
+				{
+					// tab 0 (Items) is selected: its panel shows, the other hides
+					if (tabs->getSelected() != 0 ||
+						panelItems->getGroupAlpha() < 0.99f ||
+						panelStats->getGroupAlpha() > 0.01f)
+					{
+						SDL_Log("hello_orkige: FAILED - initial tab visibility wrong "
+							"(sel %d itemsA %.2f statsA %.2f)", tabs->getSelected(),
+							panelItems->getGroupAlpha(), panelStats->getGroupAlpha());
+						ouiOk = false;
+					}
+					// tap the Stats tab checkbox: selection flips, the panels swap
+					// visibility next frame (the tab bar syncs in the tick)
+					Orkige::optr<Orkige::GuiCheckBox> statsTab =
+						gui.getWidgetAs<Orkige::GuiCheckBox>("tabStats").lock();
+					if (statsTab)
+					{
+						const Orkige::Vec2 tPos = statsTab->getPosition();
+						const Orkige::Vec2 tSize = statsTab->getSize();
+						SDL_Event press{};
+						press.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+						press.button.button = SDL_BUTTON_LEFT;
+						press.button.down = true;
+						press.button.x = tPos.x + tSize.x * 0.5f;
+						press.button.y = tPos.y + tSize.y * 0.5f;
+						inputManager.injectEvent(press);
+						render->renderOneFrame();	// the sync applies the new selection
+						if (tabs->getSelected() != 1 ||
+							panelStats->getGroupAlpha() < 0.99f ||
+							panelItems->getGroupAlpha() > 0.01f)
+						{
+							SDL_Log("hello_orkige: FAILED - tab tap did not switch the "
+								"visible panel (sel %d itemsA %.2f statsA %.2f)",
+								tabs->getSelected(), panelItems->getGroupAlpha(),
+								panelStats->getGroupAlpha());
+							ouiOk = false;
+						}
+					}
+				}
+
+				// the list view: seeded rows, add/remove re-flow, overflow scrolls
+				Orkige::optr<Orkige::GuiListView> list =
+					gui.widgetExists("itemList")
+						? gui.getWidgetAs<Orkige::GuiListView>("itemList").lock()
+						: Orkige::optr<Orkige::GuiListView>();
+				if (!list)
+				{
+					SDL_Log("hello_orkige: FAILED - .oui list view not created");
+					ouiOk = false;
+				}
+				else
+				{
+					const int seeded = list->getItemCount();
+					if (seeded != 10)
+					{
+						SDL_Log("hello_orkige: FAILED - list seeded %d rows (want 10)",
+							seeded);
+						ouiOk = false;
+					}
+					const Orkige::String added = list->addItem("Scroll of Truth");
+					render->renderOneFrame();
+					if (added.empty() || list->getItemCount() != seeded + 1)
+					{
+						SDL_Log("hello_orkige: FAILED - list addItem did not grow the "
+							"list (count %d)", list->getItemCount());
+						ouiOk = false;
+					}
+					// ten+ rows overflow the 300px panel: the content scrolls
+					if (list->getMaxScroll() <= 0.0f)
+					{
+						SDL_Log("hello_orkige: FAILED - list content did not overflow "
+							"(maxScroll %.1f)", list->getMaxScroll());
+						ouiOk = false;
+					}
+					if (!list->removeItem(added) ||
+						list->getItemCount() != seeded)
+					{
+						SDL_Log("hello_orkige: FAILED - list removeItem failed "
+							"(count %d)", list->getItemCount());
+						ouiOk = false;
+					}
+					list->clear();
+					if (list->getItemCount() != 0)
+					{
+						SDL_Log("hello_orkige: FAILED - list clear left %d rows",
+							list->getItemCount());
+						ouiOk = false;
+					}
+				}
+			}
+
 			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
 			if (!ouiOk)
 			{
@@ -3408,7 +3535,9 @@ int main(int, char**)
 			}
 			SDL_Log("hello_orkige: .oui selfcheck passed (declarative settings "
 				"screen loaded from one file, vertical group + scroll, scissor "
-				"clip == viewport, scrolled checkbox hit-tests correctly)");
+				"clip == viewport, scrolled checkbox hit-tests correctly; tab bar "
+				"switches panel visibility on tap, list view add/remove/clear "
+				"re-flows and overflows)");
 		}
 
 		// ORKIGE_DEMO_GUI_INPUT=1: the gui input-enablement selfcheck (flavor-
