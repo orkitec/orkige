@@ -108,6 +108,21 @@ watcher hot-reloads the player within its poll interval — a broken edit
 keeps the old instance running and surfaces a `[remote]` error, which the
 document also turns into a red line marker when it carries a `file:line`.
 
+**Change markers**: the gutter's far-left edge carries per-line git change
+bars versus the file's index baseline — a green bar for an added line, a blue
+bar for a modified line, and a small red triangle where a run of lines was
+deleted. The baseline is `git show :<path>` (the staged blob), fetched when the
+file opens and on every save (never per keystroke); the live buffer is diffed
+against it as you type, refreshed after a short idle pause. A header-row toggle
+(the code-compare glyph) turns the markers on and off, persisted in the View
+settings (`script_git_markers`, default on). The markers are display-only and
+sit clear of the line numbers, the breakpoint dot and the error `!`.
+
+Honest degradations: a file outside a git repository, an untracked file, or a
+machine with no `git` on `PATH` (a distributed editor) shows no markers — an
+untracked file's all-added spam would help nobody. A buffer past ~20k lines
+skips the live per-edit diff and refreshes its markers only on save.
+
 **Breakpoints** (Lua documents only): click the gutter left of a line number
 to toggle; the red dot is a breakpoint. The set belongs to the PROJECT (not
 the scene) and survives editor restarts. Breakpoints work on every play target
@@ -261,3 +276,7 @@ The full worked walkthrough lives in
 - **iOS hardware** plays standalone (no debug link over USB —
   `Docs/ios-signing.md`), so breakpoints cannot reach it; simulators and
   adb devices work through the shared loopback link unchanged.
+- **Change markers are display-only**: there is no hunk revert or
+  next/previous-change navigation from the gutter, and a shrinking
+  replace-block reads as one modified region (only a pure deletion draws the
+  triangle).

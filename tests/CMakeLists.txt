@@ -1022,8 +1022,11 @@ if(TARGET orkige_editor)
     # 45/65, scene round-trip self-check at frame 90
     add_test(NAME editor_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+	# ORKIGE_EDITOR_GIT_FIXTURE points the git change-markers leg at a TRACKED
+	# repo file (absolute - the .app bundle's cwd is not the source tree); the
+	# leg dirties its BUFFER only, never the disk or the git index
 	set_tests_properties(editor_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-		ENVIRONMENT "ORKIGE_EDITOR_SELFCHECK=1;ORKIGE_DEMO_FRAMES=120;ORKIGE_EDITOR_SELFCHECK_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_selfcheck.oscene")
+		ENVIRONMENT "ORKIGE_EDITOR_SELFCHECK=1;ORKIGE_DEMO_FRAMES=120;ORKIGE_EDITOR_SELFCHECK_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_selfcheck.oscene;ORKIGE_EDITOR_GIT_FIXTURE=${Orkige_SOURCE_DIR}/projects/jumper-lua/scripts/player.lua")
 
 	# The two human preview tabs, end to end. Opens the benchmark project,
 	# double-click-routes a real Lottie character and .oui through the same

@@ -40,6 +40,7 @@
 
 #include "EditorTabActions.h"	// the shared close-set semantics (tab menus)
 #include "EditorTextDiagnostics.h"	// live parse "squiggles" (XML/Lua lines)
+#include "EditorLineDiff.h"	// git-gutter change markers (pure line diff)
 #include "ExternalEditor.h"	// parseFileLineRefs / FileLineRef (error markers)
 #include "GeneratedLuaApi.h"
 #include "IconsFontAwesome6.h"
@@ -51,6 +52,7 @@
 #include <TextEditor.h>
 #include <imgui_internal.h>	// FindWindowByName / GetWindowDockID (docking)
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -99,6 +101,19 @@ namespace
 		//! 0-based line -> message for every error the markers carry (the
 		//! gutter's red "!" badges + their hover text; rebuilt with the markers)
 		std::map<int, std::string> errorLineMessages;
+		//! git change markers: the file's baseline (the git index blob) split
+		//! into lines the widget's way, fetched at open + on save (never per
+		//! keystroke). gitTracked stays false outside a repo / for an untracked
+		//! file / when git is absent - the gutter then shows no change bars.
+		bool gitChecked = false;		//!< a baseline fetch has been attempted
+		bool gitTracked = false;		//!< a baseline exists (file is tracked)
+		std::vector<std::string> gitBaselineLines;
+		//! the current diff verdict (per-line states + deletion gaps) the gutter
+		//! renders; recomputed from the live buffer vs the baseline, debounced
+		OrkigeEditor::LineDiff gitDiff;
+		std::size_t gitDiffUndoIndex = static_cast<std::size_t>(-1);
+		std::size_t gitLastSeenUndoIndex = static_cast<std::size_t>(-1);
+		int gitStableFrames = 0;		//!< frames the buffer sat unchanged
 
 		bool isDirty() const
 		{
@@ -433,6 +448,97 @@ namespace
 		return true;
 	}
 
+	//! recompute the change-marker verdict from the LIVE buffer vs the git
+	//! baseline (cheap; the caller debounces / size-gates it). Clears the
+	//! verdict for an untracked document (no markers).
+	void recomputeGitDiff(ScriptDocument& doc)
+	{
+		if (!doc.gitTracked || !doc.editor)
+		{
+			doc.gitDiff = OrkigeEditor::LineDiff();
+			return;
+		}
+		doc.gitDiff = OrkigeEditor::computeLineDiff(doc.gitBaselineLines,
+			OrkigeEditor::splitLines(doc.editor->GetText()));
+		doc.gitDiffUndoIndex = doc.editor->GetUndoIndex();
+	}
+
+	//! fetch (or refetch) the git-index baseline for a document: resolve the
+	//! repo root + relative path honestly (`git -C <dir> rev-parse
+	//! --show-toplevel`, which handles worktrees), then read the staged blob
+	//! (`git show :<relpath>`). A file outside a repo, an untracked file, or a
+	//! machine with no git in PATH leaves the document UNTRACKED - no markers,
+	//! silently (an untracked file's all-added spam helps nobody). Runs at open
+	//! + on save, NEVER per keystroke.
+	void refreshGitBaseline(ScriptDocument& doc)
+	{
+		doc.gitChecked = true;
+		doc.gitTracked = false;
+		doc.gitBaselineLines.clear();
+		const std::string dir = fs::path(doc.absolutePath).parent_path().string();
+		std::string output;
+		int exitCode = 0;
+		if (dir.empty() ||
+			!runProcessCaptured({ "git", "-C", dir, "rev-parse",
+				"--show-toplevel" }, output, exitCode) || exitCode != 0)
+		{
+			recomputeGitDiff(doc);	// no repo / git absent - stays untracked
+			return;
+		}
+		std::string root = output;
+		while (!root.empty() && (root.back() == '\n' || root.back() == '\r'))
+		{
+			root.pop_back();
+		}
+		std::error_code ec;
+		const std::string relative =
+			fs::relative(doc.absolutePath, root, ec).generic_string();
+		if (root.empty() || ec || relative.empty() ||
+			relative.rfind("..", 0) == 0)
+		{
+			recomputeGitDiff(doc);
+			return;
+		}
+		std::string blob;
+		if (!runProcessCaptured({ "git", "-C", root, "show", ":" + relative },
+			blob, exitCode) || exitCode != 0)
+		{
+			recomputeGitDiff(doc);	// untracked file - no baseline, no markers
+			return;
+		}
+		doc.gitTracked = true;
+		doc.gitBaselineLines = OrkigeEditor::splitLines(blob);
+		recomputeGitDiff(doc);
+	}
+
+	//! the debounced LIVE recompute: once the buffer has sat unchanged for a few
+	//! frames (~300ms), refresh the change markers from the current text. A file
+	//! past the size cap does not live-diff - it refreshes only at open / save.
+	void gitDiffLiveTick(ScriptDocument& doc)
+	{
+		if (!doc.gitTracked || !doc.editor)
+		{
+			return;
+		}
+		const std::size_t undo = doc.editor->GetUndoIndex();
+		if (undo != doc.gitLastSeenUndoIndex)
+		{
+			doc.gitLastSeenUndoIndex = undo;	// still typing - restart the wait
+			doc.gitStableFrames = 0;
+			return;
+		}
+		if (undo == doc.gitDiffUndoIndex || ++doc.gitStableFrames < 18)
+		{
+			return;
+		}
+		if (!OrkigeEditor::shouldLiveDiff(doc.editor->GetLineCount()))
+		{
+			doc.gitDiffUndoIndex = undo;	// too big to live-diff - await a save
+			return;
+		}
+		recomputeGitDiff(doc);
+	}
+
 	//! the project-relative ('/') form of an absolute path, or the absolute
 	//! path itself outside a project
 	std::string relativeDocPath(EditorState& state,
@@ -468,6 +574,9 @@ namespace
 		file << doc.editor->GetText();
 		file.close();
 		doc.savedUndoIndex = doc.editor->GetUndoIndex();
+		// re-baseline against the index: a save leaves the index untouched but a
+		// stage done outside the editor may have moved it - the honest refetch
+		refreshGitBaseline(doc);
 		SDL_Log("script editor: saved %s", doc.relativePath.c_str());
 		return true;
 	}
@@ -597,6 +706,9 @@ namespace
 		doc->editor->SetShowWhitespacesEnabled(false);
 		doc->editor->SetPalette(ui.palette);
 		doc->savedUndoIndex = doc->editor->GetUndoIndex();
+		// the git-index baseline for the gutter change markers (untracked / no
+		// repo / no git leaves it markerless, silently)
+		refreshGitBaseline(*doc);
 		if (line > 0)
 		{
 			doc->pendingScrollLine = line;
@@ -777,7 +889,8 @@ namespace
 	//! per visible line, a red dot where a breakpoint is set and an arrow on
 	//! the paused line
 	void drawGutterCell(EditorState& state, PlaySession& session,
-		ScriptDocument& doc, TextEditor::Decorator& decorator)
+		ScriptDocument& doc, bool showGitMarkers,
+		TextEditor::Decorator& decorator)
 	{
 		const int line = decorator.line + 1;	// widget lines are zero-based
 		ImGui::InvisibleButton("bp",
@@ -790,6 +903,64 @@ namespace
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		const ImVec2 maximum = ImGui::GetItemRectMax();
+		// git change markers ride the FAR-LEFT gutter edge (before the number
+		// margin), so they never disturb the line numbers, the breakpoint dot or
+		// the error "!". A green bar = an added line, blue = a modified line, a
+		// small red triangle marks where a run of lines was deleted. Display-only.
+		if (showGitMarkers && !doc.gitDiff.states.empty())
+		{
+			const float glyph = decorator.glyphSize.x;
+			// the widget's own digit formula (see the error badge below) locates
+			// the number column; the change bar sits a margin-width to its left
+			const int digits = static_cast<int>(
+				std::log10(doc.editor->GetLineCount() + 1) + 1.0f);
+			const float numbersLeft = minimum.x - (1 + digits) * glyph;
+			const float barLeft = numbersLeft - 2.0f * glyph + 1.0f;
+			const float barWidth = std::max(2.0f, glyph * 0.22f);
+			if (decorator.line <
+				static_cast<int>(doc.gitDiff.states.size()))
+			{
+				ImU32 colour = 0;
+				switch (doc.gitDiff.states[decorator.line])
+				{
+				case OrkigeEditor::LineChange::Added:
+					colour = IM_COL32(80, 170, 90, 255);
+					break;
+				case OrkigeEditor::LineChange::Modified:
+					colour = IM_COL32(70, 140, 210, 255);
+					break;
+				case OrkigeEditor::LineChange::None:
+					break;
+				}
+				if (colour != 0)
+				{
+					drawList->AddRectFilled(ImVec2(barLeft, minimum.y),
+						ImVec2(barLeft + barWidth, maximum.y), colour);
+				}
+			}
+			// deletion triangles: a gap sits ABOVE this line's index (drawn at
+			// the top edge), and an end-of-file deletion (index == line count)
+			// hangs off the last line's bottom edge
+			const std::vector<int>& gaps = doc.gitDiff.deletions;
+			const ImU32 deletionColour = IM_COL32(210, 90, 80, 255);
+			const float triangle = decorator.height * 0.30f;
+			auto drawDeletion = [&](float edgeY)
+			{
+				drawList->AddTriangleFilled(ImVec2(barLeft, edgeY - triangle),
+					ImVec2(barLeft, edgeY + triangle),
+					ImVec2(barLeft + triangle, edgeY), deletionColour);
+			};
+			if (std::binary_search(gaps.begin(), gaps.end(), decorator.line))
+			{
+				drawDeletion(minimum.y);
+			}
+			if (decorator.line == doc.editor->GetLineCount() - 1 &&
+				std::binary_search(gaps.begin(), gaps.end(),
+					doc.editor->GetLineCount()))
+			{
+				drawDeletion(maximum.y);
+			}
+		}
 		// two side-by-side slots so the glyphs never overlap: the error "!"
 		// badge on the LEFT (in front of the line number), the breakpoint dot
 		// / paused arrow on the RIGHT
@@ -853,7 +1024,7 @@ namespace
 	//! draw one document as its own docked window; returns nothing (the
 	//! caller reaps closed windows). Sets ui.focused when this one has focus.
 	void drawDocumentWindow(EditorState& state, PlaySession& session,
-		ScriptDocument& doc)
+		ViewSettings& viewSettings, ScriptDocument& doc)
 	{
 		PanelState& ui = panel();
 		// dock a NEW window into the shared node (beside Scene on the first
@@ -939,11 +1110,32 @@ namespace
 			ui.focused = &doc;
 			state.scriptPanelFocused = true;
 		}
+		// the header row: the git change-markers toggle (always present, so it
+		// is the panel's "small control"), then the dirty document's Save/Revert
+		{
+			const bool on = viewSettings.showScriptGitMarkers;
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(
+				on ? ImGuiCol_Text : ImGuiCol_TextDisabled));
+			if (ImGui::SmallButton(ICON_FA_CODE_COMPARE "###gitMarkers"))
+			{
+				viewSettings.showScriptGitMarkers = !on;
+				viewSettings.save();
+			}
+			ImGui::PopStyleColor();
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("Gutter change markers: %s\n"
+					"green added, blue modified, red deletion - versus the git "
+					"index. Tracked files in a git repo only.",
+					on ? "on" : "off");
+			}
+		}
 		// a dirty document shows its save/discard controls right in the window
 		// - the tab's unsaved dot alone offers no mouse path to save (the
 		// Cmd/Ctrl+S shortcut and the native Save menu item work as well)
 		if (doc.isDirty())
 		{
+			ImGui::SameLine();
 			if (ImGui::SmallButton("Save"))
 			{
 				saveDocument(doc);
@@ -964,6 +1156,7 @@ namespace
 				{
 					doc.editor->SetText(text);
 					doc.savedUndoIndex = doc.editor->GetUndoIndex();
+					recomputeGitDiff(doc);	// baseline unchanged; refresh markers
 				}
 			}
 			if (ImGui::IsItemHovered())
@@ -975,6 +1168,7 @@ namespace
 			ImGui::TextDisabled("unsaved changes");
 		}
 		liveSyntaxCheck(doc);
+		gitDiffLiveTick(doc);
 		refreshMarkers(doc, session);
 		if (doc.pendingScrollLine > 0)
 		{
@@ -990,12 +1184,13 @@ namespace
 			ScriptDocument* docPointer = &doc;
 			EditorState* statePointer = &state;
 			PlaySession* sessionPointer = &session;
+			const bool showGitMarkers = viewSettings.showScriptGitMarkers;
 			doc.editor->SetLineDecorator(-2.0f,
-				[statePointer, sessionPointer, docPointer](
+				[statePointer, sessionPointer, docPointer, showGitMarkers](
 					TextEditor::Decorator& decorator)
 				{
 					drawGutterCell(*statePointer, *sessionPointer,
-						*docPointer, decorator);
+						*docPointer, showGitMarkers, decorator);
 				});
 		}
 		ImFont* mono = Orkige::editorMonoFont();
@@ -1302,6 +1497,72 @@ std::size_t scriptPanelTestDocumentCount()
 	return panel().docs.size();
 }
 //---------------------------------------------------------------------------
+bool scriptPanelTestGitMarkers(std::string const& path, bool showMarkers,
+	std::vector<int>& outStates, std::vector<int>& outDeletions)
+{
+	outStates.clear();
+	outDeletions.clear();
+	std::error_code ec;
+	const fs::path wanted = fs::weakly_canonical(path, ec);
+	for (auto const& doc : panel().docs)
+	{
+		const fs::path held = fs::weakly_canonical(doc->absolutePath, ec);
+		if (doc->absolutePath != path && held != wanted)
+		{
+			continue;
+		}
+		if (!doc->gitTracked)
+		{
+			return false;	// untracked / no baseline - the gutter shows nothing
+		}
+		// the toggle-off case reads exactly as the gutter draws it: empty
+		if (!showMarkers)
+		{
+			return true;
+		}
+		recomputeGitDiff(*doc);	// synchronous, so the read is deterministic
+		for (OrkigeEditor::LineChange change : doc->gitDiff.states)
+		{
+			outStates.push_back(static_cast<int>(change));
+		}
+		outDeletions = doc->gitDiff.deletions;
+		return true;
+	}
+	return false;
+}
+//---------------------------------------------------------------------------
+bool scriptPanelTestApplyGitEditProbe(std::string const& path)
+{
+	std::error_code ec;
+	const fs::path wanted = fs::weakly_canonical(path, ec);
+	for (auto const& doc : panel().docs)
+	{
+		const fs::path held = fs::weakly_canonical(doc->absolutePath, ec);
+		if ((doc->absolutePath != path && held != wanted) || !doc->editor ||
+			!doc->gitTracked || doc->gitBaselineLines.size() < 2)
+		{
+			continue;
+		}
+		std::vector<std::string> lines = doc->gitBaselineLines;
+		lines[0] += " -- probe-modified";	// a modified first line
+		// a brand-new line after the unchanged anchor line 1 so the modify and
+		// the add stay DISTINCT hunks (adjacent they would merge into one)
+		lines.insert(lines.begin() + 2, "-- probe-added line");
+		std::string text;
+		for (std::size_t i = 0; i < lines.size(); ++i)
+		{
+			text += lines[i];
+			if (i + 1 < lines.size())
+			{
+				text += "\n";
+			}
+		}
+		doc->editor->SetText(text);	// buffer only - the disk is never touched
+		return true;
+	}
+	return false;
+}
+//---------------------------------------------------------------------------
 std::string scriptPanelActiveSyntaxError(std::string& outPath, int& outLine)
 {
 	PanelState& ui = panel();
@@ -1436,7 +1697,7 @@ void drawScriptDocuments(EditorState& state, PlaySession& session,
 	ui.focused = nullptr;
 	for (auto& doc : ui.docs)
 	{
-		drawDocumentWindow(state, session, *doc);
+		drawDocumentWindow(state, session, viewSettings, *doc);
 	}
 
 	// a tab context-menu action picked during the draw loop applies now,

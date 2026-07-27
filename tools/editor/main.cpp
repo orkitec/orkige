@@ -303,6 +303,18 @@ int main(int argc, char** argv)
 		check(reloaded.layoutVersion == ViewSettings::CURRENT_LAYOUT_VERSION,
 			"version persisted");
 		check(!reloaded.migrateLayoutDefaults(), "re-migrate is a no-op");
+		// git change-markers view setting: defaults ON, round-trips OFF
+		check(ViewSettings().showScriptGitMarkers,
+			"git change markers default on");
+		ViewSettings gitToggle;
+		gitToggle.path = testIni;
+		gitToggle.showScriptGitMarkers = false;
+		gitToggle.save();
+		ViewSettings gitReloaded;
+		gitReloaded.path = testIni;
+		gitReloaded.load();
+		check(!gitReloaded.showScriptGitMarkers,
+			"git change markers persisted off");
 		std::error_code removeError;
 		std::filesystem::remove(testIni, removeError);
 		SDL_Log("orkige_editor: migrate-test %s",
@@ -3154,6 +3166,92 @@ int main(int argc, char** argv)
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (tile palette 2D "
 						"auto-open/dock)");
+					exitCode = 2;
+					running = false;
+				}
+			}
+			// --- git change-markers leg (frames 104/108): open a TRACKED repo
+			// file plus an UNTRACKED temp sibling; assert a clean tracked file
+			// shows no markers, an in-memory {modify + add} edit yields exactly
+			// one Modified + one Added, the toggle-off seam is empty and an
+			// untracked file has no baseline. The buffer is dirtied in memory
+			// only - the disk file and the git index are never touched.
+			const char* gitFixtureEnv =
+				std::getenv("ORKIGE_EDITOR_GIT_FIXTURE");
+			// one scriptOpenRequest slot is consumed per frame, so the tracked
+			// fixture and the untracked temp file open on SEPARATE frames
+			if (frameCount == 104 && selfCheck && gitFixtureEnv != nullptr)
+			{
+				scriptPanelOpenFile(state, viewSettings, gitFixtureEnv);
+			}
+			if (frameCount == 106 && selfCheck && gitFixtureEnv != nullptr)
+			{
+				const std::filesystem::path untracked =
+					std::filesystem::temp_directory_path() /
+						"orkige_git_marker_untracked.lua";
+				{
+					std::ofstream file(untracked, std::ios::trunc);
+					file << "-- untracked fixture\nreturn {}\n";
+				}
+				scriptPanelOpenFile(state, viewSettings, untracked.string());
+			}
+			if (frameCount == 108 && selfCheck && gitFixtureEnv != nullptr)
+			{
+				const std::string tracked = gitFixtureEnv;
+				const std::string untracked =
+					(std::filesystem::temp_directory_path() /
+						"orkige_git_marker_untracked.lua").string();
+				auto countKind = [](std::vector<int> const& states, int kind)
+				{
+					int total = 0;
+					for (int value : states)
+					{
+						if (value == kind)
+						{
+							++total;
+						}
+					}
+					return total;
+				};
+				std::vector<int> states;
+				std::vector<int> deletions;
+				// a clean tracked file: a baseline exists, no line carries a
+				// marker (informational - depends on a byte-clean working tree)
+				const bool cleanTracked = scriptPanelTestGitMarkers(tracked, true,
+					states, deletions);
+				const bool cleanNoMarkers = cleanTracked &&
+					countKind(states, 1) == 0 && countKind(states, 2) == 0 &&
+					deletions.empty();
+				SDL_Log("orkige_editor: selfcheck frame 108 - clean tracked file "
+					"baseline=%s markerless=%s", cleanTracked ? "yes" : "NO",
+					cleanNoMarkers ? "yes" : "NO");
+				// the deterministic assertion: an in-memory {modify line + add
+				// line} edit derived from the git baseline
+				const bool probed = scriptPanelTestApplyGitEditProbe(tracked);
+				const bool editedTracked = scriptPanelTestGitMarkers(tracked, true,
+					states, deletions);
+				const int added = countKind(states, 1);
+				const int modified = countKind(states, 2);
+				const bool markerSetOk = editedTracked && added == 1 &&
+					modified == 1 && deletions.empty();
+				// toggle OFF -> the seam is empty (nothing drawn)
+				const bool toggledOff = scriptPanelTestGitMarkers(tracked, false,
+					states, deletions);
+				const bool offEmpty = toggledOff && states.empty() &&
+					deletions.empty();
+				// an untracked file has no baseline -> the seam refuses
+				const bool untrackedNoMarkers = !scriptPanelTestGitMarkers(
+					untracked, true, states, deletions);
+				SDL_Log("orkige_editor: selfcheck frame 108 - git markers: "
+					"probed=%s set{mod=%d,add=%d,del=%zu}=%s off-empty=%s "
+					"untracked-empty=%s", probed ? "yes" : "NO", modified, added,
+					deletions.size(), markerSetOk ? "yes" : "NO",
+					offEmpty ? "yes" : "NO",
+					untrackedNoMarkers ? "yes" : "NO");
+				if (!probed || !markerSetOk || !offEmpty || !untrackedNoMarkers)
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (git change "
+						"markers)");
 					exitCode = 2;
 					running = false;
 				}

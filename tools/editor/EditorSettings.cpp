@@ -158,6 +158,10 @@ void ViewSettings::load()
 		{
 			this->breakOnScriptErrors = (value == "1");
 		}
+		else if (key == "script_git_markers")
+		{
+			this->showScriptGitMarkers = (value == "1");
+		}
 		else if (key == "internal_editor_extensions")
 		{
 			this->internalEditorExtensions = value;
@@ -275,6 +279,8 @@ void ViewSettings::save() const
 		<< "rotation_as_euler=" << (this->rotationAsEuler ? 1 : 0) << "\n"
 		<< "break_on_script_errors="
 		<< (this->breakOnScriptErrors ? 1 : 0) << "\n"
+		<< "script_git_markers="
+		<< (this->showScriptGitMarkers ? 1 : 0) << "\n"
 		<< "internal_editor_extensions=" << this->internalEditorExtensions
 		<< "\n"
 		<< "snap_enabled=" << (this->snapEnabled ? 1 : 0) << "\n"

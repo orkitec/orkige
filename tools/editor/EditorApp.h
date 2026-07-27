@@ -373,6 +373,12 @@ struct ViewSettings
 	//! running player on connect + on any change (like the breakpoint set).
 	//! Default off = exactly today's behavior (the instance disables + reports).
 	bool breakOnScriptErrors = false;
+	//! Code editor: per-line git CHANGE MARKERS in the gutter (green = added,
+	//! amber = modified, a small triangle at a deletion) versus the file's git
+	//! index baseline. Default ON; toggled from the document header row and here.
+	//! Files outside a git repo, untracked files, or a machine with no git show
+	//! no markers (silently) - the toggle only gates the display.
+	bool showScriptGitMarkers = true;
 	//! @brief which file extensions double-click into the EMBEDDED code editor
 	//! (space/comma-separated, dot-prefixed; editable in View Settings). Kinds
 	//! with a richer double-click (.oscene/.oprefab/.oanim/.oui) ignore this -
@@ -2256,6 +2262,22 @@ bool scriptPanelTestResolveConfirm(int choice);
 
 //! how many document windows are open
 std::size_t scriptPanelTestDocumentCount();
+
+//! @brief the git change-marker verdict for the open document at `path`, honoring
+//! the `showMarkers` toggle exactly as the gutter does (toggle off -> empty).
+//! Forces a synchronous recompute from the live buffer vs the cached baseline so
+//! the selfcheck reads a deterministic result. outStates[i] = per current line
+//! (0 none / 1 added / 2 modified), outDeletions = the deletion-gap indices.
+//! False when the document is not open or is untracked (no baseline).
+bool scriptPanelTestGitMarkers(std::string const& path, bool showMarkers,
+	std::vector<int>& outStates, std::vector<int>& outDeletions);
+
+//! @brief dirty an open tracked document's BUFFER (never the disk) with a
+//! deterministic edit derived from its git baseline - the first line modified
+//! and a brand-new line inserted after an unchanged anchor - so the change
+//! markers come out as exactly one Modified + one Added. False when the document
+//! is not open, untracked, or its baseline is too short (< 2 lines).
+bool scriptPanelTestApplyGitEditProbe(std::string const& path);
 
 //! @brief the current live SYNTAX error among the open documents (the focused
 //! one first), for the status footer: returns the message ("" = none) and

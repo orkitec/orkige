@@ -248,6 +248,7 @@ namespace Orkige
 		//! whole Font Awesome block. Pairs are {first, last}; see
 		//! IconsFontAwesome6.h for the ICON_FA_* names behind each value.
 		const ImWchar ICON_GLYPH_RANGES[] = {
+			0xe13a, 0xe13a,		// code-compare (git change-markers toggle)
 			0xf001, 0xf001,		// music (audio)
 			0xf008, 0xf008,		// film (scene)
 			0xf03d, 0xf03e,		// video (camera-owner glyph) / image (texture)
