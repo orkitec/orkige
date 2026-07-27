@@ -433,8 +433,13 @@ namespace OrkigeEditor
 		{
 			return GitStatus();
 		}
-		const GitResult result =
-			runGit(*this, { "status", "--porcelain=v2", "--branch" });
+		// -uall lists untracked files INDIVIDUALLY (git's default collapses a new
+		// folder to one entry, which would hide the browser's per-file dots);
+		// core.quotePath=false emits non-ASCII paths raw (UTF-8) so a localised
+		// asset name parses verbatim (a path with a literal quote/newline still
+		// arrives C-quoted - the documented v1 limitation).
+		const GitResult result = runGit(*this, { "-c", "core.quotePath=false",
+			"status", "--porcelain=v2", "--branch", "--untracked-files=all" });
 		if (!result.ok())
 		{
 			return GitStatus();	// invalid: not a repo / git failure

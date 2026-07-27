@@ -142,6 +142,19 @@ TEST_CASE("porcelain-v2: paths containing spaces survive", "[unit][editor][git]"
 	CHECK(status.entries[1].path == "new asset name.png");
 }
 
+TEST_CASE("porcelain-v2: raw UTF-8 paths survive (core.quotePath=false)",
+	"[unit][editor][git]")
+{
+	// git is invoked with core.quotePath=false, so a localised asset name
+	// arrives as raw UTF-8 bytes rather than octal-escaped; the parser takes the
+	// path verbatim to end-of-line
+	const GitStatus status = parseStatusPorcelainV2(
+		"? assets/h\xc3\xa9ros/\xe6\x95\x8c.png\n");
+	REQUIRE(status.entries.size() == 1);
+	CHECK(status.entries[0].path == "assets/h\xc3\xa9ros/\xe6\x95\x8c.png");
+	CHECK(status.entries[0].untracked);
+}
+
 TEST_CASE("badge model: per-entry + the merged map", "[unit][editor][git]")
 {
 	GitFileEntry untracked;
