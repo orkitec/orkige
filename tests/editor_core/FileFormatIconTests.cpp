@@ -53,6 +53,11 @@ namespace
 	constexpr std::uint32_t kIconGlyphRanges[] = {
 		0xe13a, 0xe13a,
 		0xf001, 0xf001,
+		0xf021, 0xf021,		// arrows-rotate (Source Control refresh)
+		0xf068, 0xf068,		// minus (Source Control unstage)
+		0xf0ee, 0xf0ee,		// cloud-arrow-up (Source Control push / publish)
+		0xf126, 0xf126,		// code-branch (Source Control panel + branch)
+		0xf386, 0xf386,		// code-commit (Source Control commit)
 		0xf008, 0xf008,
 		0xf00a, 0xf00a,
 		0xf02b, 0xf02b,
@@ -110,6 +115,31 @@ namespace
 		REQUIRE(icon.glyph[0] != '\0');
 		CHECK(codepointInRanges(firstCodepoint(icon.glyph)));
 		CHECK((icon.color.r != 0 || icon.color.g != 0 || icon.color.b != 0));
+	}
+}
+
+TEST_CASE("Source Control panel glyphs are all in the icon font ranges",
+	"[editor_core][file_format_icon]")
+{
+	// the FA6 codepoints the Source Control panel draws (refresh / stage /
+	// unstage / discard / commit / push / publish / branch / ahead / behind); a
+	// glyph outside ICON_GLYPH_RANGES rasterises as a blank tofu box (the "?"
+	// the user sees). ICON_FA_PLUS is the ASCII '+' from the base font and needs
+	// no range. Keep this list in step with EditorSourceControlPanel.cpp.
+	const std::uint32_t kPanelGlyphs[] = {
+		0xf021,		// arrows-rotate (Refresh)
+		0xf068,		// minus (Unstage / Unstage All)
+		0xf2ed,		// trash-can (Discard changes)
+		0xf386,		// code-commit (Commit)
+		0xf0ee,		// cloud-arrow-up (Push / Publish branch)
+		0xf126,		// code-branch (branch header + panel/tab icon)
+		0xf062,		// arrow-up (ahead count)
+		0xf063,		// arrow-down (behind count)
+	};
+	for (std::uint32_t codepoint : kPanelGlyphs)
+	{
+		INFO("codepoint: 0x" << std::hex << codepoint);
+		CHECK(codepointInRanges(codepoint));
 	}
 }
 

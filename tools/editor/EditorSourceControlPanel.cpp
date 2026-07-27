@@ -22,6 +22,8 @@
 #include "EditorTabMenu.h"
 #include "IconsFontAwesome6.h"
 
+#include <imgui_internal.h>	// FindWindowByName + DockId (first-appearance dock)
+
 #include <SDL3/SDL.h>
 
 #include <atomic>
@@ -394,6 +396,23 @@ void drawSourceControlPanel(EditorState& state, ViewSettings& viewSettings,
 	// click happens inside the per-row PushID scope)
 	static bool sOpenDiscardPopup = false;
 	static char sCommitMessage[4096] = "";
+
+	// dock into the bottom group (beside Console/Stats/Debug) the FIRST time the
+	// panel appears, so opening it from the View menu tabs in there rather than
+	// floating - the dock-builder reservation only lands on a fresh/reset layout,
+	// so a user whose imgui.ini predates this panel would otherwise get a free-
+	// floating window. FirstUseEver respects any later move the user makes; the
+	// anchor is whichever bottom-group window is present.
+	for (const char* anchorName : { "Console", "Stats", "Assets###Assets",
+		"Debug###Debug" })
+	{
+		ImGuiWindow* anchor = ImGui::FindWindowByName(anchorName);
+		if (anchor && anchor->DockId != 0)
+		{
+			ImGui::SetNextWindowDockID(anchor->DockId, ImGuiCond_FirstUseEver);
+			break;
+		}
+	}
 
 	if (!ImGui::Begin(ICON_FA_CODE_BRANCH " Source Control###SourceControl",
 		visible))

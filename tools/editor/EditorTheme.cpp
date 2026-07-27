@@ -255,6 +255,11 @@ namespace Orkige
 		const ImWchar ICON_GLYPH_RANGES[] = {
 			0xe13a, 0xe13a,		// code-compare (git change-markers toggle)
 			0xf001, 0xf001,		// music (audio)
+			0xf021, 0xf021,		// arrows-rotate (Source Control refresh)
+			0xf068, 0xf068,		// minus (Source Control unstage / Stage All)
+			0xf0ee, 0xf0ee,		// cloud-arrow-up (Source Control push / publish)
+			0xf126, 0xf126,		// code-branch (Source Control panel + branch)
+			0xf386, 0xf386,		// code-commit (Source Control commit)
 			0xf008, 0xf008,		// film (scene)
 			0xf00a, 0xf00a,		// table-cells (.ogui file icon)
 			0xf02b, 0xf02b,		// tag (.orkmeta file icon)
