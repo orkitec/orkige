@@ -484,6 +484,11 @@ namespace OrkigeEditor
 		return runGit(*this, { "push" });
 	}
 
+	GitResult GitRepo::publishBranch(std::string const& branch) const
+	{
+		return runGit(*this, { "push", "-u", "origin", branch });
+	}
+
 	std::string GitRepo::showStagedBlob(std::string const& repoRel,
 		int& exitCode) const
 	{

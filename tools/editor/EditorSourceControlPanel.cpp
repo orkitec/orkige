@@ -248,6 +248,11 @@ namespace OrkigeEditor
 		}
 	}
 
+	void sourceControlRefresh()
+	{
+		requestRefresh();
+	}
+
 	void sourceControlTick()
 	{
 		Service& svc = service();
@@ -640,23 +645,48 @@ void drawSourceControlPanel(EditorState& state, ViewSettings& viewSettings,
 		ImGui::TextDisabled("(stage a file first)");
 	}
 
-	// --- push ----------------------------------------------------------------
+	// --- push / publish -------------------------------------------------------
 	ImGui::SameLine();
-	const bool canPush = svc.status.hasUpstream && svc.status.ahead > 0 && !busy;
-	ImGui::BeginDisabled(!canPush);
-	std::string pushLabel = ICON_FA_CLOUD_ARROW_UP " Push";
-	if (svc.status.ahead > 0)
+	if (svc.status.hasUpstream)
 	{
-		pushLabel += " (" + std::to_string(svc.status.ahead) + ")";
+		const bool canPush = svc.status.ahead > 0 && !busy;
+		ImGui::BeginDisabled(!canPush);
+		std::string pushLabel = ICON_FA_CLOUD_ARROW_UP " Push";
+		if (svc.status.ahead > 0)
+		{
+			pushLabel += " (" + std::to_string(svc.status.ahead) + ")";
+		}
+		if (ImGui::Button(pushLabel.c_str()))
+		{
+			requestJob("push", [](GitRepo const& r) { return r.push(); });
+		}
+		ImGui::EndDisabled();
 	}
-	if (ImGui::Button(pushLabel.c_str()))
+	else if (!svc.status.detached && !svc.status.initialCommit &&
+		!svc.status.branch.empty())
 	{
-		requestJob("push", [](GitRepo const& r) { return r.push(); });
+		// no upstream yet: offer the FIRST push (git push -u origin <branch>),
+		// which both uploads the branch and sets its upstream so later Push works
+		const std::string branch = svc.status.branch;
+		ImGui::BeginDisabled(busy);
+		if (ImGui::Button(ICON_FA_CLOUD_ARROW_UP " Publish branch"))
+		{
+			requestJob("publish " + branch,
+				[branch](GitRepo const& r) { return r.publishBranch(branch); });
+		}
+		ImGui::EndDisabled();
+		ImGui::SetItemTooltip(
+			"push this branch to origin and set it as upstream");
 	}
-	ImGui::EndDisabled();
-	if (!svc.status.hasUpstream)
+	else
 	{
-		ImGui::SetItemTooltip("no upstream configured for this branch");
+		// detached HEAD or no commits yet: nothing to push/publish
+		ImGui::BeginDisabled(true);
+		ImGui::Button(ICON_FA_CLOUD_ARROW_UP " Push");
+		ImGui::EndDisabled();
+		ImGui::SetItemTooltip(svc.status.initialCommit
+			? "make a commit before publishing this branch"
+			: "detached HEAD - no branch to publish");
 	}
 
 	// --- status strip --------------------------------------------------------

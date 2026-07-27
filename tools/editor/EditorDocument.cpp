@@ -11,6 +11,7 @@
 // resource group) and the mesh import (asset database wiring included).
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorSourceControlPanel.h"	// event-driven git refresh on scene save
 #include "EditorAutosave.h"
 #include "EditorSceneTemplate.h"
 #include "MeshImport.h"
@@ -154,6 +155,8 @@ bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,
 	// the scene is clean on disk now - drop any stale autosave sibling
 	Orkige::EditorAutosave::removeAutosave(path);
 	recordRecentScene(path);
+	// the .oscene just changed on disk: event-driven source-control refresh
+	OrkigeEditor::sourceControlRefresh();
 	return true;
 }
 
@@ -834,6 +837,8 @@ std::string importAssetFile(EditorState& state, std::string const& sourcePath,
 		// by bare filename right after this
 		Orkige::RenderSystem::get()->addResourceLocation(destDir);
 	}
+	// a new (untracked) file just landed in the tree: event-driven git refresh
+	OrkigeEditor::sourceControlRefresh();
 	return destPath;
 }
 

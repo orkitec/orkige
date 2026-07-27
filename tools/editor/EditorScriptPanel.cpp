@@ -46,6 +46,7 @@
 #include "FileFormatIcon.h"	// the tab's leading glyph + tint
 #include "EditorLineDiff.h"	// git-gutter change markers (pure line diff)
 #include "EditorGit.h"		// shared git repo-root/relpath resolution + blob read
+#include "EditorSourceControlPanel.h"	// event-driven status refresh on save
 #include "ExternalEditor.h"	// parseFileLineRefs / FileLineRef (error markers)
 #include "GeneratedLuaApi.h"
 #include "IconsFontAwesome6.h"
@@ -625,6 +626,10 @@ namespace
 		// re-baseline against the index: a save leaves the index untouched but a
 		// stage done outside the editor may have moved it - the honest refetch
 		refreshGitBaseline(doc);
+		// event-driven source-control refresh: the file just changed on disk, so
+		// the panel groups + browser dots re-read git (no-op without a project /
+		// during automated runs)
+		OrkigeEditor::sourceControlRefresh();
 		SDL_Log("script editor: saved %s", doc.relativePath.c_str());
 		return true;
 	}

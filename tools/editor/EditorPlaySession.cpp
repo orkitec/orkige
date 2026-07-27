@@ -11,6 +11,7 @@
 // compile-on-Play build queue, the debug-link pump and crash detection.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorSourceControlPanel.h"	// event-driven git refresh on Play stop
 
 #include <core_debugnet/DebugServer.h>
 #include <core_game/GameObjectManager.h>
@@ -672,6 +673,9 @@ void endPlaySession(PlaySession& session, std::string const& reason)
 	session.editorWorld = nullptr;	// the mirror is restored + released
 	session.projectRoot.clear();
 	session.mode = PlaySession::Mode::Edit;
+	// the game may have written save files / the user may have committed on the
+	// CLI mid-play: event-driven source-control refresh as we return to edit mode
+	OrkigeEditor::sourceControlRefresh();
 	oDebugMsg("editor.play", 0, "play mode ended (" << reason << ")");
 }
 

@@ -45,6 +45,15 @@ namespace OrkigeEditor
 	//! the panel so badges follow a project switch even with the panel closed).
 	void sourceControlEnsureProject(std::string const& projectRoot);
 
+	//! @brief request an async status refresh (event-driven, no polling): the
+	//! editor calls this at the discrete moments it KNOWS the tree changed - a
+	//! document/scene save, an Asset-browser import/create/delete/rename, and Play
+	//! stop - so the panel groups AND the browser dots re-read git without the
+	//! user re-focusing the panel. Coalesced (a refresh while one is in flight is
+	//! dropped - that job already refreshes on completion) and a no-op during
+	//! automated runs / with no project.
+	void sourceControlRefresh();
+
 	//! @brief the ONE badge snapshot the Asset browser reads (repo-relative file
 	//! badges + aggregated dirty folders + the project's in-repo prefix). Inactive
 	//! (no badges) when the project is not in a git repo, git is absent, a refresh

@@ -222,6 +222,10 @@ namespace OrkigeEditor
 		//! `git push`: inherits the user's credential setup; auth/network failure
 		//! lands in the result's output (from stderr).
 		GitResult push() const;
+		//! `git push -u origin <branch>`: publish a branch that has no upstream yet
+		//! (the first push), setting `origin` as its upstream. A missing/differently
+		//! named remote fails honestly in the result's output.
+		GitResult publishBranch(std::string const& branch) const;
 		//! `git show :<path>` - the STAGED (index) blob of a path (the diff-gutter
 		//! baseline). exitCode is set; an untracked path exits non-zero.
 		std::string showStagedBlob(std::string const& repoRel, int& exitCode) const;

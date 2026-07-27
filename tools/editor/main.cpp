@@ -4537,6 +4537,39 @@ int main(int argc, char** argv)
 							scFail = "nested browser-badge snapshot wrong";
 						}
 					}
+					if (scOk)
+					{
+						// a FRESH branch has no upstream -> Publish (git push -u
+						// origin <branch>) uploads it and sets one, so a later Push
+						// works. Create one, commit, then publish it.
+						writeFile(scriptsDir + "/enemy.lua", "-- enemy\n");
+						if (!git({ "-C", tempRoot, "checkout", "-b", "feature" }) ||
+							!git({ "-C", tempRoot, "add", "-A" }) ||
+							!git({ "-C", tempRoot, "commit", "-m", "feature" }))
+						{
+							scOk = false;
+							scFail = "feature branch setup failed: " + gitOut;
+						}
+						else
+						{
+							const OrkigeEditor::GitStatus before = repo.status();
+							if (before.branch != "feature" || before.hasUpstream)
+							{
+								scOk = false;
+								scFail = "fresh branch unexpectedly has an upstream";
+							}
+							else if (!repo.publishBranch("feature").ok())
+							{
+								scOk = false;
+								scFail = "publishBranch failed: " + gitOut;
+							}
+							else if (!repo.status().hasUpstream)
+							{
+								scOk = false;
+								scFail = "no upstream after publish";
+							}
+						}
+					}
 					if (gitAbsent)
 					{
 						std::filesystem::remove_all(tempRoot, scEc);

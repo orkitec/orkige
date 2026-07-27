@@ -31,8 +31,12 @@ change-marker gutter shows the very edits the row is reporting. Group headers
 carry **Stage All** / **Unstage All**.
 
 The status list refreshes when the panel gains focus, when the Refresh button is
-pressed, and after every operation the panel issues. There is no background
-polling.
+pressed, after every operation the panel issues, and — event-driven, without any
+background polling — at the moments the editor knows the tree changed: a document
+or scene **save**, an Asset-browser **import / create / delete / rename**, and
+**Play stop** (the game may have written a save file). A change made entirely
+outside the editor (git on the command line) is picked up on the next focus or
+Refresh.
 
 ### Operations are asynchronous
 
@@ -44,8 +48,12 @@ capture stdout **and** stderr, so a commit-msg hook rejection or a push
 authentication / network error is surfaced verbatim in the panel's status strip
 rather than being swallowed.
 
-The Commit button is disabled while the message is empty or nothing is staged;
-the Push button is disabled when the branch has no upstream or is not ahead.
+The Commit button is disabled while the message is empty or nothing is staged.
+A branch **with** an upstream shows a **Push** button (disabled when it is not
+ahead); a branch **without** an upstream shows **Publish branch** instead, which
+runs `git push -u origin <branch>` to upload it and set the upstream so later
+pushes work. A detached HEAD or a branch with no commits yet shows a disabled
+Push with an explanatory tooltip.
 
 ### Discarding changes
 

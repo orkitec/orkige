@@ -440,6 +440,8 @@ void deleteAssetFile(std::string const& absolutePath)
 	fs::remove(absolutePath +
 		Orkige::AssetDatabase::META_FILE_EXTENSION, ec);
 	oDebugMsg("editor.assets", 0, "deleted asset '" << absolutePath << "'");
+	// a file left the tree: event-driven git refresh
+	OrkigeEditor::sourceControlRefresh();
 }
 
 //! rebuild the project's assets/ resource index after a filesystem change so a
@@ -455,6 +457,8 @@ void reindexProjectAssets(EditorState& state)
 		return;
 	}
 	registerProjectAssetLocations(state.project.getAssetsDirectory());
+	// a rename / move / duplicate changed the tree: event-driven git refresh
+	OrkigeEditor::sourceControlRefresh();
 }
 
 } // namespace
@@ -1351,6 +1355,8 @@ void revealCreatedItem(EditorState& state, std::string const& absolutePath)
 		fs::path(absolutePath).filename().string().c_str(),
 		sizeof(browser.renameBuffer));
 	browser.renameFocusPending = true;
+	// a new folder / script / scene just appeared: event-driven git refresh
+	OrkigeEditor::sourceControlRefresh();
 }
 
 } // namespace
