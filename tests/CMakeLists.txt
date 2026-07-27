@@ -1034,7 +1034,14 @@ if(TARGET orkige_editor)
 	# layers, which is an Ogre-Next capability; classic is covered by its honest
 	# unsupported-path assertion in editor_control.
 	if(ORKIGE_RENDER_BACKEND STREQUAL "next")
-		add_test(NAME editor_previews_next COMMAND orkige_editor
+		# guarded: this leg opens the committed (generator-owned) benchmark
+		# project, so the wrapper trips the test if it ever WRITES a benchmark
+		# .oui (the canonicalising drift that names no author otherwise)
+		add_test(NAME editor_previews_next
+			COMMAND python3 "${Orkige_SOURCE_DIR}/Util/guard_tree_unchanged.py"
+				--path "${Orkige_SOURCE_DIR}/projects/benchmark/assets/hud.oui"
+				--path "${Orkige_SOURCE_DIR}/projects/benchmark/assets/settings.oui"
+				-- $<TARGET_FILE:orkige_editor>
 			WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 		set_tests_properties(editor_previews_next PROPERTIES
 			ENVIRONMENT "ORKIGE_EDITOR_PREVIEW_SELFCHECK=${Orkige_SOURCE_DIR}/projects/benchmark;ORKIGE_DEMO_FRAMES=90")
@@ -1168,7 +1175,13 @@ if(TARGET orkige_editor)
     # is contained at the render entry; classic renders its (non-Hlms) water
     # natively. The leg opens the benchmark lake scene and asserts no crash +
     # water present (editor_refraction).
-    add_test(NAME editor_refraction${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+    # guarded like editor_previews: opens the committed benchmark project, so
+    # the wrapper trips if the leg ever writes a benchmark .oui
+    add_test(NAME editor_refraction${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND python3 "${Orkige_SOURCE_DIR}/Util/guard_tree_unchanged.py"
+            --path "${Orkige_SOURCE_DIR}/projects/benchmark/assets/hud.oui"
+            --path "${Orkige_SOURCE_DIR}/projects/benchmark/assets/settings.oui"
+            -- $<TARGET_FILE:orkige_editor>
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_refraction${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_REFRACTION_SELFCHECK=${Orkige_SOURCE_DIR}/projects/benchmark;ORKIGE_DEMO_FRAMES=40"
