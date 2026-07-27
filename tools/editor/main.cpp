@@ -3256,6 +3256,71 @@ int main(int argc, char** argv)
 					running = false;
 				}
 			}
+			// --- hunk inspection / revert / navigation (frame 110): drive the
+			// v2 seams on the same tracked fixture - the hunk baseline slice
+			// matches the edit, next/prev-change wraps to the right line, and a
+			// programmatic revert lands the file back on its index version +
+			// empties the marker seam + the widget's own undo restores the
+			// pre-revert buffer. All in-memory (the disk is never touched).
+			if (frameCount == 110 && selfCheck && gitFixtureEnv != nullptr)
+			{
+				const std::string tracked = gitFixtureEnv;
+				// (a) two-hunk state: modify line 0 + add a line after line 1
+				const bool twoHunk = scriptPanelTestApplyGitEditProbe(tracked);
+				// hunk 0 = Modified(line 0): one original line, one edited line
+				std::vector<std::string> baseSlice;
+				std::vector<std::string> curSlice;
+				const bool slice0 = scriptPanelTestHunkSlice(tracked, 0,
+					baseSlice, curSlice);
+				const bool slice0Ok = slice0 && baseSlice.size() == 1 &&
+					curSlice.size() == 1 &&
+					curSlice[0].find("probe-modified") != std::string::npos &&
+					baseSlice[0].find("probe-modified") == std::string::npos;
+				// hunk 1 = Added: no baseline line, one new current line
+				std::vector<std::string> baseSlice1;
+				std::vector<std::string> curSlice1;
+				const bool slice1 = scriptPanelTestHunkSlice(tracked, 1,
+					baseSlice1, curSlice1);
+				const bool slice1Ok = slice1 && baseSlice1.empty() &&
+					curSlice1.size() == 1 &&
+					curSlice1[0].find("probe-added") != std::string::npos;
+				// navigation: from the top forward lands on the SECOND hunk (the
+				// added line at current index 2); backward from there returns to
+				// the first hunk at index 0
+				int forwardLine = -99;
+				int backwardLine = -99;
+				const bool nav =
+					scriptPanelTestNavigateHunk(tracked, 0, true, forwardLine) &&
+					scriptPanelTestNavigateHunk(tracked, 2, false, backwardLine);
+				const bool navOk = nav && forwardLine == 2 && backwardLine == 0;
+				// (b) single-hunk state -> revert -> undo
+				const bool single = scriptPanelTestApplySingleHunkEdit(tracked);
+				std::string preRevert;
+				std::string postRevert;
+				std::string afterUndo;
+				int hunksAfter = -1;
+				int changedAfter = -1;
+				const bool reverted = scriptPanelTestRevertFirstHunk(tracked,
+					preRevert, postRevert, afterUndo, hunksAfter, changedAfter);
+				const bool revertOk = single && reverted && hunksAfter == 0 &&
+					changedAfter == 0 && postRevert != preRevert &&
+					afterUndo == preRevert;
+				SDL_Log("orkige_editor: selfcheck frame 110 - hunk v2: "
+					"slice{mod=%s,add=%s} nav{fwd=%d,back=%d}=%s "
+					"revert{hunks=%d,changed=%d,undo=%s}=%s",
+					slice0Ok ? "yes" : "NO", slice1Ok ? "yes" : "NO",
+					forwardLine, backwardLine, navOk ? "yes" : "NO",
+					hunksAfter, changedAfter,
+					(afterUndo == preRevert) ? "yes" : "NO",
+					revertOk ? "yes" : "NO");
+				if (!twoHunk || !slice0Ok || !slice1Ok || !navOk || !revertOk)
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (hunk inspect / "
+						"revert / navigate)");
+					exitCode = 2;
+					running = false;
+				}
+			}
 			// --- scripted Asset browser test (ORKIGE_EDITOR_ASSETTEST) ------
 			if (assetTestEnv && frameCount == 10)
 			{

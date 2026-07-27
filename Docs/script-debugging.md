@@ -115,8 +115,22 @@ deleted. The baseline is `git show :<path>` (the staged blob), fetched when the
 file opens and on every save (never per keystroke); the live buffer is diffed
 against it as you type, refreshed after a short idle pause. A header-row toggle
 (the code-compare glyph) turns the markers on and off, persisted in the View
-settings (`script_git_markers`, default on). The markers are display-only and
-sit clear of the line numbers, the breakpoint dot and the error `!`.
+settings (`script_git_markers`, default on). The markers sit clear of the line
+numbers, the breakpoint dot and the error `!`.
+
+**Inspecting a hunk**: hover a change marker to see the hunk's index version —
+its original lines on a red band and, for a modified hunk, the current lines on
+a green band, a compact before/after in the editor font. A click PINS the popup
+(Esc, its close box, or a click-away dismisses it); a long hunk clamps to the
+first 20 lines with an honest `... N more`. The pinned popup carries a **Revert
+Hunk** button that swaps the hunk's current lines back to the index version IN
+THE BUFFER — one undoable step on the editor's own undo stack (Cmd/Ctrl+Z puts
+the edit back), never touching disk (save as usual). After a revert the diff
+recomputes and the marker disappears.
+
+**Navigating changes**: Cmd/Ctrl+Alt+Down jumps to the next change hunk,
+Cmd/Ctrl+Alt+Up to the previous one, wrapping around the ends and scrolling the
+hit hunk to the middle of the view (bare Alt+arrows stay the editor's move-line).
 
 Honest degradations: a file outside a git repository, an untracked file, or a
 machine with no `git` on `PATH` (a distributed editor) shows no markers — an

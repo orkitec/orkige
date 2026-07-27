@@ -160,6 +160,18 @@ namespace
 		unsigned int focusedBreakSeq = 0;
 		//! the break sequence the Debug panel last auto-focused for
 		unsigned int debugFocusSeq = 0;
+		//! the change-hunk inspection popup. A hover over a change marker shows a
+		//! transient tooltip; a CLICK pins a floating window (Esc / click-away /
+		//! its close box dismiss it) carrying the hunk's before/after and a
+		//! Revert. The hunk is captured by VALUE so the popup survives a diff
+		//! recompute; the before/after text is sliced live from the document.
+		ScriptDocument* popupDoc = nullptr;	//!< the pinned popup's doc (null=none)
+		OrkigeEditor::DiffHunk popupHunk;	//!< the pinned hunk
+		int popupPinnedFrame = -1;			//!< the frame the pin click landed on
+		//! per-frame hover (reset before the documents draw; set by the gutter)
+		ScriptDocument* hoverDoc = nullptr;
+		OrkigeEditor::DiffHunk hoverHunk;
+		bool hoverActive = false;
 		//! one-shot: dock the Debug panel beside Console the first time it shows
 		bool debugDockedOnce = false;
 	};
@@ -471,6 +483,38 @@ namespace
 		doc.gitDiff = OrkigeEditor::computeLineDiff(doc.gitBaselineLines,
 			OrkigeEditor::splitLines(doc.editor->GetText()));
 		doc.gitDiffUndoIndex = doc.editor->GetUndoIndex();
+	}
+
+	//! revert ONE hunk in the buffer: the pure applyHunkRevert swaps the hunk's
+	//! current lines for its baseline lines, and the whole-buffer result is
+	//! applied through the widget's own text-mutation path (SelectAll +
+	//! ReplaceTextInCurrentCursor - ONE transaction, so the widget's undo stack
+	//! captures it as a single undoable step). The DISK is never touched (the
+	//! user saves normally); the change markers refresh at once (the debounced
+	//! live tick would reach the same verdict).
+	void revertHunkInDocument(ScriptDocument& doc,
+		OrkigeEditor::DiffHunk const& hunk)
+	{
+		if (!doc.editor)
+		{
+			return;
+		}
+		const std::vector<std::string> current =
+			OrkigeEditor::splitLines(doc.editor->GetText());
+		const std::vector<std::string> reverted = OrkigeEditor::applyHunkRevert(
+			current, doc.gitBaselineLines, hunk);
+		std::string text;
+		for (std::size_t i = 0; i < reverted.size(); ++i)
+		{
+			text += reverted[i];
+			if (i + 1 < reverted.size())
+			{
+				text += "\n";	// splitLines/join round-trips the buffer exactly
+			}
+		}
+		doc.editor->SelectAll();
+		doc.editor->ReplaceTextInCurrentCursor(text);
+		recomputeGitDiff(doc);
 	}
 
 	//! fetch (or refetch) the git-index baseline for a document: resolve the
@@ -902,6 +946,142 @@ namespace
 		}
 	}
 
+	//! one tinted code line inside a hunk popup: a full-width background band
+	//! (removed = red, added = green) with the line's text over it. An empty
+	//! line still shows a band so a blank-line change reads.
+	void drawTintedCodeLine(std::string const& text, ImU32 background)
+	{
+		const ImVec2 pos = ImGui::GetCursorScreenPos();
+		float width = ImGui::GetContentRegionAvail().x;
+		width = std::max(width, 160.0f);
+		const float height = ImGui::GetTextLineHeight();
+		ImGui::GetWindowDrawList()->AddRectFilled(pos,
+			ImVec2(pos.x + width, pos.y + height), background);
+		ImGui::TextUnformatted(text.empty() ? " " : text.c_str());
+	}
+
+	//! render one line list (baseline or current) tinted + clamped to
+	//! kMaxHunkPreviewLines, then an honest "... N more" when it overflows
+	void drawHunkLineList(std::vector<std::string> const& lines, ImU32 background)
+	{
+		int remaining = 0;
+		const int shown =
+			OrkigeEditor::clampHunkPreview(static_cast<int>(lines.size()),
+				remaining);
+		for (int i = 0; i < shown; ++i)
+		{
+			drawTintedCodeLine(lines[i], background);
+		}
+		if (remaining > 0)
+		{
+			ImGui::TextDisabled("... %d more", remaining);
+		}
+	}
+
+	//! the hunk-inspection popup body (shared by the hover tooltip and the
+	//! pinned window): the original (baseline) lines red-tinted and, when the
+	//! hunk kept current lines, the current lines green-tinted - a compact
+	//! before/after. The pinned window adds the Revert button.
+	void drawHunkPopupBody(ScriptDocument& doc,
+		OrkigeEditor::DiffHunk const& hunk, bool pinned)
+	{
+		using OrkigeEditor::HunkKind;
+		const char* kindText = hunk.kind == HunkKind::Added ? "Added"
+			: (hunk.kind == HunkKind::Deleted ? "Removed" : "Modified");
+		ImGui::TextDisabled("%s", kindText);
+		const std::vector<std::string> baseLines =
+			OrkigeEditor::hunkBaselineLines(doc.gitBaselineLines, hunk);
+		std::vector<std::string> curLines;
+		if (hunk.kind != HunkKind::Deleted && doc.editor)
+		{
+			curLines = OrkigeEditor::hunkCurrentLines(
+				OrkigeEditor::splitLines(doc.editor->GetText()), hunk);
+		}
+		ImFont* mono = Orkige::editorMonoFont();
+		if (mono != nullptr)
+		{
+			ImGui::PushFont(mono);
+		}
+		// the baseline (original) lines - red; a Deleted hunk shows only these
+		const ImU32 removedBg = IM_COL32(120, 44, 40, 90);
+		const ImU32 addedBg = IM_COL32(44, 104, 52, 90);
+		if (!baseLines.empty())
+		{
+			drawHunkLineList(baseLines, removedBg);
+		}
+		if (!curLines.empty())
+		{
+			if (!baseLines.empty())
+			{
+				ImGui::Spacing();
+			}
+			drawHunkLineList(curLines, addedBg);
+		}
+		if (mono != nullptr)
+		{
+			ImGui::PopFont();
+		}
+		if (pinned)
+		{
+			ImGui::Separator();
+			if (ImGui::Button("Revert Hunk"))
+			{
+				revertHunkInDocument(doc, hunk);
+				panel().popupDoc = nullptr;	// the marker is gone - close the popup
+			}
+			ImGui::SameLine();
+			ImGui::TextDisabled("restores the index version in the buffer");
+		}
+	}
+
+	//! after a document renders, present its change-hunk popup(s): a hover
+	//! tooltip (from the gutter's per-frame hover record) and, when this
+	//! document owns the pinned popup, the floating window with Revert. The
+	//! pinned window dismisses on Esc, its close box, or a click-away.
+	void drawHunkPopups(ScriptDocument& doc)
+	{
+		PanelState& ui = panel();
+		// the hover tooltip - unless this exact hunk is already pinned here
+		const bool pinnedHere = ui.popupDoc == &doc;
+		if (ui.hoverActive && ui.hoverDoc == &doc &&
+			!(pinnedHere && ui.popupHunk.curStart == ui.hoverHunk.curStart &&
+				ui.popupHunk.baseStart == ui.hoverHunk.baseStart))
+		{
+			if (ImGui::BeginTooltip())
+			{
+				drawHunkPopupBody(doc, ui.hoverHunk, false);
+				ImGui::EndTooltip();
+			}
+		}
+		if (!pinnedHere)
+		{
+			return;
+		}
+		ImGui::SetNextWindowSize(ImVec2(380.0f, 0.0f), ImGuiCond_Appearing);
+		ImGui::SetNextWindowPos(
+			ImVec2(ImGui::GetMousePos().x + 14.0f, ImGui::GetMousePos().y + 14.0f),
+			ImGuiCond_Appearing);
+		bool open = true;
+		if (ImGui::Begin("Change Hunk###hunkPopup", &open,
+			ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
+			ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			drawHunkPopupBody(doc, ui.popupHunk, true);
+		}
+		const bool hovered = ImGui::IsWindowHovered(
+			ImGuiHoveredFlags_RootAndChildWindows);
+		ImGui::End();
+		// dismiss: the close box, Esc, or a click OUTSIDE (but not the very
+		// click that pinned it this frame - the gutter click lands elsewhere)
+		const bool clickAway = ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+			!hovered && ImGui::GetFrameCount() != ui.popupPinnedFrame;
+		if (!open || clickAway ||
+			ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			ui.popupDoc = nullptr;
+		}
+	}
+
 	//! the breakpoint gutter (Lua documents only): an invisible click target
 	//! per visible line, a red dot where a breakpoint is set and an arrow on
 	//! the paused line
@@ -923,7 +1103,8 @@ namespace
 		// git change markers ride the FAR-LEFT gutter edge (before the number
 		// margin), so they never disturb the line numbers, the breakpoint dot or
 		// the error "!". A green bar = an added line, blue = a modified line, a
-		// small red triangle marks where a run of lines was deleted. Display-only.
+		// small red triangle marks where a run of lines was deleted. Hovering a
+		// marker inspects the hunk; a click pins the popup (@see drawHunkPopups).
 		if (showGitMarkers && !doc.gitDiff.states.empty())
 		{
 			const float glyph = decorator.glyphSize.x;
@@ -976,6 +1157,48 @@ namespace
 					doc.editor->GetLineCount()))
 			{
 				drawDeletion(maximum.y);
+			}
+			// hover/click inspection: the marker strip (the change-bar column,
+			// left of the line numbers) is a hover+click target. A hover records
+			// this line's hunk for the tooltip drawHunkPopups shows after Render;
+			// a click PINS it. The change bar sits left of the breakpoint
+			// InvisibleButton, so this reads the raw mouse without stealing it.
+			int hunkIndex =
+				OrkigeEditor::hunkForCurrentLine(doc.gitDiff, decorator.line);
+			if (hunkIndex < 0)
+			{
+				hunkIndex =
+					OrkigeEditor::hunkForDeletionGap(doc.gitDiff, decorator.line);
+				if (hunkIndex < 0 &&
+					decorator.line == doc.editor->GetLineCount() - 1)
+				{
+					// the end-of-file deletion hangs off the last line's bottom
+					hunkIndex = OrkigeEditor::hunkForDeletionGap(doc.gitDiff,
+						doc.editor->GetLineCount());
+				}
+			}
+			if (hunkIndex >= 0)
+			{
+				const ImVec2 hitMin(barLeft - 2.0f, minimum.y);
+				const ImVec2 hitMax(numbersLeft, maximum.y);
+				if (ImGui::IsMouseHoveringRect(hitMin, hitMax))
+				{
+					PanelState& ui = panel();
+					OrkigeEditor::DiffHunk const& hunk =
+						doc.gitDiff.hunks[hunkIndex];
+					ui.hoverActive = true;
+					ui.hoverDoc = &doc;
+					ui.hoverHunk = hunk;
+					if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+					{
+						const bool samePinned = ui.popupDoc == &doc &&
+							ui.popupHunk.curStart == hunk.curStart &&
+							ui.popupHunk.baseStart == hunk.baseStart;
+						ui.popupDoc = samePinned ? nullptr : &doc;
+						ui.popupHunk = hunk;
+						ui.popupPinnedFrame = ImGui::GetFrameCount();
+					}
+				}
 			}
 		}
 		// two side-by-side slots so the glyphs never overlap: the error "!"
@@ -1236,6 +1459,13 @@ namespace
 			ImGui::PopFont();
 		}
 		ImGui::End();
+		// the change-hunk popup rides OUTSIDE the document window (a top-level
+		// tooltip + the pinned floating window), fed by the gutter's per-frame
+		// hover/pin record captured during this document's Render just above
+		if (viewSettings.showScriptGitMarkers)
+		{
+			drawHunkPopups(doc);
+		}
 	}
 
 	//! one locals row (recursing into expanded tables, bounded depth)
@@ -1587,6 +1817,128 @@ bool scriptPanelTestApplyGitEditProbe(std::string const& path)
 	return false;
 }
 //---------------------------------------------------------------------------
+namespace
+{
+	//! the open document at `path` (canonical-compared), or nullptr
+	ScriptDocument* findOpenDocument(std::string const& path)
+	{
+		std::error_code ec;
+		const fs::path wanted = fs::weakly_canonical(path, ec);
+		for (auto const& doc : panel().docs)
+		{
+			const fs::path held = fs::weakly_canonical(doc->absolutePath, ec);
+			if (doc->absolutePath == path || held == wanted)
+			{
+				return doc.get();
+			}
+		}
+		return nullptr;
+	}
+}
+//---------------------------------------------------------------------------
+bool scriptPanelTestApplySingleHunkEdit(std::string const& path)
+{
+	ScriptDocument* doc = findOpenDocument(path);
+	if (doc == nullptr || !doc->editor || !doc->gitTracked ||
+		doc->gitBaselineLines.empty())
+	{
+		return false;
+	}
+	// modify ONLY the first baseline line -> exactly one Modified hunk
+	std::vector<std::string> lines = doc->gitBaselineLines;
+	lines[0] += " -- single-hunk probe";
+	std::string text;
+	for (std::size_t i = 0; i < lines.size(); ++i)
+	{
+		text += lines[i];
+		if (i + 1 < lines.size())
+		{
+			text += "\n";
+		}
+	}
+	doc->editor->SetText(text);	// buffer only - the disk is never touched
+	return true;
+}
+//---------------------------------------------------------------------------
+bool scriptPanelTestHunkSlice(std::string const& path, int hunkIndex,
+	std::vector<std::string>& outBaseline, std::vector<std::string>& outCurrent)
+{
+	outBaseline.clear();
+	outCurrent.clear();
+	ScriptDocument* doc = findOpenDocument(path);
+	if (doc == nullptr || !doc->editor || !doc->gitTracked)
+	{
+		return false;
+	}
+	recomputeGitDiff(*doc);	// synchronous, deterministic read
+	if (hunkIndex < 0 ||
+		hunkIndex >= static_cast<int>(doc->gitDiff.hunks.size()))
+	{
+		return false;
+	}
+	OrkigeEditor::DiffHunk const& hunk = doc->gitDiff.hunks[hunkIndex];
+	outBaseline = OrkigeEditor::hunkBaselineLines(doc->gitBaselineLines, hunk);
+	outCurrent = OrkigeEditor::hunkCurrentLines(
+		OrkigeEditor::splitLines(doc->editor->GetText()), hunk);
+	return true;
+}
+//---------------------------------------------------------------------------
+bool scriptPanelTestRevertFirstHunk(std::string const& path,
+	std::string& outPre, std::string& outPost, std::string& outAfterUndo,
+	int& outHunksAfter, int& outChangedLinesAfter)
+{
+	ScriptDocument* doc = findOpenDocument(path);
+	if (doc == nullptr || !doc->editor || !doc->gitTracked)
+	{
+		return false;
+	}
+	recomputeGitDiff(*doc);
+	if (doc->gitDiff.hunks.empty())
+	{
+		return false;
+	}
+	outPre = doc->editor->GetText();
+	const OrkigeEditor::DiffHunk hunk = doc->gitDiff.hunks.front();
+	revertHunkInDocument(*doc, hunk);	// widget-undoable path + marker refresh
+	outPost = doc->editor->GetText();
+	outHunksAfter = static_cast<int>(doc->gitDiff.hunks.size());
+	outChangedLinesAfter = 0;
+	for (OrkigeEditor::LineChange change : doc->gitDiff.states)
+	{
+		if (change != OrkigeEditor::LineChange::None)
+		{
+			++outChangedLinesAfter;
+		}
+	}
+	outChangedLinesAfter +=
+		static_cast<int>(doc->gitDiff.deletions.size());
+	// the widget's undo stack captured the revert as ONE step - undo restores
+	// the pre-revert buffer exactly
+	doc->editor->Undo();
+	recomputeGitDiff(*doc);
+	outAfterUndo = doc->editor->GetText();
+	return true;
+}
+//---------------------------------------------------------------------------
+bool scriptPanelTestNavigateHunk(std::string const& path, int fromLine,
+	bool forward, int& outLine)
+{
+	outLine = -1;
+	ScriptDocument* doc = findOpenDocument(path);
+	if (doc == nullptr || !doc->editor || !doc->gitTracked)
+	{
+		return false;
+	}
+	recomputeGitDiff(*doc);
+	if (doc->gitDiff.hunks.empty())
+	{
+		return false;
+	}
+	outLine = OrkigeEditor::navigateHunkLine(doc->gitDiff.hunks, fromLine,
+		forward);
+	return true;
+}
+//---------------------------------------------------------------------------
 std::string scriptPanelActiveSyntaxError(std::string& outPath, int& outLine)
 {
 	PanelState& ui = panel();
@@ -1719,6 +2071,9 @@ void drawScriptDocuments(EditorState& state, PlaySession& session,
 	// the focus flag is recomputed each frame from the windows below
 	state.scriptPanelFocused = false;
 	ui.focused = nullptr;
+	// the gutter re-records the change-hunk hover each frame (cleared here)
+	ui.hoverActive = false;
+	ui.hoverDoc = nullptr;
 	for (auto& doc : ui.docs)
 	{
 		drawDocumentWindow(state, session, viewSettings, *doc);
@@ -1761,6 +2116,15 @@ void drawScriptDocuments(EditorState& state, PlaySession& session,
 			if (ui.confirmClose == &doc)
 			{
 				ui.confirmClose = nullptr;
+			}
+			if (ui.popupDoc == &doc)
+			{
+				ui.popupDoc = nullptr;	// the pinned hunk popup outlives nothing
+			}
+			if (ui.hoverDoc == &doc)
+			{
+				ui.hoverDoc = nullptr;
+				ui.hoverActive = false;
 			}
 			it = ui.docs.erase(it);
 		}
@@ -1828,6 +2192,40 @@ void drawScriptDocuments(EditorState& state, PlaySession& session,
 			ImGui::IsKeyPressed(ImGuiKey_S, false))
 		{
 			saveDocument(*ui.focused);
+		}
+		// change navigation: Cmd/Ctrl+Alt+Down / +Up jump the editor to the next
+		// / previous git change hunk (the same Cmd/Ctrl+Alt chord family the
+		// debugger's step alternates use; the widget takes bare Alt+arrows for
+		// move-line, so the chord stays clear of it). Reuses the scroll+cursor
+		// path the error footer already drives via pendingScrollLine.
+		const bool commandAlt = (io.KeySuper || io.KeyCtrl) && io.KeyAlt;
+		ScriptDocument& focused = *ui.focused;
+		if (commandAlt && focused.gitTracked && focused.editor &&
+			!focused.gitDiff.hunks.empty())
+		{
+			int direction = 0;
+			if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, false))
+			{
+				direction = 1;
+			}
+			else if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false))
+			{
+				direction = -1;
+			}
+			if (direction != 0)
+			{
+				int cursorLine = 0;
+				int cursorColumn = 0;
+				focused.editor->GetMainCursor(cursorLine, cursorColumn);
+				const int target = OrkigeEditor::navigateHunkLine(
+					focused.gitDiff.hunks, cursorLine, direction > 0);
+				if (target >= 0)
+				{
+					const int clamped = std::min(target,
+						focused.editor->GetLineCount() - 1);
+					focused.pendingScrollLine = clamped + 1;	// 1-based
+				}
+			}
 		}
 	}
 }

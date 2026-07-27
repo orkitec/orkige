@@ -2279,6 +2279,36 @@ bool scriptPanelTestGitMarkers(std::string const& path, bool showMarkers,
 //! is not open, untracked, or its baseline is too short (< 2 lines).
 bool scriptPanelTestApplyGitEditProbe(std::string const& path);
 
+//! @brief dirty an open tracked document's BUFFER with ONLY its first baseline
+//! line modified - exactly one Modified hunk, so a single revert restores the
+//! whole file to its index version. False when not open/untracked/baseline empty.
+bool scriptPanelTestApplySingleHunkEdit(std::string const& path);
+
+//! @brief the before/after line slices of the change hunk at `hunkIndex` in the
+//! open document at `path` (recomputed synchronously). outBaseline = the hunk's
+//! ORIGINAL (index) lines, outCurrent = its live buffer lines (empty for a pure
+//! deletion). False when not open/untracked or no such hunk.
+bool scriptPanelTestHunkSlice(std::string const& path, int hunkIndex,
+	std::vector<std::string>& outBaseline, std::vector<std::string>& outCurrent);
+
+//! @brief revert the FIRST change hunk of the open document at `path` through
+//! the widget's undoable text path (never the disk), then UNDO it. Fills the
+//! buffer text before the revert (outPre), after it (outPost) and after the undo
+//! (outAfterUndo), plus the change-marker counts remaining after the revert
+//! (outHunksAfter = hunk count, outChangedLinesAfter = marked lines + deletions).
+//! A single-hunk edit reverts to a clean file (both counts 0, outAfterUndo ==
+//! outPre). False when not open/untracked or the document carries no hunk.
+bool scriptPanelTestRevertFirstHunk(std::string const& path,
+	std::string& outPre, std::string& outPost, std::string& outAfterUndo,
+	int& outHunksAfter, int& outChangedLinesAfter);
+
+//! @brief the current line a next/previous-change step lands on from cursor
+//! `fromLine` (0-based) in the open document at `path`: the wrapping anchor of
+//! the next hunk (forward) or the previous one. False when not open/untracked or
+//! the document carries no hunk. @see OrkigeEditor::navigateHunkLine
+bool scriptPanelTestNavigateHunk(std::string const& path, int fromLine,
+	bool forward, int& outLine);
+
 //! @brief the current live SYNTAX error among the open documents (the focused
 //! one first), for the status footer: returns the message ("" = none) and
 //! fills the file + 1-based line to jump to on click.

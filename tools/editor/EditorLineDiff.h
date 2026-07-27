@@ -25,6 +25,30 @@ namespace OrkigeEditor
 		Modified	//!< a changed line (an insertion paired with a deletion)
 	};
 
+	//! @brief the kind of a change hunk (a maximal contiguous run of change).
+	enum class HunkKind : unsigned char
+	{
+		Added,		//!< current lines with no baseline counterpart (insertion)
+		Modified,	//!< baseline lines replaced by current lines (both non-empty)
+		Deleted		//!< baseline lines with no surviving current line (removal)
+	};
+
+	//! @brief one change hunk: a contiguous span of current and/or baseline
+	//! lines that differ. The RANGES index into the buffers (@see LineDiff) so
+	//! the actual text is sliced ON DEMAND from the cached line vectors - a hunk
+	//! copies no strings. A CURRENT-line range [curStart, curStart+curCount) and
+	//! a BASELINE-line range [baseStart, baseStart+baseCount): Added carries
+	//! baseCount==0, Deleted carries curCount==0 (curStart is then the gap line,
+	//! matching LineDiff::deletions), Modified carries both non-zero.
+	struct DiffHunk
+	{
+		int curStart = 0;	//!< first current line (the gap line when Deleted)
+		int curCount = 0;	//!< current lines in the hunk (0 when Deleted)
+		int baseStart = 0;	//!< first baseline line
+		int baseCount = 0;	//!< baseline lines in the hunk (0 when Added)
+		HunkKind kind = HunkKind::Modified;
+	};
+
 	//! @brief the gutter verdict for one buffer against its baseline.
 	struct LineDiff
 	{
@@ -35,6 +59,11 @@ namespace OrkigeEditor
 		//! deletion sits at end-of-file). Sorted ascending, unique - the gutter
 		//! draws a small triangle at each boundary.
 		std::vector<int> deletions;
+		//! every change hunk (Added/Modified/Deleted), in ascending current-line
+		//! order - the popup/revert/navigation index. A superset of the same
+		//! truth `states`/`deletions` carry, plus the baseline ranges those two
+		//! cannot express.
+		std::vector<DiffHunk> hunks;
 
 		//! @brief does any current line carry a non-None state?
 		bool hasStateChange() const
@@ -80,6 +109,49 @@ namespace OrkigeEditor
 	//! verdict, so the call always returns bounded work.
 	LineDiff computeLineDiff(std::vector<std::string> const& baseline,
 		std::vector<std::string> const& current);
+
+	//! @brief the hunk whose CURRENT range covers `line` (an Added/Modified
+	//! change bar sits on it), or -1. Pure lookup over `diff.hunks`.
+	int hunkForCurrentLine(LineDiff const& diff, int line);
+
+	//! @brief the Deleted hunk whose gap sits at current-line `gapLine` (a
+	//! deletion triangle is drawn there), or -1. Pure lookup over `diff.hunks`.
+	int hunkForDeletionGap(LineDiff const& diff, int gapLine);
+
+	//! @brief the current line a change-navigation step lands on, from cursor
+	//! `currentLine`: the anchor (curStart) of the next hunk (forward) or the
+	//! previous hunk (backward), WRAPPING around the ends. -1 when there are no
+	//! hunks. Pure so next/prev-change is unit-testable.
+	int navigateHunkLine(std::vector<DiffHunk> const& hunks, int currentLine,
+		bool forward);
+
+	//! @brief the hunk's slice of a line vector (its baseline lines from
+	//! `baseline`, or its current lines from `current`). A bounds-clamped copy
+	//! sliced on demand - the popup's before/after text.
+	std::vector<std::string> hunkBaselineLines(
+		std::vector<std::string> const& baseline, DiffHunk const& hunk);
+	std::vector<std::string> hunkCurrentLines(
+		std::vector<std::string> const& current, DiffHunk const& hunk);
+
+	//! @brief the popup clamps a long hunk to at most this many shown lines,
+	//! then an honest "... N more" line. @see clampHunkPreview
+	inline constexpr int kMaxHunkPreviewLines = 20;
+
+	//! @brief how many of `total` lines the popup shows and how many it hides:
+	//! shown = min(total, kMaxHunkPreviewLines), remaining = total - shown. Pure
+	//! so the clamp math is unit-testable. @param outRemaining lines elided.
+	int clampHunkPreview(int total, int& outRemaining);
+
+	//! @brief revert one hunk PURELY: replace the current-line slice
+	//! [curStart, curStart+curCount) with the hunk's baseline slice, returning
+	//! the new buffer lines. Uniform across kinds - an Added hunk (empty
+	//! baseline slice) drops its lines, a Deleted hunk (empty current slice)
+	//! re-inserts the baseline lines at the gap, a Modified hunk swaps them.
+	//! The editor rejoins the result with '\n' and applies it through the
+	//! widget's undoable text path (never touching disk).
+	std::vector<std::string> applyHunkRevert(
+		std::vector<std::string> const& current,
+		std::vector<std::string> const& baseline, DiffHunk const& hunk);
 }
 
 #endif //__EditorLineDiff_h__27_7_2026__12_00_00__
