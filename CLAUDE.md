@@ -1058,7 +1058,9 @@ look when touching one:
   (goossens widget, commit-pinned like imgui; bump the two ports as a COUPLED
   PAIR — it includes imgui_internal.h; two local patches: 2-glyph left margin,
   quiet empty completion popup — upstream PRs prepared). ONE docked window per
-  open file (filename tab, dirty marker, Save/Revert controls, save/discard/
+  open file (filename tab, dirty marker, Save/Cancel controls — Cancel is the
+  buffer-level reload-from-disk, distinct from the gutter's per-hunk Revert
+  (git baseline, undoable) and Source Control's Discard Changes, save/discard/
   cancel ask on dirty close — the queue choreography is selfcheck-verified;
   Close/Others/Right/All on document tabs, a shared Close on every panel tab
   via `EditorTabMenu.h`, pure close-set in editor_core `EditorTabActions`).

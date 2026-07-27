@@ -1358,7 +1358,7 @@ namespace
 			state.scriptPanelFocused = true;
 		}
 		// the header row: the git change-markers toggle (always present, so it
-		// is the panel's "small control"), then the dirty document's Save/Revert
+		// is the panel's "small control"), then the dirty document's Save/Cancel
 		{
 			const bool on = viewSettings.showScriptGitMarkers;
 			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(
@@ -1396,7 +1396,11 @@ namespace
 #endif
 			}
 			ImGui::SameLine();
-			if (ImGui::SmallButton("Revert"))
+			// "Cancel" = the buffer-level bail-out (unsaved edits only) -
+			// distinct from the gutter's per-hunk Revert (git baseline,
+			// undoable) and Source Control's Discard Changes (git reset,
+			// destructive)
+			if (ImGui::SmallButton("Cancel"))
 			{
 				std::string text;
 				if (readFileText(doc.absolutePath, text))
@@ -1409,7 +1413,7 @@ namespace
 			if (ImGui::IsItemHovered())
 			{
 				ImGui::SetTooltip(
-					"Discard the edits and reload the file from disk");
+					"Discard unsaved edits and reload the file from disk");
 			}
 			ImGui::SameLine();
 			ImGui::TextDisabled("unsaved changes");
