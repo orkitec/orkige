@@ -573,6 +573,11 @@ namespace Orkige
 		return this->mImpl->engineWindowCamera;
 	}
 	//---------------------------------------------------------
+	bool RenderSystem::isWindowUIOnly() const
+	{
+		return this->mImpl->uiOnlyWindow;
+	}
+	//---------------------------------------------------------
 	void RenderSystem::setWindowBackgroundColour(Color const & colour)
 	{
 		this->mImpl->windowBackground = colour;
@@ -581,6 +586,11 @@ namespace Orkige
 		{
 			window->getViewport(0)->setBackgroundColour(colour);
 		}
+	}
+	//---------------------------------------------------------
+	Color RenderSystem::getWindowBackgroundColour() const
+	{
+		return this->mImpl->windowBackground;
 	}
 	//---------------------------------------------------------
 	void RenderSystem::getWindowSize(unsigned int & outWidth,

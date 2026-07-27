@@ -5998,6 +5998,23 @@ int main(int argc, char** argv)
 					atmoFail("the new-scene Environment did not arm the DAY "
 						"atmosphere");
 				}
+				// (1b) THE REGRESSION PROOF: the editor's UI-only window clear
+				// stays the theme's chrome colour - an armed atmosphere must
+				// NEVER stomp it back to the sky tint (the window shows no
+				// scene, it renders offscreen into the Scene panel's RTT; only
+				// the macOS rounded-corner slivers ever show this clear)
+				else if (const ImVec4 chromeBg = Orkige::editorChromeBackground(),
+					windowBg = ImVec4(render->getWindowBackgroundColour().r,
+						render->getWindowBackgroundColour().g,
+						render->getWindowBackgroundColour().b, 1.0f);
+					std::abs(windowBg.x - chromeBg.x) > 1e-3f ||
+					std::abs(windowBg.y - chromeBg.y) > 1e-3f ||
+					std::abs(windowBg.z - chromeBg.z) > 1e-3f)
+				{
+					atmoFail("the armed atmosphere stomped the editor's "
+						"UI-only window clear back to the sky tint instead of "
+						"leaving the theme chrome colour alone");
+				}
 				// (2) save + reload re-arms from the scene file (the reload
 				// tears the world down - the hand-back disables - and the
 				// loaded component takes over again)

@@ -985,24 +985,31 @@ namespace Orkige
 		// reads alien against a warm evaluated sky) so window edges and any
 		// pixel the dome misses still read as sky, matching the next flavor's
 		// below-horizon floor. A disabled atmosphere keeps the plain tint.
+		// EXCEPT the editor's UI-ONLY window, whose clear is theme chrome, not
+		// a scene backdrop (its scenes render offscreen into a RenderTexture);
+		// a scene's atmosphere must never stomp that chrome colour back to sky
+		// blue.
 		if(RenderSystem* system = RenderSystem::get())
 		{
-			if(desc.enabled && desc.sky)
+			if(!system->isWindowUIOnly())
 			{
-				const Ogre::Vector3 toSun = resolveSunDirection();
-				const SkyEnvMap::Colour horizon = SkyEnvMap::skyColour(
-					0.0f, 0.0f, 1.0f, desc, toSun.x, toSun.y, toSun.z);
-				system->setWindowBackgroundColour(
-					Color(toDisplayGamma(horizon.r), toDisplayGamma(horizon.g),
-						toDisplayGamma(horizon.b)));
-			}
-			else
-			{
-				// disabled, OR the `sky` part switch hid the dome: the flat raw
-				// tint clear (no dome draws over it, so the evaluated horizon
-				// would be a stale sky colour behind hidden geometry)
-				system->setWindowBackgroundColour(
-					Color(desc.skyRed, desc.skyGreen, desc.skyBlue));
+				if(desc.enabled && desc.sky)
+				{
+					const Ogre::Vector3 toSun = resolveSunDirection();
+					const SkyEnvMap::Colour horizon = SkyEnvMap::skyColour(
+						0.0f, 0.0f, 1.0f, desc, toSun.x, toSun.y, toSun.z);
+					system->setWindowBackgroundColour(
+						Color(toDisplayGamma(horizon.r), toDisplayGamma(horizon.g),
+							toDisplayGamma(horizon.b)));
+				}
+				else
+				{
+					// disabled, OR the `sky` part switch hid the dome: the flat raw
+					// tint clear (no dome draws over it, so the evaluated horizon
+					// would be a stale sky colour behind hidden geometry)
+					system->setWindowBackgroundColour(
+						Color(desc.skyRed, desc.skyGreen, desc.skyBlue));
+				}
 			}
 		}
 

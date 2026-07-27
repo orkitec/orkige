@@ -136,9 +136,22 @@ namespace Orkige
 		//! (a later showCameraOnWindow switches back).
 		//! map: classic=window viewport with visibility mask 0 (an internal camera feeds it - viewports need one) | next=window workspace with a clear + 2D-queue-only pass | filament=main View without a scene
 		void showUIOnlyWindow();
+		//! @brief is the main window currently in UI-ONLY mode (the last call
+		//! was showUIOnlyWindow, not showCameraOnWindow)? The editor shell
+		//! probes this to skip scene-only window state - the atmosphere's
+		//! sky-tint window clear only applies where the window actually
+		//! composites a scene (the player), never the editor's chrome-only
+		//! window (its scenes render offscreen into a RenderTexture)
+		//! map: classic/next=uiOnlyWindow flag | filament=n/a until a scene-window mode exists
+		bool isWindowUIOnly() const;
 		//! window clear colour (Engine::setViewportBackgroundColour successor)
 		//! map: classic=Viewport::setBackgroundColour | next=workspace clear colour | filament=Renderer::setClearOptions
 		void setWindowBackgroundColour(Color const & colour);
+		//! @brief the window clear colour last set via setWindowBackgroundColour
+		//! (selfcheck/test readback - the editor's atmosphere selfcheck asserts
+		//! this stays the theme chrome colour rather than tracking the sky)
+		//! map: classic/next=windowBackground field | filament=n/a until wired
+		Color getWindowBackgroundColour() const;
 		//! pixel size of the main window's drawable (HUD layout, aspect)
 		//! map: classic=Viewport::getActualWidth/Height | next=Window::getWidth/Height | filament=SwapChain size (tracked)
 		void getWindowSize(unsigned int & outWidth, unsigned int & outHeight) const;

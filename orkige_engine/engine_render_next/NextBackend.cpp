@@ -1940,9 +1940,15 @@ namespace Orkige
 		Ogre::SceneManager* sceneManager = RenderBackend::worldSceneManager();
 		// the flat window clear colour tracks the sky tint on BOTH flavors, so
 		// the window edges / a media-less boot / a disabled atmosphere still
-		// read as sky (the classic subset is entirely this path)
-		gRenderSystem->setWindowBackgroundColour(
-			Color(desc.skyRed, desc.skyGreen, desc.skyBlue));
+		// read as sky (the classic subset is entirely this path) - EXCEPT the
+		// editor's UI-ONLY window, whose clear is theme chrome, not a scene
+		// backdrop (its scenes render offscreen into a RenderTexture); a scene's
+		// atmosphere must never stomp that chrome colour back to sky blue
+		if(!gRenderSystem->mImpl->uiOnlyWindow)
+		{
+			gRenderSystem->setWindowBackgroundColour(
+				Color(desc.skyRed, desc.skyGreen, desc.skyBlue));
+		}
 
 		if(!desc.enabled)
 		{
