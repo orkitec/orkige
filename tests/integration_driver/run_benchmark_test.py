@@ -25,6 +25,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import benchmark_breadcrumbs  # noqa: E402
+
 # every scene's recorder label (the director's sceneLabel export); these are the
 # lines the artifact must contain for the run to have visited the whole tour.
 EXPECTED_LABELS = [
@@ -79,6 +82,10 @@ def main():
     # NOTE: no SDL_VIDEODRIVER override - the player needs a real render context
     # (a window on the dev macOS display, xvfb/llvmpipe on CI), exactly like the
     # other player selfchecks. Forcing the dummy driver breaks classic GL setup.
+    # crash-breadcrumb trail beside the run: flushed to disk per entry, so a
+    # hard abort (this driver's vista_wipe leg has twice hit a silent exit 3 on
+    # the mirrorlake switch) still names the last scene reached
+    benchmark_breadcrumbs.arm(env, out)
 
     cmd = [args.player, "--project", str(repo / "projects/benchmark")]
     log("running: " + " ".join(cmd))
@@ -90,6 +97,10 @@ def main():
                             timeout=480)
     tail = result.stdout.decode("utf-8", "replace")[-1500:]
     if result.returncode != 0:
+        # a hard abort (exit 3 = a Debug abort/assert on Windows) may lose the
+        # buffered stdout - dump the flushed breadcrumb trail so the last scene
+        # reached (the mirrorlake switch) is named even then
+        benchmark_breadcrumbs.dump_on_failure(out, log)
         log(tail)
         fail("player exited %d" % result.returncode)
 
@@ -140,6 +151,10 @@ def main():
         log("recorded scenes: " + ", ".join(
             "%s=%d" % (k, v) for k, v in sorted(scene_frames.items())))
         fail("scenes never recorded (>=2 frames): " + ", ".join(missing))
+
+    # the breadcrumb trail is present and names the mirrorlake switch: proves
+    # the plumbing a future silent exit-3 relies on is live on this exact leg
+    benchmark_breadcrumbs.assert_present(out, fail, expect_scene="mirrorlake")
 
     log("OK: %d/%d scenes recorded, summary clean (%d total scene lines)" %
         (len(EXPECTED_LABELS), len(EXPECTED_LABELS), len(scene_frames)))

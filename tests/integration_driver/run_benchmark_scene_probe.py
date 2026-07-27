@@ -38,6 +38,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
+import benchmark_breadcrumbs  # noqa: E402
 
 # lumens corridors (0..255 means over the band)
 # The moonlit fill (a dedicated cool overhead directional, distinct from the
@@ -417,6 +418,10 @@ def run_player_capture(args, scene, shot, extra_cvars="", fake_scale=None,
     if shot2 is not None:
         env["ORKIGE_DEMO_SCREENSHOT2"] = shot2
         env["ORKIGE_DEMO_SHOT2_FRAME"] = str(shot2_frame or 105)
+    # crash-breadcrumb trail beside the run: flushed to disk per entry, so a
+    # hard abort (exit 3) still names the last scene reached even when the
+    # buffered stdout is lost
+    benchmark_breadcrumbs.arm(env, args.dir)
 
     cmd = [args.player, scene, "--project",
            os.path.join(args.repo, "projects/benchmark")]
@@ -429,6 +434,7 @@ def run_player_capture(args, scene, shot, extra_cvars="", fake_scale=None,
                             timeout=480)
     output = result.stdout.decode("utf-8", "replace")
     if result.returncode != 0:
+        benchmark_breadcrumbs.dump_on_failure(args.dir, log)
         log(output[-1500:])
         fail("player exited %d" % result.returncode)
     if not os.path.exists(shot):
@@ -505,6 +511,7 @@ def main():
             os.path.join(args.dir, "vistashadow_on.png"),
             extra_cvars=",r.shadowQuality=medium")
         probe_vistashadow(img_off, img_on)
+        benchmark_breadcrumbs.assert_present(args.dir, fail)
         log("OK")
         return
 
@@ -517,6 +524,7 @@ def main():
             shot2=shot_b, shot2_frame=105)
         img_b = decode_png(shot_b)
         probe_anim(img_a, img_b, output)
+        benchmark_breadcrumbs.assert_present(args.dir, fail)
         log("OK")
         return
 
@@ -534,6 +542,7 @@ def main():
     # the lumens scene also carries the many-lights ramp MECHANISM assertion
     if args.probe == "lumens":
         probe_lumens_ramp(output)
+    benchmark_breadcrumbs.assert_present(args.dir, fail)
     log("OK")
 
 

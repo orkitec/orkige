@@ -43,6 +43,8 @@
 // _CrtSetReportMode / _CrtSetReportFile: main() routes Debug assert reporting
 // to stderr so a failed assert names itself in a headless CI log
 #include <crtdbg.h>
+// _write(2): the async-signal-safe stderr write the SIGABRT trap uses
+#include <io.h>
 #endif
 #include <engine_graphic/Engine.h>
 #include <engine_graphic/ScreenFade.h>
@@ -119,6 +121,7 @@
 #include <chrono>
 #include <csignal>
 #include <ctime>
+#include <exception>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -140,6 +143,116 @@ using Orkige::woptr;
 
 namespace
 {
+
+//--- abort traps (name a non-assert Debug abort in the CI log) -----------
+// The benchmark tour has twice aborted a headless CI runner (Windows Debug,
+// exit code 3) mid scene-switch with NOTHING in the captured stdout. The CRT
+// report routing in main() only catches _CRT_ASSERT/_CRT_ERROR; these traps
+// widen that to the two abort classes that bypass it: an uncaught C++
+// exception reaching std::terminate (an engine exception escaping a path the
+// render try/catch does not cover) and a raw abort()/SIGABRT (a driver /
+// validation-layer abort). Each names the abort class on stderr - and, for
+// terminate, the escaping exception's description - before letting the process
+// die with an honest exit code. The durable scene trail rides the Breadcrumbs
+// FILE (flushed per entry, dumped by the ctest drivers), which the always-on
+// Breadcrumbs crash handler also stamps with the signal.
+//
+// The terminate handler is portable (an uncaught exception aborts on every
+// platform and naming it helps every CI job; it only prints and then chains to
+// the previous handler, so the exit code stays honest - trivially safe). The
+// SIGABRT stderr trap is Windows-Debug-only: that is the sighting's platform,
+// and elsewhere the Breadcrumbs SIGABRT file marker already names it while the
+// Linux sanitizer jobs own the signal handlers (ASan) and must keep them.
+
+//! print the tail of the in-memory breadcrumb ring to stderr. Called from the
+//! terminate handler ONLY (a normal C++ call site, not a signal context), so
+//! std::string / stdio are safe here. Cheap: reads the ring, no file I/O.
+void dumpBreadcrumbTailToStderr()
+{
+	if (Orkige::Breadcrumbs::getSingletonPtr() == nullptr)
+	{
+		return;
+	}
+	const Orkige::String trail = Orkige::Breadcrumbs::getSingleton().contents();
+	if (trail.empty())
+	{
+		return;
+	}
+	std::fputs("orkige_player: breadcrumb trail (tail):\n", stderr);
+	// the final entries are the ones that matter (the last scene reached)
+	const size_t keep = 1200;
+	const size_t from = trail.size() > keep ? trail.size() - keep : 0;
+	std::fputs(trail.c_str() + from, stderr);
+	if (trail.back() != '\n')
+	{
+		std::fputc('\n', stderr);
+	}
+}
+
+//! the terminate handler installed at boot; chains to whatever was there
+std::terminate_handler gPreviousTerminateHandler = nullptr;
+
+//! std::terminate hook: the uncaught-exception abort path. Name the exception
+//! (its what()) and the breadcrumb tail on stderr, then chain to the previous
+//! handler (default = abort) so the process still dies with the honest code.
+[[noreturn]] void playerTerminateHandler()
+{
+	std::fputs("orkige_player: std::terminate called - the process is "
+		"aborting\n", stderr);
+	if (std::exception_ptr active = std::current_exception())
+	{
+		try
+		{
+			std::rethrow_exception(active);
+		}
+		catch (std::exception const& e)
+		{
+			std::fprintf(stderr, "orkige_player: unhandled exception: %s\n",
+				e.what());
+		}
+		catch (...)
+		{
+			std::fputs("orkige_player: unhandled non-standard exception\n",
+				stderr);
+		}
+	}
+	dumpBreadcrumbTailToStderr();
+	std::fflush(stderr);
+	if (gPreviousTerminateHandler != nullptr &&
+		gPreviousTerminateHandler != &playerTerminateHandler)
+	{
+		gPreviousTerminateHandler();
+	}
+	std::abort();
+}
+
+#if defined(_WIN32) && defined(_DEBUG)
+//! the SIGABRT disposition installed just after Breadcrumbs armed its own (so
+//! this chains INTO the Breadcrumbs file marker)
+void (*gPreviousSigabrtHandler)(int) = nullptr;
+
+//! SIGABRT hook: the raw-abort path (a driver / validation-layer abort, or the
+//! tail of std::terminate). Async-signal-safe - one fixed write(2) to stderr,
+//! then chain to whatever was installed before us (the Breadcrumbs file
+//! marker) so the durable trail still records the signal and the process still
+//! dies with the right code.
+extern "C" void playerAbortHandler(int signo)
+{
+	static const char message[] =
+		"orkige_player: SIGABRT (abort) - see the breadcrumb trail for the "
+		"last scene reached\n";
+	(void)::_write(2, message, static_cast<unsigned int>(sizeof(message) - 1));
+	if (gPreviousSigabrtHandler != nullptr &&
+		gPreviousSigabrtHandler != SIG_DFL &&
+		gPreviousSigabrtHandler != SIG_ERR &&
+		gPreviousSigabrtHandler != &playerAbortHandler)
+	{
+		gPreviousSigabrtHandler(signo);
+	}
+	std::signal(signo, SIG_DFL);
+	std::raise(signo);
+}
+#endif // _WIN32 && _DEBUG
 
 // does any loaded GameObject carry a RigidBodyComponent?
 bool sceneHasRigidBodies(Orkige::GameObjectManager& gameObjectManager)
@@ -1030,6 +1143,13 @@ int main(int argc, char** argv)
 	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
 	_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
 #endif
+	// the terminate trap: an uncaught C++ exception (an engine exception
+	// escaping a path the render try/catch does not cover) reaches
+	// std::terminate and aborts with no captured-log line otherwise. Name it +
+	// the breadcrumb tail before chaining to the previous handler so the exit
+	// code stays honest (@see playerTerminateHandler). Portable - trivially safe
+	// and useful on every CI job.
+	gPreviousTerminateHandler = std::set_terminate(&playerTerminateHandler);
 	// the player's whole world lives on ONE heap context
 	// (PlayerContext.h): main() fills it in boot order, playerIterate
 	// reads it back per frame. Owned here for the desktop teardown; the
@@ -1359,6 +1479,16 @@ int main(int argc, char** argv)
 				// crumb before the OS report generates. Returns false (marker
 				// stands down) on a sanitizer build - ASan owns the handlers.
 				context.crashMarkerArmed = breadcrumbs.installCrashHandler();
+#if defined(_WIN32) && defined(_DEBUG)
+				// widen the SIGABRT coverage on the CI platform that showed the
+				// silent exit-3: chain a stderr last-gasp line IN FRONT of the
+				// Breadcrumbs file marker (installed just above, so it is the
+				// prior disposition this captures and calls). Windows-Debug only
+				// - elsewhere the file marker already names the signal and the
+				// Linux sanitizer jobs must keep ASan's own handlers.
+				gPreviousSigabrtHandler =
+					std::signal(SIGABRT, &playerAbortHandler);
+#endif
 				// ORKIGE_CRASH_SELFCHECK=<frame>: the deliberate crash-marker
 				// test hook (see the playerIterate raise() below). The marker
 				// line lets the driver decide arm-vs-skip from run 1's stdout.

@@ -52,6 +52,7 @@ add_executable(orkige_core_tests
     ShadowPresetTests.cpp
     IblPresetTests.cpp
     BloomPresetTests.cpp
+    PlanarReflectionGuardTests.cpp
     GradeMathTests.cpp
     AtmosphereDescTests.cpp
     AtmosphereSunDriveTests.cpp

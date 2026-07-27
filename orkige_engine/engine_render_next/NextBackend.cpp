@@ -16,6 +16,7 @@
 
 #include "engine_render_next/NextBackend.h"
 #include <core_util/SkyEnvMap.h>
+#include <core_util/PlanarReflectionGuard.h>
 
 #include <OgreRoot.h>
 #include <OgreWindow.h>
@@ -395,6 +396,13 @@ namespace Orkige
 		};
 		//! one instance, attached to the window workspace on every rebuild
 		PlanarReflectionUpdater gPlanarReflectionUpdater;
+
+		//! @brief suppresses the nested planar reflection update for the single
+		//! frame in which the window workspace was (re)built (@see
+		//! PlanarReflectionGuard). recreateWindowWorkspace notes the rebuild;
+		//! updatePlanarReflections consumes the one-shot skip. Byte-inert in the
+		//! steady state (no rebuild => never skips).
+		PlanarReflectionGuard gPlanarReflectionGuard;
 
 		//--- geometric water swell (vertex-stage displacement) ------------
 		//! the world-space swell frequency + phase rate BOTH flavors' water
@@ -1586,6 +1594,19 @@ namespace Orkige
 		if(!camera)
 		{
 			return;	// UI-only window / no scene camera - nothing to mirror
+		}
+		// skip the nested update for the one frame a window-workspace rebuild
+		// belongs to (@see gPlanarReflectionGuard): the reflection subsystem
+		// renders by nesting a workspace _update that culls the scene, and a
+		// just-rebuilt window workspace has not yet reconciled that state.
+		// Consumed here (after the live-subsystem/camera checks) so the single
+		// skipped frame lands on a real mirror update. Debug-level, and at most
+		// once per rebuild, so no per-frame spam.
+		if(gPlanarReflectionGuard.consumeSkip())
+		{
+			oDebugMsg("render", 0, "planar reflection: skipping the nested "
+				"mirror update for one frame after a window-workspace rebuild");
+			return;
 		}
 		// begin the reflection frame, then update against the window camera: the
 		// subsystem reflects a mirror camera across the actor plane and renders
@@ -3183,6 +3204,15 @@ namespace Orkige
 		// drive the planar water reflection from inside this workspace's update
 		// (after updateSceneGraph, before clearFrameData) - @see PlanarReflectionUpdater
 		impl->workspace->addListener(&gPlanarReflectionUpdater);
+		// this rebuild swapped the window workspace out from under the nested
+		// reflection update: suppress that update for the ONE frame this rebuild
+		// belongs to so it never renders the mirror against a just-rebuilt
+		// workspace's not-yet-reconciled cull state (a mid-play switch into a
+		// refractive-water scene rebuilds here). One frame of stale mirror,
+		// hidden by the scene-switch wipe; the mirror resumes next frame. Inert
+		// in the steady state - a rebuild is a scene-switch/config event, never
+		// a per-frame one. @see PlanarReflectionGuard
+		gPlanarReflectionGuard.noteWorkspaceRebuilt();
 		if(backendCamera && impl->window->getHeight() > 0)
 		{
 			backendCamera->setAspectRatio(
