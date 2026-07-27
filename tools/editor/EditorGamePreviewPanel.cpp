@@ -21,6 +21,7 @@
 #include "EditorTabMenu.h"
 #include "GamePreviewStage.h"
 #include "EditorUiEditorPanel.h"
+#include "FileFormatIcon.h"
 #include "ImGuiFacadeRenderer.h"
 #include "IconsFontAwesome6.h"
 
@@ -318,10 +319,21 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 			{
 				ui.selectedFile.clear();
 			}
+			// every entry here is a .oui screen, so the leading glyph + tint
+			// (@see FileFormatIcon.h - the same one the asset browser draws
+			// .oui rows with) is the same for the whole list
+			const OrkigeEditor::FileFormatIcon ouiIcon =
+				OrkigeEditor::fileFormatIcon(".oui");
+			const ImU32 ouiTint =
+				IM_COL32(ouiIcon.color.r, ouiIcon.color.g, ouiIcon.color.b, 255);
 			for (std::string const& file : ui.ouiFiles)
 			{
 				const bool sel = (file == ui.selectedFile);
-				if (ImGui::Selectable(file.c_str(), sel))
+				ImGui::PushStyleColor(ImGuiCol_Text, ouiTint);
+				const bool clicked = ImGui::Selectable(
+					(std::string(ouiIcon.glyph) + "  " + file).c_str(), sel);
+				ImGui::PopStyleColor();
+				if (clicked)
 				{
 					ui.selectedFile = file;
 				}

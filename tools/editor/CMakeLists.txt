@@ -48,6 +48,8 @@ add_library(orkige_editor_core STATIC
     EditorTabActions.cpp
     EditorTextDiagnostics.h
     EditorTextDiagnostics.cpp
+    FileFormatIcon.h
+    FileFormatIcon.cpp
     EditorLineDiff.h
     EditorLineDiff.cpp
     EditorViewModes.h

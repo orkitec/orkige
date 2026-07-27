@@ -25,6 +25,7 @@ add_executable(orkige_editor_core_tests
 	ScriptCompletionTests.cpp
 	EditorTabActionsTests.cpp
 	EditorLineDiffTests.cpp
+	FileFormatIconTests.cpp
 	EditorViewModesTests.cpp
 	EditorUiEditTests.cpp
     FileDialogTests.cpp

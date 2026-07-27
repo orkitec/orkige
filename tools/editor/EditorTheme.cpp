@@ -247,20 +247,31 @@ namespace Orkige
 		//! a tight glyph range so the atlas rasterises ~a dozen glyphs, not the
 		//! whole Font Awesome block. Pairs are {first, last}; see
 		//! IconsFontAwesome6.h for the ICON_FA_* names behind each value.
+		//! the file-format fallback icons FileFormatIcon.cpp hands back (asset
+		//! browser rows/tiles with no real thumbnail, script-editor document
+		//! tabs) add a further handful of glyphs below - keep the two tables
+		//! in sync (FileFormatIconTests asserts every glyph it returns falls
+		//! in one of these ranges).
 		const ImWchar ICON_GLYPH_RANGES[] = {
 			0xe13a, 0xe13a,		// code-compare (git change-markers toggle)
 			0xf001, 0xf001,		// music (audio)
 			0xf008, 0xf008,		// film (scene)
+			0xf00a, 0xf00a,		// table-cells (.ogui file icon)
+			0xf02b, 0xf02b,		// tag (.orkmeta file icon)
+			0xf031, 0xf031,		// font (.ttf file icon)
 			0xf03d, 0xf03e,		// video (camera-owner glyph) / image (texture)
 			0xf047, 0xf047,		// arrows-up-down-left-right (Translate tool)
 			0xf04b, 0xf04b,		// play (debug Continue)
+			0xf0cb, 0xf0cb,		// list-ol (.olevels file icon)
+			0xf11b, 0xf11b,		// gamepad (.oactions file icon)
+			0xf1ab, 0xf1ab,		// language (.xlf file icon)
 			0xf28b, 0xf28b,		// circle-pause (debug Break on Next Statement)
 			0xf2ed, 0xf2ed,		// trash-can (delete widget - UI Editor tree)
 			0xf061, 0xf063,		// arrow-right/up/down (debug Step Over/Out/In)
 			0xf06e, 0xf06e,		// eye (Scene Display dropdown)
 			0xf07b, 0xf07c,		// folder / folder-open
 			0xf0b0, 0xf0b0,		// filter (the type-filter funnel button)
-			0xf15b, 0xf15b,		// file (unknown)
+			0xf15b, 0xf15c,		// file (unknown) / file-lines (.json/.xml/.md icon)
 			0xf185, 0xf185,		// sun (atmosphere-owner glyph)
 			0xf188, 0xf188,		// bug (the Debug panel)
 			0xf1b2, 0xf1b2,		// cube (mesh)
@@ -269,10 +280,14 @@ namespace Orkige
 			0xf245, 0xf245,		// arrow-pointer (Select tool)
 			0xf24d, 0xf24d,		// clone (prefab)
 			0xf256, 0xf256,		// hand (Hand/pan tool)
+			0xf2d0, 0xf2d0,		// window-maximize (.oui file icon)
 			0xf2f1, 0xf2f1,		// rotate (Rotate tool)
 			0xf424, 0xf424,		// up-right-and-down-left-from-center (Scale tool)
 			0xf53f, 0xf53f,		// palette (material)
+			0xf542, 0xf542,		// diagram-project (.orkproj file icon)
+			0xf5fd, 0xf5fd,		// layer-group (.olayers file icon)
 			0xf61f, 0xf61f,		// shapes (vector shape)
+			0xf70c, 0xf70c,		// person-running (.oanim file icon)
 			0,
 		};
 	}

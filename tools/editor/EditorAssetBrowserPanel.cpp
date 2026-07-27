@@ -35,10 +35,13 @@
 // ImGuiFacadeRenderer::textureIdForResource -> the DrawLayer2D named-texture
 // path (identical machinery to the ImGui font atlas). Loading happens OFF the
 // paint path through a budgeted per-frame queue keyed by absolute path + mtime;
-// every non-texture kind draws a per-kind icon-font glyph (Font Awesome 6
-// solid, colour-tinted; a drawn rounded-rect glyph is the fallback when the
-// icon font is unavailable). Rendered mesh previews (a per-asset RTT render)
-// are a DEFERRED heavier follow-on.
+// textures/.oshape/.oanim/.glb/.gltf/.omat get a real thumbnail (loaded or
+// baked); every other entry draws a per-format icon-font glyph, colour-tinted
+// by file family (Font Awesome 6 solid; the ONE fallback map is
+// FileFormatIcon.h, shared with the script editor's document tabs - a drawn
+// rounded-rect glyph is the further fallback when the icon font itself is
+// unavailable). Rendered mesh previews (a per-asset RTT render) are a
+// DEFERRED heavier follow-on.
 //
 // Selection is keyed by project-relative path (so it survives re-enumeration
 // and renames of OTHER items) and drives the asset ops. Filesystem side effects
@@ -53,6 +56,7 @@
 #include "AssetTilePresentation.h"
 #include "EditorImageDecode.h"
 #include "EditorTheme.h"
+#include "FileFormatIcon.h"
 #include "IconsFontAwesome6.h"
 #include "ImGuiFacadeRenderer.h"
 #include "MeshImport.h"
@@ -1741,8 +1745,11 @@ namespace
 {
 
 //! the accent colour of a kind's glyph icon (defined below; forward-declared so
-//! the folder tree can share the one warm folder tone with the content grid)
-ImU32 assetKindColor(AssetKind kind, bool isFolder);
+//! the folder tree can share the one warm folder tone with the content grid).
+//! `extension` only matters for AssetKind::Unknown - the folder-tree caller
+//! passes isFolder=true and never needs it.
+ImU32 assetKindColor(AssetKind kind, bool isFolder,
+	std::string const& extension = std::string());
 
 //! a MOVE drop target for a folder (absolute path): accepts a dragged asset (or
 //! multi-selection) and moves it into destDir. Call right after the widget the
@@ -2008,8 +2015,34 @@ void drawBreadcrumb(EditorState& state)
 	ImGui::PopStyleColor(3);
 }
 
-//! the accent colour of a kind's glyph icon (folders share one warm tone)
-ImU32 assetKindColor(AssetKind kind, bool isFolder)
+//! a short (<=4 char) upper-case tag from a file extension - the glyph-
+//! fallback box's label for a format with no dedicated AssetKind ("oanim" ->
+//! "OANI"); empty/absent stays the honest "?"
+std::string genericExtensionTag(std::string const& extension)
+{
+	std::string ext = extension;
+	if (!ext.empty() && ext.front() == '.')
+	{
+		ext.erase(ext.begin());
+	}
+	if (ext.empty())
+	{
+		return "?";
+	}
+	for (char& c : ext)
+	{
+		c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+	}
+	return ext.size() > 4 ? ext.substr(0, 4) : ext;
+}
+
+//! the accent colour of a kind's glyph icon (folders share one warm tone).
+//! Unknown (no dedicated AssetKind - most house config/data formats, plus any
+//! extension the browser has simply never heard of) consults the ONE
+//! per-extension fallback map (@see FileFormatIcon.h) instead of a flat grey,
+//! so those formats still read a specific, consistent tint at a glance.
+ImU32 assetKindColor(AssetKind kind, bool isFolder,
+	std::string const& extension)
 {
 	if (isFolder)
 	{
@@ -2026,12 +2059,18 @@ ImU32 assetKindColor(AssetKind kind, bool isFolder)
 	case AssetKind::VectorShape:	return IM_COL32(198, 132, 196, 255);
 	case AssetKind::Material:	return IM_COL32(176, 148, 96, 255);
 	case AssetKind::Unknown:
-	default:					return IM_COL32(122, 122, 122, 255);
+	default:
+		{
+			const OrkigeEditor::FileFormatColor c =
+				OrkigeEditor::fileFormatIcon(extension).color;
+			return IM_COL32(c.r, c.g, c.b, 255);
+		}
 	}
 }
 
 //! the short tag drawn inside a kind's glyph icon
-const char* assetKindTag(AssetKind kind, bool isFolder)
+std::string assetKindTag(AssetKind kind, bool isFolder,
+	std::string const& extension = std::string())
 {
 	if (isFolder)
 	{
@@ -2048,12 +2087,14 @@ const char* assetKindTag(AssetKind kind, bool isFolder)
 	case AssetKind::VectorShape:	return "SHP";
 	case AssetKind::Material:	return "MAT";
 	case AssetKind::Unknown:
-	default:					return "?";
+	default:					return genericExtensionTag(extension);
 	}
 }
 
-//! the icon-font glyph for a kind (Font Awesome 6 solid; see IconsFontAwesome6.h)
-const char* assetKindIcon(AssetKind kind, bool isFolder)
+//! the icon-font glyph for a kind (Font Awesome 6 solid; see
+//! IconsFontAwesome6.h). Unknown defers to the per-extension fallback map.
+const char* assetKindIcon(AssetKind kind, bool isFolder,
+	std::string const& extension = std::string())
 {
 	if (isFolder)
 	{
@@ -2070,7 +2111,7 @@ const char* assetKindIcon(AssetKind kind, bool isFolder)
 	case AssetKind::VectorShape:	return ICON_FA_SHAPES;
 	case AssetKind::Material:	return ICON_FA_PALETTE;
 	case AssetKind::Unknown:
-	default:					return ICON_FA_FILE;
+	default:					return OrkigeEditor::fileFormatIcon(extension).glyph;
 	}
 }
 
@@ -2084,21 +2125,22 @@ ImU32 dimIfNeeded(ImU32 color, bool dimmed)
 //! into a rect - the fallback for when the icon font failed to load, so every
 //! kind still reads at a glance with no art files
 void drawKindGlyph(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
-	AssetKind kind, bool isFolder, bool dimmed)
+	AssetKind kind, bool isFolder, bool dimmed,
+	std::string const& extension = std::string())
 {
-	const ImU32 fill = dimIfNeeded(assetKindColor(kind, isFolder), dimmed);
+	const ImU32 fill = dimIfNeeded(assetKindColor(kind, isFolder, extension), dimmed);
 	const float side = std::min(maxCorner.x - minCorner.x,
 		maxCorner.y - minCorner.y);
 	const float rounding = std::min(6.0f, side * 0.18f);
 	drawList->AddRectFilled(minCorner, maxCorner, fill, rounding);
-	const char* tag = assetKindTag(kind, isFolder);
-	const ImVec2 tagSize = ImGui::CalcTextSize(tag);
+	const std::string tag = assetKindTag(kind, isFolder, extension);
+	const ImVec2 tagSize = ImGui::CalcTextSize(tag.c_str());
 	if (tagSize.x <= (maxCorner.x - minCorner.x) &&
 		tagSize.y <= (maxCorner.y - minCorner.y))
 	{
 		const ImVec2 at((minCorner.x + maxCorner.x) * 0.5f - tagSize.x * 0.5f,
 			(minCorner.y + maxCorner.y) * 0.5f - tagSize.y * 0.5f);
-		drawList->AddText(at, IM_COL32(24, 24, 24, 255), tag);
+		drawList->AddText(at, IM_COL32(24, 24, 24, 255), tag.c_str());
 	}
 }
 
@@ -2106,16 +2148,18 @@ void drawKindGlyph(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
 //! folders read a touch larger and warmer, like an established file browser.
 //! Falls back to the drawn glyph when the icon font is unavailable.
 void drawKindIcon(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
-	AssetKind kind, bool isFolder, bool dimmed)
+	AssetKind kind, bool isFolder, bool dimmed,
+	std::string const& extension = std::string())
 {
 	ImFont* iconFont = Orkige::editorIconFont();
 	if (!iconFont)
 	{
-		drawKindGlyph(drawList, minCorner, maxCorner, kind, isFolder, dimmed);
+		drawKindGlyph(drawList, minCorner, maxCorner, kind, isFolder, dimmed,
+			extension);
 		return;
 	}
-	const ImU32 color = dimIfNeeded(assetKindColor(kind, isFolder), dimmed);
-	const char* glyph = assetKindIcon(kind, isFolder);
+	const ImU32 color = dimIfNeeded(assetKindColor(kind, isFolder, extension), dimmed);
+	const char* glyph = assetKindIcon(kind, isFolder, extension);
 	const float side = std::min(maxCorner.x - minCorner.x,
 		maxCorner.y - minCorner.y);
 	float pixels = side * (isFolder ? 0.94f : 0.82f);
@@ -2163,7 +2207,7 @@ void drawCheckerboard(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner)
 //!        as do the compact list/tree/rename rows (tile false)
 void drawAssetIcon(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
 	AssetKind kind, bool isFolder, bool dimmed, ImTextureID thumb,
-	bool tile = false)
+	bool tile = false, std::string const& extension = std::string())
 {
 	const float rounding = tile
 		? std::min(6.0f, (maxCorner.y - minCorner.y) * 0.14f) : 0.0f;
@@ -2185,7 +2229,7 @@ void drawAssetIcon(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
 		}
 		return;
 	}
-	drawKindIcon(drawList, minCorner, maxCorner, kind, isFolder, dimmed);
+	drawKindIcon(drawList, minCorner, maxCorner, kind, isFolder, dimmed, extension);
 }
 
 //! clip text to a pixel width with a trailing ellipsis (grid labels)
@@ -2652,7 +2696,7 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		const ImVec2 iconMax(iconMin.x + iconSide - inset * 2.0f,
 			iconMin.y + iconSide - inset * 2.0f);
 		drawAssetIcon(drawList, iconMin, iconMax, entry.item.kind,
-			entry.isFolder, entry.item.dimmed, thumb, !listMode);
+			entry.isFolder, entry.item.dimmed, thumb, !listMode, tileExt);
 		if (listMode)
 		{
 			ImGui::SameLine();
@@ -2790,7 +2834,7 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		const ImVec2 iconMin(pos.x, pos.y);
 		const ImVec2 iconMax(pos.x + iconSide, pos.y + iconSide);
 		drawAssetIcon(drawList, iconMin, iconMax, entry.item.kind,
-			entry.isFolder, entry.item.dimmed, thumb);
+			entry.isFolder, entry.item.dimmed, thumb, false, tileExt);
 		// right-aligned meta: the kind (and, in search mode, the folder)
 		std::string meta = entry.isFolder ? "folder"
 			: assetKindLabel(entry.item.kind);
@@ -2818,7 +2862,7 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		const ImVec2 squareMax(center.x + squareSide * 0.5f,
 			center.y + squareSide * 0.5f);
 		drawAssetIcon(drawList, squareMin, squareMax, entry.item.kind,
-			entry.isFolder, entry.item.dimmed, thumb, true);
+			entry.isFolder, entry.item.dimmed, thumb, true, tileExt);
 		const std::string label = ellipsizeToWidth(entry.name,
 			cellW - inset * 2.0f);
 		nameTruncated = label != entry.name;

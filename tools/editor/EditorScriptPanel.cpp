@@ -9,10 +9,13 @@
 // EditorScriptPanel.cpp - the embedded code editor (a docked window per open
 // file) and the script debugger's Debug panel.
 //
-// Each open file is its OWN docked ImGui window (title = file name, dirty
-// marker, stable ###path id) built on the imgui-color-text-edit widget, so
-// several open files read as sibling tabs in one dock node like every other
-// panel. A document opens via Asset-browser double-click, the Inspector's
+// Each open file is its OWN docked ImGui window (title = a leading file-format
+// glyph + file name, dirty marker, stable ###path id) built on the
+// imgui-color-text-edit widget, so several open files read as sibling tabs in
+// one dock node like every other panel; the glyph + its tab-label tint come
+// from the ONE fallback map FileFormatIcon.h - the same one the asset
+// browser draws unthumbnailed rows with. A document opens via Asset-browser
+// double-click, the Inspector's
 // "Open in Internal Editor" button or a one-shot EditorState::scriptOpenRequest
 // (break-hits route through it). Syntax highlight follows the file kind -
 // Lua, JSON, Markdown, a custom XML definition for the engine's XMLArchive/
@@ -40,6 +43,7 @@
 
 #include "EditorTabActions.h"	// the shared close-set semantics (tab menus)
 #include "EditorTextDiagnostics.h"	// live parse "squiggles" (XML/Lua lines)
+#include "FileFormatIcon.h"	// the tab's leading glyph + tint
 #include "EditorLineDiff.h"	// git-gutter change markers (pure line diff)
 #include "ExternalEditor.h"	// parseFileLineRefs / FileLineRef (error markers)
 #include "GeneratedLuaApi.h"
@@ -70,7 +74,13 @@ namespace
 		std::string absolutePath;
 		std::string relativePath;	//!< project-relative ('/'; abs when loose)
 		std::string title;			//!< the window's tab label (file name)
-		std::string windowId;		//!< "<title>###<absolutePath>" (stable per path)
+		std::string windowId;		//!< "<glyph>  <title>###<absolutePath>" (stable per path)
+		//! the file-kind tint (@see FileFormatIcon.h) pushed as ImGuiCol_Text
+		//! for the Begin() call only, so the DOCKED TAB LABEL reads in the
+		//! same family colour the asset browser draws that extension with -
+		//! window body text stays the normal colour, popped right after
+		//! Begin() returns
+		ImU32 tabTint = IM_COL32_WHITE;
 		bool isLua = false;			//!< breakpoint gutter + completion are Lua-only
 		std::unique_ptr<TextEditor> editor;
 		std::size_t savedUndoIndex = 0;	//!< GetUndoIndex() at last save/load
@@ -686,8 +696,15 @@ namespace
 		doc->absolutePath = key;
 		doc->relativePath = relativeDocPath(state, key);
 		doc->title = fs::path(key).filename().string();
+		// a small leading file-kind glyph (@see FileFormatIcon.h), the SAME
+		// mapping the asset browser draws icons from - visible portion only,
 		// the id after ### keeps the window/docking identity stable per path
-		doc->windowId = doc->title + "###" + key;
+		const OrkigeEditor::FileFormatIcon formatIcon =
+			OrkigeEditor::fileFormatIcon(lowerExt(key));
+		doc->tabTint = IM_COL32(formatIcon.color.r, formatIcon.color.g,
+			formatIcon.color.b, 255);
+		doc->windowId = std::string(formatIcon.glyph) + "  " + doc->title +
+			"###" + key;
 		doc->isLua = lowerExt(key) == ".lua";
 		// live parse diagnostics follow the format's own parser: Lua compiles
 		// through the ScriptRuntime seam (a runtime seam, decided here since
@@ -1054,7 +1071,14 @@ namespace
 		ImGui::SetNextWindowSize(ImVec2(720, 480), ImGuiCond_FirstUseEver);
 		ImGuiWindowFlags flags = doc.isDirty()
 			? ImGuiWindowFlags_UnsavedDocument : 0;
+		// tint the DOCKED TAB LABEL (only) in the file-kind colour: ImGui
+		// captures the currently-pushed ImGuiCol_Text into this window's own
+		// per-tab style the moment Begin() docks it, so popping right after
+		// Begin() returns leaves the window BODY text at the normal colour -
+		// only the tab strip reads the tint
+		ImGui::PushStyleColor(ImGuiCol_Text, doc.tabTint);
 		const bool shown = ImGui::Begin(doc.windowId.c_str(), &doc.open, flags);
+		ImGui::PopStyleColor();
 		doc.dockId = ImGui::GetWindowDockID();
 		if (doc.dockId != 0)
 		{
