@@ -20,11 +20,11 @@ TEST_CASE("ImGui and macOS menus share one complete panel registry",
 	using namespace Orkige;
 	REQUIRE(EDITOR_PANEL_REGISTRY.size() ==
 		static_cast<std::size_t>(PANEL_COUNT));
-	REQUIRE(PANEL_COUNT == 10);
+	REQUIRE(PANEL_COUNT == 11);
 
 	const char* expected[] = { "Scene Hierarchy", "Inspector", "Console",
 		"Stats", "Scene", "Assets", "Tile Palette", "Preview", "UI Editor",
-		"Debug" };
+		"Debug", "Source Control" };
 	std::set<std::string> uniqueLabels;
 	for (int each = 0; each < PANEL_COUNT; ++each)
 	{
@@ -42,4 +42,7 @@ TEST_CASE("ImGui and macOS menus share one complete panel registry",
 	// the Debug panel is closed by default (it auto-opens on a debugger
 	// break-hit; code-editor documents are transient windows, not a panel)
 	CHECK(EDITOR_PANEL_REGISTRY[PANEL_DEBUG].defaultVisible == false);
+	// Source Control is closed by default; it opens from the View menu and docks
+	// as a tab in the bottom group (beside Console/Stats/Debug)
+	CHECK(EDITOR_PANEL_REGISTRY[PANEL_SOURCE_CONTROL].defaultVisible == false);
 }

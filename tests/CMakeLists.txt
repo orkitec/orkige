@@ -1269,6 +1269,21 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_SCRIPTTEST=${Orkige_SOURCE_DIR}/projects/roller;ORKIGE_DEMO_FRAMES=120"
         LABELS integration TIMEOUT 120)
 
+    # Source Control panel end to end: build a THROWAWAY temp git repo under the
+    # test binary dir (never the real repo), with a fixture project nested deep in
+    # it (games/myproj), and drive the EditorGit seam headlessly - status shows a
+    # dirty file, stage moves it to Staged, commit clears the tree + a commit
+    # exists in the log, push clears the ahead badge against a bare-remote origin,
+    # the nested browser-badge snapshot resolves through the project prefix, and a
+    # per-file discard resets the file to committed AND reloads its open document
+    # buffer. Uses the panel's own merged-stream git runner; skips silently
+    # (exit 0) when git is absent. Both flavors. Frame budget is the backstop.
+    add_test(NAME editor_source_control${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_editor WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_source_control${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_SOURCECONTROL_TEST=${CMAKE_CURRENT_BINARY_DIR};ORKIGE_DEMO_FRAMES=90"
+        LABELS integration TIMEOUT 120)
+
     # prefab EDIT MODE end to end: on a temp copy of the roller project, author
     # a tile instance with a per-instance override, then drive the isolation
     # stage through the same free functions the UI calls - open (the one world

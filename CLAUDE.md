@@ -1103,6 +1103,26 @@ look when touching one:
   refuses honestly and keeps building). Verified by `ScriptDebugTests`/
   `ScriptCompletionTests`/`ScriptBreakpointStoreTests` units + the
   `player_script_debug` and `editor_control_debug` ctests per flavor.
+- **Embedded git tooling** (editor-only, git CLI, no libgit2; `Docs/editor.md`):
+  `tools/editor/EditorGit.{h,cpp}` is the ONE seam — pure porcelain-v2 status
+  parser + badge model/folder aggregation (unit-tested) + repo ops as
+  `git -C` argv over an injectable runner (`runProcessCaptured`, stdout+stderr
+  merged so hook rejections/push errors surface verbatim). Consumers: the
+  script editor's **diff gutter** (per-line change markers vs the git-index
+  baseline fetched at open/save; hover/pin a hunk popup with before/after and
+  an UNDOABLE buffer-only Revert Hunk; Cmd/Ctrl+Alt+Up/Down change
+  navigation), the **Source Control panel** (bottom-row tab beside Console:
+  branch + ahead/behind, stage/unstage/commit/push async on a worker thread,
+  per-file Discard Changes = `git checkout HEAD --` behind a mandatory
+  confirm with open-buffer reload after) and the **asset browser's dirty
+  dots** (trailing-edge; green untracked/amber changed/red conflict, folders
+  aggregate) off the ONE shared status snapshot. Three-severity vocabulary:
+  document **Cancel** (reload disk) / gutter **Revert Hunk** (baseline,
+  undoable) / panel **Discard Changes** (committed, destructive+confirmed).
+  Honest silence outside a repo and in automated runs; DELIBERATELY no MCP
+  mutation verbs (agents never commit — no laundering path). Verified by
+  `EditorGitTests`/`EditorLineDiffTests` units + the temp-repo
+  `editor_source_control` selfcheck and the selfcheck git legs, both flavors.
 - **Device polish**: **haptics** (`engine_input/HapticManager`: phone-body
   vibration — iOS UIFeedbackGenerator in `HapticBridgeApple.mm`, Android
   `Vibrator`/`VibrationEffect` over JNI, desktop honest no-op; Lua `haptics`

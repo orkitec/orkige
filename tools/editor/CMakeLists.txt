@@ -52,6 +52,8 @@ add_library(orkige_editor_core STATIC
     FileFormatIcon.cpp
     EditorLineDiff.h
     EditorLineDiff.cpp
+    EditorGit.h
+    EditorGit.cpp
     EditorViewModes.h
     EditorViewModes.cpp
     EditorUiEdit.h
@@ -109,6 +111,8 @@ add_executable(orkige_editor
     EditorScriptHost.h
     EditorScriptHost.cpp
     EditorScriptPanel.cpp
+    EditorSourceControlPanel.h
+    EditorSourceControlPanel.cpp
     ExternalEditorLaunch.cpp
     EditorScenePanel.cpp
     EditorSettings.cpp

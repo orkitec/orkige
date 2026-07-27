@@ -45,6 +45,7 @@
 #include "EditorTextDiagnostics.h"	// live parse "squiggles" (XML/Lua lines)
 #include "FileFormatIcon.h"	// the tab's leading glyph + tint
 #include "EditorLineDiff.h"	// git-gutter change markers (pure line diff)
+#include "EditorGit.h"		// shared git repo-root/relpath resolution + blob read
 #include "ExternalEditor.h"	// parseFileLineRefs / FileLineRef (error markers)
 #include "GeneratedLuaApi.h"
 #include "IconsFontAwesome6.h"
@@ -529,33 +530,26 @@ namespace
 		doc.gitChecked = true;
 		doc.gitTracked = false;
 		doc.gitBaselineLines.clear();
-		const std::string dir = fs::path(doc.absolutePath).parent_path().string();
-		std::string output;
-		int exitCode = 0;
-		if (dir.empty() ||
-			!runProcessCaptured({ "git", "-C", dir, "rev-parse",
-				"--show-toplevel" }, output, exitCode) || exitCode != 0)
+		// the ONE shared git seam (EditorGit): the same repo-root/relpath
+		// resolution the Source Control panel uses, so the two never drift.
+		// runProcessCaptured is fine here (a blob read needs stdout only).
+		OrkigeEditor::GitRunner run =
+			[](std::vector<std::string> const& argv, std::string& output,
+				int& exitCode)
+			{ return runProcessCaptured(argv, output, exitCode); };
+		const std::string root =
+			OrkigeEditor::gitResolveRepoRoot(run, doc.absolutePath);
+		const std::string relative =
+			OrkigeEditor::gitRepoRelative(root, doc.absolutePath);
+		if (root.empty() || relative.empty())
 		{
 			recomputeGitDiff(doc);	// no repo / git absent - stays untracked
 			return;
 		}
-		std::string root = output;
-		while (!root.empty() && (root.back() == '\n' || root.back() == '\r'))
-		{
-			root.pop_back();
-		}
-		std::error_code ec;
-		const std::string relative =
-			fs::relative(doc.absolutePath, root, ec).generic_string();
-		if (root.empty() || ec || relative.empty() ||
-			relative.rfind("..", 0) == 0)
-		{
-			recomputeGitDiff(doc);
-			return;
-		}
-		std::string blob;
-		if (!runProcessCaptured({ "git", "-C", root, "show", ":" + relative },
-			blob, exitCode) || exitCode != 0)
+		OrkigeEditor::GitRepo repo{ run, root };
+		int exitCode = 0;
+		const std::string blob = repo.showStagedBlob(relative, exitCode);
+		if (exitCode != 0)
 		{
 			recomputeGitDiff(doc);	// untracked file - no baseline, no markers
 			return;
@@ -1661,6 +1655,53 @@ void scriptPanelCloseAll()
 	panel().docs.clear();
 	panel().focused = nullptr;
 	panel().symbolsProjectRoot = "?";
+}
+//---------------------------------------------------------------------------
+namespace
+{
+	//! find an open document by absolute path (canonicalised the same way
+	//! openDocument keys them), or nullptr
+	ScriptDocument* findOpenScriptDocForReload(std::string const& absolutePath)
+	{
+		std::error_code ignored;
+		const std::string canonical =
+			fs::weakly_canonical(absolutePath, ignored).string();
+		const std::string key = canonical.empty() ? absolutePath : canonical;
+		for (auto& doc : panel().docs)
+		{
+			if (doc->absolutePath == key)
+			{
+				return doc.get();
+			}
+		}
+		return nullptr;
+	}
+}
+//---------------------------------------------------------------------------
+bool scriptPanelReloadFromDisk(std::string const& absolutePath)
+{
+	ScriptDocument* doc = findOpenScriptDocForReload(absolutePath);
+	if (!doc || !doc->editor)
+	{
+		return false;
+	}
+	std::string text;
+	if (!readFileText(doc->absolutePath, text))
+	{
+		return false;	// the file vanished - leave the buffer as the last state
+	}
+	doc->editor->SetText(text);
+	doc->savedUndoIndex = doc->editor->GetUndoIndex();
+	// the on-disk content changed (a git discard reset it), so the git baseline
+	// itself moved - refetch it, not just the marker diff
+	refreshGitBaseline(*doc);
+	return true;
+}
+//---------------------------------------------------------------------------
+std::string scriptPanelDocumentText(std::string const& absolutePath)
+{
+	ScriptDocument* doc = findOpenScriptDocForReload(absolutePath);
+	return (doc && doc->editor) ? doc->editor->GetText() : std::string();
 }
 //---------------------------------------------------------------------------
 bool scriptPanelHasUnsavedEdits()

@@ -14,6 +14,7 @@
 #include "EditorAutosave.h"
 #include "EditorSceneTemplate.h"
 #include "EditorScriptHost.h"
+#include "IconsFontAwesome6.h"	// the Source Control tab's leading branch glyph
 
 #include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
 
@@ -874,6 +875,10 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	// the debugger's Debug panel tabs into the bottom node beside Console (it
 	// opens on demand - on a break-hit; a tab slot waits here for it)
 	ImGui::DockBuilderDockWindow("Debug###Debug", bottomId);
+	// the Source Control panel tabs into the same bottom node (it opens on demand
+	// from the View menu; a tab slot waits here for it)
+	ImGui::DockBuilderDockWindow(
+		ICON_FA_CODE_BRANCH " Source Control###SourceControl", bottomId);
 	ImGui::DockBuilderDockWindow("Assets###Assets", bottomId);
 	// the Tile Palette tabs into the bottom node beside the Asset Browser
 	// (both are asset pickers; it auto-opens here when the Scene enters 2D)

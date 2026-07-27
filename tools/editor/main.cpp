@@ -106,6 +106,7 @@
 #include "GuiPreviewStage.h"
 #include "GamePreviewStage.h"
 #include "EditorUiEditorPanel.h"
+#include "EditorSourceControlPanel.h"
 #include "MeshPreviewStage.h"
 
 #include <algorithm>
@@ -252,6 +253,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_CAMERA_SELFCHECK") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_OVERLAY_SELFCHECK") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_UIEDIT_SELFCHECK") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_SOURCECONTROL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr;
 
 	int exitCode = 0;
@@ -1806,6 +1808,21 @@ int main(int argc, char** argv)
 			Idle, WaitRemote, WaitRevert, EscapeCheck, Done
 		};
 		LevelPaintPhase levelPaintPhase = LevelPaintPhase::Idle;
+		// source-control selfcheck (ORKIGE_EDITOR_SOURCECONTROL_TEST=<scratch dir>):
+		// drives the EditorGit seam against a THROWAWAY temp repo built under the
+		// given scratch dir - never the real repo. Two phases: the git ops battery
+		// (status/stage/commit/push + the nested browser-badge snapshot) at
+		// frame 10, then the discard + open-document-reload leg once the document
+		// window has opened.
+		const char* sourceControlTestEnv =
+			std::getenv("ORKIGE_EDITOR_SOURCECONTROL_TEST");
+		enum class SourceControlPhase { Idle, WaitDoc, Done };
+		SourceControlPhase sourceControlPhase = SourceControlPhase::Idle;
+		std::string sourceControlHeroAbs;		//!< the tracked file the doc opens
+		std::string sourceControlHeroCommitted;	//!< its committed content
+		std::string sourceControlRepoRoot;		//!< the temp repo root
+		std::string sourceControlBareRoot;		//!< the bare-remote dir (cleanup)
+		int sourceControlDocWaitStart = 0;		//!< frame the doc-open was requested
 		int levelPaintEscapeStep = 0;
 		std::chrono::steady_clock::time_point levelPaintDeadline;
 		std::string levelPaintTempRoot;
@@ -2445,6 +2462,10 @@ int main(int argc, char** argv)
 			// reads them (@see OrkigeEditor::shouldSuppressLighting)
 			state.scenePanelVisibleThisFrame = false;
 			state.gamePreviewVisibleThisFrame = false;
+			// advance the async source-control service (marshal a finished git
+			// worker, start a pending job) BEFORE the panels + Asset browser read
+			// its snapshot this frame. No-op during automated runs.
+			OrkigeEditor::sourceControlTick();
 			if (viewSettings.showScenePanel)
 			{
 				drawScenePanel(state, editorCore, !playSession.isActive(),
@@ -2569,6 +2590,15 @@ int main(int argc, char** argv)
 			{
 				drawDebugPanel(state, playSession, viewSettings,
 					&viewSettings.showDebugPanel);
+			}
+			// the Source Control panel (the open project's git working tree). Its
+			// async status service advances every frame (below, via
+			// sourceControlTick) so the Asset browser's badges stay fresh even
+			// while this tab is closed.
+			if (viewSettings.showSourceControlPanel)
+			{
+				drawSourceControlPanel(state, viewSettings, editorCore,
+					&viewSettings.showSourceControlPanel);
 			}
 			bool panelVisibilityChanged = false;
 #define ORKIGE_CHECK_PANEL_VISIBILITY(id, label, visible, member) \
@@ -4320,7 +4350,292 @@ int main(int argc, char** argv)
 				}
 				running = false;
 			}
-			// --- level-paint state-seam test (ORKIGE_EDITOR_LEVELPAINT) ---
+			// --- source-control selfcheck (ORKIGE_EDITOR_SOURCECONTROL_TEST) ---
+				// git ops battery against a THROWAWAY temp repo, then the discard +
+				// open-document-reload leg (@see Docs/editor.md, Source Control).
+				if (sourceControlTestEnv &&
+					sourceControlPhase == SourceControlPhase::Idle &&
+					frameCount == 10)
+				{
+					bool scOk = true;
+					std::string scFail;
+					OrkigeEditor::GitRunner run =
+						OrkigeEditor::sourceControlGitRunner();
+					std::string gitOut;
+					// git absent from PATH -> skip honestly (exit 0), never fail
+					int probeCode = 0;
+					bool gitAbsent = !run({ "git", "--version" }, gitOut,
+						probeCode);
+					auto git = [&](std::vector<std::string> args) -> bool
+					{
+						std::vector<std::string> argv = { "git" };
+						argv.insert(argv.end(), args.begin(), args.end());
+						int code = 0;
+						gitOut.clear();
+						return run(argv, gitOut, code) && code == 0;
+					};
+					auto writeFile = [](std::string const& path,
+						std::string const& content)
+					{
+						std::ofstream f(path, std::ios::binary | std::ios::trunc);
+						f << content;
+					};
+					const std::string stamp = std::to_string(
+						std::chrono::steady_clock::now()
+							.time_since_epoch().count());
+					const std::string tempRoot =
+						(std::filesystem::path(sourceControlTestEnv) /
+							("screpo_" + stamp)).string();
+					const std::string bareRoot = tempRoot + "_origin.git";
+					// the fixture project sits DEEP in the repo (games/myproj) so
+					// the repo-relative <-> project-relative nesting is exercised
+					const std::string projRoot = tempRoot + "/games/myproj";
+					const std::string scriptsDir = projRoot + "/scripts";
+					const std::string heroAbs = scriptsDir + "/hero.lua";
+					const std::string playerAbs = scriptsDir + "/player.lua";
+					const std::string playerRepoRel =
+						"games/myproj/scripts/player.lua";
+					const std::string committed = "return { hp = 100 }\n";
+					std::error_code scEc;
+					std::filesystem::create_directories(scriptsDir, scEc);
+					std::filesystem::create_directories(bareRoot, scEc);
+					if (gitAbsent)
+					{
+						scOk = false;	// handled as a SKIP below, not a failure
+					}
+					else if (!git({ "-C", tempRoot, "init" }) ||
+						!git({ "-C", tempRoot, "symbolic-ref", "HEAD",
+							"refs/heads/main" }) ||
+						!git({ "-C", tempRoot, "config", "user.email",
+							"selfcheck@orkitec.com" }) ||
+						!git({ "-C", tempRoot, "config", "user.name",
+							"Orkige Selfcheck" }) ||
+						!git({ "-C", tempRoot, "config", "commit.gpgsign",
+							"false" }) ||
+						!git({ "-C", bareRoot, "init", "--bare" }))
+					{
+						scOk = false;
+						scFail = "temp repo setup failed: " + gitOut;
+					}
+					if (scOk)
+					{
+						writeFile(heroAbs, committed);
+						writeFile(playerAbs, "-- player\n");
+						writeFile(tempRoot + "/README.md", "# fixture\n");
+						if (!git({ "-C", tempRoot, "add", "-A" }) ||
+							!git({ "-C", tempRoot, "commit", "-m", "initial" }) ||
+							!git({ "-C", tempRoot, "remote", "add", "origin",
+								bareRoot }) ||
+							!git({ "-C", tempRoot, "push", "-u", "origin",
+								"main" }))
+						{
+							scOk = false;
+							scFail = "initial commit/push failed: " + gitOut;
+						}
+					}
+					OrkigeEditor::GitRepo repo{ run, tempRoot };
+					if (scOk)
+					{
+						const OrkigeEditor::GitStatus status = repo.status();
+						if (!status.valid || !status.clean() ||
+							!status.hasUpstream || status.ahead != 0 ||
+							status.branch != "main")
+						{
+							scOk = false;
+							scFail = "post-push status not clean/0-ahead/main";
+						}
+					}
+					if (scOk)
+					{
+						writeFile(playerAbs, "-- player\n-- edited\n");
+						const OrkigeEditor::GitStatus status = repo.status();
+						bool inChanges = false;
+						for (OrkigeEditor::GitFileEntry const& e :
+							status.unstaged())
+						{
+							inChanges = inChanges || e.path == playerRepoRel;
+						}
+						if (!inChanges ||
+							OrkigeEditor::buildBadgeSnapshot(status, tempRoot,
+								projRoot).badgeForProjectPath("scripts/player.lua")
+								!= OrkigeEditor::GitBadge::Modified)
+						{
+							scOk = false;
+							scFail = "dirty file not in Changes / wrong badge";
+						}
+					}
+					if (scOk)
+					{
+						if (!repo.stage(playerRepoRel).ok())
+						{
+							scOk = false;
+							scFail = "stage failed: " + gitOut;
+						}
+						else
+						{
+							const OrkigeEditor::GitStatus status = repo.status();
+							bool staged = false;
+							for (OrkigeEditor::GitFileEntry const& e :
+								status.staged())
+							{
+								staged = staged || e.path == playerRepoRel;
+							}
+							if (!staged || !status.anyStaged())
+							{
+								scOk = false;
+								scFail = "staged file not in Staged group";
+							}
+						}
+					}
+					if (scOk)
+					{
+						if (!repo.commit("edit player").ok())
+						{
+							scOk = false;
+							scFail = "commit failed: " + gitOut;
+						}
+						else
+						{
+							const OrkigeEditor::GitStatus status = repo.status();
+							const bool logged = git({ "-C", tempRoot, "log",
+								"--oneline" }) &&
+								gitOut.find("edit player") != std::string::npos;
+							if (!status.clean() || status.ahead != 1 || !logged)
+							{
+								scOk = false;
+								scFail = "post-commit not clean/1-ahead/logged";
+							}
+						}
+					}
+					if (scOk)
+					{
+						if (!repo.push().ok())
+						{
+							scOk = false;
+							scFail = "push failed: " + gitOut;
+						}
+						else if (repo.status().ahead != 0)
+						{
+							scOk = false;
+							scFail = "still ahead after push";
+						}
+					}
+					if (scOk)
+					{
+						writeFile(playerAbs, "-- player\n-- again\n");
+						const OrkigeEditor::GitBadgeSnapshot snap =
+							OrkigeEditor::buildBadgeSnapshot(repo.status(),
+								tempRoot, projRoot);
+						if (!snap.active ||
+							snap.projectPrefix != "games/myproj" ||
+							snap.badgeForProjectPath("scripts/player.lua") ==
+								OrkigeEditor::GitBadge::None ||
+							!snap.folderDirtyForProjectPath("scripts") ||
+							snap.folderDirtyForProjectPath("nowhere"))
+						{
+							scOk = false;
+							scFail = "nested browser-badge snapshot wrong";
+						}
+					}
+					if (gitAbsent)
+					{
+						std::filesystem::remove_all(tempRoot, scEc);
+						std::filesystem::remove_all(bareRoot, scEc);
+						SDL_Log("orkige_editor: source control test - "
+							"SKIPPED (git not available)");
+						sourceControlPhase = SourceControlPhase::Done;
+						running = false;
+					}
+					else if (!scOk)
+					{
+						std::filesystem::remove_all(tempRoot, scEc);
+						std::filesystem::remove_all(bareRoot, scEc);
+						SDL_Log("orkige_editor: source control test - "
+							"FAILED: %s", scFail.c_str());
+						exitCode = 11;
+						running = false;
+					}
+					else
+					{
+						sourceControlHeroAbs = heroAbs;
+						sourceControlHeroCommitted = committed;
+						sourceControlRepoRoot = tempRoot;
+						sourceControlBareRoot = bareRoot;
+						scriptPanelOpenFile(state, viewSettings, heroAbs, 0);
+						sourceControlDocWaitStart = frameCount;
+						sourceControlPhase = SourceControlPhase::WaitDoc;
+					}
+				}
+				// phase 2: the document window has opened - discard hero.lua's
+				// on-disk edit and confirm the open buffer reloaded to committed
+				if (sourceControlTestEnv &&
+					sourceControlPhase == SourceControlPhase::WaitDoc &&
+					frameCount >= sourceControlDocWaitStart + 3)
+				{
+					bool scOk = true;
+					std::string scFail;
+					std::error_code scEc;
+					auto readFile = [](std::string const& path)
+					{
+						std::ifstream f(path, std::ios::binary);
+						std::ostringstream ss;
+						ss << f.rdbuf();
+						return ss.str();
+					};
+					if (scriptPanelDocumentText(sourceControlHeroAbs) !=
+						sourceControlHeroCommitted)
+					{
+						scOk = false;
+						scFail = "document did not open with committed content";
+					}
+					if (scOk)
+					{
+						{
+							std::ofstream f(sourceControlHeroAbs,
+								std::ios::binary | std::ios::trunc);
+							f << "return { hp = 1 } -- nerfed\n";
+						}
+						OrkigeEditor::GitRepo repo{
+							OrkigeEditor::sourceControlGitRunner(),
+							sourceControlRepoRoot };
+						if (!repo.discard(
+							"games/myproj/scripts/hero.lua").ok())
+						{
+							scOk = false;
+							scFail = "discard failed";
+						}
+						else if (readFile(sourceControlHeroAbs) !=
+							sourceControlHeroCommitted)
+						{
+							scOk = false;
+							scFail = "discard did not reset to committed";
+						}
+						else if (!scriptPanelReloadFromDisk(
+							sourceControlHeroAbs))
+						{
+							scOk = false;
+							scFail = "open document was not reloaded";
+						}
+						else if (scriptPanelDocumentText(sourceControlHeroAbs)
+							!= sourceControlHeroCommitted)
+						{
+							scOk = false;
+							scFail = "reloaded buffer != committed content";
+						}
+					}
+					std::filesystem::remove_all(sourceControlRepoRoot, scEc);
+					std::filesystem::remove_all(sourceControlBareRoot, scEc);
+					SDL_Log("orkige_editor: source control test - %s%s%s",
+						scOk ? "OK" : "FAILED", scOk ? "" : ": ",
+						scOk ? "" : scFail.c_str());
+					if (!scOk)
+					{
+						exitCode = 11;
+					}
+					sourceControlPhase = SourceControlPhase::Done;
+					running = false;
+				}
+				// --- level-paint state-seam test (ORKIGE_EDITOR_LEVELPAINT) ---
 			if (levelPaintEnv)
 			{
 				const std::chrono::steady_clock::time_point lpNow =

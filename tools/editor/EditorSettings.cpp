@@ -146,6 +146,10 @@ void ViewSettings::load()
 		{
 			this->showDebugPanel = (value == "1");
 		}
+		else if (key == "panel_source_control")
+		{
+			this->showSourceControlPanel = (value == "1");
+		}
 		else if (key == "snap_enabled")
 		{
 			this->snapEnabled = (value == "1");
@@ -276,6 +280,8 @@ void ViewSettings::save() const
 		<< "panel_preview=" << (this->showPreviewPanel ? 1 : 0) << "\n"
 		<< "panel_ui_editor=" << (this->showUiEditorPanel ? 1 : 0) << "\n"
 		<< "panel_debug=" << (this->showDebugPanel ? 1 : 0) << "\n"
+		<< "panel_source_control="
+		<< (this->showSourceControlPanel ? 1 : 0) << "\n"
 		<< "rotation_as_euler=" << (this->rotationAsEuler ? 1 : 0) << "\n"
 		<< "break_on_script_errors="
 		<< (this->breakOnScriptErrors ? 1 : 0) << "\n"

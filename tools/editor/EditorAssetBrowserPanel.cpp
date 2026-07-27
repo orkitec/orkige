@@ -61,6 +61,7 @@
 #include "ImGuiFacadeRenderer.h"
 #include "MeshImport.h"
 #include "MeshPreviewStage.h"
+#include "EditorSourceControlPanel.h"	// shared git badge snapshot (dirty dots)
 
 #include <core_game/SceneSerializer.h>
 #include <core_project/AssetDatabase.h>
@@ -2458,6 +2459,46 @@ struct GridEntry
 	std::string containingFolder;	//!< search mode: project-relative parent
 };
 
+//! the git dirty dot for a browser row - a small filled circle at the cell's
+//! TRAILING edge (kept off the leading-edge format icon so a per-format-icon
+//! change merges cleanly). Files show their file badge; folders aggregate (a
+//! neutral dot when any descendant is dirty), all off the ONE shared snapshot.
+//! No dot when clean / no repo / git absent. Colour taste is provisional.
+void drawGitBadgeDot(ImDrawList* drawList, ImVec2 center, GridEntry const& entry)
+{
+	using OrkigeEditor::GitBadge;
+	OrkigeEditor::GitBadgeSnapshot const& snapshot =
+		OrkigeEditor::sourceControlBadgeSnapshot();
+	if (!snapshot.active)
+	{
+		return;
+	}
+	ImU32 color = 0;
+	if (entry.isFolder)
+	{
+		if (snapshot.folderDirtyForProjectPath(entry.item.relativePath))
+		{
+			// a neutral aggregate dot for a folder with dirty descendants
+			color = IM_COL32(150, 158, 170, 255);
+		}
+	}
+	else
+	{
+		switch (snapshot.badgeForProjectPath(entry.item.relativePath))
+		{
+		case GitBadge::Untracked:	color = IM_COL32(107, 199, 120, 255); break;
+		case GitBadge::Conflicted:	color = IM_COL32(230, 97, 97, 255); break;
+		case GitBadge::Modified:
+		case GitBadge::Staged:		color = IM_COL32(230, 174, 71, 255); break;
+		case GitBadge::None:		break;
+		}
+	}
+	if (color != 0)
+	{
+		drawList->AddCircleFilled(center, 3.5f, color);
+	}
+}
+
 //! apply a BeginMultiSelect / EndMultiSelect request list against the
 //! relativePath-keyed selection set (user data = the item's grid index)
 void applyMultiSelectRequests(ImGuiMultiSelectIO const* io,
@@ -2852,6 +2893,10 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		drawList->AddText(ImVec2(nameLeft, pos.y), textColor, label.c_str());
 		drawList->AddText(ImVec2(rightEdge - metaWidth, pos.y),
 			ImGui::GetColorU32(ImGuiCol_TextDisabled), meta.c_str());
+		// the git dirty dot at the far trailing edge (right of the meta)
+		drawGitBadgeDot(drawList,
+			ImVec2(rightEdge - 4.0f, pos.y + ImGui::GetTextLineHeight() * 0.5f),
+			entry);
 	}
 	else
 	{
@@ -2869,6 +2914,9 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		const float labelWidth = ImGui::CalcTextSize(label.c_str()).x;
 		drawList->AddText(ImVec2(pos.x + (cellW - labelWidth) * 0.5f,
 			pos.y + thumbH + inset), textColor, label.c_str());
+		// the git dirty dot at the tile's trailing (top-right) corner
+		drawGitBadgeDot(drawList, ImVec2(pos.x + cellW - 7.0f, pos.y + 7.0f),
+			entry);
 	}
 
 	// one tooltip: the full name when it was clipped, plus the sidecar-less note
@@ -2927,6 +2975,10 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	// local shortcut routing, mirroring scenePanelFocused / hierarchyFocused
 	browser.focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
 	const std::string root = state.project.getRootDirectory();
+	// keep the shared git service pointed at this project so the dirty dots on
+	// the rows below stay populated even when the Source Control panel is closed
+	// (idempotent - only a project switch re-arms a refresh)
+	OrkigeEditor::sourceControlEnsureProject(root);
 	ImGuiStyle& style = ImGui::GetStyle();
 
 	// --- toolbar (one row): back/forward history, Create, search, filter ---

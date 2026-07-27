@@ -350,6 +350,11 @@ struct ViewSettings
 	//! no longer a single panel: each open script/text file is its OWN docked
 	//! window (see drawScriptDocuments), so it carries no visibility flag.
 	bool showDebugPanel = false;
+	//! Source Control panel (project-only; the open project's git working tree -
+	//! grouped status, stage/unstage/discard, commit + push). Closed by default;
+	//! it opens from the View menu and docks as a tab in the bottom group beside
+	//! Console. Honest empty state outside a repo / with git absent.
+	bool showSourceControlPanel = false;
 	//! Game Preview language axis: the language tag the .oui overlay resolves
 	//! `@key` captions in ("" = the project's source language). Persisted (key
 	//! `gui_preview_language`, kept for a clean migration) so the tab reopens on
@@ -2211,6 +2216,15 @@ void drawScriptDocuments(EditorState& state, PlaySession& session,
 void drawDebugPanel(EditorState& state, PlaySession& session,
 	ViewSettings& viewSettings, bool* visible);
 
+// The Source Control panel: the open project's git working tree - grouped
+// status (staged / changes / untracked / conflicts), per-row stage/unstage/
+// discard, a commit message box and a push button. All git runs on the async
+// service (EditorSourceControlPanel.h); a docked panel (bottom group, beside
+// Console). Honest empty state outside a repo / with git absent. NO MCP verbs
+// mutate the repo by design (agents must not commit) - see Docs/editor.md.
+void drawSourceControlPanel(EditorState& state, ViewSettings& viewSettings,
+	Orkige::EditorCore& core, bool* visible);
+
 //! @brief open a script/text file as a docked document window: absolute or
 //! project-relative path; line > 0 scrolls/highlights that 1-based line. An
 //! already-open file is focused instead of reopened. The request is consumed
@@ -2219,6 +2233,19 @@ void drawDebugPanel(EditorState& state, PlaySession& session,
 //! is accepted for signature stability; document windows carry no panel flag.)
 void scriptPanelOpenFile(EditorState& state, ViewSettings& viewSettings,
 	std::string const& path, int line = 0);
+
+//! @brief if @p absolutePath is open as a document window, reload its buffer
+//! from disk AND refetch its git baseline (so the change-marker gutter follows).
+//! Used after a Source Control "Discard changes" resets the file on disk - the
+//! open document must not stay stale. Returns true when a document was reloaded
+//! (no-op + false when the file is not open). Independent of the dirty state -
+//! the caller already confirmed the destructive reset.
+bool scriptPanelReloadFromDisk(std::string const& absolutePath);
+
+//! @brief editor selfcheck seam: the current text of an OPEN document window
+//! ("" when @p absolutePath is not open). Lets the source-control selfcheck
+//! assert a discarded document's buffer reloaded to the committed content.
+std::string scriptPanelDocumentText(std::string const& absolutePath);
 
 //! drop every open document window (project close / switch - unsaved edits are
 //! discarded after the confirm the caller runs; v1 asks nothing and logs)

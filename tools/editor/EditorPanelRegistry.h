@@ -24,7 +24,8 @@
 	X(PANEL_TILE_PALETTE, "Tile Palette", false, showTilePalettePanel) \
 	X(PANEL_PREVIEW, "Preview", false, showPreviewPanel) \
 	X(PANEL_UI_EDITOR, "UI Editor", false, showUiEditorPanel) \
-	X(PANEL_DEBUG, "Debug", false, showDebugPanel)
+	X(PANEL_DEBUG, "Debug", false, showDebugPanel) \
+	X(PANEL_SOURCE_CONTROL, "Source Control", false, showSourceControlPanel)
 
 namespace Orkige
 {
