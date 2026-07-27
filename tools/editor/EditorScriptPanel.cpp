@@ -167,7 +167,7 @@ namespace
 		//! recompute; the before/after text is sliced live from the document.
 		ScriptDocument* popupDoc = nullptr;	//!< the pinned popup's doc (null=none)
 		OrkigeEditor::DiffHunk popupHunk;	//!< the pinned hunk
-		int popupPinnedFrame = -1;			//!< the frame the pin click landed on
+		bool popupOpenPending = false;		//!< a pin click awaits its OpenPopup
 		//! per-frame hover (reset before the documents draw; set by the gutter)
 		ScriptDocument* hoverDoc = nullptr;
 		OrkigeEditor::DiffHunk hoverHunk;
@@ -1028,6 +1028,7 @@ namespace
 			{
 				revertHunkInDocument(doc, hunk);
 				panel().popupDoc = nullptr;	// the marker is gone - close the popup
+				ImGui::CloseCurrentPopup();
 			}
 			ImGui::SameLine();
 			ImGui::TextDisabled("restores the index version in the buffer");
@@ -1036,8 +1037,9 @@ namespace
 
 	//! after a document renders, present its change-hunk popup(s): a hover
 	//! tooltip (from the gutter's per-frame hover record) and, when this
-	//! document owns the pinned popup, the floating window with Revert. The
-	//! pinned window dismisses on Esc, its close box, or a click-away.
+	//! document owns the pinned popup, an ImGui popup with Revert - the same
+	//! OpenPopup/BeginPopup mechanism the unsaved-changes dialog uses, so
+	//! Esc and click-away dismissal are the library's own.
 	void drawHunkPopups(ScriptDocument& doc)
 	{
 		PanelState& ui = panel();
@@ -1057,28 +1059,24 @@ namespace
 		{
 			return;
 		}
+		if (ui.popupOpenPending)
+		{
+			ImGui::OpenPopup("###hunkPopup");
+			ImGui::SetNextWindowPos(
+				ImVec2(ImGui::GetMousePos().x + 14.0f,
+					ImGui::GetMousePos().y + 14.0f),
+				ImGuiCond_Appearing);
+			ui.popupOpenPending = false;
+		}
 		ImGui::SetNextWindowSize(ImVec2(380.0f, 0.0f), ImGuiCond_Appearing);
-		ImGui::SetNextWindowPos(
-			ImVec2(ImGui::GetMousePos().x + 14.0f, ImGui::GetMousePos().y + 14.0f),
-			ImGuiCond_Appearing);
-		bool open = true;
-		if (ImGui::Begin("Change Hunk###hunkPopup", &open,
-			ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
-			ImGuiWindowFlags_AlwaysAutoResize))
+		if (ImGui::BeginPopup("###hunkPopup"))
 		{
 			drawHunkPopupBody(doc, ui.popupHunk, true);
+			ImGui::EndPopup();
 		}
-		const bool hovered = ImGui::IsWindowHovered(
-			ImGuiHoveredFlags_RootAndChildWindows);
-		ImGui::End();
-		// dismiss: the close box, Esc, or a click OUTSIDE (but not the very
-		// click that pinned it this frame - the gutter click lands elsewhere)
-		const bool clickAway = ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
-			!hovered && ImGui::GetFrameCount() != ui.popupPinnedFrame;
-		if (!open || clickAway ||
-			ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		else
 		{
-			ui.popupDoc = nullptr;
+			ui.popupDoc = nullptr;	// dismissed (Esc / click-away / Revert)
 		}
 	}
 
@@ -1196,7 +1194,7 @@ namespace
 							ui.popupHunk.baseStart == hunk.baseStart;
 						ui.popupDoc = samePinned ? nullptr : &doc;
 						ui.popupHunk = hunk;
-						ui.popupPinnedFrame = ImGui::GetFrameCount();
+						ui.popupOpenPending = !samePinned;
 					}
 				}
 			}
