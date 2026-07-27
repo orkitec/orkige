@@ -146,6 +146,9 @@ set_source_files_properties(EditorImageDecode.cpp PROPERTIES
 if(APPLE)
     # native macOS menu bar (NSMenu mirror of the editor menus; ObjC++)
     target_sources(orkige_editor PRIVATE MacMenu.h MacMenu.mm)
+    # NSWindow backgroundColor fixup for the rounded-corner slivers (ObjC++)
+    target_sources(orkige_editor PRIVATE
+        EditorWindowChrome.h EditorWindowChrome.mm)
     target_link_libraries(orkige_editor PRIVATE "-framework AppKit")
 
     # a proper .app bundle (Orkige.app): Dock/Cmd-Tab icon + name instead of

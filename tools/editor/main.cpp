@@ -94,6 +94,7 @@
 #include "MeshImport.h"
 #ifdef __APPLE__
 #include "MacMenu.h" // native menu bar (replaces the ImGui menu bar on mac)
+#include "EditorWindowChrome.h" // NSWindow backgroundColor corner-sliver fix
 #endif
 
 #include "EditorApp.h"
@@ -625,6 +626,14 @@ int main(int argc, char** argv)
 			const ImVec4 chromeBg = Orkige::editorChromeBackground();
 			render->setWindowBackgroundColour(
 				Orkige::Color(chromeBg.x, chromeBg.y, chromeBg.z));
+#ifdef __APPLE__
+			// macOS composites the rounded-corner slivers from the NSWindow's
+			// own backgroundColor, not from the render surface the clear
+			// above targets - keep both in lockstep so no blue-grey system
+			// default peeks through at the corners.
+			Orkige::setEditorWindowChromeBackground(window,
+				chromeBg.x, chromeBg.y, chromeBg.z);
+#endif
 		};
 		// the visual selfcheck forces a variant with ORKIGE_EDITOR_THEME=dark|
 		// light|system (capture-only - it never overwrites the saved preference)
