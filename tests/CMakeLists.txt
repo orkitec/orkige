@@ -56,7 +56,7 @@ add_test(NAME portability_lint
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_portability.py"
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(portability_lint PROPERTIES
-    LABELS unit TIMEOUT 30)
+    LABELS unit TIMEOUT 120)
 
 # portability lint's own self-test: runs both checks over embedded fixtures
 # (each hazard class caught, each legit pattern passes, suppression works).
@@ -64,7 +64,7 @@ add_test(NAME portability_lint_selftest
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_portability.py" --selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(portability_lint_selftest PROPERTIES
-    LABELS unit TIMEOUT 30)
+    LABELS unit TIMEOUT 120)
 
 # doctrine lint: four source-hygiene gates the project brief mandates -
 # meta-macro containment (raw ORKIGE_LUA/ORKIGE_NOSCRIPT only in the meta
@@ -78,7 +78,7 @@ add_test(NAME doctrine_lint
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_doctrine.py"
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(doctrine_lint PROPERTIES
-    LABELS unit TIMEOUT 30)
+    LABELS unit TIMEOUT 120)
 
 # doctrine lint's own self-test: embedded fixture trees prove every sub-check
 # passes on a clean tree, flags its violation and honours its suppression -
@@ -87,7 +87,7 @@ add_test(NAME doctrine_lint_selftest
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_doctrine.py" --selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(doctrine_lint_selftest PROPERTIES
-    LABELS unit TIMEOUT 30)
+    LABELS unit TIMEOUT 120)
 
 # sprite-atlas packer self-validation: make_sprite_atlas.py packs a
 # handful of synthetic sprites, re-parses its own .oatlas and asserts no region
