@@ -1853,17 +1853,13 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 		// take the darker header-bar shade so they stand off the panel body
 		// (controlBg equals the panel here, so they'd otherwise vanish); hover
 		// darkens, matching the component headers. Scoped to THIS panel so the
-		// toolbar transport keeps its own control look.
-		ImGui::PushStyleColor(ImGuiCol_Button,
-			Orkige::editorComponentHeaderColor());
-		ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-			Orkige::editorComponentHeaderHoverColor());
-		ImGui::PushStyleColor(ImGuiCol_ButtonActive,
-			Orkige::editorComponentHeaderHoverColor());
+		// toolbar transport keeps its own control look. The SAME shade the UI
+		// Editor's Add Widget button shares (one helper).
+		Orkige::pushInspectorButtonStyle();
 		if (remote)
 		{
 			drawRemoteInspector(session);
-			ImGui::PopStyleColor(3); // inspector button shade
+			Orkige::popInspectorButtonStyle();
 			ImGui::End();
 			return;
 		}
@@ -2246,7 +2242,7 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 			ImGui::Separator();
 			drawAddComponentButton(state, core, gameObject);
 		}
-		ImGui::PopStyleColor(3); // inspector button shade
+		Orkige::popInspectorButtonStyle();
 	}
 	ImGui::End();
 }

@@ -332,6 +332,21 @@ namespace Orkige
 			return &it->second;
 		}
 
+		//! @brief the names of every sprite in the atlas, sorted (the map key
+		//! order). Feeds the editor's `.oui` sprite picker off the SAME atlas the
+		//! layout renders through; the runtime never needs it.
+		inline std::vector<String> spriteNames() const
+		{
+			std::vector<String> names;
+			names.reserve(this->mSprites.size());
+			for(std::map<String, UiSprite>::const_iterator it =
+				this->mSprites.begin(); it != this->mSprites.end(); ++it)
+			{
+				names.push_back(it->first);
+			}
+			return names;
+		}
+
 		//! reset the ten markup colours to the defaults
 		void refreshMarkupColours();
 		//! change one of the ten markup colours (index 0..9)

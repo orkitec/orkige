@@ -17,14 +17,17 @@
 #include "GamePreviewStage.h"
 #include "GuiPreviewStage.h"
 #include "EditorTheme.h"
+#include "IconsFontAwesome6.h"
 
 #include <core_util/UiLayout.h>
 #include <core_util/StringUtil.h>
 #include <engine_render/RenderTexture.h>
+#include <engine_gui/GuiManager.h>
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cstdio>
 #include <cstring>
@@ -1166,6 +1169,91 @@ namespace OrkigeEditor
 			}
 			return false;
 		}
+		//! the atlas name the current layout renders through (its [Layout] `atlas`
+		//! key, else the engine default) - the atlas the sprite picker enumerates.
+		String layoutAtlasName(UiEditSession const& s)
+		{
+			for(GuiLayoutSection const& sec : s.doc.doc().sections)
+			{
+				if(!sec.id.empty()) { continue; }	// widget sections carry an id
+				String type = sec.type;
+				std::transform(type.begin(), type.end(), type.begin(),
+					[](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+				if(type == "layout")
+				{
+					if(String const* a = sec.find("atlas")) { return *a; }
+				}
+			}
+			return String("gui_default");
+		}
+		//! the `sprite` property row: a manual InputText plus a pick popup listing
+		//! the sprite names in the CURRENT layout's LOADED atlas (the seam the
+		//! runtime renders through - GuiManager::getAtlasSpriteNames) plus a
+		//! "(none)" clear. Mirrors the Inspector's AssetRef pick popup
+		//! (drawMaterialTextureRef): manual entry stays possible so a name the live
+		//! atlas has not loaded (classic / headless, where no view exists) is still
+		//! editable. Returns true on a committed change (the caller persists once).
+		bool spriteRow(UiEditSession& s, UiEditDoc& doc, GuiLayoutSection& sec,
+			char const* label, char const* tooltip, char const* key)
+		{
+			char buffer[256] = { 0 };
+			if(String const* v = sec.find(key))
+			{
+				std::snprintf(buffer, sizeof(buffer), "%s", v->c_str());
+			}
+			beginPropertyRow(label, tooltip);
+			bool committed = false;
+			// reserve the pick button's width at the value column's right edge
+			const float pickWidth = ImGui::GetFrameHeight() +
+				ImGui::GetStyle().ItemSpacing.x;
+			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - pickWidth);
+			const String id = String("##") + key;
+			const bool changed =
+				ImGui::InputText(id.c_str(), buffer, sizeof(buffer));
+			if(ImGui::IsItemActivated()) { doc.beginEdit(); }
+			if(changed) { sec.set(key, buffer); }
+			if(ImGui::IsItemDeactivatedAfterEdit())
+			{
+				doc.commitEdit();
+				committed = true;
+			}
+			ImGui::SameLine();
+			const String popupId = id + "pick";
+			if(ImGui::ArrowButton((id + "btn").c_str(), ImGuiDir_Down))
+			{
+				ImGui::OpenPopup(popupId.c_str());
+			}
+			ImGui::SetItemTooltip("pick a sprite from the layout atlas");
+			auto pick = [&](String const& value)
+			{
+				doc.beginEdit();
+				sec.set(key, value);
+				doc.commitEdit();
+				committed = true;
+			};
+			if(ImGui::BeginPopup(popupId.c_str()))
+			{
+				if(ImGui::Selectable("(none)")) { pick(String()); }
+				std::vector<String> names;
+				if(Orkige::GuiManager* gui = Orkige::GuiManager::getSingletonPtr())
+				{
+					names = gui->getAtlasSpriteNames(layoutAtlasName(s));
+				}
+				String const* cur = sec.find(key);
+				for(String const& name : names)
+				{
+					const bool selected = cur && *cur == name;
+					if(ImGui::Selectable(name.c_str(), selected)) { pick(name); }
+				}
+				if(names.empty())
+				{
+					ImGui::TextDisabled("no atlas sprites loaded");
+				}
+				ImGui::EndPopup();
+			}
+			endPropertyRow();
+			return committed;
+		}
 		//! the field key whose per-axis drag currently owns the open undo gesture
 		//! ("" = none). Only one UI Editor panel exists, so a file-static is enough;
 		//! drawUiEditToolsBody closes the gesture once the drag releases.
@@ -1362,6 +1450,32 @@ namespace OrkigeEditor
 			}
 			return ran;
 		}
+		//! a right-aligned trash-can control on a widget-tree row, mirroring the
+		//! Inspector's component-remove control: an invisible hit box the row's
+		//! height with a hover disc behind a centred glyph. Returns true on click.
+		//! The trash-can glyph (U+f2ed) is merged into the editor atlas
+		//! (@see EditorTheme ICON_GLYPH_RANGES).
+		bool rowTrashButton(char const* id)
+		{
+			const float side = ImGui::GetFrameHeight();
+			ImGui::SameLine();
+			ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - side);
+			const bool clicked = ImGui::InvisibleButton(id, ImVec2(side, side));
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+			const ImVec2 rmin = ImGui::GetItemRectMin();
+			const ImVec2 centre(rmin.x + side * 0.5f, rmin.y + side * 0.5f);
+			if(ImGui::IsItemHovered())
+			{
+				dl->AddCircleFilled(centre, side * 0.36f,
+					ImGui::GetColorU32(ImGuiCol_ButtonHovered));
+			}
+			const ImVec2 glyph = ImGui::CalcTextSize(ICON_FA_TRASH_CAN);
+			dl->AddText(ImVec2(centre.x - glyph.x * 0.5f,
+				centre.y - glyph.y * 0.5f),
+				ImGui::GetColorU32(ImGuiCol_Text), ICON_FA_TRASH_CAN);
+			ImGui::SetItemTooltip("Delete widget");
+			return clicked;
+		}
 	}
 	//=========================================================
 	//=== the dockable "UI Editor" tool panel =================
@@ -1381,8 +1495,12 @@ namespace OrkigeEditor
 		}
 
 		// the widget tree (the .oui section order; parenting shown by indent).
-		// Shift/Ctrl(Cmd)-click extends the ordered multi-selection.
+		// Shift/Ctrl(Cmd)-click extends the ordered multi-selection. A trash-can
+		// on the selected row(s) deletes the whole selection (the Inspector's
+		// remove-control pattern); the delete is DEFERRED past the loop so the
+		// section vector is never mutated mid-iteration.
 		ImGui::TextDisabled("Widgets");
+		bool deleteRequested = false;
 		for(GuiLayoutSection const& sec : s.doc.doc().sections)
 		{
 			if(sec.id.empty()) { continue; }	// [Layout]/[Modal] etc.
@@ -1392,7 +1510,10 @@ namespace OrkigeEditor
 			const String label = sec.id + "  (" + sec.type + ")";
 			const bool isSel = std::find(s.selection.begin(), s.selection.end(),
 				sec.id) != s.selection.end();
-			if(ImGui::Selectable(label.c_str(), isSel))
+			// AllowOverlap so the selected row's trash-can (drawn on the same line)
+			// stays clickable over the full-width selectable
+			if(ImGui::Selectable(label.c_str(), isSel,
+				ImGuiSelectableFlags_AllowOverlap))
 			{
 				const ImGuiIO& io = ImGui::GetIO();
 				if(io.KeyShift || io.KeyCtrl || io.KeySuper)
@@ -1404,8 +1525,17 @@ namespace OrkigeEditor
 					uiEditSelect(s, sec.id);
 				}
 			}
+			if(isSel && rowTrashButton("##uiDeleteRow"))
+			{
+				deleteRequested = true;
+			}
 			if(child) { ImGui::Unindent(14.0f); }
 			ImGui::PopID();
+		}
+		if(deleteRequested)
+		{
+			uiEditDeleteSelected(s);	// the whole selection, ONE undo step
+			String err; persist(s, stage, err);
 		}
 
 		ImGui::Separator();
@@ -1445,7 +1575,7 @@ namespace OrkigeEditor
 						"the widget's caption / label text", "text");
 					committed |= textRow(s.doc, *sec, "Z Order",
 						"the render layer (higher draws on top)", "z");
-					committed |= textRow(s.doc, *sec, "Sprite",
+					committed |= spriteRow(s, s.doc, *sec, "Sprite",
 						"the atlas sprite face (button / panel / ...)", "sprite");
 					ImGui::EndTable();
 				}
@@ -1548,15 +1678,8 @@ namespace OrkigeEditor
 			{
 				String err; persist(s, stage, err);
 			}
-
-			ImGui::Spacing();
-			ImGui::BeginDisabled(s.selection.empty());
-			if(ImGui::Button("Delete Widget"))
-			{
-				uiEditDeleteSelected(s);
-				String err; persist(s, stage, err);
-			}
-			ImGui::EndDisabled();
+			// (delete lives on the widget-tree row's trash-can control above,
+			// mirroring the Inspector's per-component remove)
 		}
 		else
 		{
@@ -1567,8 +1690,11 @@ namespace OrkigeEditor
 
 		// add-widget flow: ONE "Add Widget" button that opens the kind picker
 		// (the Inspector's Add Component pattern), replacing the old always-visible
-		// palette grid the owner read as clutter
+		// palette grid the owner read as clutter. Shares the Inspector's
+		// primary-button shade so both read as one system.
+		Orkige::pushInspectorButtonStyle();
 		uiEditAddWidgetControl(s, stage, "panel", true);
+		Orkige::popInspectorButtonStyle();
 		}	// drawUiEditToolsBody
 	}
 	//---------------------------------------------------------

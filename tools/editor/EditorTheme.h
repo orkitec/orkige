@@ -84,6 +84,16 @@ namespace Orkige
 	//! each component reads as a titled bar) and its hover shade.
 	ImVec4 editorComponentHeaderColor();
 	ImVec4 editorComponentHeaderHoverColor();
+
+	//! @brief push the shared primary-button shade: buttons take the darker
+	//! component-header colour so they stand off a panel body whose control
+	//! background equals the panel (where a default button would vanish). This
+	//! is the ONE look the Inspector's Add Component button and the UI Editor's
+	//! Add Widget button share, so both read as one system. MUST be balanced by
+	//! popInspectorButtonStyle(). @{
+	void pushInspectorButtonStyle();
+	void popInspectorButtonStyle();
+	//! @}
 	//! the 1px hairline that draws a recessed field's edge (input wells,
 	//! checkboxes). Paired with a pushed FrameBorderSize where fields render.
 	ImVec4 editorFieldBorderColor();

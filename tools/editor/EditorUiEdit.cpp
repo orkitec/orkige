@@ -764,6 +764,12 @@ namespace OrkigeEditor
 			section.set("text", kind == "label" ? "Label" : "Text");
 			section.set("anchor", "topleft");
 			section.set("anchoredPos", "20 20");
+			// a positive default box: the caption defaults to centre alignment
+			// (@see GuiFactory) and clips per-glyph to width(), but the clip is
+			// SKIPPED when width == 0 (@see UiCaption::_redraw) - so a zero-size
+			// default would let the caption spill outside its rect. This box
+			// comfortably fits the short default text at any UI font.
+			section.set("sizeDelta", "120 32");
 		}
 		else if(kind == "scrollview")
 		{

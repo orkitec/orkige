@@ -642,7 +642,7 @@ The **Preview** panel edits the picked `.oui` visually. Pick a screen in the
 **Overlay** dropdown and tick **Edit UI**: the Preview panel becomes the CANVAS
 (the screen rendered through the SAME preview gui stack, with the edit
 adornments) and its slim toolbar keeps only the Edit UI toggle, a **+ Add**
-button and a **Delete** button; the TOOL SURFACE — widget tree, properties,
+button and a trash-can **delete** button; the TOOL SURFACE — widget tree, properties,
 anchor gizmo, align/distribute, add/delete and the undo/redo/save controls —
 lives in the dockable **UI Editor** panel (a tab beside the Inspector by
 default), which auto-opens on entering Edit UI and shows an honest empty state
@@ -699,7 +699,9 @@ vertically to equal gaps between the extremes); and a **properties** area for th
 key object laid out to Inspector parity — the same 30/70 label-left / value-right
 columns, the baked small value font, the shared dense grid style and OS-mannered
 tooltips — grouped under collapsing headers in the component-header visual
-language: **Widget** (text, z order, sprite), **Anchors** for a layout widget
+language: **Widget** (text, z order, and a **sprite** field — a manual entry
+plus a pick popup listing the sprite names in the current layout's loaded atlas,
+the same names the runtime renders through, with a `(none)` clear), **Anchors** for a layout widget
 (the anchor-preset gizmo, the anchor combo, and the geometry fields) or
 **Transform** for a legacy absolute widget (position, size). Multi-value fields
 are per-axis drag-floats through the same helper the Inspector uses (`offsets` as
@@ -714,10 +716,15 @@ the whole on-screen rect (recomputing offsets); the anchor combo routes through
 the same size-preserving apply. An **Add Widget** button opens a searchable
 picker of the kinds (`label`, `button`, `checkbox`, `slider`, `progressbar`,
 `selectmenu`, `dropdown`, `textentry`, `textbox`, `panel`, `scrollview`) — the
-Inspector's Add-Component pattern — that adds one under the selection (or at the
-root) with sane defaults and a unique id; the Preview panel's slim **+ Add**
-opens the SAME picker canvas-adjacent. **Delete Widget** removes the selected
-subtree(s). **Undo** / **Redo** step one gesture at a time (a drag, an align, a
+Inspector's Add-Component pattern (and shares its primary-button shade) — that
+adds one under the selection (or at the root) with sane defaults (a positive
+default box on every kind, so a freshly added label's centred caption stays
+inside its rect) and a unique id; the Preview panel's slim **+ Add** opens the
+SAME picker canvas-adjacent. A **trash-can** control on the selected
+widget-tree row removes the whole selection in one undo step — the Inspector's
+per-component remove-control pattern (a hover disc behind the glyph); the
+Preview panel's slim toolbar carries the same trash-can for a canvas-adjacent
+delete. **Undo** / **Redo** step one gesture at a time (a drag, an align, a
 nudge burst are each one step); global **Cmd/Ctrl+Z** routes to the document
 while the UI Editor panel or the canvas holds focus, so it never edits the scene
 from the UI-editing context.
@@ -751,10 +758,14 @@ anchoredPosition), **content containment** (a non-degenerate resolved box — th
 necessary-and-sufficient condition for a caption to stay inside, since the
 runtime clips to the box whenever its width is non-zero and only escapes a
 zero/negative box), save→reload→re-resolve equality, and byte-exact undo, plus
-interaction chains (preset→drag→preset, preset→resize→undo→redo). The panel
-wiring — load, multi-select, align, marquee, keep-rect anchor preset, undo, and a
-content-containment matrix through the real load→apply→reload path — is the
-`editor_uiedit` selfcheck on both flavors. All alignment tooling resolves each
+interaction chains (preset→drag→preset, preset→resize→undo→redo). A sibling
+**palette-add matrix** asserts every palette kind's default box is positive and
+stays positive across an immediate re-anchor to every preset (the add→
+anchor-switch chain), with a direct guard that the text-bearing kinds carry a
+positive default `sizeDelta`. The panel wiring — load, multi-select, align,
+marquee, keep-rect anchor preset, undo, a content-containment matrix and a
+palette-add-every-kind containment leg through the real load→apply→reload path —
+is the `editor_uiedit` selfcheck on both flavors. All alignment tooling resolves each
 widget's rect through the ONE `UiLayout` resolver: the live overlay rects on the
 Ogre-Next canvas, and a document-side resolve of the same math elsewhere, so the
 tools work whether or not the live canvas is available. The canvas RENDER is

@@ -254,6 +254,7 @@ namespace Orkige
 			0xf047, 0xf047,		// arrows-up-down-left-right (Translate tool)
 			0xf04b, 0xf04b,		// play (debug Continue)
 			0xf28b, 0xf28b,		// circle-pause (debug Break on Next Statement)
+			0xf2ed, 0xf2ed,		// trash-can (delete widget - UI Editor tree)
 			0xf061, 0xf063,		// arrow-right/up/down (debug Step Over/Out/In)
 			0xf06e, 0xf06e,		// eye (Scene Display dropdown)
 			0xf07b, 0xf07c,		// folder / folder-open
@@ -339,6 +340,23 @@ namespace Orkige
 	{
 		ImGui::PopStyleColor();		// field border
 		ImGui::PopStyleVar(4);		// FrameBorderSize + density vars
+	}
+	//---------------------------------------------------------
+	void pushInspectorButtonStyle()
+	{
+		// the darker header-bar shade on all three button states so a button
+		// stands off a panel body whose control background equals the panel.
+		// Keep in lockstep with popInspectorButtonStyle().
+		ImGui::PushStyleColor(ImGuiCol_Button, editorComponentHeaderColor());
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+			editorComponentHeaderHoverColor());
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+			editorComponentHeaderHoverColor());
+	}
+	//---------------------------------------------------------
+	void popInspectorButtonStyle()
+	{
+		ImGui::PopStyleColor(3);	// Button + Hovered + Active
 	}
 	//---------------------------------------------------------
 	ImVec4 editorRegionBackground()

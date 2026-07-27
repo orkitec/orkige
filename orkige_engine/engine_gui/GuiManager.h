@@ -326,6 +326,11 @@ namespace Orkige
 		inline woptr<WidgetType> getWidgetAs(String const & id);
 		//! get default texture atlas
 		inline String const & getDefaultAtlas();
+		//! @brief the sprite names available in a loaded atlas (sorted; empty when
+		//! no view has loaded that atlas). Reads the SAME UiAtlas the layout
+		//! renders through - the seam the editor's `.oui` sprite picker enumerates,
+		//! covering both the bitmap and the runtime-baked (TTF/SVG) atlas.
+		std::vector<String> getAtlasSpriteNames(String const & atlas);
 		//! show frame stats
 		void showStats(uint glyphIndex = 9, Ogre::Vector2 const & pos = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, unsigned short markupColorIndex = 0, bool scaleStats = false);
 		//! clear worst and best fps and more

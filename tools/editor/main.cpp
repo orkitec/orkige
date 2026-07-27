@@ -617,11 +617,14 @@ int main(int argc, char** argv)
 				Orkige::resolveEditorTheme(mode);
 			Orkige::applyEditorTheme(ImGui::GetStyle(), variant,
 				editorContentScale);
-			// the UI-only editor window clears to the theme's dockspace colour
-			// so the gaps between docked panels match the chrome
-			const ImVec4 dockBg = Orkige::editorDockspaceBackground();
+			// the UI-only editor window clears to the theme's dark CHROME colour
+			// (not the engine's default blue-grey): the ImGui dockspace host fills
+			// the body, so this clear is only seen at the macOS rounded-corner
+			// slivers the fill cannot reach - where it should read as the top
+			// toolbar / bottom status chrome, not a stray blue tint
+			const ImVec4 chromeBg = Orkige::editorChromeBackground();
 			render->setWindowBackgroundColour(
-				Orkige::Color(dockBg.x, dockBg.y, dockBg.z));
+				Orkige::Color(chromeBg.x, chromeBg.y, chromeBg.z));
 		};
 		// the visual selfcheck forces a variant with ORKIGE_EDITOR_THEME=dark|
 		// light|system (capture-only - it never overwrites the saved preference)
@@ -6771,13 +6774,66 @@ int main(int argc, char** argv)
 						}
 					}
 				}
+				// PALETTE-ADD containment: adding EVERY widget kind from the
+				// palette must land a positive (containing) default box. A
+				// degenerate default is the reported bug's other door - a centred
+				// caption whose box has width 0 skips its clip (@see
+				// UiCaption::_redraw) and spills. Drives the REAL add path
+				// (uiEditAddWidget) on a fresh Layout-only doc per kind. Pure
+				// resolve, both flavors here.
+				if (ok)
+				{
+					const fs::path addFile = dir / "add.oui";
+					const Orkige::LayoutRect addParent{ 0.0f, 0.0f, 400.0f, 800.0f };
+					const float addScale = 2.0f;
+					for (OrkigeEditor::UiWidgetKind const& kind :
+						OrkigeEditor::uiWidgetKinds())
+					{
+						if (!ok) { break; }
+						{
+							std::ofstream out(addFile,
+								std::ios::binary | std::ios::trunc);
+							out << "[Layout]\natlas = gui_default\n";
+						}
+						OrkigeEditor::UiEditSession add;
+						std::string addErr;
+						OrkigeEditor::uiEditLoad(add, gamePreviewStage,
+							dir.string(), "add.oui", addErr);
+						if (!add.loaded)
+						{
+							uiFail(std::string("palette-add: ") + kind.type +
+								" fixture did not load");
+							break;
+						}
+						const std::string addId =
+							OrkigeEditor::uiEditAddWidget(add, kind.type);
+						const int addIdx =
+							OrkigeEditor::sectionIndex(add.doc.doc(), addId);
+						if (addId.empty() || addIdx < 0)
+						{
+							uiFail(std::string("palette-add: ") + kind.type +
+								" created no section");
+							break;
+						}
+						const Orkige::LayoutRect r = Orkige::resolveRect(addParent,
+							OrkigeEditor::sectionLayoutNode(add.doc.doc()
+								.sections[static_cast<size_t>(addIdx)]), addScale);
+						if (!(r.w > 0.0f && r.h > 0.0f))
+						{
+							uiFail(std::string("palette-add: ") + kind.type +
+								" landed a degenerate box");
+							break;
+						}
+					}
+				}
 				fs::remove_all(dir, uiEc);
 				if (ok)
 				{
 					SDL_Log("orkige_editor: uiedit selfcheck PASSED - "
 						"load/select/move/undo/add/save/reload + multi-select/align/"
 						"marquee/anchor-gizmo + selection-sync + canvas clip/mapping "
-						"+ content-containment matrix verified");
+						"+ content-containment matrix + palette-add containment "
+						"verified");
 					exitCode = 0;
 					running = false;
 				}

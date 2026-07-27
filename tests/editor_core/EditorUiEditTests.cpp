@@ -1034,3 +1034,119 @@ TEST_CASE("ui-edit: anchor preset on a layout-group child - the editor sets the 
 	CHECK(after.h > 0.0f);
 	CHECK(after.x != before.x);	// re-homed in the group-unaware editor resolve
 }
+
+//=============================================================================
+//=== the PALETTE-ADD matrix ==================================================
+//=============================================================================
+// The palette-add path (paletteSection) picks a freshly added widget's DEFAULT
+// geometry. A degenerate (zero-size) default is the content-escapes bug's OTHER
+// door: a centred caption whose box has width 0 skips the per-glyph clip (@see
+// UiCaption::_redraw) and spills outside its rect - exactly what the owner saw
+// when ADDING a label (its default carried an anchoredPos but no sizeDelta, so
+// the resolved box was 0-wide). This matrix asserts EVERY palette kind lands a
+// positive (containing) default box, and that the box stays positive across an
+// immediate re-anchor to every preset (the add -> anchor-switch chain).
+namespace
+{
+	// a [Layout] + the palette default for a kind, serialized (the doc the
+	// editor writes when a widget is dropped onto an empty canvas)
+	std::string paletteDocText(std::string const& kind)
+	{
+		GuiLayoutDoc doc;
+		GuiLayoutSection layout;
+		layout.type = "Layout";
+		layout.set("atlas", "gui_default");
+		doc.sections.push_back(layout);
+		doc.sections.push_back(paletteSection(doc, kind, ""));
+		return doc.serialize();
+	}
+	// the palette section's id in a freshly loaded palette doc (the [Layout]
+	// carries no id, so the one non-empty-id section is the added widget)
+	std::string firstWidgetId(GuiLayoutDoc const& doc)
+	{
+		for(GuiLayoutSection const& s : doc.sections)
+		{
+			if(!s.id.empty()) { return s.id; }
+		}
+		return std::string();
+	}
+}
+
+TEST_CASE("ui-edit: palette-add of every widget kind lands a positive box "
+	"(content containment)", "[unit][uiedit]")
+{
+	const LayoutRect parent{ 0.0f, 0.0f, 400.0f, 800.0f };
+	const float scale = 2.0f;
+	for(UiWidgetKind const& kind : uiWidgetKinds())
+	{
+		INFO("kind=" << kind.type);
+		GuiLayoutDoc doc;
+		const GuiLayoutSection s = paletteSection(doc, kind.type, "");
+		const LayoutRect r = resolveSection(s, parent, scale);
+		// a NON-DEGENERATE box is the necessary-and-sufficient containment
+		// condition (the runtime only escapes a zero/negative box - @see the
+		// alignment matrix note and UiCaption::_redraw)
+		CHECK(r.w > 0.0f);
+		CHECK(r.h > 0.0f);
+	}
+}
+
+TEST_CASE("ui-edit: label/textbox palette defaults carry a positive sizeDelta "
+	"(the reported add-a-label regression guard)", "[unit][uiedit]")
+{
+	// the direct regression guard: the fix is a positive default sizeDelta on
+	// the text-bearing kinds (they used to carry none -> a 0-wide box)
+	GuiLayoutDoc doc;
+	for(char const* kind : { "label", "textbox" })
+	{
+		INFO("kind=" << kind);
+		const GuiLayoutSection s = paletteSection(doc, kind, "");
+		REQUIRE(s.find("sizeDelta") != nullptr);
+		float w = 0.0f, h = 0.0f;
+		std::istringstream in(*s.find("sizeDelta"));
+		in >> w >> h;
+		CHECK(w > 0.0f);
+		CHECK(h > 0.0f);
+	}
+}
+
+TEST_CASE("ui-edit: palette-add then re-anchor keeps a positive box across "
+	"every preset (the add -> anchor-switch chain)", "[unit][uiedit]")
+{
+	const LayoutRect parent{ 0.0f, 0.0f, 400.0f, 800.0f };
+	const float scale = 2.0f;
+	for(UiWidgetKind const& kind : uiWidgetKinds())
+	{
+		for(int p = 0; p < 16; ++p)
+		{
+			const LayoutAnchorPreset preset =
+				static_cast<LayoutAnchorPreset>(p);
+			INFO("kind=" << kind.type << " preset=" << kPresetNames[p]);
+			UiEditDoc edit;
+			std::string err;
+			REQUIRE(edit.load(paletteDocText(kind.type), err));
+			const std::string id = firstWidgetId(edit.doc());
+			REQUIRE(!id.empty());
+			GuiLayoutSection& sec = mutableSection(edit.doc(), id);
+			// the added widget starts with a positive box (the fix)
+			REQUIRE(resolveSection(sec, parent, scale).w > 0.0f);
+
+			edit.beginEdit();
+			applyAnchorPresetToSection(sec, preset, {}, parent, scale);
+			edit.commitEdit();
+
+			// still positive after the re-anchor (containment holds), and the
+			// saved file re-resolves to the same rect
+			const LayoutRect after = resolveSection(sec, parent, scale);
+			CHECK(after.w > 0.0f);
+			CHECK(after.h > 0.0f);
+			GuiLayoutDoc reloaded;
+			std::string parseErr;
+			REQUIRE(GuiLayoutDoc::parse(edit.text(), reloaded, parseErr));
+			const LayoutRect afterReload =
+				resolveSection(sectionById(reloaded, id), parent, scale);
+			CHECK_THAT(afterReload.w, WithinAbs(after.w, 1e-2f));
+			CHECK_THAT(afterReload.h, WithinAbs(after.h, 1e-2f));
+		}
+	}
+}

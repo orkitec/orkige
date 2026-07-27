@@ -22,6 +22,7 @@
 #include "GamePreviewStage.h"
 #include "EditorUiEditorPanel.h"
 #include "ImGuiFacadeRenderer.h"
+#include "IconsFontAwesome6.h"
 
 #include <core_util/DevicePreset.h>
 #include <engine_render/RenderTexture.h>
@@ -395,12 +396,14 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 				"preview", false);
 			ImGui::SameLine();
 			ImGui::BeginDisabled(ui.editSession.selection.empty());
-			if (ImGui::SmallButton("Delete"))
+			// the same trash-can glyph as the UI Editor tree's row control
+			if (ImGui::SmallButton(ICON_FA_TRASH_CAN))
 			{
 				OrkigeEditor::uiEditDeleteSelected(ui.editSession);
 				std::string delErr;
 				OrkigeEditor::uiEditSave(ui.editSession, stage, delErr);
 			}
+			ImGui::SetItemTooltip("Delete widget");
 			ImGui::EndDisabled();
 		}
 	}

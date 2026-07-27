@@ -265,6 +265,23 @@ namespace Orkige
 		this->fontAtlases.erase(atlas);
 	}
 	//---------------------------------------------------------
+	std::vector<String> GuiManager::getAtlasSpriteNames(String const & atlas)
+	{
+		std::vector<String> names;
+		GuiViewMap::iterator it = this->views.find(atlas);
+		if(it == this->views.end() || !it->second)
+		{
+			return names;
+		}
+		// the view's screen references the loaded UiAtlas (bitmap OR the
+		// runtime-baked FontAtlas view) - one seam for both builders
+		if(UiAtlas const * ui = it->second->getScreen()->getAtlas())
+		{
+			names = ui->spriteNames();
+		}
+		return names;
+	}
+	//---------------------------------------------------------
 	void GuiManager::destroyViewWithWidgets(String const & atlas)
 	{
 		woptr<GuiView> view = this->getView(atlas);
