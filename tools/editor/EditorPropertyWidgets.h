@@ -91,4 +91,19 @@ bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 	PropertyRefProvider const& refProvider = PropertyRefProvider(),
 	bool* outActivated = nullptr);
 
+//! @brief draw @p count per-axis DragFloats sharing the current value column,
+//! each preceded by a dimmed micro-label from @p axes ("X"/"Y"/"L"/... ). The
+//! fields split the column width evenly (the house Vec3/Quat inspector row).
+//! Browsing shows a TRIMMED display form (up to four decimals, trailing zeros
+//! dropped); an active text edit switches to full round-trip precision so a
+//! commit never loses data. Returns true when any axis was edited this frame.
+//! @param idBase seeds the per-axis ImGui ids ("##<idBase>0"..); make it unique
+//! within the row. @param activated (optional) is OR'd true when ANY axis
+//! became active this frame, so a composite (multi-axis) field opens the
+//! caller's undo-merge session exactly once. Shared by the Inspector and the
+//! UI Editor panel so both draw multi-value fields identically - do not
+//! reimplement.
+bool drawAxisDrags(char const* idBase, char const* const* axes, float* values,
+	int count, float speed, bool* activated = nullptr);
+
 #endif // __EditorPropertyWidgets_h__9_7_2026__16_00_00__

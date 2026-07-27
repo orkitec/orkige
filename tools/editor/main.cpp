@@ -6638,13 +6638,146 @@ int main(int argc, char** argv)
 						uiFail("grip pad did not exceed the canvas (clip is needed)");
 					}
 				}
+				// --- CONTENT CONTAINMENT (the reported bug: switching a label's
+				// anchor drew its caption OUTSIDE the widget). The runtime caption
+				// clips to its box whenever width != 0 and only escapes a ZERO or
+				// NEGATIVE box (a centred caption's cursor is
+				// left+width*0.5-textW*0.5 with clipping SKIPPED at width 0 - see
+				// UiCaption::_redraw), so a NON-DEGENERATE resolved box is the
+				// necessary-and-sufficient containment condition. Run the
+				// representative kinds x {plain, keep-rect} x every preset through
+				// the REAL apply path and assert a positive box every time (pure
+				// resolver, so BOTH flavors here). ---
+				if (ok)
+				{
+					const Orkige::LayoutRect parent{ 0.0f, 0.0f, 400.0f, 800.0f };
+					const float scale = 2.0f;
+					auto makeSec = [](std::string const& kind)
+						-> Orkige::GuiLayoutSection
+					{
+						Orkige::GuiLayoutSection sc;
+						sc.id = "w";
+						if (kind == "label")
+						{
+							// the reported bug's exact shape (offsets stretch caption,
+							// centre-aligned - the .oui default)
+							sc.type = "Label";
+							sc.set("font", "9");
+							sc.set("text", "Content");
+							sc.set("anchor", "stretchtop");
+							sc.set("offsets", "24 16 -24 48");
+							sc.set("textAlignment", "center");
+						}
+						else if (kind == "decor")
+						{
+							sc.type = "DecorWidget";
+							sc.set("sprite", "panel");
+							sc.set("anchor", "stretchall");
+							sc.set("offsets", "16 64 -16 -16");
+						}
+						else if (kind == "textbox")
+						{
+							sc.type = "TextBox";
+							sc.set("text", "body");
+							sc.set("wrap", "true");
+							sc.set("anchor", "stretchmiddle");
+							sc.set("offsets", "10 -20 -10 20");
+						}
+						else
+						{
+							sc.type = "Button";
+							sc.set("sprite", "button");
+							sc.set("text", "OK");
+							sc.set("anchor", "topleft");
+							sc.set("anchoredPos", "40 120");
+							sc.set("sizeDelta", "160 44");
+						}
+						return sc;
+					};
+					char const* kinds[] = { "label", "decor", "textbox", "button" };
+					for (char const* kind : kinds)
+					{
+						for (int variant = 0; variant < 2 && ok; ++variant)
+						{
+							for (int p = 0; p < 16 && ok; ++p)
+							{
+								Orkige::GuiLayoutSection sc = makeSec(kind);
+								OrkigeEditor::AnchorPresetMods m;
+								m.alsoKeepRect = (variant == 1);
+								OrkigeEditor::applyAnchorPresetToSection(sc,
+									static_cast<Orkige::LayoutAnchorPreset>(p), m,
+									parent, scale);
+								const Orkige::LayoutRect r = Orkige::resolveRect(parent,
+									OrkigeEditor::sectionLayoutNode(sc), scale);
+								if (!(r.w > 0.0f && r.h > 0.0f))
+								{
+									uiFail(std::string("content-containment: ") + kind +
+										" preset " + std::to_string(p) +
+										(variant ? " keep-rect" : " plain") +
+										" left a degenerate box");
+								}
+							}
+						}
+					}
+				}
+				// the LIVE editor path: the exact repro driven through
+				// load -> select -> apply -> save -> reload, asserting the resolved
+				// box stays valid (both flavors, via the doc resolver - the live
+				// overlay reports a LABEL's TEXT size, not its box, so the box proof
+				// is the doc-level resolve of the reloaded file).
+				if (ok)
+				{
+					const fs::path bugFile = dir / "bug.oui";
+					{
+						std::ofstream out(bugFile,
+							std::ios::binary | std::ios::trunc);
+						out << "[Layout]\natlas = gui_default\n\n"
+							"[Label caption]\nfont = 9\ntext = Hello World\n"
+							"anchor = stretchtop\noffsets = 24 16 -24 48\n"
+							"textAlignment = center\n";
+					}
+					OrkigeEditor::UiEditSession bug;
+					std::string bugErr;
+					OrkigeEditor::uiEditLoad(bug, gamePreviewStage, dir.string(),
+						"bug.oui", bugErr);
+					if (!bug.loaded)
+					{
+						uiFail("content-containment: bug repro did not load");
+					}
+					if (ok)
+					{
+						OrkigeEditor::uiEditSelect(bug, "caption");
+						OrkigeEditor::uiEditApplyAnchorPreset(bug, gamePreviewStage,
+							Orkige::LAP_CENTER, OrkigeEditor::AnchorPresetMods());
+						std::string saveErr;
+						OrkigeEditor::uiEditSave(bug, gamePreviewStage, saveErr);
+						const int idx =
+							OrkigeEditor::sectionIndex(bug.doc.doc(), "caption");
+						if (idx < 0)
+						{
+							uiFail("content-containment: the caption vanished");
+						}
+						else
+						{
+							const Orkige::LayoutRect p2{ 0.0f, 0.0f, 1000.0f, 1000.0f };
+							const Orkige::LayoutRect r = Orkige::resolveRect(p2,
+								OrkigeEditor::sectionLayoutNode(bug.doc.doc()
+									.sections[static_cast<size_t>(idx)]), 1.0f);
+							if (!(r.w > 0.0f && r.h > 0.0f))
+							{
+								uiFail("content-containment: the live apply left a "
+									"degenerate box");
+							}
+						}
+					}
+				}
 				fs::remove_all(dir, uiEc);
 				if (ok)
 				{
 					SDL_Log("orkige_editor: uiedit selfcheck PASSED - "
 						"load/select/move/undo/add/save/reload + multi-select/align/"
 						"marquee/anchor-gizmo + selection-sync + canvas clip/mapping "
-						"verified");
+						"+ content-containment matrix verified");
 					exitCode = 0;
 					running = false;
 				}

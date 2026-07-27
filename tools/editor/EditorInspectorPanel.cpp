@@ -147,16 +147,9 @@ void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 		return;
 	}
 	// the two-column grid: a proportional 30/70 split that follows the panel
-	// width (labels left, value widgets right). A recessed 1px field border
-	// makes each input read as a well; the table itself draws no borders.
-	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-	// the dense grid: tighter row spacing, shorter inputs, edgier corners
-	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
-		ImVec2(ImGui::GetStyle().FramePadding.x, 2.0f));
-	ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,
-		ImVec2(ImGui::GetStyle().CellPadding.x, 1.0f));
-	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
-	ImGui::PushStyleColor(ImGuiCol_Border, Orkige::editorFieldBorderColor());
+	// width (labels left, value widgets right), wrapped in the shared dense
+	// property-grid style (the same look the UI Editor panel uses).
+	Orkige::pushPropertyGridStyle();
 	bool any = false;
 	// no PadOuterX: the value column runs to the panel's right edge (no
 	// artificial outer margin), only the panel's own window padding remains
@@ -304,8 +297,7 @@ void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 		}
 		ImGui::EndTable();
 	}
-	ImGui::PopStyleColor();		// field border
-	ImGui::PopStyleVar(4);		// FrameBorderSize + density vars
+	Orkige::popPropertyGridStyle();
 	if (!any)
 	{
 		ImGui::TextDisabled("(no editable properties yet)");
@@ -531,14 +523,7 @@ void drawRemoteInspector(PlaySession& session)
 		{
 			// typed widgets in a label-left / value-right grid, same as the
 			// edit-mode inspector (declaration order preserved)
-			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
-				ImVec2(ImGui::GetStyle().FramePadding.x, 2.0f));
-			ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,
-				ImVec2(ImGui::GetStyle().CellPadding.x, 1.0f));
-			ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
-			ImGui::PushStyleColor(ImGuiCol_Border,
-				Orkige::editorFieldBorderColor());
+			Orkige::pushPropertyGridStyle();
 			if (ImGui::BeginTable("##rprops", 2,
 				ImGuiTableFlags_SizingStretchProp))
 			{
@@ -608,8 +593,7 @@ void drawRemoteInspector(PlaySession& session)
 				}
 				ImGui::EndTable();
 			}
-			ImGui::PopStyleColor();	// field border
-			ImGui::PopStyleVar(4);	// FrameBorderSize + density vars
+			Orkige::popPropertyGridStyle();
 		}
 		else
 		{

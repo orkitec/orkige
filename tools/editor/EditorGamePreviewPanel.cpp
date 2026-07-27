@@ -389,22 +389,10 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		if (ui.editUi && !ui.selectedFile.empty() && ui.editSession.loaded)
 		{
 			ImGui::SameLine();
-			ImGui::SetNextItemWidth(90.0f);
-			if (ImGui::BeginCombo("##ui_add", "+ Add",
-				ImGuiComboFlags_HeightLargest))
-			{
-				for (OrkigeEditor::UiWidgetKind const& kind :
-					OrkigeEditor::uiWidgetKinds())
-				{
-					if (ImGui::Selectable(kind.label))
-					{
-						OrkigeEditor::uiEditAddWidget(ui.editSession, kind.type);
-						std::string addErr;
-						OrkigeEditor::uiEditSave(ui.editSession, stage, addErr);
-					}
-				}
-				ImGui::EndCombo();
-			}
+			// the compact "+ Add" opens the SAME kind picker as the UI Editor
+			// panel's Add Widget button (one add-widget flow, two entry points)
+			OrkigeEditor::uiEditAddWidgetControl(ui.editSession, stage,
+				"preview", false);
 			ImGui::SameLine();
 			ImGui::BeginDisabled(ui.editSession.selection.empty());
 			if (ImGui::SmallButton("Delete"))

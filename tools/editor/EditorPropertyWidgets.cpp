@@ -85,71 +85,6 @@ static void trimmedFloatFormat(float value, char* out, std::size_t size)
 	*end = '\0';
 }
 
-//! dimmed micro-label ("X"/"Y"/"Z"/"W") before it. The fields split the column
-//! width evenly so a Vec3/Quat row stays balanced. Reports IsItemActivated-style
-//! edit through the aggregate return (any axis dragged). `idBase` seeds unique
-//! per-axis ids; `axes` supplies the labels. Mirrors DragFloatN behaviour.
-bool drawAxisDrags(char const* idBase, char const* const* axes, float* values,
-	int count, float speed, bool* activated)
-{
-	ImGuiStyle const& style = ImGui::GetStyle();
-	// a HALF inner gap between an axis letter and its field packs the row
-	// tighter, handing the recovered width to the fields themselves
-	const float gap = style.ItemInnerSpacing.x * 0.5f;
-	// widest axis glyph so every field lines up regardless of label
-	float labelWidth = 0.0f;
-	for (int i = 0; i < count; ++i)
-	{
-		labelWidth = ImGui::CalcTextSize(axes[i]).x > labelWidth
-			? ImGui::CalcTextSize(axes[i]).x : labelWidth;
-	}
-	const float total = ImGui::GetContentRegionAvail().x;
-	// each axis cell = [label][gap][field], cells separated by a gap
-	float fieldWidth = (total - count * (labelWidth + gap) -
-		(count - 1) * gap) / static_cast<float>(count);
-	if (fieldWidth < 20.0f)
-	{
-		fieldWidth = 20.0f; // a very narrow Inspector still shows a usable field
-	}
-	bool edited = false;
-	for (int i = 0; i < count; ++i)
-	{
-		if (i != 0)
-		{
-			ImGui::SameLine(0.0f, gap);
-		}
-		// the dimmed axis marker, baseline-aligned to the field
-		ImGui::AlignTextToFramePadding();
-		ImGui::TextDisabled("%s", axes[i]);
-		ImGui::SameLine(0.0f, gap);
-		char id[32];
-		std::snprintf(id, sizeof(id), "##%s%d", idBase, i);
-		ImGui::SetNextItemWidth(fieldWidth);
-		// browsing shows the trimmed display form; an active text edit shows
-		// full round-trip precision so commits never lose data
-		char shown[32];
-		const bool editingField =
-			ImGui::TempInputIsActive(ImGui::GetID(id));
-		if (!editingField)
-		{
-			trimmedFloatFormat(values[i], shown, sizeof(shown));
-		}
-		if (ImGui::DragFloat(id, &values[i], speed, 0.0f, 0.0f,
-			editingField ? "%.9g" : shown))
-		{
-			edited = true;
-		}
-		// a composite field must open the caller's merge session on ANY axis
-		// grab (each axis is its own ImGui item), so a per-axis drag still
-		// collapses into one undo step
-		if (activated && ImGui::IsItemActivated())
-		{
-			*activated = true;
-		}
-	}
-	return edited;
-}
-
 //! split an enum hint ("label=value,label=value,...") into parallel arrays
 void parseEnumOptions(std::string const& hint,
 	std::vector<std::string>& labels, std::vector<long long>& values)
@@ -286,6 +221,69 @@ bool drawRefCombo(char const* label, std::string const& value,
 }
 
 } // namespace
+
+// the shared multi-axis DragFloat row (Inspector Vec3/Quat AND the UI Editor
+// panel's offsets / anchoredPos / sizeDelta / pivot fields). @see the header.
+bool drawAxisDrags(char const* idBase, char const* const* axes, float* values,
+	int count, float speed, bool* activated)
+{
+	ImGuiStyle const& style = ImGui::GetStyle();
+	// a HALF inner gap between an axis letter and its field packs the row
+	// tighter, handing the recovered width to the fields themselves
+	const float gap = style.ItemInnerSpacing.x * 0.5f;
+	// widest axis glyph so every field lines up regardless of label
+	float labelWidth = 0.0f;
+	for (int i = 0; i < count; ++i)
+	{
+		labelWidth = ImGui::CalcTextSize(axes[i]).x > labelWidth
+			? ImGui::CalcTextSize(axes[i]).x : labelWidth;
+	}
+	const float total = ImGui::GetContentRegionAvail().x;
+	// each axis cell = [label][gap][field], cells separated by a gap
+	float fieldWidth = (total - count * (labelWidth + gap) -
+		(count - 1) * gap) / static_cast<float>(count);
+	if (fieldWidth < 20.0f)
+	{
+		fieldWidth = 20.0f; // a very narrow Inspector still shows a usable field
+	}
+	bool edited = false;
+	for (int i = 0; i < count; ++i)
+	{
+		if (i != 0)
+		{
+			ImGui::SameLine(0.0f, gap);
+		}
+		// the dimmed axis marker, baseline-aligned to the field
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextDisabled("%s", axes[i]);
+		ImGui::SameLine(0.0f, gap);
+		char id[32];
+		std::snprintf(id, sizeof(id), "##%s%d", idBase, i);
+		ImGui::SetNextItemWidth(fieldWidth);
+		// browsing shows the trimmed display form; an active text edit shows
+		// full round-trip precision so commits never lose data
+		char shown[32];
+		const bool editingField =
+			ImGui::TempInputIsActive(ImGui::GetID(id));
+		if (!editingField)
+		{
+			trimmedFloatFormat(values[i], shown, sizeof(shown));
+		}
+		if (ImGui::DragFloat(id, &values[i], speed, 0.0f, 0.0f,
+			editingField ? "%.9g" : shown))
+		{
+			edited = true;
+		}
+		// a composite field must open the caller's merge session on ANY axis
+		// grab (each axis is its own ImGui item), so a per-axis drag still
+		// collapses into one undo step
+		if (activated && ImGui::IsItemActivated())
+		{
+			*activated = true;
+		}
+	}
+	return edited;
+}
 
 bool assetMatchesKind(std::string const& fileName, std::string const& kind)
 {

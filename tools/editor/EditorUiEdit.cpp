@@ -455,7 +455,28 @@ namespace OrkigeEditor
 		}
 		if(mods.alsoKeepRect)
 		{
+			// keep the whole on-screen rect (position AND size) pinned
 			keepRectOffsets(node, parentRect, kept, layoutScale);
+		}
+		else
+		{
+			// PLAIN apply re-homes the widget to the new anchor but PRESERVES its
+			// on-screen SIZE. Keeping the raw offsets across an anchor whose span
+			// changed (a stretch axis collapsing to a point, say stretchtop->center)
+			// reinterprets a right/bottom inset against the new, smaller anchor rect
+			// and yields a ZERO- or NEGATIVE-width box - a degenerate rect whose
+			// runtime caption then centres its text OUTSIDE the widget. Re-derive
+			// sizeDelta for the new anchor span so the resolved size is unchanged;
+			// anchoredPosition (the pivot's offset from the anchor point) is left
+			// as-is, so the widget still follows the new anchor. A point->point
+			// preset leaves the size untouched; a stretch axis keeps its span via a
+			// matching (possibly negative) sizeDelta - keep-the-size re-anchoring.
+			const float scale = layoutScale > 1e-6f ? layoutScale : 1.0f;
+			const float spanX = node.anchorMax.x - node.anchorMin.x;
+			const float spanY = node.anchorMax.y - node.anchorMin.y;
+			node.setSizeDelta(
+				(kept.w - spanX * parentRect.w) / scale,
+				(kept.h - spanY * parentRect.h) / scale);
 		}
 
 		// name the preset (drops any raw anchorMin/anchorMax pair)
@@ -469,10 +490,9 @@ namespace OrkigeEditor
 		{
 			s.set("pivot", fmtVec2(node.pivot.x, node.pivot.y));
 		}
-		if(mods.alsoKeepRect)
-		{
-			writeGeom(s, node);
-		}
+		// both variants re-derive the geometry, so write it back in the section's
+		// own form (offsets, else the friendly anchoredPos/sizeDelta pair)
+		writeGeom(s, node);
 	}
 	//---------------------------------------------------------
 	void applyAnchorDrag(GuiLayoutSection& s, UiAnchorCorner corner,

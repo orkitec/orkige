@@ -13,17 +13,21 @@
 #include "EditorUiEditorPanel.h"
 #include "EditorApp.h"
 #include "EditorTabMenu.h"
+#include "EditorPropertyWidgets.h"
 #include "GamePreviewStage.h"
 #include "GuiPreviewStage.h"
 #include "EditorTheme.h"
 
 #include <core_util/UiLayout.h>
+#include <core_util/StringUtil.h>
 #include <engine_render/RenderTexture.h>
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 
@@ -466,6 +470,79 @@ namespace OrkigeEditor
 		s.selected = id;
 		s.needsReload = true;
 		return id;
+	}
+	//---------------------------------------------------------
+	bool uiEditAddWidgetControl(UiEditSession& s, GamePreviewStage& stage,
+		char const* idScope, bool bigButton)
+	{
+		const String popupId = String("##addwidget_") + idScope;
+		if(bigButton)
+		{
+			// a generously wide, taller-than-default primary action, centred and
+			// width-clamped so a narrow panel (or a 2x/3x scaled font) still fits
+			// the label - the Inspector's Add Component button, verbatim shape
+			char const* label = "Add Widget";
+			const float labelWidth = ImGui::CalcTextSize(label).x +
+				ImGui::GetStyle().FramePadding.x * 2.0f +
+				ImGui::GetTextLineHeight();
+			const float avail = ImGui::GetContentRegionAvail().x;
+			const float buttonWidth = std::min(avail,
+				std::max(labelWidth, avail * 0.70f));
+			const float buttonHeight = ImGui::GetFrameHeight() * 1.6f;
+			if(avail > buttonWidth)
+			{
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+					(avail - buttonWidth) * 0.5f);
+			}
+			if(ImGui::Button(label, ImVec2(buttonWidth, buttonHeight)))
+			{
+				ImGui::OpenPopup(popupId.c_str());
+			}
+		}
+		else if(ImGui::SmallButton("+ Add"))	// the compact canvas-adjacent variant
+		{
+			ImGui::OpenPopup(popupId.c_str());
+		}
+		bool added = false;
+		if(ImGui::BeginPopup(popupId.c_str()))
+		{
+			// a search box + the widget kinds, mirroring the Add Component popup.
+			// One picker is open at a time, so a static filter buffer is enough.
+			static char filter[64] = { 0 };
+			static bool focusPending = false;
+			if(ImGui::IsWindowAppearing())
+			{
+				filter[0] = '\0';
+				focusPending = true;
+			}
+			if(focusPending)
+			{
+				ImGui::SetKeyboardFocusHere();
+				focusPending = false;
+			}
+			ImGui::SetNextItemWidth(220.0f);
+			ImGui::InputTextWithHint("##widgetsearch", "search widgets...",
+				filter, sizeof(filter));
+			ImGui::Separator();
+			const String needle = Orkige::StringUtil::to_lower_copy(String(filter));
+			for(UiWidgetKind const& kind : uiWidgetKinds())
+			{
+				if(!needle.empty() && Orkige::StringUtil::to_lower_copy(
+					String(kind.label)).find(needle) == String::npos)
+				{
+					continue;
+				}
+				if(ImGui::MenuItem(kind.label))
+				{
+					uiEditAddWidget(s, kind.type);
+					String err; persist(s, stage, err);
+					added = true;
+					ImGui::CloseCurrentPopup();
+				}
+			}
+			ImGui::EndPopup();
+		}
+		return added;
 	}
 	//---------------------------------------------------------
 	namespace
@@ -1028,25 +1105,52 @@ namespace OrkigeEditor
 	//=========================================================
 	namespace
 	{
-		//! a compact single-line string field editing entry @p key. The model
+		//! push the shared small value font (the baked value-column face the
+		//! Inspector uses); pair with popValueFont(). Falls back to the base font.
+		void pushValueFont()
+		{
+			ImFont* const valueFont = Orkige::editorSmallFont();
+			ImGui::PushFont(valueFont != nullptr ? valueFont : ImGui::GetFont(),
+				valueFont != nullptr ? Orkige::editorSmallFontSize() : 0.0f);
+		}
+		void popValueFont() { ImGui::PopFont(); }
+		//! open one property row in the current 30/70 table: the label in the left
+		//! column (baseline-nudged, with an optional OS-mannered tooltip), then the
+		//! value column primed for a full-width value widget under the small font.
+		//! The caller draws the value widget, then calls endPropertyRow().
+		void beginPropertyRow(char const* label, char const* tooltip)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted(label);
+			if(tooltip != NULL && tooltip[0] != '\0')
+			{
+				ImGui::SetItemTooltip("%s", tooltip);
+			}
+			ImGui::TableSetColumnIndex(1);
+			pushValueFont();
+			ImGui::SetNextItemWidth(-FLT_MIN);	// the value widget fills the column
+		}
+		void endPropertyRow() { popValueFont(); }
+		//! a single-line string property row (label left, input right). The model
 		//! updates live per keystroke (no reload); a gesture brackets the edit
-		//! session (beginEdit on focus, commitEdit on blur) so a field edit is ONE
-		//! undo step. Returns true on commit (blur-after-edit) so the caller
-		//! persists + reloads once, not per keystroke.
-		bool textField(UiEditDoc& doc, GuiLayoutSection& sec,
-			char const* label, char const* key)
+		//! (beginEdit on focus, commitEdit on blur) so an edit is ONE undo step.
+		//! Returns true on commit (blur-after-edit) so the caller persists once.
+		bool textRow(UiEditDoc& doc, GuiLayoutSection& sec,
+			char const* label, char const* tooltip, char const* key)
 		{
 			char buffer[256] = { 0 };
 			if(String const* v = sec.find(key))
 			{
 				std::snprintf(buffer, sizeof(buffer), "%s", v->c_str());
 			}
-			ImGui::SetNextItemWidth(120.0f);
+			beginPropertyRow(label, tooltip);
 			const String id = String("##") + key;
 			const bool changed = ImGui::InputText(id.c_str(), buffer, sizeof(buffer));
-			// query the InputText's own activation BEFORE drawing the label
 			const bool activated = ImGui::IsItemActivated();
 			const bool committed = ImGui::IsItemDeactivatedAfterEdit();
+			endPropertyRow();
 			if(activated)
 			{
 				doc.beginEdit();	// snapshot before the first keystroke
@@ -1055,14 +1159,96 @@ namespace OrkigeEditor
 			{
 				sec.set(key, buffer);
 			}
-			ImGui::SameLine(0.0f, 0.0f);
-			ImGui::TextDisabled(" %s", label);
 			if(committed)
 			{
 				doc.commitEdit();
 				return true;
 			}
 			return false;
+		}
+		//! the field key whose per-axis drag currently owns the open undo gesture
+		//! ("" = none). Only one UI Editor panel exists, so a file-static is enough;
+		//! drawUiEditToolsBody closes the gesture once the drag releases.
+		std::string& activeAxisFieldKey()
+		{
+			static std::string key;
+			return key;
+		}
+		//! a multi-value property row backed by a space-separated float string
+		//! (@p key holds "l t r b" / "x y"), drawn as @p count per-axis drag-floats
+		//! through the SHARED Inspector helper (trimmed display / full-precision
+		//! edit). A drag folds into ONE undo step: the grab opens a gesture keyed by
+		//! @p key (closed on release in drawUiEditToolsBody). Writes the value live
+		//! (space-separated, whole numbers as integers - the .oui house form).
+		//! Returns true when a value changed this frame (the caller sets needsReload).
+		bool axisRow(UiEditSession& s, char const* label, char const* tooltip,
+			char const* key, char const* const* axes, int count, float speed)
+		{
+			GuiLayoutSection* sec = selectedSection(s);
+			if(!sec) { return false; }
+			float v[4] = { 0, 0, 0, 0 };
+			if(String const* cur = sec->find(key))
+			{
+				std::istringstream in(*cur);
+				for(int each = 0; each < count; ++each) { in >> v[each]; }
+			}
+			beginPropertyRow(label, tooltip);
+			bool activated = false;
+			const bool edited =
+				drawAxisDrags(key, axes, v, count, speed, &activated);
+			endPropertyRow();
+			if(activated && activeAxisFieldKey() != key)
+			{
+				// a fresh grab: close any stray gesture, then open this field's
+				if(!activeAxisFieldKey().empty()) { s.doc.commitEdit(); }
+				s.doc.beginEdit();
+				activeAxisFieldKey() = key;
+			}
+			if(edited)
+			{
+				String out;
+				char buf[64];
+				for(int each = 0; each < count; ++each)
+				{
+					std::snprintf(buf, sizeof(buf), "%g", v[each]);
+					if(each != 0) { out += ' '; }
+					out += buf;
+				}
+				sec->set(key, out);
+				s.needsReload = true;
+			}
+			return edited;
+		}
+		//! an anchor-preset combo row routed through the ONE size-preserving apply
+		//! path (uiEditApplyAnchorPreset), so picking an anchor here can never leave
+		//! a widget with a degenerate box (the same fix the gizmo click takes).
+		bool anchorComboRow(UiEditSession& s, GamePreviewStage& stage,
+			GuiLayoutSection& sec)
+		{
+			String anchor = sec.find("anchor") ? *sec.find("anchor")
+				: String("topleft");
+			beginPropertyRow("Anchor", "the widget's anchor preset");
+			bool applied = false;
+			if(ImGui::BeginCombo("##anchor", anchor.c_str()))
+			{
+				char const* presets[] = { "topleft","top","topright","left",
+					"center","right","bottomleft","bottom","bottomright",
+					"stretchtop","stretchmiddle","stretchbottom","stretchleft",
+					"stretchcenter","stretchright","stretchall" };
+				for(char const* preset : presets)
+				{
+					if(ImGui::Selectable(preset, anchor == preset))
+					{
+						Orkige::LayoutAnchorPreset parsed = Orkige::LAP_TOPLEFT;
+						parseAnchorPreset(preset, parsed);
+						uiEditApplyAnchorPreset(s, stage, parsed, AnchorPresetMods());
+						applied = true;
+					}
+				}
+				ImGui::EndCombo();
+			}
+			endPropertyRow();
+			return applied;
 		}
 		//! the 4x4 anchor-preset gizmo: a compact draw-list grid mapping each
 		//! cell to a LayoutAnchorPreset. Click applies to the key widget; Alt
@@ -1224,60 +1410,153 @@ namespace OrkigeEditor
 
 		ImGui::Separator();
 
-		// properties of the selection
+		// properties of the selection, in the Inspector's grouped label/value form
+		// (30/70 columns, the baked small value font, the shared dense grid style,
+		// a titled header per group in the component-header visual language)
 		if(GuiLayoutSection* sec = selectedSection(s))
 		{
-			ImGui::TextDisabled("Properties: %s", sec->id.c_str());
-			bool edited = false;
-			edited |= textField(s.doc, *sec, "text", "text");
-			edited |= textField(s.doc, *sec, "z", "z");
-			edited |= textField(s.doc, *sec, "sprite", "sprite");
+			ImGui::PushStyleColor(ImGuiCol_Header,
+				Orkige::editorComponentHeaderColor());
+			ImGui::PushStyleColor(ImGuiCol_HeaderHovered,
+				Orkige::editorComponentHeaderHoverColor());
+			ImGui::PushStyleColor(ImGuiCol_HeaderActive,
+				Orkige::editorComponentHeaderHoverColor());
+
+			bool committed = false;	// discrete edits that persist this frame
+			static char const* const LTRB[] = { "L", "T", "R", "B" };
+			static char const* const XY[] = { "X", "Y" };
+			static char const* const WH[] = { "W", "H" };
+
+			// === Widget ===
+			const String widgetHeader =
+				String(sec->id) + "  (" + sec->type + ")###uiWidget";
+			if(ImGui::CollapsingHeader(widgetHeader.c_str(),
+				ImGuiTreeNodeFlags_DefaultOpen))
+			{
+				Orkige::pushPropertyGridStyle();
+				if(ImGui::BeginTable("##uiwidget", 2,
+					ImGuiTableFlags_SizingStretchProp))
+				{
+					ImGui::TableSetupColumn("label",
+						ImGuiTableColumnFlags_WidthStretch, 0.30f);
+					ImGui::TableSetupColumn("value",
+						ImGuiTableColumnFlags_WidthStretch, 0.70f);
+					committed |= textRow(s.doc, *sec, "Text",
+						"the widget's caption / label text", "text");
+					committed |= textRow(s.doc, *sec, "Z Order",
+						"the render layer (higher draws on top)", "z");
+					committed |= textRow(s.doc, *sec, "Sprite",
+						"the atlas sprite face (button / panel / ...)", "sprite");
+					ImGui::EndTable();
+				}
+				Orkige::popPropertyGridStyle();
+			}
+
 			if(geomMode(*sec) == UiGeomMode::Layout)
 			{
-				// the visual anchor-preset gizmo (its click applies + persists)
-				if(anchorPresetGizmo(s, stage)) { String err; persist(s, stage, err); }
-				// anchor preset picker (a discrete change: its own gesture)
-				String anchor = sec->find("anchor") ? *sec->find("anchor") : String("topleft");
-				ImGui::SetNextItemWidth(120.0f);
-				if(ImGui::BeginCombo("##anchor", anchor.c_str()))
+				// === Anchors ===
+				if(ImGui::CollapsingHeader("Anchors###uiAnchors",
+					ImGuiTreeNodeFlags_DefaultOpen))
 				{
-					char const* presets[] = { "topleft","top","topright","left",
-						"center","right","bottomleft","bottom","bottomright",
-						"stretchtop","stretchall" };
-					for(char const* preset : presets)
+					// the visual anchor-preset gizmo (its click applies + persists)
+					if(anchorPresetGizmo(s, stage))
 					{
-						if(ImGui::Selectable(preset, anchor == preset))
-						{
-							s.doc.beginEdit();
-							sec->set("anchor", preset);
-							s.doc.commitEdit();
-							edited = true;
-						}
+						String err; persist(s, stage, err);
 					}
-					ImGui::EndCombo();
+					Orkige::pushPropertyGridStyle();
+					if(ImGui::BeginTable("##uianchor", 2,
+						ImGuiTableFlags_SizingStretchProp))
+					{
+						ImGui::TableSetupColumn("label",
+							ImGuiTableColumnFlags_WidthStretch, 0.30f);
+						ImGui::TableSetupColumn("value",
+							ImGuiTableColumnFlags_WidthStretch, 0.70f);
+						// the anchor combo re-resolves the section's geometry form,
+						// so re-fetch it before drawing the per-axis rows
+						committed |= anchorComboRow(s, stage, *sec);
+						if(GuiLayoutSection* live = selectedSection(s))
+						{
+							if(live->find("offsets"))
+							{
+								axisRow(s, "Offsets",
+									"left / top / right / bottom insets (design px)",
+									"offsets", LTRB, 4, 0.5f);
+							}
+							if(live->find("anchoredPos"))
+							{
+								axisRow(s, "Position",
+									"the pivot's offset from the anchor (design px)",
+									"anchoredPos", XY, 2, 0.5f);
+							}
+							if(live->find("sizeDelta"))
+							{
+								axisRow(s, "Size",
+									"size beyond the anchor span (design px)",
+									"sizeDelta", WH, 2, 0.5f);
+							}
+							if(live->find("pivot"))
+							{
+								axisRow(s, "Pivot",
+									"the 0..1 point the position anchors to (x y)",
+									"pivot", XY, 2, 0.01f);
+							}
+						}
+						ImGui::EndTable();
+					}
+					Orkige::popPropertyGridStyle();
 				}
-				ImGui::SameLine(0.0f, 0.0f);
-				ImGui::TextDisabled(" anchor");
-				if(sec->find("offsets")) { edited |= textField(s.doc, *sec, "offsets", "offsets"); }
-				if(sec->find("anchoredPos")) { edited |= textField(s.doc, *sec, "anchoredPos", "anchoredPos"); }
-				if(sec->find("sizeDelta")) { edited |= textField(s.doc, *sec, "sizeDelta", "sizeDelta"); }
 			}
 			else
 			{
-				edited |= textField(s.doc, *sec, "position", "position");
-				edited |= textField(s.doc, *sec, "size", "size");
+				// === Transform (absolute geometry) ===
+				if(ImGui::CollapsingHeader("Transform###uiTransform",
+					ImGuiTreeNodeFlags_DefaultOpen))
+				{
+					Orkige::pushPropertyGridStyle();
+					if(ImGui::BeginTable("##uitransform", 2,
+						ImGuiTableFlags_SizingStretchProp))
+					{
+						ImGui::TableSetupColumn("label",
+							ImGuiTableColumnFlags_WidthStretch, 0.30f);
+						ImGui::TableSetupColumn("value",
+							ImGuiTableColumnFlags_WidthStretch, 0.70f);
+						axisRow(s, "Position",
+							"absolute top-left position (design px)",
+							"position", XY, 2, 0.5f);
+						axisRow(s, "Size", "absolute size (design px)",
+							"size", WH, 2, 0.5f);
+						ImGui::EndTable();
+					}
+					Orkige::popPropertyGridStyle();
+				}
 			}
-			if(edited)
+
+			ImGui::PopStyleColor(3);
+
+			// close a per-axis drag once the mouse releases: ONE undo step + one
+			// persist per drag (axisRow opened the gesture on grab and edited the
+			// model live; the canvas / hot-reload catch up here on release, exactly
+			// like the canvas gizmo and the text fields' commit-on-blur)
+			if(!activeAxisFieldKey().empty() &&
+				!ImGui::IsMouseDown(ImGuiMouseButton_Left))
 			{
-				// the gesture is already committed by the field; persist once so the
-				// canvas reflects it (and Play hot-reloads)
+				s.doc.commitEdit();
+				activeAxisFieldKey().clear();
+				committed = true;
+			}
+			if(committed)
+			{
 				String err; persist(s, stage, err);
 			}
-			if(ImGui::Button("Delete widget"))
+
+			ImGui::Spacing();
+			ImGui::BeginDisabled(s.selection.empty());
+			if(ImGui::Button("Delete Widget"))
 			{
 				uiEditDeleteSelected(s);
 				String err; persist(s, stage, err);
 			}
+			ImGui::EndDisabled();
 		}
 		else
 		{
@@ -1286,18 +1565,10 @@ namespace OrkigeEditor
 
 		ImGui::Separator();
 
-		// the palette: click a kind to add it under the selection (or root)
-		ImGui::TextDisabled("Add widget");
-		int column = 0;
-		for(UiWidgetKind const& kind : uiWidgetKinds())
-		{
-			if(column++ % 2 != 0) { ImGui::SameLine(); }
-			if(ImGui::SmallButton(kind.label))
-			{
-				uiEditAddWidget(s, kind.type);
-				String err; persist(s, stage, err);
-			}
-		}
+		// add-widget flow: ONE "Add Widget" button that opens the kind picker
+		// (the Inspector's Add Component pattern), replacing the old always-visible
+		// palette grid the owner read as clutter
+		uiEditAddWidgetControl(s, stage, "panel", true);
 		}	// drawUiEditToolsBody
 	}
 	//---------------------------------------------------------

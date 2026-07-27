@@ -705,3 +705,332 @@ TEST_CASE("ui-edit: adornment bounds vs the canvas clip rect", "[unit][uiedit]")
 	CHECK(empty.width == 0.0f);
 	CHECK(empty.height == 0.0f);
 }
+
+//=============================================================================
+//=== the ALIGNMENT-SWITCHING MATRIX ==========================================
+//=============================================================================
+// Every anchor preset (16) x every gizmo modifier variant (plain / keep-rect /
+// also-pivot) applied to representative widget kinds whose STARTING geometry
+// forms span the problem space (an offsets-form stretch caption - the reported
+// bug's shape; a friendly-form point-anchored nine-slice decor; a full-stretch
+// offsets textbox; a friendly-form point-anchored button). Each application is
+// asserted for the whole outcome contract: (a) the doc-model anchor fields are
+// exactly the preset's spec, (b) the resolved rect matches the pure-math
+// expectation (keep-rect keeps the WHOLE rect; plain keeps the SIZE and the
+// anchoredPosition, re-homing to the new anchor), (c) CONTENT CONTAINMENT - a
+// NON-DEGENERATE (positive) box, the pure necessary-and-sufficient condition
+// for caption/sprite/nine-slice geometry to stay inside the widget (the runtime
+// only escapes a zero/negative box: a centred caption's cursor is
+// left+width*0.5-textWidth*0.5 with clipping SKIPPED when width==0 - see
+// UiCaption::_redraw; the live glyph-rect check is the editor_uiedit selfcheck's
+// content leg), (d) save->reload->re-resolve equality, (e) undo restores the
+// pre-apply text byte-exact. This matrix is the regression proof for the
+// content-escapes-its-rect bug and the systematic net for its siblings.
+namespace
+{
+	// the 16 preset names in LayoutAnchorPreset enum order (the key the section
+	// carries; matches applyAnchorPresetToSection's own table)
+	char const* const kPresetNames[16] = {
+		"topleft","top","topright","left","center","right",
+		"bottomleft","bottom","bottomright","stretchtop","stretchmiddle",
+		"stretchbottom","stretchleft","stretchcenter","stretchright","stretchall" };
+
+	// a representative widget section by kind, in its natural authored form
+	GuiLayoutSection matrixSection(std::string const& kind)
+	{
+		GuiLayoutSection s;
+		s.id = "w";
+		if(kind == "label")
+		{
+			// the reported bug's shape: an offsets-form stretch-top caption with
+			// the .oui default (centre) text alignment
+			s.type = "Label";
+			s.set("font", "9");
+			s.set("text", "Content");
+			s.set("anchor", "stretchtop");
+			s.set("offsets", "24 16 -24 48");
+			s.set("textAlignment", "center");
+		}
+		else if(kind == "decor")
+		{
+			// a friendly-form point-anchored nine-slice panel (settingsPanel shape)
+			s.type = "DecorWidget";
+			s.set("sprite", "panel");
+			s.set("nineSlice", "true");
+			s.set("anchor", "center");
+			s.set("pivot", "0.5 0.5");
+			s.set("anchoredPos", "0 0");
+			s.set("sizeDelta", "460 460");
+		}
+		else if(kind == "textbox")
+		{
+			// a full-stretch offsets-form wrap textbox
+			s.type = "TextBox";
+			s.set("font", "9");
+			s.set("text", "A long wrapped paragraph of body text");
+			s.set("wrap", "true");
+			s.set("anchor", "stretchall");
+			s.set("offsets", "16 64 -16 -16");
+		}
+		else	// button
+		{
+			s.type = "Button";
+			s.set("sprite", "button");
+			s.set("font", "9");
+			s.set("text", "OK");
+			s.set("anchor", "topleft");
+			s.set("anchoredPos", "40 120");
+			s.set("sizeDelta", "160 44");
+		}
+		return s;
+	}
+
+	// the [Layout] + one widget document text for a kind (the canonical form)
+	std::string matrixDocText(std::string const& kind)
+	{
+		GuiLayoutDoc doc;
+		GuiLayoutSection layout;
+		layout.type = "Layout";
+		layout.set("atlas", "gui_default");
+		doc.sections.push_back(layout);
+		doc.sections.push_back(matrixSection(kind));
+		return doc.serialize();
+	}
+}
+
+TEST_CASE("ui-edit: anchor-preset switching matrix - fields, resolved rect, "
+	"containment, round-trip, undo", "[unit][uiedit]")
+{
+	const LayoutRect parent{ 0.0f, 0.0f, 400.0f, 800.0f };
+	const float scale = 2.0f;
+	const char* kinds[] = { "label", "decor", "textbox", "button" };
+	enum Variant { V_PLAIN = 0, V_KEEP = 1, V_PIVOT = 2 };
+	const char* variantName[] = { "plain", "keep-rect", "also-pivot" };
+
+	for(char const* kind : kinds)
+	{
+		for(int p = 0; p < 16; ++p)
+		{
+			const LayoutAnchorPreset preset = static_cast<LayoutAnchorPreset>(p);
+			for(int v = 0; v < 3; ++v)
+			{
+				INFO("kind=" << kind << " preset=" << kPresetNames[p]
+					<< " variant=" << variantName[v]);
+				UiEditDoc edit;
+				std::string err;
+				REQUIRE(edit.load(matrixDocText(kind), err));
+				const std::string textBefore = edit.text();
+				GuiLayoutSection& sec = mutableSection(edit.doc(), "w");
+				const LayoutNode nodeBefore = sectionLayoutNode(sec);
+				const LayoutRect before = resolveSection(sec, parent, scale);
+				const LayoutVec2 apBefore = nodeBefore.anchoredPosition();
+				REQUIRE(before.w > 0.0f);
+				REQUIRE(before.h > 0.0f);
+
+				AnchorPresetMods mods;
+				mods.alsoKeepRect = (v == V_KEEP);
+				mods.alsoPivot = (v == V_PIVOT);
+				edit.beginEdit();
+				applyAnchorPresetToSection(sec, preset, mods, parent, scale);
+				edit.commitEdit();
+
+				// (a) the doc-model anchor fields ARE the preset's spec
+				LayoutNode spec;
+				applyAnchorPreset(spec, preset);
+				const LayoutNode got = sectionLayoutNode(sec);
+				CHECK_THAT(got.anchorMin.x, WithinAbs(spec.anchorMin.x, 1e-4f));
+				CHECK_THAT(got.anchorMin.y, WithinAbs(spec.anchorMin.y, 1e-4f));
+				CHECK_THAT(got.anchorMax.x, WithinAbs(spec.anchorMax.x, 1e-4f));
+				CHECK_THAT(got.anchorMax.y, WithinAbs(spec.anchorMax.y, 1e-4f));
+				REQUIRE(sec.find("anchor") != nullptr);
+				CHECK(*sec.find("anchor") == kPresetNames[p]);
+				CHECK(sec.find("anchorMin") == nullptr);	// named, not raw
+				CHECK(sec.find("anchorMax") == nullptr);
+
+				const LayoutRect after = resolveSection(sec, parent, scale);
+
+				// (c) CONTENT CONTAINMENT: a non-degenerate box on every path
+				CHECK(after.w > 0.0f);
+				CHECK(after.h > 0.0f);
+
+				// (b) the resolved rect matches the pure-math expectation
+				if(v == V_KEEP)
+				{
+					// keep-rect pins the WHOLE on-screen rect
+					CHECK_THAT(after.x, WithinAbs(before.x, 1e-2f));
+					CHECK_THAT(after.y, WithinAbs(before.y, 1e-2f));
+					CHECK_THAT(after.w, WithinAbs(before.w, 1e-2f));
+					CHECK_THAT(after.h, WithinAbs(before.h, 1e-2f));
+				}
+				else
+				{
+					// plain / also-pivot preserve the SIZE (re-homing to the new
+					// anchor); this is what keeps the caption inside its box across
+					// a stretch<->point span change (the reported bug)
+					CHECK_THAT(after.w, WithinAbs(before.w, 1e-2f));
+					CHECK_THAT(after.h, WithinAbs(before.h, 1e-2f));
+				}
+				if(v == V_PLAIN)
+				{
+					// plain keeps the anchoredPosition (the pivot's offset from the
+					// anchor point) - the widget follows the new anchor, no jump in
+					// its anchor-relative placement
+					CHECK_THAT(got.anchoredPosition().x,
+						WithinAbs(apBefore.x, 1e-2f));
+					CHECK_THAT(got.anchoredPosition().y,
+						WithinAbs(apBefore.y, 1e-2f));
+				}
+				if(v == V_PIVOT)
+				{
+					// also-pivot lands the pivot on the preset point
+					REQUIRE(sec.find("pivot") != nullptr);
+					const LayoutVec2 pt = anchorPresetPoint(preset);
+					CHECK_THAT(got.pivot.x, WithinAbs(pt.x, 1e-3f));
+					CHECK_THAT(got.pivot.y, WithinAbs(pt.y, 1e-3f));
+				}
+
+				// (d) save -> reload -> re-resolve equality
+				GuiLayoutDoc reloaded;
+				std::string parseErr;
+				REQUIRE(GuiLayoutDoc::parse(edit.text(), reloaded, parseErr));
+				const LayoutRect afterReload =
+					resolveSection(sectionById(reloaded, "w"), parent, scale);
+				CHECK_THAT(afterReload.x, WithinAbs(after.x, 1e-2f));
+				CHECK_THAT(afterReload.y, WithinAbs(after.y, 1e-2f));
+				CHECK_THAT(afterReload.w, WithinAbs(after.w, 1e-2f));
+				CHECK_THAT(afterReload.h, WithinAbs(after.h, 1e-2f));
+
+				// (e) undo restores the pre-apply text byte-exact (a no-op apply
+				// pushes no step and leaves the text already equal)
+				if(edit.canUndo())
+				{
+					edit.undo();
+				}
+				CHECK(edit.text() == textBefore);
+			}
+		}
+	}
+}
+
+TEST_CASE("ui-edit: interaction chain - preset -> drag -> preset keeps a valid "
+	"box and the final preset's fields", "[unit][uiedit]")
+{
+	const LayoutRect parent{ 0.0f, 0.0f, 400.0f, 800.0f };
+	const float scale = 2.0f;
+	// start from the reported bug's shape (offsets-form stretch caption)
+	GuiLayoutSection s = matrixSection("label");
+	const LayoutRect start = resolveSection(s, parent, scale);
+
+	// 1) re-anchor to centre (plain) - size preserved, box valid
+	applyAnchorPresetToSection(s, LAP_CENTER, {}, parent, scale);
+	LayoutRect r1 = resolveSection(s, parent, scale);
+	CHECK(r1.w > 0.0f);
+	CHECK_THAT(r1.w, WithinAbs(start.w, 1e-2f));
+
+	// 2) drag it (a body move) - the pure move path the canvas uses
+	applyMove(s, 30.0f, 20.0f, scale, 0.0f);
+	LayoutRect r2 = resolveSection(s, parent, scale);
+	CHECK_THAT(r2.x, WithinAbs(r1.x + 30.0f, 1e-2f));
+	CHECK_THAT(r2.y, WithinAbs(r1.y + 20.0f, 1e-2f));
+	CHECK_THAT(r2.w, WithinAbs(start.w, 1e-2f));	// drag never resizes
+
+	// 3) re-anchor again to bottom-right (plain) - fields are the new preset,
+	// the box stays valid and the same size
+	applyAnchorPresetToSection(s, LAP_BOTTOMRIGHT, {}, parent, scale);
+	LayoutRect r3 = resolveSection(s, parent, scale);
+	CHECK(r3.w > 0.0f);
+	CHECK(r3.h > 0.0f);
+	CHECK_THAT(r3.w, WithinAbs(start.w, 1e-2f));
+	REQUIRE(s.find("anchor") != nullptr);
+	CHECK(*s.find("anchor") == std::string("bottomright"));
+}
+
+TEST_CASE("ui-edit: interaction chain - preset -> resize -> undo -> redo",
+	"[unit][uiedit]")
+{
+	const LayoutRect parent{ 0.0f, 0.0f, 400.0f, 800.0f };
+	const float scale = 2.0f;
+	UiEditDoc edit;
+	std::string err;
+	REQUIRE(edit.load(matrixDocText("button"), err));
+	const std::string t0 = edit.text();
+
+	// preset (one step)
+	edit.beginEdit();
+	applyAnchorPresetToSection(mutableSection(edit.doc(), "w"), LAP_STRETCH_ALL,
+		{}, parent, scale);
+	edit.commitEdit();
+	const std::string t1 = edit.text();
+	CHECK(t1 != t0);
+	const LayoutRect afterPreset =
+		resolveSection(sectionById(edit.doc(), "w"), parent, scale);
+	CHECK(afterPreset.w > 0.0f);
+
+	// resize by a right-edge drag (a second step)
+	edit.beginEdit();
+	applyResize(mutableSection(edit.doc(), "w"), UiHandle::Right, 40.0f, 0.0f,
+		scale, 0.0f);
+	edit.commitEdit();
+	const std::string t2 = edit.text();
+	CHECK(t2 != t1);
+
+	// undo the resize -> back to the preset state
+	edit.undo();
+	CHECK(edit.text() == t1);
+	// undo the preset -> back to the original
+	edit.undo();
+	CHECK(edit.text() == t0);
+	// redo both
+	edit.redo();
+	CHECK(edit.text() == t1);
+	edit.redo();
+	CHECK(edit.text() == t2);
+}
+
+TEST_CASE("ui-edit: a wrap label keeps a positive width across an anchor change "
+	"(the height-for-width precondition)", "[unit][uiedit]")
+{
+	// A wrapped label measures its height from the width the resolver settles on
+	// (GuiLabel::getHeightForWidthMeasurer, exercised live by the GuiManager
+	// resolve pass). The editor's job is to never hand that path a degenerate
+	// width - assert the resolved width stays positive across a stretch->point
+	// re-anchor (the runtime height re-measure itself is a GuiManager concern,
+	// covered by the layout resolver's own suite).
+	const LayoutRect parent{ 0.0f, 0.0f, 400.0f, 800.0f };
+	const float scale = 2.0f;
+	GuiLayoutSection s = matrixSection("textbox");	// wrap = true, stretchall
+	CHECK(resolveSection(s, parent, scale).w > 0.0f);
+	applyAnchorPresetToSection(s, LAP_CENTER, {}, parent, scale);
+	CHECK(resolveSection(s, parent, scale).w > 0.0f);
+	applyAnchorPresetToSection(s, LAP_STRETCH_LEFT, {}, parent, scale);
+	CHECK(resolveSection(s, parent, scale).w > 0.0f);
+}
+
+TEST_CASE("ui-edit: anchor preset on a layout-group child - the editor sets the "
+	"fields; the runtime group owns the rect (documented caveat)",
+	"[unit][uiedit]")
+{
+	// A widget parented into a layout GROUP has its rect ASSIGNED by the group's
+	// arrange pass at runtime (GuiManager::resolveLayouts), so its own anchor
+	// preset does not place it - a documented v1 caveat. The editor still lets
+	// you set the anchor (the doc field updates and the editor's own doc-resolve,
+	// which does NOT simulate groups, reflects the anchor). This asserts BOTH
+	// halves: the field is written, and the divergence is real (the editor's
+	// doc-resolved rect follows the anchor, i.e. it is NOT clamped to a group cell
+	// here - the parent is a plain container in this pure fixture).
+	const LayoutRect parent{ 0.0f, 0.0f, 400.0f, 800.0f };
+	const float scale = 2.0f;
+	GuiLayoutSection child = matrixSection("button");
+	child.set("parent", "content");	// a group parent in the real doc
+	const LayoutRect before = resolveSection(child, parent, scale);
+	applyAnchorPresetToSection(child, LAP_BOTTOMRIGHT, {}, parent, scale);
+	// the field is written (the editor honoured the gesture)
+	REQUIRE(child.find("anchor") != nullptr);
+	CHECK(*child.find("anchor") == std::string("bottomright"));
+	// the editor's doc-resolve (group-unaware) moved the rect to the new anchor -
+	// this is the divergence the caveat names; the box stays valid either way
+	const LayoutRect after = resolveSection(child, parent, scale);
+	CHECK(after.w > 0.0f);
+	CHECK(after.h > 0.0f);
+	CHECK(after.x != before.x);	// re-homed in the group-unaware editor resolve
+}

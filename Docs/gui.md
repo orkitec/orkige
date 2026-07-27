@@ -642,7 +642,7 @@ The **Preview** panel edits the picked `.oui` visually. Pick a screen in the
 **Overlay** dropdown and tick **Edit UI**: the Preview panel becomes the CANVAS
 (the screen rendered through the SAME preview gui stack, with the edit
 adornments) and its slim toolbar keeps only the Edit UI toggle, a **+ Add**
-dropdown and a **Delete** button; the TOOL SURFACE — widget tree, properties,
+button and a **Delete** button; the TOOL SURFACE — widget tree, properties,
 anchor gizmo, align/distribute, add/delete and the undo/redo/save controls —
 lives in the dockable **UI Editor** panel (a tab beside the Inspector by
 default), which auto-opens on entering Edit UI and shows an honest empty state
@@ -695,16 +695,28 @@ save-state indicator (`* unsaved` / `saved`). Below sits a widget **tree** (the
 selecting in the tree selects on the canvas and vice versa; an **align/distribute**
 row when two or more widgets are selected (align left/centre/right/top/middle/
 bottom to the key object's matching edge or centre, distribute horizontally/
-vertically to equal gaps between the extremes); a **properties** block for the
-key object (text, z, sprite, geometry fields for the widget's mode) carrying the
-**anchor-preset gizmo** — a 4×3 point grid plus a stretch column and row, one
-click per the 16 `LayoutAnchorPreset`s. A plain click sets the anchor; **Alt**
-also moves the pivot to the preset point; **Shift** also keeps the on-screen rect
-(recomputing offsets). A **palette** — click a kind (`label`, `button`,
-`checkbox`, `slider`, `progressbar`, `selectmenu`, `dropdown`, `textentry`,
-`textbox`, `panel`, `scrollview`) — adds it under the selection (or at the root)
-with sane defaults and a unique id (the Preview panel's slim **+ Add** dropdown is
-the canvas-adjacent shortcut for the same). **Delete** removes the selected
+vertically to equal gaps between the extremes); and a **properties** area for the
+key object laid out to Inspector parity — the same 30/70 label-left / value-right
+columns, the baked small value font, the shared dense grid style and OS-mannered
+tooltips — grouped under collapsing headers in the component-header visual
+language: **Widget** (text, z order, sprite), **Anchors** for a layout widget
+(the anchor-preset gizmo, the anchor combo, and the geometry fields) or
+**Transform** for a legacy absolute widget (position, size). Multi-value fields
+are per-axis drag-floats through the same helper the Inspector uses (`offsets` as
+four L/T/R/B fields, `anchoredPos`/`position`/`pivot`/`sizeDelta`/`size` as two),
+with trimmed display and full-precision editing; a drag folds into one undo step
+and the canvas catches up on release. The **anchor-preset gizmo** is a 4×3 point
+grid plus a stretch column and row, one click per the 16 `LayoutAnchorPreset`s: a
+plain click re-anchors the widget while **preserving its on-screen size** (so a
+stretch↔point switch can never leave a degenerate box the caption would draw
+outside), **Alt** also moves the pivot to the preset point, **Shift** also keeps
+the whole on-screen rect (recomputing offsets); the anchor combo routes through
+the same size-preserving apply. An **Add Widget** button opens a searchable
+picker of the kinds (`label`, `button`, `checkbox`, `slider`, `progressbar`,
+`selectmenu`, `dropdown`, `textentry`, `textbox`, `panel`, `scrollview`) — the
+Inspector's Add-Component pattern — that adds one under the selection (or at the
+root) with sane defaults and a unique id; the Preview panel's slim **+ Add**
+opens the SAME picker canvas-adjacent. **Delete Widget** removes the selected
 subtree(s). **Undo** / **Redo** step one gesture at a time (a drag, an align, a
 nudge burst are each one step); global **Cmd/Ctrl+Z** routes to the document
 while the UI Editor panel or the canvas holds focus, so it never edits the scene
@@ -729,8 +741,19 @@ The editing core is UI-independent and headless-tested: `EditorUiEdit`
 pivot drag math, align/distribute over rect lists, marquee intersection, smart-
 guide candidates + snapping, palette placement, add/remove, the snapshot undo
 document with nudge-burst coalescing) with `EditorUiEditTests` unit coverage plus
-the round-trip assertion on the shipped sample screens; the panel wiring — load,
-multi-select, align, marquee, keep-rect anchor preset, undo — is the
+the round-trip assertion on the shipped sample screens. That suite includes an
+**alignment-switching matrix** — every anchor preset (16) × modifier variant
+(plain / keep-rect / also-pivot) × representative widget kinds (an offsets-form
+stretch caption, a friendly nine-slice decor, a wrap textbox, a button) — that
+asserts, per application, the doc-model anchor fields, the resolved-rect
+expectation (keep-rect holds the whole rect; plain holds the size and
+anchoredPosition), **content containment** (a non-degenerate resolved box — the
+necessary-and-sufficient condition for a caption to stay inside, since the
+runtime clips to the box whenever its width is non-zero and only escapes a
+zero/negative box), save→reload→re-resolve equality, and byte-exact undo, plus
+interaction chains (preset→drag→preset, preset→resize→undo→redo). The panel
+wiring — load, multi-select, align, marquee, keep-rect anchor preset, undo, and a
+content-containment matrix through the real load→apply→reload path — is the
 `editor_uiedit` selfcheck on both flavors. All alignment tooling resolves each
 widget's rect through the ONE `UiLayout` resolver: the live overlay rects on the
 Ogre-Next canvas, and a document-side resolve of the same math elsewhere, so the

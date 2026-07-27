@@ -88,6 +88,15 @@ namespace Orkige
 	//! checkboxes). Paired with a pushed FrameBorderSize where fields render.
 	ImVec4 editorFieldBorderColor();
 
+	//! @brief push the shared dense property-grid style: a 1px recessed field
+	//! border, tighter frame/cell padding, edgier frame corners and the field
+	//! border colour - the ONE look the Inspector and the UI Editor panel wrap
+	//! their label/value tables in, so both read as one system. MUST be balanced
+	//! by popPropertyGridStyle(). @{
+	void pushPropertyGridStyle();
+	void popPropertyGridStyle();
+	//! @}
+
 	//! a recessed region ground (a step darker than the panel) for browsing
 	//! areas - the asset browser's folder tree and the tile palette's grid -
 	//! so the scrollable area reads as distinct from its header/toolbar strip.

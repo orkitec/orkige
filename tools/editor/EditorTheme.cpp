@@ -321,6 +321,26 @@ namespace Orkige
 		return activePalette().fieldBorder;
 	}
 	//---------------------------------------------------------
+	void pushPropertyGridStyle()
+	{
+		// a recessed 1px field border makes each input read as a well; the table
+		// itself draws no borders. The dense grid: tighter row spacing, shorter
+		// inputs, edgier corners. Keep in lockstep with popPropertyGridStyle().
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+			ImVec2(ImGui::GetStyle().FramePadding.x, 2.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,
+			ImVec2(ImGui::GetStyle().CellPadding.x, 1.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
+		ImGui::PushStyleColor(ImGuiCol_Border, editorFieldBorderColor());
+	}
+	//---------------------------------------------------------
+	void popPropertyGridStyle()
+	{
+		ImGui::PopStyleColor();		// field border
+		ImGui::PopStyleVar(4);		// FrameBorderSize + density vars
+	}
+	//---------------------------------------------------------
 	ImVec4 editorRegionBackground()
 	{
 		return activePalette().regionBg;

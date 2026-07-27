@@ -138,6 +138,14 @@ namespace OrkigeEditor
 		Orkige::LayoutAnchorPreset preset, AnchorPresetMods mods);
 	//! add a palette widget of `type` (parented to the selection), select it
 	std::string uiEditAddWidget(UiEditSession& s, std::string const& type);
+	//! @brief draw the shared "add widget" control - a button that opens the
+	//! kind-picker popup (a search box + the widget kinds, the Inspector's Add
+	//! Component pattern). @p bigButton draws the wide centred primary button (the
+	//! UI Editor panel); false draws the compact "+ Add" (the Preview toolbar).
+	//! @p idScope makes the popup id unique per host window. Returns true when a
+	//! widget was added (already persisted). Both call sites open the SAME picker.
+	bool uiEditAddWidgetControl(UiEditSession& s, GamePreviewStage& stage,
+		char const* idScope, bool bigButton);
 	//! remove the selected widget subtree (one undo step)
 	void uiEditDeleteSelected(UiEditSession& s);
 	void uiEditUndo(UiEditSession& s);
