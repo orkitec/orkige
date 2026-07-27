@@ -14,11 +14,15 @@
 // several open files read as sibling tabs in one dock node like every other
 // panel. A document opens via Asset-browser double-click, the Inspector's
 // "Open in Internal Editor" button or a one-shot EditorState::scriptOpenRequest
-// (break-hits route through it). Syntax highlight follows the file kind - Lua,
-// JSON, Markdown, an XML definition for the engine's XML formats, plain text
-// otherwise; completion (from the engine's own truth - the generated Lua API
-// index, the scriptable-component registry, live scripting-state globals and
-// the document's identifiers) is Lua-only, and so is the breakpoint gutter.
+// (break-hits route through it). Syntax highlight follows the file kind -
+// Lua, JSON, Markdown, a custom XML definition for the engine's XMLArchive/
+// XLIFF formats, a custom config-text definition for its line-based
+// .oui/.ogui/.omat/.oshape formats, plain text for anything else its
+// extension is unrecognized (unless the CONTENT sniffs as XML/JSON - see
+// OrkigeEditor::sniffTextDocumentKind); completion (from the engine's own
+// truth - the generated Lua API index, the scriptable-component registry,
+// live scripting-state globals and the document's identifiers) is Lua-only,
+// and so is the breakpoint gutter.
 // Cmd/Ctrl+S saves the focused document (during play the scripts watcher
 // hot-reloads the running player - no second reload path).
 //
@@ -80,9 +84,12 @@ namespace
 		unsigned int markedBreakSeq = 0;
 		bool markedBroken = false;
 		//! live parse diagnostics ("squiggles"): what the format's own parser
-		//! says about the CURRENT buffer, refreshed once the text sits still
-		enum class LiveCheck { None, Lua, Xml };
-		LiveCheck liveCheck = LiveCheck::None;
+		//! says about the CURRENT buffer, refreshed once the text sits
+		//! still. The kind itself is the pure, unit-tested
+		//! OrkigeEditor::liveCheckKindForExtension (@see
+		//! EditorTextDiagnostics.h for which formats stay honestly
+		//! diagnostic-free).
+		OrkigeEditor::LiveCheckKind liveCheck = OrkigeEditor::LiveCheckKind::None;
 		std::size_t checkedUndoIndex = static_cast<std::size_t>(-1);
 		std::size_t lastSeenUndoIndex = static_cast<std::size_t>(-1);
 		int stableFrames = 0;			//!< frames the buffer sat unchanged
@@ -169,10 +176,12 @@ namespace
 		return ext;
 	}
 
-	//! a minimal XML language definition authored through the widget's custom-
-	//! language API (the engine's XML formats: .oscene/.oprefab/.orkproj/.xlf):
-	//! tag/attribute names as identifiers, quoted attribute values as strings,
-	//! <!-- --> comments, and the markup punctuation coloured
+	//! a minimal XML language definition authored through the widget's
+	//! custom-language API (the engine's XMLArchive carriers -
+	//! .oscene/.oprefab/.orkproj/.orkmeta/.olevels/.oactions/.olayers - plus
+	//! XLIFF .xlf and a bare .xml): tag/attribute names as identifiers,
+	//! quoted attribute values as strings, <!-- --> comments, and the
+	//! markup punctuation coloured
 	const TextEditor::Language* xmlLanguage()
 	{
 		static const TextEditor::Language language = []
@@ -219,10 +228,126 @@ namespace
 		return &language;
 	}
 
-	//! the highlighter for a file kind (nullptr = plain text). JSON ships with
-	//! the widget; the engine's XML formats get the custom XML definition; our
-	//! bespoke text grammars (.oui/.omat/.oshape/...) open as plain text
-	const TextEditor::Language* languageForFile(std::string const& path)
+	//! the engine's line-based config-text formats - `.oui`/`.ogui`
+	//! (`[Section id]` headers, `key = value`/`key value` entries) and
+	//! `.omat`/`.oshape` (no sections; each line opens with a directive
+	//! keyword followed by numbers/asset names) - share one shape closely
+	//! enough for one definition: `#`/`;` line comments, bare words as
+	//! identifiers (the widget's per-token API has no notion of "start of
+	//! line", so a key and an asset-name value read alike - both are
+	//! bespoke words, same as the XML def above does not distinguish a tag
+	//! name from an attribute name), numbers (leading '-' included, so
+	//! "-1.00" colours as one literal), and the two BOUNDED vocabularies
+	//! that are unambiguous wherever they appear: `.oui`'s widget section
+	//! TYPES (declarations - the id after them stays a plain identifier) and
+	//! `.omat`/`.oshape`'s directive words (keywords - exactly the "first
+	//! word is a keyword" reading a directive line wants)
+	const TextEditor::Language* orkigeConfigLanguage()
+	{
+		static const TextEditor::Language language = []
+		{
+			TextEditor::Language lang;
+			lang.name = "OrkigeConfig";
+			lang.caseSensitive = true;
+			lang.singleLineComment = "#";
+			lang.singleLineCommentAlt = ";";
+			lang.isPunctuation = [](ImWchar c)
+			{
+				return c == '[' || c == ']' || c == '=' || c == ':';
+			};
+			auto isNameStart = [](ImWchar c)
+			{
+				return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+					c == '_';
+			};
+			auto isNameChar = [isNameStart](ImWchar c)
+			{
+				return isNameStart(c) || (c >= '0' && c <= '9') ||
+					c == '.' || c == '-';
+			};
+			lang.getIdentifier = [isNameStart, isNameChar](
+				TextEditor::Iterator start, TextEditor::Iterator end)
+			{
+				TextEditor::Iterator i = start;
+				if (i != end && isNameStart(*i))
+				{
+					for (++i; i != end && isNameChar(*i); ++i)
+					{
+					}
+					return i;
+				}
+				return start;
+			};
+			lang.getNumber = [](TextEditor::Iterator start,
+				TextEditor::Iterator end)
+			{
+				auto isDigit = [](ImWchar c) { return c >= '0' && c <= '9'; };
+				TextEditor::Iterator i = start;
+				if (i != end && *i == '-')
+				{
+					++i;
+				}
+				if (i == end || !isDigit(*i))
+				{
+					return start;	// a bare '-'/non-numeric: no token
+				}
+				for (; i != end && isDigit(*i); ++i)
+				{
+				}
+				if (i != end && *i == '.')
+				{
+					TextEditor::Iterator afterDot = i;
+					++afterDot;
+					if (afterDot != end && isDigit(*afterDot))
+					{
+						for (i = afterDot; i != end && isDigit(*i); ++i)
+						{
+						}
+					}
+				}
+				return i;
+			};
+			// .oui's widget-tree section types (Util/make_gui_atlas.py's
+			// .ogui carries its own [Texture]/[Font.N]/[Sprites] vocabulary,
+			// which stays plain identifiers - harmless, never colliding)
+			lang.declarations = {
+				"Layout", "Label", "Button", "CheckBox", "TextBox", "Slider",
+				"ProgressBar", "TextEntry", "DecorWidget", "Panel",
+				"ScrollView", "ListView", "DropDown", "Modal", "ToggleGroup",
+				"TabBar",
+			};
+			// .omat + .oshape directive words (@see core_util/MaterialAsset.h,
+			// core_util/VectorShapeAsset.h)
+			lang.keywords = {
+				"version", "albedo", "albedoTexture", "metalness",
+				"roughness", "normalTexture", "emissive", "emissiveTexture",
+				"alphaTest", "twoSided",
+				"fill", "contour", "v", "hole", "mask", "morph", "texture",
+				"stroke",
+			};
+			return lang;
+		}();
+		return &language;
+	}
+
+	//! extensions the editor already treats as plain text ON PURPOSE (not
+	//! merely undecided) - they do NOT fall through to the content sniff
+	//! below even though languageForFile answers nullptr for them too
+	bool isKnownPlainExtension(std::string const& ext)
+	{
+		return ext == ".txt" || ext == ".cmake" || ext == ".py";
+	}
+
+	//! the highlighter for a file kind (nullptr = plain text). JSON ships
+	//! with the widget; the engine's XMLArchive/XLIFF formats get the custom
+	//! XML definition; the engine's config-text formats get the custom
+	//! OrkigeConfig definition; an extension this editor has never heard of
+	//! sniffs its CONTENT (@see OrkigeEditor::sniffTextDocumentKind) rather
+	//! than guessing blind - a known-plain extension (.txt/.cmake/.py) is
+	//! excluded from that sniff, since it already has a settled (plain)
+	//! answer, not an undecided one
+	const TextEditor::Language* languageForFile(std::string const& path,
+		std::string const& text)
 	{
 		const std::string ext = lowerExt(path);
 		if (ext == ".lua")
@@ -257,12 +382,41 @@ namespace
 		{
 			return TextEditor::Language::Cpp();
 		}
-		if (ext == ".oscene" || ext == ".oprefab" || ext == ".orkproj" ||
-			ext == ".orkmeta" || ext == ".xlf" || ext == ".xml")
+		if (isKnownPlainExtension(ext))
 		{
-			return xmlLanguage();
+			return nullptr;
 		}
-		return nullptr;
+		// the pure, unit-tested extension map (@see EditorTextDiagnostics.h):
+		// the house XMLArchive carriers + XLIFF/bare .xml get the custom XML
+		// definition, the line-based config-text family (.oui/.ogui/.omat/
+		// .oshape) the custom OrkigeConfig one - the SAME classifier the
+		// live-check routing (liveCheckKindForExtension) reads its Xml cases
+		// from, so highlighting and diagnostics never drift out of sync
+		switch (OrkigeEditor::textDocumentKindForExtension(ext))
+		{
+		case OrkigeEditor::TextDocumentKind::Xml:
+			return xmlLanguage();
+		case OrkigeEditor::TextDocumentKind::OrkigeConfig:
+			return orkigeConfigLanguage();
+		case OrkigeEditor::TextDocumentKind::Json:
+			return TextEditor::Language::Json();
+		case OrkigeEditor::TextDocumentKind::PlainText:
+			break;	// fall through to the content sniff below
+		}
+		// a genuinely unrecognized extension: sniff the content instead of
+		// defaulting silently to plain text (an agent-authored file with a
+		// bespoke extension is still XML/JSON to the eye)
+		switch (OrkigeEditor::sniffTextDocumentKind(text))
+		{
+		case OrkigeEditor::TextDocumentKind::Xml:
+			return xmlLanguage();
+		case OrkigeEditor::TextDocumentKind::Json:
+			return TextEditor::Language::Json();
+		case OrkigeEditor::TextDocumentKind::PlainText:
+		case OrkigeEditor::TextDocumentKind::OrkigeConfig:
+		default:
+			return nullptr;
+		}
 	}
 
 	//! read a whole file ("" + false on failure)
@@ -427,23 +581,14 @@ namespace
 		doc->windowId = doc->title + "###" + key;
 		doc->isLua = lowerExt(key) == ".lua";
 		// live parse diagnostics follow the format's own parser: Lua compiles
-		// through the ScriptRuntime seam, the XML kinds parse via tinyxml2;
-		// the bespoke text grammars have no incremental parser - no live check
-		{
-			const std::string ext = lowerExt(key);
-			if (doc->isLua)
-			{
-				doc->liveCheck = ScriptDocument::LiveCheck::Lua;
-			}
-			else if (ext == ".oscene" || ext == ".oprefab" ||
-				ext == ".orkproj" || ext == ".orkmeta" || ext == ".xlf" ||
-				ext == ".xml")
-			{
-				doc->liveCheck = ScriptDocument::LiveCheck::Xml;
-			}
-		}
+		// through the ScriptRuntime seam (a runtime seam, decided here since
+		// liveCheckKindForExtension is pure); the XMLArchive/XLIFF kinds
+		// parse via tinyxml2 and .omat/.oui wrap their own pure parsers
+		// through the SAME classifier - the rest stay honestly diagnostic-
+		// free (@see EditorTextDiagnostics.h)
+		doc->liveCheck = OrkigeEditor::liveCheckKindForExtension(lowerExt(key));
 		doc->editor = std::make_unique<TextEditor>();
-		const TextEditor::Language* language = languageForFile(key);
+		const TextEditor::Language* language = languageForFile(key, text);
 		if (language != nullptr)
 		{
 			doc->editor->SetLanguage(language);
@@ -482,11 +627,13 @@ namespace
 	//! frames, run the format's own parser over it and record the first
 	//! problem (the "squiggle" a proper editor shows while typing). Lua
 	//! compiles - never runs - through ScriptRuntime::checkSyntax (skipped
-	//! honestly in scripting-off builds); the XML kinds parse via the pure
-	//! tinyxml2 probe. The verdict feeds refreshMarkers through parseRevision.
+	//! honestly in scripting-off builds); the XMLArchive/XLIFF kinds parse
+	//! via the pure tinyxml2 probe; .omat/.oui wrap MaterialAsset::parse /
+	//! GuiLayoutDoc::parse. The verdict feeds refreshMarkers through
+	//! parseRevision.
 	void liveSyntaxCheck(ScriptDocument& doc)
 	{
-		if (doc.liveCheck == ScriptDocument::LiveCheck::None || !doc.editor)
+		if (doc.liveCheck == OrkigeEditor::LiveCheckKind::None || !doc.editor)
 		{
 			return;
 		}
@@ -503,7 +650,7 @@ namespace
 		}
 		doc.checkedUndoIndex = undo;
 		OrkigeEditor::TextDiagnostic verdict;
-		if (doc.liveCheck == ScriptDocument::LiveCheck::Lua)
+		if (doc.liveCheck == OrkigeEditor::LiveCheckKind::Lua)
 		{
 			if (!Orkige::ScriptRuntime::available())
 			{
@@ -519,9 +666,17 @@ namespace
 					OrkigeEditor::luaErrorLine(error, doc.relativePath);
 			}
 		}
-		else
+		else if (doc.liveCheck == OrkigeEditor::LiveCheckKind::Xml)
 		{
 			verdict = OrkigeEditor::xmlDiagnostic(doc.editor->GetText());
+		}
+		else if (doc.liveCheck == OrkigeEditor::LiveCheckKind::Omat)
+		{
+			verdict = OrkigeEditor::omatDiagnostic(doc.editor->GetText());
+		}
+		else
+		{
+			verdict = OrkigeEditor::ouiDiagnostic(doc.editor->GetText());
 		}
 		if (verdict.valid != doc.parseState.valid ||
 			verdict.line != doc.parseState.line ||

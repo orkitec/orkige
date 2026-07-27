@@ -18,8 +18,15 @@ from the same registry that page documents.
   on double-click in the Assets browser, from the Inspector's **Open in
   Internal Editor** button, and automatically on a debugger break-hit. Syntax
   highlight follows the file kind (Lua, JSON, Markdown, an XML definition for
-  the engine's `.oscene`/`.oprefab`/`.orkproj`/`.xlf` formats, plain text
-  otherwise); completion and the breakpoint gutter are Lua-only.
+  the engine's XMLArchive carriers — `.oscene`/`.oprefab`/`.orkproj`/
+  `.orkmeta`/`.olevels`/`.oactions`/`.olayers` — plus XLIFF `.xlf` and a bare
+  `.xml`, a config-text definition for the line-based `.oui`/`.ogui`/`.omat`/
+  `.oshape` formats, plain text for anything else — sniffing the CONTENT of an
+  unrecognized extension for an XML/JSON shape before giving up); completion
+  and the breakpoint gutter are Lua-only. Live parse diagnostics (the gutter's
+  red "!" badge) run for Lua, every XML-family kind and `.omat`/`.oui` (each
+  wraps its own pure parser); `.ogui`/`.oshape`/JSON stay highlight-only —
+  their parsers report no line-numbered error to show.
 - **Debug panel** (View > Panels > Debug; closed by default): the debugger's
   transport (Continue / Step In / Over / Out), call-stack pane and
   locals/upvalues pane. Docks in the bottom group beside Console and
@@ -73,19 +80,23 @@ from the same registry that page documents.
 ## The code editor (human workflow)
 
 Open a file by double-clicking it in the Assets browser (text formats —
-`.lua`, `.oui`, `.omat`, `.oshape`, `.oactions`, `.olayers`, `.olevels`,
-`.xlf`, `.txt`, `.md`, `.json` — open in the embedded editor; `.oscene`
-opens the scene, `.oprefab` its edit stage, images/audio their defaults), or
-from the Inspector's **Open in Internal Editor** button (the neighbouring
-**Open in External Editor** keeps the heavyweight-IDE path, as does the
-Assets context menu). Each file becomes its OWN docked window whose tab is the
+`.lua`, `.ogui`, `.omat`, `.oshape`, `.oactions`, `.olayers`, `.olevels`,
+`.xlf`, `.xml`, `.txt`, `.md`, `.json` — open in the embedded editor;
+`.oscene` opens the scene, `.oprefab` its edit stage, `.oui` the GUI
+Preview, images/audio their defaults), or from the Inspector's **Open in
+Internal Editor** button (reachable for every file, including `.oui`'s text
+source — the neighbouring **Open in External Editor** keeps the
+heavyweight-IDE path, as does the Assets context menu). Each file becomes
+its OWN docked window whose tab is the
 file name; an unsaved window carries the dot marker, and closing one discards
 its edits (logged to the Console — save first). Opening an already-open file
 focuses its window. Multiple open files dock as sibling tabs in one node.
 
 The editor renders in the system monospace font; syntax highlight follows the
-file kind (Lua, JSON, Markdown, an XML definition for the engine's XML
-formats, plain text otherwise), and the palette follows the editor theme
+file kind (Lua, JSON, Markdown, an XML definition for the engine's
+XMLArchive/XLIFF formats, a config-text definition for `.oui`/`.ogui`/
+`.omat`/`.oshape`, plain text otherwise — an unrecognized extension sniffs
+its content for an XML/JSON shape first), and the palette follows the editor theme
 (dark/light). Find/replace, multi-cursor editing, bracket matching and
 auto-indent come with the widget. The mouse shows the text I-beam over the
 code area.

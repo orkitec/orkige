@@ -1062,13 +1062,20 @@ look when touching one:
   cancel ask on dirty close — the queue choreography is selfcheck-verified;
   Close/Others/Right/All on document tabs, a shared Close on every panel tab
   via `EditorTabMenu.h`, pure close-set in editor_core `EditorTabActions`).
-  Highlighting per kind (Lua/C/C++/JSON/Markdown + a custom XML def);
-  double-click-to-internal-editor is a user-editable extension set (View
-  Settings). LIVE PARSE DIAGNOSTICS through each format's own parser
-  (`ScriptRuntime::checkSyntax` compiles without running; tinyxml2 for the
-  XML kinds; pure `EditorTextDiagnostics` in editor_core): a red "!" in front
-  of the line number + red number underline + hover message, and a clickable
-  first-problem STATUS FOOTER strip under the dockspace. COMPLETION comes
+  Highlighting per kind (Lua/C/C++/JSON/Markdown + a custom XML def for the
+  engine's XMLArchive carriers/XLIFF + a custom config-text def for the
+  line-based `.oui`/`.ogui`/`.omat`/`.oshape` family; an extension neither
+  def names sniffs its content for an XML/JSON shape, pure and unit-tested
+  in editor_core's `EditorTextDiagnostics`); double-click-to-internal-editor
+  is a user-editable extension set (View Settings). LIVE PARSE DIAGNOSTICS
+  through each format's own parser (`ScriptRuntime::checkSyntax` compiles
+  without running; tinyxml2 for the XMLArchive/XLIFF kinds; `.omat`/`.oui`
+  wrap `MaterialAsset`/`GuiLayoutDoc`'s own parsers; `.ogui`/`.oshape`/JSON
+  stay highlight-only — their parsers report no line-numbered error;
+  `EditorTextDiagnostics` in editor_core is the one seam for all of it): a
+  red "!" in front of the line number + red number underline + hover
+  message, and a clickable first-problem STATUS FOOTER strip under the
+  dockspace. COMPLETION comes
   from the ONE reflection/script-surface registry (TypeManager +
   PropertySchema + `OSCRIPT_HANDLE` + live `ScriptRuntime::globalNames/
   globalMemberNames` introspection — never a hand-kept list; pure

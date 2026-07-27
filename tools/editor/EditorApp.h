@@ -379,8 +379,9 @@ struct ViewSettings
 	//! their behavior is fixed; the external editor stays reachable from the
 	//! Inspector/context menu for everything.
 	std::string internalEditorExtensions =
-		".lua .ogui .omat .oshape .oactions .olayers .olevels .xlf .txt .md "
-		".json .jsonl .c .cpp .cc .cxx .h .hpp .hh .inl .mm .cmake .py .glsl";
+		".lua .ogui .omat .oshape .oactions .olayers .olevels .xlf .xml .txt "
+		".md .json .jsonl .c .cpp .cc .cxx .h .hpp .hh .inl .mm .cmake .py "
+		".glsl";
 	//! snap settings (toolbar toggle + editable step values);
 	//! mirrored into EditorCore on startup, persisted on every popover edit
 	bool snapEnabled = false;
