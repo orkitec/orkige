@@ -1875,6 +1875,33 @@ int main(int argc, char** argv)
 		float mqLbSX = 0.0f, mqLbSY = 0.0f, mqLbEX = 0.0f, mqLbEY = 0.0f;
 		float mqRbSX = 0.0f, mqRbSY = 0.0f, mqRbEX = 0.0f, mqRbEY = 0.0f;
 
+		// ORKIGE_EDITOR_UIDRAG=<fixture project dir>: the visual .oui editor's
+		// CANVAS driven end to end through REAL synthetic SDL mouse events (the
+		// same event-pump -> ImGui -> InvisibleButton path a user's mouse takes),
+		// not the hook API (that is editor_uiedit). Frame 10 copies the fixture
+		// project, writes a starter screen with a top-left label, a stretch label
+		// and a button, opens it as the Preview overlay (editing IS on when a
+		// screen shows), then a frame-phase machine click-selects, grabs the resize
+		// grips and body of widgets and asserts (doc-side, off the live session)
+		// the resolved boxes GREW / the anchored positions MOVED with anchors
+		// preserved, plus a fresh-added label is immediately grip-resizable. On the
+		// next flavor it also asserts the live overlay's reported text rect sits
+		// inside the resized box. Both flavors (the canvas boxes are doc-resolved).
+		const char* uiDragEnv = std::getenv("ORKIGE_EDITOR_UIDRAG");
+		enum class UiDragPhase { Idle, Run, Done };
+		UiDragPhase uiDragPhase = UiDragPhase::Idle;
+		int uiDragStep = 0;
+		int uiDragSettleHold = 0;	// frames an assert step has waited to settle
+		std::string uiDragTempRoot;
+		const std::string uiDragRelPath = "assets/screen.oui";
+		// per-gesture cached screen points + the pre-gesture doc-side capture
+		float udGripX = 0.0f, udGripY = 0.0f;	// the grabbed resize grip (screen px)
+		float udTargX = 0.0f, udTargY = 0.0f;	// where it is dragged to (screen px)
+		float udBeforeW = 0.0f, udBeforeH = 0.0f;	// box size before a resize
+		float udBeforeX = 0.0f, udBeforeY = 0.0f;	// anchoredPos before a move
+		std::string udBeforeAnchor;					// anchor key before a resize
+		std::string udFreshId;						// the freshly added label's id
+
 		// ORKIGE_EDITOR_SCRIPTTEST=<roller project dir>: the editor-scripts
 		// selfcheck (editor_scripts ctest). Frame 10 copies the project, writes
 		// fixture *.editor.lua tools, and runs them through the EditorScriptHost -
@@ -6094,6 +6121,492 @@ int main(int argc, char** argv)
 					frameCount >= 140)
 				{
 					mqAbort("did not complete before the deadline");
+				}
+			}
+			// --- visual .oui editor CANVAS driven by REAL SDL mouse events ---
+			// (ORKIGE_EDITOR_UIDRAG) - not the hook API (that is editor_uiedit),
+			// but the whole event-pump -> ImGui -> InvisibleButton path a user's
+			// mouse takes: click-select, grip-resize + body-move over the Preview
+			// panel's canvas, asserting the doc-side resolved boxes/positions.
+			if (uiDragEnv)
+			{
+				auto udFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: uidrag selfcheck - FAILED: %s",
+						why.c_str());
+					exitCode = 41;
+					std::error_code ce;
+					std::filesystem::remove_all(uiDragTempRoot, ce);
+					running = false;
+				};
+				// an assert step re-checks each frame until its state settles (a
+				// pushed SDL event travels event-pump -> ImGui -> the canvas over a
+				// variable number of frames), failing only after a generous budget
+				// the deadline backstop also guards. Returns true when settled.
+				const int udSettleBudget = 40;
+				auto udSettle = [&](int stepId, bool condition,
+					char const* why) -> bool
+				{
+					if (condition) { uiDragSettleHold = 0; return true; }
+					if (++uiDragSettleHold <= udSettleBudget)
+					{
+						uiDragStep = stepId - 1;	// re-run this step next frame
+						return false;
+					}
+					uiDragSettleHold = 0;
+					udFail(why);
+					return false;
+				};
+				// the live edit session the Preview panel fills each frame it draws
+				// Edit UI (valid because this block runs after the panel drew)
+				auto sessionPtr = [&]() -> OrkigeEditor::UiEditSession*
+				{
+					return OrkigeEditor::uiEditorPanelLink().session;
+				};
+				// a widget's resolved SURFACE box (the canvas's own doc resolve:
+				// full-surface parent, scale 1 for a design-less screen; all fixture
+				// widgets are top-level, so the parent is the whole surface)
+				auto surfRect = [&](std::string const& id,
+					Orkige::LayoutRect& out) -> bool
+				{
+					OrkigeEditor::UiEditSession* s = sessionPtr();
+					if (!s || !s->loaded) { return false; }
+					const int idx = OrkigeEditor::sectionIndex(s->doc.doc(), id);
+					if (idx < 0) { return false; }
+					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
+					const float sw = d.canvasSurfaceW > 1.0f
+						? d.canvasSurfaceW : 1170.0f;
+					const float sh = d.canvasSurfaceH > 1.0f
+						? d.canvasSurfaceH : 2532.0f;
+					const Orkige::LayoutRect parent{ 0.0f, 0.0f, sw, sh };
+					out = Orkige::resolveRect(parent,
+						OrkigeEditor::sectionLayoutNode(
+							s->doc.doc().sections[static_cast<size_t>(idx)]), 1.0f);
+					return true;
+				};
+				auto anchorOf = [&](std::string const& id) -> std::string
+				{
+					OrkigeEditor::UiEditSession* s = sessionPtr();
+					if (!s) { return std::string(); }
+					const int idx = OrkigeEditor::sectionIndex(s->doc.doc(), id);
+					if (idx < 0) { return std::string(); }
+					Orkige::String const* a = s->doc.doc()
+						.sections[static_cast<size_t>(idx)].find("anchor");
+					return a ? *a : std::string();
+				};
+				auto anchoredPosOf = [&](std::string const& id,
+					float& x, float& y) -> bool
+				{
+					OrkigeEditor::UiEditSession* s = sessionPtr();
+					if (!s) { return false; }
+					const int idx = OrkigeEditor::sectionIndex(s->doc.doc(), id);
+					if (idx < 0) { return false; }
+					Orkige::String const* v = s->doc.doc()
+						.sections[static_cast<size_t>(idx)].find("anchoredPos");
+					if (!v) { return false; }
+					std::istringstream in(*v); in >> x >> y; return true;
+				};
+				// surface point -> screen point (the canvas's linear placement map)
+				auto toScreen = [&](float surfX, float surfY,
+					float& sx, float& sy)
+				{
+					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
+					const float kx = d.canvasDrawW /
+						(d.canvasSurfaceW > 1.0f ? d.canvasSurfaceW : 1.0f);
+					const float ky = d.canvasDrawH /
+						(d.canvasSurfaceH > 1.0f ? d.canvasSurfaceH : 1.0f);
+					sx = d.canvasImageX + surfX * kx;
+					sy = d.canvasImageY + surfY * ky;
+				};
+				// the canvas is live (session loaded, the preview drew Edit UI)
+				auto ready = [&]() -> bool
+				{
+					OrkigeEditor::UiEditSession* s = sessionPtr();
+					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
+					Orkige::LayoutRect r;
+					return s && s->loaded && d.active && d.canvasDrawW > 4.0f &&
+						d.canvasSurfaceW > 4.0f && surfRect("lblTop", r) &&
+						r.w > 0.0f;
+				};
+				// SDL event helpers (io.MousePos target -> window-point, ImGui's
+				// mouse-scale inverse), matching the marquee leg
+				auto toWindow = [&](float px, float py, float& wx, float& wy)
+				{
+					int winW = 0, winH = 0;
+					SDL_GetWindowSize(window, &winW, &winH);
+					unsigned int drawW = 0, drawH = 0;
+					render->getWindowSize(drawW, drawH);
+					const float sx = (winW > 0 && drawW > 0)
+						? static_cast<float>(drawW) / winW : 1.0f;
+					const float sy = (winH > 0 && drawH > 0)
+						? static_cast<float>(drawH) / winH : 1.0f;
+					wx = px / sx; wy = py / sy;
+				};
+				auto pushMove = [&](float px, float py)
+				{
+					float wx = 0.0f, wy = 0.0f; toWindow(px, py, wx, wy);
+					SDL_Event e = {};
+					e.type = SDL_EVENT_MOUSE_MOTION;
+					e.motion.windowID = SDL_GetWindowID(window);
+					e.motion.x = wx; e.motion.y = wy;
+					SDL_PushEvent(&e);
+				};
+				auto pushButton = [&](bool down, float px, float py)
+				{
+					float wx = 0.0f, wy = 0.0f; toWindow(px, py, wx, wy);
+					SDL_Event e = {};
+					e.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN
+						: SDL_EVENT_MOUSE_BUTTON_UP;
+					e.button.windowID = SDL_GetWindowID(window);
+					e.button.button = SDL_BUTTON_LEFT;
+					e.button.down = down; e.button.clicks = 1;
+					e.button.x = wx; e.button.y = wy;
+					SDL_PushEvent(&e);
+				};
+				// centre of a widget in screen px (the click-select target)
+				auto centerOf = [&](std::string const& id,
+					float& sx, float& sy) -> bool
+				{
+					Orkige::LayoutRect r;
+					if (!surfRect(id, r)) { return false; }
+					toScreen(r.x + r.w * 0.5f, r.y + r.h * 0.5f, sx, sy);
+					return true;
+				};
+				// press point (udGripX/Y) = a widget's bottom-right resize grip;
+				// release point (udTargX/Y) = an OUTWARD drag that stays inside the
+				// canvas image; capture the pre-resize box + anchor
+				auto computeResize = [&](std::string const& id) -> bool
+				{
+					Orkige::LayoutRect r;
+					if (!surfRect(id, r)) { return false; }
+					toScreen(r.x + r.w, r.y + r.h, udGripX, udGripY);
+					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
+					const float imgR = d.canvasImageX + d.canvasDrawW;
+					const float imgB = d.canvasImageY + d.canvasDrawH;
+					udTargX = std::min(udGripX + 45.0f, imgR - 4.0f);
+					udTargY = std::min(udGripY + 45.0f, imgB - 4.0f);
+					udBeforeW = r.w; udBeforeH = r.h;
+					udBeforeAnchor = anchorOf(id);
+					return true;
+				};
+				// press point = a widget's centre (body), release point = an outward
+				// drag (a move); capture the pre-move anchoredPos
+				auto computeMove = [&](std::string const& id) -> bool
+				{
+					Orkige::LayoutRect r;
+					if (!surfRect(id, r)) { return false; }
+					toScreen(r.x + r.w * 0.5f, r.y + r.h * 0.5f, udGripX, udGripY);
+					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
+					const float imgR = d.canvasImageX + d.canvasDrawW;
+					const float imgB = d.canvasImageY + d.canvasDrawH;
+					udTargX = std::min(udGripX + 45.0f, imgR - 4.0f);
+					udTargY = std::min(udGripY + 45.0f, imgB - 4.0f);
+					udBeforeX = 0.0f; udBeforeY = 0.0f;
+					anchoredPosOf(id, udBeforeX, udBeforeY);
+					return true;
+				};
+				// the doc-side "the resize grew the box (both dims) with the anchor
+				// preserved" assertion + the next-flavor live-overlay text-in-box
+				// check (classic has no overlay -> that leg is skipped honestly)
+				auto assertGrew = [&](std::string const& id,
+					char const* expectAnchor, char const* label) -> bool
+				{
+					Orkige::LayoutRect after;
+					if (!surfRect(id, after))
+					{
+						udFail(std::string(label) + ": widget vanished on resize");
+						return false;
+					}
+					if (!(after.w > udBeforeW + 2.0f && after.h > udBeforeH + 2.0f))
+					{
+						udFail(std::string(label) +
+							": resize did not grow the box");
+						return false;
+					}
+					// anchors PRESERVED: unchanged from the pre-resize capture (and
+					// the fixture's expected anchor, a cross-check)
+					if (anchorOf(id) != udBeforeAnchor ||
+						udBeforeAnchor != expectAnchor)
+					{
+						udFail(std::string(label) + ": resize changed the anchor");
+						return false;
+					}
+					for (OrkigeEditor::GuiPreviewWidgetRect const& wr :
+						gamePreviewStage.getOverlayWidgetRects())
+					{
+						if (wr.id != id) { continue; }
+						const float tol = 3.0f;
+						if (wr.left < after.x - tol || wr.top < after.y - tol ||
+							wr.left + wr.width > after.x + after.w + tol ||
+							wr.top + wr.height > after.y + after.h + tol)
+						{
+							udFail(std::string(label) +
+								": live overlay rect escapes the resized box");
+							return false;
+						}
+						break;
+					}
+					return true;
+				};
+
+				if (uiDragPhase == UiDragPhase::Idle && frameCount == 10)
+				{
+					std::error_code ce;
+					uiDragTempRoot = (std::filesystem::temp_directory_path() /
+						("orkige_uidrag_" + std::to_string(
+							std::chrono::steady_clock::now()
+								.time_since_epoch().count()))).string();
+					std::filesystem::copy(uiDragEnv, uiDragTempRoot,
+						std::filesystem::copy_options::recursive, ce);
+					const std::filesystem::path oui =
+						std::filesystem::path(uiDragTempRoot) / "assets" /
+						"screen.oui";
+					std::filesystem::create_directories(oui.parent_path(), ce);
+					{
+						std::ofstream out(oui,
+							std::ios::binary | std::ios::trunc);
+						out << "[Layout]\natlas = gui_default\n\n"
+							"[Label lblTop]\nfont = 9\ntext = Top\n"
+							"anchor = topleft\nanchoredPos = 80 120\n"
+							"sizeDelta = 320 140\n\n"
+							"[Label lblStretch]\nfont = 9\ntext = Stretch\n"
+							"anchor = stretchtop\noffsets = 80 420 -350 640\n"
+							"textAlignment = topleft\n\n"
+							"[Button btnCtl]\nfont = 9\ntext = Btn\n"
+							"anchor = topleft\nanchoredPos = 80 780\n"
+							"sizeDelta = 300 150\n";
+					}
+					if (ce || !openProjectFromPath(state, editorCore,
+						uiDragTempRoot))
+					{
+						udFail("could not prepare/open the temp copy");
+					}
+					else
+					{
+						newScene(state, editorCore);
+						// the preview needs a target to draw the canvas onto
+						editorCore.createCamera();
+						viewSettings.gamePreviewPreset = static_cast<int>(
+							Orkige::DevicePreset::DP_IPHONE_NOTCH);
+						viewSettings.gamePreviewShowFrame = false;
+						viewSettings.gamePreviewSafeAreaGuides = false;
+						state.requestedGuiPreviewAsset = uiDragRelPath;
+						viewSettings.showPreviewPanel = true;
+						uiDragPhase = UiDragPhase::Run;
+						uiDragStep = 0;
+					}
+				}
+				else if (uiDragPhase == UiDragPhase::Run)
+				{
+					// keep the Preview the frontmost/active tab EVERY frame: opening
+					// a screen also reveals the UI Editor panel, which can tab over
+					// the Preview and make ImGui::Begin("Preview") return false (the
+					// panel then early-returns, the canvas never draws and the live
+					// session pointer is null). Re-focusing each frame keeps the
+					// canvas alive so its InvisibleButton receives the synthetic mouse.
+					ImGui::SetWindowFocus("Preview");
+					switch (uiDragStep)
+					{
+					// wait for the canvas to go live before the first gesture
+					case 0:
+						if (!ready())
+						{
+							uiDragStep = -1;	// re-run readiness next frame
+						}
+						break;
+
+					// CASE 1: a plain click selects a label
+					case 3:
+						if (!centerOf("lblTop", udGripX, udGripY))
+						{ uiDragStep = 2; break; }	// hold until resolvable
+						pushMove(udGripX, udGripY);
+						break;
+					case 6: pushButton(true, udGripX, udGripY); break;
+					case 9: pushButton(false, udGripX, udGripY); break;
+					case 12:
+						udSettle(12,
+							OrkigeEditor::uiEditorDebug().selected == "lblTop",
+							"case1: real click did not select lblTop");
+						break;
+
+					// CASE 2: grab lblTop's grip, drag it, release -> the box grew
+					case 15:
+						if (!computeResize("lblTop")) { uiDragStep = 14; break; }
+						pushMove(udGripX, udGripY);
+						break;
+					case 18: pushButton(true, udGripX, udGripY); break;
+					case 21: pushMove(udTargX, udTargY); break;
+					case 24: pushButton(false, udTargX, udTargY); break;
+					case 27:
+					{
+						Orkige::LayoutRect a;
+						const bool grew = surfRect("lblTop", a) &&
+							a.w > udBeforeW + 2.0f && a.h > udBeforeH + 2.0f;
+						if (udSettle(27, grew,
+							"case2: lblTop grip-resize did not grow the box"))
+						{
+							assertGrew("lblTop", "topleft", "case2");
+						}
+						break;
+					}
+
+					// CASE 5: drag lblTop's body (still selected) -> position moved
+					case 30:
+						if (!computeMove("lblTop")) { uiDragStep = 29; break; }
+						pushMove(udGripX, udGripY);
+						break;
+					case 33: pushButton(true, udGripX, udGripY); break;
+					case 36: pushMove(udTargX, udTargY); break;
+					case 39: pushButton(false, udTargX, udTargY); break;
+					case 42:
+					{
+						float ax = 0.0f, ay = 0.0f;
+						const bool moved = anchoredPosOf("lblTop", ax, ay) &&
+							ax > udBeforeX + 2.0f && ay > udBeforeY + 2.0f;
+						udSettle(42, moved,
+							"case5: body-drag did not move lblTop anchoredPos");
+						break;
+					}
+
+					// CASE 3a: click-select + grip-resize the STRETCH label
+					case 45:
+						if (!centerOf("lblStretch", udGripX, udGripY))
+						{ uiDragStep = 44; break; }
+						pushMove(udGripX, udGripY);
+						break;
+					case 48: pushButton(true, udGripX, udGripY); break;
+					case 51: pushButton(false, udGripX, udGripY); break;
+					case 54:
+						udSettle(54,
+							OrkigeEditor::uiEditorDebug().selected == "lblStretch",
+							"case3a: click did not select lblStretch");
+						break;
+					case 57:
+						if (!computeResize("lblStretch")) { uiDragStep = 56; break; }
+						pushMove(udGripX, udGripY);
+						break;
+					case 60: pushButton(true, udGripX, udGripY); break;
+					case 63: pushMove(udTargX, udTargY); break;
+					case 66: pushButton(false, udTargX, udTargY); break;
+					case 69:
+					{
+						Orkige::LayoutRect a;
+						const bool grew = surfRect("lblStretch", a) &&
+							a.w > udBeforeW + 2.0f && a.h > udBeforeH + 2.0f;
+						if (udSettle(69, grew,
+							"case3a: stretch-label resize did not grow the box"))
+						{
+							assertGrew("lblStretch", "stretchtop", "case3a");
+						}
+						break;
+					}
+
+					// CASE 3b: click-select + grip-resize the BUTTON (control case)
+					case 72:
+						if (!centerOf("btnCtl", udGripX, udGripY))
+						{ uiDragStep = 71; break; }
+						pushMove(udGripX, udGripY);
+						break;
+					case 75: pushButton(true, udGripX, udGripY); break;
+					case 78: pushButton(false, udGripX, udGripY); break;
+					case 81:
+						udSettle(81,
+							OrkigeEditor::uiEditorDebug().selected == "btnCtl",
+							"case3b: click did not select btnCtl");
+						break;
+					case 84:
+						if (!computeResize("btnCtl")) { uiDragStep = 83; break; }
+						pushMove(udGripX, udGripY);
+						break;
+					case 87: pushButton(true, udGripX, udGripY); break;
+					case 90: pushMove(udTargX, udTargY); break;
+					case 93: pushButton(false, udTargX, udTargY); break;
+					case 96:
+					{
+						Orkige::LayoutRect a;
+						const bool grew = surfRect("btnCtl", a) &&
+							a.w > udBeforeW + 2.0f && a.h > udBeforeH + 2.0f;
+						if (udSettle(96, grew,
+							"case3b: button resize did not grow the box"))
+						{
+							assertGrew("btnCtl", "topleft", "case3b");
+						}
+						break;
+					}
+
+					// CASE 4: add a label via the panel's add path, then IMMEDIATELY
+					// grip-resize it (the fresh-widget case) - the add clears the
+					// selection first so the label is top-level
+					case 99:
+					{
+						OrkigeEditor::UiEditSession* s = sessionPtr();
+						if (!s) { uiDragStep = 98; break; }
+						OrkigeEditor::uiEditSelect(*s, std::string());
+						udFreshId = OrkigeEditor::uiEditAddWidget(*s, "label");
+						if (udFreshId.empty())
+						{ udFail("case4: add label produced no id"); }
+						break;
+					}
+					case 102:
+						// the panel redrew with the fresh label selected; grab it
+						if (!udSettle(102,
+							OrkigeEditor::uiEditorDebug().selected == udFreshId,
+							"case4: fresh label was not the live selection"))
+						{ break; }
+						if (!computeResize(udFreshId)) { uiDragStep = 101; break; }
+						pushMove(udGripX, udGripY);
+						break;
+					case 105: pushButton(true, udGripX, udGripY); break;
+					case 108: pushMove(udTargX, udTargY); break;
+					case 111: pushButton(false, udTargX, udTargY); break;
+					case 114:
+					{
+						Orkige::LayoutRect a;
+						const bool grew = surfRect(udFreshId, a) &&
+							a.w > udBeforeW + 2.0f && a.h > udBeforeH + 2.0f;
+						if (udSettle(114, grew,
+							"case4: fresh-label resize did not grow the box"))
+						{
+							if (assertGrew(udFreshId, "topleft", "case4"))
+							{
+								SDL_Log("orkige_editor: uidrag selfcheck PASSED - "
+									"real SDL click-select + grip-resize (top-left "
+									"label, stretch label, button) + fresh-label "
+									"resize + body-move; doc-side boxes grew and "
+									"the anchored position moved with anchors "
+									"preserved");
+								uiDragPhase = UiDragPhase::Done;
+								std::error_code ce;
+								std::filesystem::remove_all(uiDragTempRoot, ce);
+								running = false;
+							}
+						}
+						break;
+					}
+					default: break;
+					}
+					++uiDragStep;
+				}
+				// deadline backstop: never let the demo-frame cap turn a stuck run
+				// into a false pass
+				if (uiDragPhase != UiDragPhase::Done && exitCode == 0 &&
+					frameCount >= 320)
+				{
+					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
+					OrkigeEditor::UiEditSession* sp = sessionPtr();
+					const int idxTop = sp ? OrkigeEditor::sectionIndex(
+						sp->doc.doc(), "lblTop") : -2;
+					Orkige::LayoutRect rr; const bool sr = surfRect("lblTop", rr);
+					SDL_Log("orkige_editor: uidrag diag - step=%d ready=%d "
+						"active=%d loaded=%d sel='%s' selCount=%d secCount=%d "
+						"sess=%d idxTop=%d surfRect=%d r=%.0fx%.0f "
+						"canvas(img %.0f,%.0f draw %.0fx%.0f surf %.0fx%.0f)",
+						uiDragStep, ready() ? 1 : 0, d.active ? 1 : 0,
+						d.loaded ? 1 : 0, d.selected.c_str(), d.selectionCount,
+						d.sectionCount, sp ? 1 : 0, idxTop, sr ? 1 : 0, rr.w, rr.h,
+						d.canvasImageX, d.canvasImageY, d.canvasDrawW, d.canvasDrawH,
+						d.canvasSurfaceW, d.canvasSurfaceH);
+					udFail("uidrag selfcheck did not complete before the deadline");
 				}
 			}
 			// --- editor-scripts selfcheck (ORKIGE_EDITOR_SCRIPTTEST=roller) ---

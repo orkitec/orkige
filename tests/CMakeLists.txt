@@ -1121,6 +1121,26 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_UIEDIT_SELFCHECK=1;ORKIGE_DEMO_FRAMES=60"
         LABELS integration TIMEOUT 120)
 
+    # Visual .oui editor CANVAS driven by REAL synthetic SDL mouse events, BOTH
+    # flavors: sibling to editor_uiedit but exercising the whole event-pump ->
+    # ImGui -> InvisibleButton path a user's mouse takes (not the hook API). It
+    # copies a fixture project, opens a starter screen as the Preview overlay
+    # (editing IS on when a screen shows), then a frame-phase machine injects
+    # SDL_EVENT_MOUSE_MOTION/BUTTON_DOWN/BUTTON_UP to click-select a label, grab
+    # its bottom-right resize grip and drag it (asserting the doc-resolved box GREW
+    # with the anchor preserved, and on next the live overlay rect sits inside the
+    # box), repeats the grip-resize for a STRETCH-anchored label and a button,
+    # adds a fresh label via the panel path and immediately grip-resizes it, and
+    # drag-moves a widget's body (asserting the anchored position moved). The
+    # canvas boxes are doc-resolved so it runs on classic too (the live overlay
+    # text-in-box leg is next-only and skipped honestly there). The pure canvas
+    # math is the EditorUiEdit unit suite (editor_uidrag).
+    add_test(NAME editor_uidrag${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_uidrag${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_UIDRAG=${Orkige_SOURCE_DIR}/tests/projects/uihotreload;ORKIGE_DEMO_FRAMES=360"
+        LABELS integration TIMEOUT 180)
+
     # Display dropdown v2 view mode + lighting, BOTH flavors, over one lit
     # water-plane + directional-light + camera fixture. WIREFRAME leg (classic, a
     # PER-TARGET per-camera polygon-mode flip): the Scene RTT PIXELS change while the
