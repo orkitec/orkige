@@ -771,4 +771,59 @@ namespace OrkigeEditor
 		}
 		return buf;
 	}
+
+	TerminalFollowVerdict terminalFollowDecision(TerminalFollowInputs const& in)
+	{
+		TerminalFollowVerdict v;
+
+		// the new pin state. An active drag-selection FREEZES it (so releasing
+		// the mouse at the bottom re-pins, but scrolling away mid-drag does not
+		// silently flip it); typing/pasting always re-pins (pressing a key jumps
+		// back to the prompt - the everyone-expects-it behaviour); while pinned
+		// only a user scroll-up unpins; while unpinned only returning to the
+		// bottom re-pins (natural output growth never re-pins on its own).
+		if (in.isSelecting)
+		{
+			v.followTail = in.wasFollowing;
+		}
+		else if (in.sentInput)
+		{
+			v.followTail = true;
+		}
+		else if (in.wasFollowing)
+		{
+			v.followTail = !in.userScrolledAway;
+		}
+		else
+		{
+			v.followTail = in.atBottom;
+		}
+
+		// whether to glue to the newest line THIS frame. Never while selecting
+		// (the text must not slide under the pointer); on input jump immediately;
+		// otherwise only when pinned AND the content actually grew (new output, a
+		// resize, or a re-shown backgrounded tab), so an idle pinned view issues
+		// no needless scroll and a user reading scrollback is left alone.
+		if (in.isSelecting)
+		{
+			v.pinToBottom = false;
+		}
+		else if (in.sentInput)
+		{
+			v.pinToBottom = true;
+		}
+		else
+		{
+			v.pinToBottom = v.followTail && in.contentGrew;
+		}
+		return v;
+	}
+
+	float terminalScrollMax(int totalLines, float cellH, float viewHeight)
+	{
+		const float contentHeight =
+			static_cast<float>(totalLines) * (cellH > 0.0f ? cellH : 0.0f);
+		const float maxScroll = contentHeight - viewHeight;
+		return maxScroll > 0.0f ? maxScroll : 0.0f;
+	}
 }

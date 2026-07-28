@@ -466,3 +466,125 @@ TEST_CASE("terminal sticky tab label never leads with a tofu box",
 	CHECK(l.text == "my task");
 	CHECK(l.glyph == TerminalGlyphClass::Terminal);
 }
+
+// --- the terminal follow/pin contract ---------------------------------------
+namespace
+{
+	//! spell one decision out compactly for the matrix
+	TerminalFollowVerdict decide(bool wasFollowing, bool atBottom,
+		bool contentGrew, bool userScrolledAway, bool isSelecting, bool sentInput)
+	{
+		TerminalFollowInputs in;
+		in.wasFollowing = wasFollowing;
+		in.atBottom = atBottom;
+		in.contentGrew = contentGrew;
+		in.userScrolledAway = userScrolledAway;
+		in.isSelecting = isSelecting;
+		in.sentInput = sentInput;
+		return terminalFollowDecision(in);
+	}
+}
+
+TEST_CASE("terminal follow: pinned view glues to a growing tail",
+	"[unit][editor][terminal]")
+{
+	// WHILE PINNED and content grew (new output / resize / re-shown tab), the
+	// view stays glued to the newest line and stays pinned.
+	const TerminalFollowVerdict grew =
+		decide(/*following*/true, /*atBottom*/true, /*grew*/true,
+			/*scrolledAway*/false, /*selecting*/false, /*sentInput*/false);
+	CHECK(grew.pinToBottom);
+	CHECK(grew.followTail);
+
+	// pinned but idle (no growth): stays pinned, issues no scroll
+	const TerminalFollowVerdict idle =
+		decide(true, true, false, false, false, false);
+	CHECK_FALSE(idle.pinToBottom);
+	CHECK(idle.followTail);
+
+	// the pin survives an at-bottom READ going stale mid-growth: even reported
+	// NOT-at-bottom (the one-frame ContentSize lag), a pinned view keeps
+	// following as long as the user did not scroll away
+	const TerminalFollowVerdict lag =
+		decide(true, /*atBottom*/false, /*grew*/true, false, false, false);
+	CHECK(lag.pinToBottom);
+	CHECK(lag.followTail);
+}
+
+TEST_CASE("terminal follow: a user scroll-up unpins, returning re-pins",
+	"[unit][editor][terminal]")
+{
+	// scrolling up UNPINS even while output keeps arriving
+	const TerminalFollowVerdict away =
+		decide(/*following*/true, /*atBottom*/false, /*grew*/true,
+			/*scrolledAway*/true, false, false);
+	CHECK_FALSE(away.pinToBottom);
+	CHECK_FALSE(away.followTail);
+
+	// unpinned + output growing while the user reads history: stays unpinned,
+	// never yanks the view down
+	const TerminalFollowVerdict reading =
+		decide(/*following*/false, /*atBottom*/false, /*grew*/true, false,
+			false, false);
+	CHECK_FALSE(reading.pinToBottom);
+	CHECK_FALSE(reading.followTail);
+
+	// returning to within the epsilon of the bottom RE-PINS
+	const TerminalFollowVerdict back =
+		decide(/*following*/false, /*atBottom*/true, /*grew*/false, false,
+			false, false);
+	CHECK(back.followTail);
+}
+
+TEST_CASE("terminal follow: typing re-pins and jumps to the prompt",
+	"[unit][editor][terminal]")
+{
+	// typing while scrolled up in history re-pins AND jumps to the bottom now
+	const TerminalFollowVerdict typed =
+		decide(/*following*/false, /*atBottom*/false, /*grew*/false,
+			/*scrolledAway*/false, /*selecting*/false, /*sentInput*/true);
+	CHECK(typed.pinToBottom);
+	CHECK(typed.followTail);
+
+	// even if a scroll-up gesture and input coincide, input wins (jump to prompt)
+	const TerminalFollowVerdict both =
+		decide(true, false, false, /*scrolledAway*/true, false, /*input*/true);
+	CHECK(both.pinToBottom);
+	CHECK(both.followTail);
+}
+
+TEST_CASE("terminal follow: an active selection freezes the pin",
+	"[unit][editor][terminal]")
+{
+	// selecting + content grew: NO scroll (text must not slide under the pointer)
+	// and the pin state is FROZEN at what it was coming in
+	const TerminalFollowVerdict selPinned =
+		decide(/*following*/true, true, /*grew*/true, false,
+			/*selecting*/true, false);
+	CHECK_FALSE(selPinned.pinToBottom);
+	CHECK(selPinned.followTail);	// frozen true
+
+	const TerminalFollowVerdict selUnpinned =
+		decide(/*following*/false, false, /*grew*/true, false,
+			/*selecting*/true, false);
+	CHECK_FALSE(selUnpinned.pinToBottom);
+	CHECK_FALSE(selUnpinned.followTail);	// frozen false
+
+	// selection outranks even a coincident input, so the drag stays stable
+	const TerminalFollowVerdict selInput =
+		decide(true, true, true, false, /*selecting*/true, /*input*/true);
+	CHECK_FALSE(selInput.pinToBottom);
+}
+
+TEST_CASE("terminal scroll max tracks a growing content height",
+	"[unit][editor][terminal]")
+{
+	// content shorter than the view pins at the top (max 0)
+	CHECK(terminalScrollMax(/*lines*/10, /*cellH*/16.0f, /*view*/400.0f) == 0.0f);
+	// once content exceeds the view the max is content - view, and grows with it
+	const float a = terminalScrollMax(30, 16.0f, 400.0f);	// 480 - 400
+	const float b = terminalScrollMax(60, 16.0f, 400.0f);	// 960 - 400
+	CHECK(a == 80.0f);
+	CHECK(b == 560.0f);
+	CHECK(b > a);	// the pin target tracks the growing tail
+}

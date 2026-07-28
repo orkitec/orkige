@@ -217,6 +217,45 @@ namespace OrkigeEditor
 	//! Pure.
 	int terminalIndexAfterClose(int count, int closedIndex, int activeIndex);
 
+	//! the inputs to the terminal-follow (auto-scroll-to-tail) decision, read off
+	//! the grid child each frame. @see terminalFollowDecision.
+	struct TerminalFollowInputs
+	{
+		bool	atBottom = false;			//!< scroll within an epsilon of the max
+		bool	contentGrew = false;		//!< the content height changed this frame
+		bool	userScrolledAway = false;	//!< a wheel/scrollbar drag up this frame
+		bool	isSelecting = false;		//!< a drag-selection is in progress
+		bool	sentInput = false;			//!< the user typed/pasted into the child
+		bool	wasFollowing = true;		//!< the pin state coming into the frame
+	};
+
+	//! the terminal-follow decision: whether to glue the view to the newest line
+	//! THIS frame, and the pin state to carry into the next.
+	struct TerminalFollowVerdict
+	{
+		bool	pinToBottom = false;	//!< apply a scroll-to-bottom this frame
+		bool	followTail = true;		//!< the new persisted pin state
+	};
+
+	//! @brief the canonical terminal follow/pin contract, pure so the matrix is
+	//! unit-tested. WHILE PINNED (@p wasFollowing) the view stays glued to the
+	//! newest line across content-height changes (@p contentGrew - new output, a
+	//! grid resize, or a re-shown backgrounded tab) unless the user scrolled up
+	//! (@p userScrolledAway) which UNPINS; returning to within an epsilon of the
+	//! bottom (@p atBottom) RE-PINS, and typing/pasting (@p sentInput) always
+	//! re-pins and jumps to the prompt. An active drag-selection (@p isSelecting)
+	//! FREEZES the pin state and suspends any scroll-to-bottom so text does not
+	//! slide under the pointer; the rules resume on mouse-up. Pure.
+	TerminalFollowVerdict terminalFollowDecision(TerminalFollowInputs const& in);
+
+	//! @brief the pinned scroll target: the scroll offset that puts the newest
+	//! content line at the bottom of a @p viewHeight-pixel viewport given
+	//! @p totalLines rows of @p cellH pixels each. Clamped to >= 0 (content
+	//! shorter than the view pins at the top). Pure - the panel pins to (an
+	//! overshoot of) this value and lets ImGui clamp, and the headless selfcheck
+	//! asserts the target tracks the growing max through this same math.
+	float terminalScrollMax(int totalLines, float cellH, float viewHeight);
+
 	//! an absolute grid coordinate: a line index (scrollback below the visible
 	//! grid) and a column. `col` may equal `cols` (a selection END is exclusive,
 	//! so the point just past the last column is a valid stop).

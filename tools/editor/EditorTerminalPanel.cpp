@@ -71,6 +71,14 @@ namespace
 		std::string	shell;
 		std::string	lastError;
 		bool	followTail = true;	//!< keep the view pinned to the newest line
+		//!< the user typed/pasted last frame - re-pin + jump to the prompt on the
+		//!< next scroll decision (input is handled after the grid submits, so the
+		//!< re-pin lands one frame later, imperceptibly)
+		bool	sentInputPending = false;
+		//!< the grid's absolute line count last time it was drawn; a jump (new
+		//!< output, a resize, or a re-shown backgrounded tab) means the content
+		//!< grew and a pinned view must re-glue to the tail
+		int		lastTotalLines = -1;
 		int		uid = 0;			//!< stable, monotonic ImGui id suffix
 		bool	open = true;		//!< the session's dock window is open
 		bool	dockAssigned = false;	//!< first-appearance dock done
@@ -343,8 +351,12 @@ namespace
 
 	//! feed focused keyboard input to the pty (text via the IME queue, special
 	//! keys + control chords via the pure encoder). Copy/paste stay the editor's.
-	void handleTerminalInput(TerminalSession& s)
+	//! Returns true when bytes were actually sent to the child (typed text, a
+	//! paste, a special key or a control chord) - the "user sent input" signal
+	//! the follow contract re-pins on. A copy chord is NOT input.
+	bool handleTerminalInput(TerminalSession& s)
 	{
+		bool sentInput = false;
 		ImGuiIO& io = ImGui::GetIO();
 		const bool ctrl = io.KeyCtrl;
 		const bool shift = io.KeyShift;
@@ -374,7 +386,7 @@ namespace
 			{
 				SDL_SetClipboardText(text.c_str());
 			}
-			return;
+			return false;	// a copy is not input into the child
 		}
 		if (pasteChord)
 		{
@@ -383,12 +395,13 @@ namespace
 			{
 				s.pty->write(OrkigeEditor::terminalPasteEncoding(
 					clip, s.screen->bracketedPaste()));
+				sentInput = true;
 			}
 			if (clip != nullptr)
 			{
 				SDL_free(clip);
 			}
-			return;
+			return sentInput;
 		}
 
 		// printable text: the IME/text-input queue (skip while a Ctrl/Cmd chord
@@ -403,6 +416,7 @@ namespace
 					continue;	// specials come through the key path below
 				}
 				s.pty->write(encodeUtf8(static_cast<std::uint32_t>(ch)));
+				sentInput = true;
 			}
 		}
 
@@ -424,6 +438,7 @@ namespace
 			{
 				s.pty->write(encodeTermKey(term, mods,
 					s.screen->applicationCursorKeys()));
+				sentInput = true;
 			}
 		}
 
@@ -455,10 +470,12 @@ namespace
 					if (!bytes.empty())
 					{
 						s.pty->write(bytes);
+						sentInput = true;
 					}
 				}
 			}
 		}
+		return sentInput;
 	}
 
 	//! pump a session's pty into its screen (bounded), refresh liveness, and
@@ -547,7 +564,8 @@ namespace
 		p.lastCols = newCols;
 		p.lastRows = newRows;
 
-		if (newCols != s.cols || newRows != s.rows)
+		const bool gridResized = (newCols != s.cols || newRows != s.rows);
+		if (gridResized)
 		{
 			s.cols = newCols;
 			s.rows = newRows;
@@ -701,11 +719,56 @@ namespace
 			s.selecting = false;
 		}
 
-		if (gotOutput && s.followTail)
+		// --- follow / pin the tail ----------------------------------------------
+		// The pin must survive content-height changes. ImGui only recomputes a
+		// window's ContentSize (hence GetScrollMaxY) at EndChild, so DURING
+		// submission it still reports LAST frame's max: SetScrollY(GetScrollMaxY())
+		// lands short of a tail that grew this frame, and the next frame's
+		// at-bottom test - now reading the larger, updated max - wrongly concludes
+		// "not at bottom" and clears the pin. That is why the terminal stopped
+		// following once output first exceeded the viewport. The fix: while pinned
+		// the follow state is driven by the pure terminalFollowDecision (never an
+		// at-bottom read), and a pin scrolls to the FULL content height - an
+		// overshoot ImGui clamps to the true max next frame, so the newest line
+		// always lands at the bottom regardless of the stale in-frame ContentSize.
+		ImGuiWindow* childWindow = ImGui::GetCurrentWindow();
+		const float scrollMaxY = ImGui::GetScrollMaxY();
+		const float scrollY = ImGui::GetScrollY();
+		// at-bottom detection - used ONLY to RE-PIN while unpinned, where the
+		// scroll is stable and GetScrollMaxY is accurate (within half a line)
+		const float atBottomEps = std::max(2.0f, cellH * 0.5f);
+		const bool atBottom = scrollY >= scrollMaxY - atBottomEps;
+		// the user scrolled up: a wheel-up over the grid, or the vertical scrollbar
+		// grabbed while not at the bottom (a scrollbar drag into history). Either
+		// UNPINS; returning to the bottom (atBottom) re-pins.
+		const bool childHovered = ImGui::IsWindowHovered();
+		const ImGuiID vScrollId =
+			ImGui::GetWindowScrollbarID(childWindow, ImGuiAxis_Y);
+		const bool scrollbarGrabbed =
+			ImGui::GetCurrentContext()->ActiveId == vScrollId;
+		const bool userScrolledAway =
+			(childHovered && ImGui::GetIO().MouseWheel > 0.0f) ||
+			(scrollbarGrabbed && !atBottom);
+		// content grew this frame: new output, a grid resize, or a re-shown
+		// backgrounded tab (its line count jumped while it was not being drawn)
+		const bool contentGrew =
+			gotOutput || gridResized || (totalLines != s.lastTotalLines);
+
+		TerminalFollowInputs followIn;
+		followIn.atBottom = atBottom;
+		followIn.contentGrew = contentGrew;
+		followIn.userScrolledAway = userScrolledAway;
+		followIn.isSelecting = s.selecting;
+		followIn.sentInput = s.sentInputPending;	// set by last frame's input
+		followIn.wasFollowing = s.followTail;
+		const TerminalFollowVerdict verdict = terminalFollowDecision(followIn);
+		if (verdict.pinToBottom)
 		{
-			ImGui::SetScrollY(ImGui::GetScrollMaxY());
+			ImGui::SetScrollY(static_cast<float>(totalLines) * cellH);
 		}
-		s.followTail = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
+		s.followTail = verdict.followTail;
+		s.sentInputPending = false;
+		s.lastTotalLines = totalLines;
 
 		ImGui::EndChild();
 		ImGui::PopStyleColor();
@@ -723,7 +786,10 @@ namespace
 			state.terminalFocused = true;
 			if (s.pty)
 			{
-				handleTerminalInput(s);
+				// remember whether the user sent input this frame; next frame's
+				// follow decision re-pins + jumps to the prompt on it (input is
+				// handled after the grid submits, so it lands one frame later)
+				s.sentInputPending = handleTerminalInput(s);
 			}
 		}
 	}
@@ -1614,6 +1680,73 @@ namespace OrkigeEditor
 				SDL_Log("terminal-test: a second pty was unavailable - the "
 					"multi-session pty leg was skipped");
 			}
+		}
+
+		// 9) the follow/pin contract driven headlessly through the SAME seam the
+		//    panel uses (terminalFollowDecision + terminalScrollMax): a real VT
+		//    screen grows, and with the pin held the computed target scroll TRACKS
+		//    the growing max - the regression the panel's stale-GetScrollMaxY bug
+		//    broke (the pin landed short of a grown tail, then unpinned itself).
+		{
+			const float cellH = 16.0f;
+			const float viewH = 24.0f * cellH;	// a 24-row viewport
+			EditorTerminalScreen follow(80, 24, kScrollbackLines);
+			bool followTail = true;			// the pin state, as the panel holds it
+			float lastTarget = -1.0f;
+			bool targetTracksMax = true;
+			bool stayedPinned = true;
+			int lastTotalLines = -1;
+			for (int burst = 0; burst < 40; ++burst)
+			{
+				// a burst of lines lands in the grid (pushes into scrollback)
+				for (int line = 0; line < 5; ++line)
+				{
+					follow.write("terminal follow line of output\r\n");
+				}
+				const int totalLines = follow.scrollbackCount() + 24;
+				TerminalFollowInputs in;
+				in.contentGrew = (totalLines != lastTotalLines);
+				in.wasFollowing = followTail;
+				in.atBottom = true;		// the panel pins to the true bottom
+				const TerminalFollowVerdict verdict =
+					terminalFollowDecision(in);
+				followTail = verdict.followTail;
+				if (!followTail)
+				{
+					stayedPinned = false;	// a pinned view must never self-unpin
+				}
+				if (verdict.pinToBottom)
+				{
+					const float target =
+						terminalScrollMax(totalLines, cellH, viewH);
+					if (target < lastTarget)	// the tail only grows -> so does the target
+					{
+						targetTracksMax = false;
+					}
+					lastTarget = target;
+				}
+				lastTotalLines = totalLines;
+			}
+			check(stayedPinned,
+				"a pinned terminal keeps following as its output grows");
+			check(targetTracksMax && lastTarget > 0.0f,
+				"the pinned scroll target tracks the growing content max");
+
+			// a user scroll-up UNPINS, and returning to the bottom RE-PINS
+			TerminalFollowInputs up;
+			up.wasFollowing = true;
+			up.userScrolledAway = true;
+			up.contentGrew = true;
+			const TerminalFollowVerdict unpinned = terminalFollowDecision(up);
+			check(!unpinned.followTail && !unpinned.pinToBottom,
+				"scrolling up unpins the terminal from the tail");
+			TerminalFollowInputs downAgain;
+			downAgain.wasFollowing = false;
+			downAgain.atBottom = true;
+			const TerminalFollowVerdict repinned =
+				terminalFollowDecision(downAgain);
+			check(repinned.followTail,
+				"returning to the bottom re-pins the terminal to the tail");
 		}
 
 		SDL_Log("orkige_editor: terminal-test %s",
