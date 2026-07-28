@@ -4412,6 +4412,12 @@ int main(int argc, char** argv)
 							"Orkige Selfcheck" }) ||
 						!git({ "-C", tempRoot, "config", "commit.gpgsign",
 							"false" }) ||
+						// LF-exact content round trips: a host git with
+						// autocrlf=true (the Windows installer default) would
+						// otherwise check the discard leg's file out with CRLF
+						// and the committed-content comparison would misreport
+						!git({ "-C", tempRoot, "config", "core.autocrlf",
+							"false" }) ||
 						!git({ "-C", bareRoot, "init", "--bare" }))
 					{
 						scOk = false;
