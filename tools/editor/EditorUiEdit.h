@@ -264,6 +264,29 @@ namespace OrkigeEditor
 	UiSnap snapToGuides(UiRect const& moving, std::vector<UiGuide> const& candidates,
 		float threshold);
 
+	//! @brief one row the sprite picker popup offers, in draw order (@see
+	//! spritePickerEntries). @c value is what a pick writes to the widget's
+	//! `sprite` key ("" clears it to none); @c label is the row text.
+	struct UiSpritePickEntry
+	{
+		Orkige::String	value;			//!< written to `sprite` on pick ("" = none)
+		Orkige::String	label;			//!< the row label ("(none)" / the name / use "x")
+		bool			isNone = false;	//!< the leading clear entry (no thumbnail)
+		bool			isCustom = false;//!< a free-text name the atlas has not loaded
+	};
+
+	//! @brief build the ordered sprite-picker entries: a leading "(none)" clear,
+	//! then every atlas sprite whose name CONTAINS @p filter (case-insensitive,
+	//! atlas order preserved), and - when @p filter is a non-blank single-token
+	//! name that is not already an exact atlas entry - a trailing free-text entry
+	//! carrying the typed name verbatim, so a sprite the live atlas has not loaded
+	//! (classic / headless, where no view enumerates the atlas) stays selectable.
+	//! Pure: the panel draws the returned rows, the unit test asserts the
+	//! filtering / ordering / free-text contract.
+	std::vector<UiSpritePickEntry> spritePickerEntries(
+		std::vector<Orkige::String> const& atlasSprites,
+		Orkige::String const& filter);
+
 	//! @brief a fresh section for @p type (a palette kind) with sane defaults and
 	//! an id unique within @p doc; @p parentId (when non-empty and present) is
 	//! stamped as the widget's parent. An unknown/empty type falls back to a

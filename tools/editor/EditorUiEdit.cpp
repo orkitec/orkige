@@ -764,6 +764,62 @@ namespace OrkigeEditor
 		return -1;
 	}
 	//---------------------------------------------------------
+	namespace
+	{
+		//! a lower-case copy (self-contained, so the pure core carries no
+		//! StringUtil dependency)
+		String toLowerCopy(String const& in)
+		{
+			String out = in;
+			std::transform(out.begin(), out.end(), out.begin(),
+				[](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+			return out;
+		}
+	}
+	//---------------------------------------------------------
+	std::vector<UiSpritePickEntry> spritePickerEntries(
+		std::vector<String> const& atlasSprites, String const& filter)
+	{
+		std::vector<UiSpritePickEntry> out;
+		// the clear entry always leads, regardless of the filter (it is an action,
+		// not a searchable sprite)
+		UiSpritePickEntry none;
+		none.label = "(none)";
+		none.isNone = true;
+		out.push_back(none);
+
+		const String needle = toLowerCopy(filter);
+		bool anyMatch = false;
+		for(String const& name : atlasSprites)
+		{
+			if(name.empty()) { continue; }
+			if(!needle.empty() && toLowerCopy(name).find(needle) == String::npos)
+			{
+				continue;
+			}
+			UiSpritePickEntry e;
+			e.value = name;
+			e.label = name;
+			out.push_back(e);
+			anyMatch = true;
+		}
+		// a typed name the atlas does not carry stays selectable (the classic /
+		// headless case, where no live view enumerates the atlas, AND a full name
+		// typed that is simply not present). Only when NOTHING matched - a filter
+		// with live search hits is a search, not a new name - and a sprite name is
+		// one token, so a filter with whitespace never offers a free-text entry.
+		if(!filter.empty() && !anyMatch &&
+			filter.find_first_of(" \t") == String::npos)
+		{
+			UiSpritePickEntry custom;
+			custom.value = filter;
+			custom.label = String("use \"") + filter + "\"";
+			custom.isCustom = true;
+			out.push_back(custom);
+		}
+		return out;
+	}
+	//---------------------------------------------------------
 	GuiLayoutSection paletteSection(GuiLayoutDoc const& doc,
 		String const& type, String const& parentId)
 	{

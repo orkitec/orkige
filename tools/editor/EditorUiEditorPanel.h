@@ -168,6 +168,15 @@ namespace OrkigeEditor
 	//! widget was added (already persisted). Both call sites open the SAME picker.
 	bool uiEditAddWidgetControl(UiEditSession& s, GamePreviewStage& stage,
 		char const* idScope, bool bigButton);
+	//! @brief the headless sprite-pick seam: set the KEY (selected) widget's
+	//! `sprite` key to @p value ("" clears it to none) as ONE undo step, then
+	//! persist + reload the overlay - the exact document mutation the Inspector's
+	//! sprite-picker popup performs, exposed so the selfcheck drives a pick
+	//! without synthesising ImGui combo input. Returns false + @p error when
+	//! nothing is selected. (@see spritePickerEntries for the pure entry list the
+	//! popup draws.)
+	bool uiEditPickSprite(UiEditSession& s, GamePreviewStage& stage,
+		std::string const& value, std::string& error);
 	//! remove the selected widget subtree (one undo step)
 	void uiEditDeleteSelected(UiEditSession& s);
 	//! @brief rename the KEY (selected) widget to @p newId (one undo step +

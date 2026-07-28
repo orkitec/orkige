@@ -30,6 +30,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cfloat>
 #include <cstdio>
@@ -742,6 +743,22 @@ namespace OrkigeEditor
 			s.selection.swap(kept);
 			syncKey(s);
 		}
+	}
+	//---------------------------------------------------------
+	bool uiEditPickSprite(UiEditSession& s, GamePreviewStage& stage,
+		String const& value, String& error)
+	{
+		GuiLayoutSection* section = selectedSection(s);
+		if(!section)
+		{
+			error = "no widget selected";
+			return false;
+		}
+		s.doc.beginEdit();
+		section->set("sprite", value);
+		s.doc.commitEdit();
+		s.needsReload = true;
+		return persist(s, stage, error);
 	}
 	//---------------------------------------------------------
 	void uiEditDeleteSelected(UiEditSession& s)
@@ -1494,12 +1511,12 @@ namespace OrkigeEditor
 			}
 			return String("gui_default");
 		}
-		//! @brief draw a small @p px sprite thumbnail from @p atlasName's texture at
-		//! the sprite's UV rect. A no-op returning false when the atlas / sprite /
-		//! texture cannot be resolved (classic / headless / an unknown name) - the
-		//! caller lays out without it then.
-		bool drawSpriteThumb(String const& atlasName, String const& spriteName,
-			float px)
+		//! @brief resolve @p spriteName in @p atlasName to a live texture + UV rect.
+		//! False (drawing nothing) when the atlas / sprite / texture cannot be
+		//! resolved (classic / headless / an unknown name), which is the honest
+		//! no-view state - the caller lays out a placeholder box then.
+		bool spriteTexUv(String const& atlasName, String const& spriteName,
+			ImTextureID& tex, ImVec2& uv0, ImVec2& uv1)
 		{
 			if(spriteName.empty()) { return false; }
 			Orkige::GuiManager* gui = Orkige::GuiManager::getSingletonPtr();
@@ -1509,93 +1526,177 @@ namespace OrkigeEditor
 			Orkige::UiSprite const* sp = atlas->getSprite(spriteName);
 			if(!sp) { return false; }
 			if(!gImGuiRenderer) { return false; }
-			const ImTextureID tex =
-				gImGuiRenderer->textureIdForResource(atlas->getTextureName());
+			tex = gImGuiRenderer->textureIdForResource(atlas->getTextureName());
 			if(tex == static_cast<ImTextureID>(0)) { return false; }
-			ImGui::Image(tex, ImVec2(px, px),
-				ImVec2(sp->uvLeft, sp->uvTop), ImVec2(sp->uvRight, sp->uvBottom));
+			uv0 = ImVec2(sp->uvLeft, sp->uvTop);
+			uv1 = ImVec2(sp->uvRight, sp->uvBottom);
 			return true;
 		}
-		//! the `sprite` property row: a manual InputText plus a pick popup listing
-		//! the sprite names in the CURRENT layout's LOADED atlas (the seam the
-		//! runtime renders through - GuiManager::getAtlasSpriteNames) plus a
-		//! "(none)" clear. Mirrors the Inspector's AssetRef pick popup
-		//! (drawMaterialTextureRef): manual entry stays possible so a name the live
-		//! atlas has not loaded (classic / headless, where no view exists) is still
-		//! editable. Returns true on a committed change (the caller persists once).
+		//! the sprite thumbnail edge in a picker (field preview + popup rows).
+		//! TASTE: 2x the former line-height preview, so a row reads as an actual
+		//! sprite; the thumbnail drives the row / field height (still compact).
+		float spriteThumbPx()
+		{
+			return std::floor(ImGui::GetTextLineHeight() * 2.0f);
+		}
+		//! @brief overlay the picker field's current-value preview - the sprite
+		//! thumbnail (else a placeholder box on classic / headless) plus the name,
+		//! vertically centred and clipped to the field so a long name never runs
+		//! under the caret. Drawn on the window draw list (not as items), so the
+		//! combo's own layout is untouched.
+		void drawSpritePreviewOverlay(String const& atlasName, String const& cur,
+			ImVec2 const& fieldMin, ImVec2 const& fieldMax, float thumb)
+		{
+			ImDrawList* draw = ImGui::GetWindowDrawList();
+			const ImGuiStyle& style = ImGui::GetStyle();
+			const float cy = (fieldMin.y + fieldMax.y) * 0.5f;
+			const ImVec2 boxMin(fieldMin.x + style.FramePadding.x, cy - thumb * 0.5f);
+			const ImVec2 boxMax(boxMin.x + thumb, cy + thumb * 0.5f);
+			float textX = fieldMin.x + style.FramePadding.x;
+			ImTextureID tex; ImVec2 uv0, uv1;
+			if(!cur.empty() && spriteTexUv(atlasName, cur, tex, uv0, uv1))
+			{
+				draw->AddImage(tex, boxMin, boxMax, uv0, uv1);
+				textX = boxMax.x + style.ItemInnerSpacing.x;
+			}
+			else if(!cur.empty())
+			{
+				draw->AddRect(boxMin, boxMax, ImGui::GetColorU32(ImGuiCol_Border));
+				textX = boxMax.x + style.ItemInnerSpacing.x;
+			}
+			const char* text = cur.empty() ? "(none)" : cur.c_str();
+			const ImU32 col = ImGui::GetColorU32(
+				cur.empty() ? ImGuiCol_TextDisabled : ImGuiCol_Text);
+			const float ty = cy - ImGui::GetTextLineHeight() * 0.5f;
+			const float arrowW = fieldMax.y - fieldMin.y;	// the combo's arrow box
+			draw->PushClipRect(fieldMin,
+				ImVec2(fieldMax.x - arrowW, fieldMax.y), true);
+			draw->AddText(ImVec2(textX, ty), col, text);
+			draw->PopClipRect();
+		}
+		//! @brief draw the picker popup body (a search filter + the ordered
+		//! entries from the pure spritePickerEntries, each a full-width row with a
+		//! 2x thumbnail). A pick sets the `sprite` key as ONE undo step and closes
+		//! the popup; returns true then (the caller persists). @p cur marks the
+		//! selected row. Runs inside the open BeginCombo.
+		bool drawSpritePickPopup(UiEditDoc& doc, GuiLayoutSection& sec,
+			char const* key, String const& atlasName, String const& cur, float thumb)
+		{
+			static char filter[64] = { 0 };
+			if(ImGui::IsWindowAppearing())
+			{
+				filter[0] = '\0';
+				ImGui::SetKeyboardFocusHere();
+			}
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			ImGui::InputTextWithHint("##spritesearch", "search sprites...",
+				filter, sizeof(filter));
+			ImGui::Separator();
+
+			std::vector<String> names;
+			if(Orkige::GuiManager* gui = Orkige::GuiManager::getSingletonPtr())
+			{
+				names = gui->getAtlasSpriteNames(atlasName);
+			}
+			const std::vector<UiSpritePickEntry> entries =
+				spritePickerEntries(names, String(filter));
+
+			ImDrawList* draw = ImGui::GetWindowDrawList();
+			const ImGuiStyle& style = ImGui::GetStyle();
+			bool committed = false;
+			bool anySprite = false;
+			for(size_t each = 0; each < entries.size(); ++each)
+			{
+				UiSpritePickEntry const& e = entries[each];
+				ImGui::PushID(static_cast<int>(each));
+				const ImVec2 p0 = ImGui::GetCursorScreenPos();
+				const bool isSel = !e.isNone && cur == e.value;
+				// a full-row selectable owns the hit area + the row height; the
+				// thumbnail + name draw over it (draw list, so no extra layout).
+				const bool clicked = ImGui::Selectable("##row", isSel,
+					ImGuiSelectableFlags_None, ImVec2(0.0f, thumb));
+				const ImVec2 boxMax(p0.x + thumb, p0.y + thumb);
+				float textX = boxMax.x + style.ItemInnerSpacing.x;
+				ImTextureID tex; ImVec2 uv0, uv1;
+				if(!e.isNone && spriteTexUv(atlasName, e.value, tex, uv0, uv1))
+				{
+					draw->AddImage(tex, p0, boxMax, uv0, uv1);
+					anySprite = true;
+				}
+				else if(!e.isNone)
+				{
+					draw->AddRect(p0, boxMax, ImGui::GetColorU32(ImGuiCol_Border));
+				}
+				else
+				{
+					textX = p0.x;	// the "(none)" clear carries no thumbnail
+				}
+				const ImU32 col = ImGui::GetColorU32(
+					(e.isNone || e.isCustom) ? ImGuiCol_TextDisabled : ImGuiCol_Text);
+				const float ty = p0.y + (thumb - ImGui::GetTextLineHeight()) * 0.5f;
+				draw->AddText(ImVec2(textX, ty), col, e.label.c_str());
+				if(clicked)
+				{
+					doc.beginEdit();
+					sec.set(key, e.value);
+					doc.commitEdit();
+					committed = true;
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::PopID();
+			}
+			if(!anySprite)
+			{
+				// only the (none) clear (and maybe a typed free-text entry) exist:
+				// the atlas is not live here (classic / headless) - say so
+				ImGui::TextDisabled("no atlas sprites loaded");
+			}
+			return committed;
+		}
+		//! the `sprite` property row: ONE full-row-width combo whose caret is part
+		//! of the field and whose popup matches the field width (the Anchor row
+		//! idiom). The closed field previews the current sprite (thumbnail + name);
+		//! the popup carries a search filter + the atlas sprites (the seam the
+		//! runtime renders through - GuiManager::getAtlasSpriteNames) with a
+		//! "(none)" clear and a free-text fallback for a name the live atlas has
+		//! not loaded (classic / headless). Returns true on a committed change (the
+		//! caller persists once).
 		bool spriteRow(UiEditSession& s, UiEditDoc& doc, GuiLayoutSection& sec,
 			char const* label, char const* tooltip, char const* key)
 		{
-			char buffer[256] = { 0 };
-			if(String const* v = sec.find(key))
-			{
-				std::snprintf(buffer, sizeof(buffer), "%s", v->c_str());
-			}
-			beginPropertyRow(label, tooltip);
-			bool committed = false;
-			// reserve the pick button's width at the value column's right edge
-			const float pickWidth = ImGui::GetFrameHeight() +
-				ImGui::GetStyle().ItemSpacing.x;
-			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - pickWidth);
-			const String id = String("##") + key;
-			const bool changed =
-				ImGui::InputText(id.c_str(), buffer, sizeof(buffer));
-			if(ImGui::IsItemActivated()) { doc.beginEdit(); }
-			if(changed) { sec.set(key, buffer); }
-			if(ImGui::IsItemDeactivatedAfterEdit())
-			{
-				doc.commitEdit();
-				committed = true;
-			}
-			ImGui::SameLine();
-			const String popupId = id + "pick";
-			if(ImGui::ArrowButton((id + "btn").c_str(), ImGuiDir_Down))
-			{
-				ImGui::OpenPopup(popupId.c_str());
-			}
-			ImGui::SetItemTooltip("pick a sprite from the layout atlas");
-			// a small preview of the CURRENT value beside the row (next flavor,
-			// when its atlas texture is live; a no-op otherwise)
 			const String atlasName = layoutAtlasName(s);
-			if(String const* cur = sec.find(key))
+			String const* curPtr = sec.find(key);
+			const String cur = curPtr ? *curPtr : String();
+
+			beginPropertyRow(label, tooltip);	// sets the full-column item width
+			bool committed = false;
+
+			const float thumb = spriteThumbPx();
+			// grow the field so the doubled current-value thumbnail fits; the caret
+			// + overlaid name centre in the taller frame. The row grows to the
+			// thumbnail height (still compact).
+			const ImGuiStyle& style = ImGui::GetStyle();
+			const float padY = std::max(style.FramePadding.y,
+				(thumb - ImGui::GetTextLineHeight()) * 0.5f);
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+				ImVec2(style.FramePadding.x, padY));
+
+			const String comboId = String("##") + key;
+			ImGui::SetNextItemWidth(-FLT_MIN);	// fill the value column (caret in field)
+			const bool open = ImGui::BeginCombo(comboId.c_str(), "");
+			const ImVec2 fieldMin = ImGui::GetItemRectMin();
+			const ImVec2 fieldMax = ImGui::GetItemRectMax();
+			// the frame is sized; the popup draws with the normal padding
+			ImGui::PopStyleVar();
+			ImGui::SetItemTooltip("pick a sprite from the layout atlas");
+			if(open)
 			{
-				const float thumb = ImGui::GetFrameHeight();
-				ImGui::SameLine();
-				if(!drawSpriteThumb(atlasName, *cur, thumb))
-				{
-					ImGui::Dummy(ImVec2(0.0f, thumb));	// keep the row height stable
-				}
+				committed = drawSpritePickPopup(doc, sec, key, atlasName, cur, thumb);
+				ImGui::EndCombo();
 			}
-			auto pick = [&](String const& value)
-			{
-				doc.beginEdit();
-				sec.set(key, value);
-				doc.commitEdit();
-				committed = true;
-			};
-			if(ImGui::BeginPopup(popupId.c_str()))
-			{
-				if(ImGui::Selectable("(none)")) { pick(String()); }
-				std::vector<String> names;
-				if(Orkige::GuiManager* gui = Orkige::GuiManager::getSingletonPtr())
-				{
-					names = gui->getAtlasSpriteNames(atlasName);
-				}
-				String const* cur = sec.find(key);
-				const float thumb = ImGui::GetTextLineHeight();
-				for(String const& name : names)
-				{
-					// the actual sprite drawn from the atlas texture beside each entry
-					if(drawSpriteThumb(atlasName, name, thumb)) { ImGui::SameLine(); }
-					const bool selected = cur && *cur == name;
-					if(ImGui::Selectable(name.c_str(), selected)) { pick(name); }
-				}
-				if(names.empty())
-				{
-					ImGui::TextDisabled("no atlas sprites loaded");
-				}
-				ImGui::EndPopup();
-			}
+
+			// the closed field's current-value preview, overlaid on the frame
+			drawSpritePreviewOverlay(atlasName, cur, fieldMin, fieldMax, thumb);
 			endPropertyRow();
 			return committed;
 		}

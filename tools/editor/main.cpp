@@ -8387,6 +8387,77 @@ int main(int argc, char** argv)
 						}
 					}
 				}
+				// --- sprite picker: the pure entry list (clear-leads / filter /
+				// free-text miss) + the pick seam driving the doc. The open/closed
+				// combo state is ImGui-owned (BeginCombo), so this drives the
+				// picker's DOCUMENT effect through the same seam the popup mutates;
+				// the real synthetic-mouse combo path is not cheaply reachable
+				// (the popup rows publish no screen-rect debug seam), so it stays
+				// the doc-level leg + this note. ---
+				if (ok)
+				{
+					const std::vector<std::string> atlas = {
+						"button", "button_pressed", "panel" };
+					const std::vector<OrkigeEditor::UiSpritePickEntry> entries =
+						OrkigeEditor::spritePickerEntries(atlas, "press");
+					// (none) leads, "press" filters to button_pressed only
+					if (entries.size() != 2 || !entries[0].isNone ||
+						entries[1].value != "button_pressed")
+					{
+						uiFail("sprite picker entries wrong (clear-lead / filter)");
+					}
+					// a typed miss yields a free-text fallback (classic/headless)
+					else if (OrkigeEditor::spritePickerEntries(atlas, "hero")
+						.back().isCustom == false)
+					{
+						uiFail("sprite picker gave no free-text entry for a miss");
+					}
+				}
+				auto spriteOf = [&](std::string const& id) -> std::string
+				{
+					const int idx =
+						OrkigeEditor::sectionIndex(session.doc.doc(), id);
+					if (idx < 0) { return "<absent>"; }
+					Orkige::String const* v = session.doc.doc()
+						.sections[static_cast<size_t>(idx)].find("sprite");
+					return v ? *v : std::string("<none>");
+				};
+				if (ok)
+				{
+					// pick a sprite on the button through the seam the popup uses:
+					// the doc updates, an undo step lands, and the reload survives
+					OrkigeEditor::uiEditSelect(session, "ok");
+					std::string pickErr;
+					if (!OrkigeEditor::uiEditPickSprite(session, gamePreviewStage,
+						"button_pressed", pickErr))
+					{
+						uiFail("sprite pick failed: " + pickErr);
+					}
+					else if (spriteOf("ok") != "button_pressed")
+					{
+						uiFail("sprite pick did not update the section (got '" +
+							spriteOf("ok") + "')");
+					}
+					else if (!session.doc.canUndo())
+					{
+						uiFail("sprite pick produced no undo step");
+					}
+				}
+				if (ok)
+				{
+					// the "(none)" clear empties the key (widget shows bare)
+					std::string clearErr;
+					if (!OrkigeEditor::uiEditPickSprite(session, gamePreviewStage,
+						std::string(), clearErr))
+					{
+						uiFail("sprite clear failed: " + clearErr);
+					}
+					else if (spriteOf("ok") != "")
+					{
+						uiFail("sprite clear did not empty the key (got '" +
+							spriteOf("ok") + "')");
+					}
+				}
 				fs::remove_all(dir, uiEc);
 				if (ok)
 				{
@@ -8395,6 +8466,7 @@ int main(int argc, char** argv)
 						"marquee/anchor-gizmo + selection-sync + canvas clip/mapping "
 						"+ content-containment matrix + palette-add containment "
 						"+ rename(re-home/collision) + label-resize/text-in-box "
+						"+ sprite-picker(entries/pick/clear) "
 						"verified");
 					exitCode = 0;
 					running = false;

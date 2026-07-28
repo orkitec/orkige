@@ -297,6 +297,99 @@ TEST_CASE("ui-edit: palette section has a unique id + parent + defaults",
 	CHECK(unknown.find("parent") == nullptr);	// missing parent not stamped
 }
 
+TEST_CASE("ui-edit: sprite picker entries - clear leads, filter is a "
+	"case-insensitive substring, free-text fallback for an atlas miss",
+	"[unit][uiedit]")
+{
+	const std::vector<std::string> atlas = {
+		"button", "button_pressed", "panel", "checkbox_on" };
+
+	// no filter: a leading "(none)" clear, then every sprite in atlas order,
+	// and NO free-text entry (a blank filter is not a typed name)
+	{
+		const std::vector<OrkigeEditor::UiSpritePickEntry> e =
+			OrkigeEditor::spritePickerEntries(atlas, "");
+		REQUIRE(e.size() == atlas.size() + 1);
+		CHECK(e[0].isNone);
+		CHECK(e[0].value.empty());
+		CHECK(e[1].value == "button");			// atlas order preserved
+		CHECK(e[4].value == "checkbox_on");
+		for(size_t i = 1; i < e.size(); ++i) { CHECK_FALSE(e[i].isCustom); }
+	}
+
+	// a substring filter (case-insensitive) keeps only the matches, clear still
+	// leads; "BUTT" matches button + button_pressed
+	{
+		const std::vector<OrkigeEditor::UiSpritePickEntry> e =
+			OrkigeEditor::spritePickerEntries(atlas, "BUTT");
+		REQUIRE(e.size() == 3);				// (none) + 2 matches
+		CHECK(e[0].isNone);
+		CHECK(e[1].value == "button");
+		CHECK(e[2].value == "button_pressed");
+	}
+
+	// a typed name the atlas does NOT carry gets a trailing free-text entry
+	// (the classic / headless editability path) carrying the name verbatim
+	{
+		const std::vector<OrkigeEditor::UiSpritePickEntry> e =
+			OrkigeEditor::spritePickerEntries(atlas, "hero_face");
+		REQUIRE(e.size() == 2);				// (none) + the free-text entry
+		CHECK(e[0].isNone);
+		CHECK(e[1].isCustom);
+		CHECK(e[1].value == "hero_face");	// the pick writes the typed name
+	}
+
+	// an EXACT atlas hit is not duplicated as a free-text entry
+	{
+		const std::vector<OrkigeEditor::UiSpritePickEntry> e =
+			OrkigeEditor::spritePickerEntries(atlas, "panel");
+		REQUIRE(e.size() == 2);				// (none) + the "panel" match only
+		CHECK(e[1].value == "panel");
+		CHECK_FALSE(e[1].isCustom);
+	}
+
+	// a filter with whitespace is a search only (a sprite name is one token) -
+	// no free-text entry even on a miss, and an empty atlas keeps just the clear
+	{
+		CHECK(OrkigeEditor::spritePickerEntries(atlas, "no match").size() == 1);
+		CHECK(OrkigeEditor::spritePickerEntries({}, "").size() == 1);
+	}
+}
+
+TEST_CASE("ui-edit: sprite pick round-trips into the section and clears",
+	"[unit][uiedit][oui]")
+{
+	// picking an entry writes its value to the widget's `sprite` key; the doc
+	// round-trips through serialize/parse and the clear entry empties the key.
+	GuiLayoutSection button;
+	button.type = "Button";
+	button.id = "ok";
+	button.set("sprite", "button");
+
+	const std::vector<OrkigeEditor::UiSpritePickEntry> entries =
+		OrkigeEditor::spritePickerEntries({ "button", "button_pressed" }, "pressed");
+	REQUIRE(entries.size() == 2);			// (none) + button_pressed
+	button.set("sprite", entries[1].value);	// the pick the popup performs
+	REQUIRE(button.find("sprite") != nullptr);
+	CHECK(*button.find("sprite") == "button_pressed");
+
+	GuiLayoutDoc doc;
+	doc.sections.push_back(button);
+	GuiLayoutDoc reparsed;
+	std::string error;
+	REQUIRE(GuiLayoutDoc::parse(doc.serialize(), reparsed, error));
+	const int idx = sectionIndex(reparsed, "ok");
+	REQUIRE(idx >= 0);
+	REQUIRE(reparsed.sections[static_cast<size_t>(idx)].find("sprite") != nullptr);
+	CHECK(*reparsed.sections[static_cast<size_t>(idx)].find("sprite") ==
+		"button_pressed");
+
+	// the "(none)" clear empties the key (the runtime shows the widget bare)
+	button.set("sprite", entries[0].value);
+	REQUIRE(button.find("sprite") != nullptr);
+	CHECK(button.find("sprite")->empty());
+}
+
 TEST_CASE("ui-edit: remove a subtree deletes the widget and its descendants",
 	"[unit][uiedit]")
 {
