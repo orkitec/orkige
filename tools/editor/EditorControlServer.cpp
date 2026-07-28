@@ -5612,6 +5612,13 @@ namespace Orkige
 				{
 					continue;
 				}
+				// editor-private files (the .mcp.json discovery file) are never
+				// listed either - generated state, not project source
+				if (entry.is_regular_file(dirErr) &&
+					Orkige::ProjectPaths::isReservedProjectFile(name))
+				{
+					continue;
+				}
 				if (!glob.empty() && !globMatch(glob, name))
 				{
 					continue;

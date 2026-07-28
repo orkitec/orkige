@@ -61,6 +61,17 @@ namespace Orkige
 				directory.parent_path().filename().string());
 		}
 
+		//! @brief is a FILE (by its own name) a reserved editor-private file that
+		//! must never surface in a project file listing? Currently the project-
+		//! scope MCP discovery file `.mcp.json` (the editor writes it at the
+		//! project root while its MCP endpoint is live so a `claude` session in
+		//! the project directory auto-discovers the editor; it is generated
+		//! editor state, not project content - gitignored, never exported).
+		inline bool isReservedProjectFile(std::string const & fileName)
+		{
+			return fileName == ".mcp.json";
+		}
+
 		//! @brief is a project-RELATIVE path inside a reserved output directory?
 		//! (walks the path's components, so `builds/macos/assets/foo.png` and
 		//! `native/build-next/x.o` are caught). For listing/browsing a rel path.

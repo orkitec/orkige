@@ -21,8 +21,16 @@ server is hand-rolled on the engine's own non-blocking socket layer
 
 ## Launch the editor with the MCP endpoint
 
-The endpoint is **OFF by default** — no normal run or test opens a socket. Turn
-it on with a port and (for mutations) a token file:
+The endpoint is **default-on for an interactive session**: an editor a person
+launched starts it automatically on an **ephemeral loopback port**, writes its
+auth token to the writable app-support dir (`mcp-endpoint.token`, owner-only),
+and — while a project is open — writes the per-project discovery file
+`<projectRoot>/.mcp.json` (see below), so an agent finds it with **no manual
+setup**. Automated runs and the ctest suite never open the socket (they opt in
+explicitly). Opt **out** with `ORKIGE_MCP_PORT=0` (also `off`/`none`/`no`).
+
+Pin an explicit port and token file for a scripted launch or to share a stable
+URL:
 
 ```sh
 # explicit port + published token (the client reads both from the token file)
@@ -36,6 +44,33 @@ ORKIGE_MCP_PORT=9010 ORKIGE_MCP_TOKEN_FILE=/tmp/orkige.token orkige_editor
 `--control-port` / `--control-token-file` remain accepted aliases. With a token
 file the editor writes `<port>\n<token>\n` to it (so a launcher that passed port
 `0` can discover the ephemeral port), and the token is required on mutations.
+
+### Project auto-discovery (`.mcp.json`)
+
+While the endpoint is live and a project is open, the editor writes the
+project-scope MCP config `<projectRoot>/.mcp.json` — the file a `claude` session
+started in the project directory (the embedded terminal starts there)
+auto-loads. Its shape is exactly what `claude mcp add --transport http -s
+project` produces:
+
+```json
+{ "mcpServers": { "orkige": {
+    "type": "http",
+    "url": "http://127.0.0.1:<port>/mcp",
+    "headers": { "Authorization": "Bearer <token>" },
+    "x-orkige-managed": true } } }
+```
+
+The `x-orkige-managed` marker (a field `claude` ignores) lets the editor manage
+**only the entry it wrote**: a user-authored `orkige` server without the marker
+is left untouched, every other server the user authored is preserved across
+rewrites, and an unparseable file is never clobbered. The file is rewritten on a
+project switch / port change and **removed on clean shutdown** (a crash leaves
+it; the next launch's ephemeral rewrite self-heals it). It is gitignored, hidden
+from project file listings, and never bundled by the exporter. `claude` prompts
+once per session to approve a project's `.mcp.json`; because the default port is
+ephemeral, that approval recurs each launch (pin `--mcp-port` for a stable URL
+that is approved once).
 
 ## Register with Claude
 

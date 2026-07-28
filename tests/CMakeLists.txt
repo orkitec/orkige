@@ -1330,6 +1330,19 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_IDE_TEST=${Orkige_SOURCE_DIR}/projects/jumper-lua/scripts/player.lua"
         LABELS integration TIMEOUT 120 SKIP_RETURN_CODE 77)
 
+    # project-scope MCP discovery file end to end: the editor's default-on MCP
+    # endpoint (ephemeral loopback port + a token file written to a temp path)
+    # comes up, and while a project is open the reconciler writes
+    # <root>/.mcp.json carrying our marked orkige server entry at the live URL;
+    # closing the project strips it back out (only-server -> file removed). The
+    # env FORCES the interactive default-on path under an automated run and
+    # names the source project the test copies to a temp dir. Both flavors.
+    add_test(NAME editor_mcp_default${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_editor WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_mcp_default${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_MCPDEFAULT_TEST=${Orkige_SOURCE_DIR}/projects/jumper-lua;ORKIGE_DEMO_FRAMES=60"
+        LABELS integration TIMEOUT 120)
+
     # the REAL-`claude`-binary drift alarm: launch the actual CLI pointed at the
     # editor's own lock/port and assert it dials the IDE endpoint (the protocol
     # is external and undocumented - a real connection here proves it still

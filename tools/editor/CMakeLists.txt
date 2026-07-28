@@ -55,6 +55,10 @@ add_library(orkige_editor_core STATIC
     # builders); unit-tested headlessly (EditorIdeProtocolTests)
     EditorIdeProtocol.h
     EditorIdeProtocol.cpp
+    # the PURE merge-or-skip logic for the project-scope .mcp.json discovery
+    # file; unit-tested headlessly (EditorMcpConfigTests)
+    EditorMcpConfig.h
+    EditorMcpConfig.cpp
     FileFormatIcon.h
     FileFormatIcon.cpp
     EditorLineDiff.h
@@ -109,6 +113,10 @@ add_executable(orkige_editor
     # the Claude-IDE integration server (lock lifecycle + MCP-over-WebSocket)
     EditorIdeServer.h
     EditorIdeServer.cpp
+    # the project-scope .mcp.json discovery-file reconciler (file IO over the
+    # pure EditorMcpConfig merge logic)
+    EditorMcpConfigFile.h
+    EditorMcpConfigFile.cpp
     EditorDeviceTargets.cpp
     EditorDocument.cpp
     EditorBrowserServe.cpp

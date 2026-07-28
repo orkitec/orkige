@@ -18,3 +18,7 @@ breadcrumbs.prev.jsonl
 
 # per-project editor-side state (script breakpoints - ScriptBreakpointStore)
 .orkige/
+# project-scope MCP discovery file the editor writes at the project root while
+# its MCP control endpoint is live (points a `claude` session at the live
+# loopback URL + token; rewritten each session, removed on clean shutdown)
+.mcp.json

@@ -323,10 +323,22 @@ on the existing non-blocking socket layer: `HttpServer` + `Json`). Register with
 `claude mcp add --transport http orkige http://127.0.0.1:<port>/mcp --header
 "Authorization: Bearer <token>"`.
 
-OPT-IN and OFF by default: launch with `--mcp-port <N> --mcp-token-file <path>`
+DEFAULT-ON for an interactive session, off for automated runs: an
+interactively-launched editor starts the endpoint on an EPHEMERAL loopback port,
+writes its token to the writable app dir (owner-only `mcp-endpoint.token`), and —
+while a project is open — writes the project-scope discovery file
+`<projectRoot>/.mcp.json` (the config a `claude` session started in the project
+directory auto-loads; our entry carries an `x-orkige-managed` marker so we only
+ever manage our own — a foreign/user-authored `.mcp.json` or `orkige` server is
+left untouched, pure merge-or-skip in `tools/editor/EditorMcpConfig.{h,cpp}`,
+reconciled by `EditorMcpConfigFile`, removed on clean shutdown, gitignored +
+listing-hidden + never exported). So an agent in the embedded terminal / the
+project cwd finds the editor with NO manual `claude mcp add`. Pin an explicit
+port with `--mcp-port <N> --mcp-token-file <path>`
 (aliases `--control-port` / `--control-token-file`; env `ORKIGE_MCP_PORT` /
-`ORKIGE_MCP_TOKEN_FILE`, historical `ORKIGE_CONTROL_*` still honored) — no normal
-run/test opens a socket. `tools/editor/EditorControlServer.{h,cpp}` is the HTTP +
+`ORKIGE_MCP_TOKEN_FILE`, historical `ORKIGE_CONTROL_*` still honored);
+`ORKIGE_MCP_PORT=0` (or `off`) opts OUT — no normal
+test opens a socket. `tools/editor/EditorControlServer.{h,cpp}` is the HTTP +
 JSON-RPC transport in front of the existing command handler, REUSED wholesale: a thin
 adapter over `EditorCore` + the `EditorDocument` free functions. Each verb is an
 MCP tool with a JSON `inputSchema`; a `tools/call` runs the verb on the handler's

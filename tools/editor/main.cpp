@@ -101,6 +101,8 @@
 #include "EditorAutosave.h"
 #include "EditorControlServer.h"
 #include "EditorIdeServer.h"	// Claude-IDE integration (lock + MCP-over-WebSocket)
+#include "EditorMcpConfigFile.h"	// project-scope .mcp.json discovery-file reconciler
+#include <core_util/PlatformUtil.h>	// the writable app dir for the default token file
 #include "EditorScriptHost.h"
 #include "AnimationPreviewStage.h"
 #include "EditorImageDecode.h"
@@ -184,6 +186,8 @@ int main(int argc, char** argv)
 	int controlPort = -1;			// < 0 = the MCP endpoint stays off
 	std::string controlTokenFile;
 	std::string controlBindValue;	// --mcp-bind / ORKIGE_MCP_BIND ("" = default)
+	bool mcpExplicit = false;		//!< an explicit --mcp-port / ORKIGE_MCP_PORT choice
+	bool mcpOptOut = false;			//!< an explicit request to keep the endpoint OFF
 	for (int argIndex = 1; argIndex < argc; ++argIndex)
 	{
 		if ((std::strcmp(argv[argIndex], "--mcp-port") == 0 ||
@@ -191,6 +195,7 @@ int main(int argc, char** argv)
 			argIndex + 1 < argc)
 		{
 			controlPort = std::atoi(argv[++argIndex]);
+			mcpExplicit = true;
 		}
 		else if ((std::strcmp(argv[argIndex], "--mcp-token-file") == 0 ||
 			std::strcmp(argv[argIndex], "--control-token-file") == 0) &&
@@ -205,13 +210,35 @@ int main(int argc, char** argv)
 			controlBindValue = argv[++argIndex];
 		}
 	}
-	if (const char* portEnv = std::getenv("ORKIGE_MCP_PORT"))
+	// ORKIGE_MCP_PORT / ORKIGE_CONTROL_PORT: an explicit port OR an explicit
+	// off-switch. Because the endpoint is now DEFAULT-ON for an interactive
+	// session, "0" (also "off"/"none"/"no"/"disabled"/a negative value) is the
+	// clean way to opt OUT; a positive value pins that port. Either way the
+	// choice is explicit, so the default-on path below never overrides it.
+	const char* portEnv = std::getenv("ORKIGE_MCP_PORT");
+	if (portEnv == nullptr)
 	{
-		controlPort = std::atoi(portEnv);
+		portEnv = std::getenv("ORKIGE_CONTROL_PORT");
 	}
-	else if (const char* portEnv = std::getenv("ORKIGE_CONTROL_PORT"))
+	if (portEnv != nullptr)
 	{
-		controlPort = std::atoi(portEnv);
+		mcpExplicit = true;
+		std::string portValue = portEnv;
+		for (char& character : portValue)
+		{
+			character = static_cast<char>(std::tolower(
+				static_cast<unsigned char>(character)));
+		}
+		if (portValue == "off" || portValue == "none" || portValue == "no" ||
+			portValue == "disabled" || std::atoi(portEnv) <= 0)
+		{
+			mcpOptOut = true;
+			controlPort = -1;
+		}
+		else
+		{
+			controlPort = std::atoi(portEnv);
+		}
 	}
 	if (const char* tokenEnv = std::getenv("ORKIGE_MCP_TOKEN_FILE"))
 	{
@@ -323,6 +350,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_SOURCECONTROL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_TERMINAL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_IDE_TEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_MCPDEFAULT_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr;
 	// the IDE integration's interactive default resolves once automatedRun is
 	// known: an interactive session advertises itself, a scripted one never
@@ -1143,6 +1171,52 @@ int main(int argc, char** argv)
 				controlTokenFile = std::string(controlSelfTestEnv) + ".token";
 			}
 		}
+		// DEFAULT-ON for an interactive session: with no explicit --mcp-port and
+		// no opt-out, the editor starts the MCP endpoint on an ephemeral loopback
+		// port and auto-writes its token to the writable app dir, so a `claude`
+		// in the embedded terminal (or the open project's directory, via the
+		// per-project .mcp.json below) discovers it with NO manual `claude mcp
+		// add`. Automated runs and the control self-tests never do this (they opt
+		// in explicitly above); the dedicated .mcp.json selfcheck opts in here.
+		const char* mcpDefaultTestEnv = std::getenv("ORKIGE_EDITOR_MCPDEFAULT_TEST");
+		if (controlPort < 0 && !mcpExplicit && !mcpOptOut &&
+			((!automatedRun && controlSelfTestEnv == nullptr) ||
+				mcpDefaultTestEnv != nullptr))
+		{
+			controlPort = 0;	// ephemeral loopback
+			if (controlTokenFile.empty())
+			{
+				// the writable app-support dir (created on demand); the selfcheck
+				// steers its token into a throwaway temp path instead
+				std::string tokenDir;
+				if (mcpDefaultTestEnv != nullptr)
+				{
+					tokenDir = std::filesystem::temp_directory_path().string();
+					controlTokenFile = (std::filesystem::path(tokenDir) /
+						"orkige_mcpdefault_test.token").string();
+				}
+				else
+				{
+					tokenDir = std::string(Orkige::PlatformUtil::
+						getSupportDirectory("Orkige").c_str());
+					if (!tokenDir.empty())
+					{
+						controlTokenFile = (std::filesystem::path(tokenDir) /
+							"mcp-endpoint.token").string();
+					}
+				}
+			}
+		}
+		// the project-scope .mcp.json reconciler: writes/removes our marked
+		// server entry at the open project's root while the endpoint is live.
+		// Managed for an interactive session (and the dedicated selfcheck); an
+		// ordinary automated run never scribbles into a checked-in project.
+		OrkigeEditor::McpProjectConfig mcpProjectConfig;
+		const bool manageMcpConfig =
+			(!automatedRun) || (mcpDefaultTestEnv != nullptr);
+		// cross-frame state for the .mcp.json selfcheck (ORKIGE_EDITOR_MCPDEFAULT_TEST)
+		std::string mcpTestProjectRoot;	//!< the temp project copy ("" until made)
+		int mcpTestPhase = 0;			//!< 0 setup, 1 present-asserted, 2 removal-asserted
 		if (controlPort >= 0)
 		{
 			if (!controlServer.start(
@@ -2422,6 +2496,18 @@ int main(int argc, char** argv)
 				}
 				ideContext.shared = &state.ide;
 				ideServer.update(ideContext);
+			}
+
+			// project-scope .mcp.json: keep the open project's discovery file in
+			// line with the live endpoint (write our marked entry while a project
+			// is open + the endpoint listens; strip it on project switch / when
+			// the endpoint is off). Touches the disk only on a real change.
+			if (manageMcpConfig)
+			{
+				mcpProjectConfig.reconcile(controlServer.isListening(),
+					state.project.isLoaded()
+						? state.project.getRootDirectory() : std::string(),
+					mcpTerminalUrl, controlServer.getToken());
 			}
 
 			// project export: act on a Build-menu request, then pump the
@@ -14171,6 +14257,107 @@ int main(int argc, char** argv)
 					}
 				}
 			}
+			// project-scope .mcp.json selfcheck (editor_mcp_default ctest): the
+			// interactive default endpoint is up (ephemeral port + a token file
+			// written to a temp path), and while a project is open the per-frame
+			// reconciler writes <root>/.mcp.json carrying our marked orkige server
+			// entry pointing at the live loopback URL; closing the project strips
+			// it back out. Drives the REAL default-on path (this env forces it on
+			// under an automated run) end to end, window-independent.
+			if (mcpDefaultTestEnv != nullptr)
+			{
+				auto mcpFail = [&](const char* why)
+				{
+					SDL_Log("orkige_editor: mcp-default selfcheck FAILED: %s", why);
+					exitCode = 2;
+					running = false;
+				};
+				if (mcpTestPhase == 0 && frameCount == 5)
+				{
+					// work on a temp COPY so the source project is never touched
+					std::error_code copyErr;
+					mcpTestProjectRoot =
+						(std::filesystem::temp_directory_path() /
+							("orkige_mcpdefault_" + std::to_string(
+								std::chrono::steady_clock::now()
+									.time_since_epoch().count()))).string();
+					std::filesystem::copy(mcpDefaultTestEnv, mcpTestProjectRoot,
+						std::filesystem::copy_options::recursive, copyErr);
+					if (copyErr ||
+						!openProjectFromPath(state, editorCore, mcpTestProjectRoot))
+					{
+						mcpFail("could not prepare/open the temp project copy");
+					}
+					else
+					{
+						mcpTestPhase = 1;
+					}
+				}
+				// a few frames after open: the endpoint listens, the token file
+				// exists, and .mcp.json carries our marked entry + the live URL
+				else if (mcpTestPhase == 1 && frameCount == 12)
+				{
+					const std::string configPath =
+						(std::filesystem::path(mcpTestProjectRoot) / ".mcp.json")
+							.string();
+					std::string body;
+					{
+						std::ifstream in(configPath, std::ios::binary);
+						std::ostringstream buffer;
+						buffer << in.rdbuf();
+						body = buffer.str();
+					}
+					const bool listening = controlServer.isListening();
+					const bool tokenWritten = !controlTokenFile.empty() &&
+						std::filesystem::exists(controlTokenFile);
+					const bool configPresent =
+						std::filesystem::exists(configPath);
+					const bool hasMarker =
+						body.find("x-orkige-managed") != std::string::npos;
+					const bool hasUrl = !mcpTerminalUrl.empty() &&
+						body.find(mcpTerminalUrl) != std::string::npos;
+					const bool hasBearer =
+						body.find("Bearer ") != std::string::npos;
+					SDL_Log("orkige_editor: mcp-default selfcheck - listening=%d "
+						"token=%d config=%d marker=%d url=%d bearer=%d",
+						listening, tokenWritten, configPresent, hasMarker, hasUrl,
+						hasBearer);
+					if (!listening || !tokenWritten || !configPresent ||
+						!hasMarker || !hasUrl || !hasBearer)
+					{
+						mcpFail("endpoint/token/.mcp.json not as expected");
+					}
+					else
+					{
+						// close the project: next frame's reconcile must strip our
+						// entry (it was the only server, so the file is removed)
+						closeProject(state, editorCore);
+						mcpTestPhase = 2;
+					}
+				}
+				// after the close reconcile ran: the discovery file is gone
+				else if (mcpTestPhase == 2 && frameCount >= 16)
+				{
+					const std::string configPath =
+						(std::filesystem::path(mcpTestProjectRoot) / ".mcp.json")
+							.string();
+					const bool removed =
+						!std::filesystem::exists(configPath);
+					SDL_Log("orkige_editor: mcp-default selfcheck - "
+						"removed-on-close=%d", removed);
+					std::error_code rmErr;
+					std::filesystem::remove_all(mcpTestProjectRoot, rmErr);
+					if (!removed)
+					{
+						mcpFail(".mcp.json was not removed when the project closed");
+					}
+					else
+					{
+						SDL_Log("orkige_editor: mcp-default selfcheck PASSED");
+						running = false;
+					}
+				}
+			}
 			// Help self-test (editor_help_portal ctest): fire the menu
 			// action's request flag and assert the frame loop resolved the
 			// published documentation URL. The run is automated, so the
@@ -14208,6 +14395,14 @@ int main(int argc, char** argv)
 		// committed, so roll its uncommitted edits back (and log one line)
 		// before the world is torn down - the document-lifecycle safety net
 		controlServer.abortOpenTransaction(controlContext, "editor shutdown");
+
+		// clean shutdown: strip our entry from the open project's .mcp.json so a
+		// stale file never points a later `claude` session at this dead port (a
+		// crash leaves it; the next launch's ephemeral rewrite self-heals it)
+		if (manageMcpConfig)
+		{
+			mcpProjectConfig.clear();
+		}
 
 		// terminate any live embedded-terminal child so a running shell never
 		// outlives the editor

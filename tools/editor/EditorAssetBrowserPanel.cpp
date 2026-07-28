@@ -876,6 +876,11 @@ std::vector<AssetBrowserItem> searchAssets(Orkige::Project const& project,
 		{
 			return;		// the sidecars themselves are never listed
 		}
+		if (Orkige::ProjectPaths::isReservedProjectFile(
+			file.filename().string()))
+		{
+			return;		// editor-private state (.mcp.json), not project content
+		}
 		if (!nameMatches(file))
 		{
 			return;
