@@ -19,7 +19,9 @@
 //! model is engine-free and drivable headlessly (EditorTerminalScreenTests feed
 //! scripted escape sequences and assert the grid).
 
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -81,6 +83,17 @@ namespace OrkigeEditor
 		//! feed raw bytes from the pty into the parser
 		void write(char const* bytes, std::size_t len);
 		void write(std::string const& bytes);
+
+		//! The terminal REPLY channel. A conforming terminal answers the queries
+		//! apps send it - Primary Device Attributes (ESC [ c), cursor-position /
+		//! device-status reports (ESC [ 6n / ESC [ 5n) and the like - on the
+		//! input channel. The VT core generates those replies itself; this seam
+		//! hands the emitted bytes back so the panel can forward them to the
+		//! pty's input (without it a shell like fish stalls waiting for a Primary
+		//! DA answer and disables features). @p responder is invoked from within
+		//! write() on the same thread. Pass an empty function to detach. The
+		//! header stays VT-library-free: the responder is a plain byte sink.
+		void setResponder(std::function<void(char const*, std::size_t)> responder);
 
 		//! resize the grid to cols x rows. Scrollback is NOT reflowed (a v1
 		//! limit): existing pushed-off lines keep their old width.

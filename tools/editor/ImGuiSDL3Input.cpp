@@ -111,6 +111,29 @@ namespace Orkige
 			io.AddKeyEvent(ImGuiMod_Alt, (mods & SDL_KMOD_ALT) != 0);
 			io.AddKeyEvent(ImGuiMod_Super, (mods & SDL_KMOD_GUI) != 0);
 		}
+
+		// clipboard: route ImGui's copy/paste to the OS pasteboard via SDL. The
+		// stock imgui SDL3 backend does this; the hand-rolled bridge must too,
+		// or ImGui::Set/GetClipboardText only touch ImGui's private in-memory
+		// buffer and copy/paste never reaches other apps (the terminal panel,
+		// every text field). SDL_GetClipboardText hands back a freshly allocated
+		// string; hold it until the next read so ImGui's borrowed pointer stays
+		// valid, and free it then.
+		const char* getClipboardTextSdl(ImGuiContext*)
+		{
+			static char* buffer = nullptr;
+			if (buffer != nullptr)
+			{
+				SDL_free(buffer);
+			}
+			buffer = SDL_GetClipboardText();	// "" when empty, never null
+			return buffer;
+		}
+
+		void setClipboardTextSdl(ImGuiContext*, const char* text)
+		{
+			SDL_SetClipboardText(text);
+		}
 	}
 
 	ImGuiSDL3Input::ImGuiSDL3Input(SDL_Window* window)
@@ -118,6 +141,12 @@ namespace Orkige
 	{
 		ImGuiIO& io = ImGui::GetIO();
 		io.BackendPlatformName = "OrkigeImGuiSDL3Input";
+		// hand ImGui the OS pasteboard (via SDL) so copy/paste in every panel
+		// and text field reaches other apps - the default handlers only touch
+		// ImGui's private buffer
+		ImGuiPlatformIO& platformIo = ImGui::GetPlatformIO();
+		platformIo.Platform_SetClipboardTextFn = setClipboardTextSdl;
+		platformIo.Platform_GetClipboardTextFn = getClipboardTextSdl;
 		// SDL3 delivers SDL_EVENT_TEXT_INPUT only while text input is started
 		SDL_StartTextInput(mWindow);
 	}

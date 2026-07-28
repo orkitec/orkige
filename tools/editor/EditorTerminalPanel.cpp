@@ -116,6 +116,17 @@ namespace
 			s.spawned = true;
 			s.exited = false;
 			s.lastError.clear();
+			// route the VT core's query replies (Primary DA, cursor-position
+			// reports, ...) back into the pty's input, so a shell like fish does
+			// not stall waiting for an answer and disable features. The pty and
+			// screen share the session lifetime, torn down together, so the raw
+			// pointer the sink captures stays valid for every write() call.
+			TerminalPty* ptyRaw = s.pty.get();
+			s.screen->setResponder(
+				[ptyRaw](char const* data, std::size_t len)
+				{
+					ptyRaw->write(data, len);
+				});
 		}
 		else
 		{
@@ -191,43 +202,52 @@ namespace
 		return s.screen->cell(line - sb, col);
 	}
 
-	//! build the selected text (reading order, newline between lines)
+	//! build the selected text (reading order, newline between lines). Thin
+	//! wrapper over the exposed pure OrkigeEditor::terminalSelectionText so the
+	//! panel and the headless selfcheck share ONE extraction path.
 	std::string selectionText(TerminalSession const& s)
 	{
-		int aLine = 0;
-		int aCol = 0;
-		int bLine = 0;
-		int bCol = 0;
-		if (!orderedSelection(s, aLine, aCol, bLine, bCol))
+		if (!s.hasSelection || !s.screen)
 		{
 			return std::string();
 		}
-		std::string out;
-		for (int line = aLine; line <= bLine; ++line)
+		return OrkigeEditor::terminalSelectionText(*s.screen, s.cols,
+			s.anchorLine, s.anchorCol, s.headLine, s.headCol);
+	}
+
+	//! decode the first Unicode codepoint of a UTF-8 glyph string (0 when empty
+	//! or malformed). The terminal cells hold whole grapheme strings; only the
+	//! leading codepoint decides whether the mono atlas can draw the cell.
+	std::uint32_t decodeFirstCodepoint(std::string const& glyph)
+	{
+		if (glyph.empty())
 		{
-			const int startCol = (line == aLine) ? aCol : 0;
-			const int endCol = (line == bLine) ? bCol : s.cols;
-			std::string row;
-			for (int col = startCol; col < endCol && col < s.cols; ++col)
-			{
-				TermCell cellValue = absoluteCell(s, line, col);
-				if (cellValue.width == 0)
-				{
-					continue;
-				}
-				row += cellValue.glyph.empty() ? " " : cellValue.glyph;
-			}
-			while (!row.empty() && row.back() == ' ')
-			{
-				row.pop_back();
-			}
-			out += row;
-			if (line != bLine)
-			{
-				out.push_back('\n');
-			}
+			return 0;
 		}
-		return out;
+		const unsigned char b0 = static_cast<unsigned char>(glyph[0]);
+		if (b0 < 0x80)
+		{
+			return b0;
+		}
+		auto cont = [&](std::size_t i) -> std::uint32_t
+		{
+			return (i < glyph.size())
+				? (static_cast<unsigned char>(glyph[i]) & 0x3fu) : 0u;
+		};
+		if ((b0 & 0xe0) == 0xc0)
+		{
+			return ((b0 & 0x1fu) << 6) | cont(1);
+		}
+		if ((b0 & 0xf0) == 0xe0)
+		{
+			return ((b0 & 0x0fu) << 12) | (cont(1) << 6) | cont(2);
+		}
+		if ((b0 & 0xf8) == 0xf0)
+		{
+			return ((b0 & 0x07u) << 18) | (cont(1) << 12) | (cont(2) << 6) |
+				cont(3);
+		}
+		return 0;
 	}
 
 	//! true when the absolute line/col falls inside the current selection
@@ -278,24 +298,30 @@ namespace
 
 		if (copyChord)
 		{
+			// copy the drag-selection to the OS pasteboard via SDL directly
+			// (not ImGui's clipboard - the editor's hand-rolled ImGui backend
+			// wires that to SDL, but going straight to SDL keeps the copy path
+			// window-and-ImGui-free so the selfcheck can drive it headlessly).
+			// With no selection Cmd/Ctrl+C is a no-op (the house rule: on macOS
+			// Cmd+C copies, Ctrl+C stays the SIGINT control code below).
 			const std::string text = selectionText(s);
 			if (!text.empty())
 			{
-				ImGui::SetClipboardText(text.c_str());
+				SDL_SetClipboardText(text.c_str());
 			}
 			return;
 		}
 		if (pasteChord)
 		{
-			const char* clip = ImGui::GetClipboardText();
+			char* clip = SDL_GetClipboardText();	// "" when empty, never null
 			if (clip != nullptr && clip[0] != '\0')
 			{
-				std::string paste = clip;
-				if (s.screen->bracketedPaste())
-				{
-					paste = std::string("\x1b[200~") + paste + "\x1b[201~";
-				}
-				s.pty->write(paste);
+				s.pty->write(OrkigeEditor::terminalPasteEncoding(
+					clip, s.screen->bracketedPaste()));
+			}
+			if (clip != nullptr)
+			{
+				SDL_free(clip);
 			}
 			return;
 		}
@@ -530,6 +556,10 @@ void drawTerminalPanel(EditorState& state, ViewSettings& viewSettings,
 		const TermCursor cur = s.screen->cursor();
 		const int cursorLine = scrollbackCount + cur.row;
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		// the mono font baked at the current size - used to reject codepoints
+		// the atlas never baked (draw them blank, not '?'). Valid inside a live
+		// frame; reflects the pushed mono font (or the UI font when none loaded).
+		ImFontBaked* fontBaked = ImGui::GetFontBaked();
 		const ImU32 selBg = IM_COL32(60, 90, 140, 255);
 		int hoverLine = -1;
 		int hoverCol = 0;
@@ -571,7 +601,19 @@ void drawTerminalPanel(EditorState& state, ViewSettings& viewSettings,
 					{
 						drawList->AddRectFilled(bgMin, bgMax, cellColor(bg));
 					}
-					if (!cellValue.glyph.empty() && cellValue.glyph != " ")
+					// a codepoint neither the mono font nor its merged symbols
+					// fallback carries draws as BLANK, not the atlas's '?'
+					// fallback glyph - '?' noise on every uncovered TUI symbol is
+					// worse than a gap. ASCII is always baked, so skip the lookup
+					// for it (the hot path).
+					const std::uint32_t cp =
+						decodeFirstCodepoint(cellValue.glyph);
+					const bool drawable = cp != 0 && (cp < 0x80 ||
+						fontBaked == nullptr ||
+						fontBaked->FindGlyphNoFallback(
+							static_cast<ImWchar>(cp)) != nullptr);
+					if (!cellValue.glyph.empty() && cellValue.glyph != " " &&
+						drawable)
 					{
 						drawList->AddText(ImVec2(x, pos.y), cellColor(fg),
 							cellValue.glyph.c_str(),
@@ -681,6 +723,65 @@ namespace OrkigeEditor
 		s.screen.reset();
 		s.spawned = false;
 		s.exited = true;
+	}
+
+	std::string terminalSelectionText(EditorTerminalScreen& screen, int cols,
+		int anchorLine, int anchorCol, int headLine, int headCol)
+	{
+		int aLine = anchorLine;
+		int aCol = anchorCol;
+		int bLine = headLine;
+		int bCol = headCol;
+		if (aLine > bLine || (aLine == bLine && aCol > bCol))
+		{
+			std::swap(aLine, bLine);
+			std::swap(aCol, bCol);
+		}
+		if (aLine == bLine && aCol == bCol)
+		{
+			return std::string();	// empty selection
+		}
+		const int sb = screen.scrollbackCount();
+		auto absCell = [&](int line, int col) -> TermCell
+		{
+			return (line < sb) ? screen.scrollbackCell(line, col)
+				: screen.cell(line - sb, col);
+		};
+		std::string out;
+		for (int line = aLine; line <= bLine; ++line)
+		{
+			const int startCol = (line == aLine) ? aCol : 0;
+			const int endCol = (line == bLine) ? bCol : cols;
+			std::string row;
+			for (int col = startCol; col < endCol && col < cols; ++col)
+			{
+				TermCell cellValue = absCell(line, col);
+				if (cellValue.width == 0)
+				{
+					continue;	// the trailing half of a wide glyph
+				}
+				row += cellValue.glyph.empty() ? " " : cellValue.glyph;
+			}
+			while (!row.empty() && row.back() == ' ')
+			{
+				row.pop_back();
+			}
+			out += row;
+			if (line != bLine)
+			{
+				out.push_back('\n');
+			}
+		}
+		return out;
+	}
+
+	std::string terminalPasteEncoding(std::string const& clip, bool bracketed)
+	{
+		if (bracketed)
+		{
+			return std::string("\x1b[200~") + clip + "\x1b[201~";
+		}
+		return clip;
 	}
 
 	// ------------------------------------------------------------------------
@@ -857,6 +958,23 @@ namespace OrkigeEditor
 		}
 		check(echoed, "typed input echoes back through the grid");
 
+	#if !defined(_WIN32)
+		// 2b) paste seam: the paste ENCODING is verbatim unless the app enabled
+		//     bracketed paste (then it is framed), and the encoded bytes reach
+		//     the pty. cat is still running, so a pasted line echoes back.
+		check(terminalPasteEncoding("PASTEWORD\n", false) == "PASTEWORD\n",
+			"plain paste encodes verbatim");
+		check(terminalPasteEncoding("X", true) == "\x1b[200~X\x1b[201~",
+			"bracketed paste is framed with ESC[200~/201~");
+		pty->write(terminalPasteEncoding("PASTEWORD\n", false));
+		check(pumpUntil(5000, [&]
+			{
+				return screen.dumpVisible().find("PASTEWORD")
+					!= std::string::npos;
+			}),
+			"pasted bytes reach the pty and echo back through the grid");
+	#endif
+
 		// the child must still be ALIVE here - a shell that died early (broken
 		// stdio) would make the exit-after-command check below pass VACUOUSLY
 		check(pty->isAlive(), "child alive before the exit command");
@@ -910,6 +1028,94 @@ namespace OrkigeEditor
 		// terminate() is idempotent + closes the pty
 		pty->terminate();
 		check(!pty->isAlive(), "pty closed and child reaped");
+
+		// 5) reply channel: the VT core answers a query on its input (Primary DA
+		//    / cursor-position report) so a query-driven shell does not stall.
+		//    The panel wires this to pty->write; here a capture responder proves
+		//    the screen->responder path emits the report.
+		{
+			EditorTerminalScreen replyScreen(80, 24);
+			std::string reply;
+			replyScreen.setResponder([&](char const* data, std::size_t len)
+				{
+					reply.append(data, len);
+				});
+			replyScreen.write("\x1b[6n");	// device-status cursor-position query
+			check(reply.rfind("\x1b[", 0) == 0 && !reply.empty() &&
+				reply.back() == 'R', "cursor-position report answered (ESC[..R)");
+			reply.clear();
+			replyScreen.write("\x1b[c");		// Primary Device Attributes query
+			check(!reply.empty() && reply.back() == 'c',
+				"Primary Device Attributes answered (ESC[?..c)");
+		}
+
+		// 6) copy seam: the grid text of a selection is extracted verbatim and
+		//    reaches the OS clipboard (via SDL). The extraction is pure; the SDL
+		//    round trip needs the video subsystem, skipped where unavailable.
+		{
+			EditorTerminalScreen clip(20, 3, 100);
+			clip.write("COPYME");
+			const std::string sel =
+				terminalSelectionText(clip, 20, 0, 0, 0, 6);
+			check(sel == "COPYME", "selection text extracts the grid region");
+			if (SDL_InitSubSystem(SDL_INIT_VIDEO))
+			{
+				SDL_SetClipboardText(sel.c_str());
+				char* got = SDL_GetClipboardText();
+				check(got != nullptr && sel == got,
+					"copied selection reaches the OS clipboard (SDL)");
+				if (got != nullptr)
+				{
+					SDL_free(got);
+				}
+				SDL_QuitSubSystem(SDL_INIT_VIDEO);
+			}
+			else
+			{
+				SDL_Log("terminal-test: SDL video unavailable - clipboard "
+					"round trip skipped (%s)", SDL_GetError());
+			}
+		}
+
+		// 7) font coverage: the mono atlas bakes the TUI blocks (box drawing,
+		//    braille spinners, ...) so terminal output renders instead of '?'.
+		//    Build a headless atlas the way the editor does and assert the key
+		//    codepoints have a real (non-fallback) baked glyph. Skipped when no
+		//    system mono font exists (the merge needs a primary to merge into).
+		{
+			ImGui::CreateContext();
+			ImGuiIO& io = ImGui::GetIO();
+			io.DisplaySize = ImVec2(64.0f, 64.0f);
+			ImFont* mono = Orkige::loadMacSystemMonoFont(io, 13.0f, 1.0f,
+				ORKIGE_EDITOR_ICON_FONT_DIR "/DejaVuSans.ttf");
+			if (mono != nullptr)
+			{
+				unsigned char* pixels = nullptr;
+				int atlasW = 0;
+				int atlasH = 0;
+				io.Fonts->GetTexDataAsRGBA32(&pixels, &atlasW, &atlasH);
+				ImFontBaked* baked = mono->GetFontBaked(13.0f);
+				auto baked_has = [&](unsigned int cp)
+				{
+					return baked != nullptr &&
+						baked->FindGlyphNoFallback(
+							static_cast<ImWchar>(cp)) != nullptr;
+				};
+				check(baked_has(0x2502), "box-drawing baked (U+2502)");
+				check(baked_has(0x2588), "block element baked (U+2588)");
+				check(baked_has(0x2026), "ellipsis baked (U+2026)");
+				check(baked_has(0x2192), "arrow baked (U+2192)");
+				check(baked_has(0x25cf), "geometric shape baked (U+25CF)");
+				check(baked_has(0x28fe),
+					"braille spinner baked (U+28FE, merged fallback)");
+			}
+			else
+			{
+				SDL_Log("terminal-test: no system mono font - glyph coverage "
+					"leg skipped");
+			}
+			ImGui::DestroyContext();
+		}
 
 		SDL_Log("orkige_editor: terminal-test %s",
 			exitCode == 0 ? "PASSED" : "FAILED");

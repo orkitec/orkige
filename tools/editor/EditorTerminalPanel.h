@@ -23,12 +23,18 @@
 //! editor UI is out of scope (and a laundering path). The terminal is a human
 //! affordance; agents drive the editor through the MCP verbs directly.
 
+#include <cstddef>
 #include <string>
 
 // EditorState / ViewSettings are the editor's global shared-state structs
 // (EditorApp.h); the panel takes them by reference like every sibling panel.
 struct EditorState;
 struct ViewSettings;
+
+namespace OrkigeEditor
+{
+	class EditorTerminalScreen;
+}
 
 //! @brief draw the Terminal panel. `mcpUrl` / `mcpTokenFile` carry the live MCP
 //! endpoint (empty when the editor was launched without --mcp-port): non-empty
@@ -43,6 +49,23 @@ namespace OrkigeEditor
 	//! @brief terminate any live terminal child and release the session. Called
 	//! at editor shutdown so a running shell never outlives the editor.
 	void terminalPanelShutdown();
+
+	//! @brief build the text of a linear selection over a terminal screen, in
+	//! reading order with a newline between lines and trailing blanks trimmed.
+	//! Line/col are ABSOLUTE (scrollback lines below the visible grid, so line
+	//! [0, scrollbackCount()) index scrollback and higher index the visible
+	//! grid). The two endpoints may be given in any order. This is the pure
+	//! core the panel's Copy path and the selfcheck both use - no clipboard, no
+	//! ImGui - so the copy grid-text can be asserted headlessly.
+	std::string terminalSelectionText(EditorTerminalScreen& screen, int cols,
+		int anchorLine, int anchorCol, int headLine, int headCol);
+
+	//! @brief encode clipboard text for a paste into the pty. When @p bracketed
+	//! (the app enabled DEC 2004 bracketed paste) the text is wrapped in
+	//! ESC [ 200~ ... ESC [ 201~ so the app can tell a paste from typed input;
+	//! otherwise the text is passed through verbatim. Plain Cmd/Ctrl+V works in
+	//! either case - the framing is added only when the app asked for it.
+	std::string terminalPasteEncoding(std::string const& clip, bool bracketed);
 
 	//! @brief the headless terminal selfcheck (ORKIGE_EDITOR_TERMINAL_TEST):
 	//! spawns a REAL pty running a scripted echo, asserts the VT grid seam,

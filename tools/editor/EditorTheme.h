@@ -136,12 +136,24 @@ namespace Orkige
 		float contentScale = 1.0f);
 
 	//! @brief try to load the macOS system MONOSPACE font (SF Mono, Menlo as
-	//! the fallback) as a standalone font for the Script panel's code editor.
-	//! Same runtime-load policy and failure semantics as loadMacSystemFont;
-	//! on any failure editorMonoFont() stays nullptr and the panel renders in
-	//! the UI font. Call before the atlas is built.
+	//! the fallback) as a standalone font for the Script panel's code editor
+	//! AND the embedded terminal. Same runtime-load policy and failure
+	//! semantics as loadMacSystemFont; on any failure editorMonoFont() stays
+	//! nullptr and the panel renders in the UI font. Call before the atlas is
+	//! built.
+	//!
+	//! The font is baked with the TERMINAL glyph blocks (box drawing, block
+	//! elements, geometric shapes, general punctuation, arrows, braille,
+	//! dingbats and misc symbols) so TUI output - box UI, braille spinners,
+	//! ellipses, arrows - renders instead of the atlas's '?' fallback. Because
+	//! the editor uploads ONE static atlas (no on-demand glyph baking), the
+	//! blocks have to be requested up front. The system mono fonts cover only
+	//! part of these blocks, so a symbols fallback font is MERGED to fill the
+	//! gaps (braille especially): pass its path as @p symbolsFontPath (the
+	//! bundled DejaVu Sans, or nullptr to skip the merge). Merged glyphs never
+	//! override the primary font's, so box/block art stays cell-crisp.
 	ImFont* loadMacSystemMonoFont(ImGuiIO& io, float sizePoints,
-		float contentScale = 1.0f);
+		float contentScale = 1.0f, const char* symbolsFontPath = nullptr);
 
 	//! the standalone monospace font loaded by loadMacSystemMonoFont, or
 	//! nullptr when unavailable (the Script panel then keeps the current font)

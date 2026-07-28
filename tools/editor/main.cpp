@@ -571,12 +571,26 @@ int main(int argc, char** argv)
 		// icon merge so the icons stay in the base UI font
 		Orkige::loadMacSystemSmallFont(ImGui::GetIO(), 13.0f,
 			editorContentScale);
-		// the monospace sibling for the Script panel's code editor - loaded
-		// AFTER the icon merge (which targets the last-added base font) so the
-		// inline icons stay in the UI font; never fatal (the panel falls back
-		// to the UI font when no mono font exists)
-		Orkige::loadMacSystemMonoFont(ImGui::GetIO(), 13.0f,
-			editorContentScale);
+		// the monospace sibling for the Script panel's code editor AND the
+		// embedded terminal - loaded AFTER the icon merge (which targets the
+		// last-added base font) so the inline icons stay in the UI font; never
+		// fatal (the panel falls back to the UI font when no mono font exists).
+		// The bundled DejaVu Sans is merged in as the symbols fallback so
+		// braille spinners + the rest of the TUI blocks render; it ships next to
+		// the executable (SDL_GetBasePath = Resources) with the source media dir
+		// (ORKIGE_EDITOR_ICON_FONT_DIR) as the out-of-bundle fallback.
+		{
+			const char* fontBase = SDL_GetBasePath();
+			std::string bundledSymbols =
+				std::string(fontBase ? fontBase : "") + "DejaVuSans.ttf";
+			std::error_code symEc;
+			const std::string symbolsFontPath =
+				std::filesystem::exists(bundledSymbols, symEc)
+					? bundledSymbols
+					: std::string(ORKIGE_EDITOR_ICON_FONT_DIR "/DejaVuSans.ttf");
+			Orkige::loadMacSystemMonoFont(ImGui::GetIO(), 13.0f,
+				editorContentScale, symbolsFontPath.c_str());
+		}
 		Orkige::ImGuiFacadeRenderer imguiRenderer;
 		if (!imguiRenderer.initialise(300 /*layer zOrder*/))
 		{

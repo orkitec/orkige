@@ -28,8 +28,10 @@ extern "C" {
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace OrkigeEditor
@@ -82,6 +84,11 @@ namespace OrkigeEditor
 		// DECCKM / bracketed-paste, recovered by the private-mode sniffer
 		bool			appCursorKeys = false;
 		bool			bracketedPaste = false;
+
+		// the reply sink: VT-core-generated answers to terminal queries (Primary
+		// DA, cursor-position report, ...) go here so the panel can feed them
+		// back to the pty's input. Empty until setResponder().
+		std::function<void(char const*, std::size_t)> responder;
 
 		// scrollback ring (front = oldest); each entry one full row of cells
 		std::deque<std::vector<TermCell>> scrollback;
@@ -210,6 +217,19 @@ namespace OrkigeEditor
 			return 1;
 		}
 
+		// the VT core's OUTPUT: bytes the terminal must send back on its input
+		// channel - query replies (Primary DA, cursor-position report), status
+		// answers. Forwarded to the responder (the pty's input) so query-driven
+		// apps do not stall.
+		static void cbOutput(char const* s, std::size_t len, void* user)
+		{
+			Impl* self = static_cast<Impl*>(user);
+			if (self->responder && len > 0)
+			{
+				self->responder(s, len);
+			}
+		}
+
 		static int cbSettermprop(VTermProp prop, VTermValue* val, void* user)
 		{
 			Impl* self = static_cast<Impl*>(user);
@@ -257,6 +277,9 @@ namespace OrkigeEditor
 			static_cast<std::size_t>(std::max(0, scrollbackLimit));
 		mImpl->vt = vterm_new(mImpl->rows, mImpl->cols);
 		vterm_set_utf8(mImpl->vt, 1);
+		// capture the VT core's reply bytes (Primary DA answers etc.) so the
+		// panel can hand them back to the pty - see setResponder()
+		vterm_output_set_callback(mImpl->vt, &Impl::cbOutput, mImpl.get());
 		mImpl->screen = vterm_obtain_screen(mImpl->vt);
 		vterm_screen_set_callbacks(mImpl->screen, &kScreenCallbacks,
 			mImpl.get());
@@ -296,6 +319,12 @@ namespace OrkigeEditor
 	void EditorTerminalScreen::write(std::string const& bytes)
 	{
 		this->write(bytes.data(), bytes.size());
+	}
+
+	void EditorTerminalScreen::setResponder(
+		std::function<void(char const*, std::size_t)> responder)
+	{
+		mImpl->responder = std::move(responder);
 	}
 
 	void EditorTerminalScreen::resize(int cols, int rows)

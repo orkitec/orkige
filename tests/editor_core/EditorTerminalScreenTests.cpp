@@ -14,6 +14,9 @@
 
 #include <EditorTerminalScreen.h>
 
+#include <cstddef>
+#include <string>
+
 using namespace OrkigeEditor;
 
 TEST_CASE("terminal screen: plain text lands in the grid",
@@ -110,6 +113,54 @@ TEST_CASE("terminal screen: DECSET application cursor keys + bracketed paste",
 	screen.write("\x1b[?1;2004h");
 	CHECK(screen.applicationCursorKeys());
 	CHECK(screen.bracketedPaste());
+}
+
+TEST_CASE("terminal screen: answers a Primary Device Attributes query",
+	"[unit][editor][terminal]")
+{
+	EditorTerminalScreen screen(80, 24);
+	std::string reply;
+	screen.setResponder([&](char const* data, std::size_t len)
+		{
+			reply.append(data, len);
+		});
+	// ESC [ c is the Primary DA query; a conforming terminal must answer on its
+	// input channel with a CSI ? ... c device-attributes report. Without this
+	// reply a shell like fish stalls two seconds and disables features.
+	screen.write("\x1b[c");
+	REQUIRE_FALSE(reply.empty());
+	CHECK(reply.rfind("\x1b[?", 0) == 0);	// starts with CSI ?
+	CHECK(reply.back() == 'c');				// terminated by the DA final byte
+}
+
+TEST_CASE("terminal screen: answers a cursor-position report query",
+	"[unit][editor][terminal]")
+{
+	EditorTerminalScreen screen(80, 24);
+	std::string reply;
+	screen.setResponder([&](char const* data, std::size_t len)
+		{
+			reply.append(data, len);
+		});
+	// park the cursor at row 3, col 7 (CUP is 1-based) then ask for a
+	// device-status cursor-position report (ESC [ 6n). The answer is the CPR
+	// ESC [ <row> ; <col> R at the CURRENT cursor position.
+	screen.write("\x1b[3;7H");
+	CHECK(screen.cursor().row == 2);	// 0-based in the model
+	CHECK(screen.cursor().col == 6);
+	screen.write("\x1b[6n");
+	CHECK(reply == "\x1b[3;7R");
+}
+
+TEST_CASE("terminal screen: no responder is a harmless drop",
+	"[unit][editor][terminal]")
+{
+	// with no responder wired the query replies are simply dropped - the model
+	// must not crash and keeps parsing normally
+	EditorTerminalScreen screen(80, 24);
+	screen.write("\x1b[c");
+	screen.write("hello");
+	CHECK(screen.cell(0, 0).glyph == "h");
 }
 
 TEST_CASE("terminal screen: resize keeps the model consistent",

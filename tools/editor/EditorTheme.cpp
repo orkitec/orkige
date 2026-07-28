@@ -222,7 +222,27 @@ namespace Orkige
 			"/usr/share/fonts/TTF/DejaVuSansMono.ttf",				// Arch/Fedora-ish
 		};
 
-		//! the standalone monospace font (Script panel); null until a
+		//! the glyph blocks the terminal/Script mono atlas bakes beyond the
+		//! default Basic-Latin + Latin-1 range, so common TUI output renders
+		//! instead of the atlas's '?' fallback. The editor uploads ONE static
+		//! atlas, so on-demand baking is unavailable and every block a terminal
+		//! app might emit has to be requested here. Pairs are {first, last},
+		//! terminated by 0. Braille (256 glyphs) drives the cost - a few extra
+		//! KB of atlas, negligible.
+		const ImWchar TERMINAL_GLYPH_RANGES[] = {
+			0x0020, 0x00ff,		// Basic Latin + Latin-1 Supplement (the default)
+			0x2000, 0x206f,		// General Punctuation (ellipsis, dashes, quotes)
+			0x2190, 0x21ff,		// Arrows
+			0x2500, 0x257f,		// Box Drawing
+			0x2580, 0x259f,		// Block Elements (shading/progress bars)
+			0x25a0, 0x25ff,		// Geometric Shapes (bullets, triangles)
+			0x2600, 0x26ff,		// Miscellaneous Symbols
+			0x2700, 0x27bf,		// Dingbats (sparkles/asterisk stars)
+			0x2800, 0x28ff,		// Braille Patterns (spinner frames)
+			0,
+		};
+
+		//! the standalone monospace font (Script panel + terminal); null until a
 		//! successful loadMacSystemMonoFont
 		ImFont* gMonoFont = nullptr;
 		ImFont* gSmallFont = nullptr;
@@ -578,9 +598,10 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	ImFont* loadMacSystemMonoFont(ImGuiIO& io, float sizePoints,
-		float contentScale)
+		float contentScale, const char* symbolsFontPath)
 	{
 		gMonoFont = nullptr;
+		const float pixelSize = sizePoints * contentScale;
 		for (const char* fontPath : SYSTEM_MONO_FONT_PATHS)
 		{
 			std::error_code ignored;
@@ -590,14 +611,41 @@ namespace Orkige
 			}
 			ImFontConfig config;
 			config.SizePixels = 0.0f;
-			gMonoFont = io.Fonts->AddFontFromFileTTF(fontPath,
-				sizePoints * contentScale, &config);
+			// bake the TUI blocks (box drawing, braille, arrows, ...) the mono
+			// font covers - not just default Latin - so a terminal's box UI and
+			// spinners render instead of '?'. The ranges pointer must persist
+			// until the atlas is built; TERMINAL_GLYPH_RANGES is static, so it
+			// does.
+			gMonoFont = io.Fonts->AddFontFromFileTTF(fontPath, pixelSize,
+				&config, TERMINAL_GLYPH_RANGES);
 			if (gMonoFont != nullptr)
 			{
-				return gMonoFont;
+				break;
 			}
 		}
-		return nullptr; // no mono font found - the panel keeps the UI font
+		if (gMonoFont == nullptr)
+		{
+			return nullptr; // no mono font found - the panel keeps the UI font
+		}
+		// merge a symbols fallback for the blocks the system mono font lacks
+		// (braille above all - no macOS mono ships it). Merge glyphs never
+		// override the primary's, so the box/block art stays cell-crisp and the
+		// fallback only fills genuine holes. Codepoints NEITHER font carries
+		// (a handful of emoji-tier dingbats) stay unbaked; the terminal draws
+		// them as blank rather than '?'.
+		if (symbolsFontPath != nullptr)
+		{
+			std::error_code ignored;
+			if (std::filesystem::exists(symbolsFontPath, ignored))
+			{
+				ImFontConfig mergeConfig;
+				mergeConfig.MergeMode = true;
+				mergeConfig.SizePixels = 0.0f;
+				io.Fonts->AddFontFromFileTTF(symbolsFontPath, pixelSize,
+					&mergeConfig, TERMINAL_GLYPH_RANGES);
+			}
+		}
+		return gMonoFont;
 	}
 	//---------------------------------------------------------
 	ImFont* editorMonoFont()
