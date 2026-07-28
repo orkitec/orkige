@@ -792,21 +792,27 @@ namespace OrkigeEditor
 				return screen.dumpVisible().find("REDWORD") != std::string::npos;
 			}),
 			"printed text reaches the grid");
-		bool sawRed = false;
-		for (int r = 0; r < 24 && !sawRed; ++r)
+		// the RED check pumps on its own condition: the text condition above can
+		// fire on the ECHOED command line (it literally contains REDWORD,
+		// uncoloured) a read ahead of the printf's coloured output - a split a
+		// sanitizer-slowed run exposes while a fast one gets both in one chunk
+		auto redCellVisible = [&]() -> bool
 		{
-			for (int c = 0; c < 80; ++c)
+			for (int r = 0; r < 24; ++r)
 			{
-				TermCell cellValue = screen.cell(r, c);
-				if (cellValue.glyph == "R" && cellValue.fg.r >= 180 &&
-					cellValue.fg.g <= 90 && cellValue.fg.b <= 90)
+				for (int c = 0; c < 80; ++c)
 				{
-					sawRed = true;
-					break;
+					TermCell cellValue = screen.cell(r, c);
+					if (cellValue.glyph == "R" && cellValue.fg.r >= 180 &&
+						cellValue.fg.g <= 90 && cellValue.fg.b <= 90)
+					{
+						return true;
+					}
 				}
 			}
-		}
-		check(sawRed, "SGR colour parsed (red foreground)");
+			return false;
+		};
+		check(pumpUntil(5000, redCellVisible), "SGR colour parsed (red foreground)");
 	#endif
 
 		// 2) input seam: run a line-echoing filter and "type" a known word
