@@ -17,6 +17,7 @@
 #include "engine_render_next/NextBackend.h"
 #include <core_util/SkyEnvMap.h>
 #include <core_util/PlanarReflectionGuard.h>
+#include <core_debug/Breadcrumbs.h>	// crash-survivable trail at the mid-run mirror init points
 
 #include <OgreRoot.h>
 #include <OgreWindow.h>
@@ -403,6 +404,14 @@ namespace Orkige
 		//! updatePlanarReflections consumes the one-shot skip. Byte-inert in the
 		//! steady state (no rebuild => never skips).
 		PlanarReflectionGuard gPlanarReflectionGuard;
+
+		//! @brief false until the FIRST real (non-skipped) mirror update runs on
+		//! the current subsystem instance. Reset when the subsystem is (re)created
+		//! or destroyed, so each mid-run stand-up of the mirror drops exactly one
+		//! "first mirror update" breadcrumb pair - the crash-survivable evidence
+		//! that pinpoints whether a mid-tour death lands in the nested reflection
+		//! render (the mirrorlake arrival) vs. the subsystem allocation before it.
+		bool gPlanarFirstUpdateLogged = false;
 
 		//--- geometric water swell (vertex-stage displacement) ------------
 		//! the world-space swell frequency + phase rate BOTH flavors' water
@@ -1455,6 +1464,19 @@ namespace Orkige
 		height = height ? std::min<Ogre::uint32>(height, 2048u) : 512u;
 		gPlanarReflectionWidth = width;
 		gPlanarReflectionHeight = height;
+		// crash-survivable trail: the mirror subsystem stands up MID-RUN the first
+		// time a scene opts water into planar reflection (the benchmark's mirrorlake
+		// arrival - lake before it is refraction-only). The RTT + internal
+		// reflection workspace are allocated in setMaxActiveActors below; this crumb
+		// (before) and the "subsystem up" crumb (after) bracket that allocation so a
+		// hard crash names whether death fell inside it. @see gPlanarFirstUpdateLogged
+		gPlanarFirstUpdateLogged = false;
+		if(Breadcrumbs::getSingletonPtr())
+		{
+			Breadcrumbs::getSingleton().record("planar",
+				"reflection subsystem allocating (" + std::to_string(width) + "x" +
+				std::to_string(height) + " mirror RTT)");
+		}
 		gPlanarReflections->setMaxActiveActors(1u,
 			Ogre::IdString(definitionName), true /*accurate lighting*/,
 			width, height, true /*mipmaps (glossy ripple)*/,
@@ -1467,6 +1489,11 @@ namespace Orkige
 			"Orkige next backend: planar water reflection subsystem up (" +
 			std::to_string(width) + "x" +
 			std::to_string(height) + " mirror)");
+		if(Breadcrumbs::getSingletonPtr())
+		{
+			Breadcrumbs::getSingleton().record("planar",
+				"reflection subsystem up (RTT allocated)");
+		}
 	}
 	//---------------------------------------------------------
 	void RenderBackend::noteWaterMaterialPlanarReflective(String const & name,
@@ -1614,8 +1641,29 @@ namespace Orkige
 		// renders and HlmsPbs samples it). Called ahead of every renderOneFrame.
 		// The window camera's aspect ratio is kept current by the window workspace
 		// build / resize path, so it is the mirror camera's aspect too.
+		// crash-survivable trail: the FIRST real (non-skipped) mirror render on a
+		// freshly stood-up subsystem is the mid-tour death spot the guard only ever
+		// DELAYED (it moves this render one frame past the workspace rebuild, never
+		// prevents it). Bracket that first nested update so a hard crash names it as
+		// the faulting phase rather than the subsystem allocation before it. One
+		// pair per stand-up (@see gPlanarFirstUpdateLogged) - never per-frame spam.
+		const bool logFirstUpdate = !gPlanarFirstUpdateLogged;
+		if(logFirstUpdate && Breadcrumbs::getSingletonPtr())
+		{
+			Breadcrumbs::getSingleton().record("planar",
+				"first mirror render begin (nested reflection update)");
+		}
 		gPlanarReflections->beginFrame();
 		gPlanarReflections->update(camera, camera->getAspectRatio());
+		if(logFirstUpdate)
+		{
+			gPlanarFirstUpdateLogged = true;
+			if(Breadcrumbs::getSingletonPtr())
+			{
+				Breadcrumbs::getSingleton().record("planar",
+					"first mirror render done");
+			}
+		}
 		// diagnostics: ORKIGE_DUMP_MIRROR=<path.png> writes the mirror RTT
 		// once, so a wrong-looking reflection can be inspected directly
 		static bool sMirrorDumped = false;
@@ -1673,6 +1721,9 @@ namespace Orkige
 		delete gPlanarReflections;
 		gPlanarReflections = NULL;
 		gPlanarReflectionActor = NULL;
+		// a later reflective water re-stands the subsystem: let that stand-up drop
+		// its own first-mirror-render crumb pair again (@see gPlanarFirstUpdateLogged)
+		gPlanarFirstUpdateLogged = false;
 		gPlanarReflectionPlaneY = 0.0f;
 		gPlanarReflectionHalfX = 0.0f;
 		gPlanarReflectionHalfZ = 0.0f;
