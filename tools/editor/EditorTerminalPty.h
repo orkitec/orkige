@@ -69,6 +69,15 @@ namespace OrkigeEditor
 		//! true while the child process is still running
 		virtual bool isAlive() = 0;
 
+		//! the name of the pty's FOREGROUND process - what the shell currently
+		//! has in the foreground (the running `claude`/`vim`/`git`, else the
+		//! shell itself). POSIX reads tcgetpgrp() then the group leader's process
+		//! name (macOS libproc, Linux /proc/<pid>/comm); Windows returns empty
+		//! (no dependency-free console-process query - the VT title covers the
+		//! agent TUIs there). Empty when unavailable. A low-cadence poll input to
+		//! the app-aware tab title, NOT a per-frame call.
+		virtual std::string foregroundProcessName() { return std::string(); }
+
 		//! signal and reap the child (its whole process tree) and close the pty.
 		//! Idempotent - safe to call more than once and from the destructor.
 		virtual void terminate() = 0;

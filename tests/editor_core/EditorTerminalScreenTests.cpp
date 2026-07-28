@@ -163,6 +163,26 @@ TEST_CASE("terminal screen: no responder is a harmless drop",
 	CHECK(screen.cell(0, 0).glyph == "h");
 }
 
+TEST_CASE("terminal screen: OSC title is surfaced through the seam",
+	"[unit][editor][terminal]")
+{
+	EditorTerminalScreen screen(80, 24);
+	CHECK(screen.getTitle().empty());
+
+	std::string observed;
+	screen.setTitleChanged([&](std::string const& t) { observed = t; });
+
+	// OSC 0 sets icon + window title, terminated by BEL (ST also works)
+	screen.write("\x1b]0;claude\x07");
+	CHECK(screen.getTitle() == "claude");
+	CHECK(observed == "claude");
+
+	// OSC 2 sets the window title only; a later title replaces the earlier one
+	screen.write("\x1b]2;/Users/me/dev/orkige\x1b\\");	// ST-terminated
+	CHECK(screen.getTitle() == "/Users/me/dev/orkige");
+	CHECK(observed == "/Users/me/dev/orkige");
+}
+
 TEST_CASE("terminal screen: resize keeps the model consistent",
 	"[unit][editor][terminal]")
 {

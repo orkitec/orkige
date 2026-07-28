@@ -95,6 +95,21 @@ namespace OrkigeEditor
 		//! header stays VT-library-free: the responder is a plain byte sink.
 		void setResponder(std::function<void(char const*, std::size_t)> responder);
 
+		//! The terminal TITLE, set by the app through an OSC sequence
+		//! (ESC ] 0 ; text BEL or ESC ] 2 ; text ST) - shells and TUIs (a login
+		//! fish, `claude`, vim, ...) announce what they are running this way.
+		//! The VT core surfaces it as a settermprop; this seam exposes the last
+		//! title as a plain string so the panel can label a tab WITHOUT the
+		//! header seeing a VT-library type (the setResponder style). Empty until
+		//! the app sets one; a fresh title fires the callback set below.
+		std::string getTitle() const;
+
+		//! observe title changes. @p callback is invoked from within write() on
+		//! the same thread when the app finishes setting a new title. Pass an
+		//! empty function to detach. The current title is still readable via
+		//! getTitle() for a poll-driven caller that wants no callback.
+		void setTitleChanged(std::function<void(std::string const&)> callback);
+
 		//! resize the grid to cols x rows. Scrollback is NOT reflowed (a v1
 		//! limit): existing pushed-off lines keep their old width.
 		void resize(int cols, int rows);

@@ -9,10 +9,13 @@
 // EditorTerminalPanel.cpp - the dockable Terminal panel: an OS pty (the
 // EditorTerminalPty seam) feeding the libvterm-backed screen model
 // (EditorTerminalScreen), rendered as a mono-font cell grid, with keyboard
-// input encoded by the pure EditorTerminalKeys table. One session (v1). When
-// the editor's MCP endpoint is live, the spawned shell's environment carries
-// the connection material and a one-line `claude mcp add ...` hint is shown, so
-// an agent started inside can drive the very editor it lives in.
+// input encoded by the pure EditorTerminalKeys table. The panel hosts a LIST of
+// sessions, one per in-panel tab, each labelled with what is running inside it
+// (the OSC title, else the pty's foreground process name; a recognised agent CLI
+// gets a robot glyph) via the pure EditorTerminalSession helpers. When the
+// editor's MCP endpoint is live, the spawned shell's environment carries the
+// connection material and a one-line `claude mcp add ...` hint is shown, so an
+// agent started inside can drive the very editor it lives in.
 //
 // The terminal is DELIBERATELY not an MCP verb: a headless agent spawning UI
 // shells is out of scope (and a laundering path). It is a human affordance.
@@ -21,6 +24,7 @@
 #include "EditorTerminalPty.h"
 #include "EditorTerminalScreen.h"
 #include "EditorTerminalKeys.h"
+#include "EditorTerminalSession.h"
 #include "EditorTabMenu.h"
 #include "EditorTheme.h"
 #include "IconsFontAwesome6.h"
@@ -47,9 +51,13 @@ namespace
 
 	constexpr std::size_t kReadCap = 64 * 1024;	//!< bounded pty read per frame
 	constexpr int kScrollbackLines = 5000;
+	//! how often the pty's foreground process name is polled (a syscall + a
+	//! /proc read or libproc call - cheap, but never per frame)
+	constexpr std::chrono::milliseconds kProcPollInterval{ 1000 };
 
-	//! the one terminal session (v1: a single shell). Process-static so it
-	//! survives panel-tab hide/show; torn down at terminalPanelShutdown().
+	//! one terminal session: its pty, VT screen, view/selection state and the
+	//! two app-detection signals (the OSC title + the polled foreground process
+	//! name) that drive its tab label. The panel holds a LIST of these.
 	struct TerminalSession
 	{
 		std::unique_ptr<TerminalPty>			pty;
@@ -61,6 +69,13 @@ namespace
 		std::string	shell;
 		std::string	lastError;
 		bool	followTail = true;	//!< keep the view pinned to the newest line
+		int		uid = 0;			//!< stable, monotonic ImGui id suffix
+
+		// app-aware tab title: the last OSC title + the last polled foreground
+		// process name; either can be empty. terminalTabLabel() composes them.
+		std::string	vtTitle;
+		std::string	procName;
+		std::chrono::steady_clock::time_point lastProcPoll{};
 
 		// linear selection in ABSOLUTE-line coords (scrollback + visible)
 		bool	selecting = false;
@@ -71,10 +86,30 @@ namespace
 		int		headCol = 0;
 	};
 
-	TerminalSession& session()
+	//! the terminal panel's process-static session LIST (v1: not persisted
+	//! across editor runs - a fresh launch starts with one shell). Torn down at
+	//! terminalPanelShutdown().
+	struct TerminalPanelState
 	{
-		static TerminalSession instance;
+		std::vector<std::unique_ptr<TerminalSession>>	sessions;
+		int		active = 0;			//!< index of the tab whose grid renders
+		int		nextUid = 1;		//!< monotonic id source for stable tab ids
+		int		pendingClose = -1;	//!< a live session queued for close-confirm
+		int		lastCols = 80;		//!< last rendered grid size, seeds spawns of
+		int		lastRows = 24;		//!< background tabs never yet made active
+	};
+
+	TerminalPanelState& panel()
+	{
+		static TerminalPanelState instance;
 		return instance;
+	}
+
+	//! draw glyph for a session's detected app class
+	const char* glyphFor(TerminalGlyphClass glyphClass)
+	{
+		return glyphClass == TerminalGlyphClass::Agent
+			? ICON_FA_ROBOT : ICON_FA_TERMINAL;
 	}
 
 	ImU32 cellColor(TermColor c)
@@ -84,10 +119,10 @@ namespace
 
 	//! spawn the shell for `state`'s project (cwd = project root, else home),
 	//! seeding the MCP env when the endpoint is live.
-	void spawnSession(EditorState& state, std::string const& mcpUrl,
-		std::string const& mcpTokenFile, int cols, int rows)
+	void spawnSession(TerminalSession& s, EditorState& state,
+		std::string const& mcpUrl, std::string const& mcpTokenFile,
+		int cols, int rows)
 	{
-		TerminalSession& s = session();
 		s.pty = createTerminalPty();
 		s.screen = std::make_unique<EditorTerminalScreen>(
 			std::max(1, cols), std::max(1, rows), kScrollbackLines);
@@ -395,13 +430,262 @@ namespace
 			}
 		}
 	}
+
+	//! pump a session's pty into its screen (bounded), refresh liveness, and
+	//! refresh the two tab-title signals. Runs for EVERY session each frame -
+	//! background tabs must keep draining or a chatty agent fills the pty buffer
+	//! and stalls, and their titles must stay live. Returns true when new output
+	//! arrived (the active tab uses that to keep the view pinned to the tail).
+	bool drainSession(TerminalSession& s)
+	{
+		if (!s.spawned || !s.screen || !s.pty)
+		{
+			return false;
+		}
+		bool gotOutput = false;
+		std::size_t total = 0;
+		std::vector<char> buffer(4096);
+		while (total < kReadCap)
+		{
+			const std::size_t n = s.pty->read(buffer.data(), buffer.size());
+			if (n == 0)
+			{
+				break;
+			}
+			s.screen->write(buffer.data(), n);
+			total += n;
+			gotOutput = true;
+		}
+		if (!s.pty->isAlive())
+		{
+			s.exited = true;
+		}
+		// the OSC title is free to read every frame (a cached string); the
+		// foreground process name is a syscall, so poll it at a low cadence
+		s.vtTitle = s.screen->getTitle();
+		const auto now = std::chrono::steady_clock::now();
+		if (!s.exited &&
+			(s.lastProcPoll.time_since_epoch().count() == 0 ||
+				now - s.lastProcPoll >= kProcPollInterval))
+		{
+			s.procName = s.pty->foregroundProcessName();
+			s.lastProcPoll = now;
+		}
+		return gotOutput;
+	}
+
+	//! append a fresh, not-yet-spawned session (spawned lazily once a grid size
+	//! is known) and make it the active tab
+	TerminalSession& addSession()
+	{
+		TerminalPanelState& p = panel();
+		auto s = std::make_unique<TerminalSession>();
+		s->uid = p.nextUid++;
+		p.sessions.push_back(std::move(s));
+		p.active = static_cast<int>(p.sessions.size()) - 1;
+		return *p.sessions.back();
+	}
+
+	//! terminate + drop the session at `index`, fixing the active index
+	void closeSession(int index)
+	{
+		TerminalPanelState& p = panel();
+		if (index < 0 || index >= static_cast<int>(p.sessions.size()))
+		{
+			return;
+		}
+		if (p.sessions[index]->pty)
+		{
+			p.sessions[index]->pty->terminate();
+		}
+		const int count = static_cast<int>(p.sessions.size());
+		p.active = terminalIndexAfterClose(count, index, p.active);
+		p.sessions.erase(p.sessions.begin() + index);
+		if (p.active < 0)
+		{
+			p.active = 0;
+		}
+	}
+
+	//! render one session's grid + input into the current content region. `s`
+	//! is the ACTIVE session (only its body runs). Sets state.terminalFocused.
+	void drawSessionGrid(TerminalSession& s, EditorState& state, float cellW,
+		float cellH, bool gotOutput, ImFont* mono)
+	{
+		TerminalPanelState& p = panel();
+		const ImVec2 avail = ImGui::GetContentRegionAvail();
+		const int newCols = std::max(1, static_cast<int>(avail.x / cellW));
+		const int newRows = std::max(1, static_cast<int>(avail.y / cellH));
+		p.lastCols = newCols;
+		p.lastRows = newRows;
+
+		if (newCols != s.cols || newRows != s.rows)
+		{
+			s.cols = newCols;
+			s.rows = newRows;
+			s.screen->resize(newCols, newRows);
+			if (s.pty)
+			{
+				s.pty->resize(newCols, newRows);
+			}
+		}
+
+		const int scrollbackCount = s.screen->scrollbackCount();
+		const int totalLines = scrollbackCount + s.rows;
+
+		if (mono != nullptr)
+		{
+			ImGui::PushFont(mono);
+		}
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(26, 26, 26, 255));
+		const std::string gridId = "##termgrid" + std::to_string(s.uid);
+		ImGui::BeginChild(gridId.c_str(), ImVec2(0.0f, 0.0f), false,
+			ImGuiWindowFlags_NoMove | ImGuiWindowFlags_HorizontalScrollbar);
+
+		const bool panelFocused =
+			ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+		const bool hovered = ImGui::IsWindowHovered();
+		const ImVec2 mouse = ImGui::GetMousePos();
+		const TermCursor cur = s.screen->cursor();
+		const int cursorLine = scrollbackCount + cur.row;
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		ImFontBaked* fontBaked = ImGui::GetFontBaked();
+		const ImU32 selBg = IM_COL32(60, 90, 140, 255);
+		int hoverLine = -1;
+		int hoverCol = 0;
+
+		ImGuiListClipper clipper;
+		clipper.Begin(totalLines, cellH);
+		while (clipper.Step())
+		{
+			for (int line = clipper.DisplayStart; line < clipper.DisplayEnd;
+				++line)
+			{
+				const ImVec2 pos = ImGui::GetCursorScreenPos();
+				for (int col = 0; col < s.cols; ++col)
+				{
+					TermCell cellValue = absoluteCell(s, line, col);
+					if (cellValue.width == 0)
+					{
+						continue;	// trailing half of a wide glyph
+					}
+					const float x = pos.x + col * cellW;
+					const int span = (cellValue.width == 2) ? 2 : 1;
+					TermColor fg = cellValue.fg;
+					TermColor bg = cellValue.bg;
+					if (cellValue.attrs.reverse)
+					{
+						std::swap(fg, bg);
+					}
+					const bool selected = inSelection(s, line, col);
+					const ImVec2 bgMin(x, pos.y);
+					const ImVec2 bgMax(x + span * cellW, pos.y + cellH);
+					if (selected)
+					{
+						drawList->AddRectFilled(bgMin, bgMax, selBg);
+					}
+					else if (bg.r != 26 || bg.g != 26 || bg.b != 26)
+					{
+						drawList->AddRectFilled(bgMin, bgMax, cellColor(bg));
+					}
+					const std::uint32_t cp =
+						decodeFirstCodepoint(cellValue.glyph);
+					const bool drawable = cp != 0 && (cp < 0x80 ||
+						fontBaked == nullptr ||
+						fontBaked->FindGlyphNoFallback(
+							static_cast<ImWchar>(cp)) != nullptr);
+					if (!cellValue.glyph.empty() && cellValue.glyph != " " &&
+						drawable)
+					{
+						drawList->AddText(ImVec2(x, pos.y), cellColor(fg),
+							cellValue.glyph.c_str(),
+							cellValue.glyph.c_str() + cellValue.glyph.size());
+						if (cellValue.attrs.underline)
+						{
+							drawList->AddLine(ImVec2(x, pos.y + cellH - 1.0f),
+								ImVec2(x + span * cellW, pos.y + cellH - 1.0f),
+								cellColor(fg));
+						}
+					}
+				}
+				if (cur.visible && line == cursorLine &&
+					cur.col >= 0 && cur.col < s.cols)
+				{
+					const float cx = pos.x + cur.col * cellW;
+					const ImU32 curCol =
+						IM_COL32(220, 220, 220, panelFocused ? 200 : 90);
+					const ImVec2 cMin(cx, pos.y);
+					const ImVec2 cMax(cx + cellW, pos.y + cellH);
+					if (panelFocused)
+					{
+						drawList->AddRectFilled(cMin, cMax, curCol);
+					}
+					else
+					{
+						drawList->AddRect(cMin, cMax, curCol);
+					}
+				}
+				if (hovered && mouse.y >= pos.y && mouse.y < pos.y + cellH)
+				{
+					hoverLine = line;
+					hoverCol = std::max(0, std::min(s.cols,
+						static_cast<int>((mouse.x - pos.x) / cellW)));
+				}
+				ImGui::Dummy(ImVec2(s.cols * cellW, cellH));
+			}
+		}
+		clipper.End();
+
+		// --- selection via mouse drag over the grid ---
+		if (hoverLine >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		{
+			s.selecting = true;
+			s.hasSelection = false;
+			s.anchorLine = hoverLine;
+			s.anchorCol = hoverCol;
+			s.headLine = hoverLine;
+			s.headCol = hoverCol;
+		}
+		else if (s.selecting && hoverLine >= 0 &&
+			ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+		{
+			s.headLine = hoverLine;
+			s.headCol = hoverCol;
+			s.hasSelection = true;
+		}
+		if (s.selecting && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			s.selecting = false;
+		}
+
+		if (gotOutput && s.followTail)
+		{
+			ImGui::SetScrollY(ImGui::GetScrollMaxY());
+		}
+		s.followTail = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
+
+		ImGui::EndChild();
+		ImGui::PopStyleColor();
+		ImGui::PopStyleVar();
+		if (mono != nullptr)
+		{
+			ImGui::PopFont();
+		}
+
+		state.terminalFocused = panelFocused && !s.exited;
+		if (state.terminalFocused && s.pty)
+		{
+			handleTerminalInput(s);
+		}
+	}
 }
 
 void drawTerminalPanel(EditorState& state, ViewSettings& viewSettings,
 	std::string const& mcpUrl, std::string const& mcpTokenFile, bool* visible)
 {
 	(void)viewSettings;
-	TerminalSession& s = session();
+	TerminalPanelState& p = panel();
 
 	// dock into the bottom group (beside Console/Assets/Debug/Source Control)
 	// the FIRST time the panel appears, so opening it from the View menu tabs in
@@ -447,29 +731,34 @@ void drawTerminalPanel(EditorState& state, ViewSettings& viewSettings,
 		ImGui::PopFont();
 	}
 
-	// --- header: shell + status + restart -----------------------------------
-	if (s.spawned && !s.exited)
+	// at least one session always exists (the first shell); a fresh launch
+	// opens with one - the count is not persisted across editor runs (v1)
+	if (p.sessions.empty())
 	{
-		ImGui::TextColored(ImVec4(0.42f, 0.78f, 0.47f, 1.0f), ICON_FA_TERMINAL);
-		ImGui::SameLine();
-		ImGui::TextDisabled("%s", s.shell.c_str());
+		addSession();
 	}
-	else if (s.exited)
+	if (p.active < 0 || p.active >= static_cast<int>(p.sessions.size()))
 	{
-		const std::string exitMsg = s.lastError.empty()
-			? std::string("The shell exited.")
-			: ("Could not start a shell: " + s.lastError);
-		ImGui::TextDisabled("%s", exitMsg.c_str());
-		ImGui::SameLine();
-		if (ImGui::SmallButton(ICON_FA_ROTATE " Restart"))
+		p.active = 0;
+	}
+
+	// EVERY session drains this frame (background agents must keep reading or a
+	// full pty buffer stalls them); only the active one renders below. The
+	// still-unspawned tabs spawn at the last known grid size so a background
+	// "+" tab comes up sized even before it is first shown.
+	std::vector<bool> gotOutput(p.sessions.size(), false);
+	for (std::size_t i = 0; i < p.sessions.size(); ++i)
+	{
+		TerminalSession& s = *p.sessions[i];
+		if (!s.spawned && !s.exited)
 		{
-			s.spawned = false;	// a fresh spawn happens below
-			s.exited = false;
-			s.hasSelection = false;
+			spawnSession(s, state, mcpUrl, mcpTokenFile, p.lastCols, p.lastRows);
 		}
+		gotOutput[i] = drainSession(s);
 	}
 
 	// --- the MCP connect hint (only when the endpoint is live) ---------------
+	// (global: every session's shell inherits the same ORKIGE_MCP_* env)
 	if (!mcpUrl.empty())
 	{
 		std::string connectCmd =
@@ -490,221 +779,139 @@ void drawTerminalPanel(EditorState& state, ViewSettings& viewSettings,
 		}
 		ImGui::SetItemTooltip("Copy the connect command");
 	}
-	ImGui::Separator();
 
-	// --- the grid area ------------------------------------------------------
-	const ImVec2 avail = ImGui::GetContentRegionAvail();
-	const int newCols = std::max(1, static_cast<int>(avail.x / cellW));
-	const int newRows = std::max(1, static_cast<int>(avail.y / cellH));
-
-	// spawn on first interactive appearance (deferred until the grid size is
-	// known so the shell starts at the right dimensions)
-	if (!s.spawned && !s.exited)
+	// --- the session tab bar ------------------------------------------------
+	int requestClose = -1;	// a tab whose close (x) was clicked this frame
+	bool requestAdd = false;
+	bool renderedActive = false;
+	if (ImGui::BeginTabBar("##termtabs", ImGuiTabBarFlags_AutoSelectNewTabs |
+		ImGuiTabBarFlags_TabListPopupButton |
+		ImGuiTabBarFlags_FittingPolicyScroll))
 	{
-		spawnSession(state, mcpUrl, mcpTokenFile, newCols, newRows);
+		for (std::size_t i = 0; i < p.sessions.size(); ++i)
+		{
+			TerminalSession& s = *p.sessions[i];
+			const TerminalTabLabel label = terminalTabLabel(s.vtTitle,
+				s.procName, static_cast<int>(i) + 1);
+			// glyph + text + a stable ###id so a relabel never re-creates the tab
+			std::string tabLabel = std::string(glyphFor(label.glyph)) + " " +
+				label.text + "###term" + std::to_string(s.uid);
+			bool open = true;
+			if (ImGui::BeginTabItem(tabLabel.c_str(), &open,
+				ImGuiTabItemFlags_None))
+			{
+				p.active = static_cast<int>(i);
+				renderedActive = true;
+
+				// per-session header: shell / exited + restart
+				if (s.spawned && !s.exited)
+				{
+					ImGui::TextColored(ImVec4(0.42f, 0.78f, 0.47f, 1.0f),
+						ICON_FA_TERMINAL);
+					ImGui::SameLine();
+					ImGui::TextDisabled("%s", s.shell.c_str());
+				}
+				else if (s.exited)
+				{
+					const std::string exitMsg = s.lastError.empty()
+						? std::string("The shell exited.")
+						: ("Could not start a shell: " + s.lastError);
+					ImGui::TextDisabled("%s", exitMsg.c_str());
+					ImGui::SameLine();
+					if (ImGui::SmallButton(ICON_FA_ROTATE " Restart"))
+					{
+						s.spawned = false;	// a fresh spawn happens next frame
+						s.exited = false;
+						s.hasSelection = false;
+						s.vtTitle.clear();
+						s.procName.clear();
+						s.lastProcPoll = {};
+					}
+				}
+				ImGui::Separator();
+
+				if (s.spawned && s.screen)
+				{
+					drawSessionGrid(s, state, cellW, cellH,
+						gotOutput[i], mono);
+				}
+				else
+				{
+					state.terminalFocused = false;
+				}
+				ImGui::EndTabItem();
+			}
+			if (!open)
+			{
+				requestClose = static_cast<int>(i);
+			}
+		}
+		// the "+" new-session control (a trailing tab button)
+		if (ImGui::TabItemButton("+###termadd",
+			ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
+		{
+			requestAdd = true;
+		}
+		ImGui::SetItemTooltip("New terminal session");
+		ImGui::EndTabBar();
 	}
-
-	if (s.spawned && s.screen)
+	if (!renderedActive)
 	{
-		if (newCols != s.cols || newRows != s.rows)
-		{
-			s.cols = newCols;
-			s.rows = newRows;
-			s.screen->resize(newCols, newRows);
-			if (s.pty)
-			{
-				s.pty->resize(newCols, newRows);
-			}
-		}
-
-		// bounded per-frame drain so an output flood degrades gracefully
-		bool gotOutput = false;
-		std::size_t total = 0;
-		std::vector<char> buffer(4096);
-		while (total < kReadCap && s.pty)
-		{
-			const std::size_t n = s.pty->read(buffer.data(), buffer.size());
-			if (n == 0)
-			{
-				break;
-			}
-			s.screen->write(buffer.data(), n);
-			total += n;
-			gotOutput = true;
-		}
-		if (s.pty && !s.pty->isAlive())
-		{
-			s.exited = true;
-		}
-
-		const int scrollbackCount = s.screen->scrollbackCount();
-		const int totalLines = scrollbackCount + s.rows;
-
-		if (mono != nullptr)
-		{
-			ImGui::PushFont(mono);
-		}
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
-		ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(26, 26, 26, 255));
-		ImGui::BeginChild("##termgrid", ImVec2(0.0f, 0.0f), false,
-			ImGuiWindowFlags_NoMove | ImGuiWindowFlags_HorizontalScrollbar);
-
-		const bool panelFocused =
-			ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-		const bool hovered = ImGui::IsWindowHovered();
-		const ImVec2 mouse = ImGui::GetMousePos();
-		const TermCursor cur = s.screen->cursor();
-		const int cursorLine = scrollbackCount + cur.row;
-		ImDrawList* drawList = ImGui::GetWindowDrawList();
-		// the mono font baked at the current size - used to reject codepoints
-		// the atlas never baked (draw them blank, not '?'). Valid inside a live
-		// frame; reflects the pushed mono font (or the UI font when none loaded).
-		ImFontBaked* fontBaked = ImGui::GetFontBaked();
-		const ImU32 selBg = IM_COL32(60, 90, 140, 255);
-		int hoverLine = -1;
-		int hoverCol = 0;
-
-		// a list clipper draws only the visible lines - a 5000-line scrollback
-		// never turns into a million draw calls, and the clipper positions each
-		// line's cursor correctly for the current scroll
-		ImGuiListClipper clipper;
-		clipper.Begin(totalLines, cellH);
-		while (clipper.Step())
-		{
-			for (int line = clipper.DisplayStart; line < clipper.DisplayEnd;
-				++line)
-			{
-				const ImVec2 pos = ImGui::GetCursorScreenPos();
-				for (int col = 0; col < s.cols; ++col)
-				{
-					TermCell cellValue = absoluteCell(s, line, col);
-					if (cellValue.width == 0)
-					{
-						continue;	// trailing half of a wide glyph
-					}
-					const float x = pos.x + col * cellW;
-					const int span = (cellValue.width == 2) ? 2 : 1;
-					TermColor fg = cellValue.fg;
-					TermColor bg = cellValue.bg;
-					if (cellValue.attrs.reverse)
-					{
-						std::swap(fg, bg);
-					}
-					const bool selected = inSelection(s, line, col);
-					const ImVec2 bgMin(x, pos.y);
-					const ImVec2 bgMax(x + span * cellW, pos.y + cellH);
-					if (selected)
-					{
-						drawList->AddRectFilled(bgMin, bgMax, selBg);
-					}
-					else if (bg.r != 26 || bg.g != 26 || bg.b != 26)
-					{
-						drawList->AddRectFilled(bgMin, bgMax, cellColor(bg));
-					}
-					// a codepoint neither the mono font nor its merged symbols
-					// fallback carries draws as BLANK, not the atlas's '?'
-					// fallback glyph - '?' noise on every uncovered TUI symbol is
-					// worse than a gap. ASCII is always baked, so skip the lookup
-					// for it (the hot path).
-					const std::uint32_t cp =
-						decodeFirstCodepoint(cellValue.glyph);
-					const bool drawable = cp != 0 && (cp < 0x80 ||
-						fontBaked == nullptr ||
-						fontBaked->FindGlyphNoFallback(
-							static_cast<ImWchar>(cp)) != nullptr);
-					if (!cellValue.glyph.empty() && cellValue.glyph != " " &&
-						drawable)
-					{
-						drawList->AddText(ImVec2(x, pos.y), cellColor(fg),
-							cellValue.glyph.c_str(),
-							cellValue.glyph.c_str() + cellValue.glyph.size());
-						if (cellValue.attrs.underline)
-						{
-							drawList->AddLine(ImVec2(x, pos.y + cellH - 1.0f),
-								ImVec2(x + span * cellW, pos.y + cellH - 1.0f),
-								cellColor(fg));
-						}
-					}
-				}
-				// the cursor block on its line
-				if (cur.visible && line == cursorLine &&
-					cur.col >= 0 && cur.col < s.cols)
-				{
-					const float cx = pos.x + cur.col * cellW;
-					const ImU32 curCol =
-						IM_COL32(220, 220, 220, panelFocused ? 200 : 90);
-					const ImVec2 cMin(cx, pos.y);
-					const ImVec2 cMax(cx + cellW, pos.y + cellH);
-					if (panelFocused)
-					{
-						drawList->AddRectFilled(cMin, cMax, curCol);
-					}
-					else
-					{
-						drawList->AddRect(cMin, cMax, curCol);
-					}
-				}
-				// hovered cell (for selection gestures below)
-				if (hovered && mouse.y >= pos.y && mouse.y < pos.y + cellH)
-				{
-					hoverLine = line;
-					hoverCol = std::max(0, std::min(s.cols,
-						static_cast<int>((mouse.x - pos.x) / cellW)));
-				}
-				ImGui::Dummy(ImVec2(s.cols * cellW, cellH));
-			}
-		}
-		clipper.End();
-
-		// --- selection via mouse drag over the grid ---
-		if (hoverLine >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-		{
-			s.selecting = true;
-			s.hasSelection = false;
-			s.anchorLine = hoverLine;
-			s.anchorCol = hoverCol;
-			s.headLine = hoverLine;
-			s.headCol = hoverCol;
-		}
-		else if (s.selecting && hoverLine >= 0 &&
-			ImGui::IsMouseDragging(ImGuiMouseButton_Left))
-		{
-			s.headLine = hoverLine;
-			s.headCol = hoverCol;
-			s.hasSelection = true;
-		}
-		if (s.selecting && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
-		{
-			s.selecting = false;
-		}
-
-		// auto-scroll to the newest output unless the user scrolled up; then
-		// re-read whether the view sits at the bottom
-		if (gotOutput && s.followTail)
-		{
-			ImGui::SetScrollY(ImGui::GetScrollMaxY());
-		}
-		s.followTail = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
-
-		ImGui::EndChild();
-		ImGui::PopStyleColor();
-		ImGui::PopStyleVar();
-		if (mono != nullptr)
-		{
-			ImGui::PopFont();
-		}
-
-		// keyboard goes to the pty while the panel holds focus; the editor's
-		// global shortcuts stand down this frame (state.terminalFocused)
-		state.terminalFocused = panelFocused && !s.exited;
-		if (state.terminalFocused && s.pty)
-		{
-			handleTerminalInput(s);
-		}
-	}
-	else
-	{
+		// no tab body ran this frame (e.g. the panel is collapsed to just the
+		// tab bar): the pty must not be left holding the editor's shortcuts
 		state.terminalFocused = false;
+	}
+
+	// --- close handling (deferred until after the tab bar) ------------------
+	// closing a tab whose child is still alive asks first; a dead one just goes.
+	if (requestClose >= 0 && requestClose < static_cast<int>(p.sessions.size()))
+	{
+		TerminalSession& s = *p.sessions[requestClose];
+		const bool alive = s.pty && s.pty->isAlive() && !s.exited;
+		if (alive)
+		{
+			p.pendingClose = requestClose;
+			ImGui::OpenPopup("Close terminal?###termclose");
+		}
+		else
+		{
+			closeSession(requestClose);
+		}
+	}
+	if (ImGui::BeginPopupModal("Close terminal?###termclose", nullptr,
+		ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		if (p.pendingClose >= 0 &&
+			p.pendingClose < static_cast<int>(p.sessions.size()))
+		{
+			TerminalSession& s = *p.sessions[p.pendingClose];
+			const TerminalTabLabel label = terminalTabLabel(s.vtTitle,
+				s.procName, p.pendingClose + 1);
+			ImGui::Text("\"%s\" is still running. Close it and terminate the "
+				"process?", label.text.c_str());
+			ImGui::Separator();
+			if (ImGui::Button("Close"))
+			{
+				closeSession(p.pendingClose);
+				p.pendingClose = -1;
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
+			{
+				p.pendingClose = -1;
+				ImGui::CloseCurrentPopup();
+			}
+		}
+		else
+		{
+			ImGui::CloseCurrentPopup();	// the session vanished under us
+		}
+		ImGui::EndPopup();
+	}
+	if (requestAdd)
+	{
+		addSession();
 	}
 
 	ImGui::End();
@@ -714,15 +921,17 @@ namespace OrkigeEditor
 {
 	void terminalPanelShutdown()
 	{
-		TerminalSession& s = session();
-		if (s.pty)
+		TerminalPanelState& p = panel();
+		for (auto& s : p.sessions)
 		{
-			s.pty->terminate();
+			if (s && s->pty)
+			{
+				s->pty->terminate();
+			}
 		}
-		s.pty.reset();
-		s.screen.reset();
-		s.spawned = false;
-		s.exited = true;
+		p.sessions.clear();
+		p.active = 0;
+		p.pendingClose = -1;
 	}
 
 	std::string terminalSelectionText(EditorTerminalScreen& screen, int cols,
@@ -1115,6 +1324,73 @@ namespace OrkigeEditor
 					"leg skipped");
 			}
 			ImGui::DestroyContext();
+		}
+
+		// 8) multiple sessions: independent grids, the app-aware tab title seam
+		//    (an OSC title on session B is detected as an agent) and a close that
+		//    kills the child and shrinks the list.
+		{
+			// two VT screens are fully independent grids
+			EditorTerminalScreen a(20, 4);
+			EditorTerminalScreen b(20, 4);
+			a.write("AAA");
+			check(a.dumpVisible().substr(0, 3) == "AAA",
+				"session A grid holds its own text");
+			check(b.dumpVisible().find("AAA") == std::string::npos,
+				"session B grid is independent of A");
+
+			// an OSC title fed to session B is detected as the agent label; A,
+			// with no title, falls back to its numbered terminal label
+			b.write("\x1b]0;claude\x07");
+			const TerminalTabLabel labelB = terminalTabLabel(b.getTitle(), "", 2);
+			check(labelB.text == "claude" &&
+				labelB.glyph == TerminalGlyphClass::Agent,
+				"session B tab label detects the agent from its OSC title");
+			const TerminalTabLabel labelA = terminalTabLabel(a.getTitle(), "", 1);
+			check(labelA.text == "Terminal 1" &&
+				labelA.glyph == TerminalGlyphClass::Terminal,
+				"session A falls back to the numbered terminal label");
+
+			// a two-child pty list: closing one terminates its child and shrinks
+			// the list, the other survives
+			std::vector<std::unique_ptr<TerminalPty>> sessions;
+			auto spawnOne = [&]() -> bool
+			{
+				std::unique_ptr<TerminalPty> child = createTerminalPty();
+				TermPtySpec sp;
+				sp.cols = 40;
+				sp.rows = 12;
+				sp.loginShell = false;
+			#if defined(_WIN32)
+				sp.shell = "cmd.exe";
+			#else
+				sp.shell = "/bin/sh";
+			#endif
+				if (!child->spawn(sp))
+				{
+					return false;
+				}
+				sessions.push_back(std::move(child));
+				return true;
+			};
+			if (spawnOne() && spawnOne())
+			{
+				check(sessions.size() == 2, "two sessions spawned into the list");
+				TerminalPty* survivor = sessions[1].get();
+				sessions[0]->terminate();
+				check(!sessions[0]->isAlive(),
+					"the closed session's child died");
+				sessions.erase(sessions.begin());
+				check(sessions.size() == 1, "the session list shrank to one");
+				check(sessions[0].get() == survivor,
+					"the surviving session is the OTHER one");
+				sessions[0]->terminate();
+			}
+			else
+			{
+				SDL_Log("terminal-test: a second pty was unavailable - the "
+					"multi-session pty leg was skipped");
+			}
 		}
 
 		SDL_Log("orkige_editor: terminal-test %s",

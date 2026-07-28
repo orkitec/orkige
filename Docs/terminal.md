@@ -2,7 +2,9 @@
 
 The editor hosts a real terminal in a dockable **Terminal** panel: terminal-based
 agents (Claude Code and others) and plain shells run inside a dock tab, beside
-Console/Assets/Source Control. It is desktop- and editor-only.
+Console/Assets/Source Control. It is desktop- and editor-only. The panel holds
+**multiple concurrent sessions**, one per in-panel tab, each labelled with what
+is running inside it.
 
 ## What it is
 
@@ -19,6 +21,45 @@ Console/Assets/Source Control. It is desktop- and editor-only.
   bottom group. Fresh layouts and pre-existing `imgui.ini` users both get it
   docked there (a first-appearance dock anchored to the bottom group); re-dock
   freely afterwards.
+
+## Multiple sessions
+
+The panel carries a row of session tabs inside its own tab bar:
+
+- The **`+`** tab button spawns another session — the same login shell, in the
+  same project working directory, inheriting the same MCP environment. Every
+  session drains its pty every frame (bounded), so a background agent keeps
+  running while another tab is shown.
+- Each tab has a **close (×)**. Closing a tab whose child is still running asks
+  for confirmation first, then terminates the whole child process tree; a tab
+  whose shell already exited closes without a prompt. The remaining tabs keep
+  their sessions; the neighbouring tab becomes active.
+- The session count and order are **not persisted** across editor runs (v1): a
+  fresh launch opens with a single shell.
+
+## App-aware tab titles
+
+A tab shows **what is running** inside it, from two signals — the title wins:
+
+- the **terminal title** the running program sets over an OSC sequence
+  (`ESC ] 0 ; text BEL` / `ESC ] 2 ; text ST`) — shells (a login `fish`) and
+  TUIs (`claude`, `vim`) announce themselves this way. It is surfaced through
+  `EditorTerminalScreen::getTitle()` (a plain string; the VT library type never
+  leaves the `.cpp`);
+- the **foreground process name** as a fallback, polled at ~1 Hz (never per
+  frame): the pty's `tcgetpgrp` foreground group leader, named via libproc on
+  macOS and `/proc/<pid>/comm` on Linux. Windows returns nothing here (the title
+  covers the agent TUIs); the shell's own path is the floor.
+
+The label is a **cleaned** title: a path or a path-prefixed command line is
+trimmed to its leading app word (`/Users/me/dev/orkige` → `orkige`,
+`/opt/homebrew/bin/fish -l` → `fish`), a plain title passes through verbatim, and
+with neither signal the tab reads `Terminal N`. A recognised **agent CLI**
+(`claude`, `codex`, `opencode`, `aider`, `gemini` — a case-insensitive prefix
+match on the detected name) draws a distinct robot glyph; every other session
+draws the plain terminal glyph. The match list names programs the user runs —
+the label the user sees is always runtime data from the session, never a
+hardcoded product string.
 
 ## MCP auto-wiring
 
@@ -104,37 +145,50 @@ handful of emoji-tier dingbats, e.g. `U+2728 SPARKLES`) draws as **blank**, not 
 Three seams, each pure and testable, with libvterm confined to one file:
 
 - `EditorTerminalScreen` — the VT screen model: bytes in → cell grid + cursor
-  out, plus a reply channel out (`setResponder`, the query-answer bytes). The
-  header speaks only the editor's cell/grid vocabulary and a plain byte-sink
-  responder; the parsing is **libvterm**, quarantined in the `.cpp` (overlay port
-  `ports/libvterm`, see `Docs/ports.md`). Keeping the VT core behind this seam
-  makes it swappable. Unit-tested headlessly with scripted escape sequences
-  (`EditorTerminalScreenTests`, including the DA / cursor-position replies).
+  out, plus a reply channel out (`setResponder`, the query-answer bytes) and the
+  app-announced **title** out (`getTitle` / `setTitleChanged`). The header speaks
+  only the editor's cell/grid vocabulary, a plain byte-sink responder and a
+  string title; the parsing is **libvterm**, quarantined in the `.cpp` (overlay
+  port `ports/libvterm`, see `Docs/ports.md`). Keeping the VT core behind this
+  seam makes it swappable. Unit-tested headlessly with scripted escape sequences
+  (`EditorTerminalScreenTests`, including the DA / cursor-position replies and
+  the OSC title).
 - `EditorTerminalKeys` — the pure key → VT byte-sequence encoder, unit-tested as
   a table (`EditorTerminalKeysTests`).
+- `EditorTerminalSession` — the pure, UI-free session bookkeeping: title
+  cleaning, the agent-CLI glyph classifier, tab-label composition (title vs
+  process-name, agent detection) and the post-close active index. Unit-tested
+  headlessly (`EditorTerminalSessionTests`).
 - `EditorTerminalPty` — the OS pty seam. POSIX uses `openpty` + `fork`/`exec`
   with the child in its own session, so closing the panel signals the whole
-  process group. Windows uses **ConPTY** (`CreatePseudoConsole` +
-  `CreateProcess` with the pseudoconsole attribute) inside a **Job Object** so
-  closing the panel kills the child tree; UTF-8 throughout. Everything above
-  this seam is OS-agnostic.
+  process group; it also names its **foreground process** (`tcgetpgrp` +
+  libproc / `/proc`) for the tab title. Windows uses **ConPTY**
+  (`CreatePseudoConsole` + `CreateProcess` with the pseudoconsole attribute)
+  inside a **Job Object** so closing the panel kills the child tree; UTF-8
+  throughout. Everything above this seam is OS-agnostic.
 
 Output floods degrade gracefully: reads are bounded per frame (64 KB) so the UI
 never stalls. Closing the panel or quitting the editor terminates the child.
 
 ## Verification
 
-- `EditorTerminalScreenTests` / `EditorTerminalKeysTests` (unit).
+- `EditorTerminalScreenTests` / `EditorTerminalKeysTests` /
+  `EditorTerminalSessionTests` (unit): the last covers title cleaning, the agent
+  classifier, tab-label composition, the post-close active index and the glyph
+  codepoints falling in the icon atlas ranges.
 - `editor_terminal` selfcheck (both flavors, and Windows CI via ConPTY): spawns
   a real pty running a scripted echo, asserts the grid seam (printed text + SGR
   colour reach the cells), types a known word through the input seam and asserts
   the child echoed it back, drives the **paste** seam (encoding + the pasted
   bytes reach the pty and echo), the **copy** seam (selection text + the OS
   clipboard round trip via SDL), the **reply** channel (DA / cursor-position
-  answered) and the **font coverage** (the mono atlas bakes box drawing, block,
-  arrows, geometric shapes, ellipsis and the merged braille spinner), then closes
-  and asserts the child died. Skips (exit 77) where no pty/shell is available;
-  individual legs skip honestly where SDL video or a system mono font is absent.
+  answered), the **font coverage** (the mono atlas bakes box drawing, block,
+  arrows, geometric shapes, ellipsis and the merged braille spinner) and the
+  **multiple-session** seam (two independent grids, an OSC title on session B
+  detected as an agent label, and a close that kills one child and shrinks the
+  list), then closes and asserts the child died. Skips (exit 77) where no
+  pty/shell is available; individual legs skip honestly where SDL video, a system
+  mono font or a second pty is absent.
 
 ## v1 limits
 
@@ -145,4 +199,6 @@ never stalls. Closing the panel or quitting the editor terminates the child.
 - Glyph width follows the mono font's coverage; a wide glyph spans two cells but
   complex grapheme widths are approximate. Colour emoji and CJK render only where
   the merged fonts carry the glyph; a codepoint neither carries draws blank.
-- One session at a time.
+- The session count and order are not persisted across editor runs.
+- The foreground-process-name fallback is POSIX-only; on Windows a session with
+  no OSC title reads by its numbered fallback (the agent TUIs set a title).

@@ -50,8 +50,10 @@
 	#include <sys/wait.h>
 	#include <termios.h>
 	#include <unistd.h>
+	#include <cstdio>
 	#if defined(__APPLE__)
 		#include <util.h>
+		#include <libproc.h>
 	#else
 		#include <pty.h>
 	#endif
@@ -265,6 +267,53 @@ namespace OrkigeEditor
 					mAlive = false;
 				}
 				return mAlive;
+			}
+
+			std::string foregroundProcessName() override
+			{
+				if (mMaster < 0)
+				{
+					return std::string();
+				}
+				// the pty's foreground process group; its leader's pid == the
+				// pgid, so we name that process
+				const pid_t pgrp = tcgetpgrp(mMaster);
+				if (pgrp <= 0)
+				{
+					return std::string();
+				}
+			#if defined(__APPLE__)
+				char name[256];
+				name[0] = '\0';
+				if (proc_name(pgrp, name, sizeof(name)) > 0)
+				{
+					return std::string(name);
+				}
+				return std::string();
+			#else
+				// Linux: the command name in /proc/<pid>/comm (truncated to 15
+				// chars by the kernel, which is fine for a prefix-matched label)
+				char path[64];
+				std::snprintf(path, sizeof(path), "/proc/%d/comm",
+					static_cast<int>(pgrp));
+				std::FILE* f = std::fopen(path, "r");
+				if (f == nullptr)
+				{
+					return std::string();
+				}
+				char buf[256];
+				std::string out;
+				if (std::fgets(buf, sizeof(buf), f) != nullptr)
+				{
+					out = buf;
+				}
+				std::fclose(f);
+				while (!out.empty() && (out.back() == '\n' || out.back() == '\r'))
+				{
+					out.pop_back();
+				}
+				return out;
+			#endif
 			}
 
 			void terminate() override

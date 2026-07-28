@@ -67,6 +67,11 @@ add_library(orkige_editor_core STATIC
     EditorTerminalScreen.cpp
     EditorTerminalKeys.h
     EditorTerminalKeys.cpp
+    # the pure multi-session bookkeeping (title cleaning, agent glyph classifier,
+    # tab-label composition, post-close active index) - unit-tested headlessly
+    # (EditorTerminalSessionTests)
+    EditorTerminalSession.h
+    EditorTerminalSession.cpp
 )
 target_include_directories(orkige_editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(tinyxml2 CONFIG REQUIRED)	# the live XML document diagnostics

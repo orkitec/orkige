@@ -90,6 +90,13 @@ namespace OrkigeEditor
 		// back to the pty's input. Empty until setResponder().
 		std::function<void(char const*, std::size_t)> responder;
 
+		// the app-announced terminal title (OSC 0/2). `title` is the last
+		// completed title; `titlePending` accumulates the fragments libvterm
+		// delivers between the `initial` and `final` markers of one OSC string.
+		std::string		title;
+		std::string		titlePending;
+		std::function<void(std::string const&)> titleChanged;
+
 		// scrollback ring (front = oldest); each entry one full row of cells
 		std::deque<std::vector<TermCell>> scrollback;
 
@@ -244,6 +251,30 @@ namespace OrkigeEditor
 				case VTERM_PROP_MOUSE:
 					self->mouseTracking = val->number != VTERM_PROP_MOUSE_NONE;
 					break;
+				case VTERM_PROP_TITLE:
+				{
+					// a title arrives as a stream of fragments: `initial` opens
+					// a fresh string, the body appends, `final` completes it.
+					VTermStringFragment const& frag = val->string;
+					if (frag.initial)
+					{
+						self->titlePending.clear();
+					}
+					if (frag.str != nullptr && frag.len > 0)
+					{
+						self->titlePending.append(frag.str, frag.len);
+					}
+					if (frag.final)
+					{
+						self->title = self->titlePending;
+						self->titlePending.clear();
+						if (self->titleChanged)
+						{
+							self->titleChanged(self->title);
+						}
+					}
+					break;
+				}
 				default:
 					break;
 			}
@@ -325,6 +356,17 @@ namespace OrkigeEditor
 		std::function<void(char const*, std::size_t)> responder)
 	{
 		mImpl->responder = std::move(responder);
+	}
+
+	std::string EditorTerminalScreen::getTitle() const
+	{
+		return mImpl->title;
+	}
+
+	void EditorTerminalScreen::setTitleChanged(
+		std::function<void(std::string const&)> callback)
+	{
+		mImpl->titleChanged = std::move(callback);
 	}
 
 	void EditorTerminalScreen::resize(int cols, int rows)
