@@ -879,6 +879,10 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	// from the View menu; a tab slot waits here for it)
 	ImGui::DockBuilderDockWindow(
 		ICON_FA_CODE_BRANCH " Source Control###SourceControl", bottomId);
+	// the Terminal panel tabs into the same bottom node (it opens on demand from
+	// the View menu; a tab slot waits here for it)
+	ImGui::DockBuilderDockWindow(ICON_FA_TERMINAL " Terminal###Terminal",
+		bottomId);
 	ImGui::DockBuilderDockWindow("Assets###Assets", bottomId);
 	// the Tile Palette tabs into the bottom node beside the Asset Browser
 	// (both are asset pickers; it auto-opens here when the Scene enters 2D)

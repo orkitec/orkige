@@ -11,6 +11,9 @@ find_package(imgui CONFIG REQUIRED)
 find_package(imguizmo CONFIG REQUIRED)
 # the Script panel's code editor widget (built against the same docking imgui)
 find_package(imgui-color-text-edit CONFIG REQUIRED)
+# the embedded terminal's VT screen model (libvterm, confined to
+# EditorTerminalScreen.cpp - see the overlay port ports/libvterm)
+find_package(libvterm CONFIG REQUIRED)
 
 # EditorCore: the UI-independent editor logic (selection, undo/redo command
 # stack, object operations). Split into its own library so the headless unit
@@ -58,11 +61,20 @@ add_library(orkige_editor_core STATIC
     EditorViewModes.cpp
     EditorUiEdit.h
     EditorUiEdit.cpp
+    # the embedded terminal's VT screen model + pure key encoder (UI-free and
+    # unit-tested headlessly - EditorTerminalScreenTests / EditorTerminalKeysTests)
+    EditorTerminalScreen.h
+    EditorTerminalScreen.cpp
+    EditorTerminalKeys.h
+    EditorTerminalKeys.cpp
 )
 target_include_directories(orkige_editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(tinyxml2 CONFIG REQUIRED)	# the live XML document diagnostics
 target_link_libraries(orkige_editor_core PUBLIC Orkige::Engine)
 target_link_libraries(orkige_editor_core PRIVATE tinyxml2::tinyxml2)
+# libvterm is an implementation detail of EditorTerminalScreen.cpp; the header
+# exposes only the editor's own cell/grid vocabulary, so it links PRIVATE
+target_link_libraries(orkige_editor_core PRIVATE libvterm::vterm)
 
 # PCH (no imgui here - EditorCore stays UI-independent and does not link it)
 target_precompile_headers(orkige_editor_core PRIVATE
@@ -113,6 +125,12 @@ add_executable(orkige_editor
     EditorScriptPanel.cpp
     EditorSourceControlPanel.h
     EditorSourceControlPanel.cpp
+    # the embedded terminal: the OS pty backend seam (POSIX openpty / Windows
+    # ConPTY) and the dockable ImGui panel + its headless selfcheck
+    EditorTerminalPty.h
+    EditorTerminalPty.cpp
+    EditorTerminalPanel.h
+    EditorTerminalPanel.cpp
     ExternalEditorLaunch.cpp
     EditorScenePanel.cpp
     EditorSettings.cpp
@@ -134,6 +152,18 @@ target_link_libraries(orkige_editor PRIVATE
     imguizmo::imguizmo
     imgui-color-text-edit::imgui-color-text-edit
 )
+
+# the embedded terminal's POSIX pty backend calls openpty(); on Linux that
+# lives in libutil (macOS provides it in libSystem, Windows uses ConPTY)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(orkige_editor PRIVATE util)
+endif()
+
+# the pty backend must set _WIN32_WINNT / NTDDI_VERSION before <windows.h> to
+# unlock the ConPTY APIs, so it opts out of the PCH (which force-includes the
+# Windows headers first at a lower version) - see EditorTerminalPty.cpp
+set_source_files_properties(EditorTerminalPty.cpp PROPERTIES
+    SKIP_PRECOMPILE_HEADERS ON)
 
 # PCH: every editor TU pulls in OGRE (via the engine) and ImGui. CXX-only
 # guard: MacMenu.mm below is ObjC++.

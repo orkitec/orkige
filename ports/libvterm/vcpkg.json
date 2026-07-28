@@ -1,0 +1,17 @@
+{
+  "name": "libvterm",
+  "version": "0.3.3",
+  "description": "Abstract library implementation of a VT220/xterm/ECMA-48 terminal emulator (the callback-driven, no-malloc-steady-state screen model). This is the LeoNerd/neovim libvterm, not the unrelated ncurses-based namesake.",
+  "homepage": "https://github.com/neovim/libvterm",
+  "license": "MIT",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ]
+}

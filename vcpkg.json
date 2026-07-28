@@ -56,6 +56,10 @@
       "platform": "!ios & !android & !emscripten"
     },
     {
+      "name": "libvterm",
+      "platform": "!ios & !android & !emscripten"
+    },
+    {
       "name": "catch2",
       "platform": "!ios & !android"
     },

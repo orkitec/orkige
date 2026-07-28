@@ -348,6 +348,39 @@ overlay port — same conventions as `ports/imgui`:
 Consumed only by `orkige_editor` (desktop platforms — the same
 `!ios & !android & !emscripten` gate as imgui itself).
 
+## ports/libvterm
+
+The embedded Terminal panel's VT screen model
+(`tools/editor/EditorTerminalScreen.cpp`). `libvterm` is the LeoNerd/neovim
+abstract terminal library — the callback-driven, allocation-free-in-steady-state
+VT220/xterm/ECMA-48 screen model that neovim's `:terminal` uses (its existence
+proof is a shell — and Claude Code — running inside neovim every day). Pinned to
+a neovim-fork commit; not in the vcpkg registry, hence the overlay port.
+
+NAMING TRAP recorded so nobody swaps it: there is an unrelated,
+ncurses/ROTE-based project that also calls itself `libvterm`
+(TragicWarrior/libvterm). This is NOT that one — it is the C99 abstract
+screen-model library.
+
+- upstream ships no library CMake (a Makefile plus a Perl step that turns the
+  encoding `.tbl` tables into `.inc` headers). The neovim fork COMMITS those
+  generated `.inc` files (`src/encoding/*.inc`, `src/fullwidth.inc`), so our
+  `CMakeLists.txt` (installed over the source, the `ports/imgui` convention) is
+  a plain C99 compile of `src/*.c` with NO Perl at build time — it builds on
+  arm64-osx, x64-linux and x64-windows-static-md (MSVC-clean: the fork is
+  maintained against MSVC; a `_CRT_SECURE_NO_WARNINGS` define quiets the
+  secure-CRT noise). Static only.
+- the library exports `libvterm::vterm`. It links PRIVATE into
+  `orkige_editor_core`: the header `EditorTerminalScreen.h` exposes only the
+  editor's own cell/grid/cursor vocabulary, and every libvterm type and call is
+  confined to the one implementation TU (the `FontBakeImpl.cpp` single-file-lib
+  precedent). That confinement is the swap seam — if a maturing pure-VT library
+  grows a stable API and a Windows build it can replace libvterm without a
+  caller changing.
+
+Consumed only by the editor (desktop platforms — the same
+`!ios & !android & !emscripten` gate as imgui).
+
 ## nanosvg (stock port — no overlay)
 
 `nanosvg` is a plain vcpkg-registry dependency (`vcpkg.json`), NOT an overlay

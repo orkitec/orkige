@@ -34,6 +34,13 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 	SDL_Window* window)
 {
 	ImGuiIO& io = ImGui::GetIO();
+	// the embedded terminal owns EVERY key while it holds focus (arrows, Ctrl
+	// chords, even Cmd/Ctrl+P) - they belong to the shell, not the editor - so
+	// no editor shortcut (not even the debugger transport) fires this frame
+	if (state.terminalFocused)
+	{
+		return;
+	}
 	// the script debugger's Continue/Step keys work while a break is held -
 	// BEFORE the text-input stand-down, since the code editor holds keyboard
 	// focus exactly then (F-keys and Cmd/Ctrl+Alt chords never type text)

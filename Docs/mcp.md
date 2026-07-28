@@ -58,6 +58,16 @@ request needs it — reads included, see the security posture below.)
 Claude Desktop: add an entry under `mcpServers` with `"type": "http"` and
 `"url": "http://127.0.0.1:9010/mcp"` plus the `Authorization` header.
 
+### From the editor's embedded terminal
+
+When the MCP endpoint is live, the editor's **Terminal** panel is the fastest
+path: a shell spawned there already carries `ORKIGE_MCP_URL` and (when set)
+`ORKIGE_MCP_TOKEN_FILE` in its environment, and the panel shows a copyable
+`claude mcp add ...` line wired to those variables. Start an agent inside the
+panel, paste, and it is registered against the running editor it lives in. The
+terminal itself is not an MCP verb (a headless agent spawning UI shells is out of
+scope). See `Docs/terminal.md`.
+
 ## Security posture
 
 The MCP endpoint grants a remote client **full editor control** — scene

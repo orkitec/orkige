@@ -1284,6 +1284,19 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_SOURCECONTROL_TEST=${CMAKE_CURRENT_BINARY_DIR};ORKIGE_DEMO_FRAMES=90"
         LABELS integration TIMEOUT 120)
 
+    # embedded terminal end to end: spawn a REAL pty running a scripted echo,
+    # assert the VT grid seam (printed text + SGR colour reach the cell grid),
+    # type a known word through the pure key encoder and assert the child echoed
+    # it back, then close and assert the child died. Window-independent - it runs
+    # and exits before the render boot, so it needs no display. Skips (exit 77)
+    # when no pty/shell is available. Both flavors (the seam is flavor-neutral).
+    # The Windows CI job (windows-next) runs it against cmd.exe via ConPTY.
+    add_test(NAME editor_terminal${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_editor WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_terminal${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_TERMINAL_TEST=1"
+        LABELS integration TIMEOUT 120 SKIP_RETURN_CODE 77)
+
     # prefab EDIT MODE end to end: on a temp copy of the roller project, author
     # a tile instance with a per-instance override, then drive the isolation
     # stage through the same free functions the UI calls - open (the one world

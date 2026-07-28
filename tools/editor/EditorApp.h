@@ -355,6 +355,10 @@ struct ViewSettings
 	//! it opens from the View menu and docks as a tab in the bottom group beside
 	//! Console. Honest empty state outside a repo / with git absent.
 	bool showSourceControlPanel = false;
+	//! Terminal panel (an embedded pseudo-terminal running the user's login
+	//! shell). Closed by default; it opens from the View menu and docks as a tab
+	//! in the bottom group beside Console. Inactive during automated runs.
+	bool showTerminalPanel = false;
 	//! Game Preview language axis: the language tag the .oui overlay resolves
 	//! `@key` captions in ("" = the project's source language). Persisted (key
 	//! `gui_preview_language`, kept for a clean migration) so the tab reopens on
@@ -976,6 +980,11 @@ struct EditorState
 	//! a code-editor document window held keyboard focus while drawing (gates
 	//! the Cmd/Ctrl+S save routing, mirrors scenePanelFocused / hierarchyFocused)
 	bool scriptPanelFocused = false;
+	//! the embedded Terminal panel held keyboard focus while drawing: ALL keys
+	//! (including Cmd/Ctrl chords the terminal owns) route to the pty, so the
+	//! editor's global shortcuts stand down for the frame (mirrors how a focused
+	//! code editor swallows them via io.WantTextInput)
+	bool terminalFocused = false;
 	// (the ModelComponent mesh / ScriptComponent script / SpriteComponent
 	// texture field buffers are gone: the auto Inspector's generic property
 	// widgets keep their own per-field state)

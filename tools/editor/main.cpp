@@ -107,6 +107,7 @@
 #include "GamePreviewStage.h"
 #include "EditorUiEditorPanel.h"
 #include "EditorSourceControlPanel.h"
+#include "EditorTerminalPanel.h"
 #include "MeshPreviewStage.h"
 
 #include <algorithm>
@@ -254,6 +255,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_OVERLAY_SELFCHECK") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_UIEDIT_SELFCHECK") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_SOURCECONTROL_TEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_TERMINAL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr;
 
 	int exitCode = 0;
@@ -322,6 +324,14 @@ int main(int argc, char** argv)
 		SDL_Log("orkige_editor: migrate-test %s",
 			migrateExit == 0 ? "PASSED" : "FAILED");
 		return migrateExit;
+	}
+	// terminal selfcheck (ORKIGE_EDITOR_TERMINAL_TEST): drives the pty seam +
+	// the VT screen wrapper + the key encoder against a REAL shell. It needs no
+	// window, so it runs and exits before the render boot (skips 77 without a
+	// usable pty/shell).
+	if (std::getenv("ORKIGE_EDITOR_TERMINAL_TEST") != nullptr)
+	{
+		return OrkigeEditor::runTerminalSelfCheck();
 	}
 	// the shared boot spine (engine_runtime/AppHost.h). The editor is the
 	// bespoke host: a resizable window, no window-camera rig (the scene
@@ -984,6 +994,11 @@ int main(int argc, char** argv)
 		// one per frame, without disturbing the Inspector's stage
 		OrkigeEditor::MeshPreviewStage thumbnailBaker(1);
 		Orkige::EditorControlServer controlServer;
+		// the live MCP endpoint URL + token file, published to the embedded
+		// terminal so a shell spawned there carries the connection material and
+		// shows the connect-command hint (empty while the endpoint is off)
+		std::string mcpTerminalUrl;
+		std::string mcpTerminalTokenFile;
 		Orkige::EditorControlContext controlContext;
 		controlContext.state = &state;
 		controlContext.core = &editorCore;
@@ -1049,6 +1064,11 @@ int main(int argc, char** argv)
 			}
 			else
 			{
+				// publish the endpoint to the embedded terminal (loopback URL;
+				// the token stays a file path, never inlined)
+				mcpTerminalUrl = "http://127.0.0.1:" +
+					std::to_string(controlServer.getPort()) + "/mcp";
+				mcpTerminalTokenFile = controlTokenFile;
 				oDebugMsg("editor.mcp", 0, "MCP endpoint listening at "
 					"http://127.0.0.1:" << controlServer.getPort() << "/mcp" <<
 					(controlTokenFile.empty() ? " (no token file - auth off)"
@@ -2599,6 +2619,19 @@ int main(int argc, char** argv)
 			{
 				drawSourceControlPanel(state, viewSettings, editorCore,
 					&viewSettings.showSourceControlPanel);
+			}
+			// the embedded Terminal panel (a real pty running the user's shell;
+			// carries the live MCP endpoint so an agent started inside can drive
+			// this editor). Reset its focus flag when the tab is closed so the
+			// global shortcuts are not left standing down.
+			if (viewSettings.showTerminalPanel)
+			{
+				drawTerminalPanel(state, viewSettings, mcpTerminalUrl,
+					mcpTerminalTokenFile, &viewSettings.showTerminalPanel);
+			}
+			else
+			{
+				state.terminalFocused = false;
 			}
 			bool panelVisibilityChanged = false;
 #define ORKIGE_CHECK_PANEL_VISIBILITY(id, label, visible, member) \
@@ -13091,6 +13124,10 @@ int main(int argc, char** argv)
 		// committed, so roll its uncommitted edits back (and log one line)
 		// before the world is torn down - the document-lifecycle safety net
 		controlServer.abortOpenTransaction(controlContext, "editor shutdown");
+
+		// terminate any live embedded-terminal child so a running shell never
+		// outlives the editor
+		OrkigeEditor::terminalPanelShutdown();
 
 		// editor shutdown while a play session is live: ask the player to
 		// quit, give it a short moment, then endPlaySession reaps/kills it
