@@ -448,6 +448,19 @@ bool PlayerContext::reloadSceneFrom(std::string const & newScenePath)
 	Orkige::PlayerDebugLink& debugLink = *this->debugLink;
 	bool& physicsNeeded = this->physicsNeeded;
 
+	// crash-survivable trail: mark the scene-UNLOAD boundary BEFORE the old
+	// world is torn down. The outgoing scene's teardown (below) destroys the
+	// render items - including a mirrorlake water surface, which drops the
+	// planar-reflection subsystem (@see destroyPlanarReflections) - so a hard
+	// crash during that teardown leaves this crumb, not the previous scene's
+	// "scene <path>" load crumb, as the last ordinary trail entry. Bounds the
+	// unload phase; the "scene <new>" crumb (recorded after the new scene is
+	// live) closes it.
+	if (Orkige::Breadcrumbs::getSingletonPtr())
+	{
+		Orkige::Breadcrumbs::getSingleton().record("scene_unload", newScenePath);
+	}
+
 	// the level system's mid-play switch: objects marked persistent survive
 	// the teardown with their whole live state (render node, physics body,
 	// script sandbox) and the arriving scene loads in beside them; a duplicate

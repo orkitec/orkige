@@ -413,6 +413,17 @@ namespace Orkige
 		//! render (the mirrorlake arrival) vs. the subsystem allocation before it.
 		bool gPlanarFirstUpdateLogged = false;
 
+		//! @brief false until the SECOND real (non-skipped) mirror update runs
+		//! on the current subsystem instance - the one-shot "steady state
+		//! entered" marker. Reset alongside gPlanarFirstUpdateLogged. A recurrence
+		//! whose last crumb is "second mirror render done" died AFTER two full
+		//! mirror frames completed (deep steady-state render, a live-subsystem
+		//! window-workspace rebuild, or teardown), NOT on the fragile first or
+		//! second nested render; its ABSENCE with a completed first render pins
+		//! death on the second nested render. Exactly one crumb per stand-up -
+		//! never per-frame spam.
+		bool gPlanarSecondUpdateLogged = false;
+
 		//--- geometric water swell (vertex-stage displacement) ------------
 		//! the world-space swell frequency + phase rate BOTH flavors' water
 		//! vertex stages share (the classic program pushes the same numbers
@@ -1471,6 +1482,7 @@ namespace Orkige
 		// (before) and the "subsystem up" crumb (after) bracket that allocation so a
 		// hard crash names whether death fell inside it. @see gPlanarFirstUpdateLogged
 		gPlanarFirstUpdateLogged = false;
+		gPlanarSecondUpdateLogged = false;
 		if(Breadcrumbs::getSingletonPtr())
 		{
 			Breadcrumbs::getSingleton().record("planar",
@@ -1675,6 +1687,21 @@ namespace Orkige
 					"first mirror render done");
 			}
 		}
+		// crash-survivable trail: the SECOND completed mirror render bounds
+		// steady-state entry. If a recurrence's last crumb is "second mirror
+		// render done", death fell AFTER two full mirror frames (deep steady
+		// state, a live-subsystem window rebuild, or the mirrorlake-exit
+		// teardown) - not on the first/second nested render itself. One crumb
+		// per stand-up (@see gPlanarSecondUpdateLogged), never per-frame spam.
+		else if(!gPlanarSecondUpdateLogged)
+		{
+			gPlanarSecondUpdateLogged = true;
+			if(Breadcrumbs::getSingletonPtr())
+			{
+				Breadcrumbs::getSingleton().record("planar",
+					"second mirror render done (steady state entered)");
+			}
+		}
 		// diagnostics: ORKIGE_DUMP_MIRROR=<path.png> writes the mirror RTT
 		// once, so a wrong-looking reflection can be inspected directly
 		static bool sMirrorDumped = false;
@@ -1706,6 +1733,19 @@ namespace Orkige
 		{
 			return;
 		}
+		// crash-survivable trail: teardown runs at a scene-switch frame boundary
+		// (the mirrorlake exit destroys the water while the subsystem lives on)
+		// and deletes GPU state - the reflection cameras, RTTs and internal
+		// workspaces - that the immediately preceding frame's mirror render used.
+		// This ENTRY crumb (paired with the EXIT crumb below) brackets the whole
+		// teardown so a hard crash here names it as the faulting phase rather
+		// than the last steady-state mirror render before it. Fired only on a
+		// real teardown (an active subsystem), never per frame.
+		if(Breadcrumbs::getSingletonPtr())
+		{
+			Breadcrumbs::getSingleton().record("planar",
+				"reflection subsystem teardown begin");
+		}
 		// restore every tracked water renderable BEFORE the subsystem dies (they
 		// outlive a mid-session teardown; resets each renderable's Hlms hash +
 		// tracking parameter so a later reflective surface can re-register)
@@ -1733,8 +1773,10 @@ namespace Orkige
 		gPlanarReflections = NULL;
 		gPlanarReflectionActor = NULL;
 		// a later reflective water re-stands the subsystem: let that stand-up drop
-		// its own first-mirror-render crumb pair again (@see gPlanarFirstUpdateLogged)
+		// its own mirror-render crumbs again (@see gPlanarFirstUpdateLogged /
+		// gPlanarSecondUpdateLogged)
 		gPlanarFirstUpdateLogged = false;
+		gPlanarSecondUpdateLogged = false;
 		gPlanarReflectionPlaneY = 0.0f;
 		gPlanarReflectionHalfX = 0.0f;
 		gPlanarReflectionHalfZ = 0.0f;
@@ -1743,6 +1785,15 @@ namespace Orkige
 		// the workspace DEFINITION (node + workspace def) is owned by the
 		// compositor manager and reusable - keep the name so a re-activation
 		// reuses it rather than leaking a fresh unique definition each time
+		// crash-survivable trail: teardown completed - the EXIT crumb paired with
+		// the ENTRY crumb above, so a death INSIDE delete gPlanarReflections
+		// leaves "teardown begin" as the last crumb, and a death downstream of a
+		// clean teardown shows this "teardown done" instead.
+		if(Breadcrumbs::getSingletonPtr())
+		{
+			Breadcrumbs::getSingleton().record("planar",
+				"reflection subsystem teardown done");
+		}
 	}
 	//---------------------------------------------------------
 	void RenderBackend::setSceneDefaultVisibility()
@@ -3281,6 +3332,20 @@ namespace Orkige
 		// in the steady state - a rebuild is a scene-switch/config event, never
 		// a per-frame one. @see PlanarReflectionGuard
 		gPlanarReflectionGuard.noteWorkspaceRebuilt();
+		// crash-survivable trail: a window-workspace rebuild WHILE the planar
+		// reflection subsystem is live is the mirrorlake-interplay shape - the
+		// window compositor that consumes the mirror texture is torn down and
+		// rebuilt (a refractive/grade/bloom pass-structure flip, or a resize)
+		// with the reflection RTT, cameras and internal workspaces still alive
+		// and freshly rendered the prior frame. This crumb fires only on that
+		// coincidence (an active subsystem), so a death here names the rebuild
+		// interplay rather than a plain steady-state render. Never per-frame -
+		// a rebuild is a scene-switch/config event.
+		if(gPlanarReflections && Breadcrumbs::getSingletonPtr())
+		{
+			Breadcrumbs::getSingleton().record("planar",
+				"window workspace rebuilt while reflection subsystem live");
+		}
 		if(backendCamera && impl->window->getHeight() > 0)
 		{
 			backendCamera->setAspectRatio(
