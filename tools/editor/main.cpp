@@ -7712,6 +7712,57 @@ int main(int argc, char** argv)
 						uiFail("selection did not sync across tree/canvas surfaces");
 					}
 				}
+				// --- deselect gestures (the tree row seam + the panel-background
+				// click): a plain click on the SELECTED row toggles it off; a
+				// plain click on a DIFFERENT row switches (the regression guard);
+				// the panel-background click clears the whole selection - all
+				// through the ONE session seam, and NONE may push an undo step. ---
+				if (ok)
+				{
+					const bool undoBefore = session.doc.canUndo();
+					OrkigeEditor::uiEditSelect(session, std::string());	// clean start
+					OrkigeEditor::uiEditTreeSelect(session, "ok", false);
+					if (session.selected != "ok" ||
+						session.selection.size() != 1)
+					{
+						uiFail("tree click did not single-select 'ok'");
+					}
+					// a plain re-click of the selected row deselects it
+					if (ok)
+					{
+						OrkigeEditor::uiEditTreeSelect(session, "ok", false);
+						if (!session.selection.empty())
+						{
+							uiFail("re-clicking the selected row did not deselect");
+						}
+					}
+					// a plain click on a DIFFERENT row switches the selection
+					if (ok)
+					{
+						OrkigeEditor::uiEditTreeSelect(session, "ok", false);
+						OrkigeEditor::uiEditTreeSelect(session, "title", false);
+						if (session.selected != "title" ||
+							session.selection.size() != 1)
+						{
+							uiFail("plain click on a different row did not switch");
+						}
+					}
+					// the panel-background click seam clears the selection
+					if (ok)
+					{
+						OrkigeEditor::uiEditSelect(session, std::string());
+						if (!session.selection.empty())
+						{
+							uiFail("panel-background click did not clear selection");
+						}
+					}
+					// deselection is not an undo step (canvas outlines + panel
+					// stay coherent, but the history is untouched)
+					if (ok && session.doc.canUndo() != undoBefore)
+					{
+						uiFail("a deselect gesture wrongly touched the undo stack");
+					}
+				}
 				// --- clip/mapping: a full-width (stretch) widget's outline maps to
 				// EXACTLY the device-preset canvas (never wider - bug (b)), while
 				// the grip pad reaches past it (proving the panel MUST clip - bug

@@ -132,6 +132,14 @@ namespace OrkigeEditor
 	void uiEditSelectToggle(UiEditSession& s, std::string const& widgetId);
 	//! replace the whole selection with @p ids (first becomes the key)
 	void uiEditSetSelection(UiEditSession& s, std::vector<std::string> const& ids);
+	//! @brief the widget-TREE row click seam (the panel row + the headless hook):
+	//! a plain click single-selects @p widgetId, a plain click on the ALREADY
+	//! selected row deselects it (toggle-off), and an @p additive click (Shift/
+	//! Ctrl/Cmd) toggles it in the ordered set. Deselection is not an undo step.
+	//! Routes the decision through the pure uiTreeClickAction, mutating the ONE
+	//! selection seam so the canvas + panel stay coherent.
+	void uiEditTreeSelect(UiEditSession& s, std::string const& widgetId,
+		bool additive);
 	//! select every widget whose rect intersects the marquee (surface px)
 	void uiEditMarqueeSelect(UiEditSession& s, GamePreviewStage& stage,
 		float x0, float y0, float x1, float y1);

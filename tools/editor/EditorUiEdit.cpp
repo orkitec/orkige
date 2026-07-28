@@ -147,6 +147,14 @@ namespace OrkigeEditor
 		return best < 0 ? String() : rects[static_cast<size_t>(best)].id;
 	}
 	//---------------------------------------------------------
+	UiTreeClickAction uiTreeClickAction(bool alreadySelected, bool additive)
+	{
+		// a modifier extends/removes from the ordered set; a plain re-click of an
+		// already-selected row toggles it OFF; every other plain click replaces.
+		return (additive || alreadySelected) ? UiTreeClickAction::Toggle
+			: UiTreeClickAction::Replace;
+	}
+	//---------------------------------------------------------
 	UiHandle handleAt(UiRect const& r, float px, float py, float grab)
 	{
 		const float left = r.left;

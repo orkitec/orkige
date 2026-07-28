@@ -353,6 +353,17 @@ namespace OrkigeEditor
 		syncKey(s);
 	}
 	//---------------------------------------------------------
+	void uiEditTreeSelect(UiEditSession& s, String const& widgetId, bool additive)
+	{
+		const bool already = std::find(s.selection.begin(), s.selection.end(),
+			widgetId) != s.selection.end();
+		switch(uiTreeClickAction(already, additive))
+		{
+		case UiTreeClickAction::Toggle:  uiEditSelectToggle(s, widgetId); break;
+		case UiTreeClickAction::Replace: uiEditSelect(s, widgetId); break;
+		}
+	}
+	//---------------------------------------------------------
 	void uiEditSetSelection(UiEditSession& s, std::vector<std::string> const& ids)
 	{
 		s.selection.clear();
@@ -1838,15 +1849,13 @@ namespace OrkigeEditor
 				sec.id) != s.selection.end();
 			if(ImGui::Selectable(label.c_str(), isSel))
 			{
+				// plain click single-selects; a plain re-click of the selected row
+				// deselects it; Shift/Ctrl/Cmd toggles it in the set (@see
+				// uiTreeClickAction). The picker-covered release of a double-click
+				// (rename) never reaches here, so the reselect below stays intact.
 				const ImGuiIO& io = ImGui::GetIO();
-				if(io.KeyShift || io.KeyCtrl || io.KeySuper)
-				{
-					uiEditSelectToggle(s, sec.id);
-				}
-				else
-				{
-					uiEditSelect(s, sec.id);
-				}
+				uiEditTreeSelect(s, sec.id,
+					io.KeyShift || io.KeyCtrl || io.KeySuper);
 			}
 			if(ImGui::IsItemHovered() &&
 				ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
@@ -2079,6 +2088,19 @@ namespace OrkigeEditor
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::EndPopup();
+		}
+
+		// clicking the panel's empty background (no tree row / control) clears the
+		// selection - the standard deselect gesture, matching the canvas's
+		// empty-click. IsAnyItemHovered() shields every real item (tree rows,
+		// property widgets, the action buttons); an open picker/rename popup takes
+		// the window off-hover, so it never fires mid-popup. Deselection routes
+		// through the ONE selection seam and pushes no undo step.
+		if(!s.selection.empty() && ImGui::IsWindowHovered() &&
+			!ImGui::IsAnyItemHovered() &&
+			ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		{
+			uiEditSelect(s, String());	// clears selection + key
 		}
 		}	// drawUiEditToolsBody
 	}

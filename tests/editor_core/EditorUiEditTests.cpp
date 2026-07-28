@@ -132,6 +132,20 @@ TEST_CASE("ui-edit: handle picking on a rect smaller than the grab tolerance "
 	CHECK(handleAt(dot, 50, 50, grab) == UiHandle::TopLeft);
 }
 
+TEST_CASE("ui-edit: tree-row click decision - plain re-click deselects, modifier "
+	"always toggles", "[unit][uiedit]")
+{
+	// a plain click on an UNselected row single-selects (replaces the set)
+	CHECK(uiTreeClickAction(/*already*/ false, /*additive*/ false) ==
+		UiTreeClickAction::Replace);
+	// a plain click on the ALREADY selected row toggles it OFF (the deselect ask)
+	CHECK(uiTreeClickAction(true, false) == UiTreeClickAction::Toggle);
+	// a modifier (Shift/Ctrl/Cmd) click ALWAYS toggles in the set, either way -
+	// the multi-select semantics stay as-is
+	CHECK(uiTreeClickAction(false, true) == UiTreeClickAction::Toggle);
+	CHECK(uiTreeClickAction(true, true) == UiTreeClickAction::Toggle);
+}
+
 TEST_CASE("ui-edit: geometry mode detection", "[unit][uiedit]")
 {
 	GuiLayoutSection layout;

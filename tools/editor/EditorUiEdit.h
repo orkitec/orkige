@@ -68,6 +68,19 @@ namespace OrkigeEditor
 	Orkige::String hitTestWidget(std::vector<UiRect> const& rects,
 		float px, float py);
 
+	//! @brief the outcome of a widget-TREE row click (the panel row / the hook).
+	//! @c Replace swaps the whole selection for the clicked row (a plain click on
+	//! an unselected row - the single-select default); @c Toggle flips the row's
+	//! membership in the ordered set. Pure decision, shared by the panel and the
+	//! headless tests. @see uiTreeClickAction
+	enum class UiTreeClickAction { Replace, Toggle };
+
+	//! @brief decide a tree-row click: a modifier click (@p additive: Shift/Ctrl/
+	//! Cmd) ALWAYS toggles the row in the set; a plain click on an ALREADY selected
+	//! row toggles it too (so a re-click deselects it - the toggle-off gesture);
+	//! any other plain click replaces the selection with the row. Pure.
+	UiTreeClickAction uiTreeClickAction(bool alreadySelected, bool additive);
+
 	//! @brief the grab a pointer is over: the body (a move) or one of the eight
 	//! resize handles. Corners beat edges; the interior is a Move; outside the
 	//! rect grown by @p grab is None.
