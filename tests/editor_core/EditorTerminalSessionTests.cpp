@@ -363,12 +363,40 @@ TEST_CASE("terminal sticky classification: an agent exit reverts to a shell",
 	"[unit][editor][terminal]")
 {
 	// claude was classified; it exits and the foreground reverts to the login
-	// shell -> the non-agent process name declassifies the session
+	// shell -> the KNOWN SHELL name declassifies the session
 	CHECK(terminalUpdateStickyAgent(TerminalAgent::Claude, "fish", "fish") ==
 		TerminalAgent::None);
 	// a full-path shell foreground also declassifies (cleaned to the app word)
 	CHECK(terminalUpdateStickyAgent(TerminalAgent::Codex, "/bin/zsh", "") ==
 		TerminalAgent::None);
+}
+
+TEST_CASE("terminal sticky classification: an interpreter foreground HOLDS - "
+	"only a shell declassifies", "[unit][editor][terminal]")
+{
+	// the live claude shape: the launcher classifies as "claude", then execs to
+	// its runtime - the foreground becomes "node". An unknown non-shell name is
+	// the agent's own runtime, NOT the shell coming back: the classification
+	// holds through the whole session (the owner's tab flipped to the ticker
+	// exactly because "node" used to read as an exit)
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::Claude, "node",
+		"\xe2\x9c\xb3 Check open file") == TerminalAgent::Claude);
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::Claude, "node", "") ==
+		TerminalAgent::Claude);
+	// other interpreters hold too
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::Aider, "python3.12", "") ==
+		TerminalAgent::Aider);
+	// an interpreter foreground on an UNCLASSIFIED session does not classify by
+	// itself (only an agent process/title does)
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::None, "node", "") ==
+		TerminalAgent::None);
+	// the shell-name detector itself
+	CHECK(terminalIsShellName("zsh"));
+	CHECK(terminalIsShellName("Fish"));
+	CHECK(terminalIsShellName("pwsh"));
+	CHECK(!terminalIsShellName("node"));
+	CHECK(!terminalIsShellName("python3.12"));
+	CHECK(!terminalIsShellName(""));
 }
 
 TEST_CASE("terminal sticky tab label: classified shows badge + canonical name",

@@ -288,21 +288,39 @@ namespace OrkigeEditor
 		{
 			return procAgent;
 		}
-		// a non-empty, non-agent foreground process means the shell is back in
-		// front (the agent exited) - declassify.
-		if (!proc.empty())
+		// ONLY a known SHELL returning to the foreground means the agent
+		// exited - declassify then. Any other name must HOLD a classification:
+		// the agent CLIs are interpreter programs (claude's launcher execs to a
+		// "node" foreground process moments after classifying), so an unknown
+		// process name is the agent's own runtime, not the shell coming back.
+		if (!proc.empty() && terminalIsShellName(proc))
 		{
 			return TerminalAgent::None;
 		}
-		// no usable process signal (empty - before the first poll, or a platform
-		// without one): a classified session STAYS put (a status-ticker title
-		// must not declassify it); an unclassified one may classify from the
-		// title alone (the announce-in-title / no-process-signal path).
+		// no DECLASSIFYING signal (empty pre-poll, a platform without one, or
+		// an interpreter name): a classified session stays put (a status-ticker
+		// title must not declassify it); an unclassified one may classify from
+		// the title alone (the announce-in-title / no-process-signal path).
 		if (current != TerminalAgent::None && current != TerminalAgent::Count)
 		{
 			return current;
 		}
 		return terminalAgentInTitle(vtTitle);
+	}
+	//---------------------------------------------------------
+	bool terminalIsShellName(std::string const& name)
+	{
+		// the login/interactive shells a session can revert to; lower-cased
+		// exact match on the cleaned process name
+		std::string lower = name;
+		for (char& c : lower)
+		{
+			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		}
+		return lower == "zsh" || lower == "bash" || lower == "fish" ||
+			lower == "sh" || lower == "dash" || lower == "ksh" ||
+			lower == "tcsh" || lower == "csh" || lower == "nu" ||
+			lower == "pwsh" || lower == "powershell" || lower == "cmd";
 	}
 
 	bool terminalIsRenderableSymbol(std::uint32_t cp)

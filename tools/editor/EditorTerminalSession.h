@@ -82,16 +82,23 @@ namespace OrkigeEditor
 	//!   - a foreground process that IS a known agent (re)classifies to it - the
 	//!     authoritative signal;
 	//!   - a foreground process that is a plain shell / other program (a non-empty
-	//!     name that is not an agent) means the agent EXITED - declassify to None;
+	//!     name that is a KNOWN SHELL - @see terminalIsShellName) means the agent
+	//!     EXITED - declassify to None. An unknown non-shell name (node, python -
+	//!     the agent CLIs are interpreter programs whose launchers exec to their
+	//!     runtime moments after classifying) HOLDS the classification;
 	//!   - with NO usable process signal (empty name - before the first poll, or a
 	//!     platform without one) a session already classified STAYS put (a
 	//!     status-ticker title must never declassify it), and an unclassified one
 	//!     may classify from the title alone.
-	//! So a shell -> `claude` -> status-ticker titles -> `claude` exits sequence
-	//! classifies to Claude and holds there until the foreground reverts to the
-	//! shell. Pure.
+	//! So a shell -> `claude` -> foreground becomes node -> status-ticker titles
+	//! -> `claude` exits sequence classifies to Claude and holds there until the
+	//! foreground reverts to the shell. Pure.
 	TerminalAgent terminalUpdateStickyAgent(TerminalAgent current,
 		std::string const& processName, std::string const& vtTitle);
+
+	//! @brief is the cleaned process name a known interactive/login SHELL (the
+	//! only foreground return that means "the agent exited")? Pure.
+	bool terminalIsShellName(std::string const& name);
 
 	//! @brief whether a Unicode codepoint is one the default UI text font is
 	//! expected to carry: false for C0/C1 control codes and the symbol / emoji /
