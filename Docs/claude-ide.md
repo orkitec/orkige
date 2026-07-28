@@ -94,8 +94,23 @@ handles:
 The editor pushes one notification to the client:
 
 * `selection_changed` — `{ text, filePath, fileUrl, selection: { start, end,
-  isEmpty } }` (line/character are 0-based) — sent whenever the focused
-  document's caret/selection moves.
+  isEmpty } }` (line/character are 0-based) — the active document's file and
+  caret/selection. It is pushed whenever the active document's caret/selection
+  moves, whenever a document is opened or the active document changes, AND once
+  to a client immediately after its `initialize` handshake completes (a client
+  that connects *after* a file was opened never sees it through the change
+  stream alone, so the current state is primed on connect; a reconnect
+  re-primes on its fresh `initialize`). An open document with no text selected
+  is the "active file, cursor only" shape: a real `filePath` with a collapsed
+  `start == end` range and `isEmpty: true` — an absent/empty `filePath` reads
+  as "no file", so an open document always carries its path.
+
+The **active editor** the surface reports (`getOpenEditors` active tab,
+`getCurrentSelection`, `selection_changed`) is the last-focused OR last-opened
+Script-panel document. It STICKS when focus leaves the Script panel — driving
+a `claude` session from the embedded terminal (or clicking into any other
+panel) does not collapse the open-file context to "no file"; only closing that
+document clears it.
 
 ### Tools
 
@@ -158,7 +173,13 @@ endpoint (`--mcp-port`) and the Play-in-Browser static server.
   server over a loopback socket: the WebSocket handshake with the lock token
   (plus a bad-token rejection), then `initialize`, `getWorkspaceFolders`,
   `getOpenEditors`, `getDiagnostics`, and an `openFile` that must land its
-  target in the Script panel.
+  target in the Script panel. It asserts the selection context reaches the
+  client BOTH orderings, with no user action: a file the editor opened *before*
+  the client connected arrives as the initial-state `selection_changed` push
+  and surfaces via `getCurrentSelection` (open-then-connect), and a file opened
+  *while* connected arrives as a live `selection_changed` and flips
+  `getOpenEditors`' active tab (connect-then-open) — both in the cursor-only
+  active-file shape.
 * `editor_ide_claude` (integration, `device`-labeled — full-suite only) — the
   **drift alarm**: it launches the real `claude` CLI pointed at the editor's own
   lock/port and asserts it connects to the endpoint. It skips (exit 77) when

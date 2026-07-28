@@ -306,6 +306,16 @@ namespace Orkige
 				{
 					connection->sendMessage(reply.serialize());
 				}
+				// once a client completes the MCP initialize handshake, push the
+				// current active-file selection so a session that connected AFTER
+				// the owner opened a file has that context with no user action (the
+				// change stream below only carries LATER moves); reconnects, which
+				// initialize afresh on a new connection, re-prime the same way.
+				if (request.get("method").isString() &&
+					request.get("method").asString() == "initialize")
+				{
+					this->sendInitialState(*connection, context);
+				}
 			}
 		}
 		// drop closed clients
@@ -459,6 +469,23 @@ namespace Orkige
 		}
 		return OrkigeEditor::ideToolError("unknown tool '" +
 			std::string(name.c_str()) + "'");
+	}
+	//---------------------------------------------------------
+	void EditorIdeServer::sendInitialState(WebSocketConnection& connection,
+		IdeContext const& context)
+	{
+		if (context.shared == nullptr)
+		{
+			return;
+		}
+		const IdeSelection current = context.shared->selection;
+		if (!current.active)
+		{
+			return;	// no open document is the active editor - nothing to prime
+		}
+		const JsonValue notification = OrkigeEditor::ideNotification(
+			"selection_changed", OrkigeEditor::ideSelectionParams(current));
+		connection.sendMessage(notification.serialize());
 	}
 	//---------------------------------------------------------
 	void EditorIdeServer::pushSelectionChange(IdeContext const& context)
@@ -633,10 +660,11 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	void EditorIdeSelfTest::begin(unsigned short port, std::string const& token,
-		std::string const& openFileTarget)
+		std::string const& openFileTarget, std::string const& preOpenTarget)
 	{
 		mToken = token;
 		mOpenFileTarget = openFileTarget;
+		mPreOpenTarget = preOpenTarget;
 		mActive.store(true);
 		mThread = std::thread(&EditorIdeSelfTest::run, this, port);
 	}
@@ -715,6 +743,64 @@ namespace Orkige
 			}
 		}
 
+		// server-pushed selection_changed notifications (filePath), collected as
+		// they arrive interleaved with tool replies - the initial-state prime and
+		// the live delta on a document open both land here without any poll
+		std::vector<std::string> selectionFiles;
+		auto baseName = [](std::string const& path) -> std::string
+		{
+			const std::size_t slash = path.find_last_of("/\\");
+			return slash == std::string::npos ? path : path.substr(slash + 1);
+		};
+		// consume one decoded message: a server notification (no id, has method)
+		// is recorded and swallowed; anything else is a reply for the caller
+		auto consumeNotification = [&](JsonValue const& msg) -> bool
+		{
+			if (!msg.get("method").isString())
+			{
+				return false;	// a JSON-RPC reply (id + result/error)
+			}
+			if (msg.get("method").asString() == "selection_changed")
+			{
+				selectionFiles.push_back(std::string(
+					msg.get("params").get("filePath").asString().c_str()));
+			}
+			return true;	// a notification - keep reading for the real reply
+		};
+		auto sawSelection = [&](std::string const& wantBase) -> bool
+		{
+			for (std::string const& file : selectionFiles)
+			{
+				if (baseName(file) == wantBase)
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+		// block (bounded) until a selection_changed naming wantBase has arrived
+		auto awaitSelection = [&](std::string const& wantBase) -> bool
+		{
+			if (sawSelection(wantBase))
+			{
+				return true;
+			}
+			for (int attempt = 0; attempt < 3 && !sawSelection(wantBase); ++attempt)
+			{
+				String payload;
+				if (!recvFrame(handle, rxBuffer, payload))
+				{
+					break;	// no frame within the recv deadline
+				}
+				JsonValue msg;
+				if (JsonValue::parse(payload, msg))
+				{
+					consumeNotification(msg);
+				}
+			}
+			return sawSelection(wantBase);
+		};
+
 		unsigned int maskSeed = 0x1a2b3c4d;
 		auto call = [&](JsonValue const& request, JsonValue& outReply) -> bool
 		{
@@ -726,12 +812,25 @@ namespace Orkige
 			{
 				return false;
 			}
-			String replyPayload;
-			if (!recvFrame(handle, rxBuffer, replyPayload))
+			// a pushed notification may arrive before (or interleaved with) the
+			// reply to this request; record and skip it, keep reading for the reply
+			for (;;)
 			{
-				return false;
+				String replyPayload;
+				if (!recvFrame(handle, rxBuffer, replyPayload))
+				{
+					return false;
+				}
+				if (!JsonValue::parse(replyPayload, outReply))
+				{
+					return false;
+				}
+				if (consumeNotification(outReply))
+				{
+					continue;
+				}
+				return true;
 			}
-			return JsonValue::parse(replyPayload, outReply);
 		};
 		auto rpc = [](const char* method, JsonValue params, int id) -> JsonValue
 		{
@@ -761,6 +860,46 @@ namespace Orkige
 				!reply.get("result").get("serverInfo").isObject())
 			{
 				fail("initialize did not return serverInfo");
+			}
+		}
+		// INITIAL-STATE PUSH (open-then-connect): a document the editor opened
+		// BEFORE this client connected must reach us as a selection_changed right
+		// after initialize, with no poll and no user action - the connect-after-
+		// open context the delta stream alone never delivers.
+		if (ok && !mPreOpenTarget.empty())
+		{
+			if (!awaitSelection(baseName(mPreOpenTarget)))
+			{
+				fail("no initial selection_changed for the pre-opened file");
+			}
+		}
+		// ACTIVE FILE WITHOUT A SELECTION: getCurrentSelection must report the
+		// open document as the active file (a real filePath, cursor-only range
+		// serialising isEmpty=true) even though no text is selected and the Script
+		// panel never held live focus in this headless run.
+		if (ok && !mPreOpenTarget.empty())
+		{
+			JsonValue reply;
+			if (!call(toolCall("getCurrentSelection", JsonValue::object(), 6),
+				reply))
+			{
+				fail("getCurrentSelection returned nothing");
+			}
+			else
+			{
+				JsonValue body;
+				const JsonValue& content = reply.get("result").get("content");
+				if (content.size() == 0 ||
+					!JsonValue::parse(content.at(0).get("text").asString(), body) ||
+					!body.get("success").asBool() ||
+					baseName(std::string(
+						body.get("filePath").asString().c_str())) !=
+						baseName(mPreOpenTarget) ||
+					!body.get("selection").get("isEmpty").asBool())
+				{
+					fail("getCurrentSelection did not report the active file "
+						"(cursor-only) for the open document");
+				}
 			}
 		}
 		// getWorkspaceFolders: the reply's content text is a JSON body naming
@@ -803,21 +942,62 @@ namespace Orkige
 				mOpenedFile = mOpenFileTarget;
 			}
 		}
-		// getOpenEditors + getDiagnostics round-trip (shape only)
-		if (ok)
-		{
-			JsonValue reply;
-			if (!call(toolCall("getOpenEditors", JsonValue::object(), 4), reply))
-			{
-				fail("getOpenEditors returned nothing");
-			}
-		}
+		// getDiagnostics round-trip (shape only)
 		if (ok)
 		{
 			JsonValue reply;
 			if (!call(toolCall("getDiagnostics", JsonValue::object(), 5), reply))
 			{
 				fail("getDiagnostics returned nothing");
+			}
+		}
+		// LIVE DELTA PUSH (connect-then-open): the openFile above opened a document
+		// WHILE this client was connected; its selection_changed must reach us
+		// unsolicited - the owner's exact failing path (open a file mid-session).
+		// The push also confirms the panel has applied the (deferred) open, so the
+		// getOpenEditors active-tab check below is no longer racing that open.
+		if (ok && !mOpenFileTarget.empty())
+		{
+			if (!awaitSelection(baseName(mOpenFileTarget)))
+			{
+				fail("no selection_changed after opening a file while connected");
+			}
+		}
+		// getOpenEditors: the just-opened file must be listed AND flagged the
+		// active tab (the sticky active-editor the IDE surface reports even with
+		// the Script panel unfocused - the connect-then-open active-file context)
+		if (ok && !mOpenFileTarget.empty())
+		{
+			JsonValue reply;
+			if (!call(toolCall("getOpenEditors", JsonValue::object(), 4), reply))
+			{
+				fail("getOpenEditors returned nothing");
+			}
+			else
+			{
+				JsonValue body;
+				const JsonValue& content = reply.get("result").get("content");
+				bool activeMatch = false;
+				if (content.size() > 0 && JsonValue::parse(
+					content.at(0).get("text").asString(), body))
+				{
+					const JsonValue& tabs = body.get("tabs");
+					for (std::size_t i = 0; i < tabs.size(); ++i)
+					{
+						const JsonValue& tab = tabs.at(i);
+						if (tab.get("isActive").asBool() &&
+							baseName(std::string(tab.get("uri").asString().c_str()))
+								== baseName(mOpenFileTarget))
+						{
+							activeMatch = true;
+							break;
+						}
+					}
+				}
+				if (!activeMatch)
+				{
+					fail("getOpenEditors did not flag the opened file active");
+				}
 			}
 		}
 

@@ -95,6 +95,13 @@ namespace Orkige
 			OrkigeEditor::IdeContext const& context);
 		//! send selection_changed to every client when the caret moved
 		void pushSelectionChange(OrkigeEditor::IdeContext const& context);
+		//! @brief prime ONE just-initialized client with the current active-file
+		//! selection (a selection_changed push). A client that connected AFTER the
+		//! open file was focused never sees it via the change stream, so this is
+		//! sent right after its MCP initialize handshake; a reconnect re-primes.
+		//! No-op when no document is the active editor.
+		void sendInitialState(WebSocketConnection& connection,
+			OrkigeEditor::IdeContext const& context);
 
 		HttpServer mServer;
 		std::string mToken;			//!< the handshake auth token (lock's authToken)
@@ -126,11 +133,17 @@ namespace Orkige
 	{
 	public:
 		~EditorIdeSelfTest();
-		//! begin driving 127.0.0.1:port with the handshake token; openFileTarget
-		//! is the project-relative path the openFile leg asks the editor to open
-		//! (the main loop asserts it appeared in the Script panel).
+		//! @brief begin driving 127.0.0.1:port with the handshake token.
+		//! @p openFileTarget is the path the openFile leg asks the editor to open
+		//! while connected (the main loop asserts it appeared in the Script panel,
+		//! and the client asserts its live selection_changed push arrives).
+		//! @p preOpenTarget is a path the MAIN loop opened BEFORE the client
+		//! connected; the client asserts the initialize handshake is followed by an
+		//! initial selection_changed naming it AND that getCurrentSelection reports
+		//! it as the active file with no user action ("" disables that leg).
 		void begin(unsigned short port, std::string const& token,
-			std::string const& openFileTarget);
+			std::string const& openFileTarget,
+			std::string const& preOpenTarget);
 		void update();
 		bool active() const { return mActive.load(); }
 		bool done() const { return mDone.load(); }
@@ -144,6 +157,7 @@ namespace Orkige
 		std::thread mThread;
 		std::string mToken;
 		std::string mOpenFileTarget;
+		std::string mPreOpenTarget;	//!< opened before connect (initial-push leg)
 		std::mutex mOpenedMutex;
 		std::string mOpenedFile;		//!< guarded by mOpenedMutex
 		std::atomic<bool> mActive{ false };

@@ -1263,6 +1263,11 @@ int main(int argc, char** argv)
 		Orkige::EditorIdeSelfTest ideSelfTest;
 		int ideSelfTestDoneFrame = -1;	//!< frame the IDE selfcheck client finished
 		const char* ideSelfTestEnv = std::getenv("ORKIGE_EDITOR_IDE_TEST");
+		// a file the selfcheck opens BEFORE the fake client connects, so the
+		// initial-state push (open-then-connect context) has something to deliver
+		const char* ideSelfTestPreOpenEnv =
+			std::getenv("ORKIGE_EDITOR_IDE_TEST_PREOPEN");
+		bool ideSelfTestPreOpened = false;	//!< the pre-open request was issued
 		// the REAL-`claude`-binary drift alarm (editor_ide_claude ctest): spawn
 		// the actual CLI pointed at our lock/port and assert it dials the IDE
 		// endpoint. Skips (77) when claude is not on PATH.
@@ -14088,11 +14093,23 @@ int main(int argc, char** argv)
 			// the published bridge a few frames after the client finished.
 			if (ideSelfTestEnv != nullptr && ideServer.isListening())
 			{
-				if (frameCount == 3 && !ideSelfTest.active() &&
+				// open the pre-open target a few frames BEFORE the client connects
+				// so the panel has published it as the active editor by the time
+				// the client initializes (the open-then-connect initial push)
+				if (frameCount == 2 && ideSelfTestPreOpenEnv != nullptr &&
+					!ideSelfTestPreOpened)
+				{
+					state.ide.openFileRequest = ideSelfTestPreOpenEnv;
+					state.ide.openFileLine = 0;
+					ideSelfTestPreOpened = true;
+				}
+				if (frameCount == 6 && !ideSelfTest.active() &&
 					!ideSelfTest.done())
 				{
 					ideSelfTest.begin(ideServer.getPort(), ideServer.getToken(),
-						ideSelfTestEnv);
+						ideSelfTestEnv,
+						ideSelfTestPreOpenEnv != nullptr ? ideSelfTestPreOpenEnv
+							: std::string());
 				}
 				if (ideSelfTest.active())
 				{

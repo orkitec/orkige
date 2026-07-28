@@ -1322,12 +1322,17 @@ if(TARGET orkige_editor)
     # through the real server - the WebSocket handshake with the lock token
     # (plus a bad-token rejection), then initialize, getWorkspaceFolders,
     # getOpenEditors, getDiagnostics and an openFile that must land the target
-    # in the Script panel (cross-checked against the published bridge). Window-
-    # independent, condition-driven. Both flavors (the seam is flavor-neutral).
+    # in the Script panel (cross-checked against the published bridge). It also
+    # asserts the SELECTION CONTEXT reaches claude both ways: a file the editor
+    # opened before the client connected surfaces via the initial-state push +
+    # getCurrentSelection (open-then-connect), and a file opened while connected
+    # arrives as a live selection_changed (connect-then-open) - both with the
+    # cursor-only/active-file shape, no user action. Window-independent,
+    # condition-driven. Both flavors (the seam is flavor-neutral).
     add_test(NAME editor_ide${ORKIGE_FLAVOR_TEST_SUFFIX}
         COMMAND orkige_editor WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_ide${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_IDE_TEST=${Orkige_SOURCE_DIR}/projects/jumper-lua/scripts/player.lua"
+        ENVIRONMENT "ORKIGE_EDITOR_IDE_TEST=${Orkige_SOURCE_DIR}/projects/jumper-lua/scripts/player.lua;ORKIGE_EDITOR_IDE_TEST_PREOPEN=${Orkige_SOURCE_DIR}/projects/jumper-lua/scripts/game.lua"
         LABELS integration TIMEOUT 120 SKIP_RETURN_CODE 77)
 
     # project-scope MCP discovery file end to end: the editor's default-on MCP

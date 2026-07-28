@@ -140,6 +140,14 @@ namespace
 		std::vector<std::unique_ptr<ScriptDocument>> docs;
 		//! the document window that held focus last frame (the save target)
 		ScriptDocument* focused = nullptr;
+		//! the document the Claude-IDE surface reports as the ACTIVE editor
+		//! (getOpenEditors active tab + getCurrentSelection + selection_changed).
+		//! Distinct from `focused`: it STICKS across the Script panel losing live
+		//! ImGui focus, so a claude session driven from the embedded terminal keeps
+		//! its open-file context instead of collapsing to "no file" the instant the
+		//! owner clicks away from the code window. A focused document or an
+		//! openDocument updates it; only CLOSING it clears it.
+		ScriptDocument* activeDoc = nullptr;
 		//! completion symbols cache + the project root/registry size they were
 		//! built for (rebuilt when either moves)
 		Orkige::ScriptCompletionSymbols symbols;
@@ -726,6 +734,10 @@ namespace
 				{
 					doc->pendingScrollLine = line;
 				}
+				// opening a file makes it the IDE's active editor immediately,
+				// independent of live ImGui window focus (so a claude session in
+				// the terminal sees it even when the code window never gets focus)
+				ui.activeDoc = doc.get();
 				return doc.get();
 			}
 		}
@@ -783,6 +795,9 @@ namespace
 			doc->editor->SetAutoCompleteConfig(&completeConfig);
 		}
 		ui.docs.push_back(std::move(doc));
+		// a freshly opened document is the IDE's active editor (see the reuse
+		// branch above) regardless of whether its window ever wins ImGui focus
+		ui.activeDoc = ui.docs.back().get();
 		return ui.docs.back().get();
 	}
 
@@ -2123,6 +2138,26 @@ namespace
 		OrkigeEditor::IdeSharedState& bridge = state.ide;
 		bridge.openEditors.clear();
 		bridge.diagnostics.clear();
+		// the IDE's active editor is the STICKY activeDoc (survives focus moving
+		// off the Script panel), falling back to the live-focused window; validate
+		// it still points at an open document (defensive - it is cleared on close)
+		ScriptDocument* active = ui.activeDoc != nullptr ? ui.activeDoc : ui.focused;
+		if (active != nullptr)
+		{
+			bool stillOpen = false;
+			for (auto& doc : ui.docs)
+			{
+				if (doc.get() == active)
+				{
+					stillOpen = true;
+					break;
+				}
+			}
+			if (!stillOpen)
+			{
+				active = nullptr;
+			}
+		}
 		for (auto& doc : ui.docs)
 		{
 			// the IDE surface speaks forward-slash paths on every OS (claude is a
@@ -2134,7 +2169,7 @@ namespace
 			editor.absolutePath = idePath;
 			editor.languageId =
 				OrkigeEditor::ideLanguageForPath(doc->absolutePath);
-			editor.active = (doc.get() == ui.focused);
+			editor.active = (doc.get() == active);
 			editor.dirty = doc->isDirty();
 			bridge.openEditors.push_back(editor);
 			if (!doc->parseState.valid)
@@ -2148,13 +2183,18 @@ namespace
 			}
 		}
 		OrkigeEditor::IdeSelection selection;
-		if (ui.focused != nullptr && ui.focused->editor)
+		if (active != nullptr && active->editor)
 		{
+			// an open document is the active file even with NO text selected: the
+			// protocol's "active file, cursor only" shape is a real filePath + a
+			// collapsed (start==end) range that serialises isEmpty=true (claude
+			// reads the open file from this; an absent/empty filePath reads as
+			// "no file", which is exactly the context loss this avoids)
 			selection.active = true;
 			selection.absolutePath =
-				OrkigeEditor::ideForwardSlashes(ui.focused->absolutePath);
+				OrkigeEditor::ideForwardSlashes(active->absolutePath);
 			const TextEditor::CursorSelection range =
-				ui.focused->editor->GetMainCursorSelection();
+				active->editor->GetMainCursorSelection();
 			// normalise so start precedes end (a backward drag reverses them)
 			int sLine = range.start.line, sCol = range.start.column;
 			int eLine = range.end.line, eCol = range.end.column;
@@ -2167,9 +2207,9 @@ namespace
 			selection.startChar = sCol;
 			selection.endLine = eLine;
 			selection.endChar = eCol;
-			if (ui.focused->editor->AnyCursorHasSelection())
+			if (active->editor->AnyCursorHasSelection())
 			{
-				selection.text = sliceSelection(ui.focused->editor->GetText(),
+				selection.text = sliceSelection(active->editor->GetText(),
 					sLine, sCol, eLine, eCol);
 			}
 		}
@@ -2267,6 +2307,13 @@ void drawScriptDocuments(EditorState& state, PlaySession& session,
 	{
 		drawDocumentWindow(state, session, viewSettings, *doc);
 	}
+	// the IDE's active editor tracks the live-focused document but does NOT
+	// clear when focus leaves the Script panel (focus moving to the terminal /
+	// Hierarchy must not erase claude's open-file context) - only a close does
+	if (ui.focused != nullptr)
+	{
+		ui.activeDoc = ui.focused;
+	}
 
 	// a tab context-menu action picked during the draw loop applies now,
 	// against the stable list (the pure close-set owns the semantics)
@@ -2301,6 +2348,10 @@ void drawScriptDocuments(EditorState& state, PlaySession& session,
 			if (ui.focused == &doc)
 			{
 				ui.focused = nullptr;
+			}
+			if (ui.activeDoc == &doc)
+			{
+				ui.activeDoc = nullptr;	// the IDE loses its active-editor context
 			}
 			if (ui.confirmClose == &doc)
 			{
