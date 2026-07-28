@@ -106,6 +106,13 @@ namespace OrkigeEditor
 		IdeSharedState* shared = nullptr;
 	};
 
+	//! @brief the path form the IDE protocol speaks: forward slashes. `claude`
+	//! (a Node client) sends and expects forward-slash paths and `file://` URIs
+	//! on every OS, so the whole IDE surface (lock workspaceFolders, open-editor
+	//! and selection paths, every URI) is normalised to them. On Windows this
+	//! turns a native `C:\a\b` into `C:/a/b`; on POSIX a backslash is a legal
+	//! filename byte, so the path is returned untouched (byte-identical there).
+	std::string ideForwardSlashes(std::string const& path);
 	//! the claude languageId hint for a file path's extension
 	std::string ideLanguageForPath(std::string const& path);
 	//! file:// URI from an absolute path (percent-encoding the reserved bytes)

@@ -14020,6 +14020,19 @@ int main(int argc, char** argv)
 						{
 							SDL_Log("orkige_editor: IDE openFile did not land "
 								"'%s' in the Script panel", target.c_str());
+							// dump what the bridge DID publish so a path/separator
+							// mismatch (e.g. a native Windows backslash vs the
+							// forward-slash IDE path) is obvious, never mute
+							if (state.ide.openEditors.empty())
+							{
+								SDL_Log("orkige_editor: IDE bridge published no "
+									"open editors");
+							}
+							for (auto const& editor : state.ide.openEditors)
+							{
+								SDL_Log("orkige_editor: IDE bridge has open editor "
+									"'%s'", editor.absolutePath.c_str());
+							}
 							passed = false;
 						}
 					}

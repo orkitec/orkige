@@ -2125,8 +2125,13 @@ namespace
 		bridge.diagnostics.clear();
 		for (auto& doc : ui.docs)
 		{
+			// the IDE surface speaks forward-slash paths on every OS (claude is a
+			// Node client): the editor holds native paths (backslashes on
+			// Windows), so normalise at this publish boundary once.
+			const std::string idePath =
+				OrkigeEditor::ideForwardSlashes(doc->absolutePath);
 			OrkigeEditor::IdeEditor editor;
-			editor.absolutePath = doc->absolutePath;
+			editor.absolutePath = idePath;
 			editor.languageId =
 				OrkigeEditor::ideLanguageForPath(doc->absolutePath);
 			editor.active = (doc.get() == ui.focused);
@@ -2135,7 +2140,7 @@ namespace
 			if (!doc->parseState.valid)
 			{
 				OrkigeEditor::IdeDiagnostic diagnostic;
-				diagnostic.absolutePath = doc->absolutePath;
+				diagnostic.absolutePath = idePath;
 				diagnostic.line = doc->parseState.line;
 				diagnostic.message = doc->parseState.message;
 				diagnostic.severity = "Error";
@@ -2146,7 +2151,8 @@ namespace
 		if (ui.focused != nullptr && ui.focused->editor)
 		{
 			selection.active = true;
-			selection.absolutePath = ui.focused->absolutePath;
+			selection.absolutePath =
+				OrkigeEditor::ideForwardSlashes(ui.focused->absolutePath);
 			const TextEditor::CursorSelection range =
 				ui.focused->editor->GetMainCursorSelection();
 			// normalise so start precedes end (a backward drag reverses them)

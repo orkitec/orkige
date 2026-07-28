@@ -106,6 +106,28 @@ TEST_CASE("file uri round-trips and percent-encodes", "[ide]")
 	REQUIRE(ideFileUriToPath("not-a-file-uri").empty());
 }
 
+TEST_CASE("ide paths are forward-slash and never percent-encode a separator",
+	"[ide]")
+{
+	// forward-slash paths pass through untouched on every OS
+	REQUIRE(ideForwardSlashes("/a/b/c.lua") == "/a/b/c.lua");
+	REQUIRE(ideForwardSlashes("C:/a/b.lua") == "C:/a/b.lua");
+	// a Windows drive path yields a URI whose separators stay literal forward
+	// slashes and NEVER a %5C (the escape a literal backslash would produce);
+	// the drive colon percent-encodes to %3A as the VS Code-style client expects
+	const std::string driveUri = idePathToFileUri("C:/game/main.lua");
+	REQUIRE(driveUri == "file:///C%3A/game/main.lua");
+	REQUIRE(driveUri.find("%5C") == std::string::npos);
+#ifdef _WIN32
+	// on Windows a native backslash path is normalised to forward slashes
+	REQUIRE(ideForwardSlashes("C:\\a\\b.lua") == "C:/a/b.lua");
+	REQUIRE(idePathToFileUri("C:\\a\\b.lua") == "file:///C%3A/a/b.lua");
+#else
+	// on POSIX a backslash is a legal filename byte, so it is preserved
+	REQUIRE(ideForwardSlashes("a\\b") == "a\\b");
+#endif
+}
+
 TEST_CASE("initialize result advertises tools + serverInfo", "[ide]")
 {
 	JsonValue result = ideInitializeResult("2025-03-26", "orkige-editor", "1.2");

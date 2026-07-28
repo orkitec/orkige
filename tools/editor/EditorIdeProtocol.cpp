@@ -48,6 +48,19 @@ namespace OrkigeEditor
 		}
 	}
 	//---------------------------------------------------------
+	std::string ideForwardSlashes(std::string const& path)
+	{
+#ifdef _WIN32
+		std::string out(path);
+		std::replace(out.begin(), out.end(), '\\', '/');
+		return out;
+#else
+		// a backslash is a legal byte in a POSIX filename, so touching it would
+		// corrupt a real path: the IDE surface is already forward-slash here.
+		return path;
+#endif
+	}
+	//---------------------------------------------------------
 	std::string serializeIdeLock(IdeLockInfo const& info)
 	{
 		JsonValue root = JsonValue::object();
@@ -55,7 +68,7 @@ namespace OrkigeEditor
 		JsonValue folders = JsonValue::array();
 		for (std::string const& folder : info.workspaceFolders)
 		{
-			folders.push(JsonValue(String(folder.c_str())));
+			folders.push(JsonValue(String(ideForwardSlashes(folder).c_str())));
 		}
 		root.set("workspaceFolders", folders);
 		root.set("ideName", JsonValue(String(info.ideName.c_str())));
@@ -127,10 +140,13 @@ namespace OrkigeEditor
 		return "plaintext";
 	}
 	//---------------------------------------------------------
-	std::string idePathToFileUri(std::string const& absolutePath)
+	std::string idePathToFileUri(std::string const& absolutePathRaw)
 	{
 		// file://<path> with the reserved bytes percent-encoded; the path
-		// separators and a leading slash stay literal so the URI reads normally
+		// separators and a leading slash stay literal so the URI reads normally.
+		// Forward-slash first so a Windows `\` becomes a URI-legal `/` instead
+		// of a percent-encoded `%5C` (`file:///C:/a/b`, the form claude expects).
+		const std::string absolutePath = ideForwardSlashes(absolutePathRaw);
 		std::string encoded;
 		encoded.reserve(absolutePath.size() + 8);
 		for (unsigned char c : absolutePath)
@@ -341,7 +357,8 @@ namespace OrkigeEditor
 			JsonValue folder = JsonValue::object();
 			folder.set("name", JsonValue(String(fileName(root).c_str())));
 			folder.set("uri", JsonValue(String(idePathToFileUri(root).c_str())));
-			folder.set("path", JsonValue(String(root.c_str())));
+			folder.set("path",
+				JsonValue(String(ideForwardSlashes(root).c_str())));
 			folders.push(folder);
 		}
 		JsonValue body = JsonValue::object();
@@ -349,7 +366,8 @@ namespace OrkigeEditor
 		body.set("folders", folders);
 		if (!roots.empty())
 		{
-			body.set("rootPath", JsonValue(String(roots.front().c_str())));
+			body.set("rootPath", JsonValue(
+				String(ideForwardSlashes(roots.front()).c_str())));
 		}
 		return toolTextOf(body);
 	}
@@ -379,7 +397,7 @@ namespace OrkigeEditor
 		JsonValue params = JsonValue::object();
 		params.set("text", JsonValue(String(selection.text.c_str())));
 		params.set("filePath",
-			JsonValue(String(selection.absolutePath.c_str())));
+			JsonValue(String(ideForwardSlashes(selection.absolutePath).c_str())));
 		params.set("fileUrl", JsonValue(
 			String(idePathToFileUri(selection.absolutePath).c_str())));
 		JsonValue start = JsonValue::object();

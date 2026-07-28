@@ -103,6 +103,15 @@ Each tool's structured payload rides as a JSON string inside
 `content[0].text` (the protocol's convention). Line/character values are 0-based
 in ranges.
 
+Every path the IDE surface reports — lock `workspaceFolders`, `getOpenEditors`
+paths, selection `filePath`, and every `file://` URI — uses **forward slashes**
+on all platforms (`claude` is a Node client that speaks forward-slash paths and
+URIs everywhere). On Windows the editor's native backslash paths are normalised
+at the publish boundary (`OrkigeEditor::ideForwardSlashes`) so a drive path
+`C:\game\main.lua` reports as `C:/game/main.lua` / `file:///C:/game/main.lua`,
+never a `%5C`-escaped separator. On POSIX a backslash is a legal filename byte,
+so paths pass through untouched.
+
 | Tool | Editor mapping |
 |------|----------------|
 | `getWorkspaceFolders` | the open project root(s) |
