@@ -91,6 +91,65 @@ namespace OrkigeEditor
 	//! 0 pass, 2 fail, 77 skip (no pty/shell available). Window-independent -
 	//! it runs and exits before the render boot.
 	int runTerminalSelfCheck();
+
+	// ---- real-event test seams (ORKIGE_EDITOR_TERMINAL_UITEST) --------------
+	// The headless selfcheck above drives the pure seams; it CANNOT see a bug
+	// where a real mouse drag + Cmd/Ctrl copy chord travels the actual ImGui
+	// grid + focus path. These seams let the editor's real frame loop drive that
+	// path under an automated run: opt the panel back in, publish the front
+	// session's live grid geometry + selection + focus, and seed/locate
+	// deterministic grid content the driver can target and assert.
+
+	//! @brief run the terminal panel's REAL ImGui path even under an automated
+	//! run (normally suppressed for pollution hygiene). Off by default; only the
+	//! real-event copy selfcheck opts in.
+	void terminalPanelSetAutomatedUiTest(bool enabled);
+
+	//! @brief the front terminal session's live grid geometry + selection + focus,
+	//! republished every frame the front session draws. `gridOriginX/Y` is the
+	//! screen position of ABSOLUTE cell (line 0, col 0) - the same reference the
+	//! mouse->cell hit test maps against - so a driver computes a cell's screen
+	//! point as origin + (col*cellW, line*cellH). `frontWindowId` is the exact
+	//! Begin() id string (badge + name + stable ###id) to SetWindowFocus.
+	struct TerminalPanelProbe
+	{
+		bool	hasFrontSession = false;	//!< a session drew its grid this frame
+		bool	spawned = false;			//!< the front session's pty is live
+		bool	exited = false;				//!< the front session's shell died
+		bool	windowFocused = false;		//!< the front session window has focus
+		float	gridOriginX = 0.0f;
+		float	gridOriginY = 0.0f;
+		float	cellW = 1.0f;
+		float	cellH = 1.0f;
+		int		cols = 0;
+		int		visibleRows = 0;
+		int		scrollbackCount = 0;
+		bool	hasSelection = false;
+		std::string	selectionText;
+		std::string	frontWindowId;			//!< the front window's Begin() id
+		// follow-tail scroll state (real ImGui scroll, published post-decision)
+		bool	followTail = false;			//!< the view is pinned to the newest line
+		float	scrollY = 0.0f;				//!< the child's live vertical scroll
+		float	scrollMaxY = 0.0f;			//!< the child's live max vertical scroll
+		int		totalLines = 0;				//!< scrollback + visible rows this frame
+		// Cmd/Ctrl+click link resolution under the cursor (the frame the link
+		// modifier is held over the grid), for the path-open selfcheck leg
+		bool	linkResolved = false;
+		std::string	linkPath;				//!< the resolved absolute file to open
+		int		linkLine = 0;				//!< 1-based :line (0 = none)
+	};
+	TerminalPanelProbe const& terminalPanelProbe();
+
+	//! @brief write bytes straight into the first spawned session's VT screen -
+	//! deterministic grid content without racing shell echo. No-op when no
+	//! spawned session exists.
+	void terminalPanelTestWrite(std::string const& bytes);
+
+	//! @brief the ABSOLUTE line + start column of the first occurrence of
+	//! `needle` in the first spawned session's grid (scrollback below the visible
+	//! rows), or {-1,-1} when absent. Lets a driver target a known printed marker.
+	struct TerminalProbeHit { int line = -1; int col = -1; };
+	TerminalProbeHit terminalPanelTestFind(std::string const& needle);
 }
 
 #endif //__EditorTerminalPanel_h__28_7_2026__12_00_00__

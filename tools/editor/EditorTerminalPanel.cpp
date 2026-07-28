@@ -29,6 +29,7 @@
 #include "EditorTerminalKeys.h"
 #include "EditorTerminalSession.h"
 #include "EditorTheme.h"
+#include "ExternalEditor.h"	// terminalPathTokenAt / resolveTerminalPath (Cmd-click open)
 #include "IconsFontAwesome6.h"
 
 #include <imgui_internal.h>	// FindWindowByName + DockId (first-appearance dock)
@@ -37,6 +38,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <cstddef>
 #include <cstdint>
@@ -125,6 +128,13 @@ namespace
 		static TerminalPanelState instance;
 		return instance;
 	}
+
+	//! real-event test state (ORKIGE_EDITOR_TERMINAL_UITEST): the opt-in that
+	//! lets drawTerminalPanel run under an automated run, and the probe the
+	//! front session republishes each frame so the driver can target cells +
+	//! assert the selection/focus the REAL mouse + copy path produced.
+	bool gTerminalAutomatedUiTest = false;
+	OrkigeEditor::TerminalPanelProbe gTerminalProbe;
 
 	//! the leading glyph for a session's window title: a recognised agent draws
 	//! its GENERATED private-use badge (baked into the UI-font atlas), everything
@@ -288,6 +298,91 @@ namespace
 			s.anchorLine, s.anchorCol, s.headLine, s.headCol);
 	}
 
+	//! build one absolute grid line as a string where index == cell column (a
+	//! wide/non-ASCII cell reads as a space, i.e. a boundary): paths are ASCII, so
+	//! this preserves column identity for the pure terminalPathTokenAt extractor
+	//! while never splitting a path across a multi-byte glyph.
+	std::string absoluteLineText(TerminalSession const& s, int line)
+	{
+		std::string out;
+		out.reserve(static_cast<std::size_t>(s.cols));
+		for (int col = 0; col < s.cols; ++col)
+		{
+			TermCell cellValue = absoluteCell(s, line, col);
+			char ch = ' ';
+			if (cellValue.glyph.size() == 1)
+			{
+				const unsigned char b0 =
+					static_cast<unsigned char>(cellValue.glyph[0]);
+				if (b0 >= 0x20 && b0 < 0x7f)
+				{
+					ch = static_cast<char>(b0);
+				}
+			}
+			out.push_back(ch);
+		}
+		return out;
+	}
+
+	//! the resolved terminal link under a hovered cell (a Cmd/Ctrl+click target).
+	struct TerminalLink
+	{
+		bool		resolved = false;
+		std::string	absolutePath;	//!< the existing file to open
+		int			line = 0;		//!< 1-based target line (0 = none)
+		int			hoverLine = 0;	//!< absolute grid line to underline
+		std::size_t	beginCol = 0;	//!< [beginCol, endCol) span to underline
+		std::size_t	endCol = 0;
+	};
+
+	//! extract + resolve the path token under absolute cell (line,col): the pure
+	//! terminalPathTokenAt over the line text, then resolveTerminalPath against the
+	//! project root / session cwd / absolute with a real fs::exists probe. Returns
+	//! a resolved link only when the file EXISTS (so only real files underline).
+	TerminalLink terminalLinkAt(TerminalSession& s, EditorState& state,
+		int line, int col)
+	{
+		TerminalLink link;
+		if (!s.screen || col < 0 || col >= s.cols)
+		{
+			return link;
+		}
+		const std::string lineText = absoluteLineText(s, line);
+		Orkige::TerminalPathToken token;
+		if (!Orkige::terminalPathTokenAt(lineText,
+			static_cast<std::size_t>(col), token))
+		{
+			return link;
+		}
+		// the session's working directory: the project root at spawn (v1 - a live
+		// cwd via OSC 7 is a future refinement). Project root drives both slots.
+		std::string projectRoot;
+		if (state.project.isLoaded())
+		{
+			projectRoot = state.project.getRootDirectory();
+		}
+		const char* home = std::getenv("HOME");
+		const std::string absolute = Orkige::resolveTerminalPath(
+			token.path, projectRoot, projectRoot, home ? home : "",
+			[](std::string const& candidate)
+			{
+				std::error_code ec;
+				return std::filesystem::exists(candidate, ec) &&
+					!std::filesystem::is_directory(candidate, ec);
+			});
+		if (absolute.empty())
+		{
+			return link;
+		}
+		link.resolved = true;
+		link.absolutePath = absolute;
+		link.line = token.line;
+		link.hoverLine = line;
+		link.beginCol = token.begin;
+		link.endCol = token.end;
+		return link;
+	}
+
 	//! decode the first Unicode codepoint of a UTF-8 glyph string (0 when empty
 	//! or malformed). The terminal cells hold whole grapheme strings; only the
 	//! leading codepoint decides whether the mono atlas can draw the cell.
@@ -358,19 +453,34 @@ namespace
 	{
 		bool sentInput = false;
 		ImGuiIO& io = ImGui::GetIO();
-		const bool ctrl = io.KeyCtrl;
 		const bool shift = io.KeyShift;
 		const bool alt = io.KeyAlt;
-		const bool super = io.KeySuper;
+		// PHYSICAL modifier state. ImGui with io.ConfigMacOSXBehaviors (the default
+		// on macOS) SWAPS Cmd(Super) and Ctrl at io.AddKeyEvent() time (imgui.h:
+		// "we swap Cmd(Super) and Ctrl keys"), so the physical Cmd key arrives as
+		// io.KeyCtrl and the physical Ctrl key as io.KeySuper. Read the PHYSICAL
+		// keys here so the terminal maps them to the right role regardless: on
+		// macOS Cmd = copy/paste, Ctrl = the C0 control codes (SIGINT et al.) - a
+		// bare `super`/`ctrl` read would send Cmd+C as a SIGINT and never copy.
 	#if defined(__APPLE__)
-		const bool copyChord = super && ImGui::IsKeyPressed(ImGuiKey_C, false);
-		const bool pasteChord = super && ImGui::IsKeyPressed(ImGuiKey_V, false);
+		const bool physicalCmd = io.KeyCtrl;	// swapped: Cmd -> io.KeyCtrl
+		const bool physicalCtrl = io.KeySuper;	// swapped: Ctrl -> io.KeySuper
+	#else
+		const bool physicalCmd = io.KeySuper;
+		const bool physicalCtrl = io.KeyCtrl;
+	#endif
+	#if defined(__APPLE__)
+		// Cmd+C / Cmd+V are copy/paste; Ctrl+C/V stay C0 control codes below
+		const bool copyChord =
+			physicalCmd && ImGui::IsKeyPressed(ImGuiKey_C, false);
+		const bool pasteChord =
+			physicalCmd && ImGui::IsKeyPressed(ImGuiKey_V, false);
 	#else
 		// Ctrl+Shift+C/V are the terminal copy/paste (Ctrl+C/V stay control codes)
 		const bool copyChord =
-			ctrl && shift && ImGui::IsKeyPressed(ImGuiKey_C, false);
+			physicalCtrl && shift && ImGui::IsKeyPressed(ImGuiKey_C, false);
 		const bool pasteChord =
-			ctrl && shift && ImGui::IsKeyPressed(ImGuiKey_V, false);
+			physicalCtrl && shift && ImGui::IsKeyPressed(ImGuiKey_V, false);
 	#endif
 
 		if (copyChord)
@@ -406,7 +516,7 @@ namespace
 
 		// printable text: the IME/text-input queue (skip while a Ctrl/Cmd chord
 		// is held - those are control codes / editor chords, not text)
-		if (!ctrl && !super)
+		if (!physicalCtrl && !physicalCmd)
 		{
 			for (int i = 0; i < io.InputQueueCharacters.Size; ++i)
 			{
@@ -421,7 +531,7 @@ namespace
 		}
 
 		TermMods mods;
-		mods.ctrl = ctrl;
+		mods.ctrl = physicalCtrl;
 		mods.shift = shift;
 		mods.alt = alt;
 
@@ -442,9 +552,11 @@ namespace
 			}
 		}
 
-		// Ctrl+<letter/symbol> control codes (never with Super; Ctrl+Shift+C/V
-		// were consumed above as copy/paste)
-		if (ctrl && !super)
+		// Ctrl+<letter/symbol> control codes (never with the Cmd/copy modifier;
+		// Ctrl+Shift+C/V were consumed above as copy/paste). physicalCtrl is the
+		// real Ctrl key on both platforms (macOS un-swaps it above), so Ctrl+C
+		// stays SIGINT while Cmd+C copies.
+		if (physicalCtrl && !physicalCmd)
 		{
 			// most platforms suppress the text char while Ctrl is held, so the
 			// control codes come from the letter keys directly
@@ -681,6 +793,56 @@ namespace
 		}
 		clipper.End();
 
+		const bool overGrid =
+			ImGui::IsMouseHoveringRect(gridMin, gridMax) && ImGui::IsWindowHovered(
+				ImGuiHoveredFlags_ChildWindows |
+				ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+
+		// --- Cmd/Ctrl+click open: a path[:line] under the cursor is a link -------
+		// While the link modifier is held (Cmd on macOS - ImGui with
+		// ConfigMacOSXBehaviors swaps Cmd->io.KeyCtrl - Ctrl elsewhere, so
+		// io.KeyCtrl is the right test on BOTH), a path-looking token under the
+		// mouse that RESOLVES to an existing file underlines + shows the hand
+		// cursor; a click opens it (at :line) via the asset browser's plain-file
+		// policy. The plain (no-modifier) click keeps doing selection as today, and
+		// a resolved-link click is consumed so it never also arms a drag-select.
+		bool linkClickConsumed = false;
+		if (overGrid && ImGui::GetIO().KeyCtrl && !s.selecting)
+		{
+			const TerminalGridPoint hit = terminalCellAtPoint(mouse.x, mouse.y,
+				gridOrigin.x, gridOrigin.y, cellW, cellH, s.cols, totalLines);
+			const TerminalLink link = terminalLinkAt(s, state, hit.line, hit.col);
+			if (gTerminalAutomatedUiTest)
+			{
+				gTerminalProbe.linkResolved = link.resolved;
+				gTerminalProbe.linkPath = link.absolutePath;
+				gTerminalProbe.linkLine = link.line;
+			}
+			if (link.resolved)
+			{
+				ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+				// underline the token's cells (the visual affordance while held)
+				const float uy = gridOrigin.y +
+					static_cast<float>(link.hoverLine) * cellH + cellH - 1.0f;
+				const float ux0 = gridOrigin.x +
+					static_cast<float>(link.beginCol) * cellW;
+				const float ux1 = gridOrigin.x +
+					static_cast<float>(link.endCol) * cellW;
+				drawList->AddLine(ImVec2(ux0, uy), ImVec2(ux1, uy),
+					IM_COL32(120, 170, 240, 255));
+				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+				{
+					openPathHonoringInternalEditor(state, link.absolutePath,
+						link.line);
+					linkClickConsumed = true;
+				}
+			}
+		}
+		else if (gTerminalAutomatedUiTest)
+		{
+			gTerminalProbe.linkResolved = false;
+		}
+
 		// --- selection via mouse drag over the grid -----------------------------
 		// Arm on a press inside the grid rect (IsMouseHoveringRect, not
 		// IsWindowHovered: a held drag gives the child an ActiveId, which makes
@@ -688,11 +850,8 @@ namespace
 		// Once armed, the head follows the mouse EVERY frame while the button is
 		// held - the pure terminalCellAtPoint clamps a drag past the edges - so a
 		// selection reliably arms for the Cmd/Ctrl copy chord below.
-		const bool overGrid =
-			ImGui::IsMouseHoveringRect(gridMin, gridMax) && ImGui::IsWindowHovered(
-				ImGuiHoveredFlags_ChildWindows |
-				ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
-		if (overGrid && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		if (overGrid && !linkClickConsumed &&
+			ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
 			const TerminalGridPoint hit = terminalCellAtPoint(mouse.x, mouse.y,
 				gridOrigin.x, gridOrigin.y, cellW, cellH, s.cols, totalLines);
@@ -717,6 +876,28 @@ namespace
 		if (s.selecting && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
 		{
 			s.selecting = false;
+		}
+
+		// --- real-event test probe (only meaningful under the UI test) ----------
+		// Publish THIS front session's live grid geometry + selection + focus so
+		// the copy selfcheck can compute a cell's screen point and assert what the
+		// real mouse drag armed. gridOrigin is absolute (line 0, col 0), already
+		// scroll-adjusted - the same reference terminalCellAtPoint maps against.
+		if (gTerminalAutomatedUiTest)
+		{
+			gTerminalProbe.hasFrontSession = true;
+			gTerminalProbe.spawned = s.spawned;
+			gTerminalProbe.exited = s.exited;
+			gTerminalProbe.windowFocused = panelFocused;
+			gTerminalProbe.gridOriginX = gridOrigin.x;
+			gTerminalProbe.gridOriginY = gridOrigin.y;
+			gTerminalProbe.cellW = cellW;
+			gTerminalProbe.cellH = cellH;
+			gTerminalProbe.cols = s.cols;
+			gTerminalProbe.visibleRows = s.rows;
+			gTerminalProbe.scrollbackCount = scrollbackCount;
+			gTerminalProbe.hasSelection = s.hasSelection;
+			gTerminalProbe.selectionText = selectionText(s);
 		}
 
 		// --- follow / pin the tail ----------------------------------------------
@@ -770,6 +951,17 @@ namespace
 		s.sentInputPending = false;
 		s.lastTotalLines = totalLines;
 
+		// publish the real ImGui scroll state for the follow-tail selfcheck leg
+		// (post-decision: scrollY/scrollMaxY are this frame's live values, followTail
+		// the pin verdict). The scroll set by SetScrollY above lands next frame.
+		if (gTerminalAutomatedUiTest && gTerminalProbe.hasFrontSession)
+		{
+			gTerminalProbe.followTail = s.followTail;
+			gTerminalProbe.scrollY = scrollY;
+			gTerminalProbe.scrollMaxY = scrollMaxY;
+			gTerminalProbe.totalLines = totalLines;
+		}
+
 		ImGui::EndChild();
 		ImGui::PopStyleColor();
 		ImGui::PopStyleVar();
@@ -795,15 +987,16 @@ namespace
 	}
 
 	//! the compact MCP connect affordance (only when the endpoint is live): a
-	//! small button that copies the ready-made `claude mcp add ...` line, its
-	//! full text in the tooltip. Drawn in the header row (the default UI font, so
-	//! the robot glyph renders) OUTSIDE the grid's mono-font push.
-	void drawMcpConnectAffordance(std::string const& mcpUrl,
+	//! the ready-made `claude mcp add ...` line for the live MCP endpoint, or ""
+	//! when the endpoint is off. Offered from the terminal tab's right-click menu
+	//! (the project `.mcp.json` auto-registers the endpoint, so this is only a
+	//! convenience for a shell started outside the project directory).
+	std::string mcpConnectCommand(std::string const& mcpUrl,
 		std::string const& mcpTokenFile)
 	{
 		if (mcpUrl.empty())
 		{
-			return;
+			return std::string();
 		}
 		std::string connectCmd =
 			"claude mcp add --transport http orkige " + mcpUrl;
@@ -812,13 +1005,7 @@ namespace
 			connectCmd += " --header \"Authorization: Bearer "
 				"$(cat \\\"$ORKIGE_MCP_TOKEN_FILE\\\")\"";
 		}
-		ImGui::SameLine();
-		if (ImGui::SmallButton(ICON_FA_ROBOT " Connect###termMcpCopy"))
-		{
-			ImGui::SetClipboardText(connectCmd.c_str());
-		}
-		ImGui::SetItemTooltip("This editor's MCP endpoint is live in this shell "
-			"(ORKIGE_MCP_URL). Copy the connect command:\n%s", connectCmd.c_str());
+		return connectCmd;
 	}
 
 	//! draw ONE session as its own dockable, top-level window (the code-editor
@@ -839,6 +1026,12 @@ namespace
 		// live status-ticker title rides the tab TOOLTIP instead (below).
 		const std::string windowId = leadingGlyph(label) + " " + label.text +
 			"###terminal" + std::to_string(s.uid);
+		// publish the EXACT Begin() id (even before the shown-check, so a driver
+		// can SetWindowFocus a still-backgrounded dock tab to bring it front)
+		if (gTerminalAutomatedUiTest && index == 0)
+		{
+			gTerminalProbe.frontWindowId = windowId;
+		}
 		// the live VT title, filtered to what the UI font can render (a leading
 		// sparkle the font lacks would draw '?') - shown as the tab's tooltip.
 		const std::string tabTooltip = terminalFilterRenderable(s.vtTitle);
@@ -885,12 +1078,26 @@ namespace
 		{
 			p.sharedDockId = dockId;	// siblings dock beside this one
 		}
-		// the docked-tab right-click menu: spawn another / close this one
+		// the docked-tab right-click menu: spawn another / close this one, and -
+		// only while the MCP endpoint is live - copy the ready `claude mcp add`
+		// line (the project .mcp.json already auto-registers it; this is the
+		// convenience for a shell started outside the project directory)
 		if (ImGui::BeginPopupContextItem())
 		{
 			if (ImGui::MenuItem("New Terminal"))
 			{
 				++p.pendingSpawns;
+			}
+			const std::string connectCmd =
+				mcpConnectCommand(mcpUrl, mcpTokenFile);
+			if (!connectCmd.empty())
+			{
+				if (ImGui::MenuItem("Copy MCP connect command"))
+				{
+					ImGui::SetClipboardText(connectCmd.c_str());
+				}
+				ImGui::SetItemTooltip("This editor's MCP endpoint is live in this "
+					"shell (ORKIGE_MCP_URL):\n%s", connectCmd.c_str());
 			}
 			if (ImGui::MenuItem("Close"))
 			{
@@ -906,7 +1113,9 @@ namespace
 		}
 
 		// header row (default UI font - the icon/badge glyphs live there): the
-		// "+" new-terminal button, the shell / exited+restart line, the MCP hint
+		// "+" new-terminal button and the shell / exited+restart line. The MCP
+		// connect command lives in the tab's right-click menu (the project
+		// .mcp.json auto-registers the endpoint, so no header button is needed).
 		if (ImGui::SmallButton("+###termnew"))
 		{
 			++p.pendingSpawns;
@@ -919,7 +1128,6 @@ namespace
 				ICON_FA_TERMINAL);
 			ImGui::SameLine();
 			ImGui::TextDisabled("%s", s.shell.c_str());
-			drawMcpConnectAffordance(mcpUrl, mcpTokenFile);
 		}
 		else if (s.exited)
 		{
@@ -955,13 +1163,19 @@ void drawTerminalPanel(EditorState& state, ViewSettings& viewSettings,
 	TerminalPanelState& p = panel();
 
 	// automated runs never open a shell (the pollution-hygiene rule); the
-	// selfcheck drives the pty seam directly (runTerminalSelfCheck)
-	if (gAutomatedRun)
+	// headless selfcheck drives the pty seam directly (runTerminalSelfCheck).
+	// The ONE exception is the real-event copy selfcheck, which must exercise
+	// the true ImGui grid + mouse + copy-chord path a seam cannot see - it opts
+	// in explicitly (terminalPanelSetAutomatedUiTest).
+	if (gAutomatedRun && !gTerminalAutomatedUiTest)
 	{
 		state.terminalFocused = false;
 		p.prevPanelOpen = false;
 		return;
 	}
+	// the front session republishes its geometry/selection each frame it draws;
+	// clear the "drew this frame" flag so a backgrounded/absent front reads false
+	gTerminalProbe.hasFrontSession = false;
 
 	const bool wantOpen = (panelOpen != nullptr) && *panelOpen;
 	// rising edge (View > Terminal turned on) with no sessions: spawn one
@@ -1146,6 +1360,85 @@ namespace OrkigeEditor
 	int terminalPanelSessionCount()
 	{
 		return static_cast<int>(panel().sessions.size());
+	}
+
+	void terminalPanelSetAutomatedUiTest(bool enabled)
+	{
+		gTerminalAutomatedUiTest = enabled;
+	}
+
+	TerminalPanelProbe const& terminalPanelProbe()
+	{
+		return gTerminalProbe;
+	}
+
+	void terminalPanelTestWrite(std::string const& bytes)
+	{
+		for (auto& s : panel().sessions)
+		{
+			if (s && s->spawned && s->screen)
+			{
+				s->screen->write(bytes.data(), bytes.size());
+				return;
+			}
+		}
+	}
+
+	TerminalProbeHit terminalPanelTestFind(std::string const& needle)
+	{
+		TerminalProbeHit hit;
+		if (needle.empty())
+		{
+			return hit;
+		}
+		TerminalSession* front = nullptr;
+		for (auto& s : panel().sessions)
+		{
+			if (s && s->spawned && s->screen)
+			{
+				front = s.get();
+				break;
+			}
+		}
+		if (front == nullptr)
+		{
+			return hit;
+		}
+		const int cols = front->cols;
+		const int sb = front->screen->scrollbackCount();
+		const int totalLines = sb + front->rows;
+		for (int line = 0; line < totalLines; ++line)
+		{
+			std::string row;
+			row.reserve(static_cast<std::size_t>(cols));
+			for (int col = 0; col < cols; ++col)
+			{
+				TermCell cellValue = (line < sb)
+					? front->screen->scrollbackCell(line, col)
+					: front->screen->cell(line - sb, col);
+				// one char per COLUMN so the returned start col indexes cells
+				// directly (a needle is ASCII); a wide/empty cell reads as space
+				char ch = ' ';
+				if (cellValue.glyph.size() == 1)
+				{
+					const unsigned char b0 =
+						static_cast<unsigned char>(cellValue.glyph[0]);
+					if (b0 >= 0x20 && b0 < 0x7f)
+					{
+						ch = static_cast<char>(b0);
+					}
+				}
+				row.push_back(ch);
+			}
+			const std::size_t at = row.find(needle);
+			if (at != std::string::npos)
+			{
+				hit.line = line;
+				hit.col = static_cast<int>(at);
+				return hit;
+			}
+		}
+		return hit;
 	}
 
 	void terminalPanelShutdown()

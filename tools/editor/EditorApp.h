@@ -2511,6 +2511,16 @@ std::string fileUrlForPath(std::string const& absolutePath);
 //! instantiate (Reveal-in-Finder stays a direct `open -R`, SDL has no reveal).
 void openWithDefaultApp(std::string const& absolutePath);
 
+//! @brief open an arbitrary file path the way the asset browser's double-click
+//! does for a plain file: a text kind in the user's internal-editor extension
+//! set opens in the embedded code editor (jumping to @p line when > 0), anything
+//! else opens with the OS default app. The richer per-kind double-clicks
+//! (scene/prefab/oui/oanim) are asset-browser affordances and are NOT replicated
+//! here. Used by the terminal's Cmd/Ctrl+click path-open so it mirrors the
+//! browser policy from one place.
+void openPathHonoringInternalEditor(EditorState& state,
+	std::string const& absolutePath, int line);
+
 //! short human label for an AssetKind ("mesh"/"texture"/"script"/"scene"/
 //! "prefab"/"file")
 const char* assetKindLabel(AssetKind kind);

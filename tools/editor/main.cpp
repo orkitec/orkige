@@ -349,6 +349,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_UIEDIT_SELFCHECK") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_SOURCECONTROL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_TERMINAL_TEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_TERMINAL_UITEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_IDE_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MCPDEFAULT_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr;
@@ -2127,6 +2128,35 @@ int main(int argc, char** argv)
 		float udFrontBeforeX = 0.0f, udFrontBeforeY = 0.0f;	// the front label's pos (Alt-cycle leg)
 		std::string udBeforeAnchor;					// anchor key before a resize
 		std::string udFreshId;						// the freshly added label's id
+
+		// ORKIGE_EDITOR_TERMINAL_UITEST=1: the REAL-EVENT terminal copy
+		// selfcheck (editor_terminal_copy ctest). A headless seam test cannot
+		// see the interactive-copy bug (select by mouse drag, Cmd/Ctrl copy,
+		// paste yields nothing) because the bug lives in the true ImGui grid +
+		// focus + copy-chord path. This drives that path: it opts the terminal
+		// panel back in under the automated run, spawns a session, seeds a known
+		// marker into the grid, then pushes REAL synthetic SDL mouse (drag-select
+		// the marker) + the platform copy chord (Cmd on macOS / Ctrl+Shift else)
+		// and asserts the selection armed AND the OS clipboard carries the marker.
+		const char* terminalCopyEnv =
+			std::getenv("ORKIGE_EDITOR_TERMINAL_UITEST");
+		enum class TermCopyPhase { Idle, Run, Done };
+		TermCopyPhase termCopyPhase = TermCopyPhase::Idle;
+		int termCopyStep = 0;
+		int termCopySettleHold = 0;
+		std::string termCopySavedClipboard;	// the user's clipboard, restored after
+		const std::string termCopyMarker = "COPYME12345";
+		int termCopyHitLine = -1;
+		int termCopyHitCol = -1;
+		// the Cmd/Ctrl+click path-open leg: the env names a project to open so a
+		// short project-relative path resolves; the open request is captured the
+		// frame the click sets it (before drawScriptDocuments consumes it)
+		bool termCopyProjectOpen = false;
+		const std::string termCopyOpenRel = "scripts/player.lua";
+		int termCopyOpenHitLine = -1;
+		int termCopyOpenHitCol = -1;
+		std::string termCopyOpenReq;
+		int termCopyOpenReqLine = 0;
 
 		// ORKIGE_EDITOR_SCRIPTTEST=<roller project dir>: the editor-scripts
 		// selfcheck (editor_scripts ctest). Frame 10 copies the project, writes
@@ -6977,7 +7007,463 @@ int main(int argc, char** argv)
 					udFail("uidrag selfcheck did not complete before the deadline");
 				}
 			}
-			// --- editor-scripts selfcheck (ORKIGE_EDITOR_SCRIPTTEST=roller) ---
+			// --- terminal real-event selfcheck (ORKIGE_EDITOR_TERMINAL_UITEST) --
+				// Drives the TRUE ImGui grid + focus + copy-chord + follow-tail
+				// scroll path a headless seam cannot see. A frame-phase machine
+				// spawns a session, seeds a marker, drag-selects it with REAL
+				// synthetic SDL mouse, fires the platform copy chord and asserts the
+				// OS clipboard, then proves follow-tail: growth stays pinned, a
+				// wheel-up unpins (and stays put under more output), a keypress
+				// re-pins. Skips (77) when no pty/shell is available.
+				if (terminalCopyEnv)
+				{
+					auto tcFail = [&](std::string const& why)
+					{
+						SDL_Log("orkige_editor: terminal-copy selfcheck - "
+							"FAILED: %s", why.c_str());
+						exitCode = 43;
+						SDL_SetClipboardText(termCopySavedClipboard.c_str());
+						running = false;
+					};
+					const int tcBudget = 40;
+					auto tcSettle = [&](int stepId, bool cond,
+						char const* why) -> bool
+					{
+						if (cond) { termCopySettleHold = 0; return true; }
+						if (++termCopySettleHold <= tcBudget)
+						{
+							termCopyStep = stepId - 1;	// re-run this step next frame
+							return false;
+						}
+						termCopySettleHold = 0;
+						tcFail(why);
+						return false;
+					};
+					OrkigeEditor::TerminalPanelProbe const& tp =
+						OrkigeEditor::terminalPanelProbe();
+					auto tcToWindow = [&](float px, float py, float& wx, float& wy)
+					{
+						int winW = 0, winH = 0;
+						SDL_GetWindowSize(window, &winW, &winH);
+						unsigned int drawW = 0, drawH = 0;
+						render->getWindowSize(drawW, drawH);
+						const float sx = (winW > 0 && drawW > 0)
+							? static_cast<float>(drawW) / winW : 1.0f;
+						const float sy = (winH > 0 && drawH > 0)
+							? static_cast<float>(drawH) / winH : 1.0f;
+						wx = px / sx; wy = py / sy;
+					};
+					auto tcMove = [&](float px, float py)
+					{
+						float wx = 0.0f, wy = 0.0f; tcToWindow(px, py, wx, wy);
+						SDL_Event e = {};
+						e.type = SDL_EVENT_MOUSE_MOTION;
+						e.motion.windowID = SDL_GetWindowID(window);
+						e.motion.x = wx; e.motion.y = wy;
+						SDL_PushEvent(&e);
+					};
+					auto tcButton = [&](bool down, float px, float py)
+					{
+						float wx = 0.0f, wy = 0.0f; tcToWindow(px, py, wx, wy);
+						SDL_Event e = {};
+						e.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN
+							: SDL_EVENT_MOUSE_BUTTON_UP;
+						e.button.windowID = SDL_GetWindowID(window);
+						e.button.button = SDL_BUTTON_LEFT;
+						e.button.down = down; e.button.clicks = 1;
+						e.button.x = wx; e.button.y = wy;
+						SDL_PushEvent(&e);
+					};
+					auto tcWheel = [&](float px, float py, float dy)
+					{
+						float wx = 0.0f, wy = 0.0f; tcToWindow(px, py, wx, wy);
+						SDL_Event e = {};
+						e.type = SDL_EVENT_MOUSE_WHEEL;
+						e.wheel.windowID = SDL_GetWindowID(window);
+						e.wheel.x = 0.0f; e.wheel.y = dy;	// +y = wheel up (history)
+						e.wheel.mouse_x = wx; e.wheel.mouse_y = wy;
+						SDL_PushEvent(&e);
+					};
+					auto tcKey = [&](bool down, SDL_Keycode key, SDL_Scancode sc,
+						SDL_Keymod mod)
+					{
+						SDL_Event e = {};
+						e.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+						e.key.windowID = SDL_GetWindowID(window);
+						e.key.key = key; e.key.scancode = sc; e.key.mod = mod;
+						e.key.down = down; e.key.repeat = false;
+						SDL_PushEvent(&e);
+					};
+					auto tcCell = [&](int line, int col, float& sx, float& sy)
+					{
+						sx = tp.gridOriginX + (static_cast<float>(col) + 0.5f)
+							* tp.cellW;
+						sy = tp.gridOriginY + (static_cast<float>(line) + 0.5f)
+							* tp.cellH;
+					};
+
+					if (termCopyPhase == TermCopyPhase::Idle && frameCount == 10)
+					{
+						// open the named project so the path-open leg's project-
+						// relative reference resolves (a bare "1" env just skips it)
+						if (terminalCopyEnv[0] != '\0' &&
+							terminalCopyEnv[1] != '\0')
+						{
+							termCopyProjectOpen = openProjectFromPath(state,
+								editorCore, terminalCopyEnv);
+						}
+						OrkigeEditor::terminalPanelSetAutomatedUiTest(true);
+						viewSettings.showTerminalPanel = true;
+						OrkigeEditor::terminalPanelRequestNewSession();
+						termCopyPhase = TermCopyPhase::Run;
+						termCopyStep = 0;
+					}
+					else if (termCopyPhase == TermCopyPhase::Run)
+					{
+						if (!tp.frontWindowId.empty())
+						{
+							ImGui::SetWindowFocus(tp.frontWindowId.c_str());
+						}
+						// capture the Script-panel open request the FRAME it is set
+						// (drawScriptDocuments consumes it the next frame)
+						if (!state.scriptOpenRequest.empty())
+						{
+							termCopyOpenReq = state.scriptOpenRequest;
+							termCopyOpenReqLine = state.scriptOpenLine;
+						}
+						switch (termCopyStep)
+						{
+						case 0:
+							if (tp.exited)
+							{
+								SDL_Log("orkige_editor: terminal-copy selfcheck "
+									"SKIP (no pty/shell available)");
+								exitCode = 77;
+								running = false;
+								break;
+							}
+							if (!(tp.hasFrontSession && tp.spawned &&
+								tp.cellW > 1.0f && tp.windowFocused))
+							{
+								termCopyStep = -1;	// re-check next frame
+							}
+							break;
+						case 3:
+							OrkigeEditor::terminalPanelTestWrite(
+								std::string("\x1b[2J\x1b[H") + termCopyMarker +
+								"\r\n");
+							break;
+						case 6:
+						{
+							OrkigeEditor::TerminalProbeHit hit =
+								OrkigeEditor::terminalPanelTestFind(termCopyMarker);
+							if (!tcSettle(6, hit.line >= 0,
+								"the seeded marker never appeared in the grid"))
+							{
+								break;
+							}
+							termCopyHitLine = hit.line;
+							termCopyHitCol = hit.col;
+							break;
+						}
+						case 9:
+						{
+							float sx = 0.0f, sy = 0.0f;
+							tcCell(termCopyHitLine, termCopyHitCol, sx, sy);
+							tcMove(sx, sy);
+							break;
+						}
+						case 12:
+						{
+							float sx = 0.0f, sy = 0.0f;
+							tcCell(termCopyHitLine, termCopyHitCol, sx, sy);
+							tcButton(true, sx, sy);
+							break;
+						}
+						case 15:
+						{
+							float ex = 0.0f, ey = 0.0f;
+							tcCell(termCopyHitLine, termCopyHitCol +
+								static_cast<int>(termCopyMarker.size()), ex, ey);
+							tcMove(ex, ey);
+							break;
+						}
+						case 18:
+						{
+							float ex = 0.0f, ey = 0.0f;
+							tcCell(termCopyHitLine, termCopyHitCol +
+								static_cast<int>(termCopyMarker.size()), ex, ey);
+							tcButton(false, ex, ey);
+							break;
+						}
+						case 21:
+							if (!tcSettle(21, tp.hasSelection &&
+								tp.selectionText == termCopyMarker,
+								"real mouse drag did not arm the marker selection"))
+							{
+								break;
+							}
+							break;
+						case 24:
+						{
+							char* saved = SDL_GetClipboardText();
+							termCopySavedClipboard = saved ? saved : "";
+							if (saved) { SDL_free(saved); }
+							SDL_SetClipboardText("");
+							// hold the copy modifier as its OWN key event (the way a
+							// real keyboard does, matching the marquee test), then
+							// press C with that modifier active
+						#if defined(__APPLE__)
+							tcKey(true, SDLK_LGUI, SDL_SCANCODE_LGUI, SDL_KMOD_LGUI);
+							tcKey(true, SDLK_C, SDL_SCANCODE_C, SDL_KMOD_LGUI);
+						#else
+							tcKey(true, SDLK_LCTRL, SDL_SCANCODE_LCTRL,
+								SDL_KMOD_LCTRL);
+							tcKey(true, SDLK_LSHIFT, SDL_SCANCODE_LSHIFT,
+								static_cast<SDL_Keymod>(
+									SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT));
+							tcKey(true, SDLK_C, SDL_SCANCODE_C,
+								static_cast<SDL_Keymod>(
+									SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT));
+						#endif
+							break;
+						}
+						case 27:
+						#if defined(__APPLE__)
+							tcKey(false, SDLK_C, SDL_SCANCODE_C, SDL_KMOD_LGUI);
+							tcKey(false, SDLK_LGUI, SDL_SCANCODE_LGUI, SDL_KMOD_NONE);
+						#else
+							tcKey(false, SDLK_C, SDL_SCANCODE_C,
+								static_cast<SDL_Keymod>(
+									SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT));
+							tcKey(false, SDLK_LSHIFT, SDL_SCANCODE_LSHIFT,
+								SDL_KMOD_LCTRL);
+							tcKey(false, SDLK_LCTRL, SDL_SCANCODE_LCTRL,
+								SDL_KMOD_NONE);
+						#endif
+							break;
+						case 30:
+						{
+							char* got = SDL_GetClipboardText();
+							const std::string clip = got ? got : "";
+							if (got) { SDL_free(got); }
+							if (clip == termCopyMarker)
+							{
+								SDL_SetClipboardText(
+									termCopySavedClipboard.c_str());
+								SDL_Log("orkige_editor: terminal-copy leg PASSED "
+									"- real drag-select + platform copy chord put "
+									"'%s' on the OS clipboard",
+									termCopyMarker.c_str());
+							}
+							else if (++termCopySettleHold <= tcBudget)
+							{
+								termCopyStep = 29;	// re-read next frame
+							}
+							else
+							{
+								termCopySettleHold = 0;
+								SDL_SetClipboardText(
+									termCopySavedClipboard.c_str());
+								tcFail("copy chord did not put the marker on the "
+									"OS clipboard (the interactive-copy bug)");
+							}
+							break;
+						}
+						case 33:
+						{
+							std::string burst;
+							for (int i = 0; i < 200; ++i)
+							{
+								burst += "terminal follow line of output\r\n";
+							}
+							OrkigeEditor::terminalPanelTestWrite(burst);
+							break;
+						}
+						case 36:
+							if (!tcSettle(36, tp.followTail &&
+								tp.scrollMaxY > tp.cellH &&
+								tp.scrollY >= tp.scrollMaxY - 2.0f * tp.cellH,
+								"pinned view did not track the growing tail"))
+							{
+								break;
+							}
+							break;
+						case 39:
+						{
+							// hover the MIDDLE of the visible region (a top-row target
+							// can land in the header/clip edge and read un-hovered)
+							float sx = 0.0f, sy = 0.0f;
+							tcCell(tp.scrollbackCount + tp.visibleRows / 2,
+								tp.cols / 2, sx, sy);
+							tcMove(sx, sy);
+							break;
+						}
+						case 42:
+						{
+							// wheel-up over the now-hovered grid must UNPIN the view
+							float sx = 0.0f, sy = 0.0f;
+							tcCell(tp.scrollbackCount + tp.visibleRows / 2,
+								tp.cols / 2, sx, sy);
+							tcWheel(sx, sy, 3.0f);	// +y = wheel up
+							break;
+						}
+						case 45:
+						{
+							std::string burst;
+							for (int i = 0; i < 40; ++i)
+							{
+								burst += "more output after the user scrolled up\r\n";
+							}
+							OrkigeEditor::terminalPanelTestWrite(burst);
+							break;
+						}
+						case 48:
+							if (!tcSettle(48, !tp.followTail &&
+								tp.scrollY < tp.scrollMaxY - tp.cellH,
+								"wheel-up did not unpin / the view followed anyway"))
+							{
+								break;
+							}
+							break;
+						case 51:
+							tcKey(true, SDLK_RIGHT, SDL_SCANCODE_RIGHT,
+								SDL_KMOD_NONE);
+							break;
+						case 54:
+							tcKey(false, SDLK_RIGHT, SDL_SCANCODE_RIGHT,
+								SDL_KMOD_NONE);
+							break;
+						case 57:
+							if (!tcSettle(57, tp.followTail,
+								"a keypress did not re-pin the view to the tail"))
+							{
+								break;
+							}
+							SDL_Log("orkige_editor: terminal follow-tail leg PASSED "
+								"- pin/unpin/re-pin proven through the true ImGui "
+								"path");
+							// no project open -> skip the path-open leg and finish
+							if (!termCopyProjectOpen)
+							{
+								SDL_Log("orkige_editor: terminal-copy selfcheck "
+									"PASSED (path-open leg skipped: no project)");
+								termCopyPhase = TermCopyPhase::Done;
+								running = false;
+							}
+							break;
+						// ---- Cmd/Ctrl+click path-open leg (same real panel) -------
+						// print a project-relative path[:line] into the grid, then
+						// hover it with the link modifier held and click it
+						case 60:
+						{
+							// clear, then place the path on a MID-screen row (a
+							// top-row target can land on the child's clip edge and
+							// read un-hovered, like the wheel leg above)
+							const int midRow =
+								tp.visibleRows > 4 ? tp.visibleRows / 2 : 2;
+							char cursorTo[32];
+							std::snprintf(cursorTo, sizeof(cursorTo),
+								"\x1b[2J\x1b[%d;1H", midRow + 1);
+							OrkigeEditor::terminalPanelTestWrite(
+								std::string(cursorTo) + termCopyOpenRel +
+								":5 built ok\r\n");
+							break;
+						}
+						case 63:
+						{
+							OrkigeEditor::TerminalProbeHit hit =
+								OrkigeEditor::terminalPanelTestFind(termCopyOpenRel);
+							if (!tcSettle(63, hit.line >= 0,
+								"the path token never appeared in the grid"))
+							{
+								break;
+							}
+							termCopyOpenHitLine = hit.line;
+							termCopyOpenHitCol = hit.col;
+							break;
+						}
+						case 66:
+						{
+							// hold the link modifier (Cmd on macOS) and hover the
+							// MIDDLE of the path token
+							float sx = 0.0f, sy = 0.0f;
+							tcCell(termCopyOpenHitLine, termCopyOpenHitCol +
+								static_cast<int>(termCopyOpenRel.size()) / 2, sx, sy);
+							tcMove(sx, sy);
+						#if defined(__APPLE__)
+							tcKey(true, SDLK_LGUI, SDL_SCANCODE_LGUI, SDL_KMOD_LGUI);
+						#else
+							tcKey(true, SDLK_LCTRL, SDL_SCANCODE_LCTRL,
+								SDL_KMOD_LCTRL);
+						#endif
+							break;
+						}
+						case 69:
+							// the modifier + hover must RESOLVE the link to the file
+							if (!tcSettle(69, tp.linkResolved &&
+								tp.linkLine == 5,
+								"Cmd/Ctrl+hover did not resolve the path link"))
+							{
+								break;
+							}
+							break;
+						case 72:
+						{
+							// click the link (modifier still held) -> it opens
+							float sx = 0.0f, sy = 0.0f;
+							tcCell(termCopyOpenHitLine, termCopyOpenHitCol +
+								static_cast<int>(termCopyOpenRel.size()) / 2, sx, sy);
+							tcButton(true, sx, sy);
+							tcButton(false, sx, sy);
+							break;
+						}
+						case 75:
+						{
+							const bool opened =
+								termCopyOpenReq.find("player.lua") !=
+									std::string::npos &&
+								termCopyOpenReqLine == 5;
+							if (!tcSettle(75, opened,
+								"Cmd/Ctrl+click did not open the file at :line in "
+								"the Script panel"))
+							{
+								break;
+							}
+						#if defined(__APPLE__)
+							tcKey(false, SDLK_LGUI, SDL_SCANCODE_LGUI,
+								SDL_KMOD_NONE);
+						#else
+							tcKey(false, SDLK_LCTRL, SDL_SCANCODE_LCTRL,
+								SDL_KMOD_NONE);
+						#endif
+							SDL_Log("orkige_editor: terminal-copy selfcheck PASSED "
+								"- real-event copy, follow-tail AND Cmd/Ctrl+click "
+								"path-open (%s:%d) proven through the true ImGui "
+								"path", termCopyOpenReq.c_str(),
+								termCopyOpenReqLine);
+							termCopyPhase = TermCopyPhase::Done;
+							running = false;
+							break;
+						}
+						default: break;
+						}
+						++termCopyStep;
+					}
+					if (termCopyPhase != TermCopyPhase::Done && exitCode == 0 &&
+						frameCount >= 640)
+					{
+						SDL_Log("orkige_editor: terminal-copy diag - step=%d "
+							"front=%d spawned=%d focused=%d sel=%d selText='%s' "
+							"followTail=%d scrollY=%.1f scrollMax=%.1f",
+							termCopyStep, tp.hasFrontSession ? 1 : 0,
+							tp.spawned ? 1 : 0, tp.windowFocused ? 1 : 0,
+							tp.hasSelection ? 1 : 0, tp.selectionText.c_str(),
+							tp.followTail ? 1 : 0, tp.scrollY, tp.scrollMaxY);
+						tcFail("selfcheck did not complete before the deadline");
+					}
+				}
+				// --- editor-scripts selfcheck (ORKIGE_EDITOR_SCRIPTTEST=roller) ---
 			if (scriptTestEnv && frameCount == 10)
 			{
 				auto scriptFail = [&](std::string const& why)

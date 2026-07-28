@@ -12,6 +12,9 @@
 #include <cctype>
 #include <cstddef>
 #include <fstream>
+#include <functional>	// resolveTerminalPath's injected exists probe
+#include <string>
+#include <vector>
 
 namespace Orkige
 {
@@ -211,6 +214,150 @@ EditorCommandResolution resolveEditorCommand(
 	result.opensAtLine = false;
 	result.source = "opener";
 	return result;
+}
+
+namespace
+{
+
+//! a terminal path-token character: alphanumerics plus the set a path can carry
+//! (dir separators, dots, tilde, colon for :line + drive letters, and the few
+//! other chars filenames use). Everything else - whitespace, quotes, brackets,
+//! parens, pipes, '=' , '*' , '?' - is a token boundary, so a quoted or
+//! parenthesised path yields just the path and adjacent shell syntax is excluded.
+bool isTerminalPathChar(char c)
+{
+	const unsigned char uc = static_cast<unsigned char>(c);
+	if (std::isalnum(uc) != 0)
+	{
+		return true;
+	}
+	switch (c)
+	{
+	case '.': case '/': case '\\': case '_': case '-': case '~':
+	case ':': case '@': case '+': case '%':
+		return true;
+	default:
+		return false;
+	}
+}
+
+} // namespace
+
+bool terminalPathTokenAt(std::string const& lineText, std::size_t col,
+	TerminalPathToken& out)
+{
+	out = TerminalPathToken();
+	const std::size_t n = lineText.size();
+	if (col >= n || !isTerminalPathChar(lineText[col]))
+	{
+		return false;	// hovering whitespace / a boundary - no token
+	}
+	// expand to the surrounding maximal run of path-token characters
+	std::size_t begin = col;
+	while (begin > 0 && isTerminalPathChar(lineText[begin - 1]))
+	{
+		--begin;
+	}
+	std::size_t end = col + 1;
+	while (end < n && isTerminalPathChar(lineText[end]))
+	{
+		++end;
+	}
+	std::string raw = lineText.substr(begin, end - begin);
+
+	// split a trailing ":line[:col]" using the shared reference parser; it also
+	// gates that the path portion looks like a path (carries '.' or '/')
+	std::string path;
+	int line = 0;
+	int column = 0;
+	std::size_t tokenLen = 0;
+	std::vector<FileLineRef> refs = parseFileLineRefs(raw);
+	if (!refs.empty() && refs.front().begin == 0)
+	{
+		FileLineRef const& ref = refs.front();
+		path = ref.path;
+		line = ref.line;
+		column = ref.column;
+		tokenLen = ref.end;	// path + ":line[:col]" span within raw
+	}
+	else
+	{
+		// no line suffix: the whole run is the candidate path, minus trailing
+		// sentence punctuation (a period ending a sentence, a comma, a colon)
+		std::size_t last = raw.size();
+		while (last > 0 && (raw[last - 1] == '.' || raw[last - 1] == ',' ||
+			raw[last - 1] == ';' || raw[last - 1] == ':'))
+		{
+			--last;
+		}
+		path = raw.substr(0, last);
+		tokenLen = last;
+		// reject a bare word (no separator/extension) - "non-path words rejected"
+		if (path.empty() || !looksLikePath(path, 0, path.size()))
+		{
+			return false;
+		}
+	}
+	if (path.empty())
+	{
+		return false;
+	}
+	out.path = path;
+	out.line = line;
+	out.column = column;
+	out.begin = begin;
+	out.end = begin + tokenLen;
+	return true;
+}
+
+std::string resolveTerminalPath(std::string const& tokenPath,
+	std::string const& projectRoot, std::string const& sessionCwd,
+	std::string const& homeDir,
+	std::function<bool(std::string const&)> const& exists)
+{
+	if (tokenPath.empty() || !exists)
+	{
+		return std::string();
+	}
+	std::string p = tokenPath;
+	// tilde expansion: "~" -> home, "~/x" -> home + "/x"
+	if (!homeDir.empty() && (p == "~" || (p.size() > 1 && p[0] == '~' &&
+		(p[1] == '/' || p[1] == '\\'))))
+	{
+		p = homeDir + p.substr(1);
+	}
+	// an absolute path (or a Windows drive path) resolves only against itself
+	if (p.front() == '/' || (p.size() > 1 && p[1] == ':'))
+	{
+		return exists(p) ? p : std::string();
+	}
+	auto join = [](std::string const& base, std::string const& rel) -> std::string
+	{
+		if (base.empty())
+		{
+			return rel;
+		}
+		const char back = base.back();
+		return (back == '/' || back == '\\') ? base + rel : base + "/" + rel;
+	};
+	// project root first, then the session's working directory
+	if (!projectRoot.empty())
+	{
+		const std::string candidate = join(projectRoot, p);
+		if (exists(candidate))
+		{
+			return candidate;
+		}
+	}
+	if (!sessionCwd.empty() && sessionCwd != projectRoot)
+	{
+		const std::string candidate = join(sessionCwd, p);
+		if (exists(candidate))
+		{
+			return candidate;
+		}
+	}
+	return std::string();
 }
 
 std::vector<std::string> readFileLinesAround(std::string const& path,

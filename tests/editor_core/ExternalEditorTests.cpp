@@ -200,3 +200,126 @@ TEST_CASE("readFileLinesAround reports an unreadable file as empty",
 	CHECK(window.empty());
 	CHECK(firstLine == 0);
 }
+
+// ---- terminal Cmd/Ctrl+click path token extraction -----------------------
+
+TEST_CASE("terminalPathTokenAt extracts a project-relative path with a line",
+	"[externaleditor][terminal]")
+{
+	const std::string line = "  scripts/player.lua:12: syntax error";
+	TerminalPathToken tok;
+	// hover anywhere inside the path run (column 5 is inside "scripts/...")
+	REQUIRE(terminalPathTokenAt(line, 5, tok));
+	CHECK(tok.path == "scripts/player.lua");
+	CHECK(tok.line == 12);
+	CHECK(tok.column == 0);
+	// the span covers "scripts/player.lua:12"
+	CHECK(line.substr(tok.begin, tok.end - tok.begin) == "scripts/player.lua:12");
+}
+
+TEST_CASE("terminalPathTokenAt handles an absolute path with line and column",
+	"[externaleditor][terminal]")
+{
+	const std::string line = "[build] /Users/me/game/foo.cpp:45:9: error";
+	TerminalPathToken tok;
+	REQUIRE(terminalPathTokenAt(line, 20, tok));	// inside the abs path
+	CHECK(tok.path == "/Users/me/game/foo.cpp");
+	CHECK(tok.line == 45);
+	CHECK(tok.column == 9);
+}
+
+TEST_CASE("terminalPathTokenAt strips surrounding quotes and trailing punctuation",
+	"[externaleditor][terminal]")
+{
+	// a quoted path yields just the path (quotes are boundaries)
+	const std::string quoted = "see \"assets/hero.oshape\" now";
+	TerminalPathToken q;
+	REQUIRE(terminalPathTokenAt(quoted, 8, q));
+	CHECK(q.path == "assets/hero.oshape");
+
+	// a trailing sentence period is trimmed off the path
+	const std::string period = "edit config/game.lua.";
+	TerminalPathToken p;
+	REQUIRE(terminalPathTokenAt(period, 8, p));
+	CHECK(p.path == "config/game.lua");
+
+	// a parenthesised path drops the paren (a boundary), no trailing ')'
+	const std::string paren = "at (src/main.cpp:3)";
+	TerminalPathToken r;
+	REQUIRE(terminalPathTokenAt(paren, 6, r));
+	CHECK(r.path == "src/main.cpp");
+	CHECK(r.line == 3);
+}
+
+TEST_CASE("terminalPathTokenAt keeps a leading tilde for later expansion",
+	"[externaleditor][terminal]")
+{
+	const std::string line = "wrote ~/.orkige/log.txt done";
+	TerminalPathToken tok;
+	REQUIRE(terminalPathTokenAt(line, 8, tok));
+	CHECK(tok.path == "~/.orkige/log.txt");
+}
+
+TEST_CASE("terminalPathTokenAt rejects non-path words and boundary cells",
+	"[externaleditor][terminal]")
+{
+	TerminalPathToken tok;
+	// a bare word (no separator/extension) is not a path
+	CHECK_FALSE(terminalPathTokenAt("just some words here", 6, tok));
+	// a bare number run is not a path
+	CHECK_FALSE(terminalPathTokenAt("count 123456 items", 7, tok));
+	// hovering whitespace yields nothing (column 8 is a space)
+	CHECK_FALSE(terminalPathTokenAt("a/b.lua   x", 8, tok));
+	// a "12:30" timestamp is not a path reference
+	CHECK_FALSE(terminalPathTokenAt("at 12:30 done", 3, tok));
+	// an out-of-range column yields nothing
+	CHECK_FALSE(terminalPathTokenAt("a/b.lua", 99, tok));
+}
+
+// ---- terminal link resolution order --------------------------------------
+
+TEST_CASE("resolveTerminalPath tries project root, then session cwd, then absolute",
+	"[externaleditor][terminal]")
+{
+	// a fake filesystem: only these exist
+	auto existsIn = [](std::vector<std::string> const& set)
+	{
+		return [set](std::string const& p)
+		{
+			for (std::string const& e : set) { if (e == p) return true; }
+			return false;
+		};
+	};
+
+	// project-root-relative wins first
+	CHECK(resolveTerminalPath("scripts/player.lua", "/proj", "/cwd", "",
+		existsIn({ "/proj/scripts/player.lua", "/cwd/scripts/player.lua" })) ==
+		"/proj/scripts/player.lua");
+
+	// falls through to the session cwd when the project root has no such file
+	CHECK(resolveTerminalPath("build.log", "/proj", "/cwd", "",
+		existsIn({ "/cwd/build.log" })) == "/cwd/build.log");
+
+	// an absolute path resolves only against itself (existing)
+	CHECK(resolveTerminalPath("/etc/hosts", "/proj", "/cwd", "",
+		existsIn({ "/etc/hosts" })) == "/etc/hosts");
+
+	// nothing exists -> unresolved
+	CHECK(resolveTerminalPath("nope/missing.lua", "/proj", "/cwd", "",
+		existsIn({})).empty());
+}
+
+TEST_CASE("resolveTerminalPath expands a leading tilde against the home dir",
+	"[externaleditor][terminal]")
+{
+	auto only = [](std::string const& want)
+	{
+		return [want](std::string const& p) { return p == want; };
+	};
+	CHECK(resolveTerminalPath("~/.orkige/log.txt", "/proj", "/proj",
+		"/home/me", only("/home/me/.orkige/log.txt")) ==
+		"/home/me/.orkige/log.txt");
+	// a bare "~" maps to the home directory itself
+	CHECK(resolveTerminalPath("~", "", "", "/home/me", only("/home/me")) ==
+		"/home/me");
+}

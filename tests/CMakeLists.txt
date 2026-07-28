@@ -1317,6 +1317,20 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_TERMINAL_TEST=1"
         LABELS integration TIMEOUT 120 SKIP_RETURN_CODE 77)
 
+    # embedded terminal REAL-EVENT end to end: the interactive path a seam test
+    # cannot see. Runs the real editor frame loop with the terminal panel opted
+    # back in under the automated run, spawns a session, seeds a marker, then
+    # drives REAL synthetic SDL mouse (drag-select the marker) + the platform
+    # copy chord and asserts the OS clipboard carries it, then proves follow-tail
+    # scrolling through the true ImGui path (growth stays pinned, a wheel-up
+    # unpins and stays put under more output, a keypress re-pins). Needs a
+    # display; skips (exit 77) when no pty/shell is available. Both flavors.
+    add_test(NAME editor_terminal_copy${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_editor WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_terminal_copy${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_TERMINAL_UITEST=${Orkige_SOURCE_DIR}/projects/jumper-lua;ORKIGE_DEMO_FRAMES=700"
+        LABELS integration TIMEOUT 240 SKIP_RETURN_CODE 77)
+
     # Claude-IDE integration end to end: the editor hosts its IDE endpoint
     # (lock + MCP-over-WebSocket) and a worker thread drives a FAKE IDE client
     # through the real server - the WebSocket handshake with the lock token

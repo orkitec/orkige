@@ -2945,6 +2945,21 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 
 } // namespace
 
+//! open an arbitrary file path per the asset browser's plain-file double-click
+//! policy (the ONE place that decides embedded editor vs OS default app), reused
+//! by the terminal's Cmd/Ctrl+click path-open. See EditorApp.h.
+void openPathHonoringInternalEditor(EditorState& state,
+	std::string const& absolutePath, int line)
+{
+	if (opensInInternalEditor(lowerExtension(absolutePath)) &&
+		gViewSettings != nullptr)
+	{
+		scriptPanelOpenFile(state, *gViewSettings, absolutePath, line);
+		return;
+	}
+	openWithDefaultApp(absolutePath);
+}
+
 // The Assets panel (v3): a content browser over the open project. The LEFT
 // pane is a folder tree (ImGui TreeNodes rooted at the project root); the RIGHT
 // pane is a content grid that scales continuously from large thumbnail tiles

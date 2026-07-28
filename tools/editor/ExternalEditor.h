@@ -88,6 +88,40 @@ namespace Orkige
 	//! returned line. Returns an empty vector when the file cannot be read.
 	std::vector<std::string> readFileLinesAround(std::string const& path,
 		int targetLine, int context, int& outFirstLine);
+
+	//! @brief a path-looking token located under a hovered terminal cell.
+	//! `path` is the trimmed path text (a leading '~' is NOT expanded here - the
+	//! resolver does that); `line`/`column` are 1-based (0 = none). `begin`/`end`
+	//! bound the token as a [begin, end) COLUMN span on the source line, for the
+	//! hover underline.
+	struct TerminalPathToken
+	{
+		std::string path;
+		int line = 0;
+		int column = 0;
+		std::size_t begin = 0;
+		std::size_t end = 0;
+	};
+
+	//! @brief extract the path-looking token under column @p col of one terminal
+	//! screen line @p lineText (built so index == cell column; a wide/non-ASCII
+	//! cell reads as a boundary). Expands from the hovered cell to whitespace,
+	//! quote and bracket boundaries, trims trailing sentence punctuation, splits a
+	//! trailing ":line[:col]" (reusing parseFileLineRefs), and REJECTS a token that
+	//! does not look like a path (no '.', '/', '\\', or leading '~'). Returns false
+	//! when the hovered cell is a boundary or the token is not path-like. Pure.
+	bool terminalPathTokenAt(std::string const& lineText, std::size_t col,
+		TerminalPathToken& out);
+
+	//! @brief resolve a terminal path token to an existing file, in the order a
+	//! terminal opens links: PROJECT-ROOT-relative first, then the SESSION CWD,
+	//! then ABSOLUTE. A leading '~' expands against @p homeDir (when non-empty).
+	//! @p exists is the injectable file-existence probe (so this stays pure and
+	//! unit-testable). Returns the resolved path, or "" when nothing resolves.
+	std::string resolveTerminalPath(std::string const& tokenPath,
+		std::string const& projectRoot, std::string const& sessionCwd,
+		std::string const& homeDir,
+		std::function<bool(std::string const&)> const& exists);
 }
 
 #endif // ORKIGE_EXTERNALEDITOR_H_12072026
