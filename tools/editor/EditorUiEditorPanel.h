@@ -23,6 +23,7 @@
 
 #include "EditorUiEdit.h"
 
+#include <set>
 #include <string>
 
 struct ImDrawList;
@@ -56,6 +57,9 @@ namespace OrkigeEditor
 		//! the ordered multi-selection (first = the align key object). `selected`
 		//! mirrors selection.front(); an empty selection clears both.
 		std::vector<std::string>	selection;
+		//! the widget-tree fold state: ids whose TreeNode is COLLAPSED (default is
+		//! open, so this is the exception set). Per-session, not persisted.
+		std::set<std::string>		treeCollapsed;
 		// a marquee in progress (surface px, set while dragging on empty canvas)
 		bool			marquee = false;
 		float			marqueeX0 = 0.0f, marqueeY0 = 0.0f;
@@ -76,6 +80,14 @@ namespace OrkigeEditor
 		float			dragParentX = 0.0f, dragParentY = 0.0f;
 		float			dragParentW = 1.0f, dragParentH = 1.0f;
 		float			dragScale = 1.0f;
+		//! a DEFERRED selection switch: set at a body press INSIDE the current
+		//! selection (so the drag prefers the selected widget even when another sits
+		//! on top). If the press releases WITHOUT crossing the drag threshold - a
+		//! click, not a drag - the selection switches to @c pendingClickSelect (the
+		//! topmost widget under the cursor), so a covering widget stays one click
+		//! away. A real drag clears it and moves the selection instead.
+		bool			hasPendingClick = false;
+		std::string		pendingClickSelect;	//!< topmost id to select on a click-release
 		bool			needsReload = false;	//!< the overlay must re-show after a save
 	};
 
@@ -185,6 +197,14 @@ namespace OrkigeEditor
 	//! colliding name (the caller shows the honest inline error).
 	bool uiEditRenameSelected(UiEditSession& s, GamePreviewStage& stage,
 		std::string const& newId, std::string& error);
+	//! @brief reparent @p childId under @p newParentId ("" = root) as ONE undo step,
+	//! keeping the widget's on-screen rect fixed where the geometry allows (@see
+	//! reparentWidget), then persist + reload the overlay. Refuses a cycle / missing
+	//! child honestly (returns false + @p error, changes nothing). The widget-tree's
+	//! drag-drop drop targets call this; the selfcheck drives it headlessly.
+	bool uiEditReparent(UiEditSession& s, GamePreviewStage& stage,
+		std::string const& childId, std::string const& newParentId,
+		std::string& error);
 	void uiEditUndo(UiEditSession& s);
 	//! write the document to disk and reload the overlay (returns false + error)
 	bool uiEditSave(UiEditSession& s, GamePreviewStage& stage, std::string& error);

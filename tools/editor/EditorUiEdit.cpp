@@ -12,6 +12,8 @@
 
 #include "EditorUiEdit.h"
 
+#include "IconsFontAwesome6.h"
+
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -114,6 +116,27 @@ namespace OrkigeEditor
 		};
 	}
 	//---------------------------------------------------------
+	char const* uiWidgetKindIcon(String const& type)
+	{
+		String kind = type;
+		std::transform(kind.begin(), kind.end(), kind.begin(),
+			[](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+		// each glyph's codepoint is in EditorTheme's ICON_GLYPH_RANGES (mirrored by
+		// the WidgetKindIcon unit test); a decorwidget IS a panel face
+		if(kind == "label")			{ return ICON_FA_FONT; }			// U+f031
+		if(kind == "button")		{ return ICON_FA_WINDOW_MAXIMIZE; }	// U+f2d0
+		if(kind == "checkbox")		{ return ICON_FA_SQUARE_CHECK; }	// U+f14a
+		if(kind == "slider")		{ return ICON_FA_SLIDERS; }			// U+f1de
+		if(kind == "progressbar")	{ return ICON_FA_BARS_PROGRESS; }	// U+f828
+		if(kind == "selectmenu")	{ return ICON_FA_RECTANGLE_LIST; }	// U+f022
+		if(kind == "dropdown")		{ return ICON_FA_SQUARE_CARET_DOWN; }// U+f150
+		if(kind == "textentry")		{ return ICON_FA_KEYBOARD; }		// U+f11c
+		if(kind == "textbox")		{ return ICON_FA_FILE_LINES; }		// U+f15c
+		if(kind == "panel" || kind == "decorwidget") { return ICON_FA_TABLE_CELLS; }	// U+f00a
+		if(kind == "scrollview")	{ return ICON_FA_LIST; }			// U+f03a
+		return ICON_FA_WINDOW_MAXIMIZE;	// the generic control fallback (U+f2d0)
+	}
+	//---------------------------------------------------------
 	String hitTestWidget(std::vector<UiRect> const& rects, float px, float py)
 	{
 		// among the rects CONTAINING the point, pick the one drawn on top:
@@ -145,6 +168,57 @@ namespace OrkigeEditor
 			}
 		}
 		return best < 0 ? String() : rects[static_cast<size_t>(best)].id;
+	}
+	//---------------------------------------------------------
+	std::vector<String> hitTestAllWidgets(std::vector<UiRect> const& rects,
+		float px, float py)
+	{
+		// collect the indices of every rect containing the point, then order them by
+		// the SAME winner rule hitTestWidget uses (z desc, then depth desc, then a
+		// later painter index on top) so front() == hitTestWidget's pick and the rest
+		// descend layer by layer.
+		std::vector<size_t> hits;
+		for(size_t each = 0; each < rects.size(); ++each)
+		{
+			UiRect const& r = rects[each];
+			if(px < r.left || px > r.left + r.width ||
+				py < r.top || py > r.top + r.height)
+			{
+				continue;
+			}
+			hits.push_back(each);
+		}
+		std::sort(hits.begin(), hits.end(), [&](size_t a, size_t b)
+		{
+			UiRect const& ra = rects[a];
+			UiRect const& rb = rects[b];
+			if(ra.z != rb.z) { return ra.z > rb.z; }
+			if(ra.depth != rb.depth) { return ra.depth > rb.depth; }
+			return a > b;	// a later painter index draws on top
+		});
+		std::vector<String> out;
+		out.reserve(hits.size());
+		for(size_t idx : hits)
+		{
+			out.push_back(rects[idx].id);
+		}
+		return out;
+	}
+	//---------------------------------------------------------
+	String cycleStackSelection(std::vector<String> const& stack, String const& current)
+	{
+		if(stack.empty())
+		{
+			return String();
+		}
+		for(size_t each = 0; each < stack.size(); ++each)
+		{
+			if(stack[each] == current)
+			{
+				return stack[(each + 1) % stack.size()];	// one layer down, wrapping
+			}
+		}
+		return stack.front();	// current not in the stack -> start at the topmost
 	}
 	//---------------------------------------------------------
 	UiTreeClickAction uiTreeClickAction(bool alreadySelected, bool additive)
@@ -752,6 +826,14 @@ namespace OrkigeEditor
 		return snap;
 	}
 	//---------------------------------------------------------
+	String addDestinationParent(String const& selection, bool selectionIsLastCreated,
+		String const& lastConfirmedParent)
+	{
+		// the sibling default: when the selection is the widget the last add created,
+		// repeat the last add's destination instead of nesting under it
+		return selectionIsLastCreated ? lastConfirmedParent : selection;
+	}
+	//---------------------------------------------------------
 	int sectionIndex(GuiLayoutDoc const& doc, String const& id)
 	{
 		for(size_t each = 0; each < doc.sections.size(); ++each)
@@ -962,6 +1044,92 @@ namespace OrkigeEditor
 				error = "a widget named '" + id + "' already exists";
 				return false;
 			}
+		}
+		error.clear();
+		return true;
+	}
+	//---------------------------------------------------------
+	bool canReparentWidget(GuiLayoutDoc const& doc, String const& childId,
+		String const& newParentId)
+	{
+		if(childId.empty() || sectionIndex(doc, childId) < 0)
+		{
+			return false;	// no such child
+		}
+		if(newParentId.empty())
+		{
+			return true;	// reparent to root always well-formed for a real child
+		}
+		if(newParentId == childId)
+		{
+			return false;	// a widget cannot parent itself
+		}
+		if(sectionIndex(doc, newParentId) < 0)
+		{
+			return false;	// the target parent must exist
+		}
+		// walk the target parent's ancestor chain: if it passes through the child,
+		// the child is an ancestor of the target and the move would form a cycle
+		String cursor = newParentId;
+		for(int guard = 0; guard < 4096 && !cursor.empty(); ++guard)
+		{
+			if(cursor == childId)
+			{
+				return false;
+			}
+			const int idx = sectionIndex(doc, cursor);
+			if(idx < 0)
+			{
+				break;
+			}
+			String const* p = doc.sections[static_cast<size_t>(idx)].find("parent");
+			cursor = p ? *p : String();
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	bool reparentWidget(GuiLayoutDoc& doc, String const& childId,
+		String const& newParentId, Orkige::LayoutRect const& oldParentRect,
+		Orkige::LayoutRect const& newParentRect, float layoutScale, String& error)
+	{
+		if(!canReparentWidget(doc, childId, newParentId))
+		{
+			error = "cannot reparent '" + childId + "' under '" + newParentId +
+				"' (a missing widget or a parent cycle)";
+			return false;
+		}
+		const int idx = sectionIndex(doc, childId);
+		GuiLayoutSection& s = doc.sections[static_cast<size_t>(idx)];
+
+		// keep the on-screen rect fixed across the parent swap where the form allows
+		if(geomMode(s) == UiGeomMode::Absolute)
+		{
+			// absolute position is design px from the parent origin; shift by the
+			// parent-origin delta so the on-screen point is unchanged
+			const float scale = layoutScale > 1e-6f ? layoutScale : 1.0f;
+			float p[2] = { 0, 0 };
+			if(String const* v = s.find("position")) { readFloats(*v, p, 2); }
+			p[0] += (oldParentRect.x - newParentRect.x) / scale;
+			p[1] += (oldParentRect.y - newParentRect.y) / scale;
+			s.set("position", fmtVec2(p[0], p[1]));
+		}
+		else
+		{
+			LayoutNode node = sectionLayoutNode(s);
+			const Orkige::LayoutRect kept =
+				resolveRect(oldParentRect, node, layoutScale);
+			keepRectOffsets(node, newParentRect, kept, layoutScale);
+			writeGeom(s, node);
+		}
+
+		// finally set / clear the parent key
+		if(newParentId.empty())
+		{
+			eraseKey(s, "parent");
+		}
+		else
+		{
+			s.set("parent", newParentId);
 		}
 		error.clear();
 		return true;

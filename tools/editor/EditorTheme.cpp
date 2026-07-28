@@ -322,6 +322,14 @@ namespace Orkige
 			0xf5fd, 0xf5fd,		// layer-group (.olayers file icon)
 			0xf61f, 0xf61f,		// shapes (vector shape)
 			0xf70c, 0xf70c,		// person-running (.oanim file icon)
+			// UI Editor widget-tree per-kind glyphs (@see uiWidgetKindIcon)
+			0xf022, 0xf022,		// rectangle-list (select menu)
+			0xf03a, 0xf03a,		// list (scroll view)
+			0xf11c, 0xf11c,		// keyboard (text entry)
+			0xf14a, 0xf14a,		// square-check (check box)
+			0xf150, 0xf150,		// square-caret-down (drop down)
+			0xf1de, 0xf1de,		// sliders (slider)
+			0xf828, 0xf828,		// bars-progress (progress bar)
 			0,
 		};
 	}

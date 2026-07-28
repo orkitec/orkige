@@ -15,6 +15,7 @@
 // so it is out of reach for this headless editor_core suite; the two tables
 // carry a comment binding them together and MUST be kept in sync by hand).
 #include "FileFormatIcon.h"
+#include "EditorUiEdit.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -95,6 +96,14 @@ namespace
 		0xf5fd, 0xf5fd,
 		0xf61f, 0xf61f,
 		0xf70c, 0xf70c,
+		// UI Editor widget-tree per-kind glyphs (@see uiWidgetKindIcon)
+		0xf022, 0xf022,		// rectangle-list (select menu)
+		0xf03a, 0xf03a,		// list (scroll view)
+		0xf11c, 0xf11c,		// keyboard (text entry)
+		0xf14a, 0xf14a,		// square-check (check box)
+		0xf150, 0xf150,		// square-caret-down (drop down)
+		0xf1de, 0xf1de,		// sliders (slider)
+		0xf828, 0xf828,		// bars-progress (progress bar)
 	};
 
 	bool codepointInRanges(std::uint32_t codepoint)
@@ -231,4 +240,31 @@ TEST_CASE("fileFormatIcon: sibling extensions in one family share a tint",
 	const FileFormatIcon lua = fileFormatIcon(".lua");
 	CHECK((lua.color.r != wav.color.r || lua.color.g != wav.color.g ||
 		lua.color.b != wav.color.b));
+}
+
+TEST_CASE("uiWidgetKindIcon: every widget kind maps to a baked glyph",
+	"[editor_core][file_format_icon][uiedit]")
+{
+	// each per-kind tree glyph must live in ICON_GLYPH_RANGES (mirrored above) or it
+	// rasterises as a tofu box - the same coupled-pair contract fileFormatIcon keeps.
+	// Every palette kind plus the decorwidget alias and an unknown fallback.
+	static const char* const kKinds[] = {
+		"label", "button", "checkbox", "slider", "progressbar", "selectmenu",
+		"dropdown", "textentry", "textbox", "panel", "scrollview", "decorwidget",
+		"bogus_kind", "",
+	};
+	for (const char* kind : kKinds)
+	{
+		INFO("kind: " << kind);
+		char const* glyph = OrkigeEditor::uiWidgetKindIcon(kind);
+		REQUIRE(glyph != nullptr);
+		REQUIRE(glyph[0] != '\0');
+		CHECK(codepointInRanges(firstCodepoint(glyph)));
+	}
+	// the alias resolves to the same glyph as the canonical kind
+	CHECK(std::string(OrkigeEditor::uiWidgetKindIcon("panel")) ==
+		std::string(OrkigeEditor::uiWidgetKindIcon("decorwidget")));
+	// case-insensitive
+	CHECK(std::string(OrkigeEditor::uiWidgetKindIcon("Button")) ==
+		std::string(OrkigeEditor::uiWidgetKindIcon("button")));
 }

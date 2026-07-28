@@ -40,6 +40,14 @@ namespace OrkigeEditor
 	//! GuiFactory::loadLayoutImpl creates). @see uiWidgetKindCount
 	std::vector<UiWidgetKind> uiWidgetKinds();
 
+	//! @brief the Font Awesome 6 glyph (a UTF-8 sequence, never null/empty) for a
+	//! widget @p type - the per-kind icon the UI Editor's widget tree draws in each
+	//! row. Every codepoint returned lives in EditorTheme's ICON_GLYPH_RANGES (so the
+	//! atlas rasterises it, not a tofu box) - a unit test mirrors that list, the same
+	//! coupled-pair contract fileFormatIcon keeps. An unknown/empty type falls back
+	//! to the generic control glyph. Pure.
+	char const* uiWidgetKindIcon(Orkige::String const& type);
+
 	//! @brief a resolved widget rect for hit-testing (surface pixels, origin
 	//! top-left - the DrawLayer2D convention the runtime readback uses). Mirrors
 	//! GuiPreviewWidgetRect so the pure core does not depend on the stage header.
@@ -67,6 +75,24 @@ namespace OrkigeEditor
 	//! nothing.
 	Orkige::String hitTestWidget(std::vector<UiRect> const& rects,
 		float px, float py);
+
+	//! @brief the WHOLE picking stack at (@p px, @p py): every rect CONTAINING the
+	//! point, ordered exactly the way hitTestWidget ranks them - topmost FIRST
+	//! (higher @p z, then the DEEPER widget, then the later painter index), so
+	//! `front()` equals hitTestWidget's winner and each following id sits one layer
+	//! below. The Alt+click stack-cycle picks its next selection from this list.
+	//! Returns the ids only (empty when the point hits nothing).
+	std::vector<Orkige::String> hitTestAllWidgets(std::vector<UiRect> const& rects,
+		float px, float py);
+
+	//! @brief the next selection an Alt+click makes when cycling a picking @p stack
+	//! (topmost first, @see hitTestAllWidgets): the id ONE STEP DOWN from @p current,
+	//! wrapping back to the topmost after the bottom. When @p current is not in the
+	//! stack (or empty), returns the topmost - so the FIRST Alt+click lands on top
+	//! and each further one descends, reaching a buried parent behind its children.
+	//! An empty stack returns "". Pure.
+	Orkige::String cycleStackSelection(std::vector<Orkige::String> const& stack,
+		Orkige::String const& current);
 
 	//! @brief the outcome of a widget-TREE row click (the panel row / the hook).
 	//! @c Replace swaps the whole selection for the clicked row (a plain click on
@@ -294,6 +320,17 @@ namespace OrkigeEditor
 	Orkige::GuiLayoutSection paletteSection(Orkige::GuiLayoutDoc const& doc,
 		Orkige::String const& type, Orkige::String const& parentId);
 
+	//! @brief the parent a NEW widget lands under when the Add flow opens. Normally
+	//! the current @p selection IS the parent (add-under-selection). The exception
+	//! keeps repeated adds from building an accidental parent CHAIN: after an add the
+	//! new widget becomes the selection, so if @p selectionIsLastCreated (the current
+	//! selection is exactly the widget the previous add just made, untouched since),
+	//! the destination is that previous add's OWN parent (@p lastConfirmedParent) -
+	//! so three adds in a row become SIBLINGS, not a chain. Pure decision, captured
+	//! ONCE when the picker opens; a "" result means the widget lands at the root.
+	Orkige::String addDestinationParent(Orkige::String const& selection,
+		bool selectionIsLastCreated, Orkige::String const& lastConfirmedParent);
+
 	//! index of the section whose id is @p id (case-sensitive), or -1
 	int sectionIndex(Orkige::GuiLayoutDoc const& doc, Orkige::String const& id);
 
@@ -310,6 +347,29 @@ namespace OrkigeEditor
 	//! @p error with the human reason on failure. Pure.
 	bool isValidWidgetName(Orkige::GuiLayoutDoc const& doc, Orkige::String const& id,
 		Orkige::String const& allowSelf, Orkige::String& error);
+
+	//! @brief may @p childId be reparented under @p newParentId without forming a
+	//! cycle? False when @p childId is absent, equals @p newParentId, or @p
+	//! newParentId is a DESCENDANT of @p childId (reparenting an ancestor under its
+	//! own descendant would orphan the subtree into a loop). An empty @p newParentId
+	//! (drop onto the tree background = reparent to root) is valid for any existing
+	//! child; a non-empty parent must itself exist. Pure - the tree's drag-drop drop
+	//! target gates on it and the headless test proves the refusal.
+	bool canReparentWidget(Orkige::GuiLayoutDoc const& doc,
+		Orkige::String const& childId, Orkige::String const& newParentId);
+
+	//! @brief reparent @p childId under @p newParentId ("" = root) inside @p doc,
+	//! keeping its ON-SCREEN rect visually fixed where the geometry form allows. @p
+	//! oldParentRect / @p newParentRect (surface px) + @p layoutScale are the resolve
+	//! context: a Layout-mode child's offsets/anchoredPos are recomputed against the
+	//! new parent (resolveRect is unchanged), an Absolute child's position is shifted
+	//! by the parent-origin delta. Sets/removes the `parent` key. Refuses (returns
+	//! false + @p error, mutates nothing) on a cycle or a missing child (@see
+	//! canReparentWidget). Pure; the caller brackets ONE undo step.
+	bool reparentWidget(Orkige::GuiLayoutDoc& doc, Orkige::String const& childId,
+		Orkige::String const& newParentId, Orkige::LayoutRect const& oldParentRect,
+		Orkige::LayoutRect const& newParentRect, float layoutScale,
+		Orkige::String& error);
 
 	//! @brief rename the widget @p oldId to @p newId: sets the section's id AND
 	//! rewrites every child's `parent` reference so the tree stays intact.

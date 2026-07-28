@@ -2124,6 +2124,7 @@ int main(int argc, char** argv)
 		float udTargX = 0.0f, udTargY = 0.0f;	// where it is dragged to (screen px)
 		float udBeforeW = 0.0f, udBeforeH = 0.0f;	// box size before a resize
 		float udBeforeX = 0.0f, udBeforeY = 0.0f;	// anchoredPos before a move
+		float udFrontBeforeX = 0.0f, udFrontBeforeY = 0.0f;	// the front label's pos (Alt-cycle leg)
 		std::string udBeforeAnchor;					// anchor key before a resize
 		std::string udFreshId;						// the freshly added label's id
 
@@ -6510,6 +6511,20 @@ int main(int argc, char** argv)
 					e.button.x = wx; e.button.y = wy;
 					SDL_PushEvent(&e);
 				};
+				// hold / release the ALT modifier (the bridge reads event.key.mod on
+				// key events -> io.KeyAlt); the Alt-cycle leg brackets its clicks in it
+				auto pushAlt = [&](bool down)
+				{
+					SDL_Event e = {};
+					e.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+					e.key.windowID = SDL_GetWindowID(window);
+					e.key.down = down;
+					e.key.repeat = false;
+					e.key.scancode = SDL_SCANCODE_LALT;
+					e.key.key = SDLK_LALT;
+					e.key.mod = down ? SDL_KMOD_LALT : SDL_KMOD_NONE;
+					SDL_PushEvent(&e);
+				};
 				// centre of a widget in screen px (the click-select target)
 				auto centerOf = [&](std::string const& id,
 					float& sx, float& sy) -> bool
@@ -6631,7 +6646,15 @@ int main(int argc, char** argv)
 							"textAlignment = topleft\n\n"
 							"[Button btnCtl]\nfont = 9\ntext = Btn\n"
 							"anchor = topleft\nanchoredPos = 80 780\n"
-							"sizeDelta = 300 150\n";
+							"sizeDelta = 300 150\n\n"
+							// two OVERLAPPING labels (ovFront's rect sits inside
+							// ovBack's) for the selection-drag + Alt-cycle leg
+							"[Label ovBack]\nfont = 9\ntext = Back\n"
+							"anchor = topleft\nanchoredPos = 500 400\n"
+							"sizeDelta = 320 220\n\n"
+							"[Label ovFront]\nfont = 9\ntext = Front\n"
+							"anchor = topleft\nanchoredPos = 560 460\n"
+							"sizeDelta = 200 100\n";
 					}
 					if (ce || !openProjectFromPath(state, editorCore,
 						uiDragTempRoot))
@@ -6833,22 +6856,101 @@ int main(int argc, char** argv)
 						if (udSettle(114, grew,
 							"case4: fresh-label resize did not grow the box"))
 						{
-							if (assertGrew(udFreshId, "topleft", "case4"))
-							{
-								SDL_Log("orkige_editor: uidrag selfcheck PASSED - "
-									"real SDL click-select + grip-resize (top-left "
-									"label, stretch label, button) + fresh-label "
-									"resize + body-move; doc-side boxes grew and "
-									"the anchored position moved with anchors "
-									"preserved");
-								uiDragPhase = UiDragPhase::Done;
-								std::error_code ce;
-								std::filesystem::remove_all(uiDragTempRoot, ce);
-								running = false;
-							}
+							assertGrew(udFreshId, "topleft", "case4");
 						}
 						break;
 					}
+
+					// CASE 6: the drag-respects-selection + Alt-cycle + click-switch
+					// contract over two OVERLAPPING labels (ovFront's rect sits inside
+					// ovBack's). Two Alt+clicks cycle the selection to the BACK label;
+					// a body-drag over the overlap moves the SELECTED (back) one, not
+					// the front; a plain click re-selects the front.
+					case 117:
+						// aim at ovFront's centre - a point inside BOTH labels
+						if (!centerOf("ovFront", udGripX, udGripY))
+						{ uiDragStep = 116; break; }
+						pushMove(udGripX, udGripY);
+						break;
+					case 120: pushAlt(true); break;
+					case 123: pushButton(true, udGripX, udGripY); break;
+					case 126: pushButton(false, udGripX, udGripY); break;
+					case 129:
+						udSettle(129,
+							OrkigeEditor::uiEditorDebug().selected == "ovFront",
+							"case6: first Alt+click did not select the front label");
+						break;
+					case 132: pushButton(true, udGripX, udGripY); break;
+					case 135: pushButton(false, udGripX, udGripY); break;
+					case 138:
+						if (!udSettle(138,
+							OrkigeEditor::uiEditorDebug().selected == "ovBack",
+							"case6: second Alt+click did not cycle to the back label"))
+						{ break; }
+						pushAlt(false);	// release Alt before the body drag
+						break;
+					case 141:
+						if (!anchoredPosOf("ovBack", udBeforeX, udBeforeY))
+						{ udFail("case6: ovBack has no anchoredPos"); break; }
+						anchoredPosOf("ovFront", udFrontBeforeX, udFrontBeforeY);
+						if (!centerOf("ovFront", udGripX, udGripY))
+						{ uiDragStep = 140; break; }
+						{
+							Orkige::LayoutRect r;
+							if (surfRect("ovFront", r))
+							{
+								toScreen(r.x + r.w * 0.5f + 60.0f,
+									r.y + r.h * 0.5f + 60.0f, udTargX, udTargY);
+								OrkigeEditor::UiEditorDebug& d =
+									OrkigeEditor::uiEditorDebug();
+								udTargX = std::min(udTargX,
+									d.canvasImageX + d.canvasDrawW - 4.0f);
+								udTargY = std::min(udTargY,
+									d.canvasImageY + d.canvasDrawH - 4.0f);
+							}
+						}
+						pushMove(udGripX, udGripY);
+						break;
+					case 144: pushButton(true, udGripX, udGripY); break;
+					case 147: pushMove(udTargX, udTargY); break;
+					case 150: pushButton(false, udTargX, udTargY); break;
+					case 153:
+					{
+						float bx = 0.0f, by = 0.0f, fx = 0.0f, fy = 0.0f;
+						const bool backMoved = anchoredPosOf("ovBack", bx, by) &&
+							bx > udBeforeX + 2.0f && by > udBeforeY + 2.0f;
+						const bool frontStill = anchoredPosOf("ovFront", fx, fy) &&
+							std::fabs(fx - udFrontBeforeX) < 0.5f &&
+							std::fabs(fy - udFrontBeforeY) < 0.5f;
+						udSettle(153, backMoved && frontStill,
+							"case6: body-drag over the overlap did not move the "
+							"SELECTED back label while leaving the front put");
+						break;
+					}
+					case 156:
+						if (!centerOf("ovFront", udGripX, udGripY))
+						{ uiDragStep = 155; break; }
+						pushMove(udGripX, udGripY);
+						break;
+					case 159: pushButton(true, udGripX, udGripY); break;
+					case 162: pushButton(false, udGripX, udGripY); break;
+					case 165:
+						if (udSettle(165,
+							OrkigeEditor::uiEditorDebug().selected == "ovFront",
+							"case6: plain click did not re-select the front label"))
+						{
+							SDL_Log("orkige_editor: uidrag selfcheck PASSED - "
+								"real SDL click-select + grip-resize + body-move; "
+								"Alt+click cycles the pick stack to a buried widget, "
+								"a body-drag over an overlap moves the SELECTED (back) "
+								"widget not the front, and a plain click re-selects "
+								"the front");
+							uiDragPhase = UiDragPhase::Done;
+							std::error_code ce;
+							std::filesystem::remove_all(uiDragTempRoot, ce);
+							running = false;
+						}
+						break;
 					default: break;
 					}
 					++uiDragStep;
@@ -6856,7 +6958,7 @@ int main(int argc, char** argv)
 				// deadline backstop: never let the demo-frame cap turn a stuck run
 				// into a false pass
 				if (uiDragPhase != UiDragPhase::Done && exitCode == 0 &&
-					frameCount >= 320)
+					frameCount >= 500)
 				{
 					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
 					OrkigeEditor::UiEditSession* sp = sessionPtr();
@@ -8458,6 +8560,182 @@ int main(int argc, char** argv)
 							spriteOf("ok") + "')");
 					}
 				}
+				// --- REPARENT through the session seam: a widget dropped onto a
+				// container becomes its child (parent key set, ONE undo step, the
+				// on-screen rect preserved); a cycle is refused honestly; undo
+				// restores. Both flavors (doc-resolve, headless). ---
+				if (ok)
+				{
+					const fs::path rpFile = dir / "reparent.oui";
+					{
+						std::ofstream out(rpFile,
+							std::ios::binary | std::ios::trunc);
+						out << "[Layout]\natlas = gui_default\n\n"
+							"[DecorWidget panel]\nsprite = panel\n"
+							"anchor = topleft\noffsets = 100 100 500 500\n\n"
+							"[Label w]\nfont = 9\ntext = W\n"
+							"anchor = topleft\nanchoredPos = 160 160\n"
+							"sizeDelta = 120 40\n";
+					}
+					OrkigeEditor::UiEditSession rp;
+					std::string rpErr;
+					OrkigeEditor::uiEditLoad(rp, gamePreviewStage, dir.string(),
+						"reparent.oui", rpErr);
+					if (!rp.loaded)
+					{
+						uiFail("reparent: fixture did not load");
+					}
+					auto parentOf = [&](std::string const& id) -> std::string
+					{
+						const int i = OrkigeEditor::sectionIndex(rp.doc.doc(), id);
+						if (i < 0) { return "<absent>"; }
+						Orkige::String const* p = rp.doc.doc()
+							.sections[static_cast<size_t>(i)].find("parent");
+						return p ? *p : std::string("<root>");
+					};
+					auto rectOf = [&](std::string const& id) -> Orkige::LayoutRect
+					{
+						const int i = OrkigeEditor::sectionIndex(rp.doc.doc(), id);
+						const Orkige::LayoutRect surf{ 0, 0, 1000, 1000 };
+						if (i < 0) { return {}; }
+						// resolve against the WORLD (compose one parent level) so the
+						// on-screen point is comparable across the reparent
+						Orkige::LayoutRect parent = surf;
+						Orkige::String const* pp = rp.doc.doc()
+							.sections[static_cast<size_t>(i)].find("parent");
+						if (pp && OrkigeEditor::sectionIndex(rp.doc.doc(), *pp) >= 0)
+						{
+							const int pi =
+								OrkigeEditor::sectionIndex(rp.doc.doc(), *pp);
+							parent = Orkige::resolveRect(surf,
+								OrkigeEditor::sectionLayoutNode(rp.doc.doc()
+									.sections[static_cast<size_t>(pi)]), 1.0f);
+						}
+						return Orkige::resolveRect(parent,
+							OrkigeEditor::sectionLayoutNode(rp.doc.doc()
+								.sections[static_cast<size_t>(i)]), 1.0f);
+					};
+					const Orkige::LayoutRect wBefore = rectOf("w");
+					const bool undoBefore = rp.doc.canUndo();
+					std::string rerr;
+					if (ok && !OrkigeEditor::uiEditReparent(rp, gamePreviewStage,
+						"w", "panel", rerr))
+					{
+						uiFail("reparent under 'panel' failed: " + rerr);
+					}
+					else if (ok && parentOf("w") != "panel")
+					{
+						uiFail("reparent did not set the parent key (got '" +
+							parentOf("w") + "')");
+					}
+					else if (ok && rp.doc.canUndo() == undoBefore)
+					{
+						uiFail("reparent produced no undo step");
+					}
+					if (ok)
+					{
+						const Orkige::LayoutRect wAfter = rectOf("w");
+						if (std::fabs(wAfter.x - wBefore.x) > 0.5f ||
+							std::fabs(wAfter.y - wBefore.y) > 0.5f ||
+							std::fabs(wAfter.w - wBefore.w) > 0.5f ||
+							std::fabs(wAfter.h - wBefore.h) > 0.5f)
+						{
+							uiFail("reparent did not preserve the on-screen rect");
+						}
+					}
+					// a cycle is refused: 'panel' cannot move under its child 'w'
+					if (ok)
+					{
+						std::string cerr;
+						if (OrkigeEditor::uiEditReparent(rp, gamePreviewStage,
+							"panel", "w", cerr) || cerr.empty())
+						{
+							uiFail("reparent cycle (panel under its child) "
+								"should have refused");
+						}
+						else if (parentOf("panel") != "<root>")
+						{
+							uiFail("a refused cycle-reparent changed the parent");
+						}
+					}
+					// undo restores the pre-reparent parent (w back to root)
+					if (ok)
+					{
+						OrkigeEditor::uiEditUndo(rp);
+						if (parentOf("w") != "<root>")
+						{
+							uiFail("undo did not restore 'w' to the root (got '" +
+								parentOf("w") + "')");
+						}
+					}
+				}
+				// --- ADD-DESTINATION (sibling-not-a-chain): the pure decision the
+				// picker captures once when it opens. A fresh selection parents under
+				// it; after an add the new widget IS the selection, so the sibling
+				// rule repeats the LAST destination instead of nesting under the
+				// just-created widget. The popup wiring is ImGui-static (not headlessly
+				// drivable); the decision is asserted here + unit-tested, and
+				// uiEditAddWidget proves add-under-selection. ---
+				if (ok)
+				{
+					using OrkigeEditor::addDestinationParent;
+					const bool siblingRule =
+						addDestinationParent("panel", false, "") == "panel" &&
+						addDestinationParent("btn1", true, "panel") == "panel" &&
+						addDestinationParent("btn1", true, "") == "";
+					if (!siblingRule)
+					{
+						uiFail("add-destination sibling rule wrong (a repeat add must "
+							"not nest under the just-created widget)");
+					}
+					const fs::path apFile = dir / "addparent.oui";
+					{
+						std::ofstream out(apFile,
+							std::ios::binary | std::ios::trunc);
+						out << "[Layout]\natlas = gui_default\n\n"
+							"[DecorWidget host]\nsprite = panel\n"
+							"anchor = topleft\noffsets = 0 0 300 300\n";
+					}
+					OrkigeEditor::UiEditSession ap;
+					std::string apErr;
+					OrkigeEditor::uiEditLoad(ap, gamePreviewStage, dir.string(),
+						"addparent.oui", apErr);
+					OrkigeEditor::uiEditSelect(ap, "host");
+					const std::string kid =
+						OrkigeEditor::uiEditAddWidget(ap, "button");
+					const int ki = OrkigeEditor::sectionIndex(ap.doc.doc(), kid);
+					Orkige::String const* kpar = ki >= 0 ? ap.doc.doc()
+						.sections[static_cast<size_t>(ki)].find("parent") : nullptr;
+					if (ok && (!kpar || *kpar != "host"))
+					{
+						uiFail("add-under-selection did not parent the new widget "
+							"to the selection");
+					}
+				}
+				// --- FOLD state: the widget-tree's per-session collapsed set (default
+				// OPEN, so collapsed is the exception). Toggling adds/removes an id; a
+				// fresh load starts empty. ---
+				if (ok)
+				{
+					OrkigeEditor::UiEditSession fold;
+					std::string foldErr;
+					OrkigeEditor::uiEditLoad(fold, gamePreviewStage, dir.string(),
+						"reparent.oui", foldErr);
+					if (!fold.treeCollapsed.empty())
+					{
+						uiFail("fold state did not start empty (default open)");
+					}
+					fold.treeCollapsed.insert("panel");	// a caret collapse
+					if (fold.treeCollapsed.count("panel") != 1)
+					{
+						uiFail("fold collapse did not register");
+					}
+					fold.treeCollapsed.erase("panel");	// a caret expand
+					if (!fold.treeCollapsed.empty())
+					{
+						uiFail("fold expand did not clear the id");
+					}
+				}
 				fs::remove_all(dir, uiEc);
 				if (ok)
 				{
@@ -8467,6 +8745,8 @@ int main(int argc, char** argv)
 						"+ content-containment matrix + palette-add containment "
 						"+ rename(re-home/collision) + label-resize/text-in-box "
 						"+ sprite-picker(entries/pick/clear) "
+						"+ reparent(child/rect-preserved/cycle-refused/undo) "
+						"+ add-destination(sibling)/add-under-selection + fold-state "
 						"verified");
 					exitCode = 0;
 					running = false;

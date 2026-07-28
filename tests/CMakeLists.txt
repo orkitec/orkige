@@ -1138,8 +1138,8 @@ if(TARGET orkige_editor)
     add_test(NAME editor_uidrag${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_uidrag${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_UIDRAG=${Orkige_SOURCE_DIR}/tests/projects/uihotreload;ORKIGE_DEMO_FRAMES=360"
-        LABELS integration TIMEOUT 180)
+        ENVIRONMENT "ORKIGE_EDITOR_UIDRAG=${Orkige_SOURCE_DIR}/tests/projects/uihotreload;ORKIGE_DEMO_FRAMES=560"
+        LABELS integration TIMEOUT 240)
 
     # Display dropdown v2 view mode + lighting, BOTH flavors, over one lit
     # water-plane + directional-light + camera fixture. WIREFRAME leg (classic, a

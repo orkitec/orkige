@@ -36,6 +36,8 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <functional>
+#include <map>
 #include <sstream>
 
 namespace OrkigeEditor
@@ -551,14 +553,16 @@ namespace OrkigeEditor
 		{
 			return paletteSection(s.doc.doc(), type, std::string()).id;
 		}
-		//! add a palette widget of @p type under the current selection with an
-		//! explicit, caller-validated unique @p id; selects it. Persist is the
-		//! caller's. (@see uiEditAddWidget for the auto-id path.)
+		//! add a palette widget of @p type under an EXPLICIT @p parentId (captured
+		//! once when the picker opened - "" lands it at the root) with a
+		//! caller-validated unique @p id; selects it. Persist is the caller's. The
+		//! explicit parent is what stops repeated adds building a chain (@see
+		//! addDestinationParent); (@see uiEditAddWidget for the auto-id path.)
 		std::string addWidgetWithId(UiEditSession& s, std::string const& type,
-			std::string const& id)
+			std::string const& id, std::string const& parentId)
 		{
 			s.doc.beginEdit();
-			GuiLayoutSection section = paletteSection(s.doc.doc(), type, s.selected);
+			GuiLayoutSection section = paletteSection(s.doc.doc(), type, parentId);
 			section.id = id;	// the caller guarantees uniqueness
 			s.doc.doc().sections.push_back(section);
 			s.doc.commitEdit();
@@ -615,6 +619,16 @@ namespace OrkigeEditor
 			const String nameId = String("##addname_") + idScope;
 			static std::string pendingType;
 			static char nameBuf[64] = { 0 };
+			// the destination captured ONCE when the picker opens, carried through the
+			// name step (so a click that works the popup can never clear it mid-flow);
+			// `destToRoot` is the name popup's root override. The sibling default:
+			// remember the last confirmed destination + the id it created, so adding
+			// three widgets in a row (each becomes the selection) lands them as
+			// SIBLINGS at the original destination, not a nested chain.
+			static std::string capturedParent;
+			static bool destToRoot = false;
+			static std::string lastConfirmedParent;
+			static std::string lastCreatedId;
 			// step 1: pick a kind. Choosing one stashes the kind + a unique default
 			// name and hands off to the name popup (MenuItem auto-closes this one).
 			bool openName = false;
@@ -626,6 +640,20 @@ namespace OrkigeEditor
 				{
 					filter[0] = '\0';
 					focusPending = true;
+					// capture the destination now (the selection is stable here); the
+					// sibling rule repeats the last add's parent when the selection is
+					// the widget that add just created
+					const bool selIsLastCreated = !lastCreatedId.empty() &&
+						s.selected == lastCreatedId;
+					capturedParent = addDestinationParent(s.selected, selIsLastCreated,
+						lastConfirmedParent);
+					// a captured parent that no longer exists (deleted since) falls to root
+					if(!capturedParent.empty() &&
+						sectionIndex(s.doc.doc(), capturedParent) < 0)
+					{
+						capturedParent.clear();
+					}
+					destToRoot = false;
 				}
 				if(focusPending)
 				{
@@ -662,11 +690,29 @@ namespace OrkigeEditor
 			{
 				const bool appearing = ImGui::IsWindowAppearing();
 				ImGui::TextDisabled("Name the %s", pendingType.c_str());
+				// where it lands: "child of <id>" (with a root override toggle) or
+				// "at root" - the visible safety net for the captured destination
+				const std::string effectiveParent =
+					destToRoot ? std::string() : capturedParent;
+				if(capturedParent.empty())
+				{
+					ImGui::TextDisabled("Adds at root");
+				}
+				else
+				{
+					ImGui::TextDisabled("Adds as %s",
+						destToRoot ? "root widget" : ("child of '" +
+							capturedParent + "'").c_str());
+					ImGui::Checkbox("Add at root instead", &destToRoot);
+				}
 				const NameEntry r = nameEntryBody(s.doc.doc(), std::string(),
 					appearing, nameBuf, sizeof(nameBuf));
 				if(r == NameEntry::Confirm)
 				{
-					addWidgetWithId(s, pendingType, std::string(nameBuf));
+					const std::string newId = addWidgetWithId(s, pendingType,
+						std::string(nameBuf), effectiveParent);
+					lastConfirmedParent = effectiveParent;	// sibling default source
+					lastCreatedId = newId;
 					String err; persist(s, stage, err);
 					added = true;
 					ImGui::CloseCurrentPopup();
@@ -796,6 +842,49 @@ namespace OrkigeEditor
 			if(id == old) { id = newId; }
 		}
 		s.selected = newId;
+		s.needsReload = true;
+		String perr; persist(s, stage, perr);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool uiEditReparent(UiEditSession& s, GamePreviewStage& stage,
+		String const& childId, String const& newParentId, String& error)
+	{
+		if(!s.loaded)
+		{
+			error = "no document loaded";
+			return false;
+		}
+		// resolve the OLD parent rect (of the child) and the NEW parent rect (the
+		// target container, or the full surface for a root drop) before touching the
+		// doc, so the geometry-preserving reparent has both contexts
+		float scale = 1.0f;
+		const Orkige::LayoutRect oldParent = parentRectOf(s, stage, childId, scale);
+		Orkige::LayoutRect newParent;
+		if(newParentId.empty())
+		{
+			float surfW = 1000.0f, surfH = 1000.0f;
+			resolveSurface(s, stage, surfW, surfH);
+			newParent = { 0.0f, 0.0f, surfW, surfH };
+		}
+		else
+		{
+			UiRect box;
+			if(!canvasBoxRectOf(s, stage, newParentId, box))
+			{
+				error = "the target parent has no resolved rect";
+				return false;
+			}
+			newParent = { box.left, box.top, box.width, box.height };
+		}
+		s.doc.beginEdit();
+		if(!reparentWidget(s.doc.doc(), childId, newParentId, oldParent, newParent,
+			scale, error))
+		{
+			s.doc.commitEdit();	// nothing changed -> no undo step
+			return false;
+		}
+		s.doc.commitEdit();
 		s.needsReload = true;
 		String perr; persist(s, stage, perr);
 		return true;
@@ -959,6 +1048,7 @@ namespace OrkigeEditor
 		const bool hovered = ImGui::IsItemHovered();
 		const ImVec2 mouse = ImGui::GetIO().MousePos;
 		const bool shift = ImGui::GetIO().KeyShift;
+		const bool alt = ImGui::GetIO().KeyAlt;
 
 		// the key widget's layout-box rect (for handles / anchors), if any
 		UiRect keyRect;
@@ -997,6 +1087,7 @@ namespace OrkigeEditor
 		{
 			UiEditSession::DragKind kind = UiEditSession::DragKind::None;
 			UiHandle handle = UiHandle::None;
+			s.hasPendingClick = false;	// only a body press inside the selection arms it
 			// 1) anchor triangles + pivot dot on the key (only in Layout mode)
 			GuiLayoutSection* keySec = selectedSection(s);
 			if(haveKey && keySec && geomMode(*keySec) == UiGeomMode::Layout)
@@ -1047,26 +1138,62 @@ namespace OrkigeEditor
 				if(handle == UiHandle::Move) { handle = UiHandle::None; }
 				if(handle != UiHandle::None) { kind = UiEditSession::DragKind::Widget; }
 			}
-			// 3) hit a widget: select/toggle, then a body move; else a marquee
+			// 3) hit a widget. Alt+click cycles the whole pick stack (a buried
+			//    widget - a parent behind its children - is reachable); a plain press
+			//    INSIDE the current selection prefers the selection for a body drag
+			//    (a covering widget on top does not steal it) and defers the topmost
+			//    re-select to a click-release; a press elsewhere selects the topmost;
+			//    an empty press starts a marquee.
 			if(kind == UiEditSession::DragKind::None)
 			{
 				float mx = 0, my = 0;
 				toSurface(canvas, mouse.x, mouse.y, mx, my);
-				const String hit = hitTestWidget(rects, mx, my);
-				if(hit.empty())
+				const std::vector<std::string> stack = hitTestAllWidgets(rects, mx, my);
+				const String topmost = stack.empty() ? String() : stack.front();
+				if(stack.empty())
 				{
 					if(!shift) { uiEditSelect(s, String()); }
 					kind = UiEditSession::DragKind::Marquee;
 					s.marqueeX0 = mx; s.marqueeY0 = my;
 					s.marqueeX1 = mx; s.marqueeY1 = my;
 				}
+				else if(alt)
+				{
+					// cycle one layer DOWN the stack (wrapping); commit now so a
+					// following drag moves the newly reached widget
+					uiEditSelect(s, cycleStackSelection(stack, s.selected));
+					kind = UiEditSession::DragKind::Widget;
+					handle = UiHandle::Move;
+					canvasBoxRectOf(s, stage, s.selected, keyRect);
+				}
 				else if(shift)
 				{
-					uiEditSelectToggle(s, hit);	// extend, no drag
+					uiEditSelectToggle(s, topmost);	// extend, no drag
 				}
 				else
 				{
-					if(!selected(hit)) { uiEditSelect(s, hit); }
+					// a press inside a currently-selected widget's rect keeps the
+					// selection (DRAG RESPECTS SELECTION); a click that never drags
+					// switches to the topmost under the cursor
+					bool insideSelection = false;
+					for(UiRect const& r : rects)
+					{
+						if(selected(r.id) && mx >= r.left && mx <= r.left + r.width &&
+							my >= r.top && my <= r.top + r.height)
+						{
+							insideSelection = true;
+							break;
+						}
+					}
+					if(insideSelection)
+					{
+						s.hasPendingClick = true;
+						s.pendingClickSelect = topmost;
+					}
+					else
+					{
+						uiEditSelect(s, topmost);	// outside the selection: topmost
+					}
 					kind = UiEditSession::DragKind::Widget;
 					handle = UiHandle::Move;
 					canvasBoxRectOf(s, stage, s.selected, keyRect);
@@ -1179,8 +1306,23 @@ namespace OrkigeEditor
 			const float dSx = surfDeltaX(canvas, dScreenX);
 			const float dSy = surfDeltaY(canvas, dScreenY);
 			const float scale = uiEditLayoutScale(s, canvas.surfaceW, canvas.surfaceH);
+			// a deferred body press that never crossed the drag threshold is a CLICK,
+			// not a drag: switch to the topmost widget under the cursor and apply no
+			// move (covering widgets stay one click away).
+			const float dragDist =
+				std::sqrt(dScreenX * dScreenX + dScreenY * dScreenY);
+			const bool wasClick = s.hasPendingClick &&
+				dragDist < ImGui::GetIO().MouseDragThreshold;
+			if(wasClick)
+			{
+				uiEditSelect(s, s.pendingClickSelect);
+			}
 			bool changed = false;
-			if(s.dragKind == UiEditSession::DragKind::Marquee)
+			if(wasClick)
+			{
+				// only the selection switched; no geometry edit
+			}
+			else if(s.dragKind == UiEditSession::DragKind::Marquee)
 			{
 				uiEditMarqueeSelect(s, stage, s.marqueeX0, s.marqueeY0,
 					s.marqueeX1, s.marqueeY1);
@@ -1275,6 +1417,8 @@ namespace OrkigeEditor
 			s.marquee = false;
 			s.dragKind = UiEditSession::DragKind::None;
 			s.dragHandle = UiHandle::None;
+			s.hasPendingClick = false;
+			s.pendingClickSelect.clear();
 		}
 
 		// arrow-key nudge: 1 design unit (10 with Shift), one undo step per burst
@@ -1932,40 +2076,149 @@ namespace OrkigeEditor
 			ImGui::Separator();
 		}
 
-		// the widget tree (the .oui section order; parenting shown by indent).
-		// Shift/Ctrl(Cmd)-click extends the ordered multi-selection; a double-click
-		// opens the rename popup (add / rename / delete live in the action row
-		// below, beside Add Widget). A rename request is DEFERRED past the loop so
-		// the section vector is never mutated mid-iteration.
+		// the widget tree: a real parent/child TreeNode hierarchy (carets fold, a
+		// per-kind glyph leads each row), Shift/Ctrl(Cmd)-click extends the ordered
+		// multi-selection, a double-click on the label opens the rename popup.
+		// DRAG a row onto another to reparent (child of the target) or onto the
+		// background to reparent to root; both defer past the loop (the section
+		// vector must not mutate mid-iteration) and refuse a self/descendant cycle.
 		ImGui::TextDisabled("Widgets");
 		bool renameFromTree = false;
+		std::string pendingReparentChild, pendingReparentParent;	// deferred reparent
+		bool havePendingReparent = false, pendingReparentToRoot = false;
+		// section order -> a root list + a parent->children index (order preserved)
+		std::vector<std::string> treeRoots;
+		std::map<std::string, std::vector<std::string>> treeChildren;
 		for(GuiLayoutSection const& sec : s.doc.doc().sections)
 		{
 			if(sec.id.empty()) { continue; }	// [Layout]/[Modal] etc.
-			const bool child = sec.find("parent") != NULL;
-			ImGui::PushID(sec.id.c_str());
-			if(child) { ImGui::Indent(14.0f); }
-			const String label = sec.id + "  (" + sec.type + ")";
+			String const* p = sec.find("parent");
+			if(p && !p->empty() && sectionIndex(s.doc.doc(), *p) >= 0)
+			{
+				treeChildren[*p].push_back(sec.id);
+			}
+			else
+			{
+				treeRoots.push_back(sec.id);
+			}
+		}
+		std::function<void(std::string const&)> drawTreeRow =
+			[&](std::string const& id)
+		{
+			const int idx = sectionIndex(s.doc.doc(), id);
+			if(idx < 0) { return; }
+			GuiLayoutSection const& sec = s.doc.doc().sections[static_cast<size_t>(idx)];
+			const std::vector<std::string>& kids = treeChildren[id];
+			const bool hasKids = !kids.empty();
 			const bool isSel = std::find(s.selection.begin(), s.selection.end(),
-				sec.id) != s.selection.end();
-			if(ImGui::Selectable(label.c_str(), isSel))
+				id) != s.selection.end();
+			ImGui::PushID(id.c_str());
+			const String label = String(uiWidgetKindIcon(sec.type)) + "  " +
+				id + "  (" + sec.type + ")";
+			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth |
+				ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_FramePadding;
+			if(isSel) { flags |= ImGuiTreeNodeFlags_Selected; }
+			bool open = false;
+			if(hasKids)
 			{
-				// plain click single-selects; a plain re-click of the selected row
-				// deselects it; Shift/Ctrl/Cmd toggles it in the set (@see
-				// uiTreeClickAction). The picker-covered release of a double-click
-				// (rename) never reaches here, so the reselect below stays intact.
-				const ImGuiIO& io = ImGui::GetIO();
-				uiEditTreeSelect(s, sec.id,
-					io.KeyShift || io.KeyCtrl || io.KeySuper);
+				// fold state lives in the session (not persisted); default OPEN, so
+				// the collapsed set is the exception. Force it each frame and adopt
+				// the user's caret toggle back into the set.
+				ImGui::SetNextItemOpen(s.treeCollapsed.find(id) ==
+					s.treeCollapsed.end(), ImGuiCond_Always);
+				open = ImGui::TreeNodeEx(label.c_str(), flags);
+				if(ImGui::IsItemToggledOpen())
+				{
+					if(s.treeCollapsed.count(id)) { s.treeCollapsed.erase(id); }
+					else { s.treeCollapsed.insert(id); }
+				}
 			}
-			if(ImGui::IsItemHovered() &&
-				ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+			else
 			{
-				uiEditSelect(s, sec.id);
-				renameFromTree = true;
+				// a leaf: no caret, no tree push (so no TreePop)
+				ImGui::TreeNodeEx(label.c_str(), flags |
+					ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
+					ImGuiTreeNodeFlags_NoTreePushOnOpen);
 			}
-			if(child) { ImGui::Unindent(14.0f); }
+			// a click (not the caret arrow) selects; a double-click opens rename
+			if(ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+			{
+				if(ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+				{
+					uiEditSelect(s, id);
+					renameFromTree = true;
+				}
+				else
+				{
+					const ImGuiIO& io = ImGui::GetIO();
+					uiEditTreeSelect(s, id,
+						io.KeyShift || io.KeyCtrl || io.KeySuper);
+				}
+			}
+			// drag this row as the reparent source
+			if(ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
+			{
+				ImGui::SetDragDropPayload("ORKIGE_UI_WIDGET", id.c_str(),
+					id.size() + 1);
+				ImGui::Text("%s  %s", uiWidgetKindIcon(sec.type), id.c_str());
+				ImGui::EndDragDropSource();
+			}
+			// drop a row onto this one -> reparent the dragged widget under it
+			if(ImGui::BeginDragDropTarget())
+			{
+				if(ImGuiPayload const* pl =
+					ImGui::AcceptDragDropPayload("ORKIGE_UI_WIDGET"))
+				{
+					const std::string dragged(static_cast<char const*>(pl->Data));
+					if(canReparentWidget(s.doc.doc(), dragged, id))
+					{
+						pendingReparentChild = dragged;
+						pendingReparentParent = id;
+						pendingReparentToRoot = false;
+						havePendingReparent = true;
+					}
+				}
+				ImGui::EndDragDropTarget();
+			}
+			if(hasKids && open)
+			{
+				for(std::string const& kid : kids) { drawTreeRow(kid); }
+				ImGui::TreePop();
+			}
 			ImGui::PopID();
+		};
+		for(std::string const& rootId : treeRoots) { drawTreeRow(rootId); }
+
+		// a trailing drop zone: dropping onto the empty tree background reparents to
+		// root (matches the Hierarchy's drop-to-root gesture)
+		{
+			const float rootZoneH = std::max(12.0f,
+				ImGui::GetContentRegionAvail().y * 0.0f + 16.0f);
+			ImGui::Dummy(ImVec2(-1.0f, rootZoneH));
+			if(ImGui::BeginDragDropTarget())
+			{
+				if(ImGuiPayload const* pl =
+					ImGui::AcceptDragDropPayload("ORKIGE_UI_WIDGET"))
+				{
+					const std::string dragged(static_cast<char const*>(pl->Data));
+					if(canReparentWidget(s.doc.doc(), dragged, std::string()))
+					{
+						pendingReparentChild = dragged;
+						pendingReparentParent.clear();
+						pendingReparentToRoot = true;
+						havePendingReparent = true;
+					}
+				}
+				ImGui::EndDragDropTarget();
+			}
+		}
+
+		// apply the deferred reparent (ONE undo step + persist/reload), past the loop
+		if(havePendingReparent)
+		{
+			std::string rerr;
+			uiEditReparent(s, stage, pendingReparentChild,
+				pendingReparentToRoot ? std::string() : pendingReparentParent, rerr);
 		}
 
 		ImGui::Separator();
@@ -2194,11 +2447,15 @@ namespace OrkigeEditor
 		// clicking the panel's empty background (no tree row / control) clears the
 		// selection - the standard deselect gesture, matching the canvas's
 		// empty-click. IsAnyItemHovered() shields every real item (tree rows,
-		// property widgets, the action buttons); an open picker/rename popup takes
-		// the window off-hover, so it never fires mid-popup. Deselection routes
-		// through the ONE selection seam and pushes no undo step.
+		// property widgets, the action buttons); an EXPLICIT any-popup guard keeps it
+		// inert while the add/rename picker is open (a click that opens or works a
+		// popup must never read as a background deselect and clear the captured add
+		// parent between the kind pick and the confirm). Routes through the ONE
+		// selection seam and pushes no undo step.
 		if(!s.selection.empty() && ImGui::IsWindowHovered() &&
 			!ImGui::IsAnyItemHovered() &&
+			!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId |
+				ImGuiPopupFlags_AnyPopupLevel) &&
 			ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
 			uiEditSelect(s, String());	// clears selection + key

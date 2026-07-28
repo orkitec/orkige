@@ -99,6 +99,63 @@ TEST_CASE("ui-edit: hit test prefers the deeper child inside its parent",
 	CHECK(hitTestWidget(rects, 60, 55) == "overlay");
 }
 
+TEST_CASE("ui-edit: hitTestAllWidgets returns the pick stack topmost-first",
+	"[unit][uiedit]")
+{
+	// three widgets overlapping at one point, ranked by the SAME rule hitTestWidget
+	// uses: z desc, then depth desc, then a later painter index on top.
+	std::vector<UiRect> rects = {
+		{ "back",  0,  0, 200, 200 },			// z 0, depth 0, index 0
+		{ "front", 20, 20, 100, 100 },			// z 0, depth 0, index 1 (later)
+	};
+	UiRect child{ "child", 30, 30, 40, 40 };	// depth 1 (deeper) inside the overlap
+	child.depth = 1;
+	rects.push_back(child);
+	UiRect overlay{ "overlay", 30, 30, 40, 40 };	// z 20 (on top of everything)
+	overlay.z = 20.0f;
+	rects.push_back(overlay);
+
+	// a point inside all four -> the full stack, topmost first
+	const std::vector<Orkige::String> stack = hitTestAllWidgets(rects, 40, 40);
+	REQUIRE(stack.size() == 4);
+	CHECK(stack[0] == "overlay");	// highest z
+	CHECK(stack[1] == "child");		// equal z, deeper
+	CHECK(stack[2] == "front");		// equal z/depth, later index
+	CHECK(stack[3] == "back");
+	// front() agrees with hitTestWidget's single pick
+	CHECK(hitTestWidget(rects, 40, 40) == stack.front());
+
+	// a point inside only the back rect -> a one-item stack
+	const std::vector<Orkige::String> one = hitTestAllWidgets(rects, 5, 5);
+	REQUIRE(one.size() == 1);
+	CHECK(one[0] == "back");
+
+	// a point outside everything -> empty
+	CHECK(hitTestAllWidgets(rects, 500, 500).empty());
+}
+
+TEST_CASE("ui-edit: cycleStackSelection walks the stack down and wraps",
+	"[unit][uiedit]")
+{
+	// the reported gesture: two overlapping widgets, front on top; repeated
+	// Alt+clicks step topmost -> back -> topmost (wrapping).
+	const std::vector<Orkige::String> stack = { "front", "back" };
+	// nothing selected (or a selection not in the stack) starts at the topmost
+	CHECK(cycleStackSelection(stack, "") == "front");
+	CHECK(cycleStackSelection(stack, "elsewhere") == "front");
+	// so TWO Alt+clicks reach the back widget: "" -> front -> back
+	CHECK(cycleStackSelection(stack, "front") == "back");
+	// and a third wraps back to the topmost
+	CHECK(cycleStackSelection(stack, "back") == "front");
+	// a three-deep stack descends one layer at a time, wrapping at the bottom
+	const std::vector<Orkige::String> deep = { "a", "b", "c" };
+	CHECK(cycleStackSelection(deep, "a") == "b");
+	CHECK(cycleStackSelection(deep, "b") == "c");
+	CHECK(cycleStackSelection(deep, "c") == "a");
+	// an empty stack yields no selection
+	CHECK(cycleStackSelection({}, "front").empty());
+}
+
 TEST_CASE("ui-edit: handle picking - corners beat edges, interior is a move",
 	"[unit][uiedit]")
 {
@@ -432,6 +489,120 @@ TEST_CASE("ui-edit: widget-name validation - blank / spaces / collision",
 	CHECK(err.empty());
 	// a name that collides with SELF is allowed (a no-op rename)
 	CHECK(isValidWidgetName(doc, "title", "title", err));
+}
+
+TEST_CASE("ui-edit: addDestinationParent keeps repeated adds siblings, not a chain",
+	"[unit][uiedit]")
+{
+	// normal case: the current selection IS the parent the new widget lands under
+	CHECK(addDestinationParent("panel", false, "") == "panel");
+	CHECK(addDestinationParent("", false, "") == "");	// nothing selected -> root
+	// the sibling default: after an add the new widget becomes the selection; if it
+	// is exactly the last-created id, the next add repeats the LAST destination
+	// instead of nesting under the just-made widget (three adds -> siblings)
+	CHECK(addDestinationParent("button1", true, "panel") == "panel");
+	// the last destination was root -> a sibling add also lands at root
+	CHECK(addDestinationParent("button1", true, "") == "");
+	// a fresh selection that is NOT the last-created widget parents under it as usual
+	CHECK(addDestinationParent("otherPanel", false, "panel") == "otherPanel");
+}
+
+TEST_CASE("ui-edit: canReparentWidget refuses self and descendant cycles",
+	"[unit][uiedit]")
+{
+	GuiLayoutDoc doc;
+	auto add = [&](std::string id, std::string parent)
+	{
+		GuiLayoutSection s; s.type = "DecorWidget"; s.id = std::move(id);
+		if(!parent.empty()) { s.set("parent", parent); }
+		doc.sections.push_back(s);
+	};
+	add("root", "");
+	add("mid", "root");
+	add("leaf", "mid");
+	add("other", "");
+
+	// a plain, well-formed move: leaf under other
+	CHECK(canReparentWidget(doc, "leaf", "other"));
+	// to root is always allowed for a real child
+	CHECK(canReparentWidget(doc, "mid", ""));
+	// a widget cannot parent itself
+	CHECK_FALSE(canReparentWidget(doc, "mid", "mid"));
+	// a widget cannot move under its OWN descendant (would form a cycle)
+	CHECK_FALSE(canReparentWidget(doc, "root", "mid"));
+	CHECK_FALSE(canReparentWidget(doc, "root", "leaf"));
+	CHECK_FALSE(canReparentWidget(doc, "mid", "leaf"));
+	// a missing child or a missing (non-root) parent is refused
+	CHECK_FALSE(canReparentWidget(doc, "nope", "root"));
+	CHECK_FALSE(canReparentWidget(doc, "leaf", "ghost"));
+}
+
+TEST_CASE("ui-edit: reparentWidget sets the parent key and keeps the on-screen rect",
+	"[unit][uiedit]")
+{
+	// a friendly-form widget moving from the full-surface root into a smaller panel;
+	// its resolved rect must not jump. Old parent = the full surface, new parent =
+	// the panel's rect.
+	const LayoutRect oldParent{ 0, 0, 1000, 800 };
+	const LayoutRect newParent{ 200, 150, 400, 300 };
+	const float scale = 1.0f;
+
+	GuiLayoutDoc doc;
+	GuiLayoutSection panel; panel.type = "DecorWidget"; panel.id = "panel";
+	doc.sections.push_back(panel);
+	GuiLayoutSection w; w.type = "DecorWidget"; w.id = "w";
+	w.set("anchor", "topleft"); w.set("anchoredPos", "120 100");
+	w.set("sizeDelta", "160 60");
+	doc.sections.push_back(w);
+
+	const LayoutRect before =
+		resolveSection(sectionById(doc, "w"), oldParent, scale);
+	std::string err;
+	REQUIRE(reparentWidget(doc, "w", "panel", oldParent, newParent, scale, err));
+	CHECK(err.empty());
+	// the parent key is now set
+	REQUIRE(sectionById(doc, "w").find("parent") != nullptr);
+	CHECK(*sectionById(doc, "w").find("parent") == "panel");
+	// the on-screen rect is unchanged (resolved against the NEW parent now)
+	const LayoutRect after =
+		resolveSection(sectionById(doc, "w"), newParent, scale);
+	CHECK_THAT(after.x, WithinAbs(before.x, 1e-2f));
+	CHECK_THAT(after.y, WithinAbs(before.y, 1e-2f));
+	CHECK_THAT(after.w, WithinAbs(before.w, 1e-2f));
+	CHECK_THAT(after.h, WithinAbs(before.h, 1e-2f));
+
+	// reparent back to root clears the key and again keeps the rect
+	REQUIRE(reparentWidget(doc, "w", "", newParent, oldParent, scale, err));
+	CHECK(sectionById(doc, "w").find("parent") == nullptr);
+	const LayoutRect back =
+		resolveSection(sectionById(doc, "w"), oldParent, scale);
+	CHECK_THAT(back.x, WithinAbs(before.x, 1e-2f));
+	CHECK_THAT(back.y, WithinAbs(before.y, 1e-2f));
+
+	// an absolute-mode widget shifts its position by the parent-origin delta
+	GuiLayoutSection abs; abs.type = "Label"; abs.id = "abs";
+	abs.set("position", "300 250"); abs.set("size", "80 30");
+	doc.sections.push_back(abs);
+	REQUIRE(reparentWidget(doc, "abs", "panel", oldParent, newParent, scale, err));
+	REQUIRE(sectionById(doc, "abs").find("position") != nullptr);
+	// on-screen x was 300; under the new parent origin 200 it must read 100
+	float px = 0.0f, py = 0.0f;
+	{
+		std::istringstream in(*sectionById(doc, "abs").find("position"));
+		in >> px >> py;
+	}
+	CHECK_THAT(px, WithinAbs(100.0f, 1e-2f));
+	CHECK_THAT(py, WithinAbs(100.0f, 1e-2f));
+
+	// a cycle attempt refuses and changes nothing
+	REQUIRE(reparentWidget(doc, "panel", "", oldParent, oldParent, scale, err));
+	// panel now root; moving panel under its child w should be refused
+	// (re-parent w under panel first)
+	REQUIRE(reparentWidget(doc, "w", "panel", oldParent, newParent, scale, err));
+	std::string cerr;
+	CHECK_FALSE(reparentWidget(doc, "panel", "w", newParent, newParent, scale, cerr));
+	CHECK_FALSE(cerr.empty());
+	CHECK(sectionById(doc, "panel").find("parent") == nullptr);	// unchanged
 }
 
 TEST_CASE("ui-edit: rename a widget rewrites its children's parent refs and "
