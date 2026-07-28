@@ -112,6 +112,26 @@ TEST_CASE("ui-edit: handle picking - corners beat edges, interior is a move",
 	CHECK(handleAt(r, 500, 500, grab) == UiHandle::None);
 }
 
+TEST_CASE("ui-edit: handle picking on a rect smaller than the grab tolerance "
+	"resolves to the NEAREST edge", "[unit][uiedit]")
+{
+	// a widget whose screen height (4) is under the grab tolerance (6): the
+	// pointer at the bottom-right corner is within grab of BOTH vertical edges,
+	// and the fixed corner priority used to answer TopRight - the outward
+	// resize then collapsed the height to zero. Nearest-edge disambiguation
+	// keeps the corner the pointer actually touches.
+	UiRect tiny{ "w", 100, 100, 16, 4 };	// x:100..116 y:100..104
+	const float grab = 6.0f;
+	CHECK(handleAt(tiny, 116, 104, grab) == UiHandle::BottomRight);
+	CHECK(handleAt(tiny, 100, 100, grab) == UiHandle::TopLeft);
+	CHECK(handleAt(tiny, 116, 100, grab) == UiHandle::TopRight);
+	CHECK(handleAt(tiny, 100, 104, grab) == UiHandle::BottomLeft);
+	// both dims tiny: every corner still resolves to itself
+	UiRect dot{ "w", 50, 50, 4, 4 };
+	CHECK(handleAt(dot, 54, 54, grab) == UiHandle::BottomRight);
+	CHECK(handleAt(dot, 50, 50, grab) == UiHandle::TopLeft);
+}
+
 TEST_CASE("ui-edit: geometry mode detection", "[unit][uiedit]")
 {
 	GuiLayoutSection layout;

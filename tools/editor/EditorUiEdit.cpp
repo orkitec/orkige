@@ -159,10 +159,25 @@ namespace OrkigeEditor
 		{
 			return UiHandle::None;
 		}
-		const bool nearL = std::fabs(px - left) <= grab;
-		const bool nearR = std::fabs(px - right) <= grab;
-		const bool nearT = std::fabs(py - top) <= grab;
-		const bool nearB = std::fabs(py - bottom) <= grab;
+		bool nearL = std::fabs(px - left) <= grab;
+		bool nearR = std::fabs(px - right) <= grab;
+		bool nearT = std::fabs(py - top) <= grab;
+		bool nearB = std::fabs(py - bottom) <= grab;
+		// a rect SMALLER than the grab tolerance puts the pointer near BOTH
+		// opposite edges at once - keep only the NEARER one, else the fixed
+		// corner priority below grabs the far corner (pressing the bottom-right
+		// of a tiny widget read as TopRight, and the outward drag collapsed the
+		// height to zero)
+		if(nearL && nearR)
+		{
+			if(std::fabs(px - left) <= std::fabs(px - right)) { nearR = false; }
+			else { nearL = false; }
+		}
+		if(nearT && nearB)
+		{
+			if(std::fabs(py - top) <= std::fabs(py - bottom)) { nearB = false; }
+			else { nearT = false; }
+		}
 		// corners beat edges
 		if(nearL && nearT) { return UiHandle::TopLeft; }
 		if(nearR && nearT) { return UiHandle::TopRight; }

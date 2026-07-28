@@ -6274,33 +6274,43 @@ int main(int argc, char** argv)
 				};
 				// press point (udGripX/Y) = a widget's bottom-right resize grip;
 				// release point (udTargX/Y) = an OUTWARD drag that stays inside the
-				// canvas image; capture the pre-resize box + anchor
+				// canvas image; capture the pre-resize box + anchor. The drag length
+				// is fixed in SURFACE units (mapped through the canvas scale), so
+				// the DOCUMENT mutation is identical on every canvas size - a fixed
+				// screen-pixel drag on a small (CI 1x) canvas resolved to a surface
+				// delta big enough to smear earlier-case widgets over the later
+				// cases' click targets, flipping the hit test's honest verdict
 				auto computeResize = [&](std::string const& id) -> bool
 				{
 					Orkige::LayoutRect r;
 					if (!surfRect(id, r)) { return false; }
 					toScreen(r.x + r.w, r.y + r.h, udGripX, udGripY);
+					toScreen(r.x + r.w + 60.0f, r.y + r.h + 60.0f,
+						udTargX, udTargY);
 					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
 					const float imgR = d.canvasImageX + d.canvasDrawW;
 					const float imgB = d.canvasImageY + d.canvasDrawH;
-					udTargX = std::min(udGripX + 45.0f, imgR - 4.0f);
-					udTargY = std::min(udGripY + 45.0f, imgB - 4.0f);
+					udTargX = std::min(udTargX, imgR - 4.0f);
+					udTargY = std::min(udTargY, imgB - 4.0f);
 					udBeforeW = r.w; udBeforeH = r.h;
 					udBeforeAnchor = anchorOf(id);
 					return true;
 				};
 				// press point = a widget's centre (body), release point = an outward
-				// drag (a move); capture the pre-move anchoredPos
+				// drag (a move); capture the pre-move anchoredPos. Surface-relative
+				// drag length, same rationale as computeResize above.
 				auto computeMove = [&](std::string const& id) -> bool
 				{
 					Orkige::LayoutRect r;
 					if (!surfRect(id, r)) { return false; }
 					toScreen(r.x + r.w * 0.5f, r.y + r.h * 0.5f, udGripX, udGripY);
+					toScreen(r.x + r.w * 0.5f + 60.0f, r.y + r.h * 0.5f + 60.0f,
+						udTargX, udTargY);
 					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
 					const float imgR = d.canvasImageX + d.canvasDrawW;
 					const float imgB = d.canvasImageY + d.canvasDrawH;
-					udTargX = std::min(udGripX + 45.0f, imgR - 4.0f);
-					udTargY = std::min(udGripY + 45.0f, imgB - 4.0f);
+					udTargX = std::min(udTargX, imgR - 4.0f);
+					udTargY = std::min(udTargY, imgB - 4.0f);
 					udBeforeX = 0.0f; udBeforeY = 0.0f;
 					anchoredPosOf(id, udBeforeX, udBeforeY);
 					return true;
@@ -6564,6 +6574,15 @@ int main(int argc, char** argv)
 						Orkige::LayoutRect a;
 						const bool grew = surfRect(udFreshId, a) &&
 							a.w > udBeforeW + 2.0f && a.h > udBeforeH + 2.0f;
+						if (!grew)
+						{
+							SDL_Log("uidrag diag case4: id=%s sel=%s box=%.1fx%.1f "
+								"before=%.1fx%.1f grip=%.1f,%.1f targ=%.1f,%.1f",
+								udFreshId.c_str(),
+								OrkigeEditor::uiEditorDebug().selected.c_str(),
+								a.w, a.h, udBeforeW, udBeforeH,
+								udGripX, udGripY, udTargX, udTargY);
+						}
 						if (udSettle(114, grew,
 							"case4: fresh-label resize did not grow the box"))
 						{
