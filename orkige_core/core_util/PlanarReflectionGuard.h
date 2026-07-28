@@ -13,7 +13,9 @@ namespace Orkige
 {
 	//! @brief pure one-shot guard that suppresses the next-backend's nested
 	//! planar-reflection workspace update for exactly ONE frame after the
-	//! window compositor workspace is (re)built.
+	//! window compositor workspace is (re)built OR the reflection subsystem
+	//! itself stands up (both create GPU-side workspace state whose first
+	//! nested use must not share the creating frame).
 	//! @remarks The next backend renders the mirror-of-scene planar water
 	//! reflection by nesting a workspace _update from inside the WINDOW
 	//! workspace's preUpdate (@see PlanarReflectionUpdater), which culls against

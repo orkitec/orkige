@@ -1494,6 +1494,17 @@ namespace Orkige
 			Breadcrumbs::getSingleton().record("planar",
 				"reflection subsystem up (RTT allocated)");
 		}
+		// the subsystem stands up at a scene-load boundary, in the SAME loop
+		// iteration whose renderOneFrame would otherwise drive the FIRST nested
+		// mirror update - the freshly created reflection workspace/RTT gets its
+		// first nested use with NO completed frame between creation and use, and
+		// the Windows software-Vulkan driver faults inside that first update
+		// (the breadcrumb trail named the phase: "first mirror render begin",
+		// never "done"; allocation itself completed). Arm the one-shot skip so
+		// one full frame passes between stand-up and the first nested update -
+		// the same one-frame-of-stale-mirror cost the rebuild path already pays,
+		// invisible at a scene switch.
+		gPlanarReflectionGuard.noteWorkspaceRebuilt();
 	}
 	//---------------------------------------------------------
 	void RenderBackend::noteWaterMaterialPlanarReflective(String const & name,
