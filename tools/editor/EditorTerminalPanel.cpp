@@ -34,6 +34,7 @@
 #include <functional>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <thread>
@@ -720,6 +721,20 @@ namespace OrkigeEditor
 			return 77;
 		}
 
+		// diagnostics: total bytes ever read + the first bytes seen, so a CI
+		// failure names its tier - zero bytes = pipe plumbing, bytes without the
+		// expected text = parsing/screen (dumped escaped on the failing check)
+		std::size_t totalRead = 0;
+		std::string firstBytes;
+		auto noteRead = [&](char const* data, std::size_t n)
+		{
+			totalRead += n;
+			if (firstBytes.size() < 300)
+			{
+				firstBytes.append(data,
+					std::min(n, static_cast<std::size_t>(300 - firstBytes.size())));
+			}
+		};
 		// pump child output into the screen for up to `ms` milliseconds
 		auto pump = [&](int ms)
 		{
@@ -730,6 +745,7 @@ namespace OrkigeEditor
 				const std::size_t n = pty->read(buf.data(), buf.size());
 				if (n > 0)
 				{
+					noteRead(buf.data(), n);
 					screen.write(buf.data(), n);
 				}
 				else
@@ -750,6 +766,7 @@ namespace OrkigeEditor
 				const std::size_t n = pty->read(buf.data(), buf.size());
 				if (n > 0)
 				{
+					noteRead(buf.data(), n);
 					screen.write(buf.data(), n);
 				}
 				if (done())
@@ -804,12 +821,35 @@ namespace OrkigeEditor
 		pty->write(std::string("TYPEDWORD") +
 			encodeTermKey(TermKey::Enter, {}));	// "TYPEDWORD\r"
 	#endif
-		check(pumpUntil(5000, [&]
+		const bool echoed = pumpUntil(5000, [&]
 			{
 				return screen.dumpVisible().find("TYPEDWORD")
 					!= std::string::npos;
-			}),
-			"typed input echoes back through the grid");
+			});
+		if (!echoed)
+		{
+			// name the failure tier: no bytes at all vs bytes without the text
+			std::string escaped;
+			for (char c : firstBytes)
+			{
+				if (c >= 32 && c < 127)
+				{
+					escaped.push_back(c);
+				}
+				else
+				{
+					char hex[8];
+					std::snprintf(hex, sizeof(hex), "\\x%02x",
+						static_cast<unsigned char>(c));
+					escaped += hex;
+				}
+			}
+			SDL_Log("terminal-test diag: totalRead=%zu firstBytes=[%s]",
+				totalRead, escaped.c_str());
+			SDL_Log("terminal-test diag: visible=[%.240s]",
+				screen.dumpVisible().c_str());
+		}
+		check(echoed, "typed input echoes back through the grid");
 
 		// 3) a control code ends the filter, then the shell exits
 	#if !defined(_WIN32)
