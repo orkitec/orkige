@@ -424,6 +424,24 @@ namespace Orkige
 		//! never per-frame spam.
 		bool gPlanarSecondUpdateLogged = false;
 
+		//! @brief count of REAL (non-skipped) nested mirror renders on the current
+		//! subsystem instance. Reset alongside the first/second markers. A crumb is
+		//! dropped every 64th render so a mid-tour death names how DEEP into steady
+		//! state it fell (the trail otherwise dead-ends at "second mirror render
+		//! done" no matter how many hundreds of frames followed) - bounded to a
+		//! handful of crumbs per vignette, never per-frame spam.
+		unsigned long long gPlanarRenderCount = 0;
+
+		//! @brief false until the FIRST guard skip that lands AFTER steady state was
+		//! entered (i.e. after the second real render). In the steady state the
+		//! guard is provably never armed - a skip here means a window-workspace
+		//! rebuild (or a subsystem re-stand) re-armed it mid-tour, the
+		//! rebuild-interplay shape. One crumb, so a recurrence shows whether a
+		//! post-steady skip preceded the death (reviving the interplay hypothesis)
+		//! or the death is a plain deep steady-state render. Reset alongside the
+		//! other per-instance markers.
+		bool gPlanarPostSteadySkipLogged = false;
+
 		//--- geometric water swell (vertex-stage displacement) ------------
 		//! the world-space swell frequency + phase rate BOTH flavors' water
 		//! vertex stages share (the classic program pushes the same numbers
@@ -1483,6 +1501,8 @@ namespace Orkige
 		// hard crash names whether death fell inside it. @see gPlanarFirstUpdateLogged
 		gPlanarFirstUpdateLogged = false;
 		gPlanarSecondUpdateLogged = false;
+		gPlanarRenderCount = 0;
+		gPlanarPostSteadySkipLogged = false;
 		if(Breadcrumbs::getSingletonPtr())
 		{
 			Breadcrumbs::getSingleton().record("planar",
@@ -1656,6 +1676,21 @@ namespace Orkige
 		{
 			oDebugMsg("render", 0, "planar reflection: skipping the nested "
 				"mirror update for one frame after a window-workspace rebuild");
+			// crash-survivable trail: the guard is provably never armed in the
+			// steady state (a rebuild is a scene-switch/config event, not a
+			// per-frame one), so the FIRST skip that lands AFTER steady-state entry
+			// means a mid-tour rebuild re-armed it - the rebuild-interplay shape. A
+			// one-shot crumb so a recurrence shows whether a post-steady skip
+			// preceded the death (interplay) rather than a plain deep-steady render.
+			if(gPlanarSecondUpdateLogged && !gPlanarPostSteadySkipLogged)
+			{
+				gPlanarPostSteadySkipLogged = true;
+				if(Breadcrumbs::getSingletonPtr())
+				{
+					Breadcrumbs::getSingleton().record("planar",
+						"mirror update skipped post-steady (guard armed)");
+				}
+			}
 			return;
 		}
 		// begin the reflection frame, then update against the window camera: the
@@ -1678,6 +1713,18 @@ namespace Orkige
 		}
 		gPlanarReflections->beginFrame();
 		gPlanarReflections->update(camera, camera->getAspectRatio());
+		// crash-survivable trail: a completed mirror render is counted, and every
+		// 64th one drops a crumb. The first/second markers bound steady-state
+		// ENTRY but say nothing about how deep a mid-tour death fell past it - this
+		// paces the trail through the whole vignette (a handful of crumbs, never
+		// per-frame spam), so a recurrence's last "mirror render #N" names the
+		// depth. Reset with the subsystem (@see gPlanarRenderCount).
+		++gPlanarRenderCount;
+		if((gPlanarRenderCount % 64ull) == 0ull && Breadcrumbs::getSingletonPtr())
+		{
+			Breadcrumbs::getSingleton().record("planar",
+				"mirror render #" + std::to_string(gPlanarRenderCount));
+		}
 		if(logFirstUpdate)
 		{
 			gPlanarFirstUpdateLogged = true;
@@ -1777,6 +1824,8 @@ namespace Orkige
 		// gPlanarSecondUpdateLogged)
 		gPlanarFirstUpdateLogged = false;
 		gPlanarSecondUpdateLogged = false;
+		gPlanarRenderCount = 0;
+		gPlanarPostSteadySkipLogged = false;
 		gPlanarReflectionPlaneY = 0.0f;
 		gPlanarReflectionHalfX = 0.0f;
 		gPlanarReflectionHalfZ = 0.0f;
