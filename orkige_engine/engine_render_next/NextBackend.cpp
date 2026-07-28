@@ -1720,7 +1720,13 @@ namespace Orkige
 		// per-frame spam), so a recurrence's last "mirror render #N" names the
 		// depth. Reset with the subsystem (@see gPlanarRenderCount).
 		++gPlanarRenderCount;
-		if((gPlanarRenderCount % 64ull) == 0ull && Breadcrumbs::getSingletonPtr())
+		// the first handful of renders crumb INDIVIDUALLY: two CI trails have
+		// now died between render #2 and #64 with the second render carrying a
+		// multi-second first-use pipeline-compile stall - the suspect is a
+		// further cold shader-variant compile in the renders right after it,
+		// so the exact early index is the discriminating evidence
+		if((gPlanarRenderCount <= 8ull || (gPlanarRenderCount % 64ull) == 0ull)
+			&& Breadcrumbs::getSingletonPtr())
 		{
 			Breadcrumbs::getSingleton().record("planar",
 				"mirror render #" + std::to_string(gPlanarRenderCount));
