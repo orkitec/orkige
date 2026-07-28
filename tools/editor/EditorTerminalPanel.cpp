@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <functional>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -737,6 +738,31 @@ namespace OrkigeEditor
 				}
 			}
 		};
+		// pump until `done()` holds, up to `maxMs` - CONDITION-driven so a cold
+		// shell on a slow CI runner (conhost spin-up easily beats a fixed window)
+		// gets its full budget, while a fast one moves on immediately
+		auto pumpUntil = [&](int maxMs, std::function<bool()> done) -> bool
+		{
+			const auto deadline = steady_clock::now() + milliseconds(maxMs);
+			std::vector<char> buf(4096);
+			while (steady_clock::now() < deadline)
+			{
+				const std::size_t n = pty->read(buf.data(), buf.size());
+				if (n > 0)
+				{
+					screen.write(buf.data(), n);
+				}
+				if (done())
+				{
+					return true;
+				}
+				if (n == 0)
+				{
+					std::this_thread::sleep_for(milliseconds(5));
+				}
+			}
+			return done();
+		};
 
 		// let the shell reach its first prompt
 		pump(400);
@@ -744,9 +770,10 @@ namespace OrkigeEditor
 	#if !defined(_WIN32)
 		// 1) colour + text: a printed SGR sequence lands in the grid as red text
 		pty->write("printf '\\033[31mREDWORD\\033[0m\\r\\n'\n");
-		pump(500);
-		const std::string dumpAfterColor = screen.dumpVisible();
-		check(dumpAfterColor.find("REDWORD") != std::string::npos,
+		check(pumpUntil(5000, [&]
+			{
+				return screen.dumpVisible().find("REDWORD") != std::string::npos;
+			}),
 			"printed text reaches the grid");
 		bool sawRed = false;
 		for (int r = 0; r < 24 && !sawRed; ++r)
@@ -777,9 +804,11 @@ namespace OrkigeEditor
 		pty->write(std::string("TYPEDWORD") +
 			encodeTermKey(TermKey::Enter, {}));	// "TYPEDWORD\r"
 	#endif
-		pump(500);
-		const std::string dumpAfterType = screen.dumpVisible();
-		check(dumpAfterType.find("TYPEDWORD") != std::string::npos,
+		check(pumpUntil(5000, [&]
+			{
+				return screen.dumpVisible().find("TYPEDWORD")
+					!= std::string::npos;
+			}),
 			"typed input echoes back through the grid");
 
 		// 3) a control code ends the filter, then the shell exits
@@ -797,12 +826,19 @@ namespace OrkigeEditor
 
 		// 4) the child dies (poll, then assert). Keep draining output while we
 		// wait - a shell blocked writing to a full pty buffer would never reach
-		// its own exit() if nobody reads.
+		// its own exit() if nobody reads. Drained bytes still flow into the
+		// screen: late echoes must land in the grid, not vanish into a void
+		// buffer (a cold cmd.exe echoed AFTER the old fixed window and the
+		// discard drain made a working round trip read as an echo failure).
 		bool died = false;
 		std::vector<char> drain(4096);
 		for (int i = 0; i < 200; ++i)	// up to ~2s
 		{
-			pty->read(drain.data(), drain.size());
+			const std::size_t dn = pty->read(drain.data(), drain.size());
+			if (dn > 0)
+			{
+				screen.write(drain.data(), dn);
+			}
 			if (!pty->isAlive())
 			{
 				died = true;
