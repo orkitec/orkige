@@ -77,10 +77,16 @@ namespace
 		bool	closeRequested = false;	//!< an alive session queued for confirm
 
 		// app-aware window title: the last OSC title + the last polled foreground
-		// process name; either can be empty. terminalTabLabel() composes them.
+		// process name; either can be empty. terminalSessionTabLabel() composes
+		// the tab label from the STICKY classification below plus these signals.
 		std::string	vtTitle;
 		std::string	procName;
 		std::chrono::steady_clock::time_point lastProcPoll{};
+		// STICKY per-session agent classification: set from process name AND
+		// title, held across status-ticker title flips until the foreground
+		// reverts to a shell (terminalUpdateStickyAgent). The live title becomes
+		// the tab tooltip, never the classified tab's label.
+		TerminalAgent	stickyAgent = TerminalAgent::None;
 
 		// linear selection in ABSOLUTE-line coords (scrollback + visible)
 		bool	selecting = false;
@@ -495,6 +501,11 @@ namespace
 			s.procName = s.pty->foregroundProcessName();
 			s.lastProcPoll = now;
 		}
+		// STICKY classification off BOTH signals: once a session is a known agent
+		// it stays that agent (a status-ticker title cannot declassify it) until
+		// the foreground process reverts to a shell.
+		s.stickyAgent = terminalUpdateStickyAgent(s.stickyAgent, s.procName,
+			s.vtTitle);
 		return gotOutput;
 	}
 
@@ -754,13 +765,17 @@ namespace
 		std::string const& mcpUrl, std::string const& mcpTokenFile)
 	{
 		TerminalPanelState& p = panel();
-		const TerminalTabLabel label = terminalTabLabel(s.vtTitle, s.procName,
-			index + 1);
+		const TerminalTabLabel label = terminalSessionTabLabel(s.stickyAgent,
+			s.vtTitle, s.procName, index + 1);
 		// "<glyph> <name>###terminal<uid>": the stable ###id keeps the window +
 		// docking identity while the VISIBLE part (badge + tenant name) updates
-		// live as the title/process changes.
+		// live. A CLASSIFIED agent shows a STABLE badge + canonical name; the
+		// live status-ticker title rides the tab TOOLTIP instead (below).
 		const std::string windowId = leadingGlyph(label) + " " + label.text +
 			"###terminal" + std::to_string(s.uid);
+		// the live VT title, filtered to what the UI font can render (a leading
+		// sparkle the font lacks would draw '?') - shown as the tab's tooltip.
+		const std::string tabTooltip = terminalFilterRenderable(s.vtTitle);
 
 		// first-appearance dock into the shared bottom node (beside Console/
 		// Assets/Source Control), retried until the target node resolves; later
@@ -792,6 +807,13 @@ namespace
 
 		bool open = s.open;
 		const bool shown = ImGui::Begin(windowId.c_str(), &open);
+		// right after Begin the "last item" is this window's dock TAB (or title
+		// bar) - so a tooltip here shows the live status-ticker title on hover
+		// while the tab label itself stays the stable badge + canonical name.
+		if (!tabTooltip.empty())
+		{
+			ImGui::SetItemTooltip("%s", tabTooltip.c_str());
+		}
 		const ImGuiID dockId = ImGui::GetWindowDockID();
 		if (dockId != 0)
 		{
@@ -1007,8 +1029,9 @@ void drawTerminalPanel(EditorState& state, ViewSettings& viewSettings,
 		}
 		if (pending != nullptr)
 		{
-			const TerminalTabLabel label = terminalTabLabel(pending->vtTitle,
-				pending->procName, static_cast<int>(pendingIndex) + 1);
+			const TerminalTabLabel label = terminalSessionTabLabel(
+				pending->stickyAgent, pending->vtTitle, pending->procName,
+				static_cast<int>(pendingIndex) + 1);
 			ImGui::Text("\"%s\" is still running. Close it and terminate the "
 				"process?", label.text.c_str());
 			ImGui::Separator();
@@ -1507,18 +1530,45 @@ namespace OrkigeEditor
 			check(b.dumpVisible().find("AAA") == std::string::npos,
 				"session B grid is independent of A");
 
-			// an OSC title fed to session B is detected as the agent label; A,
-			// with no title, falls back to its numbered terminal label
+			// an OSC title fed to session B classifies it as the Claude agent; A,
+			// with no title, falls back to its numbered terminal label. The
+			// classification is STICKY per session (process name AND title).
 			b.write("\x1b]0;claude\x07");
-			const TerminalTabLabel labelB = terminalTabLabel(b.getTitle(), "", 2);
-			check(labelB.text == "claude" &&
+			TerminalAgent stickyB = terminalUpdateStickyAgent(
+				TerminalAgent::None, "claude", b.getTitle());
+			const TerminalTabLabel labelB =
+				terminalSessionTabLabel(stickyB, b.getTitle(), "claude", 2);
+			check(labelB.text == "Claude" &&
 				labelB.glyph == TerminalGlyphClass::Agent &&
 				labelB.agent == TerminalAgent::Claude,
-				"session B window title detects the Claude agent from its OSC title");
+				"session B classifies as the Claude agent (badge + canonical name)");
 			// the specific agent drives a specific PUA badge codepoint
 			check(terminalAgentBadgeCodepoint(labelB.agent) == 0xE000u,
 				"the Claude tenant maps to its generated badge codepoint");
-			const TerminalTabLabel labelA = terminalTabLabel(a.getTitle(), "", 1);
+
+			// claude drives its window title as a live STATUS TICKER whose
+			// leading sparkle the UI font lacks. The classified tab LABEL must
+			// stay the stable badge + "Claude" (never the ticker); the ticker
+			// rides the tab TOOLTIP with the un-renderable codepoints filtered
+			// out (nothing, not a '?').
+			b.write("\x1b]0;\xe2\x9c\xb3 Check open file\x07");
+			stickyB = terminalUpdateStickyAgent(stickyB, "claude", b.getTitle());
+			const TerminalTabLabel tickerLabel =
+				terminalSessionTabLabel(stickyB, b.getTitle(), "claude", 2);
+			check(tickerLabel.text == "Claude" &&
+				tickerLabel.agent == TerminalAgent::Claude &&
+				tickerLabel.glyph == TerminalGlyphClass::Agent,
+				"a status-ticker title leaves the classified tab label at Claude");
+			check(terminalFilterRenderable(b.getTitle()) == "Check open file",
+				"the ticker tooltip strips the un-renderable leading sparkle");
+			// when claude exits the foreground reverts to the shell -> declassify
+			const TerminalAgent afterExit =
+				terminalUpdateStickyAgent(stickyB, "fish", "fish");
+			check(afterExit == TerminalAgent::None,
+				"the agent exiting (shell back in front) declassifies the session");
+
+			const TerminalTabLabel labelA =
+				terminalSessionTabLabel(TerminalAgent::None, a.getTitle(), "", 1);
 			check(labelA.text == "Terminal 1" &&
 				labelA.glyph == TerminalGlyphClass::Terminal &&
 				labelA.agent == TerminalAgent::None,

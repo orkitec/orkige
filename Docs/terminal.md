@@ -42,26 +42,45 @@ sibling tabs a click apart:
 
 ## App-aware window titles
 
-A window's tab shows **what is running** inside it, from two signals — the title
-wins:
+A window's tab shows **what is running** inside it, from two signals:
 
 - the **terminal title** the running program sets over an OSC sequence
   (`ESC ] 0 ; text BEL` / `ESC ] 2 ; text ST`) — shells (a login `fish`) and
   TUIs (`claude`, `vim`) announce themselves this way. It is surfaced through
   `EditorTerminalScreen::getTitle()` (a plain string; the VT library type never
   leaves the `.cpp`);
-- the **foreground process name** as a fallback, polled at ~1 Hz (never per
-  frame): the pty's `tcgetpgrp` foreground group leader, named via libproc on
-  macOS and `/proc/<pid>/comm` on Linux. Windows returns nothing here (the title
-  covers the agent TUIs); the shell's own path is the floor.
+- the **foreground process name**, polled at ~1 Hz (never per frame): the pty's
+  `tcgetpgrp` foreground group leader, named via libproc on macOS and
+  `/proc/<pid>/comm` on Linux. Windows returns nothing here (the title covers the
+  agent TUIs); the shell's own path is the floor.
 
-The title behind a stable `###terminal<id>` (so a relabel keeps the window +
-docking identity while the visible part updates live) is a **cleaned** title: a
-path or a path-prefixed command line is trimmed to its leading app word
-(`/Users/me/dev/orkige` → `orkige`, `/opt/homebrew/bin/fish -l` → `fish`), a
-plain title passes through verbatim, and with neither signal the tab reads
-`Terminal N`. Because a dock-tab title renders in the default UI font (which
-carries the icon/badge glyphs), it identifies its tenant crisply.
+**Agent classification is sticky per session.** A session classifies as a
+recognised agent from EITHER signal — the foreground process name (a prefix
+match) OR the title (a whole-word match, so `raider` never reads as `aider`).
+Once classified it STAYS that agent until the foreground process reverts to a
+shell (the agent exited): a live **status-ticker title** (an agent that streams
+task summaries into its window title, e.g. `✳ Check open file`) can never
+declassify it. `terminalUpdateStickyAgent` is the pure transition; the panel
+holds the state per session.
+
+The tab label follows from that:
+
+- a **classified agent** session shows a STABLE label — the agent's badge glyph
+  plus its CANONICAL display name (`Claude`, `Codex`, …), never the moving
+  ticker. The live VT title rides the tab's **tooltip** instead (hover to read
+  `Check open file`); tooltip text is filtered to codepoints the UI font can
+  render — a leading sparkle the font lacks is dropped, not shown as `?`;
+- an **unclassified** session keeps the plain-terminal behaviour: a **cleaned**
+  title (a path or path-prefixed command line trimmed to its leading app word —
+  `/Users/me/dev/orkige` → `orkige`, `/opt/homebrew/bin/fish -l` → `fish`; a
+  plain title verbatim), else the cleaned foreground process name, else
+  `Terminal N`. Un-renderable symbols are stripped from that text too, so no tab
+  ever leads with a `?` tofu box.
+
+The label sits behind a stable `###terminal<id>` (so a relabel keeps the window
++ docking identity while the visible part updates live). Because a dock-tab title
+renders in the default UI font (which carries the icon/badge glyphs), it
+identifies its tenant crisply.
 
 ### Agent badges
 
@@ -202,10 +221,15 @@ never stalls. Closing a window or quitting the editor terminates the child.
 
 - `EditorTerminalScreenTests` / `EditorTerminalKeysTests` /
   `EditorTerminalSessionTests` (unit): the last covers title cleaning, the agent
-  classifier, tab-label composition, the post-close active index, the mouse→cell
-  hit test, the glyph codepoints falling in the icon atlas ranges, and the agent
-  badges (distinct private-use codepoints, non-black signature tints, the mark
-  stroke counts, and badge pixels that are non-empty, tinted and deterministic).
+  classifier, tab-label composition, the STICKY classification transitions
+  (shell→agent via process or title, status-ticker titles never declassify, an
+  agent exit reverting to a shell), the sticky tab-label rule (badge + canonical
+  name while classified), the un-renderable codepoint filter (the sparkle-ticker
+  tooltip and the no-tab-leads-with-`?` strip), the post-close active index, the
+  mouse→cell hit test, the glyph codepoints falling in the icon atlas ranges, and
+  the agent badges (distinct private-use codepoints, non-black signature tints,
+  the mark stroke counts, and badge pixels that are non-empty, tinted and
+  deterministic).
 - `editor_terminal` selfcheck (both flavors, and Windows CI via ConPTY): spawns
   a real pty running a scripted echo, asserts the grid seam (printed text + SGR
   colour reach the cells), types a known word through the input seam and asserts
@@ -216,9 +240,11 @@ never stalls. Closing a window or quitting the editor terminates the child.
   answered), the **font coverage** (the mono atlas bakes box drawing, block,
   arrows, geometric shapes, ellipsis, the merged braille spinner and the six
   agent-badge private-use glyphs) and the **multiple-session** seam (two
-  independent grids, an OSC title on session B detected as the Claude agent with
-  its badge codepoint, and a close that kills one child and shrinks the list),
-  then closes and asserts the child died. Skips (exit 77) where no pty/shell is
+  independent grids, an OSC title on session B classified as the Claude agent
+  with its badge codepoint, a status-ticker title left leaving the label at
+  `Claude` while the tooltip carries the filtered ticker, the agent exit
+  declassifying the session, and a close that kills one child and shrinks the
+  list), then closes and asserts the child died. Skips (exit 77) where no pty/shell is
   available; individual legs skip honestly where SDL video, a system mono font or
   a second pty is absent.
 

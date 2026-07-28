@@ -59,6 +59,56 @@ namespace OrkigeEditor
 	//! table classifyTerminalApp() uses. Pure.
 	TerminalAgent terminalAgentOf(std::string const& name);
 
+	//! @brief classify a raw VT/OSC TITLE into a specific agent by looking for a
+	//! known agent name as the title's leading word OR anywhere in it as a whole
+	//! word (case-insensitive, with a boundary check so "raider" never matches
+	//! "aider"). None when no agent word is present. This is the broader,
+	//! title-side classifier: an agent that announces itself in its window title
+	//! ("Claude Code", "claude - /path") classifies even before the foreground
+	//! process name is first polled, and on a platform with no foreground-process
+	//! signal. Pure.
+	TerminalAgent terminalAgentInTitle(std::string const& title);
+
+	//! @brief the CANONICAL display name of a recognised agent ("Claude",
+	//! "Codex", ...) - the STABLE tab-label text a classified session shows,
+	//! never the live status-ticker title the agent streams into the VT title.
+	//! Empty for None. Pure.
+	std::string terminalAgentDisplayName(TerminalAgent agent);
+
+	//! @brief the STICKY per-session agent classification transition. Given the
+	//! session's @p current classification and this frame's two signals (the
+	//! polled foreground @p processName and the live @p vtTitle), returns the new
+	//! sticky classification:
+	//!   - a foreground process that IS a known agent (re)classifies to it - the
+	//!     authoritative signal;
+	//!   - a foreground process that is a plain shell / other program (a non-empty
+	//!     name that is not an agent) means the agent EXITED - declassify to None;
+	//!   - with NO usable process signal (empty name - before the first poll, or a
+	//!     platform without one) a session already classified STAYS put (a
+	//!     status-ticker title must never declassify it), and an unclassified one
+	//!     may classify from the title alone.
+	//! So a shell -> `claude` -> status-ticker titles -> `claude` exits sequence
+	//! classifies to Claude and holds there until the foreground reverts to the
+	//! shell. Pure.
+	TerminalAgent terminalUpdateStickyAgent(TerminalAgent current,
+		std::string const& processName, std::string const& vtTitle);
+
+	//! @brief whether a Unicode codepoint is one the default UI text font is
+	//! expected to carry: false for C0/C1 control codes and the symbol / emoji /
+	//! dingbat ranges a text UI font lacks (which would draw a '?' tofu box), true
+	//! for ordinary text. A conservative, font-independent heuristic (the tooltip
+	//! and the tab-label leading strip run purely, with no ImGui atlas). Pure.
+	bool terminalIsRenderableSymbol(std::uint32_t cp);
+
+	//! @brief filter a raw UTF-8 title down to what the UI font can render:
+	//! codepoints failing terminalIsRenderableSymbol() are DROPPED (never
+	//! replaced with '?'), and the result is trimmed. So a status-ticker title
+	//! like "✳ Check open file" (whose leading sparkle the UI font lacks)
+	//! becomes "Check open file". Used for the tab TOOLTIP and to strip
+	//! un-renderable leading symbols from an unclassified session's tab label so
+	//! no tab ever leads with a tofu box. Pure.
+	std::string terminalFilterRenderable(std::string const& utf8);
+
 	//! @brief the PRIVATE-USE codepoint (U+E000 + ordinal) whose atlas glyph is
 	//! the agent's generated badge. 0 for None. Pure.
 	std::uint32_t terminalAgentBadgeCodepoint(TerminalAgent agent);
@@ -138,6 +188,19 @@ namespace OrkigeEditor
 	//! that sets a descriptive title still gets it from that title). Pure.
 	TerminalTabLabel terminalTabLabel(std::string const& vtTitle,
 		std::string const& processName, int index1Based);
+
+	//! @brief compose a session's tab label from its STICKY classification (see
+	//! terminalUpdateStickyAgent) plus the two live signals. When @p stickyAgent
+	//! is a recognised agent the label is STABLE: the agent's PUA badge glyph +
+	//! its CANONICAL display name ("Claude", ...) - never the live status-ticker
+	//! title the agent streams into its VT title. Otherwise it is the unclassified
+	//! composition (cleaned title, else cleaned process name, else "Terminal N"),
+	//! with un-renderable symbols stripped from the chosen text so no tab ever
+	//! leads with a '?' tofu box. This is the composition the panel uses; the
+	//! live VT title becomes the tab TOOLTIP (via terminalFilterRenderable). Pure.
+	TerminalTabLabel terminalSessionTabLabel(TerminalAgent stickyAgent,
+		std::string const& vtTitle, std::string const& processName,
+		int index1Based);
 
 	//! @brief which list index is active after closing one tab. Given a list of
 	//! @p count sessions, the index @p closedIndex being removed and the current

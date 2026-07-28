@@ -290,3 +290,151 @@ TEST_CASE("terminal agent badge pixels are non-empty, tinted and deterministic",
 	// a non-positive size yields no pixels
 	CHECK(terminalAgentBadgePixels(TerminalAgent::Claude, 0).empty());
 }
+
+TEST_CASE("terminal title classifier matches agent names as whole words",
+	"[unit][editor][terminal]")
+{
+	// a leading agent word (with or without trailing decoration) classifies
+	CHECK(terminalAgentInTitle("claude") == TerminalAgent::Claude);
+	CHECK(terminalAgentInTitle("Claude Code") == TerminalAgent::Claude);
+	CHECK(terminalAgentInTitle("claude - /Users/me/dev") == TerminalAgent::Claude);
+	// an agent word anywhere in the title (still a whole word)
+	CHECK(terminalAgentInTitle("running codex now") == TerminalAgent::Codex);
+	// a status ticker with no agent word does NOT classify
+	CHECK(terminalAgentInTitle("Check open file") == TerminalAgent::None);
+	CHECK(terminalAgentInTitle("") == TerminalAgent::None);
+	// the boundary check: "raider" must not match "aider", "gemini" only whole
+	CHECK(terminalAgentInTitle("raider quest") == TerminalAgent::None);
+	CHECK(terminalAgentInTitle("codexample") == TerminalAgent::None);
+}
+
+TEST_CASE("terminal agent canonical display names",
+	"[unit][editor][terminal]")
+{
+	CHECK(terminalAgentDisplayName(TerminalAgent::Claude) == "Claude");
+	CHECK(terminalAgentDisplayName(TerminalAgent::Codex) == "Codex");
+	CHECK(terminalAgentDisplayName(TerminalAgent::Opencode) == "OpenCode");
+	CHECK(terminalAgentDisplayName(TerminalAgent::Aider) == "Aider");
+	CHECK(terminalAgentDisplayName(TerminalAgent::Gemini) == "Gemini");
+	CHECK(terminalAgentDisplayName(TerminalAgent::Generic) == "Agent");
+	CHECK(terminalAgentDisplayName(TerminalAgent::None).empty());
+}
+
+TEST_CASE("terminal sticky classification: process is authoritative",
+	"[unit][editor][terminal]")
+{
+	// a shell foreground never classifies
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::None, "fish", "") ==
+		TerminalAgent::None);
+	// launching claude (the foreground process) classifies the session
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::None, "claude", "") ==
+		TerminalAgent::Claude);
+	// a versioned foreground name still classifies (prefix)
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::None, "claude-1.2", "") ==
+		TerminalAgent::Claude);
+}
+
+TEST_CASE("terminal sticky classification: status-ticker titles never declassify",
+	"[unit][editor][terminal]")
+{
+	// classified as Claude, the foreground process is still claude, the title is
+	// now a status ticker with no agent word - it STAYS Claude
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::Claude, "claude",
+		"\xe2\x9c\xb3 Check open file") == TerminalAgent::Claude);
+	// even if the process poll is momentarily empty (before the next poll), a
+	// ticker title must not flip the classification off
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::Claude, "",
+		"Compacting conversation") == TerminalAgent::Claude);
+}
+
+TEST_CASE("terminal sticky classification: title classifies without a process signal",
+	"[unit][editor][terminal]")
+{
+	// no foreground-process signal (empty - a platform without one, or before the
+	// first poll): an announce-in-title agent classifies from the title alone
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::None, "", "Claude Code") ==
+		TerminalAgent::Claude);
+	// but a plain shell title does not
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::None, "", "~/dev/orkige") ==
+		TerminalAgent::None);
+}
+
+TEST_CASE("terminal sticky classification: an agent exit reverts to a shell",
+	"[unit][editor][terminal]")
+{
+	// claude was classified; it exits and the foreground reverts to the login
+	// shell -> the non-agent process name declassifies the session
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::Claude, "fish", "fish") ==
+		TerminalAgent::None);
+	// a full-path shell foreground also declassifies (cleaned to the app word)
+	CHECK(terminalUpdateStickyAgent(TerminalAgent::Codex, "/bin/zsh", "") ==
+		TerminalAgent::None);
+}
+
+TEST_CASE("terminal sticky tab label: classified shows badge + canonical name",
+	"[unit][editor][terminal]")
+{
+	// a classified session's label is the STABLE canonical name + agent glyph,
+	// regardless of the live status-ticker title the agent streams
+	{
+		const TerminalTabLabel l = terminalSessionTabLabel(TerminalAgent::Claude,
+			"\xe2\x9c\xb3 Check open file", "claude", 1);
+		CHECK(l.text == "Claude");
+		CHECK(l.glyph == TerminalGlyphClass::Agent);
+		CHECK(l.agent == TerminalAgent::Claude);
+	}
+	{
+		const TerminalTabLabel l = terminalSessionTabLabel(TerminalAgent::Codex,
+			"building...", "codex", 2);
+		CHECK(l.text == "Codex");
+		CHECK(l.agent == TerminalAgent::Codex);
+	}
+	// unclassified: today's title-then-process-then-numbered composition
+	{
+		const TerminalTabLabel l = terminalSessionTabLabel(TerminalAgent::None,
+			"/Users/me/dev/orkige", "fish", 1);
+		CHECK(l.text == "orkige");
+		CHECK(l.glyph == TerminalGlyphClass::Terminal);
+		CHECK(l.agent == TerminalAgent::None);
+	}
+	{
+		const TerminalTabLabel l = terminalSessionTabLabel(TerminalAgent::None,
+			"", "", 3);
+		CHECK(l.text == "Terminal 3");
+	}
+}
+
+TEST_CASE("terminal renderable-symbol filter drops what the UI font lacks",
+	"[unit][editor][terminal]")
+{
+	// ordinary text is renderable
+	CHECK(terminalIsRenderableSymbol('A'));
+	CHECK(terminalIsRenderableSymbol(0x00e9));	// e-acute
+	// control codes and the symbol/dingbat/emoji ranges are not
+	CHECK_FALSE(terminalIsRenderableSymbol(0x1b));	// ESC
+	CHECK_FALSE(terminalIsRenderableSymbol(0x2733));	// eight-spoked asterisk
+	CHECK_FALSE(terminalIsRenderableSymbol(0x2728));	// sparkles
+	CHECK_FALSE(terminalIsRenderableSymbol(0x1f680));	// rocket emoji
+
+	// the sparkle status ticker filters down to plain text, leading symbol gone
+	CHECK(terminalFilterRenderable("\xe2\x9c\xb3 Check open file") ==
+		"Check open file");
+	// an all-symbol title filters to empty (the caller falls back)
+	CHECK(terminalFilterRenderable("\xe2\x9c\xb3\xe2\x9c\xa8").empty());
+	// plain text passes through unchanged (and trimmed)
+	CHECK(terminalFilterRenderable("  npm run build  ") == "npm run build");
+	// an interior emoji is dropped, the surrounding text kept
+	CHECK(terminalFilterRenderable("done \xf0\x9f\x9a\x80 shipping") ==
+		"done  shipping");
+}
+
+TEST_CASE("terminal sticky tab label never leads with a tofu box",
+	"[unit][editor][terminal]")
+{
+	// an unclassified session whose title leads with an un-renderable symbol has
+	// it stripped, so the tab never leads with a '?'
+	const TerminalTabLabel l = terminalSessionTabLabel(TerminalAgent::None,
+		"\xe2\x9c\xb3 my task", "", 1);
+	CHECK(l.text == "my task");
+	CHECK(l.glyph == TerminalGlyphClass::Terminal);
+}

@@ -60,6 +60,79 @@ namespace OrkigeEditor
 			const std::size_t slash = p.find_last_of('/');
 			return slash == std::string::npos ? p : p.substr(slash + 1);
 		}
+
+		bool isAsciiWordChar(unsigned char c)
+		{
+			return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
+				(c >= 'A' && c <= 'Z');
+		}
+
+		//! decode the codepoint starting at byte @p i of @p s, advancing @p i past
+		//! it. Malformed bytes decode as their single byte value so nothing is
+		//! silently swallowed. Header-free UTF-8 walk (this file stays library-free).
+		std::uint32_t decodeCodepointAt(std::string const& s, std::size_t& i)
+		{
+			const unsigned char b0 = static_cast<unsigned char>(s[i]);
+			auto cont = [&](std::size_t k) -> std::uint32_t
+			{
+				return (i + k < s.size())
+					? (static_cast<unsigned char>(s[i + k]) & 0x3fu) : 0u;
+			};
+			if (b0 < 0x80)
+			{
+				i += 1;
+				return b0;
+			}
+			if ((b0 & 0xe0) == 0xc0 && i + 1 < s.size())
+			{
+				const std::uint32_t cp = ((b0 & 0x1fu) << 6) | cont(1);
+				i += 2;
+				return cp;
+			}
+			if ((b0 & 0xf0) == 0xe0 && i + 2 < s.size())
+			{
+				const std::uint32_t cp =
+					((b0 & 0x0fu) << 12) | (cont(1) << 6) | cont(2);
+				i += 3;
+				return cp;
+			}
+			if ((b0 & 0xf8) == 0xf0 && i + 3 < s.size())
+			{
+				const std::uint32_t cp = ((b0 & 0x07u) << 18) |
+					(cont(1) << 12) | (cont(2) << 6) | cont(3);
+				i += 4;
+				return cp;
+			}
+			i += 1;
+			return b0;
+		}
+
+		//! append @p cp to @p out as UTF-8 (header-free, mirrors encodeUtf8)
+		void appendUtf8(std::string& out, std::uint32_t cp)
+		{
+			if (cp <= 0x7f)
+			{
+				out.push_back(static_cast<char>(cp));
+			}
+			else if (cp <= 0x7ff)
+			{
+				out.push_back(static_cast<char>(0xc0 | (cp >> 6)));
+				out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
+			}
+			else if (cp <= 0xffff)
+			{
+				out.push_back(static_cast<char>(0xe0 | (cp >> 12)));
+				out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3f)));
+				out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
+			}
+			else if (cp <= 0x10ffff)
+			{
+				out.push_back(static_cast<char>(0xf0 | (cp >> 18)));
+				out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3f)));
+				out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3f)));
+				out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
+			}
+		}
 	}
 
 	std::string terminalCleanTitle(std::string const& raw)
@@ -142,6 +215,169 @@ namespace OrkigeEditor
 			out.glyph = TerminalGlyphClass::Agent;
 		}
 
+		if (!title.empty())
+		{
+			out.text = title;
+		}
+		else if (!proc.empty())
+		{
+			out.text = proc;
+		}
+		else
+		{
+			out.text = "Terminal " + std::to_string(index1Based);
+		}
+		return out;
+	}
+
+	TerminalAgent terminalAgentInTitle(std::string const& title)
+	{
+		const std::string lower = toLower(title);
+		const int count = static_cast<int>(
+			sizeof(kAgentNames) / sizeof(kAgentNames[0]));
+		for (int i = 0; i < count; ++i)
+		{
+			const std::string a(kAgentNames[i]);
+			std::size_t from = 0;
+			for (;;)
+			{
+				const std::size_t at = lower.find(a, from);
+				if (at == std::string::npos)
+				{
+					break;
+				}
+				// a whole-word (or leading) hit only, so "raider" never matches
+				// "aider" and a status ticker mentioning no agent stays clean
+				const bool leftBoundary = (at == 0) ||
+					!isAsciiWordChar(static_cast<unsigned char>(lower[at - 1]));
+				const std::size_t end = at + a.size();
+				const bool rightBoundary = (end >= lower.size()) ||
+					!isAsciiWordChar(static_cast<unsigned char>(lower[end]));
+				if (leftBoundary && rightBoundary)
+				{
+					return static_cast<TerminalAgent>(i);
+				}
+				from = at + 1;
+			}
+		}
+		return TerminalAgent::None;
+	}
+
+	std::string terminalAgentDisplayName(TerminalAgent agent)
+	{
+		switch (agent)
+		{
+		case TerminalAgent::Claude:		return "Claude";
+		case TerminalAgent::Codex:		return "Codex";
+		case TerminalAgent::Opencode:	return "OpenCode";
+		case TerminalAgent::Aider:		return "Aider";
+		case TerminalAgent::Gemini:		return "Gemini";
+		case TerminalAgent::Generic:	return "Agent";
+		default:						return std::string();
+		}
+	}
+
+	TerminalAgent terminalUpdateStickyAgent(TerminalAgent current,
+		std::string const& processName, std::string const& vtTitle)
+	{
+		// the foreground process is the authoritative signal: a known agent
+		// (re)classifies the session to it.
+		const std::string proc = terminalCleanTitle(processName);
+		const TerminalAgent procAgent = terminalAgentOf(proc);
+		if (procAgent != TerminalAgent::None)
+		{
+			return procAgent;
+		}
+		// a non-empty, non-agent foreground process means the shell is back in
+		// front (the agent exited) - declassify.
+		if (!proc.empty())
+		{
+			return TerminalAgent::None;
+		}
+		// no usable process signal (empty - before the first poll, or a platform
+		// without one): a classified session STAYS put (a status-ticker title
+		// must not declassify it); an unclassified one may classify from the
+		// title alone (the announce-in-title / no-process-signal path).
+		if (current != TerminalAgent::None && current != TerminalAgent::Count)
+		{
+			return current;
+		}
+		return terminalAgentInTitle(vtTitle);
+	}
+
+	bool terminalIsRenderableSymbol(std::uint32_t cp)
+	{
+		// C0 / DEL / C1 control codes never render as text
+		if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f))
+		{
+			return false;
+		}
+		// the symbol / emoji / dingbat blocks a plain text UI font does not carry
+		// (it would draw a '?' tofu box). Ordinary text, punctuation, accented
+		// Latin, CJK and the like fall through as renderable.
+		if (cp >= 0x2190 && cp <= 0x21ff)	return false;	// Arrows
+		if (cp >= 0x2300 && cp <= 0x23ff)	return false;	// Misc Technical
+		if (cp >= 0x2500 && cp <= 0x25ff)	return false;	// Box / Block / Shapes
+		if (cp >= 0x2600 && cp <= 0x26ff)	return false;	// Misc Symbols
+		if (cp >= 0x2700 && cp <= 0x27bf)	return false;	// Dingbats (the sparkle)
+		if (cp >= 0x2b00 && cp <= 0x2bff)	return false;	// Misc Symbols & Arrows
+		if (cp >= 0x2800 && cp <= 0x28ff)	return false;	// Braille (spinners)
+		if (cp >= 0xfe00 && cp <= 0xfe0f)	return false;	// Variation selectors
+		if (cp == 0x200d || cp == 0xfeff)	return false;	// ZWJ / BOM
+		if (cp >= 0x1f000 && cp <= 0x1faff)	return false;	// Emoji / pictographs
+		return true;
+	}
+
+	std::string terminalFilterRenderable(std::string const& utf8)
+	{
+		std::string kept;
+		kept.reserve(utf8.size());
+		std::size_t i = 0;
+		while (i < utf8.size())
+		{
+			const std::uint32_t cp = decodeCodepointAt(utf8, i);
+			if (terminalIsRenderableSymbol(cp))
+			{
+				appendUtf8(kept, cp);
+			}
+		}
+		// trim the whitespace a dropped leading symbol leaves behind
+		std::size_t b = 0;
+		std::size_t e = kept.size();
+		while (b < e && isSpace(kept[b]))
+		{
+			++b;
+		}
+		while (e > b && isSpace(kept[e - 1]))
+		{
+			--e;
+		}
+		return kept.substr(b, e - b);
+	}
+
+	TerminalTabLabel terminalSessionTabLabel(TerminalAgent stickyAgent,
+		std::string const& vtTitle, std::string const& processName,
+		int index1Based)
+	{
+		TerminalTabLabel out;
+		// a classified session shows a STABLE badge + canonical name - never the
+		// live status-ticker title the agent streams into its VT title.
+		if (stickyAgent != TerminalAgent::None &&
+			stickyAgent != TerminalAgent::Count)
+		{
+			out.agent = stickyAgent;
+			out.glyph = TerminalGlyphClass::Agent;
+			out.text = terminalAgentDisplayName(stickyAgent);
+			return out;
+		}
+		// unclassified: today's title-then-process-then-numbered composition,
+		// with un-renderable symbols stripped so no tab leads with a '?' box
+		const std::string title = terminalFilterRenderable(
+			terminalCleanTitle(vtTitle));
+		const std::string proc = terminalFilterRenderable(
+			terminalCleanTitle(processName));
+		out.agent = TerminalAgent::None;
+		out.glyph = TerminalGlyphClass::Terminal;
 		if (!title.empty())
 		{
 			out.text = title;
