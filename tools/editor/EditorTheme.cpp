@@ -9,12 +9,17 @@
 // EditorTheme - macOS-inspired ImGui style, light and dark (see header).
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorTheme.h"
+#include "EditorTerminalSession.h"
 #include "IconsFontAwesome6.h"
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cfloat>
+#include <cstddef>
+#include <cstring>
 #include <filesystem>
+#include <vector>
 
 namespace Orkige
 {
@@ -715,6 +720,83 @@ namespace Orkige
 	float editorIconFontRasterPixels()
 	{
 		return gIconFontLargePixels;
+	}
+	//---------------------------------------------------------
+	void bakeTerminalAgentBadges(ImGuiIO& io, float uiFontPixels)
+	{
+		if (io.Fonts->Fonts.empty())
+		{
+			return; // no base UI font - nothing to attach the badge glyphs to
+		}
+		ImFontAtlas* atlas = io.Fonts;
+		ImFont* uiFont = atlas->Fonts[0];	// the base UI font (dock-tab titles)
+
+		// a square badge cell sized to the UI glyph metrics so an agent tab lines
+		// up with the icon-font tabs; a small negative Y offset sits it near cap
+		// height beside the text.
+		const int cell = std::max(8, static_cast<int>(uiFontPixels + 0.5f));
+		const float advance = uiFontPixels * 1.05f;
+		const float offsetY = -uiFontPixels * 0.12f;
+
+		// (1) reserve one custom rect per recognised agent BEFORE the atlas builds
+		ImFontAtlasRectId rectIds[static_cast<int>(
+			OrkigeEditor::TerminalAgent::Count)];
+		OrkigeEditor::TerminalAgent agents[] = {
+			OrkigeEditor::TerminalAgent::Claude,
+			OrkigeEditor::TerminalAgent::Codex,
+			OrkigeEditor::TerminalAgent::Opencode,
+			OrkigeEditor::TerminalAgent::Aider,
+			OrkigeEditor::TerminalAgent::Gemini,
+			OrkigeEditor::TerminalAgent::Generic,
+		};
+		const int agentCount =
+			static_cast<int>(sizeof(agents) / sizeof(agents[0]));
+		for (int i = 0; i < agentCount; ++i)
+		{
+			const unsigned int cp =
+				OrkigeEditor::terminalAgentBadgeCodepoint(agents[i]);
+			rectIds[i] = atlas->AddCustomRectFontGlyph(uiFont,
+				static_cast<ImWchar>(cp), cell, cell, advance,
+				ImVec2(0.0f, offsetY));
+		}
+
+		// (2) force the build + packing, then GENERATE + blit each badge into its
+		// packed rect. GetTexDataAsRGBA32 caches the built buffer, so the renderer's
+		// later call returns this same (now badge-filled) atlas for upload.
+		unsigned char* pixels = nullptr;
+		int atlasW = 0;
+		int atlasH = 0;
+		atlas->GetTexDataAsRGBA32(&pixels, &atlasW, &atlasH);
+		if (pixels == nullptr || atlasW <= 0 || atlasH <= 0)
+		{
+			return;
+		}
+		for (int i = 0; i < agentCount; ++i)
+		{
+			const ImFontAtlasRect* rect =
+				atlas->GetCustomRectByIndex(rectIds[i]);
+			if (rect == nullptr || rect->w == 0 || rect->h == 0)
+			{
+				continue;
+			}
+			const int size = std::min(static_cast<int>(rect->w),
+				static_cast<int>(rect->h));
+			const std::vector<unsigned char> badge =
+				OrkigeEditor::terminalAgentBadgePixels(agents[i], size);
+			if (badge.empty())
+			{
+				continue;
+			}
+			for (int y = 0; y < size; ++y)
+			{
+				unsigned char* dst = pixels +
+					(static_cast<std::size_t>(rect->y + y) * atlasW +
+						rect->x) * 4;
+				const unsigned char* src =
+					badge.data() + static_cast<std::size_t>(y) * size * 4;
+				std::memcpy(dst, src, static_cast<std::size_t>(size) * 4);
+			}
+		}
 	}
 	//---------------------------------------------------------
 	bool compactCheckbox(const char* label, bool* value)

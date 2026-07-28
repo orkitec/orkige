@@ -10,14 +10,17 @@
 #define __EditorTerminalPanel_h__28_7_2026__12_00_00__
 
 //! @file EditorTerminalPanel.h
-//! @brief the dockable "Terminal" panel: a real pseudo-terminal (the OS pty
+//! @brief the editor's embedded terminals: a real pseudo-terminal (the OS pty
 //! backend, EditorTerminalPty) rendered as a mono-font character grid (the VT
 //! model EditorTerminalScreen) with keyboard input (the pure encoder
-//! EditorTerminalKeys). It spawns the user's LOGIN shell so a bundled .app's
-//! skinny PATH still resolves git/claude, and when the editor's MCP endpoint is
-//! live it seeds the session's environment with the connection material and
-//! shows the ready-made `claude mcp add ...` line, so an agent started inside is
-//! one paste from controlling the very editor it lives in.
+//! EditorTerminalKeys). Each session is its OWN dockable ImGui window, sibling
+//! tabs in the bottom dock group (the one-window-per-open-file pattern the code
+//! editor uses), so a session's title rides the default UI font that carries the
+//! terminal/robot icon glyphs. It spawns the user's LOGIN shell so a bundled
+//! .app's skinny PATH still resolves git/claude, and when the editor's MCP
+//! endpoint is live it seeds the session's environment with the connection
+//! material and offers the ready-made `claude mcp add ...` line, so an agent
+//! started inside is one paste from controlling the very editor it lives in.
 //!
 //! DELIBERATELY NOT exposed over MCP: a headless agent spawning shells in the
 //! editor UI is out of scope (and a laundering path). The terminal is a human
@@ -36,16 +39,30 @@ namespace OrkigeEditor
 	class EditorTerminalScreen;
 }
 
-//! @brief draw the Terminal panel. `mcpUrl` / `mcpTokenFile` carry the live MCP
+//! @brief draw the editor's terminal windows (one dockable window per session).
+//! Called EVERY frame (zero sessions draws nothing) so every backgrounded
+//! session keeps draining its pty. `mcpUrl` / `mcpTokenFile` carry the live MCP
 //! endpoint (empty when the editor was launched without --mcp-port): non-empty
-//! seeds ORKIGE_MCP_URL / ORKIGE_MCP_TOKEN_FILE into the spawned shell AND shows
+//! seeds ORKIGE_MCP_URL / ORKIGE_MCP_TOKEN_FILE into the spawned shell AND offers
 //! the connect-command hint; empty means no env and no hint (honest silence).
-//! Never spawns a shell during automated runs.
+//! `panelOpen` is the panel-registry "Terminal" flag: it MIRRORS "at least one
+//! terminal window is open" - turning it on (View ▸ Terminal) with no sessions
+//! spawns one, and the last window closing clears it. Never spawns a shell during
+//! automated runs.
 void drawTerminalPanel(EditorState& state, ViewSettings& viewSettings,
-	std::string const& mcpUrl, std::string const& mcpTokenFile, bool* visible);
+	std::string const& mcpUrl, std::string const& mcpTokenFile, bool* panelOpen);
 
 namespace OrkigeEditor
 {
+	//! @brief request a new terminal session (View ▸ New Terminal / the in-window
+	//! "+"). The session is spawned by the next drawTerminalPanel, which owns the
+	//! project cwd + MCP env; the caller also turns the panel flag on so the
+	//! window is drawn. Safe to call from a menu callback between frames.
+	void terminalPanelRequestNewSession();
+
+	//! @brief the number of live terminal sessions (test/inspection hook).
+	int terminalPanelSessionCount();
+
 	//! @brief terminate any live terminal child and release the session. Called
 	//! at editor shutdown so a running shell never outlives the editor.
 	void terminalPanelShutdown();

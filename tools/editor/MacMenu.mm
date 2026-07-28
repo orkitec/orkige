@@ -51,6 +51,7 @@ namespace
 		TAG_HELP_PORTAL,			//!< Help > Orkige Help (the doc portal)
 		TAG_ROTATION_EULER,			//!< View > Rotation Display > Euler Angles
 		TAG_ROTATION_QUAT,			//!< View > Rotation Display > Quaternion
+		TAG_NEW_TERMINAL,			//!< View > New Terminal (spawns a session)
 		TAG_PANEL_BASE = 100
 	};
 
@@ -152,6 +153,7 @@ namespace
 	case TAG_CREATE_TEST_MESH:	action = &gActions.createTestMesh; break;
 	case TAG_CREATE_PREFAB:		action = &gActions.createPrefab; break;
 	case TAG_RESET_LAYOUT:		action = &gActions.resetLayout; break;
+	case TAG_NEW_TERMINAL:		action = &gActions.newTerminal; break;
 	case TAG_VIEW_SETTINGS:		action = &gActions.viewSettings; break;
 	case TAG_PROJECT_SETTINGS:	action = &gActions.projectSettings; break;
 	case TAG_HELP_PORTAL:		action = &gActions.helpPortal; break;
@@ -499,6 +501,7 @@ namespace Orkige
 				EDITOR_PANEL_REGISTRY[panel].defaultVisible
 					? NSControlStateValueOn : NSControlStateValueOff];
 		}
+		addItem(viewMenu, @"New Terminal", TAG_NEW_TERMINAL, @"", 0);
 		addItem(viewMenu, @"Reset Layout", TAG_RESET_LAYOUT, @"", 0);
 		[viewMenu addItem:[NSMenuItem separatorItem]];
 		// Rotation Display: how the Inspector shows rotation (Quat) properties

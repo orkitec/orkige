@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace OrkigeEditor
 {
@@ -34,6 +35,68 @@ namespace OrkigeEditor
 		Terminal,
 		Agent
 	};
+
+	//! a recognised terminal-agent CLI, in the fixed order of the classifier's
+	//! name table. Each maps to one PRIVATE-USE codepoint whose glyph is a
+	//! runtime-GENERATED badge (a signature-tinted mark, baked into the default
+	//! UI-font atlas), so a dock-tab title identifies its tenant at a glance.
+	//! `None` = not a recognised agent (the plain terminal glyph). `Generic` is
+	//! the reserved fallback badge for a future recognised-but-unlisted agent.
+	enum class TerminalAgent
+	{
+		None = -1,
+		Claude = 0,
+		Codex,
+		Opencode,
+		Aider,
+		Gemini,
+		Generic,
+		Count
+	};
+
+	//! @brief classify a detected program name into a specific agent (None when
+	//! it is not a recognised agent CLI). Case-insensitive prefix match, the same
+	//! table classifyTerminalApp() uses. Pure.
+	TerminalAgent terminalAgentOf(std::string const& name);
+
+	//! @brief the PRIVATE-USE codepoint (U+E000 + ordinal) whose atlas glyph is
+	//! the agent's generated badge. 0 for None. Pure.
+	std::uint32_t terminalAgentBadgeCodepoint(TerminalAgent agent);
+
+	//! a badge's signature tint (0-255 RGB) - the taste-flagged brand-family
+	//! colour the generated mark carries.
+	struct TerminalBadgeTint
+	{
+		unsigned char r = 0;
+		unsigned char g = 0;
+		unsigned char b = 0;
+	};
+
+	//! @brief the agent badge's signature tint. Pure.
+	TerminalBadgeTint terminalAgentTint(TerminalAgent agent);
+
+	//! @brief the structural stroke count of a generated mark - the radiating
+	//! spokes of the Claude starburst (8) / the interlocking loops of the Codex
+	//! ring (6) / 0 for the letter-monogram badges. Declared beside the generator
+	//! so a unit test asserts the mark's construction parameter, not its pixels.
+	//! Pure.
+	int terminalAgentBadgeStrokeCount(TerminalAgent agent);
+
+	//! @brief generate an agent's badge as a @p size x @p size RGBA8 image
+	//! (row-major, 4 bytes/pixel, straight alpha; transparent where unpainted).
+	//! Pure + deterministic: the same (agent,size) always yields identical bytes.
+	//! Claude renders its coral radiating-asterisk mark, Codex the monochrome
+	//! interlocking-ring mark, and every other agent a signature-tinted rounded
+	//! square carrying the program's initial. Empty when @p size <= 0.
+	//!
+	//! These marks render EXCLUSIVELY to identify the third-party program running
+	//! in a terminal session (nominative identification, the dock-icon precedent,
+	//! owner-directed 2026-07-28); they are never a product logo or used anywhere
+	//! else in the editor or docs. A later runtime vendor-icon discovery could
+	//! replace these pixels (loading an installed app bundle's icon into the same
+	//! atlas rect) with NO call-site change - this generator is the one seam.
+	std::vector<unsigned char> terminalAgentBadgePixels(TerminalAgent agent,
+		int size);
 
 	//! @brief clean a raw window/OSC title into a short tab label. Whitespace is
 	//! trimmed; when the title is a filesystem path or a path-prefixed command
@@ -56,11 +119,14 @@ namespace OrkigeEditor
 	//! EditorTheme icon glyph-range list has ONE table to mirror.
 	std::uint32_t terminalGlyphCodepoint(TerminalGlyphClass glyphClass);
 
-	//! a composed tab label: the display text plus the glyph class to draw.
+	//! a composed tab label: the display text, the glyph class to draw, and -
+	//! when the tenant is a recognised agent - WHICH agent, so the panel draws
+	//! that agent's generated badge glyph rather than the plain robot.
 	struct TerminalTabLabel
 	{
 		std::string			text;
 		TerminalGlyphClass	glyph = TerminalGlyphClass::Terminal;
+		TerminalAgent		agent = TerminalAgent::None;
 	};
 
 	//! @brief compose a session's tab label from the two signals. TITLE WINS:
@@ -80,6 +146,25 @@ namespace OrkigeEditor
 	//! tab when the last was closed). Returns -1 when the list becomes empty.
 	//! Pure.
 	int terminalIndexAfterClose(int count, int closedIndex, int activeIndex);
+
+	//! an absolute grid coordinate: a line index (scrollback below the visible
+	//! grid) and a column. `col` may equal `cols` (a selection END is exclusive,
+	//! so the point just past the last column is a valid stop).
+	struct TerminalGridPoint
+	{
+		int line = 0;
+		int col = 0;
+	};
+
+	//! @brief map a mouse point to the absolute grid cell under it. @p px / @p py
+	//! are the mouse in screen pixels, @p originX / @p originY the screen position
+	//! of absolute line 0, column 0 (already scroll-adjusted). The result is
+	//! CLAMPED so a drag past the grid edges still yields a valid stop: `line` to
+	//! [0, totalLines-1], `col` to [0, cols] (cols inclusive, an exclusive end).
+	//! Pure - the drag-selection hit test the panel and its unit test share, so a
+	//! drag that leaves the visible rows still extends the selection deterministically.
+	TerminalGridPoint terminalCellAtPoint(float px, float py, float originX,
+		float originY, float cellW, float cellH, int cols, int totalLines);
 }
 
 #endif //__EditorTerminalSession_h__28_7_2026__12_00_00__

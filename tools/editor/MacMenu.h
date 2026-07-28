@@ -86,6 +86,8 @@ namespace Orkige
 		std::function<void(std::string const& toolName)> runEditorScript;
 		// View
 		std::function<void(int panel, bool visible)> setPanelVisible;
+		//! View > New Terminal: spawn another embedded terminal session
+		std::function<void()> newTerminal;
 		std::function<void()> resetLayout;
 		std::function<void()> viewSettings;
 		//! View > Rotation Display: show Inspector rotations as Euler (true) or

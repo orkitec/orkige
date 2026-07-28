@@ -6,15 +6,18 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
 ***************************************************************/
-// EditorTerminalPanel.cpp - the dockable Terminal panel: an OS pty (the
+// EditorTerminalPanel.cpp - the editor's embedded terminals: an OS pty (the
 // EditorTerminalPty seam) feeding the libvterm-backed screen model
 // (EditorTerminalScreen), rendered as a mono-font cell grid, with keyboard
-// input encoded by the pure EditorTerminalKeys table. The panel hosts a LIST of
-// sessions, one per in-panel tab, each labelled with what is running inside it
-// (the OSC title, else the pty's foreground process name; a recognised agent CLI
-// gets a robot glyph) via the pure EditorTerminalSession helpers. When the
-// editor's MCP endpoint is live, the spawned shell's environment carries the
-// connection material and a one-line `claude mcp add ...` hint is shown, so an
+// input encoded by the pure EditorTerminalKeys table. Each session is its OWN
+// dockable ImGui window (the code editor's one-window-per-file pattern), sibling
+// tabs in the bottom dock group, each titled with what is running inside it (the
+// OSC title, else the pty's foreground process name; a recognised agent CLI gets
+// its generated badge glyph) via the pure EditorTerminalSession helpers. Because
+// a dock-tab title renders in the DEFAULT UI font (which carries the icon/badge
+// glyphs), the title identifies its tenant crisply. When the editor's MCP
+// endpoint is live, the spawned shell's environment carries the connection
+// material and a compact `claude mcp add ...` copy affordance is offered, so an
 // agent started inside can drive the very editor it lives in.
 //
 // The terminal is DELIBERATELY not an MCP verb: a headless agent spawning UI
@@ -25,7 +28,6 @@
 #include "EditorTerminalScreen.h"
 #include "EditorTerminalKeys.h"
 #include "EditorTerminalSession.h"
-#include "EditorTabMenu.h"
 #include "EditorTheme.h"
 #include "IconsFontAwesome6.h"
 
@@ -70,8 +72,11 @@ namespace
 		std::string	lastError;
 		bool	followTail = true;	//!< keep the view pinned to the newest line
 		int		uid = 0;			//!< stable, monotonic ImGui id suffix
+		bool	open = true;		//!< the session's dock window is open
+		bool	dockAssigned = false;	//!< first-appearance dock done
+		bool	closeRequested = false;	//!< an alive session queued for confirm
 
-		// app-aware tab title: the last OSC title + the last polled foreground
+		// app-aware window title: the last OSC title + the last polled foreground
 		// process name; either can be empty. terminalTabLabel() composes them.
 		std::string	vtTitle;
 		std::string	procName;
@@ -86,17 +91,19 @@ namespace
 		int		headCol = 0;
 	};
 
-	//! the terminal panel's process-static session LIST (v1: not persisted
-	//! across editor runs - a fresh launch starts with one shell). Torn down at
-	//! terminalPanelShutdown().
+	//! the terminals' process-static session LIST - one dockable window each (v1:
+	//! not persisted across editor runs, a fresh launch starts with one shell).
+	//! Torn down at terminalPanelShutdown().
 	struct TerminalPanelState
 	{
 		std::vector<std::unique_ptr<TerminalSession>>	sessions;
-		int		active = 0;			//!< index of the tab whose grid renders
-		int		nextUid = 1;		//!< monotonic id source for stable tab ids
+		int		nextUid = 1;		//!< monotonic id source for stable window ids
 		int		pendingClose = -1;	//!< a live session queued for close-confirm
-		int		lastCols = 80;		//!< last rendered grid size, seeds spawns of
-		int		lastRows = 24;		//!< background tabs never yet made active
+		int		pendingSpawns = 0;	//!< New Terminal requests awaiting a spawn
+		bool	prevPanelOpen = false;	//!< last frame's panel flag (edge detect)
+		int		lastCols = 80;		//!< last rendered grid size, seeds background
+		int		lastRows = 24;		//!< sessions never yet made the frame's front
+		unsigned int	sharedDockId = 0;	//!< the bottom dock node siblings share
 	};
 
 	TerminalPanelState& panel()
@@ -105,10 +112,17 @@ namespace
 		return instance;
 	}
 
-	//! draw glyph for a session's detected app class
-	const char* glyphFor(TerminalGlyphClass glyphClass)
+	//! the leading glyph for a session's window title: a recognised agent draws
+	//! its GENERATED private-use badge (baked into the UI-font atlas), everything
+	//! else the plain terminal glyph. Returned as a UTF-8 string so the badge
+	//! codepoint composes with the title text.
+	std::string leadingGlyph(TerminalTabLabel const& label)
 	{
-		return glyphClass == TerminalGlyphClass::Agent
+		if (label.agent != TerminalAgent::None)
+		{
+			return encodeUtf8(terminalAgentBadgeCodepoint(label.agent));
+		}
+		return label.glyph == TerminalGlyphClass::Agent
 			? ICON_FA_ROBOT : ICON_FA_TERMINAL;
 	}
 
@@ -485,18 +499,17 @@ namespace
 	}
 
 	//! append a fresh, not-yet-spawned session (spawned lazily once a grid size
-	//! is known) and make it the active tab
+	//! is known); its window auto-focuses on first appearance
 	TerminalSession& addSession()
 	{
 		TerminalPanelState& p = panel();
 		auto s = std::make_unique<TerminalSession>();
 		s->uid = p.nextUid++;
 		p.sessions.push_back(std::move(s));
-		p.active = static_cast<int>(p.sessions.size()) - 1;
 		return *p.sessions.back();
 	}
 
-	//! terminate + drop the session at `index`, fixing the active index
+	//! terminate + drop the session at `index`
 	void closeSession(int index)
 	{
 		TerminalPanelState& p = panel();
@@ -508,17 +521,11 @@ namespace
 		{
 			p.sessions[index]->pty->terminate();
 		}
-		const int count = static_cast<int>(p.sessions.size());
-		p.active = terminalIndexAfterClose(count, index, p.active);
 		p.sessions.erase(p.sessions.begin() + index);
-		if (p.active < 0)
-		{
-			p.active = 0;
-		}
 	}
 
-	//! render one session's grid + input into the current content region. `s`
-	//! is the ACTIVE session (only its body runs). Sets state.terminalFocused.
+	//! render one session's grid + input into the current window's content
+	//! region. Sets state.terminalFocused when this session's window has focus.
 	void drawSessionGrid(TerminalSession& s, EditorState& state, float cellW,
 		float cellH, bool gotOutput, ImFont* mono)
 	{
@@ -555,15 +562,19 @@ namespace
 
 		const bool panelFocused =
 			ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-		const bool hovered = ImGui::IsWindowHovered();
+		// the screen position of absolute line 0, column 0 (already scroll-
+		// adjusted): the reference the pure mouse->cell hit test maps against, so
+		// a drag that runs past the visible rows still extends the selection
+		const ImVec2 gridOrigin = ImGui::GetCursorScreenPos();
+		const ImVec2 gridMin = ImGui::GetWindowPos();
+		const ImVec2 gridMax(gridMin.x + ImGui::GetWindowSize().x,
+			gridMin.y + ImGui::GetWindowSize().y);
 		const ImVec2 mouse = ImGui::GetMousePos();
 		const TermCursor cur = s.screen->cursor();
 		const int cursorLine = scrollbackCount + cur.row;
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
 		ImFontBaked* fontBaked = ImGui::GetFontBaked();
 		const ImU32 selBg = IM_COL32(60, 90, 140, 255);
-		int hoverLine = -1;
-		int hoverCol = 0;
 
 		ImGuiListClipper clipper;
 		clipper.Begin(totalLines, cellH);
@@ -636,33 +647,43 @@ namespace
 						drawList->AddRect(cMin, cMax, curCol);
 					}
 				}
-				if (hovered && mouse.y >= pos.y && mouse.y < pos.y + cellH)
-				{
-					hoverLine = line;
-					hoverCol = std::max(0, std::min(s.cols,
-						static_cast<int>((mouse.x - pos.x) / cellW)));
-				}
 				ImGui::Dummy(ImVec2(s.cols * cellW, cellH));
 			}
 		}
 		clipper.End();
 
-		// --- selection via mouse drag over the grid ---
-		if (hoverLine >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		// --- selection via mouse drag over the grid -----------------------------
+		// Arm on a press inside the grid rect (IsMouseHoveringRect, not
+		// IsWindowHovered: a held drag gives the child an ActiveId, which makes
+		// IsWindowHovered() report false and silently froze the OLD selection).
+		// Once armed, the head follows the mouse EVERY frame while the button is
+		// held - the pure terminalCellAtPoint clamps a drag past the edges - so a
+		// selection reliably arms for the Cmd/Ctrl copy chord below.
+		const bool overGrid =
+			ImGui::IsMouseHoveringRect(gridMin, gridMax) && ImGui::IsWindowHovered(
+				ImGuiHoveredFlags_ChildWindows |
+				ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+		if (overGrid && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
+			const TerminalGridPoint hit = terminalCellAtPoint(mouse.x, mouse.y,
+				gridOrigin.x, gridOrigin.y, cellW, cellH, s.cols, totalLines);
 			s.selecting = true;
 			s.hasSelection = false;
-			s.anchorLine = hoverLine;
-			s.anchorCol = hoverCol;
-			s.headLine = hoverLine;
-			s.headCol = hoverCol;
+			s.anchorLine = hit.line;
+			s.anchorCol = hit.col;
+			s.headLine = hit.line;
+			s.headCol = hit.col;
 		}
-		else if (s.selecting && hoverLine >= 0 &&
-			ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+		else if (s.selecting && ImGui::IsMouseDown(ImGuiMouseButton_Left))
 		{
-			s.headLine = hoverLine;
-			s.headCol = hoverCol;
-			s.hasSelection = true;
+			const TerminalGridPoint hit = terminalCellAtPoint(mouse.x, mouse.y,
+				gridOrigin.x, gridOrigin.y, cellW, cellH, s.cols, totalLines);
+			s.headLine = hit.line;
+			s.headCol = hit.col;
+			if (s.headLine != s.anchorLine || s.headCol != s.anchorCol)
+			{
+				s.hasSelection = true;
+			}
 		}
 		if (s.selecting && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
 		{
@@ -683,52 +704,212 @@ namespace
 			ImGui::PopFont();
 		}
 
-		state.terminalFocused = panelFocused && !s.exited;
-		if (state.terminalFocused && s.pty)
+		if (panelFocused && !s.exited)
 		{
-			handleTerminalInput(s);
+			// this session's window holds focus: it owns EVERY key (any other
+			// window this frame must not clobber the flag - the caller reset it
+			// to false before the window loop)
+			state.terminalFocused = true;
+			if (s.pty)
+			{
+				handleTerminalInput(s);
+			}
 		}
+	}
+
+	//! the compact MCP connect affordance (only when the endpoint is live): a
+	//! small button that copies the ready-made `claude mcp add ...` line, its
+	//! full text in the tooltip. Drawn in the header row (the default UI font, so
+	//! the robot glyph renders) OUTSIDE the grid's mono-font push.
+	void drawMcpConnectAffordance(std::string const& mcpUrl,
+		std::string const& mcpTokenFile)
+	{
+		if (mcpUrl.empty())
+		{
+			return;
+		}
+		std::string connectCmd =
+			"claude mcp add --transport http orkige " + mcpUrl;
+		if (!mcpTokenFile.empty())
+		{
+			connectCmd += " --header \"Authorization: Bearer "
+				"$(cat \\\"$ORKIGE_MCP_TOKEN_FILE\\\")\"";
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton(ICON_FA_ROBOT " Connect###termMcpCopy"))
+		{
+			ImGui::SetClipboardText(connectCmd.c_str());
+		}
+		ImGui::SetItemTooltip("This editor's MCP endpoint is live in this shell "
+			"(ORKIGE_MCP_URL). Copy the connect command:\n%s", connectCmd.c_str());
+	}
+
+	//! draw ONE session as its own dockable, top-level window (the code-editor
+	//! one-window-per-file pattern). First appearance docks into the shared
+	//! bottom node; the visible title tracks the tenant live behind a stable
+	//! ###id. Toggling `s.open` false (the window x or the tab menu Close) queues
+	//! the session for the caller's confirm-if-alive reap.
+	void drawSessionWindow(TerminalSession& s, int index, EditorState& state,
+		float cellW, float cellH, bool gotOutput, ImFont* mono,
+		std::string const& mcpUrl, std::string const& mcpTokenFile)
+	{
+		TerminalPanelState& p = panel();
+		const TerminalTabLabel label = terminalTabLabel(s.vtTitle, s.procName,
+			index + 1);
+		// "<glyph> <name>###terminal<uid>": the stable ###id keeps the window +
+		// docking identity while the VISIBLE part (badge + tenant name) updates
+		// live as the title/process changes.
+		const std::string windowId = leadingGlyph(label) + " " + label.text +
+			"###terminal" + std::to_string(s.uid);
+
+		// first-appearance dock into the shared bottom node (beside Console/
+		// Assets/Source Control), retried until the target node resolves; later
+		// sessions dock beside the ones already there.
+		if (!s.dockAssigned)
+		{
+			ImGuiID target = p.sharedDockId;
+			if (target == 0)
+			{
+				for (const char* anchorName : { "Console", "Stats",
+					"Assets###Assets", "Debug###Debug",
+					ICON_FA_CODE_BRANCH " Source Control###SourceControl" })
+				{
+					ImGuiWindow* anchor = ImGui::FindWindowByName(anchorName);
+					if (anchor && anchor->DockId != 0)
+					{
+						target = anchor->DockId;
+						break;
+					}
+				}
+			}
+			if (target != 0)
+			{
+				ImGui::SetNextWindowDockID(target, ImGuiCond_Always);
+				s.dockAssigned = true;
+			}
+		}
+		ImGui::SetNextWindowSize(ImVec2(640, 360), ImGuiCond_FirstUseEver);
+
+		bool open = s.open;
+		const bool shown = ImGui::Begin(windowId.c_str(), &open);
+		const ImGuiID dockId = ImGui::GetWindowDockID();
+		if (dockId != 0)
+		{
+			p.sharedDockId = dockId;	// siblings dock beside this one
+		}
+		// the docked-tab right-click menu: spawn another / close this one
+		if (ImGui::BeginPopupContextItem())
+		{
+			if (ImGui::MenuItem("New Terminal"))
+			{
+				++p.pendingSpawns;
+			}
+			if (ImGui::MenuItem("Close"))
+			{
+				open = false;
+			}
+			ImGui::EndPopup();
+		}
+		s.open = open;
+		if (!shown)
+		{
+			ImGui::End();
+			return;
+		}
+
+		// header row (default UI font - the icon/badge glyphs live there): the
+		// "+" new-terminal button, the shell / exited+restart line, the MCP hint
+		if (ImGui::SmallButton("+###termnew"))
+		{
+			++p.pendingSpawns;
+		}
+		ImGui::SetItemTooltip("New terminal");
+		ImGui::SameLine();
+		if (s.spawned && !s.exited)
+		{
+			ImGui::TextColored(ImVec4(0.42f, 0.78f, 0.47f, 1.0f),
+				ICON_FA_TERMINAL);
+			ImGui::SameLine();
+			ImGui::TextDisabled("%s", s.shell.c_str());
+			drawMcpConnectAffordance(mcpUrl, mcpTokenFile);
+		}
+		else if (s.exited)
+		{
+			const std::string exitMsg = s.lastError.empty()
+				? std::string("The shell exited.")
+				: ("Could not start a shell: " + s.lastError);
+			ImGui::TextDisabled("%s", exitMsg.c_str());
+			ImGui::SameLine();
+			if (ImGui::SmallButton(ICON_FA_ROTATE " Restart"))
+			{
+				s.spawned = false;	// a fresh spawn happens next frame
+				s.exited = false;
+				s.hasSelection = false;
+				s.vtTitle.clear();
+				s.procName.clear();
+				s.lastProcPoll = {};
+			}
+		}
+		ImGui::Separator();
+
+		if (s.spawned && s.screen)
+		{
+			drawSessionGrid(s, state, cellW, cellH, gotOutput, mono);
+		}
+		ImGui::End();
 	}
 }
 
 void drawTerminalPanel(EditorState& state, ViewSettings& viewSettings,
-	std::string const& mcpUrl, std::string const& mcpTokenFile, bool* visible)
+	std::string const& mcpUrl, std::string const& mcpTokenFile, bool* panelOpen)
 {
 	(void)viewSettings;
 	TerminalPanelState& p = panel();
-
-	// dock into the bottom group (beside Console/Assets/Debug/Source Control)
-	// the FIRST time the panel appears, so opening it from the View menu tabs in
-	// there rather than floating - mirrors the Source Control panel. FirstUseEver
-	// respects any later move the user makes.
-	for (const char* anchorName : { "Console", "Stats", "Assets###Assets",
-		"Debug###Debug", ICON_FA_CODE_BRANCH " Source Control###SourceControl" })
-	{
-		ImGuiWindow* anchor = ImGui::FindWindowByName(anchorName);
-		if (anchor && anchor->DockId != 0)
-		{
-			ImGui::SetNextWindowDockID(anchor->DockId, ImGuiCond_FirstUseEver);
-			break;
-		}
-	}
-
-	if (!ImGui::Begin(ICON_FA_TERMINAL " Terminal###Terminal", visible))
-	{
-		ImGui::End();
-		return;
-	}
-	OrkigeEditor::editorPanelTabMenu(visible);
 
 	// automated runs never open a shell (the pollution-hygiene rule); the
 	// selfcheck drives the pty seam directly (runTerminalSelfCheck)
 	if (gAutomatedRun)
 	{
-		ImGui::TextDisabled("The terminal is inactive during automated runs.");
 		state.terminalFocused = false;
-		ImGui::End();
+		p.prevPanelOpen = false;
 		return;
 	}
 
+	const bool wantOpen = (panelOpen != nullptr) && *panelOpen;
+	// rising edge (View > Terminal turned on) with no sessions: spawn one
+	if (wantOpen && !p.prevPanelOpen && p.sessions.empty() &&
+		p.pendingSpawns == 0)
+	{
+		p.pendingSpawns = 1;
+	}
+	// falling edge (turned off) with sessions live: request-close them all (each
+	// alive one still asks first, via the reap below)
+	if (!wantOpen && p.prevPanelOpen)
+	{
+		for (auto& s : p.sessions)
+		{
+			s->open = false;
+		}
+	}
+	// consume New Terminal requests (View > New Terminal / the "+" / re-open)
+	while (p.pendingSpawns > 0)
+	{
+		addSession();
+		--p.pendingSpawns;
+	}
+
+	if (p.sessions.empty())
+	{
+		state.terminalFocused = false;
+		if (panelOpen != nullptr)
+		{
+			*panelOpen = false;
+		}
+		p.prevPanelOpen = false;
+		return;
+	}
+
+	// measure one mono cell (the grid's font); works outside any window
 	ImFont* mono = Orkige::editorMonoFont();
 	if (mono != nullptr)
 	{
@@ -741,21 +922,9 @@ void drawTerminalPanel(EditorState& state, ViewSettings& viewSettings,
 		ImGui::PopFont();
 	}
 
-	// at least one session always exists (the first shell); a fresh launch
-	// opens with one - the count is not persisted across editor runs (v1)
-	if (p.sessions.empty())
-	{
-		addSession();
-	}
-	if (p.active < 0 || p.active >= static_cast<int>(p.sessions.size()))
-	{
-		p.active = 0;
-	}
-
-	// EVERY session drains this frame (background agents must keep reading or a
-	// full pty buffer stalls them); only the active one renders below. The
-	// still-unspawned tabs spawn at the last known grid size so a background
-	// "+" tab comes up sized even before it is first shown.
+	// EVERY session drains this frame (a backgrounded agent must keep reading or
+	// a full pty buffer stalls it). A still-unspawned session spawns at the last
+	// known grid size so it comes up sized even before its window is first shown.
 	std::vector<bool> gotOutput(p.sessions.size(), false);
 	for (std::size_t i = 0; i < p.sessions.size(); ++i)
 	{
@@ -767,168 +936,129 @@ void drawTerminalPanel(EditorState& state, ViewSettings& viewSettings,
 		gotOutput[i] = drainSession(s);
 	}
 
-	// --- the MCP connect hint (only when the endpoint is live) ---------------
-	// (global: every session's shell inherits the same ORKIGE_MCP_* env)
-	if (!mcpUrl.empty())
+	// draw each session's window; focus is recomputed from them (reset first so
+	// a non-focused window never clobbers a focused one)
+	state.terminalFocused = false;
+	for (std::size_t i = 0; i < p.sessions.size(); ++i)
 	{
-		std::string connectCmd =
-			"claude mcp add --transport http orkige " + mcpUrl;
-		if (!mcpTokenFile.empty())
-		{
-			connectCmd += " --header \"Authorization: Bearer "
-				"$(cat \\\"$ORKIGE_MCP_TOKEN_FILE\\\")\"";
-		}
-		ImGui::TextDisabled(ICON_FA_ROBOT
-			" This editor's MCP endpoint is live in this shell "
-			"(ORKIGE_MCP_URL). Connect an agent:");
-		ImGui::TextWrapped("%s", connectCmd.c_str());
-		ImGui::SameLine();
-		if (ImGui::SmallButton(ICON_FA_COPY "###termMcpCopy"))
-		{
-			ImGui::SetClipboardText(connectCmd.c_str());
-		}
-		ImGui::SetItemTooltip("Copy the connect command");
+		drawSessionWindow(*p.sessions[i], static_cast<int>(i), state, cellW,
+			cellH, gotOutput[i], mono, mcpUrl, mcpTokenFile);
 	}
 
-	// --- the session tab bar ------------------------------------------------
-	int requestClose = -1;	// a tab whose close (x) was clicked this frame
-	bool requestAdd = false;
-	bool renderedActive = false;
-	if (ImGui::BeginTabBar("##termtabs", ImGuiTabBarFlags_AutoSelectNewTabs |
-		ImGuiTabBarFlags_TabListPopupButton |
-		ImGuiTabBarFlags_FittingPolicyScroll))
+	// --- close reap: a window whose x/menu toggled it closed. A dead session
+	// just goes; an alive one stays visible and queues for the confirm modal
+	// (one at a time, keyed by uid so a concurrent reap never mis-targets it).
+	for (auto it = p.sessions.begin(); it != p.sessions.end();)
 	{
-		for (std::size_t i = 0; i < p.sessions.size(); ++i)
+		TerminalSession& s = **it;
+		if (s.open)
 		{
-			TerminalSession& s = *p.sessions[i];
-			const TerminalTabLabel label = terminalTabLabel(s.vtTitle,
-				s.procName, static_cast<int>(i) + 1);
-			// glyph + text + a stable ###id so a relabel never re-creates the tab
-			std::string tabLabel = std::string(glyphFor(label.glyph)) + " " +
-				label.text + "###term" + std::to_string(s.uid);
-			bool open = true;
-			if (ImGui::BeginTabItem(tabLabel.c_str(), &open,
-				ImGuiTabItemFlags_None))
-			{
-				p.active = static_cast<int>(i);
-				renderedActive = true;
-
-				// per-session header: shell / exited + restart
-				if (s.spawned && !s.exited)
-				{
-					ImGui::TextColored(ImVec4(0.42f, 0.78f, 0.47f, 1.0f),
-						ICON_FA_TERMINAL);
-					ImGui::SameLine();
-					ImGui::TextDisabled("%s", s.shell.c_str());
-				}
-				else if (s.exited)
-				{
-					const std::string exitMsg = s.lastError.empty()
-						? std::string("The shell exited.")
-						: ("Could not start a shell: " + s.lastError);
-					ImGui::TextDisabled("%s", exitMsg.c_str());
-					ImGui::SameLine();
-					if (ImGui::SmallButton(ICON_FA_ROTATE " Restart"))
-					{
-						s.spawned = false;	// a fresh spawn happens next frame
-						s.exited = false;
-						s.hasSelection = false;
-						s.vtTitle.clear();
-						s.procName.clear();
-						s.lastProcPoll = {};
-					}
-				}
-				ImGui::Separator();
-
-				if (s.spawned && s.screen)
-				{
-					drawSessionGrid(s, state, cellW, cellH,
-						gotOutput[i], mono);
-				}
-				else
-				{
-					state.terminalFocused = false;
-				}
-				ImGui::EndTabItem();
-			}
-			if (!open)
-			{
-				requestClose = static_cast<int>(i);
-			}
+			++it;
+			continue;
 		}
-		// the "+" new-session control (a trailing tab button)
-		if (ImGui::TabItemButton("+###termadd",
-			ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
-		{
-			requestAdd = true;
-		}
-		ImGui::SetItemTooltip("New terminal session");
-		ImGui::EndTabBar();
-	}
-	if (!renderedActive)
-	{
-		// no tab body ran this frame (e.g. the panel is collapsed to just the
-		// tab bar): the pty must not be left holding the editor's shortcuts
-		state.terminalFocused = false;
-	}
-
-	// --- close handling (deferred until after the tab bar) ------------------
-	// closing a tab whose child is still alive asks first; a dead one just goes.
-	if (requestClose >= 0 && requestClose < static_cast<int>(p.sessions.size()))
-	{
-		TerminalSession& s = *p.sessions[requestClose];
 		const bool alive = s.pty && s.pty->isAlive() && !s.exited;
 		if (alive)
 		{
-			p.pendingClose = requestClose;
-			ImGui::OpenPopup("Close terminal?###termclose");
+			s.open = true;			// stays visible while we ask
+			s.closeRequested = true;
+			++it;
 		}
 		else
 		{
-			closeSession(requestClose);
+			if (s.pty)
+			{
+				s.pty->terminate();
+			}
+			it = p.sessions.erase(it);
 		}
+	}
+	// promote a queued alive-close into the single confirm modal (by uid)
+	if (p.pendingClose < 0)
+	{
+		for (auto& s : p.sessions)
+		{
+			if (s->closeRequested)
+			{
+				p.pendingClose = s->uid;
+				break;
+			}
+		}
+	}
+	if (p.pendingClose >= 0)
+	{
+		ImGui::OpenPopup("Close terminal?###termclose");
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing,
+			ImVec2(0.5f, 0.5f));
 	}
 	if (ImGui::BeginPopupModal("Close terminal?###termclose", nullptr,
 		ImGuiWindowFlags_AlwaysAutoResize))
 	{
-		if (p.pendingClose >= 0 &&
-			p.pendingClose < static_cast<int>(p.sessions.size()))
+		TerminalSession* pending = nullptr;
+		std::size_t pendingIndex = 0;
+		for (std::size_t i = 0; i < p.sessions.size(); ++i)
 		{
-			TerminalSession& s = *p.sessions[p.pendingClose];
-			const TerminalTabLabel label = terminalTabLabel(s.vtTitle,
-				s.procName, p.pendingClose + 1);
+			if (p.sessions[i]->uid == p.pendingClose)
+			{
+				pending = p.sessions[i].get();
+				pendingIndex = i;
+				break;
+			}
+		}
+		if (pending != nullptr)
+		{
+			const TerminalTabLabel label = terminalTabLabel(pending->vtTitle,
+				pending->procName, static_cast<int>(pendingIndex) + 1);
 			ImGui::Text("\"%s\" is still running. Close it and terminate the "
 				"process?", label.text.c_str());
 			ImGui::Separator();
 			if (ImGui::Button("Close"))
 			{
-				closeSession(p.pendingClose);
+				closeSession(static_cast<int>(pendingIndex));
 				p.pendingClose = -1;
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Cancel"))
 			{
+				pending->closeRequested = false;	// keep it open
 				p.pendingClose = -1;
 				ImGui::CloseCurrentPopup();
 			}
 		}
 		else
 		{
+			p.pendingClose = -1;
 			ImGui::CloseCurrentPopup();	// the session vanished under us
 		}
 		ImGui::EndPopup();
 	}
-	if (requestAdd)
-	{
-		addSession();
-	}
 
-	ImGui::End();
+	// the panel-registry flag MIRRORS "at least one terminal window open": the
+	// last window closing unchecks View > Terminal, re-checking it re-spawns one
+	if (panelOpen != nullptr)
+	{
+		*panelOpen = !p.sessions.empty();
+		p.prevPanelOpen = *panelOpen;
+	}
+	else
+	{
+		p.prevPanelOpen = !p.sessions.empty();
+	}
 }
 
 namespace OrkigeEditor
 {
+	void terminalPanelRequestNewSession()
+	{
+		++panel().pendingSpawns;
+	}
+
+	int terminalPanelSessionCount()
+	{
+		return static_cast<int>(panel().sessions.size());
+	}
+
 	void terminalPanelShutdown()
 	{
 		TerminalPanelState& p = panel();
@@ -940,8 +1070,9 @@ namespace OrkigeEditor
 			}
 		}
 		p.sessions.clear();
-		p.active = 0;
 		p.pendingClose = -1;
+		p.pendingSpawns = 0;
+		p.prevPanelOpen = false;
 	}
 
 	std::string terminalSelectionText(EditorTerminalScreen& screen, int cols,
@@ -1279,6 +1410,14 @@ namespace OrkigeEditor
 			check(sel == "COPYME", "selection text extracts the grid region");
 			if (SDL_InitSubSystem(SDL_INIT_VIDEO))
 			{
+				// SAVE the user's clipboard first and RESTORE it after: a test run
+				// must never leave a probe string sitting in the OS pasteboard
+				char* saved = SDL_GetClipboardText();	// "" when empty, never null
+				const std::string savedClip = saved ? saved : "";
+				if (saved != nullptr)
+				{
+					SDL_free(saved);
+				}
 				SDL_SetClipboardText(sel.c_str());
 				char* got = SDL_GetClipboardText();
 				check(got != nullptr && sel == got,
@@ -1287,6 +1426,7 @@ namespace OrkigeEditor
 				{
 					SDL_free(got);
 				}
+				SDL_SetClipboardText(savedClip.c_str());	// restore
 				SDL_QuitSubSystem(SDL_INIT_VIDEO);
 			}
 			else
@@ -1309,6 +1449,9 @@ namespace OrkigeEditor
 				ORKIGE_EDITOR_ICON_FONT_DIR "/DejaVuSans.ttf");
 			if (mono != nullptr)
 			{
+				// the agent badges bake onto the base font (Fonts[0]); the custom
+				// rects must be reserved BEFORE the atlas is built (bake forces it)
+				Orkige::bakeTerminalAgentBadges(io, 13.0f);
 				unsigned char* pixels = nullptr;
 				int atlasW = 0;
 				int atlasH = 0;
@@ -1327,6 +1470,21 @@ namespace OrkigeEditor
 				check(baked_has(0x25cf), "geometric shape baked (U+25CF)");
 				check(baked_has(0x28fe),
 					"braille spinner baked (U+28FE, merged fallback)");
+				// the agent-badge PUA glyphs resolve (non-fallback) in the atlas
+				const OrkigeEditor::TerminalAgent badgeAgents[] = {
+					OrkigeEditor::TerminalAgent::Claude,
+					OrkigeEditor::TerminalAgent::Codex,
+					OrkigeEditor::TerminalAgent::Opencode,
+					OrkigeEditor::TerminalAgent::Aider,
+					OrkigeEditor::TerminalAgent::Gemini,
+					OrkigeEditor::TerminalAgent::Generic,
+				};
+				for (OrkigeEditor::TerminalAgent a : badgeAgents)
+				{
+					const unsigned int cp =
+						OrkigeEditor::terminalAgentBadgeCodepoint(a);
+					check(baked_has(cp), "agent badge glyph baked (PUA)");
+				}
 			}
 			else
 			{
@@ -1354,11 +1512,16 @@ namespace OrkigeEditor
 			b.write("\x1b]0;claude\x07");
 			const TerminalTabLabel labelB = terminalTabLabel(b.getTitle(), "", 2);
 			check(labelB.text == "claude" &&
-				labelB.glyph == TerminalGlyphClass::Agent,
-				"session B tab label detects the agent from its OSC title");
+				labelB.glyph == TerminalGlyphClass::Agent &&
+				labelB.agent == TerminalAgent::Claude,
+				"session B window title detects the Claude agent from its OSC title");
+			// the specific agent drives a specific PUA badge codepoint
+			check(terminalAgentBadgeCodepoint(labelB.agent) == 0xE000u,
+				"the Claude tenant maps to its generated badge codepoint");
 			const TerminalTabLabel labelA = terminalTabLabel(a.getTitle(), "", 1);
 			check(labelA.text == "Terminal 1" &&
-				labelA.glyph == TerminalGlyphClass::Terminal,
+				labelA.glyph == TerminalGlyphClass::Terminal &&
+				labelA.agent == TerminalAgent::None,
 				"session A falls back to the numbered terminal label");
 
 			// a two-child pty list: closing one terminates its child and shrinks

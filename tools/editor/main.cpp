@@ -665,6 +665,12 @@ int main(int argc, char** argv)
 			Orkige::loadMacSystemMonoFont(ImGui::GetIO(), 13.0f,
 				editorContentScale, symbolsFontPath.c_str());
 		}
+		// reserve + rasterise the terminal agent-badge glyphs into the base
+		// UI-font atlas (one generated mark per recognised agent). Must run
+		// after every font is loaded and before the renderer uploads the atlas
+		// texture (below); it forces the atlas build to pack the custom rects.
+		Orkige::bakeTerminalAgentBadges(ImGui::GetIO(),
+			14.0f * editorContentScale);
 		Orkige::ImGuiFacadeRenderer imguiRenderer;
 		if (!imguiRenderer.initialise(300 /*layer zOrder*/))
 		{
@@ -1305,6 +1311,12 @@ int main(int argc, char** argv)
 				}
 				viewPtr->save();
 			};
+			menuActions.newTerminal = [viewPtr]()
+				{
+					OrkigeEditor::terminalPanelRequestNewSession();
+					viewPtr->showTerminalPanel = true;
+					viewPtr->save();
+				};
 			menuActions.resetLayout = [statePtr]()
 				{ statePtr->resetDockLayout = true; };
 			menuActions.viewSettings = [statePtr]()
@@ -2805,19 +2817,13 @@ int main(int argc, char** argv)
 				drawSourceControlPanel(state, viewSettings, editorCore,
 					&viewSettings.showSourceControlPanel);
 			}
-			// the embedded Terminal panel (a real pty running the user's shell;
-			// carries the live MCP endpoint so an agent started inside can drive
-			// this editor). Reset its focus flag when the tab is closed so the
-			// global shortcuts are not left standing down.
-			if (viewSettings.showTerminalPanel)
-			{
-				drawTerminalPanel(state, viewSettings, mcpTerminalUrl,
-					mcpTerminalTokenFile, &viewSettings.showTerminalPanel);
-			}
-			else
-			{
-				state.terminalFocused = false;
-			}
+			// the embedded terminals: one dockable window per pty session (the
+			// real shell + the live MCP endpoint, so an agent started inside can
+			// drive this editor). Drawn EVERY frame - zero sessions draws nothing -
+			// so backgrounded sessions keep draining and a closing one still reaps;
+			// the showTerminalPanel flag mirrors "any terminal window open".
+			drawTerminalPanel(state, viewSettings, mcpTerminalUrl,
+				mcpTerminalTokenFile, &viewSettings.showTerminalPanel);
 			bool panelVisibilityChanged = false;
 #define ORKIGE_CHECK_PANEL_VISIBILITY(id, label, visible, member) \
 			panelVisibilityChanged |= \

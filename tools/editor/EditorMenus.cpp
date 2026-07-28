@@ -14,6 +14,7 @@
 #include "EditorAutosave.h"
 #include "EditorSceneTemplate.h"
 #include "EditorScriptHost.h"
+#include "EditorTerminalPanel.h"	// View > New Terminal spawns another session
 #include "IconsFontAwesome6.h"	// the Source Control tab's leading branch glyph
 
 #include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
@@ -512,6 +513,14 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			bool settingsChanged = false;
 			ImGui::TextDisabled("Panels");
 			settingsChanged |= drawPanelToggleItems(viewSettings);
+			if (ImGui::MenuItem("New Terminal"))
+			{
+				// spawn another terminal window (drawn next frame, which owns the
+				// project cwd + MCP env); turn the panel flag on so it renders
+				OrkigeEditor::terminalPanelRequestNewSession();
+				viewSettings.showTerminalPanel = true;
+				settingsChanged = true;
+			}
 			if (ImGui::MenuItem("Reset Layout"))
 			{
 				state.resetDockLayout = true;
@@ -879,10 +888,9 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	// from the View menu; a tab slot waits here for it)
 	ImGui::DockBuilderDockWindow(
 		ICON_FA_CODE_BRANCH " Source Control###SourceControl", bottomId);
-	// the Terminal panel tabs into the same bottom node (it opens on demand from
-	// the View menu; a tab slot waits here for it)
-	ImGui::DockBuilderDockWindow(ICON_FA_TERMINAL " Terminal###Terminal",
-		bottomId);
+	// terminal session windows (one per pty, ###terminal<uid>) carry dynamic ids
+	// and cannot be pre-registered here; each first-appearance-docks into this
+	// bottom node itself (drawSessionWindow), so no slot is reserved.
 	ImGui::DockBuilderDockWindow("Assets###Assets", bottomId);
 	// the Tile Palette tabs into the bottom node beside the Asset Browser
 	// (both are asset pickers; it auto-opens here when the Scene enters 2D)

@@ -1,10 +1,10 @@
 # Embedded terminal
 
-The editor hosts a real terminal in a dockable **Terminal** panel: terminal-based
-agents (Claude Code and others) and plain shells run inside a dock tab, beside
-Console/Assets/Source Control. It is desktop- and editor-only. The panel holds
-**multiple concurrent sessions**, one per in-panel tab, each labelled with what
-is running inside it.
+The editor hosts real terminals as **dockable windows**: terminal-based agents
+(Claude Code and others) and plain shells each run in their own window, sibling
+tabs in the bottom dock group beside Console/Assets/Source Control. It is
+desktop- and editor-only. Each window is one **session**, titled with what is
+running inside it. This is the code editor's one-window-per-open-file pattern.
 
 ## What it is
 
@@ -17,29 +17,33 @@ is running inside it.
   background colour (indexed, 256-colour and 24-bit truecolour), a block cursor,
   bounded **scrollback** (5000 lines) with mouse-wheel scroll, drag selection
   with copy, and paste (bracketed when the app enabled it).
-- Closed by default; open it from **View ▸ Terminal**. It docks as a tab in the
-  bottom group. Fresh layouts and pre-existing `imgui.ini` users both get it
-  docked there (a first-appearance dock anchored to the bottom group); re-dock
-  freely afterwards.
+- Closed by default; open a terminal from **View ▸ Terminal** (or **View ▸ New
+  Terminal**). Each session window first-appearance-docks into the bottom group;
+  re-dock freely afterwards.
 
-## Multiple sessions
+## Multiple windows
 
-The panel carries a row of session tabs inside its own tab bar:
+Every session is its own top-level dockable window, so several agents sit as
+sibling tabs a click apart:
 
-- The **`+`** tab button spawns another session — the same login shell, in the
-  same project working directory, inheriting the same MCP environment. Every
-  session drains its pty every frame (bounded), so a background agent keeps
-  running while another tab is shown.
-- Each tab has a **close (×)**. Closing a tab whose child is still running asks
-  for confirmation first, then terminates the whole child process tree; a tab
-  whose shell already exited closes without a prompt. The remaining tabs keep
-  their sessions; the neighbouring tab becomes active.
+- **New Terminal** — **View ▸ New Terminal**, the **`+`** button in any terminal
+  window's header, or a terminal tab's right-click **New Terminal** — spawns
+  another session: the same login shell, in the same project working directory,
+  inheriting the same MCP environment. Every session drains its pty every frame
+  (bounded), so a backgrounded agent keeps running while another window is on top.
+- Opening **View ▸ Terminal** with no sessions spawns one; the menu item mirrors
+  "at least one terminal window is open", and the last window closing clears it.
+- Each window's **close (×)** (or the tab's right-click **Close**) closes the
+  session. Closing one whose child is still running asks for confirmation first,
+  then terminates the whole child process tree; a window whose shell already
+  exited closes without a prompt.
 - The session count and order are **not persisted** across editor runs (v1): a
   fresh launch opens with a single shell.
 
-## App-aware tab titles
+## App-aware window titles
 
-A tab shows **what is running** inside it, from two signals — the title wins:
+A window's tab shows **what is running** inside it, from two signals — the title
+wins:
 
 - the **terminal title** the running program sets over an OSC sequence
   (`ESC ] 0 ; text BEL` / `ESC ] 2 ; text ST`) — shells (a login `fish`) and
@@ -51,15 +55,29 @@ A tab shows **what is running** inside it, from two signals — the title wins:
   macOS and `/proc/<pid>/comm` on Linux. Windows returns nothing here (the title
   covers the agent TUIs); the shell's own path is the floor.
 
-The label is a **cleaned** title: a path or a path-prefixed command line is
-trimmed to its leading app word (`/Users/me/dev/orkige` → `orkige`,
-`/opt/homebrew/bin/fish -l` → `fish`), a plain title passes through verbatim, and
-with neither signal the tab reads `Terminal N`. A recognised **agent CLI**
-(`claude`, `codex`, `opencode`, `aider`, `gemini` — a case-insensitive prefix
-match on the detected name) draws a distinct robot glyph; every other session
-draws the plain terminal glyph. The match list names programs the user runs —
-the label the user sees is always runtime data from the session, never a
-hardcoded product string.
+The title behind a stable `###terminal<id>` (so a relabel keeps the window +
+docking identity while the visible part updates live) is a **cleaned** title: a
+path or a path-prefixed command line is trimmed to its leading app word
+(`/Users/me/dev/orkige` → `orkige`, `/opt/homebrew/bin/fish -l` → `fish`), a
+plain title passes through verbatim, and with neither signal the tab reads
+`Terminal N`. Because a dock-tab title renders in the default UI font (which
+carries the icon/badge glyphs), it identifies its tenant crisply.
+
+### Agent badges
+
+A recognised **agent CLI** (`claude`, `codex`, `opencode`, `aider`, `gemini` — a
+case-insensitive prefix match on the detected name) draws a small **generated
+badge** in front of the title; every other session draws the plain terminal
+glyph. The badge is a runtime-rasterised mark baked into the UI-font atlas under
+a private-use codepoint (one per agent): Claude a coral radiating-asterisk, Codex
+a monochrome interlocking-ring, and the rest a signature-tinted rounded square
+carrying the program's initial. The marks are generated procedurally (parametric
+strokes, never traced artwork) and render **exclusively to identify the
+third-party program** running in that session — the OS dock-icon precedent; they
+are not product logos and appear nowhere else. The match list names programs the
+user runs — the badge and label the user sees are always runtime data from the
+session, never a hardcoded product string. A later runtime vendor-icon discovery
+could replace a badge's pixels in the same atlas rect with no other change.
 
 ## MCP auto-wiring
 
@@ -70,9 +88,11 @@ it lives in:
 - the spawned shell's environment carries `ORKIGE_MCP_URL`
   (`http://127.0.0.1:<port>/mcp`) and, when a token file is set,
   `ORKIGE_MCP_TOKEN_FILE`;
-- the panel shows a one-line, copyable connect command:
-  `claude mcp add --transport http orkige $ORKIGE_MCP_URL --header
-  "Authorization: Bearer $(cat "$ORKIGE_MCP_TOKEN_FILE")"`.
+- each session's header carries a compact **Connect** button that copies the
+  ready-made connect command
+  (`claude mcp add --transport http orkige $ORKIGE_MCP_URL --header
+  "Authorization: Bearer $(cat "$ORKIGE_MCP_TOKEN_FILE")"`) to the clipboard; the
+  full text is in its tooltip.
 
 Start Claude Code in the terminal, paste the command, and it is registered
 against the running editor. When the MCP endpoint is off there is no env and no
@@ -84,9 +104,9 @@ launder that boundary; agents drive the editor through the MCP verbs directly.
 
 ## Input
 
-While the panel holds keyboard focus every key goes to the child, and the
-editor's own global shortcuts stand down for the frame (the same way a focused
-code editor swallows them):
+While a terminal window holds keyboard focus every key goes to the child, and
+the editor's own global shortcuts stand down for the frame (the same way a
+focused code editor swallows them):
 
 - printable text rides the platform IME/text-input path (UTF-8), so composed and
   non-ASCII input is correct;
@@ -156,39 +176,51 @@ Three seams, each pure and testable, with libvterm confined to one file:
 - `EditorTerminalKeys` — the pure key → VT byte-sequence encoder, unit-tested as
   a table (`EditorTerminalKeysTests`).
 - `EditorTerminalSession` — the pure, UI-free session bookkeeping: title
-  cleaning, the agent-CLI glyph classifier, tab-label composition (title vs
-  process-name, agent detection) and the post-close active index. Unit-tested
-  headlessly (`EditorTerminalSessionTests`).
+  cleaning, the agent classifier, tab-label composition (title vs process-name,
+  agent detection), the post-close active index, the pure mouse→cell hit test
+  (`terminalCellAtPoint`, which the drag-selection shares so a drag past the
+  visible rows still extends deterministically) and the **agent-badge maker**
+  (per-agent private-use codepoint + signature tint + the deterministic
+  `terminalAgentBadgePixels` generator). Unit-tested headlessly
+  (`EditorTerminalSessionTests`). The atlas wiring —
+  `EditorTheme::bakeTerminalAgentBadges` reserving one UI-font custom-rect glyph
+  per agent and filling it from the generator — is the only ImGui-side piece.
+- `EditorTerminalKeys` — the pure key → VT byte-sequence encoder, unit-tested as
+  a table (`EditorTerminalKeysTests`).
 - `EditorTerminalPty` — the OS pty seam. POSIX uses `openpty` + `fork`/`exec`
-  with the child in its own session, so closing the panel signals the whole
+  with the child in its own session, so closing a window signals the whole
   process group; it also names its **foreground process** (`tcgetpgrp` +
-  libproc / `/proc`) for the tab title. Windows uses **ConPTY**
+  libproc / `/proc`) for the window title. Windows uses **ConPTY**
   (`CreatePseudoConsole` + `CreateProcess` with the pseudoconsole attribute)
-  inside a **Job Object** so closing the panel kills the child tree; UTF-8
+  inside a **Job Object** so closing a window kills the child tree; UTF-8
   throughout. Everything above this seam is OS-agnostic.
 
 Output floods degrade gracefully: reads are bounded per frame (64 KB) so the UI
-never stalls. Closing the panel or quitting the editor terminates the child.
+never stalls. Closing a window or quitting the editor terminates the child.
 
 ## Verification
 
 - `EditorTerminalScreenTests` / `EditorTerminalKeysTests` /
   `EditorTerminalSessionTests` (unit): the last covers title cleaning, the agent
-  classifier, tab-label composition, the post-close active index and the glyph
-  codepoints falling in the icon atlas ranges.
+  classifier, tab-label composition, the post-close active index, the mouse→cell
+  hit test, the glyph codepoints falling in the icon atlas ranges, and the agent
+  badges (distinct private-use codepoints, non-black signature tints, the mark
+  stroke counts, and badge pixels that are non-empty, tinted and deterministic).
 - `editor_terminal` selfcheck (both flavors, and Windows CI via ConPTY): spawns
   a real pty running a scripted echo, asserts the grid seam (printed text + SGR
   colour reach the cells), types a known word through the input seam and asserts
   the child echoed it back, drives the **paste** seam (encoding + the pasted
   bytes reach the pty and echo), the **copy** seam (selection text + the OS
-  clipboard round trip via SDL), the **reply** channel (DA / cursor-position
+  clipboard round trip via SDL, with the user's clipboard saved and restored so a
+  test run leaves nothing behind), the **reply** channel (DA / cursor-position
   answered), the **font coverage** (the mono atlas bakes box drawing, block,
-  arrows, geometric shapes, ellipsis and the merged braille spinner) and the
-  **multiple-session** seam (two independent grids, an OSC title on session B
-  detected as an agent label, and a close that kills one child and shrinks the
-  list), then closes and asserts the child died. Skips (exit 77) where no
-  pty/shell is available; individual legs skip honestly where SDL video, a system
-  mono font or a second pty is absent.
+  arrows, geometric shapes, ellipsis, the merged braille spinner and the six
+  agent-badge private-use glyphs) and the **multiple-session** seam (two
+  independent grids, an OSC title on session B detected as the Claude agent with
+  its badge codepoint, and a close that kills one child and shrinks the list),
+  then closes and asserts the child died. Skips (exit 77) where no pty/shell is
+  available; individual legs skip honestly where SDL video, a system mono font or
+  a second pty is absent.
 
 ## v1 limits
 

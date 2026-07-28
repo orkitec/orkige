@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 using namespace OrkigeEditor;
 
@@ -165,4 +166,127 @@ TEST_CASE("terminal glyph codepoints are baked in the icon atlas ranges",
 	CHECK(terminalGlyphCodepoint(TerminalGlyphClass::Agent) == 0xf544u);
 	CHECK(codepointInRanges(terminalGlyphCodepoint(TerminalGlyphClass::Terminal)));
 	CHECK(codepointInRanges(terminalGlyphCodepoint(TerminalGlyphClass::Agent)));
+}
+
+TEST_CASE("terminal mouse->cell hit test clamps to the grid",
+	"[unit][editor][terminal]")
+{
+	// a 10px cell grid whose line-0 origin sits at (100,50); 80 cols, 30 lines
+	// a point inside cell (col 3, line 2)
+	{
+		const TerminalGridPoint h = terminalCellAtPoint(
+			135.0f, 75.0f, 100.0f, 50.0f, 10.0f, 10.0f, 80, 30);
+		CHECK(h.col == 3);
+		CHECK(h.line == 2);
+	}
+	// a point ABOVE and LEFT of the grid clamps to (0,0) - a drag past the top
+	{
+		const TerminalGridPoint h = terminalCellAtPoint(
+			10.0f, 10.0f, 100.0f, 50.0f, 10.0f, 10.0f, 80, 30);
+		CHECK(h.col == 0);
+		CHECK(h.line == 0);
+	}
+	// a point far to the RIGHT clamps col to cols (an exclusive end stop) and
+	// far BELOW clamps line to the last line
+	{
+		const TerminalGridPoint h = terminalCellAtPoint(
+			9999.0f, 9999.0f, 100.0f, 50.0f, 10.0f, 10.0f, 80, 30);
+		CHECK(h.col == 80);		// cols is a valid selection end
+		CHECK(h.line == 29);	// totalLines - 1
+	}
+}
+
+TEST_CASE("terminal agent classification maps names to specific agents",
+	"[unit][editor][terminal]")
+{
+	CHECK(terminalAgentOf("claude") == TerminalAgent::Claude);
+	CHECK(terminalAgentOf("codex") == TerminalAgent::Codex);
+	CHECK(terminalAgentOf("opencode") == TerminalAgent::Opencode);
+	CHECK(terminalAgentOf("aider") == TerminalAgent::Aider);
+	CHECK(terminalAgentOf("gemini") == TerminalAgent::Gemini);
+	CHECK(terminalAgentOf("Claude-1.2") == TerminalAgent::Claude);	// prefix
+	CHECK(terminalAgentOf("fish") == TerminalAgent::None);
+	CHECK(terminalAgentOf("") == TerminalAgent::None);
+}
+
+TEST_CASE("terminal agent badge codepoints are distinct private-use values",
+	"[unit][editor][terminal]")
+{
+	// U+E000 + ordinal, one per recognised agent; None has no badge
+	CHECK(terminalAgentBadgeCodepoint(TerminalAgent::Claude) == 0xE000u);
+	CHECK(terminalAgentBadgeCodepoint(TerminalAgent::Codex) == 0xE001u);
+	CHECK(terminalAgentBadgeCodepoint(TerminalAgent::Generic) == 0xE005u);
+	CHECK(terminalAgentBadgeCodepoint(TerminalAgent::None) == 0u);
+	// every recognised agent gets a UNIQUE codepoint (no tab collisions)
+	const TerminalAgent all[] = { TerminalAgent::Claude, TerminalAgent::Codex,
+		TerminalAgent::Opencode, TerminalAgent::Aider, TerminalAgent::Gemini,
+		TerminalAgent::Generic };
+	for (std::size_t i = 0; i < 6; ++i)
+	{
+		for (std::size_t j = i + 1; j < 6; ++j)
+		{
+			CHECK(terminalAgentBadgeCodepoint(all[i]) !=
+				terminalAgentBadgeCodepoint(all[j]));
+		}
+	}
+}
+
+TEST_CASE("terminal agent badge mark construction parameters",
+	"[unit][editor][terminal]")
+{
+	// the structural stroke counts the generators build the marks from
+	CHECK(terminalAgentBadgeStrokeCount(TerminalAgent::Claude) == 8);	// spokes
+	CHECK(terminalAgentBadgeStrokeCount(TerminalAgent::Codex) == 6);	// ring loops
+	CHECK(terminalAgentBadgeStrokeCount(TerminalAgent::Opencode) == 0);	// monogram
+	// each recognised agent carries a non-black signature tint
+	const TerminalAgent all[] = { TerminalAgent::Claude, TerminalAgent::Codex,
+		TerminalAgent::Opencode, TerminalAgent::Aider, TerminalAgent::Gemini,
+		TerminalAgent::Generic };
+	for (TerminalAgent a : all)
+	{
+		const TerminalBadgeTint t = terminalAgentTint(a);
+		CHECK((t.r != 0 || t.g != 0 || t.b != 0));
+	}
+}
+
+TEST_CASE("terminal agent badge pixels are non-empty, tinted and deterministic",
+	"[unit][editor][terminal]")
+{
+	const int size = 24;
+	const TerminalAgent all[] = { TerminalAgent::Claude, TerminalAgent::Codex,
+		TerminalAgent::Opencode, TerminalAgent::Aider, TerminalAgent::Gemini,
+		TerminalAgent::Generic };
+	for (TerminalAgent a : all)
+	{
+		const std::vector<unsigned char> px = terminalAgentBadgePixels(a, size);
+		REQUIRE(px.size() ==
+			static_cast<std::size_t>(size) * size * 4);
+		// SOME pixel is painted (alpha > 0) - the mark is not blank
+		bool anyPainted = false;
+		// the signature tint appears somewhere in the painted pixels
+		const TerminalBadgeTint tint = terminalAgentTint(a);
+		bool tintPresent = false;
+		for (std::size_t i = 0; i < px.size(); i += 4)
+		{
+			if (px[i + 3] > 0)
+			{
+				anyPainted = true;
+			}
+			// a near-match to the tint (the mark's fill; monograms also carry a
+			// near-white initial, so match with a tolerance on the field colour)
+			const int dr = static_cast<int>(px[i + 0]) - tint.r;
+			const int dg = static_cast<int>(px[i + 1]) - tint.g;
+			const int db = static_cast<int>(px[i + 2]) - tint.b;
+			if (px[i + 3] > 200 && dr * dr + dg * dg + db * db < 900)
+			{
+				tintPresent = true;
+			}
+		}
+		CHECK(anyPainted);
+		CHECK(tintPresent);
+		// deterministic: the same request yields byte-identical pixels
+		CHECK(terminalAgentBadgePixels(a, size) == px);
+	}
+	// a non-positive size yields no pixels
+	CHECK(terminalAgentBadgePixels(TerminalAgent::Claude, 0).empty());
 }
