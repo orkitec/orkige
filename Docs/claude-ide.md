@@ -14,15 +14,15 @@ pinned to the shape verified against the real binary (`claude` 2.x); the
 so a protocol change fails a test rather than silently breaking. Treat the field
 and message shapes below as the current observed contract.
 
-## Turning it on
+## When it is on
 
-Off by default — no lock file is written and no socket is opened unless asked:
+ON by default for an interactive editor session — working in the editor makes
+it discoverable without ceremony. `ORKIGE_CLAUDE_IDE=0` opts out;
+`--claude-ide` / `ORKIGE_CLAUDE_IDE=1` force it on explicitly.
 
-* launch flag `--claude-ide`, or environment `ORKIGE_CLAUDE_IDE=1`.
-
-It is never enabled by an automated/headless run (the same opt-in doctrine as
-the `--mcp-port` control endpoint); the `editor_ide` selfcheck opts in
-explicitly. With it on and running interactively, the editor:
+An automated/headless run NEVER writes the lock or opens the socket (the same
+no-sockets-in-automation doctrine as the `--mcp-port` control endpoint); the
+`editor_ide` selfcheck opts in explicitly. When on, the editor:
 
 1. opens a loopback (`127.0.0.1`) WebSocket endpoint on an ephemeral port;
 2. writes the discovery lock `~/.claude/ide/<port>.lock`; and

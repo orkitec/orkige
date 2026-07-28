@@ -257,22 +257,27 @@ int main(int argc, char** argv)
 		}
 	}
 
-	// --claude-ide / ORKIGE_CLAUDE_IDE: opt in to the Claude-IDE integration
-	// (@see EditorIdeServer). When on (and running interactively) the editor
-	// becomes auto-discoverable as the `claude` CLI's IDE - it writes the
-	// ~/.claude/ide/<port>.lock discovery file and hosts an MCP-over-WebSocket
-	// endpoint on a loopback port, and the embedded terminal seeds a spawned
-	// `claude` so it connects back. Off by default; no lock/socket without it.
+	// Claude-IDE integration (@see EditorIdeServer): ON BY DEFAULT for an
+	// INTERACTIVE editor session - the editor is auto-discoverable as the
+	// `claude` CLI's IDE (the ~/.claude/ide/<port>.lock discovery file + an
+	// MCP-over-WebSocket endpoint on a loopback, token-authed port; the
+	// embedded terminal seeds a spawned `claude` so it connects back).
+	// Automated runs NEVER open the lock/socket (the doctrine's real target -
+	// the selfcheck opts in explicitly). Overrides: --claude-ide /
+	// ORKIGE_CLAUDE_IDE=1 force on, ORKIGE_CLAUDE_IDE=0 opts out.
+	bool claudeIdeExplicit = false;
 	bool claudeIdeEnabled = false;
 	for (int argIndex = 1; argIndex < argc; ++argIndex)
 	{
 		if (std::strcmp(argv[argIndex], "--claude-ide") == 0)
 		{
+			claudeIdeExplicit = true;
 			claudeIdeEnabled = true;
 		}
 	}
 	if (const char* ideEnv = std::getenv("ORKIGE_CLAUDE_IDE"))
 	{
+		claudeIdeExplicit = true;
 		claudeIdeEnabled = (std::strcmp(ideEnv, "0") != 0 && ideEnv[0] != '\0');
 	}
 
@@ -319,6 +324,13 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_TERMINAL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_IDE_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr;
+	// the IDE integration's interactive default resolves once automatedRun is
+	// known: an interactive session advertises itself, a scripted one never
+	// does unless its script explicitly opted in above
+	if (!claudeIdeExplicit)
+	{
+		claudeIdeEnabled = !automatedRun;
+	}
 
 	int exitCode = 0;
 
@@ -1163,10 +1175,10 @@ int main(int argc, char** argv)
 
 		// Claude-IDE integration: an MCP-over-WebSocket endpoint on a loopback
 		// port + the ~/.claude/ide/<port>.lock discovery file that makes this
-		// editor auto-selectable as `claude`'s IDE. OPT-IN (--claude-ide /
-		// ORKIGE_CLAUDE_IDE), and never in an automated run (the selfcheck opts
-		// in explicitly below). Pumped once per frame; the terminal reads its
-		// port to seed a spawned claude.
+		// editor auto-selectable as `claude`'s IDE. ON by default for an
+		// interactive session (ORKIGE_CLAUDE_IDE=0 opts out); never in an
+		// automated run (the selfcheck opts in explicitly below). Pumped once
+		// per frame; the terminal reads its port to seed a spawned claude.
 		Orkige::EditorIdeServer ideServer;
 		Orkige::EditorIdeSelfTest ideSelfTest;
 		int ideSelfTestDoneFrame = -1;	//!< frame the IDE selfcheck client finished
