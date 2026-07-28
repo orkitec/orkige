@@ -1,47 +1,31 @@
+# hud.oui - the live tour HUD (scene title + a progress bar).
+# The design resolution keys the rect-anchor geometry to design units, so on
+# a dense (2x) display the layout scales WITH the density-scaled glyphs
+# instead of staying in raw window pixels under doubled text.
 [Layout]
 atlas = gui_default
 design = 1280 720 0.5
 root = fullwindow
 
 [DecorWidget hudBar]
-sprite = progressbar
+sprite = panel
 z = 4
 anchor = stretchtop
 pivot = 0.5 0
-offsets = 16.35 10.81 -15.65 145.6
+offsets = 16 16 -16 72
 nineSlice = true
-text =  For sprites I'd like some kind of preview 
 
 [Label hudTitle]
 parent = hudBar
 z = 5
 font = 9
 text = @bench.title
-anchor = stretchleft
-offsets = 16 8 697.4 186.9
+anchor = stretchall
+offsets = 16 8 -16 -8
 textAlignment = topleft
 
 [ProgressBar hudProgress]
 parent = hudBar
 z = 5
 anchor = stretchbottom
-offsets = 16.23 -75.82 -15.77 -5.774
-text =  For sprites I'd like some kind of preview 
-
-[button button1]
-parent = hudBar
-z = 5
-font = 9
-sprite = button
-text = New
-anchor = topleft
-anchoredPos = -46.19 58.87
-sizeDelta = 264.2 177.9
-
-[panel panel1]
-parent = button1
-z = 10
-sprite = panel
-anchor = topleft
-offsets = 90.87 472.4 290.9 672.4
-text = ddd
+offsets = 16 -18 -16 -6
