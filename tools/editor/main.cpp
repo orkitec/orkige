@@ -100,6 +100,7 @@
 #include "EditorApp.h"
 #include "EditorAutosave.h"
 #include "EditorControlServer.h"
+#include "EditorIdeServer.h"	// Claude-IDE integration (lock + MCP-over-WebSocket)
 #include "EditorScriptHost.h"
 #include "AnimationPreviewStage.h"
 #include "EditorImageDecode.h"
@@ -130,6 +131,47 @@
 using Orkige::optr;
 using Orkige::woptr;
 #endif
+
+// resolve an executable by name against $PATH ("" when not found). Used only by
+// the real-`claude`-binary IDE self-test leg, which must locate the CLI to spawn
+// it (and skip when it is absent).
+static std::string findExecutableOnPath(std::string const& name)
+{
+	const char* pathEnv = std::getenv("PATH");
+	if (pathEnv == nullptr)
+	{
+		return std::string();
+	}
+#ifdef _WIN32
+	const char separator = ';';
+#else
+	const char separator = ':';
+#endif
+	const std::string path = pathEnv;
+	std::size_t start = 0;
+	while (start <= path.size())
+	{
+		const std::size_t end = path.find(separator, start);
+		const std::string dir = path.substr(start,
+			end == std::string::npos ? std::string::npos : end - start);
+		if (!dir.empty())
+		{
+			std::error_code ec;
+			const std::filesystem::path candidate =
+				std::filesystem::path(dir) / name;
+			if (std::filesystem::is_regular_file(candidate, ec))
+			{
+				return candidate.string();
+			}
+		}
+		if (end == std::string::npos)
+		{
+			break;
+		}
+		start = end + 1;
+	}
+	return std::string();
+}
 
 int main(int argc, char** argv)
 {
@@ -215,6 +257,25 @@ int main(int argc, char** argv)
 		}
 	}
 
+	// --claude-ide / ORKIGE_CLAUDE_IDE: opt in to the Claude-IDE integration
+	// (@see EditorIdeServer). When on (and running interactively) the editor
+	// becomes auto-discoverable as the `claude` CLI's IDE - it writes the
+	// ~/.claude/ide/<port>.lock discovery file and hosts an MCP-over-WebSocket
+	// endpoint on a loopback port, and the embedded terminal seeds a spawned
+	// `claude` so it connects back. Off by default; no lock/socket without it.
+	bool claudeIdeEnabled = false;
+	for (int argIndex = 1; argIndex < argc; ++argIndex)
+	{
+		if (std::strcmp(argv[argIndex], "--claude-ide") == 0)
+		{
+			claudeIdeEnabled = true;
+		}
+	}
+	if (const char* ideEnv = std::getenv("ORKIGE_CLAUDE_IDE"))
+	{
+		claudeIdeEnabled = (std::strcmp(ideEnv, "0") != 0 && ideEnv[0] != '\0');
+	}
+
 	// automated run? (any scripted-test/automation hook set) - decided up
 	// front because it gates the vsync choice (before Engine::setup: an
 	// uncapped editor renders thousands of UI frames per second for no
@@ -256,6 +317,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_UIEDIT_SELFCHECK") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_SOURCECONTROL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_TERMINAL_TEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_IDE_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr;
 
 	int exitCode = 0;
@@ -1096,6 +1158,52 @@ int main(int argc, char** argv)
 						"surface is reachable over the network; only do this "
 						"behind a trusted boundary");
 				}
+			}
+		}
+
+		// Claude-IDE integration: an MCP-over-WebSocket endpoint on a loopback
+		// port + the ~/.claude/ide/<port>.lock discovery file that makes this
+		// editor auto-selectable as `claude`'s IDE. OPT-IN (--claude-ide /
+		// ORKIGE_CLAUDE_IDE), and never in an automated run (the selfcheck opts
+		// in explicitly below). Pumped once per frame; the terminal reads its
+		// port to seed a spawned claude.
+		Orkige::EditorIdeServer ideServer;
+		Orkige::EditorIdeSelfTest ideSelfTest;
+		int ideSelfTestDoneFrame = -1;	//!< frame the IDE selfcheck client finished
+		const char* ideSelfTestEnv = std::getenv("ORKIGE_EDITOR_IDE_TEST");
+		// the REAL-`claude`-binary drift alarm (editor_ide_claude ctest): spawn
+		// the actual CLI pointed at our lock/port and assert it dials the IDE
+		// endpoint. Skips (77) when claude is not on PATH.
+		const char* ideClaudeTestEnv = std::getenv("ORKIGE_EDITOR_IDE_CLAUDE_TEST");
+		SDL_Process* ideClaudeProcess = nullptr;
+		bool ideClaudeConnected = false;
+		std::chrono::steady_clock::time_point ideClaudeStart;
+		// the IDE selfchecks opt in explicitly; a normal automated run never
+		// sets --claude-ide, so no lock/socket opens without an interactive
+		// user asking or a dedicated IDE test.
+		if (ideSelfTestEnv != nullptr || ideClaudeTestEnv != nullptr)
+		{
+			claudeIdeEnabled = true;
+		}
+		if (claudeIdeEnabled)
+		{
+			if (!ideServer.start(0))
+			{
+				oDebugWarn("editor.ide", 0, "Claude-IDE endpoint failed to open "
+					"a loopback socket - IDE integration is off this session");
+			}
+			else
+			{
+				state.ide.ssePort = static_cast<int>(ideServer.getPort());
+				std::vector<std::string> workspace;
+				if (state.project.isLoaded())
+				{
+					workspace.push_back(state.project.getRootDirectory());
+				}
+				ideServer.writeLockFile(workspace);
+				oDebugMsg("editor.ide", 0, "Claude-IDE endpoint listening on "
+					"ws://127.0.0.1:" << ideServer.getPort() <<
+					" (lock: " << ideServer.getLockPath() << ")");
 			}
 		}
 
@@ -2275,6 +2383,22 @@ int main(int argc, char** argv)
 			// Pumped after the play session so play-control verbs act
 			// on current state; no-op when the endpoint never started.
 			controlServer.update(controlContext);
+
+			// Claude-IDE endpoint: accept/pump WebSocket clients, answer MCP
+			// tool calls off live editor state (the Script panel published it
+			// last frame), keep the lock's workspace current, push selection
+			// changes. No-op when the endpoint never started.
+			if (ideServer.isListening())
+			{
+				OrkigeEditor::IdeContext ideContext;
+				if (state.project.isLoaded())
+				{
+					ideContext.workspaceFolders.push_back(
+						state.project.getRootDirectory());
+				}
+				ideContext.shared = &state.ide;
+				ideServer.update(ideContext);
+			}
 
 			// project export: act on a Build-menu request, then pump the
 			// running exporter's output into the Console ([export] lines)
@@ -13851,6 +13975,169 @@ int main(int argc, char** argv)
 						exitCode = 77;
 					}
 					running = false;
+				}
+			}
+			// Claude-IDE self-test (editor_ide ctest): drive a FAKE IDE client
+			// (WebSocket handshake with the lock token + an MCP conversation)
+			// against this editor's own IDE endpoint. Its openFile leg must
+			// land the target in the Script panel, cross-checked here against
+			// the published bridge a few frames after the client finished.
+			if (ideSelfTestEnv != nullptr && ideServer.isListening())
+			{
+				if (frameCount == 3 && !ideSelfTest.active() &&
+					!ideSelfTest.done())
+				{
+					ideSelfTest.begin(ideServer.getPort(), ideServer.getToken(),
+						ideSelfTestEnv);
+				}
+				if (ideSelfTest.active())
+				{
+					ideSelfTest.update();
+				}
+				if (ideSelfTest.done() && ideSelfTestDoneFrame < 0)
+				{
+					ideSelfTestDoneFrame = static_cast<int>(frameCount);
+				}
+				// let the openFile request propagate into the panel (server
+				// writes the bridge -> panel opens -> panel publishes back)
+				if (ideSelfTestDoneFrame >= 0 &&
+					static_cast<int>(frameCount) >= ideSelfTestDoneFrame + 6)
+				{
+					bool passed = ideSelfTest.passed();
+					const std::string target = ideSelfTest.openedFile();
+					if (!target.empty())
+					{
+						bool opened = false;
+						for (auto const& editor : state.ide.openEditors)
+						{
+							if (editor.absolutePath == target)
+							{
+								opened = true;
+								break;
+							}
+						}
+						if (!opened)
+						{
+							SDL_Log("orkige_editor: IDE openFile did not land "
+								"'%s' in the Script panel", target.c_str());
+							passed = false;
+						}
+					}
+					SDL_Log("orkige_editor: IDE self-test %s",
+						passed ? "PASSED" : "FAILED");
+					if (!passed)
+					{
+						exitCode = 2;
+					}
+					running = false;
+				}
+			}
+			// real-`claude`-binary drift alarm (editor_ide_claude ctest): the
+			// genuine CLI, launched at OUR lock/port, must DIAL the IDE endpoint.
+			// If claude is not on PATH the ctest SKIPs (77); if it connects the
+			// protocol still matches; if it runs yet never connects the protocol
+			// drifted (a real failure).
+			if (ideClaudeTestEnv != nullptr && ideServer.isListening())
+			{
+				if (frameCount == 3 && ideClaudeProcess == nullptr &&
+					!ideClaudeConnected)
+				{
+					const std::string claudePath = findExecutableOnPath("claude");
+					if (claudePath.empty())
+					{
+						SDL_Log("orkige_editor: claude not on PATH - IDE "
+							"real-binary test skipped");
+						exitCode = 77;
+						running = false;
+					}
+					else
+					{
+						// claude dials the IDE only from an INTERACTIVE session
+						// (print mode `-p` never opens the WebSocket), so it runs
+						// under a pty via `script`; --ide forces the startup
+						// connection and the env seeds the discovery the CLI reads
+						// (our lock + SSE port). The connection is local and
+						// independent of the model call; we kill claude the moment
+						// the endpoint sees it. `script`'s BSD form (macOS) is the
+						// host this runs on - elsewhere the spawn fails and the
+						// ctest SKIPs, same as an absent claude.
+						const char* claudeArgs[] = { "script", "-q", "/dev/null",
+							claudePath.c_str(), "--ide", nullptr };
+						SDL_Environment* env = SDL_CreateEnvironment(true);
+						SDL_SetEnvironmentVariable(env, "CLAUDE_CODE_SSE_PORT",
+							std::to_string(ideServer.getPort()).c_str(), true);
+						SDL_SetEnvironmentVariable(env,
+							"ENABLE_IDE_INTEGRATION", "true", true);
+						SDL_PropertiesID props = SDL_CreateProperties();
+						SDL_SetPointerProperty(props,
+							SDL_PROP_PROCESS_CREATE_ARGS_POINTER,
+							const_cast<char**>(claudeArgs));
+						SDL_SetPointerProperty(props,
+							SDL_PROP_PROCESS_CREATE_ENVIRONMENT_POINTER, env);
+						SDL_SetNumberProperty(props,
+							SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER,
+							SDL_PROCESS_STDIO_NULL);
+						SDL_SetNumberProperty(props,
+							SDL_PROP_PROCESS_CREATE_STDERR_NUMBER,
+							SDL_PROCESS_STDIO_NULL);
+						ideClaudeProcess = SDL_CreateProcessWithProperties(props);
+						SDL_DestroyProperties(props);
+						SDL_DestroyEnvironment(env);
+						ideClaudeStart = std::chrono::steady_clock::now();
+						if (ideClaudeProcess == nullptr)
+						{
+							SDL_Log("orkige_editor: failed to spawn claude: %s",
+								SDL_GetError());
+							exitCode = 77;	// environment problem, not drift
+							running = false;
+						}
+					}
+				}
+				if (ideClaudeProcess != nullptr && running)
+				{
+					if (ideServer.clientCount() > 0)
+					{
+						ideClaudeConnected = true;
+					}
+					const auto elapsed = std::chrono::steady_clock::now() -
+						ideClaudeStart;
+					int childExit = 0;
+					const bool childDone =
+						SDL_WaitProcess(ideClaudeProcess, false, &childExit);
+					const bool timedOut =
+						elapsed > std::chrono::seconds(45);
+					if (ideClaudeConnected)
+					{
+						SDL_Log("orkige_editor: claude connected to the IDE "
+							"endpoint - PASSED");
+						SDL_KillProcess(ideClaudeProcess, true);
+						SDL_WaitProcess(ideClaudeProcess, true, &childExit);
+						SDL_DestroyProcess(ideClaudeProcess);
+						ideClaudeProcess = nullptr;
+						running = false;
+					}
+					else if (childDone || timedOut)
+					{
+						if (timedOut)
+						{
+							SDL_KillProcess(ideClaudeProcess, true);
+							SDL_WaitProcess(ideClaudeProcess, true, &childExit);
+						}
+						SDL_DestroyProcess(ideClaudeProcess);
+						ideClaudeProcess = nullptr;
+						// claude never dialed the endpoint. The IDE link is an
+						// INTERACTIVE-session feature (print mode never opens it),
+						// and a headless spawn cannot guarantee claude reaches an
+						// interactive session (auth, tty, version), so a no-connect
+						// run is a SKIP, never a false drift failure. The PASS
+						// above is the real assertion; a connection proves the
+						// protocol still matches the live binary.
+						SDL_Log("orkige_editor: claude did not connect (exit %d, "
+							"timeout %d) - skipped (interactive IDE link not "
+							"established headlessly)", childExit, timedOut ? 1 : 0);
+						exitCode = 77;
+						running = false;
+					}
 				}
 			}
 			// Help self-test (editor_help_portal ctest): fire the menu

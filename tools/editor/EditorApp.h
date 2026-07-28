@@ -30,6 +30,7 @@
 #include "EditorPanelRegistry.h"
 #include "EditorTheme.h"
 #include "EditorViewModes.h"
+#include "EditorIdeProtocol.h"	// the Claude-IDE integration bridge (IdeSharedState)
 #include "FileDialog.h"
 #include "MarqueeSelection.h"
 #include "PlayMirror.h"
@@ -977,6 +978,13 @@ struct EditorState
 	//! browser double-click, the debugger break-hit and the error markers.
 	std::string scriptOpenRequest;
 	int scriptOpenLine = 0;
+	//! @brief the Claude-IDE integration bridge (@see EditorIdeServer). The
+	//! Script panel PUBLISHES the open documents / focused selection / parse
+	//! diagnostics into it each frame and CONSUMES the server's openFile /
+	//! close_tab requests; the embedded terminal reads ssePort to seed a
+	//! spawned `claude` with CLAUDE_CODE_SSE_PORT. Inert (all-empty) unless the
+	//! IDE endpoint is opted in.
+	OrkigeEditor::IdeSharedState ide;
 	//! a code-editor document window held keyboard focus while drawing (gates
 	//! the Cmd/Ctrl+S save routing, mirrors scenePanelFocused / hierarchyFocused)
 	bool scriptPanelFocused = false;

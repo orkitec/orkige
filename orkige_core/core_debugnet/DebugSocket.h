@@ -12,6 +12,8 @@
 #include "core_module/OrkigePrerequisites.h"
 #include "core_util/String.h"
 
+#include <vector>
+
 namespace Orkige
 {
 	//! @brief platform seam for the debug protocol's BSD sockets: everything
@@ -107,6 +109,61 @@ namespace Orkige
 	private:
 		DebugLineConnection(DebugLineConnection const &) = delete;
 		DebugLineConnection & operator=(DebugLineConnection const &) = delete;
+	};
+	//! @brief a server-side WebSocket connection framed by MESSAGE, not by
+	//! line: the sibling of DebugLineConnection for a peer whose protocol puts
+	//! ONE payload (a JSON-RPC object) in each WebSocket text frame with no
+	//! '\n' terminator - the debug line splitter would never complete such a
+	//! frame. It owns the socket, pumps non-blocking recv/send, de-frames
+	//! (reassembling fragmented text/binary messages), answers pings and
+	//! honours a close frame, and hands each complete message up whole.
+	//! @remarks the transport under the editor's IDE-integration endpoint (the
+	//! MCP-over-WebSocket surface an external tool connects to). The upgrade
+	//! handshake itself is answered by HttpServer via WebSocketUtil; this class
+	//! adopts the raw socket the takeover hands over. Oversized frames /
+	//! framing violations drop the connection (isOpen() turns false), same
+	//! defensive posture as DebugLineConnection.
+	class ORKIGE_CORE_DLL WebSocketConnection
+	{
+		//--- Variables ---------------------------------------
+	private:
+		DebugSocketUtil::SocketHandle	handle;			//!< connected socket or INVALID
+		String							frameBuffer;	//!< received bytes not yet de-framed
+		String							assembly;		//!< payload of a message still fragmenting
+		int								assemblyOpcode;	//!< the opening data frame's opcode
+		bool							assembling;		//!< inside a fragmented message
+		std::vector<String>				messages;		//!< complete messages awaiting nextMessage()
+		String							outBuffer;		//!< queued output bytes the socket has not taken
+		bool							open;			//!< false once the peer closed or a socket error hit
+		//--- Methods -----------------------------------------
+	public:
+		//! constructor (unattached)
+		WebSocketConnection();
+		//! destructor (sends a best-effort close frame, closes the socket)
+		~WebSocketConnection();
+		//! @brief take ownership of a socket whose WebSocket upgrade already
+		//! completed; initialBytes are frame bytes that arrived with/after the
+		//! upgrade request (de-framed immediately)
+		void attach(DebugSocketUtil::SocketHandle socketHandle,
+			String const & initialBytes);
+		//! close the socket and clear all buffers
+		void close();
+		//! is a live socket attached (turns false when pump() hits EOF/error)
+		bool isOpen() const { return this->open; }
+		//! @brief non-blocking read/write pump - call once per frame; detects
+		//! peer shutdown and socket errors, answers pings, queues messages
+		void pump();
+		//! @brief pop the next complete received message (text or binary
+		//! payload, reassembled); returns false when none is buffered
+		bool nextMessage(String & out);
+		//! @brief queue one payload as a single unmasked TEXT frame and try to
+		//! flush; returns false when the connection is down
+		bool sendMessage(String const & payload);
+	private:
+		//! de-frame everything complete in frameBuffer
+		void decodeFrames();
+		WebSocketConnection(WebSocketConnection const &) = delete;
+		WebSocketConnection & operator=(WebSocketConnection const &) = delete;
 	};
 	//---------------------------------------------------------
 	inline bool DebugLineConnection::isOpen() const

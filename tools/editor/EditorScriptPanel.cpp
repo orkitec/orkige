@@ -2064,11 +2064,146 @@ void handleScriptDebugShortcuts(EditorState& state, PlaySession& session)
 	}
 }
 //---------------------------------------------------------------------------
+namespace
+{
+	//! slice the text between two 0-based (line, column) points out of a whole
+	//! document (byte columns - exact for ASCII scripts, the common case),
+	//! bounded so a huge selection never floods the bridge/notification
+	std::string sliceSelection(std::string const& text, int startLine,
+		int startCol, int endLine, int endCol)
+	{
+		std::vector<std::string> lines;
+		std::string current;
+		for (char c : text)
+		{
+			if (c == '\n')
+			{
+				lines.push_back(current);
+				current.clear();
+			}
+			else
+			{
+				current += c;
+			}
+		}
+		lines.push_back(current);
+		if (startLine < 0 || startLine >= static_cast<int>(lines.size()) ||
+			endLine < 0 || endLine >= static_cast<int>(lines.size()))
+		{
+			return std::string();
+		}
+		std::string out;
+		const std::size_t cap = 8192;
+		for (int line = startLine; line <= endLine && out.size() < cap; ++line)
+		{
+			std::string const& source = lines[static_cast<std::size_t>(line)];
+			const int from = line == startLine ? startCol : 0;
+			const int to = line == endLine
+				? endCol : static_cast<int>(source.size());
+			const int a = std::max(0, std::min(from, static_cast<int>(source.size())));
+			const int b = std::max(a, std::min(to, static_cast<int>(source.size())));
+			out += source.substr(static_cast<std::size_t>(a),
+				static_cast<std::size_t>(b - a));
+			if (line != endLine)
+			{
+				out += '\n';
+			}
+		}
+		if (out.size() > cap)
+		{
+			out.resize(cap);
+		}
+		return out;
+	}
+
+	//! snapshot the open documents / focused selection / parse diagnostics into
+	//! the Claude-IDE bridge (a plain per-frame copy the IDE server reads)
+	void publishIdeState(EditorState& state, PanelState& ui)
+	{
+		OrkigeEditor::IdeSharedState& bridge = state.ide;
+		bridge.openEditors.clear();
+		bridge.diagnostics.clear();
+		for (auto& doc : ui.docs)
+		{
+			OrkigeEditor::IdeEditor editor;
+			editor.absolutePath = doc->absolutePath;
+			editor.languageId =
+				OrkigeEditor::ideLanguageForPath(doc->absolutePath);
+			editor.active = (doc.get() == ui.focused);
+			editor.dirty = doc->isDirty();
+			bridge.openEditors.push_back(editor);
+			if (!doc->parseState.valid)
+			{
+				OrkigeEditor::IdeDiagnostic diagnostic;
+				diagnostic.absolutePath = doc->absolutePath;
+				diagnostic.line = doc->parseState.line;
+				diagnostic.message = doc->parseState.message;
+				diagnostic.severity = "Error";
+				bridge.diagnostics.push_back(diagnostic);
+			}
+		}
+		OrkigeEditor::IdeSelection selection;
+		if (ui.focused != nullptr && ui.focused->editor)
+		{
+			selection.active = true;
+			selection.absolutePath = ui.focused->absolutePath;
+			const TextEditor::CursorSelection range =
+				ui.focused->editor->GetMainCursorSelection();
+			// normalise so start precedes end (a backward drag reverses them)
+			int sLine = range.start.line, sCol = range.start.column;
+			int eLine = range.end.line, eCol = range.end.column;
+			if (eLine < sLine || (eLine == sLine && eCol < sCol))
+			{
+				std::swap(sLine, eLine);
+				std::swap(sCol, eCol);
+			}
+			selection.startLine = sLine;
+			selection.startChar = sCol;
+			selection.endLine = eLine;
+			selection.endChar = eCol;
+			if (ui.focused->editor->AnyCursorHasSelection())
+			{
+				selection.text = sliceSelection(ui.focused->editor->GetText(),
+					sLine, sCol, eLine, eCol);
+			}
+		}
+		bridge.selection = selection;
+	}
+}
+//---------------------------------------------------------------------------
 void drawScriptDocuments(EditorState& state, PlaySession& session,
 	Orkige::EditorCore& core, ViewSettings& viewSettings)
 {
 	(void)core;
 	PanelState& ui = panel();
+
+	// the Claude-IDE endpoint asked to open a file: route it through the same
+	// one-shot open path (the server writes into the bridge, the panel owns the
+	// open). A user/break request already queued wins this frame; ours retries.
+	if (!state.ide.openFileRequest.empty() && state.scriptOpenRequest.empty())
+	{
+		state.scriptOpenRequest = state.ide.openFileRequest;
+		state.scriptOpenLine = state.ide.openFileLine;
+		state.ide.openFileRequest.clear();
+		state.ide.openFileLine = 0;
+	}
+	// ... and to close a tab: close the first matching CLEAN document (a dirty
+	// document is left alone - the IDE never discards unsaved edits silently)
+	if (!state.ide.closeTabRequest.empty())
+	{
+		for (auto& doc : ui.docs)
+		{
+			const bool matches = doc->title == state.ide.closeTabRequest ||
+				doc->absolutePath == state.ide.closeTabRequest ||
+				doc->relativePath == state.ide.closeTabRequest;
+			if (matches && !doc->isDirty())
+			{
+				doc->open = false;
+				break;
+			}
+		}
+		state.ide.closeTabRequest.clear();
+	}
 
 	// consume a pending open request BEFORE drawing so the window exists
 	if (!state.scriptOpenRequest.empty())
@@ -2276,6 +2411,12 @@ void drawScriptDocuments(EditorState& state, PlaySession& session,
 			}
 		}
 	}
+
+	// publish the open documents / focused selection / parse diagnostics into
+	// the Claude-IDE bridge so the IDE endpoint reports live editor state
+	// (getOpenEditors / getCurrentSelection / getDiagnostics / selection_changed).
+	// TU-local doc state is the truth; the bridge is a plain per-frame snapshot.
+	publishIdeState(state, ui);
 }
 //---------------------------------------------------------------------------
 void drawDebugPanel(EditorState& state, PlaySession& session,

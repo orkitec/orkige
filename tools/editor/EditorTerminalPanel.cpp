@@ -144,6 +144,16 @@ namespace
 				spec.env.emplace_back("ORKIGE_MCP_TOKEN_FILE", mcpTokenFile);
 			}
 		}
+		// Claude-IDE auto-connect: when this editor hosts the IDE endpoint,
+		// seed a spawned `claude` so it selects THIS editor as its IDE (the
+		// discovery env the CLI reads - it finds our ~/.claude/ide/<port>.lock
+		// and dials the WebSocket back). Off (no env) when the endpoint is off.
+		if (state.ide.ssePort > 0)
+		{
+			spec.env.emplace_back("CLAUDE_CODE_SSE_PORT",
+				std::to_string(state.ide.ssePort));
+			spec.env.emplace_back("ENABLE_IDE_INTEGRATION", "true");
+		}
 		s.cols = spec.cols;
 		s.rows = spec.rows;
 		if (s.pty->spawn(spec))

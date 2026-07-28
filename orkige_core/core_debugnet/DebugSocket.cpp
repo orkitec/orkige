@@ -427,4 +427,236 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
+
+	//=========================================================
+	//--- WebSocketConnection (message-framed server side) ----
+	//=========================================================
+	WebSocketConnection::WebSocketConnection()
+	{
+		this->handle = DebugSocketUtil::INVALID_SOCKET_HANDLE;
+		this->assemblyOpcode = 0;
+		this->assembling = false;
+		this->open = false;
+	}
+	//---------------------------------------------------------
+	WebSocketConnection::~WebSocketConnection()
+	{
+		this->close();
+	}
+	//---------------------------------------------------------
+	void WebSocketConnection::attach(
+		DebugSocketUtil::SocketHandle socketHandle, String const & initialBytes)
+	{
+		this->close();
+		this->handle = socketHandle;
+		this->open = (socketHandle != DebugSocketUtil::INVALID_SOCKET_HANDLE);
+		this->frameBuffer = initialBytes;
+		// a fast peer's first frames may ride in with the upgrade request
+		if (this->open)
+		{
+			this->decodeFrames();
+		}
+	}
+	//---------------------------------------------------------
+	void WebSocketConnection::close()
+	{
+		if (this->open && this->handle != DebugSocketUtil::INVALID_SOCKET_HANDLE)
+		{
+			// best-effort close frame so the peer learns the link ended cleanly
+			const String closeFrame =
+				WebSocketUtil::encodeFrame(WebSocketUtil::OP_CLOSE, String());
+			::send(this->handle, closeFrame.data(), closeFrame.size(), 0);
+		}
+		DebugSocketUtil::closeSocket(this->handle);
+		this->open = false;
+		this->assembling = false;
+		this->frameBuffer.clear();
+		this->assembly.clear();
+		this->outBuffer.clear();
+		this->messages.clear();
+	}
+	//---------------------------------------------------------
+	bool WebSocketConnection::sendMessage(String const & payload)
+	{
+		if (!this->open)
+		{
+			return false;
+		}
+		this->outBuffer +=
+			WebSocketUtil::encodeFrame(WebSocketUtil::OP_TEXT, payload);
+		this->pump();
+		return this->open;
+	}
+	//---------------------------------------------------------
+	bool WebSocketConnection::nextMessage(String & out)
+	{
+		if (this->messages.empty())
+		{
+			return false;
+		}
+		out = this->messages.front();
+		this->messages.erase(this->messages.begin());
+		return true;
+	}
+	//---------------------------------------------------------
+	void WebSocketConnection::pump()
+	{
+		if (!this->open)
+		{
+			return;
+		}
+		struct pollfd descriptor;
+		std::memset(&descriptor, 0, sizeof(descriptor));
+		descriptor.fd = this->handle;
+		descriptor.events = POLLIN;
+		if (!this->outBuffer.empty())
+		{
+			descriptor.events |= POLLOUT;
+		}
+#ifdef _WIN32
+		const int ready = WSAPoll(&descriptor, 1, 0);
+#else
+		const int ready = ::poll(&descriptor, 1, 0);
+#endif
+		if (ready < 0)
+		{
+			if (!DebugSocketUtil::lastErrorWouldBlock())
+			{
+				this->open = false;
+			}
+			return;
+		}
+		if (ready == 0)
+		{
+			return;
+		}
+		if (descriptor.revents & (POLLERR | POLLNVAL))
+		{
+			this->open = false;
+			return;
+		}
+		if (descriptor.revents & (POLLIN | POLLHUP))
+		{
+			char chunk[4096];
+			for (;;)
+			{
+				const long received = static_cast<long>(
+					::recv(this->handle, chunk, sizeof(chunk), 0));
+				if (received > 0)
+				{
+					this->frameBuffer.append(chunk,
+						static_cast<size_t>(received));
+					if (this->frameBuffer.size() >
+						WebSocketUtil::MAX_FRAME_PAYLOAD + 16)
+					{
+						this->open = false;
+						return;
+					}
+					this->decodeFrames();
+					if (!this->open)
+					{
+						return;	// a close frame / framing error ended it
+					}
+					continue;
+				}
+				if (received == 0)
+				{
+					this->open = false;	// orderly peer shutdown
+					return;
+				}
+				if (!DebugSocketUtil::lastErrorWouldBlock())
+				{
+					this->open = false;
+					return;
+				}
+				break;	// drained
+			}
+		}
+		if (!this->outBuffer.empty())
+		{
+			const long sent = static_cast<long>(::send(this->handle,
+				this->outBuffer.data(), this->outBuffer.size(), 0));
+			if (sent > 0)
+			{
+				this->outBuffer.erase(0, static_cast<size_t>(sent));
+			}
+			else if (sent < 0 && !DebugSocketUtil::lastErrorWouldBlock())
+			{
+				this->open = false;
+			}
+		}
+	}
+	//---------------------------------------------------------
+	void WebSocketConnection::decodeFrames()
+	{
+		for (;;)
+		{
+			WebSocketUtil::Frame frame;
+			std::size_t consumed = 0;
+			const WebSocketUtil::DecodeResult result =
+				WebSocketUtil::decodeFrame(this->frameBuffer, consumed, frame);
+			if (result == WebSocketUtil::DecodeResult::NeedMore)
+			{
+				return;
+			}
+			if (result == WebSocketUtil::DecodeResult::Error)
+			{
+				this->open = false;	// framing violation: drop the peer
+				return;
+			}
+			this->frameBuffer.erase(0, consumed);
+			switch (frame.opcode)
+			{
+			case WebSocketUtil::OP_TEXT:
+			case WebSocketUtil::OP_BINARY:
+				// a new data message: its opcode may be the sole (fin) frame or
+				// the head of a fragment chain continued by OP_CONTINUATION
+				this->assembly = frame.payload;
+				this->assemblyOpcode = frame.opcode;
+				this->assembling = !frame.fin;
+				if (frame.fin)
+				{
+					this->messages.push_back(this->assembly);
+					this->assembly.clear();
+				}
+				break;
+			case WebSocketUtil::OP_CONTINUATION:
+				if (this->assembling)
+				{
+					this->assembly += frame.payload;
+					if (this->assembly.size() >
+						WebSocketUtil::MAX_FRAME_PAYLOAD)
+					{
+						this->open = false;	// a runaway fragment chain
+						return;
+					}
+					if (frame.fin)
+					{
+						this->messages.push_back(this->assembly);
+						this->assembly.clear();
+						this->assembling = false;
+					}
+				}
+				// a continuation with no opener is ignored (defensive)
+				break;
+			case WebSocketUtil::OP_PING:
+				this->outBuffer += WebSocketUtil::encodeFrame(
+					WebSocketUtil::OP_PONG, frame.payload);
+				break;
+			case WebSocketUtil::OP_PONG:
+				break;	// unsolicited pongs are ignored per the RFC
+			case WebSocketUtil::OP_CLOSE:
+			{
+				const String closeFrame = WebSocketUtil::encodeFrame(
+					WebSocketUtil::OP_CLOSE, String());
+				::send(this->handle, closeFrame.data(), closeFrame.size(), 0);
+				this->open = false;
+				return;
+			}
+			default:
+				this->open = false;	// unknown opcode: protocol violation
+				return;
+			}
+		}
+	}
 }

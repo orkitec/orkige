@@ -1317,6 +1317,31 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_TERMINAL_TEST=1"
         LABELS integration TIMEOUT 120 SKIP_RETURN_CODE 77)
 
+    # Claude-IDE integration end to end: the editor hosts its IDE endpoint
+    # (lock + MCP-over-WebSocket) and a worker thread drives a FAKE IDE client
+    # through the real server - the WebSocket handshake with the lock token
+    # (plus a bad-token rejection), then initialize, getWorkspaceFolders,
+    # getOpenEditors, getDiagnostics and an openFile that must land the target
+    # in the Script panel (cross-checked against the published bridge). Window-
+    # independent, condition-driven. Both flavors (the seam is flavor-neutral).
+    add_test(NAME editor_ide${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_editor WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_ide${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_IDE_TEST=${Orkige_SOURCE_DIR}/projects/jumper-lua/scripts/player.lua"
+        LABELS integration TIMEOUT 120 SKIP_RETURN_CODE 77)
+
+    # the REAL-`claude`-binary drift alarm: launch the actual CLI pointed at the
+    # editor's own lock/port and assert it dials the IDE endpoint (the protocol
+    # is external and undocumented - a real connection here proves it still
+    # matches). Skips (77) when claude is not on PATH, when it cannot be spawned,
+    # or when it runs but never connects for an environment reason; a clean run
+    # that never connects is a protocol-drift FAILURE. Both flavors.
+    add_test(NAME editor_ide_claude${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_editor WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_ide_claude${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_IDE_CLAUDE_TEST=1"
+        LABELS "integration;device" TIMEOUT 120 SKIP_RETURN_CODE 77)
+
     # prefab EDIT MODE end to end: on a temp copy of the roller project, author
     # a tile instance with a per-instance override, then drive the isolation
     # stage through the same free functions the UI calls - open (the one world

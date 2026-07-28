@@ -51,6 +51,10 @@ add_library(orkige_editor_core STATIC
     EditorTabActions.cpp
     EditorTextDiagnostics.h
     EditorTextDiagnostics.cpp
+    # the PURE half of the Claude-IDE integration (lock model + MCP message
+    # builders); unit-tested headlessly (EditorIdeProtocolTests)
+    EditorIdeProtocol.h
+    EditorIdeProtocol.cpp
     FileFormatIcon.h
     FileFormatIcon.cpp
     EditorLineDiff.h
@@ -102,6 +106,9 @@ add_executable(orkige_editor
     EditorConsole.cpp
     EditorControlServer.h
     EditorControlServer.cpp
+    # the Claude-IDE integration server (lock lifecycle + MCP-over-WebSocket)
+    EditorIdeServer.h
+    EditorIdeServer.cpp
     EditorDeviceTargets.cpp
     EditorDocument.cpp
     EditorBrowserServe.cpp
