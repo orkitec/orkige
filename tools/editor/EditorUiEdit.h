@@ -43,6 +43,10 @@ namespace OrkigeEditor
 	//! @brief a resolved widget rect for hit-testing (surface pixels, origin
 	//! top-left - the DrawLayer2D convention the runtime readback uses). Mirrors
 	//! GuiPreviewWidgetRect so the pure core does not depend on the stage header.
+	//! @p z / @p depth carry the picking priority: @p z is the widget's render
+	//! layer (the `.oui` `z` key), @p depth its nesting depth (the length of its
+	//! `parent` chain). Both default to 0, so the legacy `{id,l,t,w,h}` aggregate
+	//! init keeps the plain painter-order behaviour.
 	struct UiRect
 	{
 		Orkige::String	id;
@@ -50,11 +54,17 @@ namespace OrkigeEditor
 		float			top = 0.0f;
 		float			width = 0.0f;
 		float			height = 0.0f;
+		float			z = 0.0f;		//!< render layer (higher = drawn on top)
+		int				depth = 0;		//!< parent-chain nesting depth (child > parent)
 	};
 
-	//! @brief the topmost widget id at (@p px, @p py). The runtime returns rects
-	//! in submission (painter's) order, so a LATER rect draws on top - the last
-	//! matching rect wins. Returns "" when the point hits nothing.
+	//! @brief the topmost widget id at (@p px, @p py). Among the rects CONTAINING
+	//! the point the winner is the one on top: higher @p z first, then the DEEPER
+	//! widget (a child inside its parent wins at equal z - a button inside a decor
+	//! panel is selectable, never swallowed by the parent), then painter order (a
+	//! later rect wins). With every rect at the default z==0/depth==0 this is
+	//! exactly "the last matching rect wins". Returns "" when the point hits
+	//! nothing.
 	Orkige::String hitTestWidget(std::vector<UiRect> const& rects,
 		float px, float py);
 
@@ -256,6 +266,23 @@ namespace OrkigeEditor
 	//! that returns empty when @p id is absent.
 	std::vector<Orkige::String> removeWidgetSubtree(Orkige::GuiLayoutDoc& doc,
 		Orkige::String const& id);
+
+	//! @brief is @p id a well-formed, UNIQUE widget id for @p doc? A name must be
+	//! non-empty, carry no whitespace (the `.oui` header is `[Type id]`, so a
+	//! space would split it) and not collide with any EXISTING widget id other
+	//! than @p allowSelf (its own current name, so a no-op rename passes). Sets
+	//! @p error with the human reason on failure. Pure.
+	bool isValidWidgetName(Orkige::GuiLayoutDoc const& doc, Orkige::String const& id,
+		Orkige::String const& allowSelf, Orkige::String& error);
+
+	//! @brief rename the widget @p oldId to @p newId: sets the section's id AND
+	//! rewrites every child's `parent` reference so the tree stays intact.
+	//! Enforces uniqueness (@see isValidWidgetName) - fails with @p error and
+	//! changes nothing on an empty/whitespace/colliding name or a missing @p oldId.
+	//! A rename to the same id is a successful no-op. Pure; round-trips through
+	//! GuiLayout::serialize.
+	bool renameWidget(Orkige::GuiLayoutDoc& doc, Orkige::String const& oldId,
+		Orkige::String const& newId, Orkige::String& error);
 
 	//! @brief the `.oui` document being edited: the parsed GuiLayoutDoc plus a
 	//! snapshot-based undo/redo history with gesture grouping. The document is a

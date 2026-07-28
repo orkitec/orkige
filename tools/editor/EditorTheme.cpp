@@ -272,6 +272,7 @@ namespace Orkige
 			0xf1ab, 0xf1ab,		// language (.xlf file icon)
 			0xf28b, 0xf28b,		// circle-pause (debug Break on Next Statement)
 			0xf2ed, 0xf2ed,		// trash-can (delete widget - UI Editor tree)
+			0xf304, 0xf304,		// pen (rename widget - UI Editor action row)
 			0xf061, 0xf063,		// arrow-right/up/down (debug Step Over/Out/In)
 			0xf06e, 0xf06e,		// eye (Scene Display dropdown)
 			0xf07b, 0xf07c,		// folder / folder-open

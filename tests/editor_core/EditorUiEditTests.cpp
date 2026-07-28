@@ -73,6 +73,32 @@ TEST_CASE("ui-edit: hit test picks the topmost (last submitted) rect", "[unit][u
 	CHECK(hitTestWidget(rects, 200, 200).empty());
 }
 
+TEST_CASE("ui-edit: hit test prefers the deeper child inside its parent",
+	"[unit][uiedit]")
+{
+	// the reported bug: a button parented into a decor panel could not be
+	// click-selected because the parent (same z) swallowed the pick. A child is
+	// DEEPER (depth > parent), so it must win at equal z regardless of submission
+	// order - here the parent is submitted LAST (a later painter index).
+	std::vector<UiRect> rects;
+	UiRect parent{ "panel", 0, 0, 200, 200 };	// depth 0
+	UiRect child{ "button", 40, 40, 80, 40 };	// depth 1, inside the panel
+	child.depth = 1;
+	// the child is submitted FIRST, the parent LAST (the swallow condition)
+	rects.push_back(child);
+	rects.push_back(parent);
+	// a point inside both -> the child wins (deeper), never the parent
+	CHECK(hitTestWidget(rects, 60, 55) == "button");
+	// a point inside only the parent -> the parent
+	CHECK(hitTestWidget(rects, 10, 10) == "panel");
+
+	// z order is respected: a sibling with a HIGHER z wins over a deeper child
+	UiRect overlay{ "overlay", 40, 40, 80, 40 };	// depth 0 but z 20 (on top)
+	overlay.z = 20.0f;
+	rects.push_back(overlay);
+	CHECK(hitTestWidget(rects, 60, 55) == "overlay");
+}
+
 TEST_CASE("ui-edit: handle picking - corners beat edges, interior is a move",
 	"[unit][uiedit]")
 {
@@ -260,6 +286,72 @@ TEST_CASE("ui-edit: remove a subtree deletes the widget and its descendants",
 	CHECK(sectionIndex(doc, "child") < 0);
 	CHECK(sectionIndex(doc, "grandchild") < 0);
 	CHECK(sectionIndex(doc, "sibling") >= 0);	// untouched
+}
+
+TEST_CASE("ui-edit: widget-name validation - blank / spaces / collision",
+	"[unit][uiedit]")
+{
+	GuiLayoutDoc doc;
+	GuiLayoutSection a; a.type = "Button"; a.id = "ok"; doc.sections.push_back(a);
+	GuiLayoutSection b; b.type = "Label"; b.id = "title"; doc.sections.push_back(b);
+
+	std::string err;
+	CHECK_FALSE(isValidWidgetName(doc, "", "", err));		// empty
+	CHECK_FALSE(err.empty());
+	CHECK_FALSE(isValidWidgetName(doc, "my widget", "", err));	// space
+	CHECK_FALSE(isValidWidgetName(doc, "title", "", err));		// collision
+	// a fresh unique name is valid
+	CHECK(isValidWidgetName(doc, "footer", "", err));
+	CHECK(err.empty());
+	// a name that collides with SELF is allowed (a no-op rename)
+	CHECK(isValidWidgetName(doc, "title", "title", err));
+}
+
+TEST_CASE("ui-edit: rename a widget rewrites its children's parent refs and "
+	"enforces uniqueness", "[unit][uiedit]")
+{
+	GuiLayoutDoc doc;
+	auto add = [&](std::string type, std::string id, std::string parent)
+	{
+		GuiLayoutSection s;
+		s.type = std::move(type);
+		s.id = std::move(id);
+		if(!parent.empty()) { s.set("parent", parent); }
+		doc.sections.push_back(s);
+	};
+	add("DecorWidget", "panel", "");
+	add("Button", "ok", "panel");
+	add("Label", "caption", "panel");
+	add("Button", "cancel", "");
+
+	std::string err;
+	// a collision fails and changes nothing
+	CHECK_FALSE(renameWidget(doc, "panel", "cancel", err));
+	CHECK_FALSE(err.empty());
+	CHECK(sectionIndex(doc, "panel") >= 0);
+	CHECK(*sectionById(doc, "ok").find("parent") == "panel");
+
+	// a valid rename updates the id AND every child's parent reference
+	REQUIRE(renameWidget(doc, "panel", "hud", err));
+	CHECK(err.empty());
+	CHECK(sectionIndex(doc, "panel") < 0);
+	CHECK(sectionIndex(doc, "hud") >= 0);
+	CHECK(*sectionById(doc, "ok").find("parent") == "hud");
+	CHECK(*sectionById(doc, "caption").find("parent") == "hud");
+	CHECK(sectionById(doc, "cancel").find("parent") == nullptr);	// untouched
+
+	// a no-op rename to the same id succeeds
+	CHECK(renameWidget(doc, "hud", "hud", err));
+	// renaming a missing widget fails
+	CHECK_FALSE(renameWidget(doc, "nope", "x", err));
+
+	// the rename round-trips through serialize (a fixed point)
+	const std::string text = doc.serialize();
+	GuiLayoutDoc reparsed;
+	std::string perr;
+	REQUIRE(GuiLayoutDoc::parse(text, reparsed, perr));
+	CHECK(reparsed.serialize() == text);
+	CHECK(sectionIndex(reparsed, "hud") >= 0);
 }
 
 TEST_CASE("ui-edit: UiEditDoc undo/redo groups a gesture into one step",

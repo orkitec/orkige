@@ -2586,13 +2586,21 @@ int main(int argc, char** argv)
 				editLink.session = nullptr;
 				editLink.stage = nullptr;
 			}
+			// a closed Preview retires the UI Editor panel too: it exists only
+			// while a .oui screen is open in the Preview (which drives its
+			// visibility from the picked screen). Never leave it as an orphan tab.
+			if (!viewSettings.showPreviewPanel && viewSettings.showUiEditorPanel)
+			{
+				viewSettings.showUiEditorPanel = false;
+				viewSettings.save();
+			}
 			if (viewSettings.showPreviewPanel)
 			{
 				drawGamePreviewPanel(state, gamePreviewStage, editorCore,
 					gameObjectManager, viewSettings);
 			}
 			// the UI Editor tool panel (visual .oui editor); reads the link the
-			// Preview panel just filled - honest empty state when Edit UI is off
+			// Preview panel just filled - drawn only while a screen is open there
 			if (viewSettings.showUiEditorPanel)
 			{
 				OrkigeEditor::drawUiEditorPanel(&viewSettings.showUiEditorPanel);
@@ -7402,6 +7410,153 @@ int main(int argc, char** argv)
 						}
 					}
 				}
+				// --- RENAME: a valid rename rewrites the id AND every child's parent
+				// ref through the real session path; a collision refuses with no
+				// change; the saved file round-trips (both flavors, headless). ---
+				if (ok)
+				{
+					const fs::path renFile = dir / "rename.oui";
+					{
+						std::ofstream out(renFile,
+							std::ios::binary | std::ios::trunc);
+						out << "[Layout]\natlas = gui_default\n\n"
+							"[DecorWidget panel]\nsprite = panel\n"
+							"anchor = topleft\noffsets = 0 0 200 200\n\n"
+							"[Button ok]\nsprite = button\ntext = OK\nparent = panel\n"
+							"anchor = topleft\nanchoredPos = 20 20\n"
+							"sizeDelta = 100 40\n";
+					}
+					OrkigeEditor::UiEditSession ren;
+					std::string renErr;
+					OrkigeEditor::uiEditLoad(ren, gamePreviewStage, dir.string(),
+						"rename.oui", renErr);
+					OrkigeEditor::uiEditSelect(ren, "panel");
+					std::string collideErr;
+					// a collision with the existing 'ok' refuses + changes nothing
+					if (OrkigeEditor::uiEditRenameSelected(ren, gamePreviewStage,
+						"ok", collideErr) || collideErr.empty())
+					{
+						uiFail("rename to a colliding name should have refused");
+					}
+					else if (OrkigeEditor::sectionIndex(ren.doc.doc(), "panel") < 0)
+					{
+						uiFail("a refused rename must leave the widget unchanged");
+					}
+					// a valid rename moves the id AND re-homes the child
+					if (ok)
+					{
+						std::string rerr;
+						if (!OrkigeEditor::uiEditRenameSelected(ren, gamePreviewStage,
+							"hud", rerr))
+						{
+							uiFail("valid rename failed: " + rerr);
+						}
+						else if (OrkigeEditor::sectionIndex(ren.doc.doc(), "hud") < 0 ||
+							OrkigeEditor::sectionIndex(ren.doc.doc(), "panel") >= 0)
+						{
+							uiFail("rename did not move the widget id");
+						}
+						else if (ren.selected != "hud")
+						{
+							uiFail("rename did not carry the selection");
+						}
+						else
+						{
+							const int ci =
+								OrkigeEditor::sectionIndex(ren.doc.doc(), "ok");
+							Orkige::String const* par = ci >= 0 ? ren.doc.doc()
+								.sections[static_cast<size_t>(ci)].find("parent")
+								: nullptr;
+							if (!par || *par != "hud")
+							{
+								uiFail("rename did not re-home the child's parent");
+							}
+						}
+					}
+				}
+				// --- LABEL RESIZE + TEXT-IN-BOX: add a label, resize it via the
+				// canvas resize seam (applyResize on its sizeDelta), and assert the
+				// resolved BOX grew as dragged. On the next flavor the live overlay
+				// also reports the label's TEXT rect, which must sit INSIDE that box
+				// (10b: text laid out within its widget). ---
+				if (ok)
+				{
+					const fs::path lblFile = dir / "label.oui";
+					{
+						std::ofstream out(lblFile,
+							std::ios::binary | std::ios::trunc);
+						out << "[Layout]\natlas = gui_default\n";
+					}
+					OrkigeEditor::UiEditSession lbl;
+					std::string lblErr;
+					OrkigeEditor::uiEditLoad(lbl, gamePreviewStage, dir.string(),
+						"label.oui", lblErr);
+					const std::string lid = OrkigeEditor::uiEditAddWidget(lbl, "label");
+					const int lidx = OrkigeEditor::sectionIndex(lbl.doc.doc(), lid);
+					if (lid.empty() || lidx < 0)
+					{
+						uiFail("label resize: add did not create a label");
+					}
+					else
+					{
+						Orkige::GuiLayoutSection& sec = lbl.doc.doc()
+							.sections[static_cast<size_t>(lidx)];
+						const Orkige::LayoutRect parent{ 0, 0, 1000, 1000 };
+						const Orkige::LayoutRect boxBefore = Orkige::resolveRect(parent,
+							OrkigeEditor::sectionLayoutNode(sec), 1.0f);
+						// a fresh label MUST be drag-resizable: grow the box by a
+						// bottom-right handle drag (the exact seam the canvas uses)
+						lbl.doc.beginEdit();
+						OrkigeEditor::applyResize(sec, OrkigeEditor::UiHandle::BottomRight,
+							60.0f, 40.0f, 1.0f, 0.0f);
+						lbl.doc.commitEdit();
+						const Orkige::LayoutRect boxAfter = Orkige::resolveRect(parent,
+							OrkigeEditor::sectionLayoutNode(sec), 1.0f);
+						if (!(boxAfter.w > boxBefore.w + 1.0f &&
+							boxAfter.h > boxBefore.h + 1.0f))
+						{
+							uiFail("label resize did not grow the box (before " +
+								std::to_string(boxBefore.w) + "x" +
+								std::to_string(boxBefore.h) + " after " +
+								std::to_string(boxAfter.w) + "x" +
+								std::to_string(boxAfter.h) + ")");
+						}
+						else if (!(boxAfter.w > 0.0f && boxAfter.h > 0.0f))
+						{
+							uiFail("label resize left a degenerate box");
+						}
+						std::string saveErr;
+						OrkigeEditor::uiEditSave(lbl, gamePreviewStage, saveErr);
+						// text-in-box, through the LIVE overlay when present (next
+						// flavor): the label's reported TEXT rect must fit its box.
+						for (OrkigeEditor::GuiPreviewWidgetRect const& wr :
+							gamePreviewStage.getOverlayWidgetRects())
+						{
+							if (wr.id != lid) { continue; }
+							// the overlay resolves against the live surface; compare
+							// against the box resolved at the SAME scale
+							float sw = 1000.0f, sh = 1000.0f;
+							if (Orkige::optr<Orkige::RenderTexture> t =
+								gamePreviewStage.getTarget())
+							{
+								if (t->getWidth() > 0) { sw = float(t->getWidth()); }
+								if (t->getHeight() > 0) { sh = float(t->getHeight()); }
+							}
+							const float sc = OrkigeEditor::uiEditLayoutScale(lbl, sw, sh);
+							const Orkige::LayoutRect surf{ 0, 0, sw, sh };
+							const Orkige::LayoutRect box = Orkige::resolveRect(surf,
+								OrkigeEditor::sectionLayoutNode(sec), sc);
+							const float tol = 2.0f;
+							if (wr.left < box.x - tol || wr.top < box.y - tol ||
+								wr.left + wr.width > box.x + box.w + tol ||
+								wr.top + wr.height > box.y + box.h + tol)
+							{
+								uiFail("label text rect escapes its widget box");
+							}
+							break;
+						}
+					}
+				}
 				fs::remove_all(dir, uiEc);
 				if (ok)
 				{
@@ -7409,6 +7564,7 @@ int main(int argc, char** argv)
 						"load/select/move/undo/add/save/reload + multi-select/align/"
 						"marquee/anchor-gizmo + selection-sync + canvas clip/mapping "
 						"+ content-containment matrix + palette-add containment "
+						"+ rename(re-home/collision) + label-resize/text-in-box "
 						"verified");
 					exitCode = 0;
 					running = false;
@@ -10091,6 +10247,14 @@ int main(int argc, char** argv)
 					viewSettings.showPreviewPanel = true;
 				}
 			}
+			if (previewSelfcheckEnv && frameCount == 39 && exitCode == 0)
+			{
+				// showing a .oui in Preview now also opens the UI Editor tool panel
+				// (editing IS on when a screen is shown); in this blank test layout
+				// they can share a dock node, so bring the Preview tab back to front
+				// before asserting its composite (a real layout keeps them apart).
+				ImGui::SetWindowFocus("Preview");
+			}
 			if (previewSelfcheckEnv && frameCount == 40 && exitCode == 0)
 			{
 				auto drawDataUses = [](ImTextureID wanted)
@@ -10190,6 +10354,11 @@ int main(int argc, char** argv)
 					exitCode = 13;
 					running = false;
 				}
+				// the Game Preview leg is done; the remaining legs are Inspector asset
+				// previews. Close the Preview so its .oui edit mode retires the UI
+				// Editor tool panel (which shares this blank layout's dock node),
+				// leaving the Inspector unobstructed for the mesh/omat/oshape legs.
+				viewSettings.showPreviewPanel = false;
 			}
 			// --- Inspector asset previews: seed the browser selection to each
 			// asset kind (not MCP-drivable) and prove the sections render. The

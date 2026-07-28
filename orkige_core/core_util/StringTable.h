@@ -89,6 +89,11 @@ namespace Orkige
 		//! @brief every loaded language code, sorted (the source language
 		//! included); feeds the editor preview and a settings language switch
 		StringVector getLanguages() const;
+		//! @brief every localisation KEY across all loaded languages, sorted and
+		//! de-duplicated. The editor enumerates these for a `@key` completion in a
+		//! text field (so `@` autocompletes the project's localisation keys);
+		//! empty when nothing is loaded.
+		StringVector listKeys() const;
 
 		//! @brief the localized string for a key: the active-language entry, else
 		//! the source-language entry (the untranslated fallback), else the key

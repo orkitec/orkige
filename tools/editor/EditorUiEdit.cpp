@@ -116,18 +116,35 @@ namespace OrkigeEditor
 	//---------------------------------------------------------
 	String hitTestWidget(std::vector<UiRect> const& rects, float px, float py)
 	{
-		// last-in-list wins (painter's order - a later rect is drawn on top)
-		for(std::vector<UiRect>::const_reverse_iterator it = rects.rbegin();
-			it != rects.rend(); ++it)
+		// among the rects CONTAINING the point, pick the one drawn on top:
+		// higher z first, then the DEEPER widget (a child inside its parent wins
+		// at equal z - so a button inside a decor panel is selectable, never
+		// swallowed), then painter order (a later index wins). With every rect at
+		// the default z==0/depth==0 this reduces to "the last matching rect wins".
+		int best = -1;
+		for(size_t each = 0; each < rects.size(); ++each)
 		{
-			UiRect const& r = *it;
-			if(px >= r.left && px <= r.left + r.width &&
-				py >= r.top && py <= r.top + r.height)
+			UiRect const& r = rects[each];
+			if(px < r.left || px > r.left + r.width ||
+				py < r.top || py > r.top + r.height)
 			{
-				return r.id;
+				continue;
+			}
+			if(best < 0)
+			{
+				best = static_cast<int>(each);
+				continue;
+			}
+			UiRect const& cur = rects[static_cast<size_t>(best)];
+			const bool better = r.z > cur.z ||
+				(r.z == cur.z && r.depth > cur.depth) ||
+				(r.z == cur.z && r.depth == cur.depth);	// equal => later index wins
+			if(better)
+			{
+				best = static_cast<int>(each);
 			}
 		}
-		return String();
+		return best < 0 ? String() : rects[static_cast<size_t>(best)].id;
 	}
 	//---------------------------------------------------------
 	UiHandle handleAt(UiRect const& r, float px, float py, float grab)
@@ -840,6 +857,67 @@ namespace OrkigeEditor
 		}
 		doc.sections = std::move(kept);
 		return removed;
+	}
+	//---------------------------------------------------------
+	bool isValidWidgetName(GuiLayoutDoc const& doc, String const& id,
+		String const& allowSelf, String& error)
+	{
+		if(id.empty())
+		{
+			error = "the name cannot be empty";
+			return false;
+		}
+		for(char c : id)
+		{
+			if(std::isspace(static_cast<unsigned char>(c)))
+			{
+				error = "the name cannot contain spaces";
+				return false;
+			}
+		}
+		for(GuiLayoutSection const& s : doc.sections)
+		{
+			if(s.id.empty()) { continue; }
+			if(s.id == id && s.id != allowSelf)
+			{
+				error = "a widget named '" + id + "' already exists";
+				return false;
+			}
+		}
+		error.clear();
+		return true;
+	}
+	//---------------------------------------------------------
+	bool renameWidget(GuiLayoutDoc& doc, String const& oldId, String const& newId,
+		String& error)
+	{
+		const int idx = sectionIndex(doc, oldId);
+		if(idx < 0)
+		{
+			error = "no widget named '" + oldId + "'";
+			return false;
+		}
+		if(newId == oldId)
+		{
+			error.clear();
+			return true;	// a no-op rename succeeds
+		}
+		if(!isValidWidgetName(doc, newId, oldId, error))
+		{
+			return false;
+		}
+		doc.sections[static_cast<size_t>(idx)].id = newId;
+		// re-home every child that named the old id as its parent
+		for(GuiLayoutSection& s : doc.sections)
+		{
+			if(s.id.empty()) { continue; }
+			if(String const* p = s.find("parent"))
+			{
+				if(*p == oldId) { s.set("parent", newId); }
+			}
+		}
+		error.clear();
+		return true;
 	}
 	//=========================================================
 	//=== UiEditDoc ===========================================

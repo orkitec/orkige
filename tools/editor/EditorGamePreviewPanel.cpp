@@ -61,7 +61,6 @@ namespace
 		bool						animateMaterials = false;	//!< material clock
 		bool						showFrame = true;		//!< procedural device frame
 		bool						overlayRects = false;	//!< draw the widget rect overlay
-		bool						editUi = false;			//!< visual .oui edit mode
 		OrkigeEditor::UiEditSession	editSession;			//!< the edit document + selection
 		std::string					editAppliedFile;		//!< the file the session holds
 		bool						usingDefaultCamera = false;	//!< last frame fell back to the default camera (drives the hint)
@@ -382,24 +381,12 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 	{
 		ImGui::SameLine();
 		Orkige::compactCheckbox("Widget rects", &ui.overlayRects);
-		ImGui::SameLine();
-		// Edit UI: the visual .oui editor, available once a screen is picked. The
-		// canvas + adornments live here; the widget tree/properties/anchor gizmo
-		// live in the dockable UI Editor panel (auto-opened on entering Edit UI).
-		ImGui::BeginDisabled(ui.selectedFile.empty());
-		const bool editUiWas = ui.editUi;
-		Orkige::compactCheckbox("Edit UI", &ui.editUi);
-		ImGui::EndDisabled();
-		if (ui.selectedFile.empty()) { ui.editUi = false; }
-		if (ui.editUi && !editUiWas)
-		{
-			// entering Edit UI reveals the tool panel (a fresh launch has it closed)
-			viewSettings.showUiEditorPanel = true;
-			viewSettings.save();
-		}
-		// the slim edit row: a quick + Add dropdown and a Delete, canvas-adjacent
-		// (the full palette + tree live in the UI Editor panel)
-		if (ui.editUi && !ui.selectedFile.empty() && ui.editSession.loaded)
+		// EDIT MODE IS ALWAYS ON: showing a .oui screen IS editing it - the canvas
+		// selection/grips/guides are simply live whenever a screen is picked (no
+		// separate mode toggle). The slim edit row (a quick "+ Add" and a Delete)
+		// is canvas-adjacent; the full palette + tree + properties live in the
+		// dockable UI Editor panel.
+		if (!ui.selectedFile.empty() && ui.editSession.loaded)
 		{
 			ImGui::SameLine();
 			// the compact "+ Add" opens the SAME kind picker as the UI Editor
@@ -442,10 +429,10 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		return;
 	}
 
-	// Edit UI keeps ONLY the canvas + adornments here (the tools moved to the
-	// dockable UI Editor panel), so the composite image fills the whole panel on
-	// both flavors - no reserved sidebar column.
-	const bool editActive = ui.editUi && !ui.selectedFile.empty();
+	// a picked screen IS edit mode (always on). The composite image fills the whole
+	// panel on both flavors - no reserved sidebar column; the tools live in the
+	// dockable UI Editor panel.
+	const bool editActive = projectOpen && !ui.selectedFile.empty();
 	const float canvasW = std::max(16.0f, avail.x);
 
 	//--- apply controls to the shared stage --------------------------------
@@ -526,8 +513,10 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 
 	const ImVec2 origin = ImGui::GetCursorScreenPos();
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	// Edit UI wants a flat canvas (no device frame) in the reserved column
-	const bool framed = ui.showFrame && canFrame && !editActive;
+	// the device frame draws in edit mode too: the bezel/notch/punch-hole occludes
+	// the screen area honestly, and the canvas gizmos (which clip to the canvas
+	// image rect) sit over it. The canvas placement below is frame-aware.
+	const bool framed = ui.showFrame && canFrame;
 
 	// fit the SCREEN into the canvas column, leaving room for the bezel when framed
 	float drawW = canvasW;
@@ -721,6 +710,14 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 	OrkigeEditor::UiEditorDebug& editDbg = OrkigeEditor::uiEditorDebug();
 	editDbg = OrkigeEditor::UiEditorDebug();
 	OrkigeEditor::UiEditorPanelLink& editLink = OrkigeEditor::uiEditorPanelLink();
+	// the UI Editor tool panel EXISTS only while a screen is open here: reveal it
+	// when a .oui is shown, retire it when the screen deselects (no permanent empty
+	// tab). Toggled only on a real change so the dock layout never thrashes.
+	if (viewSettings.showUiEditorPanel != editActive)
+	{
+		viewSettings.showUiEditorPanel = editActive;
+		viewSettings.save();
+	}
 	if (editActive)
 	{
 		// (re)load the document when the picked file changes
@@ -762,6 +759,12 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		editDbg.canUndo = ui.editSession.doc.canUndo();
 		editDbg.selectionCount =
 			static_cast<int>(ui.editSession.selection.size());
+		editDbg.canvasImageX = canvas.imageX;
+		editDbg.canvasImageY = canvas.imageY;
+		editDbg.canvasDrawW = canvas.drawW;
+		editDbg.canvasDrawH = canvas.drawH;
+		editDbg.canvasSurfaceW = canvas.surfaceW;
+		editDbg.canvasSurfaceH = canvas.surfaceH;
 	}
 	else if (ui.editSession.loaded)
 	{

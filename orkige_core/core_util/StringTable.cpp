@@ -381,6 +381,21 @@ namespace Orkige
 		return languages;
 	}
 	//---------------------------------------------------------
+	StringVector StringTable::listKeys() const
+	{
+		std::set<String> keys;	// de-duplicate + sort across every language table
+		for(std::map<String, Table>::const_iterator lang =
+			this->mLanguages.begin(); lang != this->mLanguages.end(); ++lang)
+		{
+			for(Table::const_iterator entry = lang->second.begin();
+				entry != lang->second.end(); ++entry)
+			{
+				keys.insert(entry->first);
+			}
+		}
+		return StringVector(keys.begin(), keys.end());
+	}
+	//---------------------------------------------------------
 	String const & StringTable::get(String const & key) const
 	{
 		std::map<String, Table>::const_iterator languageIt =

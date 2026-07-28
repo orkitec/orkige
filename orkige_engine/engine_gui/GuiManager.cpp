@@ -282,6 +282,16 @@ namespace Orkige
 		return names;
 	}
 	//---------------------------------------------------------
+	UiAtlas const * GuiManager::getAtlas(String const & atlas)
+	{
+		GuiViewMap::iterator it = this->views.find(atlas);
+		if(it == this->views.end() || !it->second)
+		{
+			return NULL;
+		}
+		return it->second->getScreen()->getAtlas();
+	}
+	//---------------------------------------------------------
 	void GuiManager::destroyViewWithWidgets(String const & atlas)
 	{
 		woptr<GuiView> view = this->getView(atlas);

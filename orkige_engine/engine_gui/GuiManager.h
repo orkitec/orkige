@@ -331,6 +331,11 @@ namespace Orkige
 		//! renders through - the seam the editor's `.oui` sprite picker enumerates,
 		//! covering both the bitmap and the runtime-baked (TTF/SVG) atlas.
 		std::vector<String> getAtlasSpriteNames(String const & atlas);
+		//! @brief the loaded UiAtlas backing an atlas view (bitmap OR runtime-baked
+		//! TTF/SVG), or NULL when no view has loaded it. The editor's sprite-preview
+		//! reads the atlas texture name + a sprite's UV rect through it. Reads the
+		//! SAME UiAtlas the layout renders through.
+		UiAtlas const * getAtlas(String const & atlas);
 		//! show frame stats
 		void showStats(uint glyphIndex = 9, Ogre::Vector2 const & pos = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, unsigned short markupColorIndex = 0, bool scaleStats = false);
 		//! clear worst and best fps and more

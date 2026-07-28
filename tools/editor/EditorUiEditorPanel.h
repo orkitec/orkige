@@ -99,6 +99,20 @@ namespace OrkigeEditor
 		bool		adornClipApplied = false;
 		float		clipLeft = 0.0f, clipTop = 0.0f, clipRight = 0.0f, clipBottom = 0.0f;
 		float		adornLeft = 0.0f, adornTop = 0.0f, adornRight = 0.0f, adornBottom = 0.0f;
+		//! the KEY (selected) widget's LAYOUT BOX mapped to SCREEN pixels this
+		//! frame - the seam a synthetic-input selfcheck reads to aim an SDL drag at
+		//! a real resize grip (a grip sits at the box corners/edges). Zero when no
+		//! widget is selected / the canvas did not draw.
+		bool		hasSelScreen = false;
+		float		selScreenLeft = 0.0f, selScreenTop = 0.0f;
+		float		selScreenWidth = 0.0f, selScreenHeight = 0.0f;
+		//! the canvas composite-image placement in SCREEN pixels this frame (the
+		//! rect the InvisibleButton covers) + the overlay surface size - a
+		//! synthetic-input selfcheck maps surface points to a click position and
+		//! clicks the canvas centre to select a covering widget.
+		float		canvasImageX = 0.0f, canvasImageY = 0.0f;
+		float		canvasDrawW = 0.0f, canvasDrawH = 0.0f;
+		float		canvasSurfaceW = 0.0f, canvasSurfaceH = 0.0f;
 	};
 	//! the process-wide edit-mode debug seam (@see UiEditorDebug)
 	UiEditorDebug& uiEditorDebug();
@@ -148,6 +162,12 @@ namespace OrkigeEditor
 		char const* idScope, bool bigButton);
 	//! remove the selected widget subtree (one undo step)
 	void uiEditDeleteSelected(UiEditSession& s);
+	//! @brief rename the KEY (selected) widget to @p newId (one undo step +
+	//! persist/reload; the selection follows to the new id). Enforces uniqueness -
+	//! returns false + @p error and changes nothing on an empty/whitespace/
+	//! colliding name (the caller shows the honest inline error).
+	bool uiEditRenameSelected(UiEditSession& s, GamePreviewStage& stage,
+		std::string const& newId, std::string& error);
 	void uiEditUndo(UiEditSession& s);
 	//! write the document to disk and reload the overlay (returns false + error)
 	bool uiEditSave(UiEditSession& s, GamePreviewStage& stage, std::string& error);

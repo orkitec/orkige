@@ -17,12 +17,15 @@
 #include "GamePreviewStage.h"
 #include "GuiPreviewStage.h"
 #include "EditorTheme.h"
+#include "ImGuiFacadeRenderer.h"
 #include "IconsFontAwesome6.h"
 
 #include <core_util/UiLayout.h>
 #include <core_util/StringUtil.h>
+#include <core_util/StringTable.h>
 #include <engine_render/RenderTexture.h>
 #include <engine_gui/GuiManager.h>
+#include <engine_gui/UiAtlas.h>
 
 #include <imgui.h>
 
@@ -42,29 +45,6 @@ namespace OrkigeEditor
 
 	namespace
 	{
-		//! the overlay's resolved rects as the pure hit-test/adornment input
-		std::vector<UiRect> rectsFor(GamePreviewStage& stage)
-		{
-			std::vector<UiRect> out;
-			for(GuiPreviewWidgetRect const& r : stage.getOverlayWidgetRects())
-			{
-				out.push_back({ r.id, r.left, r.top, r.width, r.height });
-			}
-			return out;
-		}
-		//! the selected widget's current overlay rect (surface px), or a zero rect
-		bool rectOf(GamePreviewStage& stage, String const& id, UiRect& out)
-		{
-			for(GuiPreviewWidgetRect const& r : stage.getOverlayWidgetRects())
-			{
-				if(r.id == id)
-				{
-					out = { r.id, r.left, r.top, r.width, r.height };
-					return true;
-				}
-			}
-			return false;
-		}
 		//! write text to projectRoot/relPath (binary, LF preserved)
 		bool writeFile(String const& projectRoot, String const& relPath,
 			String const& text, String& error)
@@ -195,6 +175,72 @@ namespace OrkigeEditor
 				out.push_back(docRectOf(s.doc.doc(), sec, surfW, surfH, scale));
 			}
 			return out;
+		}
+		//! a section's render layer (its `z` key, default 0) - the canvas picking
+		//! priority (higher draws on top)
+		float sectionZ(GuiLayoutSection const& sec)
+		{
+			if(String const* v = sec.find("z"))
+			{
+				std::istringstream in(*v);
+				float z = 0.0f;
+				if(in >> z) { return z; }
+			}
+			return 0.0f;
+		}
+		//! a section's parent-chain nesting depth (a root is 0, its child 1, ...);
+		//! the canvas picks the DEEPER widget at equal z so a child inside a parent
+		//! is selectable
+		int sectionDepth(GuiLayoutDoc const& doc, GuiLayoutSection const& sec)
+		{
+			int depth = 0;
+			GuiLayoutSection const* cur = &sec;
+			for(int guard = 0; guard < 64; ++guard)
+			{
+				String const* p = cur->find("parent");
+				if(!p) { break; }
+				const int idx = sectionIndex(doc, *p);
+				if(idx < 0) { break; }
+				++depth;
+				cur = &doc.sections[static_cast<size_t>(idx)];
+			}
+			return depth;
+		}
+		//! @brief the CANVAS adornment/hit/resize rects: EVERY widget's resolved
+		//! LAYOUT BOX from the document (never the runtime's reported draw-size).
+		//! A Label reports its TEXT extent (GuiLabel::getSize), not its box - so the
+		//! live overlay rect would put the resize grips on the text, and a grip drag
+		//! grows sizeDelta but the reported rect never moves (the resize-does-nothing
+		//! bug). The layout box IS what the resize/anchor math edits, so the canvas
+		//! adorns and hits THAT, and each rect carries its z + nesting depth for the
+		//! child-over-parent picking. Same surface-pixel space as the live rects, so
+		//! the surface->screen map is unchanged. Both flavors (pure resolve).
+		std::vector<UiRect> canvasBoxRects(UiEditSession const& s,
+			GamePreviewStage& stage)
+		{
+			float surfW = 1000.0f, surfH = 1000.0f;
+			resolveSurface(s, stage, surfW, surfH);
+			const float scale = uiEditLayoutScale(s, surfW, surfH);
+			std::vector<UiRect> out;
+			for(GuiLayoutSection const& sec : s.doc.doc().sections)
+			{
+				if(sec.id.empty()) { continue; }
+				UiRect r = docRectOf(s.doc.doc(), sec, surfW, surfH, scale);
+				r.z = sectionZ(sec);
+				r.depth = sectionDepth(s.doc.doc(), sec);
+				out.push_back(r);
+			}
+			return out;
+		}
+		//! the selected widget's canvas layout box (surface px); false when absent
+		bool canvasBoxRectOf(UiEditSession const& s, GamePreviewStage& stage,
+			String const& id, UiRect& out)
+		{
+			for(UiRect const& r : canvasBoxRects(s, stage))
+			{
+				if(r.id == id) { out = r; return true; }
+			}
+			return false;
 		}
 		//! the parent surface rect the anchor tooling resolves against for @p id:
 		//! the parent widget's rect if it has one, else the full surface.
@@ -461,6 +507,167 @@ namespace OrkigeEditor
 		s.doc.commitEdit();
 		s.needsReload = true;
 	}
+	namespace
+	{
+		//! the lower-case `.oui` [Type] token of a section (GuiFactory lower-cases
+		//! before dispatch, so the editor matches case-insensitively)
+		std::string kindToken(GuiLayoutSection const& sec)
+		{
+			return Orkige::StringUtil::to_lower_copy(sec.type);
+		}
+		//! does this widget KIND render a text/caption? (GuiFactory passes `text`
+		//! to these) - a decor panel / progress bar / scroll view does NOT, so the
+		//! property surface hides the Text row for them.
+		bool kindHasText(std::string const& type)
+		{
+			return type == "label" || type == "textbox" || type == "button" ||
+				type == "checkbox" || type == "selectmenu" || type == "slider" ||
+				type == "textentry" || type == "dropdown";
+		}
+		//! does this widget KIND render an atlas sprite face? (GuiFactory passes
+		//! `sprite` to these) - a label / textbox / scroll view / list view does
+		//! not, so the Sprite row is hidden for them.
+		bool kindHasSprite(std::string const& type)
+		{
+			return type == "button" || type == "checkbox" || type == "selectmenu" ||
+				type == "slider" || type == "progressbar" || type == "textentry" ||
+				type == "decorwidget" || type == "panel" || type == "dropdown";
+		}
+		//! a unique default id for @p type in @p s's doc (the palette's own scheme),
+		//! WITHOUT adding a section - the prefill for the name popup
+		std::string defaultWidgetId(UiEditSession const& s, std::string const& type)
+		{
+			return paletteSection(s.doc.doc(), type, std::string()).id;
+		}
+		//! add a palette widget of @p type under the current selection with an
+		//! explicit, caller-validated unique @p id; selects it. Persist is the
+		//! caller's. (@see uiEditAddWidget for the auto-id path.)
+		std::string addWidgetWithId(UiEditSession& s, std::string const& type,
+			std::string const& id)
+		{
+			s.doc.beginEdit();
+			GuiLayoutSection section = paletteSection(s.doc.doc(), type, s.selected);
+			section.id = id;	// the caller guarantees uniqueness
+			s.doc.doc().sections.push_back(section);
+			s.doc.commitEdit();
+			s.selection.assign(1, id);
+			s.selected = id;
+			s.needsReload = true;
+			return id;
+		}
+		//! the outcome of one name-entry popup frame
+		enum class NameEntry { Open, Confirm, Cancel };
+		//! @brief draw the shared name-entry body (Add + Rename use it): an
+		//! auto-focused text field prefilled by the caller, a LIVE uniqueness error
+		//! (the honest inline message - never a silent rename on collision) and
+		//! OK/Cancel. Enter with a valid name confirms; the OK button is disabled
+		//! while the name collides/blanks. @p allowSelf is the widget's own current
+		//! id so a no-op rename is valid.
+		NameEntry nameEntryBody(GuiLayoutDoc const& doc, std::string const& allowSelf,
+			bool appearing, char* buf, size_t bufSize)
+		{
+			if(appearing) { ImGui::SetKeyboardFocusHere(); }
+			ImGui::SetNextItemWidth(220.0f);
+			const bool entered = ImGui::InputText("##uiname", buf, bufSize,
+				ImGuiInputTextFlags_EnterReturnsTrue);
+			String err;
+			const bool valid = isValidWidgetName(doc, String(buf), allowSelf, err);
+			if(!valid && buf[0] != '\0')
+			{
+				ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "%s",
+					err.c_str());
+			}
+			else
+			{
+				ImGui::TextDisabled("a unique widget name");
+			}
+			NameEntry result = NameEntry::Open;
+			ImGui::BeginDisabled(!valid);
+			if(ImGui::Button("OK") || (entered && valid))
+			{
+				result = NameEntry::Confirm;
+			}
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			if(ImGui::Button("Cancel")) { result = NameEntry::Cancel; }
+			return result;
+		}
+		//! @brief run the ADD popups (kind picker -> name step). The CALLER opens
+		//! the pick popup ("##addpick_<idScope>") from its own button; this draws
+		//! both popups and returns true when a widget was added. Split out so a
+		//! caller can lay its Add button out on a shared row (with rename/delete).
+		bool runAddWidgetPopups(UiEditSession& s, GamePreviewStage& stage,
+			char const* idScope)
+		{
+			const String pickId = String("##addpick_") + idScope;
+			const String nameId = String("##addname_") + idScope;
+			static std::string pendingType;
+			static char nameBuf[64] = { 0 };
+			// step 1: pick a kind. Choosing one stashes the kind + a unique default
+			// name and hands off to the name popup (MenuItem auto-closes this one).
+			bool openName = false;
+			if(ImGui::BeginPopup(pickId.c_str()))
+			{
+				static char filter[64] = { 0 };
+				static bool focusPending = false;
+				if(ImGui::IsWindowAppearing())
+				{
+					filter[0] = '\0';
+					focusPending = true;
+				}
+				if(focusPending)
+				{
+					ImGui::SetKeyboardFocusHere();
+					focusPending = false;
+				}
+				ImGui::SetNextItemWidth(220.0f);
+				ImGui::InputTextWithHint("##widgetsearch", "search widgets...",
+					filter, sizeof(filter));
+				ImGui::Separator();
+				const String needle =
+					Orkige::StringUtil::to_lower_copy(String(filter));
+				for(UiWidgetKind const& kind : uiWidgetKinds())
+				{
+					if(!needle.empty() && Orkige::StringUtil::to_lower_copy(
+						String(kind.label)).find(needle) == String::npos)
+					{
+						continue;
+					}
+					if(ImGui::MenuItem(kind.label))
+					{
+						pendingType = kind.type;
+						std::snprintf(nameBuf, sizeof(nameBuf), "%s",
+							defaultWidgetId(s, kind.type).c_str());
+						openName = true;
+					}
+				}
+				ImGui::EndPopup();
+			}
+			if(openName) { ImGui::OpenPopup(nameId.c_str()); }
+			// step 2: name it. Confirm adds; Cancel/Esc aborts (nothing added).
+			bool added = false;
+			if(ImGui::BeginPopup(nameId.c_str()))
+			{
+				const bool appearing = ImGui::IsWindowAppearing();
+				ImGui::TextDisabled("Name the %s", pendingType.c_str());
+				const NameEntry r = nameEntryBody(s.doc.doc(), std::string(),
+					appearing, nameBuf, sizeof(nameBuf));
+				if(r == NameEntry::Confirm)
+				{
+					addWidgetWithId(s, pendingType, std::string(nameBuf));
+					String err; persist(s, stage, err);
+					added = true;
+					ImGui::CloseCurrentPopup();
+				}
+				else if(r == NameEntry::Cancel)
+				{
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndPopup();
+			}
+			return added;
+		}
+	}
 	//---------------------------------------------------------
 	String uiEditAddWidget(UiEditSession& s, String const& type)
 	{
@@ -478,7 +685,9 @@ namespace OrkigeEditor
 	bool uiEditAddWidgetControl(UiEditSession& s, GamePreviewStage& stage,
 		char const* idScope, bool bigButton)
 	{
-		const String popupId = String("##addwidget_") + idScope;
+		// the Add button opens the KIND picker; the picker hands off to a NAME
+		// step (prefilled unique default; Enter confirms, Esc / Cancel aborts).
+		const String pickId = String("##addpick_") + idScope;
 		if(bigButton)
 		{
 			// a generously wide, taller-than-default primary action, centred and
@@ -499,53 +708,14 @@ namespace OrkigeEditor
 			}
 			if(ImGui::Button(label, ImVec2(buttonWidth, buttonHeight)))
 			{
-				ImGui::OpenPopup(popupId.c_str());
+				ImGui::OpenPopup(pickId.c_str());
 			}
 		}
 		else if(ImGui::SmallButton("+ Add"))	// the compact canvas-adjacent variant
 		{
-			ImGui::OpenPopup(popupId.c_str());
+			ImGui::OpenPopup(pickId.c_str());
 		}
-		bool added = false;
-		if(ImGui::BeginPopup(popupId.c_str()))
-		{
-			// a search box + the widget kinds, mirroring the Add Component popup.
-			// One picker is open at a time, so a static filter buffer is enough.
-			static char filter[64] = { 0 };
-			static bool focusPending = false;
-			if(ImGui::IsWindowAppearing())
-			{
-				filter[0] = '\0';
-				focusPending = true;
-			}
-			if(focusPending)
-			{
-				ImGui::SetKeyboardFocusHere();
-				focusPending = false;
-			}
-			ImGui::SetNextItemWidth(220.0f);
-			ImGui::InputTextWithHint("##widgetsearch", "search widgets...",
-				filter, sizeof(filter));
-			ImGui::Separator();
-			const String needle = Orkige::StringUtil::to_lower_copy(String(filter));
-			for(UiWidgetKind const& kind : uiWidgetKinds())
-			{
-				if(!needle.empty() && Orkige::StringUtil::to_lower_copy(
-					String(kind.label)).find(needle) == String::npos)
-				{
-					continue;
-				}
-				if(ImGui::MenuItem(kind.label))
-				{
-					uiEditAddWidget(s, kind.type);
-					String err; persist(s, stage, err);
-					added = true;
-					ImGui::CloseCurrentPopup();
-				}
-			}
-			ImGui::EndPopup();
-		}
-		return added;
+		return runAddWidgetPopups(s, stage, idScope);
 	}
 	//---------------------------------------------------------
 	namespace
@@ -575,6 +745,32 @@ namespace OrkigeEditor
 		s.selection.clear();
 		s.selected.clear();
 		s.needsReload = true;
+	}
+	//---------------------------------------------------------
+	bool uiEditRenameSelected(UiEditSession& s, GamePreviewStage& stage,
+		String const& newId, String& error)
+	{
+		if(s.selected.empty())
+		{
+			error = "no widget selected";
+			return false;
+		}
+		const std::string old = s.selected;
+		s.doc.beginEdit();
+		if(!renameWidget(s.doc.doc(), old, newId, error))
+		{
+			s.doc.commitEdit();	// nothing changed -> no undo step
+			return false;
+		}
+		s.doc.commitEdit();
+		for(std::string& id : s.selection)
+		{
+			if(id == old) { id = newId; }
+		}
+		s.selected = newId;
+		s.needsReload = true;
+		String perr; persist(s, stage, perr);
+		return true;
 	}
 	//---------------------------------------------------------
 	void uiEditUndo(UiEditSession& s)
@@ -701,7 +897,11 @@ namespace OrkigeEditor
 		UiEditCanvas const& canvas, ImDrawList* draw, float snapDesign)
 	{
 		if(!s.loaded) { return; }
-		const std::vector<UiRect> rects = rectsFor(stage);
+		// adorn / hit / resize against the resolved LAYOUT BOX of every widget,
+		// never the runtime's reported draw-size (a Label reports its TEXT extent,
+		// which would sit the grips on the text and make resize appear to do
+		// nothing - @see canvasBoxRects)
+		const std::vector<UiRect> rects = canvasBoxRects(s, stage);
 		auto selected = [&](String const& id)
 		{
 			return std::find(s.selection.begin(), s.selection.end(), id) !=
@@ -732,9 +932,19 @@ namespace OrkigeEditor
 		const ImVec2 mouse = ImGui::GetIO().MousePos;
 		const bool shift = ImGui::GetIO().KeyShift;
 
-		// the key widget's live rect (for handles / anchors), if any
+		// the key widget's layout-box rect (for handles / anchors), if any
 		UiRect keyRect;
-		const bool haveKey = !s.selected.empty() && rectOf(stage, s.selected, keyRect);
+		const bool haveKey = !s.selected.empty() &&
+			canvasBoxRectOf(s, stage, s.selected, keyRect);
+		if(haveKey)
+		{
+			// publish the key box in SCREEN px so a synthetic-input selfcheck can
+			// aim an SDL drag at a real resize grip (the box corners/edges)
+			ImVec2 ka, kb; mapRect(canvas, keyRect, ka, kb);
+			dbg.hasSelScreen = true;
+			dbg.selScreenLeft = ka.x; dbg.selScreenTop = ka.y;
+			dbg.selScreenWidth = kb.x - ka.x; dbg.selScreenHeight = kb.y - ka.y;
+		}
 
 		// hover highlight (not while dragging)
 		if(hovered && !s.dragging)
@@ -831,7 +1041,7 @@ namespace OrkigeEditor
 					if(!selected(hit)) { uiEditSelect(s, hit); }
 					kind = UiEditSession::DragKind::Widget;
 					handle = UiHandle::Move;
-					rectOf(stage, s.selected, keyRect);
+					canvasBoxRectOf(s, stage, s.selected, keyRect);
 				}
 			}
 			if(kind != UiEditSession::DragKind::None &&
@@ -1136,12 +1346,86 @@ namespace OrkigeEditor
 			ImGui::SetNextItemWidth(-FLT_MIN);	// the value widget fills the column
 		}
 		void endPropertyRow() { popValueFont(); }
+		//! @brief a `@key` localisation completion for a text field: while the field
+		//! is active and its trailing token starts with `@`, a small overlay lists
+		//! the project's localisation keys (StringTable::listKeys, loaded by the
+		//! preview stage) filtered by what follows the `@`. Clicking one rewrites
+		//! @p buffer's trailing `@token` to `@key` (returns true; the caller
+		//! sets+commits). A short hold keeps the list up a few frames after the
+		//! field deactivates so a click lands. No table loaded => nothing shows.
+		bool drawLocCompletion(char const* fieldId, bool active, char* buffer,
+			size_t bufSize, ImVec2 const& fieldMin, ImVec2 const& fieldMax)
+		{
+			static std::string openField;	// the field whose list is showing
+			static int hold = 0;			// frames to keep it up after deactivation
+			const std::string text(buffer);
+			const size_t at = text.find_last_of('@');
+			const bool typingToken = at != std::string::npos &&
+				text.find_first_of(" \t", at) == std::string::npos;
+			if(active && typingToken)
+			{
+				openField = fieldId;
+				hold = 4;
+			}
+			if(openField != fieldId || hold <= 0 || !typingToken)
+			{
+				if(openField == fieldId && (!typingToken || hold <= 0))
+				{
+					openField.clear();
+				}
+				return false;
+			}
+			--hold;
+			Orkige::StringTable* st = Orkige::StringTable::getSingletonPtr();
+			if(!st) { return false; }
+			const std::vector<String> keys = st->listKeys();
+			const String needle =
+				Orkige::StringUtil::to_lower_copy(text.substr(at + 1));
+			std::vector<String> matches;
+			for(String const& k : keys)
+			{
+				if(needle.empty() ||
+					Orkige::StringUtil::to_lower_copy(k).find(needle) == 0)
+				{
+					matches.push_back(k);
+					if(matches.size() >= 8) { break; }
+				}
+			}
+			if(matches.empty()) { return false; }
+			bool picked = false;
+			ImGui::SetNextWindowPos(ImVec2(fieldMin.x, fieldMax.y));
+			ImGui::SetNextWindowSize(ImVec2(fieldMax.x - fieldMin.x, 0.0f));
+			const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar |
+				ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+				ImGuiWindowFlags_NoSavedSettings |
+				ImGuiWindowFlags_NoFocusOnAppearing |
+				ImGuiWindowFlags_AlwaysAutoResize;
+			const String winId = String("##loccomplete_") + fieldId;
+			if(ImGui::Begin(winId.c_str(), NULL, flags))
+			{
+				for(String const& m : matches)
+				{
+					if(ImGui::Selectable(m.c_str()))
+					{
+						const std::string rebuilt = text.substr(0, at + 1) + m;
+						std::snprintf(buffer, bufSize, "%s", rebuilt.c_str());
+						picked = true;
+						openField.clear();
+					}
+				}
+			}
+			ImGui::End();
+			return picked;
+		}
 		//! a single-line string property row (label left, input right). The model
 		//! updates live per keystroke (no reload); a gesture brackets the edit
 		//! (beginEdit on focus, commitEdit on blur) so an edit is ONE undo step.
-		//! Returns true on commit (blur-after-edit) so the caller persists once.
+		//! When @p locComplete is set, typing `@` offers a localisation-key
+		//! completion (@see drawLocCompletion). Returns true on commit (blur-after-
+		//! edit, or a completion pick) so the caller persists once.
 		bool textRow(UiEditDoc& doc, GuiLayoutSection& sec,
-			char const* label, char const* tooltip, char const* key)
+			char const* label, char const* tooltip, char const* key,
+			bool locComplete = false)
 		{
 			char buffer[256] = { 0 };
 			if(String const* v = sec.find(key))
@@ -1152,7 +1436,10 @@ namespace OrkigeEditor
 			const String id = String("##") + key;
 			const bool changed = ImGui::InputText(id.c_str(), buffer, sizeof(buffer));
 			const bool activated = ImGui::IsItemActivated();
+			const bool active = ImGui::IsItemActive();
 			const bool committed = ImGui::IsItemDeactivatedAfterEdit();
+			const ImVec2 fieldMin = ImGui::GetItemRectMin();
+			const ImVec2 fieldMax = ImGui::GetItemRectMax();
 			endPropertyRow();
 			if(activated)
 			{
@@ -1161,6 +1448,16 @@ namespace OrkigeEditor
 			if(changed)
 			{
 				sec.set(key, buffer);
+			}
+			// the `@key` completion draws its overlay AFTER the row; a pick rewrites
+			// the buffer, which we commit as one edit (open a gesture if needed).
+			if(locComplete && drawLocCompletion(key, active, buffer, sizeof(buffer),
+				fieldMin, fieldMax))
+			{
+				doc.beginEdit();	// folds into an open gesture if already editing
+				sec.set(key, buffer);
+				doc.commitEdit();
+				return true;
 			}
 			if(committed)
 			{
@@ -1185,6 +1482,28 @@ namespace OrkigeEditor
 				}
 			}
 			return String("gui_default");
+		}
+		//! @brief draw a small @p px sprite thumbnail from @p atlasName's texture at
+		//! the sprite's UV rect. A no-op returning false when the atlas / sprite /
+		//! texture cannot be resolved (classic / headless / an unknown name) - the
+		//! caller lays out without it then.
+		bool drawSpriteThumb(String const& atlasName, String const& spriteName,
+			float px)
+		{
+			if(spriteName.empty()) { return false; }
+			Orkige::GuiManager* gui = Orkige::GuiManager::getSingletonPtr();
+			if(!gui) { return false; }
+			Orkige::UiAtlas const* atlas = gui->getAtlas(atlasName);
+			if(!atlas) { return false; }
+			Orkige::UiSprite const* sp = atlas->getSprite(spriteName);
+			if(!sp) { return false; }
+			if(!gImGuiRenderer) { return false; }
+			const ImTextureID tex =
+				gImGuiRenderer->textureIdForResource(atlas->getTextureName());
+			if(tex == static_cast<ImTextureID>(0)) { return false; }
+			ImGui::Image(tex, ImVec2(px, px),
+				ImVec2(sp->uvLeft, sp->uvTop), ImVec2(sp->uvRight, sp->uvBottom));
+			return true;
 		}
 		//! the `sprite` property row: a manual InputText plus a pick popup listing
 		//! the sprite names in the CURRENT layout's LOADED atlas (the seam the
@@ -1224,6 +1543,18 @@ namespace OrkigeEditor
 				ImGui::OpenPopup(popupId.c_str());
 			}
 			ImGui::SetItemTooltip("pick a sprite from the layout atlas");
+			// a small preview of the CURRENT value beside the row (next flavor,
+			// when its atlas texture is live; a no-op otherwise)
+			const String atlasName = layoutAtlasName(s);
+			if(String const* cur = sec.find(key))
+			{
+				const float thumb = ImGui::GetFrameHeight();
+				ImGui::SameLine();
+				if(!drawSpriteThumb(atlasName, *cur, thumb))
+				{
+					ImGui::Dummy(ImVec2(0.0f, thumb));	// keep the row height stable
+				}
+			}
 			auto pick = [&](String const& value)
 			{
 				doc.beginEdit();
@@ -1237,11 +1568,14 @@ namespace OrkigeEditor
 				std::vector<String> names;
 				if(Orkige::GuiManager* gui = Orkige::GuiManager::getSingletonPtr())
 				{
-					names = gui->getAtlasSpriteNames(layoutAtlasName(s));
+					names = gui->getAtlasSpriteNames(atlasName);
 				}
 				String const* cur = sec.find(key);
+				const float thumb = ImGui::GetTextLineHeight();
 				for(String const& name : names)
 				{
+					// the actual sprite drawn from the atlas texture beside each entry
+					if(drawSpriteThumb(atlasName, name, thumb)) { ImGui::SameLine(); }
 					const bool selected = cur && *cur == name;
 					if(ImGui::Selectable(name.c_str(), selected)) { pick(name); }
 				}
@@ -1450,30 +1784,22 @@ namespace OrkigeEditor
 			}
 			return ran;
 		}
-		//! a right-aligned trash-can control on a widget-tree row, mirroring the
-		//! Inspector's component-remove control: an invisible hit box the row's
-		//! height with a hover disc behind a centred glyph. Returns true on click.
-		//! The trash-can glyph (U+f2ed) is merged into the editor atlas
-		//! (@see EditorTheme ICON_GLYPH_RANGES).
-		bool rowTrashButton(char const* id)
+		//! a square icon action button (a frame-height glyph button) for the
+		//! add/rename/delete action row - the Inspector's component-row control
+		//! shape. Returns true on click; @p enabled false dims it inert.
+		bool actionIconButton(char const* id, char const* glyph, char const* tooltip,
+			bool enabled)
 		{
-			const float side = ImGui::GetFrameHeight();
-			ImGui::SameLine();
-			ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - side);
-			const bool clicked = ImGui::InvisibleButton(id, ImVec2(side, side));
-			ImDrawList* dl = ImGui::GetWindowDrawList();
-			const ImVec2 rmin = ImGui::GetItemRectMin();
-			const ImVec2 centre(rmin.x + side * 0.5f, rmin.y + side * 0.5f);
-			if(ImGui::IsItemHovered())
+			const float side = ImGui::GetFrameHeight() * 1.6f;	// matches Add Widget
+			ImGui::BeginDisabled(!enabled);
+			ImGui::PushID(id);
+			const bool clicked = ImGui::Button(glyph, ImVec2(side, side));
+			ImGui::PopID();
+			ImGui::EndDisabled();
+			if(enabled && tooltip != NULL && tooltip[0] != '\0')
 			{
-				dl->AddCircleFilled(centre, side * 0.36f,
-					ImGui::GetColorU32(ImGuiCol_ButtonHovered));
+				ImGui::SetItemTooltip("%s", tooltip);
 			}
-			const ImVec2 glyph = ImGui::CalcTextSize(ICON_FA_TRASH_CAN);
-			dl->AddText(ImVec2(centre.x - glyph.x * 0.5f,
-				centre.y - glyph.y * 0.5f),
-				ImGui::GetColorU32(ImGuiCol_Text), ICON_FA_TRASH_CAN);
-			ImGui::SetItemTooltip("Delete widget");
 			return clicked;
 		}
 	}
@@ -1495,12 +1821,12 @@ namespace OrkigeEditor
 		}
 
 		// the widget tree (the .oui section order; parenting shown by indent).
-		// Shift/Ctrl(Cmd)-click extends the ordered multi-selection. A trash-can
-		// on the selected row(s) deletes the whole selection (the Inspector's
-		// remove-control pattern); the delete is DEFERRED past the loop so the
-		// section vector is never mutated mid-iteration.
+		// Shift/Ctrl(Cmd)-click extends the ordered multi-selection; a double-click
+		// opens the rename popup (add / rename / delete live in the action row
+		// below, beside Add Widget). A rename request is DEFERRED past the loop so
+		// the section vector is never mutated mid-iteration.
 		ImGui::TextDisabled("Widgets");
-		bool deleteRequested = false;
+		bool renameFromTree = false;
 		for(GuiLayoutSection const& sec : s.doc.doc().sections)
 		{
 			if(sec.id.empty()) { continue; }	// [Layout]/[Modal] etc.
@@ -1510,10 +1836,7 @@ namespace OrkigeEditor
 			const String label = sec.id + "  (" + sec.type + ")";
 			const bool isSel = std::find(s.selection.begin(), s.selection.end(),
 				sec.id) != s.selection.end();
-			// AllowOverlap so the selected row's trash-can (drawn on the same line)
-			// stays clickable over the full-width selectable
-			if(ImGui::Selectable(label.c_str(), isSel,
-				ImGuiSelectableFlags_AllowOverlap))
+			if(ImGui::Selectable(label.c_str(), isSel))
 			{
 				const ImGuiIO& io = ImGui::GetIO();
 				if(io.KeyShift || io.KeyCtrl || io.KeySuper)
@@ -1525,17 +1848,14 @@ namespace OrkigeEditor
 					uiEditSelect(s, sec.id);
 				}
 			}
-			if(isSel && rowTrashButton("##uiDeleteRow"))
+			if(ImGui::IsItemHovered() &&
+				ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 			{
-				deleteRequested = true;
+				uiEditSelect(s, sec.id);
+				renameFromTree = true;
 			}
 			if(child) { ImGui::Unindent(14.0f); }
 			ImGui::PopID();
-		}
-		if(deleteRequested)
-		{
-			uiEditDeleteSelected(s);	// the whole selection, ONE undo step
-			String err; persist(s, stage, err);
 		}
 
 		ImGui::Separator();
@@ -1571,12 +1891,23 @@ namespace OrkigeEditor
 						ImGuiTableColumnFlags_WidthStretch, 0.30f);
 					ImGui::TableSetupColumn("value",
 						ImGuiTableColumnFlags_WidthStretch, 0.70f);
-					committed |= textRow(s.doc, *sec, "Text",
-						"the widget's caption / label text", "text");
+					// only the properties this widget KIND actually consumes: a decor
+					// panel / progress bar has no caption, a label / scroll view has
+					// no sprite face (@see kindHasText / kindHasSprite)
+					const std::string kind = kindToken(*sec);
+					if(kindHasText(kind))
+					{
+						committed |= textRow(s.doc, *sec, "Text",
+							"the caption text ('@key' localises via the string table)",
+							"text", true);	// @-completion of localisation keys
+					}
 					committed |= textRow(s.doc, *sec, "Z Order",
 						"the render layer (higher draws on top)", "z");
-					committed |= spriteRow(s, s.doc, *sec, "Sprite",
-						"the atlas sprite face (button / panel / ...)", "sprite");
+					if(kindHasSprite(kind))
+					{
+						committed |= spriteRow(s, s.doc, *sec, "Sprite",
+							"the atlas sprite face (button / panel / ...)", "sprite");
+					}
 					ImGui::EndTable();
 				}
 				Orkige::popPropertyGridStyle();
@@ -1678,8 +2009,6 @@ namespace OrkigeEditor
 			{
 				String err; persist(s, stage, err);
 			}
-			// (delete lives on the widget-tree row's trash-can control above,
-			// mirroring the Inspector's per-component remove)
 		}
 		else
 		{
@@ -1688,13 +2017,69 @@ namespace OrkigeEditor
 
 		ImGui::Separator();
 
-		// add-widget flow: ONE "Add Widget" button that opens the kind picker
-		// (the Inspector's Add Component pattern), replacing the old always-visible
-		// palette grid the owner read as clutter. Shares the Inspector's
-		// primary-button shade so both read as one system.
+		// the action ROW (the Inspector's Add Component row shape): the "Add
+		// Widget" primary button, then a rename (pen) and a delete (trash) icon
+		// button on the SAME line - both act on the selection, dimmed inert when
+		// nothing is selected. Add opens the kind->name picker; the pen opens the
+		// name popup for the selected widget; the trash removes the selection.
+		const bool haveSel = !s.selected.empty();
+		bool openRename = renameFromTree;
 		Orkige::pushInspectorButtonStyle();
-		uiEditAddWidgetControl(s, stage, "panel", true);
+		{
+			// size the Add Widget button to leave room for the two trailing icons
+			const float iconSide = ImGui::GetFrameHeight() * 1.6f;
+			const float spacing = ImGui::GetStyle().ItemSpacing.x;
+			const float availW = ImGui::GetContentRegionAvail().x;
+			const float addW = std::max(ImGui::GetFrameHeight() * 3.0f,
+				availW - 2.0f * (iconSide + spacing));
+			if(ImGui::Button("Add Widget", ImVec2(addW, iconSide)))
+			{
+				ImGui::OpenPopup("##addpick_panel");
+			}
+		}
+		ImGui::SameLine();
+		if(actionIconButton("##uiRename", ICON_FA_PEN, "Rename widget", haveSel))
+		{
+			openRename = true;
+		}
+		ImGui::SameLine();
+		if(actionIconButton("##uiDelete", ICON_FA_TRASH_CAN, "Delete widget",
+			haveSel))
+		{
+			uiEditDeleteSelected(s);	// the whole selection, ONE undo step
+			String err; persist(s, stage, err);
+		}
 		Orkige::popInspectorButtonStyle();
+		// drive the Add button's kind->name popups (opened above)
+		runAddWidgetPopups(s, stage, "panel");
+
+		// the rename name popup (double-click a tree row or the pen button opens
+		// it): prefilled with the current id, uniqueness enforced with an honest
+		// inline error (never a silent rename on collision).
+		static char renameBuf[64] = { 0 };
+		if(openRename && !s.selected.empty())
+		{
+			std::snprintf(renameBuf, sizeof(renameBuf), "%s", s.selected.c_str());
+			ImGui::OpenPopup("##uiRenamePopup");
+		}
+		if(ImGui::BeginPopup("##uiRenamePopup"))
+		{
+			const bool appearing = ImGui::IsWindowAppearing();
+			ImGui::TextDisabled("Rename '%s'", s.selected.c_str());
+			const NameEntry r = nameEntryBody(s.doc.doc(), s.selected, appearing,
+				renameBuf, sizeof(renameBuf));
+			if(r == NameEntry::Confirm)
+			{
+				std::string rerr;
+				uiEditRenameSelected(s, stage, std::string(renameBuf), rerr);
+				ImGui::CloseCurrentPopup();
+			}
+			else if(r == NameEntry::Cancel)
+			{
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
 		}	// drawUiEditToolsBody
 	}
 	//---------------------------------------------------------
@@ -1749,11 +2134,12 @@ namespace OrkigeEditor
 		if(!link.editActive || !link.session || !link.session->loaded ||
 			!link.stage)
 		{
-			// honest empty state (the house dormant-panel pattern)
+			// honest empty state (the house dormant-panel pattern). This panel is
+			// normally opened/retired with the Preview's picked screen, so this is
+			// only a transient safety net.
 			ImGui::TextDisabled("No UI open.");
 			ImGui::TextWrapped(
-				"Open a .oui screen in the Preview panel and turn on Edit UI to "
-				"edit its widgets here.");
+				"Open a .oui screen in the Preview panel to edit its widgets here.");
 			ImGui::End();
 			return;
 		}

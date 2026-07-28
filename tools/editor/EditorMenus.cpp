@@ -935,8 +935,18 @@ void dockUiEditorBesideInspectorOnce(bool& attempted)
 	{
 		return; // the Inspector may not have been submitted yet; retry next frame
 	}
-	ImGuiWindow* uiEditor = ImGui::FindWindowByName(UI_EDITOR_WINDOW_EDIT);
-	if (!uiEditor || uiEditor->DockId == 0)
+	// never let the UI Editor share a node with a GAME VIEW (Scene/Preview):
+	// docking makes the new tab active, HIDING the very view it edits against
+	// (and a stale layout may have parked it there). Force it beside the
+	// Inspector once per session (Cond_Always overrides a bad saved layout), but
+	// only when the Inspector itself is NOT in a game-view node; otherwise leave
+	// it floating rather than steal the view.
+	ImGuiWindow* scene = ImGui::FindWindowByName("Scene");
+	ImGuiWindow* preview = ImGui::FindWindowByName("Preview");
+	const bool inspectorHostsGameView =
+		(scene && scene->DockId == inspector->DockId) ||
+		(preview && preview->DockId == inspector->DockId);
+	if (!inspectorHostsGameView)
 	{
 		ImGui::SetNextWindowDockID(inspector->DockId, ImGuiCond_Always);
 	}

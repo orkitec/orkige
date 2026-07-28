@@ -126,6 +126,26 @@ TEST_CASE("StringTable returns the key itself on a miss", "[unit][loc]")
 	CHECK_FALSE(table.has("no.such.key"));
 }
 
+TEST_CASE("StringTable::listKeys enumerates every key sorted + de-duplicated "
+	"across languages", "[unit][loc]")
+{
+	StringTable table;
+	// keys spread across two languages, one shared - listKeys is the union
+	table.set("en", "title.name", "Roller");
+	table.set("en", "hud.score", "SCORE");
+	table.set("de", "title.name", "Roller");	// same key, other language
+	table.set("de", "hud.wins", "SIEGE");
+	const StringVector keys = table.listKeys();
+	REQUIRE(keys.size() == 3);
+	// sorted + de-duplicated
+	CHECK(keys[0] == "hud.score");
+	CHECK(keys[1] == "hud.wins");
+	CHECK(keys[2] == "title.name");
+	// a cleared table lists nothing (StringTable is a singleton - reuse this one)
+	table.clear();
+	CHECK(table.listKeys().empty());
+}
+
 TEST_CASE("StringTable %%0%% formatting substitutes positional args",
 	"[unit][loc]")
 {
