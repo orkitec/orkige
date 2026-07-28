@@ -851,6 +851,10 @@ namespace OrkigeEditor
 		}
 		check(echoed, "typed input echoes back through the grid");
 
+		// the child must still be ALIVE here - a shell that died early (broken
+		// stdio) would make the exit-after-command check below pass VACUOUSLY
+		check(pty->isAlive(), "child alive before the exit command");
+
 		// 3) a control code ends the filter, then the shell exits
 	#if !defined(_WIN32)
 		{

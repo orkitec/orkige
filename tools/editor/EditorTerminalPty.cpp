@@ -433,6 +433,20 @@ namespace OrkigeEditor
 					return false;
 				}
 
+				// STARTF_USESTDHANDLES with NULL handles: without it, a parent
+				// whose OWN std handles are redirected (a CI runner's log pipes,
+				// a spawned .app) leaks its raw std handle VALUES into the child
+				// - the documented CreateProcess std-handle quirk - and the
+				// child's stdio bypasses the pseudoconsole entirely (the shell's
+				// banner landed in the parent's log while our ConPTY pipe stayed
+				// silent after conhost's 85-byte preamble). Explicit null std
+				// handles make the console subsystem bind the child's stdio to
+				// its console: the pseudoconsole.
+				si.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
+				si.StartupInfo.hStdInput = nullptr;
+				si.StartupInfo.hStdOutput = nullptr;
+				si.StartupInfo.hStdError = nullptr;
+
 				const std::string shell =
 					spec.shell.empty() ? defaultShell() : spec.shell;
 				std::wstring cmdLine = toWide(shell);
