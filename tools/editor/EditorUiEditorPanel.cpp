@@ -1495,6 +1495,15 @@ namespace OrkigeEditor
 				uiEditNudgeKey(s, nx, ny);
 				String err; persist(s, stage, err);
 			}
+			// Delete/Backspace deletes the selection (the whole set, ONE undo
+			// step) - the keyboard sibling of the UI Editor panel's trash button,
+			// so the canvas needs no toolbar delete of its own
+			if(ImGui::IsKeyPressed(ImGuiKey_Delete, false) ||
+				ImGui::IsKeyPressed(ImGuiKey_Backspace, false))
+			{
+				uiEditDeleteSelected(s);
+				String err; persist(s, stage, err);
+			}
 		}
 
 		// adornments: outline every selected widget; key handles + anchor grips

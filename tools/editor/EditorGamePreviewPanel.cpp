@@ -23,7 +23,6 @@
 #include "EditorUiEditorPanel.h"
 #include "FileFormatIcon.h"
 #include "ImGuiFacadeRenderer.h"
-#include "IconsFontAwesome6.h"
 
 #include <core_util/DevicePreset.h>
 #include <engine_render/RenderTexture.h>
@@ -383,23 +382,9 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		Orkige::compactCheckbox("Widget rects", &ui.overlayRects);
 		// EDIT MODE IS ALWAYS ON: showing a .oui screen IS editing it - the canvas
 		// selection/grips/guides are simply live whenever a screen is picked (no
-		// separate mode toggle). A canvas-adjacent Delete is the only quick edit
-		// control here; adding widgets is the UI Editor panel's Add Widget row (the
-		// ONE add-widget home), and the full tree + properties live there too.
-		if (!ui.selectedFile.empty() && ui.editSession.loaded)
-		{
-			ImGui::SameLine();
-			ImGui::BeginDisabled(ui.editSession.selection.empty());
-			// the same trash-can glyph as the UI Editor tree's row control
-			if (ImGui::SmallButton(ICON_FA_TRASH_CAN))
-			{
-				OrkigeEditor::uiEditDeleteSelected(ui.editSession);
-				std::string delErr;
-				OrkigeEditor::uiEditSave(ui.editSession, stage, delErr);
-			}
-			ImGui::SetItemTooltip("Delete widget");
-			ImGui::EndDisabled();
-		}
+		// separate mode toggle). The TOOL SURFACE lives entirely in the UI Editor
+		// panel - add/delete, the tree and the properties - so this row carries no
+		// edit controls (Delete/Backspace on the canvas still deletes the selection).
 	}
 
 	// a subtle dimmed hint in the control row (NOT over the image) when the
