@@ -1617,18 +1617,12 @@ namespace OrkigeEditor
 		// let the shell reach its first prompt
 		pump(400);
 
-	#if !defined(_WIN32)
-		// 1) colour + text: a printed SGR sequence lands in the grid as red text
-		pty->write("printf '\\033[31mREDWORD\\033[0m\\r\\n'\n");
-		check(pumpUntil(5000, [&]
-			{
-				return screen.dumpVisible().find("REDWORD") != std::string::npos;
-			}),
-			"printed text reaches the grid");
-		// the RED check pumps on its own condition: the text condition above can
-		// fire on the ECHOED command line (it literally contains REDWORD,
-		// uncoloured) a read ahead of the printf's coloured output - a split a
-		// sanitizer-slowed run exposes while a fast one gets both in one chunk
+		// a red glyph cell anywhere in the grid - the SGR assertion both
+		// platforms share. It pumps on its OWN condition: the plain-text
+		// condition below can fire on the ECHOED command line (it literally
+		// contains REDWORD, uncoloured) a read ahead of the coloured output -
+		// a split a sanitizer-slowed run exposes while a fast one gets both
+		// in one chunk
 		auto redCellVisible = [&]() -> bool
 		{
 			for (int r = 0; r < 24; ++r)
@@ -1645,8 +1639,25 @@ namespace OrkigeEditor
 			}
 			return false;
 		};
-		check(pumpUntil(5000, redCellVisible), "SGR colour parsed (red foreground)");
+
+	#if !defined(_WIN32)
+		// 1) colour + text: a printed SGR sequence lands in the grid as red text
+		pty->write("printf '\\033[31mREDWORD\\033[0m\\r\\n'\n");
+	#else
+		// 1) colour + text: cmd's `prompt $e` emits a REAL escape byte, so the
+		//    next prompt renders an SGR-red word - the console interprets the
+		//    escape into a buffer attribute and the pseudoconsole re-emits it
+		//    as SGR on the output pipe, proving the whole colour path with no
+		//    external tool
+		pty->write(std::string("prompt $e[31mREDWORD$e[0m$g") +
+			encodeTermKey(TermKey::Enter, {}));
 	#endif
+		check(pumpUntil(5000, [&]
+			{
+				return screen.dumpVisible().find("REDWORD") != std::string::npos;
+			}),
+			"printed text reaches the grid");
+		check(pumpUntil(5000, redCellVisible), "SGR colour parsed (red foreground)");
 
 		// 2) input seam: run a line-echoing filter and "type" a known word
 		//    through the key encoder; the terminal echoes it back into the grid
@@ -1690,14 +1701,36 @@ namespace OrkigeEditor
 		}
 		check(echoed, "typed input echoes back through the grid");
 
-	#if !defined(_WIN32)
-		// 2b) paste seam: the paste ENCODING is verbatim unless the app enabled
-		//     bracketed paste (then it is framed), and the encoded bytes reach
-		//     the pty. cat is still running, so a pasted line echoes back.
+		// 2b) multibyte round trip: an umlaut, a box-drawing bar and a BMP
+		//     symbol - the glyph classes a full-screen text UI paints - go IN
+		//     as UTF-8 bytes and must come back OUT through the whole pipe
+		//     (the pseudoconsole decodes UTF-8 input into the wide console
+		//     buffer and re-encodes its output; a POSIX tty echoes the bytes
+		//     verbatim) into multi-byte grid cells
+		const std::string utfWord = std::string("GL") + "\xC3\x9C" + "CK" +
+			"\xE2\x94\x80" + "\xE2\x98\x83";	// GLÜCK + U+2500 + U+2603
+	#if defined(_WIN32)
+		pty->write(std::string("echo ") + utfWord +
+			encodeTermKey(TermKey::Enter, {}));
+	#else
+		// cat is still running - the typed line echoes straight back
+		pty->write(utfWord + encodeTermKey(TermKey::Enter, {}));
+	#endif
+		check(pumpUntil(5000, [&]
+			{
+				return screen.dumpVisible().find(utfWord) != std::string::npos;
+			}),
+			"multibyte UTF-8 text round-trips into the grid");
+
+		// 2c) paste seam: the paste ENCODING is verbatim unless the app enabled
+		//     bracketed paste (then it is framed) - pure, platform-independent
 		check(terminalPasteEncoding("PASTEWORD\n", false) == "PASTEWORD\n",
 			"plain paste encodes verbatim");
 		check(terminalPasteEncoding("X", true) == "\x1b[200~X\x1b[201~",
 			"bracketed paste is framed with ESC[200~/201~");
+	#if !defined(_WIN32)
+		// ... and the encoded bytes reach the pty: cat is still running, so a
+		// pasted line echoes back
 		pty->write(terminalPasteEncoding("PASTEWORD\n", false));
 		check(pumpUntil(5000, [&]
 			{
