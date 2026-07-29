@@ -2052,16 +2052,17 @@ namespace OrkigeEditor
 				"Shift keeps the on-screen rect");
 			ImGui::TableSetColumnIndex(1);
 
-			// the grid spans EXACTLY the value column width - the same width as the
-			// text inputs and dropdowns, so the row reads like every other property
-			// row (cells stay square by construction; only a tiny-panel floor)
+			// the grid takes three quarters of the value column, CENTERED in it -
+			// wide enough to read as a proper property-row control beside the text
+			// inputs, without the full-width block dominating the panel (cells stay
+			// square by construction; only a tiny-panel floor)
 			const float availW = ImGui::GetContentRegionAvail().x;
-			float cell = availW / 4.0f;
+			float cell = (availW * 0.75f) / 4.0f;
 			if(cell < 14.0f) { cell = 14.0f; }
 			const float gridW = cell * 4.0f;
 			const ImVec2 cellStart = ImGui::GetCursorScreenPos();
-			const ImVec2 origin(cellStart.x + std::max(0.0f, availW - gridW),
-				cellStart.y);
+			const ImVec2 origin(cellStart.x +
+				std::max(0.0f, (availW - gridW) * 0.5f), cellStart.y);
 			ImDrawList* dl = ImGui::GetWindowDrawList();
 			bool applied = false;
 			for(int i = 0; i < 16; ++i)
