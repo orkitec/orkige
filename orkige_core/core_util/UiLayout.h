@@ -274,6 +274,38 @@ namespace Orkige
 	//! that fits (content <= viewport) clamps to 0.
 	ORKIGE_CORE_DLL float clampScroll(float offset, float contentExtent,
 		float viewportExtent);
+
+	//! @brief the index range of a uniform-height virtual list that has to EXIST
+	//! as live widgets: what the viewport shows plus a ring of overscan rows.
+	//! @c count == 0 means nothing is materialised.
+	struct ORKIGE_CORE_DLL ListWindow
+	{
+		int	first = 0;	//!< first materialised item index
+		int	count = 0;	//!< number of materialised items ([first, first+count))
+
+		//! one past the last materialised index
+		inline int end() const { return this->first + this->count; }
+		//! does @p index fall inside the window?
+		inline bool contains(int index) const
+		{
+			return index >= this->first && index < this->end();
+		}
+	};
+
+	//! @brief which rows of a uniform-height list a scroll viewport needs.
+	//! @param scrollOffset the viewport's scroll offset in pixels (<= 0, the
+	//! amount the content is shifted UP - the GuiScrollView convention).
+	//! @param viewportExtent the viewport height in pixels.
+	//! @param itemExtent one row's height in pixels INCLUDING its gap (uniform -
+	//! the v1 contract; a variable-height list is not virtualised).
+	//! @param itemCount how many rows the model holds.
+	//! @param overscan extra rows kept alive above AND below the visible band so
+	//! a scroll step never shows a hole before the next window is materialised.
+	//! @return the clamped [first, first+count) index range. Pure integer maths,
+	//! so the widget-count bound a test asserts is exactly
+	//! ceil(viewport/item) + 1 + 2*overscan at most.
+	ORKIGE_CORE_DLL ListWindow virtualWindow(float scrollOffset,
+		float viewportExtent, float itemExtent, int itemCount, int overscan);
 }
 
 #endif //__UiLayout_h__11_7_2026__10_00_00__

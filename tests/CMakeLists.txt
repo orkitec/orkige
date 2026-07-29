@@ -2024,6 +2024,28 @@ if(TARGET orkige_player)
         set_tests_properties(player_lines_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_LINES_SELFCHECK=1")
 
+        # THE UI GALLERY, end to end: projects/gallery - the example project
+        # that shows EVERY runtime widget kind on one declarative .oui screen
+        # suite (labels plain/wrapped/localised, buttons incl. nine-slice,
+        # checkbox, toggle group, slider, progress bar, select menu, dropdown,
+        # single- and multi-line text entry, scroll view, a 1000-row virtualized
+        # list, a tab bar, decor draw modes, modal/confirm/toast triggers and a
+        # safe-area HUD). The selfcheck drives the REAL input path with
+        # synthetic mouse/key/text events and asserts: every tab is reachable by
+        # a click, the WRAPPED label is taller than the single-line one, a typed
+        # Return INSERTS a line break in the multi-line field (never submits),
+        # the 1000-row list keeps only its viewport window of rows alive and a
+        # scrolled row still hit-tests at its rect, and a modal raises and
+        # dismisses. Runs on both render flavors (gui renders through the
+        # DrawLayer2D facade). See the ORKIGE_GALLERY_SELFCHECK block in
+        # tools/player/PlayerSelfChecks.cpp.
+        add_test(NAME player_gallery_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project projects/gallery
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_gallery_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_GALLERY_SELFCHECK=1"
+            LABELS integration TIMEOUT 120)
+
         # SHAPE COLLIDERS, end to end: tests/projects/shapecollider
         # scenes/shapecollider.oscene - a dynamic ball drops into a STATIC
         # CONCAVE U-cup collider (RigidBodyComponent ST_SHAPE defaulting to the

@@ -99,6 +99,7 @@ namespace
 		// UI Editor widget-tree per-kind glyphs (@see uiWidgetKindIcon)
 		0xf022, 0xf022,		// rectangle-list (select menu)
 		0xf03a, 0xf03a,		// list (scroll view)
+		0xf0ca, 0xf0ca,		// list-ul (list view)
 		0xf11c, 0xf11c,		// keyboard (text entry)
 		0xf14a, 0xf14a,		// square-check (check box)
 		0xf150, 0xf150,		// square-caret-down (drop down)
@@ -250,8 +251,8 @@ TEST_CASE("uiWidgetKindIcon: every widget kind maps to a baked glyph",
 	// Every palette kind plus the decorwidget alias and an unknown fallback.
 	static const char* const kKinds[] = {
 		"label", "button", "checkbox", "slider", "progressbar", "selectmenu",
-		"dropdown", "textentry", "textbox", "panel", "scrollview", "decorwidget",
-		"bogus_kind", "",
+		"dropdown", "textentry", "textbox", "panel", "scrollview", "listview",
+		"decorwidget", "bogus_kind", "",
 	};
 	for (const char* kind : kKinds)
 	{

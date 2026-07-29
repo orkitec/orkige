@@ -10,6 +10,8 @@
 #include "engine_gui/GuiTextEntry.h"
 #include "engine_gui/GuiTextEdit.h"
 #include "engine_gui/GuiManager.h"
+#include "engine_gui/TextWrap.h"
+#include "engine_gui/UiAtlas.h"
 
 #include <cmath>
 #include <algorithm>
@@ -38,6 +40,7 @@ namespace Orkige
 		, mText(""), mPlaceholder(placeholder), mCaretByte(0)
 		, mMaxLength(maxLength), mFocused(false), mSubmitted(false)
 		, mBlinkTimer(0.0f), mCaretVisible(true), mFontIndex(defaultGlyphIndex)
+		, mMultiline(false), mFirstLine(0), mLineCount(1), mVisibleLines(1)
 	{
 		this->markInteractive();	// a text-entry field consumes focus / key / text input
 		this->mBackground = this->layer->createRectangle(position, size);
@@ -147,6 +150,27 @@ namespace Orkige
 		return was;
 	}
 	//---------------------------------------------------------
+	void GuiTextEntry::setMultiline(bool multiline)
+	{
+		if(this->mMultiline == multiline)
+		{
+			return;
+		}
+		this->mMultiline = multiline;
+		this->mFirstLine = 0;
+		// the visible caption wraps to the field width; the measuring caption
+		// stays a single unwrapped line (it only measures a caret prefix, which
+		// the multi-line path does not use)
+		this->mCaption->setWrap(multiline);
+		if(multiline)
+		{
+			this->mCaption->align(TextAlign_Left);
+			this->mCaption->vertical_align(VerticalAlign_Top);
+		}
+		this->relayout();
+		this->refresh();
+	}
+	//---------------------------------------------------------
 	void GuiTextEntry::setFocusedState(bool focused)
 	{
 		if(this->mFocused == focused)
@@ -208,14 +232,36 @@ namespace Orkige
 		case KeyEventData::KC_RIGHT:
 			TextEntryEdit::moveRight(this->mText, this->mCaretByte);
 			break;
+		case KeyEventData::KC_UP:
+			// line navigation only exists in a multi-line field; a single-line
+			// one passes the key on exactly as before
+			handled = this->mMultiline &&
+				TextEntryEdit::moveUp(this->mText, this->mCaretByte);
+			break;
+		case KeyEventData::KC_DOWN:
+			handled = this->mMultiline &&
+				TextEntryEdit::moveDown(this->mText, this->mCaretByte);
+			break;
 		case KeyEventData::KC_HOME:
-			this->mCaretByte = 0;
+			// home/end are line-relative in multi-line, buffer-relative otherwise
+			this->mCaretByte = this->mMultiline
+				? TextEntryEdit::lineStart(this->mText, this->mCaretByte) : 0;
 			break;
 		case KeyEventData::KC_END:
-			this->mCaretByte = this->mText.size();
+			this->mCaretByte = this->mMultiline
+				? TextEntryEdit::lineEnd(this->mText, this->mCaretByte)
+				: this->mText.size();
 			break;
 		case KeyEventData::KC_RETURN:
 		case KeyEventData::KC_NUMPADENTER:
+			if(this->mMultiline)
+			{
+				// a text area has no submit: Return opens a new line and the
+				// field keeps focus (the input session stays open)
+				TextEntryEdit::insertNewline(this->mText, this->mCaretByte,
+					this->mMaxLength);
+				break;
+			}
 			// submit: latch the poll flag and blur (closes the input session)
 			this->mSubmitted = true;
 			if(GuiManager::getSingletonPtr())
@@ -277,6 +323,27 @@ namespace Orkige
 		this->mCaret->top(textTop);
 		this->mCaret->width(TEXT_ENTRY_CARET_WIDTH);
 		this->mCaret->height(std::max(height - 2.0f * TEXT_ENTRY_PADDING, 4.0f));
+		if(!this->mMultiline)
+		{
+			return;
+		}
+		// a text area wraps inside the padded body and shows whole lines only
+		const Ogre::Real width = this->mBackground->width();
+		const Ogre::Real textWidth =
+			std::max(width - 2.0f * TEXT_ENTRY_PADDING, 1.0f);
+		const Ogre::Real textHeight =
+			std::max(height - 2.0f * TEXT_ENTRY_PADDING, 1.0f);
+		this->mCaption->size(textWidth, textHeight);
+		const Ogre::Real lineHeight = this->lineHeight();
+		this->mVisibleLines = (lineHeight > 0.0f)
+			? std::max(1, int(std::floor(textHeight / lineHeight))) : 1;
+		this->mCaret->height(std::max(lineHeight, 4.0f));
+	}
+	//---------------------------------------------------------
+	Ogre::Real GuiTextEntry::lineHeight() const
+	{
+		UiFont const * font = this->mCaption->font();
+		return (font != NULL) ? font->getLineHeightScaled() : 0.0f;
 	}
 	//---------------------------------------------------------
 	void GuiTextEntry::onEnabledChanged(bool enable)
@@ -291,6 +358,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GuiTextEntry::refresh()
 	{
+		if(this->mMultiline)
+		{
+			this->refreshMultiline();
+			return;
+		}
 		const bool showPlaceholder = this->mText.empty() && !this->mFocused;
 		this->mCaption->text(showPlaceholder ? this->mPlaceholder : this->mText);
 		this->mCaption->colour(showPlaceholder ? placeholderColour()
@@ -300,6 +372,73 @@ namespace Orkige
 		Vec2 measured(0.0f, 0.0f);
 		this->mMeasure->_calculateDrawSize(measured);
 		this->mCaret->left(std::floor(this->mCaption->left() + measured.x));
+	}
+	//---------------------------------------------------------
+	void GuiTextEntry::refreshMultiline()
+	{
+		const bool showPlaceholder = this->mText.empty() && !this->mFocused;
+		this->mCaption->colour(showPlaceholder ? placeholderColour()
+			: textColour());
+		UiFont const * font = this->mCaption->font();
+		const Ogre::Real lineHeight = this->lineHeight();
+		if(font == NULL || lineHeight <= 0.0f)
+		{
+			// no baked font: fall back to showing the raw text unscrolled
+			this->mCaption->text(showPlaceholder ? this->mPlaceholder : this->mText);
+			this->mLineCount = 1;
+			this->mFirstLine = 0;
+			return;
+		}
+		if(showPlaceholder)
+		{
+			this->mCaption->text(this->mPlaceholder);
+			this->mLineCount = 1;
+			this->mFirstLine = 0;
+			this->mCaret->left(std::floor(this->mCaption->left()));
+			this->mCaret->top(std::floor(this->mCaption->top()));
+			return;
+		}
+		// ONE wrap of the whole text through the shared breaker - the same one
+		// the caption redraws with, so the caret can never disagree with the glyphs
+		std::vector<WrapCell> cells;
+		std::vector<UiGlyph const *> glyphs;
+		TextWrap::buildRun(*font, this->mText, cells, glyphs);
+		WrapResult wrapped;
+		TextWrap::wrap(cells, this->mCaption->width(), wrapped);
+		this->mLineCount = wrapped.lineCount > 0 ? wrapped.lineCount : 1;
+		std::vector<size_t> lineStarts;
+		TextWrap::lineStartBytes(cells, wrapped, this->mText.size(), lineStarts);
+		const TextWrap::CaretSpot caret =
+			TextWrap::locateCaret(cells, wrapped, this->mCaretByte);
+
+		// scroll the line window so the caret stays inside it, then clamp it to
+		// the content (a shrinking text pulls the window back up)
+		const int visible = std::max(1, this->mVisibleLines);
+		if(caret.line < this->mFirstLine)
+		{
+			this->mFirstLine = caret.line;
+		}
+		else if(caret.line > this->mFirstLine + visible - 1)
+		{
+			this->mFirstLine = caret.line - visible + 1;
+		}
+		this->mFirstLine = std::max(0,
+			std::min(this->mFirstLine, std::max(0, this->mLineCount - visible)));
+
+		// feed the caption only the visible lines. Slicing at a line START is
+		// safe: greedily re-wrapping a suffix that begins on a line boundary
+		// reproduces the same following breaks, so the window renders exactly
+		// the lines the full text would - a whole-line clip with no scissor.
+		const size_t from = lineStarts[size_t(this->mFirstLine)];
+		const int pastLine = this->mFirstLine + visible;
+		const size_t to = (pastLine < int(lineStarts.size()))
+			? lineStarts[size_t(pastLine)] : this->mText.size();
+		this->mCaption->text(this->mText.substr(from,
+			(to > from) ? (to - from) : 0));
+
+		this->mCaret->left(std::floor(this->mCaption->left() + caret.penX));
+		this->mCaret->top(std::floor(this->mCaption->top() +
+			Ogre::Real(caret.line - this->mFirstLine) * lineHeight));
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
@@ -332,5 +471,9 @@ namespace Orkige
 		OFUNC(getMaxLength)
 		OFUNC(isFocused)
 		OFUNC(wasSubmitted)
+		OFUNC(setMultiline)
+		OFUNC(isMultiline)
+		OFUNC(getLineCount)
+		OFUNC(getFirstVisibleLine)
 	OOBJECT_END
 }

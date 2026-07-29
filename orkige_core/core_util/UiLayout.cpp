@@ -412,4 +412,41 @@ namespace Orkige
 		}
 		return offset;
 	}
+	//---------------------------------------------------------
+	ListWindow virtualWindow(float scrollOffset, float viewportExtent,
+		float itemExtent, int itemCount, int overscan)
+	{
+		ListWindow window;
+		if(itemCount <= 0 || itemExtent <= 0.0f)
+		{
+			return window;	// nothing to show (an empty or unmeasured list)
+		}
+		if(overscan < 0)
+		{
+			overscan = 0;
+		}
+		// the scroll offset shifts the content UP, so the content coordinate at
+		// the top of the viewport is -offset
+		const float top = std::max(0.0f, -scrollOffset);
+		const float bottom = top + std::max(0.0f, viewportExtent);
+		int first = int(std::floor(top / itemExtent)) - overscan;
+		// the row the viewport's LAST pixel falls in (a viewport ending exactly
+		// on a row boundary does not pull the next row in)
+		int last = int(std::ceil(bottom / itemExtent)) - 1 + overscan;
+		if(first < 0)
+		{
+			first = 0;
+		}
+		if(last > itemCount - 1)
+		{
+			last = itemCount - 1;
+		}
+		if(last < first)
+		{
+			return window;	// scrolled entirely past the content
+		}
+		window.first = first;
+		window.count = last - first + 1;
+		return window;
+	}
 }

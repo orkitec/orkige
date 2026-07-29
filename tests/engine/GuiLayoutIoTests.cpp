@@ -268,6 +268,66 @@ TEST_CASE("oui: a label's wrap key round-trips", "[unit][oui]")
 	CHECK(*doc2.sections[0].find("wrap") == "true");
 }
 
+TEST_CASE("oui: a text entry's multiline key round-trips", "[unit][oui]")
+{
+	// `multiline = true` turns the field into a text area (soft wrap, Return
+	// inserts a line break). The APPLY (the wrapped line count grows, the view
+	// scrolls to follow the caret) is asserted in the player_gallery selfcheck.
+	const String text =
+		"[TextEntry notes]\n"
+		"sprite = select_menu_field\n"
+		"text = notes\n"
+		"anchor = stretchtop\n"
+		"offsets = 0 0 0 120\n"
+		"multiline = true\n"
+		"maxLength = 400\n";
+
+	GuiLayoutDoc doc;
+	String error;
+	REQUIRE(GuiLayoutDoc::parse(text, doc, error));
+	REQUIRE(doc.sections.size() == 1);
+	CHECK(doc.sections[0].type == "TextEntry");
+	REQUIRE(doc.sections[0].find("multiline") != nullptr);
+	CHECK(*doc.sections[0].find("multiline") == "true");
+
+	const String canonical = doc.serialize();
+	GuiLayoutDoc doc2;
+	REQUIRE(GuiLayoutDoc::parse(canonical, doc2, error));
+	CHECK(doc2.serialize() == canonical);
+	REQUIRE(doc2.sections[0].find("multiline") != nullptr);
+	CHECK(*doc2.sections[0].find("multiline") == "true");
+	CHECK(*doc2.sections[0].find("maxLength") == "400");
+}
+
+TEST_CASE("oui: a list view's virtualized / itemHeight keys round-trip",
+	"[unit][oui]")
+{
+	// a virtualized list materialises only the rows the viewport shows; the
+	// uniform row height is the contract that makes the window computable
+	const String text =
+		"[ListView bigList]\n"
+		"z = 6\n"
+		"anchor = stretchall\n"
+		"offsets = 8 8 -8 -8\n"
+		"itemHeight = 28\n"
+		"virtualized = true\n";
+
+	GuiLayoutDoc doc;
+	String error;
+	REQUIRE(GuiLayoutDoc::parse(text, doc, error));
+	REQUIRE(doc.sections.size() == 1);
+	REQUIRE(doc.sections[0].find("virtualized") != nullptr);
+	CHECK(*doc.sections[0].find("virtualized") == "true");
+	CHECK(*doc.sections[0].find("itemHeight") == "28");
+
+	const String canonical = doc.serialize();
+	GuiLayoutDoc doc2;
+	REQUIRE(GuiLayoutDoc::parse(canonical, doc2, error));
+	CHECK(doc2.serialize() == canonical);
+	CHECK(*doc2.sections[0].find("virtualized") == "true");
+	CHECK(*doc2.sections[0].find("itemHeight") == "28");
+}
+
 TEST_CASE("oui: a key before any section fails honestly", "[unit][oui]")
 {
 	const String text = "atlas = gui_default\n[Label a]\ntext = x\n";

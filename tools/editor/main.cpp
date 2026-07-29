@@ -9058,6 +9058,61 @@ int main(int argc, char** argv)
 							spriteOf("ok") + "')");
 					}
 				}
+				// --- BOOLEAN property rows (Wrap / Multi-line / Virtualized):
+				// the Inspector's checkbox seam flips the key as ONE undo step and
+				// writes BOTH states explicitly, and the flag survives the
+				// save/reload round trip. ---
+				if (ok)
+				{
+					auto keyOf = [&](std::string const& id, char const* key)
+						-> std::string
+					{
+						const int idx =
+							OrkigeEditor::sectionIndex(session.doc.doc(), id);
+						if (idx < 0) { return "<absent>"; }
+						Orkige::String const* v = session.doc.doc()
+							.sections[static_cast<size_t>(idx)].find(key);
+						return v ? *v : std::string("<none>");
+					};
+					OrkigeEditor::uiEditSelect(session, "title");
+					std::string boolErr;
+					if (!OrkigeEditor::uiEditSetBool(session, gamePreviewStage,
+						"wrap", true, boolErr))
+					{
+						uiFail("wrap toggle failed: " + boolErr);
+					}
+					else if (keyOf("title", "wrap") != "true")
+					{
+						uiFail("wrap toggle did not set the key (got '" +
+							keyOf("title", "wrap") + "')");
+					}
+					else if (!session.doc.canUndo())
+					{
+						uiFail("wrap toggle produced no undo step");
+					}
+					else
+					{
+						// off writes the key explicitly - never a silent absence
+						if (!OrkigeEditor::uiEditSetBool(session, gamePreviewStage,
+							"wrap", false, boolErr))
+						{
+							uiFail("wrap untoggle failed: " + boolErr);
+						}
+						else if (keyOf("title", "wrap") != "false")
+						{
+							uiFail("wrap off did not write the key (got '" +
+								keyOf("title", "wrap") + "')");
+						}
+						else
+						{
+							session.doc.undo();		// back to true
+							if (keyOf("title", "wrap") != "true")
+							{
+								uiFail("undo did not restore the wrap flag");
+							}
+						}
+					}
+				}
 				// --- REPARENT through the session seam: a widget dropped onto a
 				// container becomes its child (parent key set, ONE undo step, the
 				// on-screen rect preserved); a cycle is refused honestly; undo
@@ -9311,6 +9366,7 @@ int main(int argc, char** argv)
 						"+ content-containment matrix + palette-add containment "
 						"+ rename(re-home/collision) + label-resize/text-in-box "
 						"+ sprite-picker(entries/pick/clear) "
+						"+ bool-rows(wrap on/off explicit/one-undo) "
 						"+ reparent(child/rect-preserved/cycle-refused/undo) "
 						"+ sibling-reorder(between-drop/one-undo/restore) "
 						"+ add-destination(sibling)/add-under-selection + fold-state "

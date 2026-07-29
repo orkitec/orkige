@@ -50,8 +50,15 @@ namespace Orkige
 	{
 		Ogre::Vector2 size;
 		this->caption->_calculateDrawSize(size);
+		if(this->caption->getWrap() && this->caption->width() > 0.0f)
+		{
+			// a WRAPPED label occupies its box width and as many lines as the
+			// text broke into - reporting the single-line measure would make it
+			// lie to the layout readback (and to anyone drawing its rect)
+			size.x = this->caption->width();
+			size.y = this->caption->measureWrappedHeight(this->caption->width());
+		}
 		return size;
-		//return Ogre::Vector2(this->caption->width(), this->caption->height());
 	}
 	//---------------------------------------------------------
 	Ogre::Vector2 GuiLabel::getPosition()

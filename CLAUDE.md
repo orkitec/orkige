@@ -925,10 +925,21 @@ look when touching one:
   (`GuiDropDown`), modals (`GuiModalScrim`/`showModal`), toasts, confirm/
   alert dialogs, **`GuiTabBar`** (toggle group + panel alpha-cascade
   pairing, one sync/frame) and **`GuiListView`** (a scroll viewport with an
-  add/remove/clear item API over a content-size-fit vertical group, no
-  virtualization) — all `.oui`-authorable round-trip; an image widget IS a
-  decor panel, a toggle switch IS a checkbox sprite skin, wrap-to-width
-  labels and multi-line text entry are known future tasks.
+  add/remove/clear item API over a content-size-fit vertical group; opt-in
+  **virtualization** — `setVirtualized`/`setItemHeight`, uniform item height,
+  the pure `virtualWindow` calculation materializes only the visible band of
+  rows anchored at their virtual offsets, item ids stay stable but resolve to
+  a live widget only while inside the window) — all `.oui`-authorable
+  round-trip; an image widget IS a decor panel, a toggle switch IS a checkbox
+  sprite skin. **Wrap-to-width labels** (`setWrap` / `.oui` `wrap`, the pure
+  `engine_gui/TextWrap` greedy breaker + the resolver's height-for-width hook;
+  a wrapped label reports its wrapped height from `getSize`) and **multi-line
+  text entry** (`setMultiline` / `.oui` `multiline`: line-aware caret in the
+  pure `GuiTextEdit` model, Return inserts — never submits — and the field
+  renders a scrolled window of wrapped lines with no scissor claim on its
+  layer) ship on the same shared wrap core. `projects/gallery/` is the
+  widget showroom — every widget kind across tabbed `.oui` screens, verified
+  by the `player_gallery_selfcheck` ctest (both flavors).
   **Visual `.oui` editor** (the Preview panel's EDIT MODE — GuiManager is a
   singleton, so the one preview render path IS the canvas): click-select +
   synced widget tree, anchor-preserving drag/resize pinned to the ONE UiLayout

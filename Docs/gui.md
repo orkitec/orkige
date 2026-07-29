@@ -161,6 +161,9 @@ An ordered list of `[Type id]` sections, each a block of `key = value` lines
 | `cellSize = w h` / `gridConstraint = n` | grid-group geometry |
 | `nineSlice = true` \| `tiled = true` \| `color = r g b a` | draw modes (decor + button; `color` decor-only) |
 | `items = A \| B \| C` | dropdown / listview options (pipe-separated) |
+| `wrap = true` | label / textbox: break the text to the widget width |
+| `multiline = true` | text entry: a text area (soft wrap, Return inserts a line break) |
+| `virtualized = true` / `itemHeight = 24` | list view: materialise only the visible rows, at that uniform row height |
 | `transition = fade 0.2` | enter/exit transition (see Animation) |
 | `modal = confirmId` | create on that modal's content layer + tear down with it |
 | `[Modal id]` + `scrim = r g b a` / `lightDismiss = bool` | a modal scrim |
@@ -184,10 +187,10 @@ Widget `Type`s: `label`, `textbox`, `button`, `checkbox`, `selectmenu`,
 | `GuiDropDown` | an option **list** dropped on a modal | `getSelectedIndex` / `setItemsString` |
 | `GuiSlider` | a dragged value over discrete items | `getSelectedItemIndex` / `setCaption` |
 | `GuiProgressBar` | a fill bar with a caption | `setProgress` / `setCaption` |
-| `GuiTextEntry` | single-line text field (focus, caret, max) | `getText` / `wasSubmitted` / `setText` |
+| `GuiTextEntry` | text field: single-line, or a multi-line text area | `getText` / `wasSubmitted` / `setText` / `setMultiline` |
 | `GuiDecorWidget` | sprite panel OR (empty sprite) solid fill; nine-slice / tiled | `setColour` / `setAlpha` |
 | `GuiScrollView` | a clipping viewport whose content scrolls | `setScroll` / `getScroll` / `getMaxScroll` |
-| `GuiListView` | a vertical list: a scroll viewport with a built-in vertical-group content container | `addItem` / `removeItem` / `clear` / `getItemCount` |
+| `GuiListView` | a vertical list: a scroll viewport with a built-in content container; optionally virtualized | `addItem` / `removeItem` / `clear` / `getItemCount` / `setVirtualized` |
 | `GuiToast` | a passive, timed, self-dismissing notification | (built via `gui:showToast`) |
 | `GuiModalScrim` | the consuming backdrop of a modal dialog | (built via `gui:showModal`) |
 
@@ -236,6 +239,83 @@ wrap    = true
 fit     = none preferred  # grow the height to fit the wrapped lines
 ```
 
+The ORDERING contract of height-for-width: a wrapped node's height depends on
+its width, so the width settles first. The resolver's two passes do exactly
+that — pass 1 measures every node's width-independent preferred size, pass 2
+assigns rects top-down and, the moment a node's WIDTH is final (its anchors, its
+`preferred` horizontal fit, or the column a layout group hands it), consults the
+node's height-for-width measurer for the vertical `preferred` axis. A wrapped
+label inside a horizontal group therefore heights against the column that group
+gave it, not against its natural single-line width. `wrap` without a bounded
+width still measures one line — give the node a stretch anchor or a
+`childExpand` parent so the column is real.
+
+### Multi-line text entry
+
+`setMultiline(true)` (`.oui` key `multiline true`) turns a `GuiTextEntry` into a
+small text area. The text soft-wraps to the field width through the SAME wrap
+core a wrapped label uses, so both break identically; up/down walk the logical
+lines keeping the code-point column; home/end work within a line; and the view
+scrolls vertically to keep the caret visible, rendering only the window of
+wrapped lines that fits the field (a whole-line clip — it costs no extra draw
+batch and never claims its layer's scissor rect, so a field may share a layer).
+
+Semantics: **Return inserts a line break**. A multi-line field has no submit —
+`wasSubmitted` stays a single-line concept, so a game that wants a "send" adds a
+button beside the field. Blur still ends the platform text-input session exactly
+as it does for a single-line field, so the mobile keyboard flow is unchanged.
+The pure edit model (line bounds, columns, up/down, the newline insert and the
+joins backspace/delete make across a break) is `engine_gui/GuiTextEdit.h`.
+
+```
+[TextEntry notes]
+sprite    = select_menu_field
+anchor    = stretchtop
+offsets   = 0 0 0 96      # a tall box: several lines fit
+multiline = true
+maxLength = 400
+```
+
+### Virtualized lists
+
+A `GuiListView` flows every row as a widget by default — right for the option /
+level / inventory lists a screenful covers. `setVirtualized(true)` (`.oui`
+`virtualized true`) trades that for a flat cost on big lists: rows share ONE
+uniform height (`setItemHeight`, `.oui` `itemHeight`) and only the rows the
+viewport shows — plus one row of overscan above and below — exist as widgets.
+The window is decided by the pure `core_util` `virtualWindow` and the rows anchor
+at their virtual offsets through the same layout resolver, so the scroll extent
+covers the whole model and a visible row hit-tests exactly as an unvirtualized
+one does. A 1000-row list then costs a dozen widgets.
+
+Item ids stay stable per item in both modes (`addItem` returns one, `getItemId`
+keeps returning it), so the item API is unchanged. The one honest difference: in
+virtualized mode an id only resolves to a live widget while its row is inside
+the materialised window — wire per-row behaviour to the item INDEX, never to a
+cached widget handle. A variable-height list is not virtualizable (the window
+maths needs the uniform height); leave it flowed.
+
+```
+[ListView bigList]
+anchor      = stretchall
+offsets     = 8 8 -8 -8
+itemHeight  = 24
+virtualized = true
+```
+
+### The gallery example
+
+`projects/gallery` is the worked example of the whole widget tier: one
+declarative `.oui` screen suite (a tab bar over four panels — text, controls,
+lists, overlays — plus a safe-area HUD file) showing every widget kind, with a
+small Lua driver that only wires behaviour on top. Open it in the editor, or
+render a screen headlessly with the MCP `preview_ui` verb. It is also a test:
+`player_gallery_selfcheck` boots it, clicks through every tab, and asserts the
+wrapped label is taller than the single-line one, that a typed Return inserts a
+line break in the multi-line field, that the 1000-row list keeps only its
+viewport window of rows alive and still hit-tests a scrolled one, and that a
+modal raises and dismisses.
+
 ### Widget class hierarchy
 
 <!-- GENERATED:gui-widget-tree - edit Util/update_docs.py / lua_api_annotations.json; do not hand-edit -->
@@ -255,7 +335,7 @@ graph TD
     GuiDragDropButton["GuiDragDropButton"]
     GuiLabel["GuiLabel"]
     GuiProgressBar["GuiProgressBar"]
-    GuiTextEntry["GuiTextEntry<br/><i>a single-line text input field: SDL text-input dr...</i>"]
+    GuiTextEntry["GuiTextEntry<br/><i>a text input field: SDL text-input driven glyph e...</i>"]
     GuiTextbox["GuiTextbox"]
     GuiToast["GuiToast<br/><i>a passive timed notification: a rounded backing p...</i>"]
     IGuiObject["IGuiObject"]
@@ -572,7 +652,10 @@ anchor = center          # rect-anchor layout (opt-in; see below)
 `grid`), `padding`, `spacing`, `childAlign`, `childExpand`, `cellSize`,
 `gridConstraint`, `fit`. Draw modes: `nineSlice`, `tiled` (decors and
 buttons), `color` (decor-only). Text: `wrap` (label/textbox; wrap to the
-resolved width — see [Wrap-to-width text](#wrap-to-width-text)).
+resolved width — see [Wrap-to-width text](#wrap-to-width-text)), `multiline`
+(text entry; a text area — see
+[Multi-line text entry](#multi-line-text-entry)). List: `virtualized` +
+`itemHeight` (list view — see [Virtualized lists](#virtualized-lists)).
 
 ### Widget types
 
@@ -580,7 +663,9 @@ resolved width — see [Wrap-to-width text](#wrap-to-width-text)).
 `textentry`, `decorwidget` / `panel`, `scrollview`, `listview`, `dropdown`.
 
 A `dropdown` and a `listview` both take `items = A | B | C` (pipe-separated so
-labels may hold spaces); a `listview` seeds its rows from them.
+labels may hold spaces); a `listview` seeds its rows from them. A `listview`
+also takes `itemHeight` + `virtualized` (see
+[Virtualized lists](#virtualized-lists)), and a `textentry` takes `multiline`.
 
 ### Modals in `.oui`
 

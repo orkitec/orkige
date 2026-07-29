@@ -1531,6 +1531,10 @@ GuiTextEntry:setMaxLength(...)
 GuiTextEntry:getMaxLength(...)
 GuiTextEntry:isFocused(...)
 GuiTextEntry:wasSubmitted(...)
+GuiTextEntry:setMultiline(...)
+GuiTextEntry:isMultiline(...)
+GuiTextEntry:getLineCount(...)
+GuiTextEntry:getFirstVisibleLine(...)
 
 ## GuiSelectMenu
 GuiSelectMenu:setItems(...)
@@ -1650,6 +1654,13 @@ GuiListView:removeItem(...)
 GuiListView:clear(...)
 GuiListView:getItemCount(...)
 GuiListView:getItemId(...)
+GuiListView:getItemText(...)
+GuiListView:setVirtualized(...)
+GuiListView:isVirtualized(...)
+GuiListView:setItemHeight(...)
+GuiListView:getItemHeight(...)
+GuiListView:getMaterializedCount(...)
+GuiListView:getFirstMaterializedIndex(...)
 
 ## DragEventData
 DragEventData.button

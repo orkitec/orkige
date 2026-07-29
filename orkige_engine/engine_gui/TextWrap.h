@@ -56,6 +56,10 @@ namespace Orkige
 		bool	breakBefore = false;
 		//! a hard '\n': ends the current line and emits nothing.
 		bool	forcedBreak = false;
+		//! @brief byte offset of this cell's first byte in the source string.
+		//! buildRun fills it; a caller that assembles cells itself (the markup
+		//! walk) may leave it 0 - only the caret queries below read it.
+		size_t	byteOffset = 0;
 	};
 
 	//! @brief the broken layout: a line index + line-relative left pen per input
@@ -98,6 +102,32 @@ namespace Orkige
 		ORKIGE_ENGINE_DLL void buildRun(UiFont const & font, String const & utf8,
 			std::vector<WrapCell> & cells,
 			std::vector<UiGlyph const *> & glyphs);
+
+		//! @brief where a caret sits in a wrapped run: the visual line it is on
+		//! and the line-relative pen (px) it draws at.
+		struct ORKIGE_ENGINE_DLL CaretSpot
+		{
+			int		line = 0;		//!< visual (wrapped) line index
+			float	penX = 0.0f;	//!< line-relative pen of the caret (px)
+		};
+
+		//! @brief locate the caret at byte offset @p byteIndex in a wrapped run.
+		//! The caret sits BEFORE the first cell whose byteOffset reaches it (so a
+		//! caret at the end of the text lands after the last placed cell, and a
+		//! caret right after a '\n' opens the next line). Cells must carry
+		//! byteOffset (@see buildRun) and @p wrapped must be that run's wrap.
+		ORKIGE_ENGINE_DLL CaretSpot locateCaret(std::vector<WrapCell> const & cells,
+			WrapResult const & wrapped, size_t byteIndex);
+
+		//! @brief the byte offset each VISUAL line of a wrapped run starts at
+		//! (size == wrapped.lineCount; entry 0 is always 0). A line opened by a
+		//! '\n' starts just after it. Lets a viewer slice the source text at soft
+		//! line boundaries - the greedy break of a suffix that starts on a line
+		//! boundary reproduces the same following breaks, so a sliced view wraps
+		//! exactly like the full text does.
+		ORKIGE_ENGINE_DLL void lineStartBytes(std::vector<WrapCell> const & cells,
+			WrapResult const & wrapped, size_t textLength,
+			std::vector<size_t> & out);
 	}
 }
 

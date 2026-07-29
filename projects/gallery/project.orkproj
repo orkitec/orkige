@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OrkigeProject version="1">
+    <Name>UI Gallery</Name>
+    <MainScene>scenes/main.oscene</MainScene>
+    <Settings>
+        <Setting key="localisation" value="loc"/>
+        <Setting key="export.macos.bundleId" value="com.orkitec.gallery"/>
+    </Settings>
+</OrkigeProject>

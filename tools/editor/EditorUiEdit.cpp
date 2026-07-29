@@ -113,6 +113,7 @@ namespace OrkigeEditor
 			{ "textbox",	"Text Box" },
 			{ "panel",		"Panel" },
 			{ "scrollview",	"Scroll View" },
+			{ "listview",	"List View" },
 		};
 	}
 	//---------------------------------------------------------
@@ -134,6 +135,7 @@ namespace OrkigeEditor
 		if(kind == "textbox")		{ return ICON_FA_FILE_LINES; }		// U+f15c
 		if(kind == "panel" || kind == "decorwidget") { return ICON_FA_TABLE_CELLS; }	// U+f00a
 		if(kind == "scrollview")	{ return ICON_FA_LIST; }			// U+f03a
+		if(kind == "listview")		{ return ICON_FA_LIST_UL; }			// U+f0ca
 		return ICON_FA_WINDOW_MAXIMIZE;	// the generic control fallback (U+f2d0)
 	}
 	//---------------------------------------------------------
@@ -993,6 +995,15 @@ namespace OrkigeEditor
 		{
 			section.set("anchor", "topleft");
 			section.set("offsets", "20 20 220 220");
+		}
+		else if(kind == "listview")
+		{
+			// a list is a scroll viewport with rows; the uniform row height is
+			// what a later `virtualized = true` needs, so seed it here
+			section.set("font", "9");
+			section.set("anchor", "topleft");
+			section.set("offsets", "20 20 220 220");
+			section.set("itemHeight", "24");
 		}
 		else if(kind == "panel")
 		{

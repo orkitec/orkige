@@ -484,6 +484,11 @@ namespace Orkige
 		//! the line height. width() is not touched. Feeds the layout resolver's
 		//! height-for-width. A non-positive width or empty text measures one line.
 		Real measureWrappedHeight(Real width) const;
+		//! @brief the baked font backing this caption (NULL when the glyph index
+		//! named no font). A widget that has to reason about the SAME wrap the
+		//! caption draws - a multi-line field placing its caret - runs
+		//! TextWrap::buildRun on it rather than duplicating the metrics.
+		inline UiFont const * font() const { return this->mFont; }
 
 		//! @brief per-frame scale/rotation about a pivot (@see UiRect::renderTransform)
 		void renderTransform(Ui2DTransform const & transform);

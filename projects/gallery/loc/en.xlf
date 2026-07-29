@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file original="orkige-strings" source-language="en" target-language="en" datatype="plaintext">
+    <header>
+      <tool tool-id="orkige_loc" tool-name="orkige_loc" tool-version="1"/>
+    </header>
+    <body>
+      <trans-unit id="gallery.localised" resname="gallery.localised" xml:space="preserve">
+        <source>A localised label: its text comes from the string table.</source>
+        <target state="translated">A localised label: its text comes from the string table.</target>
+      </trans-unit>
+      <trans-unit id="gallery.tab.controls" resname="gallery.tab.controls" xml:space="preserve">
+        <source>Controls</source>
+        <target state="translated">Controls</target>
+      </trans-unit>
+      <trans-unit id="gallery.tab.lists" resname="gallery.tab.lists" xml:space="preserve">
+        <source>Lists</source>
+        <target state="translated">Lists</target>
+      </trans-unit>
+      <trans-unit id="gallery.tab.overlays" resname="gallery.tab.overlays" xml:space="preserve">
+        <source>Overlays</source>
+        <target state="translated">Overlays</target>
+      </trans-unit>
+      <trans-unit id="gallery.tab.text" resname="gallery.tab.text" xml:space="preserve">
+        <source>Text</source>
+        <target state="translated">Text</target>
+      </trans-unit>
+      <trans-unit id="gallery.title" resname="gallery.title" xml:space="preserve">
+        <source>Orkige UI Gallery</source>
+        <target state="translated">Orkige UI Gallery</target>
+      </trans-unit>
+      <trans-unit id="gallery.toast" resname="gallery.toast" xml:space="preserve">
+        <source>Saved.</source>
+        <target state="translated">Saved.</target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

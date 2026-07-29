@@ -43,6 +43,7 @@ struct PlayerSelfChecks
 	bool integrationLevelCheck = false;
 	bool persistentCheck = false;
 	bool componentEnableCheck = false;
+	bool galleryCheck = false;
 	bool breadcrumbCheck = false;
 	bool fadeCheck = false;
 	bool lifecycleCheck = false;
@@ -239,6 +240,37 @@ struct PlayerSelfChecks
 	// reads the two bodies' world Y after settling.
 	bool shapeColliderCheckFailed = false;
 	bool shapeColliderDone = false;
+	// --- ORKIGE_GALLERY_SELFCHECK=1: the runtime UI widget tier end to end
+	// against projects/gallery (the declarative .oui gallery + its Lua driver).
+	// The check drives the REAL input path (synthetic SDL events through
+	// InputManager) and asserts what a human would look at, phase by phase:
+	//   Boot     the two .oui screens loaded: the tab bar, the tabbed panels,
+	//            the wrapped label, the multi-line field and the 1000-row
+	//            virtualized list all exist
+	//   Tabs     clicking each of the four tabs selects it (every section of
+	//            the gallery is reachable)
+	//   Text     the WRAPPED label is taller than the single-line one (wrap-to-
+	//            width actually broke lines), and typing into the multi-line
+	//            field - text, Return, more text - grows its wrapped line count
+	//            and puts a '\n' in the buffer (Return inserts, never submits)
+	//   List     the 1000-row list materialises only the viewport window (the
+	//            virtualization bound), a scroll MOVES that window, and a row
+	//            inside the scrolled window still HIT-TESTS at its rect
+	//   Overlay  a modal raises (the scrim consumes) and dismisses again
+	// A missed deadline exits non-zero.
+	enum class GalleryPhase { Boot, Tabs, Text, List, Overlay, Done };
+
+	GalleryPhase galleryPhase = GalleryPhase::Boot;
+	bool galleryCheckFailed = false;
+	unsigned long galleryPhaseDeadline = 0;
+	unsigned long galleryStepFrame = 0;		//!< next frame the current step acts on
+	int galleryStep = 0;					//!< step index inside the current phase
+	int galleryTabsSeen = 0;				//!< tabs successfully selected
+	float galleryPlainHeight = 0.0f;		//!< the single-line label's height
+	float galleryWrappedHeight = 0.0f;		//!< the wrapped label's height
+	int galleryNoteLines = 0;				//!< wrapped line count of the field
+	int galleryListMaterialized = 0;		//!< rows alive at the top of the list
+	int galleryListScrolledFirst = 0;		//!< first row alive after the scroll
 	// --- ORKIGE_VECTORANIM_SELFCHECK=1: vector (Lottie) animation rigs end
 	// to end against projects/vectorshapes (scenes/vectoranim.oscene). The
 	// hero rig carries an `idle` (loop) and a `hop` (once) clip; a script

@@ -325,6 +325,7 @@ namespace Orkige
 			// UI Editor widget-tree per-kind glyphs (@see uiWidgetKindIcon)
 			0xf022, 0xf022,		// rectangle-list (select menu)
 			0xf03a, 0xf03a,		// list (scroll view)
+			0xf0ca, 0xf0ca,		// list-ul (list view)
 			0xf11c, 0xf11c,		// keyboard (text entry)
 			0xf14a, 0xf14a,		// square-check (check box)
 			0xf150, 0xf150,		// square-caret-down (drop down)

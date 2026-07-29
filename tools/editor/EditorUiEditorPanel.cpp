@@ -549,6 +549,13 @@ namespace OrkigeEditor
 				type == "slider" || type == "progressbar" || type == "textentry" ||
 				type == "decorwidget" || type == "panel" || type == "dropdown";
 		}
+		//! does this widget KIND wrap its text to the width the layout gives it?
+		//! (GuiFactory applies `wrap` to these two) - everything else keeps a
+		//! single clipped line, so the Wrap row is hidden for them.
+		bool kindHasWrap(std::string const& type)
+		{
+			return type == "label" || type == "textbox";
+		}
 		//! a unique default id for @p type in @p s's doc (the palette's own scheme),
 		//! WITHOUT adding a section - the prefill for the name popup
 		std::string defaultWidgetId(UiEditSession const& s, std::string const& type)
@@ -826,6 +833,24 @@ namespace OrkigeEditor
 		}
 		s.doc.beginEdit();
 		section->set("sprite", value);
+		s.doc.commitEdit();
+		s.needsReload = true;
+		return persist(s, stage, error);
+	}
+	//---------------------------------------------------------
+	bool uiEditSetBool(UiEditSession& s, GamePreviewStage& stage,
+		String const& key, bool value, String& error)
+	{
+		GuiLayoutSection* section = selectedSection(s);
+		if(!section)
+		{
+			error = "no widget selected";
+			return false;
+		}
+		s.doc.beginEdit();
+		// both states are written explicitly, so the file always states the
+		// property the screen shows (never an absent-means-false silence)
+		section->set(key, value ? "true" : "false");
 		s.doc.commitEdit();
 		s.needsReload = true;
 		return persist(s, stage, error);
@@ -1673,6 +1698,34 @@ namespace OrkigeEditor
 			}
 			return false;
 		}
+		//! @brief a BOOLEAN property row: a checkbox over one `key = true|false`
+		//! entry. A flip is one whole edit (begin + set + commit), so it lands as a
+		//! single undo step - a checkbox has no drag/blur phase to coalesce. The
+		//! key is written explicitly in BOTH states (never dropped when false) so
+		//! the file says what the screen shows.
+		bool boolRow(UiEditDoc& doc, GuiLayoutSection& sec,
+			char const* label, char const* tooltip, char const* key)
+		{
+			bool value = false;
+			if(String const* v = sec.find(key))
+			{
+				const String lowered = Orkige::StringUtil::to_lower_copy(*v);
+				value = (lowered == "true" || lowered == "1" ||
+					lowered == "yes" || lowered == "on");
+			}
+			beginPropertyRow(label, tooltip);
+			const String id = String("##") + key;
+			const bool changed = ImGui::Checkbox(id.c_str(), &value);
+			endPropertyRow();
+			if(changed)
+			{
+				doc.beginEdit();
+				sec.set(key, value ? "true" : "false");
+				doc.commitEdit();
+				return true;
+			}
+			return false;
+		}
 		//! the atlas name the current layout renders through (its [Layout] `atlas`
 		//! key, else the engine default) - the atlas the sprite picker enumerates.
 		String layoutAtlasName(UiEditSession const& s)
@@ -2386,6 +2439,30 @@ namespace OrkigeEditor
 					{
 						committed |= spriteRow(s, s.doc, *sec, "Sprite",
 							"the atlas sprite face (button / panel / ...)", "sprite");
+					}
+					if(kindHasWrap(kind))
+					{
+						committed |= boolRow(s.doc, *sec, "Wrap",
+							"break the text to the widget's width instead of one "
+							"clipped line (pair it with a width and a preferred "
+							"vertical fit so it grows)", "wrap");
+					}
+					if(kind == "textentry")
+					{
+						committed |= boolRow(s.doc, *sec, "Multi-line",
+							"a text area: the text soft-wraps, Return inserts a "
+							"line break (it never submits) and the view scrolls "
+							"to follow the caret", "multiline");
+					}
+					if(kind == "listview")
+					{
+						committed |= boolRow(s.doc, *sec, "Virtualized",
+							"materialise only the rows the viewport shows - a big "
+							"list then costs a screenful of widgets. Needs a "
+							"uniform Item Height.", "virtualized");
+						committed |= textRow(s.doc, *sec, "Item Height",
+							"the uniform row height in design units a virtualized "
+							"list places its rows on", "itemHeight");
 					}
 					ImGui::EndTable();
 				}

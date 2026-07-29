@@ -22,6 +22,7 @@
 #include <engine_gui/FontAtlas.h>
 #include <engine_gui/UiAtlas.h>
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <string>
@@ -284,4 +285,146 @@ TEST_CASE("textwrap: buildRun + wrap on a real baked font",
 	WrapResult kerned;
 	TextWrap::wrap(kern, 100000.0f, kerned);
 	CHECK(kerned.penX[1] >= 0.0f);				// second glyph placed after the first
+}
+
+TEST_CASE("textwrap: buildRun records the source byte offset of every cell",
+	"[unit][gui][textwrap]")
+{
+	BakedFont baked;
+	if (!baked.font) { SUCCEED("engine font unavailable - skipped"); return; }
+
+	// "a b" plus a two-byte code point: the offsets must be BYTE offsets, so
+	// the caret of a multi-line field never lands mid-code-point
+	std::vector<WrapCell> cells;
+	std::vector<UiGlyph const*> glyphs;
+	TextWrap::buildRun(*baked.font, "a b\n\xC3\xA9", cells, glyphs);
+	REQUIRE(cells.size() == 5u);			// a, space, b, '\n', the accented glyph
+	CHECK(cells[0].byteOffset == 0u);
+	CHECK(cells[1].byteOffset == 1u);
+	CHECK(cells[1].space);
+	CHECK(cells[2].byteOffset == 2u);
+	CHECK(cells[3].byteOffset == 3u);
+	CHECK(cells[3].forcedBreak);
+	CHECK(cells[4].byteOffset == 4u);		// the two-byte code point's lead byte
+}
+
+TEST_CASE("textwrap: locateCaret maps a byte index to its wrapped line + pen",
+	"[unit][gui][textwrap]")
+{
+	// two 10px glyphs per word, a 5px space, wrapped to 25px -> two lines
+	std::vector<WrapCell> cells = {
+		glyphCell(10), glyphCell(10), spaceCell(5), glyphCell(10), glyphCell(10) };
+	for (size_t each = 0; each < cells.size(); ++each)
+	{
+		cells[each].byteOffset = each;		// one byte per cell (ascii)
+	}
+	WrapResult wrapped;
+	TextWrap::wrap(cells, 25.0f, wrapped);
+	REQUIRE(wrapped.lineCount == 2);
+
+	// caret at the very start
+	TextWrap::CaretSpot start = TextWrap::locateCaret(cells, wrapped, 0);
+	CHECK(start.line == 0);
+	CHECK(start.penX == Catch::Approx(0.0f));
+	// caret before the second glyph of line 1
+	TextWrap::CaretSpot mid = TextWrap::locateCaret(cells, wrapped, 1);
+	CHECK(mid.line == 0);
+	CHECK(mid.penX == Catch::Approx(10.0f));
+	// caret before the first glyph of the WRAPPED word -> line 2, pen 0
+	TextWrap::CaretSpot moved = TextWrap::locateCaret(cells, wrapped, 3);
+	CHECK(moved.line == 1);
+	CHECK(moved.penX == Catch::Approx(0.0f));
+	// caret past the end sits after the last glyph on its line
+	TextWrap::CaretSpot end = TextWrap::locateCaret(cells, wrapped, 99);
+	CHECK(end.line == 1);
+	CHECK(end.penX == Catch::Approx(20.0f));
+}
+
+TEST_CASE("textwrap: a caret after a trailing newline opens the next line",
+	"[unit][gui][textwrap]")
+{
+	WrapCell newline;
+	newline.forcedBreak = true;
+	newline.byteOffset = 1;
+	std::vector<WrapCell> cells = { glyphCell(10), newline };
+	cells[0].byteOffset = 0;
+	WrapResult wrapped;
+	TextWrap::wrap(cells, 100.0f, wrapped);
+	REQUIRE(wrapped.lineCount == 2);
+	TextWrap::CaretSpot spot = TextWrap::locateCaret(cells, wrapped, 2);
+	CHECK(spot.line == 1);
+	CHECK(spot.penX == Catch::Approx(0.0f));
+}
+
+TEST_CASE("textwrap: lineStartBytes slices a run at its visual line starts",
+	"[unit][gui][textwrap]")
+{
+	BakedFont baked;
+	if (!baked.font) { SUCCEED("engine font unavailable - skipped"); return; }
+
+	// two explicit lines, the first of which also soft-wraps
+	const String text = "hello world\nsecond";
+	std::vector<WrapCell> cells;
+	std::vector<UiGlyph const*> glyphs;
+	TextWrap::buildRun(*baked.font, text, cells, glyphs);
+	// a column just wide enough for the LONGEST word, so every word keeps its
+	// own line and nothing hard-breaks
+	auto measureWord = [&](char const* word)
+	{
+		std::vector<WrapCell> measure;
+		std::vector<UiGlyph const*> measureGlyphs;
+		TextWrap::buildRun(*baked.font, word, measure, measureGlyphs);
+		WrapResult natural;
+		TextWrap::wrap(measure, 0.0f, natural);
+		return natural.lineWidth[0];
+	};
+	const float wordWidth = std::max(measureWord("hello"),
+		std::max(measureWord("world"), measureWord("second"))) * 1.1f;
+
+	WrapResult wrapped;
+	TextWrap::wrap(cells, wordWidth, wrapped);
+	REQUIRE(wrapped.lineCount == 3);			// hello / world / second
+	std::vector<size_t> starts;
+	TextWrap::lineStartBytes(cells, wrapped, text.size(), starts);
+	REQUIRE(starts.size() == size_t(wrapped.lineCount));
+	CHECK(starts[0] == 0u);
+	// every start is a real byte boundary, strictly increasing
+	for (size_t each = 1; each < starts.size(); ++each)
+	{
+		CHECK(starts[each] > starts[each - 1]);
+		CHECK(starts[each] <= text.size());
+	}
+	// the LAST line is the one after the '\n' - slicing there yields "second"
+	CHECK(text.substr(starts.back()) == "second");
+
+	// THE SLICE CONTRACT: re-wrapping a suffix that starts on a line boundary
+	// reproduces the same following breaks (what the multi-line field relies on)
+	const String tail = text.substr(starts[1]);
+	std::vector<WrapCell> tailCells;
+	std::vector<UiGlyph const*> tailGlyphs;
+	TextWrap::buildRun(*baked.font, tail, tailCells, tailGlyphs);
+	WrapResult tailWrapped;
+	TextWrap::wrap(tailCells, wordWidth, tailWrapped);
+	CHECK(tailWrapped.lineCount == wrapped.lineCount - 1);
+}
+
+TEST_CASE("textwrap: an empty line opened by a newline starts after it",
+	"[unit][gui][textwrap]")
+{
+	BakedFont baked;
+	if (!baked.font) { SUCCEED("engine font unavailable - skipped"); return; }
+
+	const String text = "a\n\nb";
+	std::vector<WrapCell> cells;
+	std::vector<UiGlyph const*> glyphs;
+	TextWrap::buildRun(*baked.font, text, cells, glyphs);
+	WrapResult wrapped;
+	TextWrap::wrap(cells, 0.0f, wrapped);
+	REQUIRE(wrapped.lineCount == 3);
+	std::vector<size_t> starts;
+	TextWrap::lineStartBytes(cells, wrapped, text.size(), starts);
+	REQUIRE(starts.size() == 3u);
+	CHECK(starts[0] == 0u);
+	CHECK(starts[1] == 2u);		// the empty middle line
+	CHECK(starts[2] == 3u);		// 'b'
 }

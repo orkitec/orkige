@@ -701,8 +701,17 @@ namespace Orkige
 			{
 				const uint maxLength = Ogre::StringConverter::parseUnsignedInt(
 					ouiValue(s, "maxLength", "0"), 0);
-				this->createTextEntry(s.id, sprite, font, text, position, size,
-					atlas, z, maxLength);
+				woptr<GuiTextEntry> entry = this->createTextEntry(s.id, sprite,
+					font, text, position, size, atlas, z, maxLength);
+				// `multiline = true` makes the field a text area (soft wrap +
+				// Return inserts a line break); pair it with a tall enough size
+				if(optr<GuiTextEntry> e = entry.lock())
+				{
+					if(String const * v = s.find("multiline"))
+					{
+						e->setMultiline(parseBool(*v, false));
+					}
+				}
 			}
 			else if(type == "decorwidget" || type == "panel")
 			{
@@ -720,6 +729,18 @@ namespace Orkige
 				// label may hold spaces; '@'-prefixed entries resolve via loc)
 				if(optr<GuiListView> l = list.lock())
 				{
+					// uniform row height + virtualization: a big list then
+					// materialises only the rows the viewport shows. Applied
+					// BEFORE the rows so the first window is the right one.
+					if(String const * v = s.find("itemHeight"))
+					{
+						l->setItemHeight(Ogre::StringConverter::parseReal(*v,
+							l->getItemHeight()));
+					}
+					if(String const * v = s.find("virtualized"))
+					{
+						l->setVirtualized(parseBool(*v, false));
+					}
 					if(String const * v = s.find("items"))
 					{
 						for(String const & part : Ogre::StringUtil::split(*v, "|"))

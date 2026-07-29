@@ -1,0 +1,39 @@
+# The safe-area HUD: four corner labels anchored to the SCREEN ROOT, which the
+# `root = SafeArea` key makes the safe rect (the window minus the notch / home
+# bar insets). No script maths - the resolver keeps these off the cutouts on
+# every device, and a rotation just re-resolves them.
+[Layout]
+atlas = gui_default
+design = 960 640 0.5
+root = SafeArea
+
+[Label hudTopLeft]
+font = 9
+text = safe TL
+z = 20
+anchor = topleft
+anchoredPos = 8 8
+
+[Label hudTopRight]
+font = 9
+text = safe TR
+z = 20
+anchor = topright
+pivot = 1 0
+anchoredPos = -8 8
+
+[Label hudBottomLeft]
+font = 9
+text = safe BL
+z = 20
+anchor = bottomleft
+pivot = 0 1
+anchoredPos = 8 -8
+
+[Label hudBottomRight]
+font = 9
+text = safe BR
+z = 20
+anchor = bottomright
+pivot = 1 1
+anchoredPos = -8 -8

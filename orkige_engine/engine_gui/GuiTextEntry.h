@@ -14,17 +14,31 @@
 
 namespace Orkige
 {
-	//! @brief a single-line text input field: SDL text-input driven glyph
-	//! entry with a blinking caret, in-line editing (backspace / delete / left /
-	//! right / home / end), a focus model (tap to focus + raise the mobile
-	//! keyboard, tap-away or Return to blur), a max length and dimmed
-	//! placeholder text. Renders on the atlas font through the gui
-	//! DrawLayer2D facade, so it works on BOTH render flavors.
+	//! @brief a text input field: SDL text-input driven glyph entry with a
+	//! blinking caret, in-line editing (backspace / delete / left / right /
+	//! home / end), a focus model (tap to focus + raise the mobile keyboard,
+	//! tap-away or Return to blur), a max length and dimmed placeholder text.
+	//! Renders on the atlas font through the gui DrawLayer2D facade, so it works
+	//! on BOTH render flavors.
 	//! @remarks Focus is coordinated by GuiManager (one field focused at a
 	//! time; it opens/closes the InputManager text-input session). Text arrives
 	//! via onTextInput (committed UTF-8 from SDL); editing/navigation keys via
 	//! onKeyPressed; the caret blinks off the per-frame onFrameStarted tick. The
 	//! pure editing model lives in GuiTextEdit.h (headless-tested).
+	//!
+	//! MULTI-LINE (opt-in, @see setMultiline) turns the field into a small text
+	//! area: Return INSERTS a line break instead of submitting (so wasSubmitted
+	//! stays a single-line concept - a multi-line field has no submit and games
+	//! add their own send button; blur still ends the SDL text-input session
+	//! exactly as before, so the mobile keyboard flow is unchanged), up/down
+	//! walk the logical lines keeping the code-point column, and home/end work
+	//! within a line. The text SOFT-WRAPS to the field width through the one
+	//! shared wrap core (@see TextWrap) - the same breaker a wrapped label uses -
+	//! and the field VERTICALLY SCROLLS to keep the caret visible: it renders
+	//! only the visible window of wrapped lines (a whole-line clip that costs no
+	//! extra draw batch and never claims its layer's scissor rect, so a field can
+	//! sit on a shared layer). Everything is byte-identical to the single-line
+	//! field until setMultiline(true) is called.
 	class ORKIGE_ENGINE_DLL GuiTextEntry : public GuiWidget
 	{
 		OOBJECT(GuiTextEntry, GuiWidget);
@@ -48,6 +62,10 @@ namespace Orkige
 		float		mBlinkTimer;	//!< seconds accumulated toward the next caret toggle
 		bool		mCaretVisible;	//!< current caret blink phase
 		uint		mFontIndex;		//!< atlas font glyph set
+		bool		mMultiline;		//!< multi-line mode (@see setMultiline)
+		int			mFirstLine;		//!< first VISIBLE wrapped line (vertical scroll)
+		int			mLineCount;		//!< wrapped line count of the current text
+		int			mVisibleLines;	//!< wrapped lines the field body shows at once
 		//--- Methods -----------------------------------------------
 	public:
 		GuiTextEntry(String const & id, String const & spriteName,
@@ -74,8 +92,22 @@ namespace Orkige
 		//! has focus (receiving text input)
 		bool isFocused() const { return this->mFocused; }
 		//! @brief poll-and-consume the submit state: true once after every Return
-		//! press while focused (the polled idiom, like GuiButton::wasClicked)
+		//! press while focused (the polled idiom, like GuiButton::wasClicked).
+		//! Always false in multi-line mode - Return inserts a newline there.
 		bool wasSubmitted();
+
+		//! @brief turn the field into a multi-line text area (soft wrap to the
+		//! field width, Return inserts a line break, up/down walk lines, the view
+		//! scrolls to follow the caret). Off by default. @see the class remarks.
+		void setMultiline(bool multiline);
+		//! @brief is the field in multi-line mode?
+		inline bool isMultiline() const { return this->mMultiline; }
+		//! @brief the number of WRAPPED (visual) lines the current text occupies -
+		//! 1 for a single-line field, and what a test asserts against
+		inline int getLineCount() const { return this->mLineCount; }
+		//! @brief the first wrapped line currently visible (the vertical scroll
+		//! position, in lines); 0 for a single-line field
+		inline int getFirstVisibleLine() const { return this->mFirstLine; }
 
 		//! @brief flip the focused state WITHOUT touching the SDL text-input
 		//! session - GuiManager::focusTextEntry owns the session and calls
@@ -93,8 +125,14 @@ namespace Orkige
 		virtual void onEnabledChanged(bool enable);
 		//! reposition the body / caption / caret for the current position+size
 		void relayout();
+		//! the font's line height in device pixels (0 without a baked font)
+		Ogre::Real lineHeight() const;
 		//! refresh the caption text/colour and the caret x for the current state
 		void refresh();
+		//! @brief the multi-line refresh: wrap the text to the field width, scroll
+		//! the line window so the caret stays visible, feed the caption only that
+		//! window and place the caret inside it (@see refresh)
+		void refreshMultiline();
 	private:
 	};
 }

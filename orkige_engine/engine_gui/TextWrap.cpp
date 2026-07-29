@@ -24,7 +24,9 @@ namespace Orkige
 			//! CJK/Cyrillic pages on every platform). An ill-formed byte yields
 			//! U+FFFD and advances one byte - never wedges. Mirrors the decoder in
 			//! WorldTextLayout so world text and gui text page identically.
-			void decodeUtf8(String const & utf8, std::vector<unsigned int> & out)
+			//! @param offsets the source byte offset of each decoded codepoint
+			void decodeUtf8(String const & utf8, std::vector<unsigned int> & out,
+				std::vector<std::size_t> & offsets)
 			{
 				const unsigned char * bytes =
 					reinterpret_cast<const unsigned char *>(utf8.c_str());
@@ -55,10 +57,12 @@ namespace Orkige
 					if(!valid)
 					{
 						out.push_back(0xFFFD);
+						offsets.push_back(index);
 						index += 1;
 						continue;
 					}
 					out.push_back(codepoint);
+					offsets.push_back(index);
 					index += consumed;
 				}
 			}
@@ -179,15 +183,18 @@ namespace Orkige
 			std::vector<WrapCell> & cells, std::vector<UiGlyph const *> & glyphs)
 		{
 			std::vector<unsigned int> codepoints;
-			decodeUtf8(utf8, codepoints);
+			std::vector<std::size_t> offsets;
+			decodeUtf8(utf8, codepoints, offsets);
 			unsigned int lastChar = 0;
 			for(std::size_t each = 0; each < codepoints.size(); ++each)
 			{
 				const unsigned int code = codepoints[each];
+				const std::size_t offset = offsets[each];
 				if(code == static_cast<unsigned int>('\n'))
 				{
 					WrapCell cell;
 					cell.forcedBreak = true;
+					cell.byteOffset = offset;
 					cells.push_back(cell);
 					glyphs.push_back(NULL);
 					lastChar = 0;
@@ -198,6 +205,7 @@ namespace Orkige
 					WrapCell cell;
 					cell.space = true;
 					cell.advance = font.getSpaceLengthScaled();
+					cell.byteOffset = offset;
 					cells.push_back(cell);
 					glyphs.push_back(NULL);
 					lastChar = static_cast<unsigned int>(' ');
@@ -219,10 +227,75 @@ namespace Orkige
 				cell.advance = glyph->getGlyphAdvanceScaled();
 				cell.width = glyph->getGlyphWidthScaled();
 				cell.breakBefore = isBreakableIdeograph(code);
+				cell.byteOffset = offset;
 				cells.push_back(cell);
 				glyphs.push_back(glyph);
 				lastChar = code;
 			}
+		}
+
+		CaretSpot locateCaret(std::vector<WrapCell> const & cells,
+			WrapResult const & wrapped, size_t byteIndex)
+		{
+			CaretSpot spot;
+			const size_t n = cells.size();
+			if(n == 0 || wrapped.lineOf.size() < n)
+			{
+				return spot;
+			}
+			// the caret sits before the first cell that reaches its byte offset.
+			// A codepoint the font could not bake emits no cell, so a caret
+			// inside such a run resolves to the next drawable position.
+			for(size_t each = 0; each < n; ++each)
+			{
+				if(cells[each].byteOffset >= byteIndex)
+				{
+					spot.line = wrapped.lineOf[each];
+					spot.penX = wrapped.penX[each];
+					return spot;
+				}
+			}
+			// past every cell: after the last one - or at the start of the line a
+			// trailing '\n' just opened
+			WrapCell const & last = cells[n - 1];
+			if(last.forcedBreak)
+			{
+				spot.line = wrapped.lineOf[n - 1] + 1;
+				spot.penX = 0.0f;
+				return spot;
+			}
+			spot.line = wrapped.lineOf[n - 1];
+			spot.penX = wrapped.penX[n - 1] + last.advance;
+			return spot;
+		}
+
+		void lineStartBytes(std::vector<WrapCell> const & cells,
+			WrapResult const & wrapped, size_t textLength,
+			std::vector<size_t> & out)
+		{
+			const int lines = wrapped.lineCount > 0 ? wrapped.lineCount : 1;
+			// a line with no cell of its own (the empty tail a trailing '\n'
+			// opens) starts at the end of the text
+			out.assign(size_t(lines), textLength);
+			std::vector<bool> seen(size_t(lines), false);
+			for(size_t each = 0; each < cells.size(); ++each)
+			{
+				if(each >= wrapped.lineOf.size())
+				{
+					break;
+				}
+				const int line = wrapped.lineOf[each];
+				if(line < 0 || line >= lines || seen[size_t(line)])
+				{
+					continue;
+				}
+				// a '\n' belongs to the line it ENDS, so the first cell carrying a
+				// line index is always that line's first character (an empty line
+				// opened by a '\n' starts at the next newline cell)
+				out[size_t(line)] = cells[each].byteOffset;
+				seen[size_t(line)] = true;
+			}
+			out[0] = 0;
 		}
 	}
 }

@@ -51,6 +51,10 @@
 #include <engine_graphic/DebugDrawBuffer.h>
 #include <engine_gocomponent/VectorAnimationComponent.h>
 #include <engine_gui/GuiManager.h>
+#include <engine_gui/GuiListView.h>
+#include <engine_gui/GuiTabBar.h>
+#include <engine_gui/GuiTextEntry.h>
+#include <engine_input/InputManager.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderCamera.h>
 #include <engine_render/MeshInstance.h>
@@ -122,6 +126,14 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// vertex count) whose frame-only + TTL lifetimes then drain.
 	linesCheck =
 		(std::getenv("ORKIGE_LINES_SELFCHECK") != nullptr);
+	// ORKIGE_GALLERY_SELFCHECK verifies the runtime UI widget tier end to end
+	// against projects/gallery: every tab of the declarative gallery is
+	// reachable, a wrapped label really breaks lines (taller than a single-line
+	// one), the multi-line field takes typed text plus a Return as a LINE BREAK,
+	// the 1000-row list materialises only its viewport window and still
+	// hit-tests a scrolled row, and a modal raises and dismisses.
+	galleryCheck =
+		(std::getenv("ORKIGE_GALLERY_SELFCHECK") != nullptr);
 	// ORKIGE_SHAPECOLLIDER_SELFCHECK verifies shape colliders end to end against
 	// tests/projects/shapecollider (scenes/shapecollider.oscene): a dynamic ball
 	// settles INSIDE a static concave U-cup collider (below the rim - the concavity
@@ -332,6 +344,7 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		componentEnableCheck ||
 		breadcrumbCheck || fadeCheck || lifecycleCheck || resizeCheck ||
 		softbodyCheck || linesCheck || shapeColliderCheck || perfCheck ||
+		galleryCheck ||
 		benchmarkCheck || vectorAnimCheck ||
 		characterRigCheck || staticMoveCheck || spriteBatchCheck ||
 		!assetIdCheckTexture.empty() || !cookedCheckTexture.empty() ||
@@ -2617,6 +2630,426 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		}
 	}
 	if (softbodyCheck && softbodyCheckFailed)
+	{
+		exitCode = 1;
+		running = false;
+	}
+
+	// --- UI gallery selfcheck (ORKIGE_GALLERY_SELFCHECK) --------------
+	// The runtime widget tier, driven the way a player drives it: synthetic
+	// mouse/key/text events on the REAL input path, and every assertion made on
+	// what is actually on screen (widget rects, wrapped line counts, the live
+	// widget population of the virtualized list, the modal stack). The screens
+	// are projects/gallery's declarative .oui files - so this also gates the
+	// .oui grammar the gallery uses.
+	if (galleryCheck && !galleryCheckFailed)
+	{
+		Orkige::GuiManager* ui = Orkige::GuiManager::getSingletonPtr();
+		auto galleryFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: GALLERY SELFCHECK FAILED - %s "
+				"(phase=%d step=%d tabs=%d plainH=%.1f wrappedH=%.1f "
+				"noteLines=%d live=%d)", what.c_str(),
+				static_cast<int>(galleryPhase), galleryStep, galleryTabsSeen,
+				double(galleryPlainHeight), double(galleryWrappedHeight),
+				galleryNoteLines, galleryListMaterialized);
+			galleryCheckFailed = true;
+		};
+		// the honest outside view: a widget by id, or null
+		auto widget = [&](char const* id) -> Orkige::GuiWidget*
+		{
+			if (ui == nullptr || !ui->widgetExists(id)) { return nullptr; }
+			return ui->getWidget(id).lock().get();
+		};
+		auto centreOf = [&](char const* id, Orkige::Vec2& out) -> bool
+		{
+			Orkige::GuiWidget* found = widget(id);
+			if (found == nullptr) { return false; }
+			const Orkige::Vec2 pos = found->getPosition();
+			const Orkige::Vec2 size = found->getSize();
+			out = Orkige::Vec2(pos.x + size.x * 0.5f, pos.y + size.y * 0.5f);
+			return true;
+		};
+		// a full click on the real input path (press + release at one point)
+		auto clickAt = [&](Orkige::Vec2 const& at)
+		{
+			SDL_Event press{};
+			press.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+			press.button.button = SDL_BUTTON_LEFT;
+			press.button.down = true;
+			press.button.x = at.x;
+			press.button.y = at.y;
+			inputManager.injectEvent(press);
+			SDL_Event release = press;
+			release.type = SDL_EVENT_MOUSE_BUTTON_UP;
+			release.button.down = false;
+			inputManager.injectEvent(release);
+		};
+		// committed UTF-8 from the platform text-input session. The literal
+		// outlives the synchronous dispatch, so no queue lifetime is involved.
+		auto typeText = [&](char const* text)
+		{
+			SDL_Event event{};
+			event.type = SDL_EVENT_TEXT_INPUT;
+			event.text.text = text;
+			inputManager.injectEvent(event);
+		};
+		auto pressKey = [&](SDL_Scancode scancode, SDL_Keycode key)
+		{
+			SDL_Event event{};
+			event.type = SDL_EVENT_KEY_DOWN;
+			event.key.scancode = scancode;
+			event.key.key = key;
+			event.key.down = true;
+			inputManager.injectEvent(event);
+		};
+
+		if (ui == nullptr)
+		{
+			if (frameCount > 300)
+			{
+				galleryFail("the gui system never came up");
+			}
+		}
+		else if (galleryPhase == GalleryPhase::Boot)
+		{
+			// give the two screens a few frames to load and resolve
+			if (frameCount >= 20)
+			{
+				char const* required[] = { "frame", "tabText", "tabControls",
+					"tabLists", "tabOverlays", "plainLabel", "wrappedLabel",
+					"localisedLabel", "notes", "playerName", "optionBox",
+					"toggleEasy", "volume", "loading", "quality", "resolution",
+					"decorScroll", "decorSlice", "decorTiled", "bigList",
+					"showModalButton", "hudTopLeft", "hudBottomRight" };
+				std::string missing;
+				for (char const* id : required)
+				{
+					if (widget(id) == nullptr)
+					{
+						missing += " ";
+						missing += id;
+					}
+				}
+				optr<Orkige::GuiTabBar> bar = ui->getTabBar("tabs").lock();
+				Orkige::GuiListView* list =
+					dynamic_cast<Orkige::GuiListView*>(widget("bigList"));
+				if (!missing.empty())
+				{
+					galleryFail("the gallery screens are missing widgets:" +
+						missing);
+				}
+				else if (!bar)
+				{
+					galleryFail("the [TabBar] section built no tab bar");
+				}
+				else if (list == nullptr || list->getItemCount() != 1000)
+				{
+					galleryFail("the driver did not fill the 1000-row list");
+				}
+				else
+				{
+					galleryPhase = GalleryPhase::Tabs;
+					galleryStep = 0;
+					galleryStepFrame = frameCount + 2;
+					galleryPhaseDeadline = frameCount + 900;
+				}
+			}
+		}
+		else if (galleryPhase == GalleryPhase::Tabs)
+		{
+			// EVERY section of the gallery must be reachable by a real click
+			char const* tabIds[] = { "tabControls", "tabLists", "tabOverlays",
+				"tabText" };
+			const int expected[] = { 1, 2, 3, 0 };
+			optr<Orkige::GuiTabBar> bar = ui->getTabBar("tabs").lock();
+			if (!bar)
+			{
+				galleryFail("the tab bar went away mid-run");
+			}
+			else if (frameCount == galleryStepFrame)
+			{
+				Orkige::Vec2 at;
+				if (!centreOf(tabIds[galleryStep], at))
+				{
+					galleryFail(std::string("no rect for tab ") +
+						tabIds[galleryStep]);
+				}
+				else
+				{
+					clickAt(at);
+				}
+			}
+			else if (frameCount == galleryStepFrame + 2)
+			{
+				if (bar->getSelected() != expected[galleryStep])
+				{
+					galleryFail(std::string("clicking ") + tabIds[galleryStep] +
+						" did not select its panel");
+				}
+				else
+				{
+					++galleryTabsSeen;
+					++galleryStep;
+					galleryStepFrame = frameCount + 2;
+					if (galleryStep >= 4)
+					{
+						// back on the Text tab for the text assertions
+						galleryPhase = GalleryPhase::Text;
+						galleryStep = 0;
+						galleryPhaseDeadline = frameCount + 900;
+					}
+				}
+			}
+			else if (frameCount >= galleryPhaseDeadline)
+			{
+				galleryFail("the tab walk never finished");
+			}
+		}
+		else if (galleryPhase == GalleryPhase::Text)
+		{
+			Orkige::GuiTextEntry* notes =
+				dynamic_cast<Orkige::GuiTextEntry*>(widget("notes"));
+			Orkige::GuiWidget* plain = widget("plainLabel");
+			Orkige::GuiWidget* wrapped = widget("wrappedLabel");
+			if (plain == nullptr || wrapped == nullptr || notes == nullptr)
+			{
+				galleryFail("the text tab lost a widget");
+			}
+			else if (frameCount == galleryStepFrame)
+			{
+				// WRAP: the same font, a long text, a bounded width - the
+				// wrapped label MUST be taller than the single-line one
+				galleryPlainHeight = plain->getSize().y;
+				galleryWrappedHeight = wrapped->getSize().y;
+				if (!(galleryWrappedHeight > galleryPlainHeight * 1.5f))
+				{
+					galleryFail("the wrapped label is not taller than the "
+						"single-line one");
+				}
+				else
+				{
+					Orkige::Vec2 at;
+					if (!centreOf("notes", at))
+					{
+						galleryFail("no rect for the multi-line field");
+					}
+					else
+					{
+						clickAt(at);		// focus it (opens the input session)
+					}
+				}
+			}
+			else if (frameCount == galleryStepFrame + 2)
+			{
+				if (!notes->isFocused())
+				{
+					galleryFail("clicking the multi-line field did not focus it");
+				}
+				else
+				{
+					// MULTI-LINE: text, a Return that INSERTS, then more text
+					typeText("first line");
+					pressKey(SDL_SCANCODE_RETURN, SDLK_RETURN);
+					typeText("second line");
+				}
+			}
+			else if (frameCount == galleryStepFrame + 4)
+			{
+				const std::string text = notes->getText();
+				galleryNoteLines = notes->getLineCount();
+				if (text.find('\n') == std::string::npos)
+				{
+					galleryFail("Return did not insert a line break");
+				}
+				else if (!notes->isFocused())
+				{
+					galleryFail("Return blurred the multi-line field (it must "
+						"not submit)");
+				}
+				else if (notes->wasSubmitted())
+				{
+					galleryFail("a multi-line field reported a submit");
+				}
+				else if (galleryNoteLines < 2)
+				{
+					galleryFail("the typed line break did not grow the wrapped "
+						"line count");
+				}
+				else
+				{
+					// leave the field before the list phase clicks elsewhere
+					ui->focusTextEntry(NULL);
+					galleryPhase = GalleryPhase::List;
+					galleryStep = 0;
+					galleryStepFrame = frameCount + 2;
+					galleryPhaseDeadline = frameCount + 900;
+				}
+			}
+			else if (frameCount >= galleryPhaseDeadline)
+			{
+				galleryFail("the text phase never finished");
+			}
+		}
+		else if (galleryPhase == GalleryPhase::List)
+		{
+			Orkige::GuiListView* list =
+				dynamic_cast<Orkige::GuiListView*>(widget("bigList"));
+			if (list == nullptr)
+			{
+				galleryFail("the list view went away mid-run");
+			}
+			else if (frameCount == galleryStepFrame)
+			{
+				// select the Lists tab so the list is the visible section
+				Orkige::Vec2 at;
+				if (!centreOf("tabLists", at))
+				{
+					galleryFail("no rect for the lists tab");
+				}
+				else
+				{
+					clickAt(at);
+				}
+			}
+			else if (frameCount == galleryStepFrame + 3)
+			{
+				// VIRTUALIZATION: a thousand rows, a viewport's worth of widgets
+				galleryListMaterialized = list->getMaterializedCount();
+				const float rows = list->getSize().y /
+					std::max(1.0f, list->getItemHeight() * ui->getLayoutScale());
+				const int bound = int(std::ceil(rows)) + 1 +
+					2 * Orkige::GuiListView::VIRTUAL_OVERSCAN;
+				if (galleryListMaterialized <= 0)
+				{
+					galleryFail("the virtualized list materialised no rows");
+				}
+				else if (galleryListMaterialized > bound)
+				{
+					std::ostringstream why;
+					why << "the virtualized list materialised "
+						<< galleryListMaterialized << " rows (bound " << bound
+						<< ")";
+					galleryFail(why.str());
+				}
+				else if (galleryListMaterialized >= list->getItemCount())
+				{
+					galleryFail("the virtualized list materialised every row");
+				}
+				else
+				{
+					// scroll deep into the model and let the window follow
+					list->setScroll(-list->getMaxScroll() * 0.5f);
+				}
+			}
+			else if (frameCount == galleryStepFrame + 6)
+			{
+				galleryListScrolledFirst = list->getFirstMaterializedIndex();
+				const int live = list->getMaterializedCount();
+				if (galleryListScrolledFirst <= 0)
+				{
+					galleryFail("scrolling did not move the materialised window");
+				}
+				else if (live <= 0 || live > galleryListMaterialized + 2)
+				{
+					galleryFail("the scrolled window is not bounded");
+				}
+				else
+				{
+					// HIT-TEST: a row inside the scrolled window answers at its
+					// own rect, exactly like an unvirtualized one would
+					const Orkige::String rowId =
+						list->getItemId(galleryListScrolledFirst + 1);
+					Orkige::Vec2 at;
+					if (rowId.empty() || !centreOf(rowId.c_str(), at))
+					{
+						galleryFail("a row inside the scrolled window has no "
+							"live widget");
+					}
+					else if (!ui->isPointOverWidget(at))
+					{
+						galleryFail("a scrolled row does not hit-test at its "
+							"own rect");
+					}
+					else
+					{
+						galleryPhase = GalleryPhase::Overlay;
+						galleryStep = 0;
+						galleryStepFrame = frameCount + 2;
+						galleryPhaseDeadline = frameCount + 900;
+					}
+				}
+			}
+			else if (frameCount >= galleryPhaseDeadline)
+			{
+				galleryFail("the list phase never finished");
+			}
+		}
+		else if (galleryPhase == GalleryPhase::Overlay)
+		{
+			if (frameCount == galleryStepFrame)
+			{
+				Orkige::Vec2 at;
+				if (!centreOf("tabOverlays", at))
+				{
+					galleryFail("no rect for the overlays tab");
+				}
+				else
+				{
+					clickAt(at);
+				}
+			}
+			else if (frameCount == galleryStepFrame + 3)
+			{
+				Orkige::Vec2 at;
+				if (!centreOf("showModalButton", at))
+				{
+					galleryFail("no rect for the modal trigger");
+				}
+				else
+				{
+					clickAt(at);
+				}
+			}
+			else if (frameCount == galleryStepFrame + 6)
+			{
+				if (ui->getModalCount() <= 0)
+				{
+					galleryFail("the modal trigger raised no modal");
+				}
+				else
+				{
+					ui->dismissTopModal();
+				}
+			}
+			else if (frameCount == galleryStepFrame + 9)
+			{
+				if (ui->getModalCount() != 0)
+				{
+					galleryFail("the modal did not dismiss");
+				}
+				else
+				{
+					SDL_Log("orkige_player: GALLERY SELFCHECK PASSED - all 4 "
+						"tabs reachable, wrapped label %.1fpx vs single-line "
+						"%.1fpx, multi-line field at %d lines after a typed "
+						"Return, %d of %d list rows live (first %d after the "
+						"scroll, scrolled row hit-tests), modal raised and "
+						"dismissed", double(galleryWrappedHeight),
+						double(galleryPlainHeight), galleryNoteLines,
+						galleryListMaterialized, 1000,
+						galleryListScrolledFirst);
+					galleryPhase = GalleryPhase::Done;
+					running = false;
+				}
+			}
+			else if (frameCount >= galleryPhaseDeadline)
+			{
+				galleryFail("the overlay phase never finished");
+			}
+		}
+	}
+	if (galleryCheck && galleryCheckFailed)
 	{
 		exitCode = 1;
 		running = false;
@@ -5196,6 +5629,13 @@ void PlayerSelfChecks::atLoopEnd(PlayerContext& context)
 	{
 		SDL_Log("orkige_player: ROLLER SELFCHECK FAILED - run ended in "
 			"phase %d", static_cast<int>(rollerPhase));
+		exitCode = 1;
+	}
+	if (galleryCheck && !galleryCheckFailed &&
+		galleryPhase != GalleryPhase::Done)
+	{
+		SDL_Log("orkige_player: GALLERY SELFCHECK FAILED - run ended in "
+			"phase %d", static_cast<int>(galleryPhase));
 		exitCode = 1;
 	}
 	if (rollerProgressionCheck && !rollerProgCheckFailed &&

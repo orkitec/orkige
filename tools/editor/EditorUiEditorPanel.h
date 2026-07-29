@@ -181,6 +181,14 @@ namespace OrkigeEditor
 	//! popup draws.)
 	bool uiEditPickSprite(UiEditSession& s, GamePreviewStage& stage,
 		std::string const& value, std::string& error);
+	//! @brief the headless boolean-property seam: set the KEY (selected) widget's
+	//! @p key to "true"/"false" as ONE undo step, then persist + reload the
+	//! overlay - the exact document mutation the Inspector's checkbox rows (Wrap,
+	//! Multi-line, Virtualized) perform, exposed so the selfcheck drives a flip
+	//! without synthesising ImGui input. Returns false + @p error when nothing is
+	//! selected.
+	bool uiEditSetBool(UiEditSession& s, GamePreviewStage& stage,
+		std::string const& key, bool value, std::string& error);
 	//! remove the selected widget subtree (one undo step)
 	void uiEditDeleteSelected(UiEditSession& s);
 	//! @brief rename the KEY (selected) widget to @p newId (one undo step +

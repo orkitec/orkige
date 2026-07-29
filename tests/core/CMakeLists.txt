@@ -67,6 +67,7 @@ add_executable(orkige_core_tests
     LayoutGroupTests.cpp
     GuiStateTests.cpp
     ScrollClipTests.cpp
+    ListVirtualizationTests.cpp
     TiltCalibrationTests.cpp
     StringTableTests.cpp
     LocaleMatchTests.cpp
