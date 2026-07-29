@@ -38,8 +38,21 @@ game can be purely 2D, purely 3D, or mix both freely.
   **runtime-baked TTF fonts** (lazy glyph paging for large charsets) and
   **vector-rasterized UI art** that stays crisp at any density, a **rect-anchor
   layout system** (anchors/pivots/stretch, layout groups, nine-slice and tiled
-  panels, scroll views, text entry), and whole screens authored as declarative
-  **`.oui` files** — one agent-writable text file per screen.
+  panels, scroll views, tab bars, dropdowns, modals and toasts, wrapped
+  labels, single- and **multi-line text entry**, and **virtualized list
+  views** that serve a thousand rows with a screenful of widgets), and whole
+  screens authored as declarative **`.oui` files** — one agent-writable text
+  file per screen, editable visually in the editor's **UI editor** (canvas
+  drag/resize, anchor gizmo, widget tree with drag-drop reparenting).
+  `projects/gallery` shows every widget in one tabbed showroom.
+- **3D feature set** — text-asset **PBS materials** (metal-rough, normal +
+  emissive maps, cutout/two-sided), **cascaded shadow maps**, sky-sourced
+  **image-based lighting**, a **day-night atmosphere** (procedural sky, fog,
+  sun linkage) with rain/snow **3D particles**, **animated water** with planar
+  reflection, **baked-mesh terrain**, **skinned glTF characters** with
+  cross-fading animation, world-space text, dynamic debug lines, and an
+  authored **output grade** — every feature rendering on both backends with
+  parity-tested output.
 - **Scene model** — a GameObject/component system with a **parent/child hierarchy**
   and active/inactive state, **prefabs** (`.oprefab` assets with per-instance
   structural + property overrides, Apply/Revert), a **stable-ID asset database**
@@ -73,10 +86,18 @@ game can be purely 2D, purely 3D, or mix both freely.
   zero compiled code.
 - **Editor** — a full scene-authoring tool built on the engine itself: docked Hierarchy /
   Inspector / Console / Stats / RTT Scene viewport, a two-pane **asset browser**
-  (folder tree, texture thumbnails, create/import, two-way drag-&-drop), a **2D
+  (folder tree, texture thumbnails, create/import, two-way drag-&-drop), a
+  **Game Preview at real device presets** (iPhones/iPads/Pixels/foldables with
+  genuinely occluding notches and safe areas), a **2D
   editor mode** (ortho, plane-locked gizmos), a **Tile Palette with grid
   painting** for tile-based levels (paint/erase prefab instances, one undo step
-  per stroke), transform gizmos with Q/W/E/R, undo/redo, multi-select, native
+  per stroke), transform gizmos with Q/W/E/R, undo/redo, multi-select,
+  **hierarchy drag-drop** (reparent and true sibling reordering — scene files
+  persist child order), **built-in git tooling** (a Source Control panel,
+  per-line diff gutters with undoable hunk revert, dirty-state dots in the
+  asset browser), an **embedded terminal** (real pty shells in dockable tabs
+  on macOS, Linux and Windows — tabs recognize a running agent CLI and show
+  its name and mark), native
   macOS menu + file dialogs, and Help > Orkige Help opening the engine's
   **published documentation site** at
   [orkige.orkitec.com](https://orkige.orkitec.com). Ships as `Orkige.app`.
@@ -99,9 +120,16 @@ game can be purely 2D, purely 3D, or mix both freely.
   devices and the browser** — press Play, pick a target, debug the game running
   there (a browser tab dials the same protocol back in over a WebSocket).
 - **AI-native** — the editor exposes a **Model Context Protocol (MCP)** server so
-  an AI agent can open projects, edit scenes, add/reparent objects, drive Play,
-  set breakpoints and inspect a paused game's locals, and
-  read back state and viewport screenshots (see `Docs/mcp.md`).
+  an AI agent can open projects, edit scenes, add/reparent/reorder objects,
+  drive Play, set breakpoints and inspect a paused game's locals, and
+  read back state and viewport screenshots (see `Docs/mcp.md`) — and the whole
+  loop is **zero-setup**: an interactive editor auto-publishes its endpoint
+  into the open project, so an agent started in the project directory (or in
+  the editor's own embedded terminal) finds it with no configuration. The
+  editor also speaks the **IDE discovery protocol** agent CLIs use, so the
+  file you have open and the text you have selected flow to the agent as
+  context, and the agent can open files in the editor
+  (see `Docs/terminal.md`, `Docs/claude-ide.md`).
 - **Projects & mobile** — a game is a folder with a `project.orkproj` manifest,
   scenes, assets, scripts and optional project-config assets; the editor opens
   projects, the player runs them, and the Build menu exports a distributable macOS
@@ -113,7 +141,10 @@ game can be purely 2D, purely 3D, or mix both freely.
 - **Samples** — `samples/hello_orkige` (feature demo) and `samples/jumper` (a
   textured jump-and-run); `projects/` holds the real games, headlined by
   **`roller`** (a 2D physics puzzle: tilt-gravity ball + sliding world
-  tiles, multi-level progression with mobile-persisted saves).
+  tiles, multi-level progression with mobile-persisted saves), plus
+  **`benchmark`** (a self-running 3D+2D feature tour that doubles as a
+  machine benchmark), **`gallery`** (the UI widget showroom) and
+  **`vectorshapes`** (soft-body vector art + cutout animation).
 
 ## Building
 
