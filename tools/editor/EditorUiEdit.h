@@ -331,6 +331,35 @@ namespace OrkigeEditor
 	Orkige::String addDestinationParent(Orkige::String const& selection,
 		bool selectionIsLastCreated, Orkige::String const& lastConfirmedParent);
 
+	//! @brief one candidate destination the Add-widget name popup offers as an
+	//! EXPLICIT choice. The sibling rule only picks the DEFAULT among these; it
+	//! never removes an option - so deliberately adding a CHILD to the newest
+	//! widget (the owner's failing case) is always available.
+	struct UiAddDestination
+	{
+		enum class Kind { ChildOfSelected, LastDestination, Root };
+		Kind			kind = Kind::Root;
+		Orkige::String	parent;		//!< the parent id a pick writes ("" = root)
+	};
+
+	//! @brief the ordered destination choices plus the index of the DEFAULT one.
+	struct UiAddDestinationChoices
+	{
+		std::vector<UiAddDestination>	options;
+		int								defaultIndex = 0;
+	};
+
+	//! @brief the explicit destination choices an Add offers: "child of the current
+	//! @p selection" (when something is selected), the sibling default's "<last
+	//! destination>" (only when @p selectionIsLastCreated AND @p lastConfirmedParent
+	//! is a DISTINCT non-root container - a root last-destination folds into the
+	//! root option) and "at root" (always). The DEFAULT is the sibling-aware pick
+	//! (@see addDestinationParent) mapped to whichever option carries that parent,
+	//! so the just-created-widget case DEFAULTS to a sibling yet STILL offers
+	//! child-of-selected. Pure - the panel renders radios over these.
+	UiAddDestinationChoices addDestinationChoices(Orkige::String const& selection,
+		bool selectionIsLastCreated, Orkige::String const& lastConfirmedParent);
+
 	//! index of the section whose id is @p id (case-sensitive), or -1
 	int sectionIndex(Orkige::GuiLayoutDoc const& doc, Orkige::String const& id);
 
@@ -370,6 +399,16 @@ namespace OrkigeEditor
 		Orkige::String const& newParentId, Orkige::LayoutRect const& oldParentRect,
 		Orkige::LayoutRect const& newParentRect, float layoutScale,
 		Orkige::String& error);
+
+	//! @brief move the section @p movingId to sit immediately before (@p after ==
+	//! false) or after (@p after == true) @p anchorId in the document's section
+	//! order. That order is the `.oui` serialize order and the paint order among
+	//! EQUAL-z widgets (a higher `z` still draws on top regardless), so a tree
+	//! between-rows drop that reorders siblings IS exactly this move. Returns false
+	//! and changes nothing when either id is absent or they are equal. Pure; the
+	//! caller brackets ONE undo step (typically together with a reparentWidget).
+	bool reorderSectionAdjacent(Orkige::GuiLayoutDoc& doc,
+		Orkige::String const& movingId, Orkige::String const& anchorId, bool after);
 
 	//! @brief rename the widget @p oldId to @p newId: sets the section's id AND
 	//! rewrites every child's `parent` reference so the tree stays intact.

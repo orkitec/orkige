@@ -172,14 +172,6 @@ namespace OrkigeEditor
 		Orkige::LayoutAnchorPreset preset, AnchorPresetMods mods);
 	//! add a palette widget of `type` (parented to the selection), select it
 	std::string uiEditAddWidget(UiEditSession& s, std::string const& type);
-	//! @brief draw the shared "add widget" control - a button that opens the
-	//! kind-picker popup (a search box + the widget kinds, the Inspector's Add
-	//! Component pattern). @p bigButton draws the wide centred primary button (the
-	//! UI Editor panel); false draws the compact "+ Add" (the Preview toolbar).
-	//! @p idScope makes the popup id unique per host window. Returns true when a
-	//! widget was added (already persisted). Both call sites open the SAME picker.
-	bool uiEditAddWidgetControl(UiEditSession& s, GamePreviewStage& stage,
-		char const* idScope, bool bigButton);
 	//! @brief the headless sprite-pick seam: set the KEY (selected) widget's
 	//! `sprite` key to @p value ("" clears it to none) as ONE undo step, then
 	//! persist + reload the overlay - the exact document mutation the Inspector's
@@ -200,11 +192,15 @@ namespace OrkigeEditor
 	//! @brief reparent @p childId under @p newParentId ("" = root) as ONE undo step,
 	//! keeping the widget's on-screen rect fixed where the geometry allows (@see
 	//! reparentWidget), then persist + reload the overlay. Refuses a cycle / missing
-	//! child honestly (returns false + @p error, changes nothing). The widget-tree's
+	//! child honestly (returns false + @p error, changes nothing). When @p
+	//! reorderAnchorId is non-empty the child is ALSO moved adjacent to it in
+	//! serialize/paint order (@p reorderAfter picks before/after) - the between-rows
+	//! sibling-reorder drop, folded into the SAME undo step. The widget-tree's
 	//! drag-drop drop targets call this; the selfcheck drives it headlessly.
 	bool uiEditReparent(UiEditSession& s, GamePreviewStage& stage,
 		std::string const& childId, std::string const& newParentId,
-		std::string& error);
+		std::string& error, std::string const& reorderAnchorId = std::string(),
+		bool reorderAfter = false);
 	void uiEditUndo(UiEditSession& s);
 	//! write the document to disk and reload the overlay (returns false + error)
 	bool uiEditSave(UiEditSession& s, GamePreviewStage& stage, std::string& error);

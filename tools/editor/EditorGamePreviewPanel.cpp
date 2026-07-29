@@ -383,16 +383,11 @@ void drawGamePreviewPanel(EditorState& state, OrkigeEditor::GamePreviewStage& st
 		Orkige::compactCheckbox("Widget rects", &ui.overlayRects);
 		// EDIT MODE IS ALWAYS ON: showing a .oui screen IS editing it - the canvas
 		// selection/grips/guides are simply live whenever a screen is picked (no
-		// separate mode toggle). The slim edit row (a quick "+ Add" and a Delete)
-		// is canvas-adjacent; the full palette + tree + properties live in the
-		// dockable UI Editor panel.
+		// separate mode toggle). A canvas-adjacent Delete is the only quick edit
+		// control here; adding widgets is the UI Editor panel's Add Widget row (the
+		// ONE add-widget home), and the full tree + properties live there too.
 		if (!ui.selectedFile.empty() && ui.editSession.loaded)
 		{
-			ImGui::SameLine();
-			// the compact "+ Add" opens the SAME kind picker as the UI Editor
-			// panel's Add Widget button (one add-widget flow, two entry points)
-			OrkigeEditor::uiEditAddWidgetControl(ui.editSession, stage,
-				"preview", false);
 			ImGui::SameLine();
 			ImGui::BeginDisabled(ui.editSession.selection.empty());
 			// the same trash-can glyph as the UI Editor tree's row control

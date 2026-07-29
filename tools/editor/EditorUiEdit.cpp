@@ -834,6 +834,46 @@ namespace OrkigeEditor
 		return selectionIsLastCreated ? lastConfirmedParent : selection;
 	}
 	//---------------------------------------------------------
+	UiAddDestinationChoices addDestinationChoices(String const& selection,
+		bool selectionIsLastCreated, String const& lastConfirmedParent)
+	{
+		UiAddDestinationChoices out;
+		// option: child of the current selection (only when something is selected)
+		if(!selection.empty())
+		{
+			out.options.push_back(
+				{ UiAddDestination::Kind::ChildOfSelected, selection });
+		}
+		// option: the sibling default's destination - the last add's OWN parent -
+		// but only while the sibling rule is live (the selection IS the widget the
+		// last add created) and that destination is a DISTINCT non-root container (a
+		// root last-destination is covered by the Root option below)
+		if(selectionIsLastCreated && !lastConfirmedParent.empty() &&
+			lastConfirmedParent != selection)
+		{
+			out.options.push_back(
+				{ UiAddDestination::Kind::LastDestination, lastConfirmedParent });
+		}
+		// option: at root - always available
+		out.options.push_back({ UiAddDestination::Kind::Root, String() });
+
+		// the DEFAULT is the sibling-aware pick, mapped to whichever option carries
+		// that parent. The sibling rule chooses ONLY the default; every option stays
+		// selectable so a deliberate child-of-the-newest add is possible.
+		const String def = addDestinationParent(selection, selectionIsLastCreated,
+			lastConfirmedParent);
+		out.defaultIndex = 0;
+		for(size_t each = 0; each < out.options.size(); ++each)
+		{
+			if(out.options[each].parent == def)
+			{
+				out.defaultIndex = static_cast<int>(each);
+				break;
+			}
+		}
+		return out;
+	}
+	//---------------------------------------------------------
 	int sectionIndex(GuiLayoutDoc const& doc, String const& id)
 	{
 		for(size_t each = 0; each < doc.sections.size(); ++each)
@@ -1132,6 +1172,30 @@ namespace OrkigeEditor
 			s.set("parent", newParentId);
 		}
 		error.clear();
+		return true;
+	}
+	//---------------------------------------------------------
+	bool reorderSectionAdjacent(GuiLayoutDoc& doc, String const& movingId,
+		String const& anchorId, bool after)
+	{
+		if(movingId.empty() || anchorId.empty() || movingId == anchorId)
+		{
+			return false;
+		}
+		const int from = sectionIndex(doc, movingId);
+		if(from < 0 || sectionIndex(doc, anchorId) < 0)
+		{
+			return false;
+		}
+		// lift the moving section out, then re-find the anchor (its index may have
+		// shifted by the removal) and insert just before / after it
+		GuiLayoutSection moved = doc.sections[static_cast<size_t>(from)];
+		doc.sections.erase(doc.sections.begin() + from);
+		const int anchor = sectionIndex(doc, anchorId);
+		size_t at = static_cast<size_t>(anchor) + (after ? 1u : 0u);
+		if(at > doc.sections.size()) { at = doc.sections.size(); }
+		doc.sections.insert(doc.sections.begin() + static_cast<long>(at),
+			std::move(moved));
 		return true;
 	}
 	//---------------------------------------------------------

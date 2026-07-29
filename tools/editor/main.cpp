@@ -9167,6 +9167,74 @@ int main(int argc, char** argv)
 						}
 					}
 				}
+				// --- SIBLING REORDER (a between-rows tree drop): uiEditReparent with a
+				// reorder anchor moves the child adjacent to a sibling in serialize/paint
+				// order as ONE undo step. Two root labels a,b: dropping 'b' BEFORE 'a'
+				// reorders the sections to b,a; undo restores. The Into vs Before/After
+				// band split is the EditorTreeDnd unit test. ---
+				if (ok)
+				{
+					const fs::path roFile = dir / "reorder.oui";
+					{
+						std::ofstream out(roFile,
+							std::ios::binary | std::ios::trunc);
+						out << "[Layout]\natlas = gui_default\n\n"
+							"[Label a]\nfont = 9\ntext = A\n"
+							"anchor = topleft\nanchoredPos = 10 10\nsizeDelta = 80 30\n\n"
+							"[Label b]\nfont = 9\ntext = B\n"
+							"anchor = topleft\nanchoredPos = 10 60\nsizeDelta = 80 30\n";
+					}
+					OrkigeEditor::UiEditSession ro;
+					std::string roErr;
+					OrkigeEditor::uiEditLoad(ro, gamePreviewStage, dir.string(),
+						"reorder.oui", roErr);
+					auto orderOf = [&]() -> std::string
+					{
+						std::string o;
+						for (Orkige::GuiLayoutSection const& sec :
+							ro.doc.doc().sections)
+						{
+							if (!sec.id.empty()) { o += sec.id; }
+						}
+						return o;
+					};
+					if (ok && !ro.loaded)
+					{
+						uiFail("reorder: fixture did not load");
+					}
+					else if (ok && orderOf() != "ab")
+					{
+						uiFail("reorder fixture loaded out of order (got '" +
+							orderOf() + "')");
+					}
+					const bool undoBefore = ro.doc.canUndo();
+					std::string rrErr;
+					// drop 'b' as a sibling BEFORE 'a' (both root): reparent to root +
+					// reorder adjacent to 'a', folded into ONE undo step
+					if (ok && !OrkigeEditor::uiEditReparent(ro, gamePreviewStage,
+						"b", std::string(), rrErr, "a", false))
+					{
+						uiFail("sibling reorder (b before a) failed: " + rrErr);
+					}
+					else if (ok && orderOf() != "ba")
+					{
+						uiFail("sibling reorder did not move 'b' before 'a' (got '" +
+							orderOf() + "')");
+					}
+					else if (ok && ro.doc.canUndo() == undoBefore)
+					{
+						uiFail("sibling reorder produced no undo step");
+					}
+					if (ok)
+					{
+						OrkigeEditor::uiEditUndo(ro);
+						if (orderOf() != "ab")
+						{
+							uiFail("undo did not restore the sibling order (got '" +
+								orderOf() + "')");
+						}
+					}
+				}
 				// --- ADD-DESTINATION (sibling-not-a-chain): the pure decision the
 				// picker captures once when it opens. A fresh selection parents under
 				// it; after an add the new widget IS the selection, so the sibling
@@ -9244,6 +9312,7 @@ int main(int argc, char** argv)
 						"+ rename(re-home/collision) + label-resize/text-in-box "
 						"+ sprite-picker(entries/pick/clear) "
 						"+ reparent(child/rect-preserved/cycle-refused/undo) "
+						"+ sibling-reorder(between-drop/one-undo/restore) "
 						"+ add-destination(sibling)/add-under-selection + fold-state "
 						"verified");
 					exitCode = 0;

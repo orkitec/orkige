@@ -13,7 +13,10 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 #include "EditorTheme.h"
+#include "EditorTreeDnd.h"
+#include "EditorTreeDndDraw.h"
 #include "OwnerComponentBadges.h"
+#include "IconsFontAwesome6.h"
 
 #include <core_game/PrefabSerializer.h>
 
@@ -156,6 +159,49 @@ void acceptHierarchyDrop(Orkige::EditorCore& core,
 	ImGui::EndDragDropTarget();
 }
 
+//! @brief per-row drop with the shared Into/Before/After band language: a drop on
+//! the row's MIDDLE nests the dragged object as a CHILD of @p targetId (a full-row
+//! highlight); a drop in the TOP/BOTTOM quarter makes it a SIBLING of the target
+//! (an insertion line) by reparenting under the target's PARENT. GameObject child
+//! ORDER is not independently persisted (it is rebuilt from load/registration
+//! order), so a same-parent sibling drop is an honest no-op - the line still shows
+//! the intent, and a CROSS-parent sibling drop reparents. World transform is
+//! preserved and cycles refused by the reparent command (@see EditorCore).
+void acceptHierarchyDropZoned(Orkige::EditorCore& core,
+	Orkige::GameObjectManager& manager, std::string const& targetId,
+	ImVec2 rowMin, ImVec2 rowMax)
+{
+	if (!ImGui::BeginDragDropTarget())
+	{
+		return;
+	}
+	if (ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(
+		HIERARCHY_DND_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery |
+		ImGuiDragDropFlags_AcceptNoDrawDefaultRect))
+	{
+		const std::string draggedId(
+			static_cast<const char*>(payload->Data),
+			static_cast<std::size_t>(payload->DataSize));
+		const OrkigeEditor::TreeDropZone zone = OrkigeEditor::classifyTreeDrop(
+			rowMin.y, rowMax.y - rowMin.y, ImGui::GetMousePos().y);
+		std::string newParent = targetId;	// Into: child of the row
+		if (zone != OrkigeEditor::TreeDropZone::Into)
+		{
+			optr<Orkige::GameObject> t = manager.getGameObject(targetId).lock();
+			newParent = t ? t->getParentId() : std::string();	// sibling of the row
+		}
+		if (draggedId != targetId)
+		{
+			OrkigeEditor::drawTreeDropCue(rowMin, rowMax, rowMin.x, zone);
+			if (payload->IsDelivery())
+			{
+				core.reparentObject(draggedId, newParent);
+			}
+		}
+	}
+	ImGui::EndDragDropTarget();
+}
+
 //! one edit-mode tree row plus (recursively) its children; visible row ids
 //! land in orderedIds for the arrow-key navigation
 void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
@@ -220,6 +266,10 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 	// capture the row origin BEFORE the node for the child indent guide below
 	const ImVec2 rowCursor = ImGui::GetCursorScreenPos();
 	const bool open = ImGui::TreeNodeEx("##node", flags, "%s", id.c_str());
+	// the row's screen rect (for the drop-zone split + the cue geometry); the tree
+	// node stays the LAST ITEM through the badge draws below, so this holds
+	const ImVec2 nodeMin = ImGui::GetItemRectMin();
+	const ImVec2 nodeMax = ImGui::GetItemRectMax();
 	if (dimmed || prefabTinted)
 	{
 		ImGui::PopStyleColor();
@@ -286,15 +336,19 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 			}
 		}
 	}
-	// drag & drop re-parenting: every row is a source AND a target
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover))
+	// drag & drop re-parenting: every row is a source AND a target. The default
+	// preview tooltip is suppressed and a lifted-row GHOST is drawn following the
+	// cursor instead (the shared tree drag-drop visual language).
+	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover |
+		ImGuiDragDropFlags_SourceNoPreviewTooltip))
 	{
 		ImGui::SetDragDropPayload(HIERARCHY_DND_PAYLOAD, id.c_str(),
 			id.size());
-		ImGui::TextUnformatted(id.c_str());
+		OrkigeEditor::drawTreeDragGhost(ICON_FA_CUBE, id.c_str());
 		ImGui::EndDragDropSource();
 	}
-	acceptHierarchyDrop(core, id);
+	// the middle nests as a child, the top/bottom quarter drops as a sibling
+	acceptHierarchyDropZoned(core, manager, id, nodeMin, nodeMax);
 	// right-click selects (a right-click on a member of a multi-selection
 	// keeps the set - Duplicate/Delete then operate on ALL selected), then
 	// offers the operations
@@ -406,7 +460,8 @@ void drawLocalHierarchy(EditorState& state, Orkige::EditorCore& core,
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text,
 				ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-			ImGui::Selectable("  (drop here to unparent)");
+			ImGui::Selectable("  Drop ONTO a row to nest, BETWEEN rows for a "
+				"sibling, here to unparent");
 			ImGui::PopStyleColor();
 			acceptHierarchyDrop(core, "");
 		}

@@ -507,6 +507,122 @@ TEST_CASE("ui-edit: addDestinationParent keeps repeated adds siblings, not a cha
 	CHECK(addDestinationParent("otherPanel", false, "panel") == "otherPanel");
 }
 
+TEST_CASE("ui-edit: addDestinationChoices always offers child-of-selected and "
+	"defaults to the sibling for the newest widget", "[unit][uiedit]")
+{
+	// find the option carrying a given parent (helper)
+	auto hasParent = [](UiAddDestinationChoices const& ch, std::string const& p)
+	{
+		for(UiAddDestination const& o : ch.options)
+		{
+			if(o.parent == p) { return true; }
+		}
+		return false;
+	};
+
+	// THE OWNER'S FAILING CASE: the selection is the LAST-ADDED widget (button1,
+	// created under panel). Adding a CHILD to it must be possible - the sibling
+	// rule only sets the DEFAULT, never removes the child-of-selected option.
+	{
+		UiAddDestinationChoices ch =
+			addDestinationChoices("button1", true, "panel");
+		// child-of-selected is present and selectable
+		REQUIRE(hasParent(ch, "button1"));
+		bool childOption = false;
+		for(UiAddDestination const& o : ch.options)
+		{
+			if(o.kind == UiAddDestination::Kind::ChildOfSelected)
+			{
+				childOption = (o.parent == "button1");
+			}
+		}
+		CHECK(childOption);
+		// the DEFAULT is the sibling (child of panel), NOT nesting under button1
+		CHECK(ch.options[static_cast<size_t>(ch.defaultIndex)].parent == "panel");
+		// root is always offered too
+		CHECK(hasParent(ch, ""));
+		// deliberately CHOOSING the child-of-selected option yields button1 as parent
+		for(UiAddDestination const& o : ch.options)
+		{
+			if(o.kind == UiAddDestination::Kind::ChildOfSelected)
+			{
+				CHECK(o.parent == "button1");
+			}
+		}
+	}
+
+	// a plain, non-just-created selection defaults to child-of-selected (as before)
+	{
+		UiAddDestinationChoices ch =
+			addDestinationChoices("panel", false, "");
+		REQUIRE(!ch.options.empty());
+		CHECK(ch.options[static_cast<size_t>(ch.defaultIndex)].parent == "panel");
+		CHECK(ch.options[static_cast<size_t>(ch.defaultIndex)].kind ==
+			UiAddDestination::Kind::ChildOfSelected);
+		CHECK(hasParent(ch, ""));		// root still offered
+		CHECK_FALSE(hasParent(ch, "x"));	// no phantom last-destination option
+	}
+
+	// nothing selected -> only root, defaulted
+	{
+		UiAddDestinationChoices ch = addDestinationChoices("", false, "");
+		REQUIRE(ch.options.size() == 1);
+		CHECK(ch.options[0].kind == UiAddDestination::Kind::Root);
+		CHECK(ch.options[0].parent.empty());
+	}
+
+	// a newest-widget whose last destination was ROOT: no distinct sibling option,
+	// default is root, child-of-selected still present
+	{
+		UiAddDestinationChoices ch =
+			addDestinationChoices("panel1", true, "");
+		CHECK(hasParent(ch, "panel1"));	// child-of-selected offered
+		CHECK(ch.options[static_cast<size_t>(ch.defaultIndex)].parent.empty());
+	}
+}
+
+TEST_CASE("ui-edit: reorderSectionAdjacent moves a section in serialize order",
+	"[unit][uiedit]")
+{
+	auto make = []()
+	{
+		GuiLayoutDoc doc;
+		for(char const* id : { "a", "b", "c", "d" })
+		{
+			GuiLayoutSection s; s.type = "DecorWidget"; s.id = id;
+			doc.sections.push_back(s);
+		}
+		return doc;
+	};
+	auto order = [](GuiLayoutDoc const& doc)
+	{
+		std::string o;
+		for(GuiLayoutSection const& s : doc.sections) { o += s.id; }
+		return o;
+	};
+
+	// move "d" to just before "b" -> a d b c
+	{
+		GuiLayoutDoc doc = make();
+		REQUIRE(reorderSectionAdjacent(doc, "d", "b", false));
+		CHECK(order(doc) == "adbc");
+	}
+	// move "a" to just after "c" -> b c a d
+	{
+		GuiLayoutDoc doc = make();
+		REQUIRE(reorderSectionAdjacent(doc, "a", "c", true));
+		CHECK(order(doc) == "bcad");
+	}
+	// no-ops: missing id, self, empty
+	{
+		GuiLayoutDoc doc = make();
+		CHECK_FALSE(reorderSectionAdjacent(doc, "a", "a", false));
+		CHECK_FALSE(reorderSectionAdjacent(doc, "z", "b", false));
+		CHECK_FALSE(reorderSectionAdjacent(doc, "a", "z", true));
+		CHECK(order(doc) == "abcd");	// unchanged
+	}
+}
+
 TEST_CASE("ui-edit: canReparentWidget refuses self and descendant cycles",
 	"[unit][uiedit]")
 {

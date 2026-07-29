@@ -12,6 +12,8 @@
 
 #include "EditorUiEditorPanel.h"
 #include "EditorApp.h"
+#include "EditorTreeDnd.h"
+#include "EditorTreeDndDraw.h"
 #include "EditorTabMenu.h"
 #include "EditorPropertyWidgets.h"
 #include "GamePreviewStage.h"
@@ -612,26 +614,32 @@ namespace OrkigeEditor
 		//! the pick popup ("##addpick_<idScope>") from its own button; this draws
 		//! both popups and returns true when a widget was added. Split out so a
 		//! caller can lay its Add button out on a shared row (with rename/delete).
+		//! @brief run the ADD popups (kind picker -> name step). The CALLER opens
+		//! the pick popup ("##addpick_<idScope>") from its own Add button and passes
+		//! @p pickAnchor (the button's bottom-left in screen px) so the picker opens
+		//! DOCKED under the button, not floating at the last mouse position. Draws
+		//! both popups and returns true when a widget was added.
 		bool runAddWidgetPopups(UiEditSession& s, GamePreviewStage& stage,
-			char const* idScope)
+			char const* idScope, ImVec2 pickAnchor)
 		{
 			const String pickId = String("##addpick_") + idScope;
 			const String nameId = String("##addname_") + idScope;
 			static std::string pendingType;
 			static char nameBuf[64] = { 0 };
-			// the destination captured ONCE when the picker opens, carried through the
-			// name step (so a click that works the popup can never clear it mid-flow);
-			// `destToRoot` is the name popup's root override. The sibling default:
-			// remember the last confirmed destination + the id it created, so adding
-			// three widgets in a row (each becomes the selection) lands them as
-			// SIBLINGS at the original destination, not a nested chain.
-			static std::string capturedParent;
-			static bool destToRoot = false;
+			// the destination choices captured ONCE when the picker opens (the
+			// selection is stable there), carried through the name step so working the
+			// popup never disturbs them; destChoiceIndex is the user's explicit pick.
+			// The sibling default (three adds -> siblings) is only the DEFAULT choice;
+			// every option stays selectable (@see addDestinationChoices) so a
+			// deliberate child-of-the-newest add is one radio click away.
+			static UiAddDestinationChoices destChoices;
+			static int destChoiceIndex = 0;
 			static std::string lastConfirmedParent;
 			static std::string lastCreatedId;
 			// step 1: pick a kind. Choosing one stashes the kind + a unique default
 			// name and hands off to the name popup (MenuItem auto-closes this one).
 			bool openName = false;
+			ImGui::SetNextWindowPos(pickAnchor, ImGuiCond_Appearing);
 			if(ImGui::BeginPopup(pickId.c_str()))
 			{
 				static char filter[64] = { 0 };
@@ -640,20 +648,45 @@ namespace OrkigeEditor
 				{
 					filter[0] = '\0';
 					focusPending = true;
-					// capture the destination now (the selection is stable here); the
-					// sibling rule repeats the last add's parent when the selection is
-					// the widget that add just created
+					// capture the destination CHOICES now; the sibling rule picks the
+					// default when the selection is the widget the last add created
 					const bool selIsLastCreated = !lastCreatedId.empty() &&
 						s.selected == lastCreatedId;
-					capturedParent = addDestinationParent(s.selected, selIsLastCreated,
+					destChoices = addDestinationChoices(s.selected, selIsLastCreated,
 						lastConfirmedParent);
-					// a captured parent that no longer exists (deleted since) falls to root
-					if(!capturedParent.empty() &&
-						sectionIndex(s.doc.doc(), capturedParent) < 0)
+					// drop any option whose container was deleted since (root stays
+					// valid), keeping the default pointing at a live option
 					{
-						capturedParent.clear();
+						const std::string defParent = destChoices.options.empty()
+							? std::string()
+							: destChoices.options[static_cast<size_t>(
+								destChoices.defaultIndex)].parent;
+						UiAddDestinationChoices valid;
+						for(UiAddDestination const& opt : destChoices.options)
+						{
+							if(opt.parent.empty() ||
+								sectionIndex(s.doc.doc(), opt.parent) >= 0)
+							{
+								valid.options.push_back(opt);
+							}
+						}
+						if(valid.options.empty())
+						{
+							valid.options.push_back(
+								{ UiAddDestination::Kind::Root, std::string() });
+						}
+						valid.defaultIndex = 0;
+						for(size_t i = 0; i < valid.options.size(); ++i)
+						{
+							if(valid.options[i].parent == defParent)
+							{
+								valid.defaultIndex = static_cast<int>(i);
+								break;
+							}
+						}
+						destChoices = valid;
 					}
-					destToRoot = false;
+					destChoiceIndex = destChoices.defaultIndex;
 				}
 				if(focusPending)
 				{
@@ -673,7 +706,11 @@ namespace OrkigeEditor
 					{
 						continue;
 					}
-					if(ImGui::MenuItem(kind.label))
+					// the kind's tree glyph in front of the label (the SAME icon the
+					// widget tree draws per row)
+					const String row = String(uiWidgetKindIcon(kind.type)) + "  " +
+						kind.label;
+					if(ImGui::MenuItem(row.c_str()))
 					{
 						pendingType = kind.type;
 						std::snprintf(nameBuf, sizeof(nameBuf), "%s",
@@ -684,27 +721,50 @@ namespace OrkigeEditor
 				ImGui::EndPopup();
 			}
 			if(openName) { ImGui::OpenPopup(nameId.c_str()); }
-			// step 2: name it. Confirm adds; Cancel/Esc aborts (nothing added).
+			// step 2: name it + choose the destination. Confirm adds; Cancel/Esc aborts.
 			bool added = false;
+			ImGui::SetNextWindowPos(pickAnchor, ImGuiCond_Appearing);
 			if(ImGui::BeginPopup(nameId.c_str()))
 			{
 				const bool appearing = ImGui::IsWindowAppearing();
 				ImGui::TextDisabled("Name the %s", pendingType.c_str());
-				// where it lands: "child of <id>" (with a root override toggle) or
-				// "at root" - the visible safety net for the captured destination
-				const std::string effectiveParent =
-					destToRoot ? std::string() : capturedParent;
-				if(capturedParent.empty())
+				// the EXPLICIT destination choice: radios over the captured options,
+				// the sibling rule's pick pre-selected. A single option (nothing
+				// selected -> root) draws no radios (the honest "Adds at root" note).
+				if(destChoices.options.size() > 1)
 				{
-					ImGui::TextDisabled("Adds at root");
+					ImGui::TextDisabled("Add destination");
+					for(size_t i = 0; i < destChoices.options.size(); ++i)
+					{
+						UiAddDestination const& opt = destChoices.options[i];
+						std::string label;
+						switch(opt.kind)
+						{
+						case UiAddDestination::Kind::ChildOfSelected:
+							label = "Child of '" + opt.parent + "'"; break;
+						case UiAddDestination::Kind::LastDestination:
+							label = "Sibling (in '" + opt.parent + "')"; break;
+						case UiAddDestination::Kind::Root:
+							label = "At root"; break;
+						}
+						ImGui::PushID(static_cast<int>(i));
+						if(ImGui::RadioButton(label.c_str(),
+							destChoiceIndex == static_cast<int>(i)))
+						{
+							destChoiceIndex = static_cast<int>(i);
+						}
+						ImGui::PopID();
+					}
 				}
 				else
 				{
-					ImGui::TextDisabled("Adds as %s",
-						destToRoot ? "root widget" : ("child of '" +
-							capturedParent + "'").c_str());
-					ImGui::Checkbox("Add at root instead", &destToRoot);
+					ImGui::TextDisabled("Adds at root");
 				}
+				const std::string effectiveParent =
+					(destChoiceIndex >= 0 && destChoiceIndex <
+						static_cast<int>(destChoices.options.size()))
+					? destChoices.options[static_cast<size_t>(destChoiceIndex)].parent
+					: std::string();
 				const NameEntry r = nameEntryBody(s.doc.doc(), std::string(),
 					appearing, nameBuf, sizeof(nameBuf));
 				if(r == NameEntry::Confirm)
@@ -738,42 +798,6 @@ namespace OrkigeEditor
 		s.selected = id;
 		s.needsReload = true;
 		return id;
-	}
-	//---------------------------------------------------------
-	bool uiEditAddWidgetControl(UiEditSession& s, GamePreviewStage& stage,
-		char const* idScope, bool bigButton)
-	{
-		// the Add button opens the KIND picker; the picker hands off to a NAME
-		// step (prefilled unique default; Enter confirms, Esc / Cancel aborts).
-		const String pickId = String("##addpick_") + idScope;
-		if(bigButton)
-		{
-			// a generously wide, taller-than-default primary action, centred and
-			// width-clamped so a narrow panel (or a 2x/3x scaled font) still fits
-			// the label - the Inspector's Add Component button, verbatim shape
-			char const* label = "Add Widget";
-			const float labelWidth = ImGui::CalcTextSize(label).x +
-				ImGui::GetStyle().FramePadding.x * 2.0f +
-				ImGui::GetTextLineHeight();
-			const float avail = ImGui::GetContentRegionAvail().x;
-			const float buttonWidth = std::min(avail,
-				std::max(labelWidth, avail * 0.70f));
-			const float buttonHeight = ImGui::GetFrameHeight() * 1.6f;
-			if(avail > buttonWidth)
-			{
-				ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
-					(avail - buttonWidth) * 0.5f);
-			}
-			if(ImGui::Button(label, ImVec2(buttonWidth, buttonHeight)))
-			{
-				ImGui::OpenPopup(pickId.c_str());
-			}
-		}
-		else if(ImGui::SmallButton("+ Add"))	// the compact canvas-adjacent variant
-		{
-			ImGui::OpenPopup(pickId.c_str());
-		}
-		return runAddWidgetPopups(s, stage, idScope);
 	}
 	//---------------------------------------------------------
 	namespace
@@ -848,7 +872,8 @@ namespace OrkigeEditor
 	}
 	//---------------------------------------------------------
 	bool uiEditReparent(UiEditSession& s, GamePreviewStage& stage,
-		String const& childId, String const& newParentId, String& error)
+		String const& childId, String const& newParentId, String& error,
+		String const& reorderAnchorId, bool reorderAfter)
 	{
 		if(!s.loaded)
 		{
@@ -883,6 +908,12 @@ namespace OrkigeEditor
 		{
 			s.doc.commitEdit();	// nothing changed -> no undo step
 			return false;
+		}
+		// a between-rows drop also sets the sibling ORDER: move the child adjacent to
+		// the anchor sibling in serialize/paint order, folded into the SAME undo step
+		if(!reorderAnchorId.empty())
+		{
+			reorderSectionAdjacent(s.doc.doc(), childId, reorderAnchorId, reorderAfter);
 		}
 		s.doc.commitEdit();
 		s.needsReload = true;
@@ -1932,11 +1963,14 @@ namespace OrkigeEditor
 			endPropertyRow();
 			return applied;
 		}
-		//! the 4x4 anchor-preset gizmo: a compact draw-list grid mapping each
-		//! cell to a LayoutAnchorPreset. Click applies to the key widget; Alt
-		//! ALSO moves the pivot to the preset point, Shift ALSO keeps the
-		//! on-screen rect (recomputes offsets). Returns true when it applied.
-		bool anchorPresetGizmo(UiEditSession& s, GamePreviewStage& stage)
+		//! the anchor-preset grid as a standard property ROW: a left-column
+		//! "Alignment" label + the 4x4 gizmo RIGHT-ALIGNED in the value column,
+		//! sized to the column width (square-ish cells), the Alt/Shift modifier hint
+		//! under it. Each cell maps to a LayoutAnchorPreset; a click applies to the
+		//! key widget (Alt ALSO moves the pivot, Shift ALSO keeps the on-screen
+		//! rect). Must be called INSIDE the anchor property table. Returns true when
+		//! it applied.
+		bool anchorPresetGizmoRow(UiEditSession& s, GamePreviewStage& stage)
 		{
 			// the visual arrangement (row-major): the 3x3 point block + a stretch
 			// column, then a stretch row - the whole 16-preset vocabulary.
@@ -1956,8 +1990,25 @@ namespace OrkigeEditor
 					parseAnchorPreset(*a, current);
 				}
 			}
-			const float cell = 22.0f;
-			const ImVec2 origin = ImGui::GetCursorScreenPos();
+			// the property-row frame: "Alignment" label, grid in the value column
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Alignment");
+			ImGui::SetItemTooltip("anchor preset - Alt also moves the pivot, "
+				"Shift keeps the on-screen rect");
+			ImGui::TableSetColumnIndex(1);
+
+			// cells scale to the value column width (like the text inputs), capped so
+			// they stay square-ish, and the grid is RIGHT-ALIGNED in the column
+			const float availW = ImGui::GetContentRegionAvail().x;
+			float cell = availW / 4.0f;
+			if(cell > 30.0f) { cell = 30.0f; }
+			if(cell < 14.0f) { cell = 14.0f; }
+			const float gridW = cell * 4.0f;
+			const ImVec2 cellStart = ImGui::GetCursorScreenPos();
+			const ImVec2 origin(cellStart.x + std::max(0.0f, availW - gridW),
+				cellStart.y);
 			ImDrawList* dl = ImGui::GetWindowDrawList();
 			bool applied = false;
 			for(int i = 0; i < 16; ++i)
@@ -2004,10 +2055,11 @@ namespace OrkigeEditor
 				}
 				ImGui::PopID();
 			}
-			// reserve the grid's footprint so following widgets stack below it
-			ImGui::SetCursorScreenPos(origin);
-			ImGui::Dummy(ImVec2(cell * 4.0f, cell * 4.0f));
-			ImGui::TextDisabled("Anchors (Alt: +pivot, Shift: keep rect)");
+			// reserve the grid footprint (full column width), then the modifier hint
+			// under it in the value column
+			ImGui::SetCursorScreenPos(cellStart);
+			ImGui::Dummy(ImVec2(availW, gridW));
+			ImGui::TextDisabled("Alt: +pivot   Shift: keep rect");
 			return applied;
 		}
 		//! the align/distribute toolbar row (needs a multi-selection). Returns
@@ -2087,9 +2139,21 @@ namespace OrkigeEditor
 		// background to reparent to root; both defer past the loop (the section
 		// vector must not mutate mid-iteration) and refuse a self/descendant cycle.
 		ImGui::TextDisabled("Widgets");
+		// while a widget row is being dragged, a one-line discoverability hint
+		if(ImGuiPayload const* dp = ImGui::GetDragDropPayload())
+		{
+			if(dp->IsDataType("ORKIGE_UI_WIDGET"))
+			{
+				ImGui::TextDisabled(
+					"Drop ONTO a row to nest, BETWEEN rows to reorder - Esc cancels");
+			}
+		}
 		bool renameFromTree = false;
-		std::string pendingReparentChild, pendingReparentParent;	// deferred reparent
-		bool havePendingReparent = false, pendingReparentToRoot = false;
+		// the deferred drop outcome (the section vector must not mutate mid-iteration):
+		// a reparent under newParent ("" = root) plus, for a between-rows drop, the
+		// sibling to sit next to and which side (@see uiEditReparent).
+		std::string pendingReparentChild, pendingReparentParent, pendingReorderAnchor;
+		bool havePendingReparent = false, pendingReorderAfter = false;
 		// section order -> a root list + a parent->children index (order preserved)
 		std::vector<std::string> treeRoots;
 		std::map<std::string, std::vector<std::string>> treeChildren;
@@ -2144,6 +2208,9 @@ namespace OrkigeEditor
 					ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
 					ImGuiTreeNodeFlags_NoTreePushOnOpen);
 			}
+			// the row's screen rect (for the drop-zone split + the cue geometry)
+			const ImVec2 rowMin = ImGui::GetItemRectMin();
+			const ImVec2 rowMax = ImGui::GetItemRectMax();
 			// a click (not the caret arrow) selects; a double-click opens rename
 			if(ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
 			{
@@ -2159,27 +2226,63 @@ namespace OrkigeEditor
 						io.KeyShift || io.KeyCtrl || io.KeySuper);
 				}
 			}
-			// drag this row as the reparent source
-			if(ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
+			// drag this row as the reparent source - the default preview tooltip is
+			// suppressed and a lifted-row GHOST is drawn following the cursor instead
+			if(ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoPreviewTooltip))
 			{
 				ImGui::SetDragDropPayload("ORKIGE_UI_WIDGET", id.c_str(),
 					id.size() + 1);
-				ImGui::Text("%s  %s", uiWidgetKindIcon(sec.type), id.c_str());
+				drawTreeDragGhost(uiWidgetKindIcon(sec.type), id.c_str());
 				ImGui::EndDragDropSource();
 			}
-			// drop a row onto this one -> reparent the dragged widget under it
+			// drop on this row: the top/bottom quarter reorders as a SIBLING (an
+			// insertion line), the middle half nests as a CHILD (a full-row highlight)
 			if(ImGui::BeginDragDropTarget())
 			{
-				if(ImGuiPayload const* pl =
-					ImGui::AcceptDragDropPayload("ORKIGE_UI_WIDGET"))
+				if(ImGuiPayload const* pl = ImGui::AcceptDragDropPayload(
+					"ORKIGE_UI_WIDGET", ImGuiDragDropFlags_AcceptBeforeDelivery |
+					ImGuiDragDropFlags_AcceptNoDrawDefaultRect))
 				{
 					const std::string dragged(static_cast<char const*>(pl->Data));
-					if(canReparentWidget(s.doc.doc(), dragged, id))
+					const TreeDropZone zone = classifyTreeDrop(rowMin.y,
+						rowMax.y - rowMin.y, ImGui::GetMousePos().y);
+					std::string newParent, anchor;
+					bool after = false, valid = false;
+					if(dragged != id)
 					{
-						pendingReparentChild = dragged;
-						pendingReparentParent = id;
-						pendingReparentToRoot = false;
-						havePendingReparent = true;
+						if(zone == TreeDropZone::Into)
+						{
+							newParent = id;
+							valid = canReparentWidget(s.doc.doc(), dragged, id);
+						}
+						else
+						{
+							// a sibling of the target: its parent + the target as the
+							// order anchor
+							if(String const* pp = sec.find("parent"))
+							{
+								if(!pp->empty() &&
+									sectionIndex(s.doc.doc(), *pp) >= 0)
+								{
+									newParent = *pp;
+								}
+							}
+							anchor = id;
+							after = (zone == TreeDropZone::After);
+							valid = canReparentWidget(s.doc.doc(), dragged, newParent);
+						}
+					}
+					if(valid)
+					{
+						drawTreeDropCue(rowMin, rowMax, rowMin.x, zone);
+						if(pl->IsDelivery())
+						{
+							pendingReparentChild = dragged;
+							pendingReparentParent = newParent;
+							pendingReorderAnchor = anchor;
+							pendingReorderAfter = after;
+							havePendingReparent = true;
+						}
 					}
 				}
 				ImGui::EndDragDropTarget();
@@ -2198,19 +2301,28 @@ namespace OrkigeEditor
 		{
 			const float rootZoneH = std::max(12.0f,
 				ImGui::GetContentRegionAvail().y * 0.0f + 16.0f);
+			const ImVec2 zoneMin = ImGui::GetCursorScreenPos();
 			ImGui::Dummy(ImVec2(-1.0f, rootZoneH));
 			if(ImGui::BeginDragDropTarget())
 			{
-				if(ImGuiPayload const* pl =
-					ImGui::AcceptDragDropPayload("ORKIGE_UI_WIDGET"))
+				if(ImGuiPayload const* pl = ImGui::AcceptDragDropPayload(
+					"ORKIGE_UI_WIDGET", ImGuiDragDropFlags_AcceptBeforeDelivery |
+					ImGuiDragDropFlags_AcceptNoDrawDefaultRect))
 				{
 					const std::string dragged(static_cast<char const*>(pl->Data));
 					if(canReparentWidget(s.doc.doc(), dragged, std::string()))
 					{
-						pendingReparentChild = dragged;
-						pendingReparentParent.clear();
-						pendingReparentToRoot = true;
-						havePendingReparent = true;
+						ImGui::GetWindowDrawList()->AddRectFilled(zoneMin,
+							ImVec2(ImGui::GetItemRectMax().x,
+								ImGui::GetItemRectMax().y),
+							IM_COL32(120, 170, 255, 40), 3.0f);
+						if(pl->IsDelivery())
+						{
+							pendingReparentChild = dragged;
+							pendingReparentParent.clear();
+							pendingReorderAnchor.clear();
+							havePendingReparent = true;
+						}
 					}
 				}
 				ImGui::EndDragDropTarget();
@@ -2221,8 +2333,8 @@ namespace OrkigeEditor
 		if(havePendingReparent)
 		{
 			std::string rerr;
-			uiEditReparent(s, stage, pendingReparentChild,
-				pendingReparentToRoot ? std::string() : pendingReparentParent, rerr);
+			uiEditReparent(s, stage, pendingReparentChild, pendingReparentParent,
+				rerr, pendingReorderAnchor, pendingReorderAfter);
 		}
 
 		ImGui::Separator();
@@ -2286,11 +2398,6 @@ namespace OrkigeEditor
 				if(ImGui::CollapsingHeader("Anchors###uiAnchors",
 					ImGuiTreeNodeFlags_DefaultOpen))
 				{
-					// the visual anchor-preset gizmo (its click applies + persists)
-					if(anchorPresetGizmo(s, stage))
-					{
-						String err; persist(s, stage, err);
-					}
 					Orkige::pushPropertyGridStyle();
 					if(ImGui::BeginTable("##uianchor", 2,
 						ImGuiTableFlags_SizingStretchProp))
@@ -2299,6 +2406,12 @@ namespace OrkigeEditor
 							ImGuiTableColumnFlags_WidthStretch, 0.30f);
 						ImGui::TableSetupColumn("value",
 							ImGuiTableColumnFlags_WidthStretch, 0.70f);
+						// the visual anchor-preset gizmo as the leading "Alignment"
+						// property row (its click applies + persists)
+						if(anchorPresetGizmoRow(s, stage))
+						{
+							String err; persist(s, stage, err);
+						}
 						// the anchor combo re-resolves the section's geometry form,
 						// so re-fetch it before drawing the per-axis rows
 						committed |= anchorComboRow(s, stage, *sec);
@@ -2392,6 +2505,9 @@ namespace OrkigeEditor
 		const bool haveSel = !s.selected.empty();
 		bool openRename = renameFromTree;
 		Orkige::pushInspectorButtonStyle();
+		// the picker opens DOCKED under the Add Widget button - its bottom-left in
+		// screen px, captured right after the button is laid out
+		ImVec2 addPickAnchor(0.0f, 0.0f);
 		{
 			// size the Add Widget button to leave room for the two trailing icons
 			const float iconSide = ImGui::GetFrameHeight() * 1.6f;
@@ -2403,6 +2519,8 @@ namespace OrkigeEditor
 			{
 				ImGui::OpenPopup("##addpick_panel");
 			}
+			addPickAnchor = ImVec2(ImGui::GetItemRectMin().x,
+				ImGui::GetItemRectMax().y);
 		}
 		ImGui::SameLine();
 		if(actionIconButton("##uiRename", ICON_FA_PEN, "Rename widget", haveSel))
@@ -2417,8 +2535,8 @@ namespace OrkigeEditor
 			String err; persist(s, stage, err);
 		}
 		Orkige::popInspectorButtonStyle();
-		// drive the Add button's kind->name popups (opened above)
-		runAddWidgetPopups(s, stage, "panel");
+		// drive the Add button's kind->name popups (opened above), docked under it
+		runAddWidgetPopups(s, stage, "panel", addPickAnchor);
 
 		// the rename name popup (double-click a tree row or the pen button opens
 		// it): prefilled with the current id, uniqueness enforced with an honest

@@ -69,6 +69,10 @@ add_library(orkige_editor_core STATIC
     EditorViewModes.cpp
     EditorUiEdit.h
     EditorUiEdit.cpp
+    # the pure tree drag-drop drop-zone classifier shared by the widget tree and
+    # the scene Hierarchy (Into vs Before/After bands) - unit-tested headlessly
+    EditorTreeDnd.h
+    EditorTreeDnd.cpp
     # the embedded terminal's VT screen model + pure key encoder (UI-free and
     # unit-tested headlessly - EditorTerminalScreenTests / EditorTerminalKeysTests)
     EditorTerminalScreen.h
