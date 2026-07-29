@@ -149,12 +149,42 @@ namespace Orkige
 			parents.reserve(objectCount);
 			actives.clear();
 			actives.reserve(objectCount);
-			for (auto const & [id, gameObject] :
-				gameObjectManager.getGameObjects())
+			// HIERARCHY ORDER, like the editor's edit-mode tree: depth-first
+			// from the root sequence with siblings in their live order, so the
+			// Hierarchy panel shows the same arrangement in Play as in edit
+			StringVector walkIds;
+			walkIds.reserve(objectCount);
+			for (String const & rootId : gameObjectManager.getRootObjectIds())
 			{
+				const StringVector subtree =
+					gameObjectManager.collectSubtreeIds(rootId);
+				walkIds.insert(walkIds.end(), subtree.begin(), subtree.end());
+			}
+			for (String const & id : walkIds)
+			{
+				optr<GameObject> gameObject =
+					gameObjectManager.getGameObject(id).lock();
+				if (!gameObject)
+				{
+					continue;
+				}
 				ids.push_back(id);
 				parents.push_back(gameObject->getParentId());
 				actives.push_back(gameObject->isActiveSelf() ? "1" : "0");
+			}
+			// completeness net: an object the walk never reached still streams
+			if (ids.size() != objectCount)
+			{
+				for (auto const & [id, gameObject] :
+					gameObjectManager.getGameObjects())
+				{
+					if (std::find(ids.begin(), ids.end(), id) == ids.end())
+					{
+						ids.push_back(id);
+						parents.push_back(gameObject->getParentId());
+						actives.push_back(gameObject->isActiveSelf() ? "1" : "0");
+					}
+				}
 			}
 		}
 

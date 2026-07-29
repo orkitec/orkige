@@ -1026,6 +1026,107 @@ TEST_CASE("EditorCore reparent command re-parents, guards cycles and undoes",
 	manager.clear();
 }
 
+TEST_CASE("EditorCore reorder command moves a sibling and undoes to the exact "
+	"index", "[editor][hierarchy]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "Parent", 0);
+	makeHealthObject(manager, "A", 1);
+	makeHealthObject(manager, "B", 2);
+	makeHealthObject(manager, "C", 3);
+	makeHealthObject(manager, "Outsider", 4);
+	for (char const* id : { "A", "B", "C" })
+	{
+		REQUIRE(manager.getGameObject(id).lock()->setParent("Parent"));
+	}
+	REQUIRE(manager.getChildren("Parent") ==
+		Orkige::StringVector({ "A", "B", "C" }));
+
+	REQUIRE(core.reorderObject("C", "A", false));
+	CHECK(manager.getChildren("Parent") ==
+		Orkige::StringVector({ "C", "A", "B" }));
+	CHECK(core.getUndoDescription() == "Reorder C");
+	CHECK(core.isSceneDirty());
+
+	REQUIRE(core.undo());
+	CHECK(manager.getChildren("Parent") ==
+		Orkige::StringVector({ "A", "B", "C" }));
+	REQUIRE(core.redo());
+	CHECK(manager.getChildren("Parent") ==
+		Orkige::StringVector({ "C", "A", "B" }));
+	CHECK(core.getUndoStackSize() == 1);
+
+	// refusals never enter the stack
+	CHECK_FALSE(core.reorderObject("A", "A", true));		// self
+	CHECK_FALSE(core.reorderObject("A", "Outsider", true));	// other parent
+	CHECK_FALSE(core.reorderObject("A", "Nobody", true));	// unknown
+	CHECK_FALSE(core.reorderObject("A", "", true));
+	// already in that exact place: no order change, no undo step
+	CHECK_FALSE(core.reorderObject("A", "C", true));
+	CHECK(core.getUndoStackSize() == 1);
+	CHECK(manager.getChildren("Parent") ==
+		Orkige::StringVector({ "C", "A", "B" }));
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore reparent lands at an anchor and undo restores the "
+	"former sibling index", "[editor][hierarchy]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "Old", 0);
+	makeHealthObject(manager, "New", 0);
+	makeHealthObject(manager, "X", 1);
+	makeHealthObject(manager, "Mover", 2);
+	makeHealthObject(manager, "Y", 3);
+	makeHealthObject(manager, "P", 4);
+	makeHealthObject(manager, "Q", 5);
+	for (char const* id : { "X", "Mover", "Y" })
+	{
+		REQUIRE(manager.getGameObject(id).lock()->setParent("Old"));
+	}
+	for (char const* id : { "P", "Q" })
+	{
+		REQUIRE(manager.getGameObject(id).lock()->setParent("New"));
+	}
+	REQUIRE(manager.getChildIndex("Mover") == 1);
+
+	// cross-parent drop BETWEEN P and Q: the object lands AT the drop position,
+	// not appended
+	REQUIRE(core.reparentObject("Mover", "New", "Q", false));
+	CHECK(manager.getChildren("New") ==
+		Orkige::StringVector({ "P", "Mover", "Q" }));
+	CHECK(core.getUndoStackSize() == 1);
+
+	// undo restores parent AND the exact former index (between X and Y)
+	REQUIRE(core.undo());
+	CHECK(manager.getChildren("Old") ==
+		Orkige::StringVector({ "X", "Mover", "Y" }));
+	REQUIRE(core.redo());
+	CHECK(manager.getChildren("New") ==
+		Orkige::StringVector({ "P", "Mover", "Q" }));
+
+	// after=true inserts on the other side of the anchor
+	REQUIRE(core.reparentObject("Mover", "Old", "X", true));
+	CHECK(manager.getChildren("Old") ==
+		Orkige::StringVector({ "X", "Mover", "Y" }));
+
+	// an anchored move onto the parent the object ALREADY has is a pure
+	// sibling reorder through the same entry point
+	REQUIRE(core.reparentObject("Mover", "Old", "X", false));
+	CHECK(manager.getChildren("Old") ==
+		Orkige::StringVector({ "Mover", "X", "Y" }));
+	CHECK(core.getUndoDescription() == "Reorder Mover");
+
+	// roots take an anchor too ("" parent = the root sequence)
+	REQUIRE(core.reparentObject("Mover", "", "Old", false));
+	CHECK(manager.getRootObjectIds().front() == "Mover");
+
+	manager.clear();
+}
+
 TEST_CASE("EditorCore multi-select reparent moves only the topmost objects "
 	"as one undo step", "[editor][hierarchy]")
 {

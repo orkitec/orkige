@@ -730,7 +730,8 @@ GameObject and sees `self`/`world`/`events`; a `.editor.lua` sees only the
     `list_addable_components`, `list_assets`, `list_paintable_assets`,
     `list_project_files`, `read_project_file`, `get_state`;
   - object CRUD: `create_object`, `delete_object`, `duplicate_object`,
-    `rename_object`, `reparent_object`, `set_active`, `select`;
+    `rename_object`, `reparent_object`, `reorder_object`, `set_active`,
+    `select`;
   - component CRUD (script components included): `add_component`,
     `remove_component`, `set_component`;
   - 2D grid painting: `paint_asset`, `erase_cell`;

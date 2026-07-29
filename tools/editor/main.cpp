@@ -14886,6 +14886,36 @@ int main(int argc, char** argv)
 							transform->getOrientation() });
 					}
 				}
+				// SIBLING ORDER is scene state: drive a real reorder through
+				// the editor command stack, then require the exact arrangement
+				// (root sequence + every child list) back after the round-trip,
+				// which the .oscene carries as its document order
+				auto hierarchyOrder = [&]() -> std::vector<std::string>
+				{
+					std::vector<std::string> order;
+					for (Orkige::String const& rootId :
+						gameObjectManager.getRootObjectIds())
+					{
+						for (Orkige::String const& id :
+							gameObjectManager.collectSubtreeIds(rootId))
+						{
+							order.push_back(id);
+						}
+					}
+					return order;
+				};
+				const Orkige::StringVector rootsToReorder =
+					gameObjectManager.getRootObjectIds();
+				bool orderOk = rootsToReorder.size() >= 2;
+				if (orderOk)
+				{
+					// the last root moves in front of the first one
+					orderOk = editorCore.reorderObject(rootsToReorder.back(),
+						rootsToReorder.front(), false) &&
+						gameObjectManager.getRootObjectIds().front() ==
+							rootsToReorder.back();
+				}
+				const std::vector<std::string> orderBefore = hierarchyOrder();
 				// facade-graph child count of the world root: every
 				// TransformComponent node lives there, so clear must shrink
 				// it and reload must restore it exactly
@@ -14937,6 +14967,14 @@ int main(int argc, char** argv)
 						orientation.Dot(snapshot.orientation)) > 0.9999f;
 					roundTripOk = roundTripOk && positionOk && orientationOk;
 				}
+				const std::vector<std::string> orderAfter = hierarchyOrder();
+				orderOk = orderOk && orderAfter == orderBefore;
+				roundTripOk = roundTripOk && orderOk;
+				SDL_Log("orkige_editor: selfcheck frame 90 - sibling order "
+					"(%zu ids, first root '%s') survives the round-trip: %s",
+					orderAfter.size(),
+					orderAfter.empty() ? "" : orderAfter.front().c_str(),
+					orderOk ? "OK" : "FAILED");
 				SDL_Log("orkige_editor: selfcheck frame 90 - scene round-trip "
 					"via '%s': %zu objects, root nodes %u -> %u -> %u: %s",
 					selfCheckScene.c_str(), before.size(),

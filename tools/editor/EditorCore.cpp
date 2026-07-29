@@ -732,15 +732,16 @@ namespace Orkige
 	//--- ReparentObjectCommand --------------------------------
 	//---------------------------------------------------------
 	ReparentObjectCommand::ReparentObjectCommand(String const& objectId,
-		String const& newParentId)
-		: mObjectId(objectId), mNewParentId(newParentId)
+		String const& newParentId, String const& anchorId, bool after)
+		: mObjectId(objectId), mNewParentId(newParentId), mAnchorId(anchorId),
+		mAnchorAfter(after)
 	{
 	}
 	//---------------------------------------------------------
 	bool ReparentObjectCommand::execute(EditorCore& core)
 	{
-		optr<GameObject> gameObject = core.getGameObjectManager()
-			.getGameObject(mObjectId).lock();
+		GameObjectManager& manager = core.getGameObjectManager();
+		optr<GameObject> gameObject = manager.getGameObject(mObjectId).lock();
 		if (!gameObject)
 		{
 			return false;
@@ -750,20 +751,35 @@ namespace Orkige
 		{
 			return false;	// no-op re-parent never enters the undo stack
 		}
-		// the exact local transform, so undo restores it bit-for-bit even if
-		// something moved in between
+		// the exact sibling index AND local transform, so undo restores the
+		// object's position in the tree bit-for-bit even if something moved
+		// in between
+		mOldIndex = manager.getChildIndex(mObjectId);
 		mHadTransform = core.getObjectTransform(mObjectId, mOldLocal);
 		// world transform preserved (setParent refuses cycles/self/unknown)
-		return gameObject->setParent(mNewParentId, true);
+		if (!gameObject->setParent(mNewParentId, true))
+		{
+			return false;
+		}
+		// setParent appends; an insert anchor moves it to the drop position
+		if (!mAnchorId.empty())
+		{
+			manager.reorderChild(mObjectId, mAnchorId, mAnchorAfter);
+		}
+		return true;
 	}
 	//---------------------------------------------------------
 	bool ReparentObjectCommand::unexecute(EditorCore& core)
 	{
-		optr<GameObject> gameObject = core.getGameObjectManager()
-			.getGameObject(mObjectId).lock();
+		GameObjectManager& manager = core.getGameObjectManager();
+		optr<GameObject> gameObject = manager.getGameObject(mObjectId).lock();
 		if (!gameObject || !gameObject->setParent(mOldParentId, true))
 		{
 			return false;
+		}
+		if (mOldIndex >= 0)
+		{
+			manager.moveChildToIndex(mObjectId, mOldIndex);
 		}
 		if (mHadTransform)
 		{
@@ -777,6 +793,42 @@ namespace Orkige
 		return mNewParentId.empty()
 			? ("Unparent " + mObjectId)
 			: ("Parent " + mObjectId + " to " + mNewParentId);
+	}
+
+	//---------------------------------------------------------
+	//--- ReorderObjectCommand ---------------------------------
+	//---------------------------------------------------------
+	ReorderObjectCommand::ReorderObjectCommand(String const& objectId,
+		String const& anchorId, bool after)
+		: mObjectId(objectId), mAnchorId(anchorId), mAfter(after)
+	{
+	}
+	//---------------------------------------------------------
+	bool ReorderObjectCommand::execute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		mOldIndex = manager.getChildIndex(mObjectId);
+		if (mOldIndex < 0 || !manager.reorderChild(mObjectId, mAnchorId, mAfter))
+		{
+			return false;
+		}
+		if (manager.getChildIndex(mObjectId) == mOldIndex)
+		{
+			// the object already sat exactly there - no order changed, so no
+			// undo step (the same contract the no-op re-parent keeps)
+			return false;
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	bool ReorderObjectCommand::unexecute(EditorCore& core)
+	{
+		return core.getGameObjectManager().moveChildToIndex(mObjectId, mOldIndex);
+	}
+	//---------------------------------------------------------
+	String ReorderObjectCommand::getDescription() const
+	{
+		return "Reorder " + mObjectId;
 	}
 
 	//---------------------------------------------------------
@@ -2059,7 +2111,8 @@ namespace Orkige
 		return !mGameObjectManager.isDescendantOf(newParentId, id);
 	}
 	//---------------------------------------------------------
-	bool EditorCore::reparentObject(String const& id, String const& newParentId)
+	bool EditorCore::reparentObject(String const& id, String const& newParentId,
+		String const& anchorId, bool after)
 	{
 		if (!canReparent(id, newParentId))
 		{
@@ -2101,19 +2154,62 @@ namespace Orkige
 		{
 			return false;
 		}
+		// an anchored move of an object that ALREADY sits under newParentId is a
+		// pure sibling REORDER - the same drop gesture, the honest operation
+		auto makeMove = [this, &newParentId](String const& movingId,
+			String const& moveAnchorId, bool moveAfter) -> optr<EditorCommand>
+		{
+			optr<GameObject> mover =
+				mGameObjectManager.getGameObject(movingId).lock();
+			if (!moveAnchorId.empty() && mover &&
+				mover->getParentId() == newParentId)
+			{
+				return onew(new ReorderObjectCommand(movingId, moveAnchorId,
+					moveAfter));
+			}
+			return onew(new ReparentObjectCommand(movingId, newParentId,
+				moveAnchorId, moveAfter));
+		};
 		if (movingIds.size() == 1)
 		{
-			return executeCommand(onew(new ReparentObjectCommand(movingIds[0],
-				newParentId)));
+			return executeCommand(makeMove(movingIds[0], anchorId, after));
 		}
 		optr<CompositeCommand> batch = onew(new CompositeCommand(
 			"Reparent " + std::to_string(movingIds.size()) + " Objects"));
+		// the whole selection lands CONTIGUOUSLY at the drop position: the first
+		// mover takes the drop's anchor, each following one chains after its
+		// predecessor, so selection order survives the move
+		String chainAnchor = anchorId;
+		bool chainAfter = after;
 		for (String const& movingId : movingIds)
 		{
-			batch->addCommand(onew(new ReparentObjectCommand(movingId,
-				newParentId)));
+			batch->addCommand(makeMove(movingId, chainAnchor, chainAfter));
+			if (!anchorId.empty())
+			{
+				chainAnchor = movingId;
+				chainAfter = true;
+			}
 		}
 		return executeCommand(batch);
+	}
+	//---------------------------------------------------------
+	bool EditorCore::reorderObject(String const& id, String const& anchorId,
+		bool after)
+	{
+		if (id.empty() || anchorId.empty() || id == anchorId ||
+			!mGameObjectManager.objectExists(id) ||
+			!mGameObjectManager.objectExists(anchorId))
+		{
+			return false;
+		}
+		optr<GameObject> gameObject = mGameObjectManager.getGameObject(id).lock();
+		optr<GameObject> anchor = mGameObjectManager.getGameObject(anchorId).lock();
+		if (!gameObject || !anchor ||
+			gameObject->getParentId() != anchor->getParentId())
+		{
+			return false;	// a cross-parent move is a reparent
+		}
+		return executeCommand(onew(new ReorderObjectCommand(id, anchorId, after)));
 	}
 	//---------------------------------------------------------
 	bool EditorCore::setObjectActive(String const& id, bool active)

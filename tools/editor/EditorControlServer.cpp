@@ -1224,9 +1224,29 @@ namespace Orkige
 				  { { "id", "string", "current id", true },
 				    { "new_id", "string", "new id", true } } },
 				{ "reparent_object",
-				  "Reparent a GameObject ('' parent = make it a root).",
+				  "Reparent a GameObject ('' parent = make it a root). Pass "
+				  "'anchor' to land it at a position among the new parent's "
+				  "children instead of at the end.",
 				  { { "id", "string", "GameObject id", true },
-				    { "parent", "string", "new parent id ('' for root)", false } } },
+				    { "parent", "string", "new parent id ('' for root)", false },
+				    { "anchor", "string",
+				      "optional sibling id to insert next to", false },
+				    { "after", "string",
+				      "'1' insert after the anchor, '0' (default) before",
+				      false } } },
+				{ "reorder_object",
+				  "Move a GameObject among its own siblings, directly before or "
+				  "after another child of the same parent (undoable). Sibling "
+				  "order is scene state: it is the .oscene document order and "
+				  "the order the Hierarchy shows. Refused when the two objects "
+				  "do not share a parent (use reparent_object with an anchor) "
+				  "or the order would not change.",
+				  { { "id", "string", "GameObject id to move", true },
+				    { "anchor", "string",
+				      "sibling id to move it next to", true },
+				    { "after", "string",
+				      "'1' place after the anchor, '0' (default) before",
+				      false } } },
 				{ "set_active",
 				  "Set a GameObject's own active flag.",
 				  { { "id", "string", "GameObject id", true },
@@ -2954,12 +2974,44 @@ namespace Orkige
 		//--- hierarchy read ----------------------------------
 		if (type == "list_hierarchy")
 		{
+			// reported in HIERARCHY ORDER - depth-first from the root sequence,
+			// siblings in their live order: the same order the Hierarchy panel
+			// shows and save_scene writes, so an agent reads a reorder back here
 			StringVector ids;
 			StringVector parents;
 			StringVector activeSelf;
 			StringVector activeHierarchy;
-			for (auto const& [id, gameObject] : manager.getGameObjects())
+			StringVector walkIds;
+			walkIds.reserve(manager.getGameObjects().size());
+			for (String const& rootId : manager.getRootObjectIds())
 			{
+				const StringVector subtree = manager.collectSubtreeIds(rootId);
+				walkIds.insert(walkIds.end(), subtree.begin(), subtree.end());
+			}
+			// completeness net: an object the walk never reached (a parent link
+			// the index does not carry) still gets listed, after the tree
+			if (walkIds.size() != manager.getGameObjects().size())
+			{
+				std::map<String, bool> walked;
+				for (String const& id : walkIds)
+				{
+					walked[id] = true;
+				}
+				for (auto const& [id, gameObject] : manager.getGameObjects())
+				{
+					if (walked.find(id) == walked.end())
+					{
+						walkIds.push_back(id);
+					}
+				}
+			}
+			for (String const& id : walkIds)
+			{
+				optr<GameObject> gameObject = manager.getGameObject(id).lock();
+				if (!gameObject)
+				{
+					continue;
+				}
 				ids.push_back(id);
 				parents.push_back(gameObject->getParentId());
 				activeSelf.push_back(gameObject->isActiveSelf() ? "1" : "0");
@@ -3274,10 +3326,27 @@ namespace Orkige
 		{
 			const String& id = request.get(DebugProtocol::FIELD_ID);
 			const String& parent = request.get("parent");	// "" = make a root
-			if (!core.reparentObject(id, parent))
+			// optional insert position among the new parent's children
+			const String& anchor = request.get("anchor");
+			if (!core.reparentObject(id, parent, anchor,
+				request.get("after") == "1"))
 			{
 				this->sendErr(req, "reparent '" + id + "' onto '" + parent +
 					"' was refused");
+				return;
+			}
+			this->sendOk(req);
+			return;
+		}
+		if (type == "reorder_object")
+		{
+			const String& id = request.get(DebugProtocol::FIELD_ID);
+			const String& anchor = request.get("anchor");
+			if (!core.reorderObject(id, anchor, request.get("after") == "1"))
+			{
+				this->sendErr(req, "reorder '" + id + "' next to '" + anchor +
+					"' was refused (unknown ids, different parents, or the "
+					"order would not change)");
 				return;
 			}
 			this->sendOk(req);
@@ -11356,6 +11425,147 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - prefab edit mode OK "
 				"(open/edit-in-stage/blocked-verb/save/close, scene restored)");
+		}
+
+		// (22e) SIBLING ORDER: reorder_object moves an object among its own
+		// siblings and list_hierarchy reports the result (it lists in hierarchy
+		// order), reparent_object's anchor lands a cross-parent move AT the drop
+		// position, and undo restores the exact previous arrangement.
+		{
+			JsonValue structured;
+			bool isError = true;
+			// the ordered child ids of a parent, straight off list_hierarchy
+			auto childOrder = [&](String const& parentId,
+				StringVector& out) -> bool
+			{
+				JsonValue h;
+				bool e = true;
+				if (!callTool("list_hierarchy", JsonValue::object(), true, h, e) ||
+					e)
+				{
+					return false;
+				}
+				out.clear();
+				JsonValue const& ids = h.get("ids");
+				JsonValue const& parents = h.get("parents");
+				for (size_t i = 0; i < ids.size() && i < parents.size(); ++i)
+				{
+					if (parents.at(i).asString() == parentId)
+					{
+						out.push_back(ids.at(i).asString());
+					}
+				}
+				return true;
+			};
+			auto joined = [](StringVector const& ids) -> String
+			{
+				String text;
+				for (String const& id : ids)
+				{
+					if (!text.empty()) text += ",";
+					text += id;
+				}
+				return text;
+			};
+			auto makeChild = [&](String const& id,
+				String const& parentId) -> bool
+			{
+				JsonValue create = JsonValue::object();
+				create.set("id", JsonValue(id));
+				bool e = true;
+				if (!callTool("create_object", create, true, structured, e) || e)
+				{
+					return false;
+				}
+				if (parentId.empty())
+				{
+					return true;
+				}
+				JsonValue rp = JsonValue::object();
+				rp.set("id", JsonValue(id));
+				rp.set("parent", JsonValue(parentId));
+				e = true;
+				return callTool("reparent_object", rp, true, structured, e) && !e;
+			};
+			bool built = makeChild("OrderHome", String()) &&
+				makeChild("OrderAway", String()) &&
+				makeChild("OrderA", "OrderHome") &&
+				makeChild("OrderB", "OrderHome") &&
+				makeChild("OrderC", "OrderHome");
+			StringVector order;
+			if (!built || !childOrder("OrderHome", order) ||
+				joined(order) != "OrderA,OrderB,OrderC")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: the reorder fixture did not "
+					"build in creation order (got '" + joined(order) + "')");
+				return;
+			}
+			// move the last child to the front
+			JsonValue reorderArgs = JsonValue::object();
+			reorderArgs.set("id", JsonValue(String("OrderC")));
+			reorderArgs.set("anchor", JsonValue(String("OrderA")));
+			isError = true;
+			if (!callTool("reorder_object", reorderArgs, true, structured,
+					isError) || isError || !childOrder("OrderHome", order) ||
+				joined(order) != "OrderC,OrderA,OrderB")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: reorder_object did not move the "
+					"sibling to the front (got '" + joined(order) + "')");
+				return;
+			}
+			// a mutation without the bearer token is rejected
+			bool unauthError = false;
+			if (!callTool("reorder_object", reorderArgs, false, structured,
+					unauthError) || !unauthError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: unauthenticated reorder_object "
+					"was NOT rejected");
+				return;
+			}
+			// a cross-parent reorder is refused (that is a reparent)
+			JsonValue crossArgs = JsonValue::object();
+			crossArgs.set("id", JsonValue(String("OrderA")));
+			crossArgs.set("anchor", JsonValue(String("OrderHome")));
+			bool crossError = false;
+			if (!callTool("reorder_object", crossArgs, true, structured,
+					crossError) || !crossError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: a cross-parent reorder_object "
+					"was NOT refused");
+				return;
+			}
+			// undo restores the previous arrangement exactly
+			isError = true;
+			if (!callTool("undo", JsonValue::object(), true, structured,
+					isError) || isError || !childOrder("OrderHome", order) ||
+				joined(order) != "OrderA,OrderB,OrderC")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: undo did not restore the sibling "
+					"order (got '" + joined(order) + "')");
+				return;
+			}
+			// reparent WITH an anchor lands the object AT the drop position
+			JsonValue anchored = JsonValue::object();
+			anchored.set("id", JsonValue(String("OrderAway")));
+			anchored.set("parent", JsonValue(String("OrderHome")));
+			anchored.set("anchor", JsonValue(String("OrderB")));
+			isError = true;
+			if (!callTool("reparent_object", anchored, true, structured,
+					isError) || isError || !childOrder("OrderHome", order) ||
+				joined(order) != "OrderA,OrderAway,OrderB,OrderC")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: an anchored reparent_object did "
+					"not land at the drop position (got '" + joined(order) + "')");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - reorder_object + anchored "
+				"reparent OK (sibling order over MCP)");
 		}
 
 		// (23) MCP TRANSACTIONS: begin_transaction .. end_transaction give a

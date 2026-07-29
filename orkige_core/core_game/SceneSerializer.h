@@ -22,6 +22,12 @@ namespace Orkige
 	//! renderer-side state themselves (onAdd creates the scene nodes, load
 	//! re-applies transforms/meshes), so loading needs no direct renderer access
 	//! and the serializer can live in the platform-independent core.
+	//! @remarks SIBLING ORDER RIDES IN THE DOCUMENT ORDER: objects are written
+	//! depth-first from the scene roots (roots in root order, each followed by
+	//! its subtree in child order), so a parent always precedes its children.
+	//! Loading recreates them in file order and GameObject::setParent appends,
+	//! which restores the exact hierarchy order without any order field on disk.
+	//! @see GameObjectManager::getChildren, GameObjectManager::reorderChild
 	class ORKIGE_CORE_DLL SceneSerializer
 	{
 		//--- Types -------------------------------------------

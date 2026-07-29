@@ -320,16 +320,49 @@ namespace Orkige
 		int version = SCENE_FORMAT_VERSION;
 		ar << version;
 
+		// SIBLING ORDER IS DOCUMENT ORDER: objects are emitted DEPTH-FIRST from
+		// the root sequence (roots in root order, each followed by its subtree in
+		// child order), so a parent always precedes its children and siblings
+		// ride in their live order. The loader creates the objects in exactly
+		// that order and GameObject::setParent APPENDS, which rebuilds the same
+		// order by construction - no separate order field on disk, format
+		// unchanged. @see GameObjectManager::getChildren
+		//
 		// prefab-PROVIDED objects (the "<instanceRoot>/" id namespace) are
 		// NOT serialized - they are reconstructed from their .oprefab at
 		// load time; only the instance root (with its overrides) and the
 		// scene-side extra children ride in the scene file
 		GameObjectManager::GameObjectMap const & objects = gameObjectManager.getGameObjects();
-		std::vector< optr<GameObject> > savedObjects;
-		savedObjects.reserve(objects.size());
+		StringVector orderedIds;
+		orderedIds.reserve(objects.size());
+		foreach(String const & rootId, gameObjectManager.getRootObjectIds())
+		{
+			const StringVector subtree = gameObjectManager.collectSubtreeIds(rootId);
+			orderedIds.insert(orderedIds.end(), subtree.begin(), subtree.end());
+		}
+		// safety net: an object the walk never reached (a parent link the index
+		// does not carry) still rides along, in map order, so a save can never
+		// silently drop scene content
+		std::set<String> walked(orderedIds.begin(), orderedIds.end());
 		foreach(GameObjectManager::GameObjectMap::value_type const & objectEntry, objects)
 		{
-			optr<GameObject> gameObject = objectEntry.second;
+			if(walked.find(objectEntry.first) == walked.end())
+			{
+				oDebugMsg("scene",0,"SceneSerializer: object \""<<objectEntry.first
+					<<"\" is not reachable from the scene roots - saved after the tree");
+				orderedIds.push_back(objectEntry.first);
+			}
+		}
+		std::vector< optr<GameObject> > savedObjects;
+		savedObjects.reserve(orderedIds.size());
+		foreach(String const & objectId, orderedIds)
+		{
+			GameObjectManager::GameObjectMap::const_iterator objectIt = objects.find(objectId);
+			if(objectIt == objects.end())
+			{
+				continue;
+			}
+			optr<GameObject> gameObject = objectIt->second;
 			oAssert(gameObject);
 			if(!PrefabSerializer::isPrefabProvided(gameObjectManager, *gameObject))
 			{

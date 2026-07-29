@@ -35,7 +35,8 @@ namespace Orkige
 			"list_paint_prefabs", "read_project_file", "list_project_files",
 			// object CRUD
 			"create_object", "delete_object", "duplicate_object",
-			"rename_object", "reparent_object", "set_active", "set_persistent",
+			"rename_object", "reparent_object", "reorder_object", "set_active",
+			"set_persistent",
 			// component CRUD (script components ride the SAME generic verbs)
 			"add_component", "remove_component", "set_component",
 			// selection

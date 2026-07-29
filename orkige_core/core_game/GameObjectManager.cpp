@@ -229,7 +229,7 @@ namespace Orkige
 			}
 			optr<GameObject> gameObject = it->second;
 			this->onObjectTagsChanged(id, gameObject->getTags(), StringVector());
-			this->onObjectReparented(id, gameObject->getParentId(), String());
+			this->unregisterFromChildIndex(id, gameObject->getParentId());
 			this->objects.erase(it);
 		}
 	}
@@ -280,15 +280,103 @@ namespace Orkige
 	//---------------------------------------------------------
 	StringVector GameObjectManager::getRootObjectIds() const
 	{
-		StringVector roots;
-		for(GameObjectMap::const_iterator it = this->objects.begin(), itend = this->objects.end(); it != itend; ++it)
+		// the root sequence IS the "" entry of the child index (a copy: callers
+		// iterate it while tree edits mutate the index)
+		return this->getChildren(String());
+	}
+	//---------------------------------------------------------
+	int GameObjectManager::getChildIndex(String const & id) const
+	{
+		GameObjectMap::const_iterator objectIt = this->objects.find(id);
+		if(objectIt == this->objects.end())
 		{
-			if(it->second->getParentId().empty())
-			{
-				roots.push_back(it->first);
-			}
+			return -1;
 		}
-		return roots;
+		StringVector const & siblings = this->getChildren(objectIt->second->getParentId());
+		StringVector::const_iterator it = std::find(siblings.begin(), siblings.end(), id);
+		if(it == siblings.end())
+		{
+			return -1;
+		}
+		return static_cast<int>(it - siblings.begin());
+	}
+	//---------------------------------------------------------
+	bool GameObjectManager::moveChildToIndex(String const & id, int index)
+	{
+		GameObjectMap::const_iterator objectIt = this->objects.find(id);
+		if(objectIt == this->objects.end())
+		{
+			return false;
+		}
+		ChildIdMap::iterator listIt = this->childIds.find(objectIt->second->getParentId());
+		if(listIt == this->childIds.end())
+		{
+			return false;
+		}
+		StringVector & siblings = listIt->second;
+		StringVector::iterator from = std::find(siblings.begin(), siblings.end(), id);
+		if(from == siblings.end())
+		{
+			return false;
+		}
+		siblings.erase(from);
+		// clamp into the post-removal range: feeding back a getChildIndex value
+		// lands the object exactly where it was
+		int target = index;
+		if(target < 0)
+		{
+			target = 0;
+		}
+		if(target > static_cast<int>(siblings.size()))
+		{
+			target = static_cast<int>(siblings.size());
+		}
+		siblings.insert(siblings.begin() + target, id);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool GameObjectManager::reorderChild(String const & childId,
+		String const & anchorId, bool after)
+	{
+		if(childId.empty() || anchorId.empty() || childId == anchorId)
+		{
+			return false;
+		}
+		GameObjectMap::const_iterator childIt = this->objects.find(childId);
+		GameObjectMap::const_iterator anchorIt = this->objects.find(anchorId);
+		if(childIt == this->objects.end() || anchorIt == this->objects.end())
+		{
+			return false;
+		}
+		String const & parentId = childIt->second->getParentId();
+		if(parentId != anchorIt->second->getParentId())
+		{
+			// a cross-parent move is a REPARENT, not a reorder
+			return false;
+		}
+		ChildIdMap::iterator listIt = this->childIds.find(parentId);
+		if(listIt == this->childIds.end())
+		{
+			return false;
+		}
+		StringVector & siblings = listIt->second;
+		StringVector::iterator from = std::find(siblings.begin(), siblings.end(), childId);
+		StringVector::const_iterator anchorSlot =
+			std::find(siblings.begin(), siblings.end(), anchorId);
+		if(from == siblings.end() || anchorSlot == siblings.end())
+		{
+			return false;
+		}
+		siblings.erase(from);
+		// the anchor may have shifted one slot left by the erase - locate it again
+		anchorSlot = std::find(siblings.begin(), siblings.end(), anchorId);
+		int target = static_cast<int>(anchorSlot - siblings.begin());
+		if(after)
+		{
+			++target;
+		}
+		siblings.insert(siblings.begin() + target, childId);
+		return true;
 	}
 	//---------------------------------------------------------
 	bool GameObjectManager::isDescendantOf(String const & id, String const & ancestorId) const
@@ -376,26 +464,28 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GameObjectManager::onObjectReparented(String const & childId, String const & oldParentId, String const & newParentId)
 	{
-		if(!oldParentId.empty())
+		// "" is a real key here (the scene root sequence), so an object leaving
+		// or joining the roots is indexed exactly like any other move
+		this->unregisterFromChildIndex(childId, oldParentId);
+		this->childIds[newParentId].push_back(childId);
+	}
+	//---------------------------------------------------------
+	void GameObjectManager::unregisterFromChildIndex(String const & id, String const & parentId)
+	{
+		ChildIdMap::iterator it = this->childIds.find(parentId);
+		if(it == this->childIds.end())
 		{
-			ChildIdMap::iterator it = this->childIds.find(oldParentId);
-			if(it != this->childIds.end())
-			{
-				StringVector & siblings = it->second;
-				StringVector::iterator childIt = std::find(siblings.begin(), siblings.end(), childId);
-				if(childIt != siblings.end())
-				{
-					siblings.erase(childIt);
-				}
-				if(siblings.empty())
-				{
-					this->childIds.erase(it);
-				}
-			}
+			return;
 		}
-		if(!newParentId.empty())
+		StringVector & siblings = it->second;
+		StringVector::iterator childIt = std::find(siblings.begin(), siblings.end(), id);
+		if(childIt != siblings.end())
 		{
-			this->childIds[newParentId].push_back(childId);
+			siblings.erase(childIt);
+		}
+		if(siblings.empty())
+		{
+			this->childIds.erase(it);
 		}
 	}
 	//---------------------------------------------------------

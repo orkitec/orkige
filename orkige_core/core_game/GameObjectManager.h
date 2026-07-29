@@ -26,7 +26,11 @@ namespace Orkige
 		//--- Types -------------------------------------------
 	public:
 		typedef std::map<String, optr<GameObject> > GameObjectMap;					//!< maps GameObject to String id
-		typedef std::map<String, StringVector> ChildIdMap;							//!< maps parent id to the ids of its direct children
+		//! @brief maps parent id to the ORDERED ids of its direct children. The
+		//! empty key "" is the SCENE ROOT sequence (objects without a parent), so
+		//! every object in the world sits in exactly one entry and the whole tree
+		//! - roots included - carries a sibling order. @see reorderChild
+		typedef std::map<String, StringVector> ChildIdMap;
 		typedef std::map<String, std::set<String> > TagIdMap;						//!< maps a tag to the ids of the objects carrying it
 	protected:
 		typedef std::map<EventType::TypeId, optr<EventListener> > EventListenerMap;	//!< maps TypeId to EventListener
@@ -42,7 +46,7 @@ namespace Orkige
 		bool							enableObjectUpdates;			//!< mark if updating Objects is enabled
 		EventListenerMap				globalEvents;					//!< enabled Global Events
 		StringVector					deleteQueue;					//!< queue of GameObjects that should be deleted on next update
-		ChildIdMap						childIds;						//!< direct children per parent id (maintained by GameObject::setParent)
+		ChildIdMap						childIds;						//!< ordered direct children per parent id, "" = the root sequence (maintained by addGameObject/delGameObject/GameObject::setParent)
 		TagIdMap						tagIds;							//!< object ids per tag (maintained by GameObject::addTag/removeTag/setTags - mirrors childIds)
 	private:
 		//--- Methods -----------------------------------------
@@ -93,12 +97,34 @@ namespace Orkige
 		inline void setUpdatesEnabled(bool enabled);
 
 		//--- HIERARCHY ---
-		//! @brief ids of the direct children of the given GameObject
-		//! @remarks child order is the setParent call order (scene file order
-		//! after a load) - the editor Hierarchy shows this order
+		//! @brief ids of the direct children of the given GameObject, in SIBLING
+		//! ORDER. Order is the registration order (addGameObject for a root,
+		//! setParent for a child) as later rearranged by reorderChild - the editor
+		//! Hierarchy shows it and SceneSerializer encodes it as the scene file's
+		//! document order, so it round-trips through a save/load.
+		//! @param parentId the parent's id, or "" for the scene ROOT sequence
 		StringVector const & getChildren(String const & parentId) const;
-		//! ids of all root GameObjects (objects without a parent), sorted by id
+		//! @brief ids of all root GameObjects (objects without a parent), in root
+		//! order - the same sequence as getChildren("")
 		StringVector getRootObjectIds() const;
+		//! @brief position of the object inside its parent's sibling list
+		//! (its position in the root sequence when it is a root); -1 when the id
+		//! is unknown or the index has no entry for it
+		int getChildIndex(String const & id) const;
+		//! @brief move an object to @p index inside its OWN parent's sibling list
+		//! (the root sequence when it is a root): the object is removed and
+		//! re-inserted at the clamped index, every other sibling keeps its
+		//! relative order. Feeding back an index captured with getChildIndex
+		//! restores the previous arrangement EXACTLY (the undo contract of the
+		//! editor's reorder/reparent commands). False for an unknown id.
+		bool moveChildToIndex(String const & id, int index);
+		//! @brief move @p childId directly before (@p after == false) or after
+		//! (@p after == true) its sibling @p anchorId - the drag-drop
+		//! between-rows reorder. Pure index bookkeeping inside the ONE sibling
+		//! vector: no component, transform or render state is touched.
+		//! @return false when either id is unknown, they are the same object, or
+		//! they do not share a parent (a cross-parent move is a reparent)
+		bool reorderChild(String const & childId, String const & anchorId, bool after);
 		//! is the GameObject with the given id a descendant of ancestorId
 		bool isDescendantOf(String const & id, String const & ancestorId) const;
 		//--- TAGS (tag -> ids index, mirrors the childIds hierarchy index) ---
@@ -135,8 +161,15 @@ namespace Orkige
 		//! handle Global Event forwarding
 		inline bool onGlobalEvent(Event const & event);
 		//! @brief keep the child index in sync with a parent link change
-		//! (called by GameObject::setParent - the friend declaration above)
+		//! (called by GameObject::setParent - the friend declaration above).
+		//! The object leaves its old parent's list and is APPENDED to the new
+		//! one; "" on either side is the scene root sequence.
 		void onObjectReparented(String const & childId, String const & oldParentId, String const & newParentId);
+		//! @brief drop an object from the child index entirely - the
+		//! object-goes-away counterpart of onObjectReparented (which always
+		//! re-files the object under its new parent). Used by delGameObject and
+		//! the persistence-aware teardown.
+		void unregisterFromChildIndex(String const & id, String const & parentId);
 		//! @brief keep the tag index in sync with a tag-set change on an object
 		//! (called by GameObject::addTag/removeTag/setTags/clearTags - the
 		//! friend declaration above; mirrors onObjectReparented): the object is
@@ -172,6 +205,10 @@ namespace Orkige
 			return false;
 		}
 		this->objects[id] = obj;
+		// a fresh object is a ROOT: it joins the root sequence (the "" entry of
+		// the child index) at the end, so root order is registration order until
+		// something re-parents or reorders it
+		this->childIds[obj->getParentId()].push_back(id);
 		return true;
 	}
 	//---------------------------------------------------------
@@ -196,8 +233,9 @@ namespace Orkige
 				childIt->second->setParent(gameObject->getParentId(), true);
 			}
 		}
-		// unlink the object itself from its parent's child list
-		this->onObjectReparented(id, gameObject->getParentId(), String());
+		// unlink the object itself from the child index (its parent's list, or
+		// the root sequence) - it is going away, not moving
+		this->unregisterFromChildIndex(id, gameObject->getParentId());
 		// drop the object from the tag index (mirror of the child unlink above)
 		this->onObjectTagsChanged(id, gameObject->getTags(), StringVector());
 		this->objects.erase(it);

@@ -97,6 +97,83 @@ TEST_CASE("GameObject parenting keeps the child index in sync", "[hierarchy]")
 	manager.clear();
 }
 
+TEST_CASE("reorderChild moves a sibling before/after an anchor and refuses "
+	"cross-parent, unknown and self moves", "[hierarchy]")
+{
+	Orkige::GameObjectManager & manager = bootHierarchyWorld();
+	manager.createGameObject("Root");
+	manager.createGameObject("Elsewhere");
+	optr<Orkige::GameObject> a = manager.createGameObject("A").lock();
+	optr<Orkige::GameObject> b = manager.createGameObject("B").lock();
+	optr<Orkige::GameObject> c = manager.createGameObject("C").lock();
+	optr<Orkige::GameObject> outsider = manager.createGameObject("Outsider").lock();
+	REQUIRE(a->setParent("Root"));
+	REQUIRE(b->setParent("Root"));
+	REQUIRE(c->setParent("Root"));
+	REQUIRE(outsider->setParent("Elsewhere"));
+	// registration order IS the child order
+	REQUIRE(manager.getChildren("Root") == Orkige::StringVector({ "A", "B", "C" }));
+	CHECK(manager.getChildIndex("B") == 1);
+
+	// move the last one to the front
+	REQUIRE(manager.reorderChild("C", "A", false));
+	CHECK(manager.getChildren("Root") == Orkige::StringVector({ "C", "A", "B" }));
+	// and back behind B
+	REQUIRE(manager.reorderChild("C", "B", true));
+	CHECK(manager.getChildren("Root") == Orkige::StringVector({ "A", "B", "C" }));
+	// a forward move: A after B (the anchor shifts left by the erase)
+	REQUIRE(manager.reorderChild("A", "B", true));
+	CHECK(manager.getChildren("Root") == Orkige::StringVector({ "B", "A", "C" }));
+
+	// refusals leave the order untouched
+	CHECK_FALSE(manager.reorderChild("A", "A", false));			// self
+	CHECK_FALSE(manager.reorderChild("A", "Outsider", false));	// other parent
+	CHECK_FALSE(manager.reorderChild("A", "NoSuchObject", true));
+	CHECK_FALSE(manager.reorderChild("NoSuchObject", "A", true));
+	CHECK_FALSE(manager.reorderChild("", "A", true));
+	CHECK(manager.getChildren("Root") == Orkige::StringVector({ "B", "A", "C" }));
+
+	// moveChildToIndex restores an exact captured position
+	const int oldIndex = manager.getChildIndex("C");
+	REQUIRE(manager.reorderChild("C", "B", false));
+	CHECK(manager.getChildren("Root") == Orkige::StringVector({ "C", "B", "A" }));
+	REQUIRE(manager.moveChildToIndex("C", oldIndex));
+	CHECK(manager.getChildren("Root") == Orkige::StringVector({ "B", "A", "C" }));
+	CHECK(manager.getChildIndex("NoSuchObject") == -1);
+
+	manager.clear();
+}
+
+TEST_CASE("The root sequence is an ordered child-index entry", "[hierarchy]")
+{
+	Orkige::GameObjectManager & manager = bootHierarchyWorld();
+	manager.createGameObject("Zulu");
+	manager.createGameObject("Alpha");
+	manager.createGameObject("Mike");
+	// creation order, NOT alphabetical
+	CHECK(manager.getRootObjectIds() ==
+		Orkige::StringVector({ "Zulu", "Alpha", "Mike" }));
+	CHECK(manager.getChildren("") == manager.getRootObjectIds());
+
+	// roots reorder like any other sibling list
+	REQUIRE(manager.reorderChild("Mike", "Zulu", false));
+	CHECK(manager.getRootObjectIds() ==
+		Orkige::StringVector({ "Mike", "Zulu", "Alpha" }));
+
+	// parenting leaves the root sequence, un-parenting rejoins it at the end
+	REQUIRE(manager.getGameObject("Zulu").lock()->setParent("Alpha"));
+	CHECK(manager.getRootObjectIds() == Orkige::StringVector({ "Mike", "Alpha" }));
+	REQUIRE(manager.getGameObject("Zulu").lock()->setParent(""));
+	CHECK(manager.getRootObjectIds() ==
+		Orkige::StringVector({ "Mike", "Alpha", "Zulu" }));
+
+	// a deleted root leaves the sequence entirely (it does not re-register)
+	REQUIRE(manager.delGameObject("Alpha"));
+	CHECK(manager.getRootObjectIds() == Orkige::StringVector({ "Mike", "Zulu" }));
+
+	manager.clear();
+}
+
 TEST_CASE("GameObject parenting refuses self, unknown parents and cycles", "[hierarchy]")
 {
 	Orkige::GameObjectManager & manager = bootHierarchyWorld();
@@ -292,6 +369,54 @@ TEST_CASE("SceneSerializer round-trips parented and inactive objects", "[hierarc
 	CHECK(tile->isActiveInHierarchy());
 	CHECK_FALSE(decal->isActiveSelf());
 	CHECK_FALSE(decal->isActiveInHierarchy());
+
+	manager.clear();
+}
+
+TEST_CASE("SceneSerializer round-trips the SIBLING ORDER through the file's "
+	"document order", "[hierarchy][scene]")
+{
+	Orkige::GameObjectManager & manager = bootHierarchyWorld();
+	TempScene scene("orkige_test_sibling_order.oscene");
+
+	// a deliberately NON-alphabetical arrangement at both tiers: the roots run
+	// Zulu, Alpha and Zulu's children run Mike, Bravo - neither survives a
+	// map-ordered save
+	{
+		manager.createGameObject("Zulu");
+		manager.createGameObject("Alpha");
+		optr<Orkige::GameObject> mike = manager.createGameObject("Mike").lock();
+		optr<Orkige::GameObject> bravo = manager.createGameObject("Bravo").lock();
+		optr<Orkige::GameObject> deep = manager.createGameObject("Deep").lock();
+		REQUIRE(mike->setParent("Zulu"));
+		REQUIRE(bravo->setParent("Zulu"));
+		REQUIRE(deep->setParent("Mike"));
+	}
+	REQUIRE(manager.getRootObjectIds() ==
+		Orkige::StringVector({ "Zulu", "Alpha" }));
+	REQUIRE(manager.getChildren("Zulu") ==
+		Orkige::StringVector({ "Mike", "Bravo" }));
+
+	REQUIRE(Orkige::SceneSerializer::saveScene(scene.path, manager));
+	manager.clear();
+	REQUIRE(Orkige::SceneSerializer::loadScene(scene.path, manager));
+
+	CHECK(manager.getRootObjectIds() ==
+		Orkige::StringVector({ "Zulu", "Alpha" }));
+	CHECK(manager.getChildren("Zulu") ==
+		Orkige::StringVector({ "Mike", "Bravo" }));
+	CHECK(manager.getChildren("Mike") == Orkige::StringVector({ "Deep" }));
+
+	// a reorder survives the next save/load just as well
+	REQUIRE(manager.reorderChild("Bravo", "Mike", false));
+	REQUIRE(manager.reorderChild("Alpha", "Zulu", false));
+	REQUIRE(Orkige::SceneSerializer::saveScene(scene.path, manager));
+	manager.clear();
+	REQUIRE(Orkige::SceneSerializer::loadScene(scene.path, manager));
+	CHECK(manager.getRootObjectIds() ==
+		Orkige::StringVector({ "Alpha", "Zulu" }));
+	CHECK(manager.getChildren("Zulu") ==
+		Orkige::StringVector({ "Bravo", "Mike" }));
 
 	manager.clear();
 }

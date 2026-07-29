@@ -401,12 +401,16 @@ namespace Orkige
 
 	//! @brief re-parent an object in the GameObject tree (Hierarchy drag &
 	//! drop; "" = make it a root). The world transform is preserved
-	//! (GameObject::setParent keepWorldTransform); undo restores
-	//! the previous parent AND the exact previous local transform.
+	//! (GameObject::setParent keepWorldTransform); undo restores the previous
+	//! parent, the exact previous SIBLING INDEX and the exact previous local
+	//! transform. An optional insert ANCHOR lands the object directly before or
+	//! after a sibling of the new parent (a between-rows drop), so the drop
+	//! position the insertion line promised is where the object arrives.
 	class ReparentObjectCommand : public EditorCommand
 	{
 	public:
-		ReparentObjectCommand(String const& objectId, String const& newParentId);
+		ReparentObjectCommand(String const& objectId, String const& newParentId,
+			String const& anchorId = String(), bool after = false);
 		virtual bool execute(EditorCore& core) override;
 		virtual bool unexecute(EditorCore& core) override;
 		virtual String getDescription() const override;
@@ -414,9 +418,32 @@ namespace Orkige
 	private:
 		String mObjectId;
 		String mNewParentId;
+		String mAnchorId;				//!< "" = append (no insert position)
+		bool mAnchorAfter = false;		//!< insert after (not before) the anchor
 		String mOldParentId;			//!< captured on execute
+		int mOldIndex = -1;				//!< exact pre-reparent sibling index
 		EditorTransform mOldLocal;		//!< exact pre-reparent local transform
 		bool mHadTransform = false;		//!< object carried a TransformComponent
+	};
+
+	//! @brief move an object among its OWN siblings, directly before or after
+	//! another child of the same parent (the Hierarchy's between-rows drop on a
+	//! same-parent target). Pure order bookkeeping - no transform, no component,
+	//! no render state changes; undo restores the exact previous sibling index.
+	class ReorderObjectCommand : public EditorCommand
+	{
+	public:
+		ReorderObjectCommand(String const& objectId, String const& anchorId,
+			bool after);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		String mAnchorId;
+		bool mAfter = false;
+		int mOldIndex = -1;				//!< captured on execute
 	};
 
 	//! toggle a GameObject's own active flag (Inspector checkbox) -
@@ -884,8 +911,19 @@ namespace Orkige
 		bool canReparent(String const& id, String const& newParentId) const;
 		//! @brief re-parent an object (undoable, world transform preserved);
 		//! when the id is part of a multi-selection the WHOLE selection
-		//! re-parents as one undo step (invalid members are skipped)
-		bool reparentObject(String const& id, String const& newParentId);
+		//! re-parents as one undo step (invalid members are skipped).
+		//! @param anchorId optional insert position: the object lands directly
+		//! before (@p after false) or after (@p after true) that child of the new
+		//! parent instead of at the end - the between-rows drop. When the object
+		//! ALREADY sits under @p newParentId this is a pure sibling reorder
+		//! (@see reorderObject); a whole multi-selection lands contiguously.
+		bool reparentObject(String const& id, String const& newParentId,
+			String const& anchorId = String(), bool after = false);
+		//! @brief move an object among its own siblings, directly before
+		//! (@p after false) or after (@p after true) @p anchorId (undoable).
+		//! Refused when either id is unknown, they are the same object, they do
+		//! not share a parent, or the order would not change.
+		bool reorderObject(String const& id, String const& anchorId, bool after);
 		//! set the object's own active flag (undoable)
 		bool setObjectActive(String const& id, bool active);
 		//! @brief set the object's persistent flag (undoable): survives the

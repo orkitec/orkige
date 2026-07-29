@@ -162,11 +162,11 @@ void acceptHierarchyDrop(Orkige::EditorCore& core,
 //! @brief per-row drop with the shared Into/Before/After band language: a drop on
 //! the row's MIDDLE nests the dragged object as a CHILD of @p targetId (a full-row
 //! highlight); a drop in the TOP/BOTTOM quarter makes it a SIBLING of the target
-//! (an insertion line) by reparenting under the target's PARENT. GameObject child
-//! ORDER is not independently persisted (it is rebuilt from load/registration
-//! order), so a same-parent sibling drop is an honest no-op - the line still shows
-//! the intent, and a CROSS-parent sibling drop reparents. World transform is
-//! preserved and cycles refused by the reparent command (@see EditorCore).
+//! (an insertion line), landing directly before/after that row. A same-parent drop
+//! is a pure sibling REORDER, a cross-parent one reparents AND inserts at the drop
+//! position - one undo step either way. Sibling order is scene state (the .oscene
+//! document order), so the arrangement survives a save/load. World transform is
+//! preserved and cycles refused by the commands (@see EditorCore).
 void acceptHierarchyDropZoned(Orkige::EditorCore& core,
 	Orkige::GameObjectManager& manager, std::string const& targetId,
 	ImVec2 rowMin, ImVec2 rowMax)
@@ -185,17 +185,22 @@ void acceptHierarchyDropZoned(Orkige::EditorCore& core,
 		const OrkigeEditor::TreeDropZone zone = OrkigeEditor::classifyTreeDrop(
 			rowMin.y, rowMax.y - rowMin.y, ImGui::GetMousePos().y);
 		std::string newParent = targetId;	// Into: child of the row
+		std::string anchorId;				// "" = append (the Into case)
+		bool anchorAfter = false;
 		if (zone != OrkigeEditor::TreeDropZone::Into)
 		{
 			optr<Orkige::GameObject> t = manager.getGameObject(targetId).lock();
 			newParent = t ? t->getParentId() : std::string();	// sibling of the row
+			// the row IS the insert position the line was drawn at
+			anchorId = targetId;
+			anchorAfter = (zone == OrkigeEditor::TreeDropZone::After);
 		}
 		if (draggedId != targetId)
 		{
 			OrkigeEditor::drawTreeDropCue(rowMin, rowMax, rowMin.x, zone);
 			if (payload->IsDelivery())
 			{
-				core.reparentObject(draggedId, newParent);
+				core.reparentObject(draggedId, newParent, anchorId, anchorAfter);
 			}
 		}
 	}
