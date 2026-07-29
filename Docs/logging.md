@@ -86,7 +86,7 @@ script-registered cvars; used by the headless test drivers).
 
 `engine`, `render`, `sound`, `physic`, `scene`, `core`, `game`, `gameobject`,
 `editor`, `serialize`, `script`, `resource`, `filesystem`, `eventmanager`, `loc`,
-`gui`, `asset`. Adding a tag is free — the macro accepts any string — but only the
+`gui`, `asset`, `platform`. Adding a tag is free — the macro accepts any string — but only the
 tags above ship a pre-registered `log.<tag>` cvar; extend `kKnownLogTags` in
 `core_debug/LogLevels.cpp` to make a new tag settable by cvar.
 

@@ -32,6 +32,8 @@
 #include "ExternalEditor.h"	// terminalPathTokenAt / resolveTerminalPath (Cmd-click open)
 #include "IconsFontAwesome6.h"
 
+#include "engine_util/PlatformWindow.h"	// probeDeadClipboardRequestor (selfcheck)
+
 #include <imgui_internal.h>	// FindWindowByName + DockId (first-appearance dock)
 
 #include <SDL3/SDL.h>
@@ -1840,6 +1842,29 @@ namespace OrkigeEditor
 				if (got != nullptr)
 				{
 					SDL_free(got);
+				}
+				// owning the clipboard means answering other processes' requests,
+				// and a requestor is free to exit before the answer is written -
+				// on X11 the server then reports an asynchronous BadWindow that
+				// Xlib's default handler turns into process death. Provoke
+				// exactly that, pump the answer out and read the clipboard back:
+				// an unguarded build never reaches the check at all.
+				if (Orkige::PlatformWindow::probeDeadClipboardRequestor())
+				{
+					for (int i = 0; i < 4; ++i)
+					{
+						SDL_PumpEvents();
+						SDL_Delay(5);
+					}
+					char* after = SDL_GetClipboardText();
+					check(after != nullptr && sel == after,
+						"answering a clipboard request from a process that "
+						"already exited leaves this one alive and the clipboard "
+						"intact (X error guard)");
+					if (after != nullptr)
+					{
+						SDL_free(after);
+					}
 				}
 				SDL_SetClipboardText(savedClip.c_str());	// restore
 				SDL_QuitSubSystem(SDL_INIT_VIDEO);

@@ -223,7 +223,7 @@ namespace Orkige
 		const char * const kKnownLogTags[] = {
 			"engine", "render", "sound", "physic", "scene", "core", "game",
 			"gameobject", "editor", "serialize", "script", "resource",
-			"filesystem", "eventmanager", "loc", "gui", "asset"
+			"filesystem", "eventmanager", "loc", "gui", "asset", "platform"
 		};
 
 		//! apply a log cvar's string value ("" = inherit) to the table

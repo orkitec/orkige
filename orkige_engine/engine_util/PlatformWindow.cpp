@@ -91,6 +91,16 @@ namespace Orkige
 			return scale > 0.0f ? scale : 1.0f;
 		}
 		//---------------------------------------------------------
+#if !defined(__linux__)
+		// the X11 implementation lives beside the error guard it exercises, in
+		// engine_util/SDLNativeWindowLinux.cpp; everywhere else there is no
+		// selection protocol to race
+		bool probeDeadClipboardRequestor()
+		{
+			return false;
+		}
+#endif
+		//---------------------------------------------------------
 		void setContentScaleOverride(float scale)
 		{
 			gContentScaleOverride = scale > 0.0f ? scale : 0.0f;

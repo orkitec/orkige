@@ -44,6 +44,15 @@ namespace Orkige
 		ORKIGE_ENGINE_DLL float getContentScale();
 
 		//--- headless test seam ----------------------------------------
+		//! @brief provoke the X11 inter-client selection race, so a selfcheck
+		//! can prove the X error guard survives it. Asks THIS process - which
+		//! must own the clipboard - for the selection from a throwaway second
+		//! display connection, then drops that connection before the answer is
+		//! written: the reply names a window the server has already reaped and
+		//! the server answers with an asynchronous BadWindow, which Xlib's
+		//! default handler would turn into process death. Returns false where
+		//! there is nothing to probe (no X11, or no display to open).
+		ORKIGE_ENGINE_DLL bool probeDeadClipboardRequestor();
 		//! force the content scale regardless of any window (<= 0 clears)
 		ORKIGE_ENGINE_DLL void setContentScaleOverride(float scale);
 		//! force the safe-area insets (in surface pixels) regardless of window

@@ -1313,8 +1313,12 @@ if(TARGET orkige_editor)
     # The Windows CI job (windows-next) runs it against cmd.exe via ConPTY.
     add_test(NAME editor_terminal${ORKIGE_FLAVOR_TEST_SUFFIX}
         COMMAND orkige_editor WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    # RESOURCE_LOCK: the clipboard legs assert the content of the ONE OS
+    # clipboard, so two of them running at once would read each other's probe
+    # string (and on X11 trade selection requests across processes).
     set_tests_properties(editor_terminal${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_TERMINAL_TEST=1"
+        RESOURCE_LOCK os_clipboard
         LABELS integration TIMEOUT 120 SKIP_RETURN_CODE 77)
 
     # embedded terminal REAL-EVENT end to end: the interactive path a seam test
@@ -1327,8 +1331,11 @@ if(TARGET orkige_editor)
     # display; skips (exit 77) when no pty/shell is available. Both flavors.
     add_test(NAME editor_terminal_copy${ORKIGE_FLAVOR_TEST_SUFFIX}
         COMMAND orkige_editor WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    # RESOURCE_LOCK os_clipboard: shares the OS clipboard with editor_terminal
+    # above - the two must never overlap.
     set_tests_properties(editor_terminal_copy${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_TERMINAL_UITEST=${Orkige_SOURCE_DIR}/projects/jumper-lua;ORKIGE_DEMO_FRAMES=700"
+        RESOURCE_LOCK os_clipboard
         LABELS integration TIMEOUT 240 SKIP_RETURN_CODE 77)
 
     # Claude-IDE integration end to end: the editor hosts its IDE endpoint
