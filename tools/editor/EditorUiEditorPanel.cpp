@@ -2052,11 +2052,11 @@ namespace OrkigeEditor
 				"Shift keeps the on-screen rect");
 			ImGui::TableSetColumnIndex(1);
 
-			// cells scale to the value column width (like the text inputs), capped so
-			// they stay square-ish, and the grid is RIGHT-ALIGNED in the column
+			// the grid spans EXACTLY the value column width - the same width as the
+			// text inputs and dropdowns, so the row reads like every other property
+			// row (cells stay square by construction; only a tiny-panel floor)
 			const float availW = ImGui::GetContentRegionAvail().x;
 			float cell = availW / 4.0f;
-			if(cell > 30.0f) { cell = 30.0f; }
 			if(cell < 14.0f) { cell = 14.0f; }
 			const float gridW = cell * 4.0f;
 			const ImVec2 cellStart = ImGui::GetCursorScreenPos();
