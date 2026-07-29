@@ -7331,6 +7331,20 @@ int main(int argc, char** argv)
 							break;
 						}
 						case 48:
+							// a real wheel gesture is a STREAM of ticks; a single
+							// synthetic tick can lose the one-frame race against the
+							// panel's own queued scroll-to-tail write on a slowed
+							// frame cadence, so every settle retry wheels again until
+							// the unpin is observed (the fast path passes on the
+							// first check, keeping the wheel-then-output order of
+							// the preceding steps meaningful)
+							if (tp.followTail)
+							{
+								float sx = 0.0f, sy = 0.0f;
+								tcCell(tp.scrollbackCount + tp.visibleRows / 2,
+									tp.cols / 2, sx, sy);
+								tcWheel(sx, sy, 3.0f);
+							}
 							if (!tcSettle(48, !tp.followTail &&
 								tp.scrollY < tp.scrollMaxY - tp.cellH,
 								"wheel-up did not unpin / the view followed anyway"))
