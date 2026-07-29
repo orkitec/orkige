@@ -16,6 +16,8 @@
 #include <cstdio>
 #include <functional>
 #include <map>
+#include <utility>
+#include <vector>
 
 namespace Orkige
 {
@@ -101,6 +103,13 @@ namespace Orkige
 		//! the project-manifest Settings prefix a persisted cvar rides under
 		//! ("cvar."), so "cvar.roller_gravity" <-> the "roller_gravity" cvar
 		static const String SETTING_PREFIX;
+		//! @brief the environment-variable prefix a per-cvar BOOT SEED rides
+		//! under ("ORKIGE_CVAR_"). One environment variable seeds one cvar:
+		//! ORKIGE_CVAR_<suffix>=<value> sets the cvar named by <suffix> with
+		//! every underscore turned into a dot, so ORKIGE_CVAR_r_planarReflection=0
+		//! seeds the "r.planarReflection" cvar. A general, documented dev/CI hook
+		//! (opens no socket, touches no shipped file) - @see seedFromEnvironment.
+		static const String ENV_PREFIX;
 	private:
 		std::map<String, CVar>	mCVars;			//!< the registry (sorted by name)
 		//! manifest overrides for cvars NOT YET registered (order-independence:
@@ -164,6 +173,35 @@ namespace Orkige
 		//! cvar.registerNumber (registered when the scene's scripts run). Safe to
 		//! call on project load, before or after the owning systems come up.
 		void applySettings(std::map<String, String> const & settings);
+
+		//! @brief PURE: map a full environment-variable NAME to the cvar name(s)
+		//! it would seed. Returns false when envName does not start with
+		//! ENV_PREFIX or carries an empty suffix. On success *outCandidates holds
+		//! the cvar name(s) to try, in priority order: the DOTTED form (every '_'
+		//! -> '.') first, then - only when it differs - the LITERAL suffix
+		//! (underscores kept), so a cvar whose own name contains an underscore
+		//! (e.g. "roller_gravity") stays reachable through ORKIGE_CVAR_roller_gravity
+		//! too. The mapping does no registry lookup (the caller resolves), so it is
+		//! total and unit-testable in isolation.
+		static bool cvarNamesFromEnv(String const & envName,
+			StringVector * outCandidates);
+
+		//! @brief the ENV->CVAR boot seed: scan the process environment for
+		//! ORKIGE_CVAR_* variables and apply each to the registry. Evaluated ONCE
+		//! at boot after the engine/render cvars register, so a seed reaches its
+		//! target cvar and an unknown name is caught. Reads the process
+		//! environment; the work is delegated to the testable overload.
+		void seedFromEnvironment();
+
+		//! @overload the testable seam: seed from an explicit list of
+		//! name=value environment entries instead of the process environment. For
+		//! each ORKIGE_CVAR_* entry the FIRST registered candidate name (@see
+		//! cvarNamesFromEnv) is set through setString (so the value is
+		//! type-validated and the cvar's onChange fires); a value the type rejects
+		//! OR a name no candidate resolves to warns once (honest, never a crash).
+		//! Non-seed entries are ignored.
+		void seedFromEnvironment(
+			std::vector<std::pair<String, String>> const & environment);
 
 		//! @brief fold the CVAR_PERSIST cvars whose value differs from their
 		//! default into the given map as "cvar.<name>" -> value (transient-by-

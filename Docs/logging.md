@@ -58,6 +58,30 @@ Because it is an ordinary cvar, an agent raises a tag over MCP with the existing
 
 The change takes effect immediately (the cvar's `onChange` writes the log table).
 
+## Seeding a cvar from the environment (boot)
+
+Any console variable can be seeded at boot from a per-variable environment
+variable, without editing the project manifest or opening a socket. The name is
+`ORKIGE_CVAR_<suffix>`, and the cvar it seeds is `<suffix>` with **every
+underscore turned into a dot**:
+
+```
+ORKIGE_CVAR_r_planarReflection=0   # seeds the cvar  r.planarReflection = 0
+ORKIGE_CVAR_r_shadowQuality=low    # seeds the cvar  r.shadowQuality = low
+```
+
+A cvar whose own name contains an underscore (e.g. `roller_gravity`) is still
+reachable: the dotted form is tried first, then the literal suffix, so
+`ORKIGE_CVAR_roller_gravity=30` finds `roller_gravity` when no `roller.gravity`
+exists. The seed is **evaluated once at boot**, after the engine/render cvars
+register (`AppHost::setupEngine` → `CVarManager::seedFromEnvironment`): the value
+is type-validated like any `set`, the cvar's `onChange` fires, and a name that
+matches no registered cvar or a value the type rejects emits one honest warning
+and is ignored. It is a general dev/CI hook — not a live per-frame knob. The
+distinct `ORKIGE_CVARS="name=value,name2=value2"` variable seeds a comma-list of
+cvars through the manifest held-override path instead (order-independent with
+script-registered cvars; used by the headless test drivers).
+
 ## Tags in use
 
 `engine`, `render`, `sound`, `physic`, `scene`, `core`, `game`, `gameobject`,

@@ -83,6 +83,17 @@ def main():
         "ORKIGE_PROGRESS_RESET": "1",
         "ORKIGE_PROGRESS_DIR": str(out),
     })
+    # WINDOWS-ONLY quarantine: traverse the mirrorlake vignette without planar
+    # water reflection. The Windows CI host's software-Vulkan driver faults
+    # inside its cold shader-variant compile of the third nested mirror render
+    # (the crash-breadcrumb trail dead-ends at "mirror render #3", ~170ms after
+    # the second render's multi-second variant-compile stall); the fault is in
+    # that driver's compiler, not the engine (Linux/lavapipe and macOS/Metal
+    # never reproduce, real GPUs are unaffected). The mirror FEATURE stays fully
+    # tested through the dedicated gates (water_mirror_wobble,
+    # benchmark_crossflavor_parity_mirror) on every sound-driver platform.
+    if sys.platform == "win32":
+        env["ORKIGE_CVAR_r_planarReflection"] = "0"
     # write the crash-breadcrumb trail beside the run: flushed to disk per
     # entry, so it survives a hard abort even when the last buffered stdout
     # lines are lost - the reliable scene-load trail after an exit 3

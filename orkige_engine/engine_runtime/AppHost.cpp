@@ -466,6 +466,28 @@ namespace Orkige
 				renderSystem->getWorld()->setOutputGrade(desc);
 			});
 
+		// the planar water reflection gate (the r.shadowQuality/r.iblQuality
+		// mold, both flavors): ON by default - opt-in reflective water surfaces
+		// show a MIRROR of the scene (next = the native Ogre::PlanarReflections
+		// subsystem; classic = the screen-space water program). OFF forces every
+		// water material non-reflective, so the reflection subsystem never stands
+		// up and the surface renders its non-mirror sky-reflection fallback (the
+		// same look an unsupported context gives). Read at material-build time,
+		// so a boot seed (ORKIGE_CVAR_r_planarReflection=0) takes effect for the
+		// water surfaces the first scene stands up; not a live per-frame knob.
+		CVarManager::getSingleton().registerCVar("r.planarReflection",
+			CVarType::Bool, "1", CVAR_PERSIST,
+			"enable opt-in planar water reflection (a mirror of the scene in the "
+			"water surface); off renders water with its non-mirror sky-reflection "
+			"fallback and never stands up the reflection subsystem");
+
+		// the ENV->CVAR boot seed: apply any ORKIGE_CVAR_* environment variable
+		// now that every engine/render cvar is registered, so a seed reaches its
+		// target and an unknown name warns honestly (core_debug/CVarManager.h).
+		// A general dev/CI hook; the benchmark tour uses it to quarantine planar
+		// reflection on the one host whose software-Vulkan driver faults on it.
+		CVarManager::getSingleton().seedFromEnvironment();
+
 		if (this->mConfig.createWindowCamera)
 		{
 			// the window camera on a facade rig (the

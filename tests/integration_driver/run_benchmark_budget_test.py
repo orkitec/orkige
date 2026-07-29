@@ -54,6 +54,18 @@ def run_scene(args, scene_file, outdir):
         # camera dependence (the director's automation seams)
         "ORKIGE_CVARS": "benchmark.rampBudgetMs=100000,benchmark.cameraOrbit=0",
     })
+    # WINDOWS-ONLY quarantine: boot mirrorlake (the one budgeted scene with
+    # planar water) without planar reflection - the Windows CI software-Vulkan
+    # driver faults inside the cold variant compile of the third nested mirror
+    # render (the "mirror render #3" breadcrumb dead-end), a driver-compiler
+    # fault, not an engine one. Harmless on the other scenes (none use planar).
+    # The mirrorlake corridor holds under both the planar-ON (macOS/Linux) and
+    # planar-OFF (Windows) recipe: dropping the mirror re-render only LOWERS the
+    # next batch/tri counts, which stay above batchesMin and below the ceilings
+    # (see benchmark_budgets.json mirrorlake note); classic's primary-target
+    # stat never counted the mirror pass, so it is unchanged either way.
+    if sys.platform == "win32":
+        env["ORKIGE_CVAR_r_planarReflection"] = "0"
     cmd = [args.player, "scenes/" + scene_file, "--project",
            os.path.join(args.repo, "projects/benchmark")]
     result = subprocess.run(cmd, cwd=args.repo, env=env,

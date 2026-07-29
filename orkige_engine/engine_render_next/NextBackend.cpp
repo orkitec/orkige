@@ -18,6 +18,7 @@
 #include <core_util/SkyEnvMap.h>
 #include <core_util/PlanarReflectionGuard.h>
 #include <core_debug/Breadcrumbs.h>	// crash-survivable trail at the mid-run mirror init points
+#include <core_debug/CVarManager.h>	// the r.planarReflection gate
 
 #include <OgreRoot.h>
 #include <OgreWindow.h>
@@ -1542,6 +1543,16 @@ namespace Orkige
 	void RenderBackend::noteWaterMaterialPlanarReflective(String const & name,
 		bool reflective, float planeHeightY, float halfSizeX, float halfSizeZ)
 	{
+		// the r.planarReflection gate (default ON) is the single choke point:
+		// OFF treats EVERY surface as non-reflective, so the reflection subsystem
+		// never stands up regardless of caller. The datablock path (@see
+		// createOrUpdateWaterDatablock) reads the same gate so the surface's
+		// non-mirror fallback params match. A boot-seed knob, not per-frame live.
+		if(reflective &&
+			!CVarManager::getSingleton().getBool("r.planarReflection", true))
+		{
+			reflective = false;
+		}
 		if(reflective)
 		{
 			gPlanarReflectiveWaterMaterials.insert(name);
@@ -4051,7 +4062,12 @@ namespace Orkige
 		// stable sky-reflection look. The subsystem + reflection actor stand up
 		// in noteWaterMaterialPlanarReflective; MeshInstance::setMaterial then
 		// registers the Item's renderables so HlmsPbs samples the mirror.
+		// the r.planarReflection gate (default ON): OFF forces the surface
+		// non-reflective so the reflection subsystem never stands up (a boot-
+		// seed quarantine for a host whose driver faults on the mirror path -
+		// @see noteWaterMaterialPlanarReflective).
 		const bool usePlanarReflection = desc.planarReflection &&
+			CVarManager::getSingleton().getBool("r.planarReflection", true) &&
 			RenderBackend::system() &&
 			RenderBackend::system()->supports(RenderCaps::PlanarReflection);
 		if(usePlanarReflection)

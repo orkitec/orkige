@@ -9,16 +9,62 @@
 
 #include "core_debug/CVarManager.h"
 
+#include "core_debug/DebugMacros.h"	// honest warn on an unknown env seed
+
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
+
+// enumerate the process environment for the ORKIGE_CVAR_* boot seed. There is
+// no portable standard call, so reach the platform's environ table directly.
+#if defined(__APPLE__)
+	#include <crt_externs.h>	// _NSGetEnviron (environ is not linkable in a bundle)
+#elif defined(_WIN32)
+	// _environ comes from <stdlib.h> (already via <cstdlib>)
+#else
+	extern char ** environ;	// POSIX
+#endif
 
 namespace Orkige
 {
 	IMPL_OSINGLETON_GETCREATE(CVarManager);
 	//---------------------------------------------------------
 	const String CVarManager::SETTING_PREFIX = "cvar.";
+	const String CVarManager::ENV_PREFIX = "ORKIGE_CVAR_";
 	//---------------------------------------------------------
+	namespace
+	{
+		//! the process environment as name=value pairs, portable across the
+		//! three platforms (an empty list on an implementation without environ)
+		std::vector<std::pair<String, String>> processEnvironment()
+		{
+		#if defined(__APPLE__)
+			char ** env = *_NSGetEnviron();
+		#elif defined(_WIN32)
+			char ** env = _environ;
+		#else
+			char ** env = environ;
+		#endif
+			std::vector<std::pair<String, String>> entries;
+			if (!env)
+			{
+				return entries;
+			}
+			for (char ** cursor = env; *cursor != NULL; ++cursor)
+			{
+				const char * eq = std::strchr(*cursor, '=');
+				if (eq == NULL)
+				{
+					continue;	// no '=' - not a usable assignment
+				}
+				entries.emplace_back(
+					String(*cursor, static_cast<std::size_t>(eq - *cursor)),
+					String(eq + 1));
+			}
+			return entries;
+		}
+	}
 	namespace
 	{
 		//! trim leading/trailing ASCII whitespace
@@ -378,6 +424,78 @@ namespace Orkige
 				// not registered yet: hold the override for registerCVar to
 				// pick up (order-independence)
 				this->mPendingOverrides[name] = it->second;
+			}
+		}
+	}
+	//---------------------------------------------------------
+	bool CVarManager::cvarNamesFromEnv(String const & envName,
+		StringVector * outCandidates)
+	{
+		if (envName.size() <= ENV_PREFIX.size() ||
+			envName.compare(0, ENV_PREFIX.size(), ENV_PREFIX) != 0)
+		{
+			return false;	// not an ORKIGE_CVAR_ seed (or an empty suffix)
+		}
+		const String suffix = envName.substr(ENV_PREFIX.size());
+		// the documented mapping: every '_' in the suffix becomes a '.', so
+		// ORKIGE_CVAR_r_planarReflection -> "r.planarReflection". This is the
+		// primary candidate.
+		String dotted = suffix;
+		for (char & c : dotted)
+		{
+			if (c == '_') { c = '.'; }
+		}
+		if (outCandidates)
+		{
+			outCandidates->clear();
+			outCandidates->push_back(dotted);
+			// a cvar name may itself carry underscores ("roller_gravity"); the
+			// literal suffix reaches it when it differs from the dotted form
+			if (suffix != dotted)
+			{
+				outCandidates->push_back(suffix);
+			}
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	void CVarManager::seedFromEnvironment()
+	{
+		seedFromEnvironment(processEnvironment());
+	}
+	//---------------------------------------------------------
+	void CVarManager::seedFromEnvironment(
+		std::vector<std::pair<String, String>> const & environment)
+	{
+		for (std::vector<std::pair<String, String>>::const_iterator it =
+			environment.begin(), itend = environment.end(); it != itend; ++it)
+		{
+			StringVector candidates;
+			if (!cvarNamesFromEnv(it->first, &candidates) || candidates.empty())
+			{
+				continue;	// not a seed variable
+			}
+			// resolve to the first candidate name that is actually registered
+			String chosen;
+			for (StringVector::const_iterator name = candidates.begin(),
+				nameEnd = candidates.end(); name != nameEnd; ++name)
+			{
+				if (exists(*name)) { chosen = *name; break; }
+			}
+			if (chosen.empty())
+			{
+				oDebugWarning(false, "CVarManager: " << it->first.c_str()
+					<< " names no known cvar (tried '"
+					<< candidates.front().c_str()
+					<< "') - ignoring the environment seed");
+				continue;
+			}
+			String error;
+			if (!setString(chosen, it->second, &error))
+			{
+				oDebugWarning(false, "CVarManager: " << it->first.c_str()
+					<< "='" << it->second.c_str() << "' rejected - "
+					<< error.c_str());
 			}
 		}
 	}

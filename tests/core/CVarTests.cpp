@@ -201,6 +201,73 @@ TEST_CASE("CVarManager applies a manifest override registered LATER",
 	CHECK(manager.getFloat("t_late.g") == 55.0f); // override won over the default
 }
 
+TEST_CASE("CVarManager::cvarNamesFromEnv maps ORKIGE_CVAR_* names",
+	"[cvar][unit]")
+{
+	Orkige::StringVector candidates;
+
+	// the primary mapping: underscores in the suffix become dots (the dotted
+	// form is the first candidate; the literal suffix rides as a fallback since
+	// it differs, so an underscore-named cvar stays reachable too)
+	REQUIRE(CVarManager::cvarNamesFromEnv(
+		"ORKIGE_CVAR_r_planarReflection", &candidates));
+	REQUIRE(candidates.size() == 2);
+	CHECK(candidates[0] == "r.planarReflection");
+	CHECK(candidates[1] == "r_planarReflection");
+
+	// a suffix with no underscore maps to itself (one candidate, no literal dup)
+	REQUIRE(CVarManager::cvarNamesFromEnv("ORKIGE_CVAR_foo", &candidates));
+	REQUIRE(candidates.size() == 1);
+	CHECK(candidates[0] == "foo");
+
+	// a cvar whose own name carries an underscore (roller_gravity) stays
+	// reachable: dotted form first, then the literal suffix
+	REQUIRE(CVarManager::cvarNamesFromEnv(
+		"ORKIGE_CVAR_roller_gravity", &candidates));
+	REQUIRE(candidates.size() == 2);
+	CHECK(candidates[0] == "roller.gravity");
+	CHECK(candidates[1] == "roller_gravity");
+
+	// non-seed and empty-suffix names are rejected
+	CHECK_FALSE(CVarManager::cvarNamesFromEnv("PATH", &candidates));
+	CHECK_FALSE(CVarManager::cvarNamesFromEnv("ORKIGE_CVAR_", &candidates));
+	CHECK_FALSE(CVarManager::cvarNamesFromEnv("ORKIGE_CVARS", &candidates));
+}
+
+TEST_CASE("CVarManager::seedFromEnvironment applies registered seeds",
+	"[cvar][unit]")
+{
+	CVarManager & manager = CVarManager::getSingleton();
+	// dotted names (the r.planarReflection / r.shadowQuality shape): a single
+	// underscore in the env suffix maps straight to the dot
+	manager.registerCVar("tenv.gate", CVarType::Bool, "1");
+	manager.registerCVar("tenv.count", CVarType::Int, "3");
+	// a cvar whose name itself carries an underscore (roller_gravity shape): the
+	// dotted candidate misses, the literal-suffix candidate hits
+	manager.registerCVar("tenv_under", CVarType::Int, "0");
+
+	std::vector<std::pair<String, String>> env = {
+		{"ORKIGE_CVAR_tenv_gate", "0"},			// "tenv.gate" (dotted) hits
+		{"ORKIGE_CVAR_tenv_count", "9"},		// "tenv.count" (dotted) hits
+		{"ORKIGE_CVAR_tenv_under", "7"},		// "tenv.under" misses, literal hits
+		{"PATH", "/should/be/ignored"},			// not a seed
+		{"ORKIGE_CVAR_tenv_ghost", "1"},		// unknown cvar: warns, no crash
+	};
+	manager.seedFromEnvironment(env);
+
+	CHECK(manager.getBool("tenv.gate") == false);	// "0" applied
+	CHECK(manager.getInt("tenv.count") == 9);		// dotted candidate resolved
+	CHECK(manager.getInt("tenv_under") == 7);		// literal candidate resolved
+	CHECK_FALSE(manager.exists("tenv.ghost"));		// unknown stayed unregistered
+
+	// a value the type rejects is dropped (warned), the cvar is untouched
+	std::vector<std::pair<String, String>> bad = {
+		{"ORKIGE_CVAR_tenv_count", "notanumber"},
+	};
+	manager.seedFromEnvironment(bad);
+	CHECK(manager.getInt("tenv.count") == 9);		// unchanged
+}
+
 TEST_CASE("CVarCommand grammar drives the registry", "[cvar][unit]")
 {
 	CVarManager & manager = CVarManager::getSingleton();

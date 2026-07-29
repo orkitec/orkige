@@ -23,6 +23,7 @@
 #include "engine_graphic/Engine.h"
 #include <core_util/SkyEnvMap.h>
 #include "engine_filesystem/PakMount.h"
+#include <core_debug/CVarManager.h>	// the r.planarReflection gate
 #include <core_debug/DebugMacros.h>
 
 #include <algorithm>
@@ -2200,6 +2201,7 @@ namespace Orkige
 		// scene becomes the base the reflection sits over. This REPLACES the
 		// RTSS-lit water below; off/unsupported -> the byte-stable Stage-1 look.
 		if(desc.planarReflection &&
+			CVarManager::getSingleton().getBool("r.planarReflection", true) &&
 			RenderBackend::screenSpacePlanarReflectionSupported() &&
 			!desc.normalTexture.empty())
 		{
