@@ -168,6 +168,26 @@ TEST_CASE("terminal glyph codepoints are baked in the icon atlas ranges",
 	CHECK(codepointInRanges(terminalGlyphCodepoint(TerminalGlyphClass::Agent)));
 }
 
+TEST_CASE("terminal mouse->cell hit test survives absurd coordinates",
+	"[unit][editor][terminal]")
+{
+	// a headless/unplaced ImGui rect can hand back +/-FLT_MAX-ish positions;
+	// the division then overflows int and the cast would be undefined behavior
+	// (the sanitizer's catch) - the float-space clamp keeps every input safe
+	{
+		const TerminalGridPoint h = terminalCellAtPoint(
+			3.0e38f, -3.0e38f, 0.0f, 0.0f, 0.01f, 0.01f, 80, 30);
+		CHECK(h.col == 80);
+		CHECK(h.line == 0);
+	}
+	{
+		const TerminalGridPoint h = terminalCellAtPoint(
+			-3.0e38f, 3.0e38f, 0.0f, 0.0f, 0.01f, 0.01f, 80, 30);
+		CHECK(h.col == 0);
+		CHECK(h.line == 29);
+	}
+}
+
 TEST_CASE("terminal mouse->cell hit test clamps to the grid",
 	"[unit][editor][terminal]")
 {

@@ -414,19 +414,29 @@ namespace OrkigeEditor
 	TerminalGridPoint terminalCellAtPoint(float px, float py, float originX,
 		float originY, float cellW, float cellH, int cols, int totalLines)
 	{
+		// clamp in FLOAT space BEFORE the int cast: a garbage coordinate (an
+		// unplaced ImGui rect in a headless session hands back +/-FLT_MAX-ish
+		// positions) divided by a small cell size overflows int, and casting
+		// that is undefined behavior - the sanitizer caught exactly this. The
+		// clamp bounds are tiny, so the float->int cast is always in range.
 		TerminalGridPoint out;
+		const int lineHi = (totalLines > 0) ? totalLines - 1 : 0;
+		const int colHi = std::max(0, cols);
 		if (cellH > 0.0f)
 		{
-			out.line = static_cast<int>(std::floor((py - originY) / cellH));
+			const float raw = std::floor((py - originY) / cellH);
+			out.line = static_cast<int>(
+				std::min(std::max(raw, 0.0f), static_cast<float>(lineHi)));
 		}
 		if (cellW > 0.0f)
 		{
-			out.col = static_cast<int>(std::floor((px - originX) / cellW));
+			const float raw = std::floor((px - originX) / cellW);
+			// cols is a valid stop: a selection END is exclusive of its cell
+			out.col = static_cast<int>(
+				std::min(std::max(raw, 0.0f), static_cast<float>(colHi)));
 		}
-		const int lineHi = (totalLines > 0) ? totalLines - 1 : 0;
 		out.line = std::max(0, std::min(out.line, lineHi));
-		// cols is a valid stop: a selection END is exclusive of the cell it names
-		out.col = std::max(0, std::min(out.col, std::max(0, cols)));
+		out.col = std::max(0, std::min(out.col, colHi));
 		return out;
 	}
 
