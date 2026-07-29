@@ -836,4 +836,59 @@ namespace OrkigeEditor
 		const float maxScroll = contentHeight - viewHeight;
 		return maxScroll > 0.0f ? maxScroll : 0.0f;
 	}
+
+	bool TerminalInputQueue::push(char const* data, std::size_t len)
+	{
+		if (data == nullptr || len == 0)
+		{
+			return true;
+		}
+		if (this->pending() + len > mCapacity)
+		{
+			return false;	// refuse rather than lose a fragment silently
+		}
+		// compact first so the buffer tracks what is actually pending instead of
+		// growing with every hand-over (a long session pastes many times)
+		if (mOffset > 0)
+		{
+			mBytes.erase(0, mOffset);
+			mOffset = 0;
+		}
+		mBytes.append(data, len);
+		return true;
+	}
+
+	bool TerminalInputQueue::drain(Sink sink, void* context)
+	{
+		if (sink == nullptr)
+		{
+			return false;
+		}
+		while (this->pending() > 0)
+		{
+			const std::ptrdiff_t taken = sink(context, mBytes.data() + mOffset,
+				this->pending());
+			if (taken < 0)
+			{
+				return false;	// broken pipe - the caller tears the session down
+			}
+			if (taken == 0)
+			{
+				break;			// the child's input is full for now; keep the rest
+			}
+			mOffset += static_cast<std::size_t>(taken);
+		}
+		if (mOffset > 0 && mOffset >= mBytes.size())
+		{
+			mBytes.clear();
+			mOffset = 0;
+		}
+		return true;
+	}
+
+	void TerminalInputQueue::clear()
+	{
+		mBytes.clear();
+		mOffset = 0;
+	}
 }

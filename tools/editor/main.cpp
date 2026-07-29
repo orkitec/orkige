@@ -111,6 +111,7 @@
 #include "EditorUiEditorPanel.h"
 #include "EditorSourceControlPanel.h"
 #include "EditorTerminalPanel.h"
+#include "EditorNativeKeyInject.h"
 #include "MeshPreviewStage.h"
 
 #include <algorithm>
@@ -2157,6 +2158,14 @@ int main(int argc, char** argv)
 		int termCopyOpenHitCol = -1;
 		std::string termCopyOpenReq;
 		int termCopyOpenReqLine = 0;
+		// the INTERRUPT leg (POSIX): a line-echoing child is started by TYPING
+		// (synthetic SDL text + key events), then physical Ctrl+C must reach it as
+		// SIGINT. `$?` reported as 130 by the shell is the proof - a still-alive
+		// child would echo the literal `$?` text instead.
+		const std::string termCopyJunk = "JUNKPASTE99";
+		const std::string termCopyIntMarker = "INT130K";
+		bool termCopyCtrlSynthetic = false;	// no native key seam / no OS focus
+		int termCopyFocusWait = 0;			// frames waited for OS keyboard focus
 
 		// ORKIGE_EDITOR_SCRIPTTEST=<roller project dir>: the editor-scripts
 		// selfcheck (editor_scripts ctest). Frame 10 copies the project, writes
@@ -7038,11 +7047,11 @@ int main(int argc, char** argv)
 						running = false;
 					};
 					const int tcBudget = 40;
-					auto tcSettle = [&](int stepId, bool cond,
+					auto tcSettleFor = [&](int stepId, int budget, bool cond,
 						char const* why) -> bool
 					{
 						if (cond) { termCopySettleHold = 0; return true; }
-						if (++termCopySettleHold <= tcBudget)
+						if (++termCopySettleHold <= budget)
 						{
 							termCopyStep = stepId - 1;	// re-run this step next frame
 							return false;
@@ -7050,6 +7059,21 @@ int main(int argc, char** argv)
 						termCopySettleHold = 0;
 						tcFail(why);
 						return false;
+					};
+					auto tcSettle = [&](int stepId, bool cond,
+						char const* why) -> bool
+					{
+						return tcSettleFor(stepId, tcBudget, cond, why);
+					};
+					// the interrupt leg waits on a REAL shell round trip (spawn a
+					// child, deliver a signal, print a new prompt), not on a
+					// screen-side write, so it gets a far longer frame budget - the
+					// editor renders vsync-free under an automated run
+					const int tcShellBudget = 600;
+					auto tcSettleShell = [&](int stepId, bool cond,
+						char const* why) -> bool
+					{
+						return tcSettleFor(stepId, tcShellBudget, cond, why);
 					};
 					OrkigeEditor::TerminalPanelProbe const& tp =
 						OrkigeEditor::terminalPanelProbe();
@@ -7104,6 +7128,24 @@ int main(int argc, char** argv)
 						e.key.windowID = SDL_GetWindowID(window);
 						e.key.key = key; e.key.scancode = sc; e.key.mod = mod;
 						e.key.down = down; e.key.repeat = false;
+						SDL_PushEvent(&e);
+					};
+					// typed TEXT the way a keyboard delivers it: SDL_EVENT_TEXT_INPUT
+					// (the IME queue the terminal reads printable input from). SDL
+					// only frees an event's string when it owns it, so a static ring
+					// of buffers keeps the borrowed pointer valid until the poll loop
+					// consumes the event.
+					auto tcText = [&](char const* text)
+					{
+						static char buffers[4][64];
+						static int slot = 0;
+						char* buffer = buffers[slot];
+						slot = (slot + 1) % 4;
+						std::snprintf(buffer, sizeof(buffers[0]), "%s", text);
+						SDL_Event e = {};
+						e.type = SDL_EVENT_TEXT_INPUT;
+						e.text.windowID = SDL_GetWindowID(window);
+						e.text.text = buffer;
 						SDL_PushEvent(&e);
 					};
 					auto tcCell = [&](int line, int col, float& sx, float& sy)
@@ -7369,13 +7411,13 @@ int main(int argc, char** argv)
 							SDL_Log("orkige_editor: terminal follow-tail leg PASSED "
 								"- pin/unpin/re-pin proven through the true ImGui "
 								"path");
-							// no project open -> skip the path-open leg and finish
+							// no project open -> skip the path-open leg, go straight
+							// to the interrupt leg (step 78)
 							if (!termCopyProjectOpen)
 							{
-								SDL_Log("orkige_editor: terminal-copy selfcheck "
-									"PASSED (path-open leg skipped: no project)");
-								termCopyPhase = TermCopyPhase::Done;
-								running = false;
+								SDL_Log("orkige_editor: terminal path-open leg "
+									"skipped (no project)");
+								termCopyStep = 77;
 							}
 							break;
 						// ---- Cmd/Ctrl+click path-open leg (same real panel) -------
@@ -7463,29 +7505,185 @@ int main(int argc, char** argv)
 							tcKey(false, SDLK_LCTRL, SDL_SCANCODE_LCTRL,
 								SDL_KMOD_NONE);
 						#endif
+							SDL_Log("orkige_editor: terminal path-open leg PASSED "
+								"- Cmd/Ctrl+click opened %s:%d",
+								termCopyOpenReq.c_str(), termCopyOpenReqLine);
+							break;
+						}
+						// ---- physical Ctrl+C interrupt leg (same real panel) ------
+						// Everything above is the EDITOR's own chords; this is the
+						// opposite contract: a C0 control code must travel the same
+						// real key path into the CHILD. Type a line-echoing filter,
+						// feed it a junk line (proving it consumes input), then press
+						// physical Ctrl+C and ask the shell for the exit status - 130
+						// is SIGINT. POSIX only: a ConPTY console has no cat/ISIG
+						// semantics to assert.
+						case 78:
+						#if defined(_WIN32)
+							SDL_Log("orkige_editor: terminal interrupt leg skipped "
+								"(POSIX-only: no cat/ISIG semantics on a console pty)");
+							termCopyStep = 122;	// jump to the finish
+						#else
+							tcText("cat");
+						#endif
+							break;
+						case 81:
+							tcKey(true, SDLK_RETURN, SDL_SCANCODE_RETURN,
+								SDL_KMOD_NONE);
+							break;
+						case 84:
+							tcKey(false, SDLK_RETURN, SDL_SCANCODE_RETURN,
+								SDL_KMOD_NONE);
+							break;
+						case 87:
+							tcText(termCopyJunk.c_str());
+							break;
+						case 90:
+							tcKey(true, SDLK_RETURN, SDL_SCANCODE_RETURN,
+								SDL_KMOD_NONE);
+							break;
+						case 93:
+							tcKey(false, SDLK_RETURN, SDL_SCANCODE_RETURN,
+								SDL_KMOD_NONE);
+							break;
+						case 96:
+							// TWO occurrences: the tty echo of the typed line plus
+							// the filter's own copy of it - the child is alive and
+							// consuming typed input
+							if (!tcSettleShell(96,
+								OrkigeEditor::terminalPanelTestCount(
+									termCopyJunk) >= 2,
+								"typed text never round-tripped through the child "
+								"(the leg needs a live line-echoing filter)"))
+							{
+								break;
+							}
+							break;
+						case 99:
+							// where the platform offers a native key seam, the chord
+							// is posted as a REAL key event so it walks the platform's
+							// own keyboard translation (on macOS every key-down is run
+							// through the AppKit field editor before SDL sees it - a
+							// fabricated SDL_Event skips that layer entirely). Such an
+							// event only reaches an app that HOLDS keyboard focus, so
+							// take it first.
+							OrkigeEditor::nativeActivateApp();
+							break;
+						case 102:
+						{
+							const bool osFocused = SDL_GetKeyboardFocus() == window;
+							if (!osFocused && ++termCopyFocusWait <= 120)
+							{
+								termCopyStep = 101;	// re-check next frame
+								break;
+							}
+							// no OS keyboard focus available here (a locked screen, a
+							// headless runner): drive the fabricated-event path
+							// instead, and say so rather than fail for the wrong
+							// reason
+							termCopyCtrlSynthetic = !osFocused;
+							if (termCopyCtrlSynthetic)
+							{
+								SDL_Log("orkige_editor: terminal interrupt leg uses "
+									"fabricated key events (no OS keyboard focus)");
+							}
+							break;
+						}
+						case 105:
+							// PHYSICAL Ctrl+C. Ctrl is the control-code modifier on
+							// EVERY platform - macOS un-swaps it in the panel, where
+							// Cmd stays copy/paste - so the chord is the same one
+							// everywhere. The fallback sends the modifier as its own
+							// event first, the way real hardware does.
+							if (termCopyCtrlSynthetic ||
+								!OrkigeEditor::nativePostKeyChord('c', true, false))
+							{
+								termCopyCtrlSynthetic = true;
+								tcKey(true, SDLK_LCTRL, SDL_SCANCODE_LCTRL,
+									SDL_KMOD_LCTRL);
+								tcKey(true, SDLK_C, SDL_SCANCODE_C, SDL_KMOD_LCTRL);
+							}
+							break;
+						case 108:
+							if (termCopyCtrlSynthetic)
+							{
+								tcKey(false, SDLK_C, SDL_SCANCODE_C, SDL_KMOD_LCTRL);
+								tcKey(false, SDLK_LCTRL, SDL_SCANCODE_LCTRL,
+									SDL_KMOD_NONE);
+							}
+							break;
+						case 111:
+							// ask the SHELL for the interrupted child's status: an
+							// interrupted foreground job reports 130 (128 + SIGINT).
+							// A still-running filter would echo this line verbatim
+							// instead, so the two outcomes never look alike.
+							tcText("echo INT$?K");
+							break;
+						case 114:
+							tcKey(true, SDLK_RETURN, SDL_SCANCODE_RETURN,
+								SDL_KMOD_NONE);
+							break;
+						case 117:
+							tcKey(false, SDLK_RETURN, SDL_SCANCODE_RETURN,
+								SDL_KMOD_NONE);
+							break;
+						case 120:
+						{
+							const bool interrupted =
+								OrkigeEditor::terminalPanelTestFind(
+									termCopyIntMarker).line >= 0;
+							if (!interrupted &&
+								termCopySettleHold >= tcShellBudget)
+							{
+								// name the tier: did the chord even reach the input
+								// path, and did it write a control code?
+								SDL_Log("orkige_editor: terminal-interrupt diag - "
+									"physCtrl=%d physCmd=%d ctrlBytesSent=%d "
+									"junkLines=%d focused=%d",
+									tp.physicalCtrl ? 1 : 0, tp.physicalCmd ? 1 : 0,
+									tp.controlCharsSent,
+									OrkigeEditor::terminalPanelTestCount(
+										termCopyJunk),
+									tp.windowFocused ? 1 : 0);
+							}
+							if (!tcSettleShell(120, interrupted,
+								"physical Ctrl+C did not interrupt the foreground "
+								"child (no 130 exit status - the interactive "
+								"interrupt bug)"))
+							{
+								break;
+							}
+							SDL_Log("orkige_editor: terminal interrupt leg PASSED "
+								"- physical Ctrl+C reached the child as SIGINT "
+								"(status 130) through the %s key path",
+								termCopyCtrlSynthetic ? "fabricated-event"
+									: "real native");
+							break;
+						}
+						case 123:
 							SDL_Log("orkige_editor: terminal-copy selfcheck PASSED "
-								"- real-event copy, follow-tail AND Cmd/Ctrl+click "
-								"path-open (%s:%d) proven through the true ImGui "
-								"path", termCopyOpenReq.c_str(),
-								termCopyOpenReqLine);
+								"- real-event copy, follow-tail, Cmd/Ctrl+click "
+								"path-open AND the physical Ctrl+C interrupt proven "
+								"through the true ImGui path");
 							termCopyPhase = TermCopyPhase::Done;
 							running = false;
 							break;
-						}
 						default: break;
 						}
 						++termCopyStep;
 					}
 					if (termCopyPhase != TermCopyPhase::Done && exitCode == 0 &&
-						frameCount >= 640)
+						frameCount >= 2600)
 					{
 						SDL_Log("orkige_editor: terminal-copy diag - step=%d "
 							"front=%d spawned=%d focused=%d sel=%d selText='%s' "
-							"followTail=%d scrollY=%.1f scrollMax=%.1f",
+							"followTail=%d scrollY=%.1f scrollMax=%.1f "
+							"physCtrl=%d ctrlBytesSent=%d",
 							termCopyStep, tp.hasFrontSession ? 1 : 0,
 							tp.spawned ? 1 : 0, tp.windowFocused ? 1 : 0,
 							tp.hasSelection ? 1 : 0, tp.selectionText.c_str(),
-							tp.followTail ? 1 : 0, tp.scrollY, tp.scrollMaxY);
+							tp.followTail ? 1 : 0, tp.scrollY, tp.scrollMaxY,
+							tp.physicalCtrl ? 1 : 0, tp.controlCharsSent);
 						tcFail("selfcheck did not complete before the deadline");
 					}
 				}

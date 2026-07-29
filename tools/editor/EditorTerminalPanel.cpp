@@ -471,6 +471,13 @@ namespace
 		const bool physicalCmd = io.KeySuper;
 		const bool physicalCtrl = io.KeyCtrl;
 	#endif
+		if (gTerminalAutomatedUiTest)
+		{
+			// publish the modifier state exactly as this path reads it, so a
+			// failing interrupt leg can say whether the chord arrived at all
+			gTerminalProbe.physicalCtrl = physicalCtrl;
+			gTerminalProbe.physicalCmd = physicalCmd;
+		}
 	#if defined(__APPLE__)
 		// Cmd+C / Cmd+V are copy/paste; Ctrl+C/V stay C0 control codes below
 		const bool copyChord =
@@ -585,6 +592,10 @@ namespace
 					{
 						s.pty->write(bytes);
 						sentInput = true;
+						if (gTerminalAutomatedUiTest)
+						{
+							++gTerminalProbe.controlCharsSent;
+						}
 					}
 				}
 			}
@@ -604,6 +615,10 @@ namespace
 			return false;
 		}
 		bool gotOutput = false;
+		// hand over input the child could not take earlier: a paste larger than
+		// the tty's input queue (about a kilobyte) travels across frames, and
+		// this is the frame boundary that keeps it moving
+		s.pty->flushPendingWrites();
 		std::size_t total = 0;
 		std::vector<char> buffer(4096);
 		while (total < kReadCap)
@@ -1443,6 +1458,40 @@ namespace OrkigeEditor
 		return hit;
 	}
 
+	int terminalPanelTestCount(std::string const& needle)
+	{
+		if (needle.empty())
+		{
+			return 0;
+		}
+		TerminalSession* front = nullptr;
+		for (auto& s : panel().sessions)
+		{
+			if (s && s->spawned && s->screen)
+			{
+				front = s.get();
+				break;
+			}
+		}
+		if (front == nullptr)
+		{
+			return 0;
+		}
+		const int sb = front->screen->scrollbackCount();
+		const int totalLines = sb + front->rows;
+		int found = 0;
+		for (int line = 0; line < totalLines; ++line)
+		{
+			// absoluteLineText is the SAME column-preserving row text the find
+			// above builds (one char per cell, non-ASCII reads as a space)
+			if (absoluteLineText(*front, line).find(needle) != std::string::npos)
+			{
+				++found;
+			}
+		}
+		return found;
+	}
+
 	void terminalPanelShutdown()
 	{
 		TerminalPanelState& p = panel();
@@ -1577,6 +1626,7 @@ namespace OrkigeEditor
 			std::vector<char> buf(4096);
 			while (steady_clock::now() < deadline)
 			{
+				pty->flushPendingWrites();	// keep a queued paste moving
 				const std::size_t n = pty->read(buf.data(), buf.size());
 				if (n > 0)
 				{
@@ -1598,6 +1648,7 @@ namespace OrkigeEditor
 			std::vector<char> buf(4096);
 			while (steady_clock::now() < deadline)
 			{
+				pty->flushPendingWrites();	// keep a queued paste moving
 				const std::size_t n = pty->read(buf.data(), buf.size());
 				if (n > 0)
 				{
@@ -1740,6 +1791,49 @@ namespace OrkigeEditor
 					!= std::string::npos;
 			}),
 			"pasted bytes reach the pty and echo back through the grid");
+
+		// 2d) a LARGE paste is handed over WHOLE. A tty accepts only about a
+		//     kilobyte of pending input at a time, so one write call cannot
+		//     place a big paste: the remainder has to be queued and handed over
+		//     as the child drains it. A truncated paste is not merely missing
+		//     text - it strands the app mid-sequence, and a bracketed paste
+		//     whose closing marker never arrives swallows every later keystroke,
+		//     the interrupt included.
+		{
+			std::string bulk;
+			while (bulk.size() < 8000)
+			{
+				bulk += "pastebulk pastebulk pastebulk pastebulk\n";
+			}
+			bulk += "PASTETAIL\n";
+			pty->write(bulk);
+			check(pumpUntil(8000, [&]
+				{
+					return screen.dumpVisible().find("PASTETAIL")
+						!= std::string::npos;
+				}),
+				"a large paste reaches the child whole (nothing truncated)");
+			check(pty->pendingWriteBytes() == 0,
+				"the queued paste drained completely");
+		}
+
+		// 2e) the INTERRUPT round trip, right behind that burst: the encoded C0
+		//     code reaches the tty, the tty signals the foreground child and the
+		//     shell reports the status. Send it and ask for the filter's exit
+		//     status - 130 is 128 + SIGINT. A still-running filter would echo the
+		//     question back verbatim, so the two outcomes cannot be confused.
+		{
+			TermMods ctrl;
+			ctrl.ctrl = true;
+			pty->write(encodeControlChar('c', ctrl));
+			pty->write("echo INT$?K\n");
+			check(pumpUntil(8000, [&]
+				{
+					return screen.dumpVisible().find("INT130K")
+						!= std::string::npos;
+				}),
+				"an interrupt sent behind a large paste still reaches the child");
+		}
 	#endif
 
 		// the child must still be ALIVE here - a shell that died early (broken

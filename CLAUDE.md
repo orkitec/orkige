@@ -1175,15 +1175,25 @@ look when touching one:
   runtime-generated brand marks render as PUA custom font-atlas rects.
   Copy = drag-select + the platform chord (macOS un-swaps ImGui's Cmd↔Ctrl at
   the event layer so Cmd+C never reaches the shell as SIGINT), Cmd/Ctrl+click
-  opens a printed path[:line] in the script editor. Sessions inherit the MCP
-  discovery env, so an agent launched inside finds the editor with zero setup.
-  On Linux a process-wide X error guard (`SDLNativeWindowLinux.cpp`) keeps the
-  inherently-racy clipboard-answer BadWindow from killing any SDL-hosted app.
+  opens a printed path[:line] in the script editor. Input is QUEUED, never
+  truncated: a tty takes only ~1 KB of pending input, so `TerminalPty::write`
+  hands bytes to the pure FIFO `TerminalInputQueue` and the frame boundary
+  offers the remainder (`flushPendingWrites`) — dropping a tail strands the app
+  mid-sequence, and a bracketed paste missing its closing `ESC[201~` makes the
+  shell swallow every later keystroke, the interrupt included. Sessions inherit
+  the MCP discovery env, so an agent launched inside finds the editor with zero
+  setup. On Linux a process-wide X error guard (`SDLNativeWindowLinux.cpp`) keeps
+  the inherently-racy clipboard-answer BadWindow from killing any SDL-hosted app.
   Verified by the headless `editor_terminal` selfcheck (spawn/echo/UTF-8
-  multibyte/SGR/exit + the dead-requestor clipboard probe), the REAL-EVENT
-  `editor_terminal_copy` ctest (drag+chord+clipboard, wheel follow-tail,
-  path-open — both share a ctest `os_clipboard` RESOURCE_LOCK) and the
-  `EditorTerminalSessionTests` units, both flavors.
+  multibyte/SGR/exit + the dead-requestor clipboard probe + a >1 KB paste
+  arriving whole and the interrupt behind it landing as status 130), the
+  REAL-EVENT `editor_terminal_copy` ctest (drag+chord+clipboard, wheel
+  follow-tail, path-open and a typed-`cat`-then-physical-Ctrl+C interrupt —
+  posted on macOS as a REAL native key event through
+  `EditorNativeKeyInject.mm`, the only in-process way to walk the AppKit
+  keyboard translation a fabricated SDL_Event skips; both share a ctest
+  `os_clipboard` RESOURCE_LOCK) and the `EditorTerminalSessionTests` units, both
+  flavors.
 - **Claude IDE protocol** (`Docs/claude-ide.md`; editor-only, interactive
   sessions): the editor announces itself as an IDE — it writes
   `~/.claude/ide/<port>.lock` (pid, workspaceFolders, transport, auth token)

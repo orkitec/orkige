@@ -138,6 +138,20 @@ focused code editor swallows them):
   are `Ctrl+Shift+C` / `Ctrl+Shift+V`, leaving `Ctrl+C`/`Ctrl+V` as control
   codes.
 
+Input is **queued, never truncated**. A terminal accepts only about a kilobyte of
+pending input at a time, so a burst bigger than that — any sizeable paste — cannot
+be handed over in one go: `TerminalPty::write` appends to a FIFO queue
+(`TerminalInputQueue`), passes on as much as the child takes right now and offers
+the remainder again at every frame boundary beside the output drain
+(`flushPendingWrites`). Order is the contract, so a control code typed afterwards
+arrives after — never instead of — what is already queued, and it cannot be lost
+while the child's input is briefly full. Losing a tail would be worse than
+missing text: it strands the receiving app mid-sequence, and a bracketed paste
+whose closing `ESC [ 201~` never arrives makes the shell treat every later
+keystroke as pasted text, the interrupt included. A child that never reads is
+bounded by the queue capacity, past which further writes are refused whole (one
+honest warning) rather than half-delivered.
+
 ## Copy and paste
 
 Copy/paste go through the **OS pasteboard** (via SDL), so text moves between the
@@ -234,7 +248,11 @@ never stalls. Closing a window or quitting the editor terminates the child.
   a real pty running a scripted echo, asserts the grid seam (printed text + SGR
   colour reach the cells), types a known word through the input seam and asserts
   the child echoed it back, drives the **paste** seam (encoding + the pasted
-  bytes reach the pty and echo), the **copy** seam (selection text + the OS
+  bytes reach the pty and echo, and a paste far larger than the terminal's input
+  queue arrives WHOLE with nothing left pending), the **interrupt** round trip
+  behind that burst (the C0 code signals the foreground child and the shell
+  reports status 130 — a still-running filter would echo the question verbatim
+  instead), the **copy** seam (selection text + the OS
   clipboard round trip via SDL, with the user's clipboard saved and restored so a
   test run leaves nothing behind), the **reply** channel (DA / cursor-position
   answered), the **font coverage** (the mono atlas bakes box drawing, block,
@@ -252,6 +270,10 @@ never stalls. Closing a window or quitting the editor terminates the child.
 
 - Resizing the panel re-flows the live grid but NOT the retained scrollback
   (older pushed-off lines keep their old width).
+- Input larger than the terminal's input queue travels across frames at roughly
+  what the terminal accepts per frame (about a kilobyte), so a multi-megabyte
+  paste takes a visible moment to finish landing. It lands COMPLETE and the UI
+  thread never blocks, which is the trade: the alternative is a frozen editor.
 - Mouse reporting to the app is not forwarded (the app's mouse-tracking request
   is detected but only affects nothing yet); selection is the mouse's job.
 - Glyph width follows the mono font's coverage; a wide glyph spans two cells but

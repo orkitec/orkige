@@ -211,6 +211,11 @@ if(APPLE)
     # NSWindow backgroundColor fixup for the rounded-corner slivers (ObjC++)
     target_sources(orkige_editor PRIVATE
         EditorWindowChrome.h EditorWindowChrome.mm)
+    # real-NSEvent key injection for the real-event terminal selfcheck (ObjC++):
+    # the only in-process way to walk the AppKit keyboard translation a
+    # fabricated SDL_Event skips
+    target_sources(orkige_editor PRIVATE
+        EditorNativeKeyInject.h EditorNativeKeyInject.mm)
     target_link_libraries(orkige_editor PRIVATE "-framework AppKit")
 
     # a proper .app bundle (Orkige.app): Dock/Cmd-Tab icon + name instead of

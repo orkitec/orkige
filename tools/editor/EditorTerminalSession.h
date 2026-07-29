@@ -19,6 +19,7 @@
 //! here is a value-in/value-out function so it is unit-tested headlessly
 //! (EditorTerminalSessionTests) with no ImGui, no pty and no VT library.
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -274,6 +275,56 @@ namespace OrkigeEditor
 	//! drag that leaves the visible rows still extends the selection deterministically.
 	TerminalGridPoint terminalCellAtPoint(float px, float py, float originX,
 		float originY, float cellW, float cellH, int cols, int totalLines);
+
+	//! a FIFO byte queue in front of a pty's input. A terminal accepts only a
+	//! small amount of pending input at a time (a tty's input queue is about a
+	//! kilobyte), so a paste - or any burst larger than that - cannot be handed
+	//! over in one call: the remainder must be kept, in order, and offered again
+	//! as the child drains it. Losing the tail is never harmless. It strands the
+	//! app mid-sequence, and once a bracketed paste's closing marker is gone the
+	//! shell treats everything after it as pasted text - INCLUDING the interrupt
+	//! byte, so Ctrl+C stops working until the marker arrives.
+	//!
+	//! Pure: the transport is a callback, so the ordering, partial-accept and
+	//! capacity rules are unit-tested with no pty (EditorTerminalSessionTests).
+	class TerminalInputQueue
+	{
+	public:
+		//! how much unsent input may pile up before further bytes are refused
+		//! (a child that never reads must not grow the editor's memory without
+		//! bound). Generous next to any realistic paste.
+		static constexpr std::size_t DEFAULT_CAPACITY = 8u * 1024u * 1024u;
+
+		explicit TerminalInputQueue(std::size_t capacity = DEFAULT_CAPACITY)
+			: mCapacity(capacity) {}
+
+		//! @brief append @p len bytes to the tail of the queue. Returns false
+		//! (queuing NOTHING) when that would exceed the capacity - the honest
+		//! refusal a caller can report instead of silently losing a fragment.
+		bool push(char const* data, std::size_t len);
+
+		//! @brief the transport: hand @p len bytes at @p data to the child.
+		//! Returns how many were accepted (0 when the child's input is full
+		//! right now) or -1 when the pipe is broken.
+		using Sink = std::ptrdiff_t (*)(void* context, char const* data,
+			std::size_t len);
+
+		//! @brief offer the queued bytes to @p sink until it stops accepting.
+		//! Accepted bytes leave the queue in order; the rest stays for the next
+		//! call. Returns false when the sink reported a broken pipe.
+		bool drain(Sink sink, void* context);
+
+		//! how many bytes are still waiting to be handed over
+		std::size_t pending() const { return mBytes.size() - mOffset; }
+
+		//! drop everything queued (the child is gone)
+		void clear();
+
+	private:
+		std::string	mBytes;			//!< the queued bytes; [mOffset, size) pending
+		std::size_t	mOffset = 0;	//!< how far into mBytes the child has taken
+		std::size_t	mCapacity;
+	};
 }
 
 #endif //__EditorTerminalSession_h__28_7_2026__12_00_00__

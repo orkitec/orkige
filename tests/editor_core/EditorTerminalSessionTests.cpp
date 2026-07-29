@@ -596,6 +596,123 @@ TEST_CASE("terminal follow: an active selection freezes the pin",
 	CHECK_FALSE(selInput.pinToBottom);
 }
 
+// ---- the input queue in front of the pty ---------------------------------
+namespace
+{
+	//! a sink standing in for a real terminal: its input buffer holds only
+	//! `space` more bytes (a tty's is about a kilobyte) and refills only when
+	//! the child reads - modelled by the test setting `space` again.
+	struct FakeChild
+	{
+		std::string	received;
+		std::size_t	space = 0;		//!< free input space right now (0 = full)
+		bool		broken = false;
+	};
+
+	std::ptrdiff_t fakeSink(void* context, char const* data, std::size_t len)
+	{
+		FakeChild& child = *static_cast<FakeChild*>(context);
+		if (child.broken)
+		{
+			return -1;
+		}
+		const std::size_t take = (child.space < len) ? child.space : len;
+		child.received.append(data, take);
+		child.space -= take;
+		return static_cast<std::ptrdiff_t>(take);
+	}
+}
+
+TEST_CASE("terminal input queue: a burst larger than one hand-over keeps its tail",
+	"[unit][editor][terminal]")
+{
+	// the bug this guards: a paste is bigger than the terminal's input queue, so
+	// the first hand-over places only part of it. Dropping the rest strands the
+	// receiving app mid-sequence - a bracketed paste whose closing marker never
+	// arrives swallows every later keystroke, the interrupt included.
+	TerminalInputQueue queue;
+	FakeChild child;
+	child.space = 4;	// room for four bytes, then full until the child reads
+
+	const std::string paste = "\x1b[200~PASTED-TEXT\x1b[201~";
+	CHECK(queue.push(paste.data(), paste.size()));
+	CHECK(queue.drain(&fakeSink, &child));
+	// the child took what it could; the remainder is still OURS to deliver
+	CHECK(child.received.size() == 4);
+	CHECK(queue.pending() == paste.size() - 4);
+
+	// keep offering it (the per-frame flush) as the child reads
+	for (int i = 0; i < 100 && queue.pending() > 0; ++i)
+	{
+		child.space = 4;
+		CHECK(queue.drain(&fakeSink, &child));
+	}
+	CHECK(queue.pending() == 0);
+	CHECK(child.received == paste);	// in order, closing marker included
+
+	// a following write reuses the drained buffer and still arrives whole
+	child.space = 8;
+	CHECK(queue.push("\x03", 1));
+	CHECK(queue.drain(&fakeSink, &child));
+	CHECK(queue.pending() == 0);
+	CHECK(child.received == paste + "\x03");
+}
+
+TEST_CASE("terminal input queue: a full child stalls without losing a byte",
+	"[unit][editor][terminal]")
+{
+	TerminalInputQueue queue;
+	FakeChild child;
+	child.space = 0;	// its input is full - it accepts nothing right now
+
+	CHECK(queue.push("abc", 3));
+	CHECK(queue.drain(&fakeSink, &child));
+	CHECK(child.received.empty());
+	CHECK(queue.pending() == 3);
+
+	// a later write appends BEHIND the stalled bytes - order is the contract
+	// (the interrupt code a user sends next must arrive after, never instead of,
+	// what is already queued)
+	CHECK(queue.push("\x03", 1));
+	CHECK(queue.pending() == 4);
+	child.space = 64;
+	CHECK(queue.drain(&fakeSink, &child));
+	CHECK(queue.pending() == 0);
+	CHECK(child.received == std::string("abc\x03", 4));
+}
+
+TEST_CASE("terminal input queue: capacity refuses instead of losing a fragment",
+	"[unit][editor][terminal]")
+{
+	TerminalInputQueue queue(8);
+	FakeChild child;
+	child.space = 0;
+
+	CHECK(queue.push("12345678", 8));
+	CHECK(queue.pending() == 8);
+	// one more byte would exceed the cap: refused WHOLE, nothing half-queued
+	CHECK_FALSE(queue.push("9", 1));
+	CHECK(queue.pending() == 8);
+	// draining makes room again
+	child.space = 8;
+	CHECK(queue.drain(&fakeSink, &child));
+	CHECK(queue.pending() == 0);
+	CHECK(queue.push("9", 1));
+}
+
+TEST_CASE("terminal input queue: a broken pipe is reported",
+	"[unit][editor][terminal]")
+{
+	TerminalInputQueue queue;
+	FakeChild child;
+	child.broken = true;
+
+	CHECK(queue.push("hello", 5));
+	CHECK_FALSE(queue.drain(&fakeSink, &child));	// the child is gone
+	queue.clear();
+	CHECK(queue.pending() == 0);
+}
+
 TEST_CASE("terminal scroll max tracks a growing content height",
 	"[unit][editor][terminal]")
 {

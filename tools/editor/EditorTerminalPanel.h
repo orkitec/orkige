@@ -137,6 +137,13 @@ namespace OrkigeEditor
 		bool	linkResolved = false;
 		std::string	linkPath;				//!< the resolved absolute file to open
 		int		linkLine = 0;				//!< 1-based :line (0 = none)
+		// control-chord state, for the interrupt selfcheck leg: the PHYSICAL
+		// modifiers exactly as the input path reads them (macOS un-swap applied)
+		// and how many C0 control codes the panel has written to a child. Names
+		// the failing tier - chord never seen vs byte sent but nothing happened.
+		bool	physicalCtrl = false;		//!< the real Ctrl key is held
+		bool	physicalCmd = false;		//!< the real Cmd/Super key is held
+		int		controlCharsSent = 0;		//!< C0 control codes written so far
 	};
 	TerminalPanelProbe const& terminalPanelProbe();
 
@@ -150,6 +157,12 @@ namespace OrkigeEditor
 	//! rows), or {-1,-1} when absent. Lets a driver target a known printed marker.
 	struct TerminalProbeHit { int line = -1; int col = -1; };
 	TerminalProbeHit terminalPanelTestFind(std::string const& needle);
+
+	//! @brief how many grid lines of the first spawned session contain `needle`
+	//! (same scan as terminalPanelTestFind). Two occurrences of a typed word is
+	//! the proof a line-echoing child consumed it: the tty echo plus the child's
+	//! own output.
+	int terminalPanelTestCount(std::string const& needle);
 }
 
 #endif //__EditorTerminalPanel_h__28_7_2026__12_00_00__

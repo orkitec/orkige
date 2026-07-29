@@ -1327,14 +1327,19 @@ if(TARGET orkige_editor)
     # drives REAL synthetic SDL mouse (drag-select the marker) + the platform
     # copy chord and asserts the OS clipboard carries it, then proves follow-tail
     # scrolling through the true ImGui path (growth stays pinned, a wheel-up
-    # unpins and stays put under more output, a keypress re-pins). Needs a
-    # display; skips (exit 77) when no pty/shell is available. Both flavors.
+    # unpins and stays put under more output, a keypress re-pins), a
+    # Cmd/Ctrl+click path-open, and finally the opposite contract: TYPED text
+    # plus a physical Ctrl+C must reach the child as SIGINT (asserted as the
+    # shell's 130 exit status). SHELL is pinned so the typed legs read ONE
+    # deterministic shell: the status question `$?` is POSIX spelling, which the
+    # machine's own login shell need not speak. Needs a display; skips (exit 77)
+    # when no pty/shell is available. Both flavors.
     add_test(NAME editor_terminal_copy${ORKIGE_FLAVOR_TEST_SUFFIX}
         COMMAND orkige_editor WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     # RESOURCE_LOCK os_clipboard: shares the OS clipboard with editor_terminal
     # above - the two must never overlap.
     set_tests_properties(editor_terminal_copy${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_TERMINAL_UITEST=${Orkige_SOURCE_DIR}/projects/jumper-lua;ORKIGE_DEMO_FRAMES=700"
+        ENVIRONMENT "ORKIGE_EDITOR_TERMINAL_UITEST=${Orkige_SOURCE_DIR}/projects/jumper-lua;ORKIGE_DEMO_FRAMES=2700;SHELL=/bin/bash"
         RESOURCE_LOCK os_clipboard
         LABELS integration TIMEOUT 240 SKIP_RETURN_CODE 77)
 

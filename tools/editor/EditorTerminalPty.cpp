@@ -30,6 +30,8 @@
 
 #include "EditorTerminalPty.h"
 
+#include <core_debug/DebugMacros.h>
+
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -77,6 +79,39 @@ namespace OrkigeEditor
 		}
 		return "/bin/sh";
 #endif
+	}
+
+	// ---- the shared input path (one queue in front of both backends) --------
+	// A terminal takes only a small amount of pending input at a time, so a
+	// paste - or any burst bigger than that - is handed over ACROSS frames. The
+	// queue keeps the remainder in order; dropping it would strand the app
+	// mid-sequence and, once a bracketed paste's closing marker is gone, make
+	// the shell swallow every later keystroke including the interrupt.
+	std::ptrdiff_t TerminalPty::queueSink(void* context, char const* data,
+		std::size_t len)
+	{
+		return static_cast<TerminalPty*>(context)->writeSome(data, len);
+	}
+
+	bool TerminalPty::write(char const* data, std::size_t len)
+	{
+		if (!mInput.push(data, len))
+		{
+			oDebugWarn("editor.terminal", 0, "terminal input queue is full ("
+				<< mInput.pending() << " bytes still unread by the child) - "
+				"refusing " << len << " more bytes");
+			return false;
+		}
+		return mInput.drain(&TerminalPty::queueSink, this);
+	}
+
+	bool TerminalPty::flushPendingWrites()
+	{
+		if (mInput.pending() == 0)
+		{
+			return true;
+		}
+		return mInput.drain(&TerminalPty::queueSink, this);
 	}
 
 #if !defined(_WIN32)
@@ -215,11 +250,11 @@ namespace OrkigeEditor
 				return 0;
 			}
 
-			bool write(char const* data, std::size_t len) override
+			std::ptrdiff_t writeSome(char const* data, std::size_t len) override
 			{
 				if (mMaster < 0)
 				{
-					return false;
+					return -1;
 				}
 				std::size_t off = 0;
 				while (off < len)
@@ -232,13 +267,19 @@ namespace OrkigeEditor
 					}
 					if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
 					{
-						// the pty buffer is momentarily full; a v1 terminal
-						// drops the remainder rather than block the UI thread
-						return true;
+						// the tty's input queue is full right now (it holds only
+						// about a kilobyte): stop here and let the caller keep
+						// the remainder for the next flush - never block the UI
+						// thread, never drop the tail
+						break;
 					}
-					return false;
+					if (n < 0 && errno == EINTR)
+					{
+						continue;
+					}
+					return -1;
 				}
-				return true;
+				return static_cast<std::ptrdiff_t>(off);
 			}
 
 			void resize(int cols, int rows) override
@@ -318,6 +359,7 @@ namespace OrkigeEditor
 
 			void terminate() override
 			{
+				this->discardPendingWrites();	// nobody left to read it
 				if (mPid > 0)
 				{
 					// signal the whole process group (the child is its own
@@ -557,15 +599,22 @@ namespace OrkigeEditor
 				return static_cast<std::size_t>(got);
 			}
 
-			bool write(char const* data, std::size_t len) override
+			std::ptrdiff_t writeSome(char const* data, std::size_t len) override
 			{
 				if (mInWrite == nullptr)
 				{
-					return false;
+					return -1;
 				}
+				// the console input pipe is a synchronous handle: WriteFile takes
+				// the whole buffer (or fails), so this primitive never reports a
+				// partial accept and the shared queue simply stays empty
 				DWORD written = 0;
-				return WriteFile(mInWrite, data, static_cast<DWORD>(len),
-					&written, nullptr) != 0;
+				if (WriteFile(mInWrite, data, static_cast<DWORD>(len), &written,
+					nullptr) == 0)
+				{
+					return -1;
+				}
+				return static_cast<std::ptrdiff_t>(written);
 			}
 
 			void resize(int cols, int rows) override
@@ -594,6 +643,7 @@ namespace OrkigeEditor
 
 			void terminate() override
 			{
+				this->discardPendingWrites();	// nobody left to read it
 				if (mPc != nullptr)
 				{
 					ClosePseudoConsole(mPc);

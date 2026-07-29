@@ -19,6 +19,8 @@
 //! The shared panel/screen logic sits ABOVE this seam so the per-OS surface
 //! stays as small as the two files can make it.
 
+#include "EditorTerminalSession.h"	// TerminalInputQueue (the pure input queue)
+
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -56,12 +58,27 @@ namespace OrkigeEditor
 		//! or the child has closed its end - check isAlive() to disambiguate).
 		virtual std::size_t read(char* buffer, std::size_t cap) = 0;
 
-		//! write `len` bytes to the child's input. Returns false on a broken pipe.
-		virtual bool write(char const* data, std::size_t len) = 0;
+		//! write `len` bytes to the child's input. Never blocks and never DROPS:
+		//! a terminal accepts only about a kilobyte of pending input at a time,
+		//! so whatever the child cannot take right now is queued in order and
+		//! handed over by flushPendingWrites() as it drains. Returns false on a
+		//! broken pipe or when the queue is at capacity (an honest refusal - a
+		//! silently truncated paste strands the app mid-sequence, and a bracketed
+		//! paste missing its closing marker swallows every later keystroke, the
+		//! interrupt included).
+		bool write(char const* data, std::size_t len);
 		bool write(std::string const& data)
 		{
 			return this->write(data.data(), data.size());
 		}
+
+		//! hand any queued input the child could not take earlier over now.
+		//! Called every frame beside the output drain. Returns false on a broken
+		//! pipe.
+		bool flushPendingWrites();
+
+		//! how many written bytes are still waiting for the child (0 = all sent)
+		std::size_t pendingWriteBytes() const { return mInput.pending(); }
 
 		//! tell the pty the visible grid is now cols x rows (SIGWINCH to the app)
 		virtual void resize(int cols, int rows) = 0;
@@ -84,6 +101,23 @@ namespace OrkigeEditor
 
 		//! a human-readable reason a spawn/read failed (empty when fine)
 		virtual std::string errorMessage() const = 0;
+
+	protected:
+		//! hand as many of `len` bytes as the child's input accepts RIGHT NOW,
+		//! without blocking. Returns the number accepted (0 when full) or -1 on
+		//! a broken pipe. The one per-OS write primitive; the queue above it is
+		//! shared.
+		virtual std::ptrdiff_t writeSome(char const* data, std::size_t len) = 0;
+
+		//! forget queued input (a torn-down child will never read it)
+		void discardPendingWrites() { mInput.clear(); }
+
+	private:
+		//! the queue's transport trampoline into writeSome() of this instance
+		static std::ptrdiff_t queueSink(void* context, char const* data,
+			std::size_t len);
+
+		TerminalInputQueue	mInput;
 	};
 
 	//! construct a pty backend for this platform. Never null on desktop; the
