@@ -1088,9 +1088,13 @@ namespace OrkigeEditor
 			UiEditSession::DragKind kind = UiEditSession::DragKind::None;
 			UiHandle handle = UiHandle::None;
 			s.hasPendingClick = false;	// only a body press inside the selection arms it
+			// Alt+press is the EXPLICIT stack-cycling gesture: it must never be
+			// consumed by the anchor/pivot grips or the resize handles (on a
+			// small 1x canvas a tiny key widget's handle tolerance covers its
+			// whole body, and the handle branch swallowed the cycle click)
 			// 1) anchor triangles + pivot dot on the key (only in Layout mode)
 			GuiLayoutSection* keySec = selectedSection(s);
-			if(haveKey && keySec && geomMode(*keySec) == UiGeomMode::Layout)
+			if(!alt && haveKey && keySec && geomMode(*keySec) == UiGeomMode::Layout)
 			{
 				float scale = 1.0f;
 				const Orkige::LayoutRect parent =
@@ -1127,8 +1131,8 @@ namespace OrkigeEditor
 					s.dragScale = scale;
 				}
 			}
-			// 2) a resize handle on the key
-			if(kind == UiEditSession::DragKind::None && haveKey)
+			// 2) a resize handle on the key (never on an Alt press - @see above)
+			if(!alt && kind == UiEditSession::DragKind::None && haveKey)
 			{
 				ImVec2 a, b;
 				mapRect(canvas, keyRect, a, b);

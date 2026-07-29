@@ -6929,8 +6929,14 @@ int main(int argc, char** argv)
 							Orkige::LayoutRect r;
 							if (surfRect("ovFront", r))
 							{
-								toScreen(r.x + r.w * 0.5f + 60.0f,
-									r.y + r.h * 0.5f + 60.0f, udTargX, udTargY);
+								// drag ovBack FAR down-right (+200,+160 surface): the
+								// +60 delta parked it exactly on ovFront's origin (they
+								// start 60 apart), leaving the front label fully inside
+								// the moved selection with its pivot grip on the aim
+								// point - full separation makes the closing plain-click
+								// unambiguous at every canvas scale
+								toScreen(r.x + r.w * 0.5f + 200.0f,
+									r.y + r.h * 0.5f + 160.0f, udTargX, udTargY);
 								OrkigeEditor::UiEditorDebug& d =
 									OrkigeEditor::uiEditorDebug();
 								udTargX = std::min(udTargX,
@@ -6958,10 +6964,16 @@ int main(int argc, char** argv)
 						break;
 					}
 					case 156:
+					{
+						// the drag above fully separated ovBack from ovFront, so the
+						// plain click at ovFront's centre is outside the selection and
+						// every grip zone at any canvas scale - the unambiguous
+						// click-switch shape
 						if (!centerOf("ovFront", udGripX, udGripY))
 						{ uiDragStep = 155; break; }
 						pushMove(udGripX, udGripY);
 						break;
+					}
 					case 159: pushButton(true, udGripX, udGripY); break;
 					case 162: pushButton(false, udGripX, udGripY); break;
 					case 165:
