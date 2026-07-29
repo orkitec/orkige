@@ -88,6 +88,11 @@ namespace Orkige
 		//! `transition` key or setTransition). UTT_None = snap. @see GuiManager
 		//! playWidgetTransition
 		UiTransitionSpec transition;
+		//! @brief a monotonic CREATION ordinal, stamped in the constructor. A
+		//! layout group arranges its children in this order - the order they were
+		//! authored (`.oui` section order) / created, independent of their draw
+		//! layer and of where they happen to sit in memory. @see getCreationOrder
+		unsigned long long creationOrder;
 		//--- Methods -----------------------------------------------
 	public:
 		GuiWidget(String const & id, String const & atlas, uint z);
@@ -252,6 +257,9 @@ namespace Orkige
 		inline optr<GuiWidget> sharedSelf() const { return this->weakSelf.lock(); }
 		//! @brief resolve against the safe-area root (parentless widgets only)
 		inline bool getUseSafeArea() const { return this->layoutUseSafeArea; }
+		//! @brief this widget's creation ordinal - the order a layout group
+		//! arranges its children in (@see creationOrder)
+		inline unsigned long long getCreationOrder() const { return this->creationOrder; }
 		//! @brief the intrinsic preferred content size fed to content-size-fit and
 		//! group arrangement. The base is the widget's current size; text widgets
 		//! override to measure their caption.

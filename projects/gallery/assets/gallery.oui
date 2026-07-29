@@ -1,76 +1,97 @@
 # The UI gallery: every runtime widget kind on one tabbed screen, authored
-# declaratively. A tab bar pairs four checkbox tabs with four content panels;
-# each panel is a layout group so the rows arrange themselves at any window
-# size. scripts/gallery.lua only wires behaviour (list population, the
-# slider -> progress mirror, modal/dialog/toast triggers) - the LAYOUT is here.
+# declaratively. A tab bar pairs four tab toggles with four content panels; each
+# panel is a layout group so the rows arrange themselves at any window size.
+# scripts/gallery.lua only wires behaviour (list population, the slider ->
+# progress mirror, modal/dialog/toast triggers) - the LAYOUT is here.
+#
+# Authoring rules this file follows (they are the resolver's rules):
+#   * `design` is a PORTRAIT PHONE reference, so the geometry scale a device
+#     resolves to matches the glyph scale - authored sizes and text then share
+#     one unit and text always fits the box it was authored for.
+#   * a child of a layout GROUP is arranged by the group: its `size` gives the
+#     row height (the group hands it the column width), and its own anchors /
+#     offsets do not apply. Only a child of a plain container uses those.
+#   * a label longer than its column carries `wrap = true` (+ `fit` preferred)
+#     instead of `fit = preferred` alone, which would measure PAST the column
+#     and run off the screen.
+#
+# The screen is authored PORTRAIT, for a phone: in a short landscape window the
+# tab column keeps its order and width but runs past the bottom fold.
 #
 # Sections are grouped by tab: Text, Controls, Lists, Overlays.
 
 [Layout]
 atlas = gui_default
-design = 960 640 0.5
+design = 400 860 0.5
 root = SafeArea
 
-# --- the frame: a title strip and the tab row above the panel area ---
+# --- the frame: a title block and the tab block above the panel area ---
 
 [Panel frame]
 sprite = panel
 nineSlice = true
 z = 1
 anchor = stretchall
-offsets = 12 12 -12 -12
+offsets = 8 8 -8 -8
 color = 0.12 0.13 0.17 0.92
 
+# the heading wraps, so it reads in full on a narrow phone (two lines) as well
+# as on a wider window (one line); the strip is tall enough for two and the
+# caption centres in it either way
 [Label title]
 font = 24
 text = @gallery.title
 z = 2
 parent = frame
 anchor = stretchtop
-offsets = 16 12 -16 46
+offsets = 8 8 -8 84
+wrap = true
 
-[Panel tabrow]
+# the tabs: a 2x2 grid block, because four descriptive captions do not fit one
+# row at phone width. The grid group gives every tab the same cell.
+[Panel tabblock]
 sprite = none
 color = 0 0 0 0
 z = 2
 parent = frame
 anchor = stretchtop
-offsets = 16 52 -16 88
-group = horizontal
-spacing = 8
-childExpand = true
+offsets = 8 92 -8 168
+group = grid
+gridConstraint = columns 2
+cellSize = 180 32
+spacing = 6 6
 
 [CheckBox tabText]
 sprite = checkbox
-size = 180 32
+nineSlice = true
 font = 9
 text = @gallery.tab.text
 z = 2
-parent = tabrow
+parent = tabblock
 
 [CheckBox tabControls]
 sprite = checkbox
-size = 180 32
+nineSlice = true
 font = 9
 text = @gallery.tab.controls
 z = 2
-parent = tabrow
+parent = tabblock
 
 [CheckBox tabLists]
 sprite = checkbox
-size = 180 32
+nineSlice = true
 font = 9
 text = @gallery.tab.lists
 z = 2
-parent = tabrow
+parent = tabblock
 
 [CheckBox tabOverlays]
 sprite = checkbox
-size = 180 32
+nineSlice = true
 font = 9
 text = @gallery.tab.overlays
 z = 2
-parent = tabrow
+parent = tabblock
 
 [TabBar tabs]
 tabs = tabText tabControls tabLists tabOverlays
@@ -85,7 +106,7 @@ color = 0 0 0 0
 z = 3
 parent = frame
 anchor = stretchall
-offsets = 16 96 -16 -16
+offsets = 8 176 -8 -8
 group = vertical
 padding = 8 8 8 8
 spacing = 10
@@ -93,43 +114,47 @@ childExpand = true
 
 [Label plainLabel]
 font = 9
-text = A plain single-line label measured to its text.
+text = A plain label.
+textAlignment = left
 z = 3
 parent = panelText
-fit = preferred preferred
+fit = none preferred
 
 [Label wrappedLabel]
 font = 9
 text = A wrapped label breaks to the width the layout gives it, so a long paragraph of body copy flows into as many lines as the column needs instead of running off the edge of the screen.
+textAlignment = left
 z = 3
 parent = panelText
-anchor = stretchtop
-offsets = 0 0 0 0
 fit = none preferred
 wrap = true
 
 [Label localisedLabel]
 font = 9
 text = @gallery.localised
+textAlignment = left
 z = 3
 parent = panelText
-fit = preferred preferred
+fit = none preferred
+wrap = true
 
 [Label notesLabel]
 font = 9
-text = Multi-line text entry (Return inserts a line break):
+text = Multi-line entry (Return inserts a line break):
+textAlignment = left
 z = 3
 parent = panelText
-fit = preferred preferred
+fit = none preferred
+wrap = true
 
 [TextEntry notes]
 sprite = select_menu_field
+nineSlice = true
 font = 9
 text = type a note
+size = 300 96
 z = 3
 parent = panelText
-anchor = stretchtop
-offsets = 0 0 0 96
 multiline = true
 maxLength = 400
 
@@ -141,7 +166,7 @@ color = 0 0 0 0
 z = 3
 parent = frame
 anchor = stretchall
-offsets = 16 96 -16 -16
+offsets = 8 176 -8 -8
 group = vertical
 padding = 8 8 8 8
 spacing = 10
@@ -152,8 +177,6 @@ sprite = none
 color = 0 0 0 0
 z = 3
 parent = panelControls
-anchor = stretchtop
-offsets = 0 0 0 40
 group = horizontal
 spacing = 8
 childExpand = true
@@ -162,6 +185,7 @@ childExpand = true
 sprite = button
 font = 9
 text = Plain
+size = 110 36
 z = 3
 parent = buttonRow
 
@@ -170,47 +194,57 @@ sprite = button
 nineSlice = true
 font = 9
 text = Nine-slice
+size = 150 36
 z = 3
 parent = buttonRow
 
+# a REAL checkbox: the plate carries the row, the check symbol keeps its own
+# size at the trailing edge and the caption reads beside it
 [CheckBox optionBox]
-sprite = checkbox
+sprite = select_menu_field
+checkbox = true
+nineSlice = true
 font = 9
 text = A checkbox
+size = 300 32
 z = 3
 parent = panelControls
-anchor = stretchtop
-offsets = 0 0 0 32
 
+# a segmented control: three PLATE-skin toggles in one single-selection group
+# (no check symbol - the plate's on state is the selection)
 [Panel toggleRow]
 sprite = none
 color = 0 0 0 0
 z = 3
 parent = panelControls
-anchor = stretchtop
-offsets = 0 0 0 40
 group = horizontal
 spacing = 8
 childExpand = true
 
 [CheckBox toggleEasy]
 sprite = checkbox
+nineSlice = true
 font = 9
 text = Easy
+size = 95 32
 z = 3
 parent = toggleRow
 
 [CheckBox toggleNormal]
 sprite = checkbox
+nineSlice = true
 font = 9
 text = Normal
+size = 95 32
 z = 3
 parent = toggleRow
 
 [CheckBox toggleHard]
 sprite = checkbox
+nineSlice = true
 font = 9
 text = Hard
+size = 95 32
 z = 3
 parent = toggleRow
 
@@ -218,62 +252,64 @@ parent = toggleRow
 members = toggleEasy toggleNormal toggleHard
 selected = 1
 
+# the same checkbox worn with a switch sprite pair
 [CheckBox toggleSwitch]
-sprite = checkbox
+sprite = select_menu_field
+checkbox = true
+nineSlice = true
 font = 9
-text = A toggle switch is the same checkbox worn with a switch sprite pair
+text = A toggle switch
+size = 300 32
 z = 3
 parent = panelControls
-anchor = stretchtop
-offsets = 0 0 0 32
 
 [Slider volume]
 sprite = select_menu_field
+nineSlice = true
 font = 9
 text = Volume
+size = 300 32
 z = 3
 parent = panelControls
-anchor = stretchtop
-offsets = 0 0 0 32
+items = 0 | 25 | 50 | 75 | 100
 
 [ProgressBar loading]
 sprite = progressbar
+nineSlice = true
 font = 9
 text = Loading
+size = 300 24
 z = 3
 parent = panelControls
-anchor = stretchtop
-offsets = 0 0 0 24
 
 [SelectMenu quality]
 sprite = select_menu_field
+nineSlice = true
 font = 9
 text = Quality
+size = 300 32
 z = 3
 parent = panelControls
-anchor = stretchtop
-offsets = 0 0 0 32
+items = Low | Medium | High
 
 [DropDown resolution]
 sprite = button
 nineSlice = true
 font = 9
 text = Resolution
+size = 300 32
 z = 3
 parent = panelControls
-anchor = stretchtop
-offsets = 0 0 0 32
 items = 1280 x 720 | 1920 x 1080 | 2560 x 1440
 
 [TextEntry playerName]
 sprite = select_menu_field
+nineSlice = true
 font = 9
 text = your name
+size = 300 32
 z = 3
 parent = panelControls
-anchor = stretchtop
-offsets = 0 0 0 32
-maxLength = 24
 
 # --- tab 3: lists - a scroll view of decor panels and a virtualized list ---
 
@@ -283,13 +319,16 @@ color = 0 0 0 0
 z = 3
 parent = frame
 anchor = stretchall
-offsets = 16 96 -16 -16
-group = horizontal
+offsets = 8 176 -8 -8
+group = vertical
 padding = 8 8 8 8
 spacing = 12
 childExpand = true
 
+# each scroll region owns its OWN draw layer (z): the clip is a per-layer
+# scissor, so the list below must not share this one
 [ScrollView decorScroll]
+size = 300 150
 z = 7
 parent = panelLists
 
@@ -309,44 +348,52 @@ fit = none preferred
 [Label decorHeading]
 font = 9
 text = Decor draw modes
+textAlignment = left
 z = 7
 parent = decorColumn
 fit = none preferred
+wrap = true
 
 [Panel decorStretch]
 sprite = panel
+size = 140 40
 z = 7
 parent = decorColumn
-anchor = stretchtop
-offsets = 0 0 0 56
 
 [Panel decorSlice]
 sprite = panel
 nineSlice = true
+size = 140 40
 z = 7
 parent = decorColumn
-anchor = stretchtop
-offsets = 0 0 0 56
 
 [Panel decorTiled]
 sprite = panel
 tiled = true
+size = 140 40
 z = 7
 parent = decorColumn
-anchor = stretchtop
-offsets = 0 0 0 56
 
 [Label scrollNote]
 font = 9
 text = Drag or wheel this column to scroll it; the clip is the layer scissor.
+textAlignment = left
 z = 7
 parent = decorColumn
-anchor = stretchtop
-offsets = 0 0 0 0
+fit = none preferred
+wrap = true
+
+[Label listHeading]
+font = 9
+text = A 1000-row list, virtualized
+textAlignment = left
+z = 3
+parent = panelLists
 fit = none preferred
 wrap = true
 
 [ListView bigList]
+size = 300 300
 z = 8
 parent = panelLists
 itemHeight = 24
@@ -360,7 +407,7 @@ color = 0 0 0 0
 z = 3
 parent = frame
 anchor = stretchall
-offsets = 16 96 -16 -16
+offsets = 8 176 -8 -8
 group = vertical
 padding = 8 8 8 8
 spacing = 10
@@ -369,10 +416,9 @@ childExpand = true
 [Label overlayNote]
 font = 9
 text = Overlays raise their own modal layers above this screen; the scrim consumes input underneath.
+textAlignment = left
 z = 3
 parent = panelOverlays
-anchor = stretchtop
-offsets = 0 0 0 0
 fit = none preferred
 wrap = true
 
@@ -381,34 +427,33 @@ sprite = button
 nineSlice = true
 font = 9
 text = Show a modal panel
+size = 300 36
 z = 3
 parent = panelOverlays
-anchor = stretchtop
-offsets = 0 0 0 36
 
 [Button showConfirmButton]
 sprite = button
 nineSlice = true
 font = 9
 text = Ask a confirm dialog
+size = 300 36
 z = 3
 parent = panelOverlays
-anchor = stretchtop
-offsets = 0 0 0 36
 
 [Button showToastButton]
 sprite = button
 nineSlice = true
 font = 9
 text = Raise a toast
+size = 300 36
 z = 3
 parent = panelOverlays
-anchor = stretchtop
-offsets = 0 0 0 36
 
 [Label overlayResult]
 font = 9
 text = (no dialog answered yet)
+textAlignment = left
 z = 3
 parent = panelOverlays
-fit = preferred preferred
+fit = none preferred
+wrap = true

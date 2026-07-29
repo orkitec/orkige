@@ -393,12 +393,17 @@ def build_atlas(out_dir, atlas_name):
     # screen (GuiCheckBox / GuiSelectMenu / GuiSlider) has art.
     checkbox_off_fill = (40, 46, 58, 255)
     checkbox_on_fill = (110, 214, 92, 255)
+    # the toggle states carry nine-slice insets like the other rounded sprites:
+    # they double as the PLATE of a wide two-state control (a tab, a segmented
+    # button), which must keep its corners when stretched
     add_sprite("checkbox_off", 0, y0 + 72, 28, 28, lambda x, y, w, h:
                draw_rounded_rect(canvas, x, y, w, h, 4, checkbox_off_fill,
-                                 white))
+                                 white),
+               slice=(6, 6, 6, 6))
     add_sprite("checkbox_on", 32, y0 + 72, 28, 28, lambda x, y, w, h:
                draw_rounded_rect(canvas, x, y, w, h, 4, checkbox_on_fill,
-                                 (200, 255, 190, 255)))
+                                 (200, 255, 190, 255)),
+               slice=(6, 6, 6, 6))
     add_sprite("select_menu_field", 64, y0 + 72, 96, 24, lambda x, y, w, h:
                draw_rounded_rect(canvas, x, y, w, h, 4, button_fill, white),
                slice=(8, 8, 8, 8))

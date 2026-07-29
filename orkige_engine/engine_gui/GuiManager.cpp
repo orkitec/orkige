@@ -1845,32 +1845,57 @@ namespace Orkige
 			item.scrollOffset = widget->getScrollOffset();
 			item.userData = widget.get();
 		}
+		// the walk order for the two passes below: CREATION order (the `.oui`
+		// section order), because a layout GROUP arranges its children in the
+		// order they arrive - never the pointer-keyed map's heap-address order
+		// (which would arrange a row differently from one run to the next) and
+		// never sortedWidgets' draw-layer order (which would let a child's `z`
+		// decide where it sits in its row).
+		std::vector<GuiWidget*> byCreation;
+		byCreation.reserve(items.size());
+		for(std::map<GuiWidget*, LayoutItem>::value_type & entry : items)
+		{
+			byCreation.push_back(entry.first);
+		}
+		std::sort(byCreation.begin(), byCreation.end(),
+			[](GuiWidget* lhs, GuiWidget* rhs)
+			{
+				return lhs->getCreationOrder() < rhs->getCreationOrder();
+			});
 		// link children to their layout parents (a non-layout / absent parent
 		// leaves the widget a root, resolved against the screen root below)
 		std::set<GuiWidget*> isChild;
-		for(std::map<GuiWidget*, LayoutItem>::value_type & entry : items)
+		for(GuiWidget* created : byCreation)
 		{
-			GuiWidget* widget = entry.first;
-			optr<GuiWidget> parent = widget->getLayoutParent().lock();
+			std::map<GuiWidget*, LayoutItem>::iterator it = items.find(created);
+			if(it == items.end())
+			{
+				continue;	// not opted into the layout system
+			}
+			optr<GuiWidget> parent = created->getLayoutParent().lock();
 			if(parent && parent->isLayoutEnabled())
 			{
 				std::map<GuiWidget*, LayoutItem>::iterator pit =
 					items.find(parent.get());
 				if(pit != items.end())
 				{
-					pit->second.children.push_back(&entry.second);
-					isChild.insert(widget);
+					pit->second.children.push_back(&it->second);
+					isChild.insert(created);
 				}
 			}
 		}
-		// resolve each root subtree top-down (two-pass inside resolveTree)
-		for(std::map<GuiWidget*, LayoutItem>::value_type & entry : items)
+		// resolve each root subtree top-down (two-pass inside resolveTree), in
+		// that same creation order (a root reading a non-layout parent's rect
+		// must not depend on the allocation order either)
+		for(GuiWidget* root : byCreation)
 		{
-			GuiWidget* widget = entry.first;
-			if(isChild.count(widget) != 0)
+			std::map<GuiWidget*, LayoutItem>::iterator rootIt = items.find(root);
+			if(rootIt == items.end() || isChild.count(root) != 0)
 			{
 				continue;
 			}
+			std::map<GuiWidget*, LayoutItem>::value_type & entry = *rootIt;
+			GuiWidget* widget = entry.first;
 			LayoutRect parentRect;
 			optr<GuiWidget> parent = widget->getLayoutParent().lock();
 			if(parent)

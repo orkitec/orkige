@@ -34,6 +34,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	GuiWidget::GuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id), visible(true), enabled(true), interactive(false), layoutEnabled(false), layoutUseSafeArea(false), renderScaleX(1.0f), renderScaleY(1.0f), renderRotationDeg(0.0f), groupAlpha(1.0f), alphaBlocksInput(true)
 	{
+		// the creation ordinal a layout group arranges its children by (@see
+		// GuiWidget::creationOrder). Widgets are created on the main thread only,
+		// so a plain counter is the whole mechanism.
+		static unsigned long long nextCreationOrder = 0;
+		this->creationOrder = ++nextCreationOrder;
 		this->view = GuiManager::getSingleton().getCreateView(atlas);
 		oAssert(view.lock());
 		this->layer = view.lock()->getLayer(z);
@@ -171,16 +176,22 @@ namespace Orkige
 		this->layoutEnabled = true;
 		// seed the node from the current on-screen rect (top-left point anchor)
 		// so the widget stays exactly where it was authored until anchors or
-		// offsets change - opt-in with no visible jump
+		// offsets change - opt-in with no visible jump. The rect is in WINDOW
+		// pixels while a node's offsets are DESIGN lengths the resolver scales,
+		// so divide by that scale on the way in - otherwise the seeded box comes
+		// back multiplied (a right-anchored label would drift off its anchor by
+		// the scale factor).
 		applyAnchorPreset(this->layout, LAP_TOPLEFT);
 		this->layout.pivot.x = 0.0f;
 		this->layout.pivot.y = 0.0f;
 		const Ogre::Vector2 pos = this->getPosition();
 		const Ogre::Vector2 size = this->getSize();
-		this->layout.offsetMin.x = pos.x;
-		this->layout.offsetMin.y = pos.y;
-		this->layout.offsetMax.x = pos.x + size.x;
-		this->layout.offsetMax.y = pos.y + size.y;
+		const float layoutScale = GuiManager::getSingleton().getLayoutScale();
+		const float toDesign = (layoutScale > 0.0f) ? (1.0f / layoutScale) : 1.0f;
+		this->layout.offsetMin.x = pos.x * toDesign;
+		this->layout.offsetMin.y = pos.y * toDesign;
+		this->layout.offsetMax.x = (pos.x + size.x) * toDesign;
+		this->layout.offsetMax.y = (pos.y + size.y) * toDesign;
 		GuiManager::getSingleton().markLayoutDirty();
 	}
 	//---------------------------------------------------------

@@ -105,6 +105,27 @@ namespace Orkige
 			if(v == "bottomright")	return GuiLabel::LA_BOTTOMRIGHT;
 			return fallback;
 		}
+		//! @brief the optional `items = a | b | c` value list of a stepped
+		//! control (select menu / slider): pipe-separated so a label may hold
+		//! spaces, each entry '@'-resolved through the StringTable
+		void applyItems(GuiSelectMenu* menu, GuiLayoutSection const & s)
+		{
+			if(menu == NULL)
+			{
+				return;
+			}
+			if(String const * v = s.find("items"))
+			{
+				Ogre::StringVector resolved;
+				for(String const & part : Ogre::StringUtil::split(*v, "|"))
+				{
+					String label = part;
+					Ogre::StringUtil::trim(label);
+					resolved.push_back(resolveText(label));
+				}
+				menu->setItems(resolved);
+			}
+		}
 		//! apply the shared rect-anchor / group / content-fit / draw-mode keys
 		//! to an already-created widget (the .oui pass-2 layout application)
 		void applyLayoutKeys(GuiWidget* widget, GuiLayoutSection const & s)
@@ -259,6 +280,30 @@ namespace Orkige
 					button->setTiled(parseBool(*v, false));
 				}
 			}
+			else if(GuiTextEntry* entry = dynamic_cast<GuiTextEntry*>(widget))
+			{
+				if(String const * v = s.find("nineSlice"))
+				{
+					entry->setNineSlice(parseBool(*v, false));
+				}
+				if(String const * v = s.find("tiled"))
+				{
+					entry->setTiled(parseBool(*v, false));
+				}
+			}
+			else if(GuiCheckBox* check = dynamic_cast<GuiCheckBox*>(widget))
+			{
+				// a toggle's plate stretches like a button's face: a tab or a
+				// settings row wants its corners kept, not smeared
+				if(String const * v = s.find("nineSlice"))
+				{
+					check->setNineSlice(parseBool(*v, false));
+				}
+				if(String const * v = s.find("tiled"))
+				{
+					check->setTiled(parseBool(*v, false));
+				}
+			}
 			if(GuiScrollView* scroll = dynamic_cast<GuiScrollView*>(widget))
 			{
 				if(String const * v = s.find("scroll"))
@@ -288,7 +333,10 @@ namespace Orkige
 			oAssertDesc(!GuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
 			return widget;
 		}
-		widget = onew(new GuiDecorWidget(id, spriteName, position, size, atlas, z));
+		// an authored panel size is density-scaled like every other widget's (a
+		// panel authored beside a 40px button must stay beside it on a 3x screen)
+		widget = onew(new GuiDecorWidget(id, spriteName, position,
+			scaleAuthoredSize(size), atlas, z));
 		GuiManager::getSingleton().addWidget(widget);
 		return widget;
 	}
@@ -684,13 +732,17 @@ namespace Orkige
 			}
 			else if(type == "selectmenu")
 			{
-				this->createSelectMenu(s.id, "select_menu_button", sprite, font,
-					text, position, textAlign, size, atlas, z);
+				woptr<GuiSelectMenu> menu = this->createSelectMenu(s.id,
+					"select_menu_button", sprite, font, text, position, textAlign,
+					size, atlas, z);
+				applyItems(menu.lock().get(), s);
 			}
 			else if(type == "slider")
 			{
-				this->createSlider(s.id, "slider_menu_button", sprite, font, text,
-					position, textAlign, size, atlas, z);
+				woptr<GuiSlider> slider = this->createSlider(s.id,
+					"slider_menu_button", sprite, font, text, position, textAlign,
+					size, atlas, z);
+				applyItems(slider.lock().get(), s);
 			}
 			else if(type == "progressbar")
 			{

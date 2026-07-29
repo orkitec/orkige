@@ -419,8 +419,8 @@ button_down 188 466 64 24 8 8 8 8
 button_disabled 256 466 64 24 8 8 8 8
 progressbar 0 518 96 16 6 6 6 6
 progressbar_bar 100 518 88 10
-checkbox_off 0 538 28 28
-checkbox_on 32 538 28 28
+checkbox_off 0 538 28 28 6 6 6 6
+checkbox_on 32 538 28 28 6 6 6 6
 select_menu_field 64 538 96 24 8 8 8 8
 select_menu_field_left 164 538 16 24
 select_menu_field_right 184 538 16 24

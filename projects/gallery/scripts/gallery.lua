@@ -4,7 +4,7 @@
 --
 --   * the tab bar (its pairing is declarative; the driver just reports which
 --     section is showing),
---   * the 1000-row virtualized list (data belongs to the game, not the file),
+--   * the 1000-row virtualized list (a thousand rows are data, not layout),
 --   * the overlay triggers (modal / confirm dialog / toast) and the dialog
 --     answer readback,
 --   * the slider -> progress-bar mirror, so one control visibly drives another.
@@ -49,16 +49,6 @@ function init(self)
 	widgets.modalButton = find("showModalButton")
 	widgets.confirmButton = find("showConfirmButton")
 	widgets.toastButton = find("showToastButton")
-
-	-- the option sets a declarative file cannot hold (they are data)
-	local quality = gui:findSelectMenu("quality")
-	if quality ~= nil then
-		quality:setItemsString("Low|Medium|High")
-	end
-	if widgets.volume ~= nil then
-		-- a slider is a select menu with snapped grip positions
-		widgets.volume:setItemsString("0|25|50|75|100")
-	end
 
 	-- a thousand rows: the list is virtualized, so this is a thousand STRINGS,
 	-- not a thousand widgets

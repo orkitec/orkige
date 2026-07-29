@@ -4,7 +4,7 @@
 # every device, and a rotation just re-resolves them.
 [Layout]
 atlas = gui_default
-design = 960 640 0.5
+design = 400 860 0.5
 root = SafeArea
 
 [Label hudTopLeft]

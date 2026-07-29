@@ -150,6 +150,18 @@ namespace Orkige
 		return was;
 	}
 	//---------------------------------------------------------
+	void GuiTextEntry::setNineSlice(bool enable)
+	{
+		this->mBackground->setDrawMode(enable ? UiRect::DM_NineSlice
+			: UiRect::DM_Stretch);
+	}
+	//---------------------------------------------------------
+	void GuiTextEntry::setTiled(bool enable)
+	{
+		this->mBackground->setDrawMode(enable ? UiRect::DM_Tiled
+			: UiRect::DM_Stretch);
+	}
+	//---------------------------------------------------------
 	void GuiTextEntry::setMultiline(bool multiline)
 	{
 		if(this->mMultiline == multiline)

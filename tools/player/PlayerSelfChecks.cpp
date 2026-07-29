@@ -2749,10 +2749,75 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				}
 				else
 				{
-					galleryPhase = GalleryPhase::Tabs;
-					galleryStep = 0;
-					galleryStepFrame = frameCount + 2;
-					galleryPhaseDeadline = frameCount + 900;
+					// LAYOUT ORDER: a group arranges its children in the order the
+					// `.oui` declares them, so the Text panel's rows must run down
+					// the column in file order (an order taken from the widgets'
+					// draw layer or their addresses would scramble them)
+					char const* column[] = { "plainLabel", "wrappedLabel",
+						"localisedLabel", "notesLabel", "notes" };
+					std::string outOfOrder;
+					for (std::size_t row = 1;
+						row < sizeof(column) / sizeof(column[0]); ++row)
+					{
+						Orkige::GuiWidget* above = widget(column[row - 1]);
+						Orkige::GuiWidget* below = widget(column[row]);
+						if (above == nullptr || below == nullptr)
+						{
+							continue;
+						}
+						if (!(below->getPosition().y > above->getPosition().y))
+						{
+							outOfOrder += " ";
+							outOfOrder += column[row];
+						}
+					}
+					// CONTAINMENT (horizontal): every widget of the screen stays
+					// inside the COLUMN of the frame it was authored into - a
+					// composed widget whose parts sit outside its own rect, or a
+					// row that overflows its container, shows up here at any
+					// window size. (Vertically the screen is authored for a
+					// PORTRAIT phone: in a short landscape window the column runs
+					// past the fold, which is the layout doing what it says.)
+					std::string outside;
+					Orkige::GuiWidget* frame = widget("frame");
+					const Orkige::Vec2 framePos = frame->getPosition();
+					const Orkige::Vec2 frameSize = frame->getSize();
+					for (char const* id : required)
+					{
+						Orkige::GuiWidget* found = widget(id);
+						// the safe-area HUD corners are their own screen, outside
+						// the frame by design
+						if (found == nullptr || found == frame ||
+							std::string(id).compare(0, 3, "hud") == 0)
+						{
+							continue;
+						}
+						const Orkige::Vec2 pos = found->getPosition();
+						const Orkige::Vec2 size = found->getSize();
+						if (pos.x < framePos.x - 1.0f ||
+							pos.x + size.x > framePos.x + frameSize.x + 1.0f)
+						{
+							outside += " ";
+							outside += id;
+						}
+					}
+					if (!outOfOrder.empty())
+					{
+						galleryFail("the Text column is not in declaration "
+							"order:" + outOfOrder);
+					}
+					else if (!outside.empty())
+					{
+						galleryFail("these widgets lie outside the gallery "
+							"frame:" + outside);
+					}
+					else
+					{
+						galleryPhase = GalleryPhase::Tabs;
+						galleryStep = 0;
+						galleryStepFrame = frameCount + 2;
+						galleryPhaseDeadline = frameCount + 900;
+					}
 				}
 			}
 		}
@@ -3031,7 +3096,9 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				else
 				{
 					SDL_Log("orkige_player: GALLERY SELFCHECK PASSED - all 4 "
-						"tabs reachable, wrapped label %.1fpx vs single-line "
+						"tabs reachable, every widget inside the frame column and "
+						"the text rows in declaration order, "
+						"wrapped label %.1fpx vs single-line "
 						"%.1fpx, multi-line field at %d lines after a typed "
 						"Return, %d of %d list rows live (first %d after the "
 						"scroll, scrolled row hit-tests), modal raised and "

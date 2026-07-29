@@ -17,6 +17,11 @@
 
 namespace Orkige
 {
+	//! @brief a stepped value control: one row carrying a TITLE on its leading
+	//! side and, on the trailing side, a previous arrow, the current value and a
+	//! next arrow. Every part is placed inside the row's own rect (@see
+	//! arrangeParts), so the widget looks exactly like the rectangle the layout
+	//! resolver hands it. GuiSlider is the same row with a draggable grip.
     class ORKIGE_ENGINE_DLL GuiSelectMenu : public GuiWidget
     {
 		OOBJECT(GuiSelectMenu, GuiWidget);
@@ -80,12 +85,21 @@ namespace Orkige
 		virtual void applyRenderAlpha(float alphaMultiplier);
 
     protected:
-		void updatePosition();
-		void updateSize();
+		//! @brief re-place every part INSIDE the field's current rect: the title
+		//! on the leading side, then the previous arrow, the value field and the
+		//! next arrow on the trailing side, all vertically centred. Every part is
+		//! derived from the field rect ABSOLUTELY (never from its own last
+		//! position), so a relayout can be run any number of times and the widget
+		//! never drifts - and it never draws outside the rect the layout resolver
+		//! gave it. @return the value field's rect (a slider's pin track).
+		Ogre::Vector4 arrangeParts();
 		//! dim the frame, arrows, value field and label when disabled
 		virtual void onEnabledChanged(bool enable);
 	private:
     };
+	//! the value field's caption while the menu holds no items - also its INITIAL
+	//! caption, because a button built with an empty one owns no label at all
+	static char const * const EMPTY_VALUE_CAPTION = "Empty!";
 	//---------------------------------------------------------------
 	inline woptr<GuiLabel> GuiSelectMenu::getLabel()
 	{

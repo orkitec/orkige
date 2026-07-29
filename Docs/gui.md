@@ -159,8 +159,9 @@ An ordered list of `[Type id]` sections, each a block of `key = value` lines
 | `padding = l t r b` / `spacing = 10` | container spacing |
 | `childAlign` / `childExpand` / `fit` | container child rules |
 | `cellSize = w h` / `gridConstraint = n` | grid-group geometry |
-| `nineSlice = true` \| `tiled = true` \| `color = r g b a` | draw modes (decor + button; `color` decor-only) |
-| `items = A \| B \| C` | dropdown / listview options (pipe-separated) |
+| `nineSlice = true` \| `tiled = true` \| `color = r g b a` | draw modes (decor, button, checkbox, text entry; `color` decor-only) |
+| `checkbox = true` | checkbox: the BOX skin (a check symbol beside the caption) instead of the two-state PLATE |
+| `items = A \| B \| C` | dropdown / listview / selectmenu / slider options (pipe-separated) |
 | `wrap = true` | label / textbox: break the text to the widget width |
 | `multiline = true` | text entry: a text area (soft wrap, Return inserts a line break) |
 | `virtualized = true` / `itemHeight = 24` | list view: materialise only the visible rows, at that uniform row height |
@@ -328,10 +329,10 @@ graph TD
     GuiModalScrim["GuiModalScrim<br/><i>the input-consuming backdrop of a modal dialog: a...</i>"]
     GuiScrollView["GuiScrollView<br/><i>a scroll viewport: a clipping container whose lay...</i>"]
     GuiListView["GuiListView<br/><i>a vertical list: a scroll viewport whose content...</i>"]
-    GuiSelectMenu["GuiSelectMenu"]
+    GuiSelectMenu["GuiSelectMenu<br/><i>a stepped value control: one row carrying a TITLE...</i>"]
     GuiSlider["GuiSlider"]
     GuiWidget["GuiWidget"]
-    GuiCheckBox["GuiCheckBox"]
+    GuiCheckBox["GuiCheckBox<br/><i>a two-state toggle in two SKINS, chosen by the `u...</i>"]
     GuiDragDropButton["GuiDragDropButton"]
     GuiLabel["GuiLabel"]
     GuiProgressBar["GuiProgressBar"]
@@ -650,8 +651,9 @@ anchor = center          # rect-anchor layout (opt-in; see below)
 `anchorMin`/`anchorMax`, `pivot`, `offsets`, `anchoredPos`, `sizeDelta`,
 `useSafeArea`. Group keys (on a container): `group` (`horizontal`/`vertical`/
 `grid`), `padding`, `spacing`, `childAlign`, `childExpand`, `cellSize`,
-`gridConstraint`, `fit`. Draw modes: `nineSlice`, `tiled` (decors and
-buttons), `color` (decor-only). Text: `wrap` (label/textbox; wrap to the
+`gridConstraint`, `fit`. Draw modes: `nineSlice`, `tiled` (decors, buttons,
+checkboxes and text entries — every widget whose skin stretches), `color`
+(decor-only). Text: `wrap` (label/textbox; wrap to the
 resolved width — see [Wrap-to-width text](#wrap-to-width-text)), `multiline`
 (text entry; a text area — see
 [Multi-line text entry](#multi-line-text-entry)). List: `virtualized` +
@@ -662,10 +664,32 @@ resolved width — see [Wrap-to-width text](#wrap-to-width-text)), `multiline`
 `label`, `textbox`, `button`, `checkbox`, `selectmenu`, `slider`, `progressbar`,
 `textentry`, `decorwidget` / `panel`, `scrollview`, `listview`, `dropdown`.
 
-A `dropdown` and a `listview` both take `items = A | B | C` (pipe-separated so
-labels may hold spaces); a `listview` seeds its rows from them. A `listview`
-also takes `itemHeight` + `virtualized` (see
+A `dropdown`, `listview`, `selectmenu` and `slider` all take
+`items = A | B | C` (pipe-separated so labels may hold spaces, each entry
+`@`-resolvable through the `StringTable`); a `listview` seeds its rows from
+them, a `selectmenu`/`slider` its value steps. A `listview` also takes
+`itemHeight` + `virtualized` (see
 [Virtualized lists](#virtualized-lists)), and a `textentry` takes `multiline`.
+
+A `checkbox` comes in two skins. Default (PLATE) is a two-state button: the
+sprite's `_off`/`_on` pair fills the whole rect and the caption is CENTRED in
+it — what a tab in a `[TabBar]` looks like; pair it with `nineSlice = true` so
+a wide plate keeps its corners. With `checkbox = true` (BOX) the `sprite` is
+the row plate, the shared check symbol keeps its own size at the row's trailing
+edge and the caption reads BESIDE it — the settings-row checkbox. Either way
+the caption is never drawn on top of the box.
+
+A widget's `size` is a DESIGN size: it scales with the display density
+(`UiGlyph::scale`), exactly like the glyph metrics, so authored boxes and the
+text in them stay in proportion on a 2x/3x screen. Anchors, `offsets`,
+`padding`, `spacing` and `cellSize` scale with the *layout* reference instead
+(`design` + match) — pick a `design` resolution close to the target device and
+the two agree.
+
+A layout group arranges its children in DECLARATION order (the order the
+sections appear in the file / the widgets were created), independent of their
+`z`. Each scroll region needs its own `z`, though: the clip is a per-layer
+scissor, so two scroll views sharing a layer would fight over it.
 
 ### Modals in `.oui`
 

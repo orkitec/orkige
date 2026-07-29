@@ -10,6 +10,8 @@
 #include "engine_gui/GuiSlider.h"
 #include "engine_gui/GuiManager.h"
 #include <core_event/GlobalEventManager.h>
+#include <algorithm>
+#include <cmath>
 
 
 namespace Orkige 
@@ -46,7 +48,7 @@ namespace Orkige
 			{
 				this->label = onew(new GuiLabel(idLabel, defaultGlyphIndex, text, position, atlas, z+1, true));
 				this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
-				this->label->setAlignment(GuiLabel::LA_TOP);
+				this->label->setAlignment(GuiLabel::LA_LEFT);
 			}
 		}
 		{
@@ -62,19 +64,6 @@ namespace Orkige
 			{
 				this->leftArrow = onew(new GuiDecorWidget(idArrowLeft, "select_menu_field_left", position, Ogre::Vector2::ZERO, atlas, z));
 				this->rightArrow = onew(new GuiDecorWidget(idArrowRight, "select_menu_field_right", position, Ogre::Vector2::ZERO, atlas, z));
-
-				this->leftArrow->setPosition(
-					this->decor->getPosition().x - this->leftArrow->getSize().x,
-					this->leftArrow->getPosition().y + (this->decor->getSize().y/2.0f) - (this->leftArrow->getSize().y/2.0f));
-				this->rightArrow->setPosition(
-					this->decor->getPosition().x + this->decor->getSize().x,
-					this->rightArrow->getPosition().y + (this->decor->getSize().y/2.0f) - (this->rightArrow->getSize().y/2.0f));
-				this->leftArrow->setSize(
-					this->decor->getSize().x * 0.2f, 
-					this->decor->getSize().y * 0.9f);
-				this->rightArrow->setSize(
-					this->decor->getSize().x * 0.2f, 
-					this->decor->getSize().y * 0.9f);
 			}
 		}
 		{
@@ -85,14 +74,13 @@ namespace Orkige
 			}
 			else
 			{
-				this->buttonMainSelection = onew(new GuiButton(buttonId, "select_menu_field", defaultGlyphIndex, "dunnoooooo!", position, GuiLabel::LA_LEFT, Ogre::Vector2::ZERO, atlas, z));
-				this->buttonMainSelection->getLabel().lock()->getCaption()->colour(Orkige::Colours::webcolour(Orkige::Colours::Black));
-
-				this->buttonMainSelection->setSize(this->decor->getSize().x * 0.8f, this->decor->getSize().y * 0.3f);
-
-				float positionX = this->buttonMainSelection->getPosition().x + (this->decor->getSize().x / 2.0f) - (this->buttonMainSelection->getSize().x / 2.0f);
-				float positionY = this->decor->getPosition().y + (this->decor->getSize().y/2.0f);
-				this->buttonMainSelection->setPosition(floor(positionX), floor(positionY));
+				this->buttonMainSelection = onew(new GuiButton(buttonId, "select_menu_field", defaultGlyphIndex, EMPTY_VALUE_CAPTION, position, GuiLabel::LA_CENTER, Ogre::Vector2::ZERO, atlas, z));
+				if(optr<GuiLabel> valueLabel =
+					this->buttonMainSelection->getLabel().lock())
+				{
+					valueLabel->getCaption()->colour(
+						Orkige::Colours::webcolour(Orkige::Colours::Black));
+				}
 			}
 		}
 		{
@@ -119,7 +107,7 @@ namespace Orkige
 		}
 
 		this->selectedIndex = -1;
-		this->showItem();
+		this->arrangeSlider();
 	}
 	//----------------------------------------------------
     GuiSlider::~GuiSlider()
@@ -128,79 +116,38 @@ namespace Orkige
 	//----------------------------------------------------
 	void GuiSlider::setPosition( Ogre::Real left, Ogre::Real top )
 	{
-		Ogre::Vector2 d(
-			left - this->decor->getPosition().x,
-			top  - this->decor->getPosition().y);
-		
-		// rounding label the diff vector for nicer font
-		this->decor->setPosition( 
-			this->decor->getPosition().x + d.x, 
-			this->decor->getPosition().y + d.y );
-		this->label->setPosition( 
-			static_cast<int>(this->label->getPosition().x + d.x), 
-			static_cast<int>(this->label->getPosition().y + d.y) );
-		this->leftArrow->setPosition( 
-			this->leftArrow->getPosition().x + d.x, 
-			this->leftArrow->getPosition().y + d.y );
-		this->rightArrow->setPosition( 
-			this->rightArrow->getPosition().x + d.x, 
-			this->leftArrow->getPosition().y + d.y );
- 		this->buttonMainSelection->getDecor().lock()->setPosition( 
-			this->buttonMainSelection->getDecor().lock()->getPosition().x + d.x, 
-			this->buttonMainSelection->getDecor().lock()->getPosition().y + d.y );
-		this->pin->setPosition( 
-			this->pin->getPosition().x + d.x, 
-			this->pin->getPosition().y + d.y );
-		this->pin_area->setPosition( 
-			this->pin_area->getPosition().x + d.x, 
-			this->pin_area->getPosition().y + d.y );
+		this->decor->setPosition(left, top);
+		this->arrangeSlider();
 	}
 	//----------------------------------------------------
 	void GuiSlider::setSize( Ogre::Real width, Ogre::Real height )
 	{
-		// re-lay-out the compound slider around the new field size, mirroring the
-		// constructor's proportional geometry: the decor is the field, the arrows
-		// hug its sides, the main button + pin track sit centred inside it.
-		const Ogre::Vector2 origin = this->decor->getPosition();
-		this->decor->setSize( width, height );
-		this->label->setSize( width, height );
-
-		this->leftArrow->setSize( width * 0.2f, height * 0.9f );
-		this->rightArrow->setSize( width * 0.2f, height * 0.9f );
-		this->leftArrow->setPosition(
-			origin.x - this->leftArrow->getSize().x,
-			origin.y + (height / 2.0f) - (this->leftArrow->getSize().y / 2.0f) );
-		this->rightArrow->setPosition(
-			origin.x + width,
-			origin.y + (height / 2.0f) - (this->rightArrow->getSize().y / 2.0f) );
-
-		this->buttonMainSelection->setSize( width * 0.8f, height * 0.3f );
-		float positionX = origin.x + (width / 2.0f) -
-			(this->buttonMainSelection->getSize().x / 2.0f);
-		float positionY = origin.y + (height / 2.0f);
-		this->buttonMainSelection->setPosition( floor(positionX), floor(positionY) );
-
-		this->pin_area->setSize(
-			this->buttonMainSelection->getSize().x,
-			this->buttonMainSelection->getSize().y );
-		this->pin_area->setPosition(
-			this->buttonMainSelection->getPosition().x,
-			this->buttonMainSelection->getPosition().y );
-
-		// rebuild the pin snap track for the new geometry, keeping the selection
-		const int keep = this->selectedIndex;
+		this->decor->setSize(width, height);
+		this->arrangeSlider();
+	}
+	//----------------------------------------------------
+	void GuiSlider::arrangeSlider()
+	{
+		// the shared row geometry settles the title / arrows / value field; the
+		// grip track IS that value rect and the grip rides it
+		const Ogre::Vector4 track = this->arrangeParts();
+		this->pin_area->setPosition(track.x, track.y);
+		this->pin_area->setSize(track.z, track.w);
+		this->pin->setSize(std::floor(std::max(4.0f, track.w * 0.5f)), track.w);
+		// rebuild the snap points for the new track, keeping the selection
+		const std::size_t keep = this->selectedIndex;
 		if (!this->items.empty())
 		{
-			this->setItems( this->items );	// recomputes itemsPinSnap (selects 0)
-			if (keep >= 0 && keep < static_cast<int>(this->items.size()))
+			this->setItems(this->items);		// recomputes itemsPinSnap (selects 0)
+			if (keep < this->items.size())
 			{
-				this->selectItemIndex( keep, false );
+				this->selectedIndex = keep;		// silent: the value never changed
 			}
 		}
-		else
-		{
-			this->showItem();				// just reposition/hide the pin
-		}
+		// ALWAYS re-place the grip: a relayout that happens to keep the selected
+		// index must still move the grip onto the new track (it would otherwise
+		// stay at its old snap point - outside the widget after a resize)
+		this->showItem();
 	}
 	//----------------------------------------------------
 	void GuiSlider::onCursorPressed( Ogre::Vector2 const & cursorPos )
@@ -281,18 +228,21 @@ namespace Orkige
 	{
 		this->items = items;
 	
-		// slider geometric range
-		Ogre::Vector2 p0 = this->pin_area->getPosition() - this->pin->getSize() * 0.5;
-		Ogre::Vector2 p1 = this->pin_area->getSize();
-		
-		// calculate slider positions
-		float t;
+		// the grip walks the track HORIZONTALLY, centred on it: the snap points
+		// are grip TOP-LEFT positions, so each is offset by half the grip
+		const Ogre::Vector2 area = this->pin_area->getPosition();
+		const Ogre::Vector2 areaSize = this->pin_area->getSize();
+		const Ogre::Vector2 grip = this->pin->getSize();
+		const Ogre::Real snapTop = std::floor(area.y
+			+ (areaSize.y - grip.y) * 0.5f);
 		this->itemsPinSnap.resize(this->items.size());
 		if (this->itemsPinSnap.size() >= 2)
 		for (std::size_t i = 0; i < itemsPinSnap.size(); ++i)
 		{
-			t = static_cast<float>(i) / static_cast<float>(items.size() - 1);
-			this->itemsPinSnap.at(i) = Ogre::Vector2(p0 + t * p1);
+			const float t = static_cast<float>(i)
+				/ static_cast<float>(items.size() - 1);
+			this->itemsPinSnap.at(i) = Ogre::Vector2(std::floor(area.x
+				+ t * (areaSize.x - grip.x)), snapTop);
 		}
 
 		this->selectItemIndex(0, false);

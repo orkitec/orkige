@@ -11,6 +11,8 @@
 #include "engine_gui/GuiManager.h"
 #include <core_event/GlobalEventManager.h>
 #include <OgreString.h>
+#include <algorithm>
+#include <cmath>
 // boost string algorithms dropped (no-boost rule); the only use below is commented out
 
 namespace Orkige 
@@ -28,18 +30,20 @@ namespace Orkige
 		this->decor = onew(new GuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
 		this->label = onew(new GuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z, true));
 		this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
-		this->label->setAlignment(GuiLabel::LA_TOP);
+		// the title reads on the leading side of the row (the value field and its
+		// arrows own the trailing side) - a centred title would sit under them
+		this->label->setAlignment(GuiLabel::LA_LEFT);
 
 		this->leftArrow = onew(new GuiDecorWidget("leftArrow.decor", "select_menu_field_left", position, Ogre::Vector2::ZERO, atlas, z));
 		this->rightArrow = onew(new GuiDecorWidget("rightArrow.decor", "select_menu_field_right", position, Ogre::Vector2::ZERO, atlas, z));
 		
-		this->buttonMainSelection = onew(new GuiButton(buttonId, "select_menu_field", defaultGlyphIndex, "dunnoooooo!", position, GuiLabel::LA_LEFT, Ogre::Vector2::ZERO, atlas, z));
-		this->buttonMainSelection->getLabel().lock()->getCaption()->colour(Orkige::Colours::webcolour(Orkige::Colours::Black));
-		if (size != Ogre::Vector2::ZERO)
+		this->buttonMainSelection = onew(new GuiButton(buttonId, "select_menu_field", defaultGlyphIndex, EMPTY_VALUE_CAPTION, position, GuiLabel::LA_CENTER, Ogre::Vector2::ZERO, atlas, z));
+		if(optr<GuiLabel> valueLabel = this->buttonMainSelection->getLabel().lock())
 		{
-			this->updateSize();
+			valueLabel->getCaption()->colour(
+				Orkige::Colours::webcolour(Orkige::Colours::Black));
 		}
-		this->updatePosition();
+		this->arrangeParts();
 
 		this->selectedIndex = -1;
 		this->showItem();
@@ -52,15 +56,13 @@ namespace Orkige
 	void GuiSelectMenu::setPosition( Ogre::Real left, Ogre::Real top )
 	{
 		this->decor->setPosition(left, top);
-		this->label->setPosition(left, top);
-		this->updatePosition();
+		this->arrangeParts();
 	}
 	//----------------------------------------------------
 	void GuiSelectMenu::setSize( Ogre::Real width, Ogre::Real height )
 	{
 		this->decor->setSize(width, height);
-		this->label->setSize(width, height);
-		this->updateSize();
+		this->arrangeParts();
 	}
 	//----------------------------------------------------
 	Ogre::Vector2 GuiSelectMenu::getSize()
@@ -129,7 +131,7 @@ namespace Orkige
 		}
 		else
 		{
-			this->buttonMainSelection->setCaption("Empty!");
+			this->buttonMainSelection->setCaption(EMPTY_VALUE_CAPTION);
 		}
 	}
 	//---------------------------------------------------------------
@@ -189,23 +191,37 @@ namespace Orkige
     //----------------------------------------------------
     //- protected: ---------------------------------------
     //----------------------------------------------------
-	void GuiSelectMenu::updatePosition()
+	Ogre::Vector4 GuiSelectMenu::arrangeParts()
 	{
-		this->leftArrow->setPosition(this->decor->getPosition().x - this->leftArrow->getSize().x,
-			this->leftArrow->getPosition().y + (this->decor->getSize().y / 2.0f) - (this->leftArrow->getSize().y / 2.0f));
-		this->rightArrow->setPosition(this->decor->getPosition().x + this->decor->getSize().x,
-			this->rightArrow->getPosition().y + (this->decor->getSize().y / 2.0f) - (this->rightArrow->getSize().y / 2.0f));
+		// the row: [ title .......... < value > ], every part inside the field
+		const Ogre::Vector2 origin = this->decor->getPosition();
+		const Ogre::Vector2 size = this->decor->getSize();
+		const Ogre::Real inset = std::floor(size.y * 0.12f);
+		const Ogre::Real partHeight = std::max(4.0f, size.y - 2.0f * inset);
+		const Ogre::Real arrowWidth = std::floor(std::min(partHeight,
+			std::max(0.0f, size.x - 2.0f * inset) * 0.15f));
+		const Ogre::Real valueWidth = std::max(4.0f, std::floor((size.x
+			- 2.0f * inset - 2.0f * arrowWidth) * 0.5f));
+		const Ogre::Real partTop = std::floor(origin.y
+			+ (size.y - partHeight) * 0.5f);
+		const Ogre::Real rightArrowLeft = std::floor(origin.x + size.x - inset
+			- arrowWidth);
+		const Ogre::Real valueLeft = rightArrowLeft - valueWidth;
+		const Ogre::Real leftArrowLeft = valueLeft - arrowWidth;
 
-		float positionX = this->buttonMainSelection->getPosition().x + (this->decor->getSize().x / 2.0f) - (this->buttonMainSelection->getSize().x / 2.0f);
-		float positionY = this->decor->getPosition().y + (this->decor->getSize().y / 2.0f);
-		this->buttonMainSelection->setPosition(floor(positionX), floor(positionY));
-	}
-	//----------------------------------------------------
-	void GuiSelectMenu::updateSize()
-	{
-		this->buttonMainSelection->setSize(this->decor->getSize().x * 0.8f, this->decor->getSize().y * 0.3f);
-		this->leftArrow->setSize(this->decor->getSize().x * 0.2f, this->decor->getSize().y * 0.9f);
-		this->rightArrow->setSize(this->decor->getSize().x * 0.2f, this->decor->getSize().y * 0.9f);
+		this->leftArrow->setSize(arrowWidth, partHeight);
+		this->rightArrow->setSize(arrowWidth, partHeight);
+		this->leftArrow->setPosition(leftArrowLeft, partTop);
+		this->rightArrow->setPosition(rightArrowLeft, partTop);
+		this->buttonMainSelection->setSize(valueWidth, partHeight);
+		this->buttonMainSelection->setPosition(valueLeft, partTop);
+		// the title reads in the space left of the arrows, never under the value
+		// (its own margin is doubled so the glyphs do not touch the frame)
+		const Ogre::Real textInset = inset * 2.0f;
+		this->label->setPosition(std::floor(origin.x + textInset), origin.y);
+		this->label->setSize(std::max(0.0f, leftArrowLeft - origin.x
+			- 2.0f * textInset), size.y);
+		return Ogre::Vector4(valueLeft, partTop, valueWidth, partHeight);
 	}
 	//----------------------------------------------------
 	void GuiSelectMenu::onEnabledChanged(bool enable)

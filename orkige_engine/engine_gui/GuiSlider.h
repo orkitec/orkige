@@ -53,6 +53,11 @@ namespace Orkige
 		//! dim the grip on top of the SelectMenu frame/label dim
 		virtual void onEnabledChanged(bool enable);
     private:
+		//! @brief re-place the grip track + grip on the value rect the shared
+		//! GuiSelectMenu::arrangeParts just settled, then rebuild the snap points
+		//! for that geometry (keeping the selection) - the ONE slider geometry
+		//! rule the constructor, setPosition and setSize all run
+		void arrangeSlider();
 		bool pinActive;
 		std::vector<Ogre::Vector2> itemsPinSnap;
     };

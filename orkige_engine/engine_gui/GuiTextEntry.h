@@ -96,6 +96,13 @@ namespace Orkige
 		//! Always false in multi-line mode - Return inserts a newline there.
 		bool wasSubmitted();
 
+		//! draw the field skin nine-sliced instead of stretched (crisp corners
+		//! and a stable border on a wide / tall field) - the
+		//! GuiButton::setNineSlice sibling, same `.oui` `nineSlice` key
+		void setNineSlice(bool enable);
+		//! draw the field skin tiled instead of stretched (`.oui` `tiled`)
+		void setTiled(bool enable);
+
 		//! @brief turn the field into a multi-line text area (soft wrap to the
 		//! field width, Return inserts a line break, up/down walk lines, the view
 		//! scrolls to follow the caret). Off by default. @see the class remarks.
