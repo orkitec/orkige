@@ -27,14 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import benchmark_breadcrumbs  # noqa: E402
-
-# every scene's recorder label (the director's sceneLabel export); these are the
-# lines the artifact must contain for the run to have visited the whole tour.
-EXPECTED_LABELS = [
-    "Terrace Vista", "Still Water", "Mirror Lake", "Night Lumens",
-    "Ember Swarm", "Instance Field", "Character Cast", "Flatland", "Console",
-    "Cascade", "Tally",
-]
+from benchmark_skip import TOUR_ORDER, resolve_skip_scenes  # noqa: E402
 
 
 def log(msg):
@@ -79,18 +72,23 @@ def main():
         "ORKIGE_PROGRESS_RESET": "1",
         "ORKIGE_PROGRESS_DIR": str(out),
     })
-    # WINDOWS-ONLY quarantine: run the mirrorlake vignette without planar water
-    # reflection. The Windows CI host's software-Vulkan driver faults inside its
-    # cold shader-variant compile of the third nested mirror render (the crash-
-    # breadcrumb trail dead-ends at "mirror render #3", ~170ms after the second
-    # render's multi-second variant-compile stall); the fault is in that driver's
-    # compiler, not the engine (Linux/lavapipe and macOS/Metal never reproduce,
-    # real GPUs are unaffected). The mirror FEATURE itself stays fully tested
-    # here through the dedicated gates (water_mirror_wobble,
-    # benchmark_crossflavor_parity_mirror) on every platform where the driver is
-    # sound. r.planarReflection=0 makes the water render its non-mirror fallback.
-    if sys.platform == "win32":
-        env["ORKIGE_CVAR_r_planarReflection"] = "0"
+    # the per-host scene-skip quarantine (win32 default + any manual env); writes
+    # the resolved ORKIGE_CVAR_benchmark_skipScenes back into env for the player
+    skip_scenes = resolve_skip_scenes(env)
+    if skip_scenes:
+        log("benchmark.skipScenes = %s (tour walks straight past these)"
+            % ",".join(sorted(skip_scenes)))
+    # the labels the artifact must carry: the whole tour minus any skipped scene
+    expected_labels = [label for base, label in TOUR_ORDER
+                       if base not in skip_scenes]
+    # the crash-breadcrumb proof scene (a mid-tour scene load the trail must
+    # name): mirrorlake by default; when it is quarantined, the scene loaded in
+    # its place (lumens) is the proof, and a wider custom skip set falls back to
+    # the first surviving mid-tour scene
+    crumb_scene = "mirrorlake"
+    if crumb_scene in skip_scenes:
+        crumb_scene = next((b for b, _ in TOUR_ORDER[1:]
+                            if b not in skip_scenes), TOUR_ORDER[0][0])
     # NOTE: no SDL_VIDEODRIVER override - the player needs a real render context
     # (a window on the dev macOS display, xvfb/llvmpipe on CI), exactly like the
     # other player selfchecks. Forcing the dummy driver breaks classic GL setup.
@@ -156,20 +154,31 @@ def main():
     if summary.get("aborted") is not False:
         fail("summary.aborted is %r, expected false" % summary.get("aborted"))
 
-    # every scene of the sequence must have been visited with a real record
-    missing = [lbl for lbl in EXPECTED_LABELS
+    # every EXPECTED scene (the tour minus any skipped vignette) must have been
+    # visited with a real record; a skipped scene must be ABSENT (proving the
+    # skip took, not that it silently rendered anyway)
+    missing = [lbl for lbl in expected_labels
                if scene_frames.get(lbl, 0) < 2]
     if missing:
         log("recorded scenes: " + ", ".join(
             "%s=%d" % (k, v) for k, v in sorted(scene_frames.items())))
         fail("scenes never recorded (>=2 frames): " + ", ".join(missing))
+    skipped_labels = [label for base, label in TOUR_ORDER
+                      if base in skip_scenes]
+    present_but_skipped = [lbl for lbl in skipped_labels
+                           if scene_frames.get(lbl, 0) >= 2]
+    if present_but_skipped:
+        fail("scene(s) recorded despite benchmark.skipScenes (skip did not "
+             "take): " + ", ".join(present_but_skipped))
 
-    # the breadcrumb trail is present and names the mirrorlake switch: proves
+    # the breadcrumb trail is present and names a mid-tour scene switch: proves
     # the plumbing a future silent exit-3 relies on is live on this exact leg
-    benchmark_breadcrumbs.assert_present(out, fail, expect_scene="mirrorlake")
+    benchmark_breadcrumbs.assert_present(out, fail, expect_scene=crumb_scene)
 
-    log("OK: %d/%d scenes recorded, summary clean (%d total scene lines)" %
-        (len(EXPECTED_LABELS), len(EXPECTED_LABELS), len(scene_frames)))
+    log("OK: %d/%d scenes recorded, summary clean (%d total scene lines)%s" %
+        (len(expected_labels), len(expected_labels), len(scene_frames),
+         "" if not skip_scenes
+         else "; skipped " + ",".join(sorted(skip_scenes))))
 
 
 if __name__ == "__main__":

@@ -28,6 +28,9 @@ import os
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from benchmark_skip import resolve_skip_scenes  # noqa: E402
+
 
 def log(msg):
     print("run_benchmark_budget_test: " + msg, flush=True)
@@ -54,18 +57,12 @@ def run_scene(args, scene_file, outdir):
         # camera dependence (the director's automation seams)
         "ORKIGE_CVARS": "benchmark.rampBudgetMs=100000,benchmark.cameraOrbit=0",
     })
-    # WINDOWS-ONLY quarantine: boot mirrorlake (the one budgeted scene with
-    # planar water) without planar reflection - the Windows CI software-Vulkan
-    # driver faults inside the cold variant compile of the third nested mirror
-    # render (the "mirror render #3" breadcrumb dead-end), a driver-compiler
-    # fault, not an engine one. Harmless on the other scenes (none use planar).
-    # The mirrorlake corridor holds under both the planar-ON (macOS/Linux) and
-    # planar-OFF (Windows) recipe: dropping the mirror re-render only LOWERS the
-    # next batch/tri counts, which stay above batchesMin and below the ceilings
-    # (see benchmark_budgets.json mirrorlake note); classic's primary-target
-    # stat never counted the mirror pass, so it is unchanged either way.
-    if sys.platform == "win32":
-        env["ORKIGE_CVAR_r_planarReflection"] = "0"
+    # carry the per-host scene-skip quarantine into the player env for
+    # uniformity (this driver boots each scene DIRECTLY, so the corridor for a
+    # skipped scene is dropped at the loop level in main() rather than by the
+    # director's advance - a directly-booted quarantined scene would still stand
+    # up the faulting shader mix, so it is never booted at all on that host)
+    resolve_skip_scenes(env)
     cmd = [args.player, "scenes/" + scene_file, "--project",
            os.path.join(args.repo, "projects/benchmark")]
     result = subprocess.run(cmd, cwd=args.repo, env=env,
@@ -98,10 +95,22 @@ def main():
     with open(args.budgets) as fh:
         budgets = json.load(fh)
 
+    # the per-host scene-skip quarantine (win32 default + any manual env): a
+    # skipped scene is never booted here (its material/shader mix faults this
+    # host's driver-compiler), so its budget corridor is not checked on this
+    # host. The scene stays budgeted for every host without the quarantine.
+    skip_scenes = resolve_skip_scenes(dict(os.environ))
+    if skip_scenes:
+        log("benchmark.skipScenes = %s (their budget corridor is skipped here)"
+            % ",".join(sorted(skip_scenes)))
+
     failures = []
     for scene_file, per_flavor in sorted(budgets["scenes"].items()):
         budget = per_flavor.get(args.flavor)
         if budget is None:
+            continue
+        if scene_file.split(".")[0] in skip_scenes:
+            log("%-18s SKIPPED (benchmark.skipScenes quarantine)" % scene_file)
             continue
         record = run_scene(args, scene_file,
                            os.path.join(args.dir, scene_file.split(".")[0]))

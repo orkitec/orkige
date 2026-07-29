@@ -175,6 +175,7 @@ haptics.setEnabled(enabled)  -- honour an in-game vibration on/off setting
 
 ## cvar
 cvar.registerNumber(name, default)  -- register a Float cvar (idempotent)
+cvar.registerString(name, default)  -- register a String cvar (idempotent)
 cvar.getNumber(name [, fallback]) -> number  -- read a cvar as a number
 cvar.getBool(name [, fallback]) -> bool  -- read a cvar as a bool
 cvar.get(name) -> string  -- read a cvar's canonical string ('' if unset)

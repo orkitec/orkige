@@ -1781,6 +1781,8 @@ namespace Orkige
 		// with scripting OFF); this table is just the scripting-gated accessor.
 		//   cvar.registerNumber(name, default)  register a Float cvar (idempotent -
 		//                        a manifest/protocol override applied earlier survives)
+		//   cvar.registerString(name, default)  register a String cvar (idempotent,
+		//                        same override survival - the string sibling)
 		//   cvar.getNumber(name [, fallback])   read a cvar as a number
 		//   cvar.getBool(name [, fallback])     read a cvar as a bool
 		//   cvar.get(name)                      read a cvar's canonical string ("" if unset)
@@ -1788,13 +1790,20 @@ namespace Orkige
 		//                        returns true, or false + logs on a rejected value
 		//   cvar.exists(name)                   is the cvar registered
 		// Numbers are the common case (tuning constants), so registerNumber /
-		// getNumber are first-class; game code that needs bool/string cvars
-		// registers them from C++ (OCVAR_*) and reads them the typed way.
+		// getNumber are first-class; a String cvar (registerString + get) covers a
+		// text automation seam like a comma-separated scene-skip list. Bool cvars
+		// stay a C++ (OCVAR_*) concern read the typed way.
 		runtime.registerFunction("cvar", "registerNumber",
 			[](String const & name, double defaultValue)
 		{
 			CVarManager::getSingleton().registerCVar(name, CVarType::Float,
 				cvarToString(static_cast<float>(defaultValue)));
+		});
+		runtime.registerFunction("cvar", "registerString",
+			[](String const & name, String const & defaultValue)
+		{
+			CVarManager::getSingleton().registerCVar(name, CVarType::String,
+				defaultValue);
 		});
 		runtime.registerFunction("cvar", "getNumber",
 			[](String const & name, ScriptArgs extra) -> double

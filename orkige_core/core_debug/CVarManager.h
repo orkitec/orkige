@@ -107,14 +107,18 @@ namespace Orkige
 		//! under ("ORKIGE_CVAR_"). One environment variable seeds one cvar:
 		//! ORKIGE_CVAR_<suffix>=<value> sets the cvar named by <suffix> with
 		//! every underscore turned into a dot, so ORKIGE_CVAR_r_planarReflection=0
-		//! seeds the "r.planarReflection" cvar. A general, documented dev/CI hook
-		//! (opens no socket, touches no shipped file) - @see seedFromEnvironment.
+		//! seeds the "r.planarReflection" cvar. Order-independent like a manifest
+		//! Setting: a seed for a cvar not yet registered is HELD and applied the
+		//! moment it registers, so a cvar named only in Lua (a game/director cvar)
+		//! is reachable too. A general, documented dev/CI hook (opens no socket,
+		//! touches no shipped file) - @see seedFromEnvironment.
 		static const String ENV_PREFIX;
 	private:
 		std::map<String, CVar>	mCVars;			//!< the registry (sorted by name)
-		//! manifest overrides for cvars NOT YET registered (order-independence:
-		//! a "cvar.x" Setting applied before the system owning "x" registers is
-		//! held here and re-applied the moment registerCVar mints "x")
+		//! manifest / env-seed overrides for cvars NOT YET registered
+		//! (order-independence: a "cvar.x" Setting or ORKIGE_CVAR_x seed applied
+		//! before the system owning "x" registers is held here and re-applied the
+		//! moment registerCVar mints "x")
 		std::map<String, String>	mPendingOverrides;
 		bool					mInOnChange;	//!< re-entrancy guard for onChange
 		//--- Methods -----------------------------------------
@@ -188,9 +192,10 @@ namespace Orkige
 
 		//! @brief the ENV->CVAR boot seed: scan the process environment for
 		//! ORKIGE_CVAR_* variables and apply each to the registry. Evaluated ONCE
-		//! at boot after the engine/render cvars register, so a seed reaches its
-		//! target cvar and an unknown name is caught. Reads the process
-		//! environment; the work is delegated to the testable overload.
+		//! at boot after the engine/render cvars register; a seed for a cvar not
+		//! yet registered is held as a pending override (order-independence) so a
+		//! Lua-registered cvar picks it up. Reads the process environment; the
+		//! work is delegated to the testable overload.
 		void seedFromEnvironment();
 
 		//! @overload the testable seam: seed from an explicit list of
@@ -198,7 +203,10 @@ namespace Orkige
 		//! each ORKIGE_CVAR_* entry the FIRST registered candidate name (@see
 		//! cvarNamesFromEnv) is set through setString (so the value is
 		//! type-validated and the cvar's onChange fires); a value the type rejects
-		//! OR a name no candidate resolves to warns once (honest, never a crash).
+		//! warns once (honest, never a crash). When NO candidate is registered yet
+		//! the value is held as a pending override on each candidate name, so a
+		//! cvar registered later (e.g. only in Lua) picks the seed up on
+		//! registration - the same held-override path a manifest Setting uses.
 		//! Non-seed entries are ignored.
 		void seedFromEnvironment(
 			std::vector<std::pair<String, String>> const & environment);

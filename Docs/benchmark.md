@@ -259,21 +259,45 @@ flavors. The night-lights ramp is bounded by the flavor's queried dynamic-light
 budget (above); the `benchmark.lightCeiling` cvar can cap it lower still for a
 tighter budget.
 
-### Planar reflection on Windows CI
+### Scene skip (`benchmark.skipScenes`)
 
-On Windows CI the benchmark tour traverses the **mirror lake** vignette with
-planar water reflection turned off (`ORKIGE_CVAR_r_planarReflection=0`, the
-per-cvar boot seed — see `Docs/logging.md`). The Windows runner's software
-Vulkan driver faults inside its cold shader-variant compile of the third nested
-mirror render, a fault in that driver's compiler rather than in the engine:
-Linux/lavapipe and macOS/Metal never reproduce it, and real GPUs are unaffected.
-The quarantine is bounded to exactly the tour drivers that walk mirrorlake for
-many frames (`run_benchmark_test.py`, `run_benchmark_restart_test.py`) and the
-structural budget gate (`run_benchmark_budget_test.py`); with the mirror off the
-water renders its non-mirror sky-reflection fallback, and the mirrorlake budget
-corridor holds unchanged (the dropped mirror re-render only lowers next's
-batch/tri counts within the existing floor and ceilings; classic never counted
-the mirror pass). The mirror **feature itself stays fully tested on Windows and
-everywhere else** through the dedicated pixel gates — `water_mirror_wobble` and
-`benchmark_crossflavor_parity_mirror` keep planar reflection ON on all platforms,
-because those never hit the faulting compile path.
+`benchmark.skipScenes` is a String cvar naming a comma-separated set of scene
+**basenames** the autonomous tour walks straight past — it never loads them. The
+director reads it once at scene init (the sibling of the `benchmark.sceneScale`
+number knob), and when a level switch would advance into a named scene it
+advances to the next playable vignette instead. The tour pacing and the recorder
+stay sane: a skipped vignette is simply **absent** from the artifact and lacks
+its results-card row. Empty (the default) skips nothing, so every platform
+without a quarantine runs the full tour. The seam is driven through the per-cvar
+boot seed `ORKIGE_CVAR_benchmark_skipScenes=<names>` (an env-seeded cvar the
+player holds until the director registers it — see `Docs/logging.md`).
+
+### Mirror lake on Windows CI
+
+On Windows CI the whole **mirror lake** vignette is quarantined
+(`ORKIGE_CVAR_benchmark_skipScenes=mirrorlake`): that runner's software Vulkan
+driver faults inside its cold shader-variant compile of the scene's
+material/shader mix — the crash-breadcrumb trail dead-ends within ~0.5 s of the
+mirrorlake scene load, **with planar reflection already off**, so the trigger is
+the scene's shader mix in that driver's compiler, not the planar mirror render
+specifically nor the engine. Linux/lavapipe and macOS/Metal never reproduce it,
+and real GPUs are unaffected. Skipping the whole scene on that one host is the
+honest stabilization; it is bounded to exactly the tour drivers that walk
+mirrorlake for many frames (`run_benchmark_test.py`,
+`run_benchmark_restart_test.py`) and the structural budget gate
+(`run_benchmark_budget_test.py`, which simply drops the mirrorlake corridor on
+the quarantined host — the scene is never booted there). Each driver derives its
+pass criteria from the resolved skip set (`benchmark_skip.py`), so the skipped
+tour passes by design — the skipped scene is provably absent, not silently
+rendered anyway.
+
+The `r.planarReflection` cvar (the boot-seedable planar-water gate, ON by
+default; OFF renders water with its non-mirror sky-reflection fallback and never
+stands up the reflection subsystem) remains as a general knob — it is no longer
+part of this quarantine, since turning it off did not stop the fault. The mirror
+**feature itself is covered** by the dedicated pixel gates, which keep planar
+reflection ON: `water_mirror_wobble` (the wave-perturbed-mirror existence gate,
+next flavor, a fresh single-scene boot of Mirror Lake — distinct from the tour's
+mid-sequence load that follows the sky/IBL state the earlier vignettes leave
+sticky) and `benchmark_crossflavor_parity_mirror` (the mirror-strength parity
+gate, which runs only when both flavors are built and otherwise skips).

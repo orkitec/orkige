@@ -352,6 +352,10 @@
 		"sig": "(name, default)",
 		"doc": "register a Float cvar (idempotent)"
 	},
+	"cvar.registerString": {
+		"sig": "(name, default)",
+		"doc": "register a String cvar (idempotent)"
+	},
 	"cvar.getNumber": {
 		"sig": "(name [, fallback]) -> number",
 		"doc": "read a cvar as a number"

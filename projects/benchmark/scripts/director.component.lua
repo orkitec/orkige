@@ -63,6 +63,16 @@ local scale, wipe = 1.0, 1.0
 local elapsed = 0.0
 local fpsSmoothed = 60.0
 
+-- benchmark.skipScenes: a comma-separated set of scene BASENAMES the tour walks
+-- STRAIGHT PAST (never loads). A per-host quarantine seam - a scene whose
+-- material/shader mix faults a specific software driver's compiler is dropped on
+-- that host only (the driver forwards it through ORKIGE_CVAR_benchmark_skipScenes;
+-- @see run_benchmark_test.py). The tour pacing and the recorder stay sane: a
+-- skipped vignette is simply absent from the artifact and lacks its results-card
+-- row. Empty (the default) skips nothing, so every platform without the
+-- quarantine runs the full tour.
+local skipScenes = {}
+
 -- HUD
 local gui, factory, hudTitle, hudInfo, hasUI = nil, nil, nil, nil, false
 local hudScrim = nil
@@ -244,6 +254,54 @@ local function setActiveObject(name, active)
 	end
 end
 
+--- scene-skip (benchmark.skipScenes) ----------------------------------------
+
+-- "scenes/mirrorlake.oscene" -> "mirrorlake" (basename, extension stripped);
+-- tolerant of a bare "mirrorlake" or a back-slash path too
+local function sceneBasename(path)
+	if path == nil then
+		return ""
+	end
+	return path:match("([^/\\]+)%.oscene$")
+		or path:match("([^/\\]+)$")
+		or path
+end
+
+-- parse the comma-separated benchmark.skipScenes value into a basename set
+local function parseSkipScenes(spec)
+	local set = {}
+	if spec == nil then
+		return set
+	end
+	for entry in spec:gmatch("[^,]+") do
+		local name = entry:match("^%s*(.-)%s*$")   -- trim
+		if name ~= "" then
+			set[sceneBasename(name)] = true
+		end
+	end
+	return set
+end
+
+-- advance a level index past any scene named in benchmark.skipScenes. Returns
+-- the first index at/after `idx` whose scene is not skipped (or `count` when the
+-- rest of the sequence is entirely skipped - the caller handles the end). Logs
+-- each skipped scene so the quarantine is visible in the tour's output.
+local function skipPastSkippedLevels(idx, count)
+	if levels == nil then
+		return idx
+	end
+	while idx < count do
+		local base = sceneBasename(levels:levelScene(idx))
+		if not skipScenes[base] then
+			break
+		end
+		print(string.format(
+			"director: skipping level %d '%s' (benchmark.skipScenes)", idx, base))
+		idx = idx + 1
+	end
+	return idx
+end
+
 --- HUD -----------------------------------------------------------------------
 
 local function buildHud()
@@ -363,16 +421,20 @@ local function buildResults()
 		local rowLabels = {}
 		local widest = titleSize.x
 		local tour = shared.tour or {}
-		for i, name in ipairs(SCENE_ORDER) do
+		for _, name in ipairs(SCENE_ORDER) do
 			local info = tour[name]
-			local line = name
-			if info ~= nil and info.detail ~= nil then
-				line = name .. "  -  " .. info.detail
+			-- a scene the tour never recorded (a benchmark.skipScenes quarantine)
+			-- has no result: it honestly lacks its row rather than showing a blank
+			if info ~= nil then
+				local line = name
+				if info.detail ~= nil then
+					line = name .. "  -  " .. info.detail
+				end
+				local row = factory:createLabel("res." .. name, 9, line,
+					Vector2(0, 0), "", 6, false)
+				rowLabels[#rowLabels + 1] = row
+				widest = math.max(widest, row:getSize().x)
 			end
-			local row = factory:createLabel("res." .. name, 9, line,
-				Vector2(0, 0), "", 6, false)
-			rowLabels[i] = row
-			widest = math.max(widest, row:getSize().x)
 		end
 		local frame = factory:createLabel("res.frame", 9,
 			string.format("%s: %.2f ms", loc("bench.frameMs"),
@@ -571,6 +633,11 @@ function init(self)
 	cvar.registerNumber("benchmark.rampBudgetMs", RAMP_BUDGET_MS)
 	cvar.registerNumber("benchmark.cameraOrbit", 1.0)
 	cvar.registerNumber("benchmark.autoRestart", 0.0)
+	-- the scene-skip quarantine list (a String cvar, the sibling of the number
+	-- knobs above): registering it claims any ORKIGE_CVAR_benchmark_skipScenes
+	-- boot seed held for it, then we read + parse the basename set
+	cvar.registerString("benchmark.skipScenes", "")
+	skipScenes = parseSkipScenes(cvar.get("benchmark.skipScenes"))
 	scale = cvar.getNumber("benchmark.sceneScale", 1.0)
 	wipe = cvar.getNumber("benchmark.wipe", 1.0)
 	-- the flavor's queried dynamic-light ceiling drives the many-lights ramp
@@ -888,8 +955,13 @@ function update(self, dt)
 		switchAtFrame = nil
 		-- a restart forces the first scene; a normal advance walks the sequence
 		local nextIndex = forcedNextIndex or (index + 1)
+		-- walk past any scene named in benchmark.skipScenes (a per-host driver
+		-- quarantine): the tour advances straight to the next playable vignette,
+		-- so the artifact/results card simply lack the skipped scene
+		nextIndex = skipPastSkippedLevels(nextIndex, count)
 		if forcedNextIndex == nil and nextIndex >= count then
 			nextIndex = 0	-- attract-mode loop (the hold case never gets here)
+			nextIndex = skipPastSkippedLevels(nextIndex, count)
 		end
 		forcedNextIndex = nil
 		if levels ~= nil then

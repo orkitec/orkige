@@ -32,6 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import benchmark_breadcrumbs  # noqa: E402
+from benchmark_skip import TOUR_ORDER, resolve_skip_scenes  # noqa: E402
 
 # the director's per-scene "ready" line: director[<mode>]: '<label>' ready (...)
 READY_RE = re.compile(r"director\[(\w+)\]: '([^']*)' ready")
@@ -83,17 +84,26 @@ def main():
         "ORKIGE_PROGRESS_RESET": "1",
         "ORKIGE_PROGRESS_DIR": str(out),
     })
-    # WINDOWS-ONLY quarantine: traverse the mirrorlake vignette without planar
-    # water reflection. The Windows CI host's software-Vulkan driver faults
-    # inside its cold shader-variant compile of the third nested mirror render
-    # (the crash-breadcrumb trail dead-ends at "mirror render #3", ~170ms after
-    # the second render's multi-second variant-compile stall); the fault is in
-    # that driver's compiler, not the engine (Linux/lavapipe and macOS/Metal
-    # never reproduce, real GPUs are unaffected). The mirror FEATURE stays fully
-    # tested through the dedicated gates (water_mirror_wobble,
-    # benchmark_crossflavor_parity_mirror) on every sound-driver platform.
-    if sys.platform == "win32":
-        env["ORKIGE_CVAR_r_planarReflection"] = "0"
+    # the per-host scene-skip quarantine (win32 default + any manual env). On
+    # win32 the tour walks straight past the mirror lake vignette: the CI host's
+    # software-Vulkan driver faults inside the cold shader-variant compile of
+    # that scene's material/shader mix (the crash-breadcrumb trail dead-ends
+    # within ~0.5s of the mirrorlake scene load, with planar reflection already
+    # off - a driver-compiler fault, not an engine one). Linux/lavapipe and
+    # macOS/Metal never reproduce it; the mirror FEATURE stays fully tested
+    # everywhere through the dedicated gates (water_mirror_wobble,
+    # benchmark_crossflavor_parity_mirror), which keep planar reflection ON.
+    skip_scenes = resolve_skip_scenes(env)
+    if skip_scenes:
+        log("benchmark.skipScenes = %s (tour walks straight past these)"
+            % ",".join(sorted(skip_scenes)))
+    # the crash-breadcrumb proof scene: mirrorlake by default; when it is
+    # quarantined, the scene loaded in its place (lumens) is the proof, falling
+    # back to the first surviving mid-tour scene for a wider custom skip set
+    crumb_scene = "mirrorlake"
+    if crumb_scene in skip_scenes:
+        crumb_scene = next((b for b, _ in TOUR_ORDER[1:]
+                            if b not in skip_scenes), TOUR_ORDER[0][0])
     # write the crash-breadcrumb trail beside the run: flushed to disk per
     # entry, so it survives a hard abort even when the last buffered stdout
     # lines are lost - the reliable scene-load trail after an exit 3
@@ -171,13 +181,16 @@ def main():
              "init after the results card (loadLevel 0 did not take effect)",
              output[-1500:])
 
-    # (4) the crash-breadcrumb trail was written and carries the scene the tour
-    # crashed on in CI (mirrorlake): this is the plumbing the failure path above
-    # dumps, so a passing run proves the trail is present for the NEXT crash
-    benchmark_breadcrumbs.assert_present(out, fail, expect_scene="mirrorlake")
+    # (4) the crash-breadcrumb trail was written and names a mid-tour scene load
+    # (mirrorlake, or its stand-in when quarantined): this is the plumbing the
+    # failure path above dumps, so a passing run proves it is present for the
+    # NEXT crash
+    benchmark_breadcrumbs.assert_present(out, fail, expect_scene=crumb_scene)
 
     log("OK: Restart button present + safe-area-placed, restart fired, tour "
-        "replayed from scene 1, breadcrumb trail present")
+        "replayed from scene 1, breadcrumb trail present%s"
+        % ("" if not skip_scenes
+           else "; skipped " + ",".join(sorted(skip_scenes))))
 
 
 if __name__ == "__main__":

@@ -484,10 +484,18 @@ namespace Orkige
 			}
 			if (chosen.empty())
 			{
-				oDebugWarning(false, "CVarManager: " << it->first.c_str()
-					<< " names no known cvar (tried '"
-					<< candidates.front().c_str()
-					<< "') - ignoring the environment seed");
+				// no candidate is registered YET. Hold the value as a pending
+				// override on every candidate name (order-independence, the same
+				// held-override path applySettings gives a manifest setting), so a
+				// cvar a script registers LATER - e.g. a game/director cvar named
+				// only in Lua (benchmark.skipScenes) - picks the seed up at
+				// registration. A seed that never names a real cvar (a typo) stays
+				// an inert unclaimed override, exactly like an unused manifest key.
+				for (StringVector::const_iterator name = candidates.begin(),
+					nameEnd = candidates.end(); name != nameEnd; ++name)
+				{
+					this->mPendingOverrides[*name] = it->second;
+				}
 				continue;
 			}
 			String error;

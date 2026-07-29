@@ -100,6 +100,7 @@ namespace Orkige
 		"\n"
 		"## cvar\n"
 		"cvar.registerNumber(name, default)  -- register a Float cvar (idempotent)\n"
+		"cvar.registerString(name, default)  -- register a String cvar (idempotent)\n"
 		"cvar.getNumber(name [, fallback]) -> number  -- read a cvar as a number\n"
 		"cvar.getBool(name [, fallback]) -> bool  -- read a cvar as a bool\n"
 		"cvar.get(name) -> string  -- read a cvar's canonical string ('' if unset)\n"

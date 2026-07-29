@@ -251,14 +251,23 @@ TEST_CASE("CVarManager::seedFromEnvironment applies registered seeds",
 		{"ORKIGE_CVAR_tenv_count", "9"},		// "tenv.count" (dotted) hits
 		{"ORKIGE_CVAR_tenv_under", "7"},		// "tenv.under" misses, literal hits
 		{"PATH", "/should/be/ignored"},			// not a seed
-		{"ORKIGE_CVAR_tenv_ghost", "1"},		// unknown cvar: warns, no crash
+		{"ORKIGE_CVAR_tenv_later", "42"},		// registered LATER (held pending)
 	};
 	manager.seedFromEnvironment(env);
 
 	CHECK(manager.getBool("tenv.gate") == false);	// "0" applied
 	CHECK(manager.getInt("tenv.count") == 9);		// dotted candidate resolved
 	CHECK(manager.getInt("tenv_under") == 7);		// literal candidate resolved
-	CHECK_FALSE(manager.exists("tenv.ghost"));		// unknown stayed unregistered
+	// a seed for a cvar not yet registered is HELD, not applied nor minted:
+	// exists() stays false until the owning system registers it
+	CHECK_FALSE(manager.exists("tenv.later"));
+
+	// order-independence: the held env seed is applied the moment the cvar is
+	// registered (the same path a manifest override for a not-yet-registered
+	// cvar takes) - so a cvar named only in Lua, registered after the boot seed,
+	// still receives its ORKIGE_CVAR_* value
+	manager.registerCVar("tenv.later", CVarType::Int, "0");
+	CHECK(manager.getInt("tenv.later") == 42);		// env seed won over the default
 
 	// a value the type rejects is dropped (warned), the cvar is untouched
 	std::vector<std::pair<String, String>> bad = {
