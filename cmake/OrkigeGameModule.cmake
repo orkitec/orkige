@@ -345,6 +345,13 @@ if(ORKIGE_SCRIPTING STREQUAL "LUA")
     find_package(Lua REQUIRED)
     find_package(sol2 CONFIG REQUIRED)
 endif()
+# The engine's HTTP transport, which the module links because the core archive
+# is linked by PATH (@see the link block below) and a raw path carries none of
+# its own dependencies. WHICH transport is the package's answer, never a second
+# platform decision here: the layer that chose it says so.
+if(ORKIGE_PACKAGE_HTTP_BACKEND STREQUAL "curl")
+    find_package(CURL CONFIG REQUIRED)
+endif()
 
 # the OGRE Media dir the module's runtime resolves as the dev-run fallback
 # (classic RTSS shader library / Ogre-Next Hlms shader templates), exported
@@ -434,6 +441,14 @@ function(orkige_game_module target)
         NanoSVG::nanosvg
         NanoSVG::nanosvgrast
     )
+    # the HTTP transport's dependency, after the archives that reference it
+    # (GNU ld resolves left to right - the same rule the comment above states)
+    if(ORKIGE_PACKAGE_HTTP_BACKEND STREQUAL "curl")
+        target_link_libraries(${target} PRIVATE CURL::libcurl)
+    elseif(ORKIGE_PACKAGE_HTTP_BACKEND STREQUAL "win")
+        # winhttp.dll is part of Windows; this is the SDK's import library
+        target_link_libraries(${target} PRIVATE winhttp)
+    endif()
     if(ORKIGE_MODULE_FLAVOR STREQUAL "next")
         # the Ogre-Next backend closure (see orkige_engine/CMakeLists.txt); one
         # render system per platform - Metal on Apple, Vulkan elsewhere

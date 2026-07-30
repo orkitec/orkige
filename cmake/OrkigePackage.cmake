@@ -51,6 +51,13 @@ function(orkige_emit_package)
     if(ORKIGE_SCRIPTING STREQUAL "LUA")
         list(APPEND ORKIGE_PACKAGE_TRANSITIVE "Lua" "sol2")
     endif()
+    # the HTTP transport's own dependency, where it has one a consumer must
+    # resolve: curl is a vcpkg package, WinHTTP an SDK import library, and the
+    # Apple/Android/wasm transports need nothing beyond what the layer already
+    # links (the frameworks are PUBLIC, the JNI entry points come with the NDK)
+    if(ORKIGE_HTTP_BACKEND STREQUAL "curl")
+        list(APPEND ORKIGE_PACKAGE_TRANSITIVE "CURL")
+    endif()
 
     configure_file("${_module_dir}/OrkigeConfig.cmake.in"
         "${_out}/OrkigeConfig.cmake" @ONLY)

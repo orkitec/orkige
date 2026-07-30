@@ -105,6 +105,14 @@ else()
         "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendNone.cpp")
 endif()
 
+# the resolved transport, hoisted out of this directory scope so the build-tree
+# package can DECLARE it: a native game module links the core archive by path
+# and therefore has to satisfy the transport's own dependency itself (libcurl on
+# Linux, the WinHTTP import library on Windows), and it must learn WHICH one
+# from here rather than re-deriving the platform decision a second time
+set(ORKIGE_HTTP_BACKEND "${ORKIGE_HTTP_BACKEND}" CACHE INTERNAL
+    "the resolved core_http transport (apple/android/win/curl/fetch/none)")
+
 add_library(orkige_core STATIC ${ORKIGE_CORE_SOURCES})
 add_library(Orkige::Core ALIAS orkige_core)
 
