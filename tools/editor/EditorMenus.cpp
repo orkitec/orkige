@@ -12,6 +12,7 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 #include "EditorAutosave.h"
+#include "EditorBuildInfo.h"	// the About box's build identity (version + commit)
 #include "EditorSceneTemplate.h"
 #include "EditorScriptHost.h"
 #include "EditorTerminalPanel.h"	// View > New Terminal spawns another session
@@ -585,8 +586,10 @@ void drawEditorModals(EditorState& state, Orkige::EditorCore& core)
 	{
 		ImGui::Text("Orkige Editor");
 		ImGui::Separator();
+		// the build IDENTITY, not just the version: a distributed binary must
+		// be able to say which commit it came from (@see EditorBuildInfo.h)
 		ImGui::Text("orkige - the orkitec game engine, version %s",
-			ORKIGE_EDITOR_VERSION);
+			Orkige::editorBuildIdentity().c_str());
 		ImGui::Text("OGRE %d.%d.%d", OGRE_VERSION_MAJOR, OGRE_VERSION_MINOR,
 			OGRE_VERSION_PATCH);
 		ImGui::Text("Dear ImGui %s", IMGUI_VERSION);

@@ -105,6 +105,7 @@
 // the python3 toolchain and asserts the import works even when that fails
 #include "PythonToolchain.h"
 #include "EditorAutosave.h"
+#include "EditorBuildInfo.h"	// --version / the About box build identity
 #include "EditorControlServer.h"
 #include "EditorIdeServer.h"	// Claude-IDE integration (lock + MCP-over-WebSocket)
 #include "EditorMcpConfigFile.h"	// project-scope .mcp.json discovery-file reconciler
@@ -185,6 +186,21 @@ static std::string findExecutableOnPath(std::string const& name)
 
 int main(int argc, char** argv)
 {
+	// --version / -v: print the build identity and exit, BEFORE any window,
+	// render or filesystem work - a headless, display-free probe that a
+	// packaged binary answers on a machine with no GPU and no project. The
+	// packaging pipeline's smoke test greps the commit out of this line to
+	// prove the artifact it just built actually runs (Docs/nightly-builds.md).
+	for (int argIndex = 1; argIndex < argc; ++argIndex)
+	{
+		if (std::strcmp(argv[argIndex], "--version") == 0 ||
+			std::strcmp(argv[argIndex], "-v") == 0)
+		{
+			std::printf("%s\n", Orkige::editorVersionLine().c_str());
+			return 0;
+		}
+	}
+
 	// --mcp-port N / --mcp-token-file PATH (aliases --control-port /
 	// --control-token-file): opt-in in-editor MCP endpoint over Streamable HTTP
 	// (previously a line-JSON control port). Off unless asked for; the

@@ -1,12 +1,15 @@
-# Orkige nightly quality gates - three watches too slow/noisy for the push CI
-# (ci.yml), run together here on a shared schedule so they parallelize on
-# separate runners the same as when they were separate workflows.
+# Orkige nightly work - the watches too slow/noisy for the push CI (ci.yml)
+# plus the binary pipeline, run together here on a shared schedule so they
+# parallelize on separate runners the same as when they were separate workflows.
 #
 # - Soak: long-run leak + stability watch (attract-loop RSS trend).
 # - Valgrind Memcheck: the uninitialized-read watch the compile-time
 #   sanitizers (ASan/UBSan/TSan in ci.yml) do not cover.
 # - Fuzz: libFuzzer coverage over the pure, headless parsers that consume
 #   external / untrusted bytes.
+# - Binaries: downloadable Release editor archives for macOS, Linux and
+#   Windows, built from the last commit the FULL test matrix proved green and
+#   published as a rolling draft prerelease (Docs/nightly-builds.md).
 #
 # Each job's own rationale follows immediately above it below.
 
@@ -37,6 +40,16 @@ on:
         required: false
         type: boolean
         default: true
+      run_binaries:
+        description: "Build + publish the downloadable editor binaries"
+        required: false
+        type: boolean
+        default: true
+      ignore_gate:
+        description: "Binaries: build from this ref even if CI on main is red"
+        required: false
+        type: boolean
+        default: false
       frames:
         description: "Soak: frame budget for the attract loop"
         required: false
@@ -438,3 +451,490 @@ jobs:
           name: fuzz-findings
           path: /tmp/fuzz-artifacts
           if-no-files-found: ignore
+
+  # ==========================================================================
+  # The downloadable editor binaries.
+  #
+  # THE GATE. Binaries are published only from a commit the FULL test matrix
+  # (ci.yml, one job per platform x render flavor) proved green - a red tree
+  # must never reach a download page. This job asks the API for the most recent
+  # COMPLETED ci.yml run on main and reads its conclusion; the build jobs check
+  # out THAT run's commit rather than whatever main happens to be at now, so the
+  # binaries are built from exactly the tree that passed.
+  #
+  # Why an API query and not a `workflow_run` trigger: workflow_run fires once
+  # per CI completion, i.e. on every push - that would build and republish
+  # desktop binaries many times a day for no benefit, and it cannot be put on a
+  # schedule. One scheduled query gives exactly one build a day from the last
+  # proven-green commit, and reports honestly when there is none.
+  #
+  # An amber verdict is a SKIP, not a failure: a red main is already reported by
+  # ci.yml, and failing here too would only duplicate the alarm.
+  binaries-gate:
+    name: Binaries gate - the last CI run on main must be green
+    if: github.event_name == 'schedule' || inputs.run_binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      green: ${{ steps.probe.outputs.green }}
+      sha: ${{ steps.probe.outputs.sha }}
+      short_sha: ${{ steps.probe.outputs.short_sha }}
+      date: ${{ steps.probe.outputs.date }}
+    steps:
+      - name: Read the last completed CI run on main
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IGNORE_GATE: ${{ inputs.ignore_gate }}
+        run: |
+          set -uo pipefail
+          # gh + jq ship on every hosted runner; no action dependency here
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=1" \
+            > runs.json || { echo "::warning::could not query the CI runs"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          count=$(jq -r '.workflow_runs | length' runs.json)
+          conclusion=""
+          sha=""
+          url=""
+          number=""
+          if [ "$count" != "0" ]; then
+            conclusion=$(jq -r '.workflow_runs[0].conclusion' runs.json)
+            sha=$(jq -r '.workflow_runs[0].head_sha' runs.json)
+            url=$(jq -r '.workflow_runs[0].html_url' runs.json)
+            number=$(jq -r '.workflow_runs[0].run_number' runs.json)
+          fi
+          green=false
+          if [ "$count" = "0" ]; then
+            echo "no completed CI run on main - nothing to publish from"
+            echo "::warning::no completed CI run on main; skipping the binaries"
+          elif [ "$conclusion" = "success" ]; then
+            green=true
+            echo "CI run #${number} on ${sha} is green: ${url}"
+          else
+            echo "CI run #${number} on ${sha} concluded '${conclusion}': ${url}"
+            echo "::warning::the last CI run on main concluded '${conclusion}' (run #${number}, ${url}) - skipping the binaries; a red tree is never published"
+          fi
+          verdict="CI run #${number:-n/a} ${conclusion:-none}"
+          if [ "${IGNORE_GATE:-false}" = "true" ]; then
+            # manual override: build this ref regardless. Named in the log AND
+            # in the summary so a resulting artifact is never mistaken for a
+            # gated one.
+            green=true
+            sha="${GITHUB_SHA}"
+            verdict="gate OVERRIDDEN (last ${verdict})"
+            echo "::warning::gate OVERRIDDEN by ignore_gate - building ${sha} without a green verdict"
+          fi
+          {
+            echo "green=${green}"
+            echo "sha=${sha}"
+            echo "short_sha=$(printf '%.9s' "${sha}")"
+            echo "date=$(date -u +%F)"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Nightly binaries gate"
+            echo ""
+            if [ "${green}" = "true" ]; then
+              echo "Building \`$(printf '%.9s' "${sha}")\` - ${verdict}."
+            else
+              echo "Skipped: the last completed CI run on main concluded \`${conclusion:-none}\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # macOS: the Release .app, zipped. The engine links statically and the bundle
+  # depends on nothing but system frameworks, so the packaging is a copy, an
+  # rpath scrub and an ad-hoc bundle seal (Util/orkige_nightly_package.py).
+  binaries-macos:
+    name: Binaries - macOS editor (.app zip)
+    needs: binaries-gate
+    if: needs.binaries-gate.outputs.green == 'true'
+    runs-on: macos-15
+    timeout-minutes: 360 # cold vcpkg build headroom; cached runs take minutes
+    env:
+      VCPKG_ROOT_DIR: /Users/runner/Development/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: /Users/runner/vcpkg-binary-cache
+      CCACHE_DIR: /Users/runner/.ccache
+      PRESET: macos-release
+      PLATFORM: macos
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          # the commit the matrix proved green, not whatever main is at now
+          ref: ${{ needs.binaries-gate.outputs.sha }}
+
+      - name: Install system dependencies
+        run: |
+          brew untap aws/tap 2>/dev/null || true
+          brew install ninja ccache autoconf automake autoconf-archive libtool
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        # shares the macos-next key: a triplet's cache holds both the Debug and
+        # the Release build of every port, so the push CI already paid for this
+        # tree's dependencies (read-only here - no save step)
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /Users/runner/vcpkg-binary-cache
+          key: vcpkg-macos-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-macos-next-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        # its OWN key: Release object files do not overlap the Debug ones the
+        # push CI caches, so this warms night to night on its own
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /Users/runner/.ccache
+          key: ccache-nightly-macos-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-nightly-macos-${{ runner.os }}-
+
+      - name: Configure (macos-release, stamped with the commit)
+        run: |
+          bash Util/ci_configure.sh --preset "$PRESET" \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build \
+            -DORKIGE_BUILD_COMMIT=${{ needs.binaries-gate.outputs.short_sha }} \
+            -DORKIGE_BUILD_DATE=${{ needs.binaries-gate.outputs.date }}
+
+      - name: Build the editor + player
+        run: cmake --build --preset "$PRESET" --target orkige_editor orkige_player
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /Users/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      - name: Package
+        run: |
+          python3 Util/orkige_nightly_package.py \
+            --platform "$PLATFORM" --build-dir "build/$PRESET" \
+            --commit ${{ needs.binaries-gate.outputs.sha }} \
+            --date ${{ needs.binaries-gate.outputs.date }} \
+            --output nightly-out
+
+      # THE SMOKE TEST: unpack the archive somewhere it has no build tree to
+      # lean on, prove the layout is complete and the binary starts and reports
+      # the commit it was stamped with. Publishing a non-launching binary is
+      # worse than publishing none.
+      - name: Smoke-test the packaged archive
+        run: |
+          mkdir -p smoke
+          ditto -x -k "nightly-out/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.short_sha }}.zip" smoke
+          python3 Util/orkige_nightly_package.py --verify smoke \
+            --platform "$PLATFORM" \
+            --commit ${{ needs.binaries-gate.outputs.sha }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: binaries-macos
+          path: nightly-out/Orkige-macos-*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # Linux: the Release editor as a tar.gz. The engine is static, but the binary
+  # still loads the distribution's X/Wayland, GL/Vulkan, audio and D-Bus
+  # libraries - the archive says so (KNOWN-LIMITATIONS.md) and names the
+  # packages. A single-file bundle that carries those too is the eventual
+  # answer and deliberately not attempted here.
+  binaries-linux:
+    name: Binaries - Linux editor (tar.gz)
+    needs: binaries-gate
+    if: needs.binaries-gate.outputs.green == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      PRESET: linux-release-next
+      PLATFORM: linux
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          ref: ${{ needs.binaries-gate.outputs.sha }}
+
+      - name: Install system dependencies
+        # the linux-next set (the editor LINKS against these); no display is
+        # needed - the smoke test asks the binary for its version and exits
+        # before any window is created
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang ninja-build ccache python3 pkg-config \
+            autoconf autoconf-archive automake libtool curl zip unzip tar \
+            libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
+            libx11-xcb-dev libxcb-randr0-dev libxtst-dev libxinerama-dev \
+            libxcb1-dev libxcb-keysyms1-dev libxcb-ewmh-dev libxcb-icccm4-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
+            libibus-1.0-dev
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-next-v2-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/.ccache
+          key: ccache-nightly-linux-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-nightly-linux-${{ runner.os }}-
+
+      - name: Configure (linux-release-next, stamped with the commit)
+        run: |
+          bash Util/ci_configure.sh --preset "$PRESET" \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build \
+            -DORKIGE_BUILD_COMMIT=${{ needs.binaries-gate.outputs.short_sha }} \
+            -DORKIGE_BUILD_DATE=${{ needs.binaries-gate.outputs.date }}
+
+      - name: Build the editor + player
+        run: cmake --build --preset "$PRESET" --target orkige_editor orkige_player
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      - name: Package
+        run: |
+          python3 Util/orkige_nightly_package.py \
+            --platform "$PLATFORM" --build-dir "build/$PRESET" \
+            --commit ${{ needs.binaries-gate.outputs.sha }} \
+            --date ${{ needs.binaries-gate.outputs.date }} \
+            --output nightly-out
+
+      - name: Smoke-test the packaged archive
+        run: |
+          mkdir -p smoke
+          tar xzf "nightly-out/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.short_sha }}.tar.gz" -C smoke
+          python3 Util/orkige_nightly_package.py --verify smoke \
+            --platform "$PLATFORM" \
+            --commit ${{ needs.binaries-gate.outputs.sha }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: binaries-linux
+          path: nightly-out/Orkige-linux-*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  # Windows: the Release editor as a zip. The x64-windows-static-md triplet
+  # links every dependency statically but keeps the SHARED Visual C++ runtime,
+  # so VCRUNTIME140.dll / MSVCP140.dll must be resolvable on the user's machine.
+  # The packager copies them app-local from the build machine's redistributable
+  # (the supported deployment) and records in VERSION whether it managed to -
+  # if it did not, KNOWN-LIMITATIONS.md tells the user to install the
+  # redistributable rather than leaving them with a silent launch failure.
+  binaries-windows:
+    name: Binaries - Windows editor (zip)
+    needs: binaries-gate
+    if: needs.binaries-gate.outputs.green == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 360
+    env:
+      VCPKG_ROOT_DIR: C:/Users/runneradmin/Development/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: C:/Users/runneradmin/vcpkg-binary-cache
+      # MSVC, not the workflow-level clang (that setting serves the POSIX jobs)
+      CC: cl
+      CXX: cl
+      PRESET: windows-release
+      PLATFORM: windows
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          ref: ${{ needs.binaries-gate.outputs.sha }}
+
+      - name: Set up the MSVC environment for Ninja
+        # the same first-party vcvarsall import ci.yml uses; it also puts
+        # VCToolsRedistDir in the environment, which is where the packager finds
+        # the Visual C++ runtime DLLs to ship beside the editor
+        shell: pwsh
+        run: |
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsPath) { throw "no Visual Studio with C++ tools found" }
+          cmd /c "`"$vsPath\VC\Auxiliary\Build\vcvarsall.bat`" x64 > nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              Add-Content -Path $env:GITHUB_ENV -Value "$($Matches[1])=$($Matches[2])"
+            }
+          }
+
+      - name: Check out pinned vcpkg
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT_DIR"
+          git -C "$env:VCPKG_ROOT_DIR" checkout "$env:VCPKG_COMMIT"
+          & "$env:VCPKG_ROOT_DIR/bootstrap-vcpkg.bat" -disableMetrics
+          New-Item -ItemType Directory -Force -Path "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: C:/Users/runneradmin/vcpkg-binary-cache
+          key: vcpkg-windows-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-windows-next-v2-${{ runner.os }}-
+
+      - name: Configure (windows-release, stamped with the commit)
+        shell: pwsh
+        run: |
+          bash Util/ci_configure.sh --preset ${env:PRESET} `
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build `
+            "-DORKIGE_BUILD_COMMIT=${{ needs.binaries-gate.outputs.short_sha }}" `
+            "-DORKIGE_BUILD_DATE=${{ needs.binaries-gate.outputs.date }}"
+
+      - name: Build the editor + player
+        shell: pwsh
+        run: cmake --build --preset ${env:PRESET} --target orkige_editor orkige_player
+
+      - name: Package
+        shell: pwsh
+        run: |
+          python3 Util/orkige_nightly_package.py `
+            --platform ${env:PLATFORM} --build-dir "build/${env:PRESET}" `
+            --commit ${{ needs.binaries-gate.outputs.sha }} `
+            --date ${{ needs.binaries-gate.outputs.date }} `
+            --output nightly-out
+
+      - name: Smoke-test the packaged archive
+        shell: pwsh
+        run: |
+          # ${env:...} braces, not $env:...: a bare $env:PLATFORM-foo would take
+          # the hyphen into the variable NAME and resolve to nothing
+          $archive = "nightly-out/Orkige-${env:PLATFORM}-${{ needs.binaries-gate.outputs.short_sha }}.zip"
+          New-Item -ItemType Directory -Force -Path smoke | Out-Null
+          Expand-Archive -Path $archive -DestinationPath smoke -Force
+          python3 Util/orkige_nightly_package.py --verify smoke `
+            --platform ${env:PLATFORM} `
+            --commit ${{ needs.binaries-gate.outputs.sha }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: binaries-windows
+          path: nightly-out/Orkige-windows-*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # PUBLISH: one rolling release tagged `nightly`, kept a DRAFT.
+  #
+  # A draft is invisible to anyone without write access and creates no git tag,
+  # so nothing half-working is presented as ready - which matters while a copied
+  # editor still cannot render (KNOWN-LIMITATIONS.md inside every archive).
+  # Flipping it public is one flag once those gaps close; until then the
+  # workflow-run artifacts are the way to get a build.
+  #
+  # Runs whenever the gate was green, even if a platform failed: the notes NAME
+  # every missing platform and its job result rather than quietly shipping two
+  # of three. Zero artifacts is a failure - there is nothing to publish.
+  binaries-publish:
+    name: Binaries - publish the rolling draft prerelease
+    needs: [binaries-gate, binaries-macos, binaries-linux, binaries-windows]
+    if: always() && needs.binaries-gate.outputs.green == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          ref: ${{ needs.binaries-gate.outputs.sha }}
+
+      - name: Download the platform archives
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          pattern: binaries-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Compose the release notes
+        env:
+          RESULT_MACOS: ${{ needs.binaries-macos.result }}
+          RESULT_LINUX: ${{ needs.binaries-linux.result }}
+          RESULT_WINDOWS: ${{ needs.binaries-windows.result }}
+          SHA: ${{ needs.binaries-gate.outputs.sha }}
+          SHORT_SHA: ${{ needs.binaries-gate.outputs.short_sha }}
+          BUILD_DATE: ${{ needs.binaries-gate.outputs.date }}
+        run: |
+          set -uo pipefail
+          ls -l downloads || true
+          count=$(find downloads -type f | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "no archives arrived - nothing to publish" >&2
+            exit 1
+          fi
+          {
+            echo "Editor builds from \`${SHORT_SHA}\`, ${BUILD_DATE} (UTC), built"
+            echo "only because the full test matrix on that commit was green."
+            echo ""
+            echo "| Platform | Archive | Build |"
+            echo "| --- | --- | --- |"
+            for row in "macOS (Apple silicon):${RESULT_MACOS}:Orkige-macos-${SHORT_SHA}.zip" \
+                       "Linux (x86_64):${RESULT_LINUX}:Orkige-linux-${SHORT_SHA}.tar.gz" \
+                       "Windows (x64):${RESULT_WINDOWS}:Orkige-windows-${SHORT_SHA}.zip"; do
+              label=${row%%:*}
+              rest=${row#*:}
+              result=${rest%%:*}
+              file=${rest#*:}
+              if [ -f "downloads/${file}" ]; then
+                echo "| ${label} | \`${file}\` | ${result} |"
+              else
+                echo "| ${label} | not produced | ${result} |"
+              fi
+            done
+            echo ""
+            echo "Every archive carries a \`VERSION\` file and a"
+            echo "\`KNOWN-LIMITATIONS.md\` listing what this build cannot do yet -"
+            echo "read it first. The builds are UNSIGNED, so macOS and Windows"
+            echo "warn about them; the limitations file gives the exact steps."
+            echo ""
+            echo "Reference: Docs/nightly-builds.md."
+          } > notes.md
+          cat notes.md
+
+      - name: Create or replace the `nightly` draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.binaries-gate.outputs.sha }}
+          SHORT_SHA: ${{ needs.binaries-gate.outputs.short_sha }}
+          BUILD_DATE: ${{ needs.binaries-gate.outputs.date }}
+        run: |
+          set -uo pipefail
+          # rolling: replace yesterday's draft wholesale rather than accumulate
+          # per-day releases nobody prunes. A draft creates no git tag, so the
+          # tag cleanup is a no-op most nights - tolerated either way.
+          gh release delete nightly --yes --cleanup-tag 2> /dev/null || true
+          assets=()
+          while IFS= read -r asset; do
+            assets+=("$asset")
+          done < <(find downloads -type f | sort)
+          gh release create nightly \
+            --draft --prerelease \
+            --target "${SHA}" \
+            --title "Nightly ${BUILD_DATE} (${SHORT_SHA})" \
+            --notes-file notes.md \
+            "${assets[@]}"
+          echo "published the draft; find it under Releases (drafts are visible to maintainers only)" >> "$GITHUB_STEP_SUMMARY"

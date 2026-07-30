@@ -123,6 +123,16 @@
       }
     },
     {
+      "name": "linux-release-next",
+      "displayName": "Linux Release (Ogre-Next / Vulkan - the distributable editor build)",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ORKIGE_RENDER_BACKEND": "next",
+        "VCPKG_MANIFEST_FEATURES": "render-next"
+      }
+    },
+    {
       "name": "linux-debug-noscript",
       "displayName": "Linux Debug (Ogre-Next, ORKIGE_SCRIPTING=OFF - the seam-enforcement CI leg)",
       "inherits": "linux-debug-next",
@@ -175,6 +185,16 @@
       "inherits": "windows-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "ORKIGE_RENDER_BACKEND": "next",
+        "VCPKG_MANIFEST_FEATURES": "render-next"
+      }
+    },
+    {
+      "name": "windows-release",
+      "displayName": "Windows Release (Ogre-Next / Vulkan - the distributable editor build)",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
         "ORKIGE_RENDER_BACKEND": "next",
         "VCPKG_MANIFEST_FEATURES": "render-next"
       }
@@ -451,8 +471,16 @@
       "configurePreset": "linux-debug-next"
     },
     {
+      "name": "linux-release-next",
+      "configurePreset": "linux-release-next"
+    },
+    {
       "name": "windows-debug",
       "configurePreset": "windows-debug"
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release"
     },
     {
       "name": "windows-debug-classic",

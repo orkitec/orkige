@@ -72,7 +72,8 @@ PREFERRED_ORDER = [
     "meshes", "vector-animation", "character-animation", "localisation",
     "logging", "benchmark",
     "mcp", "mcp-workflows", "render-abstraction", "web-export",
-    "device-session", "ios-signing", "store-release", "ports", "vendored-libs",
+    "device-session", "ios-signing", "store-release", "nightly-builds",
+    "ports", "vendored-libs",
 ]
 
 GENERATED_NOTE = ("Generated from the repository docs by "

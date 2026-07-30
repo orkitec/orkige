@@ -261,6 +261,18 @@ add_test(NAME orkige_export_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(orkige_export_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# editor-binary packaging (Util/orkige_nightly_package.py): the build identity
+# strings, the known-limitations table and its per-platform rendering, the engine
+# media staging over a synthetic build tree, the archive round-trip, and every
+# verdict the unpack-and-run verifier can reach - including a binary that reports
+# the WRONG commit stamp, which must fail rather than publish. Needs no built
+# editor (the run leg drives a stand-in that answers --version).
+add_test(NAME orkige_nightly_package_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_nightly_package.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(orkige_nightly_package_selftest PROPERTIES
+    LABELS unit TIMEOUT 120)
+
 # site generator self-validation: make_help_portal.py renders a synthetic
 # corpus (nested lists, indented fences inside list items, tables with pipe
 # escapes, cross-page links) asserting the emitted HTML AND the whole REAL

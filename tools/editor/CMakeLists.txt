@@ -106,6 +106,10 @@ add_executable(orkige_editor
 	main.cpp
 	EditorApp.h
 	EditorPanelRegistry.h
+    # the build identity (--version / the About box): its own TU so the
+    # per-build commit stamp recompiles one small file, not the whole editor
+    EditorBuildInfo.h
+    EditorBuildInfo.cpp
     AnimationPreviewStage.h
     AnimationPreviewStage.cpp
     AnimationPreviewPanel.cpp
@@ -206,6 +210,25 @@ find_package(Stb REQUIRED)
 set_source_files_properties(EditorImageDecode.cpp PROPERTIES
     SKIP_PRECOMPILE_HEADERS ON
     INCLUDE_DIRECTORIES "${Stb_INCLUDE_DIR}")
+
+# The build IDENTITY stamp (EditorBuildInfo.cpp): which source commit this
+# binary was built from and when. Supplied at configure time by whoever
+# packages a distributable build:
+#     cmake --preset macos-release -DORKIGE_BUILD_COMMIT=a16c0227a \
+#                                  -DORKIGE_BUILD_DATE=2026-07-30
+# Unset in an ordinary developer build - the editor then reports "local build"
+# instead of claiming a commit (@see EditorBuildInfo.h, Docs/nightly-builds.md).
+# Scoped to this ONE source file so a re-stamp never invalidates the editor's
+# whole object cache, and OFF the PCH because the extra command-line macros
+# must not disagree with the precompiled header.
+set(ORKIGE_BUILD_COMMIT "" CACHE STRING
+    "source commit this editor binary is stamped with (empty = local build)")
+set(ORKIGE_BUILD_DATE "" CACHE STRING
+    "ISO date this editor binary is stamped with (empty = local build)")
+set_source_files_properties(EditorBuildInfo.cpp PROPERTIES
+    SKIP_PRECOMPILE_HEADERS ON
+    COMPILE_DEFINITIONS
+        "ORKIGE_BUILD_COMMIT=\"${ORKIGE_BUILD_COMMIT}\";ORKIGE_BUILD_DATE=\"${ORKIGE_BUILD_DATE}\"")
 
 if(APPLE)
     # native macOS menu bar (NSMenu mirror of the editor menus; ObjC++)
