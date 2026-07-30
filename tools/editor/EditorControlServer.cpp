@@ -1407,14 +1407,18 @@ namespace Orkige
 				  "window_h-safe_bottom].",
 				  {} },
 				{ "get_ui_layout",
-				  "The RUNNING game's gui widget rects: parallel lists "
-				  "'ids' and 'rects' (each rect a flat 'left top width height "
-				  "visible enabled modal' string, pixels; the three flags are "
-				  "1/0 - enabled=interactive, modal=part of an active modal "
-				  "dialog). Streamed during Play; empty until the game builds its "
-				  "UI. Combine with get_safe_area to check every visible widget "
-				  "sits inside the safe box, or read the modal flag to assert a "
-				  "dialog is up.",
+				  "The RUNNING game's gui widget rects AND resolved text styles: "
+				  "parallel lists 'ids', 'rects' and 'styles'. Each rect is a flat "
+				  "'left top width height visible enabled modal' string (pixels; "
+				  "the three flags are 1/0 - enabled=interactive, modal=part of an "
+				  "active modal dialog). Each style is a flat 'hasText font "
+				  "textScale colourSet r g b a markup' string - what the widget "
+				  "actually draws with after a named style and its own keys were "
+				  "applied (markup=1 means its text is read as inline rich text). "
+				  "Streamed during Play; empty until the game builds its UI. "
+				  "Combine with get_safe_area to check every visible widget sits "
+				  "inside the safe box, read the modal flag to assert a dialog is "
+				  "up, or the style fields to assert a styling edit landed.",
 				  {} },
 				{ "gui_press",
 				  "Synthesize a press on a gui widget in the RUNNING game by id, "
@@ -4091,7 +4095,8 @@ namespace Orkige
 					<< std::fixed << std::setprecision(3) << widget.textScale
 					<< ' ' << (widget.textColourSet ? 1 : 0) << ' '
 					<< widget.textR << ' ' << widget.textG << ' '
-					<< widget.textB << ' ' << widget.textA;
+					<< widget.textB << ' ' << widget.textA << ' '
+					<< (widget.markup ? 1 : 0);
 				styles.push_back(style.str());
 			}
 			DebugMessage ok(MSG_OK);

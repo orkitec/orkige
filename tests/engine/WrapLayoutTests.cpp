@@ -14,11 +14,16 @@
 // CJK per-glyph breaking, the long-word hard-break, '\n' composing with wrap,
 // kerning dropped at a line start (within lines only), a run keeping its
 // per-cell attributes across a split, an atomic (sprite-like) cell moving
-// whole, and measured height = line count x line height.
+// whole, and measured height = line count x line height. The rich-text cell
+// builder (TextMarkup::buildCells) is measured through the same core: styled
+// runs measure as their text alone, an inline sprite is a fixed-advance cell,
+// the line height rises to the tallest run, and a break inside a run keeps
+// every cell's colour.
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
 #include <engine_gui/TextWrap.h>
+#include <engine_gui/TextMarkup.h>
 #include <engine_gui/FontAtlas.h>
 #include <engine_gui/UiAtlas.h>
 
@@ -554,4 +559,230 @@ TEST_CASE("textwrap: an empty line opened by a newline starts after it",
 	CHECK(starts[0] == 0u);
 	CHECK(starts[1] == 2u);		// the empty middle line
 	CHECK(starts[2] == 3u);		// 'b'
+}
+
+//--- rich text: the SAME core measuring styled runs (@see TextMarkup.h) ------
+
+namespace
+{
+	//! a resolved TEXT run in @p font
+	TextMarkup::ResolvedRun textRun(UiFont const* font, char const* text,
+		Orkige::Color const& colour = Orkige::Color(1, 1, 1, 1))
+	{
+		TextMarkup::ResolvedRun run;
+		run.font = font;
+		run.text = text;
+		run.colour = colour;
+		return run;
+	}
+	//! a synthetic atlas sprite of a given pixel size (no atlas needed: UiSprite
+	//! is a plain metrics + UV record)
+	UiSprite makeSprite(Orkige::Real width, Orkige::Real height)
+	{
+		UiSprite sprite;
+		sprite.spriteWidth = width;
+		sprite.spriteHeight = height;
+		return sprite;
+	}
+	//! the widest line of a cell stream laid out without a width limit
+	float naturalWidthOf(std::vector<WrapCell> const& cells)
+	{
+		WrapResult wrapped;
+		TextWrap::wrap(cells, 0.0f, wrapped);
+		float widest = 0.0f;
+		for (float w : wrapped.lineWidth) { widest = std::max(widest, w); }
+		return widest;
+	}
+}
+
+TEST_CASE("markup measure: a split run measures as its TEXT, tags excluded",
+	"[unit][gui][markup][textwrap][font]")
+{
+	BakedFont baked;
+	if (!baked.font) { SUCCEED("engine font unavailable - skipped"); return; }
+
+	// the SAME sentence, once plain and once cut into three styled runs: the
+	// measured width has to agree, because the tags are not glyphs
+	std::vector<WrapCell> plainCells;
+	std::vector<UiGlyph const*> plainGlyphs;
+	TextWrap::buildRun(*baked.font, "the quick brown fox", plainCells,
+		plainGlyphs);
+
+	std::vector<TextMarkup::ResolvedRun> runs = {
+		textRun(baked.font, "the "),
+		textRun(baked.font, "quick", Orkige::Color(1, 0, 0, 1)),
+		textRun(baked.font, " brown fox") };
+	std::vector<WrapCell> runCells;
+	std::vector<TextMarkup::CellAttr> attrs;
+	float lineHeight = baked.font->getLineHeightScaled();
+	TextMarkup::buildCells(runs, 1.0f, runCells, attrs, lineHeight);
+
+	REQUIRE(runCells.size() == plainCells.size());
+	REQUIRE(attrs.size() == runCells.size());
+	// the run split costs at most the kerning pair at each boundary (a style
+	// boundary takes the font's letter spacing instead), so the widths agree
+	// closely and never differ by a glyph
+	const float plainWidth = naturalWidthOf(plainCells);
+	const float runWidth = naturalWidthOf(runCells);
+	CHECK(std::abs(runWidth - plainWidth) < 3.0f);
+	// a single-font run list keeps the element's own line height
+	CHECK(lineHeight == Catch::Approx(baked.font->getLineHeightScaled()));
+
+	// the colour rides on the cells of ITS run only
+	CHECK(attrs[0].colour.r == Catch::Approx(1.0f));
+	CHECK(attrs[0].colour.g == Catch::Approx(1.0f));
+	CHECK(attrs[4].colour.g == Catch::Approx(0.0f));	// inside "quick"
+	CHECK(attrs[runCells.size() - 1].colour.g == Catch::Approx(1.0f));
+}
+
+TEST_CASE("markup measure: an inline sprite is one atomic fixed-advance cell",
+	"[unit][gui][markup][textwrap][font]")
+{
+	BakedFont baked;
+	if (!baked.font) { SUCCEED("engine font unavailable - skipped"); return; }
+
+	const UiSprite coin = makeSprite(24.0f, 24.0f);
+	std::vector<TextMarkup::ResolvedRun> runs;
+	runs.push_back(textRun(baked.font, "+50 "));
+	TextMarkup::ResolvedRun spriteRun;
+	spriteRun.sprite = &coin;
+	spriteRun.colour = Orkige::Color(1, 1, 1, 1);
+	runs.push_back(spriteRun);
+
+	std::vector<WrapCell> cells;
+	std::vector<TextMarkup::CellAttr> attrs;
+	float lineHeight = baked.font->getLineHeightScaled();
+	TextMarkup::buildCells(runs, 1.0f, cells, attrs, lineHeight);
+
+	REQUIRE(cells.size() == 5u);			// + 5 0 space sprite
+	REQUIRE(attrs.size() == cells.size());
+	// the sprite cell: its own width as advance AND inked width (so it triggers
+	// a wrap), no break opportunity of its own, and it carries the sprite
+	CHECK(cells[4].advance == Catch::Approx(24.0f));
+	CHECK(cells[4].width == Catch::Approx(24.0f));
+	CHECK_FALSE(cells[4].space);
+	CHECK_FALSE(cells[4].breakBefore);
+	CHECK(attrs[4].sprite == &coin);
+	CHECK(attrs[4].glyph == nullptr);
+
+	// a sprite TALLER than the text raises the block's line height
+	const float textLineHeight = baked.font->getLineHeightScaled();
+	const UiSprite tall = makeSprite(24.0f, textLineHeight * 3.0f);
+	std::vector<TextMarkup::ResolvedRun> tallRuns;
+	tallRuns.push_back(textRun(baked.font, "x"));
+	TextMarkup::ResolvedRun tallRun;
+	tallRun.sprite = &tall;
+	tallRuns.push_back(tallRun);
+	std::vector<WrapCell> tallCells;
+	std::vector<TextMarkup::CellAttr> tallAttrs;
+	float tallLineHeight = textLineHeight;
+	TextMarkup::buildCells(tallRuns, 1.0f, tallCells, tallAttrs, tallLineHeight);
+	CHECK(tallLineHeight == Catch::Approx(textLineHeight * 3.0f));
+
+	// THE ATOMIC CONTRACT through the real breaker: in a column that fits the
+	// text but not the icon behind it, the icon moves whole to the next line
+	const float textWidth = naturalWidthOf(cells) - 24.0f;
+	WrapResult wrapped;
+	TextWrap::wrap(cells, textWidth + 4.0f, wrapped);
+	REQUIRE(wrapped.lineCount == 2);
+	CHECK(wrapped.lineOf[4] == 1);
+	CHECK(wrapped.penX[4] == Catch::Approx(0.0f));
+}
+
+TEST_CASE("markup measure: the text scale multiplies runs AND inline sprites",
+	"[unit][gui][markup][textwrap][font]")
+{
+	BakedFont baked;
+	if (!baked.font) { SUCCEED("engine font unavailable - skipped"); return; }
+
+	const UiSprite coin = makeSprite(24.0f, 12.0f);
+	std::vector<TextMarkup::ResolvedRun> runs;
+	runs.push_back(textRun(baked.font, "ab"));
+	TextMarkup::ResolvedRun spriteRun;
+	spriteRun.sprite = &coin;
+	runs.push_back(spriteRun);
+
+	std::vector<WrapCell> single;
+	std::vector<TextMarkup::CellAttr> singleAttrs;
+	float singleLine = baked.font->getLineHeightScaled();
+	TextMarkup::buildCells(runs, 1.0f, single, singleAttrs, singleLine);
+
+	std::vector<WrapCell> doubled;
+	std::vector<TextMarkup::CellAttr> doubledAttrs;
+	float doubledLine = baked.font->getLineHeightScaled() * 2.0f;
+	TextMarkup::buildCells(runs, 2.0f, doubled, doubledAttrs, doubledLine);
+
+	REQUIRE(doubled.size() == single.size());
+	// every metric doubles - the glyph advances and the sprite cell alike, so
+	// measurement, wrapping and the drawn quads cannot disagree at 2x
+	CHECK(naturalWidthOf(doubled) ==
+		Catch::Approx(naturalWidthOf(single) * 2.0f).margin(0.01f));
+	CHECK(doubled.back().advance == Catch::Approx(48.0f));
+	CHECK(doubledLine == Catch::Approx(baked.font->getLineHeightScaled() * 2.0f));
+}
+
+TEST_CASE("markup measure: a break INSIDE a styled run keeps every cell's colour",
+	"[unit][gui][markup][textwrap][font]")
+{
+	BakedFont baked;
+	if (!baked.font) { SUCCEED("engine font unavailable - skipped"); return; }
+
+	// one long coloured run, wrapped into several lines: every cell of the run
+	// keeps its colour on whichever line it lands
+	std::vector<TextMarkup::ResolvedRun> runs = {
+		textRun(baked.font, "alpha beta gamma delta",
+			Orkige::Color(0.25f, 0.5f, 0.75f, 1.0f)) };
+	std::vector<WrapCell> cells;
+	std::vector<TextMarkup::CellAttr> attrs;
+	float lineHeight = baked.font->getLineHeightScaled();
+	TextMarkup::buildCells(runs, 1.0f, cells, attrs, lineHeight);
+
+	WrapResult wrapped;
+	TextWrap::wrap(cells, naturalWidthOf(cells) * 0.4f, wrapped);
+	REQUIRE(wrapped.lineCount > 1);
+	REQUIRE(wrapped.lineOf.size() == attrs.size());
+	bool sawSecondLine = false;
+	for (size_t each = 0; each < attrs.size(); ++each)
+	{
+		CHECK(attrs[each].colour.r == Catch::Approx(0.25f));
+		CHECK(attrs[each].colour.b == Catch::Approx(0.75f));
+		if (wrapped.lineOf[each] > 0) { sawSecondLine = true; }
+	}
+	CHECK(sawSecondLine);
+}
+
+TEST_CASE("markup measure: a taller font in one run raises the whole block",
+	"[unit][gui][markup][textwrap][font]")
+{
+	// two sizes of the SAME face baked into one page: a heading run inside body
+	// text must not overlap the next line
+	FontAtlas atlas{ "markup_test_page", 1024, 1.0f };
+	const std::vector<unsigned char> bytes = readFile(kFontPath);
+	if (bytes.size() <= 1024)
+	{
+		SUCCEED("engine font unavailable - skipped");
+		return;
+	}
+	REQUIRE(atlas.addFace(0, bytes.data(), int(bytes.size()), 24.0f));
+	REQUIRE(atlas.addFace(1, bytes.data(), int(bytes.size()), 48.0f));
+	UiFont const* body = atlas.atlas()->getFont(0);
+	UiFont const* heading = atlas.atlas()->getFont(1);
+	REQUIRE(body != nullptr);
+	REQUIRE(heading != nullptr);
+	REQUIRE(heading->getLineHeightScaled() > body->getLineHeightScaled());
+
+	std::vector<TextMarkup::ResolvedRun> runs = {
+		textRun(body, "small "), textRun(heading, "BIG"),
+		textRun(body, " small") };
+	std::vector<WrapCell> cells;
+	std::vector<TextMarkup::CellAttr> attrs;
+	float lineHeight = body->getLineHeightScaled();
+	TextMarkup::buildCells(runs, 1.0f, cells, attrs, lineHeight);
+	CHECK(lineHeight == Catch::Approx(heading->getLineHeightScaled()));
+
+	// and the heading's glyphs really are the bigger ones (the run switched font)
+	const float bodyGlyph = body->getGlyph('s')->getGlyphWidthScaled();
+	const float headingGlyph = heading->getGlyph('B')->getGlyphWidthScaled();
+	CHECK(headingGlyph > bodyGlyph);
+	CHECK(attrs[6].glyph == heading->getGlyph('B'));	// "small " is 6 cells
 }

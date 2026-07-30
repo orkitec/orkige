@@ -262,8 +262,19 @@ struct PlayerSelfChecks
 	//            widgets, a widget's own textColor OVERRODE its style's, an
 	//            explicit textScale measured taller, and an unstyled label was
 	//            left untouched
+	//   Rich     inline RICH TEXT on RESOLVED widget state: a markup label
+	//            reports itself as markup, its TAGS cost no width (it measures
+	//            like the tag-free control beside it), and a heading run plus an
+	//            inline sprite raise the wrapped block's measured height
+	//   Juice    the animation tier: the title's load-time `enter` settled at
+	//            exactly full opacity, a tab reveal ANIMATES its panel (alpha
+	//            and position sampled mid-flight, twice) and lands on the EXACT
+	//            rest position - on a replay too, so a re-entered transition
+	//            never drifts - a pressed button really scales, and the Lua
+	//            guitween round trip returned the widget to exactly alpha 1
 	// A missed deadline exits non-zero.
-	enum class GalleryPhase { Boot, Tabs, Text, List, Overlay, Styles, Done };
+	enum class GalleryPhase { Boot, Tabs, Text, List, Overlay, Styles, Rich,
+		Juice, Done };
 
 	GalleryPhase galleryPhase = GalleryPhase::Boot;
 	bool galleryCheckFailed = false;
@@ -278,6 +289,16 @@ struct PlayerSelfChecks
 	int galleryListScrolledFirst = 0;		//!< first row alive after the scroll
 	unsigned int galleryStyledFont = 0;		//!< the styled heading's resolved font
 	float galleryStyledScale = 0.0f;		//!< the styled label's resolved scale
+	float galleryMarkupWidth = 0.0f;		//!< the rich-text label's measured width
+	float galleryPlainRunWidth = 0.0f;		//!< its tag-free control's width
+	float galleryIconBlockHeight = 0.0f;	//!< the heading+icon block's height
+	float galleryEnterAlpha = 0.0f;			//!< a revealed panel's mid-flight alpha
+	float galleryEnterOffset = 0.0f;		//!< its mid-flight distance from rest
+	float galleryPanelRestY = 0.0f;			//!< the settled panel top (window px)
+	float galleryPressScale = 1.0f;			//!< a pressed button's render scale
+	unsigned int galleryBodyFont = 0;		//!< the unstyled body font, for the log
+	float galleryPressX = 0.0f;				//!< where the held press went down
+	float galleryPressY = 0.0f;
 	// --- ORKIGE_VECTORANIM_SELFCHECK=1: vector (Lottie) animation rigs end
 	// to end against projects/vectorshapes (scenes/vectoranim.oscene). The
 	// hero rig carries an `idle` (loop) and a `hop` (once) clip; a script

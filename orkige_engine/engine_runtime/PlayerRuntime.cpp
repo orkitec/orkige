@@ -2243,7 +2243,8 @@ namespace Orkige
 				<< std::fixed << std::setprecision(3) << layout.textScale << ' '
 				<< (layout.textColourSet ? 1 : 0) << ' '
 				<< layout.textR << ' ' << layout.textG << ' '
-				<< layout.textB << ' ' << layout.textA;
+				<< layout.textB << ' ' << layout.textA << ' '
+				<< (layout.markup ? 1 : 0);
 			styles.push_back(style.str());
 		}
 		DebugMessage message(Protocol::MSG_UI_LAYOUT);

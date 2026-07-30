@@ -8,7 +8,7 @@
 
 	purpose:	the gui 2D renderer (@see UiRenderer.h). The glyph
 				layout math (kerning/letter spacing, top-aligned glyph
-				quads, caption alignment clipping, markup codes) is
+				quads, caption alignment clipping) is
 				ported from the retired Gorilla library (MIT, (c) 2010
 				Robin Southern); the batching around it is new: one
 				retained pixel-space triangle list per screen, one
@@ -17,12 +17,12 @@
 
 #include "engine_gui/UiRenderer.h"
 #include "engine_gui/TextWrap.h"
+#include "engine_gui/TextMarkup.h"
 #include "engine_render/RenderSystem.h"
 #include "core_util/StringUtil.h"
 #include <core_debug/DebugMacros.h>
 #include <core_debug/MemoryManager.h>
 
-#include <OgreStringConverter.h>
 
 #include <algorithm>
 #include <cmath>
@@ -36,6 +36,226 @@ namespace Orkige
 			Real x, Real y, Vec2 const & uv, Color const & colour)
 		{
 			vertices.push_back(UiVertex(x, y, uv.x, uv.y, colour));
+		}
+
+		//--- inline RICH TEXT (@see TextMarkup.h). The parse is pure; these two
+		//--- helpers are the atlas-facing half, shared by BOTH styled-run
+		//--- elements (a markup UiCaption and a UiMarkupText) so there is exactly
+		//--- one place that resolves a run's references and one that places the
+		//--- broken cells.
+		//! @brief parse @p text and resolve every run against the layer's atlas:
+		//! a font REFERENCE (role name or `[Font.N]` index) to a baked font, a
+		//! sprite NAME to an atlas sprite. Each malformed tag and each reference
+		//! the atlas does not carry is ONE warn - and the surrounding text keeps
+		//! drawing (an unknown font falls back to @p defaultFont, an unknown
+		//! sprite is dropped).
+		//! @param quiet suppress the warnings: a MEASUREMENT runs the same
+		//! pipeline (and may run several times per layout pass), so only the DRAW
+		//! reports - one rebuild, one set of warnings.
+		void resolveMarkupRuns(UiLayer* layer, UiFont const * defaultFont,
+			Color const & defaultColour, String const & text,
+			std::vector<TextMarkup::ResolvedRun> & out, bool quiet = false)
+		{
+			out.clear();
+			TextMarkup::Parse parsed;
+			TextMarkup::parse(text, parsed);
+			if(!quiet)
+			{
+				for(String const & why : parsed.diagnostics)
+				{
+					oDebugWarning(false, "gui markup: " << why);
+				}
+			}
+			for(TextMarkup::Run const & run : parsed.runs)
+			{
+				TextMarkup::ResolvedRun resolved;
+				resolved.colour = run.hasColour
+					? Color(run.colour[0], run.colour[1], run.colour[2],
+						run.colour[3])
+					: defaultColour;
+				if(run.kind == TextMarkup::Run::RK_Sprite)
+				{
+					resolved.sprite = layer->_getSprite(run.sprite);
+					if(resolved.sprite == NULL)
+					{
+						if(!quiet)
+						{
+							oDebugWarning(false, "gui markup: no sprite '"
+								<< run.sprite
+								<< "' in this atlas - the inline sprite is skipped");
+						}
+						continue;
+					}
+					out.push_back(resolved);
+					continue;
+				}
+				resolved.text = run.text;
+				resolved.font = defaultFont;
+				if(!run.fontRef.empty())
+				{
+					if(UiFont const * font = layer->_getFontByRef(run.fontRef))
+					{
+						resolved.font = font;
+					}
+					else if(!quiet)
+					{
+						oDebugWarning(false, "gui markup: no font '" << run.fontRef
+							<< "' in this atlas - the run draws in the default font");
+					}
+				}
+				out.push_back(resolved);
+			}
+		}
+
+		//! one placed styled-run quad (pixel corners + the atlas UVs + its colour)
+		struct MarkupQuad
+		{
+			Real	left, top, right, bottom;
+			Vec2	uv[4];
+			Color	colour;
+		};
+
+		//! @brief the WHOLE styled-run pipeline for one element, in one place:
+		//! parse the markup, resolve its references against the atlas, build the
+		//! cells through the shared metrics, break them, and - unless @p quads is
+		//! NULL - place them. A NULL @p quads is the MEASURE call: it stops right
+		//! after the break, so a measurement never allocates or copies the quads
+		//! it would only throw away (@see UiCaption::_measureMarkup, which the
+		//! layout resolver may call several times per pass).
+		//! @param wrapWidth <= 0 disables width wrapping (only '\n' opens a line)
+		//! @param width/height OUT: the measured extents of the laid-out block
+		void buildMarkupBlock(UiLayer* layer, UiFont const * defaultFont,
+			Color const & defaultColour, String const & text, Real textScale,
+			Real wrapWidth, bool quiet,
+			Real originX, Real originY, Real boxWidth, TextAlignment alignment,
+			Real clipLeft, Real clipRight,
+			std::vector<MarkupQuad> * quads, Real & lineHeightOut,
+			Real & width, Real & height);
+
+		//! @brief place already-broken cells into quads, line by line. Each line
+		//! honours @p alignment inside @p boxWidth (a non-positive width, or a left
+		//! alignment, starts every line at @p originX); a cell whose glyph/sprite
+		//! is absent (a space, a '\n') emits nothing.
+		//! @param clipRight when > 0, a quad crossing it is dropped - the
+		//! single-line clipping a non-wrapping caption does inside its box
+		//! @param width/height OUT: the measured extents of the laid-out block
+		void layoutMarkupQuads(std::vector<WrapCell> const & cells,
+			std::vector<TextMarkup::CellAttr> const & attrs,
+			WrapResult const & wrapped, Real lineHeight, Real textScale,
+			Real originX, Real originY,
+			Real boxWidth, TextAlignment alignment, Real clipLeft, Real clipRight,
+			std::vector<MarkupQuad> & out, Real & width, Real & height)
+		{
+			out.clear();
+			width = 0;
+			const int lineCount = wrapped.lineCount > 0 ? wrapped.lineCount : 1;
+			height = lineHeight * Real(lineCount);
+			for(size_t each = 0; each < cells.size() && each < attrs.size(); ++each)
+			{
+				TextMarkup::CellAttr const & attr = attrs[each];
+				const int line = wrapped.lineOf[each];
+				const Real lineWidth = wrapped.lineWidth[size_t(line)];
+				width = std::max(width, lineWidth);
+				if(attr.glyph == NULL && attr.sprite == NULL)
+				{
+					continue;	// a space / newline cell draws nothing
+				}
+				Real lineStart = originX;
+				if(boxWidth > 0)
+				{
+					if(alignment == TextAlign_Centre)
+					{
+						lineStart = originX + (boxWidth - lineWidth) * 0.5f;
+					}
+					else if(alignment == TextAlign_Right)
+					{
+						lineStart = originX + boxWidth - lineWidth;
+					}
+				}
+				MarkupQuad quad;
+				// whole-pixel pen: crisp glyphs on a point-sampled atlas. A run
+				// shorter than the line drops to its bottom edge, so mixed sizes
+				// share one edge instead of hanging from the top (@see dropY)
+				quad.left = std::floor(lineStart + wrapped.penX[each]);
+				quad.top = std::floor(originY + Real(line) * lineHeight +
+					Real(attr.dropY));
+				quad.colour = attr.colour;
+				// the SAME scaled metrics the cells were measured with, so the
+				// drawn quad and the wrap can never disagree
+				const Real ts = textScale > 0 ? textScale : Real(1);
+				if(attr.glyph != NULL)
+				{
+					quad.right = quad.left + attr.glyph->getGlyphWidthScaled() * ts;
+					quad.bottom = quad.top + attr.glyph->getGlyphHeightScaled() * ts;
+					for(size_t corner = 0; corner < 4; ++corner)
+					{
+						quad.uv[corner] = attr.glyph->texCoords[corner];
+					}
+				}
+				else
+				{
+					quad.right = quad.left + Real(attr.sprite->spriteWidth) * ts;
+					quad.bottom = quad.top + Real(attr.sprite->spriteHeight) * ts;
+					for(size_t corner = 0; corner < 4; ++corner)
+					{
+						quad.uv[corner] = attr.sprite->texCoords[corner];
+					}
+				}
+				if((clipLeft > 0 && quad.left < clipLeft) ||
+					(clipRight > 0 && quad.right > clipRight))
+				{
+					continue;	// outside the box the caption clips to
+				}
+				out.push_back(quad);
+			}
+		}
+
+		void buildMarkupBlock(UiLayer* layer, UiFont const * defaultFont,
+			Color const & defaultColour, String const & text, Real textScale,
+			Real wrapWidth, bool quiet,
+			Real originX, Real originY, Real boxWidth, TextAlignment alignment,
+			Real clipLeft, Real clipRight,
+			std::vector<MarkupQuad> * quads, Real & lineHeightOut,
+			Real & width, Real & height)
+		{
+			width = 0;
+			lineHeightOut = defaultFont != NULL
+				? defaultFont->getLineHeightScaled() *
+					(textScale > 0 ? textScale : Real(1))
+				: Real(0);
+			height = lineHeightOut;
+			if(quads != NULL)
+			{
+				quads->clear();
+			}
+			if(defaultFont == NULL)
+			{
+				return;
+			}
+			std::vector<TextMarkup::ResolvedRun> runs;
+			resolveMarkupRuns(layer, defaultFont, defaultColour, text, runs, quiet);
+			std::vector<WrapCell> cells;
+			std::vector<TextMarkup::CellAttr> attrs;
+			float lineHeight = float(lineHeightOut);
+			TextMarkup::buildCells(runs, float(textScale), cells, attrs,
+				lineHeight);
+			lineHeightOut = Real(lineHeight);
+			WrapResult wrapped;
+			TextWrap::wrap(cells, wrapWidth, wrapped);
+			const int lineCount = wrapped.lineCount > 0 ? wrapped.lineCount : 1;
+			height = lineHeightOut * Real(lineCount);
+			if(quads == NULL)
+			{
+				// MEASURE: the widest line is all the caller wants
+				for(int line = 0; line < lineCount; ++line)
+				{
+					width = std::max(width, wrapped.lineWidth[size_t(line)]);
+				}
+				return;
+			}
+			layoutMarkupQuads(cells, attrs, wrapped, lineHeightOut, textScale,
+				originX, originY, boxWidth, alignment, clipLeft, clipRight,
+				*quads, width, height);
 		}
 
 		//! @brief apply an element's per-frame transform + alpha multiplier to the
@@ -763,7 +983,7 @@ namespace Orkige
 		mLeft(left), mTop(top), mWidth(0), mHeight(0),
 		mAlignment(TextAlign_Left), mVerticalAlign(VerticalAlign_Top),
 		mText(caption), mColour(1, 1, 1, 1), mDirty(true), mScaled(true),
-		mWrap(false), mTextScale(1.0f), mRenderAlpha(1.0f)
+		mWrap(false), mMarkup(false), mTextScale(1.0f), mRenderAlpha(1.0f)
 	{
 		oAssertDesc(this->mFont, "UiCaption: font (glyph index) not in atlas");
 		if(this->mFont == NULL)
@@ -865,6 +1085,17 @@ namespace Orkige
 		this->mLayer->_markDirty();
 	}
 	//---------------------------------------------------------
+	void UiCaption::setMarkup(bool markup)
+	{
+		if(this->mMarkup == markup)
+		{
+			return;
+		}
+		this->mMarkup = markup;
+		this->mDirty = true;
+		this->mLayer->_markDirty();
+	}
+	//---------------------------------------------------------
 	void UiCaption::setFont(uint fontIndex)
 	{
 		UiFont const * font = this->mLayer->_getFont(fontIndex);
@@ -890,6 +1121,17 @@ namespace Orkige
 		this->mLayer->_markDirty();
 	}
 	//---------------------------------------------------------
+	void UiCaption::_measureMarkup(Real width, Vec2 & size) const
+	{
+		// the MEASURE call of the one styled-run pipeline: it stops after the line
+		// break, so no quad is built for a number (@see buildMarkupBlock), and it
+		// stays quiet - only the draw reports a malformed tag
+		Real lineHeight = 0;
+		buildMarkupBlock(this->mLayer, this->mFont, this->mColour, this->mText,
+			this->mTextScale, width, true, 0, 0, 0, TextAlign_Left, 0, 0, NULL,
+			lineHeight, size.x, size.y);
+	}
+	//---------------------------------------------------------
 	Real UiCaption::measureWrappedHeight(Real width) const
 	{
 		if(this->mFont == NULL)
@@ -900,6 +1142,12 @@ namespace Orkige
 		if(this->mText.empty())
 		{
 			return lineHeight;
+		}
+		if(this->mMarkup)
+		{
+			Vec2 size;
+			this->_measureMarkup(width, size);
+			return size.y;
 		}
 		std::vector<WrapCell> cells;
 		std::vector<UiGlyph const *> glyphs;
@@ -915,6 +1163,13 @@ namespace Orkige
 	{
 		oAssertDesc(this->mFont != NULL,
 			"Font rendering can't find glyph data. Font size correctly specified?");
+		if(this->mMarkup)
+		{
+			// rich text measures over its RUNS (the tags are not glyphs), at the
+			// caption's own width when it wraps and unconstrained otherwise
+			this->_measureMarkup(this->mWrap ? this->mWidth : Real(0), size);
+			return;
+		}
 		Real cursor = 0, kerning = 0;
 		uint thisChar = 0, lastChar = 0;
 		size.x = 0;
@@ -969,6 +1224,15 @@ namespace Orkige
 		}
 		oAssertDesc(this->mFont != NULL,
 			"Font rendering can't find glyph data. Font size correctly specified?");
+
+		// rich text takes the styled-run path (which handles wrapped AND single
+		// line, since a run stream needs one placement either way)
+		if(this->mMarkup)
+		{
+			this->_redrawMarkup();
+			this->mDirty = false;
+			return;
+		}
 
 		// wrap-to-width labels break across lines (@see _redrawWrapped); the
 		// single-line clipped path below is byte-identical when wrap is off
@@ -1100,6 +1364,52 @@ namespace Orkige
 		this->mDirty = false;
 	}
 	//---------------------------------------------------------
+	void UiCaption::_redrawMarkup()
+	{
+		// caller guarantees mFont and non-empty text
+		const bool doWrap = this->mWrap && this->mWidth > 0;
+		// the block sits inside height() by the vertical alignment, which needs its
+		// height first - one measure, then the placement at the resolved origin
+		Vec2 block;
+		this->_measureMarkup(doWrap ? this->mWidth : Real(0), block);
+		const Real baseY = this->_blockTop(block.y);
+		// a NON-wrapping caption clips to its box like the single-line path does
+		// (a wrapping one has no overflow to clip)
+		Real clipLeft = 0, clipRight = 0;
+		if(!doWrap && this->mWidth > 0)
+		{
+			clipLeft = this->mAlignment == TextAlign_Left ? Real(0) : this->mLeft;
+			clipRight = this->mLeft + this->mWidth;
+		}
+
+		std::vector<MarkupQuad> quads;
+		Real lineHeight = 0, measuredWidth = 0, measuredHeight = 0;
+		buildMarkupBlock(this->mLayer, this->mFont, this->mColour, this->mText,
+			this->mTextScale, doWrap ? this->mWidth : Real(0), false,
+			this->mLeft, baseY, this->mWidth, this->mAlignment,
+			clipLeft, clipRight, &quads, lineHeight, measuredWidth,
+			measuredHeight);
+		for(MarkupQuad const & quad : quads)
+		{
+			pushQuad(this->mVertices, quad.left, quad.top, quad.right, quad.bottom,
+				quad.uv[TopLeft].x, quad.uv[TopLeft].y,
+				quad.uv[BottomRight].x, quad.uv[BottomRight].y, quad.colour);
+		}
+	}
+	//---------------------------------------------------------
+	Real UiCaption::_blockTop(Real blockHeight) const
+	{
+		if(this->mVerticalAlign == VerticalAlign_Middle)
+		{
+			return this->mTop + (this->mHeight - blockHeight) * 0.5f;
+		}
+		if(this->mVerticalAlign == VerticalAlign_Bottom)
+		{
+			return this->mTop + this->mHeight - blockHeight;
+		}
+		return this->mTop;
+	}
+	//---------------------------------------------------------
 	void UiCaption::_redrawWrapped()
 	{
 		// caller guarantees mFont, non-empty text and mWidth > 0
@@ -1114,15 +1424,7 @@ namespace Orkige
 		const Real blockHeight = lineHeight * Real(lineCount);
 
 		// the whole block sits inside height() by the vertical alignment
-		Real baseY = this->mTop;
-		if(this->mVerticalAlign == VerticalAlign_Middle)
-		{
-			baseY = this->mTop + (this->mHeight - blockHeight) * 0.5f;
-		}
-		else if(this->mVerticalAlign == VerticalAlign_Bottom)
-		{
-			baseY = this->mTop + this->mHeight - blockHeight;
-		}
+		const Real baseY = this->_blockTop(blockHeight);
 
 		for(size_t each = 0; each < cells.size(); ++each)
 		{
@@ -1313,11 +1615,12 @@ namespace Orkige
 		{
 			return 0;
 		}
-		std::vector<Character> throwaway;
-		Real measuredWidth = 0, measuredHeight = 0;
-		UiMarkupText::_layoutMarkup(this->mLayer, this->mDefaultFont, this->mText,
-			this->mLeft, this->mTop, width, this->mTextScale,
-			this->mDefaultColour, throwaway, measuredWidth, measuredHeight);
+		// the MEASURE call: no quads, no Characters - just the broken line count
+		// times the block's line height (@see buildMarkupBlock)
+		Real lineHeight = 0, measuredWidth = 0, measuredHeight = 0;
+		buildMarkupBlock(this->mLayer, this->mDefaultFont, this->mDefaultColour,
+			this->mText, this->mTextScale, width, true, this->mLeft, this->mTop, 0,
+			TextAlign_Left, 0, 0, NULL, lineHeight, measuredWidth, measuredHeight);
 		return measuredHeight;
 	}
 	//---------------------------------------------------------
@@ -1346,7 +1649,7 @@ namespace Orkige
 	void UiMarkupText::_layoutMarkup(UiLayer* layer, UiFont const * defaultFont,
 		String const & text, Real originX, Real originY, Real wrapWidth,
 		Real textScale, Color const & defaultColour,
-		std::vector<Character> & out, Real & width, Real & height)
+		std::vector<Character> & out, Real & width, Real & height, bool quiet)
 	{
 		out.clear();
 		width = 0;
@@ -1355,404 +1658,29 @@ namespace Orkige
 		{
 			return;
 		}
-		const bool doWrap = (wrapWidth > 0);
-		// EVERY metric read below goes through these, so the per-element text
-		// scale can never half-apply (measure one way, draw another). A markup
-		// run that switches font (`%@N%`) scales with the same factor.
-		const Real ts = textScale > 0 ? textScale : Real(1);
-		auto lineHeightPx = [ts](UiFont const * f)
-			{ return f->getLineHeightScaled() * ts; };
-		auto spaceLengthPx = [ts](UiFont const * f)
-			{ return f->getSpaceLengthScaled() * ts; };
-		auto letterSpacingPx = [ts](UiFont const * f)
-			{ return f->getLetterSpacingScaled() * ts; };
-		auto monoWidthPx = [ts](UiFont const * f)
-			{ return f->getMonoWidthScaled() * ts; };
-		auto kerningPx = [ts](UiGlyph const * g, uint leftOf)
-			{ return g->getKerningScaled(leftOf) * ts; };
-		auto glyphWidthPx = [ts](UiGlyph const * g)
-			{ return g->getGlyphWidthScaled() * ts; };
-		auto glyphHeightPx = [ts](UiGlyph const * g)
-			{ return g->getGlyphHeightScaled() * ts; };
-		auto glyphAdvancePx = [ts](UiGlyph const * g)
-			{ return g->getGlyphAdvanceScaled() * ts; };
-
-		//--- wrapped path: build cells + tokens, break, then place ---
-		if(doWrap)
+		// the ONE styled-run pipeline both elements share (@see buildMarkupBlock).
+		// wrapWidth <= 0 disables WIDTH wrapping, so only an explicit '\n' opens a
+		// line (the one-line-per-paragraph layout).
+		std::vector<MarkupQuad> quads;
+		Real lineHeight = 0;
+		buildMarkupBlock(layer, defaultFont, defaultColour, text, textScale,
+			wrapWidth, quiet, originX, originY, 0, TextAlign_Left, 0, 0, &quads,
+			lineHeight, width, height);
+		out.reserve(quads.size());
+		for(MarkupQuad const & quad : quads)
 		{
-			// one placeable token (glyph or sprite) staged before positioning
-			struct Tok { Vec2 uv[4]; Color colour; Real w, h; };
-			std::vector<WrapCell>	cells;
-			std::vector<int>		cellTok;	//!< tok index per cell (-1 = none)
-			std::vector<Tok>		toks;
-			Real lineHeight = lineHeightPx(defaultFont);
-
-			bool markupMode = false;
-			bool fixedWidth = false;
-			Color colour = defaultColour;
-			UiFont const * font = defaultFont;
-			uint lastChar = 0;	//!< previous glyph on the run for kerning (0 resets)
-
-			for(size_t i = 0; i < text.length(); ++i)
-			{
-				wchar_t unicodeChar;
-				const std::size_t multiByteLength =
-					StringUtil::multibyteCharStringToWideCharString(
-						&unicodeChar, &text[i], 5);
-				const uint thisChar = uint(unicodeChar);
-
-				if(thisChar == ' ')
-				{
-					WrapCell cell;
-					cell.space = true;
-					cell.advance = spaceLengthPx(font);
-					cells.push_back(cell);
-					cellTok.push_back(-1);
-					lastChar = 0;
-					if(multiByteLength > 0) i += multiByteLength - 1;
-					continue;
-				}
-				if(thisChar == '\n')
-				{
-					WrapCell cell;
-					cell.forcedBreak = true;
-					cells.push_back(cell);
-					cellTok.push_back(-1);
-					lastChar = 0;
-					if(multiByteLength > 0) i += multiByteLength - 1;
-					continue;
-				}
-				if(thisChar < font->getRangeBegin())
-				{
-					if(multiByteLength > 0) i += multiByteLength - 1;
-					continue;
-				}
-				if(thisChar == '%' && markupMode == false)
-				{
-					markupMode = true;
-					continue;
-				}
-				if(markupMode == true)
-				{
-					if(thisChar == '%')
-					{
-						// escape - falls through and draws '%'
-					}
-					else
-					{
-						markupMode = false;
-						if(thisChar >= '0' && thisChar <= '9')
-						{
-							colour = layer->_getMarkupColour(uint(thisChar - '0'));
-						}
-						else if(thisChar == 'R' || thisChar == 'r')
-						{
-							colour = defaultColour;
-						}
-						else if(thisChar == 'M' || thisChar == 'm')
-						{
-							fixedWidth = !fixedWidth;
-						}
-						else if(thisChar == '@')
-						{
-							bool foundIt = false;
-							const size_t begin = i;
-							while(i < text.size())
-							{
-								if(text[i] == '%') { foundIt = true; break; }
-								++i;
-							}
-							if(foundIt == false) { break; }
-							const uint index = Ogre::StringConverter::parseUnsignedInt(
-								text.substr(begin + 1, i - begin - 1));
-							font = layer->_getFont(index);
-							if(font == NULL) { break; }
-							lineHeight = std::max(lineHeight,
-								lineHeightPx(font));
-							continue;
-						}
-						else if(thisChar == ':')
-						{
-							bool foundIt = false;
-							const size_t begin = i;
-							while(i < text.size())
-							{
-								if(text[i] == '%') { foundIt = true; break; }
-								++i;
-							}
-							if(foundIt == false) { break; }
-							const String spriteName =
-								text.substr(begin + 1, i - begin - 1);
-							UiSprite const * sprite = layer->_getSprite(spriteName);
-							if(sprite == NULL) { continue; }
-							// a sprite is one atomic token: it moves whole to the
-							// next line when it does not fit (@see TextWrap)
-							Tok tok;
-							tok.uv[0] = sprite->texCoords[0];
-							tok.uv[1] = sprite->texCoords[1];
-							tok.uv[2] = sprite->texCoords[2];
-							tok.uv[3] = sprite->texCoords[3];
-							tok.colour = colour;
-							tok.w = sprite->spriteWidth;
-							tok.h = sprite->spriteHeight;
-							WrapCell cell;
-							cell.advance = sprite->spriteWidth;
-							cell.width = sprite->spriteWidth;
-							cells.push_back(cell);
-							cellTok.push_back(int(toks.size()));
-							toks.push_back(tok);
-							lineHeight = std::max(lineHeight, sprite->spriteHeight);
-							lastChar = 0;	// a sprite breaks the kerning pair
-							continue;
-						}
-						continue;
-					}
-					markupMode = false;
-				}
-
-				UiGlyph const * glyph = font->getGlyph(thisChar);
-				if(glyph == NULL) { continue; }
-				WrapCell cell;
-				if(fixedWidth)
-				{
-					cell.advance = monoWidthPx(font);
-				}
-				else
-				{
-					// leadKern = the gap to the PREVIOUS glyph on this run;
-					// TextWrap drops it at a line start (kerning within lines,
-					// never across a break)
-					Real kerning = kerningPx(glyph, lastChar);
-					if(kerning == 0)
-					{
-						kerning = letterSpacingPx(font);
-					}
-					cell.leadKern = kerning;
-					cell.advance = glyphAdvancePx(glyph);
-				}
-				cell.width = glyphWidthPx(glyph);
-				cell.breakBefore = TextWrap::isBreakableIdeograph(thisChar);
-				Tok tok;
-				tok.uv[0] = glyph->texCoords[0];
-				tok.uv[1] = glyph->texCoords[1];
-				tok.uv[2] = glyph->texCoords[2];
-				tok.uv[3] = glyph->texCoords[3];
-				tok.colour = colour;
-				tok.w = glyphWidthPx(glyph);
-				tok.h = glyphHeightPx(glyph);
-				cells.push_back(cell);
-				cellTok.push_back(int(toks.size()));
-				toks.push_back(tok);
-				lastChar = thisChar;
-				if(multiByteLength > 0) i += multiByteLength - 1;
-			}
-
-			WrapResult wrapped;
-			TextWrap::wrap(cells, wrapWidth, wrapped);
-			const int lineCount = wrapped.lineCount > 0 ? wrapped.lineCount : 1;
-
-			for(size_t c = 0; c < cells.size(); ++c)
-			{
-				const int ti = cellTok[c];
-				if(ti < 0) { continue; }
-				Tok const & tok = toks[size_t(ti)];
-				const int line = wrapped.lineOf[c];
-				const Real left = std::floor(originX + wrapped.penX[c]);
-				const Real top = std::floor(originY + Real(line) * lineHeight);
-				const Real right = left + tok.w;
-				const Real bottom = top + tok.h;
-				Character character;
-				character.position[TopLeft] = Vec2(left, top);
-				character.position[TopRight] = Vec2(right, top);
-				character.position[BottomLeft] = Vec2(left, bottom);
-				character.position[BottomRight] = Vec2(right, bottom);
-				character.uv[0] = tok.uv[0];
-				character.uv[1] = tok.uv[1];
-				character.uv[2] = tok.uv[2];
-				character.uv[3] = tok.uv[3];
-				character.colour = tok.colour;
-				out.push_back(character);
-			}
-			for(int l = 0; l < lineCount; ++l)
-			{
-				width = std::max(width, wrapped.lineWidth[size_t(l)]);
-			}
-			height = lineHeight * Real(lineCount);
-			return;
-		}
-
-		//--- historical single-line-per-paragraph path (wrap off) ---
-		Real cursorX = originX, cursorY = originY, kerning = 0;
-		uint thisChar = 0, lastChar = 0;
-		bool markupMode = false;
-		bool fixedWidth = false;
-		Color colour = defaultColour;
-		UiFont const * font = defaultFont;
-		Real lineHeight = lineHeightPx(font);
-
-		for(size_t i = 0; i < text.length(); ++i)
-		{
-			wchar_t unicodeChar;
-			const std::size_t multiByteLength =
-				StringUtil::multibyteCharStringToWideCharString(
-					&unicodeChar, &text[i], 5);
-			thisChar = uint(unicodeChar);
-
-			if(thisChar == ' ')
-			{
-				lastChar = thisChar;
-				cursorX += spaceLengthPx(font);
-				continue;
-			}
-			if(thisChar == '\n')
-			{
-				lastChar = thisChar;
-				cursorX = originX;
-				cursorY += lineHeight;
-				lineHeight = lineHeightPx(font);
-				continue;
-			}
-			if(thisChar < font->getRangeBegin())
-			{
-				lastChar = 0;
-				continue;
-			}
-			if(thisChar == '%' && markupMode == false)
-			{
-				markupMode = true;
-				continue;
-			}
-			if(markupMode == true)
-			{
-				if(thisChar == '%')
-				{
-					// escape character - falls through and draws '%'
-				}
-				else
-				{
-					markupMode = false;
-					if(thisChar >= '0' && thisChar <= '9')
-					{
-						colour = layer->_getMarkupColour(uint(thisChar - '0'));
-					}
-					else if(thisChar == 'R' || thisChar == 'r')
-					{
-						colour = defaultColour;
-					}
-					else if(thisChar == 'M' || thisChar == 'm')
-					{
-						fixedWidth = !fixedWidth;
-					}
-					else if(thisChar == '@')
-					{
-						// %@<fontIndex>% switches the font
-						bool foundIt = false;
-						const size_t begin = i;
-						while(i < text.size())
-						{
-							if(text[i] == '%') { foundIt = true; break; }
-							++i;
-						}
-						if(foundIt == false) { return; }
-						const uint index = Ogre::StringConverter::parseUnsignedInt(
-							text.substr(begin + 1, i - begin - 1));
-						font = layer->_getFont(index);
-						if(font == NULL) { return; }
-						lineHeight = std::max(lineHeight,
-							lineHeightPx(font));
-						continue;
-					}
-					else if(thisChar == ':')
-					{
-						// %:<spriteName>% inserts a sprite inline
-						bool foundIt = false;
-						const size_t begin = i;
-						while(i < text.size())
-						{
-							if(text[i] == '%') { foundIt = true; break; }
-							++i;
-						}
-						if(foundIt == false) { return; }
-						const String spriteName =
-							text.substr(begin + 1, i - begin - 1);
-						UiSprite const * sprite = layer->_getSprite(spriteName);
-						if(sprite == NULL) { continue; }
-						const Real left = cursorX;
-						const Real top = cursorY;
-						const Real right = left + sprite->spriteWidth;
-						const Real bottom = top + sprite->spriteHeight;
-
-						Character character;
-						character.position[TopLeft] = Vec2(left, top);
-						character.position[TopRight] = Vec2(right, top);
-						character.position[BottomLeft] = Vec2(left, bottom);
-						character.position[BottomRight] = Vec2(right, bottom);
-						character.uv[0] = sprite->texCoords[0];
-						character.uv[1] = sprite->texCoords[1];
-						character.uv[2] = sprite->texCoords[2];
-						character.uv[3] = sprite->texCoords[3];
-						character.colour = colour;
-						out.push_back(character);
-
-						cursorX += sprite->spriteWidth;
-						lineHeight = std::max(lineHeight, sprite->spriteHeight);
-						continue;
-					}
-					continue;
-				}
-				markupMode = false;
-			}
-
-			UiGlyph const * glyph = font->getGlyph(thisChar);
-			if(glyph == NULL) { continue; }
-			if(!fixedWidth)
-			{
-				kerning = kerningPx(glyph, lastChar);
-				if(kerning == 0)
-				{
-					kerning = letterSpacingPx(font);
-				}
-			}
-			// whole-pixel cursor: crisp glyphs (point-sampled atlas)
-			cursorX = std::floor(cursorX);
-			cursorY = std::floor(cursorY);
-
-			const Real right = cursorX + glyphWidthPx(glyph);
-			const Real bottom = cursorY + glyphHeightPx(glyph);
-
 			Character character;
-			character.position[TopLeft] = Vec2(cursorX, cursorY);
-			character.position[TopRight] = Vec2(right, cursorY);
-			character.position[BottomLeft] = Vec2(cursorX, bottom);
-			character.position[BottomRight] = Vec2(right, bottom);
-			character.uv[0] = glyph->texCoords[0];
-			character.uv[1] = glyph->texCoords[1];
-			character.uv[2] = glyph->texCoords[2];
-			character.uv[3] = glyph->texCoords[3];
-			character.colour = colour;
+			character.position[TopLeft] = Vec2(quad.left, quad.top);
+			character.position[TopRight] = Vec2(quad.right, quad.top);
+			character.position[BottomLeft] = Vec2(quad.left, quad.bottom);
+			character.position[BottomRight] = Vec2(quad.right, quad.bottom);
+			character.uv[0] = quad.uv[0];
+			character.uv[1] = quad.uv[1];
+			character.uv[2] = quad.uv[2];
+			character.uv[3] = quad.uv[3];
+			character.colour = quad.colour;
 			out.push_back(character);
-
-			if(fixedWidth)
-			{
-				cursorX += monoWidthPx(font);
-			}
-			else
-			{
-				cursorX += glyphAdvancePx(glyph) + kerning;
-			}
-			lastChar = thisChar;
-
-			// track the laid-out extents
-			if(width < cursorX) { width = cursorX; }
-			if(height < cursorY) { height = cursorY; }
-			if(multiByteLength > 0)
-			{
-				i += multiByteLength - 1;
-			}
 		}
-		height -= originY;
-		height += lineHeight;
-		width -= originX;
 	}
 	//---------------------------------------------------------
 	void UiMarkupText::_redraw()

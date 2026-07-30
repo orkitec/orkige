@@ -76,6 +76,9 @@ namespace Orkige
 			float	textScale = 1.0f;	//!< the glyph size multiplier in effect
 			bool	textColourSet = false;	//!< an EXPLICIT caption colour was set
 			float	textR = 1.0f, textG = 1.0f, textB = 1.0f, textA = 1.0f;
+			//! is the text read as inline RICH TEXT (@see TextMarkup.h)? A label
+			//! opts in with `markup = true`; a textbox always is
+			bool	markup = false;
 		};
 		//! @brief which rect a parentless layout widget resolves against
 		enum RootSpace
@@ -166,7 +169,6 @@ namespace Orkige
 		optr<GuiDecorWidget> cursor;
 		optr<GuiTextbox> stats;
 		optr<GuiTextbox> statsValues;
-		unsigned short statsMarkupColorIndex;
 		String defaultAtlas;
 		bool cancelInputUpdate;
 		//! @brief are the key/mouse/touch input events currently subscribed?
@@ -220,10 +222,27 @@ namespace Orkige
 		//! a group alpha changed (or a subtree parent did): re-run the cascade
 		//! pass next frame so every widget's effective alpha reaches its elements
 		bool groupAlphaDirty;
+		//! @brief one running tween on one channel of one widget, plus the
+		//! bookkeeping that belongs to THAT tween and dies with it
+		struct WidgetTween
+		{
+			TweenManager::TweenId	id = 0;
+			//! @brief the REST position a running slide transition returns to. A
+			//! slide moves the widget away from rest and tweens back, so a
+			//! transition re-played mid-flight must not mistake the away position
+			//! for rest (which would drift the widget one offset further every
+			//! replay - a screen re-revealed while it is still animating). Living
+			//! here rather than on the widget means it dies exactly when the tween
+			//! does: the last-wins retarget and the destroy-time auto-kill both
+			//! already erase this record, so a stale rest cannot survive them.
+			bool					hasRest = false;
+			float					restX = 0.0f;
+			float					restY = 0.0f;
+		};
 		//! the one running tween per (widget id, channel) - a new tween on the
 		//! same channel cancels the old (last-wins retarget). Cleared per widget
 		//! when it is destroyed (auto-kill). @see tweenWidget
-		std::map<String, std::map<int, TweenManager::TweenId> > widgetTweens;
+		std::map<String, std::map<int, WidgetTween> > widgetTweens;
 		//--- the screen router (@see pushScreen / reconcileScreens) ---
 		//! the pure LIFO stack of screen names (the navigation intent). Widget
 		//! lifecycles follow it asynchronously through transitions.
@@ -239,6 +258,8 @@ namespace Orkige
 		//! true while the materialized screen is playing its exit transition; it is
 		//! torn down once its transition tweens finish (@see anyScreenExitTweenActive)
 		bool screenExiting;
+		//! true while materializeScreen builds a screen (@see isMaterializingScreen)
+		bool materializingScreen;
 		//! the current screen's back hook: consulted before the default pop (@see
 		//! ScreenBackInterceptor). Cleared whenever a new screen is materialized.
 		ScreenBackInterceptor screenBackInterceptor;
@@ -514,6 +535,28 @@ namespace Orkige
 				TweenManager::CompleteFunction());
 		//! @brief cancel the running tween on one channel of a widget (if any)
 		void cancelWidgetTween(String const & widgetId, int channel);
+		//! @brief play the enter transition of a group of widgets that just came
+		//! INTO VIEW - the one "these widgets appeared" verb, used by the screen
+		//! router when it materialises a screen, by a `.oui` load, and by a tab
+		//! bar revealing a panel. A widget the build already parked invisible (one
+		//! inside an unselected tab panel) is SKIPPED: it enters when whatever
+		//! hides it reveals it, not while it is hidden. A widget that declares no
+		//! enter spec snaps, exactly as before (@see playWidgetTransition).
+		//! @param declaredOnly play only the widgets that DECLARE an enter spec,
+		//! leaving the rest untouched (the `.oui` load's contract: a screen whose
+		//! widgets declare nothing is built byte-identically to before). The
+		//! router passes false, so a screen's widgets are shown either way.
+		void revealWidgets(std::vector<String> const & ids, bool declaredOnly);
+		//! @brief the rest position a slide transition already in flight on
+		//! @p widgetId returns to (@see WidgetTween::hasRest); false when this
+		//! widget has no running slide, in which case its LIVE position is rest
+		bool rememberedSlideRest(String const & widgetId, float restOut[2]) const;
+		//! @brief is the screen router currently BUILDING a screen? A `.oui` load
+		//! that happens inside materializeScreen must not play the enter
+		//! transitions itself - the router owns that moment for its own widget set
+		//! (and would otherwise restart every transition a moment later).
+		inline bool isMaterializingScreen() const
+		{ return this->materializingScreen; }
 		//! @brief cancel every running tween on a widget (auto-kill on destroy)
 		void cancelWidgetTweens(String const & widgetId);
 		//! @brief play a widget's enter (show) or exit (hide) transition, resolved

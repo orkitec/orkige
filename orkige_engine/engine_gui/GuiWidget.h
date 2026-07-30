@@ -84,10 +84,14 @@ namespace Orkige
 		//! @brief does a faded-out (effective alpha < threshold) widget block input?
 		//! Default true (a hidden subtree is inert); false lets input pass through.
 		bool alphaBlocksInput;
-		//! @brief the show/hide transition this widget plays (from the .oui
-		//! `transition` key or setTransition). UTT_None = snap. @see GuiManager
+		//! @brief the SHOW transition this widget plays (from the .oui `enter` /
+		//! `transition` key or setEnterTransition). Empty = snap. @see GuiManager
 		//! playWidgetTransition
 		UiTransitionSpec transition;
+		//! @brief the HIDE transition (the .oui `exit` key). `transition` seeds
+		//! BOTH, so a widget that names only the shorthand exits by reversing its
+		//! enter; an explicit `exit` overrides just that direction.
+		UiTransitionSpec exitTransition;
 		//! @brief the text style stored ON the widget (@see setFontIndex /
 		//! setTextColour / setTextScale) and pushed into whatever text elements
 		//! the widget owns by onTextStyleChanged. Stored here, not in the leaves,
@@ -99,6 +103,7 @@ namespace Orkige
 		Color styleTextColour;
 		bool styleTextColourSet;	//!< an EXPLICIT colour (vs. the inherited look)
 		float styleTextScale;
+		bool styleMarkup;			//!< read the text as inline rich text
 		//! @brief a monotonic CREATION ordinal, stamped in the constructor. A
 		//! layout group arranges its children in this order - the order they were
 		//! authored (`.oui` section order) / created, independent of their draw
@@ -221,16 +226,44 @@ namespace Orkige
 		//! A factor <= 0 is ignored.
 		void setTextScale(float scale);
 		inline float getTextScale() const { return this->styleTextScale; }
+		//! @brief read this widget's caption as inline RICH TEXT: `[c=RRGGBB]` and
+		//! `[f=heading]` spans plus `[sprite=name]` icons inside the one caption
+		//! (@see TextMarkup.h; a malformed tag draws verbatim and warns). Stored
+		//! here beside the font / colour / scale, so it reaches a composite's
+		//! caption through the same forwardTextStyle path and every text-bearing
+		//! kind can carry runs. Default off, so every existing screen is
+		//! unchanged - and with it on, a string carrying no tags still measures and
+		//! draws exactly as it did.
+		void setTextMarkup(bool enable);
+		inline bool getTextMarkup() const { return this->styleMarkup; }
 		//! @brief does this widget kind carry a caption the text style reaches?
 		//! False for the display-only bodies (decor panel / scroll view), so a
 		//! tool never offers a text row that would do nothing.
 		virtual bool hasTextStyle() const { return false; }
+		//! @brief does this widget read its text as inline RICH TEXT right now?
+		//! The stored opt-in for every text-bearing kind; the textbox IS the
+		//! styled-run kind and overrides it to always true. Read back by the
+		//! MSG_UI_LAYOUT / MCP layout stream, so a rich-text screen is observable.
+		virtual bool hasTextMarkup() const { return this->styleMarkup; }
 
-		//! @brief set the show/hide transition from a declarative string
-		//! ("fade 0.2", "slide-up 0.3", "pop", "none"). @see GuiManager::playWidgetTransition
+		//! @brief set BOTH directions from one declarative string ("fade 0.2",
+		//! "pop", "fade 0.25 quadOut | slide 0 -40", "none"): the hide plays the
+		//! same clauses reversed. @see GuiManager::playWidgetTransition
 		void setTransition(String const & spec);
-		//! @brief the parsed transition spec (UTT_None = snap)
+		//! @brief set only the SHOW transition (the `.oui` `enter` key)
+		void setEnterTransition(String const & spec);
+		//! @brief set only the HIDE transition (the `.oui` `exit` key)
+		void setExitTransition(String const & spec);
+		//! @brief the parsed show transition (isNone = snap)
 		inline UiTransitionSpec const & getTransition() const { return this->transition; }
+		//! @brief the spec for one direction - what playWidgetTransition reads
+		inline UiTransitionSpec const & getTransition(bool entering) const
+		{ return entering ? this->transition : this->exitTransition; }
+		//! @brief does this widget animate itself into view (a non-empty enter
+		//! spec)? The `.oui` load plays exactly those, and a tab panel that owns
+		//! one animates in instead of snapping to full alpha.
+		inline bool hasEnterTransition() const { return !this->transition.isNone(); }
+
 
 		//--- rect-anchor layout (opt-in; @see GuiManager resolve pass) ---
 		//! @brief parent this widget under another: it then resolves inside the
@@ -361,6 +394,9 @@ namespace Orkige
 		//! @brief an interactive leaf marks itself input-consuming from its
 		//! constructor (@see isInteractive). One call, class-wide by convention.
 		void markInteractive() { this->interactive = true; }
+		//! @brief parse one transition string, reporting each malformed clause as
+		//! ONE warn naming this widget and @p key (the `.oui` key it came from)
+		UiTransitionSpec parseTransitionSpec(String const & spec, char const * key);
 	private:
 	};
 	//---------------------------------------------------------------

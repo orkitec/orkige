@@ -57,7 +57,14 @@ namespace Orkige
 			// text broke into - reporting the single-line measure would make it
 			// lie to the layout readback (and to anyone drawing its rect)
 			size.x = this->caption->width();
-			size.y = this->caption->measureWrappedHeight(this->caption->width());
+			// rich text measured BOTH axes at that width already (the markup
+			// measure is the wrapped measure), so asking again would run the whole
+			// parse a second time for a number we hold
+			if(!this->caption->getMarkup())
+			{
+				size.y =
+					this->caption->measureWrappedHeight(this->caption->width());
+			}
 		}
 		return size;
 	}
@@ -143,16 +150,18 @@ namespace Orkige
 	{
 		return this->caption->getWrap();
 	}
+
 	//---------------------------------------------------------
 	Ogre::Vector2 GuiLabel::getPreferredSize()
 	{
 		Ogre::Vector2 size;
 		this->caption->_calculateDrawSize(size);
-		if(this->caption->getWrap())
+		if(this->caption->getWrap() && !this->caption->getMarkup())
 		{
 			// the width-independent fallback height (the resolver overrides it via
 			// getHeightForWidthMeasurer once the width is settled); measure at the
-			// caption's current width so an unconstrained axis still reads sanely
+			// caption's current width so an unconstrained axis still reads sanely.
+			// A markup caption already measured both axes at that width.
 			size.y = this->caption->measureWrappedHeight(this->caption->width());
 		}
 		return size;
@@ -183,6 +192,7 @@ namespace Orkige
 		}
 		this->caption->setFont(this->getFontIndex());
 		this->caption->setTextScale(this->getTextScale());
+		this->caption->setMarkup(this->getTextMarkup());
 		if(this->hasTextColour())
 		{
 			this->caption->colour(this->getTextColour());

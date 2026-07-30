@@ -51,6 +51,10 @@ parent = frame
 anchor = stretchtop
 offsets = 8 8 -8 84
 wrap = true
+# the screen introduces itself: an `enter` transition plays once, as this
+# layout is built, and settles at full opacity (a widget that declares none is
+# built exactly as before)
+enter = fade 0.35 quadOut
 
 # the tabs: a two-column grid block, because descriptive captions do not fit
 # one row at phone width. The grid group gives every tab the same cell.
@@ -425,6 +429,10 @@ group = vertical
 padding = 8 8 8 8
 spacing = 10
 childExpand = true
+# two channels in one spec: the panel fades AND drops in from 24px above every
+# time its tab reveals it, each channel with its own timing/curve. Leaving the
+# tab snaps it hidden again (no `exit` clause authored).
+enter = fade 0.25 quadOut | slide 0 -24 0.3 backOut
 
 [Label overlayNote]
 font = 9
@@ -443,6 +451,7 @@ text = Show a modal panel
 size = 300 36
 z = 3
 parent = panelOverlays
+pressFeedback = true
 
 [Button showConfirmButton]
 sprite = button
@@ -452,6 +461,7 @@ text = Ask a confirm dialog
 size = 300 36
 z = 3
 parent = panelOverlays
+pressFeedback = true
 
 [Button showToastButton]
 sprite = button
@@ -461,6 +471,7 @@ text = Raise a toast
 size = 300 36
 z = 3
 parent = panelOverlays
+pressFeedback = true
 
 [Label overlayResult]
 font = 9
@@ -525,6 +536,8 @@ text = Style
 size = 140 36
 z = 3
 parent = styleButtonRow
+# press juice: the face snaps smaller under the finger and springs back
+pressFeedback = true
 
 [Button styleButtonB]
 style = heroStyle
@@ -547,6 +560,42 @@ textAlignment = left
 size = 300 40
 z = 3
 parent = panelStyles
+
+# --- inline RICH TEXT: several styled runs inside ONE caption ---
+# `markup = true` reads `[c=RRGGBB]` and `[f=NAME]` spans plus `[sprite=NAME]`
+# icons out of the text ( `[[` writes a literal bracket ). The tags are NOT
+# glyphs, so this label measures exactly like the tag-free control below it.
+[Label richText]
+markup = true
+font = body
+text = [c=FFCC33]Rich[/c] text runs
+textAlignment = left
+size = 300 30
+z = 3
+parent = panelStyles
+
+# the same visible sentence, no tags, markup off: the control that makes the
+# "tags cost no width" claim checkable
+[Label richPlain]
+font = body
+text = Rich text runs
+textAlignment = left
+size = 300 30
+z = 3
+parent = panelStyles
+
+# a heading run and an inline icon inside body copy: the taller run raises the
+# line height for the whole wrapped block, and the icon is one atomic cell that
+# moves whole rather than splitting at a line end
+[Label richIcon]
+markup = true
+font = body
+text = A [f=heading]heading run[/f] and an icon [sprite=checkbox_on] flow across the wrap with the [c=6FD3FF]body copy[/c].
+textAlignment = left
+z = 3
+parent = panelStyles
+fit = none preferred
+wrap = true
 
 # a toggle wears a style too - the caption of any text-bearing kind does
 [CheckBox styleToggle]

@@ -433,6 +433,125 @@ TEST_CASE("oui: MALFORMED style values survive the document model verbatim",
 	CHECK(doc2.serialize() == canonical);
 }
 
+TEST_CASE("oui: a label's markup key and its TAGGED text round-trip",
+	"[unit][oui]")
+{
+	// The load-bearing case for inline rich text: a `text` value carries '='
+	// INSIDE its markup tags, and the grammar splits a key line on the FIRST
+	// separator only - so the tags survive parse -> serialize -> parse whole.
+	// The APPLY (the runs draw in their own colour/font, tags excluded from the
+	// measurement) is asserted in the player_gallery selfcheck.
+	const String text =
+		"[Label reward]\n"
+		"markup = true\n"
+		"text = +50 [c=FFCC33]gold[/c] and a [sprite=coin]\n"
+		"wrap = true\n";
+
+	GuiLayoutDoc doc;
+	String error;
+	REQUIRE(GuiLayoutDoc::parse(text, doc, error));
+	REQUIRE(doc.sections.size() == 1);
+	REQUIRE(doc.sections[0].find("markup") != nullptr);
+	CHECK(*doc.sections[0].find("markup") == "true");
+	REQUIRE(doc.sections[0].find("text") != nullptr);
+	CHECK(*doc.sections[0].find("text") ==
+		"+50 [c=FFCC33]gold[/c] and a [sprite=coin]");
+
+	const String canonical = doc.serialize();
+	GuiLayoutDoc doc2;
+	REQUIRE(GuiLayoutDoc::parse(canonical, doc2, error));
+	CHECK(doc2.serialize() == canonical);
+	CHECK(*doc2.sections[0].find("text") ==
+		"+50 [c=FFCC33]gold[/c] and a [sprite=coin]");
+
+	// a tagged value that STARTS with a tag is still a value, not a section
+	// header (only a line whose FIRST character is '[' opens a section)
+	const String leading =
+		"[Label banner]\n"
+		"markup = true\n"
+		"text = [c=FF0000]danger[/c]\n";
+	GuiLayoutDoc doc3;
+	REQUIRE(GuiLayoutDoc::parse(leading, doc3, error));
+	REQUIRE(doc3.sections.size() == 1);
+	CHECK(doc3.sections[0].id == "banner");
+	CHECK(*doc3.sections[0].find("text") == "[c=FF0000]danger[/c]");
+}
+
+TEST_CASE("oui: MALFORMED markup survives the document model verbatim",
+	"[unit][oui]")
+{
+	// the division of labour: the document model is a text carrier, so an
+	// unknown tag / a bad colour / an unclosed span round-trip untouched and the
+	// PARSER (TextMarkup, unit-tested separately) is the one that judges them
+	const String text =
+		"[Label broken]\n"
+		"markup = true\n"
+		"text = [b]bold?[/b] [c=tomato]x[/c] [c=FF0000]open\n";
+
+	GuiLayoutDoc doc;
+	String error;
+	REQUIRE(GuiLayoutDoc::parse(text, doc, error));
+	REQUIRE(doc.sections.size() == 1);
+	CHECK(*doc.sections[0].find("text") ==
+		"[b]bold?[/b] [c=tomato]x[/c] [c=FF0000]open");
+	const String canonical = doc.serialize();
+	GuiLayoutDoc doc2;
+	REQUIRE(GuiLayoutDoc::parse(canonical, doc2, error));
+	CHECK(doc2.serialize() == canonical);
+
+	// a bare `markup` flag key with no value is legal text too (the loader reads
+	// it as false - parseBool's default - rather than refusing the screen)
+	const String bare =
+		"[Label flagged]\n"
+		"markup\n";
+	GuiLayoutDoc doc3;
+	REQUIRE(GuiLayoutDoc::parse(bare, doc3, error));
+	REQUIRE(doc3.sections[0].find("markup") != nullptr);
+	CHECK(doc3.sections[0].find("markup")->empty());
+}
+
+TEST_CASE("oui: the transition keys (transition/enter/exit) round-trip",
+	"[unit][oui]")
+{
+	// `transition` is the both-directions shorthand; `enter` / `exit` override
+	// one direction each, and a composed value carries '|'-separated clauses -
+	// all plain values the document model preserves in order. The APPLY (the
+	// channels animate and settle at the exact rest state) is asserted in the
+	// player_gallery selfcheck; the parse verdicts live in GuiAnimationTests.
+	const String text =
+		"[Panel menu]\n"
+		"transition = fade 0.2\n"
+		"\n"
+		"[Panel sheet]\n"
+		"enter = fade 0.25 quadOut | slide 0 -40\n"
+		"exit = fade 0.15 | slide 0 24\n";
+
+	GuiLayoutDoc doc;
+	String error;
+	REQUIRE(GuiLayoutDoc::parse(text, doc, error));
+	REQUIRE(doc.sections.size() == 2);
+	CHECK(*doc.sections[0].find("transition") == "fade 0.2");
+	REQUIRE(doc.sections[1].find("enter") != nullptr);
+	CHECK(*doc.sections[1].find("enter") == "fade 0.25 quadOut | slide 0 -40");
+	REQUIRE(doc.sections[1].find("exit") != nullptr);
+	CHECK(*doc.sections[1].find("exit") == "fade 0.15 | slide 0 24");
+
+	const String canonical = doc.serialize();
+	GuiLayoutDoc doc2;
+	REQUIRE(GuiLayoutDoc::parse(canonical, doc2, error));
+	CHECK(doc2.serialize() == canonical);
+	CHECK(*doc2.sections[1].find("enter") == "fade 0.25 quadOut | slide 0 -40");
+
+	// a malformed clause list is carried verbatim too (the widget warns once and
+	// keeps the clauses it understood - never a screen that fails to build)
+	const String broken =
+		"[Panel odd]\n"
+		"enter = wobble 2 | fade 0.3\n";
+	GuiLayoutDoc doc3;
+	REQUIRE(GuiLayoutDoc::parse(broken, doc3, error));
+	CHECK(*doc3.sections[0].find("enter") == "wobble 2 | fade 0.3");
+}
+
 TEST_CASE("oui: a key before any section fails honestly", "[unit][oui]")
 {
 	const String text = "atlas = gui_default\n[Label a]\ntext = x\n";

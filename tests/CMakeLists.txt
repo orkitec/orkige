@@ -2040,10 +2040,19 @@ if(TARGET orkige_player)
         # a click, the WRAPPED label is taller than the single-line one, a typed
         # Return INSERTS a line break in the multi-line field (never submits),
         # the 1000-row list keeps only its viewport window of rows alive and a
-        # scrolled row still hit-tests at its rect, and a modal raises and
-        # dismisses. Runs on both render flavors (gui renders through the
-        # DrawLayer2D facade). See the ORKIGE_GALLERY_SELFCHECK block in
-        # tools/player/PlayerSelfChecks.cpp.
+        # scrolled row still hit-tests at its rect, a modal raises and
+        # dismisses, the STYLING tier resolved (a named style's font by role
+        # name / ink / scale reached its widgets and a local key overrode the
+        # bundle), INLINE RICH TEXT resolved (a markup label reports itself as
+        # such and its tags cost no width, a heading run plus an inline icon
+        # raise the wrapped block) and the ANIMATION tier really animates (the
+        # title's load-time enter settled at exactly full opacity, a revealed
+        # tab panel's alpha sampled mid-flight at two ticks then landing on the
+        # EXACT rest position - on a replay too, so a re-entered transition
+        # never drifts - a held button scaled down, and a Lua guitween round
+        # trip returned its widget to exactly alpha 1). Runs on both render
+        # flavors (gui renders through the DrawLayer2D facade). See the
+        # ORKIGE_GALLERY_SELFCHECK block in tools/player/PlayerSelfChecks.cpp.
         add_test(NAME player_gallery_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project projects/gallery
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")

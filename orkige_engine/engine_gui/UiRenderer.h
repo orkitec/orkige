@@ -269,6 +269,18 @@ namespace Orkige
 		{
 			return this->mParent->getAtlas()->getFont(index);
 		}
+		//! @brief a font by REFERENCE - a role name (`heading`) or a `[Font.N]`
+		//! index as text (`24`), the vocabulary a markup `[f=..]` span and the
+		//! `.oui` `font` key share. NULL when the atlas carries neither.
+		inline UiFont const * _getFontByRef(String const & ref) const
+		{
+			uint index = 0;
+			if(!this->mParent->getAtlas()->resolveFontRef(ref, index))
+			{
+				return NULL;
+			}
+			return this->mParent->getAtlas()->getFont(index);
+		}
 		inline Color _getMarkupColour(uint index) const
 		{
 			return this->mParent->getAtlas()->getMarkupColour(index);
@@ -489,6 +501,18 @@ namespace Orkige
 		void setTextScale(Real scale);
 		inline Real textScale() const { return this->mTextScale; }
 
+		//! @brief read the text as inline RICH TEXT: `[c=RRGGBB]`/`[f=heading]`
+		//! spans and `[sprite=name]` icons inside the one caption (@see
+		//! TextMarkup.h for the grammar and its warn-and-stay-readable verdicts).
+		//! Default OFF, and a plain string in markup mode measures and draws
+		//! exactly as it does with markup off - the tags are the only difference.
+		//! Composes with setWrap (runs and sprites flow across the breaks), with
+		//! the alignment and with setTextScale. A styled run's own font may be
+		//! TALLER than the caption's, which raises the line height for the whole
+		//! block.
+		void setMarkup(bool markup);
+		inline bool getMarkup() const { return this->mMarkup; }
+
 		//! @brief wrap the text to the caption's width() instead of a single
 		//! clipped line. Break rules (@see TextWrap): break at spaces (latin),
 		//! between CJK glyphs, hard-break a single over-wide word at the glyph
@@ -534,12 +558,23 @@ namespace Orkige
 		bool					mDirty;
 		bool					mScaled;
 		bool					mWrap;				//!< wrap to width() (@see setWrap)
+		bool					mMarkup;			//!< read the text as rich text (@see setMarkup)
 		Real					mTextScale;			//!< per-caption size factor
 		Ui2DTransform			mRenderTransform;	//!< animation transform (post-pass)
 		Real					mRenderAlpha;		//!< cascade alpha multiplier
 		std::vector<UiVertex>	mVertices;
 		//! emit the vertices for the wrapped (multi-line) layout (@see _redraw)
 		void _redrawWrapped();
+		//! @brief the top of a block @p blockHeight tall inside height(), by the
+		//! vertical alignment - the ONE rule every multi-line path places with
+		Real _blockTop(Real blockHeight) const;
+		//! emit the vertices for the styled-run (markup) layout (@see setMarkup)
+		void _redrawMarkup();
+		//! @brief measure the rich-text block at box width @p width (<= 0 = no
+		//! width wrapping): the widest line into @p size.x, the line count times
+		//! the block's line height into @p size.y. The ONE markup measurement -
+		//! _calculateDrawSize, measureWrappedHeight and _redrawMarkup all read it.
+		void _measureMarkup(Real width, Vec2 & size) const;
 
 		//--- the metrics this caption lays out with: the font's *Scaled values
 		//--- (global UiGlyph::scale) times this caption's own mTextScale. EVERY
@@ -561,9 +596,12 @@ namespace Orkige
 		{ return glyph.getGlyphAdvanceScaled() * this->mTextScale; }
 	};
 
-	//! @brief multi-line text with the light markup language: %0-%9
-	//! switch to a markup colour, %R resets it, %M toggles monospace,
-	//! %@N% switches the font, %:name% inserts a sprite, %% escapes
+	//! @brief multi-line RICH text: the inline markup grammar
+	//! (`[c=RRGGBB]`/`[f=heading]` spans, `[sprite=name]` icons, `[[` for a
+	//! literal '['; @see TextMarkup.h) laid out over the shared line-breaker.
+	//! Always reads its text as markup - it IS the styled-run element, so a
+	//! literal '[' in its text needs the escape. A plain caption opts in per
+	//! element instead (@see UiCaption::setMarkup).
 	class ORKIGE_ENGINE_DLL UiMarkupText
 	{
 		friend class UiLayer;
@@ -588,11 +626,11 @@ namespace Orkige
 		//! historical flag (@see UiCaption::scaled)
 		inline void scaled(bool scaled) { this->mScaled = scaled; }
 
-		//! @brief re-point the DEFAULT font (`%@N%` runs still switch per run);
-		//! an index the atlas never loaded is ignored (@see UiCaption::setFont)
+		//! @brief re-point the DEFAULT font (an `[f=..]` run still switches per
+		//! run); an index the atlas never loaded is ignored (@see UiCaption::setFont)
 		void setDefaultFont(uint fontIndex);
-		//! @brief the colour a run starts in, before any `%0`-`%9` markup code
-		//! (white by default - the historical look). `%R` resets TO this colour.
+		//! @brief the colour a run starts in, outside any `[c=..]` span (white by
+		//! default); closing a span returns to it
 		void setDefaultColour(Color const & colour);
 		inline Color const & defaultColour() const { return this->mDefaultColour; }
 		//! @brief a per-element glyph SIZE multiplier (@see UiCaption::setTextScale)
@@ -600,7 +638,7 @@ namespace Orkige
 		inline Real textScale() const { return this->mTextScale; }
 
 		//! @brief wrap the markup to @c wrapWidth instead of laying out one long
-		//! line per paragraph. Markup runs (colour/font/mono) and inline sprites
+		//! line per paragraph. Markup runs (colour/font) and inline sprites
 		//! flow across the breaks - a run split by a wrap keeps its style, a
 		//! sprite that does not fit moves whole to the next line; explicit '\n'
 		//! still forces breaks (@see TextWrap). Default off (byte-identical to
@@ -662,10 +700,13 @@ namespace Orkige
 		//! without disturbing the live layout.
 		//! @param textScale the per-element glyph size factor (@see setTextScale)
 		//! @param defaultColour the colour a run starts in (@see setDefaultColour)
+		//! @param quiet suppress the markup parse/resolve warnings - a pure
+		//! MEASUREMENT re-runs this pipeline, and only the draw should report
 		static void _layoutMarkup(UiLayer* layer, UiFont const * defaultFont,
 			String const & text, Real originX, Real originY, Real wrapWidth,
 			Real textScale, Color const & defaultColour,
-			std::vector<Character> & out, Real & width, Real & height);
+			std::vector<Character> & out, Real & width, Real & height,
+			bool quiet = false);
 	};
 }
 

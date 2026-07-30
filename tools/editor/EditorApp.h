@@ -1348,6 +1348,7 @@ struct PlaySession
 		double textScale = 1.0;	//!< the glyph size multiplier in effect
 		bool textColourSet = false;	//!< an EXPLICIT caption colour was set
 		double textR = 1.0, textG = 1.0, textB = 1.0, textA = 1.0;
+		bool markup = false;	//!< the text is read as inline rich text
 	};
 	std::vector<RemoteWidgetRect> remoteUiLayout;
 	//! the running game's screen router state (MSG_UI_LAYOUT): the current (top)

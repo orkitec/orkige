@@ -163,9 +163,15 @@ An ordered list of `[Type id]` sections, each a block of `key = value` lines
 | `checkbox = true` | checkbox: the BOX skin (a check symbol beside the caption) instead of the two-state PLATE |
 | `items = A \| B \| C` | dropdown / listview / selectmenu / slider options (pipe-separated) |
 | `wrap = true` | label / textbox: break the text to the widget width |
+| `markup = true` | read the caption as inline rich text (`[c=..]` / `[f=..]` spans, `[sprite=..]` icons) |
+| `style = NAME` | apply a `[Style NAME]` bundle first, then this widget's own keys |
+| `textColor = r g b a` / `textScale = 2` | caption ink / glyph size multiplier |
+| `pressFeedback = true` | button: the face snaps smaller on press and springs back |
 | `multiline = true` | text entry: a text area (soft wrap, Return inserts a line break) |
 | `virtualized = true` / `itemHeight = 24` | list view: materialise only the visible rows, at that uniform row height |
-| `transition = fade 0.2` | enter/exit transition (see Animation) |
+| `transition = fade 0.2` | BOTH directions from one spec (the exit reverses it; see Animation) |
+| `enter = fade 0.25 quadOut \| slide 0 -40` | the SHOW transition only: `\|`-composed clauses, each with its own duration + easing curve |
+| `exit = fade 0.15` | the HIDE transition only |
 | `modal = confirmId` | create on that modal's content layer + tear down with it |
 | `[Modal id]` + `scrim = r g b a` / `lightDismiss = bool` | a modal scrim |
 | `[ToggleGroup id]` + `members = a b c` / `selected` / `allowNone` | a radio group |
@@ -181,7 +187,7 @@ Widget `Type`s: `label`, `textbox`, `button`, `checkbox`, `selectmenu`,
 | Widget | Purpose | Key API (poll / set) |
 |---|---|---|
 | `GuiLabel` | one line of text, or wrap-to-width | `setText` / `setWrap` |
-| `GuiTextbox` | multi-line markup text (`UiMarkupText`), wrap-to-width | `setText` / `setWrap` |
+| `GuiTextbox` | multi-line [rich text](#inline-rich-text-styled-runs) (`UiMarkupText`), wrap-to-width | `setText` / `setWrap` |
 | `GuiButton` | pressable button | `wasClicked` / `ButtonHitEvent`, `setPressFeedback` |
 | `GuiCheckBox` | on/off toggle (may join a toggle group) | `isChecked` / `setChecked` |
 | `GuiSelectMenu` | an option **cycler** (‹ value ›) | `getSelectedIndex` / `setItemsString` |
@@ -219,10 +225,10 @@ wraps to its **resolved width** instead of drawing one clipped line. The break
 rules are the standard ones: a Latin run breaks at spaces; a CJK codepoint may
 break between any two glyphs; a single word wider than the column hard-breaks at
 the glyph that no longer fits (never overflowing); an explicit `\n` still forces
-a break; kerning applies within a line and never across a break. A textbox's
-markup runs and inline sprites flow across the breaks — a run split by a wrap
-keeps its colour/font, and a sprite that does not fit moves whole to the next
-line. The pure greedy line-breaker is `engine_gui/TextWrap`; the pixel layout is
+a break; kerning applies within a line and never across a break. A
+[rich-text](#inline-rich-text-styled-runs) element's runs and inline sprites
+flow across the breaks — a run split by a wrap keeps its colour/font, and a
+sprite that does not fit moves whole to the next line. The pure greedy line-breaker is `engine_gui/TextWrap`; the pixel layout is
 `UiCaption`/`UiMarkupText`.
 
 Pair `wrap` with a width (anchors, `setSize`, or a stretch anchor) and a
@@ -521,23 +527,75 @@ convention; opt out per widget with `widget:setAlphaBlocksInput(false)`.
 
 ### Show / hide transitions
 
-Widgets carry an enter/exit transition, declared in `.oui` or set from Lua:
+Widgets carry enter/exit transitions, declared in `.oui` or set from Lua:
 
 ```
 [Panel menu]
-transition = fade 0.2        # or "slide-up 0.3", "slide-down", "slide-left",
-                             # "slide-right", "pop", "none"
+transition = fade 0.2        # BOTH directions from one spec
+
+[Panel sheet]
+enter = fade 0.25 quadOut | slide 0 -40 0.3 backOut
+exit = fade 0.15
 ```
+
+A spec is one or more CLAUSES separated by `|`, each `family [numbers] [ease]`:
+
+| Clause | Channel it drives |
+|---|---|
+| `fade [duration] [ease]` | opacity 0 ↔ 1 |
+| `pop [duration] [ease]` | scale 0 ↔ 1 (springy `backOut` by default) |
+| `slide-up` / `-down` / `-left` / `-right` `[duration] [ease]` | a positional offset the widget's own extent wide |
+| `slide dx dy [duration] [ease]` | a positional offset of an EXPLICIT pixel vector |
+| `none` (or nothing) | snap |
+
+Clauses of different families COMPOSE, because each drives a different channel:
+`fade 0.25 | slide 0 -40` fades AND drops in at once, and each clause carries its
+own duration and easing curve (any name `EaseLibrary` knows — `quadOut`,
+`backOut`, `bounceOut`, …; an unknown name warns once and takes the direction's
+default). Two clauses on the same channel are last-wins. The whole transition
+lasts as long as its longest channel. Case is free and `_` reads like `-`
+(`slide_up` == `slide-up`). A malformed clause is one warning and a spec without
+it — never a screen that fails to build.
+
+`transition` seeds BOTH directions (the exit plays the same clauses reversed:
+fade out, slide back out the way it came, pop down); `enter` and `exit` override
+one direction each. A `hide` ends the widget at effective-invisible so it stops
+drawing AND hit-testing.
+
+Transitions play from four places, all through the one seam
+(`GuiManager::playWidgetTransition`):
+
+* `guitween.show(id)` / `guitween.hide(id)` from Lua,
+* the [screen router](#screen-flow-the-screens-router) on every push/pop,
+* a **tab bar** revealing a panel that declares one (it animates in instead of
+  snapping to full alpha; the first apply as a screen opens always snaps, so an
+  unselected panel never fades itself out on the way in),
+* **`loadLayout`**: a widget that declares an `enter` animates itself in as the
+  screen is built, once. Anything the build parked invisible (a widget inside an
+  unselected tab panel) is skipped — it enters when its tab reveals it.
 
 ```lua
-panel:setTransition("pop 0.25")
-guitween.show("menu")    -- plays the enter transition (fade in / slide in / pop up)
-guitween.hide("menu")    -- plays the exit (reverse) THEN parks the widget hidden
+panel:setTransition("pop 0.25")          -- both directions
+sheet:setEnterTransition("fade 0.25 quadOut | slide 0 -40")
+sheet:setExitTransition("fade 0.15")
+guitween.show("menu")    -- plays the enter transition
+guitween.hide("menu")    -- plays the exit THEN parks the widget hidden
 ```
 
-The exit reverses the enter (fade out, slide back out the way it came, pop
-down); a `hide` ends the widget at effective-invisible so it stops drawing AND
-hit-testing. A widget with `transition = none` (or unset) snaps.
+A slide moves the widget away from its rest position and tweens back, so the
+rest position is REMEMBERED while the transition runs: replaying a transition
+mid-flight (a screen re-revealed while it is still animating) returns to the same
+rest instead of drifting one offset further each time.
+
+Everything rides the existing tween system — `TweenManager` + `EaseLibrary`
+driving the widget's group alpha, render scale and layout position — so a
+transition composes with the layout resolver and with the cascading alpha rather
+than fighting them, and it is **player-ticked**: the editor never ticks tweens,
+so in edit mode (and in the GUI Preview) a transition SNAPS to its end state
+instead of animating. The pure parse/plan is `core_util/UiTransition`
+(`GuiAnimationTests`); `projects/gallery` authors both an `enter` on its title
+and a composed one on its Overlays panel, asserted mid-flight and at exact rest
+by `player_gallery_selfcheck`.
 
 ### Button press feedback
 
@@ -739,8 +797,8 @@ size 34
 is opaque). A widget that never sets one keeps its inherited default look, so an
 unstyled screen is unchanged. The colour flows into the batched per-vertex
 colour the renderer already carries — no extra draw. On a `textbox` it is the
-colour a run STARTS in: the `%0`–`%9` markup codes still switch per run and `%R`
-resets to it. A disabled widget still owns its own opacity (it dims to
+colour a run STARTS in — a `[c=..]` span switches per run and closing it
+returns to this colour (see [Inline rich text](#inline-rich-text-styled-runs)). A disabled widget still owns its own opacity (it dims to
 `DISABLED_ALPHA`), so styling a disabled control does not brighten it.
 
 **`textScale`** multiplies the widget's glyph size, so ONE baked font serves
@@ -763,6 +821,88 @@ title:setTextColour(1, 0.82, 0.35, 1)
 title:setTextScale(2)
 print(title:getFontIndex(), title:getTextScale(), title:hasTextStyle())
 ```
+
+### Inline rich text (styled runs)
+
+A caption normally draws in ONE font and ONE colour. `markup = true` reads the
+text as inline rich text instead: colour spans, font spans and inline atlas
+icons inside the one widget, for dialogue emphasis and HUD strings like
+`+50 <icon>`.
+
+```
+[Label reward]
+markup = true
+text = [c=FFCC33]+50[/c] points [sprite=coin]
+wrap = true
+```
+
+The grammar is small, and every part of it is escapable:
+
+| Form | Meaning |
+|---|---|
+| `[c=RRGGBB]` … `[/c]` | a colour span (8 digits = `RRGGBBAA`) |
+| `[f=NAME]` … `[/f]` | a font span: a font ROLE name (`heading`) or a `[Font.N]` index |
+| `[sprite=NAME]` | an inline atlas sprite (self-closing, one cell) |
+| `[[` | a literal `[` — the only escape the grammar needs |
+
+Spans nest per attribute: an inner `[c=..]` restores the outer colour at its
+`[/c]`, and colour and font are independent (closing one keeps the other). A
+span still open at the end of the text closes there. An inline sprite is tinted
+by the colour span around it, so `[c=FF8800][sprite=coin][/c]` works like text.
+
+`markup` is a text-style key like `font` / `textColor` / `textScale`: it is
+stored on the widget and reaches whatever caption it owns, so a button face, a
+checkbox label or a dropdown caption can carry runs too. It is **opt-in**, so
+every existing screen is unchanged: with markup on, a string carrying no tags
+measures and draws exactly as it did with markup off. A `textbox` is the
+styled-run widget by definition and always reads its text as rich text — which is why a literal `[` in a textbox needs the `[[`
+escape. Text ENTRY stays plain: markup is a display feature, so a field's text
+is what the player typed, never a parsed tag stream.
+
+Rich text composes with the rest of the text tier rather than sitting beside it:
+
+* **Wrapping** flows through the one line-breaker (`engine_gui/TextWrap`). A
+  line may break inside a run, between runs, or before an icon that no longer
+  fits, and each cell keeps its own colour and glyph across the break. An inline
+  sprite is ATOMIC — it moves whole to the next line.
+* **Measurement** excludes the tags (they are not glyphs), so a markup label
+  measures like the same sentence without them, and content-size-fit /
+  height-for-width behave as they do for plain text. Splitting a run costs the
+  kerning pair at each boundary (the first glyph of a run takes the font's
+  letter spacing instead) — a couple of pixels, not a glyph.
+* **A taller run raises the line** height for the whole block, so a `[f=heading]`
+  run inside body copy never overlaps the next line.
+* **`textScale`** multiplies every run AND every inline sprite, so a scaled
+  rich-text element stays internally consistent.
+* **Rendering** is the same batched per-vertex-colour quads over the same atlas
+  page fonts and sprites already share: no extra draw call, no second atlas.
+
+Malformed markup warns and stays readable — never a crash, never eaten text:
+
+| Input | Verdict |
+|---|---|
+| an unknown tag (`[b]`, `[colour=red]`) | drawn VERBATIM, one warning |
+| a bad colour (`[c=tomato]`, `[c=F80]`) | drawn verbatim, one warning |
+| a `[` with no `]` | the rest of the string is plain text, one warning |
+| a stray `[/c]` / `[/f]` | dropped, one warning |
+| a span left open | it ends with the text, one warning |
+| an unknown font or sprite NAME | the run draws in the default font / the icon is skipped, one warning |
+
+From Lua, and over MCP:
+
+```lua
+local reward = gui:findWidget("reward")
+reward:setTextMarkup(true)
+reward:setText("[c=FFCC33]+50[/c] points [sprite=coin]")
+print(reward:getTextMarkup())
+```
+
+`get_ui_layout`'s `styles` list carries the resolved `markup` flag beside the
+font/ink/scale fields, so an agent can assert that a rich-text screen really is
+reading its text as rich text. The pure parser is `engine_gui/TextMarkup`
+(`TextMarkupTests` covers the grammar and every verdict above; `WrapLayoutTests`
+covers the measurement), and `projects/gallery`'s Styles tab is the worked
+example, asserted by `player_gallery_selfcheck`.
 
 ### Named styles
 
@@ -1061,9 +1201,12 @@ panel has its own refresh).
   rebuild from the fresh file); a parse failure keeps the old screen and surfaces
   a `[remote]` error, a rebuild emits `ui.reloaded {file}`. See "Hot-reload
   during Play" above.
-- `get_ui_layout` — the running game's widgets: parallel `ids` / `rects` lists,
-  each rect a flat `left top width height visible enabled modal` string (pixels;
-  the three flags are `1`/`0`). Read `modal` to assert a dialog is up, `enabled`
+- `get_ui_layout` — the running game's widgets: parallel `ids` / `rects` /
+  `styles` lists. Each rect is a flat `left top width height visible enabled
+  modal` string (pixels; the three flags are `1`/`0`); each style a flat
+  `hasText font textScale colourSet r g b a markup` string — the RESOLVED text
+  style (a named style plus the widget's own keys), `markup` = the text is read
+  as inline rich text. Read `modal` to assert a dialog is up, `enabled`
   to assert a row is disabled.
 - `gui_press` — synthesize a press on a widget by id, routed through the REAL
   input path, so modal/disabled semantics apply (a button under a scrim does NOT
@@ -1131,9 +1274,34 @@ Or author it with the `.oui` `[ListView]` section (seed rows with `items`).
 Declare the transition and play it — see [Animation & juice](#animation--juice).
 
 ```lua
-panel:setTransition("slide-up 0.3")
+panel:setTransition("slide-up 0.3")            -- both directions
+sheet:setEnterTransition("fade 0.25 | slide 0 -40")   -- composed, show only
 guitween.show("panel")   -- slide in
 guitween.hide("panel")   -- slide back out, then park hidden
+```
+
+Or declaratively, played as the screen is built (and again whenever a tab bar
+reveals the panel):
+
+```
+[Panel sheet]
+enter = fade 0.25 quadOut | slide 0 -40 0.3 backOut
+```
+
+### Inline rich text
+
+One caption, several styled runs plus an icon — see
+[Inline rich text](#inline-rich-text-styled-runs).
+
+```
+[Label reward]
+markup = true
+text = [c=FFCC33]+50[/c] points [sprite=coin]
+```
+
+```lua
+reward:setTextMarkup(true)
+reward:setText("[c=FFCC33]+50[/c] points [sprite=coin]")
 ```
 
 ### Value-label binding

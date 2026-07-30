@@ -46,7 +46,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group, PreviewSurface const * previewSurface) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), inputEventsEnabled(false), inputExplicitlySet(false), scaleStats(false), focusedTextEntry(NULL), modalSavedFocus(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0), modalSerial(0), groupAlphaDirty(false), screenExiting(false), previewActive(false), previewWidth(0), previewHeight(0)
+	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group, PreviewSurface const * previewSurface) : factory(_factory), defaultAtlas(_defaultAtlas), cancelInputUpdate(false), inputEventsEnabled(false), inputExplicitlySet(false), scaleStats(false), focusedTextEntry(NULL), modalSavedFocus(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0), modalSerial(0), groupAlphaDirty(false), screenExiting(false), materializingScreen(false), previewActive(false), previewWidth(0), previewHeight(0)
 	{
 		oAssert(this->factory);
 		// the editor GUI Preview stage points this whole manager at an offscreen
@@ -452,10 +452,17 @@ namespace Orkige
 			this->statsValues.reset();
 		}
         this->scaleStats = scaleStats;
-		this->statsMarkupColorIndex = markupColorIndex;
 		this->stats = onew(new GuiTextbox("GuiManagerFrameStats", glyphIndex, "", pos, atlas, 15, false));
 		this->statsValues = onew(new GuiTextbox("GuiManagerFrameStatsValues", glyphIndex, "", pos, atlas, 15, false));
-		this->stats->setText("%"+Ogre::StringConverter::toString(this->statsMarkupColorIndex)+"FPS: \nAverage FPS: \nBest FPS: \nWorst FPS: \nTriangles: \nBatches: \nTextureMemory: ");
+		// the overlay ink is a COLOUR, not a prefix in the text: the styled-run
+		// element takes the atlas' markup colour as the colour its runs start in
+		if(UiAtlas const * atlas = this->getAtlas(this->defaultAtlas))
+		{
+			const Color ink = atlas->getMarkupColour(markupColorIndex);
+			this->stats->getMarkupText()->setDefaultColour(ink);
+			this->statsValues->getMarkupText()->setDefaultColour(ink);
+		}
+		this->stats->setText("FPS: \nAverage FPS: \nBest FPS: \nWorst FPS: \nTriangles: \nBatches: \nTextureMemory: ");
 
 		// don't scale font by resolution
         Vec2 scaleBackup = UiGlyph::scale;
@@ -490,7 +497,6 @@ namespace Orkige
 		{
 			RenderSystem::FrameStats stats = RenderSystem::get()->getFrameStats();
 			std::stringstream sstr;
-			sstr << "%" << this->statsMarkupColorIndex;
 			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.lastFPS	<< std::endl;
 			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.avgFPS	<< std::endl;
 			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.bestFPS	<< std::endl;
@@ -746,21 +752,20 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GuiManager::cancelWidgetTween(String const & widgetId, int channel)
 	{
-		std::map<String, std::map<int, TweenManager::TweenId> >::iterator it =
+		std::map<String, std::map<int, WidgetTween> >::iterator it =
 			this->widgetTweens.find(widgetId);
 		if(it == this->widgetTweens.end())
 		{
 			return;
 		}
-		std::map<int, TweenManager::TweenId>::iterator cit =
-			it->second.find(channel);
+		std::map<int, WidgetTween>::iterator cit = it->second.find(channel);
 		if(cit == it->second.end())
 		{
 			return;
 		}
 		if(TweenManager::getSingletonPtr())
 		{
-			TweenManager::getSingleton().cancelTween(cit->second);
+			TweenManager::getSingleton().cancelTween(cit->second.id);
 		}
 		it->second.erase(cit);
 		if(it->second.empty())
@@ -771,7 +776,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GuiManager::cancelWidgetTweens(String const & widgetId)
 	{
-		std::map<String, std::map<int, TweenManager::TweenId> >::iterator it =
+		std::map<String, std::map<int, WidgetTween> >::iterator it =
 			this->widgetTweens.find(widgetId);
 		if(it == this->widgetTweens.end())
 		{
@@ -779,10 +784,9 @@ namespace Orkige
 		}
 		if(TweenManager::getSingletonPtr())
 		{
-			for(std::map<int, TweenManager::TweenId>::value_type const & entry :
-				it->second)
+			for(std::map<int, WidgetTween>::value_type const & entry : it->second)
 			{
-				TweenManager::getSingleton().cancelTween(entry.second);
+				TweenManager::getSingleton().cancelTween(entry.second.id);
 			}
 		}
 		this->widgetTweens.erase(it);
@@ -832,8 +836,58 @@ namespace Orkige
 				return true;
 			},
 			onComplete, delay, StringUtil::BLANK);
-		this->widgetTweens[widgetId][channel] = id;
+		// the record replaces whatever cancelWidgetTween just erased, so any
+		// bookkeeping (a slide's remembered rest) starts clean with the new tween
+		WidgetTween record;
+		record.id = id;
+		this->widgetTweens[widgetId][channel] = record;
 		return id;
+	}
+	//---------------------------------------------------------
+	bool GuiManager::rememberedSlideRest(String const & widgetId,
+		float restOut[2]) const
+	{
+		std::map<String, std::map<int, WidgetTween> >::const_iterator it =
+			this->widgetTweens.find(widgetId);
+		if(it == this->widgetTweens.end())
+		{
+			return false;
+		}
+		std::map<int, WidgetTween>::const_iterator slide =
+			it->second.find(WTC_Position);
+		if(slide == it->second.end() || !slide->second.hasRest)
+		{
+			return false;
+		}
+		restOut[0] = slide->second.restX;
+		restOut[1] = slide->second.restY;
+		return true;
+	}
+	//---------------------------------------------------------
+	void GuiManager::revealWidgets(std::vector<String> const & ids,
+		bool declaredOnly)
+	{
+		foreach(String const & id, ids)
+		{
+			if(!this->widgetExists(id))
+			{
+				continue;
+			}
+			optr<GuiWidget> widget = this->getWidget(id).lock();
+			if(!widget)
+			{
+				continue;
+			}
+			if(declaredOnly && !widget->hasEnterTransition())
+			{
+				continue;	// nothing declared - leave the widget exactly as built
+			}
+			if(widget->getEffectiveAlpha() < GuiWidget::ALPHA_INPUT_THRESHOLD)
+			{
+				continue;	// parked hidden (an unselected tab panel) - not its moment
+			}
+			this->playWidgetTransition(id, true);
+		}
 	}
 	//---------------------------------------------------------
 	bool GuiManager::playWidgetTransition(String const & widgetId, bool entering)
@@ -847,7 +901,9 @@ namespace Orkige
 		{
 			return false;
 		}
-		const UiTransitionSpec spec = widget->getTransition();
+		// each direction has its own spec: the `.oui` `transition` shorthand seeds
+		// both (the exit reverses the enter), an explicit `exit` overrides one
+		const UiTransitionSpec spec = widget->getTransition(entering);
 		const Ogre::Vector2 size = widget->getSize();
 		const UiTransitionPlan plan = planTransition(spec, entering,
 			size.x > 0.0f ? size.x : 64.0f, size.y > 0.0f ? size.y : 64.0f);
@@ -868,7 +924,29 @@ namespace Orkige
 			return true;
 		}
 
-		Ease::Function ease = Ease::byName(plan.ease);
+		// every channel carries its OWN duration and curve, so a composed
+		// `fade 0.25 quadOut | slide 0 -40 0.4` really runs two timings. An easing
+		// name the tween library does not know degrades to the direction's default
+		// with one warn - never a silently linear transition nobody asked for.
+		Ease::Function const directionEase = entering
+			? &Ease::quadOut : &Ease::quadIn;
+		const String widgetLabel = widgetId;
+		auto resolveEase = [&](String const & name) -> Ease::Function
+		{
+			if(name.empty())
+			{
+				return directionEase;
+			}
+			Ease::Function fn = Ease::byName(name);
+			if(fn == 0)
+			{
+				oDebugWarning(false, "gui: widget '" << widgetLabel
+					<< "' transition names easing curve '" << name
+					<< "', which is not a known curve - using the default");
+				return directionEase;
+			}
+			return fn;
+		};
 		// a hide parks the widget at effective-invisible once the exit finishes so
 		// it stops drawing AND hit-testing (a slide/pop leaves alpha 1 otherwise)
 		TweenManager::CompleteFunction park;
@@ -898,31 +976,41 @@ namespace Orkige
 		{
 			widget->setGroupAlpha(plan.alphaFrom);
 			float to = plan.alphaTo;
-			this->tweenWidget(widgetId, WTC_Alpha, &to, plan.duration, ease, 0.0f,
-				park);
+			this->tweenWidget(widgetId, WTC_Alpha, &to, plan.alphaDuration,
+				resolveEase(plan.alphaEase), 0.0f, park);
 			parkAttached = true;
 		}
 		if(plan.animatesScale)
 		{
 			widget->setRenderScale(plan.scaleFrom, plan.scaleFrom);
 			float to[2] = { plan.scaleTo, plan.scaleTo };
-			this->tweenWidget(widgetId, WTC_Scale, to, plan.duration, ease, 0.0f,
+			this->tweenWidget(widgetId, WTC_Scale, to, plan.scaleDuration,
+				resolveEase(plan.scaleEase), 0.0f,
 				parkAttached ? TweenManager::CompleteFunction() : park);
 			parkAttached = true;
 		}
 		if(plan.animatesOffset)
 		{
-			// slide: read the rest position, jump to rest+awayOffset, tween back
-			float rest[2];
-			if(widget->isLayoutEnabled())
+			// slide: read the rest position, jump to rest+awayOffset, tween back.
+			// A slide already in flight sits AWAY from rest, so a re-play reads the
+			// rest REMEMBERED WITH THAT TWEEN instead of the live position -
+			// otherwise every replay would drift the widget one offset further
+			// (@see WidgetTween::hasRest). The record dies with the tween, so a
+			// cancel or a scripted move can never leave a stale rest behind.
+			float rest[2] = { 0.0f, 0.0f };
+			if(!this->rememberedSlideRest(widgetId, rest))
 			{
-				const LayoutVec2 ap = widget->getLayoutNode().anchoredPosition();
-				rest[0] = ap.x; rest[1] = ap.y;
-			}
-			else
-			{
-				const Ogre::Vector2 p = widget->getPosition();
-				rest[0] = p.x; rest[1] = p.y;
+				if(widget->isLayoutEnabled())
+				{
+					const LayoutVec2 ap =
+						widget->getLayoutNode().anchoredPosition();
+					rest[0] = ap.x; rest[1] = ap.y;
+				}
+				else
+				{
+					const Ogre::Vector2 p = widget->getPosition();
+					rest[0] = p.x; rest[1] = p.y;
+				}
 			}
 			const float startX = rest[0] + plan.offsetFromX;
 			const float startY = rest[1] + plan.offsetFromY;
@@ -935,9 +1023,20 @@ namespace Orkige
 				widget->setPosition(startX, startY);
 			}
 			float to[2] = { rest[0] + plan.offsetToX, rest[1] + plan.offsetToY };
-			this->tweenWidget(widgetId, WTC_Position, to, plan.duration, ease,
-				0.0f, parkAttached ? TweenManager::CompleteFunction() : park);
+			this->tweenWidget(widgetId, WTC_Position, to, plan.offsetDuration,
+				resolveEase(plan.offsetEase), 0.0f,
+				parkAttached ? TweenManager::CompleteFunction() : park);
 			parkAttached = true;
+			// remember the rest ON the tween that just replaced this channel's
+			// record, so a replay mid-flight returns to the same place
+			std::map<int, WidgetTween>::iterator started =
+				this->widgetTweens[widgetId].find(WTC_Position);
+			if(started != this->widgetTweens[widgetId].end())
+			{
+				started->second.hasRest = true;
+				started->second.restX = rest[0];
+				started->second.restY = rest[1];
+			}
 		}
 		return true;
 	}
@@ -1099,10 +1198,7 @@ namespace Orkige
 			if(target == this->materializedScreen)
 			{
 				this->screenExiting = false;
-				foreach(String const & id, this->screenWidgetIds)
-				{
-					this->playWidgetTransition(id, true);
-				}
+				this->revealWidgets(this->screenWidgetIds, false);
 				return;
 			}
 			if(this->anyScreenExitTweenActive())
@@ -1155,6 +1251,10 @@ namespace Orkige
 		{
 			before.insert(vt.first);
 		}
+		// the router owns the "this screen appeared" moment for the whole widget
+		// set it is about to diff out, so a `.oui` load inside it must not play the
+		// enter transitions itself (@see isMaterializingScreen)
+		this->materializingScreen = true;
 		if(def.builder)
 		{
 			def.builder();
@@ -1163,6 +1263,7 @@ namespace Orkige
 		{
 			this->factory->loadLayout(def.ouiPath);
 		}
+		this->materializingScreen = false;
 		this->screenWidgetIds.clear();
 		foreach(GuiWidgetMap::value_type const & vt, this->widgets)
 		{
@@ -1174,10 +1275,7 @@ namespace Orkige
 		this->materializedScreen = name;
 		// a fresh screen opts into back handling anew; a stale hook must not linger
 		this->screenBackInterceptor = ScreenBackInterceptor();
-		foreach(String const & id, this->screenWidgetIds)
-		{
-			this->playWidgetTransition(id, true);
-		}
+		this->revealWidgets(this->screenWidgetIds, false);
 	}
 	//---------------------------------------------------------
 	void GuiManager::beginScreenExit()
@@ -1218,16 +1316,15 @@ namespace Orkige
 		}
 		foreach(String const & id, this->screenWidgetIds)
 		{
-			std::map<String, std::map<int, TweenManager::TweenId> >::const_iterator
-				it = this->widgetTweens.find(id);
+			std::map<String, std::map<int, WidgetTween> >::const_iterator it =
+				this->widgetTweens.find(id);
 			if(it == this->widgetTweens.end())
 			{
 				continue;
 			}
-			for(std::map<int, TweenManager::TweenId>::value_type const & entry :
-				it->second)
+			for(std::map<int, WidgetTween>::value_type const & entry : it->second)
 			{
-				if(manager->isTweenActive(entry.second))
+				if(manager->isTweenActive(entry.second.id))
 				{
 					return true;
 				}
@@ -1724,6 +1821,7 @@ namespace Orkige
 			layout.textG = ink.g;
 			layout.textB = ink.b;
 			layout.textA = ink.a;
+			layout.markup = widget->hasTextMarkup();
 			layouts.push_back(layout);
 		}
 		return layouts;

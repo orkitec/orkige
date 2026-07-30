@@ -10,8 +10,9 @@
 #define __TextWrap_h__26_7_2026__10_00_00__
 
 //! @file TextWrap.h
-//! @brief the PURE greedy line-breaker shared by the wrap-to-width text
-//! widgets (a label's UiCaption and a textbox's UiMarkupText). The caller
+//! @brief the PURE greedy line-breaker shared by every text element (a
+//! label's UiCaption, a textbox's UiMarkupText and the styled runs of inline
+//! rich text - @see TextMarkup.h). The caller
 //! turns its glyph/sprite/space stream into a flat list of WrapCells (plain
 //! floats + flags, no font or renderer types) and this decides where the
 //! lines break to fit a pixel width; the caller reads the per-cell line index

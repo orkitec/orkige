@@ -58,6 +58,7 @@ namespace Orkige
 		void setWrap(bool wrap);
 		//! @brief is wrap-to-width on?
 		bool getWrap() const;
+
 		//! @brief set the text opacity 0..1 (keeps the current colour); used to
 		//! dim a label when its owning widget is disabled
 		void setAlpha(float alpha);

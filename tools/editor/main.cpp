@@ -1883,6 +1883,7 @@ int main(int argc, char** argv)
 			double scale = 1.0;
 			bool colourSet = false;
 			double r = 1.0, g = 1.0, b = 1.0;
+			bool markup = false;	//!< the text is read as inline rich text
 		};
 		auto uiProbeStyle = [&playSession]() -> UiProbeStyle
 		{
@@ -1899,6 +1900,7 @@ int main(int argc, char** argv)
 					style.r = w.textR;
 					style.g = w.textG;
 					style.b = w.textB;
+					style.markup = w.markup;
 					break;
 				}
 			}
@@ -1915,11 +1917,15 @@ int main(int argc, char** argv)
 		// font / colour / size from the bundle, with one key overridden locally
 		auto uiStyledOui = [](int x) -> std::string
 		{
+			// the label also becomes RICH TEXT here (`markup = true` plus a colour
+			// span in its own text), so one reload proves a styling edit AND a
+			// markup edit reach the running screen
 			return "[Layout]\natlas = gui_default\n\n"
 				"[Style big]\nfont = body\ntextColor = 1 0 0 1\n"
 				"textScale = 3\n\n"
 				"[Label probe]\nstyle = big\ntextColor = 0 1 0 1\n"
-				"text = HUD\nposition = " + std::to_string(x) + " 100\n";
+				"markup = true\ntext = [c=FF00FF]HUD[/c]\nposition = " +
+				std::to_string(x) + " 100\n";
 		};
 		// does the Console hold a "[remote]" error line about reload_ui?
 		auto consoleHasReloadUiErrorLine = [&console]()
@@ -14906,7 +14912,7 @@ int main(int argc, char** argv)
 					// and the colour the widget overrode it with
 					const UiProbeStyle style = uiProbeStyle();
 					const float left = uiProbeLeft();
-					if (style.found && style.colourSet &&
+					if (style.found && style.colourSet && style.markup &&
 						std::abs(style.scale - 3.0) < 0.01)
 					{
 						if (!(std::abs(style.r - 0.0) < 0.01 &&
@@ -14938,8 +14944,9 @@ int main(int argc, char** argv)
 							uiHotreloadDeadline =
 								uiNow + std::chrono::seconds(90);
 							SDL_Log("orkige_editor: ui hot-reload playtest - "
-								"the style edit reloaded live (scale %.1f, local "
-								"colour won), now breaking the .oui",
+								"the style + markup edit reloaded live (scale "
+								"%.1f, local colour won, the label now reads its "
+								"text as rich text), now breaking the .oui",
 								style.scale);
 						}
 					}
@@ -15004,11 +15011,12 @@ int main(int argc, char** argv)
 						{
 							SDL_Log("orkige_editor: ui hot-reload playtest "
 								"PASSED: watcher -> reload_ui -> live rebuild "
-								"(label moved), a NAMED STYLE edit reloaded the "
-								"same way (font/colour/scale resolved live, the "
-								"widget's own key overrode the bundle), broken "
-								".oui contained ([remote] error, play continued, "
-								"old screen kept), clean Stop");
+								"(label moved), a NAMED STYLE + MARKUP edit "
+								"reloaded the same way (font/colour/scale resolved "
+								"live, the widget's own key overrode the bundle, "
+								"and the label now reads its text as rich text), "
+								"broken .oui contained ([remote] error, play "
+								"continued, old screen kept), clean Stop");
 							std::error_code ignored;
 							std::filesystem::remove_all(uiHotreloadTempRoot,
 								ignored);

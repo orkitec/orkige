@@ -226,6 +226,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gui/WorldTextLayout.cpp
     engine_gui/TextWrap.h
     engine_gui/TextWrap.cpp
+    engine_gui/TextMarkup.h
+    engine_gui/TextMarkup.cpp
     engine_gui/UiRenderer.h
     engine_gui/UiRenderer.cpp
     engine_gui/IGuiObject.h

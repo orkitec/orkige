@@ -7,7 +7,9 @@
 --   * the 1000-row virtualized list (a thousand rows are data, not layout),
 --   * the overlay triggers (modal / confirm dialog / toast) and the dialog
 --     answer readback,
---   * the slider -> progress-bar mirror, so one control visibly drives another.
+--   * the slider -> progress-bar mirror, so one control visibly drives another,
+--   * one scripted widget tween (guitween) run as a ROUND TRIP, to show a Lua
+--     animation returning a widget to its exact rest value.
 --
 -- Everything a test wants to observe is published into `shared.gallery`, the
 -- same outside-observer contract the other project self-checks use.
@@ -16,6 +18,12 @@ local widgets = {}
 local dialogId = nil
 
 local LIST_ROWS = 1000
+
+-- the scripted-tween round trip: fade the rich-text label down, then back to
+-- exactly 1. `guitween.*` rides the same TweenManager the game tweens ride, and
+-- each helper hands back a handle to poll (:isActive) - the completion idiom.
+local tween = { phase = "idle", handle = nil }
+local TWEEN_DIP = 0.35
 
 local function publish(key, value)
 	shared.gallery = shared.gallery or {}
@@ -46,6 +54,7 @@ function init(self)
 	widgets.volume = find("volume")
 	widgets.loading = find("loading")
 	widgets.result = find("overlayResult")
+	widgets.rich = find("richText")
 	widgets.modalButton = find("showModalButton")
 	widgets.confirmButton = find("showConfirmButton")
 	widgets.toastButton = find("showToastButton")
@@ -62,10 +71,39 @@ function init(self)
 	publish("ready", true)
 end
 
+-- one guitween round trip: alpha 1 -> TWEEN_DIP -> 1, each leg polled through
+-- its handle. Publishes what an observer can check: that the dip was reached
+-- and that the return landed on the exact rest value.
+local function driveTweenRoundTrip()
+	if widgets.rich == nil then
+		return
+	end
+	if tween.phase == "idle" then
+		tween.handle = guitween.alpha("richText", TWEEN_DIP, 0.15)
+		tween.phase = "dipping"
+		publish("tweenStarted", true)
+	elseif tween.phase == "dipping" then
+		publish("tweenActive", tween.handle ~= nil and tween.handle:isActive())
+		if tween.handle == nil or not tween.handle:isActive() then
+			publish("tweenDipAlpha", widgets.rich:getGroupAlpha())
+			tween.handle = guitween.alpha("richText", 1.0, 0.15)
+			tween.phase = "returning"
+		end
+	elseif tween.phase == "returning" then
+		if tween.handle == nil or not tween.handle:isActive() then
+			publish("tweenRestAlpha", widgets.rich:getGroupAlpha())
+			publish("tweenRoundTrip", true)
+			tween.phase = "done"
+		end
+	end
+end
+
 function update(self, dt)
 	if gui == nil then
 		return
 	end
+
+	driveTweenRoundTrip()
 
 	-- which section is showing (the tab bar owns the panel visibility)
 	if widgets.tabs ~= nil then

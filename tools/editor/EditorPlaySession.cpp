@@ -2384,7 +2384,8 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 				}
 				widget.visible = visible != 0;
 				// the parallel style list (additive): "hasText font textScale
-				// colourSet r g b a". Absent -> the untouched defaults.
+				// colourSet r g b a markup". Absent -> the untouched defaults, and
+				// a trailing field an older runtime does not send stays default.
 				if (i < styles.size())
 				{
 					std::istringstream styleStream(styles[i]);
@@ -2396,6 +2397,11 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 					{
 						widget.hasText = hasText != 0;
 						widget.textColourSet = colourSet != 0;
+						int markup = 0;
+						if (styleStream >> markup)
+						{
+							widget.markup = markup != 0;
+						}
 					}
 				}
 				session.remoteUiLayout.push_back(widget);

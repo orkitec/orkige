@@ -206,6 +206,16 @@ namespace Orkige
 						<< "' textScale - " << error);
 				}
 			}
+			// inline RICH TEXT: `[c=RRGGBB]` / `[f=heading]` spans and
+			// `[sprite=name]` icons inside the widget's caption (@see
+			// TextMarkup.h). A text-style key like the three above, so it reaches
+			// every text-bearing kind through the one forwarding path; a textbox
+			// always reads its text as markup, and the default keeps every
+			// existing caption byte-identical.
+			if(String const * v = s.find("markup"))
+			{
+				widget->setTextMarkup(parseBool(*v, false));
+			}
 		}
 		//! apply the shared rect-anchor / group / content-fit / draw-mode keys
 		//! to an already-created widget (the .oui pass-2 layout application)
@@ -217,9 +227,22 @@ namespace Orkige
 			}
 			if(String const * v = s.find("transition"))
 			{
-				// enter/exit animation: "fade 0.2", "slide-up 0.3", "pop", "none"
-				// - played by guitween.show(id) / guitween.hide(id)
+				// BOTH directions from one string ("fade 0.2", "slide-up 0.3",
+				// "pop", "fade 0.25 quadOut | slide 0 -40", "none"): the exit plays
+				// the same clauses reversed. Played by guitween.show(id) /
+				// guitween.hide(id), by a revealed tab panel, and - for `enter` -
+				// once when this screen is built.
 				widget->setTransition(*v);
+			}
+			// the per-direction keys override the shorthand, so a widget may drop
+			// in from above and fade out on the way back
+			if(String const * v = s.find("enter"))
+			{
+				widget->setEnterTransition(*v);
+			}
+			if(String const * v = s.find("exit"))
+			{
+				widget->setExitTransition(*v);
 			}
 			if(String const * v = s.find("parent"))
 			{
@@ -359,6 +382,13 @@ namespace Orkige
 				if(String const * v = s.find("tiled"))
 				{
 					button->setTiled(parseBool(*v, false));
+				}
+				// press juice: the face snaps smaller on press and springs back
+				// (@see GuiButton::setPressFeedback) - opt-in, so a screen that
+				// says nothing keeps the static face
+				if(String const * v = s.find("pressFeedback"))
+				{
+					button->setPressFeedback(parseBool(*v, false));
 				}
 			}
 			else if(GuiTextEntry* entry = dynamic_cast<GuiTextEntry*>(widget))
@@ -1041,6 +1071,21 @@ namespace Orkige
 		}
 
 		manager.reorderViews();
+
+		// enter transitions: a widget that declares one animates itself into view
+		// as this screen appears (the `enter` / `transition` key), through the ONE
+		// reveal verb the screen router and the tab bar use. Runs LAST, after the
+		// tab-bar pass, so a widget the build parked invisible is skipped there.
+		// TWO builds deliberately do NOT animate: a HOT RELOAD (the file changed -
+		// that is not the screen appearing, and re-animating the whole screen on
+		// every save would fight the iteration it exists for), and a build the
+		// screen router is driving (it reveals its own diffed widget set a moment
+		// later, so playing here would only restart every transition).
+		if(!isReload && !manager.isMaterializingScreen())
+		{
+			manager.revealWidgets(tracked.widgetIds, true);
+		}
+
 		// remember what this source produced so a hot-reload can tear exactly
 		// this screen down and rebuild it (clean cutover)
 		this->loadedLayouts[filename] = tracked;

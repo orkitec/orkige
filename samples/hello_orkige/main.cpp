@@ -2783,11 +2783,11 @@ int main(int, char**)
 						}
 					}
 
-					// a markup textbox wraps its coloured runs across lines
+					// a rich-text box wraps its styled runs across lines
 					Orkige::woptr<Orkige::GuiTextbox> boxWeak =
 						factory->createTextbox("wrapBox", 9,
-							"%1important%R body text that is quite long and must "
-							"flow onto several wrapped lines inside the box",
+							"[c=FF6666]important[/c] body text that is quite long "
+							"and must flow onto several wrapped lines inside the box",
 							Orkige::Vec2(40, 460), "", 7, true);
 					if (Orkige::optr<Orkige::GuiTextbox> box = boxWeak.lock())
 					{

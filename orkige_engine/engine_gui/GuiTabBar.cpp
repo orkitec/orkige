@@ -72,7 +72,10 @@ namespace Orkige
 		{
 			return;		// steady - nothing to do
 		}
-		this->applyVisibility(selected);
+		// the FIRST apply snaps: a screen must not open by fading its unselected
+		// panels out (their own `enter` transitions belong to the reveal, and a
+		// panel still at full alpha would be taken for a visible one)
+		this->applyVisibility(selected, this->applied != -2);
 		if(this->applied != -2)
 		{
 			this->changed = true;	// a real change (not the first apply)
@@ -80,8 +83,9 @@ namespace Orkige
 		this->applied = selected;
 	}
 	//---------------------------------------------------------
-	void GuiTabBar::applyVisibility(int selected)
+	void GuiTabBar::applyVisibility(int selected, bool animate)
 	{
+		GuiManager & manager = GuiManager::getSingleton();
 		for(std::size_t i = 0; i < this->panels.size(); ++i)
 		{
 			optr<GuiWidget> panel = this->panels[i].lock();
@@ -89,9 +93,19 @@ namespace Orkige
 			{
 				continue;
 			}
+			const bool show = static_cast<int>(i) == selected;
+			// a panel that declares a transition ANIMATES between hidden and shown
+			// through the one transition seam (which drives the same group alpha,
+			// plus a slide/pop when the spec asks for one); everything else keeps
+			// the instant cascade.
 			// group-alpha 0 hides the panel and makes its whole subtree input-inert
 			// (the cascade the modal show/hide relies on); 1 shows the selected one
-			panel->setGroupAlpha(static_cast<int>(i) == selected ? 1.0f : 0.0f);
+			if(animate && !panel->getTransition(show).isNone())
+			{
+				manager.playWidgetTransition(panel->getObjectID(), show);
+				continue;
+			}
+			panel->setGroupAlpha(show ? 1.0f : 0.0f);
 		}
 	}
 }

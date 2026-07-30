@@ -33,7 +33,7 @@ namespace Orkige
 	const float GuiWidget::DISABLED_ALPHA = 0.5f;
 	const float GuiWidget::ALPHA_INPUT_THRESHOLD = 0.05f;
 	//---------------------------------------------------------
-	GuiWidget::GuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id), visible(true), enabled(true), interactive(false), layoutEnabled(false), layoutUseSafeArea(false), renderScaleX(1.0f), renderScaleY(1.0f), renderRotationDeg(0.0f), groupAlpha(1.0f), alphaBlocksInput(true), styleFontIndex(0), styleTextColour(1.0f, 1.0f, 1.0f, 1.0f), styleTextColourSet(false), styleTextScale(1.0f)
+	GuiWidget::GuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id), visible(true), enabled(true), interactive(false), layoutEnabled(false), layoutUseSafeArea(false), renderScaleX(1.0f), renderScaleY(1.0f), renderRotationDeg(0.0f), groupAlpha(1.0f), alphaBlocksInput(true), styleFontIndex(0), styleTextColour(1.0f, 1.0f, 1.0f, 1.0f), styleTextColourSet(false), styleTextScale(1.0f), styleMarkup(false)
 	{
 		// the creation ordinal a layout group arranges its children by (@see
 		// GuiWidget::creationOrder). Widgets are created on the main thread only,
@@ -108,6 +108,19 @@ namespace Orkige
 		GuiManager::getSingleton().markLayoutDirty();
 	}
 	//---------------------------------------------------------
+	void GuiWidget::setTextMarkup(bool enable)
+	{
+		if(this->styleMarkup == enable)
+		{
+			return;
+		}
+		this->styleMarkup = enable;
+		this->onTextStyleChanged();
+		// the tags stop being glyphs (and a styled run may be taller), so the
+		// measured content changes - the same relayout a scale change wants
+		GuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
 	void GuiWidget::forwardTextStyle(optr<GuiWidget> const & captionWidget)
 	{
 		if(!captionWidget)
@@ -116,6 +129,7 @@ namespace Orkige
 		}
 		captionWidget->setFontIndex(this->styleFontIndex);
 		captionWidget->setTextScale(this->styleTextScale);
+		captionWidget->setTextMarkup(this->styleMarkup);
 		if(this->styleTextColourSet)
 		{
 			captionWidget->setTextColour(this->styleTextColour.r, this->styleTextColour.g,
@@ -209,7 +223,35 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GuiWidget::setTransition(String const & spec)
 	{
-		this->transition = parseTransition(spec);
+		// the both-directions shorthand: the same clauses play on show and on
+		// hide, the hide reversed (@see planTransition)
+		this->transition = this->parseTransitionSpec(spec, "transition");
+		this->exitTransition = this->transition;
+	}
+	//---------------------------------------------------------
+	void GuiWidget::setEnterTransition(String const & spec)
+	{
+		this->transition = this->parseTransitionSpec(spec, "enter");
+	}
+	//---------------------------------------------------------
+	void GuiWidget::setExitTransition(String const & spec)
+	{
+		this->exitTransition = this->parseTransitionSpec(spec, "exit");
+	}
+	//---------------------------------------------------------
+	UiTransitionSpec GuiWidget::parseTransitionSpec(String const & spec,
+		char const * key)
+	{
+		// a malformed clause is ONE warn and a spec without it - a bad transition
+		// string never costs a screen its widget
+		std::vector<String> diagnostics;
+		UiTransitionSpec parsed = parseTransition(spec, &diagnostics);
+		for(String const & why : diagnostics)
+		{
+			oDebugWarning(false, "gui: widget '" << this->getObjectID() << "' "
+				<< key << " - " << why);
+		}
+		return parsed;
 	}
 	//---------------------------------------------------------
 	bool GuiWidget::acceptsInput() const
@@ -536,6 +578,8 @@ namespace Orkige
 		OFUNC(getEffectiveAlpha)
 		OFUNC(setAlphaBlocksInput)
 		OFUNC(setTransition)
+		OFUNC(setEnterTransition)
+		OFUNC(setExitTransition)
 		// text style: the font the caption draws with (an atlas `[Font.N]`
 		// index), an explicit caption colour and a glyph size multiplier. The
 		// `.oui` `font` / `textColor` / `textScale` keys - and a named style
@@ -545,6 +589,8 @@ namespace Orkige
 		OFUNC(setTextColour)
 		OFUNC(setTextScale)
 		OFUNC(getTextScale)
+		OFUNC(setTextMarkup)
+		OFUNC(getTextMarkup)
 		OFUNC(hasTextStyle)
 	OOBJECT_END
 }

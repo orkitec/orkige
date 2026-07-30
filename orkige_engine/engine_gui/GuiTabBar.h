@@ -66,8 +66,11 @@ namespace Orkige
 		String const & getId() const { return this->id; }
 
 	private:
-		//! show panel @p selected, hide the rest (group-alpha 1/0, cascaded)
-		void applyVisibility(int selected);
+		//! @brief show panel @p selected, hide the rest (group-alpha 1/0, cascaded).
+		//! @param animate let a panel that declares an `enter`/`exit` transition
+		//! play it instead of snapping (false for the first apply, which must not
+		//! animate a screen's unselected panels out as it opens)
+		void applyVisibility(int selected, bool animate);
 
 		String								id;
 		woptr<GuiToggleGroup>				group;

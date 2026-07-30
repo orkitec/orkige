@@ -20,6 +20,7 @@
 #include "core_util/UiTransition.h"
 
 #include <cmath>
+#include <vector>
 
 using namespace Orkige;
 using Catch::Matchers::WithinAbs;
@@ -192,20 +193,91 @@ TEST_CASE("ScrollMomentum: content that fits pins to the upper bound",
 TEST_CASE("UiTransition: parse resolves families, separators and durations",
 	"[unit][gui][animation][transition]")
 {
-	CHECK(parseTransition("fade 0.2").type == UTT_Fade);
-	CHECK_THAT(parseTransition("fade 0.2").duration, WithinAbs(0.2f, 1e-5f));
+	const UiTransitionSpec fade = parseTransition("fade 0.2");
+	REQUIRE(fade.clauses.size() == 1);
+	CHECK(fade.primaryType() == UTT_Fade);
+	CHECK_THAT(fade.totalDuration(), WithinAbs(0.2f, 1e-5f));
 
 	// a missing duration uses the default; case and separator are flexible
-	CHECK(parseTransition("POP").type == UTT_Pop);
-	CHECK_THAT(parseTransition("POP").duration,
+	CHECK(parseTransition("POP").primaryType() == UTT_Pop);
+	CHECK_THAT(parseTransition("POP").totalDuration(),
 		WithinAbs(UI_TRANSITION_DEFAULT_DURATION, 1e-5f));
-	CHECK(parseTransition("slide_up 0.3").type == UTT_SlideUp);
-	CHECK(parseTransition("slide-left").type == UTT_SlideLeft);
+	CHECK(parseTransition("slide_up 0.3").primaryType() == UTT_SlideUp);
+	CHECK(parseTransition("slide-left").primaryType() == UTT_SlideLeft);
 
 	// empty / unknown / explicit none -> no transition
-	CHECK(parseTransition("").type == UTT_None);
-	CHECK(parseTransition("wobble 2").type == UTT_None);
-	CHECK(parseTransition("none").type == UTT_None);
+	CHECK(parseTransition("").isNone());
+	CHECK(parseTransition("wobble 2").isNone());
+	CHECK(parseTransition("none").isNone());
+}
+
+TEST_CASE("UiTransition: clauses separated by '|' compose into one spec",
+	"[unit][gui][animation][transition]")
+{
+	// the composed form: a fade AND a slide, each with its own duration/curve
+	std::vector<Orkige::String> diagnostics;
+	const UiTransitionSpec spec =
+		parseTransition("fade 0.25 quadOut | slide 0 -40 0.4 backOut",
+			&diagnostics);
+	REQUIRE(spec.clauses.size() == 2);
+	CHECK(diagnostics.empty());
+	CHECK(spec.clauses[0].type == UTT_Fade);
+	CHECK_THAT(spec.clauses[0].duration, WithinAbs(0.25f, 1e-5f));
+	CHECK(spec.clauses[0].ease == Orkige::String("quadOut"));
+	CHECK(spec.clauses[1].type == UTT_Slide);
+	CHECK_THAT(spec.clauses[1].offsetX, WithinAbs(0.0f, 1e-5f));
+	CHECK_THAT(spec.clauses[1].offsetY, WithinAbs(-40.0f, 1e-5f));
+	CHECK_THAT(spec.clauses[1].duration, WithinAbs(0.4f, 1e-5f));
+	CHECK(spec.clauses[1].ease == Orkige::String("backOut"));
+
+	// the FIRST clause is the single-family readback; the whole thing lasts as
+	// long as its longest channel
+	CHECK(spec.primaryType() == UTT_Fade);
+	CHECK_THAT(spec.totalDuration(), WithinAbs(0.4f, 1e-5f));
+
+	// an ease may be named without a duration (the family default duration then)
+	const UiTransitionSpec eased = parseTransition("fade bounceOut");
+	REQUIRE(eased.clauses.size() == 1);
+	CHECK(eased.clauses[0].ease == Orkige::String("bounceOut"));
+	CHECK_THAT(eased.clauses[0].duration,
+		WithinAbs(UI_TRANSITION_DEFAULT_DURATION, 1e-5f));
+}
+
+TEST_CASE("UiTransition: a malformed clause is dropped with a diagnostic, and "
+	"the rest of the spec still plays",
+	"[unit][gui][animation][transition]")
+{
+	// an unknown family: reported, dropped, the sibling clause survives
+	std::vector<Orkige::String> diagnostics;
+	const UiTransitionSpec spec =
+		parseTransition("wobble 2 | fade 0.3", &diagnostics);
+	REQUIRE(spec.clauses.size() == 1);
+	CHECK(spec.clauses[0].type == UTT_Fade);
+	REQUIRE(diagnostics.size() == 1);
+	CHECK(diagnostics[0].find("wobble") != Orkige::String::npos);
+
+	// an explicit `slide` without its two numbers is refused (the directional
+	// families are the widget-sized travel; this one carries its own vector)
+	diagnostics.clear();
+	const UiTransitionSpec noVector = parseTransition("slide 12", &diagnostics);
+	CHECK(noVector.isNone());
+	REQUIRE(diagnostics.size() == 1);
+	CHECK(diagnostics[0].find("slide") != Orkige::String::npos);
+
+	// two easing names in one clause is a refusal, not a coin flip
+	diagnostics.clear();
+	CHECK(parseTransition("fade quadOut bounceIn", &diagnostics).isNone());
+	CHECK(diagnostics.size() == 1);
+
+	// a trailing separator is silently no clause (an authoring habit, not an error)
+	diagnostics.clear();
+	const UiTransitionSpec trailing = parseTransition("fade 0.2 |", &diagnostics);
+	CHECK(trailing.clauses.size() == 1);
+	CHECK(diagnostics.empty());
+
+	// a negative duration is legal but clamped to instant, never negative time
+	CHECK_THAT(parseTransition("fade -1").totalDuration(),
+		WithinAbs(0.0f, 1e-5f));
 }
 
 TEST_CASE("UiTransition: an enter plan animates away->rest, exit reverses it",
@@ -217,7 +289,7 @@ TEST_CASE("UiTransition: an enter plan animates away->rest, exit reverses it",
 	CHECK(enter.animatesAlpha);
 	CHECK_THAT(enter.alphaFrom, WithinAbs(0.0f, 1e-5f));	// invisible -> visible
 	CHECK_THAT(enter.alphaTo, WithinAbs(1.0f, 1e-5f));
-	CHECK_THAT(enter.duration, WithinAbs(0.25f, 1e-5f));
+	CHECK_THAT(enter.duration(), WithinAbs(0.25f, 1e-5f));
 
 	const UiTransitionPlan exit = planTransition(fade, false, 0.0f, 0.0f);
 	CHECK_THAT(exit.alphaFrom, WithinAbs(1.0f, 1e-5f));	// visible -> invisible
@@ -248,5 +320,62 @@ TEST_CASE("UiTransition: pop scales up from zero with an overshoot ease",
 	CHECK(enter.animatesScale);
 	CHECK_THAT(enter.scaleFrom, WithinAbs(0.0f, 1e-5f));
 	CHECK_THAT(enter.scaleTo, WithinAbs(1.0f, 1e-5f));
-	CHECK(enter.ease == String("backOut"));	// the springy overshoot
+	CHECK(enter.ease() == String("backOut"));	// the springy overshoot
+	CHECK(enter.scaleEase == String("backOut"));
+}
+
+TEST_CASE("UiTransition: a composed plan drives every channel with its own "
+	"duration and curve",
+	"[unit][gui][animation][transition]")
+{
+	const UiTransitionSpec spec =
+		parseTransition("fade 0.25 quadOut | slide 0 -40 0.4 | pop 0.1");
+	const UiTransitionPlan enter = planTransition(spec, true, 100.0f, 64.0f);
+
+	// three channels, three timings - the whole point of composing
+	REQUIRE(enter.animatesAlpha);
+	REQUIRE(enter.animatesOffset);
+	REQUIRE(enter.animatesScale);
+	CHECK_THAT(enter.alphaDuration, WithinAbs(0.25f, 1e-5f));
+	CHECK_THAT(enter.offsetDuration, WithinAbs(0.4f, 1e-5f));
+	CHECK_THAT(enter.scaleDuration, WithinAbs(0.1f, 1e-5f));
+	// an explicit curve wins; a clause that names none takes the DIRECTION's
+	// default (and a pop keeps its own springy one)
+	CHECK(enter.alphaEase == String("quadOut"));
+	CHECK(enter.offsetEase == String("quadOut"));
+	CHECK(enter.scaleEase == String("backOut"));
+	// the widget arrives from the AUTHORED offset, not the widget-sized travel
+	CHECK_THAT(enter.offsetFromY, WithinAbs(-40.0f, 1e-5f));
+	CHECK_THAT(enter.offsetToY, WithinAbs(0.0f, 1e-5f));
+	// the transition as a whole lasts as long as its longest channel
+	CHECK_THAT(enter.duration(), WithinAbs(0.4f, 1e-5f));
+
+	// the exit reverses EVERY channel and takes the exit-direction default curve
+	const UiTransitionPlan exit = planTransition(spec, false, 100.0f, 64.0f);
+	CHECK_THAT(exit.alphaFrom, WithinAbs(1.0f, 1e-5f));
+	CHECK_THAT(exit.alphaTo, WithinAbs(0.0f, 1e-5f));
+	CHECK_THAT(exit.offsetFromY, WithinAbs(0.0f, 1e-5f));
+	CHECK_THAT(exit.offsetToY, WithinAbs(-40.0f, 1e-5f));
+	CHECK_THAT(exit.scaleTo, WithinAbs(0.0f, 1e-5f));
+	CHECK(exit.alphaEase == String("quadOut"));	// explicit, so direction-blind
+	CHECK(exit.offsetEase == String("quadIn"));	// the exit default
+	CHECK(exit.scaleEase == String("backIn"));
+
+	// two clauses on the SAME channel are last-wins (one channel, one timeline)
+	const UiTransitionPlan doubled = planTransition(
+		parseTransition("fade 0.2 | fade 0.9 linear"), true, 0.0f, 0.0f);
+	CHECK_THAT(doubled.alphaDuration, WithinAbs(0.9f, 1e-5f));
+	CHECK(doubled.alphaEase == String("linear"));
+}
+
+TEST_CASE("UiTransition: a spec of nothing plans nothing (the snap path)",
+	"[unit][gui][animation][transition]")
+{
+	const UiTransitionPlan plan =
+		planTransition(parseTransition("none"), true, 100.0f, 64.0f);
+	CHECK_FALSE(plan.animatesAlpha);
+	CHECK_FALSE(plan.animatesScale);
+	CHECK_FALSE(plan.animatesOffset);
+	CHECK_THAT(plan.duration(), WithinAbs(0.0f, 1e-5f));
+	CHECK(plan.ease().empty());
 }

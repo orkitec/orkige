@@ -2670,8 +2670,9 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 			out = Orkige::Vec2(pos.x + size.x * 0.5f, pos.y + size.y * 0.5f);
 			return true;
 		};
-		// a full click on the real input path (press + release at one point)
-		auto clickAt = [&](Orkige::Vec2 const& at)
+		// the two halves of a click on their own, for a gesture that has to be
+		// HELD across frames (the press-juice probe reads the scale while down)
+		auto pressAt = [&](Orkige::Vec2 const& at)
 		{
 			SDL_Event press{};
 			press.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
@@ -2680,10 +2681,22 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 			press.button.x = at.x;
 			press.button.y = at.y;
 			inputManager.injectEvent(press);
-			SDL_Event release = press;
+		};
+		auto releaseAt = [&](Orkige::Vec2 const& at)
+		{
+			SDL_Event release{};
 			release.type = SDL_EVENT_MOUSE_BUTTON_UP;
+			release.button.button = SDL_BUTTON_LEFT;
 			release.button.down = false;
+			release.button.x = at.x;
+			release.button.y = at.y;
 			inputManager.injectEvent(release);
+		};
+		// a full click on the real input path is those two at one point
+		auto clickAt = [&](Orkige::Vec2 const& at)
+		{
+			pressAt(at);
+			releaseAt(at);
 		};
 		// committed UTF-8 from the platform text-input session. The literal
 		// outlives the synchronous dispatch, so no queue lifetime is involved.
@@ -2723,7 +2736,8 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 					"decorScroll", "decorSlice", "decorTiled", "bigList",
 					"showModalButton", "tabStyles", "styleHeading",
 					"styleBody", "styleButtonA", "styleButtonB", "scaledLabel",
-					"styleToggle", "hudTopLeft", "hudBottomRight" };
+					"styleToggle", "richText", "richPlain", "richIcon",
+					"title", "panelOverlays", "hudTopLeft", "hudBottomRight" };
 				std::string missing;
 				for (char const* id : required)
 				{
@@ -3221,29 +3235,358 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 					}
 					else
 					{
-						SDL_Log("orkige_player: GALLERY SELFCHECK PASSED - all 5 "
-							"tabs reachable, every widget inside the frame column and "
-							"the text rows in declaration order, "
-							"wrapped label %.1fpx vs single-line "
-							"%.1fpx, multi-line field at %d lines after a typed "
-							"Return, %d of %d list rows live (first %d after the "
-							"scroll, scrolled row hit-tests), modal raised and "
-							"dismissed, styles resolved (heading font %u vs body "
-							"%u, a local textColor overrode its style, %.1fx text "
-							"scale measured taller)",
-							double(galleryWrappedHeight),
-							double(galleryPlainHeight), galleryNoteLines,
-							galleryListMaterialized, 1000,
-							galleryListScrolledFirst, galleryStyledFont,
-							bodyFont, double(galleryStyledScale));
-						galleryPhase = GalleryPhase::Done;
-						running = false;
+						// the styling tier holds; the rich-text runs on the same
+						// tab are next
+						galleryBodyFont = bodyFont;
+						galleryPhase = GalleryPhase::Rich;
+						galleryStep = 0;
+						galleryStepFrame = frameCount + 2;
+						galleryPhaseDeadline = frameCount + 900;
 					}
 				}
 			}
 			else if (frameCount >= galleryPhaseDeadline)
 			{
 				galleryFail("the styles phase never finished");
+			}
+		}
+		else if (galleryPhase == GalleryPhase::Rich)
+		{
+			// INLINE RICH TEXT, asserted on what the widgets RESOLVED to (never on
+			// the file): a markup label reports itself as rich text, its TAGS cost
+			// no width (it measures like the tag-free control beside it), and a
+			// heading run plus an inline sprite raise the wrapped block's height.
+			Orkige::GuiWidget* rich = widget("richText");
+			Orkige::GuiWidget* plainRun = widget("richPlain");
+			Orkige::GuiWidget* richIcon = widget("richIcon");
+			Orkige::GuiWidget* plainLabel = widget("plainLabel");
+			if (frameCount == galleryStepFrame + 3)
+			{
+				if (rich == nullptr || plainRun == nullptr ||
+					richIcon == nullptr || plainLabel == nullptr)
+				{
+					galleryFail("the styles tab lost a rich-text label");
+				}
+				else
+				{
+					galleryMarkupWidth = rich->getSize().x;
+					galleryPlainRunWidth = plainRun->getSize().x;
+					galleryIconBlockHeight = richIcon->getSize().y;
+					// the OPT-IN is per widget and observable - the same bit the
+					// MSG_UI_LAYOUT / MCP style readback carries
+					if (!rich->hasTextMarkup() || !richIcon->hasTextMarkup())
+					{
+						galleryFail("a markup label does not report itself as "
+							"rich text");
+					}
+					else if (plainRun->hasTextMarkup() ||
+						plainLabel->hasTextMarkup())
+					{
+						galleryFail("a plain label reported itself as rich text");
+					}
+					// THE TAGS ARE NOT GLYPHS: "[c=FFCC33]Rich[/c] text runs" and
+					// "Rich text runs" are the same sentence, so they measure
+					// within a few percent of each other - the only difference is
+					// the kerning pair each style boundary trades for the font's
+					// letter spacing (the documented cost of splitting a run).
+					// The tags themselves are ~14 characters, an order of
+					// magnitude more than that, so this separates the two cases.
+					else if (!(galleryMarkupWidth > 0.0f))
+					{
+						galleryFail("the markup label measured nothing at all");
+					}
+					else if (!(std::abs(galleryMarkupWidth -
+						galleryPlainRunWidth) < galleryPlainRunWidth * 0.05f))
+					{
+						std::ostringstream why;
+						why << "the markup label measured " << galleryMarkupWidth
+							<< "px against its tag-free control's "
+							<< galleryPlainRunWidth
+							<< "px - the tags are being measured as text";
+						galleryFail(why.str());
+					}
+					// a TALLER run (the heading font) plus an inline sprite raise
+					// the wrapped block above a plain single line
+					else if (!(galleryIconBlockHeight >
+						plainLabel->getSize().y * 1.5f))
+					{
+						std::ostringstream why;
+						why << "the wrapped heading+icon block measured "
+							<< galleryIconBlockHeight << "px, not taller than the "
+							<< "plain single line's " << plainLabel->getSize().y
+							<< "px";
+						galleryFail(why.str());
+					}
+					else
+					{
+						galleryPhase = GalleryPhase::Juice;
+						galleryStep = 0;
+						galleryStepFrame = frameCount + 2;
+						galleryPhaseDeadline = frameCount + 2400;
+					}
+				}
+			}
+			else if (frameCount >= galleryPhaseDeadline)
+			{
+				galleryFail("the rich-text phase never finished");
+			}
+		}
+		else if (galleryPhase == GalleryPhase::Juice)
+		{
+			// THE ANIMATION TIER, all on live widget state: the load-time `enter`
+			// settled at EXACTLY full opacity, a tab reveal really animates its
+			// panel (alpha sampled at two ticks, position sampled off rest), the
+			// panel lands on the EXACT rest position - and does so again on a
+			// REPLAY, so a re-entered transition never drifts one offset further -
+			// a held button really scales, and the Lua guitween round trip
+			// returned its widget to exactly alpha 1.
+			Orkige::GuiWidget* title = widget("title");
+			Orkige::GuiWidget* panel = widget("panelOverlays");
+			Orkige::GuiWidget* pressButton = widget("styleButtonA");
+			if (title == nullptr || panel == nullptr || pressButton == nullptr)
+			{
+				galleryFail("the juice phase lost a widget");
+			}
+			else if (galleryStep == 0 && frameCount == galleryStepFrame)
+			{
+				// the title's own enter transition ran at load and is long done:
+				// it must sit at EXACTLY full opacity, not at 0.99
+				if (title->getGroupAlpha() != 1.0f)
+				{
+					std::ostringstream why;
+					why << "the title's load-time enter settled at alpha "
+						<< title->getGroupAlpha() << ", not exactly 1";
+					galleryFail(why.str());
+				}
+				else
+				{
+					// reveal the overlays tab: its panel declares
+					// `enter = fade ... | slide ...`, so the tab bar plays that
+					// instead of snapping the panel visible
+					Orkige::Vec2 at;
+					if (!centreOf("tabOverlays", at))
+					{
+						galleryFail("no rect for the overlays tab");
+					}
+					else
+					{
+						clickAt(at);
+						galleryStep = 1;
+						galleryStepFrame = frameCount + 2;
+					}
+				}
+			}
+			else if (galleryStep == 1 && frameCount == galleryStepFrame)
+			{
+				// MID-FLIGHT sample one: the panel is on its way in, so it is not
+				// opaque yet AND it sits off its rest position
+				galleryEnterAlpha = panel->getEffectiveAlpha();
+				galleryEnterOffset = panel->getPosition().y;
+				if (!(galleryEnterAlpha < 1.0f))
+				{
+					std::ostringstream why;
+					why << "the revealed panel was already at alpha "
+						<< galleryEnterAlpha
+						<< " two ticks in - the fade channel never animated";
+					galleryFail(why.str());
+				}
+				else
+				{
+					galleryStep = 2;
+					galleryStepFrame = frameCount + 3;
+				}
+			}
+			else if (galleryStep == 2 && frameCount == galleryStepFrame)
+			{
+				// MID-FLIGHT sample two: the fade PROGRESSED since sample one -
+				// a real timeline, not one jump
+				const float now = panel->getEffectiveAlpha();
+				if (!(now > galleryEnterAlpha))
+				{
+					std::ostringstream why;
+					why << "the panel's alpha did not progress between ticks ("
+						<< galleryEnterAlpha << " then " << now << ")";
+					galleryFail(why.str());
+				}
+				else
+				{
+					galleryStep = 3;
+				}
+			}
+			else if (galleryStep == 3)
+			{
+				// settle (condition-driven: the transition takes wall time), then
+				// record the rest position the replay has to return to EXACTLY
+				if (panel->getEffectiveAlpha() >= 1.0f)
+				{
+					galleryPanelRestY = panel->getPosition().y;
+					if (!(galleryEnterOffset < galleryPanelRestY - 1.0f))
+					{
+						std::ostringstream why;
+						why << "the panel entered at y " << galleryEnterOffset
+							<< " and rests at " << galleryPanelRestY
+							<< " - the slide channel never moved it";
+						galleryFail(why.str());
+					}
+					else
+					{
+						// back to the styles tab, where the press-juice button is
+						Orkige::Vec2 at;
+						if (!centreOf("tabStyles", at))
+						{
+							galleryFail("no rect for the styles tab");
+						}
+						else
+						{
+							clickAt(at);
+							galleryStep = 4;
+							galleryStepFrame = frameCount + 4;
+						}
+					}
+				}
+			}
+			else if (galleryStep == 4 && frameCount == galleryStepFrame)
+			{
+				// press and HOLD: the press juice scales the face down while down
+				Orkige::Vec2 at;
+				if (!centreOf("styleButtonA", at))
+				{
+					galleryFail("no rect for the styled button");
+				}
+				else
+				{
+					pressAt(at);
+					galleryPressX = at.x;
+					galleryPressY = at.y;
+					galleryStep = 5;
+					galleryStepFrame = frameCount + 2;
+				}
+			}
+			else if (galleryStep == 5 && frameCount == galleryStepFrame)
+			{
+				galleryPressScale = pressButton->getRenderScaleX();
+				// release AWAY from the button: the state resets (and springs
+				// back) without counting as a click on it
+				releaseAt(Orkige::Vec2(galleryPressX, galleryPressY + 400.0f));
+				if (!(galleryPressScale < 1.0f && galleryPressScale > 0.0f))
+				{
+					std::ostringstream why;
+					why << "a held button's render scale was "
+						<< galleryPressScale << ", not scaled down";
+					galleryFail(why.str());
+				}
+				else
+				{
+					// reveal the overlays tab a SECOND time: the replayed enter
+					// must land on the same rest position (a transition that read
+					// its own away position as rest would drift one offset)
+					Orkige::Vec2 tab;
+					if (!centreOf("tabOverlays", tab))
+					{
+						galleryFail("no rect for the overlays tab");
+					}
+					else
+					{
+						clickAt(tab);
+						galleryStep = 6;
+					}
+				}
+			}
+			else if (galleryStep == 6)
+			{
+				if (panel->getEffectiveAlpha() >= 1.0f)
+				{
+					const float replayRest = panel->getPosition().y;
+					if (replayRest != galleryPanelRestY)
+					{
+						std::ostringstream why;
+						why << "the replayed enter settled at y " << replayRest
+							<< " instead of the rest position "
+							<< galleryPanelRestY << " - the transition drifted";
+						galleryFail(why.str());
+					}
+					else
+					{
+						galleryStep = 7;
+					}
+				}
+			}
+			else if (galleryStep == 7)
+			{
+				// the LUA side: the driver ran guitween.alpha down and back up
+				// through the same TweenManager, polling its handle. The round
+				// trip has to land on exactly the rest value.
+				using Orkige::ScriptRuntime;
+				if (ScriptRuntime::available() &&
+					ScriptRuntime::getSingleton().getBool(
+						{ "shared", "gallery", "tweenRoundTrip" }, false))
+				{
+					const double dip = ScriptRuntime::getSingleton().getNumber(
+						{ "shared", "gallery", "tweenDipAlpha" }, -1.0);
+					const double rest = ScriptRuntime::getSingleton().getNumber(
+						{ "shared", "gallery", "tweenRestAlpha" }, -1.0);
+					Orkige::GuiWidget* rich = widget("richText");
+					if (!(dip > 0.30 && dip < 0.40))
+					{
+						std::ostringstream why;
+						why << "the scripted tween's dip landed at " << dip
+							<< ", not the requested 0.35";
+						galleryFail(why.str());
+					}
+					else if (rest != 1.0)
+					{
+						std::ostringstream why;
+						why << "the scripted tween returned to " << rest
+							<< ", not exactly 1";
+						galleryFail(why.str());
+					}
+					else if (rich == nullptr || rich->getGroupAlpha() != 1.0f)
+					{
+						galleryFail("the tweened widget did not end at its exact "
+							"rest alpha");
+					}
+					else
+					{
+						SDL_Log("orkige_player: GALLERY SELFCHECK PASSED - all 5 "
+							"tabs reachable, every widget inside the frame column "
+							"and the text rows in declaration order, wrapped "
+							"label %.1fpx vs single-line %.1fpx, multi-line field "
+							"at %d lines after a typed Return, %d of %d list rows "
+							"live (first %d after the scroll, scrolled row "
+							"hit-tests), modal raised and dismissed, styles "
+							"resolved (heading font %u vs body %u, a local "
+							"textColor overrode its style, %.1fx text scale "
+							"measured taller), rich text measured %.1fpx against "
+							"its tag-free %.1fpx control with a %.1fpx "
+							"heading+icon block, a revealed panel animated in "
+							"(alpha %.2f mid-flight, entered at y %.1f and rests "
+							"at %.1f - replayed to the same rest), a held button "
+							"scaled to %.2f, and the scripted tween returned to "
+							"alpha %.0f",
+							double(galleryWrappedHeight),
+							double(galleryPlainHeight), galleryNoteLines,
+							galleryListMaterialized, 1000,
+							galleryListScrolledFirst, galleryStyledFont,
+							galleryBodyFont, double(galleryStyledScale),
+							double(galleryMarkupWidth),
+							double(galleryPlainRunWidth),
+							double(galleryIconBlockHeight),
+							double(galleryEnterAlpha),
+							double(galleryEnterOffset),
+							double(galleryPanelRestY),
+							double(galleryPressScale), rest);
+						galleryPhase = GalleryPhase::Done;
+						running = false;
+					}
+				}
+			}
+			if (galleryPhase == GalleryPhase::Juice &&
+				frameCount >= galleryPhaseDeadline)
+			{
+				std::ostringstream why;
+				why << "the juice phase never finished (step " << galleryStep
+					<< ")";
+				galleryFail(why.str());
 			}
 		}
 	}

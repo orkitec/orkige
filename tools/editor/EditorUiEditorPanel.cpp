@@ -2644,6 +2644,16 @@ namespace OrkigeEditor
 							"clipped line (pair it with a width and a preferred "
 							"vertical fit so it grows)", "wrap");
 					}
+					if(kindHasText(kind))
+					{
+						// a textbox is rich text by definition; every other
+						// text-bearing kind opts in with this key
+						committed |= boolRow(s.doc, *sec, "Markup",
+							"read the text as inline rich text: [c=RRGGBB] and "
+							"[f=heading] spans plus [sprite=name] icons inside the "
+							"one caption ([[ is a literal '['). A malformed tag "
+							"draws verbatim.", "markup");
+					}
 					if(kind == "textentry")
 					{
 						committed |= boolRow(s.doc, *sec, "Multi-line",
