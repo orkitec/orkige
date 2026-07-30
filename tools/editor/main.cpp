@@ -101,6 +101,9 @@
 #endif
 
 #include "EditorApp.h"
+// the asset-test SVG import leg proves the cook needs NO interpreter: it probes
+// the python3 toolchain and asserts the import works even when that fails
+#include "PythonToolchain.h"
 #include "EditorAutosave.h"
 #include "EditorControlServer.h"
 #include "EditorIdeServer.h"	// Claude-IDE integration (lock + MCP-over-WebSocket)
@@ -3977,12 +3980,24 @@ int main(int argc, char** argv)
 						}
 					}
 				}
-				// (3c) SVG import cooks to .oshape: importAssetFile on an .svg runs
-				// cook_shapes.py (subprocess) and lands the native .oshape (NOT the
-				// .svg) in assets/ with a minted sidecar; it then instantiates +
-				// tessellates like any shape
+				// (3c) SVG import cooks to .oshape: importAssetFile on an .svg
+				// converts it IN PROCESS (engine_gui/SvgShapeCook) and lands the
+				// native .oshape (NOT the .svg) in assets/ with a minted
+				// sidecar; it then instantiates + tessellates like any shape.
+				// The drawing uses a GROUP-inherited fill and a transform, so a
+				// cook that ignored presentation inheritance would paint it
+				// black, and a CONTAINED subpath, which has to become a hole
+				// rather than a second opaque region.
+				// NO PYTHON: the ctest points ORKIGE_PYTHON at an interpreter
+				// that does not exist, so the toolchain preflight provably fails
+				// for this whole run - and the import below still has to work.
+				// That is the distributed-editor contract (a downloaded binary
+				// on a machine with no python3 can import a drawing).
 				if (assetOk)
 				{
+					const Orkige::PythonProbeResult& toolchain =
+						Orkige::probePythonToolchain();
+					const bool pythonUnusable = !toolchain.ok;
 					const std::string svgSource = (std::filesystem::path(
 						assetTempRoot) / "import_shape.svg").string();
 					{
@@ -3990,8 +4005,11 @@ int main(int argc, char** argv)
 							std::ios::binary | std::ios::trunc);
 						f << "<svg xmlns=\"http://www.w3.org/2000/svg\" "
 							<< "viewBox=\"0 0 100 100\">"
-							<< "<rect x=\"20\" y=\"20\" width=\"60\" "
-							<< "height=\"60\" fill=\"#4488cc\"/></svg>";
+							<< "<g fill=\"#4488cc\" "
+							<< "transform=\"translate(5,5)\">"
+							<< "<path d=\"M 20 20 L 80 20 L 80 80 L 20 80 Z "
+							<< "M 40 40 L 40 60 L 60 60 L 60 40 Z\"/>"
+							<< "</g></svg>";
 					}
 					std::string svgError;
 					const std::string cooked =
@@ -4019,6 +4037,42 @@ int main(int argc, char** argv)
 					}
 					else
 					{
+						// what the cook WROTE, read back through the runtime
+						// parser: one region in the group's inherited colour
+						// with the contained subpath as its hole
+						std::string cookedText;
+						{
+							std::ifstream in(cooked, std::ios::binary);
+							std::ostringstream buffer;
+							buffer << in.rdbuf();
+							cookedText = buffer.str();
+						}
+						std::vector<Orkige::VectorTessellator::Region> cookedRegions;
+						const bool parsed = Orkige::VectorShapeAsset::parse(
+							cookedText, cookedRegions);
+						if (!parsed || cookedRegions.size() != 1)
+						{
+							assetOk = false;
+							assetFail = "the cooked .oshape did not re-parse to "
+								"one region";
+						}
+						else if (cookedRegions[0].holes.size() != 1)
+						{
+							assetOk = false;
+							assetFail = "the contained subpath did not cook to "
+								"a hole";
+						}
+						else if (std::fabs(cookedRegions[0].fill.r - 0.2667f) >
+								0.01f ||
+							std::fabs(cookedRegions[0].fill.b - 0.8f) > 0.01f)
+						{
+							assetOk = false;
+							assetFail = "the group-inherited fill colour was "
+								"not applied";
+						}
+					}
+					if (assetOk)
+					{
 						instantiateAssetIntoScene(state, editorCore,
 							AssetKind::VectorShape, cooked);
 						const std::string cookedId =
@@ -4038,6 +4092,10 @@ int main(int argc, char** argv)
 						{
 							cookedShapePath = cooked;
 							editorCore.undo(); // remove the instantiated object
+							SDL_Log("orkige_editor: asset test - SVG import "
+								"cooked in process (python3 toolchain %s)",
+								pythonUnusable ? "provably unusable"
+									: "present but unused");
 						}
 					}
 				}

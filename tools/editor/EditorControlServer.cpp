@@ -27,6 +27,7 @@
 #include "GuiPreviewStage.h"
 #include "GamePreviewStage.h"
 #include <core_util/DevicePreset.h>
+#include <core_util/VectorShapeAsset.h>
 #include "GeneratedLuaApi.h"
 
 #include <core_base/PropertySchema.h>
@@ -1897,7 +1898,9 @@ namespace Orkige
 				  "editor (same trust model; needs auth). 'sourcePath' is an "
 				  "absolute path on the editor's filesystem. Optional 'targetDir' "
 				  "(project-relative, jailed) relocates the import within the "
-				  "project, id preserved. A Lottie .json source cooks to .oanim; "
+				  "project, id preserved. An .svg source cooks to a native "
+				  ".oshape on the way in (the .svg is not kept). A Lottie .json "
+				  "source cooks to .oanim; "
 				  "the optional cook params 'clips'/'extent'/'tolerance' are "
 				  "applied AND recorded on the kept source's sidecar (re-imports "
 				  "and the automatic drift re-cook keep using them). Returns the "
@@ -6828,9 +6831,9 @@ namespace Orkige
 			// build the exporter command on the main thread (Project is not
 			// thread-safe), then hand it to the worker - same invocation as the
 			// editor's Build menu (EditorExport.cpp)
-			// preflight the python3 toolchain (cached per run) - the same
-			// honest error the Build menu / SVG import surface when python3 is
-			// missing or too old, so an MCP agent gets it too
+			// preflight the python3 toolchain (cached per run) - the same honest
+			// error the Build menu surfaces when python3 is missing or too old,
+			// so an MCP agent gets it too
 			const PythonProbeResult& python = probePythonToolchain();
 			if (!python.ok)
 			{
@@ -11441,6 +11444,62 @@ namespace Orkige
 			SDL_Log("orkige_editor: control self-test - import_asset OK "
 				"(minted id %s at '%s')", importedId.c_str(),
 				importedPath.c_str());
+		}
+
+		// (19a) import_asset on an .svg: the agent path to a vector shape. The
+		// drawing is cooked IN PROCESS to a native .oshape - no interpreter, no
+		// subprocess - so the reply names a .oshape, the source .svg is NOT kept
+		// beside it, and the file the runtime parser reads describes the drawing
+		// (one region, the group-inherited fill, the contained subpath as a hole).
+		{
+			const fs::path outside = fs::temp_directory_path() /
+				("orkige_mcp_import_" + std::to_string(port) + ".svg");
+			{
+				std::ofstream f(outside, std::ios::binary);
+				f << "<svg xmlns=\"http://www.w3.org/2000/svg\" "
+					"viewBox=\"0 0 100 100\">"
+					"<g fill=\"#4488cc\"><path d=\"M 10 10 L 90 10 L 90 90 "
+					"L 10 90 Z M 30 30 L 30 70 L 70 70 L 70 30 Z\"/></g></svg>";
+			}
+			JsonValue args = JsonValue::object();
+			args.set("sourcePath", JsonValue(outside.string()));
+			JsonValue structured;
+			bool isError = true;
+			const bool ok = callTool("import_asset", args, true, structured,
+				isError) && !isError;
+			const String shapePath = structured.get("path").asString();
+			fs::remove(outside, authIgnored);
+			const bool cookedToShape = ok && shapePath.size() > 7 &&
+				shapePath.compare(shapePath.size() - 7, 7, ".oshape") == 0;
+			const fs::path onDisk = fs::path(authRoot) / shapePath;
+			String cookedText;
+			if (cookedToShape)
+			{
+				std::ifstream in(onDisk, std::ios::binary);
+				std::ostringstream buffer;
+				buffer << in.rdbuf();
+				cookedText = buffer.str();
+			}
+			std::vector<VectorTessellator::Region> cookedRegions;
+			const bool describes =
+				VectorShapeAsset::parse(cookedText, cookedRegions) &&
+				cookedRegions.size() == 1 &&
+				cookedRegions[0].holes.size() == 1 &&
+				std::fabs(cookedRegions[0].fill.b - 0.8f) < 0.01f;
+			// the .svg is only the on-ramp; the .oshape IS the asset
+			const bool svgKept = fs::exists(
+				fs::path(authRoot) / "assets" / outside.filename(),
+				authIgnored);
+			if (!cookedToShape || !describes || svgKept)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: import_asset did not cook the "
+					".svg to a faithful .oshape (path '" + shapePath + "')");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - import_asset .svg -> "
+				".oshape OK (in-process cook, hole + inherited fill at '%s')",
+				shapePath.c_str());
 		}
 
 		// (19b) Lottie import + preview_animation: import a small animated .json

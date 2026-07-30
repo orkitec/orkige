@@ -12,12 +12,104 @@
 
 #include "core_util/VectorShapeAsset.h"
 
+#include <cstdio>
 #include <sstream>
 
 namespace Orkige
 {
 	namespace
 	{
+		//! one coordinate, 5 decimals (the `v`/rect vocabulary)
+		String coord(float value)
+		{
+			char buffer[64];
+			std::snprintf(buffer, sizeof(buffer), "%.5f", double(value));
+			return String(buffer);
+		}
+		//! one paint component, 4 decimals (8-bit-sourced colour)
+		String channel(float value)
+		{
+			char buffer[64];
+			std::snprintf(buffer, sizeof(buffer), "%.4f", double(value));
+			return String(buffer);
+		}
+		//! the lowest grammar level `regions` need: 3 once a texture appears,
+		//! 2 once a stroke or mask does, else 1
+		int grammarLevel(std::vector<VectorTessellator::Region> const & regions)
+		{
+			int level = 1;
+			for(VectorTessellator::Region const & region : regions)
+			{
+				if(!region.texture.empty())
+				{
+					return 3;
+				}
+				if(region.kind == VectorTessellator::REGION_STROKE ||
+					!region.mask.empty())
+				{
+					level = 2;
+				}
+			}
+			return level;
+		}
+		//! append a `contour`/`hole`/`mask` run: the count line then its vertices
+		void writeLoop(char const * keyword,
+			std::vector<VectorTessellator::Point> const & loop,
+			std::ostringstream & out)
+		{
+			out << keyword << " " << loop.size() << "\n";
+			for(VectorTessellator::Point const & point : loop)
+			{
+				out << "v " << coord(point.x) << " " << coord(point.y) << "\n";
+			}
+		}
+		//! append one region in the order parse() accepts: fill, then the
+		//! stroke/texture qualifier, then the contour, its holes and any mask
+		void writeRegion(VectorTessellator::Region const & region,
+			std::ostringstream & out)
+		{
+			out << "fill " << channel(region.fill.r) << " "
+				<< channel(region.fill.g) << " " << channel(region.fill.b)
+				<< " " << channel(region.fill.a) << "\n";
+			if(!region.texture.empty())
+			{
+				out << "texture " << region.texture << " "
+					<< coord(region.textureRectMin.x) << " "
+					<< coord(region.textureRectMin.y) << " "
+					<< coord(region.textureRectMax.x -
+						region.textureRectMin.x) << " "
+					<< coord(region.textureRectMax.y -
+						region.textureRectMin.y) << " "
+					<< coord(region.uvMin.x) << " " << coord(region.uvMin.y)
+					<< " " << coord(region.uvMax.x) << " "
+					<< coord(region.uvMax.y) << "\n";
+			}
+			else if(region.kind == VectorTessellator::REGION_STROKE)
+			{
+				char const * cap =
+					region.strokeCap == VectorTessellator::CAP_ROUND ? "round"
+					: (region.strokeCap == VectorTessellator::CAP_SQUARE
+						? "square" : "butt");
+				char const * join =
+					region.strokeJoin == VectorTessellator::JOIN_ROUND ? "round"
+					: (region.strokeJoin == VectorTessellator::JOIN_BEVEL
+						? "bevel" : "miter");
+				out << "stroke " << coord(region.strokeWidth) << " " << cap
+					<< " " << join << " " << channel(region.strokeMiterLimit)
+					<< " " << (region.strokeClosed ? "closed" : "open") << "\n";
+			}
+			writeLoop("contour", region.outer, out);
+			for(std::vector<VectorTessellator::Point> const & hole :
+				region.holes)
+			{
+				writeLoop("hole", hole, out);
+			}
+			if(!region.mask.empty())
+			{
+				writeLoop("mask", region.mask, out);
+			}
+		}
+
 		//! which loop the current `contour`/`hole`/`mask` run is filling
 		enum FillTarget
 		{
@@ -141,6 +233,47 @@ namespace Orkige
 		region.uvMin = VectorTessellator::Point(u0, v0);
 		region.uvMax = VectorTessellator::Point(u1, v1);
 		return true;
+	}
+	//---------------------------------------------------------
+	String VectorShapeAsset::serialize(ParsedShape const & shape,
+		String const & headerComment)
+	{
+		std::ostringstream out;
+		if(!headerComment.empty())
+		{
+			std::istringstream banner(headerComment);
+			String line;
+			while(std::getline(banner, line))
+			{
+				out << "# " << line << "\n";
+			}
+		}
+		// the version is the lowest level the WHOLE file needs (a morph target
+		// carrying a texture lifts the base's declaration too)
+		int level = grammarLevel(shape.base);
+		for(MorphTarget const & morph : shape.morphs)
+		{
+			const int morphLevel = grammarLevel(morph.regions);
+			if(morphLevel > level)
+			{
+				level = morphLevel;
+			}
+		}
+		out << "version " << level << "\n";
+		for(VectorTessellator::Region const & region : shape.base)
+		{
+			writeRegion(region, out);
+		}
+		for(MorphTarget const & morph : shape.morphs)
+		{
+			out << "morph " << (morph.name.empty() ? "target" : morph.name)
+				<< "\n";
+			for(VectorTessellator::Region const & region : morph.regions)
+			{
+				writeRegion(region, out);
+			}
+		}
+		return out.str();
 	}
 	//---------------------------------------------------------
 	bool VectorShapeAsset::parse(String const & text,

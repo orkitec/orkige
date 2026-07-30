@@ -774,7 +774,7 @@ look when touching one:
   `Docs/particles.md`, `demo_particles3d` per flavor.
   **Flat-colour organic vector shapes**: `VectorShapeComponent` renders a
   tessellated `.oshape` (agent-authorable text asset, or SVG-cooked via
-  `Util/cook_shapes.py`) through the facade `VectorMesh` (SpriteBatch's
+  `engine_gui/SvgShapeCook`) through the facade `VectorMesh` (SpriteBatch's
   arbitrary-triangle sibling: flat regions share one "VectorFill" unlit
   vertex-colour datablock, and a v3 `texture NAME x y w h [uv]` region is a
   TEXTURED CUTOUT PART — parse-time per-vertex UV projection through the
@@ -787,10 +787,19 @@ look when touching one:
   earcut triangulation + baked alpha-feather edge for portable AA — FSAA is 0),
   headless-unit-tested; `Util/make_vectorshape_demo.py` writes the
   `projects/vectorshapes/` sample. Editor integration: dropping/importing an
-  `.svg` (browser or MCP `import_asset`) cooks it to `.oshape` in-place via
-  `cook_shapes.py` (subprocess; the source `.svg` is not kept), and `.oshape`
-  assets show a real thumbnail — the tessellated fill CPU-rasterized by the pure
-  `core_util/VectorShapeRaster` and uploaded via `createTexture2D`.
+  `.svg` (browser or MCP `import_asset`) cooks it to `.oshape` in-place IN
+  PROCESS — `engine_gui/SvgShapeCook` over the SAME nanosvg parser the gui atlas
+  rasterises vector sprites with (the second and last sanctioned nanosvg TU,
+  beside `SvgRasterImpl.cpp`), so importing a drawing needs NO interpreter and a
+  distributed editor binary works on a machine with no python3; the flatten +
+  placement + `.oshape` emission tail is the pure `core_util/VectorShapeCook`
+  plus `VectorShapeAsset::serialize` (the writer beside the reader, ONE
+  definition of the format per direction), the source `.svg` is not kept, and
+  `tools/shapecook` is the CLI face (`--targets` cooks a morph set). Presentation
+  inheritance, groups and transforms are honored, and a CONTAINED subpath cooks
+  to a `hole`. `.oshape` assets show a real thumbnail — the tessellated fill
+  CPU-rasterized by the pure `core_util/VectorShapeRaster` and uploaded via
+  `createTexture2D`.
   **Soft, deformable organic shapes** (`softBody` on `VectorShapeComponent`,
   both flavors): the rest mesh is tessellated ONCE and skinned to a few contour
   CONTROL POINTS (translation-only linear-blend skinning — the exact formulation
@@ -806,8 +815,8 @@ look when touching one:
   `RigidBodyComponent` contact squashes along the impact + kicks the wobble; the
   body's velocity stretches along the motion — the physics body stays a rigid
   circle), and same-topology MORPH targets (`.oshape` `morph` blocks;
-  `cook_shapes.py --targets` cooks a multi-SVG morph set with a clear
-  structure-mismatch error). The deform math is the pure, headless-unit-tested
+  `tools/shapecook --targets` cooks a multi-SVG morph set at a fixed flatten
+  resolution with a clear structure-mismatch error). The deform math is the pure, headless-unit-tested
   `core_util/SoftBodyDeform` (allocation-free per frame; the player selfcheck
   logs a measured per-frame cost — ~4 µs/blob at 72 verts / 16 control points).
   Lua drive via `self.shape` (`impulse`/`playMorph`/`stopMorph`); the wobble/

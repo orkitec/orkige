@@ -306,6 +306,10 @@ if(ORKIGE_BUILD_TOOLS)
         # exports always cook on a desktop host, so the mobile/web player
         # trees never build or ship it - see Docs/textures.md)
         add_subdirectory(tools/texcook)
+        # the SVG -> .oshape cook as a CLI (the editor holds the same conversion
+        # in-process). Host-only for the same reason texcook is: importing and
+        # generating assets happens on a desktop, never on a device.
+        add_subdirectory(tools/shapecook)
     endif()
     # the player builds on both render flavors (per-flavor boot
     # block; games choose their backend)

@@ -385,13 +385,18 @@ Consumed only by the editor (desktop platforms — the same
 
 `nanosvg` is a plain vcpkg-registry dependency (`vcpkg.json`), NOT an overlay
 port — it needs no patch. Recorded here only so the choice has a rationale:
+it is the ONE SVG reader in the tree, with two consumers:
 `engine_gui/FontAtlas` rasterises `.svg` UI sprites into the runtime font
-atlas at boot, and nanosvg is a tiny, permissively-licensed (Zlib) single-file
+atlas at boot, and `engine_gui/SvgShapeCook` flattens an imported drawing into
+the native `.oshape` — so the editor imports a vector shape with no interpreter
+and no subprocess. nanosvg is a tiny, permissively-licensed (Zlib) single-file
 SVG parser + rasteriser. The vcpkg port precompiles the implementation into
 static libs (`NanoSVG::nanosvg` / `NanoSVG::nanosvgrast`), so — unlike the
 header-only `stb` libs — nothing defines `NANOSVG_IMPLEMENTATION`; the engine
-just links the targets. Its headers are still confined to a single TU
-(`engine_gui/SvgRasterImpl.cpp`, the `StbVorbisImpl.cpp` precedent) so the
-library stays out of every header and the precompiled header. The matching
+just links the targets. Its headers are confined to exactly two TUs
+(`engine_gui/SvgRasterImpl.cpp` and `engine_gui/SvgShapeCookImpl.cpp`, the
+`StbVorbisImpl.cpp` precedent) so the library stays out of every header and the
+precompiled header. `SvgShapeCook.h` depends on `orkige_core` alone, so the
+host-side `tools/shapecook` CLI compiles that one TU without the engine closure. The matching
 glyph rasteriser is `stb_truetype.h` from the already-vendored `stb` port,
 confined to `engine_gui/FontBakeImpl.cpp`.

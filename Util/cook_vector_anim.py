@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cook a Lottie JSON animation into a native .oanim asset.
 
-The animated sibling of cook_shapes.py: a Lottie document (the open,
+The animated sibling of the `.svg` shape cook: a Lottie document (the open,
 Linux-Foundation-standardized vector animation interchange format) is
 translated at import time into the engine's `.oanim` text asset - a layer rig
 with keyframed transforms, opacities and path poses, carved into named clips.

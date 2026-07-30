@@ -304,8 +304,9 @@ is pinned in `tests/core/VectorTessellatorTests.cpp`.
 
 **Import** — dropping/importing a Lottie `.json` (Finder drop, the asset
 browser, or MCP `import_asset`) cooks it to `.oanim` in place via
-`cook_vector_anim.py` (a subprocess, the same wiring `.svg`→`.oshape` uses,
-with the `python3` toolchain preflight). UNLIKE the one-way `.svg` on-ramp the
+`cook_vector_anim.py` (a subprocess behind the `python3` toolchain preflight —
+there is no C++ Lottie reader, unlike the in-process `.svg`→`.oshape` cook).
+UNLIKE the one-way `.svg` on-ramp the
 SOURCE `.json` is KEPT beside the cooked asset — both get an `.orkmeta` id, and
 re-importing an edited `.json` re-cooks the `.oanim` in place (the living-source,
 recook-on-reimport discipline; a document where nothing animates lands a
@@ -348,8 +349,8 @@ a vanished artifact) re-cooks the pair with the RECORDED settings, reported
 as `[import]` Console lines like a manual import. A sidecar **without** a
 record is never auto-re-cooked — a record-less sidecar (or any plain data
 `.json`) is left untouched. The `.svg` →
-`.oshape` on-ramp is deliberately OUTSIDE this system (morph `--targets`
-included): the `.svg` source is not kept, so there is nothing to hash, watch
+`.oshape` on-ramp is deliberately OUTSIDE this system (morph sets included):
+the `.svg` source is not kept, so there is nothing to hash, watch
 or re-cook from — extending records to shapes would first mean reversing the
 keep-the-source decision.
 

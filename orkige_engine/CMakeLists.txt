@@ -39,10 +39,12 @@ endif()
 # engine_sound/StbVorbisImpl.cpp compiles) + stb_truetype.h (the glyph
 # rasteriser engine_gui/FontBakeImpl.cpp compiles). Provides Stb_INCLUDE_DIR.
 find_package(Stb REQUIRED)
-# nanosvg: the vector-sprite rasteriser the gui runtime atlas bakes .svg
-# sprites with. The vcpkg port precompiles the implementation into static libs
-# (NanoSVG::nanosvg / NanoSVG::nanosvgrast); engine_gui/SvgRasterImpl.cpp is
-# the only TU that includes its headers (Docs/ports.md).
+# nanosvg: the ONE SVG reader in the tree - the gui runtime atlas bakes .svg
+# sprites with its rasteriser, and the .oshape import cook flattens drawings
+# with its parser. The vcpkg port precompiles the implementation into static
+# libs (NanoSVG::nanosvg / NanoSVG::nanosvgrast); engine_gui/SvgRasterImpl.cpp
+# and engine_gui/SvgShapeCookImpl.cpp are the only TUs that include its
+# headers (Docs/ports.md).
 find_package(NanoSVG CONFIG REQUIRED)
 # vcpkg joltphysics installs a plain "Jolt" CMake package (target Jolt::Jolt)
 find_package(Jolt CONFIG REQUIRED)
@@ -229,6 +231,11 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gui/FontBakeImpl.cpp
     engine_gui/SvgRaster.h
     engine_gui/SvgRasterImpl.cpp
+    # the SVG import cook shares that one parser (the .oshape on-ramp); it is
+    # host-side tooling with no render dependency, so tools/shapecook compiles
+    # the same TU directly instead of linking the engine closure
+    engine_gui/SvgShapeCook.h
+    engine_gui/SvgShapeCookImpl.cpp
     engine_gui/FontAtlas.h
     engine_gui/FontAtlas.cpp
     engine_gui/WorldTextLayout.h
@@ -459,10 +466,12 @@ set_source_files_properties(engine_gui/FontBakeImpl.cpp PROPERTIES
     SKIP_PRECOMPILE_HEADERS ON
     INCLUDE_DIRECTORIES "${Stb_INCLUDE_DIR}")
 
-# nanosvg is confined to SvgRasterImpl.cpp; keep it off the PCH so its headers
-# never join the sol2/Ogre precompiled header (the NanoSVG:: link targets carry
-# the include dir).
-set_source_files_properties(engine_gui/SvgRasterImpl.cpp PROPERTIES
+# nanosvg is confined to SvgRasterImpl.cpp (the UI-sprite rasteriser) and
+# SvgShapeCookImpl.cpp (the .oshape import cook) - one parser, two consumers;
+# keep both off the PCH so its headers never join the sol2/Ogre precompiled
+# header (the NanoSVG:: link targets carry the include dir).
+set_source_files_properties(engine_gui/SvgRasterImpl.cpp
+    engine_gui/SvgShapeCookImpl.cpp PROPERTIES
     SKIP_PRECOMPILE_HEADERS ON)
 
 # The whole 2026 target set (GL3+/Metal/Vulkan/GLES3) is shader-based; the
@@ -510,7 +519,8 @@ target_link_libraries(orkige_engine
         # backend-agnostic physics: Jolt types never leave the engine_physic
         # translation units, so the dependency stays private
         Jolt::Jolt
-        # vector-sprite rasteriser: nanosvg symbols never leave SvgRasterImpl.cpp
+        # vector-sprite rasteriser + the .oshape import cook: nanosvg symbols
+        # never leave SvgRasterImpl.cpp / SvgShapeCookImpl.cpp
         NanoSVG::nanosvg
         NanoSVG::nanosvgrast
         # skinned-rig extraction: assimp types never leave

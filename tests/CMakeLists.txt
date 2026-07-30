@@ -120,14 +120,16 @@ add_test(NAME texcook_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(texcook_selftest PROPERTIES LABELS unit TIMEOUT 120)
 
-# vector-shape SVG cook self-validation: cook_shapes.py flattens a synthetic
-# SVG (rect + path + circle) to an .oshape and re-parses it, asserting
-# well-formed regions with round-tripped fill colours and vertex counts.
-# Stdlib-only, headless - the SVG->.oshape on-ramp at the tooling level.
-add_test(NAME cook_shapes_selftest
-    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/cook_shapes.py" --selftest
+# vector-shape SVG cook self-validation: shapecook flattens a synthetic SVG
+# (rect + path + circle) to an .oshape and re-parses it through the REAL runtime
+# parser, asserting well-formed regions with round-tripped fill colours, vertex
+# counts and the requested world extent - plus donut hole detection, a morph set
+# with its structure-mismatch refusal and the empty-drawing verdict. The CLI
+# face of the same in-process cook the editor imports with; headless.
+add_test(NAME shapecook_selftest
+    COMMAND shapecook --selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-set_tests_properties(cook_shapes_selftest PROPERTIES LABELS unit TIMEOUT 60)
+set_tests_properties(shapecook_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
 # vector-animation cook self-validation: cook_vector_anim.py cooks embedded
 # Lottie fixtures covering every mapped feature (transforms/easing/parenting,
@@ -1250,8 +1252,13 @@ if(TARGET orkige_editor)
     # Flavor-agnostic; both flavors.
     add_test(NAME editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    # ORKIGE_PYTHON names an interpreter that does not exist, so the editor's
+    # python3 toolchain preflight provably FAILS for this whole run: the SVG
+    # import leg then proves the .oshape cook needs no interpreter at all (the
+    # distributed-editor contract - a downloaded binary on a machine with no
+    # python3 imports a drawing). Nothing else in this test spawns python.
     set_tests_properties(editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_ASSETTEST=${Orkige_SOURCE_DIR}/projects/example;ORKIGE_DEMO_FRAMES=60"
+        ENVIRONMENT "ORKIGE_EDITOR_ASSETTEST=${Orkige_SOURCE_DIR}/projects/example;ORKIGE_DEMO_FRAMES=60;ORKIGE_PYTHON=${CMAKE_CURRENT_BINARY_DIR}/no-such-python3"
         LABELS integration TIMEOUT 90)
 
     # Editor chrome visual evidence: boot the editor in each theme at the run's

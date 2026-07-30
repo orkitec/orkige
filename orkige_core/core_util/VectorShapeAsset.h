@@ -108,6 +108,23 @@ namespace Orkige
 		//! reports a mismatch), so a partly-authored file still loads its base.
 		static bool parse(String const & text, ParsedShape & out);
 
+		//! @brief write a parsed shape back out as `.oshape` text - the
+		//! byte-level counterpart of parse(), so the format has ONE definition
+		//! in each direction and every producer (the SVG cook, a future
+		//! authoring tool) emits the same grammar this parser accepts.
+		//! @param shape the base pose plus any morph targets
+		//! @param headerComment optional banner text; every line is emitted as
+		//! a `# ` comment ahead of the `version` line
+		//! @remarks The emitted `version` is the LOWEST grammar level the
+		//! content needs (1 for plain fills/holes, 2 once a stroke or mask
+		//! appears, 3 once a texture does), so a flat-colour shape stays a v1
+		//! file. Coordinates print at 5 decimals and colours at 4 - enough for
+		//! world units and 8-bit-sourced paint, and stable across runs (a cook
+		//! is byte-deterministic). A malformed shape (a region with too few
+		//! vertices) still serialises verbatim; validity is parse()'s verdict.
+		static String serialize(ParsedShape const & shape,
+			String const & headerComment = String());
+
 		//! @brief parse the `stroke W CAP JOIN LIMIT ENDS` grammar fragment from
 		//! an open token stream into region (kind, width, cap, join, miter limit,
 		//! closedness). The `.oanim` shape keys reuse this VERBATIM - one

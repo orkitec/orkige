@@ -24,6 +24,8 @@
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_util/Sha1.h>
+#include <core_util/VectorShapeCook.h>
+#include <engine_gui/SvgShapeCook.h>
 #include <engine_gocomponent/ScriptComponentRegistry.h>
 #include "EditorScriptHost.h"
 #include <engine_render/RenderSystem.h>
@@ -33,6 +35,8 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -501,14 +505,14 @@ std::string meshImportDestination(EditorState const& state)
 }
 
 // An .svg is COOKED to the native .oshape on import (the runtime never parses
-// SVG - it reads pre-flattened contours). The cook is Util/cook_shapes.py run
-// as a subprocess: the same Python-delegated transform the exporter uses for
-// textures, and the only SVG reader in the tree (there is no C++ SVG parser).
-// Unlike the async export it runs synchronously - import returns the produced
-// asset path to its callers (drop/browser/MCP). The source .svg is NOT kept in
-// assets/ (unlike a texture's directly-loadable source): the .oshape IS the
-// asset, the .svg is only the on-ramp. Returns the cooked .oshape path, or ""
-// (+ *error) on any failure.
+// SVG - it reads pre-flattened contours). The cook runs IN PROCESS through
+// engine_gui/SvgShapeCook, over the same SVG parser the gui atlas rasterises
+// vector sprites with - so importing a drawing needs no interpreter, no
+// toolchain preflight and no subprocess, and a distributed editor binary can do
+// it on a machine that has none. The source .svg is NOT kept in assets/ (unlike
+// a texture's directly-loadable source): the .oshape IS the asset, the .svg is
+// only the on-ramp. Returns the cooked .oshape path, or "" (+ *error) on any
+// failure.
 std::string cookSvgFileToDir(std::string const& sourcePath,
 	std::string const& destDir, std::string* error)
 {
@@ -521,38 +525,40 @@ std::string cookSvgFileToDir(std::string const& sourcePath,
 		}
 		return "";
 	};
-	// preflight the python3 toolchain (cached per run) before spawning the cook -
-	// an honest "install python3 >= 3.10" message beats an opaque spawn failure
-	const Orkige::PythonProbeResult& python = Orkige::probePythonToolchain();
-	if (!python.ok)
+	std::vector<unsigned char> svg;
 	{
-		return fail(python.error);
+		std::ifstream source(sourcePath, std::ios::binary);
+		if (!source)
+		{
+			return fail("cannot read '" + sourcePath + "'");
+		}
+		svg.assign(std::istreambuf_iterator<char>(source),
+			std::istreambuf_iterator<char>());
+	}
+	Orkige::String cooked;
+	Orkige::String reason;
+	const Orkige::VectorShapeCook::Options options;
+	if (!Orkige::SvgShapeCook::cook(svg.data(), int(svg.size()), options,
+		cooked, &reason))
+	{
+		return fail("'" + sourcePath + "' - " + reason);
 	}
 	std::error_code ec;
 	std::filesystem::create_directories(destDir, ec);
 	const std::string destPath = (std::filesystem::path(destDir) /
 		(std::filesystem::path(sourcePath).stem().string() + ".oshape"))
 			.string();
-	const std::string cook =
-		std::string(ORKIGE_EDITOR_ENGINE_ROOT) + "/Util/cook_shapes.py";
-	std::string output;
-	int exitCode = 0;
-	if (!runProcessCaptured({ python.executable, cook, sourcePath, destPath },
-		output, exitCode))
 	{
-		return fail("could not launch '" + python.executable +
-			"' for cook_shapes.py");
-	}
-	if (exitCode != 0)
-	{
-		return fail("cook_shapes.py exited " + std::to_string(exitCode) +
-			" for '" + sourcePath + "'" +
-			(output.empty() ? "" : (" - " + output)));
-	}
-	if (!std::filesystem::is_regular_file(destPath, ec))
-	{
-		return fail("cook_shapes.py produced no .oshape for '" + sourcePath +
-			"'");
+		std::ofstream out(destPath, std::ios::binary | std::ios::trunc);
+		if (!out)
+		{
+			return fail("cannot write '" + destPath + "'");
+		}
+		out << cooked;
+		if (!out)
+		{
+			return fail("write failed for '" + destPath + "'");
+		}
 	}
 	return destPath;
 }
@@ -727,7 +733,8 @@ std::string runAnimationCook(std::string const& sourceAbsPath,
 // A Lottie .json (the open vector-animation interchange format) is COOKED to
 // the native .oanim on import - the runtime never parses JSON, it reads the
 // pre-flattened rig. The cook is Util/cook_vector_anim.py run as a subprocess
-// (the cook_shapes.py wiring for .svg, one script over). UNLIKE the .svg
+// behind the python3 toolchain preflight (unlike the in-process `.svg` cook -
+// there is no C++ Lottie reader). UNLIKE the .svg
 // on-ramp the source .json is KEPT beside the cooked asset (both id-tracked):
 // an animation source is a living document that gets retimed and re-cooked, so
 // re-importing the same .json regenerates the .oanim in place. A document where

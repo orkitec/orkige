@@ -320,8 +320,9 @@ find_package(SDL3 CONFIG REQUIRED)
 find_package(OpenAL CONFIG REQUIRED)
 find_package(Jolt CONFIG REQUIRED)
 find_package(tinyxml2 CONFIG REQUIRED)
-# the gui runtime atlas rasterises SVG UI sprites through nanosvg's
-# precompiled static libs; the engine archive references their symbols
+# the gui runtime atlas rasterises SVG UI sprites (and the asset-import cook
+# flattens drawings) through nanosvg's precompiled static libs; the engine
+# archive references their symbols
 find_package(NanoSVG CONFIG REQUIRED)
 if(ORKIGE_MODULE_FLAVOR STREQUAL "next")
     # the Ogre-Next backend (namespaced OgreNext::*). assimp backs the skinned-
