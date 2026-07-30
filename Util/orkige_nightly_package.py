@@ -1989,9 +1989,18 @@ def selftest():
         for name in ("orkige_editor", "orkige_player", "texcook", "VERSION",
                      "KNOWN-LIMITATIONS.md", CHANGELOG_FILE):
             open(os.path.join(tree, name), "w").close()
-        # a non-executable editor is a packaging failure of its own
+        # a non-executable editor is a packaging failure of its own - where
+        # "executable" is a thing. Windows has no execute permission bit: every
+        # readable file answers os.access(X_OK), so the check has nothing to
+        # find and reporting a problem would be the wrong answer, not a
+        # stricter one.
         _, problems = verify_layout(tree, "linux")
-        assert problems == ["the editor is not executable"], problems
+        if os.name == "nt":
+            assert problems == [], problems
+            log("no execute bit on this platform - the not-executable leg "
+                "asserts the check stays quiet instead")
+        else:
+            assert problems == ["the editor is not executable"], problems
         os.chmod(os.path.join(tree, "orkige_editor"), 0o755)
         for stdout, expected in (
                 ("orkige_editor 2.0.0-nightly.20260730+abcdef123 "
