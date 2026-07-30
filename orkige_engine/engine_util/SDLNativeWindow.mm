@@ -20,6 +20,20 @@
 #endif
 #include <SDL3/SDL.h>
 
+#if !TARGET_OS_IPHONE
+// Runs before main() in every app that references the bridge symbol below
+// (all SDL-hosted Orkige apps): opt out of the system press-and-hold accent
+// picker for THIS app only. Holding a key over the editor or a game must
+// key-repeat (camera nudges, WASD), not open the accented-character popover
+// the OS shows for text fields; registerDefaults is volatile and app-scoped,
+// so the user's global preference is never written.
+__attribute__((constructor)) static void orkigeDisablePressAndHoldAccents()
+{
+	[[NSUserDefaults standardUserDefaults]
+		registerDefaults:@{ @"ApplePressAndHoldEnabled" : @NO }];
+}
+#endif
+
 extern "C" void* orkige_native_window_handle(SDL_Window* window)
 {
 #if TARGET_OS_IPHONE
