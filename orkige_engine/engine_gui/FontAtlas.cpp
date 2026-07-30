@@ -161,7 +161,8 @@ namespace Orkige
 				if(readResourceBytes(ttf, bytes) && !bytes.empty())
 				{
 					this->addFace(index, bytes.data(), int(bytes.size()),
-						size, first, last);
+						size, first, last,
+						settingValue(section.second, "name"));
 				}
 				else
 				{
@@ -256,7 +257,8 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	bool FontAtlas::addFace(uint fontIndex, unsigned char const * ttf,
-		int ttfSize, float designPixelHeight, uint rangeFirst, uint rangeLast)
+		int ttfSize, float designPixelHeight, uint rangeFirst, uint rangeLast,
+		String const & roleName)
 	{
 		FontBake::Face* handle = FontBake::open(ttf, ttfSize);
 		if(handle == NULL)
@@ -295,6 +297,7 @@ namespace Orkige
 		float ascentDes = 0, descentDes = 0, lineGapDes = 0;
 		FontBake::verticalMetrics(handle, stored.scaleDesign,
 			ascentDes, descentDes, lineGapDes);
+		font.mName = roleName;
 		font.mRangeBegin = rangeFirst;
 		font.mRangeEnd = rangeLast;
 		font.mLineHeight = ascentDes - descentDes + lineGapDes;

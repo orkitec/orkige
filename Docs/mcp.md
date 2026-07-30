@@ -270,7 +270,7 @@ The endpoint advertises 93 tools (the `toolSpecs` table in
 | `get_project_setting(key?)` | a project manifest Setting from the OPEN project (the free-form `.orkproj` key/values — `export.orientation`, `export.ios.bundleId`, …): with `key` returns `value` + `has`; omit `key` for every setting as parallel `keys`/`values`. Read-only |
 | `set_project_setting(key, value)` | **auth** — write one manifest Setting and persist the `.orkproj`. The authoritative path for `export.*` config (`export.orientation` = `portrait`/`landscape`/`auto`, bundle ids, versions): it goes through the editor's IN-MEMORY project so a following Build/export sees it — unlike a raw `write_project_file` of the `.orkproj`, which the editor would not pick up. Refused with no project open |
 | `get_safe_area()` | the RUNNING game's window size + safe-area insets (notch/rounded corners/home indicator), pixels: `window_w`/`window_h` + `safe_left`/`safe_top`/`safe_right`/`safe_bottom` (streamed on `MSG_STATS`; `-1` until reported, desktop insets 0) |
-| `get_ui_layout()` | the RUNNING game's gui widget rects: parallel `ids`/`rects` (each rect `"left top width height visible enabled modal"`, pixels; the three flags are `1`/`0` — `enabled`=interactive, `modal`=part of an active modal dialog; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box, or read `modal` to assert a dialog is up |
+| `get_ui_layout()` | the RUNNING game's gui widget rects AND resolved text style: parallel `ids`/`rects`/`styles` (each rect `"left top width height visible enabled modal"`, pixels; the three flags are `1`/`0` — `enabled`=interactive, `modal`=part of an active modal dialog. Each style `"hasText font textScale colourSet r g b a"` — the text style the widget actually draws with after a named `[Style]` and its own keys merged, so a styling edit is verifiable, not just a geometry one; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box, read `modal` to assert a dialog is up, or read `styles` to assert a font/colour/scale landed |
 | `gui_press(id)` | **auth** — synthesize a press on a gui widget by id in the RUNNING game, routed through the REAL input path so modal/disabled semantics apply (a button under a modal scrim does NOT fire; a disabled widget stays inert) (`MSG_GUI_PRESS`) |
 | `dismiss_modal(id?)` | **auth** — close a modal dialog in the RUNNING game by id, or the topmost one when omitted (`MSG_GUI_DISMISS_MODAL`) |
 | `get_breadcrumbs()` | the player's on-disk crash trail (pure file I/O — the player may be dead): `live` (this/most-recent session's `breadcrumbs.jsonl` text) and `previous` (the prior session's, rotated aside at boot — the one to read after a crash), one JSON object per line, plus the resolved `dir`. Two derived fields answer "did the last run die?" straight off the `previous` trail: `crashed` (`"true"`/`"false"` — true when its LAST entry is a fatal-signal `"crash"` marker) and `crashSignal` (the signal name, e.g. `"SIGSEGV"`, empty when not crashed) — the machine-detectable crash verdict a phone can't show as a dialog. Mobile app-lifecycle transitions ride this same trail — `"background"`/`"foreground"`/`"terminating"`/`"low_memory"` kinds — so no new readback verb is needed to observe backgrounding on device |
@@ -404,7 +404,12 @@ read back through the existing `get_ui_layout` (no change needed: the resolve ru
 before the screens rebuild, so `get_ui_layout`'s per-widget pixel rects already
 reflect the anchors/groups/scroll offset), so an agent confirms the `.oui` took
 effect the same way it verifies any widget (and combines it with `get_safe_area`
-for the notch check).
+for the notch check). The same argument covers STYLING: a `.oui` `font` /
+`textColor` / `textScale` key and a `[Style NAME]` bundle are ordinary text an
+agent writes with `write_project_file`, and `get_ui_layout`'s parallel `styles`
+list reports the RESOLVED result per widget (`hasText font textScale colourSet
+r g b a`), so the style-first / own-keys-override precedence is assertable with
+no new verb.
 
 The **one** UI verb that does earn its place is `preview_ui` — because it fills a
 gap the readback verbs cannot: seeing a screen at a chosen device context WITHOUT

@@ -8,6 +8,7 @@
 *********************************************************************/
 
 #include "engine_gui/GuiWidget.h"
+#include "engine_gui/GuiLabel.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_gui/GuiManager.h"
 #include "engine_gui/GuiLayerHandle.h"
@@ -32,7 +33,7 @@ namespace Orkige
 	const float GuiWidget::DISABLED_ALPHA = 0.5f;
 	const float GuiWidget::ALPHA_INPUT_THRESHOLD = 0.05f;
 	//---------------------------------------------------------
-	GuiWidget::GuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id), visible(true), enabled(true), interactive(false), layoutEnabled(false), layoutUseSafeArea(false), renderScaleX(1.0f), renderScaleY(1.0f), renderRotationDeg(0.0f), groupAlpha(1.0f), alphaBlocksInput(true)
+	GuiWidget::GuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id), visible(true), enabled(true), interactive(false), layoutEnabled(false), layoutUseSafeArea(false), renderScaleX(1.0f), renderScaleY(1.0f), renderRotationDeg(0.0f), groupAlpha(1.0f), alphaBlocksInput(true), styleFontIndex(0), styleTextColour(1.0f, 1.0f, 1.0f, 1.0f), styleTextColourSet(false), styleTextScale(1.0f)
 	{
 		// the creation ordinal a layout group arranges its children by (@see
 		// GuiWidget::creationOrder). Widgets are created on the main thread only,
@@ -68,6 +69,66 @@ namespace Orkige
 		}
 		this->enabled = enable;
 		this->onEnabledChanged(enable);
+	}
+	//---------------------------------------------------------
+	void GuiWidget::setFontIndex(uint index)
+	{
+		if(this->styleFontIndex == index)
+		{
+			return;
+		}
+		this->styleFontIndex = index;
+		this->onTextStyleChanged();
+		// a different font is a different measured size: a content-size-fit or
+		// group-arranged widget wants a resolve pass
+		GuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	void GuiWidget::setTextColour(float r, float g, float b, float a)
+	{
+		const Color wanted(r, g, b, a);
+		if(this->styleTextColourSet && this->styleTextColour == wanted)
+		{
+			return;
+		}
+		this->styleTextColour = wanted;
+		this->styleTextColourSet = true;
+		this->onTextStyleChanged();
+	}
+	//---------------------------------------------------------
+	void GuiWidget::setTextScale(float scale)
+	{
+		if(scale <= 0.0f || this->styleTextScale == scale)
+		{
+			return;
+		}
+		this->styleTextScale = scale;
+		this->onTextStyleChanged();
+		// scaled glyphs measure differently - the same relayout a font swap wants
+		GuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	void GuiWidget::forwardTextStyle(optr<GuiWidget> const & captionWidget)
+	{
+		if(!captionWidget)
+		{
+			return;		// a composite built with empty text owns no caption
+		}
+		captionWidget->setFontIndex(this->styleFontIndex);
+		captionWidget->setTextScale(this->styleTextScale);
+		if(this->styleTextColourSet)
+		{
+			captionWidget->setTextColour(this->styleTextColour.r, this->styleTextColour.g,
+				this->styleTextColour.b, this->styleTextColour.a);
+		}
+		if(!this->enabled)
+		{
+			// the disabled look owns the opacity (@see onEnabledChanged)
+			if(GuiLabel* label = dynamic_cast<GuiLabel*>(captionWidget.get()))
+			{
+				label->setAlpha(GuiWidget::DISABLED_ALPHA);
+			}
+		}
 	}
 	//---------------------------------------------------------
 	bool GuiWidget::isEffectivelyEnabled() const
@@ -475,5 +536,15 @@ namespace Orkige
 		OFUNC(getEffectiveAlpha)
 		OFUNC(setAlphaBlocksInput)
 		OFUNC(setTransition)
+		// text style: the font the caption draws with (an atlas `[Font.N]`
+		// index), an explicit caption colour and a glyph size multiplier. The
+		// `.oui` `font` / `textColor` / `textScale` keys - and a named style
+		// carrying them - land on exactly these setters.
+		OFUNC(setFontIndex)
+		OFUNC(getFontIndex)
+		OFUNC(setTextColour)
+		OFUNC(setTextScale)
+		OFUNC(getTextScale)
+		OFUNC(hasTextStyle)
 	OOBJECT_END
 }

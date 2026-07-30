@@ -13,9 +13,11 @@
 *********************************************************************/
 
 #include "engine_gui/UiAtlas.h"
+#include "engine_gui/GuiStyle.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_util/ConfigFileUtil.h"
 #include <core_debug/DebugMacros.h>
+#include <core_util/StringUtil.h>
 
 #include <OgreConfigFile.h>
 #include <OgreResourceGroupManager.h>
@@ -172,6 +174,14 @@ namespace Orkige
 				{
 					font.mLetterSpacing =
 						Ogre::StringConverter::parseReal(data);
+				}
+				else if(name == "name")
+				{
+					// the optional ROLE token a `.oui` `font = heading` resolves
+					// through (@see UiAtlas::resolveFontRef). An atlas without it
+					// keeps working index-only, so every existing .ogui is
+					// unaffected - unknown keys were already ignored here.
+					font.mName = data;
 				}
 			}
 
@@ -337,6 +347,63 @@ namespace Orkige
 	//---------------------------------------------------------
 	UiAtlas::~UiAtlas()
 	{
+	}
+	//---------------------------------------------------------
+	bool UiAtlas::findFontByName(String const & name, uint & indexOut) const
+	{
+		if(name.empty())
+		{
+			return false;
+		}
+		const String needle = StringUtil::to_lower_copy(name);
+		// mFonts is index-ordered (std::map<uint,...>), so the LOWEST matching
+		// index wins on a duplicated name - a stable, documented tie-break
+		for(std::map<uint, UiFont>::const_iterator it = this->mFonts.begin();
+			it != this->mFonts.end(); ++it)
+		{
+			if(!it->second.getName().empty() &&
+				StringUtil::to_lower_copy(it->second.getName()) == needle)
+			{
+				indexOut = it->first;
+				return true;
+			}
+		}
+		return false;
+	}
+	//---------------------------------------------------------
+	bool UiAtlas::resolveFontRef(String const & ref, uint & indexOut) const
+	{
+		if(ref.empty())
+		{
+			return false;
+		}
+		uint literal = 0;
+		if(GuiStyle::isFontIndexLiteral(ref, literal))
+		{
+			if(this->mFonts.find(literal) == this->mFonts.end())
+			{
+				return false;	// an index the atlas never loaded
+			}
+			indexOut = literal;
+			return true;
+		}
+		return this->findFontByName(ref, indexOut);
+	}
+	//---------------------------------------------------------
+	std::vector<std::pair<String, uint> > UiAtlas::fontRefs() const
+	{
+		std::vector<std::pair<String, uint> > refs;
+		refs.reserve(this->mFonts.size());
+		for(std::map<uint, UiFont>::const_iterator it = this->mFonts.begin();
+			it != this->mFonts.end(); ++it)
+		{
+			refs.push_back(std::make_pair(
+				it->second.getName().empty()
+					? Ogre::StringConverter::toString(it->first)
+					: it->second.getName(),
+				it->first));
+		}
+		return refs;
 	}
 	//---------------------------------------------------------
 	void UiAtlas::refreshMarkupColours()

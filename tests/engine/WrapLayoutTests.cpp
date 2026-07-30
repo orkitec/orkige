@@ -287,6 +287,133 @@ TEST_CASE("textwrap: buildRun + wrap on a real baked font",
 	CHECK(kerned.penX[1] >= 0.0f);				// second glyph placed after the first
 }
 
+TEST_CASE("textwrap: buildRun scales EVERY metric by the text scale",
+	"[unit][gui][textwrap][font][style]")
+{
+	// a per-widget textScale multiplies the glyph metrics the breaker measures,
+	// so a scaled caption wraps at the width its scaled glyphs really occupy.
+	// Every cell field has to scale together - advance, inked width and the
+	// leading kerning - or measurement and drawing disagree.
+	BakedFont baked;
+	REQUIRE(baked.font != nullptr);
+
+	std::vector<WrapCell> plain;
+	std::vector<UiGlyph const*> plainGlyphs;
+	TextWrap::buildRun(*baked.font, "hello world", plain, plainGlyphs);
+
+	std::vector<WrapCell> scaled;
+	std::vector<UiGlyph const*> scaledGlyphs;
+	TextWrap::buildRun(*baked.font, "hello world", scaled, scaledGlyphs, 2.0f);
+
+	REQUIRE(scaled.size() == plain.size());
+	for (size_t each = 0; each < plain.size(); ++each)
+	{
+		CHECK(scaled[each].advance ==
+			Catch::Approx(plain[each].advance * 2.0f));
+		CHECK(scaled[each].width == Catch::Approx(plain[each].width * 2.0f));
+		CHECK(scaled[each].leadKern ==
+			Catch::Approx(plain[each].leadKern * 2.0f));
+		// the flags are structure, not metrics - they must NOT change
+		CHECK(scaled[each].space == plain[each].space);
+		CHECK(scaled[each].forcedBreak == plain[each].forcedBreak);
+		CHECK(scaled[each].breakBefore == plain[each].breakBefore);
+		CHECK(scaled[each].byteOffset == plain[each].byteOffset);
+	}
+
+	// scale 1 is byte-identical to the default call (the unstyled path is
+	// untouched by construction)
+	std::vector<WrapCell> unit;
+	std::vector<UiGlyph const*> unitGlyphs;
+	TextWrap::buildRun(*baked.font, "hello world", unit, unitGlyphs, 1.0f);
+	REQUIRE(unit.size() == plain.size());
+	for (size_t each = 0; each < plain.size(); ++each)
+	{
+		CHECK(unit[each].advance == plain[each].advance);
+		CHECK(unit[each].width == plain[each].width);
+		CHECK(unit[each].leadKern == plain[each].leadKern);
+	}
+}
+
+TEST_CASE("textwrap: a SCALED run wraps into more lines at the same width",
+	"[unit][gui][textwrap][font][style]")
+{
+	// the height a wrapped widget reports is line count x (line height x scale).
+	// Doubling the scale in a fixed column therefore both breaks more often and
+	// makes each line taller - the growth a `preferred` content-size-fit sees.
+	BakedFont baked;
+	REQUIRE(baked.font != nullptr);
+	const float lineHeight = baked.font->getLineHeightScaled();
+	REQUIRE(lineHeight > 0.0f);
+
+	const char* copy = "a wrapped label breaks to the width the layout gives it";
+	std::vector<WrapCell> plain;
+	std::vector<UiGlyph const*> plainGlyphs;
+	TextWrap::buildRun(*baked.font, copy, plain, plainGlyphs);
+	WrapResult natural;
+	TextWrap::wrap(plain, 100000.0f, natural);
+	REQUIRE(natural.lineCount == 1);
+	const float column = natural.lineWidth[0] * 0.5f;
+
+	WrapResult plainWrapped;
+	TextWrap::wrap(plain, column, plainWrapped);
+	REQUIRE(plainWrapped.lineCount >= 2);
+
+	std::vector<WrapCell> big;
+	std::vector<UiGlyph const*> bigGlyphs;
+	TextWrap::buildRun(*baked.font, copy, big, bigGlyphs, 2.0f);
+	WrapResult bigWrapped;
+	TextWrap::wrap(big, column, bigWrapped);
+
+	// twice the glyphs in the same column: strictly more lines
+	CHECK(bigWrapped.lineCount > plainWrapped.lineCount);
+	// and each line is twice as tall, so the measured block grows on both counts
+	const float plainHeight = lineHeight * float(plainWrapped.lineCount);
+	const float bigHeight = lineHeight * 2.0f * float(bigWrapped.lineCount);
+	CHECK(bigHeight > plainHeight * 2.0f - 0.5f);
+	// every scaled line still fits the column (no overflow from the scale)
+	for (float w : bigWrapped.lineWidth)
+	{
+		CHECK(w <= column + 0.5f);
+	}
+}
+
+TEST_CASE("textwrap: a scaled run keeps the SAME caret byte mapping",
+	"[unit][gui][textwrap][font][style]")
+{
+	// the caret's LINE/byte mapping is structure; only its pen is a metric. A
+	// scaled multi-line field must therefore place the caret on the same line
+	// as an unscaled one wrapped at the proportionally wider column, and its
+	// pen must scale - never drift into another code point.
+	BakedFont baked;
+	REQUIRE(baked.font != nullptr);
+
+	const std::string text = "one two\nthree";
+	std::vector<WrapCell> plain, scaled;
+	std::vector<UiGlyph const*> pg, sg;
+	TextWrap::buildRun(*baked.font, text, plain, pg);
+	TextWrap::buildRun(*baked.font, text, scaled, sg, 2.0f);
+	REQUIRE(plain.size() == scaled.size());
+
+	WrapResult plainWrapped, scaledWrapped;
+	TextWrap::wrap(plain, 100000.0f, plainWrapped);
+	TextWrap::wrap(scaled, 200000.0f, scaledWrapped);
+	REQUIRE(plainWrapped.lineCount == scaledWrapped.lineCount);
+
+	const size_t caretByte = text.find("three") + 2;	// inside the second line
+	const TextWrap::CaretSpot plainSpot =
+		TextWrap::locateCaret(plain, plainWrapped, caretByte);
+	const TextWrap::CaretSpot scaledSpot =
+		TextWrap::locateCaret(scaled, scaledWrapped, caretByte);
+	CHECK(plainSpot.line == scaledSpot.line);		// same line, unaffected
+	CHECK(scaledSpot.penX == Catch::Approx(plainSpot.penX * 2.0f));
+
+	// the visual line starts are byte offsets - identical at any scale
+	std::vector<size_t> plainStarts, scaledStarts;
+	TextWrap::lineStartBytes(plain, plainWrapped, text.size(), plainStarts);
+	TextWrap::lineStartBytes(scaled, scaledWrapped, text.size(), scaledStarts);
+	CHECK(plainStarts == scaledStarts);
+}
+
 TEST_CASE("textwrap: buildRun records the source byte offset of every cell",
 	"[unit][gui][textwrap]")
 {

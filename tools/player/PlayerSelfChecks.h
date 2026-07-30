@@ -247,7 +247,7 @@ struct PlayerSelfChecks
 	//   Boot     the two .oui screens loaded: the tab bar, the tabbed panels,
 	//            the wrapped label, the multi-line field and the 1000-row
 	//            virtualized list all exist
-	//   Tabs     clicking each of the four tabs selects it (every section of
+	//   Tabs     clicking each of the five tabs selects it (every section of
 	//            the gallery is reachable)
 	//   Text     the WRAPPED label is taller than the single-line one (wrap-to-
 	//            width actually broke lines), and typing into the multi-line
@@ -257,8 +257,13 @@ struct PlayerSelfChecks
 	//            virtualization bound), a scroll MOVES that window, and a row
 	//            inside the scrolled window still HIT-TESTS at its rect
 	//   Overlay  a modal raises (the scrim consumes) and dismisses again
+	//   Styles   the styling tier on RESOLVED widget state: a named style's
+	//            font (named by ROLE, not index) / colour / scale reached its
+	//            widgets, a widget's own textColor OVERRODE its style's, an
+	//            explicit textScale measured taller, and an unstyled label was
+	//            left untouched
 	// A missed deadline exits non-zero.
-	enum class GalleryPhase { Boot, Tabs, Text, List, Overlay, Done };
+	enum class GalleryPhase { Boot, Tabs, Text, List, Overlay, Styles, Done };
 
 	GalleryPhase galleryPhase = GalleryPhase::Boot;
 	bool galleryCheckFailed = false;
@@ -271,6 +276,8 @@ struct PlayerSelfChecks
 	int galleryNoteLines = 0;				//!< wrapped line count of the field
 	int galleryListMaterialized = 0;		//!< rows alive at the top of the list
 	int galleryListScrolledFirst = 0;		//!< first row alive after the scroll
+	unsigned int galleryStyledFont = 0;		//!< the styled heading's resolved font
+	float galleryStyledScale = 0.0f;		//!< the styled label's resolved scale
 	// --- ORKIGE_VECTORANIM_SELFCHECK=1: vector (Lottie) animation rigs end
 	// to end against projects/vectorshapes (scenes/vectoranim.oscene). The
 	// hero rig carries an `idle` (loop) and a `hop` (once) clip; a script

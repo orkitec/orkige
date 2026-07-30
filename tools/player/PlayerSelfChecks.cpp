@@ -2721,7 +2721,9 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 					"localisedLabel", "notes", "playerName", "optionBox",
 					"toggleEasy", "volume", "loading", "quality", "resolution",
 					"decorScroll", "decorSlice", "decorTiled", "bigList",
-					"showModalButton", "hudTopLeft", "hudBottomRight" };
+					"showModalButton", "tabStyles", "styleHeading",
+					"styleBody", "styleButtonA", "styleButtonB", "scaledLabel",
+					"styleToggle", "hudTopLeft", "hudBottomRight" };
 				std::string missing;
 				for (char const* id : required)
 				{
@@ -2825,8 +2827,8 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		{
 			// EVERY section of the gallery must be reachable by a real click
 			char const* tabIds[] = { "tabControls", "tabLists", "tabOverlays",
-				"tabText" };
-			const int expected[] = { 1, 2, 3, 0 };
+				"tabStyles", "tabText" };
+			const int expected[] = { 1, 2, 3, 4, 0 };
 			optr<Orkige::GuiTabBar> bar = ui->getTabBar("tabs").lock();
 			if (!bar)
 			{
@@ -2857,7 +2859,7 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 					++galleryTabsSeen;
 					++galleryStep;
 					galleryStepFrame = frameCount + 2;
-					if (galleryStep >= 4)
+					if (galleryStep >= 5)
 					{
 						// back on the Text tab for the text assertions
 						galleryPhase = GalleryPhase::Text;
@@ -3095,24 +3097,153 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				}
 				else
 				{
-					SDL_Log("orkige_player: GALLERY SELFCHECK PASSED - all 4 "
-						"tabs reachable, every widget inside the frame column and "
-						"the text rows in declaration order, "
-						"wrapped label %.1fpx vs single-line "
-						"%.1fpx, multi-line field at %d lines after a typed "
-						"Return, %d of %d list rows live (first %d after the "
-						"scroll, scrolled row hit-tests), modal raised and "
-						"dismissed", double(galleryWrappedHeight),
-						double(galleryPlainHeight), galleryNoteLines,
-						galleryListMaterialized, 1000,
-						galleryListScrolledFirst);
-					galleryPhase = GalleryPhase::Done;
-					running = false;
+					galleryPhase = GalleryPhase::Styles;
+					galleryStep = 0;
+					galleryStepFrame = frameCount + 2;
+					galleryPhaseDeadline = frameCount + 900;
 				}
 			}
 			else if (frameCount >= galleryPhaseDeadline)
 			{
 				galleryFail("the overlay phase never finished");
+			}
+		}
+		else if (galleryPhase == GalleryPhase::Styles)
+		{
+			// The STYLING tier, asserted on RESOLVED widget state (never on the
+			// file): a named style seeds a widget's font / ink / size, the
+			// widget's OWN key overrides just that one, a font NAME resolved to
+			// the atlas index its role declares, and an explicit textScale
+			// really multiplies the drawn glyphs.
+			Orkige::GuiWidget* heading = widget("styleHeading");
+			Orkige::GuiWidget* body = widget("styleBody");
+			Orkige::GuiWidget* buttonA = widget("styleButtonA");
+			Orkige::GuiWidget* buttonB = widget("styleButtonB");
+			Orkige::GuiWidget* scaled = widget("scaledLabel");
+			Orkige::GuiWidget* toggle = widget("styleToggle");
+			Orkige::GuiWidget* plain = widget("plainLabel");
+			if (frameCount == galleryStepFrame)
+			{
+				// select the Styles tab so the section is the visible one
+				Orkige::Vec2 at;
+				if (!centreOf("tabStyles", at))
+				{
+					galleryFail("no rect for the styles tab");
+				}
+				else
+				{
+					clickAt(at);
+				}
+			}
+			else if (frameCount == galleryStepFrame + 3)
+			{
+				if (heading == nullptr || body == nullptr ||
+					buttonA == nullptr || buttonB == nullptr ||
+					scaled == nullptr || toggle == nullptr || plain == nullptr)
+				{
+					galleryFail("the styles tab lost a widget");
+				}
+				else
+				{
+					galleryStyledFont = heading->getFontIndex();
+					galleryStyledScale = scaled->getTextScale();
+					const unsigned int bodyFont = plain->getFontIndex();
+					const Orkige::Color headingInk = heading->getTextColour();
+					const Orkige::Color quietInk = body->getTextColour();
+					const Orkige::Color overriddenInk = buttonB->getTextColour();
+					const Orkige::Color inheritedInk = buttonA->getTextColour();
+					// FONT BY NAME: `font = heading` in the style resolved to a
+					// real atlas index, and NOT the body default
+					if (galleryStyledFont == bodyFont)
+					{
+						galleryFail("the style's font name did not resolve to a "
+							"DIFFERENT atlas font than the body default");
+					}
+					else if (!heading->hasTextColour() ||
+						std::abs(headingInk.r - 1.0f) > 0.01f ||
+						std::abs(headingInk.g - 0.82f) > 0.01f ||
+						std::abs(headingInk.b - 0.35f) > 0.01f)
+					{
+						galleryFail("the styled heading did not take the style's "
+							"text colour");
+					}
+					else if (body->getFontIndex() != bodyFont ||
+						std::abs(quietInk.r - 0.62f) > 0.01f)
+					{
+						galleryFail("the second style did not reach its label");
+					}
+					// PRECEDENCE: both buttons wear ONE style, so their font
+					// agrees, and only the overriding button's ink differs
+					else if (buttonA->getFontIndex() != galleryStyledFont ||
+						buttonB->getFontIndex() != galleryStyledFont)
+					{
+						galleryFail("a styled button did not inherit the "
+							"style's font");
+					}
+					else if (std::abs(inheritedInk.g - 0.82f) > 0.01f)
+					{
+						galleryFail("the un-overridden button lost the style's "
+							"ink");
+					}
+					else if (std::abs(overriddenInk.r - 0.35f) > 0.01f ||
+						std::abs(overriddenInk.g - 1.0f) > 0.01f ||
+						std::abs(overriddenInk.b - 0.65f) > 0.01f)
+					{
+						galleryFail("the widget's own textColor did not OVERRIDE "
+							"the style's");
+					}
+					// SIZE: an explicit textScale multiplies the glyphs, so the
+					// scaled label measures taller than the same-font plain one
+					else if (std::abs(galleryStyledScale - 2.0f) > 0.001f)
+					{
+						galleryFail("the explicit textScale did not reach the "
+							"widget");
+					}
+					else if (!(scaled->getSize().y > plain->getSize().y * 1.5f))
+					{
+						std::ostringstream why;
+						why << "a 2x-scaled label measured "
+							<< scaled->getSize().y << "px, not taller than the "
+							<< "unscaled " << plain->getSize().y << "px";
+						galleryFail(why.str());
+					}
+					// an UNSTYLED widget stays untouched: no explicit colour,
+					// scale 1 - the byte-identical default path
+					else if (plain->hasTextColour() ||
+						std::abs(plain->getTextScale() - 1.0f) > 0.001f)
+					{
+						galleryFail("an unstyled label picked up a text style");
+					}
+					else if (toggle->getFontIndex() != bodyFont ||
+						!toggle->hasTextColour())
+					{
+						galleryFail("a style did not reach a toggle's caption");
+					}
+					else
+					{
+						SDL_Log("orkige_player: GALLERY SELFCHECK PASSED - all 5 "
+							"tabs reachable, every widget inside the frame column and "
+							"the text rows in declaration order, "
+							"wrapped label %.1fpx vs single-line "
+							"%.1fpx, multi-line field at %d lines after a typed "
+							"Return, %d of %d list rows live (first %d after the "
+							"scroll, scrolled row hit-tests), modal raised and "
+							"dismissed, styles resolved (heading font %u vs body "
+							"%u, a local textColor overrode its style, %.1fx text "
+							"scale measured taller)",
+							double(galleryWrappedHeight),
+							double(galleryPlainHeight), galleryNoteLines,
+							galleryListMaterialized, 1000,
+							galleryListScrolledFirst, galleryStyledFont,
+							bodyFont, double(galleryStyledScale));
+						galleryPhase = GalleryPhase::Done;
+						running = false;
+					}
+				}
+			}
+			else if (frameCount >= galleryPhaseDeadline)
+			{
+				galleryFail("the styles phase never finished");
 			}
 		}
 	}

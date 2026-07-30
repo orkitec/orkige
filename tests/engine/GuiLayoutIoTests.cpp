@@ -328,6 +328,111 @@ TEST_CASE("oui: a list view's virtualized / itemHeight keys round-trip",
 	CHECK(*doc2.sections[0].find("itemHeight") == "28");
 }
 
+TEST_CASE("oui: the text-style keys (font/textColor/textScale) round-trip",
+	"[unit][oui]")
+{
+	// the three styling keys ride any text-bearing section as plain values the
+	// generic document model preserves. `font` takes EITHER the atlas
+	// `[Font.N]` index or the role NAME a font declares - both are just text
+	// here, and GuiFactory resolves them through the atlas. The APPLY (the
+	// caption really swaps font / ink / size) is asserted end to end in the
+	// player_gallery selfcheck; the VALUE verdicts live in GuiStyleTests.
+	const String text =
+		"[Label title]\n"
+		"text = Hello\n"
+		"font = heading\n"
+		"textColor = 1 0.82 0.35 1\n"
+		"textScale = 1.5\n"
+		"\n"
+		"[Button play]\n"
+		"font = 24\n";
+
+	GuiLayoutDoc doc;
+	String error;
+	REQUIRE(GuiLayoutDoc::parse(text, doc, error));
+	REQUIRE(doc.sections.size() == 2);
+	CHECK(*doc.sections[0].find("font") == "heading");
+	CHECK(*doc.sections[0].find("textColor") == "1 0.82 0.35 1");
+	CHECK(*doc.sections[0].find("textScale") == "1.5");
+	CHECK(*doc.sections[1].find("font") == "24");	// the index form survives
+
+	const String canonical = doc.serialize();
+	GuiLayoutDoc doc2;
+	REQUIRE(GuiLayoutDoc::parse(canonical, doc2, error));
+	CHECK(doc2.serialize() == canonical);
+	CHECK(*doc2.sections[0].find("font") == "heading");
+	CHECK(*doc2.sections[0].find("textColor") == "1 0.82 0.35 1");
+	CHECK(*doc2.sections[0].find("textScale") == "1.5");
+}
+
+TEST_CASE("oui: a [Style NAME] section and a widget's style key round-trip",
+	"[unit][oui]")
+{
+	// a named style is an ordinary `[Type id]` section carrying widget keys, so
+	// the document model preserves it with no grammar change; a widget points at
+	// it with `style = NAME`. The PRECEDENCE (style first, own keys override)
+	// is the pure GuiStyleTests contract.
+	const String text =
+		"[Style hero]\n"
+		"font = heading\n"
+		"textColor = 1 0.82 0.35 1\n"
+		"textScale = 1.4\n"
+		"nineSlice = true\n"
+		"\n"
+		"[Button play]\n"
+		"style = hero\n"
+		"sprite = button\n"
+		"textColor = 0.1 0.1 0.1 1\n";
+
+	GuiLayoutDoc doc;
+	String error;
+	REQUIRE(GuiLayoutDoc::parse(text, doc, error));
+	REQUIRE(doc.sections.size() == 2);
+	CHECK(doc.sections[0].type == "Style");
+	CHECK(doc.sections[0].id == "hero");
+	CHECK(*doc.sections[0].find("nineSlice") == "true");
+	CHECK(*doc.sections[1].find("style") == "hero");
+
+	const String canonical = doc.serialize();
+	GuiLayoutDoc doc2;
+	REQUIRE(GuiLayoutDoc::parse(canonical, doc2, error));
+	CHECK(doc2.serialize() == canonical);
+	CHECK(doc2.sections[0].type == "Style");
+	CHECK(doc2.sections[0].id == "hero");
+	CHECK(*doc2.sections[1].find("style") == "hero");
+}
+
+TEST_CASE("oui: MALFORMED style values survive the document model verbatim",
+	"[unit][oui]")
+{
+	// the document model is a text carrier: it does NOT validate values, so an
+	// unknown font name, an unknown style name and a bad colour arity all parse
+	// and round-trip unchanged. The runtime is what warns and falls back
+	// (GuiFactory) - and the verdicts themselves are GuiStyleTests. Asserting
+	// this HERE pins the division of labour: a typo never breaks the file.
+	const String text =
+		"[Label bad]\n"
+		"style = nosuchstyle\n"
+		"font = nosuchfont\n"
+		"textColor = 1 0\n"
+		"textScale = -3\n";
+
+	GuiLayoutDoc doc;
+	String error;
+	REQUIRE(GuiLayoutDoc::parse(text, doc, error));
+	CHECK(error.empty());
+	REQUIRE(doc.sections.size() == 1);
+	CHECK(*doc.sections[0].find("style") == "nosuchstyle");
+	CHECK(*doc.sections[0].find("font") == "nosuchfont");
+	CHECK(*doc.sections[0].find("textColor") == "1 0");
+	CHECK(*doc.sections[0].find("textScale") == "-3");
+
+	const String canonical = doc.serialize();
+	GuiLayoutDoc doc2;
+	REQUIRE(GuiLayoutDoc::parse(canonical, doc2, error));
+	CHECK(doc2.serialize() == canonical);
+}
+
 TEST_CASE("oui: a key before any section fails honestly", "[unit][oui]")
 {
 	const String text = "atlas = gui_default\n[Label a]\ntext = x\n";

@@ -62,8 +62,11 @@ namespace Orkige
 		void setCaption(String const & text);
 		virtual void applyRenderTransform(Ui2DTransform const & transform);
 		virtual void applyRenderAlpha(float alphaMultiplier);
+		virtual bool hasTextStyle() const { return true; }
 
     protected:
+		//! forward the widget's text style to its caption
+		virtual void onTextStyleChanged();
     private:
     };
 	//---------------------------------------------------------------

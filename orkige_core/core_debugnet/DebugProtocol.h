@@ -413,6 +413,12 @@ namespace Orkige
 		//! is "1"/"0"). Two lists keep the message flat (no nested objects).
 		extern ORKIGE_CORE_DLL const String LIST_UI_IDS;
 		extern ORKIGE_CORE_DLL const String LIST_UI_RECTS;
+		//! @brief MSG_UI_LAYOUT: parallel to LIST_UI_IDS, one flat
+		//! "hasText font textScale colourSet r g b a" style string per id - the
+		//! RESOLVED text style the widget draws with (after a named style and the
+		//! widget's own keys were applied). hasText/colourSet are "1"/"0";
+		//! font is the atlas [Font.N] index; the colour components are 0..1.
+		extern ORKIGE_CORE_DLL const String LIST_UI_STYLES;
 		//! @brief MSG_UI_LAYOUT: the screen router's state - FIELD_UI_SCREEN is the
 		//! current (top) screen's name, FIELD_UI_SCREEN_STACK the space-joined
 		//! bottom-to-top screen path. Both empty when no screen stack is in use.

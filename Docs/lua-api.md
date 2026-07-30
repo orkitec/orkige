@@ -1515,6 +1515,12 @@ GuiWidget:getGroupAlpha(...)
 GuiWidget:getEffectiveAlpha(...)
 GuiWidget:setAlphaBlocksInput(...)
 GuiWidget:setTransition(...)
+GuiWidget:setFontIndex(...)
+GuiWidget:getFontIndex(...)
+GuiWidget:setTextColour(...)
+GuiWidget:setTextScale(...)
+GuiWidget:getTextScale(...)
+GuiWidget:hasTextStyle(...)
 
 ## GuiTextbox
 GuiTextbox:setWrap(...)

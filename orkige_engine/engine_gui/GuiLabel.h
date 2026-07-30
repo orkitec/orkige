@@ -67,7 +67,10 @@ namespace Orkige
 		virtual std::function<float(float)> getHeightForWidthMeasurer();
 		virtual void applyRenderTransform(Ui2DTransform const & transform);
 		virtual void applyRenderAlpha(float alphaMultiplier);
+		virtual bool hasTextStyle() const { return true; }
 	protected:
+		//! push the widget's font / colour / scale into the caption
+		virtual void onTextStyleChanged();
 	private:
 	};
 	//---------------------------------------------------------------

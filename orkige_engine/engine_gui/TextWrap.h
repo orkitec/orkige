@@ -99,9 +99,15 @@ namespace Orkige
 		//! caller emits quads for the inked ones. A glyph carries its leading
 		//! kerning as leadKern (dropped at a line start) and CJK glyphs are
 		//! flagged breakBefore. Metrics come through the font's *Scaled getters.
+		//! @param textScale a per-element glyph SIZE multiplier applied to EVERY
+		//! metric (advance, inked width, space, kerning, letter spacing), so a
+		//! scaled caption wraps at the width its scaled glyphs actually occupy.
+		//! 1 = the font's baked size (the metrics are then byte-identical to the
+		//! unscaled call).
 		ORKIGE_ENGINE_DLL void buildRun(UiFont const & font, String const & utf8,
 			std::vector<WrapCell> & cells,
-			std::vector<UiGlyph const *> & glyphs);
+			std::vector<UiGlyph const *> & glyphs,
+			float textScale = 1.0f);
 
 		//! @brief where a caret sits in a wrapped run: the visual line it is on
 		//! and the line-relative pen (px) it draws at.

@@ -21,6 +21,10 @@
         <source>Overlays</source>
         <target state="translated">Overlays</target>
       </trans-unit>
+      <trans-unit id="gallery.tab.styles" resname="gallery.tab.styles" xml:space="preserve">
+        <source>Styles</source>
+        <target state="translated">Styles</target>
+      </trans-unit>
       <trans-unit id="gallery.tab.text" resname="gallery.tab.text" xml:space="preserve">
         <source>Text</source>
         <target state="translated">Text</target>

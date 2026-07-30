@@ -21,6 +21,7 @@ namespace Orkige
 	{
 		this->caption = this->layer->createCaption(defaultGlyphIndex, position.x, position.y, text);
 		this->caption->scaled(scaled);
+		this->initFontIndex(defaultGlyphIndex);
 	}
 	//---------------------------------------------------------
 	GuiLabel::~GuiLabel()
@@ -174,7 +175,25 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
-
+	void GuiLabel::onTextStyleChanged()
+	{
+		if(this->caption == NULL)
+		{
+			return;
+		}
+		this->caption->setFont(this->getFontIndex());
+		this->caption->setTextScale(this->getTextScale());
+		if(this->hasTextColour())
+		{
+			this->caption->colour(this->getTextColour());
+			if(!this->isEnabled())
+			{
+				// a style applied while disabled must not un-dim the caption:
+				// the disabled look owns the opacity (@see setAlpha)
+				this->setAlpha(GuiWidget::DISABLED_ALPHA);
+			}
+		}
+	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------

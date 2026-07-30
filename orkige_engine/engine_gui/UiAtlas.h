@@ -28,6 +28,7 @@
 
 #include <map>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Ogre
@@ -264,6 +265,13 @@ namespace Orkige
 		inline uint getRangeBegin() const	{ return this->mRangeBegin; }
 		inline uint getRangeEnd() const		{ return this->mRangeEnd; }
 
+		//! @brief the optional `name` this font declares in its `[Font.N]`
+		//! section ("" when unnamed). A `.oui` `font = <name>` key resolves
+		//! through it (@see UiAtlas::resolveFontRef), so a screen names the ROLE
+		//! ("heading") instead of an atlas index that shifts when the generator
+		//! adds a size.
+		inline String const & getName() const	{ return this->mName; }
+
 		Real getSpaceLengthScaled() const	{ return UiGlyph::scale.x * this->mSpaceLength; }
 		Real getLineHeightScaled() const	{ return UiGlyph::scale.y * this->mLineHeight; }
 		Real getBaselineScaled() const		{ return UiGlyph::scale.y * this->mBaseline; }
@@ -271,6 +279,7 @@ namespace Orkige
 		Real getMonoWidthScaled() const		{ return UiGlyph::scale.x * this->mMonoWidth; }
 	protected:
 		std::vector<UiGlyph>	mGlyphs;	//!< contiguous, index = code - rangeBegin
+		String	mName;						//!< the optional `name` role token
 		uint	mRangeBegin, mRangeEnd;
 		Real	mSpaceLength, mLineHeight, mBaseline, mLetterSpacing, mMonoWidth;
 		//! baked-on-demand glyphs outside the eager base range (runtime TTF
@@ -319,6 +328,25 @@ namespace Orkige
 			}
 			return &it->second;
 		}
+
+		//! @brief the `[Font.N]` index whose section declares `name <name>`, or
+		//! false when no font carries that name. Case-insensitive (a role token
+		//! is not punctuation); the LOWEST matching index wins if an atlas
+		//! declares the same name twice.
+		bool findFontByName(String const & name, uint & indexOut) const;
+
+		//! @brief resolve a `.oui` `font = <ref>` value: a decimal run is a
+		//! `[Font.N]` INDEX, anything else is a font NAME looked up through
+		//! findFontByName. @return false when the ref names neither a loaded
+		//! index nor a declared name (the caller warns once and keeps its
+		//! default); @p indexOut is untouched then.
+		bool resolveFontRef(String const & ref, uint & indexOut) const;
+
+		//! @brief every loaded font as "<name-or-index>" -> index, ascending by
+		//! index (a font with a `name` reports the name). Feeds the editor's
+		//! `.oui` font picker off the SAME atlas the layout renders through; the
+		//! runtime never needs it.
+		std::vector<std::pair<String, uint> > fontRefs() const;
 
 		//! sprite by name, NULL when absent (do not free)
 		inline UiSprite const * getSprite(String const & name) const

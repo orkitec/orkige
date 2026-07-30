@@ -64,9 +64,12 @@ namespace Orkige
 		//! @brief register a TrueType face at a design pixel height as font
 		//! `fontIndex` and eagerly bake [rangeFirst, rangeLast]. The bytes are
 		//! copied. @returns false when the blob will not parse.
+		//! @param roleName the optional `[Font.N] name` role token a `.oui`
+		//! `font = <name>` resolves through (@see UiAtlas::resolveFontRef)
 		bool addFace(uint fontIndex, unsigned char const * ttf, int ttfSize,
 			float designPixelHeight,
-			uint rangeFirst = 32, uint rangeLast = 255);
+			uint rangeFirst = 32, uint rangeLast = 255,
+			String const & roleName = String());
 
 		//! @brief rasterise an SVG blob into a named sprite whose natural
 		//! width maps to `designWidth` design px (device px = x bake scale).

@@ -8,11 +8,15 @@ page 1024
 
 # a [Font.N] with `ttf`/`size` is a runtime TrueType font (design pixels);
 # glyph_* rects would make it a classic bitmap font instead - one format.
+# `name` is the ROLE token a `.oui` `font = heading` resolves through, so a
+# screen names the role instead of an atlas index.
 [Font.9]
+name body
 ttf Nunito-Regular.ttf
 size 18
 
 [Font.24]
+name heading
 ttf Nunito-Regular.ttf
 size 34
 

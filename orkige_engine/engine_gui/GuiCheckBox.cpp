@@ -63,6 +63,7 @@ namespace Orkige
 		// the alignment the author asked for (centred by default)
 		this->label->setAlignment(this->checkbox != NULL
 			? GuiLabel::LA_LEFT : this->textAlignment);
+		this->initFontIndex(defaultGlyphIndex);
 		this->arrangeParts();
     }
     //----------------------------------------------------
@@ -264,6 +265,14 @@ namespace Orkige
 		if(this->label)		this->label->applyRenderAlpha(alphaMultiplier);
 	}
 	//----------------------------------------------------
+	//---------------------------------------------------------
+	void GuiCheckBox::onTextStyleChanged()
+	{
+		this->forwardTextStyle(this->label);
+		// the caption's measured width feeds the BOX skin's column, so a
+		// font/scale change has to re-place the parts
+		this->arrangeParts();
+	}
 	OABSTRACT_IMPL(GuiCheckBox)
 		// settings toggle: scripts poll isChecked() and drive setChecked/toggle
 		// (position/size accessors are inherited from GuiWidget)

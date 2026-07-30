@@ -5,6 +5,9 @@
 [Texture]
 page 512
 
+# `name` is the ROLE token a `.oui` `font = body` resolves through (a name
+# survives an index shuffle; the raw index still works).
 [Font.9]
+name body
 ttf Nunito-Regular.ttf
 size 18

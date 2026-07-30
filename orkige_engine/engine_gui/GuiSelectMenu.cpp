@@ -43,6 +43,7 @@ namespace Orkige
 			valueLabel->getCaption()->colour(
 				Orkige::Colours::webcolour(Orkige::Colours::Black));
 		}
+		this->initFontIndex(defaultGlyphIndex);
 		this->arrangeParts();
 
 		this->selectedIndex = -1;
@@ -260,6 +261,14 @@ namespace Orkige
 		if(this->buttonMainSelection)	this->buttonMainSelection->applyRenderAlpha(alphaMultiplier);
 	}
 	//----------------------------------------------------
+	//---------------------------------------------------------
+	void GuiSelectMenu::onTextStyleChanged()
+	{
+		// the title AND the value field's own caption wear the one style
+		this->forwardTextStyle(this->label);
+		this->forwardTextStyle(this->buttonMainSelection);
+		this->arrangeParts();
+	}
 	OABSTRACT_IMPL(GuiSelectMenu)
 		// option cycler / settings value: scripts poll getSelectedItemIndex()
 		// and drive it via selectItemIndex/selectItem; setItems takes a Lua

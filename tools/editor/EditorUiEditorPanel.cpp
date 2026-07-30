@@ -27,6 +27,7 @@
 #include <core_util/StringTable.h>
 #include <engine_render/RenderTexture.h>
 #include <engine_gui/GuiManager.h>
+#include <engine_gui/GuiStyle.h>
 #include <engine_gui/UiAtlas.h>
 
 #include <imgui.h>
@@ -1941,6 +1942,172 @@ namespace OrkigeEditor
 			endPropertyRow();
 			return committed;
 		}
+		//! @brief the `font` property row: a combo over the layout atlas' fonts,
+		//! each shown by the ROLE NAME its `[Font.N]` section declares (with the
+		//! index beside it) and written to the file as that NAME - a name survives
+		//! a generator adding a size, an index does not. A value the live atlas
+		//! does not carry stays selectable as a free-text row so a headless /
+		//! not-yet-loaded atlas never silently rewrites the file. Returns true on
+		//! a committed change.
+		bool fontRow(UiEditSession& s, UiEditDoc& doc, GuiLayoutSection& sec,
+			char const* label, char const* tooltip, char const* key)
+		{
+			const String atlasName = layoutAtlasName(s);
+			String const* curPtr = sec.find(key);
+			const String cur = curPtr ? *curPtr : String();
+			std::vector<std::pair<String, unsigned int> > fonts;
+			if(Orkige::GuiManager* gui = Orkige::GuiManager::getSingletonPtr())
+			{
+				fonts = gui->getAtlasFontRefs(atlasName);
+			}
+			beginPropertyRow(label, tooltip);
+			bool committed = false;
+			const String comboId = String("##") + key;
+			const char* preview = cur.empty() ? "(default)" : cur.c_str();
+			if(ImGui::BeginCombo(comboId.c_str(), preview))
+			{
+				if(ImGui::Selectable("(default)", cur.empty()))
+				{
+					doc.beginEdit();
+					sec.set(key, String());
+					doc.commitEdit();
+					committed = true;
+				}
+				for(std::pair<String, unsigned int> const& font : fonts)
+				{
+					char row[96];
+					std::snprintf(row, sizeof(row), "%s  (%u)",
+						font.first.c_str(), font.second);
+					if(ImGui::Selectable(row, cur == font.first))
+					{
+						doc.beginEdit();
+						sec.set(key, font.first);
+						doc.commitEdit();
+						committed = true;
+					}
+				}
+				if(fonts.empty())
+				{
+					// no live atlas here (classic / headless): say so instead of
+					// offering an empty list that looks like "this atlas has none"
+					ImGui::TextDisabled("no atlas fonts loaded");
+				}
+				ImGui::EndCombo();
+			}
+			endPropertyRow();
+			// an authored value the live atlas does not carry: flag it inline
+			// rather than dropping it (the file is the interface)
+			if(!cur.empty() && !fonts.empty())
+			{
+				bool known = false;
+				for(std::pair<String, unsigned int> const& font : fonts)
+				{
+					known = known || font.first == cur;
+				}
+				if(!known)
+				{
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(1);
+					ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
+						"'%s' is not in this atlas", cur.c_str());
+				}
+			}
+			return committed;
+		}
+		//! @brief an RGBA COLOUR property row backed by a space-separated
+		//! `key = r g b a` value (the `.oui` house form). A drag/pick folds into
+		//! ONE undo step: the gesture opens on activation and closes on
+		//! deactivation-after-edit, like the text rows. An unparseable current
+		//! value shows opaque white rather than refusing to draw.
+		bool colorRow(UiEditDoc& doc, GuiLayoutSection& sec,
+			char const* label, char const* tooltip, char const* key)
+		{
+			float rgba[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+			if(String const* v = sec.find(key))
+			{
+				String error;
+				Orkige::GuiStyle::parseTextColour(*v, rgba, error);
+			}
+			beginPropertyRow(label, tooltip);
+			const String id = String("##") + key;
+			const bool changed = ImGui::ColorEdit4(id.c_str(), rgba,
+				ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_NoInputs |
+				ImGuiColorEditFlags_AlphaPreviewHalf);
+			const bool activated = ImGui::IsItemActivated();
+			const bool done = ImGui::IsItemDeactivatedAfterEdit();
+			endPropertyRow();
+			if(activated)
+			{
+				doc.beginEdit();
+			}
+			if(changed)
+			{
+				char buffer[96];
+				std::snprintf(buffer, sizeof(buffer), "%g %g %g %g",
+					double(rgba[0]), double(rgba[1]), double(rgba[2]),
+					double(rgba[3]));
+				sec.set(key, buffer);
+			}
+			if(done)
+			{
+				doc.commitEdit();
+				return true;
+			}
+			return false;
+		}
+		//! @brief the `style` property row: a combo over the `[Style NAME]`
+		//! sections the EDITED DOCUMENT declares, plus a "(none)" clear. A style
+		//! seeds the widget's keys and the widget's own keys override
+		//! (declaration-order precedence, @see GuiStyle). A name the document
+		//! does not declare stays in the file and is flagged inline - never
+		//! silently rewritten.
+		bool styleRow(UiEditSession& s, UiEditDoc& doc, GuiLayoutSection& sec)
+		{
+			const std::vector<String> names =
+				Orkige::GuiStyle::styleNames(s.doc.doc());
+			String const* curPtr = sec.find(Orkige::GuiStyle::styleKey());
+			const String cur = curPtr ? *curPtr : String();
+			beginPropertyRow("Style",
+				"a named [Style] bundle: its keys seed this widget, and the "
+				"widget's own keys override them");
+			bool committed = false;
+			if(ImGui::BeginCombo("##style",
+				cur.empty() ? "(none)" : cur.c_str()))
+			{
+				if(ImGui::Selectable("(none)", cur.empty()))
+				{
+					doc.beginEdit();
+					sec.set(Orkige::GuiStyle::styleKey(), String());
+					doc.commitEdit();
+					committed = true;
+				}
+				for(String const& name : names)
+				{
+					if(ImGui::Selectable(name.c_str(), cur == name))
+					{
+						doc.beginEdit();
+						sec.set(Orkige::GuiStyle::styleKey(), name);
+						doc.commitEdit();
+						committed = true;
+					}
+				}
+				if(names.empty())
+				{
+					ImGui::TextDisabled("this screen declares no [Style]");
+				}
+				ImGui::EndCombo();
+			}
+			endPropertyRow();
+			if(!cur.empty() &&
+				std::find(names.begin(), names.end(), cur) == names.end())
+			{
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(1);
+				ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
+					"no [Style %s] in this screen", cur.c_str());
+			}
+			return committed;
+		}
 		//! the field key whose per-axis drag currently owns the open undo gesture
 		//! ("" = none). Only one UI Editor panel exists, so a file-static is enough;
 		//! drawUiEditToolsBody closes the gesture once the drag releases.
@@ -2223,6 +2390,10 @@ namespace OrkigeEditor
 		for(GuiLayoutSection const& sec : s.doc.doc().sections)
 		{
 			if(sec.id.empty()) { continue; }	// [Layout]/[Modal] etc.
+			// a [Style NAME] section is a property BUNDLE, not a widget - it has
+			// no rect to select and no place in the widget tree (widgets
+			// reference it through their Style row)
+			if(kindToken(sec) == Orkige::GuiStyle::styleSectionType()) { continue; }
 			String const* p = sec.find("parent");
 			if(p && !p->empty() && sectionIndex(s.doc.doc(), *p) >= 0)
 			{
@@ -2449,6 +2620,22 @@ namespace OrkigeEditor
 					{
 						committed |= spriteRow(s, s.doc, *sec, "Sprite",
 							"the atlas sprite face (button / panel / ...)", "sprite");
+					}
+					// the STYLE reference comes first: it seeds every key below,
+					// which then override it (declaration-order precedence)
+					committed |= styleRow(s, s.doc, *sec);
+					if(kindHasText(kind))
+					{
+						// the text-style trio: which baked font, what ink, how big
+						committed |= fontRow(s, s.doc, *sec, "Font",
+							"the atlas font this caption draws with (its role "
+							"name - 'body', 'heading', ...)", "font");
+						committed |= colorRow(s.doc, *sec, "Text Color",
+							"the caption colour (r g b a, 0..1)", "textColor");
+						committed |= textRow(s.doc, *sec, "Text Scale",
+							"a glyph size multiplier on the baked font (1 = its "
+							"baked size; away from a whole multiple the glyphs "
+							"resample and read softer)", "textScale");
 					}
 					if(kindHasWrap(kind))
 					{

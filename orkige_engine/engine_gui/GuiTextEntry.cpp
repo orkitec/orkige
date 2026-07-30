@@ -65,6 +65,7 @@ namespace Orkige
 			TEXT_ENTRY_CARET_WIDTH, size.y - 2.0f * TEXT_ENTRY_PADDING);
 		this->mCaret->background_colour(textColour());
 		this->mCaret->setAlpha(0.0f);	// hidden until focused
+		this->initFontIndex(defaultGlyphIndex);
 		this->relayout();
 		this->refresh();
 	}
@@ -355,7 +356,10 @@ namespace Orkige
 	Ogre::Real GuiTextEntry::lineHeight() const
 	{
 		UiFont const * font = this->mCaption->font();
-		return (font != NULL) ? font->getLineHeightScaled() : 0.0f;
+		// the caption's OWN scale is part of the metric - the caret window and
+		// the drawn glyphs must never disagree about a line's height
+		return (font != NULL)
+			? font->getLineHeightScaled() * this->mCaption->textScale() : 0.0f;
 	}
 	//---------------------------------------------------------
 	void GuiTextEntry::onEnabledChanged(bool enable)
@@ -368,6 +372,15 @@ namespace Orkige
 		this->mCaption->colour(colour);
 	}
 	//---------------------------------------------------------
+	Color GuiTextEntry::entryTextColour() const
+	{
+		// the AUTHORED text colour when one was set (`.oui` textColor / a
+		// named style / Lua), else the field's default ink. refresh() rewrites
+		// the caption colour on every state change, so the style has to be
+		// read HERE rather than pushed once.
+		return this->hasTextColour() ? this->getTextColour() : textColour();
+	}
+	//---------------------------------------------------------
 	void GuiTextEntry::refresh()
 	{
 		if(this->mMultiline)
@@ -378,7 +391,7 @@ namespace Orkige
 		const bool showPlaceholder = this->mText.empty() && !this->mFocused;
 		this->mCaption->text(showPlaceholder ? this->mPlaceholder : this->mText);
 		this->mCaption->colour(showPlaceholder ? placeholderColour()
-			: textColour());
+			: this->entryTextColour());
 		// caret x = text origin + the measured width of the text before the caret
 		this->mMeasure->text(this->mText.substr(0, this->mCaretByte));
 		Vec2 measured(0.0f, 0.0f);
@@ -390,7 +403,7 @@ namespace Orkige
 	{
 		const bool showPlaceholder = this->mText.empty() && !this->mFocused;
 		this->mCaption->colour(showPlaceholder ? placeholderColour()
-			: textColour());
+			: this->entryTextColour());
 		UiFont const * font = this->mCaption->font();
 		const Ogre::Real lineHeight = this->lineHeight();
 		if(font == NULL || lineHeight <= 0.0f)
@@ -414,7 +427,8 @@ namespace Orkige
 		// the caption redraws with, so the caret can never disagree with the glyphs
 		std::vector<WrapCell> cells;
 		std::vector<UiGlyph const *> glyphs;
-		TextWrap::buildRun(*font, this->mText, cells, glyphs);
+		TextWrap::buildRun(*font, this->mText, cells, glyphs,
+			float(this->mCaption->textScale()));
 		WrapResult wrapped;
 		TextWrap::wrap(cells, this->mCaption->width(), wrapped);
 		this->mLineCount = wrapped.lineCount > 0 ? wrapped.lineCount : 1;
@@ -471,6 +485,29 @@ namespace Orkige
 		if(this->mCaret)		this->mCaret->renderAlpha(alphaMultiplier);
 	}
 	//---------------------------------------------------------
+	//---------------------------------------------------------
+	void GuiTextEntry::onTextStyleChanged()
+	{
+		// BOTH captions wear the style: the measuring twin has to agree with
+		// the visible one or the caret lands in the wrong place
+		UiCaption* captions[2] = { this->mCaption, this->mMeasure };
+		for(UiCaption* caption : captions)
+		{
+			if(caption == NULL)
+			{
+				continue;
+			}
+			caption->setFont(this->getFontIndex());
+			caption->setTextScale(this->getTextScale());
+		}
+		if(this->hasTextColour())
+		{
+			// the caret is drawn in the text colour - keep them together
+			this->mCaret->background_colour(this->entryTextColour());
+		}
+		this->relayout();
+		this->refresh();
+	}
 	OABSTRACT_IMPL(GuiTextEntry)
 		OFUNC(setPosition)
 		OFUNC(setSize)

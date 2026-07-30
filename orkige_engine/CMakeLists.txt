@@ -263,6 +263,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gui/GuiListView.cpp
     engine_gui/GuiLayout.h
     engine_gui/GuiLayout.cpp
+    engine_gui/GuiStyle.h
+    engine_gui/GuiStyle.cpp
     engine_gui/GuiCheckBox.h
     engine_gui/GuiCheckBox.cpp
     engine_gui/GuiButtonBlink.h

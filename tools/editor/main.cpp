@@ -1823,7 +1823,8 @@ int main(int argc, char** argv)
 		// .oui hot-reload playtest state that spans frames
 		enum class UiHotReloadPhase
 		{
-			Idle, WaitBaseline, WaitMoved, WaitBroken, WaitRevert, Done
+			Idle, WaitBaseline, WaitMoved, WaitStyled, WaitBroken, WaitRevert,
+			Done
 		};
 		UiHotReloadPhase uiHotreloadPhase = UiHotReloadPhase::Idle;
 		std::chrono::steady_clock::time_point uiHotreloadDeadline;
@@ -1872,10 +1873,52 @@ int main(int argc, char** argv)
 			}
 			return true;
 		};
+		// the probe label's streamed RESOLVED text style (font index, glyph
+		// scale, whether an explicit colour was set) - the styling counterpart
+		// of uiProbeLeft, off the SAME MSG_UI_LAYOUT stream
+		struct UiProbeStyle
+		{
+			bool found = false;
+			long long font = 0;
+			double scale = 1.0;
+			bool colourSet = false;
+			double r = 1.0, g = 1.0, b = 1.0;
+		};
+		auto uiProbeStyle = [&playSession]() -> UiProbeStyle
+		{
+			UiProbeStyle style;
+			for (PlaySession::RemoteWidgetRect const& w :
+				playSession.remoteUiLayout)
+			{
+				if (w.id == "probe")
+				{
+					style.found = true;
+					style.font = w.font;
+					style.scale = w.textScale;
+					style.colourSet = w.textColourSet;
+					style.r = w.textR;
+					style.g = w.textG;
+					style.b = w.textB;
+					break;
+				}
+			}
+			return style;
+		};
 		// a hud.oui whose label sits at (x, 100)
 		auto uiMovedOui = [](int x) -> std::string
 		{
 			return "[Layout]\natlas = gui_default\n\n[Label probe]\nfont = 9\n"
+				"text = HUD\nposition = " + std::to_string(x) + " 100\n";
+		};
+		// the SAME screen re-authored through a NAMED STYLE: the probe keeps its
+		// position (so the rect assertions downstream still hold) but takes its
+		// font / colour / size from the bundle, with one key overridden locally
+		auto uiStyledOui = [](int x) -> std::string
+		{
+			return "[Layout]\natlas = gui_default\n\n"
+				"[Style big]\nfont = body\ntextColor = 1 0 0 1\n"
+				"textScale = 3\n\n"
+				"[Label probe]\nstyle = big\ntextColor = 0 1 0 1\n"
 				"text = HUD\nposition = " + std::to_string(x) + " 100\n";
 		};
 		// does the Console hold a "[remote]" error line about reload_ui?
@@ -14814,8 +14857,61 @@ int main(int argc, char** argv)
 						left >= uiBaselineLeft + 50.0f)
 					{
 						uiMovedLeft = left;
+						// a STYLING edit hot-reloads like any other .oui
+						// property: re-author the screen through a named style
+						// (font by role name + colour + scale) with one key
+						// overridden locally, at the SAME position
+						if (!uiWriteOui(uiStyledOui(300)))
+						{
+							uiFailed = true;
+							uiFailure = "could not write the styled .oui";
+						}
+						else
+						{
+							uiHotreloadPhase = UiHotReloadPhase::WaitStyled;
+							uiHotreloadDeadline =
+								uiNow + std::chrono::seconds(90);
+							SDL_Log("orkige_editor: ui hot-reload playtest - "
+								"live reload moved the label to left=%.0f, now "
+								"styling it", uiMovedLeft);
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						uiFailed = true;
+						uiFailure = "session ended before the moved reload took "
+							"effect";
+					}
+				}
+				else if (uiHotreloadPhase == UiHotReloadPhase::WaitStyled)
+				{
+					// the styled rebuild must land in the RUNNING screen: the
+					// streamed resolved style carries the scale the bundle set
+					// and the colour the widget overrode it with
+					const UiProbeStyle style = uiProbeStyle();
+					const float left = uiProbeLeft();
+					if (style.found && style.colourSet &&
+						std::abs(style.scale - 3.0) < 0.01)
+					{
+						if (!(std::abs(style.r - 0.0) < 0.01 &&
+							std::abs(style.g - 1.0) < 0.01 &&
+							std::abs(style.b - 0.0) < 0.01))
+						{
+							uiFailed = true;
+							uiFailure = "the styled reload did not honour the "
+								"widget's OWN textColor over the style's";
+						}
+						// the position key was untouched, so the rect must not
+						// have moved with the styling
+						else if (!std::isnan(left) &&
+							std::abs(left - uiMovedLeft) > 1.0f)
+						{
+							uiFailed = true;
+							uiFailure = "the styled reload moved the label "
+								"(only its look changed)";
+						}
 						// now break it: an unparseable .oui must NOT swap
-						if (!uiWriteOui("[Broken section header\n"))
+						else if (!uiWriteOui("[Broken section header\n"))
 						{
 							uiFailed = true;
 							uiFailure = "could not write the broken .oui";
@@ -14826,14 +14922,15 @@ int main(int argc, char** argv)
 							uiHotreloadDeadline =
 								uiNow + std::chrono::seconds(90);
 							SDL_Log("orkige_editor: ui hot-reload playtest - "
-								"live reload moved the label to left=%.0f, now "
-								"breaking the .oui", uiMovedLeft);
+								"the style edit reloaded live (scale %.1f, local "
+								"colour won), now breaking the .oui",
+								style.scale);
 						}
 					}
 					else if (playSession.mode == PlaySession::Mode::Edit)
 					{
 						uiFailed = true;
-						uiFailure = "session ended before the moved reload took "
+						uiFailure = "session ended before the styled reload took "
 							"effect";
 					}
 				}
@@ -14891,9 +14988,11 @@ int main(int argc, char** argv)
 						{
 							SDL_Log("orkige_editor: ui hot-reload playtest "
 								"PASSED: watcher -> reload_ui -> live rebuild "
-								"(label moved), broken .oui contained ([remote] "
-								"error, play continued, old screen kept), clean "
-								"Stop");
+								"(label moved), a NAMED STYLE edit reloaded the "
+								"same way (font/colour/scale resolved live, the "
+								"widget's own key overrode the bundle), broken "
+								".oui contained ([remote] error, play continued, "
+								"old screen kept), clean Stop");
 							std::error_code ignored;
 							std::filesystem::remove_all(uiHotreloadTempRoot,
 								ignored);

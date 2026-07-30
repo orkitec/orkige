@@ -180,7 +180,8 @@ namespace Orkige
 		}
 
 		void buildRun(UiFont const & font, String const & utf8,
-			std::vector<WrapCell> & cells, std::vector<UiGlyph const *> & glyphs)
+			std::vector<WrapCell> & cells, std::vector<UiGlyph const *> & glyphs,
+			float textScale)
 		{
 			std::vector<unsigned int> codepoints;
 			std::vector<std::size_t> offsets;
@@ -204,7 +205,7 @@ namespace Orkige
 				{
 					WrapCell cell;
 					cell.space = true;
-					cell.advance = font.getSpaceLengthScaled();
+					cell.advance = font.getSpaceLengthScaled() * textScale;
 					cell.byteOffset = offset;
 					cells.push_back(cell);
 					glyphs.push_back(NULL);
@@ -223,9 +224,9 @@ namespace Orkige
 					kerning = font.getLetterSpacingScaled();
 				}
 				WrapCell cell;
-				cell.leadKern = kerning;
-				cell.advance = glyph->getGlyphAdvanceScaled();
-				cell.width = glyph->getGlyphWidthScaled();
+				cell.leadKern = kerning * textScale;
+				cell.advance = glyph->getGlyphAdvanceScaled() * textScale;
+				cell.width = glyph->getGlyphWidthScaled() * textScale;
 				cell.breakBefore = isBreakableIdeograph(code);
 				cell.byteOffset = offset;
 				cells.push_back(cell);

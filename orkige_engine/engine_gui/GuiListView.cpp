@@ -43,6 +43,7 @@ namespace Orkige
 	void GuiListView::initContent(uint fontIndex)
 	{
 		this->itemFont = fontIndex;
+		this->initFontIndex(fontIndex);
 		if(!this->contentId.empty())
 		{
 			return;		// already built
@@ -341,6 +342,8 @@ namespace Orkige
 			this->itemFont, this->itemTexts[slot], Ogre::Vector2(0, 0),
 			this->viewAtlas, this->contentZ, true));
 		manager.addWidget(item);
+		// a row wears the LIST's text style, whenever it materialises
+		this->forwardTextStyle(item);
 		item->setParent(content);
 		if(this->virtualized)
 		{
@@ -381,6 +384,24 @@ namespace Orkige
 		manager.markLayoutDirty();
 	}
 	//---------------------------------------------------------
+	//---------------------------------------------------------
+	void GuiListView::onTextStyleChanged()
+	{
+		this->itemFont = this->getFontIndex();
+		if(GuiManager::getSingletonPtr() == NULL)
+		{
+			return;
+		}
+		GuiManager & manager = GuiManager::getSingleton();
+		for(String const & itemId : this->itemIds)
+		{
+			if(!manager.widgetExists(itemId))
+			{
+				continue;	// a virtualized row outside the window
+			}
+			this->forwardTextStyle(manager.getWidget(itemId).lock());
+		}
+	}
 	OABSTRACT_IMPL(GuiListView)
 		OFUNC(addItem)
 		OFUNC(removeItem)

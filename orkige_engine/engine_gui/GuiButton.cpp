@@ -35,6 +35,7 @@ namespace Orkige
 			this->label->setAlignment(textAlignment);
 		}
 
+		this->initFontIndex(defaultGlyphIndex);
 		this->state = BS_UP;
 		this->baseSpriteName = spriteName;
 	}
@@ -252,6 +253,11 @@ namespace Orkige
 		if(this->label)	this->label->applyRenderAlpha(alphaMultiplier);
 	}
 	//---------------------------------------------------------
+	//---------------------------------------------------------
+	void GuiButton::onTextStyleChanged()
+	{
+		this->forwardTextStyle(this->label);
+	}
 	OABSTRACT_IMPL(GuiButton)
 		OFUNC(getCaption)
 		OFUNC(setCaption)

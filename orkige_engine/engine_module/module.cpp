@@ -315,6 +315,15 @@ ORKIGE_MODULE(orkige_engine)
 		OWEAKHANDLE_BASEMETHOD(getEffectiveAlpha)
 		OWEAKHANDLE_BASEMETHOD(setAlphaBlocksInput)
 		OWEAKHANDLE_BASEMETHOD(setTransition)
+		// --- text style: the ONE font / colour / size vocabulary every
+		// --- text-bearing widget answers (the `.oui` font / textColor /
+		// --- textScale keys and a named style land on these same setters)
+		OWEAKHANDLE_BASEMETHOD(setFontIndex)
+		OWEAKHANDLE_BASEMETHOD(getFontIndex)
+		OWEAKHANDLE_BASEMETHOD(setTextColour)
+		OWEAKHANDLE_BASEMETHOD(setTextScale)
+		OWEAKHANDLE_BASEMETHOD(getTextScale)
+		OWEAKHANDLE_BASEMETHOD(hasTextStyle)
 		// --- collision sets (one Lua name, several distinct leaves) ---
 		OWEAKHANDLE_LEAFMETHOD2(setText, Orkige::GuiLabel, Orkige::GuiTextEntry)
 		OWEAKHANDLE_LEAFMETHOD2(setAlpha, Orkige::GuiLabel, Orkige::GuiDecorWidget)

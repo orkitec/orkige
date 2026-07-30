@@ -4,6 +4,7 @@ file gui_default.png
 whitepixel 1022 1022
 
 [Font.9]
+name body
 offset 0 0
 lineheight 18
 baseline 14
@@ -106,6 +107,7 @@ glyph_125 1010 0 8 14 10
 glyph_126 0 16 10 14 12
 
 [Font.24]
+name heading
 offset 0 0
 lineheight 36
 baseline 28
@@ -208,6 +210,7 @@ glyph_125 834 64 16 28 20
 glyph_126 852 64 20 28 24
 
 [Font.36]
+name display
 offset 0 0
 lineheight 54
 baseline 42
@@ -310,6 +313,7 @@ glyph_125 638 184 24 42 30
 glyph_126 664 184 30 42 36
 
 [Font.48]
+name title
 offset 0 0
 lineheight 72
 baseline 56

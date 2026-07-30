@@ -87,8 +87,11 @@ namespace Orkige
 		inline bool getPressFeedback() const { return this->pressFeedback; }
 		virtual void applyRenderTransform(Ui2DTransform const & transform);
 		virtual void applyRenderAlpha(float alphaMultiplier);
+		virtual bool hasTextStyle() const { return true; }
 
 	protected:
+		//! forward the widget's text style to its caption
+		virtual void onTextStyleChanged();
 		//! disabled -> the BS_DISABLED sprite (`_disabled`), enabled -> BS_UP
 		virtual void onEnabledChanged(bool enable);
 	private:

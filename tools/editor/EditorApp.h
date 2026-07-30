@@ -1342,6 +1342,12 @@ struct PlaySession
 		bool visible = true;
 		bool enabled = true;	//!< interactive (false = dimmed / input-inert)
 		bool modal = false;		//!< part of an active modal (scrim / dialog)
+		//! the RESOLVED text style (after a named style + the widget's own keys)
+		bool hasText = false;	//!< does this widget kind carry a caption?
+		long long font = 0;		//!< the atlas [Font.N] index in effect
+		double textScale = 1.0;	//!< the glyph size multiplier in effect
+		bool textColourSet = false;	//!< an EXPLICIT caption colour was set
+		double textR = 1.0, textG = 1.0, textB = 1.0, textA = 1.0;
 	};
 	std::vector<RemoteWidgetRect> remoteUiLayout;
 	//! the running game's screen router state (MSG_UI_LAYOUT): the current (top)

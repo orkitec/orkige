@@ -168,10 +168,14 @@ RANGE_END = 126
 # the size is not baked into any consumer.
 TEXTURE_SIZE = 1024
 
-#: (glyphDataIndex, pixel scale) - Font.9 = HUD text, Font.24 = titles,
-#: Font.36 / Font.48 = the crisp integer upscales high-DPI screens pick so big
-#: text stays sharp when the UI scales (point-filtered, so scale must be whole)
-FONTS = [(9, 2), (24, 4), (36, 6), (48, 8)]
+#: (glyphDataIndex, pixel scale, role name) - Font.9 = HUD/body text,
+#: Font.24 = headings/titles, Font.36 / Font.48 = the crisp integer upscales
+#: high-DPI screens pick so big text stays sharp when the UI scales
+#: (point-filtered, so scale must be whole). The ROLE NAME is emitted as the
+#: section's `name` key, so a `.oui` says `font = heading` instead of an index
+#: that would shift if the size table ever changed.
+FONTS = [(9, 2, "body"), (24, 4, "heading"), (36, 6, "display"),
+         (48, 8, "title")]
 
 TEXT_COLOUR = (255, 255, 255, 255)
 
@@ -299,7 +303,7 @@ def build_atlas(out_dir, atlas_name):
 
     # --- fonts --------------------------------------------------------------
     cursor_y = 0
-    for glyph_index, scale in FONTS:
+    for glyph_index, scale, role_name in FONTS:
         cell_h = FONT_ROWS * scale
         line_height = (FONT_ROWS + 2) * scale
         baseline = FONT_ROWS * scale          # bottom row = baseline
@@ -309,6 +313,7 @@ def build_atlas(out_dir, atlas_name):
 
         ogui.append("")
         ogui.append(f"[Font.{glyph_index}]")
+        ogui.append(f"name {role_name}")
         ogui.append("offset 0 0")
         ogui.append(f"lineheight {line_height}")
         ogui.append(f"baseline {baseline}")
@@ -504,13 +509,23 @@ def validate(png_path, ogui_path, canvas, occupied):
     font_sections = [s for s in sections if s.startswith("font.")]
     if len(font_sections) != len(FONTS):
         fail("font section count mismatch")
+    role_names = [role for _i, _s, role in FONTS]
+    if len(set(role_names)) != len(role_names):
+        fail("two fonts declare the same role name")
     for section in font_sections:
         entries = sections[section]
         keys = dict(entries)
         for required in ("offset", "lineheight", "baseline", "spacelength",
-                         "monowidth", "range"):
+                         "monowidth", "range", "name"):
             if required not in keys:
                 fail(f"[{section}] missing '{required}'")
+        # the role name a `.oui` `font = <name>` resolves through must be the
+        # one this table declares for the section's index, and unique per atlas
+        index = int(section.split(".", 1)[1])
+        wanted = {i: role for i, _scale, role in FONTS}.get(index)
+        if keys["name"] != wanted:
+            fail(f"[{section}] name '{keys['name']}' is not the declared role "
+                 f"'{wanted}'")
         begin, end = (int(v) for v in keys["range"].split())
         if (begin, end) != (RANGE_BEGIN, RANGE_END):
             fail(f"[{section}] unexpected range")

@@ -127,11 +127,16 @@ namespace Orkige
 		virtual bool onFrameStarted(FrameEventData const & data);
 		virtual void applyRenderTransform(Ui2DTransform const & transform);
 		virtual void applyRenderAlpha(float alphaMultiplier);
+		virtual bool hasTextStyle() const { return true; }
 	protected:
+		//! forward the widget's text style to the field's captions
+		virtual void onTextStyleChanged();
 		//! dim the field body + text when disabled (input is gated in the manager)
 		virtual void onEnabledChanged(bool enable);
 		//! reposition the body / caption / caret for the current position+size
 		void relayout();
+		//! the AUTHORED text colour when one was set, else the default ink
+		Color entryTextColour() const;
 		//! the font's line height in device pixels (0 without a baked font)
 		Ogre::Real lineHeight() const;
 		//! refresh the caption text/colour and the caret x for the current state

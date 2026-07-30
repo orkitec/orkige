@@ -20,6 +20,7 @@ namespace Orkige
 	{
 		this->markupText = this->layer->createMarkupText(defaultGlyphIndex, position.x, position.y, text);
 		this->markupText->scaled(scaled);
+		this->initFontIndex(defaultGlyphIndex);
 	}
 	//---------------------------------------------------------
 	GuiTextbox::~GuiTextbox()
@@ -121,6 +122,22 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	//---------------------------------------------------------
+	void GuiTextbox::onTextStyleChanged()
+	{
+		if(this->markupText == NULL)
+		{
+			return;
+		}
+		this->markupText->setDefaultFont(this->getFontIndex());
+		this->markupText->setTextScale(this->getTextScale());
+		if(this->hasTextColour())
+		{
+			// the PRE-markup run colour: a `%%0`-`%%9` code still switches
+			// per run and `%%R` resets to this one
+			this->markupText->setDefaultColour(this->getTextColour());
+		}
+	}
 	OABSTRACT_IMPL(GuiTextbox)
 		OFUNC(setWrap)
 	OOBJECT_END

@@ -13,6 +13,7 @@
 #include "engine_gui/GuiTabBar.h"
 #include "engine_gui/UiAtlas.h"
 #include "engine_gui/GuiLayout.h"
+#include "engine_gui/GuiStyle.h"
 #include "engine_util/StringUtil.h"
 #include <core_util/PlatformUtil.h>
 #include <core_util/StringTable.h>
@@ -50,6 +51,9 @@ namespace Orkige
 		}
 
 		//--- .oui declarative-layout helpers (backend-neutral) ---
+		//! @brief the `[Font.N]` a `.oui` widget draws with when it names none:
+		//! the small HUD face every generated atlas carries at index 9
+		const uint DEFAULT_OUI_FONT = 9;
 		//! a section value, or a default if the key is absent
 		String ouiValue(GuiLayoutSection const & section, String const & key,
 			String const & fallback = StringUtil::BLANK)
@@ -124,6 +128,83 @@ namespace Orkige
 					resolved.push_back(resolveText(label));
 				}
 				menu->setItems(resolved);
+			}
+		}
+		//! @brief the atlas a `.oui` section renders through (its own `atlas` key,
+		//! else the document default), as the loaded UiAtlas - NULL when the
+		//! manager has not loaded it (headless / an unknown name)
+		UiAtlas const * sectionAtlas(String const & atlasName)
+		{
+			GuiManager* manager = GuiManager::getSingletonPtr();
+			return manager != NULL ? manager->getAtlas(atlasName) : NULL;
+		}
+		//! @brief resolve a `font` value to a `[Font.N]` index: a decimal run is
+		//! the index itself, anything else is the role NAME a font declares
+		//! (@see UiAtlas::resolveFontRef). An unresolvable reference is ONE warn
+		//! and @p fallback - a screen never fails to build over a font name.
+		uint resolveFontKey(String const & value, String const & atlasName,
+			String const & sectionId, uint fallback)
+		{
+			if(value.empty())
+			{
+				return fallback;
+			}
+			uint resolved = fallback;
+			if(UiAtlas const * atlas = sectionAtlas(atlasName))
+			{
+				if(atlas->resolveFontRef(value, resolved))
+				{
+					return resolved;
+				}
+				oDebugWarning(false, "loadLayout: '" << sectionId
+					<< "' names font '" << value << "', which the atlas '"
+					<< atlasName << "' does not carry - using font " << fallback);
+				return fallback;
+			}
+			// no live atlas (headless): honour a numeric index, keep a name's
+			// fallback silently - there is nothing to look the name up in
+			uint literal = 0;
+			if(GuiStyle::isFontIndexLiteral(value, literal))
+			{
+				return literal;
+			}
+			return fallback;
+		}
+		//! @brief apply the TEXT STYLE keys (`textColor`, `textScale`) of a
+		//! section to an already-created widget. The `font` key is handled at
+		//! CREATE time (it is a construction parameter of every text widget);
+		//! these two are live setters, so they land in pass 2 like every other
+		//! shared key. A malformed value is ONE warn and the widget's current
+		//! look - never a half-applied style.
+		void applyTextStyleKeys(GuiWidget* widget, GuiLayoutSection const & s)
+		{
+			if(String const * v = s.find("textColor"))
+			{
+				float rgba[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+				String error;
+				if(GuiStyle::parseTextColour(*v, rgba, error))
+				{
+					widget->setTextColour(rgba[0], rgba[1], rgba[2], rgba[3]);
+				}
+				else
+				{
+					oDebugWarning(false, "loadLayout: '" << s.id
+						<< "' textColor - " << error);
+				}
+			}
+			if(String const * v = s.find("textScale"))
+			{
+				float scale = 1.0f;
+				String error;
+				if(GuiStyle::parseTextScale(*v, scale, error))
+				{
+					widget->setTextScale(scale);
+				}
+				else
+				{
+					oDebugWarning(false, "loadLayout: '" << s.id
+						<< "' textScale - " << error);
+				}
 			}
 		}
 		//! apply the shared rect-anchor / group / content-fit / draw-mode keys
@@ -563,11 +644,27 @@ namespace Orkige
 			return false;
 		}
 
-		GuiLayoutDoc doc;
-		if(!GuiLayoutDoc::parse(text, doc, error))
+		GuiLayoutDoc parsed;
+		if(!GuiLayoutDoc::parse(text, parsed, error))
 		{
 			// clean cutover: a broken file NEVER tears the running screen down
 			return false;
+		}
+		// NAMED STYLES resolve here, once, BEFORE anything is built: every widget
+		// section is replaced by "the style it names, then its own keys on top"
+		// (@see GuiStyle). Every pass below therefore reads ALREADY-STYLED
+		// sections, so a style reaches every key a widget understands without a
+		// single per-key special case. An unknown style name is one warn and the
+		// widget's own keys alone.
+		std::vector<String> unknownStyles;
+		const GuiLayoutDoc doc = GuiStyle::resolveDocument(parsed, &unknownStyles);
+		for(String const & missing : unknownStyles)
+		{
+			const size_t split = missing.find(':');
+			oDebugWarning(false, "loadLayout(" << filename << "): widget '"
+				<< missing.substr(0, split) << "' names style '"
+				<< missing.substr(split + 1)
+				<< "', which the file does not declare - ignored");
 		}
 		this->resourceGroup = group;
 
@@ -677,7 +774,7 @@ namespace Orkige
 			String type = s.type;
 			Ogre::StringUtil::toLowerCase(type);
 			if(type == "layout" || type == "modal" || type == "togglegroup" ||
-				type == "tabbar" || s.id.empty())
+				type == "tabbar" || type == "style" || s.id.empty())
 			{
 				continue;	// non-widget sections are handled elsewhere
 			}
@@ -692,8 +789,11 @@ namespace Orkige
 				? manager.getModalContentZ(modalId)
 				: Ogre::StringConverter::parseUnsignedInt(ouiValue(s, "z", "0"), 0);
 			const String sprite = ouiValue(s, "sprite");
-			const uint font = Ogre::StringConverter::parseUnsignedInt(
-				ouiValue(s, "font", "9"), 9);
+			// `font` names EITHER a [Font.N] index or the role NAME an atlas font
+			// declares ("heading") - the resolver takes both and warns once on a
+			// reference the atlas does not carry
+			const uint font = resolveFontKey(ouiValue(s, "font"), atlas, s.id,
+				DEFAULT_OUI_FONT);
 			const String text = resolveText(ouiValue(s, "text"));
 			const Ogre::Vector2 position = parseVec2(ouiValue(s, "position", "0 0"));
 			const Ogre::Vector2 size = parseVec2(ouiValue(s, "size", "0 0"));
@@ -707,12 +807,9 @@ namespace Orkige
 					position, atlas, z, scaled);
 				if(label.lock())
 				{
+					// the text-style keys (textColor / textScale) are applied
+					// uniformly for every text-bearing kind in pass 2
 					label.lock()->setAlignment(textAlign);
-					if(String const * c = s.find("textColor"))
-					{
-						label.lock()->getCaption()->colour(
-							StringUtil::Converter::parseColourValue(*c));
-					}
 				}
 			}
 			else if(type == "textbox")
@@ -845,7 +942,7 @@ namespace Orkige
 		{
 			String type = s.type;
 			Ogre::StringUtil::toLowerCase(type);
-			if(type == "layout" || s.id.empty())
+			if(type == "layout" || type == "style" || s.id.empty())
 			{
 				continue;
 			}
@@ -856,6 +953,7 @@ namespace Orkige
 			optr<GuiWidget> widget = manager.getWidget(s.id).lock();
 			if(widget)
 			{
+				applyTextStyleKeys(widget.get(), s);
 				applyLayoutKeys(widget.get(), s);
 			}
 		}

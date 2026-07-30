@@ -472,6 +472,23 @@ namespace Orkige
 		//! follows the global UiGlyph::scale, exactly like Gorilla did)
 		inline void scaled(bool scaled) { this->mScaled = scaled; }
 
+		//! @brief re-point this caption at another `[Font.N]` of the atlas
+		//! (the `.oui` `font` key / a widget's setFontIndex). An index the
+		//! atlas never loaded is ignored (the caption keeps its font), so a
+		//! bad reference degrades to the current look, never to no text.
+		void setFont(uint fontIndex);
+
+		//! @brief a per-caption glyph SIZE multiplier on top of the global
+		//! UiGlyph::scale (1 = the font's baked size). One baked font then
+		//! serves several display sizes: every metric this caption reads -
+		//! advance, glyph box, line height, space, kerning, letter spacing -
+		//! is multiplied, so measurement, wrapping and the emitted quads all
+		//! agree. A non-integer factor resamples the baked glyph texels, so
+		//! text away from 1 (or an integer multiple) is softer than a font
+		//! baked at that size - the documented trade.
+		void setTextScale(Real scale);
+		inline Real textScale() const { return this->mTextScale; }
+
 		//! @brief wrap the text to the caption's width() instead of a single
 		//! clipped line. Break rules (@see TextWrap): break at spaces (latin),
 		//! between CJK glyphs, hard-break a single over-wide word at the glyph
@@ -517,11 +534,31 @@ namespace Orkige
 		bool					mDirty;
 		bool					mScaled;
 		bool					mWrap;				//!< wrap to width() (@see setWrap)
+		Real					mTextScale;			//!< per-caption size factor
 		Ui2DTransform			mRenderTransform;	//!< animation transform (post-pass)
 		Real					mRenderAlpha;		//!< cascade alpha multiplier
 		std::vector<UiVertex>	mVertices;
 		//! emit the vertices for the wrapped (multi-line) layout (@see _redraw)
 		void _redrawWrapped();
+
+		//--- the metrics this caption lays out with: the font's *Scaled values
+		//--- (global UiGlyph::scale) times this caption's own mTextScale. EVERY
+		//--- metric read goes through these, so a scaled caption can never
+		//--- half-apply its factor (measure one way, draw another).
+		inline Real lineHeightPx() const
+		{ return this->mFont->getLineHeightScaled() * this->mTextScale; }
+		inline Real spaceLengthPx() const
+		{ return this->mFont->getSpaceLengthScaled() * this->mTextScale; }
+		inline Real letterSpacingPx() const
+		{ return this->mFont->getLetterSpacingScaled() * this->mTextScale; }
+		inline Real kerningPx(UiGlyph const & glyph, uint leftOf) const
+		{ return glyph.getKerningScaled(leftOf) * this->mTextScale; }
+		inline Real glyphWidthPx(UiGlyph const & glyph) const
+		{ return glyph.getGlyphWidthScaled() * this->mTextScale; }
+		inline Real glyphHeightPx(UiGlyph const & glyph) const
+		{ return glyph.getGlyphHeightScaled() * this->mTextScale; }
+		inline Real glyphAdvancePx(UiGlyph const & glyph) const
+		{ return glyph.getGlyphAdvanceScaled() * this->mTextScale; }
 	};
 
 	//! @brief multi-line text with the light markup language: %0-%9
@@ -550,6 +587,17 @@ namespace Orkige
 
 		//! historical flag (@see UiCaption::scaled)
 		inline void scaled(bool scaled) { this->mScaled = scaled; }
+
+		//! @brief re-point the DEFAULT font (`%@N%` runs still switch per run);
+		//! an index the atlas never loaded is ignored (@see UiCaption::setFont)
+		void setDefaultFont(uint fontIndex);
+		//! @brief the colour a run starts in, before any `%0`-`%9` markup code
+		//! (white by default - the historical look). `%R` resets TO this colour.
+		void setDefaultColour(Color const & colour);
+		inline Color const & defaultColour() const { return this->mDefaultColour; }
+		//! @brief a per-element glyph SIZE multiplier (@see UiCaption::setTextScale)
+		void setTextScale(Real scale);
+		inline Real textScale() const { return this->mTextScale; }
 
 		//! @brief wrap the markup to @c wrapWidth instead of laying out one long
 		//! line per paragraph. Markup runs (colour/font/mono) and inline sprites
@@ -600,6 +648,8 @@ namespace Orkige
 		bool					mScaled;
 		bool					mWrap;				//!< wrap to mWrapWidth (@see setWrap)
 		Real					mWrapWidth;			//!< box width for wrapping (px)
+		Color					mDefaultColour;		//!< the pre-markup run colour
+		Real					mTextScale;			//!< per-element size factor
 		Ui2DTransform			mRenderTransform;	//!< animation transform (post-pass)
 		Real					mRenderAlpha;		//!< cascade alpha multiplier
 		std::vector<Character>	mCharacters;
@@ -610,8 +660,11 @@ namespace Orkige
 		//! single-line-per-paragraph layout). Fills @p out + @p width + @p height.
 		//! Static so @c measureWrappedHeight can run it into a throwaway buffer
 		//! without disturbing the live layout.
+		//! @param textScale the per-element glyph size factor (@see setTextScale)
+		//! @param defaultColour the colour a run starts in (@see setDefaultColour)
 		static void _layoutMarkup(UiLayer* layer, UiFont const * defaultFont,
 			String const & text, Real originX, Real originY, Real wrapWidth,
+			Real textScale, Color const & defaultColour,
 			std::vector<Character> & out, Real & width, Real & height);
 	};
 }

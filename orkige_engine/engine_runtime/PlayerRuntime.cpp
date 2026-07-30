@@ -2219,6 +2219,7 @@ namespace Orkige
 		}
 		StringVector ids;
 		StringVector rects;
+		StringVector styles;
 		for (GuiManager::WidgetLayout const & layout :
 			manager->getWidgetLayouts())
 		{
@@ -2234,10 +2235,21 @@ namespace Orkige
 				<< (layout.enabled ? 1 : 0) << ' '
 				<< (layout.modal ? 1 : 0);
 			rects.push_back(rect.str());
+			// the RESOLVED text style, parallel to the rect: what the widget
+			// actually draws with after a named style and its own keys were
+			// applied - so a styling edit is observable, not just a geometry one
+			std::ostringstream style;
+			style << (layout.hasText ? 1 : 0) << ' ' << layout.font << ' '
+				<< std::fixed << std::setprecision(3) << layout.textScale << ' '
+				<< (layout.textColourSet ? 1 : 0) << ' '
+				<< layout.textR << ' ' << layout.textG << ' '
+				<< layout.textB << ' ' << layout.textA;
+			styles.push_back(style.str());
 		}
 		DebugMessage message(Protocol::MSG_UI_LAYOUT);
 		message.setList(Protocol::LIST_UI_IDS, ids);
 		message.setList(Protocol::LIST_UI_RECTS, rects);
+		message.setList(Protocol::LIST_UI_STYLES, styles);
 		// the screen router's state, so an agent can observe the navigation path
 		// (current top + the bottom-to-top stack) alongside the widget rects
 		message.set(Protocol::FIELD_UI_SCREEN, manager->currentScreen());

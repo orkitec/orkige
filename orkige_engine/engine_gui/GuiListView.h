@@ -98,6 +98,13 @@ namespace Orkige
 		virtual void onLayoutResolved(Ogre::Vector2 const & viewportSize,
 			Ogre::Vector2 const & contentExtent);
 		virtual bool onFrameStarted(FrameEventData const & data);
+		//! a list styles its ROWS (each row is a label wearing the list's style)
+		virtual bool hasTextStyle() const { return true; }
+
+	protected:
+		//! restyle every materialised row (a row created later picks the style
+		//! up in materializeItem, so the two paths agree)
+		virtual void onTextStyleChanged();
 
 	private:
 		//! create the row widget for @p index and place it at its virtual offset

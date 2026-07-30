@@ -282,6 +282,17 @@ namespace Orkige
 		return names;
 	}
 	//---------------------------------------------------------
+	std::vector<std::pair<String, uint> > GuiManager::getAtlasFontRefs(
+		String const & atlas)
+	{
+		std::vector<std::pair<String, uint> > refs;
+		if(UiAtlas const * ui = this->getAtlas(atlas))
+		{
+			refs = ui->fontRefs();
+		}
+		return refs;
+	}
+	//---------------------------------------------------------
 	UiAtlas const * GuiManager::getAtlas(String const & atlas)
 	{
 		GuiViewMap::iterator it = this->views.find(atlas);
@@ -1702,6 +1713,17 @@ namespace Orkige
 			// whole screens by their layer, @see the win-screen trick)
 			layout.visible = widget->getLayer() != NULL
 				? widget->getLayer()->isVisible() : true;
+			// the RESOLVED text style, straight off the widget - so a screen's
+			// styling is observable without a second readback path
+			layout.hasText = widget->hasTextStyle();
+			layout.font = widget->getFontIndex();
+			layout.textScale = widget->getTextScale();
+			layout.textColourSet = widget->hasTextColour();
+			Color const & ink = widget->getTextColour();
+			layout.textR = ink.r;
+			layout.textG = ink.g;
+			layout.textB = ink.b;
+			layout.textA = ink.a;
 			layouts.push_back(layout);
 		}
 		return layouts;

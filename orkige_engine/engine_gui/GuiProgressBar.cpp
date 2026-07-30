@@ -29,6 +29,7 @@ namespace Orkige
 	//	this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
 		this->label->setSize(barMaxSize.x, barMaxSize.y);
 		this->label->setAlignment(textAlignment);
+		this->initFontIndex(defaultGlyphIndex);
 
 		this->progress = 0.0f;
     }
@@ -108,6 +109,11 @@ namespace Orkige
 		if(this->label)		this->label->applyRenderAlpha(alphaMultiplier);
 	}
 	//----------------------------------------------------
+	//---------------------------------------------------------
+	void GuiProgressBar::onTextStyleChanged()
+	{
+		this->forwardTextStyle(this->label);
+	}
 	OABSTRACT_IMPL(GuiProgressBar)
 		OFUNC(setProgress)
 		OFUNC(addProgress)

@@ -88,6 +88,17 @@ namespace Orkige
 		//! `transition` key or setTransition). UTT_None = snap. @see GuiManager
 		//! playWidgetTransition
 		UiTransitionSpec transition;
+		//! @brief the text style stored ON the widget (@see setFontIndex /
+		//! setTextColour / setTextScale) and pushed into whatever text elements
+		//! the widget owns by onTextStyleChanged. Stored here, not in the leaves,
+		//! so the readback is uniform for every surface that inspects a widget
+		//! (Lua, the debug/MCP layout stream, the editor's property rows) and a
+		//! composite forwards ONE style to its caption instead of each surface
+		//! learning per-kind plumbing.
+		uint styleFontIndex;
+		Color styleTextColour;
+		bool styleTextColourSet;	//!< an EXPLICIT colour (vs. the inherited look)
+		float styleTextScale;
 		//! @brief a monotonic CREATION ordinal, stamped in the constructor. A
 		//! layout group arranges its children in this order - the order they were
 		//! authored (`.oui` section order) / created, independent of their draw
@@ -186,6 +197,35 @@ namespace Orkige
 		//! @brief apply a resolved alpha multiplier (0..1) to this widget's visual
 		//! elements. Same override pattern as applyRenderTransform.
 		virtual void applyRenderAlpha(float alphaMultiplier) { (void)alphaMultiplier; }
+		//--- text style: font / colour / size, ONE vocabulary for every
+		//--- text-bearing widget (@see onTextStyleChanged) --------------
+		//! @brief the atlas font (`[Font.N]` index) this widget's caption(s)
+		//! draw with. Resolved from a `.oui` `font` key (an index OR the role
+		//! NAME an atlas font declares - @see UiAtlas::resolveFontRef) or set
+		//! live from Lua. An index the atlas never loaded leaves the current
+		//! font (the resolver warns), so a bad reference never blanks text.
+		void setFontIndex(uint index);
+		inline uint getFontIndex() const { return this->styleFontIndex; }
+		//! @brief the caption colour (0..1 components). The default is the
+		//! widget's inherited look - a widget whose colour is never set stays
+		//! byte-identical to an unstyled one.
+		void setTextColour(float r, float g, float b, float a = 1.0f);
+		inline Color const & getTextColour() const { return this->styleTextColour; }
+		//! @brief has an explicit caption colour been set (vs. the inherited
+		//! default)? The dim-on-disable path only touches alpha, so this stays
+		//! the honest "the author picked a colour" answer.
+		inline bool hasTextColour() const { return this->styleTextColourSet; }
+		//! @brief a glyph SIZE multiplier on the widget's captions (1 = the
+		//! font's baked size). One baked font then serves several display
+		//! sizes; measurement, wrapping and the drawn quads all scale together.
+		//! A factor <= 0 is ignored.
+		void setTextScale(float scale);
+		inline float getTextScale() const { return this->styleTextScale; }
+		//! @brief does this widget kind carry a caption the text style reaches?
+		//! False for the display-only bodies (decor panel / scroll view), so a
+		//! tool never offers a text row that would do nothing.
+		virtual bool hasTextStyle() const { return false; }
+
 		//! @brief set the show/hide transition from a declarative string
 		//! ("fade 0.2", "slide-up 0.3", "pop", "none"). @see GuiManager::playWidgetTransition
 		void setTransition(String const & spec);
@@ -297,6 +337,23 @@ namespace Orkige
 		//! a no-op; interactive widgets override it to swap a `_disabled` sprite
 		//! or dim their decor/text. @param enable the new state.
 		virtual void onEnabledChanged(bool enable) { (void)enable; }
+		//! @brief record the font a text widget was CONSTRUCTED with, without
+		//! running the change hook (the elements already carry it). Called from
+		//! a text-bearing widget's constructor so getFontIndex answers honestly
+		//! from the first frame.
+		void initFontIndex(uint index) { this->styleFontIndex = index; }
+		//! @brief push the stored text style into this widget's own text
+		//! elements. The base is a no-op; a text widget overrides it (a
+		//! composite forwards to its caption sub-widget). Called on every
+		//! setFontIndex / setTextColour / setTextScale.
+		virtual void onTextStyleChanged() {}
+		//! @brief forward this widget's stored text style to a caption
+		//! SUB-WIDGET - the composites' (button / toggle / progress bar /
+		//! stepper) whole onTextStyleChanged. Re-dims the caption when THIS
+		//! widget is disabled, so a style applied to a disabled control never
+		//! restores full opacity. A null/absent caption is a no-op.
+		void forwardTextStyle(optr<GuiWidget> const & captionWidget);
+
 		//! opt into the layout system on the first layout setter, seeding the
 		//! node from the widget's current on-screen rect so it stays put until
 		//! anchors/offsets change

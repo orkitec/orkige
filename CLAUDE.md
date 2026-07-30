@@ -934,6 +934,37 @@ look when touching one:
   loaded from one file, scroll shifts the rects, a scrolled checkbox still
   hit-tests). Agents author `.oui` over MCP `write_project_file` and verify the
   resolve via `get_ui_layout` — no new MCP verb (see `Docs/mcp.md`).
+  **Styling tier** (`Docs/gui.md#text-style-font-colour-size` +
+  `#named-styles`, both flavors): ONE text-style vocabulary on `GuiWidget`
+  (`setFontIndex`/`setTextColour`/`setTextScale`, stored on the widget and
+  pushed into whatever text elements it owns by the single
+  `onTextStyleChanged` hook, so a composite forwards ONE style to its
+  caption and every surface — Lua, MSG_UI_LAYOUT/MCP, the editor rows —
+  reads the SAME resolved state) reachable as the `.oui` keys `font` /
+  `textColor` / `textScale`. `font` takes a `[Font.N]` INDEX or the ROLE
+  NAME a font declares with its own `.ogui` `name` key (`font = heading`;
+  the generated atlases name body/heading/display/title, the TTF path too)
+  — unknown ref = one warn + the default, never blank text. `textScale`
+  multiplies EVERY metric through one accessor set (advance/box/line
+  height/space/kerning, `TextWrap::buildRun` takes the factor), so
+  measurement, wrapping, content-size-fit and the drawn quads agree; a
+  whole multiple is texel-exact, a fractional one resamples (documented,
+  not hidden). **Named styles**: a `[Style NAME]` section is a BUNDLE of
+  ordinary widget keys a widget names with `style = NAME`, applied
+  STYLE-FIRST then the widget's own keys override (declaration-order
+  precedence, the atmosphere-preset pattern) — the merge is the pure
+  `engine_gui/GuiStyle` (also the value parsers), resolved ONCE over the
+  whole document before any widget is built, so it reaches every key with
+  no per-key plumbing and hot-reloads like any `.oui` property; no
+  nesting, unknown name = one warn + the widget's own keys. MCP needs no
+  verb: `get_ui_layout` gains a `styles` list parallel to `ids`/`rects`
+  (`hasText font textScale colourSet r g b a`) carrying the RESOLVED
+  style. Editor: Style / Font / Text Color / Text Scale property rows
+  (atlas fonts by role name, honest inline flags for an unknown
+  style/font) and `[Style]` sections stay out of the widget tree.
+  `GuiStyleTests` + `GuiLayoutIoTests`/`WrapLayoutTests` cases, the
+  `player_gallery_selfcheck` Styles tab (resolved font/ink/scale + the
+  local override) and the `editor_ui_hotreload` styled-edit leg.
   **Full widget tier**: toggle groups (`GuiToggleGroup`), dropdowns
   (`GuiDropDown`), modals (`GuiModalScrim`/`showModal`), toasts, confirm/
   alert dialogs, **`GuiTabBar`** (toggle group + panel alpha-cascade

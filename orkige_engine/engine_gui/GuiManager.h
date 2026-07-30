@@ -68,6 +68,14 @@ namespace Orkige
 			bool	visible = true;
 			bool	enabled = true;		//!< interactive (false = dimmed/inert)
 			bool	modal = false;		//!< part of an active modal (scrim/dialog)
+			//--- the RESOLVED text style (what the widget actually draws with,
+			//--- after a named style and its own keys were applied): the readback
+			//--- an agent asserts a styling change against over MSG_UI_LAYOUT
+			bool	hasText = false;	//!< does this kind carry a caption at all?
+			uint	font = 0;			//!< the atlas [Font.N] index in effect
+			float	textScale = 1.0f;	//!< the glyph size multiplier in effect
+			bool	textColourSet = false;	//!< an EXPLICIT caption colour was set
+			float	textR = 1.0f, textG = 1.0f, textB = 1.0f, textA = 1.0f;
 		};
 		//! @brief which rect a parentless layout widget resolves against
 		enum RootSpace
@@ -331,6 +339,10 @@ namespace Orkige
 		//! renders through - the seam the editor's `.oui` sprite picker enumerates,
 		//! covering both the bitmap and the runtime-baked (TTF/SVG) atlas.
 		std::vector<String> getAtlasSpriteNames(String const & atlas);
+		//! @brief the atlas' fonts as "<role-name-or-index>" -> [Font.N] index,
+		//! ascending (@see UiAtlas::fontRefs). Feeds the editor's `.oui` font
+		//! picker off the SAME atlas the layout renders through.
+		std::vector<std::pair<String, uint> > getAtlasFontRefs(String const & atlas);
 		//! @brief the loaded UiAtlas backing an atlas view (bitmap OR runtime-baked
 		//! TTF/SVG), or NULL when no view has loaded it. The editor's sprite-preview
 		//! reads the atlas texture name + a sprite's UV rect through it. Reads the

@@ -656,7 +656,10 @@ checkboxes and text entries — every widget whose skin stretches), `color`
 (decor-only). Text: `wrap` (label/textbox; wrap to the
 resolved width — see [Wrap-to-width text](#wrap-to-width-text)), `multiline`
 (text entry; a text area — see
-[Multi-line text entry](#multi-line-text-entry)). List: `virtualized` +
+[Multi-line text entry](#multi-line-text-entry)). Text style (any text-bearing
+widget): `font`, `textColor`, `textScale` — see
+[Text style](#text-style-font-colour-size). Styling: `style` — see
+[Named styles](#named-styles). List: `virtualized` +
 `itemHeight` (list view — see [Virtualized lists](#virtualized-lists)).
 
 ### Widget types
@@ -690,6 +693,126 @@ A layout group arranges its children in DECLARATION order (the order the
 sections appear in the file / the widgets were created), independent of their
 `z`. Each scroll region needs its own `z`, though: the clip is a per-layer
 scissor, so two scroll views sharing a layer would fight over it.
+
+### Text style (font, colour, size)
+
+Every text-bearing widget — label, textbox, button, checkbox, select menu,
+slider, progress-bar caption, text entry, dropdown, list-view rows — carries one
+text-style vocabulary. The three keys are ordinary `.oui` keys, live Lua setters
+and property rows in the UI Editor, and they read back over MCP `get_ui_layout`.
+
+```
+[Label title]
+font = heading           # an atlas font: its ROLE NAME, or a [Font.N] index
+textColor = 1 0.82 0.35 1   # r g b a, 0..1 (three components = opaque)
+textScale = 2            # a glyph size multiplier (1 = the font's baked size)
+```
+
+**`font`** picks which `[Font.N]` of the atlas the caption draws with. It takes
+either the section's decimal INDEX (`font = 24`) or the ROLE NAME the font
+declares with its own `name` key (`font = heading`). Prefer the name: an index
+shifts if the atlas ever gains a size, a role does not. The generated atlases
+carry `body` (small HUD/body text), `heading`, `display` and `title` — the same
+four sizes, now addressable by what they are for. A reference the atlas does not
+carry is one honest warning and the default (`body`, index 9); it never blanks
+the text.
+
+Declare the role in the `.ogui` beside the metrics — for a bitmap font:
+
+```
+[Font.24]
+name heading
+lineheight 36
+...
+```
+
+and for a runtime TrueType font exactly the same way:
+
+```
+[Font.24]
+name heading
+ttf Nunito-Regular.ttf
+size 34
+```
+
+**`textColor`** is the caption ink as `r g b a` in 0..1 (a three-component value
+is opaque). A widget that never sets one keeps its inherited default look, so an
+unstyled screen is unchanged. The colour flows into the batched per-vertex
+colour the renderer already carries — no extra draw. On a `textbox` it is the
+colour a run STARTS in: the `%0`–`%9` markup codes still switch per run and `%R`
+resets to it. A disabled widget still owns its own opacity (it dims to
+`DISABLED_ALPHA`), so styling a disabled control does not brighten it.
+
+**`textScale`** multiplies the widget's glyph size, so ONE baked font serves
+several display sizes. Every metric scales together — advance, glyph box, line
+height, space, kerning, letter spacing — which means measurement, wrapping,
+content-size-fit and the drawn quads all agree; a `2` on a wrapped label breaks
+into more lines AND makes each line taller. Be honest about the trade: the
+glyphs are baked pixels sampled point-filtered, so a WHOLE multiple (2, 3) is
+exact and crisp while a fractional factor (1.3) resamples the texels and reads
+softer than a font baked at that size. For body copy at an unusual size, bake
+another `[Font.N]` and name it; use `textScale` for accents, emphasis and the
+"one font, two sizes" case. A factor of zero or below is refused with a warning.
+
+Live from Lua, on any widget handle:
+
+```lua
+local title = gui:findWidget("title")
+title:setFontIndex(24)              -- an atlas [Font.N] index
+title:setTextColour(1, 0.82, 0.35, 1)
+title:setTextScale(2)
+print(title:getFontIndex(), title:getTextScale(), title:hasTextStyle())
+```
+
+### Named styles
+
+A `[Style NAME]` section is a BUNDLE of ordinary widget keys — any subset:
+`sprite`, `nineSlice`, `font`, `textColor`, `textScale`, `color`, `size`, … A
+widget references it with `style = NAME`.
+
+```
+[Style hero]
+font = heading
+textColor = 1 0.82 0.35 1
+nineSlice = true
+
+[Button play]
+style = hero              # the bundle SEEDS every key it carries
+sprite = button
+textColor = 0.35 1 0.65 1  # ...and the widget's OWN key overrides it
+text = Play
+```
+
+**Application order is STYLE FIRST, then the widget's own explicit keys.** The
+bundle seeds the widget and every key the widget spells out itself wins — the
+same declaration-order precedence the scene-side atmosphere preset uses. That
+rule is a pure function (`engine_gui/GuiStyle`), so it holds identically for
+every key a widget understands: a style can carry geometry, a sprite or a draw
+mode just as well as text style, with no per-key plumbing.
+
+The rest of the contract:
+
+* Styles resolve at load AND at `.oui` hot-reload, once, before any widget is
+  built — so a style edit lands in a running Play session like any other
+  property change.
+* Styles do NOT nest: a `style` key inside a `[Style]` section is ignored.
+* An unknown style name is one warning and the widget's own keys alone — the
+  screen still builds.
+* A `[Style]` section is not a widget: it has no rect, it never appears in the
+  UI Editor's widget tree, and widgets point at it through their **Style** row.
+* The document model round-trips it unchanged (it is an ordinary section), so
+  the visual editor's save is byte-stable over a styled screen.
+
+Over MCP nothing new is needed — the file is the interface. Author it with
+`write_project_file`, then read the RESOLVED result back: `get_ui_layout`
+returns a `styles` list parallel to `ids`/`rects`, each entry a flat
+`hasText font textScale colourSet r g b a`, which is what the widget actually
+draws with after the merge. `preview_ui` renders the styled screen to a PNG.
+
+`projects/gallery`'s Styles tab is the worked example: two named styles applied
+across a label, two buttons and a toggle, one of the buttons overriding just its
+ink, plus the second font and a 2x-scaled label — asserted end to end by the
+`player_gallery_selfcheck` ctest.
 
 ### Modals in `.oui`
 
@@ -808,9 +931,15 @@ vertically to equal gaps between the extremes); and a **properties** area for th
 key object laid out to Inspector parity — the same 30/70 label-left / value-right
 columns, the baked small value font, the shared dense grid style and OS-mannered
 tooltips — grouped under collapsing headers in the component-header visual
-language: **Widget** (text, z order, and a **sprite** field — a manual entry
+language: **Widget** (text, z order, a **sprite** field — a manual entry
 plus a pick popup listing the sprite names in the current layout's loaded atlas,
-the same names the runtime renders through, with a `(none)` clear), **Anchors** for a layout widget
+the same names the runtime renders through, with a `(none)` clear — a **Style**
+combo listing the `[Style NAME]` bundles this screen declares (with a `(none)`
+clear, and an honest inline note when the widget names a style the file does not
+carry), and for a text-bearing kind the text-style trio: a **Font** combo over
+the atlas' fonts by ROLE NAME (the index beside it; an authored name the live
+atlas lacks is flagged inline rather than rewritten), a **Text Color** RGBA
+picker and a **Text Scale** field), **Anchors** for a layout widget
 (the anchor-preset gizmo, the anchor combo, and the geometry fields) or
 **Transform** for a legacy absolute widget (position, size). Multi-value fields
 are per-axis drag-floats through the same helper the Inspector uses (`offsets` as

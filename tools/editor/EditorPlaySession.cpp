@@ -2358,6 +2358,8 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 				message.getList(Protocol::LIST_UI_IDS);
 			const Orkige::StringVector& rects =
 				message.getList(Protocol::LIST_UI_RECTS);
+			const Orkige::StringVector& styles =
+				message.getList(Protocol::LIST_UI_STYLES);
 			session.remoteUiLayout.clear();
 			for (std::size_t i = 0; i < ids.size() && i < rects.size(); ++i)
 			{
@@ -2381,6 +2383,21 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 					widget.modal = modal != 0;
 				}
 				widget.visible = visible != 0;
+				// the parallel style list (additive): "hasText font textScale
+				// colourSet r g b a". Absent -> the untouched defaults.
+				if (i < styles.size())
+				{
+					std::istringstream styleStream(styles[i]);
+					int hasText = 0;
+					int colourSet = 0;
+					if (styleStream >> hasText >> widget.font >> widget.textScale
+						>> colourSet >> widget.textR >> widget.textG
+						>> widget.textB >> widget.textA)
+					{
+						widget.hasText = hasText != 0;
+						widget.textColourSet = colourSet != 0;
+					}
+				}
 				session.remoteUiLayout.push_back(widget);
 			}
 			// the screen router's state (additive fields; an older player that

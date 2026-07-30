@@ -73,6 +73,7 @@
 #include <iterator>
 #include <map>
 #include <mutex>
+#include <iomanip>
 #include <sstream>
 #include <vector>
 #include <functional>
@@ -4055,9 +4056,12 @@ namespace Orkige
 			return;
 		}
 		// get_ui_layout: the running game's gui widget rects (streamed on
-		// MSG_UI_LAYOUT). Parallel ids/rects lists; each rect a flat
+		// MSG_UI_LAYOUT). Parallel ids/rects/styles lists; each rect a flat
 		// "left top width height visible enabled modal" string in pixels + flags
-		// (enabled = interactive, modal = part of an active modal dialog).
+		// (enabled = interactive, modal = part of an active modal dialog), each
+		// style a flat "hasText font textScale colourSet r g b a" string - the
+		// RESOLVED text style, so an agent verifies a `.oui` styling edit (a
+		// named style, a font name, a colour, a scale) with no new verb.
 		if (type == "get_ui_layout")
 		{
 			PlaySession const& play = *context.play;
@@ -4068,6 +4072,7 @@ namespace Orkige
 			}
 			StringVector ids;
 			StringVector rects;
+			StringVector styles;
 			for (PlaySession::RemoteWidgetRect const& widget :
 				play.remoteUiLayout)
 			{
@@ -4079,10 +4084,20 @@ namespace Orkige
 					(widget.visible ? "1" : "0") + " " +
 					(widget.enabled ? "1" : "0") + " " +
 					(widget.modal ? "1" : "0"));
+				// the RESOLVED text style of the same widget: a named style plus
+				// the widget's own keys, as the runtime actually draws it
+				std::ostringstream style;
+				style << (widget.hasText ? 1 : 0) << ' ' << widget.font << ' '
+					<< std::fixed << std::setprecision(3) << widget.textScale
+					<< ' ' << (widget.textColourSet ? 1 : 0) << ' '
+					<< widget.textR << ' ' << widget.textG << ' '
+					<< widget.textB << ' ' << widget.textA;
+				styles.push_back(style.str());
 			}
 			DebugMessage ok(MSG_OK);
 			ok.setList("ids", ids);
 			ok.setList("rects", rects);
+			ok.setList("styles", styles);
 			// the screen router state (empty when the game uses no screen stack):
 			// the current top screen + the space-joined bottom-to-top path
 			ok.set("screen", play.remoteScreenCurrent);

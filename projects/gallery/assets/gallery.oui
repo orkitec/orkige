@@ -1,5 +1,5 @@
 # The UI gallery: every runtime widget kind on one tabbed screen, authored
-# declaratively. A tab bar pairs four tab toggles with four content panels; each
+# declaratively. A tab bar pairs five tab toggles with five content panels; each
 # panel is a layout group so the rows arrange themselves at any window size.
 # scripts/gallery.lua only wires behaviour (list population, the slider ->
 # progress mirror, modal/dialog/toast triggers) - the LAYOUT is here.
@@ -18,7 +18,12 @@
 # The screen is authored PORTRAIT, for a phone: in a short landscape window the
 # tab column keeps its order and width but runs past the bottom fold.
 #
-# Sections are grouped by tab: Text, Controls, Lists, Overlays.
+# Sections are grouped by tab: Text, Controls, Lists, Overlays, Styles.
+#
+# The [Style NAME] sections at the bottom are property BUNDLES: a widget
+# names one with `style = NAME` and the bundle SEEDS its keys, which the
+# widget's own keys then override (declaration-order precedence). They are
+# not widgets and have no rect.
 
 [Layout]
 atlas = gui_default
@@ -47,15 +52,15 @@ anchor = stretchtop
 offsets = 8 8 -8 84
 wrap = true
 
-# the tabs: a 2x2 grid block, because four descriptive captions do not fit one
-# row at phone width. The grid group gives every tab the same cell.
+# the tabs: a two-column grid block, because descriptive captions do not fit
+# one row at phone width. The grid group gives every tab the same cell.
 [Panel tabblock]
 sprite = none
 color = 0 0 0 0
 z = 2
 parent = frame
 anchor = stretchtop
-offsets = 8 92 -8 168
+offsets = 8 92 -8 200
 group = grid
 gridConstraint = columns 2
 cellSize = 180 32
@@ -93,9 +98,17 @@ text = @gallery.tab.overlays
 z = 2
 parent = tabblock
 
+[CheckBox tabStyles]
+sprite = checkbox
+nineSlice = true
+font = 9
+text = @gallery.tab.styles
+z = 2
+parent = tabblock
+
 [TabBar tabs]
-tabs = tabText tabControls tabLists tabOverlays
-panels = panelText panelControls panelLists panelOverlays
+tabs = tabText tabControls tabLists tabOverlays tabStyles
+panels = panelText panelControls panelLists panelOverlays panelStyles
 selected = 0
 
 # --- tab 1: text - plain, wrapped, localised, multi-line entry ---
@@ -106,7 +119,7 @@ color = 0 0 0 0
 z = 3
 parent = frame
 anchor = stretchall
-offsets = 8 176 -8 -8
+offsets = 8 208 -8 -8
 group = vertical
 padding = 8 8 8 8
 spacing = 10
@@ -166,7 +179,7 @@ color = 0 0 0 0
 z = 3
 parent = frame
 anchor = stretchall
-offsets = 8 176 -8 -8
+offsets = 8 208 -8 -8
 group = vertical
 padding = 8 8 8 8
 spacing = 10
@@ -319,7 +332,7 @@ color = 0 0 0 0
 z = 3
 parent = frame
 anchor = stretchall
-offsets = 8 176 -8 -8
+offsets = 8 208 -8 -8
 group = vertical
 padding = 8 8 8 8
 spacing = 12
@@ -407,7 +420,7 @@ color = 0 0 0 0
 z = 3
 parent = frame
 anchor = stretchall
-offsets = 8 176 -8 -8
+offsets = 8 208 -8 -8
 group = vertical
 padding = 8 8 8 8
 spacing = 10
@@ -457,3 +470,103 @@ z = 3
 parent = panelOverlays
 fit = none preferred
 wrap = true
+
+# --- tab 5: styles - the second font, coloured + scaled text, named styles ---
+
+[Panel panelStyles]
+sprite = none
+color = 0 0 0 0
+z = 3
+parent = frame
+anchor = stretchall
+offsets = 8 208 -8 -8
+group = vertical
+padding = 8 8 8 8
+spacing = 10
+childExpand = true
+
+# `font = heading` names the ROLE the atlas font declares (its `[Font.N] name`
+# key), not the index - a name survives the atlas gaining a size. The colour and
+# the size come from the style, so this section carries only its text.
+[Label styleHeading]
+style = heroStyle
+text = Named styles
+textAlignment = left
+size = 300 40
+z = 3
+parent = panelStyles
+
+[Label styleBody]
+style = quietStyle
+text = A style is a bundle of ordinary widget keys. A widget that names one is seeded with them, and any key it spells out itself overrides the bundle.
+textAlignment = left
+z = 3
+parent = panelStyles
+fit = none preferred
+wrap = true
+
+# two buttons wearing the SAME style; the second overrides just its ink, which
+# is the precedence rule made visible (its font and scale still come from the
+# style, only the colour is local)
+[Panel styleButtonRow]
+sprite = none
+color = 0 0 0 0
+z = 3
+parent = panelStyles
+group = horizontal
+spacing = 8
+childExpand = true
+
+[Button styleButtonA]
+style = heroStyle
+sprite = button
+nineSlice = true
+text = Style
+size = 140 36
+z = 3
+parent = styleButtonRow
+
+[Button styleButtonB]
+style = heroStyle
+sprite = button
+nineSlice = true
+text = Local
+textColor = 0.35 1 0.65 1
+size = 140 36
+z = 3
+parent = styleButtonRow
+
+# explicit keys, no style: the body font drawn at twice its baked size. A WHOLE
+# multiple resamples the baked glyph texels exactly, so it stays crisp.
+[Label scaledLabel]
+font = body
+text = Twice the size
+textColor = 0.45 0.78 1 1
+textScale = 2
+textAlignment = left
+size = 300 40
+z = 3
+parent = panelStyles
+
+# a toggle wears a style too - the caption of any text-bearing kind does
+[CheckBox styleToggle]
+style = quietStyle
+sprite = select_menu_field
+checkbox = true
+nineSlice = true
+text = A styled toggle
+size = 300 32
+z = 3
+parent = panelStyles
+
+# --- the named styles (property bundles, not widgets) ---
+
+[Style heroStyle]
+font = heading
+textColor = 1 0.82 0.35 1
+textScale = 1
+
+[Style quietStyle]
+font = body
+textColor = 0.62 0.66 0.74 1
+textScale = 1

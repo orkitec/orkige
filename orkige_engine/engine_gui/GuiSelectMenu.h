@@ -83,8 +83,11 @@ namespace Orkige
 		void setCaption(String const & text);
 		virtual void applyRenderTransform(Ui2DTransform const & transform);
 		virtual void applyRenderAlpha(float alphaMultiplier);
+		virtual bool hasTextStyle() const { return true; }
 
     protected:
+		//! forward the widget's text style to its caption
+		virtual void onTextStyleChanged();
 		//! @brief re-place every part INSIDE the field's current rect: the title
 		//! on the leading side, then the previous arrow, the value field and the
 		//! next arrow on the trailing side, all vertically centred. Every part is
