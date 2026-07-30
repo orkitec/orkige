@@ -122,13 +122,13 @@ packaging but the editor's own contract (`Docs/editor-distribution.md`):
   `Contents/Resources/Media` for the media. `VERSION`, `CHANGELOG.md` and
   `KNOWN-LIMITATIONS.md` are repeated at the archive root (and so appear on the
   mounted disk image) so they are readable before installing. The bundle is
-  zipped with `ditto`, which preserves its symlinks and executable bits, and is
-  ad-hoc re-signed after staging so its resource seal covers everything the
-  packaging added — ad-hoc, so it needs no certificate and confers no trust. The
-  disk image is then built with `hdiutil` from that same sealed staging, with
-  the `Applications` symlink added for the duration of the call: the app is well
-  over a hundred megabytes, and a second copy of it would be both slow and a
-  chance for the two artifacts to diverge.
+  re-signed after staging so its resource seal covers everything the packaging
+  added ([macOS signing](#macos-signing-notarization-and-stapling)), and zipped
+  with `ditto`, which preserves its symlinks and executable bits. The disk image
+  is built with `hdiutil` from that same sealed staging, with the `Applications`
+  symlink added for the duration of the call: the app is well over a hundred
+  megabytes, and a second copy of it would be both slow and a chance for the two
+  artifacts to diverge.
 - Linux and Windows: the executables at the top level and the resources under
   `share/orkige/` beside them (`share/orkige/Media/…` plus the editor's icon and
   mono fonts), which is what the locator reads relative to `SDL_GetBasePath`.
@@ -156,6 +156,154 @@ Platform-specific handling worth knowing:
 - **macOS** needs no dylib closure today — the built bundle depends on nothing
   outside the system frameworks — but the packaging runs the closure step
   anyway, so a future dependency rides along instead of breaking a download.
+
+## macOS signing, notarization and stapling
+
+A downloaded macOS app is held to rules a locally built one is not, and the
+whole point of a nightly is that it is downloaded. The pipeline therefore signs
+the bundle with a **Developer ID Application** certificate, submits both
+artifacts to Apple for **notarization**, and **staples** the resulting tickets
+into them — so the editor opens with no security prompt and needs no network to
+prove it may.
+
+### One seal, two identities
+
+The bundle is sealed **inside-out** — nested code first, then the bundle, because
+a bundle's seal records the signatures beneath it — by one function, whatever it
+signs with. Only the identity differs:
+
+| | ad-hoc | Developer ID |
+| --- | --- | --- |
+| certificate | none | Developer ID Application |
+| `codesign` flags | `--force --sign -` | `--force --sign <identity> --timestamp --options runtime` |
+| verification | `codesign --verify` | `codesign --verify --strict` |
+| what it proves | the bundle is internally consistent | who built it, that it was not altered since, and when |
+
+The hardened runtime (`--options runtime`) and the secure timestamp
+(`--timestamp`) are not preferences: **Apple rejects a notarization submission
+missing either**, so a real signature always carries both, on every binary and
+not just the outer bundle.
+
+**No entitlements.** Every hardened-runtime restriction that could bite is one
+this editor does not need: the scripting runtime is an interpreter and not a JIT
+(so no executable-memory exception), every dylib inside the bundle carries the
+same signature from the seal above (so library validation holds), and the tools
+the editor spawns — the player, the texture cook tool, `cmake`, `git` — are
+separate processes under their own policy rather than code loaded into this one.
+An entitlement that is not needed is signed-in permission nobody asked for. If
+something ever genuinely refuses to run without one, it belongs in a reviewed
+`.entitlements` file, passed through `codesign --entitlements` (which the
+packager's argv already supports), with the reason recorded here. The one
+foreseeable case is a flavor that loads a Vulkan driver from outside the bundle,
+which library validation would refuse — the shipped nightly is the Ogre-Next
+flavor on Metal and loads nothing of the sort.
+
+### The credentials, and where they may appear
+
+The certificate and the notarization credentials are repository secrets, and the
+rules around them are the same ones the iOS signing seam follows
+(`Docs/ios-signing.md`): **never committed, never on a command line this
+pipeline writes, never in a path an artifact upload can reach.**
+
+The packager reads them from the **environment**:
+
+| variable | what it is |
+| --- | --- |
+| `ORKIGE_MACOS_SIGNING_IDENTITY` | the Developer ID identity — a name or a SHA-1 (also `--signing-identity`; not a secret) |
+| `ORKIGE_MACOS_KEYCHAIN` | the keychain to search for it |
+| `ORKIGE_NOTARY_KEY` / `ORKIGE_NOTARY_KEY_ID` / `ORKIGE_NOTARY_ISSUER_ID` | an App Store Connect API key: the `.p8` file's path plus its two identifiers |
+| `ORKIGE_NOTARY_APPLE_ID` / `ORKIGE_NOTARY_APP_PASSWORD` / `ORKIGE_NOTARY_TEAM_ID` | an Apple ID, an app-specific password and the team id |
+
+Either notarization route works and the pipeline does not care which is
+configured. When both are, the **API key wins**: it is revocable on its own,
+without touching the Apple ID a person signs in with. A **half-configured** set
+is not used at all, and the log names exactly which values were missing — a typo
+in one secret must not read as "notarization is switched off".
+
+`notarytool` takes its credentials on an argv and offers no alternative, so the
+packager echoes those command lines with every credential value **redacted**. The
+key file's *path* stays readable: it names a file, it is not the key.
+
+### The CI keychain
+
+The signing key lives in a keychain created for the job and destroyed with it —
+never the runner's login keychain, which a later step could still reach. The
+workflow's step does, in order: create the keychain under a password generated
+on the spot, stop it auto-relocking mid-build (`codesign` cannot answer a
+prompt), decode the `.p12` from the secret into `RUNNER_TEMP` and import it,
+delete the decoded file immediately, **add the keychain to the user search
+list** — `codesign` does not find a key in a keychain that is merely named with
+`--keychain`, it has to be searched — and run `security set-key-partition-list`
+so the private key is usable without the UI prompt no runner can answer. The
+only value that leaves the step is the certificate's SHA-1: a public
+fingerprint, and deliberately not the identity's common name, which carries the
+team id. A final `always()` step deletes the keychain and every decoded
+credential file on **every** path out of the job, including a failed build.
+
+### Order: the ticket has to be inside the .zip
+
+A notarization ticket is issued for what was **submitted**, so an artifact only
+ends up with one of its own if it was submitted on its own. The portable `.zip`
+is the updater's payload, and a download that needs a network round trip to open
+is a second-class one — so the app is notarized *first*, and the sequence is:
+
+1. seal the staged bundle (hardened runtime, secure timestamp);
+2. submit the **app** (in a throwaway `ditto` zip, the shape Apple's service
+   takes an app in), wait for the verdict, staple the ticket into the app **in
+   the staging**;
+3. build the `.dmg` from that staging — so the app inside it is already
+   stapled — sign the image (a container, so no hardened runtime: that flag
+   describes code), submit it, wait, staple it;
+4. build the `.zip` from the same staging, which now holds the stapled app.
+
+Both downloads therefore carry a ticket of their own. That is the reason the
+macOS disk image is built **before** the portable archive, where every other
+platform builds the archive first.
+
+### Verdicts, and what a rejection prints
+
+`notarytool submit --wait --output-format json` is asked for a verdict and the
+verdict is read out of the payload, never inferred from an exit code: anything
+that is not `"status": "Accepted"` — including output that cannot be parsed at
+all — is **not** accepted, because "we could not tell" and "Apple said yes" must
+never be the same answer. The wait is generous (Apple's service usually answers
+in minutes and occasionally takes far longer); a nightly can afford it.
+
+On a rejection the packager fetches and prints `notarytool log` for that
+submission before failing. That log is the only thing that names the offending
+binary, and a rejection without it is undiagnosable.
+
+Then the tickets are proved rather than assumed: `stapler validate` on both
+artifacts, and the assessment Gatekeeper itself performs — `spctl --assess
+--type exec` on the app, and `--type open --context context:primary-signature`
+on the disk image, which is the assessment Apple documents for that container
+(`--type install` is the assessment for an installer package, which this
+pipeline does not produce). The build job repeats both on the app it **unpacked
+from the archive**, which is what proves the ticket survived the `.zip`.
+
+### When there is no certificate
+
+A fork, a pull request (secrets are not exposed to those) and a hand run on a
+machine with nothing configured all still produce a complete, working nightly.
+They produce an **ad-hoc** one, and every surface says so rather than implying
+otherwise:
+
+- the packaging log warns, naming the variable that was not set;
+- the `VERSION` file carries `signing: ad-hoc`, `signing: developer-id` or
+  `signing: developer-id-notarized` — one vocabulary, used by everything;
+- the artifact's `KNOWN-LIMITATIONS.md` carries the record that describes *that*
+  build: what an ad-hoc download does at first launch, or what a signed but
+  un-notarized one does, or neither record when there is nothing to warn about;
+- the release notes say the same thing, composed from the value read back out of
+  the artifact rather than from an assumption;
+- and the build job cross-checks the two: the signature the artifact records has
+  to equal the one the job set up, or the night does not publish.
+
+Nothing in between ships. A certificate that cannot sign, or a submission Apple
+does not accept, **fails the build** — a half-signed artifact is worse than an
+honestly ad-hoc one, and an artifact claiming a notarization it never got is
+worse than both. `--ad-hoc-sign` forces the ad-hoc path on a machine that does
+have a certificate, for a local packaging run that must not reach Apple.
 
 ## The ordered version
 
@@ -336,10 +484,10 @@ Both are fixed strings one regex finds in one pass over `body`.
 Two caveats, stated plainly:
 
 - **A draft release's assets are not anonymously readable.** The `nightly`
-  release is a draft while the archives are unsigned, and a draft is reachable
-  only with a token that has write access — so nothing can poll it until the
-  release goes public. That is one more reason the signing gap comes before an
-  in-editor updater.
+  release is a draft while the Windows artifacts are unsigned, and a draft is
+  reachable only with a token that has write access — so nothing can poll it
+  until the release goes public. That is one more reason the remaining signing
+  gap comes before an in-editor updater.
 - **Unauthenticated API calls are rate-limited per IP:** 60 requests an hour
   (5000 with a token). A check once a day, or once per launch, sits far inside
   that; a client that polls in a loop is answered `403` with a reset time, and
@@ -376,6 +524,15 @@ which asserts, and fails the job on any of them:
   commit the job stamped it with, and its ordered version is exactly the one the
   packaging composed. A wrong stamp, or a version the two sides disagree on, is a
   failure and not a note.
+
+On macOS the job then reads the `signing:` line back out of the unpacked
+`VERSION` and **matches it against what the job itself set up**. The packager
+resolves the same credentials independently and writes that verdict; if the two
+ever disagree, one of them is telling a user something untrue, and the night does
+not publish. That same read-back value is what the release notes are composed
+from. A notarized build additionally has `stapler validate` and `spctl` run
+against the app **that came out of the archive**, which is what proves the ticket
+survived the `.zip`.
 
 The installable artifacts are checked the same way — by using them, not by
 reading them:
@@ -414,6 +571,20 @@ media staging over a synthetic build tree, the archive round-trip, and every
 verdict the verifier can reach — including a stand-in binary reporting the wrong
 commit or a version the packaging did not compose.
 
+It drives the whole **signing** decision layer too, on a machine with no
+certificate at all, because every one of those decisions is pure: the credential
+resolution and its precedence (API key over Apple ID; a half-configured set
+refused with the missing names; credentials without a certificate falling all the
+way back to ad-hoc), the `codesign` / `notarytool` / `stapler` / `spctl` argv,
+the redaction that keeps a credential out of an echoed command line, the strict
+reading of Apple's verdict (anything unparseable is *not* accepted), a rejection
+fetching the notarization log before failing, the inside-out seal order over a
+synthetic bundle with the signing tool injected — including the invariant that a
+run with no certificate issues exactly the four-word ad-hoc command it always
+did — and which limitations record each signature state carries. What only a run
+with the real credentials can prove is the rest: that the certificate imports,
+that Apple accepts the submission, and that the ticket staples.
+
 It also drives the installable artifacts as far as a platform-neutral test can:
 the asset names, the volume name against the 27-character cap a disk image's
 filesystem enforces, the numeric `a.b.c.d` the Windows VERSIONINFO resource
@@ -433,7 +604,12 @@ shell block is lifted out of the workflow and run against stubbed job outputs,
 asserting that both markers carry the right values, that an archive which
 arrived is named while a failed platform is called out with its job result, and
 that the notes point at the `.sha256` sidecar. A marker exists in exactly one
-place, and this is the check that it exists where a client looks.
+place, and this is the check that it exists where a client looks. The same block
+is run once per macOS signature state, because the sentence a reader is given
+has to be the one that applies: a notarized download described as unsigned sends
+people through steps they do not need, an unsigned one described as notarized
+leaves them stuck, and a macOS job that never reported reads as the unsigned
+wording rather than as a claim nobody made.
 
 ## Where the artifacts go
 
@@ -460,31 +636,34 @@ neither.
 
 Making the release public is one change (dropping `--draft` from the
 `gh release create` call in the publish job). What has to be true first is the
-list below — above all, the archives have to be signed, because every platform
-currently warns the user that they are not.
+list below — above all, the **Windows** artifacts have to be signed, because
+that platform still warns the user that they are not.
 
 ## What a downloaded build cannot do yet
 
 Every archive carries a generated `KNOWN-LIMITATIONS.md` listing exactly the gaps
-that apply to its platform. The list is a table of records in
-`Util/orkige_nightly_package.py`, so closing a gap is deleting one record — the
-selftest asserts the rendered document lists exactly the records that apply,
-whatever they are, which keeps it honest in both directions.
+that apply to its platform — and, on macOS, to what its signature is actually
+worth. The list is a table of records in `Util/orkige_nightly_package.py`, so
+closing a gap is deleting one record — the selftest asserts the rendered document
+lists exactly the records that apply, whatever they are, which keeps it honest in
+both directions.
 
-Today the list is headed by the one that matters most:
+The trust gaps, per platform:
 
-- **The builds are unsigned**, and the installable containers are unsigned with
-  them. macOS reports the app as unopenable until the download quarantine flag
-  is removed (install first, then `xattr -dr com.apple.quarantine
-  /Applications/Orkige.app`, or right-click > Open); an unsigned `.dmg` is
-  blocked exactly like an unsigned `.zip`, because the image is an install
-  shape, not a trust shape — what changes that is a notarization ticket, which
-  staples onto the `.dmg` directly. On Windows the installer draws SmartScreen's
-  loudest prompt, the full-screen "Windows protected your PC" whose default
-  button is *Don't run*, because it is a program asking to install software
-  rather than a file being unpacked; "More info" > "Run anyway" gets past it,
-  and the portable `.zip` beside it needs no such confirmation at all. The
-  limitations file spells out every step. This is why the release stays a draft.
+- **Windows builds are unsigned**, and the installer is unsigned with them. It
+  draws SmartScreen's loudest prompt, the full-screen "Windows protected your
+  PC" whose default button is *Don't run*, because it is a program asking to
+  install software rather than a file being unpacked; "More info" > "Run anyway"
+  gets past it, and the portable `.zip` beside it needs no such confirmation at
+  all. This is why the release stays a draft.
+- **macOS builds are Developer ID signed, notarized and stapled** when the
+  signing credentials are reachable — the app and the disk image each carry
+  their own ticket, so both open with no security prompt and no quarantine flag
+  to clear. A build without those credentials (a fork, a pull request, a clone
+  with nothing configured) is ad-hoc signed instead and carries the record
+  saying so, with the steps its user needs; one with a certificate but no
+  notarization credentials carries the record for *that*. See
+  [macOS signing](#macos-signing-notarization-and-stapling).
 - **Exporting a game needs the engine repository** — Build > Export copies out of
   a build tree and runs `Util/orkige_export.py`, so it needs that tree and
   python3.
@@ -524,6 +703,20 @@ bounded window and says so.
 That one run writes both of the platform's assets. The `.dmg` needs `hdiutil`,
 which is part of macOS; the Windows installer needs `makensis` on `PATH`, and
 without it the packager says so and produces the `.zip` alone.
+
+A hand run on macOS is **ad-hoc signed** unless a certificate is pointed at, and
+says so. To sign one for real, name the identity and let the notarization
+credentials come from the environment (never from a command line):
+
+```sh
+export ORKIGE_MACOS_SIGNING_IDENTITY="Developer ID Application: … (TEAMID)"
+export ORKIGE_NOTARY_KEY=~/private/AuthKey_XXXXXXXX.p8
+export ORKIGE_NOTARY_KEY_ID=XXXXXXXX ORKIGE_NOTARY_ISSUER_ID=…
+python3 Util/orkige_nightly_package.py --platform macos …
+```
+
+`--ad-hoc-sign` forces the ad-hoc path on a machine that does have a certificate,
+for a packaging run that must not reach Apple.
 
 Then check the result the way CI does:
 

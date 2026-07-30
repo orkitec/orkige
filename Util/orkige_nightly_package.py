@@ -60,6 +60,16 @@ an installable convention get a second asset from the SAME staging: a
 drag-to-Applications .dmg on macOS and a per-user installer on Windows (see the
 block above make_dmg for why each exists).
 
+macOS artifacts are signed. With a Developer ID certificate reachable (an
+identity from --signing-identity or ORKIGE_MACOS_SIGNING_IDENTITY) the bundle is
+sealed inside-out with the hardened runtime and a secure timestamp, the app and
+the disk image are each notarized and stapled, and the VERSION file records
+`signing: developer-id-notarized`. Without one - a fork, a pull request, a hand
+run on a machine with no certificate - the same seal runs ad-hoc, the log says
+so, and the artifact's KNOWN-LIMITATIONS.md carries the record describing what
+that costs its user. Nothing in between ships: a certificate that cannot sign or
+a submission Apple does not accept fails the build.
+
 The last line on success is "orkige_nightly_package: OK <artifact>", the same
 machine-readable contract orkige_export.py ends on.
 """
@@ -67,6 +77,7 @@ machine-readable contract orkige_export.py ends on.
 import argparse
 import datetime
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -127,6 +138,19 @@ def fail(message):
     sys.exit(1)
 
 
+# --- what a macOS build's signature is worth --------------------------------
+#
+# ONE vocabulary, used by everything that has to say it: the VERSION file's
+# `signing:` line, the limitations record this build carries, the workflow's job
+# output and the release notes. Three states, and no fourth - a build is either
+# internally consistent (ad-hoc), identified (Developer ID) or identified AND
+# vouched for by Apple (notarized + stapled).
+
+SIGN_ADHOC = "ad-hoc"
+SIGN_DEVELOPER_ID = "developer-id"
+SIGN_NOTARIZED = "developer-id-notarized"
+
+
 # --- what a downloaded binary cannot do yet --------------------------------
 #
 # Every artifact carries this table rendered as KNOWN-LIMITATIONS.md. It is a
@@ -138,16 +162,23 @@ def fail(message):
 
 class Limitation:
     """one honest gap in a downloaded build. `platforms` is the tuple this
-    applies to; PLATFORMS means all of them."""
+    applies to; PLATFORMS means all of them. `signing` narrows an entry to ONE
+    macOS signature state (SIGN_*), so a record describing what an unsigned
+    download does is absent from a signed one rather than lying to its reader;
+    an entry that leaves it empty applies whatever the signature is worth."""
 
-    def __init__(self, key, platforms, title, detail, workaround=""):
+    def __init__(self, key, platforms, title, detail, workaround="",
+                 signing=""):
         self.key = key
         self.platforms = tuple(platforms)
         self.title = title
         self.detail = detail
         self.workaround = workaround
+        self.signing = signing
 
-    def applies_to(self, platform):
+    def applies_to(self, platform, signing=SIGN_ADHOC):
+        if self.signing and self.signing != signing:
+            return False
         return platform in self.platforms
 
 
@@ -182,18 +213,36 @@ LIMITATIONS = (
     Limitation(
         key="unsigned-macos",
         platforms=("macos",),
+        signing=SIGN_ADHOC,
         title="Neither the app nor the disk image is signed or notarized",
-        detail="macOS refuses a downloaded app from an unidentified developer "
-               "and reports it as damaged or unopenable. The .dmg is the "
-               "install shape, not a trust shape: an unsigned image is blocked "
-               "exactly like an unsigned .zip until a notarization ticket can "
-               "be stapled to it.",
+        detail="This build carries an ad-hoc signature, which makes the bundle "
+               "internally consistent but names no developer. macOS refuses a "
+               "downloaded app from an unidentified developer and reports it "
+               "as damaged or unopenable. The .dmg is the install shape, not a "
+               "trust shape: an unsigned image is blocked exactly like an "
+               "unsigned .zip until a notarization ticket can be stapled to "
+               "it.",
         workaround="Install first - open the .dmg and drag Orkige.app to "
                    "Applications - then remove the download quarantine flag "
                    "once:\n"
                    "    xattr -dr com.apple.quarantine /Applications/Orkige.app\n"
                    "Or right-click the installed app, choose Open, and "
                    "confirm."),
+    Limitation(
+        key="unnotarized-macos",
+        platforms=("macos",),
+        signing=SIGN_DEVELOPER_ID,
+        title="The app is signed but not notarized",
+        detail="This build carries a Developer ID signature with the hardened "
+               "runtime and a secure timestamp, so it names its developer - but "
+               "it was not submitted to Apple, so there is no notarization "
+               "ticket stapled to it. macOS blocks a downloaded app it cannot "
+               "check with Apple and says it cannot be verified.",
+        workaround="Install first - open the .dmg and drag Orkige.app to "
+                   "Applications - then right-click the installed app, choose "
+                   "Open and confirm; or remove the download quarantine flag "
+                   "once:\n"
+                   "    xattr -dr com.apple.quarantine /Applications/Orkige.app"),
     Limitation(
         key="unsigned-windows",
         platforms=("windows",),
@@ -232,11 +281,12 @@ LIMITATIONS = (
 )
 
 
-def limitations_for(platform):
-    return tuple(entry for entry in LIMITATIONS if entry.applies_to(platform))
+def limitations_for(platform, signing=SIGN_ADHOC):
+    return tuple(entry for entry in LIMITATIONS
+                 if entry.applies_to(platform, signing))
 
 
-def limitations_markdown(platform, identity_lines=()):
+def limitations_markdown(platform, identity_lines=(), signing=SIGN_ADHOC):
     """KNOWN-LIMITATIONS.md for one platform: a heading, one section per
     applicable entry, nothing else. The wording lives in the LIMITATIONS
     table, so this renderer never needs editing when a gap closes."""
@@ -249,7 +299,7 @@ def limitations_markdown(platform, identity_lines=()):
         lines.append("- " + line)
     if identity_lines:
         lines.append("")
-    for entry in limitations_for(platform):
+    for entry in limitations_for(platform, signing):
         lines.append("## " + entry.title)
         lines.append("")
         lines.append(entry.detail)
@@ -753,14 +803,356 @@ def stage_macos(build_dir, stage_root, editor, player):
     return staged, os.path.join(macos_dir, "Orkige")
 
 
-def seal_macos_bundle(app):
-    """ad-hoc re-sign the finished bundle, inside-out. The linker's own ad-hoc
+# --- macOS signing, notarization and stapling ------------------------------
+#
+# The bundle is sealed the same way whatever it is signed WITH: inside-out (a
+# bundle seal records the signatures beneath it), from ONE function, with the
+# identity as the only difference. The two ends of that range:
+#
+# - the AD-HOC identity ("-") needs no certificate, so it runs on any machine
+#   and on a fork, a pull request or a hand run. It makes the bundle internally
+#   consistent and NOTHING more: the app names no developer, and macOS refuses
+#   a downloaded one (KNOWN-LIMITATIONS says so, with the steps to open it).
+# - a DEVELOPER ID identity additionally gets the hardened runtime
+#   (--options runtime) and a secure timestamp (--timestamp), because
+#   notarization accepts neither without them, and the artifacts are then
+#   submitted to Apple and stapled.
+#
+# Nothing in between ships. A configured certificate that cannot sign, or a
+# submission Apple does not accept, FAILS the build - a half-signed artifact is
+# worse than an honestly ad-hoc one, and an artifact whose VERSION file claims
+# a notarization it never got is worse than both.
+#
+# NO ENTITLEMENTS. The hardened runtime's default restrictions are all things
+# this editor does not do: the scripting runtime is an interpreter and not a
+# JIT (so no executable-memory exception), every dylib inside the bundle is
+# signed by the same identity in the seal below (so library validation holds),
+# and the tools it spawns - the player, the texture cook, cmake, git - are
+# separate processes under their own policy rather than code loaded into this
+# one. An entitlement that is not needed is signed-in permission nobody asked
+# for, so the list stays empty until something genuinely refuses to run without
+# one, at which point it belongs in a reviewed .entitlements file and in
+# Docs/nightly-builds.md beside the reason.
+#
+# CREDENTIALS come from the ENVIRONMENT, never from a command line: an
+# app-specific password on an argv is readable by every process on the machine.
+# The one exception is the signing identity, which is a certificate's public
+# name or its SHA-1 and is not a secret. Whatever does end up on a subprocess
+# argv (notarytool takes its credentials that way and offers no alternative) is
+# redacted out of the echoed command line by run_credentialed below.
+
+MACOS_SIGNING_IDENTITY_ENV = "ORKIGE_MACOS_SIGNING_IDENTITY"
+MACOS_KEYCHAIN_ENV = "ORKIGE_MACOS_KEYCHAIN"
+# notarization, App Store Connect API key (the preferred route: a key file plus
+# two identifiers, revocable on its own without touching an Apple ID)
+NOTARY_KEY_ENV = "ORKIGE_NOTARY_KEY"
+NOTARY_KEY_ID_ENV = "ORKIGE_NOTARY_KEY_ID"
+NOTARY_ISSUER_ENV = "ORKIGE_NOTARY_ISSUER_ID"
+# notarization, Apple ID + app-specific password (the alternative route)
+NOTARY_APPLE_ID_ENV = "ORKIGE_NOTARY_APPLE_ID"
+NOTARY_APP_PASSWORD_ENV = "ORKIGE_NOTARY_APP_PASSWORD"
+NOTARY_TEAM_ID_ENV = "ORKIGE_NOTARY_TEAM_ID"
+
+# how long one submission may take before notarytool gives up. Apple's service
+# usually answers in minutes and occasionally takes far longer; a nightly can
+# afford to wait, and a wait that ends in an artifact beats a timeout that ends
+# in none.
+NOTARY_TIMEOUT = "2h"
+
+
+class NotaryCredentials:
+    """how a notarization submission authenticates. Two methods, one shape:
+    `api-key` (App Store Connect key file + key id + issuer id) and `apple-id`
+    (Apple ID + app-specific password + team id). Pure data - the argv it
+    composes is what notarytool takes, and `secrets()` is what must never reach
+    a log."""
+
+    def __init__(self, method="", key_path="", key_id="", issuer="",
+                 apple_id="", app_password="", team_id=""):
+        self.method = method
+        self.key_path = key_path
+        self.key_id = key_id
+        self.issuer = issuer
+        self.apple_id = apple_id
+        self.app_password = app_password
+        self.team_id = team_id
+
+    def argv(self):
+        if self.method == "api-key":
+            return ["--key", self.key_path,
+                    "--key-id", self.key_id,
+                    "--issuer", self.issuer]
+        if self.method == "apple-id":
+            return ["--apple-id", self.apple_id,
+                    "--password", self.app_password,
+                    "--team-id", self.team_id]
+        return []
+
+    def secrets(self):
+        """every credential VALUE, for redaction. The key file's PATH is not
+        one (it names a file, it is not the key), but the identifiers and the
+        password are."""
+        return tuple(value for value in
+                     (self.key_id, self.issuer, self.apple_id,
+                      self.app_password, self.team_id) if value)
+
+
+def resolve_notary_credentials(environ):
+    """pick the notarization method from the environment and say what was
+    missing. Returns (credentials, complaint): the API key wins when both are
+    complete (it is revocable on its own), an incomplete set is NOT used and
+    the complaint names exactly which values were absent, and nothing
+    configured at all is no complaint - a build without notarization
+    credentials is a legitimate, honestly-recorded state. Pure."""
+    key_path = environ.get(NOTARY_KEY_ENV, "").strip()
+    key_id = environ.get(NOTARY_KEY_ID_ENV, "").strip()
+    issuer = environ.get(NOTARY_ISSUER_ENV, "").strip()
+    apple_id = environ.get(NOTARY_APPLE_ID_ENV, "").strip()
+    password = environ.get(NOTARY_APP_PASSWORD_ENV, "").strip()
+    team_id = environ.get(NOTARY_TEAM_ID_ENV, "").strip()
+    if key_path and key_id and issuer:
+        return NotaryCredentials("api-key", key_path=key_path, key_id=key_id,
+                                 issuer=issuer), ""
+    if apple_id and password and team_id:
+        return NotaryCredentials("apple-id", apple_id=apple_id,
+                                 app_password=password, team_id=team_id), ""
+    api_missing = [name for name, value in ((NOTARY_KEY_ENV, key_path),
+                                            (NOTARY_KEY_ID_ENV, key_id),
+                                            (NOTARY_ISSUER_ENV, issuer))
+                   if not value]
+    id_missing = [name for name, value in ((NOTARY_APPLE_ID_ENV, apple_id),
+                                           (NOTARY_APP_PASSWORD_ENV, password),
+                                           (NOTARY_TEAM_ID_ENV, team_id))
+                  if not value]
+    if len(api_missing) < 3:
+        return NotaryCredentials(), ("an App Store Connect key is half "
+                                     "configured - %s %s not set"
+                                     % (", ".join(api_missing),
+                                        "is" if len(api_missing) == 1 else "are"))
+    if len(id_missing) < 3:
+        return NotaryCredentials(), ("an Apple ID notarization login is half "
+                                     "configured - %s %s not set"
+                                     % (", ".join(id_missing),
+                                        "is" if len(id_missing) == 1 else "are"))
+    return NotaryCredentials(), ""
+
+
+class MacosSigning:
+    """what this run can sign and vouch for. `identity` empty means the ad-hoc
+    seal; `notary` present means the artifacts are submitted and stapled.
+    `notes` is what a degraded run has to SAY, in the log and, through the
+    signature state, in the artifact's own KNOWN-LIMITATIONS.md."""
+
+    def __init__(self, identity="", keychain="", notary=None, notes=()):
+        self.identity = identity
+        self.keychain = keychain
+        self.notary = notary or NotaryCredentials()
+        self.notes = tuple(notes)
+
+    @property
+    def real(self):
+        """does this sign with a certificate (as opposed to ad-hoc)?"""
+        return bool(self.identity)
+
+    @property
+    def notarizes(self):
+        return self.real and bool(self.notary.method)
+
+    @property
+    def state(self):
+        """the ONE signature vocabulary: what the VERSION file records, which
+        limitations record applies, and what the release notes say"""
+        if not self.real:
+            return SIGN_ADHOC
+        return SIGN_NOTARIZED if self.notarizes else SIGN_DEVELOPER_ID
+
+
+def resolve_macos_signing(environ, identity_arg="", ad_hoc=False):
+    """what this machine can do for a macOS build, and what it has to say about
+    what it cannot. Pure: no keychain is opened and no file is read, so every
+    branch is testable on a machine with no certificate at all.
+
+    Degradation is never silent and never partial. Credentials with no
+    certificate cannot notarize anything, so that combination falls all the way
+    back to ad-hoc and says why; a certificate with half a credential set signs
+    for real and records that it is not notarized."""
+    identity = (identity_arg or environ.get(MACOS_SIGNING_IDENTITY_ENV, "")
+                ).strip()
+    keychain = environ.get(MACOS_KEYCHAIN_ENV, "").strip()
+    notary, complaint = resolve_notary_credentials(environ)
+    if ad_hoc:
+        return MacosSigning(notes=("ad-hoc signing was asked for - this build "
+                                   "names no developer",))
+    if not identity:
+        note = ("no Developer ID certificate (%s is not set) - the app is "
+                "ad-hoc signed, which macOS refuses on a download"
+                % MACOS_SIGNING_IDENTITY_ENV)
+        if notary.method or complaint:
+            note = ("notarization credentials are configured but no signing "
+                    "certificate is (%s is not set) - nothing can be signed, "
+                    "so nothing can be notarized; falling back to ad-hoc"
+                    % MACOS_SIGNING_IDENTITY_ENV)
+        return MacosSigning(notes=(note,))
+    if notary.method:
+        return MacosSigning(identity, keychain, notary)
+    note = complaint or ("no notarization credentials (%s or %s) - the app is "
+                         "Developer ID signed but not notarized"
+                         % (NOTARY_KEY_ENV, NOTARY_APPLE_ID_ENV))
+    return MacosSigning(identity, keychain, notes=(note,))
+
+
+def codesign_argv(target, identity="", keychain="", entitlements="",
+                  hardened=True):
+    """the codesign invocation for ONE binary, bundle or disk image. Pure.
+
+    The ad-hoc form is exactly the four-word command it has always been, so a
+    run with no certificate produces the same signature it did before this seam
+    existed. The real form adds the two flags notarization requires - the
+    hardened runtime and a secure timestamp - and neither is optional: a
+    submission missing either is rejected by Apple, not by us. `hardened` is
+    off for a disk image, which is a container rather than code."""
+    if not identity or identity == "-":
+        return ["codesign", "--force", "--sign", "-", target]
+    argv = ["codesign", "--force", "--sign", identity, "--timestamp"]
+    if hardened:
+        argv += ["--options", "runtime"]
+    if entitlements:
+        argv += ["--entitlements", entitlements]
+    if keychain:
+        argv += ["--keychain", keychain]
+    argv.append(target)
+    return argv
+
+
+def codesign_verify_argv(target, strict=False):
+    """read back what was just written. A real signature is verified STRICTLY -
+    the check Gatekeeper applies - while the ad-hoc seal keeps the plain
+    verification it has always had."""
+    argv = ["codesign", "--verify"]
+    if strict:
+        argv += ["--strict", "--verbose=2"]
+    argv.append(target)
+    return argv
+
+
+def notarytool_submit_argv(artifact, notary, timeout=NOTARY_TIMEOUT):
+    """submit one artifact and WAIT for Apple's verdict, as JSON (the verdict
+    is read from the payload rather than inferred from an exit code). Pure."""
+    return (["xcrun", "notarytool", "submit", artifact] + notary.argv()
+            + ["--wait", "--timeout", timeout, "--output-format", "json"])
+
+
+def notarytool_log_argv(submission_id, notary):
+    """the log of one submission. This is the ONLY thing that names the binary
+    Apple objected to, so a rejection is worthless without it. Pure."""
+    return ["xcrun", "notarytool", "log", submission_id] + notary.argv()
+
+
+def stapler_argv(target):
+    """attach the notarization ticket to the artifact, so the machine that
+    opens it needs no network to learn that Apple vouched for it. Pure."""
+    return ["xcrun", "stapler", "staple", target]
+
+
+def stapler_validate_argv(target):
+    return ["xcrun", "stapler", "validate", target]
+
+
+def spctl_argv(target, kind="exec"):
+    """the assessment Gatekeeper itself performs. `exec` is the app's verdict;
+    a disk image is assessed as `open` against its primary signature, which is
+    the check Apple documents for that container (`install` is the assessment
+    for an installer package, which this pipeline does not produce). Pure."""
+    argv = ["spctl", "--assess", "--type", kind, "--verbose=2"]
+    if kind == "open":
+        argv += ["--context", "context:primary-signature"]
+    argv.append(target)
+    return argv
+
+
+def redact_argv(argv, secrets=()):
+    """one command line as it may appear in a log: every credential VALUE
+    replaced. Pure - and the only reason a credentialed command is echoed at
+    all, because a step whose command nobody can see is a step nobody can
+    debug."""
+    hidden = set(value for value in secrets if value)
+    return " ".join("<redacted>" if arg in hidden else arg for arg in argv)
+
+
+def run_credentialed(argv, secrets=(), runner=subprocess.run):
+    """run a command whose argv carries credentials. The echoed line is
+    redacted; the output is captured so a failure can be reported without the
+    command line that produced it. Never raises - the caller decides."""
+    log("$ " + redact_argv(argv, secrets))
+    try:
+        return runner(argv, capture_output=True, text=True)
+    except OSError as error:
+        fail("could not run %s: %s" % (argv[0], error))
+
+
+def notary_submission_verdict(stdout):
+    """(submission id, status, accepted) out of `notarytool submit --wait
+    --output-format json`. Pure, and deliberately strict: output that is not
+    the expected payload reads as NOT accepted, because "we could not tell" and
+    "Apple said yes" must never be the same answer."""
+    try:
+        payload = json.loads(stdout or "")
+    except ValueError:
+        return "", "", False
+    if not isinstance(payload, dict):
+        return "", "", False
+    identifier = str(payload.get("id") or "")
+    status = str(payload.get("status") or "")
+    return identifier, status, status == "Accepted"
+
+
+def notarize(artifact, notary, what="", runner=subprocess.run):
+    """submit one artifact, wait for the verdict, and on a rejection fetch and
+    print the notarization LOG - which names the offending binary and is the
+    only way to diagnose one. Anything but "Accepted" fails the build."""
+    what = what or os.path.basename(artifact)
+    log("submitting %s for notarization (waiting up to %s)"
+        % (what, NOTARY_TIMEOUT))
+    result = run_credentialed(notarytool_submit_argv(artifact, notary),
+                              notary.secrets(), runner)
+    print(result.stdout or "", end="", flush=True)
+    identifier, status, accepted = notary_submission_verdict(result.stdout)
+    if accepted:
+        log("Apple accepted %s (submission %s)" % (what, identifier))
+        return identifier
+    if (result.stderr or "").strip():
+        print(result.stderr, end="", flush=True)
+    if identifier:
+        # the verdict alone says nothing actionable; the log names the binary
+        log("fetching the notarization log for submission " + identifier)
+        detail = run_credentialed(notarytool_log_argv(identifier, notary),
+                                  notary.secrets(), runner)
+        print(detail.stdout or "", end="", flush=True)
+        print(detail.stderr or "", end="", flush=True)
+    fail("notarization of %s came back '%s' - nothing is published from a "
+         "submission Apple did not accept" % (what, status or "no verdict"))
+
+
+def staple(artifact, what=""):
+    """attach the ticket and prove it stuck"""
+    what = what or os.path.basename(artifact)
+    orkige_export.run(stapler_argv(artifact))
+    orkige_export.run(stapler_validate_argv(artifact))
+    log("stapled the notarization ticket into " + what)
+
+
+def seal_macos_bundle(app, signing=None):
+    """re-sign the finished bundle, inside-out. The linker's own ad-hoc
     signature covers the executable only; adding the player, the media and the
     text files leaves the bundle with no sealed resource directory, and a
-    DOWNLOADED app is held to stricter rules than a locally built one. Signing
-    with the ad-hoc identity ("-") needs no certificate, so this runs on any
-    machine - it makes the bundle internally consistent, NOT trusted (an
-    unsigned-by-a-developer app still trips Gatekeeper, see KNOWN-LIMITATIONS)."""
+    DOWNLOADED app is held to stricter rules than a locally built one.
+
+    With no identity this signs ad-hoc ("-"), which needs no certificate and so
+    runs on any machine - it makes the bundle internally consistent, NOT trusted
+    (see KNOWN-LIMITATIONS). With a Developer ID identity the same inside-out
+    walk signs for real, with the hardened runtime and a secure timestamp that
+    notarization requires."""
+    signing = signing or MacosSigning()
     macos_dir = os.path.join(app, "Contents", "MacOS")
     frameworks = os.path.join(app, "Contents", "Frameworks")
     # nested code first: a bundle seal records the signatures beneath it
@@ -773,9 +1165,35 @@ def seal_macos_bundle(app):
     nested += [os.path.join(macos_dir, name)
                for name in sorted(os.listdir(macos_dir)) if name != "Orkige"]
     for binary in nested:
-        orkige_export.run(["codesign", "--force", "--sign", "-", binary])
-    orkige_export.run(["codesign", "--force", "--sign", "-", app])
-    orkige_export.run(["codesign", "--verify", app])
+        orkige_export.run(codesign_argv(binary, signing.identity,
+                                        signing.keychain))
+    orkige_export.run(codesign_argv(app, signing.identity, signing.keychain))
+    orkige_export.run(codesign_verify_argv(app, strict=signing.real))
+    log("sealed %s (%s)" % (os.path.basename(app), signing.state))
+
+
+def notarize_macos_app(app, signing):
+    """notarize the APP itself, before any container is built from it.
+
+    A ticket is issued for what was SUBMITTED, so the app has to be submitted on
+    its own to end up with one of its own - and it has to, because the portable
+    .zip is the updater's payload and a download that needs a network round trip
+    to open is second-class. The submission container is a throwaway zip (the
+    shape Apple's service takes an app in); the ticket is stapled into the app
+    in the staging, so both artifacts built from that staging afterwards carry
+    it."""
+    submission = tempfile.mkdtemp(prefix="orkige-notarize-")
+    try:
+        payload = os.path.join(submission, "Orkige.zip")
+        # ditto, not zipfile: the bundle's symlinks and executable bits have to
+        # survive the trip or Apple assesses something that is not our app
+        orkige_export.run(["ditto", "-c", "-k", "--sequesterRsrc",
+                           "--keepParent", app, payload])
+        notarize(payload, signing.notary, what=os.path.basename(app))
+    finally:
+        shutil.rmtree(submission, ignore_errors=True)
+    staple(app, os.path.basename(app))
+    orkige_export.run(spctl_argv(app, "exec"))
 
 
 def stage_flat(build_dir, platform, stage_root, editor, player):
@@ -926,6 +1344,29 @@ def make_dmg(stage_root, dmg_path, volume_name):
     return dmg_path
 
 
+def make_macos_image(stage_root, dmg_path, volume_name, signing=None):
+    """the disk image, and whatever trust this run can put behind it: the image
+    is signed with the same identity the app carries (a container, so no
+    hardened runtime - that flag describes code) and then notarized and stapled
+    on its own, because a ticket belongs to the artifact that was submitted.
+
+    The app inside is already stapled by the time the image is built, so the
+    image carries a ticket for itself AND an app that carries one for itself -
+    which is what makes the .zip built from the same staging equal to the
+    .dmg rather than a lesser download."""
+    signing = signing or MacosSigning()
+    make_dmg(stage_root, dmg_path, volume_name)
+    if not signing.real:
+        return dmg_path
+    orkige_export.run(codesign_argv(dmg_path, signing.identity,
+                                    signing.keychain, hardened=False))
+    if signing.notarizes:
+        notarize(dmg_path, signing.notary)
+        staple(dmg_path)
+        orkige_export.run(spctl_argv(dmg_path, "open"))
+    return dmg_path
+
+
 def windows_file_version(version=""):
     """the ordered version as the numeric `a.b.c.d` the Windows VERSIONINFO
     resource accepts - it takes four numbers and nothing else, so the channel,
@@ -977,11 +1418,13 @@ def make_windows_installer(stage_root, installer_path, version):
 
 
 def package(platform, build_dir, commit, date, output_dir, version="",
-            since="", repo=REPO_ROOT):
+            since="", repo=REPO_ROOT, signing=None):
     """stage, describe and archive one platform's editor build. `version` is
     the ordered identity (composed here when the caller passes none, so a hand
     run needs no extra argument); `since` is the previous nightly's commit -
-    the changelog's lower bound."""
+    the changelog's lower bound; `signing` is what this run can put behind a
+    macOS build (ad-hoc when there is no certificate, and it says so)."""
+    signing = signing or MacosSigning()
     build_dir = os.path.abspath(build_dir)
     if not os.path.isdir(build_dir):
         fail("no build tree at '%s'" % build_dir)
@@ -1009,6 +1452,15 @@ def package(platform, build_dir, commit, date, output_dir, version="",
 
     extra_fields = []
     if platform == "macos":
+        # what this build's signature is worth, recorded where a person and a
+        # script both read it. It is written before the signing runs, which is
+        # honest because the alternative to the recorded state is not a lesser
+        # one: a certificate that cannot sign or a submission Apple rejects
+        # fails the build, so a VERSION file claiming a notarization is only
+        # ever attached to an artifact that got one.
+        extra_fields.append(("signing", signing.state))
+        for note in signing.notes:
+            warn(note)
         staged_media, staged_editor = stage_macos(build_dir, stage_root,
                                                   editor, player)
     else:
@@ -1036,7 +1488,8 @@ def package(platform, build_dir, commit, date, output_dir, version="",
     limitations = limitations_markdown(
         platform, ["%s %s" % (key, value) for key, value in
                    (line.split(": ", 1) for line in version_file.splitlines()
-                    if line.startswith(("version:", "commit:", "built:")))])
+                    if line.startswith(("version:", "commit:", "built:")))],
+        signing.state)
     changelog = changelog_document(version, commit, date,
                                    collect_changelog(commit, since, repo))
     targets = [stage_root]
@@ -1050,9 +1503,26 @@ def package(platform, build_dir, commit, date, output_dir, version="",
             handle.write(limitations)
         with open(os.path.join(target, CHANGELOG_FILE), "w") as handle:
             handle.write(changelog)
+    # the installable artifact and the portable one come from ONE staging, so
+    # they can never hold different builds. On macOS the ORDER matters: the app
+    # is sealed, notarized and stapled, THEN the disk image is built (and
+    # notarized on its own), and only then is the .zip made - so the portable
+    # archive carries the stapled app rather than a copy that predates the
+    # ticket. Both get the same .sha256 treatment: every asset a person can
+    # download carries its own integrity story, and the publish side re-checks
+    # all of them the same way.
+    installable = ""
     if platform == "macos":
-        # LAST: every byte the seal covers must already be in place
-        seal_macos_bundle(os.path.join(stage_root, MACOS_APP_NAME))
+        # the seal comes after every byte it covers is in place - the payload,
+        # the media and the text files are all staged by now
+        app = os.path.join(stage_root, MACOS_APP_NAME)
+        seal_macos_bundle(app, signing)
+        if signing.notarizes:
+            notarize_macos_app(app, signing)
+        installable = make_macos_image(
+            stage_root,
+            os.path.join(output_dir, dmg_name(platform, commit, version)),
+            dmg_volume_name(version), signing)
 
     archive_path = os.path.join(output_dir,
                                 artifact_name(platform, commit, version))
@@ -1072,17 +1542,7 @@ def package(platform, build_dir, commit, date, output_dir, version="",
             orkige_export.directory_size(stage_root)),
            orkige_export.human_size(os.path.getsize(archive_path))))
 
-    # the installable artifact beside the portable one, from the same staging.
-    # It gets the same .sha256 treatment - every asset a person can download
-    # carries its own integrity story, and the publish side re-checks all of
-    # them the same way.
-    installable = ""
-    if platform == "macos":
-        installable = make_dmg(stage_root,
-                               os.path.join(output_dir,
-                                            dmg_name(platform, commit, version)),
-                               dmg_volume_name(version))
-    elif platform == "windows":
+    if platform == "windows":
         installable = make_windows_installer(
             stage_root,
             os.path.join(output_dir, installer_name(platform, commit, version)),
@@ -1095,6 +1555,8 @@ def package(platform, build_dir, commit, date, output_dir, version="",
 
     log("editor: %s" % os.path.relpath(staged_editor, stage_root))
     log("version: %s" % (version or "(unversioned)"))
+    if platform == "macos":
+        log("signing: %s" % signing.state)
     log("OK " + archive_path)
     return archive_path
 
@@ -1302,6 +1764,23 @@ def main():
     parser.add_argument("--repo", default=REPO_ROOT,
                         help="the repository to read the changelog from "
                              "(default this checkout)")
+    parser.add_argument("--signing-identity", default="",
+                        help="macOS: the Developer ID Application identity "
+                             "(name or SHA-1) to sign with, else the env "
+                             + MACOS_SIGNING_IDENTITY_ENV + ". Without one the "
+                             "bundle is ad-hoc signed and says so. The "
+                             "notarization credentials are ENVIRONMENT-only "
+                             "(" + NOTARY_KEY_ENV + "/" + NOTARY_KEY_ID_ENV
+                             + "/" + NOTARY_ISSUER_ENV + ", or "
+                             + NOTARY_APPLE_ID_ENV + "/"
+                             + NOTARY_APP_PASSWORD_ENV + "/"
+                             + NOTARY_TEAM_ID_ENV + ") - a password on a "
+                             "command line is readable by every process on the "
+                             "machine")
+    parser.add_argument("--ad-hoc-sign", action="store_true",
+                        help="macOS: ad-hoc sign even where a certificate is "
+                             "configured (a local packaging run that must not "
+                             "reach Apple)")
     parser.add_argument("--verify", default="",
                         help="verify an UNPACKED artifact directory instead of "
                              "packaging one")
@@ -1362,7 +1841,9 @@ def main():
         parser.error("--build-dir is required")
     output = args.output or os.path.join(args.build_dir, "nightly")
     package(args.platform, args.build_dir, args.commit,
-            args.date or today(), output, args.version, args.since, args.repo)
+            args.date or today(), output, args.version, args.since, args.repo,
+            resolve_macos_signing(os.environ, args.signing_identity,
+                                  args.ad_hoc_sign))
 
 
 # --- reading the workflow's own shell --------------------------------------
@@ -1686,7 +2167,7 @@ def selftest():
                            RESULT_WINDOWS="skipped",
                            SHA="dea551f9e0abcdef1234", SHORT_SHA="dea551f9e",
                            BUILD_DATE="2026-07-30", VERSION=ordered,
-                           TOKEN=token)
+                           TOKEN=token, TRUST_MACOS=SIGN_ADHOC)
             run = subprocess.run(["bash", "-c", notes_script], cwd=temp,
                                  env=environ, capture_output=True, text=True)
             assert run.returncode == 0, run.stdout + run.stderr
@@ -1713,6 +2194,37 @@ def selftest():
             assert ordered in body and bounded.strip() in body
             # the sidecar is the integrity story the notes point at
             assert CHECKSUM_SUFFIX in body, body
+            # the ad-hoc build's notes send a reader through the quarantine
+            # steps, because that is what an ad-hoc build needs
+            assert "UNSIGNED, so macOS refuses" in body, body
+
+            # ... and the SAME script, told what a signed build recorded, says
+            # what THAT download does instead. A notarized artifact described as
+            # unsigned sends people through steps they do not need; an unsigned
+            # one described as notarized leaves them stuck.
+            for state, expected, forbidden in (
+                    (SIGN_NOTARIZED, "notarized by Apple and stapled",
+                     "UNSIGNED, so macOS refuses"),
+                    (SIGN_DEVELOPER_ID, "signed but NOT notarized",
+                     "notarized by Apple and stapled")):
+                run = subprocess.run(
+                    ["bash", "-c", notes_script], cwd=temp, text=True,
+                    env=dict(environ, TRUST_MACOS=state), capture_output=True)
+                assert run.returncode == 0, run.stdout + run.stderr
+                variant = open(os.path.join(temp, "notes.md")).read()
+                assert expected in variant, variant
+                assert forbidden not in variant, variant
+                # Windows is unsigned whatever macOS managed, and says so
+                assert "SmartScreen" in variant, variant
+            # an unset value (a macOS job that never reported) reads as the
+            # unsigned wording rather than as a claim nobody made
+            unset = dict(environ)
+            unset.pop("TRUST_MACOS")
+            run = subprocess.run(["bash", "-c", notes_script], cwd=temp,
+                                 env=unset, capture_output=True, text=True)
+            assert run.returncode == 0, run.stdout + run.stderr
+            assert "UNSIGNED, so macOS refuses" in \
+                open(os.path.join(temp, "notes.md")).read()
 
     # --- the limitations table ------------------------------------------
     keys = [entry.key for entry in LIMITATIONS]
@@ -1742,6 +2254,287 @@ def selftest():
     # the identity lines a real artifact carries at the top
     with_identity = limitations_markdown("linux", ["commit abc1234"])
     assert "- commit abc1234" in with_identity
+
+    # the macOS trust records are mutually exclusive and follow the SIGNATURE
+    # this build actually got: exactly one of them appears in an ad-hoc and a
+    # signed-but-unnotarized build, and NEITHER in a notarized one - the record
+    # a download carries has to describe the download in the reader's hands
+    trust_records = {SIGN_ADHOC: "unsigned-macos",
+                     SIGN_DEVELOPER_ID: "unnotarized-macos"}
+    for state in (SIGN_ADHOC, SIGN_DEVELOPER_ID, SIGN_NOTARIZED):
+        keys = [entry.key for entry in limitations_for("macos", state)]
+        assert len(keys) == len(set(keys)), keys
+        for candidate, key in trust_records.items():
+            assert (key in keys) == (candidate == state), (state, key)
+        # the shared, signature-independent gaps are there whatever it says
+        assert "project-export" in keys, keys
+        # ... and no macOS trust record ever leaks into another platform
+        for other in ("linux", "windows"):
+            assert not set(trust_records.values()) & set(
+                entry.key for entry in limitations_for(other, state))
+    assert "not notarized" in limitations_markdown("macos", (),
+                                                   SIGN_DEVELOPER_ID)
+    notarized_doc = limitations_markdown("macos", (), SIGN_NOTARIZED)
+    assert "quarantine" not in notarized_doc, notarized_doc
+    assert notarized_doc.startswith("# Known limitations")
+
+    # --- what this machine can sign, and what it says when it cannot ----
+    # Every branch below is decided WITHOUT a certificate, a keychain or a
+    # network, which is why the whole degradation ladder is testable on a
+    # machine that has none of them.
+    api_env = {NOTARY_KEY_ENV: "/tmp/AuthKey.p8",
+               NOTARY_KEY_ID_ENV: "KEYID12345",
+               NOTARY_ISSUER_ENV: "1234-issuer-uuid"}
+    id_env = {NOTARY_APPLE_ID_ENV: "builds@example.com",
+              NOTARY_APP_PASSWORD_ENV: "abcd-efgh-ijkl-mnop",
+              NOTARY_TEAM_ID_ENV: "ABCDE12345"}
+
+    # nothing configured: ad-hoc, and the note says exactly why
+    plan = resolve_macos_signing({})
+    assert not plan.real and not plan.notarizes
+    assert plan.state == SIGN_ADHOC
+    assert plan.notes and MACOS_SIGNING_IDENTITY_ENV in plan.notes[0]
+
+    # a certificate and nothing else: real signing, honestly not notarized
+    plan = resolve_macos_signing({MACOS_SIGNING_IDENTITY_ENV: "DEADBEEF"})
+    assert plan.real and not plan.notarizes
+    assert plan.identity == "DEADBEEF" and plan.state == SIGN_DEVELOPER_ID
+    assert "not notarized" in plan.notes[0], plan.notes
+
+    # the CLI identity outranks the environment, and the keychain rides along
+    plan = resolve_macos_signing({MACOS_SIGNING_IDENTITY_ENV: "from-env",
+                                  MACOS_KEYCHAIN_ENV: "/tmp/build.keychain-db"},
+                                 identity_arg="from-argv")
+    assert plan.identity == "from-argv", plan.identity
+    assert plan.keychain == "/tmp/build.keychain-db"
+
+    # a certificate plus EITHER credential set notarizes
+    signed = {MACOS_SIGNING_IDENTITY_ENV: "DEADBEEF"}
+    plan = resolve_macos_signing(dict(signed, **api_env))
+    assert plan.notarizes and plan.state == SIGN_NOTARIZED
+    assert plan.notary.method == "api-key" and plan.notes == ()
+    plan = resolve_macos_signing(dict(signed, **id_env))
+    assert plan.notarizes and plan.notary.method == "apple-id"
+    # BOTH configured: the API key wins - it is revocable on its own, without
+    # touching the Apple ID a person signs in with
+    plan = resolve_macos_signing(dict(signed, **dict(api_env, **id_env)))
+    assert plan.notary.method == "api-key", plan.notary.method
+
+    # HALF a credential set is not used, and the complaint NAMES what is
+    # missing - a typo in one secret must not read as "notarization is off"
+    half = dict(signed, **{NOTARY_KEY_ID_ENV: "KEYID12345"})
+    plan = resolve_macos_signing(half)
+    assert plan.real and not plan.notarizes
+    assert plan.state == SIGN_DEVELOPER_ID
+    assert NOTARY_KEY_ENV in plan.notes[0] and NOTARY_ISSUER_ENV in plan.notes[0]
+    plan = resolve_macos_signing(dict(signed, **{
+        NOTARY_APPLE_ID_ENV: "builds@example.com",
+        NOTARY_APP_PASSWORD_ENV: "abcd-efgh-ijkl-mnop"}))
+    assert not plan.notarizes and NOTARY_TEAM_ID_ENV in plan.notes[0]
+
+    # credentials with NO certificate cannot notarize anything, so the whole
+    # thing falls back to ad-hoc rather than half-arming
+    plan = resolve_macos_signing(dict(api_env))
+    assert plan.state == SIGN_ADHOC and not plan.real
+    assert "no signing certificate" in plan.notes[0], plan.notes
+
+    # and an explicit ad-hoc run ignores a configured certificate entirely
+    plan = resolve_macos_signing(dict(signed, **api_env), ad_hoc=True)
+    assert plan.state == SIGN_ADHOC and not plan.real and not plan.notarizes
+    assert plan.notes, plan.notes
+
+    # --- the argv every signing tool is driven with ---------------------
+    # THE AD-HOC INVARIANT: with no identity the command is the four words it
+    # has always been, so a run without a certificate signs exactly what it
+    # signed before this seam existed
+    for identity in ("", "-"):
+        assert codesign_argv("/x/Orkige.app", identity) == \
+            ["codesign", "--force", "--sign", "-", "/x/Orkige.app"]
+    assert codesign_verify_argv("/x/Orkige.app") == \
+        ["codesign", "--verify", "/x/Orkige.app"]
+
+    # the real one carries BOTH flags notarization requires, and Apple - not
+    # this script - is what rejects a submission missing either
+    real = codesign_argv("/x/Orkige.app", "DEADBEEF",
+                         keychain="/tmp/build.keychain-db")
+    assert real[:5] == ["codesign", "--force", "--sign", "DEADBEEF",
+                        "--timestamp"], real
+    assert "--options" in real and real[real.index("--options") + 1] == "runtime"
+    assert real[real.index("--keychain") + 1] == "/tmp/build.keychain-db"
+    assert real[-1] == "/x/Orkige.app", real
+    # a disk image is a container, not code: no hardened runtime on it
+    image = codesign_argv("/x/Orkige.dmg", "DEADBEEF", hardened=False)
+    assert "--options" not in image and "--timestamp" in image, image
+    # entitlements are OPT-IN and nothing asks for them today; the argv still
+    # has to carry one when something eventually does
+    entitled = codesign_argv("/x/Orkige.app", "DEADBEEF",
+                             entitlements="/x/orkige.entitlements")
+    assert entitled[entitled.index("--entitlements") + 1] == \
+        "/x/orkige.entitlements"
+    strict = codesign_verify_argv("/x/Orkige.app", strict=True)
+    assert "--strict" in strict and strict[-1] == "/x/Orkige.app"
+
+    # the notarization argv, per credential method
+    api = NotaryCredentials("api-key", key_path="/tmp/AuthKey.p8",
+                            key_id="KEYID12345", issuer="1234-issuer-uuid")
+    submit = notarytool_submit_argv("/out/Orkige.dmg", api)
+    assert submit[:4] == ["xcrun", "notarytool", "submit", "/out/Orkige.dmg"]
+    assert submit[submit.index("--key") + 1] == "/tmp/AuthKey.p8"
+    assert submit[submit.index("--key-id") + 1] == "KEYID12345"
+    assert submit[submit.index("--issuer") + 1] == "1234-issuer-uuid"
+    # WAIT for the verdict, with a generous ceiling, and read it as JSON rather
+    # than guess it from an exit code
+    assert "--wait" in submit
+    assert submit[submit.index("--timeout") + 1] == NOTARY_TIMEOUT
+    assert submit[submit.index("--output-format") + 1] == "json"
+    person = NotaryCredentials("apple-id", apple_id="builds@example.com",
+                               app_password="abcd-efgh-ijkl-mnop",
+                               team_id="ABCDE12345")
+    submit_person = notarytool_submit_argv("/out/Orkige.dmg", person)
+    assert submit_person[submit_person.index("--apple-id") + 1] == \
+        "builds@example.com"
+    assert submit_person[submit_person.index("--password") + 1] == \
+        "abcd-efgh-ijkl-mnop"
+    assert submit_person[submit_person.index("--team-id") + 1] == "ABCDE12345"
+    assert NotaryCredentials().argv() == []
+    # the LOG of a submission - the only thing that names the binary Apple
+    # objected to - authenticates the same way
+    detail = notarytool_log_argv("11111111-2222-3333", api)
+    assert detail[:4] == ["xcrun", "notarytool", "log", "11111111-2222-3333"]
+    assert detail[detail.index("--key-id") + 1] == "KEYID12345"
+
+    # a credential never reaches a log, even though notarytool takes it on an
+    # argv and the command line is still echoed (a command nobody can see is a
+    # step nobody can debug)
+    echoed = redact_argv(submit_person, person.secrets())
+    for secret in ("abcd-efgh-ijkl-mnop", "builds@example.com", "ABCDE12345"):
+        assert secret not in echoed, echoed
+    assert "<redacted>" in echoed and "notarytool" in echoed
+    assert "/out/Orkige.dmg" in echoed, echoed
+    # the key FILE's path names a file, it is not the key - it stays readable
+    assert "/tmp/AuthKey.p8" in redact_argv(submit, api.secrets())
+    assert "KEYID12345" not in redact_argv(submit, api.secrets())
+    # an empty secret must never redact every argument
+    assert redact_argv(["a", "b"], ("",)) == "a b"
+
+    # stapling and the assessment Gatekeeper itself performs
+    assert stapler_argv("/out/Orkige.dmg") == \
+        ["xcrun", "stapler", "staple", "/out/Orkige.dmg"]
+    assert stapler_validate_argv("/out/Orkige.dmg") == \
+        ["xcrun", "stapler", "validate", "/out/Orkige.dmg"]
+    app_check = spctl_argv("/x/Orkige.app", "exec")
+    assert app_check[:4] == ["spctl", "--assess", "--type", "exec"]
+    assert app_check[-1] == "/x/Orkige.app"
+    image_check = spctl_argv("/out/Orkige.dmg", "open")
+    assert image_check[image_check.index("--context") + 1] == \
+        "context:primary-signature", image_check
+
+    # --- Apple's verdict, read strictly ---------------------------------
+    accepted = json.dumps({"id": "11111111-2222-3333", "status": "Accepted",
+                           "message": "Processing complete"})
+    assert notary_submission_verdict(accepted) == \
+        ("11111111-2222-3333", "Accepted", True)
+    rejected = json.dumps({"id": "44444444", "status": "Invalid"})
+    assert notary_submission_verdict(rejected) == ("44444444", "Invalid", False)
+    # ... and everything that is not a verdict reads as NOT accepted: "we could
+    # not tell" and "Apple said yes" must never be the same answer
+    for unusable in ("", "not json at all", "[]", "null",
+                     json.dumps({"status": "In Progress"}),
+                     json.dumps({"id": "5"})):
+        assert notary_submission_verdict(unusable)[2] is False, unusable
+
+    # --- the submission, driven over an injected notarytool -------------
+    class Reply:
+        def __init__(self, stdout, returncode=0, stderr=""):
+            self.stdout = stdout
+            self.returncode = returncode
+            self.stderr = stderr
+
+    class FakeNotary:
+        """a stand-in `xcrun notarytool` that records what it was asked"""
+
+        def __init__(self, replies):
+            self.replies = list(replies)
+            self.calls = []
+
+        def __call__(self, argv, **_kwargs):
+            self.calls.append(argv)
+            return Reply(self.replies.pop(0))
+
+    # accepted: one call, and the submission id comes back
+    tool = FakeNotary([accepted])
+    assert notarize("/out/Orkige.dmg", api, runner=tool) == "11111111-2222-3333"
+    assert len(tool.calls) == 1 and tool.calls[0][2] == "submit"
+
+    # REJECTED: the verdict alone names nothing actionable, so the log is
+    # fetched for the same submission - without it a rejection is undiagnosable
+    tool = FakeNotary([rejected, "Team-ID missing on Orkige.app/.../texcook"])
+    try:
+        notarize("/out/Orkige.dmg", api, runner=tool)
+        raise AssertionError("expected a refusal for a rejected submission")
+    except SystemExit:
+        pass
+    assert len(tool.calls) == 2, tool.calls
+    assert tool.calls[1][:4] == ["xcrun", "notarytool", "log", "44444444"], \
+        tool.calls[1]
+
+    # a submission that says nothing usable is a refusal too, and there is no
+    # id to ask about - so exactly one call, and no artifact
+    tool = FakeNotary(["notarytool: command not found"])
+    try:
+        notarize("/out/Orkige.dmg", api, runner=tool)
+        raise AssertionError("expected a refusal for an unreadable verdict")
+    except SystemExit:
+        pass
+    assert len(tool.calls) == 1, tool.calls
+
+    # --- the inside-out seal, over a synthetic bundle -------------------
+    # The ORDER is the load-bearing part (a bundle seal records the signatures
+    # beneath it, so nested code has to be signed first) and it is the same walk
+    # whatever the identity is - which is what keeps an ad-hoc run and a signed
+    # one from being two code paths that can drift.
+    with tempfile.TemporaryDirectory() as temp:
+        app = os.path.join(temp, MACOS_APP_NAME)
+        macos_dir = os.path.join(app, "Contents", "MacOS")
+        frameworks = os.path.join(app, "Contents", "Frameworks")
+        os.makedirs(macos_dir)
+        os.makedirs(frameworks)
+        for name in ("Orkige", "orkige_player", "texcook"):
+            open(os.path.join(macos_dir, name), "w").close()
+        open(os.path.join(frameworks, "libsomething.dylib"), "w").close()
+
+        recorded = []
+        real_run = orkige_export.run
+        orkige_export.run = lambda argv, **_kwargs: recorded.append(argv)
+        try:
+            seal_macos_bundle(app)
+            adhoc_calls = list(recorded)
+            recorded.clear()
+            seal_macos_bundle(app, MacosSigning("DEADBEEF", "/tmp/k.keychain-db"))
+            signed_calls = list(recorded)
+        finally:
+            orkige_export.run = real_run
+
+        # nested code first (frameworks, then the sibling tools), the bundle
+        # last, then a verification - and the app's own executable is never
+        # signed on its own, because the bundle seal covers it
+        signed_order = [argv[-1] for argv in adhoc_calls]
+        assert signed_order == [os.path.join(frameworks, "libsomething.dylib"),
+                                os.path.join(macos_dir, "orkige_player"),
+                                os.path.join(macos_dir, "texcook"),
+                                app, app], signed_order
+        assert [argv[-1] for argv in signed_calls] == signed_order
+        # THE AD-HOC INVARIANT, end to end: every command a certificate-less run
+        # issues is the four-word one, and the verification is the plain one
+        for argv in adhoc_calls[:-1]:
+            assert argv[:4] == ["codesign", "--force", "--sign", "-"], argv
+        assert adhoc_calls[-1] == ["codesign", "--verify", app]
+        # ... and the signed run adds exactly what notarization requires, to
+        # every piece of code and not just the outer bundle
+        for argv in signed_calls[:-1]:
+            assert argv[:4] == ["codesign", "--force", "--sign", "DEADBEEF"]
+            assert "--timestamp" in argv and "--options" in argv, argv
+        assert "--strict" in signed_calls[-1], signed_calls[-1]
 
     # --- the MSVC runtime resolution -----------------------------------
     with tempfile.TemporaryDirectory() as temp:

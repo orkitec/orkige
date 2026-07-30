@@ -604,12 +604,23 @@ jobs:
 
   # macOS: the Release .app, in two containers built from ONE staging. The
   # engine links statically and the bundle depends on nothing but system
-  # frameworks, so the packaging is a copy, an rpath scrub and an ad-hoc bundle
-  # seal (Util/orkige_nightly_package.py); that staged bundle then becomes both
-  # the drag-to-Applications .dmg (the human download - an app launched out of
-  # an unzipped folder is subject to Gatekeeper path randomization, which
+  # frameworks, so the packaging is a copy, an rpath scrub and a bundle seal
+  # (Util/orkige_nightly_package.py); that staged bundle then becomes both the
+  # drag-to-Applications .dmg (the human download - an app launched out of an
+  # unzipped folder is subject to Gatekeeper path randomization, which
   # installing to /Applications avoids) and the .zip (the portable copy, and
   # the shape an updater can swap files out of).
+  #
+  # SIGNING. With the repository's Developer ID secrets reachable, the seal is a
+  # real Developer ID signature with the hardened runtime and a secure
+  # timestamp, and both artifacts are notarized and stapled - the app on its own
+  # first, so the ticket is inside the bundle the .zip is made from, then the
+  # disk image. Without them - a fork, a pull request (secrets are not exposed
+  # to those) or a clone with nothing configured - every step below still runs,
+  # the seal is ad-hoc, and the log, the VERSION file, the artifact's
+  # KNOWN-LIMITATIONS.md and the release notes all say so. There is no state in
+  # between: a certificate that cannot sign, or a submission Apple does not
+  # accept, fails this job.
   binaries-macos:
     name: Binaries - macOS editor (.dmg + zip)
     needs: binaries-gate
@@ -622,6 +633,11 @@ jobs:
       CCACHE_DIR: /Users/runner/.ccache
       PRESET: macos-release
       PLATFORM: macos
+    outputs:
+      # what this build's signature is worth - the ONE vocabulary the packager
+      # writes into VERSION, read back from the artifact below so the publish
+      # job's notes cannot claim more than the download delivers
+      trust: ${{ steps.trust.outputs.trust }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
@@ -686,7 +702,121 @@ jobs:
           path: /Users/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
 
+      # The certificate lives in a keychain created for THIS job and deleted in
+      # an always() step at the end - never the runner's login keychain, which
+      # a later step or a later job could still reach. Nothing is echoed: the
+      # base64 blob and its password arrive as environment from `secrets.*`, the
+      # decoded .p12 is written under RUNNER_TEMP (which no artifact upload
+      # reaches) and removed the moment it has been imported, and the only value
+      # that leaves this step is the certificate's SHA-1 - a public fingerprint,
+      # and deliberately not the identity's common name, which carries the team
+      # id.
+      - name: Import the Developer ID certificate into a temporary keychain
+        id: signing
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -uo pipefail
+          # the search list as it was, recorded before anything touches it, so
+          # the cleanup step puts back exactly what it found
+          original="$(security list-keychains -d user \
+            | sed -e 's/^ *//' -e 's/"//g' | tr '\n' ' ')"
+          echo "ORKIGE_ORIGINAL_KEYCHAINS=${original}" >> "$GITHUB_ENV"
+          if [ -z "${MACOS_CERT_P12:-}" ] || [ -z "${MACOS_CERT_PASSWORD:-}" ]; then
+            echo "no Developer ID certificate is reachable from this run - the app will be ad-hoc signed"
+            echo "::warning::no macOS signing certificate in this run (a fork, a pull request, or a repository with the signing secrets unset) - the nightly is ad-hoc signed and its KNOWN-LIMITATIONS.md says what that costs its user"
+            { echo "identity="; echo "keychain="; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set -e
+          keychain="$RUNNER_TEMP/orkige-signing.keychain-db"
+          cert="$RUNNER_TEMP/orkige-signing.p12"
+          # a password nobody typed and nothing keeps: it exists for the life of
+          # this step, and the keychain it unlocks is deleted after the job
+          password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          printf '%s' "$MACOS_CERT_P12" | base64 --decode > "$cert"
+          security create-keychain -p "$password" "$keychain"
+          # no auto-relock while a long build runs: codesign cannot answer a
+          # prompt, and a locked keychain mid-signing is an unreadable failure
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$cert" -k "$keychain" -P "$MACOS_CERT_PASSWORD" \
+            -f pkcs12 -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$cert"
+          # the new keychain has to be IN the search list, or codesign never
+          # finds the key - naming it with --keychain alone is not enough. The
+          # entries that were already there are kept beside it.
+          security list-keychains -d user -s "$keychain" ${original}
+          # ... and the private key has to be usable without the UI prompt no
+          # runner can answer
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$password" "$keychain" > /dev/null
+          identity="$(security find-identity -v -p codesigning "$keychain" \
+            | awk '/Developer ID Application/ { print $2; exit }')"
+          if [ -z "$identity" ]; then
+            echo "the imported certificate is not a Developer ID Application identity - a nightly signed with anything else would still be refused on a download" >&2
+            exit 1
+          fi
+          echo "imported a Developer ID Application certificate (${identity})"
+          { echo "identity=${identity}"; echo "keychain=${keychain}"; } >> "$GITHUB_OUTPUT"
+
+      # Two routes to Apple's notarization service, and the pipeline does not
+      # care which the owner uses: an App Store Connect API key (preferred - it
+      # is revocable on its own, without touching the Apple ID a person signs in
+      # with) or an Apple ID plus an app-specific password. The key file is the
+      # only one that has to exist on disk, so it is written here; every other
+      # credential travels straight from `secrets.*` into the packaging step's
+      # environment and never onto a command line this workflow writes.
+      - name: Prepare the notarization credentials
+        id: notary
+        env:
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IDENTITY: ${{ steps.signing.outputs.identity }}
+        run: |
+          set -uo pipefail
+          method=""
+          if [ -n "${NOTARY_KEY_P8:-}" ] && [ -n "${NOTARY_KEY_ID:-}" ] \
+             && [ -n "${NOTARY_ISSUER_ID:-}" ]; then
+            key="$RUNNER_TEMP/orkige-notary-key.p8"
+            printf '%s' "$NOTARY_KEY_P8" | base64 --decode > "$key" \
+              || { echo "the notarization key is not valid base64" >&2; exit 1; }
+            chmod 600 "$key"
+            echo "ORKIGE_NOTARY_KEY=${key}" >> "$GITHUB_ENV"
+            method="an App Store Connect API key"
+          elif [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_PASSWORD:-}" ] \
+               && [ -n "${APPLE_TEAM_ID:-}" ]; then
+            method="an Apple ID and app-specific password"
+          fi
+          if [ -z "${IDENTITY:-}" ]; then
+            state="ad-hoc"
+            echo "no certificate, so nothing to notarize"
+          elif [ -z "${method}" ]; then
+            state="developer-id"
+            echo "::warning::the macOS nightly is Developer ID signed but NOT notarized - no complete set of notarization credentials was reachable; macOS still blocks the download and the artifact's KNOWN-LIMITATIONS.md says so"
+          else
+            state="developer-id-notarized"
+            echo "notarizing with ${method}"
+          fi
+          echo "signing_state=${state}" >> "$GITHUB_OUTPUT"
+
       - name: Package
+        env:
+          # the identity is a public fingerprint; every credential is
+          # environment-only, because an app-specific password on an argv is
+          # readable by every process on the machine
+          ORKIGE_MACOS_SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
+          ORKIGE_MACOS_KEYCHAIN: ${{ steps.signing.outputs.keychain }}
+          ORKIGE_NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          ORKIGE_NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          ORKIGE_NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+          ORKIGE_NOTARY_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          ORKIGE_NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           python3 Util/orkige_nightly_package.py \
             --platform "$PLATFORM" --build-dir "build/$PRESET" \
@@ -718,6 +848,46 @@ jobs:
           test -f "$DMG" || { echo "no disk image at $DMG" >&2; exit 1; }
           python3 Util/orkige_nightly_package.py --verify-dmg "$DMG"
 
+      # The artifact's OWN record of what its signature is worth, read back and
+      # matched against what this job set up. The packager resolves the same
+      # credentials independently and writes the verdict into VERSION; if the
+      # two ever disagree, one of them is telling a user something untrue, and
+      # the night does not publish. This is also where the value the publish
+      # job's notes are written from comes from - out of the artifact, not out
+      # of an assumption.
+      - name: Confirm the signature the artifact records
+        id: trust
+        env:
+          EXPECTED: ${{ steps.notary.outputs.signing_state }}
+        run: |
+          set -euo pipefail
+          VERSION_FILE="smoke/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}/VERSION"
+          recorded="$(grep '^signing: ' "$VERSION_FILE" | cut -d' ' -f2-)"
+          if [ "${recorded}" != "${EXPECTED}" ]; then
+            echo "the artifact records 'signing: ${recorded}' but this job set up '${EXPECTED}'" >&2
+            exit 1
+          fi
+          echo "the artifact records signing: ${recorded}"
+          echo "trust=${recorded}" >> "$GITHUB_OUTPUT"
+
+      # The ticket has to survive the .zip, or the portable download - the one
+      # an updater consumes - is the second-class artifact this pipeline stapled
+      # the app separately to avoid. So the app that is asked Gatekeeper's own
+      # question here is the one that came OUT of the archive, not the staged
+      # original, and the disk image is asked beside it.
+      - name: Verify the stapled notarization tickets
+        if: steps.trust.outputs.trust == 'developer-id-notarized'
+        run: |
+          set -euo pipefail
+          TOKEN="${{ needs.binaries-gate.outputs.version_token }}"
+          APP="smoke/Orkige-${PLATFORM}-${TOKEN}/Orkige.app"
+          DMG="nightly-out/Orkige-${PLATFORM}-${TOKEN}.dmg"
+          xcrun stapler validate "$APP"
+          spctl --assess --type exec --verbose=2 "$APP"
+          xcrun stapler validate "$DMG"
+          spctl --assess --type open --context context:primary-signature \
+            --verbose=2 "$DMG"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: binaries-macos
@@ -725,6 +895,28 @@ jobs:
           path: nightly-out/Orkige-macos-*
           if-no-files-found: error
           retention-days: 14
+
+      # ALWAYS, and on every path out of this job: the private key leaves with
+      # the keychain that held it, and the decoded credential files go with it.
+      # A failed build must not leave a signing key behind on a machine the next
+      # job may reuse.
+      - name: Delete the temporary signing keychain
+        if: always()
+        run: |
+          set -uo pipefail
+          keychain="$RUNNER_TEMP/orkige-signing.keychain-db"
+          # put back exactly the search list this job found, so nothing keeps
+          # looking for a keychain that is about to stop existing
+          if [ -n "${ORKIGE_ORIGINAL_KEYCHAINS:-}" ]; then
+            security list-keychains -d user -s ${ORKIGE_ORIGINAL_KEYCHAINS} \
+              > /dev/null 2>&1 || true
+          fi
+          if [ -f "${keychain}" ]; then
+            security delete-keychain "${keychain}" || true
+          fi
+          rm -f "${keychain}" "$RUNNER_TEMP/orkige-signing.p12" \
+                "$RUNNER_TEMP/orkige-notary-key.p8" || true
+          echo "the signing keychain and every decoded credential file are gone"
 
   # Linux: the Release editor as a tar.gz. The engine is static, but the binary
   # still loads the distribution's X/Wayland, GL/Vulkan, audio and D-Bus
@@ -1013,7 +1205,7 @@ jobs:
   #
   # A draft is invisible to anyone without write access and creates no git tag,
   # so nothing half-working is presented as ready - which matters while the
-  # archives are unsigned and every platform's security prompt says so
+  # Windows artifacts are unsigned and their security prompt says so
   # (KNOWN-LIMITATIONS.md inside every archive). Flipping it public is one flag
   # once those gaps close; until then the workflow-run artifacts are the way to
   # get a build.
@@ -1066,6 +1258,10 @@ jobs:
           BUILD_DATE: ${{ needs.binaries-gate.outputs.date }}
           VERSION: ${{ needs.binaries-gate.outputs.version }}
           TOKEN: ${{ needs.binaries-gate.outputs.version_token }}
+          # what the macOS artifact ITSELF records (read back out of its VERSION
+          # file by the build job). Empty when that job never got that far, and
+          # the unsigned wording is the honest answer to that.
+          TRUST_MACOS: ${{ needs.binaries-macos.outputs.trust }}
         run: |
           set -uo pipefail
           ls -l downloads || true
@@ -1114,10 +1310,29 @@ jobs:
             echo ""
             echo "Every download carries a \`VERSION\` file, a \`CHANGELOG.md\` and"
             echo "a \`KNOWN-LIMITATIONS.md\` listing what this build cannot do"
-            echo "yet: read it first. The builds are UNSIGNED, so macOS refuses"
-            echo "the app until its quarantine flag is cleared and Windows warns"
-            echo "that it does not recognise the publisher (loudest on the"
-            echo "installer); the limitations file gives the exact steps."
+            echo "yet: read it first."
+            # What each platform's security prompt will actually say, from what
+            # the artifact records rather than from a fixed sentence: a notarized
+            # download that still called itself unsigned would send people
+            # through steps they do not need, and an unsigned one that claimed
+            # otherwise would leave them stuck.
+            case "${TRUST_MACOS:-}" in
+              developer-id-notarized)
+                echo "The macOS app and disk image are Developer ID signed,"
+                echo "notarized by Apple and stapled, so they open with no"
+                echo "security prompt and need no quarantine flag cleared." ;;
+              developer-id)
+                echo "The macOS build is Developer ID signed but NOT notarized,"
+                echo "so macOS still blocks it on first launch; its"
+                echo "\`KNOWN-LIMITATIONS.md\` gives the exact steps." ;;
+              *)
+                echo "The macOS build is UNSIGNED, so macOS refuses the app"
+                echo "until its quarantine flag is cleared; its"
+                echo "\`KNOWN-LIMITATIONS.md\` gives the exact steps." ;;
+            esac
+            echo "The Windows builds are UNSIGNED, so SmartScreen warns that it"
+            echo "does not recognise the publisher (loudest on the installer);"
+            echo "the limitations file gives those steps too."
             echo "Each asset has a \`.sha256\` file beside it - verify a"
             echo "download before trusting it."
             echo ""

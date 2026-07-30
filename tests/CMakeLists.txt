@@ -284,12 +284,20 @@ set_tests_properties(orkige_export_selftest PROPERTIES LABELS unit TIMEOUT 60)
 # degradations, the .sha256 sidecar over real bytes and the refusal when a file
 # and its sidecar disagree, the release notes an updater reads (the publish job's
 # own shell block, run against stubbed job outputs: both machine-readable markers
-# with the right values), the known-limitations table and its per-platform
-# rendering, the engine media staging over a synthetic build tree, the archive
-# round-trip, and every verdict the unpack-and-run verifier can reach - including
-# a binary that reports the WRONG commit stamp or a version the packaging did not
-# compose, which must fail rather than publish. Needs no built editor (the run
-# leg drives a stand-in that answers --version).
+# with the right values, and the security wording matching what the macOS build
+# was actually signed with), the known-limitations table and its per-platform
+# AND per-signature-state rendering, the whole macOS signing decision layer
+# (credential precedence, the honest refusal of a half-configured set, the
+# codesign/notarytool/stapler/spctl argv, the redaction that keeps a credential
+# out of an echoed command line, Apple's verdict read strictly, a rejection
+# fetching the notarization log, and the inside-out seal order over a synthetic
+# bundle - including the invariant that a certificate-less run issues exactly the
+# ad-hoc command it always did), the engine media staging over a synthetic build
+# tree, the archive round-trip, and every verdict the unpack-and-run verifier can
+# reach - including a binary that reports the WRONG commit stamp or a version the
+# packaging did not compose, which must fail rather than publish. Needs no built
+# editor and NO certificate (every signing decision is pure; the run leg drives a
+# stand-in that answers --version).
 add_test(NAME orkige_nightly_package_selftest
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_nightly_package.py" --selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
