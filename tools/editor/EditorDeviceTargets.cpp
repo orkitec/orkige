@@ -137,8 +137,15 @@ bool runProcessCapturedTimeout(std::vector<std::string> const& args,
 		{
 			return false;	// a genuine spawn failure - never retried
 		}
-		// TimedOut: retry once with a longer budget before giving up
-		if (attempt < 2)
+		// TimedOut: retry with a longer budget before giving up. Where a device
+		// is KNOWN to be attached, one more attempt is bought cheaply and the
+		// alternative is expensive: answering "no devices" is not a smaller
+		// claim than waiting, it is a WRONG one, and the run that believes it
+		// goes on to wait out a whole play-session deadline before failing
+		// somewhere unrelated. A hosted runner under load has taken minutes to
+		// list its simulators.
+		const int attempts = deviceExpected ? 3 : 2;
+		if (attempt < attempts)
 		{
 			oDebugWarn("editor.device", 0, "device probe '" << probeName <<
 				"' exceeded " << budget << "ms - retrying once with a longer "
