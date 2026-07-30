@@ -27,8 +27,10 @@
 #	pragma GCC diagnostic push
 #endif
 
-#include <nanosvg/nanosvg.h>
-#include <nanosvg/nanosvgrast.h>
+// bare names: the vcpkg NanoSVG target exports include/nanosvg AS its include
+// directory (@see SvgShapeCookImpl.cpp)
+#include <nanosvg.h>
+#include <nanosvgrast.h>
 
 #if defined(__clang__)
 #	pragma clang diagnostic pop

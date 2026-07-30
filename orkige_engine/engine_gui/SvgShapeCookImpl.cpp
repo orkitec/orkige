@@ -39,7 +39,10 @@
 #	pragma GCC diagnostic push
 #endif
 
-#include <nanosvg/nanosvg.h>
+// bare names: the vcpkg NanoSVG target exports include/nanosvg AS its include
+// directory, so the prefixed spelling only ever resolved by riding another
+// dependency's include root - which a lean tool target does not have
+#include <nanosvg.h>
 
 #if defined(__clang__)
 #	pragma clang diagnostic pop
