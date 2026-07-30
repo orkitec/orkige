@@ -64,13 +64,13 @@
       "platform": "!ios & !android"
     },
     {
-      "$comment": "libcurl backs core_http on the platforms whose own HTTP stack the engine cannot reach from C++: Windows and Linux. Apple builds use NSURLSession, Android drives the platform's own HTTP stack over JNI (core_http/HttpBackendAndroid.cpp) and the web build uses the page's fetch, so curl never enters those closures. default-features OFF drops curl's 'non-http' feature (= HTTP_ONLY: no ftp, ldap, smb, ...) and 'ssl' selects the platform's TLS backend - Schannel on Windows, OpenSSL on Linux - so certificate verification always goes through the trust store the platform maintains and the engine never ships a CA bundle.",
+      "$comment": "libcurl backs core_http on the ONE platform whose own HTTP stack the engine cannot reach: Linux, which has no system HTTP client. Every other platform drives its own - NSURLSession on Apple, the platform HTTP stack over JNI on Android (core_http/HttpBackendAndroid.cpp), WinHTTP on Windows (core_http/HttpBackendWin.cpp, an OS DLL and no package at all) and the page's fetch on the web - so curl never enters those closures. default-features OFF drops curl's 'non-http' feature (= HTTP_ONLY: no ftp, ldap, smb, ...) and 'ssl' selects OpenSSL over the system CA store, so certificate verification goes through the trust store the platform maintains and the engine never ships a CA bundle.",
       "name": "curl",
       "default-features": false,
       "features": [
         "ssl"
       ],
-      "platform": "windows | linux"
+      "platform": "linux"
     },
     {
       "name": "vulkan-loader",

@@ -57,8 +57,14 @@ endif()
 #                                             app's network security config and
 #                                             its proxy settings, and no
 #                                             library in the APK at all
-#   Windows/Linux             libcurl       - Schannel on Windows, OpenSSL on
-#                                             Linux, http+https only
+#   Windows                   WinHTTP       - Schannel over the machine's own
+#                                             certificate stores (enterprise
+#                                             and hand-installed anchors
+#                                             included) plus the system AND
+#                                             per-user proxy configuration,
+#                                             from a DLL that ships with the OS
+#   Linux                     libcurl       - OpenSSL over the system CA store,
+#                                             http+https only
 #   wasm                      fetch         - a wasm module has no sockets
 #
 # ORKIGE_HTTP=OFF drops every transport (the seam still compiles, and
@@ -69,6 +75,7 @@ list(REMOVE_ITEM ORKIGE_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendCurl.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendFetch.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendNone.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendWin.cpp"
 )
 set(ORKIGE_HTTP_BACKEND "none")
 if(ORKIGE_HTTP)
@@ -84,6 +91,10 @@ if(ORKIGE_HTTP)
         set(ORKIGE_HTTP_BACKEND "fetch")
         list(APPEND ORKIGE_CORE_SOURCES
             "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendFetch.cpp")
+    elseif(WIN32)
+        set(ORKIGE_HTTP_BACKEND "win")
+        list(APPEND ORKIGE_CORE_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendWin.cpp")
     else()
         set(ORKIGE_HTTP_BACKEND "curl")
         list(APPEND ORKIGE_CORE_SOURCES
@@ -140,6 +151,16 @@ if(ORKIGE_HTTP)
         # Emscripten's fetch implementation is opt-in at LINK time; every
         # executable that links this library needs the flag, hence INTERFACE
         target_link_options(orkige_core INTERFACE -sFETCH=1)
+    elseif(ORKIGE_HTTP_BACKEND STREQUAL "win")
+        target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_WIN)
+        # winhttp.dll ships with Windows, so this is an import library from the
+        # SDK rather than a dependency - and its symbols never leave
+        # HttpBackendWin.cpp, so the link stays PRIVATE and windows.h/winhttp.h
+        # stay off the precompiled header
+        target_link_libraries(orkige_core PRIVATE winhttp)
+        set_source_files_properties(
+            "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendWin.cpp"
+            PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
     else()
         target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_CURL)
         # curl symbols never leave HttpBackendCurl.cpp, so the dependency is

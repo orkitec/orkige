@@ -66,16 +66,19 @@ namespace Orkige
 	//! the TU, the HapticManager/HapticBridgeApple split), so no call site
 	//! carries a platform #ifdef:
 	//!
-	//!   HttpBackendApple.mm   macOS + iOS   NSURLSession
-	//!   HttpBackendCurl.cpp   Windows/Linux/Android   libcurl
-	//!   HttpBackendFetch.cpp  wasm          the browser's fetch
-	//!   HttpBackendNone.cpp   ORKIGE_HTTP=OFF   honest refusals
+	//!   HttpBackendApple.mm     macOS + iOS   NSURLSession
+	//!   HttpBackendAndroid.cpp  Android       the platform stack over JNI
+	//!   HttpBackendWin.cpp      Windows       WinHTTP
+	//!   HttpBackendCurl.cpp     Linux         libcurl
+	//!   HttpBackendFetch.cpp    wasm          the browser's fetch
+	//!   HttpBackendNone.cpp     ORKIGE_HTTP=OFF   honest refusals
 	//!
 	//! THE THREADING CONTRACT: submit()/cancel()/poll() are called on the MAIN
-	//! thread only. Whether a backend does its work on a worker thread (curl),
-	//! in the platform's own queue (NSURLSession) or in the page's event loop
-	//! (fetch) is its own business - it publishes results ONLY through an
-	//! HttpEventQueue, and poll() is where the main thread picks them up.
+	//! thread only. Whether a backend does its work on a worker thread (curl,
+	//! WinHTTP, the JNI transport), in the platform's own queue (NSURLSession)
+	//! or in the page's event loop (fetch) is its own business - it publishes
+	//! results ONLY through an HttpEventQueue, and poll() is where the main
+	//! thread picks them up.
 	class HttpBackend
 	{
 	public:

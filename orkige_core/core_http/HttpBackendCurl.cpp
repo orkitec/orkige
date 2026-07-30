@@ -7,18 +7,19 @@
 	copyright:	(c) 2009-2026 orkitec
 ***************************************************************/
 
-// The Windows / Linux / Android transport behind HttpClient, and the ONE
-// translation unit in the tree that includes libcurl. Nothing above the
-// HttpBackend seam knows this file exists: HttpClient, the Lua `http` table and
-// every caller stay plain C++ (the engine_sound/StbVorbisImpl.cpp confinement
-// pattern), so the library can be swapped or dropped per platform without
-// touching a line of game-facing code.
+// The Linux transport behind HttpClient, and the ONE translation unit in the
+// tree that includes libcurl. Nothing above the HttpBackend seam knows this
+// file exists: HttpClient, the Lua `http` table and every caller stay plain
+// C++ (the engine_sound/StbVorbisImpl.cpp confinement pattern), so the library
+// can be swapped or dropped per platform without touching a line of
+// game-facing code.
 //
-// WHY libcurl here and the platform stack on Apple/web: certificate
-// verification must go through the trust store the PLATFORM maintains. Windows
-// gets that from curl's Schannel backend (the vcpkg default there) and
-// Linux/Android from OpenSSL over the system CA store, so this file never ships
-// a CA bundle of its own. Apple has no such curl backend any more, and a
+// WHY libcurl here and the platform's own stack everywhere else: certificate
+// verification must go through the trust store the PLATFORM maintains, and
+// Linux is the one platform with no system HTTP client to ask. curl over
+// OpenSSL reads the system CA store, so this file never ships a CA bundle of
+// its own. Apple, Windows and Android each have a stack that reaches more of
+// the machine's trust and proxy configuration than a library can, and a
 // browser has no sockets at all - hence their own backends.
 //
 // THE THREADING SHAPE: one worker thread owns the curl multi handle and every
@@ -263,12 +264,6 @@ namespace Orkige
 			// value undefined, i.e. a silently wrong TLS floor
 			curl_easy_setopt(easy, CURLOPT_SSLVERSION,
 				static_cast<long>(CURL_SSLVERSION_TLSv1_2));
-#ifdef __ANDROID__
-			// Android keeps the system trust anchors as a hashed PEM directory
-			// (there is no single bundle file to point CURLOPT_CAINFO at)
-			curl_easy_setopt(easy, CURLOPT_CAPATH,
-				"/system/etc/security/cacerts");
-#endif
 			// only http and https exist for this client - no ftp, no file://,
 			// no gopher, whatever the URL or a redirect says
 #if LIBCURL_VERSION_NUM >= 0x075500

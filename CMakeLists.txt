@@ -97,11 +97,11 @@ option(ORKIGE_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSa
 option(ORKIGE_TSAN "Enable ThreadSanitizer (data-race detection)" OFF)
 option(ORKIGE_FUZZ "Build the libFuzzer harnesses over the pure parsers (tests/fuzz)" OFF)
 # The HTTP(S) client (core_http). ON everywhere: a game that talks to a
-# leaderboard, remote config or an asset CDN needs it, and on Apple, Windows and
-# the web it costs no third-party library at all (the platform's own stack).
+# leaderboard, remote config or an asset CDN needs it, and everywhere except
+# Linux it costs no third-party library at all (the platform's own stack).
 # Turning it OFF keeps the seam compiling and makes every request refuse with an
 # honest reason - the lever for a size-constrained target whose game never calls
-# out (it drops libcurl + its TLS library from the Linux/Android closure).
+# out (it drops libcurl + its TLS library from the Linux closure).
 # See Docs/http.md.
 option(ORKIGE_HTTP "Build the HTTP(S) client (core_http)" ON)
 

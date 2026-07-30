@@ -198,8 +198,8 @@ convention).
 | --- | --- | --- | --- |
 | macOS, iOS | `NSURLSession` (`HttpBackendApple.mm`) | system keychain | none |
 | Android | the platform's own HTTP stack over JNI (`HttpBackendAndroid.cpp` + `OrkigeHttp.java`) | device trust anchors, filtered by the app's network security config | none |
-| Windows | libcurl + Schannel (`HttpBackendCurl.cpp`) | Windows cert store | libcurl |
-| Linux | libcurl + OpenSSL (same TU) | system CA store | libcurl + OpenSSL |
+| Windows | WinHTTP + Schannel (`HttpBackendWin.cpp`) | the machine's certificate stores, enterprise anchors included | none |
+| Linux | libcurl + OpenSSL (`HttpBackendCurl.cpp`) | system CA store | libcurl + OpenSSL |
 | web (wasm) | the page's `fetch` (`HttpBackendFetch.cpp`) | the browser's | none |
 | `ORKIGE_HTTP=OFF` | none (`HttpBackendNone.cpp`) | — | none |
 
@@ -222,15 +222,22 @@ library cannot see all of it.
   platform stack over JNI gets all three right, and drops both libcurl and
   OpenSSL out of the APK entirely.
 - A wasm module has no sockets at all, so the page's fetch is the only road out.
-- Windows and Linux share one curl TU because curl reaches the platform trust
-  store on both (Schannel and the OpenSSL CA store).
+- On Windows the machine's trust decisions live in the certificate stores the OS
+  keeps current — the public roots it updates, the enterprise anchors a domain
+  pushes down and whatever an administrator installed by hand — and Schannel is
+  what applies the machine's crypto policy to them. WinHTTP reaches all of that
+  and the machine's proxy configuration (system settings *and* the per-user
+  browser configuration) from a DLL that is part of Windows, so the game ships
+  no HTTP library and no TLS library.
+- Linux is the one platform with no system HTTP client, so it is the one that
+  takes libcurl — built HTTP-only, over the OpenSSL CA store.
 
 Threading is each backend's own business, hidden behind the seam: the curl
 backend owns one worker thread and one curl multi handle, `NSURLSession` uses
-its own queues, the Android backend runs one attached worker thread per transfer,
-and the browser backend has no thread at all. All of them publish results only
-through the same mutex-guarded event queue that `update()` drains — the
-discipline the physics contact queue uses.
+its own queues, the Android and Windows backends run one worker thread per
+transfer, and the browser backend has no thread at all. All of them publish
+results only through the same mutex-guarded event queue that `update()` drains
+— the discipline the physics contact queue uses.
 
 ### The Android transport in detail
 
@@ -263,6 +270,46 @@ What it does NOT do, stated rather than discovered: a request body is sent as
 one buffer, so there is no streaming UPLOAD of a large file (downloads stream);
 and each transfer costs its own thread, which suits a game making a handful of
 requests and would want a pool if one ever made hundreds.
+
+### The Windows transport in detail
+
+WinHTTP is driven from one worker thread per transfer, which walks that
+request's hops top to bottom — the same straight-line shape as the Android
+backend.
+
+- **The policy stays above the transport.** Automatic redirect following is
+  turned off (`WINHTTP_OPTION_REDIRECT_POLICY_NEVER` on the session,
+  `WINHTTP_DISABLE_REDIRECTS` on each request), so every hop comes back to
+  `HttpPolicy::resolveRedirect`. WinHTTP's own default — follow everything
+  except https to http — is a *different* rule from ours, and only one of them
+  may be in force.
+- **The size cap, the whole-request deadline and the save-to-file funnel** are
+  enforced here: the announced size is refused before the first body byte, the
+  arriving bytes are counted against the cap, and a stream that outlives its
+  deadline is stopped between chunks. `WinHttpSetTimeouts` bounds a name
+  resolution, a connect, a send and a receive — never the request as a whole,
+  which is what the caller asked for, so both bounds are kept.
+- **The session is asynchronous**, and that is a cancellation decision rather
+  than a performance one. The only way to abort an in-flight Windows request is
+  to close its handle; closing a *synchronous* request handle is documented as
+  a race condition and must never be done, while closing an *asynchronous* one
+  is the documented way to terminate a request in progress — the pending
+  operation then completes with `ERROR_WINHTTP_OPERATION_CANCELLED`. Each
+  completion is turned straight back into a blocking wait on the transfer's own
+  condition variable, so the worker reads like the sequential code it is and a
+  cancel still unblocks a transfer waiting on the network. It is also what
+  keeps a shutdown from stalling for the length of a request timeout.
+- **Two locks, each with one job.** One is held only while a WinHTTP call on
+  the request handle is executing, and the canceller takes it to detach the
+  handle before closing it — the "a handle cannot be closed while a call using
+  it is in progress" rule. The other guards the completion handshake and is the
+  only lock the status callback takes, which matters because WinHTTP may run a
+  completion on the calling thread before the initiating function returns. The
+  transfer is freed only after the handle-closing notification arrives, so no
+  callback can outlive the context it carries.
+- **TLS floor 1.2** (with 1.3 where the OS knows it), set on the session.
+- **No ambient identity**: cookies and automatic authentication are disabled
+  per request, so a request carries exactly what the caller put in it.
 
 ### The mobile cleartext gates
 
@@ -383,8 +430,8 @@ request refuses with a reason that names the option — the lever for a
 size-constrained target whose game never calls out.
 
 The weight is asymmetric, which is why the option exists at all rather than
-being on by decree: on macOS, iOS, Android and the web there is no third-party
-library at all, only a system stack. Windows adds libcurl itself (~half a
-megabyte of static code) and Linux adds libcurl plus OpenSSL — the two desktop
-platforms, where the size hardly matters. Neither mobile platform pays anything
-for having a network client, which is the point of driving each one's own stack.
+being on by decree: on macOS, iOS, Android, Windows and the web there is no
+third-party library at all, only a system stack. Linux alone adds libcurl plus
+OpenSSL, and it is the one platform with no system HTTP client to drive. No
+mobile platform pays anything for having a network client, which is the point of
+driving each one's own stack.
