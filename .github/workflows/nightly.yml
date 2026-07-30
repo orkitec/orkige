@@ -489,6 +489,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           IGNORE_GATE: ${{ inputs.ignore_gate }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -uo pipefail
           # gh + jq ship on every hosted runner; no action dependency here
@@ -517,6 +518,26 @@ jobs:
             echo "::warning::the last CI run on main concluded '${conclusion}' (run #${number}, ${url}) - skipping the binaries; a red tree is never published"
           fi
           verdict="CI run #${number:-n/a} ${conclusion:-none}"
+          skipped_reason="the last completed CI run on main concluded \`${conclusion:-none}\`"
+          # UNCHANGED-TREE SKIP: a scheduled run rebuilds only when tonight's green
+          # commit differs from the one the standing nightly was built from. The
+          # predecessor's commit is read from the machine-readable marker the
+          # publish job writes into the release notes; no marker or no release (the
+          # first night, or a hand-deleted one) means build. A MANUAL dispatch always
+          # builds - asking for it by hand is the explicit override.
+          if [ "${green}" = "true" ] && [ "${EVENT_NAME:-}" = "schedule" ]; then
+            prev=""
+            if gh release view nightly --json body --jq .body > prev_notes.txt 2> /dev/null; then
+              prev=$(grep -oE 'orkige-nightly-commit: [0-9a-f]{7,40}' prev_notes.txt \
+                | head -1 | awk '{print $2}')
+            fi
+            if [ -n "${prev}" ] && [ "${prev}" = "${sha}" ]; then
+              green=false
+              skipped_reason="nothing new: the last green run is still \`$(printf '%.9s' "${sha}")\`, already published"
+              echo "the standing nightly was built from ${sha} - no new commit to publish"
+              echo "::notice::nightly binaries skipped - main has not moved since the last published nightly (${sha})"
+            fi
+          fi
           if [ "${IGNORE_GATE:-false}" = "true" ]; then
             # manual override: build this ref regardless. Named in the log AND
             # in the summary so a resulting artifact is never mistaken for a
@@ -538,7 +559,7 @@ jobs:
             if [ "${green}" = "true" ]; then
               echo "Building \`$(printf '%.9s' "${sha}")\` - ${verdict}."
             else
-              echo "Skipped: the last completed CI run on main concluded \`${conclusion:-none}\`."
+              echo "Skipped: ${skipped_reason}."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -912,6 +933,9 @@ jobs:
             echo "warn about them; the limitations file gives the exact steps."
             echo ""
             echo "Reference: Docs/nightly-builds.md."
+            echo ""
+            # read back by the gate to skip a rebuild when main has not moved
+            echo "<!-- orkige-nightly-commit: ${SHA} -->"
           } > notes.md
           cat notes.md
 

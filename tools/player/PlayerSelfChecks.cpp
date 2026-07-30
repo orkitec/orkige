@@ -3511,7 +3511,12 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				if (panel->getEffectiveAlpha() >= 1.0f)
 				{
 					const float replayRest = panel->getPosition().y;
-					if (replayRest != galleryPanelRestY)
+					// the DRIFT this leg exists to catch moves the panel by a whole
+					// slide offset (the authored 40 design px), so a one-pixel window
+					// is decisive: the layout resolver rounds design units to pixels
+					// and a software rasteriser can round the boundary the other way,
+					// which is not drift. Anything larger is.
+					if (std::abs(replayRest - galleryPanelRestY) > 1.0f)
 					{
 						std::ostringstream why;
 						why << "the replayed enter settled at y " << replayRest

@@ -40,6 +40,20 @@ A push made minutes before that has not finished CI yet, so the gate finds the
 previous green run and builds that — which is the intended behaviour, not a
 miss.
 
+## Unchanged trees are not rebuilt
+
+A scheduled run also compares tonight's green commit against the one the standing
+nightly was built from: identical means **skip**, with a notice saying so. The
+predecessor's commit comes from a machine-readable marker the publish job writes
+into the release notes (`<!-- orkige-nightly-commit: … -->`), so the check needs
+no state outside the release itself; a missing marker or a missing release — the
+first night, or one deleted by hand — counts as "build". The job summary
+distinguishes the two skip reasons, so a quiet night reads as *nothing new*
+rather than as a red tree.
+
+A **manual** `workflow_dispatch` always builds, even from an unchanged commit:
+asking for a build by hand is itself the override.
+
 `workflow_dispatch` runs the same pipeline on demand. Its `run_binaries` input
 (default on) skips it, and `ignore_gate` builds the dispatched ref even when
 `main` is red — the log and the job summary both name the override, so an
