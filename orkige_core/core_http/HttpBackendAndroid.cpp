@@ -133,6 +133,9 @@ namespace Orkige
 			std::chrono::steady_clock::time_point	deadline;
 			std::atomic<bool>		cancelled;		//!< cancel() ran
 			bool					capExceeded = false;
+			//! was the cap hit by the ANNOUNCED size (so the refusal can name
+			//! it) rather than by the bytes that actually arrived
+			bool					capAnnounced = false;
 			bool					timedOut = false;
 			bool					writeFailed = false;
 			String					writeError;
@@ -513,9 +516,9 @@ namespace Orkige
 			// what a hook stopped the transfer FOR outranks the stop itself
 			if (transfer->capExceeded)
 			{
-				reason = "the response exceeded the " +
-					std::to_string(transfer->request.maxResponseBytes) +
-					"-byte cap";
+				reason = HttpPolicy::sizeCapReason(
+					transfer->request.maxResponseBytes,
+					transfer->capAnnounced ? transfer->expected : 0);
 				return HF_TOO_LARGE;
 			}
 			if (transfer->writeFailed)
@@ -696,6 +699,7 @@ namespace Orkige
 			if (transfer->expected > transfer->request.maxResponseBytes)
 			{
 				transfer->capExceeded = true;
+				transfer->capAnnounced = true;
 				return 1;
 			}
 			return 0;
