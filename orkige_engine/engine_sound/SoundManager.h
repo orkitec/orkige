@@ -72,7 +72,14 @@ namespace Orkige
 		void update(float delta = 0.f);
 		//! deinit sound system
 		bool deinit();
-		//! create a SoundSource
+		//! @brief create a SoundSource from a sound FILE
+		//! @remarks The extension picks the decoder (@see
+		//! SoundUtil::loadSoundData): `.wav`, `.caf` on Apple platforms, and
+		//! `.osfx` - a procedural text asset the engine SYNTHESIZES instead of
+		//! decoding (@see core_util/SfxAsset.h). A file that cannot be read or
+		//! parsed leaves the source REGISTERED but silent (one honest error
+		//! line), exactly like running without an audio device - a bad asset
+		//! never unwinds into game code.
 		SoundSourcePtr createSound(String const & id, String const & fileName, bool loop = false, Vec3 const & pos = Vec3::ZERO,  bool stream = false, bool preBuffer=false);
 		//! @brief create a SoundSource from a raw PCM buffer (no sound file needed)
 		//! @remarks the samples get copied, see SoundSource::initFromPCM

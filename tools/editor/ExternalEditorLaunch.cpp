@@ -58,7 +58,8 @@ bool isTextEditableAsset(std::string const& path)
 	}
 	// the engine's text-authored asset formats plus the common plain-text kinds
 	static const char* const kinds[] = {
-		".lua", ".oui", ".omat", ".omesh", ".oshape", ".oanim", ".oscene", ".oprefab",
+		".lua", ".oui", ".omat", ".omesh", ".oshape", ".oanim", ".osfx",
+		".oscene", ".oprefab",
 		".ogui", ".olevels", ".oactions", ".olayers", ".orkproj", ".orkmeta",
 		".xlf", ".txt", ".json", ".md", ".xml", ".ini", ".cfg", ".csv",
 		".glsl", ".vert", ".frag", ".h", ".hpp", ".c", ".cpp", ".cc",

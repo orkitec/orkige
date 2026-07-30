@@ -62,6 +62,8 @@
 #include <engine_runtime/AppHost.h>
 #include <engine_sound/SoundManager.h>
 #include <engine_sound/MusicStream.h>
+#include <core_util/SfxAsset.h>
+#include <core_util/SfxSynth.h>
 #include <engine_util/StringUtil.h>
 #include <core_debugnet/Json.h>
 
@@ -208,6 +210,10 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// tests/projects/tween (run with --project tests/projects/tween)
 	tweenCheck =
 		(std::getenv("ORKIGE_TWEEN_SELFCHECK") != nullptr);
+	// ORKIGE_SFX_SELFCHECK verifies procedural `.osfx` sound effects end to
+	// end against tests/projects/sfx (run with --project tests/projects/sfx)
+	sfxCheck =
+		(std::getenv("ORKIGE_SFX_SELFCHECK") != nullptr);
 	// ORKIGE_HOTRELOAD_SELFCHECK verifies Lua hot-reload end to
 	// end against tests/projects/hotreload: overwrite the running script on
 	// disk, drive ScriptComponent::hotReload() (the player-directed swap),
@@ -346,7 +352,7 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// the machine allows; a HUMAN run gets vsync so games neither spin
 	// uncapped nor tear
 	automatedRun = jumperLuaCheck || rollerCheck ||
-		rollerProgressionCheck || tweenCheck ||
+		rollerProgressionCheck || tweenCheck || sfxCheck ||
 		hotreloadCheck || scriptPropCheck ||
 		integrationContactCheck || integrationLevelCheck || persistentCheck ||
 		componentEnableCheck ||
@@ -5239,6 +5245,312 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		running = false;
 	}
 
+	// ORKIGE_SFX_SELFCHECK: procedural `.osfx` sound effects end to end
+	// (@see the block comment in PlayerSelfChecks.h)
+	if (sfxCheck && !sfxCheckFailed && !sfxCheckDone)
+	{
+		auto sfxFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: SFX SELFCHECK FAILED - %s", what.c_str());
+			sfxCheckFailed = true;
+		};
+		const bool audioUp = soundManager.isinitialised();
+
+		if (!sfxProbed)
+		{
+			sfxProbed = true;
+			SDL_Log("orkige_sfx_selfcheck: audio device %s",
+				audioUp ? "up (synthesized samples reach a real AL buffer)"
+					: "absent - asserting the honest no-op path");
+
+			// (1) the expectation, computed INDEPENDENTLY from the same asset
+			// text through the pure synthesizer - the leg never trusts the
+			// loader to tell it what the loader produced
+			Orkige::String text;
+			Orkige::SfxDesc desc;
+			Orkige::String parseError;
+			if (!context.render ||
+				!context.render->readResourceText("coin.osfx", text))
+			{
+				sfxFail("the fixture's coin.osfx did not resolve as a resource");
+			}
+			else if (!Orkige::SfxAsset::parse(text, desc, &parseError))
+			{
+				sfxFail("the fixture's coin.osfx did not parse: " +
+					std::string(parseError.c_str()));
+			}
+			else
+			{
+				const Orkige::SfxSynth::Pcm expected =
+					Orkige::SfxSynth::render(desc);
+				// the asset seeds itself from the `coin` archetype and
+				// overrides two parameters - the preset precedence, live
+				const Orkige::SfxDesc coinPreset =
+					Orkige::SfxPreset::forArchetype(
+						Orkige::SfxPreset::SA_PICKUP_COIN);
+				if (desc.waveType != coinPreset.waveType ||
+					std::abs(desc.baseFreq - coinPreset.baseFreq) > 0.0001f ||
+					std::abs(desc.punch - coinPreset.punch) > 0.0001f)
+				{
+					sfxFail("the asset's `preset coin` did not seed the wave, "
+						"pitch and punch");
+				}
+				else if (std::abs(desc.soundVolume - 0.4f) > 0.0001f ||
+					std::abs(desc.decay - 0.3f) > 0.0001f)
+				{
+					sfxFail("the asset's explicit soundVolume/decay did not "
+						"override the preset seed");
+				}
+
+				// (2) the loader's own source: the extension dispatch
+				// synthesized these samples and handed them to the ONE
+				// alBufferData upload a wave file goes through
+				Orkige::SoundSourcePtr probe =
+					soundManager.createSound("sfx.probe", "coin.osfx");
+				if (!probe)
+				{
+					sfxFail("createSound did not register a source for a "
+						".osfx");
+				}
+				else if (!audioUp)
+				{
+					// no device: registered, silent, queryable - and no crash
+					if (probe->isInitialized() || probe->isPlaying())
+					{
+						sfxFail("a source claims to play without an audio "
+							"device");
+					}
+				}
+				else if (!probe->isInitialized())
+				{
+					sfxFail("the .osfx source never reached an AL buffer");
+				}
+				else if (probe->queryBufferBytes() !=
+					static_cast<int>(expected.byteSize()))
+				{
+					sfxFail("OpenAL holds " +
+						std::to_string(probe->queryBufferBytes()) +
+						" bytes for the .osfx but the synthesizer renders " +
+						std::to_string(expected.byteSize()));
+				}
+				else if (probe->queryBufferSampleRate() != expected.sampleRate)
+				{
+					sfxFail("OpenAL holds the .osfx at " +
+						std::to_string(probe->queryBufferSampleRate()) +
+						" Hz but it was rendered at " +
+						std::to_string(expected.sampleRate));
+				}
+				else if (!soundManager.playSound("sfx.probe") ||
+					!soundManager.isPlaying("sfx.probe"))
+				{
+					sfxFail("the synthesized source did not play");
+				}
+				else
+				{
+					SDL_Log("orkige_sfx_selfcheck: 'coin.osfx' synthesized and "
+						"playing (%d bytes at %d Hz, %.3fs - byte-for-byte the "
+						"pure synthesizer's own render)",
+						probe->queryBufferBytes(),
+						probe->queryBufferSampleRate(),
+						expected.durationSec());
+				}
+			}
+
+			// (3) the STANDARD BINARY parameter file: the same synthesizer, fed
+			// by the file an authoring tool saves. The fixture's `.sfs` is a
+			// noise thud, so a source that plays it proves the little-endian
+			// layout was read (a mis-mapped field would render something else,
+			// and the byte comparison below would catch it).
+			if (!sfxCheckFailed)
+			{
+				Orkige::String sfsBytes;
+				Orkige::SfxDesc sfsDesc;
+				Orkige::String sfsError;
+				if (!context.render ||
+					!context.render->readResourceText("thud.sfs", sfsBytes))
+				{
+					sfxFail("the fixture's thud.sfs did not resolve as a "
+						"resource");
+				}
+				else if (!Orkige::SfxAsset::parseBinary(sfsBytes.data(),
+					sfsBytes.size(), sfsDesc, &sfsError))
+				{
+					sfxFail("the fixture's thud.sfs did not parse: " +
+						std::string(sfsError.c_str()));
+				}
+				else if (sfsDesc.waveType != Orkige::SfxWave::SW_NOISE ||
+					std::abs(sfsDesc.baseFreq - 0.28f) > 0.0001f ||
+					std::abs(sfsDesc.punch - 0.4f) > 0.0001f)
+				{
+					sfxFail("thud.sfs read the wrong parameters (the binary "
+						"layout is off)");
+				}
+				else
+				{
+					const Orkige::SfxSynth::Pcm expected =
+						Orkige::SfxSynth::render(sfsDesc);
+					Orkige::SoundSourcePtr thud =
+						soundManager.createSound("sfx.thud", "thud.sfs");
+					if (!thud)
+					{
+						sfxFail("createSound did not register a source for a "
+							".sfs");
+					}
+					else if (!audioUp)
+					{
+						if (thud->isInitialized())
+						{
+							sfxFail("a .sfs source claims a buffer without an "
+								"audio device");
+						}
+					}
+					else if (!thud->isInitialized() ||
+						thud->queryBufferBytes() !=
+							static_cast<int>(expected.byteSize()))
+					{
+						sfxFail("the .sfs source's buffer is not the "
+							"synthesizer's own render");
+					}
+					else if (!soundManager.playSound("sfx.thud") ||
+						!soundManager.isPlaying("sfx.thud"))
+					{
+						sfxFail("the .sfs source did not play");
+					}
+					else
+					{
+						SDL_Log("orkige_sfx_selfcheck: 'thud.sfs' (a standard "
+							"binary parameter file) synthesized and playing "
+							"(%d bytes at %d Hz, %.3fs)",
+							thud->queryBufferBytes(),
+							thud->queryBufferSampleRate(),
+							expected.durationSec());
+					}
+				}
+			}
+
+			// (4) a MALFORMED procedural sound costs its own sound and nothing
+			// else: an honest line-numbered error, a registered-but-silent
+			// source, and NO exception unwinding into game code (reaching the
+			// assertions below is itself that proof)
+			if (!sfxCheckFailed)
+			{
+				Orkige::SoundSourcePtr bad =
+					soundManager.createSound("sfx.bad", "broken.osfx");
+				if (!bad)
+				{
+					sfxFail("a malformed .osfx did not even register a source");
+				}
+				else if (bad->isInitialized())
+				{
+					sfxFail("a malformed .osfx produced a playable buffer");
+				}
+				else if (soundManager.playSound("sfx.bad") ||
+					soundManager.isPlaying("sfx.bad"))
+				{
+					sfxFail("a malformed .osfx claims to play");
+				}
+				else
+				{
+					SDL_Log("orkige_sfx_selfcheck: 'broken.osfx' stayed silent "
+						"(parse refused, the game kept running)");
+				}
+			}
+		}
+		else if (!sfxCheckFailed)
+		{
+			// (5) the Lua/SoundComponent surface: unchanged by construction -
+			// the script added and played the .osfx the way it would a .wav
+			const std::string scriptVerdict =
+				Orkige::ScriptRuntime::getSingleton().getString(
+					{"shared", "sfx", "failed"}, "");
+			const bool scriptDone =
+				Orkige::ScriptRuntime::getSingleton().getBool(
+					{"shared", "sfx", "done"}, false);
+			if (!scriptVerdict.empty())
+			{
+				sfxFail("the script reported: " + scriptVerdict);
+			}
+			else if (!Orkige::ScriptRuntime::available())
+			{
+				// a noscript build proves the C++ side only - honest and said
+				SDL_Log("orkige_sfx_selfcheck: scripting disabled - the "
+					"component surface leg is skipped");
+				sfxCheckDone = true;
+				running = false;
+			}
+			else if (scriptDone)
+			{
+				const bool added = Orkige::ScriptRuntime::getSingleton()
+					.getBool({"shared", "sfx", "added"}, false);
+				const bool played = Orkige::ScriptRuntime::getSingleton()
+					.getBool({"shared", "sfx", "played"}, false);
+				const std::string group = Orkige::ScriptRuntime::getSingleton()
+					.getString({"shared", "sfx", "group"}, "");
+				Orkige::SoundSourcePtr scripted = soundManager.getSound("coin");
+				if (!audioUp)
+				{
+					// addSound honestly refuses while audio is down
+					if (added)
+					{
+						sfxFail("addSound accepted a sound without an audio "
+							"device");
+					}
+					else
+					{
+						SDL_Log("orkige_sfx_selfcheck: PASS - the procedural "
+							"asset parsed and the whole path stayed honestly "
+							"silent without an audio device");
+						sfxCheckDone = true;
+						running = false;
+					}
+				}
+				else if (!added || !played)
+				{
+					sfxFail("SoundComponent::addSound/play refused the .osfx "
+						"(added=" + std::to_string(added ? 1 : 0) +
+						" played=" + std::to_string(played ? 1 : 0) + ")");
+				}
+				else if (!scripted || !scripted->isInitialized())
+				{
+					sfxFail("the component's .osfx source has no AL buffer");
+				}
+				else if (group != "sfx" ||
+					std::abs(scripted->getEffectiveGain() - 0.4f) > 0.001f)
+				{
+					// 0.8 own gain x the manifest's audio.group.sfx=0.5
+					sfxFail("the mixer did not treat the .osfx like any other "
+						"sound (group '" + group + "', effective gain " +
+						std::to_string(scripted->getEffectiveGain()) + ")");
+				}
+				else if (scripted->queryBufferBytes() <= 0)
+				{
+					sfxFail("the component's source holds an empty buffer");
+				}
+				else
+				{
+					SDL_Log("orkige_sfx_selfcheck: PASS - a `.osfx` text asset "
+						"loads, synthesizes, uploads and plays through the "
+						"unchanged sound API (component buffer %d bytes, "
+						"effective gain %.3f, pitch variation applied at "
+						"%.3f)", scripted->queryBufferBytes(),
+						scripted->getEffectiveGain(),
+						scripted->getCurrentPitch());
+					sfxCheckDone = true;
+					running = false;
+				}
+			}
+			else if (frameCount >= 300)
+			{
+				sfxFail("the fixture script never reported done");
+			}
+		}
+	}
+	if (sfxCheck && sfxCheckFailed)
+	{
+		exitCode = 1;
+		running = false;
+	}
+
 	// --- hot-reload selfcheck (see the block above the loop) ---------
 	if (hotreloadCheck && !hotreloadCheckFailed &&
 		hotreloadPhase == HotReloadPhase::Boot && frameCount == 5)
@@ -6405,6 +6717,12 @@ void PlayerSelfChecks::atLoopEnd(PlayerContext& context)
 	if (tweenCheck && !tweenCheckFailed && !tweenCheckDone)
 	{
 		SDL_Log("orkige_player: TWEEN SELFCHECK FAILED - run ended before "
+			"the check completed");
+		exitCode = 1;
+	}
+	if (sfxCheck && !sfxCheckFailed && !sfxCheckDone)
+	{
+		SDL_Log("orkige_player: SFX SELFCHECK FAILED - run ended before "
 			"the check completed");
 		exitCode = 1;
 	}

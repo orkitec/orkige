@@ -1,0 +1,6 @@
+# DELIBERATELY malformed: the player_sfx_selfcheck asserts that a bad
+# procedural sound costs its own sound and nothing else - the source is
+# registered but silent, with one line-numbered error in the log, and the
+# parse failure never unwinds into game code.
+version 1
+wave bagpipe

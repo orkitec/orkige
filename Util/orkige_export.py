@@ -1751,6 +1751,38 @@ def selftest():
             assert plistlib.load(handle) == privacy, \
                 "written manifest round-trips to the same declaration"
 
+    # the project payload carries EVERY asset kind under assets/, including the
+    # sound PARAMETER files the engine synthesizes at load (Docs/sound.md): they
+    # are ordinary payload files, so the wholesale assets/ copy ships them and
+    # the texture cook leaves them alone
+    with tempfile.TemporaryDirectory() as work:
+        os.makedirs(os.path.join(work, "assets"))
+        os.makedirs(os.path.join(work, "scenes"))
+        with open(os.path.join(work, "project.orkproj"), "w",
+                  encoding="utf-8") as handle:
+            handle.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                         '<OrkigeProject version="1">\n'
+                         '  <Name>Payload Probe</Name>\n'
+                         '  <MainScene>scenes/main.oscene</MainScene>\n'
+                         '</OrkigeProject>\n')
+        with open(os.path.join(work, "scenes", "main.oscene"), "w",
+                  encoding="utf-8") as handle:
+            handle.write("<XMLArchive Version=\"0\"/>\n")
+        with open(os.path.join(work, "assets", "coin.osfx"), "w",
+                  encoding="utf-8") as handle:
+            handle.write("version 1\npreset coin\n")
+        with open(os.path.join(work, "assets", "thud.sfs"), "wb") as handle:
+            handle.write(b"\x66\x00\x00\x00" + b"\x00" * 101)
+        payload = os.path.join(work, "payload")
+        stage_project_payload(Project(work), payload)
+        for name in ("coin.osfx", "thud.sfs"):
+            staged_path = os.path.join(payload, "assets", name)
+            assert os.path.isfile(staged_path), \
+                "the payload ships assets/%s" % name
+        with open(os.path.join(payload, "assets", "thud.sfs"), "rb") as handle:
+            assert len(handle.read()) == 105, \
+                "a binary parameter file ships byte for byte"
+
     # .ipa layout: every bundle file lands under Payload/<App>.app/...
     assert ipa_arcname("/out/MyGame.app", "/out/MyGame.app/Info.plist") == \
         os.path.join("Payload", "MyGame.app", "Info.plist"), "ipa top-level"

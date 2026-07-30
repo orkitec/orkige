@@ -68,7 +68,7 @@ import make_editor_icon  # noqa: E402  (sibling Util tool - the ONE icon drawing
 # preferred reading order for the sidebar; corpus pages not listed here are
 # appended alphabetically, so a new doc shows up without touching this script
 PREFERRED_ORDER = [
-    "getting-started", "lua-api", "gui", "materials", "particles",
+    "getting-started", "lua-api", "gui", "materials", "particles", "sound",
     "meshes", "vector-animation", "character-animation", "localisation",
     "logging", "benchmark",
     "mcp", "mcp-workflows", "render-abstraction", "web-export",

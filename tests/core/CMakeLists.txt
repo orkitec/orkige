@@ -88,6 +88,9 @@ add_executable(orkige_core_tests
     GuiAnimationTests.cpp
     ScreenStackTests.cpp
     SoundVariationTests.cpp
+    SfxSynthTests.cpp
+    SfxAssetTests.cpp
+    WavWriterTests.cpp
 )
 
 if(NOT EMSCRIPTEN)

@@ -138,6 +138,8 @@ add_executable(orkige_editor
     OwnerComponentBadges.cpp
     MeshPreviewStage.h
     MeshPreviewStage.cpp
+    SfxAuditionStage.h
+    SfxAuditionStage.cpp
     EditorGamePreviewPanel.cpp
     EditorUiEditorPanel.h
     EditorUiEditorPanel.cpp

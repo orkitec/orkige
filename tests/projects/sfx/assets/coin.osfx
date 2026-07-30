@@ -1,0 +1,5 @@
+# the pickup ping: the coin archetype, quieter and with a longer tail
+version 1
+preset coin
+soundVolume 0.4
+decay 0.3

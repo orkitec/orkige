@@ -44,6 +44,7 @@
 #include <core_project/Project.h>
 #include <core_project/ProjectPaths.h>
 #include <core_util/MaterialAsset.h>
+#include <core_util/SfxDesc.h>
 #include <core_util/String.h>
 #include <engine_base/EngineLog.h>
 #include <engine_render/MeshInstance.h>
@@ -77,6 +78,7 @@ namespace OrkigeEditor
 	class GamePreviewStage;	//!< the Game Preview stage (GamePreviewStage.h)
 	class AnimationPreviewStage;	//!< the animation preview stage
 	class MeshPreviewStage;	//!< the 3D mesh/material preview stage (MeshPreviewStage.h)
+	class SfxAuditionStage;	//!< the procedural-sound audition (SfxAuditionStage.h)
 }
 
 //--- Console (engine/editor/remote log streaming) --------------------------
@@ -679,6 +681,14 @@ struct AssetBrowserState
 	std::string editMaterialRef;		//!< bare file name (the scene material ref)
 	std::string editMaterialOriginal;	//!< on-disk text at read time
 	std::string editMaterialStatus;		//!< transient apply/parse message
+	//! the Inspector `.osfx` editor cache, the material cache's twin: the
+	//! parsed PROCEDURAL sound being tuned, the file it was read from (a
+	//! changed path re-reads), the on-disk text at read time (Revert + the
+	//! dirty check) and a transient status/parse-error line
+	Orkige::SfxDesc editSfx;
+	std::string editSfxPath;			//!< absolute .osfx path ("" = none)
+	std::string editSfxOriginal;		//!< on-disk text at read time
+	std::string editSfxStatus;			//!< transient apply/parse message
 	//! transient footer notice (e.g. a create that failed): shown in the status
 	//! footer until statusMessageExpiry (ImGui::GetTime seconds) passes. A
 	//! failed filesystem op is otherwise invisible, so it surfaces here.
@@ -2243,6 +2253,7 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 void drawInspectorPanel(EditorState& state, PlaySession& session,
 	Orkige::EditorCore& core, OrkigeEditor::AnimationPreviewStage& animStage,
 	OrkigeEditor::MeshPreviewStage& meshPreview,
+	OrkigeEditor::SfxAuditionStage& sfxAudition,
 	bool* visible);
 
 // the editor-wide keyboard map - EditorShortcuts.cpp documents the bindings
@@ -2530,6 +2541,9 @@ std::string createScriptInDir(EditorState& state, std::string const& dir,
 //! Scenes are not id-tracked, so no sidecar is minted. Returns the scene's
 //! absolute path, or "" on failure. A missing ".oscene" extension is appended.
 std::string createSceneInDir(std::string const& dir, std::string const& name);
+//! @see createSoundAndReveal - writes the `.osfx` and mints its asset id
+std::string createSoundInDir(EditorState& state, std::string const& dir,
+	std::string const& name);
 
 //! @brief the Create menu actions (New Folder / Script / Scene): make a
 //! uniquely-named item in the browser's CURRENT folder, then REVEAL it - drop
@@ -2541,6 +2555,12 @@ std::string createSceneInDir(std::string const& dir, std::string const& name);
 std::string createFolderAndReveal(EditorState& state);
 std::string createScriptAndReveal(EditorState& state);
 std::string createSceneAndReveal(EditorState& state);
+//! @brief Create > New Sound: write a PROCEDURAL sound effect - a `.osfx`
+//! text asset carrying an archetype's own numbers as tunable directives (@see
+//! core_util/SfxAsset::templateFor) - then reveal it like any other new item.
+//! The designer edits the numbers (or the Inspector's rows) and auditions it
+//! straight from the browser; nothing here needs an audio tool.
+std::string createSoundAndReveal(EditorState& state);
 
 //! @brief the file:// URL SDL_OpenURL opens for a local absolute path (RFC
 //! 8089; the path is percent-encoded, '/' kept). Exposed so the selfcheck can

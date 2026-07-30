@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OrkigeProject version="1">
+    <Name>Procedural Sfx Fixture</Name>
+    <MainScene>scenes/main.oscene</MainScene>
+    <Settings>
+        <Setting key="audio.group.sfx" value="0.5"/>
+    </Settings>
+</OrkigeProject>

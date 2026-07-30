@@ -52,6 +52,11 @@ namespace OrkigeEditor
 	//! own error already reads "... on line N".
 	TextDiagnostic ouiDiagnostic(std::string const& text);
 
+	//! @brief parse `text` as a `.osfx` procedural sound asset (@see
+	//! core_util/SfxAsset.h) and report the first problem, or valid. Wraps
+	//! that pure parser, whose own error already reads "line N: ...".
+	TextDiagnostic osfxDiagnostic(std::string const& text);
+
 	//! @brief extract the 1-based line a Lua load error names for `chunkName`
 	//! (errors read "chunkName:line: message"); 0 when no line is legible.
 	//! Pure string work - the compile itself happens behind ScriptRuntime.
@@ -72,7 +77,7 @@ namespace OrkigeEditor
 						//!< .xml (@see xmlDiagnostic)
 		Json,			//!< .json/.jsonl (a `.oanim`'s kept Lottie source, or
 						//!< a bare JSON file)
-		OrkigeConfig,	//!< .oui/.ogui/.omat/.oshape (line-based key/value or
+		OrkigeConfig,	//!< .oui/.ogui/.omat/.oshape/.osfx (line-based key/value or
 						//!< directive text - no live-check distinction here,
 						//!< @see liveCheckKindForExtension for that)
 	};
@@ -98,15 +103,16 @@ namespace OrkigeEditor
 
 	//! @brief which live parser (if any) checks a file extension's CURRENT
 	//! buffer while it sits idle in the embedded editor (@see
-	//! EditorScriptPanel.cpp's ScriptDocument::liveCheck). Xml/Omat/Oui wrap
-	//! this module's xmlDiagnostic/omatDiagnostic/ouiDiagnostic; Lua compiles
+	//! EditorScriptPanel.cpp's ScriptDocument::liveCheck). Xml/Omat/Oui/Osfx
+	//! wrap this module's xmlDiagnostic/omatDiagnostic/ouiDiagnostic/
+	//! osfxDiagnostic; Lua compiles
 	//! through ScriptRuntime::checkSyntax instead (a runtime seam, not a
 	//! pure one - the caller still owns that branch). `.ogui` (its parser is
 	//! Ogre::ConfigFile-bound, not a cheap pure seam), `.oshape`
 	//! (VectorShapeAsset::parse reports pass/fail with no line/message) and
 	//! `.json`/`.jsonl` (JsonValue::parse likewise reports no line/message)
 	//! stay None HONESTLY - highlighting only, no invented diagnostic.
-	enum class LiveCheckKind { None, Lua, Xml, Omat, Omesh, Oui };
+	enum class LiveCheckKind { None, Lua, Xml, Omat, Omesh, Oui, Osfx };
 
 	//! @brief the live-check kind for a file extension (with or without the
 	//! leading dot, any case).

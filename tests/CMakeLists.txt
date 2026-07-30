@@ -1241,7 +1241,13 @@ if(TARGET orkige_editor)
     # a subfolder + up, New Folder, New Script (file + sidecar + enumerable),
     # the texture-thumbnail path (a real png -> a valid ImGui texture handle;
     # a non-image fails gracefully) and the openWithDefaultApp URL resolver
-    # (asserted without spawning a GUI app). Flavor-agnostic; both flavors.
+    # (asserted without spawning a GUI app). It also covers New Sound + the
+    # Inspector's AUDITION of a procedural `.osfx`: the written text parses back
+    # to its archetype and renders the archetype's own samples, classifies as
+    # audio, and plays through the engine's audio path with no play session
+    # (the null OpenAL backend every test here runs on makes that the audible
+    # branch; a device-less machine asserts the honest refusal instead).
+    # Flavor-agnostic; both flavors.
     add_test(NAME editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
@@ -2231,6 +2237,24 @@ if(TARGET orkige_player)
         set_tests_properties(player_tween_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_TWEEN_SELFCHECK=1")
 
+        # procedural sound effects, end to end: tests/projects/sfx carries a
+        # `.osfx` TEXT asset (a preset seed plus overrides) instead of a wave
+        # file, and the leg proves it IS a sound file to everything above -
+        # OpenAL holds exactly the bytes the pure synthesizer renders from the
+        # same asset (the device-side proof), the source plays, the unchanged
+        # SoundComponent/Lua surface added it into its mixer group, and a
+        # deliberately malformed sibling asset stays honestly silent instead of
+        # unwinding into game code. See the ORKIGE_SFX_SELFCHECK block in
+        # tools/player/PlayerSelfChecks.cpp. Runs on both flavors (the
+        # synthesizer is pure core, the upload is renderer-neutral); the null
+        # OpenAL backend every test in this directory runs on makes the
+        # audible branch the one that executes.
+        add_test(NAME player_sfx_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project tests/projects/sfx
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_sfx_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_SFX_SELFCHECK=1")
+
         # the game-support pack (Lua `save` API + screen shake + time scale),
         # end to end against the live player wiring (synchronous, any scene -
         # reuses tests/projects/tween): the Lua save table round-trips typed
@@ -2916,6 +2940,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_roller_progression_selfcheck
         player_roller_progression_selfcheck_next
         player_tween_selfcheck player_tween_selfcheck_next
+        player_sfx_selfcheck player_sfx_selfcheck_next
         player_gamesupport_selfcheck player_gamesupport_selfcheck_next
         player_gameplay_selfcheck player_gameplay_selfcheck_next
         player_hotreload_selfcheck player_hotreload_selfcheck_next

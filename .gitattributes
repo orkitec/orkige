@@ -19,4 +19,7 @@
 *.ttf binary
 *.wav binary
 *.ogg binary
+# a standard binary sound-parameter file (@see Docs/sound.md): little-endian
+# floats, so a line-ending pass would corrupt it
+*.sfs binary
 *.icns binary

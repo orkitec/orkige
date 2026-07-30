@@ -38,6 +38,8 @@ struct PlayerSelfChecks
 	std::string assetIdCheckTexture;
 	std::string cookedCheckTexture;
 	bool tweenCheck = false;
+	//! the procedural `.osfx` sound probe (@see the perFrame block)
+	bool sfxCheck = false;
 	bool hotreloadCheck = false;
 	bool scriptPropCheck = false;
 	bool integrationContactCheck = false;
@@ -475,6 +477,28 @@ struct PlayerSelfChecks
 	// frame deadline.
 	bool tweenCheckDone = false;
 	bool tweenCheckFailed = false;
+	// --- ORKIGE_SFX_SELFCHECK=1: procedural sound effects end to end against
+	// tests/projects/sfx (run with --project tests/projects/sfx). A sound
+	// PARAMETER file - the standard binary `.sfs` an authoring tool saves, or
+	// its `.osfx` text twin an agent writes - is SYNTHESIZED at load
+	// (core_util/SfxAsset + SfxSynth) through the extension dispatch a wave
+	// file's decoder sits in, so the leg proves such a file is a sound FILE to
+	// everything above: (1) the samples OpenAL holds for the source match what
+	// the pure synthesizer renders from the same asset, byte count and rate -
+	// the device-side proof that the synthesized PCM reached the buffer, and
+	// the text asset's `preset` seed / explicit-override precedence holds;
+	// (2) the source plays; (3) the BINARY form reads its documented
+	// little-endian layout and renders the same way; (4) a MALFORMED file costs
+	// its own sound and nothing else - the source is registered but silent and
+	// the parse failure never unwinds into game code; (5) the SAME
+	// SoundComponent/Lua surface a `.wav` uses added and played one with no new
+	// API (the script publishes what it saw into shared.sfx). Device-tolerant:
+	// without an audio device the leg asserts the honest no-op instead (the
+	// demo_music shape); ctest runs it on OpenAL Soft's null backend, so the
+	// audible branch is the one that executes.
+	bool sfxCheckDone = false;
+	bool sfxCheckFailed = false;
+	bool sfxProbed = false;			//!< the one-shot C++ probes ran
 	// --- ORKIGE_STATICMOVE_SELFCHECK=1: the static-mobility contract,
 	// verified against projects/benchmark scenes/fixture_static.oscene.
 	// Frame 30: record the draw-batch count, then MOVE the static "Static3"

@@ -107,7 +107,7 @@ namespace OrkigeEditor
 
 		// audio
 		if (ext == ".wav" || ext == ".caf" || ext == ".ogg" || ext == ".mp3" ||
-			ext == ".flac")
+			ext == ".flac" || ext == ".osfx" || ext == ".sfs")
 		{
 			return { ICON_FA_MUSIC, kAudioColor };
 		}

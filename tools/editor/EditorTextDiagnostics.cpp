@@ -10,6 +10,7 @@
 
 #include <core_util/MaterialAsset.h>
 #include <core_util/MeshAsset.h>
+#include <core_util/SfxAsset.h>
 #include <engine_gui/GuiLayout.h>
 
 #include <tinyxml2.h>
@@ -145,6 +146,24 @@ namespace OrkigeEditor
 		return diagnostic;
 	}
 
+	TextDiagnostic osfxDiagnostic(std::string const& text)
+	{
+		TextDiagnostic diagnostic;
+		if (isBlank(text))
+		{
+			return diagnostic;
+		}
+		Orkige::SfxDesc parsed;
+		Orkige::String error;
+		if (!Orkige::SfxAsset::parse(text, parsed, &error))
+		{
+			diagnostic.valid = false;
+			diagnostic.message = error;
+			diagnostic.line = extractLineAfter(error, "line ");
+		}
+		return diagnostic;
+	}
+
 	TextDocumentKind textDocumentKindForExtension(std::string const& extension)
 	{
 		const std::string ext = normalizeExtension(extension);
@@ -162,7 +181,7 @@ namespace OrkigeEditor
 			return TextDocumentKind::Json;
 		}
 		if (ext == ".oui" || ext == ".ogui" || ext == ".omat" ||
-			ext == ".oshape" || ext == ".omesh")
+			ext == ".oshape" || ext == ".omesh" || ext == ".osfx")
 		{
 			return TextDocumentKind::OrkigeConfig;
 		}
@@ -225,6 +244,10 @@ namespace OrkigeEditor
 		if (ext == ".oui")
 		{
 			return LiveCheckKind::Oui;
+		}
+		if (ext == ".osfx")
+		{
+			return LiveCheckKind::Osfx;
 		}
 		return LiveCheckKind::None;
 	}

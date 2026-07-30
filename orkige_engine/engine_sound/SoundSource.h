@@ -141,6 +141,16 @@ namespace Orkige
                 //! pitch reached the source
                 float queryPitch() const;
 
+                //! @brief read the byte size OpenAL holds for this source's
+                //! buffer (0 when not initialized) - the device-side proof
+                //! that the decoded (or SYNTHESIZED, @see LoadOsfxData.cpp)
+                //! samples were accepted by the buffer upload
+                int queryBufferBytes() const;
+                //! @brief the sample rate OpenAL holds for this source's
+                //! buffer in Hz (0 when not initialized)
+                //! @see SoundSource::queryBufferBytes
+                int queryBufferSampleRate() const;
+
                 //! true after SoundSource::init() succeeded
                 bool isInitialized() const;
         protected:

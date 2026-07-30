@@ -488,6 +488,32 @@ namespace Orkige
 		return 0.f;
 	}
 	//---------------------------------------------------------
+	int SoundSource::queryBufferBytes() const
+	{
+#ifdef ORKIGE_OPENAL_SOUND
+		if(this->initialized)
+		{
+			ALint bytes = 0;
+			alGetBufferi(this->buffer, AL_SIZE, &bytes);
+			return static_cast<int>(bytes);
+		}
+#endif //ORKIGE_OPENAL_SOUND
+		return 0;
+	}
+	//---------------------------------------------------------
+	int SoundSource::queryBufferSampleRate() const
+	{
+#ifdef ORKIGE_OPENAL_SOUND
+		if(this->initialized)
+		{
+			ALint frequency = 0;
+			alGetBufferi(this->buffer, AL_FREQUENCY, &frequency);
+			return static_cast<int>(frequency);
+		}
+#endif //ORKIGE_OPENAL_SOUND
+		return 0;
+	}
+	//---------------------------------------------------------
 	bool SoundSource::isInitialized() const
 	{
 		return this->initialized;

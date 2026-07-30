@@ -17,6 +17,7 @@
 //   linked directly on every platform
 
 #include "engine_sound/SoundManager.h"
+#include "engine_sound/SoundError.h"
 #include <core_util/foreach.h>
 
 #include <algorithm>
@@ -154,7 +155,20 @@ namespace Orkige
 			// gain model this way) - it just stays silent
 			if(this->isInitialized)
 			{
-				sound->init();
+				// a sound file that cannot be read or (for a procedural
+				// `.osfx`) cannot be parsed leaves a SILENT source instead of
+				// unwinding into game code: the same shape as running with no
+				// audio device, so one bad asset costs its own sound and
+				// nothing else. SoundSource::init already logged the reason.
+				try
+				{
+					sound->init();
+				}
+				catch(SoundError const & e)
+				{
+					oDebugError("sound", 0, "sound '" << id << "' from '"
+						<< fileName << "' stays silent: " << e.what());
+				}
 			}
 			// a new source starts in its default group ("sfx") - push that
 			// group's current volume

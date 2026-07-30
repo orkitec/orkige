@@ -204,6 +204,10 @@ set(ORKIGE_ENGINE_SOURCES
     engine_sound/SoundManager.h
     engine_sound/SoundManager.cpp
     engine_sound/LoadWavData.cpp
+    # procedural sound effects: a sound PARAMETER file (the standard binary
+    # `.sfs` or its `.osfx` text twin) SYNTHESIZED into the same PCM block a
+    # wave file decodes to (the pure synth lives in core_util)
+    engine_sound/LoadSfxData.cpp
     # streamed music: the queued-buffer streamer + the ONE TU that compiles the
     # single-file OGG Vorbis decoder (StbVorbisImpl.cpp - nothing else includes
     # it, so the decoder never touches the umbrella or the PCH)

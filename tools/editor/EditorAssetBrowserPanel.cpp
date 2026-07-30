@@ -71,6 +71,7 @@
 #include <core_util/VectorAnimEval.h>
 #include <core_util/VectorShapeAsset.h>
 #include <core_util/MaterialAsset.h>
+#include <core_util/SfxAsset.h>
 #include <core_util/VectorShapeRaster.h>
 #include <core_util/VectorTessellator.h>
 #include <engine_render/RenderMaterial.h>
@@ -1293,6 +1294,48 @@ std::string createScriptInDir(EditorState& state, std::string const& dir,
 	return scriptPath;
 }
 
+std::string createSoundInDir(EditorState& state, std::string const& dir,
+	std::string const& name)
+{
+	std::error_code ec;
+	if (dir.empty() || name.empty() || !fs::is_directory(dir, ec))
+	{
+		return "";
+	}
+	std::string fileName = name;
+	if (lowerExtension(fileName) != Orkige::SfxAsset::TEXT_EXTENSION)
+	{
+		fileName += Orkige::SfxAsset::TEXT_EXTENSION;
+	}
+	const std::string soundPath = (fs::path(dir) / fileName).string();
+	{
+		// a PROCEDURAL sound effect: an archetype's own numbers spelled out as
+		// explicit directives, so the designer tunes lines rather than guessing
+		// at a preset name (@see core_util/SfxAsset::templateFor)
+		std::ofstream out(soundPath, std::ios::binary | std::ios::trunc);
+		if (!out)
+		{
+			oDebugError("editor.assets", 0, "New Sound '" << soundPath <<
+				"' failed");
+			return "";
+		}
+		out << Orkige::SfxAsset::templateFor(
+			Orkige::SfxPreset::SA_BLIP_SELECT);
+	}
+	// mint the stable id right away, like a new script does, so a component
+	// referencing this sound survives a rename
+	if (state.project.isLoaded())
+	{
+		if (optr<Orkige::AssetDatabase> const& database =
+			state.project.getAssetDatabase())
+		{
+			database->importAsset(soundPath);
+		}
+	}
+	oDebugMsg("editor.assets", 0, "created sound '" << soundPath << "'");
+	return soundPath;
+}
+
 std::string createSceneInDir(std::string const& dir, std::string const& name)
 {
 	std::error_code ec;
@@ -1398,6 +1441,22 @@ std::string createScriptAndReveal(EditorState& state)
 	return created;
 }
 
+std::string createSoundAndReveal(EditorState& state)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	const std::string name = fs::path(uniqueFileName(browser.currentDir,
+		"NewSound", ".osfx")).filename().string();
+	const std::string created = createSoundInDir(state, browser.currentDir,
+		name);
+	if (created.empty())
+	{
+		postBrowserStatus(browser, "Could not create a sound in this location.");
+		return "";
+	}
+	revealCreatedItem(state, created);
+	return created;
+}
+
 std::string createSceneAndReveal(EditorState& state)
 {
 	AssetBrowserState& browser = state.assetBrowser;
@@ -1479,7 +1538,13 @@ AssetKind classifyAsset(std::string const& path)
 	{
 		return AssetKind::Prefab;
 	}
-	if (ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".flac")
+	// `.sfs` and `.osfx` are PROCEDURAL sounds: parameter files the engine
+	// synthesizes at load, so they are audio in every way that matters here
+	// (they drop onto an object as a SoundComponent sound like a wave file
+	// does) - `.caf` is the Apple-platform wave sibling the sound loader has
+	// always read
+	if (ext == ".wav" || ext == ".caf" || ext == ".ogg" || ext == ".mp3" ||
+		ext == ".flac" || ext == ".osfx" || ext == ".sfs")
 	{
 		return AssetKind::Audio;
 	}
@@ -3044,6 +3109,10 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 		{
 			createSceneAndReveal(state);
 		}
+		if (ImGui::MenuItem("New Sound"))
+		{
+			createSoundAndReveal(state);
+		}
 		ImGui::EndPopup();
 	}
 	ImGui::SameLine();
@@ -3353,6 +3422,10 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 			if (ImGui::MenuItem("New Scene"))
 			{
 				createSceneAndReveal(state);
+			}
+			if (ImGui::MenuItem("New Sound"))
+			{
+				createSoundAndReveal(state);
 			}
 			ImGui::EndPopup();
 		}

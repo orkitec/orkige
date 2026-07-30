@@ -21,12 +21,16 @@
 #include "SyntaxHighlight.h"
 #include "ImGuiFacadeRenderer.h"
 #include "MeshPreviewStage.h"
+#include "SfxAuditionStage.h"
 
 #include <core_base/PropertySchema.h>
 #include <core_base/TypeManager.h>
 #include <core_game/GameObjectManager.h>
 #include <core_project/AssetDatabase.h>
 #include <core_util/MaterialAsset.h>
+#include <core_util/SfxAsset.h>
+#include <core_util/SfxSynth.h>
+#include <core_util/WavWriter.h>
 #include <core_util/StringUtil.h>
 #include <core_util/VectorShapeAsset.h>
 #include <core_util/VectorShapeRaster.h>
@@ -1783,6 +1787,288 @@ bool drawMaterialInspectorSection(EditorState& state,
 	return true;
 }
 
+//! @brief the `.osfx` PROCEDURAL SOUND section - the human half of the text
+//! asset an agent writes: the archetype and the handful of numbers behind it as
+//! editable rows, and an Audition button that renders and plays them RIGHT NOW
+//! through the engine's own audio path (no play session, no audio tool). Apply
+//! rewrites the file as canonical text; a parse error is shown verbatim and the
+//! rows stay at the defaults (a malformed file is never silently reshaped).
+bool drawSfxInspectorSection(EditorState& state,
+	OrkigeEditor::SfxAuditionStage& audition, std::string const& relativePath)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	const std::string absolutePath =
+		resolveProjectFilePath(state.project, relativePath);
+	const std::string bareName =
+		std::filesystem::path(relativePath).filename().string();
+
+	ImGui::TextUnformatted("Procedural Sound");
+	ImGui::TextDisabled("%s", bareName.c_str());
+	ImGui::Separator();
+
+	// a STANDARD BINARY parameter file is read-only here (the authoring tools
+	// own writing it); the text twin is editable
+	const bool binary = Orkige::SfxAsset::isBinaryName(relativePath);
+
+	// (re)read + parse on a selection change
+	if (browser.editSfxPath != absolutePath)
+	{
+		browser.editSfxPath = absolutePath;
+		browser.editSfxStatus.clear();
+		browser.editSfx = Orkige::SfxDesc();
+		std::ifstream in(absolutePath, std::ios::binary);
+		std::stringstream buffer;
+		buffer << in.rdbuf();
+		browser.editSfxOriginal = buffer.str();
+		Orkige::String parseError;
+		const bool parsed = binary
+			? Orkige::SfxAsset::parseBinary(browser.editSfxOriginal.data(),
+				browser.editSfxOriginal.size(), browser.editSfx, &parseError)
+			: Orkige::SfxAsset::parse(browser.editSfxOriginal, browser.editSfx,
+				&parseError);
+		if (!parsed)
+		{
+			browser.editSfxStatus = "parse error: " + parseError;
+		}
+	}
+
+	Orkige::SfxDesc& desc = browser.editSfx;
+
+	// --- the audition transport: the whole point of the section ------------
+	const bool playing = audition.isPlaying();
+	if (ImGui::Button(playing ? "Play Again" : "Audition"))
+	{
+		audition.audition(desc);
+	}
+	ImGui::SetItemTooltip("render these values and play them now");
+	ImGui::SameLine();
+	ImGui::BeginDisabled(!playing);
+	if (ImGui::Button("Stop"))
+	{
+		audition.stop();
+	}
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	if (ImGui::Button("Export WAV"))
+	{
+		// hand a designer the actual audio file: synthesize once and write a
+		// standard 16-bit PCM wave beside the parameter file. This is an
+		// EXPORT convenience only - the engine keeps playing the parameters.
+		const Orkige::SfxSynth::Pcm pcm = Orkige::SfxSynth::render(desc);
+		std::vector<unsigned char> wav;
+		const std::string wavPath =
+			std::filesystem::path(absolutePath).replace_extension(".wav")
+				.string();
+		if (!Orkige::WavWriter::encode(pcm.samples, pcm.sampleRate,
+			pcm.channels, wav))
+		{
+			browser.editSfxStatus = "nothing to export (the sound is empty)";
+		}
+		else
+		{
+			std::ofstream out(wavPath, std::ios::binary | std::ios::trunc);
+			if (out)
+			{
+				out.write(reinterpret_cast<char const*>(wav.data()),
+					static_cast<std::streamsize>(wav.size()));
+			}
+			if (out && out.good())
+			{
+				browser.editSfxStatus = "exported " +
+					std::filesystem::path(wavPath).filename().string() + " (" +
+					std::to_string(wav.size()) + " bytes)";
+			}
+			else
+			{
+				browser.editSfxStatus = "could not write " +
+					std::filesystem::path(wavPath).filename().string();
+			}
+		}
+	}
+	ImGui::SetItemTooltip("write these values out as a 16-bit PCM .wav "
+		"beside the asset");
+	ImGui::SameLine();
+	ImGui::TextDisabled("%.2fs", Orkige::SfxSynth::renderedDuration(desc));
+	if (!audition.message().empty())
+	{
+		ImGui::TextDisabled("%s", audition.message().c_str());
+	}
+	ImGui::Separator();
+
+	if (binary)
+	{
+		// the tools own authoring this form; the editor plays it, exports it
+		// and can hand it over as the editable text twin
+		ImGui::TextDisabled("a standard binary sound-parameter file "
+			"(read-only here)");
+		if (ImGui::Button("Save as .osfx"))
+		{
+			const std::string textPath =
+				std::filesystem::path(absolutePath)
+					.replace_extension(Orkige::SfxAsset::TEXT_EXTENSION)
+					.string();
+			std::ofstream out(textPath, std::ios::binary | std::ios::trunc);
+			if (out)
+			{
+				out << Orkige::SfxAsset::serialize(desc);
+			}
+			if (out && out.good())
+			{
+				if (state.project.isLoaded())
+				{
+					if (optr<Orkige::AssetDatabase> const& database =
+						state.project.getAssetDatabase())
+					{
+						database->importAsset(textPath);
+					}
+				}
+				browser.editSfxStatus = "wrote " +
+					std::filesystem::path(textPath).filename().string() +
+					" - the same sound, now tunable";
+			}
+			else
+			{
+				browser.editSfxStatus = "could not write " +
+					std::filesystem::path(textPath).filename().string();
+			}
+		}
+		ImGui::SetItemTooltip("write these parameters out as the editable text "
+			"twin beside this file");
+	}
+	else
+	{
+		// --- the archetype: generating REPLACES every number below ---------
+		int generate = -1;
+		if (ImGui::BeginCombo("Generate", "from an archetype..."))
+		{
+			for (int i = 0; i < Orkige::SfxPreset::ARCHETYPE_COUNT; ++i)
+			{
+				if (ImGui::Selectable(Orkige::SfxPreset::archetypeName(
+					static_cast<Orkige::SfxPreset::Archetype>(i))))
+				{
+					generate = i;
+				}
+			}
+			ImGui::EndCombo();
+		}
+		ImGui::SetItemTooltip("draw a new sound of that kind (every pick is a "
+			"different member of its family)");
+		if (generate >= 0)
+		{
+			// each pick advances the seed, so choosing the same archetype
+			// again draws ANOTHER sound of that family - the generate-until-
+			// it-sounds-right loop the authoring tools offer
+			desc = Orkige::SfxPreset::forArchetype(
+				static_cast<Orkige::SfxPreset::Archetype>(generate),
+				desc.seed + 1u);
+			audition.audition(desc);	// generating is a listening act
+		}
+	}
+
+	// --- the parameters: one row per standard sound parameter --------------
+	// Each row is LABELLED WITH ITS DIRECTIVE NAME, so the panel doubles as the
+	// text grammar's reference and a designer reading a `.osfx` in the script
+	// editor sees the same words; what each one does rides in the tooltip.
+	ImGui::BeginDisabled(binary);
+	int wave = static_cast<int>(desc.waveType);
+	if (ImGui::Combo("wave", &wave, "square\0saw\0sine\0noise\0"))
+	{
+		Orkige::SfxWave::fromNumber(wave, desc.waveType);
+	}
+	ImGui::SliderFloat("soundVolume", &desc.soundVolume, 0.0f, 1.0f);
+	ImGui::SetItemTooltip("this effect's own volume");
+	ImGui::SliderFloat("masterVolume", &desc.masterVolume, 0.0f, 1.0f);
+	ImGui::SetItemTooltip("the output gain applied on top of it");
+	ImGui::SeparatorText("Frequency");
+	ImGui::SliderFloat("baseFreq", &desc.baseFreq, 0.0f, 1.0f);
+	ImGui::SetItemTooltip("the pitch the sound starts at");
+	ImGui::SliderFloat("freqLimit", &desc.freqLimit, 0.0f, 1.0f);
+	ImGui::SetItemTooltip("where a downward slide stops - and ends the sound "
+		"(0 = nowhere)");
+	ImGui::SliderFloat("freqRamp", &desc.freqRamp, -1.0f, 1.0f);
+	ImGui::SetItemTooltip("the slide: positive rises, negative falls");
+	ImGui::SliderFloat("freqDeltaRamp", &desc.freqDeltaRamp, -1.0f, 1.0f);
+	ImGui::SetItemTooltip("the slide's own slide");
+	ImGui::SeparatorText("Envelope");
+	ImGui::SliderFloat("attack", &desc.attack, 0.0f, 1.0f);
+	ImGui::SliderFloat("sustain", &desc.sustain, 0.0f, 1.0f);
+	ImGui::SliderFloat("punch", &desc.punch, 0.0f, 1.0f);
+	ImGui::SetItemTooltip("an amplitude spike at the sustain's start");
+	ImGui::SliderFloat("decay", &desc.decay, 0.0f, 1.0f);
+	if (desc.waveType == Orkige::SfxWave::SW_SQUARE)
+	{
+		ImGui::SeparatorText("Square duty");
+		ImGui::SliderFloat("duty", &desc.duty, 0.0f, 1.0f);
+		ImGui::SetItemTooltip("the pulse width");
+		ImGui::SliderFloat("dutyRamp", &desc.dutyRamp, -1.0f, 1.0f);
+	}
+	ImGui::SeparatorText("Vibrato");
+	ImGui::SliderFloat("vibratoStrength", &desc.vibratoStrength, 0.0f, 1.0f);
+	ImGui::SliderFloat("vibratoSpeed", &desc.vibratoSpeed, 0.0f, 1.0f);
+	ImGui::SeparatorText("Arpeggio");
+	ImGui::SliderFloat("arpMod", &desc.arpMod, -1.0f, 1.0f);
+	ImGui::SetItemTooltip("how far the one pitch step jumps");
+	ImGui::SliderFloat("arpSpeed", &desc.arpSpeed, 0.0f, 1.0f);
+	ImGui::SetItemTooltip("when it jumps (1 = never)");
+	ImGui::SeparatorText("Filters");
+	ImGui::SliderFloat("lpfFreq", &desc.lpfFreq, 0.0f, 1.0f);
+	ImGui::SetItemTooltip("the low-pass cutoff - 1 = no low-pass at all");
+	ImGui::SliderFloat("lpfRamp", &desc.lpfRamp, -1.0f, 1.0f);
+	ImGui::SliderFloat("lpfResonance", &desc.lpfResonance, 0.0f, 1.0f);
+	ImGui::SliderFloat("hpfFreq", &desc.hpfFreq, 0.0f, 1.0f);
+	ImGui::SetItemTooltip("the high-pass cutoff (0 = off)");
+	ImGui::SliderFloat("hpfRamp", &desc.hpfRamp, -1.0f, 1.0f);
+	ImGui::SeparatorText("Delay tap and retrigger");
+	ImGui::SliderFloat("phaserOffset", &desc.phaserOffset, -1.0f, 1.0f);
+	ImGui::SetItemTooltip("how far back the swept delay tap sits");
+	ImGui::SliderFloat("phaserRamp", &desc.phaserRamp, -1.0f, 1.0f);
+	ImGui::SetItemTooltip("how fast that offset sweeps");
+	ImGui::SliderFloat("repeatSpeed", &desc.repeatSpeed, 0.0f, 1.0f);
+	ImGui::SetItemTooltip("restart the oscillator this often (0 = never)");
+	int seed = static_cast<int>(desc.seed);
+	if (ImGui::DragInt("seed", &seed, 1.0f, 0, 100000))
+	{
+		desc.seed = static_cast<unsigned int>(std::max(0, seed));
+	}
+	ImGui::SetItemTooltip("the same seed always renders the same samples");
+	ImGui::EndDisabled();
+
+	// --- write it back -----------------------------------------------------
+	ImGui::Separator();
+	const Orkige::String canonical = Orkige::SfxAsset::serialize(desc);
+	const bool dirty = !binary && canonical != browser.editSfxOriginal;
+	ImGui::BeginDisabled(!dirty);
+	if (ImGui::Button("Apply"))
+	{
+		std::ofstream out(absolutePath, std::ios::binary | std::ios::trunc);
+		if (out)
+		{
+			out << canonical;
+			out.close();
+			browser.editSfxOriginal = canonical;
+			browser.editSfxStatus = "written to " + bareName;
+		}
+		else
+		{
+			browser.editSfxStatus = "could not write " + bareName;
+		}
+	}
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	ImGui::BeginDisabled(!dirty);
+	if (ImGui::Button("Revert"))
+	{
+		Orkige::SfxAsset::parse(browser.editSfxOriginal, desc, nullptr);
+		browser.editSfxStatus.clear();
+	}
+	ImGui::EndDisabled();
+	if (!browser.editSfxStatus.empty())
+	{
+		ImGui::TextDisabled("%s", browser.editSfxStatus.c_str());
+	}
+	return true;
+}
+
 //! the ONE asset-inspector section shown when nothing in the scene is selected
 //! but exactly one asset is selected in the browser: dispatch by asset kind to
 //! the single matching section (texture import + preview / vector-shape preview
@@ -1792,7 +2078,8 @@ bool drawMaterialInspectorSection(EditorState& state,
 
 bool drawAssetInspectorSection(EditorState& state,
 	OrkigeEditor::AnimationPreviewStage& animStage,
-	OrkigeEditor::MeshPreviewStage& meshPreview)
+	OrkigeEditor::MeshPreviewStage& meshPreview,
+	OrkigeEditor::SfxAuditionStage& sfxAudition)
 {
 	const std::string selected = singleSelectedAsset(state);
 	if (selected.empty())
@@ -1800,6 +2087,18 @@ bool drawAssetInspectorSection(EditorState& state,
 		return false;
 	}
 	const AssetKind kind = classifyAsset(selected);
+	// leaving a procedural sound stops whatever it was auditioning and drops
+	// its edit cache, so re-selecting it re-reads the file from disk
+	const bool isSfx = Orkige::SfxAsset::isSfxName(selected);
+	if (!isSfx && !state.assetBrowser.editSfxPath.empty())
+	{
+		sfxAudition.stop();
+		state.assetBrowser.editSfxPath.clear();
+	}
+	if (isSfx)
+	{
+		return drawSfxInspectorSection(state, sfxAudition, selected);
+	}
 	// the mesh preview stage is shared by the mesh + material sections only;
 	// any OTHER section frees it (its far-staged content renders every frame
 	// while alive). Leaving the material section also clears its edit cache so
@@ -1843,6 +2142,7 @@ bool drawAssetInspectorSection(EditorState& state,
 void drawInspectorPanel(EditorState& state, PlaySession& session,
 	Orkige::EditorCore& core, OrkigeEditor::AnimationPreviewStage& animStage,
 	OrkigeEditor::MeshPreviewStage& meshPreview,
+	OrkigeEditor::SfxAuditionStage& sfxAudition,
 	bool* visible)
 {
 	const bool remote = session.isActive();
@@ -1876,7 +2176,8 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 			// EXACTLY ONE section draws (texture import, vector shape, mesh
 			// preview, material editor, animation preview, highlighted text,
 			// else a bare size line)
-			if (!drawAssetInspectorSection(state, animStage, meshPreview))
+			if (!drawAssetInspectorSection(state, animStage, meshPreview,
+				sfxAudition))
 			{
 				meshPreview.clear();	// nothing to preview: free the stage
 				ImGui::TextDisabled("nothing selected");

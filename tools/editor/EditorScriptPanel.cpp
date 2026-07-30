@@ -874,6 +874,10 @@ namespace
 		{
 			verdict = OrkigeEditor::omeshDiagnostic(doc.editor->GetText());
 		}
+		else if (doc.liveCheck == OrkigeEditor::LiveCheckKind::Osfx)
+		{
+			verdict = OrkigeEditor::osfxDiagnostic(doc.editor->GetText());
+		}
 		else if (doc.liveCheck == OrkigeEditor::LiveCheckKind::Oui)
 		{
 			verdict = OrkigeEditor::ouiDiagnostic(doc.editor->GetText());

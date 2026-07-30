@@ -58,6 +58,9 @@
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <core_project/AssetDatabase.h>
 #include <core_util/ShapeCollider.h>
+#include <core_util/SfxAsset.h>
+#include <core_util/SfxSynth.h>
+#include <core_util/WavWriter.h>
 #include <core_util/VectorShapeAsset.h>
 #include <engine_input/InputManager.h>
 #include <engine_render/DrawLayer2D.h>
@@ -113,6 +116,7 @@
 #include "EditorTerminalPanel.h"
 #include "EditorNativeKeyInject.h"
 #include "MeshPreviewStage.h"
+#include "SfxAuditionStage.h"
 
 #include <algorithm>
 #include <chrono>
@@ -1114,6 +1118,10 @@ int main(int argc, char** argv)
 		// selected .glb (or a .omat on the shared preview mesh) into an
 		// offscreen RTT through this one stage
 		OrkigeEditor::MeshPreviewStage meshPreviewStage;
+		// the procedural-sound audition (Inspector "Play"): opens the audio
+		// device LAZILY on the first audition, so an editor that never
+		// auditions never touches the sound hardware
+		OrkigeEditor::SfxAuditionStage sfxAuditionStage;
 		// a second mesh preview stage (instance slot 1: its own far origin +
 		// target name) the asset browser bakes .glb/.omat thumbnails through,
 		// one per frame, without disturbing the Inspector's stage
@@ -2902,7 +2910,7 @@ int main(int argc, char** argv)
 			if (viewSettings.showInspectorPanel)
 			{
 				drawInspectorPanel(state, playSession, editorCore,
-					animPreviewStage, meshPreviewStage,
+					animPreviewStage, meshPreviewStage, sfxAuditionStage,
 					&viewSettings.showInspectorPanel);
 			}
 			if (viewSettings.showStatsPanel)
@@ -4777,6 +4785,146 @@ int main(int argc, char** argv)
 					{
 						assetOk = false;
 						assetFail = "no baked thumbnail for a .omesh mesh";
+					}
+				}
+				// (13) New Sound + AUDITION: the human half of the procedural
+				// `.osfx` text asset. Create > New Sound writes an archetype's
+				// numbers as tunable directives, the file parses back to that
+				// archetype, it classifies as AUDIO (so it drops onto an object
+				// as a sound like a wave file), and the Inspector's Audition
+				// button plays it THROUGH THE ENGINE'S OWN AUDIO PATH with no
+				// play session - the tune-and-hear loop a designer needs. The
+				// device is the null OpenAL backend under ctest, so the audible
+				// branch is asserted; a machine with no device at all is the
+				// honest refusal the stage reports instead.
+				if (assetOk)
+				{
+					state.assetBrowser.currentDir =
+						state.project.getAssetsDirectory();
+					const std::string soundPath = createSoundAndReveal(state);
+					const bool sidecarMinted = !soundPath.empty() &&
+						std::filesystem::exists(soundPath +
+							Orkige::AssetDatabase::META_FILE_EXTENSION,
+							assetErr);
+					Orkige::SfxDesc created;
+					Orkige::String sfxError;
+					std::string soundText;
+					if (!soundPath.empty())
+					{
+						std::ifstream in(soundPath, std::ios::binary);
+						std::stringstream buffer;
+						buffer << in.rdbuf();
+						soundText = buffer.str();
+					}
+					const bool parsed = !soundText.empty() &&
+						Orkige::SfxAsset::parse(soundText, created, &sfxError);
+					const Orkige::SfxDesc expected =
+						Orkige::SfxPreset::forArchetype(
+							Orkige::SfxPreset::SA_BLIP_SELECT);
+					if (soundPath.empty() || !sidecarMinted)
+					{
+						assetOk = false;
+						assetFail = "New Sound not written / no sidecar minted";
+					}
+					else if (!parsed)
+					{
+						assetOk = false;
+						assetFail = "the written .osfx does not parse: " +
+							std::string(sfxError.c_str());
+					}
+					else if (Orkige::SfxSynth::render(created).samples !=
+						Orkige::SfxSynth::render(expected).samples)
+					{
+						assetOk = false;
+						assetFail = "the written .osfx does not render its "
+							"archetype's sound";
+					}
+					else if (classifyAsset(soundPath) != AssetKind::Audio)
+					{
+						assetOk = false;
+						assetFail = "a .osfx does not classify as audio";
+					}
+					else if (!sfxAuditionStage.audition(created))
+					{
+						// no device: the refusal must be honest and named
+						if (sfxAuditionStage.available() ||
+							sfxAuditionStage.message().empty())
+						{
+							assetOk = false;
+							assetFail = "the audition refused without saying why";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: sound audition - no audio "
+								"device, honest refusal ('%s')",
+								sfxAuditionStage.message().c_str());
+						}
+					}
+					else if (!sfxAuditionStage.isPlaying() ||
+						sfxAuditionStage.lastByteSize() !=
+							static_cast<int>(Orkige::SfxSynth::render(created)
+								.byteSize()))
+					{
+						assetOk = false;
+						assetFail = "the audition did not play the rendered "
+							"samples";
+					}
+					else
+					{
+						SDL_Log("orkige_editor: sound audition - playing the "
+							"created .osfx (%d bytes, %.2fs): %s",
+							sfxAuditionStage.lastByteSize(),
+							sfxAuditionStage.lastDurationSec(),
+							sfxAuditionStage.message().c_str());
+						sfxAuditionStage.stop();
+						if (sfxAuditionStage.isPlaying())
+						{
+							assetOk = false;
+							assetFail = "Stop did not stop the audition";
+						}
+					}
+					// Export WAV: the same synthesized samples as a standard
+					// audio file a designer can hand to any other tool (an
+					// export convenience - the engine keeps playing the
+					// parameters)
+					if (assetOk)
+					{
+						const Orkige::SfxSynth::Pcm pcm =
+							Orkige::SfxSynth::render(created);
+						std::vector<unsigned char> wav;
+						const std::string wavPath =
+							std::filesystem::path(soundPath)
+								.replace_extension(".wav").string();
+						bool wavOk = Orkige::WavWriter::encode(pcm.samples,
+							pcm.sampleRate, pcm.channels, wav);
+						if (wavOk)
+						{
+							std::ofstream out(wavPath,
+								std::ios::binary | std::ios::trunc);
+							out.write(reinterpret_cast<char const*>(wav.data()),
+								static_cast<std::streamsize>(wav.size()));
+							wavOk = out.good();
+						}
+						const std::uintmax_t onDisk = wavOk
+							? std::filesystem::file_size(wavPath, assetErr) : 0u;
+						if (!wavOk || assetErr ||
+							onDisk != Orkige::WavWriter::HEADER_BYTES +
+								pcm.byteSize())
+						{
+							assetOk = false;
+							assetFail = "Export WAV did not write a header plus "
+								"the synthesized samples";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: sound export - wrote %s "
+								"(%llu bytes = a 44-byte header plus %zu "
+								"samples)",
+								std::filesystem::path(wavPath).filename()
+									.string().c_str(),
+								static_cast<unsigned long long>(onDisk),
+								pcm.samples.size());
+						}
 					}
 				}
 				std::filesystem::remove_all(assetTempRoot, assetErr);

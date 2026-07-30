@@ -32,12 +32,24 @@ namespace Orkige
 		void* loadCafData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate);
 		//! load wav audio data
 		void* loadWavData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate);
+		//! @brief SYNTHESIZE a procedural sound effect from a PARAMETER file -
+		//! the standard binary `.sfs` or its `.osfx` text twin. The
+		//! decoder-shaped sibling of the wave loaders (@see LoadSfxData.cpp,
+		//! core_util/SfxAsset.h)
+		void* loadSfxData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate);
 		//! load audio data depending on fileName extension
 		static inline void* loadSoundData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate)
 		{
 			if(StringUtil::to_lower_copy(fileName).ends_with(".wav"))
 			{
 				return loadWavData(fileName, dataSize, dataFormat, sampleRate);
+			}
+			else if(StringUtil::to_lower_copy(fileName).ends_with(".osfx") ||
+				StringUtil::to_lower_copy(fileName).ends_with(".sfs"))
+			{
+				// a procedural effect: nothing to decode, the samples are
+				// SYNTHESIZED from the file's sound parameters
+				return loadSfxData(fileName, dataSize, dataFormat, sampleRate);
 			}
 			else if(StringUtil::to_lower_copy(fileName).ends_with(".caf"))
 			{

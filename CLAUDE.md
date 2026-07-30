@@ -1008,6 +1008,29 @@ look when touching one:
   layer) ship on the same shared wrap core. `projects/gallery/` is the
   widget showroom — every widget kind across tabbed `.oui` screens, verified
   by the `player_gallery_selfcheck` ctest (both flavors).
+- **Procedural sound** (`Docs/sound.md`, both flavors): an sfx can be a
+  PARAMETER file instead of a recording — the sfxr standard model (wave,
+  attack/sustain/punch/decay, base+min freq, slide/delta, vibrato, arpeggio,
+  duty + sweep, repeat, swept delay tap, LPF/HPF + sweeps, volumes) read from
+  the standard **binary `.sfs`** any of the free authoring tools of that
+  family writes, or from the line-based text twin **`.osfx`** an agent writes
+  with `write_project_file` (ONE `SfxDesc`, two codecs — never two models;
+  `preset` seeds an archetype and explicit directives override under a
+  two-pass parse, so line order cannot change meaning; a `seed` makes a
+  generated member reproducible, which the tools' global RNG cannot).
+  Synthesis is the pure `core_util/SfxSynth` (fixed 44100 Hz, deterministic,
+  clamp-and-name sanitize) plugged into `SoundUtil::loadSoundData` — the ONE
+  place a `.wav` is decoded — so a parameter file IS a sound file to
+  `SoundComponent`, Lua, mixer groups, per-play variation and positional
+  audio with no API change, and a malformed one leaves a registered-but-SILENT
+  source instead of throwing into game code. Implemented from the format
+  documentation with no code taken from any implementation (provenance in
+  `Docs/sound.md`). Editor: Audition / Stop / **Export WAV**
+  (`core_util/WavWriter`, export convenience only — the runtime plays the
+  parameters) / Generate / per-parameter rows / Save-as-`.osfx`, plus
+  Create > New Sound — `SfxSynthTests`/`SfxAssetTests` (incl. the byte-level
+  `.sfs` layout for all three versions), `player_sfx_selfcheck` per flavor
+  (OpenAL asked what it holds, matched against the pure synth's bytes).
   **Visual `.oui` editor** (the Preview panel's EDIT MODE — GuiManager is a
   singleton, so the one preview render path IS the canvas): click-select +
   synced widget tree, anchor-preserving drag/resize pinned to the ONE UiLayout
