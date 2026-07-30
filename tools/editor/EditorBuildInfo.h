@@ -36,9 +36,19 @@ namespace Orkige
 	//! unstamped (local) build.
 	char const* editorBuildDate();
 
-	//! @brief the one-line build identity every surface shows: the version plus
-	//! the commit/date when stamped ("2.0.0 (a16c0227a, 2026-07-30)"), else
-	//! "2.0.0 (local build)". Never fabricates a commit it was not given.
+	//! @brief the ORDERED identity of this build - the one string that answers
+	//! "is that download newer than what I run":
+	//! "2.0.0-nightly.20260730+dea551f9e" (@see core_util/VersionOrder.h,
+	//! which composes it and compares two of them). "" for an unstamped build
+	//! or a partial stamp that cannot compose one - a build with no ordered
+	//! identity is honestly incomparable rather than ranked by guesswork.
+	std::string editorBuildVersion();
+
+	//! @brief the one-line build identity every surface shows: the ordered
+	//! version when stamped ("2.0.0-nightly.20260730+dea551f9e", which carries
+	//! the date and the commit inside it), the version plus whatever partial
+	//! stamp exists otherwise, and "2.0.0 (local build)" for a developer
+	//! build. Never fabricates a commit it was not given.
 	std::string editorBuildIdentity();
 
 	//! @brief the exact line `orkige_editor --version` prints (no trailing

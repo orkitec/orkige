@@ -12,6 +12,8 @@
 // whole editor.
 #include "EditorBuildInfo.h"
 
+#include <core_util/VersionOrder.h>
+
 #include <string>
 
 // unset in an ordinary developer build: the identity then reads "local build"
@@ -35,6 +37,17 @@ namespace Orkige
 		return ORKIGE_BUILD_DATE;
 	}
 
+	std::string editorBuildVersion()
+	{
+		// ONE composition rule, in ONE place: the packaging tooling derives the
+		// archive name, the VERSION file and the published manifest from the
+		// same grammar and from the same two stamped values, and the nightly's
+		// smoke test matches this binary's line against the packaged version -
+		// so the two implementations of the grammar cannot drift unnoticed.
+		return VersionOrder::compose(ORKIGE_EDITOR_VERSION, editorBuildDate(),
+			editorBuildCommit());
+	}
+
 	std::string editorBuildIdentity()
 	{
 		std::string identity = ORKIGE_EDITOR_VERSION;
@@ -44,6 +57,14 @@ namespace Orkige
 		{
 			return identity + " (local build)";
 		}
+		const std::string ordered = editorBuildVersion();
+		if (!ordered.empty())
+		{
+			// the ordered version already spells out the date and the commit
+			return ordered;
+		}
+		// a partial stamp composes no ordered version (a commit with no date):
+		// report exactly what was given rather than inventing the rest
 		identity += " (";
 		identity += commit.empty() ? "unknown commit" : commit;
 		if (!date.empty())

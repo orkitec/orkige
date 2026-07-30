@@ -483,6 +483,13 @@ jobs:
       sha: ${{ steps.probe.outputs.sha }}
       short_sha: ${{ steps.probe.outputs.short_sha }}
       date: ${{ steps.probe.outputs.date }}
+      # the commit the standing nightly was built from: the unchanged-tree
+      # check above AND the changelog's lower bound, from the ONE marker
+      previous_sha: ${{ steps.probe.outputs.previous_sha }}
+      # the ordered version, composed ONCE here and consumed by every job that
+      # stamps, names, verifies or publishes an artifact
+      version: ${{ steps.identity.outputs.version }}
+      version_token: ${{ steps.identity.outputs.version_token }}
     steps:
       - name: Read the last completed CI run on main
         id: probe
@@ -519,18 +526,21 @@ jobs:
           fi
           verdict="CI run #${number:-n/a} ${conclusion:-none}"
           skipped_reason="the last completed CI run on main concluded \`${conclusion:-none}\`"
+          # THE MARKER, read once and used TWICE: the commit the standing nightly
+          # was built from is both the unchanged-tree comparison below and the
+          # changelog's lower bound in the build and publish jobs. It lives in the
+          # release notes, so the check needs no state outside the release itself;
+          # no marker and no release (the first night, or a hand-deleted one) mean
+          # an empty predecessor, which reads as "build" and as "no lower bound".
+          prev=""
+          if gh release view nightly --json body --jq .body > prev_notes.txt 2> /dev/null; then
+            prev=$(grep -oE 'orkige-nightly-commit: [0-9a-f]{7,40}' prev_notes.txt \
+              | head -1 | awk '{print $2}')
+          fi
           # UNCHANGED-TREE SKIP: a scheduled run rebuilds only when tonight's green
-          # commit differs from the one the standing nightly was built from. The
-          # predecessor's commit is read from the machine-readable marker the
-          # publish job writes into the release notes; no marker or no release (the
-          # first night, or a hand-deleted one) means build. A MANUAL dispatch always
-          # builds - asking for it by hand is the explicit override.
+          # commit differs from the predecessor. A MANUAL dispatch always builds -
+          # asking for it by hand is the explicit override.
           if [ "${green}" = "true" ] && [ "${EVENT_NAME:-}" = "schedule" ]; then
-            prev=""
-            if gh release view nightly --json body --jq .body > prev_notes.txt 2> /dev/null; then
-              prev=$(grep -oE 'orkige-nightly-commit: [0-9a-f]{7,40}' prev_notes.txt \
-                | head -1 | awk '{print $2}')
-            fi
             if [ -n "${prev}" ] && [ "${prev}" = "${sha}" ]; then
               green=false
               skipped_reason="nothing new: the last green run is still \`$(printf '%.9s' "${sha}")\`, already published"
@@ -552,6 +562,7 @@ jobs:
             echo "sha=${sha}"
             echo "short_sha=$(printf '%.9s' "${sha}")"
             echo "date=$(date -u +%F)"
+            echo "previous_sha=${prev}"
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Nightly binaries gate"
@@ -562,6 +573,33 @@ jobs:
               echo "Skipped: ${skipped_reason}."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The version is composed from the PROVEN-GREEN tree, not from whatever
+      # main drifted to: its base number comes from that commit's own
+      # CMakeLists, so the identity the binary reports and the identity the
+      # packaging composes are derived from one source at one revision.
+      - name: Check out the proven-green commit
+        if: steps.probe.outputs.green == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          ref: ${{ steps.probe.outputs.sha }}
+
+      - name: Compose the ordered version (ONE place, every surface)
+        id: identity
+        if: steps.probe.outputs.green == 'true'
+        run: |
+          set -uo pipefail
+          # `--identity` prints `key=value` lines: the version and its filename
+          # rendering. Every later job consumes THESE values - the archive name,
+          # the binary stamp, the VERSION file, the manifest and the smoke
+          # test's expectation are one composition, never re-derived per job.
+          python3 Util/orkige_nightly_package.py --identity \
+            --commit "${{ steps.probe.outputs.sha }}" \
+            --date "${{ steps.probe.outputs.date }}" | tee identity.txt
+          cat identity.txt >> "$GITHUB_OUTPUT"
+          version=$(grep '^version=' identity.txt | cut -d= -f2-)
+          test -n "${version}" || { echo "no ordered version composed" >&2; exit 1; }
+          echo "Version \`${version}\`." >> "$GITHUB_STEP_SUMMARY"
 
   # macOS: the Release .app, zipped. The engine links statically and the bundle
   # depends on nothing but system frameworks, so the packaging is a copy, an
@@ -583,6 +621,9 @@ jobs:
         with:
           # the commit the matrix proved green, not whatever main is at now
           ref: ${{ needs.binaries-gate.outputs.sha }}
+          # full history: the artifact carries a CHANGELOG.md generated from the
+          # commits since the previous nightly, and a shallow clone has none
+          fetch-depth: 0
 
       - name: Install system dependencies
         run: |
@@ -625,8 +666,12 @@ jobs:
             -DORKIGE_BUILD_COMMIT=${{ needs.binaries-gate.outputs.short_sha }} \
             -DORKIGE_BUILD_DATE=${{ needs.binaries-gate.outputs.date }}
 
-      - name: Build the editor + player
-        run: cmake --build --preset "$PRESET" --target orkige_editor orkige_player
+      # orkige_editor_bundle, NOT the bare editor: it depends on the editor,
+      # the player and the texture cook tool AND stages the payload a copied
+      # app resolves its media from. A scoped `--target orkige_editor` leaves
+      # that staging unrun, and the packaged app would find no shader media.
+      - name: Build the editor + player + the staged payload
+        run: cmake --build --preset "$PRESET" --target orkige_editor_bundle
 
       - name: Save ccache
         if: always()
@@ -641,6 +686,8 @@ jobs:
             --platform "$PLATFORM" --build-dir "build/$PRESET" \
             --commit ${{ needs.binaries-gate.outputs.sha }} \
             --date ${{ needs.binaries-gate.outputs.date }} \
+            --version "${{ needs.binaries-gate.outputs.version }}" \
+            --since "${{ needs.binaries-gate.outputs.previous_sha }}" \
             --output nightly-out
 
       # THE SMOKE TEST: unpack the archive somewhere it has no build tree to
@@ -650,15 +697,17 @@ jobs:
       - name: Smoke-test the packaged archive
         run: |
           mkdir -p smoke
-          ditto -x -k "nightly-out/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.short_sha }}.zip" smoke
+          ditto -x -k "nightly-out/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.zip" smoke
           python3 Util/orkige_nightly_package.py --verify smoke \
             --platform "$PLATFORM" \
-            --commit ${{ needs.binaries-gate.outputs.sha }}
+            --commit ${{ needs.binaries-gate.outputs.sha }} \
+            --version "${{ needs.binaries-gate.outputs.version }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: binaries-macos
-          path: nightly-out/Orkige-macos-*.zip
+          # the archive AND its .sha256 sidecar
+          path: nightly-out/Orkige-macos-*
           if-no-files-found: error
           retention-days: 14
 
@@ -680,6 +729,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           ref: ${{ needs.binaries-gate.outputs.sha }}
+          fetch-depth: 0          # the changelog's commit range
 
       - name: Install system dependencies
         # the linux-next set (the editor LINKS against these); no display is
@@ -731,8 +781,12 @@ jobs:
             -DORKIGE_BUILD_COMMIT=${{ needs.binaries-gate.outputs.short_sha }} \
             -DORKIGE_BUILD_DATE=${{ needs.binaries-gate.outputs.date }}
 
-      - name: Build the editor + player
-        run: cmake --build --preset "$PRESET" --target orkige_editor orkige_player
+      # orkige_editor_bundle, NOT the bare editor: it depends on the editor,
+      # the player and the texture cook tool AND stages the payload a copied
+      # app resolves its media from. A scoped `--target orkige_editor` leaves
+      # that staging unrun, and the packaged app would find no shader media.
+      - name: Build the editor + player + the staged payload
+        run: cmake --build --preset "$PRESET" --target orkige_editor_bundle
 
       - name: Save ccache
         if: always()
@@ -747,20 +801,24 @@ jobs:
             --platform "$PLATFORM" --build-dir "build/$PRESET" \
             --commit ${{ needs.binaries-gate.outputs.sha }} \
             --date ${{ needs.binaries-gate.outputs.date }} \
+            --version "${{ needs.binaries-gate.outputs.version }}" \
+            --since "${{ needs.binaries-gate.outputs.previous_sha }}" \
             --output nightly-out
 
       - name: Smoke-test the packaged archive
         run: |
           mkdir -p smoke
-          tar xzf "nightly-out/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.short_sha }}.tar.gz" -C smoke
+          tar xzf "nightly-out/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.tar.gz" -C smoke
           python3 Util/orkige_nightly_package.py --verify smoke \
             --platform "$PLATFORM" \
-            --commit ${{ needs.binaries-gate.outputs.sha }}
+            --commit ${{ needs.binaries-gate.outputs.sha }} \
+            --version "${{ needs.binaries-gate.outputs.version }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: binaries-linux
-          path: nightly-out/Orkige-linux-*.tar.gz
+          # the archive AND its .sha256 sidecar
+          path: nightly-out/Orkige-linux-*
           if-no-files-found: error
           retention-days: 14
 
@@ -789,6 +847,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           ref: ${{ needs.binaries-gate.outputs.sha }}
+          fetch-depth: 0          # the changelog's commit range
 
       - name: Set up the MSVC environment for Ninja
         # the same first-party vcvarsall import ci.yml uses; it also puts
@@ -828,9 +887,11 @@ jobs:
             "-DORKIGE_BUILD_COMMIT=${{ needs.binaries-gate.outputs.short_sha }}" `
             "-DORKIGE_BUILD_DATE=${{ needs.binaries-gate.outputs.date }}"
 
-      - name: Build the editor + player
+      # the payload-staging target (@see the macOS job) - a scoped editor build
+      # would ship an app with no shader media beside it
+      - name: Build the editor + player + the staged payload
         shell: pwsh
-        run: cmake --build --preset ${env:PRESET} --target orkige_editor orkige_player
+        run: cmake --build --preset ${env:PRESET} --target orkige_editor_bundle
 
       - name: Package
         shell: pwsh
@@ -839,6 +900,8 @@ jobs:
             --platform ${env:PLATFORM} --build-dir "build/${env:PRESET}" `
             --commit ${{ needs.binaries-gate.outputs.sha }} `
             --date ${{ needs.binaries-gate.outputs.date }} `
+            --version "${{ needs.binaries-gate.outputs.version }}" `
+            --since "${{ needs.binaries-gate.outputs.previous_sha }}" `
             --output nightly-out
 
       - name: Smoke-test the packaged archive
@@ -846,27 +909,30 @@ jobs:
         run: |
           # ${env:...} braces, not $env:...: a bare $env:PLATFORM-foo would take
           # the hyphen into the variable NAME and resolve to nothing
-          $archive = "nightly-out/Orkige-${env:PLATFORM}-${{ needs.binaries-gate.outputs.short_sha }}.zip"
+          $archive = "nightly-out/Orkige-${env:PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.zip"
           New-Item -ItemType Directory -Force -Path smoke | Out-Null
           Expand-Archive -Path $archive -DestinationPath smoke -Force
           python3 Util/orkige_nightly_package.py --verify smoke `
             --platform ${env:PLATFORM} `
-            --commit ${{ needs.binaries-gate.outputs.sha }}
+            --commit ${{ needs.binaries-gate.outputs.sha }} `
+            --version "${{ needs.binaries-gate.outputs.version }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: binaries-windows
-          path: nightly-out/Orkige-windows-*.zip
+          # the archive AND its .sha256 sidecar
+          path: nightly-out/Orkige-windows-*
           if-no-files-found: error
           retention-days: 14
 
   # PUBLISH: one rolling release tagged `nightly`, kept a DRAFT.
   #
   # A draft is invisible to anyone without write access and creates no git tag,
-  # so nothing half-working is presented as ready - which matters while a copied
-  # editor still cannot render (KNOWN-LIMITATIONS.md inside every archive).
-  # Flipping it public is one flag once those gaps close; until then the
-  # workflow-run artifacts are the way to get a build.
+  # so nothing half-working is presented as ready - which matters while the
+  # archives are unsigned and every platform's security prompt says so
+  # (KNOWN-LIMITATIONS.md inside every archive). Flipping it public is one flag
+  # once those gaps close; until then the workflow-run artifacts are the way to
+  # get a build.
   #
   # Runs whenever the gate was green, even if a platform failed: the notes NAME
   # every missing platform and its job result rather than quietly shipping two
@@ -883,6 +949,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           ref: ${{ needs.binaries-gate.outputs.sha }}
+          fetch-depth: 0          # the changelog's commit range
 
       - name: Download the platform archives
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
@@ -890,6 +957,20 @@ jobs:
           pattern: binaries-*
           path: downloads
           merge-multiple: true
+
+      # The changelog: the previous nightly's marker commit (exclusive) to this
+      # one (inclusive), from the commit subjects. The generator degrades
+      # honestly - no marker means a bounded recent window, and the output says
+      # so rather than implying a complete range.
+      - name: Generate the changelog
+        env:
+          SHA: ${{ needs.binaries-gate.outputs.sha }}
+          PREVIOUS_SHA: ${{ needs.binaries-gate.outputs.previous_sha }}
+        run: |
+          set -uo pipefail
+          python3 Util/orkige_nightly_package.py --changelog \
+            --commit "${SHA}" --since "${PREVIOUS_SHA}" \
+            --changelog-out changelog.md
 
       - name: Compose the release notes
         env:
@@ -899,6 +980,8 @@ jobs:
           SHA: ${{ needs.binaries-gate.outputs.sha }}
           SHORT_SHA: ${{ needs.binaries-gate.outputs.short_sha }}
           BUILD_DATE: ${{ needs.binaries-gate.outputs.date }}
+          VERSION: ${{ needs.binaries-gate.outputs.version }}
+          TOKEN: ${{ needs.binaries-gate.outputs.version_token }}
         run: |
           set -uo pipefail
           ls -l downloads || true
@@ -908,14 +991,15 @@ jobs:
             exit 1
           fi
           {
-            echo "Editor builds from \`${SHORT_SHA}\`, ${BUILD_DATE} (UTC), built"
-            echo "only because the full test matrix on that commit was green."
+            echo "Editor version \`${VERSION}\` - built ${BUILD_DATE} (UTC) from"
+            echo "\`${SHORT_SHA}\`, and only because the full test matrix on that"
+            echo "commit was green."
             echo ""
             echo "| Platform | Archive | Build |"
             echo "| --- | --- | --- |"
-            for row in "macOS (Apple silicon):${RESULT_MACOS}:Orkige-macos-${SHORT_SHA}.zip" \
-                       "Linux (x86_64):${RESULT_LINUX}:Orkige-linux-${SHORT_SHA}.tar.gz" \
-                       "Windows (x64):${RESULT_WINDOWS}:Orkige-windows-${SHORT_SHA}.zip"; do
+            for row in "macOS (Apple silicon):${RESULT_MACOS}:Orkige-macos-${TOKEN}.zip" \
+                       "Linux (x86_64):${RESULT_LINUX}:Orkige-linux-${TOKEN}.tar.gz" \
+                       "Windows (x64):${RESULT_WINDOWS}:Orkige-windows-${TOKEN}.zip"; do
               label=${row%%:*}
               rest=${row#*:}
               result=${rest%%:*}
@@ -927,17 +1011,40 @@ jobs:
               fi
             done
             echo ""
-            echo "Every archive carries a \`VERSION\` file and a"
+            cat changelog.md
+            echo ""
+            echo "Every archive carries a \`VERSION\` file, a \`CHANGELOG.md\` and a"
             echo "\`KNOWN-LIMITATIONS.md\` listing what this build cannot do yet -"
             echo "read it first. The builds are UNSIGNED, so macOS and Windows"
             echo "warn about them; the limitations file gives the exact steps."
+            echo "Each archive has a \`.sha256\` file beside it, and"
+            echo "\`nightly-manifest.json\` describes this release for an updater."
             echo ""
             echo "Reference: Docs/nightly-builds.md."
             echo ""
-            # read back by the gate to skip a rebuild when main has not moved
+            # read back by the gate to skip a rebuild when main has not moved,
+            # and used as the NEXT changelog's lower bound
             echo "<!-- orkige-nightly-commit: ${SHA} -->"
           } > notes.md
           cat notes.md
+
+      # THE MANIFEST: what an updater polls. Emitted from the assets that
+      # actually arrived, with each archive's real byte size and SHA-256 (a
+      # digest that disagrees with the checksum file travelling beside it fails
+      # here), and published as a release asset of its own.
+      - name: Emit the updater manifest
+        env:
+          SHA: ${{ needs.binaries-gate.outputs.sha }}
+          BUILD_DATE: ${{ needs.binaries-gate.outputs.date }}
+          VERSION: ${{ needs.binaries-gate.outputs.version }}
+        run: |
+          set -uo pipefail
+          python3 Util/orkige_nightly_package.py --manifest downloads \
+            --commit "${SHA}" --date "${BUILD_DATE}" --version "${VERSION}" \
+            --asset-base-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/nightly" \
+            --changelog-file changelog.md \
+            --manifest-out downloads/nightly-manifest.json
+          cat downloads/nightly-manifest.json
 
       - name: Create or replace the `nightly` draft prerelease
         env:
@@ -945,6 +1052,7 @@ jobs:
           SHA: ${{ needs.binaries-gate.outputs.sha }}
           SHORT_SHA: ${{ needs.binaries-gate.outputs.short_sha }}
           BUILD_DATE: ${{ needs.binaries-gate.outputs.date }}
+          VERSION: ${{ needs.binaries-gate.outputs.version }}
         run: |
           set -uo pipefail
           # rolling: replace yesterday's draft wholesale rather than accumulate
@@ -958,7 +1066,7 @@ jobs:
           gh release create nightly \
             --draft --prerelease \
             --target "${SHA}" \
-            --title "Nightly ${BUILD_DATE} (${SHORT_SHA})" \
+            --title "Orkige ${VERSION}" \
             --notes-file notes.md \
             "${assets[@]}"
           echo "published the draft; find it under Releases (drafts are visible to maintainers only)" >> "$GITHUB_STEP_SUMMARY"
