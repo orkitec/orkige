@@ -591,7 +591,7 @@ jobs:
           set -uo pipefail
           # `--identity` prints `key=value` lines: the version and its filename
           # rendering. Every later job consumes THESE values - the archive name,
-          # the binary stamp, the VERSION file, the manifest and the smoke
+          # the binary stamp, the VERSION file, the release notes and the smoke
           # test's expectation are one composition, never re-derived per job.
           python3 Util/orkige_nightly_package.py --identity \
             --commit "${{ steps.probe.outputs.sha }}" \
@@ -1017,34 +1017,28 @@ jobs:
             echo "\`KNOWN-LIMITATIONS.md\` listing what this build cannot do yet -"
             echo "read it first. The builds are UNSIGNED, so macOS and Windows"
             echo "warn about them; the limitations file gives the exact steps."
-            echo "Each archive has a \`.sha256\` file beside it, and"
-            echo "\`nightly-manifest.json\` describes this release for an updater."
+            echo "Each archive has a \`.sha256\` file beside it - verify a"
+            echo "download before trusting it."
             echo ""
             echo "Reference: Docs/nightly-builds.md."
             echo ""
-            # read back by the gate to skip a rebuild when main has not moved,
-            # and used as the NEXT changelog's lower bound
+            # machine-readable, in the release BODY so one API call answers an
+            # updater: the commit is read back by the gate (to skip a rebuild
+            # when main has not moved) and bounds the next changelog; the
+            # version is what a client compares with core_util/VersionOrder.
             echo "<!-- orkige-nightly-commit: ${SHA} -->"
+            echo "<!-- orkige-nightly-version: ${VERSION} -->"
           } > notes.md
           cat notes.md
 
-      # THE MANIFEST: what an updater polls. Emitted from the assets that
-      # actually arrived, with each archive's real byte size and SHA-256 (a
-      # digest that disagrees with the checksum file travelling beside it fails
-      # here), and published as a release asset of its own.
-      - name: Emit the updater manifest
-        env:
-          SHA: ${{ needs.binaries-gate.outputs.sha }}
-          BUILD_DATE: ${{ needs.binaries-gate.outputs.date }}
-          VERSION: ${{ needs.binaries-gate.outputs.version }}
+      # The `.sha256` sidecar is the whole integrity story of a download, so the
+      # assets that arrived are checked against the sidecars that travelled with
+      # them: bytes that changed on the way here fail the publish rather than
+      # being served under a digest that fits neither.
+      - name: Verify the archives against their checksum files
         run: |
           set -uo pipefail
-          python3 Util/orkige_nightly_package.py --manifest downloads \
-            --commit "${SHA}" --date "${BUILD_DATE}" --version "${VERSION}" \
-            --asset-base-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/nightly" \
-            --changelog-file changelog.md \
-            --manifest-out downloads/nightly-manifest.json
-          cat downloads/nightly-manifest.json
+          python3 Util/orkige_nightly_package.py --verify-checksums downloads
 
       - name: Create or replace the `nightly` draft prerelease
         env:

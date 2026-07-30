@@ -168,7 +168,8 @@ that one value:
 - **the binary itself**: `orkige_editor --version` prints
   `orkige_editor 2.0.0-nightly.20260730+dea551f9e [next, Release]`, and the
   Help > About box shows the same identity;
-- **the manifest** an updater polls (below).
+- **the release notes**, whose `orkige-nightly-version` marker is the value an
+  updater polls (below).
 
 The binary composes its own copy from the two values the pipeline stamps it with:
 
@@ -245,67 +246,71 @@ decision about what the output says on the other — so the formatting is
 unit-tested against synthetic log text instead of whatever history a machine
 happens to have.
 
-## The published manifest
+## What an updater reads
 
-`nightly-manifest.json` is a release asset of its own: one small document naming
-the current version and every platform's archive.
+The release IS the description of the build. One request returns everything a
+client needs:
 
-```json
-{
-  "schema": 1,
-  "product": "orkige editor",
-  "channel": "nightly",
-  "version": "2.0.0-nightly.20260730+dea551f9e",
-  "baseVersion": "2.0.0",
-  "date": "2026-07-30",
-  "commit": "dea551f9e0e0f1a2b3c4d5e6f708192a3b4c5d6e",
-  "changelog": "## Changes since `bb9c73f81`\n\n- …",
-  "platforms": {
-    "macos": {
-      "filename": "Orkige-macos-2.0.0-nightly.20260730_dea551f9e.zip",
-      "size": 78123456,
-      "sha256": "5f2b…",
-      "url": "https://github.com/orkitec/orkige/releases/download/nightly/Orkige-macos-2.0.0-nightly.20260730_dea551f9e.zip"
-    }
-  }
-}
+```
+GET https://api.github.com/repos/orkitec/orkige/releases/tags/nightly
+Accept: application/vnd.github+json
 ```
 
-| Field | Meaning |
-| --- | --- |
-| `schema` | the document version; a client refuses a number it does not know |
-| `product` / `channel` | which artifact family and which stream this is |
-| `version` | the ordered version — what a client compares |
-| `baseVersion` | the engine version the build came from |
-| `date` / `commit` | the build date (UTC) and the full source commit |
-| `changelog` | the changelog section as markdown text |
-| `platforms` | one entry per platform: `filename`, `size` in bytes, `sha256`, `url` |
+The JSON carries `body` (the release notes), `assets[]` (each with `name`,
+`size` and `browser_download_url`) and `published_at`. A token is optional —
+sending one only raises the rate limit.
 
-A platform whose build failed is **absent** from `platforms` rather than present
-and empty — a client asks "is there a build for me", and absence is the honest
-answer (the release notes name the failed job). The digests are of the real bytes
-and are cross-checked against the `.sha256` file that travelled beside each
-archive; a disagreement fails the publish job rather than publishing a digest
-that does not match its file.
+Two **machine-readable markers** sit at the end of the notes, so a client never
+parses prose and never guesses a version out of an asset filename:
 
-**How a client consumes it** — the contract an updater implements against:
+```
+<!-- orkige-nightly-commit: dea551f9e0e0f1a2b3c4d5e6f708192a3b4c5d6e -->
+<!-- orkige-nightly-version: 2.0.0-nightly.20260730+dea551f9e -->
+```
 
-1. fetch `nightly-manifest.json` from the release, and refuse a `schema` it does
-   not understand;
-2. compare `version` with its own (`editorBuildVersion()`) through
+The version is the ordered identity; the commit is the full source commit (the
+gate reads it back to skip an unchanged tree, and it bounds the next changelog).
+Both are fixed strings one regex finds in one pass over `body`.
+
+**The contract an updater implements:**
+
+1. `GET /repos/<owner>/<repo>/releases/tags/nightly` — one call, authentication
+   optional.
+2. Read `<!-- orkige-nightly-version: … -->` out of `body`. A body without it is
+   not a release this client understands, and "no update" is the honest answer
+   to that.
+3. Compare it with its own `editorBuildVersion()` through
    `VersionOrder::isUpdate` — never by string equality, never by date arithmetic
-   of its own;
-3. show `changelog` if it offers the update;
-4. download the entry for its own platform, and **verify the SHA-256 before
-   trusting a single byte of it**;
-5. treat `VO_SAME` and `VO_INCOMPARABLE` as "no update" — a rebuild of today's
-   tree and an unstamped local build are both "nothing to do".
+   of its own. `VO_SAME` (a rebuild of today's tree) and `VO_INCOMPARABLE` (an
+   unstamped local build) are both "nothing to do".
+4. Show the changelog if it offers the update: it is the `## Changes since …`
+   section of `body`, the same text the artifact's `CHANGELOG.md` carries.
+5. Pick its platform's asset by name — `Orkige-macos-<token>.zip`,
+   `Orkige-linux-<token>.tar.gz`, `Orkige-windows-<token>.zip`, where `<token>`
+   is the version's filename rendering. A platform whose build failed has **no
+   asset**, and the notes table names it with that job's result: a client asks
+   "is there a build for me", and absence is the answer.
+6. Fetch the `<archive>.sha256` asset beside it and **verify the digest before
+   trusting a single byte** of the archive. That sidecar is the download's only
+   integrity story; the publish job checks every archive against the sidecar
+   that travelled with it, so the two agree at the moment they are served.
 
-The `nightly` release is a **draft** while the archives are unsigned, and a
-draft's assets are only reachable with a token that has write access. The
-manifest's URLs are the public download URLs the release will serve once it is
-public; an updater cannot poll a draft anonymously, which is one more reason the
-signing gap comes before an in-editor updater.
+Two caveats, stated plainly:
+
+- **A draft release's assets are not anonymously readable.** The `nightly`
+  release is a draft while the archives are unsigned, and a draft is reachable
+  only with a token that has write access — so nothing can poll it until the
+  release goes public. That is one more reason the signing gap comes before an
+  in-editor updater.
+- **Unauthenticated API calls are rate-limited per IP:** 60 requests an hour
+  (5000 with a token). A check once a day, or once per launch, sits far inside
+  that; a client that polls in a loop is answered `403` with a reset time, and
+  has to honour it.
+
+And the trade: reading a release this way couples the client to the GitHub REST
+API's shape — the release-by-tag endpoint, `body`, `assets[]`. That coupling is
+deliberate. The release is the ONE description of a build, so there is nothing
+for a client to read that can disagree with what was published.
 
 ## The smoke test
 
@@ -345,11 +350,19 @@ the tree and drives it through boot, open, a screenshot and a Play session.
 The same verifier logic is unit-tested headlessly by the
 `orkige_nightly_package_selftest` ctest (label `unit`), which drives the ordered
 version and its filename rendering, the identity strings, the changelog
-extraction and formatting over synthetic `git log` output, the manifest schema
-and its digests over real bytes, the limitations table and its per-platform
-rendering, the media staging over a synthetic build tree, the archive
-round-trip, and every verdict the verifier can reach — including a stand-in
-binary reporting the wrong commit or a version the packaging did not compose.
+extraction and formatting over synthetic `git log` output, the checksum sidecar
+over real bytes (its `sha256sum -c` format, and the refusal when a file and its
+sidecar disagree), the limitations table and its per-platform rendering, the
+media staging over a synthetic build tree, the archive round-trip, and every
+verdict the verifier can reach — including a stand-in binary reporting the wrong
+commit or a version the packaging did not compose.
+
+It also drives the **release notes** an updater reads: the publish job's own
+shell block is lifted out of the workflow and run against stubbed job outputs,
+asserting that both markers carry the right values, that an archive which
+arrived is named while a failed platform is called out with its job result, and
+that the notes point at the `.sha256` sidecar. A marker exists in exactly one
+place, and this is the check that it exists where a client looks.
 
 ## Where the artifacts go
 
@@ -367,8 +380,10 @@ failed: the release notes list every platform with its archive or the words "not
 produced" plus that job's result, so a partial night is legible instead of
 looking complete. Zero archives is a failure — there is nothing to publish.
 
-Each night's assets are the three archives, a `.sha256` file beside each of
-them, and `nightly-manifest.json`.
+Each night's assets are the three archives and a `.sha256` file beside each of
+them. Before they are attached, every archive is checked against the sidecar
+that travelled with it (`--verify-checksums`), so bytes that changed on the way
+fail the publish rather than being served under a digest that fits neither.
 
 Making the release public is one change (dropping `--draft` from the
 `gh release create` call in the publish job). What has to be true first is the
@@ -441,9 +456,8 @@ Three more modes serve the pipeline, and each one works by hand:
 python3 Util/orkige_nightly_package.py --identity --commit <sha>
 # the changelog section for a range
 python3 Util/orkige_nightly_package.py --changelog --commit HEAD --since <sha>
-# the manifest for a directory of release assets
-python3 Util/orkige_nightly_package.py --manifest <dir> --commit <sha> \
-        --asset-base-url https://example.invalid/releases/download/nightly
+# every archive in a directory against its .sha256 file
+python3 Util/orkige_nightly_package.py --verify-checksums <dir>
 ```
 
 `--selftest` runs the headless self-checks without needing any build tree at all.

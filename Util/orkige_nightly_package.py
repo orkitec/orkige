@@ -17,10 +17,7 @@ the other Util/ generators).
     orkige_nightly_package.py --changelog --commit <sha> [--since <sha>]
                               [--changelog-out <file>]
 
-    orkige_nightly_package.py --manifest <assets dir> --commit <sha>
-                              [--date <d>] [--version <v>]
-                              [--asset-base-url <url>]
-                              [--changelog-file <f>] [--manifest-out <file>]
+    orkige_nightly_package.py --verify-checksums <assets dir>
 
     orkige_nightly_package.py --selftest
 
@@ -42,11 +39,11 @@ The staged tree has ONE shape on every platform:
         Media/                  the engine shader/font/water/decal media
 
 IDENTITY: one ordered version, composed HERE (nightly_version) and consumed by
-every surface - the archive filename, the VERSION file, the manifest, and the
-binary itself, which composes the same grammar from the same two stamped values
-(orkige_core/core_util/VersionOrder.h; the smoke test matches the two, so they
-cannot drift). A commit sha cannot answer "is that download newer than what I
-run"; "2.0.0-nightly.20260730+dea551f9e" can.
+every surface - the archive filename, the VERSION file, the release notes an
+updater reads, and the binary itself, which composes the same grammar from the
+same two stamped values (orkige_core/core_util/VersionOrder.h; the smoke test
+matches the two, so they cannot drift). A commit sha cannot answer "is that
+download newer than what I run"; "2.0.0-nightly.20260730+dea551f9e" can.
 
 macOS puts the payload INSIDE the bundle (Contents/MacOS for the binaries,
 Contents/Resources/Media for the media - where PlayerBundle already looks) and
@@ -65,7 +62,6 @@ machine-readable contract orkige_export.py ends on.
 import argparse
 import datetime
 import hashlib
-import json
 import os
 import re
 import shutil
@@ -78,6 +74,12 @@ import zipfile
 import orkige_export  # sibling Util helper: build-tree + macOS bundle plumbing
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# the pipeline this packager serves. The release notes it composes carry the
+# machine-readable markers a client reads, so the self-checks drive that step's
+# own script (workflow_step_script) instead of restating what it says.
+NIGHTLY_WORKFLOW = os.path.join(REPO_ROOT, ".github", "workflows",
+                                "nightly.yml")
 
 PLATFORMS = ("macos", "linux", "windows")
 
@@ -346,7 +348,7 @@ def artifact_name(platform, commit, version=""):
 def version_text(platform, commit, date, build_dir, extra=(), version=""):
     """the VERSION file: one `key: value` per line, so a human reads it and a
     script greps it. `version` is the ORDERED identity - the same string the
-    archive is named after, the manifest publishes and the binary reports; the
+    archive is named after, the release notes carry and the binary reports; the
     commit and date it is composed from are spelled out beside it."""
     fields = [("product", "orkige editor"),
               ("version", version or project_version()),
@@ -518,17 +520,16 @@ def changelog_document(version, commit, date, section):
                     short_commit(commit) or "an unrecorded commit", section))
 
 
-# --- the published manifest ------------------------------------------------
+# --- checksums -------------------------------------------------------------
 #
-# What an updater polls: one small JSON document naming the current version and
-# every platform's archive with its byte size, its SHA-256 and its download
-# URL. A client compares the version with the comparator in
-# core_util/VersionOrder.h, and verifies the digest BEFORE trusting the bytes.
-# A checksum file is written beside each archive too - good practice for any
-# download page, updater or not.
+# Every archive ships a `<archive>.sha256` sidecar in the standard one-line
+# `sha256sum -c` format - the whole integrity story of a download: a person
+# checks a file with the tool their machine already has, and an updater fetches
+# the sidecar asset beside the archive and verifies the digest BEFORE trusting
+# a byte of it (Docs/nightly-builds.md). The publish side checks its own
+# sidecars against the assets that arrived, so bytes that changed on the way
+# are refused rather than published under a digest that does not match them.
 
-MANIFEST_NAME = "nightly-manifest.json"
-MANIFEST_SCHEMA = 1
 CHECKSUM_SUFFIX = ".sha256"
 
 
@@ -554,98 +555,48 @@ def write_checksum(path):
     return target
 
 
-def platform_of_archive(name):
-    """the platform an archive filename belongs to, "" when it names none"""
-    for platform in PLATFORMS:
-        if name.startswith("Orkige-%s-" % platform) \
-                and name.endswith(ARCHIVE_SUFFIX[platform]):
-            return platform
-    return ""
-
-
-def manifest_document(version, date, commit, platforms, changelog="",
-                      base_version=""):
-    """the manifest structure. Pure: every value is an argument, so the schema
-    is tested without a release, a network or a build tree.
-
-    `platforms` maps a platform name to {filename, size, sha256, url}. A
-    platform whose archive was not produced is ABSENT rather than present and
-    empty - a client asks "is there a build for me", and absence is the honest
-    answer to that (the release notes name the failed job)."""
-    return {"schema": MANIFEST_SCHEMA,
-            "product": "orkige editor",
-            "channel": VERSION_CHANNEL,
-            "version": version,
-            "baseVersion": base_version or project_version(),
-            "date": date,
-            "commit": commit,
-            "changelog": changelog,
-            "platforms": platforms}
-
-
-def manifest_json(document):
-    """the document as the bytes a client fetches: stable key order and a
-    trailing newline, so two runs of one input produce one file"""
-    return json.dumps(document, indent=2, sort_keys=True) + "\n"
-
-
-def asset_url(base_url, filename):
-    if not base_url:
+def checksum_mismatch(path):
+    """compare a file against the digest its `.sha256` sidecar records. Returns
+    "" when they agree (or when there is no sidecar to disagree with) and a
+    complaint naming both digests when they do not."""
+    sidecar = path + CHECKSUM_SUFFIX
+    if not os.path.isfile(sidecar):
         return ""
-    return base_url.rstrip("/") + "/" + filename
+    with open(sidecar, "r", errors="replace") as handle:
+        recorded = handle.read().split()
+    if not recorded:
+        return "%s is empty" % os.path.basename(sidecar)
+    digest = sha256_file(path)
+    if recorded[0] == digest:
+        return ""
+    return ("%s does not match its checksum file (%s recorded, %s measured)"
+            % (os.path.basename(path), recorded[0][:16], digest[:16]))
 
 
-def collect_manifest_platforms(assets_dir, base_url=""):
-    """scan a directory of release assets into the manifest's per-platform
-    entries, digesting the REAL bytes. Returns (platforms, missing)."""
-    found = {}
-    for name in sorted(os.listdir(assets_dir)):
-        path = os.path.join(assets_dir, name)
-        if not os.path.isfile(path):
-            continue
-        platform = platform_of_archive(name)
-        if not platform:
-            continue
-        digest = sha256_file(path)
-        sidecar = path + CHECKSUM_SUFFIX
-        if os.path.isfile(sidecar):
-            # the archive's own checksum file travelled with it: if the two
-            # disagree the bytes changed on the way here, and publishing them
-            # under a digest that does not match is worse than not publishing
-            with open(sidecar, "r", errors="replace") as handle:
-                recorded = handle.read().split()
-            if recorded and recorded[0] != digest:
-                fail("%s does not match its checksum file (%s recorded, %s "
-                     "measured)" % (name, recorded[0][:16], digest[:16]))
-        found[platform] = {"filename": name,
-                           "size": os.path.getsize(path),
-                           "sha256": digest,
-                           "url": asset_url(base_url, name)}
-    missing = [platform for platform in PLATFORMS if platform not in found]
-    return found, missing
-
-
-def write_manifest(assets_dir, commit, date, version="", base_url="",
-                   changelog="", output_path=""):
-    """emit the manifest for a set of release assets"""
+def verify_checksums(assets_dir):
+    """check every archive in a directory of release assets against the
+    checksum file that travelled beside it. A disagreement means the bytes
+    changed on the way here, and publishing them is worse than failing."""
     assets_dir = os.path.abspath(assets_dir)
     if not os.path.isdir(assets_dir):
         fail("no assets directory at '%s'" % assets_dir)
-    version = version or nightly_version(date, commit)
-    platforms, missing = collect_manifest_platforms(assets_dir, base_url)
-    if not platforms:
-        fail("no platform archives in '%s' - nothing to describe" % assets_dir)
-    for platform in missing:
-        warn("no %s archive - the manifest lists none for it" % platform)
-    document = manifest_document(version, date, commit, platforms, changelog)
-    target = output_path or os.path.join(assets_dir, MANIFEST_NAME)
-    with open(target, "w") as handle:
-        handle.write(manifest_json(document))
-    log("manifest %s: version %s, platforms %s"
-        % (os.path.basename(target), version or "(unversioned)",
-           ", ".join(sorted(platforms)) or "none"))
-    log("OK " + target)
-    return target
+    checked = []
+    for name in sorted(os.listdir(assets_dir)):
+        path = os.path.join(assets_dir, name)
+        if not os.path.isfile(path) or name.endswith(CHECKSUM_SUFFIX):
+            continue
+        if not os.path.isfile(path + CHECKSUM_SUFFIX):
+            continue
+        complaint = checksum_mismatch(path)
+        if complaint:
+            fail(complaint)
+        checked.append(name)
+    if not checked:
+        fail("no archive in '%s' carries a %s file - nothing was verified"
+             % (assets_dir, CHECKSUM_SUFFIX))
+    log("checksums verified: %s" % ", ".join(checked))
+    log("OK " + assets_dir)
+    return checked
 
 
 # --- staging ---------------------------------------------------------------
@@ -952,9 +903,10 @@ def package(platform, build_dir, commit, date, output_dir, version="",
         make_zip(stage_root, archive_path)
     else:
         make_tar_gz(stage_root, archive_path)
-    # the checksum beside the archive: what a download page publishes and what
-    # the manifest's digest is cross-checked against when the assets are
-    # gathered (a mismatch there means the bytes changed in transit)
+    # the checksum beside the archive: what a person verifies a download with,
+    # what an updater checks before trusting the bytes, and what the publish
+    # side re-checks once the assets are gathered (a mismatch there means the
+    # bytes changed in transit)
     write_checksum(archive_path)
     log("staged %s (%s), archive %s"
         % (stem, orkige_export.human_size(
@@ -1132,17 +1084,9 @@ def main():
                         help="print the changelog section for --since..--commit")
     parser.add_argument("--changelog-out", default="",
                         help="write the changelog section to this file too")
-    parser.add_argument("--manifest", default="",
-                        help="emit the updater manifest for a directory of "
-                             "release assets")
-    parser.add_argument("--manifest-out", default="",
-                        help="manifest path (default <assets dir>/%s)"
-                             % MANIFEST_NAME)
-    parser.add_argument("--asset-base-url", default="",
-                        help="the URL the release assets are served from (the "
-                             "manifest's per-platform download links)")
-    parser.add_argument("--changelog-file", default="",
-                        help="a changelog section to embed in the manifest")
+    parser.add_argument("--verify-checksums", default="",
+                        help="check every archive in a directory of release "
+                             "assets against its %s file" % CHECKSUM_SUFFIX)
     parser.add_argument("--selftest", action="store_true",
                         help="run the packaging self-checks and exit")
     args = parser.parse_args()
@@ -1164,14 +1108,8 @@ def main():
                 handle.write(section)
         print(section, end="")
         return
-    if args.manifest:
-        embedded = ""
-        if args.changelog_file:
-            with open(args.changelog_file, "r", errors="replace") as handle:
-                embedded = handle.read()
-        write_manifest(args.manifest, args.commit, args.date or today(),
-                       args.version, args.asset_base_url, embedded,
-                       args.manifest_out)
+    if args.verify_checksums:
+        verify_checksums(args.verify_checksums)
         return
     if not args.platform:
         parser.error("--platform is required")
@@ -1185,16 +1123,51 @@ def main():
             args.date or today(), output, args.version, args.since, args.repo)
 
 
+# --- reading the workflow's own shell --------------------------------------
+
+def workflow_step_script(workflow_path, step_name):
+    """the shell script of one workflow step, lifted out of the yaml as text
+    (stdlib only, no yaml parser): everything indented under that step's
+    `run: |`. Returns "" when the file, the step or its script is not there, so
+    a caller degrades instead of failing on a copy outside the repository."""
+    if not os.path.isfile(workflow_path):
+        return ""
+    with open(workflow_path, "r", errors="replace") as handle:
+        lines = handle.read().split("\n")
+    start = -1
+    for index, line in enumerate(lines):
+        if line.strip() == "- name: " + step_name:
+            start = index
+            break
+    if start < 0:
+        return ""
+    for index in range(start + 1, len(lines)):
+        stripped = lines[index].strip()
+        if stripped.startswith("- name:"):
+            break               # the next step began: this one runs no script
+        if stripped not in ("run: |", "run: |-"):
+            continue
+        indent = len(lines[index]) - len(lines[index].lstrip()) + 2
+        body = []
+        for follow in lines[index + 1:]:
+            if follow.strip() and not follow.startswith(" " * indent):
+                break
+            body.append(follow[indent:] if len(follow) >= indent else "")
+        return "\n".join(body).rstrip() + "\n"
+    return ""
+
+
 # --- self-checks -----------------------------------------------------------
 
 def selftest():
     """Exercises the parts that do not need a built editor: the ordered version
     and its filename rendering, the identity strings, the changelog extraction
-    and formatting over synthetic git output, the manifest schema and its
-    digests over real bytes, the limitations table and its rendering, the media
-    staging over a synthetic build tree, the archive round-trip, and every
-    verdict the verifier can return (including a fake binary reporting the
-    wrong stamp or a version the packaging did not compose)."""
+    and formatting over synthetic git output, the checksum sidecar and its
+    verification over real bytes, the release notes the publish job composes,
+    the limitations table and its rendering, the media staging over a synthetic
+    build tree, the archive round-trip, and every verdict the verifier can
+    return (including a fake binary reporting the wrong stamp or a version the
+    packaging did not compose)."""
 
     # --- identity -------------------------------------------------------
     assert short_commit("a16c0227a1234567") == "a16c0227a"
@@ -1369,62 +1342,34 @@ def selftest():
     assert ordered in document and "`dea551f9e`" in document
     assert bounded in document
 
-    # --- the manifest ---------------------------------------------------
-    assert platform_of_archive("Orkige-macos-2.0.0-nightly.20260730_a.zip") == \
-        "macos"
-    assert platform_of_archive("Orkige-linux-abc.tar.gz") == "linux"
-    assert platform_of_archive("Orkige-linux-abc.zip") == ""   # wrong suffix
-    assert platform_of_archive("nightly-manifest.json") == ""
-    assert asset_url("https://host/x/releases/download/nightly/", "a.zip") == \
-        "https://host/x/releases/download/nightly/a.zip"
-    assert asset_url("", "a.zip") == ""
-
+    # --- the checksum sidecars ------------------------------------------
     with tempfile.TemporaryDirectory() as temp:
         assets = os.path.join(temp, "downloads")
         os.makedirs(assets)
-        payloads = {}
+        names = []
         for platform in ("macos", "linux"):
             name = artifact_name(platform, "dea551f9e0", ordered)
             path = os.path.join(assets, name)
             with open(path, "wb") as handle:
                 handle.write(b"archive bytes for " + platform.encode("ascii"))
-            payloads[platform] = path
-            # the checksum file a download page publishes beside the archive
+            names.append(name)
+            # the standard one-line `sha256sum -c` format: the digest of the
+            # REAL bytes and the archive's own name, so a person verifies a
+            # download with the tool their machine already has and an updater
+            # verifies it before trusting a byte
             sidecar = write_checksum(path)
             recorded = open(sidecar).read().split()
+            assert len(recorded) == 2, recorded
             assert recorded[0] == sha256_file(path), recorded
+            assert len(recorded[0]) == 64, recorded
             assert recorded[1] == name, recorded
-        # windows is ABSENT: a partial night must produce a legible manifest
-        target = write_manifest(
-            assets, "dea551f9e0abcdef", "2026-07-30", ordered,
-            "https://example.invalid/releases/download/nightly", bounded)
-        document = json.loads(open(target).read())
-        assert document["schema"] == MANIFEST_SCHEMA
-        assert document["product"] == "orkige editor"
-        assert document["channel"] == "nightly"
-        assert document["version"] == ordered
-        assert document["baseVersion"] == project_version()
-        assert document["date"] == "2026-07-30"
-        assert document["commit"] == "dea551f9e0abcdef"
-        assert "## Changes since" in document["changelog"]
-        assert sorted(document["platforms"]) == ["linux", "macos"], \
-            document["platforms"]
-        assert "windows" not in document["platforms"]
-        for platform, entry in document["platforms"].items():
-            path = payloads[platform]
-            assert entry["filename"] == os.path.basename(path)
-            assert entry["size"] == os.path.getsize(path)
-            # the digest is of the REAL bytes, and it is what a client verifies
-            assert entry["sha256"] == sha256_file(path)
-            assert len(entry["sha256"]) == 64
-            assert entry["url"].endswith("/" + entry["filename"])
-            assert entry["url"].startswith("https://")
-        # written twice from one input, byte for byte (a client may cache it)
-        again = manifest_json(json.loads(open(target).read()))
-        assert again == open(target).read()
+            assert not checksum_mismatch(path)
+        # the publish side re-checks what actually arrived; a platform whose
+        # build failed is simply not there to check
+        assert verify_checksums(assets) == sorted(names)
 
-    # a checksum file that disagrees with the bytes is a REFUSAL: publishing a
-    # digest that does not match what the file is would be worse than nothing
+    # a file that disagrees with its checksum is a REFUSAL: bytes that changed
+    # on the way here must never be published under a digest that fits neither
     with tempfile.TemporaryDirectory() as temp:
         assets = os.path.join(temp, "downloads")
         os.makedirs(assets)
@@ -1433,18 +1378,65 @@ def selftest():
             handle.write(b"bytes")
         with open(path + CHECKSUM_SUFFIX, "w") as handle:
             handle.write("%s  %s\n" % ("0" * 64, os.path.basename(path)))
+        complaint = checksum_mismatch(path)
+        assert "does not match its checksum file" in complaint, complaint
         try:
-            write_manifest(assets, "abc", "2026-07-30", ordered)
+            verify_checksums(assets)
             raise AssertionError("expected a refusal for a wrong checksum")
         except SystemExit:
             pass
-        # and a directory with no archives at all describes nothing
+        # and a directory that is not there verifies nothing
         try:
-            write_manifest(os.path.join(temp, "empty-not-here"), "abc",
-                           "2026-07-30", ordered)
+            verify_checksums(os.path.join(temp, "empty-not-here"))
             raise AssertionError("expected a refusal for a missing directory")
         except SystemExit:
             pass
+
+    # --- the release notes an updater reads ------------------------------
+    # The notes ARE the client contract: one API call on the release returns a
+    # body carrying the ordered version and the commit as machine-readable
+    # markers (Docs/nightly-builds.md). That composition lives in the publish
+    # job's shell, so the check drives THAT script - lifted out of the yaml and
+    # run against stubbed job outputs, because a marker only exists once and it
+    # must exist where the client looks.
+    notes_script = workflow_step_script(NIGHTLY_WORKFLOW,
+                                        "Compose the release notes")
+    if not notes_script:
+        log("no workflow to read - the release-notes leg is skipped")
+    elif not shutil.which("bash"):
+        log("no bash - the release-notes leg is skipped")
+    else:
+        with tempfile.TemporaryDirectory() as temp:
+            downloads = os.path.join(temp, "downloads")
+            os.makedirs(downloads)
+            token = version_filename_token(ordered)
+            open(os.path.join(downloads, "Orkige-macos-%s.zip" % token),
+                 "w").close()
+            with open(os.path.join(temp, "changelog.md"), "w") as handle:
+                handle.write(bounded)
+            environ = dict(os.environ,
+                           RESULT_MACOS="success", RESULT_LINUX="failure",
+                           RESULT_WINDOWS="skipped",
+                           SHA="dea551f9e0abcdef1234", SHORT_SHA="dea551f9e",
+                           BUILD_DATE="2026-07-30", VERSION=ordered,
+                           TOKEN=token)
+            run = subprocess.run(["bash", "-c", notes_script], cwd=temp,
+                                 env=environ, capture_output=True, text=True)
+            assert run.returncode == 0, run.stdout + run.stderr
+            body = open(os.path.join(temp, "notes.md")).read()
+            # BOTH markers, carrying the values the gate and a client read: the
+            # commit bounds the next changelog and skips an unchanged tree, the
+            # ordered version is what core_util/VersionOrder compares
+            assert "<!-- orkige-nightly-commit: dea551f9e0abcdef1234 -->" \
+                in body, body
+            assert "<!-- orkige-nightly-version: %s -->" % ordered in body, body
+            # the archive that arrived is named, the one that did not is called
+            # out with its job result rather than silently missing
+            assert "| `Orkige-macos-%s.zip` |" % token in body, body
+            assert "| Linux (x86_64) | not produced | failure |" in body, body
+            assert ordered in body and bounded.strip() in body
+            # the sidecar is the integrity story the notes point at
+            assert CHECKSUM_SUFFIX in body, body
 
     # --- the limitations table ------------------------------------------
     keys = [entry.key for entry in LIMITATIONS]

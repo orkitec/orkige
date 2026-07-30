@@ -265,13 +265,15 @@ set_tests_properties(orkige_export_selftest PROPERTIES LABELS unit TIMEOUT 60)
 # and its filename rendering (pinned to the same literals VersionOrderTests
 # asserts, so the two implementations of the grammar cannot drift), the changelog
 # extraction and formatting over synthetic git log output plus its honest
-# degradations, the manifest schema with digests over real bytes, the
-# known-limitations table and its per-platform rendering, the engine media
-# staging over a synthetic build tree, the archive round-trip, and every verdict
-# the unpack-and-run verifier can reach - including a binary that reports the
-# WRONG commit stamp or a version the packaging did not compose, which must fail
-# rather than publish. Needs no built editor (the run leg drives a stand-in that
-# answers --version).
+# degradations, the .sha256 sidecar over real bytes and the refusal when a file
+# and its sidecar disagree, the release notes an updater reads (the publish job's
+# own shell block, run against stubbed job outputs: both machine-readable markers
+# with the right values), the known-limitations table and its per-platform
+# rendering, the engine media staging over a synthetic build tree, the archive
+# round-trip, and every verdict the unpack-and-run verifier can reach - including
+# a binary that reports the WRONG commit stamp or a version the packaging did not
+# compose, which must fail rather than publish. Needs no built editor (the run
+# leg drives a stand-in that answers --version).
 add_test(NAME orkige_nightly_package_selftest
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_nightly_package.py" --selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
