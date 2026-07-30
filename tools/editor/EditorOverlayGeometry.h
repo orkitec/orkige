@@ -257,7 +257,7 @@ namespace Orkige
 	std::size_t editorSceneColliderOverlayVertexCount();
 	//! @brief the collider overlay's CURRENT mesh resource name ("" when none) -
 	//! the leak-probe seam: after a rebuild the previous name must no longer
-	//! exist (RenderWorld::lineListMeshExists) while this one does.
+	//! exist (RenderWorld::generatedMeshExists) while this one does.
 	String const& editorSceneColliderOverlayMeshName();
 	//! @brief line vertices the Scene panel last uploaded for the renderable
 	//! bounding-box overlay (0 when off / no renderables).

@@ -41,6 +41,13 @@ COMPARED_SHOTS = [
     "selfcheck_drawlayer2d.png",
     # the offscreen path: sprite through an ortho camera into an RTT
     "selfcheck_rtt.png",
+    # the PARAMETRIC mesh tier: a `.omesh` text asset parsed, built through
+    # RenderWorld::createMeshFromData and instantiated the ordinary way. Its
+    # surface is emissive-only with every light suppressed, so this capture is a
+    # silhouette/coverage image of the GENERATED GEOMETRY - the two flavors'
+    # shading models cannot contribute a delta, which makes it the strictest
+    # geometry comparison in the set.
+    "selfcheck_omesh.png",
 ]
 
 MEAN_TOLERANCE = 6.0          # mean abs diff per channel, 0..255

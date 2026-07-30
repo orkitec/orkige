@@ -908,9 +908,10 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void RenderBackend::destroyVertexColourLineListMesh(String const & meshName)
+	void RenderBackend::destroyGeneratedMesh(String const & meshName)
 	{
-		// createVertexColourLineListMesh leaves TWO resources: the v2 mesh under
+		// every generated-mesh road (line list, cube, createMeshFromData) leaves
+		// TWO resources: the v2 mesh under
 		// meshName (Ogre::MeshManager) and the v1 intermediate under
 		// meshName + "/v1import" (Ogre::v1::MeshManager, kept alive as the
 		// device-lost reload source). Drop BOTH or every regenerated name leaks a
@@ -931,9 +932,128 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	bool RenderBackend::vertexColourLineListMeshExists(String const & meshName)
+	bool RenderBackend::generatedMeshExists(String const & meshName)
 	{
 		return static_cast<bool>(Ogre::MeshManager::getSingleton().getByName(
 			meshName, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME));
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::createMeshFromData(Ogre::SceneManager* sceneManager,
+		String const & meshName, MeshBuilder::Mesh const & data)
+	{
+		oAssert(sceneManager);
+		oAssert(!meshName.empty());
+		if(RenderBackend::generatedMeshExists(meshName))
+		{
+			return true;	// idempotent, same contract as the cube service
+		}
+		String validationError;
+		if(data.empty() || !MeshBuilder::validate(data, &validationError))
+		{
+			oDebugError("engine", 0, "RenderWorld: mesh '" << meshName
+				<< "' rejected: " << (data.empty()
+					? String("no geometry") : validationError));
+			return false;
+		}
+		try
+		{
+			// the SAME throwaway-v1-builder recipe the assimp and cube roads
+			// take (see addMeshSection): a v1 ManualObject is the only thing
+			// Mesh::importV1 consumes, and it knows nothing about datablocks -
+			// so sections begin on the placeholder low-level material and the
+			// real datablock names land on the v2 sub-meshes after the import
+			Ogre::v1::ManualObject builder(
+				Ogre::Id::generateNewId<Ogre::MovableObject>(),
+				&sceneManager->_getEntityMemoryManager(Ogre::SCENE_DYNAMIC),
+				sceneManager);
+			builder.setReadable(true);	// importV1 reads the buffers back
+			StringVector sectionMaterials;
+			for(std::size_t section = 0; section < data.sections.size();
+				++section)
+			{
+				MeshBuilder::Section const & entry = data.sections[section];
+				if(entry.indexCount == 0)
+				{
+					continue;
+				}
+				sectionMaterials.push_back(entry.material);
+				builder.begin("BaseWhite", Ogre::OT_TRIANGLE_LIST,
+					Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME);
+				builder.estimateVertexCount(
+					static_cast<size_t>(entry.vertexCount));
+				builder.estimateIndexCount(
+					static_cast<size_t>(entry.indexCount));
+				for(std::size_t at = 0; at < entry.vertexCount; ++at)
+				{
+					MeshBuilder::Vertex const & vertex =
+						data.vertices[entry.vertexStart + at];
+					builder.position(vertex.position.x, vertex.position.y,
+						vertex.position.z);
+					builder.normal(vertex.normal.x, vertex.normal.y,
+						vertex.normal.z);
+					builder.textureCoord(vertex.uv.x, vertex.uv.y);
+				}
+				for(std::size_t at = 0; at + 2 < entry.indexCount; at += 3)
+				{
+					// section-local indices: the facade contract keeps every
+					// index inside its own section's vertex span
+					builder.triangle(
+						static_cast<Ogre::uint32>(
+							data.indices[entry.indexStart + at + 0] -
+							entry.vertexStart),
+						static_cast<Ogre::uint32>(
+							data.indices[entry.indexStart + at + 1] -
+							entry.vertexStart),
+						static_cast<Ogre::uint32>(
+							data.indices[entry.indexStart + at + 2] -
+							entry.vertexStart));
+				}
+				builder.end();
+			}
+			if(sectionMaterials.empty())
+			{
+				oDebugError("engine", 0, "RenderWorld: mesh '" << meshName
+					<< "' rejected: every section is empty");
+				return false;
+			}
+			Ogre::v1::MeshPtr v1Mesh = builder.convertToMesh(
+				meshName + "/v1import",
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+				false /*buildShadowMapBuffers*/);
+			// TANGENTS the loaded-mesh way: the Hlms REFUSES a normal-mapping
+			// material on a tangent-less mesh, and a generated mesh must be
+			// able to take the same `.omat` an imported one takes
+			try
+			{
+				v1Mesh->buildTangentVectors();
+			}
+			catch(Ogre::Exception const & e)
+			{
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige next backend: mesh '" + meshName +
+					"': tangent generation failed (" + e.getDescription() +
+					") - normal-mapping materials will not apply");
+			}
+			Ogre::MeshPtr v2Mesh = importV1Mesh(v1Mesh, meshName);
+			if(!v2Mesh)
+			{
+				return false;
+			}
+			for(std::size_t each = 0; each < sectionMaterials.size(); ++each)
+			{
+				if(!sectionMaterials[each].empty())
+				{
+					v2Mesh->getSubMesh(static_cast<unsigned int>(each))
+						->setMaterialName(sectionMaterials[each]);
+				}
+			}
+			return true;
+		}
+		catch(Ogre::Exception const & e)
+		{
+			oDebugError("engine", 0, "RenderWorld: mesh '" << meshName
+				<< "' failed to build: " << e.getDescription());
+			return false;
+		}
 	}
 }

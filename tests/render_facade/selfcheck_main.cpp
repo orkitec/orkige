@@ -35,6 +35,7 @@
 #include <engine_render/RenderCamera.h>
 #include <engine_render/RenderLight.h>
 #include <engine_render/RenderDecal.h>
+#include <engine_render/RenderMaterial.h>
 #include <engine_render/RenderTexture.h>
 #include <engine_render/DrawLayer2D.h>
 
@@ -43,6 +44,14 @@
 // the whole flat-colour-shape pipeline (tessellate -> facade VectorMesh ->
 // render), and the parity gate compares the RTT it draws into on both flavors
 #include <core_util/VectorTessellator.h>
+
+// the pure, renderer-free `.omesh` parser + mesh builder (orkige_core) behind
+// the parametric mesh leg below: the same category of deliberate non-facade
+// include as the tessellator above, and for the same reason - it proves the
+// whole text-to-lit-geometry pipeline (parse -> build -> facade
+// createMeshFromData -> render), and the parity gate compares the capture
+#include <core_util/MeshAsset.h>
+#include <core_util/MeshBuilder.h>
 
 // the capability register conformance leg (@see RenderCaps): a facade-level
 // enum whose live per-backend bitset must match the committed per-backend
@@ -3283,6 +3292,134 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			"(toggle identity)");
 
 		// grade content drops via RAII as this block ends
+	}
+
+	// --- parametric `.omesh` mesh from TEXT (the cross-flavor parity case) --
+	// The whole procedural tier through the facade in one leg: a `.omesh` text
+	// asset is parsed by the pure core parser into an indexed lit mesh, handed
+	// to RenderWorld::createMeshFromData as a named RESOURCE, and then loaded by
+	// the ORDINARY createMeshInstance road - proving a generated mesh needs no
+	// procedural special case anywhere above the facade.
+	//
+	// The look is deliberately EMISSIVE-ONLY (albedo black, emissive bright,
+	// every light suppressed): an emissive surface is lighting-independent, so
+	// the capture is a pure SILHOUETTE + COVERAGE image of the generated
+	// geometry on both flavors and the parity comparison measures the geometry
+	// rather than the two shading models' drift. selfcheck_omesh.png is one of
+	// the shots compare_backend_screenshots.py diffs.
+	{
+		const Vec3 meshStage(120, 0, 0);
+		// one text asset, four different generators + placement modifiers, one
+		// material - so the compared image exercises the box family, the lathe
+		// family, a blockout solid and the swept arch at once
+		const std::string omeshText =
+			"version 1\n"
+			"material selfcheck_mesh\n"
+			"box 1.4 0.25 1.4                                  at 0 -0.85 0\n"
+			"stairs 0.9 0.6 0.7 steps 4                        at -0.35 -0.4 0\n"
+			"cylinder radius 0.16 height 0.9 segments 18       at 0.5 -0.25 0.3\n"
+			"sphere radius 0.22 segments 18 rings 12           at 0.5 0.4 0.3\n"
+			"arch span 0.5 legs 0.35 thickness 0.14 depth 0.2  at -0.1 0.5 -0.4\n";
+		MeshBuilder::Mesh meshData;
+		String meshError;
+		SELFCHECK(MeshAsset::parse(omeshText, meshData, NULL, &meshError),
+			"the .omesh text parses into geometry");
+		SELFCHECK(MeshBuilder::validate(meshData, &meshError),
+			"the parsed mesh satisfies the builder's own invariants");
+		SELFCHECK(meshData.sections.size() == 1,
+			"five shapes sharing one material merged into ONE draw section");
+		SELFCHECK(meshData.triangleCount() > 200,
+			"the generated blockout carries real geometry");
+		std::printf("render_facade_selfcheck: .omesh - %u vertices, "
+			"%u triangles, %u section(s)\n",
+			static_cast<unsigned int>(meshData.vertices.size()),
+			static_cast<unsigned int>(meshData.triangleCount()),
+			static_cast<unsigned int>(meshData.sections.size()));
+
+		// an EMISSIVE-only surface: no shading model participates, so both
+		// flavors put the same colour on the same pixels
+		RenderMaterialDesc meshMaterial;
+		meshMaterial.albedo = Color(0, 0, 0, 1);
+		meshMaterial.metalness = Real(0);
+		meshMaterial.roughness = Real(1);
+		meshMaterial.emissive = Color(0.85f, 0.55f, 0.25f, 1);
+		SELFCHECK(renderSystem->createMaterial("selfcheck.omeshMat",
+			meshMaterial), "the emissive .omesh material creates");
+		for(std::size_t each = 0; each < meshData.sections.size(); ++each)
+		{
+			meshData.sections[each].material = "selfcheck.omeshMat";
+		}
+
+		SELFCHECK(!world->generatedMeshExists("selfcheck.omesh.mesh"),
+			"the generated mesh name is free before the build");
+		SELFCHECK(world->createMeshFromData("selfcheck.omesh.mesh", meshData),
+			"createMeshFromData registers the mesh resource");
+		SELFCHECK(world->generatedMeshExists("selfcheck.omesh.mesh"),
+			"the generated mesh resource exists after the build");
+		SELFCHECK(world->createMeshFromData("selfcheck.omesh.mesh", meshData),
+			"createMeshFromData is idempotent per name");
+		// invalid data is REFUSED, not registered
+		MeshBuilder::Mesh brokenData;
+		SELFCHECK(!world->createMeshFromData("selfcheck.omesh.broken",
+			brokenData), "createMeshFromData refuses an empty mesh");
+		SELFCHECK(!world->generatedMeshExists("selfcheck.omesh.broken"),
+			"a refused build registers nothing");
+
+		optr<MeshInstance> omeshInstance =
+			world->createMeshInstance("selfcheck.omesh.mesh");
+		SELFCHECK(omeshInstance != NULL,
+			"a generated mesh instantiates through the ORDINARY "
+			"createMeshInstance road");
+		SELFCHECK(omeshInstance->getNumSubMeshes() == 1,
+			"the one material section became one sub-mesh");
+		SELFCHECK(omeshInstance->getMeshName() == "selfcheck.omesh.mesh",
+			"the instance reports the generated mesh name");
+		optr<RenderNode> omeshNode = world->createNode("selfcheck.omeshNode");
+		omeshNode->setPosition(meshStage);
+		omeshNode->setOrientation(Quat(Degree(28), Vec3::UNIT_Y));
+		omeshInstance->attachTo(omeshNode);
+		omeshInstance->setCastShadows(false);
+
+		renderSystem->setWindowBackgroundColour(Color(0, 0, 0, 1));
+		camera->setPerspective(Degree(45), Real(0.1), Real(100));
+		cameraNode->setPosition(meshStage + Vec3(0.4f, 0.6f, 3.1f));
+		cameraNode->lookAt(meshStage, RenderNode::TS_WORLD);
+		// suppress every light so ONLY the emissive term reaches the frame
+		world->setLightingSuppressed(true);
+		SELFCHECK(renderFrames(renderSystem, 3), "the .omesh frames render");
+		const std::string omeshShot = outDir + "/selfcheck_omesh.png";
+		renderSystem->saveWindowContents(omeshShot);
+		SELFCHECK(SelfcheckBootstrap::imageHasNonBlackPixel(omeshShot),
+			"the generated mesh reaches the frame (the capture is not black)");
+		// the emissive ORANGE must dominate somewhere in the frame's middle
+		bool sawEmissive = false;
+		unsigned int mw = 0, mh = 0;
+		renderSystem->getWindowSize(mw, mh);
+		for(unsigned int gy = 1; gy < 9 && !sawEmissive; ++gy)
+		{
+			for(unsigned int gx = 1; gx < 9 && !sawEmissive; ++gx)
+			{
+				float r = 0, g = 0, b = 0;
+				if(!SelfcheckBootstrap::readImagePixel(omeshShot,
+					mw * gx / 10u, mh * gy / 10u, r, g, b))
+				{
+					continue;
+				}
+				sawEmissive = (r > 0.15f && r > b + 0.05f && g > b);
+			}
+		}
+		SELFCHECK(sawEmissive,
+			"the generated surface renders its emissive colour (red over blue)");
+
+		world->setLightingSuppressed(false);
+		omeshInstance->setVisible(false);
+		omeshInstance->detach();
+		omeshInstance.reset();
+		// the mesh RESOURCE outlives its instance, so drop it explicitly - the
+		// generated-mesh lifecycle sibling (@see destroyGeneratedMesh)
+		world->destroyGeneratedMesh("selfcheck.omesh.mesh");
+		SELFCHECK(!world->generatedMeshExists("selfcheck.omesh.mesh"),
+			"destroyGeneratedMesh drops the generated mesh resource");
 	}
 
 	// --- TEARDOWN with a skybox still active (regression guard) ----------

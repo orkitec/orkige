@@ -1,0 +1,3 @@
+# the extruded plaque: a slab with a real window through it
+version 1
+extrude shape plaque_outline.oshape depth 0.3  material blockout_stone

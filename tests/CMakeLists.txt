@@ -1985,6 +1985,26 @@ if(TARGET orkige_player)
     set_tests_properties(player_vectorshape_scene PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_FRAMES=90")
 
+    # THE PARAMETRIC MESH TIER, end to end: tests/projects/mesh
+    # scenes/blockout.oscene - three ModelComponents naming three `.omesh` TEXT
+    # assets (a seven-shape two-material blockout, a revolved `.oshape` profile
+    # and an extruded `.oshape` outline with a window). The check asserts each
+    # became a real LIT mesh resource: the two-material one carries exactly two
+    # sub-meshes (same-material shapes merged, different ones split), the
+    # revolve's and extrude's local bounds match the authored parameters, and
+    # hiding all three drops the frame's triangle count by the whole generated
+    # budget - so the geometry is genuinely submitted. Script-free on purpose:
+    # it runs in noscript builds too. Both flavors (the facade
+    # createMeshFromData road is implemented per backend; the geometry and the
+    # parser are flavor-neutral). See the ORKIGE_MESH_SELFCHECK block in
+    # tools/player/PlayerSelfChecks.cpp.
+    add_test(NAME player_mesh_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_player tests/projects/mesh/scenes/blockout.oscene
+            --project tests/projects/mesh
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(player_mesh_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_MESH_SELFCHECK=1")
+
     # THE scripting proof, end to end: the jumper game reimplemented in
     # pure Lua (projects/jumper-lua, scripts/player.lua on a ScriptComponent
     # - zero compiled game code). The player's selfcheck injects synthetic
@@ -2890,6 +2910,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
         player_softbody_selfcheck player_softbody_selfcheck_next
+        player_mesh_selfcheck player_mesh_selfcheck_next
         player_shapecollider_selfcheck player_shapecollider_selfcheck_next
         player_character_rig_selfcheck player_character_rig_selfcheck_next
         player_roller_progression_selfcheck

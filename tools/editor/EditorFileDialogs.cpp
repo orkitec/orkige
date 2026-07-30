@@ -82,7 +82,7 @@ const SDL_DialogFileFilter SCENE_FILE_FILTERS[] = {
 };
 // keep in sync with Orkige::isSupportedMeshFile (MeshImport.cpp)
 const SDL_DialogFileFilter MESH_FILE_FILTERS[] = {
-	{ "Mesh files", "glb;gltf;obj;fbx;dae;stl;ply;3ds;mesh" },
+	{ "Mesh files", "glb;gltf;obj;fbx;dae;stl;ply;3ds;mesh;omesh" },
 	{ "All files", "*" },
 };
 

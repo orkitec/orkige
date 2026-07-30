@@ -58,6 +58,22 @@ namespace Orkige
 			Vertex(float px, float py, float pz) : x(px), y(py), z(pz) {}
 		};
 
+		//--- the shared contour vocabulary -------------------------
+		//! @brief does this region carry a usable closed BOUNDARY - a FILL
+		//! region (a stroke is a swept centreline enclosing no area) whose outer
+		//! loop has at least 3 distinct points? This is the eligibility test
+		//! extractContours applies, exposed so a consumer that needs the REGION
+		//! itself rather than a bare point loop (the mesh extruder pairs each
+		//! outer contour with that region's holes) selects EXACTLY the same set
+		//! instead of re-deriving it.
+		static bool isSolidRegion(VectorTessellator::Region const & region);
+		//! @brief a point loop with any repeated closing vertex dropped (many
+		//! authored/cooked contours repeat the first point as the last), so
+		//! every consumer sees one clean open loop. The shared normalisation
+		//! step behind extractContours - a caller reading `region.holes`
+		//! directly runs it too.
+		static std::vector<Point> openLoop(std::vector<Point> const & loop);
+
 		//--- pure geometry -----------------------------------------
 		//! @brief extract the OUTER contours of every FILL region into outContours
 		//! (one point loop per region, in region order; each loop has no repeated

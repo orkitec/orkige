@@ -70,6 +70,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	optr<MeshInstance> RenderWorld::createMeshInstance(String const & meshName)
 	{
+		// the `.omesh` road first (a no-op for every other name): a parametric
+		// mesh asset becomes a real mesh RESOURCE here, so everything below is
+		// the ordinary loaded-mesh path (@see ensureMeshAsset)
+		if(!this->ensureMeshAsset(meshName))
+		{
+			return optr<MeshInstance>();	// error already logged
+		}
 		return RenderBackend::createMeshInstance(
 			this->mImpl->sceneManager, meshName);
 	}
@@ -144,14 +151,21 @@ namespace Orkige
 			this->mImpl->sceneManager, meshName, points, colours, pointCount);
 	}
 	//---------------------------------------------------------
-	void RenderWorld::destroyLineListMesh(String const & meshName)
+	bool RenderWorld::createMeshFromData(String const & meshName,
+		MeshBuilder::Mesh const & data)
 	{
-		RenderBackend::destroyVertexColourLineListMesh(meshName);
+		return RenderBackend::createMeshFromData(this->mImpl->sceneManager,
+			meshName, data);
 	}
 	//---------------------------------------------------------
-	bool RenderWorld::lineListMeshExists(String const & meshName) const
+	void RenderWorld::destroyGeneratedMesh(String const & meshName)
 	{
-		return RenderBackend::vertexColourLineListMeshExists(meshName);
+		RenderBackend::destroyGeneratedMesh(meshName);
+	}
+	//---------------------------------------------------------
+	bool RenderWorld::generatedMeshExists(String const & meshName) const
+	{
+		return RenderBackend::generatedMeshExists(meshName);
 	}
 	//---------------------------------------------------------
 	void RenderWorld::setAmbientLight(Color const & colour)

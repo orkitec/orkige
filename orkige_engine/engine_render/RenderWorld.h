@@ -20,6 +20,7 @@
 #include <core_util/BloomPreset.h>
 #include <core_util/GradeDesc.h>
 #include <core_util/AtmosphereDesc.h>
+#include <core_util/MeshBuilder.h>
 #include <core_util/String.h>
 #include <vector>
 
@@ -152,20 +153,77 @@ namespace Orkige
 		//! map: classic=ManualObject OT_LINE_LIST -> convertToMesh | next=v1 ManualObject line list -> createByImportingV1 (the cube-service recipe) | filament=RenderableManager PRIMITIVE_TYPE LINES + unlit filamat
 		void createLineListMesh(String const & meshName,
 			Vec3 const * points, Color const * colours, size_t pointCount);
-		//! @brief destroy a line-list mesh resource created by createLineListMesh
-		//! (the honest sibling: a caller that regenerates helper geometry under a
-		//! fresh name every rebuild must drop the old mesh or leak GPU meshes).
+		//! @brief create a LIT mesh RESOURCE from CPU vertex data - the entry a
+		//! procedural/parametric mesh takes into the renderer, and the reason a
+		//! generated mesh behaves EXACTLY like a loaded `.glb`: this makes a
+		//! named resource, and everything afterwards
+		//! (createMeshInstance, PBS `.omat` materials via
+		//! MeshInstance::setMaterial, shadows, the static mobility flag,
+		//! visibility flags, native instancing) is the ordinary loaded-mesh
+		//! path with no procedural special case anywhere above the facade.
+		//! It is the LIT sibling of createVectorMesh (which is the unlit
+		//! vertex-colour 2D primitive) and of createLineListMesh/
+		//! createVertexColourCubeMesh (which are fixed editor recipes rather
+		//! than an open data entry).
+		//!
+		//! @p data carries positions, unit normals, one UV set and tangents
+		//! (@see core_util/MeshBuilder.h - a normal-mapping material is refused
+		//! on a tangent-less mesh and a textured one on a UV-less mesh, so all
+		//! four are required) plus the per-material SECTIONS, each of which
+		//! becomes one SUB-MESH: a section's `material` is a LIVE renderer
+		//! material name (@see RenderSystem::createMaterial) or empty for the
+		//! backend default. Per-sub-mesh materials are exactly how a multi-
+		//! material import behaves, so MeshInstance::setMaterial still overrides
+		//! the WHOLE instance the way it does for a `.glb`.
+		//!
+		//! IDEMPOTENT per name: a name that already exists is left alone and the
+		//! call succeeds (the cube/line-list service contract), so callers may
+		//! ensure-then-instantiate. To REPLACE the geometry under a live name
+		//! (a hot-reload), destroyGeneratedMesh it first - with no instance
+		//! still holding it.
+		//! @return false + a log line on empty/invalid data (@see
+		//! MeshBuilder::validate) or a backend build failure; nothing is
+		//! registered then.
+		//! map: classic=Ogre::ManualObject section per Section (position/normal/
+		//! texcoord) -> convertToMesh -> buildTangentVectors | next=v1::Manual-
+		//! Object section per Section -> convertToMesh -> buildTangentVectors ->
+		//! Mesh::importV1, sub-mesh material names written after the import (the
+		//! MeshLoaderNext recipe) | filament=VertexBuffer/IndexBuffer per section
+		bool createMeshFromData(String const & meshName,
+			MeshBuilder::Mesh const & data);
+		//! @brief make sure the mesh resource behind a `.omesh` ASSET name
+		//! exists, parsing and building it on first use - the road that lets
+		//! `ModelComponent.mesh` (and every other createMeshInstance caller)
+		//! name a `.omesh` exactly like a `.glb`. Both backends call it from
+		//! createMeshInstance, so no consumer needs a procedural branch.
+		//! A name that is not a `.omesh`, or a resource that already exists, is
+		//! a no-op returning true. The `.omesh` text is read through the
+		//! resource system (so it resolves out of a pak/APK like any asset), its
+		//! `extrude`/`revolve` shape references resolve the same way, and each
+		//! section's authored material reference is turned into a live material
+		//! through the SAME `Omat/<file>` convention ModelComponent uses - so a
+		//! `.omesh` and a `ModelComponent.material` name the same materials.
+		//! @return false + one honest log line on a missing file, a parse error
+		//! (with its line) or a build failure. Flavor-NEUTRAL: implemented once
+		//! over this facade, not per backend.
+		bool ensureMeshAsset(String const & meshName);
+		//! @brief destroy a mesh resource this facade GENERATED (@see
+		//! createLineListMesh, createMeshFromData) - the honest sibling: a
+		//! caller that regenerates geometry under a fresh name every rebuild,
+		//! or replaces it under the same name, must drop the old mesh or leak
+		//! GPU meshes.
 		//! @warning ONLY call with NO live MeshInstance still using the mesh -
 		//! destroy the instance first. A no-op when the name does not exist.
 		//! map: classic=MeshManager::remove (the .manual object was destroyed at
 		//! create time) | next=MeshManager::remove for the v2 mesh AND v1::Mesh-
 		//! Manager::remove for the "meshName/v1import" intermediate the import
 		//! recipe keeps alive | filament=destroy the VertexBuffer/IndexBuffer
-		void destroyLineListMesh(String const & meshName);
-		//! @brief does a line-list (or any) mesh resource of this name exist -
-		//! the create/destroy round-trip probe helper geometry callers assert on.
+		void destroyGeneratedMesh(String const & meshName);
+		//! @brief does a mesh resource of this name exist (generated or loaded)
+		//! - the create/destroy round-trip probe helper geometry callers assert
+		//! on, and the idempotence gate of the generated-mesh services.
 		//! map: classic=MeshManager::resourceExists | next=MeshManager::getByName (the v2 mesh) | filament=facade registry lookup
-		bool lineListMeshExists(String const & meshName) const;
+		bool generatedMeshExists(String const & meshName) const;
 
 		//--- global lighting ---
 		//! @brief the ambient light minimum every app sets today

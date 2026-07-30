@@ -30,6 +30,7 @@ struct PlayerSelfChecks
 	std::string rollerShotDir;
 	bool softbodyCheck = false;
 	bool linesCheck = false;
+	bool meshAssetCheck = false;
 	bool shapeColliderCheck = false;
 	bool vectorAnimCheck = false;
 	bool characterRigCheck = false;
@@ -230,6 +231,25 @@ struct PlayerSelfChecks
 	std::size_t linesRebuilds = 0;		//!< the LineComponent's rebuild count last seen
 	bool linesDrainVerified = false;	//!< the debug primitives drained after the draw phase
 	unsigned long linesPhaseDeadline = 0;
+	// --- ORKIGE_MESH_SELFCHECK=1: the parametric `.omesh` tier end to end
+	// against tests/projects/mesh (scenes/blockout.oscene). Three
+	// ModelComponents name three `.omesh` files - a seven-shape two-material
+	// blockout, a revolved vase profile and an extruded plaque with a window -
+	// and the check confirms each became a real LIT mesh resource: the
+	// multi-material one carries exactly TWO sub-meshes (its shapes merged into
+	// one section per material), the revolve's local bounds match the authored
+	// profile, the extrude's match its outline, and hiding all three drops the
+	// frame's triangle count by the whole generated budget (so the geometry is
+	// genuinely submitted, not an empty resource).
+	bool meshCheckFailed = false;
+	bool meshCheckDone = false;
+	std::size_t meshTrianglesVisible = 0;	//!< frame triangles with the meshes shown
+	std::size_t meshTrianglesHidden = 0;	//!< frame triangles with them hidden
+	//! probe step, NOT a count sentinel: hiding the meshes may legitimately
+	//! leave ZERO triangles, so "measured" cannot mean "non-zero"
+	int meshProbeStep = 0;
+	unsigned long meshHideFrame = 0;
+	unsigned long meshPhaseDeadline = 0;
 	// --- ORKIGE_SHAPECOLLIDER_SELFCHECK=1: shape colliders end to end against
 	// tests/projects/shapecollider (scenes/shapecollider.oscene). A dynamic ball
 	// drops into a STATIC concave U-cup collider (ST_SHAPE, default to the sibling

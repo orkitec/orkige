@@ -348,7 +348,7 @@ internal DebugMessage request/reply and returns the reply as MCP tool content
 file; reads are open; no token file ⇒ auth off for dev). Correlation is JSON-RPC's
 native `id`. POST-only (no SSE); long ops (play boot) return an accepted result
 and are polled via `get_state`. Play control is translated into the ONE existing
-player debug protocol — never a second player port. The 96 tools cover the whole
+player debug protocol — never a second player port. The 97 tools cover the whole
 agent dev-loop: scene authoring (project/scene lifecycle, hierarchy CRUD,
 get/set_component generically over the reflected property registry, prefabs),
 project-file authoring (write/read/list jailed to the project root, import_asset),
@@ -834,6 +834,30 @@ look when touching one:
   Sample: `projects/vectorshapes/scenes/vectoranim.oscene` (idle → one-shot
   hop crossfade, ended-event into Lua), `player_vectoranim_selfcheck` on both
   flavors; grammar + design in `Docs/vector-animation.md`.
+- **Procedural meshes** (`Docs/meshes.md`, both flavors): `.omesh` is a text
+  list of placed parametric shapes (box/roundedbox/plane/wedge/stairs/sphere/
+  icosphere/cylinder/cone/capsule/torus/tube/disc/arch + `extrude`/`revolve`
+  over an `.oshape`) with per-shape `at`/`rotate`/`scale`/`material`/`uv`/
+  `smooth`/`flat` modifiers; shapes sharing a material merge into one draw
+  section. The pure core is `core_util/MeshBuilder`+`MeshShapes`+`MeshExtrude`+
+  `MeshAsset` (headless-unit-tested, deterministic, honest refusals — a
+  non-positive extent errors with its line, a count clamps), the round family
+  is ONE lathe `revolve` reuses, and the 2D operators consume the collider's
+  own contour vocabulary (`ShapeCollider::isSolidRegion`/`openLoop` shared, so
+  a shape collides and extrudes over the same outlines; caps go through the
+  tessellator's earcut, holes become tunnels). The facade entry
+  `RenderWorld::createMeshFromData` registers a named LIT mesh RESOURCE so
+  everything after is the loaded-`.glb` road (PBS `.omat`, shadows, static
+  flag, visibility mask, instancing — no procedural special case above the
+  facade), and `ensureMeshAsset` — flavor-neutral, written once beside the
+  facade and called from BOTH backends' `createMeshInstance` — is the
+  text→resource road, so `ModelComponent.mesh` takes a `.omesh` exactly like a
+  `.glb`. Editor: picker/drop filter, asset thumbnail, line-numbered live
+  diagnostics; Play hot-reload via `MSG_RELOAD_MESH` + MCP `reload_mesh`
+  (parse → drop instances → retire resource → rebuild, a broken edit changes
+  nothing) — `MeshBuilderTests`/`MeshAssetTests`, `player_mesh_selfcheck` per
+  flavor, and the emissive-only `selfcheck_omesh.png` leg of
+  `render_backend_parity` (geometry compared without either shading model).
 - **Game UI** (`engine_gui`, both flavors): the retained widget set (label/
   button/checkbox/slider/select-menu/progressbar/decor/**text-entry**) is
   Lua-authored via `GuiFactory` (`createCheckBox`/`createSlider`/

@@ -1120,7 +1120,7 @@ bool drawAnimationPreviewSection(EditorState& state,
 bool isTextPreviewExtension(std::string const& ext)
 {
 	static const char* const kinds[] = {
-		".lua", ".oui", ".ogui", ".omat", ".oshape", ".xlf", ".json",
+		".lua", ".oui", ".ogui", ".omat", ".omesh", ".oshape", ".xlf", ".json",
 		".oactions", ".olayers", ".olevels", ".orkproj", ".md", ".txt",
 	};
 	for (const char* kind : kinds)

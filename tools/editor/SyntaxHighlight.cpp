@@ -391,7 +391,7 @@ SyntaxFormat syntaxFormatForExtension(std::string const& extension)
 		return SyntaxFormat::Lua;
 	}
 	if (ext == ".oui" || ext == ".ogui" || ext == ".omat" || ext == ".oshape" ||
-		ext == ".oanim")
+		ext == ".oanim" || ext == ".omesh")
 	{
 		return SyntaxFormat::IniLike;
 	}

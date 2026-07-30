@@ -56,6 +56,7 @@
 #include <engine_gui/GuiTextEntry.h>
 #include <engine_input/InputManager.h>
 #include <engine_render/RenderSystem.h>
+#include <engine_render/RenderWorld.h>
 #include <engine_render/RenderCamera.h>
 #include <engine_render/MeshInstance.h>
 #include <engine_runtime/AppHost.h>
@@ -126,6 +127,13 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// vertex count) whose frame-only + TTL lifetimes then drain.
 	linesCheck =
 		(std::getenv("ORKIGE_LINES_SELFCHECK") != nullptr);
+	// ORKIGE_MESH_SELFCHECK verifies the parametric `.omesh` tier end to end
+	// against tests/projects/mesh (scenes/blockout.oscene): three
+	// ModelComponents name three `.omesh` text assets, each of which must have
+	// become a real LIT mesh resource with the right sub-mesh split, the right
+	// local bounds and real submitted triangles.
+	meshAssetCheck =
+		(std::getenv("ORKIGE_MESH_SELFCHECK") != nullptr);
 	// ORKIGE_GALLERY_SELFCHECK verifies the runtime UI widget tier end to end
 	// against projects/gallery: every tab of the declarative gallery is
 	// reachable, a wrapped label really breaks lines (taller than a single-line
@@ -3591,6 +3599,214 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		}
 	}
 	if (galleryCheck && galleryCheckFailed)
+	{
+		exitCode = 1;
+		running = false;
+	}
+
+	// --- parametric mesh selfcheck (ORKIGE_MESH_SELFCHECK) -----------
+	// The `.omesh` tier end to end: three text assets became three real mesh
+	// RESOURCES that ModelComponent loaded exactly like a `.glb`. What each
+	// assertion catches:
+	//  * sub-mesh count - a shape's `material` really splits the mesh (and
+	//    same-material neighbours really MERGE: seven shapes, two sections);
+	//  * local bounds - the parser's placement modifiers and the generators'
+	//    extents survived into the renderer's own bounds, so a revolve/extrude
+	//    is the size it was authored, not an accidental unit cube;
+	//  * the triangle DELTA between shown and hidden - the geometry is genuinely
+	//    submitted every frame, which an empty-but-registered mesh would not be.
+	if (meshAssetCheck && !meshCheckFailed && !meshCheckDone)
+	{
+		auto modelOf = [&gameObjectManager](char const* name)
+			-> Orkige::ModelComponent*
+		{
+			optr<Orkige::GameObject> gameObject =
+				gameObjectManager.getGameObject(name).lock();
+			if (!gameObject ||
+				!gameObject->hasComponent<Orkige::ModelComponent>())
+			{
+				return nullptr;
+			}
+			return gameObject->getComponentPtr<Orkige::ModelComponent>();
+		};
+		auto meshFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: MESH SELFCHECK FAILED - %s", what.c_str());
+			meshCheckFailed = true;
+		};
+		Orkige::ModelComponent* blockout = modelOf("Blockout");
+		Orkige::ModelComponent* lathe = modelOf("Lathe");
+		Orkige::ModelComponent* plaque = modelOf("Plaque");
+		if (frameCount == 5)
+		{
+			if (!blockout || !lathe || !plaque)
+			{
+				meshFail("the scene is missing one of the .omesh objects");
+			}
+			else if (!blockout->getMeshInstance() || !lathe->getMeshInstance() ||
+				!plaque->getMeshInstance())
+			{
+				meshFail("a .omesh did not become a live mesh instance");
+			}
+			else if (blockout->getMeshInstance()->getNumSubMeshes() != 2)
+			{
+				meshFail("the two-material blockout did not split into exactly "
+					"2 sub-meshes (got " + std::to_string(
+						blockout->getMeshInstance()->getNumSubMeshes()) + ")");
+			}
+			else if (lathe->getMeshInstance()->getNumSubMeshes() != 1 ||
+				plaque->getMeshInstance()->getNumSubMeshes() != 1)
+			{
+				meshFail("a single-material .omesh did not stay one sub-mesh");
+			}
+			else
+			{
+				// the revolved vase: the profile spans radius 0.35..0.75 and
+				// height 0..1.6, so the sweep is 1.5 wide and 1.6 tall
+				const Orkige::AABB latheBounds =
+					lathe->getMeshInstance()->getLocalBounds();
+				const Orkige::Vec3 latheSize = latheBounds.getSize();
+				// the extruded plaque: a 1.6 x 1.0 outline at depth 0.3
+				const Orkige::AABB plaqueBounds =
+					plaque->getMeshInstance()->getLocalBounds();
+				const Orkige::Vec3 plaqueSize = plaqueBounds.getSize();
+				SDL_Log("orkige_player: mesh selfcheck - lathe bounds "
+					"%.3f x %.3f x %.3f, plaque bounds %.3f x %.3f x %.3f",
+					latheSize.x, latheSize.y, latheSize.z,
+					plaqueSize.x, plaqueSize.y, plaqueSize.z);
+				// a mesh resource's reported AABB carries the backend's
+				// standard bounds PADDING (a small relative grow on each
+				// side), so the authored extent is the FLOOR and a few
+				// percent of slack the ceiling - pinning it exactly would
+				// assert the padding factor, not the geometry
+				auto extentMatches = [](float measured, float authored)
+				{
+					return measured >= authored - 0.01f &&
+						measured <= authored * 1.06f + 0.01f;
+				};
+				if (!extentMatches(latheSize.x, 1.5f) ||
+					!extentMatches(latheSize.z, 1.5f) ||
+					!extentMatches(latheSize.y, 1.6f))
+				{
+					meshFail("the revolved profile's bounds do not match the "
+						"authored silhouette");
+				}
+				else if (!extentMatches(plaqueSize.x, 1.6f) ||
+					!extentMatches(plaqueSize.y, 1.0f) ||
+					!extentMatches(plaqueSize.z, 0.3f))
+				{
+					meshFail("the extruded outline's bounds do not match the "
+						"authored plaque");
+				}
+				else
+				{
+					meshTrianglesVisible = 0;
+					meshPhaseDeadline = frameCount + 300;
+				}
+			}
+		}
+		else if (frameCount > 5 && !meshCheckFailed)
+		{
+			Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+			const std::size_t triangles = render
+				? render->getFrameStats().triangleCount : 0;
+			if (meshProbeStep == 0)
+			{
+				// take the SHOWN measurement first, then hide and let a few
+				// frames pass before reading the hidden one (the stats the
+				// facade reports describe the LAST completed frame)
+				if (triangles > 0)
+				{
+					meshTrianglesVisible = triangles;
+					blockout->getMeshInstance()->setVisible(false);
+					lathe->getMeshInstance()->setVisible(false);
+					plaque->getMeshInstance()->setVisible(false);
+					meshHideFrame = frameCount;
+					meshProbeStep = 1;
+				}
+			}
+			else if (meshProbeStep == 1)
+			{
+				if (frameCount >= meshHideFrame + 3)
+				{
+					meshTrianglesHidden = triangles;
+					meshProbeStep = 2;
+				}
+			}
+			else
+			{
+				// the whole blockout is well over a thousand triangles (a
+				// staircase, an arch band, a sphere, a torus, a swept vase and
+				// a walled slab), so a generous floor still proves submission
+				const std::size_t drop =
+					(meshTrianglesVisible > meshTrianglesHidden)
+					? (meshTrianglesVisible - meshTrianglesHidden) : 0;
+				SDL_Log("orkige_player: mesh selfcheck - triangles shown %zu, "
+					"hidden %zu, generated %zu", meshTrianglesVisible,
+					meshTrianglesHidden, drop);
+				if (drop < 500)
+				{
+					meshFail("hiding the three .omesh objects freed almost no "
+						"triangles - the generated geometry is not being "
+						"submitted");
+				}
+				else
+				{
+					// THE RELOAD MECHANIC, in process: a mesh RESOURCE cannot be
+					// rewritten while an instance holds it, so an edited `.omesh`
+					// must go instance-first -> resource -> rebuild. That is
+					// exactly the sequence the reload_mesh debug message runs on
+					// a live play session, and the part unique to a generated
+					// mesh (the message plumbing itself is the shared
+					// reload_ui/reload_anim road).
+					Orkige::RenderWorld* world = render
+						? render->getWorld() : nullptr;
+					blockout->removeModel();
+					if (world)
+					{
+						world->destroyGeneratedMesh("blockout.omesh");
+					}
+					if (world && world->generatedMeshExists("blockout.omesh"))
+					{
+						meshFail("the generated mesh resource survived "
+							"destroyGeneratedMesh while nothing held it");
+					}
+					else
+					{
+						blockout->loadModel("blockout.omesh");
+						if (!blockout->getMeshInstance())
+						{
+							meshFail("the .omesh did not rebuild after its "
+								"resource was retired");
+						}
+						else if (blockout->getMeshInstance()->getNumSubMeshes()
+							!= 2)
+						{
+							meshFail("the rebuilt .omesh lost its material "
+								"section split");
+						}
+					}
+					if (!meshCheckFailed)
+					{
+						SDL_Log("orkige_player: MESH SELFCHECK PASSED - three "
+							".omesh assets loaded as lit mesh resources "
+							"(2 + 1 + 1 sub-meshes), their bounds match the "
+							"authored parameters, they submit %zu triangles, "
+							"and one rebuilt from its text after its resource "
+							"was retired (the hot-reload mechanic)", drop);
+						meshCheckDone = true;
+						running = false;
+					}
+				}
+			}
+			if (!meshCheckFailed && !meshCheckDone &&
+				frameCount >= meshPhaseDeadline)
+			{
+				meshFail("the triangle-count probe never completed");
+			}
+		}
+	}
+	if (meshAssetCheck && meshCheckFailed)
 	{
 		exitCode = 1;
 		running = false;

@@ -1,0 +1,14 @@
+# a small level blockout in one text file: seven placed shapes, two materials.
+# Shapes sharing a material MERGE into one draw section, so this mesh has
+# exactly two sub-meshes (stone, then metal) - what the selfcheck asserts.
+version 1
+
+material blockout_stone
+box 3 0.4 3                                       at 0 -0.8 0
+stairs 1.6 1 1.2 steps 5                          at -0.7 -0.1 0
+wedge 1.2 0.8 1.2                                 at 1.0 -0.2 0  rotate 0 180 0
+arch span 1.0 legs 0.8 thickness 0.25 depth 0.4   at 0 0.9 -1.2
+sphere radius 0.35 segments 20 rings 14           at 1.1 0.25 1.0
+
+cylinder radius 0.25 height 1.4 segments 20       at -1.1 0.1 1.0   material blockout_metal
+torus radius 0.35 tube 0.1 segments 24 tubesegments 10  at -1.1 0.95 1.0  rotate 90 0 0  material blockout_metal

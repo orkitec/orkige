@@ -957,7 +957,7 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 	{
 		oDebugWarn("editor.assets", 0, "import refused - '" << sourcePath <<
 			"' is not a supported mesh file "
-			"(.glb/.gltf/.obj/.fbx/.dae/.stl/.ply/.3ds/.mesh)");
+			"(.glb/.gltf/.obj/.fbx/.dae/.stl/.ply/.3ds/.mesh/.omesh)");
 		return false;
 	}
 	// copy into the project (+ sidecar mint + resource-location refresh)

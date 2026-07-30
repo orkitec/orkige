@@ -30,6 +30,9 @@
 #include "engine_base/EngineLog.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
+#include "engine_render/RenderWorld.h"
+#include <core_util/MeshAsset.h>
+#include <core_util/MeshBuilder.h>
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/ScriptComponent.h"
 #include "engine_gocomponent/VectorAnimationComponent.h"
@@ -1314,6 +1317,85 @@ namespace Orkige
 			file + "' on " + std::to_string(reloaded) + " component(s)");
 	}
 	//---------------------------------------------------------
+	//! @brief reload_mesh (parametric-mesh hot-reload): re-read one `.omesh`
+	//! text asset and rebuild every ModelComponent naming it. FIELD_PATH is the
+	//! asset's resource name (the value a component's `mesh` reference holds).
+	//! Player-directed like reload_ui/reload_anim: the editor's project-tree
+	//! `*.omesh` watcher and the MCP verb only send this; the swap happens here,
+	//! at the message-drain point.
+	//!
+	//! ORDER MATTERS and differs from the other reloads: a mesh RESOURCE cannot
+	//! be rewritten while instances hold it, so the sequence is
+	//! parse-check -> detach every instance -> drop the resource -> reload each
+	//! component (whose loadModel rebuilds the resource from the fresh text
+	//! through the ordinary createMeshInstance road). The parse check runs FIRST
+	//! and on failure NOTHING is touched: a broken edit keeps the old geometry
+	//! on screen and answers with the line and reason. The resource read serves
+	//! fresh bytes by construction (the archive caches the file INDEX, not
+	//! contents - the guarantee reload_ui already relies on).
+	void PlayerDebugLink::handleReloadMesh(
+		GameObjectManager & gameObjectManager, DebugMessage const & message)
+	{
+		const String & file = message.get(Protocol::FIELD_PATH);
+		if (file.empty())
+		{
+			sendError("reload_mesh: missing path");
+			return;
+		}
+		if (!MeshAsset::isMeshAssetName(file))
+		{
+			sendError("reload_mesh '" + file + "': not a .omesh asset");
+			return;
+		}
+		RenderSystem* render = RenderSystem::get();
+		String text;
+		if (render == NULL || !render->readResourceText(file, text))
+		{
+			sendError("reload_mesh '" + file + "': not found");
+			return;
+		}
+		// parse-before-swap: the fresh text must make real geometry before any
+		// live instance is disturbed
+		{
+			MeshBuilder::Mesh probe;
+			String parseError;
+			if (!MeshAsset::parse(text, probe, NULL, &parseError))
+			{
+				// an unresolvable `extrude`/`revolve` reference is reported the
+				// same way a grammar error is - the message carries the line
+				sendError("reload_mesh '" + file + "': " + parseError);
+				return;
+			}
+		}
+		// collect the components naming this asset, drop their instances, then
+		// retire the resource so the reload rebuilds it from the fresh text
+		std::vector<ModelComponent*> users;
+		for (auto const & [id, gameObject] :
+			gameObjectManager.getGameObjects())
+		{
+			for (auto const & entry : gameObject->getComponents())
+			{
+				ModelComponent* model =
+					dynamic_cast<ModelComponent*>(entry.second.get());
+				if (model && model->getCurrentModelFileName() == file)
+				{
+					users.push_back(model);
+				}
+			}
+		}
+		for (ModelComponent* model : users)
+		{
+			model->removeModel();
+		}
+		render->getWorld()->destroyGeneratedMesh(file);
+		for (ModelComponent* model : users)
+		{
+			model->loadModel(file);
+		}
+		EngineLogCapture::logMessage("orkige runtime: hot-reloaded mesh '" +
+			file + "' on " + std::to_string(users.size()) + " component(s)");
+	}
+	//---------------------------------------------------------
 	//! @brief set_cvar: change a console variable on the RUNNING
 	//! player live. CVarManager::setString parses+validates the value per the
 	//! cvar's registered type and fires its onChange (the live re-apply seam),
@@ -1725,6 +1807,13 @@ namespace Orkige
 				// .oanim hot-reload (editor-driven): parse-before-swap, then
 				// rebuild the rig's components at this message-drain point
 				handleReloadAnim(gameObjectManager, message);
+			}
+			else if (message.type == Protocol::MSG_RELOAD_MESH)
+			{
+				// `.omesh` hot-reload (editor-driven): parse-before-swap, then
+				// retire the mesh resource and rebuild every user at this
+				// message-drain point
+				handleReloadMesh(gameObjectManager, message);
 			}
 			else if (message.type == Protocol::MSG_SET_CVAR)
 			{

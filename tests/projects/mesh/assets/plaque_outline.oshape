@@ -1,0 +1,15 @@
+# a plaque outline with a window cut out of it, for `extrude`: the hole becomes
+# a real tunnel through the slab (its own inward-facing wall), not a painted-over
+# rectangle - the same outline a shape collider would use.
+version 1
+fill 1 1 1 1
+contour 4
+v -0.8 -0.5
+v 0.8 -0.5
+v 0.8 0.5
+v -0.8 0.5
+hole 4
+v -0.3 -0.2
+v -0.3 0.2
+v 0.3 0.2
+v 0.3 -0.2

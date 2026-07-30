@@ -203,7 +203,7 @@ filesystem.
 
 ## Tools
 
-The endpoint advertises 96 tools (the `toolSpecs` table in
+The endpoint advertises 97 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -235,6 +235,7 @@ The endpoint advertises 96 tools (the `toolSpecs` table in
 | `reload_script(id?)` | hot-reload Lua on the RUNNING game — one object or all (`MSG_RELOAD_SCRIPT`) |
 | `reload_ui(file)` | hot-reload one declarative `.oui` screen on the RUNNING game — destroy-and-rebuild its widgets from the fresh file (`MSG_RELOAD_UI`); a parse failure keeps the OLD screen and surfaces a `[remote]` error, a rebuild emits the `ui.reloaded` script event. The editor's `.oui` watcher fires this on a file save too |
 | `reload_anim(file)` | hot-reload one vector-animation rig (`.oanim`) on the RUNNING game (`MSG_RELOAD_ANIM`): the player parses the fresh file FIRST, then rebuilds every `VectorAnimationComponent` playing it (clean cutover — playback restarts at each component's reflected `clip`); a parse failure keeps every OLD rig and surfaces a `[remote]` error naming the line, a rebuild emits the `animation.reloaded` script event. The editor's animation watcher fires this on a file save too (re-cooking a changed Lottie source first); after a `reimport_asset` during Play, call it yourself |
+| `reload_mesh(file)` | hot-reload one parametric mesh (`.omesh`) on the RUNNING game (`MSG_RELOAD_MESH`): the player parses the fresh text FIRST, then retires the old mesh resource and rebuilds every `ModelComponent` naming it (a mesh resource cannot be rewritten under live instances, so the instances go first); a parse failure keeps the OLD geometry on screen and surfaces a `[remote]` error naming the line. Author the text with `write_project_file` — no cook step. The editor's `.omesh` watcher fires this on a file save too |
 | `screenshot_game(path)` | screenshot the RUNNING game's frame (`MSG_SCREENSHOT`, desktop play) → poll `get_state` (async: the file is written after the accepted reply, so this verb stays path-only — no inline image) |
 | `record_trace(path, seconds?, everyNth?, objects?)` | record a temporal TRACE of the RUNNING game to a `.jsonl` flight recorder (`MSG_RECORD_START`, desktop play) — per-frame object samples (pos/vel/active/visible + dt + `mem` process footprint) with contact/scene/error/warning events → poll `get_state` for `record_seq` |
 | `stop_recording()` | end an in-progress `record_trace` early (`MSG_RECORD_STOP`); the player writes what it captured → poll `get_state` |

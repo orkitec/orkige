@@ -75,6 +75,8 @@ add_executable(orkige_core_tests
     VectorShapeAssetTests.cpp
     ShapeColliderTests.cpp
     MaterialAssetTests.cpp
+    MeshBuilderTests.cpp
+    MeshAssetTests.cpp
     VectorShapeRasterTests.cpp
     VectorAnimAssetTests.cpp
     VectorAnimEvalTests.cpp

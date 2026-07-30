@@ -1147,13 +1147,15 @@ ImTextureID assetThumbnailFor(EditorState& state,
 	{
 		return cached->second.textureId;
 	}
-	// .glb/.omat previews render through a MeshPreviewStage offscreen target -
-	// they cannot decode on the CPU here like a .oshape. Hand them to the
-	// deferred baker (staged + read back across frames) and do NOT write a cache
-	// entry: the paint path keeps requesting until the bake lands a real texture.
+	// .glb/.omesh/.omat previews render through a MeshPreviewStage offscreen
+	// target - they cannot decode on the CPU here like a .oshape. Hand them to
+	// the deferred baker (staged + read back across frames) and do NOT write a
+	// cache entry: the paint path keeps requesting until the bake lands a real
+	// texture.
 	{
 		const std::string ext = lowerExtension(absolutePath);
-		if (ext == ".glb" || ext == ".gltf" || ext == ".omat")
+		if (ext == ".glb" || ext == ".gltf" || ext == ".omesh" ||
+			ext == ".omat")
 		{
 			if (browser.thumbBakeInFlight != absolutePath &&
 				std::find(browser.thumbBakeQueue.begin(),
@@ -2295,8 +2297,10 @@ void serviceThumbnailQueue(EditorState& state)
 	}
 }
 
-//! stage one .glb/.omat asset into the thumbnail baker (a MeshPreviewStage on
-//! its own instance slot). .glb loads the mesh by project-relative name; .omat
+//! stage one .glb/.omesh/.omat asset into the thumbnail baker (a
+//! MeshPreviewStage on its own instance slot). .glb AND .omesh load the mesh by
+//! project-relative name (the facade builds a `.omesh`'s geometry on first
+//! createMeshInstance, so the stage needs no procedural branch); .omat
 //! cooks a live material and applies it to the shared preview cube - the same
 //! surface the Inspector's material section stages. Returns false only when the
 //! stage cannot be built at all (no render system / unreadable mesh).
@@ -2730,7 +2734,7 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		(entry.item.kind == AssetKind::Texture ||
 			entry.item.kind == AssetKind::VectorShape ||
 			tileExt == ".oanim" || tileExt == ".glb" || tileExt == ".gltf" ||
-			tileExt == ".omat");
+			tileExt == ".omesh" || tileExt == ".omat");
 	const ImTextureID thumb = wantsThumbnail
 		? queuedThumbnail(state, entry.item) : 0;
 	ImDrawList* drawList = ImGui::GetWindowDrawList();

@@ -363,14 +363,23 @@ namespace
 				"ScrollView", "ListView", "DropDown", "Modal", "ToggleGroup",
 				"TabBar",
 			};
-			// .omat + .oshape directive words (@see core_util/MaterialAsset.h,
-			// core_util/VectorShapeAsset.h)
+			// .omat + .oshape + .omesh directive words (@see
+			// core_util/MaterialAsset.h, core_util/VectorShapeAsset.h,
+			// core_util/MeshAsset.h)
 			lang.keywords = {
 				"version", "albedo", "albedoTexture", "metalness",
 				"roughness", "normalTexture", "emissive", "emissiveTexture",
 				"alphaTest", "twoSided",
 				"fill", "contour", "v", "hole", "mask", "morph", "texture",
 				"stroke",
+				"material", "box", "roundedbox", "plane", "wedge", "stairs",
+				"sphere", "icosphere", "cylinder", "cone", "capsule", "torus",
+				"tube", "disc", "arch", "extrude", "revolve",
+				"at", "rotate", "scale", "uv", "smooth", "flat",
+				"radius", "height", "inner", "depth", "span", "legs",
+				"thickness", "segments", "rings", "tubesegments",
+				"subdivisions", "caps", "shape", "sweep", "steps",
+				"smoothsides",
 			};
 			return lang;
 		}();
@@ -861,9 +870,17 @@ namespace
 		{
 			verdict = OrkigeEditor::omatDiagnostic(doc.editor->GetText());
 		}
-		else
+		else if (doc.liveCheck == OrkigeEditor::LiveCheckKind::Omesh)
+		{
+			verdict = OrkigeEditor::omeshDiagnostic(doc.editor->GetText());
+		}
+		else if (doc.liveCheck == OrkigeEditor::LiveCheckKind::Oui)
 		{
 			verdict = OrkigeEditor::ouiDiagnostic(doc.editor->GetText());
+		}
+		else
+		{
+			return;	// LiveCheckKind::None - no parser reports a line here
 		}
 		if (verdict.valid != doc.parseState.valid ||
 			verdict.line != doc.parseState.line ||

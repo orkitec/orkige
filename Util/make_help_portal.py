@@ -69,7 +69,8 @@ import make_editor_icon  # noqa: E402  (sibling Util tool - the ONE icon drawing
 # appended alphabetically, so a new doc shows up without touching this script
 PREFERRED_ORDER = [
     "getting-started", "lua-api", "gui", "materials", "particles",
-    "vector-animation", "character-animation", "localisation", "logging", "benchmark",
+    "meshes", "vector-animation", "character-animation", "localisation",
+    "logging", "benchmark",
     "mcp", "mcp-workflows", "render-abstraction", "web-export",
     "device-session", "ios-signing", "store-release", "ports", "vendored-libs",
 ]

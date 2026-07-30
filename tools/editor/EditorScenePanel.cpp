@@ -474,7 +474,7 @@ namespace Orkige
 			// a gizmo drag with an overlay armed rebuilds every frame)
 			if (!mesh.meshName.empty())
 			{
-				world->destroyLineListMesh(mesh.meshName);
+				world->destroyGeneratedMesh(mesh.meshName);
 				mesh.meshName.clear();
 			}
 			if (!points.empty())
@@ -538,7 +538,7 @@ namespace Orkige
 			mesh->instance.reset();
 			if (world && !mesh->meshName.empty())
 			{
-				world->destroyLineListMesh(mesh->meshName);
+				world->destroyGeneratedMesh(mesh->meshName);
 			}
 			mesh->meshName.clear();
 			mesh->node.reset();

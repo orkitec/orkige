@@ -55,7 +55,7 @@ The interface headers live in `orkige_engine/engine_render/`. Each is
 | Class (header) | Purpose |
 |---|---|
 | `RenderSystem` | frame loop; main window (camera/background/resize/size); screenshots; `FrameStats`; resource locations + pak mounting (`mountPak`); `createRenderTexture`; `createMaterial`/`createWaterMaterial`; `createTexture2D`; `getWorld` |
-| `RenderWorld` | root node; node + content factories; ambient (`setAmbientHemisphere`); shadows (`setShadowQuality`); atmosphere (`setAtmosphere`); IBL / bloom / grade / planar-reflection toggles; `queryRay` AABB picking; line-list + cube mesh services |
+| `RenderWorld` | root node; node + content factories; ambient (`setAmbientHemisphere`); shadows (`setShadowQuality`); atmosphere (`setAtmosphere`); IBL / bloom / grade / planar-reflection toggles; `queryRay` AABB picking; the generated-mesh services (line-list, cube, `createMeshFromData`, `ensureMeshAsset`, `destroyGeneratedMesh`) |
 | `RenderNode` | local + world transform; translate/rotate/lookAt; children + re-parenting; visibility; static mobility (`setStatic`); world bounds; user-pointer back-mapping |
 | `MeshInstance` | load/attach/visible/shadows/bounds/query flags; `setMaterial`; vertex-colour-unlit fixup; `AnimationState` control (names/enable/loop/time/crossfade); per-instance tint/emissive accents |
 | `SpriteQuad` | a textured quad: texture, size, UV rect, tint, flips, `zOrder`, visibility |
@@ -104,6 +104,44 @@ node graphs:
 
 Full material, water, shadow, atmosphere, IBL, bloom and grade reference:
 `Docs/materials.md`.
+
+## Generated meshes
+
+A mesh RESOURCE can come from CPU vertex data, not only from a loaded file.
+`RenderWorld::createMeshFromData(name, MeshBuilder::Mesh)` registers positions,
+normals, one UV set, tangents and per-material SECTIONS under a name; after that
+the mesh is an ordinary mesh, so `createMeshInstance`, PBS `.omat` materials,
+shadows, the `static` mobility flag, visibility flags and native instancing all
+work with no procedural special case above the facade. Each section becomes one
+sub-mesh, exactly like a multi-material import.
+
+- **next**: one `v1::ManualObject` section per `MeshBuilder` section ->
+  `convertToMesh` -> `buildTangentVectors` -> `Mesh::importV1`, with the sub-mesh
+  material names written AFTER the import (a v1 `ManualObject` refuses an HLMS
+  datablock name, so sections begin on a placeholder low-level material - the
+  same dance the assimp and cube roads use).
+- **classic**: one `Ogre::ManualObject` section per section -> `convertToMesh` ->
+  `buildTangentVectors`.
+
+Tangents are generated the way the loaded-mesh road generates them, deliberately:
+the Hlms refuses a normal-mapping material on a tangent-less mesh, so a generated
+mesh has to be able to take the same `.omat` an imported one takes.
+
+The services are idempotent per name and are retired through
+`destroyGeneratedMesh` (which also drops next's `"<name>/v1import"` intermediate)
+— a name that regenerates must be dropped first, with no live instance on it.
+
+`RenderWorld::ensureMeshAsset` sits on top: it turns a `.omesh` text asset into
+such a resource on first use and both backends call it from
+`createMeshInstance`. Its body is flavor-NEUTRAL and therefore lives with the
+facade in `engine_render/MeshAssetLoad.cpp` rather than twice in the backend
+directories — two copies would be two chances for the flavors to disagree about
+what a `.omesh` means. Asset reference: `Docs/meshes.md`.
+
+The cross-flavor gate is the `selfcheck_omesh.png` capture in
+`render_backend_parity`: the generated surface renders EMISSIVE-only with every
+light suppressed, so the compared image is a silhouette/coverage picture of the
+geometry and neither shading model can contribute a delta.
 
 ## 2D painter order
 

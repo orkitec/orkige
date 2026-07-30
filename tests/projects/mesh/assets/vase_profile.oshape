@@ -1,0 +1,16 @@
+# a vase SILHOUETTE for `revolve`: a closed shell contour on the x >= 0
+# half-plane, x read as the radius and y as the height. Swept about Y it becomes
+# a hollow vase 1.6 units tall and 1.5 wide.
+version 1
+fill 1 1 1 1
+contour 10
+v 0.5 0
+v 0.7 0.3
+v 0.55 0.8
+v 0.75 1.3
+v 0.6 1.6
+v 0.45 1.6
+v 0.6 1.3
+v 0.4 0.8
+v 0.55 0.3
+v 0.35 0

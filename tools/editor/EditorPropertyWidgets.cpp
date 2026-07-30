@@ -302,7 +302,10 @@ bool assetMatchesKind(std::string const& fileName, std::string const& kind)
 	}
 	if (kind == "mesh")
 	{
-		return ext == "mesh" || ext == "gltf" || ext == "glb" || ext == "obj";
+		// `.omesh` is a MESH like any other here: the engine builds its geometry
+		// on first use, so a component's mesh slot takes it exactly like a .glb
+		return ext == "mesh" || ext == "gltf" || ext == "glb" ||
+			ext == "obj" || ext == "omesh";
 	}
 	if (kind == "sound")
 	{

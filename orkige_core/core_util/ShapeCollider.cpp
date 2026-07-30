@@ -16,35 +16,44 @@ namespace Orkige
 {
 	namespace
 	{
-		//! drop a repeated closing vertex (many authored/cooked contours repeat
-		//! the first point as the last) so a contour is a clean open loop
-		std::vector<ShapeCollider::Point> dropClosingDuplicate(
-			std::vector<ShapeCollider::Point> const & loop)
-		{
-			std::vector<ShapeCollider::Point> out = loop;
-			while (out.size() >= 2)
-			{
-				ShapeCollider::Point const & first = out.front();
-				ShapeCollider::Point const & last = out.back();
-				if (std::fabs(first.x - last.x) < 1.0e-6f &&
-					std::fabs(first.y - last.y) < 1.0e-6f)
-				{
-					out.pop_back();
-				}
-				else
-				{
-					break;
-				}
-			}
-			return out;
-		}
-
 		//! 2D cross product of (b-a) x (c-a) - sign gives the turn direction
 		float cross2(ShapeCollider::Point const & a, ShapeCollider::Point const & b,
 			ShapeCollider::Point const & c)
 		{
 			return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 		}
+	}
+	//---------------------------------------------------------
+	std::vector<ShapeCollider::Point> ShapeCollider::openLoop(
+		std::vector<Point> const & loop)
+	{
+		std::vector<Point> out = loop;
+		while (out.size() >= 2)
+		{
+			Point const & first = out.front();
+			Point const & last = out.back();
+			if (std::fabs(first.x - last.x) < 1.0e-6f &&
+				std::fabs(first.y - last.y) < 1.0e-6f)
+			{
+				out.pop_back();
+			}
+			else
+			{
+				break;
+			}
+		}
+		return out;
+	}
+	//---------------------------------------------------------
+	bool ShapeCollider::isSolidRegion(VectorTessellator::Region const & region)
+	{
+		// only filled AREAS carry a closed boundary; a stroke is a swept
+		// centreline enclosing no area
+		if (region.kind != VectorTessellator::REGION_FILL)
+		{
+			return false;
+		}
+		return openLoop(region.outer).size() >= 3;
 	}
 	//---------------------------------------------------------
 	void ShapeCollider::extractContours(
@@ -54,18 +63,13 @@ namespace Orkige
 		outContours.clear();
 		for (VectorTessellator::Region const & region : regions)
 		{
-			// only filled AREAS carry a collidable boundary; a stroke is a swept
-			// centreline (no enclosed area) and holes are ignored in v1
-			if (region.kind != VectorTessellator::REGION_FILL)
+			// the ONE eligibility test + the ONE loop normalisation every
+			// consumer of these contours shares (holes are ignored in v1)
+			if (!isSolidRegion(region))
 			{
 				continue;
 			}
-			std::vector<Point> contour = dropClosingDuplicate(region.outer);
-			if (contour.size() < 3)
-			{
-				continue;
-			}
-			outContours.push_back(contour);
+			outContours.push_back(openLoop(region.outer));
 		}
 	}
 	//---------------------------------------------------------
@@ -129,7 +133,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool ShapeCollider::isConvex(std::vector<Point> const & contour)
 	{
-		std::vector<Point> loop = dropClosingDuplicate(contour);
+		std::vector<Point> loop = openLoop(contour);
 		const std::size_t n = loop.size();
 		if (n < 3)
 		{
@@ -170,7 +174,7 @@ namespace Orkige
 		}
 		for (std::vector<Point> const & rawContour : contours)
 		{
-			std::vector<Point> contour = dropClosingDuplicate(rawContour);
+			std::vector<Point> contour = openLoop(rawContour);
 			if (contour.size() < 3)
 			{
 				continue;
@@ -241,7 +245,7 @@ namespace Orkige
 		float halfThickness, std::vector<Vertex> & outVertices)
 	{
 		outVertices.clear();
-		std::vector<Point> loop = dropClosingDuplicate(outline);
+		std::vector<Point> loop = openLoop(outline);
 		for (Point const & p : loop)
 		{
 			outVertices.push_back(Vertex(p.x, p.y, halfThickness));

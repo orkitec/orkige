@@ -773,6 +773,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	optr<MeshInstance> RenderWorld::createMeshInstance(String const & meshName)
 	{
+		// the `.omesh` road first (a no-op for every other name): a parametric
+		// mesh asset becomes a real mesh RESOURCE here, so everything below is
+		// the ordinary loaded-mesh path (@see ensureMeshAsset)
+		if(!this->ensureMeshAsset(meshName))
+		{
+			return optr<MeshInstance>();	// error already logged
+		}
 		return RenderBackend::createMeshInstance(
 			this->mImpl->sceneManager, meshName);
 	}
@@ -868,7 +875,102 @@ namespace Orkige
 		this->mImpl->sceneManager->destroyManualObject(lines);
 	}
 	//---------------------------------------------------------
-	void RenderWorld::destroyLineListMesh(String const & meshName)
+	bool RenderWorld::createMeshFromData(String const & meshName,
+		MeshBuilder::Mesh const & data)
+	{
+		oAssert(!meshName.empty());
+		if(this->generatedMeshExists(meshName))
+		{
+			return true;	// idempotent, same contract as the cube service
+		}
+		String validationError;
+		if(data.empty() || !MeshBuilder::validate(data, &validationError))
+		{
+			oDebugError("engine", 0, "RenderWorld: mesh '" << meshName
+				<< "' rejected: " << (data.empty()
+					? String("no geometry") : validationError));
+			return false;
+		}
+		Ogre::ManualObject* builder = NULL;
+		try
+		{
+			builder = this->mImpl->sceneManager->createManualObject(
+				meshName + ".manual");
+			for(std::size_t section = 0; section < data.sections.size();
+				++section)
+			{
+				MeshBuilder::Section const & entry = data.sections[section];
+				if(entry.indexCount == 0)
+				{
+					continue;
+				}
+				// an empty section material means "the backend default": the
+				// RTSS-shaded BaseWhite the loaded-mesh path also lands on
+				// before a .omat is assigned
+				builder->begin(entry.material.empty()
+					? String("BaseWhite") : entry.material,
+					Ogre::RenderOperation::OT_TRIANGLE_LIST);
+				builder->estimateVertexCount(entry.vertexCount);
+				builder->estimateIndexCount(entry.indexCount);
+				for(std::size_t at = 0; at < entry.vertexCount; ++at)
+				{
+					MeshBuilder::Vertex const & vertex =
+						data.vertices[entry.vertexStart + at];
+					builder->position(vertex.position.x, vertex.position.y,
+						vertex.position.z);
+					builder->normal(vertex.normal.x, vertex.normal.y,
+						vertex.normal.z);
+					builder->textureCoord(vertex.uv.x, vertex.uv.y);
+				}
+				for(std::size_t at = 0; at + 2 < entry.indexCount; at += 3)
+				{
+					// section-local indices: the facade contract keeps every
+					// index inside its own section's vertex span
+					builder->triangle(
+						static_cast<Ogre::uint32>(
+							data.indices[entry.indexStart + at + 0] -
+							entry.vertexStart),
+						static_cast<Ogre::uint32>(
+							data.indices[entry.indexStart + at + 1] -
+							entry.vertexStart),
+						static_cast<Ogre::uint32>(
+							data.indices[entry.indexStart + at + 2] -
+							entry.vertexStart));
+				}
+				builder->end();
+			}
+			Ogre::MeshPtr mesh = builder->convertToMesh(meshName);
+			this->mImpl->sceneManager->destroyManualObject(builder);
+			builder = NULL;
+			// TANGENTS the same way the loaded-mesh road gets them, so a
+			// normal-mapping `.omat` applies to a generated mesh exactly as it
+			// does to an imported one
+			try
+			{
+				mesh->buildTangentVectors();
+			}
+			catch(Ogre::Exception const & e)
+			{
+				oDebugWarn("engine", 0, "RenderWorld: mesh '" << meshName
+					<< "': tangent generation failed ("
+					<< e.getDescription()
+					<< ") - normal-mapping materials will not apply");
+			}
+		}
+		catch(Ogre::Exception const & e)
+		{
+			if(builder)
+			{
+				this->mImpl->sceneManager->destroyManualObject(builder);
+			}
+			oDebugError("engine", 0, "RenderWorld: mesh '" << meshName
+				<< "' failed to build: " << e.getDescription());
+			return false;
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	void RenderWorld::destroyGeneratedMesh(String const & meshName)
 	{
 		// the .manual ManualObject is already gone (destroyed at create time),
 		// so the only registered resource is the mesh itself - drop it from the
@@ -882,7 +984,7 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	bool RenderWorld::lineListMeshExists(String const & meshName) const
+	bool RenderWorld::generatedMeshExists(String const & meshName) const
 	{
 		return Ogre::MeshManager::getSingleton().resourceExists(meshName,
 			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);

@@ -21,7 +21,7 @@ namespace Orkige
 		//! extensions the importer accepts (lower-case, with dot)
 		const char* const SUPPORTED_EXTENSIONS[] = {
 			".glb", ".gltf", ".obj", ".fbx", ".dae", ".stl", ".ply", ".3ds",
-			".mesh"
+			".mesh", ".omesh"
 		};
 	}
 	//---------------------------------------------------------

@@ -29,7 +29,8 @@ namespace Orkige
 {
 	//! @brief is this a mesh file the importer accepts? Decided purely by
 	//! extension (case-insensitive): the formats Codec_Assimp/OGRE actually
-	//! load (.glb .gltf .obj .fbx .dae .stl .ply .3ds and native .mesh).
+	//! load (.glb .gltf .obj .fbx .dae .stl .ply .3ds and native .mesh),
+	//! plus the engine-parsed parametric `.omesh` text asset.
 	bool isSupportedMeshFile(String const& path);
 
 	//! @brief the directory an import copies into (see the rule above).

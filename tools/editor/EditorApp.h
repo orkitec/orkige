@@ -395,7 +395,7 @@ struct ViewSettings
 	//! their behavior is fixed; the external editor stays reachable from the
 	//! Inspector/context menu for everything.
 	std::string internalEditorExtensions =
-		".lua .ogui .omat .oshape .oactions .olayers .olevels .xlf .xml .txt "
+		".lua .ogui .omat .omesh .oshape .oactions .olayers .olevels .xlf .xml .txt "
 		".md .json .jsonl .c .cpp .cc .cxx .h .hpp .hh .inl .mm .cmake .py "
 		".glsl";
 	//! snap settings (toolbar toggle + editable step values);
@@ -1270,6 +1270,13 @@ struct PlaySession
 	//! name); keyed by the .oui basename (the name the game passes to
 	//! GuiFactory::loadLayout). Reset by clearRemoteState.
 	std::map<std::string, long long> uiFileMtimes;
+	//! `.omesh` hot-reload watcher: rides the SAME poll/cadence/lifecycle as the
+	//! scripts/.oui watchers (scriptsWatchArmed arms them all) over the SAME
+	//! per-extension project walker. Per-basename write times so a CHANGED
+	//! parametric mesh hot-reloads just that mesh (MSG_RELOAD_MESH carries its
+	//! name - the value a ModelComponent's `mesh` reference holds). Reset by
+	//! clearRemoteState.
+	std::map<std::string, long long> meshFileMtimes;
 	//! vector-animation hot-reload watcher: rides the SAME poll/cadence/
 	//! lifecycle as the scripts/.oui watchers (scriptsWatchArmed arms all
 	//! three). Two per-basename write-time maps: animSourceMtimes tracks Lottie
@@ -1699,6 +1706,14 @@ void reloadRemoteUi(PlaySession& session, EditorConsole& console,
 //! verb.
 void reloadRemoteAnim(PlaySession& session, EditorConsole& console,
 	std::string const& animName);
+
+//! @brief tell the RUNNING player to re-read one parametric mesh
+//! (MSG_RELOAD_MESH): parse-before-swap, then retire the mesh resource and
+//! rebuild every ModelComponent naming it. The  twin of
+//! reloadRemoteUi/reloadRemoteAnim - the project-tree watcher and the MCP
+//! reload_mesh verb are its only callers.
+void reloadRemoteMesh(PlaySession& session, EditorConsole& console,
+	std::string const& meshName);
 
 //! @brief write a live component property on the RUNNING game (MSG_SET_PROPERTY,
 //! the reflected setter on the player - takes effect immediately, not undoable

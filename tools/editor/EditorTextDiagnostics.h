@@ -38,6 +38,14 @@ namespace OrkigeEditor
 	//! Wraps that pure parser, whose own error already reads "line N: ...".
 	TextDiagnostic omatDiagnostic(std::string const& text);
 
+	//! @brief parse `text` as a `.omesh` parametric mesh asset (@see
+	//! core_util/MeshAsset.h) and report the first problem, or valid. Wraps
+	//! that pure parser's `checkSyntax` entry, whose own error already reads
+	//! "line N: ..."; an `extrude`/`revolve` line's `.oshape` REFERENCE is not
+	//! resolved here (only its grammar), so a missing asset surfaces at load
+	//! time rather than as a squiggle.
+	TextDiagnostic omeshDiagnostic(std::string const& text);
+
 	//! @brief parse `text` as a `.oui` declarative UI layout (@see
 	//! engine_gui/GuiLayout.h) and report the first problem, or valid. Wraps
 	//! the SAME pure parser `GuiFactory::loadLayout` runs at runtime; its
@@ -98,7 +106,7 @@ namespace OrkigeEditor
 	//! (VectorShapeAsset::parse reports pass/fail with no line/message) and
 	//! `.json`/`.jsonl` (JsonValue::parse likewise reports no line/message)
 	//! stay None HONESTLY - highlighting only, no invented diagnostic.
-	enum class LiveCheckKind { None, Lua, Xml, Omat, Oui };
+	enum class LiveCheckKind { None, Lua, Xml, Omat, Omesh, Oui };
 
 	//! @brief the live-check kind for a file extension (with or without the
 	//! leading dot, any case).

@@ -4706,18 +4706,26 @@ int main(int argc, char** argv)
 						assetFail = "createFolderAndReveal did not reveal in place";
 					}
 				}
-				// (12) .glb + .omat get a GPU-rendered preview thumbnail baked
-				// through the deferred baker (staged + read back across frames).
-				// Drive the queue synchronously here (this block runs after the
-				// frame's renderOneFrame, so extra renders are safe) and assert
-				// both land a REAL owned upload - a bindable handle plus an owned
-				// texture name, i.e. not the glyph placeholder (id 0, no upload).
+				// (12) .glb + .omesh + .omat get a GPU-rendered preview
+				// thumbnail baked through the deferred baker (staged + read back
+				// across frames). Drive the queue synchronously here (this block
+				// runs after the frame's renderOneFrame, so extra renders are
+				// safe) and assert each lands a REAL owned upload - a bindable
+				// handle plus an owned texture name, i.e. not the glyph
+				// placeholder (id 0, no upload). The `.omesh` case additionally
+				// proves the whole text-to-geometry road inside the EDITOR: the
+				// preview stage just calls createMeshInstance, so a recognisable
+				// tile means the parser, the builder and the facade
+				// createMeshFromData all ran on a file that did not exist a
+				// moment ago.
 				if (assetOk)
 				{
 					const std::string glbAbs =
 						state.project.getAssetsDirectory() + "/test_mesh.glb";
 					const std::string omatAbs =
 						state.project.getAssetsDirectory() + "/thumb_probe.omat";
+					const std::string omeshAbs =
+						state.project.getAssetsDirectory() + "/thumb_probe.omesh";
 					{
 						std::ofstream f(omatAbs,
 							std::ios::binary | std::ios::trunc);
@@ -4725,9 +4733,18 @@ int main(int argc, char** argv)
 							"metalness 0.10\nroughness 0.50\n"
 							"emissive 0.0 0.0 0.0\n";
 					}
-					// request both (routes them into the bake queue, returns 0)
+					{
+						std::ofstream f(omeshAbs,
+							std::ios::binary | std::ios::trunc);
+						f << "version 1\n"
+							"roundedbox 1 1 1 radius 0.2 segments 3\n"
+							"sphere radius 0.35 segments 16 at 0 0.9 0\n";
+					}
+					// request all three (routes them into the bake queue,
+					// returns 0)
 					assetThumbnailFor(state, glbAbs);
 					assetThumbnailFor(state, omatAbs);
+					assetThumbnailFor(state, omeshAbs);
 					// drain the queue: each asset stages, settles a couple of
 					// frames, then is captured (one per pass)
 					for (int pump = 0; pump < 60 &&
@@ -4755,6 +4772,11 @@ int main(int argc, char** argv)
 					{
 						assetOk = false;
 						assetFail = "no baked thumbnail for a .omat material";
+					}
+					else if (!bakedRealThumbnail(omeshAbs))
+					{
+						assetOk = false;
+						assetFail = "no baked thumbnail for a .omesh mesh";
 					}
 				}
 				std::filesystem::remove_all(assetTempRoot, assetErr);
@@ -9949,13 +9971,13 @@ int main(int argc, char** argv)
 						"mesh name");
 				}
 				// ...and DESTROY the old one (the leak this test guards): without
-				// destroyLineListMesh the old name stays registered forever
-				else if (world->lineListMeshExists(overlayColliderMeshAt20))
+				// destroyGeneratedMesh the old name stays registered forever
+				else if (world->generatedMeshExists(overlayColliderMeshAt20))
 				{
 					overlayFail("the previous collider overlay mesh leaked (still "
 						"registered after the rebuild)");
 				}
-				else if (!world->lineListMeshExists(overlayColliderMeshAt25))
+				else if (!world->generatedMeshExists(overlayColliderMeshAt25))
 				{
 					overlayFail("the current collider overlay mesh is missing");
 				}
@@ -9984,7 +10006,7 @@ int main(int argc, char** argv)
 				// the hide (toggle-off) path also destroys the mesh - no leak on
 				// disarm either
 				else if (world && !overlayColliderMeshAt25.empty() &&
-					world->lineListMeshExists(overlayColliderMeshAt25))
+					world->generatedMeshExists(overlayColliderMeshAt25))
 				{
 					SDL_Log("orkige_editor: overlay selfcheck - FAILED: the "
 						"collider overlay mesh leaked when its toggle went off");

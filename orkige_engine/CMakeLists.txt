@@ -87,6 +87,9 @@ set(ORKIGE_ENGINE_SOURCES
     engine_render/DrawLayer2D.h
     engine_render/DrawLayer2DClip.h
     engine_render/RenderFacadeCheck.cpp
+    # the `.omesh` asset road: flavor-NEUTRAL by construction, so it lives with
+    # the facade instead of being copied into both backend directories
+    engine_render/MeshAssetLoad.cpp
     # the backend-neutral skinned-rig vocabulary + its assimp extraction
     # (the ONE skeleton/clip semantics both importer roads share)
     engine_render/SkinnedRig.h

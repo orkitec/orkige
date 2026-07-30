@@ -75,6 +75,7 @@ void clearRemoteState(PlaySession& session)
 	session.scriptsWatchArmed = false;
 	session.scriptsNewestMtime = 0;
 	session.uiFileMtimes.clear();
+	session.meshFileMtimes.clear();
 	session.animSourceMtimes.clear();
 	session.animFileMtimes.clear();
 	session.remoteSelectedId.clear();
@@ -1670,6 +1671,24 @@ void reloadRemoteUi(PlaySession& session, EditorConsole& console,
 		"player");
 }
 
+//! parametric-mesh hot-reload: tell the running player to re-read one `.omesh`
+void reloadRemoteMesh(PlaySession& session, EditorConsole& console,
+	std::string const& meshName)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage reload(Protocol::MSG_RELOAD_MESH);
+	reload.set(Protocol::FIELD_PATH, meshName);
+	session.client.send(reload);
+	oDebugMsg("editor.play", 0, ".omesh change detected (" << meshName <<
+		") - reload sent to the player");
+	console.addLine(ConsoleLevel::Info,
+		"[reload] mesh '" + meshName + "' changed - hot-reloading the running "
+		"player");
+}
+
 //! vector-animation hot-reload: tell the running player to re-read one rig
 void reloadRemoteAnim(PlaySession& session, EditorConsole& console,
 	std::string const& animName)
@@ -1767,11 +1786,15 @@ void scanProjectAnimFiles(std::string const& root,
 	}
 }
 
-//! @brief scan the project tree for `.oui` layouts, folding to the newest write
-//! time per BASENAME (the name a game passes to GuiFactory::loadLayout / the
-//! player resolves). Build trees are skipped so a native module's build output
-//! never trips the watcher. @return basename -> newest file-time count.
-std::map<std::string, long long> scanProjectOuiFiles(std::string const& root)
+//! @brief scan the project tree for one text-asset EXTENSION, folding to the
+//! newest write time per BASENAME (the name a game passes to
+//! GuiFactory::loadLayout / a ModelComponent's mesh reference holds / the player
+//! resolves). Build trees are skipped so a native module's build output never
+//! trips the watcher. ONE walker serves every per-basename hot-reload watcher -
+//! `.oui` screens and `.omesh` meshes differ only in the extension they ask for.
+//! @return basename -> newest file-time count.
+std::map<std::string, long long> scanProjectFilesByExtension(
+	std::string const& root, std::string const& extension)
 {
 	std::map<std::string, long long> result;
 	std::error_code ec;
@@ -1796,7 +1819,7 @@ std::map<std::string, long long> scanProjectOuiFiles(std::string const& root)
 			}
 			continue;
 		}
-		if (!it->is_regular_file(ec) || it->path().extension() != ".oui")
+		if (!it->is_regular_file(ec) || it->path().extension() != extension)
 		{
 			continue;
 		}
@@ -1875,9 +1898,12 @@ void watchProjectScripts(EditorState& state, PlaySession& session,
 			}
 		}
 	}
-	// the .oui layouts, per basename (see scanProjectOuiFiles)
+	// the .oui layouts and the .omesh meshes, per basename (ONE walker, two
+	// extensions - see scanProjectFilesByExtension)
 	std::map<std::string, long long> ouiNow =
-		scanProjectOuiFiles(session.projectRoot);
+		scanProjectFilesByExtension(session.projectRoot, ".oui");
+	std::map<std::string, long long> meshNow =
+		scanProjectFilesByExtension(session.projectRoot, ".omesh");
 	// the animation pairs: Lottie sources (by path) + orphan rigs (by basename)
 	std::map<std::string, long long> animSourcesNow;
 	std::map<std::string, long long> animsNow;
@@ -1887,6 +1913,7 @@ void watchProjectScripts(EditorState& state, PlaySession& session,
 		// first poll of the session: record the baseline, never reload
 		session.scriptsNewestMtime = newest;
 		session.uiFileMtimes = std::move(ouiNow);
+		session.meshFileMtimes = std::move(meshNow);
 		session.animSourceMtimes = std::move(animSourcesNow);
 		session.animFileMtimes = std::move(animsNow);
 		session.scriptsWatchArmed = true;
@@ -1907,6 +1934,18 @@ void watchProjectScripts(EditorState& state, PlaySession& session,
 		}
 	}
 	session.uiFileMtimes = std::move(ouiNow);
+	// per-mesh diff: a freshly-written .omesh hot-reloads just that mesh - the
+	// player's parse-before-swap keeps the old geometry on a broken edit
+	for (auto const& entry : meshNow)
+	{
+		auto known = session.meshFileMtimes.find(entry.first);
+		if (known == session.meshFileMtimes.end() ||
+			entry.second > known->second)
+		{
+			reloadRemoteMesh(session, console, entry.first);
+		}
+	}
+	session.meshFileMtimes = std::move(meshNow);
 	// per-source diff: a freshly-written Lottie .json re-cooks FIRST (recorded
 	// sidecar settings; [import] lines like a manual import), then the fresh
 	// artifact hot-reloads - a cook failure reports honestly and sends nothing

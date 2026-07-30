@@ -9,6 +9,7 @@
 #include "EditorTextDiagnostics.h"
 
 #include <core_util/MaterialAsset.h>
+#include <core_util/MeshAsset.h>
 #include <engine_gui/GuiLayout.h>
 
 #include <tinyxml2.h>
@@ -105,6 +106,27 @@ namespace OrkigeEditor
 		return diagnostic;
 	}
 
+	TextDiagnostic omeshDiagnostic(std::string const& text)
+	{
+		TextDiagnostic diagnostic;
+		if (isBlank(text))
+		{
+			return diagnostic;
+		}
+		// checkSyntax builds the geometry with a placeholder outline standing in
+		// for `extrude`/`revolve` references, so a typo in a directive, key or
+		// value is reported here while a missing `.oshape` file is not (the
+		// editor cannot resolve project assets from this pure seam)
+		Orkige::String error;
+		if (!Orkige::MeshAsset::checkSyntax(text, &error))
+		{
+			diagnostic.valid = false;
+			diagnostic.message = error;
+			diagnostic.line = extractLineAfter(error, "line ");
+		}
+		return diagnostic;
+	}
+
 	TextDiagnostic ouiDiagnostic(std::string const& text)
 	{
 		TextDiagnostic diagnostic;
@@ -140,7 +162,7 @@ namespace OrkigeEditor
 			return TextDocumentKind::Json;
 		}
 		if (ext == ".oui" || ext == ".ogui" || ext == ".omat" ||
-			ext == ".oshape")
+			ext == ".oshape" || ext == ".omesh")
 		{
 			return TextDocumentKind::OrkigeConfig;
 		}
@@ -195,6 +217,10 @@ namespace OrkigeEditor
 		if (ext == ".omat")
 		{
 			return LiveCheckKind::Omat;
+		}
+		if (ext == ".omesh")
+		{
+			return LiveCheckKind::Omesh;
 		}
 		if (ext == ".oui")
 		{

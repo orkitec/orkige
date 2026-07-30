@@ -90,7 +90,7 @@ namespace OrkigeEditor
 		{
 			return { ICON_FA_PERSON_RUNNING, kVectorColor };
 		}
-		if (ext == ".glb" || ext == ".gltf")
+		if (ext == ".glb" || ext == ".gltf" || ext == ".omesh")
 		{
 			return { ICON_FA_CUBE, kMeshColor };
 		}
