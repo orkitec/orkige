@@ -221,6 +221,15 @@ timer.cancel(handle) -> bool  -- stop a scheduled timer (also handle:cancel())
 game.setState(name)  -- set the game state; fires game.stateChanged {old,new} on the event bus
 game.getState() -> string  -- the current game state name ("" when unset)
 
+## http
+http.get(url, onComplete [, onProgress]) -> id  -- GET a url; onComplete(res) at the next frame boundary (0 = refused)
+http.post(url, body, contentType, onComplete [, onProgress]) -> id  -- POST a body; onComplete(res) at the next frame boundary
+http.download(url, savePath, onComplete [, onProgress]) -> id  -- stream a url straight to a file (nothing kept in memory)
+http.request(options) -> id  -- the full form: url/method/body/headers/timeout/maxBytes/savePath/onComplete/onProgress
+http.cancel(id) -> bool  -- abort a request; its onComplete still fires once with error='cancelled'
+http.isAvailable() -> bool  -- does this runtime have an HTTP client (false in the editor)
+http.pending() -> number  -- how many requests are still awaiting an answer
+
 ## globals
 loc(key [, ...]) -> string  -- localised string; %%N%% filled by trailing args
 
@@ -618,6 +627,46 @@ save.set("hero.coins", save.getNumber("hero.coins", 0) + 1)
 save.set("hero.level", "forest")     -- number / bool / string by type
 save.flush()                          -- write to disk NOW (a set alone is dirty-only)
 ```
+
+**Fetch something from a web service (async, never blocks a frame).**
+
+```lua
+-- the short form: a callback and nothing else to think about
+http.get("https://api.example.com/scores/top", function(res)
+    if res.ok then                       -- ok = completed AND a 2xx status
+        self.board:setText(res.body)
+    else
+        -- one error path for every outcome: a 404, a timeout, a refused URL
+        print("scores unavailable: " .. res.error .. " (" .. res.reason .. ")")
+    end
+end)
+
+-- the full form: headers, a body, a timeout, a progress bar
+local id = http.request{
+    url = "https://api.example.com/scores",
+    method = "POST",
+    body = '{"name":"ada","score":42}',
+    contentType = "application/json",
+    headers = { "Authorization: Bearer " .. token },
+    timeout = 10,                        -- seconds
+    onComplete = function(res) print(res.status) end,
+}
+
+-- an asset download straight to a file, with progress, cancellable
+self.download = http.download("https://cdn.example.com/pack.zip",
+    "downloads/pack.zip",
+    function(res) if res.ok then self:install(res.path) end end,
+    function(received, total) self.bar:setValue(received / math.max(total, 1)) end)
+-- ...later: http.cancel(self.download)  -- onComplete still fires, error="cancelled"
+```
+
+`res` is `{ ok, status, body, path, bytes, url, error, reason, headers }`. An
+HTTP status is an ANSWER, not a failure: a 404 arrives with `ok=false`,
+`status=404` and `error=""`. A refusal (no https, a bad URL, a timeout, the
+size cap) arrives with `error` naming it. Requests are https-only unless the
+options table carries `allowInsecureHttp = true`, and a request belongs to the
+script that made it: when its component or scene goes away, its pending
+requests retire silently. Full reference: [HTTP client](http.md).
 
 **Music (survives scene switches) + ducking under a stinger.**
 

@@ -30,6 +30,8 @@ add_executable(orkige_core_tests
     ScriptDebugTests.cpp
     ScriptEventBusTests.cpp
     ResourceReaderTests.cpp
+    FileWriterTests.cpp
+    HttpPolicyTests.cpp
     SceneSerializerTests.cpp
     PrefabSerializerTests.cpp
     PrefabOverrideMergeTests.cpp
@@ -113,6 +115,13 @@ if(NOT EMSCRIPTEN)
         MemoryManagerTests.cpp
         ProfileManagerTests.cpp
     )
+    if(ORKIGE_HTTP)
+        # the HTTP CLIENT end to end against the tree's own loopback server
+        # (host-only for the same two reasons: a loopback socket and, on the
+        # curl backend, a worker thread). The client's pure decisions are in
+        # HttpPolicyTests, which runs everywhere including the web tree.
+        target_sources(orkige_core_tests PRIVATE HttpClientTests.cpp)
+    endif()
 endif()
 
 if(ORKIGE_SCRIPTING STREQUAL "LUA")

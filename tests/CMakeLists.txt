@@ -435,6 +435,23 @@ if(TARGET orkige_engine)
     set_tests_properties(boot_cycle_selfcheck PROPERTIES
         LABELS integration TIMEOUT 300)
 
+    # http_network - the ONE test that talks to the real internet, and the only
+    # place certificate CHAIN VERIFICATION is proven (the rest of the HTTP suite
+    # runs against the tree's own loopback server, which speaks no TLS). It
+    # SKIPS (77) when the machine cannot reach the endpoint, when
+    # ORKIGE_NO_NETWORK is set or when the build carries no HTTP client, and
+    # FAILS only when a server WAS reached and the result was wrong - so a
+    # missing network never turns it red. Labelled `network` so a suite can
+    # exclude it by label; endpoint override: ORKIGE_HTTP_NETWORK_URL.
+    if(ORKIGE_HTTP)
+        add_executable(http_network_selfcheck http_network/network_main.cpp)
+        target_link_libraries(http_network_selfcheck PRIVATE Orkige::Core)
+        add_test(NAME http_network COMMAND http_network_selfcheck
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(http_network PROPERTIES
+            LABELS "integration;network" TIMEOUT 120 SKIP_RETURN_CODE 77)
+    endif()
+
     # cooked-cubemap runtime-load proof (both flavors): the driver
     # block-compresses the stock debug cubemap through the REAL export cook
     # (cook_textures.py + this tree's texcook) and boots the selfcheck against

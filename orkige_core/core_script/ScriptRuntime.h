@@ -136,6 +136,10 @@ namespace Orkige
 			String * outError) const;
 	protected:
 	private:
+		//! @brief the seam reads a function value out of an options table
+		//! (@see ScriptRuntime::callbackFromTableField) - the backend type it
+		//! hands over stays private to this class
+		friend class ScriptRuntime;
 	};
 
 	//! @brief a backend-neutral key/value bundle a host function exchanges with
@@ -359,6 +363,22 @@ namespace Orkige
 		};
 		//! @brief the value type of optional trailing argument #index - @see ArgType
 		static ArgType argType(ScriptArgs const & args, int index);
+
+		//! @brief read trailing argument #index as an OPTIONS TABLE: its
+		//! string-keyed scalars land in @p out.fields (as their canonical string
+		//! form) and its array-valued members in @p out.lists - the same bounded
+		//! conversion a host function's single table argument goes through.
+		//! @return false (out untouched) when the argument is absent or not a
+		//! table, so a caller can fall back to its positional form
+		static bool tableArg(ScriptArgs const & args, int index,
+			ScriptValueMap & out);
+		//! @brief read a FUNCTION-valued member out of the options table in
+		//! trailing argument #index (the `onComplete = function(...) end` shape).
+		//! Invalid when the argument is not a table or the member is not a
+		//! function - the callback carriers themselves are not representable in
+		//! the bounded ScriptValueMap, so they are read directly.
+		static ScriptCallback callbackFromTableField(ScriptArgs const & args,
+			int index, char const * field);
 
 		//! @brief register a C++ callable as <tableName>.<functionName>
 		//! (the table is created when missing) - no-op without a backend

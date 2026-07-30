@@ -63,6 +63,26 @@ source cannot read the filesystem, spawn a process, or load code — loading it 
 loading data. Detail:
 [lua-api.md § Sandbox / security](lua-api.md#sandbox--security).
 
+## 4. Outbound requests are https-first, and not an agent's tool
+
+The HTTP client is the one path out of the process. Its defaults are the safe
+ones and every relaxation is explicit at the call site: certificates verified
+against the PLATFORM's trust store (never a CA bundle the engine ships and lets
+rot), https unless the caller opts into a plain-http URL, no https-to-http
+redirect ever, http/https only, no credentials in URLs, no header injection, no
+ambient cookie jar or credential store, and a per-request timeout and response
+cap that always apply. A refusal reports a reason; a failure logs the URL and
+that reason and never a body or a header, because a request may carry a token.
+The rules are pure code (`core_http/HttpPolicy`) so every platform backend
+applies the identical decision.
+
+The MCP endpoint exposes **no** HTTP verb, deliberately. It gives an agent
+control of the editor, not a general network egress path with the editor's
+credentials inside whatever network the editor can reach — the same line that
+keeps git mutations off MCP. An agent that needs a game to call a server writes
+that into the game's Lua, where it is visible in the project and in a diff.
+Detail: [http.md](http.md).
+
 ## What this does *not* claim
 
 Honesty is part of the posture — these are the known limits, not hidden gaps:
@@ -76,6 +96,12 @@ Honesty is part of the posture — these are the known limits, not hidden gaps:
   with no token file leaves reads and mutations open; that is a local-only
   convenience and the loopback bind is what protects it. A shared or exposed host
   should configure a token.
+- **A sandboxed script CAN reach the network.** The `http` table is a sanctioned
+  engine capability, so a scene from an untrusted source can make outbound
+  requests — it cannot read the filesystem or load code, but it can talk to a
+  server the machine can reach. That is a deliberate feature (games need
+  leaderboards and remote config), not a hole in the sandbox; a host that must
+  not allow it builds with `ORKIGE_HTTP=OFF`, where the table refuses honestly.
 - **The engine trusts its own compiled game modules.** Native project modules
   (`projects/*-native/`) are compiled C++ linked into the player — they are code,
   not sandboxed content, and are outside this model by construction.

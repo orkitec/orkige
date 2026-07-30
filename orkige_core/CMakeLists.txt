@@ -7,6 +7,7 @@ set(ORKIGE_CORE_MODULES
     core_event
     core_filesystem
     core_game
+    core_http
     core_module
     core_project
     core_script
@@ -41,6 +42,47 @@ if(APPLE)
     list(APPEND ORKIGE_CORE_SOURCES ${core_objcxx_sources})
 endif()
 
+# --- the HTTP client's platform transport ------------------------------------
+# Exactly ONE backend translation unit is compiled, chosen here so no call site
+# above the HttpBackend seam carries a platform #ifdef (the
+# engine_input/HapticManager + HapticBridgeApple.mm split). Each backend also
+# carries its own ORKIGE_HTTP_* guard, so a stray addition to the glob above
+# still compiles to nothing.
+#
+#   Apple (macOS/iOS)         NSURLSession  - the system trust store, and no
+#                                             third-party library at all
+#   Windows/Linux/Android     libcurl       - Schannel on Windows, OpenSSL on
+#                                             Linux/Android, http+https only
+#   wasm                      fetch         - a wasm module has no sockets
+#
+# ORKIGE_HTTP=OFF drops every transport (the seam still compiles, and
+# HttpClient::available() answers false with an honest reason) - the lever for
+# a size-constrained target that ships no networking. See Docs/http.md.
+list(REMOVE_ITEM ORKIGE_CORE_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendCurl.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendFetch.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendNone.cpp"
+)
+set(ORKIGE_HTTP_BACKEND "none")
+if(ORKIGE_HTTP)
+    if(APPLE)
+        set(ORKIGE_HTTP_BACKEND "apple")
+        list(APPEND ORKIGE_CORE_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendApple.mm")
+    elseif(EMSCRIPTEN)
+        set(ORKIGE_HTTP_BACKEND "fetch")
+        list(APPEND ORKIGE_CORE_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendFetch.cpp")
+    else()
+        set(ORKIGE_HTTP_BACKEND "curl")
+        list(APPEND ORKIGE_CORE_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendCurl.cpp")
+    endif()
+else()
+    list(APPEND ORKIGE_CORE_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendNone.cpp")
+endif()
+
 add_library(orkige_core STATIC ${ORKIGE_CORE_SOURCES})
 add_library(Orkige::Core ALIAS orkige_core)
 
@@ -64,6 +106,33 @@ set_source_files_properties(
 if(WIN32)
     # the debug-net socket layer's winsock backend (WSAStartup, closesocket)
     target_link_libraries(orkige_core PUBLIC ws2_32)
+endif()
+
+# --- HTTP client: the chosen transport's define + link -----------------------
+# ORKIGE_HTTP is PUBLIC (HttpClient::compiled() is inline-visible to consumers
+# and the tests assert on it); the per-backend macro is PRIVATE - only the one
+# backend TU reads it.
+if(ORKIGE_HTTP)
+    target_compile_definitions(orkige_core PUBLIC ORKIGE_HTTP)
+    if(ORKIGE_HTTP_BACKEND STREQUAL "apple")
+        target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_APPLE)
+    elseif(ORKIGE_HTTP_BACKEND STREQUAL "fetch")
+        target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_FETCH)
+        # Emscripten's fetch implementation is opt-in at LINK time; every
+        # executable that links this library needs the flag, hence INTERFACE
+        target_link_options(orkige_core INTERFACE -sFETCH=1)
+    else()
+        target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_CURL)
+        # curl symbols never leave HttpBackendCurl.cpp, so the dependency is
+        # PRIVATE - and the header stays off the precompiled header
+        find_package(CURL CONFIG REQUIRED)
+        target_link_libraries(orkige_core PRIVATE CURL::libcurl)
+        set_source_files_properties(
+            "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendCurl.cpp"
+            PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+    endif()
+else()
+    target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_NONE)
 endif()
 
 if(APPLE)

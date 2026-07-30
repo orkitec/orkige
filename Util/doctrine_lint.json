@@ -163,7 +163,8 @@
    "orkige_engine"
   ],
   "funnel_files": {
-   "orkige_engine/engine_filesystem/MiniZip.cpp": "the funnel's archive backend - MiniZip reads pak/APK bytes in place; this IS the plumbing core_filesystem/ResourceReader resolves through"
+   "orkige_engine/engine_filesystem/MiniZip.cpp": "the funnel's archive backend - MiniZip reads pak/APK bytes in place; this IS the plumbing core_filesystem/ResourceReader resolves through",
+   "orkige_core/core_filesystem/FileWriter.cpp": "the funnel's WRITE plumbing - the streaming, temp-then-rename file sink core writers go through (ResourceReader covers reads only); this IS the one place a core/engine writer opens a file, so the legacy writers above have a single call site to migrate onto"
   },
   "legacy": {
    "orkige_core/core_debug/BenchmarkRecorder.h": "legacy pre-funnel: diagnostic/output writer to the writable app dir (the read-through funnel does not yet cover writes)",

@@ -9,6 +9,7 @@
 
 #include "core_script/ScriptRuntime.h"
 #include "core_script/ScriptEventBus.h"
+#include "core_http/HttpClient.h"
 #include "core_tween/TimerManager.h"
 #include "core_script/ScriptEventPayload.h"
 #include "core_base/TypeInfo.h"
@@ -881,6 +882,57 @@ namespace Orkige
 		(void)index;
 		return AT_ABSENT;
 #endif
+	}
+	//---------------------------------------------------------
+	bool ScriptRuntime::tableArg(ScriptArgs const & args, int index,
+		ScriptValueMap & out)
+	{
+#ifdef ORKIGE_LUA
+		if(index < 0 || static_cast<std::size_t>(index) >= args.size())
+		{
+			return false;
+		}
+		const sol::object value = args.get<sol::object>(index);
+		if(!value.is<sol::table>())
+		{
+			return false;
+		}
+		luaTableToValueMap(sol::state_view(args.lua_state()),
+			value.as<sol::table>(), out);
+		return true;
+#else
+		(void)args;
+		(void)index;
+		(void)out;
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	ScriptCallback ScriptRuntime::callbackFromTableField(
+		ScriptArgs const & args, int index, char const * field)
+	{
+		ScriptCallback callback;
+#ifdef ORKIGE_LUA
+		if(index < 0 || static_cast<std::size_t>(index) >= args.size())
+		{
+			return callback;
+		}
+		const sol::object value = args.get<sol::object>(index);
+		if(!value.is<sol::table>())
+		{
+			return callback;
+		}
+		const sol::object member = value.as<sol::table>()[field];
+		if(member.is<sol::protected_function>())
+		{
+			callback.mFunction = member.as<sol::protected_function>();
+		}
+#else
+		(void)args;
+		(void)index;
+		(void)field;
+#endif
+		return callback;
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -2019,6 +2071,14 @@ namespace Orkige
 		if(TimerManager::getSingletonPtr() != 0)
 		{
 			TimerManager::getSingleton().cancelOwner(this);
+		}
+		// and the SAME retire for this sandbox's in-flight HTTP requests (the
+		// `http` table tags each one with `this`): an answer that arrives after
+		// the sandbox is gone must be dropped, not delivered into it. Guarded -
+		// only a runtime that wants HTTP creates a client.
+		if(HttpClient::getSingletonPtr() != 0)
+		{
+			HttpClient::getSingleton().cancelOwner(this);
 		}
 #ifdef ORKIGE_LUA
 		// deterministic release of everything the instance kept alive: engine

@@ -821,7 +821,8 @@ static bool playerIterate(PlayerContext& context)
 	{
 		// ============== PLAYER LOOP TICK ORDER (canonical) ==============
 		// Ruled ONCE for every runtime feature (execution plan, 2026-07):
-		//   input -> scripts/world -> tweens -> physics -> load pump.
+		//   input (+ async answers) -> scripts/world -> tweens ->
+		//   physics -> load pump.
 		// Later packages FILL their labeled slot below instead of
 		// appending elsewhere - a wrong position means silent
 		// one-frame-lag bugs.
@@ -841,6 +842,22 @@ static bool playerIterate(PlayerContext& context)
 		{
 			OPROFILE("input");
 			inputActions.update(deltaTime);
+		}
+		//
+		// [1b] ASYNC ANSWERS - the network's frame boundary. An HTTP
+		//     transfer progresses off the main thread; THIS is the one
+		//     place its progress and completion callbacks run, so game
+		//     code never sees an answer arrive mid-update. Placed with
+		//     input, before the scripts that read it: an answer that
+		//     landed between frames is applied before the code that
+		//     looks at it runs, exactly like a key the OS delivered.
+		//     Inside the fence, so a PAUSED runtime holds its answers
+		//     (a callback must not mutate a frozen world) and they are
+		//     delivered on resume - the injected-input discipline.
+		if (context.httpClient)
+		{
+			OPROFILE("http");
+			context.httpClient->update();
 		}
 		//
 		// [2] SCRIPTS/WORLD - the component updates: ScriptComponent
@@ -2240,6 +2257,11 @@ int main(int argc, char** argv)
 		// honest no-op in edit mode.
 		context.saveStore.emplace();
 		Orkige::SaveStore& saveStore = *context.saveStore;
+		// the HTTP(S) client the Lua `http` table talks to (leaderboards, remote
+		// config, asset downloads). Costs nothing until a request is made - the
+		// transport comes up on the first submit - and its completions are
+		// delivered in the tick order's [1b] slot below.
+		context.httpClient.emplace();
 		if (project.isLoaded())
 		{
 			const std::string levelsRef =

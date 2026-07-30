@@ -96,6 +96,14 @@ option(ORKIGE_BUILD_TESTS  "Build the unit tests and register the ctest suite" O
 option(ORKIGE_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(ORKIGE_TSAN "Enable ThreadSanitizer (data-race detection)" OFF)
 option(ORKIGE_FUZZ "Build the libFuzzer harnesses over the pure parsers (tests/fuzz)" OFF)
+# The HTTP(S) client (core_http). ON everywhere: a game that talks to a
+# leaderboard, remote config or an asset CDN needs it, and on Apple, Windows and
+# the web it costs no third-party library at all (the platform's own stack).
+# Turning it OFF keeps the seam compiling and makes every request refuse with an
+# honest reason - the lever for a size-constrained target whose game never calls
+# out (it drops libcurl + its TLS library from the Linux/Android closure).
+# See Docs/http.md.
+option(ORKIGE_HTTP "Build the HTTP(S) client (core_http)" ON)
 
 # ThreadSanitizer maintains its own shadow memory and runtime; it cannot share
 # an object closure with AddressSanitizer. The two are distinct instrumented

@@ -37,6 +37,7 @@
 #include <core_game/TimeControl.h>
 #include <core_game/GameState.h>
 #include <core_debug/CVarManager.h>
+#include <core_http/HttpClient.h>
 #include <core_debug/BenchmarkRecorder.h>
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
@@ -144,6 +145,185 @@ namespace Orkige
 				return &Ease::linear;
 			}
 			return ease;
+		}
+		//! @brief the HTTP answer as the bounded table a script's onComplete
+		//! receives: the scalars a game reads plus `headers` as one nested
+		//! table (the payload model's one level of nesting, no deeper)
+		ScriptEventPayload httpResponsePayload(HttpClientResponse const & response)
+		{
+			ScriptEventPayload payload;
+			payload.setBool("ok", response.ok());
+			payload.setNumber("status", static_cast<double>(response.status));
+			payload.setString("body", response.body);
+			payload.setString("path", response.savedPath);
+			payload.setNumber("bytes", static_cast<double>(response.bytes));
+			payload.setString("url", response.finalUrl);
+			// "" when the exchange completed - a script tests `if res.ok`, and
+			// reads `res.error` for the failure token when it did not
+			payload.setString("error", response.failure == HF_NONE
+				? String() : httpFailureName(response.failure));
+			payload.setString("reason", response.reason);
+			ScriptEventField headers;
+			headers.isTable = true;
+			for (std::map<String, String>::const_iterator at =
+				response.headers.begin(); at != response.headers.end(); ++at)
+			{
+				headers.table.push_back(std::make_pair(
+					ScriptEventKey::named(at->first),
+					ScriptEventScalar::makeString(at->second)));
+			}
+			payload.fields.push_back(std::make_pair(
+				ScriptEventKey::named("headers"), headers));
+			return payload;
+		}
+		//! wrap a script onComplete closure as the client's completion callback
+		HttpCompleteCallback wrapScriptHttpComplete(ScriptCallback const & callback)
+		{
+			if (!callback.valid())
+			{
+				return HttpCompleteCallback();
+			}
+			return [callback](HttpClientResponse const & response)
+			{
+				String error;
+				if (!callback.invokePayload(httpResponsePayload(response),
+					&error))
+				{
+					EngineLogCapture::logError(
+						"http onComplete: SCRIPT ERROR - " + error);
+				}
+			};
+		}
+		//! wrap a script onProgress closure (received, total)
+		HttpProgressCallback wrapScriptHttpProgress(ScriptCallback const & callback)
+		{
+			if (!callback.valid())
+			{
+				return HttpProgressCallback();
+			}
+			return [callback](unsigned long long received,
+				unsigned long long total)
+			{
+				float values[2] =
+				{
+					static_cast<float>(received), static_cast<float>(total)
+				};
+				bool requestedStop = false;
+				String error;
+				if (!callback.invokeNumbers(values, 2, &requestedStop, &error))
+				{
+					EngineLogCapture::logError(
+						"http onProgress: SCRIPT ERROR - " + error);
+				}
+			};
+		}
+		//! @brief a boolean option out of an options table. The seam hands
+		//! scalars over in their canonical STRING form (a Lua boolean arrives
+		//! as "1"/"0"), so both spellings are accepted and anything else keeps
+		//! the default.
+		bool optionFlag(ScriptValueMap const & options, char const * key,
+			bool fallback)
+		{
+			if (!options.has(key))
+			{
+				return fallback;
+			}
+			String const & value = options.get(key);
+			if (value == "1" || value == "true")	{ return true; }
+			if (value == "0" || value == "false")	{ return false; }
+			return fallback;
+		}
+		//! @brief fill a request from the `http.request{...}` options table.
+		//! Every field is optional except `url`; a header is authored the way
+		//! HTTP writes it, `headers = { "Authorization: Bearer ..." }`.
+		void httpRequestFromOptions(ScriptValueMap const & options,
+			HttpClientRequest & request)
+		{
+			if (options.has("url"))			{ request.url = options.get("url"); }
+			if (options.has("method"))		{ request.method = options.get("method"); }
+			if (options.has("body"))		{ request.body = options.get("body"); }
+			if (options.has("contentType"))	{ request.contentType = options.get("contentType"); }
+			if (options.has("savePath"))	{ request.savePath = options.get("savePath"); }
+			if (options.has("timeout"))
+			{
+				// seconds in the script surface (the unit a game thinks in),
+				// milliseconds in the C++ one
+				const double seconds = std::atof(options.get("timeout").c_str());
+				request.timeoutMs = seconds > 0.0
+					? static_cast<unsigned int>(seconds * 1000.0) : 0u;
+			}
+			if (options.has("maxBytes"))
+			{
+				const double bytes = std::atof(options.get("maxBytes").c_str());
+				if (bytes > 0.0)
+				{
+					request.maxResponseBytes =
+						static_cast<unsigned long long>(bytes);
+				}
+			}
+			request.allowInsecureHttp = optionFlag(options, "allowInsecureHttp",
+				request.allowInsecureHttp);
+			request.followRedirects = optionFlag(options, "followRedirects",
+				request.followRedirects);
+			if (options.has("maxRedirects"))
+			{
+				const double count =
+					std::atof(options.get("maxRedirects").c_str());
+				request.maxRedirects = count >= 0.0
+					? static_cast<unsigned int>(count) : 0u;
+			}
+			std::map<String, StringVector>::const_iterator headers =
+				options.lists.find("headers");
+			if (headers != options.lists.end())
+			{
+				for (std::size_t at = 0; at < headers->second.size(); ++at)
+				{
+					String const & line = headers->second[at];
+					const std::size_t colon = line.find(':');
+					if (colon == String::npos)
+					{
+						EngineLogCapture::logError("http: the header '" + line +
+							"' is not 'Name: value'");
+						continue;
+					}
+					String value = line.substr(colon + 1);
+					while (!value.empty() &&
+						(value[0] == ' ' || value[0] == '\t'))
+					{
+						value.erase(0, 1);
+					}
+					request.headers.push_back(
+						std::make_pair(line.substr(0, colon), value));
+				}
+			}
+		}
+		//! @brief submit a request built by the `http` table, owner-tagged with
+		//! the calling sandbox so its answer never lands in a dead one
+		double httpSubmit(HttpClientRequest const & request,
+			ScriptCallback const & onComplete, ScriptCallback const & onProgress,
+			char const * what)
+		{
+			if (!HttpClient::getSingletonPtr())
+			{
+				// no client in this host (the editor never makes one)
+				EngineLogCapture::logError(String("http.") + what +
+					": no HTTP client in this runtime");
+				return 0.0;
+			}
+			if (!onComplete.valid())
+			{
+				EngineLogCapture::logError(String("http.") + what +
+					": an onComplete function is required - a request whose "
+					"answer nobody reads does nothing");
+				return 0.0;
+			}
+			// the sandbox that called us owns the request: when it is torn down
+			// (component removed, scene switched, hot-reloaded) its pending
+			// requests retire silently, exactly like its timers
+			void const * owner = ScriptEventBus::getSingleton().currentOwner();
+			return static_cast<double>(HttpClient::getSingleton().submit(request,
+				wrapScriptHttpComplete(onComplete),
+				wrapScriptHttpProgress(onProgress), owner));
 		}
 		//! wrap a script onUpdate closure as the core apply callback: a
 		//! script error cancels the tween (logged once, no per-frame spam);
@@ -2096,6 +2276,99 @@ namespace Orkige
 		{
 			return GameState::getSingletonPtr()
 				? GameState::getSingleton().get() : String();
+		});
+
+		// ================= THE `http` TABLE (web requests) =================
+		// Talking to a web service - a leaderboard, remote config, a backend
+		// API, an asset download. ASYNC ALWAYS: a call returns a request id
+		// immediately and the answer arrives in onComplete at a frame boundary,
+		// so a slow server can never stall a frame.
+		//   http.get(url, onComplete [, onProgress])
+		//   http.post(url, body, contentType, onComplete [, onProgress])
+		//   http.download(url, savePath, onComplete [, onProgress])
+		//   http.request{ url=..., method=..., body=..., contentType=...,
+		//                 savePath=..., timeout=<seconds>, maxBytes=...,
+		//                 headers={ "Authorization: Bearer x" },
+		//                 allowInsecureHttp=..., followRedirects=...,
+		//                 maxRedirects=...,
+		//                 onComplete=function(res) end,
+		//                 onProgress=function(received, total) end }
+		//   http.cancel(id) / http.isAvailable() / http.pending()
+		// onComplete receives ONE table: ok, status, body, path, bytes, url,
+		// error (a token, "" when the exchange completed), reason, headers.
+		// An HTTP status is NOT a failure - a 404 arrives with ok=false and
+		// status=404, while a refusal (no https, a bad URL, a timeout, the size
+		// cap) arrives with ok=false and error naming it.
+		// SECURE BY DEFAULT: https, certificates verified by the platform, no
+		// https->http redirect, a per-request timeout and a response cap.
+		// A plain http:// URL needs allowInsecureHttp=true (a local dev
+		// service). Honest no-op without an HTTP client (the editor makes none)
+		// and in a build without one (isAvailable() says so).
+		// A request is owned by the sandbox that made it: when that sandbox goes
+		// away its pending requests retire silently, like its timers.
+		runtime.registerFunction("http", "get",
+			[](String const & url, ScriptArgs args) -> double
+		{
+			HttpClientRequest request;
+			request.url = url;
+			return httpSubmit(request, ScriptCallback::fromArgs(args, 0),
+				ScriptCallback::fromArgs(args, 1), "get");
+		});
+		runtime.registerFunction("http", "post",
+			[](String const & url, String const & body, String const & contentType,
+				ScriptArgs args) -> double
+		{
+			HttpClientRequest request;
+			request.url = url;
+			request.method = "POST";
+			request.body = body;
+			request.contentType = contentType;
+			return httpSubmit(request, ScriptCallback::fromArgs(args, 0),
+				ScriptCallback::fromArgs(args, 1), "post");
+		});
+		runtime.registerFunction("http", "download",
+			[](String const & url, String const & savePath,
+				ScriptArgs args) -> double
+		{
+			HttpClientRequest request;
+			request.url = url;
+			request.savePath = savePath;
+			return httpSubmit(request, ScriptCallback::fromArgs(args, 0),
+				ScriptCallback::fromArgs(args, 1), "download");
+		});
+		runtime.registerFunction("http", "request",
+			[](ScriptArgs args) -> double
+		{
+			ScriptValueMap options;
+			if (!ScriptRuntime::tableArg(args, 0, options))
+			{
+				EngineLogCapture::logError("http.request: expected one options "
+					"table - http.request{ url = '...', onComplete = f }");
+				return 0.0;
+			}
+			HttpClientRequest request;
+			httpRequestFromOptions(options, request);
+			return httpSubmit(request,
+				ScriptRuntime::callbackFromTableField(args, 0, "onComplete"),
+				ScriptRuntime::callbackFromTableField(args, 0, "onProgress"),
+				"request");
+		});
+		runtime.registerFunction("http", "cancel", [](double id) -> bool
+		{
+			return HttpClient::getSingletonPtr() && id > 0.0 &&
+				HttpClient::getSingleton().cancel(
+					static_cast<HttpRequestId>(id));
+		});
+		runtime.registerFunction("http", "isAvailable", []() -> bool
+		{
+			return HttpClient::getSingletonPtr() != NULL &&
+				HttpClient::getSingleton().available();
+		});
+		runtime.registerFunction("http", "pending", []() -> double
+		{
+			return HttpClient::getSingletonPtr()
+				? static_cast<double>(
+					HttpClient::getSingleton().getPendingCount()) : 0.0;
 		});
 	}
 	//---------------------------------------------------------

@@ -48,6 +48,13 @@ add_executable(orkige_engine_tests
     PakMountTests.cpp
 )
 
+if(ORKIGE_HTTP)
+    # the Lua `http` table against the tree's own loopback HttpServer: real
+    # Lua, real client, no network. Off in a build without an HTTP client,
+    # where the table's refusals are HttpClientTests' business instead.
+    target_sources(orkige_engine_tests PRIVATE HttpScriptTests.cpp)
+endif()
+
 # the small zip PakMountTests reads through MiniZip: one STORED entry, two
 # DEFLATE (incl. a nested path). Built once at configure with the stdlib
 # zipfile so the test exercises real STORED + DEFLATE decoding headlessly.
