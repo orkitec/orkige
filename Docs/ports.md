@@ -283,6 +283,28 @@ Patches (the same Xcode-oriented-CMake class as classic's ios/metal patches):
   in-shader `sqrt` encode (`!hw_gamma_write`) on non-sRGB targets. HlmsUnlit
   is deliberately untouched (its raw passthrough IS the 2D parity
   convention).
+- `hlms-tls-init-symbol-visibility.patch` - upstream candidate. `Hlms::msThreadId`
+  is a `thread_local` static member declared in `OgreHlms.h` and defined,
+  constant-initialized, in `OgreHlms.cpp`. A translation unit that sees only the
+  declaration cannot know the initialization is constant, so it emits the Itanium
+  ABI thread-local access wrapper `_ZTW...`, which weakly references the
+  thread-local init function `_ZTHN4Ogre4Hlms10msThreadIdE` - a symbol a
+  constant-initialized variable never defines anywhere. Resolving that dangling
+  weak reference to zero needs a GOT entry, which clang only emits for a symbol
+  that may bind externally; `OGRE_SHADER_THREADING_USE_TLS` is a static-build-only
+  setting and `_OgreExport` is `visibility("hidden")` there, so clang instead
+  addresses the symbol directly and the object carries
+  `R_X86_64_PC32 _ZTHN4Ogre4Hlms10msThreadIdE`, which GNU ld refuses to link into
+  a PIE. Only optimized builds hit it: unoptimized ones leave the reference inside
+  the wrapper's own COMDAT section, which the linker discards in favour of the
+  clean copy `OgreHlms.cpp` contributes, while inlining moves it into ordinary
+  `.text` where it survives to the final link. GCC uses the GOT here regardless,
+  and AArch64 does too, so the failure is clang-on-x86-64 only - which is exactly
+  the Release Linux configuration. The patch declares the member with explicit
+  default visibility, restoring the GOT indirection every other configuration
+  already uses. The generated code is otherwise unchanged; the linker relaxes the
+  resulting general-dynamic TLS access back to local-exec because the variable is
+  defined in the executable.
 
 Debug/release note: vcpkg ships ONE header tree for both configs, but
 ogre-next's generated `OgreBuildSettings.h` bakes `OGRE_DEBUG_MODE` per build

@@ -28,6 +28,7 @@ vcpkg_from_github(
         lib-install-path.patch                    # iOS + Windows: keep the standard vcpkg bin/lib layout (upstream installs into per-config lib/Release-style subdirs there, plugins under /opt on Windows)
         freeimage-codec-gate-unity-list.patch     # the unity SEPARATE list force-compiles OgreFreeImageCodec2.cpp into OgreMain even with the codec disabled - fatal on the FreeImage-less mobile platforms
         pbs-honour-non-srgb-target.patch          # HlmsPbs assumed an sRGB colour target unconditionally (hw_gamma_write hardcoded 1); derive it from the live pass descriptor so linear lighting gamma-encodes in-shader on UNORM swapchains (upstream candidate)
+        hlms-tls-init-symbol-visibility.patch     # Hlms::msThreadId is hidden in a static build, so clang addresses its never-defined TLS init function directly instead of through the GOT; the resulting relocation is unlinkable into an x86-64 PIE once optimization inlines the access wrapper (upstream candidate)
 
 )
 
