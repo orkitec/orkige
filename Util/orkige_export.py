@@ -354,6 +354,26 @@ def apply_ios_orientation(info, settings):
     return info
 
 
+# App Transport Security. iOS blocks plain-http loads unless the bundle declares
+# otherwise, which would silently defeat the engine HTTP client's per-request
+# cleartext opt-in - whose real use is a game pointed at a service on the
+# developer's own machine. NSAllowsLocalNetworking permits cleartext to loopback,
+# .local names and LAN literal addresses and NOTHING else, so the opt-in works
+# where it is meant to. NSAllowsArbitraryLoads stays out: it opens cleartext to
+# the whole internet and carries a review justification a game does not have.
+def app_transport_security():
+    """the NSAppTransportSecurity dict every exported iOS bundle carries (pure,
+    so the selftest validates the exact declaration without packaging an app)."""
+    return {"NSAllowsLocalNetworking": True}
+
+
+def apply_app_transport_security(info):
+    """write NSAppTransportSecurity onto an Info.plist dict. Shared by the
+    simulator + device plist rewrites (and exercised directly by the selftest)."""
+    info["NSAppTransportSecurity"] = app_transport_security()
+    return info
+
+
 def write_marker(directory):
     with open(os.path.join(directory, PROJECT_MARKER_FILE_NAME), "w",
               newline="\n") as marker:
@@ -1006,6 +1026,7 @@ def export_ios_simulator(project, engine_build, output_dir):
         "CFBundleIconFiles": [name[:-4] for name in icon_files]}}
     info.setdefault("UILaunchScreen", {})  # native full-resolution launch
     apply_ios_orientation(info, project.settings)
+    apply_app_transport_security(info)
     with open(plist_path, "wb") as handle:
         plistlib.dump(info, handle)
     log("bundle id %s" % info["CFBundleIdentifier"])
@@ -1166,6 +1187,7 @@ def build_signed_ios_bundle(project, source_app, output_dir, identity, profile,
         "CFBundleIconFiles": [name[:-4] for name in icon_files]}}
     info.setdefault("UILaunchScreen", {})
     apply_ios_orientation(info, project.settings)
+    apply_app_transport_security(info)
     with open(plist_path, "wb") as handle:
         plistlib.dump(info, handle)
 
@@ -1809,6 +1831,26 @@ def selftest():
         assert reloaded["UISupportedInterfaceOrientations"] == expected, \
             "ios plist orientation '%s'" % value
         assert reloaded["UILaunchScreen"] == {}, "orientation keeps other keys"
+
+    # App Transport Security: every iOS bundle allows cleartext to the local
+    # network (loopback/.local/LAN) so the HTTP client's per-request opt-in
+    # reaches a service on the developer's machine - and NOTHING more, so an
+    # arbitrary-loads escalation is a test failure. Asserted through a plistlib
+    # round-trip (the serialization the plist rewrites ship).
+    assert app_transport_security() == {"NSAllowsLocalNetworking": True}, \
+        "exactly the local-networking exception"
+    info = apply_app_transport_security({"UILaunchScreen": {}})
+    reloaded = plistlib.loads(plistlib.dumps(info))
+    ats = reloaded["NSAppTransportSecurity"]
+    assert ats["NSAllowsLocalNetworking"] is True, \
+        "cleartext to the local network is permitted"
+    assert "NSAllowsArbitraryLoads" not in ats, \
+        "arbitrary cleartext loads stay blocked"
+    assert list(ats) == ["NSAllowsLocalNetworking"], \
+        "no other transport-security exception"
+    assert reloaded["UILaunchScreen"] == {}, \
+        "transport security keeps other keys"
+
     # the Android manifest injection the packagers apply (the same portable sed),
     # asserted well-formed with screenOrientation ahead of configChanges
     manifest_template = os.path.join(

@@ -6,8 +6,10 @@ Docs/api/build/
 # native project modules build in-place, per render flavor (compile-on-Play:
 # native/build-<flavor>; the exporter: native/build-export-<flavor>)
 projects/*/native/build*/
-# project export outputs (Util/orkige_export.py): packaged artifacts
+# project export outputs (Util/orkige_export.py): packaged artifacts - the
+# fixture projects export too (the device tests package and install them)
 projects/*/builds/
+tests/projects/*/builds/
 __pycache__/
 .claude/
 

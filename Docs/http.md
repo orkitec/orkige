@@ -105,6 +105,12 @@ failed, capped or cancelled download never leaves a truncated file where a good
 one was — the write plumbing is `core_filesystem/FileWriter`, the write side of
 the [filesystem funnel](filesystem.md).
 
+Give `savePath` an ABSOLUTE path inside a directory the app may write. A mobile
+app's working directory is not one — a relative path there resolves somewhere
+read-only and the request refuses with `bad-save-path` before a byte is
+fetched, which is the honest answer but an easy one to trip over when a desktop
+run of the same code worked.
+
 On the web the whole body is buffered first and written once: the browser's
 fetch API hands a wasm module no incremental file sink. The cap still applies.
 
@@ -160,6 +166,27 @@ is set, or when the build has no client, and fails only when a server WAS
 reached and the result was wrong — so a missing network never turns it red.
 Override the endpoint with `ORKIGE_HTTP_NETWORK_URL`.
 
+### The mobile runtime proof
+
+A desktop suite proves the desktop transports. The mobile ones are different
+code against different platform rules, so they get their own runs: the
+`http_device_android` and `http_device_ios` tests export a real project as a
+real app, install it on an emulator/simulator/device and let the GAME make the
+requests, against a loopback server on the host (Android reaches it through
+`adb reverse`; a simulator app shares the host loopback). They assert the same
+contract as the desktop suite — status, headers, POST body, progress, the cap,
+the timeout, cancellation, byte-exact save-to-file, the https-to-plain refusal —
+plus the two things only a device can answer: that the platform's own cleartext
+gate lets the `allowInsecureHttp` opt-in through, and that a real certificate
+chain verifies against the device's trust store. Both skip (exit 77) when no
+device is attached and the prerequisite app is not built; neither ever turns a
+real failure into a skip.
+
+On a device the platform log is the only channel a run reports through, so the
+app host bridges the process's stdio into it at boot — `adb logcat -s orkige`
+shows the engine's diagnostics and a script's `print` on Android, which is how
+these tests read their verdicts.
+
 ## The transports
 
 One backend per platform behind `HttpBackend`, selected in CMake so no call
@@ -170,38 +197,126 @@ convention).
 | Platform | Transport | Certificate trust | New dependency |
 | --- | --- | --- | --- |
 | macOS, iOS | `NSURLSession` (`HttpBackendApple.mm`) | system keychain | none |
+| Android | the platform's own HTTP stack over JNI (`HttpBackendAndroid.cpp` + `OrkigeHttp.java`) | device trust anchors, filtered by the app's network security config | none |
 | Windows | libcurl + Schannel (`HttpBackendCurl.cpp`) | Windows cert store | libcurl |
-| Linux, Android | libcurl + OpenSSL (same TU) | system CA store | libcurl + OpenSSL |
+| Linux | libcurl + OpenSSL (same TU) | system CA store | libcurl + OpenSSL |
 | web (wasm) | the page's `fetch` (`HttpBackendFetch.cpp`) | the browser's | none |
 | `ORKIGE_HTTP=OFF` | none (`HttpBackendNone.cpp`) | — | none |
 
-Why not one library everywhere: current libcurl has no Apple-native TLS
-backend, so a curl build on macOS/iOS would need OpenSSL, and OpenSSL on Apple
-platforms has no trust anchors — the engine would have to ship and maintain its
-own CA bundle. The platform's own stack verifies against the keychain, adds
-nothing to the binary, and is what the App Store expects an app to use. A wasm
-module has no sockets at all, so the page's fetch is the only road out. Windows
-and Linux/Android share one curl TU because curl reaches the platform trust
-store on both (Schannel and the OpenSSL CA store).
+Why not one library everywhere: certificate verification has to go through the
+trust store the PLATFORM maintains, and on the two mobile platforms a bundled
+library cannot see all of it.
+
+- Current libcurl has no Apple-native TLS backend, so a curl build on
+  macOS/iOS would need OpenSSL, and OpenSSL on Apple platforms has no trust
+  anchors — the engine would have to ship and maintain its own CA bundle. The
+  platform's own stack verifies against the keychain, adds nothing to the
+  binary, and is what the App Store expects an app to use.
+- On Android the device's trust decisions are not a directory of public roots.
+  They are the system anchors PLUS whatever a managed device or a developer has
+  installed, filtered by the app's own **network security config** — and that
+  config is enforced by the platform's HTTP stack, not by the socket layer. A
+  library reading `/system/etc/security/cacerts` sees none of it: it would
+  quietly ignore a config that says "do not talk cleartext", quietly miss an
+  enterprise anchor, and quietly bypass the device's proxy settings. Driving the
+  platform stack over JNI gets all three right, and drops both libcurl and
+  OpenSSL out of the APK entirely.
+- A wasm module has no sockets at all, so the page's fetch is the only road out.
+- Windows and Linux share one curl TU because curl reaches the platform trust
+  store on both (Schannel and the OpenSSL CA store).
 
 Threading is each backend's own business, hidden behind the seam: the curl
 backend owns one worker thread and one curl multi handle, `NSURLSession` uses
-its own queues, and the browser backend has no thread at all. All three publish
-results only through the same mutex-guarded event queue that `update()` drains —
-the discipline the physics contact queue uses.
+its own queues, the Android backend runs one attached worker thread per transfer,
+and the browser backend has no thread at all. All of them publish results only
+through the same mutex-guarded event queue that `update()` drains — the
+discipline the physics contact queue uses.
 
-### Platform behaviour worth knowing
+### The Android transport in detail
 
-- **iOS/macOS**: App Transport Security is a second gate in front of ours. In a
-  bundled app a plain-http load to a remote host is refused by the OS even with
-  `allowInsecureHttp` set (loopback works). Ask for https.
-- **Android**: the system trust anchors are a hashed PEM directory
-  (`/system/etc/security/cacerts`), which the curl backend points at.
-- **web**: the browser owns redirects and CORS. A cross-origin request needs the
-  server's CORS headers, and the browser deliberately does not say WHY a request
-  failed (that would be a probing oracle) — the reason is honest about that.
-  Blocked mixed content surfaces as a failed request, which is the same verdict
-  our own downgrade rule reaches.
+The Java half (`core_http/OrkigeHttp.java`, packaged into the APK beside the
+window toolkit's own glue) performs ONE exchange per call and streams the
+response back through native callbacks; the C++ half owns everything else.
+
+- **The policy stays above the transport.** The platform is told *not* to follow
+  redirects, so every hop comes back to `HttpPolicy::resolveRedirect` — the rule
+  that a secure request can never be redirected onto a plain one has one
+  implementation for every platform, not one per backend.
+- **The size cap, the whole-request deadline and the save-to-file funnel** are
+  enforced in the native half, from the same callbacks that carry the body: the
+  announced size is refused before the first body byte, and a stream that
+  outlives its deadline is stopped between chunks. (The platform's own timeouts
+  bound a connect and a single read, which is not the same promise.)
+- **The TLS floor is pinned in Java**, by narrowing each socket's enabled
+  protocols on top of the platform's own factory — so the trust anchors, the
+  network security config and any certificate pinning the device applies all
+  still hold, and only the protocol versions are restricted.
+- **No ambient identity**: caches are off per connection and per default, and
+  no cookie handler is installed.
+- **Cancellation** unblocks a transfer waiting on the network (the connection is
+  disconnected from the cancelling thread) as well as stopping it between chunks.
+- The process's Java VM reaches the transport through one registration seam
+  (`core_http/HttpAndroid.h`), which the app host fills in at boot. A host that
+  registers none gets a transport that refuses with a reason — never a crash.
+
+What it does NOT do, stated rather than discovered: a request body is sent as
+one buffer, so there is no streaming UPLOAD of a large file (downloads stream);
+and each transfer costs its own thread, which suits a game making a handful of
+requests and would want a pool if one ever made hundreds.
+
+### The mobile cleartext gates
+
+Both mobile platforms have a policy of their own in front of this one, and both
+of them block plain http by default. That is the same verdict our policy
+reaches, so the two agree — until a caller sets `allowInsecureHttp` for a
+service on their own machine, at which point a platform that still says no turns
+a deliberate choice into a mystery. Each export therefore ships the NARROWEST
+declaration that permits exactly the localhost/LAN case and nothing else.
+
+- **iOS**: App Transport Security. Every iOS `Info.plist` the exporter writes
+  carries `NSAppTransportSecurity` with **`NSAllowsLocalNetworking`** — which
+  covers loopback, `.local` and LAN literal addresses. `NSAllowsArbitraryLoads`
+  is deliberately NOT emitted: it opens cleartext to the whole internet and is
+  an App Store review question. A plain-http request to a REMOTE host is still
+  refused by the OS whatever the caller opted into, and the refusal arrives as a
+  normal failed request with the system's own reason in `reason`.
+- **Android**: the app's network security config. Every APK and App Bundle
+  ships `res/xml/orkige_network_security.xml` and names it from the manifest:
+  cleartext is permitted for `localhost`, `127.0.0.1`, `::1` and `10.0.2.2`
+  (the address an emulator reaches its host on) and refused everywhere else,
+  the base config trusts the system anchors only, and a **debuggable** build
+  additionally trusts user-installed certificates so a developer's own proxy or
+  local certificate authority works during development. A shipped game keeps
+  the system anchors. Without this file the platform answers a loopback request
+  with `Cleartext HTTP traffic to 127.0.0.1 not permitted` — an honest message,
+  but only because the platform stack is the one enforcing it.
+- A game that genuinely needs a plain-http host beyond these edits its own copy
+  of the declaration. The engine will not widen the default for it.
+
+`android.permission.INTERNET` is in the player manifest and in every exported
+one: without it every request — including one to loopback — fails at the socket.
+
+### Other platform behaviour worth knowing
+
+- **web**: the browser owns redirects and CORS, and **CORS is a real constraint
+  rather than a bug to route around**. A browser build can only read a response
+  from another origin if THAT server opts in with `Access-Control-Allow-Origin`
+  (and, for anything beyond a simple request, answers the preflight `OPTIONS`
+  with the matching `Access-Control-Allow-Headers`/`-Methods`). A custom request
+  header — an `Authorization: Bearer …` among them — turns a simple request into
+  a preflighted one, so a server that works for the desktop build can still
+  refuse the same call from the web build. Nothing in the engine can change
+  that: the check is the browser's and it happens before our code sees an
+  answer. The browser also deliberately does not say WHY a cross-origin request
+  failed (that would be a probing oracle), so the failure arrives as a generic
+  transport error and the `reason` says so instead of inventing a cause. Plan
+  for it: serve the game and its API from one origin, or make the API send the
+  headers. Blocked mixed content surfaces as a failed request, which is the same
+  verdict our own downgrade rule reaches. Everything else on this page holds:
+  the policy refusals are identical (they are the same pure code), an HTTP
+  status is still an answer, the cap and the timeout are still enforced, and
+  `savePath` still works — the whole body is buffered first and written once,
+  because the fetch API hands a wasm module no incremental file sink.
 - **Compression**: transparent content encoding is the platform's default
   behaviour, so a `total` may be absent or refer to the encoded size on some
   transports. Treat `total == 0` as "unknown", which a progress bar must handle
@@ -268,10 +383,8 @@ request refuses with a reason that names the option — the lever for a
 size-constrained target whose game never calls out.
 
 The weight is asymmetric, which is why the option exists at all rather than
-being on by decree: on macOS, iOS, Windows-with-Schannel and the web there is
-no new third-party library, only a system stack (Windows adds libcurl itself,
-~half a megabyte of static code). Linux and Android are the ones that pay,
-pulling libcurl plus OpenSSL into the closure; on Android that is the only
-place the option is likely to matter for a shipping APK. If it ever does, the
-principled fix is a JNI backend over the platform's own HTTP stack behind this
-same seam — one more file beside the other four, with no change above it.
+being on by decree: on macOS, iOS, Android and the web there is no third-party
+library at all, only a system stack. Windows adds libcurl itself (~half a
+megabyte of static code) and Linux adds libcurl plus OpenSSL — the two desktop
+platforms, where the size hardly matters. Neither mobile platform pays anything
+for having a network client, which is the point of driving each one's own stack.

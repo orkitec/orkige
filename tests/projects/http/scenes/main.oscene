@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<XMLArchive Version="0">
+    <String value="orkige.oscene"/>
+    <int value="7"/>
+    <unsigned_int value="1"/>
+    <String value="Probe"/>
+    <String value=""/>
+    <bool value="1"/>
+    <unsigned_int value="0"/>
+    <String value=""/>
+    <unsigned_int value="1"/>
+    <String value="httpcheck"/>
+    <ScriptComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <unsigned_int value="2"/>
+        <String value="script"/>
+        <int value="8"/>
+        <String value="scripts/httpcheck.component.lua"/>
+        <String value=""/>
+        <String value="enabled"/>
+        <int value="2"/>
+        <String value="1"/>
+        <String value=""/>
+    </ScriptComponent>
+</XMLArchive>

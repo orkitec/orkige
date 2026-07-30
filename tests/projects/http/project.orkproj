@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OrkigeProject version="1">
+    <Name>HttpDevice</Name>
+    <MainScene>scenes/main.oscene</MainScene>
+    <Settings>
+        <!-- THE one definition of the loopback endpoint this run talks to.
+             The script reads it as a cvar (an unregistered manifest cvar is
+             held as a pending override until the script registers the name),
+             and the host driver parses this same manifest to learn which port
+             to serve on - so the port lives in exactly one file.
+             127.0.0.1 reaches the host from an iOS Simulator app directly (it
+             shares the host loopback) and from an Android device through
+             'adb reverse tcp:45411 tcp:45411'. -->
+        <Setting key="cvar.httpdevice.baseUrl" value="http://127.0.0.1:45411"/>
+        <!-- a package/bundle id of its own, so installing this fixture never
+             collides with the player or another project on the device -->
+        <Setting key="export.android.package" value="com.orkitec.orkigehttpdevice"/>
+        <Setting key="export.ios.bundleId" value="com.orkitec.orkigehttpdevice"/>
+    </Settings>
+</OrkigeProject>

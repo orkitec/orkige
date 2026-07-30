@@ -157,9 +157,21 @@ if [ -n "$TARGET_SDK" ] && [ "$TARGET_SDK" -lt "$PLAY_TARGET_SDK_FLOOR" ]; then
 fi
 
 # --- step 2: aapt2 link --proto-format ------------------------------------
-RES_LINK=()
+# Every bundle carries res/xml/orkige_network_security.xml, which the manifest
+# names: the platform's cleartext and trust-anchor policy has to agree with the
+# engine's own HTTP policy rather than silently overrule it (see that file and
+# Docs/http.md). --res-dir adds the launcher icon + launch theme on top.
+HAVE_LAUNCHER_RES=""
 if [ -n "$RES_DIR" ]; then
+    HAVE_LAUNCHER_RES="1"
     [ -d "$RES_DIR" ] || fail "no res dir at $RES_DIR"
+else
+    RES_DIR="$WORK/res"
+    mkdir -p "$RES_DIR"
+fi
+mkdir -p "$RES_DIR/xml"
+cp "$SCRIPT_DIR/res/xml/orkige_network_security.xml" "$RES_DIR/xml/"
+if [ -n "$HAVE_LAUNCHER_RES" ]; then
     echo "$LAUNCH_COLOR" | grep -Eq '^#[0-9A-Fa-f]{6}$' \
         || fail "launch-color '$LAUNCH_COLOR' is not #RRGGBB"
     mkdir -p "$RES_DIR/values"
@@ -177,10 +189,10 @@ EOF
     </style>
 </resources>
 EOF
-    echo "== aapt2 compile (res)"
-    "$BUILD_TOOLS/aapt2" compile --dir "$RES_DIR" -o "$WORK/res.zip"
-    RES_LINK=("$WORK/res.zip")
 fi
+echo "== aapt2 compile (res)"
+"$BUILD_TOOLS/aapt2" compile --dir "$RES_DIR" -o "$WORK/res.zip"
+RES_LINK=("$WORK/res.zip")
 echo "== aapt2 link --proto-format"
 "$BUILD_TOOLS/aapt2" link --proto-format \
     --manifest "$MANIFEST" \

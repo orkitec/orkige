@@ -247,6 +247,15 @@ def check_ios(app_dir, flavor):
             "loose AppIcon*.png at the bundle root")
     require(info.get("CFBundleIdentifier") != "com.orkitec.orkige-player",
             "CFBundleIdentifier rewritten off the generic player identity")
+    # App Transport Security: cleartext reaches the local network only, so the
+    # HTTP client's per-request opt-in works against a service on the
+    # developer's machine while arbitrary cleartext stays blocked (see
+    # app_transport_security() in the exporter)
+    ats = info.get("NSAppTransportSecurity", {})
+    require(ats.get("NSAllowsLocalNetworking") is True,
+            "Info.plist allows cleartext to the local network")
+    require("NSAllowsArbitraryLoads" not in ats,
+            "Info.plist does not open arbitrary cleartext loads")
     # the privacy manifest: every iOS bundle carries a parseable
     # PrivacyInfo.xcprivacy declaring no tracking and the audited
     # required-reason API categories (see privacy_manifest() in the exporter)

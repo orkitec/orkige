@@ -101,6 +101,14 @@ namespace Orkige
 	//! register the log.<tag> + log.default cvars (idempotent; auto-run at startup)
 	void logInstallCVars();
 
+	//! @brief make the process's stdio streams visible on a platform that
+	//! discards them. A phone app has no terminal: everything written to stdout
+	//! or stderr - this file's own developer channel, a script's print, a
+	//! library's own diagnostics - goes nowhere, which is why a device run
+	//! otherwise looks silent. Called once by the app host at boot; idempotent,
+	//! and a no-op on every platform whose stdio a developer can already read.
+	void logAttachPlatformStdio();
+
 	//! extra log sink: a single optional callback handed every EMITTED (already
 	//! gated) line, for a consumer that surfaces the diagnostic stream in its
 	//! own UI (the editor Console). ONE slot by design - reuse-before-invent, a

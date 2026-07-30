@@ -21,6 +21,13 @@ raise it, live, per tag.
 - **Sinks**: `stderr` (the developer channel the tests grep) and the `LogManager`
   file log (dormant until `startFileLog` opens a file). An `oDebugError` also
   drops a `Breadcrumbs` entry so a hard-crash trail carries the last errors.
+- **On a phone, stderr is the platform log.** A mobile app has no terminal, so
+  anything written to stdout or stderr is discarded before anyone can read it.
+  The app host calls `logAttachPlatformStdio()` at boot, which on Android
+  re-points both streams at the system log: `adb logcat -s orkige` then shows
+  every line this page describes — plus a script's `print` and any library's own
+  output, which travel the same streams. It is a no-op on every platform whose
+  stdio a developer can already read, so nothing about a desktop run changes.
 - **Zero cost when off**: the macros gate on the tag's threshold *before* building
   the message stream, so a disabled call never evaluates its arguments (a single
   relaxed atomic load fast-rejects anything quieter than the loudest active tag).

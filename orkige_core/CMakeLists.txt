@@ -51,14 +51,21 @@ endif()
 #
 #   Apple (macOS/iOS)         NSURLSession  - the system trust store, and no
 #                                             third-party library at all
-#   Windows/Linux/Android     libcurl       - Schannel on Windows, OpenSSL on
-#                                             Linux/Android, http+https only
+#   Android                   the platform's own HTTP stack over JNI - the
+#                                             device's trust anchors INCLUDING
+#                                             user and enterprise ones, the
+#                                             app's network security config and
+#                                             its proxy settings, and no
+#                                             library in the APK at all
+#   Windows/Linux             libcurl       - Schannel on Windows, OpenSSL on
+#                                             Linux, http+https only
 #   wasm                      fetch         - a wasm module has no sockets
 #
 # ORKIGE_HTTP=OFF drops every transport (the seam still compiles, and
 # HttpClient::available() answers false with an honest reason) - the lever for
 # a size-constrained target that ships no networking. See Docs/http.md.
 list(REMOVE_ITEM ORKIGE_CORE_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendAndroid.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendCurl.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendFetch.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendNone.cpp"
@@ -69,6 +76,10 @@ if(ORKIGE_HTTP)
         set(ORKIGE_HTTP_BACKEND "apple")
         list(APPEND ORKIGE_CORE_SOURCES
             "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendApple.mm")
+    elseif(ANDROID)
+        set(ORKIGE_HTTP_BACKEND "android")
+        list(APPEND ORKIGE_CORE_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendAndroid.cpp")
     elseif(EMSCRIPTEN)
         set(ORKIGE_HTTP_BACKEND "fetch")
         list(APPEND ORKIGE_CORE_SOURCES
@@ -116,6 +127,14 @@ if(ORKIGE_HTTP)
     target_compile_definitions(orkige_core PUBLIC ORKIGE_HTTP)
     if(ORKIGE_HTTP_BACKEND STREQUAL "apple")
         target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_APPLE)
+    elseif(ORKIGE_HTTP_BACKEND STREQUAL "android")
+        target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_ANDROID)
+        # the JNI entry points come from the NDK's own libraries, which every
+        # Android link already carries; the Java half (core_http/OrkigeHttp.java)
+        # is packaged into the APK by tools/player/android/package_apk.sh
+        set_source_files_properties(
+            "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendAndroid.cpp"
+            PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
     elseif(ORKIGE_HTTP_BACKEND STREQUAL "fetch")
         target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_FETCH)
         # Emscripten's fetch implementation is opt-in at LINK time; every

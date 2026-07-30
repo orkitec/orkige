@@ -177,6 +177,22 @@ add_test(NAME orkige_device_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(orkige_device_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# mobile HTTP driver self-validation: run_device_http_test.py runs the engine's
+# HTTP client inside a REAL exported app on a device (http_device_android /
+# http_device_ios below). The selftest covers everything that does not need
+# one - every endpoint decision the fixture drives, the verdict-line parser
+# (including that a run without a RESULT line is never a pass), argument
+# handling, and a live loopback round trip on an ephemeral port. It also
+# staleness-gates the single-definition claim: the endpoint lives in the
+# fixture manifest, and the script must read that same cvar without repeating
+# the port. Stdlib-only, headless.
+add_test(NAME http_device_selftest
+    COMMAND python3
+        "${Orkige_SOURCE_DIR}/tests/integration_driver/run_device_http_test.py"
+        --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(http_device_selftest PROPERTIES LABELS unit TIMEOUT 120)
+
 # water surface generator self-validation: make_water_mesh.py builds the shared
 # engine water plane in memory and asserts mesh validity (flat +Y unit plane,
 # UVs present for tangents, 16-bit indices in range), determinism (same seed ->
@@ -2933,6 +2949,52 @@ if(TARGET orkige_player)
         set_tests_properties(export_android_aab PROPERTIES SKIP_RETURN_CODE 77)
     endif()
 
+    # the HTTP client on a REAL mobile runtime. The desktop suite proves the
+    # client's contract in process; these run it inside an exported app on a
+    # device, against a loopback server the driver hosts: status codes, a
+    # response header, a POST echo, progress over a paced multi-hundred-
+    # kilobyte body, the response cap, a timeout, a mid-transfer cancel,
+    # save-to-file (whose bytes the driver reads back OFF the device) and the
+    # whole plain-http/https policy gate - the last one riding on top of each
+    # platform's OWN cleartext gate (iOS app transport security, Android's
+    # network security config), so a packaged app that never declared its
+    # loopback exemption fails it. The app reaches the host directly on a
+    # simulator and through 'adb reverse' on Android, and reports its verdict
+    # lines back over the same channel.
+    # SKIPPED (exit 77) when no device/emulator/simulator is attached or the
+    # platform's player is not built. Once the app has LAUNCHED, no verdict is
+    # a failure - never a skip.
+    set(ORKIGE_DEVICE_HTTP_DRIVER
+        "${Orkige_SOURCE_DIR}/tests/integration_driver/run_device_http_test.py")
+    # the mobile preset trees are flavor-suffixed like the desktop ones (the
+    # export block above computes this too, but only on Apple hosts)
+    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        set(ORKIGE_MOBILE_TREE_SUFFIX "-classic")
+    else()
+        set(ORKIGE_MOBILE_TREE_SUFFIX "")
+    endif()
+    if(UNIX)
+        add_test(NAME http_device_android
+            COMMAND python3 "${ORKIGE_DEVICE_HTTP_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --platform android
+                --engine-build "${Orkige_SOURCE_DIR}/build/android-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/android-httptest"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(http_device_android PROPERTIES
+            SKIP_RETURN_CODE 77)
+    endif()
+    if(APPLE)
+        add_test(NAME http_device_ios
+            COMMAND python3 "${ORKIGE_DEVICE_HTTP_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --platform ios-simulator
+                --engine-build "${Orkige_SOURCE_DIR}/build/ios-simulator-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/ios-httptest"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(http_device_ios PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
+
     # remote-debug contract: the driver spawns a real player on the falling
     # cube scene and asserts hello/hierarchy/select/pause/resume/step/
     # set_property/quit end to end (see player_debug_driver.cpp).
@@ -3144,7 +3206,8 @@ endif()
 # when deploy/device code changed or before handing work over.
 foreach(device_test editor_play_simulator editor_play_simulator_boot
         editor_play_android editor_play_ios_device player_safearea_device
-        player_rotation_android player_rotation_ios)
+        player_rotation_android player_rotation_ios
+        http_device_android http_device_ios)
     if(TEST ${device_test})
         # RESOURCE_LOCK: device tests share one simulator/emulator + adb -
         # they must not run concurrently when the suite runs with -j
@@ -3152,6 +3215,18 @@ foreach(device_test editor_play_simulator editor_play_simulator_boot
             LABELS "integration;device" RESOURCE_LOCK mobile_device)
     endif()
 endforeach()
+
+# the mobile HTTP runs package a whole app, install it and let it drive a
+# dozen network legs (one of them a deliberate timeout) - and the iOS one may
+# have to boot a simulator first. These are the LAST property writes for them,
+# so they are the authoritative timeouts; the driver's own --deadline fails
+# honestly first on a wedged app.
+if(TEST http_device_android)
+    set_tests_properties(http_device_android PROPERTIES TIMEOUT 900)
+endif()
+if(TEST http_device_ios)
+    set_tests_properties(http_device_ios PROPERTIES TIMEOUT 1500)
+endif()
 
 # LaunchServices can abort while registering two copies of the same macOS app
 # bundle concurrently (the desktop presets intentionally run several tests in

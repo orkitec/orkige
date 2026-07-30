@@ -27,6 +27,13 @@
 #include <unordered_map>
 #include <algorithm>
 #include <cctype>
+#ifdef __ANDROID__
+// the platform log, the one diagnostic channel a phone actually shows, and the
+// pipe + thread that carry the process's stdio into it
+#include <android/log.h>
+#include <thread>
+#include <unistd.h>
+#endif
 
 namespace Orkige
 {
@@ -271,6 +278,63 @@ namespace Orkige
 					applyTagCVar(tag, cv.asString());
 				});
 		}
+	}
+	//---------------------------------------------------------------
+	void logAttachPlatformStdio()
+	{
+#ifdef __ANDROID__
+		// A phone app is not attached to a terminal, so everything written to
+		// stdout or stderr is discarded before anyone can read it - the
+		// developer channel above, a script's print, a library's own
+		// diagnostics, all of it. The platform log is the one channel a device
+		// DOES show, and it takes messages rather than a file descriptor, so
+		// the two streams are re-pointed at a pipe whose reading end one thread
+		// drains line by line into it. Line-buffered writes keep a partial line
+		// from being split across two log entries.
+		static bool attached = false;
+		if (attached)
+		{
+			return;
+		}
+		attached = true;
+		static int pipeEnds[2] = { -1, -1 };
+		if (::pipe(pipeEnds) != 0)
+		{
+			return;
+		}
+		std::setvbuf(stdout, NULL, _IOLBF, 0);
+		std::setvbuf(stderr, NULL, _IONBF, 0);
+		::dup2(pipeEnds[1], STDOUT_FILENO);
+		::dup2(pipeEnds[1], STDERR_FILENO);
+		std::thread(
+			[]()
+			{
+				std::string line;
+				char buffer[512];
+				for (;;)
+				{
+					const ssize_t got = ::read(pipeEnds[0], buffer,
+						sizeof(buffer));
+					if (got <= 0)
+					{
+						break;
+					}
+					for (ssize_t at = 0; at < got; ++at)
+					{
+						if (buffer[at] == '\n')
+						{
+							__android_log_write(ANDROID_LOG_INFO, "orkige",
+								line.c_str());
+							line.clear();
+						}
+						else if (line.size() < 4000)
+						{
+							line.push_back(buffer[at]);
+						}
+					}
+				}
+			}).detach();
+#endif
 	}
 	//---------------------------------------------------------------
 	namespace

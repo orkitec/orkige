@@ -183,7 +183,7 @@ echo "== stripping libmain.so"
 "$STRIP" --strip-unneeded -o "$STAGE/lib/$ANDROID_ABI/libmain.so" "$NATIVE_LIB"
 
 # --- Java -> dex ----------------------------------------------------------
-echo "== compiling Java (SDL glue + OrkigeActivity)"
+echo "== compiling Java (SDL glue + OrkigeActivity + the HTTP transport)"
 # -source/-target 8 + -bootclasspath: the only combo javac still accepts a
 # custom bootclasspath for - which is what keeps java.* resolving against
 # android.jar instead of the host JDK. d8 happily consumes Java 8 bytecode.
@@ -194,6 +194,7 @@ echo "== compiling Java (SDL glue + OrkigeActivity)"
     -nowarn \
     "$SDL_JAVA_DIR"/*.java \
     "$SCRIPT_DIR/java/com/orkitec/orkigeplayer/OrkigeActivity.java" \
+    "$REPO_ROOT/orkige_core/core_http/OrkigeHttp.java" \
     2>&1 | (grep -v "deprecat\|source value 8\|target value 8" || true)
 
 echo "== dexing"
@@ -283,15 +284,26 @@ if [ -n "$STAGE_ONLY" ]; then
     exit 0
 fi
 
-# --- resources (launcher icon + launch theme) -----------------------------
-# Compiled only when --res-dir is given (project export). A bare run stays
-# resource-free: the checked-in manifest then keeps the framework theme and no
-# icon, so aapt2 links against no res/.
-RES_LINK=()
+# --- resources ------------------------------------------------------------
+# Every APK carries res/xml/orkige_network_security.xml: the manifest names it,
+# because the platform's cleartext and trust-anchor policy has to agree with
+# the engine's own HTTP policy rather than silently overrule it (see that file
+# and Docs/http.md). --res-dir adds the launcher icon + launch theme on top;
+# without it those references stay out of the manifest and the framework theme
+# is kept.
+HAVE_LAUNCHER_RES=""
 if [ -n "$RES_DIR" ]; then
+    HAVE_LAUNCHER_RES="1"
     [ -d "$RES_DIR" ] || fail "no res dir at $RES_DIR"
-    echo "$LAUNCH_COLOR" | grep -Eq '^#[0-9A-Fa-f]{6}$' \
-        || fail "launch-color '$LAUNCH_COLOR' is not #RRGGBB"
+else
+    RES_DIR="$OUT_DIR/res"
+    mkdir -p "$RES_DIR"
+fi
+mkdir -p "$RES_DIR/xml"
+cp "$SCRIPT_DIR/res/xml/orkige_network_security.xml" "$RES_DIR/xml/"
+echo "$LAUNCH_COLOR" | grep -Eq '^#[0-9A-Fa-f]{6}$' \
+    || fail "launch-color '$LAUNCH_COLOR' is not #RRGGBB"
+if [ -n "$HAVE_LAUNCHER_RES" ]; then
     # generate the launch-screen theme + colour alongside the staged mipmaps
     mkdir -p "$RES_DIR/values"
     cat > "$RES_DIR/values/colors.xml" <<EOF
@@ -308,12 +320,12 @@ EOF
     </style>
 </resources>
 EOF
-    echo "== aapt2 compile (res)"
-    "$BUILD_TOOLS/aapt2" compile --dir "$RES_DIR" -o "$OUT_DIR/res.zip"
-    # compiled resources are a positional link input (not -R, which is for
-    # overlaying an existing table)
-    RES_LINK=("$OUT_DIR/res.zip")
 fi
+echo "== aapt2 compile (res)"
+"$BUILD_TOOLS/aapt2" compile --dir "$RES_DIR" -o "$OUT_DIR/res.zip"
+# compiled resources are a positional link input (not -R, which is for
+# overlaying an existing table)
+RES_LINK=("$OUT_DIR/res.zip")
 
 # --- link + pack ----------------------------------------------------------
 # project export: package name / app label overrides go through a substituted
@@ -323,7 +335,7 @@ fi
 # swapped in ONLY when --res-dir is set (a bare run keeps the resource-free
 # framework theme).
 MANIFEST="$SCRIPT_DIR/AndroidManifest.xml"
-if [ -n "$PACKAGE" ] || [ -n "$LABEL" ] || [ -n "$RES_DIR" ] || [ -n "$ORIENTATION" ]; then
+if [ -n "$PACKAGE" ] || [ -n "$LABEL" ] || [ -n "$HAVE_LAUNCHER_RES" ] || [ -n "$ORIENTATION" ]; then
     MANIFEST="$OUT_DIR/AndroidManifest.xml"
     SED_ARGS=(
         -e "s|package=\"com.orkitec.orkigeplayer\"|package=\"${PACKAGE:-com.orkitec.orkigeplayer}\"|"
@@ -336,13 +348,13 @@ if [ -n "$PACKAGE" ] || [ -n "$LABEL" ] || [ -n "$RES_DIR" ] || [ -n "$ORIENTATI
             -e "s|android:configChanges=|android:screenOrientation=\"$ORIENTATION\" android:configChanges=|"
         )
     fi
-    if [ -n "$RES_DIR" ]; then
+    if [ -n "$HAVE_LAUNCHER_RES" ]; then
         SED_ARGS+=(
             -e "s|android:theme=\"@android:style/Theme.NoTitleBar.Fullscreen\"|android:icon=\"@mipmap/ic_launcher\"\n        android:theme=\"@style/OrkigeLaunch\"|"
         )
     fi
     sed "${SED_ARGS[@]}" "$SCRIPT_DIR/AndroidManifest.xml" > "$MANIFEST"
-    echo "== manifest: package ${PACKAGE:-com.orkitec.orkigeplayer}, label '${LABEL:-Orkige Player}'${RES_DIR:+, launcher icon + launch theme}"
+    echo "== manifest: package ${PACKAGE:-com.orkitec.orkigeplayer}, label '${LABEL:-Orkige Player}'${HAVE_LAUNCHER_RES:+, launcher icon + launch theme}"
 fi
 echo "== aapt2 link"
 "$BUILD_TOOLS/aapt2" link \

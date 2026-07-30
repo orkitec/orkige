@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app's network security configuration, which the platform's HTTP stack
+     applies to every request the engine's HTTP client makes (core_http, see
+     Docs/http.md). It exists so the engine's own https-by-default policy and
+     the platform's agree instead of the platform silently overruling a
+     deliberate opt-in.
+
+     base-config: cleartext nowhere and the system trust anchors only - the
+     shipping default, matching the engine's policy that a plain http:// URL is
+     refused unless a caller explicitly asks for one.
+
+     domain-config: the ONE narrow exception, loopback and the address an
+     emulator reaches its host on. That is exactly the case the client's
+     per-request allowInsecureHttp opt-in exists for - a game pointed at a
+     service on the developer's own machine - and nothing else is opened. A
+     game that needs a plain-http host beyond these adds it here in its own
+     copy of this file; the alternative the platform offers, permitting
+     cleartext everywhere, would make the engine's policy a half-truth.
+
+     debug-overrides: a debuggable build also trusts the user-installed
+     certificates, so a developer's own proxy or local certificate authority
+     works during development. The platform ignores this block in a release
+     build, so a shipped game still verifies against the system anchors. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">::1</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

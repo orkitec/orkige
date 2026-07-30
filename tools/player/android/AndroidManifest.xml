@@ -17,6 +17,7 @@
 
     <application
         android:label="Orkige Player"
+        android:networkSecurityConfig="@xml/orkige_network_security"
         android:debuggable="true"
         android:extractNativeLibs="true"
         android:allowBackup="false"

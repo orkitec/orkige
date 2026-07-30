@@ -22,6 +22,7 @@
 #include "core_debug/CVarManager.h"
 #include "core_debug/LogManager.h"
 #include "core_game/GameObjectManager.h"
+#include "core_http/HttpAndroid.h"
 #include "core_util/ShadowPreset.h"
 #include "core_util/Timer.h"
 #include "core_event/GlobalEventManager.h"
@@ -31,6 +32,10 @@
 #include <algorithm>
 #include <cstdlib>
 #include <functional>
+#ifdef __ANDROID__
+// the process's Java VM handed to the HTTP client below; the NDK ships it
+#include <jni.h>
+#endif
 
 //! the platform window handle Engine::setup embeds into
 //! (engine_util/SDLNativeWindow*.{mm,cpp})
@@ -127,6 +132,25 @@ namespace Orkige
 		// register the window so the Engine can read its content scale and
 		// safe-area insets (SDL_GetWindowDisplayScale / SDL_GetWindowSafeArea)
 		PlatformWindow::setActiveWindow(this->mWindow);
+		// make the process's stdio readable where the platform discards it, so
+		// a device run reports as much as a desktop one does
+		logAttachPlatformStdio();
+#ifdef __ANDROID__
+		// hand the process's Java VM to the HTTP client, whose Android
+		// transport drives the platform's own HTTP stack (and so verifies
+		// against the device's trust anchors, honours the app's network
+		// security config and inherits its proxy settings). The window toolkit
+		// owns the JNI attachment; core takes the handle rather than a
+		// dependency on whoever created it - the PlatformWindow pattern.
+		if (JNIEnv* jniEnv = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv()))
+		{
+			JavaVM* javaVm = NULL;
+			if (jniEnv->GetJavaVM(&javaVm) == JNI_OK)
+			{
+				HttpAndroid::setJavaVM(javaVm);
+			}
+		}
+#endif
 
 		// the engine singletons, in the order Engine::setup depends on; the
 		// scripting seam must exist before the module init functions run so
