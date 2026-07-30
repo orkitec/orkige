@@ -88,6 +88,7 @@
 #include "EditorCameraGizmo.h"
 #include "EditorOverlayGeometry.h"
 #include "EditorCore.h"
+#include "EditorResourcePaths.h"	// the ONE bundle-first resource resolver
 #include "EditorSceneTemplate.h"
 #include "EditorTheme.h"
 #include "EditorViewModes.h"
@@ -468,12 +469,37 @@ int main(int argc, char** argv)
 	// before anything logs and before the render backend boots.
 	Orkige::AppHost host;
 	{
+		// where this editor's resources live: inside the app it was copied as,
+		// or in the developer tree it was built in. ONE resolver answers for
+		// every consumer below (@see EditorResourcePaths.h).
+		OrkigeEditor::EditorResourceLocator const & resources =
+			OrkigeEditor::editorResources();
+		const OrkigeEditor::EditorResourcePath engineMedia =
+			resources.engineMedia();
+
 		Orkige::AppHostConfig hostConfig;
 		hostConfig.windowTitle = "Orkige Editor";
 		hostConfig.resizableWindow = true;
 		hostConfig.automatedRun = automatedRun;
+		// the engine log: NEVER the working directory for a human run (a
+		// Finder-launched app has cwd "/"), so it goes to the writable app dir
+		// like the player's. Automated runs keep the cwd-relative name their
+		// working directory makes predictable.
 		hostConfig.engineLogFile = "orkige_editor.log";
-		hostConfig.classicMediaDir = ORKIGE_EDITOR_MEDIA_DIR;
+		if (!automatedRun)
+		{
+			const Orkige::String stateDir =
+				OrkigeEditor::editorWritableStateDirectory();
+			if (!stateDir.empty())
+			{
+				hostConfig.engineLogFile = stateDir + "orkige_editor.log";
+			}
+		}
+		// the resolved shader media feeds BOTH flavors' registration (each
+		// backend reads only its own field) - the same one-root arrangement the
+		// player uses, so a bundled app touches no vcpkg or source-tree path
+		hostConfig.classicMediaDir = engineMedia.path;
+		hostConfig.hlmsMediaDir = engineMedia.path;
 		hostConfig.createWindowCamera = false;
 
 		// the Console line store exists before anything logs; the editor's
@@ -500,6 +526,10 @@ int main(int argc, char** argv)
 				? (std::string("[") + tag + "] " + message) : message);
 		});
 
+		// ONE boot line naming the root every resource came from: an app run
+		// from a bundle says so, a developer-tree run says so, and a run that
+		// found no engine media says THAT before the render boot fails on it
+		SDL_Log("orkige_editor: %s", resources.describe().c_str());
 		if (!host.initialise(hostConfig))
 		{
 			return 1;
@@ -540,67 +570,43 @@ int main(int argc, char** argv)
 		Orkige::EngineLogCapture engineLogCapture(EditorConsole::MAX_LINES);
 		engineLogCapture.attach();
 
-		if (!host.setupEngine([&host]()
+		if (!host.setupEngine([&host, &resources]()
 			{
 				Orkige::RenderSystem* render = host.getRenderSystem();
-				// sample assets (test_mesh.glb from Util/make_test_mesh.py) in
-				// the default group; meshes load lazily via Codec_Assimp
-				render->addResourceLocation(ORKIGE_EDITOR_ASSET_DIR);
-				// jumper sample assets (textured .glb meshes from
-				// Util/make_jumper_assets.py) so samples/jumper/level1.oscene
-				// opens
-				render->addResourceLocation(ORKIGE_EDITOR_JUMPER_ASSET_DIR);
-				// the engine-default font (Nunito) directory so a project's
-				// .ogui can reference the font by name (font-atlas baking
-				// resolves the ttf by resource name across all groups);
-				// is_directory keeps it a silent skip
-				std::error_code fontDirError;
-				if (std::filesystem::is_directory(ORKIGE_EDITOR_FONT_DIR,
-					fontDirError))
+				// the engine's own content media - the engine-default font
+				// (Nunito, so a project's .ogui can name it and font-atlas
+				// baking resolves the ttf by resource name), the water plane
+				// mesh + normal map, the decal textures and the per-flavor
+				// bloom/grade compositor media a Play session's
+				// engine:setBloom/setGrade compiles from. Each resolves
+				// bundle-first; an absent one stays a silent skip (the feature
+				// degrades where it is used, boot never fails for it).
+				const OrkigeEditor::EditorResourcePath mediaPaths[] = {
+					resources.engineFonts(), resources.engineWater(),
+					resources.engineDecals(), resources.engineBloom(),
+					resources.engineGrade() };
+				for (OrkigeEditor::EditorResourcePath const & media : mediaPaths)
 				{
-					render->addResourceLocation(ORKIGE_EDITOR_FONT_DIR);
+					if (media.found())
+					{
+						render->addResourceLocation(media.path);
+					}
 				}
-				// the engine water media dir (the shared water plane mesh +
-				// tiling water normal map) so a scene's WaterComponent shows
-				// its static preview in the editor scene panel
-				std::error_code waterDirError;
-				if (std::filesystem::is_directory(ORKIGE_EDITOR_WATER_DIR,
-					waterDirError))
+				// the in-tree sample assets (test_mesh.glb from
+				// Util/make_test_mesh.py, the textured jumper .glb meshes from
+				// Util/make_jumper_assets.py) so the shipped sample scenes open
+				// from a developer tree. They are NOT part of a distributed
+				// editor, so a missing one is a silent skip like the media above.
+				std::error_code sampleDirError;
+				for (char const* sampleDir : { ORKIGE_EDITOR_ASSET_DIR,
+					ORKIGE_EDITOR_JUMPER_ASSET_DIR })
 				{
-					render->addResourceLocation(ORKIGE_EDITOR_WATER_DIR);
+					if (std::filesystem::is_directory(sampleDir,
+						sampleDirError))
+					{
+						render->addResourceLocation(sampleDir);
+					}
 				}
-				// the engine decal media dir (default mark + blob-shadow
-				// textures) so a scene's DecalComponent shows its static
-				// preview in the editor scene panel
-				std::error_code decalDirError;
-				if (std::filesystem::is_directory(ORKIGE_EDITOR_DECAL_DIR,
-					decalDirError))
-				{
-					render->addResourceLocation(ORKIGE_EDITOR_DECAL_DIR);
-				}
-#ifdef ORKIGE_EDITOR_BLOOM_DIR
-				// the engine bloom compositor media (bright/blur/combine
-				// material + shaders) so a play session with engine:setBloom
-				// resolves its materials - per flavor (bloom/next vs
-				// bloom/classic, the build bakes the matching dir)
-				std::error_code bloomDirError;
-				if (std::filesystem::is_directory(ORKIGE_EDITOR_BLOOM_DIR,
-					bloomDirError))
-				{
-					render->addResourceLocation(ORKIGE_EDITOR_BLOOM_DIR);
-				}
-#endif
-#ifdef ORKIGE_EDITOR_GRADE_DIR
-				// the engine output-grade compositor media (the grade material +
-				// shaders) so a play session with engine:setGrade resolves its
-				// materials - per flavor (grade/next vs grade/classic)
-				std::error_code gradeDirError;
-				if (std::filesystem::is_directory(ORKIGE_EDITOR_GRADE_DIR,
-					gradeDirError))
-				{
-					render->addResourceLocation(ORKIGE_EDITOR_GRADE_DIR);
-				}
-#endif
 			}))
 		{
 			return 1;
@@ -678,20 +684,13 @@ int main(int argc, char** argv)
 				"ImGui default font");
 		}
 		// merge the icon font (Font Awesome 6 solid) for the asset browser's
-		// kind icons. It ships next to the executable in the .app bundle
-		// (SDL_GetBasePath = Resources), and out of the build tree it comes from
-		// the source media dir (ORKIGE_EDITOR_ICON_FONT_DIR). Missing file -> the
-		// browser keeps drawing its glyph icons, so this is never fatal.
+		// kind icons - bundled copy first, developer tree second (the ONE
+		// resolver). Missing file -> the browser keeps drawing its glyph icons,
+		// so this is never fatal.
 		{
-			const char* fontBase = SDL_GetBasePath();
-			std::string bundledFont =
-				std::string(fontBase ? fontBase : "") + "fa-solid-900.ttf";
-			std::error_code fontEc;
-			const std::string iconFontPath =
-				std::filesystem::exists(bundledFont, fontEc)
-					? bundledFont
-					: std::string(ORKIGE_EDITOR_ICON_FONT_DIR "/fa-solid-900.ttf");
-			Orkige::loadEditorIconFont(ImGui::GetIO(), iconFontPath.c_str(),
+			const OrkigeEditor::EditorResourcePath iconFont =
+				resources.uiFont("fa-solid-900.ttf");
+			Orkige::loadEditorIconFont(ImGui::GetIO(), iconFont.path.c_str(),
 				14.0f, editorContentScale);
 		}
 		// the smaller value-field font (Inspector property values) - baked
@@ -703,21 +702,14 @@ int main(int argc, char** argv)
 		// embedded terminal - loaded AFTER the icon merge (which targets the
 		// last-added base font) so the inline icons stay in the UI font; never
 		// fatal (the panel falls back to the UI font when no mono font exists).
-		// The bundled DejaVu Sans is merged in as the symbols fallback so
-		// braille spinners + the rest of the TUI blocks render; it ships next to
-		// the executable (SDL_GetBasePath = Resources) with the source media dir
-		// (ORKIGE_EDITOR_ICON_FONT_DIR) as the out-of-bundle fallback.
+		// DejaVu Sans is merged in as the symbols fallback so braille spinners
+		// + the rest of the TUI blocks render; it resolves bundle-first through
+		// the same font seam as the icon font.
 		{
-			const char* fontBase = SDL_GetBasePath();
-			std::string bundledSymbols =
-				std::string(fontBase ? fontBase : "") + "DejaVuSans.ttf";
-			std::error_code symEc;
-			const std::string symbolsFontPath =
-				std::filesystem::exists(bundledSymbols, symEc)
-					? bundledSymbols
-					: std::string(ORKIGE_EDITOR_ICON_FONT_DIR "/DejaVuSans.ttf");
+			const OrkigeEditor::EditorResourcePath symbolsFont =
+				resources.uiFont("DejaVuSans.ttf");
 			Orkige::loadMacSystemMonoFont(ImGui::GetIO(), 13.0f,
-				editorContentScale, symbolsFontPath.c_str());
+				editorContentScale, symbolsFont.path.c_str());
 		}
 		// reserve + rasterise the terminal agent-badge glyphs into the base
 		// UI-font atlas (one generated mark per recognised agent). Must run
@@ -734,15 +726,19 @@ int main(int argc, char** argv)
 		gImGuiRenderer = &imguiRenderer;
 
 		// docking UI: full-window dockspace (drawDockspace). The panel layout
-		// persists through imgui.ini stored NEXT TO THE EXECUTABLE
-		// (SDL_GetBasePath), so it works no matter which cwd the editor is
-		// launched from. Static so the path outlives the ImGui context - the
-		// ini gets written during ImGui::DestroyContext (teardown below).
+		// persists through an imgui ini in the WRITABLE app-support directory -
+		// never inside the app (a distributed bundle is read-only, and a
+		// self-write would invalidate its signature) and never relative to the
+		// cwd. An ini an earlier build left next to the executable is moved
+		// there once, so an in-place upgrade keeps the layout. Static so the
+		// path outlives the ImGui context - the ini gets written during
+		// ImGui::DestroyContext (teardown below).
 		ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 		const char* sdlBasePath = SDL_GetBasePath();
+		const std::string legacyStateDir = sdlBasePath ? sdlBasePath : "";
 		static const std::string imguiIniPath =
-			std::string(sdlBasePath ? sdlBasePath : "") +
-			"orkige_editor_imgui.ini";
+			OrkigeEditor::editorStateFilePath("orkige_editor_imgui.ini",
+				legacyStateDir);
 		// automated runs neither read nor write the persisted layout: they build
 		// the fresh ratio-based default every time, so the suite's captures are
 		// deterministic and correctly proportioned at whatever density the run
@@ -759,8 +755,8 @@ int main(int argc, char** argv)
 		bool layoutMigrationDockPending = false;
 		if (!automatedRun)
 		{
-			viewSettings.path = std::string(sdlBasePath ? sdlBasePath : "") +
-				"orkige_editor_view.ini";
+			viewSettings.path = OrkigeEditor::editorStateFilePath(
+				"orkige_editor_view.ini", legacyStateDir);
 			viewSettings.load();
 			// an ini saved before the panel-defaults rework never got the new
 			// closed-by-default Tile Palette / GUI Preview or the palette's

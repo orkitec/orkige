@@ -103,6 +103,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 import cook_textures  # sibling Util helper (export-time texture cook)
+import macos_self_contain  # sibling Util helper (the macOS dylib-closure staging)
 import orkige_icons  # sibling Util helper (export-time app-icon generation)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -517,108 +518,24 @@ def engine_tree_arch(build_dir):
 
 # --- macOS -----------------------------------------------------------------
 
-def macos_collect_dylibs(executable, search_dirs):
-    """the executable's non-system dylib dependencies (@rpath/... or absolute
-    paths outside /usr/lib and /System), resolved against search_dirs.
-    Returns [(dependency-as-written, resolved-file), ...]"""
-    output = subprocess.run(["otool", "-L", executable], capture_output=True,
-                            text=True, check=True).stdout
-    dependencies = []
-    for line in output.splitlines()[1:]:
-        dep = line.strip().split(" (")[0]
-        if not dep or dep.startswith(("/usr/lib/", "/System/")):
-            continue
-        resolved = ""
-        if dep.startswith("@rpath/"):
-            name = dep[len("@rpath/"):]
-            for search_dir in search_dirs:
-                candidate = os.path.join(search_dir, name)
-                if os.path.isfile(candidate):
-                    resolved = candidate
-                    break
-        elif os.path.isfile(dep):
-            resolved = dep
-        if not resolved:
-            fail("cannot resolve dylib dependency '%s' of '%s' (searched %s)"
-                 % (dep, executable, search_dirs))
-        dependencies.append((dep, resolved))
-    return dependencies
-
-
-def macos_dylib_aliases(source_dir, dylib_name):
-    """the symlink leaf names in source_dir that resolve to dylib_name -
-    the dlopen aliases of a versioned dylib (e.g. libvulkan.dylib and
-    libvulkan.1.dylib -> libvulkan.1.4.350.dylib). A leaf-name dlopen (the
-    Vulkan loader probe in the render system) asks for the unversioned
-    names, so a self-contained bundle must carry them beside the real file."""
-    aliases = []
-    target = os.path.realpath(os.path.join(source_dir, dylib_name))
-    for entry in sorted(os.listdir(source_dir)):
-        path = os.path.join(source_dir, entry)
-        if entry != dylib_name and os.path.islink(path) \
-                and os.path.realpath(path) == target:
-            aliases.append(entry)
-    return aliases
-
-
-def macos_rpaths(executable):
-    output = subprocess.run(["otool", "-l", executable], capture_output=True,
-                            text=True, check=True).stdout
-    rpaths = []
-    lines = output.splitlines()
-    for index, line in enumerate(lines):
-        if "cmd LC_RPATH" in line:
-            for path_line in lines[index:index + 4]:
-                stripped = path_line.strip()
-                if stripped.startswith("path "):
-                    rpaths.append(stripped.split()[1])
-                    break
-    return rpaths
-
-
 def macos_make_self_contained(executable, frameworks_dir, search_dirs):
     """copy the non-system dylib closure into Contents/Frameworks, point the
     executable at it (@executable_path/../Frameworks), REMOVE the build-tree
     rpaths (so a missing dylib fails here on this machine, not on the user's)
-    and ad-hoc re-sign the modified binary"""
-    dependencies = macos_collect_dylibs(executable, search_dirs)
-    if dependencies:
-        os.makedirs(frameworks_dir, exist_ok=True)
-    changed = False
-    for dep, resolved in dependencies:
-        shutil.copy2(resolved, os.path.join(frameworks_dir,
-                                            os.path.basename(resolved)))
-        log("bundled dylib %s" % os.path.basename(resolved))
-        # recreate the source dir's symlink aliases beside the copy: dyld
-        # resolves the direct @rpath dependency by its versioned name, but a
-        # leaf-name dlopen (the Vulkan loader probe) asks for the unversioned
-        # aliases, which live as symlinks in the vcpkg lib dir
-        for alias in macos_dylib_aliases(os.path.dirname(resolved),
-                                         os.path.basename(resolved)):
-            alias_path = os.path.join(frameworks_dir, alias)
-            if os.path.lexists(alias_path):
-                os.remove(alias_path)
-            os.symlink(os.path.basename(resolved), alias_path)
-            log("aliased dylib %s -> %s"
-                % (alias, os.path.basename(resolved)))
-        if not dep.startswith("@rpath/"):
-            # absolute dev path -> load via the bundle rpath instead
-            run(["install_name_tool", "-change", dep,
-                 "@rpath/" + os.path.basename(resolved), executable])
-        changed = True
-    for rpath in macos_rpaths(executable):
-        # every build-machine path is banned from the shipped binary
-        if "vcpkg_installed" in rpath or rpath.startswith(REPO_ROOT):
-            run(["install_name_tool", "-delete_rpath", rpath, executable])
-            changed = True
-    if dependencies:
-        run(["install_name_tool", "-add_rpath",
-             "@executable_path/../Frameworks", executable])
-        changed = True
-    if changed:
-        # install_name_tool invalidates the (linker) ad-hoc signature and
-        # arm64 macOS refuses to run unsigned binaries - re-sign ad-hoc
-        run(["codesign", "--force", "-s", "-", executable])
+    and ad-hoc re-sign the modified binary.
+
+    The operation itself lives in Util/macos_self_contain.py - the ONE
+    implementation, shared with the editor build, which stages the editor app
+    the same way. This wrapper supplies the exporter's logging, its run()
+    (which fails the export on a nonzero exit) and its hard failure on a
+    dependency that resolves nowhere."""
+    macos_self_contain.make_self_contained(
+        executable, frameworks_dir, search_dirs,
+        banned_rpath_markers=("vcpkg_installed", REPO_ROOT),
+        log=log, run=run,
+        on_unresolved=lambda dep: fail(
+            "cannot resolve dylib dependency '%s' of '%s' (searched %s)"
+            % (dep, executable, search_dirs)))
 
 
 def macos_build_native_module(project, target, engine_build, cmake, ninja):
@@ -748,7 +665,7 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
                    os.path.join(triplet, "lib")] if triplet else []
     macos_make_self_contained(bundled_exe,
                               os.path.join(contents, "Frameworks"),
-                              macos_rpaths(bundled_exe) + search_dirs)
+                              macos_self_contain.rpaths(bundled_exe) + search_dirs)
 
     # engine media, per flavor: the classic RTSS shader library (Main +
     # RTShaderLib) or the Ogre-Next Hlms shader templates + Atmosphere sky
@@ -1960,9 +1877,10 @@ def selftest():
         with open(os.path.join(work, "libbar.dylib"), "w") as handle:
             handle.write("x")
         os.symlink("libbar.dylib", os.path.join(work, "libbar.1.dylib"))
-        assert macos_dylib_aliases(work, "libfoo.1.2.3.dylib") == \
+        assert macos_self_contain.dylib_aliases(
+            work, "libfoo.1.2.3.dylib") == \
             ["libfoo.1.dylib", "libfoo.dylib"], "loader aliases discovered"
-        assert macos_dylib_aliases(work, "libbar.dylib") == \
+        assert macos_self_contain.dylib_aliases(work, "libbar.dylib") == \
             ["libbar.1.dylib"], "unrelated aliases stay separate"
 
     print("orkige_export: selftest OK")

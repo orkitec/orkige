@@ -526,7 +526,12 @@ namespace Orkige
 			{
 				rootFolder += '/';
 			}
-			if(!std::filesystem::exists(rootFolder + "Hlms"))
+			// the error_code overload: a directory the process cannot READ
+			// (a permission-denied media root) must reach the same honest
+			// warning as a missing one - the throwing overload would abort the
+			// boot the comment above promises to survive
+			std::error_code hlmsProbeError;
+			if(!std::filesystem::exists(rootFolder + "Hlms", hlmsProbeError))
 			{
 				Ogre::LogManager::getSingleton().logMessage(
 					"Orkige next backend: no Hlms templates under '" +
@@ -611,9 +616,12 @@ namespace Orkige
 				root += '/';
 			}
 			const String atmosphereDir = root + "Atmosphere";
-			if(!std::filesystem::exists(atmosphereDir))
+			// error_code overload for the same reason as the Hlms probe above:
+			// an unreadable media root degrades to "no sky", never a throw
+			std::error_code atmosphereProbeError;
+			if(!std::filesystem::exists(atmosphereDir, atmosphereProbeError))
 			{
-				return;	// port without the atmosphere media (older tree)
+				return;	// media root without the atmosphere media
 			}
 			// Ogre resolves a script's `source X.metal` / shader include by the
 			// BARE filename via each location's open() - a recursive location

@@ -11,6 +11,7 @@
 // compile-on-Play build queue, the debug-link pump and crash detection.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorResourcePaths.h"	// the bundled-vs-tree player executable
 #include "EditorSourceControlPanel.h"	// event-driven git refresh on Play stop
 
 #include <core_debugnet/DebugServer.h>
@@ -1372,14 +1373,23 @@ bool startPlay(PlaySession& session,
 		return true;
 	}
 #endif
-	// spawn the generic player: this build's own (ORKIGE_EDITOR_PLAYER_PATH,
-	// baked in by CMake as $<TARGET_FILE:orkige_player>) or the OTHER render
-	// flavor's binary when the toolbar picked it (the debug protocol is
+	// spawn the generic player: this build's own - the copy INSIDE the app when
+	// there is one, the build tree's binary otherwise (the ONE resource
+	// resolver, @see EditorResourcePaths.h) - or the OTHER render flavor's
+	// binary when the toolbar picked it (the debug protocol is
 	// flavor-agnostic). SDL's process API keeps the editor free of platform
 	// spawn code; stdio stays inherited so the player log shows up in the
 	// editor console.
+	const OrkigeEditor::EditorResourcePath ownPlayer =
+		OrkigeEditor::editorResources().player();
+	if (session.desktopPlayerPath.empty() && !ownPlayer.found())
+	{
+		endPlaySession(session, "no player executable found - this build "
+			"ships none beside the editor and no build tree is reachable");
+		return false;
+	}
 	return spawnDesktopPlayProcess(session, session.desktopPlayerPath.empty()
-		? ORKIGE_EDITOR_PLAYER_PATH : session.desktopPlayerPath);
+		? ownPlayer.path : session.desktopPlayerPath);
 }
 
 //! @brief Play in Browser enters its live session here, AFTER the export

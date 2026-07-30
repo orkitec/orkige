@@ -23,6 +23,7 @@
 // The terminal is DELIBERATELY not an MCP verb: a headless agent spawning UI
 // shells is out of scope (and a laundering path). It is a human affordance.
 #include "EditorApp.h"
+#include "EditorResourcePaths.h"	// the bundled-vs-tree symbols font
 #include "EditorTerminalPanel.h"
 #include "EditorTerminalPty.h"
 #include "EditorTerminalScreen.h"
@@ -2021,8 +2022,10 @@ namespace OrkigeEditor
 			ImGui::CreateContext();
 			ImGuiIO& io = ImGui::GetIO();
 			io.DisplaySize = ImVec2(64.0f, 64.0f);
+			const std::string symbolsFontPath =
+				OrkigeEditor::editorResources().uiFont("DejaVuSans.ttf").path;
 			ImFont* mono = Orkige::loadMacSystemMonoFont(io, 13.0f, 1.0f,
-				ORKIGE_EDITOR_ICON_FONT_DIR "/DejaVuSans.ttf");
+				symbolsFontPath.c_str());
 			if (mono != nullptr)
 			{
 				// the agent badges bake onto the base font (Fonts[0]); the custom

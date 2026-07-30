@@ -5,6 +5,10 @@ Hierarchy / Inspector / Console set. Each panel opens from the **View** menu and
 docks freely; this document covers the behaviours that are not obvious from the
 UI.
 
+What the editor app carries when it is copied to another machine, how it
+resolves those resources and where it writes its own state:
+[Editor distribution](editor-distribution.md).
+
 ## Source Control
 
 The **Source Control** panel drives the open project's git working tree. It

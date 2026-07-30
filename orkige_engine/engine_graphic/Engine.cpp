@@ -154,7 +154,12 @@ namespace Orkige
 		if(std::getenv("VK_ICD_FILENAMES") == NULL && std::getenv("VK_DRIVER_FILES") == NULL)
 		{
 			static char const * const moltenVkIcdManifest = "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json";
-			if(std::filesystem::exists(moltenVkIcdManifest))
+			// error_code overload: a driver manifest the process cannot READ
+			// means "no Vulkan driver discovered here", exactly like an absent
+			// one - the throwing overload would abort the boot of a sandboxed
+			// or restricted run instead
+			std::error_code icdProbeError;
+			if(std::filesystem::exists(moltenVkIcdManifest, icdProbeError))
 			{
 				setenv("VK_DRIVER_FILES", moltenVkIcdManifest, 0);
 			}

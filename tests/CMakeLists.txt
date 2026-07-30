@@ -1246,6 +1246,42 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_CONTROL_TEST=${CMAKE_CURRENT_BINARY_DIR}/editor_control_shot.png"
         LABELS integration TIMEOUT 240)
 
+    # --- distribution readiness: a COPIED editor stands alone --------------
+    # The editor ships as an app somebody copies onto a machine with no clone
+    # of this repository, no engine build tree and no Python. The driver
+    # (integration_driver/run_editor_bundle_test.py) stages the built app plus
+    # a copy of a project into the build tree, DETACHES it (every
+    # developer-tree fallback refused via ORKIGE_EDITOR_BUNDLE_ONLY, plus - on
+    # macOS - a sandbox that denies reads of the repository, the vcpkg tree and
+    # Homebrew, which also catches a baked path reached OUTSIDE the resource
+    # resolver), and drives the copy over its own MCP endpoint: it must boot
+    # with a rendering window, open the copied project, render a scene
+    # screenshot and PLAY through the player INSIDE the app. A second leg makes
+    # the staged shader media unreadable and asserts the render backend
+    # degrades with its honest warning instead of aborting the boot. So
+    # distribution readiness stops being something we re-audit by hand.
+    # Both flavors (each stages its own flavor's shader media).
+    # APPLE-gated: the .app is the distributable shape the tree produces today,
+    # and the path sandbox that makes the clean room REAL is macOS machinery.
+    # TODO(linux/windows): the build already stages the share/orkige layout
+    # beside the executable, so enabling this here needs only a mechanism that
+    # makes the tree unreachable on those platforms (a mount namespace, or a
+    # staged copy on a machine without the tree) - ORKIGE_EDITOR_BUNDLE_ONLY
+    # alone would assert the resolver, not the layout.
+    if(APPLE)
+        add_test(NAME editor_bundle${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_editor_bundle_test.py"
+                --editor-app "$<TARGET_BUNDLE_DIR:orkige_editor>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --scene "scenes/main.oscene"
+                --stage-root "${CMAKE_CURRENT_BINARY_DIR}/editor_bundle${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                --repo-root "${Orkige_SOURCE_DIR}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_bundle${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 420)
+    endif()
+
     # Asset browser (v2): open a temp COPY of
     # projects/example and drive the browser headlessly - enumerate assets
     # (id-carrying vs. dimmed sidecar-less), run the generic importAssetFile
