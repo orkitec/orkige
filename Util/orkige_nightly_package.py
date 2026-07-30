@@ -12,6 +12,8 @@ the other Util/ generators).
     orkige_nightly_package.py --verify <unpacked dir> --platform <p>
                               [--commit <sha>] [--version <ordered version>]
 
+    orkige_nightly_package.py --verify-dmg <disk image>
+
     orkige_nightly_package.py --identity --commit <sha> [--date YYYY-MM-DD]
 
     orkige_nightly_package.py --changelog --commit <sha> [--since <sha>]
@@ -19,7 +21,7 @@ the other Util/ generators).
 
     orkige_nightly_package.py --verify-checksums <assets dir>
 
-    orkige_nightly_package.py --selftest
+    orkige_nightly_package.py --selftest [--selftest-dmg]
 
 This packages what a preset build tree ALREADY produced - it never builds. The
 project exporter (orkige_export.py) is the sibling that packages a GAME; this
@@ -51,9 +53,12 @@ repeats VERSION + KNOWN-LIMITATIONS.md at the archive root so a user reads them
 before installing. Linux and Windows keep it flat beside the executable, which
 is where SDL_GetBasePath resolves.
 
-Archive format is the one each platform's users unpack without thinking: .zip on
-macOS (through ditto, which preserves the bundle's symlinks and executable bits)
-and Windows, .tar.gz on Linux.
+Each platform ships the container its users expect. The PORTABLE archive is
+.zip on macOS (through ditto, which preserves the bundle's symlinks and
+executable bits) and Windows, .tar.gz on Linux. The two desktop platforms with
+an installable convention get a second asset from the SAME staging: a
+drag-to-Applications .dmg on macOS and a per-user installer on Windows (see the
+block above make_dmg for why each exists).
 
 The last line on success is "orkige_nightly_package: OK <artifact>", the same
 machine-readable contract orkige_export.py ends on.
@@ -177,20 +182,32 @@ LIMITATIONS = (
     Limitation(
         key="unsigned-macos",
         platforms=("macos",),
-        title="The app is not signed or notarized",
+        title="Neither the app nor the disk image is signed or notarized",
         detail="macOS refuses a downloaded app from an unidentified developer "
-               "and reports it as damaged or unopenable.",
-        workaround="Remove the download quarantine flag once, then open it:\n"
-                   "    xattr -dr com.apple.quarantine Orkige.app\n"
-                   "Or right-click the app, choose Open, and confirm."),
+               "and reports it as damaged or unopenable. The .dmg is the "
+               "install shape, not a trust shape: an unsigned image is blocked "
+               "exactly like an unsigned .zip until a notarization ticket can "
+               "be stapled to it.",
+        workaround="Install first - open the .dmg and drag Orkige.app to "
+                   "Applications - then remove the download quarantine flag "
+                   "once:\n"
+                   "    xattr -dr com.apple.quarantine /Applications/Orkige.app\n"
+                   "Or right-click the installed app, choose Open, and "
+                   "confirm."),
     Limitation(
         key="unsigned-windows",
         platforms=("windows",),
-        title="The executable is not signed",
-        detail="SmartScreen warns that it does not recognise the publisher.",
-        workaround="Choose \"More info\" and then \"Run anyway\". If the "
-                   "download was blocked, right-click the .zip, open "
-                   "Properties, tick Unblock, and unpack it again."),
+        title="Neither the installer nor the executable is signed",
+        detail="SmartScreen warns that it does not recognise the publisher. On "
+               "the installer that warning is the loudest one Windows has - a "
+               "full-screen \"Windows protected your PC\" prompt whose default "
+               "button is Don't run - because it is a program asking to "
+               "install software rather than a file being unpacked.",
+        workaround="Choose \"More info\" and then \"Run anyway\". The .zip "
+                   "beside the installer needs no such confirmation: unpack it "
+                   "anywhere and run orkige_editor.exe (right-click the .zip, "
+                   "open Properties and tick Unblock if the download was "
+                   "blocked)."),
     Limitation(
         key="system-libraries-linux",
         platforms=("linux",),
@@ -817,6 +834,148 @@ def make_tar_gz(stage_root, archive_path):
         archive.add(stage_root, arcname=os.path.basename(stage_root))
 
 
+# --- the installable artifact each desktop platform expects -----------------
+#
+# Every platform gets TWO assets, because they answer two different questions.
+#
+# The INSTALLABLE one is what a person on that platform downloads: a .dmg on
+# macOS, an installer on Windows. Both exist for reasons beyond familiarity:
+#
+# - macOS applies path randomization (app translocation) to a downloaded app
+#   that is launched out of the folder it was unpacked into, so an app run from
+#   an unzipped directory sees a read-only randomized path instead of its own.
+#   Dragging it to /Applications first is what clears that, and a disk image
+#   with an /Applications symlink beside the app is the layout that asks for
+#   the drag. A notarization ticket also staples onto a .dmg directly, so the
+#   container that fixes translocation today is the one that carries the
+#   signature when there is one.
+# - Windows has no drag-install: the expected artifact is an installer that
+#   places the program, puts it in the Start menu, records it where Settings
+#   lists installed programs, and can remove itself again.
+#
+# The PORTABLE one stays the .zip / .tar.gz: no image to mount, no installer to
+# run, unpack anywhere - and it is the shape an updater can consume, because
+# swapping files in place needs neither a mount nor an elevation-free installer
+# run. Linux ships the .tar.gz alone: a distribution's own package formats are
+# not interchangeable, and a tarball is what every one of them can unpack.
+
+DMG_SUFFIX = ".dmg"
+INSTALLER_SUFFIX = "-setup.exe"
+
+# the NSIS script the Windows installer is compiled from; it carries no
+# build-specific value, so the packager hands it everything with /D defines
+NSIS_SCRIPT = os.path.join(REPO_ROOT, "Util", "orkige_installer.nsi")
+
+# the drag target inside the disk image
+APPLICATIONS_LINK = "Applications"
+
+
+def dmg_name(platform, commit, version=""):
+    return artifact_stem(platform, commit, version) + DMG_SUFFIX
+
+
+def installer_name(platform, commit, version=""):
+    return artifact_stem(platform, commit, version) + INSTALLER_SUFFIX
+
+
+def dmg_volume_name(version=""):
+    """the name the mounted image shows in the Finder sidebar. The BASE version
+    only: a volume name is capped at 27 characters on the image's filesystem,
+    and the whole ordered version does not fit - while "Orkige 2.0.0" reads as
+    a product, keeps two nightlies of different base versions from colliding as
+    "Orkige 1", and stays comfortably inside the cap."""
+    base = ""
+    match = re.match(r"^(\d+\.\d+\.\d+)", version or "")
+    if match:
+        base = match.group(1)
+    base = base or project_version()
+    name = ("Orkige %s" % base) if base else "Orkige"
+    return name[:27]
+
+
+def make_dmg(stage_root, dmg_path, volume_name):
+    """the macOS disk image, built with hdiutil from the SAME staged directory
+    the .zip is made from - so the two containers cannot hold different builds.
+
+    The drag-to-Applications layout is one symlink: the image root holds the
+    app, an `Applications` link to /Applications, and the same VERSION /
+    CHANGELOG.md / KNOWN-LIMITATIONS.md the archive root carries (the
+    limitations file is what tells a user how to open an unsigned app, so it
+    has to be readable before installing). The link is added to the staged
+    directory for the duration of the call rather than to a second copy of it:
+    the app is well over a hundred megabytes, and a copy would be both slow and
+    a chance for the two artifacts to diverge."""
+    if not shutil.which("hdiutil"):
+        fail("no hdiutil - a macOS disk image can only be built on macOS")
+    link = os.path.join(stage_root, APPLICATIONS_LINK)
+    if os.path.lexists(link):
+        os.remove(link)
+    os.symlink("/Applications", link)
+    try:
+        if os.path.exists(dmg_path):
+            os.remove(dmg_path)
+        orkige_export.run(["hdiutil", "create",
+                           "-volname", volume_name,
+                           "-srcfolder", stage_root,
+                           "-fs", "HFS+",
+                           "-format", "UDZO",   # compressed, read-only
+                           "-ov", dmg_path])
+    finally:
+        if os.path.lexists(link):
+            os.remove(link)
+    return dmg_path
+
+
+def windows_file_version(version=""):
+    """the ordered version as the numeric `a.b.c.d` the Windows VERSIONINFO
+    resource accepts - it takes four numbers and nothing else, so the channel,
+    the date and the commit cannot appear there. The full ordered version is
+    recorded where it is readable: the installer's ProductVersion string and
+    the DisplayVersion the installed-programs list shows."""
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version or "")
+    if not match:
+        match = re.match(r"^(\d+)\.(\d+)\.(\d+)", project_version() or "")
+    if not match:
+        return "0.0.0.0"
+    return "%s.%s.%s.0" % match.groups()
+
+
+def installer_command(stage_dir, out_file, version, size_kb, tool="makensis",
+                      script=NSIS_SCRIPT):
+    """the makensis invocation, as a pure argv - every build-specific value is
+    a /D define, so the .nsi script stays a fixed, reviewable document"""
+    return [tool,
+            "/DSTAGE_DIR=" + stage_dir,
+            "/DOUT_FILE=" + out_file,
+            "/DORKIGE_VERSION=" + (version or "unversioned"),
+            "/DFILE_VERSION=" + windows_file_version(version),
+            "/DINSTALL_SIZE_KB=%d" % int(size_kb),
+            script]
+
+
+def make_windows_installer(stage_root, installer_path, version):
+    """compile the Windows installer from the staged directory. Returns the
+    installer path, or "" when makensis is not on this machine - a hand run
+    without it still produces the .zip, and the pipeline fails loudly on its
+    own toolchain check rather than shipping a night without an installer."""
+    tool = shutil.which("makensis")
+    if not tool:
+        warn("no makensis on PATH - no Windows installer was built (the .zip "
+             "is unaffected)")
+        return ""
+    if not os.path.isfile(NSIS_SCRIPT):
+        fail("no installer script at '%s'" % NSIS_SCRIPT)
+    if os.path.exists(installer_path):
+        os.remove(installer_path)
+    size_kb = max(1, orkige_export.directory_size(stage_root) // 1024)
+    orkige_export.run(installer_command(os.path.abspath(stage_root),
+                                        os.path.abspath(installer_path),
+                                        version, size_kb, tool))
+    if not os.path.isfile(installer_path):
+        fail("makensis reported success but wrote no '%s'" % installer_path)
+    return installer_path
+
+
 def package(platform, build_dir, commit, date, output_dir, version="",
             since="", repo=REPO_ROOT):
     """stage, describe and archive one platform's editor build. `version` is
@@ -912,6 +1071,28 @@ def package(platform, build_dir, commit, date, output_dir, version="",
         % (stem, orkige_export.human_size(
             orkige_export.directory_size(stage_root)),
            orkige_export.human_size(os.path.getsize(archive_path))))
+
+    # the installable artifact beside the portable one, from the same staging.
+    # It gets the same .sha256 treatment - every asset a person can download
+    # carries its own integrity story, and the publish side re-checks all of
+    # them the same way.
+    installable = ""
+    if platform == "macos":
+        installable = make_dmg(stage_root,
+                               os.path.join(output_dir,
+                                            dmg_name(platform, commit, version)),
+                               dmg_volume_name(version))
+    elif platform == "windows":
+        installable = make_windows_installer(
+            stage_root,
+            os.path.join(output_dir, installer_name(platform, commit, version)),
+            version)
+    if installable:
+        write_checksum(installable)
+        log("installable %s (%s)"
+            % (os.path.basename(installable),
+               orkige_export.human_size(os.path.getsize(installable))))
+
     log("editor: %s" % os.path.relpath(staged_editor, stage_root))
     log("version: %s" % (version or "(unversioned)"))
     log("OK " + archive_path)
@@ -1048,6 +1229,54 @@ def verify(root, platform, commit="", runner=subprocess.run, version=""):
     return reported
 
 
+def verify_dmg(dmg_path):
+    """the disk image's own smoke test: MOUNT it and look, because a .dmg that
+    builds is not a .dmg that carries a working install. It has to hold the
+    complete app (the same layout check the unpacked archive gets) and the
+    /Applications symlink that makes the drag an install rather than a copy
+    into the download folder - an app launched from there is subject to path
+    randomization, which is the whole reason the image exists.
+
+    The binary is NOT run from the mounted volume: the archive's smoke test
+    already proves the executable starts, and a read-only mount adds nothing to
+    that verdict."""
+    dmg_path = os.path.abspath(dmg_path)
+    if not os.path.isfile(dmg_path):
+        fail("no disk image at '%s'" % dmg_path)
+    if not shutil.which("hdiutil"):
+        fail("no hdiutil - a macOS disk image can only be inspected on macOS")
+    mountpoint = tempfile.mkdtemp(prefix="orkige-dmg-")
+    orkige_export.run(["hdiutil", "attach", dmg_path,
+                       "-nobrowse", "-readonly", "-mountpoint", mountpoint])
+    try:
+        problems = []
+        link = os.path.join(mountpoint, APPLICATIONS_LINK)
+        if not os.path.islink(link):
+            problems.append("no %s symlink - the image does not offer a "
+                            "drag-to-Applications install" % APPLICATIONS_LINK)
+        elif os.readlink(link) != "/Applications":
+            problems.append("the %s symlink points at '%s', not /Applications"
+                            % (APPLICATIONS_LINK, os.readlink(link)))
+        _, layout_problems = verify_layout(mountpoint, "macos")
+        problems.extend(layout_problems)
+        for problem in problems:
+            print("orkige_nightly_package: DMG: " + problem, flush=True)
+        if problems:
+            fail("the disk image is incomplete (%d problems)" % len(problems))
+        log("the disk image carries %s and the %s link"
+            % (MACOS_APP_NAME, APPLICATIONS_LINK))
+    finally:
+        # detaching can lose a race with whatever indexed the fresh mount, so
+        # the retry is -force rather than a failure that leaves it mounted
+        if subprocess.run(["hdiutil", "detach", mountpoint],
+                          capture_output=True).returncode != 0:
+            subprocess.run(["hdiutil", "detach", "-force", mountpoint],
+                           capture_output=True)
+        shutil.rmtree(mountpoint, ignore_errors=True)
+    log("OK " + dmg_path)
+    return True
+
+
 # --- entry point -----------------------------------------------------------
 
 def main():
@@ -1076,6 +1305,9 @@ def main():
     parser.add_argument("--verify", default="",
                         help="verify an UNPACKED artifact directory instead of "
                              "packaging one")
+    parser.add_argument("--verify-dmg", default="",
+                        help="mount a macOS disk image and verify what it "
+                             "carries")
     parser.add_argument("--identity", action="store_true",
                         help="print this build's ordered version as "
                              "`key=value` lines (the pipeline feeds them to "
@@ -1089,10 +1321,20 @@ def main():
                              "assets against its %s file" % CHECKSUM_SUFFIX)
     parser.add_argument("--selftest", action="store_true",
                         help="run the packaging self-checks and exit")
+    parser.add_argument("--selftest-dmg", action="store_true",
+                        help="build and mount a real disk image from a "
+                             "synthetic app (needs hdiutil; exits 77 without "
+                             "it)")
     args = parser.parse_args()
 
     if args.selftest:
         selftest()
+        return
+    if args.selftest_dmg:
+        selftest_dmg()
+        return
+    if args.verify_dmg:
+        verify_dmg(args.verify_dmg)
         return
     if args.identity:
         # the ONE composition, printed for whoever stamps, names and publishes
@@ -1347,11 +1589,16 @@ def selftest():
         assets = os.path.join(temp, "downloads")
         os.makedirs(assets)
         names = []
-        for platform in ("macos", "linux"):
-            name = artifact_name(platform, "dea551f9e0", ordered)
+        # EVERY asset a person can download, not just the archives: an
+        # installer is exactly as much a download as a zip is, so it carries
+        # the same sidecar and the publish side re-checks it the same way
+        for name in (artifact_name("macos", "dea551f9e0", ordered),
+                     artifact_name("linux", "dea551f9e0", ordered),
+                     dmg_name("macos", "dea551f9e0", ordered),
+                     installer_name("windows", "dea551f9e0", ordered)):
             path = os.path.join(assets, name)
             with open(path, "wb") as handle:
-                handle.write(b"archive bytes for " + platform.encode("ascii"))
+                handle.write(b"asset bytes for " + name.encode("ascii"))
             names.append(name)
             # the standard one-line `sha256sum -c` format: the digest of the
             # REAL bytes and the archive's own name, so a person verifies a
@@ -1410,8 +1657,9 @@ def selftest():
             downloads = os.path.join(temp, "downloads")
             os.makedirs(downloads)
             token = version_filename_token(ordered)
-            open(os.path.join(downloads, "Orkige-macos-%s.zip" % token),
-                 "w").close()
+            for name in ("Orkige-macos-%s.zip" % token,
+                         "Orkige-macos-%s.dmg" % token):
+                open(os.path.join(downloads, name), "w").close()
             with open(os.path.join(temp, "changelog.md"), "w") as handle:
                 handle.write(bounded)
             environ = dict(os.environ,
@@ -1430,10 +1678,19 @@ def selftest():
             assert "<!-- orkige-nightly-commit: dea551f9e0abcdef1234 -->" \
                 in body, body
             assert "<!-- orkige-nightly-version: %s -->" % ordered in body, body
-            # the archive that arrived is named, the one that did not is called
-            # out with its job result rather than silently missing
-            assert "| `Orkige-macos-%s.zip` |" % token in body, body
-            assert "| Linux (x86_64) | not produced | failure |" in body, body
+            # BOTH of a platform's assets are named, and the table separates
+            # the one a person installs from the one that unpacks anywhere -
+            # a client picking an asset must not have to guess which is which
+            assert "| Platform | Install | Portable | Build |" in body, body
+            assert ("| macOS (Apple silicon) | `Orkige-macos-%s.dmg` | "
+                    "`Orkige-macos-%s.zip` | success |" % (token, token)) \
+                in body, body
+            # a platform that produced nothing is called out with its job
+            # result rather than silently missing, and one that HAS no
+            # installable artifact says so instead of reading as a failure
+            assert "| Linux (x86_64) | - | not produced | failure |" in body, body
+            assert ("| Windows (x64) | not produced | not produced | skipped |"
+                    in body), body
             assert ordered in body and bounded.strip() in body
             # the sidecar is the integrity story the notes point at
             assert CHECKSUM_SUFFIX in body, body
@@ -1478,6 +1735,86 @@ def selftest():
         found = [os.path.basename(path) for path in
                  msvc_runtime_dlls({"VCToolsRedistDir": temp})]
         assert found == ["msvcp140.dll", "vcruntime140.dll"], found
+
+    # --- the installable artifacts --------------------------------------
+    # Their NAMES first: an updater picks an asset by name, so the portable and
+    # the installable one must be distinguishable without opening either
+    assert dmg_name("macos", "dea551f9e0", ordered) == \
+        "Orkige-macos-2.0.0-nightly.20260730_dea551f9e.dmg"
+    assert installer_name("windows", "dea551f9e0", ordered) == \
+        "Orkige-windows-2.0.0-nightly.20260730_dea551f9e-setup.exe"
+    for name in (dmg_name("macos", "dea551f9e0", ordered),
+                 installer_name("windows", "dea551f9e0", ordered)):
+        # ... and neither may collide with the portable archive's name
+        assert name != artifact_name(name.split("-")[1], "dea551f9e0", ordered)
+        assert re.match(r"^[A-Za-z0-9._-]+$", name), name
+
+    # the volume name a mounted image shows: the base version, inside the
+    # 27-character cap the image filesystem enforces
+    assert dmg_volume_name(ordered) == "Orkige 2.0.0", dmg_volume_name(ordered)
+    assert dmg_volume_name("") == "Orkige " + project_version()
+    for candidate in (ordered, "", "nonsense", "2.11.34-nightly.20260730"):
+        assert len(dmg_volume_name(candidate)) <= 27, candidate
+
+    # the Windows VERSIONINFO resource takes four numbers and nothing else, so
+    # the ordered version reduces to its base there and is recorded in full
+    # where a string is allowed (ProductVersion / DisplayVersion)
+    assert windows_file_version(ordered) == "2.0.0.0"
+    assert windows_file_version("2.11.34-nightly.20260730+abc") == "2.11.34.0"
+    assert re.match(r"^\d+\.\d+\.\d+\.\d+$", windows_file_version(""))
+    assert windows_file_version("not a version") == \
+        windows_file_version(project_version())
+
+    # the makensis invocation: every build-specific value travels as a /D
+    # define, which is what keeps the .nsi script a fixed document
+    argv = installer_command("C:\\stage", "C:\\out\\setup.exe", ordered, 4096,
+                             tool="makensis.exe", script="C:\\Util\\x.nsi")
+    assert argv[0] == "makensis.exe" and argv[-1] == "C:\\Util\\x.nsi", argv
+    defines = dict(arg[2:].split("=", 1) for arg in argv if arg.startswith("/D"))
+    assert defines["STAGE_DIR"] == "C:\\stage", defines
+    assert defines["OUT_FILE"] == "C:\\out\\setup.exe", defines
+    assert defines["ORKIGE_VERSION"] == ordered, defines
+    assert defines["FILE_VERSION"] == "2.0.0.0", defines
+    assert defines["INSTALL_SIZE_KB"] == "4096", defines
+    # an unversioned hand run still compiles: no define is ever empty
+    hand_run = dict(arg[2:].split("=", 1) for arg
+                    in installer_command("s", "o", "", 1) if arg.startswith("/D"))
+    assert all(value for value in hand_run.values()), hand_run
+
+    # the installer script itself, read as text: the properties that make it a
+    # per-user install a person can undo. makensis exists on no machine this
+    # suite runs on, so these are the assertions that hold here - the compile
+    # and a silent install/uninstall round trip are the pipeline's own step.
+    with open(NSIS_SCRIPT, "r", errors="replace") as handle:
+        nsi = handle.read()
+    # NO elevation: a user install writes under the user's own roots only
+    assert "RequestExecutionLevel user" in nsi
+    assert "$LOCALAPPDATA\\Programs" in nsi
+    assert "SetShellVarContext current" in nsi
+    assert "HKLM" not in nsi, "a per-machine write would demand elevation"
+    # listed where Windows shows installed programs, with the ordered version
+    assert "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall" in nsi
+    for value in ("DisplayName", "DisplayVersion", "Publisher",
+                  "UninstallString", "QuietUninstallString", "InstallLocation",
+                  "EstimatedSize"):
+        assert '"%s"' % value in nsi, value
+    assert '"DisplayVersion" "${ORKIGE_VERSION}"' in nsi
+    # a Start-menu entry and an uninstaller that removes it again
+    assert "CreateShortCut \"$SMPROGRAMS" in nsi
+    assert "WriteUninstaller" in nsi
+    assert 'Section "Uninstall"' in nsi
+    assert "DeleteRegKey" in nsi
+    # the installed payload IS the staged tree - the same bytes the .zip holds,
+    # app-local Visual C++ runtime included, extension-less files (VERSION)
+    # included
+    assert 'File /r "${STAGE_DIR}\\*"' in nsi
+    # the two sides of the /D contract cannot drift: every define the packager
+    # passes is required by the script, and every define the script requires is
+    # passed
+    required = set(re.findall(r"^!ifndef\s+(\w+)", nsi, re.M))
+    assert required == set(defines), (required, set(defines))
+    for name in required:
+        assert "${%s}" % name in nsi, name
 
     # --- a synthetic build tree, staged and archived --------------------
     with tempfile.TemporaryDirectory() as temp:
@@ -1677,6 +2014,65 @@ def selftest():
                       version="2.0.0-nightly.20260730+abc1234")
 
     print("orkige_nightly_package: selftest OK")
+
+
+def selftest_dmg():
+    """The disk image, built and mounted for real over a synthetic app - the
+    one check that cannot be a text assertion, because what has to hold is
+    what a mounted volume actually contains.
+
+    hdiutil exists only on macOS, so this SKIPS with 77 elsewhere rather than
+    passing silently: a check that quietly does nothing on two of three CI
+    platforms is worse than no check at all."""
+    if not shutil.which("hdiutil"):
+        log("no hdiutil on this platform - the disk-image self-check is "
+            "skipped (it can only run on macOS)")
+        sys.exit(77)
+    with tempfile.TemporaryDirectory() as temp:
+        stage_root = os.path.join(temp, "Orkige-macos-selftest")
+        app = os.path.join(stage_root, MACOS_APP_NAME)
+        macos_dir = os.path.join(app, "Contents", "MacOS")
+        resources = os.path.join(app, "Contents", "Resources")
+        media_root = os.path.join(resources, "Media")
+        os.makedirs(macos_dir)
+        for name in ("Hlms", "fonts", "water", "decals"):
+            os.makedirs(os.path.join(media_root, name))
+        # the shape verify_layout demands of a real artifact, in miniature
+        for name in ("Orkige", "orkige_player", "texcook"):
+            path = os.path.join(macos_dir, name)
+            open(path, "w").close()
+            os.chmod(path, 0o755)
+        open(os.path.join(resources, EDITOR_UI_FONTS[0]), "w").close()
+        open(os.path.join(resources, "VERSION"), "w").close()
+        for name in ("VERSION", "KNOWN-LIMITATIONS.md", CHANGELOG_FILE):
+            open(os.path.join(stage_root, name), "w").close()
+
+        dmg = os.path.join(temp, "Orkige-macos-selftest.dmg")
+        make_dmg(stage_root, dmg, dmg_volume_name("2.0.0-nightly.20260730"))
+        assert os.path.isfile(dmg), dmg
+        # the staged directory is handed back exactly as it was: the drag
+        # target belongs in the image, never in the .zip the same stage feeds
+        assert not os.path.lexists(os.path.join(stage_root, APPLICATIONS_LINK))
+        # mount it and look - the app and the drag target both have to be there
+        verify_dmg(dmg)
+
+        # ... and the verifier has to REFUSE an image whose drag target lands
+        # anywhere but /Applications, or it is not checking anything
+        broken = os.path.join(temp, "broken.dmg")
+        link = os.path.join(stage_root, APPLICATIONS_LINK)
+        os.symlink("/tmp", link)
+        try:
+            orkige_export.run(["hdiutil", "create", "-volname", "Orkige",
+                               "-srcfolder", stage_root, "-fs", "HFS+",
+                               "-format", "UDZO", "-ov", broken])
+        finally:
+            os.remove(link)
+        try:
+            verify_dmg(broken)
+            raise AssertionError("expected a refusal for a misdirected link")
+        except SystemExit:
+            pass
+    print("orkige_nightly_package: disk-image selftest OK")
 
 
 if __name__ == "__main__":

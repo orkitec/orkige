@@ -1,7 +1,7 @@
 # Nightly editor builds
 
 Once a night, CI packages the Orkige editor for macOS, Linux and Windows and
-publishes the archives as a rolling draft prerelease. The point is a download
+publishes the results as a rolling draft prerelease. The point is a download
 instead of a build: a C++ toolchain is needed only to write native game code, not
 to open the editor and make a game in Lua.
 
@@ -65,16 +65,43 @@ artifact produced that way is never mistaken for a gated one.
 
 ## What each platform ships
 
-| Platform | Runner | Preset | Archive |
-| --- | --- | --- | --- |
-| macOS (Apple silicon) | `macos-15` | `macos-release` | `Orkige-macos-<version>.zip` |
-| Linux (x86_64) | `ubuntu-latest` | `linux-release-next` | `Orkige-linux-<version>.tar.gz` |
-| Windows (x64) | `windows-latest` | `windows-release` | `Orkige-windows-<version>.zip` |
+Each platform ships the artifact a person on it expects, and the two desktop
+platforms with an installable convention ship a second, portable one beside it:
 
-All three are the default Ogre-Next render flavor in Release, and `<version>` is
-the ordered version in its filename rendering (below). Each archive has a
-`.sha256` file beside it. The archive has one top-level directory and the same
-shape everywhere:
+| Platform | Runner | Preset | Install | Portable |
+| --- | --- | --- | --- | --- |
+| macOS (Apple silicon) | `macos-15` | `macos-release` | `Orkige-macos-<version>.dmg` | `Orkige-macos-<version>.zip` |
+| Linux (x86_64) | `ubuntu-latest` | `linux-release-next` | — | `Orkige-linux-<version>.tar.gz` |
+| Windows (x64) | `windows-latest` | `windows-release` | `Orkige-windows-<version>-setup.exe` | `Orkige-windows-<version>.zip` |
+
+All are the default Ogre-Next render flavor in Release, and `<version>` is the
+ordered version in its filename rendering (below). **Every asset has a `.sha256`
+file beside it** — installers included — and the publish job re-checks each one
+against the sidecar that travelled with it.
+
+Where a platform has both, the two containers hold the same build: they are made
+from ONE staged directory, so the installed editor and the unpacked archive are
+the same bytes.
+
+- The **install** artifact is what a person downloads. On macOS a `.dmg` whose
+  root is the app plus an `/Applications` symlink: dragging it there is the
+  install, and it is what avoids app translocation (macOS gives a downloaded app
+  launched out of the folder it was unpacked into a read-only randomized path
+  instead of its own). It is also the container a notarization ticket staples
+  onto directly, so the shape that fixes translocation today is the shape that
+  carries a signature when there is one. On Windows an NSIS installer
+  (`Util/orkige_installer.nsi`, compiled by `makensis`): per-user, into
+  `%LOCALAPPDATA%\Programs\Orkige`, **no administrator elevation**, a Start-menu
+  shortcut, a working uninstaller, and the ordered version recorded under
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Orkige` so Settings >
+  Installed apps lists it like any other program.
+- The **portable** artifact is the `.zip` / `.tar.gz`: nothing to mount, nothing
+  to run, unpack anywhere. It is also the shape an updater consumes, because
+  replacing files in place needs neither a mounted image nor an installer run.
+  Linux ships this alone — a distribution's own package formats are not
+  interchangeable, and a tarball is what all of them can unpack.
+
+The archive has one top-level directory and the same shape everywhere:
 
 ```
 Orkige-<platform>-<version>/
@@ -93,11 +120,15 @@ packaging but the editor's own contract (`Docs/editor-distribution.md`):
 
 - macOS: inside the bundle — `Contents/MacOS` for the executables,
   `Contents/Resources/Media` for the media. `VERSION`, `CHANGELOG.md` and
-  `KNOWN-LIMITATIONS.md` are repeated at the archive root so they are readable
-  before installing. The bundle is zipped with `ditto`, which preserves its
-  symlinks and executable bits, and is ad-hoc re-signed after staging so its
-  resource seal covers everything the packaging added — ad-hoc, so it needs no
-  certificate and confers no trust.
+  `KNOWN-LIMITATIONS.md` are repeated at the archive root (and so appear on the
+  mounted disk image) so they are readable before installing. The bundle is
+  zipped with `ditto`, which preserves its symlinks and executable bits, and is
+  ad-hoc re-signed after staging so its resource seal covers everything the
+  packaging added — ad-hoc, so it needs no certificate and confers no trust. The
+  disk image is then built with `hdiutil` from that same sealed staging, with
+  the `Applications` symlink added for the duration of the call: the app is well
+  over a hundred megabytes, and a second copy of it would be both slow and a
+  chance for the two artifacts to diverge.
 - Linux and Windows: the executables at the top level and the resources under
   `share/orkige/` beside them (`share/orkige/Media/…` plus the editor's icon and
   mono fonts), which is what the locator reads relative to `SDL_GetBasePath`.
@@ -118,7 +149,10 @@ Platform-specific handling worth knowing:
   `VCRUNTIME140.dll` / `MSVCP140.dll` app-local from the build machine's
   redistributable (the supported deployment) and records in `VERSION` whether it
   managed to; when it could not, the limitations file tells the user to install
-  the redistributable rather than leaving a silent launch failure.
+  the redistributable rather than leaving a silent launch failure. The installer
+  installs the staged directory verbatim, those app-local copies included, so it
+  is never less correct about the runtime than the zip and pulls in no
+  redistributable bootstrapper of its own.
 - **macOS** needs no dylib closure today — the built bundle depends on nothing
   outside the system frameworks — but the packaging runs the closure step
   anyway, so a future dependency rides along instead of breaking a download.
@@ -285,11 +319,15 @@ Both are fixed strings one regex finds in one pass over `body`.
    unstamped local build) are both "nothing to do".
 4. Show the changelog if it offers the update: it is the `## Changes since …`
    section of `body`, the same text the artifact's `CHANGELOG.md` carries.
-5. Pick its platform's asset by name — `Orkige-macos-<token>.zip`,
-   `Orkige-linux-<token>.tar.gz`, `Orkige-windows-<token>.zip`, where `<token>`
-   is the version's filename rendering. A platform whose build failed has **no
-   asset**, and the notes table names it with that job's result: a client asks
-   "is there a build for me", and absence is the answer.
+5. Pick its platform's asset by name. An **updater takes the portable one** —
+   `Orkige-macos-<token>.zip`, `Orkige-linux-<token>.tar.gz`,
+   `Orkige-windows-<token>.zip`, where `<token>` is the version's filename
+   rendering — because swapping files in place needs neither a mounted image nor
+   an installer run. The installable assets (`Orkige-macos-<token>.dmg`,
+   `Orkige-windows-<token>-setup.exe`) are what a **person** downloads from the
+   release page. A platform whose build failed has **no asset**, and the notes
+   table names it with that job's result: a client asks "is there a build for
+   me", and absence is the answer.
 6. Fetch the `<archive>.sha256` asset beside it and **verify the digest before
    trusting a single byte** of the archive. That sidecar is the download's only
    integrity story; the publish job checks every archive against the sidecar
@@ -339,6 +377,25 @@ which asserts, and fails the job on any of them:
   packaging composed. A wrong stamp, or a version the two sides disagree on, is a
   failure and not a note.
 
+The installable artifacts are checked the same way — by using them, not by
+reading them:
+
+- The **disk image is mounted**
+  (`--verify-dmg <image>`, `hdiutil attach`) and has to carry the complete app
+  under the same layout check the unpacked archive gets, plus the
+  `/Applications` symlink without which the drag is a copy into the download
+  folder rather than an install. The binary is not run from the read-only mount:
+  the archive's smoke test already proved it starts.
+- The **installer is installed**. `makensis` is resolved in a step of its own
+  before packaging, which fails the job with a sentence naming the missing tool
+  rather than letting a night ship without an installer. After packaging, the
+  installer runs silently (`/S`), and the job asserts the editor, the player,
+  `VERSION` and `share/orkige/Media` landed under
+  `%LOCALAPPDATA%\Programs\Orkige` and that Windows lists the build under its
+  ordered version. Then the uninstaller runs silently too, and the job waits for
+  the install directory and the registry entry to be gone — an installer nobody
+  can remove is worse than a zip.
+
 What that proves: the executable and everything it dynamically links load on a
 machine that is not the build tree, the artifact is structurally complete, and
 its identity is one value. What it does not prove: that the editor renders. The
@@ -356,6 +413,20 @@ sidecar disagree), the limitations table and its per-platform rendering, the
 media staging over a synthetic build tree, the archive round-trip, and every
 verdict the verifier can reach — including a stand-in binary reporting the wrong
 commit or a version the packaging did not compose.
+
+It also drives the installable artifacts as far as a platform-neutral test can:
+the asset names, the volume name against the 27-character cap a disk image's
+filesystem enforces, the numeric `a.b.c.d` the Windows VERSIONINFO resource
+accepts, the `makensis` argv, and the installer script's own properties — the
+per-user install root, `RequestExecutionLevel user`, the absence of any `HKLM`
+write (which would demand elevation), the Start-menu shortcut, the uninstall
+registry record, and the fact that every `/D` define the packager passes is one
+the script requires and vice versa. `makensis` runs on no machine this suite
+runs on, so compiling the installer is the pipeline's job; the disk image, whose
+tool exists on exactly one platform, gets its own
+`orkige_nightly_dmg_selftest` ctest (label `unit`) that builds and mounts a real
+image over a synthetic app and **skips with 77** where `hdiutil` does not exist,
+rather than passing without having checked anything.
 
 It also drives the **release notes** an updater reads: the publish job's own
 shell block is lifted out of the workflow and run against stubbed job outputs,
@@ -380,10 +451,12 @@ failed: the release notes list every platform with its archive or the words "not
 produced" plus that job's result, so a partial night is legible instead of
 looking complete. Zero archives is a failure — there is nothing to publish.
 
-Each night's assets are the three archives and a `.sha256` file beside each of
-them. Before they are attached, every archive is checked against the sidecar
-that travelled with it (`--verify-checksums`), so bytes that changed on the way
-fail the publish rather than being served under a digest that fits neither.
+Each night's assets are the two macOS ones (`.dmg`, `.zip`), the Linux
+`.tar.gz`, the two Windows ones (`-setup.exe`, `.zip`) and a `.sha256` file
+beside each. Before they are attached, every one of them is checked against the
+sidecar that travelled with it (`--verify-checksums`), so bytes that changed on
+the way fail the publish rather than being served under a digest that fits
+neither.
 
 Making the release public is one change (dropping `--draft` from the
 `gh release create` call in the publish job). What has to be true first is the
@@ -400,11 +473,18 @@ whatever they are, which keeps it honest in both directions.
 
 Today the list is headed by the one that matters most:
 
-- **The builds are unsigned.** macOS reports the app as unopenable until the
-  download quarantine flag is removed (`xattr -dr com.apple.quarantine
-  Orkige.app`, or right-click > Open); Windows SmartScreen warns until "More
-  info" > "Run anyway". The limitations file spells out both. This is why the
-  release stays a draft.
+- **The builds are unsigned**, and the installable containers are unsigned with
+  them. macOS reports the app as unopenable until the download quarantine flag
+  is removed (install first, then `xattr -dr com.apple.quarantine
+  /Applications/Orkige.app`, or right-click > Open); an unsigned `.dmg` is
+  blocked exactly like an unsigned `.zip`, because the image is an install
+  shape, not a trust shape — what changes that is a notarization ticket, which
+  staples onto the `.dmg` directly. On Windows the installer draws SmartScreen's
+  loudest prompt, the full-screen "Windows protected your PC" whose default
+  button is *Don't run*, because it is a program asking to install software
+  rather than a file being unpacked; "More info" > "Run anyway" gets past it,
+  and the portable `.zip` beside it needs no such confirmation at all. The
+  limitations file spells out every step. This is why the release stays a draft.
 - **Exporting a game needs the engine repository** — Build > Export copies out of
   a build tree and runs `Util/orkige_export.py`, so it needs that tree and
   python3.
@@ -441,12 +521,18 @@ composes one from `--commit` and `--date` (today by default) — the same value 
 pipeline passes explicitly; with no `--since` the changelog falls back to a
 bounded window and says so.
 
+That one run writes both of the platform's assets. The `.dmg` needs `hdiutil`,
+which is part of macOS; the Windows installer needs `makensis` on `PATH`, and
+without it the packager says so and produces the `.zip` alone.
+
 Then check the result the way CI does:
 
 ```sh
 mkdir -p /tmp/smoke && ditto -x -k /tmp/nightly-out/Orkige-macos-*.zip /tmp/smoke
 python3 Util/orkige_nightly_package.py --verify /tmp/smoke --platform macos \
         --commit $(git rev-parse HEAD)
+# and the disk image, by mounting it
+python3 Util/orkige_nightly_package.py --verify-dmg /tmp/nightly-out/Orkige-macos-*.dmg
 ```
 
 Three more modes serve the pipeline, and each one works by hand:
@@ -460,4 +546,6 @@ python3 Util/orkige_nightly_package.py --changelog --commit HEAD --since <sha>
 python3 Util/orkige_nightly_package.py --verify-checksums <dir>
 ```
 
-`--selftest` runs the headless self-checks without needing any build tree at all.
+`--selftest` runs the headless self-checks without needing any build tree at all,
+and `--selftest-dmg` builds and mounts a real disk image over a synthetic app
+(exiting 77 where `hdiutil` does not exist).

@@ -296,6 +296,20 @@ add_test(NAME orkige_nightly_package_selftest
 set_tests_properties(orkige_nightly_package_selftest PROPERTIES
     LABELS unit TIMEOUT 120)
 
+# the macOS disk image, built and MOUNTED for real over a synthetic app: that
+# it carries the complete bundle and the /Applications symlink which makes the
+# drag an install (an app launched from an unpacked download folder is subject
+# to path randomization) - and that the verifier refuses an image whose link
+# points anywhere else. hdiutil exists only on macOS, so this SKIPS with 77
+# elsewhere rather than passing without having checked anything; the text-level
+# properties of both installable artifacts are asserted by the selftest above,
+# which runs on every platform.
+add_test(NAME orkige_nightly_dmg_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_nightly_package.py" --selftest-dmg
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(orkige_nightly_dmg_selftest PROPERTIES
+    LABELS unit TIMEOUT 180 SKIP_RETURN_CODE 77)
+
 # site generator self-validation: make_help_portal.py renders a synthetic
 # corpus (nested lists, indented fences inside list items, tables with pipe
 # escapes, cross-page links) asserting the emitted HTML AND the whole REAL

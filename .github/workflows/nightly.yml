@@ -7,8 +7,9 @@
 #   sanitizers (ASan/UBSan/TSan in ci.yml) do not cover.
 # - Fuzz: libFuzzer coverage over the pure, headless parsers that consume
 #   external / untrusted bytes.
-# - Binaries: downloadable Release editor archives for macOS, Linux and
-#   Windows, built from the last commit the FULL test matrix proved green and
+# - Binaries: downloadable Release editor builds for macOS, Linux and Windows -
+#   each platform's installable artifact (.dmg, installer) plus its portable
+#   archive - built from the last commit the FULL test matrix proved green and
 #   published as a rolling draft prerelease (Docs/nightly-builds.md).
 #
 # Each job's own rationale follows immediately above it below.
@@ -601,11 +602,16 @@ jobs:
           test -n "${version}" || { echo "no ordered version composed" >&2; exit 1; }
           echo "Version \`${version}\`." >> "$GITHUB_STEP_SUMMARY"
 
-  # macOS: the Release .app, zipped. The engine links statically and the bundle
-  # depends on nothing but system frameworks, so the packaging is a copy, an
-  # rpath scrub and an ad-hoc bundle seal (Util/orkige_nightly_package.py).
+  # macOS: the Release .app, in two containers built from ONE staging. The
+  # engine links statically and the bundle depends on nothing but system
+  # frameworks, so the packaging is a copy, an rpath scrub and an ad-hoc bundle
+  # seal (Util/orkige_nightly_package.py); that staged bundle then becomes both
+  # the drag-to-Applications .dmg (the human download - an app launched out of
+  # an unzipped folder is subject to Gatekeeper path randomization, which
+  # installing to /Applications avoids) and the .zip (the portable copy, and
+  # the shape an updater can swap files out of).
   binaries-macos:
-    name: Binaries - macOS editor (.app zip)
+    name: Binaries - macOS editor (.dmg + zip)
     needs: binaries-gate
     if: needs.binaries-gate.outputs.green == 'true'
     runs-on: macos-15
@@ -703,10 +709,19 @@ jobs:
             --commit ${{ needs.binaries-gate.outputs.sha }} \
             --version "${{ needs.binaries-gate.outputs.version }}"
 
+      # The disk image gets its own proof, because building one says nothing
+      # about what it holds: it is MOUNTED, and the app plus the /Applications
+      # symlink that makes the drag an install have to be on the volume.
+      - name: Smoke-test the disk image
+        run: |
+          DMG="nightly-out/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.dmg"
+          test -f "$DMG" || { echo "no disk image at $DMG" >&2; exit 1; }
+          python3 Util/orkige_nightly_package.py --verify-dmg "$DMG"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: binaries-macos
-          # the archive AND its .sha256 sidecar
+          # the .dmg, the .zip and a .sha256 sidecar for each
           path: nightly-out/Orkige-macos-*
           if-no-files-found: error
           retention-days: 14
@@ -822,15 +837,23 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # Windows: the Release editor as a zip. The x64-windows-static-md triplet
-  # links every dependency statically but keeps the SHARED Visual C++ runtime,
-  # so VCRUNTIME140.dll / MSVCP140.dll must be resolvable on the user's machine.
-  # The packager copies them app-local from the build machine's redistributable
-  # (the supported deployment) and records in VERSION whether it managed to -
-  # if it did not, KNOWN-LIMITATIONS.md tells the user to install the
-  # redistributable rather than leaving them with a silent launch failure.
+  # Windows: the Release editor as a per-user installer (the human download -
+  # Windows has no drag-install, so a program that appears in the Start menu and
+  # in Settings > Installed apps is what a person expects) plus the zip (the
+  # portable copy and the updater's payload). Both come from ONE staging, so
+  # the installed tree and the unpacked zip are the same bytes.
+  #
+  # The x64-windows-static-md triplet links every dependency statically but
+  # keeps the SHARED Visual C++ runtime, so VCRUNTIME140.dll / MSVCP140.dll must
+  # be resolvable on the user's machine. The packager copies them app-local from
+  # the build machine's redistributable (the supported deployment) and records
+  # in VERSION whether it managed to - if it did not, KNOWN-LIMITATIONS.md tells
+  # the user to install the redistributable rather than leaving them with a
+  # silent launch failure. The installer ships the same app-local copies: it
+  # installs the staged directory verbatim, so it can never be less correct
+  # about the runtime than the zip.
   binaries-windows:
-    name: Binaries - Windows editor (zip)
+    name: Binaries - Windows editor (installer + zip)
     needs: binaries-gate
     if: needs.binaries-gate.outputs.green == 'true'
     runs-on: windows-latest
@@ -893,6 +916,31 @@ jobs:
         shell: pwsh
         run: cmake --build --preset ${env:PRESET} --target orkige_editor_bundle
 
+      # The installer is compiled by makensis, which the hosted Windows image
+      # ships. That is an ASSUMPTION about somebody else's image, so it is
+      # checked here and named: a missing tool must fail this job with a
+      # sentence a person can act on, never let the packaging quietly produce a
+      # night with no installer. When the tool is installed but not on PATH
+      # (its own installer does not add it), its directory is added here - the
+      # ONE place makensis is resolved, so the packager just looks it up.
+      - name: Verify the installer toolchain (makensis)
+        shell: pwsh
+        run: |
+          $tool = Get-Command makensis -ErrorAction SilentlyContinue
+          if (-not $tool) {
+            $fallback = Join-Path ${env:ProgramFiles(x86)} "NSIS"
+            if (Test-Path (Join-Path $fallback "makensis.exe")) {
+              Add-Content -Path $env:GITHUB_PATH -Value $fallback
+              $env:PATH = "$fallback;$env:PATH"
+            }
+          }
+          $tool = Get-Command makensis -ErrorAction SilentlyContinue
+          if (-not $tool) {
+            throw "makensis (NSIS) was not found on PATH or in Program Files (x86)\NSIS. The Windows nightly builds its installer with it; install NSIS on the runner image or fix the PATH - do not skip the installer."
+          }
+          Write-Host "using $($tool.Source)"
+          & makensis /VERSION
+
       - name: Package
         shell: pwsh
         run: |
@@ -917,10 +965,46 @@ jobs:
             --commit ${{ needs.binaries-gate.outputs.sha }} `
             --version "${{ needs.binaries-gate.outputs.version }}"
 
+      # THE INSTALLER'S SMOKE TEST: install it the way a user would, without
+      # elevation, and then remove it again - an installer nobody can uninstall
+      # is worse than a zip. /S is NSIS's silent mode, so this runs headlessly.
+      - name: Smoke-test the installer (silent install, then uninstall)
+        shell: pwsh
+        run: |
+          $setup = "nightly-out/Orkige-${env:PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}-setup.exe"
+          if (-not (Test-Path $setup)) { throw "no installer at $setup" }
+          $target = Join-Path $env:LOCALAPPDATA "Programs\Orkige"
+          Start-Process -FilePath (Resolve-Path $setup) -ArgumentList "/S" -Wait
+          foreach ($needed in @("orkige_editor.exe", "orkige_player.exe",
+                                "VERSION", "share\orkige\Media")) {
+            $path = Join-Path $target $needed
+            if (-not (Test-Path $path)) { throw "the install is missing $needed" }
+          }
+          # ... and it has to be listed where Windows shows installed programs,
+          # under the version this night actually built
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Orkige"
+          $entry = Get-ItemProperty -Path $key -ErrorAction Stop
+          if ($entry.DisplayVersion -ne "${{ needs.binaries-gate.outputs.version }}") {
+            throw "Installed apps records version '$($entry.DisplayVersion)'"
+          }
+          Write-Host "installed to $target, listed as $($entry.DisplayName) $($entry.DisplayVersion)"
+          # the uninstaller copies itself out and returns immediately, so the
+          # removal is waited for rather than assumed
+          Start-Process -FilePath (Join-Path $target "Uninstall.exe") -ArgumentList "/S"
+          $deadline = (Get-Date).AddSeconds(120)
+          while ((Test-Path (Join-Path $target "orkige_editor.exe")) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+          }
+          if (Test-Path (Join-Path $target "orkige_editor.exe")) {
+            throw "the uninstaller left the editor behind in $target"
+          }
+          if (Test-Path $key) { throw "the uninstaller left the Installed apps entry behind" }
+          Write-Host "uninstalled cleanly"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: binaries-windows
-          # the archive AND its .sha256 sidecar
+          # the installer, the .zip and a .sha256 sidecar for each
           path: nightly-out/Orkige-windows-*
           if-no-files-found: error
           retention-days: 14
@@ -995,29 +1079,46 @@ jobs:
             echo "\`${SHORT_SHA}\`, and only because the full test matrix on that"
             echo "commit was green."
             echo ""
-            echo "| Platform | Archive | Build |"
-            echo "| --- | --- | --- |"
-            for row in "macOS (Apple silicon):${RESULT_MACOS}:Orkige-macos-${TOKEN}.zip" \
-                       "Linux (x86_64):${RESULT_LINUX}:Orkige-linux-${TOKEN}.tar.gz" \
-                       "Windows (x64):${RESULT_WINDOWS}:Orkige-windows-${TOKEN}.zip"; do
-              label=${row%%:*}
-              rest=${row#*:}
-              result=${rest%%:*}
-              file=${rest#*:}
-              if [ -f "downloads/${file}" ]; then
-                echo "| ${label} | \`${file}\` | ${result} |"
-              else
-                echo "| ${label} | not produced | ${result} |"
-              fi
+            # Two assets per desktop platform, and the table says which is
+            # which: the INSTALL column is what a person on that platform
+            # downloads, the PORTABLE one unpacks anywhere and is what an
+            # updater swaps files out of. The row fields are separated by "|"
+            # (a version token cannot contain one) so a filename with a colon
+            # in it could never split a row.
+            echo "| Platform | Install | Portable | Build |"
+            echo "| --- | --- | --- | --- |"
+            for row in "macOS (Apple silicon)|${RESULT_MACOS}|Orkige-macos-${TOKEN}.dmg|Orkige-macos-${TOKEN}.zip" \
+                       "Linux (x86_64)|${RESULT_LINUX}||Orkige-linux-${TOKEN}.tar.gz" \
+                       "Windows (x64)|${RESULT_WINDOWS}|Orkige-windows-${TOKEN}-setup.exe|Orkige-windows-${TOKEN}.zip"; do
+              IFS='|' read -r label result install portable <<< "${row}"
+              cells=""
+              for file in "${install}" "${portable}"; do
+                if [ -z "${file}" ]; then
+                  cells="${cells} - |"          # this platform has no such asset
+                elif [ -f "downloads/${file}" ]; then
+                  cells="${cells} \`${file}\` |"
+                else
+                  cells="${cells} not produced |"
+                fi
+              done
+              echo "| ${label} |${cells} ${result} |"
             done
             echo ""
             cat changelog.md
             echo ""
-            echo "Every archive carries a \`VERSION\` file, a \`CHANGELOG.md\` and a"
-            echo "\`KNOWN-LIMITATIONS.md\` listing what this build cannot do yet -"
-            echo "read it first. The builds are UNSIGNED, so macOS and Windows"
-            echo "warn about them; the limitations file gives the exact steps."
-            echo "Each archive has a \`.sha256\` file beside it - verify a"
+            echo "On macOS, open the \`.dmg\` and drag Orkige to Applications -"
+            echo "an app started from an unpacked download folder is subject to"
+            echo "macOS path randomization. On Windows the installer installs"
+            echo "for the current user only and needs no administrator rights."
+            echo "The portable archives need neither and unpack anywhere."
+            echo ""
+            echo "Every download carries a \`VERSION\` file, a \`CHANGELOG.md\` and"
+            echo "a \`KNOWN-LIMITATIONS.md\` listing what this build cannot do"
+            echo "yet: read it first. The builds are UNSIGNED, so macOS refuses"
+            echo "the app until its quarantine flag is cleared and Windows warns"
+            echo "that it does not recognise the publisher (loudest on the"
+            echo "installer); the limitations file gives the exact steps."
+            echo "Each asset has a \`.sha256\` file beside it - verify a"
             echo "download before trusting it."
             echo ""
             echo "Reference: Docs/nightly-builds.md."
@@ -1031,11 +1132,12 @@ jobs:
           } > notes.md
           cat notes.md
 
-      # The `.sha256` sidecar is the whole integrity story of a download, so the
-      # assets that arrived are checked against the sidecars that travelled with
-      # them: bytes that changed on the way here fail the publish rather than
-      # being served under a digest that fits neither.
-      - name: Verify the archives against their checksum files
+      # The `.sha256` sidecar is the whole integrity story of a download, so
+      # EVERY asset that arrived - installers and archives alike - is checked
+      # against the sidecar that travelled with it: bytes that changed on the
+      # way here fail the publish rather than being served under a digest that
+      # fits neither.
+      - name: Verify the assets against their checksum files
         run: |
           set -uo pipefail
           python3 Util/orkige_nightly_package.py --verify-checksums downloads
