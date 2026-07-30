@@ -35,6 +35,7 @@ add_executable(orkige_engine_tests
     SoundTeardownTests.cpp
     TweenScriptTests.cpp
     InputActionTests.cpp
+    InputInjectionTests.cpp
     CVarProtocolBehaviourTests.cpp
     ScreenFadeTests.cpp
     ScreenShakeTests.cpp

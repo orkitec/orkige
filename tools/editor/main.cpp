@@ -336,6 +336,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_ANIM_HOTRELOAD_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_CONTROL_AGENTLOOP") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_HELPTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERSESSION") != nullptr ||
@@ -1158,10 +1159,16 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERTEST");
 		const char* controlBrowserSessionEnv =
 			std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERSESSION");
+		// the AGENT LOOP flavor (editor_agent_loop ctest): build a tiny
+		// playable game from an EMPTY temp project over MCP, play it and drive
+		// its input - the standing gate on agent-buildability
+		const char* controlAgentLoopEnv =
+			std::getenv("ORKIGE_EDITOR_CONTROL_AGENTLOOP");
 		const char* controlSelfTestEnv = controlTestEnv ? controlTestEnv
 			: (controlPlaytestEnv ? controlPlaytestEnv
 				: (controlBrowserTestEnv ? controlBrowserTestEnv
-					: controlBrowserSessionEnv));
+					: (controlBrowserSessionEnv ? controlBrowserSessionEnv
+						: controlAgentLoopEnv)));
 		Orkige::EditorControlSelfTest controlSelfTest;
 		if (controlSelfTestEnv != nullptr && controlPort < 0)
 		{
@@ -15550,7 +15557,8 @@ int main(int argc, char** argv)
 						controlServer.getToken(), controlSelfTestEnv,
 						controlPlaytestEnv != nullptr,
 						controlBrowserTestEnv != nullptr,
-						controlBrowserSessionEnv != nullptr);
+						controlBrowserSessionEnv != nullptr,
+						controlAgentLoopEnv != nullptr);
 				}
 				if (controlSelfTest.active())
 				{

@@ -1526,6 +1526,32 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         # genuine failure reports its precise step instead of an opaque kill.
         LABELS integration TIMEOUT 300)
 
+    # THE AGENT LOOP: the standing gate on agent-buildability. The editor hosts
+    # its MCP endpoint on an ephemeral in-process port and a worker thread
+    # drives a RAW socket through the whole build-and-play arc an autonomous
+    # agent would - new_project in a temp dir, new_scene, then the GAME authored
+    # as TEXT via write_project_file (a Lua component that reads the named-action
+    # map, a runtime-baked .ogui TrueType atlas and a .oui HUD - no binary asset
+    # an agent could not write), assembled with create_object/add_component/
+    # set_component, saved, PLAYED on the desktop target, and then DRIVEN:
+    # send_input holds RIGHT for 12 frames and the Hero's streamed transform
+    # must have advanced (real gameplay, not a smoke test), two injected SPACE
+    # taps must each count exactly once with no key left stuck, the authored HUD
+    # must be live in get_ui_layout and screenshot_game must land a readable PNG
+    # of the running game. Frame-count driven: each gesture's own confirmation
+    # (every injected frame stepped) is the synchronisation point, so there is
+    # no sleep inside an assertion. Needs the built player; the temp project is
+    # removed on every exit path.
+    add_test(NAME editor_agent_loop${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_agent_loop${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_CONTROL_AGENTLOOP=${CMAKE_CURRENT_BINARY_DIR}/editor_agent_loop_shot.png;ORKIGE_BREADCRUMB_DIR=${CMAKE_CURRENT_BINARY_DIR}/editor_agent_loop_breadcrumbs${ORKIGE_FLAVOR_TEST_SUFFIX}"
+        # coarse backstop only, like editor_control_debug: the conversation's own
+        # condition-driven polls (project+scene authoring, a player boot, three
+        # gesture confirmations, a screenshot) carry the real deadlines and each
+        # reports its exact failing step.
+        LABELS integration TIMEOUT 300)
+
     # Play in Browser end to end over MCP: the editor hosts its endpoint on an
     # ephemeral in-process port and, on a worker thread, drives the browser
     # target - list_play_targets (the "browser" entry, gated vs ready), play

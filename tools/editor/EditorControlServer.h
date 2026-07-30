@@ -281,9 +281,18 @@ namespace Orkige
 		//! runtime_hierarchy, pause/resume, the honest screenshot_game
 		//! refusal - and stop (the editor_play_browser_session ctest;
 		//! skipped() without the wasm player OR without a headless browser).
+		//! With agentLoop set, run the AGENT LOOP conversation: build a tiny
+		//! playable game from an EMPTY temp project entirely over MCP (author
+		//! the Lua logic, a runtime-baked .ogui atlas and a .oui HUD as text,
+		//! assemble + save the scene), play it, DRIVE ITS INPUT with
+		//! send_input and assert the game responded - an object that moved
+		//! because a key was held for N frames, distinct presses counted
+		//! exactly once, the HUD live and a frame on disk (the
+		//! editor_agent_loop ctest, which needs the built player).
 		void begin(unsigned short port, std::string const& token,
 			std::string const& screenshotPath, bool runtimeDebug = false,
-			bool browserPlay = false, bool browserSession = false);
+			bool browserPlay = false, bool browserSession = false,
+			bool agentLoop = false);
 		//! poll the worker (the GameObjectManager param is unused - the endpoint
 		//! is verified entirely through its JSON-RPC responses)
 		void update(GameObjectManager& manager);
@@ -304,6 +313,7 @@ namespace Orkige
 		bool mRuntimeDebug = false;		//!< run the runtime-debug conversation
 		bool mBrowserPlay = false;		//!< run the browser-play conversation
 		bool mBrowserSession = false;	//!< run the connected browser session conversation
+		bool mAgentLoop = false;		//!< run the agent-loop (build + play) conversation
 		std::atomic<bool> mActive{ false };
 		std::atomic<bool> mDone{ false };
 		std::atomic<bool> mPassed{ false };

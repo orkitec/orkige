@@ -47,6 +47,7 @@
 #include <core_util/VectorAnimAsset.h>
 
 #include <engine_gocomponent/ScriptComponentRegistry.h>
+#include <engine_input/InputInjection.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderTexture.h>
 #include <engine_render/RenderWorld.h>
@@ -1432,6 +1433,37 @@ namespace Orkige
 				  "to close, or omit it to close the topmost one. Errors when no "
 				  "player is connected.",
 				  { { "id", "string", "modal id (omit = topmost)", false } } },
+				{ "send_input",
+				  "PLAY the RUNNING game: replay a whole input GESTURE - keys, "
+				  "pointer, tilt - through the real input path, so isKeyDown, the "
+				  "action map, the gui hit test and every input listener see it "
+				  "exactly like hardware input. 'steps' is an ARRAY OF STRINGS, "
+				  "one step each, applied ONE PER FRAME in order: "
+				  "'key down <NAME>' / 'key up <NAME>' / "
+				  "'key press <NAME> [frames]' (hold for that many frames, "
+				  "default 1), 'pointer move|down|up <x> <y> [left|middle|right]', "
+				  "'pointer click <x> <y> [button]', 'tilt angle <radians>' or "
+				  "'tilt vector <x> <y>' (a gravity direction), and "
+				  "'wait <frames>'. Key names are the KC_ spellings without the "
+				  "prefix (SPACE, LEFT, A, F5, WEBBACK; ENTER/ESC/SHIFT/CTRL/ALT "
+				  "also work), case-insensitive. Pointer x/y are WINDOW PIXELS "
+				  "(get_safe_area reports the size; get_ui_layout the widget "
+				  "rects). ASYNC and FRAME-EXACT: returns accepted + "
+				  "prev_input_seq + input_frames (how many frames the gesture "
+				  "spans); poll get_state until input_seq exceeds prev_input_seq, "
+				  "then input_ok='1' means the gesture was replayed AND every "
+				  "injected frame was stepped - so runtime_state / "
+				  "runtime_hierarchy / screenshot_game right after it show the "
+				  "RESULT, with no sleeping. input_message carries a refusal "
+				  "reason, or one honest note on success (a tilt step a real "
+				  "device accelerometer overruled). One gesture at a time; a "
+				  "malformed step is refused naming its 1-based index. For a gui "
+				  "widget by id prefer gui_press. Errors when no player is "
+				  "connected or while the player is PAUSED (a frozen world would "
+				  "never process the input).",
+				  { { "steps", "array",
+				      "the gesture, one step string per entry (e.g. "
+				      "[\"key press RIGHT 10\"])", true } } },
 				{ "get_breadcrumbs",
 				  "The crash breadcrumb trail the player leaves on disk: an "
 				  "always-on, flush-per-entry ring of engine events (scene "
@@ -2897,6 +2929,18 @@ namespace Orkige
 			ok.set("record_path", play.lastRecordPath);
 			ok.set("record_ok", play.lastRecordOk ? "1" : "0");
 			ok.set("record_seq", std::to_string(play.recordSeq));
+			// injected input (send_input): the last replayed gesture's verdict
+			// plus a sequence a poller waits to advance. input_ok="1" means the
+			// WHOLE gesture was applied AND every injected frame stepped, so the
+			// gameplay result is already readable; input_message carries a
+			// refusal reason, or one honest note on a success (a tilt step a
+			// real accelerometer overruled).
+			ok.set("input_running", play.inputRunning ? "1" : "0");
+			ok.set("input_ok", play.lastInputOk ? "1" : "0");
+			ok.set("input_message", play.lastInputMessage);
+			ok.set("input_frames", std::to_string(play.lastInputFrames));
+			ok.set("input_events", std::to_string(play.lastInputEvents));
+			ok.set("input_seq", std::to_string(play.inputSeq));
 			// running-game memory (streamed as MSG_STATS): the process resident
 			// set size and the session peak, in bytes; "-1" until the player
 			// streams one (or on a platform without a memory query) - an agent
@@ -5123,6 +5167,53 @@ namespace Orkige
 			this->sendOk(req);
 			return;
 		}
+		if (type == "send_input")
+		{
+			PlaySession& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			if (play.mode == PlaySession::Mode::Paused)
+			{
+				// a frozen world never ticks the scripts that would read the
+				// input: replaying a gesture into it would look accepted and
+				// change nothing. Say so instead.
+				this->sendErr(req, "send_input needs a RUNNING player - the "
+					"session is paused (resume first; a paused world never "
+					"processes the input)");
+				return;
+			}
+			// the MCP argument is 'steps' (the schema's name); the wire list to
+			// the player is LIST_INPUT_STEPS - sendRemoteInput renames it
+			StringVector const& steps = request.getList("steps");
+			// compile HERE too, so a malformed gesture is an immediate honest
+			// tool error naming the offending step instead of a [remote] line
+			// the caller has to go hunting for. The player compiles it again
+			// (it is the one that must not trust the wire) - the SAME pure
+			// grammar, so the two verdicts cannot disagree.
+			InputInjection::Sequence sequence;
+			String compileError;
+			if (!InputInjection::compile(steps, sequence, compileError))
+			{
+				this->sendErr(req, "send_input refused: " + compileError);
+				return;
+			}
+			// async: the player replays one step-frame per frame and answers
+			// with input_applied; poll get_state (input_seq/input_ok/
+			// input_message) for the verdict. Report the sequence value BEFORE
+			// the request so a poller knows a fresh confirmation is one with a
+			// higher input_seq, plus the frame span it is waiting through.
+			DebugMessage ok(MSG_OK);
+			ok.set("accepted", "1");
+			ok.set("prev_input_seq", std::to_string(play.inputSeq));
+			ok.set("input_frames", std::to_string(sequence.frameSpan));
+			ok.set("input_events", std::to_string(sequence.events.size()));
+			sendRemoteInput(play, steps);
+			this->sendOk(req, ok);
+			return;
+		}
 		if (type == "screenshot_game")
 		{
 			PlaySession& play = *context.play;
@@ -6963,13 +7054,15 @@ namespace Orkige
 	//---------------------------------------------------------
 	void EditorControlSelfTest::begin(unsigned short port,
 		std::string const& token, std::string const& screenshotPath,
-		bool runtimeDebug, bool browserPlay, bool browserSession)
+		bool runtimeDebug, bool browserPlay, bool browserSession,
+		bool agentLoop)
 	{
 		this->mToken = token;
 		this->mScreenshotPath = screenshotPath;
 		this->mRuntimeDebug = runtimeDebug;
 		this->mBrowserPlay = browserPlay;
 		this->mBrowserSession = browserSession;
+		this->mAgentLoop = agentLoop;
 		this->mActive.store(true);
 		this->mDone.store(false);
 		this->mPassed.store(false);
@@ -8303,6 +8396,666 @@ namespace Orkige
 			return;
 		}
 
+		// --- the AGENT LOOP conversation (the editor_agent_loop ctest, needs
+		// the built player): build a tiny PLAYABLE game from an EMPTY project
+		// over MCP and then PLAY it - author the logic and the HUD as TEXT,
+		// assemble the scene, run it, drive its input, and assert the game
+		// RESPONDED. This is the standing gate on agent-buildability: every
+		// step is a verb an agent has, and the movement assertion is real
+		// gameplay (an object moves because a key was held for N frames), not
+		// a smoke test. Frame-count driven throughout: the gesture's own
+		// confirmation is the synchronisation point, never a sleep.
+		if (this->mAgentLoop)
+		{
+			JsonValue structured;
+			JsonValue state;
+			bool isError = true;
+			// generous ceilings for waits that hinge on the SPAWNED PLAYER's
+			// frame cadence under full-suite parallelism; the ctest TIMEOUT is
+			// the coarse backstop (see the runtime-debug conversation)
+			const int kPollAttempts = 300;		// 300 * 100ms = 30s
+			const int kBootAttempts = 600;		// 600 * 100ms = 60s
+			auto pollState = [&](auto&& ready, int maxAttempts,
+				JsonValue& outState) -> bool
+			{
+				for (int attempt = 0; attempt < maxAttempts; ++attempt)
+				{
+					if (getState(outState) && ready(outState))
+					{
+						return true;
+					}
+					std::this_thread::sleep_for(
+						std::chrono::milliseconds(100));
+				}
+				return false;
+			};
+			// the running Hero's authored position, read off runtime_state's
+			// reflected TransformComponent.position ("x y z")
+			auto readHeroPosition = [&](float& outX, float& outY) -> bool
+			{
+				JsonValue runtimeState;
+				bool err = true;
+				if (!callTool("runtime_state", JsonValue::object(), true,
+						runtimeState, err) || err ||
+					runtimeState.get("ready").asString() != "1")
+				{
+					return false;
+				}
+				JsonValue const& keys = runtimeState.get("properties");
+				JsonValue const& values = runtimeState.get("values");
+				for (size_t i = 0; i < keys.size() && i < values.size(); ++i)
+				{
+					if (keys.at(i).asString() !=
+						"TransformComponent.position")
+					{
+						continue;
+					}
+					std::istringstream stream(values.at(i).asString());
+					float x = 0.0f;
+					float y = 0.0f;
+					if (!(stream >> x >> y))
+					{
+						return false;
+					}
+					outX = x;
+					outY = y;
+					return true;
+				}
+				return false;
+			};
+			// replay a gesture and WAIT for the player's confirmation (the
+			// frame-exact synchronisation point: on a success every injected
+			// frame has been stepped, so the result is readable right after)
+			auto replayGesture = [&](StringVector const& steps,
+				String& outError) -> bool
+			{
+				JsonValue before;
+				if (!getState(before))
+				{
+					outError = "get_state failed before send_input";
+					return false;
+				}
+				const int beforeSeq = std::atoi(
+					before.get("input_seq").asString().c_str());
+				JsonValue args = JsonValue::object();
+				JsonValue stepList = JsonValue::array();
+				for (String const& step : steps)
+				{
+					stepList.push(JsonValue(step));
+				}
+				args.set("steps", stepList);
+				JsonValue result;
+				if (!callToolFull("send_input", args, true, result))
+				{
+					outError = "send_input had a transport failure";
+					return false;
+				}
+				if (result.get("isError").asBool(true) ||
+					result.get("structuredContent").get("accepted")
+						.asString() != "1")
+				{
+					outError = "send_input was not accepted: " +
+						result.get("content").at(0).get("text").asString();
+					return false;
+				}
+				if (!pollState([beforeSeq](JsonValue const& s)
+					{
+						return std::atoi(s.get("input_seq").asString().c_str())
+							> beforeSeq;
+					}, kPollAttempts, state))
+				{
+					outError = "the player never confirmed the gesture";
+					return false;
+				}
+				if (state.get("input_ok").asString() != "1")
+				{
+					outError = "the player refused the gesture: " +
+						state.get("input_message").asString();
+					return false;
+				}
+				return true;
+			};
+
+			// (A1) an EMPTY project in a temp dir, then a fresh empty scene
+			const std::filesystem::path projectRoot =
+				std::filesystem::temp_directory_path() /
+					("orkige_agent_loop_" + std::to_string(port));
+			std::error_code cleanupIgnored;
+			std::filesystem::remove_all(projectRoot, cleanupIgnored);
+			// every failure path below must take the temp project with it
+			auto finishAndClean = [&](bool passed, String const& message)
+			{
+				std::error_code ignored;
+				std::filesystem::remove_all(projectRoot, ignored);
+				finish(passed, message);
+			};
+			{
+				// new_project/open_project advertise no force flag, so drop the
+				// scripted-run fixture world FIRST (new_scene does advertise
+				// one) - otherwise the dirty-state policy refuses the switch
+				JsonValue clearArgs = JsonValue::object();
+				clearArgs.set("force", JsonValue("1"));
+				if (!callTool("new_scene", clearArgs, true, structured,
+						isError) || isError)
+				{
+					finishAndClean(false, "agent loop: could not clear the "
+						"world before new_project");
+					return;
+				}
+				JsonValue args = JsonValue::object();
+				args.set("path", JsonValue(projectRoot.string()));
+				if (!callTool("new_project", args, true, structured, isError) ||
+					isError)
+				{
+					finishAndClean(false, "agent loop: new_project failed");
+					return;
+				}
+				if (!callTool("new_scene", clearArgs, true, structured,
+						isError) || isError)
+				{
+					finishAndClean(false, "agent loop: new_scene failed");
+					return;
+				}
+			}
+			SDL_Log("orkige_editor: agent loop - empty project + scene at %s",
+				projectRoot.string().c_str());
+
+			// (A2) author the GAME as text: one Lua script that reads the
+			// named-action map (so the whole chain is under test - injected SDL
+			// event -> InputManager key state -> the action map's once-per-frame
+			// edge snapshot -> the script) and moves the object, plus the HUD
+			// as a .ogui atlas (a runtime-baked TrueType page - no binary asset
+			// an agent could not write) and a .oui screen.
+			{
+				// x accumulates a FIXED step per held frame, so the assertion
+				// is frame-count driven and never wall-clock dependent; y
+				// counts DISTINCT jump presses, which proves the edge snapshot
+				// sees an injected press exactly once (and that its release
+				// really landed)
+				const String script =
+					"-- authored over MCP by the agent-loop gate: the smallest\n"
+					"-- real game - hold RIGHT to move, tap SPACE to score.\n"
+					"local actions\n"
+					"local jumps = 0\n"
+					"local STEP = 0.25\n"
+					"\n"
+					"function init(self)\n"
+					"\tactions = InputActions.getSingleton()\n"
+					"\tself.transform:setPosition(Vector3(0, 0, 0))\n"
+					"\tlocal engine = Engine.getSingleton()\n"
+					"\tif engine:hasUISystem() then\n"
+					"\t\tlocal factory = GuiFactory()\n"
+					"\t\tgui = GuiManager(factory, \"hud\",\n"
+					"\t\t\t\"OrkigeProject\")\n"
+					"\t\tfactory:loadLayout(\"hud.oui\")\n"
+					"\tend\n"
+					"end\n"
+					"\n"
+					"function update(self, dt)\n"
+					"\tlocal pos = self.transform:getPosition()\n"
+					"\tlocal move = actions:value2(\"move\")\n"
+					"\tlocal y = pos.y\n"
+					"\tif actions:pressed(\"jump\") then\n"
+					"\t\tjumps = jumps + 1\n"
+					"\t\ty = jumps\n"
+					"\tend\n"
+					"\tself.transform:setPosition(\n"
+					"\t\tVector3(pos.x + move.x * STEP, y, pos.z))\n"
+					"end\n";
+				const String atlas =
+					"# runtime-baked gui page: the engine default TrueType face,\n"
+					"# no binary asset - everything here is authorable as text.\n"
+					"[Texture]\n"
+					"page 512\n"
+					"\n"
+					"[Font.18]\n"
+					"name body\n"
+					"ttf Nunito-Regular.ttf\n"
+					"size 18\n";
+				const String layout =
+					"# the game's HUD, one label - authored over MCP\n"
+					"[Layout]\n"
+					"atlas = hud\n"
+					"root = fullwindow\n"
+					"\n"
+					"[Label hudHint]\n"
+					"z = 12\n"
+					"font = body\n"
+					"text = HOLD RIGHT - TAP SPACE\n"
+					"anchor = topleft\n"
+					"anchoredPos = 24 24\n"
+					"sizeDelta = 320 24\n";
+				struct AuthoredFile { const char* path; String const& content; };
+				const AuthoredFile files[] = {
+					{ "scripts/hero.lua", script },
+					{ "assets/hud.ogui", atlas },
+					{ "assets/hud.oui", layout } };
+				for (AuthoredFile const& file : files)
+				{
+					JsonValue args = JsonValue::object();
+					args.set("path", JsonValue(String(file.path)));
+					args.set("content", JsonValue(file.content));
+					if (!callTool("write_project_file", args, true, structured,
+							isError) || isError)
+					{
+						finishAndClean(false, String("agent loop: could not "
+							"author ") + file.path);
+						return;
+					}
+					// read it back - the evidence the write landed verbatim
+					JsonValue readArgs = JsonValue::object();
+					readArgs.set("path", JsonValue(String(file.path)));
+					JsonValue readBack;
+					if (!callTool("read_project_file", readArgs, true, readBack,
+							isError) || isError ||
+						readBack.get("content").asString() != file.content)
+					{
+						finishAndClean(false, String("agent loop: ") +
+							file.path + " did not read back byte-identical");
+						return;
+					}
+				}
+			}
+			SDL_Log("orkige_editor: agent loop - game logic + HUD authored as "
+				"text (script, .ogui atlas, .oui screen)");
+
+			// (A3) assemble the scene: the Hero (mesh + the script) and a
+			// camera looking at it
+			{
+				JsonValue heroArgs = JsonValue::object();
+				heroArgs.set("id", JsonValue("Hero"));
+				heroArgs.set("position", JsonValue("0 0 0"));
+				if (!callTool("create_object", heroArgs, true, structured,
+						isError) || isError)
+				{
+					finishAndClean(false, "agent loop: create_object Hero "
+						"failed");
+					return;
+				}
+				JsonValue addArgs = JsonValue::object();
+				addArgs.set("id", JsonValue("Hero"));
+				addArgs.set("component", JsonValue("ScriptComponent"));
+				if (!callTool("add_component", addArgs, true, structured,
+						isError) || isError)
+				{
+					finishAndClean(false, "agent loop: add_component "
+						"ScriptComponent failed");
+					return;
+				}
+				JsonValue setArgs = JsonValue::object();
+				setArgs.set("id", JsonValue("Hero"));
+				setArgs.set("component", JsonValue("ScriptComponent"));
+				JsonValue props = JsonValue::object();
+				props.set("script", JsonValue("scripts/hero.lua"));
+				setArgs.set("properties", props);
+				if (!callTool("set_component", setArgs, true, structured,
+						isError) || isError)
+				{
+					finishAndClean(false, "agent loop: set_component script "
+						"failed");
+					return;
+				}
+				// read it back through the ONE property registry
+				JsonValue getArgs = JsonValue::object();
+				getArgs.set("id", JsonValue("Hero"));
+				getArgs.set("component", JsonValue("ScriptComponent"));
+				if (!callTool("get_component", getArgs, true, structured,
+						isError) || isError ||
+					structured.get("script").asString() != "scripts/hero.lua")
+				{
+					finishAndClean(false, "agent loop: get_component did not "
+						"report the attached script");
+					return;
+				}
+				JsonValue camArgs = JsonValue::object();
+				camArgs.set("id", JsonValue("GameCamera"));
+				camArgs.set("position", JsonValue("0 2 14"));
+				if (!callTool("create_object", camArgs, true, structured,
+						isError) || isError)
+				{
+					finishAndClean(false, "agent loop: create_object "
+						"GameCamera failed");
+					return;
+				}
+				JsonValue camComponent = JsonValue::object();
+				camComponent.set("id", JsonValue("GameCamera"));
+				camComponent.set("component", JsonValue("CameraComponent"));
+				if (!callTool("add_component", camComponent, true, structured,
+						isError) || isError)
+				{
+					finishAndClean(false, "agent loop: add_component "
+						"CameraComponent failed");
+					return;
+				}
+			}
+			const std::string scenePath =
+				(projectRoot / "scenes" / "main.oscene").string();
+			{
+				JsonValue saveArgs = JsonValue::object();
+				saveArgs.set("scene", JsonValue(String(scenePath)));
+				if (!callTool("save_scene", saveArgs, true, structured,
+						isError) || isError)
+				{
+					finishAndClean(false, "agent loop: save_scene failed");
+					return;
+				}
+			}
+			SDL_Log("orkige_editor: agent loop - scene assembled + saved");
+
+			// (A4) PLAY it (desktop) and wait for the live session
+			{
+				JsonValue playArgs = JsonValue::object();
+				playArgs.set("target", JsonValue("desktop"));
+				if (!callTool("play", playArgs, true, structured, isError) ||
+					isError)
+				{
+					finishAndClean(false, "agent loop: play was not accepted");
+					return;
+				}
+			}
+			if (!pollState([](JsonValue const& s)
+				{
+					return s.get("play_mode").asString() == "playing" &&
+						s.get("remote_connected").asString() == "1";
+				}, kBootAttempts, state))
+			{
+				finishAndClean(false, "agent loop: the authored game never "
+					"reached the playing state");
+				return;
+			}
+			// the Hero must be in the RUNNING world
+			{
+				bool heroRunning = false;
+				for (int attempt = 0; attempt < kPollAttempts && !heroRunning;
+					++attempt)
+				{
+					if (!callTool("runtime_hierarchy", JsonValue::object(),
+							true, structured, isError) || isError)
+					{
+						finishAndClean(false, "agent loop: runtime_hierarchy "
+							"failed");
+						return;
+					}
+					JsonValue const& ids = structured.get("ids");
+					for (size_t i = 0; i < ids.size(); ++i)
+					{
+						if (ids.at(i).asString() == "Hero") heroRunning = true;
+					}
+					if (!heroRunning)
+					{
+						std::this_thread::sleep_for(
+							std::chrono::milliseconds(100));
+					}
+				}
+				if (!heroRunning)
+				{
+					finishAndClean(false, "agent loop: the authored game does "
+						"not run the Hero object");
+					return;
+				}
+			}
+			// stream the Hero's live state (the readback the assertions use)
+			{
+				JsonValue selectArgs = JsonValue::object();
+				selectArgs.set("id", JsonValue("Hero"));
+				if (!callTool("runtime_select", selectArgs, true, structured,
+						isError) || isError)
+				{
+					finishAndClean(false, "agent loop: runtime_select failed");
+					return;
+				}
+			}
+			float baseX = 0.0f;
+			float baseY = 0.0f;
+			{
+				bool streaming = false;
+				for (int attempt = 0; attempt < kPollAttempts && !streaming;
+					++attempt)
+				{
+					if (readHeroPosition(baseX, baseY))
+					{
+						streaming = true;
+						break;
+					}
+					std::this_thread::sleep_for(
+						std::chrono::milliseconds(100));
+				}
+				if (!streaming)
+				{
+					finishAndClean(false, "agent loop: runtime_state never "
+						"streamed the Hero's transform");
+					return;
+				}
+			}
+			SDL_Log("orkige_editor: agent loop - game up, Hero at "
+				"(%.3f, %.3f)", baseX, baseY);
+
+			// (A5) PLAY IT: hold RIGHT for 12 frames. The gesture's own
+			// confirmation means those 12 frames were stepped, so the
+			// gameplay result is readable right after (the ~15Hz state stream
+			// still needs a bounded catch-up, and the value only ever moves
+			// ONE way and then stops - so this settles, it does not race).
+			{
+				String gestureError;
+				if (!replayGesture({ "key press RIGHT 12" }, gestureError))
+				{
+					finishAndClean(false, "agent loop: the movement gesture "
+						"failed - " + gestureError);
+					return;
+				}
+				// 12 held frames at a fixed 0.25/frame is EXACTLY 3 units: the
+				// injection cursor advances only on frames the world advances,
+				// so "hold for 12 frames" is 12 gameplay ticks - assert that
+				// band, not merely "it moved" (a sloppy off-by-one or a leaked
+				// extra frame has to fail here)
+				const float expectedX = baseX + 3.0f;
+				float movedX = baseX;
+				float movedY = baseY;
+				bool moved = false;
+				for (int attempt = 0; attempt < kPollAttempts && !moved;
+					++attempt)
+				{
+					if (readHeroPosition(movedX, movedY) &&
+						movedX > baseX + 1.0f)
+					{
+						moved = true;
+						break;
+					}
+					std::this_thread::sleep_for(
+						std::chrono::milliseconds(100));
+				}
+				if (!moved)
+				{
+					finishAndClean(false, "agent loop: THE GAME DID NOT "
+						"RESPOND - the Hero's x did not advance after holding "
+						"RIGHT (" + std::to_string(baseX) + " -> " +
+						std::to_string(movedX) + ")");
+					return;
+				}
+				if (movedX < expectedX - 0.13f || movedX > expectedX + 0.13f)
+				{
+					finishAndClean(false, "agent loop: the 12-frame hold was "
+						"not frame-exact - the Hero advanced to " +
+						std::to_string(movedX) + ", expected " +
+						std::to_string(expectedX) + " (12 gameplay ticks at "
+						"0.25/tick)");
+					return;
+				}
+				SDL_Log("orkige_editor: agent loop - injected input MOVED the "
+					"Hero, frame-exactly (x %.3f -> %.3f, 12 held frames)",
+					baseX, movedX);
+				baseX = movedX;
+				baseY = movedY;
+			}
+
+			// (A6) tap SPACE twice: each press must count exactly ONCE (the
+			// action map's per-frame edge snapshot really sees a synthetic
+			// press AND its release), and x must not drift - a stuck key from
+			// the previous gesture would show up here
+			{
+				String gestureError;
+				if (!replayGesture({ "key press SPACE", "wait 3",
+					"key press SPACE" }, gestureError))
+				{
+					finishAndClean(false, "agent loop: the jump gesture "
+						"failed - " + gestureError);
+					return;
+				}
+				float jumpX = baseX;
+				float jumpY = baseY;
+				bool scored = false;
+				for (int attempt = 0; attempt < kPollAttempts && !scored;
+					++attempt)
+				{
+					if (readHeroPosition(jumpX, jumpY) && jumpY >= 2.0f)
+					{
+						scored = true;
+						break;
+					}
+					std::this_thread::sleep_for(
+						std::chrono::milliseconds(100));
+				}
+				if (!scored)
+				{
+					finishAndClean(false, "agent loop: the two injected SPACE "
+						"presses did not both register (jump count reads " +
+						std::to_string(jumpY) + ", expected 2)");
+					return;
+				}
+				if (jumpY > 2.5f)
+				{
+					finishAndClean(false, "agent loop: an injected key press "
+						"registered more than once (jump count reads " +
+						std::to_string(jumpY) + ")");
+					return;
+				}
+				if (jumpX > baseX + 0.5f)
+				{
+					finishAndClean(false, "agent loop: the Hero kept moving "
+						"after the movement gesture ended - an injected key "
+						"stayed down (" + std::to_string(baseX) + " -> " +
+						std::to_string(jumpX) + ")");
+					return;
+				}
+				SDL_Log("orkige_editor: agent loop - two injected presses "
+					"counted exactly twice, no key left stuck");
+			}
+
+			// (A7) the authored HUD is really up in the running game
+			{
+				JsonValue layout;
+				bool hudUp = false;
+				for (int attempt = 0; attempt < kPollAttempts && !hudUp;
+					++attempt)
+				{
+					if (!callTool("get_ui_layout", JsonValue::object(), true,
+							layout, isError) || isError)
+					{
+						finishAndClean(false, "agent loop: get_ui_layout "
+							"failed");
+						return;
+					}
+					JsonValue const& ids = layout.get("ids");
+					for (size_t i = 0; i < ids.size(); ++i)
+					{
+						if (ids.at(i).asString() == "hudHint") hudUp = true;
+					}
+					if (!hudUp)
+					{
+						std::this_thread::sleep_for(
+							std::chrono::milliseconds(100));
+					}
+				}
+				if (!hudUp)
+				{
+					finishAndClean(false, "agent loop: the authored .oui HUD "
+						"widget 'hudHint' is not in the running game's layout");
+					return;
+				}
+				SDL_Log("orkige_editor: agent loop - the authored .oui HUD is "
+					"live in the running game");
+			}
+
+			// (A8) a FRAME of the running game on disk (the visual evidence)
+			{
+				const std::string shotPath =
+					(projectRoot / "agent_loop_frame.png").string();
+				JsonValue shotArgs = JsonValue::object();
+				shotArgs.set("path", JsonValue(String(shotPath)));
+				if (!getState(state))
+				{
+					finishAndClean(false, "agent loop: get_state failed before "
+						"screenshot_game");
+					return;
+				}
+				const int beforeShot = std::atoi(
+					state.get("screenshot_seq").asString().c_str());
+				if (!callTool("screenshot_game", shotArgs, true, structured,
+						isError) || isError)
+				{
+					finishAndClean(false, "agent loop: screenshot_game was not "
+						"accepted");
+					return;
+				}
+				if (!pollState([beforeShot](JsonValue const& s)
+					{
+						return std::atoi(
+							s.get("screenshot_seq").asString().c_str()) >
+							beforeShot;
+					}, kPollAttempts, state))
+				{
+					finishAndClean(false, "agent loop: the running game never "
+						"confirmed a screenshot");
+					return;
+				}
+				if (state.get("screenshot_ok").asString() != "1")
+				{
+					finishAndClean(false, "agent loop: screenshot_game failed "
+						"on the player");
+					return;
+				}
+				std::ifstream shot(shotPath, std::ios::binary);
+				unsigned char signature[8] = { 0 };
+				if (!shot || !shot.read(reinterpret_cast<char*>(signature), 8) ||
+					signature[0] != 0x89 || signature[1] != 'P' ||
+					signature[2] != 'N' || signature[3] != 'G')
+				{
+					finishAndClean(false, "agent loop: the confirmed "
+						"screenshot is not a readable PNG");
+					return;
+				}
+				SDL_Log("orkige_editor: agent loop - a frame of the authored "
+					"game is on disk");
+			}
+
+			// (A9) stop, back to edit mode, and take the temp project with us
+			if (!callTool("stop", JsonValue::object(), true, structured,
+					isError) || isError)
+			{
+				finishAndClean(false, "agent loop: stop failed");
+				return;
+			}
+			if (!pollState([](JsonValue const& s)
+				{
+					return s.get("play_mode").asString() == "edit";
+				}, kPollAttempts, state))
+			{
+				finishAndClean(false, "agent loop: the session never returned "
+					"to edit mode");
+				return;
+			}
+			// close the project so nothing holds the temp tree open
+			{
+				JsonValue closeArgs = JsonValue::object();
+				closeArgs.set("force", JsonValue("1"));
+				callTool("close_project", closeArgs, true, structured, isError);
+			}
+			SDL_Log("orkige_editor: agent loop PASSED - an empty project "
+				"became a playable game, and injected input drove it");
+			finishAndClean(true, "");
+			return;
+		}
+
 		// --- the RUNTIME DEBUG conversation (a separate ctest, needs the
 		// built player): boot Play over MCP, then pause/step/inspect/mutate/
 		// screenshot the RUNNING game and stop - all through the MCP tools,
@@ -8982,6 +9735,147 @@ namespace Orkige
 					"dismiss_modal OK (empty id rejected, forward + no-op "
 					"accepted)");
 			}
+			// (R8c3) send_input against the LIVE player: a real gesture is
+			// accepted, replayed one step-frame per frame and CONFIRMED (the
+			// fixture has no input-reading script, so what this proves is the
+			// protocol contract - compile, arm, frame-walk, ack - while the
+			// gameplay proof, an object that MOVES because of a key, is the
+			// editor_agent_loop ctest). A malformed step is refused up front
+			// naming its 1-based index, and a second gesture while one is in
+			// flight is refused by the player.
+			{
+				JsonValue state;
+				if (!getState(state))
+				{
+					finish(false, "control self-test: get_state failed before "
+						"send_input");
+					return;
+				}
+				const int beforeSeq = std::atoi(
+					state.get("input_seq").asString().c_str());
+				JsonValue args = JsonValue::object();
+				JsonValue steps = JsonValue::array();
+				steps.push(JsonValue(String("key press RIGHT 3")));
+				steps.push(JsonValue(String("wait 2")));
+				steps.push(JsonValue(String("pointer click 40 40")));
+				args.set("steps", steps);
+				JsonValue accepted;
+				if (!callTool("send_input", args, true, accepted, isError) ||
+					isError || accepted.get("accepted").asString() != "1")
+				{
+					finish(false, "control self-test: send_input was not "
+						"accepted by the live player");
+					return;
+				}
+				// "key press RIGHT 3" spans frames 0..3, "wait 2" pushes the
+				// cursor to 5 and the click adds its release frame -> 7 frames
+				if (accepted.get("input_frames").asString() != "7")
+				{
+					finish(false, "control self-test: send_input reported an "
+						"unexpected frame span '" +
+						accepted.get("input_frames").asString() +
+						"' (expected 7)");
+					return;
+				}
+				if (!pollState([beforeSeq](JsonValue const& s)
+					{
+						return std::atoi(s.get("input_seq").asString().c_str())
+							> beforeSeq;
+					}, kPlayerPollAttempts, state))
+				{
+					finish(false, "control self-test: the player never confirmed "
+						"the injected gesture (input_seq did not advance)");
+					return;
+				}
+				if (state.get("input_ok").asString() != "1")
+				{
+					finish(false, "control self-test: send_input was refused by "
+						"the player: " +
+						state.get("input_message").asString());
+					return;
+				}
+				if (state.get("input_frames").asString() != "7" ||
+					state.get("input_running").asString() != "0")
+				{
+					finish(false, "control self-test: the injected gesture's "
+						"confirmation did not report the replayed span / "
+						"cleared the running flag");
+					return;
+				}
+				// a malformed step never reaches the player - the editor
+				// compiles the same grammar and refuses, naming the step
+				JsonValue badArgs = JsonValue::object();
+				JsonValue badSteps = JsonValue::array();
+				badSteps.push(JsonValue(String("key press SPACE 2")));
+				badSteps.push(JsonValue(String("key down NOSUCHKEY")));
+				badArgs.set("steps", badSteps);
+				JsonValue badResult;
+				isError = false;
+				if (!callToolFull("send_input", badArgs, true, badResult) ||
+					!badResult.get("isError").asBool(false))
+				{
+					finish(false, "control self-test: send_input accepted an "
+						"unknown key name");
+					return;
+				}
+				{
+					const String text = badResult.get("content").at(0)
+						.get("text").asString();
+					if (text.find("step 2") == String::npos ||
+						text.find("NOSUCHKEY") == String::npos)
+					{
+						finish(false, "control self-test: send_input's refusal "
+							"did not name the offending step (got '" + text +
+							"')");
+						return;
+					}
+				}
+				// a PAUSED session refuses honestly: its world never ticks, so
+				// an accepted gesture would change nothing and look fine
+				if (!callTool("pause", JsonValue::object(), true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: pause failed before the "
+						"send_input paused-refusal check");
+					return;
+				}
+				if (!pollState([](JsonValue const& s)
+					{
+						return s.get("play_mode").asString() == "paused";
+					}, kPlayerPollAttempts, state))
+				{
+					finish(false, "control self-test: the session never reached "
+						"the paused state");
+					return;
+				}
+				isError = false;
+				if (!callTool("send_input", args, true, structured, isError) ||
+					!isError)
+				{
+					finish(false, "control self-test: send_input was NOT refused "
+						"on a paused session");
+					return;
+				}
+				if (!callTool("resume", JsonValue::object(), true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: resume failed after the "
+						"send_input paused-refusal check");
+					return;
+				}
+				if (!pollState([](JsonValue const& s)
+					{
+						return s.get("play_mode").asString() == "playing";
+					}, kPlayerPollAttempts, state))
+				{
+					finish(false, "control self-test: the session never resumed "
+						"after the send_input paused-refusal check");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - send_input OK "
+					"(7-frame gesture replayed + confirmed, malformed step "
+					"refused by index, paused session refused)");
+			}
 			// (R8d) get_breadcrumbs (read, no auth): the booted player wrote a
 			// "boot" breadcrumb to the shared ORKIGE_BREADCRUMB_DIR; the editor
 			// reads the same file off disk over MCP. Proves the crash trail is
@@ -9619,9 +10513,43 @@ namespace Orkige
 					return;
 				}
 			}
+			// send_input carries a REQUIRED 'steps' array, so it needs its own
+			// legs: the empty-arg loop above would trip the required-parameter
+			// gate before ever reaching the auth or no-player checks
+			{
+				JsonValue args = JsonValue::object();
+				JsonValue steps = JsonValue::array();
+				steps.push(JsonValue(String("key press SPACE 2")));
+				args.set("steps", steps);
+				isError = false;
+				if (!callTool("send_input", args, true, structured, isError) ||
+					!isError)
+				{
+					finish(false, "control self-test: send_input did not error "
+						"with no live player");
+					return;
+				}
+				isError = false;
+				if (!callTool("send_input", args, false, structured, isError) ||
+					!isError)
+				{
+					finish(false, "control self-test: unauthenticated "
+						"send_input was NOT rejected");
+					return;
+				}
+				// a missing 'steps' is the schema gate's honest error
+				isError = false;
+				if (!callTool("send_input", JsonValue::object(), true,
+						structured, isError) || !isError)
+				{
+					finish(false, "control self-test: send_input without "
+						"'steps' was NOT rejected");
+					return;
+				}
+			}
 			SDL_Log("orkige_editor: control self-test - runtime debug tools "
 				"error cleanly with no player + reject unauthenticated "
-				"mutations");
+				"mutations (send_input included)");
 		}
 
 		// (7b) get_state exposes the streamed-music snapshot as a flat array an

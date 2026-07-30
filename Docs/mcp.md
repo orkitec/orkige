@@ -203,7 +203,7 @@ filesystem.
 
 ## Tools
 
-The endpoint advertises 93 tools (the `toolSpecs` table in
+The endpoint advertises 96 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -273,6 +273,7 @@ The endpoint advertises 93 tools (the `toolSpecs` table in
 | `get_ui_layout()` | the RUNNING game's gui widget rects AND resolved text style: parallel `ids`/`rects`/`styles` (each rect `"left top width height visible enabled modal"`, pixels; the three flags are `1`/`0` — `enabled`=interactive, `modal`=part of an active modal dialog. Each style `"hasText font textScale colourSet r g b a"` — the text style the widget actually draws with after a named `[Style]` and its own keys merged, so a styling edit is verifiable, not just a geometry one; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box, read `modal` to assert a dialog is up, or read `styles` to assert a font/colour/scale landed |
 | `gui_press(id)` | **auth** — synthesize a press on a gui widget by id in the RUNNING game, routed through the REAL input path so modal/disabled semantics apply (a button under a modal scrim does NOT fire; a disabled widget stays inert) (`MSG_GUI_PRESS`) |
 | `dismiss_modal(id?)` | **auth** — close a modal dialog in the RUNNING game by id, or the topmost one when omitted (`MSG_GUI_DISMISS_MODAL`) |
+| `send_input(steps)` | **auth** — PLAY the running game: replay a whole input GESTURE (keys, pointer, tilt) through the REAL input path, so `isKeyDown`, the action map, the gui hit test and every input listener see it exactly like hardware input (`MSG_SEND_INPUT`). `steps` is an ARRAY OF STRINGS applied ONE PER FRAME in order — see the grammar below. ASYNC and FRAME-EXACT: returns `accepted` + `prev_input_seq` + `input_frames`/`input_events`; poll `get_state` until `input_seq` exceeds `prev_input_seq`, then `input_ok`=`1` means the gesture replayed AND every injected frame was stepped, so `runtime_state`/`runtime_hierarchy`/`screenshot_game` right after it show the RESULT with no sleeping. `input_message` carries a refusal reason, or one honest note on a success. One gesture at a time; refused (naming the offending step's 1-based index) on a malformed list, with no player, and while the session is PAUSED |
 | `get_breadcrumbs()` | the player's on-disk crash trail (pure file I/O — the player may be dead): `live` (this/most-recent session's `breadcrumbs.jsonl` text) and `previous` (the prior session's, rotated aside at boot — the one to read after a crash), one JSON object per line, plus the resolved `dir`. Two derived fields answer "did the last run die?" straight off the `previous` trail: `crashed` (`"true"`/`"false"` — true when its LAST entry is a fatal-signal `"crash"` marker) and `crashSignal` (the signal name, e.g. `"SIGSEGV"`, empty when not crashed) — the machine-detectable crash verdict a phone can't show as a dialog. Mobile app-lifecycle transitions ride this same trail — `"background"`/`"foreground"`/`"terminating"`/`"low_memory"` kinds — so no new readback verb is needed to observe backgrounding on device |
 | `get_benchmark_results(file?)` | the per-scene performance artifact the player captured when armed for a benchmark run (`ORKIGE_BENCHMARK`): pure file I/O from the player's writable app dir (its project jail can't reach it, like `get_breadcrumbs`). Picks the newest `benchmark-*.jsonl`, or the named `file`. Returns the raw `text`, the parsed `meta`/`summary` lines, a `scenes` array (one JSON object per scene — frame-ms min/avg/p50/p95/p99/max, per-phase means, alloc mean+peak, RSS peak, triangle/batch/texture means), `scene_count`, `aborted` and the resolved `dir`/`file`. Empty when no artifact exists. Schema: `Docs/benchmark.md`. Starting a run is the existing `play` verb with `ORKIGE_BENCHMARK` armed; on-device artifacts are pulled by the CLI harness (`adb pull` / `simctl get_app_container`), not MCP |
 | `get_profile()` | the RUNNING game's hierarchical CPU frame profile: parallel `names`/`info` lists (each info `"depth calls milliseconds maxMilliseconds"`; depth-0 rows are the canonical tick phases — `input scripts events tweens physics load audio present debug render`), plus `frame_ms` and `profile_seq` (poll until it advances for a fresh frame). A Debug player streams snapshots unprompted (`MSG_PROFILE_DATA` on the stats cadence); on a Release player the first call arms the profiler (`MSG_PROFILE`), so call again shortly after. Pair with `get_state`'s `alloc_per_frame`/`alloc_tags` to answer "where does the frame go, and what allocates?" |
@@ -368,6 +369,60 @@ an agent can assert "the dialog is up, it eats input below, and row X is
 disabled", then drive the dialog to completion. The full grammar (including the
 `.oui` `[Modal]` / `[ToggleGroup]` sections and `enabled` / `modal` keys) and the
 widget recipes live in `Docs/gui.md`.
+
+### Driving gameplay: `send_input`
+
+`gui_press` drives a WIDGET; `send_input` drives the GAME. It replays a whole
+input gesture — key edges, pointer moves/presses, a tilt pose — through the
+same `InputManager::injectEvent` path the platform's own event loop feeds, so
+`isKeyDown`, the named-action map's per-frame edge snapshot, the gui hit test and
+every input listener see synthetic input exactly like hardware input. A gesture
+travels as ONE call because a round trip per key edge would make every press
+wall-clock dependent: an agent needs "hold RIGHT for 12 frames" to be *frame*
+exact, or its assertion is a coin flip.
+
+`steps` is an array of strings, one step each, applied one per frame in order:
+
+| step | meaning |
+|---|---|
+| `key down <NAME>` | press and hold |
+| `key up <NAME>` | release |
+| `key press <NAME> [frames]` | hold for `frames` frames (default 1), then release |
+| `pointer move <x> <y>` | move the pointer |
+| `pointer down\|up <x> <y> [left\|middle\|right]` | press / release a button at a point |
+| `pointer click <x> <y> [button]` | move + press, held one frame, release |
+| `tilt angle <radians>` | set the simulated tilt angle (0 = upright) |
+| `tilt vector <x> <y>` | the same seam, given as a gravity direction (`0 -1` = upright) |
+| `wait <frames>` | advance the timeline without an event |
+
+Key names are the `KC_` spellings without the prefix (`SPACE`, `LEFT`, `A`, `F5`,
+`WEBBACK` — the Android hardware back button), matched case-insensitively, with an
+optional `KC_` prefix and the friendly aliases `ENTER`/`ESC`/`BACKSPACE`/`SHIFT`/
+`CTRL`/`ALT`/`PAGEUP`/`PAGEDOWN`. Pointer coordinates are **window pixels** of the
+game's drawable — the space `get_safe_area` reports (`window_w`/`window_h`) and
+`get_ui_layout`'s rects live in. A gesture is bounded (at most 256 steps spanning
+600 frames) so one call can never occupy a session.
+
+An injected FRAME is a frame the **world advances**: the replay is applied at the
+runtime's frame boundary, before the world steps, so the tick that follows sees
+the new input state; it HOLDS while the player is paused (and a debug `step`
+moves it by one) and picks up where it stopped on resume. The confirmation is
+therefore a real synchronisation point — when `get_state` shows `input_seq`
+advanced with `input_ok`=`1`, every injected frame has already been stepped and
+the gameplay result is readable immediately.
+
+Honest refusals, all naming the reason: a malformed step list (with the offending
+step's 1-based index — the editor compiles the same grammar, so a typo never
+reaches the player), no live player, a PAUSED session (a frozen world would never
+process the input), and a second gesture while one is in flight. On a DEVICE with
+a real accelerometer a `tilt` step is overruled by the sensor: the gesture still
+succeeds and `input_message` says so. The verb is transport-neutral — desktop,
+simulator, adb device and browser sessions all take it, since nothing here
+touches a filesystem (unlike `screenshot_game`/`record_trace`).
+
+The agent playtest loop is `send_input` → `runtime_state` (did the object move?)
+→ `screenshot_game` (does it look right?) → `console_tail` (did anything
+complain?). `Docs/mcp-workflows.md` walks a full one.
 
 Real fonts and vector UI sprites need **no new verb** either: a runtime font/
 sprite atlas is a plain `.ogui` text asset plus its `.ttf`/`.svg` sources under

@@ -94,6 +94,12 @@ void clearRemoteState(PlaySession& session)
 	session.lastRecordError.clear();
 	session.lastRecordOk = false;
 	session.recordSeq = 0;
+	session.inputRunning = false;
+	session.lastInputOk = false;
+	session.lastInputMessage.clear();
+	session.lastInputFrames = 0;
+	session.lastInputEvents = 0;
+	session.inputSeq = 0;
 	session.remoteMemRss = -1;
 	session.remoteMemRssPeak = -1;
 	session.remoteWindowW = -1;
@@ -1487,6 +1493,19 @@ void requestRemoteScreenshot(PlaySession& session, std::string const& path)
 	session.client.send(shot);
 }
 
+//! replay one input gesture in the running game (drive GAMEPLAY)
+void sendRemoteInput(PlaySession& session, Orkige::StringVector const& steps)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage input(Protocol::MSG_SEND_INPUT);
+	input.setList(Protocol::LIST_INPUT_STEPS, steps);
+	session.client.send(input);
+	session.inputRunning = true;
+}
+
 //! ask the running game to record a .jsonl flight-recorder trace
 void requestRemoteRecord(PlaySession& session, std::string const& path,
 	float maxSeconds, unsigned int everyNth, std::string const& objects)
@@ -2235,6 +2254,32 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 			{
 				console.addLine(ConsoleLevel::Error,
 					"[remote] screenshot FAILED: " + session.lastScreenshotError);
+			}
+		}
+		else if (message.type == Protocol::MSG_INPUT_APPLIED)
+		{
+			// the running game replayed (or refused) an injected gesture; record
+			// it so the MCP send_input poller sees the fresh verdict. A SUCCESS
+			// means every injected frame has already been stepped, so an agent
+			// may assert on the gameplay result the moment it sees this.
+			session.lastInputOk = message.get(Protocol::FIELD_VALUE) == "1";
+			session.lastInputMessage = message.get(Protocol::FIELD_MESSAGE);
+			session.lastInputFrames = std::atoll(
+				message.get(Protocol::FIELD_INPUT_FRAMES).c_str());
+			session.lastInputEvents = std::atoll(
+				message.get(Protocol::FIELD_INPUT_EVENTS).c_str());
+			session.inputRunning = false;
+			++session.inputSeq;
+			if (!session.lastInputOk)
+			{
+				console.addLine(ConsoleLevel::Error,
+					"[remote] input REFUSED: " + session.lastInputMessage);
+			}
+			else if (!session.lastInputMessage.empty())
+			{
+				console.addLine(ConsoleLevel::Warning,
+					"[remote] input applied with a note: " +
+					session.lastInputMessage);
 			}
 		}
 		else if (message.type == Protocol::MSG_RECORD_SAVED)

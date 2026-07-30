@@ -297,6 +297,87 @@ needs no real-time capture at all.
 
 ---
 
+## 3a. Playtest it: drive the game and assert it responded
+
+Reading a running game is only half of a playtest — the other half is PLAYING
+it. `send_input` replays a whole input gesture through the real input path, so
+the game cannot tell it from hardware. Because the gesture is applied one step
+per frame at the runtime's frame boundary and confirmed only after every injected
+frame has been STEPPED, the loop is deterministic: no sleeping, no polling for a
+guess about when the input "probably" landed.
+
+```jsonc
+// the game under test: scripts/player.lua moves the object while the "move"
+// action is held and counts a jump per "jump" press (the default action map
+// binds move to WASD/arrows and jump to SPACE - no config file needed).
+play { "target":"desktop" }                  // authed, async
+get_state {}                                 // poll → { "play_mode":"playing", "remote_connected":"1" }
+
+// 1. baseline: stream the object whose reaction you will assert on
+runtime_select { "id":"Player" }             // authed → { "selected":"Player" }
+runtime_state {}                             // poll until ready="1"
+//   → { "properties":["TransformComponent.position",...], "values":["0 1 0",...] }
+//   remember x = 0
+
+// 2. PLAY IT: hold RIGHT for 12 frames. One call, one gesture.
+send_input { "steps":["key press RIGHT 12"] }              // authed
+//   → { "accepted":"1", "prev_input_seq":"0", "input_frames":"13", "input_events":"2" }
+
+// 3. wait for the CONFIRMATION - not a sleep. When input_seq advances with
+//    input_ok="1", all 13 frames have been stepped and the result is readable.
+get_state {}
+//   → poll until { "input_seq":"1", "input_ok":"1", "input_frames":"13",
+//                  "input_running":"0", "input_message":"" }
+
+// 4. ASSERT THE GAME RESPONDED - the real gameplay claim
+runtime_state {}
+//   → values now carry "3 1 0": 12 held frames x the script's per-tick step.
+//     Frame-exact, so you can assert the NUMBER, not just "it moved".
+
+// 5. a tap, and a compound gesture. Steps run in written order:
+send_input { "steps":[
+    "key press SPACE",          // one-frame tap
+    "wait 3",                   // three frames of nothing
+    "key press SPACE",          // a second, DISTINCT press
+    "pointer click 640 360" ] }                            // authed
+get_state {}                                 // poll input_seq again
+runtime_state {}                             // → the jump counter reads 2, not 1
+
+// 6. does it LOOK right? and did anything complain?
+screenshot_game { "path":"/tmp/after_input.png" }          // authed, poll screenshot_seq
+console_tail { "count":30 }                  // any [remote] error the input triggered
+
+stop {}                                      // authed
+```
+
+What the grammar gives you (full table in `Docs/mcp.md`): `key down|up <NAME>` for
+an edge you hold across several gestures, `key press <NAME> [frames]` for a timed
+hold, `pointer move|down|up|click <x> <y> [button]` in **window pixels** (pair
+with `get_safe_area` for the size and `get_ui_layout` for widget rects),
+`tilt angle <radians>` / `tilt vector <x> <y>` for a tilt-controlled game, and
+`wait <frames>` to space things out.
+
+Keeping the loop honest:
+
+- The confirmation IS the synchronisation point. Assert right after it; the
+  `runtime_state` stream is ~15 Hz, so poll the readback until it settles rather
+  than reading once.
+- A malformed step is refused up front naming its **1-based index**
+  (`step 2 (unknown key name 'JUMP')`) — the editor compiles the same grammar the
+  runtime does, so a typo never reaches the game as a silent no-op.
+- ONE gesture at a time, and `send_input` is refused while the session is PAUSED
+  (a frozen world never ticks the scripts that read the input). A gesture already
+  in flight when you pause simply HOLDS and continues on `resume` — and a debug
+  `step` advances it by exactly one frame, which is the deterministic way to
+  inspect a gesture mid-flight.
+- For a WIDGET, prefer `gui_press(id)` — it finds the widget's centre itself and
+  respects modal/disabled semantics. Use `send_input`'s pointer steps for
+  in-world clicks, drags and taps that are not a widget.
+- On a phone with a real accelerometer a `tilt` step is overruled by the sensor:
+  the gesture still succeeds and `input_message` says so. Read it.
+
+---
+
 ## 3b. Profile a live game (where does the frame go? what allocates?)
 
 The perf instruments answer both questions from readback alone: the CPU frame

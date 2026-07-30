@@ -102,6 +102,16 @@ namespace Orkige
 		//! applications SDL poll loop in here.
 		//! @returns true if the event was translated, false if it was ignored
 		bool injectEvent(SDL_Event const & event);
+		//! @brief synthesize one key edge through the SAME injectEvent path the
+		//! application's SDL poll loop feeds: builds the SDL key event for @p kc
+		//! and injects it, so isKeyDown, the action map and every
+		//! KeyPressed/KeyReleased listener see it exactly like hardware input.
+		//! @remarks The seam agent-driven input injection uses (the debug
+		//! protocol's injected-input sequences) and the reason the KeyCode ->
+		//! SDL scancode table stays private: there is ONE synthesis path, not a
+		//! parallel key-state source.
+		//! @returns false when the keycode has no SDL scancode (nothing injected)
+		bool injectKey(KeyEventData::KeyCode kc, bool down);
 		//!	Translates KeyCode to String representation. For example, KC_RETURN will be "Return" - Locale	specific of course.
 		//! @param kc KeyCode to convert
 		//! @returns The String as determined from the current locale

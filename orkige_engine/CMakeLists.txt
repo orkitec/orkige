@@ -136,6 +136,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_input/InputAction.h
     engine_input/InputActionMap.h
     engine_input/InputActionMap.cpp
+    engine_input/InputInjection.h
+    engine_input/InputInjection.cpp
     engine_physic/PhysicsWorld.h
     engine_physic/PhysicsWorld.cpp
     engine_gocomponent/TransformComponent.h

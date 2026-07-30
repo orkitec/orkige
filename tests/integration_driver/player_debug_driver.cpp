@@ -20,7 +20,10 @@
 //      holds perfectly still again
 //   7. set_property teleports the paused cube (TransformComponent.position)
 //   8. an unknown property answers with an error message, link stays alive
-//   9. quit shuts the player down with exit code 0
+//   9. send_input (agent-driven input): a malformed gesture is refused by step
+//      index, an armed gesture HOLDS while paused and is refused while one is
+//      in flight, and a resume replays it with a confirmed frame/event count
+//  10. quit shuts the player down with exit code 0
 //
 // Usage: player_debug_driver <orkige_player binary> <scene.oscene>
 // Exit code 0 = all assertions held; anything else = failure (the player
@@ -449,7 +452,83 @@ int main(int argc, char** argv)
 	log("unknown property answered with: " +
 		message.get(Protocol::FIELD_MESSAGE));
 
-	// 9. quit: bye comes back and the player exits cleanly
+	// 9. send_input: the runtime side of agent-driven input, over the RAW
+	// protocol (no editor involved). Three contracts:
+	//   a) a malformed step list is refused AT ONCE, naming the step
+	//   b) an armed gesture HOLDS while the runtime is paused (an injected
+	//      frame is a frame the world advances) and a debug step moves it on -
+	//      the player is still paused from step 6 here
+	//   c) on resume the whole span replays and MSG_INPUT_APPLIED confirms it
+	//      with the frame/event counts, and a SECOND gesture is refused while
+	//      the first is still in flight
+	{
+		Orkige::DebugMessage bad(Protocol::MSG_SEND_INPUT);
+		bad.setList(Protocol::LIST_INPUT_STEPS,
+			{ "key press SPACE 2", "key down NOSUCHKEY" });
+		client.send(bad);
+		if (!waitForMessage(client, Protocol::MSG_INPUT_APPLIED, message, 5000))
+		{
+			return fail("no input_applied reply for a malformed gesture");
+		}
+		if (message.get(Protocol::FIELD_VALUE) != "0" ||
+			message.get(Protocol::FIELD_MESSAGE).find("step 2") ==
+				std::string::npos)
+		{
+			return fail("a malformed gesture was not refused by step index: " +
+				message.get(Protocol::FIELD_MESSAGE));
+		}
+		log("malformed gesture refused: " +
+			message.get(Protocol::FIELD_MESSAGE));
+
+		// a 40-frame gesture, armed while PAUSED: no confirmation may arrive
+		Orkige::DebugMessage gesture(Protocol::MSG_SEND_INPUT);
+		gesture.setList(Protocol::LIST_INPUT_STEPS,
+			{ "key press RIGHT 40" });
+		client.send(gesture);
+		if (waitForMessage(client, Protocol::MSG_INPUT_APPLIED, message, 700))
+		{
+			return fail("a paused runtime confirmed an injected gesture it "
+				"cannot have replayed: " +
+				message.get(Protocol::FIELD_MESSAGE));
+		}
+		// a second gesture while one is in flight is refused
+		Orkige::DebugMessage second(Protocol::MSG_SEND_INPUT);
+		second.setList(Protocol::LIST_INPUT_STEPS, { "key press SPACE" });
+		client.send(second);
+		if (!waitForMessage(client, Protocol::MSG_INPUT_APPLIED, message, 5000))
+		{
+			return fail("no input_applied reply for an overlapping gesture");
+		}
+		if (message.get(Protocol::FIELD_VALUE) != "0")
+		{
+			return fail("an overlapping gesture was NOT refused");
+		}
+		log("overlapping gesture refused: " +
+			message.get(Protocol::FIELD_MESSAGE));
+
+		// resume: the held gesture replays and confirms with its span
+		client.send(Orkige::DebugMessage(Protocol::MSG_RESUME));
+		if (!waitForMessage(client, Protocol::MSG_INPUT_APPLIED, message, 10000))
+		{
+			return fail("the resumed runtime never confirmed the injected "
+				"gesture");
+		}
+		if (message.get(Protocol::FIELD_VALUE) != "1")
+		{
+			return fail("the injected gesture was refused after resume: " +
+				message.get(Protocol::FIELD_MESSAGE));
+		}
+		if (message.get(Protocol::FIELD_INPUT_FRAMES) != "41" ||
+			message.get(Protocol::FIELD_INPUT_EVENTS) != "2")
+		{
+			return fail("the injected gesture reported the wrong span/events: "
+				+ message.get(Protocol::FIELD_INPUT_FRAMES) + " frames, " +
+				message.get(Protocol::FIELD_INPUT_EVENTS) + " events");
+		}
+		log("injected gesture replayed after resume (41 frames, 2 events)");
+	}
+
+	// 10. quit: bye comes back and the player exits cleanly
 	client.send(Orkige::DebugMessage(Protocol::MSG_QUIT));
 	if (!waitForMessage(client, Protocol::MSG_BYE, message, 5000))
 	{
@@ -479,6 +558,7 @@ int main(int argc, char** argv)
 				std::to_string(status) + ")");
 		}
 	}
-	log("PASSED - full pause/resume/step/set_property/quit contract holds");
+	log("PASSED - full pause/resume/step/set_property/send_input/quit contract "
+		"holds");
 	return 0;
 }

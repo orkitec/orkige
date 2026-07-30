@@ -42,6 +42,7 @@ namespace Orkige
 		const String MSG_DEBUG_LOCALS		= "debug_locals";
 		const String MSG_DEBUG_BREAK_NEXT	= "debug_break_next";
 		const String MSG_DEBUG_BREAK_ON_ERRORS = "debug_break_on_errors";
+		const String MSG_SEND_INPUT			= "send_input";
 
 		const String MSG_HELLO				= "hello";
 		const String MSG_HIERARCHY			= "hierarchy";
@@ -61,6 +62,7 @@ namespace Orkige
 		const String MSG_SCENE_LOADED		= "scene_loaded";
 		const String MSG_QUERY_SPAWNS		= "query_spawns";
 		const String MSG_SCENE_SPAWNS		= "scene_spawns";
+		const String MSG_INPUT_APPLIED		= "input_applied";
 		const String MSG_DEBUG_BREAK		= "debug_break";
 		const String MSG_DEBUG_RESUMED		= "debug_resumed";
 		const String MSG_BYE				= "bye";
@@ -129,6 +131,9 @@ namespace Orkige
 		const String LIST_VAR_TYPES			= "var_types";
 		const String LIST_VAR_VALUES		= "var_values";
 		const String LIST_VAR_EXPANDABLE	= "var_expandable";
+		const String LIST_INPUT_STEPS		= "input_steps";
+		const String FIELD_INPUT_FRAMES		= "input_frames";
+		const String FIELD_INPUT_EVENTS		= "input_events";
 	}
 
 	namespace

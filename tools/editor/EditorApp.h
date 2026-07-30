@@ -1314,6 +1314,18 @@ struct PlaySession
 	std::string lastRecordError;
 	bool lastRecordOk = false;
 	unsigned int recordSeq = 0;
+	//! injected input (MSG_SEND_INPUT / MSG_INPUT_APPLIED): inputRunning is set
+	//! the moment a gesture goes out and cleared on the player's confirmation;
+	//! lastInputOk/Message hold that confirmation (a refusal's reason, or the
+	//! one honest note a successful replay may carry) with the frames/events the
+	//! gesture spanned, and inputSeq increments per confirmation so a poller
+	//! tells a fresh replay from a stale one. All reset by clearRemoteState.
+	bool inputRunning = false;
+	bool lastInputOk = false;
+	std::string lastInputMessage;
+	long long lastInputFrames = 0;
+	long long lastInputEvents = 0;
+	unsigned int inputSeq = 0;
 	//! running-game memory metrics (MSG_STATS): the latest resident set size
 	//! and the session peak, both in bytes. -1 = no reading yet (the player
 	//! has not streamed one, or its platform cannot query memory) - surfaced
@@ -1720,6 +1732,16 @@ void requestRemoteRecord(PlaySession& session, std::string const& path,
 //! what it captured and answers with MSG_RECORD_SAVED. A no-op when no player
 //! is connected.
 void stopRemoteRecord(PlaySession& session);
+
+//! @brief drive GAMEPLAY in the RUNNING game: replay one input GESTURE
+//! (MSG_SEND_INPUT) given as the step-string list engine_input/InputInjection
+//! compiles - the player applies each step's frame at ITS frame boundary and
+//! answers with MSG_INPUT_APPLIED, which updatePlaySession records in
+//! lastInputOk/Message/Frames/Events + inputSeq. A no-op when no player is
+//! connected. Transport-neutral: a desktop, simulator, device or browser session
+//! all take it (unlike screenshot/trace, nothing here touches a filesystem).
+void sendRemoteInput(PlaySession& session,
+	Orkige::StringVector const& steps);
 
 //--- script debugger (the MSG_DEBUG_* family) --------------------------------
 

@@ -880,6 +880,12 @@ namespace Orkige
 			}
 		}
 		processMessages(gameObjectManager);
+		// THE FRAME BOUNDARY for injected input: update() runs after the
+		// platform's own events were pumped and BEFORE the world steps, so a
+		// key pressed here is down for the tick that follows - exactly like a
+		// key the OS delivered this frame. Applied after processMessages so a
+		// gesture that arrived this very frame starts on this frame.
+		advanceInputInjection();
 	}
 	//---------------------------------------------------------
 	void PlayerDebugLink::stream(GameObjectManager & gameObjectManager,
@@ -1329,6 +1335,152 @@ namespace Orkige
 			"' = " + value);
 	}
 	//---------------------------------------------------------
+	void PlayerDebugLink::notifyInputApplied(bool ok, String const & message,
+		unsigned int frames, std::size_t events)
+	{
+		DebugMessage applied(Protocol::MSG_INPUT_APPLIED);
+		applied.set(Protocol::FIELD_VALUE, ok ? "1" : "0");
+		applied.set(Protocol::FIELD_MESSAGE, message);
+		applied.set(Protocol::FIELD_INPUT_FRAMES, std::to_string(frames));
+		applied.set(Protocol::FIELD_INPUT_EVENTS, std::to_string(events));
+		linkSend(applied);
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::handleSendInput(DebugMessage const & message)
+	{
+		if (mInputActive)
+		{
+			// ONE gesture at a time: overlapping replays would make the key
+			// state (and therefore the assertion) order-dependent
+			notifyInputApplied(false, "send_input: a gesture is still being "
+				"replayed - wait for its confirmation", 0, 0);
+			return;
+		}
+		if (InputManager::getSingletonPtr() == NULL)
+		{
+			notifyInputApplied(false, "send_input: this runtime has no input "
+				"system", 0, 0);
+			return;
+		}
+		InputInjection::Sequence sequence;
+		String error;
+		if (!InputInjection::compile(message.getList(Protocol::LIST_INPUT_STEPS),
+			sequence, error))
+		{
+			notifyInputApplied(false, "send_input: " + error, 0, 0);
+			return;
+		}
+		mInputSequence = sequence;
+		mInputCursor = 0;
+		mInputActive = true;
+		mInputNote.clear();
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::advanceInputInjection()
+	{
+		if (!mInputActive)
+		{
+			return;
+		}
+		// an injected FRAME is a frame the WORLD advances: while the runtime is
+		// paused the replay HOLDS (a key pressed into a frozen world would be
+		// consumed by a tick that never happens) and picks up exactly where it
+		// stopped on resume; a debug step advances it by one, the same gate the
+		// player loop uses for the world itself
+		if (mPaused && mPendingSteps <= 0)
+		{
+			return;
+		}
+		if (mInputCursor >= mInputSequence.frameSpan)
+		{
+			// every stamped frame has been APPLIED and STEPPED: the world has
+			// already reacted, so a client that sees this ack may assert right
+			// away instead of guessing how long to wait
+			const unsigned int frames = mInputSequence.frameSpan;
+			const std::size_t events = mInputSequence.events.size();
+			const String note = mInputNote;
+			mInputActive = false;
+			mInputSequence = InputInjection::Sequence();
+			mInputCursor = 0;
+			mInputNote.clear();
+			notifyInputApplied(true, note, frames, events);
+			return;
+		}
+		InputManager* input = InputManager::getSingletonPtr();
+		if (input == NULL)
+		{
+			// the input system went away mid-replay (a teardown race): report
+			// honestly rather than silently dropping the rest of the gesture
+			mInputActive = false;
+			mInputSequence = InputInjection::Sequence();
+			mInputCursor = 0;
+			notifyInputApplied(false, "send_input: the input system went away "
+				"mid-gesture", 0, 0);
+			return;
+		}
+		const bool sensorTilt = input->isTiltSensorAvailable();
+		for (InputInjection::Event const & event : mInputSequence.events)
+		{
+			if (event.frame != mInputCursor)
+			{
+				continue;
+			}
+			switch (event.kind)
+			{
+			case InputInjection::EventKind::KeyDown:
+			case InputInjection::EventKind::KeyUp:
+				input->injectKey(event.key,
+					event.kind == InputInjection::EventKind::KeyDown);
+				break;
+			case InputInjection::EventKind::PointerMove:
+			{
+				SDL_Event motion{};
+				motion.type = SDL_EVENT_MOUSE_MOTION;
+				motion.motion.x = event.x;
+				motion.motion.y = event.y;
+				input->injectEvent(motion);
+				break;
+			}
+			case InputInjection::EventKind::PointerDown:
+			case InputInjection::EventKind::PointerUp:
+			{
+				const bool down =
+					event.kind == InputInjection::EventKind::PointerDown;
+				SDL_Event button{};
+				button.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN
+					: SDL_EVENT_MOUSE_BUTTON_UP;
+				button.button.button = SDL_BUTTON_LEFT;
+				if (event.button == InputInjection::PointerButton::Middle)
+				{
+					button.button.button = SDL_BUTTON_MIDDLE;
+				}
+				else if (event.button == InputInjection::PointerButton::Right)
+				{
+					button.button.button = SDL_BUTTON_RIGHT;
+				}
+				button.button.down = down;
+				button.button.x = event.x;
+				button.button.y = event.y;
+				input->injectEvent(button);
+				break;
+			}
+			case InputInjection::EventKind::TiltAngle:
+				// the SIMULATION seam the desktop steer keys drive - the one
+				// tilt source there is. A device whose accelerometer is in
+				// charge overrules it, and saying so once is the honest answer
+				// (silently pretending to steer a phone would be a lie).
+				input->setTiltAngle(event.angle);
+				if (sensorTilt && mInputNote.empty())
+				{
+					mInputNote = "tilt step ignored: a real accelerometer "
+						"drives the tilt on this device";
+				}
+				break;
+			}
+		}
+		++mInputCursor;
+	}
+	//---------------------------------------------------------
 	void PlayerDebugLink::handleQuerySpawns(
 		GameObjectManager & gameObjectManager, DebugMessage const & message)
 	{
@@ -1430,6 +1582,27 @@ namespace Orkige
 		mReportedScriptErrors.clear();
 		// commands deferred during a break belonged to the vanished session
 		mDeferredMessages.clear();
+		// an in-flight injected gesture belonged to it too: drop it (nobody is
+		// left to receive the confirmation) and leave no key stuck down - the
+		// releases of a half-replayed press would never have been applied
+		if (mInputActive)
+		{
+			InputManager* input = InputManager::getSingletonPtr();
+			if (input != NULL)
+			{
+				for (InputInjection::Event const & event : mInputSequence.events)
+				{
+					if (event.kind == InputInjection::EventKind::KeyDown)
+					{
+						input->injectKey(event.key, false);
+					}
+				}
+			}
+			mInputActive = false;
+			mInputSequence = InputInjection::Sequence();
+			mInputCursor = 0;
+			mInputNote.clear();
+		}
 		// the script debugger too: clear breakpoints and release a held break
 		// (client disconnect => auto-resume; a new session re-sends its set)
 		if (ScriptRuntime::getSingletonPtr() != NULL)
@@ -1654,6 +1827,13 @@ namespace Orkige
 						gui->dismissModal(id);
 					}
 				}
+			}
+			else if (message.type == Protocol::MSG_SEND_INPUT)
+			{
+				// drive GAMEPLAY: compile the gesture and arm the frame-by-frame
+				// replay (applied at the frame boundary in update, never here -
+				// a key edge must land on a frame, not between two of them)
+				handleSendInput(message);
 			}
 			else if (message.type == Protocol::MSG_DEBUG_BREAKPOINTS)
 			{

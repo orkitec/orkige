@@ -642,6 +642,22 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	bool InputManager::injectKey(KeyEventData::KeyCode kc, bool down)
+	{
+		const SDL_Scancode scancode = keyCodeToSdlScancode(kc);
+		if(scancode == SDL_SCANCODE_UNKNOWN)
+		{
+			return false;
+		}
+		SDL_Event event{};
+		event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+		event.key.scancode = scancode;
+		event.key.key = SDL_GetKeyFromScancode(scancode, SDL_KMOD_NONE, false);
+		event.key.down = down;
+		event.key.repeat = false;
+		return this->injectEvent(event);
+	}
+	//---------------------------------------------------------
 	String const & InputManager::getAsString(KeyEventData::KeyCode kc)
 	{
 		SDL_Scancode scancode = keyCodeToSdlScancode(kc);

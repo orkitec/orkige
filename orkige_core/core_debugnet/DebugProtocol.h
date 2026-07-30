@@ -213,6 +213,24 @@ namespace Orkige
 		//! once per unmatched id. An additive protocol-extension message riding
 		//! the ONE debug protocol; old players answer "unknown command".
 		extern ORKIGE_CORE_DLL const String MSG_QUERY_SPAWNS;
+		//! @brief drive GAMEPLAY: replay a whole input GESTURE in the running
+		//! game. LIST_INPUT_STEPS carries the gesture as a flat list of step
+		//! strings ("key press SPACE 3", "pointer click 200 400", "tilt angle
+		//! 0.4", "wait 5") compiled by engine_input/InputInjection and applied
+		//! ONE FRAME AT A TIME at the runtime's frame boundary, through the same
+		//! InputManager::injectEvent path the platform's own event loop feeds -
+		//! so isKeyDown, the action map, the gui hit test and every input
+		//! listener see synthetic input exactly like hardware input.
+		//! @remarks A whole gesture travels in ONE message on purpose: a round
+		//! trip per key edge would make every press wall-clock dependent, and an
+		//! agent's "hold right for 10 frames" has to be frame-exact to assert
+		//! on. The runtime answers with MSG_INPUT_APPLIED once every step's frame
+		//! has been STEPPED (so a poller that sees the ack may assert on the
+		//! result), refuses a malformed step list immediately with the compile
+		//! error, and refuses a second sequence while one is in flight. An
+		//! additive protocol-extension message riding the ONE debug protocol;
+		//! old players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_SEND_INPUT;
 
 		//--- runtime -> editor ---
 		extern ORKIGE_CORE_DLL const String MSG_HELLO;				//!< first message after connect; FIELD_SCENE: loaded scene path
@@ -330,6 +348,17 @@ namespace Orkige
 		//! split across several messages (each internally consistent) to stay
 		//! under the transport line cap. Additive since protocol v1.
 		extern ORKIGE_CORE_DLL const String MSG_SCENE_SPAWNS;
+		//! @brief the answer to MSG_SEND_INPUT: FIELD_VALUE is "1" when the
+		//! whole gesture was replayed / "0" when it was refused (FIELD_MESSAGE
+		//! then carries the compile error or the refusal reason).
+		//! FIELD_INPUT_FRAMES echoes the number of frames the gesture spanned
+		//! and FIELD_INPUT_EVENTS the number of injected events; on a SUCCESS
+		//! FIELD_MESSAGE may still carry ONE honest note (a tilt step ignored
+		//! because a real accelerometer drives the tilt on this device).
+		//! @remarks Sent only after the LAST step's frame has been stepped, so
+		//! a client that saw this ack may assert on the gameplay result without
+		//! any further wait. Additive since protocol v1.
+		extern ORKIGE_CORE_DLL const String MSG_INPUT_APPLIED;
 		//! @brief script execution PAUSED at a breakpoint / step landing: the
 		//! player is blocked inside the script hook (mid-frame - distinct from
 		//! the frame-boundary MSG_PAUSE state) and keeps servicing the debug
@@ -503,6 +532,15 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String LIST_VAR_TYPES;
 		extern ORKIGE_CORE_DLL const String LIST_VAR_VALUES;
 		extern ORKIGE_CORE_DLL const String LIST_VAR_EXPANDABLE;
+		//! @brief MSG_SEND_INPUT: the gesture as a list of step strings, in the
+		//! grammar engine_input/InputInjection compiles (one step per entry -
+		//! the flat string list the transport already carries natively, so a
+		//! whole gesture needs no nested-object codec)
+		extern ORKIGE_CORE_DLL const String LIST_INPUT_STEPS;
+		//! @brief MSG_INPUT_APPLIED: frames the replayed gesture spanned
+		extern ORKIGE_CORE_DLL const String FIELD_INPUT_FRAMES;
+		//! @brief MSG_INPUT_APPLIED: injected events the gesture carried
+		extern ORKIGE_CORE_DLL const String FIELD_INPUT_EVENTS;
 	}
 
 	//! @brief one protocol message: a type plus flat string fields and flat

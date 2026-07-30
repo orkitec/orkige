@@ -13,6 +13,7 @@
 #include "core_debug/ProfileManager.h"
 #include "core_debugnet/DebugClient.h"
 #include "core_debugnet/DebugServer.h"
+#include "engine_input/InputInjection.h"
 
 #include <array>
 #include <chrono>
@@ -221,6 +222,20 @@ namespace Orkige
 		//! last ScriptRuntime break the editor was told about (one
 		//! MSG_DEBUG_BREAK per pause); mDebugPumpInstalled says the runtime's
 		//! break pump handler points at this link.
+		//! @brief agent-driven input injection (MSG_SEND_INPUT): the compiled
+		//! gesture being replayed and how far the replay got. The events of
+		//! frame mInputCursor are injected at THIS frame's boundary (inside
+		//! update(), before the world steps, so the tick that follows sees
+		//! them); the cursor then advances, and once it has passed the
+		//! sequence's frame span - i.e. every injected frame has actually been
+		//! STEPPED - MSG_INPUT_APPLIED goes out. mInputNote carries the one
+		//! honest note a successful replay may still report (a tilt step a real
+		//! accelerometer overrules). mInputActive is the "one gesture at a
+		//! time" gate: a second request while this one runs is refused.
+		InputInjection::Sequence mInputSequence;
+		unsigned int	mInputCursor = 0;
+		bool			mInputActive = false;
+		String			mInputNote;
 		std::vector<DebugMessage> mDeferredMessages;
 		unsigned int	mNotifiedBreakSequence = 0;
 		bool			mDebugPumpInstalled = false;
@@ -359,6 +374,22 @@ namespace Orkige
 		void handleReloadAnim(GameObjectManager & gameObjectManager,
 			DebugMessage const & message);
 		void handleSetCvar(DebugMessage const & message);
+		//! @brief accept a MSG_SEND_INPUT gesture: compile the step list and arm
+		//! the frame-by-frame replay. A malformed list, an in-flight gesture or
+		//! a runtime with no InputManager is refused at once with
+		//! MSG_INPUT_APPLIED (FIELD_VALUE "0" + the reason) - never silently.
+		void handleSendInput(DebugMessage const & message);
+		//! @brief ONE frame of an armed gesture, at the frame boundary: inject
+		//! every event stamped for the current frame through
+		//! InputManager::injectKey / injectEvent, advance the cursor and, once
+		//! the whole span has been stepped, confirm with MSG_INPUT_APPLIED. A
+		//! no-op when nothing is armed. An injected frame is a frame the WORLD
+		//! advances, so the replay HOLDS while paused (and a debug step moves
+		//! it by one) - the very gate the player loop applies to the world.
+		void advanceInputInjection();
+		//! send MSG_INPUT_APPLIED (ok flag + frames/events + one note or reason)
+		void notifyInputApplied(bool ok, String const & message,
+			unsigned int frames, std::size_t events);
 		void handleRecordStart(DebugMessage const & message);
 		//! @brief answer MSG_QUERY_SPAWNS with MSG_SCENE_SPAWNS descriptors
 		//! (component kinds + the reflected property records) for every
