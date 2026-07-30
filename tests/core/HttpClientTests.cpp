@@ -515,25 +515,32 @@ TEST_CASE("HttpClient cancels a transfer and still answers exactly once",
 	REQUIRE(server.start(0));
 	HttpClient client;
 
-	const String body = filler(4 * 1024 * 1024);
-	HttpServer::Handler handler = [&body](HttpRequest const &)
+	// The server LISTENS but is never pumped, so the request is accepted by the
+	// kernel and left unanswered - the one transfer state that is reliably
+	// in-flight on every transport. Cancelling mid-BODY is not a test a
+	// stopwatch can win: a transport that hands the body over in few large
+	// reads (WinHTTP does) delivers the first progress step and the completion
+	// within one drain, so "it has started" and "it has finished" are the same
+	// moment and the cancel is racing an answer that already exists.
+	HttpServer::Handler handler = [](HttpRequest const &)
 	{
-		HttpResponse response;
-		response.body = body;
-		return response;
+		return HttpResponse();
 	};
 
 	Recorder recorder;
-	HttpClientRequest request = localRequest(server, "/big");
-	request.maxResponseBytes = 16 * 1024 * 1024;
+	HttpClientRequest request = localRequest(server, "/silent");
+	request.timeoutMs = 30000;		// far beyond the test: the cancel ends it
 	const HttpRequestId id = client.submit(request, recorder.onComplete(),
 		recorder.onProgress());
 
-	// let it get going, then pull the plug mid-transfer
-	REQUIRE(pumpUntil(server, handler, client, [&recorder]()
+	// let the transfer reach the wire (the server is deliberately NOT pumped)
+	for (int round = 0; round < 50 && client.getPendingCount() == 0; ++round)
 	{
-		return !recorder.progress.empty() || recorder.completions > 0;
-	}));
+		client.update();
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	}
+	REQUIRE(client.getPendingCount() == 1);
+	REQUIRE(recorder.completions == 0);
 	CHECK(client.cancel(id));
 	CHECK_FALSE(client.cancel(id));		// a second cancel is not a new answer
 

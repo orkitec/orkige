@@ -29,6 +29,18 @@ namespace
 	const char* const TOOL_ROOT = "/Apps/orkige/";
 	const char* const BASE = "/Apps/orkige";
 #endif
+	//! the sibling executables the locator looks for, spelled the way the
+	//! platform spells them - Windows carries the .exe suffix, and a fake tree
+	//! holding the bare name would simply not be found there (the locator would
+	//! fall through to the build tree, which is exactly what these cases exist
+	//! to tell apart)
+#ifdef _WIN32
+	const char* const PLAYER_NAME = "orkige_player.exe";
+	const char* const TEXCOOK_NAME = "texcook.exe";
+#else
+	const char* const PLAYER_NAME = "orkige_player";
+	const char* const TEXCOOK_NAME = "texcook";
+#endif
 
 	//! a filesystem that exists only as a set of paths - the whole point of the
 	//! injectable probe: the decision table is exercised with no files on disk
@@ -76,8 +88,8 @@ TEST_CASE("editor resources: a staged bundle answers every query itself",
 		root + "Media/Hlms", root + "Media/fonts", root + "Media/water",
 		root + "Media/decals", root + "Media/bloom/next",
 		root + "Media/grade/next", root + "fa-solid-900.ttf",
-		Orkige::String(TOOL_ROOT) + "orkige_player",
-		Orkige::String(TOOL_ROOT) + "texcook",
+		Orkige::String(TOOL_ROOT) + PLAYER_NAME,
+		Orkige::String(TOOL_ROOT) + TEXCOOK_NAME,
 		"/tree/vcpkg/share/ogre-next/Media/Hlms", "/tree/engine/media/fonts",
 		"/tree/engine/media/water", "/tree/engine/media/decals",
 		"/tree/engine/media/bloom/next", "/tree/engine/media/grade/next",
@@ -101,7 +113,7 @@ TEST_CASE("editor resources: a staged bundle answers every query itself",
 	CHECK(locator.engineGrade().path == root + "Media/grade/next");
 	CHECK(locator.uiFont("fa-solid-900.ttf").path == root + "fa-solid-900.ttf");
 	// the sibling executables come from the bundle's tool root
-	CHECK(locator.player().path == Orkige::String(TOOL_ROOT) + "orkige_player");
+	CHECK(locator.player().path == Orkige::String(TOOL_ROOT) + PLAYER_NAME);
 	CHECK(locator.texcook().fromBundle());
 	// the one boot line names the bundle
 	CHECK(locator.describe().find("bundled app") != Orkige::String::npos);
@@ -223,7 +235,7 @@ TEST_CASE("editor resources: blanked fallbacks make a bundle prove itself",
 		.engineMedia().found());
 
 	tree.paths.insert(Orkige::String(RESOURCE_ROOT) + "Media/Hlms");
-	tree.paths.insert(Orkige::String(TOOL_ROOT) + "orkige_player");
+	tree.paths.insert(Orkige::String(TOOL_ROOT) + PLAYER_NAME);
 	const EditorResourceLocator locator(BASE, bundleOnly, tree.probe());
 	CHECK(locator.engineMedia().fromBundle());
 	CHECK(locator.player().fromBundle());

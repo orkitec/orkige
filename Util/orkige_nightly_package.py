@@ -1367,6 +1367,21 @@ def main():
 
 # --- reading the workflow's own shell --------------------------------------
 
+def usable_bash():
+    """is there a bash that actually RUNS a command? On Windows the name on
+    PATH is usually the Subsystem-for-Linux launcher, which starts, prints that
+    no distribution is installed and exits nonzero - so presence proves nothing
+    and the probe has to ask it to do something."""
+    if not shutil.which("bash"):
+        return False
+    try:
+        probe = subprocess.run(["bash", "-c", "printf ok"],
+                               capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return probe.returncode == 0 and probe.stdout.strip() == "ok"
+
+
 def workflow_step_script(workflow_path, step_name):
     """the shell script of one workflow step, lifted out of the yaml as text
     (stdlib only, no yaml parser): everything indented under that step's
@@ -1650,8 +1665,12 @@ def selftest():
                                         "Compose the release notes")
     if not notes_script:
         log("no workflow to read - the release-notes leg is skipped")
-    elif not shutil.which("bash"):
-        log("no bash - the release-notes leg is skipped")
+    elif not usable_bash():
+        # a Windows host resolves `bash` to the Subsystem-for-Linux stub, which
+        # exists, runs, and reports that no distribution is installed - so the
+        # probe asks the shell to DO something rather than trusting that a name
+        # on PATH is a POSIX shell
+        log("no working bash - the release-notes leg is skipped")
     else:
         with tempfile.TemporaryDirectory() as temp:
             downloads = os.path.join(temp, "downloads")

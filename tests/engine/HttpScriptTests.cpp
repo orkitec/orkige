@@ -87,6 +87,25 @@ namespace
 	{
 		return "http://127.0.0.1:" + std::to_string(server.getPort());
 	}
+	//! @brief @p text as the inside of a single-quoted Lua string literal. A
+	//! Windows path is full of backslashes and Lua reads a backslash as the
+	//! start of an escape - `C:\Users` fails to COMPILE on an unknown one, and
+	//! a path that happens to spell a known escape would compile into the wrong
+	//! path, which is worse.
+	String luaLiteral(String const & text)
+	{
+		String out;
+		out.reserve(text.size());
+		for (std::size_t at = 0; at < text.size(); ++at)
+		{
+			if (text[at] == '\\' || text[at] == '\'')
+			{
+				out.push_back('\\');
+			}
+			out.push_back(text[at]);
+		}
+		return out;
+	}
 }
 
 TEST_CASE("the Lua http table GETs a loopback response", "[http][script]")
@@ -346,13 +365,11 @@ TEST_CASE("the Lua http table downloads to a file", "[http][script]")
 			static_cast<unsigned long long>(std::chrono::steady_clock::now()
 				.time_since_epoch().count()))) / "asset.bin";
 	String targetPath = target.string();
-	// Lua string literal: keep the path escape-free (a temp path has no
-	// backslashes on the platforms this test runs on)
 	run(
 		"probe = { done = false }\n"
 		"http.request{\n"
 		"  url = '" + base(server) + "/asset',\n"
-		"  savePath = '" + targetPath + "',\n"
+		"  savePath = '" + luaLiteral(targetPath) + "',\n"
 		"  allowInsecureHttp = true,\n"
 		"  onComplete = function(res)\n"
 		"    probe.done = true\n"
