@@ -355,9 +355,8 @@ namespace Orkige
 				if (transfer->expected > transfer->maxBytes)
 				{
 					this->finishLocked(transfer, HF_TOO_LARGE,
-						"the response announces " +
-						std::to_string(transfer->expected) + " bytes, over the "
-						+ std::to_string(transfer->maxBytes) + "-byte cap");
+						HttpPolicy::sizeCapReason(transfer->maxBytes,
+							transfer->expected));
 					return false;
 				}
 			}
@@ -428,8 +427,7 @@ namespace Orkige
 				const HttpFailure failure =
 					overflowed ? HF_TOO_LARGE : HF_WRITE_FAILED;
 				this->finishLocked(transfer, failure, overflowed
-					? ("the response exceeded the " + std::to_string(maxBytes) +
-						"-byte cap")
+					? HttpPolicy::sizeCapReason(maxBytes)
 					: writeError);
 				return;
 			}

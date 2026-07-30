@@ -247,3 +247,19 @@ TEST_CASE("HttpPolicy names every failure with a stable token", "[http]")
 	CHECK(Orkige::httpFailureName(Orkige::HF_INSECURE_SCHEME) ==
 		"insecure-scheme");
 }
+
+TEST_CASE("HttpPolicy words a size-cap refusal the same on every backend",
+	"[http]")
+{
+	// a cap hit by the bytes arriving names the limit
+	const String arriving = HttpPolicy::sizeCapReason(4096);
+	CHECK(arriving.find("cap") != String::npos);
+	CHECK(arriving.find("4096") != String::npos);
+	// a cap hit by the ANNOUNCED size names both numbers, so a caller can
+	// tell "it was refused before a byte arrived" from "it grew past it"
+	const String announced = HttpPolicy::sizeCapReason(4096, 262144);
+	CHECK(announced.find("cap") != String::npos);
+	CHECK(announced.find("4096") != String::npos);
+	CHECK(announced.find("262144") != String::npos);
+	CHECK(announced != arriving);
+}

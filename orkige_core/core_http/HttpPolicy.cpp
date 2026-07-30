@@ -438,5 +438,17 @@ namespace Orkige
 				}
 			}
 		}
+		//---------------------------------------------------------
+		String sizeCapReason(unsigned long long maxBytes,
+			unsigned long long announced)
+		{
+			const String limit = std::to_string(maxBytes) + "-byte cap";
+			if (announced != 0)
+			{
+				return "the response announces " + std::to_string(announced) +
+					" bytes, over the " + limit;
+			}
+			return "the response exceeded the " + limit;
+		}
 	}
 }

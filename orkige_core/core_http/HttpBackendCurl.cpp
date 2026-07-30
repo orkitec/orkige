@@ -439,9 +439,8 @@ namespace Orkige
 				if (transfer->capExceeded)
 				{
 					this->finish(transfer, HF_TOO_LARGE,
-						"the response exceeded the " +
-						std::to_string(transfer->request.maxResponseBytes) +
-						"-byte cap");
+						HttpPolicy::sizeCapReason(
+							transfer->request.maxResponseBytes));
 					continue;
 				}
 				if (transfer->writeFailed)
@@ -454,9 +453,24 @@ namespace Orkige
 				{
 					const HttpFailure failure = transfer->cancelled
 						? HF_CANCELLED : failureFromCurl(result);
-					this->finish(transfer, failure, transfer->cancelled
-						? String("the request was cancelled")
-						: String(curl_easy_strerror(result)));
+					// libcurl aborts an over-cap transfer itself once the
+					// announced size passes MAXFILESIZE; the caller reads OUR
+					// sentence for it, never the transport's wording
+					String reason;
+					if (transfer->cancelled)
+					{
+						reason = "the request was cancelled";
+					}
+					else if (failure == HF_TOO_LARGE)
+					{
+						reason = HttpPolicy::sizeCapReason(
+							transfer->request.maxResponseBytes);
+					}
+					else
+					{
+						reason = curl_easy_strerror(result);
+					}
+					this->finish(transfer, failure, reason);
 					continue;
 				}
 				this->finish(transfer, HF_NONE, String());
@@ -617,9 +631,18 @@ namespace Orkige
 				transfer->capExceeded = true;
 				return 1;
 			}
-			transfer->owner->mEvents.pushProgress(transfer->id,
-				static_cast<unsigned long long>(downloadNow),
-				transfer->expected);
+			// libcurl calls this as soon as the transfer starts, before the
+			// response headers exist: nothing received and no announced
+			// total is not progress, it is noise a progress bar cannot use
+			// (and it would hide the announced size behind a leading 0). A
+			// chunked response - received grows, total stays 0 - still
+			// reports every step.
+			if (downloadNow > 0 || transfer->expected != 0)
+			{
+				transfer->owner->mEvents.pushProgress(transfer->id,
+					static_cast<unsigned long long>(downloadNow),
+					transfer->expected);
+			}
 			return 0;
 		}
 	};

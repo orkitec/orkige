@@ -129,7 +129,11 @@ namespace Orkige
 	//! @brief progress callback - received/total bytes of the response body
 	//! (total is 0 while unknown, i.e. no Content-Length yet); invoked on the
 	//! main thread from HttpClient::update(), coalesced to at most one call per
-	//! request per drain
+	//! request per drain. A step is only reported once there is something to
+	//! report - a transport that ticks before the response headers exist
+	//! (nothing received, no announced total) reports nothing, so the first
+	//! step a caller sees carries the announced size whenever the server sent
+	//! one.
 	typedef std::function<void(unsigned long long received,
 		unsigned long long total)> HttpProgressCallback;
 

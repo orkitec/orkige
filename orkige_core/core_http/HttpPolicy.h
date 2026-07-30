@@ -100,6 +100,16 @@ namespace Orkige
 		//! lower-cased-name map - the shape every backend hands back
 		ORKIGE_CORE_DLL void parseHeaderBlock(String const & block,
 			std::map<String, String> & out);
+
+		//! @brief the ONE sentence a size-cap refusal reads, whichever
+		//! backend noticed it. @p announced is the size the response claimed
+		//! in its Content-Length (0 = the cap was hit by the bytes actually
+		//! arriving, which announces nothing). A transport that aborts the
+		//! transfer itself (libcurl's MAXFILESIZE) carries its own wording -
+		//! the caller never sees it, because HF_TOO_LARGE is OUR decision and
+		//! reads the same on every platform.
+		ORKIGE_CORE_DLL String sizeCapReason(unsigned long long maxBytes,
+			unsigned long long announced = 0);
 	}
 
 	/** @} */

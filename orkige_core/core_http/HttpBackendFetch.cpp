@@ -239,10 +239,8 @@ namespace Orkige
 				if (size > transfer->request.maxResponseBytes)
 				{
 					response.failure = HF_TOO_LARGE;
-					response.reason = "the response is " +
-						std::to_string(size) + " bytes, over the " +
-						std::to_string(transfer->request.maxResponseBytes) +
-						"-byte cap";
+					response.reason = HttpPolicy::sizeCapReason(
+						transfer->request.maxResponseBytes, size);
 				}
 				else if (!transfer->request.savePath.empty())
 				{
@@ -353,10 +351,8 @@ namespace Orkige
 				emscripten_fetch_t * closing = fetch;
 				transfer->fetch = NULL;
 				backend->finish(transfer, fetch, HF_TOO_LARGE,
-					"the response announces " + std::to_string(total) +
-					" bytes, over the " +
-					std::to_string(transfer->request.maxResponseBytes) +
-					"-byte cap");
+					HttpPolicy::sizeCapReason(
+						transfer->request.maxResponseBytes, total));
 				closeFetch(closing);
 				return;
 			}
