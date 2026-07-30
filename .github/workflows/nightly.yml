@@ -1109,26 +1109,40 @@ jobs:
         run: cmake --build --preset ${env:PRESET} --target orkige_editor_bundle
 
       # The installer is compiled by makensis, which the hosted Windows image
-      # ships. That is an ASSUMPTION about somebody else's image, so it is
-      # checked here and named: a missing tool must fail this job with a
-      # sentence a person can act on, never let the packaging quietly produce a
-      # night with no installer. When the tool is installed but not on PATH
-      # (its own installer does not add it), its directory is added here - the
-      # ONE place makensis is resolved, so the packager just looks it up.
+      # does NOT ship, so the job installs it rather than depending on somebody
+      # else's image contents. The installer does not put itself on PATH, hence
+      # the explicit directory. This is the ONE place makensis is resolved - the
+      # packager just looks it up - and a tool that is still missing afterwards
+      # fails the job with a sentence a person can act on, because a night that
+      # quietly produces no installer is the worse outcome.
+      - name: Install the installer toolchain (NSIS)
+        shell: pwsh
+        run: |
+          if (Get-Command makensis -ErrorAction SilentlyContinue) {
+            Write-Host "makensis is already on PATH"
+          } else {
+            choco install nsis --no-progress --yes
+          }
+
       - name: Verify the installer toolchain (makensis)
         shell: pwsh
         run: |
           $tool = Get-Command makensis -ErrorAction SilentlyContinue
           if (-not $tool) {
-            $fallback = Join-Path ${env:ProgramFiles(x86)} "NSIS"
-            if (Test-Path (Join-Path $fallback "makensis.exe")) {
-              Add-Content -Path $env:GITHUB_PATH -Value $fallback
-              $env:PATH = "$fallback;$env:PATH"
+            foreach ($root in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+              if (-not $root) { continue }
+              $candidate = Join-Path (Join-Path $root "NSIS") "makensis.exe"
+              if (Test-Path $candidate) {
+                $dir = Split-Path $candidate
+                Add-Content -Path $env:GITHUB_PATH -Value $dir
+                $env:PATH = "$dir;$env:PATH"
+                break
+              }
             }
           }
           $tool = Get-Command makensis -ErrorAction SilentlyContinue
           if (-not $tool) {
-            throw "makensis (NSIS) was not found on PATH or in Program Files (x86)\NSIS. The Windows nightly builds its installer with it; install NSIS on the runner image or fix the PATH - do not skip the installer."
+            throw "makensis (NSIS) was not found on PATH or under Program Files after installing it. The Windows nightly builds its installer with it - do not skip the installer."
           }
           Write-Host "using $($tool.Source)"
           & makensis /VERSION
