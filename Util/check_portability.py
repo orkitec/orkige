@@ -73,6 +73,16 @@ BANNED_IDENTIFIERS = {
 #                 to catch unqualified, which is how they are usually used).
 # symbol -> (required header, match mode)
 STD_SYMBOLS = {
+    # <filesystem> - libc++ leaks it through several headers, libstdc++ and
+    # MSVC do not: a TU using std::filesystem without its own include builds
+    # on macOS and fails on Linux/Windows (the HttpScriptTests case)
+    "filesystem::path": ("<filesystem>", "qualified"),
+    "filesystem::exists": ("<filesystem>", "qualified"),
+    "filesystem::remove": ("<filesystem>", "qualified"),
+    "filesystem::file_size": ("<filesystem>", "qualified"),
+    "filesystem::temp_directory_path": ("<filesystem>", "qualified"),
+    "filesystem::create_directories": ("<filesystem>", "qualified"),
+    "filesystem::directory_iterator": ("<filesystem>", "qualified"),
     # <algorithm>
     "sort": ("<algorithm>", "qualified"),
     "stable_sort": ("<algorithm>", "qualified"),

@@ -24,6 +24,7 @@
 #include <engine_gocomponent/ScriptComponent.h>
 
 #include <chrono>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <vector>

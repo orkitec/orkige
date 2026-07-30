@@ -9,6 +9,8 @@
 
 #include "core_util/PathJail.h"
 
+#include <filesystem>
+
 namespace Orkige
 {
 	namespace PathJail
