@@ -2091,6 +2091,8 @@ int main(int argc, char** argv)
 		MarqueePhase marqueePhase = MarqueePhase::Idle;
 		int mqStep = 0;
 		int mqSettleHold = 0;	// frames an assert step has waited to settle
+		bool mqHoldSuper = false;	// the leg is holding Cmd down for a gesture
+		int mqExtendAttempts = 0;	// repeats of the Cmd-extend gesture
 		std::string mqTempRoot;
 		Orkige::StringVector mqTileIds;		// the three painted tile roots
 		// screen points (render-target pixels), computed once the 2D layout is
@@ -2101,6 +2103,10 @@ int main(int argc, char** argv)
 		float mqMidX = 0.0f, mqMidY = 0.0f;
 		float mqLbSX = 0.0f, mqLbSY = 0.0f, mqLbEX = 0.0f, mqLbEY = 0.0f;
 		float mqRbSX = 0.0f, mqRbSY = 0.0f, mqRbEX = 0.0f, mqRbEY = 0.0f;
+		// the three tiles' own screen points (left / mid / right), the targets a
+		// rubber-band has to demonstrably cover before its release means anything
+		float mqTilePX[3] = {0.0f, 0.0f, 0.0f};
+		float mqTilePY[3] = {0.0f, 0.0f, 0.0f};
 
 		// ORKIGE_EDITOR_UIDRAG=<fixture project dir>: the visual .oui editor's
 		// CANVAS driven end to end through REAL synthetic SDL mouse events (the
@@ -6070,8 +6076,11 @@ int main(int argc, char** argv)
 				// (a CI runner-image timing shift is enough to flake it). Hold
 				// the step and re-check each frame until the state settles;
 				// only fail (with the real reason) after a generous budget the
-				// deadline backstop also guards. Returns true when settled.
-				const int mqSettleBudget = 30;
+				// deadline backstop also guards. Returns true when settled. The
+				// budget is a FRAME count, so it stretches with the frame cadence
+				// it has to absorb (a sanitizer-slowed frame buys more wall time
+				// per retry, not less).
+				const int mqSettleBudget = 60;
 				auto mqSettled = [&](int stepId, bool condition,
 					char const* why) -> bool
 				{
@@ -6093,6 +6102,54 @@ int main(int argc, char** argv)
 					mqSettleHold = 0;
 					mqAbort(why);
 					return false;
+				};
+				// ImGui's io.MousePos lives in the SAME render-target pixel space
+				// pushMove() takes (the bridge scales the window point back), so a
+				// pushed move is CONFIRMED once the io position has arrived there
+				auto mqCursorAt = [&](float px, float py) -> bool
+				{
+					const ImVec2 p = ImGui::GetIO().MousePos;
+					return std::abs(p.x - px) <= 1.5f &&
+						std::abs(p.y - py) <= 1.5f;
+				};
+				// ... and a rubber-band drag is confirmed once the panel has an
+				// ACTIVE marquee whose live box covers the tiles it is meant to
+				// catch. A drag is a STREAM of motions, so every settle retry
+				// moves again instead of hoping one synthetic move survived the
+				// frame it was pushed in.
+				// the modifier the panel reads EXTEND from, spelled the way the
+				// panel spells it: ImGui's macOS behaviors SWAP Cmd(Super) and
+				// Ctrl at AddKeyEvent() time, so a synthetic Cmd arrives as
+				// io.KeyCtrl there and as io.KeySuper everywhere else - the leg
+				// asks the same either-or question the marquee asks
+				auto mqExtendModHeld = [&]() -> bool
+				{
+					ImGuiIO const& io = ImGui::GetIO();
+					return io.KeySuper || io.KeyCtrl;
+				};
+				auto mqBandCovers = [&](int firstTile, int lastTile) -> bool
+				{
+					if (!state.marqueeActive)
+					{
+						return false;
+					}
+					const float x0 = std::min(state.marqueeStart.x,
+						state.marqueeCurrent.x);
+					const float x1 = std::max(state.marqueeStart.x,
+						state.marqueeCurrent.x);
+					const float y0 = std::min(state.marqueeStart.y,
+						state.marqueeCurrent.y);
+					const float y1 = std::max(state.marqueeStart.y,
+						state.marqueeCurrent.y);
+					for (int t = firstTile; t <= lastTile; ++t)
+					{
+						if (mqTilePX[t] < x0 || mqTilePX[t] > x1 ||
+							mqTilePY[t] < y0 || mqTilePY[t] > y1)
+						{
+							return false;
+						}
+					}
+					return true;
 				};
 
 				if (marqueePhase == MarqueePhase::Idle && frameCount == 10)
@@ -6189,6 +6246,16 @@ int main(int argc, char** argv)
 					// (the panel has recorded its image rect)
 					const bool layoutReady = state.sceneImageSize.x > 1.0f &&
 						state.sceneImageSize.y > 1.0f;
+					// a HELD modifier stays held: a real Cmd-drag keeps the key
+					// down for the whole gesture (the platform even repeats it),
+					// so while the leg holds it, any frame that finds ImGui's
+					// input state without it presses it again - one synthetic
+					// key-down can be deferred by the input queue or cleared by a
+					// focus event, and the panel captures EXTEND at the press
+					if (mqHoldSuper && !mqExtendModHeld())
+					{
+						pushSuper(true);
+					}
 					switch (mqStep)
 					{
 					case 4:
@@ -6225,14 +6292,26 @@ int main(int argc, char** argv)
 							mqStartY = std::max(minY, std::min({ly, my, ry}) - pad);
 							mqEndX = std::min(maxX, std::max({lx, mx, rx}) + pad);
 							mqEndY = std::min(maxY, std::max({ly, my, ry}) + pad);
+							mqTilePX[0] = lx;	mqTilePY[0] = ly;
+							mqTilePX[1] = mx;	mqTilePY[1] = my;
+							mqTilePX[2] = rx;	mqTilePY[2] = ry;
 						}
 						pushMove(mqStartX, mqStartY);
+						// press only once the cursor is demonstrably there: the
+						// press corner has to sit in the empty gap it was computed
+						// for, not wherever a still-in-flight move left it
+						mqSettled(4, mqCursorAt(mqStartX, mqStartY),
+							"the cursor never reached the all-tiles press corner");
 						break;
 					case 7:
 						pushButton(true, mqStartX, mqStartY);	// press empty
 						break;
 					case 10:
 						pushMove(mqEndX, mqEndY);				// drag
+						// release only over a band that PROVABLY spans all three
+						// tiles (every retry drags again - a real drag is a stream)
+						mqSettled(10, mqBandCovers(0, 2),
+							"the drag band never spanned the three tiles");
 						break;
 					case 13:
 						pushButton(false, mqEndX, mqEndY);		// release
@@ -6294,6 +6373,9 @@ int main(int argc, char** argv)
 					}
 					case 19:
 						pushMove(mqMidX, mqMidY);				// over mid tile
+						// the click must START ON the tile to be a pick at all
+						mqSettled(19, mqCursorAt(mqMidX, mqMidY),
+							"the cursor never reached the mid tile");
 						break;
 					case 22:
 						pushButton(true, mqMidX, mqMidY);		// click (down)
@@ -6321,12 +6403,16 @@ int main(int argc, char** argv)
 					// left tile via a plain marquee (REPLACE): selection -> {left}
 					case 31:
 						pushMove(mqLbSX, mqLbSY);
+						mqSettled(31, mqCursorAt(mqLbSX, mqLbSY),
+							"the cursor never reached the left-box press corner");
 						break;
 					case 34:
 						pushButton(true, mqLbSX, mqLbSY);		// press empty
 						break;
 					case 37:
 						pushMove(mqLbEX, mqLbEY);				// drag over left
+						mqSettled(37, mqBandCovers(0, 0),
+							"the left drag band never covered the left tile");
 						break;
 					case 40:
 						pushButton(false, mqLbEX, mqLbEY);		// release
@@ -6346,21 +6432,65 @@ int main(int argc, char** argv)
 					}
 					// right tile via a Cmd-marquee (EXTEND): -> {left, right}
 					case 46:
-						pushSuper(true);						// hold Cmd
+						// take the modifier DOWN and hold it (the per-frame heal
+						// above keeps it down for the rest of the gesture); the
+						// press below may only happen once ImGui's input state
+						// really carries it, because that is where the panel reads
+						// EXTEND from
+						mqHoldSuper = true;
+						if (!mqExtendModHeld())
+						{
+							pushSuper(true);
+						}
+						mqSettled(46, mqExtendModHeld(),
+							"Cmd never reached the ImGui input state");
 						break;
 					case 49:
 						pushMove(mqRbSX, mqRbSY);
+						mqSettled(49, mqCursorAt(mqRbSX, mqRbSY),
+							"the cursor never reached the right-box press corner");
 						break;
 					case 52:
+						// still holding? then Cmd-press the empty strip
+						if (!mqSettled(52, mqExtendModHeld(),
+							"Cmd was lost before the Cmd-press"))
+						{
+							break;
+						}
 						pushButton(true, mqRbSX, mqRbSY);		// Cmd-press empty
 						break;
 					case 55:
+						// the press captures EXTEND from the modifier state; if a
+						// transient stole it anyway, close the band harmlessly and
+						// REPEAT the whole two-marquee gesture rather than releasing
+						// into a REPLACE (a wrong pass is worse than a slow one)
+						if (state.marqueePending && !state.marqueeExtend)
+						{
+							pushButton(false, mqRbSX, mqRbSY);
+							pushSuper(false);
+							mqHoldSuper = false;
+							mqSettleHold = 0;
+							if (++mqExtendAttempts <= 2)
+							{
+								SDL_Log("orkige_editor: marquee - the Cmd-press "
+									"carried no extend, repeating the gesture "
+									"(attempt %d)", mqExtendAttempts + 1);
+								mqStep = 30;	// back to the left-tile marquee
+								break;
+							}
+							mqAbort("the Cmd-press never captured the extend "
+								"modifier");
+							break;
+						}
 						pushMove(mqRbEX, mqRbEY);				// drag over right
+						mqSettled(55, mqBandCovers(2, 2),
+							"the Cmd-drag band never covered the right tile");
 						break;
 					case 58:
 						pushButton(false, mqRbEX, mqRbEY);		// release
 						break;
 					case 61:
+						mqHoldSuper = false;					// stop holding
 						pushSuper(false);						// release Cmd
 						break;
 					case 64:
@@ -6376,10 +6506,14 @@ int main(int argc, char** argv)
 						{
 							// the last hold frame before we give up: diagnose
 							SDL_Log("orkige_editor: marquee extend diag - "
-								"selCount=%zu left=%d right=%d",
+								"selCount=%zu left=%d right=%d extend=%d "
+								"mod=%d attempts=%d",
 								sel.size(),
 								editorCore.isSelected(mqTileIds[0]) ? 1 : 0,
-								editorCore.isSelected(mqTileIds[2]) ? 1 : 0);
+								editorCore.isSelected(mqTileIds[2]) ? 1 : 0,
+								state.marqueeExtend ? 1 : 0,
+								mqExtendModHeld() ? 1 : 0,
+								mqExtendAttempts);
 						}
 						if (!mqSettled(64, both,
 							"Cmd-drag did not extend the selection"))
@@ -6403,9 +6537,12 @@ int main(int argc, char** argv)
 					++mqStep;
 				}
 				// deadline backstop: never let the demo-frame cap turn a stuck
-				// run into a false pass
+				// run into a false pass. It is COARSE on purpose - every step
+				// carries its own settle budget and fails with the real reason,
+				// so this only has to leave room for the whole sequence plus its
+				// repeated gestures.
 				if (marqueePhase != MarqueePhase::Done && exitCode == 0 &&
-					frameCount >= 140)
+					frameCount >= 400)
 				{
 					mqAbort("did not complete before the deadline");
 				}

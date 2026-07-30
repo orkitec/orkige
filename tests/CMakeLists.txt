@@ -1502,7 +1502,7 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     add_test(NAME editor_marquee${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_marquee${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_MARQUEE=${Orkige_SOURCE_DIR}/projects/roller;ORKIGE_DEMO_FRAMES=150"
+        ENVIRONMENT "ORKIGE_EDITOR_MARQUEE=${Orkige_SOURCE_DIR}/projects/roller;ORKIGE_DEMO_FRAMES=420"
         LABELS integration TIMEOUT 120)
 
     # MCP runtime debug tools end to end: the editor hosts its MCP endpoint on

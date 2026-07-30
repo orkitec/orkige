@@ -1819,20 +1819,62 @@ namespace OrkigeEditor
 
 		// 2e) the INTERRUPT round trip, right behind that burst: the encoded C0
 		//     code reaches the tty, the tty signals the foreground child and the
-		//     shell reports the status. Send it and ask for the filter's exit
-		//     status - 130 is 128 + SIGINT. A still-running filter would echo the
+		//     shell reports the status - 130 is 128 + SIGINT. The two halves are
+		//     SEQUENCED on the pty's own foreground reading, never typed into the
+		//     same instant: while the signalled filter is still the foreground
+		//     process the status question is read by IT - or discarded with the
+		//     input queue the tty flushes on the interrupt char - and never
+		//     reaches the shell, which would then answer for the wrong command.
+		//     So the interrupt goes alone and the leg waits for the terminal to be
+		//     handed back to the shell, which is precisely what "the interrupt
+		//     reached the child" means; only then does it ask, with no command in
+		//     between to clobber `$?`. A still-running filter would echo the
 		//     question back verbatim, so the two outcomes cannot be confused.
 		{
 			TermMods ctrl;
 			ctrl.ctrl = true;
+			const std::string filterProc = pty->foregroundProcessName();
 			pty->write(encodeControlChar('c', ctrl));
+			if (filterProc.empty())
+			{
+				// no foreground reading on this platform: settle instead of
+				// sequencing (the status check below still carries the leg)
+				pump(500);
+			}
+			else
+			{
+				const bool filterSignalled = pumpUntil(8000, [&]
+					{
+						const std::string fg = pty->foregroundProcessName();
+						return !fg.empty() && fg != filterProc;
+					});
+				if (!filterSignalled)
+				{
+					SDL_Log("terminal-test diag: '%s' still holds the foreground "
+						"after the interrupt (pending=%zu alive=%d)",
+						filterProc.c_str(), pty->pendingWriteBytes(),
+						pty->isAlive() ? 1 : 0);
+				}
+				check(filterSignalled, "an interrupt sent behind a large paste "
+					"reaches the child (the filter leaves the foreground)");
+			}
 			pty->write("echo INT$?K\n");
-			check(pumpUntil(8000, [&]
+			const bool reported = pumpUntil(8000, [&]
 				{
 					return screen.dumpVisible().find("INT130K")
 						!= std::string::npos;
-				}),
-				"an interrupt sent behind a large paste still reaches the child");
+				});
+			if (!reported)
+			{
+				SDL_Log("terminal-test diag: interrupt leg fg=[%s] alive=%d "
+					"pending=%zu totalRead=%zu",
+					pty->foregroundProcessName().c_str(), pty->isAlive() ? 1 : 0,
+					pty->pendingWriteBytes(), totalRead);
+				SDL_Log("terminal-test diag: visible=[%.900s]",
+					screen.dumpVisible().c_str());
+			}
+			check(reported,
+				"the shell reports the interrupted filter's status (130)");
 		}
 	#endif
 
