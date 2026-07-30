@@ -7553,27 +7553,43 @@ int main(int argc, char** argv)
 							break;
 						}
 						case 48:
-							// a real wheel gesture is a STREAM of ticks; a single
-							// synthetic tick can lose the one-frame race against the
-							// panel's own queued scroll-to-tail write on a slowed
-							// frame cadence, so every settle retry wheels again until
-							// the unpin is observed (the fast path passes on the
-							// first check, keeping the wheel-then-output order of
-							// the preceding steps meaningful)
-							if (tp.followTail)
+						{
+							// a real wheel gesture is a STREAM of ticks over a HOVERED
+							// grid; a single synthetic tick can lose the one-frame race
+							// against the panel's own queued scroll-to-tail write on a
+							// slowed frame cadence, AND a stalled frame can drop the
+							// hover the wheel needs (the marquee fix's finding). So
+							// every settle retry re-places the cursor - confirmed
+							// against io.MousePos like the marquee gesture - and wheels
+							// again until BOTH halves hold (unpinned AND visibly above
+							// the tail); the fast path passes on the first check
+							const bool unpinned = !tp.followTail &&
+								tp.scrollY < tp.scrollMaxY - tp.cellH;
+							if (!unpinned)
 							{
 								float sx = 0.0f, sy = 0.0f;
 								tcCell(tp.scrollbackCount + tp.visibleRows / 2,
 									tp.cols / 2, sx, sy);
-								tcWheel(sx, sy, 3.0f);
+								float wx = 0.0f, wy = 0.0f;
+								tcToWindow(sx, sy, wx, wy);
+								const ImVec2 mp = ImGui::GetIO().MousePos;
+								if (std::abs(mp.x - wx) > 2.0f ||
+									std::abs(mp.y - wy) > 2.0f)
+								{
+									tcMove(sx, sy);	// re-hover first; wheel next retry
+								}
+								else
+								{
+									tcWheel(sx, sy, 3.0f);
+								}
 							}
-							if (!tcSettle(48, !tp.followTail &&
-								tp.scrollY < tp.scrollMaxY - tp.cellH,
+							if (!tcSettle(48, unpinned,
 								"wheel-up did not unpin / the view followed anyway"))
 							{
 								break;
 							}
 							break;
+						}
 						case 51:
 							tcKey(true, SDLK_RIGHT, SDL_SCANCODE_RIGHT,
 								SDL_KMOD_NONE);
