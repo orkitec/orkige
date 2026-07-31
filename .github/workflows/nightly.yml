@@ -930,13 +930,17 @@ jobs:
                 "$RUNNER_TEMP/orkige-notary-key.p8" || true
           echo "the signing keychain and every decoded credential file are gone"
 
-  # Linux: the Release editor as a tar.gz. The engine is static, but the binary
-  # still loads the distribution's X/Wayland, GL/Vulkan, audio and D-Bus
-  # libraries - the archive says so (KNOWN-LIMITATIONS.md) and names the
-  # packages. A single-file bundle that carries those too is the eventual
-  # answer and deliberately not attempted here.
+  # Linux: the Release editor as an AppImage (the single file a person runs on
+  # any distribution) AND a tar.gz (the portable shape, and the updater's
+  # payload). The tarball leaves the library closure to the machine, which is a
+  # real problem - the editor links libXaw, libXmu, libXpm, libXt, libICE and
+  # libSM, and a modern desktop installs none of them until something asks - so
+  # the AppImage carries those and everything like them, while the GPU driver,
+  # glibc and the C++ runtime deliberately stay the host's (the rule is stated
+  # above make_appimage in Util/orkige_nightly_package.py). Both come from ONE
+  # staging, so they cannot hold different builds.
   binaries-linux:
-    name: Binaries - Linux editor (tar.gz)
+    name: Binaries - Linux editor (AppImage + tar.gz)
     needs: binaries-gate
     if: needs.binaries-gate.outputs.green == 'true'
     runs-on: ubuntu-latest
@@ -951,9 +955,10 @@ jobs:
           fetch-depth: 0          # the changelog's commit range
 
       - name: Install system dependencies
-        # the linux-next set (the editor LINKS against these); no display is
-        # needed - the smoke test asks the binary for its version and exits
-        # before any window is created
+        # the linux-next set (the editor LINKS against these), plus what the
+        # AppImage's boot check needs: xvfb for a virtual display and Mesa's
+        # lavapipe for a software Vulkan driver, exactly as the ci.yml
+        # linux-next suite runs its windowed tests
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -967,7 +972,36 @@ jobs:
             libwayland-dev wayland-protocols libdecor-0-dev \
             libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
-            libibus-1.0-dev
+            libibus-1.0-dev \
+            xvfb mesa-utils libgl1-mesa-dri mesa-vulkan-drivers vulkan-tools
+
+      # appimagetool is a separate download - not a dependency this repository
+      # declares, and not on any runner. It is resolved the way the Android
+      # bundle's bundletool is: a pinned release, verified against its digest,
+      # with the path handed to the packaging through the environment. The step
+      # FAILS with a sentence naming what is missing rather than letting the
+      # night ship without the artifact, which is also why it runs before the
+      # build instead of after it.
+      - name: Resolve appimagetool (pinned)
+        env:
+          APPIMAGETOOL_VERSION: "1.9.1"
+          APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+        run: |
+          set -euo pipefail
+          tool="$RUNNER_TEMP/appimagetool"
+          url="https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage"
+          if ! curl -fsSL --retry 3 --retry-delay 5 -o "$tool" "$url"; then
+            echo "could not download appimagetool ${APPIMAGETOOL_VERSION} from ${url}" >&2
+            echo "the Linux AppImage cannot be built without it - see Docs/nightly-builds.md" >&2
+            exit 1
+          fi
+          echo "${APPIMAGETOOL_SHA256}  ${tool}" | sha256sum -c -
+          chmod +x "$tool"
+          # it is an AppImage itself, so it is run the way a machine without
+          # FUSE has to run one - the packaging sets this too, and nothing in
+          # this job depends on FUSE being installed
+          APPIMAGE_EXTRACT_AND_RUN=1 "$tool" --version
+          echo "ORKIGE_APPIMAGETOOL=$tool" >> "$GITHUB_ENV"
 
       - name: Check out pinned vcpkg
         run: |
@@ -1033,10 +1067,98 @@ jobs:
             --commit ${{ needs.binaries-gate.outputs.sha }} \
             --version "${{ needs.binaries-gate.outputs.version }}"
 
+      # The AppImage, checked by USING it: it is run and asked for its
+      # identity, extracted and put through the same layout check the tarball
+      # gets, and then asked where it resolves each of its libraries FROM -
+      # every bundled one has to come from inside the image, and no driver or
+      # libc may. Everything goes through --appimage-extract-and-run, so no
+      # step here needs FUSE.
+      - name: Smoke-test the AppImage
+        env:
+          APPIMAGE: nightly-out/Orkige-linux-${{ needs.binaries-gate.outputs.version_token }}.AppImage
+        run: |
+          set -euo pipefail
+          ls -l "$APPIMAGE"
+          python3 Util/orkige_nightly_package.py --verify-appimage "$APPIMAGE" \
+            --commit ${{ needs.binaries-gate.outputs.sha }} \
+            --version "${{ needs.binaries-gate.outputs.version }}"
+
+      # The proof the artifact exists for: the image is started on machines
+      # that do NOT have the libraries it carries. Each room is a bare
+      # distribution given EXACTLY the families the bundling rule declares
+      # host-owned and nothing else - the display and Vulkan clients
+      # (libx11-6, libx11-xcb1, libxcb1, libxcb-randr0, libvulkan1) and the C++
+      # runtime (libstdc++6, libgcc-s1), on top of the glibc every base image
+      # has. So this is the rule under test, not a convenience: anything the
+      # editor needs that is neither bundled nor in that list is a loader error
+      # here, before main() runs. It caught one already - libatomic, which
+      # comes from the same compiler as libstdc++ but which a distribution
+      # installs only on demand.
+      #
+      # Each room is first ASKED whether it really lacks the bundled family,
+      # because a check run in a room that is not clean proves nothing. Two
+      # distributions, both at or above this build's measured glibc floor.
+      - name: Boot the AppImage where its libraries are absent
+        env:
+          APPIMAGE: Orkige-linux-${{ needs.binaries-gate.outputs.version_token }}.AppImage
+          VERSION: ${{ needs.binaries-gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          for image in ubuntu:24.04 debian:13-slim; do
+            echo "=== clean room: $image"
+            docker run --rm -v "$PWD/nightly-out:/dist:ro" \
+              -e APPIMAGE -e VERSION "$image" sh -eu -c '
+                export DEBIAN_FRONTEND=noninteractive
+                apt-get update -qq
+                apt-get install -y -qq --no-install-recommends \
+                  libx11-6 libx11-xcb1 libxcb1 libxcb-randr0 libvulkan1 \
+                  libstdc++6 libgcc-s1 >/dev/null
+                for absent in libXaw.so.7 libXmu.so.6 libXt.so.6 libSM.so.6 \
+                              libXpm.so.4 libatomic.so.1; do
+                  if ldconfig -p | grep -q "$absent"; then
+                    echo "this room is not clean - it has $absent, so booting" >&2
+                    echo "here would prove nothing about a machine that has not" >&2
+                    exit 1
+                  fi
+                  echo "absent: $absent"
+                done
+                cp "/dist/$APPIMAGE" /tmp/orkige.AppImage
+                reported=$(/tmp/orkige.AppImage --appimage-extract-and-run --version)
+                echo "$reported"
+                case "$reported" in
+                  *"$VERSION"*) ;;
+                  *) echo "expected the ordered version $VERSION" >&2; exit 1 ;;
+                esac'
+          done
+
+      # ... and it STARTS: a real window, real frames and a framebuffer dump,
+      # under the same xvfb + software-Vulkan setup the desktop suites run on.
+      # The identity checks above return before any window is created, so this
+      # is the step that proves the download opens rather than merely loading.
+      - name: Boot the AppImage headlessly (xvfb + Mesa lavapipe)
+        env:
+          APPIMAGE: nightly-out/Orkige-linux-${{ needs.binaries-gate.outputs.version_token }}.AppImage
+          ALSOFT_DRIVERS: "null"
+          SDL_VIDEO_DRIVER: x11
+          ORKIGE_DEMO_FRAMES: "90"
+          # no MCP endpoint and no reopened project: this is an automated run
+          # of a downloaded build, not somebody's session
+          ORKIGE_MCP_PORT: "0"
+        run: |
+          set -euo pipefail
+          export ORKIGE_DEMO_SCREENSHOT="$PWD/appimage-boot.png"
+          LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
+          echo "using ICD: $LVP_ICD"
+          export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
+          xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
+            "$PWD/$APPIMAGE" --appimage-extract-and-run
+          test -s appimage-boot.png
+          echo "the editor booted from the AppImage and rendered $(stat -c%s appimage-boot.png) bytes"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: binaries-linux
-          # the archive AND its .sha256 sidecar
+          # both assets AND their .sha256 sidecars
           path: nightly-out/Orkige-linux-*
           if-no-files-found: error
           retention-days: 14
@@ -1326,7 +1448,7 @@ jobs:
             echo "| Platform | Install | Portable | Build |"
             echo "| --- | --- | --- | --- |"
             for row in "macOS (Apple silicon)|${RESULT_MACOS}|Orkige-macos-${TOKEN}.dmg|Orkige-macos-${TOKEN}.zip" \
-                       "Linux (x86_64)|${RESULT_LINUX}||Orkige-linux-${TOKEN}.tar.gz" \
+                       "Linux (x86_64)|${RESULT_LINUX}|Orkige-linux-${TOKEN}.AppImage|Orkige-linux-${TOKEN}.tar.gz" \
                        "Windows (x64)|${RESULT_WINDOWS}|Orkige-windows-${TOKEN}-setup.exe|Orkige-windows-${TOKEN}.zip"; do
               IFS='|' read -r label result install portable <<< "${row}"
               cells=""
@@ -1348,6 +1470,10 @@ jobs:
             echo "an app started from an unpacked download folder is subject to"
             echo "macOS path randomization. On Windows the installer installs"
             echo "for the current user only and needs no administrator rights."
+            echo "On Linux the \`.AppImage\` is one file that carries the"
+            echo "libraries a distribution may not have installed:"
+            echo "\`chmod +x\` and run it (add \`--appimage-extract-and-run\` on a"
+            echo "distribution without FUSE)."
             echo "The portable archives need neither and unpack anywhere."
             echo ""
             echo "Every download carries a \`VERSION\` file, a \`CHANGELOG.md\` and"

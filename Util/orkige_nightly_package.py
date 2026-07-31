@@ -14,6 +14,9 @@ the other Util/ generators).
 
     orkige_nightly_package.py --verify-dmg <disk image>
 
+    orkige_nightly_package.py --verify-appimage <image> [--commit <sha>]
+                              [--version <ordered version>]
+
     orkige_nightly_package.py --identity --commit <sha> [--date YYYY-MM-DD]
 
     orkige_nightly_package.py --changelog --commit <sha> [--since <sha>]
@@ -25,7 +28,7 @@ the other Util/ generators).
 
     orkige_nightly_package.py --prune-tags <file|-> [--keep N] [--protect <tag>]
 
-    orkige_nightly_package.py --selftest [--selftest-dmg]
+    orkige_nightly_package.py --selftest [--selftest-dmg] [--selftest-appimage]
 
 This packages what a preset build tree ALREADY produced - it never builds. The
 project exporter (orkige_export.py) is the sibling that packages a GAME; this
@@ -63,10 +66,12 @@ resource locator).
 
 Each platform ships the container its users expect. The PORTABLE archive is
 .zip on macOS (through ditto, which preserves the bundle's symlinks and
-executable bits) and Windows, .tar.gz on Linux. The two desktop platforms with
-an installable convention get a second asset from the SAME staging: a
-drag-to-Applications .dmg on macOS and a per-user installer on Windows (see the
-block above make_dmg for why each exists).
+executable bits) and Windows, .tar.gz on Linux. Every platform gets a second
+asset from the SAME staging: a drag-to-Applications .dmg on macOS, a per-user
+installer on Windows, and on Linux a single-file .AppImage that carries the
+libraries a distribution may not have installed (see the block above make_dmg
+for why each exists, and the one above make_appimage for what the Linux bundle
+carries and what it deliberately leaves to the machine).
 
 macOS artifacts are signed. With a Developer ID certificate reachable (an
 identity from --signing-identity or ORKIGE_MACOS_SIGNING_IDENTITY) the bundle is
@@ -84,6 +89,7 @@ machine-readable contract orkige_export.py ends on.
 
 import argparse
 import datetime
+import fnmatch
 import hashlib
 import json
 import os
@@ -268,14 +274,36 @@ LIMITATIONS = (
     Limitation(
         key="system-libraries-linux",
         platforms=("linux",),
-        title="System libraries must already be present",
-        detail="The engine is linked statically, but the binary still loads the "
-               "distribution's X11 or Wayland, OpenGL/Vulkan, ALSA or PulseAudio "
-               "and D-Bus libraries.",
-        workaround="On Debian and Ubuntu: apt install libx11-6 libxrandr2 "
-                   "libxcursor1 libxi6 libxkbcommon0 libgl1 libasound2 "
-                   "libdbus-1-3. A single-file bundle that carries them is "
-                   "future work."),
+        title="The .tar.gz needs system libraries the .AppImage carries",
+        detail="The engine is linked statically, but the executable in the "
+               "tarball still loads the distribution's own X11 or Wayland, "
+               "OpenGL/Vulkan, ALSA or PulseAudio and D-Bus libraries - and "
+               "several it needs (the Xaw, Xmu, Xpm, Xt, ICE and SM family) are "
+               "not installed on a modern desktop until something asks for "
+               "them, so unpacking the tarball can end in a loader error "
+               "naming a library nobody recognises.",
+        workaround="Download the .AppImage instead: it carries those libraries, "
+                   "so chmod +x and run is the whole install. To use the "
+                   "tarball on Debian or Ubuntu: apt install libx11-6 "
+                   "libxrandr2 libxcursor1 libxi6 libxkbcommon0 libgl1 "
+                   "libxaw7 libxmu6 libxpm4 libxt6 libice6 libsm6 libasound2 "
+                   "libdbus-1-3."),
+    Limitation(
+        key="appimage-host-stack-linux",
+        platforms=("linux",),
+        title="The .AppImage still needs the machine's own driver stack",
+        detail="The bundle carries the ordinary userspace libraries, but the "
+               "GPU driver (libvulkan, libGL) and the C library come from the "
+               "machine - a bundled copy of either would replace the driver "
+               "matched to that kernel and hardware. So the image needs a "
+               "working Vulkan or OpenGL driver installed, and a glibc at "
+               "least as new as the one it was built against; the VERSION "
+               "file's glibc-floor line records exactly which.",
+        workaround="Install the distribution's Vulkan driver package (Mesa on "
+                   "AMD and Intel, the vendor driver on NVIDIA). If the image "
+                   "will not mount, run it with --appimage-extract-and-run: "
+                   "AppImages use FUSE, which some distributions no longer "
+                   "ship."),
     Limitation(
         key="msvc-runtime",
         platforms=("windows",),
@@ -1517,12 +1545,17 @@ def make_tar_gz(stage_root, archive_path):
 # - Windows has no drag-install: the expected artifact is an installer that
 #   places the program, puts it in the Start menu, records it where Settings
 #   lists installed programs, and can remove itself again.
+# - Linux has no package format the distributions share, but it has a
+#   single-file convention every one of them runs: an AppImage. It carries the
+#   libraries a distribution may not have installed (see the block above
+#   make_appimage), so `chmod +x` and a double click is the whole install.
 #
 # The PORTABLE one stays the .zip / .tar.gz: no image to mount, no installer to
 # run, unpack anywhere - and it is the shape an updater can consume, because
 # swapping files in place needs neither a mount nor an elevation-free installer
-# run. Linux ships the .tar.gz alone: a distribution's own package formats are
-# not interchangeable, and a tarball is what every one of them can unpack.
+# run. On Linux the tarball also stays the shape a person who wants the files
+# themselves unpacks; what it does NOT carry is the library closure, which is
+# exactly the difference between the two Linux assets.
 
 DMG_SUFFIX = ".dmg"
 INSTALLER_SUFFIX = "-setup.exe"
@@ -1664,13 +1697,480 @@ def make_windows_installer(stage_root, installer_path, version):
     return installer_path
 
 
+# --- the Linux single-file bundle ------------------------------------------
+#
+# The tarball carries the editor but not the libraries it links, and that list
+# is longer than a user expects: beside the X11 and GL/Vulkan libraries every
+# graphical program needs, the editor pulls in libXaw, libXmu, libXpm, libXt,
+# libICE and libSM - the Xt/Athena family nothing on a modern desktop installs
+# on its own. Unpacking the tarball on a clean distribution therefore ends in a
+# loader error naming a library its user has never heard of. The AppImage is one
+# file that carries them: chmod +x, run, on any distribution.
+#
+# WHAT IS BUNDLED, AND WHAT MUST COME FROM THE HOST
+#
+# The rule is one sentence: every library the loader resolves for the editor is
+# bundled EXCEPT the ones whose correct version is a property of the MACHINE
+# rather than of our build. Four families qualify, and each is excluded for a
+# reason that is not a preference:
+#
+#   driver         libvulkan, libGL/libEGL/libGLX/libGLdispatch/libOpenGL,
+#                  libdrm, libgbm, libglapi. These are the front doors into the
+#                  machine's own GPU driver, which is matched to its kernel and
+#                  its hardware. A bundled copy either shadows that driver's
+#                  entry point or is substituted into the driver's own
+#                  dependency chain - both of which turn a working GPU into a
+#                  software fallback or a crash.
+#   libc           glibc and the dynamic loader (libc, libm, libdl, libpthread,
+#                  librt, libresolv, libutil, the NSS modules, ld-linux). The
+#                  process is started by the HOST's loader and resolves users
+#                  and hosts through the HOST's NSS modules; a second glibc
+#                  inside the image is a mismatch, not a fix. This is what
+#                  makes the glibc floor a property of the BUILD image, which
+#                  is why the packaging measures it (glibc_version_floor) and
+#                  records it in VERSION instead of assuming it.
+#   toolchain      libstdc++ and libgcc_s, and ONLY those two. Because glibc is
+#                  not bundled, the machine that can run this image is already
+#                  at least as new as the machine that built it, so its C++
+#                  runtime can never be too old - while a bundled copy that is
+#                  OLDER than the host's Mesa driver (which resolves its own
+#                  libstdc++ through our search path) breaks that driver. The
+#                  bundle would carry all of the risk and none of the benefit.
+#                  libatomic is NOT in this family and IS bundled: it comes
+#                  from the same compiler, but a distribution installs it only
+#                  when something asks for it, so presence rather than version
+#                  is what decides - and presence is what a download cannot
+#                  assume. (libstdc++ and libgcc_s are on every machine that
+#                  can show a window at all.)
+#   server-client  libX11, libxcb, libwayland-*, libxshmfence, libasound,
+#                  libpulse, libjack, libdbus-1, libudev. These talk to a
+#                  server or a daemon that is part of the running system, and
+#                  they load the host's own modules (X11 locale and input
+#                  method data, ALSA plugins) by absolute path. They are also
+#                  present on every machine that has a display at all, so
+#                  bundling them buys nothing.
+#
+# Everything else IS bundled - the Xaw/Xmu/Xpm/Xt/ICE/SM family, libbsd, libmd,
+# libuuid, libatomic, the Xext/Xrandr/Xrender/Xcursor/Xi leaf libraries and any
+# shared library the build tree resolved for this binary. Those are ordinary
+# userspace code with no coupling to the machine, and they are the actual
+# failure this artifact exists to fix.
+#
+# HOW THE BUNDLED COPIES WIN. The AppRun exports LD_LIBRARY_PATH pointing at the
+# image's own lib directory, which the loader searches BEFORE every system
+# directory. So for a bundled name the host's copy is never consulted - which is
+# what makes "the host does not have it" a non-event, and what verify_appimage
+# asserts by resolving the editor's dependencies inside an extracted image.
+# The same variable reaches the processes the editor spawns; the bundled set is
+# deliberately kept to leaf libraries no other program's behaviour hinges on.
+#
+# FUSE. An AppImage mounts itself through libfuse at run time, and some current
+# distributions no longer ship FUSE. `--appimage-extract-and-run` (or the
+# APPIMAGE_EXTRACT_AND_RUN environment variable) unpacks to a temporary
+# directory and runs from there instead, needing nothing. The packaging uses it
+# for appimagetool itself, which is an AppImage too, and every check runs the
+# produced image that way - so nothing here depends on FUSE being installed.
+
+APPIMAGE_SUFFIX = ".AppImage"
+
+# appimagetool is not on a runner and is not a dependency this repository can
+# declare, so it is resolved the way bundletool is (Docs/store-release.md): an
+# explicit path, else the environment, else a launcher on PATH. The nightly job
+# downloads a pinned release and points this at it; nothing here reaches the
+# network.
+APPIMAGETOOL_ENV = "ORKIGE_APPIMAGETOOL"
+
+# inside the AppDir: the desktop entry and the icon it names (both at the root,
+# where the AppImage runtime and desktop integration look, and again under
+# usr/share where a desktop that installs the file expects them)
+APPIMAGE_DESKTOP_FILE = "orkige.desktop"
+APPIMAGE_ICON_NAME = "orkige"
+APPIMAGE_ICON_FILE = APPIMAGE_ICON_NAME + ".png"
+APPIMAGE_ICON_SIZE = 256
+# where the bundled libraries land, and what the AppRun puts on LD_LIBRARY_PATH
+APPIMAGE_LIB_DIR = os.path.join("usr", "lib")
+
+# the editor icon is drawn by the same generator the macOS .icns comes from, so
+# the Linux launcher shows the same artwork
+EDITOR_ICON_SCRIPT = os.path.join(REPO_ROOT, "Util", "make_editor_icon.py")
+
+
+class HostLibraryFamily:
+    """one family of libraries that must come from the host, with the reason
+    stated where the decision is made. `patterns` match the SONAME's stem (the
+    part before `.so`), so `libGLX*` covers libGLX.so.0 and libGLX_mesa.so.0."""
+
+    def __init__(self, key, reason, patterns):
+        self.key = key
+        self.reason = reason
+        self.patterns = tuple(patterns)
+
+
+HOST_LIBRARY_FAMILIES = (
+    HostLibraryFamily(
+        "driver",
+        "the entry point into the machine's own GPU driver",
+        ("libvulkan", "libGL", "libGLX*", "libGLdispatch", "libOpenGL",
+         "libEGL", "libGLESv*", "libglapi", "libdrm*", "libgbm")),
+    HostLibraryFamily(
+        "libc",
+        "glibc and the loader that started this process",
+        ("ld-linux*", "ld64", "libc", "libm", "libdl", "libpthread", "librt",
+         "libresolv", "libutil", "libnsl", "libanl", "libcrypt", "libnss_*",
+         "libthread_db", "libBrokenLocale", "linux-vdso", "linux-gate")),
+    HostLibraryFamily(
+        "toolchain",
+        "the C++ runtime the host's own driver stack also resolves",
+        ("libstdc++", "libgcc_s")),
+    HostLibraryFamily(
+        "server-client",
+        "a client of a server or daemon that is part of the running system",
+        ("libX11", "libX11-xcb", "libxcb", "libxcb-*", "libxshmfence",
+         "libwayland-*", "libdecor-*", "libasound", "libpulse*", "libjack*",
+         "libpipewire-*", "libdbus-1", "libudev", "libsystemd")),
+)
+
+
+def library_stem(soname):
+    """`libXaw.so.7` -> `libXaw` (the name the exclusion families match on)"""
+    name = os.path.basename((soname or "").strip())
+    index = name.find(".so")
+    return name[:index] if index > 0 else name
+
+
+def host_library_family(soname):
+    """the family key that keeps this library OUT of the bundle, or "" when it
+    is ordinary userspace code the image carries. This IS the inclusion rule -
+    everything the loader resolves and this function does not name is bundled."""
+    stem = library_stem(soname)
+    for family in HOST_LIBRARY_FAMILIES:
+        for pattern in family.patterns:
+            if fnmatch.fnmatchcase(stem, pattern):
+                return family.key
+    return ""
+
+
+def host_library_reason(key):
+    for family in HOST_LIBRARY_FAMILIES:
+        if family.key == key:
+            return family.reason
+    return ""
+
+
+def parse_ldd(text):
+    """`ldd` output -> [(soname, resolved path)], the path empty when the loader
+    found nothing. Pure, so the planning below is testable without a Linux
+    binary to point at: the three shapes are `name => path (addr)`, a bare
+    `name (addr)` (the vDSO and the loader itself) and `name => not found`."""
+    entries = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if "=>" in line:
+            name, _, target = line.partition("=>")
+            name = name.strip()
+            target = target.strip()
+            if target.startswith("not found"):
+                entries.append((name, ""))
+                continue
+            # drop the trailing load address
+            if target.endswith(")") and " (" in target:
+                target = target[:target.rfind(" (")].strip()
+            entries.append((name, target))
+        else:
+            name = line[:line.rfind(" (")].strip() if " (" in line else line
+            if name:
+                entries.append((os.path.basename(name), ""))
+    return entries
+
+
+def plan_bundled_libraries(ldd_text):
+    """the inclusion rule applied to one binary's resolved dependencies.
+
+    Returns (bundle, host, missing): the (soname, path) pairs the image carries,
+    the (soname, family) pairs it deliberately leaves to the machine, and the
+    sonames the loader could not resolve at all - which is a broken build tree
+    and never something to package around."""
+    bundle = []
+    host = []
+    missing = []
+    seen = set()
+    for soname, path in parse_ldd(ldd_text):
+        if soname in seen:
+            continue
+        seen.add(soname)
+        family = host_library_family(soname)
+        if family:
+            host.append((soname, family))
+        elif not path:
+            missing.append(soname)
+        else:
+            bundle.append((soname, path))
+    return sorted(bundle), sorted(host), sorted(missing)
+
+
+def glibc_version_floor(objdump_text):
+    """the oldest glibc this binary can run on, read out of the binary itself:
+    the highest GLIBC_x.y symbol version it references. `objdump -p` prints them
+    under "Version References"; the parse is pure so the ordering (2.9 is older
+    than 2.34, not newer) is tested rather than assumed. Returns "" when the
+    output names none - an honest unknown, never a guess."""
+    best = ()
+    best_text = ""
+    for match in re.finditer(r"GLIBC_(\d+(?:\.\d+)+)", objdump_text or ""):
+        text = match.group(1)
+        parts = tuple(int(piece) for piece in text.split("."))
+        if parts > best:
+            best = parts
+            best_text = text
+    return best_text
+
+
+def binary_glibc_floor(path, runner=subprocess.run):
+    """the floor above, measured on a real binary. objdump is part of binutils
+    and therefore of any machine that linked this build; without it the floor is
+    reported as unknown rather than invented."""
+    if not shutil.which("objdump"):
+        warn("no objdump - this build's glibc floor is not recorded")
+        return ""
+    result = runner(["objdump", "-p", path], capture_output=True, text=True)
+    if result.returncode != 0:
+        warn("objdump could not read '%s' - the glibc floor is not recorded"
+             % path)
+        return ""
+    return glibc_version_floor(result.stdout or "")
+
+
+def binary_libraries(path, extra_library_path="", runner=subprocess.run):
+    """`ldd` output for one binary, optionally with a library directory put in
+    front of the loader's search path (which is how an extracted image is asked
+    where it resolves its dependencies FROM)"""
+    if not shutil.which("ldd"):
+        fail("no ldd - the AppImage's library closure can only be resolved on "
+             "Linux")
+    environment = dict(os.environ)
+    if extra_library_path:
+        existing = environment.get("LD_LIBRARY_PATH", "")
+        environment["LD_LIBRARY_PATH"] = (
+            extra_library_path + (":" + existing if existing else ""))
+    result = runner(["ldd", path], capture_output=True, text=True,
+                    env=environment)
+    # a binary ldd refuses to read at all is a packaging failure; "not found"
+    # lines come back with returncode 0 and are handled by the planner
+    if result.returncode != 0 and not (result.stdout or "").strip():
+        fail("ldd could not read '%s': %s"
+             % (path, (result.stderr or "").strip() or "no output"))
+    return result.stdout or ""
+
+
+def desktop_entry_text(version=""):
+    """the .desktop entry the image carries: what a desktop shows once the file
+    is integrated (a name, the icon below and a category), plus the version so
+    a file manager can tell two downloads apart. Exec names the executable
+    without a path - the AppImage runtime rewrites it to the mounted AppRun."""
+    return "\n".join([
+        "[Desktop Entry]",
+        "Type=Application",
+        "Name=Orkige",
+        "GenericName=Game Editor",
+        "Comment=Build and play games with the Orkige engine",
+        "Exec=orkige_editor %F",
+        "Icon=" + APPIMAGE_ICON_NAME,
+        "Terminal=false",
+        "Categories=Development;IDE;",
+        "Keywords=game;engine;editor;3D;2D;",
+        "StartupWMClass=orkige_editor",
+        "X-AppImage-Version=" + (version or "unversioned"),
+        ""])
+
+
+def apprun_text(editor_name, lib_dir=APPIMAGE_LIB_DIR):
+    """the AppDir's entry point. Two jobs: put the bundled libraries in front of
+    the system ones (the loader reads LD_LIBRARY_PATH before every system
+    directory, which is what makes a host without them a non-event), and exec
+    the editor so it inherits the process rather than running under a shell that
+    would swallow its exit code and its signals."""
+    return "\n".join([
+        "#!/bin/sh",
+        "# Orkige editor - AppImage entry point.",
+        "# HERE is the mounted (or extracted) image root.",
+        'HERE=$(dirname "$(readlink -f "$0")")',
+        'export LD_LIBRARY_PATH="$HERE/' + lib_dir
+        + '${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"',
+        'exec "$HERE/' + editor_name + '" "$@"',
+        ""])
+
+
+def appimage_name(platform, commit, version=""):
+    return artifact_stem(platform, commit, version) + APPIMAGE_SUFFIX
+
+
+def appimage_arch(machine=""):
+    """the architecture name appimagetool stamps into the image. AppImage
+    runtimes are per-architecture, so this is passed explicitly rather than
+    guessed by the tool from whatever binary it happens to look at first."""
+    if not machine:
+        # os.uname exists wherever an AppImage can be built at all
+        machine = os.uname().machine if hasattr(os, "uname") else ""
+    machine = machine.strip()
+    return {"x86_64": "x86_64", "amd64": "x86_64",
+            "aarch64": "aarch64", "arm64": "aarch64",
+            "i686": "i686", "i386": "i686",
+            "armv7l": "armhf"}.get(machine, machine)
+
+
+def resolve_appimagetool(tool_arg="", environ=None, which=shutil.which):
+    """the tool: an explicit path wins, else the environment, else a launcher on
+    PATH. The same precedence the Android bundle's bundletool follows, and for
+    the same reason - the tool is a separate download this repository does not
+    vendor. `which` is injected so the precedence is testable on a machine that
+    has no appimagetool at all."""
+    environ = os.environ if environ is None else environ
+    explicit = (tool_arg or environ.get(APPIMAGETOOL_ENV, "")).strip()
+    if explicit:
+        return explicit
+    return which("appimagetool") or ""
+
+
+def appimagetool_command(tool, appdir, out_file):
+    """the appimagetool invocation as a pure argv. --no-appstream because the
+    editor ships no AppStream metadata and the validator is a separate tool;
+    everything else it needs is inside the AppDir."""
+    return [tool, "--no-appstream", appdir, out_file]
+
+
+def render_editor_icon(destination, size=APPIMAGE_ICON_SIZE,
+                       runner=subprocess.run):
+    """the launcher icon, drawn by the generator that also draws the macOS
+    .icns - one piece of artwork, two containers."""
+    result = runner([sys.executable, EDITOR_ICON_SCRIPT, "--png", str(size),
+                     destination], capture_output=True, text=True)
+    if result.returncode != 0 or not os.path.isfile(destination):
+        fail("could not render the editor icon: %s"
+             % ((result.stderr or "").strip() or "no output"))
+    return destination
+
+
+def build_appdir(stage_root, appdir, editor_name, version="",
+                 runner=subprocess.run):
+    """assemble the AppDir: the staged tree exactly as the tarball carries it
+    (so the editor resolves share/orkige beside its own executable, one layout
+    for both Linux assets), the library closure under usr/lib, and the three
+    files the AppImage format itself needs - AppRun, a desktop entry and the
+    icon it names, at the root where the runtime looks and again under usr/share
+    where a desktop that integrates the file expects them.
+
+    Returns (bundled, host): what the image carries and what it leaves to the
+    machine, so the caller can log and record both."""
+    if os.path.isdir(appdir):
+        shutil.rmtree(appdir)
+    # hardlink the payload where the filesystem allows it: the staged tree is
+    # hundreds of megabytes and neither container modifies it
+    def link_or_copy(source, destination, *, follow_symlinks=True):
+        try:
+            os.link(source, destination)
+        except OSError:
+            shutil.copy2(source, destination, follow_symlinks=follow_symlinks)
+    shutil.copytree(stage_root, appdir, copy_function=link_or_copy,
+                    symlinks=True)
+
+    editor = os.path.join(appdir, editor_name)
+    bundle, host, missing = plan_bundled_libraries(
+        binary_libraries(editor, runner=runner))
+    if missing:
+        fail("the editor's dependencies do not resolve on this machine (%s) - "
+             "the build tree is broken, and an image built from it would be too"
+             % ", ".join(missing))
+    lib_dir = os.path.join(appdir, APPIMAGE_LIB_DIR)
+    os.makedirs(lib_dir, exist_ok=True)
+    for soname, path in bundle:
+        # copy the resolved FILE under its SONAME: a distribution's real file is
+        # usually libFoo.so.1.2.3 with the soname a symlink, and a symlink into
+        # a directory the image does not carry resolves to nothing
+        shutil.copy2(os.path.realpath(path), os.path.join(lib_dir, soname))
+
+    apprun = os.path.join(appdir, "AppRun")
+    with open(apprun, "w") as handle:
+        handle.write(apprun_text(editor_name))
+    os.chmod(apprun, 0o755)
+    desktop = desktop_entry_text(version)
+    applications = os.path.join(appdir, "usr", "share", "applications")
+    icons = os.path.join(appdir, "usr", "share", "icons", "hicolor",
+                         "%dx%d" % (APPIMAGE_ICON_SIZE, APPIMAGE_ICON_SIZE),
+                         "apps")
+    os.makedirs(applications, exist_ok=True)
+    os.makedirs(icons, exist_ok=True)
+    for target in (os.path.join(appdir, APPIMAGE_DESKTOP_FILE),
+                   os.path.join(applications, APPIMAGE_DESKTOP_FILE)):
+        with open(target, "w") as handle:
+            handle.write(desktop)
+    root_icon = render_editor_icon(os.path.join(appdir, APPIMAGE_ICON_FILE),
+                                   runner=runner)
+    shutil.copy2(root_icon, os.path.join(icons, APPIMAGE_ICON_FILE))
+    # .DirIcon is the icon a file manager reads straight out of the image
+    dir_icon = os.path.join(appdir, ".DirIcon")
+    if os.path.lexists(dir_icon):
+        os.remove(dir_icon)
+    shutil.copy2(root_icon, dir_icon)
+    return bundle, host
+
+
+def make_appimage(stage_root, appimage_path, editor_name, version="",
+                  tool="", runner=subprocess.run):
+    """build the Linux single-file bundle from the SAME staged directory the
+    tarball is made from, so the two assets can never hold different builds.
+
+    Returns the image path, or "" when appimagetool is not on this machine - a
+    hand run without it still produces the tarball, and the pipeline resolves
+    the tool in a step of its own so a night can never publish without the
+    image."""
+    tool = tool or resolve_appimagetool()
+    if not tool:
+        warn("no appimagetool (pass --appimagetool, set " + APPIMAGETOOL_ENV
+             + ", or put one on PATH - a pinned release is downloaded by the "
+               "nightly job; see Docs/nightly-builds.md) - no AppImage was "
+               "built (the .tar.gz is unaffected)")
+        return ""
+    appdir_parent = tempfile.mkdtemp(prefix="orkige-appdir-",
+                                     dir=os.path.dirname(
+                                         os.path.abspath(appimage_path)))
+    appdir = os.path.join(appdir_parent, "Orkige.AppDir")
+    try:
+        bundle, host = build_appdir(stage_root, appdir, editor_name, version,
+                                    runner=runner)
+        log("AppImage carries %d librar%s: %s"
+            % (len(bundle), "y" if len(bundle) == 1 else "ies",
+               ", ".join(soname for soname, _ in bundle) or "none"))
+        log("AppImage leaves %d to the host: %s"
+            % (len(host), ", ".join("%s (%s)" % pair for pair in host)
+               or "none"))
+        if os.path.exists(appimage_path):
+            os.remove(appimage_path)
+        environment = dict(os.environ)
+        # appimagetool is itself an AppImage: run it the way a machine without
+        # FUSE has to, so the packaging never depends on FUSE either
+        environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
+        environment["ARCH"] = appimage_arch()
+        orkige_export.run(appimagetool_command(tool, appdir, appimage_path),
+                          env=environment)
+    finally:
+        shutil.rmtree(appdir_parent, ignore_errors=True)
+    if not os.path.isfile(appimage_path):
+        fail("appimagetool reported success but wrote no '%s'" % appimage_path)
+    os.chmod(appimage_path, 0o755)
+    return appimage_path
+
+
 def package(platform, build_dir, commit, date, output_dir, version="",
-            since="", repo=REPO_ROOT, signing=None):
+            since="", repo=REPO_ROOT, signing=None, appimagetool=""):
     """stage, describe and archive one platform's editor build. `version` is
     the ordered identity (composed here when the caller passes none, so a hand
     run needs no extra argument); `since` is the previous nightly's commit -
     the changelog's lower bound; `signing` is what this run can put behind a
-    macOS build (ad-hoc when there is no certificate, and it says so)."""
+    macOS build (ad-hoc when there is no certificate, and it says so);
+    `appimagetool` is the Linux bundle's packer (resolved from the environment
+    when the caller names none)."""
     signing = signing or MacosSigning()
     build_dir = os.path.abspath(build_dir)
     if not os.path.isdir(build_dir):
@@ -1714,6 +2214,13 @@ def package(platform, build_dir, commit, date, output_dir, version="",
         staged_media, staged_editor = stage_flat(build_dir, platform,
                                                  stage_root, editor, player)
         strip_developer_settings(stage_root)
+    if platform == "linux":
+        # the oldest glibc this build can run on, MEASURED on the binary rather
+        # than assumed from the build image. It is the AppImage's real floor -
+        # the one library family the image deliberately does not carry - and the
+        # limitations file points its reader at this line.
+        floor = binary_glibc_floor(staged_editor)
+        extra_fields.append(("glibc-floor", floor or "unknown"))
     if platform == "windows":
         runtime = msvc_runtime_dlls()
         for dll in runtime:
@@ -1803,6 +2310,11 @@ def package(platform, build_dir, commit, date, output_dir, version="",
             stage_root,
             os.path.join(output_dir, installer_name(platform, commit, version)),
             version)
+    if platform == "linux":
+        installable = make_appimage(
+            stage_root,
+            os.path.join(output_dir, appimage_name(platform, commit, version)),
+            os.path.basename(staged_editor), version, appimagetool)
     if installable:
         write_checksum(installable)
         log("installable %s (%s)"
@@ -1931,11 +2443,22 @@ def verify(root, platform, commit="", runner=subprocess.run, version=""):
         print("orkige_nightly_package: LAYOUT: " + problem, flush=True)
     if problems:
         fail("the unpacked artifact is incomplete (%d problems)" % len(problems))
-    result = runner([editor, "--version"], capture_output=True, text=True)
+    reported = check_reported_identity([editor, "--version"], commit, version,
+                                       runner)
+    log("OK " + root)
+    return reported
+
+
+def check_reported_identity(argv, commit="", version="",
+                            runner=subprocess.run):
+    """run a binary (or a container that starts one) and hold its self-report
+    to the identity this packaging composed. The ONE place that comparison is
+    made, so the archive and the single-file bundle are held to it equally."""
+    result = runner(argv, capture_output=True, text=True)
     reported = (result.stdout or "").strip()
     if result.returncode != 0:
         fail("'%s --version' exited %d: %s"
-             % (editor, result.returncode,
+             % (argv[0], result.returncode,
                 (result.stderr or "").strip() or "no output"))
     log("the binary reports: " + (reported or "<nothing>"))
     if not reported.startswith("orkige_editor "):
@@ -1947,7 +2470,6 @@ def verify(root, platform, commit="", runner=subprocess.run, version=""):
         fail("the binary reports '%s' - expected the ordered version %s (the "
              "packaged identity and the binary's own must be one value)"
              % (reported, version))
-    log("OK " + root)
     return reported
 
 
@@ -1999,6 +2521,91 @@ def verify_dmg(dmg_path):
     return True
 
 
+def verify_appimage(appimage_path, commit="", version="",
+                    runner=subprocess.run):
+    """the single-file bundle's own smoke test, and the one that proves the
+    reason it exists.
+
+    Three verdicts, none of them "the file is there":
+
+    1. it RUNS: the image is executed and asked for its identity, which has to
+       be the commit and the ordered version this packaging composed. An
+       AppImage that cannot start is a download that cannot start.
+    2. it is COMPLETE: the image is extracted and put through the same layout
+       check the unpacked tarball gets, plus the three files the format itself
+       needs (AppRun, the desktop entry and the icon it names).
+    3. it is SELF-CONTAINED: the editor inside the extracted image is asked
+       where it resolves each of its libraries FROM, with the image's own lib
+       directory in front of the loader's path exactly as the AppRun puts it.
+       Every library the inclusion rule bundles has to resolve INSIDE the
+       image - which is what makes a host that does not have it a non-event,
+       because the host's copy is never consulted - and no library the rule
+       leaves to the machine may resolve inside it, because a bundled driver
+       or libc would be the opposite failure.
+
+    Everything runs through --appimage-extract-and-run, so no step here needs
+    FUSE, which some current distributions no longer ship."""
+    appimage_path = os.path.abspath(appimage_path)
+    if not os.path.isfile(appimage_path):
+        fail("no AppImage at '%s'" % appimage_path)
+    if not os.access(appimage_path, os.X_OK):
+        # a download nobody can start: the format's whole contract is chmod +x
+        fail("'%s' is not executable" % appimage_path)
+    reported = check_reported_identity(
+        [appimage_path, "--appimage-extract-and-run", "--version"],
+        commit, version, runner)
+    workspace = tempfile.mkdtemp(prefix="orkige-appimage-")
+    try:
+        orkige_export.run([appimage_path, "--appimage-extract"], cwd=workspace)
+        root = os.path.join(workspace, "squashfs-root")
+        if not os.path.isdir(root):
+            fail("--appimage-extract wrote no squashfs-root")
+        problems = []
+        for name in ("AppRun", APPIMAGE_DESKTOP_FILE, APPIMAGE_ICON_FILE):
+            if not os.path.isfile(os.path.join(root, name)):
+                problems.append("missing %s" % name)
+        apprun = os.path.join(root, "AppRun")
+        if os.path.isfile(apprun) and not os.access(apprun, os.X_OK):
+            problems.append("AppRun is not executable")
+        editor, layout_problems = verify_layout(root, "linux")
+        problems.extend(layout_problems)
+        for problem in problems:
+            print("orkige_nightly_package: APPIMAGE: " + problem, flush=True)
+        if problems:
+            fail("the AppImage is incomplete (%d problems)" % len(problems))
+        lib_dir = os.path.join(root, APPIMAGE_LIB_DIR)
+        resolved = parse_ldd(binary_libraries(editor, lib_dir, runner))
+        inside = []
+        outside = []
+        for soname, path in resolved:
+            family = host_library_family(soname)
+            in_image = bool(path) and os.path.realpath(path).startswith(
+                os.path.realpath(root) + os.sep)
+            if family:
+                if in_image:
+                    outside.append("%s is bundled but must come from the host "
+                                   "(%s)" % (soname, host_library_reason(family)))
+                continue
+            if in_image:
+                inside.append(soname)
+            else:
+                outside.append("%s resolves to '%s' - outside the image, so a "
+                               "machine without it cannot start this download"
+                               % (soname, path or "nothing"))
+        for problem in outside:
+            print("orkige_nightly_package: APPIMAGE: " + problem, flush=True)
+        if outside:
+            fail("the AppImage is not self-contained (%d problems)"
+                 % len(outside))
+        log("the AppImage resolves %d librar%s from inside itself: %s"
+            % (len(inside), "y" if len(inside) == 1 else "ies",
+               ", ".join(inside) or "none"))
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+    log("OK " + appimage_path)
+    return reported
+
+
 # --- entry point -----------------------------------------------------------
 
 def main():
@@ -2047,6 +2654,14 @@ def main():
     parser.add_argument("--verify-dmg", default="",
                         help="mount a macOS disk image and verify what it "
                              "carries")
+    parser.add_argument("--appimagetool", default="",
+                        help="linux: the appimagetool binary that packs the "
+                             "single-file bundle, else the env "
+                             + APPIMAGETOOL_ENV + " or one on PATH")
+    parser.add_argument("--verify-appimage", default="",
+                        help="run a Linux AppImage, extract it and verify that "
+                             "it is complete AND resolves its bundled "
+                             "libraries from inside itself")
     parser.add_argument("--identity", action="store_true",
                         help="print this build's ordered version as "
                              "`key=value` lines (the pipeline feeds them to "
@@ -2086,6 +2701,11 @@ def main():
                         help="build and mount a real disk image from a "
                              "synthetic app (needs hdiutil; exits 77 without "
                              "it)")
+    parser.add_argument("--selftest-appimage", action="store_true",
+                        help="assemble and pack a real AppImage from a "
+                             "synthetic AppDir, then unpack it and check where "
+                             "it resolves its libraries (needs Linux and "
+                             "appimagetool; exits 77 without either)")
     args = parser.parse_args()
 
     if args.selftest:
@@ -2094,8 +2714,14 @@ def main():
     if args.selftest_dmg:
         selftest_dmg()
         return
+    if args.selftest_appimage:
+        selftest_appimage()
+        return
     if args.verify_dmg:
         verify_dmg(args.verify_dmg)
+        return
+    if args.verify_appimage:
+        verify_appimage(args.verify_appimage, args.commit, args.version)
         return
     if args.identity:
         # the ONE composition, printed for whoever stamps, names and publishes
@@ -2152,7 +2778,8 @@ def main():
     package(args.platform, args.build_dir, args.commit,
             args.date or today(), output, args.version, args.since, args.repo,
             resolve_macos_signing(os.environ, args.signing_identity,
-                                  args.ad_hoc_sign))
+                                  args.ad_hoc_sign),
+            resolve_appimagetool(args.appimagetool))
 
 
 # --- reading the workflow's own shell --------------------------------------
@@ -2625,12 +3252,14 @@ def selftest():
             os.makedirs(downloads)
             token = version_filename_token(ordered)
             for name in ("Orkige-macos-%s.zip" % token,
-                         "Orkige-macos-%s.dmg" % token):
+                         "Orkige-macos-%s.dmg" % token,
+                         "Orkige-linux-%s.tar.gz" % token,
+                         "Orkige-linux-%s.AppImage" % token):
                 open(os.path.join(downloads, name), "w").close()
             with open(os.path.join(temp, "changelog.md"), "w") as handle:
                 handle.write(bounded)
             environ = dict(os.environ,
-                           RESULT_MACOS="success", RESULT_LINUX="failure",
+                           RESULT_MACOS="success", RESULT_LINUX="success",
                            RESULT_WINDOWS="skipped",
                            SHA="dea551f9e0abcdef1234", SHORT_SHA="dea551f9e",
                            BUILD_DATE="2026-07-30", VERSION=ordered,
@@ -2652,10 +3281,13 @@ def selftest():
             assert ("| macOS (Apple silicon) | `Orkige-macos-%s.dmg` | "
                     "`Orkige-macos-%s.zip` | success |" % (token, token)) \
                 in body, body
+            # Linux ships the same pair: the single-file bundle a person runs
+            # and the tarball an updater unpacks
+            assert ("| Linux (x86_64) | `Orkige-linux-%s.AppImage` | "
+                    "`Orkige-linux-%s.tar.gz` | success |" % (token, token)) \
+                in body, body
             # a platform that produced nothing is called out with its job
-            # result rather than silently missing, and one that HAS no
-            # installable artifact says so instead of reading as a failure
-            assert "| Linux (x86_64) | - | not produced | failure |" in body, body
+            # result rather than silently missing
             assert ("| Windows (x64) | not produced | not produced | skipped |"
                     in body), body
             assert ordered in body and bounded.strip() in body
@@ -3301,6 +3933,186 @@ exit 0
     for name in required:
         assert "${%s}" % name in nsi, name
 
+    # --- the Linux single-file bundle -----------------------------------
+    # appimagetool runs on no machine this suite runs on, so what is asserted
+    # here is every decision the packaging makes BEFORE the tool is called -
+    # which is where the whole value of the artifact is decided. Building and
+    # running a real image is the pipeline's own step.
+    assert appimage_name("linux", "dea551f9e0", ordered) == \
+        "Orkige-linux-2.0.0-nightly.20260730_dea551f9e.AppImage"
+    # ... and it must not collide with the tarball an updater picks by name
+    assert appimage_name("linux", "dea551f9e0", ordered) != \
+        artifact_name("linux", "dea551f9e0", ordered)
+    assert re.match(r"^[A-Za-z0-9._-]+$",
+                    appimage_name("linux", "dea551f9e0", ordered))
+
+    # THE INCLUSION RULE. Every library the loader resolves is bundled unless
+    # it belongs to a family whose correct version is a property of the
+    # machine - so these two lists are the decision, asserted by name.
+    for host_only, family in (
+            ("libvulkan.so.1", "driver"), ("libGL.so.1", "driver"),
+            ("libGLX_mesa.so.0", "driver"), ("libGLdispatch.so.0", "driver"),
+            ("libEGL.so.1", "driver"), ("libdrm.so.2", "driver"),
+            ("libgbm.so.1", "driver"), ("libglapi.so.0", "driver"),
+            ("libc.so.6", "libc"), ("libm.so.6", "libc"),
+            ("libpthread.so.0", "libc"), ("libdl.so.2", "libc"),
+            ("ld-linux-x86-64.so.2", "libc"),
+            ("ld-linux-aarch64.so.1", "libc"),
+            ("libnss_files.so.2", "libc"), ("linux-vdso.so.1", "libc"),
+            ("libstdc++.so.6", "toolchain"), ("libgcc_s.so.1", "toolchain"),
+            ("libX11.so.6", "server-client"),
+            ("libX11-xcb.so.1", "server-client"),
+            ("libxcb.so.1", "server-client"),
+            ("libxcb-randr.so.0", "server-client"),
+            ("libwayland-client.so.0", "server-client"),
+            ("libasound.so.2", "server-client"),
+            ("libdbus-1.so.3", "server-client")):
+        assert host_library_family(host_only) == family, host_only
+        assert host_library_reason(family), family
+    # the family this artifact exists for: the Xt/Athena set nothing on a
+    # modern desktop installs, plus the leaf libraries beside it
+    for bundled in ("libXaw.so.7", "libXmu.so.6", "libXpm.so.4",
+                    "libXt.so.6", "libICE.so.6", "libSM.so.6",
+                    "libbsd.so.0", "libmd.so.0", "libuuid.so.1",
+                    "libXext.so.6", "libXrandr.so.2", "libXrender.so.1",
+                    "libXcursor.so.1", "libXi.so.6", "libXau.so.6",
+                    "libXdmcp.so.6", "libxkbcommon.so.0",
+                    # from the same compiler as libstdc++, but a distribution
+                    # installs it only on demand - and a bare one that has
+                    # every other host family still has no libatomic, which is
+                    # a loader error before main() runs
+                    "libatomic.so.1"):
+        assert host_library_family(bundled) == "", bundled
+    # a prefix is not a match: libXcursor is not libX11, libmd is not libm
+    assert host_library_family("libmd.so.0") == ""
+    assert host_library_family("libcurl.so.4") == ""
+    assert library_stem("/usr/lib/x86_64-linux-gnu/libXaw.so.7") == "libXaw"
+
+    # ldd's three output shapes, and the plan that comes out of them
+    ldd_sample = "\n".join([
+        "\tlinux-vdso.so.1 (0x00007ffd8b3f8000)",
+        "\tlibXaw.so.7 => /lib/x86_64-linux-gnu/libXaw.so.7 (0x00007f1a00000000)",
+        "\tlibvulkan.so.1 => /build/vcpkg/lib/libvulkan.so.1 (0x00007f1a10000000)",
+        "\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f1a20000000)",
+        "\tlibXaw.so.7 => /lib/x86_64-linux-gnu/libXaw.so.7 (0x00007f1a00000000)",
+        "\tlibmissing.so.9 => not found",
+        "\t/lib64/ld-linux-x86-64.so.2 (0x00007f1a30000000)"])
+    parsed = dict(parse_ldd(ldd_sample))
+    assert parsed["libXaw.so.7"] == "/lib/x86_64-linux-gnu/libXaw.so.7", parsed
+    assert parsed["libmissing.so.9"] == "", parsed
+    assert parsed["linux-vdso.so.1"] == "", parsed
+    assert parsed["ld-linux-x86-64.so.2"] == "", parsed
+    bundle, host, missing = plan_bundled_libraries(ldd_sample)
+    assert bundle == [("libXaw.so.7", "/lib/x86_64-linux-gnu/libXaw.so.7")], \
+        bundle
+    assert [soname for soname, _ in host] == [
+        "ld-linux-x86-64.so.2", "libc.so.6", "libvulkan.so.1",
+        "linux-vdso.so.1"], host
+    # a dependency nothing on the build machine resolves is a broken tree, not
+    # something to package around - it comes back named
+    assert missing == ["libmissing.so.9"], missing
+
+    # the glibc floor, read out of the binary rather than assumed from the
+    # build image - and ORDERED as versions, not as strings (2.9 < 2.34)
+    objdump_sample = "\n".join([
+        "Version References:",
+        "  required from libm.so.6:",
+        "    0x0d696910 0x00 12 GLIBC_2.29",
+        "  required from libc.so.6:",
+        "    0x09691a75 0x00 05 GLIBC_2.2.5",
+        "    0x069691b4 0x00 09 GLIBC_2.9",
+        "    0x0d696913 0x00 07 GLIBC_2.34",
+        "    0x06969194 0x00 04 GLIBC_PRIVATE"])
+    assert glibc_version_floor(objdump_sample) == "2.34", \
+        glibc_version_floor(objdump_sample)
+    assert glibc_version_floor("") == ""
+    assert glibc_version_floor("no version references here") == ""
+
+    # the tool: an explicit path wins, then the environment, then PATH - the
+    # same precedence the Android bundle's separate download follows. `which`
+    # is injected, so this holds on a machine with no appimagetool at all.
+    assert resolve_appimagetool("/tmp/t.AppImage", {},
+                                which=lambda _: None) == "/tmp/t.AppImage"
+    assert resolve_appimagetool("", {APPIMAGETOOL_ENV: "/env/t"},
+                                which=lambda _: None) == "/env/t"
+    assert resolve_appimagetool("", {},
+                                which=lambda _: "/usr/bin/appimagetool") == \
+        "/usr/bin/appimagetool"
+    assert resolve_appimagetool("", {}, which=lambda _: None) == ""
+    argv = appimagetool_command("/opt/appimagetool", "/tmp/Orkige.AppDir",
+                                "/out/Orkige.AppImage")
+    assert argv == ["/opt/appimagetool", "--no-appstream",
+                    "/tmp/Orkige.AppDir", "/out/Orkige.AppImage"], argv
+    # AppImage runtimes are per-architecture, so the arch is passed rather
+    # than guessed from whatever binary the tool looks at first
+    assert appimage_arch("amd64") == "x86_64"
+    assert appimage_arch("arm64") == "aarch64"
+    assert appimage_arch("aarch64") == "aarch64"
+
+    # the AppDir's entry point: the bundled libraries go in FRONT of the
+    # system ones (which is what makes a host without them a non-event) and
+    # the editor replaces the shell, so its exit code and its signals are the
+    # process's own
+    apprun = apprun_text("orkige_editor")
+    assert apprun.startswith("#!/bin/sh\n"), apprun
+    assert 'export LD_LIBRARY_PATH="$HERE/usr/lib' in apprun, apprun
+    assert '${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' in apprun, apprun
+    assert 'exec "$HERE/orkige_editor" "$@"' in apprun, apprun
+
+    # the desktop entry: what a desktop shows once the file is integrated
+    entry = desktop_entry_text(ordered)
+    fields = dict(line.split("=", 1) for line in entry.splitlines()
+                  if "=" in line)
+    assert entry.startswith("[Desktop Entry]"), entry
+    assert fields["Type"] == "Application", fields
+    assert fields["Name"] == "Orkige", fields
+    assert fields["Icon"] == APPIMAGE_ICON_NAME, fields
+    assert fields["Categories"].endswith(";"), fields
+    assert "Development" in fields["Categories"], fields
+    assert fields["Exec"].startswith("orkige_editor"), fields
+    assert fields["X-AppImage-Version"] == ordered, fields
+    # an unversioned hand run still writes a valid entry
+    assert "X-AppImage-Version=unversioned" in desktop_entry_text(""), \
+        desktop_entry_text("")
+
+    # the launcher icon comes from the generator that draws the macOS one, so
+    # both containers show the same artwork
+    assert os.path.isfile(EDITOR_ICON_SCRIPT), EDITOR_ICON_SCRIPT
+    with tempfile.TemporaryDirectory() as temp:
+        icon = render_editor_icon(os.path.join(temp, APPIMAGE_ICON_FILE), 64)
+        with open(icon, "rb") as handle:
+            header = handle.read(24)
+        assert header[:8] == b"\x89PNG\r\n\x1a\n", header
+        assert (int.from_bytes(header[16:20], "big"),
+                int.from_bytes(header[20:24], "big")) == (64, 64), header
+
+    # without the tool there is a WARNING and no image - a hand run still
+    # produces the tarball, and the pipeline resolves the tool in a step of
+    # its own so a night can never publish without one
+    with tempfile.TemporaryDirectory() as temp:
+        stage = os.path.join(temp, "Orkige-linux-abc")
+        os.makedirs(stage)
+        assert make_appimage(stage, os.path.join(temp, "x.AppImage"),
+                             "orkige_editor", ordered, tool="",
+                             runner=lambda *_a, **_k: None) == ""
+
+    # a verdict nobody can act on is not a verdict: pointing the check at a
+    # file that is not there, or at one nobody can execute, refuses by name
+    with tempfile.TemporaryDirectory() as temp:
+        try:
+            verify_appimage(os.path.join(temp, "nothing.AppImage"))
+            raise AssertionError("expected a refusal for a missing image")
+        except SystemExit:
+            pass
+        unreadable = os.path.join(temp, "Orkige.AppImage")
+        open(unreadable, "w").close()
+        os.chmod(unreadable, 0o644)
+        try:
+            verify_appimage(unreadable)
+            raise AssertionError("expected a refusal for a non-executable image")
+        except SystemExit:
+            pass
+
     # --- a synthetic build tree, staged and archived --------------------
     with tempfile.TemporaryDirectory() as temp:
         build = os.path.join(temp, "build", "linux-release-next")
@@ -3352,6 +4164,11 @@ exit 0
         assert "flavor: next\n" in version
         assert "engine-abi-stamp: content.deadbeef1234\n" in version
         assert "platform: linux\n" in version
+        # the AppImage's real floor is the one library family it does not
+        # carry, so a Linux build records it - measured where a binary can be
+        # measured, an honest "unknown" where the stand-in cannot
+        assert re.search(r"^glibc-floor: (\d+\.\d+(\.\d+)?|unknown)$", version,
+                         re.M), version
         # the changelog rides inside the artifact, and says what it could not do
         changelog = open(os.path.join(stage, CHANGELOG_FILE)).read()
         assert changelog.startswith("# Changelog"), changelog[:80]
@@ -3574,6 +4391,89 @@ def selftest_dmg():
         except SystemExit:
             pass
     print("orkige_nightly_package: disk-image selftest OK")
+
+
+def selftest_appimage():
+    """The Linux bundle, ASSEMBLED AND PACKED for real over a synthetic AppDir -
+    the half of it that cannot be a text assertion, because what has to hold is
+    what the produced image actually contains and where the loader finds it.
+
+    The stand-in editor is a real dynamic executable off this machine (`ls`),
+    which is the point: it has a genuine library closure, so the inclusion rule
+    runs against something the loader really resolved instead of a fixture.
+
+    It needs Linux AND appimagetool, and SKIPS with 77 without either rather
+    than passing silently - a check that quietly does nothing is worse than no
+    check at all."""
+    if not sys.platform.startswith("linux") or not shutil.which("ldd"):
+        log("not Linux - the AppImage self-check is skipped")
+        sys.exit(77)
+    tool = resolve_appimagetool()
+    if not tool:
+        log("no appimagetool (set " + APPIMAGETOOL_ENV + ") - the AppImage "
+            "self-check is skipped")
+        sys.exit(77)
+    stand_in = shutil.which("ls")
+    if not stand_in:
+        log("no dynamic stand-in binary - the AppImage self-check is skipped")
+        sys.exit(77)
+    with tempfile.TemporaryDirectory() as temp:
+        stage_root = os.path.join(temp, "Orkige-linux-selftest")
+        resources = os.path.join(stage_root, FLAT_RESOURCE_DIR)
+        os.makedirs(resources)
+        editor = os.path.join(stage_root, "orkige_editor")
+        shutil.copy2(stand_in, editor)
+        os.chmod(editor, 0o755)
+        expected, _, _ = plan_bundled_libraries(binary_libraries(editor))
+
+        appdir = os.path.join(temp, "Orkige.AppDir")
+        bundle, host = build_appdir(stage_root, appdir, "orkige_editor",
+                                    "2.0.0-nightly.20260730+dea551f9e")
+        assert bundle == expected, (bundle, expected)
+        assert host, "every binary resolves something the host has to provide"
+        # the format's own three files, and the payload beside them
+        for name in ("AppRun", APPIMAGE_DESKTOP_FILE, APPIMAGE_ICON_FILE,
+                     ".DirIcon", "orkige_editor"):
+            assert os.path.isfile(os.path.join(appdir, name)), name
+        assert os.access(os.path.join(appdir, "AppRun"), os.X_OK)
+        # every bundled library is a REAL file under its soname, never the
+        # symlink a distribution keeps beside the versioned file
+        for soname, _ in bundle:
+            path = os.path.join(appdir, APPIMAGE_LIB_DIR, soname)
+            assert os.path.isfile(path) and not os.path.islink(path), soname
+            assert os.path.getsize(path) > 0, soname
+
+        image = os.path.join(temp, "Orkige-linux-selftest.AppImage")
+        assert make_appimage(stage_root, image, "orkige_editor",
+                             "2.0.0-nightly.20260730+dea551f9e", tool) == image
+        assert os.access(image, os.X_OK), image
+        # unpack what was packed - through the FUSE-free path, because that is
+        # the one a machine without FUSE has - and hold it to the same
+        # resolution rule verify_appimage applies to a real one: the bundled
+        # names come from INSIDE, the host families do not
+        workspace = os.path.join(temp, "extract")
+        os.makedirs(workspace)
+        orkige_export.run([image, "--appimage-extract"], cwd=workspace)
+        root = os.path.join(workspace, "squashfs-root")
+        assert os.path.isdir(root), root
+        entry = open(os.path.join(root, APPIMAGE_DESKTOP_FILE)).read()
+        assert entry == desktop_entry_text("2.0.0-nightly.20260730+dea551f9e")
+        resolved = dict(parse_ldd(binary_libraries(
+            os.path.join(root, "orkige_editor"),
+            os.path.join(root, APPIMAGE_LIB_DIR))))
+        inside = os.path.realpath(root) + os.sep
+        for soname, _ in bundle:
+            where = os.path.realpath(resolved.get(soname, ""))
+            assert where.startswith(inside), (soname, where)
+        for soname, _ in host:
+            where = resolved.get(soname, "")
+            assert not os.path.realpath(where).startswith(inside), \
+                (soname, where)
+        # the staged directory is handed back exactly as it was: the AppDir is
+        # built beside it, never inside the tree the tarball is made from
+        assert sorted(os.listdir(stage_root)) == ["orkige_editor", "share"], \
+            os.listdir(stage_root)
+    print("orkige_nightly_package: AppImage selftest OK")
 
 
 if __name__ == "__main__":

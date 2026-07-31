@@ -66,13 +66,13 @@ artifact produced that way is never mistaken for a gated one.
 
 ## What each platform ships
 
-Each platform ships the artifact a person on it expects, and the two desktop
-platforms with an installable convention ship a second, portable one beside it:
+Each platform ships the artifact a person on it expects, and a second, portable
+one beside it:
 
 | Platform | Runner | Preset | Install | Portable |
 | --- | --- | --- | --- | --- |
 | macOS (Apple silicon) | `macos-15` | `macos-release` | `Orkige-macos-<version>.dmg` | `Orkige-macos-<version>.zip` |
-| Linux (x86_64) | `ubuntu-latest` | `linux-release-next` | — | `Orkige-linux-<version>.tar.gz` |
+| Linux (x86_64) | `ubuntu-latest` | `linux-release-next` | `Orkige-linux-<version>.AppImage` | `Orkige-linux-<version>.tar.gz` |
 | Windows (x64) | `windows-latest` | `windows-release` | `Orkige-windows-<version>-setup.exe` | `Orkige-windows-<version>.zip` |
 
 All are the default Ogre-Next render flavor in Release, and `<version>` is the
@@ -95,12 +95,14 @@ the same bytes.
   `%LOCALAPPDATA%\Programs\Orkige`, **no administrator elevation**, a Start-menu
   shortcut, a working uninstaller, and the ordered version recorded under
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Orkige` so Settings >
-  Installed apps lists it like any other program.
+  Installed apps lists it like any other program. On Linux an **AppImage**:
+  distributions share no package format, but they all run a single executable
+  file, and that file carries the libraries a given distribution may not have
+  installed — which is the difference between it and the tarball beside it
+  ([the Linux single-file bundle](#the-linux-single-file-bundle)).
 - The **portable** artifact is the `.zip` / `.tar.gz`: nothing to mount, nothing
   to run, unpack anywhere. It is also the shape an updater consumes, because
   replacing files in place needs neither a mounted image nor an installer run.
-  Linux ships this alone — a distribution's own package formats are not
-  interchangeable, and a tarball is what all of them can unpack.
 
 The archive has one top-level directory and the same shape everywhere:
 
@@ -145,9 +147,8 @@ because a scoped `--target orkige_editor` leaves the staging unrun.
 Platform-specific handling worth knowing:
 
 - **Linux** links the whole engine statically but still loads the
-  distribution's X11/Wayland, OpenGL/Vulkan, ALSA/PulseAudio and D-Bus
-  libraries. The archive names the packages. A single-file bundle that carries
-  those too is the eventual answer and is deliberately not attempted here.
+  distribution's own libraries. The tarball names the packages it needs; the
+  AppImage carries the ones a distribution may not have — see below.
 - **Windows** builds on the `x64-windows-static-md` triplet: every dependency is
   static, but the Visual C++ runtime stays SHARED. The packager copies
   `VCRUNTIME140.dll` / `MSVCP140.dll` app-local from the build machine's
@@ -160,6 +161,99 @@ Platform-specific handling worth knowing:
 - **macOS** needs no dylib closure today — the built bundle depends on nothing
   outside the system frameworks — but the packaging runs the closure step
   anyway, so a future dependency rides along instead of breaking a download.
+
+## The Linux single-file bundle
+
+The tarball carries the editor but not the libraries it links, and that list is
+longer than a user expects. Beside the X11 and GL/Vulkan libraries every
+graphical program needs, the editor pulls in `libXaw`, `libXmu`, `libXpm`,
+`libXt`, `libICE` and `libSM` — the Xt/Athena family nothing on a modern desktop
+installs on its own — plus `libbsd`, `libmd`, `libuuid` and `libatomic`.
+Unpacking the tarball on a clean distribution therefore ends in a loader error
+naming a library its user has never heard of. The `.AppImage` is one file that
+carries them: `chmod +x`, run.
+
+### What it bundles, and what has to come from the host
+
+One rule, and it is the decision the whole artifact turns on:
+
+> Every library the loader resolves for the editor is bundled EXCEPT the ones
+> whose correct version is a property of the **machine** rather than of our
+> build.
+
+Four families qualify, each for a reason that is not a preference:
+
+| Family | Left to the host | Why |
+| --- | --- | --- |
+| driver | `libvulkan`, `libGL`, `libEGL`, `libGLX*`, `libGLdispatch`, `libOpenGL`, `libGLESv*`, `libglapi`, `libdrm`, `libgbm` | These are the front doors into the machine's own GPU driver, which is matched to its kernel and its hardware. A bundled copy either shadows that driver's entry point or is substituted into the driver's own dependency chain — turning a working GPU into a software fallback or a crash. |
+| libc | `libc`, `libm`, `libdl`, `libpthread`, `librt`, `libresolv`, `libutil`, `libnss_*`, `ld-linux*` | The process is started by the HOST's loader and resolves users and hosts through the HOST's NSS modules. A second glibc inside the image is a mismatch, not a fix — which is what makes the glibc floor a property of the build image. |
+| toolchain | `libstdc++`, `libgcc_s` | Because glibc is not bundled, a machine that can run the image is already at least as new as the machine that built it, so its C++ runtime can never be too old — while a bundled copy OLDER than the host's Mesa driver (which resolves its own `libstdc++` through our search path) breaks that driver. Bundling would carry all of the risk and none of the benefit. |
+| server-client | `libX11`, `libxcb*`, `libwayland-*`, `libxshmfence`, `libasound`, `libpulse`, `libjack`, `libdbus-1`, `libudev` | These talk to a server or daemon that is part of the running system and load the host's own modules (X11 locale and input-method data, ALSA plugins) by absolute path. They are also on every machine that has a display at all. |
+
+Everything else is bundled. `libatomic` is a deliberate near-miss worth stating:
+it comes from the same compiler as `libstdc++`, but a distribution installs it
+only when something asks for it, so **presence** rather than version is what
+decides — and presence is exactly what a download cannot assume. The clean-room
+check below is what caught it.
+
+The bundled copies win because the `AppRun` puts the image's own `usr/lib` on
+`LD_LIBRARY_PATH`, which the loader searches before every system directory. So
+for a bundled name the host's copy is never consulted, which is what makes "the
+host does not have it" a non-event. That variable also reaches the processes
+the editor spawns, which is a second reason the bundled set stays leaf
+libraries no other program's behaviour hinges on.
+
+### The glibc floor
+
+glibc is the one family the image cannot carry, so the oldest distribution it
+runs on is decided by the machine that built it. The packaging does not assume
+that number, it **measures** it: the highest `GLIBC_x.y` symbol version the
+binary references, read out of the binary with `objdump -p`, recorded as the
+`glibc-floor:` line in `VERSION` and pointed at by the artifact's
+`KNOWN-LIMITATIONS.md`. The nightly's Linux job runs on `ubuntu-latest`, so the
+floor can never exceed that image's glibc (2.39 on Ubuntu 24.04) and in practice
+sits just under it, because a binary references only the symbol versions it
+uses — so the image runs on that generation of distributions and every newer
+one. The recorded number is the authority: reading it out of the binary means
+the floor follows the runner image instead of following a sentence in this
+document.
+
+### FUSE, and how to run one without it
+
+An AppImage mounts itself through libfuse at run time, and some current
+distributions no longer ship FUSE. `--appimage-extract-and-run` (or the
+`APPIMAGE_EXTRACT_AND_RUN` environment variable) unpacks to a temporary
+directory and runs from there instead, needing nothing:
+
+```sh
+chmod +x Orkige-linux-<version>.AppImage
+./Orkige-linux-<version>.AppImage                            # with FUSE
+./Orkige-linux-<version>.AppImage --appimage-extract-and-run # without
+```
+
+Nothing in the pipeline depends on FUSE either: `appimagetool` is an AppImage
+too and is run that way, and every check runs the produced image that way.
+
+### Desktop integration
+
+The image carries an `orkige.desktop` entry (name, generic name, comment,
+`Development;IDE;` categories and the `StartupWMClass` that pairs a window with
+its launcher) and a 256×256 icon drawn by the same generator the macOS `.icns`
+comes from — at the AppDir root where the runtime looks, as `.DirIcon` where a
+file manager reads it, and under `usr/share/applications` and
+`usr/share/icons/hicolor` where a desktop that installs the file expects them.
+So an integrated image gets a name and an icon rather than a path.
+
+### The tool
+
+`appimagetool` is a separate download — not a dependency this repository
+declares, and on no runner — so it is resolved the way the Android bundle's
+`bundletool` is (`Docs/store-release.md`): an explicit `--appimagetool`, else
+`ORKIGE_APPIMAGETOOL`, else one on `PATH`. The nightly's Linux job downloads a
+**pinned release**, checks it against its SHA-256 and exports the path; that
+step **fails the job** with a sentence naming what is missing, before the build,
+rather than letting a night ship without the artifact. A hand run without the
+tool still produces the tarball and says why there is no image.
 
 ## macOS signing, notarization and stapling
 
@@ -526,8 +620,8 @@ Both are fixed strings one regex finds in one pass over `body`.
    `Orkige-windows-<token>.zip`, where `<token>` is the version's filename
    rendering — because swapping files in place needs neither a mounted image nor
    an installer run. The installable assets (`Orkige-macos-<token>.dmg`,
-   `Orkige-windows-<token>-setup.exe`) are what a **person** downloads from the
-   release page. A platform whose build failed has **no asset**, and the notes
+   `Orkige-linux-<token>.AppImage`, `Orkige-windows-<token>-setup.exe`) are what
+   a **person** downloads from the release page. A platform whose build failed has **no asset**, and the notes
    table names it with that job's result: a client asks "is there a build for
    me", and absence is the answer.
 6. Fetch the `<archive>.sha256` asset beside it and **verify the digest before
@@ -599,6 +693,30 @@ reading them:
   `/Applications` symlink without which the drag is a copy into the download
   folder rather than an install. The binary is not run from the read-only mount:
   the archive's smoke test already proved it starts.
+- The **AppImage is run**, three times over, because building one proves
+  nothing:
+  - `--verify-appimage` executes it and holds its self-report to the commit and
+    the ordered version this packaging composed, extracts it and puts it
+    through the same layout check the unpacked tarball gets (plus `AppRun`, the
+    desktop entry and the icon it names), and then asks the editor **inside**
+    the extracted image where it resolves each of its libraries from — with the
+    image's own lib directory in front of the loader's path exactly as the
+    `AppRun` puts it. Every bundled library has to resolve inside the image, and
+    no driver or libc may.
+  - It is then started in **two clean rooms** — bare `ubuntu:24.04` and
+    `debian:13-slim` containers given exactly the families the rule declares
+    host-owned (`libx11-6 libx11-xcb1 libxcb1 libxcb-randr0 libvulkan1
+    libstdc++6 libgcc-s1`) and nothing else. Anything the editor needs that is
+    neither bundled nor on that list is a loader error there, before `main`
+    runs — which is how `libatomic` was found. Each room is first asked whether
+    it really lacks the bundled family, because a check run in a room that is
+    not clean proves nothing; the second distribution also carries a newer
+    glibc than the build image, which is the forward half of the floor.
+  - And it **boots**: `xvfb` plus Mesa's lavapipe software Vulkan driver, the
+    same setup the windowed desktop suites run on, driving the editor through
+    90 frames and a framebuffer dump. The identity checks return before any
+    window is created, so this is the step that proves the download opens
+    rather than merely loading.
 - The **installer is installed**. `makensis` is resolved in a step of its own
   before packaging, which fails the job with a sentence naming the missing tool
   rather than letting a night ship without an installer. After packaging, the
@@ -644,16 +762,33 @@ that Apple accepts the submission, and that the ticket staples.
 It also drives the installable artifacts as far as a platform-neutral test can:
 the asset names, the volume name against the 27-character cap a disk image's
 filesystem enforces, the numeric `a.b.c.d` the Windows VERSIONINFO resource
-accepts, the `makensis` argv, and the installer script's own properties — the
+accepts, the `makensis` argv, the Linux bundle's whole decision layer — which
+library is bundled and which family keeps it out (asserted library by library,
+in both directions), the three shapes of `ldd` output and the plan that comes
+out of them including a dependency nothing resolves, the glibc floor ordered as
+versions rather than strings, the tool's resolution precedence on a machine
+that has no `appimagetool` at all, the `appimagetool` argv, the `AppRun` and the
+desktop entry, the icon actually rendering, the honest refusal when the tool is
+absent and the two refusals a check pointed at a missing or non-executable
+image gives — and the installer script's own properties — the
 per-user install root, `RequestExecutionLevel user`, the absence of any `HKLM`
 write (which would demand elevation), the Start-menu shortcut, the uninstall
 registry record, and the fact that every `/D` define the packager passes is one
 the script requires and vice versa. `makensis` runs on no machine this suite
-runs on, so compiling the installer is the pipeline's job; the disk image, whose
-tool exists on exactly one platform, gets its own
-`orkige_nightly_dmg_selftest` ctest (label `unit`) that builds and mounts a real
-image over a synthetic app and **skips with 77** where `hdiutil` does not exist,
-rather than passing without having checked anything.
+runs on, so compiling the installer is the pipeline's job; the two artifacts
+whose tools are platform-bound get a ctest each (label `unit`), and both **skip
+with 77** where the tool is absent rather than passing without having checked
+anything:
+
+- `orkige_nightly_dmg_selftest` builds and mounts a real disk image over a
+  synthetic app. It needs `hdiutil`, which exists on exactly one platform.
+- `orkige_nightly_appimage_selftest` assembles and packs a real AppImage over a
+  synthetic AppDir whose stand-in editor is a genuine dynamic executable off the
+  machine — so the inclusion rule runs against a closure the loader really
+  resolved rather than a fixture — then unpacks what was packed, through the
+  FUSE-free path, and asserts where the editor inside finds each library: the
+  bundled names from inside the image, the driver/libc/toolchain families from
+  the host. It needs Linux and `appimagetool`.
 
 It drives the **dated archive's selection rule** as pure data — which tags are
 candidates at all, over a realistic listing carrying the rolling `nightly`, a
@@ -744,8 +879,8 @@ failed: the release notes list every platform with its archive or the words "not
 produced" plus that job's result, so a partial night is legible instead of
 looking complete. Zero archives is a failure — there is nothing to publish.
 
-Each night's assets are the two macOS ones (`.dmg`, `.zip`), the Linux
-`.tar.gz`, the two Windows ones (`-setup.exe`, `.zip`), the full-history
+Each night's assets are the two macOS ones (`.dmg`, `.zip`), the two Linux ones
+(`.AppImage`, `.tar.gz`), the two Windows ones (`-setup.exe`, `.zip`), the full-history
 `CHANGELOG.md`, and a `.sha256` file beside each. Before they are attached,
 every one of them is checked against the
 sidecar that travelled with it (`--verify-checksums`), so bytes that changed on
@@ -791,8 +926,11 @@ The trust gaps, per platform:
   and an engine build tree. Game behaviour written in Lua needs none of that,
   which is the whole point of the distinction.
 
-Per platform: Linux needs the distribution's X/Wayland, GL/Vulkan, audio and
-D-Bus libraries present (the file names the packages), and Windows needs the
+Per platform: on Linux the `.tar.gz` needs the distribution's own X/Wayland,
+GL/Vulkan, audio and D-Bus libraries present, the Xt/Athena family included (the
+file names the packages), while the `.AppImage` carries those and needs only the
+machine's GPU driver and a glibc at least as new as the recorded floor
+([the Linux single-file bundle](#the-linux-single-file-bundle)); Windows needs the
 Visual C++ runtime resolvable (the packaging ships it app-local when the build
 machine had it, and `VERSION` records whether it did).
 
@@ -819,7 +957,18 @@ bounded window and says so.
 
 That one run writes both of the platform's assets. The `.dmg` needs `hdiutil`,
 which is part of macOS; the Windows installer needs `makensis` on `PATH`, and
-without it the packager says so and produces the `.zip` alone.
+the Linux AppImage needs `appimagetool`. Without either the packager says so and
+produces the portable archive alone:
+
+```sh
+python3 Util/orkige_nightly_package.py --platform linux \
+        --build-dir build/linux-release-next --commit $(git rev-parse HEAD) \
+        --appimagetool ~/bin/appimagetool --output /tmp/nightly-out
+# ... and check it by using it: run, extract, and resolve its libraries
+python3 Util/orkige_nightly_package.py \
+        --verify-appimage /tmp/nightly-out/Orkige-linux-*.AppImage \
+        --commit $(git rev-parse HEAD)
+```
 
 A hand run on macOS is **ad-hoc signed** unless a certificate is pointed at, and
 says so. To sign one for real, name the identity and let the notarization
@@ -865,6 +1014,8 @@ gh release list --limit 200 --json tagName --jq '.[].tagName' \
 That last one only ever *prints* tags; deleting them is the workflow's step, so
 running it by hand is a dry run of the decision by construction.
 
-`--selftest` runs the headless self-checks without needing any build tree at all,
-and `--selftest-dmg` builds and mounts a real disk image over a synthetic app
-(exiting 77 where `hdiutil` does not exist).
+`--selftest` runs the headless self-checks without needing any build tree at all;
+`--selftest-dmg` builds and mounts a real disk image over a synthetic app
+(exiting 77 where `hdiutil` does not exist), and `--selftest-appimage` packs and
+unpacks a real AppImage over a synthetic AppDir (exiting 77 off Linux or without
+`appimagetool`).

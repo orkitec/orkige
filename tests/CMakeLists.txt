@@ -323,6 +323,22 @@ add_test(NAME orkige_nightly_dmg_selftest
 set_tests_properties(orkige_nightly_dmg_selftest PROPERTIES
     LABELS unit TIMEOUT 180 SKIP_RETURN_CODE 77)
 
+# the Linux single-file bundle, ASSEMBLED AND PACKED for real over a synthetic
+# AppDir whose stand-in editor is a genuine dynamic executable off this
+# machine - so the library inclusion rule runs against a closure the loader
+# really resolved. It then unpacks what was packed (through the FUSE-free
+# path) and asserts where the editor inside finds each library: the bundled
+# names from INSIDE the image, the driver/libc/toolchain families from the
+# host. Needs Linux and appimagetool, and SKIPS with 77 without either rather
+# than passing without having checked anything; the rule itself, the argv, the
+# AppRun and the desktop entry are asserted by the selftest above, which runs
+# on every platform.
+add_test(NAME orkige_nightly_appimage_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_nightly_package.py" --selftest-appimage
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(orkige_nightly_appimage_selftest PROPERTIES
+    LABELS unit TIMEOUT 300 SKIP_RETURN_CODE 77)
+
 # site generator self-validation: make_help_portal.py renders a synthetic
 # corpus (nested lists, indented fences inside list items, tables with pipe
 # escapes, cross-page links) asserting the emitted HTML AND the whole REAL
