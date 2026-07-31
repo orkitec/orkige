@@ -632,7 +632,7 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: /Users/runner/vcpkg-binary-cache
       CCACHE_DIR: /Users/runner/.ccache
       PRESET: macos-release
-      PLATFORM: macos
+      ORKIGE_PLATFORM: macos
     outputs:
       # what this build's signature is worth - the ONE vocabulary the packager
       # writes into VERSION, read back from the artifact below so the publish
@@ -819,7 +819,7 @@ jobs:
           ORKIGE_NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           python3 Util/orkige_nightly_package.py \
-            --platform "$PLATFORM" --build-dir "build/$PRESET" \
+            --platform "$ORKIGE_PLATFORM" --build-dir "build/$PRESET" \
             --commit ${{ needs.binaries-gate.outputs.sha }} \
             --date ${{ needs.binaries-gate.outputs.date }} \
             --version "${{ needs.binaries-gate.outputs.version }}" \
@@ -833,9 +833,9 @@ jobs:
       - name: Smoke-test the packaged archive
         run: |
           mkdir -p smoke
-          ditto -x -k "nightly-out/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.zip" smoke
+          ditto -x -k "nightly-out/Orkige-${ORKIGE_PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.zip" smoke
           python3 Util/orkige_nightly_package.py --verify smoke \
-            --platform "$PLATFORM" \
+            --platform "$ORKIGE_PLATFORM" \
             --commit ${{ needs.binaries-gate.outputs.sha }} \
             --version "${{ needs.binaries-gate.outputs.version }}"
 
@@ -844,7 +844,7 @@ jobs:
       # symlink that makes the drag an install have to be on the volume.
       - name: Smoke-test the disk image
         run: |
-          DMG="nightly-out/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.dmg"
+          DMG="nightly-out/Orkige-${ORKIGE_PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.dmg"
           test -f "$DMG" || { echo "no disk image at $DMG" >&2; exit 1; }
           python3 Util/orkige_nightly_package.py --verify-dmg "$DMG"
 
@@ -861,7 +861,7 @@ jobs:
           EXPECTED: ${{ steps.notary.outputs.signing_state }}
         run: |
           set -euo pipefail
-          VERSION_FILE="smoke/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}/VERSION"
+          VERSION_FILE="smoke/Orkige-${ORKIGE_PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}/VERSION"
           recorded="$(grep '^signing: ' "$VERSION_FILE" | cut -d' ' -f2-)"
           if [ "${recorded}" != "${EXPECTED}" ]; then
             echo "the artifact records 'signing: ${recorded}' but this job set up '${EXPECTED}'" >&2
@@ -880,8 +880,8 @@ jobs:
         run: |
           set -euo pipefail
           TOKEN="${{ needs.binaries-gate.outputs.version_token }}"
-          APP="smoke/Orkige-${PLATFORM}-${TOKEN}/Orkige.app"
-          DMG="nightly-out/Orkige-${PLATFORM}-${TOKEN}.dmg"
+          APP="smoke/Orkige-${ORKIGE_PLATFORM}-${TOKEN}/Orkige.app"
+          DMG="nightly-out/Orkige-${ORKIGE_PLATFORM}-${TOKEN}.dmg"
           xcrun stapler validate "$APP"
           spctl --assess --type exec --verbose=2 "$APP"
           xcrun stapler validate "$DMG"
@@ -931,7 +931,7 @@ jobs:
     timeout-minutes: 360
     env:
       PRESET: linux-release-next
-      PLATFORM: linux
+      ORKIGE_PLATFORM: linux
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
@@ -1005,7 +1005,7 @@ jobs:
       - name: Package
         run: |
           python3 Util/orkige_nightly_package.py \
-            --platform "$PLATFORM" --build-dir "build/$PRESET" \
+            --platform "$ORKIGE_PLATFORM" --build-dir "build/$PRESET" \
             --commit ${{ needs.binaries-gate.outputs.sha }} \
             --date ${{ needs.binaries-gate.outputs.date }} \
             --version "${{ needs.binaries-gate.outputs.version }}" \
@@ -1015,9 +1015,9 @@ jobs:
       - name: Smoke-test the packaged archive
         run: |
           mkdir -p smoke
-          tar xzf "nightly-out/Orkige-${PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.tar.gz" -C smoke
+          tar xzf "nightly-out/Orkige-${ORKIGE_PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.tar.gz" -C smoke
           python3 Util/orkige_nightly_package.py --verify smoke \
-            --platform "$PLATFORM" \
+            --platform "$ORKIGE_PLATFORM" \
             --commit ${{ needs.binaries-gate.outputs.sha }} \
             --version "${{ needs.binaries-gate.outputs.version }}"
 
@@ -1057,7 +1057,13 @@ jobs:
       CC: cl
       CXX: cl
       PRESET: windows-release
-      PLATFORM: windows
+      # ORKIGE_-prefixed on purpose: Windows environment variable names are
+      # CASE-INSENSITIVE, and the Visual Studio environment this job imports
+      # exports its own `Platform=x64`, which silently took over a plain
+      # PLATFORM and handed the packager an architecture where it wanted an
+      # operating system. The other two jobs carry the same name so nobody
+      # reintroduces the short one by copying a neighbour.
+      ORKIGE_PLATFORM: windows
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
@@ -1151,7 +1157,7 @@ jobs:
         shell: pwsh
         run: |
           python3 Util/orkige_nightly_package.py `
-            --platform ${env:PLATFORM} --build-dir "build/${env:PRESET}" `
+            --platform ${env:ORKIGE_PLATFORM} --build-dir "build/${env:PRESET}" `
             --commit ${{ needs.binaries-gate.outputs.sha }} `
             --date ${{ needs.binaries-gate.outputs.date }} `
             --version "${{ needs.binaries-gate.outputs.version }}" `
@@ -1161,13 +1167,13 @@ jobs:
       - name: Smoke-test the packaged archive
         shell: pwsh
         run: |
-          # ${env:...} braces, not $env:...: a bare $env:PLATFORM-foo would take
-          # the hyphen into the variable NAME and resolve to nothing
-          $archive = "nightly-out/Orkige-${env:PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.zip"
+          # ${env:...} braces, not $env:...: a bare $env:ORKIGE_PLATFORM-foo
+          # would take the hyphen into the variable NAME and resolve to nothing
+          $archive = "nightly-out/Orkige-${env:ORKIGE_PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}.zip"
           New-Item -ItemType Directory -Force -Path smoke | Out-Null
           Expand-Archive -Path $archive -DestinationPath smoke -Force
           python3 Util/orkige_nightly_package.py --verify smoke `
-            --platform ${env:PLATFORM} `
+            --platform ${env:ORKIGE_PLATFORM} `
             --commit ${{ needs.binaries-gate.outputs.sha }} `
             --version "${{ needs.binaries-gate.outputs.version }}"
 
@@ -1177,7 +1183,7 @@ jobs:
       - name: Smoke-test the installer (silent install, then uninstall)
         shell: pwsh
         run: |
-          $setup = "nightly-out/Orkige-${env:PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}-setup.exe"
+          $setup = "nightly-out/Orkige-${env:ORKIGE_PLATFORM}-${{ needs.binaries-gate.outputs.version_token }}-setup.exe"
           if (-not (Test-Path $setup)) { throw "no installer at $setup" }
           $target = Join-Path $env:LOCALAPPDATA "Programs\Orkige"
           Start-Process -FilePath (Resolve-Path $setup) -ArgumentList "/S" -Wait
