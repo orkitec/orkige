@@ -11,7 +11,7 @@
 //! @verbatim
 //!   orkige_export --project <dir>
 //!                 --platform macos|ios-simulator|ios|ios-ipa|android|
-//!                            android-aab
+//!                            android-aab|web
 //!                 (--engine-build <preset build dir> | --engine-bundle <dir>
 //!                  [--engine-tools <dir>])
 //!                 [--output <dir>]
@@ -23,10 +23,11 @@
 //! come from ONE of two sources. `--engine-build` is a preset build tree: the
 //! developer case. `--engine-bundle` is a STAGED payload - the Media/ tree and
 //! the executables a distributed Orkige carries inside itself - which packages
-//! the desktop app on a machine with no repository and no build tree.
-//! Everything after the sourcing is the same code, so both produce the same
-//! bundle. A mobile package always needs a build tree: it ships THAT
-//! platform's player, which only its own preset produces.
+//! the desktop app - and, when the browser player rides along inside it, the
+//! web build - on a machine with no repository and no build tree. Everything
+//! after the sourcing is the same code, so both produce the same bundle. A
+//! mobile package always needs a build tree: it ships THAT platform's player,
+//! which only its own preset produces.
 //!
 //! The signing material for the two signed platforms is machine-local and
 //! never committed - a CLI argument, else the environment (@see
@@ -49,6 +50,7 @@
 #include "ExportProject.h"
 #include "ExportSelfContain.h"
 #include "ExportSettings.h"
+#include "ExportWeb.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -261,7 +263,7 @@ int main(int argc, char ** argv)
 		std::fprintf(stderr,
 			"usage: orkige_export --project <dir>\n"
 			"                     --platform macos|ios-simulator|ios|ios-ipa|"
-			"android|android-aab\n"
+			"android|android-aab|web\n"
 			"                     (--engine-build <preset build dir> |\n"
 			"                      --engine-bundle <dir> [--engine-tools "
 			"<dir>])\n"
@@ -273,7 +275,7 @@ int main(int argc, char ** argv)
 	const bool knownPlatform = platform == "macos" ||
 		platform == "ios-simulator" || platform == "ios" ||
 		platform == "ios-ipa" || platform == "android" ||
-		platform == "android-aab";
+		platform == "android-aab" || platform == "web";
 	if(!knownPlatform)
 	{
 		return fail("'" + platform + "' is not a platform this exporter "
@@ -305,11 +307,15 @@ int main(int argc, char ** argv)
 			return fail("engine payload '" + source.bundleResources +
 				"' does not exist");
 		}
-		if(platform != "macos")
+		// a staged payload packages the desktop app and - when the browser
+		// player rides along beside it - the web build; every other platform
+		// needs that platform's player, which only its preset tree produces
+		if(platform != "macos" && platform != "web")
 		{
-			return fail("a staged engine payload packages the desktop app "
-				"only; '" + platform + "' needs that platform's player, which "
-				"comes from its own preset build tree (--engine-build)");
+			return fail("a staged engine payload packages the desktop app and "
+				"the browser build; '" + platform + "' needs that platform's "
+				"player, which comes from its own preset build tree "
+				"(--engine-build)");
 		}
 	}
 	else
@@ -404,6 +410,11 @@ int main(int argc, char ** argv)
 		}
 		packaged = OrkigeExport::exportIos(project, source, outputDirectory,
 			request, environment, artifact, &error);
+	}
+	else if(platform == "web")
+	{
+		packaged = OrkigeExport::exportWeb(project, source, outputDirectory,
+			environment, artifact, &error);
 	}
 	else
 	{

@@ -3,11 +3,10 @@
 
 Two modes, registered as two ctests in the web build tree:
 
-  --mode structure   run Util/orkige_export.py --platform web against the
-                     reference Lua project and assert the artifact set: the
-                     shell page (with the project's title baked in), the wasm
-                     player pair, the packed .data payload image + its loader,
-                     and the per-project icon.
+  --mode structure   export the reference Lua project for the web and assert
+                     the artifact set: the shell page (with the project's
+                     title baked in), the wasm player pair, the game pak + its
+                     data loader, and the per-project icon.
   --mode boot        additionally BOOT the exported page in a headless
                      browser: serve the artifact directory over loopback HTTP
                      (stdlib http.server, ephemeral port), drive a headless
@@ -26,6 +25,7 @@ deadline-killed and asserted on the output captured up to that point.
 """
 
 import argparse
+import glob
 import http.server
 import os
 import re
@@ -45,11 +45,14 @@ import make_benchmark_assets as bench  # noqa: E402  (SceneWriter - format-curre
 
 PROJECT = os.path.join(REPO_ROOT, "projects", "jumper-lua")
 ROLLER_PROJECT = os.path.join(REPO_ROOT, "projects", "roller")
-EXPORTER = os.path.join(REPO_ROOT, "Util", "orkige_export.py")
+SCRIPT_EXPORTER = os.path.join(REPO_ROOT, "Util", "orkige_export.py")
 
-# what a web export must contain (see Util/orkige_export.py export_web)
+# what a web export must contain (see tools/exporter/ExportWeb.h). game.pak is
+# the whole payload - engine media, the project, the orkige_project.txt marker
+# - in ONE engine pak; game.js is the loader that hands it to the module
+# filesystem.
 ARTIFACT_FILES = ("index.html", "orkige_player.js", "orkige_player.wasm",
-                  "game.data", "game.js", "icon.png")
+                  "game.pak", "game.js", "icon.png")
 
 BOOT_MARKER = "bundled project '/project'"
 EXIT_MARKER = "frame stats - "  # printed by the player's orderly shutdown
@@ -259,9 +262,27 @@ def find_browser():
     return ""
 
 
+def exporter_command():
+    """the exporter this run drives, as an argv prefix.
+
+    A browser export is packaged by the HOST exporter (tools/exporter), which a
+    cross-compiled web tree cannot build - so it is resolved from, in order:
+    ORKIGE_EXPORT_BINARY, an `orkige_export` in any configured host build tree,
+    else the equivalent script exporter. Both write the same artifact set."""
+    binary = os.environ.get("ORKIGE_EXPORT_BINARY", "")
+    if binary and os.access(binary, os.X_OK):
+        return [binary]
+    for candidate in sorted(glob.glob(os.path.join(
+            REPO_ROOT, "build", "*", "tools", "exporter", "orkige_export"))):
+        if os.access(candidate, os.X_OK):
+            return [candidate]
+    return [sys.executable, SCRIPT_EXPORTER]
+
+
 def export(engine_build, output_dir, project=PROJECT):
     result = subprocess.run(
-        [sys.executable, EXPORTER, "--project", project, "--platform", "web",
+        exporter_command() +
+        ["--project", project, "--platform", "web",
          "--engine-build", engine_build, "--output", output_dir],
         capture_output=True, text=True)
     if result.returncode != 0:
@@ -281,9 +302,9 @@ def assert_structure(output_dir, title="Jumper Lua"):
         fail("index.html does not carry the project title '%s'" % title)
     if "@" + "TITLE" + "@" in shell:
         fail("index.html still contains unexpanded placeholders")
-    # the payload image must be substantial (engine media + project)
-    if os.path.getsize(os.path.join(output_dir, "game.data")) < 100 * 1024:
-        fail("game.data is implausibly small")
+    # the payload archive must be substantial (engine media + project)
+    if os.path.getsize(os.path.join(output_dir, "game.pak")) < 100 * 1024:
+        fail("game.pak is implausibly small")
     print("run_export_web: structure OK (%d files)" % len(ARTIFACT_FILES),
           flush=True)
 

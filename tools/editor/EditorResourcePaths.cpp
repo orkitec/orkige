@@ -30,6 +30,13 @@ namespace OrkigeEditor
 		//! the packaged changelog the About box reads, at the resource root
 		//! (the ONE spelling, shared with the packaging tool's CHANGELOG_FILE)
 		const char* const CHANGELOG_FILE_NAME = "CHANGELOG.md";
+		//! the browser payload a packaged editor carries (the wasm player pair,
+		//! the shell page + data loader and the classic engine media): ONE
+		//! self-contained directory at the resource root, which is what a web
+		//! export packages from (@see ExportWeb.h)
+		const char* const WEB_PAYLOAD_DIR_NAME = "web";
+		//! the wasm module that MARKS a staged browser payload
+		const char* const WEB_PLAYER_FILE_NAME = "orkige_player.wasm";
 		//! the sibling executables the bundle carries, under their platform
 		//! file names (the ONE place the bundle's tool naming lives)
 #ifdef _WIN32
@@ -227,6 +234,18 @@ namespace OrkigeEditor
 		// changelog, and a developer build says so rather than showing the
 		// working tree's history as if it were a release record
 		return this->resolveResource(CHANGELOG_FILE_NAME, Orkige::String());
+	}
+	//---------------------------------------------------------
+	EditorResourcePath EditorResourceLocator::webPlayer() const
+	{
+		// no fallback on purpose: a build tree answers this question through
+		// its own web-release preset tree, which the export plan reaches
+		// directly. This asks only "did the packaging stage the browser
+		// player inside this app?" - the whole browser payload lives under
+		// web/ (@see ExportWeb.h), and the wasm module is what marks it.
+		return this->resolveResource(
+			Orkige::String(WEB_PAYLOAD_DIR_NAME) + "/" + WEB_PLAYER_FILE_NAME,
+			Orkige::String());
 	}
 	//---------------------------------------------------------
 	EditorResourcePath EditorResourceLocator::player() const

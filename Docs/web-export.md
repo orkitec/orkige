@@ -78,7 +78,7 @@ Lua/scene project as a static directory every web server can host as-is.
     cmake --preset web-release                 # configure (vcpkg wasm ports)
     cmake --build --preset web-release         # player + core test binary
     ctest --preset web                         # units under node + export tests
-    python3 Util/orkige_export.py --project projects/jumper-lua \
+    orkige_export --project projects/jumper-lua \
         --platform web --engine-build build/web-release
     python3 -m http.server -d projects/jumper-lua/builds/web
 
@@ -91,8 +91,11 @@ Lua/scene project as a static directory every web server can host as-is.
       ~/Development/emsdk/emsdk install latest
       ~/Development/emsdk/emsdk activate latest
 
-  Nothing needs to be on `PATH`: the triplet, the preset and the exporter
-  resolve the toolchain through `EMSDK` (defaulted to the path above).
+  Nothing needs to be on `PATH`: the triplet and the preset resolve the
+  toolchain through `EMSDK` (defaulted to the path above). Only BUILDING the
+  wasm player needs it — packaging a project for the browser does not, so an
+  editor that carries a prebuilt browser player exports one on a machine with
+  no emsdk at all.
 - vcpkg as for every other preset. The wasm dependency set is the classic
   set minus openal-soft (the browser provides OpenAL), minus the editor-only
   ports; `catch2` stays in so the unit suite runs on the target.
@@ -107,8 +110,38 @@ Lua/scene project as a static directory every web server can host as-is.
 | `tools/player/CMakeLists.txt` (Emscripten branch) | player link flags: WebGL2 ceiling, forced FS, Emscripten's OpenAL |
 | `tools/player/PlayerContext.h` + `playerIterate` (main.cpp) | the player's world on ONE heap context and the loop body as an iterate callback: the desktop loop calls it in a plain `while`, the browser hands the context to the page's frame callback (`emscripten_set_main_loop_arg`, requestAnimationFrame-paced) — same frame body, same orderly teardown, no stack-suspension instrumentation |
 | `engine_util/SDLNativeWindowWeb.cpp` | the native-handle bridge returns null: the page's one canvas is both SDL's window (input) and the GLES2 render surface (OGRE binds it through Emscripten's EGL) |
-| `Util/orkige_export.py --platform web` | packages `<project>/builds/web/`: `index.html` (title/launch background/icon from the manifest), `orkige_player.{js,wasm}`, `game.data` + `game.js` (the payload image — engine media, project payload, `orkige_project.txt` marker — packed by emsdk's `file_packager`, mounted before `main()` runs, so `PlayerBundle` boots the project with no arguments, the same mechanism as every exported app) |
+| `orkige_export --platform web` (@see `tools/exporter/ExportWeb.h`) | packages `<project>/builds/web/`: `index.html` (title/launch background/icon from the manifest), `orkige_player.{js,wasm}`, `icon.png`, `game.pak` + `game.js`. COMPILES NOTHING — the wasm player is a build artifact like every other platform's player and the rest is bytes the exporter arranges, so a browser build packages on a machine with no Emscripten toolchain. |
 | `tools/player/web/index.html.in` | the shell page template the exporter fills in |
+| `tools/player/web/pak_loader.js` | the data loader, shipped verbatim as `game.js` |
+
+## The payload: one game pak
+
+Everything an exported page needs rides in ONE `game.pak` — the engine's own
+zip, the archive `RenderSystem::mountPak` reads. It holds the tree a desktop
+bundle keeps in `Resources/`: `Media/` (the classic shader library plus the
+engine fonts/water/decals and the bloom/grade compositor media), `project/`
+(the shippable project subset, textures cooked for the `web` platform) and the
+`orkige_project.txt` marker.
+
+The page's data loader (`game.js`) fetches it and hands the bytes to the
+module's filesystem as `/game.pak`, through the runtime methods a
+`-sFORCE_FILESYSTEM` build exports for exactly this — `FS_createDataFile` plus
+the run-dependency pair, which hold the runtime at `preRun` until the payload
+is in place. Nothing reaches into the module's internals.
+
+The player then splits the archive the way the Android player splits an
+uncompressed APK:
+
+- **written out as real files** — the small tree read through `fopen`: the
+  marker, the project manifest, scenes, scripts, config assets, and the engine
+  shader/font media the RTSS and font loaders want as directories;
+- **mounted in place** — the bulk game media under the payload's `assets/`,
+  each directory its own flat pak mount so files resolve by BARE resource
+  name, exactly like the loose-file registration a desktop run does.
+
+One split, one mechanism, two packages (`isMountedMediaPath` in
+`tools/player/main.cpp` is the shared rule). A page whose module filesystem
+carries no `game.pak` boots exactly as before.
 
 ## Exception handling (the wasm ABI rule)
 

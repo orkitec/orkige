@@ -132,6 +132,7 @@
 #include <optional>
 #include <set>
 #include <unordered_set>
+#include <vector>
 
 #ifdef __ANDROID__
 #include <jni.h>	// the APK path is a JNI call on the SDL activity (stored mode)
@@ -279,15 +280,32 @@ using Orkige::pushKeyEvent;
 using Orkige::pushMouseMove;
 using Orkige::pushMouseButton;
 
-#ifdef __ANDROID__
-//! @brief the APK sub-trees whose bulk binary media the player MOUNTS in place
-//! in `stored` mode (export.android.assets=stored) instead of extracting - the
-//! game textures/audio/meshes it references by resource name, the bulk of the
-//! bytes. The small fopen-consumed tree (manifest, scenes, scripts, config) and
-//! the engine shader/font media (a directory tree the Hlms/RTSS loaders want)
-//! stay extracted. Path is relative to the assets root (= extract destRoot).
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
+//! @brief the packaged sub-trees whose bulk binary media the player MOUNTS in
+//! place instead of extracting - the game textures/audio/meshes it references
+//! by resource name, the bulk of the bytes. The small fopen-consumed tree
+//! (manifest, scenes, scripts, config) and the engine shader/font media (a
+//! directory tree the Hlms/RTSS loaders want) stay extracted. Path is relative
+//! to the package root (= the extract destRoot).
+//! @remarks ONE split, two packages: an Android APK left uncompressed
+//! (export.android.assets=stored) and a browser export's game pak. Both hand
+//! the archive to RenderSystem::mountPak and write out only the rest.
 bool isMountedMediaPath(std::string const& rel)
 {
+	// a prefab is an asset by location but a DOCUMENT by use: PrefabSerializer
+	// opens it through XMLArchive, which wants a real path, so it has to be
+	// among the files written out. Mounting it leaves every prefab instance in
+	// a scene childless.
+	static const char* const documentSuffixes[] = { ".oprefab" };
+	for (const char* suffix : documentSuffixes)
+	{
+		const std::size_t length = std::strlen(suffix);
+		if (rel.size() >= length &&
+			rel.compare(rel.size() - length, length, suffix) == 0)
+		{
+			return false;
+		}
+	}
 	static const char* const prefixes[] =
 		{ "project/assets/", "assets/", "jumper_media/" };
 	for (const char* prefix : prefixes)
@@ -299,7 +317,9 @@ bool isMountedMediaPath(std::string const& rel)
 	}
 	return false;
 }
+#endif // __ANDROID__ || __EMSCRIPTEN__
 
+#ifdef __ANDROID__
 //! @brief the APK file's own path, via a JNI call on the SDL activity
 //! (Context.getPackageCodePath) - the file the player mounts in `stored` mode.
 //! "" when JNI/the activity is unavailable (the mount then falls back to
@@ -424,6 +444,89 @@ bool extractBundledAssets(std::string const& destRoot, bool mountMediaMode)
 	return true;
 }
 #endif // __ANDROID__
+
+#ifdef __EMSCRIPTEN__
+//! the browser export's payload archive, placed in the module filesystem by
+//! the page's data loader (tools/player/web/pak_loader.js) before main() runs
+const char* const WEB_PAK_FILE_NAME = "game.pak";
+
+//! @brief unpack a browser export's game pak: write out the small tree that is
+//! read through fopen (the orkige_project.txt marker, the project manifest,
+//! scenes, scripts, config assets and the engine shader/font media) and report
+//! back the media directories whose contents stay IN the archive to be mounted
+//! in place (@see isMountedMediaPath - the Android `stored` split, verbatim).
+//! @param pakPath the archive in the module filesystem
+//! @param destRoot where the extracted tree lands (the module base directory)
+//! @param outMountDirs receives one entry per media directory found, each an
+//!        archive-internal path ending in '/' - what mountPak takes as its
+//!        sub-tree mount point so files resolve by BARE resource name.
+//! @return false only when the archive cannot be read or an entry cannot be
+//!         written; a page with no pak never reaches here.
+bool extractWebPak(std::string const& pakPath, std::string const& destRoot,
+	std::set<std::string>& outMountDirs)
+{
+	Orkige::MiniZip pak;
+	if (!pak.open(pakPath))
+	{
+		SDL_Log("orkige_player: FAILED - '%s' is not a readable game pak",
+			pakPath.c_str());
+		return false;
+	}
+	unsigned extracted = 0;
+	std::vector<unsigned char> bytes;
+	for (auto const& entry : pak.entries())
+	{
+		const std::string& name = entry.first;
+		if (name.empty() || name.back() == '/')
+		{
+			continue;	// a directory record carries no bytes
+		}
+		if (isMountedMediaPath(name))
+		{
+			const std::size_t slash = name.find_last_of('/');
+			if (slash != std::string::npos)
+			{
+				outMountDirs.insert(name.substr(0, slash + 1));
+			}
+			continue;	// mounted in place, never written out
+		}
+		// zip-slip guard on the extract-to-disk boundary: the archive is this
+		// engine's own output, but the check costs nothing and the rule is the
+		// same one every extraction here follows (Docs/filesystem.md)
+		std::filesystem::path destPath;
+		if (!Orkige::PathJail::resolveExtractPath(
+			std::filesystem::path(destRoot), name, destPath))
+		{
+			SDL_Log("orkige_player: FAILED - refusing to extract '%s' "
+				"(escapes the payload root)", name.c_str());
+			return false;
+		}
+		if (!pak.read(name, bytes))
+		{
+			SDL_Log("orkige_player: FAILED - could not read '%s' from the "
+				"game pak", name.c_str());
+			return false;
+		}
+		std::error_code ignored;
+		std::filesystem::create_directories(destPath.parent_path(), ignored);
+		// an empty entry is still a file the payload lists: hand SDL a valid
+		// pointer with a zero length rather than a null one
+		const unsigned char emptyEntry = 0;
+		if (!SDL_SaveFile(destPath.string().c_str(),
+			bytes.empty() ? &emptyEntry : bytes.data(), bytes.size()))
+		{
+			SDL_Log("orkige_player: FAILED - could not write '%s': %s",
+				destPath.string().c_str(), SDL_GetError());
+			return false;
+		}
+		++extracted;
+	}
+	SDL_Log("orkige_player: game pak ready (%u files under '%s', %zu media "
+		"dirs mounted in place)", extracted, destRoot.c_str(),
+		outMountDirs.size());
+	return true;
+}
+#endif // __EMSCRIPTEN__
 
 } // namespace
 
@@ -1218,12 +1321,40 @@ int main(int argc, char** argv)
 	const bool pakScriptSelfCheck =
 		std::getenv("ORKIGE_PAK_SCRIPT_SELFCHECK") != nullptr;
 
+#ifdef __EMSCRIPTEN__
+	// browser export: the page's data loader fetched the game pak and placed
+	// it at the module filesystem root before main() ran. Unpack the small
+	// fopen tree NOW - the marker below is read from it - and remember the
+	// media directories that stay in the archive; they are mounted in place
+	// once the render system exists (the resource-location block further
+	// down). A page without a pak (a dev module, a differently packaged one)
+	// simply has none of this and boots as before.
+	std::string webPakPath;
+	std::set<std::string> webPakMountDirs;
+	{
+		const std::string webBase = Orkige::PlayerBundle::baseDirectory();
+		const std::string candidate =
+			(webBase.empty() ? std::string("/") : webBase) + WEB_PAK_FILE_NAME;
+		std::error_code ignored;
+		if (std::filesystem::is_regular_file(candidate, ignored))
+		{
+			if (!extractWebPak(candidate,
+				webBase.empty() ? std::string("/") : webBase, webPakMountDirs))
+			{
+				return 1;
+			}
+			webPakPath = candidate;
+		}
+	}
+#endif
+
 	// exported app, launched WITHOUT arguments (double-click): the
 	// orkige_project.txt marker next to the executable's resources names the
 	// bundled default project - macOS .app: Contents/Resources/, iOS .app:
-	// the flat bundle root (Android reads its extracted assets root below,
+	// the flat bundle root, a browser export: the module filesystem root the
+	// pak above unpacked into (Android reads its extracted assets root below,
 	// after SDL is up). Dev runs carry no marker and are unaffected. See
-	// PlayerBundle in engine_runtime/PlayerRuntime.h and Util/orkige_export.py.
+	// PlayerBundle in engine_runtime/PlayerRuntime.h.
 	bool bundledProjectRun = false;
 	if (projectPath.empty() && scenePath.empty())
 	{
@@ -1941,6 +2072,22 @@ int main(int argc, char** argv)
 							"'%s' to mount media in place",
 							androidApkForMount.c_str());
 					}
+				}
+#endif
+#ifdef __EMSCRIPTEN__
+				// browser export: the bulk game media never left the pak -
+				// mount each media DIRECTORY as its own flat sub-tree so files
+				// resolve by BARE resource name, exactly like the loose-file
+				// registration above (the Android `stored` mount, verbatim).
+				if (!webPakPath.empty())
+				{
+					for (std::string const& dir : webPakMountDirs)
+					{
+						render->mountPak(webPakPath, dir,
+							Orkige::Project::RESOURCE_GROUP_NAME);
+					}
+					SDL_Log("orkige_player: mounted %zu game-pak media dirs in "
+						"place", webPakMountDirs.size());
 				}
 #endif
 				// ORKIGE_PAK_SELFCHECK: mount the pak's sub-tree so its scene,

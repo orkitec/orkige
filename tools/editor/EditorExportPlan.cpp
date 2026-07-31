@@ -141,14 +141,21 @@ namespace OrkigeEditor
 				"package (its bundled player and engine media are missing) and "
 				"no engine build tree is reachable from it - reinstall Orkige");
 		}
-		if(inputs.hostPlatform.empty())
+		// the browser is the one target a copied app can package for on ANY
+		// host: nothing is compiled, the wasm player is a prebuilt artifact
+		// staged inside the app, and everything else is bytes the exporter
+		// arranges. Without that player staged it falls through to the
+		// platform refusal below, which says what is missing.
+		const bool webFromBundle =
+			inputs.platform == "web" && inputs.bundleWebPlayer;
+		if(!webFromBundle && inputs.hostPlatform.empty())
 		{
 			return refuse("this Orkige runs on " + inputs.hostName + ", where "
 				"project export has no packaging target yet - export from an "
 				"Orkige running on " + platformLabel("macos") + ", or build "
 				"the game's player from the engine source tree");
 		}
-		if(inputs.platform != inputs.hostPlatform)
+		if(!webFromBundle && inputs.platform != inputs.hostPlatform)
 		{
 			const Orkige::String label = platformLabel(inputs.platform);
 			const Orkige::String host = platformLabel(inputs.hostPlatform);

@@ -179,6 +179,41 @@ TEST_CASE("export plan: a copied app names the platform it cannot build",
 	CHECK(planProjectExport(ios).error.find("iOS") != Orkige::String::npos);
 }
 
+TEST_CASE("export plan: a copied app carrying the browser player packages it",
+	"[editor][export]")
+{
+	// the browser is the ONE target a distributed copy can package for on any
+	// host: a web build compiles nothing - the wasm player is a prebuilt
+	// artifact staged inside the app and the rest is bytes the exporter
+	// arranges - so the platform refusal must not fire for it.
+	EditorExportInputs inputs = bundleInputs();
+	inputs.platform = "web";
+	inputs.bundleWebPlayer = true;
+	const EditorExportPlan plan = planProjectExport(inputs);
+	REQUIRE(plan.ok);
+	CHECK(plan.source == EditorExportSource::Bundle);
+	CHECK(valueOf(plan, "--platform") == "web");
+	CHECK(valueOf(plan, "--engine-bundle") ==
+		"/Apps/Orkige.app/Contents/Resources/");
+	CHECK_FALSE(mentions(plan, "--engine-build"));
+	CHECK_FALSE(mentions(plan, "/tree"));
+
+	// ...on a host with no desktop packaging target of its own, too - the
+	// browser build does not depend on one
+	inputs.hostPlatform.clear();
+	inputs.hostName = "Linux";
+	CHECK(planProjectExport(inputs).ok);
+
+	// but a copy WITHOUT the staged browser player still refuses, and the
+	// device targets are unaffected by the browser player riding along
+	inputs = bundleInputs();
+	inputs.platform = "web";
+	CHECK_FALSE(planProjectExport(inputs).ok);
+	inputs.platform = "android";
+	inputs.bundleWebPlayer = true;
+	CHECK_FALSE(planProjectExport(inputs).ok);
+}
+
 TEST_CASE("export plan: a copied app cannot build compiled game code",
 	"[editor][export]")
 {

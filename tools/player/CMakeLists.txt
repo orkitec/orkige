@@ -52,9 +52,12 @@ if(EMSCRIPTEN)
     # future web tool pick their own flags.
     #   MAX_WEBGL_VERSION allow a WebGL2 context where the driver asks for
     #                    GLES3-level features (WebGL1 remains the floor)
-    #   FORCE_FILESYSTEM the project payload + engine media arrive as a
-    #                    file_packager .data image (export packaging), so the
-    #                    FS layer must exist even before any C fopen is seen
+    #   FORCE_FILESYSTEM the project payload + engine media arrive as a game
+    #                    pak the page installs into the module filesystem
+    #                    (export packaging), so the FS layer must exist even
+    #                    before any C fopen is seen - and it exports the
+    #                    FS_createDataFile / run-dependency pair the export's
+    #                    data loader installs that pak through
     #   -lopenal         Emscripten's WebAudio-backed OpenAL implementation
     #                    (the same AL surface openal-soft provides natively)
     target_link_options(orkige_player PRIVATE

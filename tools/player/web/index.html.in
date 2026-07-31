@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <!--
-  Orkige web player shell - written by Util/orkige_export.py --platform web.
-  The page hosts the wasm player: the .data image (engine media + project
-  payload + the orkige_project.txt marker, packed by Emscripten's
-  file_packager) mounts into the module's filesystem before main() runs, so
-  the player boots its bundled project exactly like the other exported apps.
+  Orkige web player shell - written by a project export for the web.
+  The page hosts the wasm player: the data loader (pak_loader.js, shipped as
+  game.js) puts the game pak - engine media + project payload + the
+  orkige_project.txt marker in ONE archive - into the module's filesystem
+  before main() runs, so the player boots its bundled project exactly like the
+  other exported apps.
 
   Automation hooks (the same environment probes the native player reads via
   getenv - Emscripten's ENV map feeds them): query parameters of the form

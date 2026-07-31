@@ -74,6 +74,11 @@ namespace OrkigeEditor
 		Orkige::String		bundleTools;
 		bool				bundlePlayer = false;	//!< a player rides along
 		bool				bundleMedia = false;	//!< ...and the engine media
+		//! does the BROWSER player ride along too? A web build compiles
+		//! nothing - the wasm player is a prebuilt artifact and the rest is
+		//! bytes the exporter arranges - so a copied app that carries it can
+		//! package for the browser on any host, unlike the device targets.
+		bool				bundleWebPlayer = false;
 		//! the desktop package this host produces (hostExportPlatform()), or
 		//! "" where the exporter has no packaging target for it yet
 		Orkige::String		hostPlatform;

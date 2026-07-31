@@ -181,6 +181,14 @@ namespace OrkigeEditor
 		//! reachable, which is when the bundled copy is the right answer.
 		EditorResourcePath pythonToolFromTree(
 			Orkige::String const & fileName) const;
+		//! @brief the staged BROWSER player - the wasm module a packaged
+		//! editor carries under `web/` with the rest of the browser payload
+		//! (the shell page, the data loader and the classic engine media).
+		//! @remarks Deliberately BUNDLE-ONLY, like the changelog: a build tree
+		//! answers "where is the browser player" through its own web-release
+		//! preset tree, which the export plan reaches directly. This asks the
+		//! one question a distributed copy has: did the packaging stage it?
+		EditorResourcePath webPlayer() const;
 		//! the player executable Play spawns
 		EditorResourcePath player() const;
 		//! the texture cook tool the export path drives

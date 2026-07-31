@@ -177,6 +177,28 @@ TEST_CASE("editor resources: the changelog is a packaged build's alone",
 	CHECK(developer.changelog().path.empty());
 }
 
+TEST_CASE("editor resources: the browser player is a packaged build's alone",
+	"[editor][resources]")
+{
+	// a packaged editor carries the whole browser payload under web/ - the
+	// wasm module is what marks it, and finding it is what lets a copied app
+	// package a project for the browser (nothing is compiled for a web build)
+	FakeTree tree;
+	const Orkige::String root = RESOURCE_ROOT;
+	tree.paths = { root + "web/orkige_player.wasm" };
+	const EditorResourceLocator packaged(BASE, treeFallbacks(), tree.probe());
+	REQUIRE(packaged.webPlayer().fromBundle());
+	CHECK(packaged.webPlayer().path == root + "web/orkige_player.wasm");
+
+	// a build tree has none staged and gets NO fallback: it answers the
+	// question through its own web-release preset tree instead
+	FakeTree bare;
+	bare.paths = { "/tree/vcpkg/share/ogre-next/Media/Hlms" };
+	const EditorResourceLocator developer(BASE, treeFallbacks(), bare.probe());
+	CHECK_FALSE(developer.webPlayer().found());
+	CHECK(developer.webPlayer().path.empty());
+}
+
 TEST_CASE("editor resources: a build-tree run falls back to the tree",
 	"[editor][resources]")
 {

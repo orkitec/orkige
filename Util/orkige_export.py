@@ -930,26 +930,33 @@ def write_privacy_manifest(app_dir):
         plistlib.dump(privacy_manifest(), handle)
 
 
-# --- iOS simulator ---------------------------------------------------------
+# --- web (browser) ---------------------------------------------------------
 
-def emsdk_root(environ=None):
-    """the user-local emsdk install (EMSDK env override, else the documented
-    ~/Development/emsdk location - see triplets/wasm32-emscripten.cmake).
-    Empty when absent."""
-    environ = environ if environ is not None else os.environ
-    root = environ.get("EMSDK", "") or os.path.expanduser(
-        os.path.join("~", "Development", "emsdk"))
-    return root if os.path.isdir(root) else ""
+def web_pak_entries(staging):
+    """every staged file as (archive name, absolute path), sorted - the
+    deterministic order the pak is written in (a forward-slash archive name on
+    every host)."""
+    entries = []
+    for root, _dirs, files in os.walk(staging):
+        for name in files:
+            path = os.path.join(root, name)
+            archive = os.path.relpath(path, staging).replace(os.sep, "/")
+            entries.append((archive, path))
+    entries.sort()
+    return entries
 
 
 def export_web(project, engine_build, output_dir):
     """package a browser build: the wasm player from the web-release tree, the
-    engine media + project payload packed into ONE preloaded .data image (it
-    mounts into the module filesystem before main() runs, marker included, so
-    PlayerBundle boots the bundled project with no arguments - the same
-    mechanism as every other exported app), and a shell index.html carrying
-    the project's name, launch background and icon. Output is a static
-    directory any web server can host as-is."""
+    engine media + project payload + the orkige_project.txt marker sealed into
+    ONE game pak (the engine's own zip - the archive RenderSystem::mountPak
+    reads), the data loader that hands it to the module filesystem, and a shell
+    index.html carrying the project's name, launch background and icon.
+
+    Nothing is compiled here, and nothing outside this tree is needed: the pak
+    is written with the stdlib zip writer, so a browser build packages on a
+    machine with no Emscripten toolchain. Output is a static directory any web
+    server can host as-is."""
     if project.native_target():
         fail("project '%s' has a native module ('%s') - native modules are "
              "desktop-only, the browser player runs Lua/scene projects"
@@ -962,27 +969,20 @@ def export_web(project, engine_build, output_dir):
         fail("no wasm player at '%s' - build the web-release preset first"
              % player_js)
     if render_backend(engine_build) != "classic":
-        fail("web export packages the classic (GLES2/WebGL) flavor - "
+        fail("the browser player is the classic (GLES2/WebGL) flavor - "
              "'%s' is not a classic tree" % engine_build)
     media_dir = ogre_media_dir(engine_build)
     if not media_dir:
         fail("no OGRE media under the build tree's vcpkg - broken tree?")
-    emsdk = emsdk_root()
-    if not emsdk:
-        fail("no emsdk found (EMSDK env or ~/Development/emsdk) - the web "
-             "export packs its payload with Emscripten's file_packager")
-    file_packager = os.path.join(emsdk, "upstream", "emscripten", "tools",
-                                 "file_packager.py")
-    if not os.path.isfile(file_packager):
-        fail("no file_packager.py under '%s' - emsdk install incomplete"
-             % emsdk)
+    web_dir = os.path.join(REPO_ROOT, "tools", "player", "web")
 
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
 
-    # stage the virtual filesystem image: engine shader media + engine fonts/
-    # water + the project payload + the marker, laid out exactly like a
-    # desktop bundle's Resources/ (SDL_GetBasePath() is "/" in the module FS)
+    # stage the payload tree: engine shader media + engine fonts/water/decals/
+    # compositor media + the project payload + the marker, laid out exactly
+    # like a desktop bundle's Resources/ (SDL_GetBasePath() is "/" in the
+    # module filesystem, which is where the player unpacks the pak)
     with tempfile.TemporaryDirectory() as staging:
         for subdir in ("Main", "RTShaderLib"):
             source = os.path.join(media_dir, subdir)
@@ -1007,13 +1007,12 @@ def export_web(project, engine_build, output_dir):
             shutil.copytree(engine_decal_dir(),
                             os.path.join(staging, "Media", "decals"),
                             dirs_exist_ok=True)
-        # the engine bloom compositor media (bright/blur/combine material +
-        # shaders engine:setBloom needs): web is always the classic flavor, so
-        # the classic viewport-compositor shaders. Registered at runtime under
-        # Media/bloom/classic like the font/water/decal dirs (the player's
-        # bundled-first bloom pair). On a WebGL2/GLES3 context the bloom cap
-        # opens (@see RenderBackend::bloomSupported), so the chain needs its
-        # media present.
+        # the engine bloom/grade compositor media (the material + shaders
+        # engine:setBloom / engine:setGrade need): web is always the classic
+        # flavor, so the classic viewport-compositor shaders. Registered at
+        # runtime under Media/<effect>/classic like the font/water/decal dirs.
+        # On a WebGL2/GLES3 context those caps open (@see
+        # RenderBackend::bloomSupported), so the chains need their media.
         if engine_bloom_dir("classic"):
             shutil.copytree(engine_bloom_dir("classic"),
                             os.path.join(staging, "Media", "bloom", "classic"),
@@ -1027,14 +1026,20 @@ def export_web(project, engine_build, output_dir):
             engine_build)
         write_marker(staging)
         log("project payload: %d files" % staged)
-        run([sys.executable, file_packager,
-             os.path.join(output_dir, "game.data"),
-             "--preload", staging + "@/",
-             "--js-output=" + os.path.join(output_dir, "game.js"),
-             "--quiet"])
+        entries = web_pak_entries(staging)
+        pak_path = os.path.join(output_dir, "game.pak")
+        with zipfile.ZipFile(pak_path, "w", zipfile.ZIP_DEFLATED) as pak:
+            for archive, path in entries:
+                pak.write(path, archive)
+        log("game pak: %d entries, %s"
+            % (len(entries), human_size(os.path.getsize(pak_path))))
 
     shutil.copy2(player_js, os.path.join(output_dir, "orkige_player.js"))
     shutil.copy2(player_wasm, os.path.join(output_dir, "orkige_player.wasm"))
+    # the data loader the shell page pulls in: it fetches the pak and installs
+    # it through the module's exported FS_createDataFile / run-dependency pair
+    shutil.copy2(os.path.join(web_dir, "pak_loader.js"),
+                 os.path.join(output_dir, "game.js"))
 
     # per-project favicon (the browser's app icon slot)
     icon_source = orkige_icons.load_square_source(
@@ -1043,9 +1048,8 @@ def export_web(project, engine_build, output_dir):
 
     # the shell page: title/background/icon from the manifest, module +
     # payload script names baked in
-    template_path = os.path.join(REPO_ROOT, "tools", "player", "web",
-                                 "index.html.in")
-    with open(template_path, "r", encoding="utf-8") as handle:
+    with open(os.path.join(web_dir, "index.html.in"), "r",
+              encoding="utf-8") as handle:
         shell = handle.read()
     for placeholder, value in (("@TITLE@", project.name),
                                ("@BACKGROUND@", launch_background(project)),
@@ -1059,6 +1063,8 @@ def export_web(project, engine_build, output_dir):
     log("serve: python3 -m http.server -d '%s'" % output_dir)
     return output_dir
 
+
+# --- iOS simulator ---------------------------------------------------------
 
 def export_ios_simulator(project, engine_build, output_dir):
     if project.native_target():

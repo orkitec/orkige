@@ -57,6 +57,9 @@ OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
 	inputs.bundleTools = resources.bundleToolRoot();
 	inputs.bundlePlayer = resources.player().fromBundle();
 	inputs.bundleMedia = resources.engineMedia().fromBundle();
+	// the browser payload: a web build compiles nothing, so a copied app that
+	// staged the wasm player can package for the browser on any host
+	inputs.bundleWebPlayer = resources.webPlayer().fromBundle();
 	inputs.hostPlatform = OrkigeEditor::hostExportPlatform();
 	inputs.hostName = OrkigeEditor::hostExportName();
 	return OrkigeEditor::planProjectExport(inputs);
