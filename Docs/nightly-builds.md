@@ -6,6 +6,10 @@ never move, and a dated one that stays. The point is a download
 instead of a build: a C++ toolchain is needed only to write native game code, not
 to open the editor and make a game in Lua.
 
+This channel is how the engine ships. There is no second, slower track behind
+it: every build comes from a commit the full test matrix proved green, and the
+day's build is the release of that day.
+
 The pipeline lives in `.github/workflows/nightly.yml` beside the other scheduled
 work (the soak, Valgrind and fuzz watches — one Actions run a night). The
 packaging itself is `Util/orkige_nightly_package.py`, which reuses the project
@@ -549,21 +553,45 @@ night's gate see a moved branch and rebuild for nobody:
 ### The full history
 
 `--history` renders every commit, newest first, grouped by the **day** it landed
-— the axis a daily channel makes obvious. Each group is headed by the ordered
-version identity a build of that day carries, composed by the same
-`nightly_version` the pipeline names its artifacts with, from the day and that
-day's newest commit; so a heading here and the version a binary reports are the
-same string by construction. A day whose date composes no version is headed by
-its date.
+— the axis a daily channel makes obvious. A day is headed by one of two things:
+
+- a day that **published a nightly** is headed by the ordered version identity
+  that build carries, composed by the same `nightly_version` the pipeline names
+  its artifacts with, from the commit the build was made from; so a heading here
+  and the version that binary reports are the same string by construction. What
+  proves a day published is its `nightly-YYYYMMDD` release tag, which points at
+  exactly that commit — read by `git_release_tags` and turned into the
+  {day → commit} map by the pure `published_days`. A day the tags do not name
+  gets no version, so no heading can name a build that never existed;
+- every **other** day is headed by its date, carrying the retroactive version
+  era it falls in (`HISTORY_ERAS`: `0.1.0`, `0.2.0 — Watermaze`,
+  `0.3.0 — Think Blue`, `1.0.0 — Pudding Panic`, `2.0.0-pre — Editor`, then the
+  nightly period, which carries no era because its days name real builds). Those
+  labels are applied in hindsight — nothing here carried a version number before
+  the channel began — and the boundary dates are constants with their provenance
+  written beside the table, because the branches and the tag that mark them live
+  in the private archive repository.
 
 The document says what it is missing, rather than presenting whatever it found
 as the whole record:
 
 - a **shallow checkout** lists only the commits that clone carries and says so,
-  naming the count. Both jobs that render it check out with `fetch-depth: 0` for
-  exactly this reason;
+  naming the count. Both jobs that render it check out with `fetch-depth: 0`,
+  which brings the tags along, for exactly this reason;
+- **tags it could not read** leave every day unmarked and say so, rather than
+  reading as "nothing was ever published";
 - **no history at all** says nothing is listed and where the document normally
   comes from.
+
+The archive keeps only the newest 14 dated releases and deletes the tag with the
+release, so a published day older than that window is no longer marked. The page
+says as much: an absent marker records nothing either way, never that the day
+published nothing.
+
+Tonight's own tag is the one case the tags cannot answer: this document is an
+**asset of** tonight's release, so it is written before that release and its tag
+exist. The publish job hands the tag in with `--published-tag`, which is why a
+build's own changelog marks the night that built it.
 
 The site's changelog page (`Util/make_help_portal.py`) renders this same text —
 it imports the composition rather than reading the commit log a second way.
@@ -1002,8 +1030,12 @@ Five more modes serve the pipeline, and each one works by hand:
 python3 Util/orkige_nightly_package.py --identity --commit <sha>
 # the changelog section for a range
 python3 Util/orkige_nightly_package.py --changelog --commit HEAD --since <sha>
-# the FULL history, every commit grouped by the day it landed
+# the FULL history, every commit grouped by the day it landed. --published-tag
+# counts one more day as published (the publish job hands in tonight's, whose
+# tag does not exist yet when this asset is written)
 python3 Util/orkige_nightly_package.py --history --history-out CHANGELOG.md
+python3 Util/orkige_nightly_package.py --history --commit <sha> \
+  --published-tag nightly-$(date -u +%Y%m%d)
 # every archive in a directory against its .sha256 file
 python3 Util/orkige_nightly_package.py --verify-checksums <dir>
 # which dated releases are past the keep count, read from a list of tags

@@ -688,11 +688,28 @@ def changelog_document(version, commit, date, section):
 #
 # The section above answers "what is new tonight". The history answers "what
 # has ever landed": every non-merge commit, newest first, grouped by the DAY it
-# landed - the axis a daily channel makes obvious - and each group headed by
-# the ordered version identity a build of that day carries. That identity is
-# composed by nightly_version, the same function the packaging pipeline uses,
-# so a heading in this document and the version a binary reports are the same
+# landed - the axis a daily channel makes obvious.
+#
+# A day that PUBLISHED a nightly build is headed by the ordered identity that
+# build carries, composed by nightly_version - the same function the packaging
+# pipeline names its artifacts with - from the very commit the build was made
+# from; so a heading here and the version that binary reports are the same
 # string by construction rather than by agreement.
+#
+# What proves a day published is the dated release tag the publish step leaves
+# behind (`nightly-YYYYMMDD`, pointing at exactly the commit that was built).
+# The honest limit is the pruning that bounds the archive: only the newest
+# DATED_RELEASES_KEPT survive, tag and all, so a day older than that window
+# carries no marker. An absent marker therefore records nothing either way -
+# the document says so rather than implying that day published nothing.
+#
+# Every OTHER day is headed by its date, because a date is all such a day is:
+# most of this history predates the nightly channel entirely, and composing a
+# version identity for every day would present years of ordinary work as a
+# release history that never happened. What those days DO carry is the version
+# ERA they belong to (HISTORY_ERAS) - a retroactive reading aid over a long
+# history, stated as such in the intro so no reader takes `1.0.0` for a release
+# that was published at the time.
 #
 # Nothing generated here is committed back into the repository: git history IS
 # the record, and this is rendered from it wherever it is needed - the release
@@ -700,15 +717,147 @@ def changelog_document(version, commit, date, section):
 # file committed back would be a commit, which would build, which would make
 # the next nightly see a moved branch and rebuild - a loop with no reader.
 #
-# The seam is the same as the section's: git is asked for its log on one side
-# (git_log_history, git_is_shallow) and every decision about what the document
-# says is on the other, pure and tested against synthetic log text.
+# The seam is the same as the section's: git is asked for its log and its tags
+# on one side (git_log_history, git_is_shallow, git_release_tags) and every
+# decision about what the document says is on the other, pure and tested
+# against synthetic log text and synthetic tag lists.
 
+# what separates the parts of a day heading. A dash with spaces reads as a
+# separator rather than as part of either side, which a plain hyphen would
+# inside dates that are full of hyphens already.
+ERA_HEADING_SEPARATOR = " — "
+
+# The version ERAS this history reads in: the first day of each, the version it
+# labels, and the short marker that names what that boundary is. An era runs
+# until the next one opens; the last entry opens the nightly period, which
+# carries no label at all, because a day in it either names the build it
+# published or is simply a date.
+#
+# THE LABELS ARE RETROACTIVE. This repository carried no version number at all
+# until the nightly channel began, so `0.1.0` and `1.0.0` were never published
+# releases - they are a reading aid applied now, and the intro says as much in
+# the one sentence it spends on it. A marker names what marks the BOUNDARY, not
+# something built only inside the period after it: several titles were in flight
+# at once and their work crosses these dates freely (the watermaze work runs to
+# 2012-04-24, three boundaries past its own).
+#
+# Every date here is a documented CONSTANT, never anything derived at build
+# time: the branches and the release tag that mark them live in the project's
+# PRIVATE archive repository, which nothing that renders this document can read.
+# A reader who goes hunting for them in THIS repository will not find them - the
+# table is the record, and this is its provenance:
+#
+#   0.2.0  the `watermaze` branch, first commit 2010-11-05 ("orkige branch for
+#          watermaze to not have the new ui and stuff")
+#   0.3.0  the `ThinkBlue` branch, 2011-02-28 (the Volkswagen Think Blue title;
+#          the heading carries the short form). The `CigaretteGame` branch
+#          (2011-02-11) was a prototype and is deliberately given no era of its
+#          own - it sits inside the period this boundary closes
+#   1.0.0  the tag `PuddingPanic-Appstore-version-1.1` (commit 761e806de),
+#          2011-06-01. It names version 1.1, so that game's first release is
+#          EARLIER still: the tag is the earliest hard evidence of a shipped
+#          title, not the release date, and nothing here claims more than that
+#   2.0.0-pre  the commit that bootstrapped the current editor, 843529504
+#
+# Keeping all of it as ONE table is what keeps the claim checkable: the eras are
+# read in one place instead of drifting into conditionals nobody can enumerate.
+HISTORY_ERAS = (
+    # first day,    version,      marker
+    ("2010-09-16", "0.1.0",      ""),
+    ("2010-11-05", "0.2.0",      "Watermaze"),
+    ("2011-02-28", "0.3.0",      "Think Blue"),
+    ("2011-06-01", "1.0.0",      "Pudding Panic"),
+    ("2026-07-07", "2.0.0-pre",  "Editor"),
+    ("2026-07-31", "",           ""),
+)
+
+# the day the nightly channel began - from here a day names a build or nothing
+NIGHTLY_ERA_START = HISTORY_ERAS[-1][0]
+
+
+def _era_label(version, marker):
+    """an era's heading label: its version, and the marker that names the
+    boundary where there is one"""
+    if not version:
+        return ""
+    return version + ERA_HEADING_SEPARATOR + marker if marker else version
+
+
+ERA_LABELS = tuple(_era_label(version, marker)
+                   for _start, version, marker in HISTORY_ERAS
+                   if _era_label(version, marker))
+
+# Two sentences: what the document is, and the one thing a reader must not get
+# wrong about it. Everything else - the evidence, the overlaps, why a boundary
+# is a start and not a period - is a maintainer's concern and lives in the
+# comment above, not on the page.
 HISTORY_INTRO = (
-    "Every commit, newest first, grouped by the day it landed. Each heading "
-    "is the ordered version identity a build of that day carries: the "
-    "engine's base version, the nightly channel, the date, and that day's "
-    "newest commit as build metadata.")
+    "The engine's history, grouped by day. Versions before %s are labels "
+    "applied in hindsight; from that day on a published nightly heads its day "
+    "with the real version it carries, and every other day is a plain date - "
+    "including published days older than the %d the archive keeps."
+    % (NIGHTLY_ERA_START, DATED_RELEASES_KEPT))
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# The grammar every day heading obeys, in ONE place so the checks on this
+# document and on the site page that renders it read the same rule, and derived
+# from the era table so a new era cannot leave it behind: either the ordered
+# identity of a build that really was published, or a date - carrying its
+# retroactive era label where an era applies.
+HISTORY_HEADING_RE = re.compile(
+    r"^(?:\d+\.\d+\.\d+-" + VERSION_CHANNEL + r"\.\d{8}\+[0-9a-f]{7,}"
+    r"|(?:(?:" + "|".join(re.escape(label) for label in ERA_LABELS) + ")"
+    + re.escape(ERA_HEADING_SEPARATOR) + r")?\d{4}-\d{2}-\d{2})$")
+
+# the date every day repeats under its heading, whatever that heading names
+HISTORY_SUMMARY_DATE_RE = re.compile(r"^\*(\d{4}-\d{2}-\d{2}) - \d+ commit",
+                                     re.M)
+
+
+def history_era(date):
+    """the retroactive era label a commit day carries ("<version>" or
+    "<version> — <marker>"), "" for a day in the nightly period (which names
+    real builds instead), for a day before the first era opens, and for anything
+    that is not an ISO date. Pure.
+
+    ISO dates compare as strings, so no parsing is needed; a day that IS a
+    boundary belongs to the era that boundary opens."""
+    day = (date or "").strip()
+    if not _ISO_DATE_RE.match(day):
+        return ""
+    label = ""
+    for start, version, marker in HISTORY_ERAS:
+        if day < start:
+            break
+        label = _era_label(version, marker)
+    return label
+
+
+def published_days(tags):
+    """which DAYS actually published a nightly build, and the commit each of
+    those builds was made from: `{"YYYYMMDD": "<commit>"}` from tag lines of the
+    form `<tag>` or `<tag>\\t<commit>[\\t<commit>]`. Pure - this is the whole
+    decision, and the git call that feeds it is git_release_tags.
+
+    The tag SHAPE is the entire test (is_dated_release_tag), so the rolling
+    `nightly`, a version tag, a truncated look-alike like `nightly-2026` and an
+    impossible calendar date are simply not days. A line naming no commit still
+    marks its day: the tag is what proves the build existed, and the commit only
+    sharpens the identity that day is headed by."""
+    days = {}
+    for line in (tags or ()):
+        fields = str(line).split("\t")
+        tag = fields[0].strip()
+        if not is_dated_release_tag(tag):
+            continue
+        commit = ""
+        for field in fields[1:]:
+            if field.strip():
+                commit = field.strip()
+                break
+        days[tag[len(DATED_TAG_PREFIX):]] = commit
+    return days
 
 
 def parse_log_history(text):
@@ -727,28 +876,47 @@ def parse_log_history(text):
 
 
 class HistoryGroup:
-    """one day of history: the commits that landed on it (newest first) and the
-    ordered version a build of that day carries. `version` is "" for a day
-    whose date composes none, and the day is then headed by its date."""
+    """one day of history: the commits that landed on it (newest first) and, for
+    a day that PUBLISHED a nightly build, the ordered version identity that
+    build carries. `version` is "" for every other day - the overwhelming
+    majority, which published nothing and must not look as though they did."""
 
     def __init__(self, date, version, entries):
         self.date = date
         self.version = version
         self.entries = tuple(entries)
+        self.era = history_era(date)
+
+    @property
+    def published(self):
+        """did a nightly build of this day get published? A version identity is
+        only ever composed where a dated release tag proved one."""
+        return bool(self.version)
 
     @property
     def heading(self):
-        return self.version or self.date
+        """what heads the day: the published build's ordered identity where
+        there is one, otherwise the date - carrying its retroactive era label
+        where an era applies, so a long history reads as the eras it ran
+        through without any of them claiming to be a release."""
+        if self.version:
+            return self.version
+        if self.era:
+            return self.era + ERA_HEADING_SEPARATOR + self.date
+        return self.date
 
 
-def history_groups(entries, base=""):
+def history_groups(entries, base="", published=None):
     """[(sha, date, subject)] -> [HistoryGroup], newest day first, each day's
     commits in the order git emitted them. Pure.
 
-    The version comes from nightly_version(day, the day's NEWEST commit): the
-    nightly builds the tip of the day, so that is the identity that day's build
-    carries. First appearance decides a day's position, so the grouping never
-    reorders what git said."""
+    `published` is the {day -> commit} map of the days that actually published a
+    nightly (published_days). A day in it is given the ordered identity of THAT
+    build - composed by nightly_version from the day and the commit the build
+    was made from, falling back to the day's newest commit when the tag named
+    none. Every other day is given no version at all. First appearance decides a
+    day's position, so the grouping never reorders what git said."""
+    published = published or {}
     order = []
     by_date = {}
     for sha, date, subject in entries:
@@ -756,25 +924,38 @@ def history_groups(entries, base=""):
             by_date[date] = []
             order.append(date)
         by_date[date].append((sha, subject))
-    return [HistoryGroup(date, nightly_version(date, by_date[date][0][0], base),
-                         by_date[date])
-            for date in order]
+    groups = []
+    for date in order:
+        day = compact_date(date)
+        version = ""
+        if day in published:
+            version = nightly_version(
+                date, published[day] or by_date[date][0][0], base)
+        groups.append(HistoryGroup(date, version, by_date[date]))
+    return groups
 
 
-def history_note(available, shallow, commits=0):
+def history_note(available, shallow, commits=0, tags_read=True):
     """what the document says about its OWN completeness - the honest half of
     generating a record from whatever history the machine happens to have.
-    Pure; "" when the history was complete and needs no caveat."""
+    Pure; "" when nothing needs a caveat."""
     if not available:
         return ("No commit history was available where this was generated, so "
                 "nothing is listed. This document is rendered from the "
                 "repository's history when the site deploys and when a build "
                 "is published.")
+    notes = []
     if shallow:
-        return ("This was generated from a shallow checkout, so it lists only "
-                "the %d commit%s that clone carried - not the whole history."
-                % (commits, "" if commits == 1 else "s"))
-    return ""
+        notes.append(
+            "This was generated from a shallow checkout, so it lists only the "
+            "%d commit%s that clone carried - not the whole history."
+            % (commits, "" if commits == 1 else "s"))
+    if not tags_read:
+        notes.append(
+            "The dated release tags could not be read where this was "
+            "generated, so no day is marked as having published a build - "
+            "including days that did.")
+    return " ".join(notes)
 
 
 def history_markdown(groups, note="", title="Changelog", intro=HISTORY_INTRO):
@@ -798,9 +979,13 @@ def history_markdown(groups, note="", title="Changelog", intro=HISTORY_INTRO):
     for group in groups:
         lines.append("## " + group.heading)
         lines.append("")
-        lines.append("*%s - %d commit%s*"
-                     % (group.date, len(group.entries),
-                        "" if len(group.entries) == 1 else "s"))
+        # the date is repeated under every heading, published or not, so one
+        # regular line answers "which day is this" whatever the heading names
+        summary = ("*%s - %d commit%s"
+                   % (group.date, len(group.entries),
+                      "" if len(group.entries) == 1 else "s"))
+        summary += " - published nightly build*" if group.published else "*"
+        lines.append(summary)
         lines.append("")
         for sha, subject in group.entries:
             lines.append("- %s (`%s`)"
@@ -842,11 +1027,38 @@ def git_is_shallow(repo, runner=subprocess.run):
     return (result.stdout or "").strip() == "true"
 
 
+def git_release_tags(repo, runner=subprocess.run):
+    """the IMPURE half of "which days published": the dated release tags this
+    repository carries, one `<tag>\\t<dereferenced commit>\\t<commit>` line each.
+    Returns (lines, ok), never raises.
+
+    The glob is deliberately loose (`nightly-*`) and every judgement about what
+    a line means belongs to published_days: a filter that decided anything here
+    would be a second, untested copy of the tag rule."""
+    argv = ["git", "-C", repo, "tag", "--list", DATED_TAG_PREFIX + "*",
+            "--format=%(refname:strip=2)%09%(*objectname)%09%(objectname)"]
+    try:
+        result = runner(argv, capture_output=True, text=True)
+    except OSError:
+        return [], False
+    if result.returncode != 0:
+        return [], False
+    return [line for line in (result.stdout or "").splitlines()
+            if line.strip()], True
+
+
 def collect_history(head="HEAD", repo=REPO_ROOT, runner=subprocess.run,
-                    base="", title="Changelog"):
+                    base="", title="Changelog", extra_tags=()):
     """the full-history document for @p repo, degrading honestly: no history at
-    all says so, and a shallow clone says the record is truncated rather than
-    presenting what it has as the whole of it."""
+    all says so, a shallow clone says the record is truncated rather than
+    presenting what it has as the whole of it, and tags it could not read leave
+    every day unmarked and SAY that rather than reading as "nothing published".
+
+    `extra_tags` are dated release tag lines to count as published ON TOP of the
+    ones the repository carries. The publish job needs exactly one of them: the
+    document is an ASSET of tonight's release, so it is written before that
+    release - and its tag - exists, and without this the one night a build
+    describes would be the one night it left unmarked."""
     text, ok = git_log_history(repo, head or "HEAD", runner=runner)
     if not ok:
         warn("no commit history available - the changelog says so")
@@ -857,9 +1069,15 @@ def collect_history(head="HEAD", repo=REPO_ROOT, runner=subprocess.run,
     if shallow:
         warn("this is a shallow checkout - the history document says it lists "
              "only the %d commits this clone carries" % len(entries))
-    return history_markdown(history_groups(entries, base),
-                            note=history_note(True, shallow, len(entries)),
-                            title=title)
+    tags, tags_ok = git_release_tags(repo, runner=runner)
+    if not tags_ok:
+        warn("could not read the dated release tags - no day is marked as "
+             "having published a build, and the document says so")
+    return history_markdown(
+        history_groups(entries, base,
+                       published_days(list(tags) + list(extra_tags))),
+        note=history_note(True, shallow, len(entries), tags_ok),
+        title=title)
 
 
 # --- checksums -------------------------------------------------------------
@@ -2678,11 +2896,18 @@ def main():
                         help="write the changelog section to this file too")
     parser.add_argument("--history", action="store_true",
                         help="print the FULL-history changelog: every commit "
-                             "grouped by the day it landed, each day headed by "
-                             "the ordered version a build of it carries")
+                             "grouped by the day it landed, a day that "
+                             "published a nightly headed by that build's "
+                             "ordered version and every other day by its date")
     parser.add_argument("--history-out", default="",
                         help="write the full-history changelog to this file "
                              "too")
+    parser.add_argument("--published-tag", default="",
+                        help="a dated release tag to count as published on top "
+                             "of the ones this repository carries, made from "
+                             "--commit. The publish job passes tonight's: the "
+                             "document is an asset of that release, so it is "
+                             "written before the release and its tag exist")
     parser.add_argument("--checksum", default="",
                         help="write the %s sidecar for one file (the same "
                              "writer every archive's sidecar comes from)"
@@ -2761,7 +2986,14 @@ def main():
         print(section, end="")
         return
     if args.history:
-        document = collect_history(args.commit, args.repo)
+        # the handed-in tag names the commit that was built - when --commit is
+        # a real sha. A symbolic one (`HEAD`) names no commit, and the day's own
+        # newest is the right identity for it anyway, so the tag is left bare.
+        built = (args.commit or "").strip()
+        built = built if re.match(r"^[0-9a-f]{7,40}$", built) else ""
+        extra = ["%s\t\t%s" % (args.published_tag, built)] \
+            if args.published_tag else []
+        document = collect_history(args.commit, args.repo, extra_tags=extra)
         if args.history_out:
             with open(args.history_out, "w") as handle:
                 handle.write(document)
@@ -3079,42 +3311,132 @@ def selftest():
     assert ordered in document and "`dea551f9e`" in document
     assert bounded in document
 
+    # --- the FULL history: the eras -------------------------------------
+    # ONE boundary list, so both sides of every boundary are checkable here
+    assert history_era("2010-09-15") == ""          # before the first commit
+    assert history_era("2010-09-16") == "0.1.0"     # the FIRST commit
+    assert history_era("2010-11-04") == "0.1.0"
+    assert history_era("2010-11-05") == "0.2.0 — Watermaze"
+    assert history_era("2011-02-27") == "0.2.0 — Watermaze"
+    assert history_era("2011-02-28") == "0.3.0 — Think Blue"
+    assert history_era("2011-05-31") == "0.3.0 — Think Blue"
+    assert history_era("2011-06-01") == "1.0.0 — Pudding Panic"
+    assert history_era("2012-11-23") == "1.0.0 — Pudding Panic"
+    assert history_era("2026-07-06") == "1.0.0 — Pudding Panic"
+    assert history_era("2026-07-07") == "2.0.0-pre — Editor"
+    assert history_era("2026-07-30") == "2.0.0-pre — Editor"
+    # from the day the channel began a day names a real build or nothing: no
+    # era label is invented over a period that has actual version identities
+    assert history_era(NIGHTLY_ERA_START) == ""     # 2026-07-31
+    assert history_era("2026-08-01") == ""
+    assert history_era("not-a-date") == "" and history_era("") == ""
+    assert history_era(None) == ""
+    # every label the table composes is one the heading grammar accepts
+    assert ERA_LABELS[0] == "0.1.0", ERA_LABELS
+    for label in ERA_LABELS:
+        assert HISTORY_HEADING_RE.match(label + ERA_HEADING_SEPARATOR
+                                        + "2011-04-12"), label
+    # the two ends of the REAL history, read from git rather than assumed
+    if os.path.exists(os.path.join(REPO_ROOT, ".git")):
+        ends, ends_ok = git_log_history(REPO_ROOT, "HEAD")
+        real_days = [date for _sha, date, _subject in parse_log_history(ends)]
+        if ends_ok and real_days:
+            # the newest commit's day always resolves to a known label (the
+            # nightly period's "" among them); the OLDEST is only the first
+            # commit in a clone that carries the whole history
+            assert history_era(real_days[0]) in ("",) + ERA_LABELS, real_days[0]
+            if not git_is_shallow(REPO_ROOT):
+                assert real_days[-1] == HISTORY_ERAS[0][0], real_days[-1]
+                assert history_era(real_days[-1]) == "0.1.0", real_days[-1]
+
+    # --- the FULL history: which days published --------------------------
+    # the tag shape is the whole test, so a listing full of realistic decoys
+    # yields exactly the two real archive entries
+    tag_lines = ["nightly",                     # the ROLLING tag, not a day
+                 "nightly-20260731\t\tbbbbbbbbb",     # a lightweight tag
+                 "nightly-20260730\tddddddddd\tttttttttt",   # an annotated one
+                 "v2.0.0",                      # a stable release tag
+                 "nightly-2026",                # merely starts like one
+                 "nightly-20260731-rc1",        # ...and so does this
+                 "nightly-20260230",            # a day that does not exist
+                 "PuddingPanic-Appstore-version-1.1",
+                 ""]
+    days = published_days(tag_lines)
+    assert sorted(days) == ["20260730", "20260731"], days
+    assert days["20260731"] == "bbbbbbbbb"      # the commit that was built
+    # an annotated tag reports the commit it dereferences to, never the tag
+    # object - the identity must name the build's commit
+    assert days["20260730"] == "ddddddddd", days
+    # a tag with no commit beside it still marks its day: the tag is what
+    # proves the build, the commit only sharpens the identity
+    assert published_days(["nightly-20260731"]) == {"20260731": ""}
+    assert published_days([]) == {} and published_days(None) == {}
+
     # --- the FULL history: parsing, grouping, the version per group -----
-    history_lines = ("ccccccccc\t2026-07-31\tThird: rest\n"
-                     "bbbbbbbbb\t2026-07-31\tSecond: rest\n"
-                     "aaaaaaaaa\t2026-07-30\tFirst: rest\n"
+    history_lines = ("ccccccccc\t2026-08-01\tFourth: rest\n"
+                     "bbbbbbbbb\t2026-07-31\tThird: rest\n"
+                     "ddddddddd\t2026-07-31\tSecond: rest\n"
+                     "aaaaaaaaa\t2012-11-23\tFirst: rest\n"
                      "\n"
                      "malformed line with no tabs\n")
     parsed = parse_log_history(history_lines)
-    assert parsed == [("ccccccccc", "2026-07-31", "Third: rest"),
-                      ("bbbbbbbbb", "2026-07-31", "Second: rest"),
-                      ("aaaaaaaaa", "2026-07-30", "First: rest")], parsed
-    groups = history_groups(parsed, base="2.0.0")
-    assert [group.date for group in groups] == ["2026-07-31", "2026-07-30"]
-    assert [len(group.entries) for group in groups] == [2, 1]
-    # the day's version is composed from the day's NEWEST commit by the SAME
-    # function the pipeline names its artifacts with - the two cannot drift
-    assert groups[0].version == nightly_version("2026-07-31", "ccccccccc",
+    assert parsed == [("ccccccccc", "2026-08-01", "Fourth: rest"),
+                      ("bbbbbbbbb", "2026-07-31", "Third: rest"),
+                      ("ddddddddd", "2026-07-31", "Second: rest"),
+                      ("aaaaaaaaa", "2012-11-23", "First: rest")], parsed
+    # only 2026-07-31 published, and its build was made from `ddddddddd` - an
+    # older commit of that day, because two more landed after the build ran
+    published = {"20260731": "ddddddddd"}
+    groups = history_groups(parsed, base="2.0.0", published=published)
+    assert [group.date for group in groups] == ["2026-08-01", "2026-07-31",
+                                                "2012-11-23"]
+    assert [len(group.entries) for group in groups] == [1, 2, 1]
+    # the published day's version is composed by the SAME function the pipeline
+    # names its artifacts with, from the commit the TAG names - so a heading
+    # here and that binary's own self-report are the same string
+    assert groups[1].published
+    assert groups[1].version == nightly_version("2026-07-31", "ddddddddd",
                                                 "2.0.0")
-    assert groups[0].version == "2.0.0-nightly.20260731+ccccccccc"
-    assert groups[0].heading == groups[0].version
-    # a day whose date composes no version is headed by the date itself
+    assert groups[1].version == "2.0.0-nightly.20260731+ddddddddd"
+    assert groups[1].heading == groups[1].version
+    # a day that published NOTHING composes no version at all - it is a date,
+    # carrying its retroactive era where one applies
+    assert not groups[0].published and groups[0].version == ""
+    assert groups[0].heading == "2026-08-01"            # the nightly period
+    assert not groups[2].published
+    assert groups[2].era == "1.0.0 — Pudding Panic"
+    assert groups[2].heading == "1.0.0 — Pudding Panic — 2012-11-23"
+    # with no tag evidence at all, not even that day is marked
+    unmarked = history_groups(parsed, base="2.0.0")
+    assert not any(group.published for group in unmarked)
+    assert unmarked[1].heading == "2026-07-31"
+    # a group whose date is no date at all is headed by whatever git said
     undated = history_groups([("aaaaaaaaa", "not-a-date", "Subject: rest")])
-    assert undated[0].version == ""
+    assert undated[0].version == "" and undated[0].era == ""
     assert undated[0].heading == "not-a-date"
 
     # --- the FULL history: the document ---------------------------------
     rendered = history_markdown(groups)
     assert rendered.startswith("# Changelog")
     assert HISTORY_INTRO in rendered
-    assert "3 commits across 2 days." in rendered, rendered
-    assert "## 2.0.0-nightly.20260731+ccccccccc" in rendered, rendered
-    assert "*2026-07-31 - 2 commits*" in rendered, rendered
-    assert "- Third (`ccccccccc`)" in rendered
+    # the intro says out loud that the era labels are retroactive - the whole
+    # point of the document is that it never invents a release
+    assert "applied in hindsight" in HISTORY_INTRO
+    assert "4 commits across 3 days." in rendered, rendered
+    assert "## 2.0.0-nightly.20260731+ddddddddd" in rendered, rendered
+    assert "*2026-07-31 - 2 commits - published nightly build*" in rendered, \
+        rendered
+    assert "## 2026-08-01" in rendered and "*2026-08-01 - 1 commit*" in rendered
+    assert "## 1.0.0 — Pudding Panic — 2012-11-23" in rendered, rendered
+    assert "*2012-11-23 - 1 commit*" in rendered, rendered
+    # a day that published nothing never says it did
+    assert rendered.count("published nightly build") == 1, rendered
+    assert "- Third (`bbbbbbbbb`)" in rendered
     assert "- First (`aaaaaaaaa`)" in rendered
     # newest day first, and a day's commits in the order git emitted them
-    assert rendered.index("## 2.0.0-nightly.20260731") < \
-        rendered.index("## 2.0.0-nightly.20260730")
+    assert rendered.index("## 2026-08-01") < \
+        rendered.index("## 2.0.0-nightly.20260731") < \
+        rendered.index("## 1.0.0 — Pudding Panic — 2012-11-23")
     assert rendered.index("- Third (") < rendered.index("- Second (")
     # the completeness note: silent on a full history, explicit otherwise
     assert history_note(True, False, 3) == ""
@@ -3128,54 +3450,107 @@ def selftest():
 
     # --- the FULL history: the git seam ---------------------------------
     class FakeHistoryGit:
-        """a stand-in git answering both questions the history asks"""
+        """a stand-in git answering all three questions the history asks"""
 
-        def __init__(self, log_out, shallow=False, returncode=0):
+        def __init__(self, log_out, shallow=False, returncode=0, tags=(),
+                     tags_returncode=0):
             self.log_out = log_out
             self.shallow = shallow
             self.returncode = returncode
+            self.tags = tuple(tags)
+            self.tags_returncode = tags_returncode
             self.log_argv = []
+            self.tag_argv = []
 
         def __call__(self, argv, **_kwargs):
             if "rev-parse" in argv:
                 return FakeLog("true\n" if self.shallow else "false\n")
+            if "tag" in argv:
+                self.tag_argv = argv
+                return FakeLog("".join(line + "\n" for line in self.tags),
+                               returncode=self.tags_returncode)
             self.log_argv = argv
             return FakeLog(self.log_out, returncode=self.returncode)
 
-    full_git = FakeHistoryGit(history_lines)
+    full_git = FakeHistoryGit(history_lines,
+                              tags=["nightly", "nightly-20260731\t\tddddddddd"])
     full = collect_history("HEAD", REPO_ROOT, full_git)
     assert "%cd" in " ".join(full_git.log_argv), full_git.log_argv
     # the whole history, never a window: this document IS the complete record
     assert not any(arg.startswith("-n") for arg in full_git.log_argv), \
         full_git.log_argv
+    # the tags are asked for by the dated prefix, and the answer carries the
+    # commit each tag names (the dereferenced one for an annotated tag)
+    assert DATED_TAG_PREFIX + "*" in full_git.tag_argv, full_git.tag_argv
+    assert any("objectname" in arg for arg in full_git.tag_argv), \
+        full_git.tag_argv
     # ...though a caller may ask for just the tip (the site's staleness stamp)
     tip_git = FakeHistoryGit(history_lines)
     git_log_history(REPO_ROOT, "HEAD", limit=1, runner=tip_git)
     assert "-n1" in tip_git.log_argv, tip_git.log_argv
-    assert "3 commits across 2 days." in full
+    assert "4 commits across 3 days." in full
     assert "shallow" not in full
+    # the ONE day the tags prove is headed by its build; the others are dates
+    assert "## 2.0.0-nightly.20260731+ddddddddd" in full, full
+    assert "## 2026-08-01" in full and \
+        "## 1.0.0 — Pudding Panic — 2012-11-23" in full, full
+    assert full.count("published nightly build") == 1, full
+    # tags git could not answer for: no day is marked, and the document SAYS so
+    # rather than reading as "nothing was ever published"
+    untagged = collect_history("HEAD", REPO_ROOT,
+                               FakeHistoryGit(history_lines,
+                                              tags_returncode=128))
+    assert "dated release tags could not be read" in untagged, untagged
+    assert "published nightly build" not in untagged, untagged
+    assert "## 2026-07-31" in untagged, untagged
+    # no tags at all is not an error: a repository whose archive was pruned
+    # empty simply marks nothing, silently
+    pruned = collect_history("HEAD", REPO_ROOT, FakeHistoryGit(history_lines))
+    assert "dated release tags could not be read" not in pruned, pruned
+    assert "published nightly build" not in pruned, pruned
+    # tonight's own tag does not exist yet when the publish job writes this
+    # asset, so it is handed in - the one night a build describes must not be
+    # the one night it leaves unmarked
+    tonight = collect_history("HEAD", REPO_ROOT, FakeHistoryGit(history_lines),
+                              extra_tags=["nightly-20260801\t\tccccccccc"])
+    assert "## 2.0.0-nightly.20260801+ccccccccc" in tonight, tonight
+    assert tonight.count("published nightly build") == 1, tonight
     shallow = collect_history("HEAD", REPO_ROOT,
                               FakeHistoryGit(history_lines, shallow=True))
     assert "shallow checkout" in shallow, shallow
-    assert "3 commits across 2 days." in shallow
+    assert "4 commits across 3 days." in shallow
     absent = collect_history("HEAD", REPO_ROOT, always_fails)
     assert "No commit history was available" in absent
     assert "No commits to list." in absent
-    # against the REAL repository: every day heading is an ordered version this
-    # engine's own VersionOrder grammar accepts, newest day first
+    # against the REAL repository: every day heading obeys the ONE grammar -
+    # an ordered identity only where a dated release tag proved a build, a
+    # dated heading with its era otherwise - and the days run newest first
     if os.path.exists(os.path.join(REPO_ROOT, ".git")):
         real_history = collect_history("HEAD", REPO_ROOT)
         headings = re.findall(r"^## (.+)$", real_history, re.M)
         assert headings, real_history[:200]
-        assert re.match(r"^\d+\.\d+\.\d+-nightly\.\d{8}\+[0-9a-f]{7,}$",
-                        headings[0]), headings[0]
-        assert headings == sorted(headings, reverse=True), headings[:5]
+        for heading in headings:
+            assert HISTORY_HEADING_RE.match(heading), heading
+        # a version identity may appear ONLY for a day the tags name
+        marked = published_days(git_release_tags(REPO_ROOT)[0])
+        versions = [h for h in headings if "+" in h]
+        assert len(versions) <= len(marked), (versions, sorted(marked))
+        for version in versions:
+            assert version.split(".")[-1].split("+")[0] in marked, version
+        # the date under each heading is what orders the document
+        dates = HISTORY_SUMMARY_DATE_RE.findall(real_history)
+        assert len(dates) == len(headings), (len(dates), len(headings))
+        assert dates == sorted(dates, reverse=True), dates[:5]
         # MORE than one day is only a fair expectation of a clone that carries
         # the history: every build job checks out shallow (only the site jobs
         # ask for the full log, because only they publish it), and a clone with
         # one day in it says so rather than being wrong
         if not git_is_shallow(REPO_ROOT):
             assert len(headings) > 1, headings[:5]
+            # this history predates the nightly channel by years, so a full
+            # clone always carries era-headed days
+            assert any(ERA_HEADING_SEPARATOR in h for h in headings), \
+                headings[:5]
         else:
             log("shallow checkout - the multi-day leg of the real-history "
                 "check is skipped, the rest still holds")
@@ -3311,6 +3686,7 @@ def selftest():
             assert history_script, "the publish job must generate the asset"
             run = subprocess.run(["bash", "-c", history_script], cwd=REPO_ROOT,
                                  env=dict(environ, SHA="HEAD",
+                                          DATED_TAG=dated_release_tag(today()),
                                           ASSETS=downloads),
                                  capture_output=True, text=True)
             assert run.returncode == 0, run.stdout + run.stderr
@@ -3321,8 +3697,21 @@ def selftest():
                 attached = handle.read()
             assert attached.startswith("# Changelog"), attached[:80]
             if os.path.exists(os.path.join(REPO_ROOT, ".git")):
-                assert re.search(r"^## \d+\.\d+\.\d+-nightly\.\d{8}\+",
-                                 attached, re.M), attached[:400]
+                # the asset carries the same day headings the site page does:
+                # every one obeys the ONE grammar, and none of them invents a
+                # version for a day that published nothing
+                attached_headings = re.findall(r"^## (.+)$", attached, re.M)
+                assert attached_headings, attached[:400]
+                for heading in attached_headings:
+                    assert HISTORY_HEADING_RE.match(heading), heading
+                # tonight's tag was handed in, so the night this build
+                # describes is marked in it - the release does not attach a
+                # document that leaves its own day blank
+                if compact_date(today()) in \
+                        {compact_date(date) for _sha, date, _subject
+                         in parse_log_history(git_log_history(REPO_ROOT)[0])}:
+                    assert "published nightly build" in attached, \
+                        attached[:600]
             # the ad-hoc build's notes send a reader through the quarantine
             # steps, because that is what an ad-hoc build needs
             assert "UNSIGNED, so macOS refuses" in body, body
@@ -4110,14 +4499,23 @@ exit 0
             raise AssertionError("expected a refusal for a missing image")
         except SystemExit:
             pass
-        unreadable = os.path.join(temp, "Orkige.AppImage")
-        open(unreadable, "w").close()
-        os.chmod(unreadable, 0o644)
-        try:
-            verify_appimage(unreadable)
-            raise AssertionError("expected a refusal for a non-executable image")
-        except SystemExit:
-            pass
+        # "not executable" is a POSIX state: Windows has no execute bit, so
+        # chmod cannot take one away and the check would RUN the file instead
+        # of refusing it. The leg is skipped there rather than asserting a
+        # refusal the platform cannot produce.
+        if os.name == "nt":
+            log("no execute bit on this platform - the non-executable "
+                "AppImage leg is skipped")
+        else:
+            unreadable = os.path.join(temp, "Orkige.AppImage")
+            open(unreadable, "w").close()
+            os.chmod(unreadable, 0o644)
+            try:
+                verify_appimage(unreadable)
+                raise AssertionError(
+                    "expected a refusal for a non-executable image")
+            except SystemExit:
+                pass
 
     # --- a synthetic build tree, staged and archived --------------------
     with tempfile.TemporaryDirectory() as temp:

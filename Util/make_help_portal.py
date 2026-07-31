@@ -13,12 +13,12 @@
 #                           help/downloads.js only ever improves it
 #   help/                -> the documentation portal:
 #     overview.html        <- README.md
-#     changelog.html       <- the FULL release history, rendered from the
-#                             repository's git log at deploy time (never a
-#                             committed file: git history is the record, and
-#                             the ONE composition of it lives in
-#                             Util/orkige_nightly_package.py, which the
-#                             nightly's own changelog comes from too)
+#     changelog.html       <- the FULL commit history, rendered from the
+#                             repository's git log and its dated release tags
+#                             at deploy time (never a committed file: git
+#                             history is the record, and the ONE composition
+#                             of it lives in Util/orkige_nightly_package.py,
+#                             which the nightly's own changelog comes from too)
 #     <doc>.html           <- Docs/*.md (one page each, incl. GENERATED blocks)
 #     project-<name>.html  <- projects/*/README.md (picked up when a project
 #                             documents itself)
@@ -74,8 +74,9 @@ if UTIL_DIR not in sys.path:
     sys.path.insert(0, UTIL_DIR)
 import make_editor_icon  # noqa: E402  (sibling Util tool - the ONE icon drawing)
 # the packaging tool owns the ONE reading of the repository's commit log into
-# changelog prose (subject -> headline, day grouping, the ordered version per
-# day); the portal RENDERS that text rather than parsing git a second way
+# changelog prose (subject -> headline, day grouping, the version era a day
+# belongs to, and the ordered identity of the days that actually published a
+# build); the portal RENDERS that text rather than parsing git a second way
 import orkige_nightly_package  # noqa: E402
 
 # preferred reading order for the sidebar; corpus pages not listed here are
@@ -179,9 +180,11 @@ def changelog_page():
 
 def changelog_markdown(root):
     """the history document the page renders, composed by the packaging tool
-    (the ONE reading of the commit log) and degrading honestly there: a
-    shallow checkout says the record is truncated and a machine with no git
-    history says nothing is listed."""
+    (the ONE reading of the commit log and of the dated release tags that prove
+    which days published a build) and degrading honestly there: a shallow
+    checkout says the record is truncated, tags it could not read leave every
+    day unmarked and say so, and a machine with no git history says nothing is
+    listed."""
     return orkige_nightly_package.collect_history("HEAD", root,
                                                   title="Changelog")
 
@@ -724,7 +727,9 @@ def page_shell(page, pages, body, extra_head=""):
             '<div class="searchbox"><input id="search" type="search" '
             'placeholder="Search the docs..." autocomplete="off">\n'
             '<div id="results" hidden></div></div>\n'
-            '<span class="header-links"><a href="../index.html">Orkige</a>'
+            '<span class="header-links">'
+            '<a href="../index.html#downloads">Download</a>'
+            '<a href="../index.html">Orkige</a>'
             "</span>\n</header>\n"
             '<div class="shell">\n<nav>%s</nav>\n'
             "<main><article>\n%s\n</article></main>\n%s</div>\n"
@@ -833,10 +838,9 @@ DOWNLOAD_PLATFORMS = (
             ("install", "Download .dmg", r"^Orkige-macos-.+\.dmg$"),
             ("portable", ".zip", r"^Orkige-macos-.+\.zip$"),
         ),
-        "note": ("Open the disk image and drag Orkige to Applications. The "
-                 "app is signed, notarized and stapled, so it opens like any "
-                 "other app &mdash; no security prompt to click through. "
-                 "Apple silicon only: the build is arm64."),
+        "note": ("Open the disk image and drag Orkige to Applications. It is "
+                 "signed and notarized, so it opens like any other app. "
+                 "Apple silicon only."),
     },
     {
         "id": "windows",
@@ -847,13 +851,11 @@ DOWNLOAD_PLATFORMS = (
              r"^Orkige-windows-.+-setup\.exe$"),
             ("portable", ".zip", r"^Orkige-windows-.+\.zip$"),
         ),
-        "note": ("The installer is per-user and asks for no administrator "
-                 "rights &mdash; but it is <strong>unsigned</strong>, so "
-                 "SmartScreen greets it with the full-screen "
-                 "&ldquo;Windows protected your PC&rdquo;, whose default "
-                 "button is <em>Don&rsquo;t run</em>. The way through is "
-                 "<em>More info</em> &rarr; <em>Run anyway</em>. The "
-                 "portable <code>.zip</code> needs no such confirmation."),
+        "note": ("A per-user installer, no administrator rights needed. It is "
+                 "not yet signed, so Windows shows &ldquo;Windows protected "
+                 "your PC&rdquo; &mdash; choose <em>More info</em> &rarr; "
+                 "<em>Run anyway</em>. The portable <code>.zip</code> does "
+                 "not ask."),
     },
     {
         "id": "linux",
@@ -863,14 +865,11 @@ DOWNLOAD_PLATFORMS = (
             ("install", "Download .AppImage", r"^Orkige-linux-.+\.AppImage$"),
             ("portable", ".tar.gz", r"^Orkige-linux-.+\.tar\.gz$"),
         ),
-        "note": ("One file: <code>chmod +x</code> it and run it. The "
-                 "AppImage mounts itself through FUSE; where a distribution "
-                 "no longer ships FUSE, run it with "
-                 "<code>--appimage-extract-and-run</code> instead. The "
-                 "<code>.tar.gz</code> is the portable alternative and "
-                 "expects the distribution&rsquo;s own X, GL/Vulkan, audio "
-                 "and D-Bus libraries to be installed &mdash; the AppImage "
-                 "carries those itself."),
+        "note": ("One file: <code>chmod +x</code> it and run it. If your "
+                 "system no longer ships FUSE, run it with "
+                 "<code>--appimage-extract-and-run</code>. The "
+                 "<code>.tar.gz</code> is smaller but expects the X, audio "
+                 "and D-Bus libraries the AppImage carries itself."),
     },
 )
 
@@ -1021,9 +1020,18 @@ def verify_generated_links(pages):
                                     page_id + ".html",
                                     "no such corpus page"))
         elif anchor and anchor not in page.anchors:
+            # name what the page DOES carry: this gate fires on a heading
+            # that was renamed or on a page that rendered differently than
+            # expected, and neither is diagnosable from the missing name
+            # alone
+            near = sorted(a for a in page.anchors if a.startswith(anchor[:12]))
+            detail = "no such heading anchor"
+            if near:
+                detail += " (nearest: " + ", ".join(near[:3]) + ")"
+            elif not page.anchors:
+                detail += " (the page rendered no headings at all)"
             issues.append(LinkIssue(os.path.relpath(SCRIPT_PATH, ROOT), line,
-                                    page.source + "#" + anchor,
-                                    "no such heading anchor"))
+                                    page.source + "#" + anchor, detail))
     return issues
 
 
@@ -1042,10 +1050,18 @@ LANDING_INTRO = (
     "fully modernized in 2026. Open source under the Apache-2.0 license.")
 
 LANDING_FEATURES = (
-    ("Dual-backend rendering",
-     "Two render backends behind one facade &mdash; Metal, Vulkan, GL3+, "
-     "GLES2 and WebGL &mdash; with pixel-identical output enforced by a "
-     "parity test. SDL3 windowing and input, glTF asset loading."),
+    ("Rendering everywhere",
+     "One renderer across Metal, Vulkan, GL3+, GLES2 and WebGL, with "
+     "pixel-identical output enforced by a parity test. SDL3 windowing and "
+     "input, glTF asset loading."),
+    ("Script debugging in the editor",
+     "Breakpoints in the gutter, step in, over and out, the call stack and "
+     "frame-scoped locals &mdash; against the running game, with Lua "
+     "hot-reload while it plays."),
+    ("Visual UI editing",
+     "Build a screen on the canvas with selection, resize and anchor grips, "
+     "and preview it at real device presets &mdash; notch, safe area and "
+     "all &mdash; without leaving the editor or starting the game."),
     ("Six platforms, one project",
      "A game is a folder with a manifest; the Build menu exports a macOS "
      "app, iOS app, Android APK or a self-contained browser build &mdash; "
@@ -1087,9 +1103,10 @@ def landing_page(pages):
     text-first, no claims the README does not make."""
     getting_started = next(
         (p for p in pages if p.page_id == "getting-started"), None)
-    # the downloads section is on this page, so the first action jumps to it
-    actions = ['<a class="action primary" href="#downloads">Download</a>',
-               '<a class="action" href="help/index.html">Documentation</a>']
+    # the downloads section is on this page; the header carries the Download
+    # link on the right, so the hero leads with the documentation instead
+    actions = ['<a class="action primary" href="help/index.html">'
+               "Documentation</a>"]
     if getting_started is not None:
         actions.append('<a class="action" href="help/%s.html">Getting '
                        "started</a>" % getting_started.page_id)
@@ -1114,6 +1131,7 @@ def landing_page(pages):
             '</head>\n<body>\n'
             '<header>\n' + home_link("help/", "index.html", "Orkige") + '\n'
             '<span class="header-links">'
+            '<a href="#downloads">Download</a>'
             '<a href="help/index.html">Documentation</a>'
             '<a href="benchmark.html">Benchmark</a>'
             '<a href="%s">GitHub</a></span>\n</header>\n'
@@ -1180,6 +1198,7 @@ def benchmark_page(pages):
             '</head>\n<body>\n'
             '<header>\n' + home_link("help/", "index.html", "Orkige") + '\n'
             '<span class="header-links">'
+            '<a href="#downloads">Download</a>'
             '<a href="help/index.html">Documentation</a>'
             '<a href="benchmark.html">Benchmark</a>'
             '<a href="%s">GitHub</a></span>\n</header>\n'
@@ -2076,12 +2095,11 @@ def _selftest_synthetic(temp_root):
     # embeds NO player itself
     assert 'href="benchmark.html">Benchmark' in landing
     assert "player-frame" not in landing
-    # the Downloads section: the first hero button jumps to it, and it is
+    # the Downloads section: the header's right-hand links reach it, and it is
     # COMPLETE in the shipped markup - one card per platform, every button
     # already pointing at the release page. No script has run at this point,
     # and this is the state a visitor without JavaScript keeps.
-    assert '<a class="action primary" href="#downloads">Download</a>' \
-        in landing
+    assert '<a href="#downloads">Download</a>' in landing
     assert 'id="downloads"' in landing and DOWNLOADS_HEADING in landing
     for platform in DOWNLOAD_PLATFORMS:
         assert 'data-platform="%s"' % platform["id"] in landing, platform["id"]
@@ -2091,9 +2109,9 @@ def _selftest_synthetic(temp_root):
         ["%s/%s" % (p, s) for p, s, _ in download_asset_slots()], buttons
     assert all(href == NIGHTLY_RELEASE_URL for _key, href in buttons), buttons
     # the caveats a visitor must not meet unprepared, in the markup itself
-    assert "notarized" in landing and "no security prompt" in landing
+    assert "notarized" in landing
     assert "Windows protected your PC" in landing, landing
-    assert "Run anyway" in landing and "unsigned" in landing
+    assert "Run anyway" in landing and "not yet signed" in landing
     assert "--appimage-extract-and-run" in landing and "FUSE" in landing
     assert RELEASES_URL in landing and ".sha256" in landing
     # the section's links into the corpus, verified by the generated-link gate
@@ -2185,6 +2203,73 @@ def _selftest_synthetic(temp_root):
     report = captured.getvalue()
     assert "Docs/broken.md:3 -> missing.md" in report, report
     assert "Docs/broken.md:3 -> Docs/other.md#no-such-anchor" in report, report
+    os.remove(os.path.join(temp_root, "Docs", "broken.md"))
+    _selftest_history_page(temp_root)
+
+
+def _selftest_history_page(temp_root):
+    """The changelog page over a REAL repository whose archive contains a dated
+    release: the one shape the live corpus cannot show, because this repository
+    published its first nightly on the day the channel began.
+
+    Three commits on three days - one deep in an era, one on the day the channel
+    began (tagged, so it published) and one after it (untagged) - render as the
+    three headings the document has: an era-and-date, an ordered version
+    identity, and a bare date that must not look like a build."""
+    git = shutil.which("git")
+    if git is None:
+        print("make_help_portal selftest: no git - the published-day leg of "
+              "the changelog page is skipped, the rest still holds")
+        return
+    # a config path that does not exist reads as an empty one on every
+    # platform, so whatever the machine's git is configured to do - signing
+    # commits, running hooks from a template - cannot reach this repository
+    absent_config = os.path.join(temp_root, "no-git-config")
+    env = dict(os.environ, GIT_CONFIG_GLOBAL=absent_config,
+               GIT_CONFIG_SYSTEM=absent_config)
+
+    def run(*argv, date=""):
+        if date:
+            env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = \
+                date + "T12:00:00 +0000"
+        result = subprocess.run([git, "-C", temp_root] + list(argv),
+                                capture_output=True, text=True, env=env)
+        assert result.returncode == 0, " ".join(argv) + ": " + result.stderr
+        return result.stdout.strip()
+
+    run("init", "-q")
+    run("config", "user.name", "Selftest")
+    run("config", "user.email", "selftest@example.invalid")
+    run("add", "README.md", "Docs")
+    era_day, published_day, quiet_day = "2012-11-23", \
+        orkige_nightly_package.NIGHTLY_ERA_START, "2026-08-01"
+    run("commit", "-q", "-m", "Era commit: the rest", date=era_day)
+    run("commit", "-q", "--allow-empty", "-m", "Published commit: the rest",
+        date=published_day)
+    built = run("rev-parse", "HEAD")
+    run("commit", "-q", "--allow-empty", "-m", "Quiet commit: the rest",
+        date=quiet_day)
+    # the archive entry the publish step leaves behind, pointing at exactly the
+    # commit that was built - a later commit landed that day and must not be
+    # the one the identity names
+    run("tag", orkige_nightly_package.dated_release_tag(published_day), built)
+
+    out = os.path.join(temp_root, "history_site")
+    assert build(temp_root, out) == 0
+    with open(os.path.join(out, "help", CHANGELOG_PAGE_ID + ".html")) as f:
+        changelog = f.read()
+    days = [html.unescape(day) for day
+            in re.findall(r'<h2 id="[^"]*">([^<]+)</h2>', changelog)]
+    for day in days:
+        assert orkige_nightly_package.HISTORY_HEADING_RE.match(day), day
+    expected = orkige_nightly_package.nightly_version(published_day, built)
+    assert days == [quiet_day, expected,
+                    orkige_nightly_package.history_era(era_day)
+                    + orkige_nightly_package.ERA_HEADING_SEPARATOR
+                    + era_day], days
+    # the day that published says so; the days that did not never imply one
+    assert changelog.count("published nightly build") == 1, changelog
+    assert "No commit history was available" not in changelog
 
 
 def _selftest_real_corpus(temp_root):
@@ -2244,22 +2329,37 @@ def _selftest_real_corpus(temp_root):
     assert 'src="play/index.html"' in benchmark
     assert 'class="player-frame"' in benchmark
     assert BENCHMARK_HEADING in benchmark
-    # the release history off the REAL repository: every day is headed by the
-    # ordered version a build of it carries, newest first, and each entry
-    # names its commit
+    # the commit history off the REAL repository: every day heading obeys the
+    # ONE grammar the composition defines - the ordered identity of a build
+    # that really was published, or a date carrying its retroactive era - the
+    # days run newest first, and each entry names its commit
     with open(os.path.join(out, "help", CHANGELOG_PAGE_ID + ".html")) as f:
         changelog = f.read()
     days = re.findall(r'<h2 id="[^"]*">([^<]+)</h2>', changelog)
     assert days, changelog[:2000]
+    for day in days:
+        assert orkige_nightly_package.HISTORY_HEADING_RE.match(
+            html.unescape(day)), day
+    # a version identity may head ONLY a day a dated release tag names
+    marked = orkige_nightly_package.published_days(
+        orkige_nightly_package.git_release_tags(ROOT)[0])
+    for day in days:
+        if "+" in day:
+            assert day.split(".")[-1].split("+")[0] in marked, day
+    # the date repeated under each heading is what orders the page
+    dates = re.findall(r"<em>(\d{4}-\d{2}-\d{2}) - \d+ commit", changelog)
+    assert len(dates) == len(days), (len(dates), len(days))
+    assert dates == sorted(dates, reverse=True), dates[:5]
     # MORE than one day is only a fair expectation of a clone that carries the
     # history. The jobs that PUBLISH the site fetch the full log; every build
     # job checks out shallow, and a clone with one day in it is not a broken
     # page - the page says what it was generated from.
     if not orkige_nightly_package.git_is_shallow(ROOT):
         assert len(days) > 1, days[:5]
-    assert re.match(r"^\d+\.\d+\.\d+-nightly\.\d{8}\+[0-9a-f]{7,}$", days[0]), \
-        days[0]
-    assert days == sorted(days, reverse=True), days[:5]
+        # this repository's history predates the nightly channel by years, so
+        # a full clone always renders era-headed days
+        assert any(orkige_nightly_package.ERA_HEADING_SEPARATOR
+                   in html.unescape(day) for day in days), days[:5]
     assert re.search(r"\(<code>[0-9a-f]{7,}</code>\)", changelog), \
         changelog[:2000]
     assert "No commit history was available" not in changelog

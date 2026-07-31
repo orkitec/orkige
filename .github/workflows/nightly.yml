@@ -1532,6 +1532,12 @@ jobs:
       - name: Generate the full-history changelog asset
         env:
           SHA: ${{ needs.binaries-gate.outputs.sha }}
+          # tonight's dated release tag. The document marks the days that
+          # published from the tags this checkout carries, and tonight's is
+          # created a few steps below - this asset is part of that very
+          # release - so it is handed in rather than looked up, or the one
+          # night this build describes would be the one night it left unmarked.
+          DATED_TAG: ${{ needs.binaries-gate.outputs.dated_tag }}
           # where the platform archives landed - the assets directory this
           # writes into. Named rather than spelled inline so the packaging
           # self-check can run THIS script against a scratch directory
@@ -1540,7 +1546,8 @@ jobs:
         run: |
           set -uo pipefail
           python3 Util/orkige_nightly_package.py --history \
-            --commit "${SHA}" --history-out "${ASSETS}/CHANGELOG.md" > /dev/null
+            --commit "${SHA}" --published-tag "${DATED_TAG}" \
+            --history-out "${ASSETS}/CHANGELOG.md" > /dev/null
           python3 Util/orkige_nightly_package.py --checksum "${ASSETS}/CHANGELOG.md"
           head -12 "${ASSETS}/CHANGELOG.md"
 
