@@ -1228,7 +1228,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # PUBLISH: one rolling release tagged `nightly`, kept a DRAFT.
+  # PUBLISH: one rolling release tagged `nightly`.
   #
   # PUBLISHED, not a draft: a nightly nobody can download is not a nightly, and
   # the macOS build - the one whose operating system refuses an unidentified
@@ -1342,7 +1342,9 @@ jobs:
             echo ""
             echo "Every download carries a \`VERSION\` file, a \`CHANGELOG.md\` and"
             echo "a \`KNOWN-LIMITATIONS.md\` listing what this build cannot do"
-            echo "yet: read it first."
+            echo "yet: read it first. The \`CHANGELOG.md\` asset beside the"
+            echo "archives is the FULL history - every version, fetchable"
+            echo "without unpacking anything."
             # What each platform's security prompt will actually say, from what
             # the artifact records rather than from a fixed sentence: a notarized
             # download that still called itself unsigned would send people
@@ -1378,6 +1380,33 @@ jobs:
             echo "<!-- orkige-nightly-version: ${VERSION} -->"
           } > notes.md
           cat notes.md
+
+      # The full history as its own asset: the archives each carry the changes
+      # since the previous nightly, but "what has ever landed" should be
+      # readable without downloading and unpacking a hundred-megabyte archive.
+      # Generated from the commit log here - the same composition the site's
+      # changelog page renders - and never committed back: a generated file in
+      # the tree would be a commit, which would build, which would make
+      # tomorrow's gate see a moved branch and rebuild for nobody.
+      #
+      # It lands in `downloads/` so the publish step below picks it up with
+      # everything else, and it gets a sidecar from the SAME writer every
+      # archive's comes from: the notes promise one beside every asset, and
+      # the verification below is about to check it.
+      - name: Generate the full-history changelog asset
+        env:
+          SHA: ${{ needs.binaries-gate.outputs.sha }}
+          # where the platform archives landed - the assets directory this
+          # writes into. Named rather than spelled inline so the packaging
+          # self-check can run THIS script against a scratch directory
+          # instead of restating what it does.
+          ASSETS: downloads
+        run: |
+          set -uo pipefail
+          python3 Util/orkige_nightly_package.py --history \
+            --commit "${SHA}" --history-out "${ASSETS}/CHANGELOG.md" > /dev/null
+          python3 Util/orkige_nightly_package.py --checksum "${ASSETS}/CHANGELOG.md"
+          head -12 "${ASSETS}/CHANGELOG.md"
 
       # The `.sha256` sidecar is the whole integrity story of a download, so
       # EVERY asset that arrived - installers and archives alike - is checked

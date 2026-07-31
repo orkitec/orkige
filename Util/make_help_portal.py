@@ -11,6 +11,12 @@
 #   index.html           -> the landing page (the product front door)
 #   help/                -> the documentation portal:
 #     overview.html        <- README.md
+#     changelog.html       <- the FULL release history, rendered from the
+#                             repository's git log at deploy time (never a
+#                             committed file: git history is the record, and
+#                             the ONE composition of it lives in
+#                             Util/orkige_nightly_package.py, which the
+#                             nightly's own changelog comes from too)
 #     <doc>.html           <- Docs/*.md (one page each, incl. GENERATED blocks)
 #     project-<name>.html  <- projects/*/README.md (picked up when a project
 #                             documents itself)
@@ -64,6 +70,10 @@ ROOT = os.path.dirname(UTIL_DIR)
 if UTIL_DIR not in sys.path:
     sys.path.insert(0, UTIL_DIR)
 import make_editor_icon  # noqa: E402  (sibling Util tool - the ONE icon drawing)
+# the packaging tool owns the ONE reading of the repository's commit log into
+# changelog prose (subject -> headline, day grouping, the ordered version per
+# day); the portal RENDERS that text rather than parsing git a second way
+import orkige_nightly_package  # noqa: E402
 
 # preferred reading order for the sidebar; corpus pages not listed here are
 # appended alphabetically, so a new doc shows up without touching this script
@@ -124,7 +134,8 @@ API_SECTION_NOTE = ("The C++ class reference, generated from the engine "
 # corpus discovery
 # ---------------------------------------------------------------------------
 class Page:
-    def __init__(self, page_id, source, group, directory="help"):
+    def __init__(self, page_id, source, group, directory="help",
+                 unindexed=False):
         self.page_id = page_id        # output stem, e.g. "lua-api"
         self.source = source          # repo-relative source path
         self.group = group            # sidebar group name
@@ -134,6 +145,10 @@ class Page:
         self.toc = []                 # [(anchor, text)] for the h2 rail
         self.anchors = set()          # every heading slug on the page
         self.sections = []            # search records for this page
+        # kept out of the search index (the legal pages by convention, the
+        # changelog because a commit log would drown the documentation it
+        # shares the box with)
+        self.unindexed = unindexed
 
 
 def page_href(from_directory, to_page):
@@ -147,14 +162,38 @@ def page_href(from_directory, to_page):
     return to_page.directory + "/" + name
 
 
+# the full release history: a page with no source FILE, rendered from the
+# repository's git log when the site is built. It is deliberately not part of
+# the corpus map, so a doc cannot link to it as if it were a committed .md -
+# there is no such file, and the link gate should say so.
+CHANGELOG_PAGE_ID = "changelog"
+
+
+def changelog_page():
+    """the release-history Page: same shell, same nav, no source file."""
+    return Page(CHANGELOG_PAGE_ID, "", "Overview", unindexed=True)
+
+
+def changelog_markdown(root):
+    """the history document the page renders, composed by the packaging tool
+    (the ONE reading of the commit log) and degrading honestly there: a
+    shallow checkout says the record is truncated and a machine with no git
+    history says nothing is listed."""
+    return orkige_nightly_package.collect_history("HEAD", root,
+                                                  title="Changelog")
+
+
 def discover_corpus(root):
-    """The corpus pages in sidebar order: Overview, the Docs guides, the
-    project READMEs, plus the root-level legal pages (footer-only).
-    Returns ({repo path -> Page}, [Page in order])."""
+    """The corpus pages in sidebar order: Overview (the README plus the
+    generated release history), the Docs guides, the project READMEs, plus the
+    root-level legal pages (footer-only).
+    Returns ({repo path -> Page}, [Page in order]); the map holds only pages
+    backed by a committed file, which is what an internal link may target."""
     pages = []
     readme = os.path.join(root, "README.md")
     if os.path.isfile(readme):
         pages.append(Page("overview", "README.md", "Overview"))
+    pages.append(changelog_page())
     docs_dir = os.path.join(root, "Docs")
     stems = sorted(os.path.splitext(fn)[0] for fn in os.listdir(docs_dir)
                    if fn.endswith(".md"))
@@ -173,8 +212,8 @@ def discover_corpus(root):
         candidate = os.path.join(docs_dir, "legal", stem + ".md")
         if os.path.isfile(candidate):
             pages.append(Page(stem, "Docs/legal/%s.md" % stem, "Legal",
-                              directory=""))
-    by_source = {p.source: p for p in pages}
+                              directory="", unindexed=True))
+    by_source = {p.source: p for p in pages if p.source}
     return by_source, pages
 
 
@@ -224,7 +263,7 @@ class RenderContext:
     link resolution), where links may point (the corpus page map), and the
     collectors for link verification."""
 
-    def __init__(self, page, by_source, root):
+    def __init__(self, page, by_source, root, links=True):
         self.page = page
         self.by_source = by_source
         self.root = root
@@ -232,13 +271,21 @@ class RenderContext:
         self.pending_links = []       # (line, target_page, fragment) to verify
         self.issues = []              # LinkIssue list
         self.images = []              # (repo_path, out_dir, name) to copy
+        # authored prose links to other pages and is held to it; GENERATED
+        # prose (the release history, whose text is commit subjects) carries no
+        # authored links, so bracket punctuation that happens to look like one
+        # stays text instead of becoming a link nobody wrote and a gate failure
+        # nobody can act on
+        self.links = links
 
     def resolve_image(self, alt, target):
         """One ![alt](target) -> HTML. A committed repository image (the README
         mark) is COPIED into the site next to the page and shown as an <img>;
         remote images (README badges) and missing files degrade to their alt
         text - the portal ships no fetched artwork."""
-        if re.match(r'^[a-z][a-z0-9+.-]*:', target):   # http:, data:, ...
+        # a remote scheme (http:, data:, ...) - and every image reference on a
+        # generated page - stays alt text
+        if not self.links or re.match(r'^[a-z][a-z0-9+.-]*:', target):
             return html.escape(alt)
         path = target.partition("#")[0]
         source_dir = os.path.dirname(self.page.source)
@@ -255,6 +302,8 @@ class RenderContext:
         """One [text](target) -> HTML, offline discipline: corpus .md links
         become page links (verified later), repository files degrade to code,
         genuinely missing targets are reported as broken."""
+        if not self.links:
+            return text_html
         if re.match(r'^[a-z][a-z0-9+.-]*:', target):  # http:, https:, mailto:
             return '<a class="external" href="%s">%s</a>' % (
                 html.escape(target, quote=True), text_html)
@@ -597,15 +646,25 @@ class MarkdownRenderer:
         return "\n".join(self.out)
 
 
-def render_page(page, by_source, root):
-    """Render one corpus page; returns the shared link-verification data."""
-    with open(os.path.join(root, page.source), "r", encoding="utf-8") as f:
-        text = f.read()
-    ctx = RenderContext(page, by_source, root)
+def render_markdown(page, text, by_source, root, links=True):
+    """Render markdown into one page; returns the link-verification data. The
+    text comes from a committed file for a corpus page and from the generator
+    for the release history - one renderer either way."""
+    ctx = RenderContext(page, by_source, root, links=links)
     collector = SectionCollector(page)
     page.html = MarkdownRenderer(ctx, collector).render(text)
     page.sections = collector.records
     return ctx
+
+
+def render_page(page, by_source, root):
+    """Render one page: a corpus page reads its committed source, the release
+    history is generated from the repository's git log."""
+    if not page.source:
+        return render_markdown(page, changelog_markdown(root), by_source, root,
+                               links=False)
+    with open(os.path.join(root, page.source), "r", encoding="utf-8") as f:
+        return render_markdown(page, f.read(), by_source, root)
 
 
 # ---------------------------------------------------------------------------
@@ -1214,6 +1273,14 @@ HELP_JS = """\
 # ---------------------------------------------------------------------------
 # build
 # ---------------------------------------------------------------------------
+def history_head(root):
+    """the commit the release-history page renders from - a build input that is
+    not a file, so --if-stale notices a new commit as readily as a new doc.
+    "" where there is no history (the page then says so and stays stable)."""
+    text, ok = orkige_nightly_package.git_log_history(root, "HEAD", limit=1)
+    return text.strip() if ok else ""
+
+
 def corpus_stamp(root, by_source):
     digest = hashlib.sha256()
     with open(SCRIPT_PATH, "rb") as f:
@@ -1221,6 +1288,10 @@ def corpus_stamp(root, by_source):
     # the icon drawing is a build input too (it renders the site's identity)
     with open(make_editor_icon.__file__, "rb") as f:
         digest.update(f.read())
+    # the changelog composition, and the commit its page renders from
+    with open(orkige_nightly_package.__file__, "rb") as f:
+        digest.update(f.read())
+    digest.update(history_head(root).encode("utf-8"))
     for source in sorted(by_source):
         digest.update(source.encode("utf-8"))
         with open(os.path.join(root, source), "rb") as f:
@@ -1288,8 +1359,10 @@ def build(root, output_dir, if_stale=False):
     write("", "benchmark.html", benchmark_page(pages))
     write("help", "help.css", HELP_CSS)
     write("help", "help.js", HELP_JS)
-    # legal pages stay OUT of the search index by convention (footer-only)
-    records = [record for page in pages if page.group != "Legal"
+    # the index is the DOCUMENTATION: the legal pages are footer-only by
+    # convention, and the release history would put a thousand commit lines in
+    # front of the guide a search is looking for
+    records = [record for page in pages if not page.unindexed
                for record in page.sections]
     write("help", "search-index.json",
           json.dumps(records, ensure_ascii=False, separators=(",", ":")))
@@ -1489,6 +1562,18 @@ def _selftest_synthetic(temp_root):
     assert target and "zanzibar" in target[0]["body"]
     assert not any("xylophone" in r["body"] for r in records), \
         "legal pages must stay out of the search index"
+    # the release history: a corpus with no git history behind it says so on
+    # the page instead of rendering an empty one, and never claims a version
+    with open(os.path.join(out, "help", CHANGELOG_PAGE_ID + ".html")) as f:
+        changelog = f.read()
+    assert "No commit history was available" in changelog, changelog
+    assert "No commits to list." in changelog, changelog
+    assert "nightly." not in changelog, changelog
+    # it is in the nav (every portal page carries the sidebar) and OUT of the
+    # search index - a commit log must not drown the documentation
+    assert '<a href="changelog.html">Changelog</a>' in page, page
+    assert not any(r["page"] == "changelog.html" for r in records), \
+        "the release history must stay out of the search index"
 
     # staleness: an unchanged corpus is a no-op, a touched source rebuilds
     stamp_file = os.path.join(out, ".stamp")
@@ -1564,6 +1649,21 @@ def _selftest_real_corpus(temp_root):
     assert 'src="play/index.html"' in benchmark
     assert 'class="player-frame"' in benchmark
     assert BENCHMARK_HEADING in benchmark
+    # the release history off the REAL repository: every day is headed by the
+    # ordered version a build of it carries, newest first, and each entry
+    # names its commit
+    with open(os.path.join(out, "help", CHANGELOG_PAGE_ID + ".html")) as f:
+        changelog = f.read()
+    days = re.findall(r'<h2 id="[^"]*">([^<]+)</h2>', changelog)
+    assert len(days) > 1, days[:5]
+    assert re.match(r"^\d+\.\d+\.\d+-nightly\.\d{8}\+[0-9a-f]{7,}$", days[0]), \
+        days[0]
+    assert days == sorted(days, reverse=True), days[:5]
+    assert re.search(r"\(<code>[0-9a-f]{7,}</code>\)", changelog), \
+        changelog[:2000]
+    assert "No commit history was available" not in changelog
+    assert not any(r["page"] == "changelog.html" for r in records), \
+        "the release history must stay out of the search index"
     with open(os.path.join(out, "imprint.html")) as f:
         imprint = f.read()
     assert "Impressum" in imprint and "orkitec" in imprint

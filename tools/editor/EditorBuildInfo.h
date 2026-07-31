@@ -56,4 +56,18 @@ namespace Orkige
 	//! -readable enough for the packaging smoke test to grep the commit out of
 	//! it, human-readable enough to paste into a bug report.
 	std::string editorVersionLine();
+
+	//! @brief the changelog THIS build shipped with - the CHANGELOG.md the
+	//! packaging pipeline wrote beside the app, verbatim. "" for a build that
+	//! carries none (every developer build), which the About box reports in
+	//! one line rather than showing an empty box.
+	//! @remarks Resolved through the ONE resource locator
+	//! (EditorResourcePaths.h) and read ONCE: the reference stays valid for
+	//! the process, so a UI that draws every frame never touches the disk.
+	std::string const & editorBuildChangelog();
+
+	//! @brief the one line a build with no packaged changelog says instead -
+	//! the same sentence the About box shows and `--changelog` prints, so the
+	//! two surfaces cannot drift.
+	char const* editorNoChangelogNote();
 }

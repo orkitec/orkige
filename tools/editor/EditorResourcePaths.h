@@ -155,6 +155,13 @@ namespace OrkigeEditor
 		//! one of the editor's own UI font files by name (icon/mono symbols);
 		//! bundled copies sit at the resource root, not under Media/
 		EditorResourcePath uiFont(Orkige::String const & fileName) const;
+		//! @brief the CHANGELOG.md a PACKAGED build carries - what landed in
+		//! the release this binary shipped with, shown in the About box.
+		//! @remarks Deliberately BUNDLE-ONLY: it is written by the packaging
+		//! pipeline, so a build tree has none and this answers Missing. There
+		//! is no tree fallback to invent one from, and the repository's own
+		//! history is not what this build shipped with.
+		EditorResourcePath changelog() const;
 		//! the player executable Play spawns
 		EditorResourcePath player() const;
 		//! the texture cook tool the export path drives

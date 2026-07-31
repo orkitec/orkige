@@ -12,8 +12,12 @@
 // whole editor.
 #include "EditorBuildInfo.h"
 
+#include "EditorResourcePaths.h"	// the ONE bundle-first resource locator
+
 #include <core_util/VersionOrder.h>
 
+#include <fstream>
+#include <sstream>
 #include <string>
 
 // unset in an ordinary developer build: the identity then reads "local build"
@@ -80,5 +84,37 @@ namespace Orkige
 	{
 		return "orkige_editor " + editorBuildIdentity() +
 			" [" ORKIGE_EDITOR_RENDER_BACKEND ", " ORKIGE_EDITOR_BUILD_TYPE "]";
+	}
+
+	char const* editorNoChangelogNote()
+	{
+		return "This build carries no changelog - it was built from a source "
+			"tree rather than packaged from a release.";
+	}
+
+	std::string const & editorBuildChangelog()
+	{
+		// read ONCE, on the first ask: the About box draws every frame while it
+		// is open, and a file read per frame would be a disk hit per frame.
+		// A build with no packaged changelog caches the empty answer just as
+		// firmly, so the miss is not re-probed either.
+		static const std::string changelog = []()
+		{
+			const OrkigeEditor::EditorResourcePath path =
+				OrkigeEditor::editorResources().changelog();
+			if (!path.found())
+			{
+				return std::string();
+			}
+			std::ifstream file(path.path.c_str(), std::ios::binary);
+			if (!file)
+			{
+				return std::string();
+			}
+			std::ostringstream text;
+			text << file.rdbuf();
+			return text.str();
+		}();
+		return changelog;
 	}
 }

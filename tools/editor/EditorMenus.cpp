@@ -594,6 +594,34 @@ void drawEditorModals(EditorState& state, Orkige::EditorCore& core)
 			OGRE_VERSION_PATCH);
 		ImGui::Text("Dear ImGui %s", IMGUI_VERSION);
 		ImGui::Spacing();
+		ImGui::SeparatorText("Changelog");
+		// what this build shipped with, read once and held for the process
+		// (EditorBuildInfo.h) - never a per-frame file read
+		const std::string& changelog = Orkige::editorBuildChangelog();
+		if (changelog.empty())
+		{
+			// a source-tree build carries none, and says so in one line rather
+			// than showing an empty box or inventing entries
+			ImGui::TextWrapped("%s", Orkige::editorNoChangelogNote());
+		}
+		else
+		{
+			// a scrollable region bounded by BOTH a sane maximum and the
+			// window that is actually available, so the modal stays usable on
+			// a small screen (the auto-resize popup would otherwise grow to
+			// the text's full height and run off the display)
+			const ImVec2 available = ImGui::GetMainViewport()->WorkSize;
+			const float width = ImMin(620.0f, available.x - 80.0f);
+			const float height = ImMin(320.0f, available.y - 240.0f);
+			ImGui::BeginChild("##aboutchangelog",
+				ImVec2(ImMax(width, 200.0f), ImMax(height, 80.0f)),
+				ImGuiChildFlags_Borders,
+				ImGuiWindowFlags_HorizontalScrollbar);
+			ImGui::TextUnformatted(changelog.c_str(),
+				changelog.c_str() + changelog.size());
+			ImGui::EndChild();
+		}
+		ImGui::Spacing();
 		if (ImGui::Button("Close"))
 		{
 			ImGui::CloseCurrentPopup();

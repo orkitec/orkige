@@ -119,6 +119,32 @@ TEST_CASE("editor resources: a staged bundle answers every query itself",
 	CHECK(locator.describe().find("bundled app") != Orkige::String::npos);
 }
 
+TEST_CASE("editor resources: the changelog is a packaged build's alone",
+	"[editor][resources]")
+{
+	// the About box shows what THIS build shipped with. A packaged build
+	// carries CHANGELOG.md at its resource root (the packaging pipeline writes
+	// it there for exactly this reason), so the bundle answers...
+	FakeTree tree;
+	const Orkige::String root = RESOURCE_ROOT;
+	tree.paths = { root + "CHANGELOG.md" };
+	const EditorResourceLocator packaged(BASE, treeFallbacks(), tree.probe());
+	const EditorResourcePath changelog = packaged.changelog();
+	REQUIRE(changelog.fromBundle());
+	CHECK(changelog.path == root + "CHANGELOG.md");
+
+	// ...and a developer build has none, with NO tree fallback to invent one:
+	// the repository's working history is not what this binary shipped with,
+	// so the honest answer is Missing and the About box says so in one line
+	FakeTree bare;
+	bare.paths = { "/tree/vcpkg/share/ogre-next/Media/Hlms",
+		"/tree/engine/media/fonts", "/tree/CHANGELOG.md" };
+	const EditorResourceLocator developer(BASE, treeFallbacks(), bare.probe());
+	CHECK(developer.engineMedia().root == EditorResourceRoot::Tree);
+	CHECK_FALSE(developer.changelog().found());
+	CHECK(developer.changelog().path.empty());
+}
+
 TEST_CASE("editor resources: a build-tree run falls back to the tree",
 	"[editor][resources]")
 {

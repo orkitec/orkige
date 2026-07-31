@@ -200,6 +200,17 @@ int main(int argc, char** argv)
 			std::printf("%s\n", Orkige::editorVersionLine().c_str());
 			return 0;
 		}
+		// --changelog: the same text the About box shows - what this build
+		// shipped with, or the one honest line a build that carries none says.
+		// Display-free like --version, so the bundle selfcheck can read back
+		// what a staged copy actually resolves.
+		if (std::strcmp(argv[argIndex], "--changelog") == 0)
+		{
+			const std::string& changelog = Orkige::editorBuildChangelog();
+			std::printf("%s\n", changelog.empty()
+				? Orkige::editorNoChangelogNote() : changelog.c_str());
+			return 0;
+		}
 	}
 
 	// --mcp-port N / --mcp-token-file PATH (aliases --control-port /

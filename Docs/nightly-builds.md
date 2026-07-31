@@ -120,8 +120,10 @@ packaging but the editor's own contract (`Docs/editor-distribution.md`):
 
 - macOS: inside the bundle — `Contents/MacOS` for the executables,
   `Contents/Resources/Media` for the media. `VERSION`, `CHANGELOG.md` and
-  `KNOWN-LIMITATIONS.md` are repeated at the archive root (and so appear on the
-  mounted disk image) so they are readable before installing. The bundle is
+  `KNOWN-LIMITATIONS.md` sit at the resource root (`Contents/Resources`) — where
+  the editor reads its own changelog back for the About box — and are repeated
+  at the archive root (and so appear on the mounted disk image) so they are
+  readable before installing. The bundle is
   re-signed after staging so its resource seal covers everything the packaging
   added ([macOS signing](#macos-signing-notarization-and-stapling)), and zipped
   with `ditto`, which preserves its symlinks and executable bits. The disk image
@@ -131,7 +133,8 @@ packaging but the editor's own contract (`Docs/editor-distribution.md`):
   artifacts to diverge.
 - Linux and Windows: the executables at the top level and the resources under
   `share/orkige/` beside them (`share/orkige/Media/…` plus the editor's icon and
-  mono fonts), which is what the locator reads relative to `SDL_GetBasePath`.
+  mono fonts, and the same three text files), which is what the locator reads
+  relative to `SDL_GetBasePath`.
 
 The build stages that same payload into the build tree, so the two are one
 layout: the packaging targets `orkige_editor_bundle` (which depends on the
@@ -428,6 +431,45 @@ decision about what the output says on the other — so the formatting is
 unit-tested against synthetic log text instead of whatever history a machine
 happens to have.
 
+The changelog is visible in three places, all rendered from the same git
+history and none of them committed back into the repository — a generated file
+in the tree would be a commit, which would build, which would make the next
+night's gate see a moved branch and rebuild for nobody:
+
+- the **release notes** and each archive's `CHANGELOG.md` carry the section
+  above: what landed since the previous nightly;
+- the **release carries the full history as its own asset**, a `CHANGELOG.md`
+  beside the archives (with its own `.sha256`), so "what has ever landed" is one
+  fetch rather than a hundred-megabyte download and an unpack;
+- the **editor's About box** shows the changelog the running build shipped with,
+  read once from the packaged file at its resource root through the one resource
+  locator (`Docs/editor-distribution.md`). A build from a source tree carries
+  none and says so in one line. `orkige_editor --changelog` prints the same
+  text without opening a window, which is how the bundle self-check reads both
+  states back off a real staged copy.
+
+### The full history
+
+`--history` renders every commit, newest first, grouped by the **day** it landed
+— the axis a daily channel makes obvious. Each group is headed by the ordered
+version identity a build of that day carries, composed by the same
+`nightly_version` the pipeline names its artifacts with, from the day and that
+day's newest commit; so a heading here and the version a binary reports are the
+same string by construction. A day whose date composes no version is headed by
+its date.
+
+The document says what it is missing, rather than presenting whatever it found
+as the whole record:
+
+- a **shallow checkout** lists only the commits that clone carries and says so,
+  naming the count. Both jobs that render it check out with `fetch-depth: 0` for
+  exactly this reason;
+- **no history at all** says nothing is listed and where the document normally
+  comes from.
+
+The site's changelog page (`Util/make_help_portal.py`) renders this same text —
+it imports the composition rather than reading the commit log a second way.
+
 ## What an updater reads
 
 The release IS the description of the build. One request returns everything a
@@ -466,7 +508,9 @@ Both are fixed strings one regex finds in one pass over `body`.
    of its own. `VO_SAME` (a rebuild of today's tree) and `VO_INCOMPARABLE` (an
    unstamped local build) are both "nothing to do".
 4. Show the changelog if it offers the update: it is the `## Changes since …`
-   section of `body`, the same text the artifact's `CHANGELOG.md` carries.
+   section of `body`, the same text the artifact's `CHANGELOG.md` carries. For
+   everything before that, the release's own `CHANGELOG.md` asset is the full
+   history, fetchable without unpacking an archive.
 5. Pick its platform's asset by name. An **updater takes the portable one** —
    `Orkige-macos-<token>.zip`, `Orkige-linux-<token>.tar.gz`,
    `Orkige-windows-<token>.zip`, where `<token>` is the version's filename
@@ -629,8 +673,9 @@ produced" plus that job's result, so a partial night is legible instead of
 looking complete. Zero archives is a failure — there is nothing to publish.
 
 Each night's assets are the two macOS ones (`.dmg`, `.zip`), the Linux
-`.tar.gz`, the two Windows ones (`-setup.exe`, `.zip`) and a `.sha256` file
-beside each. Before they are attached, every one of them is checked against the
+`.tar.gz`, the two Windows ones (`-setup.exe`, `.zip`), the full-history
+`CHANGELOG.md`, and a `.sha256` file beside each. Before they are attached,
+every one of them is checked against the
 sidecar that travelled with it (`--verify-checksums`), so bytes that changed on
 the way fail the publish rather than being served under a digest that fits
 neither.
@@ -728,13 +773,15 @@ python3 Util/orkige_nightly_package.py --verify /tmp/smoke --platform macos \
 python3 Util/orkige_nightly_package.py --verify-dmg /tmp/nightly-out/Orkige-macos-*.dmg
 ```
 
-Three more modes serve the pipeline, and each one works by hand:
+Four more modes serve the pipeline, and each one works by hand:
 
 ```sh
 # the ordered version and its filename rendering, as key=value lines
 python3 Util/orkige_nightly_package.py --identity --commit <sha>
 # the changelog section for a range
 python3 Util/orkige_nightly_package.py --changelog --commit HEAD --since <sha>
+# the FULL history, every commit grouped by the day it landed
+python3 Util/orkige_nightly_package.py --history --history-out CHANGELOG.md
 # every archive in a directory against its .sha256 file
 python3 Util/orkige_nightly_package.py --verify-checksums <dir>
 ```

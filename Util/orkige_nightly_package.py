@@ -19,6 +19,8 @@ the other Util/ generators).
     orkige_nightly_package.py --changelog --commit <sha> [--since <sha>]
                               [--changelog-out <file>]
 
+    orkige_nightly_package.py --history [--commit <sha>] [--history-out <file>]
+
     orkige_nightly_package.py --verify-checksums <assets dir>
 
     orkige_nightly_package.py --selftest [--selftest-dmg]
@@ -49,9 +51,13 @@ download newer than what I run"; "2.0.0-nightly.20260730+dea551f9e" can.
 
 macOS puts the payload INSIDE the bundle (Contents/MacOS for the binaries,
 Contents/Resources/Media for the media - where PlayerBundle already looks) and
-repeats VERSION + KNOWN-LIMITATIONS.md at the archive root so a user reads them
-before installing. Linux and Windows keep it flat beside the executable, which
-is where SDL_GetBasePath resolves.
+repeats VERSION + CHANGELOG.md + KNOWN-LIMITATIONS.md at the archive root so a
+user reads them before installing. Linux and Windows keep it flat beside the
+executable, which is where SDL_GetBasePath resolves, with the same three files
+repeated under share/orkige/. Both repetitions serve the same rule: the archive
+root is what a PERSON reads, the resource root is what the EDITOR reads (its
+About box shows the changelog it shipped with, resolved through the one
+resource locator).
 
 Each platform ships the container its users expect. The PORTABLE archive is
 .zip on macOS (through ditto, which preserves the bundle's symlinks and
@@ -585,6 +591,184 @@ def changelog_document(version, commit, date, section):
             "%s" % (version or project_version() or "(unversioned)",
                     date or "an unrecorded date",
                     short_commit(commit) or "an unrecorded commit", section))
+
+
+# --- the FULL history ------------------------------------------------------
+#
+# The section above answers "what is new tonight". The history answers "what
+# has ever landed": every non-merge commit, newest first, grouped by the DAY it
+# landed - the axis a daily channel makes obvious - and each group headed by
+# the ordered version identity a build of that day carries. That identity is
+# composed by nightly_version, the same function the packaging pipeline uses,
+# so a heading in this document and the version a binary reports are the same
+# string by construction rather than by agreement.
+#
+# Nothing generated here is committed back into the repository: git history IS
+# the record, and this is rendered from it wherever it is needed - the release
+# asset the publish job attaches, and the site's changelog page. A generated
+# file committed back would be a commit, which would build, which would make
+# the next nightly see a moved branch and rebuild - a loop with no reader.
+#
+# The seam is the same as the section's: git is asked for its log on one side
+# (git_log_history, git_is_shallow) and every decision about what the document
+# says is on the other, pure and tested against synthetic log text.
+
+HISTORY_INTRO = (
+    "Every commit, newest first, grouped by the day it landed. Each heading "
+    "is the ordered version identity a build of that day carries: the "
+    "engine's base version, the nightly channel, the date, and that day's "
+    "newest commit as build metadata.")
+
+
+def parse_log_history(text):
+    """`<short sha>\\t<YYYY-MM-DD>\\t<subject>` lines into
+    [(sha, date, subject)], newest first (the order git emits). Pure; blank and
+    malformed lines are skipped."""
+    entries = []
+    for line in (text or "").splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) < 3:
+            continue
+        sha, date, subject = parts[0].strip(), parts[1].strip(), parts[2]
+        if sha and date:
+            entries.append((sha, date, subject))
+    return entries
+
+
+class HistoryGroup:
+    """one day of history: the commits that landed on it (newest first) and the
+    ordered version a build of that day carries. `version` is "" for a day
+    whose date composes none, and the day is then headed by its date."""
+
+    def __init__(self, date, version, entries):
+        self.date = date
+        self.version = version
+        self.entries = tuple(entries)
+
+    @property
+    def heading(self):
+        return self.version or self.date
+
+
+def history_groups(entries, base=""):
+    """[(sha, date, subject)] -> [HistoryGroup], newest day first, each day's
+    commits in the order git emitted them. Pure.
+
+    The version comes from nightly_version(day, the day's NEWEST commit): the
+    nightly builds the tip of the day, so that is the identity that day's build
+    carries. First appearance decides a day's position, so the grouping never
+    reorders what git said."""
+    order = []
+    by_date = {}
+    for sha, date, subject in entries:
+        if date not in by_date:
+            by_date[date] = []
+            order.append(date)
+        by_date[date].append((sha, subject))
+    return [HistoryGroup(date, nightly_version(date, by_date[date][0][0], base),
+                         by_date[date])
+            for date in order]
+
+
+def history_note(available, shallow, commits=0):
+    """what the document says about its OWN completeness - the honest half of
+    generating a record from whatever history the machine happens to have.
+    Pure; "" when the history was complete and needs no caveat."""
+    if not available:
+        return ("No commit history was available where this was generated, so "
+                "nothing is listed. This document is rendered from the "
+                "repository's history when the site deploys and when a build "
+                "is published.")
+    if shallow:
+        return ("This was generated from a shallow checkout, so it lists only "
+                "the %d commit%s that clone carried - not the whole history."
+                % (commits, "" if commits == 1 else "s"))
+    return ""
+
+
+def history_markdown(groups, note="", title="Changelog", intro=HISTORY_INTRO):
+    """the full-history document: the release asset and the site page render
+    from this ONE text. Pure - it never asks git anything."""
+    lines = ["# " + title, ""]
+    if intro:
+        lines.append(intro)
+        lines.append("")
+    if note:
+        lines.append(note)
+        lines.append("")
+    commits = sum(len(group.entries) for group in groups)
+    if not commits:
+        lines.append("No commits to list.")
+        return "\n".join(lines).rstrip() + "\n"
+    lines.append("%d commit%s across %d day%s."
+                 % (commits, "" if commits == 1 else "s",
+                    len(groups), "" if len(groups) == 1 else "s"))
+    lines.append("")
+    for group in groups:
+        lines.append("## " + group.heading)
+        lines.append("")
+        lines.append("*%s - %d commit%s*"
+                     % (group.date, len(group.entries),
+                        "" if len(group.entries) == 1 else "s"))
+        lines.append("")
+        for sha, subject in group.entries:
+            lines.append("- %s (`%s`)"
+                         % (changelog_headline(subject) or "(no subject)",
+                            short_commit(sha)))
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def git_log_history(repo, head="HEAD", limit=0, runner=subprocess.run):
+    """the IMPURE half: ask git for `<short sha>\\t<date>\\t<subject>` lines
+    over the WHOLE reachable history (or the newest @p limit of it, which is
+    how a caller asks only what the tip is). Returns (text, ok), never
+    raises."""
+    argv = ["git", "-C", repo, "log", "--no-merges", "--date=short",
+            "--pretty=format:%h%x09%cd%x09%s"]
+    if limit:
+        argv.append("-n%d" % int(limit))
+    argv.append(head)
+    try:
+        result = runner(argv, capture_output=True, text=True)
+    except OSError:
+        return "", False
+    if result.returncode != 0:
+        return "", False
+    return result.stdout or "", True
+
+
+def git_is_shallow(repo, runner=subprocess.run):
+    """is this checkout a SHALLOW clone? A truncated history renders as a
+    perfectly plausible complete one, so the document has to be told."""
+    argv = ["git", "-C", repo, "rev-parse", "--is-shallow-repository"]
+    try:
+        result = runner(argv, capture_output=True, text=True)
+    except OSError:
+        return False
+    if result.returncode != 0:
+        return False
+    return (result.stdout or "").strip() == "true"
+
+
+def collect_history(head="HEAD", repo=REPO_ROOT, runner=subprocess.run,
+                    base="", title="Changelog"):
+    """the full-history document for @p repo, degrading honestly: no history at
+    all says so, and a shallow clone says the record is truncated rather than
+    presenting what it has as the whole of it."""
+    text, ok = git_log_history(repo, head or "HEAD", runner=runner)
+    if not ok:
+        warn("no commit history available - the changelog says so")
+        return history_markdown([], note=history_note(False, False),
+                                title=title)
+    entries = parse_log_history(text)
+    shallow = git_is_shallow(repo, runner=runner)
+    if shallow:
+        warn("this is a shallow checkout - the history document says it lists "
+             "only the %d commits this clone carries" % len(entries))
+    return history_markdown(history_groups(entries, base),
+                            note=history_note(True, shallow, len(entries)),
+                            title=title)
 
 
 # --- checksums -------------------------------------------------------------
@@ -1492,11 +1676,20 @@ def package(platform, build_dir, commit, date, output_dir, version="",
         signing.state)
     changelog = changelog_document(version, commit, date,
                                    collect_changelog(commit, since, repo))
+    # the archive ROOT carries these for the person who downloaded it, and the
+    # editor's RESOURCE root carries the same three files for the editor
+    # itself: the About box reads CHANGELOG.md through the one resource
+    # locator, which resolves relative to SDL_GetBasePath (the bundle's
+    # Resources on macOS, share/orkige elsewhere), so both layouts have to hold
+    # a copy or a downloaded editor has nothing to show
     targets = [stage_root]
     if platform == "macos":
         targets.append(os.path.join(stage_root, MACOS_APP_NAME, "Contents",
                                     "Resources"))
+    else:
+        targets.append(os.path.join(stage_root, FLAT_RESOURCE_DIR))
     for target in targets:
+        os.makedirs(target, exist_ok=True)
         with open(os.path.join(target, "VERSION"), "w") as handle:
             handle.write(version_file)
         with open(os.path.join(target, "KNOWN-LIMITATIONS.md"), "w") as handle:
@@ -1584,7 +1777,9 @@ def verify_layout(root, platform):
                           os.path.join(root, "VERSION"),
                           os.path.join(root, "KNOWN-LIMITATIONS.md"),
                           os.path.join(root, CHANGELOG_FILE),
-                          os.path.join(resources, "VERSION")]
+                          os.path.join(resources, "VERSION"),
+                          # what the editor's About box reads back
+                          os.path.join(resources, CHANGELOG_FILE)]
         media_root = os.path.join(resources, "Media")
         player_dir = os.path.join(app, "Contents", "MacOS")
         ui_font_dir = resources
@@ -1598,6 +1793,8 @@ def verify_layout(root, platform):
         # the editor resolves its resources under share/orkige/ beside its own
         # executable, so that is where the check looks
         ui_font_dir = os.path.join(root, FLAT_RESOURCE_DIR)
+        # what the editor's About box reads back
+        expected_files.append(os.path.join(ui_font_dir, CHANGELOG_FILE))
         media_root = os.path.join(ui_font_dir, "Media")
         player_dir = root
     # forward slashes in the message on every platform: the complaint text is
@@ -1795,6 +1992,17 @@ def main():
                         help="print the changelog section for --since..--commit")
     parser.add_argument("--changelog-out", default="",
                         help="write the changelog section to this file too")
+    parser.add_argument("--history", action="store_true",
+                        help="print the FULL-history changelog: every commit "
+                             "grouped by the day it landed, each day headed by "
+                             "the ordered version a build of it carries")
+    parser.add_argument("--history-out", default="",
+                        help="write the full-history changelog to this file "
+                             "too")
+    parser.add_argument("--checksum", default="",
+                        help="write the %s sidecar for one file (the same "
+                             "writer every archive's sidecar comes from)"
+                             % CHECKSUM_SUFFIX)
     parser.add_argument("--verify-checksums", default="",
                         help="check every archive in a directory of release "
                              "assets against its %s file" % CHECKSUM_SUFFIX)
@@ -1828,6 +2036,16 @@ def main():
             with open(args.changelog_out, "w") as handle:
                 handle.write(section)
         print(section, end="")
+        return
+    if args.history:
+        document = collect_history(args.commit, args.repo)
+        if args.history_out:
+            with open(args.history_out, "w") as handle:
+                handle.write(document)
+        print(document, end="")
+        return
+    if args.checksum:
+        log("OK " + write_checksum(args.checksum))
         return
     if args.verify_checksums:
         verify_checksums(args.verify_checksums)
@@ -2080,6 +2298,98 @@ def selftest():
     assert ordered in document and "`dea551f9e`" in document
     assert bounded in document
 
+    # --- the FULL history: parsing, grouping, the version per group -----
+    history_lines = ("ccccccccc\t2026-07-31\tThird: rest\n"
+                     "bbbbbbbbb\t2026-07-31\tSecond: rest\n"
+                     "aaaaaaaaa\t2026-07-30\tFirst: rest\n"
+                     "\n"
+                     "malformed line with no tabs\n")
+    parsed = parse_log_history(history_lines)
+    assert parsed == [("ccccccccc", "2026-07-31", "Third: rest"),
+                      ("bbbbbbbbb", "2026-07-31", "Second: rest"),
+                      ("aaaaaaaaa", "2026-07-30", "First: rest")], parsed
+    groups = history_groups(parsed, base="2.0.0")
+    assert [group.date for group in groups] == ["2026-07-31", "2026-07-30"]
+    assert [len(group.entries) for group in groups] == [2, 1]
+    # the day's version is composed from the day's NEWEST commit by the SAME
+    # function the pipeline names its artifacts with - the two cannot drift
+    assert groups[0].version == nightly_version("2026-07-31", "ccccccccc",
+                                                "2.0.0")
+    assert groups[0].version == "2.0.0-nightly.20260731+ccccccccc"
+    assert groups[0].heading == groups[0].version
+    # a day whose date composes no version is headed by the date itself
+    undated = history_groups([("aaaaaaaaa", "not-a-date", "Subject: rest")])
+    assert undated[0].version == ""
+    assert undated[0].heading == "not-a-date"
+
+    # --- the FULL history: the document ---------------------------------
+    rendered = history_markdown(groups)
+    assert rendered.startswith("# Changelog")
+    assert HISTORY_INTRO in rendered
+    assert "3 commits across 2 days." in rendered, rendered
+    assert "## 2.0.0-nightly.20260731+ccccccccc" in rendered, rendered
+    assert "*2026-07-31 - 2 commits*" in rendered, rendered
+    assert "- Third (`ccccccccc`)" in rendered
+    assert "- First (`aaaaaaaaa`)" in rendered
+    # newest day first, and a day's commits in the order git emitted them
+    assert rendered.index("## 2.0.0-nightly.20260731") < \
+        rendered.index("## 2.0.0-nightly.20260730")
+    assert rendered.index("- Third (") < rendered.index("- Second (")
+    # the completeness note: silent on a full history, explicit otherwise
+    assert history_note(True, False, 3) == ""
+    assert "shallow checkout" in history_note(True, True, 3)
+    assert "3 commits" in history_note(True, True, 3)
+    assert "1 commit that clone carried" in history_note(True, True, 1)
+    assert "No commit history was available" in history_note(False, False)
+    empty = history_markdown([], note=history_note(False, False))
+    assert "No commits to list." in empty
+    assert "No commit history was available" in empty
+
+    # --- the FULL history: the git seam ---------------------------------
+    class FakeHistoryGit:
+        """a stand-in git answering both questions the history asks"""
+
+        def __init__(self, log_out, shallow=False, returncode=0):
+            self.log_out = log_out
+            self.shallow = shallow
+            self.returncode = returncode
+            self.log_argv = []
+
+        def __call__(self, argv, **_kwargs):
+            if "rev-parse" in argv:
+                return FakeLog("true\n" if self.shallow else "false\n")
+            self.log_argv = argv
+            return FakeLog(self.log_out, returncode=self.returncode)
+
+    full_git = FakeHistoryGit(history_lines)
+    full = collect_history("HEAD", REPO_ROOT, full_git)
+    assert "%cd" in " ".join(full_git.log_argv), full_git.log_argv
+    # the whole history, never a window: this document IS the complete record
+    assert not any(arg.startswith("-n") for arg in full_git.log_argv), \
+        full_git.log_argv
+    # ...though a caller may ask for just the tip (the site's staleness stamp)
+    tip_git = FakeHistoryGit(history_lines)
+    git_log_history(REPO_ROOT, "HEAD", limit=1, runner=tip_git)
+    assert "-n1" in tip_git.log_argv, tip_git.log_argv
+    assert "3 commits across 2 days." in full
+    assert "shallow" not in full
+    shallow = collect_history("HEAD", REPO_ROOT,
+                              FakeHistoryGit(history_lines, shallow=True))
+    assert "shallow checkout" in shallow, shallow
+    assert "3 commits across 2 days." in shallow
+    absent = collect_history("HEAD", REPO_ROOT, always_fails)
+    assert "No commit history was available" in absent
+    assert "No commits to list." in absent
+    # against the REAL repository: every day heading is an ordered version this
+    # engine's own VersionOrder grammar accepts, newest day first
+    if os.path.exists(os.path.join(REPO_ROOT, ".git")):
+        real_history = collect_history("HEAD", REPO_ROOT)
+        headings = re.findall(r"^## (.+)$", real_history, re.M)
+        assert len(headings) > 1, headings[:5]
+        assert re.match(r"^\d+\.\d+\.\d+-nightly\.\d{8}\+[0-9a-f]{7,}$",
+                        headings[0]), headings[0]
+        assert headings == sorted(headings, reverse=True), headings[:5]
+
     # --- the checksum sidecars ------------------------------------------
     with tempfile.TemporaryDirectory() as temp:
         assets = os.path.join(temp, "downloads")
@@ -2194,6 +2504,30 @@ def selftest():
             assert ordered in body and bounded.strip() in body
             # the sidecar is the integrity story the notes point at
             assert CHECKSUM_SUFFIX in body, body
+            # the full history rides as its own asset, and the notes say so:
+            # "what has ever landed" must not need a download and an unpack
+            assert "FULL history" in body, body
+
+            # ... and the step that produces it does, run from THIS repository
+            # against a scratch assets directory, with the sidecar the publish
+            # step is about to verify
+            history_script = workflow_step_script(
+                NIGHTLY_WORKFLOW, "Generate the full-history changelog asset")
+            assert history_script, "the publish job must generate the asset"
+            run = subprocess.run(["bash", "-c", history_script], cwd=REPO_ROOT,
+                                 env=dict(environ, SHA="HEAD",
+                                          ASSETS=downloads),
+                                 capture_output=True, text=True)
+            assert run.returncode == 0, run.stdout + run.stderr
+            asset = os.path.join(downloads, CHANGELOG_FILE)
+            assert os.path.isfile(asset), sorted(os.listdir(downloads))
+            assert not checksum_mismatch(asset), checksum_mismatch(asset)
+            with open(asset) as handle:
+                attached = handle.read()
+            assert attached.startswith("# Changelog"), attached[:80]
+            if os.path.exists(os.path.join(REPO_ROOT, ".git")):
+                assert re.search(r"^## \d+\.\d+\.\d+-nightly\.\d{8}\+",
+                                 attached, re.M), attached[:400]
             # the ad-hoc build's notes send a reader through the quarantine
             # steps, because that is what an ad-hoc build needs
             assert "UNSIGNED, so macOS refuses" in body, body
@@ -2779,6 +3113,10 @@ def selftest():
             os.makedirs(os.path.join(media_root, name))
         open(os.path.join(tree, FLAT_RESOURCE_DIR, EDITOR_UI_FONTS[0]),
              "w").close()
+        # the About box reads the changelog out of the RESOURCE root, so the
+        # layout check wants a copy there as well as at the archive root
+        open(os.path.join(tree, FLAT_RESOURCE_DIR, CHANGELOG_FILE),
+             "w").close()
         for name in ("orkige_editor", "orkige_player", "texcook", "VERSION",
                      "KNOWN-LIMITATIONS.md", CHANGELOG_FILE):
             open(os.path.join(tree, name), "w").close()
@@ -2864,7 +3202,10 @@ def selftest_dmg():
             open(path, "w").close()
             os.chmod(path, 0o755)
         open(os.path.join(resources, EDITOR_UI_FONTS[0]), "w").close()
-        open(os.path.join(resources, "VERSION"), "w").close()
+        for name in ("VERSION", CHANGELOG_FILE):
+            # the resource root carries what the EDITOR reads back (its About
+            # box shows the changelog it shipped with)
+            open(os.path.join(resources, name), "w").close()
         for name in ("VERSION", "KNOWN-LIMITATIONS.md", CHANGELOG_FILE):
             open(os.path.join(stage_root, name), "w").close()
 

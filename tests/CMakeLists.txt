@@ -1320,7 +1320,11 @@ if(TARGET orkige_editor)
     # with a rendering window, open the copied project, render a scene
     # screenshot and PLAY through the player INSIDE the app. A second leg makes
     # the staged shader media unreadable and asserts the render backend
-    # degrades with its honest warning instead of aborting the boot. So
+    # degrades with its honest warning instead of aborting the boot. A third
+    # reads back the changelog the About box shows (`--changelog`, the same
+    # text, display-free) in BOTH of its states: a copy that was never
+    # packaged says so in one line, and a copy carrying the CHANGELOG.md the
+    # packaging pipeline writes at its resource root shows THAT. So
     # distribution readiness stops being something we re-audit by hand.
     # Both flavors (each stages its own flavor's shader media).
     # APPLE-gated: the .app is the distributable shape the tree produces today,

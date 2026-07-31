@@ -23,6 +23,11 @@ that situation and drives the copy over its own MCP endpoint:
      unreadable, the resource resolver says so out loud and nothing throws out
      of engine setup (the error_code probes). Skipped as root, where a mode of
      000 denies nothing.
+  5. ASSERT the packaged-changelog leg: the About box shows what the build
+     shipped with, resolved through the same locator. A staged copy with no
+     CHANGELOG.md at its resource root says so in one line; drop the file the
+     packaging pipeline writes there and the copy reads THAT back - the two
+     states an About box has, both proven on a real copy.
 
 Every assertion is about the STAGED COPY, never the build tree, so a new baked
 developer path that boot or Play depends on fails here instead of on a user's
@@ -153,13 +158,20 @@ def stage_app(app_path, stage_dir):
     return os.path.join(target_dir, os.path.basename(app_path))
 
 
-def staged_media_dir(executable):
-    """the staged app's engine-media directory (the layout the resolver reads)"""
+def staged_resource_dir(executable):
+    """the staged app's RESOURCE root - what SDL_GetBasePath resolves to and
+    what the editor's locator reads relative to (the bundle's Resources on
+    macOS, share/orkige beside the executable elsewhere)"""
     exe_dir = os.path.dirname(executable)
     if sys.platform == "darwin" and exe_dir.endswith(os.path.join("Contents",
                                                                  "MacOS")):
-        return os.path.join(os.path.dirname(exe_dir), "Resources", "Media")
-    return os.path.join(exe_dir, "share", "orkige", "Media")
+        return os.path.join(os.path.dirname(exe_dir), "Resources")
+    return os.path.join(exe_dir, "share", "orkige")
+
+
+def staged_media_dir(executable):
+    """the staged app's engine-media directory (the layout the resolver reads)"""
+    return os.path.join(staged_resource_dir(executable), "Media")
 
 
 def write_sandbox_profile(path, denied, allowed):
@@ -417,6 +429,78 @@ def run_unreadable_media_leg(args, stage_dir, sandbox_profile):
     log("an unreadable media directory degrades with a warning, no abort")
 
 
+# What the packaging pipeline writes beside a released editor
+# (Util/orkige_nightly_package.py's CHANGELOG.md, at the resource root the
+# editor's locator reads). A synthetic one keeps this leg about the RESOLUTION
+# rather than about whatever the real repository's history happens to say.
+STAGED_CHANGELOG = """\
+# Changelog
+
+Orkige editor 2.0.0-nightly.20260731+abcdef123, built 2026-07-31 from
+`abcdef123`.
+
+## Changes since `0123456789`
+
+- A packaged editor shows the changelog it shipped with (`abcdef123`)
+- The staged copy reads it from its own resource root (`0123456789`)
+"""
+
+
+def run_changelog_leg(args, stage_dir, sandbox_profile):
+    """the About box's two states, on a real copy. `--changelog` prints the
+    SAME text the box draws (EditorBuildInfo.h), display-free, so both states
+    are readable headlessly: a copy with no packaged changelog says so in one
+    line, and a copy carrying the file the packaging pipeline writes shows
+    THAT - never the repository's own history, which is not what a binary
+    shipped with."""
+    executable = stage_app(args.editor_app, stage_dir)
+    for name in ("home", "cwd", "state", "tmp"):
+        os.makedirs(os.path.join(stage_dir, name), exist_ok=True)
+    env = scrubbed_env(stage_dir)
+    env["ORKIGE_MCP_PORT"] = "off"
+
+    def probe():
+        process = launch(executable, [executable, "--changelog"],
+                         os.path.join(stage_dir, "cwd"), env, sandbox_profile)
+        try:
+            output, _ = process.communicate(timeout=args.boot_timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            output = process.communicate()[0]
+            fail("`--changelog` never exited - it must answer without opening "
+                 "a window")
+        if process.returncode != 0:
+            print(output[-4000:], flush=True)
+            fail("`--changelog` exited %d" % process.returncode)
+        return output
+
+    # a copy staged straight out of a build tree was never packaged
+    packaged = os.path.join(staged_resource_dir(executable), "CHANGELOG.md")
+    if os.path.exists(packaged):
+        os.remove(packaged)
+    absent = probe()
+    if "carries no changelog" not in absent:
+        print(absent[-4000:], flush=True)
+        fail("an unpackaged copy must say it carries no changelog, not stay "
+             "silent or invent one")
+    log("an unpackaged copy says it carries no changelog")
+
+    # ...and with the file a release carries, the copy reads it back
+    with open(packaged, "w") as handle:
+        handle.write(STAGED_CHANGELOG)
+    present = probe()
+    for expected in ("## Changes since `0123456789`",
+                     "A packaged editor shows the changelog it shipped with",
+                     "2.0.0-nightly.20260731+abcdef123"):
+        if expected not in present:
+            print(present[-4000:], flush=True)
+            fail("the packaged changelog is missing %r from what the copy "
+                 "reports" % expected)
+    if "carries no changelog" in present:
+        fail("a copy WITH a packaged changelog still reported having none")
+    log("a packaged copy shows the changelog it shipped with")
+
+
 def clean_staged_identity_state():
     """remove what the window system may have recorded for the STAGED identity.
     Same hygiene rule the crash-marker test follows: WE provoked these artifacts
@@ -491,11 +575,15 @@ def main():
         media_stage = os.path.join(args.stage_root, "unreadable")
         os.makedirs(media_stage)
         run_unreadable_media_leg(args, media_stage, sandbox_profile)
+
+        changelog_stage = os.path.join(args.stage_root, "changelog")
+        os.makedirs(changelog_stage)
+        run_changelog_leg(args, changelog_stage, sandbox_profile)
     finally:
         clean_staged_identity_state()
 
-    log("PASSED: the copied editor boots, renders, opens a project and plays "
-        "with nothing but what it carries")
+    log("PASSED: the copied editor boots, renders, opens a project, plays and "
+        "reports what it shipped with, using nothing but what it carries")
     return 0
 
 

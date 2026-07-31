@@ -22,6 +22,9 @@ namespace OrkigeEditor
 		//! the bundle sub-path holding the engine media, relative to the
 		//! resource root (mirrors what a project export writes)
 		const char* const MEDIA_DIR_NAME = "Media";
+		//! the packaged changelog the About box reads, at the resource root
+		//! (the ONE spelling, shared with the packaging tool's CHANGELOG_FILE)
+		const char* const CHANGELOG_FILE_NAME = "CHANGELOG.md";
 		//! the sibling executables the bundle carries, under their platform
 		//! file names (the ONE place the bundle's tool naming lives)
 #ifdef _WIN32
@@ -182,6 +185,14 @@ namespace OrkigeEditor
 			? Orkige::String()
 			: terminated(this->mFallbacks.uiFonts) + fileName;
 		return this->resolveResource(fileName, fallback);
+	}
+	//---------------------------------------------------------
+	EditorResourcePath EditorResourceLocator::changelog() const
+	{
+		// no fallback on purpose: only a packaged build shipped WITH a
+		// changelog, and a developer build says so rather than showing the
+		// working tree's history as if it were a release record
+		return this->resolveResource(CHANGELOG_FILE_NAME, Orkige::String());
 	}
 	//---------------------------------------------------------
 	EditorResourcePath EditorResourceLocator::player() const

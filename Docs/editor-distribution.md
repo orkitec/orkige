@@ -22,6 +22,7 @@ every exported game.
 | The texture-cook tool | The export cook's encoder, beside the player where the tools belong. |
 | The UI fonts (icon font, mono symbols) + their licenses | The asset browser's kind icons and the terminal's block/braille glyphs. |
 | The non-system dylib closure (macOS `Contents/Frameworks`) | The classic flavor links the Vulkan loader as a dylib, so a copy dies in dyld before `main` without it. |
+| `CHANGELOG.md`, `VERSION`, `KNOWN-LIMITATIONS.md` (packaged builds only) | What the release shipped with. The Help > About box shows the changelog, read once from the resource root through this same locator. A build from a source tree carries none, resolves `Missing`, and the box says so in one line — the repository's working history is not what a binary shipped with. `Util/orkige_nightly_package.py` writes these; nothing in the build tree does. |
 
 Mobile and web players are deliberately **not** staged: they are separate build
 trees, and a copied editor cannot deploy to a device anyway.
@@ -134,6 +135,12 @@ A second leg makes the staged shader media **unreadable** and asserts the render
 backend logs its honest warning and keeps going, rather than aborting the boot:
 a missing directory and an unreadable one must reach the same graceful branch.
 That leg skips when run as root, where a mode of `000` denies nothing.
+
+A third leg reads back the changelog the About box shows, in both of its states.
+`orkige_editor --changelog` prints exactly that text and exits before any window
+— display-free like `--version` — so a staged copy with no `CHANGELOG.md` at its
+resource root must say it carries none, and the same copy with the file the
+packaging pipeline writes there must show *that*.
 
 ## Not yet portable
 
