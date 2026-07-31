@@ -285,7 +285,12 @@ set_tests_properties(orkige_export_selftest PROPERTIES LABELS unit TIMEOUT 60)
 # and its sidecar disagree, the release notes an updater reads (the publish job's
 # own shell block, run against stubbed job outputs: both machine-readable markers
 # with the right values, and the security wording matching what the macOS build
-# was actually signed with), the known-limitations table and its per-platform
+# was actually signed with), the dated release archive (which tags a prune may
+# EVER reach, over a listing full of decoys, and the publish + prune steps' own
+# shell driven against a recorded-argv stand-in for the GitHub CLI: the rolling
+# release replaced, the dated one added with the identical assets, no tag
+# outside the dated shape ever handed to a delete, and housekeeping failures
+# leaving the night published), the known-limitations table and its per-platform
 # AND per-signature-state rendering, the whole macOS signing decision layer
 # (credential precedence, the honest refusal of a half-configured set, the
 # codesign/notarytool/stapler/spctl argv, the redaction that keeps a credential

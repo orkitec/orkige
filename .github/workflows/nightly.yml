@@ -10,7 +10,8 @@
 # - Binaries: downloadable Release editor builds for macOS, Linux and Windows -
 #   each platform's installable artifact (.dmg, installer) plus its portable
 #   archive - built from the last commit the FULL test matrix proved green and
-#   published as a rolling prerelease (Docs/nightly-builds.md).
+#   published as a rolling prerelease beside a dated one that stays
+#   (Docs/nightly-builds.md).
 #
 # Each job's own rationale follows immediately above it below.
 
@@ -498,6 +499,9 @@ jobs:
       # stamps, names, verifies or publishes an artifact
       version: ${{ steps.identity.outputs.version }}
       version_token: ${{ steps.identity.outputs.version_token }}
+      # the tag of tonight's DATED release, composed from the same date beside
+      # the version, so the archive entry and its title name one day
+      dated_tag: ${{ steps.identity.outputs.dated_tag }}
     steps:
       - name: Read the last completed CI run on main
         id: probe
@@ -597,10 +601,11 @@ jobs:
         if: steps.probe.outputs.green == 'true'
         run: |
           set -uo pipefail
-          # `--identity` prints `key=value` lines: the version and its filename
-          # rendering. Every later job consumes THESE values - the archive name,
-          # the binary stamp, the VERSION file, the release notes and the smoke
-          # test's expectation are one composition, never re-derived per job.
+          # `--identity` prints `key=value` lines: the version, its filename
+          # rendering and the dated release's tag. Every later job consumes
+          # THESE values - the archive name, the binary stamp, the VERSION
+          # file, the release notes, the dated release and the smoke test's
+          # expectation are one composition, never re-derived per job.
           python3 Util/orkige_nightly_package.py --identity \
             --commit "${{ steps.probe.outputs.sha }}" \
             --date "${{ steps.probe.outputs.date }}" | tee identity.txt
@@ -1228,7 +1233,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # PUBLISH: one rolling release tagged `nightly`.
+  # PUBLISH: the rolling release tagged `nightly`, plus tonight's entry in the
+  # dated archive (`nightly-YYYYMMDD`), then the archive is pruned back to its
+  # keep count. The rolling one is what an updater polls and a document links,
+  # because its tag moves and its URLs do not; the dated one is what a person
+  # opens when they want the build from before a regression, because no later
+  # night touches it.
   #
   # PUBLISHED, not a draft: a nightly nobody can download is not a nightly, and
   # the macOS build - the one whose operating system refuses an unidentified
@@ -1246,7 +1256,7 @@ jobs:
   # every missing platform and its job result rather than quietly shipping two
   # of three. Zero artifacts is a failure - there is nothing to publish.
   binaries-publish:
-    name: Binaries - publish the rolling prerelease
+    name: Binaries - publish the rolling and dated prereleases
     needs: [binaries-gate, binaries-macos, binaries-linux, binaries-windows]
     if: always() && needs.binaries-gate.outputs.green == 'true'
     runs-on: ubuntu-latest
@@ -1418,29 +1428,103 @@ jobs:
           set -uo pipefail
           python3 Util/orkige_nightly_package.py --verify-checksums downloads
 
-      - name: Create or replace the `nightly` prerelease
+      # ONE step, TWO releases, from ONE list of assets - which is what makes
+      # them the same download under two names rather than two builds that
+      # happen to agree:
+      #
+      # - `nightly` is the ROLLING one: replaced wholesale every night, so its
+      #   tag moves and its download URLs stay identical from one night to the
+      #   next. That stability is the contract a document quotes and an updater
+      #   fetches (Docs/nightly-builds.md), so nothing here may change it.
+      # - `nightly-YYYYMMDD` is tonight's entry in the ARCHIVE: no later night
+      #   deletes it, so yesterday's build stays downloadable from the releases
+      #   page. A second run of the same day REPLACES that day's entry rather
+      #   than adding a duplicate, which is why the delete precedes the create
+      #   for it too.
+      #
+      # GitHub has no way to share one uploaded asset between two releases, and
+      # a dated release that merely pointed at the rolling one would break the
+      # moment the rolling one is replaced - so the bytes are uploaded twice,
+      # which public-repo release storage costs nothing.
+      - name: Create the rolling and dated prereleases
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ needs.binaries-gate.outputs.sha }}
           SHORT_SHA: ${{ needs.binaries-gate.outputs.short_sha }}
           BUILD_DATE: ${{ needs.binaries-gate.outputs.date }}
           VERSION: ${{ needs.binaries-gate.outputs.version }}
+          DATED_TAG: ${{ needs.binaries-gate.outputs.dated_tag }}
+          ASSETS: downloads
         run: |
           set -uo pipefail
-          # rolling: replace last night's release wholesale rather than
-          # accumulate per-day releases nobody prunes. The `nightly` tag moves
-          # with it, so the download URLs stay the same from one night to the
-          # next - which is what makes them quotable in a doc and fetchable by
-          # an updater.
-          gh release delete nightly --yes --cleanup-tag 2> /dev/null || true
           assets=()
           while IFS= read -r asset; do
             assets+=("$asset")
-          done < <(find downloads -type f | sort)
-          gh release create nightly \
-            --prerelease \
-            --target "${SHA}" \
-            --title "Orkige ${VERSION}" \
-            --notes-file notes.md \
-            "${assets[@]}"
-          echo "published https://github.com/${GITHUB_REPOSITORY}/releases/tag/nightly" >> "$GITHUB_STEP_SUMMARY"
+          done < <(find "${ASSETS}" -type f | sort)
+          tags=(nightly)
+          if [ -n "${DATED_TAG}" ]; then
+            tags+=("${DATED_TAG}")
+          else
+            echo "::warning::no dated tag was composed for this build - only the rolling nightly is published, and this night leaves no archive entry"
+          fi
+          for tag in "${tags[@]}"; do
+            gh release delete "${tag}" --yes --cleanup-tag 2> /dev/null || true
+            gh release create "${tag}" \
+              --prerelease \
+              --target "${SHA}" \
+              --title "Orkige ${VERSION}" \
+              --notes-file notes.md \
+              "${assets[@]}"
+            echo "published https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      # KEEPING THE ARCHIVE BOUNDED. The dated releases accumulate, so the
+      # oldest ones past a keep count are deleted, tag and all. The DECISION -
+      # which tags are even candidates - is not made in shell: the packager's
+      # pure `prune_dated_releases` makes it, unit-tested against a realistic
+      # list, and only ever names a tag of the exact `nightly-YYYYMMDD` shape.
+      # The rolling `nightly`, a stable release tag and anything a person
+      # tagged by hand are not candidates and can never become ones. The
+      # listing is bounded (--limit 200), which is an order of magnitude more
+      # entries than a pruned archive plus this repository's release tags.
+      #
+      # How many survive is the packager's constant (DATED_RELEASES_KEPT), not a
+      # number repeated here - it prints the count it kept, so the job log still
+      # says it out loud.
+      #
+      # Housekeeping NEVER fails the night: the artifacts are the deliverable
+      # and they are already published by the time this runs. Every problem is
+      # a loud annotation and an exit 0; every deletion is named in the log.
+      - name: Prune the older dated releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATED_TAG: ${{ needs.binaries-gate.outputs.dated_tag }}
+          # scratch for the two tag lists, named so the packaging self-check can
+          # run THIS script against a directory of its own
+          WORK: ${{ runner.temp }}
+        run: |
+          set -uo pipefail
+          if ! gh release list --limit 200 --json tagName --jq '.[].tagName' \
+               > "${WORK}/release-tags.txt"; then
+            echo "::warning::could not list the releases - the dated archive is not pruned tonight"
+            exit 0
+          fi
+          if ! python3 Util/orkige_nightly_package.py \
+               --prune-tags "${WORK}/release-tags.txt" \
+               --protect "${DATED_TAG}" \
+               > "${WORK}/prune-tags.txt"; then
+            echo "::warning::could not decide what to prune - no dated release is deleted tonight"
+            exit 0
+          fi
+          pruned=0
+          while IFS= read -r tag; do
+            [ -n "${tag}" ] || continue
+            echo "pruning the dated release ${tag}"
+            if gh release delete "${tag}" --yes --cleanup-tag; then
+              pruned=$((pruned + 1))
+              echo "Pruned \`${tag}\`." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning::could not delete the dated release ${tag} - it stays in the archive"
+            fi
+          done < "${WORK}/prune-tags.txt"
+          echo "pruned ${pruned} dated release(s)"

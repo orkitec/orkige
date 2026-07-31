@@ -1,7 +1,8 @@
 # Nightly editor builds
 
 Once a night, CI packages the Orkige editor for macOS, Linux and Windows and
-publishes the results as a rolling prerelease. The point is a download
+publishes the results as two prereleases: a rolling one whose download URLs
+never move, and a dated one that stays. The point is a download
 instead of a build: a C++ toolchain is needed only to write native game code, not
 to open the editor and make a game in Lua.
 
@@ -354,7 +355,10 @@ that one value:
   `orkige_editor 2.0.0-nightly.20260730+dea551f9e [next, Release]`, and the
   Help > About box shows the same identity;
 - **the release notes**, whose `orkige-nightly-version` marker is the value an
-  updater polls (below).
+  updater polls (below);
+- **the dated release's tag**, `nightly-YYYYMMDD`, composed from the same build
+  date the version orders by — so a build's archive entry and its title can
+  never name different days.
 
 The binary composes its own copy from the two values the pipeline stamps it with:
 
@@ -472,6 +476,12 @@ it imports the composition rather than reading the commit log a second way.
 
 ## What an updater reads
 
+**`nightly` is the tag a client polls.** It is the moving one: it always names
+the newest build, so one request against it answers "is there something newer
+than what I run". The dated `nightly-YYYYMMDD` releases are the **archive** — a
+person browses them on the releases page to fetch a specific older build, and a
+client has no reason to enumerate them.
+
 The release IS the description of the build. One request returns everything a
 client needs:
 
@@ -530,8 +540,10 @@ Two caveats, stated plainly:
 - **The `nightly` tag moves every night.** The download URLs stay the same
   from one night to the next, which is what makes them quotable in a document
   and fetchable by an updater — but it also means a URL saved today serves
-  different bytes tomorrow. A client that wants a specific build must record
-  the version and the `.sha256`, not the URL alone.
+  different bytes tomorrow. A client that wants a specific build records the
+  version and the `.sha256`, not the URL alone; a **dated**
+  `nightly-YYYYMMDD` release is the one whose URLs keep serving the bytes they
+  served on the day, for as long as it stays in the fourteen-day archive.
 - **Unauthenticated API calls are rate-limited per IP:** 60 requests an hour
   (5000 with a token). A check once a day, or once per launch, sits far inside
   that; a client that polls in a loop is answered `403` with a reset time, and
@@ -643,6 +655,13 @@ tool exists on exactly one platform, gets its own
 image over a synthetic app and **skips with 77** where `hdiutil` does not exist,
 rather than passing without having checked anything.
 
+It drives the **dated archive's selection rule** as pure data — which tags are
+candidates at all, over a realistic listing carrying the rolling `nightly`, a
+stable `v2.0.0`, `nightly-2026`, `nightly-20260731-rc1`, a date that names no
+real day and tags a person made; which survive a keep count of 14 and in what
+order the rest are deleted; and that tonight's own tag survives a keep count of
+zero, because it is protected explicitly rather than by being newest.
+
 It also drives the **release notes** an updater reads: the publish job's own
 shell block is lifted out of the workflow and run against stubbed job outputs,
 asserting that both markers carry the right values, that an archive which
@@ -655,17 +674,70 @@ people through steps they do not need, an unsigned one described as notarized
 leaves them stuck, and a macOS job that never reported reads as the unsigned
 wording rather than as a claim nobody made.
 
+The two steps that **create and prune the releases** are driven the same way,
+because a mistake in either deletes something on a real repository: they are
+lifted out of the workflow and run against a `gh` that records the exact
+argument vector it was handed instead of talking to GitHub. What is asserted is
+the sequence — that the rolling release is replaced, that the dated one is
+added carrying the identical asset list, that a build with no composed date
+still publishes the rolling one and says it left no archive entry, and that
+**no tag outside the dated shape is ever passed to a delete**, tonight's own
+included. The failure paths are asserted as paths, not as prose: a listing that
+cannot be fetched and a deletion GitHub refuses both leave the step at exit 0
+with an annotation naming what happened.
+
 ## Where the artifacts go
 
-Two places, both conservative:
+Three places, all conservative:
 
 - **Workflow-run artifacts** (`binaries-macos`, `binaries-linux`,
   `binaries-windows`), kept 14 days. This is how to get a build today.
 - **A rolling release tagged `nightly`**, published as a **prerelease** —
   which is what it is: the tip of `main`, built tonight, superseded tomorrow.
-  Each night replaces the previous one wholesale rather than accumulating
-  releases nobody prunes, and the `nightly` tag moves with it, so the asset
-  URLs are stable across nights.
+  Each night replaces it wholesale and the `nightly` tag moves with it, so the
+  asset URLs are identical from one night to the next. That stability is the
+  contract: it is what makes a URL quotable in a document and fetchable by an
+  updater.
+- **A dated release tagged `nightly-YYYYMMDD`**, the same prerelease under a
+  tag that never moves and that no later night deletes. This is the archive:
+  somebody who wants the build from before a regression finds it on the
+  releases page and downloads it. There is no in-app revert — the releases page
+  is the whole mechanism.
+
+Both carry the **same assets**, uploaded twice from one list, and the same
+notes. GitHub has no way to share an uploaded asset between two releases, and a
+dated release that merely pointed at the rolling one would break the moment the
+rolling one is replaced; release storage on a public repository is free, so the
+bytes are simply uploaded again.
+
+The date is the one the build's ordered version is composed from, so the tag and
+the title name one day by construction — `--identity` prints the version, its
+filename token and the tag together, and the gate hands all three to the publish
+job.
+
+**Rerunning a day replaces that day's entry.** The dated release is deleted and
+recreated exactly like the rolling one, so a second run never leaves two entries
+for one date.
+
+### Pruning the archive
+
+Only the newest **14** dated releases are kept; the older ones are deleted, tag
+and all. Two weeks is what the workflow-run artifacts keep too, so "how far back
+can I go" has one answer on both surfaces.
+
+Which tags are even candidates is a decision the shell does not make. The
+packager's `prune_dated_releases` makes it and only ever names a tag matching
+exactly `nightly-YYYYMMDD` on a real calendar day. The rolling `nightly`, a
+stable release tag like `v2.0.0`, a tag that merely begins like ours
+(`nightly-2026`, `nightly-20260731-rc1`) and anything a person made are not
+candidates and no keep count can turn them into one. Tonight's own tag is passed
+in as protected as well, so it survives independently of the ordering.
+
+Pruning **never fails the night**. The artifacts are the deliverable and they
+are already published by the time it runs, so a listing that cannot be fetched
+or a deletion GitHub refuses is a loud annotation and an exit 0 — and every
+deletion is named in the job log and the summary, so the output says exactly
+what was removed.
 
 The publish job runs whenever the gate was green, even if a platform's build
 failed: the release notes list every platform with its archive or the words "not
@@ -773,10 +845,11 @@ python3 Util/orkige_nightly_package.py --verify /tmp/smoke --platform macos \
 python3 Util/orkige_nightly_package.py --verify-dmg /tmp/nightly-out/Orkige-macos-*.dmg
 ```
 
-Four more modes serve the pipeline, and each one works by hand:
+Five more modes serve the pipeline, and each one works by hand:
 
 ```sh
-# the ordered version and its filename rendering, as key=value lines
+# the ordered version, its filename rendering and the dated release's tag,
+# as key=value lines
 python3 Util/orkige_nightly_package.py --identity --commit <sha>
 # the changelog section for a range
 python3 Util/orkige_nightly_package.py --changelog --commit HEAD --since <sha>
@@ -784,7 +857,13 @@ python3 Util/orkige_nightly_package.py --changelog --commit HEAD --since <sha>
 python3 Util/orkige_nightly_package.py --history --history-out CHANGELOG.md
 # every archive in a directory against its .sha256 file
 python3 Util/orkige_nightly_package.py --verify-checksums <dir>
+# which dated releases are past the keep count, read from a list of tags
+gh release list --limit 200 --json tagName --jq '.[].tagName' \
+  | python3 Util/orkige_nightly_package.py --prune-tags - --protect nightly-$(date -u +%Y%m%d)
 ```
+
+That last one only ever *prints* tags; deleting them is the workflow's step, so
+running it by hand is a dry run of the decision by construction.
 
 `--selftest` runs the headless self-checks without needing any build tree at all,
 and `--selftest-dmg` builds and mounts a real disk image over a synthetic app
