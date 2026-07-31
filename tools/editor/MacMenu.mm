@@ -380,6 +380,11 @@ namespace Orkige
 		}
 		gTarget = [[OrkigeMenuTarget alloc] init];
 
+		// did the application menu's own About item get pointed at the
+		// editor's dialog? If the toolkit ever stops creating one, Help keeps
+		// its entry rather than leaving the app with no About at all
+		bool aboutRetargeted = false;
+
 		// Settings… in the app menu (the macOS-conventional Cmd+, home for
 		// preferences) - routes to the SAME View Settings window as View >
 		// View Settings…. SDL made the app menu (index 0); insert below About.
@@ -388,6 +393,27 @@ namespace Orkige
 			NSMenuItem* appItem = [[NSApp mainMenu] itemAtIndex:0];
 			if (NSMenu* appMenu = [appItem submenu])
 			{
+				// The application menu is where macOS keeps About, and the
+				// window toolkit already put one there - pointing at the
+				// system's generic panel, which reads its version out of the
+				// bundle's property list and so cannot know which nightly this
+				// binary is. Retarget that ONE item at the editor's own dialog
+				// (which reports the build identity) rather than adding a
+				// second entry elsewhere and leaving the conventional one
+				// answering differently.
+				for (NSMenuItem* item in [appMenu itemArray])
+				{
+					if ([item action] !=
+						@selector(orderFrontStandardAboutPanel:))
+					{
+						continue;
+					}
+					[item setTarget:gTarget];
+					[item setAction:@selector(menuAction:)];
+					[item setTag:TAG_ABOUT];
+					aboutRetargeted = true;
+					break;
+				}
 				NSMenuItem* settings = [[NSMenuItem alloc]
 					initWithTitle:@"Settings…" action:@selector(menuAction:)
 					keyEquivalent:@","];
@@ -524,7 +550,17 @@ namespace Orkige
 		// the searchable documentation portal (generated from the docs
 		// corpus, served on a loopback port, opened in the default browser)
 		addItem(helpMenu, @"Orkige Help", TAG_HELP_PORTAL, @"", 0);
-		addItem(helpMenu, @"About Orkige Editor", TAG_ABOUT, @"", 0);
+		// normally no About here: macOS keeps it in the APPLICATION menu, where
+		// the window toolkit already put one, and the block above retargets
+		// that single item at the editor's own dialog. A second copy under Help
+		// is the platform's convention broken twice - two menu entries for one
+		// answer, only one of which knows which build this is. The entry comes
+		// back only if there was no application-menu item to retarget, because
+		// an app with no About at all is the worse failure.
+		if (!aboutRetargeted)
+		{
+			addItem(helpMenu, @"About Orkige Editor", TAG_ABOUT, @"", 0);
+		}
 
 		gInstalled = true;
 	}
