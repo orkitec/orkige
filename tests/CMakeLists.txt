@@ -111,14 +111,12 @@ add_test(NAME cook_textures_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(cook_textures_selftest PROPERTIES LABELS unit TIMEOUT 120)
 
-# the GPU texture encoder's own structural self-test: every format (BCn,
-# ETC2, ASTC block sizes) encodes a non-block-aligned gradient and the
-# dds/ktx/oitd container layouts verify (magic, header fields, payload
-# sizes). The runtime-load proof is player_cooked_textures below.
-add_test(NAME texcook_selftest
-    COMMAND texcook --selftest
-    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-set_tests_properties(texcook_selftest PROPERTIES LABELS unit TIMEOUT 120)
+# The GPU texture encoder's structural cases - every format (BCn, ETC2, ASTC
+# block sizes) over a non-block-aligned gradient, plus the dds/ktx/oitd
+# container layouts and the cubemap round trip - live in the Catch2 suite
+# tests/exporter (TextureEncodeTests.cpp), because the encoder is a library the
+# exporter links rather than a tool it spawns. The runtime-load proof is
+# player_cooked_textures below.
 
 # vector-shape SVG cook self-validation: shapecook flattens a synthetic SVG
 # (rect + path + circle) to an .oshape and re-parses it through the REAL runtime
@@ -592,6 +590,12 @@ if(TARGET orkige_engine)
         set_tests_properties(grade_look_parity PROPERTIES
             LABELS integration TIMEOUT 180 SKIP_RETURN_CODE 77)
     endif()
+endif()
+
+if(TARGET orkige_exporter)
+    # the pure half of packaging a project: manifest facts, setting
+    # vocabularies, credential gates, the Apple declarations, image arithmetic
+    add_subdirectory(exporter)
 endif()
 
 if(TARGET orkige_editor_core)

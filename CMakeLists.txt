@@ -310,10 +310,14 @@ if(ORKIGE_BUILD_TOOLS)
         # mobile or the browser) and builds on BOTH render flavors via the
         # ImGui-on-DrawLayer2D port (Docs/render-abstraction.md)
         add_subdirectory(tools/editor)
-        # the export-time texture encoder (a small host CLI over libktx;
-        # exports always cook on a desktop host, so the mobile/web player
-        # trees never build or ship it - see Docs/textures.md)
+        # the export-time texture encoder (a host library over libktx plus its
+        # argv face; exports always cook on a desktop host, so the mobile/web
+        # player trees never build or ship it - see Docs/textures.md)
         add_subdirectory(tools/texcook)
+        # the project exporter: a host library the editor links directly (no
+        # interpreter to preflight, no tool directory to resolve, nothing to
+        # stage inside a distributed app). After texcook - it links the encoder.
+        add_subdirectory(tools/exporter)
         # the SVG -> .oshape cook as a CLI (the editor holds the same conversion
         # in-process). Host-only for the same reason texcook is: importing and
         # generating assets happens on a desktop, never on a device.
