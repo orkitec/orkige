@@ -482,20 +482,35 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 		if (ImGui::BeginMenu("Build"))
 		{
 			const bool canExport = state.project.isLoaded();
-			if (ImGui::MenuItem("Build for macOS", nullptr, false, canExport))
+			// a platform this editor cannot produce is greyed out with the
+			// reason on hover, rather than offered and then refused in the
+			// Console: a copied app carries the desktop player alone, and the
+			// export plan is what knows that (EditorExportPlan.h)
+			auto exportItem = [&state, canExport](const char* label,
+				const char* platform)
 			{
-				state.requestedExport = "macos";
-			}
-			if (ImGui::MenuItem("Build for iOS Simulator", nullptr, false,
-				canExport))
-			{
-				state.requestedExport = "ios-simulator";
-			}
-			if (ImGui::MenuItem("Build for Android APK", nullptr, false,
-				canExport))
-			{
-				state.requestedExport = "android";
-			}
+				OrkigeEditor::EditorExportPlan plan;
+				if (canExport)
+				{
+					plan = planExport(state.project, platform);
+				}
+				if (ImGui::MenuItem(label, nullptr, false, canExport && plan.ok))
+				{
+					state.requestedExport = platform;
+				}
+				if (canExport && !plan.ok &&
+					ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+				{
+					ImGui::BeginTooltip();
+					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+					ImGui::TextUnformatted(plan.error.c_str());
+					ImGui::PopTextWrapPos();
+					ImGui::EndTooltip();
+				}
+			};
+			exportItem("Build for macOS", "macos");
+			exportItem("Build for iOS Simulator", "ios-simulator");
+			exportItem("Build for Android APK", "android");
 			ImGui::Separator();
 			// export config on the project manifest (orientation today); the
 			// window edits Project Settings + saves the .orkproj

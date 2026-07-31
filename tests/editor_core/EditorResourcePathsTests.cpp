@@ -70,6 +70,7 @@ namespace
 		fallbacks.bloom = "/tree/engine/media/bloom/next";
 		fallbacks.grade = "/tree/engine/media/grade/next";
 		fallbacks.uiFonts = "/tree/editor/media";
+		fallbacks.pythonTools = "/tree/Util";
 		fallbacks.player = "/tree/build/tools/player/orkige_player";
 		fallbacks.texcook = "/tree/build/tools/texcook/texcook";
 		return fallbacks;
@@ -117,6 +118,37 @@ TEST_CASE("editor resources: a staged bundle answers every query itself",
 	CHECK(locator.texcook().fromBundle());
 	// the one boot line names the bundle
 	CHECK(locator.describe().find("bundled app") != Orkige::String::npos);
+}
+
+TEST_CASE("editor resources: the engine's Python tools resolve like the media",
+	"[editor][resources]")
+{
+	// the project exporter and the animation cook are spawned, not linked, so a
+	// copied app must carry them: staged under Util/ at the resource root, the
+	// same directory name they have in the source tree (their sibling imports
+	// depend on that layout)
+	FakeTree tree;
+	const Orkige::String root = RESOURCE_ROOT;
+	tree.paths = { root + "Util/orkige_export.py",
+		"/tree/Util/orkige_export.py", "/tree/Util/cook_vector_anim.py" };
+	const EditorResourceLocator locator(BASE, treeFallbacks(), tree.probe());
+	const EditorResourcePath exporter = locator.pythonTool("orkige_export.py");
+	REQUIRE(exporter.fromBundle());
+	CHECK(exporter.path == root + "Util/orkige_export.py");
+	// a tool the bundle did not stage still answers from the tree...
+	CHECK(locator.pythonTool("cook_vector_anim.py").path ==
+		"/tree/Util/cook_vector_anim.py");
+	// ...and one that is in neither is an honest Missing: the consumer says so
+	// instead of spawning a path that does not exist
+	CHECK_FALSE(locator.pythonTool("no_such_tool.py").found());
+
+	// a copy detached from every tree resolves only what it carries
+	EditorResourceFallbacks bundleOnly;
+	bundleOnly.engineMediaMarker = "Hlms";
+	bundleOnly.flavor = "next";
+	const EditorResourceLocator copied(BASE, bundleOnly, tree.probe());
+	CHECK(copied.pythonTool("orkige_export.py").fromBundle());
+	CHECK_FALSE(copied.pythonTool("cook_vector_anim.py").found());
 }
 
 TEST_CASE("editor resources: the changelog is a packaged build's alone",

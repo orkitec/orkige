@@ -887,11 +887,19 @@ multi-minute job): it returns `{ accepted:"1", jobId }`; poll
 `status:"done"` with `ok` (`"1"`/`"0"`), the `artifactPath` (the built `.app`/
 `.apk`) on success or the `error` on failure, plus the exporter's `outputTail`.
 
-The export pipeline is **pinned to the classic render flavor** (it bundles the
-classic player/media set). `export_project` checks the target engine tree up
-front and returns an honest structured error — WITHOUT running the exporter —
-when that tree is missing or next-flavored (build the matching classic preset,
-e.g. `macos-debug-classic`, first). Native-module projects export desktop only.
+Where the engine pieces come from depends on the editor answering. An editor
+built in the engine source tree packages a preset **build tree**, and the export
+pipeline is **pinned to the classic render flavor** there (it bundles the
+classic player/media set): `export_project` checks that tree up front and
+returns an honest structured error — WITHOUT running the exporter — when it is
+missing or next-flavored (build the matching classic preset, e.g.
+`macos-debug-classic`, first). A **distributed editor** has no build tree and
+packages the engine payload it carries inside itself instead; there it exports
+the desktop app and refuses `ios-simulator`/`android` with a message saying that
+platform's player only comes from a source build. Either way `engineBuild` in
+the reply names what the export packaged from. Native-module projects export
+desktop only, and not at all from a distributed editor (compiled game code needs
+the source tree and a C++ toolchain) — `Docs/editor-distribution.md`.
 
 ```jsonc
 tools/call export_project { "platform":"macos" }   // authed → { accepted:"1", jobId:"..." }

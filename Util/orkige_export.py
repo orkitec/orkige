@@ -7,6 +7,15 @@ as the other Util/ generators).
                      --platform macos|ios-simulator|ios|ios-ipa|android|android-aab
                      --engine-build <preset build dir> [--output <dir>]
 
+The engine pieces an export packages (the player binary, the engine media, the
+texture encoder) come from ONE of two sources. `--engine-build` is a preset
+build tree: the developer case, and the only one that can produce a mobile or
+browser package, because those need that platform's own player. `--engine-bundle
+<dir> [--engine-tools <dir>]` is a STAGED payload - the Media/ tree and the
+executables a distributed Orkige carries inside itself - which packages the
+desktop app on a machine that has no repository and no build tree. Everything
+after the sourcing is the same code, so both produce the same bundle.
+
 The `ios-ipa` and `android-aab` platforms are the STORE-SUBMITTABLE layer (a
 distribution-signed .ipa and a release-signed Android App Bundle); the others
 package device/dev installs. The store paths gate + degrade honestly on this
@@ -257,10 +266,15 @@ def find_texcook(engine_build):
 
 
 def stage_project_payload(project, dest_dir, platform="macos",
-                          engine_build=None):
+                          engine_build=None, bundle=None):
     """copy the shippable project subset (manifest + scenes/assets/scripts)
     into dest_dir, run the export-time texture cook over the staged assets for
-    the target platform, and return the number of files staged"""
+    the target platform, and return the number of files staged.
+
+    The cook's two inputs come from whichever engine source this export
+    packages: a build tree names its flavor in its CMake cache and carries the
+    encoder under tools/texcook, a staged payload names its flavor in its media
+    and carries the encoder beside the player."""
     os.makedirs(dest_dir, exist_ok=True)
     shutil.copy2(os.path.join(project.root, "project.orkproj"),
                  os.path.join(dest_dir, "project.orkproj"))
@@ -280,11 +294,16 @@ def stage_project_payload(project, dest_dir, platform="macos",
     # the auto formats - see cook_textures.py / Docs/textures.md). The
     # sidecars ship alongside, renamed with any compressed texture, so the
     # runtime keeps reading the LIVE sampler settings and asset ids from them.
-    flavor = render_backend(engine_build) if engine_build else "next"
+    if bundle is not None:
+        flavor = bundle.flavor
+        texcook = bundle.texcook() or find_texcook(None)
+    else:
+        flavor = render_backend(engine_build) if engine_build else "next"
+        texcook = find_texcook(engine_build)
     try:
         cooked = cook_textures.cook_payload(
             dest_dir, COOK_PLATFORM.get(platform, ""), flavor,
-            find_texcook(engine_build), log=lambda message: log(message))
+            texcook, log=lambda message: log(message))
     except cook_textures.CookError as error:
         fail(str(error))
     if cooked:
@@ -510,6 +529,55 @@ def ogre_next_media_subdirs(media_dir):
     return tuple(subdirs)
 
 
+def stage_engine_media_from_tree(resources, media_dir, flavor):
+    """lay the engine media a runtime registers at boot into
+    <resources>/Media, sourced from the build's vcpkg + the source tree.
+
+    Per flavor: the classic RTSS shader library (Main + RTShaderLib, with the
+    engine's own metal-rough library merged INTO RTShaderLib - the one location
+    the runtime registers) or the Ogre-Next Hlms shader templates + the
+    Atmosphere sky material media. Then the content media each runtime resolves
+    by name: fonts, water, decals and the per-flavor bloom/grade compositor
+    media. The runtimes resolve <Resources>/Media at boot
+    (PlayerBundle::resolveMediaDirectory), so the packaged app carries no vcpkg
+    or source-tree path. A distributed editor stages exactly this layout inside
+    itself, which is why packaging from one is a single copy of its Media/."""
+    media_subdirs = (ogre_next_media_subdirs(media_dir) if flavor == "next"
+                     else ("Main", "RTShaderLib"))
+    for media_subdir in media_subdirs:
+        shutil.copytree(os.path.join(media_dir, media_subdir),
+                        os.path.join(resources, "Media", media_subdir))
+    if flavor != "next" and engine_rtss_dir():
+        shutil.copytree(engine_rtss_dir(),
+                        os.path.join(resources, "Media", "RTShaderLib"),
+                        dirs_exist_ok=True)
+    # the engine-default font (Nunito, SIL OFL) so a project referencing it by
+    # name ships self-contained
+    if engine_font_dir():
+        shutil.copytree(engine_font_dir(),
+                        os.path.join(resources, "Media", "fonts"),
+                        dirs_exist_ok=True)
+    # the water plane mesh + tiling normal a scene's WaterComponent renders
+    if engine_water_dir():
+        shutil.copytree(engine_water_dir(),
+                        os.path.join(resources, "Media", "water"),
+                        dirs_exist_ok=True)
+    # the default mark + blob-shadow textures a scene's DecalComponent uses
+    if engine_decal_dir():
+        shutil.copytree(engine_decal_dir(),
+                        os.path.join(resources, "Media", "decals"),
+                        dirs_exist_ok=True)
+    # the compositor media engine:setBloom / engine:setGrade need, per flavor
+    if engine_bloom_dir(flavor):
+        shutil.copytree(engine_bloom_dir(flavor),
+                        os.path.join(resources, "Media", "bloom", flavor),
+                        dirs_exist_ok=True)
+    if engine_grade_dir(flavor):
+        shutil.copytree(engine_grade_dir(flavor),
+                        os.path.join(resources, "Media", "grade", flavor),
+                        dirs_exist_ok=True)
+
+
 def sibling_release_tree(engine_build):
     """the shippable Release tree next to the given tree, when it exists: each
     flavor's release tree is its own (trees are flavor-bound) - build/macos-
@@ -534,6 +602,61 @@ def engine_tree_arch(build_dir):
     if triplet.startswith(("x64-", "x86_64-")):
         return "x86_64"
     return ""
+
+
+# --- the staged engine payload (what a distributed editor carries) ---------
+# An editor someone downloaded has no repository and no build tree on the
+# machine: everything an export needs rides INSIDE that app already, because it
+# is what the editor itself renders and plays with - the engine media under
+# Media/ (in the exact layout an export writes) and the player + texture cook
+# executables beside the editor binary. Pointed at those two roots the exporter
+# packages from them; every step after the sourcing is the same code.
+
+class EngineBundle:
+    """a staged engine payload: `resources` holds Media/, `tools` holds the
+    sibling executables (they are the same directory on Linux/Windows and the
+    bundle's Resources / MacOS pair on macOS). The render flavor is READ from
+    the payload rather than passed in - the shader tree names it - so a caller
+    cannot tell the exporter a flavor the media does not have."""
+
+    def __init__(self, resources, tools=""):
+        self.resources = os.path.abspath(resources)
+        self.tools = os.path.abspath(tools) if tools else self.resources
+        self.media = os.path.join(self.resources, "Media")
+
+    @property
+    def flavor(self):
+        """"next" when the payload carries the Ogre-Next shader templates
+        (Media/Hlms), "classic" for the RTSS shader library (Media/Main)"""
+        return ("next" if os.path.isdir(os.path.join(self.media, "Hlms"))
+                else "classic")
+
+    def tool(self, name):
+        """the staged executable `name`, or "" when the payload lacks it"""
+        exe = name + ".exe" if os.name == "nt" else name
+        path = os.path.join(self.tools, exe)
+        return path if os.path.isfile(path) else ""
+
+    def player(self):
+        return self.tool("orkige_player")
+
+    def texcook(self):
+        return self.tool("texcook")
+
+    def frameworks(self):
+        """where the staged executables load their dylib closure from (macOS):
+        the app's Contents/Frameworks, a sibling of the tool root"""
+        return os.path.join(os.path.dirname(self.tools), "Frameworks")
+
+    def validate(self):
+        """refuse a payload that cannot produce a runnable app, naming the
+        piece that is missing rather than failing later on a copy"""
+        if not os.path.isdir(self.media):
+            fail("no engine media at '%s' - the Orkige this export runs from "
+                 "carries no packageable engine payload" % self.media)
+        if not self.player():
+            fail("no player executable in '%s' - the Orkige this export runs "
+                 "from carries no packageable engine payload" % self.tools)
 
 
 # --- macOS -----------------------------------------------------------------
@@ -631,9 +754,22 @@ def macos_build_native_module(project, target, engine_build, cmake, ninja):
     return executable, engine_tree
 
 
-def export_macos(project, engine_build, output_dir, cmake, ninja):
+def export_macos(project, engine_build, output_dir, cmake, ninja, bundle=None):
     native_target = project.native_target()
-    if native_target:
+    source_tree = ""
+    if bundle is not None:
+        # packaging from a distributed Orkige's own payload: no build tree
+        # exists on this machine, so the player, the media and the texture cook
+        # all come out of the app
+        if native_target:
+            fail("this project builds compiled C++ game code (its "
+                 "native.target setting), which needs the engine source tree "
+                 "and a C++ toolchain - the Orkige this export runs from "
+                 "carries neither")
+        bundle.validate()
+        executable = bundle.player()
+        log("packaging the engine payload in '%s'" % bundle.resources)
+    elif native_target:
         executable, source_tree = macos_build_native_module(
             project, native_target, engine_build, cmake, ninja)
     else:
@@ -656,15 +792,19 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
             fail("no player binary at '%s' - build the preset first"
                  % executable)
 
-    flavor = render_backend(source_tree)
-    if flavor == "next":
-        media_dir = ogre_next_media_dir(source_tree)
-        if not media_dir:
-            fail("no vcpkg Ogre-Next media under '%s'" % source_tree)
+    media_dir = ""
+    if bundle is not None:
+        flavor = bundle.flavor
     else:
-        media_dir = ogre_media_dir(source_tree)
-        if not media_dir:
-            fail("no vcpkg OGRE media under '%s'" % source_tree)
+        flavor = render_backend(source_tree)
+        if flavor == "next":
+            media_dir = ogre_next_media_dir(source_tree)
+            if not media_dir:
+                fail("no vcpkg Ogre-Next media under '%s'" % source_tree)
+        else:
+            media_dir = ogre_media_dir(source_tree)
+            if not media_dir:
+                fail("no vcpkg OGRE media under '%s'" % source_tree)
 
     app_dir = os.path.join(output_dir, project.name + ".app")
     if os.path.exists(app_dir):
@@ -679,66 +819,31 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
     shutil.copy2(executable, bundled_exe)
     os.chmod(bundled_exe, 0o755)
 
-    # the dylib closure: rpath deps resolve against the source tree's vcpkg
-    triplet = vcpkg_triplet_dir(source_tree)
-    search_dirs = [os.path.join(triplet, "debug", "lib"),
-                   os.path.join(triplet, "lib")] if triplet else []
+    # the dylib closure: rpath deps resolve against the source tree's vcpkg -
+    # or, packaging from a staged payload, against the Frameworks directory
+    # that app already carries them in (its own player loads them from there,
+    # so it is where the copy's dependencies live)
+    if bundle is not None:
+        search_dirs = [bundle.frameworks()]
+    else:
+        triplet = vcpkg_triplet_dir(source_tree)
+        search_dirs = [os.path.join(triplet, "debug", "lib"),
+                       os.path.join(triplet, "lib")] if triplet else []
     macos_make_self_contained(bundled_exe,
                               os.path.join(contents, "Frameworks"),
                               macos_self_contain.rpaths(bundled_exe) + search_dirs)
 
-    # engine media, per flavor: the classic RTSS shader library (Main +
-    # RTShaderLib) or the Ogre-Next Hlms shader templates + Atmosphere sky
-    # material media (Hlms, Atmosphere). The runtimes resolve <Resources>/Media
-    # at boot (PlayerBundle::resolveMediaDirectory) and register it - RTSS
-    # locations on classic, Engine::setHlmsMediaDir on next (which also drives
-    # the next backend's registerAtmosphereMedia, looking for Atmosphere/ as a
-    # sibling of Hlms/) - so the bundle carries no vcpkg or source-tree path.
-    media_subdirs = (ogre_next_media_subdirs(media_dir) if flavor == "next"
-                     else ("Main", "RTShaderLib"))
-    for media_subdir in media_subdirs:
-        shutil.copytree(os.path.join(media_dir, media_subdir),
-                        os.path.join(resources, "Media", media_subdir))
-    # the engine-owned metal-rough shader library rides merged into the
-    # bundled RTShaderLib (classic only - next's response is native)
-    if flavor != "next" and engine_rtss_dir():
-        shutil.copytree(engine_rtss_dir(),
-                        os.path.join(resources, "Media", "RTShaderLib"),
+    if bundle is not None:
+        # a staged payload's Media/ IS this layout already (it is what the app
+        # renders from), so the whole tree copies across as one piece
+        shutil.copytree(bundle.media, os.path.join(resources, "Media"),
                         dirs_exist_ok=True)
-    # the engine-default font (Nunito, SIL OFL) rides in the same bundled Media
-    # dir so a project referencing it by name ships self-contained
-    if engine_font_dir():
-        shutil.copytree(engine_font_dir(),
-                        os.path.join(resources, "Media", "fonts"),
-                        dirs_exist_ok=True)
-    # the engine water media (plane mesh + tiling normal) rides alongside so a
-    # scene's WaterComponent ships self-contained
-    if engine_water_dir():
-        shutil.copytree(engine_water_dir(),
-                        os.path.join(resources, "Media", "water"),
-                        dirs_exist_ok=True)
-    # the engine decal media (default mark + blob-shadow textures) so a scene's
-    # DecalComponent ships self-contained
-    if engine_decal_dir():
-        shutil.copytree(engine_decal_dir(),
-                        os.path.join(resources, "Media", "decals"),
-                        dirs_exist_ok=True)
-    # the engine bloom compositor media (per flavor) so a scene's
-    # engine:setBloom ships self-contained
-    if engine_bloom_dir(flavor):
-        shutil.copytree(engine_bloom_dir(flavor),
-                        os.path.join(resources, "Media", "bloom", flavor),
-                        dirs_exist_ok=True)
-    # the engine output-grade compositor media (per flavor) so a scene's
-    # engine:setGrade ships self-contained
-    if engine_grade_dir(flavor):
-        shutil.copytree(engine_grade_dir(flavor),
-                        os.path.join(resources, "Media", "grade", flavor),
-                        dirs_exist_ok=True)
+    else:
+        stage_engine_media_from_tree(resources, media_dir, flavor)
 
     staged = stage_project_payload(
         project, os.path.join(resources, PAYLOAD_DIR_NAME), "macos",
-        engine_build)
+        engine_build, bundle)
     write_marker(resources)
     log("project payload: %d files" % staged)
 
@@ -1511,7 +1616,7 @@ def main():
     parser.add_argument("--platform", required=True,
                         choices=["macos", "ios-simulator", "ios", "ios-ipa",
                                  "android", "android-aab", "web"])
-    parser.add_argument("--engine-build", required=True,
+    parser.add_argument("--engine-build",
                         help="the preset build tree to package from (either "
                              "render flavor; the bundled engine media follows "
                              "the tree's ORKIGE_RENDER_BACKEND) - macos: "
@@ -1520,6 +1625,17 @@ def main():
                              "ios: build/ios-device-debug[-release], "
                              "android: build/android-debug[-next], "
                              "web: build/web-release")
+    parser.add_argument("--engine-bundle",
+                        help="package from a STAGED engine payload instead of "
+                             "a build tree (a distributed Orkige's own): the "
+                             "resource root holding Media/. Desktop only - a "
+                             "mobile or browser package needs that platform's "
+                             "player, which only a build tree carries")
+    parser.add_argument("--engine-tools",
+                        help="where the staged payload's player and texture "
+                             "cook executables live (default: the "
+                             "--engine-bundle directory; a macOS app keeps "
+                             "them in Contents/MacOS beside the editor)")
     parser.add_argument("--output",
                         help="output directory (default: "
                              "<project>/builds/<platform>)")
@@ -1561,9 +1677,29 @@ def main():
     args = parser.parse_args()
 
     project = Project(args.project)
-    engine_build = os.path.abspath(args.engine_build)
-    if not os.path.isdir(engine_build):
-        fail("engine build tree '%s' does not exist" % engine_build)
+    bundle = None
+    engine_build = ""
+    if args.engine_bundle:
+        # the distributed shape: this export packages the engine payload the
+        # Orkige it was started from carries, because there is no build tree on
+        # the machine at all
+        if args.engine_build:
+            fail("--engine-bundle and --engine-build name two different engine "
+                 "sources - pass one")
+        bundle = EngineBundle(args.engine_bundle, args.engine_tools or "")
+        if not os.path.isdir(bundle.resources):
+            fail("engine payload '%s' does not exist" % bundle.resources)
+        if args.platform != "macos":
+            fail("a staged engine payload packages the desktop app only; "
+                 "'%s' needs that platform's player, which comes from its own "
+                 "preset build tree (--engine-build)" % args.platform)
+    else:
+        if not args.engine_build:
+            fail("no engine source: pass --engine-build <preset build tree> "
+                 "or --engine-bundle <staged engine payload>")
+        engine_build = os.path.abspath(args.engine_build)
+        if not os.path.isdir(engine_build):
+            fail("engine build tree '%s' does not exist" % engine_build)
     output_dir = os.path.abspath(
         args.output or os.path.join(project.root, "builds", args.platform))
     os.makedirs(output_dir, exist_ok=True)
@@ -1571,7 +1707,7 @@ def main():
 
     if args.platform == "macos":
         artifact = export_macos(project, engine_build, output_dir,
-                                args.cmake, args.ninja)
+                                args.cmake, args.ninja, bundle)
     elif args.platform == "ios-simulator":
         artifact = export_ios_simulator(project, engine_build, output_dir)
     elif args.platform == "ios":
@@ -1907,6 +2043,39 @@ def selftest():
         os.makedirs(os.path.join(media_without_sky, "Hlms"))
         assert ogre_next_media_subdirs(media_without_sky) == ("Hlms",), \
             "Atmosphere skipped when absent (older vcpkg port pin)"
+
+    # the staged engine payload a distributed Orkige packages from: the flavor
+    # is READ from the media (the shader tree names it), the executables are
+    # looked up beside the editor, and the dylib closure comes from the app's
+    # own Frameworks - so nothing about the machine that built the binary is
+    # needed, and nothing has to be told twice
+    with tempfile.TemporaryDirectory() as work:
+        app = os.path.join(work, "Orkige.app", "Contents")
+        resources = os.path.join(app, "Resources")
+        tools = os.path.join(app, "MacOS")
+        os.makedirs(os.path.join(resources, "Media", "Hlms"))
+        os.makedirs(tools)
+        payload = EngineBundle(resources, tools)
+        assert payload.flavor == "next", "Hlms in the media -> the next flavor"
+        assert payload.media == os.path.join(resources, "Media"), \
+            "the payload's media root"
+        assert payload.frameworks() == os.path.join(app, "Frameworks"), \
+            "the dylib closure is the app's own Frameworks"
+        assert payload.player() == "", "no player staged yet -> no player"
+        player_name = "orkige_player.exe" if os.name == "nt" else "orkige_player"
+        with open(os.path.join(tools, player_name), "w") as handle:
+            handle.write("x")
+        assert payload.player() == os.path.join(tools, player_name), \
+            "the staged player is found beside the editor"
+        assert payload.texcook() == "", "an absent encoder stays absent"
+
+        # a classic payload names itself the same way, through its own tree
+        classic_resources = os.path.join(work, "classic", "share", "orkige")
+        os.makedirs(os.path.join(classic_resources, "Media", "Main"))
+        classic = EngineBundle(classic_resources)
+        assert classic.flavor == "classic", "Main in the media -> classic"
+        assert classic.tools == classic.resources, \
+            "one root without --engine-tools (the flat layout)"
 
     # dlopen symlink aliases of a versioned dylib: symlinks resolving to the
     # real file are found, the file itself and unrelated entries are not

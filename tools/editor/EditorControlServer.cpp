@@ -566,30 +566,6 @@ namespace Orkige
 			}
 			return String();
 		}
-		//! @brief resolve the engine build tree the exporter packages from for a
-		//! platform - mirrors EditorExport.cpp's startExport: THIS editor's tree
-		//! for macOS, the mobile preset trees for the device targets.
-		String resolveExportTree(String const& platform)
-		{
-			namespace fs = std::filesystem;
-			if (platform == "ios-simulator")
-			{
-				return (fs::path(ORKIGE_EDITOR_ENGINE_ROOT) / "build" /
-					"ios-simulator-debug").string();
-			}
-			if (platform == "android")
-			{
-				return (fs::path(ORKIGE_EDITOR_ENGINE_ROOT) / "build" /
-					"android-debug").string();
-			}
-			if (platform == "web")
-			{
-				// the wasm player from the web-release preset tree
-				return (fs::path(ORKIGE_EDITOR_ENGINE_ROOT) / "build" /
-					"web-release").string();
-			}
-			return ORKIGE_EDITOR_ENGINE_BUILD_DIR;	// macos: this editor's tree
-		}
 		//! is the web-release tree's wasm player built? (the Browser play
 		//! target's gate, mirroring the toolbar's probe)
 		bool isWebPlayerBuilt()
@@ -6806,27 +6782,42 @@ namespace Orkige
 				this->sendErr(req, "no project open");
 				return;
 			}
-			const String tree = resolveExportTree(platform);
-			// honest, structured preconditions BEFORE spawning: the export
-			// pipeline ships the CLASSIC player/media set, so it needs a present,
-			// classic-flavored engine tree. A missing or next-flavored tree is
-			// refused up front (no exporter run, no new export machinery here).
-			std::error_code treeIgnored;
-			if (!std::filesystem::exists(
-				std::filesystem::path(tree) / "CMakeCache.txt", treeIgnored))
+			// what runs and what it packages from is the ONE export decision
+			// (EditorExportPlan.h) the Build menu uses: a preset build tree in
+			// an editor built from the source tree, the app's own staged engine
+			// payload in a distributed copy - and one actionable sentence when
+			// neither can produce the asked-for platform.
+			const OrkigeEditor::EditorExportPlan plan =
+				planExport(state.project, platform);
+			if (!plan.ok)
 			{
-				this->sendErr(req, "no " + platform + " build tree at '" + tree +
-					"' - build the matching classic preset first (project export "
-					"is pinned to the classic flavor)");
+				this->sendErr(req, plan.error);
 				return;
 			}
-			if (readCmakeCacheVar(tree, "ORKIGE_RENDER_BACKEND") == "next")
+			const String tree = plan.engineBuild;
+			if (plan.source == OrkigeEditor::EditorExportSource::Tree)
 			{
-				this->sendErr(req, "project export is pinned to the classic "
-					"flavor; the " + platform + " engine tree at '" + tree +
-					"' is next-flavored - build a classic preset (e.g. "
-					"macos-debug-classic) to export");
-				return;
+				// honest, structured preconditions BEFORE spawning: the export
+				// pipeline ships the CLASSIC player/media set, so it needs a
+				// present, classic-flavored engine tree. A missing or
+				// next-flavored tree is refused up front (no exporter run).
+				std::error_code treeIgnored;
+				if (!std::filesystem::exists(
+					std::filesystem::path(tree) / "CMakeCache.txt", treeIgnored))
+				{
+					this->sendErr(req, "no " + platform + " build tree at '" +
+						tree + "' - build the matching classic preset first "
+						"(project export is pinned to the classic flavor)");
+					return;
+				}
+				if (readCmakeCacheVar(tree, "ORKIGE_RENDER_BACKEND") == "next")
+				{
+					this->sendErr(req, "project export is pinned to the classic "
+						"flavor; the " + platform + " engine tree at '" + tree +
+						"' is next-flavored - build a classic preset (e.g. "
+						"macos-debug-classic) to export");
+					return;
+				}
 			}
 			// build the exporter command on the main thread (Project is not
 			// thread-safe), then hand it to the worker - same invocation as the
@@ -6840,16 +6831,16 @@ namespace Orkige
 				this->sendErr(req, python.error);
 				return;
 			}
-			const String exporter =
-				String(ORKIGE_EDITOR_ENGINE_ROOT) + "/Util/orkige_export.py";
-			std::vector<std::string> command = { python.executable, exporter,
-				"--project", state.project.getRootDirectory(),
-				"--platform", platform, "--engine-build", tree };
+			std::vector<std::string> command = { python.executable };
+			command.insert(command.end(), plan.arguments.begin(),
+				plan.arguments.end());
 			auto job = std::make_unique<EditorExportJob>();
 			job->id = AssetDatabase::generateId();
 			ExportRunResult params;
 			params.platform = platform;
-			params.engineBuild = tree;
+			// what the export packages from: the build tree, or - in a copied
+			// app - the engine payload staged inside it
+			params.engineBuild = plan.enginePayload;
 			EditorExportJob* jobPtr = job.get();
 			job->worker = std::thread(runExportJobWorker, jobPtr, params,
 				command);
@@ -6858,7 +6849,7 @@ namespace Orkige
 			ok.set("accepted", "1");
 			ok.set("jobId", jobPtr->id);
 			ok.set("platform", platform);
-			ok.set("engineBuild", tree);
+			ok.set("engineBuild", plan.enginePayload);
 			this->sendOk(req, ok);
 			return;
 		}

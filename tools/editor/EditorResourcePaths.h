@@ -96,6 +96,9 @@ namespace OrkigeEditor
 		Orkige::String	grade;		//!< output-grade media (per flavor)
 		//! the editor's own UI fonts (icon font, mono symbols) source dir
 		Orkige::String	uiFonts;
+		//! the directory holding the engine's Python tools (the project
+		//! exporter and the animation cook the editor spawns)
+		Orkige::String	pythonTools;
 		Orkige::String	player;		//!< the play-mode player executable
 		Orkige::String	texcook;	//!< the texture cook tool executable
 	};
@@ -162,6 +165,15 @@ namespace OrkigeEditor
 		//! is no tree fallback to invent one from, and the repository's own
 		//! history is not what this build shipped with.
 		EditorResourcePath changelog() const;
+		//! @brief one of the engine's Python tools by file name (the project
+		//! exporter `orkige_export.py`, the animation cook
+		//! `cook_vector_anim.py`). Bundled copies sit in `Util/` under the
+		//! resource root, keeping the file names and the sibling-import layout
+		//! the source tree has, so a staged copy runs the very same script.
+		//! @remarks Answering Missing is a real state: a build that stages no
+		//! tools and has no reachable source tree cannot run them, and the
+		//! consumer says so instead of spawning a path that is not there.
+		EditorResourcePath pythonTool(Orkige::String const & fileName) const;
 		//! the player executable Play spawns
 		EditorResourcePath player() const;
 		//! the texture cook tool the export path drives

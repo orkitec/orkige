@@ -10,16 +10,55 @@
 // Util/orkige_export.py), output streamed into the Console.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorExportPlan.h"
+#include "EditorResourcePaths.h"
 #include "PythonToolchain.h"
 
+#include <core_project/NativeModule.h>
+
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <vector>
 
+//! @brief the exporter command for this project + platform, or the refusal
+//! (@see EditorExportPlan.h). Every path is resolved through the ONE resource
+//! locator: an editor built in the source tree packages a preset build tree,
+//! a COPIED app packages the engine payload it carries inside itself.
+OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
+	std::string const& platform)
+{
+	OrkigeEditor::EditorResourceLocator const& resources =
+		OrkigeEditor::editorResources();
+	OrkigeEditor::EditorExportInputs inputs;
+	inputs.platform = platform;
+	inputs.projectRoot = project.getRootDirectory();
+	inputs.nativeModule =
+		!Orkige::NativeModule::configFromProject(project).target.empty();
+	inputs.exporter = resources.pythonTool("orkige_export.py");
+	// "is the tree this editor was built in still here?" - a configured build
+	// tree is what the exporter packages from, so its cache is the probe
+	std::error_code treeIgnored;
+	inputs.engineTree = std::filesystem::exists(
+		std::filesystem::path(ORKIGE_EDITOR_ENGINE_BUILD_DIR) /
+		"CMakeCache.txt", treeIgnored);
+	inputs.engineRoot = ORKIGE_EDITOR_ENGINE_ROOT;
+	inputs.engineBuildDir = ORKIGE_EDITOR_ENGINE_BUILD_DIR;
+	inputs.iosDeviceTree = ORKIGE_EDITOR_IOS_DEVICE_TREE;
+	inputs.bundleResources = resources.bundleResourceRoot();
+	inputs.bundleTools = resources.bundleToolRoot();
+	inputs.bundlePlayer = resources.player().fromBundle();
+	inputs.bundleMedia = resources.engineMedia().fromBundle();
+	inputs.hostPlatform = OrkigeEditor::hostExportPlatform();
+	inputs.hostName = OrkigeEditor::hostExportName();
+	return OrkigeEditor::planProjectExport(inputs);
+}
+
 //! @brief launch the exporter for the open project (async; false when it
-//! cannot start). The build tree the exporter packages from is per-platform:
-//! THIS editor's build tree for macOS, the ios-simulator-debug /
-//! android-debug preset trees for the mobile targets - the exporter reports
-//! honestly when one of those was never built.
+//! cannot start). What it packages from is the plan's business: a preset build
+//! tree per platform in the source-tree shape (the exporter reports honestly
+//! when one of those was never built), the app's own staged payload in a
+//! distributed copy.
 bool startExport(ExportJob& job, Orkige::Project const& project,
 	std::string const& platform, EditorConsole& console)
 {
@@ -33,6 +72,12 @@ bool startExport(ExportJob& job, Orkige::Project const& project,
 	{
 		return false; // the menu items are disabled without a project
 	}
+	const OrkigeEditor::EditorExportPlan plan = planExport(project, platform);
+	if (!plan.ok)
+	{
+		console.addLine(ConsoleLevel::Error, "[export] " + plan.error);
+		return false;
+	}
 	// preflight the python3 toolchain (cached per run) - the exporter is a
 	// python3 script; report the missing/too-old interpreter honestly instead of
 	// letting the spawn fail opaquely
@@ -42,38 +87,9 @@ bool startExport(ExportJob& job, Orkige::Project const& project,
 		console.addLine(ConsoleLevel::Error, "[export] " + python.error);
 		return false;
 	}
-	const std::string exporter =
-		std::string(ORKIGE_EDITOR_ENGINE_ROOT) + "/Util/orkige_export.py";
-	std::string engineBuild = ORKIGE_EDITOR_ENGINE_BUILD_DIR;
-	if (platform == "ios-simulator")
-	{
-		engineBuild = std::string(ORKIGE_EDITOR_ENGINE_ROOT) +
-			"/build/ios-simulator-debug";
-	}
-	else if (platform == "ios")
-	{
-		// physical-device export packages the arm64-ios (iphoneos) player of
-		// THIS editor's render flavor (a next editor signs the Ogre-Next
-		// player, a classic editor the classic one); the exporter reports
-		// honestly when that device tree was never built
-		engineBuild = std::string(ORKIGE_EDITOR_ENGINE_ROOT) +
-			"/build/" + ORKIGE_EDITOR_IOS_DEVICE_TREE;
-	}
-	else if (platform == "android")
-	{
-		engineBuild = std::string(ORKIGE_EDITOR_ENGINE_ROOT) +
-			"/build/android-debug";
-	}
-	else if (platform == "web")
-	{
-		// the browser build: the wasm player from the web-release preset
-		// tree; the exporter reports honestly when it was never built
-		engineBuild = std::string(ORKIGE_EDITOR_ENGINE_ROOT) +
-			"/build/web-release";
-	}
-	const std::vector<std::string> command = { python.executable, exporter,
-		"--project", project.getRootDirectory(), "--platform", platform,
-		"--engine-build", engineBuild };
+	std::vector<std::string> command = { python.executable };
+	command.insert(command.end(), plan.arguments.begin(),
+		plan.arguments.end());
 	std::vector<const char*> args;
 	std::string commandLine;
 	args.reserve(command.size() + 1);

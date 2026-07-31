@@ -1672,6 +1672,41 @@ def notarize_macos_app(app, signing):
     orkige_export.run(spctl_argv(app, "exec"))
 
 
+# The engine's own Python tools the editor spawns: the exporter and the Lottie
+# cook, plus the modules they import. The DIRECTORY NAME is load-bearing - the
+# exporter imports its siblings and finds its default icon relative to its own
+# __file__ - so the tree's `Util/` layout is reproduced rather than flattened.
+# The macOS bundle gets these from the editor's own build staging; this is the
+# flat (Linux/Windows) layout's copy of that decision.
+EDITOR_PYTHON_TOOLS = (
+    "orkige_export.py",
+    "cook_textures.py",
+    "macos_self_contain.py",
+    "orkige_icons.py",
+    "orkige_png.py",
+    "cook_vector_anim.py",
+)
+EDITOR_PYTHON_TOOL_MEDIA = ("media/orkige_default_icon.png",)
+
+
+def stage_python_tools(resource_root):
+    """copy the exporter and its import closure under <resources>/Util/."""
+    target = os.path.join(resource_root, "Util")
+    os.makedirs(target, exist_ok=True)
+    for name in EDITOR_PYTHON_TOOLS:
+        source = os.path.join(REPO_ROOT, "Util", name)
+        if not os.path.isfile(source):
+            fail("the editor's Python tool '%s' is missing - a staged editor "
+                 "could not export" % name)
+        shutil.copy2(source, os.path.join(target, name))
+    for relative in EDITOR_PYTHON_TOOL_MEDIA:
+        source = os.path.join(REPO_ROOT, "Util", relative)
+        destination = os.path.join(target, relative)
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        if os.path.isfile(source):
+            shutil.copy2(source, destination)
+
+
 def stage_flat(build_dir, platform, stage_root, editor, player):
     """Linux and Windows: the executables beside each other and the resources
     under share/orkige/, which is the layout the editor's own resource locator
@@ -1694,6 +1729,7 @@ def stage_flat(build_dir, platform, stage_root, editor, player):
         source = os.path.join(editor_media, name)
         if os.path.isfile(source):
             shutil.copy2(source, os.path.join(resources, name))
+    stage_python_tools(resources)
     # whatever shared libraries the build placed beside the executable (on
     # Windows the vcpkg DLLs the loader needs, e.g. the Vulkan loader)
     build_output = os.path.dirname(editor)
@@ -2599,6 +2635,13 @@ def verify_layout(root, platform):
         # the export cook spawns it; the build stages it beside the player, so
         # its absence means a scoped build skipped the payload staging
         problems.append("missing the texture cook tool (%s)" % cook)
+    # the exporter itself: without it a downloaded editor cannot ship a game,
+    # which is the failure this archive exists to prevent
+    tool_root = os.path.join(ui_font_dir, "Util")
+    for name in EDITOR_PYTHON_TOOLS:
+        if not os.path.isfile(os.path.join(tool_root, name)):
+            problems.append("missing Util/%s (the editor could not export)"
+                            % name)
     if not os.path.isdir(media_root):
         problems.append("missing %s/" % media_label)
     else:
@@ -4535,6 +4578,11 @@ exit 0
         for name in ("orkige_editor", "orkige_player", "texcook", "VERSION",
                      "KNOWN-LIMITATIONS.md", CHANGELOG_FILE):
             open(os.path.join(tree, name), "w").close()
+        # the exporter and its import closure, which a staged editor carries
+        tool_root = os.path.join(tree, FLAT_RESOURCE_DIR, "Util")
+        os.makedirs(tool_root, exist_ok=True)
+        for name in EDITOR_PYTHON_TOOLS:
+            open(os.path.join(tool_root, name), "w").close()
         # a non-executable editor is a packaging failure of its own - where
         # "executable" is a thing. Windows has no execute permission bit: every
         # readable file answers os.access(X_OK), so the check has nothing to
@@ -4617,6 +4665,10 @@ def selftest_dmg():
             open(path, "w").close()
             os.chmod(path, 0o755)
         open(os.path.join(resources, EDITOR_UI_FONTS[0]), "w").close()
+        tool_root = os.path.join(resources, "Util")
+        os.makedirs(tool_root, exist_ok=True)
+        for name in EDITOR_PYTHON_TOOLS:
+            open(os.path.join(tool_root, name), "w").close()
         for name in ("VERSION", CHANGELOG_FILE):
             # the resource root carries what the EDITOR reads back (its About
             # box shows the changelog it shipped with)

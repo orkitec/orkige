@@ -14,6 +14,7 @@
 #include "EditorSourceControlPanel.h"	// event-driven git refresh on scene save
 #include "EditorAutosave.h"
 #include "EditorSceneTemplate.h"
+#include "EditorResourcePaths.h"	// the ONE bundle-first / tree-second locator
 #include "MeshImport.h"
 #include "PythonToolchain.h"
 
@@ -563,14 +564,18 @@ std::string cookSvgFileToDir(std::string const& sourcePath,
 	return destPath;
 }
 
-//! the animation cook script (the one Lottie reader in the tree); its byte
-//! content doubles as the recorded "cook-tool version" - any script change
-//! makes every recorded artifact read as stale, with no version constant to
-//! forget (cooks are byte-deterministic, so an inconsequential script edit
-//! re-cooks once into identical bytes)
+//! the animation cook script (the one Lottie reader), resolved through the ONE
+//! resource locator: the copy a distributed app carries, else the source
+//! tree's. Its byte content doubles as the recorded "cook-tool version" - any
+//! script change makes every recorded artifact read as stale, with no version
+//! constant to forget (cooks are byte-deterministic, so an inconsequential
+//! script edit re-cooks once into identical bytes). Empty when this editor
+//! carries no cook at all - the callers say so instead of spawning a path that
+//! is not there (an empty path hashes to "", which records nothing).
 std::string animationCookScriptPath()
 {
-	return std::string(ORKIGE_EDITOR_ENGINE_ROOT) + "/Util/cook_vector_anim.py";
+	return OrkigeEditor::editorResources()
+		.pythonTool("cook_vector_anim.py").path;
 }
 
 //! the cook settings a source's sidecar recorded, or the defaults when the
@@ -636,6 +641,13 @@ std::string runAnimationCook(std::string const& sourceAbsPath,
 		}
 		return "";
 	};
+	const std::string cookScript = animationCookScriptPath();
+	if (cookScript.empty())
+	{
+		return fail("this copy of Orkige carries no animation cook "
+			"(Util/cook_vector_anim.py) and no engine source tree is reachable "
+			"from it - reinstall Orkige to import animation documents");
+	}
 	// preflight python3 (cached per run), same honest message as the .svg cook
 	const Orkige::PythonProbeResult& python = Orkige::probePythonToolchain();
 	if (!python.ok)
@@ -647,8 +659,8 @@ std::string runAnimationCook(std::string const& sourceAbsPath,
 		(source.parent_path() / (source.stem().string() + ".oanim")).string();
 	const std::string shapePath =
 		(source.parent_path() / (source.stem().string() + ".oshape")).string();
-	std::vector<std::string> command = { python.executable,
-		animationCookScriptPath(), sourceAbsPath, animPath };
+	std::vector<std::string> command = { python.executable, cookScript,
+		sourceAbsPath, animPath };
 	// per-asset cook options ride the sidecar (verbatim CLI text); an unset
 	// option stays off the command line so the cook's own default applies
 	if (!settings.clips.empty())

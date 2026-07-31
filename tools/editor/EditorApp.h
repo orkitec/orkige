@@ -27,6 +27,7 @@
 #include "EditorAssetDnd.h"
 #include "EditorCamera.h"
 #include "EditorCore.h"
+#include "EditorExportPlan.h"	// the ONE export decision (menu + endpoint)
 #include "EditorPanelRegistry.h"
 #include "EditorTheme.h"
 #include "EditorUpdate.h"		// the update setting (ViewSettings::updatePolicy)
@@ -200,6 +201,16 @@ struct ExportJob
 	bool browserArtifactReady = false;
 	bool isActive() const { return this->process != nullptr; }
 };
+
+//! @brief the exporter command for @p project on @p platform, or the one
+//! honest sentence saying why this editor cannot produce it (@see
+//! EditorExportPlan.h). Resolves every path through the ONE resource locator,
+//! so a copied app plans against the payload it carries and a build-tree run
+//! against the tree - both the Build menu and the control endpoint's export
+//! verb go through it, so the command line and the refusals have one
+//! definition. Defined in EditorExport.cpp.
+OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
+	std::string const& platform);
 
 //! @brief launch the exporter for the open project (async; false when it
 //! cannot start) - see EditorExport.cpp

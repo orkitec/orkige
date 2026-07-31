@@ -55,6 +55,11 @@ add_library(orkige_editor_core STATIC
     # (EditorResourceBinding.cpp below)
     EditorResourcePaths.h
     EditorResourcePaths.cpp
+    # the ONE export decision (which exporter runs, what it packages from, and
+    # the actionable sentence when this editor cannot produce a platform) -
+    # pure over resolved paths, unit-tested headlessly (EditorExportPlanTests)
+    EditorExportPlan.h
+    EditorExportPlan.cpp
     EditorTextDiagnostics.h
     EditorTextDiagnostics.cpp
     # the PURE half of the Claude-IDE integration (lock model + MCP message
@@ -377,6 +382,9 @@ target_compile_definitions(orkige_editor PRIVATE
     # icon font source dir (fa-solid-900.ttf) - the out-of-bundle fallback the
     # editor loads from when running straight out of the build tree
     ORKIGE_EDITOR_ICON_FONT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/media"
+    # the engine's Python tools (the project exporter, the animation cook) -
+    # the source-tree fallback behind the copies the app stages below
+    ORKIGE_EDITOR_PYTHON_TOOL_DIR="${Orkige_SOURCE_DIR}/Util"
     # the engine-default font dir (Nunito) the editor registers so a project's
     # .ogui can reference the font by name (matches what the player/exports do)
     ORKIGE_EDITOR_FONT_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/fonts"
@@ -503,6 +511,30 @@ foreach(_media_rel IN ITEMS "fonts" "water" "decals"
                 "${_editor_stage_media}/${_media_rel}")
     endif()
 endforeach()
+# the engine's Python tools the editor spawns, under the resource root's Util/
+# - the SAME directory name and sibling layout they have in the source tree, so
+# a staged script imports its helpers exactly as it does there. This is what
+# lets a copied app export a project at all: without them the exporter is a
+# path on the machine that built the binary. The set is the exporter's import
+# closure (it imports the texture cook, the dylib-closure stager and the icon
+# generator; two of those import the PNG codec) plus the animation cook the
+# asset import spawns, plus the neutral default app icon an export falls back
+# to when a project sets no export.icon.
+list(APPEND _editor_stage_commands
+    COMMAND "${CMAKE_COMMAND}" -E make_directory
+        "${_editor_stage_resources}/Util/media")
+foreach(_python_tool IN ITEMS "orkige_export.py" "cook_textures.py"
+        "macos_self_contain.py" "orkige_icons.py" "orkige_png.py"
+        "cook_vector_anim.py")
+    list(APPEND _editor_stage_commands
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${Orkige_SOURCE_DIR}/Util/${_python_tool}"
+            "${_editor_stage_resources}/Util/")
+endforeach()
+list(APPEND _editor_stage_commands
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${Orkige_SOURCE_DIR}/Util/media/orkige_default_icon.png"
+        "${_editor_stage_resources}/Util/media/")
 if(NOT APPLE)
     # the editor's own UI fonts (+ their licenses): on macOS they ride in the
     # bundle's Resources through MACOSX_PACKAGE_LOCATION above; every other

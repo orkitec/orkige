@@ -1369,9 +1369,15 @@ if(TARGET orkige_editor)
     # Homebrew, which also catches a baked path reached OUTSIDE the resource
     # resolver), and drives the copy over its own MCP endpoint: it must boot
     # with a rendering window, open the copied project, render a scene
-    # screenshot and PLAY through the player INSIDE the app. A second leg makes
+    # screenshot and PLAY through the player INSIDE the app. A second leg asks
+    # it to PACKAGE that project: it must either export a runnable .app out of
+    # the engine payload it carries (which the leg then runs, in the same clean
+    # room) or refuse with a sentence naming what is missing - and an iOS
+    # request, which a copy genuinely cannot produce, must say exactly that;
+    # a missing-file error naming a directory from the machine that built the
+    # binary fails the leg. A third leg makes
     # the staged shader media unreadable and asserts the render backend
-    # degrades with its honest warning instead of aborting the boot. A third
+    # degrades with its honest warning instead of aborting the boot. A fourth
     # reads back the changelog the About box shows (`--changelog`, the same
     # text, display-free) in BOTH of its states: a copy that was never
     # packaged says so in one line, and a copy carrying the CHANGELOG.md the
@@ -1396,7 +1402,7 @@ if(TARGET orkige_editor)
                 --repo-root "${Orkige_SOURCE_DIR}"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_bundle${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-            LABELS integration TIMEOUT 420)
+            LABELS integration TIMEOUT 900)
     endif()
 
     # Asset browser (v2): open a temp COPY of

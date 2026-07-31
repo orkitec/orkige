@@ -19,11 +19,17 @@ that situation and drives the copy over its own MCP endpoint:
   3. ASSERT over MCP that the copy boots with a rendering window, opens the
      copied project, renders a scene screenshot and PLAYS - the bundled player
      spawning and reporting a running session.
-  4. ASSERT the unreadable-media leg: with the staged shader media made
+  4. ASSERT that the copy can PACKAGE a game: asked over MCP to export the
+     copied project, it either produces a runnable .app out of the engine
+     payload it carries, or refuses with a sentence naming what is missing and
+     what to do about it - never a missing-file error naming a directory from
+     the machine that built the binary. The same leg asks for an iOS package,
+     which a copy genuinely cannot produce, and asserts the refusal SAYS so.
+  5. ASSERT the unreadable-media leg: with the staged shader media made
      unreadable, the resource resolver says so out loud and nothing throws out
      of engine setup (the error_code probes). Skipped as root, where a mode of
      000 denies nothing.
-  5. ASSERT the packaged-changelog leg: the About box shows what the build
+  6. ASSERT the packaged-changelog leg: the About box shows what the build
      shipped with, resolved through the same locator. A staged copy with no
      CHANGELOG.md at its resource root says so in one line; drop the file the
      packaging pipeline writes there and the copy reads THAT back - the two
@@ -107,16 +113,24 @@ class McpClient:
         return json.loads(raw[split + 4:].decode("utf-8", "replace"))
 
     def tool(self, name, arguments=None, timeout=60.0):
+        accepted, structured, text = self.attempt(name, arguments, timeout)
+        if not accepted:
+            raise RuntimeError("%s refused: %s" % (name, text))
+        return structured
+
+    def attempt(self, name, arguments=None, timeout=60.0):
+        """like tool(), but a REFUSAL is an answer rather than an exception:
+        (accepted, structuredContent, text). What a copied editor says when it
+        cannot do something is exactly what this test reads."""
         reply = self.call("tools/call",
                           {"name": name, "arguments": arguments or {}},
                           timeout=timeout)
         result = reply.get("result")
         if result is None:
             raise RuntimeError("%s: %s" % (name, reply.get("error")))
-        if result.get("isError"):
-            texts = [c.get("text", "") for c in result.get("content", [])]
-            raise RuntimeError("%s refused: %s" % (name, " ".join(texts)))
-        return result.get("structuredContent", {})
+        text = " ".join(c.get("text", "") for c in result.get("content", []))
+        return (not result.get("isError"), result.get("structuredContent", {}),
+                text)
 
 
 # --- staging ----------------------------------------------------------------
@@ -200,7 +214,7 @@ PASSTHROUGH_ENV = ("DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"
                    "SYSTEMROOT", "WINDIR")
 
 
-def scrubbed_env(stage_dir):
+def scrubbed_env(stage_dir, extra=None):
     """the clean-room environment: no repository, no developer PATH (and so no
     python3), a scratch HOME, a scratch writable state directory, and every
     developer-tree resource fallback refused"""
@@ -226,6 +240,7 @@ def scrubbed_env(stage_dir):
     for name in PASSTHROUGH_ENV:
         if name in os.environ:
             env[name] = os.environ[name]
+    env.update(extra or {})
     return env
 
 
@@ -376,6 +391,193 @@ def run_session_leg(args, stage_dir, sandbox_profile):
                      % (name, root))
     log("writable state stayed outside the app: %s" % written)
     # a baked developer path must not be what made this work
+    if "developer tree" in output:
+        fail("the copied editor resolved resources from the developer tree")
+    return output
+
+
+def clean_room_python(denied):
+    """an interpreter meeting the toolchain floor that a COPY can reach, or ""
+    when this machine offers none inside the clean room.
+
+    Packaging a game runs the exporter, which is a python3 script; python is a
+    MACHINE tool for that job, like the graphics driver the windowed legs use,
+    and the shipped game never needs one. So the clean room denies the
+    REPOSITORY, not the interpreter: this hands the copy the very python this
+    driver runs under, by its real path (the PATH entry lives in a tool
+    directory the sandbox denies - its target does not). With none reachable,
+    the export leg asserts the editor's own honest preflight message instead."""
+    if sys.version_info < (3, 10):
+        return ""
+    real = os.path.realpath(sys.executable)
+    if not os.path.isfile(real):
+        return ""
+    for directory in denied:
+        if real.startswith(os.path.realpath(directory) + os.sep):
+            return ""
+    return real
+
+
+def reject_build_machine_paths(args, text, what):
+    """the failure this whole seam exists to prevent: a copied editor must
+    never answer with a path from the machine that built it"""
+    for marker in (args.repo_root, "CMakeCache.txt"):
+        if marker and marker in text:
+            fail("%s names the build machine ('%s'): %s" % (what, marker, text))
+
+
+def poll_export(client, job_id, timeout):
+    """wait out an export_project job; returns its structured result"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        result = client.tool("get_export_results", {"jobId": job_id})
+        if str(result.get("status", "")) == "done":
+            return result
+        time.sleep(1.0)
+    fail("the export never finished within %.0fs" % timeout)
+
+
+def check_exported_app(args, app_dir, stage_dir, sandbox_profile):
+    """the packaged game, as a person would find it: an app that carries a
+    runnable executable, the engine media, and the project"""
+    if not os.path.isdir(app_dir):
+        fail("the export reported '%s', which is not an app bundle" % app_dir)
+    contents = os.path.join(app_dir, "Contents")
+    macos_dir = os.path.join(contents, "MacOS")
+    resources = os.path.join(contents, "Resources")
+    executables = [name for name in sorted(os.listdir(macos_dir))
+                   if os.access(os.path.join(macos_dir, name), os.X_OK)]
+    if not executables:
+        fail("the exported app carries no executable in " + macos_dir)
+    media = os.path.join(resources, "Media")
+    # the flavor's shader tree is what makes the app able to render at all
+    if not any(os.path.isdir(os.path.join(media, marker))
+               for marker in ("Hlms", "Main")):
+        fail("the exported app carries no engine shader media under " + media)
+    for relative in (os.path.join("project", "project.orkproj"),
+                     "orkige_project.txt", "AppIcon.icns"):
+        if not os.path.isfile(os.path.join(resources, relative)):
+            fail("the exported app is missing " + relative)
+    # every dylib the game loads must live inside the app: the copy the editor
+    # packaged from is one the user could delete tomorrow
+    executable = os.path.join(macos_dir, executables[0])
+    otool = subprocess.run(["otool", "-L", executable], capture_output=True,
+                           text=True, check=True).stdout
+    for line in otool.splitlines()[1:]:
+        dep = line.strip().split(" (")[0]
+        if not dep or dep.startswith(("/usr/lib/", "/System/")):
+            continue
+        if dep.startswith("@rpath/"):
+            if not os.path.isfile(os.path.join(contents, "Frameworks",
+                                               dep[len("@rpath/"):])):
+                fail("the exported app's dylib '%s' was not bundled" % dep)
+        else:
+            fail("the exported app references the machine path " + dep)
+    # THE proof: it runs, from a neutral cwd and inside the same clean room,
+    # on nothing but what it carries (ORKIGE_DEMO_FRAMES caps the run)
+    environment = scrubbed_env(stage_dir)
+    environment["ORKIGE_DEMO_FRAMES"] = "3"
+    command = [executable]
+    if sandbox_profile:
+        command = ["/usr/bin/sandbox-exec", "-f", sandbox_profile] + command
+    result = subprocess.run(command, cwd=os.path.dirname(app_dir),
+                            env=environment, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True,
+                            errors="replace")
+    if result.returncode != 0:
+        print(result.stdout[-4000:], flush=True)
+        fail("the exported game exited %d instead of running" %
+             result.returncode)
+    log("the exported game runs standalone (%s)" % os.path.basename(app_dir))
+
+
+def run_export_leg(args, stage_dir, sandbox_profile, interpreter):
+    """a copied editor asked to PACKAGE the project it has open.
+
+    Two answers are acceptable and no third one is: it exports out of the
+    engine payload it carries, or it refuses with a sentence naming what is
+    missing and what to do about it. A missing-file error naming a directory
+    from the machine that built the binary is the failure - that is what a
+    baked exporter path produces on a user's machine.
+
+    The leg also asks for an iOS package, which a copy genuinely cannot
+    produce (that needs the iOS player, which only a source build carries), and
+    asserts the refusal says exactly that instead of failing generically."""
+    executable = stage_app(args.editor_app, stage_dir)
+    project = os.path.join(stage_dir, "project")
+    shutil.copytree(args.project, project,
+                    ignore=shutil.ignore_patterns("builds", ".orkige",
+                                                  "build*", ".mcp.json"))
+    for name in ("home", "cwd", "state", "tmp"):
+        os.makedirs(os.path.join(stage_dir, name), exist_ok=True)
+    token_file = os.path.join(stage_dir, "endpoint.token")
+    env = scrubbed_env(stage_dir,
+                       {"ORKIGE_PYTHON": interpreter} if interpreter else None)
+    log("export leg interpreter: %s" % (interpreter or "none reachable"))
+    process = launch(executable,
+                     [executable, "--mcp-port", "0",
+                      "--mcp-token-file", token_file],
+                     os.path.join(stage_dir, "cwd"), env, sandbox_profile)
+    try:
+        port, token = wait_for_endpoint(process, token_file, args.boot_timeout)
+        if not port:
+            output = stop(process)
+            print(output[-8000:], flush=True)
+            fail("the copied editor never opened its MCP endpoint for the "
+                 "export leg")
+        client = McpClient(port, token)
+        client.call("initialize", {"protocolVersion": "2025-03-26",
+                                  "capabilities": {},
+                                  "clientInfo": {"name": "bundle-selfcheck",
+                                                 "version": "1"}})
+        client.tool("open_project", {"path": project})
+
+        # (1) a platform a copy cannot produce: the refusal must SAY why
+        accepted, _, text = client.attempt("export_project",
+                                           {"platform": "ios-simulator"})
+        if accepted:
+            fail("the copied editor accepted an iOS export it has no player "
+                 "for")
+        reject_build_machine_paths(args, text, "the iOS export refusal")
+        for needle in ("iOS", "player", "build Orkige from source"):
+            if needle not in text:
+                fail("the iOS export refusal does not say %r: %s"
+                     % (needle, text))
+        log("an iOS export is refused with what is missing: " + text)
+
+        # (2) the desktop app: exported from the payload the copy carries, or
+        # refused with the interpreter message - never anything else
+        accepted, structured, text = client.attempt("export_project",
+                                                    {"platform": "macos"})
+        if not accepted:
+            reject_build_machine_paths(args, text, "the export refusal")
+            if "python" not in text.lower():
+                fail("the export refusal is neither an export nor an "
+                     "actionable message: " + text)
+            log("no usable interpreter in the clean room; the copy said so: "
+                + text)
+            output = stop(process)
+            return output
+        payload = str(structured.get("engineBuild", ""))
+        if not payload.startswith(os.path.realpath(stage_dir)) and \
+                not payload.startswith(stage_dir):
+            fail("the export packaged from '%s', which is not inside the "
+                 "copied app" % payload)
+        result = poll_export(client, str(structured.get("jobId", "")),
+                             args.export_timeout)
+        if str(result.get("ok", "")) != "1":
+            error = str(result.get("error", ""))
+            reject_build_machine_paths(args, error, "the export failure")
+            fail("the export failed: " + error)
+        artifact = str(result.get("artifactPath", ""))
+        log("the copied editor exported '%s' from its own payload (%s)"
+            % (artifact, payload))
+        check_exported_app(args, artifact, stage_dir, sandbox_profile)
+        output = stop(process)
+    except Exception as error:		# noqa: BLE001 - report and stop the app
+        output = stop(process)
+        print(output[-8000:], flush=True)
+        fail("the export leg failed: %r" % (error,))
     if "developer tree" in output:
         fail("the copied editor resolved resources from the developer tree")
     return output
@@ -533,6 +735,10 @@ def main():
                        help="the tree the staged app must NOT reach into")
     parser.add_argument("--boot-timeout", type=float, default=120.0)
     parser.add_argument("--play-timeout", type=float, default=120.0)
+    parser.add_argument("--export-timeout", type=float, default=300.0,
+                       help="how long the packaging leg's export may take "
+                            "(it copies the engine payload and cooks the "
+                            "project's textures)")
     args = parser.parse_args()
     # everything is spawned with a cwd OUTSIDE the tree, so every path the
     # driver hands on must be absolute
@@ -546,6 +752,7 @@ def main():
     os.makedirs(args.stage_root)
 
     sandbox_profile = ""
+    denied_tool_dirs = []
     if sys.platform == "darwin" and os.path.exists("/usr/bin/sandbox-exec"):
         # the repository (and with it the vcpkg tree and every build output) is
         # what a copied app must not need. Homebrew's TOOL directories go too -
@@ -558,6 +765,7 @@ def main():
                       "/usr/local/bin", "/usr/local/sbin"):
             if os.path.isdir(extra):
                 denied.append(extra)
+                denied_tool_dirs.append(extra)
         sandbox_profile = os.path.join(args.stage_root, "cleanroom.sb")
         write_sandbox_profile(sandbox_profile, denied, [args.stage_root])
         log("clean room: the repository and the machine's tool directories are "
@@ -572,6 +780,11 @@ def main():
         os.makedirs(session_stage)
         run_session_leg(args, session_stage, sandbox_profile)
 
+        export_stage = os.path.join(args.stage_root, "export")
+        os.makedirs(export_stage)
+        run_export_leg(args, export_stage, sandbox_profile,
+                       clean_room_python(denied_tool_dirs))
+
         media_stage = os.path.join(args.stage_root, "unreadable")
         os.makedirs(media_stage)
         run_unreadable_media_leg(args, media_stage, sandbox_profile)
@@ -582,8 +795,9 @@ def main():
     finally:
         clean_staged_identity_state()
 
-    log("PASSED: the copied editor boots, renders, opens a project, plays and "
-        "reports what it shipped with, using nothing but what it carries")
+    log("PASSED: the copied editor boots, renders, opens a project, plays, "
+        "packages a game and reports what it shipped with, using nothing but "
+        "what it carries")
     return 0
 
 
