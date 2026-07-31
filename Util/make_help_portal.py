@@ -8,7 +8,9 @@
 # repository's committed prose exactly as written (this script PRESENTS the
 # docs, it never rewrites them). Output layout:
 #
-#   index.html           -> the landing page (the product front door)
+#   index.html           -> the landing page (the product front door), whose
+#                           Downloads section links the nightly binaries;
+#                           help/downloads.js only ever improves it
 #   help/                -> the documentation portal:
 #     overview.html        <- README.md
 #     changelog.html       <- the FULL release history, rendered from the
@@ -61,6 +63,7 @@ import io
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -780,6 +783,251 @@ def index_body(pages):
 
 
 # ---------------------------------------------------------------------------
+# the downloads section (on the landing page)
+# ---------------------------------------------------------------------------
+# Nightly binaries are published as a rolling GitHub prerelease tagged
+# `nightly` (Docs/nightly-builds.md). THERE IS NO STABLE ASSET URL: an asset's
+# filename carries the version and the commit
+# (`Orkige-macos-2.0.0-nightly.20260731_498a82b2a.dmg`), so it changes every
+# night, while this site is static and regenerates only when the repository
+# does. Three ways to bridge that, and why one of them wins:
+#
+#   * A hardcoded asset URL is stale within a day and 404s. Out.
+#   * GitHub's own stable form, /releases/latest/download/<name>, does not
+#     apply twice over: it needs a FIXED asset name, and `latest` skips
+#     prereleases - every nightly is one. Out.
+#   * Linking the release page always works and never rots, but hands the
+#     visitor the whole asset list - six archives, a checksum sidecar beside
+#     each and the changelog - to pick their platform's two out of.
+#
+# So: the release-page link IS the markup, and a small script resolves the
+# night's real asset URLs from the releases API and rewrites the buttons in
+# place. The enhancement can only ever improve the page - with no JavaScript,
+# no network, an API shape we do not recognise, or the unauthenticated 60
+# calls an hour per IP exhausted, nothing runs and every button still leads to
+# the release page, which is the honest answer rather than a broken one.
+#
+# One table below drives both sides: the asset-name patterns and the
+# user-agent rules are matched by Python in the selftest and by the browser
+# from the same emitted strings, so the two can never disagree.
+NIGHTLY_TAG = "nightly"
+NIGHTLY_RELEASE_URL = "%s/releases/tag/%s" % (GITHUB_URL, NIGHTLY_TAG)
+RELEASES_URL = "%s/releases" % GITHUB_URL
+NIGHTLY_API_URL = "https://api.github.com/repos/%s/releases/tags/%s" % (
+    GITHUB_URL.split("github.com/", 1)[1], NIGHTLY_TAG)
+# the machine-readable version marker the release notes carry, which is what
+# names the build rather than a version guessed out of a filename
+NIGHTLY_VERSION_MARKER = "orkige-nightly-version"
+
+# One entry per platform, in the order the cards appear. `assets` is
+# (slot, button label, filename pattern) with the INSTALL shape first; the
+# patterns are anchored so a `.sha256` sidecar never matches its archive.
+# `note` is a small HTML fragment (it carries <code>/<strong>), so it is
+# emitted verbatim - the tag-balance check in the selftest covers it.
+DOWNLOAD_PLATFORMS = (
+    {
+        "id": "macos",
+        "title": "macOS",
+        "arch": "Apple silicon",
+        "assets": (
+            ("install", "Download .dmg", r"^Orkige-macos-.+\.dmg$"),
+            ("portable", ".zip", r"^Orkige-macos-.+\.zip$"),
+        ),
+        "note": ("Open the disk image and drag Orkige to Applications. The "
+                 "app is signed, notarized and stapled, so it opens like any "
+                 "other app &mdash; no security prompt to click through. "
+                 "Apple silicon only: the build is arm64."),
+    },
+    {
+        "id": "windows",
+        "title": "Windows",
+        "arch": "x64",
+        "assets": (
+            ("install", "Download installer",
+             r"^Orkige-windows-.+-setup\.exe$"),
+            ("portable", ".zip", r"^Orkige-windows-.+\.zip$"),
+        ),
+        "note": ("The installer is per-user and asks for no administrator "
+                 "rights &mdash; but it is <strong>unsigned</strong>, so "
+                 "SmartScreen greets it with the full-screen "
+                 "&ldquo;Windows protected your PC&rdquo;, whose default "
+                 "button is <em>Don&rsquo;t run</em>. The way through is "
+                 "<em>More info</em> &rarr; <em>Run anyway</em>. The "
+                 "portable <code>.zip</code> needs no such confirmation."),
+    },
+    {
+        "id": "linux",
+        "title": "Linux",
+        "arch": "x86_64",
+        "assets": (
+            ("install", "Download .AppImage", r"^Orkige-linux-.+\.AppImage$"),
+            ("portable", ".tar.gz", r"^Orkige-linux-.+\.tar\.gz$"),
+        ),
+        "note": ("One file: <code>chmod +x</code> it and run it. The "
+                 "AppImage mounts itself through FUSE; where a distribution "
+                 "no longer ships FUSE, run it with "
+                 "<code>--appimage-extract-and-run</code> instead. The "
+                 "<code>.tar.gz</code> is the portable alternative and "
+                 "expects the distribution&rsquo;s own X, GL/Vulkan, audio "
+                 "and D-Bus libraries to be installed &mdash; the AppImage "
+                 "carries those itself."),
+    },
+)
+
+# Which card to highlight, first rule wins, matched against the lower-cased
+# user agent. A phone or tablet gets NO highlight: there is no desktop editor
+# build for it, and an Android user agent also says "Linux". An iPad running
+# a desktop-class user agent reads as macOS, which is why the highlight is
+# only ever a highlight - every platform stays visible and clickable.
+DOWNLOAD_DETECT_RULES = (
+    ("android|iphone|ipad|ipod", ""),
+    ("mac", "macos"),
+    ("win", "windows"),
+    ("linux|x11", "linux"),
+)
+
+
+def download_asset_slots():
+    """[(platform id, slot, filename pattern)] flattened, in card order - the
+    ONE list both the Python matcher and the browser's matcher read."""
+    return [(platform["id"], slot, pattern)
+            for platform in DOWNLOAD_PLATFORMS
+            for slot, _label, pattern in platform["assets"]]
+
+
+def match_download_asset(name):
+    """A release asset filename -> "platform/slot", or "" when it is not one
+    of the six downloads (a `.sha256` sidecar, the changelog asset, anything
+    a later night adds)."""
+    for platform_id, slot, pattern in download_asset_slots():
+        if re.match(pattern, name):
+            return "%s/%s" % (platform_id, slot)
+    return ""
+
+
+def detect_download_platform(user_agent):
+    """A user agent -> the platform id to highlight, "" when nothing matches.
+    An unknown agent must leave the section exactly as it shipped."""
+    text = (user_agent or "").lower()
+    for pattern, platform_id in DOWNLOAD_DETECT_RULES:
+        if re.search(pattern, text):
+            return platform_id
+    return ""
+
+
+def downloads_config():
+    """The configuration the page's script is generated with: the API call to
+    make, the asset patterns to match and the user-agent rules - the same
+    strings the functions above use."""
+    return {
+        "api": NIGHTLY_API_URL,
+        "assets": [{"platform": platform_id, "slot": slot,
+                    "pattern": pattern}
+                   for platform_id, slot, pattern in download_asset_slots()],
+        "detect": [[pattern, platform_id]
+                   for pattern, platform_id in DOWNLOAD_DETECT_RULES],
+        "versionMarker": NIGHTLY_VERSION_MARKER,
+    }
+
+
+DOWNLOADS_HEADING = "Download the editor"
+
+DOWNLOADS_LEAD = (
+    "Nightly prereleases: the tip of <code>main</code>, built and tested by "
+    "CI and replaced each night. Each platform ships an installable download "
+    "and a portable archive of the same build.")
+
+# the corpus pages the GENERATED pages link into. The markdown link gate only
+# sees AUTHORED prose, so these are verified separately at build time - a
+# renamed doc or a retitled heading has to fail the build here too, rather
+# than 404 on the live site.
+GENERATED_DOC_LINKS = (
+    ("nightly-builds", ""),
+    ("nightly-builds", "what-a-downloaded-build-cannot-do-yet"),
+)
+
+
+def landing_doc_href(page_id, anchor=""):
+    """A root-level page's href into the portal (the landing page lives one
+    directory above it)."""
+    return "help/%s.html%s" % (page_id, ("#" + anchor) if anchor else "")
+
+
+def download_card(platform):
+    """One platform's card: heading, the two buttons, the caveats. The buttons
+    ship pointing at the release page and are rewritten in place by the
+    script when the API answers."""
+    buttons = []
+    for index, (slot, label, _pattern) in enumerate(platform["assets"]):
+        buttons.append('<a class="action%s" data-asset="%s/%s" href="%s">%s'
+                       "</a>"
+                       % (" primary" if index == 0 else "", platform["id"],
+                          slot, html.escape(NIGHTLY_RELEASE_URL, quote=True),
+                          html.escape(label)))
+    return ('<section class="download" data-platform="%s">'
+            '<h3>%s <span class="download-arch">%s</span></h3>'
+            '<p class="download-actions">%s</p>'
+            '<p class="download-note">%s</p></section>'
+            % (html.escape(platform["id"], quote=True),
+               html.escape(platform["title"]), html.escape(platform["arch"]),
+               "".join(buttons), platform["note"]))
+
+
+def downloads_section():
+    """The landing page's Downloads section. Everything a visitor needs is in
+    this markup before any script runs."""
+    cards = "".join(download_card(p) for p in DOWNLOAD_PLATFORMS)
+    foot = ('Every download has a <code>.sha256</code> file beside it, and '
+            'older builds stay on the <a class="external" href="%s">releases '
+            "page</a> as dated prereleases for two weeks. "
+            '<a href="%s">What a downloaded build cannot do yet</a> is part '
+            'of the <a href="%s">nightly build documentation</a>.'
+            % (html.escape(RELEASES_URL, quote=True),
+               landing_doc_href("nightly-builds",
+                                "what-a-downloaded-build-cannot-do-yet"),
+               landing_doc_href("nightly-builds")))
+    return ('<section class="downloads" id="downloads">\n'
+            "<h2>%s</h2>\n"
+            '<p class="downloads-lead">%s <span id="download-build"></span>'
+            "</p>\n"
+            '<div class="download-grid">%s</div>\n'
+            '<p class="downloads-foot">%s</p>\n</section>'
+            % (html.escape(DOWNLOADS_HEADING), DOWNLOADS_LEAD, cards, foot))
+
+
+def _constant_line(name):
+    """The line a module constant is declared on, so a generated-link failure
+    reads file:line like every other broken-link report."""
+    try:
+        with open(SCRIPT_PATH, "r", encoding="utf-8") as f:
+            for number, line in enumerate(f, 1):
+                if line.startswith(name + " ="):
+                    return number
+    except OSError:
+        pass
+    return 0
+
+
+def verify_generated_links(pages):
+    """The link gate for pages this script writes itself: every corpus target
+    a generated page names has to exist, anchor included."""
+    by_id = {page.page_id: page for page in pages}
+    line = _constant_line("GENERATED_DOC_LINKS")
+    issues = []
+    for page_id, anchor in GENERATED_DOC_LINKS:
+        page = by_id.get(page_id)
+        if page is None:
+            issues.append(LinkIssue(os.path.relpath(SCRIPT_PATH, ROOT), line,
+                                    page_id + ".html",
+                                    "no such corpus page"))
+        elif anchor and anchor not in page.anchors:
+            issues.append(LinkIssue(os.path.relpath(SCRIPT_PATH, ROOT), line,
+                                    page.source + "#" + anchor,
+                                    "no such heading anchor"))
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # the landing page (the site root at https://orkige.orkitec.com)
 # ---------------------------------------------------------------------------
 LANDING_TAGLINE = (
@@ -839,8 +1087,9 @@ def landing_page(pages):
     text-first, no claims the README does not make."""
     getting_started = next(
         (p for p in pages if p.page_id == "getting-started"), None)
-    actions = ['<a class="action primary" href="help/index.html">'
-               "Documentation</a>"]
+    # the downloads section is on this page, so the first action jumps to it
+    actions = ['<a class="action primary" href="#downloads">Download</a>',
+               '<a class="action" href="help/index.html">Documentation</a>']
     if getting_started is not None:
         actions.append('<a class="action" href="help/%s.html">Getting '
                        "started</a>" % getting_started.page_id)
@@ -872,10 +1121,16 @@ def landing_page(pages):
             '<p class="tagline">%s</p>\n'
             '<p class="actions">%s</p>\n</div>\n'
             '<main class="landing"><article>\n<p>%s</p>\n'
-            '<div class="features">%s</div>\n</article></main>\n'
-            "%s\n</body>\n</html>\n") % (
+            '<div class="features">%s</div>\n'
+            "%s\n</article></main>\n"
+            "%s\n"
+            # progressive enhancement only: the section above is complete and
+            # correct before this file is fetched, parsed or run
+            '<script src="help/%s"></script>\n'
+            "</body>\n</html>\n") % (
         GITHUB_URL, LANDING_TAGLINE, "".join(actions), LANDING_INTRO,
-        features, footer_html("", pages))
+        features, downloads_section(), footer_html("", pages),
+        DOWNLOADS_JS_NAME)
 
 
 # ---------------------------------------------------------------------------
@@ -1083,6 +1338,43 @@ header .header-links a:hover { color: var(--accent); }
 }
 .feature h3 { margin-bottom: 0.2rem; }
 .feature p { margin-top: 0.2rem; color: var(--muted); }
+/* the downloads section (landing page): one card per platform, each shipping
+   release-page buttons a script may rewrite to the night's real assets */
+.downloads {
+	margin-top: 2.6rem; padding-top: 1.6rem;
+	border-top: 1px solid var(--line);
+}
+.downloads h2 { border-bottom: none; padding-bottom: 0; }
+.downloads-lead, .downloads-foot { color: var(--muted); }
+.downloads-foot { font-size: 0.9rem; }
+.download-grid {
+	display: grid; gap: 1.1rem; margin: 1.4rem 0;
+	grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+}
+.download {
+	border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.1rem;
+}
+.download.likely { border-color: var(--accent); }
+.download h3 {
+	margin: 0; display: flex; align-items: baseline; gap: 0.5rem;
+	flex-wrap: wrap;
+}
+.download-arch { color: var(--muted); font-size: 0.82rem; font-weight: 400; }
+.download-you {
+	color: var(--accent); font-size: 0.7rem; font-weight: 700;
+	text-transform: uppercase; letter-spacing: 0.07em;
+}
+.download-actions {
+	display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.9rem 0;
+}
+/* the pair fills the card's width: side by side where it fits, stacked full
+   width where it does not - never one button ragged under the other */
+.download-actions .action {
+	flex: 1 1 auto; text-align: center; padding: 0.42rem 0.9rem;
+	font-size: 0.93rem;
+}
+.download-size { font-weight: 400; opacity: 0.8; }
+.download-note { margin: 0; color: var(--muted); font-size: 0.9rem; }
 /* the live benchmark page: the embedded player sits in the text column and is
    never wider than the prose - a fixed 16:9 box that scales down with the
    column on narrow screens (aspect-ratio holds the height) */
@@ -1107,6 +1399,142 @@ header .header-links a:hover { color: var(--accent); }
 }
 @media (max-width: 60rem) { nav, .toc { display: none; } }
 """
+
+DOWNLOADS_JS_NAME = "downloads.js"
+
+# The landing page's download buttons, resolved. Everything here is an
+# IMPROVEMENT on markup that is already complete: each button ships pointing
+# at the release page, and if any step below does not happen - no JavaScript,
+# no network, a rate-limited or unrecognised API answer - the page keeps
+# exactly the links it was generated with. Nothing is ever emptied or hidden.
+# __CONFIG__ is replaced at build time with downloads_config(), so the asset
+# patterns and platform rules here are the same strings the Python side
+# matches in its selftest. It is a RAW literal, so the regex escapes reach the
+# browser as written - and a backslash is a backslash, never a python line
+# continuation (the selftest runs the emitted file through a JS parser).
+DOWNLOADS_JS = r"""// Orkige downloads - progressive enhancement.
+// Hand-written, no dependencies.
+// The release assets are named after the version and the commit, so their
+// URLs move every night while this page does not. The markup therefore links
+// the release page (always correct), and this script asks the releases API
+// for tonight's asset URLs and rewrites the buttons in place. Every failure
+// path is the same: leave the page as it shipped.
+(function () {
+	"use strict";
+	var CONFIG = __CONFIG__;
+	var section = document.getElementById("downloads");
+	if (!section) { return; }
+
+	// which card to highlight - never which cards to SHOW: a wrong guess or
+	// no guess at all must still leave every platform reachable
+	function detectPlatform(userAgent) {
+		var text = (userAgent || "").toLowerCase();
+		for (var i = 0; i < CONFIG.detect.length; i += 1) {
+			if (new RegExp(CONFIG.detect[i][0]).test(text)) {
+				return CONFIG.detect[i][1];
+			}
+		}
+		return "";
+	}
+
+	function highlightLikelyPlatform() {
+		var id = detectPlatform(navigator.userAgent);
+		if (!id) { return; }
+		var card = section.querySelector('[data-platform="' + id + '"]');
+		var heading = card && card.querySelector("h3");
+		if (!heading) { return; }
+		card.className += " likely";
+		var tag = document.createElement("span");
+		tag.className = "download-you";
+		tag.textContent = "your platform";
+		heading.appendChild(tag);
+	}
+
+	// an asset filename -> "<platform>/<slot>", "" for everything else (the
+	// .sha256 sidecars, the changelog asset, anything a later night adds)
+	function matchAsset(name) {
+		for (var i = 0; i < CONFIG.assets.length; i += 1) {
+			var entry = CONFIG.assets[i];
+			if (new RegExp(entry.pattern).test(name)) {
+				return entry.platform + "/" + entry.slot;
+			}
+		}
+		return "";
+	}
+
+	function megabytes(size) {
+		if (!size || size < 1048576) { return ""; }
+		return Math.round(size / 1048576) + " MB";
+	}
+
+	function describeBuild(release) {
+		var pattern = new RegExp("<!--\\s*" + CONFIG.versionMarker +
+			":\\s*([^\\s>]+)\\s*-->");
+		var found = pattern.exec(release.body || "");
+		if (!found) { return ""; }
+		var text = "The current build is " + found[1];
+		var published = new Date(release.published_at);
+		if (release.published_at && !isNaN(published.getTime())) {
+			text += ", published " + published.toLocaleDateString();
+		}
+		return text + ".";
+	}
+
+	function annotate(link, text) {
+		if (!text) { return; }
+		var span = document.createElement("span");
+		span.className = "download-size";
+		span.textContent = " " + text;
+		link.appendChild(span);
+	}
+
+	function applyRelease(release) {
+		var assets = release.assets || [];
+		var byKey = {};
+		for (var i = 0; i < assets.length; i += 1) {
+			var key = matchAsset(assets[i].name || "");
+			if (key && !byKey[key]) { byKey[key] = assets[i]; }
+		}
+		var links = section.querySelectorAll("a[data-asset]");
+		for (var j = 0; j < links.length; j += 1) {
+			var asset = byKey[links[j].getAttribute("data-asset")];
+			if (!asset || !asset.browser_download_url) {
+				// a platform whose build did not produce this shape
+				// tonight. The button keeps its release-page link, which
+				// is where the notes name what happened - but it stops
+				// looking like the recommended action and stops promising
+				// a file that is not there.
+				links[j].className =
+					links[j].className.replace(" primary", "");
+				links[j].title = "Not part of this build";
+				annotate(links[j], "not in this build");
+				continue;
+			}
+			links[j].href = asset.browser_download_url;
+			links[j].title = asset.name;
+			annotate(links[j], megabytes(asset.size));
+		}
+		var build = section.querySelector("#download-build");
+		var described = describeBuild(release);
+		if (build && described) { build.textContent = described; }
+	}
+
+	highlightLikelyPlatform();
+	try {
+		fetch(CONFIG.api, {
+			headers: { "Accept": "application/vnd.github+json" }
+		}).then(function (response) {
+			// a 403 is the unauthenticated rate limit (60 an hour per
+			// address); a 404 is a repository with no nightly yet - both
+			// leave the release-page links standing
+			return response.ok ? response.json() : null;
+		}).then(function (release) {
+			if (release) { applyRelease(release); }
+		}).catch(function () { /* offline: the page already works */ });
+	} catch (error) { /* no fetch at all: the page already works */ }
+})();
+"""
+
 
 HELP_JS = """\
 // Orkige Help - the search box. Plain hand-written JS, no dependencies.
@@ -1328,7 +1756,9 @@ def build(root, output_dir, if_stale=False):
                 return 0
 
     contexts = [render_page(page, by_source, root) for page in pages]
-    issues = verify_links(contexts)
+    # the authored corpus AND the links this script writes into the pages it
+    # generates itself - one gate, one report
+    issues = verify_links(contexts) + verify_generated_links(pages)
     if issues:
         sys.stderr.write("make_help_portal: %d broken internal link(s):\n"
                          % len(issues))
@@ -1359,6 +1789,11 @@ def build(root, output_dir, if_stale=False):
     write("", "benchmark.html", benchmark_page(pages))
     write("help", "help.css", HELP_CSS)
     write("help", "help.js", HELP_JS)
+    # the landing page's download resolver, generated with the ONE asset and
+    # platform table the Python matchers above read
+    write("help", DOWNLOADS_JS_NAME,
+          DOWNLOADS_JS.replace("__CONFIG__", json.dumps(
+              downloads_config(), separators=(",", ":"))))
     # the index is the DOCUMENTATION: the legal pages are footer-only by
     # convention, and the release history would put a thousand commit lines in
     # front of the guide a search is looking for
@@ -1467,6 +1902,96 @@ SELFTEST_OTHER = """\
 Body of the target section mentioning zanzibar exactly once.
 """
 
+# the landing page's Downloads section links this doc and one of its
+# headings; the synthetic corpus carries a stand-in so the generated-link gate
+# has something real to check (and something to take away again, below)
+SELFTEST_NIGHTLY = """\
+# Nightly builds
+
+Synthetic stand-in for the nightly build documentation.
+
+## What a downloaded build cannot do yet
+
+Body of the limitations section.
+"""
+
+
+def _selftest_downloads():
+    """The pure download decisions: which release asset belongs to which
+    platform button, and which card a user agent highlights. Both tables are
+    emitted into the page's script verbatim, so testing them here is testing
+    what the browser runs."""
+    token = "2.0.0-nightly.20260731_498a82b2a"
+    for name, expected in (
+            ("Orkige-macos-%s.dmg" % token, "macos/install"),
+            ("Orkige-macos-%s.zip" % token, "macos/portable"),
+            ("Orkige-windows-%s-setup.exe" % token, "windows/install"),
+            ("Orkige-windows-%s.zip" % token, "windows/portable"),
+            ("Orkige-linux-%s.AppImage" % token, "linux/install"),
+            ("Orkige-linux-%s.tar.gz" % token, "linux/portable"),
+            # an unstamped hand-built artifact still lands on its button
+            ("Orkige-linux-unstamped.AppImage", "linux/install"),
+            # a checksum sidecar is NOT its archive: the patterns are anchored
+            ("Orkige-macos-%s.dmg.sha256" % token, ""),
+            ("Orkige-linux-%s.tar.gz.sha256" % token, ""),
+            ("Orkige-windows-%s-setup.exe.sha256" % token, ""),
+            # the release's own full-history asset, and a stranger
+            ("CHANGELOG.md", ""),
+            ("Orkige-freebsd-%s.txz" % token, "")):
+        assert match_download_asset(name) == expected, name
+    # every button the markup ships has exactly one pattern behind it
+    slots = ["%s/%s" % (p, s) for p, s, _ in download_asset_slots()]
+    assert len(slots) == len(set(slots)) == 6, slots
+
+    for agent, expected in (
+            ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit",
+             "macos"),
+            ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit",
+             "windows"),
+            ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit", "linux"),
+            ("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:128.0) Gecko",
+             "linux"),
+            # a phone or tablet has no desktop build to highlight - and an
+            # Android agent says "Linux", which must not win
+            ("Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit", ""),
+            ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", ""),
+            ("Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)", ""),
+            # nothing recognisable highlights nothing, and never throws
+            ("curl/8.7.1", ""), ("", ""), (None, "")):
+        assert detect_download_platform(agent) == expected, agent
+
+    # the config the script is generated with carries those same strings
+    config = downloads_config()
+    assert config["api"].startswith("https://api.github.com/repos/"), config
+    assert config["api"].endswith("/releases/tags/nightly"), config
+    assert len(config["assets"]) == 6, config
+    assert [rule[1] for rule in config["detect"]] == \
+        ["", "macos", "windows", "linux"], config
+    json.dumps(config)   # it has to survive the trip into the page verbatim
+
+
+def _check_site_scripts(out):
+    """The site's two hand-written scripts have to PARSE. Both are python
+    string literals, so a stray escape (a raw string's backslash, an unbalanced
+    quote) is invisible until a browser refuses the file and the page silently
+    loses its enhancement - the exact failure this check exists for. The parse
+    itself needs a JavaScript engine: where none is installed the shape check
+    below still catches the leading-garbage case."""
+    scripts = [os.path.join(out, "help", name)
+               for name in ("help.js", DOWNLOADS_JS_NAME)]
+    for path in scripts:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        assert text.startswith("// Orkige"), \
+            "%s must start with its own comment, not %r" % (path, text[:12])
+    node = shutil.which("node")
+    if node is None:
+        return
+    for path in scripts:
+        result = subprocess.run([node, "--check", path],
+                                capture_output=True, text=True)
+        assert result.returncode == 0, "%s: %s" % (path, result.stderr.strip())
+
 
 def _check_site_tags(out):
     """Every emitted page - landing, legal, portal - must nest correctly."""
@@ -1492,6 +2017,9 @@ def _selftest_synthetic(temp_root):
         f.write(b"\x89PNG\r\n\x1a\n synthetic image bytes")
     with open(os.path.join(temp_root, "Docs", "other.md"), "w") as f:
         f.write(SELFTEST_OTHER)
+    nightly_doc = os.path.join(temp_root, "Docs", "nightly-builds.md")
+    with open(nightly_doc, "w") as f:
+        f.write(SELFTEST_NIGHTLY)
     with open(os.path.join(temp_root, "Docs", "legal", "imprint.md"),
               "w") as f:
         f.write("# Impressum\n\nSynthetic imprint body, see "
@@ -1544,10 +2072,44 @@ def _selftest_synthetic(temp_root):
     assert 'href="api/index.html"' in landing
     assert GITHUB_URL in landing
     assert '<a href="imprint.html">Impressum</a>' in landing
-    # the landing page links to the live benchmark subpage (the fifth nav
-    # button) but embeds NO player itself
+    # the landing page links to the live benchmark subpage (a nav button) but
+    # embeds NO player itself
     assert 'href="benchmark.html">Benchmark' in landing
     assert "player-frame" not in landing
+    # the Downloads section: the first hero button jumps to it, and it is
+    # COMPLETE in the shipped markup - one card per platform, every button
+    # already pointing at the release page. No script has run at this point,
+    # and this is the state a visitor without JavaScript keeps.
+    assert '<a class="action primary" href="#downloads">Download</a>' \
+        in landing
+    assert 'id="downloads"' in landing and DOWNLOADS_HEADING in landing
+    for platform in DOWNLOAD_PLATFORMS:
+        assert 'data-platform="%s"' % platform["id"] in landing, platform["id"]
+    buttons = re.findall(r'<a class="action[^"]*" data-asset="([^"]+)" '
+                         r'href="([^"]+)"', landing)
+    assert [key for key, _href in buttons] == \
+        ["%s/%s" % (p, s) for p, s, _ in download_asset_slots()], buttons
+    assert all(href == NIGHTLY_RELEASE_URL for _key, href in buttons), buttons
+    # the caveats a visitor must not meet unprepared, in the markup itself
+    assert "notarized" in landing and "no security prompt" in landing
+    assert "Windows protected your PC" in landing, landing
+    assert "Run anyway" in landing and "unsigned" in landing
+    assert "--appimage-extract-and-run" in landing and "FUSE" in landing
+    assert RELEASES_URL in landing and ".sha256" in landing
+    # the section's links into the corpus, verified by the generated-link gate
+    assert 'href="help/nightly-builds.html#' \
+        'what-a-downloaded-build-cannot-do-yet"' in landing, landing
+    assert 'href="help/nightly-builds.html"' in landing, landing
+    # the resolver is a separate file the page loads LAST, carrying the one
+    # asset/platform table the Python matchers above read
+    assert '<script src="help/%s"></script>' % DOWNLOADS_JS_NAME in landing
+    with open(os.path.join(out, "help", DOWNLOADS_JS_NAME)) as f:
+        resolver = f.read()
+    assert "__CONFIG__" not in resolver, "the config must be substituted"
+    embedded = json.loads(re.search(r'var CONFIG = (\{.*?\});',
+                                    resolver).group(1))
+    assert embedded == downloads_config(), embedded
+    _check_site_scripts(out)
     # the live benchmark page: header, then the 16:9 iframe pointing at /play/,
     # then the context prose
     with open(os.path.join(out, "benchmark.html")) as f:
@@ -1584,6 +2146,28 @@ def _selftest_synthetic(temp_root):
         f.write("\nMore prose.\n")
     assert build(temp_root, out, if_stale=True) == 0
     assert open(stamp_file).read() != before
+
+    # the GENERATED pages are held to the same gate as authored prose: retitle
+    # the heading the Downloads section deep-links and the build fails naming
+    # it, rather than shipping a link that 404s on the live site
+    with open(nightly_doc, "w") as f:
+        f.write(SELFTEST_NIGHTLY.replace(
+            "## What a downloaded build cannot do yet", "## Limitations"))
+    captured = io.StringIO()
+    real_stderr = sys.stderr
+    sys.stderr = captured
+    try:
+        result = build(temp_root, out)
+    finally:
+        sys.stderr = real_stderr
+    assert result == 1
+    report = captured.getvalue()
+    assert "Util/make_help_portal.py:" in report, report
+    assert "Docs/nightly-builds.md#what-a-downloaded-build-cannot-do-yet" \
+        in report, report
+    with open(nightly_doc, "w") as f:
+        f.write(SELFTEST_NIGHTLY)
+    assert build(temp_root, out) == 0
 
     # a broken link (missing file AND missing anchor) fails the build and
     # names file:line - the actionable report docs authors get
@@ -1634,6 +2218,17 @@ def _selftest_real_corpus(temp_root):
     assert 'href="api/index.html"' in landing
     assert 'href="benchmark.html">Benchmark' in landing
     assert '<a href="imprint.html">Impressum</a>' in landing
+    # the Downloads section against the REAL corpus: the doc page and heading
+    # it deep-links exist (the generated-link gate proved it by returning 0),
+    # and every button ships as a release-page link
+    assert 'id="downloads"' in landing
+    assert 'href="help/nightly-builds.html#' \
+        'what-a-downloaded-build-cannot-do-yet"' in landing
+    assert landing.count('href="%s"' % NIGHTLY_RELEASE_URL) == 6, landing
+    with open(os.path.join(out, "help", "nightly-builds.html")) as f:
+        nightly = f.read()
+    assert 'id="what-a-downloaded-build-cannot-do-yet"' in nightly
+    _check_site_scripts(out)
     # the site identity: favicon + header logo on the landing and portal pages
     assert 'rel="apple-touch-icon"' in landing and '<img class="logo"' in landing
     # the README mark renders in the portal overview (copied beside the page)
@@ -1681,6 +2276,7 @@ def _selftest_real_corpus(temp_root):
 
 
 def cmd_selftest():
+    _selftest_downloads()
     with tempfile.TemporaryDirectory() as temp_root:
         _selftest_synthetic(os.path.join(temp_root, "synthetic"))
         _selftest_real_corpus(temp_root)

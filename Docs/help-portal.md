@@ -13,11 +13,12 @@ The deployed site has these parts:
 - `/` — the landing page: the engine's story (tagline, platform pitch,
   feature highlights distilled from the repository README) with links into
   the documentation, the [API reference](/api/), the live benchmark and the
-  repository. The landing page itself stays embed-free.
+  repository, and the [Downloads section](#downloads-and-the-moving-asset-urls)
+  the first hero button jumps to. The landing page itself stays embed-free.
 - `/benchmark` — the live benchmark page: the engine's benchmark showcase
   (`projects/benchmark`), compiled to WebAssembly and embedded in a 16:9
   frame directly below the site header, with context prose beneath it. It is
-  reached from the landing page's fifth nav button ("Benchmark") and
+  reached from the landing page's "Benchmark" nav button and
   loads the player on arrival (visitors navigate here deliberately). The
   iframe is never wider than the text column and scales down with it on narrow
   screens; its `src` is the staged export at [/play/](/play/).
@@ -52,6 +53,58 @@ The deployed site has these parts:
   `Docs/legal/privacy.md`), linked from a footer that appears on **every**
   page of the site, the API reference included. They stay out of the nav and
   the search index — footer-only is the convention.
+
+## Downloads, and the moving asset URLs
+
+The landing page carries a **Downloads** section: one card per desktop
+platform, each offering the installable artifact and the portable archive of
+that night's build, with the caveats that platform actually has —
+`Docs/nightly-builds.md` is where those come from, and the section links it.
+
+The constraint that shapes the whole section is that **there is no stable
+asset URL**. A nightly asset's filename carries the version and the commit
+(`Orkige-macos-2.0.0-nightly.20260731_498a82b2a.dmg`), so it changes every
+night, while this site is static and regenerates only when the repository
+does. Three ways to bridge that gap, and one of them wins:
+
+| Approach | Why not / why |
+| --- | --- |
+| Hardcode the asset URLs | Stale within a day, then a 404. |
+| GitHub's `/releases/latest/download/<name>` | Needs a FIXED asset name, and `latest` skips prereleases — every nightly is one. Unavailable twice over. |
+| Link the release page | Always correct and never rots, but hands the visitor the whole asset list — six archives, a checksum sidecar beside each and the changelog — to pick their platform's two out of. |
+| **Link the release page, then resolve** | The chosen one: the release-page link IS the markup, and a script upgrades it to the night's real asset URL. |
+
+So `help/downloads.js` asks the releases API for the `nightly` release
+(`GET /repos/orkitec/orkige/releases/tags/nightly`, the same request an
+updater makes) and rewrites each button in place — the real download URL, the
+size in megabytes, the ordered version read from the release notes'
+`orkige-nightly-version` marker, and an accent on the card the visitor's own
+platform is most likely to be.
+
+**The fallback is the normal state of the markup, not an error path.** Every
+button ships pointing at the release page and every caveat is in the HTML
+before a byte of script is fetched, so no JavaScript, no network, a blocked
+script file, an API shape we do not recognise, or the unauthenticated rate
+limit (60 calls an hour per address, `Docs/nightly-builds.md`) all leave a
+page that is complete and correct — one click longer, never broken. Nothing
+in the section is ever emptied, reordered or hidden by the script, and a
+platform whose build produced no artifact tonight keeps its release-page link
+and says *not in this build* rather than promising a file that is not there.
+Platform detection is the same: it only ever *adds* an accent, and an
+unrecognised user agent (or a tablet reporting a desktop one) simply
+highlights nothing while every platform stays visible.
+
+One table in `Util/make_help_portal.py` drives both sides — the asset-name
+patterns and the user-agent rules are emitted into the script verbatim, and
+matched by the generator's own `match_download_asset` and
+`detect_download_platform` in the selftest, so the browser and the test can
+never disagree about which file belongs on which button.
+
+The section's links into the docs corpus go through the same broken-link
+gate the authored prose does: `GENERATED_DOC_LINKS` names every corpus page
+and heading anchor a generated page points at, and a renamed doc or retitled
+heading fails the build with the usual `file:line` report instead of shipping
+a 404.
 
 ## Local preview
 
@@ -142,7 +195,12 @@ at `orkitec.github.io`), then Enforce HTTPS.
 
 Verified by `make_help_portal_selftest` (unit: synthetic + real corpus,
 balanced HTML on every page, zero broken links, legal-footer and search
-conventions, stamp logic), `check_doxyfile` (unit, skips without the
+conventions, stamp logic, the download asset/platform matchers against real
+artifact names — sidecars included — and the shipped Downloads markup with
+every button still a release-page link; the site's two hand-written scripts
+are additionally run through `node --check` where node is installed, because
+a stray escape in a python string literal is otherwise invisible until a
+browser refuses the file), `check_doxyfile` (unit, skips without the
 tooling) and `editor_help_portal` (integration: the Help menu action
 resolves the published URL and the automated-run browser gate holds — no
 network in tests).
