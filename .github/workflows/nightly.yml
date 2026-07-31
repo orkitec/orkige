@@ -10,7 +10,7 @@
 # - Binaries: downloadable Release editor builds for macOS, Linux and Windows -
 #   each platform's installable artifact (.dmg, installer) plus its portable
 #   archive - built from the last commit the FULL test matrix proved green and
-#   published as a rolling draft prerelease (Docs/nightly-builds.md).
+#   published as a rolling prerelease (Docs/nightly-builds.md).
 #
 # Each job's own rationale follows immediately above it below.
 
@@ -1230,18 +1230,23 @@ jobs:
 
   # PUBLISH: one rolling release tagged `nightly`, kept a DRAFT.
   #
-  # A draft is invisible to anyone without write access and creates no git tag,
-  # so nothing half-working is presented as ready - which matters while the
-  # Windows artifacts are unsigned and their security prompt says so
-  # (KNOWN-LIMITATIONS.md inside every archive). Flipping it public is one flag
-  # once those gaps close; until then the workflow-run artifacts are the way to
-  # get a build.
+  # PUBLISHED, not a draft: a nightly nobody can download is not a nightly, and
+  # the macOS build - the one whose operating system refuses an unidentified
+  # download outright - is Developer ID signed, notarized and stapled, so it
+  # opens the way any other application does. It is a PRERELEASE because that is
+  # what it is: the tip of main, built tonight, superseded tomorrow.
+  #
+  # What is still unsigned says so rather than hiding: Windows has no code
+  # signing certificate (a separate purchase from a certificate authority, which
+  # an Apple membership does not cover), so its installer draws the "unknown
+  # publisher" prompt, and every archive carries a KNOWN-LIMITATIONS.md naming
+  # that and the exact way through it.
   #
   # Runs whenever the gate was green, even if a platform failed: the notes NAME
   # every missing platform and its job result rather than quietly shipping two
   # of three. Zero artifacts is a failure - there is nothing to publish.
   binaries-publish:
-    name: Binaries - publish the rolling draft prerelease
+    name: Binaries - publish the rolling prerelease
     needs: [binaries-gate, binaries-macos, binaries-linux, binaries-windows]
     if: always() && needs.binaries-gate.outputs.green == 'true'
     runs-on: ubuntu-latest
@@ -1384,7 +1389,7 @@ jobs:
           set -uo pipefail
           python3 Util/orkige_nightly_package.py --verify-checksums downloads
 
-      - name: Create or replace the `nightly` draft prerelease
+      - name: Create or replace the `nightly` prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ needs.binaries-gate.outputs.sha }}
@@ -1393,18 +1398,20 @@ jobs:
           VERSION: ${{ needs.binaries-gate.outputs.version }}
         run: |
           set -uo pipefail
-          # rolling: replace yesterday's draft wholesale rather than accumulate
-          # per-day releases nobody prunes. A draft creates no git tag, so the
-          # tag cleanup is a no-op most nights - tolerated either way.
+          # rolling: replace last night's release wholesale rather than
+          # accumulate per-day releases nobody prunes. The `nightly` tag moves
+          # with it, so the download URLs stay the same from one night to the
+          # next - which is what makes them quotable in a doc and fetchable by
+          # an updater.
           gh release delete nightly --yes --cleanup-tag 2> /dev/null || true
           assets=()
           while IFS= read -r asset; do
             assets+=("$asset")
           done < <(find downloads -type f | sort)
           gh release create nightly \
-            --draft --prerelease \
+            --prerelease \
             --target "${SHA}" \
             --title "Orkige ${VERSION}" \
             --notes-file notes.md \
             "${assets[@]}"
-          echo "published the draft; find it under Releases (drafts are visible to maintainers only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "published https://github.com/${GITHUB_REPOSITORY}/releases/tag/nightly" >> "$GITHUB_STEP_SUMMARY"

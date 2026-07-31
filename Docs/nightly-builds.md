@@ -1,7 +1,7 @@
 # Nightly editor builds
 
 Once a night, CI packages the Orkige editor for macOS, Linux and Windows and
-publishes the results as a rolling draft prerelease. The point is a download
+publishes the results as a rolling prerelease. The point is a download
 instead of a build: a C++ toolchain is needed only to write native game code, not
 to open the editor and make a game in Lua.
 
@@ -483,11 +483,11 @@ Both are fixed strings one regex finds in one pass over `body`.
 
 Two caveats, stated plainly:
 
-- **A draft release's assets are not anonymously readable.** The `nightly`
-  release is a draft while the Windows artifacts are unsigned, and a draft is
-  reachable only with a token that has write access — so nothing can poll it
-  until the release goes public. That is one more reason the remaining signing
-  gap comes before an in-editor updater.
+- **The `nightly` tag moves every night.** The download URLs stay the same
+  from one night to the next, which is what makes them quotable in a document
+  and fetchable by an updater — but it also means a URL saved today serves
+  different bytes tomorrow. A client that wants a specific build must record
+  the version and the `.sha256`, not the URL alone.
 - **Unauthenticated API calls are rate-limited per IP:** 60 requests an hour
   (5000 with a token). A check once a day, or once per launch, sits far inside
   that; a client that polls in a loop is answered `403` with a reset time, and
@@ -617,10 +617,11 @@ Two places, both conservative:
 
 - **Workflow-run artifacts** (`binaries-macos`, `binaries-linux`,
   `binaries-windows`), kept 14 days. This is how to get a build today.
-- **A rolling release tagged `nightly`**, kept a **draft prerelease**. A draft is
-  visible only to accounts with write access and creates no git tag, so nothing
-  half-working is presented as ready. Each night replaces the previous draft
-  wholesale rather than accumulating releases nobody prunes.
+- **A rolling release tagged `nightly`**, published as a **prerelease** —
+  which is what it is: the tip of `main`, built tonight, superseded tomorrow.
+  Each night replaces the previous one wholesale rather than accumulating
+  releases nobody prunes, and the `nightly` tag moves with it, so the asset
+  URLs are stable across nights.
 
 The publish job runs whenever the gate was green, even if a platform's build
 failed: the release notes list every platform with its archive or the words "not
@@ -634,10 +635,8 @@ sidecar that travelled with it (`--verify-checksums`), so bytes that changed on
 the way fail the publish rather than being served under a digest that fits
 neither.
 
-Making the release public is one change (dropping `--draft` from the
-`gh release create` call in the publish job). What has to be true first is the
-list below — above all, the **Windows** artifacts have to be signed, because
-that platform still warns the user that they are not.
+What each platform's download is worth — and where it still warns its user —
+is the list below.
 
 ## What a downloaded build cannot do yet
 
@@ -655,7 +654,8 @@ The trust gaps, per platform:
   PC" whose default button is *Don't run*, because it is a program asking to
   install software rather than a file being unpacked; "More info" > "Run anyway"
   gets past it, and the portable `.zip` beside it needs no such confirmation at
-  all. This is why the release stays a draft.
+  all. Closing this needs a Windows code signing certificate from a certificate
+  authority, which an Apple Developer membership does not cover.
 - **macOS builds are Developer ID signed, notarized and stapled** when the
   signing credentials are reachable — the app and the disk image each carry
   their own ticket, so both open with no security prompt and no quarantine flag
