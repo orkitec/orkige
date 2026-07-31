@@ -2231,14 +2231,57 @@ int main(int argc, char** argv)
 		int uiDragSettleHold = 0;	// frames an assert step has waited to settle
 		std::string uiDragTempRoot;
 		const std::string uiDragRelPath = "assets/screen.oui";
-		// per-gesture cached screen points + the pre-gesture doc-side capture
-		float udGripX = 0.0f, udGripY = 0.0f;	// the grabbed resize grip (screen px)
-		float udTargX = 0.0f, udTargY = 0.0f;	// where it is dragged to (screen px)
+		// A gesture aims in SURFACE units and is mapped to screen px through the
+		// canvas placement of the frame it is acting on - never from a snapshot:
+		// the canvas moves when the dock re-lays out (revealing the UI Editor
+		// panel re-docks the Preview) and a press that keeps aiming where the
+		// grip WAS grabs empty canvas.
+		float udAimSurfX = 0.0f, udAimSurfY = 0.0f;		// the pressed point
+		float udTargSurfX = 0.0f, udTargSurfY = 0.0f;	// where it is dragged to
+		//! the screen point the press really landed on - a CLICK must release on
+		//! exactly it (a release a few pixels away crosses the drag threshold and
+		//! becomes a move instead of a selection)
+		float udPressScreenX = 0.0f, udPressScreenY = 0.0f;
+		std::string udGestureLabel;					// the case a failure belongs to
+		std::string udGestureId;					// the widget it is acting on
 		float udBeforeW = 0.0f, udBeforeH = 0.0f;	// box size before a resize
 		float udBeforeX = 0.0f, udBeforeY = 0.0f;	// anchoredPos before a move
 		float udFrontBeforeX = 0.0f, udFrontBeforeY = 0.0f;	// the front label's pos (Alt-cycle leg)
 		std::string udBeforeAnchor;					// anchor key before a resize
 		std::string udFreshId;						// the freshly added label's id
+		//! bounded, logged re-drives of a gesture the display server interrupted
+		int udRedrives = 0;
+		//! the step an OPEN gesture restarts at (-1 = none) and whether its press
+		//! was ever observed DOWN, so a press still in the input queue is never
+		//! mistaken for one the environment cleared
+		int udGestureRestart = -1;
+		bool udGestureHeld = false;
+		//! the leg is holding ALT down for a whole gesture (the stack-cycle
+		//! clicks): a real keyboard keeps it down, so any frame that finds
+		//! io.KeyAlt clear presses it again
+		bool udHoldAlt = false;
+		// the canvas placement seen last frame and how many frames it has held
+		// still: every aim point is derived from it, so a gesture may only start
+		// once it stopped moving (the dock geometry lands on the display server's
+		// schedule, not on a frame count)
+		float udGeomX = -1.0f, udGeomY = -1.0f, udGeomW = -1.0f, udGeomH = -1.0f;
+		int udGeomStable = 0;
+		bool udCanvasLogged = false;
+		// the canvas placement captured at the PRESS: the document mutation is
+		// (release point - press point) mapped through the canvas scale, so a
+		// canvas that moves mid-gesture applies a delta nobody asked for
+		float udPressGeomX = 0.0f, udPressGeomY = 0.0f;
+		float udPressGeomW = 0.0f, udPressGeomH = 0.0f;
+		// the gestured widget's resolved box at the PRESS: a gesture the window
+		// system ends must leave it EXACTLY there (@see the cancel contract in
+		// uiEditDrawCanvas), which the leg checks before it redoes anything
+		float udPressBoxX = 0.0f, udPressBoxY = 0.0f;
+		float udPressBoxW = 0.0f, udPressBoxH = 0.0f;
+		bool udPressBoxValid = false;
+		//! the ONE deliberate interruption: a real mouse-leave + focus loss
+		//! delivered mid-gesture so every run proves the contract instead of
+		//! waiting for a shared display to prove it by accident
+		bool udInterruptSent = false;
 
 		// ORKIGE_EDITOR_TERMINAL_UITEST=1: the REAL-EVENT terminal copy
 		// selfcheck (editor_terminal_copy ctest). A headless seam test cannot
@@ -7077,33 +7120,6 @@ int main(int argc, char** argv)
 			// panel's canvas, asserting the doc-side resolved boxes/positions.
 			if (uiDragEnv)
 			{
-				auto udFail = [&](std::string const& why)
-				{
-					SDL_Log("orkige_editor: uidrag selfcheck - FAILED: %s",
-						why.c_str());
-					exitCode = 41;
-					std::error_code ce;
-					std::filesystem::remove_all(uiDragTempRoot, ce);
-					running = false;
-				};
-				// an assert step re-checks each frame until its state settles (a
-				// pushed SDL event travels event-pump -> ImGui -> the canvas over a
-				// variable number of frames), failing only after a generous budget
-				// the deadline backstop also guards. Returns true when settled.
-				const int udSettleBudget = 40;
-				auto udSettle = [&](int stepId, bool condition,
-					char const* why) -> bool
-				{
-					if (condition) { uiDragSettleHold = 0; return true; }
-					if (++uiDragSettleHold <= udSettleBudget)
-					{
-						uiDragStep = stepId - 1;	// re-run this step next frame
-						return false;
-					}
-					uiDragSettleHold = 0;
-					udFail(why);
-					return false;
-				};
 				// the live edit session the Preview panel fills each frame it draws
 				// Edit UI (valid because this block runs after the panel drew)
 				auto sessionPtr = [&]() -> OrkigeEditor::UiEditSession*
@@ -7175,6 +7191,118 @@ int main(int argc, char** argv)
 						d.canvasSurfaceW > 4.0f && surfRect("lblTop", r) &&
 						r.w > 0.0f;
 				};
+				// EVERY failure says what the canvas, the gesture and the input
+				// state looked like when it gave up - a leg that only reports its
+				// own sentence leaves the next reader guessing which tier broke (no
+				// session? no selection? did the press miss the grip, did the canvas
+				// move under it, or did the display server clear the button?).
+				auto udDiag = [&]()
+				{
+					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
+					OrkigeEditor::UiEditSession* sp = sessionPtr();
+					Orkige::LayoutRect gr{};
+					const bool haveRect = !udGestureId.empty() &&
+						surfRect(udGestureId, gr);
+					ImGuiIO const& io = ImGui::GetIO();
+					float aimX = 0.0f, aimY = 0.0f, targX = 0.0f, targY = 0.0f;
+					toScreen(udAimSurfX, udAimSurfY, aimX, aimY);
+					toScreen(udTargSurfX, udTargSurfY, targX, targY);
+					SDL_Log("orkige_editor: uidrag diag - step=%d frame=%d "
+						"gesture='%s' on='%s' ready=%d active=%d loaded=%d sel='%s' "
+						"selCount=%d secCount=%d sess=%d rect=%d %.1fx%.1f@%.1f,%.1f "
+						"before=%.1fx%.1f pos=%.1f,%.1f aim=(%.1f,%.1f) "
+						"targ=(%.1f,%.1f) dragPx=%.1f thresh=%.1f "
+						"pressed=(%.1f,%.1f) mouse=(%.1f,%.1f) "
+						"down=%d dragging=%d kind=%d handle=%d focus=%d alt=%d "
+						"canvas(img %.1f,%.1f draw %.1fx%.1f surf %.0fx%.0f) "
+						"atPress(img %.1f,%.1f draw %.1fx%.1f) stable=%d redrives=%d",
+						uiDragStep, static_cast<int>(frameCount),
+						udGestureLabel.c_str(), udGestureId.c_str(),
+						ready() ? 1 : 0, d.active ? 1 : 0, d.loaded ? 1 : 0,
+						d.selected.c_str(), d.selectionCount, d.sectionCount,
+						sp ? 1 : 0, haveRect ? 1 : 0, gr.w, gr.h, gr.x, gr.y,
+						udBeforeW, udBeforeH, udBeforeX, udBeforeY,
+						aimX, aimY, targX, targY,
+						// how far the gesture travels in SCREEN px next to ImGui's
+						// drag threshold: below it a body drag degrades into a
+						// click, which reads as "nothing moved" without this number
+						std::sqrt((targX - aimX) * (targX - aimX) +
+							(targY - aimY) * (targY - aimY)),
+						io.MouseDragThreshold,
+						udPressScreenX, udPressScreenY,
+						io.MousePos.x, io.MousePos.y,
+						ImGui::IsMouseDown(ImGuiMouseButton_Left) ? 1 : 0,
+						(sp && sp->dragging) ? 1 : 0,
+						sp ? static_cast<int>(sp->dragKind) : -1,
+						sp ? static_cast<int>(sp->dragHandle) : -1,
+						(SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) ? 1 : 0,
+						io.KeyAlt ? 1 : 0,
+						d.canvasImageX, d.canvasImageY, d.canvasDrawW, d.canvasDrawH,
+						d.canvasSurfaceW, d.canvasSurfaceH,
+						udPressGeomX, udPressGeomY, udPressGeomW, udPressGeomH,
+						udGeomStable, udRedrives);
+				};
+				auto udFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: uidrag selfcheck - FAILED: %s",
+						why.c_str());
+					udDiag();
+					exitCode = 41;
+					std::error_code ce;
+					std::filesystem::remove_all(uiDragTempRoot, ce);
+					running = false;
+				};
+				// an assert step re-checks each frame until its state settles (a
+				// pushed SDL event travels event-pump -> ImGui -> the canvas over a
+				// variable number of frames), failing only after a generous budget
+				// the deadline backstop also guards. Returns true when settled.
+				const int udSettleBudget = 40;
+				auto udSettle = [&](int stepId, bool condition,
+					char const* why) -> bool
+				{
+					if (condition) { uiDragSettleHold = 0; return true; }
+					if (++uiDragSettleHold <= udSettleBudget)
+					{
+						uiDragStep = stepId - 1;	// re-run this step next frame
+						return false;
+					}
+					uiDragSettleHold = 0;
+					udFail(why);
+					return false;
+				};
+				// the same wait for an assert a LOST GESTURE can explain: when the
+				// state never arrives, the gesture that was supposed to produce it
+				// is DRIVEN AGAIN from @p redoStep (which re-captures its own
+				// before-state, so a redo asserts exactly the same contract)
+				// instead of blaming the editor for an event the display server
+				// ate. Bounded and logged, so the step keeps being the reporter.
+				const int udRedoHold = 14;	// frames waited before a redo
+				// one of these belongs to the deliberate interruption below, the
+				// rest to whatever the shared display does on its own
+				const int udRedriveLimit = 5;
+				auto udSettleOrRedo = [&](int stepId, int redoStep, bool condition,
+					char const* why) -> bool
+				{
+					if (condition) { uiDragSettleHold = 0; return true; }
+					if (++uiDragSettleHold <= udRedoHold)
+					{
+						uiDragStep = stepId - 1;	// re-run this step next frame
+						return false;
+					}
+					uiDragSettleHold = 0;
+					if (++udRedrives <= udRedriveLimit)
+					{
+						SDL_Log("orkige_editor: uidrag - %s; driving the gesture "
+							"again from step %d (attempt %d)", why, redoStep,
+							udRedrives);
+						udGestureRestart = -1;
+						udGestureHeld = false;
+						uiDragStep = redoStep - 1;
+						return false;
+					}
+					udFail(why);
+					return false;
+				};
 				// SDL event helpers (io.MousePos target -> window-point, ImGui's
 				// mouse-scale inverse), matching the marquee leg
 				auto toWindow = [&](float px, float py, float& wx, float& wy)
@@ -7224,57 +7352,214 @@ int main(int argc, char** argv)
 					e.key.mod = down ? SDL_KMOD_LALT : SDL_KMOD_NONE;
 					SDL_PushEvent(&e);
 				};
-				// centre of a widget in screen px (the click-select target)
-				auto centerOf = [&](std::string const& id,
-					float& sx, float& sy) -> bool
+				// --- the gesture tier: every point is derived from the canvas of
+				// the frame it acts on, every press is confirmed to have landed,
+				// and a gesture the environment interrupts is REDONE ---
+
+				// ImGui's io.MousePos lives in the same render-target pixel space
+				// pushMove() takes, so a pushed move is CONFIRMED once io has it.
+				// Never press on a move still in flight: the canvas arms its drag at
+				// wherever io.MousePos is on the press frame, and a mouse-leave from
+				// another window on this shared display parks that at -FLT_MAX.
+				auto udCursorAt = [&](float px, float py) -> bool
+				{
+					const ImVec2 p = ImGui::GetIO().MousePos;
+					return std::fabs(p.x - px) <= 1.5f &&
+						std::fabs(p.y - py) <= 1.5f;
+				};
+				// the canvas placement has stopped moving. Every aim point maps
+				// through it and the resize grips are a 6px screen zone, so a
+				// gesture aimed while the dock is still settling grabs the widget's
+				// body (a move) instead of its corner (a resize) - and the box the
+				// case exists to grow never grows. Opening the screen REVEALS the UI
+				// Editor panel, which re-docks the Preview, and that geometry lands
+				// on the display server's schedule, not on a frame count.
+				auto udCanvasSettled = [&]() -> bool
+				{
+					return ready() && udGeomStable >= 4;
+				};
+				// the gesture's press / release point in screen px, mapped through
+				// the CURRENT canvas (the release is kept inside the image rect)
+				auto udAimScreen = [&](float& sx, float& sy)
+				{
+					toScreen(udAimSurfX, udAimSurfY, sx, sy);
+				};
+				auto udTargScreen = [&](float& sx, float& sy)
+				{
+					toScreen(udTargSurfX, udTargSurfY, sx, sy);
+					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
+					sx = std::min(sx, d.canvasImageX + d.canvasDrawW - 4.0f);
+					sy = std::min(sy, d.canvasImageY + d.canvasDrawH - 4.0f);
+				};
+				// the canvas moved since the press. The document mutation is
+				// (release point - press point) mapped through the canvas scale, so
+				// a canvas that moved mid-gesture would apply a delta nobody asked
+				// for - the gesture has to be driven again, not released.
+				auto udCanvasMovedSincePress = [&]() -> bool
+				{
+					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
+					return std::fabs(d.canvasImageX - udPressGeomX) > 0.5f ||
+						std::fabs(d.canvasImageY - udPressGeomY) > 0.5f ||
+						std::fabs(d.canvasDrawW - udPressGeomW) > 0.5f ||
+						std::fabs(d.canvasDrawH - udPressGeomH) > 0.5f;
+				};
+				// drive the OPEN gesture again from its own start (which re-captures
+				// the before-state, so the redo asserts the same contract). Bounded
+				// and logged - the environment interrupting a gesture is a slow pass,
+				// not a wrong one, but an editor that keeps losing it is a failure.
+				auto udRedoGesture = [&](char const* why) -> void
+				{
+					const int restart = udGestureRestart;
+					udGestureRestart = -1;
+					udGestureHeld = false;
+					uiDragSettleHold = 0;
+					if (restart < 0) { return; }
+					if (++udRedrives <= udRedriveLimit)
+					{
+						SDL_Log("orkige_editor: uidrag - %s (%s), driving the gesture "
+							"again from step %d (attempt %d)", why,
+							udGestureLabel.c_str(), restart, udRedrives);
+						uiDragStep = restart - 1;
+						return;
+					}
+					udFail(udGestureLabel + ": the gesture kept being interrupted "
+						"mid-flight (cursor/focus/canvas moved under it)");
+				};
+				// aim at a widget's CENTRE (the click-select / body-drag grab)
+				auto aimAtCentre = [&](std::string const& id,
+					char const* label) -> bool
 				{
 					Orkige::LayoutRect r;
 					if (!surfRect(id, r)) { return false; }
-					toScreen(r.x + r.w * 0.5f, r.y + r.h * 0.5f, sx, sy);
+					udAimSurfX = r.x + r.w * 0.5f;
+					udAimSurfY = r.y + r.h * 0.5f;
+					udTargSurfX = udAimSurfX; udTargSurfY = udAimSurfY;
+					udGestureLabel = label; udGestureId = id;
 					return true;
 				};
-				// press point (udGripX/Y) = a widget's bottom-right resize grip;
-				// release point (udTargX/Y) = an OUTWARD drag that stays inside the
-				// canvas image; capture the pre-resize box + anchor. The drag length
-				// is fixed in SURFACE units (mapped through the canvas scale), so
-				// the DOCUMENT mutation is identical on every canvas size - a fixed
-				// screen-pixel drag on a small (CI 1x) canvas resolved to a surface
-				// delta big enough to smear earlier-case widgets over the later
-				// cases' click targets, flipping the hit test's honest verdict
-				auto computeResize = [&](std::string const& id) -> bool
+				// press point = a widget's bottom-right resize grip; release point =
+				// an OUTWARD drag that stays inside the surface; capture the
+				// pre-resize box + anchor. The drag length is fixed in SURFACE units
+				// (mapped through the canvas scale when it is used), so the DOCUMENT
+				// mutation is identical on every canvas size - a fixed screen-pixel
+				// drag on a small (CI 1x) canvas resolved to a surface delta big
+				// enough to smear earlier-case widgets over the later cases' click
+				// targets, flipping the hit test's honest verdict
+				auto computeResize = [&](std::string const& id,
+					char const* label) -> bool
 				{
 					Orkige::LayoutRect r;
 					if (!surfRect(id, r)) { return false; }
-					toScreen(r.x + r.w, r.y + r.h, udGripX, udGripY);
-					toScreen(r.x + r.w + 60.0f, r.y + r.h + 60.0f,
-						udTargX, udTargY);
-					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
-					const float imgR = d.canvasImageX + d.canvasDrawW;
-					const float imgB = d.canvasImageY + d.canvasDrawH;
-					udTargX = std::min(udTargX, imgR - 4.0f);
-					udTargY = std::min(udTargY, imgB - 4.0f);
+					udAimSurfX = r.x + r.w; udAimSurfY = r.y + r.h;
+					udTargSurfX = udAimSurfX + 60.0f;
+					udTargSurfY = udAimSurfY + 60.0f;
 					udBeforeW = r.w; udBeforeH = r.h;
 					udBeforeAnchor = anchorOf(id);
+					udGestureLabel = label; udGestureId = id;
 					return true;
 				};
 				// press point = a widget's centre (body), release point = an outward
 				// drag (a move); capture the pre-move anchoredPos. Surface-relative
 				// drag length, same rationale as computeResize above.
-				auto computeMove = [&](std::string const& id) -> bool
+				auto computeMove = [&](std::string const& id,
+					char const* label) -> bool
 				{
-					Orkige::LayoutRect r;
-					if (!surfRect(id, r)) { return false; }
-					toScreen(r.x + r.w * 0.5f, r.y + r.h * 0.5f, udGripX, udGripY);
-					toScreen(r.x + r.w * 0.5f + 60.0f, r.y + r.h * 0.5f + 60.0f,
-						udTargX, udTargY);
-					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
-					const float imgR = d.canvasImageX + d.canvasDrawW;
-					const float imgB = d.canvasImageY + d.canvasDrawH;
-					udTargX = std::min(udTargX, imgR - 4.0f);
-					udTargY = std::min(udTargY, imgB - 4.0f);
+					if (!aimAtCentre(id, label)) { return false; }
+					udTargSurfX = udAimSurfX + 60.0f;
+					udTargSurfY = udAimSurfY + 60.0f;
 					udBeforeX = 0.0f; udBeforeY = 0.0f;
 					anchoredPosOf(id, udBeforeX, udBeforeY);
 					return true;
+				};
+				// MOVE the cursor to the grab point and hold the step until io says
+				// it arrived (every retry moves again - a real mouse keeps reporting,
+				// which is also what brings the cursor back after a mouse-leave)
+				auto udAimAt = [&](int stepId) -> bool
+				{
+					float ax = 0.0f, ay = 0.0f; udAimScreen(ax, ay);
+					pushMove(ax, ay);
+					return udSettle(stepId, udCursorAt(ax, ay), (udGestureLabel +
+						": the cursor never reached the grab point").c_str());
+				};
+				// PRESS - only on a frame that finds the cursor demonstrably on the
+				// grab point and the canvas where it was aimed. Opens the gesture:
+				// from here a cleared button or a moved canvas means REDO, never a
+				// verdict on the wreckage.
+				auto udPressAt = [&](int stepId, int restartStep) -> bool
+				{
+					float ax = 0.0f, ay = 0.0f; udAimScreen(ax, ay);
+					if (!udCursorAt(ax, ay))
+					{
+						pushMove(ax, ay);
+						return udSettle(stepId, false, (udGestureLabel +
+							": the cursor left the grab point before the press")
+							.c_str());
+					}
+					pushButton(true, ax, ay);
+					udPressScreenX = ax; udPressScreenY = ay;
+					udGestureRestart = restartStep;
+					udGestureHeld = false;
+					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
+					udPressGeomX = d.canvasImageX; udPressGeomY = d.canvasImageY;
+					udPressGeomW = d.canvasDrawW; udPressGeomH = d.canvasDrawH;
+					Orkige::LayoutRect box{};
+					udPressBoxValid = !udGestureId.empty() &&
+						surfRect(udGestureId, box);
+					udPressBoxX = box.x; udPressBoxY = box.y;
+					udPressBoxW = box.w; udPressBoxH = box.h;
+					return true;
+				};
+				// a CLICK releases on EXACTLY the point it pressed: a release a few
+				// pixels away crosses ImGui's drag threshold and becomes a move
+				// instead of the selection the case is about
+				auto udClickRelease = [&]()
+				{
+					pushButton(false, udPressScreenX, udPressScreenY);
+					udGestureRestart = -1;
+					udGestureHeld = false;
+				};
+				// DRAG - a stream, not a jump: every retry moves again, and the step
+				// only advances once the cursor is at the far point WITH the canvas
+				// still holding the drag the press opened
+				auto udDragTo = [&](int stepId) -> bool
+				{
+					float tx = 0.0f, ty = 0.0f; udTargScreen(tx, ty);
+					pushMove(tx, ty);
+					OrkigeEditor::UiEditSession* s = sessionPtr();
+					return udSettle(stepId, s && s->dragging && udCursorAt(tx, ty),
+						(udGestureLabel + ": the drag never reached its far point "
+							"with the canvas holding it").c_str());
+				};
+				// RELEASE - only while the gesture is still the one that was pressed
+				// (the cursor on the far point, the canvas where the press left it);
+				// otherwise drive it again rather than commit a delta nobody aimed
+				auto udReleaseAt = [&](int dragStep) -> void
+				{
+					if (udCanvasMovedSincePress())
+					{
+						udRedoGesture("the canvas moved under the drag");
+						return;
+					}
+					float tx = 0.0f, ty = 0.0f; udTargScreen(tx, ty);
+					OrkigeEditor::UiEditSession* s = sessionPtr();
+					if (!udCursorAt(tx, ty) || !s || !s->dragging)
+					{
+						if (++udRedrives <= udRedriveLimit)
+						{
+							SDL_Log("orkige_editor: uidrag - the drag stopped being "
+								"on its far point before the release (%s), dragging "
+								"again (attempt %d)", udGestureLabel.c_str(),
+								udRedrives);
+							uiDragStep = dragStep - 1;
+							return;
+						}
+						udFail(udGestureLabel + ": the drag never held its far point "
+							"long enough to release on it");
+						return;
+					}
+					pushButton(false, tx, ty);
+					udGestureRestart = -1;
+					udGestureHeld = false;
 				};
 				// the doc-side "the resize grew the box (both dims) with the anchor
 				// preserved" assertion + the next-flavor live-overlay text-in-box
@@ -7384,44 +7669,156 @@ int main(int argc, char** argv)
 					// session pointer is null). Re-focusing each frame keeps the
 					// canvas alive so its InvisibleButton receives the synthetic mouse.
 					ImGui::SetWindowFocus("Preview");
-					switch (uiDragStep)
+					// how long the canvas placement has held still (revealing the UI
+					// Editor panel re-docks the Preview, and the window/dock geometry
+					// arrives on the display server's schedule): a gesture may only
+					// be AIMED at a canvas that has stopped moving
 					{
-					// wait for the canvas to go live before the first gesture
+						OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
+						if (std::fabs(d.canvasImageX - udGeomX) <= 0.5f &&
+							std::fabs(d.canvasImageY - udGeomY) <= 0.5f &&
+							std::fabs(d.canvasDrawW - udGeomW) <= 0.5f &&
+							std::fabs(d.canvasDrawH - udGeomH) <= 0.5f)
+						{
+							++udGeomStable;
+						}
+						else
+						{
+							udGeomStable = 0;
+							udGeomX = d.canvasImageX; udGeomY = d.canvasImageY;
+							udGeomW = d.canvasDrawW; udGeomH = d.canvasDrawH;
+						}
+					}
+					// a HELD modifier stays held: the stack-cycling leg keeps Alt
+					// down across two whole clicks the way a real keyboard does, and
+					// a focus event on this shared display CLEARS ImGui's keys - so
+					// any frame that finds it clear presses it again.
+					if (udHoldAlt && !ImGui::GetIO().KeyAlt)
+					{
+						pushAlt(true);
+					}
+					// ... and a HELD BUTTON stays held. This window shares its
+					// display with the rest of the suite: another process mapping a
+					// window sends us a mouse-leave (which invalidates ImGui's cursor
+					// to -FLT_MAX) or takes focus (which RELEASES ImGui's held
+					// buttons), and either strands a half-finished drag - the canvas
+					// then commits whatever delta was there, which is usually none,
+					// and the box the case exists to grow never grows. That is the
+					// environment interrupting the gesture, not the editor getting it
+					// wrong, so the leg REDOES the gesture from its own start instead
+					// of asserting on the wreckage. Only a button that was observed
+					// DOWN and then went up counts as lost, so a press still in the
+					// input queue never triggers a restart.
+					bool udGestureLost = false;
+					if (udGestureRestart >= 0)
+					{
+						if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+						{
+							udGestureHeld = true;
+						}
+						else if (udGestureHeld)
+						{
+							udGestureLost = true;
+							// A gesture the window system ended must have edited
+							// NOTHING. ImGui invalidates the cursor to -FLT_MAX in
+							// the same call that releases the button, so a canvas
+							// that applied its delta anyway would measure it against
+							// a position that does not exist and collapse the widget
+							// - and no amount of redoing recovers a document that
+							// was already corrupted. Checked BEFORE the redo, so the
+							// retry can never paper over it.
+							Orkige::LayoutRect now{};
+							if (udPressBoxValid && surfRect(udGestureId, now) &&
+								(std::fabs(now.x - udPressBoxX) > 0.5f ||
+									std::fabs(now.y - udPressBoxY) > 0.5f ||
+									std::fabs(now.w - udPressBoxW) > 0.5f ||
+									std::fabs(now.h - udPressBoxH) > 0.5f))
+							{
+								udFail(udGestureLabel + ": the interrupted gesture "
+									"edited the widget - a drag the window system "
+									"ends must apply nothing");
+							}
+							else
+							{
+								udRedoGesture("the held gesture was cleared "
+									"mid-flight (cursor/focus lost)");
+							}
+						}
+					}
+					// deliver the ONE deliberate interruption: a real mouse-leave +
+					// focus loss between case3b's press and its drag. The shared
+					// display does this by itself often enough to have been the
+					// flake, and rarely enough that only a deliberate one makes
+					// every run prove the contract - that an interrupted gesture
+					// edits nothing and is driven again from its own press.
+					if (!udInterruptSent && uiDragStep == 89 && !udGestureLost)
+					{
+						udInterruptSent = true;
+						SDL_Event leave = {};
+						leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
+						leave.window.windowID = SDL_GetWindowID(window);
+						SDL_PushEvent(&leave);
+						SDL_Event lost = {};
+						lost.type = SDL_EVENT_WINDOW_FOCUS_LOST;
+						lost.window.windowID = SDL_GetWindowID(window);
+						SDL_PushEvent(&lost);
+						SDL_Log("orkige_editor: uidrag - delivering a mouse-leave + "
+							"focus loss inside case3b's resize (the interruption "
+							"contract)");
+					}
+					switch (udGestureLost ? -1 : uiDragStep)
+					{
+					// wait for the canvas to go live AND to stop moving before the
+					// first gesture (@see udCanvasSettled)
 					case 0:
-						if (!ready())
+						if (!udCanvasSettled())
 						{
 							uiDragStep = -1;	// re-run readiness next frame
+							break;
+						}
+						if (!udCanvasLogged)
+						{
+							udCanvasLogged = true;
+							OrkigeEditor::UiEditorDebug& d =
+								OrkigeEditor::uiEditorDebug();
+							SDL_Log("orkige_editor: uidrag - canvas settled at "
+								"frame %d (image %.1f,%.1f draw %.1fx%.1f "
+								"surface %.0fx%.0f)", static_cast<int>(frameCount),
+								d.canvasImageX, d.canvasImageY, d.canvasDrawW,
+								d.canvasDrawH, d.canvasSurfaceW, d.canvasSurfaceH);
 						}
 						break;
 
 					// CASE 1: a plain click selects a label
 					case 3:
-						if (!centerOf("lblTop", udGripX, udGripY))
+						if (!udCanvasSettled() || !aimAtCentre("lblTop", "case1"))
 						{ uiDragStep = 2; break; }	// hold until resolvable
-						pushMove(udGripX, udGripY);
+						udAimAt(3);
 						break;
-					case 6: pushButton(true, udGripX, udGripY); break;
-					case 9: pushButton(false, udGripX, udGripY); break;
+					case 6: udPressAt(6, 3); break;
+					case 9: udClickRelease(); break;
 					case 12:
-						udSettle(12,
+						udSettleOrRedo(12, 3,
 							OrkigeEditor::uiEditorDebug().selected == "lblTop",
 							"case1: real click did not select lblTop");
 						break;
 
 					// CASE 2: grab lblTop's grip, drag it, release -> the box grew
 					case 15:
-						if (!computeResize("lblTop")) { uiDragStep = 14; break; }
-						pushMove(udGripX, udGripY);
+						if (!udCanvasSettled() ||
+							!computeResize("lblTop", "case2"))
+						{ uiDragStep = 14; break; }
+						udAimAt(15);
 						break;
-					case 18: pushButton(true, udGripX, udGripY); break;
-					case 21: pushMove(udTargX, udTargY); break;
-					case 24: pushButton(false, udTargX, udTargY); break;
+					case 18: udPressAt(18, 15); break;
+					case 21: udDragTo(21); break;
+					case 24: udReleaseAt(21); break;
 					case 27:
 					{
 						Orkige::LayoutRect a;
 						const bool grew = surfRect("lblTop", a) &&
 							a.w > udBeforeW + 2.0f && a.h > udBeforeH + 2.0f;
-						if (udSettle(27, grew,
+						if (udSettleOrRedo(27, 15, grew,
 							"case2: lblTop grip-resize did not grow the box"))
 						{
 							assertGrew("lblTop", "topleft", "case2");
@@ -7431,48 +7828,52 @@ int main(int argc, char** argv)
 
 					// CASE 5: drag lblTop's body (still selected) -> position moved
 					case 30:
-						if (!computeMove("lblTop")) { uiDragStep = 29; break; }
-						pushMove(udGripX, udGripY);
+						if (!udCanvasSettled() || !computeMove("lblTop", "case5"))
+						{ uiDragStep = 29; break; }
+						udAimAt(30);
 						break;
-					case 33: pushButton(true, udGripX, udGripY); break;
-					case 36: pushMove(udTargX, udTargY); break;
-					case 39: pushButton(false, udTargX, udTargY); break;
+					case 33: udPressAt(33, 30); break;
+					case 36: udDragTo(36); break;
+					case 39: udReleaseAt(36); break;
 					case 42:
 					{
 						float ax = 0.0f, ay = 0.0f;
 						const bool moved = anchoredPosOf("lblTop", ax, ay) &&
 							ax > udBeforeX + 2.0f && ay > udBeforeY + 2.0f;
-						udSettle(42, moved,
+						udSettleOrRedo(42, 30, moved,
 							"case5: body-drag did not move lblTop anchoredPos");
 						break;
 					}
 
 					// CASE 3a: click-select + grip-resize the STRETCH label
 					case 45:
-						if (!centerOf("lblStretch", udGripX, udGripY))
+						if (!udCanvasSettled() ||
+							!aimAtCentre("lblStretch", "case3a"))
 						{ uiDragStep = 44; break; }
-						pushMove(udGripX, udGripY);
+						udAimAt(45);
 						break;
-					case 48: pushButton(true, udGripX, udGripY); break;
-					case 51: pushButton(false, udGripX, udGripY); break;
+					case 48: udPressAt(48, 45); break;
+					case 51: udClickRelease(); break;
 					case 54:
-						udSettle(54,
+						udSettleOrRedo(54, 45,
 							OrkigeEditor::uiEditorDebug().selected == "lblStretch",
 							"case3a: click did not select lblStretch");
 						break;
 					case 57:
-						if (!computeResize("lblStretch")) { uiDragStep = 56; break; }
-						pushMove(udGripX, udGripY);
+						if (!udCanvasSettled() ||
+							!computeResize("lblStretch", "case3a"))
+						{ uiDragStep = 56; break; }
+						udAimAt(57);
 						break;
-					case 60: pushButton(true, udGripX, udGripY); break;
-					case 63: pushMove(udTargX, udTargY); break;
-					case 66: pushButton(false, udTargX, udTargY); break;
+					case 60: udPressAt(60, 57); break;
+					case 63: udDragTo(63); break;
+					case 66: udReleaseAt(63); break;
 					case 69:
 					{
 						Orkige::LayoutRect a;
 						const bool grew = surfRect("lblStretch", a) &&
 							a.w > udBeforeW + 2.0f && a.h > udBeforeH + 2.0f;
-						if (udSettle(69, grew,
+						if (udSettleOrRedo(69, 57, grew,
 							"case3a: stretch-label resize did not grow the box"))
 						{
 							assertGrew("lblStretch", "stretchtop", "case3a");
@@ -7482,30 +7883,31 @@ int main(int argc, char** argv)
 
 					// CASE 3b: click-select + grip-resize the BUTTON (control case)
 					case 72:
-						if (!centerOf("btnCtl", udGripX, udGripY))
+						if (!udCanvasSettled() || !aimAtCentre("btnCtl", "case3b"))
 						{ uiDragStep = 71; break; }
-						pushMove(udGripX, udGripY);
+						udAimAt(72);
 						break;
-					case 75: pushButton(true, udGripX, udGripY); break;
-					case 78: pushButton(false, udGripX, udGripY); break;
+					case 75: udPressAt(75, 72); break;
+					case 78: udClickRelease(); break;
 					case 81:
-						udSettle(81,
+						udSettleOrRedo(81, 72,
 							OrkigeEditor::uiEditorDebug().selected == "btnCtl",
 							"case3b: click did not select btnCtl");
 						break;
 					case 84:
-						if (!computeResize("btnCtl")) { uiDragStep = 83; break; }
-						pushMove(udGripX, udGripY);
+						if (!udCanvasSettled() || !computeResize("btnCtl", "case3b"))
+						{ uiDragStep = 83; break; }
+						udAimAt(84);
 						break;
-					case 87: pushButton(true, udGripX, udGripY); break;
-					case 90: pushMove(udTargX, udTargY); break;
-					case 93: pushButton(false, udTargX, udTargY); break;
+					case 87: udPressAt(87, 84); break;
+					case 90: udDragTo(90); break;
+					case 93: udReleaseAt(90); break;
 					case 96:
 					{
 						Orkige::LayoutRect a;
 						const bool grew = surfRect("btnCtl", a) &&
 							a.w > udBeforeW + 2.0f && a.h > udBeforeH + 2.0f;
-						if (udSettle(96, grew,
+						if (udSettleOrRedo(96, 84, grew,
 							"case3b: button resize did not grow the box"))
 						{
 							assertGrew("btnCtl", "topleft", "case3b");
@@ -7528,31 +7930,26 @@ int main(int argc, char** argv)
 					}
 					case 102:
 						// the panel redrew with the fresh label selected; grab it
+						// (the add is a hook call, not a gesture - a redo would add
+						// a SECOND label, so this one only waits)
 						if (!udSettle(102,
 							OrkigeEditor::uiEditorDebug().selected == udFreshId,
 							"case4: fresh label was not the live selection"))
 						{ break; }
-						if (!computeResize(udFreshId)) { uiDragStep = 101; break; }
-						pushMove(udGripX, udGripY);
+						if (!udCanvasSettled() ||
+							!computeResize(udFreshId, "case4"))
+						{ uiDragStep = 101; break; }
+						udAimAt(102);
 						break;
-					case 105: pushButton(true, udGripX, udGripY); break;
-					case 108: pushMove(udTargX, udTargY); break;
-					case 111: pushButton(false, udTargX, udTargY); break;
+					case 105: udPressAt(105, 102); break;
+					case 108: udDragTo(108); break;
+					case 111: udReleaseAt(108); break;
 					case 114:
 					{
 						Orkige::LayoutRect a;
 						const bool grew = surfRect(udFreshId, a) &&
 							a.w > udBeforeW + 2.0f && a.h > udBeforeH + 2.0f;
-						if (!grew)
-						{
-							SDL_Log("uidrag diag case4: id=%s sel=%s box=%.1fx%.1f "
-								"before=%.1fx%.1f grip=%.1f,%.1f targ=%.1f,%.1f",
-								udFreshId.c_str(),
-								OrkigeEditor::uiEditorDebug().selected.c_str(),
-								a.w, a.h, udBeforeW, udBeforeH,
-								udGripX, udGripY, udTargX, udTargY);
-						}
-						if (udSettle(114, grew,
+						if (udSettleOrRedo(114, 102, grew,
 							"case4: fresh-label resize did not grow the box"))
 						{
 							assertGrew(udFreshId, "topleft", "case4");
@@ -7567,58 +7964,72 @@ int main(int argc, char** argv)
 					// the front; a plain click re-selects the front.
 					case 117:
 						// aim at ovFront's centre - a point inside BOTH labels
-						if (!centerOf("ovFront", udGripX, udGripY))
+						if (!udCanvasSettled() || !aimAtCentre("ovFront", "case6"))
 						{ uiDragStep = 116; break; }
-						pushMove(udGripX, udGripY);
+						udAimAt(117);
 						break;
-					case 120: pushAlt(true); break;
-					case 123: pushButton(true, udGripX, udGripY); break;
-					case 126: pushButton(false, udGripX, udGripY); break;
+					case 120:
+						udHoldAlt = true;	// held for both cycling clicks
+						pushAlt(true);
+						break;
+					case 123:
+						// the CYCLE is the modifier: press only on a frame that has
+						// Alt (a synthetic key-down can be deferred by the input
+						// queue or cleared outright by a focus event)
+						if (!ImGui::GetIO().KeyAlt)
+						{
+							pushAlt(true);
+							udSettle(123, false, "case6: Alt never reached the "
+								"canvas before the first cycling click");
+							break;
+						}
+						udPressAt(123, 123);
+						break;
+					case 126: udClickRelease(); break;
 					case 129:
-						udSettle(129,
+						udSettleOrRedo(129, 123,
 							OrkigeEditor::uiEditorDebug().selected == "ovFront",
 							"case6: first Alt+click did not select the front label");
 						break;
-					case 132: pushButton(true, udGripX, udGripY); break;
-					case 135: pushButton(false, udGripX, udGripY); break;
+					case 132:
+						if (!ImGui::GetIO().KeyAlt)
+						{
+							pushAlt(true);
+							udSettle(132, false, "case6: Alt never reached the "
+								"canvas before the second cycling click");
+							break;
+						}
+						udPressAt(132, 132);
+						break;
+					case 135: udClickRelease(); break;
 					case 138:
-						if (!udSettle(138,
+						if (!udSettleOrRedo(138, 132,
 							OrkigeEditor::uiEditorDebug().selected == "ovBack",
 							"case6: second Alt+click did not cycle to the back label"))
 						{ break; }
+						udHoldAlt = false;
 						pushAlt(false);	// release Alt before the body drag
 						break;
 					case 141:
+						if (!udCanvasSettled()) { uiDragStep = 140; break; }
 						if (!anchoredPosOf("ovBack", udBeforeX, udBeforeY))
 						{ udFail("case6: ovBack has no anchoredPos"); break; }
 						anchoredPosOf("ovFront", udFrontBeforeX, udFrontBeforeY);
-						if (!centerOf("ovFront", udGripX, udGripY))
+						if (!aimAtCentre("ovFront", "case6"))
 						{ uiDragStep = 140; break; }
-						{
-							Orkige::LayoutRect r;
-							if (surfRect("ovFront", r))
-							{
-								// drag ovBack FAR down-right (+200,+160 surface): the
-								// +60 delta parked it exactly on ovFront's origin (they
-								// start 60 apart), leaving the front label fully inside
-								// the moved selection with its pivot grip on the aim
-								// point - full separation makes the closing plain-click
-								// unambiguous at every canvas scale
-								toScreen(r.x + r.w * 0.5f + 200.0f,
-									r.y + r.h * 0.5f + 160.0f, udTargX, udTargY);
-								OrkigeEditor::UiEditorDebug& d =
-									OrkigeEditor::uiEditorDebug();
-								udTargX = std::min(udTargX,
-									d.canvasImageX + d.canvasDrawW - 4.0f);
-								udTargY = std::min(udTargY,
-									d.canvasImageY + d.canvasDrawH - 4.0f);
-							}
-						}
-						pushMove(udGripX, udGripY);
+						// drag ovBack FAR down-right (+200,+160 surface): the
+						// +60 delta parked it exactly on ovFront's origin (they
+						// start 60 apart), leaving the front label fully inside
+						// the moved selection with its pivot grip on the aim
+						// point - full separation makes the closing plain-click
+						// unambiguous at every canvas scale
+						udTargSurfX = udAimSurfX + 200.0f;
+						udTargSurfY = udAimSurfY + 160.0f;
+						udAimAt(141);
 						break;
-					case 144: pushButton(true, udGripX, udGripY); break;
-					case 147: pushMove(udTargX, udTargY); break;
-					case 150: pushButton(false, udTargX, udTargY); break;
+					case 144: udPressAt(144, 141); break;
+					case 147: udDragTo(147); break;
+					case 150: udReleaseAt(147); break;
 					case 153:
 					{
 						float bx = 0.0f, by = 0.0f, fx = 0.0f, fy = 0.0f;
@@ -7627,7 +8038,7 @@ int main(int argc, char** argv)
 						const bool frontStill = anchoredPosOf("ovFront", fx, fy) &&
 							std::fabs(fx - udFrontBeforeX) < 0.5f &&
 							std::fabs(fy - udFrontBeforeY) < 0.5f;
-						udSettle(153, backMoved && frontStill,
+						udSettleOrRedo(153, 141, backMoved && frontStill,
 							"case6: body-drag over the overlap did not move the "
 							"SELECTED back label while leaving the front put");
 						break;
@@ -7638,15 +8049,15 @@ int main(int argc, char** argv)
 						// plain click at ovFront's centre is outside the selection and
 						// every grip zone at any canvas scale - the unambiguous
 						// click-switch shape
-						if (!centerOf("ovFront", udGripX, udGripY))
+						if (!udCanvasSettled() || !aimAtCentre("ovFront", "case6"))
 						{ uiDragStep = 155; break; }
-						pushMove(udGripX, udGripY);
+						udAimAt(156);
 						break;
 					}
-					case 159: pushButton(true, udGripX, udGripY); break;
-					case 162: pushButton(false, udGripX, udGripY); break;
+					case 159: udPressAt(159, 156); break;
+					case 162: udClickRelease(); break;
 					case 165:
-						if (udSettle(165,
+						if (udSettleOrRedo(165, 156,
 							OrkigeEditor::uiEditorDebug().selected == "ovFront",
 							"case6: plain click did not re-select the front label"))
 						{
@@ -7667,24 +8078,15 @@ int main(int argc, char** argv)
 					++uiDragStep;
 				}
 				// deadline backstop: never let the demo-frame cap turn a stuck run
-				// into a false pass
+				// into a false pass. It is COARSE on purpose - every step carries
+				// its own settle budget and fails with the real reason, so this
+				// only has to leave room for the whole sequence plus its repeated
+				// gestures. A clean run finishes inside ~180 frames; the wall
+				// covers the BOUNDED worst case (four gesture redoes, each of them
+				// logged) so the specific step keeps being the one that reports.
 				if (uiDragPhase != UiDragPhase::Done && exitCode == 0 &&
-					frameCount >= 500)
+					frameCount >= 640)
 				{
-					OrkigeEditor::UiEditorDebug& d = OrkigeEditor::uiEditorDebug();
-					OrkigeEditor::UiEditSession* sp = sessionPtr();
-					const int idxTop = sp ? OrkigeEditor::sectionIndex(
-						sp->doc.doc(), "lblTop") : -2;
-					Orkige::LayoutRect rr; const bool sr = surfRect("lblTop", rr);
-					SDL_Log("orkige_editor: uidrag diag - step=%d ready=%d "
-						"active=%d loaded=%d sel='%s' selCount=%d secCount=%d "
-						"sess=%d idxTop=%d surfRect=%d r=%.0fx%.0f "
-						"canvas(img %.0f,%.0f draw %.0fx%.0f surf %.0fx%.0f)",
-						uiDragStep, ready() ? 1 : 0, d.active ? 1 : 0,
-						d.loaded ? 1 : 0, d.selected.c_str(), d.selectionCount,
-						d.sectionCount, sp ? 1 : 0, idxTop, sr ? 1 : 0, rr.w, rr.h,
-						d.canvasImageX, d.canvasImageY, d.canvasDrawW, d.canvasDrawH,
-						d.canvasSurfaceW, d.canvasSurfaceH);
 					udFail("uidrag selfcheck did not complete before the deadline");
 				}
 			}

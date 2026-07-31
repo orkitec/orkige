@@ -1105,7 +1105,11 @@ Preview panel's slim toolbar carries the same trash-can for a canvas-adjacent
 delete. **Undo** / **Redo** step one gesture at a time (a drag, an align, a
 nudge burst are each one step); global **Cmd/Ctrl+Z** routes to the document
 while the UI Editor panel or the canvas holds focus, so it never edits the scene
-from the UI-editing context.
+from the UI-editing context. A gesture the **window system** ends — the app
+losing focus mid-drag, the pointer leaving the window — is **cancelled**: the
+cursor is invalid at that moment, so applying its delta would resize the widget
+against a position that does not exist; the widget keeps the geometry it had
+when the gesture started and nothing enters the undo history.
 
 **Alignment write-back.** Align and distribute operate on the resolved surface
 rects, so a selection spanning different parents aligns in screen space; the

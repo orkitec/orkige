@@ -1219,7 +1219,12 @@ if(TARGET orkige_editor)
     add_test(NAME editor_uidrag${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_uidrag${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_UIDRAG=${Orkige_SOURCE_DIR}/tests/projects/uihotreload;ORKIGE_DEMO_FRAMES=560"
+        ENVIRONMENT "ORKIGE_EDITOR_UIDRAG=${Orkige_SOURCE_DIR}/tests/projects/uihotreload;ORKIGE_DEMO_FRAMES=700"
+        # coarse backstop only: the run is deadline-driven inside the editor
+        # (which fails with the step's own reason), and this frame cap just has
+        # to exceed the bounded worst case - a gesture the display server
+        # interrupts is redone, up to a logged limit - on a sanitizer-slowed
+        # frame cadence. A clean run finishes inside ~180 frames.
         LABELS integration TIMEOUT 240)
 
     # Display dropdown v2 view mode + lighting, BOTH flavors, over one lit

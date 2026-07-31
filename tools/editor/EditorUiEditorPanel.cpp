@@ -1359,8 +1359,25 @@ namespace OrkigeEditor
 			}
 		}
 
+		// a gesture the WINDOW SYSTEM ended is CANCELLED, never applied: losing
+		// focus (Alt-Tab, another window taking over) or the pointer leaving the
+		// window makes ImGui release every held button AND invalidate the cursor
+		// to -FLT_MAX in the same call - which deactivates this button on that
+		// frame, so the delta below would be measured against a position that
+		// does not exist and would collapse the widget to nothing. An interrupted
+		// drag edits NOTHING; the widget keeps the geometry it had when the
+		// gesture started and the user drags again.
+		if(s.dragging && ImGui::IsItemDeactivated() && !ImGui::IsMousePosValid())
+		{
+			s.dragging = false;
+			s.marquee = false;
+			s.dragKind = UiEditSession::DragKind::None;
+			s.dragHandle = UiHandle::None;
+			s.hasPendingClick = false;
+			s.pendingClickSelect.clear();
+		}
 		// end the drag: apply once (one undo step), persist+reload
-		if(s.dragging && ImGui::IsItemDeactivated())
+		else if(s.dragging && ImGui::IsItemDeactivated())
 		{
 			const float dScreenX = mouse.x - s.dragStartX;
 			const float dScreenY = mouse.y - s.dragStartY;
