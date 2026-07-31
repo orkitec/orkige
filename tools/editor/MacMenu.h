@@ -96,6 +96,9 @@ namespace Orkige
 		// Help
 		//! Help > Orkige Help: the published documentation site
 		std::function<void()> helpPortal;
+		//! Check for Updates... - the application menu on macOS (where the
+		//! platform keeps it, beside About), Help everywhere else
+		std::function<void()> checkForUpdates;
 		std::function<void()> about;
 	};
 

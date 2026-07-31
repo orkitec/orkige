@@ -79,6 +79,13 @@ add_library(orkige_editor_core STATIC
     # the scene Hierarchy (Into vs Before/After bands) - unit-tested headlessly
     EditorTreeDnd.h
     EditorTreeDnd.cpp
+    # the updater: every DECISION as pure functions (EditorUpdateTests), and
+    # the orchestration around them with its subprocess seams injected so the
+    # whole sequence drives headlessly against a loopback server
+    EditorUpdate.h
+    EditorUpdate.cpp
+    EditorUpdater.h
+    EditorUpdater.cpp
     # the embedded terminal's VT screen model + pure key encoder (UI-free and
     # unit-tested headlessly - EditorTerminalScreenTests / EditorTerminalKeysTests)
     EditorTerminalScreen.h

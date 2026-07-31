@@ -21,6 +21,7 @@ add_executable(orkige_core_tests
     ConstantTimeCompareTests.cpp
     ControlAuthTests.cpp
     Sha1Tests.cpp
+    Sha256Tests.cpp
     PathJailTests.cpp
     WebSocketCodecTests.cpp
     EventTests.cpp

@@ -106,6 +106,39 @@ bool drawViewSettingsWidgets(ViewSettings& viewSettings,
 		&viewSettings.reopenLastProject);
 	ImGui::SetItemTooltip(
 		"start the editor in the most recent project");
+	// how the editor keeps itself current. Three states, and nothing in
+	// between: never look, look and say so, look and fetch it in the
+	// background. A staged update always installs on RESTART, never
+	// mid-session, whichever of the two checking modes found it.
+	{
+		const OrkigeEditor::UpdatePolicy policies[] = {
+			OrkigeEditor::UpdatePolicy::Off,
+			OrkigeEditor::UpdatePolicy::Notify,
+			OrkigeEditor::UpdatePolicy::Download
+		};
+		char const* labels[3];
+		int current = 1;
+		for (int index = 0; index < 3; ++index)
+		{
+			labels[index] = OrkigeEditor::updatePolicyLabel(policies[index]);
+			if (policies[index] == viewSettings.updatePolicy)
+			{
+				current = index;
+			}
+		}
+		ImGui::SetNextItemWidth(280.0f);
+		if (ImGui::Combo("Software Updates", &current, labels, 3))
+		{
+			viewSettings.updatePolicy = policies[current];
+			if (gEditorUpdater != nullptr)
+			{
+				gEditorUpdater->setPolicy(viewSettings.updatePolicy);
+			}
+			settingsChanged = true;
+		}
+		ImGui::SetItemTooltip("checked at most once a day, and only ever "
+			"installed when the editor restarts");
+	}
 	// external code editor: a command template opened for Console file:line
 	// clicks and the "Open in External Editor" actions. Empty = autodetect an
 	// installed CLI editor, else the platform file opener (no line jump).
@@ -561,6 +594,14 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			{
 				state.requestedHelpPortal = true;
 			}
+			// Check for Updates... sits beside About here; the native mac
+			// menu puts it in the application menu, where that platform
+			// keeps it. Both raise the same request.
+			if (ImGui::MenuItem("Check for Updates...", nullptr, false,
+				gEditorUpdater != nullptr))
+			{
+				state.requestedUpdateCheck = true;
+			}
 			if (ImGui::MenuItem("About"))
 			{
 				state.openAboutPopup = true;
@@ -576,6 +617,7 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 // them via the EditorState flags while the ImGui menu bar is not drawn.
 void drawEditorModals(EditorState& state, Orkige::EditorCore& core)
 {
+	drawUpdateModals(state, core);
 	if (state.openAboutPopup)
 	{
 		ImGui::OpenPopup("About Orkige Editor");
@@ -990,4 +1032,77 @@ void dockUiEditorBesideInspectorOnce(bool& attempted)
 		ImGui::SetNextWindowDockID(inspector->DockId, ImGuiCond_Always);
 	}
 	attempted = true;
+}
+
+// The updater's two modals. Both answer something the user did: the "you are
+// on the latest version" one only ever follows a check somebody ASKED for (an
+// automatic check that finds nothing says nothing at all), and the "ready" one
+// is the offer to restart into what was downloaded.
+void drawUpdateModals(EditorState& state, Orkige::EditorCore& core)
+{
+	if (state.openUpdateResultPopup)
+	{
+		ImGui::OpenPopup("Software Update");
+		state.openUpdateResultPopup = false;
+	}
+	if (state.openUpdateReadyPopup)
+	{
+		ImGui::OpenPopup("Update Ready");
+		state.openUpdateReadyPopup = false;
+	}
+	if (ImGui::BeginPopupModal("Software Update", nullptr,
+		ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		const OrkigeEditor::UpdateStatus status = gEditorUpdater != nullptr
+			? gEditorUpdater->status() : OrkigeEditor::UpdateStatus();
+		ImGui::TextWrapped("%s", status.message.c_str());
+		if (!status.changelog.empty())
+		{
+			ImGui::Spacing();
+			ImGui::SeparatorText("What changed");
+			// bounded by BOTH a sane maximum and the window that is actually
+			// available, so the modal stays usable on a small screen
+			const ImVec2 available = ImGui::GetMainViewport()->WorkSize;
+			ImGui::BeginChild("##updatechangelog",
+				ImVec2(ImMax(ImMin(560.0f, available.x - 80.0f), 200.0f),
+					ImMax(ImMin(220.0f, available.y - 240.0f), 80.0f)),
+				ImGuiChildFlags_Borders,
+				ImGuiWindowFlags_HorizontalScrollbar);
+			ImGui::TextUnformatted(status.changelog.c_str(),
+				status.changelog.c_str() + status.changelog.size());
+			ImGui::EndChild();
+		}
+		ImGui::Spacing();
+		if (ImGui::Button("OK"))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+	if (ImGui::BeginPopupModal("Update Ready", nullptr,
+		ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		const std::string version = gEditorUpdater != nullptr
+			? gEditorUpdater->readyVersion() : std::string();
+		ImGui::Text("Orkige %s has been downloaded.", version.c_str());
+		// the whole contract in one sentence: nothing is replaced while the
+		// editor runs, so the only choice here is WHEN to restart
+		ImGui::TextWrapped("It will be installed the next time the editor "
+			"starts. Restart now?");
+		ImGui::Spacing();
+		if (ImGui::Button("Restart now"))
+		{
+			state.restartForUpdateRequested = true;
+			// the SAME quit path every other exit takes, so an unsaved scene
+			// raises its confirm instead of being dropped on the way out
+			requestQuit(state, core);
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Later"))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
 }

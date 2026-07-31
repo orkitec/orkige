@@ -194,6 +194,13 @@ void ViewSettings::load()
 		{
 			this->reopenLastProject = (value == "1");
 		}
+		else if (key == "update_policy")
+		{
+			// an unreadable value keeps the default rather than silently
+			// switching the user's choice to something else
+			this->updatePolicy = OrkigeEditor::parseUpdatePolicy(value,
+				this->updatePolicy);
+		}
 		else if (key == "external_editor")
 		{
 			this->externalEditor = value;
@@ -301,6 +308,8 @@ void ViewSettings::save() const
 		<< "asset_thumb_size=" << this->assetThumbnailSize << "\n"
 		<< "reopen_last_project="
 		<< (this->reopenLastProject ? 1 : 0) << "\n"
+		<< "update_policy="
+		<< OrkigeEditor::updatePolicyName(this->updatePolicy) << "\n"
 		<< "external_editor=" << this->externalEditor << "\n"
 		<< "theme_mode="
 		<< (this->themeMode == Orkige::EditorThemeMode::Dark ? "dark"
@@ -413,6 +422,7 @@ PlaySession* gPlaySession = nullptr;
 Orkige::ImGuiFacadeRenderer* gImGuiRenderer = nullptr;
 bool gRecordRecents = true;
 bool gAutomatedRun = false;
+OrkigeEditor::EditorUpdater* gEditorUpdater = nullptr;
 
 //! record a scene path in the Open Recent list and persist it
 void recordRecentScene(std::string const& scenePath)

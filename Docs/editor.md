@@ -7,7 +7,9 @@ UI.
 
 What the editor app carries when it is copied to another machine, how it
 resolves those resources and where it writes its own state:
-[Editor distribution](editor-distribution.md).
+[Editor distribution](editor-distribution.md). How it keeps itself current
+afterwards — the setting, the once-a-day check, and the swap that happens on
+restart rather than mid-session: [Keeping the editor current](editor-updates.md).
 
 ## Source Control
 

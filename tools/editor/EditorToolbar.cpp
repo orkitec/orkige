@@ -759,6 +759,30 @@ float drawStatusFooter(EditorState& state, PlaySession& session)
 					resolveProjectFilePath(state.project, jumpPath), jumpLine);
 			}
 		}
+		else if (gEditorUpdater != nullptr && gEditorUpdater->status().busy())
+		{
+			// a background update is the one thing the strip reports without
+			// being asked: a small bar on the right, so the check and the
+			// download are visible while everything else stays usable
+			const OrkigeEditor::UpdateStatus update =
+				gEditorUpdater->status();
+			ImGui::TextDisabled("%s",
+				OrkigeEditor::updateStageLabel(update.stage));
+			ImGui::SameLine();
+			const float barWidth = 140.0f;
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+				ImMax(0.0f, ImGui::GetContentRegionAvail().x - barWidth));
+			const float fraction = update.progress();
+			// an indeterminate bar is honest while the server announced no
+			// size; a bar inching along a made-up total is not
+			ImGui::ProgressBar(fraction < 0.0f ? -1.0f * ImGui::GetTime()
+				: fraction, ImVec2(barWidth, ImGui::GetFontSize()),
+				fraction < 0.0f ? "" : nullptr);
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("%s", update.message.c_str());
+			}
+		}
 		else
 		{
 			// a quiet strip states the session plainly

@@ -29,6 +29,8 @@
 #include "EditorCore.h"
 #include "EditorPanelRegistry.h"
 #include "EditorTheme.h"
+#include "EditorUpdate.h"		// the update setting (ViewSettings::updatePolicy)
+#include "EditorUpdater.h"		// the live updater the menus + footer read
 #include "EditorViewModes.h"
 #include "EditorIdeProtocol.h"	// the Claude-IDE integration bridge (IdeSharedState)
 #include "FileDialog.h"
@@ -412,6 +414,14 @@ struct ViewSettings
 	//! reopen the most recent project on launch; automation
 	//! runs (any ORKIGE_EDITOR_*/ORKIGE_DEMO_* hook) always start blank
 	bool reopenLastProject = true;
+	//! how the editor keeps itself current: never check, check and say so
+	//! (the default), or check and fetch it in the background. The default is
+	//! deliberately the middle one - a published build is measured in
+	//! hundreds of megabytes and changes daily, which is not something to
+	//! start pulling down a connection nobody offered. Automated runs are
+	//! exempt from all three (@see EditorUpdater).
+	OrkigeEditor::UpdatePolicy updatePolicy =
+		OrkigeEditor::UpdatePolicy::Notify;
 	//! external code-editor command template (View Settings): {file}/{line}
 	//! placeholders, e.g. "code -g {file}:{line}". Empty = autodetect an
 	//! installed CLI editor on PATH, else fall back to the platform file opener
@@ -503,6 +513,12 @@ extern bool gRecordRecents;
 // stands down entirely and an open with a stale autosave auto-discards silently
 // instead of raising the recovery modal (a scripted test never blocks on one)
 extern bool gAutomatedRun;
+
+// The live updater (owned by main), reachable from the menus and the status
+// footer so they can read one status without threading it through every
+// draw* signature - same pattern as gViewSettings. NULL during an automated
+// run and in a build with no HTTP transport, which every reader guards on.
+extern OrkigeEditor::EditorUpdater* gEditorUpdater;
 
 //! record a scene path in the Open Recent list and persist it
 void recordRecentScene(std::string const& scenePath);
@@ -887,6 +903,22 @@ struct EditorState
 	//! the frame loop opens the published documentation site in the default
 	//! browser (see HELP_PORTAL_URL; never on automated runs)
 	bool requestedHelpPortal = false;
+	//! "Check for Updates..." clicked (the application menu on mac, Help
+	//! elsewhere): the frame loop runs the check, which overrides both the Off
+	//! setting and the once-a-day interval - an explicit click is consent.
+	//! Never on automated runs (@see EditorUpdater).
+	bool requestedUpdateCheck = false;
+	//! the update popup's answer: "Restart now" quits the editor AND asks the
+	//! swap helper to launch it again afterwards. "Later" leaves the staged
+	//! copy alone; it installs at the next clean quit either way - never
+	//! mid-session.
+	bool restartForUpdateRequested = false;
+	//! deferred update popups (menus and the frame loop set them; drawn once
+	//! per frame by drawEditorModals): the "you are on the latest version"
+	//! answer an asked-for check earns, and the "a new version is ready"
+	//! offer with its Restart now / Later choice
+	bool openUpdateResultPopup = false;
+	bool openUpdateReadyPopup = false;
 	//! the last browser-play outcome, for the toolbar/Console and the control
 	//! port's get_state (browser_play_url/browser_play_status): "" until the
 	//! first browser play; "exporting" while the web export runs; "serving"
@@ -2138,6 +2170,11 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 // the editor's modal popups (About, Scene Path, Unsaved Changes) - drawn
 // every frame INDEPENDENTLY of the menu bar
 void drawEditorModals(EditorState& state, Orkige::EditorCore& core);
+
+//! @brief the updater's two modals - the "you are on the latest version"
+//! answer an asked-for check earns, and the "a new version is ready" offer
+//! with its Restart now / Later choice. Drawn from drawEditorModals.
+void drawUpdateModals(EditorState& state, Orkige::EditorCore& core);
 
 // the play toolbar strip (Play/Pause/Step/Stop + target picker); returns the
 // height the dockspace below must leave free - EditorToolbar.cpp

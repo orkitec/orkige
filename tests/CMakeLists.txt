@@ -597,6 +597,31 @@ endif()
 if(TARGET orkige_editor_core)
     # UI-independent editor logic: command stack, naming, object snapshots
     add_subdirectory(editor_core)
+
+    # editor_update: the whole updater loop against a clean room. The driver
+    # serves a fake release feed, a REAL archive packed with the platform's own
+    # tool and a checksum sidecar from the tree's own HttpServer on 127.0.0.1,
+    # points the real EditorUpdater at it with a scratch directory standing in
+    # for an installed editor, and asserts every outcome a person can reach:
+    # nothing newer, a downgrade refused, a notify-only check, a download that
+    # verifies and stages, a download whose digest does not match, a payload
+    # whose signature is rejected, the refusal to rearrange a build tree, the
+    # swap itself, the swap's ROLLBACK when the second move fails, and the
+    # automated-run veto. Headless (no window, no GPU), so it is a unit-labeled
+    # gate rather than an integration one - but it does open a loopback socket
+    # and spawn the unpacker, hence its own name. POSIX-only for now: the
+    # driver's process helpers are popen/sh.
+    if(NOT WIN32)
+        add_executable(editor_update_driver
+            integration_driver/editor_update_driver.cpp)
+        target_link_libraries(editor_update_driver PRIVATE orkige_editor_core)
+        add_test(NAME editor_update${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND editor_update_driver
+                "${CMAKE_CURRENT_BINARY_DIR}/editor_update${ORKIGE_FLAVOR_TEST_SUFFIX}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_update${ORKIGE_FLAVOR_TEST_SUFFIX}
+            PROPERTIES LABELS unit TIMEOUT 180 SKIP_RETURN_CODE 77)
+    endif()
 endif()
 
 if(TARGET jumper)

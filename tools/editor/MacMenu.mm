@@ -49,6 +49,7 @@ namespace
 		TAG_VIEW_SETTINGS,
 		TAG_ABOUT,
 		TAG_HELP_PORTAL,			//!< Help > Orkige Help (the doc portal)
+		TAG_CHECK_UPDATES,			//!< Check for Updates... (the app menu)
 		TAG_ROTATION_EULER,			//!< View > Rotation Display > Euler Angles
 		TAG_ROTATION_QUAT,			//!< View > Rotation Display > Quaternion
 		TAG_NEW_TERMINAL,			//!< View > New Terminal (spawns a session)
@@ -157,6 +158,7 @@ namespace
 	case TAG_VIEW_SETTINGS:		action = &gActions.viewSettings; break;
 	case TAG_PROJECT_SETTINGS:	action = &gActions.projectSettings; break;
 	case TAG_HELP_PORTAL:		action = &gActions.helpPortal; break;
+	case TAG_CHECK_UPDATES:		action = &gActions.checkForUpdates; break;
 	case TAG_ABOUT:				action = &gActions.about; break;
 	default: break;
 	}
@@ -408,13 +410,23 @@ namespace Orkige
 					[item setTag:TAG_ABOUT];
 					break;
 				}
+				// Check for Updates… goes directly beneath About, which is
+				// where this platform's applications keep it - an explicit
+				// click overrides both the Off setting and the once-a-day
+				// interval, because asking IS consent.
+				NSMenuItem* updates = [[NSMenuItem alloc]
+					initWithTitle:@"Check for Updates…"
+					action:@selector(menuAction:) keyEquivalent:@""];
+				[updates setTarget:gTarget];
+				[updates setTag:TAG_CHECK_UPDATES];
+				[appMenu insertItem:updates atIndex:1];
 				NSMenuItem* settings = [[NSMenuItem alloc]
 					initWithTitle:@"Settings…" action:@selector(menuAction:)
 					keyEquivalent:@","];
 				[settings setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
 				[settings setTarget:gTarget];
 				[settings setTag:TAG_VIEW_SETTINGS];
-				[appMenu insertItem:settings atIndex:1];
+				[appMenu insertItem:settings atIndex:2];
 			}
 		}
 

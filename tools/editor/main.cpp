@@ -83,6 +83,13 @@
 #include <ImGuizmo.h>
 #include <core_debug/DebugMacros.h> // oDebug* + the Console log sink
 #include <core_debug/CVarManager.h> // the r.staticScene edit-mode gate
+#include <core_http/HttpClient.h>  // the updater's async transport
+
+#ifdef _WIN32
+#include <windows.h>	// GetCurrentProcessId (the updater's wait target)
+#else
+#include <unistd.h>	// getpid (the updater's wait target)
+#endif
 
 #include "EditorCamera.h"
 #include "EditorCameraGizmo.h"
@@ -125,6 +132,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <memory>
 #include <cmath>
 #include <cctype>
 #include <cstdio>
@@ -183,6 +191,63 @@ static std::string findExecutableOnPath(std::string const& name)
 		start = end + 1;
 	}
 	return std::string();
+}
+
+// --- what the updater would replace, and what it would relaunch ------------
+// The install is what a person would drag to the bin: the app bundle on macOS
+// (the resource root sits two levels inside it), the directory holding the
+// executable and its `share/orkige` tree everywhere else. Both derive from the
+// ONE base-path probe the resource locator already uses, so a copied app and a
+// build-tree run answer consistently.
+std::string editorInstallPath()
+{
+	const char* base = SDL_GetBasePath();
+	if (base == nullptr || *base == '\0')
+	{
+		return std::string();
+	}
+	std::filesystem::path root(base);
+	// SDL_GetBasePath ends in a separator, which leaves an empty final
+	// component that would eat one parent_path() step
+	if (root.filename().empty())
+	{
+		root = root.parent_path();
+	}
+#ifdef __APPLE__
+	// .../Orkige.app/Contents/Resources -> .../Orkige.app
+	if (root.filename() == "Resources" &&
+		root.parent_path().filename() == "Contents")
+	{
+		return root.parent_path().parent_path().string();
+	}
+#endif
+	return root.string();
+}
+
+// what "Restart now" launches once the swap succeeded
+std::string editorRelaunchPath()
+{
+#ifdef __APPLE__
+	// the bundle, opened the way the platform opens an application
+	return editorInstallPath();
+#else
+	const char* base = SDL_GetBasePath();
+	if (base == nullptr || *base == '\0')
+	{
+		return std::string();
+	}
+	return (std::filesystem::path(base) / "orkige_editor").string();
+#endif
+}
+
+// this process, for the swap helper to wait on
+long long getEditorProcessId()
+{
+#ifdef _WIN32
+	return static_cast<long long>(::GetCurrentProcessId());
+#else
+	return static_cast<long long>(::getpid());
+#endif
 }
 
 int main(int argc, char** argv)
@@ -786,6 +851,64 @@ int main(int argc, char** argv)
 		// ... and must never autosave or block on a recovery modal (gAutomatedRun)
 		gAutomatedRun = automatedRun;
 		sceneCamera->setFOVy(Orkige::Degree(viewSettings.fovDeg));
+
+		// --- the updater ------------------------------------------------
+		// The editor keeps itself current the way desktop applications do:
+		// one check per launch, at most one a day, and a verified download
+		// applied by a helper AFTER this process exits - a running
+		// application cannot replace itself. An AUTOMATED run gets none of
+		// it: no HTTP client is even created, so a scripted run cannot reach
+		// the network or touch the user's update state.
+		std::unique_ptr<Orkige::HttpClient> updateHttp;
+		std::unique_ptr<OrkigeEditor::EditorUpdater> updater;
+		if (!automatedRun)
+		{
+			OrkigeEditor::EditorUpdater::Config updateConfig;
+			updateConfig.currentVersion = Orkige::editorBuildVersion();
+			updateConfig.installPath = editorInstallPath();
+			updateConfig.relaunchPath = editorRelaunchPath();
+			updateConfig.workDirectory =
+				OrkigeEditor::editorWritableStateDirectory() + "updates";
+			updateConfig.pid = static_cast<long long>(getEditorProcessId());
+			// the exact answer to "was this built here": an editor that
+			// resolved its resources from a developer TREE is a build tree's
+			// editor, and a build tree is never rearranged by an updater
+			updateConfig.builtFromTree = !engineMedia.fromBundle();
+			updater.reset(new OrkigeEditor::EditorUpdater(updateConfig));
+			updater->setPolicy(viewSettings.updatePolicy);
+			updater->setProcessRunner(
+				[](std::vector<std::string> const& argv, std::string& output,
+					int& exitCode)
+				{
+					return runProcessCaptured(argv, output, exitCode);
+				});
+			updater->setDetachedSpawn(
+				[](std::vector<std::string> const& argv)
+				{
+					// the helper has to OUTLIVE this process: it is created
+					// and then let go of immediately, never waited on
+					std::vector<const char*> raw;
+					for (std::string const& entry : argv)
+					{
+						raw.push_back(entry.c_str());
+					}
+					raw.push_back(nullptr);
+					SDL_Process* helper =
+						SDL_CreateProcess(raw.data(), false);
+					if (helper == nullptr)
+					{
+						return false;
+					}
+					SDL_DestroyProcess(helper);	// the child keeps running
+					return true;
+				});
+			updateHttp.reset(new Orkige::HttpClient());
+			updateHttp->setUserAgent("orkige-editor/" +
+				std::string(Orkige::editorBuildIdentity()));
+			updater->setHttpClient(updateHttp.get());
+			updater->loadState();
+			gEditorUpdater = updater.get();
+		}
 
 		// resolve + apply the editor theme now that the persisted preference is
 		// loaded. A lambda so the settings toggle and the live OS-appearance
@@ -1449,6 +1572,8 @@ int main(int argc, char** argv)
 				{ statePtr->showProjectSettingsWindow = true; };
 			menuActions.helpPortal = [statePtr]()
 				{ statePtr->requestedHelpPortal = true; };
+			menuActions.checkForUpdates = [statePtr]()
+				{ statePtr->requestedUpdateCheck = true; };
 			menuActions.about = [statePtr]()
 				{ statePtr->openAboutPopup = true; };
 			Orkige::macMenuInstall(menuActions);
@@ -2882,6 +3007,61 @@ int main(int argc, char** argv)
 						std::string("[help] could not open the default "
 						"browser: ") + SDL_GetError() + " - open " +
 						HELP_PORTAL_URL + " yourself");
+				}
+			}
+
+			// --- the updater's frame boundary --------------------------
+			// The HTTP client delivers its completions HERE and nowhere
+			// else, so a check or a download never runs inside a world
+			// update and never blocks the frame. The updater's own update()
+			// picks up its worker thread's verdict at the same point.
+			if (updater)
+			{
+				if (updateHttp)
+				{
+					updateHttp->update();
+				}
+				updater->update();
+				// the once-per-launch check, behind its own gate (the Off
+				// setting, the automated-run veto, the 24 hour interval)
+				updater->tickAutomaticCheck();
+				if (state.requestedUpdateCheck)
+				{
+					state.requestedUpdateCheck = false;
+					updater->requestManualCheck();
+				}
+				if (updater->hasUnseenResult())
+				{
+					const OrkigeEditor::UpdateStatus update =
+						updater->status();
+					if (update.stage == OrkigeEditor::UpdateStage::Ready)
+					{
+						// the offer to restart into it - the only moment the
+						// user is asked anything
+						state.openUpdateReadyPopup = true;
+						updater->acknowledge();
+					}
+					else if (updater->lastCheckWasManual())
+					{
+						// only a check somebody ASKED for gets an answer in
+						// a dialog; an automatic one that finds nothing (or
+						// cannot reach the service) says nothing at all
+						state.openUpdateResultPopup = true;
+						updater->acknowledge();
+					}
+					else
+					{
+						if (!update.message.empty())
+						{
+							console.addLine(
+								update.stage ==
+									OrkigeEditor::UpdateStage::Failed
+									? ConsoleLevel::Warning
+									: ConsoleLevel::Info,
+								"[update] " + update.message);
+						}
+						updater->acknowledge();
+					}
 				}
 			}
 
@@ -16915,6 +17095,33 @@ int main(int argc, char** argv)
 		// terminate any live embedded-terminal child so a running shell never
 		// outlives the editor
 		OrkigeEditor::terminalPanelShutdown();
+
+		// a verified update installs HERE and nowhere else: the helper is
+		// launched now, waits for this process to exit, and only then moves
+		// the old copy aside and the new one in. "Restart now" additionally
+		// asks it to launch the editor again afterwards; "Later" simply gets
+		// the swap at this quit. A refusal (an install location that is not
+		// ours, a payload that no longer verifies) leaves everything exactly
+		// as it is and says so.
+		if (updater && updater->isReadyToInstall())
+		{
+			std::string updateError;
+			// read the version before the hand-over: once the helper owns the
+			// payload the updater no longer claims it
+			const std::string installing = updater->readyVersion();
+			if (updater->installOnExit(state.restartForUpdateRequested,
+				updateError))
+			{
+				oDebugMsg("editor.update", 0, "installing " << installing <<
+					" on exit");
+			}
+			else
+			{
+				oDebugWarn("editor.update", 0,
+					"the update was not installed: " << updateError);
+			}
+		}
+		gEditorUpdater = nullptr;
 
 		// editor shutdown while a play session is live: ask the player to
 		// quit, give it a short moment, then endPlaySession reaps/kills it

@@ -33,6 +33,7 @@ add_executable(orkige_editor_core_tests
 	EditorResourcePathsTests.cpp
 	EditorUiEditTests.cpp
 	EditorTreeDndTests.cpp
+	EditorUpdateTests.cpp
 	EditorTerminalKeysTests.cpp
 	EditorTerminalScreenTests.cpp
 	EditorTerminalSessionTests.cpp
