@@ -1634,8 +1634,13 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     add_test(NAME editor_marquee${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_marquee${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_MARQUEE=${Orkige_SOURCE_DIR}/projects/roller;ORKIGE_DEMO_FRAMES=420"
-        LABELS integration TIMEOUT 120)
+        ENVIRONMENT "ORKIGE_EDITOR_MARQUEE=${Orkige_SOURCE_DIR}/projects/roller;ORKIGE_DEMO_FRAMES=700"
+        # coarse backstop only: the run is deadline-driven inside the editor
+        # (which fails with the step's own reason), and this wall just has to
+        # exceed the bounded worst case - a gesture the display server
+        # interrupts is redone, up to a logged limit - on a sanitizer-slowed
+        # frame cadence.
+        LABELS integration TIMEOUT 240)
 
     # MCP runtime debug tools end to end: the editor hosts its MCP endpoint on
     # an ephemeral in-process port and, on a worker thread, drives the WHOLE

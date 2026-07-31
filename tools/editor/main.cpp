@@ -2183,6 +2183,11 @@ int main(int argc, char** argv)
 		int mqSettleHold = 0;	// frames an assert step has waited to settle
 		bool mqHoldSuper = false;	// the leg is holding Cmd down for a gesture
 		int mqExtendAttempts = 0;	// repeats of the Cmd-extend gesture
+		int mqRedrives = 0;			// re-drags after a band lost its targets
+		//! the step a gesture restarts at while its button is meant to be held
+		//! (-1 = no gesture open), and whether the press was ever observed
+		int mqGestureRestart = -1;
+		bool mqGestureHeld = false;
 		std::string mqTempRoot;
 		Orkige::StringVector mqTileIds;		// the three painted tile roots
 		// screen points (render-target pixels), computed once the 2D layout is
@@ -2193,10 +2198,19 @@ int main(int argc, char** argv)
 		float mqMidX = 0.0f, mqMidY = 0.0f;
 		float mqLbSX = 0.0f, mqLbSY = 0.0f, mqLbEX = 0.0f, mqLbEY = 0.0f;
 		float mqRbSX = 0.0f, mqRbSY = 0.0f, mqRbEX = 0.0f, mqRbEY = 0.0f;
-		// the three tiles' own screen points (left / mid / right), the targets a
+		// the three painted tiles' world X (y = 0), left to right - the band's
+		// targets are re-projected from these every time they are asked about,
+		// so a viewport that resizes mid-gesture moves them instead of stranding
+		// a stale snapshot
+		static constexpr float MQ_TILE_WORLD_X[3] = {-16.0f, 0.0f, 16.0f};
+		// their latest projected screen points (left / mid / right), the targets a
 		// rubber-band has to demonstrably cover before its release means anything
 		float mqTilePX[3] = {0.0f, 0.0f, 0.0f};
 		float mqTilePY[3] = {0.0f, 0.0f, 0.0f};
+		//! the band's pad around the tiles (45% of the on-screen centre gap),
+		//! kept so a re-derived far corner keeps the geometry it was sized with
+		float mqPadX = 0.0f;
+		bool mqViewportLogged = false;	// the settle report is printed once
 
 		// ORKIGE_EDITOR_UIDRAG=<fixture project dir>: the visual .oui editor's
 		// CANVAS driven end to end through REAL synthetic SDL mouse events (the
@@ -2252,6 +2266,13 @@ int main(int argc, char** argv)
 		const std::string termCopyOpenRel = "scripts/player.lua";
 		int termCopyOpenHitLine = -1;
 		int termCopyOpenHitCol = -1;
+		//! the leg is holding the link modifier down for a whole gesture - a real
+		//! keyboard keeps it down (and the platform even repeats it), so any frame
+		//! that finds the panel's input state without it presses it again
+		bool termCopyHoldLinkMod = false;
+		//! repeats of the copy chord: a synthetic key-down can be swallowed by a
+		//! focus event, and a chord nobody saw is a slow pass, not a wrong one
+		int termCopyChordAttempts = 0;
 		std::string termCopyOpenReq;
 		int termCopyOpenReqLine = 0;
 		// the INTERRUPT leg (POSIX): a line-echoing child is started by TYPING
@@ -6367,10 +6388,48 @@ int main(int argc, char** argv)
 					py = state.sceneImageMin.y + ny * state.sceneImageSize.y;
 					return true;
 				};
+				// EVERY failure says what the panel and the viewport looked like
+				// when it gave up: the band it was about to release, where the
+				// three tiles actually project NOW, and the RTT/panel sizes the
+				// projection depends on. A wrong-band failure and a wrong-hit-test
+				// failure read identically without those numbers.
 				auto mqAbort = [&](std::string const& why)
 				{
 					SDL_Log("orkige_editor: marquee test - FAILED: %s",
 						why.c_str());
+					float lx = 0.0f, ly = 0.0f, mx = 0.0f, my = 0.0f;
+					float rx = 0.0f, ry = 0.0f;
+					const bool projected =
+						projectTile(MQ_TILE_WORLD_X[0], 0.0f, lx, ly) &&
+						projectTile(MQ_TILE_WORLD_X[1], 0.0f, mx, my) &&
+						projectTile(MQ_TILE_WORLD_X[2], 0.0f, rx, ry);
+					const ImVec2 mouse = ImGui::GetIO().MousePos;
+					const size_t selCount = editorCore.getSelection().size();
+					SDL_Log("orkige_editor: marquee diag - step=%d frame=%d "
+						"sel=%zu (left=%d mid=%d right=%d) pending=%d active=%d "
+						"extend=%d band=(%.1f,%.1f)-(%.1f,%.1f) "
+						"marquee=(%.1f,%.1f)-(%.1f,%.1f) mouse=(%.1f,%.1f) "
+						"tilesNow=%s(%.1f,%.1f)(%.1f,%.1f)(%.1f,%.1f) "
+						"image=(%.1f,%.1f)+%.0fx%.0f rtt=%dx%d panel=%dx%d",
+						mqStep, static_cast<int>(frameCount), selCount,
+						(mqTileIds.size() > 0 &&
+							editorCore.isSelected(mqTileIds[0])) ? 1 : 0,
+						(mqTileIds.size() > 1 &&
+							editorCore.isSelected(mqTileIds[1])) ? 1 : 0,
+						(mqTileIds.size() > 2 &&
+							editorCore.isSelected(mqTileIds[2])) ? 1 : 0,
+						state.marqueePending ? 1 : 0,
+						state.marqueeActive ? 1 : 0,
+						state.marqueeExtend ? 1 : 0,
+						mqStartX, mqStartY, mqEndX, mqEndY,
+						state.marqueeStart.x, state.marqueeStart.y,
+						state.marqueeCurrent.x, state.marqueeCurrent.y,
+						mouse.x, mouse.y, projected ? "" : "(UNPROJECTABLE)",
+						lx, ly, mx, my, rx, ry,
+						state.sceneImageMin.x, state.sceneImageMin.y,
+						state.sceneImageSize.x, state.sceneImageSize.y,
+						sceneTarget.width, sceneTarget.height,
+						state.scenePanelWidth, state.scenePanelHeight);
 					exitCode = 12;
 					std::error_code cleanupErr;
 					std::filesystem::remove_all(mqTempRoot, cleanupErr);
@@ -6434,6 +6493,27 @@ int main(int argc, char** argv)
 					ImGuiIO const& io = ImGui::GetIO();
 					return io.KeySuper || io.KeyCtrl;
 				};
+				// The viewport the band lives in must have SETTLED before the band
+				// is computed. The Scene RTT follows the panel size with a few
+				// frames of hysteresis, and recreating it re-derives the camera's
+				// aspect - which slides the three tiles sideways on screen. Opening
+				// the project resizes the dock, so that recreate is queued right
+				// where this phase starts, and it lands on a WALL-CLOCK schedule
+				// (the display server delivers the window/dock geometry), not on a
+				// frame count. Wait for the STATE - the RTT matching the panel's
+				// wish with no resize pending - instead of counting frames and
+				// hoping.
+				auto mqViewportSettled = [&]() -> bool
+				{
+					return sceneTarget.texture &&
+						state.scenePanelWidth > 0 &&
+						state.scenePanelHeight > 0 &&
+						sceneTarget.width ==
+							std::max(state.scenePanelWidth, 32) &&
+						sceneTarget.height ==
+							std::max(state.scenePanelHeight, 32) &&
+						state.pendingRttFrames == 0;
+				};
 				auto mqBandCovers = [&](int firstTile, int lastTile) -> bool
 				{
 					if (!state.marqueeActive)
@@ -6450,13 +6530,46 @@ int main(int argc, char** argv)
 						state.marqueeCurrent.y);
 					for (int t = firstTile; t <= lastTile; ++t)
 					{
-						if (mqTilePX[t] < x0 || mqTilePX[t] > x1 ||
-							mqTilePY[t] < y0 || mqTilePY[t] > y1)
+						// project LIVE, never from the snapshot the band was
+						// built from: the release evaluates every object against
+						// the CURRENT camera and image rect, so that is the only
+						// projection whose coverage means the selection will land
+						float px = 0.0f, py = 0.0f;
+						if (!projectTile(MQ_TILE_WORLD_X[t], 0.0f, px, py) ||
+							px < x0 || px > x1 || py < y0 || py > y1)
 						{
 							return false;
 						}
+						mqTilePX[t] = px;	// remembered for the drag's far corner
+						mqTilePY[t] = py;
 					}
 					return true;
+				};
+				// Release only while the band STILL spans its targets ON the
+				// release frame. The panel evaluates every object against the
+				// projection of the frame the button goes up, so a viewport that
+				// moved since the drag was checked must move the DRAG, not the
+				// verdict: walk back to the drag step, which re-aims at where the
+				// tiles are now, and only give up after a few honest attempts.
+				auto mqReleaseCovered = [&](int dragStep, int firstTile,
+					int lastTile, float rx, float ry, char const* why)
+				{
+					if (mqBandCovers(firstTile, lastTile))
+					{
+						pushButton(false, rx, ry);
+						mqGestureRestart = -1;	// the gesture is finished
+						mqGestureHeld = false;
+						return;
+					}
+					if (++mqRedrives <= 3)
+					{
+						SDL_Log("orkige_editor: marquee - the band stopped "
+							"spanning its targets before the release, dragging "
+							"again (attempt %d)", mqRedrives);
+						mqStep = dragStep - 1;
+						return;
+					}
+					mqAbort(why);
 				};
 
 				if (marqueePhase == MarqueePhase::Idle && frameCount == 10)
@@ -6563,13 +6676,73 @@ int main(int argc, char** argv)
 					{
 						pushSuper(true);
 					}
-					switch (mqStep)
+					// ... and a HELD BUTTON stays held. This window shares its
+					// display with the rest of the suite: another process mapping
+					// a window sends us a mouse-leave (which invalidates ImGui's
+					// cursor to -FLT_MAX) or takes focus (which RELEASES ImGui's
+					// held buttons), and either drops a half-finished drag - the
+					// panel then closes the band over a degenerate rect and
+					// selects nothing. That is the environment interrupting the
+					// gesture, not the editor getting it wrong, so the leg REDOES
+					// the gesture from its own start instead of asserting on the
+					// wreckage. Only a button that was observed DOWN and then went
+					// up counts as lost, so a press still in the input queue never
+					// triggers a restart.
+					bool mqGestureLost = false;
+					if (mqGestureRestart >= 0)
+					{
+						if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+						{
+							mqGestureHeld = true;
+						}
+						else if (mqGestureHeld)
+						{
+							mqGestureLost = true;
+							if (++mqRedrives <= 4)
+							{
+								SDL_Log("orkige_editor: marquee - the held drag "
+									"was cleared mid-gesture (cursor/focus lost), "
+									"redoing it from the start (attempt %d)",
+									mqRedrives);
+								mqStep = mqGestureRestart - 1;
+								mqGestureRestart = -1;
+								mqGestureHeld = false;
+								mqSettleHold = 0;
+							}
+							else
+							{
+								// the diag reads the step the gesture died in
+								mqAbort("the drag gesture kept being cleared "
+									"mid-flight (cursor/focus lost)");
+							}
+						}
+					}
+					switch (mqGestureLost ? -1 : mqStep)
 					{
 					case 4:
 						if (!layoutReady)
 						{
 							mqStep = 3;	// hold until the panel has drawn
 							break;
+						}
+						// ... and until the viewport it drew into has stopped
+						// changing size, because the band below is computed in
+						// that viewport's projection and released in a later
+						// frame's
+						if (!mqSettled(4, mqViewportSettled(),
+							"the Scene viewport never settled (the RTT kept "
+							"chasing the panel size)"))
+						{
+							break;
+						}
+						if (!mqViewportLogged)
+						{
+							mqViewportLogged = true;
+							SDL_Log("orkige_editor: marquee - Scene viewport "
+								"settled at frame %d (RTT %dx%d, panel %dx%d)",
+								static_cast<int>(frameCount), sceneTarget.width,
+								sceneTarget.height, state.scenePanelWidth,
+								state.scenePanelHeight);
 						}
 						// Derive the all-tiles box from the live camera projection.
 						// Fixed image fractions became stale when the Scene dock's
@@ -6579,9 +6752,9 @@ int main(int argc, char** argv)
 						{
 							float lx = 0.0f, ly = 0.0f, mx = 0.0f, my = 0.0f;
 							float rx = 0.0f, ry = 0.0f;
-							if (!projectTile(-16.0f, 0.0f, lx, ly) ||
-								!projectTile(0.0f, 0.0f, mx, my) ||
-								!projectTile(16.0f, 0.0f, rx, ry))
+							if (!projectTile(MQ_TILE_WORLD_X[0], 0.0f, lx, ly) ||
+								!projectTile(MQ_TILE_WORLD_X[1], 0.0f, mx, my) ||
+								!projectTile(MQ_TILE_WORLD_X[2], 0.0f, rx, ry))
 							{
 								mqAbort("tile projection failed before marquee");
 								break;
@@ -6602,6 +6775,7 @@ int main(int argc, char** argv)
 							mqTilePX[0] = lx;	mqTilePY[0] = ly;
 							mqTilePX[1] = mx;	mqTilePY[1] = my;
 							mqTilePX[2] = rx;	mqTilePY[2] = ry;
+							mqPadX = pad;
 						}
 						pushMove(mqStartX, mqStartY);
 						// press only once the cursor is demonstrably there: the
@@ -6612,16 +6786,42 @@ int main(int argc, char** argv)
 						break;
 					case 7:
 						pushButton(true, mqStartX, mqStartY);	// press empty
+						mqGestureRestart = 4;	// redo from the press corner
+						mqGestureHeld = false;
 						break;
 					case 10:
+					{
+						// re-derive the far corner from where the tiles project
+						// NOW: a viewport resize landing mid-drag moves them, and
+						// a drag that keeps aiming at their old place would frame
+						// empty space. Every retry drags again (a real drag is a
+						// stream) - now at a target that follows.
+						float lx = 0.0f, ly = 0.0f, mx = 0.0f, my = 0.0f;
+						float rx = 0.0f, ry = 0.0f;
+						if (projectTile(MQ_TILE_WORLD_X[0], 0.0f, lx, ly) &&
+							projectTile(MQ_TILE_WORLD_X[1], 0.0f, mx, my) &&
+							projectTile(MQ_TILE_WORLD_X[2], 0.0f, rx, ry))
+						{
+							const float maxX = state.sceneImageMin.x +
+								state.sceneImageSize.x - 2.0f;
+							const float maxY = state.sceneImageMin.y +
+								state.sceneImageSize.y - 2.0f;
+							mqEndX = std::min(maxX,
+								std::max({lx, mx, rx}) + mqPadX);
+							mqEndY = std::min(maxY,
+								std::max({ly, my, ry}) + mqPadX);
+						}
 						pushMove(mqEndX, mqEndY);				// drag
 						// release only over a band that PROVABLY spans all three
-						// tiles (every retry drags again - a real drag is a stream)
+						// tiles where they project right now
 						mqSettled(10, mqBandCovers(0, 2),
 							"the drag band never spanned the three tiles");
 						break;
+					}
 					case 13:
-						pushButton(false, mqEndX, mqEndY);		// release
+						mqReleaseCovered(10, 0, 2, mqEndX, mqEndY,
+							"the drag band stopped spanning the three tiles "
+							"before the release");
 						break;
 					case 16:
 					{
@@ -6647,9 +6847,10 @@ int main(int argc, char** argv)
 							// its own tile - marquee band-selects ROOTS, so this is
 							// unambiguous)
 							float lx = 0.0f, ly = 0.0f, rx = 0.0f, ry = 0.0f;
-							if (!projectTile(0.0f, 0.0f, mqMidX, mqMidY) ||
-								!projectTile(-16.0f, 0.0f, lx, ly) ||
-								!projectTile(16.0f, 0.0f, rx, ry))
+							if (!projectTile(MQ_TILE_WORLD_X[1], 0.0f,
+									mqMidX, mqMidY) ||
+								!projectTile(MQ_TILE_WORLD_X[0], 0.0f, lx, ly) ||
+								!projectTile(MQ_TILE_WORLD_X[2], 0.0f, rx, ry))
 							{
 								mqAbort("tile projection failed");
 							}
@@ -6715,6 +6916,8 @@ int main(int argc, char** argv)
 						break;
 					case 34:
 						pushButton(true, mqLbSX, mqLbSY);		// press empty
+						mqGestureRestart = 31;	// redo from the press corner
+						mqGestureHeld = false;
 						break;
 					case 37:
 						pushMove(mqLbEX, mqLbEY);				// drag over left
@@ -6722,7 +6925,9 @@ int main(int argc, char** argv)
 							"the left drag band never covered the left tile");
 						break;
 					case 40:
-						pushButton(false, mqLbEX, mqLbEY);		// release
+						mqReleaseCovered(37, 0, 0, mqLbEX, mqLbEY,
+							"the left drag band stopped covering the left tile "
+							"before the release");
 						break;
 					case 43:
 					{
@@ -6765,6 +6970,8 @@ int main(int argc, char** argv)
 							break;
 						}
 						pushButton(true, mqRbSX, mqRbSY);		// Cmd-press empty
+						mqGestureRestart = 46;	// redo from taking Cmd down
+						mqGestureHeld = false;
 						break;
 					case 55:
 						// the press captures EXTEND from the modifier state; if a
@@ -6777,6 +6984,10 @@ int main(int argc, char** argv)
 							pushSuper(false);
 							mqHoldSuper = false;
 							mqSettleHold = 0;
+							// this leg closes the gesture itself - the
+							// held-button heal must not read that as a loss
+							mqGestureRestart = -1;
+							mqGestureHeld = false;
 							if (++mqExtendAttempts <= 2)
 							{
 								SDL_Log("orkige_editor: marquee - the Cmd-press "
@@ -6794,7 +7005,9 @@ int main(int argc, char** argv)
 							"the Cmd-drag band never covered the right tile");
 						break;
 					case 58:
-						pushButton(false, mqRbEX, mqRbEY);		// release
+						mqReleaseCovered(55, 2, 2, mqRbEX, mqRbEY,
+							"the Cmd-drag band stopped covering the right tile "
+							"before the release");
 						break;
 					case 61:
 						mqHoldSuper = false;					// stop holding
@@ -6847,9 +7060,12 @@ int main(int argc, char** argv)
 				// run into a false pass. It is COARSE on purpose - every step
 				// carries its own settle budget and fails with the real reason,
 				// so this only has to leave room for the whole sequence plus its
-				// repeated gestures.
+				// repeated gestures. A clean run finishes inside ~140 frames; the
+				// wall covers the BOUNDED worst case (four gesture redoes, two
+				// extend repeats, three release re-drives, each of them logged)
+				// so the specific step keeps being the one that reports.
 				if (marqueePhase != MarqueePhase::Done && exitCode == 0 &&
-					frameCount >= 400)
+					frameCount >= 640)
 				{
 					mqAbort("did not complete before the deadline");
 				}
@@ -7482,10 +7698,36 @@ int main(int argc, char** argv)
 				// re-pins. Skips (77) when no pty/shell is available.
 				if (terminalCopyEnv)
 				{
+					OrkigeEditor::TerminalPanelProbe const& tp =
+						OrkigeEditor::terminalPanelProbe();
+					// EVERY failure says what the panel looked like when it gave
+					// up - a leg that only reports its own sentence leaves the
+					// next reader guessing which tier broke (no session? no
+					// focus? the drag never armed? the grid scrolled under the
+					// cursor?). One line, printed from the one exit path.
 					auto tcFail = [&](std::string const& why)
 					{
+						const ImVec2 mouse = ImGui::GetIO().MousePos;
 						SDL_Log("orkige_editor: terminal-copy selfcheck - "
 							"FAILED: %s", why.c_str());
+						SDL_Log("orkige_editor: terminal-copy diag - step=%d "
+							"frame=%d front=%d spawned=%d exited=%d focused=%d "
+							"sel=%d selText='%s' grid=(%.1f,%.1f) cell=%.2fx%.2f "
+							"cols=%d rows=%d scrollback=%d totalLines=%d "
+							"mouse=(%.1f,%.1f) followTail=%d scrollY=%.1f "
+							"scrollMax=%.1f link=%d linkLine=%d physCtrl=%d "
+							"physCmd=%d ctrlBytesSent=%d",
+							termCopyStep, static_cast<int>(frameCount),
+							tp.hasFrontSession ? 1 : 0, tp.spawned ? 1 : 0,
+							tp.exited ? 1 : 0, tp.windowFocused ? 1 : 0,
+							tp.hasSelection ? 1 : 0, tp.selectionText.c_str(),
+							tp.gridOriginX, tp.gridOriginY, tp.cellW, tp.cellH,
+							tp.cols, tp.visibleRows, tp.scrollbackCount,
+							tp.totalLines, mouse.x, mouse.y,
+							tp.followTail ? 1 : 0, tp.scrollY, tp.scrollMaxY,
+							tp.linkResolved ? 1 : 0, tp.linkLine,
+							tp.physicalCtrl ? 1 : 0, tp.physicalCmd ? 1 : 0,
+							tp.controlCharsSent);
 						exitCode = 43;
 						SDL_SetClipboardText(termCopySavedClipboard.c_str());
 						running = false;
@@ -7519,8 +7761,6 @@ int main(int argc, char** argv)
 					{
 						return tcSettleFor(stepId, tcShellBudget, cond, why);
 					};
-					OrkigeEditor::TerminalPanelProbe const& tp =
-						OrkigeEditor::terminalPanelProbe();
 					auto tcToWindow = [&](float px, float py, float& wx, float& wy)
 					{
 						int winW = 0, winH = 0;
@@ -7592,12 +7832,48 @@ int main(int argc, char** argv)
 						e.text.text = buffer;
 						SDL_PushEvent(&e);
 					};
+					// a cell's screen point, derived from the LIVE grid geometry:
+					// gridOrigin is scroll-adjusted, so a grid that scrolled since
+					// the last frame moves the point with it. Every gesture step
+					// recomputes instead of caching, so a shell line arriving
+					// mid-gesture cannot leave the cursor pointing at the old row.
 					auto tcCell = [&](int line, int col, float& sx, float& sy)
 					{
 						sx = tp.gridOriginX + (static_cast<float>(col) + 0.5f)
 							* tp.cellW;
 						sy = tp.gridOriginY + (static_cast<float>(line) + 0.5f)
 							* tp.cellH;
+					};
+					// ImGui's io.MousePos lives in the same render-target pixel
+					// space tcMove() takes, so a pushed move is CONFIRMED once the
+					// io position has arrived - never press on a move still in
+					// flight (the press is what arms the selection, and it arms at
+					// wherever io.MousePos is that frame)
+					auto tcCursorAt = [&](float px, float py) -> bool
+					{
+						const ImVec2 p = ImGui::GetIO().MousePos;
+						return std::abs(p.x - px) <= 1.5f &&
+							std::abs(p.y - py) <= 1.5f;
+					};
+					// the link modifier as the PANEL reads it (the probe publishes
+					// the physical state with the macOS un-swap applied)
+					auto tcLinkModHeld = [&]() -> bool
+					{
+					#if defined(__APPLE__)
+						return tp.physicalCmd;
+					#else
+						return tp.physicalCtrl;
+					#endif
+					};
+					auto tcPushLinkMod = [&](bool down)
+					{
+					#if defined(__APPLE__)
+						tcKey(down, SDLK_LGUI, SDL_SCANCODE_LGUI,
+							down ? SDL_KMOD_LGUI : SDL_KMOD_NONE);
+					#else
+						tcKey(down, SDLK_LCTRL, SDL_SCANCODE_LCTRL,
+							down ? SDL_KMOD_LCTRL : SDL_KMOD_NONE);
+					#endif
 					};
 
 					if (termCopyPhase == TermCopyPhase::Idle && frameCount == 10)
@@ -7628,6 +7904,13 @@ int main(int argc, char** argv)
 						{
 							termCopyOpenReq = state.scriptOpenRequest;
 							termCopyOpenReqLine = state.scriptOpenLine;
+						}
+						// a HELD modifier stays held: while a leg holds it, any
+						// frame that finds the panel's input state without it
+						// presses it again
+						if (termCopyHoldLinkMod && !tcLinkModHeld())
+						{
+							tcPushLinkMod(true);
 						}
 						switch (termCopyStep)
 						{
@@ -7666,9 +7949,25 @@ int main(int argc, char** argv)
 						}
 						case 9:
 						{
+							// press only once the cursor is demonstrably on the
+							// marker's first cell: the panel arms the selection at
+							// wherever io.MousePos is on the press frame, so a
+							// press racing a still-in-flight move anchors nowhere.
+							// The marker is re-located every retry - the shell
+							// keeps writing, and a line arriving under the cursor
+							// must move the target, not strand it.
+							OrkigeEditor::TerminalProbeHit live =
+								OrkigeEditor::terminalPanelTestFind(termCopyMarker);
+							if (live.line >= 0)
+							{
+								termCopyHitLine = live.line;
+								termCopyHitCol = live.col;
+							}
 							float sx = 0.0f, sy = 0.0f;
 							tcCell(termCopyHitLine, termCopyHitCol, sx, sy);
 							tcMove(sx, sy);
+							tcSettle(9, tcCursorAt(sx, sy),
+								"the cursor never reached the marker's first cell");
 							break;
 						}
 						case 12:
@@ -7680,10 +7979,38 @@ int main(int argc, char** argv)
 						}
 						case 15:
 						{
+							// a drag is a STREAM of motions, and the panel's head
+							// follows the mouse EVERY frame the button is held -
+							// so every settle retry moves again (recomputed from
+							// the live grid origin) until the selection the drag
+							// is FOR is really armed. Releasing before that would
+							// freeze whatever half-gesture happened to be there.
+							// ... and the BUTTON has to still be held. This window
+							// shares its display with the rest of the suite: a
+							// window mapped by another process sends a mouse-leave
+							// or takes focus, and ImGui releases every held button
+							// on either - which strands the drag with nothing
+							// pressed. Re-anchor at the marker's first cell and
+							// press again rather than drag against an open hand.
+							float ax = 0.0f, ay = 0.0f;
+							tcCell(termCopyHitLine, termCopyHitCol, ax, ay);
+							if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+							{
+								tcMove(ax, ay);
+								tcButton(true, ax, ay);
+								tcSettle(15, false,
+									"the mouse drag never armed the marker "
+									"selection (the held button kept being "
+									"cleared)");
+								break;
+							}
 							float ex = 0.0f, ey = 0.0f;
 							tcCell(termCopyHitLine, termCopyHitCol +
 								static_cast<int>(termCopyMarker.size()), ex, ey);
 							tcMove(ex, ey);
+							tcSettle(15, tp.hasSelection &&
+								tp.selectionText == termCopyMarker,
+								"the mouse drag never armed the marker selection");
 							break;
 						}
 						case 18:
@@ -7695,6 +8022,8 @@ int main(int argc, char** argv)
 							break;
 						}
 						case 21:
+							// ... and it SURVIVES the release (the copy chord below
+							// reads it after the button is up)
 							if (!tcSettle(21, tp.hasSelection &&
 								tp.selectionText == termCopyMarker,
 								"real mouse drag did not arm the marker selection"))
@@ -7704,9 +8033,12 @@ int main(int argc, char** argv)
 							break;
 						case 24:
 						{
-							char* saved = SDL_GetClipboardText();
-							termCopySavedClipboard = saved ? saved : "";
-							if (saved) { SDL_free(saved); }
+							if (termCopyChordAttempts == 0)
+							{
+								char* saved = SDL_GetClipboardText();
+								termCopySavedClipboard = saved ? saved : "";
+								if (saved) { SDL_free(saved); }
+							}
 							SDL_SetClipboardText("");
 							// hold the copy modifier as its OWN key event (the way a
 							// real keyboard does, matching the marquee test), then
@@ -7757,6 +8089,17 @@ int main(int argc, char** argv)
 							else if (++termCopySettleHold <= tcBudget)
 							{
 								termCopyStep = 29;	// re-read next frame
+							}
+							else if (++termCopyChordAttempts <= 2)
+							{
+								// the chord itself may never have been SEEN (a
+								// focus event clears held keys): send it again
+								// rather than blame the clipboard for it
+								termCopySettleHold = 0;
+								termCopyStep = 23;
+								SDL_Log("orkige_editor: terminal-copy - the copy "
+									"chord left the clipboard empty, repeating it "
+									"(attempt %d)", termCopyChordAttempts + 1);
 							}
 							else
 							{
@@ -7914,21 +8257,36 @@ int main(int argc, char** argv)
 						case 66:
 						{
 							// hold the link modifier (Cmd on macOS) and hover the
-							// MIDDLE of the path token
+							// MIDDLE of the path token. Both halves are re-driven
+							// every retry: the panel resolves a link only on a
+							// frame that finds the modifier held AND the cursor
+							// over the token, and either half can miss a frame -
+							// a synthetic key-down is deferred by the input queue
+							// or cleared outright by a focus event, and the hover
+							// point moves when the grid scrolls.
+							termCopyHoldLinkMod = true;
 							float sx = 0.0f, sy = 0.0f;
 							tcCell(termCopyOpenHitLine, termCopyOpenHitCol +
 								static_cast<int>(termCopyOpenRel.size()) / 2, sx, sy);
 							tcMove(sx, sy);
-						#if defined(__APPLE__)
-							tcKey(true, SDLK_LGUI, SDL_SCANCODE_LGUI, SDL_KMOD_LGUI);
-						#else
-							tcKey(true, SDLK_LCTRL, SDL_SCANCODE_LCTRL,
-								SDL_KMOD_LCTRL);
-						#endif
+							tcSettle(66, tcCursorAt(sx, sy) && tcLinkModHeld(),
+								"the cursor + link modifier never reached the "
+								"path token together");
 							break;
 						}
 						case 69:
-							// the modifier + hover must RESOLVE the link to the file
+						{
+							// the modifier + hover must RESOLVE the link to the
+							// file. The panel resolves it only on a frame that
+							// finds the cursor over the token, so the hover is
+							// re-driven every retry - a mouse-leave from another
+							// window on the shared display invalidates the cursor
+							// and the next move is what brings it back.
+							float sx = 0.0f, sy = 0.0f;
+							tcCell(termCopyOpenHitLine, termCopyOpenHitCol +
+								static_cast<int>(termCopyOpenRel.size()) / 2,
+								sx, sy);
+							tcMove(sx, sy);
 							if (!tcSettle(69, tp.linkResolved &&
 								tp.linkLine == 5,
 								"Cmd/Ctrl+hover did not resolve the path link"))
@@ -7936,6 +8294,7 @@ int main(int argc, char** argv)
 								break;
 							}
 							break;
+						}
 						case 72:
 						{
 							// click the link (modifier still held) -> it opens
@@ -7958,13 +8317,8 @@ int main(int argc, char** argv)
 							{
 								break;
 							}
-						#if defined(__APPLE__)
-							tcKey(false, SDLK_LGUI, SDL_SCANCODE_LGUI,
-								SDL_KMOD_NONE);
-						#else
-							tcKey(false, SDLK_LCTRL, SDL_SCANCODE_LCTRL,
-								SDL_KMOD_NONE);
-						#endif
+							termCopyHoldLinkMod = false;	// stop holding
+							tcPushLinkMod(false);
 							SDL_Log("orkige_editor: terminal path-open leg PASSED "
 								"- Cmd/Ctrl+click opened %s:%d",
 								termCopyOpenReq.c_str(), termCopyOpenReqLine);
@@ -8135,15 +8489,6 @@ int main(int argc, char** argv)
 					if (termCopyPhase != TermCopyPhase::Done && exitCode == 0 &&
 						frameCount >= 2600)
 					{
-						SDL_Log("orkige_editor: terminal-copy diag - step=%d "
-							"front=%d spawned=%d focused=%d sel=%d selText='%s' "
-							"followTail=%d scrollY=%.1f scrollMax=%.1f "
-							"physCtrl=%d ctrlBytesSent=%d",
-							termCopyStep, tp.hasFrontSession ? 1 : 0,
-							tp.spawned ? 1 : 0, tp.windowFocused ? 1 : 0,
-							tp.hasSelection ? 1 : 0, tp.selectionText.c_str(),
-							tp.followTail ? 1 : 0, tp.scrollY, tp.scrollMaxY,
-							tp.physicalCtrl ? 1 : 0, tp.controlCharsSent);
 						tcFail("selfcheck did not complete before the deadline");
 					}
 				}
