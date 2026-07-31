@@ -202,6 +202,25 @@ namespace OrkigeEditor
 			Orkige::String(PYTHON_TOOL_DIR_NAME) + "/" + fileName, fallback);
 	}
 	//---------------------------------------------------------
+	EditorResourcePath EditorResourceLocator::pythonToolFromTree(
+		Orkige::String const & fileName) const
+	{
+		if (this->mFallbacks.pythonTools.empty())
+		{
+			return EditorResourcePath();
+		}
+		const Orkige::String path =
+			terminated(this->mFallbacks.pythonTools) + fileName;
+		if (!this->mExists(path))
+		{
+			return EditorResourcePath();
+		}
+		EditorResourcePath resolved;
+		resolved.path = path;
+		resolved.root = EditorResourceRoot::Tree;
+		return resolved;
+	}
+	//---------------------------------------------------------
 	EditorResourcePath EditorResourceLocator::changelog() const
 	{
 		// no fallback on purpose: only a packaged build shipped WITH a

@@ -35,13 +35,21 @@ OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
 	inputs.projectRoot = project.getRootDirectory();
 	inputs.nativeModule =
 		!Orkige::NativeModule::configFromProject(project).target.empty();
-	inputs.exporter = resources.pythonTool("orkige_export.py");
 	// "is the tree this editor was built in still here?" - a configured build
 	// tree is what the exporter packages from, so its cache is the probe
 	std::error_code treeIgnored;
 	inputs.engineTree = std::filesystem::exists(
 		std::filesystem::path(ORKIGE_EDITOR_ENGINE_BUILD_DIR) /
 		"CMakeCache.txt", treeIgnored);
+	// The exporter comes from the SAME place the engine payload will: an
+	// exporter resolves files beside itself (the web shell template lives at
+	// tools/player/web/ in the source tree), so a bundled copy running against
+	// a build tree looks for them inside the app and finds nothing. A build
+	// tree that is still there wins; only a copy with no tree behind it takes
+	// the staged exporter, which is exactly when the bundle IS the payload.
+	inputs.exporter = inputs.engineTree
+		? resources.pythonToolFromTree("orkige_export.py")
+		: resources.pythonTool("orkige_export.py");
 	inputs.engineRoot = ORKIGE_EDITOR_ENGINE_ROOT;
 	inputs.engineBuildDir = ORKIGE_EDITOR_ENGINE_BUILD_DIR;
 	inputs.iosDeviceTree = ORKIGE_EDITOR_IOS_DEVICE_TREE;

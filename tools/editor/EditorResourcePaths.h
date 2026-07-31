@@ -174,6 +174,13 @@ namespace OrkigeEditor
 		//! tools and has no reachable source tree cannot run them, and the
 		//! consumer says so instead of spawning a path that is not there.
 		EditorResourcePath pythonTool(Orkige::String const & fileName) const;
+		//! @brief the SOURCE TREE's copy of a Python tool, skipping the bundle.
+		//! A tool resolves files beside itself, so one packaging a build tree
+		//! has to be the tree's own copy - a staged one would look for the
+		//! tree's files inside the app. Missing when no source tree is
+		//! reachable, which is when the bundled copy is the right answer.
+		EditorResourcePath pythonToolFromTree(
+			Orkige::String const & fileName) const;
 		//! the player executable Play spawns
 		EditorResourcePath player() const;
 		//! the texture cook tool the export path drives
