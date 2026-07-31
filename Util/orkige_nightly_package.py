@@ -1787,8 +1787,14 @@ APPIMAGE_DESKTOP_FILE = "orkige.desktop"
 APPIMAGE_ICON_NAME = "orkige"
 APPIMAGE_ICON_FILE = APPIMAGE_ICON_NAME + ".png"
 APPIMAGE_ICON_SIZE = 256
-# where the bundled libraries land, and what the AppRun puts on LD_LIBRARY_PATH
-APPIMAGE_LIB_DIR = os.path.join("usr", "lib")
+# Where the bundled libraries land, and what the AppRun puts on
+# LD_LIBRARY_PATH. Spelled with a FORWARD SLASH deliberately and not through
+# os.path.join: an AppDir is a Linux layout and the AppRun is a POSIX shell
+# script, so this separator is part of the FORMAT rather than a property of the
+# machine composing it - joining it on Windows wrote "$HERE/usr\lib" into the
+# script. Python accepts forward slashes in filesystem paths on every platform,
+# so the same constant still serves the os.path.join calls below.
+APPIMAGE_LIB_DIR = "usr/lib"
 
 # the editor icon is drawn by the same generator the macOS .icns comes from, so
 # the Linux launcher shows the same artwork
