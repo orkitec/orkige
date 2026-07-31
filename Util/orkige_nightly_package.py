@@ -2385,10 +2385,19 @@ def selftest():
     if os.path.exists(os.path.join(REPO_ROOT, ".git")):
         real_history = collect_history("HEAD", REPO_ROOT)
         headings = re.findall(r"^## (.+)$", real_history, re.M)
-        assert len(headings) > 1, headings[:5]
+        assert headings, real_history[:200]
         assert re.match(r"^\d+\.\d+\.\d+-nightly\.\d{8}\+[0-9a-f]{7,}$",
                         headings[0]), headings[0]
         assert headings == sorted(headings, reverse=True), headings[:5]
+        # MORE than one day is only a fair expectation of a clone that carries
+        # the history: every build job checks out shallow (only the site jobs
+        # ask for the full log, because only they publish it), and a clone with
+        # one day in it says so rather than being wrong
+        if not git_is_shallow(REPO_ROOT):
+            assert len(headings) > 1, headings[:5]
+        else:
+            log("shallow checkout - the multi-day leg of the real-history "
+                "check is skipped, the rest still holds")
 
     # --- the checksum sidecars ------------------------------------------
     with tempfile.TemporaryDirectory() as temp:

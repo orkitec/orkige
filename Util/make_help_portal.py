@@ -1655,7 +1655,13 @@ def _selftest_real_corpus(temp_root):
     with open(os.path.join(out, "help", CHANGELOG_PAGE_ID + ".html")) as f:
         changelog = f.read()
     days = re.findall(r'<h2 id="[^"]*">([^<]+)</h2>', changelog)
-    assert len(days) > 1, days[:5]
+    assert days, changelog[:2000]
+    # MORE than one day is only a fair expectation of a clone that carries the
+    # history. The jobs that PUBLISH the site fetch the full log; every build
+    # job checks out shallow, and a clone with one day in it is not a broken
+    # page - the page says what it was generated from.
+    if not orkige_nightly_package.git_is_shallow(ROOT):
+        assert len(days) > 1, days[:5]
     assert re.match(r"^\d+\.\d+\.\d+-nightly\.\d{8}\+[0-9a-f]{7,}$", days[0]), \
         days[0]
     assert days == sorted(days, reverse=True), days[:5]
