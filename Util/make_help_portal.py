@@ -853,7 +853,13 @@ DOWNLOAD_PLATFORMS = (
                  "&ldquo;Windows protected your PC&rdquo;, whose default "
                  "button is <em>Don&rsquo;t run</em>. The way through is "
                  "<em>More info</em> &rarr; <em>Run anyway</em>. The "
-                 "portable <code>.zip</code> needs no such confirmation."),
+                 "portable <code>.zip</code> needs no such confirmation. "
+                 "Code signing for Windows is applied for through the "
+                 "<a href=\"https://signpath.org\">SignPath Foundation</a>, "
+                 "whose free certificates are provided by "
+                 "<a href=\"https://signpath.io\">SignPath.io</a>; the "
+                 "application is pending, and until a certificate is in "
+                 "place these builds stay unsigned."),
     },
     {
         "id": "linux",
