@@ -560,12 +560,11 @@ if(APPLE)
     # the dylib closure: the classic flavor links vcpkg's Vulkan loader as a
     # DYLIB, so a copied app dies in dyld before main unless the closure rides
     # in Contents/Frameworks and every build-tree rpath is gone. The operation
-    # is Util/macos_self_contain.py - the same one an export runs, so an app the
-    # build stages and an app the exporter writes are self-contained the same
-    # way. A fully statically linked flavor has no closure and it no-ops.
+    # is `orkige_export self-contain` - the same code an export runs, so an app
+    # the build stages and an app the exporter writes are self-contained the
+    # same way. A fully statically linked flavor has no closure and it no-ops.
     list(APPEND _editor_stage_commands
-        COMMAND "${ORKIGE_PYTHON3}"
-            "${Orkige_SOURCE_DIR}/Util/macos_self_contain.py"
+        COMMAND "$<TARGET_FILE:orkige_export>" self-contain
             --frameworks "$<TARGET_BUNDLE_CONTENT_DIR:orkige_editor>/Frameworks"
             --search "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/lib"
             --search "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib"
@@ -583,7 +582,8 @@ add_custom_target(orkige_editor_bundle ALL
     ${_editor_stage_commands}
     COMMENT "Staging the editor's bundled resources (engine media, player, texcook)"
     VERBATIM)
-add_dependencies(orkige_editor_bundle orkige_editor orkige_player texcook)
+add_dependencies(orkige_editor_bundle orkige_editor orkige_player texcook
+    orkige_export)
 
 # play mode needs the player binary present at runtime
 add_dependencies(orkige_editor orkige_player)

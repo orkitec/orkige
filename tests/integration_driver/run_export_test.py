@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""ctest driver for project export: run Util/orkige_export.py
-for a project/platform, assert the packaged artifact's structure, and - for
-macOS - RUN the exported app from a neutral cwd (ORKIGE_DEMO_FRAMES caps the
-run) so a clean exit proves the bundle is genuinely self-contained.
+"""ctest driver for project export: run the exporter for a project/platform,
+assert the packaged artifact's structure, and - for macOS - RUN the exported
+app from a neutral cwd (ORKIGE_DEMO_FRAMES caps the run) so a clean exit proves
+the bundle is genuinely self-contained.
 
-    run_export_test.py --repo <root> --project <dir>
+    run_export_test.py --repo <root> --project <dir> --exporter <orkige_export>
                        --platform macos|ios-simulator|android
                        --engine-build <dir> --output <dir> [--run-frames N]
 
@@ -347,6 +347,8 @@ def check_android_aab_module(module_path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True)
+    parser.add_argument("--exporter", required=True,
+                        help="the orkige_export executable under test")
     parser.add_argument("--project", required=True)
     parser.add_argument("--platform", required=True,
                         choices=["macos", "ios-simulator", "android",
@@ -375,8 +377,7 @@ def main():
     # a fresh output dir per run - stale artifacts must not mask a failure
     if os.path.exists(args.output):
         shutil.rmtree(args.output)
-    exporter = [sys.executable,
-                os.path.join(args.repo, "Util", "orkige_export.py"),
+    exporter = [args.exporter,
                 "--project", args.project, "--platform", args.platform,
                 "--engine-build", args.engine_build, "--output", args.output]
     if args.platform == "android-aab":

@@ -9,7 +9,9 @@
 //! @brief orkige_export - package an Orkige project as a distributable app.
 //!
 //! @verbatim
-//!   orkige_export --project <dir> --platform macos
+//!   orkige_export --project <dir>
+//!                 --platform macos|ios-simulator|ios|ios-ipa|android|
+//!                            android-aab
 //!                 (--engine-build <preset build dir> | --engine-bundle <dir>
 //!                  [--engine-tools <dir>])
 //!                 [--output <dir>]
@@ -23,7 +25,13 @@
 //! the executables a distributed Orkige carries inside itself - which packages
 //! the desktop app on a machine with no repository and no build tree.
 //! Everything after the sourcing is the same code, so both produce the same
-//! bundle.
+//! bundle. A mobile package always needs a build tree: it ships THAT
+//! platform's player, which only its own preset produces.
+//!
+//! The signing material for the two signed platforms is machine-local and
+//! never committed - a CLI argument, else the environment (@see
+//! ExportSettings.h). Without it those platforms refuse rather than emit a
+//! half-signed artifact.
 //!
 //! Output lands in `<project>/builds/<platform>/` (or `--output`). The last
 //! line on success is `orkige_export: OK <artifact>` - the editor's Build menu
@@ -33,7 +41,9 @@
 //! reachable on its own so the editor BUILD can stage its app the identical
 //! way (@see ExportSelfContain.h).
 
+#include "ExportAndroid.h"
 #include "ExportFiles.h"
+#include "ExportIos.h"
 #include "ExportMacos.h"
 #include "ExportProcess.h"
 #include "ExportProject.h"
@@ -89,6 +99,33 @@ namespace
 		return repoRoot.empty() ? String()
 			: OrkigeExport::ExportFiles::join(repoRoot,
 				"Util/media/orkige_default_icon.png");
+	}
+
+	//! the machine-local signing material, read once so every resolver below
+	//! sees the same lookup a test can stand in for
+	OrkigeExport::EnvironmentMap currentEnvironment()
+	{
+		OrkigeExport::EnvironmentMap environment;
+		const char * const names[] = {
+			OrkigeExport::IOS_SIGNING_IDENTITY_ENV,
+			OrkigeExport::IOS_PROVISIONING_PROFILE_ENV,
+			OrkigeExport::IOS_DISTRIBUTION_IDENTITY_ENV,
+			OrkigeExport::IOS_DISTRIBUTION_PROFILE_ENV,
+			OrkigeExport::ANDROID_KEYSTORE_ENV,
+			OrkigeExport::ANDROID_KEY_ALIAS_ENV,
+			OrkigeExport::ANDROID_KEYSTORE_PASS_ENV,
+			OrkigeExport::ANDROID_KEY_PASS_ENV,
+			OrkigeExport::BUNDLETOOL_ENV,
+		};
+		for(const char * name : names)
+		{
+			const char * value = std::getenv(name);
+			if(value != 0)
+			{
+				environment[name] = value;
+			}
+		}
+		return environment;
 	}
 
 	//---------------------------------------------------------
@@ -170,9 +207,23 @@ int main(int argc, char ** argv)
 	String repoRoot = defaultRepoRoot();
 	String cmakeProgram;
 	String ninjaProgram;
+	String signingIdentity;
+	String provisioningProfile;
+	String distributionIdentity;
+	String distributionProfile;
+	String androidKeystore;
+	String androidKeyAlias;
+	String bundletool;
+	bool unsignedBundleModule = false;
 	for(std::size_t index = 0; index < arguments.size(); ++index)
 	{
 		String const & argument = arguments[index];
+		// the one valueless option: build just the unsigned bundle module
+		if(argument == "--aab-unsigned-module")
+		{
+			unsignedBundleModule = true;
+			continue;
+		}
 		if(index + 1 >= arguments.size())
 		{
 			return fail("missing value for '" + argument + "'");
@@ -187,12 +238,30 @@ int main(int argc, char ** argv)
 		else if(argument == "--repo") { repoRoot = value; }
 		else if(argument == "--cmake") { cmakeProgram = value; }
 		else if(argument == "--ninja") { ninjaProgram = value; }
+		else if(argument == "--signing-identity") { signingIdentity = value; }
+		else if(argument == "--provisioning-profile")
+		{
+			provisioningProfile = value;
+		}
+		else if(argument == "--distribution-identity")
+		{
+			distributionIdentity = value;
+		}
+		else if(argument == "--distribution-profile")
+		{
+			distributionProfile = value;
+		}
+		else if(argument == "--android-keystore") { androidKeystore = value; }
+		else if(argument == "--android-key-alias") { androidKeyAlias = value; }
+		else if(argument == "--bundletool") { bundletool = value; }
 		else { return fail("unknown argument '" + argument + "'"); }
 	}
 	if(projectPath.empty() || platform.empty())
 	{
 		std::fprintf(stderr,
-			"usage: orkige_export --project <dir> --platform macos\n"
+			"usage: orkige_export --project <dir>\n"
+			"                     --platform macos|ios-simulator|ios|ios-ipa|"
+			"android|android-aab\n"
 			"                     (--engine-build <preset build dir> |\n"
 			"                      --engine-bundle <dir> [--engine-tools "
 			"<dir>])\n"
@@ -201,7 +270,11 @@ int main(int argc, char ** argv)
 			"[--search <dir>]... <binary>...\n");
 		return 2;
 	}
-	if(platform != "macos")
+	const bool knownPlatform = platform == "macos" ||
+		platform == "ios-simulator" || platform == "ios" ||
+		platform == "ios-ipa" || platform == "android" ||
+		platform == "android-aab";
+	if(!knownPlatform)
 	{
 		return fail("'" + platform + "' is not a platform this exporter "
 			"packages yet");
@@ -231,6 +304,12 @@ int main(int argc, char ** argv)
 		{
 			return fail("engine payload '" + source.bundleResources +
 				"' does not exist");
+		}
+		if(platform != "macos")
+		{
+			return fail("a staged engine payload packages the desktop app "
+				"only; '" + platform + "' needs that platform's player, which "
+				"comes from its own preset build tree (--engine-build)");
 		}
 	}
 	else
@@ -274,9 +353,80 @@ int main(int argc, char ** argv)
 	environment.ninja = ninjaProgram.empty()
 		? OrkigeExport::findOnPath("ninja") : ninjaProgram;
 
+	const OrkigeExport::EnvironmentMap machineEnvironment =
+		currentEnvironment();
 	String artifact;
-	if(!OrkigeExport::exportMacos(project, source, outputDirectory,
-		environment, artifact, &error))
+	bool packaged = false;
+	if(platform == "macos")
+	{
+		packaged = OrkigeExport::exportMacos(project, source, outputDirectory,
+			environment, artifact, &error);
+	}
+	else if(platform == "ios-simulator" || platform == "ios" ||
+		platform == "ios-ipa")
+	{
+		OrkigeExport::IosRequest request;
+		if(platform == "ios")
+		{
+			request.signing = OrkigeExport::resolveIosSigning(signingIdentity,
+				provisioningProfile, machineEnvironment);
+			if(request.signing.identity.empty() ||
+				request.signing.profile.empty())
+			{
+				return fail(String("physical-device iOS export needs a "
+					"codesigning identity AND a provisioning profile (unsigned "
+					"apps cannot install on hardware - the same gate as the "
+					"editor's Play on an iPhone). Set --signing-identity/") +
+					OrkigeExport::IOS_SIGNING_IDENTITY_ENV +
+					" and --provisioning-profile/" +
+					OrkigeExport::IOS_PROVISIONING_PROFILE_ENV +
+					", or use --platform ios-simulator. See "
+					"Docs/ios-signing.md");
+			}
+		}
+		else if(platform == "ios-ipa")
+		{
+			request.signing = OrkigeExport::resolveIosDistributionSigning(
+				distributionIdentity, distributionProfile, machineEnvironment);
+			request.distribution = true;
+			request.packageIpa = true;
+			if(request.signing.identity.empty() ||
+				request.signing.profile.empty())
+			{
+				return fail(String("App Store .ipa export needs a DISTRIBUTION "
+					"codesigning identity AND an App Store provisioning "
+					"profile. Set --distribution-identity/") +
+					OrkigeExport::IOS_DISTRIBUTION_IDENTITY_ENV +
+					" and --distribution-profile/" +
+					OrkigeExport::IOS_DISTRIBUTION_PROFILE_ENV +
+					". See Docs/store-release.md");
+			}
+		}
+		packaged = OrkigeExport::exportIos(project, source, outputDirectory,
+			request, environment, artifact, &error);
+	}
+	else
+	{
+		OrkigeExport::AndroidRequest request;
+		request.bundle = (platform == "android-aab");
+		if(request.bundle)
+		{
+			if(!OrkigeExport::androidVersion(project.settings,
+				request.options.versionCode, request.options.versionName,
+				&error))
+			{
+				return fail(error);
+			}
+			request.options.moduleOnly = unsignedBundleModule;
+			request.options.keystore = OrkigeExport::resolveAndroidKeystore(
+				androidKeystore, androidKeyAlias, machineEnvironment);
+			request.options.bundletool = OrkigeExport::resolveBundletool(
+				bundletool, machineEnvironment, OrkigeExport::findOnPath);
+		}
+		packaged = OrkigeExport::exportAndroid(project, source, outputDirectory,
+			request, environment, artifact, &error);
+	}
+	if(!packaged)
 	{
 		return fail(error);
 	}

@@ -204,6 +204,13 @@ namespace OrkigeExport
 				return false;
 			}
 		}
+		return stageEngineContentMedia(resources, flavor, sourceMedia, error);
+	}
+	//---------------------------------------------------------
+	bool stageEngineContentMedia(Orkige::String const & resources,
+		Orkige::String const & flavor, EngineSourceMedia const & sourceMedia,
+		Orkige::String * error)
+	{
 		if(!stageMedia(sourceMedia.fonts, resources, "fonts", error) ||
 			!stageMedia(sourceMedia.water, resources, "water", error) ||
 			!stageMedia(sourceMedia.decals, resources, "decals", error))
@@ -212,14 +219,9 @@ namespace OrkigeExport
 		}
 		// the compositor media engine:setBloom / engine:setGrade need, kept
 		// under their flavor like the runtime looks them up
-		if(!stageMedia(sourceMedia.bloom, resources, "bloom/" + flavor,
-			error) ||
-			!stageMedia(sourceMedia.grade, resources, "grade/" + flavor,
-			error))
-		{
-			return false;
-		}
-		return true;
+		return stageMedia(sourceMedia.bloom, resources, "bloom/" + flavor,
+			error) &&
+			stageMedia(sourceMedia.grade, resources, "grade/" + flavor, error);
 	}
 	//---------------------------------------------------------
 	bool writeProjectMarker(Orkige::String const & directory,

@@ -42,33 +42,6 @@
 
 namespace OrkigeExport
 {
-	//! @brief where an export takes its engine pieces from. A build tree is
-	//! the developer case; a STAGED payload is what a distributed editor
-	//! carries inside itself. Everything after the sourcing is the same code.
-	struct EngineSource
-	{
-		//! the preset build tree ("" when packaging from a staged payload)
-		Orkige::String	buildDirectory;
-		//! the staged payload's resource root, holding Media/ ("" for a tree)
-		Orkige::String	bundleResources;
-		//! where the staged payload's executables live (defaults to the
-		//! resource root; a macOS app keeps them in Contents/MacOS)
-		Orkige::String	bundleTools;
-
-		bool fromBundle() const { return !this->bundleResources.empty(); }
-	};
-
-	//! @brief everything one export run needs that is not the project itself
-	struct ExportEnvironment
-	{
-		Orkige::String	repoRoot;			//!< the engine source tree ("" if none)
-		Orkige::String	defaultIconPath;	//!< the neutral engine icon
-		Orkige::String	cmake = "cmake";	//!< for native-module builds
-		Orkige::String	ninja;				//!< optional generator program
-		ExportLog		log;
-		ProcessRunner	runner;
-	};
-
 	//! @brief package @p project as `<outputDirectory>/<Name>.app`.
 	//! @param outArtifact receives the bundle path on success
 	//! @return false with an honest @p error naming the missing piece

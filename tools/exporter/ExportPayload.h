@@ -10,6 +10,7 @@
 #define __ExportPayload_h__31_7_2026__18_00_00__
 
 #include "ExportBuildTree.h"
+#include "ExportProcess.h"
 #include "ExportProject.h"
 
 #include <core_util/String.h>
@@ -40,6 +41,33 @@ namespace OrkigeExport
 {
 	//! @brief the log sink an export writes its progress to
 	typedef std::function<void(Orkige::String const &)> ExportLog;
+
+	//! @brief where an export takes its engine pieces from. A build tree is
+	//! the developer case; a STAGED payload is what a distributed editor
+	//! carries inside itself. Everything after the sourcing is the same code.
+	struct EngineSource
+	{
+		//! the preset build tree ("" when packaging from a staged payload)
+		Orkige::String	buildDirectory;
+		//! the staged payload's resource root, holding Media/ ("" for a tree)
+		Orkige::String	bundleResources;
+		//! where the staged payload's executables live (defaults to the
+		//! resource root; a macOS app keeps them in Contents/MacOS)
+		Orkige::String	bundleTools;
+
+		bool fromBundle() const { return !this->bundleResources.empty(); }
+	};
+
+	//! @brief everything one export run needs that is not the project itself
+	struct ExportEnvironment
+	{
+		Orkige::String	repoRoot;			//!< the engine source tree ("" if none)
+		Orkige::String	defaultIconPath;	//!< the neutral engine icon
+		Orkige::String	cmake = "cmake";	//!< for native-module builds
+		Orkige::String	ninja;				//!< optional generator program
+		ExportLog		log;
+		ProcessRunner	runner;
+	};
 
 	//! @brief copy the manifest-referenced project-config assets (the
 	//! `configSettingKeys()` values) into @p destination, preserving each
@@ -73,6 +101,18 @@ namespace OrkigeExport
 	//! bloom/grade compositor media.
 	bool stageEngineMediaFromTree(Orkige::String const & resources,
 		Orkige::String const & backendMediaDirectory,
+		Orkige::String const & flavor, EngineSourceMedia const & sourceMedia,
+		Orkige::String * error);
+
+	//! @brief lay the CONTENT media a runtime resolves by name - fonts,
+	//! water, decals and the per-flavor bloom/grade compositor media - into
+	//! `<resources>/Media`.
+	//! @remarks the half of the media a prebuilt mobile player bundle does
+	//! NOT already carry: its build embedded the backend's shader tree, but
+	//! the engine's own content directories are committed to the source tree
+	//! and are added at packaging time. An absent source directory is not an
+	//! error (the runtime degrades honestly).
+	bool stageEngineContentMedia(Orkige::String const & resources,
 		Orkige::String const & flavor, EngineSourceMedia const & sourceMedia,
 		Orkige::String * error);
 

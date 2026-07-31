@@ -2949,17 +2949,17 @@ if(TARGET orkige_player)
     set_tests_properties(player_cooked_textures${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         LABELS integration TIMEOUT 300)
 
-    # --- project export (Util/orkige_export.py) ---------------------------
+    # --- project export (tools/exporter) ----------------------------------
     # Both render flavors: the exporter bundles the tree's engine media
     # (classic RTSS libs or Ogre-Next Hlms templates - keyed off
     # ORKIGE_RENDER_BACKEND) and each flavor prefers its own Release sibling
     # (build/macos-release-classic vs build/macos-release - see
-    # sibling_release_tree in Util/orkige_export.py). The exported-app
+    # siblingReleaseTree in tools/exporter/ExportBuildTree.h). The exported-app
     # contract is verified on the running tree's flavor.
     # APPLE-gated: the export driver checks/runs .app bundles with otool -
     # macOS host machinery (a Linux registration would hard-fail at otool).
     # TODO(linux): a Linux export target needs its own bundle layout +
-    # driver checks in Util/orkige_export.py first.
+    # driver checks in tools/exporter first.
     if(APPLE)
         # The driver (integration_driver/run_export_test.py) runs the exporter,
         # asserts the artifact's structure and self-containment, and - on macOS -
@@ -2974,6 +2974,7 @@ if(TARGET orkige_player)
         add_test(NAME export_macos_lua
             COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
                 --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
                 --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
                 --platform macos --engine-build "${CMAKE_BINARY_DIR}"
                 --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-lua"
@@ -2989,6 +2990,7 @@ if(TARGET orkige_player)
         add_test(NAME export_macos_native${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
                 --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
                 --project "${Orkige_SOURCE_DIR}/projects/jumper-native"
                 --platform macos --engine-build "${CMAKE_BINARY_DIR}"
                 --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-native"
@@ -3007,6 +3009,7 @@ if(TARGET orkige_player)
         add_test(NAME export_ios_simulator
             COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
                 --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
                 --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
                 --platform ios-simulator
                 --engine-build "${Orkige_SOURCE_DIR}/build/ios-simulator-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
@@ -3017,6 +3020,7 @@ if(TARGET orkige_player)
         add_test(NAME export_android
             COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
                 --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
                 --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
                 --platform android
                 --engine-build "${Orkige_SOURCE_DIR}/build/android-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
@@ -3033,6 +3037,7 @@ if(TARGET orkige_player)
         add_test(NAME export_android_aab
             COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
                 --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
                 --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
                 --platform android-aab
                 --engine-build "${Orkige_SOURCE_DIR}/build/android-debug"
