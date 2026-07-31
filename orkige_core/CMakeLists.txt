@@ -133,6 +133,33 @@ find_path(EARCUT_INCLUDE_DIR "mapbox/earcut.hpp" REQUIRED)
 set_source_files_properties(
     "${CMAKE_CURRENT_SOURCE_DIR}/core_util/VectorTessellator.cpp"
     PROPERTIES INCLUDE_DIRECTORIES "${EARCUT_INCLUDE_DIR}")
+
+# DO NOT REMOVE: the asset pipeline's reproducibility depends on this.
+#
+# The vector-animation cook emits text that is a REPRODUCIBILITY CONTRACT - the
+# same source document must cook to the same bytes on every machine, compiler
+# and architecture, because a cooked .oanim is a committed asset that gets
+# re-cooked on import and diffed. A fused multiply-add rounds ONCE where the
+# written arithmetic rounds twice, so with the compiler's default contraction a
+# vertex lands on the other side of a printed decimal on one target and not
+# another: the same artwork would cook differently for two people. Worse, the
+# cook's lengths drive segment counts through a ceil(), so a single contracted
+# expression can change a contour's vertex count outright.
+#
+# Contraction is therefore off for the cook's two translation units alone;
+# everything else in the core keeps the default (this is not a numerics
+# preference, it is a determinism requirement, and it costs nothing outside
+# these files). Removing it fails the byte-identity gate in
+# tests/core/VectorAnimCookTests.cpp - which is exactly what that gate is for.
+set(ORKIGE_NO_FP_CONTRACT "-ffp-contract=off")
+if(MSVC)
+    set(ORKIGE_NO_FP_CONTRACT "/fp:precise")
+endif()
+set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/core_util/VectorAnimCook.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core_util/VectorAnimCookGeometry.cpp"
+    PROPERTIES COMPILE_OPTIONS "${ORKIGE_NO_FP_CONTRACT}")
+
 if(WIN32)
     # the debug-net socket layer's winsock backend (WSAStartup, closesocket)
     target_link_libraries(orkige_core PUBLIC ws2_32)

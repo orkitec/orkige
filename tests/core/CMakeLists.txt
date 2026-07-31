@@ -86,6 +86,7 @@ add_executable(orkige_core_tests
     VectorAnimAssetTests.cpp
     VectorAnimEvalTests.cpp
     CookVectorAnimRoundTripTests.cpp
+    VectorAnimCookTests.cpp
     LottieCorpusTests.cpp
     PngWriterTests.cpp
     WobbleSpringTests.cpp

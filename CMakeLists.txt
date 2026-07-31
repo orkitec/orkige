@@ -322,6 +322,9 @@ if(ORKIGE_BUILD_TOOLS)
         # in-process). Host-only for the same reason texcook is: importing and
         # generating assets happens on a desktop, never on a device.
         add_subdirectory(tools/shapecook)
+        # the Lottie -> .oanim cook as a CLI (the editor holds the same
+        # conversion in-process). Host-only for the same reason shapecook is.
+        add_subdirectory(tools/animcook)
     endif()
     # the player builds on both render flavors (per-flavor boot
     # block; games choose their backend)
