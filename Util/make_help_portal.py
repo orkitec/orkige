@@ -977,8 +977,8 @@ def downloads_section():
     this markup before any script runs."""
     cards = "".join(download_card(p) for p in DOWNLOAD_PLATFORMS)
     foot = ('Every download has a <code>.sha256</code> file beside it, and '
-            'older builds stay on the <a class="external" href="%s">releases '
-            "page</a> as dated prereleases for two weeks. "
+            'every older build stays on the <a class="external" href="%s">'
+            "releases page</a> as a dated prerelease. "
             '<a href="%s">What a downloaded build cannot do yet</a> is part '
             'of the <a href="%s">nightly build documentation</a>.'
             % (html.escape(RELEASES_URL, quote=True),

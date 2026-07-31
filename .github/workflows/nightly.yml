@@ -1356,11 +1356,12 @@ jobs:
           retention-days: 14
 
   # PUBLISH: the rolling release tagged `nightly`, plus tonight's entry in the
-  # dated archive (`nightly-YYYYMMDD`), then the archive is pruned back to its
-  # keep count. The rolling one is what an updater polls and a document links,
-  # because its tag moves and its URLs do not; the dated one is what a person
-  # opens when they want the build from before a regression, because no later
-  # night touches it.
+  # dated archive (`nightly-YYYYMMDD`). The rolling one is what an updater polls
+  # and a document links, because its tag moves and its URLs do not; the dated
+  # one is what a person opens when they want the build from before a
+  # regression, because no later night touches it. Every dated entry is kept:
+  # a night publishes only where the tree moved, so the archive grows with real
+  # work, and release storage on a public repository costs nothing.
   #
   # PUBLISHED, not a draft: a nightly nobody can download is not a nightly, and
   # the macOS build - the one whose operating system refuses an unidentified
@@ -1570,10 +1571,11 @@ jobs:
       #   next. That stability is the contract a document quotes and an updater
       #   fetches (Docs/nightly-builds.md), so nothing here may change it.
       # - `nightly-YYYYMMDD` is tonight's entry in the ARCHIVE: no later night
-      #   deletes it, so yesterday's build stays downloadable from the releases
-      #   page. A second run of the same day REPLACES that day's entry rather
-      #   than adding a duplicate, which is why the delete precedes the create
-      #   for it too.
+      #   deletes it, so every build ever published stays downloadable from the
+      #   releases page. A second run of the same day REPLACES that day's entry
+      #   rather than adding a duplicate, which is why the delete precedes the
+      #   create for it too - and those two tags are the ONLY ones this job
+      #   ever hands to a delete.
       #
       # GitHub has no way to share one uploaded asset between two releases, and
       # a dated release that merely pointed at the rolling one would break the
@@ -1610,54 +1612,3 @@ jobs:
               "${assets[@]}"
             echo "published https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}" >> "$GITHUB_STEP_SUMMARY"
           done
-
-      # KEEPING THE ARCHIVE BOUNDED. The dated releases accumulate, so the
-      # oldest ones past a keep count are deleted, tag and all. The DECISION -
-      # which tags are even candidates - is not made in shell: the packager's
-      # pure `prune_dated_releases` makes it, unit-tested against a realistic
-      # list, and only ever names a tag of the exact `nightly-YYYYMMDD` shape.
-      # The rolling `nightly`, a stable release tag and anything a person
-      # tagged by hand are not candidates and can never become ones. The
-      # listing is bounded (--limit 200), which is an order of magnitude more
-      # entries than a pruned archive plus this repository's release tags.
-      #
-      # How many survive is the packager's constant (DATED_RELEASES_KEPT), not a
-      # number repeated here - it prints the count it kept, so the job log still
-      # says it out loud.
-      #
-      # Housekeeping NEVER fails the night: the artifacts are the deliverable
-      # and they are already published by the time this runs. Every problem is
-      # a loud annotation and an exit 0; every deletion is named in the log.
-      - name: Prune the older dated releases
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DATED_TAG: ${{ needs.binaries-gate.outputs.dated_tag }}
-          # scratch for the two tag lists, named so the packaging self-check can
-          # run THIS script against a directory of its own
-          WORK: ${{ runner.temp }}
-        run: |
-          set -uo pipefail
-          if ! gh release list --limit 200 --json tagName --jq '.[].tagName' \
-               > "${WORK}/release-tags.txt"; then
-            echo "::warning::could not list the releases - the dated archive is not pruned tonight"
-            exit 0
-          fi
-          if ! python3 Util/orkige_nightly_package.py \
-               --prune-tags "${WORK}/release-tags.txt" \
-               --protect "${DATED_TAG}" \
-               > "${WORK}/prune-tags.txt"; then
-            echo "::warning::could not decide what to prune - no dated release is deleted tonight"
-            exit 0
-          fi
-          pruned=0
-          while IFS= read -r tag; do
-            [ -n "${tag}" ] || continue
-            echo "pruning the dated release ${tag}"
-            if gh release delete "${tag}" --yes --cleanup-tag; then
-              pruned=$((pruned + 1))
-              echo "Pruned \`${tag}\`." >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "::warning::could not delete the dated release ${tag} - it stays in the archive"
-            fi
-          done < "${WORK}/prune-tags.txt"
-          echo "pruned ${pruned} dated release(s)"

@@ -583,10 +583,10 @@ as the whole record:
 - **no history at all** says nothing is listed and where the document normally
   comes from.
 
-The archive keeps only the newest 14 dated releases and deletes the tag with the
-release, so a published day older than that window is no longer marked. The page
-says as much: an absent marker records nothing either way, never that the day
-published nothing.
+Every dated release is kept, tag and all, so the evidence reaches as far back as
+the channel does. It still has to be read: a checkout fetched without tags, or a
+git that cannot answer, marks no day at all — which is why an absent marker
+records nothing either way, never that the day published nothing.
 
 Tonight's own tag is the one case the tags cannot answer: this document is an
 **asset of** tonight's release, so it is written before that release and its tag
@@ -665,7 +665,7 @@ Two caveats, stated plainly:
   different bytes tomorrow. A client that wants a specific build records the
   version and the `.sha256`, not the URL alone; a **dated**
   `nightly-YYYYMMDD` release is the one whose URLs keep serving the bytes they
-  served on the day, for as long as it stays in the fourteen-day archive.
+  served on the day, and every one of them is kept.
 - **Unauthenticated API calls are rate-limited per IP:** 60 requests an hour
   (5000 with a token). A check once a day, or once per launch, sits far inside
   that; a client that polls in a loop is answered `403` with a reset time, and
@@ -818,12 +818,11 @@ anything:
   bundled names from inside the image, the driver/libc/toolchain families from
   the host. It needs Linux and `appimagetool`.
 
-It drives the **dated archive's selection rule** as pure data — which tags are
-candidates at all, over a realistic listing carrying the rolling `nightly`, a
-stable `v2.0.0`, `nightly-2026`, `nightly-20260731-rc1`, a date that names no
-real day and tags a person made; which survive a keep count of 14 and in what
-order the rest are deleted; and that tonight's own tag survives a keep count of
-zero, because it is protected explicitly rather than by being newest.
+It drives the **dated tag rule** as pure data — which tags are this channel's at
+all, over a realistic listing carrying the rolling `nightly`, a stable `v2.0.0`,
+`nightly-2026`, `nightly-20260731-rc1`, a date that names no real day and tags a
+person made. The shape is the whole test, so a look-alike somebody else tagged is
+never read as a night that published.
 
 It also drives the **release notes** an updater reads: the publish job's own
 shell block is lifted out of the workflow and run against stubbed job outputs,
@@ -837,17 +836,15 @@ people through steps they do not need, an unsigned one described as notarized
 leaves them stuck, and a macOS job that never reported reads as the unsigned
 wording rather than as a claim nobody made.
 
-The two steps that **create and prune the releases** are driven the same way,
-because a mistake in either deletes something on a real repository: they are
-lifted out of the workflow and run against a `gh` that records the exact
-argument vector it was handed instead of talking to GitHub. What is asserted is
-the sequence — that the rolling release is replaced, that the dated one is
-added carrying the identical asset list, that a build with no composed date
-still publishes the rolling one and says it left no archive entry, and that
-**no tag outside the dated shape is ever passed to a delete**, tonight's own
-included. The failure paths are asserted as paths, not as prose: a listing that
-cannot be fetched and a deletion GitHub refuses both leave the step at exit 0
-with an annotation naming what happened.
+The step that **creates the releases** is driven the same way, because a mistake
+in it deletes something on a real repository: it is lifted out of the workflow
+and run against a `gh` that records the exact argument vector it was handed
+instead of talking to GitHub. What is asserted is the sequence — that the
+rolling release is replaced, that the dated one is added carrying the identical
+asset list, that a build with no composed date still publishes the rolling one
+and says it left no archive entry, and that **the only tags a delete is ever
+handed are the two this night republishes**, so no earlier dated release can be
+reached from here.
 
 ## Where the artifacts go
 
@@ -865,7 +862,9 @@ Three places, all conservative:
   tag that never moves and that no later night deletes. This is the archive:
   somebody who wants the build from before a regression finds it on the
   releases page and downloads it. There is no in-app revert — the releases page
-  is the whole mechanism.
+  is the whole mechanism. **Every entry is kept.** A night publishes only where
+  the tree actually moved, so the archive grows with real work rather than with
+  the calendar, and release storage on a public repository costs nothing.
 
 Both carry the **same assets**, uploaded twice from one list, and the same
 notes. GitHub has no way to share an uploaded asset between two releases, and a
@@ -882,25 +881,9 @@ job.
 recreated exactly like the rolling one, so a second run never leaves two entries
 for one date.
 
-### Pruning the archive
-
-Only the newest **14** dated releases are kept; the older ones are deleted, tag
-and all. Two weeks is what the workflow-run artifacts keep too, so "how far back
-can I go" has one answer on both surfaces.
-
-Which tags are even candidates is a decision the shell does not make. The
-packager's `prune_dated_releases` makes it and only ever names a tag matching
-exactly `nightly-YYYYMMDD` on a real calendar day. The rolling `nightly`, a
-stable release tag like `v2.0.0`, a tag that merely begins like ours
-(`nightly-2026`, `nightly-20260731-rc1`) and anything a person made are not
-candidates and no keep count can turn them into one. Tonight's own tag is passed
-in as protected as well, so it survives independently of the ordering.
-
-Pruning **never fails the night**. The artifacts are the deliverable and they
-are already published by the time it runs, so a listing that cannot be fetched
-or a deletion GitHub refuses is a loud annotation and an exit 0 — and every
-deletion is named in the job log and the summary, so the output says exactly
-what was removed.
+The only releases the publish job deletes are the two it is about to recreate:
+the rolling `nightly` and this day's own dated entry. Nothing else is ever
+named, so an earlier night's download cannot be removed by a later one.
 
 The publish job runs whenever the gate was green, even if a platform's build
 failed: the release notes list every platform with its archive or the words "not
@@ -1022,7 +1005,7 @@ python3 Util/orkige_nightly_package.py --verify /tmp/smoke --platform macos \
 python3 Util/orkige_nightly_package.py --verify-dmg /tmp/nightly-out/Orkige-macos-*.dmg
 ```
 
-Five more modes serve the pipeline, and each one works by hand:
+Four more modes serve the pipeline, and each one works by hand:
 
 ```sh
 # the ordered version, its filename rendering and the dated release's tag,
@@ -1038,13 +1021,7 @@ python3 Util/orkige_nightly_package.py --history --commit <sha> \
   --published-tag nightly-$(date -u +%Y%m%d)
 # every archive in a directory against its .sha256 file
 python3 Util/orkige_nightly_package.py --verify-checksums <dir>
-# which dated releases are past the keep count, read from a list of tags
-gh release list --limit 200 --json tagName --jq '.[].tagName' \
-  | python3 Util/orkige_nightly_package.py --prune-tags - --protect nightly-$(date -u +%Y%m%d)
 ```
-
-That last one only ever *prints* tags; deleting them is the workflow's step, so
-running it by hand is a dry run of the decision by construction.
 
 `--selftest` runs the headless self-checks without needing any build tree at all;
 `--selftest-dmg` builds and mounts a real disk image over a synthetic app

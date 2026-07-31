@@ -26,8 +26,6 @@ the other Util/ generators).
 
     orkige_nightly_package.py --verify-checksums <assets dir>
 
-    orkige_nightly_package.py --prune-tags <file|-> [--keep N] [--protect <tag>]
-
     orkige_nightly_package.py --selftest [--selftest-dmg] [--selftest-appimage]
 
 This packages what a preset build tree ALREADY produced - it never builds. The
@@ -439,19 +437,16 @@ def version_filename_token(version):
 # release, which is replaced wholesale so its download URLs stay the ones a
 # document quotes and an updater fetches, and once as a dated
 # `nightly-YYYYMMDD` release no later night touches - the archive a person
-# browses to fetch the build from before a regression. The archive is bounded
-# by DELETING the oldest dated releases past a keep count, which makes the
-# selection rule below the sharp edge of the whole feature: it may only ever
-# reach a tag of exactly that shape. The rolling `nightly`, a stable release
-# tag, and anything a person made are not candidates and cannot become ones.
+# browses to fetch the build from before a regression.
+#
+# EVERY dated release is kept, tag and all. A night publishes only where the
+# tree actually moved (the unchanged-tree skip), so the archive grows with real
+# work rather than with the calendar, and release storage on a public repository
+# costs nothing. The tags therefore stay the standing evidence of which days
+# published - which is what the history document below reads.
 
 DATED_TAG_PREFIX = VERSION_CHANNEL + "-"                        # `nightly-`
 DATED_TAG_RE = re.compile("^" + VERSION_CHANNEL + r"-(\d{8})$")
-
-# how many dated releases survive a night. Two weeks is what the workflow-run
-# artifacts keep as well (retention-days: 14), so "how far back can I go" has
-# one answer on both surfaces.
-DATED_RELEASES_KEPT = 14
 
 
 def dated_release_tag(date):
@@ -464,10 +459,12 @@ def dated_release_tag(date):
 
 
 def is_dated_release_tag(tag):
-    """is this tag one this pipeline may delete? Exactly `nightly-YYYYMMDD` on
-    a real calendar day - never the rolling `nightly`, never a version tag,
-    never one that merely starts like one (`nightly-2026`,
-    `nightly-20260731-rc1`), never a date that does not exist."""
+    """is this tag one of this pipeline's dated releases? Exactly
+    `nightly-YYYYMMDD` on a real calendar day - never the rolling `nightly`,
+    never a version tag, never one that merely starts like one
+    (`nightly-2026`, `nightly-20260731-rc1`), never a date that does not
+    exist. The shape IS the whole test, so a look-alike somebody else made is
+    never read as a night this channel published."""
     match = DATED_TAG_RE.match((tag or "").strip())
     if not match:
         return False
@@ -477,21 +474,6 @@ def is_dated_release_tag(tag):
     except ValueError:
         return False
     return True
-
-
-def prune_dated_releases(tags, keep=DATED_RELEASES_KEPT, protect=()):
-    """which of these release tags a night deletes: the dated ones past the
-    newest `keep`, oldest first (the order they are logged and removed in).
-
-    Everything that is not a dated tag is not a candidate at all, and any tag
-    in `protect` - tonight's, always - survives whatever the count says. The
-    fixed-width date sorts lexicographically, so "newest" needs no parsing."""
-    protected = {(tag or "").strip() for tag in protect}
-    dated = sorted({(tag or "").strip() for tag in tags
-                    if is_dated_release_tag(tag)}, reverse=True)
-    doomed = [tag for tag in dated[max(keep, 0):] if tag not in protected]
-    doomed.reverse()
-    return doomed
 
 
 def artifact_label(commit, version=""):
@@ -698,10 +680,11 @@ def changelog_document(version, commit, date, section):
 #
 # What proves a day published is the dated release tag the publish step leaves
 # behind (`nightly-YYYYMMDD`, pointing at exactly the commit that was built).
-# The honest limit is the pruning that bounds the archive: only the newest
-# DATED_RELEASES_KEPT survive, tag and all, so a day older than that window
-# carries no marker. An absent marker therefore records nothing either way -
-# the document says so rather than implying that day published nothing.
+# Those tags are kept for good, so the evidence reaches back as far as the
+# channel does. It still has to be READ: a checkout fetched without tags, or a
+# git that cannot answer, marks no day at all - so an absent marker records
+# nothing either way, and the note below says which of the two happened rather
+# than letting a day read as having published nothing.
 #
 # Every OTHER day is headed by its date, because a date is all such a day is:
 # most of this history predates the nightly channel entirely, and composing a
@@ -793,10 +776,10 @@ ERA_LABELS = tuple(_era_label(version, marker)
 # comment above, not on the page.
 HISTORY_INTRO = (
     "The engine's history, grouped by day. Versions before %s are labels "
-    "applied in hindsight; from that day on a published nightly heads its day "
-    "with the real version it carries, and every other day is a plain date - "
-    "including published days older than the %d the archive keeps."
-    % (NIGHTLY_ERA_START, DATED_RELEASES_KEPT))
+    "applied in hindsight; from that day on a day is headed by the real "
+    "version of the nightly it published - proved by that build's release tag "
+    "- and every other day is a plain date."
+    % NIGHTLY_ERA_START)
 
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -2915,17 +2898,6 @@ def main():
     parser.add_argument("--verify-checksums", default="",
                         help="check every archive in a directory of release "
                              "assets against its %s file" % CHECKSUM_SUFFIX)
-    parser.add_argument("--prune-tags", default="",
-                        help="read release tags (one per line, `-` for stdin) "
-                             "and print the DATED nightly releases past the "
-                             "keep count, oldest first - nothing else is ever "
-                             "a candidate")
-    parser.add_argument("--keep", type=int, default=DATED_RELEASES_KEPT,
-                        help="--prune-tags: how many dated releases survive "
-                             "(default %d)" % DATED_RELEASES_KEPT)
-    parser.add_argument("--protect", default="",
-                        help="--prune-tags: a tag that survives whatever the "
-                             "count says (the night's own)")
     parser.add_argument("--selftest", action="store_true",
                         help="run the packaging self-checks and exit")
     parser.add_argument("--selftest-dmg", action="store_true",
@@ -2963,20 +2935,6 @@ def main():
         # the dated release's tag, off the SAME date - so the archive entry and
         # the version it is titled with can never name different days
         print("dated_tag=%s" % dated_release_tag(date))
-        return
-    if args.prune_tags:
-        if args.prune_tags == "-":
-            tags = sys.stdin.read().split("\n")
-        else:
-            with open(args.prune_tags, errors="replace") as handle:
-                tags = handle.read().split("\n")
-        doomed = prune_dated_releases(tags, args.keep, [args.protect])
-        # the verdict goes to stderr, so the caller's `> file` holds nothing but
-        # the tags it is about to delete
-        sys.stderr.write("orkige_nightly_package: keeping the newest %d dated "
-                         "release(s), pruning %d\n" % (args.keep, len(doomed)))
-        for tag in doomed:
-            print(tag)
         return
     if args.changelog:
         section = collect_changelog(args.commit, args.since, args.repo)
@@ -3128,16 +3086,16 @@ def selftest():
     # ... and with no version to name it by, the commit still does
     assert artifact_stem("linux", "dea551f9e0", "") == "Orkige-linux-dea551f9e"
 
-    # --- the dated archive: which tags may EVER be deleted ---------------
+    # --- the dated archive: which tags are this channel's ----------------
     # the tag comes off the same build date the version orders by
     assert dated_release_tag("2026-07-30") == "nightly-20260730"
     assert dated_release_tag("20260730") == "nightly-20260730"
     assert dated_release_tag("2026-7-3") == ""
     assert dated_release_tag("") == ""
-    # THE SHARP EDGE. Only `nightly-YYYYMMDD` on a real calendar day is a
-    # candidate - the rolling release, a stable version tag, a tag that merely
-    # starts like ours and anything a person made are not, and no keep count
-    # can turn them into one.
+    # THE SHARP EDGE. Only `nightly-YYYYMMDD` on a real calendar day is one of
+    # this channel's entries - the rolling release, a stable version tag, a tag
+    # that merely starts like ours and anything a person made are not, so none
+    # of them can be read as a night that published.
     assert is_dated_release_tag("nightly-20260730")
     assert is_dated_release_tag(" nightly-20260101 ")   # a listing's whitespace
     for decoy in ("nightly", "v2.0.0", "v2.0.0-rc1", "nightly-2026",
@@ -3148,42 +3106,6 @@ def selftest():
     # a date-shaped tag that names no real day is somebody else's, not ours
     assert not is_dated_release_tag("nightly-20261332")
     assert not is_dated_release_tag("nightly-20260230")
-
-    # a realistic listing: eighteen nights, the rolling release, a stable tag
-    # and two things a person made
-    listing = ["nightly", "v2.0.0", "v1.9.0", "nightly-2026", "docs-freeze",
-               "nightly-20260731-rc1"]
-    nights = ["nightly-202607%02d" % day for day in range(14, 32)]
-    listing.extend(reversed(nights))          # newest first, as gh lists them
-    doomed = prune_dated_releases(listing, keep=14, protect=["nightly-20260731"])
-    # exactly the four oldest dated ones, oldest FIRST (the deletion order the
-    # job logs), and nothing else in the listing is even considered
-    assert doomed == ["nightly-20260714", "nightly-20260715",
-                      "nightly-20260716", "nightly-20260717"], doomed
-    for survivor in ("nightly", "v2.0.0", "v1.9.0", "nightly-2026",
-                     "docs-freeze", "nightly-20260731-rc1"):
-        assert survivor not in doomed, survivor
-    # the newest 14 stay, tonight's among them
-    kept = [tag for tag in nights if tag not in doomed]
-    assert len(kept) == 14 and kept[-1] == "nightly-20260731", kept
-    # an archive not yet at the count loses nothing
-    assert prune_dated_releases(listing[:6] + nights[-3:], keep=14) == []
-    # tonight's entry is REPLACED, never pruned: a second run of the same day
-    # sees its own tag already listed and still keeps it
-    same_day = prune_dated_releases(listing, keep=1,
-                                    protect=["nightly-20260731"])
-    assert "nightly-20260731" not in same_day, same_day
-    assert len(same_day) == 17, len(same_day)
-    # ... and it survives even a keep count of zero, which is the whole point
-    # of protecting it explicitly rather than trusting the ordering
-    assert "nightly-20260731" not in prune_dated_releases(
-        listing, keep=0, protect=["nightly-20260731"])
-    # a duplicate listing entry is one release
-    assert prune_dated_releases(["nightly-20260101", "nightly-20260101"],
-                                keep=0) == ["nightly-20260101"]
-    # no protection asked for is no protection given - and still only ever
-    # reaches dated tags
-    assert prune_dated_releases(listing, keep=0) == sorted(nights)
 
     # --- the changelog: extraction rules over synthetic subjects --------
     # this repository's subjects are one dense narrative line whose first
@@ -3503,11 +3425,12 @@ def selftest():
     assert "dated release tags could not be read" in untagged, untagged
     assert "published nightly build" not in untagged, untagged
     assert "## 2026-07-31" in untagged, untagged
-    # no tags at all is not an error: a repository whose archive was pruned
-    # empty simply marks nothing, silently
-    pruned = collect_history("HEAD", REPO_ROOT, FakeHistoryGit(history_lines))
-    assert "dated release tags could not be read" not in pruned, pruned
-    assert "published nightly build" not in pruned, pruned
+    # no tags at all is not an error: a clone fetched without them, or a
+    # repository before its first night, simply marks nothing - silently,
+    # because git answered and the answer was empty
+    no_tags = collect_history("HEAD", REPO_ROOT, FakeHistoryGit(history_lines))
+    assert "dated release tags could not be read" not in no_tags, no_tags
+    assert "published nightly build" not in no_tags, no_tags
     # tonight's own tag does not exist yet when the publish job writes this
     # asset, so it is handed in - the one night a build describes must not be
     # the one night it leaves unmarked
@@ -3744,36 +3667,24 @@ def selftest():
             assert "UNSIGNED, so macOS refuses" in \
                 open(os.path.join(temp, "notes.md")).read()
 
-    # --- publishing the two releases, and pruning the archive -------------
-    # Both are shell in the publish job, and a mistake in either deletes
-    # something on a real repository - so the checks drive THOSE scripts,
-    # lifted out of the yaml and run against a `gh` that records the exact argv
-    # it was handed instead of talking to GitHub. What is asserted is the
-    # sequence: which tag is replaced, which is added, and - the sharp edge -
-    # that no tag outside the dated shape is ever passed to a delete.
+    # --- publishing the two releases --------------------------------------
+    # It is shell in the publish job, and a mistake in it deletes something on
+    # a real repository - so the check drives THAT script, lifted out of the
+    # yaml and run against a `gh` that records the exact argv it was handed
+    # instead of talking to GitHub. What is asserted is the sequence: which tag
+    # is replaced, which is added, and - the sharp edge - that the only tags a
+    # delete is ever handed are the two this night publishes.
     publish_script = workflow_step_script(
         NIGHTLY_WORKFLOW, "Create the rolling and dated prereleases")
-    prune_script = workflow_step_script(NIGHTLY_WORKFLOW,
-                                        "Prune the older dated releases")
     assert publish_script, "the publish job must create the releases"
-    assert prune_script, "the publish job must prune the dated archive"
     if not usable_bash():
-        log("no working bash - the publish/prune leg is skipped")
+        log("no working bash - the publish leg is skipped")
     else:
         GH_STUB = """#!/bin/sh
 # a stand-in for the GitHub CLI: it records the exact argv it was handed - one
-# argument per line, `===` after each call - and answers a listing from a file
+# argument per line, `===` after each call
 for arg in "$@"; do printf '%s\\n' "$arg" >> "$GH_LOG"; done
 printf '===\\n' >> "$GH_LOG"
-if [ "${2:-}" = "list" ]; then
-  [ -z "${GH_LIST_FAILS:-}" ] || exit 1
-  cat "$GH_TAGS"
-  exit 0
-fi
-if [ "${2:-}" = "delete" ] && [ -n "${GH_DELETE_FAILS:-}" ]; then
-  echo "gh: the release could not be deleted" >&2
-  exit 1
-fi
 exit 0
 """
 
@@ -3817,7 +3728,7 @@ exit 0
             with open(os.path.join(stage, "notes.md"), "w") as handle:
                 handle.write("notes\n")
             gh_log = os.path.join(temp, "publish.log")
-            environ = dict(base, GH_LOG=gh_log, GH_TAGS="",
+            environ = dict(base, GH_LOG=gh_log,
                            SHA="dea551f9e0abcdef1234", SHORT_SHA="dea551f9e",
                            BUILD_DATE="2026-07-31", VERSION=ordered,
                            DATED_TAG="nightly-20260731", ASSETS="downloads")
@@ -3848,6 +3759,13 @@ exit 0
             # the two releases hold the SAME files - that is what makes them one
             # download under two names
             assert calls[1][10:] == calls[3][10:]
+            # THE INVARIANT: the only tags a delete is ever handed are the two
+            # this night republishes - the rolling one and this day's own entry.
+            # No other dated release is touched, tonight or ever, so yesterday's
+            # download stays where it was published.
+            assert [call[2] for call in calls if call[:2] == ["release",
+                                                              "delete"]] == \
+                ["nightly", "nightly-20260731"], calls
             summary = open(base["GITHUB_STEP_SUMMARY"]).read()
             assert "releases/tag/nightly\n" in summary, summary
             assert "releases/tag/nightly-20260731" in summary, summary
@@ -3862,69 +3780,6 @@ exit 0
             assert "::warning::" in run.stdout, run.stdout
             calls = gh_calls(gh_log)
             assert len(calls) == 2 and calls[1][2] == "nightly", calls
-
-            # --- the prune, over a realistic listing ---------------------
-            # eighteen nights plus the decoys a real repository carries. The
-            # script runs from the repository (it calls the packager for the
-            # decision); everything it writes goes to WORK.
-            work = os.path.join(temp, "prune")
-            os.makedirs(work)
-            tags_file = os.path.join(temp, "tags.txt")
-            protected = ("nightly", "v2.0.0", "v1.9.0", "nightly-2026",
-                         "nightly-20260731-rc1", "docs-freeze")
-            with open(tags_file, "w") as handle:
-                handle.write("\n".join(list(protected)
-                                       + list(reversed(nights))) + "\n")
-            gh_log = os.path.join(temp, "prune.log")
-            environ = dict(base, GH_LOG=gh_log, GH_TAGS=tags_file, WORK=work,
-                           DATED_TAG="nightly-20260731")
-            run = subprocess.run(["bash", "-c", prune_script], cwd=REPO_ROOT,
-                                 env=environ, capture_output=True, text=True)
-            assert run.returncode == 0, run.stdout + run.stderr
-            calls = gh_calls(gh_log)
-            assert calls[0] == ["release", "list", "--limit", "200", "--json",
-                                "tagName", "--jq", ".[].tagName"], calls[0]
-            deleted = [call[2] for call in calls[1:]]
-            assert deleted == ["nightly-20260714", "nightly-20260715",
-                               "nightly-20260716", "nightly-20260717"], deleted
-            # THE INVARIANT: nothing outside the dated shape is ever handed to
-            # a delete - not the rolling release, not a version tag, not a tag
-            # a person made, and not tonight's own entry
-            for call in calls[1:]:
-                assert call[:2] == ["release", "delete"], call
-                assert is_dated_release_tag(call[2]), call
-                assert call[2] != "nightly-20260731", call
-                for forbidden in protected:
-                    assert forbidden not in call, call
-            # every deletion is named in the log, so the job's output says
-            # exactly what was removed
-            for tag in deleted:
-                assert "pruning the dated release " + tag in run.stdout, \
-                    run.stdout
-
-            # --- housekeeping never fails the night ----------------------
-            # the artifacts are already published by the time this runs, so a
-            # listing that cannot be fetched is a loud annotation and an exit 0
-            os.remove(gh_log)
-            run = subprocess.run(["bash", "-c", prune_script], cwd=REPO_ROOT,
-                                 env=dict(environ, GH_LIST_FAILS="1"),
-                                 capture_output=True, text=True)
-            assert run.returncode == 0, run.stdout + run.stderr
-            assert "::warning::could not list the releases" in run.stdout
-            assert [call for call in gh_calls(gh_log)
-                    if "delete" in call] == []
-            # ... and a deletion GitHub refuses leaves that release in the
-            # archive, warns, and still tries the rest
-            os.remove(gh_log)
-            run = subprocess.run(["bash", "-c", prune_script], cwd=REPO_ROOT,
-                                 env=dict(environ, GH_DELETE_FAILS="1"),
-                                 capture_output=True, text=True)
-            assert run.returncode == 0, run.stdout + run.stderr
-            assert run.stdout.count("::warning::could not delete") == 4, \
-                run.stdout
-            assert [call[2] for call in gh_calls(gh_log)[1:]] == \
-                ["nightly-20260714", "nightly-20260715", "nightly-20260716",
-                 "nightly-20260717"]
 
     # --- the limitations table ------------------------------------------
     keys = [entry.key for entry in LIMITATIONS]
