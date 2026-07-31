@@ -1024,12 +1024,12 @@ def verify_generated_links(pages):
             # that was renamed or on a page that rendered differently than
             # expected, and neither is diagnosable from the missing name
             # alone
-            near = sorted(a for a in page.anchors if a.startswith(anchor[:12]))
-            detail = "no such heading anchor"
-            if near:
-                detail += " (nearest: " + ", ".join(near[:3]) + ")"
-            elif not page.anchors:
-                detail += " (the page rendered no headings at all)"
+            # name what the page DOES carry, always: this gate has fired on a
+            # machine that could not be reproduced elsewhere, and the missing
+            # name alone said nothing about why
+            found = sorted(page.anchors)
+            detail = ("no such heading anchor - the page rendered %d: %s"
+                      % (len(found), ", ".join(found[-6:]) or "(none)"))
             issues.append(LinkIssue(os.path.relpath(SCRIPT_PATH, ROOT), line,
                                     page.source + "#" + anchor, detail))
     return issues
