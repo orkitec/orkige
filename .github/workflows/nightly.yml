@@ -403,6 +403,12 @@ jobs:
           restore-keys: |
             ccache-fuzz-${{ runner.os }}-
 
+      # ORKIGE_HTTP=OFF: the targets here are PURE PARSERS fed bytes by the
+      # fuzzer, so a network transport is nothing this tree can exercise - and
+      # this manifest deliberately installs the smallest dependency set that
+      # builds core, which does not include the HTTP transport's own library.
+      # Turning the client off is the documented lever for exactly that, and it
+      # keeps a build of the no-networking configuration honest in CI.
       - name: Configure (core-only fuzz tree)
         run: |
           cmake -S . -B build/fuzz -G Ninja \
@@ -410,7 +416,8 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT_DIR/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_MANIFEST_DIR="$GITHUB_WORKSPACE/tests/fuzz" \
             -DORKIGE_BUILD_ENGINE=OFF -DORKIGE_BUILD_TOOLS=OFF -DORKIGE_BUILD_TESTS=OFF \
-            -DORKIGE_FUZZ=ON -DORKIGE_ENABLE_SANITIZERS=ON
+            -DORKIGE_FUZZ=ON -DORKIGE_ENABLE_SANITIZERS=ON \
+            -DORKIGE_HTTP=OFF
 
       - name: Build the fuzz targets
         run: |
