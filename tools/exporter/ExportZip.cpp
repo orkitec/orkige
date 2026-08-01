@@ -59,6 +59,35 @@ namespace OrkigeExport
 		{
 			out.insert(out.end(), text.begin(), text.end());
 		}
+		//---------------------------------------------------------
+		//! the mode an added file records: read off the file where the host
+		//! keeps modes, the deterministic default everywhere else
+		unsigned int stagedFileMode(Orkige::String const & path)
+		{
+			if(!hostCarriesFileModes())
+			{
+				return 0644u;
+			}
+			std::error_code ignored;
+			const std::filesystem::perms permissions =
+				std::filesystem::status(std::filesystem::path(path),
+					ignored).permissions();
+			const bool executable = (permissions &
+				(std::filesystem::perms::owner_exec |
+				 std::filesystem::perms::group_exec |
+				 std::filesystem::perms::others_exec)) !=
+				std::filesystem::perms::none;
+			return executable ? 0755u : 0644u;
+		}
+	}
+	//---------------------------------------------------------
+	bool hostCarriesFileModes()
+	{
+#ifdef _WIN32
+		return false;
+#else
+		return true;
+#endif
 	}
 	//---------------------------------------------------------
 	bool deflateRaw(std::vector<unsigned char> const & input,
@@ -164,16 +193,8 @@ namespace OrkigeExport
 		{
 			return false;
 		}
-		std::error_code ignored;
-		const std::filesystem::perms permissions =
-			std::filesystem::status(path, ignored).permissions();
-		const bool executable = (permissions &
-			(std::filesystem::perms::owner_exec |
-			 std::filesystem::perms::group_exec |
-			 std::filesystem::perms::others_exec)) !=
-			std::filesystem::perms::none;
-		return this->addBytes(archiveName, bytes, method,
-			executable ? 0755u : 0644u, error);
+		return this->addBytes(archiveName, bytes, method, stagedFileMode(path),
+			error);
 	}
 	//---------------------------------------------------------
 	bool ExportZip::finish(std::vector<unsigned char> & out,

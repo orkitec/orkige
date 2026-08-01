@@ -60,6 +60,33 @@ namespace
 	private:
 		std::string mPath;
 	};
+	//---------------------------------------------------------
+	//! @brief the external attributes @p name's central directory record
+	//! carries, read straight out of the finished bytes (0 when absent)
+	unsigned int centralExternalAttributes(
+		std::vector<unsigned char> const & archive, std::string const & name)
+	{
+		const std::string text(archive.begin(), archive.end());
+		std::size_t at = 0;
+		while((at = text.find("\x50\x4b\x01\x02", at)) != std::string::npos)
+		{
+			const std::size_t nameLength = static_cast<unsigned char>(
+				text[at + 28]) | (static_cast<unsigned char>(
+				text[at + 29]) << 8);
+			if(text.compare(at + 46, nameLength, name) == 0)
+			{
+				unsigned int value = 0;
+				for(int index = 3; index >= 0; --index)
+				{
+					value = (value << 8) | static_cast<unsigned char>(
+						text[at + 38 + index]);
+				}
+				return value;
+			}
+			at += 4;
+		}
+		return 0u;
+	}
 }
 
 TEST_CASE("ExportZip round-trips STORED and DEFLATE through MiniZip",
@@ -146,31 +173,39 @@ TEST_CASE("ExportZip carries an entry's executable bit", "[exporter][zip]")
 	// the executable bit lives in the HIGH 16 bits of the central directory's
 	// external attributes - an unpacked bundle whose binary lost it will not
 	// launch, so this is the assertion that keeps an .ipa installable
-	auto externalAttributes = [&archive](std::string const & name)
-	{
-		const std::string text(archive.begin(), archive.end());
-		std::size_t at = 0;
-		while((at = text.find("\x50\x4b\x01\x02", at)) != std::string::npos)
-		{
-			const std::size_t nameLength = static_cast<unsigned char>(
-				text[at + 28]) | (static_cast<unsigned char>(
-				text[at + 29]) << 8);
-			if(text.compare(at + 46, nameLength, name) == 0)
-			{
-				unsigned int value = 0;
-				for(int index = 3; index >= 0; --index)
-				{
-					value = (value << 8) | static_cast<unsigned char>(
-						text[at + 38 + index]);
-				}
-				return value;
-			}
-			at += 4;
-		}
-		return 0u;
-	};
-	REQUIRE((externalAttributes("Payload/Game.app/Game") >> 16) == 0755u);
-	REQUIRE((externalAttributes("Payload/Game.app/readme.txt") >> 16) == 0644u);
+	const unsigned int binaryMode =
+		centralExternalAttributes(archive, "Payload/Game.app/Game") >> 16;
+	const unsigned int plainMode =
+		centralExternalAttributes(archive, "Payload/Game.app/readme.txt") >> 16;
+	// a host that keeps no modes has none to carry: there both entries record
+	// the writer's deterministic default rather than an invented bit (Windows
+	// models only a read-only flag and reports every file as executable). The
+	// bundles whose executable bit decides whether the artifact runs are
+	// packed on macOS, which is where the executable answer is asserted.
+	REQUIRE(binaryMode ==
+		(OrkigeExport::hostCarriesFileModes() ? 0755u : 0644u));
+	REQUIRE(plainMode == 0644u);
+}
+
+TEST_CASE("ExportZip records the mode it is given", "[exporter][zip]")
+{
+	// the mode MECHANISM - a requested mode reaching the central directory's
+	// external attributes - is host-independent, and asserted on every host:
+	// only reading a mode off a staged file needs a host that keeps modes
+	ExportZip zip;
+	Orkige::String error;
+	REQUIRE(zip.addBytes("Payload/Game.app/Game", bytesOf("binary"),
+		ExportZip::METHOD_STORE, 0755u, &error));
+	REQUIRE(zip.addBytes("Payload/Game.app/readme.txt", bytesOf("hello\n"),
+		ExportZip::METHOD_STORE, 0, &error));
+	std::vector<unsigned char> archive;
+	REQUIRE(zip.finish(archive, &error));
+
+	CHECK((centralExternalAttributes(archive, "Payload/Game.app/Game") >> 16)
+		== 0755u);
+	// 0 asks for the default, which is 0644 and not "no mode at all"
+	CHECK((centralExternalAttributes(archive,
+		"Payload/Game.app/readme.txt") >> 16) == 0644u);
 }
 
 TEST_CASE("ExportZip refuses a duplicate entry name", "[exporter][zip]")

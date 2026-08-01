@@ -99,7 +99,10 @@ namespace OrkigeExport
 			{
 				break;
 			}
-			candidates.push_back(walk->path().string());
+			// through join, so the answer is spelled the one way every
+			// derived path is - never however the caller spelled its input
+			candidates.push_back(ExportFiles::join(installed,
+				walk->path().filename().string()));
 		}
 		// sorted, so the answer does not depend on directory order
 		std::sort(candidates.begin(), candidates.end());

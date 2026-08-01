@@ -100,7 +100,16 @@ namespace OrkigeExport
 		static std::vector<Orkige::String> listFilesRecursive(
 			Orkige::String const & root);
 
-		//! @brief join two path fragments with the platform separator
+		//! @brief join two path fragments into a filesystem path spelled with
+		//! the host's separator THROUGHOUT.
+		//! @remarks a fragment written with forward slashes (which every
+		//! literal in this tool is) carries its own separators into the
+		//! result, so joining without normalising would produce a path that is
+		//! half one separator and half the other on Windows - it still opens,
+		//! but it never compares equal to the same path the filesystem itself
+		//! named. Paths that must stay forward-slashed regardless of host -
+		//! zip entry names, the relative names `listFilesRecursive` reports -
+		//! are NOT built from this: they carry that guarantee themselves.
 		static Orkige::String join(Orkige::String const & left,
 			Orkige::String const & right);
 

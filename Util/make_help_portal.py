@@ -135,6 +135,20 @@ API_SECTION_NOTE = ("The C++ class reference, generated from the engine "
 
 
 # ---------------------------------------------------------------------------
+# text files (the ONE encoding seam)
+# ---------------------------------------------------------------------------
+def open_text(path, mode="r", newline=None):
+    """Open a text file as UTF-8 on every host.
+
+    Python's default text encoding is the platform's - the ANSI code page on
+    Windows. The docs corpus, the pages this script writes and its own test
+    fixtures are UTF-8, and reading any of them through a host default turns
+    the typography they carry (dashes, quotes, accents) into mojibake that
+    later comparisons then fail on."""
+    return open(path, mode, encoding="utf-8", newline=newline)
+
+
+# ---------------------------------------------------------------------------
 # corpus discovery
 # ---------------------------------------------------------------------------
 class Page:
@@ -253,8 +267,16 @@ def slugify(heading_text, taken):
 # inline rendering
 # ---------------------------------------------------------------------------
 class LinkIssue:
+    """One broken internal link, reported as `source:line -> target (reason)`.
+
+    The source is a REPO-RELATIVE, forward-slashed path - the way the corpus
+    itself spells paths - so a report reads the same on every host and stays
+    greppable no matter which one produced it. A page names its own source
+    that way already; a path that came from os.path (the script's own, on a
+    host whose separator is a backslash) is converted here."""
+
     def __init__(self, source, line, target, reason):
-        self.source = source
+        self.source = source.replace("\\", "/")
         self.line = line
         self.target = target
         self.reason = reason
@@ -669,7 +691,7 @@ def render_page(page, by_source, root):
     if not page.source:
         return render_markdown(page, changelog_markdown(root), by_source, root,
                                links=False)
-    with open(os.path.join(root, page.source), "r", encoding="utf-8") as f:
+    with open_text(os.path.join(root, page.source)) as f:
         return render_markdown(page, f.read(), by_source, root)
 
 
@@ -998,7 +1020,7 @@ def _constant_line(name):
     """The line a module constant is declared on, so a generated-link failure
     reads file:line like every other broken-link report."""
     try:
-        with open(SCRIPT_PATH, "r", encoding="utf-8") as f:
+        with open_text(SCRIPT_PATH) as f:
             for number, line in enumerate(f, 1):
                 if line.startswith(name + " ="):
                     return number
@@ -1022,11 +1044,7 @@ def verify_generated_links(pages):
         elif anchor and anchor not in page.anchors:
             # name what the page DOES carry: this gate fires on a heading
             # that was renamed or on a page that rendered differently than
-            # expected, and neither is diagnosable from the missing name
-            # alone
-            # name what the page DOES carry, always: this gate has fired on a
-            # machine that could not be reproduced elsewhere, and the missing
-            # name alone said nothing about why
+            # expected, and neither is diagnosable from the missing name alone
             found = sorted(page.anchors)
             detail = ("no such heading anchor - the page rendered %d: %s"
                       % (len(found), ", ".join(found[-6:]) or "(none)"))
@@ -1768,7 +1786,7 @@ def build(root, output_dir, if_stale=False):
     if if_stale and os.path.isfile(stamp_path) \
             and os.path.isfile(os.path.join(output_dir, "index.html")) \
             and os.path.isfile(os.path.join(help_dir, "index.html")):
-        with open(stamp_path, "r") as f:
+        with open_text(stamp_path) as f:
             if f.read().strip() == stamp:
                 print("make_help_portal: up to date (%d pages)" % len(pages))
                 print("make_help_portal: OK %s" % output_dir)
@@ -1789,8 +1807,8 @@ def build(root, output_dir, if_stale=False):
     written = {"": set(), "help": set()}
 
     def write(directory, name, content):
-        with open(os.path.join(output_dir, directory, name), "w",
-                  encoding="utf-8", newline="\n") as f:
+        with open_text(os.path.join(output_dir, directory, name), "w",
+                       newline="\n") as f:
             f.write(content)
         written[directory].add(name)
 
@@ -1999,7 +2017,7 @@ def _check_site_scripts(out):
     scripts = [os.path.join(out, "help", name)
                for name in ("help.js", DOWNLOADS_JS_NAME)]
     for path in scripts:
-        with open(path, encoding="utf-8") as f:
+        with open_text(path) as f:
             text = f.read()
         assert text.startswith("// Orkige"), \
             "%s must start with its own comment, not %r" % (path, text[:12])
@@ -2019,37 +2037,37 @@ def _check_site_tags(out):
         for name in sorted(os.listdir(site_dir)):
             if not name.endswith(".html"):
                 continue
-            with open(os.path.join(site_dir, name)) as f:
+            with open_text(os.path.join(site_dir, name)) as f:
                 problems = _TagBalanceChecker().check(f.read())
             assert not problems, "%s/%s: %s" % (directory, name, problems)
 
 
 def _selftest_synthetic(temp_root):
     os.makedirs(os.path.join(temp_root, "Docs", "legal"))
-    with open(os.path.join(temp_root, "README.md"), "w") as f:
+    with open_text(os.path.join(temp_root, "README.md"), "w") as f:
         f.write("# Tiny\n\nOverview body.\n")
-    with open(os.path.join(temp_root, "Docs", "synthetic.md"), "w") as f:
+    with open_text(os.path.join(temp_root, "Docs", "synthetic.md"), "w") as f:
         f.write(SELFTEST_DOC)
     # a committed image beside the doc: it must be copied into the site and
     # rendered as <img>; a missing/remote one degrades to alt text
     with open(os.path.join(temp_root, "Docs", "logo.png"), "wb") as f:
         f.write(b"\x89PNG\r\n\x1a\n synthetic image bytes")
-    with open(os.path.join(temp_root, "Docs", "other.md"), "w") as f:
+    with open_text(os.path.join(temp_root, "Docs", "other.md"), "w") as f:
         f.write(SELFTEST_OTHER)
     nightly_doc = os.path.join(temp_root, "Docs", "nightly-builds.md")
-    with open(nightly_doc, "w") as f:
+    with open_text(nightly_doc, "w") as f:
         f.write(SELFTEST_NIGHTLY)
-    with open(os.path.join(temp_root, "Docs", "legal", "imprint.md"),
-              "w") as f:
+    with open_text(os.path.join(temp_root, "Docs", "legal",
+                                "imprint.md"), "w") as f:
         f.write("# Impressum\n\nSynthetic imprint body, see "
                 "[privacy](privacy.md) and [a guide](../synthetic.md).\n")
-    with open(os.path.join(temp_root, "Docs", "legal", "privacy.md"),
-              "w") as f:
+    with open_text(os.path.join(temp_root, "Docs", "legal",
+                                "privacy.md"), "w") as f:
         f.write("# Privacy Notice\n\nSynthetic privacy body with the word "
                 "xylophone.\n")
     out = os.path.join(temp_root, "site")
     assert build(temp_root, out) == 0
-    with open(os.path.join(out, "help", "synthetic.html")) as f:
+    with open_text(os.path.join(out, "help", "synthetic.html")) as f:
         page = f.read()
     assert '<a href="other.html#target-section">link</a>' in page, page
     assert "<code>../README.md</code>" not in page   # resolves to overview
@@ -2077,7 +2095,7 @@ def _selftest_synthetic(temp_root):
     # the legal pages: root-level, footer-linked from every page, unindexed
     assert '<a href="../imprint.html">Impressum</a>' in page, page
     assert '<a href="../privacy.html">Privacy Notice</a>' in page, page
-    with open(os.path.join(out, "imprint.html")) as f:
+    with open_text(os.path.join(out, "imprint.html")) as f:
         imprint = f.read()
     assert "Synthetic imprint body" in imprint
     assert '<a href="privacy.html">privacy</a>' in imprint, imprint
@@ -2085,7 +2103,7 @@ def _selftest_synthetic(temp_root):
     assert '<a href="imprint.html">Impressum</a>' in imprint  # own footer
     assert 'id="search"' not in imprint          # no search on legal pages
     # the landing page: the site front door linking portal, /api/, GitHub
-    with open(os.path.join(out, "index.html")) as f:
+    with open_text(os.path.join(out, "index.html")) as f:
         landing = f.read()
     assert 'href="help/index.html"' in landing
     assert 'href="api/index.html"' in landing
@@ -2121,7 +2139,7 @@ def _selftest_synthetic(temp_root):
     # the resolver is a separate file the page loads LAST, carrying the one
     # asset/platform table the Python matchers above read
     assert '<script src="help/%s"></script>' % DOWNLOADS_JS_NAME in landing
-    with open(os.path.join(out, "help", DOWNLOADS_JS_NAME)) as f:
+    with open_text(os.path.join(out, "help", DOWNLOADS_JS_NAME)) as f:
         resolver = f.read()
     assert "__CONFIG__" not in resolver, "the config must be substituted"
     embedded = json.loads(re.search(r'var CONFIG = (\{.*?\});',
@@ -2130,13 +2148,13 @@ def _selftest_synthetic(temp_root):
     _check_site_scripts(out)
     # the live benchmark page: header, then the 16:9 iframe pointing at /play/,
     # then the context prose
-    with open(os.path.join(out, "benchmark.html")) as f:
+    with open_text(os.path.join(out, "benchmark.html")) as f:
         benchmark = f.read()
     assert 'src="play/index.html"' in benchmark, benchmark
     assert 'class="player-frame"' in benchmark, benchmark
     assert 'class="player-loading"' in benchmark, benchmark
     _check_site_tags(out)
-    with open(os.path.join(out, "help", "search-index.json")) as f:
+    with open_text(os.path.join(out, "help", "search-index.json")) as f:
         records = json.load(f)
     target = [r for r in records if r["anchor"] == "target-section"]
     assert target and "zanzibar" in target[0]["body"]
@@ -2144,7 +2162,8 @@ def _selftest_synthetic(temp_root):
         "legal pages must stay out of the search index"
     # the release history: a corpus with no git history behind it says so on
     # the page instead of rendering an empty one, and never claims a version
-    with open(os.path.join(out, "help", CHANGELOG_PAGE_ID + ".html")) as f:
+    with open_text(os.path.join(out, "help",
+                                CHANGELOG_PAGE_ID + ".html")) as f:
         changelog = f.read()
     assert "No commit history was available" in changelog, changelog
     assert "No commits to list." in changelog, changelog
@@ -2157,18 +2176,18 @@ def _selftest_synthetic(temp_root):
 
     # staleness: an unchanged corpus is a no-op, a touched source rebuilds
     stamp_file = os.path.join(out, ".stamp")
-    before = open(stamp_file).read()
+    before = open_text(stamp_file).read()
     assert build(temp_root, out, if_stale=True) == 0
-    assert open(stamp_file).read() == before
-    with open(os.path.join(temp_root, "Docs", "other.md"), "a") as f:
+    assert open_text(stamp_file).read() == before
+    with open_text(os.path.join(temp_root, "Docs", "other.md"), "a") as f:
         f.write("\nMore prose.\n")
     assert build(temp_root, out, if_stale=True) == 0
-    assert open(stamp_file).read() != before
+    assert open_text(stamp_file).read() != before
 
     # the GENERATED pages are held to the same gate as authored prose: retitle
     # the heading the Downloads section deep-links and the build fails naming
     # it, rather than shipping a link that 404s on the live site
-    with open(nightly_doc, "w") as f:
+    with open_text(nightly_doc, "w") as f:
         f.write(SELFTEST_NIGHTLY.replace(
             "## What a downloaded build cannot do yet", "## Limitations"))
     captured = io.StringIO()
@@ -2183,13 +2202,18 @@ def _selftest_synthetic(temp_root):
     assert "Util/make_help_portal.py:" in report, report
     assert "Docs/nightly-builds.md#what-a-downloaded-build-cannot-do-yet" \
         in report, report
-    with open(nightly_doc, "w") as f:
+    # that report path is forward-slashed WHATEVER the host separator is: the
+    # script names its own source through os.path, which spells it with
+    # backslashes on Windows, and a report nobody can grep for helps nobody
+    assert str(LinkIssue("Util\\make_help_portal.py", 7, "Docs/a.md#b",
+                         "why")).startswith("Util/make_help_portal.py:7 ")
+    with open_text(nightly_doc, "w") as f:
         f.write(SELFTEST_NIGHTLY)
     assert build(temp_root, out) == 0
 
     # a broken link (missing file AND missing anchor) fails the build and
     # names file:line - the actionable report docs authors get
-    with open(os.path.join(temp_root, "Docs", "broken.md"), "w") as f:
+    with open_text(os.path.join(temp_root, "Docs", "broken.md"), "w") as f:
         f.write("# Broken\n\nSee [gone](missing.md) and "
                 "[bad](other.md#no-such-anchor).\n")
     captured = io.StringIO()
@@ -2256,7 +2280,8 @@ def _selftest_history_page(temp_root):
 
     out = os.path.join(temp_root, "history_site")
     assert build(temp_root, out) == 0
-    with open(os.path.join(out, "help", CHANGELOG_PAGE_ID + ".html")) as f:
+    with open_text(os.path.join(out, "help",
+                                CHANGELOG_PAGE_ID + ".html")) as f:
         changelog = f.read()
     days = [html.unescape(day) for day
             in re.findall(r'<h2 id="[^"]*">([^<]+)</h2>', changelog)]
@@ -2284,19 +2309,19 @@ def _selftest_real_corpus(temp_root):
         path = os.path.join(out, page.directory, page.page_id + ".html")
         assert os.path.getsize(path) > 0, page.page_id
     _check_site_tags(out)
-    with open(os.path.join(out, "help", "search-index.json")) as f:
+    with open_text(os.path.join(out, "help", "search-index.json")) as f:
         records = json.load(f)
     assert len(records) > 100, "the corpus should index >100 sections"
     hits = [r for r in records if "script components" in r["heading"].lower()]
     assert hits, "lua-api's Script components section must be indexed"
     assert not any(r["page"] in ("imprint.html", "privacy.html")
                    for r in records), "legal pages must not be indexed"
-    with open(os.path.join(out, "help", "lua-api.html")) as f:
+    with open_text(os.path.join(out, "help", "lua-api.html")) as f:
         lua_page = f.read()
     assert 'id="script-components"' in lua_page
     assert '<a href="../api/index.html">API Reference</a>' in lua_page
     # the deployed front door: landing -> portal / getting started / api
-    with open(os.path.join(out, "index.html")) as f:
+    with open_text(os.path.join(out, "index.html")) as f:
         landing = f.read()
     assert 'href="help/index.html"' in landing
     assert 'href="help/getting-started.html"' in landing
@@ -2310,21 +2335,21 @@ def _selftest_real_corpus(temp_root):
     assert 'href="help/nightly-builds.html#' \
         'what-a-downloaded-build-cannot-do-yet"' in landing
     assert landing.count('href="%s"' % NIGHTLY_RELEASE_URL) == 6, landing
-    with open(os.path.join(out, "help", "nightly-builds.html")) as f:
+    with open_text(os.path.join(out, "help", "nightly-builds.html")) as f:
         nightly = f.read()
     assert 'id="what-a-downloaded-build-cannot-do-yet"' in nightly
     _check_site_scripts(out)
     # the site identity: favicon + header logo on the landing and portal pages
     assert 'rel="apple-touch-icon"' in landing and '<img class="logo"' in landing
     # the README mark renders in the portal overview (copied beside the page)
-    with open(os.path.join(out, "help", "overview.html")) as f:
+    with open_text(os.path.join(out, "help", "overview.html")) as f:
         overview = f.read()
     assert '<img class="doc-image" src="orkige_icon.png"' in overview, overview
     assert os.path.getsize(os.path.join(out, "help", "orkige_icon.png")) > 0
     assert 'rel="apple-touch-icon"' in overview and '<img class="logo"' in overview
     # the live benchmark page: the 16:9 player embed at /play/ + the prose,
     # the landing page's fifth nav button links here
-    with open(os.path.join(out, "benchmark.html")) as f:
+    with open_text(os.path.join(out, "benchmark.html")) as f:
         benchmark = f.read()
     assert 'src="play/index.html"' in benchmark
     assert 'class="player-frame"' in benchmark
@@ -2333,7 +2358,8 @@ def _selftest_real_corpus(temp_root):
     # ONE grammar the composition defines - the ordered identity of a build
     # that really was published, or a date carrying its retroactive era - the
     # days run newest first, and each entry names its commit
-    with open(os.path.join(out, "help", CHANGELOG_PAGE_ID + ".html")) as f:
+    with open_text(os.path.join(out, "help",
+                                CHANGELOG_PAGE_ID + ".html")) as f:
         changelog = f.read()
     days = re.findall(r'<h2 id="[^"]*">([^<]+)</h2>', changelog)
     assert days, changelog[:2000]
@@ -2365,10 +2391,10 @@ def _selftest_real_corpus(temp_root):
     assert "No commit history was available" not in changelog
     assert not any(r["page"] == "changelog.html" for r in records), \
         "the release history must stay out of the search index"
-    with open(os.path.join(out, "imprint.html")) as f:
+    with open_text(os.path.join(out, "imprint.html")) as f:
         imprint = f.read()
     assert "Impressum" in imprint and "orkitec" in imprint
-    with open(os.path.join(out, "privacy.html")) as f:
+    with open_text(os.path.join(out, "privacy.html")) as f:
         privacy = f.read()
     assert "Privacy Notice" in privacy
     print("make_help_portal selftest: real corpus OK (%d pages, %d records)"

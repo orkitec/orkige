@@ -193,6 +193,23 @@ TEST_CASE("path helpers", "[unit][export]")
 	CHECK_FALSE(ExportFiles::absolute(".").empty());
 }
 
+TEST_CASE("join speaks ONE separator all the way through", "[unit][export]")
+{
+	// every path literal in the exporter is forward-slashed; on a host whose
+	// separator is not '/' a join that kept them would hand back a path half
+	// in each form - it opens, but it never compares equal to the same path
+	// the filesystem named, which is what an export asserts on
+	const char separator =
+		static_cast<char>(std::filesystem::path::preferred_separator);
+	const char foreign = (separator == '/') ? '\\' : '/';
+	const Orkige::String joined = ExportFiles::join("a/b", "c/d");
+	CHECK(joined == Orkige::String("a") + separator + "b" + separator + "c" +
+		separator + "d");
+	CHECK(joined.find(foreign) == Orkige::String::npos);
+	// the same holds for the empty-left case, which returns the right side
+	CHECK(ExportFiles::join("", "x/y").find(foreign) == Orkige::String::npos);
+}
+
 TEST_CASE("copyFile creates the destination parents", "[unit][export]")
 {
 	ScratchDir scratch("copyfile");

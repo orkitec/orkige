@@ -30,7 +30,9 @@
 //!  - FILE MODE travels. An `.ipa` carries an executable; a bundle whose
 //!    binary unpacks without its executable bit does not launch, so each
 //!    entry's POSIX mode goes into the central directory's external
-//!    attributes the way every unix zip writer records it.
+//!    attributes the way every unix zip writer records it. A mode is always
+//!    written; where it is DERIVED from a staged file it needs a host that
+//!    has modes to derive it from (@see hostCarriesFileModes).
 //!  - The archive is REPRODUCIBLE. Entries are written in the order added,
 //!    with one fixed timestamp, so packaging the same tree twice yields the
 //!    same bytes.
@@ -66,7 +68,8 @@ namespace OrkigeExport
 			unsigned int posixMode, Orkige::String * error);
 
 		//! @brief add the file at @p path as @p archiveName, carrying its own
-		//! executable bit across
+		//! executable bit across where the host has one to carry (0644 for
+		//! every entry where it does not - @see hostCarriesFileModes)
 		bool addFile(Orkige::String const & archiveName,
 			Orkige::String const & path, Method method, Orkige::String * error);
 
@@ -104,6 +107,17 @@ namespace OrkigeExport
 	//! stream a zip entry carries). False with an @p error when zlib refuses.
 	bool deflateRaw(std::vector<unsigned char> const & input,
 		std::vector<unsigned char> & out, Orkige::String * error);
+
+	//! @brief whether this host stores POSIX file modes.
+	//! @remarks false on Windows, which models only a read-only flag - and
+	//! reports every file as executable through std::filesystem, so a mode
+	//! read there would be an invention rather than a fact.
+	//! `ExportZip::addFile` records the deterministic default 0644 for every
+	//! entry on such a host; an explicit mode passed to `addBytes` is always
+	//! recorded verbatim. The archives whose executable bit decides whether
+	//! the artifact runs - the `.ipa` an Apple bundle is packed into - are
+	//! built on macOS, where the bit is real.
+	bool hostCarriesFileModes();
 }
 
 #endif //__ExportZip_h__1_8_2026__10_00_00__

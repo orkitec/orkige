@@ -422,11 +422,14 @@ namespace OrkigeExport
 	Orkige::String ExportFiles::join(Orkige::String const & left,
 		Orkige::String const & right)
 	{
+		// make_preferred is what makes the whole result speak ONE separator:
+		// the fragments carry forward slashes and the host may not (it is a
+		// no-op wherever the preferred separator already is '/')
 		if(left.empty())
 		{
-			return right;
+			return std::filesystem::path(right).make_preferred().string();
 		}
-		return (std::filesystem::path(left) / right).string();
+		return (std::filesystem::path(left) / right).make_preferred().string();
 	}
 	//---------------------------------------------------------
 	Orkige::String ExportFiles::absolute(Orkige::String const & path)
