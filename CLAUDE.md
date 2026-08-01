@@ -46,11 +46,15 @@ every current (WebGL2-capable) browser hands back; WebGL1/GLES2 is only the
 fallback where WebGL2 is genuinely absent, and the engine still gates
 GLES3-level features on a `glsl300es` probe for that floor. (A runtime
 tier-assertion test is a TODO — the requested tier is code-confirmed, not yet
-suite-asserted — see `Docs/web-export.md`.) Needs the user-local emsdk, see
-`triplets/wasm32-emscripten.cmake`; the chainload wrapper
+suite-asserted — see `Docs/web-export.md`.) BUILDING the wasm player needs the
+user-local emsdk, see `triplets/wasm32-emscripten.cmake`; the chainload wrapper
 `cmake/wasm32-emscripten-toolchain.cmake` carries `-fwasm-exceptions` for
 the WHOLE closure because vcpkg silently drops triplet compiler flags on
-toolchain-less platforms; export via `orkige_export.py --platform web`,
+toolchain-less platforms. EXPORTING needs none of it: a web export compiles
+nothing, it copies the prebuilt player and seals the payload into one
+`game.pak` the page fetches and the player mounts (the Android stored-APK
+mechanism on a second platform), so `orkige_export --platform web` runs on a
+machine with no emsdk at all;
 Play in Browser from the editor's target picker serves it on a loopback
 HttpServer instance AND is a live debug session: the page dials the debug
 link back in over a WebSocket the serve port upgrades — the ONE protocol,
@@ -682,7 +686,9 @@ the play process (desktop target only; covered by the
 editor_project_native_play / _break ctests, per flavor — their build tree persists
 under `projects/jumper-native/native/build-<flavor>`, gitignored, so re-runs build
 incrementally).
-**Project export** (`Util/orkige_export.py`, editor Build menu): packages a project as a
+**Project export** (`tools/exporter/` — the `orkige_exporter` library and the
+`orkige_export` CLI every export ctest drives; the editor's Build menu still spawns the
+older `Util/orkige_export.py` until that cutover lands): packages a project as a
 distributable macOS .app (self-contained: player/module binary + dylib closure + engine
 media + project payload; a marker file makes the app boot its bundled project with no
 arguments — `PlayerBundle` in `engine_runtime/PlayerRuntime.h`), an iOS-simulator .app or
