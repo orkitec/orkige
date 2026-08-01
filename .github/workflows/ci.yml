@@ -1501,6 +1501,11 @@ jobs:
       - name: Build the Simulator player (MUST pass)
         run: cmake --build --preset ios-simulator-debug-classic --target orkige_player
 
+      # the exporter is a HOST tool: a cross-compiled iOS tree cannot build it,
+      # and the export test drives it rather than a script now
+      - name: Build the host exporter (MUST pass)
+        run: cmake --build --preset macos-debug-classic --target orkige_export
+
       - name: Save ccache
         if: always()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
