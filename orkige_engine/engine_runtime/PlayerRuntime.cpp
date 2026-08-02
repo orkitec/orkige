@@ -385,6 +385,45 @@ namespace Orkige
 			}
 			return fallbackMediaDir;
 		}
+		//---------------------------------------------------------
+		bool isMountedMediaPath(String const & relativePath)
+		{
+			// the fopen-read / directory-discovered exceptions first: a file
+			// kind listed here is written out even inside a media sub-tree
+			// (@see the rule in the header). Keyed on the EXTENSION, not on
+			// where the kind conventionally lives, because a manifest may
+			// point a config asset at any path in the project.
+			static const char * const extractedSuffixes[] =
+			{
+				".oprefab", ".orkmeta",				// asset-tree documents
+				".oscene", ".orkproj",				// scene + manifest
+				".olevels", ".oactions", ".olayers",	// config assets
+				".xlf"								// localisation tables
+			};
+			for (const char * suffix : extractedSuffixes)
+			{
+				const std::size_t length = std::strlen(suffix);
+				if (relativePath.size() >= length &&
+					relativePath.compare(relativePath.size() - length, length,
+						suffix) == 0)
+				{
+					return false;
+				}
+			}
+			// the bulk media sub-trees a package can carry: an exported
+			// project's own assets, and the sample media the development
+			// player bundles beside it
+			static const char * const mediaPrefixes[] =
+				{ "project/assets/", "assets/", "jumper_media/" };
+			for (const char * prefix : mediaPrefixes)
+			{
+				if (relativePath.rfind(prefix, 0) == 0)
+				{
+					return true;
+				}
+			}
+			return false;
+		}
 	}
 	//---------------------------------------------------------
 	PlayerDebugLink::PlayerDebugLink() = default;

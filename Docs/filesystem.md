@@ -146,6 +146,76 @@ Verified by `player_pak_script_selfcheck` (both flavors — a path-bound
 `ResourceReaderTests` (the provider seam, the memory-load path, and the
 fall-back-when-unset / on-miss paths; inert in `ORKIGE_SCRIPTING=OFF`).
 
+## The mount-versus-extract rule
+
+Two packaged platforms mount an archive instead of unpacking it — an Android
+APK left uncompressed (`export.android.assets=stored`) and a browser export's
+`game.pak`. They share ONE decision function,
+`PlayerBundle::isMountedMediaPath` (`engine_runtime/PlayerRuntime.h`), so the
+split cannot drift between them. It answers a package-relative path, and the
+package root is also the extraction destination root, so both sides agree by
+construction.
+
+**A file may be mounted only when every runtime reader of it goes through the
+resource system.** Two things disqualify it:
+
+- **Opened by path** — `fopen` / tinyxml2 / `std::ifstream`. A zip entry has no
+  file handle, so such a reader simply sees nothing.
+- **Discovered by directory enumeration** — a mounted entry is not a directory
+  entry, so a scanner walking the tree never finds it.
+
+Only the bulk media sub-trees are mount candidates at all (`project/assets/`,
+`assets/`, `jumper_media/` — the textures/audio/meshes referenced by resource
+name, the majority of the bytes). Everything else in a package is written out
+wholesale. The exclusions are keyed on the **extension**, not on where a kind
+conventionally lives: a manifest points at its config assets by an arbitrary
+path string, so convention must not be the only thing keeping a by-path reader
+out of the archive.
+
+| Extension | Reader | Silent failure if mounted |
+|---|---|---|
+| `.oprefab` | `PrefabSerializer` → `XMLArchive` (tinyxml2, by path) | every prefab instance loads childless |
+| `.orkmeta` | `AssetDatabase::readMetaFile`/`readImportSettings` (by path) **and** `scanDirectory` (`recursive_directory_iterator`) | id resolution dies; texture import settings lost |
+| `.oscene` | `SceneSerializer::loadScene` (by path); a mid-play level switch has no in-memory road | the level never loads |
+| `.orkproj` | `Project::load` (tinyxml2, by path) | no project |
+| `.olevels` `.oactions` `.olayers` | `LevelSequence` / `InputActionMap` / `PhysicsWorld::LayerConfig`, all `XMLArchive` by path | degrades into built-in defaults: one level, stock keybinds, collide-with-all |
+| `.xlf` | `StringTable` — by path **and** `directory_iterator` | every string echoes its own key |
+| everything else | `readResourceText` / `openResource` / a resource-name texture-mesh-sound load | — (**mount**) |
+
+The mounted set is therefore textures, meshes, audio, and the text assets
+`.omat` `.oshape` `.omesh` `.oanim` `.oatlas` `.osfx` `.sfs` `.oui` `.ogui`
+`.lua`. In practice the excluded kinds below `.orkmeta` also sit outside the
+media sub-trees by convention (`scenes/`, the project root, `loc/`), so listing
+them changes nothing for a conventionally laid-out project — it removes the
+dependence on that convention holding.
+
+Scripts are the one kind that reads **either** way: `ScriptRuntime` tries the
+resource reader first and falls back to `ifstream`, so a `.lua` mounts safely.
+Note that `ScriptComponentRegistry::scanProject` discovers `*.component.lua`
+kinds by walking `scripts/` — a component script placed under `assets/` would
+mount fine but never register.
+
+A new file kind read with `fopen` belongs in the exclusion list **in the same
+change**, with a case in `PlayerBundleTests`.
+
+**Asset ids under a mount.** Sidecars are materialised, but their assets are
+not, so a directory walk finds `.orkmeta` files whose asset file does not exist
+as a loose file. `AssetDatabase::refresh` reads that correctly per mode: the
+editor's import mode owns the directory, so such a sidecar is a genuine orphan
+and is dropped; a runtime's **read-only** refresh does not own the directory and
+takes the SIDECAR as the declaration, registering the asset it names. Ids
+therefore keep resolving in a packaged build — asset references survive renames,
+and a sprite still reads its texture import settings (an authored `point` filter
+stays point).
+
+Verified by `PlayerBundleTests` (the rule, every extension named with its
+reason), `AssetDatabaseTests` (sidecar-declared registration, the import-mode
+orphan drop, the duplicate-id and unreadable-sidecar cases) and the
+`player_pak_assetid_selfcheck` ctest on both flavors — a project split exactly
+the way a package splits it (texture only inside a STORED pak, manifest + scene
++ sidecar on disk) whose sprite names a stale texture beside the asset id, so it
+can only render if the id resolved.
+
 ## Security: zip-slip + the path jail
 
 **Threat model.** In an AI-agent development setting an agent authors project

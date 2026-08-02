@@ -1065,3 +1065,112 @@ TEST_CASE("texture_import_applied_size", "[unit][asset]")
 	CHECK(w == 0);
 	CHECK(h == 0);
 }
+
+//--- sidecar-declared assets (the packaged, mounted-media case) --------------
+// A packaged runtime bundle MOUNTS its bulk media inside an archive (a stored
+// APK's own assets, a browser export's game pak) and materialises only the
+// sidecars, so the asset FILE is an archive entry no directory walk can see.
+// A read-only refresh must therefore take the SIDECAR as the declaration -
+// otherwise every id in a shipped build resolves to nothing and asset
+// references stop surviving renames. The editor's import mode keeps the
+// opposite reading: it owns the directory, so a sidecar without its asset is
+// a genuine orphan and is dropped.
+
+TEST_CASE("AssetDatabase read-only refresh registers sidecar-declared assets",
+	"[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_mounted");
+
+	// mint ids the way an editor session would, from real files
+	project.writeAsset("assets/ball.png");
+	project.writeAsset("assets/textures/tile.png");
+	project.writeAsset("scripts/player.lua", "-- lua");
+	Orkige::AssetDatabase authored;
+	authored.refresh(project.root.string(), true);
+	const Orkige::String ballId = authored.idForPath("assets/ball.png");
+	const Orkige::String tileId =
+		authored.idForPath("assets/textures/tile.png");
+	REQUIRE(isHex32(ballId));
+	REQUIRE(isHex32(tileId));
+
+	// package the project the way a stored APK / game pak does: the sidecars
+	// are written out, the bulk media stays inside the archive (modelled here
+	// by removing the asset files - a directory walk cannot see an entry
+	// either way). Scripts are never mounted, so player.lua stays a real file.
+	std::filesystem::remove(project.root / "assets" / "ball.png");
+	std::filesystem::remove(project.root / "assets" / "textures" / "tile.png");
+	REQUIRE(std::filesystem::is_regular_file(
+		project.metaPath("assets/ball.png")));
+
+	Orkige::AssetDatabase runtime;
+	runtime.refresh(project.root.string(), false);
+
+	// the ids resolve, both ways, at their project-relative paths
+	CHECK(runtime.idForPath("assets/ball.png") == ballId);
+	CHECK(runtime.pathForId(ballId) == "assets/ball.png");
+	CHECK(runtime.idForFileName("ball.png") == ballId);
+	CHECK(runtime.idForPath("assets/textures/tile.png") == tileId);
+	CHECK(runtime.pathForId(tileId) == "assets/textures/tile.png");
+	CHECK(runtime.fileNameForId(tileId) == "tile.png");
+	// the loose script keeps its id through the ordinary file scan
+	CHECK(isHex32(runtime.idForPath("scripts/player.lua")));
+	CHECK(runtime.getAssetCount() == 3);
+	// and the sidecar stays reachable BY PATH, which is how a sprite reads
+	// its texture import settings at runtime
+	CHECK(runtime.metaFilePathForId(ballId) ==
+		project.metaPath("assets/ball.png"));
+}
+
+TEST_CASE("AssetDatabase import mode still drops a genuinely orphaned sidecar",
+	"[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_orphan");
+	project.writeAsset("assets/ball.png");
+	Orkige::AssetDatabase authored;
+	authored.refresh(project.root.string(), true);
+	const Orkige::String ballId = authored.idForPath("assets/ball.png");
+	REQUIRE(isHex32(ballId));
+
+	// the editor OWNS the directory: an asset deleted there really is gone
+	std::filesystem::remove(project.root / "assets" / "ball.png");
+	Orkige::AssetDatabase editor;
+	editor.refresh(project.root.string(), true);
+	CHECK(editor.getAssetCount() == 0);
+	CHECK_FALSE(std::filesystem::exists(project.metaPath("assets/ball.png")));
+}
+
+TEST_CASE("AssetDatabase sidecar-declared assets obey the duplicate-id rule",
+	"[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_mounted_dup");
+	const Orkige::String sharedId = Orkige::AssetDatabase::generateId();
+	// two sidecars carrying the SAME id, neither asset a loose file: the
+	// first sorted path wins, the copy is skipped rather than overwriting it
+	REQUIRE(Orkige::AssetDatabase::writeMetaFile(
+		project.metaPath("assets/a_first.png"), sharedId));
+	REQUIRE(Orkige::AssetDatabase::writeMetaFile(
+		project.metaPath("assets/b_second.png"), sharedId));
+
+	Orkige::AssetDatabase runtime;
+	runtime.refresh(project.root.string(), false);
+	CHECK(runtime.getAssetCount() == 1);
+	CHECK(runtime.pathForId(sharedId) == "assets/a_first.png");
+	CHECK(runtime.idForPath("assets/b_second.png").empty());
+}
+
+TEST_CASE("AssetDatabase read-only refresh ignores an unreadable sidecar",
+	"[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_mounted_bad");
+	project.writeAsset("assets/broken.png.orkmeta", "not xml at all");
+
+	Orkige::AssetDatabase runtime;
+	runtime.refresh(project.root.string(), false);
+	// no id invented, no crash - the asset is simply id-less
+	CHECK(runtime.getAssetCount() == 0);
+	CHECK(runtime.idForPath("assets/broken.png").empty());
+}

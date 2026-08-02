@@ -2158,6 +2158,32 @@ if(TARGET orkige_player)
         LABELS integration TIMEOUT 60
         ENVIRONMENT "ORKIGE_PAK_SCRIPT_SELFCHECK=${ORKIGE_SCRIPT_PAK_FIXTURE};ALSOFT_DRIVERS=null")
 
+    # ID-BASED ASSET RESOLUTION AGAINST MOUNTED MEDIA - the capability a stored
+    # APK and a browser export silently lost while their .orkmeta sidecars were
+    # mounted instead of materialised. The fixture packages a project the way
+    # PlayerBundle::isMountedMediaPath splits one: the texture lives ONLY inside
+    # a STORED pak, while the manifest, the scene and the sidecar are real files
+    # (opened by path; the sidecar is also FOUND by walking a directory). The
+    # scene's sprite names a stale texture next to the asset id, so it can only
+    # render if the sidecar was read and the id resolved - which also proves the
+    # authored "point" import filter survives. Both render flavors; the desktop
+    # is the cheap place to prove a rule the packaged platforms share.
+    # See the ORKIGE_PAK_ASSETID_SELFCHECK block in tools/player/PlayerSelfChecks.cpp.
+    set(ORKIGE_PAK_ASSETID_DIR "${CMAKE_CURRENT_BINARY_DIR}/pak_assetid_fixture${ORKIGE_FLAVOR_TEST_SUFFIX}")
+    add_test(NAME pak_assetid_fixture_build${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND python3 "${Orkige_SOURCE_DIR}/tests/pak/make_pak_project_fixture.py"
+            "${ORKIGE_PAK_ASSETID_DIR}")
+    set_tests_properties(pak_assetid_fixture_build${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        FIXTURES_SETUP PAK_ASSETID_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
+        LABELS integration TIMEOUT 30)
+    add_test(NAME player_pak_assetid_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_player --project "${ORKIGE_PAK_ASSETID_DIR}/project"
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(player_pak_assetid_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        FIXTURES_REQUIRED PAK_ASSETID_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
+        LABELS integration TIMEOUT 60
+        ENVIRONMENT "ORKIGE_PAK_ASSETID_SELFCHECK=${ORKIGE_PAK_ASSETID_DIR}/game.pak;ALSOFT_DRIVERS=null")
+
     # whole-project run: --project loads projects/example's manifest,
     # registers its assets/ and scenes/ as resource locations and plays the
     # project's main scene (no scene argument)

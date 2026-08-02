@@ -175,3 +175,116 @@ TEST_CASE("PlayerArguments defaults leave the orientation to the manifest",
 	CHECK_FALSE(bad.valid);
 	CHECK(bad.unknownArgument == "--rotate");
 }
+
+//--- the mount-versus-extract rule ------------------------------------------
+// A packaged file may be MOUNTED (read in place from the archive) only when
+// EVERY runtime reader of it goes through the resource system. It must be
+// EXTRACTED when a reader opens it BY PATH (fopen/tinyxml2) or when it is
+// DISCOVERED by walking a directory - a mounted entry is neither a file handle
+// nor a directory entry. The rule is ONE function so the Android `stored` APK
+// and the browser game pak cannot drift apart, and these cases name every
+// extension it decides on, with the reason.
+
+TEST_CASE("bulk media inside the packaged sub-trees mounts in place",
+	"[engine][playerbundle][mount]")
+{
+	using Orkige::PlayerBundle::isMountedMediaPath;
+	// the three sub-trees a package carries bulk media in: an exported
+	// project's own assets, and the sample media beside the dev player
+	CHECK(isMountedMediaPath("project/assets/ball.png"));
+	CHECK(isMountedMediaPath("assets/crate.png"));
+	CHECK(isMountedMediaPath("jumper_media/player.png"));
+	// nested paths are inside the sub-tree too
+	CHECK(isMountedMediaPath("project/assets/textures/tiles/grass.png"));
+
+	// every asset kind the engine reads THROUGH the resource system
+	// (readResourceText / openResource / a resource-name texture-mesh-sound
+	// load) - content, not documents, so mounting them is the whole point
+	for (const char * name : { "project/assets/ground.omat",
+		"project/assets/blob.oshape", "project/assets/tower.omesh",
+		"project/assets/hero.oanim", "project/assets/hud.oatlas",
+		"project/assets/coin.osfx", "project/assets/thud.sfs",
+		"project/assets/hud.oui", "project/assets/gui_default.ogui",
+		"project/assets/helper.lua", "project/assets/level.glb",
+		"project/assets/blip.ogg", "project/assets/step.wav",
+		"project/assets/sky.dds", "project/assets/tile.oitd" })
+	{
+		INFO(name);
+		CHECK(isMountedMediaPath(name));
+	}
+}
+
+TEST_CASE("path-opened and directory-discovered kinds are always extracted",
+	"[engine][playerbundle][mount]")
+{
+	using Orkige::PlayerBundle::isMountedMediaPath;
+	// .oprefab: PrefabSerializer opens it through XMLArchive (tinyxml2, by
+	// path). Mounted, every prefab instance in a scene loads CHILDLESS.
+	CHECK_FALSE(isMountedMediaPath("project/assets/tile.oprefab"));
+	CHECK_FALSE(isMountedMediaPath("assets/wall_block.oprefab"));
+	CHECK_FALSE(isMountedMediaPath("jumper_media/crate.oprefab"));
+
+	// .orkmeta: an asset id sidecar. AssetDatabase reads it with tinyxml2 BY
+	// PATH and finds it by WALKING the tree, so mounting fails on both counts
+	// - id-based asset resolution dies and a sprite loses its texture import
+	// settings (an authored "point" filter renders bilinear).
+	CHECK_FALSE(isMountedMediaPath("project/assets/ball.png.orkmeta"));
+	CHECK_FALSE(isMountedMediaPath("assets/crate.png.orkmeta"));
+	CHECK_FALSE(isMountedMediaPath("project/assets/tile.oprefab.orkmeta"));
+	// a sidecar of a nested asset is extracted with it
+	CHECK_FALSE(isMountedMediaPath(
+		"project/assets/textures/tiles/grass.png.orkmeta"));
+}
+
+TEST_CASE("the exclusion list is keyed on extension, not on convention",
+	"[engine][playerbundle][mount]")
+{
+	using Orkige::PlayerBundle::isMountedMediaPath;
+	// Scenes, the manifest, the config assets and the localisation tables
+	// normally live OUTSIDE a media sub-tree, so convention alone would keep
+	// them out of the archive. But a manifest points at its config assets by
+	// an arbitrary path string, so an author can put one under assets/ - and
+	// each of these degrades SILENTLY when it cannot be read, which is exactly
+	// the failure mode worth making impossible. Hence: extension-keyed.
+	for (const char * name : { "project/assets/level1.oscene",
+		"project/assets/game.orkproj", "project/assets/levels.olevels",
+		"project/assets/input.oactions", "project/assets/physics.olayers",
+		"project/assets/en.xlf", "assets/de.xlf",
+		"jumper_media/physics.olayers" })
+	{
+		INFO(name);
+		CHECK_FALSE(isMountedMediaPath(name));
+	}
+}
+
+TEST_CASE("everything outside the media sub-trees is extracted wholesale",
+	"[engine][playerbundle][mount]")
+{
+	using Orkige::PlayerBundle::isMountedMediaPath;
+	// the fopen tree: the manifest, scenes (XMLArchive), scripts, the config
+	// assets and the localisation tables (StringTable opens .xlf by path)
+	for (const char * name : { "project/game.orkproj",
+		"project/scenes/level1.oscene", "project/scripts/player.lua",
+		"project/input.oactions", "project/physics.olayers",
+		"project/levels.olevels", "project/loc/en.xlf",
+		"orkige_project.txt", "orkige_mount.txt", "orkige_assets.txt",
+		"example.oscene" })
+	{
+		INFO(name);
+		CHECK_FALSE(isMountedMediaPath(name));
+	}
+	// the engine shader/font/effect media: a directory tree the shader
+	// loaders want as real files
+	for (const char * name : { "Media/Main/RTShaderLib.material",
+		"Media/RTShaderLib/GLSL/SGXLib_Common.glsl",
+		"Media/fonts/Nunito-Regular.ttf", "Media/water/water_plane.glb",
+		"Media/Hlms/Pbs/Any/Main.piece_ps.any" })
+	{
+		INFO(name);
+		CHECK_FALSE(isMountedMediaPath(name));
+	}
+	// a sub-tree name must MATCH at the head, not merely resemble one
+	CHECK_FALSE(isMountedMediaPath("assets_backup/ball.png"));
+	CHECK_FALSE(isMountedMediaPath("other/project/assets/ball.png"));
+	CHECK_FALSE(isMountedMediaPath(""));
+}

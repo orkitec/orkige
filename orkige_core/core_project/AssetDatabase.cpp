@@ -803,10 +803,17 @@ namespace Orkige
 			this->registerAsset(relativePath, assetId);
 		}
 
-		// orphaned sidecars: the asset moved/vanished WITHOUT its sidecar -
-		// no silent re-linking (content-hash matching is future work): the
-		// import mode deletes the orphan (the moved asset was minted a fresh
-		// id above), read-only runs just report it
+		// sidecars whose asset is not a loose file. The two modes read this
+		// differently, and both readings are honest:
+		//   IMPORT mode (the editor) owns the directory, so the asset really
+		//   is gone - the sidecar is orphaned and gets deleted (no silent
+		//   re-linking; content-hash matching is future work).
+		//   READ-ONLY mode (a runtime) does NOT own the directory and may not
+		//   even be looking at one: a packaged bundle MOUNTS its bulk media
+		//   inside an archive (a stored APK, a browser pak) and materialises
+		//   only the sidecars, so the asset file is an archive entry that no
+		//   directory walk can see. There the SIDECAR is the declaration -
+		//   register the asset it names, and ids keep resolving.
 		for (std::filesystem::path const & metaFile : metaFiles)
 		{
 			const String assetPath = metaFile.string().substr(0,
@@ -823,12 +830,28 @@ namespace Orkige
 				assetLog("AssetDatabase: dropped orphaned sidecar '" +
 					relativeMetaPath + "' (its asset is gone - a moved asset "
 					"without its sidecar got a fresh id)");
+				continue;
 			}
-			else
+			const String relativePath = relativeMetaPath.substr(0,
+				relativeMetaPath.size() - META_FILE_EXTENSION.size());
+			String assetId;
+			if (!readMetaFile(metaFile.string(), assetId))
 			{
-				assetLog("AssetDatabase: orphaned sidecar '" +
-					relativeMetaPath + "' (read-only - left in place)");
+				assetLog("AssetDatabase: unreadable sidecar '" +
+					relativeMetaPath + "' - '" + relativePath +
+					"' stays id-less");
+				continue;
 			}
+			if (this->mIdToPath.find(assetId) != this->mIdToPath.end())
+			{
+				// same duplicate rule as the loose-file loop above: the first
+				// (sorted) asset keeps the id, the copy is skipped honestly
+				assetLog("AssetDatabase: '" + relativePath +
+					"' duplicates id " + assetId + " of '" +
+					this->mIdToPath[assetId] + "' - skipped (read-only)");
+				continue;
+			}
+			this->registerAsset(relativePath, assetId);
 		}
 	}
 	//---------------------------------------------------------

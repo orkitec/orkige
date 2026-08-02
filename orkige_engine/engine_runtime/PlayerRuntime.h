@@ -97,6 +97,59 @@ namespace Orkige
 		//! Ogre-Next Hlms shader templates (Media/Hlms).
 		String resolveMediaDirectory(String const & fallbackMediaDir,
 			String const & baseDir = String());
+
+		//! @brief THE mount-versus-extract rule: may the packaged file at the
+		//! package-relative path @p relativePath be MOUNTED in place (read
+		//! from the archive through the resource system), or must it be
+		//! EXTRACTED to a real file first?
+		//! @return true = mount in place, false = write it out
+		//! @remarks ONE rule, two packages: an Android APK left uncompressed
+		//! (the manifest's export.android.assets=stored) and a browser
+		//! export's game pak. Both hand the archive to RenderSystem::mountPak
+		//! and materialise only what this says no to. The paths are relative
+		//! to the package root, which is also the extraction destination
+		//! root, so the two sides agree by construction.
+		//!
+		//! A file may be mounted only when EVERY runtime reader of it goes
+		//! through the resource system. Two things disqualify it:
+		//!  - it is opened BY PATH (fopen / tinyxml2 / std::ifstream). A zip
+		//!    entry has no file handle, so such a reader sees nothing.
+		//!  - it is DISCOVERED by directory enumeration. A mounted entry is
+		//!    not a directory entry, so a scanner never finds it.
+		//!
+		//! Only the bulk media sub-trees are candidates at all (the game
+		//! textures/audio/meshes referenced by resource name - the majority of
+		//! the bytes); everything outside them is written out wholesale. The
+		//! exclusions are keyed on the EXTENSION rather than on where a kind
+		//! conventionally lives, because a project manifest may point a config
+		//! asset at any path - convention must not be the only thing keeping a
+		//! by-path reader out of the archive:
+		//!  - ".oprefab" - PrefabSerializer opens a prefab through XMLArchive
+		//!    (tinyxml2, by path). Mounted, every prefab instance in a scene
+		//!    loads CHILDLESS.
+		//!  - ".orkmeta" - an asset id sidecar. AssetDatabase reads it with
+		//!    tinyxml2 by path AND finds it by walking the directory tree, so
+		//!    mounting it fails on both counts: id-based asset resolution goes
+		//!    dead (a reference to a renamed asset stops resolving) and a
+		//!    sprite silently loses its texture import settings (a "point"
+		//!    filter renders bilinear). Sidecars are a few dozen bytes each -
+		//!    materialising them costs nothing.
+		//!  - ".oscene" - SceneSerializer::loadScene is fopen, and a mid-play
+		//!    LEVEL SWITCH has no in-memory road at all.
+		//!  - ".orkproj" - the manifest, read with tinyxml2 by path.
+		//!  - ".olevels" / ".oactions" / ".olayers" - the config assets, all
+		//!    XMLArchive by path. A mounted one degrades SILENTLY into the
+		//!    built-in defaults (collide-with-all, stock keybinds, one level).
+		//!  - ".xlf" - the localisation tables: StringTable opens them by path
+		//!    AND enumerates the directory, so a mounted set leaves every
+		//!    string echoing its own key.
+		//! Everything else under those sub-trees reads through the resource
+		//! system: textures/meshes/audio by resource name, and the text assets
+		//! .omat / .oshape / .omesh / .oanim / .oatlas / .osfx / .sfs / .oui /
+		//! .ogui / .lua via readResourceText or openResource.
+		//! @warning A new file kind read with fopen belongs in the exclusion
+		//! list IN THE SAME CHANGE, with a case in PlayerBundleTests.
+		bool isMountedMediaPath(String const & relativePath);
 	}
 
 	//! @brief the player side of the editor's play-mode debug protocol,

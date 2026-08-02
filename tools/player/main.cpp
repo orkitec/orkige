@@ -281,42 +281,9 @@ using Orkige::pushMouseMove;
 using Orkige::pushMouseButton;
 
 #if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
-//! @brief the packaged sub-trees whose bulk binary media the player MOUNTS in
-//! place instead of extracting - the game textures/audio/meshes it references
-//! by resource name, the bulk of the bytes. The small fopen-consumed tree
-//! (manifest, scenes, scripts, config) and the engine shader/font media (a
-//! directory tree the Hlms/RTSS loaders want) stay extracted. Path is relative
-//! to the package root (= the extract destRoot).
-//! @remarks ONE split, two packages: an Android APK left uncompressed
-//! (export.android.assets=stored) and a browser export's game pak. Both hand
-//! the archive to RenderSystem::mountPak and write out only the rest.
-bool isMountedMediaPath(std::string const& rel)
-{
-	// a prefab is an asset by location but a DOCUMENT by use: PrefabSerializer
-	// opens it through XMLArchive, which wants a real path, so it has to be
-	// among the files written out. Mounting it leaves every prefab instance in
-	// a scene childless.
-	static const char* const documentSuffixes[] = { ".oprefab" };
-	for (const char* suffix : documentSuffixes)
-	{
-		const std::size_t length = std::strlen(suffix);
-		if (rel.size() >= length &&
-			rel.compare(rel.size() - length, length, suffix) == 0)
-		{
-			return false;
-		}
-	}
-	static const char* const prefixes[] =
-		{ "project/assets/", "assets/", "jumper_media/" };
-	for (const char* prefix : prefixes)
-	{
-		if (rel.rfind(prefix, 0) == 0)
-		{
-			return true;
-		}
-	}
-	return false;
-}
+//! the mount-versus-extract rule, shared by both packaged platforms and
+//! unit-tested headlessly (@see Orkige::PlayerBundle::isMountedMediaPath)
+using Orkige::PlayerBundle::isMountedMediaPath;
 #endif // __ANDROID__ || __EMSCRIPTEN__
 
 #ifdef __ANDROID__
@@ -2092,8 +2059,11 @@ int main(int argc, char** argv)
 #endif
 				// ORKIGE_PAK_SELFCHECK: mount the pak's sub-tree so its scene,
 				// textures and sounds resolve through the resource system like
-				// loose files (the reborn BigZip acceptance path, both flavors)
-				if (context.selfChecks.pakCheck)
+				// loose files (the reborn BigZip acceptance path, both flavors).
+				// ORKIGE_PAK_ASSETID_SELFCHECK mounts the same way - only its
+				// scene comes from disk instead of the archive.
+				if (context.selfChecks.pakCheck ||
+					context.selfChecks.pakAssetIdCheck)
 				{
 					render->mountPak(context.selfChecks.pakPath,
 						context.selfChecks.pakMountPoint,
