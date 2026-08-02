@@ -399,6 +399,12 @@ function(orkige_install_sdk)
     # install(CODE) at the end of the rule list guarantees: CMake runs install
     # rules in declaration order.
     install(CODE "
+        # A prefix the caller spelled natively (`--prefix C:\\\\foo`) arrives
+        # with backslashes, and these paths are handed to scripts that RE-PARSE
+        # them as CMake code - where a backslash reads as an escape and
+        # `\\\\installed` is the invalid escape `\\\\i`. Normalise once, here,
+        # rather than at each use.
+        file(TO_CMAKE_PATH \"\${CMAKE_INSTALL_PREFIX}\" CMAKE_INSTALL_PREFIX)
         include(\"\${CMAKE_INSTALL_PREFIX}/cmake/OrkigeSdkPack.cmake\")
         execute_process(COMMAND \"${CMAKE_COMMAND}\"
             \"-DORKIGE_ROOT=\${CMAKE_INSTALL_PREFIX}\"

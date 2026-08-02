@@ -18,6 +18,14 @@
 # ORKIGE_ABI_EXTRA_FILES override the defaults OrkigeAbiStamp.cmake declares -
 # same fingerprint function, different surface.
 
+# Both paths arrive as -D arguments and reach code that RE-PARSES them as CMake
+# (write_basic_package_version_file builds its output by parsing an argument
+# string), where a native separator reads as an escape - a Windows prefix ending
+# in `\installed` fails as the invalid escape `\i`. Normalise on the way in, so
+# this script is correct however the caller spelled its paths.
+file(TO_CMAKE_PATH "${ORKIGE_ABI_OUT_DIR}" ORKIGE_ABI_OUT_DIR)
+file(TO_CMAKE_PATH "${ORKIGE_ROOT}" ORKIGE_ROOT)
+
 set(_orkige_abi_dirs_override "${ORKIGE_ABI_SOURCE_DIRS}")
 set(_orkige_abi_extra_override "${ORKIGE_ABI_EXTRA_FILES}")
 include("${CMAKE_CURRENT_LIST_DIR}/OrkigeAbiStamp.cmake")
