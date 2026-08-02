@@ -10,12 +10,19 @@ distributable app. The full build contract lives in
 spells only facade types, never `Ogre::`), so one module builds against either
 render flavor's engine tree.
 
+The same module builds against an installed SDK pack instead — one relocatable
+directory carrying headers, archives, the dependency closure and the cmake
+surface, for a machine with no engine checkout. That form, and the one helper
+serving both, is `Docs/sdk-pack.md`.
+
 ## The engine as a find_package(Orkige) package
 
-The engine is consumed as ONE `find_package(Orkige)` package that resolves
-against the engine build tree with NO install step (the config is written
-straight into the build dir, keeping the dev loop and CI fast). It exports TWO
-imported targets that share ONE version stamp:
+The engine is consumed as ONE `find_package(Orkige)` package. In the developer
+loop it resolves against the engine build tree with NO install step (the config
+is written straight into the build dir, keeping the dev loop and CI fast); an
+installed SDK pack is the same package with every path spelled against the pack
+root (`Docs/sdk-pack.md`). Either way it exports TWO imported targets that share
+ONE version stamp:
 
 - `Orkige::Core` — the platform- and renderer-independent core (`orkige_core`),
   its own OGRE-free surface. A core-only consumer links just this and gets a
@@ -30,16 +37,17 @@ Both targets carry the engine include roots and the ABI compile definitions
 the matching ABI straight from the package. The vcpkg dependency closure the
 archives link (SDL3, OpenAL, Jolt, tinyxml2, NanoSVG, the flavor's OGRE +
 codecs, Lua/sol2) is DECLARED by the package (`ORKIGE_TRANSITIVE_PACKAGES`) and
-realized by `cmake/OrkigeGameModule.cmake` against the engine tree's own
-`vcpkg_installed/` — the module builds without the vcpkg toolchain, so the
-closure is resolved there rather than pinned into the imported-target
-interfaces.
+realized by `cmake/OrkigeGameModule.cmake` against the prefix the package points
+at — the engine tree's own `vcpkg_installed/<triplet>`, or a pack's bundled
+`vcpkg/`. The module builds without the vcpkg toolchain, so the closure is
+resolved there rather than pinned into the imported-target interfaces; either
+way those are the exact binaries the engine archives were linked against.
 
 A module therefore does exactly:
 
 ```cmake
 find_package(Orkige <abi-stamp> EXACT REQUIRED
-             CONFIG PATHS <engine-build-dir> NO_DEFAULT_PATH)
+             CONFIG PATHS <package-dir> NO_DEFAULT_PATH)
 target_link_libraries(my_game PRIVATE Orkige::Engine)
 ```
 
@@ -56,7 +64,8 @@ glob of `.h`/`.hpp`/`.inc`/`.cpp`/`.mm`/… — NOT `orkige_engine/media/`, whic
 runtime assets, not object layout), plus the cmake files that define how a module
 compiles and links against them (each engine layer's `CMakeLists.txt` and the
 package/link helpers `OrkigeGameModule.cmake`, `OrkigeConfig.cmake.in`,
-`OrkigePackage.cmake`, `OrkigeAbiStamp.cmake`, `OrkigeWriteVersion.cmake`).
+`OrkigePackage.cmake`, `OrkigeSdk.cmake`, `OrkigeSdkPack.cmake.in`,
+`OrkigeAbiStamp.cmake`, `OrkigeWriteVersion.cmake`).
 
 Because it reads files rather than VCS state, it covers EVERY case uniformly —
 a committed change, an uncommitted edit, a brand-new UNTRACKED header the module
@@ -94,10 +103,13 @@ the guard fires on a mismatch AND that the fingerprint is correctly scoped: an
 engine-source edit moves it, a brand-new untracked engine file moves it, and a
 non-engine edit (a game file, a doc) does NOT trip the guard.
 
+An installed SDK pack runs the same guard over the surface it actually carries —
+the installed headers plus the cmake files defining the compile and link — so a
+tampered or half-unpacked pack refuses the same way (`Docs/sdk-pack.md`).
+
 Honest limits: the fingerprint tracks the engine SOURCE surface, not the exact
 compiler/flags/vcpkg toolchain (a different toolchain producing a different ABI
 from identical sources is out of scope — the flavor + ABI defines the package
-already carries cover the intended axes). The package resolves against the build
-tree only — a relocatable installed SDK, and migrating the editor/player/tests
-(which build in the engine graph itself and never drift, so they are deliberately
-left as-is) onto `find_package(Orkige)`, are the next bricks of a fuller SDK.
+already carries cover the intended axes). The editor/player/tests build in the
+engine graph itself and never drift, so they are deliberately not migrated onto
+`find_package(Orkige)`.

@@ -41,6 +41,8 @@ set(ORKIGE_ABI_EXTRA_FILES
     cmake/OrkigeGameModule.cmake
     cmake/OrkigeConfig.cmake.in
     cmake/OrkigePackage.cmake
+    cmake/OrkigeSdk.cmake
+    cmake/OrkigeSdkPack.cmake.in
     cmake/OrkigeAbiStamp.cmake
     cmake/OrkigeWriteVersion.cmake)
 

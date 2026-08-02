@@ -430,11 +430,12 @@ int main(int argc, char** argv)
 	// singletons, the per-flavor Engine boot, the fixed-yaw window-camera rig
 	// and the GameObject world. This is flavor-neutral game code: it sets both
 	// media fields and the host consumes only the one its flavor needs. The
-	// dev-run fallback is the engine build's vcpkg OGRE media
-	// (ORKIGE_MODULE_MEDIA_DIR, baked in by OrkigeGameModule.cmake - the classic
-	// RTSS library / the Ogre-Next Hlms templates); an exported .app carries its
-	// engine media under Resources/Media and resolveMediaDirectory returns THAT
-	// so the bundle is self-contained.
+	// engine media the module was built against is ORKIGE_MODULE_MEDIA_DIR,
+	// baked in by OrkigeGameModule.cmake - the classic RTSS library / the
+	// Ogre-Next Hlms templates, inside the engine build tree or inside the SDK
+	// pack, whichever this module was built against; an exported .app carries
+	// its engine media under Resources/Media and resolveMediaDirectory returns
+	// THAT so the bundle is self-contained.
 	Orkige::AppHostConfig hostConfig;
 	hostConfig.windowTitle = "Orkige Jumper (native module)";
 	hostConfig.automatedRun = automatedRun;
@@ -446,15 +447,15 @@ int main(int argc, char** argv)
 		: "jumper_native.log";
 	const std::string moduleMediaDir =
 		Orkige::PlayerBundle::resolveMediaDirectory(ORKIGE_MODULE_MEDIA_DIR);
-	// classic consumes classicMediaDir (RTSS media root, ignored on next); next
-	// keeps its baked Hlms default for a dev run and only needs the override
-	// when an exported bundle supplies its own Media/ (resolveMediaDirectory
-	// returned a path other than the baked fallback)
+	// BOTH media roots are stated, always. The engine archive carries a baked
+	// default for a dev run, but that default names the tree the archive was
+	// built in - which is not there for a module built against a distributed
+	// SDK pack, and not there inside an exported .app either. The module's own
+	// resolved media dir is the right answer in every case (against an engine
+	// build tree it IS the baked default, so a dev run is unchanged), so the
+	// game says it rather than relying on where the engine came from.
 	hostConfig.classicMediaDir = moduleMediaDir;
-	if (moduleMediaDir != std::string(ORKIGE_MODULE_MEDIA_DIR))
-	{
-		hostConfig.hlmsMediaDir = moduleMediaDir;
-	}
+	hostConfig.hlmsMediaDir = moduleMediaDir;
 
 	int exitCode = 0;
 	Orkige::AppHost host;

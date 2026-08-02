@@ -1886,6 +1886,37 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     set_tests_properties(module_abi_mismatch${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         LABELS integration TIMEOUT 120)
 
+    # the installed SDK pack: `cmake --install` this engine tree into a scratch
+    # prefix, RENAME the result (a pack a consumer downloads is never at the
+    # path it was built at), then prove a project's compiled C++ game code
+    # configures, builds and RUNS against it with the engine source tree and
+    # the engine build tree DENIED - a build tree at its usual absolute path
+    # would otherwise silently satisfy a configure that should have failed.
+    # Also: the whole engine header set must be IN the pack and compile from
+    # it in one translation unit (a header missing from the install rules
+    # fails here, not in a consumer's build), no build-machine path may
+    # survive into the pack's cmake surface, and an edited installed header
+    # must be a hard ABI-mismatch configure error. See cmake/OrkigeSdk.cmake +
+    # Docs/sdk-pack.md. Skips (77) where the machine cannot run it.
+    add_test(NAME sdk_pack${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND python3
+            "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_sdk_pack_test.py"
+            --repo "${Orkige_SOURCE_DIR}"
+            --engine-build "${CMAKE_BINARY_DIR}"
+            --project "${Orkige_SOURCE_DIR}/projects/jumper-native"
+            --shared-headers "${Orkige_SOURCE_DIR}/samples/jumper"
+            --stage "${CMAKE_CURRENT_BINARY_DIR}/sdk-pack"
+            --flavor "${ORKIGE_RENDER_BACKEND}"
+            --cmake "${CMAKE_COMMAND}"
+            --ignore-prefix-path "${CMAKE_IGNORE_PREFIX_PATH}"
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(sdk_pack${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        SKIP_RETURN_CODE 77 LABELS integration TIMEOUT 1800
+        # it compiles the same OGRE-including module sources the
+        # compile-on-Play and export tests do (plus a translation unit over
+        # every engine header); keep them off each other under -j
+        RESOURCE_LOCK native_module_build)
+
     # loud script failures: the hook copies projects/jumper-lua to a temp dir
     # (the real project is never touched), overwrites scripts/player.lua with
     # garbage and presses Play - the player must PUSH a script_error protocol

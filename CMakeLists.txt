@@ -290,6 +290,15 @@ if(ORKIGE_BUILD_ENGINE)
         include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/OrkigePackage.cmake)
         orkige_emit_package()
 
+        # The same package in its RELOCATABLE form: `cmake --install <build>
+        # --prefix <dir>` writes a self-contained SDK pack (headers, archives,
+        # the dependency closure, the cmake surface) that compiles C++ game
+        # code on a machine with no engine checkout and no build tree - what a
+        # distributed editor hands a native-module project.
+        # See cmake/OrkigeSdk.cmake + Docs/sdk-pack.md.
+        include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/OrkigeSdk.cmake)
+        orkige_install_sdk()
+
         # desktop-only SDL samples (plain executables, host asset paths).
         # hello_orkige builds on both render flavors (per-flavor boot
         # block); jumper stays classic-only - its HUD is gui, which

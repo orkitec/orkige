@@ -13,6 +13,80 @@
 
 include_guard(GLOBAL)
 
+# orkige_package_transitive_list(<out>)
+#   The vcpkg dependency closure the two archives link (mirrors the find set in
+#   cmake/OrkigeGameModule.cmake); DECLARED for consumers, realized there. Both
+#   package forms - the build tree here and the SDK pack in cmake/OrkigeSdk.cmake
+#   - declare the SAME closure, so it is written once.
+function(orkige_package_transitive_list out)
+    set(_packages "SDL3" "OpenAL" "Jolt" "tinyxml2" "NanoSVG")
+    if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+        list(APPEND _packages "OGRE-Next" "assimp")
+    else()
+        list(APPEND _packages "OGRE")
+    endif()
+    if(ORKIGE_SCRIPTING STREQUAL "LUA")
+        list(APPEND _packages "Lua" "sol2")
+    endif()
+    # the HTTP transport's own dependency, where it has one a consumer must
+    # resolve: curl is a vcpkg package, WinHTTP an SDK import library, and the
+    # Apple/Android/wasm transports need nothing beyond what the layer already
+    # links (the frameworks are PUBLIC, the JNI entry points come with the NDK)
+    if(ORKIGE_HTTP_BACKEND STREQUAL "curl")
+        list(APPEND _packages "CURL")
+    endif()
+    set(${out} "${_packages}" PARENT_SCOPE)
+endfunction()
+
+# orkige_package_compile_definitions(<out_core> <out_engine>)
+#   THE COMPILE CONTRACT, read off the engine itself rather than restated.
+#
+#   A consumer's translation units must be compiled with the same ABI-relevant
+#   definitions the engine archives were, or its objects disagree with the
+#   archive about layout and inline behaviour - the failure is a link error at
+#   best and a miscompiled binary at worst. Restating that set in a package
+#   config and again in a link helper is a drift trap: the engine grows a
+#   define, the two copies do not, and nothing says so.
+#
+#   So it is CAPTURED, from the two places CMake actually records it:
+#     - the root directory's COMPILE_DEFINITIONS, which is where the engine's
+#       global ABI switches live (ORKIGE_STATIC, the scripting backend define,
+#       and on Windows NOMINMAX/WIN32_LEAN_AND_MEAN)
+#     - each archive's INTERFACE_COMPILE_DEFINITIONS, i.e. exactly what it
+#       declares PUBLIC (ORKIGE_OPENAL_SOUND, ORKIGE_ENGINE_HAS_GOCOMPONENT,
+#       the render flavor macro, USE_RTSHADER_SYSTEM, ORKIGE_HAVE_VULKAN, ...)
+#   The engine's own build-tree-absolute paths are declared PRIVATE and are
+#   therefore correctly absent - they are implementation, not contract, and a
+#   pack must not carry them.
+#
+#   Third-party contract (Jolt's JPH_OBJECT_STREAM and its per-configuration
+#   NDEBUG, OGRE's, SDL's) is NOT copied here: it rides the imported targets a
+#   consumer links, which carry it themselves. What that requires instead is
+#   that the pack's dependency closure be the SAME CONFIGURATION as the engine
+#   archives - see cmake/OrkigeSdk.cmake.
+function(orkige_package_compile_definitions out_core out_engine)
+    get_directory_property(_global COMPILE_DEFINITIONS)
+    set(_core "${_global}")
+    set(_engine "${_global}")
+    get_target_property(_core_public orkige_core INTERFACE_COMPILE_DEFINITIONS)
+    if(_core_public)
+        list(APPEND _core ${_core_public})
+        list(APPEND _engine ${_core_public})
+    endif()
+    if(TARGET orkige_engine)
+        get_target_property(_engine_public orkige_engine INTERFACE_COMPILE_DEFINITIONS)
+        if(_engine_public)
+            list(APPEND _engine ${_engine_public})
+        endif()
+    endif()
+    list(REMOVE_DUPLICATES _core)
+    list(REMOVE_DUPLICATES _engine)
+    set(${out_core} "${_core}" PARENT_SCOPE)
+    # Orkige::Engine pulls Orkige::Core, so the engine contract is the union -
+    # a consumer that links only the engine still compiles core headers
+    set(${out_engine} "${_engine}" PARENT_SCOPE)
+endfunction()
+
 function(orkige_emit_package)
     set(_out "${CMAKE_BINARY_DIR}")
     set(_module_dir "${CMAKE_CURRENT_FUNCTION_LIST_DIR}")
@@ -26,6 +100,16 @@ function(orkige_emit_package)
 
     set(ORKIGE_PACKAGE_SOURCE_ROOT "${Orkige_SOURCE_DIR}")
 
+    # the build-tree form: the config sits at the build root and spells every
+    # path absolutely (a build tree is bound to its location anyway); the SDK
+    # pack form in cmake/OrkigeSdk.cmake spells the same slots relative to the
+    # pack root, which is what makes a pack relocatable
+    set(ORKIGE_PACKAGE_KIND "buildtree")
+    set(ORKIGE_PACKAGE_ROOT_REL ".")
+    set(ORKIGE_PACKAGE_BUILD_TYPE "${CMAKE_BUILD_TYPE}")
+    set(ORKIGE_PACKAGE_CORE_INCLUDES "${Orkige_SOURCE_DIR}/orkige_core")
+    set(ORKIGE_PACKAGE_ENGINE_INCLUDES "${Orkige_SOURCE_DIR}/orkige_engine")
+
     # the vcpkg triplet prefix in this build tree (the dir with include/) - a
     # hint the module helper uses to resolve the closure below without the vcpkg
     # toolchain
@@ -37,27 +121,13 @@ function(orkige_emit_package)
             set(ORKIGE_PACKAGE_VCPKG_PREFIX "${_triplet}")
         endif()
     endforeach()
-    set(ORKIGE_PACKAGE_MEDIA_DIR "")
+    # the engine's own runtime media (fonts, the shared water plane); a build
+    # tree reads it from the source layer, a pack from its bundled copy
+    set(ORKIGE_PACKAGE_MEDIA_DIR "${Orkige_SOURCE_DIR}/orkige_engine/media")
 
-    # the vcpkg dependency closure the two archives link (mirrors the find set in
-    # cmake/OrkigeGameModule.cmake); DECLARED for consumers, realized there
-    set(ORKIGE_PACKAGE_TRANSITIVE
-        "SDL3" "OpenAL" "Jolt" "tinyxml2" "NanoSVG")
-    if(ORKIGE_RENDER_BACKEND STREQUAL "next")
-        list(APPEND ORKIGE_PACKAGE_TRANSITIVE "OGRE-Next" "assimp")
-    else()
-        list(APPEND ORKIGE_PACKAGE_TRANSITIVE "OGRE")
-    endif()
-    if(ORKIGE_SCRIPTING STREQUAL "LUA")
-        list(APPEND ORKIGE_PACKAGE_TRANSITIVE "Lua" "sol2")
-    endif()
-    # the HTTP transport's own dependency, where it has one a consumer must
-    # resolve: curl is a vcpkg package, WinHTTP an SDK import library, and the
-    # Apple/Android/wasm transports need nothing beyond what the layer already
-    # links (the frameworks are PUBLIC, the JNI entry points come with the NDK)
-    if(ORKIGE_HTTP_BACKEND STREQUAL "curl")
-        list(APPEND ORKIGE_PACKAGE_TRANSITIVE "CURL")
-    endif()
+    orkige_package_transitive_list(ORKIGE_PACKAGE_TRANSITIVE)
+    orkige_package_compile_definitions(
+        ORKIGE_PACKAGE_CORE_DEFS ORKIGE_PACKAGE_ENGINE_DEFS)
 
     configure_file("${_module_dir}/OrkigeConfig.cmake.in"
         "${_out}/OrkigeConfig.cmake" @ONLY)

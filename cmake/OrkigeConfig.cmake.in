@@ -1,28 +1,48 @@
-# OrkigeConfig.cmake - the Orkige engine as a find_package() build-tree package.
+# OrkigeConfig.cmake - the Orkige engine as a find_package() package.
 #
-# GENERATED into the engine build tree by cmake/OrkigePackage.cmake at configure
-# time - do NOT edit. A native game module resolves it with
+# GENERATED from cmake/OrkigeConfig.cmake.in - do NOT edit. ONE template serves
+# the engine's two package FORMS, which differ only in where the pieces sit:
+#
+#   build tree  emitted into the engine build dir by cmake/OrkigePackage.cmake;
+#               archives at their per-target output paths, headers in the engine
+#               source tree, dependency closure in the build's vcpkg_installed/.
+#   SDK pack    installed by cmake/OrkigeSdk.cmake into a self-contained,
+#               RELOCATABLE directory (headers, archives, the dependency
+#               closure and this config all under one root).
+#
+# A consumer resolves either with
 #   find_package(Orkige <abi-stamp> EXACT REQUIRED
-#                CONFIG PATHS <engine-build-dir> NO_DEFAULT_PATH)
+#                CONFIG PATHS <package dir> NO_DEFAULT_PATH)
 # (see cmake/OrkigeGameModule.cmake). The companion OrkigeConfigVersion.cmake
-# records the ABI stamp of the sources these libraries were built from; the
+# records the ABI stamp of the surface these libraries were built from; the
 # EXACT match is the stale-library guard.
+#
+# RELOCATABILITY: every path this file hands out is derived from
+# CMAKE_CURRENT_LIST_DIR, so an SDK pack answers correctly wherever it is
+# unpacked. The build-tree form spells the same paths absolutely - a build tree
+# is bound to its location anyway.
 #
 # The package exposes the two engine archives as imported targets carrying the
 # engine include roots and the ABI compile definitions (the render flavor macro,
 # ORKIGE_STATIC, the scripting-backend define) so a consumer gets the correct,
 # matching ABI straight from the package. The vcpkg dependency closure is
 # DECLARED here (ORKIGE_TRANSITIVE_PACKAGES / ORKIGE_VCPKG_PREFIX_HINT) and
-# realized by OrkigeGameModule.cmake against the engine tree's own
-# vcpkg_installed/ - the module builds without the vcpkg toolchain, so the
-# closure is resolved there rather than pinned into imported-target interfaces.
+# realized by OrkigeGameModule.cmake against that prefix - a consumer builds
+# without the vcpkg toolchain, so the closure is resolved there rather than
+# pinned into imported-target interfaces.
+
+# the package ROOT every path below is spelled against
+get_filename_component(_orkige_pkg_root
+    "${CMAKE_CURRENT_LIST_DIR}/@ORKIGE_PACKAGE_ROOT_REL@" ABSOLUTE)
 
 # package-namespaced so including this config (find_package runs it in the
 # caller's scope) never shadows OrkigeGameModule.cmake's own working variables
+set(ORKIGE_PACKAGE_KIND "@ORKIGE_PACKAGE_KIND@")
 set(ORKIGE_PACKAGE_RENDER_BACKEND "@ORKIGE_RENDER_BACKEND@")
 set(ORKIGE_PACKAGE_SCRIPTING "@ORKIGE_SCRIPTING@")
 set(ORKIGE_PACKAGE_HTTP_BACKEND "@ORKIGE_HTTP_BACKEND@")
 set(ORKIGE_PACKAGE_SANITIZERS @ORKIGE_ENABLE_SANITIZERS@)
+set(ORKIGE_PACKAGE_BUILD_TYPE "@ORKIGE_PACKAGE_BUILD_TYPE@")
 set(ORKIGE_SOURCE_ROOT "@ORKIGE_PACKAGE_SOURCE_ROOT@")
 set(ORKIGE_MEDIA_DIR "@ORKIGE_PACKAGE_MEDIA_DIR@")
 set(ORKIGE_TRANSITIVE_PACKAGES "@ORKIGE_PACKAGE_TRANSITIVE@")
@@ -48,35 +68,47 @@ foreach(_orkige_pkg_lib "${_orkige_pkg_core_lib}" "${_orkige_pkg_engine_lib}")
     endif()
 endforeach()
 
-# ABI compile definitions matching the engine build (see the root CMakeLists.txt
-# and orkige_engine/CMakeLists.txt) - consumers inherit these from the targets.
+# the engine include roots, layer-rooted (core_util/String.h,
+# engine_graphic/Engine.h) in BOTH forms: two source-tree layer dirs in a build
+# tree, the pack's single merged include/ in an SDK pack. Consumers that link
+# the archives by raw path (the game-module helper does, for GNU ld's
+# left-to-right archive order) take these directly.
+set(ORKIGE_CORE_INCLUDE_DIRS "@ORKIGE_PACKAGE_CORE_INCLUDES@")
+set(ORKIGE_ENGINE_INCLUDE_DIRS "@ORKIGE_PACKAGE_ENGINE_INCLUDES@")
+set(ORKIGE_INCLUDE_DIRS ${ORKIGE_ENGINE_INCLUDE_DIRS} ${ORKIGE_CORE_INCLUDE_DIRS})
+list(REMOVE_DUPLICATES ORKIGE_INCLUDE_DIRS)
+
+# THE COMPILE CONTRACT - the ABI-relevant definitions the archives were
+# actually compiled with, CAPTURED from the engine targets at package-emit time
+# (cmake/OrkigePackage.cmake: the root directory's COMPILE_DEFINITIONS plus each
+# archive's PUBLIC ones) rather than restated here. A consumer must compile its
+# own translation units with these or its objects disagree with the archive
+# about layout and inline behaviour. Restating the set would drift the moment
+# the engine grew a define; capturing it cannot.
+#
 # ONE package, TWO targets: Orkige::Core keeps its own (OGRE-free) surface so a
 # core-only consumer links just it and the layering boundary is a link error;
 # Orkige::Engine pulls Orkige::Core transitively, so a game module links only
-# Orkige::Engine. Both come from the SAME tree/commit (one ABI stamp), so they
-# can never be a mismatched set.
-set(_orkige_pkg_core_defs "ORKIGE_STATIC")
-set(_orkige_pkg_engine_defs
-    "ORKIGE_STATIC" "ORKIGE_OPENAL_SOUND" "ORKIGE_ENGINE_HAS_GOCOMPONENT")
-if(ORKIGE_PACKAGE_RENDER_BACKEND STREQUAL "next")
-    list(APPEND _orkige_pkg_engine_defs "ORKIGE_RENDER_NEXT")
-else()
-    list(APPEND _orkige_pkg_engine_defs
-        "ORKIGE_RENDER_CLASSIC" "USE_RTSHADER_SYSTEM")
-endif()
-if(ORKIGE_PACKAGE_SCRIPTING STREQUAL "LUA")
-    list(APPEND _orkige_pkg_core_defs "ORKIGE_LUA")
-    list(APPEND _orkige_pkg_engine_defs "ORKIGE_LUA")
-else()
-    list(APPEND _orkige_pkg_core_defs "ORKIGE_NOSCRIPT")
-    list(APPEND _orkige_pkg_engine_defs "ORKIGE_NOSCRIPT")
+# Orkige::Engine and gets the union. Both come from the SAME tree/commit (one
+# ABI stamp), so they can never be a mismatched set.
+set(ORKIGE_CORE_COMPILE_DEFINITIONS "@ORKIGE_PACKAGE_CORE_DEFS@")
+set(ORKIGE_ENGINE_COMPILE_DEFINITIONS "@ORKIGE_PACKAGE_ENGINE_DEFS@")
+set(_orkige_pkg_core_defs ${ORKIGE_CORE_COMPILE_DEFINITIONS})
+set(_orkige_pkg_engine_defs ${ORKIGE_ENGINE_COMPILE_DEFINITIONS})
+if(NOT _orkige_pkg_engine_defs)
+    set(Orkige_FOUND FALSE)
+    set(Orkige_NOT_FOUND_MESSAGE
+        "the Orkige package at '${CMAKE_CURRENT_LIST_DIR}' records no compile "
+        "contract - it was written by a broken or incomplete emit. Rebuild the "
+        "engine tree, or re-install the SDK pack.")
+    return()
 endif()
 
 if(NOT TARGET Orkige::Core)
     add_library(Orkige::Core STATIC IMPORTED)
     set_target_properties(Orkige::Core PROPERTIES
         IMPORTED_LOCATION "${_orkige_pkg_core_lib}"
-        INTERFACE_INCLUDE_DIRECTORIES "${ORKIGE_SOURCE_ROOT}/orkige_core"
+        INTERFACE_INCLUDE_DIRECTORIES "${ORKIGE_CORE_INCLUDE_DIRS}"
         INTERFACE_COMPILE_DEFINITIONS "${_orkige_pkg_core_defs}")
 endif()
 if(NOT TARGET Orkige::Engine)
@@ -84,7 +116,7 @@ if(NOT TARGET Orkige::Engine)
     set_target_properties(Orkige::Engine PROPERTIES
         IMPORTED_LOCATION "${_orkige_pkg_engine_lib}"
         INTERFACE_INCLUDE_DIRECTORIES
-            "${ORKIGE_SOURCE_ROOT}/orkige_engine;${ORKIGE_SOURCE_ROOT}/orkige_core"
+            "${ORKIGE_ENGINE_INCLUDE_DIRS};${ORKIGE_CORE_INCLUDE_DIRS}"
         INTERFACE_COMPILE_DEFINITIONS "${_orkige_pkg_engine_defs}"
         INTERFACE_LINK_LIBRARIES Orkige::Core)
 endif()

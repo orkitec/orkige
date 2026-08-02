@@ -666,14 +666,43 @@ step) exporting two targets sharing ONE **ABI-stamp** version — `Orkige::Core`
 (OGRE-free) and `Orkige::Engine` (pulls Core); the module does
 `find_package(Orkige <stamp> EXACT REQUIRED)` so a module compiled against newer
 engine headers than the stale library it links is a HARD CONFIGURE ERROR, never
-the JumperNative runtime null-deref (the stamp is the engine's commit + tracked
-working diff, `cmake/OrkigeAbiStamp.cmake`; the editor's compile-on-Play AND the
+the JumperNative runtime null-deref (the stamp is a git-INDEPENDENT content
+fingerprint of the engine source surface — `orkige_core/`, `orkige_engine/` and
+the cmake files defining how a module compiles and links, hashed from the bytes
+on disk, `cmake/OrkigeAbiStamp.cmake`; the editor's compile-on-Play AND the
 exporter both flow through it, so a stale tree refuses rather than shipping a
 crash — the `module_abi_mismatch` ctest is the regression proof, `Docs/native-modules.md`;
 the editor/player/tests build in the engine graph itself and never drift, so
-they stay off find_package — the first brick of a fuller SDK). **Runs on BOTH
-render flavors**: the helper reads the engine
-tree's flavor from its cache and links THAT flavor's engine closure + defines its
+they stay off find_package). The SAME package has a RELOCATABLE form — the
+**SDK pack** (`cmake/OrkigeSdk.cmake`, `cmake --install <build> --prefix <dir>
+--component sdk`): one self-contained desktop directory (layer-rooted
+`include/`, the two archives, engine `media/`, the cmake surface and the
+`vcpkg/` closure the archives were linked against), so compiled C++ game code
+builds on a machine with NO engine checkout and NO build tree. `cmake/
+OrkigeGameModule.cmake` is ONE helper serving both forms: it detects a pack by
+the `OrkigeSdkPack.cmake` beside it (realized from a template at install time,
+so a source tree can never carry it) and takes the package dir, closure prefix,
+flavor, scripting backend, compile contract and include roots from the pack.
+**ONE CONFIGURATION all the way through** — the closure half shipped is the one
+the archives were built in, and a module in another build type is REFUSED by
+name: a dependency's headers compile differently per config (Jolt's asserts
+follow `NDEBUG`, so a Debug archive calls symbols only the debug library
+defines), and on MSVC `/MD` vs `/MDd` cannot share an image at all. A
+distribution pack comes from a Release tree (~250 MB); a Debug pack is a
+development artifact (~3.2 GB). Whole-header-set install (there is no
+public/private split to carve). The **compile contract** is CAPTURED off the
+engine targets (root `COMPILE_DEFINITIONS` + each archive's PUBLIC ones), never
+restated — a hand list had already drifted past `ORKIGE_HTTP` and the
+stdlib-hardening define. The ABI stamp keeps its teeth over the pack's OWN
+installed surface. Proven by the `sdk_pack` ctest per flavor: install → RENAME
+→ self-containment audit → configuration-coherence audit → a TU over every
+engine header → `projects/jumper-native` configures, builds and RUNS with the
+engine source AND build trees DENIED in a sandbox clean room → every recorded
+contract define asserted present on the module's real command line → a tampered
+pack refuses — `Docs/sdk-pack.md`. **Runs on BOTH
+render flavors**: the helper takes the flavor from the package (which records
+what its archives were built with) and links THAT flavor's engine closure +
+defines its
 ABI macro (`ORKIGE_RENDER_NEXT` / `ORKIGE_RENDER_CLASSIC`); game code is
 flavor-neutral by construction (only facade types, no `Ogre::`). A module tree is
 flavor-bound like any build tree (a flavor flip in place FATAL_ERRORs), so the

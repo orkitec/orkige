@@ -6,14 +6,28 @@
 # cmake/OrkigePackage.cmake.
 #
 # Required -D arguments:
-#   ORKIGE_ROOT          the engine source root (the ABI fingerprint origin)
-#   ORKIGE_ABI_OUT_DIR   the build dir to write the package version files into
+#   ORKIGE_ROOT          the ABI surface root (an engine source tree, or an
+#                        installed SDK pack - see cmake/OrkigeSdk.cmake)
+#   ORKIGE_ABI_OUT_DIR   the dir to write the package version files into
 #   ORKIGE_ABI_TAG       a per-writer tag (e.g. "configure"/"core"/"engine") so
 #                        concurrent POST_BUILD writers stage to distinct temp
 #                        files and rename atomically into place
+#
+# Optional -D arguments, for a surface laid out differently from the engine
+# source tree (the SDK pack's merged include/ root): ORKIGE_ABI_SOURCE_DIRS and
+# ORKIGE_ABI_EXTRA_FILES override the defaults OrkigeAbiStamp.cmake declares -
+# same fingerprint function, different surface.
 
+set(_orkige_abi_dirs_override "${ORKIGE_ABI_SOURCE_DIRS}")
+set(_orkige_abi_extra_override "${ORKIGE_ABI_EXTRA_FILES}")
 include("${CMAKE_CURRENT_LIST_DIR}/OrkigeAbiStamp.cmake")
 include(CMakePackageConfigHelpers)
+if(_orkige_abi_dirs_override)
+    set(ORKIGE_ABI_SOURCE_DIRS ${_orkige_abi_dirs_override})
+endif()
+if(_orkige_abi_extra_override)
+    set(ORKIGE_ABI_EXTRA_FILES ${_orkige_abi_extra_override})
+endif()
 
 orkige_compute_abi_stamp("${ORKIGE_ROOT}" _version _stamp)
 

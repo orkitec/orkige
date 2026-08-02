@@ -24,8 +24,14 @@ include("${ORKIGE_ROOT}/cmake/OrkigeGameModule.cmake")
 add_executable(jumper_native main.cpp)
 orkige_game_module(jumper_native)
 
-# the pure gameplay math is shared with the C++ jumper SAMPLE by including
-# its header directly (samples/jumper/JumperLogic.h) - one source of truth
-# for the feel-critical functions, verified headlessly by tests/jumper
-target_include_directories(jumper_native PRIVATE
-    "${ORKIGE_ROOT}/samples/jumper")
+# the pure gameplay math is shared with the C++ jumper SAMPLE by including its
+# header directly (samples/jumper/JumperLogic.h) - one source of truth for the
+# feel-critical functions, verified headlessly by tests/jumper. A project built
+# against a distributed SDK pack has no engine checkout to read it from, so a
+# copy carried beside this file (what any self-contained project does with its
+# own sources) is searched first.
+target_include_directories(jumper_native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+if(EXISTS "${ORKIGE_ROOT}/samples/jumper/JumperLogic.h")
+    target_include_directories(jumper_native PRIVATE
+        "${ORKIGE_ROOT}/samples/jumper")
+endif()

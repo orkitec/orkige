@@ -1,5 +1,5 @@
 # OrkigeGameModule.cmake - build a project's native (C++) game module
-# against the Orkige ENGINE BUILD TREE.
+# against the Orkige engine.
 #
 # A "native module" is the compiled game code of a .orkproj project (see
 # core_project/NativeModule.h for the manifest keys and the editor's
@@ -14,8 +14,8 @@
 #     add_executable(my_game main.cpp)
 #     orkige_game_module(my_game)
 #
-# configured with (the editor's Play button assembles exactly this - see
-# NativeModule::configureCommand):
+# configured against an engine SOURCE + BUILD TREE with (the editor's Play
+# button assembles exactly this - see NativeModule::configureCommand):
 #
 #     cmake -G Ninja -S <project>/native -B <project>/native/build-<flavor> \
 #         -DCMAKE_BUILD_TYPE=<Debug|Release> \
@@ -24,8 +24,14 @@
 #                                    build/macos-debug (next) or
 #                                    build/macos-debug-classic (classic)>
 #
-# The module links against EITHER render flavor's engine tree: the flavor is
-# read from the engine build's CMakeCache.txt (ORKIGE_RENDER_BACKEND), and the
+# or against an installed SDK PACK (Docs/sdk-pack.md) with neither, by including
+# the copy of this file the pack carries:
+#
+#     cmake -G Ninja -S <project>/native -B <project>/native/build-<flavor> \
+#         -DCMAKE_BUILD_TYPE=Release -DORKIGE_ROOT=<pack>
+#
+# The module links against EITHER render flavor's engine: the flavor comes from
+# the package (which records what its archives were built with), and the
 # module links THAT flavor's render backend closure and gets its ABI macro
 # (ORKIGE_RENDER_NEXT or ORKIGE_RENDER_CLASSIC + USE_RTSHADER_SYSTEM) - the
 # game code above the engine_render facade compiles the correct branch of the
@@ -33,17 +39,17 @@
 # RenderMath.h). Game modules are flavor-neutral by construction: they spell
 # only facade types (Orkige::Vec3, engine_render/*), never Ogre::.
 #
-# The engine is resolved as ONE find_package(Orkige) build-tree package (no
-# install step - the config is emitted straight into the engine build tree by
-# cmake/OrkigePackage.cmake) that exports TWO imported targets sharing ONE ABI
-# stamp: Orkige::Core (the OGRE-free core) and Orkige::Engine (which pulls
-# Orkige::Core transitively). find_package requires an EXACT ABI-stamp match, so
-# a module compiled against newer engine headers than the archive it links fails
-# HERE at configure with a clear message - never as a runtime crash from a
-# skewed object layout. The stamp is the engine's commit + tracked working diff
-# (cmake/OrkigeAbiStamp.cmake). This is the first brick of a fuller
-# find_package(Orkige) SDK; the editor/player/tests still build in the engine
-# graph itself and never drift, so they are deliberately NOT migrated.
+# The engine is resolved as ONE find_package(Orkige) package - emitted into the
+# engine build tree by cmake/OrkigePackage.cmake, or installed as part of a
+# relocatable SDK pack by cmake/OrkigeSdk.cmake - that exports TWO imported
+# targets sharing ONE ABI stamp: Orkige::Core (the OGRE-free core) and
+# Orkige::Engine (which pulls Orkige::Core transitively). find_package requires
+# an EXACT ABI-stamp match, so a module compiled against newer engine headers
+# than the archive it links fails HERE at configure with a clear message - never
+# as a runtime crash from a skewed object layout. The stamp is a content
+# fingerprint of the engine's ABI surface (cmake/OrkigeAbiStamp.cmake). The
+# editor/player/tests build in the engine graph itself and never drift, so they
+# are deliberately NOT migrated onto find_package.
 #
 # What orkige_game_module(<target>) wires up:
 #   - links Orkige::Engine (the find_package package's imported target), which
@@ -51,7 +57,10 @@
 #     ABI macro, the scripting backend define) and pulls Orkige::Core
 #   - plus the full dependency closure (the flavor's OGRE + render systems +
 #     codecs, SDL3, OpenAL, Jolt, tinyxml2, Lua/sol2, ...) resolved through the
-#     engine build's own vcpkg_installed/ tree - versions can never diverge
+#     prefix the package points at - the build's own vcpkg_installed/<triplet>
+#     tree, or the pack's bundled vcpkg/. Either way these are the exact
+#     binaries the engine archives were linked against, so versions can never
+#     diverge
 #   - C++20 and the ORKIGE_MODULE_MEDIA_DIR define (the flavor's OGRE Media dir:
 #     the classic RTSS shader library / the Ogre-Next Hlms shader templates -
 #     the fallback resolveMediaDirectory returns for a dev run, overridden by
@@ -72,18 +81,43 @@
 # native/build-export-<flavor> for the exporter. All of native/build* is
 # gitignored.
 #
-# HONEST LIMITS (v1):
-#   - the ENGINE MUST BE BUILT FIRST for the same build type; the editor
-#     guarantees that (it runs out of that very build tree). The find_package
-#     package resolves against the BUILD TREE (no install(EXPORT) step yet - a
-#     relocatable installed SDK is future work); this file still owns the vcpkg
-#     dependency-closure resolution the package declares.
-#   - desktop host builds only; iOS/Android native modules are out of scope
-#     until the export pipeline covers them.
-#   - scripting backend defaults to LUA (the tree default); pass
-#     -DORKIGE_SCRIPTING=OFF only when the engine build was configured so.
+# HONEST LIMITS:
+#   - against a BUILD TREE the engine must be built first for the same build
+#     type; the editor guarantees that (it runs out of that very build tree).
+#     An SDK pack carries one configuration - Release - so a module built
+#     against a pack builds Release (Docs/sdk-pack.md).
+#   - desktop host packs only; iOS/Android/wasm SDK packs are not built yet, and
+#     iOS/Android native modules go through the export pipeline.
+#   - the scripting backend follows the package; pass -DORKIGE_SCRIPTING=OFF
+#     only to override a package too old to record it.
+#   - this file owns the vcpkg dependency-closure resolution the package
+#     declares; the package declares WHICH packages and WHERE, never how they
+#     link.
 
-if(NOT DEFINED ORKIGE_ROOT)
+# --- where the engine comes from --------------------------------------------
+# TWO forms of the SAME find_package(Orkige) package (cmake/OrkigeConfig.cmake.in):
+#
+#   BUILD TREE  the engine source root plus the tree it was built in. Pass
+#               -DORKIGE_ROOT=<engine source> -DORKIGE_ENGINE_BUILD_DIR=<build>.
+#               The developer loop, and what the editor's compile-on-Play and
+#               the exporter use when they run out of an engine checkout.
+#   SDK PACK    a self-contained, relocatable installed pack (headers,
+#               archives, the dependency closure and the cmake surface under
+#               ONE root - cmake/OrkigeSdk.cmake). A module includes
+#               <pack>/cmake/OrkigeGameModule.cmake and passes NOTHING: the
+#               pack answers every question about itself. This is how compiled
+#               game code builds against a distributed engine, where no source
+#               tree and no build tree exist.
+#
+# A pack carries OrkigeSdkPack.cmake beside this file. Its presence IS the
+# marker, and it is the only file that knows the pack layout - everything below
+# is the same code for both forms.
+set(ORKIGE_SDK_MODE OFF)
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/OrkigeSdkPack.cmake")
+    include("${CMAKE_CURRENT_LIST_DIR}/OrkigeSdkPack.cmake")
+    set(ORKIGE_SDK_MODE ON)
+    set(ORKIGE_PACKAGE_DIR "${ORKIGE_SDK_PACKAGE_DIR}")
+elseif(NOT DEFINED ORKIGE_ROOT)
     message(FATAL_ERROR "ORKIGE_ROOT is not set - pass the Orkige engine "
         "source root: -DORKIGE_ROOT=/path/to/orkige")
 endif()
@@ -101,17 +135,20 @@ if(NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
         set(CMAKE_OBJCXX_COMPILER_LAUNCHER "${ORKIGE_MODULE_CCACHE}")
     endif()
 endif()
-if(NOT DEFINED ORKIGE_ENGINE_BUILD_DIR)
-    message(FATAL_ERROR "ORKIGE_ENGINE_BUILD_DIR is not set - pass the engine "
-        "build tree to link against: -DORKIGE_ENGINE_BUILD_DIR="
-        "${ORKIGE_ROOT}/build/macos-debug")
+if(NOT ORKIGE_SDK_MODE)
+    if(NOT DEFINED ORKIGE_ENGINE_BUILD_DIR)
+        message(FATAL_ERROR "ORKIGE_ENGINE_BUILD_DIR is not set - pass the engine "
+            "build tree to link against: -DORKIGE_ENGINE_BUILD_DIR="
+            "${ORKIGE_ROOT}/build/macos-debug")
+    endif()
+    set(ORKIGE_PACKAGE_DIR "${ORKIGE_ENGINE_BUILD_DIR}")
 endif()
 
 # --- engine package + ABI-stamp guard --------------------------------------
-# Resolve the engine as ONE find_package(Orkige) build-tree package (two
-# imported targets, Orkige::Core + Orkige::Engine, sharing ONE ABI stamp)
-# instead of hand-globbing liborkige_engine.a - and REQUIRE the package's stamp
-# match the stamp of the engine sources this module compiles against. A
+# Resolve the engine as ONE find_package(Orkige) package (two imported targets,
+# Orkige::Core + Orkige::Engine, sharing ONE ABI stamp) instead of
+# hand-globbing liborkige_engine.a - and REQUIRE the package's stamp match the
+# stamp of the engine ABI surface this module compiles against. A
 # stale/mismatched engine archive (headers grew a struct member but the library
 # was not rebuilt) is then a HARD CONFIGURE ERROR here, never a runtime crash
 # there (the JumperNative setWindowBackgroundColour null-deref class). The stamp
@@ -121,29 +158,58 @@ endif()
 # from. Both the editor's compile-on-Play and the exporter flow through
 # this same path, so a stale engine tree refuses at configure rather than
 # shipping a crashing app.
+#
+# In an SDK PACK the guard keeps exactly this shape and exactly these teeth. A
+# pack has no .cpp files, but it carries the surface that decides object layout
+# for a consumer - the installed headers plus the cmake files defining the
+# compile and link - and OrkigeSdkPack.cmake names that surface for both sides.
+# The pack recorded its stamp over it at install time; the recomputation below
+# reads the pack as it stands NOW. An edited (or truncated, or half-unpacked)
+# installed header is therefore a hard configure error here, never a skewed
+# object layout there.
 if(DEFINED ORKIGE_EXPECTED_ABI_VERSION)
     # an explicit override of the expected ABI version; when unset it is
-    # computed from the engine sources
+    # computed from the engine's ABI surface
     set(_orkige_expected "${ORKIGE_EXPECTED_ABI_VERSION}")
+elseif(ORKIGE_SDK_MODE)
+    include("${CMAKE_CURRENT_LIST_DIR}/OrkigeAbiStamp.cmake")
+    set(ORKIGE_ABI_SOURCE_DIRS ${ORKIGE_SDK_ABI_SOURCE_DIRS})
+    set(ORKIGE_ABI_EXTRA_FILES ${ORKIGE_SDK_ABI_EXTRA_FILES})
+    orkige_compute_abi_stamp("${ORKIGE_SDK_ROOT}"
+        _orkige_expected _orkige_expected_stamp)
 else()
     include("${ORKIGE_ROOT}/cmake/OrkigeAbiStamp.cmake")
     orkige_compute_abi_stamp("${ORKIGE_ROOT}"
         _orkige_expected _orkige_expected_stamp)
 endif()
 find_package(Orkige "${_orkige_expected}" EXACT QUIET CONFIG
-    PATHS "${ORKIGE_ENGINE_BUILD_DIR}" NO_DEFAULT_PATH)
+    PATHS "${ORKIGE_PACKAGE_DIR}" NO_DEFAULT_PATH)
 if(NOT Orkige_FOUND)
-    # discover what the tree DOES carry so the message names both versions
+    # discover what the package DOES carry so the message names both versions
     find_package(Orkige QUIET CONFIG
-        PATHS "${ORKIGE_ENGINE_BUILD_DIR}" NO_DEFAULT_PATH)
+        PATHS "${ORKIGE_PACKAGE_DIR}" NO_DEFAULT_PATH)
     if(NOT Orkige_FOUND)
+        if(ORKIGE_SDK_MODE)
+            message(FATAL_ERROR "no Orkige engine package under "
+                "'${ORKIGE_PACKAGE_DIR}' - this SDK pack is incomplete "
+                "(OrkigeConfig.cmake or an engine archive is missing). "
+                "Re-install or re-download the pack.")
+        endif()
         message(FATAL_ERROR "no Orkige engine package under "
-            "'${ORKIGE_ENGINE_BUILD_DIR}' - build the engine tree first "
+            "'${ORKIGE_PACKAGE_DIR}' - build the engine tree first "
             "(cmake --build --preset <preset>), which emits OrkigeConfig.cmake, "
             "or fix ORKIGE_ENGINE_BUILD_DIR.")
     endif()
+    if(ORKIGE_SDK_MODE)
+        message(FATAL_ERROR "Orkige engine ABI mismatch: the SDK pack at "
+            "'${ORKIGE_SDK_ROOT}' records version ${Orkige_VERSION} (ABI stamp "
+            "${ORKIGE_ABI_STAMP}), but its installed surface now fingerprints "
+            "as ${_orkige_expected}. The pack's headers no longer match the "
+            "archives shipped with them - restore or re-download the pack "
+            "rather than building a skewed object layout against it.")
+    endif()
     message(FATAL_ERROR "Orkige engine ABI mismatch: the package at "
-        "'${ORKIGE_ENGINE_BUILD_DIR}' is version ${Orkige_VERSION} (ABI stamp "
+        "'${ORKIGE_PACKAGE_DIR}' is version ${Orkige_VERSION} (ABI stamp "
         "${ORKIGE_ABI_STAMP}), but this module's engine headers expect version "
         "${_orkige_expected}. The engine library is stale relative to the "
         "sources at '${ORKIGE_ROOT}' - rebuild the engine tree (cmake --build "
@@ -151,33 +217,71 @@ if(NOT Orkige_FOUND)
         "module.")
 endif()
 
-# The render flavor the engine tree was built with - read from ITS cache. The
-# module links that flavor's OGRE closure and defines its ABI macro so the
-# flavor-gated engine headers compile the matching branch. Default classic when
-# the marker is absent (a legacy tree from before the guard existed).
+# --- configuration match ----------------------------------------------------
+# The package carries ONE configuration - its engine archives and its
+# dependency closure were built in it together (cmake/OrkigeSdk.cmake ships
+# exactly the matching half). A module compiled in a different one disagrees
+# with both about what its shared headers mean: a dependency's per-config
+# interface definitions change inline behaviour and struct layout (Jolt turns
+# its asserts on where NDEBUG is absent, growing the code that calls into it),
+# and on MSVC the C runtime itself differs - the tree pins
+# x64-windows-static-md, so /MD and /MDd objects cannot live in one image at
+# all. The failures range from an undefined symbol at link to a binary that
+# links and then corrupts its heap, so the mismatch is refused HERE, by name.
+#
+# Only an SDK pack is checked: a build tree keeps both halves of its closure,
+# so a module may legitimately be built in either configuration against it -
+# which is exactly what the editor's compile-on-Play does.
+if(ORKIGE_SDK_MODE AND ORKIGE_PACKAGE_BUILD_TYPE
+        AND NOT CMAKE_BUILD_TYPE STREQUAL ORKIGE_PACKAGE_BUILD_TYPE)
+    message(FATAL_ERROR "Orkige SDK pack configuration mismatch: the pack at "
+        "'${ORKIGE_SDK_ROOT}' carries ${ORKIGE_PACKAGE_BUILD_TYPE} binaries "
+        "(engine archives AND dependency closure), but this module is being "
+        "configured as '${CMAKE_BUILD_TYPE}'. Mixing them produces undefined "
+        "symbols at link or a miscompiled binary - configure the module with "
+        "-DCMAKE_BUILD_TYPE=${ORKIGE_PACKAGE_BUILD_TYPE}, or use a pack built "
+        "from an engine tree of the configuration you want.")
+endif()
+
+# The render flavor the engine was built with. The module links that flavor's
+# OGRE closure and defines its ABI macro so the flavor-gated engine headers
+# compile the matching branch. THE PACKAGE is the answer - it records what the
+# archives were actually built with, which is the one fact that matters and the
+# only one an SDK pack (which has no CMakeCache) can carry. The build tree's
+# cache is the fallback for a package too old to say.
+#
+# Sanitizer instrumentation rides along like the flavor: an instrumented
+# engine's static libs reference runtime symbols (__asan_*/__ubsan_*) that only
+# the same -fsanitize= compile AND link provide - a module built plain against
+# such an engine dies at link with thousands of undefined sanitizer symbols. The
+# root CMakeLists carries the option as ORKIGE_ENABLE_SANITIZERS (the flags come
+# from there, not the flags cache), the package records it, and
+# orkige_game_module() mirrors the root's exact option set onto the module
+# target - target options survive project() ordering, directory-scope flag edits
+# do not.
 set(ORKIGE_MODULE_FLAVOR "classic")
-if(EXISTS "${ORKIGE_ENGINE_BUILD_DIR}/CMakeCache.txt")
-    file(STRINGS "${ORKIGE_ENGINE_BUILD_DIR}/CMakeCache.txt"
+if(DEFINED ORKIGE_PACKAGE_RENDER_BACKEND)
+    if(ORKIGE_PACKAGE_RENDER_BACKEND STREQUAL "next")
+        set(ORKIGE_MODULE_FLAVOR "next")
+    endif()
+    if(ORKIGE_PACKAGE_SANITIZERS)
+        set(ORKIGE_MODULE_SANITIZERS ON)
+    endif()
+elseif(EXISTS "${ORKIGE_PACKAGE_DIR}/CMakeCache.txt")
+    file(STRINGS "${ORKIGE_PACKAGE_DIR}/CMakeCache.txt"
         _orkige_module_backend_line REGEX "^ORKIGE_RENDER_BACKEND:")
     if(_orkige_module_backend_line MATCHES "=next$")
         set(ORKIGE_MODULE_FLAVOR "next")
     endif()
-    # Sanitizer instrumentation rides along like the flavor: an instrumented
-    # engine's static libs reference runtime symbols (__asan_*/__ubsan_*)
-    # that only the same -fsanitize= compile AND link provide - a module
-    # built plain against such a tree dies at link with thousands of
-    # undefined sanitizer symbols. The engine carries the option as
-    # ORKIGE_ENABLE_SANITIZERS (the flags come from the root CMakeLists, not
-    # the flags cache), so read THAT and mirror the root's exact option set
-    # onto the module target in orkige_game_module() - target options
-    # survive project() ordering, directory-scope flag edits do not.
-    file(STRINGS "${ORKIGE_ENGINE_BUILD_DIR}/CMakeCache.txt"
+    file(STRINGS "${ORKIGE_PACKAGE_DIR}/CMakeCache.txt"
         _orkige_module_sanitize_line REGEX "^ORKIGE_ENABLE_SANITIZERS:")
     if(_orkige_module_sanitize_line MATCHES "=ON$")
         set(ORKIGE_MODULE_SANITIZERS ON)
-        message(STATUS "engine tree is sanitizer-instrumented - the module "
-            "target inherits ASan + UBSan")
     endif()
+endif()
+if(ORKIGE_MODULE_SANITIZERS)
+    message(STATUS "the engine is sanitizer-instrumented - the module target "
+        "inherits ASan + UBSan")
 endif()
 
 # Flavor-bind guard (mirrors the engine root CMakeLists' ORKIGE_RENDER_BACKEND_
@@ -197,30 +301,43 @@ endif()
 set(ORKIGE_MODULE_FLAVOR_CONFIGURED "${ORKIGE_MODULE_FLAVOR}" CACHE INTERNAL
     "render flavor this module tree was configured against (guard, do not edit)")
 
-set(ORKIGE_SCRIPTING "LUA" CACHE STRING
+# the scripting backend the engine was built with; the package says so, and the
+# cache entry stays as the manual override for a package too old to answer
+set(_orkige_scripting_default "LUA")
+if(DEFINED ORKIGE_PACKAGE_SCRIPTING AND ORKIGE_PACKAGE_SCRIPTING)
+    set(_orkige_scripting_default "${ORKIGE_PACKAGE_SCRIPTING}")
+endif()
+set(ORKIGE_SCRIPTING "${_orkige_scripting_default}" CACHE STRING
     "Scripting backend the engine build was configured with (LUA or OFF)")
 
 # The engine archives are the Orkige::Core + Orkige::Engine imported targets the
 # find_package(Orkige) above resolved (their existence is checked by the package
 # config); the game module links Orkige::Engine, which pulls Orkige::Core.
 
-# The engine's dependencies come from ITS build's vcpkg_installed tree (vcpkg
-# manifest mode installs into the build dir) - pointing CMAKE_PREFIX_PATH at
-# the triplet root lets the plain find_packages below resolve the exact
-# packages the engine libraries were compiled against, without requiring the
-# vcpkg toolchain here.
-file(GLOB _orkige_vcpkg_triplets
-    LIST_DIRECTORIES true "${ORKIGE_ENGINE_BUILD_DIR}/vcpkg_installed/*")
+# The engine's dependencies come from the prefix the PACKAGE points at - the
+# build's own vcpkg_installed/<triplet> tree, or the pack's bundled vcpkg/ - so
+# the plain find_packages below resolve the exact binaries the engine libraries
+# were compiled and linked against, without requiring the vcpkg toolchain here
+# and without a second opinion about versions.
 set(ORKIGE_VCPKG_PREFIX "")
-foreach(_orkige_triplet_dir IN LISTS _orkige_vcpkg_triplets)
-    # skip vcpkg's own bookkeeping dir; a real triplet dir has include/
-    if(IS_DIRECTORY "${_orkige_triplet_dir}/include")
-        set(ORKIGE_VCPKG_PREFIX "${_orkige_triplet_dir}")
-    endif()
-endforeach()
+if(ORKIGE_VCPKG_PREFIX_HINT AND IS_DIRECTORY "${ORKIGE_VCPKG_PREFIX_HINT}/include")
+    set(ORKIGE_VCPKG_PREFIX "${ORKIGE_VCPKG_PREFIX_HINT}")
+else()
+    # a build tree that has been moved since it was configured: re-derive the
+    # triplet prefix from the build dir it was actually found in
+    file(GLOB _orkige_vcpkg_triplets
+        LIST_DIRECTORIES true "${ORKIGE_PACKAGE_DIR}/vcpkg_installed/*")
+    foreach(_orkige_triplet_dir IN LISTS _orkige_vcpkg_triplets)
+        # skip vcpkg's own bookkeeping dir; a real triplet dir has include/
+        if(IS_DIRECTORY "${_orkige_triplet_dir}/include")
+            set(ORKIGE_VCPKG_PREFIX "${_orkige_triplet_dir}")
+        endif()
+    endforeach()
+endif()
 if(NOT ORKIGE_VCPKG_PREFIX)
-    message(FATAL_ERROR "no vcpkg_installed/<triplet> under "
-        "'${ORKIGE_ENGINE_BUILD_DIR}' - is that really an Orkige build tree?")
+    message(FATAL_ERROR "no dependency closure beside the Orkige package at "
+        "'${ORKIGE_PACKAGE_DIR}' - a build tree carries it as "
+        "vcpkg_installed/<triplet>, an SDK pack as vcpkg/.")
 endif()
 list(PREPEND CMAKE_PREFIX_PATH "${ORKIGE_VCPKG_PREFIX}")
 # MODULE-mode finds reached through the config packages (OGRE-Next's
@@ -264,10 +381,9 @@ endif()
 # - persist the picked prefix + both lib listings to a file the job artifact
 # collects
 file(GLOB _orkige_debug_lib_listing "${ORKIGE_VCPKG_PREFIX}/debug/lib/*")
-file(GLOB _orkige_installed_listing "${ORKIGE_ENGINE_BUILD_DIR}/vcpkg_installed/*")
 file(WRITE "${CMAKE_BINARY_DIR}/orkige_module_diag.txt"
+    "package: ${ORKIGE_PACKAGE_DIR} (sdk mode: ${ORKIGE_SDK_MODE})\n"
     "prefix: ${ORKIGE_VCPKG_PREFIX}\n"
-    "vcpkg_installed entries: ${_orkige_installed_listing}\n"
     "zlib release glob: ${_orkige_zlib_release}\n"
     "zlib debug glob: ${_orkige_zlib_debug}\n"
     "lib dir: ${_orkige_lib_listing}\n"
@@ -379,31 +495,33 @@ function(orkige_game_module target)
         target_link_options(${target} PRIVATE
             -fsanitize=address,undefined -fno-sanitize=vptr)
     endif()
-    target_include_directories(${target} PRIVATE
-        "${ORKIGE_ROOT}/orkige_core"
-        "${ORKIGE_ROOT}/orkige_engine"
-    )
-    # ABI-relevant defines matching the engine build (see the root
-    # CMakeLists.txt and orkige_engine/CMakeLists.txt)
+    # the engine include roots the PACKAGE declares - the source tree's two
+    # layer dirs from a build tree, the pack's merged include/ from a pack.
+    # Spelled explicitly because the archives are linked by raw path below (see
+    # that block), which carries no interface include directories with it.
+    target_include_directories(${target} PRIVATE ${ORKIGE_INCLUDE_DIRS})
+    # THE COMPILE CONTRACT, straight from the package. These are the
+    # ABI-relevant definitions the engine archives were ACTUALLY compiled with,
+    # captured off the engine targets when the package was written
+    # (cmake/OrkigePackage.cmake) - never a list restated here, which would
+    # drift the moment the engine grew a define and disagree silently. It
+    # covers ORKIGE_STATIC, the render flavor macro (engine_graphic/Engine.h
+    # and engine_render/RenderMath.h gate on it, so the module MUST compile the
+    # same branch the archives were built with), USE_RTSHADER_SYSTEM,
+    # ORKIGE_OPENAL_SOUND, ORKIGE_ENGINE_HAS_GOCOMPONENT, the scripting-backend
+    # define, ORKIGE_HAVE_VULKAN and the platform lean-header switches.
+    #
+    # The dependencies' own contract (Jolt's, OGRE's, SDL's) is NOT here: it
+    # rides their imported targets, linked below. That only holds while the
+    # dependency binaries are the SAME CONFIGURATION as the engine archives,
+    # which is why the package records its build type and this file checks it.
     target_compile_definitions(${target} PRIVATE
-        ORKIGE_STATIC
-        ORKIGE_OPENAL_SOUND
-        ORKIGE_ENGINE_HAS_GOCOMPONENT
+        ${ORKIGE_ENGINE_COMPILE_DEFINITIONS}
+        # where this module's engine media lives - a property of the package
+        # the module was built against, not of the engine build
         ORKIGE_MODULE_MEDIA_DIR="${ORKIGE_GAME_MODULE_MEDIA_DIR}"
     )
-    # the render flavor ABI macro: engine_graphic/Engine.h and engine_render/
-    # RenderMath.h gate on ORKIGE_RENDER_NEXT (else the classic <Ogre.h>+RTSS
-    # path); the module MUST match the engine tree's flavor so the game code
-    # compiles the SAME branch the engine libraries were built with.
-    if(ORKIGE_MODULE_FLAVOR STREQUAL "next")
-        target_compile_definitions(${target} PRIVATE ORKIGE_RENDER_NEXT)
-    else()
-        target_compile_definitions(${target} PRIVATE
-            ORKIGE_RENDER_CLASSIC
-            USE_RTSHADER_SYSTEM)
-    endif()
     if(ORKIGE_SCRIPTING STREQUAL "LUA")
-        target_compile_definitions(${target} PRIVATE ORKIGE_LUA)
         target_include_directories(${target} PRIVATE ${LUA_INCLUDE_DIR})
         # sol2 is header-only; the Lua archive itself is linked AFTER the
         # engine archives below - GNU ld resolves archives left to right, so
@@ -411,8 +529,6 @@ function(orkige_game_module target)
         # engine archives need (luaL_error etc.); ld64 does not care, which
         # is why the wrong order never surfaced on macOS
         target_link_libraries(${target} PRIVATE sol2::sol2)
-    else()
-        target_compile_definitions(${target} PRIVATE ORKIGE_NOSCRIPT)
     endif()
     # Link the Orkige archives as RAW .a PATHS (not the imported targets), then
     # their dependency closure. GNU ld resolves archives left-to-right in a
