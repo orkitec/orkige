@@ -19,6 +19,13 @@ that situation and drives the copy over its own MCP endpoint:
   3. ASSERT over MCP that the copy boots with a rendering window, opens the
      copied project, renders a scene screenshot and PLAYS - the bundled player
      spawning and reporting a running session.
+  3b. ASSERT the EXTENSION path: a copied editor authors and runs an editor
+     tool (`scripts/<name>.editor.lua`, the Tools-menu command) with no
+     toolchain of any kind - the path someone who never writes C++ extends the
+     editor through. The tool must have effects the driver can read back from
+     outside the copy (a scene object and a project file it wrote through the
+     jailed verbs), and a tool that raises must be reported with its file:line
+     and leave nothing behind.
   4. ASSERT that the copy can PACKAGE a game: asked over MCP to export the
      copied project, it MUST produce a runnable .app out of the engine payload
      it carries. There is no acceptable second answer - the exporter is code
@@ -460,6 +467,159 @@ def run_session_leg(args, stage_dir, sandbox_profile):
                      % (name, root))
     log("writable state stayed outside the app: %s" % written)
     # a baked developer path must not be what made this work
+    if "developer tree" in output:
+        fail("the copied editor resolved resources from the developer tree")
+    return output
+
+
+# --- the editor-tool leg ----------------------------------------------------
+
+# The extension path for someone who never touches C++: a project script named
+# <name>.editor.lua is a one-shot editor TOOL, listed in the Tools menu and
+# runnable over MCP, whose editor.* calls ride the same verb handler an agent
+# uses. Nothing about it may need a toolchain - which is exactly what a copied
+# editor in a clean room can prove.
+#
+# The tool is authored the way its author writes one, through the copy's OWN
+# jailed write_project_file verb, so the whole path is under test (author,
+# discover, run) rather than a runner handed a fixture from outside. The shipped
+# sample (projects/roller) frames a tile grid from a scene LevelComponent, which
+# the project staged here does not have, so the fixture is purpose-made.
+#
+# It leaves TWO effects behind - one in the live scene, one on disk - and the
+# driver reads both back from outside the copy. A run that returned "ok" and did
+# nothing fails this leg.
+EDITOR_TOOL_NAME = "bundle_probe"
+EDITOR_TOOL_OBJECT = "BundleToolCube"
+EDITOR_TOOL_FILE = "tool_wrote_this.txt"
+EDITOR_TOOL_TEXT = "a copied editor ran an editor tool"
+EDITOR_TOOL = """\
+-- tool: Bundle Probe
+editor.create_object{ id = "%s", mesh = "cube" }
+editor.write_project_file{ path = "%s", content = "%s" }
+editor.log("bundle probe authored %s")
+""" % (EDITOR_TOOL_OBJECT, EDITOR_TOOL_FILE, EDITOR_TOOL_TEXT, EDITOR_TOOL_OBJECT)
+
+# A tool that edits and then RAISES. Running someone's tool is only safe because
+# a failed run is reported with the tool's own file:line and rolled back whole,
+# so a copy has to do both.
+FAILING_TOOL_NAME = "bundle_probe_fails"
+FAILING_TOOL_OBJECT = "BundleToolGhost"
+FAILING_TOOL = """\
+-- tool: Bundle Probe Fails
+editor.create_object{ id = "%s", mesh = "cube" }
+local broken = definitely_not_a_function()
+""" % FAILING_TOOL_OBJECT
+
+# What a build WITHOUT scripting says when asked to run a tool. Keying the
+# no-scripting outcome on this exact sentence keeps the leg unskippable on every
+# build that HAS scripting: any other refusal is a failure.
+NOSCRIPT_REFUSAL = "scripting is disabled in this build"
+
+
+def hierarchy_ids(client):
+    return [str(entry)
+            for entry in (client.tool("list_hierarchy").get("ids") or [])]
+
+
+def run_editor_tool_leg(args, stage_dir, sandbox_profile):
+    """a copied editor asked to run an EDITOR TOOL.
+
+    Editor tools and script components are the two ways a project extends the
+    editor without compiling anything, and both must work on a machine that has
+    only the app: the tool is a project file, the Lua runtime is linked in, and
+    the tool's editor.* calls are the editor's own verbs. So there is exactly
+    one acceptable answer here - the tool runs and its edits land - unless the
+    build was made without scripting, which the copy must SAY."""
+    executable = stage_app(args.editor_app, stage_dir)
+    project = os.path.join(stage_dir, "project")
+    shutil.copytree(args.project, project,
+                    ignore=shutil.ignore_patterns("builds", ".orkige",
+                                                  "build*", ".mcp.json"))
+    for name in ("home", "cwd", "state", "tmp"):
+        os.makedirs(os.path.join(stage_dir, name), exist_ok=True)
+    token_file = os.path.join(stage_dir, "endpoint.token")
+    env = scrubbed_env(stage_dir)
+    process = launch(executable,
+                     [executable, "--mcp-port", "0",
+                      "--mcp-token-file", token_file],
+                     os.path.join(stage_dir, "cwd"), env, sandbox_profile)
+    try:
+        port, token = wait_for_endpoint(process, token_file, args.boot_timeout)
+        if not port:
+            output = stop(process)
+            print(output[-8000:], flush=True)
+            fail("the copied editor never opened its MCP endpoint for the "
+                 "editor-tool leg")
+        client = McpClient(port, token)
+        client.call("initialize", {"protocolVersion": "2025-03-26",
+                                  "capabilities": {},
+                                  "clientInfo": {"name": "bundle-selfcheck",
+                                                 "version": "1"}})
+        client.tool("open_project", {"path": project})
+        client.tool("open_scene", {"scene": os.path.join(project, args.scene),
+                                  "force": True})
+
+        # (1) author the tool through the copy itself - a jailed write into the
+        # open project's scripts/ folder, which is also what makes it discovered
+        client.tool("write_project_file",
+                    {"path": "scripts/%s.editor.lua" % EDITOR_TOOL_NAME,
+                     "content": EDITOR_TOOL})
+
+        # (2) run it. A build with no scripting refuses in one honest sentence;
+        # any other refusal means the extension path is broken in a bundle
+        accepted, structured, text = client.attempt(
+            "run_editor_script", {"name": EDITOR_TOOL_NAME})
+        if not accepted:
+            if NOSCRIPT_REFUSAL in text:
+                log("this build carries no scripting and says so: " + text)
+                stop(process)
+                return
+            fail("the copied editor could not run an editor tool: " + text)
+
+        # (3) the effects, read back from OUTSIDE the copy
+        ids = hierarchy_ids(client)
+        if EDITOR_TOOL_OBJECT not in ids:
+            fail("the tool reported success but its object '%s' is not in the "
+                 "scene (%s)" % (EDITOR_TOOL_OBJECT, ", ".join(ids[:10])))
+        written = os.path.join(project, EDITOR_TOOL_FILE)
+        if not os.path.isfile(written):
+            fail("the tool wrote no %s into the copied project" % written)
+        if open(written, encoding="utf-8").read().strip() != EDITOR_TOOL_TEXT:
+            fail("the file the tool wrote does not carry what it wrote: " +
+                 open(written, encoding="utf-8").read()[:200])
+        if int(str(structured.get("command_count", "0")) or "0") < 1:
+            fail("the run folded no undoable command, so nothing was edited "
+                 "(command_count=%r)" % structured.get("command_count"))
+        log("the copied editor ran an editor tool: it authored '%s' and wrote "
+            "%s" % (EDITOR_TOOL_OBJECT, EDITOR_TOOL_FILE))
+
+        # (4) a tool that raises: reported with the tool's own file:line, and
+        # nothing of its run survives
+        client.tool("write_project_file",
+                    {"path": "scripts/%s.editor.lua" % FAILING_TOOL_NAME,
+                     "content": FAILING_TOOL})
+        accepted, _, text = client.attempt("run_editor_script",
+                                           {"name": FAILING_TOOL_NAME})
+        if accepted:
+            fail("a tool that raises was reported as a clean run")
+        # the file:line is the STAGED tool's own - no other copy of this file
+        # exists, so naming it is also where the error came from
+        if "%s.editor.lua:3" % FAILING_TOOL_NAME not in text:
+            fail("the failing tool's error does not name its own file and "
+                 "line: " + text)
+        if FAILING_TOOL_OBJECT in hierarchy_ids(client):
+            fail("a failed tool left '%s' behind instead of rolling back"
+                 % FAILING_TOOL_OBJECT)
+        log("a failing tool is reported with its file:line and rolls back: " +
+            text)
+        output = stop(process)
+    except Exception as error:		# noqa: BLE001 - report and stop the app
+        output = stop(process)
+        print(output[-8000:], flush=True)
+        fail("the editor-tool leg failed: %r" % (error,))
+    finally:
+        stop(process)	# no exit path leaves a staged editor running
     if "developer tree" in output:
         fail("the copied editor resolved resources from the developer tree")
     return output
@@ -1015,6 +1175,10 @@ def main():
         os.makedirs(session_stage)
         run_session_leg(args, session_stage, sandbox_profile)
 
+        tool_stage = os.path.join(args.stage_root, "editortool")
+        os.makedirs(tool_stage)
+        run_editor_tool_leg(args, tool_stage, sandbox_profile)
+
         export_stage = os.path.join(args.stage_root, "export")
         os.makedirs(export_stage)
         run_export_leg(args, export_stage, sandbox_profile)
@@ -1030,8 +1194,8 @@ def main():
         clean_staged_identity_state()
 
     log("PASSED: the copied editor boots, renders, opens a project, plays, "
-        "packages a game and reports what it shipped with, using nothing but "
-        "what it carries")
+        "runs an editor tool, packages a game and reports what it shipped "
+        "with, using nothing but what it carries")
     return 0
 
 

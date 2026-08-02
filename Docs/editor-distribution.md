@@ -189,7 +189,18 @@ environment is scrubbed: a `PATH` of `/usr/bin:/bin` (no Python), a scratch
 `HOME`, a scratch writable state directory, and a working directory outside the
 tree.
 
-A second leg asks the copy to **package** the project it has open, and
+A second leg proves the **extension path**, the one someone who never writes
+C++ uses: the copy authors an editor tool (`scripts/<name>.editor.lua`) into
+the open project through its own jailed `write_project_file`, runs it with
+`run_editor_script`, and must show the effects — the object the tool created is
+in the hierarchy, and the file the tool wrote through the editor verbs is on
+disk in the copied project. Reading both back from outside the copy is what
+makes the leg mean something: a run that answered "ok" and changed nothing
+fails it. A tool that raises is reported with its own `file:line` and leaves
+nothing behind, and a build made without scripting refuses in the one sentence
+that says so.
+
+A third leg asks the copy to **package** the project it has open, and
 accepts exactly ONE answer: a `.app` exported out of the payload the copy
 carries — which the leg then runs, from a neutral working directory inside the
 same clean room. A refusal is a failure, because the exporter is linked into
@@ -201,12 +212,12 @@ staged app and fails on any `.py` it finds — the structural half of "a copy
 needs no interpreter", which holds even on a machine where one happens to be
 reachable.
 
-A third leg makes the staged shader media **unreadable** and asserts the render
+A fourth leg makes the staged shader media **unreadable** and asserts the render
 backend logs its honest warning and keeps going, rather than aborting the boot:
 a missing directory and an unreadable one must reach the same graceful branch.
 That leg skips when run as root, where a mode of `000` denies nothing.
 
-A fourth leg reads back the changelog the About box shows, in both of its states.
+A fifth leg reads back the changelog the About box shows, in both of its states.
 `orkige_editor --changelog` prints exactly that text and exits before any window
 — display-free like `--version` — so a staged copy with no `CHANGELOG.md` at its
 resource root must say it carries none, and the same copy with the file the
