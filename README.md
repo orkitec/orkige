@@ -21,6 +21,26 @@ under [Apache-2.0](LICENSE).
 — this documentation as a searchable site, plus the generated C++ API
 reference.
 
+## Download the editor
+
+Ready-made builds are published every night the tree changes, from a commit CI
+has already proven green:
+**[github.com/orkitec/orkige/releases](https://github.com/orkitec/orkige/releases)**
+
+| Platform | Install | Portable |
+|---|---|---|
+| macOS (Apple silicon) | `.dmg` — signed, notarized, opens with no security prompt | `.zip` |
+| Windows (x64) | `-setup.exe` — per-user, no administrator rights | `.zip` |
+| Linux (x86_64) | `.AppImage` — one file, `chmod +x` and run | `.tar.gz` |
+
+Every asset carries a `.sha256` beside it, and each build ships a
+`CHANGELOG.md` and a `KNOWN-LIMITATIONS.md` saying what it cannot do yet — the
+Windows builds are not code-signed, so that platform warns about an unknown
+publisher. The rolling `nightly` tag is the newest build; the dated
+`nightly-YYYYMMDD` releases are the archive. The editor checks for updates
+itself and installs them on restart. Building from source is only needed to
+write C++ game code; Lua games need nothing but the download.
+
 ## What's in the box
 
 A full 3D engine that treats 2D as a first-class citizen: sprites, vector
@@ -81,6 +101,14 @@ game can be purely 2D, purely 3D, or mix both freely.
   lifecycle** (backgrounding pauses, flushes and suspends; scripts get
   `onAppPause`/`onAppResume`), and **Lua and `.oui` hot-reload during Play**
   (compile/parse-before-swap: a broken save keeps the old version running).
+- **Networking** — an async **HTTP client** for games (`http` in Lua: GET, POST,
+  download-to-file, progress, cancel), on each platform's OWN stack so
+  certificates verify against the trust store that machine maintains:
+  NSURLSession on Apple, the platform HTTP stack over JNI on Android (so a
+  device's enterprise anchors, network security config and proxy settings all
+  apply), WinHTTP on Windows, the page's `fetch` in the browser, and libcurl on
+  Linux — the one platform with no system HTTP client to ask. https by default,
+  no downgrade on redirect, and a size cap and timeout on every request.
 - **Scripting** — Lua on sol2 behind a backend-neutral seam; game logic lives in
   per-object `ScriptComponent`s. `projects/roller` is a complete game in pure Lua,
   zero compiled code.
