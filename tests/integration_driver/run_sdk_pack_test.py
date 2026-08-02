@@ -556,7 +556,14 @@ def stage_project(args, stage):
     copy travels with the project - which is what its CMakeLists searches
     first."""
     project = os.path.join(stage, "project")
-    shutil.copytree(args.project, project)
+    # WITHOUT the source project's own build output. Those directories are the
+    # in-tree module's build trees - multi-gigabyte, useless here (this stage
+    # configures its own against the pack), and they carry cache entries
+    # pointing at the engine tree this leg exists to prove is unnecessary.
+    # Copying them once filled the disk of a machine with a warm build.
+    shutil.copytree(args.project, project,
+                    ignore=shutil.ignore_patterns("build*", "builds",
+                                                  ".orkige"))
     native = os.path.join(project, "native")
     for name in sorted(os.listdir(args.shared_headers)):
         if name.endswith(".h"):
@@ -821,6 +828,23 @@ SYSTEM_LIBRARY_NAMES = frozenset((
     "c", "m", "dl", "rt", "pthread", "System", "objc", "c++", "stdc++",
     "gcc", "gcc_s", "util", "resolv", "atomic", "log", "android",
 ))
+# the platform's WINDOWING and device stacks, which on Linux arrive as bare
+# names the way macOS frameworks arrive as -framework. A pack must not bundle
+# these - they are the distribution's, versioned with the user's display server
+# and drivers, and are exactly the "Linux floor" a pack RECORDS rather than
+# carries. Matched by prefix because the families are open-ended (Xrandr, Xi,
+# Xcursor, xcb-randr, xkbcommon-x11, wayland-egl...), and safe to match that
+# way: no Orkige or vcpkg library is spelled like one, so this cannot hide the
+# leak the audit exists to catch.
+SYSTEM_LIBRARY_PREFIXES = (
+    "X",            # X11, X11-xcb, Xaw, Xt, Xrandr, Xi, Xcursor, Xext, Xss...
+    "xcb",          # xcb, xcb-randr, xcb-keysyms...
+    "xkbcommon",
+    "wayland-",
+    "decor-",
+    "EGL", "GL", "GLX", "OpenGL",
+    "asound", "pulse", "udev", "dbus-1", "ibus-1.0",
+)
 LIBRARY_SUFFIXES = (".a", ".dylib", ".so", ".tbd", ".lib")
 
 
@@ -862,7 +886,8 @@ def assert_closure_is_the_packs(args, pack, module_build):
                 continue
             if token.startswith("-l"):
                 name = token[2:]
-                if name and name not in SYSTEM_LIBRARY_NAMES:
+                if (name and name not in SYSTEM_LIBRARY_NAMES
+                        and not name.startswith(SYSTEM_LIBRARY_PREFIXES)):
                     offenders.append("-l%s (a bare name the linker resolves "
                                      "from the host's search path)" % name)
                 continue
