@@ -15,6 +15,31 @@ directory carrying headers, archives, the dependency closure and the cmake
 surface, for a machine with no engine checkout. That form, and the one helper
 serving both, is `Docs/sdk-pack.md`.
 
+## Which engine the editor builds against
+
+Compile-on-Play and export ask ONE seam (`core_project/NativeModule.h`,
+`tools/editor/EditorEngineSdk.h`), so a project's compiled game code is never
+built against two different engines depending on who asked:
+
+- **the engine BUILD TREE** when one is reachable — an editor running out of a
+  checkout keeps building against the very engine it runs on. Unchanged, and
+  first on purpose.
+- **an installed SDK pack** at `<writable state>/sdk/<flavor>` otherwise — the
+  downloaded-editor case, where there is no repository and no build tree.
+
+Each form gets its own module build tree (`native/build-<flavor>` against a
+tree, `native/build-sdk-<flavor>` against a pack, and the `-export` siblings for
+the exporter), because a module tree is bound to the engine it was configured
+against: its cache records that engine's `ORKIGE_ROOT` and build type, and a
+configured tree is only ever rebuilt incrementally.
+
+When neither is there — or the machine has no `cmake`/`ninja` — Play and export
+refuse with the ONE sentence that says WHICH prerequisite is missing, in the
+Console and over MCP alike. A missing SDK is something to install through
+Orkige; a missing build toolchain is something to install on the machine, since
+we ship the engine and never a compiler. `Docs/sdk-pack.md` has both messages
+and the acceptance test that proves they differ.
+
 ## The engine as a find_package(Orkige) package
 
 The engine is consumed as ONE `find_package(Orkige)` package. In the developer

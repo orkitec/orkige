@@ -3854,6 +3854,18 @@ namespace Orkige
 			}
 			if (!startPlay(*context.play, manager, state.project))
 			{
+				// a refusal that KNOWS why says so here rather than only in the
+				// editor's log: compile-on-Play reports a missing SDK or a
+				// missing build toolchain as the build verdict, and an agent
+				// must read the same actionable sentence a person does
+				if (context.play->buildOutcome ==
+						PlaySession::BuildOutcome::Failed &&
+					!context.play->buildErrorLog.empty())
+				{
+					this->sendErr(req, "play could not start: " +
+						context.play->buildErrorLog);
+					return;
+				}
 				this->sendErr(req, "play could not start (see the editor log)");
 				return;
 			}

@@ -158,11 +158,17 @@ namespace OrkigeEditor
 		}
 		if(inputs.nativeModule)
 		{
-			return refuse("this project builds compiled C++ game code (its "
-				"native.target setting), which needs the engine source tree "
-				"and a C++ toolchain to build - a downloaded Orkige carries "
-				"neither. Projects whose behaviour is Lua scripts export as "
-				"they are");
+			// compiled game code needs an engine to build against, which a
+			// downloaded Orkige has as an INSTALLED SDK PACK rather than as a
+			// checkout (Docs/sdk-pack.md). The resolution and the two refusals
+			// it can produce are one seam, so the sentence arrives ready-made.
+			if(!inputs.nativeProblem.empty())
+			{
+				return refuse(inputs.nativeProblem);
+			}
+			plan.sdkPack = inputs.sdkPack;
+			plan.moduleCmake = inputs.moduleCmake;
+			plan.moduleMakeProgram = inputs.moduleMakeProgram;
 		}
 		// the two roots the resource locator answered with: the staged Media/
 		// tree and the executables beside the editor. `repoRoot` stays EMPTY -

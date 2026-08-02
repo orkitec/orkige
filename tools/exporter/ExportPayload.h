@@ -60,6 +60,12 @@ namespace OrkigeExport
 		//! where the staged payload's executables live (defaults to the
 		//! resource root; a macOS app keeps them in Contents/MacOS)
 		Orkige::String	bundleTools;
+		//! the installed SDK pack a project's compiled C++ game code is built
+		//! against when there is no build tree ("" = none). A staged payload
+		//! carries a PLAYER, which is all a Lua project needs; a project with
+		//! compiled game code needs an engine to compile and link against, and
+		//! a relocatable pack is that engine (Docs/sdk-pack.md).
+		Orkige::String	sdkPack;
 
 		bool fromBundle() const { return !this->bundleResources.empty(); }
 	};

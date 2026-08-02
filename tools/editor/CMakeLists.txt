@@ -143,6 +143,11 @@ add_executable(orkige_editor
     EditorMcpConfigFile.cpp
     EditorDeviceTargets.cpp
     EditorDocument.cpp
+    # which engine a project's compiled C++ game code builds against (this
+    # editor's build tree, or an installed SDK pack) - the ONE resolution
+    # compile-on-Play and export share
+    EditorEngineSdk.h
+    EditorEngineSdk.cpp
     EditorBrowserServe.cpp
     EditorExport.cpp
     EditorFileDialogs.cpp

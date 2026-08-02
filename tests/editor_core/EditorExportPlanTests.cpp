@@ -214,15 +214,48 @@ TEST_CASE("export plan: a copied app carrying the browser player packages it",
 	CHECK_FALSE(planProjectExport(inputs).ok);
 }
 
-TEST_CASE("export plan: a copied app cannot build compiled game code",
+TEST_CASE("export plan: compiled game code needs an SDK, and says which",
 	"[editor][export]")
 {
+	// a copy WITHOUT an installed SDK (or without the machine's build
+	// toolchain) cannot build compiled game code, and the sentence that says
+	// which of the two is missing comes from the ONE place that resolves them
+	// (core_project/NativeModule.h) - the planner passes it through rather
+	// than inventing a second wording.
 	EditorExportInputs inputs = bundleInputs();
 	inputs.nativeModule = true;
+	inputs.nativeProblem = "the Orkige SDK for this build is not installed";
+	const EditorExportPlan refused = planProjectExport(inputs);
+	CHECK_FALSE(refused.ok);
+	CHECK(refused.error == inputs.nativeProblem);
+
+	// ...and with a pack installed the same copy packages the project: the
+	// module is built against the pack, everything else is the payload it
+	// already carries
+	inputs.nativeProblem.clear();
+	inputs.sdkPack = "/state/sdk/next";
 	const EditorExportPlan plan = planProjectExport(inputs);
-	CHECK_FALSE(plan.ok);
-	CHECK(plan.error.find("native.target") != Orkige::String::npos);
-	CHECK(plan.error.find("toolchain") != Orkige::String::npos);
+	REQUIRE(plan.ok);
+	CHECK(plan.source == EditorExportSource::Bundle);
+	CHECK(plan.sdkPack == "/state/sdk/next");
+	CHECK(plan.repoRoot.empty());
+	CHECK_FALSE(mentions(plan, "/tree"));
+
+	// a Lua-only project never touches any of it
+	EditorExportInputs scripted = bundleInputs();
+	scripted.nativeProblem = "the Orkige SDK for this build is not installed";
+	const EditorExportPlan scriptedPlan = planProjectExport(scripted);
+	REQUIRE(scriptedPlan.ok);
+	CHECK(scriptedPlan.sdkPack.empty());
+
+	// the developer shape is unaffected: a build tree answers the same
+	// question, so no pack travels with a Tree plan
+	EditorExportInputs tree = treeInputs();
+	tree.nativeModule = true;
+	tree.sdkPack = "/state/sdk/next";
+	const EditorExportPlan treePlan = planProjectExport(tree);
+	REQUIRE(treePlan.ok);
+	CHECK(treePlan.sdkPack.empty());
 }
 
 TEST_CASE("export plan: a payload-less copy says what it is missing",

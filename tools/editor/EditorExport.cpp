@@ -10,6 +10,7 @@
 // on a worker thread with its progress streamed into the Console.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorEngineSdk.h"
 #include "EditorExportPlan.h"
 #include "EditorResourcePaths.h"
 
@@ -37,8 +38,23 @@ OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
 	OrkigeEditor::EditorExportInputs inputs;
 	inputs.platform = platform;
 	inputs.projectRoot = project.getRootDirectory();
-	inputs.nativeModule =
-		!Orkige::NativeModule::configFromProject(project).target.empty();
+	const Orkige::String nativeTarget =
+		Orkige::NativeModule::configFromProject(project).target;
+	inputs.nativeModule = !nativeTarget.empty();
+	if (inputs.nativeModule)
+	{
+		// compiled game code needs an engine to build against - this editor's
+		// build tree, or the SDK pack installed beside a downloaded app. ONE
+		// resolution serves compile-on-Play and export (@see EditorEngineSdk.h),
+		// so both refuse for the same reason in the same words.
+		const OrkigeEditor::EngineSdkStatus sdk =
+			OrkigeEditor::resolveEngineSdk(project.getName(), nativeTarget);
+		inputs.nativeProblem = sdk.problem;
+		inputs.sdkPack = sdk.engine.fromPack() ? sdk.engine.root
+			: Orkige::String();
+		inputs.moduleCmake = sdk.toolchain.cmake;
+		inputs.moduleMakeProgram = sdk.toolchain.makeProgram;
+	}
 	// "is the tree this editor was built in still here?" - a configured build
 	// tree is what the exporter packages from, so its cache is the probe
 	std::error_code treeIgnored;
@@ -109,6 +125,11 @@ bool runPlannedExport(OrkigeEditor::EditorExportPlan const& plan,
 	{
 		request.source.bundleResources = plan.bundleResources;
 		request.source.bundleTools = plan.bundleTools;
+		// compiled game code in a distributed shape: the engine to build it
+		// against is the installed SDK pack, which is the pack's whole purpose
+		request.source.sdkPack = plan.sdkPack;
+		request.cmake = plan.moduleCmake;
+		request.ninja = plan.moduleMakeProgram;
 	}
 	return OrkigeExport::runExport(project, request, log, artifact, &error);
 }

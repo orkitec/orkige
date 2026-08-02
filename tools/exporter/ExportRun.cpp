@@ -119,6 +119,20 @@ namespace OrkigeExport
 				return refuse(error, "engine build tree '" +
 					request.source.buildDirectory + "' does not exist");
 			}
+			// the same one-engine rule for the engine a MODULE builds against:
+			// a build tree already IS one, and two would be two engines
+			if(!request.source.sdkPack.empty())
+			{
+				return refuse(error, "an engine build tree cannot also build a "
+					"native module against an SDK pack - the two are two "
+					"engines");
+			}
+		}
+		if(!request.source.sdkPack.empty() &&
+			!ExportFiles::isDirectory(request.source.sdkPack))
+		{
+			return refuse(error, "the Orkige SDK pack '" +
+				request.source.sdkPack + "' does not exist");
 		}
 
 		const String outputDirectory = ExportFiles::absolute(
@@ -154,6 +168,10 @@ namespace OrkigeExport
 			: request.ninja;
 
 		EngineSource source = request.source;
+		if(!source.sdkPack.empty())
+		{
+			source.sdkPack = ExportFiles::absolute(source.sdkPack);
+		}
 		if(source.fromBundle())
 		{
 			source.bundleResources =

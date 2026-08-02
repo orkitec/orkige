@@ -1416,6 +1416,48 @@ if(TARGET orkige_editor)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_bundle_web${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
+
+        # COMPILED GAME CODE from a copied editor: the third distribution
+        # question, and the one that needs an engine rather than a payload. A
+        # downloaded editor has no checkout and no build tree, so a project
+        # whose behaviour is C++ builds against an installed SDK PACK
+        # (Docs/sdk-pack.md) - which this leg installs into the copy's own
+        # writable state directory, exactly where the editor looks for one.
+        #
+        # It runs in a clean room of its OWN: the repository and the machine's
+        # vcpkg root stay denied (a build tree at its usual absolute path would
+        # silently satisfy a configure that should have failed), but cmake and
+        # ninja are handed back as individual files, because a native build
+        # genuinely needs a toolchain - we ship the engine, never a compiler.
+        # The leg asserts all three outcomes: no pack -> a refusal naming the
+        # SDK, a pack without build programs -> a DIFFERENT refusal naming the
+        # toolchain, and both present -> the module builds against the pack,
+        # PLAYS, and packages into a runnable app.
+        #
+        # Its own test rather than a leg of editor_bundle: it installs a pack
+        # (gigabytes, minutes) and compiles a real module, so it carries the
+        # native-module RESOURCE_LOCK and a build-sized timeout.
+        add_test(NAME editor_bundle_native${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_editor_bundle_test.py"
+                --leg native
+                --editor-app "$<TARGET_BUNDLE_DIR:orkige_editor>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-native"
+                --scene "scenes/main.oscene"
+                --shared-headers "${Orkige_SOURCE_DIR}/samples/jumper"
+                --engine-build "${CMAKE_BINARY_DIR}"
+                --flavor "${ORKIGE_RENDER_BACKEND}"
+                --cmake "${CMAKE_COMMAND}"
+                --ninja "${CMAKE_MAKE_PROGRAM}"
+                --stage-root "${CMAKE_CURRENT_BINARY_DIR}/editor_bundle_native${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                --repo-root "${Orkige_SOURCE_DIR}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_bundle_native${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 3600
+            # it compiles the same OGRE-including module sources the
+            # compile-on-Play and export tests do; keep them off each other
+            # under -j
+            RESOURCE_LOCK native_module_build)
     endif()
 
     # Asset browser (v2): open a temp COPY of

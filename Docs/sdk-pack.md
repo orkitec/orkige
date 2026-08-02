@@ -383,6 +383,56 @@ A **distribution** pack is therefore installed from a Release engine tree. A
 Debug pack is legitimate and correct, just large, and exists for development
 and for the suite.
 
+## How the editor uses one
+
+A pack is what a DOWNLOADED editor hands a project whose game code is compiled
+C++. The resolution is one seam — `core_project/NativeModule.h`, consumed by
+compile-on-Play and by export alike, so both build against the same engine and
+refuse for the same reasons:
+
+1. **A build tree first.** An editor running out of an engine checkout resolves
+   its own configured build tree, exactly as it always has. That order is
+   deliberate: a developer keeps building against the very engine their editor
+   runs on, whatever else is installed on the machine.
+2. **An installed pack second**, at `<writable state>/sdk/<flavor>` — the
+   platform's per-user application-support directory
+   (`tools/editor/EditorResourcePaths.h`). A signed app bundle is read-only and
+   self-writes invalidate its signature, so that is the only place a pack can
+   live. Per flavor, because a pack is flavor-bound like the engine inside it.
+
+A pack build gets its own module tree, `native/build-sdk-<flavor>` (and
+`native/build-export-sdk-<flavor>` for an export), because a module tree is
+bound to the ENGINE it was configured against — its cache holds that engine's
+`ORKIGE_ROOT` and build type, and a configured tree is only ever rebuilt
+incrementally.
+
+### Two prerequisites, reported as two
+
+A missing pack and a missing toolchain are different problems with different
+fixes, so the editor never merges them into one message:
+
+- **No SDK** — "…needs the Orkige SDK for this build, and it is not installed",
+  naming the directory it belongs in. That is something to install through
+  Orkige.
+- **No build programs** — the machine has no `cmake` / `ninja` on its PATH.
+  That is something to install on the machine: **we ship the engine, never a
+  toolchain**, and the message says which program is missing and points at the
+  platform's compiler (on macOS `xcode-select --install`).
+- **The other flavor's pack** — its archives are the other render backend's, so
+  it is refused for what it is rather than failed at link.
+
+Both surfaces carry them: the Console line a person reads, and the same sentence
+over MCP (the `play` refusal, and `get_state`'s build verdict, so a headless
+agent reads what a person reads). A project whose behaviour is Lua scripts needs
+none of it and is unaffected.
+
+The `editor_bundle_native` ctest is the acceptance proof, per flavor: a COPIED
+editor plus a pack installed into its own state directory builds, plays and
+packages `projects/jumper-native` inside a clean room where the repository, the
+engine build tree and the machine's vcpkg root are denied — with cmake and ninja
+handed back as individual files, since a native build genuinely needs a
+toolchain. It asserts all three outcomes, and that the two refusals differ.
+
 ## Scope
 
 Desktop host packs are the ones built today. The contract above is written for
@@ -390,6 +440,9 @@ all seven targets — the field schema, the module shape, the artifact manifest
 and the configure vocabulary are the parts a per-target pack must not have to
 change, because they reach into project files this engine does not own. Until
 those packs exist, mobile and browser game code goes through the export pipeline
-(`Docs/web-export.md`, `Docs/ios-signing.md`). The editor does not yet consume a
-pack; it builds compile-on-Play against its own engine tree
-(`Docs/native-modules.md`).
+(`Docs/web-export.md`, `Docs/ios-signing.md`) — a downloaded editor packages
+compiled game code for the DESKTOP host, and says so for anything else.
+
+Installing a pack is a manual step today: unpack it at
+`<writable state>/sdk/<flavor>`. Fetching one from inside the editor is a
+separate piece of work; nothing above depends on how the directory got there.

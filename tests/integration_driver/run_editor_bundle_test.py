@@ -43,6 +43,15 @@ that situation and drives the copy over its own MCP endpoint:
      EITHER flavor can ship a browser build. Skips (77) on a machine with no
      wasm build tree to stage from, which is why it is a test of its own: a
      missing toolchain must never turn the legs above into a skip.
+  4c. ASSERT COMPILED GAME CODE (`--leg native`, its own ctest): a copied
+     editor plus an installed SDK pack builds, plays and packages a project
+     whose behaviour is C++. It runs in a clean room of its OWN - the
+     repository, the engine build tree and the machine's vcpkg root stay
+     denied, but cmake and ninja are handed back as individual files, because
+     a native build genuinely needs a toolchain while everything above proves
+     the opposite. The leg asserts all three outcomes: no pack -> a refusal
+     naming the SDK, a pack with no build programs -> a DIFFERENT refusal
+     naming the toolchain, both present -> it builds against the pack and runs.
   5. ASSERT the unreadable-media leg: with the staged shader media made
      unreadable, the resource resolver says so out loud and nothing throws out
      of engine setup (the error_code probes). Skipped as root, where a mode of
@@ -221,7 +230,7 @@ def staged_media_dir(executable):
     return os.path.join(staged_resource_dir(executable), "Media")
 
 
-def write_sandbox_profile(path, denied, allowed):
+def write_sandbox_profile(path, denied, allowed, allow_files=()):
     """a macOS sandbox profile denying every path in `denied` - the clean room:
     the repository, the vcpkg tree and Homebrew simply are not there - and then
     re-allowing `allowed` (the staging directory, which lives inside the build
@@ -235,7 +244,12 @@ def write_sandbox_profile(path, denied, allowed):
     down to the staging directory becomes stat-able, and every other path under
     a denied root stays invisible to stat as well as to read - which matters,
     because the resource locator's developer-tree fallbacks are decided by an
-    existence probe, and a blanket metadata allowance would hand them back."""
+    existence probe, and a blanket metadata allowance would hand them back.
+
+    `allow_files` re-allows INDIVIDUAL files that sit inside a denied directory
+    (a build tool's symlink in a package manager's bin directory). Per file on
+    purpose: a leg that needs one program back must not be handed the whole
+    directory, or the denial it depends on stops meaning anything."""
     with open(path, "w") as profile:
         profile.write("(version 1)\n(allow default)\n(deny file-read* file-write*\n")
         for entry in denied:
@@ -243,7 +257,13 @@ def write_sandbox_profile(path, denied, allowed):
         profile.write(")\n(allow file-read* file-write*\n")
         for entry in allowed:
             profile.write('    (subpath "%s")\n' % os.path.realpath(entry))
-        profile.write(")\n(allow file-read-metadata\n")
+        profile.write(")\n")
+        if allow_files:
+            profile.write("(allow file-read* process-exec\n")
+            for entry in allow_files:
+                profile.write('    (literal "%s")\n' % entry)
+            profile.write(")\n")
+        profile.write("(allow file-read-metadata\n")
         traversable = set()
         for entry in allowed:
             directory = os.path.realpath(entry)
@@ -627,9 +647,15 @@ def run_editor_tool_leg(args, stage_dir, sandbox_profile):
 
 def reject_build_machine_paths(args, text, what):
     """the failure this whole seam exists to prevent: a copied editor must
-    never answer with a path from the machine that built it"""
+    never answer with a path from the machine that built it.
+
+    The STAGED copy is exempt, and has to be: ctest stages it inside the build
+    tree, so its own paths are legitimately under the repository - a copy
+    naming its own writable state directory is saying where a user's files go,
+    not reaching into a developer tree."""
+    scrubbed = text.replace(args.stage_root, "<stage>")
     for marker in (args.repo_root, "CMakeCache.txt"):
-        if marker and marker in text:
+        if marker and marker in scrubbed:
             fail("%s names the build machine ('%s'): %s" % (what, marker, text))
 
 
@@ -959,6 +985,315 @@ def run_web_export_leg(args, stage_dir, sandbox_profile):
     return output
 
 
+# --- the native-module leg --------------------------------------------------
+#
+# A copied editor plus an INSTALLED SDK PACK must build and play a project's
+# compiled C++ game code (Docs/sdk-pack.md). That needs a DIFFERENT clean room
+# from every other leg here, and the difference is the whole point of this
+# comment:
+#
+#   * the legs above prove a copied editor needs no developer TOOLING at all,
+#     so they scrub PATH to /usr/bin:/bin and deny the machine's tool
+#     directories outright.
+#   * a native build genuinely needs a toolchain - we ship the engine, never a
+#     compiler - so this leg hands back exactly two programs, cmake and ninja,
+#     as INDIVIDUAL files plus the package directory each resolves into. The
+#     platform's own compiler (/usr/bin/clang++ and the Xcode Command Line
+#     Tools it dispatches to) was never denied: it is the machine's, like a GPU
+#     driver.
+#
+# Everything that makes the leg meaningful stays denied: the REPOSITORY (and
+# with it the engine build tree, every preset output and the engine sources),
+# and the machine's vcpkg root. Those are what a stale-tree leak would come
+# from - a build tree at its usual absolute path silently satisfying a
+# configure that should have failed - so they are denied here exactly as the
+# SDK pack test denies them.
+#
+# The leg asserts all three outcomes, because they must differ:
+#   1. NO pack installed          -> the refusal names the SDK
+#   2. a pack, NO cmake/ninja     -> the refusal names the build toolchain
+#   3. a pack AND the toolchain   -> the module builds against the pack and
+#                                    PLAYS, and the copy packages it too
+
+def resolve_tool(path, name):
+    """the absolute program the leg hands into the clean room"""
+    resolved = path or shutil.which(name)
+    if not resolved or not os.path.isfile(resolved):
+        fail("no %s to build a native module with (pass --%s)" % (name, name))
+    return os.path.abspath(resolved)
+
+
+def tool_allowances(tool):
+    """what the sandbox must allow for `tool` to run: the file itself (it may
+    be a symlink inside an otherwise denied bin directory) and the package
+    directory it resolves into, since a tool reads its own support files
+    (cmake's Modules/ tree above all). Returns (files, subpaths)."""
+    real = os.path.realpath(tool)
+    # <prefix>/bin/<tool> -> <prefix>: the tool's own installation, and nothing
+    # of the bin directory it was reached through
+    prefix = os.path.dirname(os.path.dirname(real))
+    return ([tool, real], [prefix])
+
+
+def native_clean_room(args, stage_root, tools):
+    """the two clean rooms this leg needs, as a (strict, tooled) pair.
+
+    BOTH deny the same things - the repository (and with it the engine build
+    tree, every preset output and the engine sources), the machine's vcpkg root
+    and its tool directories. That denial is what the leg rests on: a build
+    tree at its usual absolute path would silently satisfy a configure that
+    should have failed, and a reachable tool directory would let a refusal that
+    is meant to fire pass instead.
+
+    They differ in ONE way: the tooled profile hands back cmake and ninja as
+    individual files plus the package directory each resolves into (a tool
+    reads its own support files - cmake's Modules/ tree above all). Nothing
+    else is added, and the platform's own compiler was never denied: it is the
+    machine's, like a GPU driver."""
+    if sys.platform != "darwin" or not os.path.exists("/usr/bin/sandbox-exec"):
+        log("clean room: ORKIGE_EDITOR_BUNDLE_ONLY only (no path sandbox on "
+            "this platform)")
+        return ("", "")
+    denied = [args.repo_root]
+    for extra in ("/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin",
+                  "/usr/local/sbin"):
+        if os.path.isdir(extra):
+            denied.append(extra)
+    vcpkg = os.environ.get("VCPKG_ROOT") or os.path.expanduser(
+        "~/Development/vcpkg")
+    if os.path.isdir(vcpkg):
+        denied.append(vcpkg)
+    strict = os.path.join(stage_root, "cleanroom-strict.sb")
+    write_sandbox_profile(strict, denied, [stage_root])
+    allow_files = []
+    allowed = [stage_root]
+    for tool in tools:
+        files, subpaths = tool_allowances(tool)
+        allow_files.extend(files)
+        allowed.extend(subpaths)
+    tooled = os.path.join(stage_root, "cleanroom-native.sb")
+    write_sandbox_profile(tooled, denied, allowed, allow_files)
+    log("clean room: the repository, the machine's vcpkg root and its tool "
+        "directories are denied; the build room additionally reaches %s and "
+        "nothing else"
+        % ", ".join(os.path.basename(tool) for tool in tools))
+    return (strict, tooled)
+
+
+def install_sdk_pack(args, state_dir):
+    """install the engine build tree as an SDK pack where a downloaded editor
+    looks for one: <writable state>/sdk/<flavor> (core_project/NativeModule.h).
+    Installed elsewhere and MOVED there, so nothing may depend on the path the
+    install ran with."""
+    staged = os.path.join(args.stage_root, "pack-install")
+    shutil.rmtree(staged, ignore_errors=True)
+    started = time.time()
+    result = subprocess.run([args.cmake, "--install", args.engine_build,
+                             "--prefix", staged, "--component", "sdk"],
+                            capture_output=True, text=True, timeout=1800)
+    if result.returncode != 0:
+        print(result.stdout[-4000:], flush=True)
+        print(result.stderr[-4000:], flush=True)
+        fail("installing the SDK pack failed (%d)" % result.returncode)
+    pack = os.path.join(state_dir, "sdk", args.flavor)
+    os.makedirs(os.path.dirname(pack), exist_ok=True)
+    shutil.rmtree(pack, ignore_errors=True)
+    os.rename(staged, pack)
+    if not os.path.isfile(os.path.join(pack, "cmake", "OrkigeSdkPack.cmake")):
+        fail("the installed pack carries no cmake/OrkigeSdkPack.cmake")
+    log("installed the SDK pack into the copy's state directory (%s, %.0fs)"
+        % (pack, time.time() - started))
+    return pack
+
+
+def stage_native_project(args, stage_dir):
+    """the project as a DISTRIBUTED project looks - its own tree, carrying its
+    own sources. The in-tree module reads a header out of the engine's jumper
+    sample; a project built against a pack has no checkout to read it from, so
+    the copy travels with the project (the same staging the SDK pack test
+    does, and what any self-contained project does with its own sources)."""
+    project = os.path.join(stage_dir, "project")
+    shutil.copytree(args.project, project,
+                    ignore=shutil.ignore_patterns("builds", ".orkige",
+                                                  "build*", ".mcp.json"))
+    native = os.path.join(project, "native")
+    for name in sorted(os.listdir(args.shared_headers)):
+        if name.endswith(".h"):
+            shutil.copy2(os.path.join(args.shared_headers, name), native)
+    return project
+
+
+def native_session(args, executable, stage_dir, sandbox_profile, env):
+    """launch the staged copy and open the staged project over MCP"""
+    token_file = os.path.join(stage_dir, "endpoint.token")
+    if os.path.exists(token_file):
+        os.remove(token_file)
+    process = launch(executable,
+                     [executable, "--mcp-port", "0",
+                      "--mcp-token-file", token_file],
+                     os.path.join(stage_dir, "cwd"), env, sandbox_profile)
+    port, token = wait_for_endpoint(process, token_file, args.boot_timeout)
+    if not port:
+        output = stop(process)
+        print(output[-8000:], flush=True)
+        fail("the copied editor never opened its MCP endpoint for the native "
+             "leg")
+    client = McpClient(port, token)
+    client.call("initialize", {"protocolVersion": "2025-03-26",
+                              "capabilities": {},
+                              "clientInfo": {"name": "bundle-selfcheck",
+                                             "version": "1"}})
+    client.tool("open_project", {"path": os.path.join(stage_dir, "project")})
+    return (process, client)
+
+
+def assert_play_refused(args, executable, stage_dir, sandbox_profile, env,
+                        needles, forbidden, what):
+    """press Play on the native project and assert it is refused with the
+    sentence this prerequisite has - the two prerequisites must not produce one
+    generic message, because they have different fixes"""
+    process, client = native_session(args, executable, stage_dir,
+                                     sandbox_profile, env)
+    try:
+        accepted, _, text = client.attempt("play", {"force": True},
+                                           timeout=120.0)
+        if accepted:
+            fail("%s: Play was accepted, so nothing checked the prerequisite"
+                 % what)
+        reject_build_machine_paths(args, text, "the %s refusal" % what)
+        for needle in needles:
+            if needle.lower() not in text.lower():
+                fail("the %s refusal does not say %r: %s"
+                     % (what, needle, text))
+        for needle in forbidden:
+            if needle.lower() in text.lower():
+                fail("the %s refusal talks about %r, which is the OTHER "
+                     "prerequisite: %s" % (what, needle, text))
+        log("%s: %s" % (what, text))
+        stop(process)
+    finally:
+        stop(process)	# no exit path leaves a staged editor running
+
+
+def assert_module_built_against_pack(args, project, pack):
+    """the module tree the build produced must name the PACK - and nothing of
+    the machine that built the editor. This is where a stale-tree leak would
+    show: a configure that quietly found the engine build tree at its usual
+    absolute path."""
+    build = os.path.join(project, "native", "build-sdk-%s" % args.flavor)
+    cache = os.path.join(build, "CMakeCache.txt")
+    if not os.path.isfile(cache):
+        fail("no module build tree at %s - compile-on-Play did not configure "
+             "against the pack" % build)
+    text = open(cache, encoding="utf-8", errors="replace").read()
+    if pack not in text:
+        fail("the module build tree does not name the pack (%s)" % pack)
+    # the staged copy is exempt (ctest stages it inside the build tree, so the
+    # pack's own path is legitimately under the repository); what must NOT
+    # appear is the engine tree itself - a configure that found the build tree
+    # at its usual absolute path is exactly the leak this leg exists to catch
+    scrubbed = text.replace(args.stage_root, "<stage>")
+    for marker in ("ORKIGE_ENGINE_BUILD_DIR", os.path.realpath(args.repo_root),
+                   args.repo_root):
+        if marker in scrubbed:
+            fail("the module was configured against %r, not against the pack "
+                 "alone" % marker)
+    log("the module was configured against the pack alone (%s)" % build)
+
+
+def run_native_leg(args, stage_dir):
+    """a copied editor plus an installed SDK pack builds and plays a project's
+    compiled C++ game code - and reports its two prerequisites as two."""
+    tools = [resolve_tool(args.cmake, "cmake"),
+             resolve_tool(args.ninja, "ninja")]
+    strict_profile, sandbox_profile = native_clean_room(args, args.stage_root,
+                                                        tools)
+    executable = stage_app(args.editor_app, stage_dir)
+    stage_native_project(args, stage_dir)
+    for name in ("home", "cwd", "state", "tmp", "out"):
+        os.makedirs(os.path.join(stage_dir, name), exist_ok=True)
+    state_dir = os.path.join(stage_dir, "state")
+
+    # (1) no SDK installed: the refusal names the SDK, never the toolchain
+    toolless_env = scrubbed_env(stage_dir)
+    assert_play_refused(args, executable, stage_dir, strict_profile,
+                        toolless_env, needles=["SDK"],
+                        forbidden=["cmake", "ninja"], what="missing-SDK")
+
+    pack = install_sdk_pack(args, state_dir)
+
+    # (2) the SDK is there, the machine has no build programs: a DIFFERENT
+    # refusal, naming what to install. This runs in the STRICT room with the
+    # scrubbed PATH - which is what a machine with no developer toolchain looks
+    # like, and the reason the two rooms exist.
+    assert_play_refused(args, executable, stage_dir, strict_profile,
+                        toolless_env, needles=["cmake", "ninja", "toolchain"],
+                        forbidden=["not installed"], what="missing-toolchain")
+
+    # (3) both prerequisites met: compile-on-Play against the pack, then PLAY.
+    # The two tool directories join the PATH - and nothing else does.
+    env = scrubbed_env(stage_dir, {
+        "PATH": os.pathsep.join(
+            [os.path.dirname(tool) for tool in tools] + ["/usr/bin", "/bin"]),
+    })
+    process, client = native_session(args, executable, stage_dir,
+                                     sandbox_profile, env)
+    try:
+        started = time.time()
+        client.tool("play", {"force": True}, timeout=180.0)
+        deadline = time.time() + args.native_timeout
+        mode = ""
+        state = {}
+        while time.time() < deadline:
+            state = client.tool("get_state")
+            mode = str(state.get("play_mode", ""))
+            if mode == "playing" or str(state.get("build_status")) == "failed":
+                break
+            time.sleep(2.0)
+        if mode != "playing":
+            errors = str(state.get("build_errors", ""))
+            reject_build_machine_paths(args, errors, "the module build")
+            output = stop(process)
+            print(output[-8000:], flush=True)
+            fail("the module never played (play_mode '%s', build_status '%s'): "
+                 "%s" % (mode, state.get("build_status"), errors[-3000:]))
+        log("the copied editor built the project's C++ game code against the "
+            "pack and PLAYS it (%.0fs)" % (time.time() - started))
+        client.tool("stop")
+        assert_module_built_against_pack(args, os.path.join(stage_dir,
+                                                            "project"), pack)
+
+        # ...and it PACKAGES it: the same resolution stands behind export, so a
+        # copy that can play compiled game code can ship it
+        accepted, structured, text = client.attempt("export_project",
+                                                    {"platform": "macos"})
+        if not accepted:
+            reject_build_machine_paths(args, text, "the native export refusal")
+            fail("the copied editor refused to package a native project it "
+                 "just built and played: " + text)
+        result = poll_export(client, str(structured.get("jobId", "")),
+                             args.native_timeout)
+        if str(result.get("ok", "")) != "1":
+            error = str(result.get("error", ""))
+            reject_build_machine_paths(args, error, "the native export failure")
+            fail("the native export failed: " + error)
+        artifact = str(result.get("artifactPath", ""))
+        log("the copied editor exported the native project (%s)" % artifact)
+        check_exported_app(args, artifact, stage_dir, sandbox_profile)
+        output = stop(process)
+    except Exception as error:		# noqa: BLE001 - report and stop the app
+        output = stop(process)
+        print(output[-8000:], flush=True)
+        fail("the native leg failed: %r" % (error,))
+    finally:
+        stop(process)	# no exit path leaves a staged editor running
+    if "developer tree" in output:
+        fail("the copied editor resolved resources from the developer tree")
+    # the pack is several gigabytes; keep it only when something failed
+    shutil.rmtree(pack, ignore_errors=True)
+    return output
+
+
 def run_unreadable_media_leg(args, stage_dir, sandbox_profile):
     """an UNREADABLE shader-media directory must degrade honestly, not abort"""
     if hasattr(os, "geteuid") and os.geteuid() == 0:
@@ -1109,29 +1444,52 @@ def main():
                        help="scratch directory (inside the build tree)")
     parser.add_argument("--repo-root", required=True,
                        help="the tree the staged app must NOT reach into")
-    parser.add_argument("--leg", choices=("bundle", "web"), default="bundle",
+    parser.add_argument("--leg", choices=("bundle", "web", "native"),
+                       default="bundle",
                        help="'bundle' (default) runs the session, packaging, "
                             "unreadable-media and changelog legs; 'web' runs "
                             "the browser-package leg alone, which skips where "
                             "no wasm build tree exists - so a machine without "
-                            "one never turns the others into a skip")
+                            "one never turns the others into a skip; 'native' "
+                            "runs the compiled-game-code leg, which needs a "
+                            "clean room of its own (a build toolchain is "
+                            "reachable, the repository still is not)")
     parser.add_argument("--web-build", default="",
                        help="the wasm build tree the browser payload is "
                             "composed from (else ORKIGE_WEB_BUILD, else the "
                             "repository's build/web-release)")
+    parser.add_argument("--engine-build", default="",
+                       help="native leg: the engine build tree the SDK pack is "
+                            "installed from")
+    parser.add_argument("--flavor", default="next",
+                       help="native leg: the render flavor of this build (the "
+                            "installed pack is per flavor)")
+    parser.add_argument("--shared-headers", default="",
+                       help="native leg: headers the module reads out of the "
+                            "engine tree, copied beside the staged project the "
+                            "way a distributed project carries its own sources")
+    parser.add_argument("--cmake", default="",
+                       help="native leg: the cmake the clean room may run")
+    parser.add_argument("--ninja", default="",
+                       help="native leg: the ninja the clean room may run")
     parser.add_argument("--boot-timeout", type=float, default=120.0)
     parser.add_argument("--play-timeout", type=float, default=120.0)
     parser.add_argument("--export-timeout", type=float, default=300.0,
                        help="how long the packaging leg's export may take "
                             "(it copies the engine payload and cooks the "
                             "project's textures)")
+    parser.add_argument("--native-timeout", type=float, default=1800.0,
+                       help="how long the native leg's module build may take "
+                            "(a cold compile of the game code plus the link "
+                            "against the pack's engine archives)")
     args = parser.parse_args()
     # everything is spawned with a cwd OUTSIDE the tree, so every path the
     # driver hands on must be absolute
     for name in ("editor_app", "project", "stage_root", "repo_root"):
         setattr(args, name, os.path.abspath(getattr(args, name)))
-    if args.web_build:
-        args.web_build = os.path.abspath(args.web_build)
+    for name in ("web_build", "engine_build", "shared_headers"):
+        if getattr(args, name):
+            setattr(args, name, os.path.abspath(getattr(args, name)))
 
     if not os.path.exists(args.editor_app):
         skip("no built editor app at %s" % args.editor_app)
@@ -1140,7 +1498,12 @@ def main():
     os.makedirs(args.stage_root)
 
     sandbox_profile = ""
-    if sys.platform == "darwin" and os.path.exists("/usr/bin/sandbox-exec"):
+    if args.leg == "native":
+        # the native leg writes its OWN profile: a compiled-code build needs a
+        # toolchain, which the clean room below denies wholesale (see
+        # run_native_leg for the difference and why it is drawn there)
+        pass
+    elif sys.platform == "darwin" and os.path.exists("/usr/bin/sandbox-exec"):
         # the repository (and with it the vcpkg tree and every build output) is
         # what a copied app must not need. Homebrew's TOOL directories go too -
         # a copied editor spawns no tool at all and must never reach for the
@@ -1163,6 +1526,24 @@ def main():
 
     clean_staged_identity_state()
     try:
+        if args.leg == "native":
+            # its own clean room, written by the leg: a native build needs a
+            # toolchain, so the profile above (which denies every tool
+            # directory) is the wrong one - see run_native_leg
+            if not args.engine_build or not os.path.isdir(args.engine_build):
+                fail("the native leg needs --engine-build (the tree the SDK "
+                     "pack is installed from)")
+            if not args.shared_headers or not os.path.isdir(
+                    args.shared_headers):
+                fail("the native leg needs --shared-headers")
+            native_stage = os.path.join(args.stage_root, "native")
+            os.makedirs(native_stage)
+            run_native_leg(args, native_stage)
+            log("PASSED: a copied editor plus an installed SDK pack builds, "
+                "plays and packages compiled C++ game code - and reports a "
+                "missing SDK and a missing toolchain as two different things")
+            return 0
+
         if args.leg == "web":
             web_stage = os.path.join(args.stage_root, "web")
             os.makedirs(web_stage)

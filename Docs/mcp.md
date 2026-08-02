@@ -877,6 +877,14 @@ reverts to edit mode so you can read it post-hoc). Poll `get_state` after `play`
 `build_status:"failed"` with a non-empty `build_errors` is the "fix the compile"
 signal; `build_status:"ok"` then `play_mode:"playing"` is the "it launched".
 
+A `play` that is REFUSED before any compiling reports the reason in its own
+error text (and as the same `build_errors` sentence), because those refusals are
+not compile problems and have different fixes: this editor has no engine to
+build against (**the SDK for this build is not installed** — a source-built
+editor uses its own build tree, a downloaded one an installed SDK pack,
+`Docs/sdk-pack.md`), or the machine has no `cmake`/`ninja` on its PATH. Orkige
+ships the engine, never a toolchain, so those two are said separately.
+
 ## Exporting a project
 
 `export_project(platform)` packages the open project as a distributable through
@@ -898,8 +906,9 @@ packages the engine payload it carries inside itself instead; there it exports
 the desktop app and refuses `ios-simulator`/`android` with a message saying that
 platform's player only comes from a source build. Either way `engineBuild` in
 the reply names what the export packaged from. Native-module projects export
-desktop only, and not at all from a distributed editor (compiled game code needs
-the source tree and a C++ toolchain) — `Docs/editor-distribution.md`.
+desktop only; from a distributed editor they need the installed SDK pack the
+same Play does, and the refusal names whichever prerequisite is missing —
+`Docs/sdk-pack.md`, `Docs/editor-distribution.md`.
 
 ```jsonc
 tools/call export_project { "platform":"macos" }   // authed → { accepted:"1", jobId:"..." }

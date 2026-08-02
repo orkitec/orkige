@@ -11,6 +11,7 @@
 // compile-on-Play build queue, the debug-link pump and crash detection.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorEngineSdk.h"	// which engine compile-on-Play builds against
 #include "EditorResourcePaths.h"	// the bundled-vs-tree player executable
 #include "EditorSourceControlPanel.h"	// event-driven git refresh on Play stop
 
@@ -1117,7 +1118,7 @@ bool startPlay(PlaySession& session,
 	if (nativeConfig.enabled && !session.desktopPlayerPath.empty())
 	{
 		// same honesty for the cross-flavor desktop target: the module
-		// compiles and links against THIS editor's build tree - it cannot
+		// compiles and links against THIS editor's engine - it cannot
 		// play on the other render flavor's runtime
 		oDebugWarn("editor.play", 0, "play refused - project '" <<
 			project.getName() << "' has a native module ('" <<
@@ -1125,6 +1126,32 @@ bool startPlay(PlaySession& session,
 			"against this editor's render flavor (pick the plain Desktop "
 			"target)");
 		return false;
+	}
+	// WHICH engine compile-on-Play builds the module against: this editor's own
+	// build tree when it is reachable (the developer case - the engine libs the
+	// module links are then the ones this very editor runs on), else the SDK
+	// pack installed beside this app (@see EditorEngineSdk.h). Resolved HERE,
+	// before anything is set up, so a missing prerequisite refuses without a
+	// temp scene, a probed port or a borrowed world to clean up.
+	OrkigeEditor::EngineSdkStatus sdk;
+	if (nativeConfig.enabled)
+	{
+		sdk = OrkigeEditor::resolveEngineSdk(project.getName(),
+			nativeConfig.target);
+		if (!sdk.ready())
+		{
+			// TWO prerequisites, reported as two - a missing SDK and a missing
+			// build toolchain have different fixes. The reason must OUTLIVE the
+			// refusal: the Console shows it, and get_state reports it as the
+			// build verdict, so an agent driving Play headlessly reads the same
+			// sentence a person does.
+			oDebugWarn("editor.play", 0, "play refused - " << sdk.problem);
+			session.buildOutcome = PlaySession::BuildOutcome::Failed;
+			session.buildStatusTarget = nativeConfig.target;
+			session.buildErrorLog = sdk.problem;
+			SDL_Log("[build] %s", sdk.problem.c_str());
+			return false;
+		}
 	}
 	session.projectRoot = projectRoot;
 	// the mirror drives THIS world's nodes while the session runs (borrowed;
@@ -1163,20 +1190,18 @@ bool startPlay(PlaySession& session,
 		// compile-on-Play: queue configure (only when the build tree has no
 		// cache yet) + incremental build of the project's native module and
 		// enter Building; updatePlaySession pumps the output into the
-		// Console and launches the module executable on success. All paths
-		// (cmake, engine build tree, toolchain settings) are this editor
-		// build's own constants - the engine libs the module links are the
-		// ones this very editor runs on.
+		// Console and launches the module executable on success. The engine it
+		// builds against was resolved above.
 		const std::string moduleSourceDir =
 			project.resolvePath(nativeConfig.cmakeDir);
-		// per-flavor build tree: this editor configures the module against its
-		// OWN engine tree (ORKIGE_EDITOR_ENGINE_BUILD_DIR == this editor's build
-		// dir), whose flavor is ORKIGE_EDITOR_RENDER_BACKEND - a module tree is
-		// flavor-bound, so the two flavors build into native/build-<flavor> and
-		// never poison each other's cmake cache
+		// per-flavor build tree, and per engine FORM: a module tree is bound to
+		// the engine it was configured against, so a tree build lands in
+		// native/build-<flavor> and a pack build in native/build-sdk-<flavor> -
+		// neither ever inherits the other's cmake cache
 		const std::string moduleBuildDir =
-			project.resolvePath(Orkige::NativeModule::flavoredBuildDir(
-				nativeConfig.buildDir, ORKIGE_EDITOR_RENDER_BACKEND));
+			project.resolvePath(Orkige::NativeModule::moduleBuildDirectory(
+				nativeConfig.buildDir, sdk.engine,
+				ORKIGE_EDITOR_RENDER_BACKEND));
 		std::error_code ignored;
 		if (!std::filesystem::exists(
 			std::filesystem::path(moduleSourceDir) / "CMakeLists.txt", ignored))
@@ -1188,31 +1213,18 @@ bool startPlay(PlaySession& session,
 			endPlaySession(session, "native module misconfigured");
 			return false;
 		}
-		Orkige::StringVector extraArguments = {
-			std::string("-DCMAKE_MAKE_PROGRAM=") + ORKIGE_EDITOR_MAKE_PROGRAM,
-			std::string("-DORKIGE_SCRIPTING=") + ORKIGE_EDITOR_SCRIPTING,
-			// hermeticity, same as the presets: never let the module build
-			// pick up the banned /usr/local prefix
-			"-DCMAKE_IGNORE_PREFIX_PATH=/usr/local",
-		};
-#ifdef __APPLE__
-		if (ORKIGE_EDITOR_OSX_SYSROOT[0] != '\0')
-		{
-			extraArguments.push_back(std::string("-DCMAKE_OSX_SYSROOT=") +
-				ORKIGE_EDITOR_OSX_SYSROOT);
-		}
-#endif
+		const Orkige::StringVector extraArguments =
+			OrkigeEditor::moduleConfigureArguments(sdk);
 		session.buildSteps.clear();
 		if (Orkige::NativeModule::needsConfigure(moduleBuildDir))
 		{
 			session.buildSteps.push_back(
-				Orkige::NativeModule::configureCommand(ORKIGE_EDITOR_CMAKE,
-					moduleSourceDir, moduleBuildDir,
-					ORKIGE_EDITOR_ENGINE_ROOT, ORKIGE_EDITOR_ENGINE_BUILD_DIR,
-					ORKIGE_EDITOR_BUILD_TYPE, extraArguments));
+				Orkige::NativeModule::configureCommand(sdk.toolchain.cmake,
+					moduleSourceDir, moduleBuildDir, sdk.engine,
+					extraArguments));
 		}
 		session.buildSteps.push_back(Orkige::NativeModule::buildCommand(
-			ORKIGE_EDITOR_CMAKE, moduleBuildDir));
+			sdk.toolchain.cmake, moduleBuildDir));
 		session.nativeExecutable = Orkige::NativeModule::executablePath(
 			moduleBuildDir, nativeConfig.target);
 		session.nativeTarget = nativeConfig.target;

@@ -62,8 +62,22 @@ namespace OrkigeEditor
 		Orkige::String		platform;
 		Orkige::String		projectRoot;
 		//! does the project carry compiled C++ game code? (a native module
-		//! needs the engine SDK tree and a C++ toolchain to build)
+		//! needs an engine SDK and a C++ toolchain to build)
 		bool				nativeModule = false;
+		//! the installed SDK pack a module is built against when this editor
+		//! has no engine build tree ("" = none installed; @see
+		//! EditorEngineSdk.h, which resolves it)
+		Orkige::String		sdkPack;
+		//! "" when compiled C++ game code CAN be built here; otherwise the one
+		//! actionable sentence naming which prerequisite is missing (the SDK,
+		//! or the machine's build toolchain). It arrives ready-made because
+		//! those two refusals have ONE definition, beside the resolution that
+		//! discovers them (core_project/NativeModule.h).
+		Orkige::String		nativeProblem;
+		//! the build programs that resolution found ("" = let the exporter
+		//! resolve them on PATH itself, which is what the CLI does)
+		Orkige::String		moduleCmake;
+		Orkige::String		moduleMakeProgram;
 		//! is the source tree this editor was built in still reachable, with a
 		//! configured build tree in it?
 		bool				engineTree = false;
@@ -112,6 +126,14 @@ namespace OrkigeEditor
 		//! holding `Media/` and the one holding the sibling executables
 		Orkige::String		bundleResources;
 		Orkige::String		bundleTools;
+		//! the installed SDK pack the project's compiled C++ game code is
+		//! built against (Bundle source with a native module only; empty
+		//! everywhere else - a Tree plan builds against its own engine tree)
+		Orkige::String		sdkPack;
+		//! the build programs the module build runs ("" = the exporter's own
+		//! PATH lookup, which is what the CLI relies on)
+		Orkige::String		moduleCmake;
+		Orkige::String		moduleMakeProgram;
 		//! the neutral app icon a project with no `export.icon` gets ("" when
 		//! this editor carries none - the export then ships no icon and says so)
 		Orkige::String		defaultIcon;

@@ -107,6 +107,78 @@ namespace OrkigeExport
 		return info;
 	}
 	//---------------------------------------------------------
+	//! @brief build the project's compiled game code against an installed SDK
+	//! pack - the shape a DISTRIBUTED editor has, where no engine checkout and
+	//! no build tree exist (Docs/sdk-pack.md).
+	//! @remarks Everything the tree branch below derives from a CMakeCache
+	//! (configuration, flavor, scripting backend, OS floor, the compile
+	//! contract) the pack records about itself and the game-module helper reads
+	//! there, so the configure passes ORKIGE_ROOT and nothing else - the pack
+	//! answers every question about itself.
+	bool buildNativeModuleFromPack(ExportProject const & project,
+		Orkige::String const & target, Orkige::String const & packRoot,
+		ExportEnvironment const & environment, Orkige::String & outExecutable,
+		Orkige::String * error)
+	{
+		const Orkige::NativeModule::EngineSdk pack =
+			Orkige::NativeModule::describePack(packRoot);
+		if(!pack.found())
+		{
+			return report(error, "'" + packRoot + "' is not an Orkige SDK pack "
+				"(no " + Orkige::NativeModule::PACK_MARKER_FILE + " in it) - "
+				"reinstall the SDK");
+		}
+		const Orkige::String sourceDirectory = ExportFiles::join(project.root,
+			project.setting("native.cmakeDir", "native"));
+		if(!ExportFiles::isRegularFile(
+			ExportFiles::join(sourceDirectory, "CMakeLists.txt")))
+		{
+			return report(error, "native module source '" + sourceDirectory +
+				"' has no CMakeLists.txt");
+		}
+		// its own tree, per flavor and per engine form, exactly as
+		// compile-on-Play keeps them apart - and distinct from a Play build's,
+		// so an export never inherits a cache configured for something else
+		const Orkige::String moduleBuildDirectory = ExportFiles::join(
+			project.root, Orkige::NativeModule::moduleBuildDirectory(
+				project.setting("native.buildDir", "native/build") + "-export",
+				pack, pack.flavor));
+		emit(environment.log, "native module: building against the SDK pack '" +
+			packRoot + "' (" + pack.buildType + ", " + pack.flavor + ")");
+		if(Orkige::NativeModule::needsConfigure(moduleBuildDirectory))
+		{
+			std::vector<Orkige::String> extra = {
+				// hermeticity, the same as the presets
+				"-DCMAKE_IGNORE_PREFIX_PATH=/usr/local",
+			};
+			if(!environment.ninja.empty())
+			{
+				extra.push_back("-DCMAKE_MAKE_PROGRAM=" + environment.ninja);
+			}
+			if(!runTool(environment,
+				Orkige::NativeModule::configureCommand(environment.cmake,
+					sourceDirectory, moduleBuildDirectory, pack, extra),
+				error))
+			{
+				return false;
+			}
+		}
+		if(!runTool(environment, Orkige::NativeModule::buildCommand(
+			environment.cmake, moduleBuildDirectory), error))
+		{
+			return false;
+		}
+		const Orkige::String executable =
+			Orkige::NativeModule::executablePath(moduleBuildDirectory, target);
+		if(!ExportFiles::isRegularFile(executable))
+		{
+			return report(error, "native module build produced no '" +
+				executable + "'");
+		}
+		outExecutable = executable;
+		return true;
+	}
+	//---------------------------------------------------------
 	bool buildNativeModule(ExportProject const & project,
 		Orkige::String const & target, Orkige::String const & buildDirectory,
 		ExportEnvironment const & environment, Orkige::String & outExecutable,
@@ -195,12 +267,12 @@ namespace OrkigeExport
 		{
 			const Orkige::String sysroot =
 				readCMakeCache(engineTree, "CMAKE_OSX_SYSROOT");
-			std::vector<Orkige::String> configure = {
-				environment.cmake, "-G", "Ninja",
-				"-S", sourceDirectory, "-B", moduleBuildDirectory,
-				"-DCMAKE_BUILD_TYPE=" + buildType,
-				"-DORKIGE_ROOT=" + environment.repoRoot,
-				"-DORKIGE_ENGINE_BUILD_DIR=" + engineTree,
+			Orkige::NativeModule::EngineSdk tree;
+			tree.kind = Orkige::NativeModule::EngineSdkKind::BuildTree;
+			tree.root = environment.repoRoot;
+			tree.buildDir = engineTree;
+			tree.buildType = buildType;
+			std::vector<Orkige::String> extra = {
 				// hermeticity, the same as the presets
 				"-DCMAKE_IGNORE_PREFIX_PATH=/usr/local",
 				"-DCMAKE_OSX_ARCHITECTURES=" + architecture,
@@ -211,14 +283,16 @@ namespace OrkigeExport
 				readCMakeCache(engineTree, "ORKIGE_SCRIPTING");
 			if(!scripting.empty())
 			{
-				configure.push_back("-DORKIGE_SCRIPTING=" + scripting);
+				extra.push_back("-DORKIGE_SCRIPTING=" + scripting);
 			}
 			if(!environment.ninja.empty())
 			{
-				configure.push_back(
-					"-DCMAKE_MAKE_PROGRAM=" + environment.ninja);
+				extra.push_back("-DCMAKE_MAKE_PROGRAM=" + environment.ninja);
 			}
-			if(!runTool(environment, configure, error))
+			if(!runTool(environment,
+				Orkige::NativeModule::configureCommand(environment.cmake,
+					sourceDirectory, moduleBuildDirectory, tree, extra),
+				error))
 			{
 				return false;
 			}
@@ -257,15 +331,9 @@ namespace OrkigeExport
 		if(source.fromBundle())
 		{
 			// packaging from a distributed app's own payload: no build tree
-			// exists on this machine, so the player and the media both come
-			// out of the app
-			if(!nativeTarget.empty())
-			{
-				return report(error, "this project builds compiled C++ game "
-					"code (its native.target setting), which needs the engine "
-					"source tree and a C++ toolchain - the Orkige this export "
-					"runs from carries neither");
-			}
+			// exists on this machine, so the media comes out of the app - and
+			// so does the player, unless the project carries compiled game
+			// code, which is BUILT against the installed SDK pack
 			if(!ExportFiles::isDirectory(
 				ExportFiles::join(source.bundleResources, "Media")))
 			{
@@ -274,13 +342,32 @@ namespace OrkigeExport
 					"' - the Orkige this export runs from carries no "
 					"packageable engine payload");
 			}
-			executable = bundledTool(source, "orkige_player");
-			if(executable.empty())
+			if(!nativeTarget.empty())
 			{
-				return report(error, "no player executable in '" +
-					(source.bundleTools.empty() ? source.bundleResources
-						: source.bundleTools) + "' - the Orkige this export "
-					"runs from carries no packageable engine payload");
+				if(source.sdkPack.empty())
+				{
+					return report(error, "this project builds compiled C++ "
+						"game code (its native.target setting), which needs an "
+						"Orkige SDK to build against - none is installed, and "
+						"the Orkige this export runs from is not a source "
+						"build. Install the SDK, then export again");
+				}
+				if(!buildNativeModuleFromPack(project, nativeTarget,
+					source.sdkPack, environment, executable, error))
+				{
+					return false;
+				}
+			}
+			else
+			{
+				executable = bundledTool(source, "orkige_player");
+				if(executable.empty())
+				{
+					return report(error, "no player executable in '" +
+						(source.bundleTools.empty() ? source.bundleResources
+							: source.bundleTools) + "' - the Orkige this export "
+						"runs from carries no packageable engine payload");
+				}
 			}
 			flavor = bundleFlavor(source);
 			emit(environment.log, "packaging the engine payload in '" +
@@ -394,6 +481,13 @@ namespace OrkigeExport
 				ExportFiles::join(tools, "..")).lexically_normal().string();
 			selfContain.searchDirectories.push_back(
 				ExportFiles::join(siblings, "Frameworks"));
+			if(!source.sdkPack.empty())
+			{
+				// a module built against the pack links the PACK's closure, so
+				// that is where any dylib of its own comes from
+				selfContain.searchDirectories.push_back(ExportFiles::join(
+					ExportFiles::join(source.sdkPack, "vcpkg"), "lib"));
+			}
 		}
 		else
 		{

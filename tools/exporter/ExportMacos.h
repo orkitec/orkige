@@ -70,6 +70,20 @@ namespace OrkigeExport
 		Orkige::String const & target, Orkige::String const & buildDirectory,
 		ExportEnvironment const & environment, Orkige::String & outExecutable,
 		Orkige::String & outEngineTree, Orkige::String * error);
+
+	//! @brief build the project's native module against an installed SDK pack
+	//! - what a DISTRIBUTED editor has instead of a build tree
+	//! (Docs/sdk-pack.md).
+	//! @remarks The pack records its own configuration, flavor, scripting
+	//! backend, compile contract and OS floor, so nothing about the engine is
+	//! restated here; the module tree is its own
+	//! (`<native.buildDir>-export-sdk-<flavor>`) for the same reason the tree
+	//! build's is.
+	//! @param outExecutable receives the built module binary
+	bool buildNativeModuleFromPack(ExportProject const & project,
+		Orkige::String const & target, Orkige::String const & packRoot,
+		ExportEnvironment const & environment, Orkige::String & outExecutable,
+		Orkige::String * error);
 }
 
 #endif //__ExportMacos_h__31_7_2026__18_00_00__

@@ -683,7 +683,24 @@ OrkigeGameModule.cmake` is ONE helper serving both forms: it detects a pack by
 the `OrkigeSdkPack.cmake` beside it (realized from a template at install time,
 so a source tree can never carry it) and takes the package dir, closure prefix,
 flavor, scripting backend, compile contract, OS floor and include roots from
-the pack.
+the pack. **The EDITOR consumes one**: `NativeModule::resolveEngineSdk` (with
+`tools/editor/EditorEngineSdk.h` binding it to this build's constants) is the
+ONE seam compile-on-Play and export share — the engine BUILD TREE when one is
+reachable (the developer case, unchanged and deliberately first), else the pack
+installed at `<writable state>/sdk/<flavor>` (a signed bundle is read-only, so
+that is the only place one can live; per flavor because a pack is flavor-bound).
+Each form gets its own module tree (`native/build-sdk-<flavor>`, and the
+`-export` siblings) since a tree is bound to the engine its cache names. The two
+prerequisites are reported as TWO, in the Console and over MCP alike: a missing
+pack is "the SDK for this build is not installed" (something to install through
+Orkige), a missing `cmake`/`ninja` names the programs to install on the machine
+— **we ship the engine, never a toolchain** — and the other flavor's pack is
+refused for what it is. `editor_bundle_native` per flavor is the acceptance
+proof: a COPIED editor plus a pack builds, plays and packages
+`projects/jumper-native` in a clean room denying the repository, the engine
+build tree and the vcpkg root, with cmake+ninja handed back as individual files
+(a native build genuinely needs a toolchain — the ONE allowance that leg makes,
+and the reason it is not a leg of `editor_bundle`).
 **ONE CONFIGURATION all the way through** — the closure half shipped is the one
 the archives were built in, and a module in another build type is REFUSED by
 name: a dependency's headers compile differently per config (Jolt's asserts

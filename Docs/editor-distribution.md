@@ -139,7 +139,8 @@ A copy refuses, specifically, what it genuinely cannot do:
 | Request | What it says |
 |---------|--------------|
 | iOS or Android | Packaging for that platform needs that platform's player, which only an Orkige built from the engine source tree produces; export the desktop app, or build from source. |
-| A project with a native module | Compiled C++ game code needs the engine source tree and a C++ toolchain, which a downloaded app carries neither of. Projects whose behaviour is Lua scripts export as they are. |
+| A project with a native module, no SDK installed | Compiled C++ game code needs an engine to build against: a downloaded app has that as an installed **SDK pack** (`Docs/sdk-pack.md`), and says so with the directory it belongs in. Projects whose behaviour is Lua scripts need none of it. |
+| A project with a native module, no build programs | A different sentence, because it has a different fix: `cmake`/`ninja` are not on the machine's PATH. We ship the engine, never a toolchain. |
 | Anything, on a host with no packaging target | The exporter writes a macOS app today; on another host it says so instead of producing nothing. |
 | A browser build, with no staged wasm player | The app carries no browser player; build the web-release preset from the engine source tree. (A packaged editor carries one, so this is what a copy taken out of a build tree says. The archive's `VERSION` file records which of the two a download is, as `web-export: bundled` or `absent`.) |
 

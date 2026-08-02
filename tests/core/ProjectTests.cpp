@@ -323,10 +323,14 @@ TEST_CASE("NativeModule build-command assembly", "[project][native]")
 
 	SECTION("configureCommand carries generator, dirs and the ORKIGE_* vars")
 	{
+		Orkige::NativeModule::EngineSdk engine;
+		engine.kind = Orkige::NativeModule::EngineSdkKind::BuildTree;
+		engine.root = "/engine";
+		engine.buildDir = "/engine/build/macos-debug";
+		engine.buildType = "Debug";
 		const Orkige::StringVector command =
 			Orkige::NativeModule::configureCommand("/opt/cmake",
-				"/proj/native", "/proj/native/build", "/engine",
-				"/engine/build/macos-debug", "Debug",
+				"/proj/native", "/proj/native/build", engine,
 				{ "-DCMAKE_MAKE_PROGRAM=/opt/ninja" });
 		const Orkige::StringVector expected = {
 			"/opt/cmake", "-G", "Ninja",
@@ -337,6 +341,24 @@ TEST_CASE("NativeModule build-command assembly", "[project][native]")
 			"-DCMAKE_MAKE_PROGRAM=/opt/ninja",
 		};
 		REQUIRE(command == expected);
+	}
+	SECTION("against a pack ORKIGE_ROOT is the pack and no build tree travels")
+	{
+		// a pack HAS no build tree, and its own build type is the one the
+		// module must be configured in (the helper refuses a mismatch by name)
+		Orkige::NativeModule::EngineSdk pack;
+		pack.kind = Orkige::NativeModule::EngineSdkKind::Pack;
+		pack.root = "/sdk/next";
+		pack.buildType = "Release";
+		const Orkige::StringVector command =
+			Orkige::NativeModule::configureCommand("/opt/cmake",
+				"/proj/native", "/proj/native/build-sdk-next", pack);
+		REQUIRE(command == Orkige::StringVector{
+			"/opt/cmake", "-G", "Ninja",
+			"-S", "/proj/native", "-B", "/proj/native/build-sdk-next",
+			"-DCMAKE_BUILD_TYPE=Release",
+			"-DORKIGE_ROOT=/sdk/next",
+		});
 	}
 	SECTION("buildCommand is the incremental cmake --build")
 	{
@@ -419,6 +441,255 @@ TEST_CASE("NativeModule build-command assembly", "[project][native]")
 			== "native/build-classic");
 		REQUIRE(Orkige::NativeModule::flavoredBuildDir("code/out", "next")
 			!= Orkige::NativeModule::flavoredBuildDir("code/out", "classic"));
+	}
+	SECTION("a pack build gets its own module tree, never the tree build's")
+	{
+		Orkige::NativeModule::EngineSdk tree;
+		tree.kind = Orkige::NativeModule::EngineSdkKind::BuildTree;
+		Orkige::NativeModule::EngineSdk pack;
+		pack.kind = Orkige::NativeModule::EngineSdkKind::Pack;
+		REQUIRE(Orkige::NativeModule::moduleBuildDirectory("native/build", tree,
+			"next") == "native/build-next");
+		REQUIRE(Orkige::NativeModule::moduleBuildDirectory("native/build", pack,
+			"next") == "native/build-sdk-next");
+		REQUIRE(Orkige::NativeModule::moduleBuildDirectory("native/build", pack,
+			"next") != Orkige::NativeModule::moduleBuildDirectory("native/build",
+				tree, "next"));
+	}
+}
+
+//! the SDK pack as the engine a native module builds against: what a
+//! DOWNLOADED editor has, since it carries neither a repository nor a build
+//! tree (@see Docs/sdk-pack.md)
+TEST_CASE("NativeModule resolves the engine: build tree first, pack second",
+	"[project][native][sdk]")
+{
+	Orkige::CoreTestEnvironment::get();
+
+	//! write the two files that make a directory a pack, as the install writes
+	//! them (cmake/OrkigeSdk.cmake realizes both through configure_file)
+	auto stagePack = [](Orkige::String const & root,
+		Orkige::String const & buildType, Orkige::String const & flavor)
+	{
+		std::filesystem::create_directories(
+			std::filesystem::path(root) / "cmake");
+		writeFile((std::filesystem::path(root) /
+			Orkige::NativeModule::PACK_MARKER_FILE).string(),
+			"include_guard(GLOBAL)\n"
+			"set(ORKIGE_SDK_TARGET_PLATFORM \"macos\")\n"
+			"set(ORKIGE_SDK_MODULE_SHAPE \"executable\")\n");
+		writeFile((std::filesystem::path(root) /
+			Orkige::NativeModule::PACK_CONFIG_FILE).string(),
+			"set(ORKIGE_PACKAGE_KIND \"sdk\")\n"
+			"set(ORKIGE_PACKAGE_RENDER_BACKEND \"" + flavor + "\")\n"
+			"set(ORKIGE_PACKAGE_BUILD_TYPE \"" + buildType + "\")\n");
+	};
+
+	SECTION("cmakeSetValue reads one declaration out of a generated config")
+	{
+		const Orkige::String text =
+			"# a comment mentioning set(ORKIGE_PACKAGE_BUILD_TYPE \"Debug\")\n"
+			"set(ORKIGE_PACKAGE_KIND \"sdk\")\n"
+			"set(ORKIGE_PACKAGE_BUILD_TYPE \"Release\")\n"
+			"set(ORKIGE_PACKAGE_SANITIZERS OFF)\n"
+			"set(ORKIGE_PACKAGE_SOURCE_ROOT \"\")\n";
+		REQUIRE(Orkige::NativeModule::cmakeSetValue(text,
+			"ORKIGE_PACKAGE_BUILD_TYPE") == "Release");
+		REQUIRE(Orkige::NativeModule::cmakeSetValue(text,
+			"ORKIGE_PACKAGE_KIND") == "sdk");
+		// an unquoted value, an empty one, and a name that is only a prefix
+		REQUIRE(Orkige::NativeModule::cmakeSetValue(text,
+			"ORKIGE_PACKAGE_SANITIZERS") == "OFF");
+		REQUIRE(Orkige::NativeModule::cmakeSetValue(text,
+			"ORKIGE_PACKAGE_SOURCE_ROOT").empty());
+		REQUIRE(Orkige::NativeModule::cmakeSetValue(text,
+			"ORKIGE_PACKAGE").empty());
+		REQUIRE(Orkige::NativeModule::cmakeSetValue(text, "NOT_THERE").empty());
+	}
+	SECTION("installedPackDirectory is per flavor under the writable state")
+	{
+		REQUIRE(Orkige::NativeModule::installedPackDirectory("/state", "next")
+			== (std::filesystem::path("/state") / "sdk" / "next").string());
+		REQUIRE(Orkige::NativeModule::installedPackDirectory("/state", "next")
+			!= Orkige::NativeModule::installedPackDirectory("/state",
+				"classic"));
+		REQUIRE(Orkige::NativeModule::installedPackDirectory("", "next").empty());
+	}
+	SECTION("describePack reads the pack's own description of itself")
+	{
+		TempDir dir("orkige_test_native_pack");
+		stagePack(dir.path, "Release", "next");
+		const Orkige::NativeModule::EngineSdk pack =
+			Orkige::NativeModule::describePack(dir.path);
+		REQUIRE(pack.found());
+		REQUIRE(pack.fromPack());
+		REQUIRE(pack.root == dir.path);
+		REQUIRE(pack.buildType == "Release");
+		REQUIRE(pack.flavor == "next");
+		REQUIRE(pack.platform == "macos");
+		REQUIRE(pack.buildDir.empty());
+	}
+	SECTION("a directory without the marker is not a pack")
+	{
+		TempDir dir("orkige_test_native_notpack");
+		std::filesystem::create_directories(
+			std::filesystem::path(dir.path) / "cmake");
+		// only the package config: a half-unpacked (or plain wrong) directory
+		writeFile((std::filesystem::path(dir.path) /
+			Orkige::NativeModule::PACK_CONFIG_FILE).string(),
+			"set(ORKIGE_PACKAGE_BUILD_TYPE \"Release\")\n");
+		REQUIRE_FALSE(Orkige::NativeModule::describePack(dir.path).found());
+		REQUIRE_FALSE(Orkige::NativeModule::describePack("").found());
+	}
+	SECTION("a reachable build tree wins over an installed pack")
+	{
+		TempDir dir("orkige_test_native_resolve");
+		const Orkige::String engineRoot =
+			(std::filesystem::path(dir.path) / "engine").string();
+		const Orkige::String engineBuild =
+			(std::filesystem::path(engineRoot) / "build").string();
+		const Orkige::String packRoot =
+			(std::filesystem::path(dir.path) / "sdk").string();
+		stagePack(packRoot, "Release", "next");
+
+		// nothing reachable but the pack: the downloaded-editor case
+		Orkige::NativeModule::EngineSdk sdk =
+			Orkige::NativeModule::resolveEngineSdk(engineRoot, engineBuild,
+				"Debug", packRoot);
+		REQUIRE(sdk.fromPack());
+		REQUIRE(sdk.buildType == "Release");
+
+		// the developer case: a configured tree with the engine beside it
+		std::filesystem::create_directories(
+			std::filesystem::path(engineRoot) / "cmake");
+		writeFile((std::filesystem::path(engineRoot) / "cmake" /
+			"OrkigeGameModule.cmake").string(), "# helper");
+		std::filesystem::create_directories(engineBuild);
+		writeFile((std::filesystem::path(engineBuild) /
+			"CMakeCache.txt").string(), "# cache");
+		sdk = Orkige::NativeModule::resolveEngineSdk(engineRoot, engineBuild,
+			"Debug", packRoot);
+		REQUIRE(sdk.kind == Orkige::NativeModule::EngineSdkKind::BuildTree);
+		REQUIRE(sdk.root == engineRoot);
+		REQUIRE(sdk.buildDir == engineBuild);
+		REQUIRE(sdk.buildType == "Debug");
+
+		// neither: nothing to build against - the downloaded editor whose SDK
+		// was never installed, which is a refusal rather than a guess
+		REQUIRE_FALSE(Orkige::NativeModule::resolveEngineSdk("", "", "Debug",
+			(std::filesystem::path(dir.path) / "absent").string()).found());
+		REQUIRE_FALSE(Orkige::NativeModule::resolveEngineSdk("", "", "Debug",
+			"").found());
+		// an engine root whose build tree was never configured is not one
+		// either (a checkout with no build in it)
+		REQUIRE(Orkige::NativeModule::resolveEngineSdk(engineRoot,
+			(std::filesystem::path(dir.path) / "nobuild").string(), "Debug",
+			packRoot).fromPack());
+	}
+	SECTION("the toolchain prefers the baked paths, else searches the PATH")
+	{
+		TempDir dir("orkige_test_native_toolchain");
+		const Orkige::String binDir =
+			(std::filesystem::path(dir.path) / "bin").string();
+		std::filesystem::create_directories(binDir);
+#ifdef _WIN32
+		const Orkige::String suffix = ".exe";
+#else
+		const Orkige::String suffix = "";
+#endif
+		writeFile((std::filesystem::path(binDir) / ("cmake" + suffix)).string(),
+			"#!/bin/sh\n");
+		writeFile((std::filesystem::path(binDir) / ("ninja" + suffix)).string(),
+			"#!/bin/sh\n");
+		const Orkige::StringVector path = { "/definitely/not/here", binDir };
+		Orkige::NativeModule::Toolchain tools =
+			Orkige::NativeModule::resolveToolchain("", "", path);
+		REQUIRE(tools.complete());
+		REQUIRE(tools.cmake ==
+			(std::filesystem::path(binDir) / ("cmake" + suffix)).string());
+
+		// a baked path that still exists wins (the developer case is untouched)
+		const Orkige::String baked =
+			(std::filesystem::path(binDir) / ("ninja" + suffix)).string();
+		tools = Orkige::NativeModule::resolveToolchain(baked, baked, path);
+		REQUIRE(tools.cmake == baked);
+
+		// nothing anywhere
+		tools = Orkige::NativeModule::resolveToolchain("/gone/cmake",
+			"/gone/ninja", { "/definitely/not/here" });
+		REQUIRE_FALSE(tools.complete());
+		REQUIRE(tools.cmake.empty());
+	}
+	SECTION("searchPathDirectories splits a PATH and drops empty entries")
+	{
+#ifdef _WIN32
+		const Orkige::StringVector split =
+			Orkige::NativeModule::searchPathDirectories("C:\\a;;C:\\b");
+#else
+		const Orkige::StringVector split =
+			Orkige::NativeModule::searchPathDirectories("/a::/b");
+#endif
+		REQUIRE(split.size() == 2);
+		REQUIRE(Orkige::NativeModule::searchPathDirectories("").empty());
+	}
+	SECTION("a missing SDK and a missing toolchain are reported as two")
+	{
+		Orkige::NativeModule::EngineSdk none;
+		Orkige::NativeModule::EngineSdk pack;
+		pack.kind = Orkige::NativeModule::EngineSdkKind::Pack;
+		pack.root = "/state/sdk/next";
+		pack.flavor = "next";
+		Orkige::NativeModule::Toolchain complete;
+		complete.cmake = "/usr/bin/cmake";
+		complete.makeProgram = "/usr/bin/ninja";
+
+		// no SDK: an install problem, and the message says where it belongs
+		const Orkige::String noSdk =
+			Orkige::NativeModule::modulePrerequisiteProblem(none, complete,
+				"next", "/state/sdk/next", "Jumper Native", "jumper_native");
+		REQUIRE_FALSE(noSdk.empty());
+		REQUIRE(noSdk.find("SDK") != Orkige::String::npos);
+		REQUIRE(noSdk.find("/state/sdk/next") != Orkige::String::npos);
+		REQUIRE(noSdk.find("cmake") == Orkige::String::npos);
+
+		// no toolchain: a machine problem, named by what to install
+		const Orkige::String noTools =
+			Orkige::NativeModule::modulePrerequisiteProblem(pack,
+				Orkige::NativeModule::Toolchain(), "next", "/state/sdk/next",
+				"Jumper Native", "jumper_native");
+		REQUIRE_FALSE(noTools.empty());
+		REQUIRE(noTools.find("cmake") != Orkige::String::npos);
+		REQUIRE(noTools.find("ninja") != Orkige::String::npos);
+		REQUIRE(noTools != noSdk);
+
+		// one missing program is named alone
+		Orkige::NativeModule::Toolchain halfway;
+		halfway.cmake = "/usr/bin/cmake";
+		const Orkige::String noNinja =
+			Orkige::NativeModule::modulePrerequisiteProblem(pack, halfway,
+				"next", "/state/sdk/next", "Jumper Native", "jumper_native");
+		REQUIRE(noNinja.find("ninja is not on the PATH") !=
+			Orkige::String::npos);
+
+		// the other flavor's pack is refused for what it is
+		Orkige::NativeModule::EngineSdk otherFlavor = pack;
+		otherFlavor.flavor = "classic";
+		const Orkige::String wrongFlavor =
+			Orkige::NativeModule::modulePrerequisiteProblem(otherFlavor,
+				complete, "next", "/state/sdk/next", "Jumper Native",
+				"jumper_native");
+		REQUIRE(wrongFlavor.find("classic") != Orkige::String::npos);
+
+		// everything in place: no sentence at all
+		REQUIRE(Orkige::NativeModule::modulePrerequisiteProblem(pack, complete,
+			"next", "/state/sdk/next", "Jumper Native", "jumper_native")
+			.empty());
+		// ...and a build tree needs no flavor check (it IS this build)
+		Orkige::NativeModule::EngineSdk tree;
+		tree.kind = Orkige::NativeModule::EngineSdkKind::BuildTree;
+		REQUIRE(Orkige::NativeModule::modulePrerequisiteProblem(tree, complete,
+			"next", "/state/sdk/next", "Jumper Native", "jumper_native")
+			.empty());
 	}
 }
 
