@@ -558,6 +558,18 @@ if(APPLE)
             "$<TARGET_FILE:orkige_editor>"
             "${_editor_stage_tools}/$<TARGET_FILE_NAME:orkige_player>"
             "${_editor_stage_tools}/$<TARGET_FILE_NAME:texcook>")
+    # RE-SEAL the bundle last. Everything above rewrites nested code - the
+    # dylib closure lands in Frameworks, load commands and rpaths are
+    # retargeted, the nested executables are re-signed one by one - and each of
+    # those edits invalidates the enclosing app's signature. macOS does not
+    # merely warn about that: it kills the process at exec with
+    # SIGKILL (Code Signature Invalid) before a single line reaches stderr,
+    # which reads as a test "Subprocess killed" with no output at all. Signing
+    # the outer executable alone is not enough; the seal has to cover the
+    # nested code the staging just rewrote.
+    list(APPEND _editor_stage_commands
+        COMMAND codesign --force --deep -s - --timestamp=none
+            "$<TARGET_BUNDLE_DIR:orkige_editor>")
 endif()
 # ALL + ordered AFTER the editor links: the payload staging always re-runs (a
 # relinked player is re-staged and re-pointed the same build) and the dylib
