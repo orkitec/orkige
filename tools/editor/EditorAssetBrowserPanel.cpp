@@ -1813,6 +1813,9 @@ bool applyTextureImportEdit(EditorState& state,
 		Orkige::AssetDatabase::writeMetaFile(metaFilePath, preservedId, texture);
 	if (ok)
 	{
+		// the sampler answer components read lives in the project's ONE
+		// TextureSamplerTable, so a sidecar edit has to re-derive it
+		state.project.refreshTextureSamplers();
 		oDebugMsg("editor.assets", 0, "wrote texture import settings for '" <<
 			metaFilePath << "' (already-loaded sprites re-sample on the "
 			"texture's next load)");

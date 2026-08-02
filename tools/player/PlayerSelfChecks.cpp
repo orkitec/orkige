@@ -348,17 +348,17 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		pakScriptCheck = true;
 		pakScriptPath = pakScript;
 	}
-	// ORKIGE_PAK_ASSETID_SELFCHECK=<pakfile>: id-based asset resolution against
+	// ORKIGE_PAK_SAMPLER_SELFCHECK=<pakfile>: the baked texture sampler against
 	// MOUNTED media. The pak carries the texture and nothing else; the project
-	// on disk carries only the manifest, the scene and the .orkmeta sidecar -
-	// the exact split a stored APK and a browser export produce
-	// (PlayerBundle::isMountedMediaPath). Unlike ORKIGE_PAK_SELFCHECK the scene
-	// is a real file loaded the ordinary way; what is being proven is the
-	// DATABASE, not the scene read.
-	if (const char* pakAssetId = std::getenv("ORKIGE_PAK_ASSETID_SELFCHECK"))
+	// on disk carries only the manifest and the scene - the exact split a
+	// stored APK and a browser export produce
+	// (PlayerBundle::isMountedMediaPath), sidecars included: a packaged payload
+	// has none. Unlike ORKIGE_PAK_SELFCHECK the scene is a real file loaded the
+	// ordinary way; what is being proven is the SAMPLER, not the scene read.
+	if (const char* pakSampler = std::getenv("ORKIGE_PAK_SAMPLER_SELFCHECK"))
 	{
-		pakAssetIdCheck = true;
-		pakPath = pakAssetId;
+		pakSamplerCheck = true;
+		pakPath = pakSampler;
 		pakMountPoint = "game/";
 	}
 	// automated runs (ctest, the editor's play-mode tests - they inherit
@@ -761,85 +761,47 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 		return 1;
 	}
 
-	// ORKIGE_PAK_ASSETID_SELFCHECK: id-based asset resolution against MOUNTED
+	// ORKIGE_PAK_SAMPLER_SELFCHECK: the authored texture SAMPLER against MOUNTED
 	// media - the shape a stored APK and a browser export actually ship.
 	// The fixture splits the project exactly the way
 	// PlayerBundle::isMountedMediaPath does: the texture lives ONLY inside the
-	// mounted pak (no loose file anywhere), while the manifest, the scene and
-	// the .orkmeta sidecar are materialised because they are opened by path and
-	// - the sidecar - FOUND by walking a directory. The scene's sprite names a
-	// STALE texture ("renamed_away.png") next to the asset id, so it can only
-	// end up with a working texture if the database read that sidecar and the
-	// id resolved. Mounting the sidecar instead would kill this silently: ids
-	// stop resolving AND the authored "point" filter degrades to bilinear.
-	if (this->pakAssetIdCheck)
+	// mounted pak (no loose file anywhere), while the manifest and the scene are
+	// materialised because they are opened by path. There is NO sidecar in the
+	// payload at all - a packaged build carries none - so the only surviving
+	// trace of the authored "point"/"wrap" sampler is the manifest's baked
+	// <TextureSamplers> block. Get the bake wrong and the sprite silently
+	// renders bilinear/clamp, which is precisely the regression this guards.
+	if (this->pakSamplerCheck)
 	{
-		// the id the fixture mints (tests/pak/make_pak_project_fixture.py)
-		static const char* const FIXTURE_ASSET_ID =
-			"a55e7100000000000000000000000001";
 		bool ok = true;
 		std::string detail;
 		Orkige::RenderSystem* render = context.render;
 
-		// (1) the database found the asset THROUGH its sidecar alone - there is
-		// no loose assets/pak_tex.png for a directory walk to land on
+		// (1) the payload really is sidecar-free, so nothing can fall back to
+		// reading import settings off disk
 		Orkige::optr<Orkige::AssetDatabase> const& database =
 			Orkige::AssetDatabase::getActive();
 		if (!database)
 		{
-			SDL_Log("orkige_pak_assetid_selfcheck: FAILED - no active asset "
+			SDL_Log("orkige_pak_sampler_selfcheck: FAILED - no active asset "
 				"database (the project did not load)");
 			return 1;
 		}
-		const Orkige::String idByName =
-			database->idForFileName("pak_tex.png");
-		const Orkige::String idByPath =
-			database->idForPath("assets/pak_tex.png");
-		if (idByName != FIXTURE_ASSET_ID || idByPath != FIXTURE_ASSET_ID)
+		if (database->getAssetCount() != 0)
 		{
 			ok = false;
-			detail += " sidecar-declared-asset-unregistered(byName='" +
-				idByName + "' byPath='" + idByPath + "')";
+			detail += " payload-carries-asset-ids(" +
+				std::to_string(database->getAssetCount()) + ")";
 		}
-		else if (database->pathForId(FIXTURE_ASSET_ID) != "assets/pak_tex.png")
+		if (!database->metaFilePathForId(
+			database->idForFileName("pak_tex.png")).empty())
 		{
 			ok = false;
-			detail += " id-maps-to-wrong-path";
-		}
-		else
-		{
-			SDL_Log("orkige_pak_assetid_selfcheck: asset id %s resolves to "
-				"'assets/pak_tex.png' with the file only in the mounted pak",
-				FIXTURE_ASSET_ID);
+			detail += " sidecar-still-reachable";
 		}
 
-		// (2) the sidecar is reachable BY PATH from the id: this is how a
-		// sprite reads its texture import settings live, and the fixture
-		// authors a NON-default "point" filter so a miss cannot pass as a
-		// default
-		Orkige::TextureImport texture;
-		const Orkige::String metaPath =
-			database->metaFilePathForId(FIXTURE_ASSET_ID);
-		if (metaPath.empty() ||
-			!Orkige::AssetDatabase::readImportSettings(metaPath, texture))
-		{
-			ok = false;
-			detail += " import-settings-unreadable";
-		}
-		else if (texture.base.filter != "point" || texture.base.wrap != "wrap")
-		{
-			ok = false;
-			detail += " import-settings-wrong(filter='" + texture.base.filter +
-				"' wrap='" + texture.base.wrap + "')";
-		}
-		else
-		{
-			SDL_Log("orkige_pak_assetid_selfcheck: texture import settings "
-				"read from the materialised sidecar (filter=point, wrap=wrap)");
-		}
-
-		// (3) end to end: the scene's sprite carried a STALE name plus the id,
-		// so a resolved reference is the ONLY way it can hold "pak_tex.png"
+		// (2) the sprite still samples the way the texture was AUTHORED: the
+		// baked block is the only place that answer can have come from
 		unsigned int sprites = 0;
 		for (auto const& [id, gameObject] :
 			gameObjectManager.getGameObjects())
@@ -849,13 +811,23 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 				continue;
 			}
 			++sprites;
-			const Orkige::String textureName =
-				gameObject->getComponentPtr<Orkige::SpriteComponent>()
-					->getTextureName();
-			if (textureName != "pak_tex.png")
+			Orkige::SpriteComponent* sprite =
+				gameObject->getComponentPtr<Orkige::SpriteComponent>();
+			if (sprite->getTextureName() != "pak_tex.png")
 			{
 				ok = false;
-				detail += " sprite-kept-stale-reference('" + textureName + "')";
+				detail += " sprite-lost-its-reference('" +
+					sprite->getTextureName() + "')";
+			}
+			if (sprite->getFilter() != Orkige::SpriteQuad::FILTER_POINT)
+			{
+				ok = false;
+				detail += " authored-point-filter-degraded-to-bilinear";
+			}
+			if (sprite->getAddressing() != Orkige::SpriteQuad::ADDRESS_WRAP)
+			{
+				ok = false;
+				detail += " authored-wrap-addressing-degraded-to-clamp";
 			}
 		}
 		if (sprites == 0)
@@ -864,7 +836,7 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 			detail += " no-sprite-in-scene";
 		}
 
-		// (4) and the pixels really do come from the archive
+		// (3) and the pixels really do come from the archive
 		unsigned int texW = 0;
 		unsigned int texH = 0;
 		if (render == nullptr ||
@@ -877,11 +849,12 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 
 		if (ok)
 		{
-			SDL_Log("orkige_pak_assetid_selfcheck: PASS - id-based asset "
-				"resolution works against mounted media on this flavor");
+			SDL_Log("orkige_pak_sampler_selfcheck: PASS - the authored "
+				"point/wrap sampler survived into a sidecar-free package with "
+				"its texture mounted, on this flavor");
 			return 0;
 		}
-		SDL_Log("orkige_pak_assetid_selfcheck: FAILED -%s", detail.c_str());
+		SDL_Log("orkige_pak_sampler_selfcheck: FAILED -%s", detail.c_str());
 		return 1;
 	}
 

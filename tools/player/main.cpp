@@ -2060,10 +2060,10 @@ int main(int argc, char** argv)
 				// ORKIGE_PAK_SELFCHECK: mount the pak's sub-tree so its scene,
 				// textures and sounds resolve through the resource system like
 				// loose files (the reborn BigZip acceptance path, both flavors).
-				// ORKIGE_PAK_ASSETID_SELFCHECK mounts the same way - only its
+				// ORKIGE_PAK_SAMPLER_SELFCHECK mounts the same way - only its
 				// scene comes from disk instead of the archive.
 				if (context.selfChecks.pakCheck ||
-					context.selfChecks.pakAssetIdCheck)
+					context.selfChecks.pakSamplerCheck)
 				{
 					render->mountPak(context.selfChecks.pakPath,
 						context.selfChecks.pakMountPoint,

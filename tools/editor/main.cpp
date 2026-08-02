@@ -57,6 +57,7 @@
 #include <core_base/PropertySchema.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <core_project/AssetDatabase.h>
+#include <core_project/TextureSamplerTable.h>
 #include <core_util/ShapeCollider.h>
 #include <core_util/SfxAsset.h>
 #include <core_util/SfxSynth.h>
@@ -4909,6 +4910,17 @@ int main(int argc, char** argv)
 					// the id must survive the sidecar rewrite (still resolves)
 					const bool idKept =
 						db->idForPath(probeRel) == probeId && !probeId.empty();
+					// ...and the answer components actually read - the
+					// project's ONE sampler table - must carry the new intent
+					// right away, not on the next project open
+					const Orkige::TextureSampler live =
+						Orkige::TextureSamplerTable::resolve(probeRel);
+					if (live.filter != "point" || live.wrap != "wrap")
+					{
+						assetOk = false;
+						assetFail = "the sampler table did not pick up the "
+							"written texture import settings";
+					}
 					if (!applied || !readOk || !idKept ||
 						readBack.base.filter != "point" ||
 						readBack.base.wrap != "wrap" ||

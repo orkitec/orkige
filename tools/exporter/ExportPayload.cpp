@@ -12,6 +12,10 @@
 #include "ExportSettings.h"
 #include "ExportTextureCook.h"
 
+#include <core_project/AssetDatabase.h>
+#include <core_project/Project.h>
+#include <core_project/TextureSamplerTable.h>
+
 #include <functional>
 #include <string>
 #include <vector>
@@ -104,6 +108,61 @@ namespace OrkigeExport
 		return true;
 	}
 	//---------------------------------------------------------
+	bool bakeTextureSamplers(Orkige::String const & projectRoot,
+		Orkige::String const & payloadDirectory,
+		Orkige::String const & manifestPath,
+		Orkige::String const & texturePlatform, ExportLog const & log,
+		int * outStripped, Orkige::String * error)
+	{
+		// a LOCAL database: refresh() is read-only and never touches the
+		// process-wide active one, so an in-process export leaves the editor's
+		// open project alone (@see ExportProject.h)
+		Orkige::AssetDatabase database;
+		database.refresh(projectRoot, false);
+		Orkige::TextureSamplerTable samplers;
+		samplers.fillFromAssets(database, texturePlatform);
+		Orkige::String bakeError;
+		if(!Orkige::Project::writeBakedTextureSamplers(manifestPath, samplers,
+			&bakeError))
+		{
+			if(error != 0)
+			{
+				*error = bakeError;
+			}
+			return false;
+		}
+		if(!samplers.empty())
+		{
+			emit(log, "baked " + std::to_string(samplers.size()) +
+				" texture sampler(s) into the payload manifest");
+		}
+		// the sidecars themselves are editor bookkeeping and never ship
+		const Orkige::String metaExtension =
+			Orkige::AssetDatabase::META_FILE_EXTENSION;
+		int stripped = 0;
+		for(Orkige::String const & relative :
+			ExportFiles::listFilesRecursive(payloadDirectory))
+		{
+			if(relative.size() <= metaExtension.size() ||
+				relative.compare(relative.size() - metaExtension.size(),
+					metaExtension.size(), metaExtension) != 0)
+			{
+				continue;
+			}
+			if(!ExportFiles::removeTree(
+				ExportFiles::join(payloadDirectory, relative), error))
+			{
+				return false;
+			}
+			++stripped;
+		}
+		if(outStripped != 0)
+		{
+			*outStripped = stripped;
+		}
+		return true;
+	}
+	//---------------------------------------------------------
 	bool stageProjectPayload(ExportProject const & project,
 		Orkige::String const & destination,
 		Orkige::String const & texturePlatform, Orkige::String const & flavor,
@@ -147,9 +206,7 @@ namespace OrkigeExport
 		// the export-time texture cook: resize/premultiply/block-compress the
 		// staged textures per their sidecar import settings, resolved for the
 		// target platform AND the packaged render flavor (which picks the
-		// container and the auto formats). The sidecars ship alongside,
-		// renamed with any compressed texture, so the runtime keeps reading
-		// the LIVE sampler settings and asset ids from them.
+		// container and the auto formats).
 		TextureCookResult cook;
 		if(!cookTexturePayload(destination, texturePlatform, flavor, cook, log,
 			error))
@@ -162,6 +219,16 @@ namespace OrkigeExport
 				" texture(s) for platform '" + texturePlatform + "' (" +
 				flavor + " flavor)");
 		}
+		// then the sampler bake, which retires the sidecars: the cook read
+		// them, nothing downstream does
+		int stripped = 0;
+		if(!bakeTextureSamplers(project.root, destination,
+			ExportFiles::join(destination, "project.orkproj"), texturePlatform,
+			log, &stripped, error))
+		{
+			return false;
+		}
+		staged -= stripped;
 		if(outStaged != 0)
 		{
 			*outStaged = staged;

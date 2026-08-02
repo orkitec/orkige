@@ -75,10 +75,10 @@ def read_cmake_cache(build_dir, variable):
 def check_payload_cook(payload_dir, cooked_names):
     """assert the export-time texture cook conditioned the bundled payload:
     every texture the export REPORTED cooking ships as a container
-    (.dds/.ktx/.oitd) with its sidecar renamed along, and the payload carries
-    no container the export did not report. The comparison is on STEMS: the
-    cook renames as it compresses (ball.png -> ball.dds), so the log names the
-    source and the payload carries the container.
+    (.dds/.ktx/.oitd), and the payload carries no container the export did not
+    report. The comparison is on STEMS: the cook renames as it compresses
+    (ball.png -> ball.dds), so the log names the source and the payload carries
+    the container.
 
     The expectation comes from the export's own log rather than a second
     reading of the sidecars: the auto-format table lives in the exporter
@@ -89,20 +89,169 @@ def check_payload_cook(payload_dir, cooked_names):
     shipped = set()
     for parent, _dirs, files in os.walk(payload_dir):
         for name in files:
-            path = os.path.join(parent, name)
             if name.lower().endswith((".dds", ".ktx", ".oitd")):
-                require(os.path.isfile(path + ".orkmeta"),
-                        "cooked texture kept its (renamed) sidecar: " + name)
                 shipped.add(os.path.splitext(name)[0])
     require(shipped == cooked_names,
             "the payload ships exactly the textures the export reported "
             "cooking (shipped %s, reported %s)"
             % (sorted(shipped), sorted(cooked_names)))
-    log("texture cook: %d compressed texture(s) shipped, each with its "
-        "sidecar" % len(shipped))
+    log("texture cook: %d compressed texture(s) shipped" % len(shipped))
 
 
-def check_macos(app_dir, exe_name, run_frames, flavor):
+def expected_samplers(project_dir, platform):
+    """the non-default texture samplers the SOURCE project authors, resolved
+    for a platform token - the answers the export must have baked. Read from
+    the project's own sidecars, so the assertion compares the payload against
+    the authoring intent rather than against the exporter restating itself."""
+    slot = {"ios-simulator": "ios", "ios": "ios", "android": "android",
+            "android-aab": "android", "web": "web"}.get(platform, "")
+    samplers = {}
+    for parent, _dirs, files in os.walk(project_dir):
+        for name in files:
+            if not name.endswith(".orkmeta"):
+                continue
+            try:
+                root = ET.parse(os.path.join(parent, name)).getroot()
+            except ET.ParseError:
+                continue
+            block = root.find("texture")
+            if block is None:
+                continue
+            resolved = dict(block.attrib)
+            override = block.find(slot) if slot else None
+            if override is not None:
+                resolved.update(override.attrib)
+            filt = resolved.get("filter", "bilinear")
+            wrap = resolved.get("wrap", "clamp")
+            if filt == "bilinear" and wrap == "clamp":
+                continue
+            stem = os.path.splitext(os.path.splitext(name)[0])[0]
+            samplers[stem] = (filt, wrap)
+    return samplers
+
+
+def check_payload_samplers(payload_dir, project_dir, platform):
+    """a packaged payload carries NO .orkmeta - sidecars are editor
+    bookkeeping - and the one answer a runtime reads out of them (how a texture
+    is sampled) rides in the manifest's baked <TextureSamplers> block instead,
+    resolved for the platform being packaged. A sidecar that reaches a payload
+    is exactly the packaging bug this asserts away."""
+    authored_sidecars = sum(
+        1 for _parent, _dirs, files in os.walk(project_dir)
+        for name in files if name.endswith(".orkmeta"))
+    require(authored_sidecars > 0,
+            "the source project authors sidecars at all (%d) - otherwise the "
+            "absence assertion below proves nothing" % authored_sidecars)
+    strays = []
+    for parent, _dirs, files in os.walk(payload_dir):
+        for name in files:
+            if name.endswith(".orkmeta"):
+                strays.append(os.path.relpath(os.path.join(parent, name),
+                                              payload_dir))
+    require(not strays, "the payload carries no .orkmeta sidecars (found %s)"
+            % sorted(strays)[:5])
+
+    manifest = ET.parse(os.path.join(payload_dir, "project.orkproj")).getroot()
+    block = manifest.find("TextureSamplers")
+    baked = {}
+    if block is not None:
+        for entry in block.findall("Sampler"):
+            baked[entry.get("texture")] = (entry.get("filter", "bilinear"),
+                                           entry.get("wrap", "clamp"))
+    expected = expected_samplers(project_dir, platform)
+    require(baked == expected,
+            "the manifest bakes exactly the project's authored samplers for "
+            "'%s' (baked %s, authored %s)" % (platform, baked, expected))
+    log("texture samplers: %d authored sampler(s) baked, 0 sidecars shipped"
+        % len(baked))
+
+
+# Environment the MACHINE provides, as opposed to the developer tree: the
+# display/driver plumbing a windowed run genuinely needs (a headless CI display,
+# a software Vulkan ICD) and the audio-driver choice the suite pins.
+PASSTHROUGH_ENV = ("DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
+                   "VK_DRIVER_FILES", "VK_ICD_FILENAMES",
+                   "LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER", "ALSOFT_DRIVERS")
+
+
+def write_sandbox_profile(path, denied, allowed):
+    """a macOS sandbox profile denying every path in `denied` - the clean room:
+    the repository, the vcpkg tree and Homebrew's tool directories simply are
+    not there - and then re-allowing `allowed` (the export output directory,
+    which lives inside the build tree). SBPL evaluates rules in order and the
+    LAST match decides, so the allow must come after the deny.
+
+    The final rule makes the allowed area REACHABLE: a subpath deny covers the
+    ancestors of the allowed directory too, and a tool that stats its way down
+    would fail before reaching it. The allowance is per-DIRECTORY, never a
+    subpath, so every other path under a denied root stays invisible to stat as
+    well as to read - which matters, because a resource locator's developer-tree
+    fallbacks are decided by an existence probe."""
+    with open(path, "w") as profile:
+        profile.write("(version 1)\n(allow default)\n"
+                      "(deny file-read* file-write*\n")
+        for entry in denied:
+            profile.write('    (subpath "%s")\n' % os.path.realpath(entry))
+        profile.write(")\n(allow file-read* file-write*\n")
+        for entry in allowed:
+            profile.write('    (subpath "%s")\n' % os.path.realpath(entry))
+        profile.write(")\n(allow file-read-metadata\n")
+        traversable = set()
+        for entry in allowed:
+            directory = os.path.realpath(entry)
+            while True:
+                traversable.add(directory)
+                parent = os.path.dirname(directory)
+                if parent == directory:
+                    break
+                directory = parent
+        for directory in sorted(traversable):
+            profile.write('    (literal "%s")\n' % directory)
+        profile.write(")\n")
+
+
+def make_clean_room(repo_root, output_dir):
+    """the sandbox profile an exported app is RUN under, or "" where the
+    platform has no sandbox tool. An exported game is self-contained by
+    contract; running it with the repository reachable would let a build
+    machine's files stand in for a resource the bundle forgot to carry."""
+    if sys.platform != "darwin" or not os.path.exists("/usr/bin/sandbox-exec"):
+        log("clean room: unavailable on this platform - running unsandboxed")
+        return ""
+    denied = [repo_root]
+    # Homebrew's TOOL directories go too - an exported game spawns no tool -
+    # but the rest of Homebrew stays readable, because MoltenVK installs there
+    # and is the platform's Vulkan DRIVER: system-tier, like a GPU driver
+    # anywhere else, and not something an app carries.
+    for extra in ("/opt/homebrew/bin", "/opt/homebrew/sbin",
+                  "/usr/local/bin", "/usr/local/sbin"):
+        if os.path.isdir(extra):
+            denied.append(extra)
+    profile = os.path.join(output_dir, "cleanroom.sb")
+    write_sandbox_profile(profile, denied, [output_dir])
+    log("clean room: the repository and the machine's tool directories are "
+        "denied (only the exported app is reachable)")
+    return profile
+
+
+def clean_room_env(stage_dir, extra=None):
+    """no repository, no developer PATH (and so no python3), a scratch HOME and
+    a scratch temp"""
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "HOME": os.path.join(stage_dir, "home"),
+        "TMPDIR": os.path.join(stage_dir, "tmp"),
+    }
+    os.makedirs(env["HOME"], exist_ok=True)
+    os.makedirs(env["TMPDIR"], exist_ok=True)
+    for name in PASSTHROUGH_ENV:
+        if name in os.environ:
+            env[name] = os.environ[name]
+    env.update(extra or {})
+    return env
+
+
+def check_macos(app_dir, exe_name, run_frames, flavor, sandbox_profile):
     contents = os.path.join(app_dir, "Contents")
     executable = os.path.join(contents, "MacOS", exe_name)
     require(os.path.isdir(app_dir), "app bundle exists: " + app_dir)
@@ -169,15 +318,26 @@ def check_macos(app_dir, exe_name, run_frames, flavor):
 
     # THE proof: the exported app runs standalone, from a NEUTRAL cwd (the
     # output dir - never the source tree, whose files could mask a missing
-    # resource), and exits 0 after the frame cap
-    environment = dict(os.environ)
-    environment["ORKIGE_DEMO_FRAMES"] = str(run_frames)
-    environment.pop("ORKIGE_DEMO_SCREENSHOT", None)
-    log("running the exported app (%d frames, cwd = output dir)" % run_frames)
-    result = subprocess.run([executable], cwd=os.path.dirname(app_dir),
-                            env=environment)
-    require(result.returncode == 0,
-            "exported app ran standalone and exited 0")
+    # resource) and inside a CLEAN ROOM (the repository and the machine's tool
+    # directories denied outright, a scrubbed PATH with no interpreter), and
+    # exits 0 after the frame cap. Neutral cwd alone only stops a RELATIVE
+    # path from resolving; the sandbox stops an absolute one too.
+    output_dir = os.path.dirname(app_dir)
+    environment = clean_room_env(output_dir,
+                                 {"ORKIGE_DEMO_FRAMES": str(run_frames)})
+
+    def run_exported(extra_env=None):
+        env = dict(environment)
+        env.update(extra_env or {})
+        command = [executable]
+        if sandbox_profile:
+            command = ["/usr/bin/sandbox-exec", "-f", sandbox_profile] + command
+        return subprocess.run(command, cwd=output_dir, env=env)
+
+    log("running the exported app (%d frames, cwd = output dir%s)"
+        % (run_frames, ", clean room" if sandbox_profile else ""))
+    require(run_exported().returncode == 0,
+            "exported app ran standalone in a clean room and exited 0")
 
     # Vulkan leg (classic flavor): with the loader + aliases bundled and the
     # platform's Vulkan driver installed (MoltenVK via brew, found through its
@@ -186,11 +346,8 @@ def check_macos(app_dir, exe_name, run_frames, flavor):
     # explicitly picked. Quietly skipped where the driver is absent.
     moltenvk_icd = "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     if flavor != "next" and loader_bundled and os.path.isfile(moltenvk_icd):
-        environment["ORKIGE_RENDERSYSTEM"] = "Vulkan"
         log("running the exported app with ORKIGE_RENDERSYSTEM=Vulkan")
-        result = subprocess.run([executable], cwd=os.path.dirname(app_dir),
-                                env=environment)
-        require(result.returncode == 0,
+        require(run_exported({"ORKIGE_RENDERSYSTEM": "Vulkan"}).returncode == 0,
                 "exported app ran on the Vulkan render system and exited 0")
     elif flavor != "next":
         log("Vulkan leg skipped (loader bundled: %s, MoltenVK ICD: %s)"
@@ -383,13 +540,17 @@ def main():
                               "ORKIGE_RENDER_BACKEND") or "classic"
     if args.platform == "macos":
         artifact = os.path.join(args.output, name + ".app")
-        check_macos(artifact, exe_name, args.run_frames, flavor)
-        check_payload_cook(os.path.join(artifact, "Contents", "Resources",
-                                        "project"), cooked_names)
+        payload = os.path.join(artifact, "Contents", "Resources", "project")
+        check_payload_cook(payload, cooked_names)
+        check_payload_samplers(payload, args.project, args.platform)
+        check_macos(artifact, exe_name, args.run_frames, flavor,
+                    make_clean_room(args.repo, args.output))
     elif args.platform == "ios-simulator":
         artifact = os.path.join(args.output, name + ".app")
         check_ios(artifact, flavor)
         check_payload_cook(os.path.join(artifact, "project"), cooked_names)
+        check_payload_samplers(os.path.join(artifact, "project"), args.project,
+                               args.platform)
     elif args.platform == "android-aab":
         artifact = os.path.join(args.output, exe_name + ".aab.module.zip")
         check_android_aab_module(artifact)
@@ -404,8 +565,9 @@ def main():
             members = [entry for entry in archive.namelist()
                        if entry.startswith("assets/project/")]
             archive.extractall(temp_dir, members)
-            check_payload_cook(os.path.join(temp_dir, "assets", "project"),
-                               cooked_names)
+            payload = os.path.join(temp_dir, "assets", "project")
+            check_payload_cook(payload, cooked_names)
+            check_payload_samplers(payload, args.project, args.platform)
 
     log("artifact %s (%.1f MiB)" % (artifact,
         directory_size(artifact) / (1024.0 * 1024.0)))

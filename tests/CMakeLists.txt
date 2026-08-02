@@ -2166,31 +2166,31 @@ if(TARGET orkige_player)
         LABELS integration TIMEOUT 60
         ENVIRONMENT "ORKIGE_PAK_SCRIPT_SELFCHECK=${ORKIGE_SCRIPT_PAK_FIXTURE};ALSOFT_DRIVERS=null")
 
-    # ID-BASED ASSET RESOLUTION AGAINST MOUNTED MEDIA - the capability a stored
-    # APK and a browser export silently lost while their .orkmeta sidecars were
-    # mounted instead of materialised. The fixture packages a project the way
-    # PlayerBundle::isMountedMediaPath splits one: the texture lives ONLY inside
-    # a STORED pak, while the manifest, the scene and the sidecar are real files
-    # (opened by path; the sidecar is also FOUND by walking a directory). The
-    # scene's sprite names a stale texture next to the asset id, so it can only
-    # render if the sidecar was read and the id resolved - which also proves the
-    # authored "point" import filter survives. Both render flavors; the desktop
-    # is the cheap place to prove a rule the packaged platforms share.
-    # See the ORKIGE_PAK_ASSETID_SELFCHECK block in tools/player/PlayerSelfChecks.cpp.
-    set(ORKIGE_PAK_ASSETID_DIR "${CMAKE_CURRENT_BINARY_DIR}/pak_assetid_fixture${ORKIGE_FLAVOR_TEST_SUFFIX}")
-    add_test(NAME pak_assetid_fixture_build${ORKIGE_FLAVOR_TEST_SUFFIX}
+    # THE AUTHORED TEXTURE SAMPLER AGAINST MOUNTED MEDIA - the setting a stored
+    # APK and a browser export are structurally unable to read off disk. The
+    # fixture packages a project the way PlayerBundle::isMountedMediaPath splits
+    # one: the texture lives ONLY inside a STORED pak, while the manifest and
+    # the scene are real files (opened by path), and there is NO .orkmeta
+    # anywhere - a packaged payload carries none. The texture is authored
+    # point/wrap, so the sprite can only sample that way if the export's baked
+    # <TextureSamplers> manifest block reached it; a miss degrades silently to
+    # bilinear/clamp. Both render flavors; the desktop is the cheap place to
+    # prove a rule the packaged platforms share.
+    # See the ORKIGE_PAK_SAMPLER_SELFCHECK block in tools/player/PlayerSelfChecks.cpp.
+    set(ORKIGE_PAK_SAMPLER_DIR "${CMAKE_CURRENT_BINARY_DIR}/pak_sampler_fixture${ORKIGE_FLAVOR_TEST_SUFFIX}")
+    add_test(NAME pak_sampler_fixture_build${ORKIGE_FLAVOR_TEST_SUFFIX}
         COMMAND python3 "${Orkige_SOURCE_DIR}/tests/pak/make_pak_project_fixture.py"
-            "${ORKIGE_PAK_ASSETID_DIR}")
-    set_tests_properties(pak_assetid_fixture_build${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        FIXTURES_SETUP PAK_ASSETID_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
+            "${ORKIGE_PAK_SAMPLER_DIR}")
+    set_tests_properties(pak_sampler_fixture_build${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        FIXTURES_SETUP PAK_SAMPLER_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
         LABELS integration TIMEOUT 30)
-    add_test(NAME player_pak_assetid_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
-        COMMAND orkige_player --project "${ORKIGE_PAK_ASSETID_DIR}/project"
+    add_test(NAME player_pak_sampler_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_player --project "${ORKIGE_PAK_SAMPLER_DIR}/project"
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(player_pak_assetid_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        FIXTURES_REQUIRED PAK_ASSETID_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
+    set_tests_properties(player_pak_sampler_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        FIXTURES_REQUIRED PAK_SAMPLER_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
         LABELS integration TIMEOUT 60
-        ENVIRONMENT "ORKIGE_PAK_ASSETID_SELFCHECK=${ORKIGE_PAK_ASSETID_DIR}/game.pak;ALSOFT_DRIVERS=null")
+        ENVIRONMENT "ORKIGE_PAK_SAMPLER_SELFCHECK=${ORKIGE_PAK_SAMPLER_DIR}/game.pak;ALSOFT_DRIVERS=null")
 
     # whole-project run: --project loads projects/example's manifest,
     # registers its assets/ and scenes/ as resource locations and plays the
@@ -3002,6 +3002,10 @@ if(TARGET orkige_player)
         # clean frame-capped exit proves the bundle genuinely stands alone.
         set(ORKIGE_EXPORT_DRIVER
             "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_test.py")
+        # its device sibling: export, install, launch, wait for the bundled
+        # project to boot (@see run_export_device_test.py)
+        set(ORKIGE_EXPORT_DEVICE_DRIVER
+            "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_device_test.py")
 
         # the pure-Lua jumper as a double-clickable macOS .app (release player
         # when build/macos-release carries one, else debug + warning)
@@ -3078,6 +3082,36 @@ if(TARGET orkige_player)
                 --output "${CMAKE_CURRENT_BINARY_DIR}/export/android-aab-lua"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(export_android_aab PROPERTIES SKIP_RETURN_CODE 77)
+
+        # ...and the same package RUN. A structural check proves what a package
+        # CONTAINS; only an install-and-launch proves that what it contains is
+        # enough - a payload missing a scene, a shader tree or a texture
+        # installs perfectly and then boots into nothing. Device-labeled: needs
+        # a BOOTED simulator (this test never boots one - that costs minutes
+        # and belongs to the tests that exist for it), skipping 77 otherwise.
+        add_test(NAME export_ios_simulator_run
+            COMMAND python3 "${ORKIGE_EXPORT_DEVICE_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform ios-simulator
+                --engine-build "${Orkige_SOURCE_DIR}/build/ios-simulator-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/ios-simulator-run"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_ios_simulator_run PROPERTIES
+            SKIP_RETURN_CODE 77 TIMEOUT 900)
+
+        add_test(NAME export_android_run
+            COMMAND python3 "${ORKIGE_EXPORT_DEVICE_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform android
+                --engine-build "${Orkige_SOURCE_DIR}/build/android-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/android-run"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_android_run PROPERTIES
+            SKIP_RETURN_CODE 77 TIMEOUT 900)
     endif()
 
     # the HTTP client on a REAL mobile runtime. The desktop suite proves the
@@ -3338,7 +3372,8 @@ endif()
 foreach(device_test editor_play_simulator editor_play_simulator_boot
         editor_play_android editor_play_ios_device player_safearea_device
         player_rotation_android player_rotation_ios
-        http_device_android http_device_ios)
+        http_device_android http_device_ios
+        export_ios_simulator_run export_android_run)
     if(TEST ${device_test})
         # RESOURCE_LOCK: device tests share one simulator/emulator + adb -
         # they must not run concurrently when the suite runs with -j

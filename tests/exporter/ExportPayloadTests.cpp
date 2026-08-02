@@ -278,7 +278,7 @@ TEST_CASE("the payload cook runs for the target platform", "[unit][export]")
 		CHECK(ExportFiles::isRegularFile(
 			ExportFiles::join(destination, "assets/tile.png")));
 	}
-	// desktop next compresses it, and the sidecar follows the file
+	// desktop next compresses it, replacing the source
 	{
 		const Orkige::String destination =
 			ExportFiles::join(scratch.path, "desktop");
@@ -290,6 +290,107 @@ TEST_CASE("the payload cook runs for the target platform", "[unit][export]")
 		CHECK_FALSE(ExportFiles::exists(
 			ExportFiles::join(destination, "assets/tile.png")));
 	}
+}
+
+TEST_CASE("a payload ships no sidecars and carries the baked samplers instead",
+	"[unit][export]")
+{
+	// .orkmeta files are editor bookkeeping. The one answer a runtime reads
+	// out of them - how a texture is sampled - is resolved ONCE here, for the
+	// platform being packaged, into the payload manifest; nothing in a frozen
+	// payload can be renamed, so the asset ids have nothing left to do.
+	ScratchDir scratch("payload_samplers");
+	const Orkige::String root = ExportFiles::join(scratch.path, "project");
+	const ExportProject project = makeProject(root);
+
+	ExportImage pixel(8, 8);
+	for(std::size_t index = 3; index < pixel.pixels.size(); index += 4)
+	{
+		pixel.pixels[index] = 255;
+	}
+	// a crisp pixel-art texture (an AUTHORED sampler, kept as PNG so the
+	// payload name matches the source), a plain one, and a per-platform
+	// override that only mobile sees
+	Orkige::TextureImport crisp;
+	crisp.base.filter = "point";
+	crisp.base.wrap = "wrap";
+	crisp.base.format = "none";
+	Orkige::TextureImport mobileOnly;
+	mobileOnly.base.format = "none";
+	mobileOnly.hasIos = true;
+	mobileOnly.ios = mobileOnly.base;
+	mobileOnly.ios.filter = "point";
+	Orkige::TextureImport plain;
+	plain.base.format = "none";
+	struct { const char * name; Orkige::TextureImport const & import; } const
+		textures[] =
+	{
+		{ "pixel", crisp }, { "phone", mobileOnly }, { "plain", plain }
+	};
+	for(auto const & entry : textures)
+	{
+		const Orkige::String path = ExportFiles::join(root,
+			Orkige::String("assets/") + entry.name + ".png");
+		REQUIRE(encodePngFile(pixel, path, 0));
+		REQUIRE(Orkige::AssetDatabase::writeMetaFile(
+			path + Orkige::AssetDatabase::META_FILE_EXTENSION,
+			Orkige::String("id") + entry.name, entry.import));
+	}
+
+	const Orkige::String destination = ExportFiles::join(scratch.path, "out");
+	Orkige::String error;
+	REQUIRE(stageProjectPayload(project, destination, "", "next", nullptr, 0,
+		&error));
+
+	// not one sidecar anywhere in the payload
+	for(Orkige::String const & relative :
+		ExportFiles::listFilesRecursive(destination))
+	{
+		INFO(relative);
+		CHECK(relative.find(".orkmeta") == Orkige::String::npos);
+	}
+	// the textures themselves did ship
+	CHECK(ExportFiles::isRegularFile(
+		ExportFiles::join(destination, "assets/pixel.png")));
+
+	// the desktop bake carries the authored sampler and NOT the iOS override
+	Orkige::String manifest;
+	REQUIRE(ExportFiles::readTextFile(
+		ExportFiles::join(destination, "project.orkproj"), manifest, 0));
+	CHECK(manifest.find("<TextureSamplers>") != Orkige::String::npos);
+	CHECK(manifest.find("texture=\"pixel\"") != Orkige::String::npos);
+	CHECK(manifest.find("filter=\"point\" wrap=\"wrap\"") !=
+		Orkige::String::npos);
+	CHECK(manifest.find("texture=\"phone\"") == Orkige::String::npos);
+	// a texture nobody authored a sampler for stays out of the block
+	CHECK(manifest.find("texture=\"plain\"") == Orkige::String::npos);
+
+	// the iOS bake resolves the SAME sidecars against the ios slot
+	const Orkige::String mobile = ExportFiles::join(scratch.path, "ios");
+	REQUIRE(stageProjectPayload(project, mobile, "ios", "next", nullptr, 0,
+		&error));
+	Orkige::String mobileManifest;
+	REQUIRE(ExportFiles::readTextFile(
+		ExportFiles::join(mobile, "project.orkproj"), mobileManifest, 0));
+	CHECK(mobileManifest.find("texture=\"phone\"") != Orkige::String::npos);
+	CHECK(mobileManifest.find("texture=\"pixel\"") != Orkige::String::npos);
+}
+
+TEST_CASE("a project with no authored sampler bakes no block", "[unit][export]")
+{
+	ScratchDir scratch("payload_no_samplers");
+	const Orkige::String root = ExportFiles::join(scratch.path, "project");
+	const ExportProject project = makeProject(root);
+	const Orkige::String destination = ExportFiles::join(scratch.path, "out");
+
+	Orkige::String error;
+	REQUIRE(stageProjectPayload(project, destination, "", "next", nullptr, 0,
+		&error));
+	Orkige::String manifest;
+	REQUIRE(ExportFiles::readTextFile(
+		ExportFiles::join(destination, "project.orkproj"), manifest, 0));
+	CHECK(manifest.find("TextureSamplers") == Orkige::String::npos);
+	CHECK(manifest.find("<Name>Probe</Name>") != Orkige::String::npos);
 }
 
 TEST_CASE("the macOS Info.plist names the executable and the icon",

@@ -92,6 +92,12 @@ namespace Orkige
 		//! "ios"/"web" use the override when present; anything else - "" =
 		//! desktop - the default)
 		TextureImportSettings const & resolvedFor(String const & platform) const;
+
+		//! @brief the platform token of the RUNNING build ("android", "ios",
+		//! "web", "" = desktop). The export cook resolves against the same
+		//! tokens for the platform it packages for, so a baked answer and a
+		//! live one agree by construction.
+		static String currentPlatformToken();
 	};
 
 	//! @brief the per-asset cook OPTIONS of a source document that imports by

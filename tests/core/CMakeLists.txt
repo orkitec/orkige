@@ -43,6 +43,7 @@ add_executable(orkige_core_tests
     TagTests.cpp
     ProjectTests.cpp
     AssetDatabaseTests.cpp
+    TextureSamplerTableTests.cpp
     TweenTests.cpp
     PropertyTweenTests.cpp
     LevelGridTests.cpp

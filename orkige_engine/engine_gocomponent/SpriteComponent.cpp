@@ -18,31 +18,11 @@
 #include <core_game/SceneSerializer.h>
 #include <core_debug/DebugMacros.h>
 #include <core_project/AssetDatabase.h>
+#include <core_project/TextureSamplerTable.h>
 
 #include <algorithm>
 #include <sstream>
 #include <vector>
-
-#if defined(__APPLE__)
-#	include <TargetConditionals.h>
-#endif
-
-namespace
-{
-	//! the running platform token AssetDatabase import settings resolve
-	//! against (per-platform sampler/maxSize overrides). Desktop = "" (the
-	//! default block); the cook uses the same tokens at export time.
-	Orkige::String currentPlatformToken()
-	{
-#if defined(__ANDROID__)
-		return "android";
-#elif defined(__APPLE__) && (TARGET_OS_IPHONE || TARGET_OS_SIMULATOR)
-		return "ios";
-#else
-		return "";
-#endif
-	}
-}
 
 namespace Orkige
 {
@@ -115,9 +95,9 @@ namespace Orkige
 		this->mTextureAssetId = AssetDatabase::referenceIdForValue(
 			textureName, "", AssetDatabase::REF_FILE_NAME);
 		this->mQuad->getTextureSize(this->mTexelWidth, this->mTexelHeight);
-		// honor the texture's import-settings sampler LIVE (before the state
-		// push, so applyStateToQuad binds the right material/datablock)
-		this->applyImportSettings();
+		// honor the texture asset's authored sampler (before the state push,
+		// so applyStateToQuad binds the right material/datablock)
+		this->applyTextureSampler();
 		this->applyStateToQuad();
 		this->mQuad->attachTo(this->getNode());
 		this->applyVisibility();
@@ -592,35 +572,17 @@ namespace Orkige
 		this->mQuad->setZOrder(this->mZOrder);
 	}
 	//---------------------------------------------------------
-	void SpriteComponent::applyImportSettings()
+	void SpriteComponent::applyTextureSampler()
 	{
-		// sampler comes from the texture ASSET's import settings (not per
-		// sprite - so it is NOT serialized): resolve them through the open
-		// project's database and apply for the running platform. No project /
-		// no <texture> block keeps the constructor defaults.
-		this->mFilter = SpriteQuad::FILTER_BILINEAR;
-		this->mAddressing = SpriteQuad::ADDRESS_CLAMP;
-		optr<AssetDatabase> const & database = AssetDatabase::getActive();
-		if(!database || this->mTextureAssetId.empty())
-		{
-			return;
-		}
-		const String metaPath =
-			database->metaFilePathForId(this->mTextureAssetId);
-		if(metaPath.empty())
-		{
-			return;
-		}
-		TextureImport texture;
-		if(!AssetDatabase::readImportSettings(metaPath, texture))
-		{
-			return;	// id-only sidecar - no sampler override
-		}
-		TextureImportSettings const & settings =
-			texture.resolvedFor(currentPlatformToken());
-		this->mFilter = (settings.filter == "point")
+		// the sampler belongs to the texture ASSET, not to this sprite, which
+		// is why it is not serialized: ask the open project's sampler table
+		// (TextureSamplerTable::resolve answers with the defaults when there is
+		// no project, and for every texture nobody authored a sampler for)
+		const TextureSampler sampler =
+			TextureSamplerTable::resolve(this->mTextureName);
+		this->mFilter = (sampler.filter == "point")
 			? SpriteQuad::FILTER_POINT : SpriteQuad::FILTER_BILINEAR;
-		this->mAddressing = (settings.wrap == "wrap")
+		this->mAddressing = (sampler.wrap == "wrap")
 			? SpriteQuad::ADDRESS_WRAP : SpriteQuad::ADDRESS_CLAMP;
 	}
 	//---------------------------------------------------------

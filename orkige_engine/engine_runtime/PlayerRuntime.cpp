@@ -395,7 +395,7 @@ namespace Orkige
 			// point a config asset at any path in the project.
 			static const char * const extractedSuffixes[] =
 			{
-				".oprefab", ".orkmeta",				// asset-tree documents
+				".oprefab",							// asset-tree documents
 				".oscene", ".orkproj",				// scene + manifest
 				".olevels", ".oactions", ".olayers",	// config assets
 				".xlf"								// localisation tables

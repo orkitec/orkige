@@ -69,12 +69,13 @@ struct PlayerSelfChecks
 	//! VFS unification that removes the Android fopen-tree extraction)
 	bool pakScriptCheck = false;
 	std::string pakScriptPath;		//!< the zip/pak carrying scripts/pak_script.lua
-	//! the mounted-media ASSET ID probe (@see gameplaySynchronousChecks): a
+	//! the mounted-media SAMPLER probe (@see gameplaySynchronousChecks): a
 	//! project packaged the way a stored APK / browser pak reaches the player -
-	//! bulk media MOUNTED inside the archive, only the sidecars materialised -
-	//! must still resolve its assets BY ID. Reuses pakPath/pakMountPoint for
-	//! the mount; the project comes from --project like any other run.
-	bool pakAssetIdCheck = false;
+	//! bulk media MOUNTED inside the archive, no sidecars anywhere - must still
+	//! sample its textures the way they were authored, off the manifest's baked
+	//! block. Reuses pakPath/pakMountPoint for the mount; the project comes
+	//! from --project like any other run.
+	bool pakSamplerCheck = false;
 
 	//--- per-check phase state (comments ride with each check) -----------
 	// --- ORKIGE_JUMPER_LUA_SELFCHECK=1: the ScriptComponent milestone,

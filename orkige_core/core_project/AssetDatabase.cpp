@@ -24,6 +24,10 @@
 #include <system_error>
 #include <vector>
 
+#if defined(__APPLE__)
+#	include <TargetConditionals.h>
+#endif
+
 namespace Orkige
 {
 	const String AssetDatabase::META_FILE_EXTENSION = ".orkmeta";
@@ -116,6 +120,19 @@ namespace Orkige
 			return this->web;
 		}
 		return this->base;
+	}
+	//---------------------------------------------------------
+	String TextureImport::currentPlatformToken()
+	{
+#if defined(__ANDROID__)
+		return "android";
+#elif defined(__EMSCRIPTEN__)
+		return "web";
+#elif defined(__APPLE__) && (TARGET_OS_IPHONE || TARGET_OS_SIMULATOR)
+		return "ios";
+#else
+		return "";
+#endif
 	}
 	//---------------------------------------------------------
 	String CookSettings::canonical() const
@@ -803,17 +820,16 @@ namespace Orkige
 			this->registerAsset(relativePath, assetId);
 		}
 
-		// sidecars whose asset is not a loose file. The two modes read this
-		// differently, and both readings are honest:
-		//   IMPORT mode (the editor) owns the directory, so the asset really
-		//   is gone - the sidecar is orphaned and gets deleted (no silent
-		//   re-linking; content-hash matching is future work).
-		//   READ-ONLY mode (a runtime) does NOT own the directory and may not
-		//   even be looking at one: a packaged bundle MOUNTS its bulk media
-		//   inside an archive (a stored APK, a browser pak) and materialises
-		//   only the sidecars, so the asset file is an archive entry that no
-		//   directory walk can see. There the SIDECAR is the declaration -
-		//   register the asset it names, and ids keep resolving.
+		// sidecars whose asset is not a loose file are ORPHANS: the asset was
+		// moved away without them (no silent re-linking; content-hash matching
+		// is future work). Only IMPORT mode acts on that - it owns the
+		// directory, so it deletes them; a read-only scan leaves the file
+		// alone and simply indexes nothing for it. The scan is driven by ASSET
+		// files throughout: a sidecar names no asset the scan can register.
+		if (!createSidecars)
+		{
+			return;
+		}
 		for (std::filesystem::path const & metaFile : metaFiles)
 		{
 			const String assetPath = metaFile.string().substr(0,
@@ -822,36 +838,12 @@ namespace Orkige
 			{
 				continue;
 			}
-			const String relativeMetaPath = metaFile.lexically_relative(
-				this->mRootDirectory).generic_string();
-			if (createSidecars)
-			{
-				std::filesystem::remove(metaFile, fsError);
-				assetLog("AssetDatabase: dropped orphaned sidecar '" +
-					relativeMetaPath + "' (its asset is gone - a moved asset "
-					"without its sidecar got a fresh id)");
-				continue;
-			}
-			const String relativePath = relativeMetaPath.substr(0,
-				relativeMetaPath.size() - META_FILE_EXTENSION.size());
-			String assetId;
-			if (!readMetaFile(metaFile.string(), assetId))
-			{
-				assetLog("AssetDatabase: unreadable sidecar '" +
-					relativeMetaPath + "' - '" + relativePath +
-					"' stays id-less");
-				continue;
-			}
-			if (this->mIdToPath.find(assetId) != this->mIdToPath.end())
-			{
-				// same duplicate rule as the loose-file loop above: the first
-				// (sorted) asset keeps the id, the copy is skipped honestly
-				assetLog("AssetDatabase: '" + relativePath +
-					"' duplicates id " + assetId + " of '" +
-					this->mIdToPath[assetId] + "' - skipped (read-only)");
-				continue;
-			}
-			this->registerAsset(relativePath, assetId);
+			std::filesystem::remove(metaFile, fsError);
+			assetLog("AssetDatabase: dropped orphaned sidecar '" +
+				metaFile.lexically_relative(this->mRootDirectory)
+					.generic_string() +
+				"' (its asset is gone - a moved asset without its sidecar got "
+				"a fresh id)");
 		}
 	}
 	//---------------------------------------------------------

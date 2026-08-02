@@ -36,6 +36,7 @@ import sys
 import tempfile
 import threading
 import urllib.parse
+import zipfile
 
 REPO_ROOT = os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))
@@ -309,10 +310,20 @@ def assert_structure(output_dir, title="Jumper Lua"):
     if "@" + "TITLE" + "@" in shell:
         fail("index.html still contains unexpanded placeholders")
     # the payload archive must be substantial (engine media + project)
-    if os.path.getsize(os.path.join(output_dir, "game.pak")) < 100 * 1024:
+    pak_path = os.path.join(output_dir, "game.pak")
+    if os.path.getsize(pak_path) < 100 * 1024:
         fail("game.pak is implausibly small")
-    print("run_export_web: structure OK (%d files)" % len(ARTIFACT_FILES),
-          flush=True)
+    # a packaged payload carries NO .orkmeta: sidecars are editor bookkeeping,
+    # and the one answer a runtime reads out of them (how a texture is sampled)
+    # is baked into the payload manifest at export time. A browser build cannot
+    # read one anyway - the assets it mounts are archive entries.
+    with zipfile.ZipFile(pak_path) as pak:
+        strays = [name for name in pak.namelist()
+                  if name.endswith(".orkmeta")]
+    if strays:
+        fail("game.pak carries .orkmeta sidecars: %s" % sorted(strays)[:5])
+    print("run_export_web: structure OK (%d files, no sidecars in the pak)"
+          % len(ARTIFACT_FILES), flush=True)
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):

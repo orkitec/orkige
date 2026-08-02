@@ -18,6 +18,7 @@
 namespace Orkige
 {
 	class AssetDatabase;
+	class TextureSamplerTable;
 
 	//! @brief a game project on disk - the "open a project, not a
 	//! scene" unit the editor and player work in.
@@ -40,6 +41,20 @@ namespace Orkige
 	//! The free-form settings map carries string key/value pairs so later
 	//! milestones (native module config, per-platform export settings) can add
 	//! keys without a format change; unknown elements are ignored on load.
+	//!
+	//! A PACKAGED project (an exported app's payload) additionally carries a
+	//! baked `<TextureSamplers>` block:
+	//! @code
+	//! <TextureSamplers>
+	//!     <Sampler texture="ball" filter="point" wrap="wrap"/>
+	//! </TextureSamplers>
+	//! @endcode
+	//! The export resolves each texture's import settings ONCE, for the
+	//! platform it packages for, and writes the runtime-relevant answer here -
+	//! so a shipped build carries no `.orkmeta` sidecars (editor bookkeeping)
+	//! and re-derives nothing at load time. An authoring project has no such
+	//! block and derives the same answers from its sidecars on load
+	//! (@see TextureSamplerTable).
 	class ORKIGE_CORE_DLL Project
 	{
 		//--- Types -------------------------------------------
@@ -68,6 +83,12 @@ namespace Orkige
 		//! the project's asset id database (created and made the process-wide
 		//! active one by load(); shared between copies of this Project)
 		optr<AssetDatabase>		mAssetDatabase;
+		//! the project's texture sampler answers (created and made the
+		//! process-wide active one by load(); shared like the database)
+		optr<TextureSamplerTable>	mTextureSamplers;
+		//! did the manifest CARRY the sampler block (a packaged payload)? Then
+		//! save() re-emits it instead of silently dropping build output.
+		bool						mSamplersBaked = false;
 		//--- Methods -----------------------------------------
 	public:
 		//! @brief the manifest file a project path names: a directory maps to
@@ -141,6 +162,29 @@ namespace Orkige
 		//! minting sidecar .orkmeta files for sidecar-less assets and dropping
 		//! orphaned ones. Call after load() in authoring tools only.
 		void importAssets();
+
+		//--- texture samplers (see TextureSamplerTable.h) ----
+		//! @brief the project's texture sampler answers. load() fills it - from
+		//! the manifest's baked block for a packaged payload, from the
+		//! sidecars otherwise - and makes it the process-wide active table
+		//! components resolve against; close() deactivates it. NULL for an
+		//! unloaded project.
+		optr<TextureSamplerTable> const & getTextureSamplers() const { return mTextureSamplers; }
+		//! did this project's manifest carry a baked sampler block
+		bool hasBakedTextureSamplers() const { return mSamplersBaked; }
+		//! @brief re-derive the sampler answers from the project's sidecars -
+		//! what an authoring tool calls after writing texture import settings,
+		//! so the next sprite load samples the way the file now says. A no-op
+		//! on a packaged project (its answers were resolved at export).
+		void refreshTextureSamplers();
+
+		//! @brief write @p samplers into an EXISTING manifest file as its
+		//! `<TextureSamplers>` block, replacing any block already there. The
+		//! export-time baker (the writer beside load()'s reader); an empty
+		//! table removes the block. False with an honest @p errorMessage when
+		//! the manifest cannot be read back or written.
+		static bool writeBakedTextureSamplers(String const & manifestPath,
+			TextureSamplerTable const & samplers, String * errorMessage = 0);
 
 		//--- settings (string key/values, forward-compat) ----
 		String getSetting(String const & key, String const & defaultValue = "") const;

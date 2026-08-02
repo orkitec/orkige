@@ -760,12 +760,23 @@ look when touching one:
   platform x flavor and refuse impossible pairs). Cubemaps cook too (six-face
   `.dds` → the same containers, face order + prefiltered mip chain preserved). Encoding runs in `tools/texcook` (host CLI over vcpkg
   `ktx` — ASTC encoder + universal-transcoder ETC2/BCn); a cooked texture
-  replaces its `.png` (sidecar renamed along, ids keep resolving; the
-  backends fall back `.png`→`.dds`/`.oitd`/`.ktx` for bare-name refs).
+  replaces its `.png` (every reference reaches it through the backends'
+  `.png`→`.dds`/`.oitd`/`.ktx` fallback; a cook run over a PROJECT dir also
+  renames the sidecar so its ids keep resolving).
   Generated glyph/sprite atlases and normal maps stamp `format="none"`
-  (`Util/orkige_sidecar.py`). Verified by `texcook_selftest`,
-  `cook_textures_selftest`, `player_cooked_textures` (both flavors) and the
-  `export_*` payload assertions.
+  (`Util/orkige_sidecar.py`). **An EXPORTED payload carries no `.orkmeta`** —
+  sidecars are editor bookkeeping, a frozen payload renames nothing, and the
+  one setting a runtime reads out of them (a texture's sampler) is resolved
+  ONCE at export, for the packaged platform, into the payload manifest's baked
+  `<TextureSamplers>` block. Components ask the ONE
+  `core_project/TextureSamplerTable` (keyed by a texture's bare stem, so the
+  cook's rename cannot break it): an authoring project fills it from its
+  sidecars on load, a packaged one reads the baked block — one lookup, two
+  sources. Verified by `texcook_selftest`, `cook_textures_selftest`,
+  `TextureSamplerTableTests`, `ExportPayloadTests`,
+  `player_cooked_textures`/`player_pak_sampler_selfcheck` (both flavors) and
+  the `export_*` payload assertions (no sidecar ships; the bake matches the
+  project's authored samplers for that platform).
 - **2D**: `SpriteComponent`, `SpriteAnimationComponent` (flipbook), `ParticleComponent`
   + the facade `SpriteBatch` (one draw per emitter), an ortho **2D editor mode**.
   **3D particles + weather**: the SAME `ParticleComponent`/`ParticleSim` grows a

@@ -175,7 +175,6 @@ out of the archive.
 | Extension | Reader | Silent failure if mounted |
 |---|---|---|
 | `.oprefab` | `PrefabSerializer` → `XMLArchive` (tinyxml2, by path) | every prefab instance loads childless |
-| `.orkmeta` | `AssetDatabase::readMetaFile`/`readImportSettings` (by path) **and** `scanDirectory` (`recursive_directory_iterator`) | id resolution dies; texture import settings lost |
 | `.oscene` | `SceneSerializer::loadScene` (by path); a mid-play level switch has no in-memory road | the level never loads |
 | `.orkproj` | `Project::load` (tinyxml2, by path) | no project |
 | `.olevels` `.oactions` `.olayers` | `LevelSequence` / `InputActionMap` / `PhysicsWorld::LayerConfig`, all `XMLArchive` by path | degrades into built-in defaults: one level, stock keybinds, collide-with-all |
@@ -184,10 +183,10 @@ out of the archive.
 
 The mounted set is therefore textures, meshes, audio, and the text assets
 `.omat` `.oshape` `.omesh` `.oanim` `.oatlas` `.osfx` `.sfs` `.oui` `.ogui`
-`.lua`. In practice the excluded kinds below `.orkmeta` also sit outside the
-media sub-trees by convention (`scenes/`, the project root, `loc/`), so listing
-them changes nothing for a conventionally laid-out project — it removes the
-dependence on that convention holding.
+`.lua`. In practice the excluded kinds also sit outside the media sub-trees by
+convention (`scenes/`, the project root, `loc/`), so listing them changes
+nothing for a conventionally laid-out project — it removes the dependence on
+that convention holding.
 
 Scripts are the one kind that reads **either** way: `ScriptRuntime` tries the
 resource reader first and falls back to `ifstream`, so a `.lua` mounts safely.
@@ -198,23 +197,28 @@ mount fine but never register.
 A new file kind read with `fopen` belongs in the exclusion list **in the same
 change**, with a case in `PlayerBundleTests`.
 
-**Asset ids under a mount.** Sidecars are materialised, but their assets are
-not, so a directory walk finds `.orkmeta` files whose asset file does not exist
-as a loose file. `AssetDatabase::refresh` reads that correctly per mode: the
-editor's import mode owns the directory, so such a sidecar is a genuine orphan
-and is dropped; a runtime's **read-only** refresh does not own the directory and
-takes the SIDECAR as the declaration, registering the asset it names. Ids
-therefore keep resolving in a packaged build — asset references survive renames,
-and a sprite still reads its texture import settings (an authored `point` filter
-stays point).
+**Asset ids and sidecars in a package.** A package carries no `.orkmeta` at
+all. Sidecars are editor bookkeeping — a stable id so a scene reference survives
+a rename, plus the import settings the cook consumes — and none of that outlives
+the export: a payload is frozen, nothing in it is ever renamed, and every
+reference carries its own path or resource name beside the id. The one thing a
+RUNTIME reads out of a sidecar is how a texture is sampled, and the export
+resolves that once, for the platform it packages for, into the payload
+manifest's baked `<TextureSamplers>` block (`Orkige::Project`,
+`core_project/TextureSamplerTable.h`). A packaged runtime therefore asks the
+same one table an authoring project fills from its sidecars on load — one
+lookup, two sources — and the mount-versus-extract question never arises for a
+file kind the package does not contain.
 
 Verified by `PlayerBundleTests` (the rule, every extension named with its
-reason), `AssetDatabaseTests` (sidecar-declared registration, the import-mode
-orphan drop, the duplicate-id and unreadable-sidecar cases) and the
-`player_pak_assetid_selfcheck` ctest on both flavors — a project split exactly
-the way a package splits it (texture only inside a STORED pak, manifest + scene
-+ sidecar on disk) whose sprite names a stale texture beside the asset id, so it
-can only render if the id resolved.
+reason), `AssetDatabaseTests` (an asset-less sidecar: dropped in import mode,
+indexed by neither mode), `TextureSamplerTableTests` (key normalisation, both
+fill sources, the manifest round trip), `ExportPayloadTests` (a staged payload
+carries no sidecar and bakes exactly the authored samplers, per platform) and
+the `player_pak_sampler_selfcheck` ctest on both flavors — a project split
+exactly the way a package splits it (texture only inside a STORED pak, manifest
++ scene on disk, no sidecar anywhere) whose sprite must still sample with the
+authored `point`/`wrap`, which only the baked block can have told it.
 
 ## Security: zip-slip + the path jail
 

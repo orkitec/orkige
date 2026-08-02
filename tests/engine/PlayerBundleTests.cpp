@@ -223,17 +223,21 @@ TEST_CASE("path-opened and directory-discovered kinds are always extracted",
 	CHECK_FALSE(isMountedMediaPath("project/assets/tile.oprefab"));
 	CHECK_FALSE(isMountedMediaPath("assets/wall_block.oprefab"));
 	CHECK_FALSE(isMountedMediaPath("jumper_media/crate.oprefab"));
+}
 
-	// .orkmeta: an asset id sidecar. AssetDatabase reads it with tinyxml2 BY
-	// PATH and finds it by WALKING the tree, so mounting fails on both counts
-	// - id-based asset resolution dies and a sprite loses its texture import
-	// settings (an authored "point" filter renders bilinear).
-	CHECK_FALSE(isMountedMediaPath("project/assets/ball.png.orkmeta"));
-	CHECK_FALSE(isMountedMediaPath("assets/crate.png.orkmeta"));
-	CHECK_FALSE(isMountedMediaPath("project/assets/tile.oprefab.orkmeta"));
-	// a sidecar of a nested asset is extracted with it
-	CHECK_FALSE(isMountedMediaPath(
-		"project/assets/textures/tiles/grass.png.orkmeta"));
+TEST_CASE("asset id sidecars are not a packaged kind at all",
+	"[engine][playerbundle][mount]")
+{
+	using Orkige::PlayerBundle::isMountedMediaPath;
+	// A package carries NO .orkmeta: sidecars are editor bookkeeping, and the
+	// export bakes the one runtime-relevant answer (a texture's sampler) into
+	// the payload manifest. So the rule says nothing about them - the question
+	// "mount or extract?" never arises, and a stale exclusion pretending it
+	// does would only hide a payload that should not contain one.
+	CHECK(isMountedMediaPath("project/assets/ball.png.orkmeta"));
+	CHECK(isMountedMediaPath("assets/crate.png.orkmeta"));
+	// outside the media sub-trees nothing is mounted anyway
+	CHECK_FALSE(isMountedMediaPath("project/scenes/main.oscene.orkmeta"));
 }
 
 TEST_CASE("the exclusion list is keyed on extension, not on convention",

@@ -39,6 +39,25 @@ A texture whose sidecar is **id-only** cooks with the defaults (`format`
 texture with **no sidecar at all** carries no import intent and ships
 untouched.
 
+`filter`/`wrap` are the only fields a RUNNING game reads; every other field is
+already baked into the shipped pixels by the time it sees them. A shipped build
+carries no sidecars at all, so the export resolves the sampler once — for the
+platform it packages for, per-platform overrides included — into the payload
+manifest's `<TextureSamplers>` block:
+
+```xml
+<TextureSamplers>
+    <Sampler texture="tileset" filter="point" wrap="wrap"/>
+</TextureSamplers>
+```
+
+An authoring project has no such block and derives the same answers from its
+sidecars when it loads. Either way a component asks the ONE
+`TextureSamplerTable` (`core_project/TextureSamplerTable.h`), keyed by a
+texture's bare stem so the cook's rename (`tileset.png` → `tileset.dds`) cannot
+break the lookup; a texture nobody authored a sampler for is absent from the
+table and samples bilinear/clamp.
+
 Edit the settings in the editor (Inspector › Texture Import Settings, with
 Base/Android/iOS/Web override sections and a resolved preview), or write the
 sidecar directly — agents use the MCP `write_project_file` verb on the
@@ -177,12 +196,14 @@ Rationale for the corners:
 
 ### Containers and what the runtime loads
 
-The cook replaces `foo.png` in the payload with the compressed container and
-renames the sidecar along with it (`foo.dds.orkmeta`), so the asset-id
-machinery resolves id-carrying scene references to the shipped name. For
-bare, id-less references (`.omat` texture names, gui atlas files,
-script-assigned sprite names) both render backends fall back from a missing
-`.png` to its cooked siblings.
+The cook replaces `foo.png` in the payload with the compressed container, and
+every reference reaches the shipped name through the backends' cooked-extension
+fallback: a missing `.png` resolves to its `.dds`/`.oitd`/`.ktx` sibling. That
+covers both reference shapes — a scene's `texture` field and the bare, id-less
+ones (`.omat` texture names, gui atlas files, script-assigned sprite names).
+A cook run over a PROJECT directory (`orkige_export cook-textures`) renames the
+sidecar along with the file (`foo.dds.orkmeta`) so the project's asset ids keep
+resolving; a packaged payload sheds its sidecars entirely.
 
 | Formats | Container | Loaded by |
 | --- | --- | --- |
@@ -271,4 +292,13 @@ inside `.glb` meshes ship as authored.
   default) are asserted structurally (their on-device load proof rides the
   iOS-simulator/Android Play and export device tests).
 * `export_*` ctests — every exported payload's compressed-texture set
-  matches what its source project's settings resolve to per platform.
+  matches what its source project's settings resolve to per platform, the
+  payload carries no `.orkmeta`, and the manifest bakes exactly the samplers
+  the source project authors for that platform.
+* `TextureSamplerTableTests` + `ExportPayloadTests` — the sampler table's key
+  normalisation and both fill sources; a staged payload that sheds its
+  sidecars and bakes the authored samplers instead.
+* `player_pak_sampler_selfcheck` (ctest, both flavors) — a sidecar-free
+  package with its texture MOUNTED inside a pak still samples the way the
+  texture was authored (`point`/`wrap`), which only the baked block can
+  supply.

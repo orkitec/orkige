@@ -127,13 +127,6 @@ namespace Orkige
 		//!  - ".oprefab" - PrefabSerializer opens a prefab through XMLArchive
 		//!    (tinyxml2, by path). Mounted, every prefab instance in a scene
 		//!    loads CHILDLESS.
-		//!  - ".orkmeta" - an asset id sidecar. AssetDatabase reads it with
-		//!    tinyxml2 by path AND finds it by walking the directory tree, so
-		//!    mounting it fails on both counts: id-based asset resolution goes
-		//!    dead (a reference to a renamed asset stops resolving) and a
-		//!    sprite silently loses its texture import settings (a "point"
-		//!    filter renders bilinear). Sidecars are a few dozen bytes each -
-		//!    materialising them costs nothing.
 		//!  - ".oscene" - SceneSerializer::loadScene is fopen, and a mid-play
 		//!    LEVEL SWITCH has no in-memory road at all.
 		//!  - ".orkproj" - the manifest, read with tinyxml2 by path.
@@ -147,6 +140,10 @@ namespace Orkige
 		//! system: textures/meshes/audio by resource name, and the text assets
 		//! .omat / .oshape / .omesh / .oanim / .oatlas / .osfx / .sfs / .oui /
 		//! .ogui / .lua via readResourceText or openResource.
+		//! @remarks `.orkmeta` sidecars are deliberately absent from the list:
+		//! a package carries none. They are editor bookkeeping, and the one
+		//! answer a runtime needed out of them - a texture's sampler - is baked
+		//! into the payload manifest at export (@see Orkige::Project).
 		//! @warning A new file kind read with fopen belongs in the exclusion
 		//! list IN THE SAME CHANGE, with a case in PlayerBundleTests.
 		bool isMountedMediaPath(String const & relativePath);

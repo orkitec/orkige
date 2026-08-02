@@ -36,6 +36,12 @@
 //! The MARKER is the no-args default-project mechanism: the runtimes read
 //! `orkige_project.txt` from `SDL_GetBasePath()` and boot the project it
 //! names, with no command line at all.
+//!
+//! A payload carries NO `.orkmeta` sidecars: they are editor bookkeeping, and
+//! the one thing a runtime reads out of them - how a texture is sampled - is
+//! RESOLVED here, once, for the platform being packaged, into the payload
+//! manifest's baked `<TextureSamplers>` block (@see Orkige::Project). Nothing
+//! in a frozen payload can be renamed, so asset ids have nothing left to do.
 
 namespace OrkigeExport
 {
@@ -80,6 +86,20 @@ namespace OrkigeExport
 	bool stageConfigSettings(ExportProject const & project,
 		Orkige::String const & destination, ExportLog const & log,
 		int * outStaged, Orkige::String * error);
+
+	//! @brief resolve the project's texture samplers for @p texturePlatform
+	//! into @p manifestPath's baked `<TextureSamplers>` block, then drop every
+	//! `.orkmeta` sidecar under @p payloadDirectory.
+	//! @remarks the ONE place a shipped build's sampler question is answered.
+	//! The fill is the SAME code an authoring project runs on load
+	//! (`TextureSamplerTable::fillFromAssets` over a read-only scan of the
+	//! SOURCE project), so a baked answer and a live one agree by construction.
+	//! @param outStripped receives the number of sidecars removed
+	bool bakeTextureSamplers(Orkige::String const & projectRoot,
+		Orkige::String const & payloadDirectory,
+		Orkige::String const & manifestPath,
+		Orkige::String const & texturePlatform, ExportLog const & log,
+		int * outStripped, Orkige::String * error);
 
 	//! @brief copy the shippable project subset into @p destination and run
 	//! the export-time texture cook over it for @p platform and @p flavor.

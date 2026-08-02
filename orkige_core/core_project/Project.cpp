@@ -11,6 +11,7 @@
 
 #include "core_project/Project.h"
 #include "core_project/AssetDatabase.h"
+#include "core_project/TextureSamplerTable.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -42,9 +43,77 @@ namespace Orkige
 		const char * const ELEMENT_MAIN_SCENE = "MainScene";
 		const char * const ELEMENT_SETTINGS = "Settings";
 		const char * const ELEMENT_SETTING = "Setting";
+		const char * const ELEMENT_TEXTURE_SAMPLERS = "TextureSamplers";
+		const char * const ELEMENT_TEXTURE_SAMPLER = "Sampler";
 		const char * const ATTRIBUTE_VERSION = "version";
 		const char * const ATTRIBUTE_KEY = "key";
 		const char * const ATTRIBUTE_VALUE = "value";
+		const char * const ATTRIBUTE_TEXTURE = "texture";
+		const char * const ATTRIBUTE_FILTER = "filter";
+		const char * const ATTRIBUTE_WRAP = "wrap";
+
+		//! @brief read the baked `<TextureSamplers>` block of a manifest root
+		//! into @p table; false when the manifest carries no such block (an
+		//! authoring project, which derives its answers from the sidecars)
+		bool readBakedSamplers(tinyxml2::XMLElement const * root,
+			TextureSamplerTable & table)
+		{
+			const tinyxml2::XMLElement * block =
+				root->FirstChildElement(ELEMENT_TEXTURE_SAMPLERS);
+			if (!block)
+			{
+				return false;
+			}
+			for (const tinyxml2::XMLElement * entry =
+				block->FirstChildElement(ELEMENT_TEXTURE_SAMPLER);
+				entry;
+				entry = entry->NextSiblingElement(ELEMENT_TEXTURE_SAMPLER))
+			{
+				const char * texture = entry->Attribute(ATTRIBUTE_TEXTURE);
+				if (!texture || !*texture)
+				{
+					continue;
+				}
+				TextureSampler sampler;
+				if (const char * filter = entry->Attribute(ATTRIBUTE_FILTER))
+				{
+					sampler.filter = filter;
+				}
+				if (const char * wrap = entry->Attribute(ATTRIBUTE_WRAP))
+				{
+					sampler.wrap = wrap;
+				}
+				table.set(texture, sampler);
+			}
+			return true;
+		}
+		//! @brief (re)write the `<TextureSamplers>` block under a manifest
+		//! root; an empty table leaves no block behind
+		void writeBakedSamplers(tinyxml2::XMLDocument & document,
+			tinyxml2::XMLElement * root, TextureSamplerTable const & table)
+		{
+			if (tinyxml2::XMLElement * existing =
+				root->FirstChildElement(ELEMENT_TEXTURE_SAMPLERS))
+			{
+				root->DeleteChild(existing);
+			}
+			if (table.empty())
+			{
+				return;
+			}
+			tinyxml2::XMLElement * block =
+				document.NewElement(ELEMENT_TEXTURE_SAMPLERS);
+			root->InsertEndChild(block);
+			for (auto const & [texture, sampler] : table.entries())
+			{
+				tinyxml2::XMLElement * entry =
+					document.NewElement(ELEMENT_TEXTURE_SAMPLER);
+				entry->SetAttribute(ATTRIBUTE_TEXTURE, texture.c_str());
+				entry->SetAttribute(ATTRIBUTE_FILTER, sampler.filter.c_str());
+				entry->SetAttribute(ATTRIBUTE_WRAP, sampler.wrap.c_str());
+				block->InsertEndChild(entry);
+			}
+		}
 	}
 	//---------------------------------------------------------
 	String Project::resolveManifestPath(String const & path)
@@ -213,6 +282,19 @@ namespace Orkige
 		mAssetDatabase = onew(new AssetDatabase());
 		mAssetDatabase->refresh(mRootDirectory, false);
 		AssetDatabase::setActive(mAssetDatabase);
+		// texture samplers: ONE table, two sources. A packaged payload carries
+		// the answers the export already resolved for its platform; an
+		// authoring project derives them from its sidecars right here, and
+		// re-derives them whenever one is written (@see
+		// refreshTextureSamplers).
+		mTextureSamplers = onew(new TextureSamplerTable());
+		mSamplersBaked = readBakedSamplers(root, *mTextureSamplers);
+		if (!mSamplersBaked)
+		{
+			mTextureSamplers->fillFromAssets(*mAssetDatabase,
+				TextureImport::currentPlatformToken());
+		}
+		TextureSamplerTable::setActive(mTextureSamplers);
 		return true;
 	}
 	//---------------------------------------------------------
@@ -258,6 +340,12 @@ namespace Orkige
 				settingsElement->InsertEndChild(settingElement);
 			}
 		}
+		if (mSamplersBaked && mTextureSamplers)
+		{
+			// this manifest is packaged build output: keep the answers the
+			// export baked instead of silently dropping them on a rewrite
+			writeBakedSamplers(document, root, *mTextureSamplers);
+		}
 		const String manifestPath = (std::filesystem::path(mRootDirectory) /
 			MANIFEST_FILE_NAME).string();
 		if (document.SaveFile(manifestPath.c_str()) != tinyxml2::XML_SUCCESS)
@@ -280,6 +368,41 @@ namespace Orkige
 			AssetDatabase::setActive(optr<AssetDatabase>());
 		}
 		mAssetDatabase.reset();
+		if (mTextureSamplers &&
+			TextureSamplerTable::getActive() == mTextureSamplers)
+		{
+			TextureSamplerTable::setActive(optr<TextureSamplerTable>());
+		}
+		mTextureSamplers.reset();
+		mSamplersBaked = false;
+	}
+	//---------------------------------------------------------
+	bool Project::writeBakedTextureSamplers(String const & manifestPath,
+		TextureSamplerTable const & samplers, String * errorMessage)
+	{
+		tinyxml2::XMLDocument document;
+		if (document.LoadFile(manifestPath.c_str()) != tinyxml2::XML_SUCCESS)
+		{
+			projectError(errorMessage, "could not parse '" + manifestPath +
+				"': " + document.ErrorStr());
+			return false;
+		}
+		tinyxml2::XMLElement * root = document.RootElement();
+		if (!root || String(root->Name()) != ELEMENT_ROOT)
+		{
+			projectError(errorMessage, "'" + manifestPath + "' is not an "
+				"Orkige project manifest (root element must be <" +
+				String(ELEMENT_ROOT) + ">)");
+			return false;
+		}
+		writeBakedSamplers(document, root, samplers);
+		if (document.SaveFile(manifestPath.c_str()) != tinyxml2::XML_SUCCESS)
+		{
+			projectError(errorMessage, "could not write '" + manifestPath +
+				"': " + document.ErrorStr());
+			return false;
+		}
+		return true;
 	}
 	//---------------------------------------------------------
 	void Project::importAssets()
@@ -294,6 +417,19 @@ namespace Orkige
 			AssetDatabase::setActive(mAssetDatabase);
 		}
 		mAssetDatabase->refresh(mRootDirectory, true);
+		this->refreshTextureSamplers();
+	}
+	//---------------------------------------------------------
+	void Project::refreshTextureSamplers()
+	{
+		if (mSamplersBaked || !mAssetDatabase || !mTextureSamplers)
+		{
+			// a packaged payload's answers were resolved at export and have no
+			// sidecars to re-read; an unloaded project has nothing to refresh
+			return;
+		}
+		mTextureSamplers->fillFromAssets(*mAssetDatabase,
+			TextureImport::currentPlatformToken());
 	}
 	//---------------------------------------------------------
 	String Project::getMainScenePath() const

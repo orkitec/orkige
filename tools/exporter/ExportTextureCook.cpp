@@ -325,8 +325,10 @@ namespace OrkigeExport
 	namespace
 	{
 		//! the sidecar travels with the texture (the documented keep-the-id
-		//! rule): the runtime's read-only scan then registers the COOKED name
-		//! under the same id, so id-carrying scene references resolve to it
+		//! rule), so a cooked PROJECT directory keeps resolving its ids to the
+		//! compressed file. A packaged payload sheds its sidecars right after
+		//! the cook (@see bakeTextureSamplers) - there the cook's own reads are
+		//! the last ones.
 		void moveSidecar(Orkige::String const & sourcePath,
 			Orkige::String const & outPath)
 		{

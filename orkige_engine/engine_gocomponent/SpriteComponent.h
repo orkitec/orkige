@@ -63,8 +63,8 @@ namespace Orkige
 		Color				mTint;			//!< colour tint (vertex colour), default white
 		bool				mFlipX;			//!< mirror horizontally
 		bool				mFlipY;			//!< mirror vertically
-		SpriteQuad::FilterMode	mFilter;	//!< texture filter (bilinear default; from import settings)
-		SpriteQuad::AddressMode	mAddressing;	//!< texture addressing (clamp default; from import settings)
+		SpriteQuad::FilterMode	mFilter;	//!< texture filter (bilinear default; from the asset's sampler)
+		SpriteQuad::AddressMode	mAddressing;	//!< texture addressing (clamp default; from the asset's sampler)
 		int					mZOrder;		//!< sprite sort order (see class remarks)
 		unsigned int		mStateVersion;	//!< bumped by every sprite-state mutation (batch dirty tracking)
 		optr<StringUtil::StringObject> mEventData;	//!< name of the set/removed texture
@@ -128,8 +128,8 @@ namespace Orkige
 		//! mirror the sprite on the X and/or Y axis
 		void setFlip(bool flipX, bool flipY);
 		//! @brief how the texture is sampled - filter (point/bilinear). Honored
-		//! LIVE on the quad; a runtime/script override of the texture's import
-		//! setting (loadSprite applies the import setting; this overrides it).
+		//! LIVE on the quad; a runtime/script override of the texture asset's
+		//! authored sampler (loadSprite applies that; this overrides it).
 		void setFilter(SpriteQuad::FilterMode filter);
 		//! @see SpriteComponent::mFilter
 		inline SpriteQuad::FilterMode getFilter() const;
@@ -263,11 +263,12 @@ namespace Orkige
 		virtual void applyEffectiveEnabled();
 		//! push the stored sprite state onto the facade quad (needs a quad)
 		void applyStateToQuad();
-		//! @brief apply the loaded texture's import-settings sampler (filter +
-		//! addressing, resolved for the running platform) to mFilter/mAddressing
-		//! - called from loadSprite so the sampler is honored LIVE. No active
-		//! project database or no <texture> block leaves the defaults.
-		void applyImportSettings();
+		//! @brief apply the loaded texture ASSET's authored sampler (filter +
+		//! addressing) to mFilter/mAddressing - called from loadSprite so the
+		//! sampler is honored LIVE. No open project, or a texture nobody
+		//! authored a sampler for, leaves the defaults
+		//! (@see core_project/TextureSamplerTable.h).
+		void applyTextureSampler();
 		//! apply the EFFECTIVE visibility to the node: the sprite's own flag
 		//! AND the owner's activeInHierarchy state
 		void applyVisibility();
