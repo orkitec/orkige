@@ -477,7 +477,7 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			}
 			ImGui::EndMenu();
 		}
-		// project export (async - Util/orkige_export.py; the output lands in
+		// project export (async, in process - tools/exporter; the output lands in
 		// the Console as [export] lines); enabled only with a project open
 		if (ImGui::BeginMenu("Build"))
 		{

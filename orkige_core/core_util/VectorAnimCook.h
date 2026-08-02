@@ -129,6 +129,17 @@ namespace Orkige
 		};
 
 		//--- Methods -----------------------------------------------
+		//! @brief this cook's revision - the "which cook produced it" half of a
+		//! cooked asset's recorded import inputs (@see
+		//! core_project/AssetDatabase.h `CookRecord::toolHash`).
+		//! @remarks BUMP IT whenever a change here can produce different bytes
+		//! for the same document: every recorded artifact then reads as stale
+		//! and re-cooks on the next project scan. Leaving it alone after a
+		//! behavioural change means already-imported animations keep their old
+		//! rig until someone re-imports by hand - the only thing that goes
+		//! wrong, and the reason it sits directly above @ref cook.
+		static String toolRevision();
+
 		//! @brief cook Lottie JSON text into an `.oanim` (or a static
 		//! `.oshape`).
 		//! @param lottieJson the source document's text

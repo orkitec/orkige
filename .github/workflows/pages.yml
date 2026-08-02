@@ -131,6 +131,46 @@ jobs:
           cmake --build --preset web-release --target orkige_player
           cmake --build --preset web-release --target orkige_core_tests
 
+      # --- the host exporter that seals the browser payload ---------------
+      # A browser export is packaged by a HOST tool, which the cross-compiled
+      # tree above cannot build - so this deploy builds one target out of a
+      # host tree. ci.yml gets the same binary as an artifact from its
+      # `host-exporter` job; a manual deploy is self-contained and builds it.
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            clang libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
+            libx11-xcb-dev libxcb-randr0-dev libxtst-dev libxinerama-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
+            libibus-1.0-dev
+
+      # read-only, and AFTER the wasm cache was saved above: the host binaries
+      # land in the same directory, and saving them under the web key would
+      # bloat the cache the push builds restore
+      - name: Restore the classic vcpkg binary cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-classic-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-classic-${{ runner.os }}-
+
+      - name: Build the host exporter
+        # clang to match the compiler the cached host binaries were built with
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          bash Util/ci_configure.sh --preset linux-debug-classic \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+          cmake --build --preset linux-debug-classic --target orkige_export
+          echo "ORKIGE_EXPORT_BINARY=$PWD/build/linux-debug-classic/tools/exporter/orkige_export" \
+            >> "$GITHUB_ENV"
+
       - name: Save ccache
         if: always()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -152,9 +192,9 @@ jobs:
         # index.html + orkige_player.js/.wasm + the preloaded .data image land
         # directly in _site/play, which the Live Benchmark page embeds
         run: |
-          python3 Util/orkige_export.py --project projects/benchmark \
+          "$ORKIGE_EXPORT_BINARY" --project projects/benchmark \
             --platform web --engine-build build/web-release \
-            --output _site/play
+            --output _site/play --repo "$PWD"
           test -f _site/play/index.html
 
       # --- deploy ----------------------------------------------------------

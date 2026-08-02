@@ -363,7 +363,7 @@ int main(int argc, char** argv)
 	// exported app, launched WITHOUT arguments: the orkige_project.txt marker
 	// in the .app's Resources names the bundled project (the shared
 	// PlayerBundle mechanism - see engine_runtime/PlayerRuntime.h and
-	// Util/orkige_export.py); dev runs carry no marker and are unaffected
+	// tools/exporter); dev runs carry no marker and are unaffected
 	bool bundledProjectRun = false;
 	if (projectPath.empty() && scenePath.empty())
 	{

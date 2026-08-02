@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Cooked-texture runtime-load proof (stdlib only): stage the asset_rename
 fixture project into a temp copy, run the REAL export texture cook over it
-(Util/cook_textures.py + the tree's texcook encoder), assert the payload
+(`orkige_export cook-textures`, the same code an export runs), assert the
+payload
 rename (ball_renamed.png -> ball_renamed.dds/.oitd, sidecar renamed along),
 then boot the actual player on the cooked copy and let its
 ORKIGE_COOKED_SELFCHECK assert the sprite renders from the compressed
@@ -19,8 +20,8 @@ ios and android cooks (both ASTC by default) are asserted structurally here
 (the next flavor's .oitd output shape) and load-proven by the iOS-simulator
 and Android Play/export device tests.
 
-    run_cooked_textures_test.py --repo <root> --player <exe> --texcook <exe>
-                                --flavor next|classic
+    run_cooked_textures_test.py --repo <root> --player <exe>
+                                --exporter <exe> --flavor next|classic
 """
 
 import argparse
@@ -38,14 +39,31 @@ def fail(message):
     sys.exit(1)
 
 
-def stage_and_cook(repo, cook_textures, platform, flavor, texcook, temp_root,
+def cook_payload(exporter, project_dir, platform, flavor):
+    """run the REAL export texture cook over a staged project in place - the
+    exporter's own `cook-textures` entry point, which is the same code an
+    export runs over its payload. Returns the number of textures rewritten."""
+    command = [exporter, "cook-textures", project_dir, "--flavor", flavor]
+    if platform:
+        command += ["--platform", platform]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        fail("the texture cook failed: %s%s"
+             % (result.stdout or "", result.stderr or ""))
+    marker = "orkige_export: COOKED "
+    for line in (result.stdout or "").splitlines():
+        if line.startswith(marker):
+            return int(line[len(marker):].strip())
+    fail("the texture cook reported no count: " + (result.stdout or ""))
+
+
+def stage_and_cook(repo, exporter, platform, flavor, temp_root,
                    leg_name, expect_extension):
     """copy the fixture, cook it for (platform, flavor), assert the rename
     and return the cooked project directory"""
     project_dir = os.path.join(temp_root, "project-" + leg_name)
     shutil.copytree(os.path.join(repo, FIXTURE), project_dir)
-    cooked = cook_textures.cook_payload(project_dir, platform, flavor,
-                                        texcook)
+    cooked = cook_payload(exporter, project_dir, platform, flavor)
     if cooked != 1:
         fail("%s: expected 1 cooked texture, got %d" % (leg_name, cooked))
     assets = os.path.join(project_dir, "assets")
@@ -95,26 +113,22 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True)
     parser.add_argument("--player", required=True)
-    parser.add_argument("--texcook", required=True)
+    parser.add_argument("--exporter", required=True)
     parser.add_argument("--flavor", required=True,
                         choices=("next", "classic"))
     args = parser.parse_args()
 
-    sys.path.insert(0, os.path.join(args.repo, "Util"))
-    import cook_textures  # noqa: E402  (the real export cook)
-
-    if not os.path.isfile(args.texcook):
-        fail("no texcook encoder at '%s' - build the tree first"
-             % args.texcook)
+    if not os.path.isfile(args.exporter):
+        fail("no exporter at '%s' - build the tree first" % args.exporter)
 
     with tempfile.TemporaryDirectory() as temp_root:
         # desktop leg (BCn in .dds, both flavors): the ID reference...
-        project = stage_and_cook(args.repo, cook_textures, "", args.flavor,
-                                 args.texcook, temp_root, "dds-id", ".dds")
+        project = stage_and_cook(args.repo, args.exporter, "", args.flavor,
+                                 temp_root, "dds-id", ".dds")
         run_player(args.player, project, "ball_renamed.dds", "dds-id")
         # ... and the BARE id-less reference through the extension fallback
-        project = stage_and_cook(args.repo, cook_textures, "", args.flavor,
-                                 args.texcook, temp_root, "dds-bare", ".dds")
+        project = stage_and_cook(args.repo, args.exporter, "", args.flavor,
+                                 temp_root, "dds-bare", ".dds")
         rewrite_scene_bare(project)
         run_player(args.player, project, "ball_renamed.png", "dds-bare")
 
@@ -125,8 +139,8 @@ def main():
             # emit well-formed .oitd containers with the sidecar renamed along
             for platform, leg in (("ios", "oitd-ios"),
                                   ("android", "oitd-android")):
-                project = stage_and_cook(args.repo, cook_textures, platform,
-                                         args.flavor, args.texcook,
+                project = stage_and_cook(args.repo, args.exporter,
+                                         platform, args.flavor,
                                          temp_root, leg, ".oitd")
                 cooked_file = os.path.join(project, "assets",
                                            "ball_renamed.oitd")

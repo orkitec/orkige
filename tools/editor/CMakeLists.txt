@@ -41,8 +41,6 @@ add_library(orkige_editor_core STATIC
     ExternalEditor.cpp
     SyntaxHighlight.h
     SyntaxHighlight.cpp
-    PythonToolchain.h
-    PythonToolchain.cpp
     ScriptBreakpoints.h
     ScriptBreakpoints.cpp
     ScriptCompletion.h
@@ -199,6 +197,10 @@ add_executable(orkige_editor
 
 target_link_libraries(orkige_editor PRIVATE
     orkige_editor_core
+    # Build > Export runs IN this process: the exporter is a library, not a
+    # tool to spawn, so a distributed editor packages a game with nothing
+    # staged beside it and no interpreter on the machine
+    orkige_exporter
     imgui::imgui
     imguizmo::imguizmo
     imgui-color-text-edit::imgui-color-text-edit
@@ -382,9 +384,9 @@ target_compile_definitions(orkige_editor PRIVATE
     # icon font source dir (fa-solid-900.ttf) - the out-of-bundle fallback the
     # editor loads from when running straight out of the build tree
     ORKIGE_EDITOR_ICON_FONT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/media"
-    # the engine's Python tools (the project exporter, the animation cook) -
-    # the source-tree fallback behind the copies the app stages below
-    ORKIGE_EDITOR_PYTHON_TOOL_DIR="${Orkige_SOURCE_DIR}/Util"
+    # the neutral default app icon an export falls back to - the source-tree
+    # fallback behind the copy the app stages below
+    ORKIGE_EDITOR_DEFAULT_ICON="${Orkige_SOURCE_DIR}/Util/media/orkige_default_icon.png"
     # the engine-default font dir (Nunito) the editor registers so a project's
     # .ogui can reference the font by name (matches what the player/exports do)
     ORKIGE_EDITOR_FONT_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/fonts"
@@ -405,7 +407,7 @@ target_compile_definitions(orkige_editor PRIVATE
     # one; Play surfaces an honest error when neither installed nor built)
     ORKIGE_EDITOR_IOS_PLAYER_APP="${CMAKE_SOURCE_DIR}/build/${ORKIGE_EDITOR_IOS_PLAYER_TREE}/tools/player/OrkigePlayer.app"
     # the arm64-ios (physical-device) preset tree name Play-on-iPhone exports +
-    # signs the player from (via Util/orkige_export.py --platform ios)
+    # signs the player from (via `orkige_export --platform ios`)
     ORKIGE_EDITOR_IOS_DEVICE_TREE="${ORKIGE_EDITOR_IOS_DEVICE_TREE}"
     # the wasm player the web-release preset builds: its presence makes the
     # Browser play target selectable (Play in Browser exports + serves + opens
@@ -511,30 +513,15 @@ foreach(_media_rel IN ITEMS "fonts" "water" "decals"
                 "${_editor_stage_media}/${_media_rel}")
     endif()
 endforeach()
-# the engine's Python tools the editor spawns, under the resource root's Util/
-# - the SAME directory name and sibling layout they have in the source tree, so
-# a staged script imports its helpers exactly as it does there. This is what
-# lets a copied app export a project at all: without them the exporter is a
-# path on the machine that built the binary. The set is the exporter's import
-# closure (it imports the texture cook, the dylib-closure stager and the icon
-# generator; two of those import the PNG codec) plus the animation cook the
-# asset import spawns, plus the neutral default app icon an export falls back
-# to when a project sets no export.icon.
-list(APPEND _editor_stage_commands
-    COMMAND "${CMAKE_COMMAND}" -E make_directory
-        "${_editor_stage_resources}/Util/media")
-foreach(_python_tool IN ITEMS "orkige_export.py" "cook_textures.py"
-        "macos_self_contain.py" "orkige_icons.py" "orkige_png.py"
-        "cook_vector_anim.py")
-    list(APPEND _editor_stage_commands
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${Orkige_SOURCE_DIR}/Util/${_python_tool}"
-            "${_editor_stage_resources}/Util/")
-endforeach()
+# the neutral default app icon an export falls back to when a project sets no
+# export.icon. A copied app packages a game with the exporter it LINKS, so the
+# only thing an export still needs from outside its own code is this one image
+# - it rides at the resource root, resolved through the resource locator like
+# every other bundled file.
 list(APPEND _editor_stage_commands
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${Orkige_SOURCE_DIR}/Util/media/orkige_default_icon.png"
-        "${_editor_stage_resources}/Util/media/")
+        "${_editor_stage_resources}/")
 if(NOT APPLE)
     # the editor's own UI fonts (+ their licenses): on macOS they ride in the
     # bundle's Resources through MACOSX_PACKAGE_LOCATION above; every other

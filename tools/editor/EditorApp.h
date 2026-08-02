@@ -55,16 +55,26 @@
 #include <engine_render/RenderNode.h>
 #include <engine_render/RenderTexture.h>
 
+#include <atomic>
 #include <chrono>
 #include <deque>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 using Orkige::optr;
 using Orkige::woptr;
+
+//! the project exporter the editor LINKS (tools/exporter) - only the manifest
+//! slice appears in this header; the run lives in EditorExport.cpp
+namespace OrkigeExport
+{
+	struct ExportProject;
+}
 
 namespace Orkige
 {
@@ -169,20 +179,26 @@ struct SdlLogHook
 void SDLCALL consoleSdlLogOutput(void* userdata, int category,
 	SDL_LogPriority priority, const char* message);
 
-//--- project export (Build menu -> Util/orkige_export.py) -------------------
+//--- project export (Build menu -> tools/exporter, in process) --------------
 
-//! @brief an async export run (Build > Build for <platform>, milestone 4):
-//! Util/orkige_export.py packages the open project; stdout+stderr are piped
-//! and streamed into the Console as "[export]" lines, the same pattern as
-//! the native-module "[build]" lines. One export runs at a time; the
-//! artifact path is parsed from the exporter's final
-//! "orkige_export: OK <path>" line for the Reveal-in-Finder nicety.
+//! @brief one asynchronous project export (Build > Build for <platform>). The
+//! exporter is a library this editor LINKS, so the run is a worker thread
+//! rather than a spawned tool: `lines` is the progress the frame loop drains
+//! into the Console as "[export]" lines - the same pattern as the
+//! native-module "[build]" lines - and the verdict lands under the same mutex
+//! before `finished` flips. One export runs at a time, and the artifact path
+//! the worker reports drives the Reveal-in-Finder nicety.
 struct ExportJob
 {
-	SDL_Process* process = nullptr;
+	std::thread worker;
+	std::atomic<bool> running{ false };		//!< main thread owns this flag
+	std::atomic<bool> finished{ false };	//!< worker flips it when done
+	std::mutex mutex;						//!< guards the fields below
+	std::vector<std::string> lines;			//!< progress not yet drained
+	bool succeeded = false;					//!< the worker's verdict
+	std::string error;						//!< why it failed ("" on success)
 	std::string platform;			//!< "macos" / "ios-simulator" / "ios" / "android"
-	std::string outputBuffer;		//!< partial (unterminated) last line
-	std::string artifactPath;		//!< from the final OK line
+	std::string artifactPath;		//!< the packaged app/apk/directory
 	//! @brief iOS-device deploy continuation (Play on a connected iPhone): when
 	//! non-empty the successful "ios" export is followed by an install + launch
 	//! on this device via devicectl (see updateExportJob). Empty for a plain
@@ -199,21 +215,60 @@ struct ExportJob
 	//! set by updateExportJob when a deployBrowser export succeeded; the
 	//! frame loop consumes it (serve + open browser + Console URL line)
 	bool browserArtifactReady = false;
-	bool isActive() const { return this->process != nullptr; }
+	bool isActive() const { return this->running.load(); }
+	//! @brief clear the per-run state before a new export starts (the deploy
+	//! continuations are set by the caller AFTER this)
+	void reset()
+	{
+		if (this->worker.joinable())
+		{
+			this->worker.join();
+		}
+		this->finished.store(false);
+		this->lines.clear();
+		this->succeeded = false;
+		this->error.clear();
+		this->artifactPath.clear();
+		this->deployBrowser = false;
+		this->browserArtifactReady = false;
+	}
+	//! join an in-flight export at process exit - the worker writes into this
+	//! object, so it may never outlive it
+	~ExportJob()
+	{
+		if (this->worker.joinable())
+		{
+			this->worker.join();
+		}
+	}
 };
 
-//! @brief the exporter command for @p project on @p platform, or the one
-//! honest sentence saying why this editor cannot produce it (@see
-//! EditorExportPlan.h). Resolves every path through the ONE resource locator,
-//! so a copied app plans against the payload it carries and a build-tree run
-//! against the tree - both the Build menu and the control endpoint's export
-//! verb go through it, so the command line and the refusals have one
-//! definition. Defined in EditorExport.cpp.
+//! @brief what @p project packages from on @p platform, or the one honest
+//! sentence saying why this editor cannot produce it (@see EditorExportPlan.h).
+//! Resolves every path through the ONE resource locator, so a copied app plans
+//! against the payload it carries and a build-tree run against the tree - both
+//! the Build menu and the control endpoint's export verb go through it, so the
+//! sourcing and the refusals have one definition. Defined in EditorExport.cpp.
 OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
 	std::string const& platform);
 
-//! @brief launch the exporter for the open project (async; false when it
-//! cannot start) - see EditorExport.cpp
+//! @brief the exporter's view of the open project - the four manifest facts an
+//! export needs, copied out on the MAIN thread (Project is not thread-safe, and
+//! re-loading one would swap the process-wide active AssetDatabase). Defined in
+//! EditorExport.cpp.
+OrkigeExport::ExportProject exportProjectFor(Orkige::Project const& project);
+
+//! @brief run a planned export to completion on the CALLING thread - the
+//! worker body both async export drivers share (the Build menu's ExportJob and
+//! the control endpoint's `export_project`). Progress goes to @p log; false
+//! leaves the reason in @p error. Defined in EditorExport.cpp.
+bool runPlannedExport(OrkigeEditor::EditorExportPlan const& plan,
+	OrkigeExport::ExportProject const& project,
+	std::function<void(std::string const&)> const& log,
+	std::string& artifact, std::string& error);
+
+//! @brief start the export for the open project (async; false when it cannot
+//! start) - see EditorExport.cpp
 bool startExport(ExportJob& job, Orkige::Project const& project,
 	std::string const& platform, EditorConsole& console);
 
@@ -1195,7 +1250,7 @@ struct PlaySession
 	std::string iosDeviceUdid;
 	std::string iosDeviceLabel;		//!< display name of the picked iOS device
 	//! play target picked in the toolbar: the browser (WebGL). Play exports
-	//! the project for the web (Util/orkige_export.py --platform web off
+	//! the project for the web (a "web" platform export off
 	//! the web-release tree), serves the artifact over a loopback
 	//! HttpServer instance, opens the default browser at it - and then
 	//! WAITS for the page to dial the debug link back in: the URL carries

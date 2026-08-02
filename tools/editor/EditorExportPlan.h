@@ -13,27 +13,32 @@
 
 #include <core_util/String.h>
 
-#include <vector>
-
 //! @file EditorExportPlan.h
-//! @brief the ONE decision behind "package this project": which exporter runs,
-//! what it packages from, and - when it cannot run - the one sentence that says
-//! why in terms the person reading it can act on.
+//! @brief the ONE decision behind "package this project": what the export
+//! packages from, and - when it cannot run - the one sentence that says why in
+//! terms the person reading it can act on.
 //!
-//! Two shapes of editor ask for an export and they carry different things:
-//! - built from the SOURCE TREE: the tree's `Util/orkige_export.py` packages a
-//!   preset build tree (this editor's own for the desktop app, the mobile/web
-//!   preset trees for the device targets).
+//! The exporter itself is code this editor links, so there is nothing to find
+//! and nothing to spawn. What still differs between two shapes of editor is
+//! what they carry to package FROM:
+//! - built from the SOURCE TREE: a preset build tree (this editor's own for the
+//!   desktop app, the mobile/web preset trees for the device targets), with the
+//!   source tree beside it supplying the engine media and build scripts.
 //! - COPIED as a distributed app: there is no repository and no build tree on
-//!   the machine, so the exporter and the engine payload both ride INSIDE the
-//!   app - the same staged `Media/` tree, player and texture cook tool the
-//!   editor already renders and plays with (@see EditorResourcePaths.h). That
-//!   app packages the host desktop app and says so plainly for anything else:
-//!   an iOS or Android package needs that platform's player, which only a
-//!   source build produces.
+//!   the machine, so the engine payload rides INSIDE the app - the same staged
+//!   `Media/` tree, player and texture cook tool the editor already renders and
+//!   plays with (@see EditorResourcePaths.h). That app packages the host
+//!   desktop app and says so plainly for anything else: an iOS or Android
+//!   package needs that platform's player, which only a source build produces.
+//!
+//! The two are mutually exclusive BY CONSTRUCTION: a plan carries either an
+//! `engineBuild` + `repoRoot` pair or a `bundleResources` + `bundleTools` pair,
+//! never both, so the exporter and the payload can never come from two
+//! different places (@see tools/exporter/ExportRun.h, which rejects the
+//! contradiction at the other end of the same seam).
 //!
 //! Both the Build menu and the export verb of the control endpoint run through
-//! here, so the command line and the refusals have ONE definition. The decision
+//! here, so the sourcing and the refusals have ONE definition. The decision
 //! is pure - it asks the filesystem nothing and reads no globals; the caller
 //! resolves the paths (through the resource locator, never a baked constant)
 //! and passes them in as facts, which is what makes the whole table testable
@@ -59,8 +64,6 @@ namespace OrkigeEditor
 		//! does the project carry compiled C++ game code? (a native module
 		//! needs the engine SDK tree and a C++ toolchain to build)
 		bool				nativeModule = false;
-		//! the resolved exporter script (EditorResourceLocator::pythonTool)
-		EditorResourcePath	exporter;
 		//! is the source tree this editor was built in still reachable, with a
 		//! configured build tree in it?
 		bool				engineTree = false;
@@ -68,6 +71,9 @@ namespace OrkigeEditor
 		Orkige::String		engineBuildDir;		//!< this editor's build tree
 		//! the physical-device iOS preset tree NAME (under `<engineRoot>/build`)
 		Orkige::String		iosDeviceTree;
+		//! the neutral engine app icon an export falls back to when the project
+		//! sets no `export.icon` (EditorResourceLocator::defaultAppIcon)
+		Orkige::String		defaultIcon;
 		//! the staged payload's resource root (holds `Media/`) and tool root
 		//! (holds the player + texture cook executables)
 		Orkige::String		bundleResources;
@@ -86,17 +92,29 @@ namespace OrkigeEditor
 		Orkige::String		hostName;
 	};
 
-	//! @brief the answer: an exporter command line, or one honest sentence.
+	//! @brief the answer: what one export run packages, or one honest sentence.
+	//! The fields map 1:1 onto `OrkigeExport::ExportRequest`.
 	struct EditorExportPlan
 	{
 		bool				ok = false;
 		EditorExportSource	source = EditorExportSource::Tree;
-		//! the exporter arguments, interpreter NOT included (the caller
-		//! prepends the python3 its own preflight resolved)
-		std::vector<Orkige::String> arguments;
+		Orkige::String		platform;		//!< echoed back for the caller
+		Orkige::String		projectRoot;
 		//! the build tree this packages from (Tree source only) - the caller's
 		//! own tree preconditions read it; empty for a Bundle plan
 		Orkige::String		engineBuild;
+		//! the engine SOURCE TREE the export resolves its beside-itself files
+		//! from (media, module build scripts, the browser shell template).
+		//! EMPTY for a Bundle plan - the app IS the payload and has no
+		//! repository, which is what keeps the two sources from mixing.
+		Orkige::String		repoRoot;
+		//! the staged payload's roots (Bundle source only): the directory
+		//! holding `Media/` and the one holding the sibling executables
+		Orkige::String		bundleResources;
+		Orkige::String		bundleTools;
+		//! the neutral app icon a project with no `export.icon` gets ("" when
+		//! this editor carries none - the export then ships no icon and says so)
+		Orkige::String		defaultIcon;
 		//! the directory the engine pieces come from, whichever source
 		//! answered: the build tree, or the app's staged resource root. What a
 		//! report shows a person ("packaged from ...").

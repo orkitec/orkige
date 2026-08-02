@@ -45,7 +45,6 @@ import make_benchmark_assets as bench  # noqa: E402  (SceneWriter - format-curre
 
 PROJECT = os.path.join(REPO_ROOT, "projects", "jumper-lua")
 ROLLER_PROJECT = os.path.join(REPO_ROOT, "projects", "roller")
-SCRIPT_EXPORTER = os.path.join(REPO_ROOT, "Util", "orkige_export.py")
 
 # what a web export must contain (see tools/exporter/ExportWeb.h). game.pak is
 # the whole payload - engine media, the project, the orkige_project.txt marker
@@ -266,9 +265,9 @@ def exporter_command():
     """the exporter this run drives, as an argv prefix.
 
     A browser export is packaged by the HOST exporter (tools/exporter), which a
-    cross-compiled web tree cannot build - so it is resolved from, in order:
-    ORKIGE_EXPORT_BINARY, an `orkige_export` in any configured host build tree,
-    else the equivalent script exporter. Both write the same artifact set."""
+    cross-compiled web tree cannot build - so it is resolved from
+    ORKIGE_EXPORT_BINARY, else an `orkige_export` in any configured host build
+    tree."""
     binary = os.environ.get("ORKIGE_EXPORT_BINARY", "")
     if binary and os.access(binary, os.X_OK):
         return [binary]
@@ -276,14 +275,21 @@ def exporter_command():
             REPO_ROOT, "build", "*", "tools", "exporter", "orkige_export"))):
         if os.access(candidate, os.X_OK):
             return [candidate]
-    return [sys.executable, SCRIPT_EXPORTER]
+    fail("no orkige_export binary in any host build tree - build one "
+         "(cmake --build --preset macos-debug --target orkige_export) or set "
+         "ORKIGE_EXPORT_BINARY")
 
 
 def export(engine_build, output_dir, project=PROJECT):
+    # --repo names the engine source explicitly rather than leaning on the one
+    # baked into the binary at build time: the exporter that packages a browser
+    # export is a host tool, and it may well have been built somewhere else
+    # (CI hands this job a binary from another build tree entirely).
     result = subprocess.run(
         exporter_command() +
         ["--project", project, "--platform", "web",
-         "--engine-build", engine_build, "--output", output_dir],
+         "--engine-build", engine_build, "--output", output_dir,
+         "--repo", REPO_ROOT],
         capture_output=True, text=True)
     if result.returncode != 0:
         fail("exporter failed:\n%s\n%s" % (result.stdout, result.stderr))

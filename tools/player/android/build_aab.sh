@@ -31,7 +31,7 @@
 # Usage: tools/player/android/build_aab.sh [options] [build-dir]
 #   build-dir defaults to build/android-release (fall back: android-debug).
 #
-# Options (Util/orkige_export.py drives these):
+# Options (the project exporter drives these):
 #   --project-payload <dir>  staged project payload -> assets/project + marker
 #   --package <name>         manifest package name (release id)
 #   --label <text>           app label

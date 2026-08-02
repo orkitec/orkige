@@ -25,7 +25,7 @@ The deployed site has these parts:
 - `/play/` — the staged browser build the benchmark page embeds: a
   self-contained wasm export of `projects/benchmark` (`index.html` +
   `orkige_player.js`/`.wasm` + a preloaded `.data` payload image), produced by
-  `Util/orkige_export.py --platform web`. Like `/api/`, it is assembled by the
+  `orkige_export --platform web`. Like `/api/`, it is assembled by the
   Pages workflow beside the generator's output — a local portal preview lacks
   it, and links to it are the second site-absolute target the link gate
   accepts on faith.
@@ -177,7 +177,7 @@ for the custom domain, upload and deploy to GitHub Pages (concurrency-grouped,
 so a newer push supersedes an in-flight deployment).
 
 The `/play/` embed is **gated behind the WebGL suite**. The `web` job exports
-the benchmark (`Util/orkige_export.py --platform web`) only *after* its WebGL
+the benchmark (`orkige_export --platform web`) only *after* its WebGL
 suite (`ctest --preset web`, incl. the headless-Chrome boot) passes, and
 uploads the export as an artifact; the `site` job is `needs: web` and unpacks
 that artifact into `/play/`. So a commit that breaks WebGL fails the `web`

@@ -5,8 +5,8 @@
 #
 # The exporter that packages these is a HOST tool, which a cross-compiled web
 # tree cannot build - so the driver resolves it itself: ORKIGE_EXPORT_BINARY,
-# else an `orkige_export` in any configured host build tree, else the
-# equivalent script exporter. All of them write the same artifact set.
+# else an `orkige_export` in any configured host build tree. Without one it
+# refuses and names the preset to build.
 #
 #   export_web_structure  export the reference Lua project for the web and
 #                         assert the artifact set (shell page, wasm player

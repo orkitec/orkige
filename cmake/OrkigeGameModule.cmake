@@ -118,7 +118,7 @@ endif()
 # is derived from the engine sources at ORKIGE_ROOT (cmake/OrkigeAbiStamp.cmake:
 # committed HEAD + the tracked working diff), so it moves the instant a header
 # changes; the engine records the stamp of the sources ITS archives were built
-# from. Both the editor's compile-on-Play and Util/orkige_export.py flow through
+# from. Both the editor's compile-on-Play and the exporter flow through
 # this same path, so a stale engine tree refuses at configure rather than
 # shipping a crashing app.
 if(DEFINED ORKIGE_EXPECTED_ABI_VERSION)

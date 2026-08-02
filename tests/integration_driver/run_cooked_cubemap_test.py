@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Cooked-cubemap runtime-load proof (stdlib only): block-compress the stock
-debug cubemap through the REAL export cook (Util/cook_textures.py + the tree's
-texcook encoder), then boot the render-facade selfcheck against it and let its
+debug cubemap through the REAL export cook (`orkige_export cook-textures`,
+the same code an export runs), then boot the render-facade selfcheck against it
+and let its
 skybox leg assert the compressed cube still samples its +X face red - proving
 this render flavor LOADS a block-compressed cubemap with the face order and the
 baked (prefiltered) mip chain intact.
@@ -9,10 +10,10 @@ baked (prefiltered) mip chain intact.
 Only the desktop BCn container boots on a desktop host (the next flavor's
 desktop renderer maps ASTC/ETC2 pixel formats only in its mobile builds), so
 this proves the BC1 .dds cube on both flavors; the mobile ASTC/ETC2 .oitd/.ktx
-cube containers are asserted structurally by cook_textures.py --selftest and
+cube containers are asserted structurally by ExportTextureCookTests and
 ride the device tests for their on-GPU proof.
 
-    run_cooked_cubemap_test.py --repo <root> --selfcheck <exe> --texcook <exe>
+    run_cooked_cubemap_test.py --repo <root> --selfcheck <exe> --exporter <exe>
                                --flavor next|classic
 """
 
@@ -30,19 +31,35 @@ def fail(message):
     sys.exit(1)
 
 
+
+def cook_payload(exporter, directory, platform, flavor):
+    """run the REAL export texture cook over a staged directory in place - the
+    exporter's own `cook-textures` entry point, the same code an export runs
+    over its payload. Returns the number of textures rewritten."""
+    command = [exporter, "cook-textures", directory, "--flavor", flavor]
+    if platform:
+        command += ["--platform", platform]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        fail("the texture cook failed: %s%s"
+             % (result.stdout or "", result.stderr or ""))
+    marker = "orkige_export: COOKED "
+    for line in (result.stdout or "").splitlines():
+        if line.startswith(marker):
+            return int(line[len(marker):].strip())
+    fail("the texture cook reported no count: " + (result.stdout or ""))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True)
     parser.add_argument("--selfcheck", required=True)
-    parser.add_argument("--texcook", required=True)
+    parser.add_argument("--exporter", required=True)
     parser.add_argument("--flavor", required=True, choices=("next", "classic"))
     args = parser.parse_args()
 
-    if not os.path.isfile(args.texcook):
-        fail("no texcook encoder at '%s' - build the tree first" % args.texcook)
-
-    sys.path.insert(0, os.path.join(args.repo, "Util"))
-    import cook_textures  # noqa: E402  (the real export cook)
+    if not os.path.isfile(args.exporter):
+        fail("no exporter at '%s' - build the tree first" % args.exporter)
 
     source = os.path.join(args.repo, "samples", "hello_orkige", "media",
                           "sky_faces.dds")
@@ -61,8 +78,7 @@ def main():
         with open(cube + ".orkmeta", "w", newline="\n") as handle:
             handle.write('<orkmeta id="c0b0d0e0f00102030405060708090a0b">'
                          '<texture format="bc1"/></orkmeta>')
-        cooked = cook_textures.cook_payload(cooked_dir, "", args.flavor,
-                                            args.texcook)
+        cooked = cook_payload(args.exporter, cooked_dir, "", args.flavor)
         if cooked != 1:
             fail("expected 1 cooked cubemap, got %d" % cooked)
         # the cook rewrote it in place as a compressed cube DDS

@@ -9,7 +9,7 @@ iOS Simulator, talking to a loopback server this process runs on the host:
 
 It serves the endpoints tests/projects/http drives (/ok, /missing, /echo,
 /big, /slow, /blob, plus the /config bootstrap and the /report verdict sink),
-exports the fixture project with Util/orkige_export.py, installs it, launches
+exports the fixture project with the `orkige_export` binary, installs it, launches
 it and reads the app's verdict lines back. Android reaches the host through
 'adb reverse'; an iOS Simulator app shares the host loopback directly.
 
@@ -463,8 +463,28 @@ def default_output(platform):
     return os.path.join(tempfile.gettempdir(), "orkige_http_device", platform)
 
 
+def find_exporter(repo):
+    """the `orkige_export` binary: a HOST tool, so it comes from a desktop
+    build tree in the repository (never the mobile tree being deployed, which
+    cross-compiles a player and builds no host tools). ORKIGE_EXPORTER
+    overrides."""
+    override = os.environ.get("ORKIGE_EXPORTER", "")
+    if override and os.path.isfile(override):
+        return override
+    suffix = ".exe" if os.name == "nt" else ""
+    for preset in ("macos-release", "macos-debug", "macos-release-classic",
+                   "macos-debug-classic", "linux-release", "linux-debug"):
+        candidate = os.path.join(repo, "build", preset, "tools", "exporter",
+                                 "orkige_export" + suffix)
+        if os.path.isfile(candidate):
+            return candidate
+    fail("no orkige_export binary in any desktop build tree - build one "
+         "(cmake --build --preset macos-debug --target orkige_export) or set "
+         "ORKIGE_EXPORTER")
+
+
 def export_project(repo, project_dir, platform, engine_build, output):
-    exporter = [sys.executable, os.path.join(repo, "Util", "orkige_export.py"),
+    exporter = [find_exporter(repo),
                 "--project", project_dir, "--platform", platform,
                 "--engine-build", engine_build, "--output", output]
     if os.path.exists(output):

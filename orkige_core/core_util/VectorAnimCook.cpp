@@ -25,13 +25,15 @@ namespace Orkige
 
 	namespace
 	{
-		//! the provenance banner every cooked asset carries
+		//! the provenance banner every cooked asset carries - it names the cook
+		//! that wrote it, which is this file (reachable as the `animcook` CLI
+		//! and run in process by the editor's importer)
 		char const * const OANIM_BANNER =
 			"# orkige vector animation v%d - cooked from Lottie JSON by "
-			"Util/cook_vector_anim.py";
+			"core_util/VectorAnimCook";
 		char const * const OSHAPE_BANNER =
 			"# orkige vector shape v2 - cooked from a static Lottie "
-			"document by Util/cook_vector_anim.py";
+			"document by core_util/VectorAnimCook";
 
 		//! the layer kinds the cook can name in a refusal
 		String layerTypeName(JsonValue const * ty)
@@ -3782,6 +3784,12 @@ namespace Orkige
 	//=============================================================
 	// the public entry point
 	//=============================================================
+	//-------------------------------------------------------------
+	String VectorAnimCook::toolRevision()
+	{
+		// bump on any change that can move the cooked bytes (@see the header)
+		return "vectoranim-1";
+	}
 	//-------------------------------------------------------------
 	bool VectorAnimCook::cook(String const & lottieJson,
 		Options const & options, Result & out, String & errors)

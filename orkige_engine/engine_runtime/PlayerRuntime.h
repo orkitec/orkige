@@ -61,7 +61,7 @@ namespace Orkige
 		static PlayerArguments parse(int argc, char ** argv);
 	};
 
-	//! @brief exported-app support (project export, Util/orkige_export.py):
+	//! @brief exported-app support (project export, tools/exporter):
 	//! an exported app carries its project and engine media NEXT TO the
 	//! executable's resources and finds them WITHOUT command-line arguments
 	//! through a tiny marker file - the no-args default-project mechanism

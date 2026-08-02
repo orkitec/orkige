@@ -47,7 +47,7 @@ namespace OrkigeEditor
 			fallbacks.bloom = ORKIGE_EDITOR_BLOOM_DIR;
 			fallbacks.grade = ORKIGE_EDITOR_GRADE_DIR;
 			fallbacks.uiFonts = ORKIGE_EDITOR_ICON_FONT_DIR;
-			fallbacks.pythonTools = ORKIGE_EDITOR_PYTHON_TOOL_DIR;
+			fallbacks.defaultIcon = ORKIGE_EDITOR_DEFAULT_ICON;
 			fallbacks.player = ORKIGE_EDITOR_PLAYER_PATH;
 			fallbacks.texcook = ORKIGE_EDITOR_TEXCOOK_PATH;
 			return fallbacks;

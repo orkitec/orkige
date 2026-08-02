@@ -11,9 +11,10 @@ simulator) and this drives the whole loop so a session needs no archaeology:
     python3 Util/orkige_device.py ios --simulator   # simulator fallback
 
 It reuses the existing tooling wholesale rather than reinventing it:
-  * the packaging path is Util/orkige_export.py (which itself drives
-    tools/player/android/package_apk.sh and the iOS bundle signing seam);
-  * the project manifest / package-id logic is orkige_export.Project;
+  * the packaging path is the `orkige_export` binary (tools/exporter, which
+    itself drives tools/player/android/package_apk.sh and the iOS bundle
+    signing seam) - taken from a desktop build tree on this machine;
+  * the project manifest / package-id logic is orkige_buildtree.Project;
   * device enumeration mirrors tools/editor/EditorDeviceTargets.cpp
     (adb devices -l, xcrun simctl list, security find-identity, the
     ORKIGE_IOS_* env seam of Docs/ios-signing.md).
@@ -36,7 +37,7 @@ UTIL_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(UTIL_DIR)
 if UTIL_DIR not in sys.path:
     sys.path.insert(0, UTIL_DIR)
-import orkige_export  # sibling Util module: Project + the packaging seam
+import orkige_buildtree  # sibling Util module: Project + build-tree facts
 
 # The Android activity class is named fully qualified in the APK manifest
 # regardless of a renamed package (tools/player/android/AndroidManifest.xml),
@@ -45,9 +46,9 @@ ANDROID_ACTIVITY_CLASS = "com.orkitec.orkigeplayer.OrkigeActivity"
 # The iOS simulator player installs under this bundle id (tools/player).
 SIMULATOR_BUNDLE_ID = "com.orkitec.orkige-player"
 # The env seam for iOS device signing - machine-local, never committed
-# (Docs/ios-signing.md). Mirrors orkige_export's constants.
-IOS_IDENTITY_ENV = orkige_export.IOS_SIGNING_IDENTITY_ENV
-IOS_PROFILE_ENV = orkige_export.IOS_PROVISIONING_PROFILE_ENV
+# (Docs/ios-signing.md). Mirrors the exporter's own constants.
+IOS_IDENTITY_ENV = orkige_buildtree.IOS_SIGNING_IDENTITY_ENV
+IOS_PROFILE_ENV = orkige_buildtree.IOS_PROVISIONING_PROFILE_ENV
 IOS_SIGNING_DOC = "Docs/ios-signing.md"
 
 DEFAULT_PROJECT = os.path.join("projects", "benchmark")
@@ -88,7 +89,7 @@ def classify_staleness(binary_mtime, commit_time):
 
 
 def android_package(project):
-    """The launch package id, exactly as orkige_export derives it: the manifest
+    """The launch package id, exactly as the exporter derives it: the manifest
     override else com.orkitec.<slug> (pure - reads only the parsed Project)."""
     return (project.settings.get("export.android.package", "").strip()
             or "com.orkitec." + project.id_slug)
@@ -110,10 +111,10 @@ def ios_signing_status(has_identity, environ):
     }
 
 
-def android_steps(cmake, preset, staleness, export_py, project_dir, scene,
+def android_steps(cmake, preset, staleness, export_tool, project_dir, scene,
                   adb, serial, package, apk_path):
     """The ordered command list an `android` run executes: (re)build the
-    player only when the tree is not fresh, package via orkige_export.py,
+    player only when the tree is not fresh, package via orkige_export,
     install, then launch. Each element is (label, argv). Pure and injectable
     so --selftest can assert construction without a device. The logcat stream
     is set up separately (it needs the launched pid)."""
@@ -121,7 +122,7 @@ def android_steps(cmake, preset, staleness, export_py, project_dir, scene,
     if staleness != "fresh":
         steps.append(("build", [cmake, "--build", "--preset", preset,
                                 "--target", "orkige_player"]))
-    steps.append(("package", [sys.executable, export_py,
+    steps.append(("package", [export_tool,
                               "--project", project_dir,
                               "--platform", "android",
                               "--engine-build",
@@ -134,6 +135,19 @@ def android_steps(cmake, preset, staleness, export_py, project_dir, scene,
         launch += ["--es", "scene", scene]
     steps.append(("launch", launch))
     return steps
+
+
+def exporter():
+    """The `orkige_export` binary this session packages with. It is a HOST
+    tool, so it comes from a desktop build tree on this machine - never from
+    the mobile preset being deployed, which cross-compiles a player and builds
+    no host tools at all."""
+    found = orkige_buildtree.find_host_tool("orkige_export")
+    if not found:
+        fail("no orkige_export binary in any desktop build tree - build one "
+             "(cmake --build --preset macos-debug --target orkige_export) or "
+             "point ORKIGE_ORKIGE_EXPORT at it")
+    return found
 
 
 def parse_args(argv):
@@ -462,7 +476,7 @@ def resolve_project(opts):
 
 def command_android(opts):
     project_dir = resolve_project(opts)
-    project = orkige_export.Project(project_dir)
+    project = orkige_buildtree.Project(project_dir)
     if project.native_target():
         fail("project '" + project.name + "' has a native module - native "
              "modules are desktop-only; pick a Lua/scene project for a phone "
@@ -482,10 +496,8 @@ def command_android(opts):
     # hardcoded player name breaks every project whose name differs
     apk_path = os.path.join(project.root, "builds", "android",
                             project.exe_name + ".apk")
-    export_py = os.path.join(UTIL_DIR, "orkige_export.py")
-
     steps = android_steps(
-        shutil.which("cmake") or "cmake", preset, staleness, export_py,
+        shutil.which("cmake") or "cmake", preset, staleness, exporter(),
         project_dir, opts.get("scene"), adb["path"], opts.get("serial"),
         package, apk_path)
     for label, argv in steps:
@@ -525,17 +537,15 @@ def command_ios(opts):
     if sys.platform != "darwin":
         fail("iOS deploy needs macOS (xcrun/simctl/devicectl)")
     project_dir = resolve_project(opts)
-    project = orkige_export.Project(project_dir)
-    export_py = os.path.join(UTIL_DIR, "orkige_export.py")
-
+    project = orkige_buildtree.Project(project_dir)
     if opts.get("simulator"):
-        return ios_simulator(project, project_dir, export_py, opts)
+        return ios_simulator(project, project_dir, exporter(), opts)
 
     signing = ios_signing_status(probe_has_codesign_identity(), os.environ)
     if not signing["configured"]:
         print(ios_unconfigured_message())
         return 1
-    return ios_device(project, project_dir, export_py, opts)
+    return ios_device(project, project_dir, exporter(), opts)
 
 
 def ios_unconfigured_message():
@@ -553,14 +563,14 @@ def ios_unconfigured_message():
         "flow, which needs no certificate.")
 
 
-def ios_device(project, project_dir, export_py, opts):
+def ios_device(project, project_dir, export_tool, opts):
     preset = "ios-device-debug"
     facts = gather_facts()
     staleness = facts["trees"][preset]["staleness"]
     if staleness != "fresh":
         run_step("build", [shutil.which("cmake") or "cmake", "--build",
                            "--preset", preset, "--target", "orkige_player"])
-    run_step("export", [sys.executable, export_py, "--project", project_dir,
+    run_step("export", [export_tool, "--project", project_dir,
                         "--platform", "ios", "--engine-build",
                         os.path.join("build", preset)])
     app_dir = os.path.join(project.root, "builds", "ios",
@@ -599,14 +609,14 @@ def ios_first_device_udid():
     return ""
 
 
-def ios_simulator(project, project_dir, export_py, opts):
+def ios_simulator(project, project_dir, export_tool, opts):
     preset = "ios-simulator-debug"
     facts = gather_facts()
     staleness = facts["trees"][preset]["staleness"]
     if staleness != "fresh":
         run_step("build", [shutil.which("cmake") or "cmake", "--build",
                            "--preset", preset, "--target", "orkige_player"])
-    run_step("export", [sys.executable, export_py, "--project", project_dir,
+    run_step("export", [export_tool, "--project", project_dir,
                         "--platform", "ios-simulator", "--engine-build",
                         os.path.join("build", preset)])
     app_dir = os.path.join(project.root, "builds", "ios-simulator",
@@ -715,12 +725,17 @@ def selftest():
 
     # android command construction: fresh tree skips the build step; a stale
     # one includes it; scene rides as an intent extra; serial disambiguates
-    fresh = android_steps("cmake", "android-debug", "fresh", "e.py", "proj",
-                          None, "adb", None, "com.orkitec.benchmark", "out.apk")
+    fresh = android_steps("cmake", "android-debug", "fresh", "orkige_export",
+                          "proj", None, "adb", None, "com.orkitec.benchmark",
+                          "out.apk")
     labels = [label for label, _ in fresh]
     assert labels == ["package", "install", "launch"], labels
-    stale = android_steps("cmake", "android-debug", "stale", "e.py", "proj",
-                          "s1.oscene", "adb", "emulator-5554",
+    # the packaging step RUNS the exporter binary - no interpreter in front of
+    # it, which is what makes the seam the same one the editor links
+    package = dict(fresh)["package"]
+    assert package[0] == "orkige_export", package
+    stale = android_steps("cmake", "android-debug", "stale", "orkige_export",
+                          "proj", "s1.oscene", "adb", "emulator-5554",
                           "com.orkitec.benchmark", "out.apk")
     labels = [label for label, _ in stale]
     assert labels == ["build", "package", "install", "launch"], labels

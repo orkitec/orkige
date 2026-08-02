@@ -494,7 +494,7 @@ namespace Orkige
 		[gameObjectMenu addItem:[NSMenuItem separatorItem]];
 		addItem(gameObjectMenu, @"Create Prefab", TAG_CREATE_PREFAB, @"", 0);
 
-		// Build - project export (Util/orkige_export.py); enabled only with
+		// Build - project export (tools/exporter); enabled only with
 		// a project open and no export running (validateMenuItem/canExport)
 		NSMenu* buildMenu = ensureTopLevelMenu(@"Build");
 		addItem(buildMenu, @"Build for macOS", TAG_EXPORT_MACOS, @"", 0);

@@ -306,10 +306,6 @@ if(ORKIGE_BUILD_TOOLS)
         message(FATAL_ERROR "ORKIGE_BUILD_TOOLS requires ORKIGE_BUILD_ENGINE=ON (the editor is an Orkige engine app)")
     endif()
     if(NOT ORKIGE_MOBILE AND NOT ORKIGE_WEB)
-        # the editor is desktop-only (imgui/imguizmo are not built for
-        # mobile or the browser) and builds on BOTH render flavors via the
-        # ImGui-on-DrawLayer2D port (Docs/render-abstraction.md)
-        add_subdirectory(tools/editor)
         # the export-time texture encoder (a host library over libktx plus its
         # argv face; exports always cook on a desktop host, so the mobile/web
         # player trees never build or ship it - see Docs/textures.md)
@@ -318,6 +314,11 @@ if(ORKIGE_BUILD_TOOLS)
         # interpreter to preflight, no tool directory to resolve, nothing to
         # stage inside a distributed app). After texcook - it links the encoder.
         add_subdirectory(tools/exporter)
+        # the editor is desktop-only (imgui/imguizmo are not built for
+        # mobile or the browser) and builds on BOTH render flavors via the
+        # ImGui-on-DrawLayer2D port (Docs/render-abstraction.md). After the
+        # exporter - Build > Export runs it in process.
+        add_subdirectory(tools/editor)
         # the SVG -> .oshape cook as a CLI (the editor holds the same conversion
         # in-process). Host-only for the same reason texcook is: importing and
         # generating assets happens on a desktop, never on a device.

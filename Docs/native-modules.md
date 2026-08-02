@@ -4,7 +4,7 @@ A native module is the compiled C++ game code of a `.orkproj` project (the
 manifest carries `native.target` / `native.cmakeDir` / `native.buildDir`;
 `projects/jumper-native/` is the reference). It is a small standalone CMake
 project that links the engine out of an engine BUILD TREE — the editor's
-compile-on-Play builds it, and `Util/orkige_export.py` builds it for a
+compile-on-Play builds it, and the exporter (`tools/exporter`) builds it for a
 distributable app. The full build contract lives in
 `cmake/OrkigeGameModule.cmake`; game code is flavor-neutral by construction (it
 spells only facade types, never `Ogre::`), so one module builds against either

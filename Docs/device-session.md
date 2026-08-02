@@ -2,7 +2,7 @@
 
 `Util/orkige_device.py` is the owner-facing front door for running an Orkige
 game on a real phone (or the `orkige_test` emulator / an iOS simulator). It
-reuses the existing tooling — `Util/orkige_export.py`, which itself drives
+reuses the existing tooling — the `orkige_export` binary, which itself drives
 `tools/player/android/package_apk.sh` and the iOS signing seam — and adds the
 glue a session needs: a readiness check, the build-if-stale step, install,
 launch and log streaming, so a phone session needs zero archaeology.

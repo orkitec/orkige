@@ -158,7 +158,7 @@ per-texture draw runs realized as facade `VectorMesh` sections binding the
 per-texture SPRITE material/datablock (one draw per texture, both flavors);
 flat and textured regions mix freely in one rig, and an all-flat rig renders
 through the one untextured run. Lottie image layers are the authoring on-ramp
-(`cook_vector_anim.py` cooks them to textured regions and carries the image
+(`core_util/VectorAnimCook` cooks them to textured regions and carries the image
 files along); the text grammar is the agent-authorable path. 2D cutout
 characters - flat-colour AND textured - are fully covered by the house
 taxonomy. Reference: `projects/vectorshapes/scenes/cutout.oscene` +

@@ -337,7 +337,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 			// signing (an Apple Developer identity + a provisioning profile -
 			// codesignIdentityPresent above is isIosSigningConfigured()).
 			// Selecting a device makes Play an export-and-deploy: build + sign
-			// (Util/orkige_export.py --platform ios) + install + launch via
+			// (an "ios" platform export) + install + launch via
 			// devicectl. It is NOT a live play session - a USB device shares
 			// neither the host filesystem nor its loopback, and no dependency-
 			// free CLI forwards a debug-port tunnel to it, so the game runs

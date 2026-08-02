@@ -16,7 +16,7 @@ machine in environment variables.
 
 The pieces that need no credential (the Android bundle module structure, the
 version/keystore config validation, the entitlements composition) are covered by
-`ctest` — `export_android_aab` and the `orkige_export.py --selftest` unit — so
+`ctest` — `export_android_aab` and the `tests/exporter` units — so
 the pipeline stays honest even on a machine (like CI) with no signing material.
 
 ---
@@ -49,7 +49,7 @@ exporter writes it into the iOS `Info.plist` and the Android manifest, and the
 player also reads it at boot to constrain the window orientation
 (`SDL_HINT_ORIENTATIONS`) so the render surface matches the orientation the OS
 presents — the lock and the drawable agree. Verified by
-`orkige_export.py --selftest`; on-device upright rendering is a manual check.
+the `tests/exporter` units; on-device upright rendering is a manual check.
 
 ---
 
@@ -147,7 +147,7 @@ export ORKIGE_ANDROID_KEY_PASS="…"             # key password (omit if same)
 2. Export the signed bundle:
 
    ```sh
-   python3 Util/orkige_export.py --project projects/yourgame \
+   orkige_export --project projects/yourgame \
        --platform android-aab --engine-build build/android-release
    ```
 
@@ -217,7 +217,7 @@ export ORKIGE_IOS_DISTRIBUTION_PROFILE="$HOME/path/to/YourGame_AppStore.mobilepr
 2. Export the distribution `.ipa`:
 
    ```sh
-   python3 Util/orkige_export.py --project projects/yourgame \
+   orkige_export --project projects/yourgame \
        --platform ios-ipa --engine-build build/ios-device-release
    ```
 
@@ -271,8 +271,9 @@ Nothing else on Apple's required-reason list (disk space, active keyboard list,
 user defaults) appears in the binary, so nothing else is declared — an over- or
 under-declaring manifest is worse than none. Engine code that adopts one of
 those APIs must add its category with an approved reason code to
-`privacy_manifest()` in `Util/orkige_export.py`. The declaration is verified by
-`orkige_export.py --selftest` and the `export_ios_simulator` structure test
+the privacy-manifest builder in `tools/exporter/ExportPlist.h`. The
+declaration is verified by `ExportPlistTests` and the `export_ios_simulator`
+structure test
 (presence, plist parse, no-tracking, the two categories).
 
 ### This machine
@@ -280,4 +281,4 @@ those APIs must add its category with an approved reason code to
 This development machine holds **no** Apple distribution certificate, so
 `--platform ios-ipa` refuses with a clear message here — the honest gate. The
 `.ipa` layout and the distribution-entitlements composition are still verified
-cert-free by `orkige_export.py --selftest`.
+cert-free by `ExportSettingsTests`.

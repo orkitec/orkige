@@ -6,23 +6,27 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
-// EditorExport.cpp - the async project export job (Build menu ->
-// Util/orkige_export.py), output streamed into the Console.
+// EditorExport.cpp - the async project export job (Build menu), run IN PROCESS
+// on a worker thread with its progress streamed into the Console.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 #include "EditorExportPlan.h"
 #include "EditorResourcePaths.h"
-#include "PythonToolchain.h"
 
 #include <core_project/NativeModule.h>
 
+#include <ExportProject.h>
+#include <ExportRun.h>
+
 #include <filesystem>
+#include <functional>
+#include <mutex>
 #include <string>
 #include <system_error>
-#include <vector>
+#include <utility>
 
-//! @brief the exporter command for this project + platform, or the refusal
-//! (@see EditorExportPlan.h). Every path is resolved through the ONE resource
+//! @brief what this project + platform packages, or the refusal (@see
+//! EditorExportPlan.h). Every path is resolved through the ONE resource
 //! locator: an editor built in the source tree packages a preset build tree,
 //! a COPIED app packages the engine payload it carries inside itself.
 OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
@@ -41,15 +45,6 @@ OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
 	inputs.engineTree = std::filesystem::exists(
 		std::filesystem::path(ORKIGE_EDITOR_ENGINE_BUILD_DIR) /
 		"CMakeCache.txt", treeIgnored);
-	// The exporter comes from the SAME place the engine payload will: an
-	// exporter resolves files beside itself (the web shell template lives at
-	// tools/player/web/ in the source tree), so a bundled copy running against
-	// a build tree looks for them inside the app and finds nothing. A build
-	// tree that is still there wins; only a copy with no tree behind it takes
-	// the staged exporter, which is exactly when the bundle IS the payload.
-	inputs.exporter = inputs.engineTree
-		? resources.pythonToolFromTree("orkige_export.py")
-		: resources.pythonTool("orkige_export.py");
 	inputs.engineRoot = ORKIGE_EDITOR_ENGINE_ROOT;
 	inputs.engineBuildDir = ORKIGE_EDITOR_ENGINE_BUILD_DIR;
 	inputs.iosDeviceTree = ORKIGE_EDITOR_IOS_DEVICE_TREE;
@@ -60,16 +55,69 @@ OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
 	// the browser payload: a web build compiles nothing, so a copied app that
 	// staged the wasm player can package for the browser on any host
 	inputs.bundleWebPlayer = resources.webPlayer().fromBundle();
+	// the one file an export needs that is neither code nor engine media
+	inputs.defaultIcon = resources.defaultAppIcon().path;
 	inputs.hostPlatform = OrkigeEditor::hostExportPlatform();
 	inputs.hostName = OrkigeEditor::hostExportName();
 	return OrkigeEditor::planProjectExport(inputs);
 }
 
-//! @brief launch the exporter for the open project (async; false when it
-//! cannot start). What it packages from is the plan's business: a preset build
-//! tree per platform in the source-tree shape (the exporter reports honestly
-//! when one of those was never built), the app's own staged payload in a
-//! distributed copy.
+//! @brief the exporter's view of the open project. Deliberately NOT the live
+//! `Project`: loading one makes its AssetDatabase the process-wide active one,
+//! which would rip the editor's out from under it (@see ExportProject.h). The
+//! four manifest facts an export needs are copied out of the project the editor
+//! already has open, so nothing is re-read and nothing global moves.
+OrkigeExport::ExportProject exportProjectFor(Orkige::Project const& project)
+{
+	OrkigeExport::ExportProject out;
+	out.root = project.getRootDirectory();
+	out.name = project.getName();
+	out.mainScene = project.getMainScene();
+	out.settings = project.getSettings();
+	return out;
+}
+
+//! @brief run one planned export to completion on the CALLING thread (the
+//! worker body both async export drivers share - the Build menu's job below and
+//! the control endpoint's `export_project`).
+//!
+//! The plan's two sourcing shapes map straight onto the exporter's request: a
+//! Tree plan hands over its build tree AND the source tree beside it, a Bundle
+//! plan hands over the staged payload roots and NO repository at all. That is
+//! the whole "an exporter resolves files beside itself" rule - one field names
+//! the engine source, and a plan can only fill one of the two shapes.
+bool runPlannedExport(OrkigeEditor::EditorExportPlan const& plan,
+	OrkigeExport::ExportProject const& project,
+	std::function<void(std::string const&)> const& log,
+	std::string& artifact, std::string& error)
+{
+	if (!plan.ok)
+	{
+		error = plan.error;
+		return false;
+	}
+	OrkigeExport::ExportRequest request;
+	request.platform = plan.platform;
+	request.defaultIconPath = plan.defaultIcon;
+	request.environment = OrkigeExport::currentEnvironment();
+	if (plan.source == OrkigeEditor::EditorExportSource::Tree)
+	{
+		request.source.buildDirectory = plan.engineBuild;
+		request.repoRoot = plan.repoRoot;
+	}
+	else
+	{
+		request.source.bundleResources = plan.bundleResources;
+		request.source.bundleTools = plan.bundleTools;
+	}
+	return OrkigeExport::runExport(project, request, log, artifact, &error);
+}
+
+//! @brief start the export for the open project (async; false when it cannot
+//! start). What it packages from is the plan's business: a preset build tree
+//! per platform in the source-tree shape (the exporter reports honestly when
+//! one of those was never built), the app's own staged payload in a distributed
+//! copy.
 bool startExport(ExportJob& job, Orkige::Project const& project,
 	std::string const& platform, EditorConsole& console)
 {
@@ -89,71 +137,53 @@ bool startExport(ExportJob& job, Orkige::Project const& project,
 		console.addLine(ConsoleLevel::Error, "[export] " + plan.error);
 		return false;
 	}
-	// preflight the python3 toolchain (cached per run) - the exporter is a
-	// python3 script; report the missing/too-old interpreter honestly instead of
-	// letting the spawn fail opaquely
-	const Orkige::PythonProbeResult& python = Orkige::probePythonToolchain();
-	if (!python.ok)
-	{
-		console.addLine(ConsoleLevel::Error, "[export] " + python.error);
-		return false;
-	}
-	std::vector<std::string> command = { python.executable };
-	command.insert(command.end(), plan.arguments.begin(),
-		plan.arguments.end());
-	std::vector<const char*> args;
-	std::string commandLine;
-	args.reserve(command.size() + 1);
-	for (std::string const& arg : command)
-	{
-		args.push_back(arg.c_str());
-		commandLine += (commandLine.empty() ? "" : " ") + arg;
-	}
-	args.push_back(nullptr);
-	SDL_PropertiesID spawnProperties = SDL_CreateProperties();
-	SDL_SetPointerProperty(spawnProperties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER,
-		const_cast<char**>(args.data()));
-	SDL_SetNumberProperty(spawnProperties, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER,
-		SDL_PROCESS_STDIO_APP);
-	SDL_SetBooleanProperty(spawnProperties,
-		SDL_PROP_PROCESS_CREATE_STDERR_TO_STDOUT_BOOLEAN, true);
-	job.process = SDL_CreateProcessWithProperties(spawnProperties);
-	SDL_DestroyProperties(spawnProperties);
-	if (!job.process)
-	{
-		console.addLine(ConsoleLevel::Error, "[export] FAILED to run '" +
-			commandLine + "': " + SDL_GetError());
-		return false;
-	}
+	// the manifest facts are read HERE, on the main thread: Project is not
+	// thread-safe and the worker must not touch it
+	const OrkigeExport::ExportProject exportProject = exportProjectFor(project);
+	job.reset();
 	job.platform = platform;
-	job.outputBuffer.clear();
-	job.artifactPath.clear();
-	job.deployBrowser = false;
-	job.browserArtifactReady = false;
+	job.running.store(true);
+	ExportJob* jobPointer = &job;
+	// the worker touches NO SDL (the exporter's platform-tool seam spawns
+	// through the C library), so it needs no SDL_CleanupTLS guard - the one
+	// every SDL-calling Orkige worker carries
+	job.worker = std::thread([jobPointer, plan, exportProject]()
+	{
+		std::string artifact;
+		std::string error;
+		auto log = [jobPointer](std::string const& line)
+		{
+			std::lock_guard<std::mutex> lock(jobPointer->mutex);
+			jobPointer->lines.push_back(line);
+		};
+		const bool ok = runPlannedExport(plan, exportProject, log, artifact,
+			error);
+		std::lock_guard<std::mutex> lock(jobPointer->mutex);
+		jobPointer->succeeded = ok;
+		jobPointer->artifactPath = artifact;
+		jobPointer->error = error;
+		jobPointer->finished.store(true);
+	});
 	// stays on SDL_Log: a Console command-echo streamed under the "[export]"
 	// prefix (the "[build]" precedent in EditorPlaySession), not an operational
 	// diagnostic - the sink's [tag] prefix would break the bracket-prefix
 	// contract Console readers key on
-	SDL_Log("[export] $ %s", commandLine.c_str());
+	SDL_Log("[export] packaging '%s' for %s...", project.getName().c_str(),
+		platform.c_str());
 	return true;
 }
 
-//! @brief per-frame pump: stream the exporter's output into the Console as
-//! "[export]" lines, capture the artifact path, and on exit report success
-//! (revealing the artifact in Finder) or failure honestly
+//! @brief per-frame pump: stream the exporter's progress into the Console as
+//! "[export]" lines and, once the worker is done, report success (revealing the
+//! artifact in Finder) or failure honestly
 void updateExportJob(ExportJob& job, EditorConsole& console)
 {
 	if (!job.isActive())
 	{
 		return;
 	}
-	auto emitLine = [&console, &job](std::string const& text)
+	auto emitLine = [&console](std::string const& text)
 	{
-		const std::string okPrefix = "orkige_export: OK ";
-		if (text.rfind(okPrefix, 0) == 0)
-		{
-			job.artifactPath = text.substr(okPrefix.size());
-		}
 		ConsoleLevel level = ConsoleLevel::Info;
 		if (text.find("ERROR") != std::string::npos ||
 			text.find("error") != std::string::npos ||
@@ -168,48 +198,30 @@ void updateExportJob(ExportJob& job, EditorConsole& console)
 		}
 		console.addLine(level, "[export] " + text);
 	};
-	SDL_IOStream* output = SDL_GetProcessOutput(job.process);
-	if (output)
+	std::vector<std::string> pending;
+	bool finished = false;
 	{
-		char chunk[4096];
-		size_t bytesRead = 0;
-		while ((bytesRead = SDL_ReadIO(output, chunk, sizeof(chunk))) > 0)
-		{
-			job.outputBuffer.append(chunk, bytesRead);
-		}
+		std::lock_guard<std::mutex> lock(job.mutex);
+		pending.swap(job.lines);
+		finished = job.finished.load();
 	}
-	std::size_t lineStart = 0;
-	std::size_t newline = std::string::npos;
-	while ((newline = job.outputBuffer.find('\n', lineStart)) !=
-		std::string::npos)
+	for (std::string const& line : pending)
 	{
-		std::string line =
-			job.outputBuffer.substr(lineStart, newline - lineStart);
-		if (!line.empty() && line.back() == '\r')
-		{
-			line.pop_back();
-		}
 		emitLine(line);
-		lineStart = newline + 1;
 	}
-	job.outputBuffer.erase(0, lineStart);
-	int exitCode = 0;
-	if (!SDL_WaitProcess(job.process, false, &exitCode))
+	if (!finished)
 	{
 		return; // still exporting; the editor stays responsive
 	}
-	if (!job.outputBuffer.empty())
+	if (job.worker.joinable())
 	{
-		emitLine(job.outputBuffer); // drain an unterminated tail line
-		job.outputBuffer.clear();
+		job.worker.join();
 	}
-	SDL_DestroyProcess(job.process);
-	job.process = nullptr;
-	if (exitCode != 0)
+	job.running.store(false);
+	if (!job.succeeded)
 	{
 		console.addLine(ConsoleLevel::Error, "[export] " + job.platform +
-			" export FAILED (exit " + std::to_string(exitCode) +
-			") - see the lines above");
+			" export FAILED: " + job.error);
 		return;
 	}
 	console.addLine(ConsoleLevel::Info, "[export] " + job.platform +

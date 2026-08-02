@@ -51,6 +51,8 @@ add_library(orkige_exporter STATIC
     ExportAndroid.cpp
     ExportWeb.h
     ExportWeb.cpp
+    ExportRun.h
+    ExportRun.cpp
 )
 
 target_include_directories(orkige_exporter PUBLIC

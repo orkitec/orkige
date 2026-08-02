@@ -22,11 +22,9 @@ namespace OrkigeEditor
 		//! the bundle sub-path holding the engine media, relative to the
 		//! resource root (mirrors what a project export writes)
 		const char* const MEDIA_DIR_NAME = "Media";
-		//! the bundle sub-path holding the engine's Python tools, relative to
-		//! the resource root. It keeps the source tree's own directory name so
-		//! a staged script finds its siblings under the same relative layout
-		//! (the exporter imports the texture cook and the icon generator).
-		const char* const PYTHON_TOOL_DIR_NAME = "Util";
+		//! the neutral default app icon an export falls back to, at the
+		//! resource root
+		const char* const DEFAULT_ICON_FILE_NAME = "orkige_default_icon.png";
 		//! the packaged changelog the About box reads, at the resource root
 		//! (the ONE spelling, shared with the packaging tool's CHANGELOG_FILE)
 		const char* const CHANGELOG_FILE_NAME = "CHANGELOG.md";
@@ -199,33 +197,10 @@ namespace OrkigeEditor
 		return this->resolveResource(fileName, fallback);
 	}
 	//---------------------------------------------------------
-	EditorResourcePath EditorResourceLocator::pythonTool(
-		Orkige::String const & fileName) const
+	EditorResourcePath EditorResourceLocator::defaultAppIcon() const
 	{
-		const Orkige::String fallback = this->mFallbacks.pythonTools.empty()
-			? Orkige::String()
-			: terminated(this->mFallbacks.pythonTools) + fileName;
-		return this->resolveResource(
-			Orkige::String(PYTHON_TOOL_DIR_NAME) + "/" + fileName, fallback);
-	}
-	//---------------------------------------------------------
-	EditorResourcePath EditorResourceLocator::pythonToolFromTree(
-		Orkige::String const & fileName) const
-	{
-		if (this->mFallbacks.pythonTools.empty())
-		{
-			return EditorResourcePath();
-		}
-		const Orkige::String path =
-			terminated(this->mFallbacks.pythonTools) + fileName;
-		if (!this->mExists(path))
-		{
-			return EditorResourcePath();
-		}
-		EditorResourcePath resolved;
-		resolved.path = path;
-		resolved.root = EditorResourceRoot::Tree;
-		return resolved;
+		return this->resolveResource(DEFAULT_ICON_FILE_NAME,
+			this->mFallbacks.defaultIcon);
 	}
 	//---------------------------------------------------------
 	EditorResourcePath EditorResourceLocator::changelog() const

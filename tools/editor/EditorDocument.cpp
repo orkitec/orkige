@@ -16,7 +16,6 @@
 #include "EditorSceneTemplate.h"
 #include "EditorResourcePaths.h"	// the ONE bundle-first / tree-second locator
 #include "MeshImport.h"
-#include "PythonToolchain.h"
 
 #include <core_game/LevelComponent.h>
 #include <core_game/LevelSequence.h>
@@ -25,6 +24,7 @@
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_util/Sha1.h>
+#include <core_util/VectorAnimCook.h>
 #include <core_util/VectorShapeCook.h>
 #include <engine_gui/SvgShapeCook.h>
 #include <engine_gocomponent/ScriptComponentRegistry.h>
@@ -564,18 +564,13 @@ std::string cookSvgFileToDir(std::string const& sourcePath,
 	return destPath;
 }
 
-//! the animation cook script (the one Lottie reader), resolved through the ONE
-//! resource locator: the copy a distributed app carries, else the source
-//! tree's. Its byte content doubles as the recorded "cook-tool version" - any
-//! script change makes every recorded artifact read as stale, with no version
-//! constant to forget (cooks are byte-deterministic, so an inconsequential
-//! script edit re-cooks once into identical bytes). Empty when this editor
-//! carries no cook at all - the callers say so instead of spawning a path that
-//! is not there (an empty path hashes to "", which records nothing).
-std::string animationCookScriptPath()
+//! which cook produced an artifact - the recorded "cook-tool version" half of a
+//! sidecar's import inputs. The Lottie reader is code this editor links, so the
+//! answer is the cook's own revision rather than a file's bytes (@see
+//! core_util/VectorAnimCook.h, which documents when it moves).
+std::string animationCookRevision()
 {
-	return OrkigeEditor::editorResources()
-		.pythonTool("cook_vector_anim.py").path;
+	return Orkige::VectorAnimCook::toolRevision();
 }
 
 //! the cook settings a source's sidecar recorded, or the defaults when the
@@ -612,7 +607,7 @@ void writeAnimationCookRecord(EditorState& state,
 	record.tool = "vectoranim";
 	record.settings = settings;
 	record.sourceHash = Orkige::Sha1::hexDigestOfFile(sourceAbsPath);
-	record.toolHash = Orkige::Sha1::hexDigestOfFile(animationCookScriptPath());
+	record.toolHash = animationCookRevision();
 	record.settingsHash = settings.hash();
 	if (record.sourceHash.empty() || record.toolHash.empty() ||
 		!Orkige::AssetDatabase::writeMetaFile(metaPath, assetId, record))
@@ -624,11 +619,95 @@ void writeAnimationCookRecord(EditorState& state,
 	++state.assetBrowser.animImportsRevision;
 }
 
-//! @brief run the animation cook subprocess on an in-place source and mirror
-//! its readback into the Console as "[import]" lines - the shared middle of
-//! the import-time cook and every re-cook (scan drift, Reimport, the play
-//! watcher, MCP). Returns the produced asset path (.oanim, or .oshape when
-//! nothing animates), or "" (+ *error).
+//! @brief the post-cook readback: the clip table, fps/duration and layer count
+//! of a cooked rig, so the first question after a cook - what are the clips
+//! called - is answered without opening the file.
+std::string summarizeCookedAnim(std::string const& cooked)
+{
+	std::string fps;
+	std::string duration;
+	std::vector<std::string> clips;
+	int layers = 0;
+	std::istringstream stream(cooked);
+	std::string line;
+	while (std::getline(stream, line))
+	{
+		std::istringstream words(line);
+		std::vector<std::string> parts;
+		std::string word;
+		while (words >> word)
+		{
+			parts.push_back(word);
+		}
+		if (parts.empty())
+		{
+			continue;
+		}
+		if (parts[0] == "fps" && parts.size() > 1)
+		{
+			fps = parts[1];
+		}
+		else if (parts[0] == "duration" && parts.size() > 1)
+		{
+			duration = parts[1];
+		}
+		else if (parts[0] == "clip" && parts.size() > 4)
+		{
+			clips.push_back(parts[1] + " " + parts[2] + "-" + parts[3] + " " +
+				parts[4]);
+		}
+		else if (parts[0] == "layer")
+		{
+			++layers;
+		}
+	}
+	std::string out = "clips: ";
+	if (clips.empty())
+	{
+		out += "no markers in the document - the runtime plays one looping "
+			"clip named 'default' over the whole timeline";
+	}
+	else
+	{
+		for (size_t index = 0; index < clips.size(); ++index)
+		{
+			out += (index > 0 ? ", " : "") + clips[index];
+		}
+	}
+	return out + " | " + fps + " fps, " + duration + " frames, " +
+		std::to_string(layers) + " layer(s)";
+}
+
+//! @brief write @p bytes to @p path; false (+ *error) when it cannot be
+bool writeCookedFile(std::string const& path, char const* data, size_t size,
+	std::string* error)
+{
+	std::ofstream out(path, std::ios::binary | std::ios::trunc);
+	if (out)
+	{
+		out.write(data, std::streamsize(size));
+	}
+	if (!out)
+	{
+		if (error)
+		{
+			*error = "cannot write '" + path + "'";
+		}
+		return false;
+	}
+	return true;
+}
+
+//! @brief cook an in-place Lottie source and mirror the readback into the
+//! Console as "[import]" lines - the shared middle of the import-time cook and
+//! every re-cook (scan drift, Reimport, the play watcher, MCP).
+//!
+//! The cook runs IN PROCESS through core_util/VectorAnimCook, the same reader
+//! the `animcook` CLI is the argv face of - so importing an animation needs no
+//! interpreter, no toolchain preflight and no subprocess, and a distributed
+//! editor binary does it on a machine that has none (the `.svg` cook's
+//! precedent). Returns the produced asset path (.oanim, or .oshape when nothing
+//! animates), or "" (+ *error).
 std::string runAnimationCook(std::string const& sourceAbsPath,
 	Orkige::CookSettings const& settings, std::string* error)
 {
@@ -641,112 +720,105 @@ std::string runAnimationCook(std::string const& sourceAbsPath,
 		}
 		return "";
 	};
-	const std::string cookScript = animationCookScriptPath();
-	if (cookScript.empty())
+	Orkige::String document;
 	{
-		return fail("this copy of Orkige carries no animation cook "
-			"(Util/cook_vector_anim.py) and no engine source tree is reachable "
-			"from it - reinstall Orkige to import animation documents");
+		std::ifstream source(sourceAbsPath, std::ios::binary);
+		if (!source)
+		{
+			return fail("cannot read '" + sourceAbsPath + "'");
+		}
+		std::ostringstream buffer;
+		buffer << source.rdbuf();
+		document = buffer.str();
 	}
-	// preflight python3 (cached per run), same honest message as the .svg cook
-	const Orkige::PythonProbeResult& python = Orkige::probePythonToolchain();
-	if (!python.ok)
-	{
-		return fail(python.error);
-	}
-	const std::filesystem::path source(sourceAbsPath);
-	const std::string animPath =
-		(source.parent_path() / (source.stem().string() + ".oanim")).string();
-	const std::string shapePath =
-		(source.parent_path() / (source.stem().string() + ".oshape")).string();
-	std::vector<std::string> command = { python.executable, cookScript,
-		sourceAbsPath, animPath };
-	// per-asset cook options ride the sidecar (verbatim CLI text); an unset
-	// option stays off the command line so the cook's own default applies
-	if (!settings.clips.empty())
-	{
-		command.push_back("--clips");
-		command.push_back(settings.clips);
-	}
+	// per-asset cook options ride the sidecar as the verbatim text the CLI
+	// takes; an unset one stays at the cook's own default
+	Orkige::VectorAnimCook::Options options;
 	if (!settings.extent.empty())
 	{
-		command.push_back("--extent");
-		command.push_back(settings.extent);
+		options.extent = std::strtod(settings.extent.c_str(), nullptr);
 	}
 	if (!settings.tolerance.empty())
 	{
-		command.push_back("--tolerance");
-		command.push_back(settings.tolerance);
+		options.tolerance = std::strtod(settings.tolerance.c_str(), nullptr);
 	}
-	std::string output;
-	int exitCode = 0;
-	if (!runProcessCaptured(command, output, exitCode))
+	options.clips = settings.clips;
+	Orkige::VectorAnimCook::Result result;
+	Orkige::String errors;
+	if (!Orkige::VectorAnimCook::cook(document, options, result, errors))
 	{
-		return fail("could not launch '" + python.executable +
-			"' for cook_vector_anim.py");
+		return fail("'" + sourceAbsPath + "' - " + errors);
 	}
-	if (exitCode != 0)
+	// the cook writes .oanim, or .oshape when nothing animates (a static doc)
+	const std::filesystem::path source(sourceAbsPath);
+	const bool staticDocument =
+		result.kind == Orkige::VectorAnimCook::KIND_OSHAPE;
+	const std::string produced = (source.parent_path() /
+		(source.stem().string() + (staticDocument ? ".oshape" : ".oanim")))
+			.string();
+	// materialize the referenced images beside the output FIRST - a missing
+	// source refuses before any rig lands, never a rig whose textures cannot
+	// resolve
+	std::string writeError;
+	for (Orkige::VectorAnimCook::Image const& image : result.images)
 	{
-		return fail("cook_vector_anim.py exited " + std::to_string(exitCode) +
-			" for '" + sourceAbsPath + "'" +
-			(output.empty() ? "" : (" - " + output)));
+		const std::string destination =
+			(source.parent_path() / image.name).string();
+		if (image.embedded)
+		{
+			if (!writeCookedFile(destination,
+				reinterpret_cast<char const*>(image.data.data()),
+				image.data.size(), &writeError))
+			{
+				return fail(writeError);
+			}
+			continue;
+		}
+		const std::string imageSource =
+			(source.parent_path() / image.source).string();
+		std::string payload;
+		{
+			std::ifstream file(imageSource, std::ios::binary);
+			if (!file)
+			{
+				return fail("image file '" + imageSource + "' (referenced by '" +
+					sourceAbsPath + "') not found");
+			}
+			std::ostringstream buffer;
+			buffer << file.rdbuf();
+			payload = buffer.str();
+		}
+		if (imageSource != destination && !writeCookedFile(destination,
+			payload.data(), payload.size(), &writeError))
+		{
+			return fail(writeError);
+		}
 	}
-	// the cook writes .oanim, or .oshape when nothing animates (a static doc).
-	// A RE-cook may switch kind while the other suffix's stale file still sits
-	// beside it, so when both exist the NEWER write is the one this cook made.
-	std::error_code ec;
-	std::string produced;
-	const bool hasAnim = std::filesystem::is_regular_file(animPath, ec);
-	const bool hasShape = std::filesystem::is_regular_file(shapePath, ec);
-	if (hasAnim && hasShape)
+	if (!writeCookedFile(produced, result.text.data(), result.text.size(),
+		&writeError))
 	{
-		std::error_code timeError;
-		const std::filesystem::file_time_type animTime =
-			std::filesystem::last_write_time(animPath, timeError);
-		const std::filesystem::file_time_type shapeTime =
-			std::filesystem::last_write_time(shapePath, timeError);
-		produced = (shapeTime > animTime) ? shapePath : animPath;
+		return fail(writeError);
 	}
-	else if (hasAnim)
+	// mirror the readback (the clip table, fps/duration, layer count) into the
+	// Console as "[import]" command-echo lines - the bracket-prefix convention
+	// "[build]"/"[export]" use, NOT an operational diagnostic
+	if (staticDocument)
 	{
-		produced = animPath;
-	}
-	else if (hasShape)
-	{
-		produced = shapePath;
+		SDL_Log("[import] nothing animates - cooked a static .oshape instead");
 	}
 	else
 	{
-		return fail("cook_vector_anim.py produced no .oanim/.oshape for '" +
-			sourceAbsPath + "'");
-	}
-	// mirror the cook's readback (the clip table, fps/duration, layer count)
-	// into the Console as "[import]" command-echo lines - the bracket-prefix
-	// convention "[build]"/"[export]" use, NOT an operational diagnostic
-	{
-		std::istringstream cookOutput(output);
-		std::string reportLine;
-		while (std::getline(cookOutput, reportLine))
-		{
-			while (!reportLine.empty() && (reportLine.back() == '\r' ||
-				reportLine.back() == '\n'))
-			{
-				reportLine.pop_back();
-			}
-			if (!reportLine.empty())
-			{
-				SDL_Log("[import] %s", reportLine.c_str());
-			}
-		}
+		SDL_Log("[import] cooked %s -> %s", sourceAbsPath.c_str(),
+			produced.c_str());
+		SDL_Log("[import] %s", summarizeCookedAnim(result.text).c_str());
 	}
 	return produced;
 }
 
 // A Lottie .json (the open vector-animation interchange format) is COOKED to
 // the native .oanim on import - the runtime never parses JSON, it reads the
-// pre-flattened rig. The cook is Util/cook_vector_anim.py run as a subprocess
-// behind the python3 toolchain preflight (unlike the in-process `.svg` cook -
-// there is no C++ Lottie reader). UNLIKE the .svg
+// pre-flattened rig. The cook runs IN PROCESS through core_util/VectorAnimCook,
+// like the sibling `.svg` cook. UNLIKE the .svg
 // on-ramp the source .json is KEPT beside the cooked asset (both id-tracked):
 // an animation source is a living document that gets retimed and re-cooked, so
 // re-importing the same .json regenerates the .oanim in place. A document where
@@ -923,9 +995,8 @@ void recookProjectAnimationsOnScan(EditorState& state)
 	{
 		return;
 	}
-	// the tool fingerprint is scan-wide (one script, hashed once)
-	const std::string toolHash =
-		Orkige::Sha1::hexDigestOfFile(animationCookScriptPath());
+	// the tool fingerprint is scan-wide (one cook, one revision)
+	const std::string toolHash = animationCookRevision();
 	std::error_code ec;
 	for (Orkige::AssetEntry const& entry : assetDatabase->listAssets())
 	{

@@ -70,7 +70,7 @@ namespace
 		fallbacks.bloom = "/tree/engine/media/bloom/next";
 		fallbacks.grade = "/tree/engine/media/grade/next";
 		fallbacks.uiFonts = "/tree/editor/media";
-		fallbacks.pythonTools = "/tree/Util";
+		fallbacks.defaultIcon = "/tree/Util/media/orkige_default_icon.png";
 		fallbacks.player = "/tree/build/tools/player/orkige_player";
 		fallbacks.texcook = "/tree/build/tools/texcook/texcook";
 		return fallbacks;
@@ -120,35 +120,38 @@ TEST_CASE("editor resources: a staged bundle answers every query itself",
 	CHECK(locator.describe().find("bundled app") != Orkige::String::npos);
 }
 
-TEST_CASE("editor resources: the engine's Python tools resolve like the media",
+TEST_CASE("editor resources: the default app icon resolves like the media",
 	"[editor][resources]")
 {
-	// the project exporter and the animation cook are spawned, not linked, so a
-	// copied app must carry them: staged under Util/ at the resource root, the
-	// same directory name they have in the source tree (their sibling imports
-	// depend on that layout)
+	// the ONE file a project export still needs from outside its own code: the
+	// neutral icon a project with no export.icon gets. A copied app carries it
+	// at the resource root beside Media/.
 	FakeTree tree;
 	const Orkige::String root = RESOURCE_ROOT;
-	tree.paths = { root + "Util/orkige_export.py",
-		"/tree/Util/orkige_export.py", "/tree/Util/cook_vector_anim.py" };
+	tree.paths = { root + "orkige_default_icon.png",
+		"/tree/Util/media/orkige_default_icon.png" };
 	const EditorResourceLocator locator(BASE, treeFallbacks(), tree.probe());
-	const EditorResourcePath exporter = locator.pythonTool("orkige_export.py");
-	REQUIRE(exporter.fromBundle());
-	CHECK(exporter.path == root + "Util/orkige_export.py");
-	// a tool the bundle did not stage still answers from the tree...
-	CHECK(locator.pythonTool("cook_vector_anim.py").path ==
-		"/tree/Util/cook_vector_anim.py");
-	// ...and one that is in neither is an honest Missing: the consumer says so
-	// instead of spawning a path that does not exist
-	CHECK_FALSE(locator.pythonTool("no_such_tool.py").found());
+	const EditorResourcePath icon = locator.defaultAppIcon();
+	REQUIRE(icon.fromBundle());
+	CHECK(icon.path == root + "orkige_default_icon.png");
 
-	// a copy detached from every tree resolves only what it carries
+	// a build tree that staged nothing still answers from the source tree...
+	FakeTree treeOnly;
+	treeOnly.paths = { "/tree/Util/media/orkige_default_icon.png" };
+	const EditorResourceLocator developer(BASE, treeFallbacks(),
+		treeOnly.probe());
+	CHECK(developer.defaultAppIcon().path ==
+		"/tree/Util/media/orkige_default_icon.png");
+
+	// ...and a copy detached from every tree that carries none is an honest
+	// Missing: the export ships no icon rather than naming a path that is not
+	// there
 	EditorResourceFallbacks bundleOnly;
 	bundleOnly.engineMediaMarker = "Hlms";
 	bundleOnly.flavor = "next";
-	const EditorResourceLocator copied(BASE, bundleOnly, tree.probe());
-	CHECK(copied.pythonTool("orkige_export.py").fromBundle());
-	CHECK_FALSE(copied.pythonTool("cook_vector_anim.py").found());
+	FakeTree empty;
+	const EditorResourceLocator copied(BASE, bundleOnly, empty.probe());
+	CHECK_FALSE(copied.defaultAppIcon().found());
 }
 
 TEST_CASE("editor resources: the changelog is a packaged build's alone",

@@ -78,7 +78,7 @@ namespace Orkige
 	struct EditorTestJob;
 	//! @brief one asynchronous project export (export_project ->
 	//! get_export_results). Opaque here; defined in the .cpp. A worker thread
-	//! drives Util/orkige_export.py and parks the artifact path / error tail.
+	//! runs the linked exporter and parks the artifact path / error tail.
 	struct EditorExportJob;
 
 	//! @brief everything the control-port handler bridges to (all owned by

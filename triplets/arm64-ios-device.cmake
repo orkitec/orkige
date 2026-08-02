@@ -17,7 +17,7 @@ set(VCPKG_OSX_ARCHITECTURES arm64)
 # Ports are static libs; nothing here needs a signing identity. Turn Xcode-style
 # codesigning off so a port that happens to build a bundle/executable never asks
 # for a certificate we deliberately do not carry on this machine - the real app
-# signing happens later, at export time, through orkige_export.py's seam.
+# signing happens later, at export time, through the exporter's seam.
 set(VCPKG_CMAKE_CONFIGURE_OPTIONS
     -DCMAKE_IGNORE_PREFIX_PATH=/usr/local
     -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO)

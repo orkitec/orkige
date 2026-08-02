@@ -98,19 +98,11 @@ add_test(NAME sprite_atlas_packer
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(sprite_atlas_packer PROPERTIES LABELS unit TIMEOUT 60)
 
-# export-time texture cook self-validation: cook_textures.py resolves the
-# format auto-table per platform/flavor (incl. web -> PNG and the classic
-# GLES2 verdict), applies resize/premultiply/per-platform+web overrides,
-# refuses impossible format pairs and refuses compression without an encoder;
-# with the tree's texcook it also runs the real encode legs (dds/oitd/ktx
-# containers, sidecar rename, offline mip chains). Stdlib-only + the texcook
-# host tool - the cook-then-load smoke at the tooling level.
-add_test(NAME cook_textures_selftest
-    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/cook_textures.py" --selftest
-        $<TARGET_FILE:texcook>
-    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-set_tests_properties(cook_textures_selftest PROPERTIES LABELS unit TIMEOUT 120)
-
+# The export-time texture cook - the format auto-table per platform/flavor
+# (incl. web -> PNG and the classic GLES2 verdict), resize/premultiply/
+# per-platform overrides, the impossible-pair refusals and the sidecar rename -
+# is asserted in the Catch2 suite tests/exporter (ExportTextureCookTests.cpp),
+# because the cook is part of the exporter library.
 # The GPU texture encoder's structural cases - every format (BCn, ETC2, ASTC
 # block sizes) over a non-block-aligned gradient, plus the dds/ktx/oitd
 # container layouts and the cubemap round trip - live in the Catch2 suite
@@ -129,17 +121,13 @@ add_test(NAME shapecook_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(shapecook_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
-# vector-animation cook self-validation: cook_vector_anim.py cooks embedded
-# Lottie fixtures covering every mapped feature (transforms/easing/parenting,
-# path and colour keyframes, precomp inlining, densification, holes, markers,
-# the static .oshape case) plus every out-of-subset error path, and re-cooks
-# the committed round-trip fixture (tests/assets/vectoranim/) byte-identically
-# - the same .oanim the cook_vector_anim_roundtrip unit test feeds through
-# the REAL parser + evaluator. Stdlib-only, headless.
-add_test(NAME cook_vector_anim_selftest
-    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/cook_vector_anim.py" --selftest
-    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-set_tests_properties(cook_vector_anim_selftest PROPERTIES LABELS unit TIMEOUT 60)
+# The Lottie -> .oanim cook is a library (core_util/VectorAnimCook), so its
+# self-validation lives in the Catch2 suite: VectorAnimCookTests re-cooks the
+# committed fixtures and the character corpus BYTE-IDENTICALLY, names every
+# out-of-subset refusal and covers the mapped features (clips override, the
+# static .oshape case, image layers, transform-link expressions), and
+# CookVectorAnimRoundTripTests feeds the same .oanim through the REAL parser +
+# evaluator. `animcook` is the argv face of that one cook.
 
 # baked-mesh terrain generator self-validation: make_terrain_mesh.py builds a
 # chunked terrain in memory and asserts mesh validity (indices in range, unit
@@ -250,14 +238,12 @@ add_test(NAME make_integration_assets_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(make_integration_assets_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
-# export app-icon pipeline self-validation: orkige_icons.py synthesises a source
-# PNG and generates the macOS iconset / iOS icons / Android mipmaps into a
-# tempdir, asserting the file set and each entry's pixel size. Stdlib-only,
-# headless - the icon-resize step at the tooling level.
-add_test(NAME orkige_icons_selftest
-    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_icons.py" --selftest
-    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-set_tests_properties(orkige_icons_selftest PROPERTIES LABELS unit TIMEOUT 60)
+# The export app-icon pipeline (the macOS iconset / iOS icons / Android
+# mipmaps and each entry's pixel size) and the signing-config gates (iOS
+# entitlements composition, identity/profile precedence, launch-colour
+# validation) are asserted in the Catch2 suite tests/exporter
+# (ExportIconsTests.cpp / ExportSettingsTests.cpp) - both are exporter library
+# code, so they need no certificate and no interpreter.
 
 # the checked-in engine default icon renders (corner/centre alpha invariant),
 # mirroring make_editor_icon's own self-check.
@@ -265,15 +251,6 @@ add_test(NAME make_default_icon_selftest
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_default_icon.py" --selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(make_default_icon_selftest PROPERTIES LABELS unit TIMEOUT 60)
-
-# export signing-config logic (cert-free): the iOS entitlements composition, the
-# identity/profile resolution precedence (arg over env) and the launch-colour
-# validation - the pure parts that gate a signed device export, unit-testable
-# without a certificate.
-add_test(NAME orkige_export_selftest
-    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_export.py" --selftest
-    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-set_tests_properties(orkige_export_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
 # editor-binary packaging (Util/orkige_nightly_package.py): the ORDERED version
 # and its filename rendering (pinned to the same literals VersionOrderTests
@@ -511,18 +488,19 @@ if(TARGET orkige_engine)
 
     # cooked-cubemap runtime-load proof (both flavors): the driver
     # block-compresses the stock debug cubemap through the REAL export cook
-    # (cook_textures.py + this tree's texcook) and boots the selfcheck against
-    # it - the skybox leg proves the compressed cube LOADS with its +X face and
-    # baked mip chain intact. Desktop-BC only here (a host cannot boot the
-    # mobile ASTC/ETC2 cube containers - those ride cook_textures --selftest +
-    # the device tests), so it registers wherever texcook builds.
-    if(TARGET texcook)
+    # (`orkige_export cook-textures`, the same code an export runs) and boots
+    # the selfcheck against it - the skybox leg proves the compressed cube
+    # LOADS with its +X face and baked mip chain intact. Desktop-BC only here
+    # (a host cannot boot the mobile ASTC/ETC2 cube containers - those ride
+    # ExportTextureCookTests + the device tests), so it registers wherever the
+    # exporter builds.
+    if(TARGET orkige_export)
         add_test(NAME render_cooked_cubemap
             COMMAND python3
                 "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_cooked_cubemap_test.py"
                 --repo "${Orkige_SOURCE_DIR}"
                 --selfcheck "$<TARGET_FILE:render_facade_selfcheck>"
-                --texcook "$<TARGET_FILE:texcook>"
+                --exporter "$<TARGET_FILE:orkige_export>"
                 --flavor "${ORKIGE_RENDER_BACKEND}"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(render_cooked_cubemap PROPERTIES
@@ -1427,13 +1405,12 @@ if(TARGET orkige_editor)
     # Flavor-agnostic; both flavors.
     add_test(NAME editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    # ORKIGE_PYTHON names an interpreter that does not exist, so the editor's
-    # python3 toolchain preflight provably FAILS for this whole run: the SVG
-    # import leg then proves the .oshape cook needs no interpreter at all (the
-    # distributed-editor contract - a downloaded binary on a machine with no
-    # python3 imports a drawing). Nothing else in this test spawns python.
+    # The SVG-import leg proves the .oshape cook runs in process - no
+    # interpreter, no subprocess, nothing staged beside the binary. That the
+    # editor spawns none ANYWHERE is asserted structurally by editor_bundle,
+    # which runs a copied app out of a clean room with no interpreter on PATH.
     set_tests_properties(editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_ASSETTEST=${Orkige_SOURCE_DIR}/projects/example;ORKIGE_DEMO_FRAMES=60;ORKIGE_PYTHON=${CMAKE_CURRENT_BINARY_DIR}/no-such-python3"
+        ENVIRONMENT "ORKIGE_EDITOR_ASSETTEST=${Orkige_SOURCE_DIR}/projects/example;ORKIGE_DEMO_FRAMES=60"
         LABELS integration TIMEOUT 90)
 
     # Editor chrome visual evidence: boot the editor in each theme at the run's
@@ -2955,8 +2932,8 @@ if(TARGET orkige_player)
         ENVIRONMENT "ORKIGE_ASSETID_SELFCHECK=ball_renamed.png;ORKIGE_DEMO_FRAMES=60")
 
     # cooked-texture runtime-load proof: the driver runs the REAL export
-    # texture cook (cook_textures.py + this tree's texcook encoder) over a
-    # copy of the asset_rename fixture and boots the player on the cooked
+    # texture cook (`orkige_export cook-textures`, the same code an export
+    # runs over its payload) over a copy of the asset_rename fixture and boots the player on the cooked
     # payload - the sprite must render from the block-compressed container
     # (.dds), reached through BOTH reference shapes (asset id resolving to
     # the renamed file, and a bare id-less name through the backend's
@@ -2969,7 +2946,7 @@ if(TARGET orkige_player)
             "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_cooked_textures_test.py"
             --repo "${Orkige_SOURCE_DIR}"
             --player "$<TARGET_FILE:orkige_player>"
-            --texcook "$<TARGET_FILE:texcook>"
+            --exporter "$<TARGET_FILE:orkige_export>"
             --flavor "${ORKIGE_RENDER_BACKEND}"
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(player_cooked_textures${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES

@@ -93,7 +93,7 @@ Rationale for the corners:
   * The cook CAN emit it — the CPU-side path is proven: an explicit
     `format="etc2"` on a classic mobile slot already encodes an ETC2 KTX1
     (`.ktx`) that the classic runtime's compressed-texture codec parses
-    (`cook_textures.py --selftest` builds and validates that container). So
+    (`ExportTextureCookTests` builds and validates that container). So
     "classic's image codec can take the container" is *true*.
   * The **GPU floor cannot** — ETC2/EAC is **core only in OpenGL ES 3.0**; a
     GLES2 context has no guaranteed ETC2 (the widely-present GLES2 extension
@@ -232,22 +232,17 @@ asset.
 
 ## The export cook
 
-`Util/orkige_export.py` stages the project payload and runs
-`Util/cook_textures.py` over it, resolved for the target platform token
-(`""`/`ios`/`android`/`web`) and the packaged render flavor. The cook stays
-stdlib-only by policy: the encoding itself runs in **`texcook`**
-(`tools/texcook`), a small host CLI built in every desktop engine tree. Its
-one dependency, libktx (vcpkg `ktx`), carries the ASTC encoder for every
-block size plus the universal encoder/transcoder pair that yields ETC2 and
-BC1/BC3/BC7 blocks; the `.dds`/`.ktx`/`.oitd` containers are written by the
-tool itself.
+The exporter (`tools/exporter`) stages the project payload and runs the cook
+over it (`ExportTextureCook.h`), resolved for the target platform token
+(`""`/`ios`/`android`/`web`) and the packaged render flavor. The encoding
+itself is **`orkige_texcook`** (`tools/texcook`), a host library the exporter
+links plus its own `texcook` CLI. Its one dependency, libktx (vcpkg `ktx`),
+carries the ASTC encoder for every block size plus the universal
+encoder/transcoder pair that yields ETC2 and BC1/BC3/BC7 blocks; the
+`.dds`/`.ktx`/`.oitd` containers are written by that code.
 
-**Encoder requirement**: a payload that resolves to any compressed format
-needs a `texcook` binary — the exporter finds the engine tree's own, falls
-back to the repo's desktop trees, and honors `ORKIGE_TEXCOOK`. Without one
-the export **refuses** with a clear message rather than shipping a
-half-cooked payload. Web/mobile-classic exports whose textures all resolve
-to PNG need no encoder.
+Web/mobile-classic exports whose textures all resolve to PNG encode
+nothing.
 
 Out of scope by construction: textures baked at runtime (TrueType font atlas
 pages, rasterised SVG sprites, anything through `createTexture2D`) are
@@ -259,13 +254,12 @@ inside `.glb` meshes ship as authored.
 * `texcook --selftest` — every format encodes, container layouts verify,
   plus the cubemap round-trip (six faces to DDS/OITD/KTX, cube caps + a
   face-complete payload).
-* `cook_textures.py --selftest` — the auto table, override precedence
-  (incl. the web slot), impossible-pair refusals, no-encoder refusal, real
-  encode legs (rename + sidecar + mip chains) when given an encoder, and the
-  cubemap legs (decode an uncompressed six-face `.dds`, cook it in place to a
-  BC1 cube DDS with the mip chain + cube caps preserved, rename to a `.oitd`
-  cube on Android, ship a non-cubemap `.dds` verbatim, refuse without an
-  encoder).
+* `ExportTextureCookTests` — the auto table, override precedence (incl. the
+  web slot), impossible-pair refusals, real encode legs (rename + sidecar +
+  mip chains) and the cubemap legs (decode an uncompressed six-face `.dds`,
+  cook it in place to a BC1 cube DDS with the mip chain + cube caps
+  preserved, rename to a `.oitd` cube on Android, ship a non-cubemap `.dds`
+  verbatim).
 * `render_cooked_cubemap` (ctest, both flavors) — block-compresses the stock
   debug cubemap through the real cook and boots the render-facade selfcheck
   against it: the skybox leg proves the compressed cube LOADS with its +X face

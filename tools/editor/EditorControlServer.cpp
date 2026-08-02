@@ -22,7 +22,7 @@
 #include "EditorApp.h"
 #include "EditorScriptHost.h"
 #include "EditorViewModes.h"
-#include "PythonToolchain.h"
+#include <ExportProject.h>	// the manifest slice the in-process export takes
 #include "AnimationPreviewStage.h"
 #include "GuiPreviewStage.h"
 #include "GamePreviewStage.h"
@@ -140,7 +140,7 @@ namespace Orkige
 		String outputTail;		//!< tail of the exporter's combined output
 	};
 	//! one asynchronous export. Same lifecycle as EditorTestJob: a worker thread
-	//! runs Util/orkige_export.py, parks the verdict under mutex and flips done;
+	//! runs the linked exporter, parks the verdict under mutex and flips done;
 	//! get_export_results reports "running" until then, the result after.
 	struct EditorExportJob
 	{
@@ -627,54 +627,36 @@ namespace Orkige
 				"' (call list_play_targets for the available ids)";
 			return false;
 		}
-		//! @brief the export_project worker body: run Util/orkige_export.py for
-		//! the project and parse its "orkige_export: OK <path>" line. Runs on its
-		//! own thread; parks the verdict under job->mutex and flips job->done.
-		//! The command is built on the main thread (Project is not thread-safe)
-		//! and handed in whole.
+		//! @brief the export_project worker body: run the planned export IN
+		//! PROCESS (the exporter is a library the editor links) and park the
+		//! verdict under job->mutex before flipping job->done. The plan and the
+		//! manifest facts are read on the main thread (Project is not
+		//! thread-safe) and handed in whole.
 		void runExportJobWorker(EditorExportJob* job, ExportRunResult params,
-			std::vector<std::string> command)
+			OrkigeEditor::EditorExportPlan plan,
+			OrkigeExport::ExportProject project)
 		{
-			SdlThreadTlsGuard sdlTls;	//!< free SDL's TLS before this thread ends
 			ExportRunResult result = params;
+			// the progress lines are what get_export_results reports as the
+			// output tail, exactly as the streamed console output was
 			std::string output;
-			int exitCode = 0;
-			const bool spawned = runProcessCapture(command, output, exitCode);
-			result.outputTail = lastLines(output, 60);
-			if (!spawned)
+			auto log = [&output](std::string const& line)
 			{
-				result.error = "could not start the exporter: " + output;
-			}
-			else if (exitCode != 0)
+				output += line;
+				output += '\n';
+			};
+			std::string artifact;
+			std::string error;
+			if (runPlannedExport(plan, project, log, artifact, error))
 			{
-				result.error = "export failed (exit " +
-					std::to_string(exitCode) + ")";
+				result.artifactPath = artifact;
+				result.ok = true;
 			}
 			else
 			{
-				// the exporter prints "orkige_export: OK <path>" on success
-				const String marker = "orkige_export: OK ";
-				const size_t at = output.rfind(marker);
-				if (at != String::npos)
-				{
-					size_t end = output.find('\n', at);
-					String path = output.substr(at + marker.size(),
-						end == String::npos ? String::npos
-							: end - (at + marker.size()));
-					while (!path.empty() &&
-						(path.back() == '\r' || path.back() == '\n'))
-					{
-						path.pop_back();
-					}
-					result.artifactPath = path;
-					result.ok = true;
-				}
-				else
-				{
-					result.error = "exporter reported success but printed no "
-						"artifact path";
-				}
+				result.error = error;
 			}
+			result.outputTail = lastLines(output, 60);
 			std::lock_guard<std::mutex> lock(job->mutex);
 			job->result = std::move(result);
 			job->done.store(true);
@@ -2024,7 +2006,8 @@ namespace Orkige
 				  { { "jobId", "string", "the id run_tests returned", true } } },
 				{ "export_project",
 				  "Package the open project as a distributable via the export "
-				  "pipeline (Util/orkige_export.py). ASYNC: returns { accepted, "
+				  "pipeline (tools/exporter, run in process). ASYNC: returns "
+				  "{ accepted, "
 				  "jobId }; poll get_export_results. 'platform' is macos, "
 				  "ios-simulator or android. The pipeline is pinned to the CLASSIC "
 				  "render flavor - a missing or next-flavored engine tree is "
@@ -6766,7 +6749,7 @@ namespace Orkige
 			return;
 		}
 
-		//--- project export (drives Util/orkige_export.py) ---
+		//--- project export (runs the linked exporter) ---
 		if (type == "export_project")
 		{
 			const String& platform = request.get("platform");
@@ -6819,21 +6802,9 @@ namespace Orkige
 					return;
 				}
 			}
-			// build the exporter command on the main thread (Project is not
-			// thread-safe), then hand it to the worker - same invocation as the
-			// editor's Build menu (EditorExport.cpp)
-			// preflight the python3 toolchain (cached per run) - the same honest
-			// error the Build menu surfaces when python3 is missing or too old,
-			// so an MCP agent gets it too
-			const PythonProbeResult& python = probePythonToolchain();
-			if (!python.ok)
-			{
-				this->sendErr(req, python.error);
-				return;
-			}
-			std::vector<std::string> command = { python.executable };
-			command.insert(command.end(), plan.arguments.begin(),
-				plan.arguments.end());
+			// read the manifest facts on the main thread (Project is not
+			// thread-safe), then hand plan + facts to the worker - the same
+			// in-process export the editor's Build menu runs (EditorExport.cpp)
 			auto job = std::make_unique<EditorExportJob>();
 			job->id = AssetDatabase::generateId();
 			ExportRunResult params;
@@ -6842,8 +6813,8 @@ namespace Orkige
 			// app - the engine payload staged inside it
 			params.engineBuild = plan.enginePayload;
 			EditorExportJob* jobPtr = job.get();
-			job->worker = std::thread(runExportJobWorker, jobPtr, params,
-				command);
+			job->worker = std::thread(runExportJobWorker, jobPtr, params, plan,
+				exportProjectFor(state.project));
 			this->mExportJobs.push_back(std::move(job));
 			DebugMessage ok(MSG_OK);
 			ok.set("accepted", "1");

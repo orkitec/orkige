@@ -46,7 +46,7 @@ namespace Orkige
 	//!   * it is OPTIONAL: without the Settings key the built-in default set
 	//!     (loadDefaults) applies, so reference projects run with zero
 	//!     authoring. A present file fully REPLACES the defaults.
-	//!   * export must bundle it when referenced - Util/orkige_export.py stages
+	//!   * export must bundle it when referenced - the exporter stages
 	//!     manifest-referenced config files alongside the scenes/assets/scripts
 	//!     payload (see CONFIG_SETTING_KEYS there).
 	//! @note NOT an OOBJECT: like GuiFactory its Lua face is hand-written

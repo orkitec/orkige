@@ -12,9 +12,10 @@ day's build is the release of that day.
 
 The pipeline lives in `.github/workflows/nightly.yml` beside the other scheduled
 work (the soak, Valgrind and fuzz watches — one Actions run a night). The
-packaging itself is `Util/orkige_nightly_package.py`, which reuses the project
-exporter's build-tree plumbing (`Util/orkige_export.py`: media resolution, the
-macOS dylib closure) rather than restating it.
+packaging itself is `Util/orkige_nightly_package.py`, which shares the
+build-tree lookups with the phone-session front door through
+`Util/orkige_buildtree.py` and drives the engine's own `orkige_export` binary
+for the macOS dylib closure rather than restating either.
 
 Where the artifacts go, and what they can and cannot do, is below. Read
 [what a downloaded build cannot do yet](#what-a-downloaded-build-cannot-do-yet)
@@ -927,12 +928,11 @@ The trust gaps, per platform:
   saying so, with the steps its user needs; one with a certificate but no
   notarization credentials carries the record for *that*. See
   [macOS signing](#macos-signing-notarization-and-stapling).
-- **Exporting a game needs the engine repository** — Build > Export copies out of
-  a build tree and runs `Util/orkige_export.py`, so it needs that tree and
-  python3.
-- **Importing a Lottie animation needs python3 and the repository** — that cook
-  runs `Util/cook_vector_anim.py`. Importing an `.svg` needs neither; that cook
-  runs inside the editor.
+- **A download packages for the desktop and the browser only** — Build >
+  Export packages a game with the engine payload the app carries inside
+  itself, which is this platform's player and (when the packaging staged it)
+  the browser one. An iOS or Android package ships THAT platform's player,
+  which only a build from the engine source tree produces.
 - **Compiled C++ game code needs a toolchain** — CMake, Ninja, a C++20 compiler
   and an engine build tree. Game behaviour written in Lua needs none of that,
   which is the whole point of the distinction.

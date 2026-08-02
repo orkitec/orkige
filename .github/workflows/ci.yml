@@ -570,10 +570,83 @@ jobs:
   # then runs the full web suite - the Catch2 core units under the emsdk's
   # node and the export structure/pixel-boot tests through the runner's
   # headless Chrome (preinstalled on the hosted Ubuntu image).
+  # The project exporter is a HOST tool, and a browser export is packaged by
+  # it: the wasm tree supplies the player, the host exporter seals the payload.
+  # A cross-compiled tree cannot build a host binary, so this job produces one
+  # and the `web` job consumes it as an artifact. It is deliberately small -
+  # configure plus ONE target, no engine, no tests - and it reads the classic
+  # job's vcpkg + ccache entries, so a warm run is minutes.
+  host-exporter:
+    name: Host exporter (for the browser export)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240 # cold vcpkg build headroom; cached runs take minutes
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Install system dependencies
+        # the same host stack the classic job configures against: the exporter
+        # itself needs none of it, but CONFIGURING the tree resolves every
+        # dependency the engine targets declare
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang ninja-build ccache python3 pkg-config \
+            autoconf autoconf-archive automake libtool curl zip unzip tar \
+            libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
+            libx11-xcb-dev libxcb-randr0-dev libxtst-dev libxinerama-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
+            libibus-1.0-dev
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      # READ the classic job's caches and never write them: this job builds a
+      # strict subset, so saving from here could only ever shrink what the
+      # classic job restores next run
+      - name: Restore vcpkg binary cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-classic-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-classic-${{ runner.os }}-
+
+      - name: Restore ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/.ccache
+          key: ccache-classic-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-classic-${{ runner.os }}-
+
+      - name: Configure (linux-debug-classic)
+        run: |
+          bash Util/ci_configure.sh --preset linux-debug-classic \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      - name: Build the exporter (MUST pass)
+        run: cmake --build --preset linux-debug-classic --target orkige_export
+
+      - name: Upload the host exporter
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: host-exporter
+          path: build/linux-debug-classic/tools/exporter/orkige_export
+
   web:
     name: Web (wasm/Emscripten) - build + web suite
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    # the browser export needs a host exporter this tree cannot build
+    needs: host-exporter
     env:
       # the emscripten release the tree is proven against (matches the
       # user-local dev install - see triplets/wasm32-emscripten.cmake)
@@ -660,6 +733,20 @@ jobs:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
 
+      # The export tests and the /play/ export below both package through the
+      # host exporter. An artifact download drops the executable bit, so it is
+      # restored here; ORKIGE_EXPORT_BINARY is what the drivers resolve first.
+      - name: Fetch the host exporter
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: host-exporter
+          path: host-exporter
+      - name: Make the host exporter executable
+        run: |
+          chmod +x host-exporter/orkige_export
+          echo "ORKIGE_EXPORT_BINARY=$PWD/host-exporter/orkige_export" \
+            >> "$GITHUB_ENV"
+
       - name: Web suite (MUST pass, boot test may not skip)
         run: |
           # the hosted image ships headless Chrome; a skip would mean the
@@ -675,9 +762,9 @@ jobs:
       # live - we never rebuild the page onto a broken build.
       - name: Export the benchmark project to /play/ (for the site job)
         run: |
-          python3 Util/orkige_export.py --project projects/benchmark \
+          "$ORKIGE_EXPORT_BINARY" --project projects/benchmark \
             --platform web --engine-build build/web-release \
-            --output play-site
+            --output play-site --repo "$PWD"
           test -f play-site/index.html
       - name: Upload the /play/ export for the site job
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

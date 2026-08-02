@@ -29,9 +29,9 @@ the other Util/ generators).
     orkige_nightly_package.py --selftest [--selftest-dmg] [--selftest-appimage]
 
 This packages what a preset build tree ALREADY produced - it never builds. The
-project exporter (orkige_export.py) is the sibling that packages a GAME; this
-one packages the TOOL, and reuses the exporter's build-tree helpers (media
-resolution, the macOS dylib closure) rather than restating them.
+project exporter (tools/exporter, the `orkige_export` binary) is the sibling
+that packages a GAME; this one packages the TOOL, and shares its build-tree
+lookups through Util/orkige_buildtree.py rather than restating them.
 
 The staged tree has ONE shape on every platform:
 
@@ -82,7 +82,7 @@ that costs its user. Nothing in between ships: a certificate that cannot sign or
 a submission Apple does not accept fails the build.
 
 The last line on success is "orkige_nightly_package: OK <artifact>", the same
-machine-readable contract orkige_export.py ends on.
+machine-readable contract orkige_export ends on.
 """
 
 import argparse
@@ -99,7 +99,7 @@ import tarfile
 import tempfile
 import zipfile
 
-import orkige_export  # sibling Util helper: build-tree + macOS bundle plumbing
+import orkige_buildtree  # sibling Util helper: build-tree facts + host tools
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -198,21 +198,14 @@ LIMITATIONS = (
     Limitation(
         key="project-export",
         platforms=PLATFORMS,
-        title="Exporting a game needs the engine repository",
-        detail="Build > Export packages a project by copying binaries and media "
-               "out of an engine build tree and running Util/orkige_export.py, "
-               "so it needs both that tree and python3 3.10+ on PATH.",
-        workaround="Export from a clone of the engine repository."),
-    Limitation(
-        key="asset-cooks-need-python",
-        platforms=PLATFORMS,
-        title="Importing a Lottie animation needs python3 and the repository",
-        detail="Importing a Lottie .json cooks it to an .oanim through "
-               "Util/cook_vector_anim.py, which the editor runs from the engine "
-               "source tree it was built against. Importing an .svg needs "
-               "neither - that cook runs inside the editor.",
-        workaround="Author .oanim text assets directly, or import the animation "
-                   "from a clone of the engine repository."),
+        title="A download packages for the desktop and the browser only",
+        detail="Build > Export packages a project with the engine payload this "
+               "app carries inside itself, which is this platform's player and "
+               "the browser one. An iOS or Android package ships THAT "
+               "platform's player, which only a build from the engine source "
+               "tree produces.",
+        workaround="Build Orkige from the engine repository to package for a "
+                   "phone."),
     Limitation(
         key="native-modules",
         platforms=PLATFORMS,
@@ -502,9 +495,9 @@ def version_text(platform, commit, date, build_dir, extra=(), version=""):
               ("commit", commit.strip()),
               ("built", date),
               ("platform", platform),
-              ("flavor", orkige_export.render_backend(build_dir)),
+              ("flavor", orkige_buildtree.render_backend(build_dir)),
               ("build-type",
-               orkige_export.read_cmake_cache(build_dir, "CMAKE_BUILD_TYPE")),
+               orkige_buildtree.read_cmake_cache(build_dir, "CMAKE_BUILD_TYPE")),
               ("engine-abi-stamp", abi_stamp(build_dir))]
     fields.extend(extra)
     return "".join("%s: %s\n" % (key, value) for key, value in fields)
@@ -1191,16 +1184,16 @@ def stage_engine_media(build_dir, media_root):
         shutil.copytree(source, destination)
         staged.append(name)
 
-    flavor = orkige_export.render_backend(build_dir)
+    flavor = orkige_buildtree.render_backend(build_dir)
     if flavor == "next":
-        shader_media = orkige_export.ogre_next_media_dir(build_dir)
+        shader_media = orkige_buildtree.ogre_next_media_dir(build_dir)
         if not shader_media:
             fail("no Ogre-Next media in '%s' - is it a configured build tree?"
                  % build_dir)
-        for subdir in orkige_export.ogre_next_media_subdirs(shader_media):
+        for subdir in orkige_buildtree.ogre_next_media_subdirs(shader_media):
             copy_into(os.path.join(shader_media, subdir), subdir)
     else:
-        shader_media = orkige_export.ogre_media_dir(build_dir)
+        shader_media = orkige_buildtree.ogre_media_dir(build_dir)
         if not shader_media:
             fail("no OGRE media in '%s' - is it a configured build tree?"
                  % build_dir)
@@ -1208,16 +1201,16 @@ def stage_engine_media(build_dir, media_root):
             copy_into(os.path.join(shader_media, subdir), subdir)
         # the engine-owned classic shader library merges INTO RTShaderLib, the
         # one location the runtime registers (same rule as the game exporter)
-        rtss = orkige_export.engine_rtss_dir()
+        rtss = orkige_buildtree.engine_rtss_dir()
         if rtss and "RTShaderLib" in staged:
             shutil.copytree(rtss, os.path.join(media_root, "RTShaderLib"),
                             dirs_exist_ok=True)
-    copy_into(orkige_export.engine_font_dir(), "fonts")
-    copy_into(orkige_export.engine_water_dir(), "water")
-    copy_into(orkige_export.engine_decal_dir(), "decals")
-    copy_into(orkige_export.engine_bloom_dir(flavor),
+    copy_into(orkige_buildtree.engine_font_dir(), "fonts")
+    copy_into(orkige_buildtree.engine_water_dir(), "water")
+    copy_into(orkige_buildtree.engine_decal_dir(), "decals")
+    copy_into(orkige_buildtree.engine_bloom_dir(flavor),
               os.path.join("bloom", flavor))
-    copy_into(orkige_export.engine_grade_dir(flavor),
+    copy_into(orkige_buildtree.engine_grade_dir(flavor),
               os.path.join("grade", flavor))
     return staged
 
@@ -1247,7 +1240,8 @@ def msvc_runtime_dlls(environ=None):
     return found
 
 
-def stage_macos(build_dir, stage_root, editor, player):
+def stage_macos(build_dir, stage_root, editor, player,
+                web_source=""):
     """macOS: the payload rides INSIDE the bundle - the executables in
     Contents/MacOS, the media in Contents/Resources/Media, which is what the
     editor's resource locator reads relative to SDL_GetBasePath. The build tree
@@ -1266,16 +1260,23 @@ def stage_macos(build_dir, stage_root, editor, player):
         tools.append(os.path.basename(cook))
     media_root = os.path.join(resources, "Media")
     staged = stage_engine_media(build_dir, media_root)
+    stage_export_support(resources, web_source)
     # cut every build-tree dylib rpath and carry the non-system closure inside
     # the bundle: a shipped binary must not reach into the machine that built it
     search_dirs = []
-    triplet = orkige_export.vcpkg_triplet_dir(build_dir)
+    triplet = orkige_buildtree.vcpkg_triplet_dir(build_dir)
     if triplet:
         search_dirs.append(os.path.join(triplet, "lib"))
     frameworks = os.path.join(app, "Contents", "Frameworks")
+    # the SAME dylib-closure operation an export performs on a packaged game,
+    # reachable as the exporter's own `self-contain` subcommand
+    exporter = orkige_buildtree.host_tool(build_dir, "orkige_export")
+    if not exporter:
+        fail("no orkige_export binary in '%s' - it stages the bundle's dylib "
+             "closure; build the tree's orkige_export target first" % build_dir)
     for name in ["Orkige"] + tools:
-        orkige_export.macos_make_self_contained(os.path.join(macos_dir, name),
-                                               frameworks, search_dirs)
+        orkige_buildtree.macos_make_self_contained(
+            exporter, os.path.join(macos_dir, name), frameworks, search_dirs)
     return staged, os.path.join(macos_dir, "Orkige")
 
 
@@ -1612,8 +1613,8 @@ def notarize(artifact, notary, what="", runner=subprocess.run):
 def staple(artifact, what=""):
     """attach the ticket and prove it stuck"""
     what = what or os.path.basename(artifact)
-    orkige_export.run(stapler_argv(artifact))
-    orkige_export.run(stapler_validate_argv(artifact))
+    orkige_buildtree.run(stapler_argv(artifact))
+    orkige_buildtree.run(stapler_validate_argv(artifact))
     log("stapled the notarization ticket into " + what)
 
 
@@ -1641,10 +1642,10 @@ def seal_macos_bundle(app, signing=None):
     nested += [os.path.join(macos_dir, name)
                for name in sorted(os.listdir(macos_dir)) if name != "Orkige"]
     for binary in nested:
-        orkige_export.run(codesign_argv(binary, signing.identity,
+        orkige_buildtree.run(codesign_argv(binary, signing.identity,
                                         signing.keychain))
-    orkige_export.run(codesign_argv(app, signing.identity, signing.keychain))
-    orkige_export.run(codesign_verify_argv(app, strict=signing.real))
+    orkige_buildtree.run(codesign_argv(app, signing.identity, signing.keychain))
+    orkige_buildtree.run(codesign_verify_argv(app, strict=signing.real))
     log("sealed %s (%s)" % (os.path.basename(app), signing.state))
 
 
@@ -1663,51 +1664,102 @@ def notarize_macos_app(app, signing):
         payload = os.path.join(submission, "Orkige.zip")
         # ditto, not zipfile: the bundle's symlinks and executable bits have to
         # survive the trip or Apple assesses something that is not our app
-        orkige_export.run(["ditto", "-c", "-k", "--sequesterRsrc",
+        orkige_buildtree.run(["ditto", "-c", "-k", "--sequesterRsrc",
                            "--keepParent", app, payload])
         notarize(payload, signing.notary, what=os.path.basename(app))
     finally:
         shutil.rmtree(submission, ignore_errors=True)
     staple(app, os.path.basename(app))
-    orkige_export.run(spctl_argv(app, "exec"))
+    orkige_buildtree.run(spctl_argv(app, "exec"))
 
 
-# The engine's own Python tools the editor spawns: the exporter and the Lottie
-# cook, plus the modules they import. The DIRECTORY NAME is load-bearing - the
-# exporter imports its siblings and finds its default icon relative to its own
-# __file__ - so the tree's `Util/` layout is reproduced rather than flattened.
-# The macOS bundle gets these from the editor's own build staging; this is the
-# flat (Linux/Windows) layout's copy of that decision.
-EDITOR_PYTHON_TOOLS = (
-    "orkige_export.py",
-    "cook_textures.py",
-    "macos_self_contain.py",
-    "orkige_icons.py",
-    "orkige_png.py",
-    "cook_vector_anim.py",
-)
-EDITOR_PYTHON_TOOL_MEDIA = ("media/orkige_default_icon.png",)
+# --- the browser payload a packaged editor carries --------------------------
+#
+# A web export compiles NOTHING: the wasm player is a prebuilt artifact and
+# everything else is bytes the exporter arranges. So a downloaded editor can
+# package a browser build on any host - provided it carries the player. That is
+# ONE self-contained directory at the resource root (@see
+# tools/exporter/ExportWeb.h, and EditorResourcePaths.h which probes the .wasm
+# as the marker):
+#
+#     <resources>/web/
+#         orkige_player.js / orkige_player.wasm   from the web-release tree
+#         index.html.in / pak_loader.js           committed source
+#         Media/                                  the CLASSIC engine media
+#
+# The Media/ tree is CLASSIC even inside a next-flavored editor bundle, because
+# the browser player IS the classic flavor (GLES2/WebGL). The web-release preset
+# is a classic tree, so staging its media is the same call the editor's own
+# payload uses.
+
+WEB_PAYLOAD_DIR = "web"
+WEB_PLAYER_FILES = ("orkige_player.js", "orkige_player.wasm")
+WEB_SHELL_FILES = ("index.html.in", "pak_loader.js")
+DEFAULT_WEB_BUILD_DIR = os.path.join(REPO_ROOT, "build", "web-release")
+# the neutral app icon an export falls back to when a project sets no
+# export.icon - the ONE file the in-process exporter needs from outside its own
+# code, at the resource root (@see EditorResourcePaths.h)
+DEFAULT_ICON_FILE = "orkige_default_icon.png"
 
 
-def stage_python_tools(resource_root):
-    """copy the exporter and its import closure under <resources>/Util/."""
-    target = os.path.join(resource_root, "Util")
+def web_build_dir(explicit=""):
+    """the wasm build tree the browser payload comes from: the argument, then
+    ORKIGE_WEB_BUILD, then the repo's own web-release preset tree."""
+    return (explicit or os.environ.get("ORKIGE_WEB_BUILD", "")
+            or DEFAULT_WEB_BUILD_DIR)
+
+
+def stage_web_payload(resource_root, build_dir=""):
+    """stage the browser payload under <resources>/web/, or say honestly that
+    this build carries none. Returns True when it was staged.
+
+    A packaging job with no wasm build tree is a real state - the player is
+    cross-built by its own toolchain - and the editor already refuses a web
+    export with an actionable sentence when the payload is absent, so a missing
+    tree WARNS rather than failing the night's build."""
+    source_tree = web_build_dir(build_dir)
+    player_dir = os.path.join(source_tree, "tools", "player")
+    missing = [name for name in WEB_PLAYER_FILES
+               if not os.path.isfile(os.path.join(player_dir, name))]
+    if missing:
+        warn("no browser player in '%s' (%s) - this build cannot package a web "
+             "export; build the web-release preset, or point ORKIGE_WEB_BUILD "
+             "at a tree that has one" % (player_dir, ", ".join(missing)))
+        return False
+    target = os.path.join(resource_root, WEB_PAYLOAD_DIR)
     os.makedirs(target, exist_ok=True)
-    for name in EDITOR_PYTHON_TOOLS:
-        source = os.path.join(REPO_ROOT, "Util", name)
+    for name in WEB_PLAYER_FILES:
+        shutil.copy2(os.path.join(player_dir, name),
+                     os.path.join(target, name))
+    for name in WEB_SHELL_FILES:
+        source = os.path.join(REPO_ROOT, "tools", "player", "web", name)
         if not os.path.isfile(source):
-            fail("the editor's Python tool '%s' is missing - a staged editor "
-                 "could not export" % name)
+            fail("the browser shell file '%s' is missing from the source tree"
+                 % name)
         shutil.copy2(source, os.path.join(target, name))
-    for relative in EDITOR_PYTHON_TOOL_MEDIA:
-        source = os.path.join(REPO_ROOT, "Util", relative)
-        destination = os.path.join(target, relative)
-        os.makedirs(os.path.dirname(destination), exist_ok=True)
-        if os.path.isfile(source):
-            shutil.copy2(source, destination)
+    # the browser player is the classic flavor, so its media is a classic
+    # tree's - which the web-release preset is
+    stage_engine_media(source_tree, os.path.join(target, "Media"))
+    log("staged the browser payload (%s)"
+        % orkige_buildtree.human_size(
+            orkige_buildtree.directory_size(target)))
+    return True
 
 
-def stage_flat(build_dir, platform, stage_root, editor, player):
+def stage_export_support(resource_root, web_source=""):
+    """everything a staged editor needs to package a GAME beyond the exporter
+    it links: the neutral default app icon, and the browser payload when this
+    machine has one."""
+    icon = os.path.join(REPO_ROOT, "Util", "media", DEFAULT_ICON_FILE)
+    if not os.path.isfile(icon):
+        fail("the default app icon is missing from the source tree - an export "
+             "of a project without its own icon would ship none")
+    shutil.copy2(icon, os.path.join(resource_root, DEFAULT_ICON_FILE))
+    stage_web_payload(resource_root, web_source)
+
+
+def stage_flat(build_dir, platform, stage_root, editor, player,
+               web_source=""):
     """Linux and Windows: the executables beside each other and the resources
     under share/orkige/, which is the layout the editor's own resource locator
     reads relative to SDL_GetBasePath (its executable's directory) - the SAME
@@ -1729,7 +1781,7 @@ def stage_flat(build_dir, platform, stage_root, editor, player):
         source = os.path.join(editor_media, name)
         if os.path.isfile(source):
             shutil.copy2(source, os.path.join(resources, name))
-    stage_python_tools(resources)
+    stage_export_support(resources, web_source)
     # whatever shared libraries the build placed beside the executable (on
     # Windows the vcpkg DLLs the loader needs, e.g. the Vulkan loader)
     build_output = os.path.dirname(editor)
@@ -1748,7 +1800,7 @@ def make_zip(stage_root, archive_path):
     entry). ditto where it exists, because a macOS bundle carries symlinks and
     executable bits a plain zipfile write would flatten."""
     if shutil.which("ditto"):
-        orkige_export.run(["ditto", "-c", "-k", "--sequesterRsrc",
+        orkige_buildtree.run(["ditto", "-c", "-k", "--sequesterRsrc",
                            "--keepParent", stage_root, archive_path])
         return
     parent = os.path.dirname(os.path.abspath(stage_root))
@@ -1849,7 +1901,7 @@ def make_dmg(stage_root, dmg_path, volume_name):
     try:
         if os.path.exists(dmg_path):
             os.remove(dmg_path)
-        orkige_export.run(["hdiutil", "create",
+        orkige_buildtree.run(["hdiutil", "create",
                            "-volname", volume_name,
                            "-srcfolder", stage_root,
                            "-fs", "HFS+",
@@ -1875,12 +1927,12 @@ def make_macos_image(stage_root, dmg_path, volume_name, signing=None):
     make_dmg(stage_root, dmg_path, volume_name)
     if not signing.real:
         return dmg_path
-    orkige_export.run(codesign_argv(dmg_path, signing.identity,
+    orkige_buildtree.run(codesign_argv(dmg_path, signing.identity,
                                     signing.keychain, hardened=False))
     if signing.notarizes:
         notarize(dmg_path, signing.notary)
         staple(dmg_path)
-        orkige_export.run(spctl_argv(dmg_path, "open"))
+        orkige_buildtree.run(spctl_argv(dmg_path, "open"))
     return dmg_path
 
 
@@ -1925,8 +1977,8 @@ def make_windows_installer(stage_root, installer_path, version):
         fail("no installer script at '%s'" % NSIS_SCRIPT)
     if os.path.exists(installer_path):
         os.remove(installer_path)
-    size_kb = max(1, orkige_export.directory_size(stage_root) // 1024)
-    orkige_export.run(installer_command(os.path.abspath(stage_root),
+    size_kb = max(1, orkige_buildtree.directory_size(stage_root) // 1024)
+    orkige_buildtree.run(installer_command(os.path.abspath(stage_root),
                                         os.path.abspath(installer_path),
                                         version, size_kb, tool))
     if not os.path.isfile(installer_path):
@@ -2395,7 +2447,7 @@ def make_appimage(stage_root, appimage_path, editor_name, version="",
         # FUSE has to, so the packaging never depends on FUSE either
         environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
         environment["ARCH"] = appimage_arch()
-        orkige_export.run(appimagetool_command(tool, appdir, appimage_path),
+        orkige_buildtree.run(appimagetool_command(tool, appdir, appimage_path),
                           env=environment)
     finally:
         shutil.rmtree(appdir_parent, ignore_errors=True)
@@ -2406,14 +2458,17 @@ def make_appimage(stage_root, appimage_path, editor_name, version="",
 
 
 def package(platform, build_dir, commit, date, output_dir, version="",
-            since="", repo=REPO_ROOT, signing=None, appimagetool=""):
+            since="", repo=REPO_ROOT, signing=None, appimagetool="",
+            web_build=""):
     """stage, describe and archive one platform's editor build. `version` is
     the ordered identity (composed here when the caller passes none, so a hand
     run needs no extra argument); `since` is the previous nightly's commit -
     the changelog's lower bound; `signing` is what this run can put behind a
     macOS build (ad-hoc when there is no certificate, and it says so);
     `appimagetool` is the Linux bundle's packer (resolved from the environment
-    when the caller names none)."""
+    when the caller names none); `web_build` is the wasm tree the browser
+    payload rides in from (the repo's web-release preset when unnamed, and an
+    absent one is a warning rather than a failure)."""
     signing = signing or MacosSigning()
     build_dir = os.path.abspath(build_dir)
     if not os.path.isdir(build_dir):
@@ -2423,7 +2478,7 @@ def package(platform, build_dir, commit, date, output_dir, version="",
     for path, what in ((editor, "editor"), (player, "player")):
         if not os.path.exists(path):
             fail("no %s at '%s' - build the release preset first" % (what, path))
-    build_type = orkige_export.read_cmake_cache(build_dir, "CMAKE_BUILD_TYPE")
+    build_type = orkige_buildtree.read_cmake_cache(build_dir, "CMAKE_BUILD_TYPE")
     if build_type != "Release":
         warn("packaging a %s build - distributable builds are Release"
              % (build_type or "no-build-type"))
@@ -2452,10 +2507,11 @@ def package(platform, build_dir, commit, date, output_dir, version="",
         for note in signing.notes:
             warn(note)
         staged_media, staged_editor = stage_macos(build_dir, stage_root,
-                                                  editor, player)
+                                                  editor, player, web_build)
     else:
         staged_media, staged_editor = stage_flat(build_dir, platform,
-                                                 stage_root, editor, player)
+                                                 stage_root, editor, player,
+                                                 web_build)
         strip_developer_settings(stage_root)
     if platform == "linux":
         # the oldest glibc this build can run on, MEASURED on the binary rather
@@ -2544,9 +2600,9 @@ def package(platform, build_dir, commit, date, output_dir, version="",
     # bytes changed in transit)
     write_checksum(archive_path)
     log("staged %s (%s), archive %s"
-        % (stem, orkige_export.human_size(
-            orkige_export.directory_size(stage_root)),
-           orkige_export.human_size(os.path.getsize(archive_path))))
+        % (stem, orkige_buildtree.human_size(
+            orkige_buildtree.directory_size(stage_root)),
+           orkige_buildtree.human_size(os.path.getsize(archive_path))))
 
     if platform == "windows":
         installable = make_windows_installer(
@@ -2562,7 +2618,7 @@ def package(platform, build_dir, commit, date, output_dir, version="",
         write_checksum(installable)
         log("installable %s (%s)"
             % (os.path.basename(installable),
-               orkige_export.human_size(os.path.getsize(installable))))
+               orkige_buildtree.human_size(os.path.getsize(installable))))
 
     log("editor: %s" % os.path.relpath(staged_editor, stage_root))
     log("version: %s" % (version or "(unversioned)"))
@@ -2635,13 +2691,20 @@ def verify_layout(root, platform):
         # the export cook spawns it; the build stages it beside the player, so
         # its absence means a scoped build skipped the payload staging
         problems.append("missing the texture cook tool (%s)" % cook)
-    # the exporter itself: without it a downloaded editor cannot ship a game,
-    # which is the failure this archive exists to prevent
-    tool_root = os.path.join(ui_font_dir, "Util")
-    for name in EDITOR_PYTHON_TOOLS:
-        if not os.path.isfile(os.path.join(tool_root, name)):
-            problems.append("missing Util/%s (the editor could not export)"
-                            % name)
+    # the exporter is code the editor LINKS, so nothing about it can be missing
+    # from an archive. What an export still needs from outside that code is the
+    # one neutral app icon - without it a project with no export.icon ships none
+    if not os.path.isfile(os.path.join(ui_font_dir, DEFAULT_ICON_FILE)):
+        problems.append("missing the default app icon (%s)" % DEFAULT_ICON_FILE)
+    # ...and NOTHING an interpreter would run: a downloaded editor that reaches
+    # for a script is a build whose staging regressed
+    for parent, _, files in os.walk(root):
+        for name in files:
+            if name.endswith(".py"):
+                problems.append(
+                    "ships a script (%s) - the editor spawns no interpreter"
+                    % os.path.relpath(os.path.join(parent, name),
+                                      root).replace(os.sep, "/"))
     if not os.path.isdir(media_root):
         problems.append("missing %s/" % media_label)
     else:
@@ -2659,6 +2722,25 @@ def verify_layout(root, platform):
                 problems.append("missing %s/%s" % (media_label, name))
     if not os.path.isfile(os.path.join(ui_font_dir, EDITOR_UI_FONTS[0])):
         problems.append("missing the editor's UI font (%s)" % EDITOR_UI_FONTS[0])
+    # the browser payload: a NOTE, not a problem. The wasm player is cross-built
+    # by its own toolchain, so a packaging machine may honestly not have one -
+    # and the editor refuses a web export with an actionable sentence when it is
+    # absent. A payload that IS there has to be complete, though: a half-staged
+    # one would fail inside an export instead of before it.
+    web_root = os.path.join(ui_font_dir, WEB_PAYLOAD_DIR)
+    if not os.path.isdir(web_root):
+        log("no browser payload - this build exports for the desktop only")
+    else:
+        for name in WEB_PLAYER_FILES + WEB_SHELL_FILES:
+            if not os.path.isfile(os.path.join(web_root, name)):
+                problems.append("missing %s/%s (the browser payload is "
+                                "incomplete)" % (WEB_PAYLOAD_DIR, name))
+        # the browser player is the CLASSIC flavor whatever this editor is, so
+        # its own media has to ride beside it
+        if not os.path.isdir(os.path.join(web_root, "Media", "RTShaderLib")):
+            problems.append("missing %s/Media/RTShaderLib (the browser player "
+                            "is the classic flavor and needs its own shader "
+                            "library)" % WEB_PAYLOAD_DIR)
     for name in SETTINGS_FILES:
         # every directory a settings file could have ridden into, the macOS
         # bundle's Resources included
@@ -2740,7 +2822,7 @@ def verify_dmg(dmg_path):
     if not shutil.which("hdiutil"):
         fail("no hdiutil - a macOS disk image can only be inspected on macOS")
     mountpoint = tempfile.mkdtemp(prefix="orkige-dmg-")
-    orkige_export.run(["hdiutil", "attach", dmg_path,
+    orkige_buildtree.run(["hdiutil", "attach", dmg_path,
                        "-nobrowse", "-readonly", "-mountpoint", mountpoint])
     try:
         problems = []
@@ -2806,7 +2888,7 @@ def verify_appimage(appimage_path, commit="", version="",
         commit, version, runner)
     workspace = tempfile.mkdtemp(prefix="orkige-appimage-")
     try:
-        orkige_export.run([appimage_path, "--appimage-extract"], cwd=workspace)
+        orkige_buildtree.run([appimage_path, "--appimage-extract"], cwd=workspace)
         root = os.path.join(workspace, "squashfs-root")
         if not os.path.isdir(root):
             fail("--appimage-extract wrote no squashfs-root")
@@ -2908,6 +2990,11 @@ def main():
                         help="linux: the appimagetool binary that packs the "
                              "single-file bundle, else the env "
                              + APPIMAGETOOL_ENV + " or one on PATH")
+    parser.add_argument("--web-build", default="",
+                        help="the wasm build tree the browser payload rides in "
+                             "from (else ORKIGE_WEB_BUILD, else the repo's "
+                             "build/web-release); a build without one cannot "
+                             "package a web export and says so")
     parser.add_argument("--verify-appimage", default="",
                         help="run a Linux AppImage, extract it and verify that "
                              "it is complete AND resolves its bundled "
@@ -3018,7 +3105,7 @@ def main():
             args.date or today(), output, args.version, args.since, args.repo,
             resolve_macos_signing(os.environ, args.signing_identity,
                                   args.ad_hoc_sign),
-            resolve_appimagetool(args.appimagetool))
+            resolve_appimagetool(args.appimagetool), args.web_build)
 
 
 # --- reading the workflow's own shell --------------------------------------
@@ -4102,8 +4189,8 @@ exit 0
         open(os.path.join(frameworks, "libsomething.dylib"), "w").close()
 
         recorded = []
-        real_run = orkige_export.run
-        orkige_export.run = lambda argv, **_kwargs: recorded.append(argv)
+        real_run = orkige_buildtree.run
+        orkige_buildtree.run = lambda argv, **_kwargs: recorded.append(argv)
         try:
             seal_macos_bundle(app)
             adhoc_calls = list(recorded)
@@ -4111,7 +4198,7 @@ exit 0
             seal_macos_bundle(app, MacosSigning("DEADBEEF", "/tmp/k.keychain-db"))
             signed_calls = list(recorded)
         finally:
-            orkige_export.run = real_run
+            orkige_buildtree.run = real_run
 
         # nested code first (frameworks, then the sibling tools), the bundle
         # last, then a verification - and the app's own executable is never
@@ -4578,11 +4665,9 @@ exit 0
         for name in ("orkige_editor", "orkige_player", "texcook", "VERSION",
                      "KNOWN-LIMITATIONS.md", CHANGELOG_FILE):
             open(os.path.join(tree, name), "w").close()
-        # the exporter and its import closure, which a staged editor carries
-        tool_root = os.path.join(tree, FLAT_RESOURCE_DIR, "Util")
-        os.makedirs(tool_root, exist_ok=True)
-        for name in EDITOR_PYTHON_TOOLS:
-            open(os.path.join(tool_root, name), "w").close()
+        # the one file an export needs beyond the exporter the editor links
+        open(os.path.join(tree, FLAT_RESOURCE_DIR, DEFAULT_ICON_FILE),
+             "w").close()
         # a non-executable editor is a packaging failure of its own - where
         # "executable" is a thing. Windows has no execute permission bit: every
         # readable file answers os.access(X_OK), so the check has nothing to
@@ -4665,10 +4750,7 @@ def selftest_dmg():
             open(path, "w").close()
             os.chmod(path, 0o755)
         open(os.path.join(resources, EDITOR_UI_FONTS[0]), "w").close()
-        tool_root = os.path.join(resources, "Util")
-        os.makedirs(tool_root, exist_ok=True)
-        for name in EDITOR_PYTHON_TOOLS:
-            open(os.path.join(tool_root, name), "w").close()
+        open(os.path.join(resources, DEFAULT_ICON_FILE), "w").close()
         for name in ("VERSION", CHANGELOG_FILE):
             # the resource root carries what the EDITOR reads back (its About
             # box shows the changelog it shipped with)
@@ -4691,7 +4773,7 @@ def selftest_dmg():
         link = os.path.join(stage_root, APPLICATIONS_LINK)
         os.symlink("/tmp", link)
         try:
-            orkige_export.run(["hdiutil", "create", "-volname", "Orkige",
+            orkige_buildtree.run(["hdiutil", "create", "-volname", "Orkige",
                                "-srcfolder", stage_root, "-fs", "HFS+",
                                "-format", "UDZO", "-ov", broken])
         finally:
@@ -4764,7 +4846,7 @@ def selftest_appimage():
         # names come from INSIDE, the host families do not
         workspace = os.path.join(temp, "extract")
         os.makedirs(workspace)
-        orkige_export.run([image, "--appimage-extract"], cwd=workspace)
+        orkige_buildtree.run([image, "--appimage-extract"], cwd=workspace)
         root = os.path.join(workspace, "squashfs-root")
         assert os.path.isdir(root), root
         entry = open(os.path.join(root, APPIMAGE_DESKTOP_FILE)).read()

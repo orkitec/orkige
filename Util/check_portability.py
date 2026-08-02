@@ -349,7 +349,7 @@ def run_lint():
 # --------------------------------------------------------------------------
 # Self-test: run both checks over embedded fixtures - each hazard class is
 # caught, each legit pattern passes, suppression works. Mirrors the
-# orkige_export.py --selftest pattern.
+# make_sprite_atlas.py --selftest pattern.
 # --------------------------------------------------------------------------
 SELFTEST_CASES = [
     # (name, source, expected_count, substrings)  - every substring must

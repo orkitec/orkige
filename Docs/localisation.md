@@ -195,7 +195,7 @@ one-liner.
 ### Exports
 
 The `loc/` directory rides into every exported bundle (macOS `.app`, iOS app,
-Android APK) as a config-asset: `Util/orkige_export.py` copies the whole
+Android APK) as a config-asset: the exporter copies the whole
 directory tree named by the `localisation` setting, alongside the file-valued
 config settings.
 

@@ -28,7 +28,7 @@
 #   build-dir defaults to build/android-debug. Output:
 #   <build-dir>/apk/OrkigePlayer.apk
 #
-# Project-export options (Util/orkige_export.py drives these):
+# Project-export options (the project exporter drives these):
 #   --project-payload <dir>  bundle a staged project payload as assets/project
 #                            plus the assets/orkige_project.txt marker the
 #                            player's PlayerBundle reads after extraction (the
@@ -252,7 +252,7 @@ cp -R "$REPO_ROOT/samples/hello_orkige/media"         "$STAGE/assets/assets"
 cp -R "$REPO_ROOT/samples/jumper/media"               "$STAGE/assets/jumper_media"
 cp    "$REPO_ROOT/samples/scenes/example.oscene"      "$STAGE/assets/example.oscene"
 # project export: the payload (manifest, scenes/, assets/, scripts/ - staged
-# by Util/orkige_export.py) plus the default-project marker; both extract
+# by the project exporter) plus the default-project marker; both extract
 # with the rest of the assets, PlayerBundle then finds the marker at the
 # extracted root and boots the project without any arguments
 if [ -n "$PROJECT_PAYLOAD" ]; then

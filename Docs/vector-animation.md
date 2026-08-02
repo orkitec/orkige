@@ -192,18 +192,21 @@ honesty, fixed-topology enforcement, clip lookup) and
 parent/anchor/scale/opacity composition, clip playback, pose lerp, crossfade
 ramp, statelessness, allocation stability).
 
-## Importing Lottie documents (`Util/cook_vector_anim.py`)
+## Importing Lottie documents (`core_util/VectorAnimCook`)
 
 Lottie JSON (the open, Linux-Foundation-standardized vector animation
 interchange format) is the import on-ramp for `.oanim`:
 
+The cook lives in `core_util/VectorAnimCook` — pure, headless C++ the
+editor's importer runs IN PROCESS and `tools/animcook` is the argv face of:
+
 ```sh
-python3 Util/cook_vector_anim.py character.json            # character.oanim beside it
-python3 Util/cook_vector_anim.py character.json out.oanim --extent 2.0
-python3 Util/cook_vector_anim.py plain.json --clips "idle:0:30,walk:30:60:once"
+animcook character.json            # character.oanim beside it
+animcook character.json out.oanim --extent 2.0
+animcook plain.json --clips "idle:0:30,walk:30:60:once"
 ```
 
-The cook is stdlib-only, deterministic and idempotent: the source `.json`
+The cook is deterministic and idempotent: the source `.json`
 stays the artist's living document and re-running the cook after an edit
 regenerates the same `.oanim` byte-for-byte. A document where NOTHING
 animates cooks to a plain `.oshape` instead (the output suffix switches) —
@@ -304,9 +307,10 @@ is pinned in `tests/core/VectorTessellatorTests.cpp`.
 
 **Import** — dropping/importing a Lottie `.json` (Finder drop, the asset
 browser, or MCP `import_asset`) cooks it to `.oanim` in place via
-`cook_vector_anim.py` (a subprocess behind the `python3` toolchain preflight —
-there is no C++ Lottie reader, unlike the in-process `.svg`→`.oshape` cook).
-UNLIKE the one-way `.svg` on-ramp the
+`core_util/VectorAnimCook` IN PROCESS, like the sibling `.svg`→`.oshape`
+cook — no interpreter, no subprocess, so a distributed editor imports an
+animation on a machine with nothing installed. UNLIKE the one-way `.svg`
+on-ramp the
 SOURCE `.json` is KEPT beside the cooked asset — both get an `.orkmeta` id, and
 re-importing an edited `.json` re-cooks the `.oanim` in place (the living-source,
 recook-on-reimport discipline; a document where nothing animates lands a
@@ -331,10 +335,10 @@ sidecar as a `<cook>` element (`core_project/AssetDatabase` `CookRecord`):
 ```
 
 - `sourceHash` — SHA-1 (`core_util/Sha1`) of the source `.json` bytes as
-  cooked; `toolHash` — SHA-1 of `cook_vector_anim.py` itself (the script's
-  byte content IS the cook-tool version: any script change reads as drift, no
-  version constant to forget — and because cooks are byte-deterministic, an
-  inconsequential script edit re-cooks once into identical bytes);
+  cooked; `toolHash` — `VectorAnimCook::toolRevision()`, the cook's own
+  revision: it moves whenever a change there can produce different bytes for
+  the same document, and every recorded artifact then reads as stale and
+  re-cooks on the next project scan;
 - `clips`/`extent`/`tolerance` — the per-asset **cook settings**, kept
   VERBATIM as the CLI text and applied on every (re)import/re-cook (the
   texture-import-settings pattern for cooked pairs); `settingsHash` is the

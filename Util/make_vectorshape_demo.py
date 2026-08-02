@@ -16,12 +16,28 @@ human (or the player_vectorshape selfcheck) can load.
 import hashlib
 import json
 import math
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import orkige_buildtree  # noqa: E402  (sibling stdlib helper)
 import orkige_png      # noqa: E402  (sibling stdlib helper)
 import orkige_sidecar  # noqa: E402  (sibling stdlib helper)
+
+
+def run_animcook(source, output):
+    """Cook a Lottie .json to its .oanim through the engine's own cook - the
+    `animcook` binary over core_util/VectorAnimCook, which is the same reader
+    the editor's importer runs in process. A tree that has not built it says
+    so rather than emitting a stale asset."""
+    tool = orkige_buildtree.find_host_tool("animcook")
+    if not tool:
+        raise SystemExit(
+            "no animcook binary in any desktop build tree - build one "
+            "(cmake --build --preset macos-debug --target animcook) or point "
+            "ORKIGE_ANIMCOOK at it")
+    subprocess.run([tool, str(source), str(output)], check=True)
 
 
 def fmt(value):
@@ -449,13 +465,12 @@ def main():
     # player_vectoranim selfcheck.
     hero_json = hero_lottie()
     (assets / "hero.json").write_text(hero_json)
-    # cook the source into the committed runtime .oanim (import the sibling cook
-    # so the whole project regenerates from one command - the .json stays the
-    # living document, the .oanim is the runtime form)
-    import cook_vector_anim
-    kind, oanim_text = cook_vector_anim.cook(hero_json)
-    assert kind == "oanim", "hero.json did not cook to an animation"
-    (assets / "hero.oanim").write_text(oanim_text)
+    # cook the source into the committed runtime .oanim through the engine's
+    # own cook (the `animcook` binary over core_util/VectorAnimCook - the ONE
+    # Lottie reader, which is also what the editor's importer runs in process)
+    # so the whole project regenerates from one command; the .json stays the
+    # living document, the .oanim is the runtime form
+    run_animcook(assets / "hero.json", assets / "hero.oanim")
 
     anim = SceneWriter()
     anim.add("Hero",

@@ -77,7 +77,7 @@ namespace Orkige
 		std::function<void()> createTestMesh;
 		//! Create Prefab from the primary selection (needs an open project)
 		std::function<void()> createPrefab;
-		// Build (project export via Util/orkige_export.py); platform is
+		// Build (project export via tools/exporter); platform is
 		// "macos", "ios-simulator" or "android"
 		std::function<void(std::string const& platform)> exportProject;
 		//! Build > Project Settings... (the manifest-Settings editor window)

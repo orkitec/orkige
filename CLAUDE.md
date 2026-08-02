@@ -94,7 +94,7 @@ deploy with `xcrun simctl boot/install/launch`. The `ios-device-*` presets
 for arm64 physical hardware — compiling/linking need NO certificate (Ninja
 never runs codesign at build; real signing happens at export time via the
 `export.ios.teamId` manifest + `ORKIGE_IOS_SIGNING_IDENTITY`/`_PROVISIONING_PROFILE`
-seam in `Util/orkige_export.py --platform ios`). Deploy the signed `.app` with
+seam in `orkige_export --platform ios`). Deploy the signed `.app` with
 `xcrun devicectl device install app` + `... process launch`. Live debug over
 USB is NOT wired: a device has no dependency-free debug-port TCP tunnel (unlike
 the simulator's shared loopback / Android's `adb forward`), so the game runs
@@ -128,7 +128,7 @@ available (the `ios_device` one is a signing/hardware GATE probe — it skips on
 every machine without a cert + connected iPhone + built device player).
 For a physical-phone session outside the editor, `python3 Util/orkige_device.py
 doctor|android|ios` is the one-command deploy-and-run front door (readiness
-report + build-if-stale, package via `orkige_export.py`, install, launch, stream
+report + build-if-stale, package via `orkige_export`, install, launch, stream
 logcat; default project `projects/benchmark`) — the owner runbook is
 `Docs/device-session.md`, covered by the `orkige_device_selftest` unit ctest.
 Dependencies come exclusively from `vcpkg.json` (manifest mode) — never vendor libraries
@@ -686,16 +686,16 @@ the play process (desktop target only; covered by the
 editor_project_native_play / _break ctests, per flavor — their build tree persists
 under `projects/jumper-native/native/build-<flavor>`, gitignored, so re-runs build
 incrementally).
-**Project export** (`tools/exporter/` — the `orkige_exporter` library and the
-`orkige_export` CLI every export ctest drives; the editor's Build menu still spawns the
-older `Util/orkige_export.py` until that cutover lands): packages a project as a
+**Project export** (`tools/exporter/` — the `orkige_exporter` library the editor
+LINKS and the `orkige_export` CLI every export ctest drives; Build > Export runs it
+IN PROCESS on a worker thread, no interpreter and no spawned tool): packages a project as a
 distributable macOS .app (self-contained: player/module binary + dylib closure + engine
 media + project payload; a marker file makes the app boot its bundled project with no
 arguments — `PlayerBundle` in `engine_runtime/PlayerRuntime.h`), an iOS-simulator .app or
 an Android APK (via `package_apk.sh`; native-module projects are desktop-only). Output:
 `<project>/builds/<platform>/`; bundle/package ids come from the manifest Settings
 `export.macos.bundleId` / `export.android.package` / `export.ios.bundleId`. Every export
-gets a **per-project app icon** (`export.icon` source PNG resized by `Util/orkige_icons.py`
+gets a **per-project app icon** (`export.icon` source PNG resized by `ExportIcons`
 → macOS `.icns` / iOS loose `CFBundleIconFiles` / Android launcher mipmaps; a neutral engine
 default — `Util/make_default_icon.py` → `Util/media/orkige_default_icon.png` — when unset) and
 a **launch screen** (iOS `UILaunchScreen` for native resolution, Android `windowBackground`
@@ -751,7 +751,7 @@ look when touching one:
   (references survive renames; v3 sidecars carry per-platform **texture import
   settings** — base + android/ios/web override slots incl. `format`/`quality`);
   the editor **asset browser** (folder tree, thumbnails, drag-&-drop
-  import/instantiate); `Util/make_sprite_atlas.py` + `cook_textures.py`.
+  import/instantiate); `Util/make_sprite_atlas.py`.
   **Export-time GPU texture compression** (`Docs/textures.md`): the dev loop
   always renders raw PNGs; the export cook block-compresses the payload per
   sidecar settings (`format` defaults to `auto` — desktop BCn in `.dds`, iOS
@@ -831,7 +831,7 @@ look when touching one:
   Lua-morphed blob), verified by the `player_softbody_selfcheck` ctest on both
   flavors.
   **Vector clip animation** (`.oanim`, both flavors): a Lottie `.json` cooks to
-  the native `.oanim` rig on import (`Util/cook_vector_anim.py`; the source
+  the native `.oanim` rig on import (`core_util/VectorAnimCook`, in process; the source
   `.json` is KEPT beside it and re-cooks on re-import; a document where nothing
   animates cooks to a plain `.oshape`). The pure rig lives in
   `core_util/VectorAnimAsset` (parser) + `VectorAnimEval` (preallocated,
@@ -1415,8 +1415,8 @@ look when touching one:
   units and the `editor_control` `run_editor_script` leg.
 - **CONVENTIONS to preserve**: the **config-asset** pattern (project-config files —
   `input.oactions`/`physics.olayers`/`levels.olevels` — are manifest-`Settings`-referenced,
-  NOT under `assets/`, NOT id-tracked; bundled to exports via `CONFIG_SETTING_KEYS` in
-  `orkige_export.py`); the **canonical player-loop tick order** (fenced block in
+  NOT under `assets/`, NOT id-tracked; bundled to exports via the config-setting keys
+  in `tools/exporter/ExportSettings.cpp`); the **canonical player-loop tick order** (fenced block in
   `tools/player/main.cpp`: input → scripts → tweens → physics → deferred-load); the
   **scene teardown hook** (`GameObjectManager::clear`, fenced); the **scriptable-
   component access registry** (a component declares its script surface — `self.<name>`,

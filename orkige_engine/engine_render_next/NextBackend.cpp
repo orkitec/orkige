@@ -3444,7 +3444,8 @@ namespace Orkige
 			return textureName;
 		}
 		// the containers the export cook emits for THIS flavor: BCn rides
-		// .dds, ASTC/ETC2 ride the native .oitd (@see Util/cook_textures.py)
+		// .dds, ASTC/ETC2 ride the native .oitd
+		// (@see tools/exporter/ExportTextureCook.h)
 		for(const char* extension : { ".dds", ".oitd" })
 		{
 			const String candidate = textureName.substr(0, dot) + extension;

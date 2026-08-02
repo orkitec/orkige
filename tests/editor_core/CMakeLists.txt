@@ -14,7 +14,6 @@ add_executable(orkige_editor_core_tests
     EditorLabelFormatTests.cpp
     EditorEulerTests.cpp
     PlayMirrorTests.cpp
-    PythonToolchainTests.cpp
 	EditorCameraTests.cpp
 	EditorCameraGizmoTests.cpp
 	EditorOverlayGeometryTests.cpp

@@ -21,7 +21,8 @@ every exported game.
 | The player executable | Play spawns it. Without it in the app, Play has nothing to run. |
 | The texture-cook tool | The export cook's encoder, beside the player where the tools belong. |
 | The UI fonts (icon font, mono symbols) + their licenses | The asset browser's kind icons and the terminal's block/braille glyphs. |
-| `Util/` — the engine's Python tools | The project exporter (`orkige_export.py` and the helpers it imports: `cook_textures.py`, `macos_self_contain.py`, `orkige_icons.py`, `orkige_png.py`) plus the animation cook `cook_vector_anim.py` and the neutral default app icon under `Util/media/`. They keep the source tree's directory name and sibling layout, because that is how they import each other. See [Exporting a game from a copied editor](#exporting-a-game-from-a-copied-editor). |
+| `orkige_default_icon.png` | The neutral app icon an export falls back to when a project sets no `export.icon` — the ONE file packaging a game needs beyond the exporter the editor LINKS. See [Exporting a game from a copied editor](#exporting-a-game-from-a-copied-editor). |
+| `web/` (packaged builds only) | The browser payload: the wasm player pair, the shell page and its data loader, and the CLASSIC engine media beside them. A web export compiles nothing, so an app that carries this packages a browser build on any host. A build without it refuses a web export in one sentence. |
 | The non-system dylib closure (macOS `Contents/Frameworks`) | The classic flavor links the Vulkan loader as a dylib, so a copy dies in dyld before `main` without it. |
 | `CHANGELOG.md`, `VERSION`, `KNOWN-LIMITATIONS.md` (packaged builds only) | What the release shipped with. The Help > About box shows the changelog, read once from the resource root through this same locator. A build from a source tree carries none, resolves `Missing`, and the box says so in one line — the repository's working history is not what a binary shipped with. `Util/orkige_nightly_package.py` writes these; nothing in the build tree does. |
 
@@ -48,9 +49,10 @@ vcpkg's Vulkan loader as a dylib. On macOS the build therefore copies the
 non-system dylib closure into `Contents/Frameworks`, points the editor and the
 staged executables at it (`@executable_path/../Frameworks`) and **removes every
 build-tree rpath**, so a missing library fails on the build machine rather than
-on a user's. `Util/macos_self_contain.py` is that operation — the same one a
-project export runs, so an app the build stages and an app the exporter writes
-are self-contained the same way.
+on a user's. `orkige_export self-contain` is that operation
+(`tools/exporter/ExportSelfContain.h`) — the same code a project export runs,
+so an app the build stages and an app the exporter writes are self-contained
+the same way.
 
 MoltenVK is the deliberate exception, and it is not an app concern: it is the
 platform's Vulkan *driver*, system-tier like a GPU driver anywhere else, found
@@ -99,25 +101,34 @@ Packaging a game needs three things from the engine: a player binary, the engine
 media and the texture encoder. A copied editor has all three — they are what it
 renders and plays with — so an export from one packages *the app itself*.
 
-`tools/editor/EditorExportPlan.h` is the one decision. It reads the resolved
-paths (through the locator above, never a baked constant) and answers with an
-exporter command line or one sentence:
+The exporter itself is a library the editor **links** (`tools/exporter`,
+`orkige_exporter`), run on a worker thread — there is no tool to find, no
+interpreter to preflight and nothing to stage inside the app.
+`tools/editor/EditorExportPlan.h` is the one decision left: it reads the
+resolved paths (through the locator above, never a baked constant) and answers
+with what to package FROM, or one sentence:
 
-- **Built from the source tree** — the tree's `Util/orkige_export.py` packages a
-  preset build tree: this editor's own for the desktop app, the platform's
-  preset tree for a device or browser target
-  (`--engine-build <tree>`).
-- **A copied app** — the staged `Util/orkige_export.py` packages the app's own
-  payload: `--engine-bundle <resource root> --engine-tools <tool root>`, the two
-  roots the locator answered with. The exporter reads the render flavor out of
-  the staged media (the shader tree names it), copies that `Media/` tree across
-  as one piece (it is already the export layout), takes the player and the
-  encoder from the tool root and resolves the dylib closure against the app's
-  own `Contents/Frameworks`. Everything after the sourcing is the same code, so
-  both shapes produce the same bundle.
+- **Built from the source tree** — a preset build tree: this editor's own for
+  the desktop app, the platform's preset tree for a device or browser target,
+  with the source tree beside it supplying the engine media and the module
+  build scripts.
+- **A copied app** — the app's own payload: the two roots the locator answered
+  with (the resource root holding `Media/`, the tool root holding the player
+  and the encoder). The exporter reads the render flavor out of the staged
+  media (the shader tree names it), copies that `Media/` tree across as one
+  piece (it is already the export layout) and resolves the dylib closure
+  against the app's own `Contents/Frameworks`. Everything after the sourcing
+  is the same code, so both shapes produce the same bundle.
+
+The two are mutually exclusive by construction: an export resolves files
+BESIDE ITSELF, so the engine source is ONE field on the plan — a Tree plan
+fills the repository root, a Bundle plan leaves it empty because the app IS
+the source. `tools/exporter/ExportRun.h` refuses a request that fills both,
+which is why the exporter and the payload can never come from two different
+places.
 
 Both the Build menu and the MCP `export_project` verb go through the plan, so
-the command line and the refusals have one definition.
+the sourcing and the refusals have one definition.
 
 A copy refuses, specifically, what it genuinely cannot do:
 
@@ -126,14 +137,14 @@ A copy refuses, specifically, what it genuinely cannot do:
 | iOS, Android or browser | Packaging for that platform needs that platform's player, which only an Orkige built from the engine source tree produces; export the desktop app, or build from source. |
 | A project with a native module | Compiled C++ game code needs the engine source tree and a C++ toolchain, which a downloaded app carries neither of. Projects whose behaviour is Lua scripts export as they are. |
 | Anything, on a host with no packaging target | The exporter writes a macOS app today; on another host it says so instead of producing nothing. |
-| Anything, with the tools missing | The app carries no exporter and no source tree is reachable — reinstall. |
+| A browser build, with no staged wasm player | The app carries no browser player; build the web-release preset from the engine source tree. |
 
-**Python is required for export** (and for importing an animation document):
-the exporter is a python3 script, and porting it is a separate job. The editor
-preflights the interpreter before spawning, so a missing or too-old python3 is
-one honest sentence naming what was probed, what was found and what is needed —
-`ORKIGE_PYTHON` points at a specific interpreter. Everything else a copied
-editor does, including importing an `.svg`, needs no interpreter at all.
+**Nothing on this path needs an interpreter.** The exporter is a library
+the editor links (`tools/exporter`, run on a worker thread), and both asset
+cooks — `.svg` → `.oshape` and Lottie `.json` → `.oanim` — run in process
+too. A copied editor packages a game on a machine with nothing installed,
+which is what the clean-room test asserts on the bytes: the staged app
+carries no script of any kind.
 
 ## Where the editor writes
 
@@ -174,18 +185,17 @@ environment is scrubbed: a `PATH` of `/usr/bin:/bin` (no Python), a scratch
 `HOME`, a scratch writable state directory, and a working directory outside the
 tree.
 
-A second leg asks the copy to **package** the project it has open, and accepts
-exactly two answers: a `.app` exported out of the payload the copy carries —
-which the leg then runs, from a neutral working directory inside the same clean
-room — or a refusal naming what is missing. A missing-file error naming a
-directory from the machine that built the binary fails the leg, because that is
-what a baked exporter path produces on a user's machine. The same leg asks for
-an iOS package and asserts the refusal says *why*. The interpreter is handed to
-the copy explicitly (by its real path, which is not in the denied tool
-directories): python is a machine tool for this job, like the graphics driver
-the windowed legs use, and the clean room denies the repository, not the
-machine. Where no interpreter meets the floor, the leg asserts the editor's own
-preflight message instead.
+A second leg asks the copy to **package** the project it has open, and
+accepts exactly ONE answer: a `.app` exported out of the payload the copy
+carries — which the leg then runs, from a neutral working directory inside the
+same clean room. A refusal is a failure, because the exporter is linked into
+the binary and there is nothing left for it to be missing; a missing-file error
+naming a directory from the machine that built the binary is the other failure,
+because that is what a baked path produces on a user's machine. The same leg
+asks for an iOS package and asserts the refusal says *why*. It also walks the
+staged app and fails on any `.py` it finds — the structural half of "a copy
+needs no interpreter", which holds even on a machine where one happens to be
+reachable.
 
 A third leg makes the staged shader media **unreadable** and asserts the render
 backend logs its honest warning and keeps going, rather than aborting the boot:
@@ -208,10 +218,6 @@ packaging pipeline writes there must show *that*.
   left.
 - **A signed, notarized macOS app** and the archive/installer shapes for Linux
   and Windows are packaging concerns beyond the app's own self-sufficiency.
-- **Project export needs a python3 on the machine** (>= 3.10). The exporter and
-  its helpers travel with the app, but they are Python; a C++ exporter is a
-  separate, much larger job. The preflight makes the requirement visible rather
-  than letting a spawn fail opaquely.
 - **Export on Linux and Windows** has no packaging target yet — the exporter
   writes a macOS app, an iOS bundle, an Android package or a browser build, and
   a copy on another desktop says so plainly.

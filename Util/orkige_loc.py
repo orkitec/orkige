@@ -616,7 +616,7 @@ def _report_inline_warnings(warnings):
 
 
 # ---------------------------------------------------------------------------
-# self-test (self-contained; the orkige_export.py --selftest precedent)
+# self-test (self-contained; the make_sprite_atlas.py --selftest precedent)
 # ---------------------------------------------------------------------------
 def selftest():
     # (1) placeholder boundary is total and lossless, both directions

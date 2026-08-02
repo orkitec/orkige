@@ -72,55 +72,34 @@ def read_cmake_cache(build_dir, variable):
     return ""
 
 
-def check_payload_cook(payload_dir, source_project, platform_token, flavor,
-                       repo):
+def check_payload_cook(payload_dir, cooked_names):
     """assert the export-time texture cook conditioned the bundled payload:
-    every SOURCE texture whose settings resolve to a compressed format for
-    this (platform, flavor) must ship as a container (.dds/.ktx/.oitd) with
-    its sidecar renamed along, every shipped PNG must genuinely resolve to
-    'ship PNG' (format none/auto-none - e.g. the pixel-exact gui atlas), and
-    the container count matches the source expectation."""
-    sys.path.insert(0, os.path.join(repo, "Util"))
-    import cook_textures  # noqa: E402  (the real cook's resolution rules)
+    every texture the export REPORTED cooking ships as a container
+    (.dds/.ktx/.oitd) with its sidecar renamed along, and the payload carries
+    no container the export did not report. The comparison is on STEMS: the
+    cook renames as it compresses (ball.png -> ball.dds), so the log names the
+    source and the payload carries the container.
 
-    expected = 0
-    source_assets = os.path.join(source_project, "assets")
-    if os.path.isdir(source_assets):
-        for parent, _dirs, files in os.walk(source_assets):
-            for name in files:
-                if not name.lower().endswith(".png"):
-                    continue
-                meta = os.path.join(parent, name) + ".orkmeta"
-                if not os.path.isfile(meta):
-                    continue
-                settings = cook_textures.resolve_import_settings(
-                    meta, platform_token)
-                if settings is None:
-                    continue
-                fmt, _container = cook_textures.resolve_format(
-                    settings, platform_token, flavor, True)
-                if fmt:
-                    expected += 1
-    shipped = 0
+    The expectation comes from the export's own log rather than a second
+    reading of the sidecars: the auto-format table lives in the exporter
+    (tools/exporter/ExportTextureCook.h) and restating it here would only prove
+    the copy agrees with itself. Whether the table is RIGHT is
+    ExportTextureCookTests' job; whether the export shipped what it said it
+    cooked is this one's."""
+    shipped = set()
     for parent, _dirs, files in os.walk(payload_dir):
         for name in files:
             path = os.path.join(parent, name)
-            if name.lower().endswith(".png") and \
-                    os.path.isfile(path + ".orkmeta"):
-                settings = cook_textures.resolve_import_settings(
-                    path + ".orkmeta", platform_token)
-                fmt, _container = cook_textures.resolve_format(
-                    settings, platform_token, flavor, True)
-                require(fmt is None,
-                        "shipped PNG resolves to no compression: " + name)
             if name.lower().endswith((".dds", ".ktx", ".oitd")):
                 require(os.path.isfile(path + ".orkmeta"),
                         "cooked texture kept its (renamed) sidecar: " + name)
-                shipped += 1
-    require(shipped == expected,
-            "payload ships %d compressed texture(s) (source resolves to %d) "
-            "for platform '%s'/%s" % (shipped, expected,
-                                      platform_token or "desktop", flavor))
+                shipped.add(os.path.splitext(name)[0])
+    require(shipped == cooked_names,
+            "the payload ships exactly the textures the export reported "
+            "cooking (shipped %s, reported %s)"
+            % (sorted(shipped), sorted(cooked_names)))
+    log("texture cook: %d compressed texture(s) shipped, each with its "
+        "sidecar" % len(shipped))
 
 
 def check_macos(app_dir, exe_name, run_frames, flavor):
@@ -387,27 +366,30 @@ def main():
         # is gated + documented, exercised by the exporter's selftest.
         exporter.append("--aab-unsigned-module")
     log("$ " + " ".join(exporter))
-    if subprocess.run(exporter).returncode != 0:
+    result = subprocess.run(exporter, capture_output=True, text=True)
+    print(result.stdout, end="", flush=True)
+    if result.stderr:
+        print(result.stderr, end="", flush=True)
+    if result.returncode != 0:
         fail("exporter exited nonzero")
+    # what the export SAID it cooked - the expectation the payload is held to
+    cooked_names = set(os.path.splitext(match.group(1))[0]
+                       for match in re.finditer(
+                           r"^orkige_export: cooked (\S+) \(",
+                           result.stdout or "", re.MULTILINE))
 
     name, exe_name = project_names(args.project)
     flavor = read_cmake_cache(args.engine_build,
                               "ORKIGE_RENDER_BACKEND") or "classic"
-    # the import-settings platform token the cook resolved the payload for
-    platform_token = {"macos": "", "ios-simulator": "ios",
-                      "android": "android", "android-aab": "android"}
-    token = platform_token[args.platform]
     if args.platform == "macos":
         artifact = os.path.join(args.output, name + ".app")
         check_macos(artifact, exe_name, args.run_frames, flavor)
         check_payload_cook(os.path.join(artifact, "Contents", "Resources",
-                                        "project"),
-                           args.project, token, flavor, args.repo)
+                                        "project"), cooked_names)
     elif args.platform == "ios-simulator":
         artifact = os.path.join(args.output, name + ".app")
         check_ios(artifact, flavor)
-        check_payload_cook(os.path.join(artifact, "project"),
-                           args.project, token, flavor, args.repo)
+        check_payload_cook(os.path.join(artifact, "project"), cooked_names)
     elif args.platform == "android-aab":
         artifact = os.path.join(args.output, exe_name + ".aab.module.zip")
         check_android_aab_module(artifact)
@@ -423,7 +405,7 @@ def main():
                        if entry.startswith("assets/project/")]
             archive.extractall(temp_dir, members)
             check_payload_cook(os.path.join(temp_dir, "assets", "project"),
-                               args.project, token, flavor, args.repo)
+                               cooked_names)
 
     log("artifact %s (%.1f MiB)" % (artifact,
         directory_size(artifact) / (1024.0 * 1024.0)))

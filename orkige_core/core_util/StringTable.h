@@ -42,7 +42,7 @@ namespace Orkige
 		//--- Types -------------------------------------------------
 	public:
 		//! manifest Settings key naming the project's localisation directory
-		//! (config-asset convention, bundled by orkige_export.py)
+		//! (config-asset convention, bundled by the project exporter)
 		static ORKIGE_CORE_DLL const String LOCALISATION_SETTING_KEY;
 	protected:
 	private:

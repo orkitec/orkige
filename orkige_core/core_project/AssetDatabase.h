@@ -41,7 +41,7 @@ namespace Orkige
 	//! "clamp"/"wrap", the format tokens) because this struct lives in core,
 	//! BELOW the render facade that owns the SpriteQuad sampler enums - the
 	//! engine layer maps the strings onto those enums, and the export cook
-	//! (Util/cook_textures.py + tools/texcook) consumes the format token
+	//! (tools/exporter + tools/texcook) consumes the format token
 	//! directly. The dev loop always renders the raw source pixels; only the
 	//! exported payload is compressed. See Docs/textures.md.
 	struct ORKIGE_CORE_DLL TextureImportSettings
@@ -96,7 +96,7 @@ namespace Orkige
 
 	//! @brief the per-asset cook OPTIONS of a source document that imports by
 	//! cooking to a native artifact (today: a Lottie .json cooked to .oanim by
-	//! Util/cook_vector_anim.py). Values are kept VERBATIM as strings - the
+	//! core_util/VectorAnimCook). Values are kept VERBATIM as strings - the
 	//! exact CLI argument text - so the canonical form (and its hash) never
 	//! drifts through number re-formatting; "" = unset (the cook's default).
 	//! Persisted on the SOURCE asset's sidecar and applied on every

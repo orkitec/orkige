@@ -109,9 +109,6 @@
 #endif
 
 #include "EditorApp.h"
-// the asset-test SVG import leg proves the cook needs NO interpreter: it probes
-// the python3 toolchain and asserts the import works even when that fails
-#include "PythonToolchain.h"
 #include "EditorAutosave.h"
 #include "EditorBuildInfo.h"	// --version / the About box build identity
 #include "EditorControlServer.h"
@@ -4255,16 +4252,12 @@ int main(int argc, char** argv)
 				// cook that ignored presentation inheritance would paint it
 				// black, and a CONTAINED subpath, which has to become a hole
 				// rather than a second opaque region.
-				// NO PYTHON: the ctest points ORKIGE_PYTHON at an interpreter
-				// that does not exist, so the toolchain preflight provably fails
-				// for this whole run - and the import below still has to work.
-				// That is the distributed-editor contract (a downloaded binary
-				// on a machine with no python3 can import a drawing).
+				// NO INTERPRETER is involved anywhere on this path - the editor
+				// spawns none, which is the distributed-editor contract (a
+				// downloaded binary on a machine with no python3 imports a
+				// drawing, cooks an animation and packages a game).
 				if (assetOk)
 				{
-					const Orkige::PythonProbeResult& toolchain =
-						Orkige::probePythonToolchain();
-					const bool pythonUnusable = !toolchain.ok;
 					const std::string svgSource = (std::filesystem::path(
 						assetTempRoot) / "import_shape.svg").string();
 					{
@@ -4360,9 +4353,7 @@ int main(int argc, char** argv)
 							cookedShapePath = cooked;
 							editorCore.undo(); // remove the instantiated object
 							SDL_Log("orkige_editor: asset test - SVG import "
-								"cooked in process (python3 toolchain %s)",
-								pythonUnusable ? "provably unusable"
-									: "present but unused");
+								"cooked in process (no interpreter involved)");
 						}
 					}
 				}
@@ -17146,13 +17137,19 @@ int main(int argc, char** argv)
 			endPlaySession(playSession, "editor shutdown");
 		}
 
-		// editor shutdown while an export is running: kill the exporter (a
-		// half-written bundle in builds/<platform> is simply re-exported)
+		// editor shutdown while an export is running: the export runs IN this
+		// process, so it is waited out rather than killed - it writes into the
+		// job object and touches the render system not at all. The Console line
+		// says why the window is not closing yet.
 		if (exportJob.isActive())
 		{
-			SDL_KillProcess(exportJob.process, false);
-			SDL_DestroyProcess(exportJob.process);
-			exportJob.process = nullptr;
+			console.addLine(ConsoleLevel::Info, "[export] finishing the running "
+				"export before closing...");
+			if (exportJob.worker.joinable())
+			{
+				exportJob.worker.join();
+			}
+			exportJob.running.store(false);
 		}
 
 		// free the thumbnail cache's owned CPU uploads (vector shapes) while the

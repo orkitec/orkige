@@ -55,7 +55,7 @@ export ORKIGE_IOS_PROVISIONING_PROFILE="$HOME/path/to/YourGame_Development.mobil
 Then export a signed device app:
 
 ```sh
-python3 Util/orkige_export.py --project projects/yourgame --platform ios \
+orkige_export --project projects/yourgame --platform ios \
     --engine-build build/ios-device-debug \
     --signing-identity "$ORKIGE_IOS_SIGNING_IDENTITY" \
     --provisioning-profile "$ORKIGE_IOS_PROVISIONING_PROFILE"

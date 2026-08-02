@@ -17,6 +17,8 @@
 //!                 [--output <dir>]
 //!   orkige_export self-contain --frameworks <dir> [--search <dir>]...
 //!                 [--banned <substring>]... <binary>...
+//!   orkige_export cook-textures <payload dir> --flavor next|classic
+//!                 [--platform ios|android|web]
 //! @endverbatim
 //!
 //! The engine pieces an export packages (the player binary, the engine media)
@@ -40,17 +42,17 @@
 //!
 //! `self-contain` is the same dylib-closure operation an export performs,
 //! reachable on its own so the editor BUILD can stage its app the identical
-//! way (@see ExportSelfContain.h).
+//! way (@see ExportSelfContain.h); `cook-textures` is the same block-
+//! compression pass over a payload, reachable so a test can cook a project in
+//! place and boot a runtime on it (@see ExportTextureCook.h). Both exist for
+//! the same reason: one implementation, two entry points, never a second copy.
 
-#include "ExportAndroid.h"
 #include "ExportFiles.h"
-#include "ExportIos.h"
-#include "ExportMacos.h"
 #include "ExportProcess.h"
 #include "ExportProject.h"
+#include "ExportRun.h"
 #include "ExportSelfContain.h"
-#include "ExportSettings.h"
-#include "ExportWeb.h"
+#include "ExportTextureCook.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -88,8 +90,8 @@ namespace
 	}
 
 	//! the neutral engine icon an export falls back to when a project sets no
-	//! export.icon
-	String defaultIconPath(String const & repoRoot)
+	//! export.icon ("" lets the run derive it from the repository root)
+	String defaultIconPath()
 	{
 #ifdef ORKIGE_EXPORT_DEFAULT_ICON
 		const String baked = ORKIGE_EXPORT_DEFAULT_ICON;
@@ -98,36 +100,59 @@ namespace
 			return baked;
 		}
 #endif
-		return repoRoot.empty() ? String()
-			: OrkigeExport::ExportFiles::join(repoRoot,
-				"Util/media/orkige_default_icon.png");
+		return String();
 	}
 
-	//! the machine-local signing material, read once so every resolver below
-	//! sees the same lookup a test can stand in for
-	OrkigeExport::EnvironmentMap currentEnvironment()
+	//---------------------------------------------------------
+	//! the texture cook on its own: the same operation an export performs over
+	//! its staged payload, reachable so a test can cook a project tree in place
+	//! and boot a runtime on it without packaging a whole app
+	int cookTexturesMain(std::vector<String> const & arguments)
 	{
-		OrkigeExport::EnvironmentMap environment;
-		const char * const names[] = {
-			OrkigeExport::IOS_SIGNING_IDENTITY_ENV,
-			OrkigeExport::IOS_PROVISIONING_PROFILE_ENV,
-			OrkigeExport::IOS_DISTRIBUTION_IDENTITY_ENV,
-			OrkigeExport::IOS_DISTRIBUTION_PROFILE_ENV,
-			OrkigeExport::ANDROID_KEYSTORE_ENV,
-			OrkigeExport::ANDROID_KEY_ALIAS_ENV,
-			OrkigeExport::ANDROID_KEYSTORE_PASS_ENV,
-			OrkigeExport::ANDROID_KEY_PASS_ENV,
-			OrkigeExport::BUNDLETOOL_ENV,
-		};
-		for(const char * name : names)
+		String directory;
+		String platform;
+		String flavor;
+		for(std::size_t index = 0; index < arguments.size(); ++index)
 		{
-			const char * value = std::getenv(name);
-			if(value != 0)
+			String const & argument = arguments[index];
+			const bool hasValue = index + 1 < arguments.size();
+			if(argument == "--platform" && hasValue)
 			{
-				environment[name] = value;
+				platform = arguments[++index];
+			}
+			else if(argument == "--flavor" && hasValue)
+			{
+				flavor = arguments[++index];
+			}
+			else if(argument.rfind("--", 0) == 0)
+			{
+				return fail("unknown cook-textures argument '" + argument + "'");
+			}
+			else if(directory.empty())
+			{
+				directory = argument;
+			}
+			else
+			{
+				return fail("cook-textures takes ONE payload directory");
 			}
 		}
-		return environment;
+		if(directory.empty() || flavor.empty())
+		{
+			return fail("cook-textures needs a payload directory and --flavor "
+				"next|classic (--platform \"\"|ios|android|web)");
+		}
+		OrkigeExport::TextureCookResult result;
+		String error;
+		if(!OrkigeExport::cookTexturePayload(directory, platform, flavor,
+			result, logLine, &error))
+		{
+			return fail(error);
+		}
+		// the machine-readable contract the callers key on
+		std::printf("orkige_export: COOKED %d\n", result.cooked);
+		std::fflush(stdout);
+		return 0;
 	}
 
 	//---------------------------------------------------------
@@ -197,6 +222,11 @@ int main(int argc, char ** argv)
 	if(!arguments.empty() && arguments[0] == "self-contain")
 	{
 		return selfContainMain(
+			std::vector<String>(arguments.begin() + 1, arguments.end()));
+	}
+	if(!arguments.empty() && arguments[0] == "cook-textures")
+	{
+		return cookTexturesMain(
 			std::vector<String>(arguments.begin() + 1, arguments.end()));
 	}
 
@@ -272,14 +302,20 @@ int main(int argc, char ** argv)
 			"[--search <dir>]... <binary>...\n");
 		return 2;
 	}
-	const bool knownPlatform = platform == "macos" ||
-		platform == "ios-simulator" || platform == "ios" ||
-		platform == "ios-ipa" || platform == "android" ||
-		platform == "android-aab" || platform == "web";
-	if(!knownPlatform)
+	if(!OrkigeExport::isPackagedPlatform(platform))
 	{
 		return fail("'" + platform + "' is not a platform this exporter "
 			"packages yet");
+	}
+	if(!engineBundle.empty() && !engineBuild.empty())
+	{
+		return fail("--engine-bundle and --engine-build name two different "
+			"engine sources - pass one");
+	}
+	if(engineBundle.empty() && engineBuild.empty())
+	{
+		return fail("no engine source: pass --engine-build <preset build "
+			"tree> or --engine-bundle <staged engine payload>");
 	}
 
 	OrkigeExport::ExportProject project;
@@ -290,159 +326,39 @@ int main(int argc, char ** argv)
 		return fail(error);
 	}
 
-	OrkigeExport::EngineSource source;
+	OrkigeExport::ExportRequest request;
+	request.platform = platform;
+	request.outputDirectory = output;
+	request.defaultIconPath = defaultIconPath();
+	request.cmake = cmakeProgram;
+	request.ninja = ninjaProgram;
+	request.signingIdentity = signingIdentity;
+	request.provisioningProfile = provisioningProfile;
+	request.distributionIdentity = distributionIdentity;
+	request.distributionProfile = distributionProfile;
+	request.androidKeystore = androidKeystore;
+	request.androidKeyAlias = androidKeyAlias;
+	request.bundletool = bundletool;
+	request.unsignedBundleModule = unsignedBundleModule;
+	request.environment = OrkigeExport::currentEnvironment();
 	if(!engineBundle.empty())
 	{
-		if(!engineBuild.empty())
-		{
-			return fail("--engine-bundle and --engine-build name two "
-				"different engine sources - pass one");
-		}
-		source.bundleResources = OrkigeExport::ExportFiles::absolute(
-			engineBundle);
-		source.bundleTools = engineTools.empty() ? source.bundleResources
-			: OrkigeExport::ExportFiles::absolute(engineTools);
-		if(!OrkigeExport::ExportFiles::isDirectory(source.bundleResources))
-		{
-			return fail("engine payload '" + source.bundleResources +
-				"' does not exist");
-		}
-		// a staged payload packages the desktop app and - when the browser
-		// player rides along beside it - the web build; every other platform
-		// needs that platform's player, which only its preset tree produces
-		if(platform != "macos" && platform != "web")
-		{
-			return fail("a staged engine payload packages the desktop app and "
-				"the browser build; '" + platform + "' needs that platform's "
-				"player, which comes from its own preset build tree "
-				"(--engine-build)");
-		}
+		request.source.bundleResources = engineBundle;
+		request.source.bundleTools = engineTools;
+		// a staged payload IS the engine source; the baked repository root
+		// stays out of it (@see ExportRun.h - the beside-itself invariant)
 	}
 	else
 	{
-		if(engineBuild.empty())
-		{
-			return fail("no engine source: pass --engine-build <preset build "
-				"tree> or --engine-bundle <staged engine payload>");
-		}
-		source.buildDirectory =
-			OrkigeExport::ExportFiles::absolute(engineBuild);
-		if(!OrkigeExport::ExportFiles::isDirectory(source.buildDirectory))
-		{
-			return fail("engine build tree '" + source.buildDirectory +
-				"' does not exist");
-		}
+		request.source.buildDirectory = engineBuild;
+		request.repoRoot = repoRoot;
 	}
 
-	const String outputDirectory = OrkigeExport::ExportFiles::absolute(
-		output.empty()
-			? OrkigeExport::ExportFiles::join(
-				OrkigeExport::ExportFiles::join(project.root, "builds"),
-				platform)
-			: output);
-	if(!OrkigeExport::ExportFiles::makeDirectories(outputDirectory, &error))
-	{
-		return fail(error);
-	}
-	logLine("project '" + project.name + "' -> " + outputDirectory + " (" +
-		platform + ")");
-
-	OrkigeExport::ExportEnvironment environment;
-	environment.repoRoot = repoRoot;
-	environment.defaultIconPath = defaultIconPath(repoRoot);
-	environment.log = logLine;
-	environment.runner = OrkigeExport::defaultProcessRunner();
-	environment.cmake = cmakeProgram.empty()
-		? (OrkigeExport::findOnPath("cmake").empty()
-			? String("cmake") : OrkigeExport::findOnPath("cmake"))
-		: cmakeProgram;
-	environment.ninja = ninjaProgram.empty()
-		? OrkigeExport::findOnPath("ninja") : ninjaProgram;
-
-	const OrkigeExport::EnvironmentMap machineEnvironment =
-		currentEnvironment();
 	String artifact;
-	bool packaged = false;
-	if(platform == "macos")
-	{
-		packaged = OrkigeExport::exportMacos(project, source, outputDirectory,
-			environment, artifact, &error);
-	}
-	else if(platform == "ios-simulator" || platform == "ios" ||
-		platform == "ios-ipa")
-	{
-		OrkigeExport::IosRequest request;
-		if(platform == "ios")
-		{
-			request.signing = OrkigeExport::resolveIosSigning(signingIdentity,
-				provisioningProfile, machineEnvironment);
-			if(request.signing.identity.empty() ||
-				request.signing.profile.empty())
-			{
-				return fail(String("physical-device iOS export needs a "
-					"codesigning identity AND a provisioning profile (unsigned "
-					"apps cannot install on hardware - the same gate as the "
-					"editor's Play on an iPhone). Set --signing-identity/") +
-					OrkigeExport::IOS_SIGNING_IDENTITY_ENV +
-					" and --provisioning-profile/" +
-					OrkigeExport::IOS_PROVISIONING_PROFILE_ENV +
-					", or use --platform ios-simulator. See "
-					"Docs/ios-signing.md");
-			}
-		}
-		else if(platform == "ios-ipa")
-		{
-			request.signing = OrkigeExport::resolveIosDistributionSigning(
-				distributionIdentity, distributionProfile, machineEnvironment);
-			request.distribution = true;
-			request.packageIpa = true;
-			if(request.signing.identity.empty() ||
-				request.signing.profile.empty())
-			{
-				return fail(String("App Store .ipa export needs a DISTRIBUTION "
-					"codesigning identity AND an App Store provisioning "
-					"profile. Set --distribution-identity/") +
-					OrkigeExport::IOS_DISTRIBUTION_IDENTITY_ENV +
-					" and --distribution-profile/" +
-					OrkigeExport::IOS_DISTRIBUTION_PROFILE_ENV +
-					". See Docs/store-release.md");
-			}
-		}
-		packaged = OrkigeExport::exportIos(project, source, outputDirectory,
-			request, environment, artifact, &error);
-	}
-	else if(platform == "web")
-	{
-		packaged = OrkigeExport::exportWeb(project, source, outputDirectory,
-			environment, artifact, &error);
-	}
-	else
-	{
-		OrkigeExport::AndroidRequest request;
-		request.bundle = (platform == "android-aab");
-		if(request.bundle)
-		{
-			if(!OrkigeExport::androidVersion(project.settings,
-				request.options.versionCode, request.options.versionName,
-				&error))
-			{
-				return fail(error);
-			}
-			request.options.moduleOnly = unsignedBundleModule;
-			request.options.keystore = OrkigeExport::resolveAndroidKeystore(
-				androidKeystore, androidKeyAlias, machineEnvironment);
-			request.options.bundletool = OrkigeExport::resolveBundletool(
-				bundletool, machineEnvironment, OrkigeExport::findOnPath);
-		}
-		packaged = OrkigeExport::exportAndroid(project, source, outputDirectory,
-			request, environment, artifact, &error);
-	}
-	if(!packaged)
+	if(!OrkigeExport::runExport(project, request, logLine, artifact, &error))
 	{
 		return fail(error);
 	}
-	logLine("artifact size " + OrkigeExport::humanSize(
-		OrkigeExport::ExportFiles::treeSize(artifact)));
 	// the machine-readable contract every caller keys on
 	std::printf("orkige_export: OK %s\n", artifact.c_str());
 	std::fflush(stdout);

@@ -96,9 +96,9 @@ namespace OrkigeEditor
 		Orkige::String	grade;		//!< output-grade media (per flavor)
 		//! the editor's own UI fonts (icon font, mono symbols) source dir
 		Orkige::String	uiFonts;
-		//! the directory holding the engine's Python tools (the project
-		//! exporter and the animation cook the editor spawns)
-		Orkige::String	pythonTools;
+		//! the neutral engine app icon an export falls back to when a project
+		//! sets no `export.icon`
+		Orkige::String	defaultIcon;
 		Orkige::String	player;		//!< the play-mode player executable
 		Orkige::String	texcook;	//!< the texture cook tool executable
 	};
@@ -165,22 +165,11 @@ namespace OrkigeEditor
 		//! is no tree fallback to invent one from, and the repository's own
 		//! history is not what this build shipped with.
 		EditorResourcePath changelog() const;
-		//! @brief one of the engine's Python tools by file name (the project
-		//! exporter `orkige_export.py`, the animation cook
-		//! `cook_vector_anim.py`). Bundled copies sit in `Util/` under the
-		//! resource root, keeping the file names and the sibling-import layout
-		//! the source tree has, so a staged copy runs the very same script.
-		//! @remarks Answering Missing is a real state: a build that stages no
-		//! tools and has no reachable source tree cannot run them, and the
-		//! consumer says so instead of spawning a path that is not there.
-		EditorResourcePath pythonTool(Orkige::String const & fileName) const;
-		//! @brief the SOURCE TREE's copy of a Python tool, skipping the bundle.
-		//! A tool resolves files beside itself, so one packaging a build tree
-		//! has to be the tree's own copy - a staged one would look for the
-		//! tree's files inside the app. Missing when no source tree is
-		//! reachable, which is when the bundled copy is the right answer.
-		EditorResourcePath pythonToolFromTree(
-			Orkige::String const & fileName) const;
+		//! @brief the neutral engine app icon a project export falls back to
+		//! when the project sets no `export.icon`. The ONE file an export still
+		//! needs from outside its own code, so a copied app carries it at the
+		//! resource root beside `Media/`.
+		EditorResourcePath defaultAppIcon() const;
 		//! @brief the staged BROWSER player - the wasm module a packaged
 		//! editor carries under `web/` with the rest of the browser payload
 		//! (the shell page, the data loader and the classic engine media).

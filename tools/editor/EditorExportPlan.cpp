@@ -108,27 +108,18 @@ namespace OrkigeEditor
 			return refuse("'" + inputs.platform + "' is not a platform this "
 				"editor exports for (macos, ios-simulator, ios, android, web)");
 		}
-		if(!inputs.exporter.found())
-		{
-			// neither staged nor reachable in a source tree: nothing to run,
-			// and a path that is not there would only fail opaquely later
-			return refuse("this copy of Orkige carries no project exporter "
-				"(Util/orkige_export.py) and no engine source tree is "
-				"reachable from it - reinstall Orkige, or run an editor built "
-				"from the source tree");
-		}
 		EditorExportPlan plan;
-		plan.arguments = { inputs.exporter.path, "--project",
-			inputs.projectRoot, "--platform", inputs.platform };
+		plan.platform = inputs.platform;
+		plan.projectRoot = inputs.projectRoot;
+		plan.defaultIcon = inputs.defaultIcon;
 		if(inputs.engineTree)
 		{
-			// the developer shape: package a preset build tree, exactly as the
-			// exporter is driven from a shell
+			// the developer shape: package a preset build tree, with the source
+			// tree beside it supplying the engine media and the build scripts
 			plan.source = EditorExportSource::Tree;
 			plan.engineBuild = treeFor(inputs);
+			plan.repoRoot = inputs.engineRoot;
 			plan.enginePayload = plan.engineBuild;
-			plan.arguments.push_back("--engine-build");
-			plan.arguments.push_back(plan.engineBuild);
 			plan.ok = true;
 			return plan;
 		}
@@ -174,11 +165,11 @@ namespace OrkigeEditor
 				"they are");
 		}
 		// the two roots the resource locator answered with: the staged Media/
-		// tree and the executables beside the editor
-		plan.arguments.push_back("--engine-bundle");
-		plan.arguments.push_back(inputs.bundleResources);
-		plan.arguments.push_back("--engine-tools");
-		plan.arguments.push_back(inputs.bundleTools);
+		// tree and the executables beside the editor. `repoRoot` stays EMPTY -
+		// this app IS the engine source, and a second one would only supply the
+		// same files from a directory that exists on nobody's machine.
+		plan.bundleResources = inputs.bundleResources;
+		plan.bundleTools = inputs.bundleTools;
 		plan.enginePayload = inputs.bundleResources;
 		plan.ok = true;
 		return plan;

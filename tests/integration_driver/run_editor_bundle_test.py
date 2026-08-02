@@ -20,11 +20,13 @@ that situation and drives the copy over its own MCP endpoint:
      copied project, renders a scene screenshot and PLAYS - the bundled player
      spawning and reporting a running session.
   4. ASSERT that the copy can PACKAGE a game: asked over MCP to export the
-     copied project, it either produces a runnable .app out of the engine
-     payload it carries, or refuses with a sentence naming what is missing and
-     what to do about it - never a missing-file error naming a directory from
-     the machine that built the binary. The same leg asks for an iOS package,
-     which a copy genuinely cannot produce, and asserts the refusal SAYS so.
+     copied project, it MUST produce a runnable .app out of the engine payload
+     it carries. There is no acceptable second answer - the exporter is code
+     the editor links, so nothing about it can be missing on a user's machine
+     - and the leg also asserts the staged copy carries no script at all, with
+     no interpreter reachable to run one. The same leg asks for an iOS
+     package, which a copy genuinely cannot produce, and asserts the refusal
+     SAYS so.
   5. ASSERT the unreadable-media leg: with the staged shader media made
      unreadable, the resource resolver says so out loud and nothing throws out
      of engine setup (the error_code probes). Skipped as root, where a mode of
@@ -193,7 +195,16 @@ def write_sandbox_profile(path, denied, allowed):
     the repository, the vcpkg tree and Homebrew simply are not there - and then
     re-allowing `allowed` (the staging directory, which lives inside the build
     tree). SBPL evaluates rules in order and the LAST match decides, so the
-    allow must come after the deny."""
+    allow must come after the deny.
+
+    The last rule is the narrow one that makes the allowed area REACHABLE: some
+    tools (codesign, which signs every exported macOS app) stat each ancestor
+    of the file they touch, and a subpath deny covers those ancestors too. The
+    allowance is per-DIRECTORY, never a subpath: the chain from a denied root
+    down to the staging directory becomes stat-able, and every other path under
+    a denied root stays invisible to stat as well as to read - which matters,
+    because the resource locator's developer-tree fallbacks are decided by an
+    existence probe, and a blanket metadata allowance would hand them back."""
     with open(path, "w") as profile:
         profile.write("(version 1)\n(allow default)\n(deny file-read* file-write*\n")
         for entry in denied:
@@ -201,6 +212,18 @@ def write_sandbox_profile(path, denied, allowed):
         profile.write(")\n(allow file-read* file-write*\n")
         for entry in allowed:
             profile.write('    (subpath "%s")\n' % os.path.realpath(entry))
+        profile.write(")\n(allow file-read-metadata\n")
+        traversable = set()
+        for entry in allowed:
+            directory = os.path.realpath(entry)
+            while True:
+                traversable.add(directory)
+                parent = os.path.dirname(directory)
+                if parent == directory:
+                    break
+                directory = parent
+        for directory in sorted(traversable):
+            profile.write('    (literal "%s")\n' % directory)
         profile.write(")\n")
 
 
@@ -396,28 +419,6 @@ def run_session_leg(args, stage_dir, sandbox_profile):
     return output
 
 
-def clean_room_python(denied):
-    """an interpreter meeting the toolchain floor that a COPY can reach, or ""
-    when this machine offers none inside the clean room.
-
-    Packaging a game runs the exporter, which is a python3 script; python is a
-    MACHINE tool for that job, like the graphics driver the windowed legs use,
-    and the shipped game never needs one. So the clean room denies the
-    REPOSITORY, not the interpreter: this hands the copy the very python this
-    driver runs under, by its real path (the PATH entry lives in a tool
-    directory the sandbox denies - its target does not). With none reachable,
-    the export leg asserts the editor's own honest preflight message instead."""
-    if sys.version_info < (3, 10):
-        return ""
-    real = os.path.realpath(sys.executable)
-    if not os.path.isfile(real):
-        return ""
-    for directory in denied:
-        if real.startswith(os.path.realpath(directory) + os.sep):
-            return ""
-    return real
-
-
 def reject_build_machine_paths(args, text, what):
     """the failure this whole seam exists to prevent: a copied editor must
     never answer with a path from the machine that built it"""
@@ -491,19 +492,43 @@ def check_exported_app(args, app_dir, stage_dir, sandbox_profile):
     log("the exported game runs standalone (%s)" % os.path.basename(app_dir))
 
 
-def run_export_leg(args, stage_dir, sandbox_profile, interpreter):
+def assert_no_scripts(app_root):
+    """the STRUCTURAL half of "a copy needs no interpreter": the staged app
+    carries no script at all.
+
+    The exporter and both asset cooks are code the editor links, so a `.py`
+    anywhere under the app is a staging regression - either a retired tool
+    crept back into the payload, or something started spawning one again.
+    Checking the bytes on disk catches that even on a machine where an
+    interpreter happens to be reachable, which a message-based check cannot."""
+    found = []
+    for parent, _, files in os.walk(app_root):
+        for name in files:
+            if name.endswith(".py"):
+                found.append(os.path.relpath(os.path.join(parent, name),
+                                             app_root))
+    if found:
+        fail("the staged editor carries scripts it would need an interpreter "
+             "for: " + ", ".join(sorted(found)[:10]))
+    log("the staged copy carries no script of any kind")
+
+
+def run_export_leg(args, stage_dir, sandbox_profile):
     """a copied editor asked to PACKAGE the project it has open.
 
-    Two answers are acceptable and no third one is: it exports out of the
-    engine payload it carries, or it refuses with a sentence naming what is
-    missing and what to do about it. A missing-file error naming a directory
-    from the machine that built the binary is the failure - that is what a
-    baked exporter path produces on a user's machine.
+    There is exactly ONE acceptable answer: it exports a runnable app out of
+    the engine payload it carries. The exporter is a library the editor LINKS,
+    so there is no tool to find, no interpreter to preflight and nothing that
+    could be missing on a user's machine - a refusal here means the payload
+    staging regressed, and a missing-file error naming a directory from the
+    machine that built the binary means a baked path escaped the resolver.
 
     The leg also asks for an iOS package, which a copy genuinely cannot
     produce (that needs the iOS player, which only a source build carries), and
     asserts the refusal says exactly that instead of failing generically."""
     executable = stage_app(args.editor_app, stage_dir)
+    # nothing an interpreter would run rode along - asserted on the bytes
+    assert_no_scripts(stage_dir)
     project = os.path.join(stage_dir, "project")
     shutil.copytree(args.project, project,
                     ignore=shutil.ignore_patterns("builds", ".orkige",
@@ -511,9 +536,10 @@ def run_export_leg(args, stage_dir, sandbox_profile, interpreter):
     for name in ("home", "cwd", "state", "tmp"):
         os.makedirs(os.path.join(stage_dir, name), exist_ok=True)
     token_file = os.path.join(stage_dir, "endpoint.token")
-    env = scrubbed_env(stage_dir,
-                       {"ORKIGE_PYTHON": interpreter} if interpreter else None)
-    log("export leg interpreter: %s" % (interpreter or "none reachable"))
+    # NO interpreter is handed in: PATH is scrubbed to /usr/bin:/bin and the
+    # sandbox denies the machine's tool directories, so the export below runs
+    # on nothing but the app's own code
+    env = scrubbed_env(stage_dir)
     process = launch(executable,
                      [executable, "--mcp-port", "0",
                       "--mcp-token-file", token_file],
@@ -545,19 +571,15 @@ def run_export_leg(args, stage_dir, sandbox_profile, interpreter):
                      % (needle, text))
         log("an iOS export is refused with what is missing: " + text)
 
-        # (2) the desktop app: exported from the payload the copy carries, or
-        # refused with the interpreter message - never anything else
+        # (2) the desktop app: exported from the payload the copy carries.
+        # A refusal is a FAILURE - the exporter is linked into this binary, so
+        # there is nothing left for it to be missing.
         accepted, structured, text = client.attempt("export_project",
                                                     {"platform": "macos"})
         if not accepted:
             reject_build_machine_paths(args, text, "the export refusal")
-            if "python" not in text.lower():
-                fail("the export refusal is neither an export nor an "
-                     "actionable message: " + text)
-            log("no usable interpreter in the clean room; the copy said so: "
-                + text)
-            output = stop(process)
-            return output
+            fail("the copied editor refused to package a game it carries "
+                 "everything for: " + text)
         payload = str(structured.get("engineBuild", ""))
         if not payload.startswith(os.path.realpath(stage_dir)) and \
                 not payload.startswith(stage_dir):
@@ -752,12 +774,12 @@ def main():
     os.makedirs(args.stage_root)
 
     sandbox_profile = ""
-    denied_tool_dirs = []
     if sys.platform == "darwin" and os.path.exists("/usr/bin/sandbox-exec"):
         # the repository (and with it the vcpkg tree and every build output) is
         # what a copied app must not need. Homebrew's TOOL directories go too -
-        # a copied editor has no python3 and must never reach for the developer
-        # machine's - but the rest of Homebrew stays readable, because MoltenVK
+        # a copied editor spawns no tool at all and must never reach for the
+        # developer machine's - but the rest of Homebrew stays readable,
+        # because MoltenVK
         # installs there and is the platform's Vulkan DRIVER: system-tier, like
         # a GPU driver on any other platform, and not something an app carries.
         denied = [args.repo_root]
@@ -765,7 +787,6 @@ def main():
                       "/usr/local/bin", "/usr/local/sbin"):
             if os.path.isdir(extra):
                 denied.append(extra)
-                denied_tool_dirs.append(extra)
         sandbox_profile = os.path.join(args.stage_root, "cleanroom.sb")
         write_sandbox_profile(sandbox_profile, denied, [args.stage_root])
         log("clean room: the repository and the machine's tool directories are "
@@ -782,8 +803,7 @@ def main():
 
         export_stage = os.path.join(args.stage_root, "export")
         os.makedirs(export_stage)
-        run_export_leg(args, export_stage, sandbox_profile,
-                       clean_room_python(denied_tool_dirs))
+        run_export_leg(args, export_stage, sandbox_profile)
 
         media_stage = os.path.join(args.stage_root, "unreadable")
         os.makedirs(media_stage)

@@ -379,9 +379,15 @@ namespace OrkigeExport
 		{
 			const Orkige::String tools = source.bundleTools.empty()
 				? source.bundleResources : source.bundleTools;
-			selfContain.searchDirectories.push_back(ExportFiles::join(
-				std::filesystem::path(tools).parent_path().string(),
-				"Frameworks"));
+			// step up EXPLICITLY rather than through parent_path(): the roots
+			// arrive terminated with a separator (that is what makes them
+			// concatenable), and a trailing separator makes parent_path()
+			// answer the directory itself - the search would land on
+			// Contents/MacOS/Frameworks and resolve nothing
+			const Orkige::String siblings = std::filesystem::path(
+				ExportFiles::join(tools, "..")).lexically_normal().string();
+			selfContain.searchDirectories.push_back(
+				ExportFiles::join(siblings, "Frameworks"));
 		}
 		else
 		{

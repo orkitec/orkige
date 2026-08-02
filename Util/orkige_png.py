@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Minimal stdlib-only PNG decode/encode + image ops for Orkige's asset
-pipeline (make_sprite_atlas.py, cook_textures.py). No third-party imaging - the
+pipeline (make_sprite_atlas.py, make_gui_atlas.py). No third-party imaging - the
 same zlib/struct precedent make_gui_atlas.py established, extended with a
 DECODER (gui only ever encoded).
 

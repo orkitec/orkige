@@ -125,7 +125,7 @@ namespace Orkige
 		//!   * OPTIONAL: without the key the built-in default (a single
 		//!     "Default" layer that collides with everything) applies, so a
 		//!     project with no asset behaves EXACTLY as before.
-		//!   * export bundles it when referenced - Util/orkige_export.py stages
+		//!   * export bundles it when referenced - the exporter stages
 		//!     it via CONFIG_SETTING_KEYS.
 		struct ORKIGE_ENGINE_DLL LayerConfig
 		{
