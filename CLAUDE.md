@@ -26,113 +26,82 @@ VCPKG_ROOT=$HOME/Development/vcpkg cmake --preset macos-debug   # configure (run
 cmake --build --preset macos-debug                              # build
 ```
 
-Presets: `macos-debug`, `macos-release` (**Ogre-Next — the DEFAULT render
-backend** since 2026-07-08: `ORKIGE_RENDER_BACKEND=next`, vcpkg feature
-`render-next`), `macos-debug-classic`, `macos-release-classic` (**classic
-OGRE — the compatibility flavor**), `ios-simulator-debug`, `android-debug`
-(**Ogre-Next too — the DEFAULT on mobile since the mobile flip: iOS boots
-Metal, Android boots Vulkan**), `ios-simulator-debug-classic`,
-`android-debug-classic` (the classic GLES2 mobile flavor),
-`ios-device-debug`/`ios-device-release` (**arm64 iPhoneOS — the
-physical-device player, Ogre-Next/Metal**),
-`ios-device-debug-classic`/`ios-device-release-classic` (the classic
-GLES2 device flavor) and `web-release` (**wasm32 via Emscripten — the
-browser player, the classic flavor through WebGL** — effectively a **GLES3**
-target: OGRE's EGL context creation requests GLES 3.2 first and only steps
-down on failure (`RenderSystems/GLSupport/src/EGL/OgreEGLSupport.cpp`
-`createNewContext`, the ES profile keeps `EGL_CONTEXT_MAJOR_VERSION=3`), and
-the player links `-sMAX_WEBGL_VERSION=2`, so a WebGL2/GLES3 context is what
-every current (WebGL2-capable) browser hands back; WebGL1/GLES2 is only the
-fallback where WebGL2 is genuinely absent, and the engine still gates
-GLES3-level features on a `glsl300es` probe for that floor. (A runtime
-tier-assertion test is a TODO — the requested tier is code-confirmed, not yet
-suite-asserted — see `Docs/web-export.md`.) BUILDING the wasm player needs the
-user-local emsdk, see `triplets/wasm32-emscripten.cmake`; the chainload wrapper
-`cmake/wasm32-emscripten-toolchain.cmake` carries `-fwasm-exceptions` for
-the WHOLE closure because vcpkg silently drops triplet compiler flags on
-toolchain-less platforms. EXPORTING needs none of it: a web export compiles
-nothing, it copies the prebuilt player and seals the payload into one
-`game.pak` the page fetches and the player mounts (the Android stored-APK
-mechanism on a second platform), so `orkige_export --platform web` runs on a
-machine with no emsdk at all;
-Play in Browser from the editor's target picker serves it on a loopback
-HttpServer instance AND is a live debug session: the page dials the debug
-link back in over a WebSocket the serve port upgrades — the ONE protocol,
-reversed direction — so remote logs/hierarchy/pause work; screenshot/trace/
-hot-reload refuse honestly — `Docs/web-export.md`). Output in `build/<preset>/`.
-The two flavors implement the same `engine_render` facade
-(`engine_render_next/` vs `engine_render_classic/`, same source tree). Games
-(player, hello_orkige, projects/), gui AND the editor (ImGui on
-DrawLayer2D) run on both flavors and must render the SAME image (WYSIWYG —
-enforced by the `render_backend_parity` pixel test). Classic remains fully
-supported because it OWNS what next doesn't do yet: the Vulkan/GL
-runtime RS pick and the jumper C++ sample. **Pak mounting is now
-backend-neutral** (the former classic-only BigZip): `RenderSystem::mountPak`
-mounts a zip's contents — optionally a prefix-stripped sub-tree, the APK
-`assets/` case — so scenes/textures/sounds resolve like loose files on BOTH
-flavors; because the Ogre-Next build ships no zip support, a small shared
-`engine_filesystem/MiniZip` reader (STORED + DEFLATE over the zlib already in
-the closure) backs `PakArchive` on both — `Docs/filesystem.md`. **Native game
-modules (compiled C++ game code, `projects/jumper-native/`) now build, play and
-export on BOTH flavors** — the module links the flavor's engine closure resolved
-from the engine build tree's cache (`cmake/OrkigeGameModule.cmake`) and is
-flavor-neutral game code by construction. Project
-export ships on BOTH flavors now (the exporter bundles the tree's engine
-media — classic RTSS media or the Ogre-Next Hlms shader templates —
-resolved at boot via `PlayerBundle`); the classic GLES2 mobile path lives
-on in the `-classic` mobile presets. See the flavor capability matrix in
-`Docs/render-abstraction.md`.
-Build trees are flavor-bound: reconfiguring a tree with the other backend
-would silently poison its CMake/vcpkg caches, so the root CMakeLists
-FATAL_ERRORs instead — delete the build dir or use the matching preset
-(guard `ORKIGE_RENDER_BACKEND_CONFIGURED`).
-The iOS preset cross-builds the runtime as `tools/player/OrkigePlayer.app`
-(Ogre-Next Metal by default / GLES2 on `-classic`, SDL3 UIKit main, media
-bundled in) for the arm64 simulator via `triplets/arm64-ios-simulator.cmake`;
-deploy with `xcrun simctl boot/install/launch`. The `ios-device-*` presets
-(`triplets/arm64-ios-device.cmake`, `iphoneos` sysroot) build the SAME `.app`
-for arm64 physical hardware — compiling/linking need NO certificate (Ninja
-never runs codesign at build; real signing happens at export time via the
-`export.ios.teamId` manifest + `ORKIGE_IOS_SIGNING_IDENTITY`/`_PROVISIONING_PROFILE`
-seam in `orkige_export --platform ios`). Deploy the signed `.app` with
-`xcrun devicectl device install app` + `... process launch`. Live debug over
-USB is NOT wired: a device has no dependency-free debug-port TCP tunnel (unlike
-the simulator's shared loopback / Android's `adb forward`), so the game runs
-standalone on hardware — see `Docs/ios-signing.md`.
-The Android preset (`triplets/arm64-android.cmake`, NDK 27 via
-`ANDROID_NDK_HOME`, API 28+) builds the player as `tools/player/libmain.so`
-(Ogre-Next Vulkan by default / GLES2 on `-classic`, everything incl. SDL3
-statically linked);
-`tools/player/android/package_apk.sh` assembles + signs
-`build/android-debug/apk/OrkigePlayer.apk` directly with javac/d8/aapt2/
-apksigner (no Gradle - the machine's JDK 26 predates Gradle support; SDL3's
-Java glue is taken from the vcpkg SDL source). Media rides in APK assets/;
-the manifest Setting `export.android.assets` chooses how (`stored`, the
-DEFAULT: assets stay UNCOMPRESSED so the player MOUNTS its own APK — path via
-JNI `getPackageCodePath` — and reads the bulk game media in place, no
-first-launch extraction; only the small fopen tree (manifest/scenes/scripts/
-config + shader/font media) still extracts. `compressed`: assets deflated for a
-smaller APK, extracted on first launch — the older path). The AAB path keeps
-the assets uncompressed via a bundletool BundleConfig `uncompressedGlob`. Deploy
-with `adb install`; emulator AVD `orkige_test` (android-35, arm64) exists.
-The editor's Play toolbar has a target picker (Desktop / iOS simulators -
-booted or shutdown, Play boots a shutdown one via simctl + Simulator.app
-and auto-installs the built player app / adb devices+emulators - physical
-Android phones use the same adb flow; iOS hardware becomes selectable once iOS
-signing is configured — Play on a device is a deploy-and-run: an `ios` export
-+ `devicectl` install/launch, NOT a live session, since USB has no debug-port
-tunnel, see `Docs/ios-signing.md`). `editor_play_simulator` /
-`editor_play_simulator_boot` / `editor_play_android` / `editor_play_ios_device`
-ctests cover the flows, skipping (exit 77) when no prepared device is
-available (the `ios_device` one is a signing/hardware GATE probe — it skips on
-every machine without a cert + connected iPhone + built device player).
-For a physical-phone session outside the editor, `python3 Util/orkige_device.py
-doctor|android|ios` is the one-command deploy-and-run front door (readiness
-report + build-if-stale, package via `orkige_export`, install, launch, stream
-logcat; default project `projects/benchmark`) — the owner runbook is
-`Docs/device-session.md`, covered by the `orkige_device_selftest` unit ctest.
-Dependencies come exclusively from `vcpkg.json` (manifest mode) — never vendor libraries
-into the tree and never rely on system-installed libraries.
+Output lands in `build/<preset>/`. Two render flavors implement the same
+`engine_render` facade (`engine_render_next/` vs `engine_render_classic/`, one
+source tree): **Ogre-Next is the DEFAULT** (`ORKIGE_RENDER_BACKEND=next`, vcpkg
+feature `render-next`), classic OGRE the fully supported compatibility flavor.
+
+| Preset family | Target |
+|---------------|--------|
+| `macos-debug` / `macos-release` (+ `-classic`) | desktop macOS |
+| `linux-debug-next` / `linux-release-next` / `linux-debug-classic` | desktop Linux |
+| `windows-debug` / `windows-release` / `windows-debug-classic` | desktop Windows (MSVC) |
+| `ios-simulator-debug` (+ `-classic`) | arm64 iOS Simulator, `triplets/arm64-ios-simulator.cmake` |
+| `ios-device-debug` / `ios-device-release` (+ `-classic`) | arm64 iPhoneOS, `triplets/arm64-ios-device.cmake` |
+| `android-debug` / `android-release` (+ `-classic`) | arm64 Android, `triplets/arm64-android.cmake`, NDK 27 via `ANDROID_NDK_HOME`, API 28+ |
+| `web-release` | wasm32 via Emscripten, the classic flavor through WebGL |
+| `macos-debug-noscript` / `linux-debug-noscript` | `ORKIGE_SCRIPTING=OFF` builds |
+| `linux-debug-sanitize` / `linux-debug-tsan` / `macos-debug-tsan` | sanitizer trees |
+
+On mobile, next is the default too: iOS boots Metal, Android boots Vulkan; the
+`-classic` mobile presets are the GLES2 flavor. The full per-flavor capability
+matrix is `Docs/render-abstraction.md`.
+
+Rules and hazards:
+
+- **Dependencies come exclusively from `vcpkg.json` (manifest mode)** — never
+  vendor a library into the tree, never rely on a system-installed one.
+- **Build trees are flavor-bound.** Reconfiguring a tree with the other backend
+  would silently poison its CMake/vcpkg caches, so the root CMakeLists
+  FATAL_ERRORs instead (guard `ORKIGE_RENDER_BACKEND_CONFIGURED`) — delete the
+  build dir or use the matching preset.
+- **Both flavors must render the SAME image** (WYSIWYG). Games, gui and the
+  editor (ImGui on `DrawLayer2D`) all run on both; the `render_backend_parity`
+  pixel test enforces it. Classic stays first-class — it owns the runtime
+  render-system pick (`ORKIGE_RENDERSYSTEM`), the GLES2 mobile presets, the
+  WebGL/web path and the `samples/jumper` C++ sample (gui HUD; the only
+  classic-gated `add_subdirectory` in the root CMakeLists).
+- **Signing never happens at build time.** Ninja runs no codesign; iOS device
+  builds compile and link with no certificate. Real signing happens at export
+  (`export.ios.teamId` in the manifest + the
+  `ORKIGE_IOS_SIGNING_IDENTITY`/`_PROVISIONING_PROFILE` env seam) —
+  `Docs/ios-signing.md`.
+- **BUILDING the wasm player needs the user-local emsdk**
+  (`triplets/wasm32-emscripten.cmake`); the chainload wrapper
+  `cmake/wasm32-emscripten-toolchain.cmake` carries `-fwasm-exceptions` for the
+  WHOLE closure because vcpkg silently drops triplet compiler flags on
+  toolchain-less platforms. **EXPORTING needs none of it** — a web export
+  compiles nothing, so `orkige_export --platform web` runs on a machine with no
+  emsdk. Details, incl. the WebGL2/GLES3 tier the player requests:
+  `Docs/web-export.md`.
+- Pak mounting is backend-neutral: `RenderSystem::mountPak` mounts a zip's
+  contents (optionally a prefix-stripped sub-tree — the APK `assets/` case), so
+  scenes/textures/sounds resolve like loose files on both flavors, over the
+  shared `engine_filesystem/MiniZip` reader — `Docs/filesystem.md`.
+
+Deploying: iOS builds the runtime as `tools/player/OrkigePlayer.app` (SDL3 UIKit
+main, media bundled in) — `xcrun simctl boot/install/launch` for the simulator,
+`xcrun devicectl device install app` + `... process launch` for hardware.
+Android builds `tools/player/libmain.so` (everything incl. SDL3 statically
+linked); `tools/player/android/package_apk.sh` assembles + signs the APK
+directly with javac/d8/aapt2/apksigner (no Gradle — the machine's JDK predates
+Gradle support; SDL3's Java glue comes from the vcpkg SDL source). Deploy with
+`adb install`; emulator AVD `orkige_test` (android-35, arm64) exists. The
+manifest Setting `export.android.assets` picks how media rides in the APK
+(`stored`, the default: assets stay UNCOMPRESSED so the player mounts its own
+APK and reads bulk media in place; `compressed`: deflated, extracted on first
+launch).
+
+The editor's Play toolbar has a target picker (desktop / iOS simulators — a
+shutdown one is booted via simctl and auto-installed / adb devices + emulators /
+Play in Browser). **Play on an iOS device is a deploy-and-run, not a live
+session**: USB has no dependency-free debug-port TCP tunnel (unlike the
+simulator's shared loopback and Android's `adb forward`), so hardware runs
+standalone. The `editor_play_*` ctests cover the flows and skip (exit 77) when
+no prepared device is available. Outside the editor,
+`python3 Util/orkige_device.py doctor|android|ios` is the one-command
+deploy-and-run front door (readiness report, build-if-stale, package via
+`orkige_export`, install, launch, stream logcat) — `Docs/device-session.md`.
 
 Hermeticity: this machine hosts a second (Intel-layout) Homebrew at `/usr/local`, plus
 loose orphaned headers from ~2016 (e.g. an ancient zlib.h), and clang searches
@@ -191,55 +160,46 @@ ctest --preset web             # the web tree: wasm core units under node + the
                                # skip-77 without a browser) — build web-release first
 ```
 
-Layout: `tests/core/` is the Catch2 unit suite (`orkige_core_tests`, label `unit`,
-boots the app singleton set headlessly via `CoreTestEnvironment`). The integration
-tests (label `integration`, registered in `tests/CMakeLists.txt`) reuse the
-self-checking apps — hello_orkige demos, editor self-check/resize, player — which
-verify themselves and exit non-zero on failure; that exit code is the contract.
+Layout: the `unit` label covers four headless Catch2 executables —
+`tests/core/` (`orkige_core_tests`, boots the app singleton set via
+`CoreTestEnvironment`), `tests/engine/`, `tests/editor_core/` and
+`tests/exporter/` — plus the stdlib-only lint/selftest ctests. The
+`integration` tests (registered in `tests/CMakeLists.txt`) reuse the
+self-checking apps — hello_orkige demos, editor self-check/resize, player —
+which verify themselves and exit non-zero on failure; that exit code is the
+contract. Integration tests are registered per flavor with a `_next` /
+`_classic` suffix (`editor_control_next`, …), so grep for the base name.
 
 The rule: every change ships with tests that verify it — unit tests for core
 logic, a self-check hook wired into ctest for app/runtime behavior. `ctest` must
 pass before committing.
 
+The noscript tree is preset-encoded: `cmake --preset macos-debug-noscript`,
+`ctest --preset unit-noscript`.
+
 **Local Linux rig** (`Util/linux_rig/`): `run_container.sh` builds the
 `orkige-ci-linux` image (ubuntu 24.04, clang, xvfb + Mesa lavapipe/llvmpipe,
 the CI-pinned vcpkg) and starts the long-lived `orkige-ci` container with the
-repo bind-mounted and build trees/caches in named volumes — a local twin of
-the CI Linux jobs for anything macOS can't reproduce. Every linux-* preset
-works inside (the image installs a git GUARD that refuses git targeting the
-bind-mounted repo — it would move the HOST HEAD; override
-`ORKIGE_CONTAINER_GIT=1`); the important one is `linux-debug-sanitize`: the ASan/UBSan
-gate runs on **libstdc++**, which exposes memory bugs libc++ (macOS) masks
-even under a local macOS ASan build (destroyed-container internals differ) —
-memory-safety findings from CI are reproduced and fixes proven in the
-container, and any core lifecycle/teardown change should pass a container
-sanitizer-unit run before pushing. On an arm64 host, configure with
-`-DVCPKG_INSTALL_OPTIONS="--clean-after-build;--allow-unsupported"`
-(ogre-next's supports-list has no linux&arm64 entry;
-`triplets/arm64-linux.cmake` covers the triplet). Windowed tests run the CI
-way: `xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest ...`
-with `VK_DRIVER_FILES` pointed at the lavapipe ICD.
+repo bind-mounted and build trees/caches in named volumes — a local twin of the
+CI Linux jobs for anything macOS can't reproduce. Every linux-* preset works
+inside.
 
-CI (GitHub Actions, `.github/workflows/ci.yml`): every push builds and runs the
-unit + full desktop compatibility suites for Linux classic. Linux next (Vulkan
-— the default backend) also runs the unit gate and full windowed desktop suite
-under xvfb/lavapipe, plus the
-`ORKIGE_SCRIPTING=OFF` build + unit gate (preset `linux-debug-noscript`), and a
-CI-only ASan + UBSan build running the complete unit + desktop integration
-suite. All tests are hard gates on the next flavor. The next job also builds the Android player
-for an accelerated x86_64 emulator and runs the adb Play test; macOS next builds
-and runs the complete non-device host suite, builds the arm64 iOS Simulator
-player, then runs the simulator export/Play/cold-boot/safe-area tests; Windows
-next (MSVC) runs its units and complete non-device desktop suite through a
-Mesa lavapipe software Vulkan ICD with Win32 presentation support. The local
-noscript tree is preset-encoded too: `cmake --preset macos-debug-noscript`,
-`ctest --preset unit-noscript`. A `pre-push` git
-hook (install once per clone: `Util/install_git_hooks.sh`) spawns
-`Util/watch_ci.sh` detached, which polls the push's runs and reports via macOS
-notification + `~/.orkige/ci-watch-<sha>.log` (failure = failing steps' log
-tail included). Skip once with `ORKIGE_NO_CI_WATCH=1 git push`. When a CI
-failure lands, look into fixing it promptly — a red required job blocks
-everyone's confidence in the suite.
+- **HAZARD: the repo is bind-mounted, so git inside the container moves the HOST
+  HEAD.** The image installs a git GUARD that refuses it; override only
+  deliberately with `ORKIGE_CONTAINER_GIT=1`.
+- `linux-debug-sanitize` is the one that earns the rig: the ASan/UBSan gate runs
+  on **libstdc++**, which exposes memory bugs libc++ (macOS) masks even under a
+  local macOS ASan build. Reproduce CI memory-safety findings here, and pass a
+  container sanitizer-unit run before pushing any core lifecycle/teardown change.
+- On an arm64 host, configure with
+  `-DVCPKG_INSTALL_OPTIONS="--clean-after-build;--allow-unsupported"` (ogre-next's
+  supports-list has no linux&arm64 entry; `triplets/arm64-linux.cmake` covers the
+  triplet).
+- Windowed tests run the CI way:
+  `xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest ...` with
+  `VK_DRIVER_FILES` pointed at the lavapipe ICD.
+
+CI is a hard gate on every push — see the **CI** section at the end of this file.
 
 ## Modernization ground rules
 
@@ -247,62 +207,60 @@ everyone's confidence in the suite.
   (`std::shared_ptr`, `<type_traits>`, range-for, `std::function`, `std::mutex`).
 - Renderer target is OGRE 14.x from vcpkg (port from the historical OGRE 1.7 API).
   Window/input target is SDL3 (replaces the abandoned OIS).
-- Scripting is Lua-first and LIVE, behind a backend-neutral seam: application code talks
-  ONLY to `core_script/ScriptRuntime` (always compiled; `available()` is false and errors
-  are honest in `ORKIGE_SCRIPTING=OFF` builds — both configs must keep building). The sol2
-  backend (`ScriptManager` + `Meta_Lua.h`) is an implementation detail selected in
-  `Meta.h`. NEVER write raw `#ifdef ORKIGE_LUA` outside Meta.h/Meta_Lua.h/Meta_None.h and
-  the ScriptRuntime implementation — the meta macro vocabulary (incl. `OUSERTYPE*`) is
-  complete in both backends by design. Game behavior lives in project scripts via
-  `engine_gocomponent/ScriptComponent` (per-instance sandbox, init/update/shutdown, `self`
-  + the global `world`/`shared` tables); `projects/jumper-lua/scripts/player.lua` is the
+- Scripting is Lua-first and LIVE, behind a backend-neutral seam: application code
+  talks ONLY to `core_script/ScriptRuntime` (always compiled; `available()` is
+  false and errors are honest in `ORKIGE_SCRIPTING=OFF` builds — **both configs
+  must keep building**). The sol2 backend (`ScriptManager` + `Meta_Lua.h`) is an
+  implementation detail selected in `Meta.h`. **NEVER write raw
+  `#ifdef ORKIGE_LUA` outside Meta.h/Meta_Lua.h/Meta_None.h and the ScriptRuntime
+  implementation** — the meta macro vocabulary (incl. `OUSERTYPE*`) is complete in
+  both backends by design. Lua is the ONLY embedded language; the historical
+  Python backend (`Meta_Python.h`, `core_python/`) is deleted — don't reintroduce
+  it, and don't embed another interpreter.
+- Game behavior lives in project scripts via `engine_gocomponent/ScriptComponent`
+  (per-instance sandbox, init/update/shutdown, `self` + the global
+  `world`/`shared` tables); `projects/jumper-lua/scripts/player.lua` is the
   reference script. A script is a **named component KIND** when its file ends in
-  `.component.lua` (`player.component.lua` → the component `player`,
-  `engine_gocomponent/ScriptComponentRegistry` registers a factory alias per kind on
-  project scan): several DIFFERENT scripts attach to one object, each its own container
-  key + sandbox, addable in the editor / over MCP / in scenes by kind name; a top-level
-  `properties` table auto-exposes designer-tunable fields through the ONE reflection
-  registry (Inspector, scene overrides, `self.<name>`, debug protocol, MCP —
-  `Docs/lua-api.md#script-components`). Plain `.lua` files are libraries. The low-level
-  path-bound `ScriptComponent` kind still works. The historical Python backend
-  (`Meta_Python.h`, `core_python/`) has been deleted — recoverable from history and
-  the private archive if a real consumer ever appears; don't reintroduce it.
-- Everything builds statically during the revival (`ORKIGE_STATIC` is defined globally);
-  the old `__declspec` DLL export macros in the prerequisites headers are inert.
+  `.component.lua` (`player.component.lua` → the component `player`;
+  `ScriptComponentRegistry` registers a factory alias per kind on project scan),
+  so several different scripts attach to one object, each with its own container
+  key + sandbox, addable in the editor / over MCP / in scenes by kind name. A
+  top-level `properties` table auto-exposes designer-tunable fields through the
+  ONE reflection registry. Plain `.lua` files are libraries; the low-level
+  path-bound `ScriptComponent` kind still works —
+  `Docs/lua-api.md#script-components`.
+- Everything builds statically (`ORKIGE_STATIC` is defined globally); the old
+  `__declspec` DLL export macros in the prerequisites headers are inert.
 - Keep the existing code style when editing old files: tabs, `m`-prefixed members,
   Doxygen-style comments, `#ifndef` include guards with date suffixes.
 - File copyright headers read `copyright:	(c) 2009-2026 orkitec` — one range
-  spanning the orkige heritage; new files use the standard header block
-  verbatim (created/filename/author/notice/copyright, see any engine header).
-  The owner consolidated the old kunst-stoff-era files under orkitec on
-  2026-07-15, so the whole tree carries the ONE notice.
-- Line endings are LF everywhere, enforced by `.gitattributes` (the tree was normalized
-  in a dedicated commit on 2026-07-08; the old preserve-CRLF rule is obsolete).
+  across the whole tree; new files use the standard header block verbatim
+  (created/filename/author/notice/copyright, see any engine header).
+- Line endings are LF everywhere, enforced by `.gitattributes`.
 - Commit messages: no `Co-Authored-By` trailers. Enforced by the `commit-msg`
   hook `Util/install_git_hooks.sh` installs (skip once with
   `ORKIGE_NO_COMMIT_MSG_LINT=1`).
-- Renderer containment (decided 2026-07; since 2026-07-08 **Ogre-Next is the default
-  backend** and classic OGRE the fully supported compatibility flavor): code above the
-  render backend goes through the `engine_render` facade — no `Ogre::` outside
-  `engine_graphic/`, `engine_render_classic/`, `engine_render_next/`
-  and `engine_render/RenderMath.h`. The rule is ENFORCED MECHANICALLY:
-  `render_containment_lint` (a unit-labeled ctest running `Util/check_ogre_containment.py`,
-  part of the unit and desktop presets) fails on any unsanctioned `Ogre::` spelling in
-  code; the sanctioned files/blocks (classic-only zones, math-alias residue, the marked
-  app boot blocks) live in `Util/ogre_containment.json` — a new exception needs an entry
-  there, with a reason, in the same change. Two sibling gates enforce more of
-  this file mechanically: `portability_lint` (`Util/check_portability.py`)
-  fails on Windows-macro identifiers (near/far/small/interface) and on the
-  curated std symbols used without their own include (libc++ leaks headers
-  transitively, MSVC does not — add the direct `#include`; suppress a false
-  hit with `// portability-ok: <reason>`), and `doctrine_lint`
-  (`Util/check_doctrine.py` + `Util/doctrine_lint.json`) locks the
-  ORKIGE_LUA/NOSCRIPT meta-macro seam, bans competing-product names in
-  comments/strings/Docs, gates core+engine raw filesystem access (the
-  pre-funnel backlog lives as shrink-only `legacy` entries in the json) and
-  requires the standard copyright block across core/engine/tools/tests/
-  samples (vendored + generated files sanctioned by name). Don't add reliance on features Ogre-Next
-  dropped (OGRE material scripts especially — keep materials simple/generated).
+- **Renderer containment**: code above the render backend goes through the
+  `engine_render` facade — no `Ogre::` outside `engine_graphic/`,
+  `engine_render_classic/`, `engine_render_next/` and
+  `engine_render/RenderMath.h`. ENFORCED MECHANICALLY by
+  `render_containment_lint` (`Util/check_ogre_containment.py`, unit + desktop
+  presets); the sanctioned files/blocks live in `Util/ogre_containment.json` — a
+  new exception needs an entry there, with a reason, in the same change. Don't
+  add reliance on features Ogre-Next dropped (OGRE material scripts especially —
+  keep materials simple/generated).
+- Two sibling lints enforce more of this file mechanically:
+  - `portability_lint` (`Util/check_portability.py`) fails on Windows-macro
+    identifiers (near/far/small/interface) and on curated std symbols used
+    without their own include (libc++ leaks headers transitively, MSVC does not
+    — add the direct `#include`; suppress a false hit with
+    `// portability-ok: <reason>`).
+  - `doctrine_lint` (`Util/check_doctrine.py` + `Util/doctrine_lint.json`) locks
+    the ORKIGE_LUA/NOSCRIPT meta-macro seam, bans competing-product names in
+    comments/strings/Docs, gates core+engine raw filesystem access (the
+    pre-funnel backlog lives as shrink-only `legacy` entries in the json) and
+    requires the standard copyright block across core/engine/tools/tests/samples
+    (vendored + generated files sanctioned by name).
 - Open-source hygiene: comments and user-facing strings describe the CODE, not the
   development process — no phase, work-package, or task references in comments,
   strings, or docs. Never name competing game engines or other third-party products
@@ -317,60 +275,54 @@ everyone's confidence in the suite.
 
 ## MCP endpoint (AI-agent editor control)
 
-The editor HOSTS an MCP server itself over Streamable HTTP (which retired the
-earlier `Util/orkige_mcp.py` Python stdio sidecar and its `mcp` pip dependency): one
-`POST /mcp` endpoint speaking JSON-RPC 2.0 (`initialize`, `tools/list`,
-`tools/call`, notifications). A remote MCP client (Claude Code/Desktop) connects
-to the running editor's URL — NO command to spawn, NO new vcpkg/pip dependency
-(the HTTP/1.1 server and the nested-JSON codec are hand-rolled in `core_debugnet`
-on the existing non-blocking socket layer: `HttpServer` + `Json`). Register with
+The editor HOSTS the MCP server itself over Streamable HTTP: one `POST /mcp`
+endpoint speaking JSON-RPC 2.0 (`initialize`, `tools/list`, `tools/call`,
+notifications). A remote MCP client connects to the running editor's URL — no
+command to spawn, no vcpkg/pip dependency (the HTTP/1.1 server and the
+nested-JSON codec are hand-rolled in `core_debugnet` on the existing
+non-blocking socket layer: `HttpServer` + `Json`). Register manually with
 `claude mcp add --transport http orkige http://127.0.0.1:<port>/mcp --header
 "Authorization: Bearer <token>"`.
 
-DEFAULT-ON for an interactive session, off for automated runs: an
-interactively-launched editor starts the endpoint on an EPHEMERAL loopback port,
-writes its token to the writable app dir (owner-only `mcp-endpoint.token`), and —
-while a project is open — writes the project-scope discovery file
-`<projectRoot>/.mcp.json` (the config a `claude` session started in the project
-directory auto-loads; our entry carries an `x-orkige-managed` marker so we only
-ever manage our own — a foreign/user-authored `.mcp.json` or `orkige` server is
-left untouched, pure merge-or-skip in `tools/editor/EditorMcpConfig.{h,cpp}`,
-reconciled by `EditorMcpConfigFile`, removed on clean shutdown, gitignored +
-listing-hidden + never exported). So an agent in the embedded terminal / the
-project cwd finds the editor with NO manual `claude mcp add`. Pin an explicit
-port with `--mcp-port <N> --mcp-token-file <path>`
-(aliases `--control-port` / `--control-token-file`; env `ORKIGE_MCP_PORT` /
-`ORKIGE_MCP_TOKEN_FILE`, historical `ORKIGE_CONTROL_*` still honored);
-`ORKIGE_MCP_PORT=0` (or `off`) opts OUT — no normal
-test opens a socket. `tools/editor/EditorControlServer.{h,cpp}` is the HTTP +
-JSON-RPC transport in front of the existing command handler, REUSED wholesale: a thin
-adapter over `EditorCore` + the `EditorDocument` free functions. Each verb is an
-MCP tool with a JSON `inputSchema`; a `tools/call` runs the verb on the handler's
-internal DebugMessage request/reply and returns the reply as MCP tool content
-(text + `structuredContent`, or `isError`). AUTH: mutations need the
-`Authorization: Bearer <token>` header (the editor writes the secret to the token
-file; reads are open; no token file ⇒ auth off for dev). Correlation is JSON-RPC's
-native `id`. POST-only (no SSE); long ops (play boot) return an accepted result
-and are polled via `get_state`. Play control is translated into the ONE existing
-player debug protocol — never a second player port. The 97 tools cover the whole
-agent dev-loop: scene authoring (project/scene lifecycle, hierarchy CRUD,
-get/set_component generically over the reflected property registry, prefabs),
-project-file authoring (write/read/list jailed to the project root, import_asset),
-UI/animation preview (preview_ui renders a `.oui`; preview_animation renders a
-`.oanim` pose + blend on the editor's own clock, no play session),
-running (play {scene, target}, list_play_targets, async export_project + build
-status in get_state), testing (run_tests/list_tests/get_test_results with
-build-errors-first short-circuit), live debugging (runtime_* state, pause/step,
-set_runtime_property/set_cvar/reload_script, reload_ui, screenshot_game) and
-script debugging (set/clear/list_breakpoint(s), get_debug_state as the
-break-hit poll, debug_continue/step_in/step_over/step_out, debug_break_next
-— the one-shot pause into wherever scripts execute next — and frame-scoped
-get_locals: the whole breakpoint loop headlessly, `Docs/script-debugging.md`) — all mapped onto
-existing `EditorCore` methods + the `EditorDocument` free functions. Verified headlessly by the `editor_control` ctest
-(a worker thread drives a raw socket through the whole MCP conversation incl. auth
-rejection) plus the `JsonTests`/`HttpServerTests` unit tests. Full reference:
-`Docs/mcp.md`; `Docs/mcp-workflows.md` is the agent-workflow guide (worked
-develop/test/debug walkthroughs with real call sequences).
+`tools/editor/EditorControlServer.{h,cpp}` is the transport in front of the
+existing command handler — a thin adapter over `EditorCore` + the
+`EditorDocument` free functions. Each verb is an MCP tool with a JSON
+`inputSchema` (the `toolSpecs` table); `tools/call` runs the verb through the
+handler's internal DebugMessage request/reply and returns the reply as tool
+content (text + `structuredContent`, or `isError`). The tools cover the whole
+agent dev-loop — scene and project-file authoring, prefabs, UI/animation
+preview, play, export, tests, live debugging and the script-breakpoint loop.
+`Docs/mcp.md` is the reference; `Docs/mcp-workflows.md` the worked walkthroughs.
+
+Rules that hold here:
+
+- **Nothing bypasses the verb handler.** A new tool maps onto an existing
+  `EditorCore` method or `EditorDocument` free function; it never reaches into
+  editor state directly.
+- **Play control is translated into the ONE existing player debug protocol** —
+  never a second player port.
+- POST-only (no SSE). Long ops (play boot, export) return an accepted result and
+  are polled via `get_state`. Correlation is JSON-RPC's native `id`.
+- AUTH: mutations need the `Authorization: Bearer <token>` header; reads are
+  open; no token file ⇒ auth off for dev.
+- DEFAULT-ON for an interactive session, OFF for automated runs — no normal test
+  opens a socket. An interactive editor takes an EPHEMERAL loopback port and
+  writes its token to the writable app dir (owner-only `mcp-endpoint.token`).
+  Pin explicitly with `--mcp-port <N> --mcp-token-file <path>` (aliases
+  `--control-port`/`--control-token-file`; env `ORKIGE_MCP_PORT` /
+  `ORKIGE_MCP_TOKEN_FILE`, `ORKIGE_CONTROL_*` also honored);
+  `ORKIGE_MCP_PORT=0` (or `off`) opts out.
+- While a project is open the editor writes the project-scope discovery file
+  `<projectRoot>/.mcp.json`, so an agent in the embedded terminal or the project
+  cwd finds the editor with no manual registration. **We only ever manage our
+  own entry** (marked `x-orkige-managed`) — a foreign or user-authored
+  `.mcp.json` / `orkige` server is left untouched (pure merge-or-skip in
+  `tools/editor/EditorMcpConfig.{h,cpp}`, reconciled by `EditorMcpConfigFile`).
+  Removed on clean shutdown, gitignored, listing-hidden, never exported.
+
+Verified headlessly by the `editor_control` ctest (a worker thread drives a raw
+socket through the whole conversation incl. auth rejection) plus the
+`core_debugnet` JSON/HTTP unit cases.
 
 ## Architecture
 
@@ -398,1181 +350,753 @@ Include paths are rooted at the layer directory (e.g. `#include "core_util/Strin
   NOT a global new/delete hook) and `ProfileManager` the hierarchical CPU frame
   profiler behind the `OPROFILE`/`OPROFILEFUNC` scope macros (`Profile.h`;
   static-string names, thread-local trees, allocation-free steady state, Debug
-  on / Release off until armed). Both stream to the editor over MSG_STATS /
-  MSG_PROFILE_DATA and read back over MCP `get_state`/`get_profile`; the trace
-  carries per-frame `alloc` + `phases`. `MemorySampler` stays the process-RSS
-  number. **Logging** is the always-compiled, runtime-gated diagnostic channel:
-  the tagged stream-style macros `oDebugError`/`oDebugWarning`/`oDebugMsg`
-  (`DebugMacros.h`) route through a thread-safe per-tag threshold table
-  (`LogLevels.cpp`) — levels error/warn/info/debug, gate-before-format so a
-  disabled call never evaluates its stream (a relaxed-atomic fast-reject).
-  Default error+warn on in every config, info on in Debug, debug off until
-  raised; sinks are stderr (what tests grep) + the `LogManager` file (configured
-  from XML), and an `oDebugError` also drops a `Breadcrumbs` entry. Per-tag level
-  is a live cvar `log.<tag>` (+ `log.default`), so MCP `set_cvar` raises verbosity
-  at runtime with no new verb. `SDL_Log` is NOT a diagnostic channel — it stays
-  only for selfcheck/demo output whose exact strings a test greps. See
-  `Docs/logging.md`.
+  on / Release off until armed). Both stream to the editor and read back over
+  MCP `get_state`/`get_profile`. `MemorySampler` stays the process-RSS number.
+  `CVarManager` holds the typed, live-tunable cvars (`cvar.`-prefixed manifest
+  persistence).
+- **Logging** (`core_debug`): the always-compiled, runtime-gated diagnostic
+  channel — `oDebugError`/`oDebugWarning`/`oDebugMsg` (`DebugMacros.h`) route
+  through a per-tag threshold table (`LogLevels.cpp`), gate-before-format so a
+  disabled call never evaluates its stream. Per-tag level is a live cvar
+  `log.<tag>` (+ `log.default`), so MCP `set_cvar` raises verbosity at runtime
+  with no new verb; an `oDebugError` also drops a `Breadcrumbs` entry.
+  **`SDL_Log` is NOT a diagnostic channel** — it stays only for selfcheck/demo
+  output whose exact strings a test greps. `Docs/logging.md`.
+- **Filesystem** (`core_filesystem`): the ONE runtime filesystem facade. Core and
+  engine code does not open files directly — `doctrine_lint` gates raw access and
+  the pre-funnel backlog is shrink-only. `Docs/filesystem.md`.
+- **Other core modules**: `core_project` (project/manifest, `AssetDatabase`,
+  `ProjectPaths`, `TextureSamplerTable`), `core_script` (`ScriptRuntime`),
+  `core_tween`, `core_http` (`Docs/http.md`), `core_debugnet` (the
+  editor↔player debug protocol, plus the hand-rolled `HttpServer`/`Json`/
+  `WebSocketConnection` the MCP endpoint rides on).
 - Umbrella header: `core_module/OrkigePrerequisites.h` (forward decls, export macros).
 
-**`orkige_engine/`** — the OGRE-facing layer, fully ported to OGRE 14.5 + SDL3 (gated
-behind `ORKIGE_BUILD_ENGINE`, ON for all app work). Umbrella: `engine_module/
-EnginePrerequisites.h` — backend-NEUTRAL (core prerequisites + Meta + the
-`RenderMath.h` alias vocabulary); classic-only TUs use
-`engine_module/EnginePrerequisitesClassic.h` (adds the `<Ogre.h>` umbrella).
-`engine_graphic/Engine.h` is the central engine object on BOTH render flavors (it
-dispatches: classic bootstrapper vs. the facade-only `EngineNext.h` sibling;
-`engine:hasUISystem()` returns true on BOTH flavors — gui renders through the
-`DrawLayer2D` facade, so it and the ImGui editor run on next as well; the probe
-stays only so a hypothetical future UI-less flavor could answer honestly). Classic render
-system selection via `ORKIGE_RENDERSYSTEM` env: GL3Plus default; Vulkan renders via
-MoltenVK on macOS; GLES2 on iOS/Android (the `-classic` mobile presets); Metal builds but
-can't render RTSS content — see Docs/ports.md. The next flavor boots Ogre-Next's Metal RS
-on macOS/iOS and its Vulkan RS on Android. `engine_gocomponent` bridges core game objects to the scene
-(`TransformComponent`, `ModelComponent`, `SpriteComponent` — the 2D building block: a
-textured alpha-blended quad in the XY plane, per-texture generated `Sprite/<tex>`
-material, zOrder → render-queue painter's sorting (its header documents the
-alpha/sorting rules), `RigidBodyComponent` on Jolt via the
-backend-agnostic `engine_physic/PhysicsWorld` (planar 2D mode, `teleport` moves body +
-transform even while the sim is `setPaused` — the tile-slide/"move world" API),
-`SoundComponent` on OpenAL Soft (fully-buffered WAV/CAF sfx; streamed OGG Vorbis
-music rides `engine_sound/MusicStream` — a queued-buffer ring decoded a little at a
-time via stb_vorbis, main-thread refill in `SoundManager::update`, owned by the
-`SoundManager` music registry so tracks survive scene switches; the Lua `music` table
-= play/stop/stopAll/isPlaying/setVolume/getPosition, in the "music" mixer group),
-`AnimationComponent`, `CameraComponent` (projection mode + orthoSize + 2D
-aspect fit policy `fitMode`/`designWidth`/`designHeight` serialize; ortho =
-the 2D camera, also reachable via `Engine::setCameraOrthographic`/`…Fit`),
-`LightComponent` (directional/point/spot over the `engine_render` `RenderLight`
-facade — reflected `type`/`colour`/`intensity`/`range`/`innerAngle`/`outerAngle`/
-`castsShadows`, serialized + Lua + MCP through the ONE property registry, follows
-the transform node, both flavors; `RenderWorld::setAmbientHemisphere` adds
-two-colour sky/ground ambient — native on next, a generated-shader per-pixel hemisphere sub-render-state on classic (tolerance parity);
-**PBS materials**: a `.omat` text asset — `core_util/MaterialAsset`, pure parser —
-feeds `RenderSystem::createMaterial` + `MeshInstance::setMaterial` via
-`ModelComponent`'s reflected `material` AssetRef; next = native HlmsPbs metal-rough,
-classic = RTSS Cook-Torrance metal-rough — BOTH honor normal + emissive maps
-(tolerance parity), plus `alphaTest`/`twoSided` (cutout casters shadow as
-cutouts on both flavors) and runtime per-instance accents
-(`MeshInstance::setTint`/`setEmissiveBoost`, PROP_TRANSIENT — never
-serialized) — `Docs/materials.md`,
-`demo_material` + the `material_*_right` probes per flavor;
-**image-based lighting** (opt-in, sky-sourced, both flavors):
-`RenderWorld::setImageLighting` / `engine:setImageLighting(enabled,
-intensity)` adds cubemap specular reflections + a diffuse fill to the
-generated PBS materials ON TOP of the analytic lights (never replacing
-them; default OFF and byte-stable), sourced from the SKY the enabled
-atmosphere shows — ONE path, TWO sources selected automatically: a **skybox**
-atmosphere feeds the offline-baked prefiltered chain (`make_sky_assets.py`),
-a **procedural** atmosphere feeds a runtime CPU capture of the sky (the pure
-`core_util/SkyEnvMap` — a small cubemap synthesized from the atmosphere +
-sun with a box-downsampled roughness chain, recaptured on-demand only on a
-material sun swing / colour change, never per frame; a tolerance-parity
-approximation of the AtmosphereNpr dome on next, exact for the classic
-gradient sky); colour/disabled skies have no environment and refuse with one
-honest line; the `r.iblQuality` cvar (off/low/medium/high, live re-arm,
-pure tier table `core_util/IblPreset.h` capping the chain resolution);
-next = the native HlmsPbs reflection map + diffuse-GI env feature, classic
-= the RTSS image-based-lighting stage over the same cubemap (GLES2/WebGL1
-runtime-gates the `iblReflections` capability bit) — the
-`render_facade_selfcheck` image-lighting leg + `IblPresetTests`;
-**shadows**: integrated-PSSM texture shadows on BOTH flavors (next native,
-classic via the RTSS receiver injected into the generated-material scheme —
-`ClassicBackend::applyShadowConfig`); the `r.shadowQuality` cvar
-(off/low/medium/high, live re-arm, shared tier table
-`core_util/ShadowPreset.h`), per-object `castShadows`/`receiveShadows` on
-ModelComponent (+receive on Water), arm/disarm restore-exactly, the
-night-dimmed sun skips the pass, GLES2 gates on a runtime depth-texture
-capability probe;
-**output grade** (the shared look stage, `RenderCaps::OutputGrade`, opt-in,
-default OFF, both flavors): the ONE authored output look — a contrast (S-curve) +
-saturation transform whose exact math is the pure `core_util/GradeMath`/`GradeDesc`,
-so both flavors apply the IDENTICAL curve and a dialed look stays matched across
-flavors by construction. `RenderWorld::setOutputGrade` / `engine:setGrade(enabled,
-contrast, saturation)`; next = a CompositorManager2 grade quad after the scene
-(composing with bloom + refraction), classic = a viewport compositor over the
-generated scheme (`media/grade/classic`, grade takes precedence over bloom when
-both are on — a v1 non-nesting limitation); 3D-only (2D/UI excluded, WYSIWYG),
-display-space curve, GLES2/WebGL1 classic runtime-gated like bloom — `GradeMathTests`
-+ the `render_facade_selfcheck` grade leg + the cross-flavor `grade_look_parity`
-delta-match gate;
-**baked-mesh terrain** is content, not a facade feature:
-`Util/make_terrain_mesh.py` bakes a seeded fBm heightfield into a chunked glTF
-`.glb` (per-chunk sub-meshes, 16-bit-index budget, normals + tiling UVs) plus a
-tiling ground `.omat`, rendered through this same ModelComponent path —
-`make_terrain_mesh_selftest` + `demo_terrain` per flavor;
-**animated water**: `WaterComponent` renders the shared engine water plane
-(`Util/make_water_mesh.py` → `orkige_engine/media/water/` water_plane.glb +
-tiling water_normal.png, registered like the engine font dir + bundled to
-exports) with a per-instance scrolling material through the material-facade
-siblings `RenderSystem::createWaterMaterial(RenderWaterDesc)` + a cheap per-frame
-`setWaterTime` (next = HlmsPbs two scrolling detail normals + fresnel
-transparency + deep/shallow colour; classic = transparent Blinn-Phong subset:
-one flat tint + scrolling shimmer, logged once); reflected deepColour/
-shallowColour/opacity/waveScale/waveSpeed/fresnelPower/normalTexture + sizeX/
-sizeZ (material-param animation only, no vertex work, dormant in the editor); NO
-screen-space refraction/depth-graded transmission yet (a future desktop knob
-gated on a compositor refraction pass — `Docs/materials.md`,
-`Docs/render-abstraction.md`) — `make_water_mesh_selftest` + `demo_water` per
-flavor;
-**sky/fog/day-night atmosphere**: `RenderWorld::setAtmosphere(AtmosphereDesc)`
-(pure `core_util/AtmosphereDesc.h`) + `skyDomeSupported()` capability probe +
-Lua `engine:setAtmosphere(enabled, r,g,b, density, fog)` — next = native
-`AtmosphereNpr` (atmospheric sky dome + HlmsPbs object fog + sun linkage: the
-sun is the FIRST directional `RenderLight`, its direction drives the sky, the
-atmosphere drives its colour/power; sky material media ships from the
-`ports/ogre-next` `Media/Atmosphere`), classic = fixed-function fog + a
-sky DOME evaluating the SAME shared sky model per pixel on GL3Plus/GLSL-ES3
-(`AtmosphereSunDrive`; vertex-gradient fallback on the GLES2/WebGL1/Vulkan
-floor) — `render_facade_selfcheck` atmosphere leg, `AtmosphereDescTests`;
-**`AtmosphereComponent`** is the scene-AUTHORED base atmosphere (an
-"Environment" object): `preset` (day/sunset/night/custom off the pure
-`AtmospherePreset` table) SEEDS every look field and the explicit reflected
-fields override — precedence enforced structurally by schema DECLARATION
-order, which loads AND the MCP `set_component` (now stable-sorted into
-schema order) both apply; the FIRST active instance in add order OWNS the
-world atmosphere with ONE shared hand-back snapshot restored when the last
-eligible instance goes (the take-over contract, like the window camera —
-dormant instances log one honest line), `enabled=false` is an authored "no
-sky", scripts win after boot because the component only applies on
-ownership/property change; the editor arms it too (WYSIWYG), File > New
-Scene ships a day-sky Environment beside the Main Camera, the benchmark
-vignettes carry their entry skies as authored Environments (director keeps
-the runtime drive), and the Hierarchy shows OWNER GLYPHS (camera/sun,
-accent = owns / dimmed = dormant) through the generic
-`tools/editor/OwnerComponentBadges` registry with a dormancy line in the
-Inspector — `AtmosphereComponentTests` + `editor_atmosphere`/
-`player_atmosphere` per flavor. Under the master `enabled` sit two PART
-switches `sky` (the visible dome) and `fog` (the distance fog) — either
-off leaves the other and the sun/ambient lighting drive live; default
-true, preset reseeds never clobber them, both backends honor them
-(sky=false keeps the honest no-sky-environment IBL refusal). The sun
-linkage does a ONE-SHOT re-resolve at the next frame boundary whenever a
-directional light is added/removed/retyped
-(`RenderBackend::flushAtmosphereSunReresolve`, both backends): components
-serialize alphabetically so a sun's LightComponent registers before its
-TransformComponent composes, and without the flush a load-time atmosphere
-baked a horizon-sun red sky (`fixture_atmo_sunlast` regression). The
-editor's Scene RTT is sky-less by DEFAULT via the per-target facade
-`RenderTexture::setSkyVisible` (next = sky render queue excluded from the
-target's pass, classic = skies-disabled + dome visibility bit; the Display
-dropdown "Sky" toggle / MCP view option `sky` opts back in) while Game
-Preview/inset/Play keep the real sky; fog + lighting stay GLOBAL scene
-state — only the dome is per-target, documented in `Docs/materials.md`;
-NOTE the editor renders ALL its targets inside ONE `renderOneFrame` via
-auto compositor workspaces, so per-target view effects must be
-visibility/render-queue based, never global-state bracketing), the Lua
-`ScriptComponent` — dormant unless a
-runtime ticks GameObjects, so the editor never runs scripts); `engine_input` is SDL3-based
-(KC_* keycodes preserved; `isKeyDown` reads the injectEvent-fed state, so synthetic
-SDL events work; `getTilt()` = normalized gravity direction, accelerometer-backed via
-SDL sensors where one exists, LEFT/RIGHT-key simulated on desktops — wall-clock paced,
-so selfchecks poll it condition-driven instead of frame-counting); `engine_gui` (widgets + the engine-owned `UiAtlas`/`UiRenderer` 2D renderer on the `DrawLayer2D` facade; the vendored Gorilla fork is gone) is the runtime UI system, rendering on BOTH flavors, with
-atlases generated by `Util/make_gui_atlas.py`; `engine_filesystem` is the
-backend-neutral pak-mount (`RenderSystem::mountPak` over `MiniZip`/`PakArchive`,
-both flavors — `Docs/filesystem.md`);
-`core_debugnet` (in core) carries the editor<->player debug protocol.
+**`orkige_engine/`** — the OGRE-facing layer, ported to OGRE 14.x + SDL3 (gated
+behind `ORKIGE_BUILD_ENGINE`, ON for all app work).
 
-**Tools & apps**: `tools/editor` — the Orkige editor (docked ImGui UI, RTT scene panel,
-gizmos, undo/redo in the UI-agnostic `orkige_editor_core`, native macOS menu + file
-dialogs, play/pause/step/stop spawning `tools/player` with live remote
-hierarchy/inspector over the debug protocol; Play targets: desktop, iOS simulators,
-adb devices). The **Preview panel** shows the scene through its own
-`CameraComponent` at REAL device presets (`core_util/DevicePreset.h` — iPhones/
-iPads/Pixels/foldables, resolution + safe-area + procedural frame with genuinely
-occluding notch/punch-hole), `.oui` overlay picker, an animate-materials clock
-(water look-dev without Play), a selected-camera PiP inset in the Scene view and
-the `preview_game` MCP verb; when no camera exists it falls back to the player's
-EXACT default camera (with a hint). Its **Edit UI mode** is the visual `.oui`
-editor's canvas (selection outlines / resize + anchor grips, all clipped to the
-canvas image rect); the tool surface — widget tree, properties, anchor gizmo,
-align/distribute, add/delete and undo/redo/save — is the separate dockable
-**UI Editor panel** (a tab beside the Inspector by default), fed the one edit
-session through `UiEditorPanelLink`, with global Cmd/Ctrl+Z routed to the
-GuiLayout document while that panel or the canvas holds focus. Editor-only visuals (grid, gizmos, overlays)
-are masked out of that RTT via the facade visibility-mask route
-(`MeshInstance::setVisibilityFlags` + `RenderTexture::setVisibilityMask`, editor
-bit 22). Reserved output dirs (`builds/`, `.orkige/`, `native/build*`, VCS) are
-excluded from every project walker via `core_project/ProjectPaths.h`.
-The Scene panel's **Display dropdown** toggles the reference grid, collider
-wireframes (box/sphere/capsule at the body's world pose), renderable AABBs
-and all-camera frames (every frustum + the amber design-aspect rect of the
-active Preview panel preset, via `CameraFit`) — each a facade line-list mesh
-on the camera-gizmo path (pure builders in `tools/editor/
-EditorOverlayGeometry.h`), editor-only visibility, signature-gated rebuilds
-with the `destroyLineListMesh`/`lineListMeshExists` lifecycle siblings so
-rebuilds never leak meshes; persisted in the view ini, MCP
-`get_view_options`/`set_view_option` — `editor_overlays` per flavor +
-`EditorOverlayGeometryTests`. The dropdown (an eye-glyph button) also
-carries a **View Mode radio** (Shaded everywhere; Wireframe REAL on BOTH
-flavors — classic per-camera polygon mode, next via the scene-vs-UI
-datablock-tier split (`RenderWorld::setSceneWireframe`, polygon-lane-only
-flip with byte-exact restore, armed only when the Scene view renders);
-Shaded+Wireframe REAL on both via OVERLAY ITEMS — each scene mesh gains a
-companion on one shared unlit wireframe material, coincident depth
-LESS_EQUAL/no-write so no bias is needed, editor-only visibility bit,
-skinned meshes sit out v1, cap `SceneWireframeOverlayView`) and
-a **Lighting toggle** (both flavors: `RenderWorld::setLightingSuppressed`
-— snapshot every light + flat-white ambient, byte-exact restore). Both
-ride the ONE-GAME-VIEW INVARIANT: the Scene view and Preview are
-center-pane tabs that NEVER both render a frame
-(`RenderTexture::setAutoRender` freezes the non-renderer's last texture;
-a split layout dims it with a paused note, most-recently-focused wins —
-pure `EditorViewModes` chooser), so lighting-off arms exactly when the
-Scene view is the frame's renderer — `editor_viewmode` per flavor +
-`EditorViewModesTests`. On macOS the editor builds as a proper `Orkige.app` bundle (Dock
-icon generated by `Util/make_editor_icon.py` + iconutil at build time; the
-settings inis live in the bundle's `Resources/` via SDL_GetBasePath; Linux keeps
-the bare `orkige_editor` executable — ctest reaches both through the target name). Familiar shortcuts: Cmd/Ctrl+P toggles Play/Stop, the Hierarchy has a
-filter box, F2/Delete/Cmd+D work from Scene panel AND focused Hierarchy, snap steps are
-editable via the toolbar popover, and an interactive launch reopens the last project
-(all persisted in `orkige_editor_view.ini`; automated runs are exempt via the
-`automatedRun` env probe — they start blank, render vsync-free and never touch the
-user's recents). `tools/player` — the standalone runtime (scene/project loader, debug
-server). The player CLI contract (`[scene.oscene] [--project <dir>] [--debug-port N]`)
-and the runtime side of the debug protocol live in `engine_runtime/PlayerRuntime.h`
-(`PlayerArguments` + `PlayerDebugLink`) — the player and native game modules share them.
-`samples/`: hello_orkige (feature demo with env-hooked self-checks), jumper
-(textured jump-and-run with gui HUD). `projects/` holds .orkproj project folders —
-`projects/jumper-lua/` is the jumper reimplemented in pure Lua (ScriptComponent, zero
-compiled game code; verified by the player_jumper_lua_selfcheck ctest);
-`projects/roller/` is the 2D tier proven end to end — a physics-puzzle prototype
-(tilt-gravity ball + sliding-tile "move world" mode; assets AND the .oscene generated by
-`Util/make_roller_assets.py`, HUD atlas by `make_gui_atlas.py`; verified by the
-player_roller_selfcheck ctest, which probes that a tile slide moves sprites AND
-collision bodies while the sim is paused);
-`projects/benchmark/` is the **autonomous 3D+2D feature-tour showcase that doubles as a
-machine benchmark** — a `LevelManager` sequence of self-running vignette scenes (terrain
-vista with a day→night sun arc + PSSM shadows + weather, water lake, night point-light
-ramp, 3D-particle swarm, instance field, flat-colour 2D showcase, `.oui`/localisation GUI,
-physics cascade with a time-scale hitstop, results card) driven with NO input by one
-shared `director.component.lua` (frame-count pacing scaled by the `benchmark.sceneScale`
-cvar), each scored by the `BenchmarkRecorder`; everything is generated by
-`Util/make_benchmark_assets.py`, run over MCP via `play` + `get_benchmark_results`,
-verified by the player_benchmark_vista ctest (both flavors — the classic 2D-composite
-RTSS-transient fix cleared the long-sequence fault, see `Docs/benchmark.md`);
-`projects/gallery/` is the **UI widget showroom** — every widget kind across
-tabbed `.oui` screens (wrapped labels, multi-line entry, the 1000-row
-virtualized list, modals/toasts/dialogs, safe-area HUD corners), a small Lua
-driver wiring tabs and data, verified by the `player_gallery_selfcheck` ctest
-(both flavors);
-`projects/jumper-native/` is the jumper as a **native project module**: manifest
-Settings `native.target`/`native.cmakeDir`/`native.buildDir`
-(`core_project/NativeModule.h`) mark a project as carrying compiled C++ game code
-under `native/`, built as a standalone CMake project against the engine build tree
-via `cmake/OrkigeGameModule.cmake`. The engine is consumed as ONE
-`find_package(Orkige)` build-tree package (`cmake/OrkigePackage.cmake`, no install
-step) exporting two targets sharing ONE **ABI-stamp** version — `Orkige::Core`
-(OGRE-free) and `Orkige::Engine` (pulls Core); the module does
-`find_package(Orkige <stamp> EXACT REQUIRED)` so a module compiled against newer
-engine headers than the stale library it links is a HARD CONFIGURE ERROR, never
-the JumperNative runtime null-deref (the stamp is a git-INDEPENDENT content
-fingerprint of the engine source surface — `orkige_core/`, `orkige_engine/` and
-the cmake files defining how a module compiles and links, hashed from the bytes
-on disk, `cmake/OrkigeAbiStamp.cmake`; the editor's compile-on-Play AND the
-exporter both flow through it, so a stale tree refuses rather than shipping a
-crash — the `module_abi_mismatch` ctest is the regression proof, `Docs/native-modules.md`;
-the editor/player/tests build in the engine graph itself and never drift, so
-they stay off find_package). The SAME package has a RELOCATABLE form — the
-**SDK pack** (`cmake/OrkigeSdk.cmake`, `cmake --install <build> --prefix <dir>
---component sdk`): one self-contained desktop directory (layer-rooted
-`include/`, the two archives, engine `media/`, the cmake surface and the
-`vcpkg/` closure the archives were linked against), so compiled C++ game code
-builds on a machine with NO engine checkout and NO build tree. `cmake/
-OrkigeGameModule.cmake` is ONE helper serving both forms: it detects a pack by
-the `OrkigeSdkPack.cmake` beside it (realized from a template at install time,
-so a source tree can never carry it) and takes the package dir, closure prefix,
-flavor, scripting backend, compile contract, OS floor and include roots from
-the pack. **The EDITOR consumes one**: `NativeModule::resolveEngineSdk` (with
-`tools/editor/EditorEngineSdk.h` binding it to this build's constants) is the
-ONE seam compile-on-Play and export share — the engine BUILD TREE when one is
-reachable (the developer case, unchanged and deliberately first), else the pack
-installed at `<writable state>/sdk/<flavor>` (a signed bundle is read-only, so
-that is the only place one can live; per flavor because a pack is flavor-bound).
-Each form gets its own module tree (`native/build-sdk-<flavor>`, and the
-`-export` siblings) since a tree is bound to the engine its cache names. The two
-prerequisites are reported as TWO, in the Console and over MCP alike: a missing
-pack is "the SDK for this build is not installed" (something to install through
-Orkige), a missing `cmake`/`ninja` names the programs to install on the machine
-— **we ship the engine, never a toolchain** — and the other flavor's pack is
-refused for what it is. `editor_bundle_native` per flavor is the acceptance
-proof: a COPIED editor plus a pack builds, plays and packages
-`projects/jumper-native` in a clean room denying the repository, the engine
-build tree and the vcpkg root, with cmake+ninja handed back as individual files
-(a native build genuinely needs a toolchain — the ONE allowance that leg makes,
-and the reason it is not a leg of `editor_bundle`).
-**ONE CONFIGURATION all the way through** — the closure half shipped is the one
-the archives were built in, and a module in another build type is REFUSED by
-name: a dependency's headers compile differently per config (Jolt's asserts
-follow `NDEBUG`, so a Debug archive calls symbols only the debug library
-defines), and on MSVC `/MD` vs `/MDd` cannot share an image at all. A
-distribution pack comes from a Release tree (~200 MB); a Debug pack is a
-development artifact (~2 GB). Whole-header-set install (there is no
-public/private split to carve), but NO host executables (the closure's
-`tools`/`bin`: a module build invokes none, and a downloaded archive's
-executables meet Gatekeeper) and no ports a game never links (the editor/test
-dependencies, and the other flavor's OGRE — pruned exactly, through vcpkg's own
-installed-file manifests). The **contract is CAPTURED off the engine targets**,
-never restated — both halves of it: the compile DEFINITIONS (root
-`COMPILE_DEFINITIONS` + each archive's PUBLIC ones; a hand list had already
-drifted past `ORKIGE_HTTP` and the stdlib-hardening define) and the compile +
-link OPTIONS on the same channel (an exception model, sanitizer instrumentation,
-MSVC `/bigobj`). Its floor is checkable rather than conventional: the package
-also records the PRIVATE definitions and the suite asserts no installed header
-reads one. The **target contract** is the pack's own schema
-(`OrkigeSdkPack.cmake`: platform / archs / triplet / module shape / OS floor /
-toolchain kind+version+file+options / compiler + stdlib) — declared for all
-seven targets, filled where a host pack has an answer, EMPTY never absent, since
-packs are built per target and projects are written against the words. The
-SHAPE belongs to the platform, so a project says `orkige_add_game_module(<name>
-<sources...>)` and never `add_executable` (`cmake/OrkigeTargetShape.cmake` is the
-one derivation both the pack writer and the consumer read; a pack refuses a
-target it was not built for), and WHERE the artifact landed is written down
-(`orkige_module_artifact.txt`, read by `NativeModule::executablePath` and the
-exporter) instead of guessed. The **OS floor** is pinned (macOS 14.0 in the
-presets AND `triplets/arm64-osx.cmake`, so engine and closure agree) and
-inherited by every module from the package. The ABI stamp keeps its teeth over
-the pack's OWN installed surface. Proven by the `sdk_pack` ctest per flavor:
-install → RENAME → self-containment audit → configuration + no-host-executables
-audit → target-schema + private-definition audits → a TU over every engine
-header → `projects/jumper-native` configures, builds and RUNS with the engine
-source AND build trees DENIED in a sandbox clean room, its artifact read from
-the manifest and its rendered FRAME asserted non-uniform (its own selfcheck is a
-gui widget-state check a blank window passes) → every recorded contract define,
-option and the OS floor asserted present on the module's real command line → a
-tampered pack refuses — `Docs/sdk-pack.md`. **Runs on BOTH
-render flavors**: the helper takes the flavor from the package (which records
-what its archives were built with) and links THAT flavor's engine closure +
-defines its
-ABI macro (`ORKIGE_RENDER_NEXT` / `ORKIGE_RENDER_CLASSIC`); game code is
-flavor-neutral by construction (only facade types, no `Ogre::`). A module tree is
-flavor-bound like any build tree (a flavor flip in place FATAL_ERRORs), so the
-editor builds into the per-flavor `native/build-<flavor>` and the exporter into
-`native/build-export-<flavor>`. In the editor, Play on such a project becomes
-compile-on-Play: async incremental cmake build (against this editor's OWN flavor
-tree) with `[build]` lines streamed into the Console (Stop cancels, a failed build
-stays in edit mode and launches nothing), then the project's own executable runs as
-the play process (desktop target only; covered by the
-editor_project_native_play / _break ctests, per flavor — their build tree persists
-under `projects/jumper-native/native/build-<flavor>`, gitignored, so re-runs build
-incrementally).
-**Project export** (`tools/exporter/` — the `orkige_exporter` library the editor
-LINKS and the `orkige_export` CLI every export ctest drives; Build > Export runs it
-IN PROCESS on a worker thread, no interpreter and no spawned tool): packages a project as a
-distributable macOS .app (self-contained: player/module binary + dylib closure + engine
-media + project payload; a marker file makes the app boot its bundled project with no
-arguments — `PlayerBundle` in `engine_runtime/PlayerRuntime.h`), an iOS-simulator .app or
-an Android APK (via `package_apk.sh`; native-module projects are desktop-only). Output:
-`<project>/builds/<platform>/`; bundle/package ids come from the manifest Settings
-`export.macos.bundleId` / `export.android.package` / `export.ios.bundleId`. Every export
-gets a **per-project app icon** (`export.icon` source PNG resized by `ExportIcons`
-→ macOS `.icns` / iOS loose `CFBundleIconFiles` / Android launcher mipmaps; a neutral engine
-default — `Util/make_default_icon.py` → `Util/media/orkige_default_icon.png` — when unset) and
-a **launch screen** (iOS `UILaunchScreen` for native resolution, Android `windowBackground`
-from `export.launch.background`). Signed **iOS device** builds (`--platform ios`) are gated on
-an identity + provisioning profile resolved from CLI/env (NEVER the manifest — only
-`export.ios.teamId` is committed; see `Docs/ios-signing.md`). The **store-submittable**
-layer adds two more platforms: `android-aab` (a release-signed Android App Bundle via
-`tools/player/android/build_aab.sh` — `aapt2 --proto-format` → bundle module →
-`bundletool build-bundle` → `jarsigner`, off an `android-release` tree, version from
-`export.android.versionCode`/`versionName`) and `ios-ipa` (a distribution-signed `.ipa`
-under `Payload/`). Both gate + degrade honestly on this machine's absent developer
-credentials (release keystore + passwords / Apple distribution cert + profile, all
-machine-local env, NEVER committed; bundletool is a separate download resolved via
-`ORKIGE_BUNDLETOOL`) — like the iOS device path, they refuse rather than emit a
-half-signed artifact, and stay CLI-only (a headless MCP agent lacks the secrets). See
-`Docs/store-release.md`. Covered by the `export_*` ctests
-(the macOS ones RUN the exported app from a neutral cwd; `export_android_aab` asserts the
-unsigned bundle-module structure) plus the `orkige_icons` /
-`make_default_icon` / `orkige_export` (`--selftest`) unit ctests.
-The 2012 legacy tools and prebuilt binaries were removed from the tree (recoverable
-from history); `Util/*.py` are the live asset generators.
+- **Umbrella headers**: `engine_module/EnginePrerequisites.h` is
+  backend-NEUTRAL (core prerequisites + Meta + the `RenderMath.h` alias
+  vocabulary); **classic-only TUs use `EnginePrerequisitesClassic.h`**, which
+  adds the `<Ogre.h>` umbrella. Never pull the classic umbrella into neutral code.
+- **`engine_graphic/Engine.h`** is the central engine object on both flavors; it
+  dispatches to the classic bootstrapper or the facade-only `EngineNext.h`
+  sibling. `engine_runtime/AppHost` owns the shared app boot. Classic picks its
+  render system from the `ORKIGE_RENDERSYSTEM` env var (GL3Plus default; Vulkan
+  via MoltenVK on macOS; GLES2 on the mobile/web classic presets — see
+  `Docs/ports.md`); next boots Ogre-Next's Metal RS on macOS/iOS and its Vulkan
+  RS on Android.
+- **`engine_render`** is the facade both backends implement
+  (`engine_render_classic/`, `engine_render_next/`) — `RenderSystem`,
+  `RenderWorld`, `RenderNode`, `MeshInstance`, `RenderLight`, `RenderTexture`,
+  `SpriteBatch`, `VectorMesh`, `LineMesh`, `DrawLayer2D`, `SkinnedRig`.
+  `Docs/render-abstraction.md` is the class map + capability matrix;
+  `Docs/materials.md` covers the whole look tier authored through it (PBS
+  `.omat`, normal/emissive maps, `alphaTest`/`twoSided`, PSSM shadows,
+  image-based lighting, output grade, water, sky/fog atmosphere, decals) with
+  the per-flavor honesty notes and the `r.*` quality cvars
+  (`r.shadowQuality`, `r.iblQuality`, `r.planarReflection`, `r.staticScene`,
+  `r.spriteBatching`).
+- **`engine_gocomponent`** bridges core game objects to the scene:
+  `TransformComponent`, `ModelComponent`, `SpriteComponent`,
+  `SpriteAnimationComponent`, `ParticleComponent`, `VectorShapeComponent`,
+  `VectorAnimationComponent`, `WorldTextComponent`, `LineComponent`,
+  `DecalComponent`, `WaterComponent`, `CameraComponent`, `LightComponent`,
+  `AtmosphereComponent`, `RigidBodyComponent`, `SoundComponent`,
+  `AnimationComponent`, `BoneAttachComponent`, `ScriptComponent`.
+- **`engine_physic/PhysicsWorld`** wraps Jolt behind a backend-agnostic seam
+  (planar 2D mode; `teleport` moves body AND transform even while the sim is
+  `setPaused` — the tile-slide / "move world" API).
+- **`engine_sound`**: `SoundComponent` on OpenAL Soft (fully-buffered WAV/CAF
+  sfx), streamed OGG Vorbis music on `MusicStream` (queued-buffer ring, main-thread
+  refill in `SoundManager::update`, owned by the `SoundManager` music registry so
+  tracks survive scene switches), mixer groups + master.
+- **`engine_input`** is SDL3-based (KC_* keycodes preserved). `isKeyDown` reads
+  the injectEvent-fed state, so synthetic SDL events work. `getTilt()` is a
+  normalized gravity direction (accelerometer where one exists, LEFT/RIGHT-key
+  simulated on desktop) — it is WALL-CLOCK paced, so selfchecks must poll it
+  condition-driven, never frame-count.
+- **`engine_gui`** is the runtime UI system on both flavors (widgets + the
+  engine-owned `UiAtlas`/`UiRenderer` 2D renderer on `DrawLayer2D`); atlases come
+  from `Util/make_gui_atlas.py`. `Docs/gui.md`.
+- **`engine_filesystem`** carries the pak mount (`MiniZip`/`PakArchive`) behind
+  `RenderSystem::mountPak` — `Docs/filesystem.md`.
 
-**Docs/**: `Docs/ports.md` (overlay-port rationale), `Docs/upstream/` (OGRE PR
-package — submitted as OGRECave/ogre #3667-3669), `Docs/mcp.md` (the MCP
-endpoint), `Docs/render-abstraction.md` (the render backend facade), `Docs/api/`
-(the public site's `/api/` class-reference config + footer), `Docs/legal/`
-(the site's imprint + privacy notice).
+Hazards worth knowing before touching the engine:
 
-## Feature systems (the 2026 build)
+- **`ScriptComponent` is dormant unless a runtime ticks GameObjects — the editor
+  NEVER runs game scripts.** Anything that must work in edit mode cannot depend
+  on a script tick.
+- **The editor renders ALL its targets inside ONE `renderOneFrame`** via auto
+  compositor workspaces, so a per-target view effect must be
+  visibility/render-queue based (e.g. `RenderTexture::setSkyVisible`,
+  `MeshInstance::setVisibilityFlags`), **never global-state bracketing**.
+- **The next backend forbids mapping a dynamic vertex buffer twice in one
+  frame.** Every dynamic-geometry consumer (`VectorMesh`, `LineMesh`, world text,
+  3D particles) therefore defers its FIRST upload one tick after a `setMesh`, and
+  keeps exactly ONE per-frame upload site.
 
-Landed on top of the revival, each verified on both flavors. Where to
-look when touching one:
+**Tools & apps**
 
-- **Scene model**: GameObject **parent/child hierarchy + active state** (`core_game`;
-  `TransformComponent` composes world transforms through the render node graph;
-  `GameObjectManager` `ChildIdMap`/`tagIds` indexes). **Prefabs** =
-  `core_game/PrefabSerializer` (`.oprefab` subtree assets; instances store `prefabRef`
-  + `suppressedChildren` + per-child property overrides; Apply/Revert in the editor).
-  **Scene format is v7** — reflection-driven NAMED component fields since v6
-  (no positional readers, no per-version field gates; the loader accepts only
-  the current version and errors honestly otherwise — clean-cutover policy);
-  v7 added per-property prefab overrides. **Sibling order is scene state**:
-  the child index's `""` entry is the ordered ROOT sequence, `SceneSerializer`
-  emits depth-first so the `.oscene` DOCUMENT ORDER is the sibling order (no
-  extra field, still v7 — the loader resolves parent links after the object
-  loop and `setParent` appends, so file order rebuilds the arrangement);
-  `GameObjectManager::reorderChild` + the undoable `ReorderObjectCommand` and
-  the anchored reparent (undo restores the exact former index) drive the
-  Hierarchy's between-rows drop, MCP `reorder_object` + ordered
-  `list_hierarchy` make it verifiable. **Object tags** (multi-tag,
-  `world.findByTag`). Serialization: `core_serialization` (`ISerializeable` + `XMLArchive`).
-- **Asset pipeline**: `core_project/AssetDatabase` = stable IDs via `.orkmeta` sidecars
-  (references survive renames; v3 sidecars carry per-platform **texture import
-  settings** — base + android/ios/web override slots incl. `format`/`quality`);
-  the editor **asset browser** (folder tree, thumbnails, drag-&-drop
-  import/instantiate); `Util/make_sprite_atlas.py`.
-  **Export-time GPU texture compression** (`Docs/textures.md`): the dev loop
-  always renders raw PNGs; the export cook block-compresses the payload per
-  sidecar settings (`format` defaults to `auto` — desktop BCn in `.dds`, iOS
-  and Android ASTC in `.oitd` on next (ETC2 stays an explicit override), PNG
-  on web and the classic GLES2 mobile flavor; explicit formats validate per
-  platform x flavor and refuse impossible pairs). Cubemaps cook too (six-face
-  `.dds` → the same containers, face order + prefiltered mip chain preserved). Encoding runs in `tools/texcook` (host CLI over vcpkg
-  `ktx` — ASTC encoder + universal-transcoder ETC2/BCn); a cooked texture
-  replaces its `.png` (every reference reaches it through the backends'
-  `.png`→`.dds`/`.oitd`/`.ktx` fallback; a cook run over a PROJECT dir also
-  renames the sidecar so its ids keep resolving).
-  Generated glyph/sprite atlases and normal maps stamp `format="none"`
-  (`Util/orkige_sidecar.py`). **An EXPORTED payload carries no `.orkmeta`** —
-  sidecars are editor bookkeeping, a frozen payload renames nothing, and the
-  one setting a runtime reads out of them (a texture's sampler) is resolved
-  ONCE at export, for the packaged platform, into the payload manifest's baked
-  `<TextureSamplers>` block. Components ask the ONE
+`tools/editor` — the Orkige editor: docked ImGui UI, RTT scene panel, gizmos,
+undo/redo in the UI-agnostic `orkige_editor_core` library, native macOS menu +
+file dialogs, play/pause/step/stop spawning `tools/player` with a live remote
+hierarchy/inspector over the debug protocol. Panels and workflows are documented
+in `Docs/editor.md` (Source Control, asset badges), `Docs/getting-started.md`
+(the Scene view **Display dropdown** — overlays, View Mode, Lighting — and the
+one-game-view invariant) and `Docs/gui.md` (the Preview panel's Edit UI mode and
+the UI Editor panel). Things to know when working on it:
+
+- The **Preview panel** shows the scene through its own `CameraComponent` at real
+  device presets (`core_util/DevicePreset.h`), with an `.oui` overlay picker, an
+  animate-materials clock (water look-dev without Play), a selected-camera PiP
+  inset in the Scene view and the `preview_game` MCP verb. With no camera in the
+  scene it falls back to the player's EXACT default camera.
+- **Editor-only visuals (grid, gizmos, overlays) are masked out of the game
+  image** via the facade visibility-mask route
+  (`MeshInstance::setVisibilityFlags` + `RenderTexture::setVisibilityMask`,
+  editor bit `0x00400000`). Anything editor chrome must carry that bit.
+- **Reserved output dirs** (`builds/`, `.orkige/`, `native/build*`, VCS dirs) are
+  excluded from every project walker via `core_project/ProjectPaths.h` — use it
+  rather than walking a project tree by hand.
+- On macOS the editor builds as an `Orkige.app` bundle (Dock icon from
+  `Util/make_editor_icon.py` + iconutil at build time; settings inis live in the
+  bundle's `Resources/` via `SDL_GetBasePath`); Linux keeps the bare
+  `orkige_editor` executable — ctest reaches both through the target name.
+- View state (shortcuts, snap steps, last project, display options) persists in
+  `orkige_editor_view.ini`. **Automated runs are exempt** via the `automatedRun`
+  env probe: they start blank, render vsync-free and never touch the user's
+  recents. Keep that exemption intact for any new persisted state.
+- Distribution, updates and nightly packaging: `Docs/editor-distribution.md`,
+  `Docs/editor-updates.md`, `Docs/nightly-builds.md`.
+
+`tools/player` — the standalone runtime (scene/project loader, debug server). The
+player CLI contract (`[scene.oscene] [--project <dir>] [--debug-port N]`) and the
+runtime side of the debug protocol live in `engine_runtime/PlayerRuntime.h`
+(`PlayerArguments` + `PlayerDebugLink`) — the player and native game modules
+share them.
+
+Other tools: `tools/exporter` (the `orkige_exporter` library + `orkige_export`
+CLI), `tools/texcook` (the export-time GPU texture encoder), `tools/shapecook`
+(`.svg` → `.oshape`), `tools/animcook` (vector clip cooking).
+
+`samples/`: hello_orkige (feature demo with env-hooked self-checks, both
+flavors), jumper (textured jump-and-run with gui HUD — **classic-flavor only**).
+`projects/` holds `.orkproj` project
+folders, each verified by its own player selfcheck ctest:
+
+| Project | What it proves |
+|---------|----------------|
+| `jumper-lua/` | the jumper in pure Lua — zero compiled game code |
+| `roller/` | the 2D tier end to end: tilt-gravity ball + sliding-tile "move world" (assets and the `.oscene` generated by `Util/make_roller_assets.py`) |
+| `benchmark/` | the autonomous 3D+2D feature tour that doubles as a machine benchmark — a `LevelManager` vignette sequence driven with NO input by one shared `director.component.lua`, scored by `BenchmarkRecorder`, generated by `Util/make_benchmark_assets.py`, run over MCP via `play` + `get_benchmark_results` — `Docs/benchmark.md` |
+| `gallery/` | the UI widget showroom: every widget kind across tabbed `.oui` screens |
+| `vectorshapes/` | flat-colour vector shapes, soft bodies, vector clip animation, cutout rigs |
+| `jumper-native/` | the native (compiled C++) game module — see below |
+| `example/`, `watertest/` | small fixture projects the editor/player ctests drive |
+
+**Native game modules** (compiled C++ game code; `Docs/native-modules.md`,
+`Docs/sdk-pack.md`). Manifest Settings
+`native.target`/`native.cmakeDir`/`native.buildDir` (`core_project/NativeModule.h`)
+mark a project as carrying C++ under `native/`, built as a standalone CMake
+project via `cmake/OrkigeGameModule.cmake`. The engine is consumed as ONE
+`find_package(Orkige)` package exporting `Orkige::Core` (OGRE-free) and
+`Orkige::Engine`, in two forms the same helper serves: the **build tree**
+(`cmake/OrkigePackage.cmake`, no install step — the developer case, tried first)
+and the relocatable **SDK pack** (`cmake/OrkigeSdk.cmake`,
+`cmake --install <build> --prefix <dir> --component sdk`) — one self-contained
+directory (layer-rooted `include/`, the two archives, engine `media/`, the cmake
+surface and the `vcpkg/` closure), so game code builds on a machine with no
+engine checkout. `NativeModule::resolveEngineSdk` (bound to this build's
+constants by `tools/editor/EditorEngineSdk.h`) is the ONE seam compile-on-Play
+and export share.
+
+The contracts that make it refuse instead of crash:
+
+- **ABI stamp.** Both targets share one version — a git-INDEPENDENT content
+  fingerprint of the engine source surface (`orkige_core/`, `orkige_engine/` and
+  the cmake files defining how a module compiles and links), hashed from the
+  bytes on disk (`cmake/OrkigeAbiStamp.cmake`). A module does
+  `find_package(Orkige <stamp> EXACT REQUIRED)`, so compiling against newer
+  headers than the library it links is a HARD CONFIGURE ERROR, never a runtime
+  null-deref. Editor and exporter both flow through it. The editor/player/tests
+  build inside the engine graph and never drift, so they stay off find_package.
+- **ONE CONFIGURATION all the way through** — a module in another build type is
+  REFUSED by name (a dependency's headers compile differently per config; on
+  MSVC `/MD` vs `/MDd` cannot share an image at all).
+- **The compile contract is CAPTURED off the engine targets, never restated** —
+  the compile definitions and the compile + link options, both. The package also
+  records the PRIVATE definitions and the suite asserts no installed header
+  reads one.
+- **The target shape belongs to the platform**: a project says
+  `orkige_add_game_module(<name> <sources...>)`, **never `add_executable`**
+  (`cmake/OrkigeTargetShape.cmake` is the one derivation both pack writer and
+  consumer read; a pack refuses a target it was not built for). Where the
+  artifact landed is written down in `orkige_module_artifact.txt` (read by
+  `NativeModule::executablePath` and the exporter) instead of guessed.
+- **The OS floor is pinned** (macOS 14.0 in the presets AND
+  `triplets/arm64-osx.cmake`, so engine and closure agree) and inherited by every
+  module from the package.
+- **We ship the engine, never a toolchain.** The two prerequisites are reported
+  as two: a missing pack is "the SDK for this build is not installed"; a missing
+  `cmake`/`ninja` names programs to install on the machine.
+- A module tree is flavor-bound like any build tree (a flavor flip in place
+  FATAL_ERRORs), so each form gets its own tree — `native/build-<flavor>`,
+  `native/build-sdk-<flavor>` and the `-export` siblings. Game code is
+  flavor-neutral by construction (facade types only, no `Ogre::`); the helper
+  takes the flavor from the package and defines its ABI macro
+  (`ORKIGE_RENDER_NEXT` / `ORKIGE_RENDER_CLASSIC`).
+
+In the editor, Play on such a project is **compile-on-Play**: an async
+incremental cmake build against this editor's own flavor tree, `[build]` lines
+streamed into the Console (Stop cancels; a failed build stays in edit mode and
+launches nothing), then the project's own executable runs as the play process
+(desktop target only). Acceptance proofs: `module_abi_mismatch`, `sdk_pack` and
+`editor_bundle_native` (a COPIED editor plus a pack builds, plays and packages
+`projects/jumper-native` in a clean room denying the repository, the engine build
+tree and the vcpkg root), each per flavor.
+
+**Project export** (`tools/exporter/`): the `orkige_exporter` library the editor
+LINKS plus the `orkige_export` CLI every export ctest drives. **Build > Export
+runs IN PROCESS on a worker thread — no interpreter, no spawned tool.** It
+packages a project as a distributable macOS `.app` (self-contained:
+player/module binary + dylib closure + engine media + project payload; a marker
+file makes the app boot its bundled project with no arguments — `PlayerBundle`
+in `engine_runtime/PlayerRuntime.h`), an iOS-simulator `.app`, an Android APK
+(via `package_apk.sh`) or a web payload. Output lands in
+`<project>/builds/<platform>/`; ids come from the manifest Settings
+`export.macos.bundleId` / `export.android.package` / `export.ios.bundleId`.
+Every export gets a per-project app icon (`export.icon` source PNG resized by
+`ExportIcons` → macOS `.icns` / iOS `CFBundleIconFiles` / Android launcher
+mipmaps; a neutral engine default `Util/media/orkige_default_icon.png` when
+unset) and a launch screen. Native-module projects are desktop-only.
+
+- **Signing credentials NEVER live in the manifest** — only `export.ios.teamId`
+  is committed. Identity and provisioning profile come from CLI/env
+  (`Docs/ios-signing.md`).
+- The store-submittable platforms `android-aab` (via
+  `tools/player/android/build_aab.sh`, off an `android-release` tree,
+  `bundletool` resolved via `ORKIGE_BUNDLETOOL`) and `ios-ipa` **refuse rather
+  than emit a half-signed artifact** when credentials are absent, and stay
+  CLI-only (a headless MCP agent lacks the secrets) — `Docs/store-release.md`.
+
+Covered by the `export_*` integration ctests (the macOS ones RUN the exported app
+from a neutral cwd; `export_android_aab` asserts the unsigned bundle-module
+structure) plus the `orkige_exporter_tests` unit executable (manifest facts,
+setting vocabularies, credential resolvers, the fixed Apple declarations, icon
+and texture-cook image arithmetic, payload + zip round-trips) and
+`make_default_icon_selftest`.
+
+**Docs/** — the depth tier. This file stays the compact map; anything longer
+lives in a doc and is pointed at from here. The full index:
+
+| Doc | Covers |
+|-----|--------|
+| `getting-started.md` | the first-game walkthrough |
+| `render-abstraction.md` | the `engine_render` facade, containment, per-flavor capability matrix |
+| `materials.md` | `.omat`, PBS, shadows, IBL, water, atmosphere/sky |
+| `meshes.md` | `.omesh` procedural meshes |
+| `particles.md` | 2D + 3D particles, weather |
+| `vector-animation.md` | `.oshape`/`.oanim` grammar, Lottie import, soft bodies |
+| `character-animation.md` | skinned glTF rigs, the 2D character taxonomy |
+| `performance.md` | static mobility, sprite-run batching, instancing verdict, budgets |
+| `gui.md` | the whole game-UI tier: widgets, `.oui`, layout, styling, visual editor, world text |
+| `localisation.md` | XLIFF 1.2, `orkige_loc.py` |
+| `sound.md` | procedural sfx (`.sfs`/`.osfx`), the synth model |
+| `filesystem.md` | pak mounting, `MiniZip`, the filesystem funnel |
+| `textures.md` | import settings, the export-time GPU cook |
+| `logging.md` | tags, levels, sinks, the `log.*` cvars |
+| `lua-api.md` | the generated Lua reference (script components, editor scripts) |
+| `mcp.md` / `mcp-workflows.md` | the MCP endpoint reference / worked agent workflows |
+| `script-debugging.md` | script editor, breakpoints, the debug loop |
+| `editor.md` | editor panels (Source Control, asset badges), scene view + level authoring |
+| `terminal.md` / `claude-ide.md` | embedded terminal / the IDE protocol |
+| `native-modules.md` / `sdk-pack.md` | compiled C++ game modules / the relocatable SDK pack |
+| `editor-distribution.md` / `editor-updates.md` / `nightly-builds.md` | shipping and updating the editor |
+| `ios-signing.md` / `store-release.md` / `device-session.md` | signing, store artifacts, phone runs |
+| `web-export.md` | the wasm player and browser export |
+| `http.md` | the engine HTTP client |
+| `benchmark.md` | the feature-tour benchmark project |
+| `sanitizers.md` / `fuzzing.md` / `soak.md` / `security.md` | the stability + safety instruments |
+| `ports.md` / `vendored-libs.md` | overlay ports, third-party provenance + pinning |
+| `help-portal.md` | the published site generator |
+| `upstream/` | the OGRE PR package (OGRECave/ogre #3667-3669) |
+| `api/`, `legal/` | the site's class-reference config, imprint + privacy |
+
+`Docs/lua-api.md` and `Docs/gui.md` carry GENERATED blocks — never hand-edit
+inside a `<!-- GENERATED:... -->` fence. Add a Lua binding or a gui widget and
+run `python3 Util/update_docs.py --write`; the `docs_currency` unit ctest fails
+on drift.
+
+## Feature systems
+
+Each is verified on both render flavors. This is the map — where the code lives,
+what rule it carries, which doc has the depth.
+
+- **Scene model** (`core_game`): GameObject parent/child hierarchy + active
+  state (`TransformComponent` composes world transforms through the render node
+  graph; `GameObjectManager` keeps `ChildIdMap`/`tagIds` indexes), multi-tag
+  objects (`world.findByTag`), and **prefabs** via `core_game/PrefabSerializer`
+  (`.oprefab` subtree assets; an instance stores `prefabRef` +
+  `suppressedChildren` + per-property overrides, with Apply/Revert in the
+  editor). Serialization rides `core_serialization` (`ISerializeable` +
+  `XMLArchive`).
+  - **The scene format is v7 and the loader accepts ONLY the current version**,
+    erroring honestly otherwise — clean-cutover policy, no compat shims. Fields
+    are reflection-driven and NAMED: no positional readers, no per-version field
+    gates. `SceneSerializer::SCENE_FORMAT_VERSION` is the constant.
+  - **Sibling order is scene state**: the child index's `""` entry is the ordered
+    ROOT sequence and the serializer emits depth-first, so the `.oscene` DOCUMENT
+    ORDER *is* the sibling order — no extra field. The loader resolves parent
+    links after the object loop and `setParent` appends, so file order rebuilds
+    the arrangement. `GameObjectManager::reorderChild` + the undoable
+    `ReorderObjectCommand` drive the Hierarchy drop; MCP `reorder_object` and the
+    ordered `list_hierarchy` make it verifiable.
+- **Asset pipeline** (`Docs/textures.md`): `core_project/AssetDatabase` = stable
+  IDs via `.orkmeta` sidecars, so references survive renames; sidecars also carry
+  per-platform **texture import settings** (base + android/ios/web override
+  slots). The editor asset browser adds folder tree, thumbnails and drag-&-drop
+  import/instantiate. The dev loop always renders raw PNGs; the **export cook**
+  block-compresses the payload per sidecar settings, encoding in `tools/texcook`
+  (over vcpkg `ktx`), and a cooked texture replaces its `.png` (every reference
+  reaches it through the backends' `.png`→`.dds`/`.oitd`/`.ktx` fallback).
+  Generated atlases and normal maps stamp `format="none"`
+  (`Util/orkige_sidecar.py`).
+  **An EXPORTED payload carries no `.orkmeta`** — sidecars are editor
+  bookkeeping. The one setting a runtime reads out of them (a texture's sampler)
+  is resolved ONCE at export, for the packaged platform, into the payload
+  manifest's baked `<TextureSamplers>` block, and components ask the ONE
   `core_project/TextureSamplerTable` (keyed by a texture's bare stem, so the
-  cook's rename cannot break it): an authoring project fills it from its
-  sidecars on load, a packaged one reads the baked block — one lookup, two
-  sources. Verified by `texcook_selftest`, `cook_textures_selftest`,
-  `TextureSamplerTableTests`, `ExportPayloadTests`,
-  `player_cooked_textures`/`player_pak_sampler_selfcheck` (both flavors) and
-  the `export_*` payload assertions (no sidecar ships; the bake matches the
-  project's authored samplers for that platform).
-- **2D**: `SpriteComponent`, `SpriteAnimationComponent` (flipbook), `ParticleComponent`
-  + the facade `SpriteBatch` (one draw per emitter), an ortho **2D editor mode**.
-  **3D particles + weather**: the SAME `ParticleComponent`/`ParticleSim` grows a
-  reflected `space3D` mode (default OFF — 2D content stays byte-identical) with
-  Vec3 gravity/wind, point/sphere/box emission volumes, world-vs-local space
-  (world = weather, particles don't ride a moving emitter) and a velocity-stretch
-  factor; rendering is CPU-billboarded camera-facing quads (billboard corners
-  from the window camera's view-matrix axes) reusing `SpriteBatch` (world-space
-  Vec3 quads in the 3D scene pass), one draw per emitter. Rain/snow are content
-  presets over the reflected tunables (`Util/make_particle_textures.py` soft
-  dot/streak), mobile-budgeted (hard `maxParticles` cap, allocation-free tick) —
-  `Docs/particles.md`, `demo_particles3d` per flavor.
-  **Flat-colour organic vector shapes**: `VectorShapeComponent` renders a
-  tessellated `.oshape` (agent-authorable text asset, or SVG-cooked via
-  `engine_gui/SvgShapeCook`) through the facade `VectorMesh` (SpriteBatch's
-  arbitrary-triangle sibling: flat regions share one "VectorFill" unlit
-  vertex-colour datablock, and a v3 `texture NAME x y w h [uv]` region is a
-  TEXTURED CUTOUT PART — parse-time per-vertex UV projection through the
-  authored rect, per-texture tessellator draw runs rendered through the SAME
-  generated sprite material/datablock per texture (no feather on cutout art —
-  the texture's alpha is the edge), one draw per texture, tint = the fill
-  colour; same zOrder painter window as sprites, both flavors; all-flat
-  content still renders byte-identically through the one untextured run).
-  The pure geometry core is `core_util/VectorTessellator` (bezier flatten +
-  earcut triangulation + baked alpha-feather edge for portable AA — FSAA is 0),
-  headless-unit-tested; `Util/make_vectorshape_demo.py` writes the
-  `projects/vectorshapes/` sample. Editor integration: dropping/importing an
-  `.svg` (browser or MCP `import_asset`) cooks it to `.oshape` in-place IN
-  PROCESS — `engine_gui/SvgShapeCook` over the SAME nanosvg parser the gui atlas
-  rasterises vector sprites with (the second and last sanctioned nanosvg TU,
-  beside `SvgRasterImpl.cpp`), so importing a drawing needs NO interpreter and a
-  distributed editor binary works on a machine with no python3; the flatten +
-  placement + `.oshape` emission tail is the pure `core_util/VectorShapeCook`
-  plus `VectorShapeAsset::serialize` (the writer beside the reader, ONE
-  definition of the format per direction), the source `.svg` is not kept, and
-  `tools/shapecook` is the CLI face (`--targets` cooks a morph set). Presentation
-  inheritance, groups and transforms are honored, and a CONTAINED subpath cooks
-  to a `hole`. `.oshape` assets show a real thumbnail — the tessellated fill
-  CPU-rasterized by the pure `core_util/VectorShapeRaster` and uploaded via
-  `createTexture2D`.
-  **Soft, deformable organic shapes** (`softBody` on `VectorShapeComponent`,
-  both flavors): the rest mesh is tessellated ONCE and skinned to a few contour
-  CONTROL POINTS (translation-only linear-blend skinning — the exact formulation
-  a future vertex-shader path would consume); per gameplay tick only the control
-  points move and the deformed vertices upload through the DYNAMIC
-  `VectorMesh::updateVertices` fast path (ManualObject `beginUpdate` on both
-  backends — the classic v1 object and the next SCENE_DYNAMIC v2 object; the next
-  backend forbids mapping a buffer twice per frame, so the component defers the
-  first upload one tick after any `setMesh`). Three drivers, all moving the same
-  control points so they compose: per-control-point WOBBLE springs
-  (`core_util/WobbleSpring`, snap-to-exact-rest so the shape returns with no
-  drift), a physics-driven volume-preserving SQUASH/STRETCH (a sibling
-  `RigidBodyComponent` contact squashes along the impact + kicks the wobble; the
-  body's velocity stretches along the motion — the physics body stays a rigid
-  circle), and same-topology MORPH targets (`.oshape` `morph` blocks;
-  `tools/shapecook --targets` cooks a multi-SVG morph set at a fixed flatten
-  resolution with a clear structure-mismatch error). The deform math is the pure, headless-unit-tested
-  `core_util/SoftBodyDeform` (allocation-free per frame; the player selfcheck
-  logs a measured per-frame cost — ~4 µs/blob at 72 verts / 16 control points).
-  Lua drive via `self.shape` (`impulse`/`playMorph`/`stopMorph`); the wobble/
-  squash/morph tunables are reflected properties (inspector/serialization/MCP).
-  `projects/vectorshapes/scenes/softbody.oscene` is the sample (falling blob +
-  Lua-morphed blob), verified by the `player_softbody_selfcheck` ctest on both
-  flavors.
-  **Vector clip animation** (`.oanim`, both flavors): a Lottie `.json` cooks to
-  the native `.oanim` rig on import (`core_util/VectorAnimCook`, in process; the source
-  `.json` is KEPT beside it and re-cooks on re-import; a document where nothing
-  animates cooks to a plain `.oshape`). The pure rig lives in
-  `core_util/VectorAnimAsset` (parser) + `VectorAnimEval` (preallocated,
-  allocation-free tick; `evaluateAt`/`blendPose`/`composeRegions`;
-  `setClip`/`crossFadeTo` clip blending);
-  `engine_gocomponent/VectorAnimationComponent` plays it through the facade
-  `VectorMesh` dynamic path (playback setters only mutate the evaluator —
-  `onUpdateComponent` is the SINGLE per-frame upload site), reflected
-  clip/speed/playing/transitionTime props, a `once` clip's end raises a
-  VectorAnimationEndedEvent + the `animation.ended` bus event, Lua drive via
-  `self.anim` (`play`/`setClip`/`crossFade`/`scrub`/…). Editor: `.oanim`
-  thumbnails, the Inspector's animation preview (shown when a `.oanim` or its
-  kept `.json` is selected; own clock, CPU raster) and
-  the `preview_animation` MCP verb (clip/time/blend → PNG + pose readback).
-  Sample: `projects/vectorshapes/scenes/vectoranim.oscene` (idle → one-shot
-  hop crossfade, ended-event into Lua), `player_vectoranim_selfcheck` on both
-  flavors; grammar + design in `Docs/vector-animation.md`.
-- **Procedural meshes** (`Docs/meshes.md`, both flavors): `.omesh` is a text
-  list of placed parametric shapes (box/roundedbox/plane/wedge/stairs/sphere/
-  icosphere/cylinder/cone/capsule/torus/tube/disc/arch + `extrude`/`revolve`
-  over an `.oshape`) with per-shape `at`/`rotate`/`scale`/`material`/`uv`/
-  `smooth`/`flat` modifiers; shapes sharing a material merge into one draw
-  section. The pure core is `core_util/MeshBuilder`+`MeshShapes`+`MeshExtrude`+
-  `MeshAsset` (headless-unit-tested, deterministic, honest refusals — a
-  non-positive extent errors with its line, a count clamps), the round family
-  is ONE lathe `revolve` reuses, and the 2D operators consume the collider's
-  own contour vocabulary (`ShapeCollider::isSolidRegion`/`openLoop` shared, so
-  a shape collides and extrudes over the same outlines; caps go through the
-  tessellator's earcut, holes become tunnels). The facade entry
-  `RenderWorld::createMeshFromData` registers a named LIT mesh RESOURCE so
-  everything after is the loaded-`.glb` road (PBS `.omat`, shadows, static
-  flag, visibility mask, instancing — no procedural special case above the
-  facade), and `ensureMeshAsset` — flavor-neutral, written once beside the
-  facade and called from BOTH backends' `createMeshInstance` — is the
+  cook's rename cannot break it) — one lookup, two sources. Proven by the
+  exporter unit suite plus `player_cooked_textures` /
+  `player_pak_sampler_selfcheck` and the `export_*` payload assertions.
+- **2D**: `SpriteComponent`, `SpriteAnimationComponent` (flipbook),
+  `ParticleComponent` + the facade `SpriteBatch` (one draw per emitter), an ortho
+  **2D editor mode**. The same `ParticleComponent`/`ParticleSim` carries the
+  reflected `space3D` mode for **3D particles + weather** (default OFF, so 2D
+  content stays byte-identical): Vec3 gravity/wind, point/sphere/box emission
+  volumes, world-vs-local space, velocity stretch, CPU-billboarded camera-facing
+  quads through `SpriteBatch`. Mobile-budgeted: a hard `maxParticles` cap and an
+  allocation-free tick — `Docs/particles.md`.
+- **Flat-colour vector shapes** (`Docs/vector-animation.md`):
+  `VectorShapeComponent` renders a tessellated `.oshape` — an agent-authorable
+  text asset, or SVG-cooked — through the facade `VectorMesh` (SpriteBatch's
+  arbitrary-triangle sibling; flat regions share one unlit vertex-colour
+  datablock, a `texture` region is a textured cutout part drawn per texture
+  through the generated sprite material). The pure geometry core is
+  `core_util/VectorTessellator` (bezier flatten + earcut + a baked alpha-feather
+  edge for portable AA — FSAA is 0). **Importing an `.svg` cooks it to `.oshape`
+  IN PROCESS** (`engine_gui/SvgShapeCook` over the same nanosvg parser the gui
+  atlas uses; the emission tail is the pure `core_util/VectorShapeCook` +
+  `VectorShapeAsset::serialize`), so importing a drawing needs NO interpreter and
+  a distributed editor works on a machine with no python3. The source `.svg` is
+  not kept. `tools/shapecook` is the CLI face (`--targets` cooks a morph set).
+  **nanosvg is confined to two TUs** — `engine_gui/SvgShapeCookImpl.cpp` and
+  `engine_gui/SvgRasterImpl.cpp`; don't add a third.
+  **Soft bodies** (`softBody` on the same component) skin the tessellated mesh to
+  contour control points driven by wobble springs, physics squash/stretch and
+  morph targets, over the pure `core_util/SoftBodyDeform` — same doc.
+- **Vector clip animation** (`.oanim`, `Docs/vector-animation.md`): a Lottie
+  `.json` cooks to the native rig on import (`core_util/VectorAnimCook`, in
+  process; the source `.json` is KEPT beside it and re-cooks on re-import). The
+  pure rig is `core_util/VectorAnimAsset` (parser) + `VectorAnimEval`
+  (preallocated, allocation-free tick, clip blending);
+  `engine_gocomponent/VectorAnimationComponent` plays it through the `VectorMesh`
+  dynamic path — **`onUpdateComponent` is the SINGLE per-frame upload site**;
+  playback setters only mutate the evaluator. Editor: thumbnails, the Inspector
+  animation preview, and the `preview_animation` MCP verb.
+- **Procedural meshes** (`Docs/meshes.md`): `.omesh` is a text list of placed
+  parametric shapes with per-shape modifiers; shapes sharing a material merge
+  into one draw section. The pure core is
+  `core_util/MeshBuilder`+`MeshShapes`+`MeshExtrude`+`MeshAsset` (deterministic,
+  honest line-numbered refusals). The 2D operators consume the collider's own
+  contour vocabulary (`ShapeCollider::isSolidRegion`/`openLoop`), so a shape
+  collides and extrudes over the same outlines. `RenderWorld::createMeshFromData`
+  registers a named LIT mesh RESOURCE, so **everything downstream is the
+  loaded-`.glb` road** — PBS `.omat`, shadows, static flag, visibility mask,
+  instancing, with no procedural special case above the facade; `ensureMeshAsset`
+  (flavor-neutral, called from both backends' `createMeshInstance`) is the
   text→resource road, so `ModelComponent.mesh` takes a `.omesh` exactly like a
-  `.glb`. Editor: picker/drop filter, asset thumbnail, line-numbered live
-  diagnostics; Play hot-reload via `MSG_RELOAD_MESH` + MCP `reload_mesh`
-  (parse → drop instances → retire resource → rebuild, a broken edit changes
-  nothing) — `MeshBuilderTests`/`MeshAssetTests`, `player_mesh_selfcheck` per
-  flavor, and the emissive-only `selfcheck_omesh.png` leg of
-  `render_backend_parity` (geometry compared without either shading model).
-- **Game UI** (`engine_gui`, both flavors): the retained widget set (label/
-  button/checkbox/slider/select-menu/progressbar/decor/**text-entry**) is
-  Lua-authored via `GuiFactory` (`createCheckBox`/`createSlider`/
-  `createSelectMenu`/`createDecorWidget`/`createTextEntry` bound — a spriteless
-  DecorWidget is a solid scrim for pause overlays). **TextEntry**
-  (`GuiTextEntry`): a single-line field on SDL text input — `InputManager`
-  routes `SDL_EVENT_TEXT_INPUT`→`TextInputEvent` and owns the
-  `startTextInput`/`stopTextInput` session (raises the mobile keyboard);
-  `GuiManager` coordinates single-field focus (tap to focus / tap-away or
-  Return to blur). Blinking caret, backspace/delete/left/right/home/end, max
-  length, dimmed placeholder; the pure UTF-8 edit model is `GuiTextEdit.h`.
-  Lua `getText/setText/setPlaceholder/setMaxLength/wasSubmitted` (poll idiom).
-  **UI scale**: `Engine::getContentScale()` (SDL display scale) drives
-  the dormant `UiGlyph::scale` at gui boot (integer-snapped) and scales
-  authored widget sizes in `GuiFactory`, so pixel text/touch targets keep a
-  physical size on 2×–3× screens (larger integer font atlas entries in
-  `make_gui_atlas.py`). **Safe areas**: `Engine::getSafeAreaInsets()`
-  (`SDL_GetWindowSafeArea`, via `engine_util/PlatformWindow`; the app registers
-  its SDL window) + the pure `core_util/SafeArea.h` `UiAnchor::place`; scripts read
-  `engine:getSafeAreaInsets()` to keep the HUD off the notch/home bar.
-  **Localisation**: `core_util/StringTable` (backend-neutral, XLIFF 1.2 (.xlf)
-  files, `%%0%%` formatting, config-asset `Settings "localisation"`) with the Lua
-  `loc(key[, args…])` accessor (the sole localisation path; the earlier
-  Ogre-tied classic localisation service has been removed). MCP readback: `get_safe_area` /
-  `get_ui_layout` over `MSG_STATS` safe-area fields + `MSG_UI_LAYOUT`.
-  **Real fonts + vector sprites** (`engine_gui/FontAtlas`, both flavors): a
-  `.ogui` `[Font.N]` section carrying `ttf <asset>`/`size <designPx>` is a
-  runtime TrueType font (vs. `glyph_*` bitmap rects — one format, two builders);
-  a `[Sprites]` entry `name svg <asset> <designWidth>` is a vector sprite.
-  FontAtlas bakes glyph pages + rasterised SVGs into ONE GPU page at boot at the
-  display's integer content scale (crisp, point-filtered, no facade change:
-  `RenderSystem::createTexture2D`), exposed through the UNCHANGED
-  `UiAtlas`/`UiFont`/`UiGlyph` surface so every widget renders verbatim. Metrics
-  are design px (`UiGlyph::scale` multiplies to device px 1:1 with the texels);
-  kerning from the font tables. **Lazy glyph paging**: ASCII + Latin-1 bake
-  eagerly, any codepoint beyond that bakes on demand into free page space
-  (`UiGlyphProvider` + `UiFont::mSparseGlyphs`) — the CJK/Cyrillic `loc()`
-  unblocker. The stb_truetype / nanosvg single-file libs are confined to
-  `FontBakeImpl.cpp` / `SvgRasterImpl.cpp` (the `StbVorbisImpl.cpp` precedent);
-  the pure shelf packer is `FontPacker`. Engine-default font: `orkige_engine/
-  media/fonts/Nunito-Regular.ttf` (SIL OFL, verbatim `OFL.txt` beside it),
-  registered by the player/editor and bundled to exports under `Media/fonts/`;
-  per-project fonts are id-tracked `assets/` referenced by name from a `.ogui`.
-  Existing bitmap atlases (jumper/roller/hello) are unchanged. Reference:
-  `samples/hello_orkige/media/gui_ttf_demo.ogui` (the `demo_ttf` selfcheck).
-  **Nine-slice + tiling**: a `[Sprites]` entry may carry an optional 4-int
-  suffix `name x y w h  l r t b` — nine-slice border insets in sprite pixels
-  (`UiSprite::sliceLeft/Right/Top/Bottom`); `UiRect` gains a draw mode
-  (`Stretch`/`NineSlice`/`Tiled`) whose nine-slice path emits fixed corner
-  bands + stretched edges/centre (the pure `UiNineSlice::buildNineSlice`/
-  `buildTiled` quad emitters, unit-tested `NineSliceLayoutTests`), staying ONE
-  element in the per-screen batch. `GuiDecorWidget`/`GuiButton`
-  `setNineSlice(true)`/`setTiled(true)` (Lua) so a panel/button resizes without
-  corner distortion; the generator emits insets for panel/button/field sprites.
-  **Rect-anchor layout** (opt-in, both flavors): the pure resolver
-  `core_util/UiLayout.{h,cpp}` (`LayoutNode` = anchorMin/Max fractions + pivot +
-  offsetMin/Max, friendly `anchoredPosition`/`sizeDelta`) turns a parent-rect
-  into a child pixel rect; `GuiWidget` gains a `layout` node + `layoutParent`
-  and Lua setters (`setParent`/`setAnchors`/`setAnchorPreset`/`setPivot`/
-  `setOffsets`/`setAnchoredPosition`/`setSizeDelta`/`setUseSafeArea`).
-  `GuiManager` runs an O(n) resolve pass in `onFrameStarted` (before the
-  screens rebuild, only when a layout prop changed or the window resized) that
-  resolves each opted-in widget against its parent — or the screen ROOT (full
-  window or, via `setRootSpace("SafeArea")`, the safe rect, which subsumes the
-  manual `+ safe.mLeft` HUD math and folds `UiAnchor::place` in as the
-  point-anchor-against-safe-root case). A `LayoutScalePolicy`
-  (`setDesignResolution(w,h,match)` + match/shrink/expand) owns the geometry
-  reference scale ("design units → window pixels"), kept DISTINCT from
-  `UiGlyph::scale` (glyph/pixel density) so the two compose instead of fighting;
-  the legacy absolute-pixel path (`scaleAuthoredSize`) is byte-identical, so
-  widgets that never touch a layout setter are unchanged (`demo_ui_scale` still
-  asserts it). Pure tests `UiLayoutResolverTests`/`ReferenceScaleTests`; the
-  `demo_layout` selfcheck exercises an anchored nine-slice panel + a
-  parent-relative child + a safe-area re-layout on both flavors.
-  **Layout groups + content-size-fit** (opt-in): a widget becomes a group
-  (`setLayoutGroup("horizontal"/"vertical"/"grid")` + padding/spacing/childAlign/
-  childExpand/grid cell+constraint) that auto-arranges its layout children, and a
-  `setContentSizeFit(h,v)` `preferred` axis sizes a node to its content (a group
-  to its children, a label to its measured text). Both live in the pure
-  `core_util/UiLayout` two-pass resolver (`measurePreferred` bottom-up →
-  `assignRects` top-down; nesting anchored rects inside groups inside groups
-  works); `GuiManager::resolveLayouts` builds a transient `LayoutItem` forest
-  and runs it. **Scroll container**: `GuiScrollView` (`createScrollView`) is a
-  clipping viewport whose taller layout child scrolls by drag / mouse wheel — the
-  content is offset through the resolver (children stay hit-testable at their
-  shifted rects, scroll-offset-aware) and clipped by a per-`UiLayer` `ScissorRect`
-  (`clampScroll` is pure/unit-tested; the clip is analytic + backend-identical,
-  batch count grows by one per scroll region). Author scroll content widgets with
-  the scroll view's z (the clip layer). Pure tests `LayoutGroupTests`/
-  `ScrollClipTests`. **Declarative `.oui`** (`GuiFactory::loadLayout` /
-  `gui:loadLayout`, both flavors, noscript-safe): a whole screen — widgets
-  (incl. checkbox/slider/scrollview), anchors/pivots/offsets, groups, nine-slice,
-  scroll — authored as one text file (the backend-neutral, `StringTable`-localised
-  successor to the classic `load()`; `@key` text routes through `loc`). The doc
-  model `engine_gui/GuiLayout.{h,cpp}` parses/serialises round-trippably
-  (`GuiLayoutIoTests`); `samples/hello_orkige/media/settings_screen.oui` + the
-  `demo_oui` selfcheck are the acceptance proof (a scrolling settings screen
-  loaded from one file, scroll shifts the rects, a scrolled checkbox still
-  hit-tests). Agents author `.oui` over MCP `write_project_file` and verify the
-  resolve via `get_ui_layout` — no new MCP verb (see `Docs/mcp.md`).
-  **Styling tier** (`Docs/gui.md#text-style-font-colour-size` +
-  `#named-styles`, both flavors): ONE text-style vocabulary on `GuiWidget`
-  (`setFontIndex`/`setTextColour`/`setTextScale`, stored on the widget and
-  pushed into whatever text elements it owns by the single
-  `onTextStyleChanged` hook, so a composite forwards ONE style to its
-  caption and every surface — Lua, MSG_UI_LAYOUT/MCP, the editor rows —
-  reads the SAME resolved state) reachable as the `.oui` keys `font` /
-  `textColor` / `textScale`. `font` takes a `[Font.N]` INDEX or the ROLE
-  NAME a font declares with its own `.ogui` `name` key (`font = heading`;
-  the generated atlases name body/heading/display/title, the TTF path too)
-  — unknown ref = one warn + the default, never blank text. `textScale`
-  multiplies EVERY metric through one accessor set (advance/box/line
-  height/space/kerning, `TextWrap::buildRun` takes the factor), so
-  measurement, wrapping, content-size-fit and the drawn quads agree; a
-  whole multiple is texel-exact, a fractional one resamples (documented,
-  not hidden). **Named styles**: a `[Style NAME]` section is a BUNDLE of
-  ordinary widget keys a widget names with `style = NAME`, applied
-  STYLE-FIRST then the widget's own keys override (declaration-order
-  precedence, the atmosphere-preset pattern) — the merge is the pure
-  `engine_gui/GuiStyle` (also the value parsers), resolved ONCE over the
-  whole document before any widget is built, so it reaches every key with
-  no per-key plumbing and hot-reloads like any `.oui` property; no
-  nesting, unknown name = one warn + the widget's own keys. MCP needs no
-  verb: `get_ui_layout` gains a `styles` list parallel to `ids`/`rects`
-  (`hasText font textScale colourSet r g b a`) carrying the RESOLVED
-  style. Editor: Style / Font / Text Color / Text Scale property rows
-  (atlas fonts by role name, honest inline flags for an unknown
-  style/font) and `[Style]` sections stay out of the widget tree.
-  `GuiStyleTests` + `GuiLayoutIoTests`/`WrapLayoutTests` cases, the
-  `player_gallery_selfcheck` Styles tab (resolved font/ink/scale + the
-  local override) and the `editor_ui_hotreload` styled-edit leg.
-  **Full widget tier**: toggle groups (`GuiToggleGroup`), dropdowns
-  (`GuiDropDown`), modals (`GuiModalScrim`/`showModal`), toasts, confirm/
-  alert dialogs, **`GuiTabBar`** (toggle group + panel alpha-cascade
-  pairing, one sync/frame) and **`GuiListView`** (a scroll viewport with an
-  add/remove/clear item API over a content-size-fit vertical group; opt-in
-  **virtualization** — `setVirtualized`/`setItemHeight`, uniform item height,
-  the pure `virtualWindow` calculation materializes only the visible band of
-  rows anchored at their virtual offsets, item ids stay stable but resolve to
-  a live widget only while inside the window) — all `.oui`-authorable
-  round-trip; an image widget IS a decor panel, a toggle switch IS a checkbox
-  sprite skin. **Wrap-to-width labels** (`setWrap` / `.oui` `wrap`, the pure
-  `engine_gui/TextWrap` greedy breaker + the resolver's height-for-width hook;
-  a wrapped label reports its wrapped height from `getSize`) and **multi-line
-  text entry** (`setMultiline` / `.oui` `multiline`: line-aware caret in the
-  pure `GuiTextEdit` model, Return inserts — never submits — and the field
-  renders a scrolled window of wrapped lines with no scissor claim on its
-  layer) ship on the same shared wrap core. `projects/gallery/` is the
-  widget showroom — every widget kind across tabbed `.oui` screens, verified
-  by the `player_gallery_selfcheck` ctest (both flavors).
-- **Procedural sound** (`Docs/sound.md`, both flavors): an sfx can be a
-  PARAMETER file instead of a recording — the sfxr standard model (wave,
-  attack/sustain/punch/decay, base+min freq, slide/delta, vibrato, arpeggio,
-  duty + sweep, repeat, swept delay tap, LPF/HPF + sweeps, volumes) read from
-  the standard **binary `.sfs`** any of the free authoring tools of that
-  family writes, or from the line-based text twin **`.osfx`** an agent writes
-  with `write_project_file` (ONE `SfxDesc`, two codecs — never two models;
-  `preset` seeds an archetype and explicit directives override under a
-  two-pass parse, so line order cannot change meaning; a `seed` makes a
-  generated member reproducible, which the tools' global RNG cannot).
-  Synthesis is the pure `core_util/SfxSynth` (fixed 44100 Hz, deterministic,
-  clamp-and-name sanitize) plugged into `SoundUtil::loadSoundData` — the ONE
-  place a `.wav` is decoded — so a parameter file IS a sound file to
-  `SoundComponent`, Lua, mixer groups, per-play variation and positional
-  audio with no API change, and a malformed one leaves a registered-but-SILENT
-  source instead of throwing into game code. Implemented from the format
-  documentation with no code taken from any implementation (provenance in
-  `Docs/sound.md`). Editor: Audition / Stop / **Export WAV**
-  (`core_util/WavWriter`, export convenience only — the runtime plays the
-  parameters) / Generate / per-parameter rows / Save-as-`.osfx`, plus
-  Create > New Sound — `SfxSynthTests`/`SfxAssetTests` (incl. the byte-level
-  `.sfs` layout for all three versions), `player_sfx_selfcheck` per flavor
-  (OpenAL asked what it holds, matched against the pure synth's bytes).
-  **Visual `.oui` editor** (the Preview panel's EDIT MODE — GuiManager is a
-  singleton, so the one preview render path IS the canvas): click-select +
-  synced widget tree, anchor-preserving drag/resize pinned to the ONE UiLayout
-  resolver, widget palette, per-gesture undo in the editor's own snapshot
-  document. The CANVAS (selection outlines / resize + anchor grips / guides /
-  marquee) lives in the Preview panel, clipped to the canvas image rect so an
-  edge grip of a stretch widget never bleeds past it (the surface->screen
-  transform is the pure `mapSurfaceRectToScreen`; a full-width widget maps to
-  exactly the device screen). The TOOL SURFACE (widget tree, properties, anchor
-  gizmo, align/distribute, add/delete, undo/redo/save) is the dockable
-  **UI Editor** panel (a tab beside the Inspector by default; honest empty state
-  when no `.oui` is in Edit UI mode), fed the one edit session through
-  `UiEditorPanelLink`; selection stays synced canvas<->tree both ways and global
-  Cmd/Ctrl+Z routes to the document while the panel or canvas is focused. Saves
-  flow through `GuiLayout::serialize` (byte-identical no-op, Play hot-reload
-  fires like any text save; first edit canonicalises comments/spacing), the live
-  canvas is next-flavor while document editing works everywhere, MCP unchanged
-  (the file is the interface) — `EditorUiEditTests` + `editor_uiedit` per flavor.
-- **Level authoring**: the editor's **Tile Palette** panel arms a paintable
-  asset and the **grid-paint tool** (Paint tool, `B`) paints/erases tiles snapped
-  to a grid in 2D mode. Two occupant kinds through ONE seam
-  (`EditorCore::paintTileAtCell`/`findTileAtCell`/`eraseTileAtCell`,
-  `EditorPaintDesc::kind`): a **prefab** tile (instantiates its `.oprefab`
-  subtree — open edges become suppressed prefab wall children + a
-  `TileComponent.openEdges` stamp, wall-local convention in
-  `TileComponent::EDGE_WALL_LOCAL_IDS`) OR a **bare-asset** tile painted straight
-  from a **texture** (a grid-cell `SpriteComponent` quad) or an **`.oshape`** (a
-  `VectorShapeComponent`), with NO prefab file generated — the tile carries a
-  `TileComponent` stamping the source-asset id (`TileComponent.sourceAssetId`).
-  The palette lists all three kinds (`wall_block (prefab)` vs bare `grass`);
-  bare-tile LOOK propagation is the shared asset itself (edit the texture/shape,
-  every painted tile updates — no per-tile prefab to re-apply). The cell size
-  comes from a scene `LevelComponent` else the translate snap step, a stroke is
-  ONE undo step (`CompositeCommand::mergeWith`), erase/replace is subtree-safe and
-  works across kinds (`DeleteSubtreeCommand`). File > **Add Scene to Level
-  Sequence** appends the scene to `levels.olevels`. Reachable by agents via the
-  MCP verbs `list_paintable_assets` (alias `list_paint_prefabs`) / `paint_asset`
-  (alias `paint_prefab`, accepts a texture/shape too) / `erase_cell` /
-  `add_scene_to_levels`. Verified by `editor_level_paint` (prefab AND bare
-  sprite/shape tiles, mixed grid, paint → save → reload → PLAYS, both flavors) +
-  the `editor_control` MCP bare-tile leg. (Future, not built: a bulk "convert
-  painted bare tiles to prefab instances" op if bare tiles later need structure.)
-- **Physics** (`engine_physic/PhysicsWorld`, Jolt): a data-driven **collision layer
-  matrix** (`physics.olayers`), `RigidBodyComponent` layer + **sensor** flag, and
-  **contact events** (worker-thread callbacks → mutex queue → main-thread drain →
-  `ScriptComponent` `onContactBegin/End` + C++ events). **Shape colliders**
-  (`ST_SHAPE`): collision from a tessellated `.oshape`'s outer contours (pure
-  `core_util/ShapeCollider` — contour extraction, convexity gate, hull,
-  extruded prism), defaulting to the sibling `VectorShapeComponent`'s shape
-  with a reflected `shapeAsset` AssetRef override; static/kinematic = the true
-  concave mesh prism, dynamic = the convex hull (concave dynamic degrades with
-  one warn), holes/scale sit out v1 (documented), soft bodies collide as their
-  rest shape, the Scene Colliders overlay draws the real contour —
-  `ShapeColliderTests` + `player_shapecollider_selfcheck` per flavor (a ball
-  settling inside a concave cup is the existence proof).
-- **World text** (`engine_gocomponent/WorldTextComponent`, both flavors): 3D
-  billboard (or transform-locked) labels through the SAME baked gui font page
-  (one shared engine `FontAtlas`, kerning + lazy CJK paging), laid out by the
-  pure `engine_gui/WorldTextLayout` (multi-line, center-anchored,
-  world-units-per-line) into camera-facing `SpriteBatch` quads the 3D-particle
-  way, rebuilt only on property change (next's one-tick-deferred first upload);
-  `text`/`size`/`colour`/`billboard`/`visible` reflected, `self.worldtext`
-  script handle — `WorldTextLayoutTests` + `demo_worldtext` per flavor.
+  `.glb`. Play hot-reload via `MSG_RELOAD_MESH` / MCP `reload_mesh` (parse → drop
+  instances → retire resource → rebuild; a broken edit changes nothing).
+- **Game UI** (`engine_gui`, both flavors — `Docs/gui.md` is the full
+  reference): the retained widget set (label / button / checkbox / slider /
+  select-menu / progressbar / decor / text-entry / toggle group / dropdown /
+  modal + toast + dialog / tab bar / virtualized list view / scroll view) is
+  authorable from Lua via `GuiFactory` or declaratively from a `.oui` file
+  (`GuiFactory::loadLayout` — noscript-safe; the doc model is
+  `engine_gui/GuiLayout.{h,cpp}`, round-trippable). Pieces worth knowing where
+  they live:
+  - **Layout** is the pure resolver `core_util/UiLayout.{h,cpp}` — rect anchors
+    (anchorMin/Max + pivot + offsets), layout groups, content-size-fit, and a
+    `LayoutScalePolicy` design resolution. `GuiManager` runs it in
+    `onFrameStarted`, only when a layout property changed or the window resized.
+    The legacy absolute-pixel path stays byte-identical, so widgets that never
+    touch a layout setter are unchanged.
+  - **UI scale vs design scale are DISTINCT and compose**: `UiGlyph::scale` is
+    glyph/pixel density (from `Engine::getContentScale()`), the layout policy is
+    geometry ("design units → window pixels"). Don't conflate them.
+  - **Safe areas**: `Engine::getSafeAreaInsets()` (`SDL_GetWindowSafeArea` via
+    `engine_util/PlatformWindow`) + the pure `core_util/SafeArea.h`; a screen can
+    resolve against the safe rect with `setRootSpace("SafeArea")`.
+  - **Fonts and sprites** bake into ONE GPU page at boot at the display's integer
+    content scale (`engine_gui/FontAtlas`): TrueType fonts from a `.ogui`
+    `[Font.N]` section, rasterised SVG sprites, nine-slice insets, and lazy glyph
+    paging for codepoints beyond Latin-1 (the CJK/Cyrillic `loc()` unblocker).
+    **The single-file libs stay confined to one TU each** —
+    `FontBakeImpl.cpp` (stb_truetype), `SvgRasterImpl.cpp` +
+    `SvgShapeCookImpl.cpp` (nanosvg), `StbVorbisImpl.cpp` (stb_vorbis). Engine-default font:
+    `orkige_engine/media/fonts/Nunito-Regular.ttf` (SIL OFL, `OFL.txt` beside
+    it), bundled to exports under `Media/fonts/`.
+  - **Text style** is ONE vocabulary on `GuiWidget`
+    (`setFontIndex`/`setTextColour`/`setTextScale`, `.oui` keys
+    `font`/`textColor`/`textScale`), pushed into owned text elements by the
+    single `onTextStyleChanged` hook, so every surface reads the SAME resolved
+    state. A `[Style NAME]` section is a bundle applied STYLE-FIRST with the
+    widget's own keys overriding (the merge is the pure `engine_gui/GuiStyle`).
+  - **Localisation**: `core_util/StringTable` (XLIFF 1.2 `.xlf`, config-asset
+    `Settings "localisation"`) with the Lua `loc(key[, args…])` accessor — the
+    SOLE localisation path. `Docs/localisation.md`, tooling `Util/orkige_loc.py`.
+  - **World-space text**: `engine_gocomponent/WorldTextComponent` renders 3D
+    billboard labels through the SAME baked font page, laid out by the pure
+    `engine_gui/WorldTextLayout` into camera-facing `SpriteBatch` quads.
+  - Agents author `.oui` over MCP `write_project_file` and verify the resolve via
+    `get_ui_layout` — no UI-specific MCP verb is needed.
+  `projects/gallery/` is the widget showroom that gates the tier.
+- **Visual `.oui` editor** (`Docs/gui.md`): the Preview panel's **Edit UI mode**
+  IS the canvas (GuiManager is a singleton, so the one preview render path is the
+  canvas) — click-select, anchor-preserving drag/resize pinned to the ONE
+  UiLayout resolver, selection outlines and grips clipped to the canvas image
+  rect. The tool surface (widget tree, properties, anchor gizmo,
+  align/distribute, add/delete, undo/redo/save) is the dockable **UI Editor**
+  panel, fed the one edit session through `UiEditorPanelLink`. Saves flow through
+  `GuiLayout::serialize` (a no-op save is byte-identical), so **the file stays
+  the interface** — MCP needs no new verb and Play hot-reload fires like any text
+  save.
+- **Procedural sound** (`Docs/sound.md`): an sfx can be a PARAMETER file instead
+  of a recording — the sfxr standard model, read from the binary `.sfs` the free
+  authoring tools of that family write, or from the line-based text twin `.osfx`
+  an agent writes with `write_project_file`. ONE `SfxDesc`, two codecs — never
+  two models; `preset` seeds an archetype and explicit directives override under
+  a two-pass parse, so line order cannot change meaning. Synthesis is the pure
+  `core_util/SfxSynth` plugged into `SoundUtil::loadSoundData` — **the ONE place
+  a `.wav` is decoded** — so a parameter file IS a sound file to
+  `SoundComponent`, Lua, mixer groups and positional audio with no API change,
+  and a malformed one leaves a registered-but-SILENT source instead of throwing
+  into game code. Implemented from the format documentation with no code taken
+  from any implementation (provenance in `Docs/sound.md`). Editor: Audition /
+  Stop / Export WAV (`core_util/WavWriter`, convenience only — the runtime plays
+  the parameters) / Generate / per-parameter rows / Save-as-`.osfx`, plus
+  Create > New Sound.
+- **Level authoring** (`Docs/editor.md`): the **Tile Palette** panel arms a
+  paintable asset and the **Paint** tool (`B`) paints/erases grid-snapped tiles in
+  2D mode. Two occupant kinds — a prefab tile or a bare texture/`.oshape` tile
+  with no prefab file — go through ONE seam
+  (`EditorCore::paintTileAtCell`/`findTileAtCell`/`eraseTileAtCell`), each tile
+  stamped with a `TileComponent`. A stroke is ONE undo step; erase/replace is
+  subtree-safe across kinds. Agents reach it with `list_paintable_assets` /
+  `paint_asset` / `erase_cell` / `add_scene_to_levels`.
+- **Physics** (`engine_physic/PhysicsWorld`, Jolt): a data-driven **collision
+  layer matrix** (`physics.olayers`), `RigidBodyComponent` layer + **sensor**
+  flag, and **contact events** (worker-thread callbacks → mutex queue →
+  main-thread drain → `ScriptComponent` `onContactBegin/End` + C++ events — the
+  world is never mutated from a physics worker). **Shape colliders**
+  (`ST_SHAPE`) take collision from a tessellated `.oshape`'s outer contours (pure
+  `core_util/ShapeCollider`), defaulting to the sibling `VectorShapeComponent`'s
+  shape with a reflected `shapeAsset` override: static/kinematic get the true
+  concave mesh prism, dynamic the convex hull (a concave dynamic body degrades
+  with one warn). Holes and scale sit out v1; soft bodies collide as their rest
+  shape; the Scene Colliders overlay draws the real contour.
 - **Gameplay**: `engine_input/InputActionMap` (named actions over keys/tilt,
   `input.oactions`); `engine_sound` mixer groups + master; `core_tween`
-  (`TweenManager` + `EaseLibrary`); `core_debug/CVarManager` (typed cvars, live-tunable
-  over the debug protocol, `cvar.`-prefixed manifest persistence).
+  (`TweenManager` + `EaseLibrary`); `core_debug/CVarManager` (typed cvars,
+  live-tunable over the debug protocol, `cvar.`-prefixed manifest persistence).
+  The Lua surface for all of it is `Docs/lua-api.md`.
 - **Persistent objects** (`core_game`): a `persistent` flag on GameObject
-  (serialized as an optional side attribute — untouched scenes byte-identical,
-  format stays v7) carries an object through the level system's scene switch
-  with its WHOLE live state (components/render node/physics body/script
-  sandbox survive by construction — `GameObjectManager::clearExceptPersistent`,
-  the fenced teardown hook's persistence-aware sibling, never destroys a
-  survivor). Persistent parent keeps its subtree; a persistent child of a
-  dying parent re-roots; an arriving duplicate id loses to the survivor (one
-  warn line); running tweens/timers still die with the outgoing scene (v1
-  limit). Inspector checkbox, Lua `setPersistent`/`isPersistent`, MCP
-  `set_persistent` — `PersistentObjectsTests` + `player_persistent_selfcheck`
-  per flavor.
-- **Dynamic lines** (`engine_render/LineMesh` + consumers, both flavors): the
-  facade's 3D dynamic hairline primitive (strip/segments, depth-test toggle,
-  the VectorMesh beginUpdate fast path incl. next's one-tick-deferred first
-  upload; hairline-only — thickness would need quad expansion).
-  `engine_gocomponent/LineComponent` = authored polylines (reflected
-  mode/colour/depthTest, bulk points serialization, Lua scalar builder
-  `beginPoints`/`addPoint`/`commitPoints`); the Lua **`draw` table** =
-  immediate-mode debug lines/boxes/spheres with TTLs (one engine-owned
-  allocation-free collector → one mesh per frame, player-ticked,
-  editor-inert, zero cost unused). The 2010 DynamicLines/DynamicRenderable
-  pair is deleted — `DebugDrawBufferTests` + `player_lines_selfcheck` per
-  flavor.
-- **Persistence**: general per-project save via `core_game/SaveStore` (flat typed
-  key→value store — Number/Bool/String, no nesting; atomic temp+rename write to
-  the writable app dir under a per-project file name, coexisting with the
-  LevelManager progression save; loaded at boot, autosaved at clean shutdown +
-  on `flush`). Lua `save` table (`set`/`getNumber`/`getBool`/`getString`/`has`/
-  `remove`/`flush` — `set` dispatches on the Lua value type). Crash semantics:
-  only a flush reaches disk (breadcrumbs cover the unflushed window). Editor
-  never makes one → honest no-op in edit mode.
-- **2D camera fit** (`core_util/CameraFit.h`, pure math): `CameraComponent`
-  reflected `fitMode` (FM_HEIGHT default / FM_WIDTH / FM_EXPAND) + `designWidth`/
-  `designHeight` derive `orthoSize` from the live viewport aspect (re-applied on
-  resize); `Engine::setCameraOrthographicFit(mode,w,h)` is the script-driven
-  window-camera counterpart on both flavors. Letterbox bars are pure-math only
+  (serialized as an optional side attribute, so untouched scenes stay
+  byte-identical) carries an object through a level switch with its WHOLE live
+  state — components, render node, physics body, script sandbox —
+  via `GameObjectManager::clearExceptPersistent`, the fenced teardown hook's
+  persistence-aware sibling, which never destroys a survivor. A persistent parent
+  keeps its subtree; a persistent child of a dying parent re-roots; an arriving
+  duplicate id loses to the survivor (one warn line). Running tweens/timers still
+  die with the outgoing scene (v1 limit).
+- **Dynamic lines** (`engine_render/LineMesh`): the facade's 3D dynamic hairline
+  primitive (strip/segments, depth-test toggle, the `VectorMesh` beginUpdate fast
+  path) — hairline-only; thickness would need quad expansion.
+  `engine_gocomponent/LineComponent` is the authored polyline; the Lua **`draw`
+  table** is immediate-mode debug lines/boxes/spheres with TTLs (one engine-owned
+  allocation-free collector → one mesh per frame, player-ticked, editor-inert,
+  zero cost when unused).
+- **Persistence**: per-project save via `core_game/SaveStore` — a flat typed
+  key→value store (Number/Bool/String, no nesting), atomic temp+rename write to
+  the writable app dir, loaded at boot and autosaved at clean shutdown and on
+  `flush`; it coexists with the LevelManager progression save. Lua `save` table.
+  **Crash semantics: only a flush reaches disk** (breadcrumbs cover the unflushed
+  window). The editor never makes one — honest no-op in edit mode.
+- **2D camera fit** (`core_util/CameraFit.h`, pure math): `CameraComponent`'s
+  reflected `fitMode` (FM_HEIGHT default / FM_WIDTH / FM_EXPAND) plus
+  `designWidth`/`designHeight` derive `orthoSize` from the live viewport aspect,
+  re-applied on resize; `Engine::setCameraOrthographicFit` is the script-driven
+  window-camera counterpart. Letterbox bars are pure math only
   (`CameraFit::letterboxRect`) — the facade exposes no viewport-rect control, so
-  drawn bars are descoped to games.
-- **Juice**: **screen shake** (`engine_graphic/ScreenShake`, both flavors, engine-
-  owned like `ScreenFade`): decaying camera-space wobble applied POST-transform to
-  the window-camera rig node and restored EXACTLY on finish (recover-then-reapply,
-  never fights a follow rig / accumulates); Lua `screen.shake`/`stopShake`/
-  `isShaking`, ticked last in the loop. **Time scale** (`core_game/TimeControl`):
-  Lua `world.setTimeScale`/`getTimeScale` scales the delta the player loop feeds
-  scripts/tweens/physics (0 = hitstop, still renders; input/render/debug stay
-  real-time). Both editor-inert (no singleton → no-op).
-- **Iteration**: **Lua hot-reload during Play** (`ScriptComponent::hotReload`,
-  compile-before-swap; editor watches `scripts/` and sends `MSG_RELOAD_SCRIPT`);
-  **`.oui` hot-reload during Play** (`GuiFactory::reloadLayout`/
-  `GuiManager::reloadLayout`, both flavors: the editor's project-tree `*.oui`
-  watcher — same cadence/lifecycle as the scripts watcher — and the MCP
-  `reload_ui` verb both send `MSG_RELOAD_UI`; the player DESTROYS that screen's
-  widgets and rebuilds from the fresh file at the frame boundary — clean cutover,
-  a parse failure keeps the OLD screen + reports a `[remote]` error, a rebuild
-  emits the `ui.reloaded` bus event so scripts re-acquire handles;
-  `Docs/gui.md#hot-reload-during-play-oui-iteration`, verified by
-  `editor_ui_hotreload` both flavors);
-  **level system** (`core_game/Level*`: deferred mid-play scene switch via the
-  `LevelManager` pending-load applied at the player-loop frame boundary;
-  `levels.olevels`; progression save in `getDocumentsDirectory`);
-  **live scene mirror during Play** (the editor Scene view shows the RUNNING
-  game's object motion: `MSG_SCENE_TRANSFORMS` streams a ~15Hz whole-scene
-  local-transform delta over the ONE debug link — full set on attach/scene
-  switch, epsilon-quieted; visibility rides the existing hierarchy stream —
-  and `tools/editor/PlayMirror` (pure, unit-tested) snapshots the authored
-  poses once, drives the matching render nodes and restores them EXACTLY on
-  Stop/crash/mid-play-save; the edit document is never dirtied, runtime-
-  spawned objects are the documented v1 skip; `editor_play_mirror` per flavor).
-- **Script editor + Lua debugger** (`Docs/script-debugging.md`, editor + MCP):
-  an embedded code editor — the `ports/imgui-color-text-edit` overlay port
-  (goossens widget, commit-pinned like imgui; bump the two ports as a COUPLED
-  PAIR — it includes imgui_internal.h; two local patches: 2-glyph left margin,
-  quiet empty completion popup — upstream PRs prepared). ONE docked window per
-  open file (filename tab, dirty marker, Save/Cancel controls — Cancel is the
-  buffer-level reload-from-disk, distinct from the gutter's per-hunk Revert
-  (git baseline, undoable) and Source Control's Discard Changes, save/discard/
-  cancel ask on dirty close — the queue choreography is selfcheck-verified;
-  Close/Others/Right/All on document tabs, a shared Close on every panel tab
-  via `EditorTabMenu.h`, pure close-set in editor_core `EditorTabActions`).
-  Highlighting per kind (Lua/C/C++/JSON/Markdown + a custom XML def for the
-  engine's XMLArchive carriers/XLIFF + a custom config-text def for the
-  line-based `.oui`/`.ogui`/`.omat`/`.oshape` family; an extension neither
-  def names sniffs its content for an XML/JSON shape, pure and unit-tested
-  in editor_core's `EditorTextDiagnostics`); double-click-to-internal-editor
-  is a user-editable extension set (View Settings). LIVE PARSE DIAGNOSTICS
-  through each format's own parser (`ScriptRuntime::checkSyntax` compiles
-  without running; tinyxml2 for the XMLArchive/XLIFF kinds; `.omat`/`.oui`
-  wrap `MaterialAsset`/`GuiLayoutDoc`'s own parsers; `.ogui`/`.oshape`/JSON
-  stay highlight-only — their parsers report no line-numbered error;
-  `EditorTextDiagnostics` in editor_core is the one seam for all of it): a
-  red "!" in front of the line number + red number underline + hover
-  message, and a clickable first-problem STATUS FOOTER strip under the
-  dockspace. COMPLETION comes
-  from the ONE reflection/script-surface registry (TypeManager +
-  PropertySchema + `OSCRIPT_HANDLE` + live `ScriptRuntime::globalNames/
-  globalMemberNames` introspection — never a hand-kept list; pure
-  `ScriptCompletion` in editor_core). The ImGui/SDL3 bridge applies mouse-
-  cursor requests (I-beam/resize — `ImGuiSDL3Input::updateMouseCursor`).
-  The DEBUGGER: gutter breakpoints (persisted per project in
-  `<project>/.orkige/breakpoints`, gitignored, `ScriptBreakpointStore` the one
-  truth for gutter + session push + MCP), continue/step in/over/out (F5/F10/
-  F11/Shift+F11 + Cmd alternates) living in the bottom-docked DEBUG panel
-  beside Console (icon transport; auto-opens on break) with the call-stack
-  pane and frame-scoped locals/upvalues (bounded table expansion). Runtime side is seam-clean behind
-  `ScriptRuntime` (`setDebugBreakpoints`/`debugResume`/`debugVariables`/
-  `debugDetach`; ALL lua_sethook/C-API inside the sol2 backend, pure decisions
-  in `core_script/ScriptDebugCore.h`): the line hook installs ONLY while
-  breakpoints/step exist (zero cost otherwise), a hit BLOCKS in-hook while
-  `PlayerDebugLink::serviceBreakPump` services debug commands + quit and
-  DEFERS every other message to the frame boundary (the world never mutates
-  mid-script); script chunks load under their project-relative names (one
-  breakpoint hits every instance; error file:line is project-relative too);
-  client loss mid-break auto-resumes — wedge-proof. Additive messages on the
-  ONE debug protocol (browser sessions inherit over the WebSocket; the wasm
-  player refuses breakpoints honestly — its main thread cannot block; noscript
-  refuses honestly and keeps building). Verified by `ScriptDebugTests`/
-  `ScriptCompletionTests`/`ScriptBreakpointStoreTests` units + the
-  `player_script_debug` and `editor_control_debug` ctests per flavor.
+  drawing bars is the game's job.
+- **Juice**: **screen shake** (`engine_graphic/ScreenShake`) applies a decaying
+  camera-space wobble POST-transform to the window-camera rig node and restores
+  it EXACTLY on finish (recover-then-reapply, so it never fights a follow rig or
+  accumulates); ticked last in the loop. **Time scale**
+  (`core_game/TimeControl`) scales the delta the player loop feeds
+  scripts/tweens/physics (0 = hitstop, still renders); input, render and debug
+  stay real-time. Both are editor-inert.
+- **Iteration**:
+  - **Lua hot-reload during Play** — `ScriptComponent::hotReload`,
+    compile-before-swap; the editor watches `scripts/` and sends
+    `MSG_RELOAD_SCRIPT`.
+  - **`.oui` hot-reload during Play** — the editor's project-tree watcher and the
+    MCP `reload_ui` verb both send `MSG_RELOAD_UI`; the player destroys that
+    screen's widgets and rebuilds from the fresh file at the frame boundary. A
+    parse failure keeps the OLD screen and reports a `[remote]` error; a rebuild
+    emits the `ui.reloaded` bus event so scripts re-acquire handles
+    (`Docs/gui.md`). `.oanim` and `.omesh` reload the same way.
+  - **Level system** (`core_game/Level*`): a deferred mid-play scene switch via
+    the `LevelManager` pending-load applied at the player-loop frame boundary;
+    `levels.olevels`; progression save in the documents directory.
+  - **Live scene mirror during Play**: `MSG_SCENE_TRANSFORMS` streams a ~15Hz
+    whole-scene local-transform delta over the ONE debug link, and
+    `tools/editor/PlayMirror` (pure, unit-tested) snapshots the authored poses
+    once, drives the matching render nodes and restores them EXACTLY on
+    Stop/crash/mid-play-save. **The edit document is never dirtied.**
+    Runtime-spawned objects are the documented v1 skip.
+- **Script editor + Lua debugger** (`Docs/script-debugging.md`, editor + MCP): an
+  embedded code editor on the `ports/imgui-color-text-edit` overlay port
+  (commit-pinned like imgui — **bump the two ports as a COUPLED PAIR**, it
+  includes `imgui_internal.h`). Per-kind highlighting and **live parse
+  diagnostics through each format's own parser** (`ScriptRuntime::checkSyntax`
+  compiles without running; tinyxml2 for the XML/XLIFF kinds; `.omat`/`.oui` wrap
+  their own parsers) — `EditorTextDiagnostics` in editor_core is the one seam.
+  **Completion comes from the ONE reflection/script-surface registry**
+  (TypeManager + PropertySchema + `OSCRIPT_HANDLE` + live
+  `ScriptRuntime::globalNames`/`globalMemberNames` introspection) — never a
+  hand-kept list.
+  The debugger: gutter breakpoints persisted per project in
+  `<project>/.orkige/breakpoints` (`ScriptBreakpointStore` is the one truth for
+  gutter, session push and MCP), continue/step in/over/out in the docked Debug
+  panel, call stack and frame-scoped locals/upvalues. Runtime side is seam-clean
+  behind `ScriptRuntime` (**ALL `lua_sethook`/C-API stays inside the sol2
+  backend**; pure decisions in `core_script/ScriptDebugCore.h`): the line hook
+  installs ONLY while breakpoints or a step exist (zero cost otherwise); a hit
+  BLOCKS in-hook while `PlayerDebugLink::serviceBreakPump` services debug
+  commands and quit, and **DEFERS every other message to the frame boundary so
+  the world never mutates mid-script**; script chunks load under their
+  project-relative names; client loss mid-break auto-resumes (wedge-proof). All
+  additive messages on the ONE debug protocol. The wasm player refuses
+  breakpoints honestly (its main thread cannot block); noscript refuses honestly
+  and keeps building.
 - **Embedded git tooling** (editor-only, git CLI, no libgit2; `Docs/editor.md`):
-  `tools/editor/EditorGit.{h,cpp}` is the ONE seam — pure porcelain-v2 status
-  parser + badge model/folder aggregation (unit-tested) + repo ops as
-  `git -C` argv over an injectable runner (`runProcessCaptured`, stdout+stderr
-  merged so hook rejections/push errors surface verbatim). Consumers: the
-  script editor's **diff gutter** (per-line change markers vs the git-index
-  baseline fetched at open/save; hover/pin a hunk popup with before/after and
-  an UNDOABLE buffer-only Revert Hunk; Cmd/Ctrl+Alt+Up/Down change
-  navigation), the **Source Control panel** (bottom-row tab beside Console:
-  branch + ahead/behind, stage/unstage/commit/push async on a worker thread,
-  per-file Discard Changes = `git checkout HEAD --` behind a mandatory
-  confirm with open-buffer reload after) and the **asset browser's dirty
-  dots** (trailing-edge; green untracked/amber changed/red conflict, folders
-  aggregate) off the ONE shared status snapshot. Three-severity vocabulary:
-  document **Cancel** (reload disk) / gutter **Revert Hunk** (baseline,
-  undoable) / panel **Discard Changes** (committed, destructive+confirmed).
-  Honest silence outside a repo and in automated runs; DELIBERATELY no MCP
-  mutation verbs (agents never commit — no laundering path). Verified by
-  `EditorGitTests`/`EditorLineDiffTests` units + the temp-repo
-  `editor_source_control` selfcheck and the selfcheck git legs, both flavors.
-- **Embedded terminal** (`Docs/terminal.md`; editor-only): real shell sessions
-  inside the editor — one dock window per session (spawn more from the panel
-  menu), a POSIX pty (openpty/fork) and Windows ConPTY (Job Object
-  kill-on-close; STARTF_USESTDHANDLES with null std handles — a redirected
-  parent otherwise leaks its handle values into the child) behind the ONE
-  `EditorTerminalPty` seam, the VT screen on the `ports/libvterm` overlay port
-  (commit-pinned fork with committed state tables; libvterm confined to
-  `EditorTerminalScreen.cpp`, a `setResponder` seam answers DA/CPR queries so
-  query-driven shells never stall). Pure decisions live in
-  `EditorTerminalSession` (key encoder, follow-tail, grid hit-test with
-  float-clamp-before-cast, selection extraction) — unit-tested headlessly.
-  Agent-aware tabs: the foreground process classifies the session (STICKY —
-  only a known shell name declassifies, launchers exec to interpreters) and
-  runtime-generated brand marks render as PUA custom font-atlas rects.
-  Copy = drag-select + the platform chord (macOS un-swaps ImGui's Cmd↔Ctrl at
-  the event layer so Cmd+C never reaches the shell as SIGINT), Cmd/Ctrl+click
-  opens a printed path[:line] in the script editor. Input is QUEUED, never
-  truncated: a tty takes only ~1 KB of pending input, so `TerminalPty::write`
-  hands bytes to the pure FIFO `TerminalInputQueue` and the frame boundary
-  offers the remainder (`flushPendingWrites`) — dropping a tail strands the app
-  mid-sequence, and a bracketed paste missing its closing `ESC[201~` makes the
-  shell swallow every later keystroke, the interrupt included. Sessions inherit
-  the MCP discovery env, so an agent launched inside finds the editor with zero
-  setup. On Linux a process-wide X error guard (`SDLNativeWindowLinux.cpp`) keeps
-  the inherently-racy clipboard-answer BadWindow from killing any SDL-hosted app.
-  Verified by the headless `editor_terminal` selfcheck (spawn/echo/UTF-8
-  multibyte/SGR/exit + the dead-requestor clipboard probe + a >1 KB paste
-  arriving whole and the interrupt behind it landing as status 130), the
-  REAL-EVENT `editor_terminal_copy` ctest (drag+chord+clipboard, wheel
-  follow-tail, path-open and a typed-`cat`-then-physical-Ctrl+C interrupt —
-  posted on macOS as a REAL native key event through
-  `EditorNativeKeyInject.mm`, the only in-process way to walk the AppKit
-  keyboard translation a fabricated SDL_Event skips; both share a ctest
-  `os_clipboard` RESOURCE_LOCK) and the `EditorTerminalSessionTests` units, both
-  flavors.
+  `tools/editor/EditorGit.{h,cpp}` is the ONE seam — a pure porcelain-v2 status
+  parser + badge model over repo ops issued as `git -C` argv through an
+  injectable runner (`runProcessCaptured` merges stdout+stderr so hook rejections
+  and push errors surface verbatim). Consumers off the ONE shared status
+  snapshot: the script editor's diff gutter, the Source Control panel and the
+  asset browser's dirty dots. Three deliberately distinct severities: document
+  **Cancel** (reload disk) / gutter **Revert Hunk** (baseline, undoable) / panel
+  **Discard Changes** (committed, destructive, confirmed). Honest silence outside
+  a repo and in automated runs. **DELIBERATELY no MCP mutation verbs — agents
+  never commit, and a tool would launder that prohibition.**
+- **Embedded terminal** (`Docs/terminal.md`; editor-only): real shell sessions in
+  the editor — a POSIX pty and Windows ConPTY behind the ONE `EditorTerminalPty`
+  seam, the VT screen on the `ports/libvterm` overlay port (**libvterm confined
+  to `EditorTerminalScreen.cpp`**; a `setResponder` seam answers DA/CPR queries
+  so query-driven shells never stall). Pure decisions (key encoder, follow-tail,
+  grid hit-test, selection) live in `EditorTerminalSession`, unit-tested
+  headlessly. Sessions inherit the MCP discovery env, so an agent launched inside
+  finds the editor with zero setup. Hazards this code exists to avoid:
+  - **Input is QUEUED, never truncated.** A tty accepts only ~1 KB of pending
+    input, so `TerminalPty::write` hands bytes to the pure FIFO
+    `TerminalInputQueue` and the frame boundary offers the remainder
+    (`flushPendingWrites`). Dropping a tail strands the app mid-sequence, and a
+    bracketed paste missing its closing `ESC[201~` makes the shell swallow every
+    later keystroke — the interrupt included.
+  - macOS un-swaps ImGui's Cmd↔Ctrl at the event layer so **Cmd+C never reaches
+    the shell as SIGINT**.
+  - On Linux a process-wide X error guard (`SDLNativeWindowLinux.cpp`) keeps the
+    inherently racy clipboard-answer BadWindow from killing any SDL-hosted app.
 - **Claude IDE protocol** (`Docs/claude-ide.md`; editor-only, interactive
   sessions): the editor announces itself as an IDE — it writes
-  `~/.claude/ide/<port>.lock` (pid, workspaceFolders, transport, auth token)
-  and serves MCP over a WebSocket UPGRADE on the SAME control-server port
-  (`core_debugnet` HttpServer + `WebSocketConnection`; header auth). Tools:
-  getWorkspaceFolders/getOpenEditors/getCurrentSelection/getDiagnostics/
-  openFile/close_tab; openDiff refuses honestly (EditorLineDiff is its
-  natural backing). The active document is STICKY (focusing another panel
-  never blanks the agent's context), the initial state pushes right after
-  initialize, and paths travel with forward slashes on every platform.
-  Terminal children get `CLAUDE_CODE_SSE_PORT`/`ENABLE_IDE_INTEGRATION`, so
-  `/ide` inside the embedded terminal connects to THIS editor. DEFAULT-ON for
-  interactive launches, off for automated runs; `ORKIGE_CLAUDE_IDE=0` opts
-  out. Verified by the `editor_ide` ctest, both flavors.
-- **Device polish**: **haptics** (`engine_input/HapticManager`: phone-body
-  vibration — iOS UIFeedbackGenerator in `HapticBridgeApple.mm`, Android
-  `Vibrator`/`VibrationEffect` over JNI, desktop honest no-op; Lua `haptics`
-  table — `play`/`pattern`/`isAvailable`/`setEnabled`; SDL3 has NO device-body
-  vibration API, so this is a platform shim); **tilt calibration**
-  (`InputManager::calibrateTilt` captures the current pose as neutral — a Z-offset
-  applied in `getTilt`, pure math in `core_util/TiltCalibration.h`, persisted
-  per-device; Lua `input:calibrateTilt`/`clearTiltCalibration`/`getTiltCalibration`);
-  **screen fades** (`engine_graphic/ScreenFade`: a facade-only full-window
-  `DrawLayer2D` overlay animated through `EaseLibrary`, both flavors, ticked last;
-  Lua `screen` table — `fadeOut`/`fadeIn`/`setFadeColor`/`isFading`/`loadScene`
-  which wipes over a deferred scene switch).
-- **Performance architecture** (`Docs/performance.md` — the native-fast-path
-  rule lives in `Docs/render-abstraction.md`): the reflected **`static`
-  mobility flag** on TransformComponent (facade `RenderNode::setStatic`;
-  next = SCENE_STATIC memory managers, classic = StaticGeometry region bake
-  in `StaticBakeClassic.cpp`; THE MOBILITY CONTRACT: a runtime move warns
-  once per node and repairs — dirty-notify on next, demote-out-of-region on
-  classic; hierarchy rule static-parent-required, validated; gate cvar
-  `r.staticScene`, editor boots it OFF); **sprite-run batching** (pure
-  `core_util/SpriteRunPlanner` owns the painter's contract — stable zOrder
-  sort, contiguous same-(texture,sampler) runs, dirty-tracked;
-  `engine_gocomponent/SpriteBatcher` realizes runs as facade SpriteBatches,
-  player-ticked pre-render, editor-inert; gate cvar `r.spriteBatching`);
-  classic 3D instancing GATED OUT by verdict (RTSS derives no instanced
-  vertex path; next auto-instances natively). Guarded by the per-scene
-  **structural budget gate** (`benchmark_budget` per flavor over
-  `tests/integration_driver/benchmark_budgets.json` — draw-batch corridors
-  + tri ceilings, budgets edited in the same commit as the change that
-  moves them), the `player_static_contract`/`player_spritebatch` fixture
-  ctests (pixel identity under the toggles, exact counts, the mobility
-  probe) and the `SpriteRunPlannerTests`/`StaticFlagTests` units.
-- **Character animation** (`Docs/character-animation.md` — both capability
-  tables + the 2D taxonomy doctrine): **skinned glTF characters play on BOTH
-  flavors** — classic via OGRE's assimp codec, next via `MeshLoaderNext`'s
-  skinned road (static imports byte-identical by deferred post-processing;
+  `~/.claude/ide/<port>.lock` and serves MCP over a WebSocket UPGRADE on the SAME
+  control-server port (`core_debugnet` `HttpServer` + `WebSocketConnection`).
+  The active document is STICKY (focusing another panel never blanks the agent's
+  context) and paths travel with forward slashes on every platform. Terminal
+  children get `CLAUDE_CODE_SSE_PORT`/`ENABLE_IDE_INTEGRATION`, so `/ide` inside
+  the embedded terminal connects to THIS editor. Default-on for interactive
+  launches, off for automated runs; `ORKIGE_CLAUDE_IDE=0` opts out.
+- **Device polish**: **haptics** (`engine_input/HapticManager` — iOS
+  `HapticBridgeApple.mm`, Android `Vibrator`/`VibrationEffect` over JNI, desktop
+  honest no-op; SDL3 has no device-body vibration API, so this is a platform
+  shim); **tilt calibration** (`InputManager::calibrateTilt` captures the current
+  pose as neutral, pure math in `core_util/TiltCalibration.h`, persisted
+  per-device); **screen fades** (`engine_graphic/ScreenFade` — a facade-only
+  full-window `DrawLayer2D` overlay animated through `EaseLibrary`, ticked last,
+  with `screen.loadScene` wiping over a deferred scene switch).
+- **Performance architecture** (`Docs/performance.md`; the native-fast-path rule
+  lives in `Docs/render-abstraction.md`): the reflected **`static` mobility
+  flag** on TransformComponent (facade `RenderNode::setStatic`; gate cvar
+  `r.staticScene`, which the editor boots OFF) and **sprite-run batching** (the
+  pure `core_util/SpriteRunPlanner` owns the painter's contract, realized by
+  `engine_gocomponent/SpriteBatcher`; gate cvar `r.spriteBatching`). Classic 3D
+  instancing is GATED OUT by verdict. Two rules:
+  - **THE MOBILITY CONTRACT**: moving a static node at runtime warns once per
+    node and repairs (dirty-notify on next, demote-out-of-region on classic); the
+    hierarchy rule is static-parent-required and validated.
+  - **Budgets are edited in the same commit as the change that moves them** —
+    `tests/integration_driver/benchmark_budgets.json`, guarded per flavor by the
+    `benchmark_budget` gate (draw-batch corridors + tri ceilings).
+- **Character animation** (`Docs/character-animation.md` — both capability tables
+  and the 2D taxonomy doctrine): **skinned glTF characters play on BOTH flavors**
+  (classic via OGRE's assimp codec, next via `MeshLoaderNext`'s skinned road);
   the backend-neutral `engine_render/SkinnedRig{,Extract}` extraction is the
-  shared semantics both flavors can consume — the two-importer drift alarm
-  is the `player_character_rig_selfcheck` per flavor over the GENERATED
-  mannequin `Util/make_character_rig.py`); `AnimationComponent` grew
-  `crossFadeTo`/weights/animated bounds (reflected, Lua + MCP). 2D
-  characters: flipbook + `.oanim` cutout rigs + morph/soft-body ARE the
-  house answer (weighted 2D skinning rejected as doctrine), and textured
-  cutout parts SHIP on `.oanim`/`.oshape` rigs (the v3 texture-region
-  grammar, Lottie image layers cook to textured regions with the images
-  materialized beside the `.oanim`, soft-body/morph compose with UVs
-  pinned to vertices — `player_cutout_selfcheck` per flavor over the
-  generated `projects/vectorshapes` cutout hero).
-- **Light budget capability**: `RenderSystem::lightBudget()` +
-  `engine:getLightBudget()` — classic 30 (RTSS forward headroom), next 96
-  (derived from the clustered-forward `lightsPerCell` bound, constants
-  shared with the boot call); the benchmark's lamp ramps cap at the queried
-  budget, so each flavor climbs to its real ceiling (`LightBudgetTests`).
-- **Crash breadcrumbs**: `core_debug/Breadcrumbs` — an always-on, bounded ring of
+  shared semantics both consume, and `player_character_rig_selfcheck` is the
+  two-importer drift alarm over the generated mannequin
+  (`Util/make_character_rig.py`). `AnimationComponent` carries
+  `crossFadeTo`/weights/animated bounds. **For 2D characters the house answer is
+  flipbook + `.oanim` cutout rigs + morph/soft-body — weighted 2D skinning is
+  rejected as doctrine.**
+- **Light budget capability**: `RenderSystem::lightBudget()` /
+  `engine:getLightBudget()` — classic 30 (the forward per-pass headroom), next 96
+  (the clustered-forward per-cell bound), each from the constant its own backend
+  boots with. The benchmark's lamp ramps cap at the queried budget, so each
+  flavor climbs to its real ceiling.
+- **Crash breadcrumbs**: `core_debug/Breadcrumbs` — an always-on bounded ring of
   engine events (scene loads, script errors, warnings, boot/shutdown) FLUSHED to
-  disk per entry so a hard crash leaves a readable trail; rotated on boot
-  (`breadcrumbs.jsonl` → `.prev.jsonl`); the player writes it to the writable app
-  dir, the editor reads the survived file over the MCP `get_breadcrumbs` verb.
+  disk per entry, so a hard crash leaves a readable trail; rotated on boot
+  (`breadcrumbs.jsonl` → `.prev.jsonl`). The player writes it to the writable app
+  dir; the editor reads the survived file over MCP `get_breadcrumbs`.
 - **Mobile app lifecycle** (`core_game/AppLifecycle` — the backgrounding contract
-  as a pure, headless-unit-tested state machine; the player owns the wiring in the
-  poll loop). SDL raises the lifecycle events on iOS/Android only (desktop
-  minimizing is NOT a background — desktop behavior is unchanged). On **background**
-  (`WILL_ENTER_BACKGROUND`): FLUSH the save store (a backgrounded mobile app may be
-  killed silently — the crash-safe autosave point), deliver `onAppPause(self)` to
-  scripts, pause the sim (an `advanceWorld` gate like the editor's pause), suspend
-  audio (`SoundManager::onInterruptBegin` — tears the AL device down), drop a
-  "background" breadcrumb; on `DID_ENTER_BACKGROUND` STOP rendering (mobile GPU work
-  in the background = an OS kill — the loop skips `renderOneFrame` until foreground).
-  On **foreground** (`WILL_ENTER_FOREGROUND` resumes rendering + audio;
-  `DID_ENTER_FOREGROUND`) the sim resumes RUNNING by default and `onAppResume(self)`
-  fires so the GAME decides whether to re-pause behind an overlay; "foreground"
-  breadcrumb. `TERMINATING`/`LOW_MEMORY` do a final/cheap save flush + crumb. The
-  **Android back button** is TRAPPED (`SDL_HINT_ANDROID_TRAP_BACK_BUTTON`) and
-  delivered as a `KC_WEBBACK` key event (game handles it — default is deliver, never
-  exit); the APK activity's `configChanges` already keeps rotation from recreating
-  the activity. Transient audio-focus loss WITHOUT a background (a phone call, another
-  app grabbing audio) is not separately surfaced by SDL — it is handled at the
-  background boundaries. Verified by `AppLifecycleTests` (unit) + the
-  `player_lifecycle_selfcheck` ctest (synthetic SDL events through the real loop,
-  both flavors).
-- **AI control**: the editor hosts an **MCP server over Streamable HTTP** — see the
-  MCP section above + `Docs/mcp.md`.
-- **Public site + help portal** (`Util/make_help_portal.py` +
-  `.github/workflows/pages.yml`): https://orkige.orkitec.com — a generated
-  landing page, the searchable docs portal under `/help/` (stdlib-only
-  markdown-subset renderer over the committed docs corpus + README,
-  hard-failing file:line broken-link gate = the deploy gate), the C++ class
-  reference under `/api/` (rendered from the engine headers by the CI-only
-  `Docs/api/Doxyfile` tooling — `/api/` is the ONE allowlisted link target the
-  generator takes on faith) and footer-linked legal pages (`Docs/legal/`,
-  imprint + privacy, out of nav and search by convention). CI redeploys on
-  every main push; Help > Orkige Help just opens the published `/help/` URL
-  (`HELP_PORTAL_URL` — network required; the editor never generates or serves
-  the site, a distributed editor has no repo or python).
-  `make_help_portal_selftest` renders the REAL corpus at zero broken links —
-  docs rot is a test failure; `check_doxyfile` validates the API config
-  against the real tree (skip-77 without the CI-only tool). The portal
-  PRESENTS docs, never rewrites them (`Docs/help-portal.md`).
-- **Editor scripts** (`tools/editor/EditorScriptHost`, discovery in the
-  editor_core lib's `EditorScriptTools`): a project `scripts/<name>.editor.lua`
-  is an EDITOR TOOL — a one-shot command in the editor's **Tools** menu (and MCP
-  `run_editor_script`), run once in a fresh editor-side sandbox whose `editor.*`
-  table routes through the SAME verb handler the MCP endpoint uses
-  (`EditorControlServer::dispatchLocalVerb` — the reused internal dispatch seam).
-  The whole run folds into ONE undo step (`EditorCore::begin/endScriptTransaction`);
-  a tool that errors is rolled back (no partial edits) and reports `file:line`.
-  The editor never ticks and never installs the game-runtime Lua tables, so the
-  `events` bus is ABSENT from an editor-script sandbox by construction. Noscript:
-  the menu shows a disabled note, the project still loads. `border_walls.editor.lua`
-  in `projects/roller` is the shipped sample; see `Docs/lua-api.md` (Editor
-  scripts). Covered by the `editor_scripts` selfcheck, the `EditorScriptTools`
-  units and the `editor_control` `run_editor_script` leg.
-- **CONVENTIONS to preserve**: the **config-asset** pattern (project-config files —
-  `input.oactions`/`physics.olayers`/`levels.olevels` — are manifest-`Settings`-referenced,
-  NOT under `assets/`, NOT id-tracked; bundled to exports via the config-setting keys
-  in `tools/exporter/ExportSettings.cpp`); the **canonical player-loop tick order** (fenced block in
-  `tools/player/main.cpp`: input → scripts → tweens → physics → deferred-load); the
-  **scene teardown hook** (`GameObjectManager::clear`, fenced); the **scriptable-
-  component access registry** (a component declares its script surface — `self.<name>`,
-  `world.<accessor>(id)`, `getComponent("name")` — in ONE `OSCRIPT_HANDLE` line at its
-  meta-export site; `ScriptComponent::populateSelfTable` + `ensureScriptApi` drive
-  every surface off that ONE `ScriptRuntime` registry instead of a hand-wired per-type
-  block, so a new scriptable component is never silently script-unreachable). **Component
-  enabled** is a BASE-SYSTEM feature: the property registry supports SCHEMA
-  INHERITANCE (TypeManager records the OParent chain, composes base-first,
-  by-name shadowing), so the ONE base-declared `enabled` reaches every
-  component — disable means the honest per-kind thing (renderables hide,
-  lights dark, rigid bodies leave the sim and re-enter at rest, sounds stop,
-  particles stop emitting while live ones drain, animations pause) with
-  object-active and component-enabled funneling through the SINGLE
-  `applyEffectiveEnabled` suspend path; Transform/Tile/Level/Camera opt out
-  via `supportsDisable` (no lying checkboxes), the ad-hoc `visible` bools are
-  gone (`enabled` is the one vocabulary, Lua `setXVisible` aliases kept),
-  true serializes as silence (untouched scenes byte-identical), Script and
-  Atmosphere keep their frozen semantics — `ComponentEnableTests` +
-  `player_component_enable_selfcheck` per flavor. The
-  backend-neutral
-  **property registry** (`core_base/PropertyReflect.h`/`PropertySchema.h`; the
-  `OPROPERTY*` macros in the Meta backends register schema + Lua binding in one
-  line) IS the single source of property truth — Inspector, scene/prefab
-  serialization, the debug protocol and MCP all consume the one schema; never
-  hand-wire a per-surface property list.
+  as a pure, headless-unit-tested state machine; the player owns the wiring in
+  its poll loop). SDL raises these events on iOS/Android only — **desktop
+  minimizing is NOT a background**, and desktop behavior is unchanged.
+  - On `WILL_ENTER_BACKGROUND`: FLUSH the save store (a backgrounded mobile app
+    may be killed silently — this is the crash-safe autosave point), deliver
+    `onAppPause(self)` to scripts, pause the sim, suspend audio
+    (`SoundManager::onInterruptBegin`), drop a breadcrumb.
+  - On `DID_ENTER_BACKGROUND`: **STOP rendering** — mobile GPU work in the
+    background is an OS kill, so the loop skips `renderOneFrame` until foreground.
+  - `WILL_ENTER_FOREGROUND` resumes rendering + audio; on `DID_ENTER_FOREGROUND`
+    the sim resumes RUNNING by default and `onAppResume(self)` fires so the GAME
+    decides whether to re-pause behind an overlay.
+  - `TERMINATING`/`LOW_MEMORY` do a final/cheap save flush + crumb.
+  - The **Android back button is TRAPPED** (`SDL_HINT_ANDROID_TRAP_BACK_BUTTON`)
+    and delivered as a `KC_WEBBACK` key event — the game handles it; the default
+    is deliver, never exit.
+  - Transient audio-focus loss without a background (a phone call) is not
+    separately surfaced by SDL; it is handled at the background boundaries.
+- **AI control**: the editor hosts the MCP server — see the MCP section above and
+  `Docs/mcp.md`. Reachability over MCP is part of shipping a feature.
+- **Public site + help portal** (`Util/make_help_portal.py`;
+  https://orkige.orkitec.com): a generated landing page, the searchable docs
+  portal under `/help/` (a stdlib-only markdown-subset renderer over the
+  committed docs corpus + README, with a hard-failing file:line broken-link
+  gate), the C++ class reference under `/api/` (rendered from the engine headers
+  by the CI-only `Docs/api/Doxyfile` tooling — `/api/` is the ONE allowlisted
+  link target the generator takes on faith) and footer-linked legal pages. The
+  per-push deploy is the `site` job in `ci.yml`; `pages.yml` is a manual
+  redeploy lever. Help > Orkige Help just opens the published `/help/` URL
+  (`HELP_PORTAL_URL`) — **the editor never generates or serves the site**, since
+  a distributed editor has no repo and no python. `make_help_portal_selftest`
+  renders the REAL corpus at zero broken links, so **docs rot is a test
+  failure**; `check_doxyfile` validates the API config against the real tree.
+  **The portal PRESENTS docs, never rewrites them** — `Docs/help-portal.md`.
+- **Editor scripts** (`tools/editor/EditorScriptHost`, discovery in editor_core's
+  `EditorScriptTools`): a project `scripts/<name>.editor.lua` is an EDITOR TOOL —
+  a one-shot command in the editor's **Tools** menu (and MCP `run_editor_script`),
+  run in a fresh editor-side sandbox whose `editor.*` table routes through the
+  SAME verb handler the MCP endpoint uses
+  (`EditorControlServer::dispatchLocalVerb`). The whole run folds into ONE undo
+  step (`EditorCore::begin/endScriptTransaction`) and **a tool that errors is
+  rolled back** — no partial edits — reporting `file:line`. The editor never
+  ticks and never installs the game-runtime Lua tables, so the `events` bus is
+  ABSENT from an editor-script sandbox by construction. Under noscript the menu
+  shows a disabled note and the project still loads.
+  `projects/roller/scripts/border_walls.editor.lua` is the shipped sample;
+  `Docs/lua-api.md`.
+- **CONVENTIONS to preserve** — the load-bearing patterns. Break one and
+  something goes silently wrong:
+  - **The property registry is the single source of property truth.**
+    `core_base/PropertyReflect.h`/`PropertySchema.h`; the `OPROPERTY*` macros in
+    the Meta backends register schema + Lua binding in one line. Inspector,
+    scene/prefab serialization, the debug protocol and MCP all consume that ONE
+    schema — **never hand-wire a per-surface property list.** The registry
+    supports SCHEMA INHERITANCE (TypeManager records the OParent chain and
+    composes base-first with by-name shadowing).
+  - **The scriptable-component access registry**: a component declares its script
+    surface (`self.<name>`, `world.<accessor>(id)`, `getComponent("name")`) in ONE
+    `OSCRIPT_HANDLE` line at its meta-export site.
+    `ScriptComponent::populateSelfTable` + `ensureScriptApi` drive every surface
+    off that ONE `ScriptRuntime` registry, so a new scriptable component is never
+    silently script-unreachable.
+  - **Component `enabled` is a base-system feature**, not a per-component bool.
+    The ONE base-declared `enabled` reaches every component, and disabling means
+    the honest per-kind thing (renderables hide, lights go dark, rigid bodies
+    leave the sim and re-enter at rest, sounds stop, particles stop emitting
+    while live ones drain, animations pause). Object-active and
+    component-enabled funnel through the SINGLE `applyEffectiveEnabled` suspend
+    path. Components that cannot honestly disable opt out via `supportsDisable`
+    (no lying checkboxes). `true` serializes as silence, so untouched scenes stay
+    byte-identical. **Don't add an ad-hoc `visible` bool** — `enabled` is the one
+    vocabulary (the Lua `setXVisible` aliases are kept for compatibility).
+  - **The config-asset pattern**: project-config files (`input.oactions`,
+    `physics.olayers`, `levels.olevels`) are referenced from the manifest
+    `Settings`, live OUTSIDE `assets/` and are NOT id-tracked. They reach an
+    export through `configSettingKeys()` in `tools/exporter/ExportSettings.cpp` —
+    add a new config asset there or it will not ship.
+  - **The canonical player-loop tick order** is a FENCED block in
+    `tools/player/main.cpp`: input → scripts → tweens → physics → deferred-load.
+  - **The scene teardown hook** (`GameObjectManager::clear`) is fenced too;
+    `clearExceptPersistent` is its persistence-aware sibling.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) builds + tests on every push —
-**thirteen parallel jobs** (one per platform x flavor, plus the two Linux
-sanitizer siblings), so a failure names itself and every verdict lands as
-early as its own build allows (public-repo runners are free; the only cap is
-5 concurrent macOS jobs):
-**web** cross-builds the wasm player + core test module on Ubuntu (pinned
-emsdk, cached; vcpkg binary cache keyed on the chainload wrapper too) and
-runs the full web suite — core units under the emsdk's node plus the export
-structure/pixel-boot tests through the image's headless Chrome, with a
-may-not-skip guard on the boot test;
-**linux-next**/**linux-classic** run the full windowed desktop suites under
-xvfb (lavapipe / llvmpipe); linux-next adds the **`ORKIGE_SCRIPTING=OFF`**
-build + unit gate. **linux-sanitizer** is the CI-only **ASan + UBSan** tree
-running the complete unit + desktop suite, and **linux-tsan** the sibling
-**ThreadSanitizer** tree running the headless unit gate only (windowed sets
-excluded — too noisy under TSan; `Util/tsan_suppressions.txt` covers only
-non-Orkige worker-thread races, `Docs/sanitizers.md`); both run with ZERO
-retries.
-**android-emulator-next**/**-classic** build the x86_64 emulator player
-FIRST (the fail-fast the job exists for), then the host editor, then run
-the adb Play test (shipping Android remains arm64-v8a).
-**macos-next**/**macos-classic** run the complete non-device desktop suites
-on Apple hardware (classic includes the MoltenVK Vulkan runs — brew
-molten-vk in the job, the documented driver-tier setup).
-**ios-simulator-next** builds the Simulator player first, then
-the host editor, then runs the export/Play/boot/safe-area device tests
-against a prepared iPhone simulator plus a PRE-WARMED shutdown device (a
-hosted runner boots even a warm simulator in 4-6 minutes — the Play
-session/phase/ctest budgets are spaced for that, see EditorApp.h);
-**ios-simulator-classic** builds the classic Simulator player (fail-fast)
-and runs the export structure test with a may-not-skip guard — the
-editor-session device tests stay on the next job + local hardware, because
-the HOST classic editor is unreliable on hosted virtual GPUs (the
-macos-classic finding; the classic device suite runs locally via
-`ctest --preset all` on the classic tree).
-**windows-next** builds on MSVC and runs the complete desktop suite through
-a Mesa lavapipe software Vulkan ICD registered in the REGISTRY (elevated
-processes ignore the loader's env overrides) with Win32 presentation
-(preset `windows-debug`, x64-windows-static-md triplet,
-NOMINMAX/WIN32_LEAN_AND_MEAN globally); **windows-classic** is the build +
-headless-unit gate (no software GL on hosted Windows for the windowed set —
-the classic windowed gate runs on Linux and macOS). The windowed CI suites
-retry a failing test once (`--repeat until-pass:2`); local runs and the
-sanitizer suite stay strict so flakes remain visible.
-Linux builds with **clang** (`CC/CXX` in the workflow env;
-matches the clang-oriented codebase), and needs a few system dev packages the cold
-vcpkg build surfaced (autoconf-archive, libltdl-dev, libxtst/libxinerama; SDL's builtin
-iconv via the `triplets/x64-linux.cmake` overlay). A `pre-push` hook (`Util/install_git_hooks.sh`) spawns `Util/watch_ci.sh` to report
-each push's result.
+GitHub Actions (`.github/workflows/ci.yml`) builds + tests on every push as
+**fifteen jobs**, mostly parallel, so a failure names itself and every verdict
+lands as early as its own build allows (public-repo runners are free; the only
+cap is 5 concurrent macOS jobs). The jobs:
+
+| Job | What it gates |
+|-----|---------------|
+| `linux-classic` / `linux-next` | the full windowed desktop suites under xvfb (llvmpipe / lavapipe); `linux-next` adds the `ORKIGE_SCRIPTING=OFF` build + unit gate |
+| `linux-sanitizer` | CI-only ASan + UBSan tree, complete unit + desktop suite |
+| `linux-tsan` | ThreadSanitizer tree, headless unit gate only (windowed sets are too noisy under TSan) |
+| `host-exporter` | builds `orkige_export` on Linux and uploads it — the browser export needs a host exporter the wasm tree cannot build |
+| `web` (needs `host-exporter`) | cross-builds the wasm player + core test module (pinned emsdk) and runs the full web suite: core units under node, export structure + pixel-boot through headless Chrome, may-not-skip guard on the boot test |
+| `site` (needs `web`) | the per-push site deploy (see the help-portal bullet) |
+| `android-emulator-next` / `-classic` | build the x86_64 emulator player FIRST (the fail-fast the job exists for), then the host editor, then the adb Play test |
+| `macos-next` / `macos-classic` | the complete non-device desktop suites on Apple hardware (classic includes the MoltenVK Vulkan runs — brew molten-vk in the job) |
+| `ios-simulator-next` | Simulator player, then host editor, then the export/Play/boot/safe-area device tests against a prepared iPhone simulator plus a PRE-WARMED shutdown device |
+| `ios-simulator-classic` | classic Simulator player (fail-fast) + the export structure test with a may-not-skip guard |
+| `windows-next` | MSVC build + complete desktop suite through a Mesa lavapipe software Vulkan ICD with Win32 presentation (preset `windows-debug`, `x64-windows-static-md`, NOMINMAX/WIN32_LEAN_AND_MEAN globally) |
+| `windows-classic` | build + headless-unit gate (no software GL on hosted Windows) |
+
+Standing facts and hazards:
+
+- A hosted runner boots even a warm iOS simulator in 4-6 minutes — the Play
+  session/phase/ctest budgets are spaced for that (see `EditorApp.h`).
+- Editor-session device tests stay on `ios-simulator-next` + local hardware: the
+  HOST classic editor is unreliable on hosted virtual GPUs. Run the classic
+  device suite locally with `ctest --preset all` on the classic tree.
+- Shipping Android is arm64-v8a; the emulator jobs are x86_64 only.
+- Windowed CI suites retry a failing test once (`--repeat until-pass:2`); local
+  runs and both sanitizer jobs stay strict so flakes remain visible.
+  `Util/tsan_suppressions.txt` covers only non-Orkige worker-thread races —
+  `Docs/sanitizers.md`.
+- Linux builds with **clang** (`CC/CXX` in the workflow env) and needs system dev
+  packages the cold vcpkg build surfaced (autoconf-archive, libltdl-dev,
+  libxtst/libxinerama; SDL's builtin iconv via the `triplets/x64-linux.cmake`
+  overlay).
+- `.github/workflows/nightly.yml` packages and publishes the editor —
+  `Docs/nightly-builds.md`. `pages.yml` is a manual site redeploy lever only.
+- A `pre-push` hook (install once per clone: `Util/install_git_hooks.sh`) spawns
+  `Util/watch_ci.sh` detached, which polls the push's runs and reports via macOS
+  notification + `~/.orkige/ci-watch-<sha>.log` (a failure includes the failing
+  steps' log tail). Skip once with `ORKIGE_NO_CI_WATCH=1 git push`. When a CI
+  failure lands, fix it promptly — a red required job blocks everyone's
+  confidence in the suite.

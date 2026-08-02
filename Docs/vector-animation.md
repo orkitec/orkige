@@ -441,6 +441,44 @@ is the reference script (idle → one-shot hop crossfade → ended event back in
 Lua), exercised by the `player_vectoranim_selfcheck` ctest on both flavors;
 `Docs/lua-api.md` carries the drive snippet and the full method index.
 
+## Soft, deformable shapes (`softBody` on `VectorShapeComponent`)
+
+The sibling deformation tier: a plain `.oshape` becomes squashy without any
+animation rig. Both flavors.
+
+The rest mesh is tessellated ONCE and skinned to a few contour CONTROL POINTS
+(translation-only linear-blend skinning — the exact formulation a future
+vertex-shader path would consume). Per gameplay tick only the control points
+move; the deformed vertices upload through the DYNAMIC
+`VectorMesh::updateVertices` fast path (`ManualObject` `beginUpdate` on both
+backends — the classic v1 object and the next `SCENE_DYNAMIC` v2 object). The
+next backend forbids mapping a buffer twice per frame, so the component defers
+the first upload one tick after any `setMesh`.
+
+Three drivers all move the same control points, so they compose:
+
+- **Wobble springs**, one per control point (`core_util/WobbleSpring`), which
+  snap to exact rest so the shape returns with no drift.
+- **Physics-driven squash/stretch**, volume-preserving: a sibling
+  `RigidBodyComponent` contact squashes along the impact and kicks the wobble,
+  and the body's velocity stretches along the motion. The physics body itself
+  stays a rigid circle.
+- **Morph targets** of the same topology (`.oshape` `morph` blocks).
+  `tools/shapecook --targets` cooks a multi-SVG morph set at a fixed flatten
+  resolution and reports a structure mismatch clearly.
+
+The deform math is the pure, headless-unit-tested `core_util/SoftBodyDeform`
+(allocation-free per frame; the player selfcheck logs a measured per-frame cost).
+Lua drives it through `self.shape` (`impulse` / `playMorph` / `stopMorph`), and
+the wobble / squash / morph tunables are reflected properties, so they reach the
+Inspector, serialization and MCP through the one registry.
+
+Colliders: a soft body collides as its REST shape (see the shape-collider notes)
+— the deformation is presentation.
+
+Sample: `projects/vectorshapes/scenes/softbody.oscene` (a falling blob plus a
+Lua-morphed blob), verified by `player_softbody_selfcheck` on both flavors.
+
 ## Hot-reload during Play (.oanim iteration)
 
 The editor's project-tree watcher (the scripts/`.oui` watcher's cadence and

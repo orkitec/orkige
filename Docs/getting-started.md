@@ -235,7 +235,7 @@ Agents can flip the overlays, the view mode and the lighting over MCP with
 `set_view_option` / `get_view_options` — the latter reports `view_mode`, `lighting`
 and the `wireframe_supported` / `lighting_supported` capability flags, and an
 unsupported value is refused with its reason (see [Docs/mcp.md](mcp.md)) — and
-confirm the result with `screenshot_editor`.
+confirm the result with `screenshot`.
 
 ## Where to go next
 

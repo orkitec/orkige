@@ -100,6 +100,40 @@ MCP: agents are forbidden from committing on the developer's behalf, and an MCP
 tool would launder that prohibition. The read-only status could be exposed as a
 tool in the future; the mutations will not be.
 
+## Tile Palette and the grid-paint tool
+
+Level authoring in 2D mode: the **Tile Palette** panel arms a paintable asset and
+the **Paint** tool (`B`) paints and erases tiles snapped to a grid.
+
+Two occupant kinds go through ONE seam
+(`EditorCore::paintTileAtCell` / `findTileAtCell` / `eraseTileAtCell`, selected by
+`EditorPaintDesc::kind`):
+
+- a **prefab** tile instantiates its `.oprefab` subtree. Open edges become
+  suppressed prefab wall children plus a `TileComponent.openEdges` stamp (the
+  wall-local convention lives in `TileComponent::EDGE_WALL_LOCAL_IDS`).
+- a **bare-asset** tile is painted straight from a **texture** (a grid-cell
+  `SpriteComponent` quad) or an **`.oshape`** (a `VectorShapeComponent`), with no
+  prefab file generated. The tile carries a `TileComponent` stamping the source
+  asset's id (`TileComponent.sourceAssetId`).
+
+The palette lists all three kinds (`wall_block (prefab)` beside a bare `grass`).
+Look propagation for a bare tile is the shared asset itself: edit the texture or
+shape and every painted tile follows — there is no per-tile prefab to re-apply.
+
+The cell size comes from a scene `LevelComponent`, falling back to the translate
+snap step. A whole stroke folds into ONE undo step
+(`CompositeCommand::mergeWith`), and erase/replace is subtree-safe and works
+across kinds (`DeleteSubtreeCommand`). **File > Add Scene to Level Sequence**
+appends the open scene to `levels.olevels`.
+
+Agents reach the same seam over MCP: `list_paintable_assets` (alias
+`list_paint_prefabs`) / `paint_asset` (alias `paint_prefab`, which accepts a
+texture or shape too) / `erase_cell` / `add_scene_to_levels`. Verified by the
+`editor_level_paint` ctest (prefab and bare sprite/shape tiles, a mixed grid,
+paint → save → reload → PLAYS) on both flavors, plus the `editor_control` MCP
+bare-tile leg.
+
 ## Asset browser git badges
 
 The Asset browser reads the **same** cached status snapshot the Source Control
