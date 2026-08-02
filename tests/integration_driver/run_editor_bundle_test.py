@@ -27,6 +27,15 @@ that situation and drives the copy over its own MCP endpoint:
      no interpreter reachable to run one. The same leg asks for an iOS
      package, which a copy genuinely cannot produce, and asserts the refusal
      SAYS so.
+  4b. ASSERT the BROWSER package (`--leg web`, its own ctest): with the browser
+     payload staged into the copied app exactly as the packaging pipeline
+     stages it, the copy must produce a web export - the shell page, the wasm
+     player and the sealed game.pak - out of that payload alone. The browser
+     target is flavor-independent (the wasm player is the classic flavor
+     whatever the editor is), so this is what proves a downloaded editor of
+     EITHER flavor can ship a browser build. Skips (77) on a machine with no
+     wasm build tree to stage from, which is why it is a test of its own: a
+     missing toolchain must never turn the legs above into a skip.
   5. ASSERT the unreadable-media leg: with the staged shader media made
      unreadable, the resource resolver says so out loud and nothing throws out
      of engine setup (the error_code probes). Skipped as root, where a mode of
@@ -48,6 +57,8 @@ history. Stdlib only, per the toolchain policy.
 """
 
 import argparse
+import hashlib
+import importlib.util
 import json
 import os
 import plistlib
@@ -61,6 +72,19 @@ import time
 
 
 SKIP = 77
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
+
+
+def load_module(name, path):
+    """import a repository script by path (the drivers are files, not a
+    package). Used to reuse the packaging pipeline's OWN payload staging and
+    the web suite's OWN artifact expectations rather than restating either."""
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def log(message):
@@ -629,6 +653,152 @@ def run_export_leg(args, stage_dir, sandbox_profile):
     return output
 
 
+# The browser payload is staged by the PACKAGING pipeline, never by the build,
+# so a copy taken straight out of a build tree carries none. This leg stages it
+# the way a released editor gets it - through the packaging tool's own function,
+# so what is under test is the shipped mechanism and not a second one written
+# here - and then asks the copy for a browser package.
+PACKAGING_TOOL = os.path.join(REPO_ROOT, "Util", "orkige_nightly_package.py")
+# what a web export must contain, from the web suite's own expectations
+WEB_SUITE = os.path.join(REPO_ROOT, "tests", "web", "run_export_web.py")
+
+
+def project_title(project_root):
+    """the manifest <Name> the exported shell page carries as its title"""
+    manifest = os.path.join(project_root, "project.orkproj")
+    text = open(manifest, encoding="utf-8", errors="replace").read()
+    start = text.find("<Name>")
+    end = text.find("</Name>", start + 1)
+    if start < 0 or end < 0:
+        fail("no <Name> in " + manifest)
+    return text[start + len("<Name>"):end].strip()
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def stage_browser_payload(args, executable):
+    """put the browser payload inside the staged copy, exactly as the packaging
+    pipeline puts it inside a release. Returns the payload directory, or ""
+    when this machine has no wasm build tree to compose one from."""
+    sys.path.insert(0, os.path.join(REPO_ROOT, "Util"))
+    packaging = load_module("orkige_nightly_package", PACKAGING_TOOL)
+    resources = staged_resource_dir(executable)
+    if not os.path.isdir(resources):
+        fail("the staged copy has no resource root at " + resources)
+    if not packaging.WebPayload(build_dir=args.web_build).stage(resources):
+        return ""
+    payload = os.path.join(resources, packaging.WEB_PAYLOAD_DIR)
+    problems = packaging.web_payload_problems(payload)
+    if problems:
+        fail("the staged browser payload is incomplete: " + ", ".join(problems))
+    return payload
+
+
+def check_web_export(args, artifact_dir, payload, stage_dir):
+    """the packaged browser build, as a person would serve it: the artifact set
+    the web suite defines, and a wasm player that is byte-for-byte the one the
+    copied app carried - the proof it was packaged out of the bundle rather
+    than out of a build tree that happens to be on this machine."""
+    if not os.path.isdir(artifact_dir):
+        fail("the export reported '%s', which is not a directory"
+             % artifact_dir)
+    web_suite = load_module("run_export_web", WEB_SUITE)
+    # the web suite's own assertions: every artifact file present and non-empty,
+    # the project's title substituted into the shell page, no placeholder left
+    # unexpanded, and a payload archive of plausible size
+    web_suite.assert_structure(artifact_dir, project_title(
+        os.path.join(stage_dir, "project")))
+    carried = os.path.join(payload, "orkige_player.wasm")
+    shipped = os.path.join(artifact_dir, "orkige_player.wasm")
+    if sha256(carried) != sha256(shipped):
+        fail("the exported wasm player is not the one the app carries (%s vs "
+             "%s)" % (carried, shipped))
+    log("the browser export carries the app's own wasm player (%d bytes) and "
+        "the whole artifact set" % os.path.getsize(shipped))
+
+
+def run_web_export_leg(args, stage_dir, sandbox_profile):
+    """a copied editor asked to package the open project FOR THE BROWSER.
+
+    A web export compiles nothing - the wasm player is a prebuilt artifact and
+    everything else is bytes the exporter arranges - so this is the one target a
+    copy can package for on any host, whatever render flavor the editor itself
+    is: the browser player is the classic flavor and rides inside the app.
+
+    Skipped where no wasm build tree exists to stage a payload from. It is NOT
+    passed silently: a released editor carries the payload, and a run that
+    cannot stage one has proven nothing about it."""
+    executable = stage_app(args.editor_app, stage_dir)
+    payload = stage_browser_payload(args, executable)
+    if not payload:
+        skip("no browser payload to stage into the copy - build the "
+             "web-release preset (or point --web-build / ORKIGE_WEB_BUILD at a "
+             "wasm tree) to run this leg")
+    log("staged the browser payload into the copied app (%s)" % payload)
+    project = os.path.join(stage_dir, "project")
+    shutil.copytree(args.project, project,
+                    ignore=shutil.ignore_patterns("builds", ".orkige",
+                                                  "build*", ".mcp.json"))
+    for name in ("home", "cwd", "state", "tmp"):
+        os.makedirs(os.path.join(stage_dir, name), exist_ok=True)
+    token_file = os.path.join(stage_dir, "endpoint.token")
+    env = scrubbed_env(stage_dir)
+    process = launch(executable,
+                     [executable, "--mcp-port", "0",
+                      "--mcp-token-file", token_file],
+                     os.path.join(stage_dir, "cwd"), env, sandbox_profile)
+    try:
+        port, token = wait_for_endpoint(process, token_file, args.boot_timeout)
+        if not port:
+            output = stop(process)
+            print(output[-8000:], flush=True)
+            fail("the copied editor never opened its MCP endpoint for the web "
+                 "export leg")
+        client = McpClient(port, token)
+        client.call("initialize", {"protocolVersion": "2025-03-26",
+                                  "capabilities": {},
+                                  "clientInfo": {"name": "bundle-selfcheck",
+                                                 "version": "1"}})
+        client.tool("open_project", {"path": project})
+        accepted, structured, text = client.attempt("export_project",
+                                                    {"platform": "web"})
+        if not accepted:
+            reject_build_machine_paths(args, text, "the web export refusal")
+            fail("the copied editor refused to package for the browser with "
+                 "the payload it carries: " + text)
+        packaged_from = str(structured.get("engineBuild", ""))
+        if not packaged_from.startswith(os.path.realpath(stage_dir)) and \
+                not packaged_from.startswith(stage_dir):
+            fail("the web export packaged from '%s', which is not inside the "
+                 "copied app" % packaged_from)
+        result = poll_export(client, str(structured.get("jobId", "")),
+                             args.export_timeout)
+        if str(result.get("ok", "")) != "1":
+            error = str(result.get("error", ""))
+            reject_build_machine_paths(args, error, "the web export failure")
+            fail("the web export failed: " + error)
+        artifact = str(result.get("artifactPath", ""))
+        log("the copied editor exported '%s' from its own payload (%s)"
+            % (artifact, packaged_from))
+        check_web_export(args, artifact, payload, stage_dir)
+        output = stop(process)
+    except Exception as error:		# noqa: BLE001 - report and stop the app
+        output = stop(process)
+        print(output[-8000:], flush=True)
+        fail("the web export leg failed: %r" % (error,))
+    finally:
+        stop(process)	# no exit path leaves a staged editor running
+    if "developer tree" in output:
+        fail("the copied editor resolved resources from the developer tree")
+    return output
+
+
 def run_unreadable_media_leg(args, stage_dir, sandbox_profile):
     """an UNREADABLE shader-media directory must degrade honestly, not abort"""
     if hasattr(os, "geteuid") and os.geteuid() == 0:
@@ -779,6 +949,16 @@ def main():
                        help="scratch directory (inside the build tree)")
     parser.add_argument("--repo-root", required=True,
                        help="the tree the staged app must NOT reach into")
+    parser.add_argument("--leg", choices=("bundle", "web"), default="bundle",
+                       help="'bundle' (default) runs the session, packaging, "
+                            "unreadable-media and changelog legs; 'web' runs "
+                            "the browser-package leg alone, which skips where "
+                            "no wasm build tree exists - so a machine without "
+                            "one never turns the others into a skip")
+    parser.add_argument("--web-build", default="",
+                       help="the wasm build tree the browser payload is "
+                            "composed from (else ORKIGE_WEB_BUILD, else the "
+                            "repository's build/web-release)")
     parser.add_argument("--boot-timeout", type=float, default=120.0)
     parser.add_argument("--play-timeout", type=float, default=120.0)
     parser.add_argument("--export-timeout", type=float, default=300.0,
@@ -790,6 +970,8 @@ def main():
     # driver hands on must be absolute
     for name in ("editor_app", "project", "stage_root", "repo_root"):
         setattr(args, name, os.path.abspath(getattr(args, name)))
+    if args.web_build:
+        args.web_build = os.path.abspath(args.web_build)
 
     if not os.path.exists(args.editor_app):
         skip("no built editor app at %s" % args.editor_app)
@@ -821,6 +1003,14 @@ def main():
 
     clean_staged_identity_state()
     try:
+        if args.leg == "web":
+            web_stage = os.path.join(args.stage_root, "web")
+            os.makedirs(web_stage)
+            run_web_export_leg(args, web_stage, sandbox_profile)
+            log("PASSED: the copied editor packages a browser build out of the "
+                "payload it carries, on a host with no wasm toolchain")
+            return 0
+
         session_stage = os.path.join(args.stage_root, "session")
         os.makedirs(session_stage)
         run_session_leg(args, session_stage, sandbox_profile)

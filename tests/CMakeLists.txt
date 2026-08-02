@@ -1385,6 +1385,37 @@ if(TARGET orkige_editor)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_bundle${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 900)
+
+        # The BROWSER half of the same question, as its own test because it can
+        # honestly skip: a distributed editor packages a web export out of the
+        # payload the packaging pipeline stages inside it (the wasm player, the
+        # shell page and the classic engine media the browser player renders
+        # through), on a host with no Emscripten toolchain - a web export
+        # compiles nothing. The leg stages that payload into the copied app
+        # through the packaging tool's OWN function, then drives the clean-room
+        # copy over MCP to export for the web and asserts the artifact set the
+        # web suite defines, plus that the shipped wasm player is byte-for-byte
+        # the one the app carried. It runs on BOTH flavors and must pass on
+        # both: the browser player is the classic flavor whatever the editor
+        # is, so this is what makes the browser target flavor-independent.
+        # The wasm tree is resolved the packaging tool's own way (the env
+        # ORKIGE_WEB_BUILD, else the repository's build/web-release), so the
+        # test and a release use ONE rule. Skips (exit 77) when there is none -
+        # which is why it is not a leg of editor_bundle above: a machine
+        # without a wasm toolchain must not turn that test's verdicts into a
+        # skip.
+        add_test(NAME editor_bundle_web${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_editor_bundle_test.py"
+                --leg web
+                --editor-app "$<TARGET_BUNDLE_DIR:orkige_editor>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --scene "scenes/main.oscene"
+                --stage-root "${CMAKE_CURRENT_BINARY_DIR}/editor_bundle_web${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                --repo-root "${Orkige_SOURCE_DIR}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_bundle_web${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
     endif()
 
     # Asset browser (v2): open a temp COPY of

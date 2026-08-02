@@ -888,12 +888,12 @@ multi-minute job): it returns `{ accepted:"1", jobId }`; poll
 `.apk`) on success or the `error` on failure, plus the exporter's `outputTail`.
 
 Where the engine pieces come from depends on the editor answering. An editor
-built in the engine source tree packages a preset **build tree**, and the export
-pipeline is **pinned to the classic render flavor** there (it bundles the
-classic player/media set): `export_project` checks that tree up front and
-returns an honest structured error — WITHOUT running the exporter — when it is
-missing or next-flavored (build the matching classic preset, e.g.
-`macos-debug-classic`, first). A **distributed editor** has no build tree and
+built in the engine source tree packages a preset **build tree** — **either
+render flavor**, since the exporter bundles that tree's own engine media (the
+RTSS set on classic, the Hlms templates on next): `export_project` checks that
+tree up front and returns an honest structured error — WITHOUT running the
+exporter — when the platform's preset was never built. A **distributed editor**
+has no build tree and
 packages the engine payload it carries inside itself instead; there it exports
 the desktop app and refuses `ios-simulator`/`android` with a message saying that
 platform's player only comes from a source build. Either way `engineBuild` in

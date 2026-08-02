@@ -26,8 +26,12 @@ every exported game.
 | The non-system dylib closure (macOS `Contents/Frameworks`) | The classic flavor links the Vulkan loader as a dylib, so a copy dies in dyld before `main` without it. |
 | `CHANGELOG.md`, `VERSION`, `KNOWN-LIMITATIONS.md` (packaged builds only) | What the release shipped with. The Help > About box shows the changelog, read once from the resource root through this same locator. A build from a source tree carries none, resolves `Missing`, and the box says so in one line — the repository's working history is not what a binary shipped with. `Util/orkige_nightly_package.py` writes these; nothing in the build tree does. |
 
-Mobile and web players are deliberately **not** staged: they are separate build
-trees, and a copied editor cannot deploy to a device anyway.
+Mobile players are deliberately **not** staged: they are separate build trees,
+and a copied editor cannot deploy to a device anyway. The BROWSER player is the
+one cross-built artifact a package does carry, because a web export compiles
+nothing — the packaging pipeline stages it (`Util/orkige_nightly_package.py`),
+never the build, so a copy taken straight out of a build tree has none and says
+so. See [The browser payload](web-export.md#the-browser-payload-inside-a-packaged-editor).
 
 ## Layout per platform
 
@@ -134,10 +138,10 @@ A copy refuses, specifically, what it genuinely cannot do:
 
 | Request | What it says |
 |---------|--------------|
-| iOS, Android or browser | Packaging for that platform needs that platform's player, which only an Orkige built from the engine source tree produces; export the desktop app, or build from source. |
+| iOS or Android | Packaging for that platform needs that platform's player, which only an Orkige built from the engine source tree produces; export the desktop app, or build from source. |
 | A project with a native module | Compiled C++ game code needs the engine source tree and a C++ toolchain, which a downloaded app carries neither of. Projects whose behaviour is Lua scripts export as they are. |
 | Anything, on a host with no packaging target | The exporter writes a macOS app today; on another host it says so instead of producing nothing. |
-| A browser build, with no staged wasm player | The app carries no browser player; build the web-release preset from the engine source tree. |
+| A browser build, with no staged wasm player | The app carries no browser player; build the web-release preset from the engine source tree. (A packaged editor carries one, so this is what a copy taken out of a build tree says. The archive's `VERSION` file records which of the two a download is, as `web-export: bundled` or `absent`.) |
 
 **Nothing on this path needs an interpreter.** The exporter is a library
 the editor links (`tools/exporter`, run on a worker thread), and both asset

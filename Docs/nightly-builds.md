@@ -120,6 +120,7 @@ Orkige-<platform>-<version>/
     <the player>            beside the editor, for Play
     <the texture cook tool> beside the player, for the export cook
     <resources>             the engine media, at the path the editor resolves
+    <resources>/web/        the browser payload a web export ships
 ```
 
 The resources sit exactly where the editor's own resource locator looks — that
@@ -166,6 +167,36 @@ Platform-specific handling worth knowing:
 - **macOS** needs no dylib closure today — the built bundle depends on nothing
   outside the system frameworks — but the packaging runs the closure step
   anyway, so a future dependency rides along instead of breaking a download.
+
+### The browser player payload
+
+Every published editor can package a game for the browser, on any of the three
+platforms. A web export compiles nothing — the wasm player is a prebuilt
+artifact and the rest is bytes the exporter arranges — but it does need that
+player, and no desktop packaging runner can cross-build wasm. So a fourth job,
+`binaries-web-player`, builds the `web-release` player once (the same pinned
+emsdk and cache keys the push CI's web job uses) and composes the whole payload:
+
+    orkige_nightly_package.py --stage-web-payload web-payload \
+                              --web-build build/web-release
+
+The three packaging jobs download that as an artifact and stage it into the
+editor with `--web-payload` (the `ORKIGE_WEB_PAYLOAD` environment the workflow
+sets). It carries the player pair, the shell page and the CLASSIC engine media
+the browser player renders through — the browser target is flavor-independent,
+so the same payload rides inside every editor whatever its own flavor
+([the browser payload](web-export.md#the-browser-payload-inside-a-packaged-editor)).
+
+It is an added capability, not a precondition for shipping an editor. The
+packaging jobs WAIT for the payload job but publish without its artifact if it
+fails, so a broken wasm build costs the night its browser target and nothing
+else. What is never allowed is a half-staged one: a payload handed to the
+packaging that is missing a file is REFUSED rather than copied, because it would
+fail inside a user's export instead of before it. The artifact records which of
+the two states it is in:
+
+    web-export: bundled     # VERSION - this editor packages for the browser
+    web-export: absent      # ... and this one says so, in KNOWN-LIMITATIONS.md too
 
 ## The Linux single-file bundle
 
@@ -930,9 +961,11 @@ The trust gaps, per platform:
   [macOS signing](#macos-signing-notarization-and-stapling).
 - **A download packages for the desktop and the browser only** — Build >
   Export packages a game with the engine payload the app carries inside
-  itself, which is this platform's player and (when the packaging staged it)
-  the browser one. An iOS or Android package ships THAT platform's player,
-  which only a build from the engine source tree produces.
+  itself, which is this platform's player and the browser one. An iOS or
+  Android package ships THAT platform's player, which only a build from the
+  engine source tree produces. A build whose browser payload did not arrive
+  carries the desktop-only record instead, and its `VERSION` reads
+  `web-export: absent` ([the browser player payload](#the-browser-player-payload)).
 - **Compiled C++ game code needs a toolchain** — CMake, Ninja, a C++20 compiler
   and an engine build tree. Game behaviour written in Lua needs none of that,
   which is the whole point of the distinction.
@@ -958,6 +991,12 @@ python3 Util/orkige_nightly_package.py --platform macos \
         --since <previous nightly's commit> \
         --output /tmp/nightly-out
 ```
+
+A hand run with a `build/web-release` tree beside it stages the browser payload
+from there without being asked; point `--web-build` (or `ORKIGE_WEB_BUILD`) at
+another tree, or `--web-payload` at a directory `--stage-web-payload` composed
+elsewhere. With neither, the packaging warns once and the artifact records
+`web-export: absent`.
 
 The build target is `orkige_editor_bundle`, which stages the payload a copied app
 resolves its media from; a scoped editor build would package an app with none of

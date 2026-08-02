@@ -143,6 +143,61 @@ One split, one mechanism, two packages (`isMountedMediaPath` in
 `tools/player/main.cpp` is the shared rule). A page whose module filesystem
 carries no `game.pak` boots exactly as before.
 
+## The browser payload inside a packaged editor
+
+A downloaded Orkige packages a browser build. It needs no Emscripten toolchain
+to do it — a web export compiles nothing — but it does need the prebuilt player,
+so a packaged editor CARRIES one, in a single self-contained directory at its
+resource root (`Orkige.app/Contents/Resources/web/`, `share/orkige/web/`
+elsewhere):
+
+| in `web/` | from |
+| --- | --- |
+| `orkige_player.js`, `orkige_player.wasm` | a `web-release` build tree |
+| `index.html.in`, `pak_loader.js` | `tools/player/web/`, verbatim |
+| `Media/` | the CLASSIC engine media: the shader library, fonts, water, decals and the bloom/grade compositor media the browser player renders through |
+
+**The browser target is flavor-independent.** The browser player IS the classic
+flavor (GLES2/WebGL), whatever flavor the editor itself is, so a next-flavored
+editor packages a web export out of this classic payload: `exportWeb` takes the
+payload's ready-made `Media/` tree as one piece instead of reading a build
+tree's. That is why one `web-release` preset serves every editor.
+
+Who stages it: the **packaging** pipeline
+(`Util/orkige_nightly_package.py`), never the build — the wasm player is
+cross-built by its own toolchain, and no desktop packaging machine has one. So
+the payload is composed once on a machine that does and handed over:
+
+    # on a machine with the wasm toolchain, after building the web-release player
+    orkige_nightly_package.py --stage-web-payload web-payload \
+                              --web-build build/web-release
+
+    # on each desktop packaging machine, which needs no toolchain
+    orkige_nightly_package.py --platform macos --build-dir build/macos-release \
+                              --web-payload web-payload ...
+
+`--web-build` composes it in place instead, for a machine that has both.
+[The nightly](nightly-builds.md#the-browser-player-payload) runs exactly this
+handover.
+
+What the editor does with it: `EditorResourceLocator::webPlayer()` probes the
+wasm module as the payload's marker, and `planProjectExport` allows a
+bundle-sourced `web` export when it is there (`tools/editor/EditorExportPlan.h`
+— the one export decision the Build menu and the MCP `export_project` verb both
+go through). Without it, a web request is refused in one sentence naming what
+is missing. An archive's `VERSION` file records which of the two it is, as
+`web-export: bundled` or `web-export: absent`, and its `KNOWN-LIMITATIONS.md`
+carries the matching record — a build with no browser player never promises a
+browser package.
+
+Proven end to end by `editor_bundle_web` (both flavors, `tests/CMakeLists.txt`):
+it stages the payload into a copied app through the packaging tool's own
+function, then drives that copy in a clean room — no repository, no engine
+tree, a scrubbed `PATH` with no interpreter — to export for the web, and
+asserts the artifact set plus a shipped wasm player byte-identical to the one
+the app carried. It skips honestly on a machine with no `build/web-release`
+tree to stage from.
+
 ## Exception handling (the wasm ABI rule)
 
 Everything wasm — every vcpkg port and every engine object — compiles with

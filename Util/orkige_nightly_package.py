@@ -8,6 +8,10 @@ the other Util/ generators).
                               --commit <sha> [--date YYYY-MM-DD]
                               [--version <ordered version>] [--since <sha>]
                               [--output <dir>]
+                              [--web-payload <dir> | --web-build <wasm tree>]
+
+    orkige_nightly_package.py --stage-web-payload <dir>
+                              [--web-build <wasm tree>]
 
     orkige_nightly_package.py --verify <unpacked dir> --platform <p>
                               [--commit <sha>] [--version <ordered version>]
@@ -44,6 +48,11 @@ The staged tree has ONE shape on every platform:
         <the editor>            Orkige.app on macOS, orkige_editor[.exe] else
         <the player>            beside the editor, for Play
         Media/                  the engine shader/font/water/decal media
+        web/                    the browser payload a web export ships (the
+                                wasm player, the shell page and the CLASSIC
+                                engine media it renders through) - cross-built
+                                elsewhere and handed over, so a desktop
+                                packaging machine needs no wasm toolchain
 
 IDENTITY: one ordered version, composed HERE (nightly_version) and consumed by
 every surface - the archive filename, the VERSION file, the release notes an
@@ -162,6 +171,11 @@ SIGN_ADHOC = "ad-hoc"
 SIGN_DEVELOPER_ID = "developer-id"
 SIGN_NOTARIZED = "developer-id-notarized"
 
+# what an artifact carries for the browser target, in the ONE vocabulary the
+# VERSION file records and the limitations table narrows on
+WEB_BUNDLED = "bundled"
+WEB_ABSENT = "absent"
+
 
 # --- what a downloaded binary cannot do yet --------------------------------
 #
@@ -177,19 +191,24 @@ class Limitation:
     applies to; PLATFORMS means all of them. `signing` narrows an entry to ONE
     macOS signature state (SIGN_*), so a record describing what an unsigned
     download does is absent from a signed one rather than lying to its reader;
-    an entry that leaves it empty applies whatever the signature is worth."""
+    an entry that leaves it empty applies whatever the signature is worth.
+    `web` narrows the same way on the browser payload (WEB_*), so a build that
+    carries no browser player never promises a web export."""
 
     def __init__(self, key, platforms, title, detail, workaround="",
-                 signing=""):
+                 signing="", web=""):
         self.key = key
         self.platforms = tuple(platforms)
         self.title = title
         self.detail = detail
         self.workaround = workaround
         self.signing = signing
+        self.web = web
 
-    def applies_to(self, platform, signing=SIGN_ADHOC):
+    def applies_to(self, platform, signing=SIGN_ADHOC, web=WEB_BUNDLED):
         if self.signing and self.signing != signing:
+            return False
+        if self.web and self.web != web:
             return False
         return platform in self.platforms
 
@@ -198,6 +217,7 @@ LIMITATIONS = (
     Limitation(
         key="project-export",
         platforms=PLATFORMS,
+        web=WEB_BUNDLED,
         title="A download packages for the desktop and the browser only",
         detail="Build > Export packages a project with the engine payload this "
                "app carries inside itself, which is this platform's player and "
@@ -206,6 +226,21 @@ LIMITATIONS = (
                "tree produces.",
         workaround="Build Orkige from the engine repository to package for a "
                    "phone."),
+    Limitation(
+        key="project-export-desktop-only",
+        platforms=PLATFORMS,
+        web=WEB_ABSENT,
+        title="A download packages for the desktop only",
+        detail="Build > Export packages a project with the engine payload this "
+               "app carries inside itself, which is this platform's player "
+               "alone: this build carries no browser player, so Build > Export "
+               "refuses a web package, and an iOS or Android package ships "
+               "THAT platform's player, which only a build from the engine "
+               "source tree produces. The VERSION file's web-export line "
+               "records which of the two this download is.",
+        workaround="Download a build whose VERSION file reads "
+                   "`web-export: bundled` to package for the browser, or build "
+                   "Orkige from the engine repository to package for a phone."),
     Limitation(
         key="native-modules",
         platforms=PLATFORMS,
@@ -308,12 +343,13 @@ LIMITATIONS = (
 )
 
 
-def limitations_for(platform, signing=SIGN_ADHOC):
+def limitations_for(platform, signing=SIGN_ADHOC, web=WEB_BUNDLED):
     return tuple(entry for entry in LIMITATIONS
-                 if entry.applies_to(platform, signing))
+                 if entry.applies_to(platform, signing, web))
 
 
-def limitations_markdown(platform, identity_lines=(), signing=SIGN_ADHOC):
+def limitations_markdown(platform, identity_lines=(), signing=SIGN_ADHOC,
+                         web=WEB_BUNDLED):
     """KNOWN-LIMITATIONS.md for one platform: a heading, one section per
     applicable entry, nothing else. The wording lives in the LIMITATIONS
     table, so this renderer never needs editing when a gap closes."""
@@ -326,7 +362,7 @@ def limitations_markdown(platform, identity_lines=(), signing=SIGN_ADHOC):
         lines.append("- " + line)
     if identity_lines:
         lines.append("")
-    for entry in limitations_for(platform, signing):
+    for entry in limitations_for(platform, signing, web):
         lines.append("## " + entry.title)
         lines.append("")
         lines.append(entry.detail)
@@ -1240,8 +1276,7 @@ def msvc_runtime_dlls(environ=None):
     return found
 
 
-def stage_macos(build_dir, stage_root, editor, player,
-                web_source=""):
+def stage_macos(build_dir, stage_root, editor, player, web=None):
     """macOS: the payload rides INSIDE the bundle - the executables in
     Contents/MacOS, the media in Contents/Resources/Media, which is what the
     editor's resource locator reads relative to SDL_GetBasePath. The build tree
@@ -1260,7 +1295,7 @@ def stage_macos(build_dir, stage_root, editor, player,
         tools.append(os.path.basename(cook))
     media_root = os.path.join(resources, "Media")
     staged = stage_engine_media(build_dir, media_root)
-    stage_export_support(resources, web_source)
+    stage_export_support(resources, web)
     # cut every build-tree dylib rpath and carry the non-system closure inside
     # the bundle: a shipped binary must not reach into the machine that built it
     search_dirs = []
@@ -1690,12 +1725,27 @@ def notarize_macos_app(app, signing):
 # The Media/ tree is CLASSIC even inside a next-flavored editor bundle, because
 # the browser player IS the classic flavor (GLES2/WebGL). The web-release preset
 # is a classic tree, so staging its media is the same call the editor's own
-# payload uses.
+# payload uses - and it is why the browser target is flavor-independent: a
+# next-flavored editor packages a web export out of this classic payload.
+#
+# TWO SOURCES, one payload. A machine that HAS a wasm build tree composes the
+# directory from it (`--web-build`). A machine that has none - every desktop
+# packaging runner, which cannot cross-build wasm - takes a payload composed
+# elsewhere (`--web-payload`, `--stage-web-payload` on the wasm side). Both end
+# in the same bytes under <resources>/web/, so the editor cannot tell them apart.
 
 WEB_PAYLOAD_DIR = "web"
-WEB_PLAYER_FILES = ("orkige_player.js", "orkige_player.wasm")
+# the wasm module is the payload's MARKER - what the editor's resource locator
+# probes to decide whether this app can package for the browser
+WEB_PLAYER_WASM = "orkige_player.wasm"
+WEB_PLAYER_FILES = ("orkige_player.js", WEB_PLAYER_WASM)
 WEB_SHELL_FILES = ("index.html.in", "pak_loader.js")
+# the browser player is the classic flavor, so its media carries the classic
+# shader library - the marker a complete payload is recognised by
+WEB_MEDIA_MARKER = os.path.join("Media", "RTShaderLib")
 DEFAULT_WEB_BUILD_DIR = os.path.join(REPO_ROOT, "build", "web-release")
+WEB_BUILD_ENV = "ORKIGE_WEB_BUILD"
+WEB_PAYLOAD_ENV = "ORKIGE_WEB_PAYLOAD"
 # the neutral app icon an export falls back to when a project sets no
 # export.icon - the ONE file the in-process exporter needs from outside its own
 # code, at the resource root (@see EditorResourcePaths.h)
@@ -1705,28 +1755,27 @@ DEFAULT_ICON_FILE = "orkige_default_icon.png"
 def web_build_dir(explicit=""):
     """the wasm build tree the browser payload comes from: the argument, then
     ORKIGE_WEB_BUILD, then the repo's own web-release preset tree."""
-    return (explicit or os.environ.get("ORKIGE_WEB_BUILD", "")
+    return (explicit or os.environ.get(WEB_BUILD_ENV, "")
             or DEFAULT_WEB_BUILD_DIR)
 
 
-def stage_web_payload(resource_root, build_dir=""):
-    """stage the browser payload under <resources>/web/, or say honestly that
-    this build carries none. Returns True when it was staged.
+def compose_web_payload(target, build_dir="", media=None):
+    """write the browser payload into @p target from a wasm BUILD TREE: the
+    player pair the tree built, the committed shell files, and the classic
+    engine media the browser player renders through. Returns True when it was
+    written, False (with a warning) when the tree carries no player.
 
-    A packaging job with no wasm build tree is a real state - the player is
-    cross-built by its own toolchain - and the editor already refuses a web
-    export with an actionable sentence when the payload is absent, so a missing
-    tree WARNS rather than failing the night's build."""
+    `media` is the engine-media stager, injectable so the payload's own
+    composition is testable without a configured build tree."""
     source_tree = web_build_dir(build_dir)
     player_dir = os.path.join(source_tree, "tools", "player")
     missing = [name for name in WEB_PLAYER_FILES
                if not os.path.isfile(os.path.join(player_dir, name))]
     if missing:
-        warn("no browser player in '%s' (%s) - this build cannot package a web "
-             "export; build the web-release preset, or point ORKIGE_WEB_BUILD "
-             "at a tree that has one" % (player_dir, ", ".join(missing)))
+        warn("no browser player in '%s' (%s) - build the web-release preset, "
+             "or point %s at a tree that has one"
+             % (player_dir, ", ".join(missing), WEB_BUILD_ENV))
         return False
-    target = os.path.join(resource_root, WEB_PAYLOAD_DIR)
     os.makedirs(target, exist_ok=True)
     for name in WEB_PLAYER_FILES:
         shutil.copy2(os.path.join(player_dir, name),
@@ -1739,14 +1788,65 @@ def stage_web_payload(resource_root, build_dir=""):
         shutil.copy2(source, os.path.join(target, name))
     # the browser player is the classic flavor, so its media is a classic
     # tree's - which the web-release preset is
-    stage_engine_media(source_tree, os.path.join(target, "Media"))
-    log("staged the browser payload (%s)"
-        % orkige_buildtree.human_size(
-            orkige_buildtree.directory_size(target)))
+    (media or stage_engine_media)(source_tree, os.path.join(target, "Media"))
     return True
 
 
-def stage_export_support(resource_root, web_source=""):
+def web_payload_problems(payload_dir):
+    """what a ready-made browser payload directory is missing (empty when it is
+    complete). The ONE description of a usable payload - the layout check and
+    every consumer below ask through it."""
+    problems = []
+    for name in WEB_PLAYER_FILES + WEB_SHELL_FILES:
+        if not os.path.isfile(os.path.join(payload_dir, name)):
+            problems.append(name)
+    if not os.path.isdir(os.path.join(payload_dir, WEB_MEDIA_MARKER)):
+        problems.append(WEB_MEDIA_MARKER.replace(os.sep, "/"))
+    return problems
+
+
+class WebPayload:
+    """where a packaging run gets the browser payload from.
+
+    A desktop packaging machine cannot cross-build wasm, so the payload is
+    normally composed once on a machine that can and handed over as a ready-made
+    directory (`payload_dir`); a machine that has its own wasm tree composes it
+    from there instead (`build_dir`). Either way it lands under
+    <resources>/web/, and a run that has NEITHER warns and carries none - the
+    browser payload is an added capability, not a precondition for shipping an
+    editor, and the editor refuses a web export with an actionable sentence
+    when it is absent."""
+
+    def __init__(self, build_dir="", payload_dir=""):
+        self.build_dir = build_dir
+        self.payload_dir = (payload_dir
+                            or os.environ.get(WEB_PAYLOAD_ENV, ""))
+
+    def stage(self, resource_root):
+        """stage the payload under <resources>/web/; True when it was staged"""
+        target = os.path.join(resource_root, WEB_PAYLOAD_DIR)
+        if self.payload_dir:
+            problems = web_payload_problems(self.payload_dir)
+            if problems:
+                # a payload that was HANDED to this run and is incomplete is a
+                # different state from having none: something composed it wrong,
+                # and shipping the half of it would fail inside an export
+                fail("the browser payload at '%s' is incomplete (missing %s)"
+                     % (self.payload_dir, ", ".join(problems)))
+            if os.path.isdir(target):
+                shutil.rmtree(target)
+            shutil.copytree(self.payload_dir, target)
+        elif not compose_web_payload(target, self.build_dir):
+            warn("this build carries no browser player and cannot package a "
+                 "web export")
+            return False
+        log("staged the browser payload (%s)"
+            % orkige_buildtree.human_size(
+                orkige_buildtree.directory_size(target)))
+        return True
+
+
+def stage_export_support(resource_root, web=None):
     """everything a staged editor needs to package a GAME beyond the exporter
     it links: the neutral default app icon, and the browser payload when this
     machine has one."""
@@ -1755,11 +1855,11 @@ def stage_export_support(resource_root, web_source=""):
         fail("the default app icon is missing from the source tree - an export "
              "of a project without its own icon would ship none")
     shutil.copy2(icon, os.path.join(resource_root, DEFAULT_ICON_FILE))
-    stage_web_payload(resource_root, web_source)
+    (web or WebPayload()).stage(resource_root)
 
 
 def stage_flat(build_dir, platform, stage_root, editor, player,
-               web_source=""):
+               web=None):
     """Linux and Windows: the executables beside each other and the resources
     under share/orkige/, which is the layout the editor's own resource locator
     reads relative to SDL_GetBasePath (its executable's directory) - the SAME
@@ -1781,7 +1881,7 @@ def stage_flat(build_dir, platform, stage_root, editor, player,
         source = os.path.join(editor_media, name)
         if os.path.isfile(source):
             shutil.copy2(source, os.path.join(resources, name))
-    stage_export_support(resources, web_source)
+    stage_export_support(resources, web)
     # whatever shared libraries the build placed beside the executable (on
     # Windows the vcpkg DLLs the loader needs, e.g. the Vulkan loader)
     build_output = os.path.dirname(editor)
@@ -2459,17 +2559,18 @@ def make_appimage(stage_root, appimage_path, editor_name, version="",
 
 def package(platform, build_dir, commit, date, output_dir, version="",
             since="", repo=REPO_ROOT, signing=None, appimagetool="",
-            web_build=""):
+            web=None):
     """stage, describe and archive one platform's editor build. `version` is
     the ordered identity (composed here when the caller passes none, so a hand
     run needs no extra argument); `since` is the previous nightly's commit -
     the changelog's lower bound; `signing` is what this run can put behind a
     macOS build (ad-hoc when there is no certificate, and it says so);
     `appimagetool` is the Linux bundle's packer (resolved from the environment
-    when the caller names none); `web_build` is the wasm tree the browser
-    payload rides in from (the repo's web-release preset when unnamed, and an
-    absent one is a warning rather than a failure)."""
+    when the caller names none); `web` is where the browser payload comes from
+    (@see WebPayload - a ready-made directory or a wasm build tree, and having
+    neither is a warning rather than a failure)."""
     signing = signing or MacosSigning()
+    web = web or WebPayload()
     build_dir = os.path.abspath(build_dir)
     if not os.path.isdir(build_dir):
         fail("no build tree at '%s'" % build_dir)
@@ -2507,11 +2608,11 @@ def package(platform, build_dir, commit, date, output_dir, version="",
         for note in signing.notes:
             warn(note)
         staged_media, staged_editor = stage_macos(build_dir, stage_root,
-                                                  editor, player, web_build)
+                                                  editor, player, web)
     else:
         staged_media, staged_editor = stage_flat(build_dir, platform,
                                                  stage_root, editor, player,
-                                                 web_build)
+                                                 web)
         strip_developer_settings(stage_root)
     if platform == "linux":
         # the oldest glibc this build can run on, MEASURED on the binary rather
@@ -2536,13 +2637,26 @@ def package(platform, build_dir, commit, date, output_dir, version="",
                                                 "Visual C++ Redistributable"))
     log("staged engine media: %s" % (", ".join(staged_media) or "none"))
 
+    # what this artifact can package for the browser, read back off the STAGED
+    # bytes rather than off what the staging was asked to do - the same marker
+    # the editor's resource locator probes. It decides the VERSION line a person
+    # greps AND which project-export record the limitations document carries, so
+    # a build that carries no browser player never promises a web export.
+    resource_root = os.path.join(stage_root, MACOS_APP_NAME, "Contents",
+                                 "Resources") if platform == "macos" \
+        else os.path.join(stage_root, FLAT_RESOURCE_DIR)
+    web_state = WEB_BUNDLED if os.path.isfile(
+        os.path.join(resource_root, WEB_PAYLOAD_DIR,
+                     WEB_PLAYER_WASM)) else WEB_ABSENT
+    extra_fields.append(("web-export", web_state))
+
     version_file = version_text(platform, commit, date, build_dir, extra_fields,
                                 version)
     limitations = limitations_markdown(
         platform, ["%s %s" % (key, value) for key, value in
                    (line.split(": ", 1) for line in version_file.splitlines()
                     if line.startswith(("version:", "commit:", "built:")))],
-        signing.state)
+        signing.state, web_state)
     changelog = changelog_document(version, commit, date,
                                    collect_changelog(commit, since, repo))
     # the archive ROOT carries these for the person who downloaded it, and the
@@ -2551,12 +2665,7 @@ def package(platform, build_dir, commit, date, output_dir, version="",
     # locator, which resolves relative to SDL_GetBasePath (the bundle's
     # Resources on macOS, share/orkige elsewhere), so both layouts have to hold
     # a copy or a downloaded editor has nothing to show
-    targets = [stage_root]
-    if platform == "macos":
-        targets.append(os.path.join(stage_root, MACOS_APP_NAME, "Contents",
-                                    "Resources"))
-    else:
-        targets.append(os.path.join(stage_root, FLAT_RESOURCE_DIR))
+    targets = [stage_root, resource_root]
     for target in targets:
         os.makedirs(target, exist_ok=True)
         with open(os.path.join(target, "VERSION"), "w") as handle:
@@ -2731,16 +2840,13 @@ def verify_layout(root, platform):
     if not os.path.isdir(web_root):
         log("no browser payload - this build exports for the desktop only")
     else:
-        for name in WEB_PLAYER_FILES + WEB_SHELL_FILES:
-            if not os.path.isfile(os.path.join(web_root, name)):
-                problems.append("missing %s/%s (the browser payload is "
-                                "incomplete)" % (WEB_PAYLOAD_DIR, name))
-        # the browser player is the CLASSIC flavor whatever this editor is, so
-        # its own media has to ride beside it
-        if not os.path.isdir(os.path.join(web_root, "Media", "RTShaderLib")):
-            problems.append("missing %s/Media/RTShaderLib (the browser player "
-                            "is the classic flavor and needs its own shader "
-                            "library)" % WEB_PAYLOAD_DIR)
+        # ...asked through the one description of a usable payload, so the
+        # layout check and the staging can never disagree about what complete
+        # means. (The classic shader library is part of it: the browser player
+        # is the classic flavor whatever this editor is.)
+        for name in web_payload_problems(web_root):
+            problems.append("missing %s/%s (the browser payload is "
+                            "incomplete)" % (WEB_PAYLOAD_DIR, name))
     for name in SETTINGS_FILES:
         # every directory a settings file could have ridden into, the macOS
         # bundle's Resources included
@@ -2992,9 +3098,20 @@ def main():
                              + APPIMAGETOOL_ENV + " or one on PATH")
     parser.add_argument("--web-build", default="",
                         help="the wasm build tree the browser payload rides in "
-                             "from (else ORKIGE_WEB_BUILD, else the repo's "
+                             "from (else " + WEB_BUILD_ENV + ", else the repo's "
                              "build/web-release); a build without one cannot "
                              "package a web export and says so")
+    parser.add_argument("--web-payload", default="",
+                        help="a READY-MADE browser payload directory to carry "
+                             "(else " + WEB_PAYLOAD_ENV + "), as composed by "
+                             "--stage-web-payload on a machine with a wasm "
+                             "toolchain; takes precedence over --web-build, "
+                             "and an incomplete one is refused")
+    parser.add_argument("--stage-web-payload", default="",
+                        help="compose the browser payload into this directory "
+                             "from --web-build and exit - what a wasm build job "
+                             "hands to the desktop packaging jobs, which cannot "
+                             "cross-build one")
     parser.add_argument("--verify-appimage", default="",
                         help="run a Linux AppImage, extract it and verify that "
                              "it is complete AND resolves its bundled "
@@ -3049,6 +3166,21 @@ def main():
         return
     if args.selftest_appimage:
         selftest_appimage()
+        return
+    if args.stage_web_payload:
+        # the wasm side of the handover: this machine HAS the tree it just
+        # built, so a payload it cannot compose is a failure here rather than a
+        # note - the packaging jobs downstream are the ones allowed to have none
+        target = os.path.abspath(args.stage_web_payload)
+        if not compose_web_payload(target, args.web_build):
+            fail("no browser payload composed from '%s'"
+                 % web_build_dir(args.web_build))
+        problems = web_payload_problems(target)
+        if problems:
+            fail("the composed browser payload is incomplete (missing %s)"
+                 % ", ".join(problems))
+        log("OK %s (%s)" % (target, orkige_buildtree.human_size(
+            orkige_buildtree.directory_size(target))))
         return
     if args.verify_dmg:
         verify_dmg(args.verify_dmg)
@@ -3105,7 +3237,8 @@ def main():
             args.date or today(), output, args.version, args.since, args.repo,
             resolve_macos_signing(os.environ, args.signing_identity,
                                   args.ad_hoc_sign),
-            resolve_appimagetool(args.appimagetool), args.web_build)
+            resolve_appimagetool(args.appimagetool),
+            WebPayload(args.web_build, args.web_payload))
 
 
 # --- reading the workflow's own shell --------------------------------------
@@ -4536,11 +4669,22 @@ exit 0
         os.makedirs(hlms)
         open(os.path.join(hlms, "PixelShader_ps.glsl"), "w").close()
 
+        # the browser payload as a packaging machine receives it: a ready-made
+        # directory composed on a machine with a wasm toolchain. Handing one in
+        # explicitly also keeps this leg deterministic - it never depends on
+        # whether the machine running the self-check happens to have a
+        # web-release tree.
+        handed = os.path.join(temp, "web-payload")
+        os.makedirs(os.path.join(handed, "Media", "RTShaderLib"))
+        for name in WEB_PLAYER_FILES + WEB_SHELL_FILES:
+            open(os.path.join(handed, name), "w").close()
+
         output = os.path.join(temp, "out")
         # `repo` points at a directory with no history: the changelog degrades
         # honestly rather than failing the packaging
         archive = package("linux", build, "c0ffee1234567", "2026-07-30", output,
-                          since="ffffffff0", repo=temp)
+                          since="ffffffff0", repo=temp,
+                          web=WebPayload(payload_dir=handed))
         stem = "Orkige-linux-" + version_filename_token(staged_version)
         assert archive.endswith(stem + ".tar.gz"), archive
         stage = os.path.join(output, "stage", stem)
@@ -4582,6 +4726,15 @@ exit 0
         # the sibling executables it spawns sit beside it
         assert os.path.isfile(os.path.join(stage, "orkige_player"))
         assert os.path.isfile(os.path.join(stage, "texcook"))
+        # ...and the browser payload rode in whole, at the path the editor's
+        # resource locator probes, so this artifact can package a web export
+        staged_web = os.path.join(stage, FLAT_RESOURCE_DIR, WEB_PAYLOAD_DIR)
+        assert web_payload_problems(staged_web) == [], staged_web
+        assert "web-export: %s\n" % WEB_BUNDLED in version, version
+        # the record a person reads promises the browser exactly when the
+        # bytes back it up
+        limits = open(os.path.join(stage, "KNOWN-LIMITATIONS.md")).read()
+        assert "desktop and the browser" in limits, limits
 
         # the archive really carries the tree under its one top-level dir
         with tarfile.open(archive) as tar:
@@ -4642,6 +4795,100 @@ exit 0
         _, problems = verify_layout(tree, "linux")
         assert any(problem.startswith("missing share/orkige/Media")
                    for problem in problems), problems
+
+    # --- the browser payload: composed, handed over, and judged ---------
+    #
+    # The two sources end in the same bytes, and the three states an artifact
+    # can be in are each asserted: complete (packages a web export), absent (a
+    # NOTE - a machine with no wasm toolchain is a real state, and the editor
+    # refuses a web export with an actionable sentence), and half-staged (a
+    # REFUSAL - that would fail inside an export instead of before it).
+    with tempfile.TemporaryDirectory() as temp:
+        wasm_tree = os.path.join(temp, "web-release")
+        wasm_player = os.path.join(wasm_tree, "tools", "player")
+        os.makedirs(wasm_player)
+
+        def fake_media(source, media_root):
+            # stands in for the classic engine media a real wasm tree carries,
+            # so the payload's composition is testable without one
+            os.makedirs(os.path.join(media_root, "RTShaderLib"), exist_ok=True)
+            return ["RTShaderLib"]
+
+        # a tree that built no player composes nothing, and says so
+        composed = os.path.join(temp, "composed")
+        assert not compose_web_payload(composed, wasm_tree, media=fake_media)
+        for name in WEB_PLAYER_FILES:
+            open(os.path.join(wasm_player, name), "w").close()
+        assert compose_web_payload(composed, wasm_tree, media=fake_media)
+        # the committed shell files come from the SOURCE tree, not the build one
+        assert web_payload_problems(composed) == [], composed
+
+        # handed over, a complete payload lands verbatim under <resources>/web
+        resources = os.path.join(temp, "resources")
+        os.makedirs(resources)
+        assert WebPayload(payload_dir=composed).stage(resources)
+        assert web_payload_problems(
+            os.path.join(resources, WEB_PAYLOAD_DIR)) == []
+        # ...and a run with neither source carries none, without failing
+        bare = os.path.join(temp, "bare-resources")
+        os.makedirs(bare)
+        assert not WebPayload(
+            build_dir=os.path.join(temp, "no-such-tree")).stage(bare)
+        assert not os.path.isdir(os.path.join(bare, WEB_PAYLOAD_DIR))
+        # ...while a payload that WAS handed in and is incomplete is refused
+        broken = os.path.join(temp, "broken")
+        shutil.copytree(composed, broken)
+        os.remove(os.path.join(broken, WEB_PLAYER_WASM))
+        try:
+            WebPayload(payload_dir=broken).stage(bare)
+            raise AssertionError("an incomplete browser payload was accepted")
+        except SystemExit:
+            pass
+
+        # the layout check's three verdicts, on a staged tree
+        tree = os.path.join(temp, "Orkige-linux-web")
+        media_root = os.path.join(tree, FLAT_RESOURCE_DIR, "Media")
+        os.makedirs(os.path.join(media_root, "Hlms"))
+        for name in ("fonts", "water", "decals"):
+            os.makedirs(os.path.join(media_root, name))
+        for name in (EDITOR_UI_FONTS[0], CHANGELOG_FILE, DEFAULT_ICON_FILE):
+            open(os.path.join(tree, FLAT_RESOURCE_DIR, name), "w").close()
+        for name in ("orkige_editor", "orkige_player", "texcook", "VERSION",
+                     "KNOWN-LIMITATIONS.md", CHANGELOG_FILE):
+            open(os.path.join(tree, name), "w").close()
+        os.chmod(os.path.join(tree, "orkige_editor"), 0o755)
+        # no payload at all: a note, not a problem
+        _, problems = verify_layout(tree, "linux")
+        assert problems == [], problems
+        shutil.copytree(composed,
+                        os.path.join(tree, FLAT_RESOURCE_DIR, WEB_PAYLOAD_DIR))
+        _, problems = verify_layout(tree, "linux")
+        assert problems == [], problems
+        # ...but half of one is: it would fail inside an export
+        os.remove(os.path.join(tree, FLAT_RESOURCE_DIR, WEB_PAYLOAD_DIR,
+                               WEB_PLAYER_WASM))
+        _, problems = verify_layout(tree, "linux")
+        assert any(WEB_PLAYER_WASM in problem for problem in problems), problems
+        shutil.rmtree(os.path.join(tree, FLAT_RESOURCE_DIR, WEB_PAYLOAD_DIR,
+                                   "Media"))
+        _, problems = verify_layout(tree, "linux")
+        assert any("RTShaderLib" in problem for problem in problems), problems
+
+    # the record a download carries follows its payload: exactly one of the two
+    # project-export entries applies, and the desktop-only one names the VERSION
+    # line a reader can check it against
+    for platform in PLATFORMS:
+        for state, expected in ((WEB_BUNDLED, "project-export"),
+                                (WEB_ABSENT, "project-export-desktop-only")):
+            keys = [entry.key for entry in
+                    limitations_for(platform, SIGN_NOTARIZED, state)]
+            assert expected in keys, (platform, state, keys)
+            assert len([key for key in keys
+                        if key.startswith("project-export")]) == 1, keys
+    assert "web-export: bundled" in limitations_markdown(
+        "linux", (), SIGN_ADHOC, WEB_ABSENT)
+    assert "the browser" in limitations_markdown("linux", (), SIGN_ADHOC,
+                                                 WEB_BUNDLED)
 
     # --- a wrong stamp is a failure, not a shrug ------------------------
     class FakeResult:

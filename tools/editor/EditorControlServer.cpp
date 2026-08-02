@@ -2009,13 +2009,15 @@ namespace Orkige
 				  "pipeline (tools/exporter, run in process). ASYNC: returns "
 				  "{ accepted, "
 				  "jobId }; poll get_export_results. 'platform' is macos, "
-				  "ios-simulator or android. The pipeline is pinned to the CLASSIC "
-				  "render flavor - a missing or next-flavored engine tree is "
-				  "refused up front with an honest error (build the matching "
-				  "classic preset first). Native-module projects export desktop "
-				  "only.",
+				  "ios-simulator, android or web. A web export compiles nothing "
+				  "- it packages the prebuilt browser player - so it works from "
+				  "any editor on any host that carries that payload. The other "
+				  "platforms package from that platform's preset build tree, "
+				  "either render flavor; a tree that was never built is refused "
+				  "up front with an honest error. Native-module projects export "
+				  "desktop only.",
 				  { { "platform", "string",
-				      "macos | ios-simulator | android", true } } },
+				      "macos | ios-simulator | android | web", true } } },
 				{ "get_export_results",
 				  "Poll an export_project job. Returns status 'running' until the "
 				  "export finishes, then 'done' with 'ok' ('1'/'0'), the "
@@ -6780,25 +6782,18 @@ namespace Orkige
 			const String tree = plan.engineBuild;
 			if (plan.source == OrkigeEditor::EditorExportSource::Tree)
 			{
-				// honest, structured preconditions BEFORE spawning: the export
-				// pipeline ships the CLASSIC player/media set, so it needs a
-				// present, classic-flavored engine tree. A missing or
-				// next-flavored tree is refused up front (no exporter run).
+				// one honest, structured precondition BEFORE spawning: the
+				// platform's preset tree has to be there, because that is what
+				// supplies its player and engine media. Either flavor packages
+				// (the exporter bundles the tree's own media - the RTSS set or
+				// the Hlms templates), so the tree's backend is not checked;
+				// what a target needs is a tree that was BUILT.
 				std::error_code treeIgnored;
 				if (!std::filesystem::exists(
 					std::filesystem::path(tree) / "CMakeCache.txt", treeIgnored))
 				{
 					this->sendErr(req, "no " + platform + " build tree at '" +
-						tree + "' - build the matching classic preset first "
-						"(project export is pinned to the classic flavor)");
-					return;
-				}
-				if (readCmakeCacheVar(tree, "ORKIGE_RENDER_BACKEND") == "next")
-				{
-					this->sendErr(req, "project export is pinned to the classic "
-						"flavor; the " + platform + " engine tree at '" + tree +
-						"' is next-flavored - build a classic preset (e.g. "
-						"macos-debug-classic) to export");
+						tree + "' - build that preset first");
 					return;
 				}
 			}
@@ -11863,34 +11858,56 @@ namespace Orkige
 				"round-trip OK (instance '%s')", instanceId.c_str());
 		}
 
-		// (RUN tools) export_project flavor pre-check, with the authoring project
-		// OPEN so the request reaches the tree check. Exports are pinned to the
-		// classic flavor: a NEXT-flavored editor tree must refuse honestly. Only
-		// asserted when THIS editor build is next-flavored - on a classic tree
-		// the request would pass the pre-check and start a real multi-minute
-		// export, which is the export_* ctests' job, so we skip it there.
-		if (readCmakeCacheVar(ORKIGE_EDITOR_ENGINE_BUILD_DIR,
-			"ORKIGE_RENDER_BACKEND") == "next")
+		// (RUN tools) export_project's build-tree pre-check, with the authoring
+		// project OPEN so the request reaches it. EITHER render flavor
+		// packages - the exporter bundles the tree's own engine media - so the
+		// only structural refusal left is a platform whose preset was never
+		// built, and that is what this asserts. A platform whose tree IS
+		// present would start a real multi-minute export, which is the export_*
+		// ctests' job, so the leg picks a device platform with no tree and says
+		// so honestly when this machine happens to carry them all.
 		{
-			JsonValue exportArgs = JsonValue::object();
-			exportArgs.set("platform", JsonValue("macos"));
-			JsonValue structured;
-			bool isError = false;
-			if (!callTool("export_project", exportArgs, true, structured,
-					isError) || !isError)
+			const char* const deviceTrees[][2] =
 			{
-				fs::remove_all(authRoot, authIgnored);
-				finish(false, "control self-test: export_project on a "
-					"next-flavored tree was NOT refused");
-				return;
+				{ "android", "/build/android-debug" },
+				{ "ios-simulator", "/build/ios-simulator-debug" }
+			};
+			String unbuiltPlatform;
+			for (auto const& candidate : deviceTrees)
+			{
+				const String tree = String(ORKIGE_EDITOR_ENGINE_ROOT) +
+					candidate[1];
+				std::error_code treeIgnored;
+				if (!fs::exists(fs::path(tree) / "CMakeCache.txt", treeIgnored))
+				{
+					unbuiltPlatform = candidate[0];
+					break;
+				}
 			}
-			SDL_Log("orkige_editor: control self-test - export_project refuses a "
-				"next-flavored tree (classic-pinned)");
-		}
-		else
-		{
-			SDL_Log("orkige_editor: control self-test - classic tree: leaving the "
-				"real macos export to the export_* ctests");
+			if (unbuiltPlatform.empty())
+			{
+				SDL_Log("orkige_editor: control self-test - every device tree is "
+					"built here; leaving the real export to the export_* ctests");
+			}
+			else
+			{
+				JsonValue exportArgs = JsonValue::object();
+				exportArgs.set("platform", JsonValue(unbuiltPlatform));
+				JsonValue structured;
+				bool isError = false;
+				if (!callTool("export_project", exportArgs, true, structured,
+						isError) || !isError)
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, "control self-test: export_project for '" +
+						unbuiltPlatform + "' was NOT refused although that "
+						"platform's build tree is absent");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - export_project refuses "
+					"'%s': its build tree was never built",
+					unbuiltPlatform.c_str());
+			}
 		}
 
 		// (21) GRID PAINTING (level authoring): the paint palette lists the

@@ -614,6 +614,129 @@ jobs:
           test -n "${version}" || { echo "no ordered version composed" >&2; exit 1; }
           echo "Version \`${version}\`." >> "$GITHUB_STEP_SUMMARY"
 
+  # The browser player every packaged editor carries.
+  #
+  # A web export COMPILES NOTHING - the wasm player is a prebuilt artifact and
+  # everything else is bytes the exporter arranges - so a downloaded editor can
+  # package a browser build on any machine, provided it CARRIES that player. No
+  # desktop packaging runner can cross-build wasm, so this job builds it once
+  # and hands the whole payload over: the player pair, the shell page and the
+  # CLASSIC engine media the browser player renders through (the browser target
+  # is flavor-independent for exactly that reason - a next-flavored editor
+  # packages a web export out of this classic payload).
+  #
+  # Modelled on the ci.yml `web` job: the same pinned emsdk and the same cache
+  # keys, so a nightly restores the binary set and object cache the push CI
+  # already paid for.
+  #
+  # NOT a precondition for shipping an editor. The packaging jobs below WAIT for
+  # this one but proceed without its artifact if it fails - the payload is an
+  # added capability, and an artifact that arrives incomplete is refused by the
+  # packaging rather than half-staged (Util/orkige_nightly_package.py).
+  binaries-web-player:
+    name: Binaries - the browser player payload (wasm)
+    needs: binaries-gate
+    if: needs.binaries-gate.outputs.green == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240 # cold vcpkg build headroom; cached runs take minutes
+    env:
+      # the emscripten release the tree is proven against (matches the
+      # user-local dev install - see triplets/wasm32-emscripten.cmake)
+      EMSDK_VERSION: 6.0.3
+      EMSDK: /home/runner/Development/emsdk
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          # the commit the matrix proved green - the same tree the editors that
+          # will carry this payload are built from
+          ref: ${{ needs.binaries-gate.outputs.sha }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build ccache python3 pkg-config \
+            autoconf autoconf-archive automake libtool curl zip unzip tar
+
+      - name: Restore emsdk
+        id: emsdk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/Development/emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}
+
+      - name: Install emsdk
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git "$EMSDK"
+          "$EMSDK/emsdk" install "$EMSDK_VERSION"
+          "$EMSDK/emsdk" activate "$EMSDK_VERSION"
+
+      - name: Save emsdk
+        if: always() && steps.emsdk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/Development/emsdk
+          key: ${{ steps.emsdk-cache.outputs.cache-primary-key }}
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        # the ci.yml web job's key (read-only here: no save step) - including
+        # the chainload wrapper, whose compiler flags are part of the ABI
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-web-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**', 'cmake/wasm32-emscripten-toolchain.cmake') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-web-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/.ccache
+          key: ccache-nightly-web-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-nightly-web-${{ runner.os }}-
+            ccache-web-${{ runner.os }}-
+
+      - name: Configure (web-release)
+        run: |
+          bash Util/ci_configure.sh --preset web-release \
+            -DVCPKG_INSTALL_OPTIONS=--clean-buildtrees-after-build
+
+      - name: Build the wasm player
+        run: cmake --build --preset web-release --target orkige_player
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      # ONE composition, by the same tool that stages it into an editor: this
+      # machine HAS the tree it just built, so a payload it cannot compose is a
+      # failure here - the packaging jobs downstream are the ones allowed to
+      # have none.
+      - name: Compose the browser payload
+        run: |
+          python3 Util/orkige_nightly_package.py \
+            --stage-web-payload web-payload --web-build build/web-release
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: web-payload
+          path: web-payload
+          if-no-files-found: error
+          retention-days: 14
+
   # macOS: the Release .app, in two containers built from ONE staging. The
   # engine links statically and the bundle depends on nothing but system
   # frameworks, so the packaging is a copy, an rpath scrub and a bundle seal
@@ -635,8 +758,12 @@ jobs:
   # accept, fails this job.
   binaries-macos:
     name: Binaries - macOS editor (.dmg + zip)
-    needs: binaries-gate
-    if: needs.binaries-gate.outputs.green == 'true'
+    # the wasm job too: this editor carries the browser payload it composes.
+    # `!cancelled()` rather than success(): a failed or skipped payload job must
+    # not stop the night from publishing an editor - it only costs it the
+    # browser target, which the artifact then says out loud.
+    needs: [binaries-gate, binaries-web-player]
+    if: ${{ !cancelled() && needs.binaries-gate.outputs.green == 'true' }}
     runs-on: macos-15
     timeout-minutes: 360 # cold vcpkg build headroom; cached runs take minutes
     env:
@@ -817,6 +944,31 @@ jobs:
           fi
           echo "signing_state=${state}" >> "$GITHUB_OUTPUT"
 
+      # The browser payload the wasm job composed - what makes this editor able
+      # to package a web export on a machine with no Emscripten toolchain. A
+      # download that does not arrive is a WARN, never a failure: the editor
+      # then packages for the desktop only, and its VERSION file and
+      # KNOWN-LIMITATIONS.md say exactly that instead of the night publishing
+      # nothing.
+      - name: Fetch the browser payload
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: web-payload
+          path: web-payload
+
+      - name: Record whether this build carries the browser player
+        run: |
+          # the wasm module is the payload's marker - the same file the editor's
+          # resource locator probes. ORKIGE_WEB_PAYLOAD is what the packaging
+          # step below reads; an incomplete payload it refuses outright.
+          if [ -f web-payload/orkige_player.wasm ]; then
+            echo "ORKIGE_WEB_PAYLOAD=$PWD/web-payload" >> "$GITHUB_ENV"
+            echo "this editor will carry the browser player"
+          else
+            echo "::warning::no browser payload reached the ${ORKIGE_PLATFORM} packaging job - this nightly packages for the desktop only (its VERSION file records web-export: absent)"
+          fi
+
       - name: Package
         env:
           # the identity is a public fingerprint; every credential is
@@ -941,8 +1093,9 @@ jobs:
   # staging, so they cannot hold different builds.
   binaries-linux:
     name: Binaries - Linux editor (AppImage + tar.gz)
-    needs: binaries-gate
-    if: needs.binaries-gate.outputs.green == 'true'
+    # @see the macOS job on why the payload job is a soft dependency
+    needs: [binaries-gate, binaries-web-player]
+    if: ${{ !cancelled() && needs.binaries-gate.outputs.green == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -1047,6 +1200,31 @@ jobs:
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      # The browser payload the wasm job composed - what makes this editor able
+      # to package a web export on a machine with no Emscripten toolchain. A
+      # download that does not arrive is a WARN, never a failure: the editor
+      # then packages for the desktop only, and its VERSION file and
+      # KNOWN-LIMITATIONS.md say exactly that instead of the night publishing
+      # nothing.
+      - name: Fetch the browser payload
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: web-payload
+          path: web-payload
+
+      - name: Record whether this build carries the browser player
+        run: |
+          # the wasm module is the payload's marker - the same file the editor's
+          # resource locator probes. ORKIGE_WEB_PAYLOAD is what the packaging
+          # step below reads; an incomplete payload it refuses outright.
+          if [ -f web-payload/orkige_player.wasm ]; then
+            echo "ORKIGE_WEB_PAYLOAD=$PWD/web-payload" >> "$GITHUB_ENV"
+            echo "this editor will carry the browser player"
+          else
+            echo "::warning::no browser payload reached the ${ORKIGE_PLATFORM} packaging job - this nightly packages for the desktop only (its VERSION file records web-export: absent)"
+          fi
 
       - name: Package
         run: |
@@ -1180,8 +1358,9 @@ jobs:
   # about the runtime than the zip.
   binaries-windows:
     name: Binaries - Windows editor (installer + zip)
-    needs: binaries-gate
-    if: needs.binaries-gate.outputs.green == 'true'
+    # @see the macOS job on why the payload job is a soft dependency
+    needs: [binaries-gate, binaries-web-player]
+    if: ${{ !cancelled() && needs.binaries-gate.outputs.green == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 360
     env:
@@ -1286,6 +1465,25 @@ jobs:
           }
           Write-Host "using $($tool.Source)"
           & makensis /VERSION
+
+      # The browser payload the wasm job composed (@see the macOS job): absent
+      # is a WARN, and the artifact records which of the two it is.
+      - name: Fetch the browser payload
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: web-payload
+          path: web-payload
+
+      - name: Record whether this build carries the browser player
+        shell: pwsh
+        run: |
+          if (Test-Path "web-payload/orkige_player.wasm") {
+            Add-Content -Path $env:GITHUB_ENV -Value "ORKIGE_WEB_PAYLOAD=$PWD/web-payload"
+            Write-Host "this editor will carry the browser player"
+          } else {
+            Write-Host "::warning::no browser payload reached the Windows packaging job - this nightly packages for the desktop only (its VERSION file records web-export: absent)"
+          }
 
       - name: Package
         shell: pwsh
