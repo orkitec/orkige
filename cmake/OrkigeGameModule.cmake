@@ -439,6 +439,16 @@ file(WRITE "${CMAKE_BINARY_DIR}/orkige_module_diag.txt"
     "zlib debug glob: ${_orkige_zlib_debug}\n"
     "lib dir: ${_orkige_lib_listing}\n"
     "debug/lib dir: ${_orkige_debug_lib_listing}\n")
+# An SDK PACK ships exactly ONE configuration, so a Debug pack has a
+# debug/lib half and NO lib half at all. Gating the seed on the RELEASE library
+# therefore skipped it entirely there, and FindZLIB went looking: on Windows it
+# found nothing and the configure failed, while on macOS it quietly found the
+# SYSTEM zlib - the worse outcome of the two, because it succeeds. Seed from
+# whichever half the pack actually carries.
+if(NOT _orkige_zlib_release AND _orkige_zlib_debug)
+    set(_orkige_zlib_release "${_orkige_zlib_debug}")
+    set(_orkige_zlib_debug "")
+endif()
 if(_orkige_zlib_release AND NOT DEFINED CACHE{ZLIB_LIBRARY})
     list(GET _orkige_zlib_release 0 _orkige_zlib_release_lib)
     set(ZLIB_LIBRARY_RELEASE "${_orkige_zlib_release_lib}" CACHE FILEPATH
