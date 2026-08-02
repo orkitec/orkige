@@ -87,6 +87,97 @@ function(orkige_package_compile_definitions out_core out_engine)
     set(${out_engine} "${_engine}" PARENT_SCOPE)
 endfunction()
 
+# orkige_package_private_definitions(<out>)
+#   The definitions the two archives declare PRIVATE - implementation, never
+#   contract, and therefore deliberately absent from the captured set above.
+#
+#   Recorded anyway, because capture is only as complete as the engine's
+#   discipline of declaring an ABI-relevant define PUBLIC: a define added
+#   PRIVATE that some HEADER then reads would change what that header means for
+#   a consumer while escaping the contract silently. Recording the private set
+#   turns that into something checkable - the sdk_pack test asserts no installed
+#   header mentions any of these names, so the day one of them leaks into a
+#   header the suite says so and the fix is to declare it PUBLIC.
+function(orkige_package_private_definitions out)
+    # a PUBLIC definition lands in BOTH properties, so the private set is the
+    # difference: what a target compiles itself with, minus what it hands on
+    set(_private "")
+    foreach(_target orkige_core orkige_engine)
+        if(TARGET ${_target})
+            get_target_property(_all ${_target} COMPILE_DEFINITIONS)
+            get_target_property(_public ${_target} INTERFACE_COMPILE_DEFINITIONS)
+            if(_all)
+                if(_public)
+                    list(REMOVE_ITEM _all ${_public})
+                endif()
+                list(APPEND _private ${_all})
+            endif()
+        endif()
+    endforeach()
+    # only the NAMES matter for the audit; a value is implementation detail
+    # (the two media-dir path macros carry build-tree paths as their value)
+    set(_names "")
+    foreach(_entry IN LISTS _private)
+        string(REGEX REPLACE "=.*$" "" _name "${_entry}")
+        if(_name MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
+            list(APPEND _names "${_name}")
+        endif()
+    endforeach()
+    list(REMOVE_DUPLICATES _names)
+    set(${out} "${_names}" PARENT_SCOPE)
+endfunction()
+
+# orkige_package_compile_options(<out_core> <out_engine>)
+# orkige_package_link_options(<out>)
+#   THE SAME CAPTURE, for compile and link OPTIONS.
+#
+#   Definitions are not the whole contract. An option can be as ABI-relevant as
+#   a define - the exception model a wasm build compiles with decides how every
+#   translation unit unwinds, so a consumer's own TUs must carry it or the
+#   objects cannot be linked into one working image - and a capacity flag like
+#   MSVC's /bigobj is needed by the consumer for the same reason the engine
+#   needs it: it compiles the same fat, heavily-templated headers.
+#
+#   So options ride the identical channel: the root directory's COMPILE_OPTIONS
+#   and LINK_OPTIONS (where the engine's global toolchain switches live - the
+#   sanitizer instrumentation, /bigobj) plus each archive's PUBLIC ones. Nothing
+#   is restated in the game-module helper, which is what a hand-mirrored copy of
+#   the sanitizer flag set used to be.
+function(orkige_package_compile_options out_core out_engine)
+    get_directory_property(_global COMPILE_OPTIONS)
+    set(_core "${_global}")
+    set(_engine "${_global}")
+    get_target_property(_core_public orkige_core INTERFACE_COMPILE_OPTIONS)
+    if(_core_public)
+        list(APPEND _core ${_core_public})
+        list(APPEND _engine ${_core_public})
+    endif()
+    if(TARGET orkige_engine)
+        get_target_property(_engine_public orkige_engine INTERFACE_COMPILE_OPTIONS)
+        if(_engine_public)
+            list(APPEND _engine ${_engine_public})
+        endif()
+    endif()
+    list(REMOVE_DUPLICATES _core)
+    list(REMOVE_DUPLICATES _engine)
+    set(${out_core} "${_core}" PARENT_SCOPE)
+    set(${out_engine} "${_engine}" PARENT_SCOPE)
+endfunction()
+
+function(orkige_package_link_options out)
+    get_directory_property(_options LINK_OPTIONS)
+    foreach(_target orkige_core orkige_engine)
+        if(TARGET ${_target})
+            get_target_property(_public ${_target} INTERFACE_LINK_OPTIONS)
+            if(_public)
+                list(APPEND _options ${_public})
+            endif()
+        endif()
+    endforeach()
+    list(REMOVE_DUPLICATES _options)
+    set(${out} "${_options}" PARENT_SCOPE)
+endfunction()
+
 function(orkige_emit_package)
     set(_out "${CMAKE_BINARY_DIR}")
     set(_module_dir "${CMAKE_CURRENT_FUNCTION_LIST_DIR}")
@@ -128,6 +219,10 @@ function(orkige_emit_package)
     orkige_package_transitive_list(ORKIGE_PACKAGE_TRANSITIVE)
     orkige_package_compile_definitions(
         ORKIGE_PACKAGE_CORE_DEFS ORKIGE_PACKAGE_ENGINE_DEFS)
+    orkige_package_private_definitions(ORKIGE_PACKAGE_PRIVATE_DEFS)
+    orkige_package_compile_options(
+        ORKIGE_PACKAGE_CORE_OPTIONS ORKIGE_PACKAGE_ENGINE_OPTIONS)
+    orkige_package_link_options(ORKIGE_PACKAGE_LINK_OPTIONS)
 
     configure_file("${_module_dir}/OrkigeConfig.cmake.in"
         "${_out}/OrkigeConfig.cmake" @ONLY)

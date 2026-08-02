@@ -43,6 +43,7 @@ set(ORKIGE_ABI_EXTRA_FILES
     cmake/OrkigePackage.cmake
     cmake/OrkigeSdk.cmake
     cmake/OrkigeSdkPack.cmake.in
+    cmake/OrkigeTargetShape.cmake
     cmake/OrkigeAbiStamp.cmake
     cmake/OrkigeWriteVersion.cmake)
 

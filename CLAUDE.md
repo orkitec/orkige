@@ -682,24 +682,48 @@ builds on a machine with NO engine checkout and NO build tree. `cmake/
 OrkigeGameModule.cmake` is ONE helper serving both forms: it detects a pack by
 the `OrkigeSdkPack.cmake` beside it (realized from a template at install time,
 so a source tree can never carry it) and takes the package dir, closure prefix,
-flavor, scripting backend, compile contract and include roots from the pack.
+flavor, scripting backend, compile contract, OS floor and include roots from
+the pack.
 **ONE CONFIGURATION all the way through** — the closure half shipped is the one
 the archives were built in, and a module in another build type is REFUSED by
 name: a dependency's headers compile differently per config (Jolt's asserts
 follow `NDEBUG`, so a Debug archive calls symbols only the debug library
 defines), and on MSVC `/MD` vs `/MDd` cannot share an image at all. A
-distribution pack comes from a Release tree (~250 MB); a Debug pack is a
-development artifact (~3.2 GB). Whole-header-set install (there is no
-public/private split to carve). The **compile contract** is CAPTURED off the
-engine targets (root `COMPILE_DEFINITIONS` + each archive's PUBLIC ones), never
-restated — a hand list had already drifted past `ORKIGE_HTTP` and the
-stdlib-hardening define. The ABI stamp keeps its teeth over the pack's OWN
-installed surface. Proven by the `sdk_pack` ctest per flavor: install → RENAME
-→ self-containment audit → configuration-coherence audit → a TU over every
-engine header → `projects/jumper-native` configures, builds and RUNS with the
-engine source AND build trees DENIED in a sandbox clean room → every recorded
-contract define asserted present on the module's real command line → a tampered
-pack refuses — `Docs/sdk-pack.md`. **Runs on BOTH
+distribution pack comes from a Release tree (~200 MB); a Debug pack is a
+development artifact (~2 GB). Whole-header-set install (there is no
+public/private split to carve), but NO host executables (the closure's
+`tools`/`bin`: a module build invokes none, and a downloaded archive's
+executables meet Gatekeeper) and no ports a game never links (the editor/test
+dependencies, and the other flavor's OGRE — pruned exactly, through vcpkg's own
+installed-file manifests). The **contract is CAPTURED off the engine targets**,
+never restated — both halves of it: the compile DEFINITIONS (root
+`COMPILE_DEFINITIONS` + each archive's PUBLIC ones; a hand list had already
+drifted past `ORKIGE_HTTP` and the stdlib-hardening define) and the compile +
+link OPTIONS on the same channel (an exception model, sanitizer instrumentation,
+MSVC `/bigobj`). Its floor is checkable rather than conventional: the package
+also records the PRIVATE definitions and the suite asserts no installed header
+reads one. The **target contract** is the pack's own schema
+(`OrkigeSdkPack.cmake`: platform / archs / triplet / module shape / OS floor /
+toolchain kind+version+file+options / compiler + stdlib) — declared for all
+seven targets, filled where a host pack has an answer, EMPTY never absent, since
+packs are built per target and projects are written against the words. The
+SHAPE belongs to the platform, so a project says `orkige_add_game_module(<name>
+<sources...>)` and never `add_executable` (`cmake/OrkigeTargetShape.cmake` is the
+one derivation both the pack writer and the consumer read; a pack refuses a
+target it was not built for), and WHERE the artifact landed is written down
+(`orkige_module_artifact.txt`, read by `NativeModule::executablePath` and the
+exporter) instead of guessed. The **OS floor** is pinned (macOS 14.0 in the
+presets AND `triplets/arm64-osx.cmake`, so engine and closure agree) and
+inherited by every module from the package. The ABI stamp keeps its teeth over
+the pack's OWN installed surface. Proven by the `sdk_pack` ctest per flavor:
+install → RENAME → self-containment audit → configuration + no-host-executables
+audit → target-schema + private-definition audits → a TU over every engine
+header → `projects/jumper-native` configures, builds and RUNS with the engine
+source AND build trees DENIED in a sandbox clean room, its artifact read from
+the manifest and its rendered FRAME asserted non-uniform (its own selfcheck is a
+gui widget-state check a blank window passes) → every recorded contract define,
+option and the OS floor asserted present on the module's real command line → a
+tampered pack refuses — `Docs/sdk-pack.md`. **Runs on BOTH
 render flavors**: the helper takes the flavor from the package (which records
 what its archives were built with) and links THAT flavor's engine closure +
 defines its

@@ -83,7 +83,23 @@ namespace Orkige
 		StringVector buildCommand(String const & cmakeExecutable,
 			String const & buildDirAbsolute);
 
-		//! where the built executable lands (Ninja: <buildDir>/<target>)
+		extern const String ARTIFACT_MANIFEST;	//!< "orkige_module_artifact.txt"
+
+		//! @brief pick the module's artifact out of the manifest the build
+		//! WROTE, falling back to the desktop guess when there is none.
+		//! @remarks Where a module lands is the build's answer, not a caller's:
+		//! only a desktop module is "<buildDir>/<target>". The game-module
+		//! helper (@see cmake/OrkigeGameModule.cmake) therefore emits
+		//! ARTIFACT_MANIFEST beside the build with an "artifact=<path>" line
+		//! the generator resolved exactly, and this parses it. Pure so the
+		//! unit tests cover every shape headlessly; @p manifestText empty (no
+		//! manifest, or one from a build too old to write it) yields the
+		//! legacy "<buildDir>/<target>" - the desktop answer, unchanged.
+		String artifactPathFromManifest(String const & manifestText,
+			String const & buildDirAbsolute, String const & target);
+
+		//! @brief where the built module landed: the artifact the build tree's
+		//! manifest names, else the desktop "<buildDir>/<target>" fallback
 		String executablePath(String const & buildDirAbsolute,
 			String const & target);
 	}

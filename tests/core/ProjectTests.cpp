@@ -355,6 +355,53 @@ TEST_CASE("NativeModule build-command assembly", "[project][native]")
 		REQUIRE(path == "/proj/native/build/my_game");
 #endif
 	}
+	SECTION("the artifact is the build's answer, not a guess")
+	{
+		// where a module lands is only "<buildDir>/<target>" on desktop: an
+		// Android module is libmain.so, an Apple mobile module sits inside a
+		// bundle. The build writes down what it produced and this reads it.
+		REQUIRE(Orkige::NativeModule::artifactPathFromManifest(
+			"target=my_game\nshape=sharedlib\n"
+			"artifact=/proj/native/build/libmain.so\n",
+			"/proj/native/build", "my_game") ==
+			"/proj/native/build/libmain.so");
+		// a bundle's inner executable, with the bundle recorded beside it
+		REQUIRE(Orkige::NativeModule::artifactPathFromManifest(
+			"shape=appbundle\n"
+			"artifact=/b/my_game.app/Contents/MacOS/my_game\n"
+			"bundle=/b/my_game.app\n",
+			"/b", "my_game") == "/b/my_game.app/Contents/MacOS/my_game");
+		// trailing carriage return (a manifest written on Windows) is not
+		// part of the path
+		REQUIRE(Orkige::NativeModule::artifactPathFromManifest(
+			"artifact=C:/b/my_game.exe\r\n", "C:/b", "my_game") ==
+			"C:/b/my_game.exe");
+	}
+	SECTION("no manifest leaves the desktop answer exactly as it was")
+	{
+		const Orkige::String fallback =
+			Orkige::NativeModule::artifactPathFromManifest("",
+				"/proj/native/build", "my_game");
+		REQUIRE(fallback == Orkige::NativeModule::executablePath(
+			"/proj/native/build", "my_game"));
+		// a manifest without the key, and one with an empty value, fall back
+		// too rather than answering with nothing
+		REQUIRE(Orkige::NativeModule::artifactPathFromManifest(
+			"target=my_game\n", "/proj/native/build", "my_game") == fallback);
+		REQUIRE(Orkige::NativeModule::artifactPathFromManifest(
+			"artifact=\n", "/proj/native/build", "my_game") == fallback);
+	}
+	SECTION("executablePath reads the manifest the build wrote")
+	{
+		TempDir dir("orkige_test_native_artifact");
+		std::filesystem::create_directories(dir.path);
+		writeFile((std::filesystem::path(dir.path) /
+			Orkige::NativeModule::ARTIFACT_MANIFEST).string(),
+			"target=my_game\nshape=sharedlib\n"
+			"artifact=" + dir.path + "/libmain.so\n");
+		REQUIRE(Orkige::NativeModule::executablePath(dir.path, "my_game") ==
+			dir.path + "/libmain.so");
+	}
 	SECTION("needsConfigure is keyed on CMakeCache.txt")
 	{
 		TempDir dir("orkige_test_native_needs_configure");

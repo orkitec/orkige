@@ -178,7 +178,7 @@
    "orkige_core/core_game/SceneSerializer.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
    "orkige_core/core_project/AssetDatabase.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
    "orkige_core/core_project/AssetDatabase.h": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
-   "orkige_core/core_project/NativeModule.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
+   "orkige_core/core_project/NativeModule.cpp": "not a funnel candidate: reads a HOST BUILD TREE (a module's cmake cache and the artifact manifest its build wrote), which never lives in a mounted pak or APK and is absent from a shipped game entirely",
    "orkige_core/core_project/Project.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
    "orkige_core/core_project/ProjectPaths.h": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",
    "orkige_core/core_script/ScriptRuntime.cpp": "legacy pre-funnel: raw filesystem access predating core_filesystem/ResourceReader; migrate its content reads through the reader",

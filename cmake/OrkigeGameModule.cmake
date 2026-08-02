@@ -11,8 +11,14 @@
 #         enable_language(OBJCXX)   # only if the module has .mm sources
 #     endif()
 #     include(${ORKIGE_ROOT}/cmake/OrkigeGameModule.cmake)
-#     add_executable(my_game main.cpp)
-#     orkige_game_module(my_game)
+#     orkige_add_game_module(my_game main.cpp)
+#
+# orkige_add_game_module() creates the target AND wires it, which is what keeps
+# a project file portable across targets: the SHAPE a module takes - a desktop
+# executable, the shared library an Android activity loads, an Apple mobile
+# bundle - is a property of the platform, so the helper owns it and the project
+# never spells add_executable(). Where the build put the artifact is written
+# down beside the build rather than guessed (orkige_module_report_artifact).
 #
 # configured against an engine SOURCE + BUILD TREE with (the editor's Play
 # button assembles exactly this - see NativeModule::configureCommand):
@@ -120,6 +126,32 @@ if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/OrkigeSdkPack.cmake")
 elseif(NOT DEFINED ORKIGE_ROOT)
     message(FATAL_ERROR "ORKIGE_ROOT is not set - pass the Orkige engine "
         "source root: -DORKIGE_ROOT=/path/to/orkige")
+endif()
+
+# --- the target platform, and the SHAPE a module takes on it -----------------
+# Derived from the toolchain in force through the one definition both sides
+# read (cmake/OrkigeTargetShape.cmake, which ships in a pack beside this file),
+# so a pack's recorded platform and a consumer's derived one are the same word
+# for the same thing.
+if(ORKIGE_SDK_MODE)
+    include("${CMAKE_CURRENT_LIST_DIR}/OrkigeTargetShape.cmake")
+else()
+    include("${ORKIGE_ROOT}/cmake/OrkigeTargetShape.cmake")
+endif()
+orkige_target_platform(ORKIGE_MODULE_TARGET_PLATFORM ORKIGE_MODULE_TARGET_SHAPE
+    ORKIGE_MODULE_TARGET_OUTPUT_NAME)
+# A pack is bound to ONE target. Building for another with it would resolve
+# archives of the wrong architecture and system - a link error at best, and at
+# worst a configure that succeeds because the mismatch is only in a system
+# header. Refuse by name instead.
+if(ORKIGE_SDK_MODE AND ORKIGE_SDK_TARGET_PLATFORM
+        AND NOT ORKIGE_SDK_TARGET_PLATFORM STREQUAL ORKIGE_MODULE_TARGET_PLATFORM)
+    message(FATAL_ERROR "Orkige SDK pack target mismatch: the pack at "
+        "'${ORKIGE_SDK_ROOT}' builds for '${ORKIGE_SDK_TARGET_PLATFORM}', but "
+        "this module is being configured for "
+        "'${ORKIGE_MODULE_TARGET_PLATFORM}'. Use the pack for the target you "
+        "are building, or drop the toolchain file that redirected this "
+        "configure.")
 endif()
 
 # ccache, same wiring as the engine's root CMakeLists: module builds
@@ -254,11 +286,9 @@ endif()
 # engine's static libs reference runtime symbols (__asan_*/__ubsan_*) that only
 # the same -fsanitize= compile AND link provide - a module built plain against
 # such an engine dies at link with thousands of undefined sanitizer symbols. The
-# root CMakeLists carries the option as ORKIGE_ENABLE_SANITIZERS (the flags come
-# from there, not the flags cache), the package records it, and
-# orkige_game_module() mirrors the root's exact option set onto the module
-# target - target options survive project() ordering, directory-scope flag edits
-# do not.
+# flags themselves reach the module through the captured OPTION contract like
+# every other toolchain switch the engine was built with, so nothing about them
+# is restated here; the package records the fact so the build can SAY so.
 set(ORKIGE_MODULE_FLAVOR "classic")
 if(DEFINED ORKIGE_PACKAGE_RENDER_BACKEND)
     if(ORKIGE_PACKAGE_RENDER_BACKEND STREQUAL "next")
@@ -300,6 +330,27 @@ if(DEFINED CACHE{ORKIGE_MODULE_FLAVOR_CONFIGURED})
 endif()
 set(ORKIGE_MODULE_FLAVOR_CONFIGURED "${ORKIGE_MODULE_FLAVOR}" CACHE INTERNAL
     "render flavor this module tree was configured against (guard, do not edit)")
+
+# THE OS FLOOR the engine was built for, inherited rather than left to whatever
+# SDK the consumer happens to have. Without it a module compiled on a current
+# machine records that machine's minimum and the shipped game refuses to launch
+# on anything older - while the engine archives it links were built to run
+# there. The package is the answer; a caller that states one explicitly keeps it
+# (and owns the consequences).
+if(APPLE AND ORKIGE_PACKAGE_OSX_DEPLOYMENT_TARGET)
+    if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET
+            "${ORKIGE_PACKAGE_OSX_DEPLOYMENT_TARGET}")
+        message(STATUS "Orkige module OS floor: macOS "
+            "${CMAKE_OSX_DEPLOYMENT_TARGET} (from the engine package)")
+    elseif(NOT CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL
+            ORKIGE_PACKAGE_OSX_DEPLOYMENT_TARGET)
+        message(WARNING "this module targets macOS "
+            "${CMAKE_OSX_DEPLOYMENT_TARGET} while the Orkige engine it links "
+            "was built for ${ORKIGE_PACKAGE_OSX_DEPLOYMENT_TARGET} - the "
+            "result claims a floor its own objects may not honour.")
+    endif()
+endif()
 
 # the scripting backend the engine was built with; the package says so, and the
 # cache entry stays as the manual override for a package too old to answer
@@ -480,21 +531,60 @@ set(ORKIGE_GAME_MODULE_MEDIA_DIR "${OGRE_MEDIA_DIR}")
 # the engine's database does not cover standalone module projects).
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# orkige_add_game_module(<target> <sources...>)
+#   THE ENTRY POINT a project's CMakeLists uses. It creates the target in the
+#   shape this target platform requires and wires it up, so a project file says
+#   what its module IS and never what shape it takes:
+#
+#       orkige_add_game_module(my_game main.cpp gameplay.cpp)
+#
+#   A desktop module is an executable the editor runs as the play process; an
+#   Android module is the shared library the activity loads by a fixed name; an
+#   Apple mobile module is a bundle. Those are properties of the target, not of
+#   the game, and a project that spelled add_executable() would be frozen to
+#   whichever one it was written on - and would have to be edited, by its
+#   author, in a file this engine does not own, the day it targets a phone.
+#
+#   orkige_game_module(<existing target>) remains available for a project that
+#   must configure its own target first; it is the same wiring without the
+#   creation, and such a project owns the shape question itself.
+function(orkige_add_game_module target)
+    if(ORKIGE_MODULE_TARGET_SHAPE STREQUAL "sharedlib")
+        add_library(${target} SHARED ${ARGN})
+    elseif(ORKIGE_MODULE_TARGET_SHAPE STREQUAL "appbundle")
+        add_executable(${target} MACOSX_BUNDLE ${ARGN})
+    else()
+        add_executable(${target} ${ARGN})
+    endif()
+    if(ORKIGE_MODULE_TARGET_OUTPUT_NAME)
+        set_target_properties(${target} PROPERTIES
+            OUTPUT_NAME "${ORKIGE_MODULE_TARGET_OUTPUT_NAME}")
+    endif()
+    orkige_game_module(${target})
+endfunction()
+
+# orkige_module_report_artifact(<target>)
+#   Write down WHERE the build put the module, rather than leaving anyone to
+#   guess. The guess only works on desktop: an Android module is libmain.so, an
+#   Apple mobile module is a bundle directory, and a browser module is a .js
+#   loader beside its .wasm. The generator knows the answer exactly, so it
+#   writes it into the build tree and the tools that launch or package a module
+#   read it (core_project/NativeModule.h).
+function(orkige_module_report_artifact target)
+    set(_manifest "${CMAKE_BINARY_DIR}/orkige_module_artifact.txt")
+    set(_content "target=${target}\n")
+    string(APPEND _content "platform=${ORKIGE_MODULE_TARGET_PLATFORM}\n")
+    string(APPEND _content "shape=${ORKIGE_MODULE_TARGET_SHAPE}\n")
+    string(APPEND _content "artifact=$<TARGET_FILE:${target}>\n")
+    if(ORKIGE_MODULE_TARGET_SHAPE STREQUAL "appbundle")
+        string(APPEND _content "bundle=$<TARGET_BUNDLE_DIR:${target}>\n")
+    endif()
+    file(GENERATE OUTPUT "${_manifest}" CONTENT "${_content}")
+endfunction()
+
 function(orkige_game_module target)
     target_compile_features(${target} PRIVATE cxx_std_20)
-    if(ORKIGE_MODULE_SANITIZERS)
-        # mirror the engine root CMakeLists' sanitizer option set exactly
-        # (vptr excluded there for RTTI-less static dependencies - same
-        # constraint applies to the module's link of those libs)
-        target_compile_options(${target} PRIVATE
-            "$<$<COMPILE_LANGUAGE:CXX>:-fsanitize=address,undefined>"
-            "$<$<COMPILE_LANGUAGE:CXX>:-fno-sanitize=vptr>"
-            "$<$<COMPILE_LANGUAGE:CXX>:-fno-omit-frame-pointer>"
-            "$<$<COMPILE_LANGUAGE:CXX>:-fno-sanitize-recover=undefined>"
-        )
-        target_link_options(${target} PRIVATE
-            -fsanitize=address,undefined -fno-sanitize=vptr)
-    endif()
+    orkige_module_report_artifact(${target})
     # the engine include roots the PACKAGE declares - the source tree's two
     # layer dirs from a build tree, the pack's merged include/ from a pack.
     # Spelled explicitly because the archives are linked by raw path below (see
@@ -521,6 +611,16 @@ function(orkige_game_module target)
         # the module was built against, not of the engine build
         ORKIGE_MODULE_MEDIA_DIR="${ORKIGE_GAME_MODULE_MEDIA_DIR}"
     )
+    # THE OTHER HALF OF THE CONTRACT: the OPTIONS the archives were built with,
+    # captured off the engine the same way (cmake/OrkigePackage.cmake) and
+    # applied verbatim. A define is not the only thing that changes what the
+    # shared headers mean - an exception model decides how every translation
+    # unit unwinds, sanitizer instrumentation emits references only an equally
+    # instrumented link resolves, and an object-section capacity flag is needed
+    # by the consumer for the same reason the engine needed it. Link options
+    # travel with them: instrumentation compiled in must be linked in.
+    target_compile_options(${target} PRIVATE ${ORKIGE_ENGINE_COMPILE_OPTIONS})
+    target_link_options(${target} PRIVATE ${ORKIGE_LINK_OPTIONS})
     if(ORKIGE_SCRIPTING STREQUAL "LUA")
         target_include_directories(${target} PRIVATE ${LUA_INCLUDE_DIR})
         # sol2 is header-only; the Lua archive itself is linked AFTER the
@@ -625,10 +725,10 @@ function(orkige_game_module target)
         target_link_libraries(${target} PRIVATE ${LUA_LIBRARIES})
     endif()
     if(APPLE)
-        # same benign-duplicate silencing as the engine's root CMakeLists:
-        # the static closure legitimately repeats archives on the link line
-        target_link_options(${target} PRIVATE
-            LINKER:-no_warn_duplicate_libraries)
+        # the benign-duplicate silencing the static closure needs (archives
+        # legitimately repeat on the link line) arrives with the captured link
+        # options above, like every other switch the engine build declares.
+        #
         # frameworks orkige_core/orkige_engine list on their PUBLIC link
         # interface (PlatformUtil.mm, LoadCafData.mm); the OGRE/SDL imported
         # targets carry their own framework closure themselves

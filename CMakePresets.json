@@ -24,7 +24,8 @@
       "cacheVariables": {
         "ORKIGE_BUILD_ENGINE": "ON",
         "ORKIGE_BUILD_TOOLS": "ON",
-        "ORKIGE_BUILD_TESTS": "ON"
+        "ORKIGE_BUILD_TESTS": "ON",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0"
       }
     },
     {

@@ -11,6 +11,8 @@
 #include "core_project/Project.h"
 
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <system_error>
 
 namespace Orkige
@@ -74,9 +76,39 @@ namespace Orkige
 			return { cmakeExecutable, "--build", buildDirAbsolute };
 		}
 		//---------------------------------------------------------
-		String executablePath(String const & buildDirAbsolute,
-			String const & target)
+		const String ARTIFACT_MANIFEST = "orkige_module_artifact.txt";
+		//---------------------------------------------------------
+		String artifactPathFromManifest(String const & manifestText,
+			String const & buildDirAbsolute, String const & target)
 		{
+			// "artifact=<path>", one key=value per line
+			const String key = "artifact=";
+			for (size_t start = 0; start < manifestText.size(); )
+			{
+				const size_t end = manifestText.find('\n', start);
+				const String line = manifestText.substr(start,
+					end == String::npos ? String::npos : end - start);
+				if (line.compare(0, key.size(), key) == 0)
+				{
+					String value = line.substr(key.size());
+					while (!value.empty() &&
+						(value.back() == '\r' || value.back() == ' '))
+					{
+						value.pop_back();
+					}
+					if (!value.empty())
+					{
+						return value;
+					}
+				}
+				if (end == String::npos)
+				{
+					break;
+				}
+				start = end + 1;
+			}
+			// no manifest: the desktop shape, which is what a build that does
+			// not write one produces
 #ifdef _WIN32
 			const String executableName = target + ".exe";
 #else
@@ -84,6 +116,23 @@ namespace Orkige
 #endif
 			return (std::filesystem::path(buildDirAbsolute) / executableName)
 				.string();
+		}
+		//---------------------------------------------------------
+		String executablePath(String const & buildDirAbsolute,
+			String const & target)
+		{
+			String manifestText;
+			std::ifstream manifest(
+				(std::filesystem::path(buildDirAbsolute) / ARTIFACT_MANIFEST)
+					.string());
+			if (manifest)
+			{
+				std::ostringstream contents;
+				contents << manifest.rdbuf();
+				manifestText = contents.str();
+			}
+			return artifactPathFromManifest(manifestText, buildDirAbsolute,
+				target);
 		}
 		//---------------------------------------------------------
 	}

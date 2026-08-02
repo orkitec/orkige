@@ -21,8 +21,10 @@ if(NOT DEFINED ORKIGE_ROOT)
 endif()
 include("${ORKIGE_ROOT}/cmake/OrkigeGameModule.cmake")
 
-add_executable(jumper_native main.cpp)
-orkige_game_module(jumper_native)
+# the ONE entry point: the helper creates the target in the shape this target
+# platform requires (a desktop executable here) and wires the engine up, so this
+# file never has to change when the same project builds for another target
+orkige_add_game_module(jumper_native main.cpp)
 
 # the pure gameplay math is shared with the C++ jumper SAMPLE by including its
 # header directly (samples/jumper/JumperLogic.h) - one source of truth for the

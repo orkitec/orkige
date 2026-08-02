@@ -43,6 +43,10 @@ set(ORKIGE_PACKAGE_SCRIPTING "@ORKIGE_SCRIPTING@")
 set(ORKIGE_PACKAGE_HTTP_BACKEND "@ORKIGE_HTTP_BACKEND@")
 set(ORKIGE_PACKAGE_SANITIZERS @ORKIGE_ENABLE_SANITIZERS@)
 set(ORKIGE_PACKAGE_BUILD_TYPE "@ORKIGE_PACKAGE_BUILD_TYPE@")
+# the OS floor the archives were built for. A module that compiled to a
+# different one would either refuse to launch where the engine can run, or
+# claim a floor its own objects cannot honour - so a consumer inherits this.
+set(ORKIGE_PACKAGE_OSX_DEPLOYMENT_TARGET "@CMAKE_OSX_DEPLOYMENT_TARGET@")
 set(ORKIGE_SOURCE_ROOT "@ORKIGE_PACKAGE_SOURCE_ROOT@")
 set(ORKIGE_MEDIA_DIR "@ORKIGE_PACKAGE_MEDIA_DIR@")
 set(ORKIGE_TRANSITIVE_PACKAGES "@ORKIGE_PACKAGE_TRANSITIVE@")
@@ -95,6 +99,23 @@ set(ORKIGE_CORE_COMPILE_DEFINITIONS "@ORKIGE_PACKAGE_CORE_DEFS@")
 set(ORKIGE_ENGINE_COMPILE_DEFINITIONS "@ORKIGE_PACKAGE_ENGINE_DEFS@")
 set(_orkige_pkg_core_defs ${ORKIGE_CORE_COMPILE_DEFINITIONS})
 set(_orkige_pkg_engine_defs ${ORKIGE_ENGINE_COMPILE_DEFINITIONS})
+
+# The same contract in its OPTION half. A define is not the only thing that
+# decides what the shared headers mean to a consumer's own translation units:
+# an exception model, an instrumentation switch or an object-section capacity
+# flag reaches them the same way, and is captured the same way (the root
+# directory's options plus each archive's PUBLIC ones). Link options travel
+# with them because instrumentation that is compiled in must also be linked in.
+set(ORKIGE_CORE_COMPILE_OPTIONS "@ORKIGE_PACKAGE_CORE_OPTIONS@")
+set(ORKIGE_ENGINE_COMPILE_OPTIONS "@ORKIGE_PACKAGE_ENGINE_OPTIONS@")
+set(ORKIGE_LINK_OPTIONS "@ORKIGE_PACKAGE_LINK_OPTIONS@")
+
+# Definitions the archives declare PRIVATE - implementation, deliberately NOT
+# part of the contract above. Recorded so the claim is checkable: the sdk_pack
+# test asserts no installed header mentions one of these names, which is the
+# floor under "captured, never restated" (a capture is only as complete as the
+# engine's discipline of declaring an ABI-relevant define PUBLIC).
+set(ORKIGE_PRIVATE_COMPILE_DEFINITIONS "@ORKIGE_PACKAGE_PRIVATE_DEFS@")
 if(NOT _orkige_pkg_engine_defs)
     set(Orkige_FOUND FALSE)
     set(Orkige_NOT_FOUND_MESSAGE
@@ -109,7 +130,9 @@ if(NOT TARGET Orkige::Core)
     set_target_properties(Orkige::Core PROPERTIES
         IMPORTED_LOCATION "${_orkige_pkg_core_lib}"
         INTERFACE_INCLUDE_DIRECTORIES "${ORKIGE_CORE_INCLUDE_DIRS}"
-        INTERFACE_COMPILE_DEFINITIONS "${_orkige_pkg_core_defs}")
+        INTERFACE_COMPILE_DEFINITIONS "${_orkige_pkg_core_defs}"
+        INTERFACE_COMPILE_OPTIONS "${ORKIGE_CORE_COMPILE_OPTIONS}"
+        INTERFACE_LINK_OPTIONS "${ORKIGE_LINK_OPTIONS}")
 endif()
 if(NOT TARGET Orkige::Engine)
     add_library(Orkige::Engine STATIC IMPORTED)
@@ -118,6 +141,8 @@ if(NOT TARGET Orkige::Engine)
         INTERFACE_INCLUDE_DIRECTORIES
             "${ORKIGE_ENGINE_INCLUDE_DIRS};${ORKIGE_CORE_INCLUDE_DIRS}"
         INTERFACE_COMPILE_DEFINITIONS "${_orkige_pkg_engine_defs}"
+        INTERFACE_COMPILE_OPTIONS "${ORKIGE_ENGINE_COMPILE_OPTIONS}"
+        INTERFACE_LINK_OPTIONS "${ORKIGE_LINK_OPTIONS}"
         INTERFACE_LINK_LIBRARIES Orkige::Core)
 endif()
 

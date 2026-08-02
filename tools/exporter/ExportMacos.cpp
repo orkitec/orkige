@@ -16,6 +16,8 @@
 #include "ExportSelfContain.h"
 #include "ExportSettings.h"
 
+#include "core_project/NativeModule.h"
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -226,8 +228,12 @@ namespace OrkigeExport
 		{
 			return false;
 		}
+		// WHERE the module landed is the build's answer, read from the manifest
+		// it wrote (cmake/OrkigeGameModule.cmake) - "<buildDir>/<target>" is
+		// only the desktop shape, and the exporter must not be the place that
+		// assumption is frozen
 		const Orkige::String executable =
-			ExportFiles::join(moduleBuildDirectory, target);
+			Orkige::NativeModule::executablePath(moduleBuildDirectory, target);
 		if(!ExportFiles::isRegularFile(executable))
 		{
 			return report(error, "native module build produced no '" +

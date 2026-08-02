@@ -51,7 +51,16 @@ find_package(Orkige <abi-stamp> EXACT REQUIRED
 target_link_libraries(my_game PRIVATE Orkige::Engine)
 ```
 
-`orkige_game_module(<target>)` wraps this and adds the dependency closure.
+`orkige_game_module(<target>)` wraps this and adds the dependency closure, and
+`orkige_add_game_module(<target> <sources...>)` is the entry point a project
+uses: it creates the target in the shape the target platform requires — a
+desktop executable, the shared library an Android activity loads, an Apple
+mobile bundle — and then wires it. The shape belongs to the platform, so a
+project file never spells `add_executable()` and never has to be edited to
+follow the engine onto another target. Where the artifact landed is written
+down beside the build (`orkige_module_artifact.txt`) and read by the editor and
+the exporter, because `<buildDir>/<target>` is only the desktop answer. See
+`Docs/sdk-pack.md` for the full vocabulary.
 
 ## The ABI-stamp version guard
 
@@ -65,7 +74,7 @@ runtime assets, not object layout), plus the cmake files that define how a modul
 compiles and links against them (each engine layer's `CMakeLists.txt` and the
 package/link helpers `OrkigeGameModule.cmake`, `OrkigeConfig.cmake.in`,
 `OrkigePackage.cmake`, `OrkigeSdk.cmake`, `OrkigeSdkPack.cmake.in`,
-`OrkigeAbiStamp.cmake`, `OrkigeWriteVersion.cmake`).
+`OrkigeTargetShape.cmake`, `OrkigeAbiStamp.cmake`, `OrkigeWriteVersion.cmake`).
 
 Because it reads files rather than VCS state, it covers EVERY case uniformly —
 a committed change, an uncommitted edit, a brand-new UNTRACKED header the module

@@ -7,20 +7,31 @@
 # NOT carry a file by that name - which is why the source form is a template the
 # install step realizes.
 #
-# It is also the ONE place the pack layout is written down: the pack's own
-# install-time stamp recording and a consumer's recomputation both read the ABI
-# surface from here, so there is a single definition of what a pack IS.
+# It is also the ONE place the pack layout AND the pack's target contract are
+# written down: the pack's own install-time stamp recording and a consumer's
+# recomputation both read the ABI surface from here, so there is a single
+# definition of what a pack IS.
 #
 # Everything is derived from this file's own location, which is what makes a
 # pack relocatable - unpack it anywhere and it still answers correctly.
 #
 # Consumers of the pack do not include this directly; they include
 # OrkigeGameModule.cmake, exactly as a build-tree consumer does.
+#
+# THE FIELD SET IS A PUBLIC CONTRACT. Packs are built per target - macOS, Linux,
+# Windows, iOS device, iOS simulator, Android and the browser - and a project's
+# own files are written against the vocabulary below. Adding a field later is
+# fine; changing what an existing one MEANS is not, because it silently
+# reinterprets files this engine does not own. Every field is therefore declared
+# here whether or not the pack that carries it has an answer: a slot with no
+# answer is EMPTY, never absent, and a consumer reads "empty" as "this pack's
+# target needs nothing here".
 
 include_guard(GLOBAL)
 
 get_filename_component(ORKIGE_SDK_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
+# --- the layout -------------------------------------------------------------
 # where find_package(Orkige ... CONFIG PATHS <dir>) finds OrkigeConfig.cmake
 set(ORKIGE_SDK_PACKAGE_DIR "${ORKIGE_SDK_ROOT}/cmake")
 # the dependency closure the engine archives were built against
@@ -28,6 +39,65 @@ set(ORKIGE_SDK_VCPKG_PREFIX "${ORKIGE_SDK_ROOT}/vcpkg")
 # the engine's runtime media (fonts, the shared water plane)
 set(ORKIGE_SDK_MEDIA_DIR "${ORKIGE_SDK_ROOT}/media")
 
+# --- what this pack builds FOR ----------------------------------------------
+# A pack is bound to ONE target platform: its archives, its closure and its
+# toolchain contract are all that platform's. The game-module helper derives the
+# platform the consumer is actually configuring for from the toolchain in force
+# and REFUSES a mismatch by name - a pack for one target silently building for
+# another is the failure this field exists to prevent.
+#
+#   platform  macos | linux | windows | ios | ios-simulator | android | web
+#   archs     the architecture(s) the archives carry
+#   triplet   the vcpkg triplet the bundled closure was built as
+set(ORKIGE_SDK_TARGET_PLATFORM "@ORKIGE_SDK_TARGET_PLATFORM@")
+set(ORKIGE_SDK_TARGET_ARCHS "@ORKIGE_SDK_TARGET_ARCHS@")
+set(ORKIGE_SDK_TARGET_TRIPLET "@ORKIGE_SDK_TARGET_TRIPLET@")
+
+# THE SHAPE a game module takes on this target, which is the pack's business and
+# never the project's: a desktop module is an executable, an Android module is
+# the shared library the activity loads, an Apple mobile module is a bundle.
+# orkige_add_game_module() creates the target in this shape, so the same project
+# file builds against every pack.
+#
+#   shape        executable | sharedlib | appbundle
+#   output_name  the artifact's base name where the platform dictates one
+#                (Android loads "libmain.so"); empty = the target's own name
+set(ORKIGE_SDK_MODULE_SHAPE "@ORKIGE_SDK_MODULE_SHAPE@")
+set(ORKIGE_SDK_MODULE_OUTPUT_NAME "@ORKIGE_SDK_MODULE_OUTPUT_NAME@")
+
+# --- the toolchain contract --------------------------------------------------
+# What a consumer's compiler must BE to produce objects that link with these
+# archives. A host pack answers "the platform's own toolchain" and leaves the
+# cross fields empty; a cross pack names the SDK it was built with, because a
+# module compiled by a different one is not guaranteed to interoperate.
+#
+#   os_deployment_target  the OS floor the binaries are built for; a module
+#                         built against this pack inherits it, and a machine
+#                         older than the floor cannot run the result
+#   toolchain_kind        host | apple-cross | android-ndk | emscripten
+#   toolchain_version     the pinned SDK/NDK/emsdk version, empty for host
+#   toolchain_file        a pack-relative cmake toolchain file a cross consumer
+#                         must configure with, empty for host
+#   toolchain_options     flags the WHOLE closure was built with that a
+#                         consumer's toolchain must carry too (an exception
+#                         model, for instance); empty where there are none
+set(ORKIGE_SDK_OS_DEPLOYMENT_TARGET "@ORKIGE_SDK_OS_DEPLOYMENT_TARGET@")
+set(ORKIGE_SDK_TOOLCHAIN_KIND "@ORKIGE_SDK_TOOLCHAIN_KIND@")
+set(ORKIGE_SDK_TOOLCHAIN_VERSION "@ORKIGE_SDK_TOOLCHAIN_VERSION@")
+set(ORKIGE_SDK_TOOLCHAIN_FILE "@ORKIGE_SDK_TOOLCHAIN_FILE@")
+set(ORKIGE_SDK_TOOLCHAIN_OPTIONS "@ORKIGE_SDK_TOOLCHAIN_OPTIONS@")
+
+# The compiler and standard library the archives were built with, recorded
+# rather than assumed. On Apple and Windows the platform toolchain settles both;
+# on Linux neither is settled by the OS, and a static archive built against one
+# standard library's headers is not interchangeable with the other's - so a pack
+# says which, and a consumer-side readiness check can compare.
+set(ORKIGE_SDK_CXX_COMPILER_ID "@ORKIGE_SDK_CXX_COMPILER_ID@")
+set(ORKIGE_SDK_CXX_COMPILER_VERSION "@ORKIGE_SDK_CXX_COMPILER_VERSION@")
+set(ORKIGE_SDK_CXX_STDLIB "@ORKIGE_SDK_CXX_STDLIB@")
+set(ORKIGE_SDK_BUILD_HOST "@ORKIGE_SDK_BUILD_HOST@")
+
+# --- the ABI surface ---------------------------------------------------------
 # THE PACK'S ABI SURFACE - the same role the engine's compiled sources play for
 # a build tree. A pack has no .cpp files, but it has what actually decides
 # object layout for a consumer: the installed headers, plus the cmake files that
@@ -41,5 +111,6 @@ set(ORKIGE_SDK_ABI_EXTRA_FILES
     cmake/OrkigeGameModule.cmake
     cmake/OrkigeAbiStamp.cmake
     cmake/OrkigeWriteVersion.cmake
+    cmake/OrkigeTargetShape.cmake
     cmake/OrkigeSdkPack.cmake
     cmake/OrkigeConfig.cmake)

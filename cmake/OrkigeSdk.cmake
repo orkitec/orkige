@@ -59,9 +59,46 @@ include_guard(GLOBAL)
 # ones carry the actual binaries, release at the triplet root and debug under
 # debug/. vcpkg's own bookkeeping tree (vcpkg_installed/vcpkg/) never enters
 # the pack.
-set(ORKIGE_SDK_VCPKG_SHARED_SUBDIRS include share plugins tools etc bin loader)
+#
+# tools/ and bin/ are deliberately NOT here. They hold HOST EXECUTABLES a port
+# installs beside its library (compressors, validators, uninstall scripts), and
+# a game-module build invokes none of them - it configures with find_package and
+# compiles. Shipping them is pure size and license surface, and on macOS it is
+# worse than that: executables inside a downloaded archive carry the quarantine
+# attribute, so they would meet Gatekeeper on a user's machine in a way our own
+# machines never see. A pack that carries no host executables cannot have that
+# problem. If a future target genuinely needs a tool at module-build time, ship
+# THAT tool by name rather than the whole directory.
+set(ORKIGE_SDK_VCPKG_SHARED_SUBDIRS include share plugins etc loader)
 set(ORKIGE_SDK_VCPKG_RELEASE_SUBDIRS lib)
-set(ORKIGE_SDK_VCPKG_DEBUG_SUBDIRS debug)
+set(ORKIGE_SDK_VCPKG_DEBUG_SUBDIRS debug/lib debug/plugins debug/etc debug/loader)
+
+# Ports in the engine build's closure that a GAME MODULE never links.
+#
+# The closure is the engine BUILD's closure, and the engine build is more than
+# the game runtime: it also builds the editor and the test suite. Their
+# dependencies are installed beside the runtime's and would otherwise ride into
+# every pack a user downloads - size, and a license surface nothing in a shipped
+# game consumes.
+#
+# Pruning is exact rather than pattern-matched: vcpkg records every file each
+# port installed, and those manifests are read at install time to delete
+# precisely that port's files. A port whose files are wrongly removed does not
+# fail quietly - the sdk_pack test compiles a translation unit over every engine
+# header against the pack and then builds and RUNS a real module from it, on
+# both flavors, so an over-eager entry here is a test failure.
+set(ORKIGE_SDK_PRUNE_PORTS
+    # the unit-test framework: tests/ only, never the engine or a game
+    catch2
+    # the editor's gizmo widget, its code editor and its terminal. imgui
+    # ITSELF is not here: classic OGRE's overlay is built against it, so its
+    # package config requires it and a classic pack that dropped it would fail
+    # a consumer's configure. It is pruned in the next-flavor list below, where
+    # nothing in the closure asks for it.
+    imguizmo imgui-color-text-edit libvterm
+    # the texture-cook encoder, which runs in the host CLI tools/texcook; the
+    # runtime reads cooked containers through its render backend's own codecs
+    ktx)
 
 # orkige_install_sdk()
 #   Adds the install() rules that produce the pack. Called once from the root
@@ -158,8 +195,11 @@ function(orkige_install_sdk)
     endif()
     foreach(_sub IN LISTS _closure_subdirs)
         if(IS_DIRECTORY "${_triplet}/${_sub}")
+            # install(DIRECTORY a/b DESTINATION d) lands at d/b, so a nested
+            # entry keeps its parent explicitly
+            get_filename_component(_sub_parent "${_sub}" DIRECTORY)
             install(DIRECTORY "${_triplet}/${_sub}"
-                DESTINATION vcpkg
+                DESTINATION "vcpkg/${_sub_parent}"
                 COMPONENT sdk)
         endif()
     endforeach()
@@ -172,6 +212,101 @@ function(orkige_install_sdk)
         "
         COMPONENT sdk)
 
+    # --- prune the ports a game module never links --------------------------
+    # The set is the editor/test dependencies above plus, in a pack of one
+    # flavor, the OTHER flavor's render backend. A tree that builds the Ogre-Next
+    # backend still installs classic OGRE (it is a base dependency, so both are
+    # present side by side and file-disjoint) together with the windowing library
+    # only classic uses - which is roughly thirty megabytes of a pack that can
+    # never load either.
+    #
+    # vcpkg's own installed-file manifests are the authority for WHICH files a
+    # port owns, so a shared dependency is never touched: pruning classic OGRE
+    # leaves the image and mesh codecs both backends use exactly where they are.
+    # The manifests live in the build tree's bookkeeping directory, which is read
+    # here and never copied into the pack.
+    set(_prune_ports ${ORKIGE_SDK_PRUNE_PORTS})
+    if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+        # classic OGRE, the windowing library only it uses, and the immediate-
+        # mode UI its overlay is built against - none of which a pack that
+        # cannot load classic will ever open
+        list(APPEND _prune_ports ogre sdl2 imgui)
+    else()
+        list(APPEND _prune_ports ogre-next)
+    endif()
+    get_filename_component(_vcpkg_installed "${_triplet}" DIRECTORY)
+    get_filename_component(_triplet_name "${_triplet}" NAME)
+    set(_prune_lists "")
+    foreach(_port IN LISTS _prune_ports)
+        file(GLOB _port_lists
+            "${_vcpkg_installed}/vcpkg/info/${_port}_*_${_triplet_name}.list")
+        list(APPEND _prune_lists ${_port_lists})
+    endforeach()
+    if(_prune_lists)
+        install(CODE "
+            set(_orkige_pruned 0)
+            set(_orkige_empty_dirs \"\")
+            foreach(_orkige_list ${_prune_lists})
+                file(STRINGS \"\${_orkige_list}\" _orkige_owned)
+                foreach(_orkige_entry IN LISTS _orkige_owned)
+                    # entries are '<triplet>/<path>'; directories end in '/'.
+                    # Drop the FIRST segment by hand - a regex replace would
+                    # strip every segment, since it replaces all matches
+                    string(FIND \"\${_orkige_entry}\" \"/\" _orkige_cut)
+                    if(_orkige_cut LESS 0)
+                        continue()
+                    endif()
+                    math(EXPR _orkige_cut \"\${_orkige_cut} + 1\")
+                    string(SUBSTRING \"\${_orkige_entry}\" \${_orkige_cut} -1
+                        _orkige_rel)
+                    if(_orkige_rel STREQUAL \"\" OR _orkige_rel MATCHES \"/$\")
+                        continue()
+                    endif()
+                    set(_orkige_victim
+                        \"\${CMAKE_INSTALL_PREFIX}/vcpkg/\${_orkige_rel}\")
+                    if(EXISTS \"\${_orkige_victim}\")
+                        file(REMOVE \"\${_orkige_victim}\")
+                        math(EXPR _orkige_pruned \"\${_orkige_pruned} + 1\")
+                        get_filename_component(_orkige_victim_dir
+                            \"\${_orkige_victim}\" DIRECTORY)
+                        list(APPEND _orkige_empty_dirs \"\${_orkige_victim_dir}\")
+                    endif()
+                endforeach()
+            endforeach()
+            # the directories those files sat in are the ports' own; walk each
+            # one upwards while it is empty, so the pack shows only what it
+            # carries. Bounded to the directories actually touched - a
+            # recursive sweep of a closure this size would cost more than the
+            # whole install
+            if(_orkige_empty_dirs)
+                list(REMOVE_DUPLICATES _orkige_empty_dirs)
+                foreach(_orkige_dir IN LISTS _orkige_empty_dirs)
+                    set(_orkige_walk \"\${_orkige_dir}\")
+                    foreach(_orkige_up RANGE 5)
+                        if(NOT IS_DIRECTORY \"\${_orkige_walk}\")
+                            break()
+                        endif()
+                        file(GLOB _orkige_kids LIST_DIRECTORIES true
+                            \"\${_orkige_walk}/*\")
+                        if(_orkige_kids)
+                            break()
+                        endif()
+                        file(REMOVE_RECURSE \"\${_orkige_walk}\")
+                        get_filename_component(_orkige_walk
+                            \"\${_orkige_walk}\" DIRECTORY)
+                        if(NOT _orkige_walk MATCHES \"/vcpkg/\")
+                            break()
+                        endif()
+                    endforeach()
+                endforeach()
+            endif()
+            message(STATUS
+                \"Orkige SDK pack: pruned \${_orkige_pruned} file(s) of ports a \"
+                \"game module never links (${_prune_ports})\")
+            "
+            COMPONENT sdk)
+    endif()
+
     # --- the cmake surface ---------------------------------------------------
     # OrkigeGameModule.cmake, OrkigeAbiStamp.cmake and OrkigeWriteVersion.cmake
     # ship VERBATIM: one definition of how a module compiles, links and
@@ -183,12 +318,43 @@ function(orkige_install_sdk)
     # the helper detects a pack by finding that file beside itself, so a name
     # the engine source tree also carried would put every build-tree consumer
     # into pack mode.
+    #
+    # The marker also carries THE TARGET CONTRACT - which platform this pack
+    # builds for, what shape a module takes there, and what a consumer's
+    # toolchain must be. Packs are built per target, and a project's own files
+    # are written against that vocabulary, so the fields are all declared and
+    # filled from what the engine build actually knows; a slot this target has
+    # no answer for stays empty rather than absent.
+    include("${_module_dir}/OrkigeTargetShape.cmake")
+    orkige_target_platform(ORKIGE_SDK_TARGET_PLATFORM ORKIGE_SDK_MODULE_SHAPE
+        ORKIGE_SDK_MODULE_OUTPUT_NAME)
+    orkige_target_os_floor(ORKIGE_SDK_OS_DEPLOYMENT_TARGET)
+    set(ORKIGE_SDK_TARGET_TRIPLET "${_triplet_name}")
+    set(ORKIGE_SDK_TARGET_ARCHS "${CMAKE_OSX_ARCHITECTURES}")
+    if(NOT ORKIGE_SDK_TARGET_ARCHS)
+        set(ORKIGE_SDK_TARGET_ARCHS "${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
+    # a host pack is built by the platform's own toolchain and needs no
+    # toolchain file; the cross targets fill these when their packs are built
+    set(ORKIGE_SDK_TOOLCHAIN_KIND "host")
+    set(ORKIGE_SDK_TOOLCHAIN_VERSION "")
+    set(ORKIGE_SDK_TOOLCHAIN_FILE "")
+    set(ORKIGE_SDK_TOOLCHAIN_OPTIONS "")
+    set(ORKIGE_SDK_CXX_COMPILER_ID "${CMAKE_CXX_COMPILER_ID}")
+    set(ORKIGE_SDK_CXX_COMPILER_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
+    set(ORKIGE_SDK_CXX_STDLIB "libstdc++")
+    if(ORKIGE_STDLIB_LIBCXX OR APPLE)
+        set(ORKIGE_SDK_CXX_STDLIB "libc++")
+    endif()
+    set(ORKIGE_SDK_BUILD_HOST
+        "${CMAKE_HOST_SYSTEM_NAME} ${CMAKE_HOST_SYSTEM_VERSION}")
     configure_file("${_module_dir}/OrkigeSdkPack.cmake.in"
-        "${CMAKE_BINARY_DIR}/sdk/OrkigeSdkPack.cmake" COPYONLY)
+        "${CMAKE_BINARY_DIR}/sdk/OrkigeSdkPack.cmake" @ONLY)
     install(FILES
         "${_module_dir}/OrkigeGameModule.cmake"
         "${_module_dir}/OrkigeAbiStamp.cmake"
         "${_module_dir}/OrkigeWriteVersion.cmake"
+        "${_module_dir}/OrkigeTargetShape.cmake"
         "${CMAKE_BINARY_DIR}/sdk/OrkigeSdkPack.cmake"
         DESTINATION cmake
         COMPONENT sdk)
@@ -215,6 +381,10 @@ function(orkige_install_sdk)
     orkige_package_transitive_list(ORKIGE_PACKAGE_TRANSITIVE)
     orkige_package_compile_definitions(
         ORKIGE_PACKAGE_CORE_DEFS ORKIGE_PACKAGE_ENGINE_DEFS)
+    orkige_package_private_definitions(ORKIGE_PACKAGE_PRIVATE_DEFS)
+    orkige_package_compile_options(
+        ORKIGE_PACKAGE_CORE_OPTIONS ORKIGE_PACKAGE_ENGINE_OPTIONS)
+    orkige_package_link_options(ORKIGE_PACKAGE_LINK_OPTIONS)
     configure_file("${_module_dir}/OrkigeConfig.cmake.in"
         "${CMAKE_BINARY_DIR}/sdk/OrkigeConfig.cmake" @ONLY)
     install(FILES "${CMAKE_BINARY_DIR}/sdk/OrkigeConfig.cmake"
