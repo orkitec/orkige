@@ -565,7 +565,7 @@
           "label": "unit"
         },
         "exclude": {
-          "name": "SoundManagerDestructorTearsDownAL"
+          "name": "SoundManagerDestructorTearsDownAL|MusicStreamTeardownMidRefill"
         }
       },
       "execution": {
@@ -892,7 +892,7 @@
           "label": "unit"
         },
         "exclude": {
-          "name": "SoundManagerDestructorTearsDownAL"
+          "name": "SoundManagerDestructorTearsDownAL|MusicStreamTeardownMidRefill"
         }
       },
       "execution": {

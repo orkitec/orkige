@@ -46,12 +46,16 @@ race:Ogre::Barrier
 race:JPH::
 
 # OpenAL Soft runs its audio mixer on its OWN thread (even the null backend used
-# in tests), racing internally on its lock-free voice-change list
-# (alu.cpp ProcessVoiceChanges and siblings). Unlike physics, the sound tests
-# carry NO Orkige-owned threading to protect - the engine drives OpenAL entirely
-# from the main thread (engine_sound/SoundManager; music refill is main-thread in
-# SoundManager::update), so the one test that spins a real AL device
-# (SoundManagerDestructorTearsDownAL) is EXCLUDED from the TSan unit gate at the
-# preset level (CMakePresets.json unit-*-tsan filter) rather than chasing OpenAL's
-# internal race sites here. Its AL-teardown memory safety is still covered by the
-# ASan gate. No race:AL... entry is needed as a result.
+# in tests), racing internally on its lock-free voice-change list and its voice
+# property blocks (alu.cpp ProcessVoiceChanges / CalcVoiceParams and siblings).
+# Unlike physics, the sound tests carry NO Orkige-owned threading to protect -
+# the engine drives OpenAL entirely from the main thread (engine_sound/
+# SoundManager; music refill is main-thread in SoundManager::update), so the
+# tests that spin a real AL device (SoundManagerDestructorTearsDownAL,
+# MusicStreamTeardownMidRefill) are EXCLUDED from the TSan unit gate at the
+# preset level (CMakePresets.json unit-*-tsan filter) rather than chasing
+# OpenAL's internal race sites here. Whether such a race is REPORTED depends on
+# how the mixer thread happens to interleave with the AL calls under test, so an
+# excluded test is not one that "used to pass" - it is one whose verdict TSan
+# cannot give. Their AL memory safety is still covered by the ASan gate, which
+# runs the complete unit suite. No race:AL... entry is needed as a result.
