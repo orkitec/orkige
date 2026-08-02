@@ -134,12 +134,25 @@ namespace Orkige
 		bool boot(AppHostConfig const & config,
 			std::function<void()> const & registerResources = {});
 
-		//! @brief the shared frame-delta policy: automated (frame-scripted)
-		//! runs keep the historical 1/60 floor so headless frames accumulate
-		//! simulated time; a HUMAN run uses the real dt - flooring it at 1/60
-		//! made gameplay run FASTER than real time whenever rendering beat
-		//! 60 fps. The 0.1 cap avoids the catch-up spiral after a stall, at
-		//! the honest price of slow motion below 10 fps.
+		//! the simulated tick an automated (frame-scripted) run advances by
+		//! @see clampFrameDelta
+		static constexpr float AUTOMATED_FRAME_DELTA = 1.0f / 60.0f;
+
+		//! @brief the shared frame-delta policy, in two kinds.
+		//! An AUTOMATED (frame-scripted) run advances simulated time by the
+		//! FIXED AUTOMATED_FRAME_DELTA tick, whatever the measured dt was:
+		//! frame N of such a run always lands at the same simulated time, so a
+		//! frame-paced capture reads the same world on a fast host and on a
+		//! loaded one, and wall-clock jitter cannot leak into the simulation.
+		//! A HUMAN run uses the real dt - flooring it at 1/60 made gameplay
+		//! run FASTER than real time whenever rendering beat 60 fps - clamped
+		//! into (0.0001, 0.1): the tiny floor guards a zero/negative clock
+		//! read, the cap avoids the catch-up spiral after a stall, at the
+		//! honest price of slow motion below 10 fps.
+		//! @remarks REAL time is measured elsewhere and never through this
+		//! value: frame pacing (FrameStats) samples the dt BEFORE the clamp,
+		//! and the profiler/benchmark instruments read their own wall clock -
+		//! so a fixed-step run still scores and reports honest performance.
 		static float clampFrameDelta(float measuredDelta, bool automatedRun);
 
 		SDL_Window* getWindow() const { return this->mWindow; }

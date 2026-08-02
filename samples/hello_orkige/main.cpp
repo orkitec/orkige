@@ -5365,9 +5365,9 @@ int main(int, char**)
 			if (demoPhysics)
 			{
 				// measured frame dt for the physics step through the shared
-				// clamp policy: automated runs keep the 1/60 floor so headless
-				// frames (rendering far faster than 60 fps) accumulate enough
-				// simulated time for the frame-based self-checks below
+				// clamp policy: an automated run advances by a FIXED tick, so
+				// the frame-based self-checks below see the same simulated
+				// time on every machine; a human run steps on the real dt
 				const std::chrono::steady_clock::time_point frameTime =
 					std::chrono::steady_clock::now();
 				float deltaTime = std::chrono::duration<float>(

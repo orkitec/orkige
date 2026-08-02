@@ -312,7 +312,13 @@ def wait_for_endpoint(process, token_file, timeout):
 
 def stop(process, grace=15.0):
     """ask the staged editor to quit, then make sure it is gone; returns its
-    merged stdout/stderr"""
+    merged stdout/stderr.
+
+    Safe to call twice, which the legs rely on: each stops the copy explicitly
+    to capture its output for a failure message, and again from a `finally` so
+    that no exit path can leave one running. `fail()` raises SystemExit, which
+    is NOT an Exception - an `except Exception` handler alone would let every
+    assertion failure leak a windowed editor onto the developer's screen."""
     if process.poll() is None:
         process.send_signal(signal.SIGTERM)
         try:
@@ -373,11 +379,25 @@ def run_session_leg(args, stage_dir, sandbox_profile):
         log("opened scene " + args.scene)
 
         shot = os.path.join(stage_dir, "out", "scene.png")
-        client.tool("screenshot", {"path": shot, "window": False,
-                                  "inline": False})
-        if not os.path.isfile(shot) or os.path.getsize(shot) < 1024:
-            fail("the copied editor wrote no scene screenshot at " + shot)
-        log("rendered a scene screenshot (%d bytes)" % os.path.getsize(shot))
+        # the verb writes whatever the scene render target holds when it runs,
+        # so right after open_scene the freshly loaded scene may not have been
+        # drawn yet - and an undrawn target compresses below the floor or is not
+        # written at all. Ask again until a real frame is in it; the size floor
+        # stays the assertion (a genuinely blank scene view never clears it).
+        shot_deadline = time.time() + 30.0
+        shot_size = -1
+        while True:
+            client.tool("screenshot", {"path": shot, "window": False,
+                                      "inline": False})
+            shot_size = (os.path.getsize(shot) if os.path.isfile(shot) else -1)
+            if shot_size >= 1024 or time.time() >= shot_deadline:
+                break
+            time.sleep(0.5)
+        if shot_size < 1024:
+            fail("the copied editor wrote no scene screenshot at %s (%s)"
+                 % (shot, "no file" if shot_size < 0
+                    else "%d bytes, below the 1024-byte floor" % shot_size))
+        log("rendered a scene screenshot (%d bytes)" % shot_size)
 
         # PLAY: the player that must spawn is the one INSIDE the app
         client.tool("play", {"force": True}, timeout=120.0)
@@ -400,6 +420,8 @@ def run_session_leg(args, stage_dir, sandbox_profile):
         output = stop(process)
         print(output[-8000:], flush=True)
         fail("MCP session failed: %r" % (error,))
+    finally:
+        stop(process)	# no exit path leaves a staged editor running
 
     # the copy wrote its state into the writable directory, NEVER into itself
     state_dir = os.path.join(stage_dir, "state")
@@ -600,6 +622,8 @@ def run_export_leg(args, stage_dir, sandbox_profile):
         output = stop(process)
         print(output[-8000:], flush=True)
         fail("the export leg failed: %r" % (error,))
+    finally:
+        stop(process)	# no exit path leaves a staged editor running
     if "developer tree" in output:
         fail("the copied editor resolved resources from the developer tree")
     return output

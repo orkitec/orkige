@@ -546,8 +546,16 @@ namespace Orkige
 	//---------------------------------------------------------
 	float AppHost::clampFrameDelta(float measuredDelta, bool automatedRun)
 	{
-		return std::clamp(measuredDelta,
-			automatedRun ? 1.0f / 60.0f : 0.0001f, 0.1f);
+		if (automatedRun)
+		{
+			// frame-scripted: ONE fixed simulated tick per frame, so what a
+			// given frame number shows depends only on the frame number - not
+			// on how long the host took to draw it. A floor alone left the
+			// real dt in play on a host slower than the tick, which drifts a
+			// frame-paced capture's simulated time with the machine's load.
+			return AUTOMATED_FRAME_DELTA;
+		}
+		return std::clamp(measuredDelta, 0.0001f, 0.1f);
 	}
 	//---------------------------------------------------------
 	bool QuitOnEscape::onKeyPressed(Event const & event)

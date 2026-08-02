@@ -19,18 +19,26 @@
 
 using Catch::Matchers::WithinAbs;
 
-TEST_CASE("clampFrameDelta floors automated runs at the simulated 1/60 tick",
+TEST_CASE("clampFrameDelta advances automated runs by a fixed 1/60 tick",
 	"[apphost]")
 {
-	// headless frames render far faster than 60 fps; the floor keeps
-	// frame-scripted selfchecks accumulating simulated time
+	// a frame-scripted run is machine-independent: every frame advances
+	// simulated time by the SAME tick, so frame N always shows the same world
 	CHECK_THAT(Orkige::AppHost::clampFrameDelta(0.0001f, true),
-		WithinAbs(1.0f / 60.0f, 1e-6f));
+		WithinAbs(Orkige::AppHost::AUTOMATED_FRAME_DELTA, 1e-6f));
 	CHECK_THAT(Orkige::AppHost::clampFrameDelta(0.016f, true),
-		WithinAbs(1.0f / 60.0f, 1e-6f));
-	// a real dt above the floor passes through
+		WithinAbs(Orkige::AppHost::AUTOMATED_FRAME_DELTA, 1e-6f));
+	// a host SLOWER than the tick gets the tick too - the measured dt never
+	// reaches the simulation, so a loaded machine's frames stay in step with a
+	// fast one's (a floor-only policy would let 0.05 and 0.09 through here and
+	// drift two frame-paced captures apart in simulated time)
 	CHECK_THAT(Orkige::AppHost::clampFrameDelta(0.05f, true),
-		WithinAbs(0.05f, 1e-6f));
+		WithinAbs(Orkige::AppHost::AUTOMATED_FRAME_DELTA, 1e-6f));
+	CHECK_THAT(Orkige::AppHost::clampFrameDelta(0.09f, true),
+		WithinAbs(Orkige::AppHost::AUTOMATED_FRAME_DELTA, 1e-6f));
+	// two frames measured wildly apart still advance the world equally
+	CHECK_THAT(Orkige::AppHost::clampFrameDelta(0.002f, true),
+		WithinAbs(Orkige::AppHost::clampFrameDelta(0.08f, true), 1e-6f));
 }
 
 TEST_CASE("clampFrameDelta keeps human runs real-time", "[apphost]")
@@ -44,14 +52,14 @@ TEST_CASE("clampFrameDelta keeps human runs real-time", "[apphost]")
 		WithinAbs(0.0001f, 1e-6f));
 }
 
-TEST_CASE("clampFrameDelta caps a stall at 0.1s on both run kinds",
-	"[apphost]")
+TEST_CASE("clampFrameDelta absorbs a stall on both run kinds", "[apphost]")
 {
-	// the cap avoids the catch-up spiral after a stall
-	CHECK_THAT(Orkige::AppHost::clampFrameDelta(3.0f, true),
-		WithinAbs(0.1f, 1e-6f));
+	// a human run caps at 0.1s - the catch-up spiral guard
 	CHECK_THAT(Orkige::AppHost::clampFrameDelta(3.0f, false),
 		WithinAbs(0.1f, 1e-6f));
+	// an automated run needs no cap: the fixed tick already ignores the stall
+	CHECK_THAT(Orkige::AppHost::clampFrameDelta(3.0f, true),
+		WithinAbs(Orkige::AppHost::AUTOMATED_FRAME_DELTA, 1e-6f));
 }
 
 TEST_CASE("AppHostConfig defaults describe the standard host", "[apphost]")
