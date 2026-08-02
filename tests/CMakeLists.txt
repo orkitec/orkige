@@ -603,6 +603,28 @@ if(TARGET orkige_editor_core)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_update${ORKIGE_FLAVOR_TEST_SUFFIX}
             PROPERTIES LABELS unit TIMEOUT 180 SKIP_RETURN_CODE 77)
+
+        # editor_payload_fetch: the device-player download, same shape and
+        # same clean room. The driver serves a fake DATED release with a REAL
+        # payload archive packed by the platform's own tool and the checksum
+        # sidecar published beside it, points the real EditorPayloadFetcher at
+        # it with a scratch directory standing in for the editor's writable
+        # state, and asserts every outcome: the fetch that verifies and
+        # installs, a release with no such asset, one with no checksum, bytes
+        # that do not match theirs, a release published for ANOTHER build (the
+        # pairing this rests on), an archive that unpacks incomplete, the
+        # prune that keeps only what this build needs, and the automated-run
+        # veto. POSIX-only for now, like its sibling: the driver's process
+        # helpers are popen/sh.
+        add_executable(editor_payload_driver
+            integration_driver/editor_payload_driver.cpp)
+        target_link_libraries(editor_payload_driver PRIVATE orkige_editor_core)
+        add_test(NAME editor_payload_fetch${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND editor_payload_driver
+                "${CMAKE_CURRENT_BINARY_DIR}/editor_payload_fetch${ORKIGE_FLAVOR_TEST_SUFFIX}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_payload_fetch${ORKIGE_FLAVOR_TEST_SUFFIX}
+            PROPERTIES LABELS unit TIMEOUT 180 SKIP_RETURN_CODE 77)
     endif()
 endif()
 
@@ -1416,6 +1438,41 @@ if(TARGET orkige_editor)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_bundle_web${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
+
+        # the iOS preset trees are flavor-suffixed like the desktop ones: a
+        # payload is flavor-bound, so each flavor composes its OWN player
+        if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+            set(ORKIGE_IOS_PAYLOAD_TREE_SUFFIX "-classic")
+        else()
+            set(ORKIGE_IOS_PAYLOAD_TREE_SUFFIX "")
+        endif()
+        # The MOBILE half: a distributed editor packages a game for a PHONE.
+        # That player is the one engine piece a release does not carry - a
+        # phone runs another architecture's binary - so it is published as its
+        # own release asset and fetched on demand into the editor's writable
+        # state directory (Docs/device-payloads.md). The DOWNLOAD is proven by
+        # editor_payload_fetch against a loopback service; this proves the
+        # other half: an installed payload turns a copied editor into one that
+        # exports an iOS simulator app, in the same clean room as every other
+        # bundle leg - and that without one, the refusal names the way to get
+        # it. The payload is composed by the packaging tool's OWN function from
+        # the iOS preset tree, so the shipped composition is what is under
+        # test. Skips (exit 77) where that preset was never built, which is why
+        # it is not a leg of editor_bundle above.
+        add_test(NAME editor_bundle_ios${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_editor_bundle_test.py"
+                --leg ios
+                --editor-app "$<TARGET_BUNDLE_DIR:orkige_editor>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --scene "scenes/main.oscene"
+                --device-build
+                    "${Orkige_SOURCE_DIR}/build/ios-simulator-debug${ORKIGE_IOS_PAYLOAD_TREE_SUFFIX}"
+                --stage-root "${CMAKE_CURRENT_BINARY_DIR}/editor_bundle_ios${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                --repo-root "${Orkige_SOURCE_DIR}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_bundle_ios${ORKIGE_FLAVOR_TEST_SUFFIX}
+            PROPERTIES LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
 
         # COMPILED GAME CODE from a copied editor: the third distribution
         # question, and the one that needs an engine rather than a payload. A

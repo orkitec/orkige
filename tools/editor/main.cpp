@@ -908,6 +908,39 @@ int main(int argc, char** argv)
 			gEditorUpdater = updater.get();
 		}
 
+		// --- the device-player downloads -------------------------------
+		// The player a phone runs is another architecture's, so it is
+		// FETCHED once per published build instead of riding inside this
+		// app - which is signed, read-only and large enough already. Same
+		// transport, same frame boundary and the same automated-run veto as
+		// the updater above (@see EditorPayloadFetcher.h).
+		std::unique_ptr<OrkigeEditor::EditorPayloadFetcher> payloads;
+		if (!automatedRun)
+		{
+			OrkigeEditor::EditorPayloadFetcher::Config payloadConfig;
+			payloadConfig.version = Orkige::editorBuildVersion();
+			// a payload is flavor-bound like every build tree: this editor
+			// takes the player built with the backend it renders through
+			payloadConfig.flavor = ORKIGE_EDITOR_RENDER_BACKEND;
+			payloadConfig.rootDirectory =
+				OrkigeEditor::editorWritableStateDirectory() + "payloads";
+			payloads.reset(
+				new OrkigeEditor::EditorPayloadFetcher(payloadConfig));
+			payloads->setProcessRunner(
+				[](std::vector<std::string> const& argv, std::string& output,
+					int& exitCode)
+				{
+					return runProcessCaptured(argv, output, exitCode);
+				});
+			payloads->setHttpClient(updateHttp.get());
+			// what this installation no longer needs goes now: the published
+			// archive keeps every release, a client keeps only what its own
+			// build uses
+			payloads->prune(OrkigeEditor::parseEnabledPayloads(
+				viewSettings.buildTargets));
+			gEditorPayloads = payloads.get();
+		}
+
 		// resolve + apply the editor theme now that the persisted preference is
 		// loaded. A lambda so the settings toggle and the live OS-appearance
 		// event can re-apply it (the content scale and the window clear colour
@@ -3059,6 +3092,33 @@ int main(int argc, char** argv)
 								"[update] " + update.message);
 						}
 						updater->acknowledge();
+					}
+				}
+			}
+			// the download's own frame boundary: the client above already
+			// delivered its HTTP completions, so this only picks up the
+			// verify/unpack worker's verdict
+			if (payloads)
+			{
+				const OrkigeEditor::PayloadFetchStage before =
+					payloads->status().stage;
+				payloads->update();
+				const OrkigeEditor::PayloadFetchStatus after =
+					payloads->status();
+				if (before != after.stage &&
+					(after.stage ==
+						OrkigeEditor::PayloadFetchStage::Installed ||
+					 after.stage == OrkigeEditor::PayloadFetchStage::Failed))
+				{
+					console.addLine(
+						after.stage == OrkigeEditor::PayloadFetchStage::Failed
+							? ConsoleLevel::Warning : ConsoleLevel::Info,
+						"[build targets] " + after.message);
+					if (after.stage ==
+						OrkigeEditor::PayloadFetchStage::Installed)
+					{
+						payloads->prune(OrkigeEditor::parseEnabledPayloads(
+							viewSettings.buildTargets));
 					}
 				}
 			}
@@ -17124,6 +17184,7 @@ int main(int argc, char** argv)
 					"the update was not installed: " << updateError);
 			}
 		}
+		gEditorPayloads = nullptr;
 		gEditorUpdater = nullptr;
 
 		// editor shutdown while a play session is live: ask the player to

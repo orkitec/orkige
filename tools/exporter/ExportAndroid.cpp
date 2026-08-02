@@ -207,9 +207,16 @@ namespace OrkigeExport
 		}
 		if(source.fromBundle())
 		{
-			return report(error, "a staged engine payload packages the desktop "
-				"app only; an Android package needs the Android player, which "
-				"comes from its own preset build tree");
+			// unlike an iOS package, this one needs more than the player: the
+			// APK is assembled by the Android SDK's own build tools (aapt2,
+			// zipalign, apksigner) driven by the scripts beside the player in
+			// the engine source tree. Those are a TOOLCHAIN on the machine,
+			// not an engine piece, so a fetched player alone cannot close it.
+			return report(error, "a staged engine payload cannot assemble an "
+				"Android package: an APK is built by the Android SDK's own "
+				"tools from the packaging scripts in the engine source tree. "
+				"Build Orkige from the engine repository to package for "
+				"Android");
 		}
 		if(environment.repoRoot.empty())
 		{

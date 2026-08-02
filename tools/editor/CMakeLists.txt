@@ -89,6 +89,14 @@ add_library(orkige_editor_core STATIC
     EditorUpdate.cpp
     EditorUpdater.h
     EditorUpdater.cpp
+    # the fetched-on-demand pieces of an installation (device players today,
+    # an SDK pack tomorrow): the catalogue, the naming, the install layout and
+    # the prune plan as pure functions (EditorPayloadsTests), with the fetch
+    # around them driving headlessly against a loopback server
+    EditorPayloads.h
+    EditorPayloads.cpp
+    EditorPayloadFetcher.h
+    EditorPayloadFetcher.cpp
     # the embedded terminal's VT screen model + pure key encoder (UI-free and
     # unit-tested headlessly - EditorTerminalScreenTests / EditorTerminalKeysTests)
     EditorTerminalScreen.h

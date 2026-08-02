@@ -214,6 +214,52 @@ TEST_CASE("export plan: a copied app carrying the browser player packages it",
 	CHECK_FALSE(planProjectExport(inputs).ok);
 }
 
+TEST_CASE("export plan: an installed device player packages for a phone",
+	"[editor][export]")
+{
+	// a phone's player is not carried but FETCHED, so a copied app packages
+	// for that platform as soon as the download is installed - the caller
+	// resolves the directory and hands it in, exactly like the SDK pack
+	EditorExportInputs inputs = bundleInputs();
+	inputs.platform = "ios-simulator";
+	inputs.devicePayload = "/state/payloads/player-ios-simulator";
+	const EditorExportPlan plan = planProjectExport(inputs);
+	REQUIRE(plan.ok);
+	CHECK(plan.source == EditorExportSource::Bundle);
+	CHECK(plan.devicePayload == "/state/payloads/player-ios-simulator");
+	// what a report shows: the pieces came out of the payload, not the app
+	CHECK(plan.enginePayload == "/state/payloads/player-ios-simulator");
+	// still no repository - the beside-itself invariant is unchanged
+	CHECK(plan.repoRoot.empty());
+	CHECK(plan.engineBuild.empty());
+
+	// ...on a host with no desktop packaging target of its own, too: the
+	// player was built elsewhere, so this host's own target is irrelevant
+	inputs.hostPlatform.clear();
+	inputs.hostName = "Linux";
+	CHECK(planProjectExport(inputs).ok);
+
+	// with NO payload the caller's ready-made sentence is what the person
+	// reads - the refusal has one definition, beside the catalogue
+	inputs = bundleInputs();
+	inputs.platform = "ios-simulator";
+	inputs.devicePayloadProblem = "the iOS Simulator player is not installed "
+		"yet - fetch it under Settings > Build Targets";
+	const EditorExportPlan refused = planProjectExport(inputs);
+	CHECK_FALSE(refused.ok);
+	CHECK(refused.error == inputs.devicePayloadProblem);
+	CHECK_FALSE(mentions(refused, "/tree"));
+
+	// a TREE plan never carries one: that shape takes the player out of the
+	// platform's own preset build tree
+	EditorExportInputs tree = treeInputs();
+	tree.platform = "ios-simulator";
+	tree.devicePayload = "/state/payloads/player-ios-simulator";
+	const EditorExportPlan treePlan = planProjectExport(tree);
+	REQUIRE(treePlan.ok);
+	CHECK(treePlan.devicePayload.empty());
+}
+
 TEST_CASE("export plan: compiled game code needs an SDK, and says which",
 	"[editor][export]")
 {

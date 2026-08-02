@@ -139,14 +139,24 @@ namespace OrkigeEditor
 		// platform refusal below, which says what is missing.
 		const bool webFromBundle =
 			inputs.platform == "web" && inputs.bundleWebPlayer;
-		if(!webFromBundle && inputs.hostPlatform.empty())
+		// a DEVICE target is the same shape one step further out: its player is
+		// not carried but FETCHED, so a copied app packages for it as soon as
+		// that download is installed. The caller resolved both the directory
+		// and - when there is none - the sentence to show.
+		const bool deviceFromPayload = !inputs.devicePayload.empty();
+		if(!deviceFromPayload && !inputs.devicePayloadProblem.empty())
+		{
+			return refuse(inputs.devicePayloadProblem);
+		}
+		if(!webFromBundle && !deviceFromPayload && inputs.hostPlatform.empty())
 		{
 			return refuse("this Orkige runs on " + inputs.hostName + ", where "
 				"project export has no packaging target yet - export from an "
 				"Orkige running on " + platformLabel("macos") + ", or build "
 				"the game's player from the engine source tree");
 		}
-		if(!webFromBundle && inputs.platform != inputs.hostPlatform)
+		if(!webFromBundle && !deviceFromPayload &&
+			inputs.platform != inputs.hostPlatform)
 		{
 			const Orkige::String label = platformLabel(inputs.platform);
 			const Orkige::String host = platformLabel(inputs.hostPlatform);
@@ -176,7 +186,9 @@ namespace OrkigeEditor
 		// same files from a directory that exists on nobody's machine.
 		plan.bundleResources = inputs.bundleResources;
 		plan.bundleTools = inputs.bundleTools;
-		plan.enginePayload = inputs.bundleResources;
+		plan.devicePayload = inputs.devicePayload;
+		plan.enginePayload = deviceFromPayload
+			? inputs.devicePayload : inputs.bundleResources;
 		plan.ok = true;
 		return plan;
 	}

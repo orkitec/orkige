@@ -13,6 +13,11 @@ the other Util/ generators).
     orkige_nightly_package.py --stage-web-payload <dir>
                               [--web-build <wasm tree>]
 
+    orkige_nightly_package.py --stage-device-payload <payload id>
+                              --build-dir <that platform's preset tree>
+                              --commit <sha> [--date YYYY-MM-DD]
+                              [--output <dir>]
+
     orkige_nightly_package.py --verify <unpacked dir> --platform <p>
                               [--commit <sha>] [--version <ordered version>]
 
@@ -234,10 +239,10 @@ LIMITATIONS = (
         detail="Build > Export packages a project with the engine payload this "
                "app carries inside itself, which is this platform's player "
                "alone: this build carries no browser player, so Build > Export "
-               "refuses a web package, and an iOS or Android package ships "
-               "THAT platform's player, which only a build from the engine "
-               "source tree produces. The VERSION file's web-export line "
-               "records which of the two this download is.",
+               "refuses a web package. A phone's player is a download of its "
+               "own (Settings > Build Targets), and one is published only "
+               "where that night's device build succeeded. The VERSION file's "
+               "web-export line records which of the two this download is.",
         workaround="Download a build whose VERSION file reads "
                    "`web-export: bundled` to package for the browser, or build "
                    "Orkige from the engine repository to package for a phone."),
@@ -1846,6 +1851,141 @@ class WebPayload:
         return True
 
 
+# --- the DEVICE player payloads a released editor fetches --------------------
+#
+# A phone runs another architecture's binary, so a released editor cannot carry
+# every platform's player the way it carries the browser one: those payloads are
+# published as their own release assets and FETCHED on demand, once, into the
+# editor's writable state directory (tools/editor/EditorPayloads.h). The server
+# keeps every release forever; a client keeps only what its own build needs.
+#
+# ONE payload is ONE self-contained directory - the player, the engine media it
+# renders through, and a manifest saying which platform, flavor and build it is:
+#
+#     orkige_payload.txt        platform / flavor / version / built
+#     OrkigePlayer.app          the prebuilt player (iOS simulator)
+#     Media/                    the engine media, in the boot layout
+#
+# ...zipped with its CONTENTS at the archive root, so unpacking into a
+# destination directory IS the payload. The archive name is composed here and
+# read back by the editor (EditorPayloads::payloadAssetName) - one grammar,
+# two implementations, pinned by a test on each side.
+#
+# NOT a precondition for shipping an editor: a night whose device build failed
+# publishes the editor anyway, with no such asset, and the editor refuses that
+# platform with an actionable sentence.
+
+DEVICE_PAYLOAD_MANIFEST = "orkige_payload.txt"
+# id -> (the player file or bundle inside the payload, the export platform)
+DEVICE_PAYLOADS = {
+    "player-ios-simulator": ("OrkigePlayer.app", "ios-simulator"),
+    "player-android": ("libmain.so", "android"),
+}
+
+
+def device_payload_asset_name(payload_id, flavor, version):
+    """the published archive name for one payload. The EDITOR composes exactly
+    this name when it looks the asset up, so the two spellings are one
+    grammar (tools/editor/EditorPayloads.cpp)."""
+    token = version_filename_token(version)
+    if not payload_id or not flavor or not token:
+        return ""
+    return "orkige-%s-%s-%s.zip" % (payload_id, flavor, token)
+
+
+def device_payload_problems(payload_dir, payload_id):
+    """what a composed payload directory is missing (empty when complete) -
+    the same required set the editor checks after unpacking one."""
+    player, _platform = DEVICE_PAYLOADS[payload_id]
+    problems = []
+    for name in (DEVICE_PAYLOAD_MANIFEST, player, "Media"):
+        if not os.path.exists(os.path.join(payload_dir, name)):
+            problems.append(name)
+    return problems
+
+
+def compose_device_payload(target, payload_id, build_dir, version, commit="",
+                           media=None):
+    """write one device player payload into @p target from that platform's
+    preset BUILD TREE: the player it produced, the engine media staged the way
+    every runtime resolves it, and the manifest describing the three things the
+    payload has to be able to say about itself."""
+    if payload_id not in DEVICE_PAYLOADS:
+        fail("'%s' is not a device payload this script composes (%s)"
+             % (payload_id, ", ".join(sorted(DEVICE_PAYLOADS))))
+    player, platform = DEVICE_PAYLOADS[payload_id]
+    source = os.path.join(build_dir, "tools", "player", player)
+    if not os.path.exists(source):
+        warn("no %s in '%s' - build that platform's preset first"
+             % (player, os.path.dirname(source)))
+        return False
+    flavor = orkige_buildtree.render_backend(build_dir)
+    if os.path.isdir(target):
+        shutil.rmtree(target)
+    os.makedirs(target, exist_ok=True)
+    if os.path.isdir(source):
+        shutil.copytree(source, os.path.join(target, player), symlinks=True)
+    else:
+        shutil.copy2(source, os.path.join(target, player))
+    # the engine media from the SAME tree, so the shaders beside the player are
+    # the ones it was built against
+    (media or stage_engine_media)(build_dir, os.path.join(target, "Media"))
+    with open(os.path.join(target, DEVICE_PAYLOAD_MANIFEST), "w") as handle:
+        handle.write("platform: %s\n" % platform)
+        handle.write("flavor: %s\n" % flavor)
+        handle.write("version: %s\n" % version)
+        handle.write("commit: %s\n" % commit)
+    return True
+
+
+def pack_device_payload(payload_dir, archive_path):
+    """zip a composed payload with its CONTENTS at the archive root, so the
+    editor unpacks it straight into the directory it installs at.
+
+    macOS uses the tool an application bundle survives: `ditto` keeps the
+    executable bits and the symlinks a `.app` carries, which a plain zip
+    writer does not."""
+    os.makedirs(os.path.dirname(os.path.abspath(archive_path)) or ".",
+                exist_ok=True)
+    if os.path.exists(archive_path):
+        os.remove(archive_path)
+    if sys.platform == "darwin":
+        orkige_buildtree.run(["ditto", "-c", "-k", "--sequesterRsrc",
+                              payload_dir, archive_path])
+    else:
+        # -y keeps symlinks as symlinks; -X drops the extra attributes that
+        # would make two runs of the same tree differ
+        orkige_buildtree.run(["zip", "-r", "-q", "-y", "-X",
+                              os.path.abspath(archive_path), "."],
+                             cwd=payload_dir)
+    return archive_path
+
+
+def stage_device_payload(payload_id, build_dir, version, commit, output_dir):
+    """compose, pack and checksum ONE device payload into @p output_dir - what
+    a device build job hands to the publish job, which uploads it beside the
+    editors. Returns the archive path."""
+    name = device_payload_asset_name(
+        payload_id, orkige_buildtree.render_backend(build_dir), version)
+    if not name:
+        fail("no ordered version to name a device payload with")
+    os.makedirs(output_dir, exist_ok=True)
+    staging = os.path.join(output_dir, payload_id + "-staging")
+    if not compose_device_payload(staging, payload_id, build_dir, version,
+                                  commit):
+        fail("no %s payload composed from '%s'" % (payload_id, build_dir))
+    problems = device_payload_problems(staging, payload_id)
+    if problems:
+        fail("the composed %s payload is incomplete (missing %s)"
+             % (payload_id, ", ".join(problems)))
+    archive = pack_device_payload(staging, os.path.join(output_dir, name))
+    write_checksum(archive)
+    shutil.rmtree(staging, ignore_errors=True)
+    log("staged %s (%s)" % (name, orkige_buildtree.human_size(
+        os.path.getsize(archive))))
+    return archive
+
+
 def stage_export_support(resource_root, web=None):
     """everything a staged editor needs to package a GAME beyond the exporter
     it links: the neutral default app icon, and the browser payload when this
@@ -3112,6 +3252,12 @@ def main():
                              "from --web-build and exit - what a wasm build job "
                              "hands to the desktop packaging jobs, which cannot "
                              "cross-build one")
+    parser.add_argument("--stage-device-payload", default="",
+                        help="compose, pack and checksum ONE device player "
+                             "payload (%s) into --output from --build-dir and "
+                             "exit - what a device build job hands to the "
+                             "publish job, and what a released editor fetches "
+                             "on demand" % "|".join(sorted(DEVICE_PAYLOADS)))
     parser.add_argument("--verify-appimage", default="",
                         help="run a Linux AppImage, extract it and verify that "
                              "it is complete AND resolves its bundled "
@@ -3181,6 +3327,18 @@ def main():
                  % ", ".join(problems))
         log("OK %s (%s)" % (target, orkige_buildtree.human_size(
             orkige_buildtree.directory_size(target))))
+        return
+    if args.stage_device_payload:
+        # the device side of the handover: this machine HAS the tree it just
+        # built, so a payload it cannot compose is a failure HERE - the publish
+        # job downstream is the one allowed to find no such asset
+        if not args.build_dir:
+            fail("--stage-device-payload needs --build-dir <that platform's "
+                 "preset tree>")
+        stage_device_payload(args.stage_device_payload, args.build_dir,
+                             args.version or nightly_version(
+                                 args.date or today(), args.commit),
+                             args.commit, args.output or "device-payload")
         return
     if args.verify_dmg:
         verify_dmg(args.verify_dmg)
@@ -3830,7 +3988,11 @@ def selftest():
                            RESULT_WINDOWS="skipped",
                            SHA="dea551f9e0abcdef1234", SHORT_SHA="dea551f9e",
                            BUILD_DATE="2026-07-30", VERSION=ordered,
-                           TOKEN=token, TRUST_MACOS=SIGN_ADHOC)
+                           TOKEN=token, TRUST_MACOS=SIGN_ADHOC,
+                           # the device player job's own result: the notes say
+                           # whether tonight published a mobile player, because
+                           # an editor that cannot find one looks here
+                           RESULT_PLAYER_IOS="success")
             run = subprocess.run(["bash", "-c", notes_script], cwd=temp,
                                  env=environ, capture_output=True, text=True)
             assert run.returncode == 0, run.stdout + run.stderr
@@ -3857,6 +4019,25 @@ def selftest():
             # result rather than silently missing
             assert ("| Windows (x64) | not produced | not produced | skipped |"
                     in body), body
+            # the DEVICE player is not something a person downloads - the
+            # editor fetches it - so the notes are where somebody checks
+            # whether tonight published one. This fixture's assets directory
+            # has none, and the honest answer is that this build cannot
+            # package for it.
+            assert "No iOS Simulator player was published" in body, body
+            # ...and with the asset present, the notes name it and say who
+            # fetches it
+            payload_asset = device_payload_asset_name(
+                "player-ios-simulator", "next", ordered)
+            open(os.path.join(downloads, payload_asset), "w").close()
+            run = subprocess.run(["bash", "-c", notes_script], cwd=temp,
+                                 env=environ, capture_output=True, text=True)
+            assert run.returncode == 0, run.stdout + run.stderr
+            with_payload = open(os.path.join(temp, "notes.md")).read()
+            assert payload_asset in with_payload, with_payload
+            assert "Settings > Build Targets" in with_payload, with_payload
+            os.remove(os.path.join(downloads, payload_asset))
+
             assert ordered in body and bounded.strip() in body
             # the sidecar is the integrity story the notes point at
             assert CHECKSUM_SUFFIX in body, body
@@ -4795,6 +4976,56 @@ exit 0
         _, problems = verify_layout(tree, "linux")
         assert any(problem.startswith("missing share/orkige/Media")
                    for problem in problems), problems
+
+    # --- the device player payloads: named, composed and packed ---------
+    #
+    # The NAME is a grammar the editor composes independently
+    # (EditorPayloads::payloadAssetName), so it is pinned here on this side and
+    # by EditorPayloadsTests on the other. The composition asserts the three
+    # things a payload has to be able to say about itself, and the two states
+    # a build can be in: it produced that platform's player, or it did not.
+    ordered_device = "2.0.0-nightly.20260802+dea551f9e0"
+    assert device_payload_asset_name(
+        "player-ios-simulator", "next", ordered_device) == \
+        "orkige-player-ios-simulator-next-2.0.0-nightly.20260802_dea551f9e0.zip"
+    assert device_payload_asset_name("player-android", "classic",
+                                     ordered_device).startswith(
+        "orkige-player-android-classic-")
+    # an unstamped build names no asset rather than one nobody published
+    assert device_payload_asset_name("player-android", "next", "") == ""
+    with tempfile.TemporaryDirectory() as temp:
+        tree = os.path.join(temp, "ios-simulator-release")
+        os.makedirs(os.path.join(tree, "tools", "player"))
+        with open(os.path.join(tree, "CMakeCache.txt"), "w") as handle:
+            handle.write("ORKIGE_RENDER_BACKEND:STRING=next\n")
+
+        def fake_device_media(source, media_root):
+            os.makedirs(os.path.join(media_root, "Hlms"), exist_ok=True)
+            return ["Hlms"]
+
+        composed = os.path.join(temp, "payload")
+        # a tree that built no player composes nothing, and says so
+        assert not compose_device_payload(composed, "player-ios-simulator",
+                                          tree, ordered_device,
+                                          media=fake_device_media)
+        app = os.path.join(tree, "tools", "player", "OrkigePlayer.app")
+        os.makedirs(app)
+        open(os.path.join(app, "Info.plist"), "w").close()
+        assert compose_device_payload(composed, "player-ios-simulator", tree,
+                                      ordered_device, commit="dea551f9e0",
+                                      media=fake_device_media)
+        assert device_payload_problems(composed, "player-ios-simulator") == []
+        with open(os.path.join(composed, DEVICE_PAYLOAD_MANIFEST)) as handle:
+            manifest = handle.read()
+        # the payload SAYS what it is: the exporter reads the flavor out of it
+        # to cook a project's textures for the right backend
+        assert "platform: ios-simulator" in manifest, manifest
+        assert "flavor: next" in manifest, manifest
+        assert ("version: " + ordered_device) in manifest, manifest
+        # ...and an incomplete one is named as incomplete rather than packed
+        os.remove(os.path.join(composed, DEVICE_PAYLOAD_MANIFEST))
+        assert device_payload_problems(composed, "player-ios-simulator") == \
+            [DEVICE_PAYLOAD_MANIFEST]
 
     # --- the browser payload: composed, handed over, and judged ---------
     #

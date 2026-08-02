@@ -97,8 +97,18 @@ namespace OrkigeEditor
 		//! does the BROWSER player ride along too? A web build compiles
 		//! nothing - the wasm player is a prebuilt artifact and the rest is
 		//! bytes the exporter arranges - so a copied app that carries it can
-		//! package for the browser on any host, unlike the device targets.
+		//! package for the browser on any host, unlike the host desktop app.
 		bool				bundleWebPlayer = false;
+		//! the INSTALLED device player for the requested platform ("" = none).
+		//! A phone's player is another architecture's, so it is fetched on
+		//! demand into the editor's writable state directory rather than
+		//! carried inside the (read-only, signed) app - @see EditorPayloads.h.
+		Orkige::String		devicePayload;
+		//! "" when the requested platform needs no fetched player, or one is
+		//! installed; otherwise the actionable sentence naming what is missing
+		//! and how to get it. Ready-made, because that refusal has ONE
+		//! definition beside the catalogue (@ref payloadMissingMessage).
+		Orkige::String		devicePayloadProblem;
 		//! the desktop package this host produces (hostExportPlatform()), or
 		//! "" where the exporter has no packaging target for it yet
 		Orkige::String		hostPlatform;
@@ -130,6 +140,10 @@ namespace OrkigeEditor
 		//! built against (Bundle source with a native module only; empty
 		//! everywhere else - a Tree plan builds against its own engine tree)
 		Orkige::String		sdkPack;
+		//! the installed device player this packages from (Bundle source and a
+		//! device platform only; empty everywhere else - a Tree plan takes the
+		//! player out of that platform's own preset build tree)
+		Orkige::String		devicePayload;
 		//! the build programs the module build runs ("" = the exporter's own
 		//! PATH lookup, which is what the CLI relies on)
 		Orkige::String		moduleCmake;

@@ -12,6 +12,7 @@
 #include "EditorApp.h"
 #include "EditorEngineSdk.h"
 #include "EditorExportPlan.h"
+#include "EditorPayloads.h"
 #include "EditorResourcePaths.h"
 
 #include <core_project/NativeModule.h>
@@ -71,6 +72,29 @@ OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
 	// the browser payload: a web build compiles nothing, so a copied app that
 	// staged the wasm player can package for the browser on any host
 	inputs.bundleWebPlayer = resources.webPlayer().fromBundle();
+	// a DEVICE target's player is fetched rather than carried: ask the one
+	// download seam whether this platform's is installed, and take its
+	// ready-made sentence when it is not (@see EditorPayloads.h)
+	const Orkige::String payloadId =
+		OrkigeEditor::payloadIdForExportPlatform(platform);
+	OrkigeEditor::FetchablePayload payload;
+	if (!payloadId.empty() &&
+		OrkigeEditor::findFetchablePayload(payloadId, payload))
+	{
+		inputs.devicePayload =
+			OrkigeEditor::resolveInstalledPayload(payloadId, gEditorPayloads);
+		if (inputs.devicePayload.empty())
+		{
+			inputs.devicePayloadProblem = OrkigeEditor::payloadMissingMessage(
+				payload,
+				OrkigeEditor::isPayloadEnabled(
+					OrkigeEditor::parseEnabledPayloads(
+						gViewSettings != nullptr ? gViewSettings->buildTargets
+							: std::string()),
+					payloadId),
+				gEditorPayloads != nullptr);
+		}
+	}
 	// the one file an export needs that is neither code nor engine media
 	inputs.defaultIcon = resources.defaultAppIcon().path;
 	inputs.hostPlatform = OrkigeEditor::hostExportPlatform();
@@ -128,6 +152,9 @@ bool runPlannedExport(OrkigeEditor::EditorExportPlan const& plan,
 		// compiled game code in a distributed shape: the engine to build it
 		// against is the installed SDK pack, which is the pack's whole purpose
 		request.source.sdkPack = plan.sdkPack;
+		// a phone's player: fetched, kept outside the (signed) app, handed in
+		// as a directory the exporter reads like any other engine source
+		request.source.devicePayload = plan.devicePayload;
 		request.cmake = plan.moduleCmake;
 		request.ninja = plan.moduleMakeProgram;
 	}

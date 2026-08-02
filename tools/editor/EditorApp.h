@@ -30,6 +30,7 @@
 #include "EditorExportPlan.h"	// the ONE export decision (menu + endpoint)
 #include "EditorPanelRegistry.h"
 #include "EditorTheme.h"
+#include "EditorPayloadFetcher.h"	// the fetched device players the menus offer
 #include "EditorUpdate.h"		// the update setting (ViewSettings::updatePolicy)
 #include "EditorUpdater.h"		// the live updater the menus + footer read
 #include "EditorViewModes.h"
@@ -488,6 +489,11 @@ struct ViewSettings
 	//! exempt from all three (@see EditorUpdater).
 	OrkigeEditor::UpdatePolicy updatePolicy =
 		OrkigeEditor::UpdatePolicy::Notify;
+	//! which target platforms this installation builds for, as the persisted
+	//! id list (@see EditorPayloads.h). Empty is the DEFAULT and means the
+	//! host alone: a phone's player is a separate download, and nothing is
+	//! ever fetched for a platform nobody asked about.
+	std::string buildTargets;
 	//! external code-editor command template (View Settings): {file}/{line}
 	//! placeholders, e.g. "code -g {file}:{line}". Empty = autodetect an
 	//! installed CLI editor on PATH, else fall back to the platform file opener
@@ -585,6 +591,12 @@ extern bool gAutomatedRun;
 // draw* signature - same pattern as gViewSettings. NULL during an automated
 // run and in a build with no HTTP transport, which every reader guards on.
 extern OrkigeEditor::EditorUpdater* gEditorUpdater;
+
+// The device-player downloads (owned by main, NULL on an automated run and in
+// a build with no HTTP transport). The Settings panel drives it and the export
+// plan asks it whether the platform it was handed is packageable here.
+// @see EditorPayloadFetcher.h
+extern OrkigeEditor::EditorPayloadFetcher* gEditorPayloads;
 
 //! record a scene path in the Open Recent list and persist it
 void recordRecentScene(std::string const& scenePath);

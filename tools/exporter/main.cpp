@@ -13,7 +13,7 @@
 //!                 --platform macos|ios-simulator|ios|ios-ipa|android|
 //!                            android-aab|web
 //!                 (--engine-build <preset build dir> | --engine-bundle <dir>
-//!                  [--engine-tools <dir>])
+//!                  [--engine-tools <dir>] [--device-payload <dir>])
 //!                 [--output <dir>]
 //!   orkige_export self-contain --frameworks <dir> [--search <dir>]...
 //!                 [--banned <substring>]... <binary>...
@@ -27,9 +27,13 @@
 //! the executables a distributed Orkige carries inside itself - which packages
 //! the desktop app - and, when the browser player rides along inside it, the
 //! web build - on a machine with no repository and no build tree. Everything
-//! after the sourcing is the same code, so both produce the same bundle. A
-//! mobile package always needs a build tree: it ships THAT platform's player,
-//! which only its own preset produces.
+//! after the sourcing is the same code, so both produce the same bundle.
+//!
+//! A MOBILE package ships that platform's player, which is neither of those:
+//! a phone runs another architecture's binary, so the player is a separate
+//! prebuilt payload - `--device-payload`, the directory a released editor
+//! fetches and installs (@see Docs/device-payloads.md), or that platform's own
+//! preset build tree.
 //!
 //! The signing material for the two signed platforms is machine-local and
 //! never committed - a CLI argument, else the environment (@see
@@ -235,6 +239,7 @@ int main(int argc, char ** argv)
 	String engineBuild;
 	String engineBundle;
 	String engineTools;
+	String devicePayload;
 	String output;
 	String repoRoot = defaultRepoRoot();
 	String cmakeProgram;
@@ -266,6 +271,7 @@ int main(int argc, char ** argv)
 		else if(argument == "--engine-build") { engineBuild = value; }
 		else if(argument == "--engine-bundle") { engineBundle = value; }
 		else if(argument == "--engine-tools") { engineTools = value; }
+		else if(argument == "--device-payload") { devicePayload = value; }
 		else if(argument == "--output") { output = value; }
 		else if(argument == "--repo") { repoRoot = value; }
 		else if(argument == "--cmake") { cmakeProgram = value; }
@@ -296,7 +302,8 @@ int main(int argc, char ** argv)
 			"android|android-aab|web\n"
 			"                     (--engine-build <preset build dir> |\n"
 			"                      --engine-bundle <dir> [--engine-tools "
-			"<dir>])\n"
+			"<dir>]\n"
+			"                      [--device-payload <dir>])\n"
 			"                     [--output <dir>]\n"
 			"       orkige_export self-contain --frameworks <dir> "
 			"[--search <dir>]... <binary>...\n");
@@ -345,6 +352,9 @@ int main(int argc, char ** argv)
 	{
 		request.source.bundleResources = engineBundle;
 		request.source.bundleTools = engineTools;
+		// the prebuilt player for the DEVICE platform being packaged, which a
+		// staged payload does not carry (@see ExportPayload.h)
+		request.source.devicePayload = devicePayload;
 		// a staged payload IS the engine source; the baked repository root
 		// stays out of it (@see ExportRun.h - the beside-itself invariant)
 	}

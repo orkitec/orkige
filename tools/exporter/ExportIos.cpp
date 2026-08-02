@@ -143,25 +143,47 @@ namespace OrkigeExport
 				"work (the Lua/scene parts of a project export fine without "
 				"one)");
 		}
-		if(source.fromBundle())
+		// TWO sources for the same two pieces (the player bundle and the
+		// engine media beside it): a preset build tree, or a FETCHED device
+		// payload - which is what a distributed editor packages from, since it
+		// carries the host's player and no phone's. Everything after this
+		// block is identical.
+		const bool fromPayload = !source.devicePayload.empty();
+		if(source.fromBundle() && !fromPayload)
 		{
 			return report(error, "a staged engine payload packages the desktop "
-				"app only; an iOS package needs the iOS player, which comes "
-				"from its own preset build tree");
+				"app only; an iOS package needs the iOS player - install it "
+				"(Settings > Build Targets), or package from the "
+				"ios-simulator preset build tree");
 		}
-		const Orkige::String sourceApp = ExportFiles::join(
-			ExportFiles::join(source.buildDirectory, "tools/player"),
-			"OrkigePlayer.app");
+		if(fromPayload && signing)
+		{
+			// the fetched payload is the SIMULATOR player: a signed device or
+			// store build needs the arm64-iphoneos one, which is not published
+			return report(error, "a signed iOS device build needs the iOS "
+				"DEVICE player, which is built from the ios-device preset - "
+				"the installed player packages simulator builds (see "
+				"Docs/ios-signing.md)");
+		}
+		const Orkige::String sourceApp = fromPayload
+			? ExportFiles::join(source.devicePayload, "OrkigePlayer.app")
+			: ExportFiles::join(
+				ExportFiles::join(source.buildDirectory, "tools/player"),
+				"OrkigePlayer.app");
 		if(!ExportFiles::isDirectory(sourceApp))
 		{
-			return report(error, signing
-				? ("no device OrkigePlayer.app at '" + sourceApp + "' - a "
-					"signed device/store build needs an arm64-ios (device, not "
-					"simulator) player build; configure + build the "
-					"ios-device-debug (or -release) preset first (see "
-					"Docs/ios-signing.md)")
-				: ("no OrkigePlayer.app at '" + sourceApp + "' - build the "
-					"ios-simulator-debug preset first"));
+			return report(error, fromPayload
+				? ("the installed iOS player is incomplete (no "
+					"OrkigePlayer.app at '" + sourceApp + "') - fetch it again "
+					"under Settings > Build Targets")
+				: (signing
+					? ("no device OrkigePlayer.app at '" + sourceApp + "' - a "
+						"signed device/store build needs an arm64-ios (device, "
+						"not simulator) player build; configure + build the "
+						"ios-device-debug (or -release) preset first (see "
+						"Docs/ios-signing.md)")
+					: ("no OrkigePlayer.app at '" + sourceApp + "' - build the "
+						"ios-simulator-debug preset first")));
 		}
 		if(signing && !ExportFiles::isRegularFile(request.signing.profile))
 		{
@@ -169,7 +191,9 @@ namespace OrkigeExport
 				request.signing.profile + "' does not exist");
 		}
 
-		const Orkige::String flavor = renderBackend(source.buildDirectory);
+		const Orkige::String flavor = fromPayload
+			? payloadFlavor(source.devicePayload)
+			: renderBackend(source.buildDirectory);
 		const Orkige::String appDirectory =
 			ExportFiles::join(outputDirectory, project.name + ".app");
 		if(!ExportFiles::removeTree(appDirectory, error) ||
@@ -178,9 +202,20 @@ namespace OrkigeExport
 			return false;
 		}
 		// the player bundle already carries the backend's shader media; the
-		// engine's own content directories are committed to the source tree
-		// and are added here
-		if(!stageEngineContentMedia(appDirectory, flavor,
+		// engine's own content directories are added here - from the source
+		// tree, or (packaging from a fetched payload, where there is no source
+		// tree on the machine) from the `Media/` staged inside the payload,
+		// which IS this layout already
+		if(fromPayload)
+		{
+			if(!ExportFiles::copyTree(
+				ExportFiles::join(source.devicePayload, "Media"),
+				ExportFiles::join(appDirectory, "Media"), error, 0))
+			{
+				return false;
+			}
+		}
+		else if(!stageEngineContentMedia(appDirectory, flavor,
 			engineSourceMedia(environment.repoRoot, flavor), error))
 		{
 			return false;

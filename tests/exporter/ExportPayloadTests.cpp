@@ -414,3 +414,33 @@ TEST_CASE("the macOS Info.plist names the executable and the icon",
 	CHECK(info.get("NSHighResolutionCapable").asBool());
 	CHECK(info.get("LSMinimumSystemVersion").asString() == "11.0");
 }
+
+TEST_CASE("a device payload says which flavor it is", "[unit][export]")
+{
+	// The manifest is how an export from a FETCHED player learns what it is
+	// packaging - and cooking a project's textures for the wrong backend ships
+	// a game with unreadable images. The file NAME is spelled in the editor too
+	// (OrkigeEditor::payloadRequiredPaths), because the two libraries do not
+	// link each other; this half pins the literal.
+	CHECK(Orkige::String(DEVICE_PAYLOAD_MANIFEST_FILE_NAME) ==
+		"orkige_payload.txt");
+
+	ScratchDir scratch("device_payload_manifest");
+	const Orkige::String payload = ExportFiles::join(scratch.path, "payload");
+	Orkige::String error;
+	REQUIRE(ExportFiles::writeTextFile(
+		ExportFiles::join(payload, DEVICE_PAYLOAD_MANIFEST_FILE_NAME),
+		"platform: ios-simulator\nflavor: next\n"
+		"version: 2.0.0-nightly.20260802+abc\n", &error));
+	CHECK(devicePayloadSetting(payload, "platform") == "ios-simulator");
+	CHECK(payloadFlavor(payload) == "next");
+	CHECK(devicePayloadSetting(payload, "version") ==
+		"2.0.0-nightly.20260802+abc");
+	// a key the manifest does not carry answers empty rather than guessing
+	CHECK(devicePayloadSetting(payload, "nothing").empty());
+
+	// a directory that is not a payload reports the same default a build tree
+	// with no cache entry does, rather than throwing
+	CHECK(payloadFlavor(ExportFiles::join(scratch.path, "absent")) ==
+		"classic");
+}

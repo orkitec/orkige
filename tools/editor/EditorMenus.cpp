@@ -20,6 +20,10 @@
 
 #include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
 
+#include <algorithm>
+#include <cstddef>
+#include <vector>
+
 using Orkige::optr;
 using Orkige::woptr;
 
@@ -138,6 +142,96 @@ bool drawViewSettingsWidgets(ViewSettings& viewSettings,
 		}
 		ImGui::SetItemTooltip("checked at most once a day, and only ever "
 			"installed when the editor restarts");
+	}
+	// which platforms this installation packages games for. The host is
+	// always one of them; a phone's player is another architecture's binary,
+	// so it is a DOWNLOAD - offered here, once per published build, and kept
+	// outside the (signed, read-only) application. Nothing is fetched for a
+	// platform nobody switched on.
+	{
+		std::vector<Orkige::String> enabled =
+			OrkigeEditor::parseEnabledPayloads(viewSettings.buildTargets);
+		const std::vector<OrkigeEditor::FetchablePayload> catalogue =
+			OrkigeEditor::fetchablePayloads();
+		const OrkigeEditor::PayloadFetchStatus fetchStatus =
+			gEditorPayloads != nullptr ? gEditorPayloads->status()
+				: OrkigeEditor::PayloadFetchStatus();
+		Orkige::String cannotFetch;
+		const bool fetchable = gEditorPayloads != nullptr &&
+			gEditorPayloads->canFetch(cannotFetch);
+		if (ImGui::TreeNodeEx("Build Targets",
+			ImGuiTreeNodeFlags_SpanAvailWidth))
+		{
+			for (std::size_t index = 0; index < catalogue.size(); ++index)
+			{
+				OrkigeEditor::FetchablePayload const& payload =
+					catalogue[index];
+				bool on = OrkigeEditor::isPayloadEnabled(enabled, payload.id);
+				ImGui::PushID(static_cast<int>(index));
+				if (ImGui::Checkbox(payload.platformLabel.c_str(), &on))
+				{
+					if (on)
+					{
+						enabled.push_back(payload.id);
+					}
+					else
+					{
+						enabled.erase(std::remove(enabled.begin(),
+							enabled.end(), payload.id), enabled.end());
+						// turning a platform off gives its download back:
+						// this installation no longer needs those bytes
+						if (gEditorPayloads != nullptr)
+						{
+							gEditorPayloads->remove(payload.id);
+						}
+					}
+					viewSettings.buildTargets =
+						OrkigeEditor::formatEnabledPayloads(enabled);
+					settingsChanged = true;
+				}
+				ImGui::SameLine();
+				const bool installed = gEditorPayloads != nullptr &&
+					gEditorPayloads->isInstalled(payload.id);
+				const bool busyHere = fetchStatus.busy() &&
+					fetchStatus.payloadId == payload.id;
+				if (installed)
+				{
+					ImGui::TextDisabled("installed");
+				}
+				else if (busyHere)
+				{
+					ImGui::TextDisabled("%s", fetchStatus.message.c_str());
+				}
+				else if (!on)
+				{
+					ImGui::TextDisabled("not installed");
+				}
+				else if (!fetchable)
+				{
+					ImGui::TextDisabled("%s", cannotFetch.c_str());
+				}
+				else if (ImGui::SmallButton("Get Player"))
+				{
+					gEditorPayloads->beginFetch(payload.id);
+				}
+				ImGui::PopID();
+			}
+			if (fetchStatus.busy())
+			{
+				ImGui::ProgressBar(fetchStatus.progress(),
+					ImVec2(240.0f, 0.0f));
+			}
+			else if (fetchStatus.stage ==
+				OrkigeEditor::PayloadFetchStage::Failed &&
+				!fetchStatus.message.empty())
+			{
+				ImGui::TextWrapped("%s", fetchStatus.message.c_str());
+			}
+			ImGui::TreePop();
+		}
+		ImGui::SetItemTooltip("the platforms Build > Export offers. A device "
+			"player is downloaded once for this version of Orkige and kept "
+			"until a newer one replaces it.");
 	}
 	// external code editor: a command template opened for Console file:line
 	// clicks and the "Open in External Editor" actions. Empty = autodetect an

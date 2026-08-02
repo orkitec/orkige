@@ -32,8 +32,8 @@ that situation and drives the copy over its own MCP endpoint:
      the editor links, so nothing about it can be missing on a user's machine
      - and the leg also asserts the staged copy carries no script at all, with
      no interpreter reachable to run one. The same leg asks for an iOS
-     package, which a copy genuinely cannot produce, and asserts the refusal
-     SAYS so.
+     package, which a copy with no device player installed cannot produce, and
+     asserts the refusal SAYS how to get one.
   4b. ASSERT the BROWSER package (`--leg web`, its own ctest): with the browser
      payload staged into the copied app exactly as the packaging pipeline
      stages it, the copy must produce a web export - the shell page, the wasm
@@ -43,6 +43,11 @@ that situation and drives the copy over its own MCP endpoint:
      EITHER flavor can ship a browser build. Skips (77) on a machine with no
      wasm build tree to stage from, which is why it is a test of its own: a
      missing toolchain must never turn the legs above into a skip.
+  4bb. ASSERT the MOBILE package (`--leg ios`, its own ctest): with a device
+     player payload composed the way a release publishes one and installed the
+     way a fetched one is, the copy must produce an iOS simulator app out of
+     that payload alone - and without it, refuse with the way to get one.
+     Skips (77) where no iOS-simulator player has been built.
   4c. ASSERT COMPILED GAME CODE (`--leg native`, its own ctest): a copied
      editor plus an installed SDK pack builds, plays and packages a project
      whose behaviour is C++. It runs in a clean room of its OWN - the
@@ -797,7 +802,7 @@ def run_export_leg(args, stage_dir, sandbox_profile):
             fail("the copied editor accepted an iOS export it has no player "
                  "for")
         reject_build_machine_paths(args, text, "the iOS export refusal")
-        for needle in ("iOS", "player", "build Orkige from source"):
+        for needle in ("iOS Simulator", "Build Targets"):
             if needle not in text:
                 fail("the iOS export refusal does not say %r: %s"
                      % (needle, text))
@@ -978,6 +983,184 @@ def run_web_export_leg(args, stage_dir, sandbox_profile):
         output = stop(process)
         print(output[-8000:], flush=True)
         fail("the web export leg failed: %r" % (error,))
+    finally:
+        stop(process)	# no exit path leaves a staged editor running
+    if "developer tree" in output:
+        fail("the copied editor resolved resources from the developer tree")
+    return output
+
+
+# --- the mobile-player leg --------------------------------------------------
+#
+# The DEVICE players are the one engine piece a released editor does not carry:
+# a phone runs another architecture's binary, so those are published as their
+# own release assets and fetched on demand into the editor's writable state
+# directory (Docs/device-payloads.md). Fetching one is proven by the
+# editor_payload_fetch driver against a loopback service; what THIS leg proves
+# is the other half - that an installed payload turns a copied editor into one
+# that packages for a phone, in the same clean room as everything else.
+#
+# The payload is composed by the PACKAGING tool's own function, from the
+# platform's preset build tree, so what is under test is the shipped
+# composition and not a second one written here. It is placed where an
+# installed payload lives and named through ORKIGE_EDITOR_PAYLOAD_DIR, the
+# documented seam for a payload that was not downloaded.
+#
+# Skips (77) where no iOS-simulator player has been built, which is why it is a
+# test of its own: a machine without that preset must never turn the legs above
+# into a skip.
+
+
+def stage_device_payload(args, stage_dir, payload_id):
+    """compose a device payload from its preset build tree into the staged
+    installation, exactly as the publishing side composes one. Returns the
+    directory it landed in, or "" when this machine built no such player."""
+    sys.path.insert(0, os.path.join(REPO_ROOT, "Util"))
+    packaging = load_module("orkige_nightly_package", PACKAGING_TOOL)
+    root = os.path.join(stage_dir, "payloads")
+    target = os.path.join(root, payload_id)
+    if not packaging.compose_device_payload(target, payload_id,
+                                            args.device_build,
+                                            "2.0.0-nightly.20260802+abcdef123",
+                                            commit="abcdef123"):
+        return ""
+    problems = packaging.device_payload_problems(target, payload_id)
+    if problems:
+        fail("the composed %s payload is incomplete: %s"
+             % (payload_id, ", ".join(problems)))
+    return target
+
+
+def check_ios_app(artifact, project_root, payload):
+    """the packaged simulator app, as a device would receive it: the player
+    binary, the identity rewritten to the project's, the engine media beside it
+    and the project payload with its boot marker."""
+    if not os.path.isdir(artifact):
+        fail("the export reported '%s', which is not a directory" % artifact)
+    for relative in ("Info.plist", "orkige_project.txt", "project",
+                     os.path.join("Media", "fonts")):
+        if not os.path.exists(os.path.join(artifact, relative)):
+            fail("the exported iOS app has no %s" % relative)
+    plist = open(os.path.join(artifact, "Info.plist"), "rb").read()
+    if b"com.orkitec.orkigeplayer" in plist:
+        fail("the exported app kept the generic player bundle id")
+    # the player binary came out of the PAYLOAD, byte for byte
+    name = "OrkigePlayer"
+    carried = os.path.join(payload, "OrkigePlayer.app", name)
+    shipped = os.path.join(artifact, name)
+    if os.path.isfile(carried) and os.path.isfile(shipped):
+        if sha256(carried) != sha256(shipped):
+            fail("the exported player is not the one the payload carries")
+        log("the exported iOS app carries the payload's own player (%d bytes)"
+            % os.path.getsize(shipped))
+    else:
+        log("the exported iOS app is complete (%s)" % artifact)
+
+
+def run_ios_export_leg(args, stage_dir, sandbox_profile):
+    """a copied editor asked to package the open project FOR AN iOS SIMULATOR.
+
+    Twice: once with no payload installed - which must be REFUSED with a
+    sentence naming what to do - and once with one installed, which must
+    produce the app. Both answers matter: the refusal is what a person sees
+    before they ever fetch anything."""
+    executable = stage_app(args.editor_app, stage_dir)
+    project = os.path.join(stage_dir, "project")
+    shutil.copytree(args.project, project,
+                    ignore=shutil.ignore_patterns("builds", ".orkige",
+                                                  "build*", ".mcp.json"))
+    for name in ("home", "cwd", "state", "tmp"):
+        os.makedirs(os.path.join(stage_dir, name), exist_ok=True)
+    payload = stage_device_payload(args, stage_dir, "player-ios-simulator")
+    if not payload:
+        skip("no iOS-simulator player at '%s' - build the ios-simulator-debug "
+             "preset (or point --device-build at a tree that has one) to run "
+             "this leg" % args.device_build)
+    log("composed the iOS payload the way a release publishes one (%s)"
+        % payload)
+
+    token_file = os.path.join(stage_dir, "endpoint.token")
+    # the FIRST run carries no payload directory: the refusal is under test
+    env = scrubbed_env(stage_dir)
+    process = launch(executable,
+                     [executable, "--mcp-port", "0",
+                      "--mcp-token-file", token_file],
+                     os.path.join(stage_dir, "cwd"), env, sandbox_profile)
+    try:
+        port, token = wait_for_endpoint(process, token_file, args.boot_timeout)
+        if not port:
+            output = stop(process)
+            print(output[-8000:], flush=True)
+            fail("the copied editor never opened its MCP endpoint for the iOS "
+                 "refusal leg")
+        client = McpClient(port, token)
+        client.call("initialize", {"protocolVersion": "2025-03-26",
+                                  "capabilities": {},
+                                  "clientInfo": {"name": "bundle-selfcheck",
+                                                 "version": "1"}})
+        client.tool("open_project", {"path": project})
+        accepted, _, text = client.attempt("export_project",
+                                           {"platform": "ios-simulator"})
+        if accepted:
+            fail("the copied editor accepted an iOS export with no player "
+                 "installed")
+        reject_build_machine_paths(args, text, "the iOS export refusal")
+        for needle in ("iOS Simulator", "Build Targets"):
+            if needle not in text:
+                fail("the iOS export refusal does not say %r: %s"
+                     % (needle, text))
+        log("with no player installed the export is refused, with the way to "
+            "get one: " + text)
+    finally:
+        stop(process)
+
+    # ...and the SECOND run is handed the installed payload
+    env = scrubbed_env(stage_dir, {"ORKIGE_EDITOR_PAYLOAD_DIR":
+                                   os.path.join(stage_dir, "payloads")})
+    token_file = os.path.join(stage_dir, "endpoint2.token")
+    process = launch(executable,
+                     [executable, "--mcp-port", "0",
+                      "--mcp-token-file", token_file],
+                     os.path.join(stage_dir, "cwd"), env, sandbox_profile)
+    try:
+        port, token = wait_for_endpoint(process, token_file, args.boot_timeout)
+        if not port:
+            output = stop(process)
+            print(output[-8000:], flush=True)
+            fail("the copied editor never opened its MCP endpoint for the iOS "
+                 "export leg")
+        client = McpClient(port, token)
+        client.call("initialize", {"protocolVersion": "2025-03-26",
+                                  "capabilities": {},
+                                  "clientInfo": {"name": "bundle-selfcheck",
+                                                 "version": "1"}})
+        client.tool("open_project", {"path": project})
+        accepted, structured, text = client.attempt(
+            "export_project", {"platform": "ios-simulator"})
+        if not accepted:
+            reject_build_machine_paths(args, text, "the iOS export refusal")
+            fail("the copied editor refused to package for iOS with the "
+                 "player installed: " + text)
+        packaged_from = str(structured.get("engineBuild", ""))
+        if not packaged_from.startswith(os.path.realpath(stage_dir)) and \
+                not packaged_from.startswith(stage_dir):
+            fail("the iOS export packaged from '%s', which is not the "
+                 "installed payload" % packaged_from)
+        result = poll_export(client, str(structured.get("jobId", "")),
+                             args.export_timeout)
+        if str(result.get("ok", "")) != "1":
+            error = str(result.get("error", ""))
+            reject_build_machine_paths(args, error, "the iOS export failure")
+            fail("the iOS export failed: " + error)
+        artifact = str(result.get("artifactPath", ""))
+        log("the copied editor exported '%s' from the installed player (%s)"
+            % (artifact, packaged_from))
+        check_ios_app(artifact, project, payload)
+        output = stop(process)
+    except Exception as error:		# noqa: BLE001 - report and stop the app
+        output = stop(process)
+        print(output[-8000:], flush=True)
+        fail("the iOS export leg failed: %r" % (error,))
     finally:
         stop(process)	# no exit path leaves a staged editor running
     if "developer tree" in output:
@@ -1444,7 +1627,7 @@ def main():
                        help="scratch directory (inside the build tree)")
     parser.add_argument("--repo-root", required=True,
                        help="the tree the staged app must NOT reach into")
-    parser.add_argument("--leg", choices=("bundle", "web", "native"),
+    parser.add_argument("--leg", choices=("bundle", "web", "native", "ios"),
                        default="bundle",
                        help="'bundle' (default) runs the session, packaging, "
                             "unreadable-media and changelog legs; 'web' runs "
@@ -1453,7 +1636,9 @@ def main():
                             "one never turns the others into a skip; 'native' "
                             "runs the compiled-game-code leg, which needs a "
                             "clean room of its own (a build toolchain is "
-                            "reachable, the repository still is not)")
+                            "reachable, the repository still is not); 'ios' "
+                            "runs the mobile-package leg, which skips where "
+                            "no iOS-simulator player has been built")
     parser.add_argument("--web-build", default="",
                        help="the wasm build tree the browser payload is "
                             "composed from (else ORKIGE_WEB_BUILD, else the "
@@ -1461,6 +1646,9 @@ def main():
     parser.add_argument("--engine-build", default="",
                        help="native leg: the engine build tree the SDK pack is "
                             "installed from")
+    parser.add_argument("--device-build", default="",
+                       help="ios leg: the preset build tree the device player "
+                            "payload is composed from (the ios-simulator one)")
     parser.add_argument("--flavor", default="next",
                        help="native leg: the render flavor of this build (the "
                             "installed pack is per flavor)")
@@ -1487,7 +1675,8 @@ def main():
     # driver hands on must be absolute
     for name in ("editor_app", "project", "stage_root", "repo_root"):
         setattr(args, name, os.path.abspath(getattr(args, name)))
-    for name in ("web_build", "engine_build", "shared_headers"):
+    for name in ("web_build", "engine_build", "shared_headers",
+                 "device_build"):
         if getattr(args, name):
             setattr(args, name, os.path.abspath(getattr(args, name)))
 
@@ -1542,6 +1731,18 @@ def main():
             log("PASSED: a copied editor plus an installed SDK pack builds, "
                 "plays and packages compiled C++ game code - and reports a "
                 "missing SDK and a missing toolchain as two different things")
+            return 0
+
+        if args.leg == "ios":
+            if not args.device_build:
+                skip("the iOS leg needs --device-build (the ios-simulator "
+                     "preset tree the payload is composed from)")
+            ios_stage = os.path.join(args.stage_root, "ios")
+            os.makedirs(ios_stage)
+            run_ios_export_leg(args, ios_stage, sandbox_profile)
+            log("PASSED: an installed device player turns a copied editor "
+                "into one that packages for a phone - and without it the "
+                "refusal says how to get one")
             return 0
 
         if args.leg == "web":

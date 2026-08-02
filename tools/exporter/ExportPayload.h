@@ -66,6 +66,15 @@ namespace OrkigeExport
 		//! compiled game code needs an engine to compile and link against, and
 		//! a relocatable pack is that engine (Docs/sdk-pack.md).
 		Orkige::String	sdkPack;
+		//! the prebuilt DEVICE player payload for the platform being packaged
+		//! ("" = none). A staged payload carries the HOST's player; a phone
+		//! runs another architecture's, so that one is fetched separately and
+		//! kept outside the (read-only, signed) application - the exporter is
+		//! handed the directory and never learns how it got there.
+		//! Its layout is a player bundle plus the `Media/` tree that player
+		//! renders through, so packaging from it needs no source tree at all
+		//! (Docs/device-payloads.md).
+		Orkige::String	devicePayload;
 
 		bool fromBundle() const { return !this->bundleResources.empty(); }
 	};
@@ -145,6 +154,21 @@ namespace OrkigeExport
 	//! @brief write the default-project marker naming the payload directory
 	bool writeProjectMarker(Orkige::String const & directory,
 		Orkige::String * error);
+
+	//! the manifest a fetched device payload describes itself with, at its
+	//! root: `key: value` lines carrying the platform, the render flavor and
+	//! the build it was published for
+	extern const char * const DEVICE_PAYLOAD_MANIFEST_FILE_NAME;
+
+	//! @brief the value of @p key in @p payloadDirectory's manifest, or ""
+	//! when the payload or the key is absent
+	Orkige::String devicePayloadSetting(Orkige::String const & payloadDirectory,
+		Orkige::String const & key);
+
+	//! @brief the render flavor a fetched device payload records
+	//! ("next"/"classic"); classic when it records none, matching the way a
+	//! build tree's own cache is read (@see renderBackend)
+	Orkige::String payloadFlavor(Orkige::String const & payloadDirectory);
 }
 
 #endif //__ExportPayload_h__31_7_2026__18_00_00__

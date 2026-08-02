@@ -201,6 +201,13 @@ void ViewSettings::load()
 			this->updatePolicy = OrkigeEditor::parseUpdatePolicy(value,
 				this->updatePolicy);
 		}
+		else if (key == "build_targets")
+		{
+			// unknown ids are dropped on the way in, so a setting written by a
+			// newer build never makes this one fetch something it cannot use
+			this->buildTargets = OrkigeEditor::formatEnabledPayloads(
+				OrkigeEditor::parseEnabledPayloads(value));
+		}
 		else if (key == "external_editor")
 		{
 			this->externalEditor = value;
@@ -310,6 +317,7 @@ void ViewSettings::save() const
 		<< (this->reopenLastProject ? 1 : 0) << "\n"
 		<< "update_policy="
 		<< OrkigeEditor::updatePolicyName(this->updatePolicy) << "\n"
+		<< "build_targets=" << this->buildTargets << "\n"
 		<< "external_editor=" << this->externalEditor << "\n"
 		<< "theme_mode="
 		<< (this->themeMode == Orkige::EditorThemeMode::Dark ? "dark"
@@ -423,6 +431,7 @@ Orkige::ImGuiFacadeRenderer* gImGuiRenderer = nullptr;
 bool gRecordRecents = true;
 bool gAutomatedRun = false;
 OrkigeEditor::EditorUpdater* gEditorUpdater = nullptr;
+OrkigeEditor::EditorPayloadFetcher* gEditorPayloads = nullptr;
 
 //! record a scene path in the Open Recent list and persist it
 void recordRecentScene(std::string const& scenePath)

@@ -198,6 +198,28 @@ the two states it is in:
     web-export: bundled     # VERSION - this editor packages for the browser
     web-export: absent      # ... and this one says so, in KNOWN-LIMITATIONS.md too
 
+### The device player payloads
+
+A phone runs another architecture's binary, so unlike the browser player this
+one cannot ride inside every editor: `binaries-player-ios` builds the
+iOS-simulator player from its preset tree and publishes the whole payload as its
+own release asset,
+
+    orkige_nightly_package.py --stage-device-payload player-ios-simulator \
+                              --build-dir build/ios-simulator-debug \
+                              --commit <sha> --output device-payload
+
+which the publish job uploads beside the editors. A released editor FETCHES it
+on demand, once, when someone switches that platform on under Settings > Build
+Targets — paired on the dated release tag its own version names, so the player
+and the editor come from one night's publish
+([device payloads](device-payloads.md)).
+
+Like the browser payload it is an added capability, not a precondition: the
+publish job waits for it but ships the editors without it, and the release notes
+then say that no mobile player was published for that build. That line is where
+somebody checks when an editor reports it cannot find one.
+
 ## The Linux single-file bundle
 
 The tarball carries the editor but not the libraries it links, and that list is
@@ -959,13 +981,17 @@ The trust gaps, per platform:
   saying so, with the steps its user needs; one with a certificate but no
   notarization credentials carries the record for *that*. See
   [macOS signing](#macos-signing-notarization-and-stapling).
-- **A download packages for the desktop and the browser only** — Build >
-  Export packages a game with the engine payload the app carries inside
-  itself, which is this platform's player and the browser one. An iOS or
-  Android package ships THAT platform's player, which only a build from the
-  engine source tree produces. A build whose browser payload did not arrive
-  carries the desktop-only record instead, and its `VERSION` reads
-  `web-export: absent` ([the browser player payload](#the-browser-player-payload)).
+- **A download packages for the desktop and the browser out of the box** —
+  Build > Export packages a game with the engine payload the app carries inside
+  itself, which is this platform's player and the browser one. A PHONE runs
+  another architecture's binary, so that player is a download of its own:
+  switching the platform on under Settings > Build Targets fetches the player
+  published for this exact build ([device payloads](device-payloads.md)).
+  Android is not among them yet, and a signed iOS DEVICE build needs the device
+  player, which only a build from the engine source tree produces. A build whose
+  browser payload did not arrive carries the desktop-only record instead, and
+  its `VERSION` reads `web-export: absent`
+  ([the browser player payload](#the-browser-player-payload)).
 - **Compiled C++ game code needs a toolchain** — CMake, Ninja, a C++20 compiler
   and an engine build tree. Game behaviour written in Lua needs none of that,
   which is the whole point of the distinction.

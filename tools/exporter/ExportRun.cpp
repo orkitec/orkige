@@ -87,15 +87,18 @@ namespace OrkigeExport
 					request.source.bundleResources + "' does not exist");
 			}
 			// a staged payload packages the desktop app and - when the browser
-			// player rides along beside it - the web build; every other
-			// platform needs that platform's player, which only its preset
-			// tree produces
-			if(request.platform != "macos" && request.platform != "web")
+			// player rides along beside it - the web build. A DEVICE build
+			// needs that platform's own player, which is not carried but
+			// FETCHED: hand the payload directory in and the platform becomes
+			// packageable here too.
+			if(request.platform != "macos" && request.platform != "web" &&
+				request.source.devicePayload.empty())
 			{
 				return refuse(error, "a staged engine payload packages the "
 					"desktop app and the browser build; '" + request.platform +
-					"' needs that platform's player, which comes from its own "
-					"preset build tree");
+					"' needs that platform's player - install it (Settings > "
+					"Build Targets), or package from that platform's preset "
+					"build tree");
 			}
 			// the beside-itself invariant: a staged payload IS the engine
 			// source, so nothing may also point at a repository (@see
@@ -133,6 +136,22 @@ namespace OrkigeExport
 		{
 			return refuse(error, "the Orkige SDK pack '" +
 				request.source.sdkPack + "' does not exist");
+		}
+		if(!request.source.devicePayload.empty())
+		{
+			// the same one-engine rule as the SDK pack: a build tree already
+			// produces the platform's player, so a fetched one beside it
+			// would be a second engine
+			if(!request.source.fromBundle())
+			{
+				return refuse(error, "an engine build tree cannot also package "
+					"from a fetched device player - the two are two engines");
+			}
+			if(!ExportFiles::isDirectory(request.source.devicePayload))
+			{
+				return refuse(error, "the device player payload '" +
+					request.source.devicePayload + "' does not exist");
+			}
 		}
 
 		const String outputDirectory = ExportFiles::absolute(
@@ -184,6 +203,10 @@ namespace OrkigeExport
 		{
 			source.buildDirectory =
 				ExportFiles::absolute(source.buildDirectory);
+		}
+		if(!source.devicePayload.empty())
+		{
+			source.devicePayload = ExportFiles::absolute(source.devicePayload);
 		}
 
 		bool packaged = false;

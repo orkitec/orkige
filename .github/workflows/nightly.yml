@@ -737,6 +737,112 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The DEVICE players a released editor FETCHES.
+  #
+  # A phone runs another architecture's binary, so unlike the browser player
+  # this one cannot ride inside every editor: it is published as its own
+  # release asset and downloaded on demand, once per build, into the editor's
+  # writable state directory (Docs/device-payloads.md). One asset is one
+  # self-contained directory - the player, the engine media it renders through
+  # and a manifest naming the platform, flavor and build - zipped with its
+  # contents at the archive root, plus the `.sha256` every asset carries.
+  #
+  # NOT a precondition for shipping an editor. The publish job WAITS for this
+  # one but proceeds without its artifact if it fails: the editors still ship,
+  # this night simply has no mobile player, and an editor asked to package for
+  # a phone says exactly that.
+  binaries-player-ios:
+    name: Binaries - the iOS Simulator player payload
+    needs: binaries-gate
+    if: needs.binaries-gate.outputs.green == 'true'
+    runs-on: macos-15
+    timeout-minutes: 360 # cold vcpkg build headroom; cached runs take minutes
+    env:
+      VCPKG_ROOT_DIR: /Users/runner/Development/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: /Users/runner/vcpkg-binary-cache
+      CCACHE_DIR: /Users/runner/.ccache
+      PRESET: ios-simulator-debug
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          # the commit the matrix proved green - the same tree the editors that
+          # will fetch this payload are built from, which is what the pairing
+          # on the dated release tag means
+          ref: ${{ needs.binaries-gate.outputs.sha }}
+
+      - name: Install system dependencies
+        run: |
+          brew untap aws/tap 2>/dev/null || true
+          brew install ninja ccache autoconf automake autoconf-archive libtool
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        # the ci.yml ios-simulator job's key (read-only here: no save step) - a
+        # nightly restores the dependency set the push CI already paid for
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /Users/runner/vcpkg-binary-cache
+          key: vcpkg-ios-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-ios-next-${{ runner.os }}-
+            vcpkg-macos-next-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /Users/runner/.ccache
+          key: ccache-nightly-ios-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-nightly-ios-${{ runner.os }}-
+            ccache-ios-next-${{ runner.os }}-
+
+      - name: Configure (ios-simulator-debug)
+        run: |
+          bash Util/ci_configure.sh --preset "$PRESET" \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      - name: Build the Simulator player
+        run: cmake --build --preset "$PRESET" --target orkige_player
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /Users/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      # ONE composition, by the same tool the editor reads the name back from:
+      # this machine HAS the tree it just built, so a payload it cannot compose
+      # is a failure HERE - the publish job downstream is the one allowed to
+      # find no such asset.
+      - name: Compose, pack and checksum the payload
+        env:
+          SHA: ${{ needs.binaries-gate.outputs.sha }}
+          BUILD_DATE: ${{ needs.binaries-gate.outputs.date }}
+          VERSION: ${{ needs.binaries-gate.outputs.version }}
+        run: |
+          python3 Util/orkige_nightly_package.py \
+            --stage-device-payload player-ios-simulator \
+            --build-dir "build/$PRESET" \
+            --commit "${SHA}" --date "${BUILD_DATE}" --version "${VERSION}" \
+            --output device-payload
+          ls -l device-payload
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: binaries-player-ios
+          # the archive AND its .sha256 sidecar - the publish job uploads both
+          path: device-payload/orkige-player-ios-simulator-*
+          if-no-files-found: error
+          retention-days: 14
+
   # macOS: the Release .app, in two containers built from ONE staging. The
   # engine links statically and the bundle depends on nothing but system
   # frameworks, so the packaging is a copy, an rpath scrub and a bundle seal
@@ -1578,7 +1684,8 @@ jobs:
   # of three. Zero artifacts is a failure - there is nothing to publish.
   binaries-publish:
     name: Binaries - publish the rolling and dated prereleases
-    needs: [binaries-gate, binaries-macos, binaries-linux, binaries-windows]
+    needs: [binaries-gate, binaries-macos, binaries-linux, binaries-windows,
+            binaries-player-ios]
     if: always() && needs.binaries-gate.outputs.green == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1625,6 +1732,7 @@ jobs:
           # file by the build job). Empty when that job never got that far, and
           # the unsigned wording is the honest answer to that.
           TRUST_MACOS: ${{ needs.binaries-macos.outputs.trust }}
+          RESULT_PLAYER_IOS: ${{ needs.binaries-player-ios.result }}
         run: |
           set -uo pipefail
           ls -l downloads || true
@@ -1702,6 +1810,21 @@ jobs:
             echo "The Windows builds are UNSIGNED, so SmartScreen warns that it"
             echo "does not recognise the publisher (loudest on the installer);"
             echo "the limitations file gives those steps too."
+            # the device players are not something a person downloads: the
+            # editor fetches the one for the platform they switched on. The
+            # notes say whether tonight published one, because an editor that
+            # cannot find it will say so and this is where to check.
+            for row in "iOS Simulator|${RESULT_PLAYER_IOS}|orkige-player-ios-simulator-next-${TOKEN}.zip"; do
+              IFS='|' read -r label result asset <<< "${row}"
+              if [ -f "downloads/${asset}" ]; then
+                echo "The ${label} player for this build is published as"
+                echo "\`${asset}\` - Orkige downloads it itself when you"
+                echo "switch that platform on under Settings > Build Targets."
+              else
+                echo "No ${label} player was published for this build"
+                echo "(${result}), so this build cannot package for it."
+              fi
+            done
             echo "Each asset has a \`.sha256\` file beside it - verify a"
             echo "download before trusting it."
             echo ""

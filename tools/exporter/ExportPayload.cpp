@@ -298,4 +298,46 @@ namespace OrkigeExport
 			ExportFiles::join(directory, PROJECT_MARKER_FILE_NAME),
 			Orkige::String(PAYLOAD_DIR_NAME) + "\n", error);
 	}
+	//---------------------------------------------------------
+	const char * const DEVICE_PAYLOAD_MANIFEST_FILE_NAME =
+		"orkige_payload.txt";
+	//---------------------------------------------------------
+	Orkige::String devicePayloadSetting(
+		Orkige::String const & payloadDirectory, Orkige::String const & key)
+	{
+		Orkige::String text;
+		if(payloadDirectory.empty() || !ExportFiles::readTextFile(
+			ExportFiles::join(payloadDirectory,
+				DEVICE_PAYLOAD_MANIFEST_FILE_NAME), text, 0))
+		{
+			return Orkige::String();
+		}
+		std::size_t begin = 0;
+		while(begin <= text.size())
+		{
+			const std::size_t newline = text.find('\n', begin);
+			const Orkige::String line = trimmed(text.substr(begin,
+				newline == Orkige::String::npos ? Orkige::String::npos
+					: newline - begin));
+			const std::size_t colon = line.find(':');
+			if(colon != Orkige::String::npos &&
+				trimmed(line.substr(0, colon)) == key)
+			{
+				return trimmed(line.substr(colon + 1));
+			}
+			if(newline == Orkige::String::npos)
+			{
+				break;
+			}
+			begin = newline + 1;
+		}
+		return Orkige::String();
+	}
+	//---------------------------------------------------------
+	Orkige::String payloadFlavor(Orkige::String const & payloadDirectory)
+	{
+		const Orkige::String flavor =
+			devicePayloadSetting(payloadDirectory, "flavor");
+		return flavor.empty() ? Orkige::String("classic") : flavor;
+	}
 }
