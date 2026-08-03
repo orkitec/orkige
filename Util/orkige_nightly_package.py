@@ -5202,9 +5202,27 @@ exit 0
         with open(os.path.join(tree, "tools", "player", "libmain.so"),
                   "w") as handle:
             handle.write("not really a library")
+        # SDL's Java glue comes out of the machine's vcpkg buildtrees, which a
+        # CI runner that never built the Android preset does not have - so the
+        # selftest stands one up the way it already stands up the player and
+        # the strip tool. Composing has to be deterministic here; whether a
+        # REAL machine carries the glue is what the refusal above tests.
+        fake_vcpkg = os.path.join(temp, "vcpkg")
+        fake_glue = os.path.join(fake_vcpkg, "buildtrees", "sdl3", "src",
+                                 "selftest.clean", "android-project", "app",
+                                 "src", "main", "java", "org", "libsdl", "app")
+        os.makedirs(fake_glue, exist_ok=True)
+        with open(os.path.join(fake_glue, "SDLActivity.java"), "w") as handle:
+            handle.write("package org.libsdl.app;\npublic class SDLActivity {}\n")
+        previous_vcpkg = os.environ.get("VCPKG_ROOT")
+        os.environ["VCPKG_ROOT"] = fake_vcpkg
         assert compose_device_payload(composed, "player-android", tree,
                                       ordered_device, commit="dea551f9e0",
                                       media=fake_device_media)
+        if previous_vcpkg is None:
+            os.environ.pop("VCPKG_ROOT", None)
+        else:
+            os.environ["VCPKG_ROOT"] = previous_vcpkg
         assert device_payload_problems(composed, "player-android") == []
         with open(os.path.join(composed, DEVICE_PAYLOAD_MANIFEST)) as handle:
             manifest = handle.read()
