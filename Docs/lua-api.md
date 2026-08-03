@@ -174,6 +174,20 @@ screens.depth() -> int  -- screens on the stack
 screens.clear()  -- pop every screen
 screens.setBackHandler(handler)  -- own the back gesture (handler decides)
 
+## input
+input.touchCount() -> number  -- fingers reported this frame (a lifting one counts once more)
+input.touch(i) -> id, x, y, phase  -- 1-based finger: window pixels + 'began'/'moved'/'ended'/'none'
+input.touchDelta(i) -> dx, dy  -- that finger's movement since the previous frame, window pixels
+input.pointer() -> Vector2  -- the one pointer (mouse or finger) in window pixels
+input.pointerDown([button]) -> bool  -- pointer button held ('left' default, 'middle', 'right')
+input.pointerPressed([button]) -> bool  -- pointer button went down this frame
+input.pointerReleased([button]) -> bool  -- pointer button came up this frame
+input.keyDown(name) -> bool  -- raw key by name ('SPACE', 'LEFT'); prefer a named action
+input.gamepadCount() -> number  -- connected controllers
+input.gamepadConnected() -> bool  -- is a controller present (show pad button prompts)
+input.gamepadButton(name) -> bool  -- pad button held; positional names ('south', 'dpleft'), a/b/x/y alias
+input.gamepadAxis(name) -> number  -- RAW stick/trigger reading, undeadzoned (sticks -1..1, +y down)
+
 ## haptics
 haptics.play(strength, ms)  -- generic vibration; no-op off-device
 haptics.pattern(name)  -- named haptic (light..selection); preferred on iOS
@@ -552,6 +566,110 @@ ever raises the dead-handle error, naming the object it belonged to. A cached
 handle — `self.gameObject` stored across frames, a contact OTHER stashed for later
 — is always safe: it locks per call and raises honestly once its object is
 destroyed, never dereferencing freed engine state.
+
+## Input: named actions and raw devices
+
+Input reaches a game at two levels, and which one to use is decided by one
+question: **does the input carry an intent, or a position?**
+
+**Named actions — `InputActions`.** A game asks for intent (`"jump"`, `"move"`,
+`"steer"`), never for hardware, so the same script runs under a keyboard, a tilted
+phone or a controller. Each action combines any number of bindings — keys, a key
+axis, the tilt, a gamepad button, a gamepad stick — and several bindings on one
+component combine by **max magnitude**: whichever source pushes harder owns the
+value that frame. A half-pushed stick loses to a held arrow key; a full stick
+deflection matches it. That rule is why a key binding and a controller binding on
+the same action need no special case at all.
+
+Edges follow a **once-per-frame snapshot**: `pressed`/`released` are computed once
+in the game loop's input slot, before the scripts that read them, so two reads in
+the same frame always agree and a press stays true for exactly one frame.
+
+```lua
+local actions = InputActions.getSingleton()
+if actions:pressed("jump") then ... end          -- SPACE or the pad's south button
+local move = actions:value2("move")              -- WASD/arrows or the left stick
+```
+
+**Controllers are answered by the built-in defaults**, so a project is playable on
+a pad with zero authoring: the left stick drives `move` and `steer`, the bottom
+face button (`A` on one vendor's pad, `B` on another's — the engine names it
+`south`) is `jump`, `start` is `menu_toggle` and the dpad drives
+`menu_left`/`right`/`up`/`down`. A stick's `+y` is **down**, matching the key axis
+(`W`/`UP` is negative). Sticks read `-1`..`1` through a **deadzone** (0.25 by
+default) that is a rescaled curve, not a cut-off: motion starts at 0 just past the
+zone and full deflection still reaches `±1`, so there is no step at the edge.
+Triggers read `0`..`1`.
+
+A project overrides the whole set with an `input.oactions` file (the config-asset
+convention: a project-relative path under the manifest `Settings` key
+`input.actions`, outside `assets/`, not id-tracked). A binding stores a gamepad
+button list, an axis, a deadzone and an invert flag alongside the key groups. Pad
+state is **merged across connected controllers** — one player, several pads;
+per-pad state is not a v1 surface.
+
+### The `input` table (raw devices)
+
+Touch is deliberately **not** a binding shape: a finger carries a position, and a
+position has no intent. On-screen controls are gui widgets ([gui.md](gui.md));
+everything else positional is read from the global `input` table.
+
+**One coordinate space: window pixels** of the game's drawable — the same numbers
+the gui hit-tests widgets in, that `get_ui_layout` reports over MCP and that the
+`send_input` grammar spells. Touch arrives from the platform normalised and is
+converted once on the way in; the pointer is already in that space. Content scale
+and safe-area insets are **separate, composable** concepts and are not applied
+here — read them from `engine:getContentScale()` and `engine:getSafeAreaInsets()`
+when a layout needs them.
+
+```lua
+for i = 1, input.touchCount() do
+    local id, x, y, phase = input.touch(i)       -- window pixels
+    if phase == "began" then                     -- "began" / "moved" / "ended"
+        aimAt(x, y)
+    elseif phase == "moved" then
+        local dx, dy = input.touchDelta(i)       -- movement since last frame
+        pan(dx, dy)
+    end
+end
+
+local p = input.pointer()                        -- Vector2, window pixels
+if input.pointerPressed() then fire(p.x, p.y) end -- optional "left"/"middle"/"right"
+
+if input.gamepadConnected() then showPadPrompts() end
+```
+
+A finger is reported in `began` for exactly one frame, in `moved` for every frame
+it stays down (whether it moved or not) and in `ended` for exactly one frame —
+that last frame is where a game reads the release, so a finger is still counted by
+`touchCount()` while lifting. A tap that goes down and up inside a single frame is
+still seen as `began` and then `ended`, never swallowed. `input.touch(i)` is
+1-based like every Lua sequence; an index outside `1..touchCount()` answers id
+`-1` and phase `"none"` rather than erroring.
+
+The **pointer is one pointer**: the mouse on desktop and the finger on a touch
+screen (the platform raises pointer events for touches too), so a tap and a click
+hit-test with the same numbers. `pointerDown` reads the held state,
+`pointerPressed`/`pointerReleased` the one-frame edges of the same snapshot the
+action map uses.
+
+The controller half of the table is what a game needs to **show the right button
+prompts** and to read a pad directly: `input.gamepadCount()`,
+`input.gamepadConnected()`, `input.gamepadButton(name)` and
+`input.gamepadAxis(name)`. Names are positional (`"south"`, `"dpleft"`,
+`"lefttrigger"`) with the lettered `"a"`/`"b"`/`"x"`/`"y"` as aliases; an unknown
+name reads `false`/`0` instead of erroring, so a prompt never crashes a game. The
+axis reading is **raw** (undeadzoned) — the deadzone belongs to whatever reads it,
+which is why one stick can feed several actions at different tolerances.
+`input.keyDown(name)` polls a raw key by the same name vocabulary the injected
+input grammar spells; prefer a named action for anything a player would rebind.
+
+The table carries **no capability** — it is read-only device state — which is why
+it sits in the permitted sandbox set beside `world`, `save` and `haptics`.
+
+Everything here is driveable over MCP with `send_input` (`touch …`,
+`gamepad …`), so an agent can test a touch or controller game it just wrote on a
+machine with neither device attached — see [mcp.md](mcp.md#driving-gameplay-send_input).
 
 ## Component enable / disable
 

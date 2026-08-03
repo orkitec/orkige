@@ -26,6 +26,7 @@
 #include "engine_graphic/ScreenFade.h"
 #include "engine_graphic/ScreenShake.h"
 #include "engine_input/InputActionMap.h"
+#include "engine_input/InputManager.h"
 #include "engine_physic/PhysicsWorld.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_sound/SoundManager.h"
@@ -823,10 +824,20 @@ void advanceGameWorld(GameTick const & tick, float deltaTime)
 	//     HERE, before the scripts that read them run. ONE edge
 	//     snapshot per frame (pressed = down && !down-last-frame);
 	//     scripts read the snapshot back, never recompute it.
-	if (tick.inputActions)
+	//     SLOT(input-devices): the RAW pointer/touch snapshot the
+	//     `input` script table reads carries the SAME once-per-frame
+	//     contract and is taken FIRST, so an action and a raw read
+	//     inside one frame describe the same instant.
 	{
 		OPROFILE("input");
-		tick.inputActions->update(deltaTime);
+		if (InputManager::getSingletonPtr())
+		{
+			InputManager::getSingleton().updateFrameState();
+		}
+		if (tick.inputActions)
+		{
+			tick.inputActions->update(deltaTime);
+		}
 	}
 	//
 	// [1b] ASYNC ANSWERS - the network's frame boundary. An HTTP

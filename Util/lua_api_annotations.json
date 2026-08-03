@@ -208,6 +208,54 @@
 		"sig": "(enabled)",
 		"doc": "honour an in-game vibration on/off setting"
 	},
+	"input.touchCount": {
+		"sig": "() -> number",
+		"doc": "fingers reported this frame (a lifting one counts once more)"
+	},
+	"input.touch": {
+		"sig": "(i) -> id, x, y, phase",
+		"doc": "1-based finger: window pixels + 'began'/'moved'/'ended'/'none'"
+	},
+	"input.touchDelta": {
+		"sig": "(i) -> dx, dy",
+		"doc": "that finger's movement since the previous frame, window pixels"
+	},
+	"input.pointer": {
+		"sig": "() -> Vector2",
+		"doc": "the one pointer (mouse or finger) in window pixels"
+	},
+	"input.pointerDown": {
+		"sig": "([button]) -> bool",
+		"doc": "pointer button held ('left' default, 'middle', 'right')"
+	},
+	"input.pointerPressed": {
+		"sig": "([button]) -> bool",
+		"doc": "pointer button went down this frame"
+	},
+	"input.pointerReleased": {
+		"sig": "([button]) -> bool",
+		"doc": "pointer button came up this frame"
+	},
+	"input.keyDown": {
+		"sig": "(name) -> bool",
+		"doc": "raw key by name ('SPACE', 'LEFT'); prefer a named action"
+	},
+	"input.gamepadCount": {
+		"sig": "() -> number",
+		"doc": "connected controllers"
+	},
+	"input.gamepadConnected": {
+		"sig": "() -> bool",
+		"doc": "is a controller present (show pad button prompts)"
+	},
+	"input.gamepadButton": {
+		"sig": "(name) -> bool",
+		"doc": "pad button held; positional names ('south', 'dpleft'), a/b/x/y alias"
+	},
+	"input.gamepadAxis": {
+		"sig": "(name) -> number",
+		"doc": "RAW stick/trigger reading, undeadzoned (sticks -1..1, +y down)"
+	},
 	"sound.setGroupVolume": {
 		"sig": "(group, volume)",
 		"doc": "set a mixer group volume 0..1"

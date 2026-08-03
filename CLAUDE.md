@@ -420,11 +420,16 @@ behind `ORKIGE_BUILD_ENGINE`, ON for all app work).
   sfx), streamed OGG Vorbis music on `MusicStream` (queued-buffer ring, main-thread
   refill in `SoundManager::update`, owned by the `SoundManager` music registry so
   tracks survive scene switches), mixer groups + master.
-- **`engine_input`** is SDL3-based (KC_* keycodes preserved). `isKeyDown` reads
-  the injectEvent-fed state, so synthetic SDL events work. `getTilt()` is a
+- **`engine_input`** is SDL3-based (KC_* keycodes preserved). `isKeyDown`, the
+  gamepad state and the touch/pointer snapshot all read the injectEvent-fed
+  state, so synthetic SDL events work. `getTilt()` is a
   normalized gravity direction (accelerometer where one exists, LEFT/RIGHT-key
   simulated on desktop) — it is WALL-CLOCK paced, so selfchecks must poll it
-  condition-driven, never frame-count.
+  condition-driven, never frame-count. Input reaches a game at two levels:
+  named INTENT through `InputActionMap` (keys/tilt/gamepad bindings, max-magnitude
+  combine) and raw POSITION through the `input` script table (touch, pointer,
+  raw keys, pad reads) — `Docs/lua-api.md`. Both take ONE edge snapshot per
+  frame, in the tick order's input slot before scripts.
 - **`engine_gui`** is the runtime UI system on both flavors (widgets + the
   engine-owned `UiAtlas`/`UiRenderer` 2D renderer on `DrawLayer2D`); atlases come
   from `Util/make_gui_atlas.py`. `Docs/gui.md`.
@@ -857,8 +862,8 @@ what rule it carries, which doc has the depth.
   concave mesh prism, dynamic the convex hull (a concave dynamic body degrades
   with one warn). Holes and scale sit out v1; soft bodies collide as their rest
   shape; the Scene Colliders overlay draws the real contour.
-- **Gameplay**: `engine_input/InputActionMap` (named actions over keys/tilt,
-  `input.oactions`); `engine_sound` mixer groups + master; `core_tween`
+- **Gameplay**: `engine_input/InputActionMap` (named actions over
+  keys/tilt/gamepad, `input.oactions`); `engine_sound` mixer groups + master; `core_tween`
   (`TweenManager` + `EaseLibrary`); `core_debug/CVarManager` (typed cvars,
   live-tunable over the debug protocol, `cvar.`-prefixed manifest persistence).
   The Lua surface for all of it is `Docs/lua-api.md`.

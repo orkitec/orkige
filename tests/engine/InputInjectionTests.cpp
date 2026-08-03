@@ -345,3 +345,173 @@ TEST_CASE("the grammar tolerates extra whitespace and mixed case verbs",
 	CHECK(sequence.events.size() == 5);
 	CHECK(sequence.events[0].key == KeyEventData::KC_RIGHT);
 }
+
+//--- GamepadNames: the controller vocabulary --------------------------------
+
+TEST_CASE("gamepad button names are positional, with lettered aliases",
+	"[unit][input][injection][gamepad]")
+{
+	CHECK(GamepadNames::buttonFromName("SOUTH") == Gamepad::GB_SOUTH);
+	CHECK(GamepadNames::buttonFromName("south") == Gamepad::GB_SOUTH);
+	CHECK(GamepadNames::buttonFromName("dpleft") == Gamepad::GB_DPAD_LEFT);
+	CHECK(GamepadNames::buttonFromName("LeftShoulder") ==
+		Gamepad::GB_LEFTSHOULDER);
+	// the lettered spellings a human reads off the pad in front of them
+	CHECK(GamepadNames::buttonFromName("a") == Gamepad::GB_SOUTH);
+	CHECK(GamepadNames::buttonFromName("B") == Gamepad::GB_EAST);
+	CHECK(GamepadNames::buttonFromName("x") == Gamepad::GB_WEST);
+	CHECK(GamepadNames::buttonFromName("Y") == Gamepad::GB_NORTH);
+	// an unknown name is never guessed at
+	CHECK(GamepadNames::buttonFromName("") == Gamepad::GB_COUNT);
+	CHECK(GamepadNames::buttonFromName("PADDLE4") == Gamepad::GB_COUNT);
+
+	// every canonical name round-trips; the aliases are NOT listed
+	StringVector const names = GamepadNames::allButtonNames();
+	REQUIRE_FALSE(names.empty());
+	for (String const & name : names)
+	{
+		const Gamepad::Button button = GamepadNames::buttonFromName(name);
+		CHECK(button != Gamepad::GB_COUNT);
+		CHECK(GamepadNames::buttonToName(button) == name);
+	}
+	CHECK(std::find(names.begin(), names.end(), String("A")) == names.end());
+	CHECK(GamepadNames::buttonToName(Gamepad::GB_COUNT).empty());
+}
+
+TEST_CASE("gamepad axis names cover the sticks and the triggers",
+	"[unit][input][injection][gamepad]")
+{
+	CHECK(GamepadNames::axisFromName("LEFTX") == Gamepad::GA_LEFTX);
+	CHECK(GamepadNames::axisFromName("righty") == Gamepad::GA_RIGHTY);
+	CHECK(GamepadNames::axisFromName("LeftTrigger") ==
+		Gamepad::GA_LEFTTRIGGER);
+	CHECK(GamepadNames::axisFromName("rt") == Gamepad::GA_RIGHTTRIGGER);
+	CHECK(GamepadNames::axisFromName("middlez") == Gamepad::GA_COUNT);
+
+	StringVector const names = GamepadNames::allAxisNames();
+	REQUIRE_FALSE(names.empty());
+	for (String const & name : names)
+	{
+		const Gamepad::Axis axis = GamepadNames::axisFromName(name);
+		CHECK(axis != Gamepad::GA_COUNT);
+		CHECK(GamepadNames::axisToName(axis) == name);
+	}
+	CHECK(GamepadNames::axisToName(Gamepad::GA_COUNT).empty());
+}
+
+//--- the touch and gamepad step grammar -------------------------------------
+
+TEST_CASE("touch steps carry their finger id and window-pixel position",
+	"[unit][input][injection][touch]")
+{
+	InputInjection::Sequence const sequence = compileOk(
+		{ "touch 0 down 100 200", "touch 0 move 140 200",
+		  "touch 0 up 140 200" });
+	REQUIRE(sequence.events.size() == 3);
+	CHECK(sequence.events[0].kind == InputInjection::EventKind::TouchDown);
+	CHECK(sequence.events[0].touchId == 0);
+	CHECK(sequence.events[0].x == Approx(100.0f));
+	CHECK(sequence.events[0].y == Approx(200.0f));
+	CHECK(sequence.events[1].kind == InputInjection::EventKind::TouchMove);
+	CHECK(sequence.events[1].x == Approx(140.0f));
+	CHECK(sequence.events[2].kind == InputInjection::EventKind::TouchUp);
+	// all three land on frame 0 - no step advances the timeline by itself
+	CHECK(sequence.frameSpan == 1u);
+}
+
+TEST_CASE("a two-finger gesture keeps its ids apart",
+	"[unit][input][injection][touch]")
+{
+	InputInjection::Sequence const sequence = compileOk(
+		{ "touch 0 down 10 10", "touch 1 down 90 90", "wait 1",
+		  "touch 0 move 20 10", "touch 1 move 80 90" });
+	REQUIRE(sequence.events.size() == 4);
+	std::vector<InputInjection::Event> const frame0 = eventsAt(sequence, 0);
+	REQUIRE(frame0.size() == 2);
+	CHECK(frame0[0].touchId == 0);
+	CHECK(frame0[1].touchId == 1);
+	std::vector<InputInjection::Event> const frame1 = eventsAt(sequence, 1);
+	REQUIRE(frame1.size() == 2);
+	CHECK(frame1[0].touchId == 0);
+	CHECK(frame1[1].touchId == 1);
+	CHECK(sequence.frameSpan == 2u);
+}
+
+TEST_CASE("touch tap is down, one held frame, up",
+	"[unit][input][injection][touch]")
+{
+	InputInjection::Sequence const sequence =
+		compileOk({ "touch 2 tap 50 60" });
+	REQUIRE(sequence.events.size() == 2);
+	CHECK(sequence.events[0].kind == InputInjection::EventKind::TouchDown);
+	CHECK(sequence.events[0].frame == 0u);
+	CHECK(sequence.events[1].kind == InputInjection::EventKind::TouchUp);
+	CHECK(sequence.events[1].frame == 1u);
+	CHECK(sequence.events[1].touchId == 2);
+	CHECK(sequence.frameSpan == 2u);
+}
+
+TEST_CASE("malformed touch steps are refused, never guessed at",
+	"[unit][input][injection][touch]")
+{
+	CHECK_FALSE(compileFails({ "touch 0 down 10" }).empty());
+	CHECK_FALSE(compileFails({ "touch down 10 20" }).empty());
+	CHECK_FALSE(compileFails({ "touch 0 sideways 10 20" }).empty());
+	CHECK_FALSE(compileFails({ "touch 0 down left 20" }).empty());
+	CHECK_FALSE(compileFails({ "touch -1 down 10 20" }).empty());
+	// past the runtime's simultaneous-touch bound
+	CHECK_FALSE(compileFails({ "touch 99 down 10 20" }).empty());
+	CHECK(compileFails({ "key down SPACE", "touch 0 down 10" })
+		.find("step 2") != String::npos);
+}
+
+TEST_CASE("gamepad button steps compile like key steps",
+	"[unit][input][injection][gamepad]")
+{
+	InputInjection::Sequence const held =
+		compileOk({ "gamepad button south press 5" });
+	REQUIRE(held.events.size() == 2);
+	CHECK(held.events[0].kind ==
+		InputInjection::EventKind::GamepadButtonDown);
+	CHECK(held.events[0].gamepadButton == Gamepad::GB_SOUTH);
+	CHECK(held.events[0].frame == 0u);
+	CHECK(held.events[1].kind == InputInjection::EventKind::GamepadButtonUp);
+	CHECK(held.events[1].frame == 5u);
+	CHECK(held.frameSpan == 6u);
+
+	InputInjection::Sequence const edges =
+		compileOk({ "gamepad button A down", "wait 2", "gamepad button a up" });
+	REQUIRE(edges.events.size() == 2);
+	CHECK(edges.events[0].gamepadButton == Gamepad::GB_SOUTH);
+	CHECK(edges.events[1].frame == 2u);
+}
+
+TEST_CASE("gamepad axis steps carry the normalized reading",
+	"[unit][input][injection][gamepad]")
+{
+	InputInjection::Sequence const sequence = compileOk(
+		{ "gamepad axis leftx -1", "gamepad axis righttrigger 0.5" });
+	REQUIRE(sequence.events.size() == 2);
+	CHECK(sequence.events[0].kind == InputInjection::EventKind::GamepadAxis);
+	CHECK(sequence.events[0].gamepadAxis == Gamepad::GA_LEFTX);
+	CHECK(sequence.events[0].axisValue == Approx(-1.0f));
+	CHECK(sequence.events[1].gamepadAxis == Gamepad::GA_RIGHTTRIGGER);
+	CHECK(sequence.events[1].axisValue == Approx(0.5f));
+}
+
+TEST_CASE("malformed gamepad steps are refused with a reason",
+	"[unit][input][injection][gamepad]")
+{
+	CHECK(compileFails({ "gamepad button nosuchbutton down" })
+		.find("nosuchbutton") != String::npos);
+	CHECK(compileFails({ "gamepad axis nosuchaxis 1" })
+		.find("nosuchaxis") != String::npos);
+	CHECK_FALSE(compileFails({ "gamepad button south sideways" }).empty());
+	CHECK_FALSE(compileFails({ "gamepad axis leftx" }).empty());
+	CHECK_FALSE(compileFails({ "gamepad axis leftx hard" }).empty());
+	// a reading outside the device's own range is a mistake, not a clamp
+	CHECK_FALSE(compileFails({ "gamepad axis leftx 2" }).empty());
+	CHECK_FALSE(compileFails({ "gamepad axis leftx -1.5" }).empty());
+	CHECK_FALSE(compileFails({ "gamepad stick leftx 1" }).empty());
+	CHECK_FALSE(compileFails({ "gamepad button south" }).empty());
+}
