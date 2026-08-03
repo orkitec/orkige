@@ -15,6 +15,7 @@
 #include "core_util/optr.h"
 #include "core_base/PropertyValue.h"
 #include "core_script/ScriptDebugCore.h"
+#include "core_script/ScriptTestReport.h"
 
 #include <functional>
 #include <map>
@@ -282,6 +283,34 @@ namespace Orkige
 		//! @return the instance, or NULL with *outError set (file not found,
 		//! script error, scripting disabled)
 		optr<ScriptInstance> loadScriptInstance(String const & scriptFile,
+			String * outError);
+
+		//! @brief read a script file's SOURCE by project-relative name: the
+		//! injected ResourceReader first (so a script inside a mounted pak/APK
+		//! resolves in place), then the on-disk file resolveScriptPath finds.
+		//! The ONE routing both loadScriptInstance and the library loader use,
+		//! so no consumer of script source ever grows an `fopen` of its own.
+		//! @return false with *outError set when the name resolves nowhere
+		bool readScriptSource(String const & scriptFile, String & outSource,
+			String * outError) const;
+
+		//! @brief run every test a `*.test.lua` file declares, in its own
+		//! sandbox seeded with the engine-owned test vocabulary
+		//! (@see scriptTestPrelude). Loading the file IS the declaration pass;
+		//! the bodies then run under pcall, so one failing test never stops the
+		//! rest.
+		//! @param resourceName the project-relative file (also the chunk name
+		//! every `file:line` in a message is written in terms of)
+		//! @param filter the `--test-filter` substring ("" runs everything),
+		//! matched by ScriptTestTools::filterMatches
+		//! @param outRecords receives one record per test actually RUN
+		//! @param outDeclared (optional) receives the number of tests the file
+		//! declared, so the caller can report how many the filter excluded
+		//! @return false with *outError set when the FILE itself could not be
+		//! loaded (not found, syntax error) or scripting is disabled - a whole
+		//! file that cannot load is a run failure, never a silent skip
+		bool runTestFile(String const & resourceName, String const & filter,
+			std::vector<ScriptTestRecord> & outRecords, int * outDeclared,
 			String * outError);
 
 		//! @brief read a script file's top-level `properties` table (the

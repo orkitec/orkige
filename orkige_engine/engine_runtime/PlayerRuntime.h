@@ -54,6 +54,14 @@ namespace Orkige
 		//! instead of loopback (the explicit network-exposure opt-in); default
 		//! false keeps the link on 127.0.0.1
 		bool			debugExposeNonLoopback = false;
+		//! --run-tests: run the open project's Lua test suite
+		//! (`<project>/tests/*.test.lua`) instead of playing it, and exit with
+		//! the run's verdict. Needs --project: a test suite belongs to a
+		//! project, not to a loose scene.
+		bool			runTests = false;
+		//! --test-filter <substring>: with --run-tests, run only the tests
+		//! whose "<file>::<name>" contains this ("" = all)
+		String			testFilter;
 		bool			valid = true;			//!< false on an unknown argument
 		String			unknownArgument;		//!< the offender when !valid
 

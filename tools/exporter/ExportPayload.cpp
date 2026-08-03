@@ -163,6 +163,39 @@ namespace OrkigeExport
 		return true;
 	}
 	//---------------------------------------------------------
+	bool stripEditorScripts(Orkige::String const & payloadDirectory,
+		ExportLog const & log, int * outStripped, Orkige::String * error)
+	{
+		const Orkige::String suffix = ".editor.lua";
+		int stripped = 0;
+		for(Orkige::String const & relative :
+			ExportFiles::listFilesRecursive(payloadDirectory))
+		{
+			if(relative.size() <= suffix.size() ||
+				relative.compare(relative.size() - suffix.size(),
+					suffix.size(), suffix) != 0)
+			{
+				continue;
+			}
+			if(!ExportFiles::removeTree(
+				ExportFiles::join(payloadDirectory, relative), error))
+			{
+				return false;
+			}
+			++stripped;
+		}
+		if(stripped > 0)
+		{
+			emit(log, "dropped " + std::to_string(stripped) +
+				" editor tool script(s) - dev tooling never ships");
+		}
+		if(outStripped != 0)
+		{
+			*outStripped = stripped;
+		}
+		return true;
+	}
+	//---------------------------------------------------------
 	bool stageProjectPayload(ExportProject const & project,
 		Orkige::String const & destination,
 		Orkige::String const & texturePlatform, Orkige::String const & flavor,
@@ -229,6 +262,13 @@ namespace OrkigeExport
 			return false;
 		}
 		staged -= stripped;
+		// the other dev-only artefact riding inside a payload subdirectory
+		int editorScripts = 0;
+		if(!stripEditorScripts(destination, log, &editorScripts, error))
+		{
+			return false;
+		}
+		staged -= editorScripts;
 		if(outStaged != 0)
 		{
 			*outStaged = staged;

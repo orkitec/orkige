@@ -293,6 +293,15 @@ namespace Orkige
 			{
 				arguments.orientation = argv[++argIndex];
 			}
+			else if (std::strcmp(argv[argIndex], "--run-tests") == 0)
+			{
+				arguments.runTests = true;
+			}
+			else if (std::strcmp(argv[argIndex], "--test-filter") == 0 &&
+				argIndex + 1 < argc)
+			{
+				arguments.testFilter = argv[++argIndex];
+			}
 			else if (argv[argIndex][0] != '-' && arguments.scenePath.empty())
 			{
 				arguments.scenePath = argv[argIndex];

@@ -12,6 +12,9 @@
 #include "core_http/HttpClient.h"
 #include "core_tween/TimerManager.h"
 #include "core_script/ScriptEventPayload.h"
+#include "core_script/ScriptLibrary.h"
+#include "core_script/ScriptTestPrelude.h"
+#include "core_script/ScriptTestTools.h"
 #include "core_base/TypeInfo.h"
 #include "core_filesystem/ResourceReader.h"
 
@@ -28,7 +31,6 @@
 namespace Orkige
 {
 	IMPL_OSINGLETON(ScriptRuntime)
-#ifdef ORKIGE_LUA
 	namespace
 	{
 		//! @brief try the process-wide archive ResourceReader for a script's
@@ -42,6 +44,10 @@ namespace Orkige
 			ResourceReader const * reader = ResourceAccess::reader();
 			return reader && reader->readText(scriptFile, outSource);
 		}
+	}
+#ifdef ORKIGE_LUA
+	namespace
+	{
 		//! walk a global path like {"shared","jumper","wins"} to its value
 		//! (nil when any step is missing or not a table)
 		sol::object resolveGlobalPath(sol::state & lua, StringVector const & path)
@@ -135,6 +141,41 @@ namespace Orkige
 		return "";
 	}
 	//---------------------------------------------------------
+	bool ScriptRuntime::readScriptSource(String const & scriptFile,
+		String & outSource, String * outError) const
+	{
+		oAssert(outError);
+		// ARCHIVE-FIRST: when an archive reader is installed AND it resolves
+		// the name, the source comes out of the mounted pak/APK in place - no
+		// real file on disk, no extraction. A miss (or no reader at all) falls
+		// through to the on-disk file, so headless core tests and loose-file
+		// dev keep working unchanged.
+		String source;
+		if(readScriptThroughReader(scriptFile, source))
+		{
+			outSource.swap(source);
+			return true;
+		}
+		const String resolvedPath = this->resolveScriptPath(scriptFile);
+		if(resolvedPath.empty())
+		{
+			*outError = "script file '" + scriptFile + "' not found (searched "
+				"the mounted content, the project root '" +
+				this->scriptSearchRoot + "' and the working directory)";
+			return false;
+		}
+		std::ifstream file(resolvedPath, std::ios::binary);
+		if(!file)
+		{
+			*outError = "script file could not be read: " + resolvedPath;
+			return false;
+		}
+		std::ostringstream buffer;
+		buffer << file.rdbuf();
+		outSource = buffer.str();
+		return true;
+	}
+	//---------------------------------------------------------
 	ScriptRuntime::Result ScriptRuntime::runString(String const & code)
 	{
 		Result result;
@@ -174,50 +215,18 @@ namespace Orkige
 		// instances; deliberate sharing goes through the `shared` table)
 		instance->environment = sol::environment(lua, sol::create, lua.globals());
 
-		// ARCHIVE-FIRST: when an archive reader is installed AND it resolves the
-		// script by name, load the source from memory (the runString idiom, but
-		// into THIS instance's sandbox) - so a script mounted inside a pak/APK
-		// loads in place, no real file on disk. The chunk name is the script
-		// path so Lua errors still read "<file>:<line>". No reader, or a miss,
-		// falls through to the on-disk file below (headless core tests and
-		// loose-file dev keep working unchanged).
-		String source;
-		if (readScriptThroughReader(scriptFile, source))
-		{
-			const sol::protected_function_result loadResult = lua.safe_script(
-				source, instance->environment, sol::script_pass_on_error,
-				"@" + scriptFile);
-			if (!loadResult.valid())
-			{
-				const sol::error error = loadResult;
-				*outError = error.what();
-				return optr<ScriptInstance>();
-			}
-			instance->selfTable = lua.create_table();
-			return instance;
-		}
-
-		const String resolvedPath = this->resolveScriptPath(scriptFile);
-		if (resolvedPath.empty())
-		{
-			*outError = "script file not found (searched the project root '" +
-				this->scriptSearchRoot + "' and the working directory)";
-			return optr<ScriptInstance>();
-		}
-		// load the on-disk file through a memory chunk so the chunk NAME stays
-		// the path the component asked for (project-relative), never the
-		// machine-local absolute path resolveScriptPath found. Every instance
-		// of one script then shares ONE chunk name - the key the script
+		// the source comes through the ONE routing (readScriptSource): the
+		// archive reader first - so a script mounted inside a pak/APK loads in
+		// place, no real file on disk - then the on-disk file. Either way the
+		// chunk is loaded from MEMORY under the project-relative chunk NAME the
+		// component asked for, never the machine-local absolute path: every
+		// instance of one script then shares ONE chunk name, the key the script
 		// debugger's breakpoints and the error file:line prefixes agree on.
-		std::ifstream file(resolvedPath, std::ios::binary);
-		if (!file)
+		String source;
+		if (!this->readScriptSource(scriptFile, source, outError))
 		{
-			*outError = "script file could not be read: " + resolvedPath;
 			return optr<ScriptInstance>();
 		}
-		std::ostringstream buffer;
-		buffer << file.rdbuf();
-		source = buffer.str();
 		const sol::protected_function_result loadResult = lua.safe_script(
 			source, instance->environment, sol::script_pass_on_error,
 			"@" + scriptFile);
@@ -2035,6 +2044,113 @@ namespace Orkige
 #else
 		(void)name;
 		(void)args;
+#endif
+	}
+	//---------------------------------------------------------
+	//---------------------------------------------------------
+	bool ScriptRuntime::runTestFile(String const & resourceName,
+		String const & filter, std::vector<ScriptTestRecord> & outRecords,
+		int * outDeclared, String * outError)
+	{
+		oAssert(outError);
+		if (outDeclared != 0)
+		{
+			*outDeclared = 0;
+		}
+#ifdef ORKIGE_LUA
+		sol::state & lua = this->luaManager.state();
+		// the test file gets a sandbox of exactly the shape a script component
+		// gets, so a test exercises the SAME environment the game runs in
+		sol::environment environment(lua, sol::create, lua.globals());
+		const sol::protected_function_result preludeResult = lua.safe_script(
+			scriptTestPrelude(), environment, sol::script_pass_on_error,
+			"@orkige/test-prelude.lua");
+		if (!preludeResult.valid())
+		{
+			const sol::error error = preludeResult;
+			*outError = String("the test vocabulary failed to load: ") +
+				error.what();
+			return false;
+		}
+		String source;
+		if (!this->readScriptSource(resourceName, source, outError))
+		{
+			return false;
+		}
+		// loading the file IS the declaration pass: its top-level test() calls
+		// register bodies, nothing runs yet
+		const sol::protected_function_result loadResult = lua.safe_script(
+			source, environment, sol::script_pass_on_error,
+			"@" + resourceName);
+		if (!loadResult.valid())
+		{
+			const sol::error error = loadResult;
+			*outError = error.what();
+			return false;
+		}
+		const sol::object declared = environment["__orkige_tests"];
+		if (declared.is<sol::table>() && outDeclared != 0)
+		{
+			*outDeclared = static_cast<int>(declared.as<sol::table>().size());
+		}
+		const sol::object runner = environment["__orkige_run"];
+		if (!runner.is<sol::protected_function>())
+		{
+			*outError = "the test vocabulary was replaced by the test file "
+				"(__orkige_run is gone)";
+			return false;
+		}
+		// the filter decision stays in ONE place (the pure rule); Lua only asks
+		std::function<bool(String const &)> shouldRun =
+			[&resourceName, &filter](String const & testName)
+		{
+			return ScriptTestTools::filterMatches(filter, resourceName,
+				testName);
+		};
+		const sol::protected_function_result runResult =
+			runner.as<sol::protected_function>()(shouldRun);
+		if (!runResult.valid())
+		{
+			const sol::error error = runResult;
+			*outError = error.what();
+			return false;
+		}
+		const sol::object resultsObject = runResult.get<sol::object>(0);
+		if (!resultsObject.is<sol::table>())
+		{
+			*outError = "the test run returned no results";
+			return false;
+		}
+		const sol::table results = resultsObject.as<sol::table>();
+		for (std::size_t index = 1; index <= results.size(); ++index)
+		{
+			const sol::object entryObject = results[index];
+			if (!entryObject.is<sol::table>())
+			{
+				continue;
+			}
+			const sol::table entry = entryObject.as<sol::table>();
+			ScriptTestRecord record;
+			record.file = resourceName;
+			const sol::object name = entry["name"];
+			record.name = name.is<String>() ? name.as<String>() : String();
+			const sol::object status = entry["status"];
+			record.status =
+				status.is<String>() ? status.as<String>() : String("error");
+			const sol::object message = entry["message"];
+			record.message =
+				message.is<String>() ? message.as<String>() : String();
+			const sol::object ms = entry["ms"];
+			record.ms = ms.is<double>() ? ms.as<double>() : 0.0;
+			outRecords.push_back(record);
+		}
+		return true;
+#else
+		(void)resourceName;
+		(void)filter;
+		(void)outRecords;
+		*outError = ScriptRuntime::disabledError();
+		return false;
 #endif
 	}
 	//---------------------------------------------------------

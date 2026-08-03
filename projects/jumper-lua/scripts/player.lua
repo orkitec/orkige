@@ -28,6 +28,14 @@
 
 local TS = RenderNode.TransformSpace
 
+-- the pure "feel" math (the approach curve, the buffered jump, the kill-plane
+-- and goal rules, the tuning validation) lives in a LIBRARY next door.
+-- script.require reads it through the content mounts, so the same call works
+-- loose, from a pak and from inside a phone's package - and because those
+-- functions take only numbers, projects/jumper-lua/tests/*.test.lua exercises
+-- THIS code with no scene (orkige_player --project ... --run-tests).
+local jumper = script.require("scripts/jumperlib.lua")
+
 --- tuning (the "feel" numbers) ----------------------------------------------
 -- These live in data/tuning.json, not in this file: a tuning table is DATA, so
 -- it is authored as a data file and read at init through the `data` table. The
@@ -70,9 +78,7 @@ local respawns     = 0
 
 -- frame-rate independent exponential approach (the same curve as
 -- JumperLogic::approach): never overshoots, ~63% of the distance per 1/rate s
-local function approach(current, target, rate, dt)
-	return current + (target - current) * (1.0 - math.exp(-rate * dt))
-end
+local approach = jumper.approach
 
 -- teleport the player body (respawn and the selfcheck use this): pose reset
 -- in the simulation AND the scene, all momentum killed
@@ -109,6 +115,13 @@ local function loadTuning()
 	local tuning, err = data.readJson(TUNING_FILE)
 	if tuning == nil then
 		error("player.lua: could not read " .. TUNING_FILE .. ": " .. err)
+	end
+	-- the numbers must also be USABLE, not merely present: the shared check
+	-- lives in the library, so the test suite asserts the SHIPPED tuning file
+	-- against the same rule the game boots with
+	local checked, reason = jumper.checkTuning(tuning)
+	if checked == nil then
+		error("player.lua: " .. TUNING_FILE .. " is unusable: " .. reason)
 	end
 	MOVE_SPEED         = tuning.moveSpeed
 	ACCEL_RATE         = tuning.accelRate
@@ -188,13 +201,12 @@ function update(self, dt)
 	-- buffered jump: a SPACE press up to 0.12s before landing still jumps.
 	-- actions:pressed("jump") is the once-per-frame edge (true exactly the
 	-- frame SPACE goes down) - no more hand-rolled spaceWasDown tracking
-	if controlsEnabled and actions:pressed("jump") then
-		jumpBuffer = JUMP_BUFFER_SECONDS
-	end
-	jumpBuffer = math.max(0.0, jumpBuffer - dt)
-	if grounded and jumpBuffer > 0.0 then
+	local pressedJump = controlsEnabled and actions:pressed("jump")
+	local jumped
+	jumpBuffer, jumped = jumper.tickJumpBuffer(jumpBuffer, dt, pressedJump,
+		grounded, JUMP_BUFFER_SECONDS)
+	if jumped then
 		vy = JUMP_SPEED
-		jumpBuffer = 0.0
 		grounded = false
 	end
 	body:setLinearVelocity(Vector3(vx, vy, vz))
@@ -210,7 +222,7 @@ function update(self, dt)
 	end
 
 	-- fell out of the level?
-	if py < KILL_PLANE_Y then
+	if jumper.belowKillPlane(py, KILL_PLANE_Y) then
 		print("player.lua: fell out of the level - respawning")
 		respawn(self)
 		publishState(SPAWN.x, SPAWN.y, SPAWN.z)
@@ -219,8 +231,8 @@ function update(self, dt)
 	-- reached the buddy at the end?
 	if goalTransform ~= nil then
 		local goal = goalTransform:getPosition()
-		local dx, dy, dz = goal.x - px, goal.y - py, goal.z - pz
-		if dx * dx + dy * dy + dz * dz <= GOAL_RADIUS * GOAL_RADIUS then
+		if jumper.withinGoal(px, py, pz, goal.x, goal.y, goal.z,
+			GOAL_RADIUS) then
 			wins = wins + 1
 			print("player.lua: WIN! you reached your buddy (win #" .. wins ..
 				") - respawning for another round")

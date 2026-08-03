@@ -68,6 +68,14 @@ namespace
 		writeFile(ExportFiles::join(root, "assets/coin.osfx"),
 			"version 1\npreset coin\n");
 		writeFile(ExportFiles::join(root, "scripts/player.lua"), "-- lua\n");
+		// DEVELOPMENT artefacts, out for two different reasons: an editor TOOL
+		// rides inside scripts/ (a payload subdirectory) and needs an explicit
+		// strip; a test file lives in tests/, which is not a payload
+		// subdirectory at all, so it is out by construction
+		writeFile(ExportFiles::join(root, "scripts/retag.editor.lua"),
+			"-- tool: Retag\n");
+		writeFile(ExportFiles::join(root, "tests/movement.test.lua"),
+			"test('x', function(t) end)\n");
 		// authored DATA files: a script reads these by project-relative name
 		// at runtime, so they must reach the payload like any other content
 		writeFile(ExportFiles::join(root, "data/tuning.json"),
@@ -121,6 +129,19 @@ TEST_CASE("the payload ships the manifest and the content subdirectories",
 	// not part of this one - both stay home
 	CHECK_FALSE(ExportFiles::exists(ExportFiles::join(destination, "native")));
 	CHECK_FALSE(ExportFiles::exists(ExportFiles::join(destination, "builds")));
+
+	// a project's own Lua TEST SUITE is a development artefact: it is run
+	// against a project on a dev machine, never by a shipped game. `tests` is
+	// deliberately not a payloadSubdirs() entry, so it is out by construction -
+	// this is what makes adding it there fail loudly
+	CHECK_FALSE(ExportFiles::exists(ExportFiles::join(destination, "tests")));
+	// an editor TOOL is dev tooling too, but it rides inside scripts/, which
+	// IS a payload subdirectory - so it is copied and then stripped. Its
+	// ordinary sibling in the same folder must survive that strip.
+	CHECK_FALSE(ExportFiles::exists(
+		ExportFiles::join(destination, "scripts/retag.editor.lua")));
+	CHECK(ExportFiles::isRegularFile(
+		ExportFiles::join(destination, "scripts/player.lua")));
 }
 
 TEST_CASE("config assets ride along at their project-relative paths",

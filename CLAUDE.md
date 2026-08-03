@@ -228,9 +228,24 @@ CI is a hard gate on every push — see the **CI** section at the end of this fi
   so several different scripts attach to one object, each with its own container
   key + sandbox, addable in the editor / over MCP / in scenes by kind name. A
   top-level `properties` table auto-exposes designer-tunable fields through the
-  ONE reflection registry. Plain `.lua` files are libraries; the low-level
-  path-bound `ScriptComponent` kind still works —
+  ONE reflection registry. Plain `.lua` files are LIBRARIES, loaded by another
+  script with **`script.require("scripts/lib.lua")`** — jailed by `PathJail` to
+  a project-relative `.lua` name (exactly the file set a path-bound
+  `ScriptComponent` could already run, so it is the same capability, not a new
+  one; `load`/`loadfile`/`dofile`/`require` stay denied), read through
+  `ResourceAccess` so a library resolves out of a pak/APK in place, cached PER
+  SANDBOX (a process-wide module registry would be a second, undeclared sharing
+  channel beside `shared`), with a named cycle refusal instead of a blown C
+  stack. The low-level path-bound `ScriptComponent` kind still works —
   `Docs/lua-api.md#script-components`.
+  A project TESTS its own Lua in Lua: `<project>/tests/*.test.lua` run by
+  `orkige_player --project <p> --run-tests [--test-filter <substr>]` against
+  the live runtime, over an engine-owned vocabulary that is a C++ string
+  constant (so a released player carries it — no file, no repo, no Python),
+  exit code as the verdict plus a flush-per-record JSONL artifact
+  (`ORKIGE_TEST_REPORT_DIR`). `tests/` is NOT a payload subdirectory — a
+  suite never ships — and `*.editor.lua` is stripped from `scripts/` at
+  export; both absences are asserted. `Docs/testing.md`.
 - Everything builds statically (`ORKIGE_STATIC` is defined globally); the old
   `__declspec` DLL export macros in the prerequisites headers are inert.
 - Keep the existing code style when editing old files: tabs, `m`-prefixed members,
@@ -655,7 +670,8 @@ lives in a doc and is pointed at from here. The full index:
 | `filesystem.md` | pak mounting, `MiniZip`, the filesystem funnel |
 | `textures.md` | import settings, the export-time GPU cook |
 | `logging.md` | tags, levels, sinks, the `log.*` cvars |
-| `lua-api.md` | the generated Lua reference (script components, editor scripts) |
+| `lua-api.md` | the generated Lua reference (script components, libraries, editor scripts) |
+| `testing.md` | the project Lua test tier (`tests/*.test.lua`, `--run-tests`) |
 | `mcp.md` / `mcp-workflows.md` | the MCP endpoint reference / worked agent workflows |
 | `script-debugging.md` | script editor, breakpoints, the debug loop |
 | `editor.md` | editor panels (Source Control, asset badges), scene view + level authoring |

@@ -5,9 +5,14 @@ The scripting surface a game reaches from a script component
 `projects/jumper-lua/scripts/player.lua` and
 `projects/roller/scripts/ball.component.lua` are the reference reads.
 
-A script is a **component kind** iff its file name ends in `.component.lua` (see
-[Script components](#script-components) below): `player.component.lua` attaches
-as the component `player`. Plain `.lua` files are libraries, never attachable.
+The file name says what a `.lua` file IS — the suffix marks the kind:
+
+| File | What it is |
+| --- | --- |
+| `scripts/player.component.lua` | a component **kind** named `player`: attachable by name in the editor, over MCP and in a scene (see [Script components](#script-components)) |
+| `scripts/mathutil.lua` | a **library**: shared code another script loads with [`script.require`](#sharing-code-between-scripts-scriptrequire). It is not a component kind, so nothing offers it in the Add Component list — but the low-level path-bound `ScriptComponent` can still be pointed at any `.lua` file by path |
+| `scripts/retag.editor.lua` | an editor **tool**: a one-shot command in the editor's Tools menu (see [Editor scripts](#editor-scripts-tools-menu)) |
+| `tests/movement.test.lua` | a **test file**: run against the project with `orkige_player --run-tests` — [testing.md](testing.md) |
 
 This page is layered. The **signature index** below is the whole API, one line per
 symbol, for a fast top-to-bottom scan (an agent ingests it in a single read). Below
@@ -48,14 +53,25 @@ the process log stream — no file/process access). `os` is kept only as a **pru
 read-only subset**: `os.time`, `os.clock`, `os.date` (RNG seeding / timing /
 timestamp formatting carry no capability). Plus the sanctioned engine API tables —
 `world`, `shared`, `self`, `music`, `save`, `screen`, `haptics`, `input`, `data`,
-`loc`, the component handles, and (editor only) `editor.*` — which are the
-intended API.
+`script`, `loc`, the component handles, and (editor only) `editor.*` — which are
+the intended API.
 
 `data` is the read-only content access granted in place of the denied file
 globals: it reads authored data files by project-relative name and grants
 strictly less than `io` — no writes, no handles, no path outside the project, and
 only content that is actually mounted. See
 [Reading data files](#reading-data-files-the-data-table).
+
+`script.require` is the library loader granted in place of the denied `require`.
+It is **not** a relaxation of the sandbox, and the reasoning is the point: a
+scene can already attach a path-bound `ScriptComponent` naming any
+project-relative `.lua` file, so a hostile `.oscene` can already cause any
+project script to run. A loader jailed to project-relative `.lua` names reaches
+**exactly the same files** — the same capability with better ergonomics, not a
+new one. What stock `require` additionally granted (the package path, C modules,
+an arbitrary search) and what `load` grants (code synthesised from a *string*)
+stay denied. See
+[Sharing code between scripts](#sharing-code-between-scripts-scriptrequire).
 
 **Denied — every escape from "content" to the machine** (each is `nil`; a call
 errors honestly):
@@ -64,7 +80,7 @@ errors honestly):
 | --- | --- |
 | `io` | raw file handles (read/write/delete arbitrary files) |
 | `os.execute`, `os.remove`, `os.rename`, `os.exit`, `os.getenv`, `os.tmpname` | process execution, filesystem + environment access (dropped from the `os` subset) |
-| `require`, `package` | load Lua/C modules off the package path (the `package` library is never opened) |
+| `require`, `package` | load Lua/C modules off the package path (the `package` library is never opened) — `script.require` is the jailed, project-only replacement |
 | `load`, `loadstring`, `loadfile`, `dofile` | compile+run arbitrary source / read+run an arbitrary file |
 | `debug` | the reflection + hook library (bypasses every sandbox boundary) |
 
@@ -241,6 +257,9 @@ http.request(options) -> id  -- the full form: url/method/body/headers/timeout/m
 http.cancel(id) -> bool  -- abort a request; its onComplete still fires once with error='cancelled'
 http.isAvailable() -> bool  -- does this runtime have an HTTP client (false in the editor)
 http.pending() -> number  -- how many requests are still awaiting an answer
+
+## script
+script.require(name) -> value  -- load another project .lua as a LIBRARY and return its value (cached per sandbox); raises on a refused name, a miss or a cycle
 
 ## globals
 loc(key [, ...]) -> string  -- localised string; %%N%% filled by trailing args
@@ -666,6 +685,63 @@ allowed; *running* it is not, and `load`, `loadstring`, `loadfile`, `dofile` and
 
 `projects/jumper-lua` is the worked example: its feel numbers live in
 `data/tuning.json` and `scripts/player.lua` reads them in `init`.
+
+## Sharing code between scripts (`script.require`)
+
+A plain `.lua` file is a **library**: shared helpers, common math, a wrapper
+around a data table. Another script picks it up by project-relative name.
+
+```lua
+-- scripts/mathutil.lua
+local M = {}
+function M.clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
+return M
+```
+
+```lua
+-- scripts/player.component.lua
+local m = script.require("scripts/mathutil.lua")
+
+function update(self, dt)
+    self.transform:setPosition(Vector3(m.clamp(x, -8, 8), y, z))
+end
+```
+
+`script.require(name)` returns the value the library's chunk returns (`true`
+when it returns nothing, matching stock `require`). It **raises** on failure
+rather than returning `nil` plus a reason the way `data` does, and the
+difference is deliberate: absent *data* is a situation a game handles, a missing
+*library* is a broken dependency. The message names the library and carries the
+requiring line's own `file:line` prefix.
+
+**Where a library may live.** Anywhere in the project, under any directory —
+the name is a project-relative path and the only shape rules are that it must
+not escape the project (no absolute path, no drive/UNC root, no `..` segment)
+and must end in `.lua`. The read resolves through the content mounts, so a loose
+file, an entry in a mounted pak and a file inside a phone's package all answer
+the identical call.
+
+**Each sandbox gets its own copy.** A library is loaded at most once *per
+requiring sandbox*, not once per process. Requiring it twice inside one script
+returns the identical value; two script instances requiring the same library get
+two independent copies. That follows the sandbox rule this whole surface is
+built on — one instance's state never leaks into another's, and deliberate
+sharing goes through the `shared` table. It is also what makes hot-reload
+correct: a rebuilt sandbox re-reads its libraries with no cache to invalidate.
+
+**A library does not see its caller.** The chunk runs in its own environment
+with the globals underneath it, so it has no `self`, no view of the requiring
+script's locals, and no way to write into them. Pass what it needs as arguments.
+
+**A dependency cycle is refused by name**, not by a stack overflow: if `a.lua`
+requires `b.lua` which requires `a.lua`, the second require raises
+`circular library dependency (scripts/a.lua -> scripts/b.lua -> scripts/a.lua)`.
+
+Libraries are available in **every** sandbox — game script components, editor
+tools and test files alike — because they are all the same hardened state.
+`projects/jumper-lua/scripts/jumperlib.lua` is the worked example: the jumper's
+feel math lives there, `scripts/player.lua` runs on it, and
+`projects/jumper-lua/tests/` tests it ([testing.md](testing.md)).
 
 ## Canonical snippets
 

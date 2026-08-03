@@ -420,6 +420,10 @@
 		"sig": "(name) -> table | nil, error",
 		"doc": "read a data file and decode it as JSON"
 	},
+	"script.require": {
+		"sig": "(name) -> value",
+		"doc": "load another project .lua as a LIBRARY and return its value (cached per sandbox); raises on a refused name, a miss or a cycle"
+	},
 	"http.get": {
 		"sig": "(url, onComplete [, onProgress]) -> id",
 		"doc": "GET a url; onComplete(res) at the next frame boundary (0 = refused)"

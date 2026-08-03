@@ -151,6 +151,34 @@ def check_payload_data(payload_dir, project_dir):
     log("data files: %d authored file(s) shipped" % len(authored))
 
 
+def check_payload_dev_only(payload_dir, project_dir):
+    """DEVELOPMENT artefacts never ship. Two of them, out for two different
+    reasons, and both reasons are load-bearing:
+
+      tests/       a project's Lua test suite is run against a project on a dev
+                   machine (orkige_player --run-tests), never by a shipped
+                   game. It is out BY CONSTRUCTION - `tests` is not a
+                   payloadSubdirs() entry - so this asserts the construction,
+                   which is what makes adding it to that list fail loudly.
+      *.editor.lua an editor TOOL rides inside scripts/, which IS a payload
+                   subdirectory, so it needs an explicit strip
+                   (stripEditorScripts) and this asserts the strip happened."""
+    strays = sorted(
+        os.path.relpath(os.path.join(parent, name), payload_dir)
+        for parent, _dirs, files in os.walk(payload_dir) for name in files
+        if name.endswith(".editor.lua"))
+    require(not strays,
+            "the payload carries no editor tool scripts (found %s)" % strays)
+    require(not os.path.exists(os.path.join(payload_dir, "tests")),
+            "the payload carries no tests/ directory")
+    authored_tests = os.path.isdir(os.path.join(project_dir, "tests"))
+    authored_tools = any(
+        name.endswith(".editor.lua")
+        for _parent, _dirs, files in os.walk(project_dir) for name in files)
+    log("dev-only artefacts: none shipped (source authors tests/=%s, "
+        "editor tools=%s)" % (authored_tests, authored_tools))
+
+
 def check_payload_samplers(payload_dir, project_dir, platform):
     """a packaged payload carries NO .orkmeta - sidecars are editor
     bookkeeping - and the one answer a runtime reads out of them (how a texture
@@ -565,6 +593,7 @@ def main():
         check_payload_cook(payload, cooked_names)
         check_payload_samplers(payload, args.project, args.platform)
         check_payload_data(payload, args.project)
+        check_payload_dev_only(payload, args.project)
         check_macos(artifact, exe_name, args.run_frames, flavor,
                     make_clean_room(args.repo, args.output))
     elif args.platform == "ios-simulator":
@@ -574,6 +603,8 @@ def main():
         check_payload_samplers(os.path.join(artifact, "project"), args.project,
                                args.platform)
         check_payload_data(os.path.join(artifact, "project"), args.project)
+        check_payload_dev_only(os.path.join(artifact, "project"),
+                               args.project)
     elif args.platform == "android-aab":
         artifact = os.path.join(args.output, exe_name + ".aab.module.zip")
         check_android_aab_module(artifact)
@@ -592,6 +623,7 @@ def main():
             check_payload_cook(payload, cooked_names)
             check_payload_samplers(payload, args.project, args.platform)
             check_payload_data(payload, args.project)
+            check_payload_dev_only(payload, args.project)
 
     log("artifact %s (%.1f MiB)" % (artifact,
         directory_size(artifact) / (1024.0 * 1024.0)))
