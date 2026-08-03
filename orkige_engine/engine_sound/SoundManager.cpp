@@ -22,6 +22,10 @@
 
 #include <algorithm>
 #include <cstdlib>
+#ifdef __APPLE__
+// TARGET_OS_SIMULATOR: the audio backend below is chosen by platform
+#include <TargetConditionals.h>
+#endif
 
 namespace Orkige
 {
@@ -556,6 +560,24 @@ namespace Orkige
 	bool SoundManager::initOpenAl()
 	{
 #ifdef ORKIGE_OPENAL_SOUND
+#if defined(__APPLE__) && TARGET_OS_SIMULATOR
+		// The iOS SIMULATOR has no working audio: OpenAL Soft's CoreAudio
+		// backend stalls in an AURemoteIO RPC timeout and calls abort(), which
+		// no error handling here can catch because the process is gone inside
+		// alcCreateContext. Selecting the null backend is the only prevention,
+		// which is why every test driver already passes ALSOFT_DRIVERS=null -
+		// a developer launching by hand got a 40-second freeze and a crash.
+		// DEFAULT only: an explicit ALSOFT_DRIVERS still wins, so this stops
+		// suppressing anything the day the simulator's backend works. Device
+		// and desktop builds never see this branch.
+		if(std::getenv("ALSOFT_DRIVERS") == 0)
+		{
+			setenv("ALSOFT_DRIVERS", "null", 1);
+			oDebugMsg("sound", 0, "the iOS simulator's audio backend aborts "
+				"instead of failing, so sound is disabled here - set "
+				"ALSOFT_DRIVERS to override; device builds are unaffected");
+		}
+#endif
 		// clear any errors
 		alGetError();
 
