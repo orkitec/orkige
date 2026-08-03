@@ -396,6 +396,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # iOS-only - macOS has no phone vibrator and takes the desktop no-op path.
     # UIKit resolves at the final app link (SDL's UIKit main already pulls it).
     list(APPEND ORKIGE_ENGINE_SOURCES engine_input/HapticBridgeApple.mm)
+    # the audio-session bridge SoundManager activates before OpenAL opens a
+    # device: OpenAL Soft does not manage AVAudioSession, and an unactivated
+    # session deadlocks AURemoteIO on the simulator (@see AudioSessionApple.mm)
+    list(APPEND ORKIGE_ENGINE_SOURCES engine_sound/AudioSessionApple.mm)
     if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         # iOS attaches the Ogre-Next Metal view into SDL's UIKit window via a
         # small ObjC++ bridge (the render-system-created view is otherwise

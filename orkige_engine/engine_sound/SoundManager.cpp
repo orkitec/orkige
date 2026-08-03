@@ -23,8 +23,13 @@
 #include <algorithm>
 #include <cstdlib>
 #ifdef __APPLE__
-// TARGET_OS_SIMULATOR: the audio backend below is chosen by platform
+// TARGET_OS_IPHONE: activating the audio session is an iOS-only prerequisite
 #include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+//! @see engine_sound/AudioSessionApple.mm - OpenAL Soft does not manage the
+//! audio session, so the engine activates it before opening a device
+extern "C" bool orkige_activate_audio_session(char const ** outError);
+#endif
 #endif
 
 namespace Orkige
@@ -560,22 +565,27 @@ namespace Orkige
 	bool SoundManager::initOpenAl()
 	{
 #ifdef ORKIGE_OPENAL_SOUND
-#if defined(__APPLE__) && TARGET_OS_SIMULATOR
-		// The iOS SIMULATOR has no working audio: OpenAL Soft's CoreAudio
-		// backend stalls in an AURemoteIO RPC timeout and calls abort(), which
-		// no error handling here can catch because the process is gone inside
-		// alcCreateContext. Selecting the null backend is the only prevention,
-		// which is why every test driver already passes ALSOFT_DRIVERS=null -
-		// a developer launching by hand got a 40-second freeze and a crash.
-		// DEFAULT only: an explicit ALSOFT_DRIVERS still wins, so this stops
-		// suppressing anything the day the simulator's backend works. Device
-		// and desktop builds never see this branch.
-		if(std::getenv("ALSOFT_DRIVERS") == 0)
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+		// ACTIVATE THE AUDIO SESSION FIRST. OpenAL Soft does not manage it -
+		// that is the application's job - and its CoreAudio backend
+		// initialises an AURemoteIO inside alcCreateContext below. On a
+		// session that was never activated the iOS 17+ simulator leaves that
+		// call waiting on the audio server until the RPC watchdog abort()s the
+		// process, which no error handling here could catch. @see
+		// AudioSessionApple.mm.
+		char const * sessionError = 0;
+		if(!orkige_activate_audio_session(&sessionError))
 		{
-			setenv("ALSOFT_DRIVERS", "null", 1);
-			oDebugMsg("sound", 0, "the iOS simulator's audio backend aborts "
-				"instead of failing, so sound is disabled here - set "
-				"ALSOFT_DRIVERS to override; device builds are unaffected");
+			// Do not walk into the backend with a session it rejected: on the
+			// simulator that is the watchdog abort, and a silent game beats a
+			// dead one. An explicit ALSOFT_DRIVERS still wins.
+			oDebugMsg("sound", 0, "no audio: " <<
+				(sessionError ? sessionError : "the audio session is not "
+				"available") << " - continuing without sound");
+			if(std::getenv("ALSOFT_DRIVERS") == 0)
+			{
+				setenv("ALSOFT_DRIVERS", "null", 1);
+			}
 		}
 #endif
 		// clear any errors
