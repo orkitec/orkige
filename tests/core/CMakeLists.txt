@@ -29,6 +29,8 @@ add_executable(orkige_core_tests
     ComponentTests.cpp
     TypeManagerTests.cpp
     ScriptRuntimeTests.cpp
+    ScriptLibraryTests.cpp
+    ScriptTestTierTests.cpp
     ScriptDebugTests.cpp
     ScriptEventBusTests.cpp
     ResourceReaderTests.cpp

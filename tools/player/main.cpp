@@ -76,6 +76,7 @@
 #include <engine_runtime/GameHost.h>
 #include "PlayerContext.h"
 #include "PlayerSelfChecks.h"
+#include "PlayerTestRun.h"
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
@@ -783,7 +784,27 @@ int main(int argc, char** argv)
 		SDL_Log("orkige_player: unknown argument '%s'",
 			arguments.unknownArgument.c_str());
 		SDL_Log("usage: orkige_player [--project <dir-or-.orkproj>] "
-			"[scene.oscene] [--debug-port N]");
+			"[scene.oscene] [--debug-port N] "
+			"[--run-tests [--test-filter <substring>]]");
+		return 1;
+	}
+	// --run-tests: a test suite belongs to a PROJECT (its tests/ directory and
+	// its scripts/ libraries), never to a loose scene - say so before booting
+	if (arguments.runTests && arguments.projectPath.empty())
+	{
+		SDL_Log("orkige_player: --run-tests needs --project <dir-or-.orkproj> "
+			"(a test suite belongs to a project)");
+		return 1;
+	}
+	// and a build with no scripting backend cannot answer the question at all -
+	// say so HERE, before a window and an engine are stood up for nothing.
+	// backendName() is the compiled-in fact (unlike available(), which also
+	// needs the runtime to be booted), so this is honest pre-boot.
+	if (arguments.runTests &&
+		std::strcmp(Orkige::ScriptRuntime::backendName(), "none") == 0)
+	{
+		SDL_Log("orkige_player: --run-tests needs a scripting backend - this "
+			"build has none (ORKIGE_SCRIPTING=OFF)");
 		return 1;
 	}
 	std::string& scenePath = context.scenePath;
@@ -1837,6 +1858,20 @@ int main(int argc, char** argv)
 			context.selfChecks.gameplaySynchronousChecks(context))
 		{
 			return *checkExit;
+		}
+		// --run-tests: the project's OWN Lua test suite, run here - where the
+		// runtime is fully up, so a test sees exactly the engine a game sees
+		// (live resource mounts, so script.require reaches a library inside a
+		// pak or an APK; the project's script search root; the hardened
+		// sandbox). The exit code IS the verdict, the same contract every
+		// player selfcheck ctest uses. Always compiled in: a released player -
+		// the one inside a distributed editor and the one on a device payload -
+		// must be able to run a project's tests with no repository, no build
+		// tree and no interpreter beyond the engine's own.
+		if (arguments.runTests)
+		{
+			return runProjectLuaTests(project, arguments.testFilter,
+				std::filesystem::path(engineLogPath).parent_path().string());
 		}
 		// frame-time statistics: the ORKIGE_DEMO_FPS_LOG measurement hook and
 		// the one-time "this build is too slow to play" hint

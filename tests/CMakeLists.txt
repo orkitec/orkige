@@ -2437,6 +2437,21 @@ if(TARGET orkige_player)
         set_tests_properties(player_jumper_lua_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_JUMPER_LUA_SELFCHECK=1")
 
+        # THE PROJECT'S OWN SUITE, run in Lua: projects/jumper-lua/tests/*.test.lua
+        # exercise the game's real library (scripts/jumperlib.lua, which
+        # scripts/player.lua runs on) and its shipped data/tuning.json, through
+        # the SAME script.require and `data` reads the game uses. The exit code
+        # is the verdict; the JSONL artifact lands in the build tree so a failed
+        # run says WHICH test and WHY without scraping the log. Both flavors -
+        # the tier is renderer-neutral, and running it on each proves the
+        # runtime it rides in boots the same either way.
+        add_test(NAME player_project_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project projects/jumper-lua --run-tests
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_project_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 120
+            ENVIRONMENT "ALSOFT_DRIVERS=null;ORKIGE_TEST_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}")
+
         # the 2D tier, end to end: projects/roller (a tilt-gravity ball +
         # sliding-tile puzzle prototype - SpriteComponents, ortho camera,
         # tilt gravity, physics
@@ -3536,6 +3551,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_debug_pause player_script_debug player_script_debug_next
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
+        player_project_lua_tests player_project_lua_tests_next
         player_softbody_selfcheck player_softbody_selfcheck_next
         player_mesh_selfcheck player_mesh_selfcheck_next
         player_shapecollider_selfcheck player_shapecollider_selfcheck_next

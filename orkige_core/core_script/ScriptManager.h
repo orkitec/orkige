@@ -79,6 +79,20 @@ namespace Orkige
 		//! sandbox keeps denying load/loadfile/dofile/require, so a data file
 		//! is data even when it happens to hold Lua source.
 		void installDataTable();
+
+		//! @brief install the `script` table - the LIBRARY LOADER
+		//! (`script.require(name)`) that lets one project script use another as
+		//! a library instead of every script being an island. Installed AFTER
+		//! the hardening, so it is one of the sanctioned engine API tables and
+		//! not a hole in the allowlist: its name is jailed to a
+		//! project-relative `.lua` path (@see core_script/ScriptLibrary.h),
+		//! which is EXACTLY the file set a path-bound ScriptComponent could
+		//! already run, and the read goes through the injected ResourceReader
+		//! (ScriptRuntime::readScriptSource), so a library resolves out of a
+		//! mounted pak/APK just as it does loose. `load`/`loadfile`/`dofile`/
+		//! `require` stay denied - code synthesised from a string, or read
+		//! from an arbitrary path, is the escalation this deliberately is not.
+		void installScriptTable();
 	};
 	/** @} */
 }

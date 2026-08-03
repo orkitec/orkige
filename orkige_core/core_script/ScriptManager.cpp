@@ -10,8 +10,11 @@
 #include "core_script/ScriptManager.h"
 #include "core_debugnet/Json.h"
 #include "core_filesystem/DataResource.h"
+#include "core_script/ScriptLibrary.h"
+#include "core_script/ScriptRuntime.h"
 
 #include <cstddef>
+#include <stdexcept>
 #include <utility>
 
 namespace Orkige
@@ -97,6 +100,18 @@ namespace Orkige
 		// project, and only what is actually mounted - so authored data files
 		// stop having to be baked into executable .lua source.
 		this->installDataTable();
+
+		// The other capability handed back, and the one `require` was standing
+		// in the way of: `script`, the LIBRARY LOADER. It is not a hole in the
+		// allowlist above, and the reasoning matters - a scene can ALREADY
+		// attach a path-bound ScriptComponent naming any project-relative .lua
+		// file, so a hostile .oscene can already cause any project script to
+		// run. A loader jailed to project-relative .lua names reaches EXACTLY
+		// the same files: the same capability with better ergonomics, not a new
+		// one. What stock `require` additionally granted - the package path, C
+		// modules, an arbitrary search - and what `load` grants - code
+		// synthesised from a STRING - stay denied.
+		this->installScriptTable();
 	}
 	//---------------------------------------------------------
 	namespace
@@ -218,6 +233,160 @@ namespace Orkige
 		};
 
 		lua["data"] = data;
+	}
+	//---------------------------------------------------------
+	namespace
+	{
+		//! the registry slot the per-sandbox library caches hang off. The Lua
+		//! REGISTRY is not reachable from any script, so the cache is invisible
+		//! - a script cannot inspect it, poison it or clear it.
+		char const * const kLibraryCacheRegistryKey = "orkige.scriptLibraries";
+
+		//! @brief the libraries `script.require` is CURRENTLY loading,
+		//! outermost first. Library loads NEST SYNCHRONOUSLY on the one script
+		//! thread, so this stack is exactly the dependency chain being resolved
+		//! - a name already on it closes a cycle. Refusing there is what keeps
+		//! a mutual require from recursing until the C stack dies.
+		StringVector & libraryLoadChain()
+		{
+			static StringVector chain;
+			return chain;
+		}
+
+		//! @brief the caller's "<chunk>:<line>: " prefix - exactly what Lua's
+		//! own `error(message, 2)` prepends. luaL_where is the C AUXILIARY api,
+		//! not the `debug` LIBRARY the sandbox denies, and script chunks already
+		//! load under their project-relative names, so a refusal reads
+		//! "scripts/player.component.lua:12: ..." with no reflection surface
+		//! granted to anyone.
+		String callerWhere(lua_State * state)
+		{
+			luaL_where(state, 1);
+			char const * where = lua_tostring(state, -1);
+			const String prefix = (where != NULL) ? where : "";
+			lua_pop(state, 1);
+			return prefix;
+		}
+	}
+	//---------------------------------------------------------
+	void ScriptManager::installScriptTable()
+	{
+		sol::state & lua = this->luaState;
+
+		// CACHING DECISION: per SANDBOX, not per process. The engine's sandbox
+		// doctrine is that one script instance's state never leaks into
+		// another's and that deliberate sharing goes through the `shared`
+		// table; a process-wide module registry (what stock Lua `require`
+		// keeps) would be a SECOND, undeclared sharing channel - two components
+		// mutating "their" copy of a library would silently be mutating one
+		// table. So each requiring environment gets its own copy of a library,
+		// loaded at most once for that environment: repeated requires inside
+		// one sandbox are cheap and return the IDENTICAL value (identity holds
+		// wherever it is observable), and a sandbox's libraries die with it,
+		// which is also what makes hot-reload correct - a rebuilt sandbox
+		// re-reads its libraries with no cache to invalidate.
+		sol::table caches = lua.create_table();
+		sol::table cacheMeta = lua.create_table();
+		cacheMeta["__mode"] = "k";	// weak KEYS: a bucket dies with its sandbox
+		caches[sol::metatable_key] = cacheMeta;
+		lua.registry()[kLibraryCacheRegistryKey] = caches;
+
+		sol::table script = lua.create_table();
+
+		// script.require(name) -> the library's return value
+		// It RAISES rather than returning nil+error the way `data` does, and
+		// the difference is honest: absent DATA is a situation a game handles,
+		// while a missing LIBRARY is a broken dependency - stock `require`
+		// raises for the same reason. The message carries the requiring line's
+		// own "<file>:<line>: " prefix (@see callerWhere).
+		script["require"] = [](sol::this_state ts, sol::this_environment te,
+			String const & name) -> sol::object
+		{
+			sol::state_view view(ts);
+			const auto refuse = [&](String const & message) -> sol::object
+			{
+				throw std::runtime_error(callerWhere(ts.lua_state()) + message);
+			};
+			String error;
+			if(!ScriptLibrary::checkName(name, error))
+			{
+				return refuse(error);
+			}
+			if(ScriptRuntime::getSingletonPtr() == NULL)
+			{
+				return refuse("script.require('" + name + "'): the script "
+					"runtime is not up");
+			}
+			// the requiring sandbox owns the cache bucket; a require from the
+			// bare globals (the console) keys off the globals table
+			sol::table owner = te
+				? sol::table(static_cast<sol::environment &>(te))
+				: sol::table(view.globals());
+			sol::table caches = view.registry()[kLibraryCacheRegistryKey];
+			const sol::object bucketObject = caches.get<sol::object>(owner);
+			sol::table bucket;
+			if(bucketObject.is<sol::table>())
+			{
+				bucket = bucketObject.as<sol::table>();
+			}
+			else
+			{
+				bucket = view.create_table();
+				caches.set(owner, bucket);
+			}
+			const sol::object cached = bucket.get<sol::object>(name);
+			if(cached.valid() && cached != sol::lua_nil)
+			{
+				return cached;
+			}
+			StringVector & chain = libraryLoadChain();
+			for(String const & loading : chain)
+			{
+				if(loading == name)
+				{
+					return refuse(ScriptLibrary::cycleError(chain, name));
+				}
+			}
+			// THE READ GOES THROUGH THE RESOURCE READER, never fopen: the ONE
+			// routing loadScriptInstance uses, so a library resolves out of a
+			// mounted pak or an APK entry exactly as it does loose. A file read
+			// here would work on a desktop and find nothing on a phone.
+			String source;
+			if(!ScriptRuntime::getSingleton().readScriptSource(name, source,
+				&error))
+			{
+				return refuse("script.require('" + name + "'): " + error);
+			}
+			// a library gets its OWN fresh environment (reads fall through to
+			// the globals), never the requiring sandbox's: it must not see -
+			// or write into - the component's `self` and locals, and each
+			// sandbox's copy stays independent
+			sol::environment libraryEnv(view.lua_state(), sol::create,
+				view.globals());
+			chain.push_back(name);
+			const sol::protected_function_result loadResult = view.safe_script(
+				source, libraryEnv, sol::script_pass_on_error, "@" + name);
+			chain.pop_back();
+			if(!loadResult.valid())
+			{
+				const sol::error scriptError = loadResult;
+				return refuse("script.require('" + name + "'): " +
+					String(scriptError.what()));
+			}
+			sol::object value = (loadResult.return_count() > 0)
+				? loadResult.get<sol::object>(0)
+				: sol::object(view, sol::in_place, sol::lua_nil);
+			if(!value.valid() || value == sol::lua_nil)
+			{
+				// a chunk that returns nothing still counts as loaded (stock
+				// require's convention), so the cache never re-runs it
+				value = sol::make_object(view, true);
+			}
+			bucket.set(name, value);
+			return value;
+		};
+
+		lua["script"] = script;
 	}
 	//---------------------------------------------------------
 	ScriptManager::~ScriptManager()

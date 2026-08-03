@@ -18,7 +18,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # several - a project's compiled game module is another - and the recipe is
     # the platform's, not this target's.
     add_executable(orkige_player MACOSX_BUNDLE main.cpp
-        PlayerContext.h PlayerSelfChecks.h PlayerSelfChecks.cpp)
+        PlayerContext.h PlayerSelfChecks.h PlayerSelfChecks.cpp
+        PlayerTestRun.h PlayerTestRun.cpp)
     set_target_properties(orkige_player PROPERTIES OUTPUT_NAME "OrkigePlayer")
     orkige_apply_target_shape(orkige_player
         NAME "Orkige Player"
@@ -34,7 +35,8 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
     # the exporter assembles + signs the APK around it
     # (tools/exporter/ExportAndroidAssemble.h).
     add_library(orkige_player SHARED main.cpp
-        PlayerContext.h PlayerSelfChecks.h PlayerSelfChecks.cpp)
+        PlayerContext.h PlayerSelfChecks.h PlayerSelfChecks.cpp
+        PlayerTestRun.h PlayerTestRun.cpp)
     set_target_properties(orkige_player PROPERTIES OUTPUT_NAME "main")
     # SDL's Java<->native glue: libSDL3.a registers its natives from
     # JNI_OnLoad (RegisterNatives) - force the linker to keep that object
@@ -42,7 +44,8 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
     target_link_options(orkige_player PRIVATE "-Wl,--undefined=JNI_OnLoad")
 else()
     add_executable(orkige_player main.cpp
-        PlayerContext.h PlayerSelfChecks.h PlayerSelfChecks.cpp)
+        PlayerContext.h PlayerSelfChecks.h PlayerSelfChecks.cpp
+        PlayerTestRun.h PlayerTestRun.cpp)
 endif()
 
 target_link_libraries(orkige_player PRIVATE Orkige::Engine)

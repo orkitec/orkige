@@ -942,6 +942,39 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 			detail += " update-not-run";
 		}
 
+		// the LIBRARY half: the same script pulled "scripts/pak_lib.lua" in with
+		// script.require. That name has no loose file either (the disk check
+		// above covers the whole pak's sub-tree), so the values below can only
+		// have come from the archive - THE proof that the library loader rides
+		// the resource reader and not an fopen, which is the difference between
+		// working on a desktop and working on a phone.
+		if (!scripts.resolveScriptPath("scripts/pak_lib.lua").empty())
+		{
+			ok = false;
+			detail += " loose-library-present(no-in-place-proof)";
+		}
+		if (scripts.getString({ "pak_marker", "libTag" }, "") !=
+			"library-from-the-archive")
+		{
+			ok = false;
+			detail += " library-not-loaded-from-pak";
+		}
+		if (scripts.getNumber({ "pak_marker", "libSum" }, 0.0) != 9.0)
+		{
+			ok = false;
+			detail += " library-function-wrong";
+		}
+		if (!scripts.getBool({ "pak_marker", "libCached" }, false))
+		{
+			ok = false;
+			detail += " library-not-cached-within-the-sandbox";
+		}
+		if (!scripts.getBool({ "pak_marker", "libEscapeRefused" }, false))
+		{
+			ok = false;
+			detail += " library-traversal-not-refused";
+		}
+
 		// the DATA half: the same script read an authored data file out of the
 		// same pak through the `data` table. There is no loose file and no
 		// fopen path at all, so these values can only have come from the
@@ -984,9 +1017,10 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 		{
 			SDL_Log("orkige_pak_script_selfcheck: PASS - path-bound "
 				"ScriptComponent 'scripts/pak_script.lua' loaded and ran from "
-				"the mounted pak with NO loose file on disk, and read "
-				"'data/pak_data.json' out of the same pak through the data "
-				"table (this flavor)");
+				"the mounted pak with NO loose file on disk, required "
+				"'scripts/pak_lib.lua' out of the same pak, and read "
+				"'data/pak_data.json' out of it through the data table "
+				"(this flavor)");
 			return 0;
 		}
 		SDL_Log("orkige_pak_script_selfcheck: FAILED -%s", detail.c_str());
