@@ -1568,6 +1568,69 @@ def assert_module_built_against_pack(args, project, pack):
     log("the module was configured against the pack alone (%s)" % build)
 
 
+def assert_headless_export(args, executable, stage_dir, sandbox_profile, env,
+                           project):
+    """THE distribution proof for a build server: the copied editor packages
+    the project from a COMMAND LINE.
+
+    Everything the windowed session had is gone here - no display, no MCP
+    client, no repository and no `orkige_export` (a development-tree tool that
+    is not part of a release). The only thing standing between a studio's CI
+    and a shippable build is this door, so it is asserted in the SAME clean
+    room the rest of the leg runs in: the same denied repository, the same
+    denied vcpkg root, the same scrubbed environment.
+
+    The deadline is part of the assertion - a subcommand that opened a window
+    would sit there until ctest killed it, which is exactly the failure a build
+    server experiences and exactly what a person would not diagnose."""
+    output_dir = os.path.join(stage_dir, "out", "cli")
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+    command = [executable, "export", "--project", project,
+               "--platform", "macos", "--output", output_dir]
+    if sandbox_profile:
+        command = ["/usr/bin/sandbox-exec", "-f", sandbox_profile] + command
+    started = time.time()
+    result = subprocess.run(command, cwd=os.path.join(stage_dir, "cwd"),
+                            env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True,
+                            errors="replace", timeout=args.native_timeout)
+    if result.returncode != 0:
+        print(result.stdout[-6000:], flush=True)
+        fail("the copied editor could not package from a command line (%d)"
+             % result.returncode)
+    reject_build_machine_paths(args, result.stdout, "the headless export")
+    artifact = ""
+    for line in result.stdout.splitlines():
+        if line.startswith("orkige_editor: OK "):
+            artifact = line[len("orkige_editor: OK "):].strip()
+    if not artifact:
+        print(result.stdout[-6000:], flush=True)
+        fail("the headless export printed no 'orkige_editor: OK <artifact>' "
+             "line - callers key on exactly that")
+    if not os.path.abspath(artifact).startswith(os.path.abspath(output_dir)):
+        fail("the headless export ignored --output (%s)" % artifact)
+    log("the copied editor packaged the project from a command line, with no "
+        "window and no repository (%s, %.0fs)"
+        % (os.path.basename(artifact), time.time() - started))
+    check_exported_app(args, artifact, stage_dir, sandbox_profile)
+
+    # ...and the hazard, in the room it matters in: a mistyped subcommand on a
+    # build server must EXIT, never open an application nobody is watching
+    typo = [executable, "exprot", "--project", project, "--platform", "macos"]
+    if sandbox_profile:
+        typo = ["/usr/bin/sandbox-exec", "-f", sandbox_profile] + typo
+    refusal = subprocess.run(typo, cwd=os.path.join(stage_dir, "cwd"), env=env,
+                             stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True,
+                             errors="replace", timeout=120)
+    if refusal.returncode != 2:
+        print(refusal.stdout[-2000:], flush=True)
+        fail("a mistyped subcommand exited %d instead of 2 - on a build server "
+             "that is a hung job" % refusal.returncode)
+    log("a mistyped subcommand is refused with exit 2, not a window")
+
+
 def run_native_leg(args, stage_dir):
     """a copied editor plus an installed SDK pack builds and plays a project's
     compiled C++ game code - and reports its two prerequisites as two."""
@@ -1656,6 +1719,10 @@ def run_native_leg(args, stage_dir):
         stop(process)	# no exit path leaves a staged editor running
     if "developer tree" in output:
         fail("the copied editor resolved resources from the developer tree")
+    # ...and the same package again with NO editor session at all: the copy is
+    # stopped, so this is a build server's view of the machine
+    assert_headless_export(args, executable, stage_dir, sandbox_profile, env,
+                           os.path.join(stage_dir, "project"))
     # the pack is several gigabytes; keep it only when something failed
     shutil.rmtree(pack, ignore_errors=True)
     return output

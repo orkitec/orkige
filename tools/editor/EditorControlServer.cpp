@@ -6800,8 +6800,10 @@ namespace Orkige
 			// an editor built from the source tree, the app's own staged engine
 			// payload in a distributed copy - and one actionable sentence when
 			// neither can produce the asked-for platform.
+			const OrkigeExport::ExportProject exportProject =
+				exportProjectFor(state.project);
 			const OrkigeEditor::EditorExportPlan plan =
-				planExport(state.project, platform);
+				planExport(exportProject, platform);
 			if (!plan.ok)
 			{
 				this->sendErr(req, plan.error);
@@ -6837,7 +6839,7 @@ namespace Orkige
 			params.engineBuild = plan.enginePayload;
 			EditorExportJob* jobPtr = job.get();
 			job->worker = std::thread(runExportJobWorker, jobPtr, params, plan,
-				exportProjectFor(state.project));
+				exportProject);
 			this->mExportJobs.push_back(std::move(job));
 			DebugMessage ok(MSG_OK);
 			ok.set("accepted", "1");

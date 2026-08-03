@@ -981,7 +981,9 @@ should not) hold, so a store verb over MCP could never do more than gate. The
 gating logic itself (version-code/keystore config validation, the honest refusal
 when a credential is missing) lives in `tools/exporter/ExportSettings.h` and is exercised
 cert-free by its `--selftest`; run store packaging from the shell, where the
-secrets live. See `Docs/store-release.md`.
+secrets live — `orkige_export` inside the engine repository, `orkige_editor
+export` on an installed Orkige (`Docs/editor-cli.md`). See
+`Docs/store-release.md`.
 
 ## Dirty-state policy
 

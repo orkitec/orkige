@@ -32,16 +32,20 @@
 //! EditorExportPlan.h). Every path is resolved through the ONE resource
 //! locator: an editor built in the source tree packages a preset build tree,
 //! a COPIED app packages the engine payload it carries inside itself.
-OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
-	std::string const& platform)
+//!
+//! It is handed the MANIFEST FACTS rather than a live project, so the decision
+//! is reachable with nothing loaded - which is what the headless `export`
+//! subcommand needs and what keeps the process-wide AssetDatabase untouched
+//! either way (@see EditorApp.h).
+OrkigeEditor::EditorExportPlan planExport(
+	OrkigeExport::ExportProject const& project, std::string const& platform)
 {
 	OrkigeEditor::EditorResourceLocator const& resources =
 		OrkigeEditor::editorResources();
 	OrkigeEditor::EditorExportInputs inputs;
 	inputs.platform = platform;
-	inputs.projectRoot = project.getRootDirectory();
-	const Orkige::String nativeTarget =
-		Orkige::NativeModule::configFromProject(project).target;
+	inputs.projectRoot = project.root;
+	const Orkige::String nativeTarget = project.nativeTarget();
 	inputs.nativeModule = !nativeTarget.empty();
 	if (inputs.nativeModule)
 	{
@@ -50,7 +54,7 @@ OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
 		// resolution serves compile-on-Play and export (@see EditorEngineSdk.h),
 		// so both refuse for the same reason in the same words.
 		const OrkigeEditor::EngineSdkStatus sdk =
-			OrkigeEditor::resolveEngineSdk(project.getName(), nativeTarget);
+			OrkigeEditor::resolveEngineSdk(project.name, nativeTarget);
 		inputs.nativeProblem = sdk.problem;
 		inputs.sdkPack = sdk.engine.fromPack() ? sdk.engine.root
 			: Orkige::String();
@@ -141,7 +145,8 @@ OrkigeExport::ExportProject exportProjectFor(Orkige::Project const& project)
 bool runPlannedExport(OrkigeEditor::EditorExportPlan const& plan,
 	OrkigeExport::ExportProject const& project,
 	std::function<void(std::string const&)> const& log,
-	std::string& artifact, std::string& error)
+	std::string& artifact, std::string& error,
+	PlannedExportOverrides const* overrides)
 {
 	if (!plan.ok)
 	{
@@ -158,6 +163,28 @@ bool runPlannedExport(OrkigeEditor::EditorExportPlan const& plan,
 	// is unchanged: an explicit value wins, an empty one falls through to the
 	// environment above.
 	applyBuildCredentials(request, project.root);
+	if (overrides != nullptr)
+	{
+		request.outputDirectory = overrides->outputDirectory;
+		// a credential named on the command line outranks the machine store,
+		// which outranks the environment - one precedence, stated once
+		OrkigeEditor::BuildCredentials const& given = overrides->credentials;
+		const auto prefer = [](Orkige::String& field,
+			Orkige::String const& explicitValue)
+		{
+			if (!explicitValue.empty())
+			{
+				field = explicitValue;
+			}
+		};
+		prefer(request.signingIdentity, given.iosIdentity);
+		prefer(request.provisioningProfile, given.iosProfile);
+		prefer(request.distributionIdentity, given.iosDistributionIdentity);
+		prefer(request.distributionProfile, given.iosDistributionProfile);
+		prefer(request.androidKeystore, given.androidKeystore);
+		prefer(request.androidKeyAlias, given.androidKeyAlias);
+		prefer(request.bundletool, given.bundletool);
+	}
 	if (plan.source == OrkigeEditor::EditorExportSource::Tree)
 	{
 		request.source.buildDirectory = plan.engineBuild;
@@ -197,15 +224,16 @@ bool startExport(ExportJob& job, Orkige::Project const& project,
 	{
 		return false; // the menu items are disabled without a project
 	}
-	const OrkigeEditor::EditorExportPlan plan = planExport(project, platform);
+	// the manifest facts are read HERE, on the main thread: Project is not
+	// thread-safe and the worker must not touch it
+	const OrkigeExport::ExportProject exportProject = exportProjectFor(project);
+	const OrkigeEditor::EditorExportPlan plan =
+		planExport(exportProject, platform);
 	if (!plan.ok)
 	{
 		console.addLine(ConsoleLevel::Error, "[export] " + plan.error);
 		return false;
 	}
-	// the manifest facts are read HERE, on the main thread: Project is not
-	// thread-safe and the worker must not touch it
-	const OrkigeExport::ExportProject exportProject = exportProjectFor(project);
 	job.reset();
 	job.platform = platform;
 	job.running.store(true);

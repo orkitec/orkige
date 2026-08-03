@@ -18,6 +18,8 @@
 #include "EditorTerminalPanel.h"	// View > New Terminal spawns another session
 #include "IconsFontAwesome6.h"	// the Source Control tab's leading branch glyph
 
+#include <ExportProject.h>	// the manifest facts an export plan is made from
+
 #include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
 
 #include <algorithm>
@@ -528,17 +530,22 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 		if (ImGui::BeginMenu("Build"))
 		{
 			const bool canExport = state.project.isLoaded();
+			// the manifest facts an export plans from, copied once for the
+			// whole menu rather than per item (@see EditorApp.h - a plan is
+			// made from the facts, never from a live project)
+			const OrkigeExport::ExportProject exportProject = canExport
+				? exportProjectFor(state.project) : OrkigeExport::ExportProject();
 			// a platform this editor cannot produce is greyed out with the
 			// reason on hover, rather than offered and then refused in the
 			// Console: a copied app carries the desktop player alone, and the
 			// export plan is what knows that (EditorExportPlan.h)
-			auto exportItem = [&state, canExport](const char* label,
-				const char* platform)
+			auto exportItem = [&state, &exportProject, canExport](
+				const char* label, const char* platform)
 			{
 				OrkigeEditor::EditorExportPlan plan;
 				if (canExport)
 				{
-					plan = planExport(state.project, platform);
+					plan = planExport(exportProject, platform);
 				}
 				if (ImGui::MenuItem(label, nullptr, false, canExport && plan.ok))
 				{
