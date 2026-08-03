@@ -28,13 +28,13 @@
 #include "EditorCamera.h"
 #include "EditorCore.h"
 #include "EditorExportPlan.h"	// the ONE export decision (menu + endpoint)
-#include "EditorHelpLinks.h"	// the ONE published docs root + page links
 #include "EditorPanelRegistry.h"
 #include "EditorTheme.h"
 #include "EditorPayloadFetcher.h"	// the fetched device players the menus offer
 #include "EditorUpdate.h"		// the update setting (ViewSettings::updatePolicy)
 #include "EditorUpdater.h"		// the live updater the menus + footer read
 #include "EditorViewModes.h"
+#include <core_util/HelpLink.h>	// the ONE portal root + doc links
 #include "EditorIdeProtocol.h"	// the Claude-IDE integration bridge (IdeSharedState)
 #include "FileDialog.h"
 #include "MarqueeSelection.h"
@@ -332,10 +332,10 @@ std::string staticResolveServedFile(std::string const& docRoot,
 //! or serve locally). Automated runs never open a browser (gAutomatedRun) -
 //! the editor_help_portal ctest asserts the menu wiring and that gate,
 //! never the network.
-//! ONE root, shared with the refusals that link a specific page
-//! (@see EditorHelpLinks.h, which is where a deep link is composed and where
-//! the check that keeps one from rotting is described).
-constexpr char const* HELP_PORTAL_URL = OrkigeEditor::HELP_PORTAL_ROOT;
+//!
+//! ONE definition (core_util/HelpLink.h), because the refusals a user meets
+//! link into the same portal and a second copy of the address would drift.
+using Orkige::HELP_PORTAL_URL;
 
 //--- view settings (grid, orientation gizmo, camera) ------------------------
 

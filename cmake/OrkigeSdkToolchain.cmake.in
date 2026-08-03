@@ -1,0 +1,50 @@
+# OrkigeSdkToolchain.cmake - a CROSS pack's toolchain file, realized at install
+# time from what the engine build actually cross-compiled with.
+#
+# We ship the ENGINE, never a toolchain: the compiler and the platform SDK come
+# from the machine (Xcode, an NDK, an emsdk). What a pack owes a consumer is the
+# SETTINGS that make the machine's toolchain produce objects which link with the
+# archives in this pack - the system, the SDK, the architectures and the OS
+# floor. A module built for the wrong one of those fails at link if we are
+# lucky, and silently misbehaves if we are not, so they are written down here
+# rather than left to whatever the consumer's machine defaults to.
+#
+# The game-module helper does not read this file; CMake does, before anything
+# else, which is why it is a toolchain file and not another pack variable.
+# NativeModule::configureCommand passes it (the path comes from
+# ORKIGE_SDK_TOOLCHAIN_FILE in OrkigeSdkPack.cmake), and a consumer configuring
+# by hand passes it the same way:
+#
+#     cmake -G Ninja -S <project>/native -B <build> \
+#         -DCMAKE_TOOLCHAIN_FILE=<pack>/cmake/OrkigeSdkToolchain.cmake \
+#         -DCMAKE_BUILD_TYPE=<the pack's> -DORKIGE_ROOT=<pack>
+#
+# A HOST pack carries no such file: its consumer's toolchain is the platform's
+# own, and ORKIGE_SDK_TOOLCHAIN_FILE is empty there.
+
+set(CMAKE_SYSTEM_NAME "@ORKIGE_SDK_TOOLCHAIN_SYSTEM@")
+set(CMAKE_SYSTEM_PROCESSOR "@ORKIGE_SDK_TARGET_ARCHS@")
+
+# The Apple SDK by its SHORT NAME, which every machine resolves for itself. An
+# absolute .sdk path is a fact about the build machine and would name a
+# directory a consumer does not have.
+set(CMAKE_OSX_SYSROOT "@ORKIGE_SDK_TARGET_SYSROOT@")
+set(CMAKE_OSX_ARCHITECTURES "@ORKIGE_SDK_TARGET_ARCHS@")
+set(CMAKE_OSX_DEPLOYMENT_TARGET "@ORKIGE_SDK_OS_DEPLOYMENT_TARGET@")
+
+# THE PACK IS OUTSIDE THE PLATFORM SDK, and has to stay findable. Cross builds
+# default to re-rooting every find_package/find_library into the sysroot ONLY -
+# which is right for a distribution whose libraries all live there, and wrong
+# for a pack that a user unpacked wherever they liked: the engine archives and
+# the whole bundled dependency closure become invisible, and the configure
+# fails with "no engine package" while the package sits right there. BOTH keeps
+# the sysroot search and adds the ordinary one back. The pack's own closure is
+# still what gets found, because the game-module helper puts that prefix at the
+# FRONT of the search path; hermeticity beyond that is the caller's to state
+# (the exporter passes CMAKE_IGNORE_PREFIX_PATH, as the engine presets do).
+# Programs are the host's - a cross build still runs the machine's own cmake,
+# generator and compiler launcher.
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)

@@ -49,9 +49,12 @@ set(ORKIGE_SDK_MEDIA_DIR "${ORKIGE_SDK_ROOT}/media")
 #   platform  macos | linux | windows | ios | ios-simulator | android | web
 #   archs     the architecture(s) the archives carry
 #   triplet   the vcpkg triplet the bundled closure was built as
+#   sysroot   the platform SDK, by the SHORT NAME every machine resolves for
+#             itself ("iphonesimulator"); empty where the platform has none
 set(ORKIGE_SDK_TARGET_PLATFORM "@ORKIGE_SDK_TARGET_PLATFORM@")
 set(ORKIGE_SDK_TARGET_ARCHS "@ORKIGE_SDK_TARGET_ARCHS@")
 set(ORKIGE_SDK_TARGET_TRIPLET "@ORKIGE_SDK_TARGET_TRIPLET@")
+set(ORKIGE_SDK_TARGET_SYSROOT "@ORKIGE_SDK_TARGET_SYSROOT@")
 
 # THE SHAPE a game module takes on this target, which is the pack's business and
 # never the project's: a desktop module is an executable, an Android module is
@@ -112,5 +115,10 @@ set(ORKIGE_SDK_ABI_EXTRA_FILES
     cmake/OrkigeAbiStamp.cmake
     cmake/OrkigeWriteVersion.cmake
     cmake/OrkigeTargetShape.cmake
+    cmake/OrkigeModuleEntry.cpp
     cmake/OrkigeSdkPack.cmake
-    cmake/OrkigeConfig.cmake)
+    cmake/OrkigeConfig.cmake
+    # a CROSS pack's toolchain file, which decides how every object in a
+    # consumer's module is compiled; empty (and so absent from this list) in a
+    # host pack, which needs none
+    @ORKIGE_SDK_ABI_TOOLCHAIN_FILE@)

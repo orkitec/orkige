@@ -443,19 +443,38 @@ TEST_CASE("an unsigned iOS export runs no codesign and keeps the .app",
 		"com.orkitec.jumperlua");
 }
 
-TEST_CASE("an iOS export refuses a project with compiled game code",
-	"[exporter][ios]")
+TEST_CASE("an iOS export of compiled game code asks for an SDK pack, and only "
+	"then", "[exporter][ios]")
 {
-	Scratch scratch("native");
-	ExportProject project =
-		makeProject({ { "native.target", "JumperNative" } });
-	EngineSource source;
-	source.buildDirectory = scratch.at("tree");
+	// THE TWO PREREQUISITES ARE SEPARATE and neither ever stands in for the
+	// other. A project whose game code is compiled ships its own module, so it
+	// needs an engine to build against - a pack - and a prebuilt player is no
+	// substitute. A project whose behaviour is Lua ships the PLAYER and has
+	// nothing to compile, so a pack must never be asked of it, named to it, or
+	// stand between it and a release build.
+	Scratch scratch("tiers");
 	Orkige::String artifact;
 	Orkige::String error;
-	REQUIRE_FALSE(exportIos(project, source, scratch.at("out"), IosRequest(),
-		ExportEnvironment(), artifact, &error));
-	REQUIRE(error.find("native module") != Orkige::String::npos);
+	{
+		ExportProject project =
+			makeProject({ { "native.target", "JumperNative" } });
+		EngineSource source;
+		source.buildDirectory = scratch.at("tree");
+		REQUIRE_FALSE(exportIos(project, source, scratch.at("out"),
+			IosRequest(), ExportEnvironment(), artifact, &error));
+		REQUIRE(error.find("SDK") != Orkige::String::npos);
+	}
+	{
+		// ...and the Lua project in the same spot is told about the PLAYER it
+		// is missing, with no mention of an SDK anywhere in the sentence
+		ExportProject project = makeProject();
+		EngineSource source;
+		source.bundleResources = scratch.at("staged");
+		REQUIRE_FALSE(exportIos(project, source, scratch.at("out"),
+			IosRequest(), ExportEnvironment(), artifact, &error));
+		REQUIRE(error.find("iOS player") != Orkige::String::npos);
+		REQUIRE(error.find("SDK") == Orkige::String::npos);
+	}
 }
 
 TEST_CASE("the signed-bundle gate names every missing credential",

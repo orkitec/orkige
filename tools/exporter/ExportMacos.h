@@ -80,10 +80,15 @@ namespace OrkigeExport
 	//! (`<native.buildDir>-export-sdk-<flavor>`) for the same reason the tree
 	//! build's is.
 	//! @param outExecutable receives the built module binary
+	//! @param outBundle receives the app BUNDLE the build produced where the
+	//!        pack's target takes that shape (an Apple mobile module), "" where
+	//!        it does not - the bundle is what gets installed and packaged, and
+	//!        the build writes down which it made rather than leaving the
+	//!        packager to derive one from the other
 	bool buildNativeModuleFromPack(ExportProject const & project,
 		Orkige::String const & target, Orkige::String const & packRoot,
 		ExportEnvironment const & environment, Orkige::String & outExecutable,
-		Orkige::String * error);
+		Orkige::String * error, Orkige::String * outBundle = 0);
 }
 
 #endif //__ExportMacos_h__31_7_2026__18_00_00__

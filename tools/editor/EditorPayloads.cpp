@@ -11,7 +11,7 @@
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorPayloads.h"
 
-#include "EditorHelpLinks.h"
+#include <core_util/HelpLink.h>
 
 #include <core_util/VersionOrder.h>
 
@@ -386,7 +386,7 @@ namespace OrkigeEditor
 		// answer - and it is composed from a DOC NAME, so a renamed page
 		// breaks doc_link_lint rather than shipping a dead link.
 		const Orkige::String reading =
-			" - more in " + helpUrl(payloadHelpPage());
+			" - more in " + Orkige::helpUrl(payloadHelpPage());
 		if(!enabled)
 		{
 			return "packaging for " + payload.platformLabel + " is not switched "

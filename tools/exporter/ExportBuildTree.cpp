@@ -177,16 +177,16 @@ namespace OrkigeExport
 			return ExportFiles::isDirectory(media) ? media : Orkige::String();
 		}
 		//---------------------------------------------------------
-		//! an engine media directory in the source tree, or "" when absent
-		Orkige::String sourceMedia(Orkige::String const & repoRoot,
+		//! one directory under an engine media root, or "" when absent
+		Orkige::String sourceMedia(Orkige::String const & mediaRoot,
 			Orkige::String const & relative)
 		{
-			if(repoRoot.empty())
+			if(mediaRoot.empty())
 			{
 				return "";
 			}
-			const Orkige::String path = ExportFiles::join(
-				ExportFiles::join(repoRoot, "orkige_engine/media"), relative);
+			const Orkige::String path =
+				ExportFiles::join(mediaRoot, relative);
 			return ExportFiles::isDirectory(path) ? path : Orkige::String();
 		}
 	}
@@ -214,16 +214,23 @@ namespace OrkigeExport
 		return subdirs;
 	}
 	//---------------------------------------------------------
-	EngineSourceMedia engineSourceMedia(Orkige::String const & repoRoot,
+	EngineSourceMedia engineMediaFromRoot(Orkige::String const & mediaRoot,
 		Orkige::String const & flavor)
 	{
 		EngineSourceMedia media;
-		media.fonts = sourceMedia(repoRoot, "fonts");
-		media.water = sourceMedia(repoRoot, "water");
-		media.decals = sourceMedia(repoRoot, "decals");
-		media.rtss = sourceMedia(repoRoot, "rtss");
-		media.bloom = sourceMedia(repoRoot, "bloom/" + flavor);
-		media.grade = sourceMedia(repoRoot, "grade/" + flavor);
+		media.fonts = sourceMedia(mediaRoot, "fonts");
+		media.water = sourceMedia(mediaRoot, "water");
+		media.decals = sourceMedia(mediaRoot, "decals");
+		media.rtss = sourceMedia(mediaRoot, "rtss");
+		media.bloom = sourceMedia(mediaRoot, "bloom/" + flavor);
+		media.grade = sourceMedia(mediaRoot, "grade/" + flavor);
 		return media;
+	}
+	//---------------------------------------------------------
+	EngineSourceMedia engineSourceMedia(Orkige::String const & repoRoot,
+		Orkige::String const & flavor)
+	{
+		return engineMediaFromRoot(repoRoot.empty() ? Orkige::String()
+			: ExportFiles::join(repoRoot, "orkige_engine/media"), flavor);
 	}
 }

@@ -280,25 +280,28 @@ add_subdirectory(orkige_core)
 
 if(ORKIGE_BUILD_ENGINE)
     add_subdirectory(orkige_engine)
-    if(NOT ORKIGE_MOBILE AND NOT ORKIGE_WEB)
-        # Emit the engine as a build-tree find_package(Orkige) package (the two
-        # archives + an EXACT ABI-stamp guard) so native game modules and the
-        # exporter link a version-checked engine instead of hand-globbing
-        # liborkige_engine.a - a stale/mismatched library is a hard configure
-        # error, never a runtime crash. Desktop host only (native modules are
-        # desktop-only). See cmake/OrkigePackage.cmake + cmake/OrkigeGameModule.cmake.
+    # Emit the engine as a find_package(Orkige) package (the two archives + an
+    # EXACT ABI-stamp guard) so native game modules and the exporter link a
+    # version-checked engine instead of hand-globbing liborkige_engine.a - a
+    # stale/mismatched library is a hard configure error, never a runtime
+    # crash - in both of its forms: the BUILD TREE package
+    # (cmake/OrkigePackage.cmake, the developer case) and the RELOCATABLE SDK
+    # pack `cmake --install <build> --prefix <dir> --component sdk` writes
+    # (cmake/OrkigeSdk.cmake + Docs/sdk-pack.md), which compiles C++ game code
+    # on a machine with no engine checkout and no build tree - what a
+    # distributed editor hands a native-module project.
+    #
+    # PER TARGET, and only where the game-module helper actually derives a link
+    # closure for that target (cmake/OrkigeGameModule.cmake): a pack for a
+    # target whose modules cannot link would be a promise the pack cannot keep.
+    # Android and the browser are not there yet, so their trees emit neither.
+    if(NOT ORKIGE_ANDROID AND NOT ORKIGE_WEB)
         include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/OrkigePackage.cmake)
         orkige_emit_package()
-
-        # The same package in its RELOCATABLE form: `cmake --install <build>
-        # --prefix <dir>` writes a self-contained SDK pack (headers, archives,
-        # the dependency closure, the cmake surface) that compiles C++ game
-        # code on a machine with no engine checkout and no build tree - what a
-        # distributed editor hands a native-module project.
-        # See cmake/OrkigeSdk.cmake + Docs/sdk-pack.md.
         include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/OrkigeSdk.cmake)
         orkige_install_sdk()
-
+    endif()
+    if(NOT ORKIGE_MOBILE AND NOT ORKIGE_WEB)
         # desktop-only SDL samples (plain executables, host asset paths).
         # hello_orkige builds on both render flavors (per-flavor boot
         # block); jumper stays classic-only - its HUD is gui, which

@@ -360,6 +360,44 @@ TEST_CASE("NativeModule build-command assembly", "[project][native]")
 			"-DORKIGE_ROOT=/sdk/next",
 		});
 	}
+	SECTION("a CROSS pack's toolchain file travels on the configure line")
+	{
+		// We ship the engine, never a toolchain - but a pack built FOR another
+		// platform has to say what the machine's compiler must be told, and
+		// CMake reads that only from a toolchain file, before it probes a
+		// compiler at all. Without it the machine builds for itself and every
+		// object misses the archives it is meant to link.
+		Orkige::NativeModule::EngineSdk pack;
+		pack.kind = Orkige::NativeModule::EngineSdkKind::Pack;
+		pack.root = "/sdk/ios";
+		pack.buildType = "Debug";
+		pack.toolchainFile = "/sdk/ios/cmake/OrkigeSdkToolchain.cmake";
+		const Orkige::StringVector command =
+			Orkige::NativeModule::configureCommand("/opt/cmake",
+				"/proj/native", "/proj/native/build-sdk-next", pack);
+		REQUIRE(command == Orkige::StringVector{
+			"/opt/cmake", "-G", "Ninja",
+			"-S", "/proj/native", "-B", "/proj/native/build-sdk-next",
+			"-DCMAKE_BUILD_TYPE=Debug",
+			"-DORKIGE_ROOT=/sdk/ios",
+			"-DCMAKE_TOOLCHAIN_FILE=/sdk/ios/cmake/OrkigeSdkToolchain.cmake",
+		});
+	}
+	SECTION("the bundle is read as its own line, never derived")
+	{
+		// an app bundle is a DIRECTORY, and it is the thing that gets
+		// installed, signed and packaged; the executable inside it is only a
+		// file. The build writes both down.
+		REQUIRE(Orkige::NativeModule::artifactBundleFromManifest(
+			"shape=appbundle\n"
+			"artifact=/b/my_game.app/my_game\n"
+			"bundle=/b/my_game.app\n") == "/b/my_game.app");
+		// a shape that builds no bundle writes no such line, and its absence
+		// IS the answer
+		REQUIRE(Orkige::NativeModule::artifactBundleFromManifest(
+			"shape=executable\nartifact=/b/my_game\n").empty());
+		REQUIRE(Orkige::NativeModule::artifactBundleFromManifest("").empty());
+	}
 	SECTION("buildCommand is the incremental cmake --build")
 	{
 		REQUIRE(Orkige::NativeModule::buildCommand("/opt/cmake",

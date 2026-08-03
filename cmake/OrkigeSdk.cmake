@@ -19,9 +19,12 @@
 #   <pack>/media/            the engine's runtime media (fonts, water plane)
 #   <pack>/cmake/            OrkigeConfig + OrkigeConfigVersion (the ABI stamp),
 #                            OrkigeAbiStamp.cmake, OrkigeWriteVersion.cmake,
-#                            OrkigeGameModule.cmake and OrkigeSdkPack.cmake (the
-#                            marker that puts the game-module helper into pack
-#                            mode, and the one description of the layout)
+#                            OrkigeGameModule.cmake, OrkigeTargetShape.cmake +
+#                            what its recipes need (OrkigeModuleEntry.cpp, the
+#                            apple/ plist template), a CROSS pack's
+#                            OrkigeSdkToolchain.cmake, and OrkigeSdkPack.cmake
+#                            (the marker that puts the game-module helper into
+#                            pack mode, and the one description of the layout)
 #   <pack>/vcpkg/            the dependency closure - the build's vcpkg triplet
 #                            prefix, RELEASE half only
 #
@@ -102,7 +105,9 @@ set(ORKIGE_SDK_PRUNE_PORTS
 
 # orkige_install_sdk()
 #   Adds the install() rules that produce the pack. Called once from the root
-#   CMakeLists for desktop host builds (native modules are desktop-only).
+#   CMakeLists, for every target whose game-module link closure is derived
+#   (@see cmake/OrkigeGameModule.cmake) - a pack is per target, and one for a
+#   target whose modules cannot link would be a promise the pack cannot keep.
 function(orkige_install_sdk)
     set(_module_dir "${CMAKE_CURRENT_FUNCTION_LIST_DIR}")
     set(_src "${Orkige_SOURCE_DIR}")
@@ -329,17 +334,56 @@ function(orkige_install_sdk)
     orkige_target_platform(ORKIGE_SDK_TARGET_PLATFORM ORKIGE_SDK_MODULE_SHAPE
         ORKIGE_SDK_MODULE_OUTPUT_NAME)
     orkige_target_os_floor(ORKIGE_SDK_OS_DEPLOYMENT_TARGET)
+    orkige_target_apple_sysroot(ORKIGE_SDK_TARGET_SYSROOT)
     set(ORKIGE_SDK_TARGET_TRIPLET "${_triplet_name}")
     set(ORKIGE_SDK_TARGET_ARCHS "${CMAKE_OSX_ARCHITECTURES}")
     if(NOT ORKIGE_SDK_TARGET_ARCHS)
         set(ORKIGE_SDK_TARGET_ARCHS "${CMAKE_SYSTEM_PROCESSOR}")
     endif()
-    # a host pack is built by the platform's own toolchain and needs no
-    # toolchain file; the cross targets fill these when their packs are built
+    # THE TOOLCHAIN CONTRACT. A host pack is built by the platform's own
+    # toolchain and needs no toolchain file - the machine's default compiler
+    # already produces objects that link with these archives. A CROSS pack does
+    # not have that luxury: the same machine builds for its own platform by
+    # default, so the system, the SDK, the architectures and the OS floor have
+    # to be stated, and a cmake toolchain file is the only place CMake reads
+    # them early enough. It is realized below and travels as a PACK-RELATIVE
+    # path so the pack relocates.
     set(ORKIGE_SDK_TOOLCHAIN_KIND "host")
     set(ORKIGE_SDK_TOOLCHAIN_VERSION "")
     set(ORKIGE_SDK_TOOLCHAIN_FILE "")
     set(ORKIGE_SDK_TOOLCHAIN_OPTIONS "")
+    set(ORKIGE_SDK_TOOLCHAIN_SYSTEM "${CMAKE_SYSTEM_NAME}")
+    set(_sdk_abi_toolchain "")
+    if(CMAKE_CROSSCOMPILING AND APPLE AND ORKIGE_SDK_TARGET_SYSROOT)
+        set(ORKIGE_SDK_TOOLCHAIN_KIND "apple-cross")
+        # the platform SDK this closure was compiled against, asked of the
+        # machine's own Xcode rather than parsed out of a path
+        execute_process(COMMAND xcrun --sdk "${ORKIGE_SDK_TARGET_SYSROOT}"
+                --show-sdk-version
+            OUTPUT_VARIABLE ORKIGE_SDK_TOOLCHAIN_VERSION
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET)
+        set(ORKIGE_SDK_TOOLCHAIN_FILE "cmake/OrkigeSdkToolchain.cmake")
+    endif()
+    if(ORKIGE_SDK_TOOLCHAIN_FILE)
+        configure_file("${_module_dir}/OrkigeSdkToolchain.cmake.in"
+            "${CMAKE_BINARY_DIR}/sdk/OrkigeSdkToolchain.cmake" @ONLY)
+        install(FILES "${CMAKE_BINARY_DIR}/sdk/OrkigeSdkToolchain.cmake"
+            DESTINATION cmake
+            COMPONENT sdk)
+        # it decides how every object in a consumer's module is compiled, which
+        # makes it ABI surface exactly like the game-module helper beside it
+        set(_sdk_abi_toolchain "${ORKIGE_SDK_TOOLCHAIN_FILE}")
+    endif()
+    set(ORKIGE_SDK_ABI_TOOLCHAIN_FILE "${_sdk_abi_toolchain}")
+    # the Apple bundle recipe's plist template, which the shape helper resolves
+    # beside itself - a pack whose modules are bundles must carry it
+    if(ORKIGE_SDK_MODULE_SHAPE STREQUAL "appbundle")
+        orkige_apple_plist_template(_sdk_plist_template)
+        install(FILES "${_sdk_plist_template}"
+            DESTINATION cmake/apple
+            COMPONENT sdk)
+    endif()
     set(ORKIGE_SDK_CXX_COMPILER_ID "${CMAKE_CXX_COMPILER_ID}")
     set(ORKIGE_SDK_CXX_COMPILER_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
     set(ORKIGE_SDK_CXX_STDLIB "libstdc++")
@@ -355,6 +399,7 @@ function(orkige_install_sdk)
         "${_module_dir}/OrkigeAbiStamp.cmake"
         "${_module_dir}/OrkigeWriteVersion.cmake"
         "${_module_dir}/OrkigeTargetShape.cmake"
+        "${_module_dir}/OrkigeModuleEntry.cpp"
         "${CMAKE_BINARY_DIR}/sdk/OrkigeSdkPack.cmake"
         DESTINATION cmake
         COMPONENT sdk)

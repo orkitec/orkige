@@ -99,8 +99,17 @@ namespace OrkigeExport
 			// needs that platform's own player, which is not carried but
 			// FETCHED: hand the payload directory in and the platform becomes
 			// packageable here too.
+			//
+			// UNLESS the app is not a player at all: a project whose game code
+			// is compiled ships its own module, so what it needs is the engine
+			// to build that module against, not somebody's prebuilt runtime.
+			// The two are separate prerequisites and neither ever stands in
+			// for the other - a project with no C++ never needs a pack, and a
+			// project whose app IS its module never needs a player.
+			const bool moduleIsTheApp = !project.nativeTarget().empty() &&
+				!request.source.sdkPack.empty();
 			if(request.platform != "macos" && request.platform != "web" &&
-				request.source.devicePayload.empty())
+				request.source.devicePayload.empty() && !moduleIsTheApp)
 			{
 				return refuse(error, "a staged engine payload packages the "
 					"desktop app and the browser build; '" + request.platform +
@@ -118,12 +127,30 @@ namespace OrkigeExport
 					"the same files from different places");
 			}
 		}
+		else if(request.source.buildDirectory.empty() &&
+			!request.source.sdkPack.empty())
+		{
+			// AN SDK PACK ALONE IS AN ENGINE SOURCE for a project whose game
+			// code is compiled: the module IS the app, so no prebuilt player is
+			// wanted, and the pack carries everything the module needs to be
+			// built and to run - headers, archives, the dependency closure and
+			// the engine media (Docs/sdk-pack.md). A project whose behaviour is
+			// Lua has nothing to compile and does need a player, so it says so.
+			if(project.nativeTarget().empty())
+			{
+				return refuse(error, "an Orkige SDK pack is the engine a "
+					"project's COMPILED game code is built against; project '" +
+					project.name + "' has none, so it ships the player instead "
+					"- pass an engine build tree or a staged engine payload");
+			}
+		}
 		else
 		{
 			if(request.source.buildDirectory.empty())
 			{
 				return refuse(error, "no engine source: pass an engine build "
-					"tree or a staged engine payload");
+					"tree, a staged engine payload, or - for a project with "
+					"compiled game code - an Orkige SDK pack");
 			}
 			if(!ExportFiles::isDirectory(request.source.buildDirectory))
 			{
@@ -207,7 +234,7 @@ namespace OrkigeExport
 				? source.bundleResources
 				: ExportFiles::absolute(source.bundleTools);
 		}
-		else
+		else if(!source.buildDirectory.empty())
 		{
 			source.buildDirectory =
 				ExportFiles::absolute(source.buildDirectory);

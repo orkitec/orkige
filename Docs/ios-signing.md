@@ -76,6 +76,14 @@ does - so the device tree builds on any machine; the presets use the Ninja
 generator, which never invokes `codesign` at build time. Real signing happens at
 export time through the seam above.
 
+A project whose game code is **compiled C++** ships its own module rather than
+the player, so what it needs instead of a device player build is an **iOS device
+SDK pack** — the engine to compile and link that module against
+(`Docs/sdk-pack.md`). Only the simulator pack exists today, and a signed device
+export of such a project refuses by name until the device one does; a Lua
+project is unaffected and signs exactly as above. Credentials and an SDK are
+separate prerequisites, and neither ever stands in for the other.
+
 (The `--signing-identity` / `--provisioning-profile` arguments override the
 environment variables when both are given.) The exporter signs the bundle
 inside-out and embeds the profile — the bundle also carries a generated

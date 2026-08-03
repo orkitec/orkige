@@ -8,14 +8,40 @@ build — the build tree a native module normally resolves
 (`Docs/native-modules.md`) spells absolute paths and keeps its dependency
 closure inside itself, so a downloaded editor cannot hand one out.
 
-Build it from any desktop engine tree:
+Build it from any engine tree whose target the game-module helper derives a link
+closure for — the desktop presets and `ios-simulator-*`:
 
 ```sh
 cmake --build --preset macos-release
 cmake --install build/macos-release --prefix ~/orkige-sdk --component sdk
+
+cmake --build --preset ios-simulator-debug
+cmake --install build/ios-simulator-debug --prefix ~/orkige-sdk-ios --component sdk
 ```
 
 `--component sdk` is the pack; the engine graph installs nothing else.
+
+A pack is bound to ONE target (see [The target contract](#the-target-contract)),
+so a machine holds one per target it builds for, and the helper refuses a pack
+whose target is not the one being configured.
+
+## What you actually need, per project
+
+The prerequisites are **separate tiers**, and none of them ever stands in for
+another. This is the part that confuses, so it is worth stating plainly:
+
+| Your project | To export for a phone you need |
+| --- | --- |
+| behaviour is **Lua** (no C++) | the platform's **player** — carried by a source build, fetched by a downloaded editor (`Docs/device-payloads.md`). Nothing else. |
+| behaviour is **compiled C++** (`native.target`) | the **SDK pack for that target**, plus a C++ toolchain on the machine (on Apple targets, Xcode). There is no player to fetch: your module IS the app. |
+| either, onto a **physical device or a store** | additionally the **signing credentials** — an identity and a provisioning profile, machine-local and never committed (`Docs/ios-signing.md`). |
+
+**A project with no C++ never needs a pack — for any platform, in any
+configuration, release and signed builds included.** A Lua game has nothing to
+compile, so the SDK is not part of its story at all; it is neither required nor
+mentioned. Equally, a project whose app is its own module has no use for a
+prebuilt player. Each refusal names exactly the tier that is missing and links
+to the page that explains it.
 
 ## Layout
 
@@ -26,7 +52,7 @@ The one thing a consumer must know is the pack root.
 | `include/` | every engine header, LAYER-ROOTED exactly as an include line spells it: `core_util/String.h`, `engine_graphic/Engine.h`. Both layers merge into one root because their module directories are disjoint (`core_*` vs `engine_*`), so one include path serves both and consumer include lines are unchanged. |
 | `lib/` | `liborkige_core` + `liborkige_engine` |
 | `media/` | the engine's runtime media (fonts, the shared water plane) |
-| `cmake/` | `OrkigeConfig.cmake` + `OrkigeConfigVersion.cmake` (the ABI stamp), `OrkigeGameModule.cmake`, `OrkigeAbiStamp.cmake`, `OrkigeWriteVersion.cmake`, `OrkigeTargetShape.cmake` and `OrkigeSdkPack.cmake` |
+| `cmake/` | `OrkigeConfig.cmake` + `OrkigeConfigVersion.cmake` (the ABI stamp), `OrkigeGameModule.cmake`, `OrkigeAbiStamp.cmake`, `OrkigeWriteVersion.cmake`, `OrkigeTargetShape.cmake` with what its recipes need (`OrkigeModuleEntry.cpp`, `apple/Info.plist.in`), a cross pack's `OrkigeSdkToolchain.cmake`, and `OrkigeSdkPack.cmake` |
 | `vcpkg/` | the dependency closure — the exact binaries the engine archives were compiled and linked against |
 
 `cmake/OrkigeSdk.cmake` writes the pack. `cmake/OrkigeSdkPack.cmake`, which
@@ -98,6 +124,7 @@ authors:
 | `ORKIGE_ROOT` | **the pack root** in pack mode, **the engine source root** against a checkout. One name, because a consumer says "where Orkige is" and the helper works out which form it was handed (see below). |
 | `ORKIGE_ENGINE_BUILD_DIR` | the engine build tree to link. Required against a checkout, and meaningless — never passed — against a pack, which has no build tree. |
 | `CMAKE_BUILD_TYPE` | must equal the configuration the pack records; a mismatch is refused by name. Against a checkout, either. |
+| `CMAKE_TOOLCHAIN_FILE` | a **cross** pack's own `cmake/OrkigeSdkToolchain.cmake` (see below). Not passed for a host pack, which has none. |
 
 `ORKIGE_EXPECTED_ABI_VERSION` stays available as an explicit pin for a project
 that wants to name the engine version it was written against rather than accept
@@ -176,6 +203,39 @@ The helper derives the platform it is actually configuring for from the
 toolchain in force — through `cmake/OrkigeTargetShape.cmake`, which ships in the
 pack so both sides compute the same word for the same thing — and refuses a
 pack whose recorded platform disagrees.
+
+### A cross pack's toolchain file
+
+We ship the engine, never a toolchain: the compiler and the platform SDK come
+from the machine (Xcode, an NDK, an emsdk). What a **cross** pack owes a
+consumer is the SETTINGS that make the machine's toolchain produce objects which
+link with the archives in the pack — the system, the SDK, the architectures and
+the OS floor. CMake reads those before it probes a compiler at all, which is the
+one thing a cache variable cannot do, so they travel as a cmake toolchain file:
+`cmake/OrkigeSdkToolchain.cmake`, realized at install time from what the engine
+build actually cross-compiled with and named by `ORKIGE_SDK_TOOLCHAIN_FILE`
+relative to the pack root, so the pack still relocates.
+
+```sh
+cmake -G Ninja -S <project>/native -B <project>/native/build-sdk-ios \
+    -DCMAKE_TOOLCHAIN_FILE=<pack>/cmake/OrkigeSdkToolchain.cmake \
+    -DCMAKE_BUILD_TYPE=<the pack's> -DORKIGE_ROOT=<pack>
+```
+
+`NativeModule::configureCommand` passes it, so the editor and the exporter do
+this without a per-platform branch of their own; a host pack records an empty
+field and nothing is passed.
+
+Two details in that file earn their comments. The Apple SDK is recorded by its
+**short name** (`iphonesimulator`), because CMake expands the setting to the
+absolute `.sdk` path of whichever Xcode built the pack — a fact about the build
+machine that names a directory a consumer does not have. And the file sets the
+find-root modes to `BOTH`: a cross build defaults to re-rooting every
+`find_package`/`find_library` into the sysroot ONLY, which is right for a
+distribution whose libraries all live there and wrong for a pack the user
+unpacked wherever they liked, where it makes the engine archives and the whole
+bundled closure invisible. The pack's own closure is still what gets found,
+because the game-module helper puts that prefix at the front of the search path.
 
 ### The OS floor
 
@@ -273,8 +333,10 @@ The `sdk_pack` ctest (per flavor) proves it:
    directories at all.
 4. **target contract** — every field of the pack's own description must be
    present, and the ones a host pack can answer must be right: the platform it
-   was built on, an executable module shape, a triplet, a toolchain kind, a
-   compiler, a standard library, and on Apple a recorded OS floor.
+   was built on, an executable module shape, a triplet, a `host` toolchain kind
+   with NO toolchain file (handing a host consumer settings for a cross build
+   would redirect a build that was correct), a compiler, a standard library,
+   and on Apple a recorded OS floor.
 5. **private definitions** — no installed header may read a definition the
    engine keeps PRIVATE.
 6. **surface** — every engine header the source tree carries must be IN the
@@ -318,6 +380,25 @@ the several gigabytes of a Debug pack are worth the disk.
 On platforms without a path sandbox the acceptance leg still runs from staged
 copies outside the repository and leg 2 still audits the pack, but the engine
 tree is not made unreachable there; macOS carries the strict form.
+
+### A cross pack's acceptance
+
+`sdk_pack` proves the HOST pack, where the machine can run what it builds.
+A cross pack's equivalent question is answered on the target itself, by
+`export_ios_simulator_native_run`: an iOS pack is installed off the simulator
+tree and RELOCATED, `projects/jumper-native` is exported with that pack as the
+export's ONLY engine source (no build tree, no player payload on the command
+line), and the resulting app is installed on a booted simulator and watched
+until its own console says it booted its bundled project and rendered its
+frames. A module linked against the wrong architecture's archives, a bundle
+without its platform entry point, or one missing its shader media is a package
+that installs perfectly and never draws — which is why the verdict is the app's
+own output rather than a file listing.
+
+Self-containment is asserted STRUCTURALLY there rather than inferred from the
+run: a simulator sees the host filesystem, so a build-machine path baked into a
+binary still resolves on it. What the pack contains and what the link line
+resolves to are the host pack's legs 2 and 8, and they cover the same files.
 
 ## The public header surface
 

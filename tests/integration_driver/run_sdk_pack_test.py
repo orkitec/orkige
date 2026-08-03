@@ -979,8 +979,8 @@ def assert_target_contract(args, pack):
     the whole schema is asserted present, and the ones this pack can answer are
     asserted correct."""
     schema = ["ORKIGE_SDK_TARGET_PLATFORM", "ORKIGE_SDK_TARGET_ARCHS",
-              "ORKIGE_SDK_TARGET_TRIPLET", "ORKIGE_SDK_MODULE_SHAPE",
-              "ORKIGE_SDK_MODULE_OUTPUT_NAME",
+              "ORKIGE_SDK_TARGET_TRIPLET", "ORKIGE_SDK_TARGET_SYSROOT",
+              "ORKIGE_SDK_MODULE_SHAPE", "ORKIGE_SDK_MODULE_OUTPUT_NAME",
               "ORKIGE_SDK_OS_DEPLOYMENT_TARGET", "ORKIGE_SDK_TOOLCHAIN_KIND",
               "ORKIGE_SDK_TOOLCHAIN_VERSION", "ORKIGE_SDK_TOOLCHAIN_FILE",
               "ORKIGE_SDK_TOOLCHAIN_OPTIONS", "ORKIGE_SDK_CXX_COMPILER_ID",
@@ -1016,6 +1016,15 @@ def assert_target_contract(args, pack):
     if values["ORKIGE_SDK_MODULE_SHAPE"] != "executable":
         fail("a desktop game module is an executable, not '%s'"
              % values["ORKIGE_SDK_MODULE_SHAPE"])
+    if values["ORKIGE_SDK_TOOLCHAIN_KIND"] != "host":
+        fail("a pack built by the platform's own toolchain is a 'host' pack, "
+             "not '%s'" % values["ORKIGE_SDK_TOOLCHAIN_KIND"])
+    if values["ORKIGE_SDK_TOOLCHAIN_FILE"]:
+        fail("a host pack must name no toolchain file (it got '%s') - a "
+             "consumer's own compiler already produces objects that link with "
+             "these archives, and handing it settings for a cross build would "
+             "redirect a build that was correct"
+             % values["ORKIGE_SDK_TOOLCHAIN_FILE"])
     for required in ("ORKIGE_SDK_TARGET_TRIPLET", "ORKIGE_SDK_TOOLCHAIN_KIND",
                      "ORKIGE_SDK_CXX_COMPILER_ID", "ORKIGE_SDK_CXX_STDLIB"):
         if not values[required]:

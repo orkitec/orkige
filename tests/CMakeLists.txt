@@ -3295,6 +3295,32 @@ if(TARGET orkige_player)
         set_tests_properties(export_ios_simulator_payload_run PROPERTIES
             SKIP_RETURN_CODE 77 TIMEOUT 900)
 
+        # ...and the same run for the OTHER kind of app: a project whose game
+        # code is COMPILED ships the module itself, so there is no player to
+        # copy. The engine is an installed iOS SDK pack - installed off the
+        # simulator tree here and RELOCATED, the way a downloaded one arrives -
+        # and the exporter is handed nothing else, so the app on the device was
+        # cross-compiled and linked entirely out of the pack. That is the whole
+        # claim of a cross pack, and only an install-and-launch settles it: a
+        # module that links against the wrong architecture's archives, or a
+        # bundle without its platform entry point or its shader media, is a
+        # package that installs perfectly and never draws a frame. Device-
+        # labeled and skipping 77 for the same reasons as its siblings above.
+        add_test(NAME export_ios_simulator_native_run
+            COMMAND python3 "${ORKIGE_EXPORT_DEVICE_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-native"
+                --platform ios-simulator
+                --engine-source pack
+                --log-tag jumper_native
+                --shared-headers "${Orkige_SOURCE_DIR}/samples/jumper"
+                --engine-build "${Orkige_SOURCE_DIR}/build/ios-simulator-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/ios-simulator-native-run"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_ios_simulator_native_run PROPERTIES
+            SKIP_RETURN_CODE 77 TIMEOUT 1800)
+
         add_test(NAME export_android_run
             COMMAND python3 "${ORKIGE_EXPORT_DEVICE_DRIVER}"
                 --repo "${Orkige_SOURCE_DIR}"
@@ -3587,6 +3613,7 @@ foreach(device_test editor_play_simulator editor_play_simulator_boot
         player_rotation_android player_rotation_ios
         http_device_android http_device_ios
         export_ios_simulator_run export_ios_simulator_payload_run
+        export_ios_simulator_native_run
         export_android_run export_android_payload_run)
     if(TEST ${device_test})
         # RESOURCE_LOCK: device tests share one simulator/emulator + adb -

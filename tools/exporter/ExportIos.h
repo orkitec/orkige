@@ -22,13 +22,19 @@
 //! @brief packaging a project for iOS - the simulator, a signed device build,
 //! and the App Store `.ipa`.
 //!
-//! All three assemble the SAME bundle. An iOS player build already produces a
-//! complete `OrkigePlayer.app` carrying the engine's backend media, so an
-//! export copies that bundle and adds to it: the engine's content media, the
-//! project payload and its marker, the per-project icons, the privacy manifest
-//! and the identity keys rewritten onto the generic player's Info.plist. The
-//! bundle is FLAT (no Contents/) - `SDL_GetBasePath()` on iOS is the bundle
-//! root, which is where the marker and the payload have to sit.
+//! All three assemble the SAME bundle. An iOS build already produces a complete
+//! `.app` carrying the engine's backend media - the player's, or (for a project
+//! whose game code is compiled) the MODULE's, which is the same shape by the
+//! same recipe (cmake/OrkigeTargetShape.cmake) - so an export copies that
+//! bundle and adds to it: the engine's content media, the project payload and
+//! its marker, the per-project icons, the privacy manifest and the identity
+//! keys rewritten onto the built bundle's Info.plist. The bundle is FLAT (no
+//! Contents/) - `SDL_GetBasePath()` on iOS is the bundle root, which is where
+//! the marker and the payload have to sit.
+//!
+//! A NATIVE-MODULE project has no player to copy: the module is the runtime, so
+//! it is BUILT here, against an iOS SDK pack (Docs/sdk-pack.md) - the only form
+//! of the engine that exists on a machine with no engine checkout.
 //!
 //! What separates the three is only what happens after assembly:
 //!
@@ -48,6 +54,11 @@
 
 namespace OrkigeExport
 {
+	//! the target an iOS SIMULATOR SDK pack declares itself built for
+	//! (ORKIGE_SDK_TARGET_PLATFORM; @see cmake/OrkigeTargetShape.cmake, which
+	//! both sides of that name read)
+	extern const char * const IOS_SIMULATOR_PLATFORM;
+
 	//! @brief the keys an export rewrites onto the prebuilt player's
 	//! Info.plist: the project's identity, its icon list and the fixed
 	//! declarations. PURE - the plist edit itself is a separate step, so the

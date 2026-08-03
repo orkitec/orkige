@@ -553,10 +553,18 @@ In the editor, Play on such a project is **compile-on-Play**: an async
 incremental cmake build against this editor's own flavor tree, `[build]` lines
 streamed into the Console (Stop cancels; a failed build stays in edit mode and
 launches nothing), then the project's own executable runs as the play process
-(desktop target only). Acceptance proofs: `module_abi_mismatch`, `sdk_pack` and
+(desktop target only — a phone gets the module through the export pipeline).
+Packs are built PER TARGET: the desktop hosts and the iOS simulator emit one,
+and a CROSS pack additionally ships the cmake toolchain file that tells the
+machine's own compiler what to produce (we ship the engine, never a toolchain)
+plus what the target's shape needs — the platform entry TU and the Apple plist
+template, both owned by `cmake/OrkigeTargetShape.cmake`, so a game's `main.cpp`
+stays platform-neutral. Acceptance proofs: `module_abi_mismatch`, `sdk_pack`,
 `editor_bundle_native` (a COPIED editor plus a pack builds, plays and packages
 `projects/jumper-native` in a clean room denying the repository, the engine build
-tree and the vcpkg root), each per flavor.
+tree and the vcpkg root) — each per flavor — and
+`export_ios_simulator_native_run` (a relocated iOS pack is the export's ONLY
+engine source, and the app it produces installs and renders on a simulator).
 
 **Project export** (`tools/exporter/`): the `orkige_exporter` library the editor
 LINKS plus the `orkige_export` CLI every export ctest drives. **Build > Export
@@ -571,7 +579,15 @@ in `engine_runtime/PlayerRuntime.h`), an iOS-simulator `.app`, an Android APK
 Every export gets a per-project app icon (`export.icon` source PNG resized by
 `ExportIcons` → macOS `.icns` / iOS `CFBundleIconFiles` / Android launcher
 mipmaps; a neutral engine default `Util/media/orkige_default_icon.png` when
-unset) and a launch screen. Native-module projects are desktop-only.
+unset) and a launch screen. A native-module project ships the MODULE's own app
+instead of the player, so its iOS-simulator export BUILDS the module against an
+iOS SDK pack (`--sdk-pack`, the only engine source it needs; Android and the
+browser are not there yet).
+
+- **The SDK pack is never a prerequisite for a project with no C++.** A Lua
+  game has nothing to compile: it needs the platform's player (fetched, for a
+  distributed editor) and — for a device or store build — the signing
+  credentials. Three separate tiers, and none ever stands in for another.
 
 - **Signing credentials NEVER live in the manifest** — only `export.ios.teamId`
   is committed. Identity and provisioning profile come from CLI/env

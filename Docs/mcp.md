@@ -907,10 +907,11 @@ has no build tree and
 packages the engine payload it carries inside itself instead; there it exports
 the desktop app and refuses `ios-simulator`/`android` with a message saying that
 platform's player only comes from a source build. Either way `engineBuild` in
-the reply names what the export packaged from. Native-module projects export
-desktop only; from a distributed editor they need the installed SDK pack the
-same Play does, and the refusal names whichever prerequisite is missing —
-`Docs/sdk-pack.md`, `Docs/editor-distribution.md`.
+the reply names what the export packaged from. A native-module project exports for
+the desktop and the iOS simulator, and needs the installed SDK pack for that
+target the same way Play does; the refusal names whichever prerequisite is
+missing — `Docs/sdk-pack.md`, `Docs/editor-distribution.md`. A project with no
+compiled C++ never needs a pack for any platform.
 
 ```jsonc
 tools/call export_project { "platform":"macos" }   // authed → { accepted:"1", jobId:"..." }

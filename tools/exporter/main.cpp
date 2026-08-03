@@ -240,6 +240,7 @@ int main(int argc, char ** argv)
 	String engineBundle;
 	String engineTools;
 	String devicePayload;
+	String sdkPack;
 	String output;
 	String repoRoot = defaultRepoRoot();
 	String cmakeProgram;
@@ -272,6 +273,7 @@ int main(int argc, char ** argv)
 		else if(argument == "--engine-bundle") { engineBundle = value; }
 		else if(argument == "--engine-tools") { engineTools = value; }
 		else if(argument == "--device-payload") { devicePayload = value; }
+		else if(argument == "--sdk-pack") { sdkPack = value; }
 		else if(argument == "--output") { output = value; }
 		else if(argument == "--repo") { repoRoot = value; }
 		else if(argument == "--cmake") { cmakeProgram = value; }
@@ -303,7 +305,8 @@ int main(int argc, char ** argv)
 			"                     (--engine-build <preset build dir> |\n"
 			"                      --engine-bundle <dir> [--engine-tools "
 			"<dir>]\n"
-			"                      [--device-payload <dir>])\n"
+			"                      [--device-payload <dir>] |\n"
+			"                      --sdk-pack <installed Orkige SDK>)\n"
 			"                     [--output <dir>]\n"
 			"       orkige_export self-contain --frameworks <dir> "
 			"[--search <dir>]... <binary>...\n");
@@ -319,10 +322,12 @@ int main(int argc, char ** argv)
 		return fail("--engine-bundle and --engine-build name two different "
 			"engine sources - pass one");
 	}
-	if(engineBundle.empty() && engineBuild.empty())
+	if(engineBundle.empty() && engineBuild.empty() && sdkPack.empty())
 	{
 		return fail("no engine source: pass --engine-build <preset build "
-			"tree> or --engine-bundle <staged engine payload>");
+			"tree>, --engine-bundle <staged engine payload>, or - for a "
+			"project whose game code is compiled C++ - --sdk-pack "
+			"<installed Orkige SDK>");
 	}
 
 	OrkigeExport::ExportProject project;
@@ -363,6 +368,10 @@ int main(int argc, char ** argv)
 		request.source.buildDirectory = engineBuild;
 		request.repoRoot = repoRoot;
 	}
+	// the engine a project's COMPILED game code is built against - beside a
+	// staged payload (what a distributed editor has), or on its own, which is
+	// the whole engine source for an app that IS the module (@see ExportIos.h)
+	request.source.sdkPack = sdkPack;
 
 	String artifact;
 	if(!OrkigeExport::runExport(project, request, logLine, artifact, &error))

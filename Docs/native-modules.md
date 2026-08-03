@@ -39,6 +39,24 @@ prologue a packaged app resolves nothing, and a blocking loop inside `main`
 cannot exist in a browser at all. Since a module that ships anywhere but the
 desktop needs the harness regardless, it is the recommended path everywhere.
 
+### The platform entry point
+
+A module writes a plain `main()`, and on a phone the process does not start
+there: the platform starts an application object and hands control to the app's
+own function from inside its run loop. Something has to sit in front — and that
+something belongs to the engine, exactly like the shape of the artifact around
+it. A project's `main.cpp` carrying a platform include it must not care about
+would have to be edited, by its author, the day the project targets another
+target.
+
+So the game-module helper wires the window system's own documented seam
+(`cmake/OrkigeModuleEntry.cpp` is the whole of it): every translation unit of
+the module gets the rename-only view of the main header, and ONE
+engine-supplied translation unit carries the entry the platform actually
+starts. A multi-TU module would otherwise get one platform entry per file and
+fail to link. On the targets that need no entry of their own the same file
+emits nothing.
+
 `AppHost` (`engine_runtime/AppHost.h`) stays the layer below: the window, the
 engine singletons and the world. GameHost is what surrounds it.
 
@@ -109,10 +127,25 @@ uses: it creates the target in the shape the target platform requires — a
 desktop executable, the shared library an Android activity loads, an Apple
 mobile bundle — and then wires it. The shape belongs to the platform, so a
 project file never spells `add_executable()` and never has to be edited to
-follow the engine onto another target. Where the artifact landed is written
-down beside the build (`orkige_module_artifact.txt`) and read by the editor and
-the exporter, because `<buildDir>/<target>` is only the desktop answer. See
-`Docs/sdk-pack.md` for the full vocabulary.
+follow the engine onto another target. The shape carries its whole recipe, not
+just the `add_` call: an Apple bundle gets its Info.plist and the render
+backend's shader media staged inside it, so the artifact the build produces is
+one that RUNS. Where that artifact landed is written down beside the build
+(`orkige_module_artifact.txt`, which names the bundle as well as the executable
+inside it) and read by the editor and the exporter, because `<buildDir>/<target>`
+is only the desktop answer. See `Docs/sdk-pack.md` for the full vocabulary.
+
+## Which targets a module builds for
+
+The desktop hosts and the **iOS simulator**. Android and the browser have no
+derived link closure yet and say so by name at configure; a project's Lua and
+scene parts export for them regardless — that path never touches a module.
+
+On iOS the module IS the app: there is no player to copy, so the export builds
+it against an iOS SDK pack and packages the bundle the build produced
+(`orkige_export --platform ios-simulator --sdk-pack <pack>`; the editor passes
+the pack it resolved). A signed device build needs an iOS DEVICE pack rather
+than a different signing step, and refuses by name until one exists.
 
 ## The ABI-stamp version guard
 

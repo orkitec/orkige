@@ -92,8 +92,8 @@
 #     type; the editor guarantees that (it runs out of that very build tree).
 #     An SDK pack carries one configuration - Release - so a module built
 #     against a pack builds Release (Docs/sdk-pack.md).
-#   - desktop host packs only; iOS/Android/wasm SDK packs are not built yet, and
-#     iOS/Android native modules go through the export pipeline.
+#   - the desktop targets and the iOS simulator derive a link closure here;
+#     Android and the browser do not yet, and say so by name at configure.
 #   - the scripting backend follows the package; pass -DORKIGE_SCRIPTING=OFF
 #     only to override a package too old to record it.
 #   - this file owns the vcpkg dependency-closure resolution the package
@@ -566,10 +566,13 @@ function(orkige_add_game_module target)
     else()
         add_executable(${target} ${ARGN})
     endif()
-    if(ORKIGE_MODULE_TARGET_OUTPUT_NAME)
-        set_target_properties(${target} PROPERTIES
-            OUTPUT_NAME "${ORKIGE_MODULE_TARGET_OUTPUT_NAME}")
-    endif()
+    # the rest of the shape: the fixed artifact name where the platform
+    # dictates one, and a bundle's identity + plist. The identity here is a
+    # PLACEHOLDER by design - a shipped app's bundle id and display name come
+    # from the project manifest and are written into the plist at package time
+    # (tools/exporter), so the build-time values only have to be valid.
+    orkige_apply_target_shape(${target} NAME "${target}"
+        IDENTIFIER "com.orkitec.${target}")
     orkige_game_module(${target})
 endfunction()
 
@@ -595,6 +598,23 @@ endfunction()
 function(orkige_game_module target)
     target_compile_features(${target} PRIVATE cxx_std_20)
     orkige_module_report_artifact(${target})
+    if(ORKIGE_MODULE_TARGET_SHAPE STREQUAL "appbundle")
+        # THE PLATFORM ENTRY, owned here and not by the game (@see
+        # cmake/OrkigeModuleEntry.cpp for the whole seam): the module's own
+        # translation units get the window system's rename-only view of its
+        # main header, and ONE engine-supplied translation unit carries the
+        # entry the platform starts. A game module writes a plain main() and
+        # never learns that any of this happened.
+        target_compile_definitions(${target} PRIVATE SDL_MAIN_NOIMPL)
+        target_compile_options(${target} PRIVATE
+            "SHELL:-include SDL3/SDL_main.h")
+        target_sources(${target} PRIVATE
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/OrkigeModuleEntry.cpp")
+        # ...and the shader media the backend loads at boot, so the bundle the
+        # build produces is a bundle that RUNS
+        orkige_stage_bundle_backend_media(${target} "${ORKIGE_MODULE_FLAVOR}"
+            "${ORKIGE_GAME_MODULE_MEDIA_DIR}" "${ORKIGE_MEDIA_DIR}")
+    endif()
     # the engine include roots the PACKAGE declares - the source tree's two
     # layer dirs from a build tree, the pack's merged include/ from a pack.
     # Spelled explicitly because the archives are linked by raw path below (see
@@ -688,10 +708,12 @@ function(orkige_game_module target)
             OgreNext::PlanarReflections
             assimp::assimp
         )
-        if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
-            message(FATAL_ERROR "native game modules are desktop-only for now "
-                "(mobile builds go through the export pipeline once it exists)")
+        if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+            message(FATAL_ERROR "the Android link closure for a native game "
+                "module is not derived yet - build the project's Lua/scene "
+                "parts for Android, or target the desktop or the iOS simulator")
         elseif(APPLE)
+            # Metal on every Apple target, phone and desktop alike
             target_link_libraries(${target} PRIVATE OgreNext::RenderSystem_Metal)
         else()
             target_link_libraries(${target} PRIVATE OgreNext::RenderSystem_Vulkan)
@@ -704,14 +726,20 @@ function(orkige_game_module target)
             Codec_Assimp
             OgreMain
         )
-        if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
-            message(FATAL_ERROR "native game modules are desktop-only for now "
-                "(mobile builds go through the export pipeline once it exists)")
+        if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+            message(FATAL_ERROR "the Android link closure for a native game "
+                "module is not derived yet - build the project's Lua/scene "
+                "parts for Android, or target the desktop or the iOS simulator")
+        elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+            # the phone flavor of classic is GLES2 (@see orkige_engine/
+            # CMakeLists.txt: the only RS with an iOS surface path); the Metal
+            # RS below is a desktop-only experiment and has no place here
+            target_link_libraries(${target} PRIVATE RenderSystem_GLES2)
         else()
             target_link_libraries(${target} PRIVATE RenderSystem_GL3Plus)
-        endif()
-        if(APPLE)
-            target_link_libraries(${target} PRIVATE RenderSystem_Metal)
+            if(APPLE)
+                target_link_libraries(${target} PRIVATE RenderSystem_Metal)
+            endif()
         endif()
         # classic Vulkan render system (present when OGRE's 'vulkan' feature is
         # on); runtime-selectable via ORKIGE_RENDERSYSTEM=Vulkan

@@ -118,7 +118,7 @@ namespace OrkigeExport
 	bool buildNativeModuleFromPack(ExportProject const & project,
 		Orkige::String const & target, Orkige::String const & packRoot,
 		ExportEnvironment const & environment, Orkige::String & outExecutable,
-		Orkige::String * error)
+		Orkige::String * error, Orkige::String * outBundle)
 	{
 		const Orkige::NativeModule::EngineSdk pack =
 			Orkige::NativeModule::describePack(packRoot);
@@ -176,6 +176,10 @@ namespace OrkigeExport
 				executable + "'");
 		}
 		outExecutable = executable;
+		if(outBundle != 0)
+		{
+			*outBundle = Orkige::NativeModule::bundlePath(moduleBuildDirectory);
+		}
 		return true;
 	}
 	//---------------------------------------------------------
@@ -372,6 +376,17 @@ namespace OrkigeExport
 			flavor = bundleFlavor(source);
 			emit(environment.log, "packaging the engine payload in '" +
 				source.bundleResources + "'");
+		}
+		else if(source.buildDirectory.empty())
+		{
+			// an SDK pack ALONE is an engine source only where the app is the
+			// module itself (the iOS packages); a macOS app is assembled around
+			// a bundle whose dylib closure comes from a build tree or a staged
+			// payload, so this one says what it needs rather than half-building
+			return report(error, "a macOS package needs an engine build tree or "
+				"a staged engine payload - an Orkige SDK pack alone is the "
+				"engine a native module is BUILT against, not a macOS app to "
+				"assemble around");
 		}
 		else if(!nativeTarget.empty())
 		{

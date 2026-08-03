@@ -42,6 +42,7 @@ add_executable(orkige_core_tests
     GlobalEventManagerTeardownTests.cpp
     TagTests.cpp
     ProjectTests.cpp
+    HelpLinkTests.cpp
     AssetDatabaseTests.cpp
     TextureSamplerTableTests.cpp
     TweenTests.cpp

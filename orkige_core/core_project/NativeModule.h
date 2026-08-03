@@ -103,6 +103,17 @@ namespace Orkige
 			String			flavor;
 			//! Pack only: the target platform the pack was built for
 			String			platform;
+			//! Pack only: the cmake toolchain file a CROSS pack's consumer must
+			//! configure with, resolved absolute. Empty for a host pack, whose
+			//! consumer compiles with the platform's own toolchain, and for a
+			//! build tree, which is always the host's.
+			//! @remarks We ship the engine, never a toolchain: this names the
+			//! SETTINGS (system, SDK, architectures, OS floor) that make the
+			//! machine's compiler produce objects which link with the pack's
+			//! archives - facts CMake must have before it probes a compiler,
+			//! which is why they travel as a toolchain file and not as one
+			//! more cache variable.
+			String			toolchainFile;
 
 			bool found() const { return this->kind != EngineSdkKind::None; }
 			bool fromPack() const { return this->kind == EngineSdkKind::Pack; }
@@ -239,6 +250,18 @@ namespace Orkige
 		//! manifest names, else the desktop "<buildDir>/<target>" fallback
 		String executablePath(String const & buildDirAbsolute,
 			String const & target);
+
+		//! @brief pure: the BUNDLE directory the manifest names, or "" when
+		//! this target's shape is not a bundle.
+		//! @remarks An app bundle is a directory, and it is the thing that
+		//! gets installed, signed and packaged - the executable inside it is
+		//! only a file. The helper writes both lines, so a packager asks for
+		//! the one its platform ships rather than deriving a bundle path from
+		//! an executable path.
+		String artifactBundleFromManifest(String const & manifestText);
+
+		//! @see artifactBundleFromManifest - read from the build tree's manifest
+		String bundlePath(String const & buildDirAbsolute);
 	}
 }
 

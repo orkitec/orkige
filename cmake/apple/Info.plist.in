@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- iOS player Info.plist template. The key addition over the CMake default is
-     UILaunchScreen: an empty launch-screen dict opts the app into native full
-     resolution (without it iOS runs the app in scaled compatibility mode). The
-     project exporter rewrites the identity/name and adds CFBundleIcons on top of
-     this at package time. -->
+<!-- The Info.plist every Orkige iOS app bundle is built with - the player and a
+     project's compiled game module alike, since the SHAPE a target takes on a
+     platform belongs to the engine and not to the app (see
+     cmake/OrkigeTargetShape.cmake, which points both at this file and ships it
+     inside an SDK pack).
+
+     The key addition over the CMake default is UILaunchScreen: an empty
+     launch-screen dict opts the app into native full resolution (without it iOS
+     runs the app in scaled compatibility mode). The project exporter rewrites
+     the identity/name and adds CFBundleIcons on top of this at package time. -->
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>

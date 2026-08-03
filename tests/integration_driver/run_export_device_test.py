@@ -15,12 +15,19 @@ CONTAINS. This one asserts that what it contains is enough: a payload missing a
 scene, a shader tree or a texture is a package that installs perfectly and then
 boots into nothing, which no amount of file-list checking catches.
 
-The ENGINE SOURCE is the second axis, because the same app is packaged two
+The ENGINE SOURCE is the second axis, because the same app is packaged three
 ways. `build-tree` is the developer case (the platform's preset tree). `payload`
 is what a DOWNLOADED editor does: it carries no phone player, so it packages
 from a FETCHED device payload beside its own staged resources
 (Docs/device-payloads.md). Byte-comparing the two packages proves they agree;
 only running one proves either is a game.
+
+`pack` is the third, and it is a different KIND of app: a project whose game
+code is compiled C++ ships the module itself, so there is no player to copy at
+all. The engine is an installed SDK pack (Docs/sdk-pack.md) - installed from the
+platform's preset tree here, then RELOCATED by renaming it, exactly as a
+downloaded one would be - and the export line names no build tree, so what runs
+on the device was built from the pack and nothing else.
 
 Exit codes: 0 pass, 77 skip (no built player, no device, no SDK tool - the
 ctest SKIP_RETURN_CODE), anything else fail.
@@ -40,26 +47,35 @@ import time
 import xml.etree.ElementTree as ET
 
 SKIP = 77
-#: the line the player prints once its project's scene is live - the proof the
-#: payload was complete enough to reach a running game
-BOOT_MARKER = re.compile(r"orkige_player: scene '.*' loaded \((\d+) GameObjects\)")
-#: ...and the line the frame-capped run prints when it ENDS. Booting proves the
-#: payload resolves; this proves the app RENDERED the frames it was asked for.
-FRAME_MARKER = re.compile(r"orkige_player: frame stats - (\d+) frames")
-#: the device payload each platform's package is fetched from, and the ordered
-#: version its install directory is named for (any release identity will do -
-#: nothing here is published)
-PAYLOAD_IDS = {
-    "ios-simulator": "player-ios-simulator",
-    "android": "player-android",
-}
-PAYLOAD_VERSION = "2.0.0-nightly.20260802+abcdef123"
+
+
 #: logcat tags the player's own lines arrive under. SDL routes an app's
 #: SDL_Log through "SDL/APP" rather than "SDL", so a filter that names only
 #: the latter reads a perfect run as a failure - the boot and frame markers
 #: below are exactly those lines.
 ANDROID_LOG_TAGS = ("SDL", "SDL/APP", "Orkige", "orkige_player",
                     "OrkigePlayer")
+
+
+def boot_marker(tag):
+    """the line a runtime prints once its project's scene is live - the proof
+    the payload was complete enough to reach a running game. The TAG is the
+    runtime's own name: the generic player for a Lua project, the project's own
+    module where the game code is compiled."""
+    return re.compile(tag + r": scene '.*' loaded \((\d+) GameObjects\)")
+
+
+def frame_marker(tag):
+    """...and the line the frame-capped run prints when it ENDS. Booting proves
+    the payload resolves; this proves the app RENDERED the frames asked for."""
+    return re.compile(tag + r": frame stats - (\d+) frames")
+
+
+#: the device payload an iOS-simulator package is fetched from, and the ordered
+#: version its install directory is named for (any release identity will do -
+#: nothing here is published)
+IOS_PAYLOAD_ID = "player-ios-simulator"
+PAYLOAD_VERSION = "2.0.0-nightly.20260802+abcdef123"
 
 
 def log(message):
@@ -118,32 +134,79 @@ def stage_device_payload(args, work):
     packaging = load_module("orkige_nightly_package",
                             os.path.join(args.repo, "Util",
                                          "orkige_nightly_package.py"))
-    payload_id = PAYLOAD_IDS[args.platform]
-    payload = os.path.join(work, "payloads", payload_id)
-    if not packaging.compose_device_payload(payload, payload_id,
+    payload = os.path.join(work, "payloads", IOS_PAYLOAD_ID)
+    if not packaging.compose_device_payload(payload, IOS_PAYLOAD_ID,
                                             args.engine_build,
                                             PAYLOAD_VERSION,
                                             commit="abcdef123"):
         return "", ""
-    problems = packaging.device_payload_problems(payload, payload_id)
+    problems = packaging.device_payload_problems(payload, IOS_PAYLOAD_ID)
     if problems:
         fail("the composed %s payload is incomplete: %s"
-             % (payload_id, ", ".join(problems)))
+             % (IOS_PAYLOAD_ID, ", ".join(problems)))
     # the editor's own staged resources - the OTHER engine source of the two a
     # downloaded editor packages a phone build from
     bundle = os.path.join(work, "bundle")
     packaging.stage_engine_media(args.host_build, os.path.join(bundle, "Media"))
     log("composed the %s payload the way a release publishes one (%s)"
-        % (payload_id, payload))
+        % (IOS_PAYLOAD_ID, payload))
     return payload, bundle
 
 
-def export(args, output, payload="", bundle=""):
+def install_pack(args, work):
+    """install the platform's SDK pack from its preset tree and RELOCATE it.
+
+    A pack a user downloads is never at the path it was built at, so renaming
+    it is the cheapest honest proof; everything after reads only the renamed
+    copy. Returns the pack root, or "" when the tree carries no install rules
+    (a preset that predates them)."""
+    staged = os.path.join(work, "installed")
+    code, output = run([shutil.which("cmake") or "cmake", "--install",
+                        args.engine_build, "--prefix", staged,
+                        "--component", "sdk"], timeout=1800, check=False)
+    if code != 0:
+        print(output[-4000:], flush=True)
+        fail("installing the SDK pack from '%s' failed" % args.engine_build)
+    pack = os.path.join(work, "unpacked-elsewhere", "orkige-sdk")
+    os.makedirs(os.path.dirname(pack), exist_ok=True)
+    os.rename(staged, pack)
+    log("installed the SDK pack and relocated it to " + pack)
+    return pack
+
+
+def stage_project(args, work):
+    """a COPY of the project to package, so the module builds in scratch space
+    and the repository's own trees stay untouched.
+
+    A project written against a distributed engine carries its own sources; the
+    reference project shares two headers with the C++ sample in the tree, and a
+    pack has no checkout to reach them through - so they are copied in beside
+    its module, which is what any self-contained project does."""
+    project = os.path.join(work, os.path.basename(args.project.rstrip("/")))
+    shutil.rmtree(project, ignore_errors=True)
+    shutil.copytree(args.project, project,
+                    ignore=shutil.ignore_patterns("build*", "builds",
+                                                  ".orkige"))
+    if args.shared_headers:
+        native = os.path.join(project, "native")
+        for name in sorted(os.listdir(args.shared_headers)):
+            if name.endswith(".h") and os.path.isdir(native):
+                shutil.copy2(os.path.join(args.shared_headers, name),
+                             os.path.join(native, name))
+    return project
+
+
+def export(args, output, payload="", bundle="", pack="", project=""):
     if os.path.exists(output):
         shutil.rmtree(output)
-    argv = [args.exporter, "--project", args.project,
+    argv = [args.exporter, "--project", project or args.project,
             "--platform", args.platform]
-    if payload:
+    if pack:
+        # the SDK pack is the WHOLE engine source here: the app IS the
+        # project's compiled module, so no build tree and no player payload
+        # are named at all
+        argv += ["--sdk-pack", pack]
+    elif payload:
         # the two-source shape a downloaded editor uses: its own staged
         # resources plus the fetched device player, and NO repository
         argv += ["--engine-bundle", bundle, "--device-payload", payload]
@@ -261,26 +324,44 @@ def run_ios_simulator(args):
     if sys.platform != "darwin" or not shutil.which("xcrun"):
         skip("the iOS Simulator flow needs macOS with the Xcode command line "
              "tools")
-    player_app = os.path.join(args.engine_build, "tools", "player",
-                              "OrkigePlayer.app")
-    if not os.path.isdir(player_app):
-        skip("no built iOS Simulator player at '%s' - build the matching "
-             "ios-simulator preset to enable this test" % player_app)
+    # what the tree must carry to package at all: a built player for the two
+    # player-shaped sources, an installable SDK pack for the module-shaped one
+    if args.engine_source == "pack":
+        if not os.path.isfile(os.path.join(args.engine_build,
+                                           "OrkigeConfig.cmake")):
+            skip("'%s' carries no Orkige package to install an SDK pack from - "
+                 "build the matching ios-simulator preset to enable this test"
+                 % args.engine_build)
+        if not shutil.which("cmake") or not shutil.which("ninja"):
+            skip("building a native module needs cmake and ninja on this "
+                 "machine")
+    else:
+        player_app = os.path.join(args.engine_build, "tools", "player",
+                                  "OrkigePlayer.app")
+        if not os.path.isdir(player_app):
+            skip("no built iOS Simulator player at '%s' - build the matching "
+                 "ios-simulator preset to enable this test" % player_app)
     udid = first_simulator()
     if not udid:
         skip("no BOOTED iPhone simulator (boot one with 'xcrun simctl boot')")
     log("using simulator " + udid)
 
-    payload = bundle = ""
+    payload = bundle = pack = project = ""
     if args.engine_source == "payload":
         payload, bundle = stage_device_payload(
             args, os.path.join(args.output, "engine-source"))
         if not payload:
             skip("no iOS Simulator player to compose a device payload from "
                  "under '%s'" % args.engine_build)
+    elif args.engine_source == "pack":
+        work = os.path.join(args.output, "engine-source")
+        shutil.rmtree(work, ignore_errors=True)
+        pack = install_pack(args, work)
+        project = stage_project(args, work)
 
     name, _exe = project_names(args.project)
-    export(args, os.path.join(args.output, "package"), payload, bundle)
+    export(args, os.path.join(args.output, "package"), payload, bundle, pack,
+           project)
     app = os.path.join(args.output, "package", name + ".app")
     require(os.path.isdir(app), "the exporter produced an app bundle")
     with open(os.path.join(app, "Info.plist"), "rb") as handle:
@@ -297,10 +378,10 @@ def run_ios_simulator(args):
         # so the app itself says when it is done
         tail = ConsoleTail(["xcrun", "simctl", "launch", "--console-pty",
                             udid, bundle_id], os.environ.copy())
-        await_marker(tail, BOOT_MARKER, args.deadline,
+        await_marker(tail, boot_marker(args.log_tag), args.deadline,
                      "booted its bundled project")
         log("ok: the installed export booted its bundled project")
-        frames = await_marker(tail, FRAME_MARKER, args.deadline,
+        frames = await_marker(tail, frame_marker(args.log_tag), args.deadline,
                               "reached its frame cap")
         require(int(frames.group(1)) > 0,
                 "the installed export RENDERED frames (%s measured)"
@@ -344,21 +425,6 @@ def android_package(project_dir, exe_name):
     return "com.orkitec." + exe_name.lower()
 
 
-def android_build_tools(sdk):
-    """the newest build-tools installed under `sdk`, or "" - the same "take
-    what the SDK manager gave this machine" rule the packaging script and the
-    exporter's doctor follow, rather than a pinned version"""
-    root = os.path.join(sdk, "build-tools")
-    versions = []
-    for name in os.listdir(root) if os.path.isdir(root) else []:
-        if re.fullmatch(r"[0-9]+(\.[0-9]+)*", name):
-            versions.append([int(part) for part in name.split(".")])
-    if not versions:
-        return ""
-    newest = max(versions)
-    return os.path.join(root, ".".join(str(part) for part in newest))
-
-
 def run_android(args):
     adb = adb_path()
     if not adb:
@@ -368,13 +434,9 @@ def run_android(args):
         skip("no built Android player under '%s' - build the matching android "
              "preset to enable this test" % args.engine_build)
     sdk = os.environ.get("ANDROID_HOME",
-                         os.environ.get("ANDROID_SDK_ROOT",
-                                        os.path.expanduser(
-                                            "~/Library/Android/sdk")))
-    build_tools = android_build_tools(sdk)
-    if not build_tools or not os.path.isfile(os.path.join(build_tools,
-                                                          "aapt2")):
-        skip("no Android SDK build-tools under '%s'" % sdk)
+                         os.path.expanduser("~/Library/Android/sdk"))
+    if not os.path.isfile(os.path.join(sdk, "build-tools", "35.0.0", "aapt2")):
+        skip("no Android build-tools 35.0.0 under '%s'" % sdk)
     code, devices = run([adb, "devices"], timeout=120, check=False)
     attached = [line.split("\t")[0] for line in devices.splitlines()[1:]
                 if line.strip().endswith("\tdevice")]
@@ -382,22 +444,10 @@ def run_android(args):
         skip("no adb device/emulator connected")
     log("using device " + attached[0])
 
-    payload = bundle = ""
-    if args.engine_source == "payload":
-        payload, bundle = stage_device_payload(
-            args, os.path.join(args.output, "engine-source"))
-        if not payload:
-            skip("no Android player to compose a device payload from under "
-                 "'%s'" % args.engine_build)
-
     _name, exe_name = project_names(args.project)
     package = android_package(args.project, exe_name)
-    # the package goes in its OWN subdirectory: an export clears the directory
-    # it writes into, and the staged engine source is a sibling it must not
-    # take with it
-    package_dir = os.path.join(args.output, "package")
-    export(args, package_dir, payload, bundle)
-    apk = os.path.join(package_dir, exe_name + ".apk")
+    export(args, args.output)
+    apk = os.path.join(args.output, exe_name + ".apk")
     require(os.path.isfile(apk), "the exporter produced an APK")
 
     run([adb, "uninstall", package], timeout=120, check=False)
@@ -410,16 +460,17 @@ def run_android(args):
         # the app keeps running (Android has no frame-cap env channel), so the
         # verdict is the boot line arriving in logcat within the deadline
         deadline = time.monotonic() + args.deadline
+        boot = boot_marker(args.log_tag)
         transcript = ""
         while time.monotonic() < deadline:
             _code, transcript = run([adb, "logcat", "-d", "-s"]
                                     + list(ANDROID_LOG_TAGS),
                                     timeout=120, check=False)
-            if BOOT_MARKER.search(transcript):
+            if boot.search(transcript):
                 break
             time.sleep(2.0)
         print(transcript[-4000:], end="", flush=True)
-        require(BOOT_MARKER.search(transcript) is not None,
+        require(boot.search(transcript) is not None,
                 "the installed export booted its bundled project on the device")
     finally:
         run([adb, "shell", "am", "force-stop", package], timeout=120,
@@ -439,11 +490,21 @@ def main():
                              "source itself, or (payload mode) the tree the "
                              "device payload is composed from")
     parser.add_argument("--engine-source", default="build-tree",
-                        choices=["build-tree", "payload"],
+                        choices=["build-tree", "payload", "pack"],
                         help="package from the preset build tree (the "
-                             "developer case) or from a fetched device payload "
+                             "developer case), from a fetched device payload "
                              "beside staged editor resources (what a "
-                             "downloaded editor does)")
+                             "downloaded editor does), or - for a project "
+                             "whose game code is compiled - from an SDK pack "
+                             "installed off that tree and relocated")
+    parser.add_argument("--log-tag", default="orkige_player",
+                        help="the runtime's own log tag, which is what its "
+                             "boot and frame lines are prefixed with: the "
+                             "generic player, or a project's own module")
+    parser.add_argument("--shared-headers", default="",
+                        help="pack mode: headers copied beside the staged "
+                             "project's module, standing in for the ones a "
+                             "self-contained project carries itself")
     parser.add_argument("--host-build", default="",
                         help="payload mode: the host build tree the staged "
                              "editor resources are composed from")

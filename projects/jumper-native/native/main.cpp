@@ -48,6 +48,7 @@
 #include <engine_physic/PhysicsWorld.h>
 #include <engine_input/InputManager.h>
 #include <engine_runtime/AppHost.h>
+#include <engine_runtime/GameHost.h>
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
@@ -56,7 +57,6 @@
 #include <core_debug/ProfileManager.h>
 #include <core_game/SceneSerializer.h>
 #include <core_project/Project.h>
-#include <core_util/PlatformUtil.h>
 #include <core_util/StringUtil.h>
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
@@ -360,14 +360,36 @@ int main(int argc, char** argv)
 	std::string scenePath = arguments.scenePath;
 	std::string projectPath = arguments.projectPath;
 
+	// the platform prologue (engine_runtime/GameHost.h) BEFORE anything reads
+	// a file: on a phone the app's content is not where a desktop run would
+	// look for it, and the media/writable/content directories are the
+	// platform's answer rather than this game's. Compiled game code links the
+	// harness instead of re-deriving any of it - which is what lets the same
+	// main() run on a desktop and inside an app bundle.
+	Orkige::GamePlatform platform;
+	{
+		Orkige::GamePlatformConfig platformConfig;
+		platformConfig.appName = "Orkige Player";
+		platformConfig.logTag = "jumper_native";
+		// the engine media this module was BUILT against, baked in by
+		// cmake/OrkigeGameModule.cmake - the engine build tree's or the SDK
+		// pack's. A packaged app ignores it and reads the media it carries.
+		platformConfig.desktopMediaDirectory = ORKIGE_MODULE_MEDIA_DIR;
+		if (!platform.boot(platformConfig))
+		{
+			return 1;
+		}
+	}
+
 	// exported app, launched WITHOUT arguments: the orkige_project.txt marker
-	// in the .app's Resources names the bundled project (the shared
+	// in the app's resources names the bundled project (the shared
 	// PlayerBundle mechanism - see engine_runtime/PlayerRuntime.h and
 	// tools/exporter); dev runs carry no marker and are unaffected
 	bool bundledProjectRun = false;
 	if (projectPath.empty() && scenePath.empty())
 	{
-		projectPath = Orkige::PlayerBundle::findBundledProject();
+		projectPath =
+			Orkige::PlayerBundle::findBundledProject(platform.getContentRoot());
 		bundledProjectRun = !projectPath.empty();
 		if (bundledProjectRun)
 		{
@@ -401,12 +423,19 @@ int main(int argc, char** argv)
 			}
 		}
 	}
+	// the platform's rule for the path a run was given: a packaged app anchors
+	// it in the content it carries, a desktop run gets it back unchanged
+	scenePath = platform.resolveScenePath(scenePath);
 	if (scenePath.empty())
 	{
 		SDL_Log("usage: jumper_native [scene.oscene] "
 			"[--project <dir-or-.orkproj>] [--debug-port N]");
 		return 1;
 	}
+	// mobile orientation, pinned BEFORE the window exists (the rule lives in
+	// GamePlatform::applyOrientationPolicy); a no-op on desktop
+	platform.applyOrientationPolicy(
+		project.getSetting("export.orientation", "portrait"));
 
 	// automation hook (read before boot - it gates the vsync and frame-pacing
 	// decisions): ORKIGE_DEMO_FRAMES frame-limits the run; automated runs
@@ -426,34 +455,30 @@ int main(int argc, char** argv)
 		(std::getenv("ORKIGE_JUMPER_NATIVE_SELFCHECK") != nullptr);
 	const bool automatedRun = frameLimit != 0 || hudSelfCheck;
 
+	// the writable paths, per platform: a sandboxed app writes into its
+	// container, an exported desktop app into the app-support directory (a
+	// double-clicked app runs with an unwritable cwd) and a dev run keeps the
+	// cwd log
+	platform.resolveDirectories("jumper_native.log", bundledProjectRun);
+
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window, engine
 	// singletons, the per-flavor Engine boot, the fixed-yaw window-camera rig
 	// and the GameObject world. This is flavor-neutral game code: it sets both
-	// media fields and the host consumes only the one its flavor needs. The
-	// engine media the module was built against is ORKIGE_MODULE_MEDIA_DIR,
-	// baked in by OrkigeGameModule.cmake - the classic RTSS library / the
-	// Ogre-Next Hlms templates, inside the engine build tree or inside the SDK
-	// pack, whichever this module was built against; an exported .app carries
-	// its engine media under Resources/Media and resolveMediaDirectory returns
-	// THAT so the bundle is self-contained.
+	// media fields and the host consumes only the one its flavor needs. WHERE
+	// the engine media lives is the platform harness's answer - the build tree
+	// or SDK pack this module was compiled against for a dev run, the Media/
+	// the app carries for a packaged one - so the game never spells a path.
+	const std::string moduleMediaDir = platform.getMediaDirectory();
 	Orkige::AppHostConfig hostConfig;
 	hostConfig.windowTitle = "Orkige Jumper (native module)";
+	if (Orkige::GamePlatform::isMobile())
+	{
+		// a phone window is a fullscreen native surface; "auto" orientation
+		// asks for one the device may rotate
+		hostConfig.resizableWindow = platform.followsDeviceRotation();
+	}
 	hostConfig.automatedRun = automatedRun;
-	// exported .app: never write into the cwd (a double-clicked app runs
-	// with cwd "/") - the log goes to Application Support instead
-	hostConfig.engineLogFile = bundledProjectRun
-		? Orkige::PlatformUtil::getSupportDirectory("Orkige Player") +
-			"jumper_native.log"
-		: "jumper_native.log";
-	const std::string moduleMediaDir =
-		Orkige::PlayerBundle::resolveMediaDirectory(ORKIGE_MODULE_MEDIA_DIR);
-	// BOTH media roots are stated, always. The engine archive carries a baked
-	// default for a dev run, but that default names the tree the archive was
-	// built in - which is not there for a module built against a distributed
-	// SDK pack, and not there inside an exported .app either. The module's own
-	// resolved media dir is the right answer in every case (against an engine
-	// build tree it IS the baked default, so a dev run is unchanged), so the
-	// game says it rather than relying on where the engine came from.
+	hostConfig.engineLogFile = platform.getEngineLogPath();
 	hostConfig.classicMediaDir = moduleMediaDir;
 	hostConfig.hlmsMediaDir = moduleMediaDir;
 
@@ -525,7 +550,7 @@ int main(int argc, char** argv)
 			return 1;
 		}
 		Orkige::applyUnlitFixToLoadedModels(gameObjectManager);
-		SDL_Log("jumper_native: level '%s' loaded (%zu GameObjects)",
+		SDL_Log("jumper_native: scene '%s' loaded (%zu GameObjects)",
 			scenePath.c_str(), gameObjectManager.getGameObjects().size());
 
 		if (!physicsWorld.init())

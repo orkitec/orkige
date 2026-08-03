@@ -9,6 +9,7 @@
 
 #include "core_project/NativeModule.h"
 #include "core_project/Project.h"
+#include "core_util/HelpLink.h"
 
 #include <filesystem>
 #include <fstream>
@@ -162,6 +163,15 @@ namespace Orkige
 			sdk.platform = cmakeSetValue(marker, "ORKIGE_SDK_TARGET_PLATFORM");
 			sdk.buildType = cmakeSetValue(config, "ORKIGE_PACKAGE_BUILD_TYPE");
 			sdk.flavor = cmakeSetValue(config, "ORKIGE_PACKAGE_RENDER_BACKEND");
+			// a CROSS pack names its toolchain file relative to its own root,
+			// which is what lets the pack relocate; resolve it here, once, so
+			// every consumer passes the same absolute path
+			const String toolchain =
+				cmakeSetValue(marker, "ORKIGE_SDK_TOOLCHAIN_FILE");
+			if(!toolchain.empty())
+			{
+				sdk.toolchainFile = (root / toolchain).string();
+			}
 			return sdk;
 		}
 		//---------------------------------------------------------
@@ -256,12 +266,14 @@ namespace Orkige
 		{
 			const String subject = "project '" + projectName +
 				"' builds compiled C++ game code (the module '" + target + "')";
+			const String reference = " " + helpUrl("sdk-pack");
 			if(!engine.found())
 			{
 				return subject + ", which needs the Orkige SDK for this build "
 					"- and it is not installed. Install the SDK, then press "
 					"Play again (it belongs in '" + packDirectory + "'). "
-					"Projects whose behaviour is Lua scripts need none of it.";
+					"Projects whose behaviour is Lua scripts need none of it." +
+					reference;
 			}
 			if(engine.fromPack() && !expectedFlavor.empty() &&
 				!engine.flavor.empty() && engine.flavor != expectedFlavor)
@@ -269,7 +281,8 @@ namespace Orkige
 				return subject + ", and the installed SDK holds the '" +
 					engine.flavor + "' engine while this Orkige is '" +
 					expectedFlavor + "' - its archives are the other render "
-					"backend's. Install the '" + expectedFlavor + "' SDK.";
+					"backend's. Install the '" + expectedFlavor + "' SDK." +
+					reference;
 			}
 			if(!tools.complete())
 			{
@@ -289,7 +302,7 @@ namespace Orkige
 					" not on the PATH. Orkige ships the engine, never a "
 					"compiler: install " + missing + " (and a C++ compiler - on "
 					"macOS the Xcode Command Line Tools, `xcode-select "
-					"--install`).";
+					"--install`)." + reference;
 			}
 			return String();
 		}
@@ -324,6 +337,16 @@ namespace Orkige
 				"-DCMAKE_BUILD_TYPE=" + engine.buildType,
 				"-DORKIGE_ROOT=" + engine.root,
 			};
+			if(!engine.toolchainFile.empty())
+			{
+				// a CROSS pack: CMake must know the system, the SDK and the
+				// architectures BEFORE it probes a compiler, and a toolchain
+				// file is the only thing it reads that early. Without it the
+				// machine builds for itself and every object misses the
+				// archives it is meant to link.
+				command.push_back(
+					"-DCMAKE_TOOLCHAIN_FILE=" + engine.toolchainFile);
+			}
 			if(!engine.fromPack())
 			{
 				command.push_back(
@@ -342,34 +365,63 @@ namespace Orkige
 		//---------------------------------------------------------
 		const String ARTIFACT_MANIFEST = "orkige_module_artifact.txt";
 		//---------------------------------------------------------
+		namespace
+		{
+			//! the value of one "<key>=<value>" line of the artifact manifest
+			String manifestValue(String const & manifestText,
+				String const & key)
+			{
+				const String prefix = key + "=";
+				for (size_t start = 0; start < manifestText.size(); )
+				{
+					const size_t end = manifestText.find('\n', start);
+					const String line = manifestText.substr(start,
+						end == String::npos ? String::npos : end - start);
+					if (line.compare(0, prefix.size(), prefix) == 0)
+					{
+						String value = line.substr(prefix.size());
+						while (!value.empty() &&
+							(value.back() == '\r' || value.back() == ' '))
+						{
+							value.pop_back();
+						}
+						if (!value.empty())
+						{
+							return value;
+						}
+					}
+					if (end == String::npos)
+					{
+						break;
+					}
+					start = end + 1;
+				}
+				return String();
+			}
+			//---------------------------------------------------------
+			//! the manifest a configured module build wrote, "" when none
+			String readArtifactManifest(String const & buildDirAbsolute)
+			{
+				std::ifstream manifest(
+					(std::filesystem::path(buildDirAbsolute) /
+						ARTIFACT_MANIFEST).string());
+				if (!manifest)
+				{
+					return String();
+				}
+				std::ostringstream contents;
+				contents << manifest.rdbuf();
+				return contents.str();
+			}
+		}
+		//---------------------------------------------------------
 		String artifactPathFromManifest(String const & manifestText,
 			String const & buildDirAbsolute, String const & target)
 		{
-			// "artifact=<path>", one key=value per line
-			const String key = "artifact=";
-			for (size_t start = 0; start < manifestText.size(); )
+			const String artifact = manifestValue(manifestText, "artifact");
+			if (!artifact.empty())
 			{
-				const size_t end = manifestText.find('\n', start);
-				const String line = manifestText.substr(start,
-					end == String::npos ? String::npos : end - start);
-				if (line.compare(0, key.size(), key) == 0)
-				{
-					String value = line.substr(key.size());
-					while (!value.empty() &&
-						(value.back() == '\r' || value.back() == ' '))
-					{
-						value.pop_back();
-					}
-					if (!value.empty())
-					{
-						return value;
-					}
-				}
-				if (end == String::npos)
-				{
-					break;
-				}
-				start = end + 1;
+				return artifact;
 			}
 			// no manifest: the desktop shape, which is what a build that does
 			// not write one produces
@@ -385,18 +437,22 @@ namespace Orkige
 		String executablePath(String const & buildDirAbsolute,
 			String const & target)
 		{
-			String manifestText;
-			std::ifstream manifest(
-				(std::filesystem::path(buildDirAbsolute) / ARTIFACT_MANIFEST)
-					.string());
-			if (manifest)
-			{
-				std::ostringstream contents;
-				contents << manifest.rdbuf();
-				manifestText = contents.str();
-			}
-			return artifactPathFromManifest(manifestText, buildDirAbsolute,
+			return artifactPathFromManifest(
+				readArtifactManifest(buildDirAbsolute), buildDirAbsolute,
 				target);
+		}
+		//---------------------------------------------------------
+		String artifactBundleFromManifest(String const & manifestText)
+		{
+			// only a bundle shape writes the line, so its absence IS the
+			// answer "this target does not build one"
+			return manifestValue(manifestText, "bundle");
+		}
+		//---------------------------------------------------------
+		String bundlePath(String const & buildDirAbsolute)
+		{
+			return artifactBundleFromManifest(
+				readArtifactManifest(buildDirAbsolute));
 		}
 		//---------------------------------------------------------
 	}

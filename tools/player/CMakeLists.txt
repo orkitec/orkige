@@ -4,25 +4,26 @@
 # SceneSerializer and runs the game loop. This is the runtime the editor's
 # play mode builds on.
 
+include(${Orkige_SOURCE_DIR}/cmake/OrkigeTargetShape.cmake)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # iOS: the player is an app bundle (preset ios-simulator-debug). SDL3
     # provides the UIKit application bootstrap (main.cpp includes SDL_main.h),
     # OGRE renders through the GLES2/EAGL path into SDL's UIWindow. All media
     # is copied into the flat .app bundle below and found at runtime via
     # PlatformUtil::getResourceDirectory() (see main.cpp, ORKIGE_IPHONE paths).
+    #
+    # The bundle IDENTITY and the plist come from the shared shape recipe
+    # (cmake/OrkigeTargetShape.cmake): the player is one app bundle among
+    # several - a project's compiled game module is another - and the recipe is
+    # the platform's, not this target's.
     add_executable(orkige_player MACOSX_BUNDLE main.cpp
         PlayerContext.h PlayerSelfChecks.h PlayerSelfChecks.cpp)
-    set_target_properties(orkige_player PROPERTIES
-        OUTPUT_NAME "OrkigePlayer"
-        MACOSX_BUNDLE_BUNDLE_NAME "Orkige Player"
-        MACOSX_BUNDLE_GUI_IDENTIFIER "com.orkitec.orkige-player"
-        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
-        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        # custom plist: adds UILaunchScreen so the app boots at native full
-        # resolution (the CMake default omits it -> scaled compatibility mode).
-        # The project exporter rewrites identity/name and adds icons on top.
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist.in"
-    )
+    set_target_properties(orkige_player PROPERTIES OUTPUT_NAME "OrkigePlayer")
+    orkige_apply_target_shape(orkige_player
+        NAME "Orkige Player"
+        IDENTIFIER "com.orkitec.orkige-player"
+        VERSION "${PROJECT_VERSION}")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
     # Android (preset android-debug): SDL3's application model - the APK's
     # OrkigeActivity (extends SDLActivity, see tools/player/android/) does
@@ -71,43 +72,24 @@ if(EMSCRIPTEN)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-    # the engine's backend media differs per flavor: classic ships the RTSS
-    # shader library (Media/{Main,RTShaderLib}); next ships the Hlms shader
-    # templates plus the Atmosphere sky material media (Media/Hlms,
-    # Media/Atmosphere - the next backend's registerAtmosphereMedia looks up
-    # Atmosphere/ as a sibling of Hlms/). main.cpp resolves both under
-    # <bundle>/Media.
+    # the render backend's shader media, through the shared shape recipe: the
+    # classic RTSS shader library (Media/{Main,RTShaderLib}, with the engine's
+    # own metal-rough library merged in) or the Hlms shader templates plus the
+    # Atmosphere sky material media (Media/{Hlms,Atmosphere} - the next
+    # backend's registerAtmosphereMedia looks up Atmosphere/ as a sibling of
+    # Hlms/). main.cpp resolves both under <bundle>/Media.
     if(ORKIGE_RENDER_BACKEND STREQUAL "next")
-        set(ORKIGE_PLAYER_IOS_MEDIA_COPY
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media/Hlms"
-                "$<TARGET_BUNDLE_CONTENT_DIR:orkige_player>/Media/Hlms")
-        # optional: an older vcpkg port pin may not ship the sky media yet -
-        # the runtime degrades that honestly (no sky, flat fog colour)
-        if(EXISTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media/Atmosphere")
-            list(APPEND ORKIGE_PLAYER_IOS_MEDIA_COPY
-                COMMAND ${CMAKE_COMMAND} -E copy_directory
-                    "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media/Atmosphere"
-                    "$<TARGET_BUNDLE_CONTENT_DIR:orkige_player>/Media/Atmosphere")
-        endif()
+        set(ORKIGE_PLAYER_BACKEND_MEDIA
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media")
     else()
-        set(ORKIGE_PLAYER_IOS_MEDIA_COPY
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media/Main"
-                "$<TARGET_BUNDLE_CONTENT_DIR:orkige_player>/Media/Main"
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media/RTShaderLib"
-                "$<TARGET_BUNDLE_CONTENT_DIR:orkige_player>/Media/RTShaderLib"
-            # the engine-owned metal-rough shader library rides MERGED into the
-            # same RTShaderLib location (the bundle's one registered shader dir)
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_SOURCE_DIR}/orkige_engine/media/rtss"
-                "$<TARGET_BUNDLE_CONTENT_DIR:orkige_player>/Media/RTShaderLib")
+        set(ORKIGE_PLAYER_BACKEND_MEDIA
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media")
     endif()
-    # bundle the backend media, the sample assets the scenes reference, and
-    # the example scene itself
+    orkige_stage_bundle_backend_media(orkige_player "${ORKIGE_RENDER_BACKEND}"
+        "${ORKIGE_PLAYER_BACKEND_MEDIA}" "${CMAKE_SOURCE_DIR}/orkige_engine/media")
+    # ...and the sample assets the scenes reference plus the example scene
+    # itself, which are the PLAYER's own content and no part of the shape
     add_custom_command(TARGET orkige_player POST_BUILD
-        ${ORKIGE_PLAYER_IOS_MEDIA_COPY}
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_SOURCE_DIR}/samples/hello_orkige/media"
             "$<TARGET_BUNDLE_CONTENT_DIR:orkige_player>/assets"

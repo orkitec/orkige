@@ -101,6 +101,12 @@ namespace OrkigeExport
 		Orkige::String	grade;	//!< the output-grade compositor media, per flavor
 	};
 
+	//! @brief the same set located under an engine media ROOT - the source
+	//! tree's `orkige_engine/media`, or the `media/` an SDK pack carries,
+	//! which is that directory installed verbatim
+	EngineSourceMedia engineMediaFromRoot(Orkige::String const & mediaRoot,
+		Orkige::String const & flavor);
+
 	//! @see EngineSourceMedia
 	EngineSourceMedia engineSourceMedia(Orkige::String const & repoRoot,
 		Orkige::String const & flavor);

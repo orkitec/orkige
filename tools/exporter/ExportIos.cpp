@@ -12,9 +12,13 @@
 #include "ExportFiles.h"
 #include "ExportIcons.h"
 #include "ExportImage.h"
+#include "ExportMacos.h"
 #include "ExportPlist.h"
 #include "ExportProcess.h"
 #include "ExportZip.h"
+
+#include <core_project/NativeModule.h>
+#include <core_util/HelpLink.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -70,6 +74,8 @@ namespace OrkigeExport
 				: fileName.substr(0, dot);
 		}
 	}
+	//---------------------------------------------------------
+	const char * const IOS_SIMULATOR_PLATFORM = "ios-simulator";
 	//---------------------------------------------------------
 	Orkige::JsonValue iosInfoPlistKeys(ExportProject const & project,
 		Orkige::String const & bundleId,
@@ -135,55 +141,121 @@ namespace OrkigeExport
 		Orkige::String * error)
 	{
 		const bool signing = !request.signing.identity.empty();
-		if(!project.nativeTarget().empty())
+		// THREE sources for the app this package is built around, and the
+		// engine media that goes into it. Everything after this block is the
+		// same code for all of them.
+		//
+		//   build tree     the platform's preset tree - the developer case
+		//   device payload a FETCHED player, which is what a distributed
+		//                  editor packages from: it carries the host's player
+		//                  and no phone's
+		//   SDK pack       a project whose game code is COMPILED ships its own
+		//                  app, so there is no player to copy at all: the
+		//                  module IS the runtime, and the engine it is built
+		//                  against is a relocatable iOS pack (Docs/sdk-pack.md)
+		const Orkige::String nativeTarget = project.nativeTarget();
+		const bool fromModule = !nativeTarget.empty();
+		const bool fromPayload = !fromModule && !source.devicePayload.empty();
+		Orkige::String sourceApp;
+		Orkige::String flavor;
+		//! non-empty when the engine is a pack: its `media/` IS the source
+		//! tree's orkige_engine/media, installed verbatim
+		Orkige::String packMediaRoot;
+		if(fromModule)
 		{
-			return report(error, "project '" + project.name + "' has a native "
-				"module ('" + project.nativeTarget() + "') - native modules "
-				"are desktop-only for now, mobile native builds are future "
-				"work (the Lua/scene parts of a project export fine without "
-				"one)");
+			const Orkige::NativeModule::EngineSdk pack =
+				Orkige::NativeModule::describePack(source.sdkPack);
+			if(!pack.found())
+			{
+				return report(error, "project '" + project.name + "' builds "
+					"compiled C++ game code (the module '" + nativeTarget +
+					"'), so its iOS app IS that module - which needs an iOS "
+					"Orkige SDK to build against, plus Xcode to compile it "
+					"with. None is installed; an iOS player payload cannot "
+					"stand in for one, because a module is compiled rather "
+					"than copied. Install the iOS SDK, then export again - " +
+					Orkige::helpUrl("sdk-pack"));
+			}
+			if(pack.platform != IOS_SIMULATOR_PLATFORM)
+			{
+				return report(error, "the Orkige SDK at '" + source.sdkPack +
+					"' builds for '" + pack.platform + "', and this package "
+					"is an iOS simulator app - install the '" +
+					Orkige::String(IOS_SIMULATOR_PLATFORM) + "' SDK. A pack "
+					"is bound to one target: its archives are that platform's. "
+					+ Orkige::helpUrl("sdk-pack"));
+			}
+			if(signing)
+			{
+				// the simulator pack's archives are iphonesimulator ones; a
+				// device build needs the arm64-iphoneos pack, which is a
+				// different pack rather than a different signing step
+				return report(error, "a signed iOS DEVICE build of a native "
+					"module needs an iOS device SDK pack (this one targets "
+					"the simulator), on top of the signing credentials it "
+					"already has - " +
+					Orkige::helpUrl("ios-signing"));
+			}
+			flavor = pack.flavor;
+			packMediaRoot = ExportFiles::join(source.sdkPack, "media");
+			Orkige::String moduleExecutable;
+			if(!buildNativeModuleFromPack(project, nativeTarget, source.sdkPack,
+				environment, moduleExecutable, error, &sourceApp))
+			{
+				return false;
+			}
+			if(sourceApp.empty())
+			{
+				return report(error, "the module build produced no app bundle "
+					"- its build tree reports a '" + moduleExecutable +
+					"' instead, which is not what an iOS package ships");
+			}
 		}
-		// TWO sources for the same two pieces (the player bundle and the
-		// engine media beside it): a preset build tree, or a FETCHED device
-		// payload - which is what a distributed editor packages from, since it
-		// carries the host's player and no phone's. Everything after this
-		// block is identical.
-		const bool fromPayload = !source.devicePayload.empty();
-		if(source.fromBundle() && !fromPayload)
+		else
 		{
-			return report(error, "a staged engine payload packages the desktop "
-				"app only; an iOS package needs the iOS player - install it "
-				"(Settings > Build Targets), or package from the "
-				"ios-simulator preset build tree");
+			if(source.fromBundle() && !fromPayload)
+			{
+				return report(error, "a staged engine payload packages the "
+					"desktop app only; an iOS package needs the iOS player - "
+					"install it (Settings > Build Targets), or package from "
+					"the ios-simulator preset build tree. " +
+					Orkige::helpUrl("device-payloads"));
+			}
+			if(fromPayload && signing)
+			{
+				// the fetched payload is the SIMULATOR player: a signed device
+				// or store build needs the arm64-iphoneos one, not published
+				return report(error, "a signed iOS device build needs the iOS "
+					"DEVICE player, which is built from the ios-device preset "
+					"- the installed player packages simulator builds. " +
+					Orkige::helpUrl("ios-signing"));
+			}
+			sourceApp = fromPayload
+				? ExportFiles::join(source.devicePayload, "OrkigePlayer.app")
+				: ExportFiles::join(
+					ExportFiles::join(source.buildDirectory, "tools/player"),
+					"OrkigePlayer.app");
+			flavor = fromPayload
+				? payloadFlavor(source.devicePayload)
+				: renderBackend(source.buildDirectory);
 		}
-		if(fromPayload && signing)
-		{
-			// the fetched payload is the SIMULATOR player: a signed device or
-			// store build needs the arm64-iphoneos one, which is not published
-			return report(error, "a signed iOS device build needs the iOS "
-				"DEVICE player, which is built from the ios-device preset - "
-				"the installed player packages simulator builds (see "
-				"Docs/ios-signing.md)");
-		}
-		const Orkige::String sourceApp = fromPayload
-			? ExportFiles::join(source.devicePayload, "OrkigePlayer.app")
-			: ExportFiles::join(
-				ExportFiles::join(source.buildDirectory, "tools/player"),
-				"OrkigePlayer.app");
 		if(!ExportFiles::isDirectory(sourceApp))
 		{
-			return report(error, fromPayload
-				? ("the installed iOS player is incomplete (no "
-					"OrkigePlayer.app at '" + sourceApp + "') - fetch it again "
-					"under Settings > Build Targets")
-				: (signing
-					? ("no device OrkigePlayer.app at '" + sourceApp + "' - a "
-						"signed device/store build needs an arm64-ios (device, "
-						"not simulator) player build; configure + build the "
-						"ios-device-debug (or -release) preset first (see "
-						"Docs/ios-signing.md)")
-					: ("no OrkigePlayer.app at '" + sourceApp + "' - build the "
-						"ios-simulator-debug preset first")));
+			return report(error, fromModule
+				? ("the native module build produced no bundle at '" +
+					sourceApp + "'")
+				: (fromPayload
+					? ("the installed iOS player is incomplete (no "
+						"OrkigePlayer.app at '" + sourceApp + "') - fetch it "
+						"again under Settings > Build Targets")
+					: (signing
+						? ("no device OrkigePlayer.app at '" + sourceApp +
+							"' - a signed device/store build needs an arm64-ios "
+							"(device, not simulator) player build; configure + "
+							"build the ios-device-debug (or -release) preset "
+							"first (see Docs/ios-signing.md)")
+						: ("no OrkigePlayer.app at '" + sourceApp + "' - build "
+							"the ios-simulator-debug preset first"))));
 		}
 		if(signing && !ExportFiles::isRegularFile(request.signing.profile))
 		{
@@ -191,9 +263,6 @@ namespace OrkigeExport
 				request.signing.profile + "' does not exist");
 		}
 
-		const Orkige::String flavor = fromPayload
-			? payloadFlavor(source.devicePayload)
-			: renderBackend(source.buildDirectory);
 		const Orkige::String appDirectory =
 			ExportFiles::join(outputDirectory, project.name + ".app");
 		if(!ExportFiles::removeTree(appDirectory, error) ||
@@ -201,13 +270,13 @@ namespace OrkigeExport
 		{
 			return false;
 		}
-		// the player bundle already carries the backend's shader media; the
-		// engine's own content directories are added here - from the source
-		// tree, or (packaging from a fetched payload, where there is no source
-		// tree on the machine) from the `Media/` staged inside the payload,
-		// which IS this layout already
+		// the app already carries the backend's shader media (the player's
+		// build put it there, and so did the module's - it is part of the
+		// target shape); the engine's own content directories are added here,
+		// from whichever engine this package was sourced from
 		if(fromPayload)
 		{
+			// a fetched payload's Media/ IS this layout already
 			if(!ExportFiles::copyTree(
 				ExportFiles::join(source.devicePayload, "Media"),
 				ExportFiles::join(appDirectory, "Media"), error, 0))
@@ -216,7 +285,9 @@ namespace OrkigeExport
 			}
 		}
 		else if(!stageEngineContentMedia(appDirectory, flavor,
-			engineSourceMedia(environment.repoRoot, flavor), error))
+			packMediaRoot.empty()
+				? engineSourceMedia(environment.repoRoot, flavor)
+				: engineMediaFromRoot(packMediaRoot, flavor), error))
 		{
 			return false;
 		}
