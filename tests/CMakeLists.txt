@@ -2388,6 +2388,23 @@ if(TARGET orkige_player)
     set_tests_properties(player_example_project PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_FRAMES=90")
 
+    # THE DEVICELESS RUN: the same project, the same player, with no window
+    # and no GPU (ORKIGE_RENDERSYSTEM=NULL - @see engine_render/
+    # RenderSystemSelection.h). It boots, loads the scene, ticks frames and
+    # exits 0 without ever initialising SDL's video subsystem, so this is the
+    # ONE player registration that carries LABELS unit: a display server is
+    # not among its prerequisites, and if that ever regresses the unit preset
+    # says so. Next flavor only - the classic flavor carries no deviceless
+    # render system and refuses the request honestly instead.
+    if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+        add_test(NAME player_deviceless${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project projects/example
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_deviceless${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_DEMO_FRAMES=90;ORKIGE_RENDERSYSTEM=NULL"
+            LABELS unit TIMEOUT 120)
+    endif()
+
     # the flat-colour vector-shape demo project (Util/make_vectorshape_demo.py):
     # loads scenes/main.oscene which places three VectorShapeComponent instances
     # (blob + concave star .oshape assets) at rising zOrders and distinct tints -

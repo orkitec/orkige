@@ -43,6 +43,7 @@
 #include <engine_graphic/ScreenFade.h>
 #include <engine_graphic/ScreenShake.h>
 #include <engine_render/RenderSystem.h>
+#include <engine_render/RenderSystemSelection.h>
 #include <engine_render/RenderWorld.h>
 #include <engine_render/RenderNode.h>
 #include <engine_render/RenderCamera.h>
@@ -1178,6 +1179,15 @@ int main(int argc, char** argv)
 				{
 					render->addResourceLocation(ORKIGE_PLAYER_DECAL_DIR);
 				}
+				// DEVICELESS: everything below this line is the low-level
+				// shader tier - `.material`/`.program` SCRIPTS. A render
+				// system with no device has no GPU program manager to parse
+				// them into and could not run what they define, so a deviceless
+				// run registers none of it (@see engine_render/
+				// RenderSystemSelection.h). Textures, meshes and fonts above
+				// stay registered - a scene still loads its content.
+				const bool devicelessRun =
+					Orkige::RenderSystemSelection::devicelessRequested();
 #ifdef ORKIGE_PLAYER_BLOOM_DIR
 				// the engine bloom compositor media (the bright/blur/combine
 				// material + shaders engine:setBloom needs), per flavor
@@ -1188,7 +1198,11 @@ int main(int argc, char** argv)
 				// dev machine) would double-define its GpuPrograms and abort
 				// resource-group initialisation.
 				std::error_code bloomDirError;
-				if (std::filesystem::is_directory(
+				if (devicelessRun)
+				{
+					// no shader tier in a deviceless run (see above)
+				}
+				else if (std::filesystem::is_directory(
 					playerMediaDir + "/" ORKIGE_BLOOM_MEDIA_SUBDIR,
 					bloomDirError))
 				{
@@ -1208,7 +1222,11 @@ int main(int argc, char** argv)
 				// above (a material SCRIPT - double-parsing aborts resource-group
 				// init).
 				std::error_code gradeDirError;
-				if (std::filesystem::is_directory(
+				if (devicelessRun)
+				{
+					// no shader tier in a deviceless run (see above)
+				}
+				else if (std::filesystem::is_directory(
 					playerMediaDir + "/" ORKIGE_GRADE_MEDIA_SUBDIR,
 					gradeDirError))
 				{
