@@ -23,10 +23,13 @@ namespace Orkige
 	//! @brief the action-mapping layer: named, rebindable actions on top of
 	//! the raw InputManager.
 	//! @remarks Games ask for INTENT ("jump", "move") instead of hardware
-	//! ("is SPACE down"), so the same script runs under keys, tilt or (later)
-	//! gamepad/touch bindings. This is a PURELY ADDITIVE layer: it polls
-	//! InputManager::isKeyDown / getTilt and never touches the raw input APIs,
-	//! the event pub/sub or gui - those keep working untouched.
+	//! ("is SPACE down"), so the same script runs under keys, tilt or a
+	//! gamepad. This is a PURELY ADDITIVE layer: it polls
+	//! InputManager::isKeyDown / getTilt / the gamepad state and never touches
+	//! the raw input APIs, the event pub/sub or gui - those keep working
+	//! untouched. Touch is deliberately NOT a binding shape: a finger is
+	//! POSITIONAL, and a position carries no named intent (on-screen controls
+	//! are gui widgets; raw touch is read from the `input` script table).
 	//!
 	//! ONCE-PER-FRAME CONTRACT: update(dt) takes ONE edge snapshot per frame
 	//! (pressed = down && !down-last-frame) and every query reads that snapshot
@@ -115,8 +118,17 @@ namespace Orkige
 		static float axisFromKeys(bool negativeDown, bool positiveDown);
 		//! @brief combine two contributions to one component: the one with the
 		//! larger magnitude wins (ties keep the incoming candidate). This is the
-		//! multi-binding rule (tilt OR arrows, whichever pushes harder).
+		//! multi-binding rule (tilt OR arrows OR a stick, whichever pushes
+		//! harder) - and the reason keys and a controller on the SAME action
+		//! need no special case.
 		static float combineMaxMagnitude(float current, float candidate);
+		//! @brief the deadzone curve of a controller axis: a reading whose
+		//! magnitude is at or below @p deadzone is 0 (a stick never rests at
+		//! exactly 0), anything past it is RESCALED so motion starts at 0 and
+		//! full deflection still reaches +-1 - no step at the zone's edge.
+		//! A deadzone of 0 passes the reading through; one at or above 1 (or a
+		//! non-finite input) reads 0.
+		static float applyDeadzone(float raw, float deadzone);
 	protected:
 	private:
 		InputAction const * findAction(String const & name) const;

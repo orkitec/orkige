@@ -2489,6 +2489,25 @@ if(TARGET orkige_player)
         set_tests_properties(player_lines_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_LINES_SELFCHECK=1")
 
+        # RAW INPUT REACH, end to end: tests/projects/rawinput - synthetic
+        # fingers, a pointer press and a controller are injected on the REAL
+        # SDL path while a game runs, and the fixture script reads them back
+        # through the `input` table (touch phases + window-pixel positions +
+        # per-frame delta, the pointer's one-frame press edge, the raw pad
+        # reads) AND through the named action map (the built-in "jump"/"move"
+        # answering a pad with zero project authoring). What only a running
+        # game can prove is the FRAME WIRING: the once-per-frame snapshot
+        # taken in the loop's input slot before the scripts that read it. The
+        # pure halves are unit-tested in orkige_engine_tests. Renderer-neutral,
+        # so it runs on both flavors. See the ORKIGE_RAWINPUT_SELFCHECK block
+        # in tools/player/PlayerSelfChecks.cpp.
+        add_test(NAME player_raw_input_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player tests/projects/rawinput/scenes/rawinput.oscene
+                --project tests/projects/rawinput
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_raw_input_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_RAWINPUT_SELFCHECK=1")
+
         # THE UI GALLERY, end to end: projects/gallery - the example project
         # that shows EVERY runtime widget kind on one declarative .oui screen
         # suite (labels plain/wrapped/localised, buttons incl. nine-slice,

@@ -127,6 +127,82 @@ namespace Orkige
 			{ "PAGEDOWN",	KeyEventData::KC_PGDOWN }
 		};
 
+		//! one row of the gamepad button-name table
+		struct GamepadButtonRow
+		{
+			const char *	name;
+			Gamepad::Button	button;
+		};
+
+		//! the canonical (POSITIONAL) button names, in layout order
+		const GamepadButtonRow GAMEPAD_BUTTON_TABLE[] =
+		{
+			{ "SOUTH",			Gamepad::GB_SOUTH },
+			{ "EAST",			Gamepad::GB_EAST },
+			{ "WEST",			Gamepad::GB_WEST },
+			{ "NORTH",			Gamepad::GB_NORTH },
+			{ "BACK",			Gamepad::GB_BACK },
+			{ "GUIDE",			Gamepad::GB_GUIDE },
+			{ "START",			Gamepad::GB_START },
+			{ "LEFTSTICK",		Gamepad::GB_LEFTSTICK },
+			{ "RIGHTSTICK",		Gamepad::GB_RIGHTSTICK },
+			{ "LEFTSHOULDER",	Gamepad::GB_LEFTSHOULDER },
+			{ "RIGHTSHOULDER",	Gamepad::GB_RIGHTSHOULDER },
+			{ "DPUP",			Gamepad::GB_DPAD_UP },
+			{ "DPDOWN",			Gamepad::GB_DPAD_DOWN },
+			{ "DPLEFT",			Gamepad::GB_DPAD_LEFT },
+			{ "DPRIGHT",		Gamepad::GB_DPAD_RIGHT }
+		};
+
+		//! lettered / friendly spellings resolving to a canonical row (never
+		//! listed by allButtonNames - one canonical name per button)
+		const GamepadButtonRow GAMEPAD_BUTTON_ALIAS_TABLE[] =
+		{
+			{ "A",			Gamepad::GB_SOUTH },
+			{ "B",			Gamepad::GB_EAST },
+			{ "X",			Gamepad::GB_WEST },
+			{ "Y",			Gamepad::GB_NORTH },
+			{ "SELECT",		Gamepad::GB_BACK },
+			{ "MENU",		Gamepad::GB_START },
+			{ "L1",			Gamepad::GB_LEFTSHOULDER },
+			{ "R1",			Gamepad::GB_RIGHTSHOULDER },
+			{ "L3",			Gamepad::GB_LEFTSTICK },
+			{ "R3",			Gamepad::GB_RIGHTSTICK },
+			{ "DPADUP",		Gamepad::GB_DPAD_UP },
+			{ "DPADDOWN",	Gamepad::GB_DPAD_DOWN },
+			{ "DPADLEFT",	Gamepad::GB_DPAD_LEFT },
+			{ "DPADRIGHT",	Gamepad::GB_DPAD_RIGHT }
+		};
+
+		//! one row of the gamepad axis-name table
+		struct GamepadAxisRow
+		{
+			const char *	name;
+			Gamepad::Axis	axis;
+		};
+
+		//! the canonical axis names, in layout order
+		const GamepadAxisRow GAMEPAD_AXIS_TABLE[] =
+		{
+			{ "LEFTX",			Gamepad::GA_LEFTX },
+			{ "LEFTY",			Gamepad::GA_LEFTY },
+			{ "RIGHTX",			Gamepad::GA_RIGHTX },
+			{ "RIGHTY",			Gamepad::GA_RIGHTY },
+			{ "LEFTTRIGGER",	Gamepad::GA_LEFTTRIGGER },
+			{ "RIGHTTRIGGER",	Gamepad::GA_RIGHTTRIGGER }
+		};
+
+		//! friendly axis spellings (never listed by allAxisNames)
+		const GamepadAxisRow GAMEPAD_AXIS_ALIAS_TABLE[] =
+		{
+			{ "LX",	Gamepad::GA_LEFTX },
+			{ "LY",	Gamepad::GA_LEFTY },
+			{ "RX",	Gamepad::GA_RIGHTX },
+			{ "RY",	Gamepad::GA_RIGHTY },
+			{ "LT",	Gamepad::GA_LEFTTRIGGER },
+			{ "RT",	Gamepad::GA_RIGHTTRIGGER }
+		};
+
 		//! upper-case an ASCII token (the grammar is case-insensitive)
 		String upperCase(String const & text)
 		{
@@ -214,6 +290,27 @@ namespace Orkige
 			return true;
 		}
 
+		//! strict index parse: a decimal integer, ZERO allowed (finger numbers
+		//! start at 0, unlike frame counts)
+		bool parseIndex(String const & token, unsigned int & out)
+		{
+			if (token.empty() || token.size() > 4)
+			{
+				return false;
+			}
+			unsigned int value = 0;
+			for (char each : token)
+			{
+				if (each < '0' || each > '9')
+				{
+					return false;
+				}
+				value = value * 10 + static_cast<unsigned int>(each - '0');
+			}
+			out = value;
+			return true;
+		}
+
 		//! the pointer button a token names (default Left on an empty token)
 		bool parseButton(String const & token,
 			InputInjection::PointerButton & out)
@@ -294,6 +391,105 @@ namespace Orkige
 		StringVector names;
 		names.reserve(sizeof(KEY_NAME_TABLE) / sizeof(KEY_NAME_TABLE[0]));
 		for (KeyNameRow const & row : KEY_NAME_TABLE)
+		{
+			names.push_back(row.name);
+		}
+		return names;
+	}
+
+	//---------------------------------------------------------
+	//--- GamepadNames ----------------------------------------
+	//---------------------------------------------------------
+	Gamepad::Button GamepadNames::buttonFromName(String const & name)
+	{
+		const String wanted = upperCase(name);
+		if (wanted.empty())
+		{
+			return Gamepad::GB_COUNT;
+		}
+		for (GamepadButtonRow const & row : GAMEPAD_BUTTON_TABLE)
+		{
+			if (wanted == row.name)
+			{
+				return row.button;
+			}
+		}
+		for (GamepadButtonRow const & row : GAMEPAD_BUTTON_ALIAS_TABLE)
+		{
+			if (wanted == row.name)
+			{
+				return row.button;
+			}
+		}
+		return Gamepad::GB_COUNT;
+	}
+	//---------------------------------------------------------
+	String GamepadNames::buttonToName(Gamepad::Button button)
+	{
+		for (GamepadButtonRow const & row : GAMEPAD_BUTTON_TABLE)
+		{
+			if (row.button == button)
+			{
+				return row.name;
+			}
+		}
+		return String();
+	}
+	//---------------------------------------------------------
+	StringVector GamepadNames::allButtonNames()
+	{
+		StringVector names;
+		names.reserve(sizeof(GAMEPAD_BUTTON_TABLE) /
+			sizeof(GAMEPAD_BUTTON_TABLE[0]));
+		for (GamepadButtonRow const & row : GAMEPAD_BUTTON_TABLE)
+		{
+			names.push_back(row.name);
+		}
+		return names;
+	}
+	//---------------------------------------------------------
+	Gamepad::Axis GamepadNames::axisFromName(String const & name)
+	{
+		const String wanted = upperCase(name);
+		if (wanted.empty())
+		{
+			return Gamepad::GA_COUNT;
+		}
+		for (GamepadAxisRow const & row : GAMEPAD_AXIS_TABLE)
+		{
+			if (wanted == row.name)
+			{
+				return row.axis;
+			}
+		}
+		for (GamepadAxisRow const & row : GAMEPAD_AXIS_ALIAS_TABLE)
+		{
+			if (wanted == row.name)
+			{
+				return row.axis;
+			}
+		}
+		return Gamepad::GA_COUNT;
+	}
+	//---------------------------------------------------------
+	String GamepadNames::axisToName(Gamepad::Axis axis)
+	{
+		for (GamepadAxisRow const & row : GAMEPAD_AXIS_TABLE)
+		{
+			if (row.axis == axis)
+			{
+				return row.name;
+			}
+		}
+		return String();
+	}
+	//---------------------------------------------------------
+	StringVector GamepadNames::allAxisNames()
+	{
+		StringVector names;
+		names.reserve(sizeof(GAMEPAD_AXIS_TABLE) /
+			sizeof(GAMEPAD_AXIS_TABLE[0]));
+		for (GamepadAxisRow const & row : GAMEPAD_AXIS_TABLE)
 		{
 			names.push_back(row.name);
 		}
@@ -543,6 +739,181 @@ namespace Orkige
 					tokens[1] + "')");
 				return false;
 			}
+			if (verb == "TOUCH")
+			{
+				// touch <id> down|move|up|tap <x> <y> - the finger number is
+				// the CALLER's, so a two-finger gesture is two interleaved
+				// step streams with stable ids
+				if (tokens.size() != 5)
+				{
+					outError = stepError(index,
+						"'touch' needs a finger id, down|move|up|tap and x y");
+					return false;
+				}
+				unsigned int touchId = 0;
+				if (!parseIndex(tokens[1], touchId) ||
+					static_cast<int>(touchId) > MAX_TOUCH_ID)
+				{
+					outError = stepError(index,
+						"'touch' finger id must be 0.." +
+						std::to_string(MAX_TOUCH_ID));
+					return false;
+				}
+				const String action = upperCase(tokens[2]);
+				float x = 0.0f;
+				float y = 0.0f;
+				if (!parseFloat(tokens[3], x) || !parseFloat(tokens[4], y))
+				{
+					outError = stepError(index,
+						"'touch' x/y must be numbers (window pixels)");
+					return false;
+				}
+				Event event;
+				event.touchId = static_cast<int>(touchId);
+				event.x = x;
+				event.y = y;
+				if (action == "DOWN" || action == "MOVE" || action == "UP")
+				{
+					event.kind = action == "DOWN" ? EventKind::TouchDown
+						: (action == "MOVE" ? EventKind::TouchMove
+							: EventKind::TouchUp);
+					emit(event);
+					continue;
+				}
+				if (action == "TAP")
+				{
+					// down, held one frame, up - the shape a tap gesture and a
+					// widget hit test both expect (the pointer `click` sibling)
+					Event press = event;
+					press.kind = EventKind::TouchDown;
+					emit(press);
+					const unsigned int downFrame = cursor;
+					if (!advance(1, index))
+					{
+						return false;
+					}
+					Event release = event;
+					release.kind = EventKind::TouchUp;
+					emitAt(release, downFrame + 1);
+					continue;
+				}
+				outError = stepError(index,
+					"'touch' action must be down, move, up or tap (got '" +
+					tokens[2] + "')");
+				return false;
+			}
+			if (verb == "GAMEPAD")
+			{
+				if (tokens.size() < 4)
+				{
+					outError = stepError(index,
+						"'gamepad' needs button <NAME> down|up|press or "
+						"axis <NAME> <value>");
+					return false;
+				}
+				const String what = upperCase(tokens[1]);
+				if (what == "BUTTON")
+				{
+					const Gamepad::Button button =
+						GamepadNames::buttonFromName(tokens[2]);
+					if (button == Gamepad::GB_COUNT)
+					{
+						outError = stepError(index,
+							"unknown gamepad button '" + tokens[2] + "'");
+						return false;
+					}
+					const String action = upperCase(tokens[3]);
+					Event event;
+					event.gamepadButton = button;
+					if (action == "DOWN" || action == "UP")
+					{
+						if (tokens.size() != 4)
+						{
+							outError = stepError(index,
+								"'gamepad button " + action +
+								"' takes only a button name");
+							return false;
+						}
+						event.kind = action == "DOWN"
+							? EventKind::GamepadButtonDown
+							: EventKind::GamepadButtonUp;
+						emit(event);
+						continue;
+					}
+					if (action == "PRESS")
+					{
+						unsigned int frames = 1;
+						if (tokens.size() == 5)
+						{
+							if (!parseFrames(tokens[4], frames))
+							{
+								outError = stepError(index,
+									"'gamepad button press' hold frames must "
+									"be 1.." + std::to_string(MAX_FRAMES));
+								return false;
+							}
+						}
+						else if (tokens.size() != 4)
+						{
+							outError = stepError(index,
+								"'gamepad button press' takes a button name "
+								"and optional hold frames");
+							return false;
+						}
+						event.kind = EventKind::GamepadButtonDown;
+						emit(event);
+						const unsigned int downFrame = cursor;
+						if (!advance(frames, index))
+						{
+							return false;
+						}
+						Event release;
+						release.gamepadButton = button;
+						release.kind = EventKind::GamepadButtonUp;
+						emitAt(release, downFrame + frames);
+						continue;
+					}
+					outError = stepError(index,
+						"'gamepad button' action must be down, up or press "
+						"(got '" + tokens[3] + "')");
+					return false;
+				}
+				if (what == "AXIS")
+				{
+					const Gamepad::Axis axis =
+						GamepadNames::axisFromName(tokens[2]);
+					if (axis == Gamepad::GA_COUNT)
+					{
+						outError = stepError(index,
+							"unknown gamepad axis '" + tokens[2] + "'");
+						return false;
+					}
+					float value = 0.0f;
+					if (tokens.size() != 4 || !parseFloat(tokens[3], value))
+					{
+						outError = stepError(index,
+							"'gamepad axis' needs one number (sticks -1..1, "
+							"triggers 0..1)");
+						return false;
+					}
+					if (value < -1.0f || value > 1.0f)
+					{
+						outError = stepError(index,
+							"'gamepad axis' value must be within -1..1");
+						return false;
+					}
+					Event event;
+					event.kind = EventKind::GamepadAxis;
+					event.gamepadAxis = axis;
+					event.axisValue = value;
+					emit(event);
+					continue;
+				}
+				outError = stepError(index,
+					"'gamepad' must be button or axis (got '" + tokens[1] +
+					"')");
+				return false;
+			}
 			if (verb == "TILT")
 			{
 				if (tokens.size() < 3)
@@ -591,7 +962,7 @@ namespace Orkige
 			}
 			outError = stepError(index,
 				"unknown step verb '" + tokens[0] +
-				"' (expected key, pointer, tilt or wait)");
+				"' (expected key, pointer, touch, gamepad, tilt or wait)");
 			return false;
 		}
 		if (!anyEvent)

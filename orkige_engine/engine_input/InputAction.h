@@ -11,6 +11,7 @@
 
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_input/KeyEventData.h"
+#include "engine_input/InputDevices.h"
 
 #include <vector>
 
@@ -31,28 +32,50 @@ namespace Orkige
 	//! @brief one input source feeding an action.
 	//! @remarks A binding contributes a signed value to ONE component
 	//! (0 = x, 1 = y) of its action; several bindings on the same component
-	//! combine by MAX MAGNITUDE (steer = tilt OR arrows, whichever pushes
-	//! harder). The three source shapes cover every real consumer found in the
-	//! reference games (see the jumper/roller default set):
-	//!   Key      any of \c keys held -> +1 on the component (a digital button)
-	//!   KeyAxis  the promoted jumper axis() helper: any negativeKeys held
-	//!            -> -1, any positiveKeys held -> +1 (both -> 0)
-	//!   TiltAxis reads component \c tiltComponent of InputManager::getTilt()
-	//!            (0 = x, 1 = y). Tilt is (0,-1,0) at rest, so this reads the
-	//!            COMPONENT - 0 at rest, not the vector's -1 y.
+	//! combine by MAX MAGNITUDE (steer = tilt OR arrows OR a stick, whichever
+	//! pushes harder - so a key binding and a controller binding on the same
+	//! action need no special case). The source shapes cover every real
+	//! consumer found in the reference games (see the jumper/roller default
+	//! set):
+	//!   Key           any of \c keys held -> +1 on the component (a digital
+	//!                 button)
+	//!   KeyAxis       the promoted jumper axis() helper: any negativeKeys held
+	//!                 -> -1, any positiveKeys held -> +1 (both -> 0)
+	//!   TiltAxis      reads component \c tiltComponent of
+	//!                 InputManager::getTilt() (0 = x, 1 = y). Tilt is (0,-1,0)
+	//!                 at rest, so this reads the COMPONENT - 0 at rest, not
+	//!                 the vector's -1 y.
+	//!   GamepadButton any of \c gamepadButtons held -> +1 (the digital
+	//!                 controller button, e.g. GB_SOUTH for "jump")
+	//!   GamepadAxis   reads \c gamepadAxis through \c deadzone (a stick at
+	//!                 rest never reads exactly 0), rescaled so the first
+	//!                 movement past the deadzone starts at 0 and full
+	//!                 deflection still reaches 1, then negated when
+	//!                 \c invert is set
 	struct InputActionBinding
 	{
 		enum Type
 		{
-			Key,		//!< keys[] -> digital +1
-			KeyAxis,	//!< negativeKeys[]/positiveKeys[] -> -1/0/+1
-			TiltAxis,	//!< tilt component -> [-1..1]
+			Key,			//!< keys[] -> digital +1
+			KeyAxis,		//!< negativeKeys[]/positiveKeys[] -> -1/0/+1
+			TiltAxis,		//!< tilt component -> [-1..1]
+			GamepadButton,	//!< gamepadButtons[] -> digital +1
+			GamepadAxis,	//!< a deadzoned controller axis -> [-1..1]
 		};
 		Type type = Key;
 		std::vector<KeyEventData::KeyCode> keys;			//!< Key
 		std::vector<KeyEventData::KeyCode> negativeKeys;	//!< KeyAxis
 		std::vector<KeyEventData::KeyCode> positiveKeys;	//!< KeyAxis
 		int tiltComponent = 0;		//!< TiltAxis: 0 = getTilt().x, 1 = getTilt().y
+		//! GamepadButton: any of these held reads +1
+		std::vector<Gamepad::Button> gamepadButtons;
+		//! GamepadAxis: which controller axis this binding reads
+		Gamepad::Axis gamepadAxis = Gamepad::GA_LEFTX;
+		//! GamepadAxis: |raw| at or below this reads 0 (0..1; a stick's
+		//! mechanical rest slop). 0 disables the deadzone entirely.
+		float deadzone = 0.25f;
+		//! GamepadAxis: negate the result (a game whose "up" is the stick's +y)
+		bool invert = false;
 		int outputComponent = 0;	//!< which action-value component (0 = x, 1 = y)
 	};
 

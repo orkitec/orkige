@@ -116,7 +116,15 @@ movement, buffered jumping, camera follow) and `projects/roller/scripts/ball.lua
 (tilt gravity via `InputManager:getTilt()`, a sensor `onContactBegin(self, other)`
 win, `self.rigidbody:teleport(...)`).
 
-Beyond `world`/`shared`/`InputActions`, scripts reach a handful of global tables:
+`InputActions` answers **intent**, so the same script runs under a keyboard, a
+tilted phone or a controller: the built-in actions already respond to a gamepad
+(left stick = `move`/`steer`, the bottom face button = `jump`, start and the dpad
+= the menu actions), so plugging one in needs no authoring. Anything POSITIONAL —
+fingers, the pointer — is read from the `input` table instead
+(`input.touchCount()` / `input.touch(i)` / `input.pointer()`, all in window
+pixels). Both are covered in [lua-api.md](lua-api.md#input-named-actions-and-raw-devices).
+
+Beyond `world`/`shared`/`InputActions`/`input`, scripts reach a handful of global tables:
 `sound` and `music` (the mixer + streamed tracks), `tween` (animate values),
 `screen` (`fadeOut`/`fadeIn`/`setFadeColor`/`isFading`, and `loadScene(path, out,
 in)` to wipe over a scene switch), `haptics` (`play(strength, ms)` /

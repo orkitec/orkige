@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OrkigeProject version="1">
+    <Name>Raw Input Fixture</Name>
+    <MainScene>scenes/rawinput.oscene</MainScene>
+    <Settings>
+    </Settings>
+</OrkigeProject>
