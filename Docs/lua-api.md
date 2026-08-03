@@ -47,8 +47,15 @@ input): `math`, `string`, `table`; `tostring`, `tonumber`, `type`, `ipairs`,
 the process log stream — no file/process access). `os` is kept only as a **pruned
 read-only subset**: `os.time`, `os.clock`, `os.date` (RNG seeding / timing /
 timestamp formatting carry no capability). Plus the sanctioned engine API tables —
-`world`, `shared`, `self`, `music`, `save`, `screen`, `haptics`, `input`, `loc`,
-the component handles, and (editor only) `editor.*` — which are the intended API.
+`world`, `shared`, `self`, `music`, `save`, `screen`, `haptics`, `input`, `data`,
+`loc`, the component handles, and (editor only) `editor.*` — which are the
+intended API.
+
+`data` is the read-only content access granted in place of the denied file
+globals: it reads authored data files by project-relative name and grants
+strictly less than `io` — no writes, no handles, no path outside the project, and
+only content that is actually mounted. See
+[Reading data files](#reading-data-files-the-data-table).
 
 **Denied — every escape from "content" to the machine** (each is `nil`; a call
 errors honestly):
@@ -191,6 +198,11 @@ save.get(key [, fallback]) -> string  -- read any value as its canonical string
 save.has(key) -> bool  -- is the key present
 save.remove(key)  -- drop the key
 save.flush() -> bool  -- autosave point - write to disk now
+
+## data
+data.read(name) -> string | nil, error  -- read a data file's text by project-relative name
+data.json(text) -> table | nil, error  -- decode JSON text into a table
+data.readJson(name) -> table | nil, error  -- read a data file and decode it as JSON
 
 ## events
 events.subscribe(name, fn) -> EventSubscription  -- subscribe fn(payload) to an event (script phase, subscription order)
@@ -605,6 +617,55 @@ the object (Inspector checkbox / MCP `set_persistent` / the scene file), so it i
 inert in the editor, which never runs the level system. Running tweens and timers
 still end at the switch (they close over the outgoing scene) — a survivor keeps
 its own state but should restart any tween it needs in the new scene.
+
+## Reading data files (the `data` table)
+
+Game data is **content, not code**. A level table, an item list, a dialogue tree
+or a tuning table is authored as a data file and read at runtime through the
+`data` table — it never has to be baked into executable `.lua` source, and an
+agent generating sixty levels writes sixty data files, not sixty scripts.
+
+```lua
+local text, err = data.read("data/notes.txt")       -- text, or nil + a reason
+local tuning, err = data.readJson("data/tuning.json") -- decoded, or nil + reason
+local parsed = data.json('{"a":[1,2,3]}')            -- decode text you already have
+```
+
+Every function returns its value on success and **`nil` plus a message** on
+failure, so a read is checked the same way everywhere:
+
+```lua
+local levels, err = data.readJson("data/levels.json")
+if levels == nil then
+    error("levels unreadable: " .. err)
+end
+```
+
+**Where data files live.** `data/` at the project root is their home: it ships
+into every export beside `scenes/`, `scripts/` and `assets/`. A name is read as a
+**project-relative path** (`"data/levels.json"`), and the read resolves through
+the content mounts — so a loose file in the editor, an entry in a mounted pak and
+a file inside a phone's package all answer the identical call. Nothing is
+extracted and nothing is opened by absolute path, which is why the same script
+works on a desktop, in a pak and on a device.
+
+Names outside the project are refused: absolute paths, drive/UNC roots and any
+`..` traversal segment. A read is capped in size. Reads are **synchronous** — do
+them in `init`, not per frame.
+
+**Format-neutral by design.** JSON, CSV, INI or a game's own text grammar all come
+back from `data.read` as the bytes on record; `data.json` / `data.readJson` are a
+convenience for the common case, never the only road. `data.readJson` maps JSON
+onto natural Lua values: objects become string-keyed tables, arrays 1-based array
+tables, and a JSON `null` reads as `nil`.
+
+**Reading is not executing.** Restricting formats would buy nothing — only
+*executing* content was ever the risk. Reading a `.lua` file as TEXT is fine and
+allowed; *running* it is not, and `load`, `loadstring`, `loadfile`, `dofile` and
+`require` stay denied. That distinction is about execution, not about file kinds.
+
+`projects/jumper-lua` is the worked example: its feel numbers live in
+`data/tuning.json` and `scripts/player.lua` reads them in `init`.
 
 ## Canonical snippets
 

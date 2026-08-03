@@ -37,6 +37,11 @@ ROOT = os.path.dirname(SCRIPT_DIR)
 
 SCRIPT_COMPONENT = os.path.join(
     ROOT, "orkige_engine", "engine_gocomponent", "ScriptComponent.cpp")
+# the sandbox-level tables the Lua backend installs itself, so they are present
+# in EVERY sandbox rather than only where a game runtime ticks (the `data`
+# content-read table)
+SCRIPT_MANAGER = os.path.join(
+    ROOT, "orkige_core", "core_script", "ScriptManager.cpp")
 CORE_MODULE = os.path.join(ROOT, "orkige_core", "core_module", "module.cpp")
 ENGINE_MODULE = os.path.join(ROOT, "orkige_engine", "engine_module", "module.cpp")
 GUI_DIR = os.path.join(ROOT, "orkige_engine", "engine_gui")
@@ -62,7 +67,7 @@ RENDER_CAPS_EXPECTED_NEXT = os.path.join(
 # appended after these in discovery order.
 INDEX_TABLE_ORDER = [
     "world", "screen", "sound", "music", "tween", "guitween", "screens",
-    "haptics", "cvar", "save", "events",
+    "haptics", "cvar", "save", "data", "events",
 ]
 # the per-component world.<accessor>(id) lookups are declared at each
 # component's OSCRIPT_HANDLE site (not hand-wired in ScriptComponent.cpp), so
@@ -191,6 +196,28 @@ def parse_script_component(text):
     for m in re.finditer(r'registerGlobalFunction\(\s*"([^"]+)"', text):
         globals_.append(Symbol("global", "", m.group(1)))
     return order, tables, globals_
+
+
+# ---------------------------------------------------------------------------
+# ScriptManager.cpp - the tables the sandbox itself installs
+# ---------------------------------------------------------------------------
+def parse_script_manager(text):
+    """Return an ordered dict: table name -> [Symbol(tablefn)] for the tables
+    the Lua backend installs directly onto the sandboxed state (`data`). They
+    are bound as `<table>["<fn>"] = [](...)` rather than through
+    registerFunction, because they belong to the sandbox surface itself and
+    exist in every sandbox, with or without a game runtime."""
+    tables = {}
+    order = []
+    for m in re.finditer(
+            r'^\s*([A-Za-z_]\w*)\[\s*"([A-Za-z_]\w*)"\s*\]\s*=\s*\[\]\s*\(',
+            text, re.M):
+        table, fn = m.group(1), m.group(2)
+        if table not in tables:
+            tables[table] = []
+            order.append(table)
+        tables[table].append(Symbol("tablefn", table, fn))
+    return order, tables
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +392,16 @@ def build_model():
     with open(SCRIPT_COMPONENT, "r") as f:
         sc = f.read()
     model.table_order, model.tables, model.globals = parse_script_component(sc)
+
+    # the sandbox's own tables ride in beside them
+    with open(SCRIPT_MANAGER, "r") as f:
+        sm = f.read()
+    sm_order, sm_tables = parse_script_manager(sm)
+    for name in sm_order:
+        if name not in model.tables:
+            model.table_order.append(name)
+            model.tables[name] = []
+        model.tables[name].extend(sm_tables[name])
 
     source_index = build_source_index()
     # splice the registry-driven world accessors (getTransform ... getLevel)
@@ -887,16 +924,19 @@ def cmd_selftest():
     # the registry-driven world accessors + the generic getComponent must render
     assert "world.getTransform(id) -> TransformComponent?" in index_text
     assert "world.getComponent(id, name) -> Component?" in index_text
+    # the sandbox's own table (installed in ScriptManager.cpp, not through
+    # registerFunction) must be discovered too
+    assert "data.read(name) -> string | nil, error" in index_text, index_text
     # (3) index size budget (agent one-shot ingest): a single comfortable read.
     # Grows as the scripting surface does (the `events` message bus added its
     # table + the EventSubscription handle; the `locale` table its four
     # entries; the gameplay pack added `timer`, camera follow, music.crossFade
     # and `game` state; the scriptable-component registry added the generic
     # world.getComponent; the runtime object lifecycle added world.spawn /
-    # world.despawn; the cvar table added registerString); kept well inside one
-    # context read.
+    # world.despawn; the cvar table added registerString; the `data` table its
+    # three content reads); kept well inside one context read.
     size = len(index_text.encode("utf-8"))
-    assert size < 12000, "index is %d bytes, over the budget" % size
+    assert size < 12500, "index is %d bytes, over the budget" % size
     # (4) gui hierarchy tree includes the root chain
     gui_tree = render_gui_mermaid()
     assert "IGuiObject --> GuiWidget" in gui_tree, gui_tree

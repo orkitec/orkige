@@ -297,6 +297,14 @@ void registerProjectResources(Orkige::Project const& project)
 		oDebugWarn("editor.project", 0, "project directory '" << scenesDir <<
 			"' does not exist - not registered");
 	}
+	// the project CONTENT ROOT as ONE non-recursive location, so every content
+	// folder resolves by its project-relative SUB-PATH ("data/levels.json",
+	// "scripts/player.lua") exactly as it does in the player. Ogre probes a
+	// sub-path name against the location on demand, so nothing is walked or
+	// indexed here - no derived tree (builds/, native/) is ever descended into.
+	Orkige::RenderSystem::get()->addResourceLocation(
+		project.getRootDirectory(), Orkige::RenderSystem::LT_FILESYSTEM,
+		Orkige::Project::RESOURCE_GROUP_NAME, false);
 }
 
 } // namespace

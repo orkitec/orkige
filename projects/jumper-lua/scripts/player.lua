@@ -28,15 +28,21 @@
 
 local TS = RenderNode.TransformSpace
 
---- tuning (the "feel" numbers - same values as samples/jumper/main.cpp) ----
-local MOVE_SPEED   = 4.5        -- target run speed m/s
-local ACCEL_RATE   = 12.0       -- velocity approach rate 1/s
-local JUMP_SPEED   = 8.0        -- take-off velocity m/s (apex ~1.6 m)
-local GRAVITY_Y    = -20.0      -- ~2x earth, snappy platformer arcs
-local KILL_PLANE_Y = -10.0      -- fall-out respawn line
-local GOAL_RADIUS  = 1.5        -- win distance to the goal marker
-local CAMERA_RATE  = 5.0        -- camera follow approach rate
-local JUMP_BUFFER_SECONDS = 0.12
+--- tuning (the "feel" numbers) ----------------------------------------------
+-- These live in data/tuning.json, not in this file: a tuning table is DATA, so
+-- it is authored as a data file and read at init through the `data` table. The
+-- read resolves the name "data/tuning.json" through the content mounts, so the
+-- identical call serves a loose file, a mounted pak and the file inside a
+-- phone's package - see Docs/lua-api.md (Reading data files).
+local TUNING_FILE  = "data/tuning.json"
+local MOVE_SPEED               -- target run speed m/s
+local ACCEL_RATE               -- velocity approach rate 1/s
+local JUMP_SPEED               -- take-off velocity m/s (apex ~1.6 m)
+local GRAVITY_Y                -- ~2x earth, snappy platformer arcs
+local KILL_PLANE_Y             -- fall-out respawn line
+local GOAL_RADIUS              -- win distance to the goal marker
+local CAMERA_RATE              -- camera follow approach rate
+local JUMP_BUFFER_SECONDS
 
 -- the player capsule (matches jumper_player.glb and the RigidBodyComponent
 -- shape in the scene); the ground probe must start OUTSIDE the capsule -
@@ -96,7 +102,26 @@ end
 
 --- ScriptComponent lifecycle -------------------------------------------------
 
+-- read the tuning table; a missing or malformed file is a HARD error (the
+-- game has no honest numbers to run with), reported with the reason the read
+-- gave back
+local function loadTuning()
+	local tuning, err = data.readJson(TUNING_FILE)
+	if tuning == nil then
+		error("player.lua: could not read " .. TUNING_FILE .. ": " .. err)
+	end
+	MOVE_SPEED         = tuning.moveSpeed
+	ACCEL_RATE         = tuning.accelRate
+	JUMP_SPEED         = tuning.jumpSpeed
+	GRAVITY_Y          = tuning.gravityY
+	KILL_PLANE_Y       = tuning.killPlaneY
+	GOAL_RADIUS        = tuning.goalRadius
+	CAMERA_RATE        = tuning.cameraRate
+	JUMP_BUFFER_SECONDS = tuning.jumpBufferSeconds
+end
+
 function init(self)
+	loadTuning()
 	physics = PhysicsWorld.getSingleton()
 	-- named actions instead of raw keys: "move" (analog2D on WASD/arrows) and
 	-- "jump" (digital on SPACE) come from the built-in default action set

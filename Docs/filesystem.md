@@ -131,20 +131,37 @@ localisation string table are the intended next ones, with no interface change.
   flat per-folder registration. On an exported bundle the payload root is already
   only content, so the same one-location registration applies cleanly.
 
-**What routes through the archive vs. what still extracts.** Only scripts read
-through the archive. **Scenes, the project manifest and the localisation string
-table still load with `fopen`**, so the Android `stored` mode still extracts
-that small "fopen tree" (manifest / `scenes/` / `scripts/` / config + the
-shader/font media) — the bulk game media is already mounted in place (above).
-Scripts READ in place from a mounted pak; the Android first-launch extraction
-stays as a working fallback, and migrating scenes/config/localisation to the
-same reader is what would let it be removed.
+**What routes through the archive vs. what still extracts.** Scripts and the
+authored data files a script reads (`data/…`, via `DataResource`) read through
+the archive. **Scenes, the project manifest and the localisation string table
+still load with `fopen`**, so the Android `stored` mode still extracts that small
+"fopen tree" (manifest / `scenes/` / `scripts/` / config + the shader/font media)
+— the bulk game media is already mounted in place (above). Scripts and data READ
+in place from a mounted pak; the Android first-launch extraction stays as a
+working fallback, and migrating scenes/config/localisation to the same reader is
+what would let it be removed.
+
+**Data files read through the reader and NEVER fall back to `fopen`.**
+`core_filesystem/DataResource` is the read behind the Lua `data` table
+(`Docs/lua-api.md`): a project-relative name, jailed by
+`PathJail::isSafeRelativeEntry` and capped in size, resolved through
+`ResourceAccess::reader()`. The `ResourceAccess` contract lets a *core loader*
+fall back to its own file read when no reader is installed — correct for a loader
+in a headless test, wrong for a script, which would gain exactly the raw
+filesystem path the sandbox took away. With no reader installed the read is an
+honest error. `data/` ships into every export beside `scenes/`, `scripts/` and
+`assets/` (`payloadSubdirs()` in `tools/exporter/ExportSettings.cpp`), so the one
+name a script asks for is answerable in the editor, from a pak and from a phone's
+package.
 
 Verified by `player_pak_script_selfcheck` (both flavors — a path-bound
 `ScriptComponent` whose script lives ONLY inside a mounted pak, with no
-`--project` and no loose file, loads and runs) and the headless
+`--project` and no loose file, loads, runs, and reads an authored data file out
+of the SAME pak through `data.read`/`data.readJson`), the headless
 `ResourceReaderTests` (the provider seam, the memory-load path, and the
-fall-back-when-unset / on-miss paths; inert in `ORKIGE_SCRIPTING=OFF`).
+fall-back-when-unset / on-miss paths; inert in `ORKIGE_SCRIPTING=OFF`) and
+`DataResourceTests` (the pure name guard, the no-reader refusal, the size cap and
+the Lua surface).
 
 ## The mount-versus-extract rule
 
@@ -287,6 +304,8 @@ reads back. The `editor_control` self-test's jail leg refuses absolute + nested
   nested paths, non-zip rejection, and `normalizeMountPoint`.
 - `export_android` / `export_android_aab` — assert the APK/module carries the
   stored-mode marker and STORED asset entries.
+- `export_macos_lua` / `export_android` — assert the payload carries the
+  project's `data/` files, the content a running script reads by name.
 - The Android emulator Play test is the on-device runtime gate for the in-place
   APK mount.
 

@@ -366,7 +366,14 @@ Include paths are rooted at the layer directory (e.g. `#include "core_util/Strin
   output whose exact strings a test greps. `Docs/logging.md`.
 - **Filesystem** (`core_filesystem`): the ONE runtime filesystem facade. Core and
   engine code does not open files directly — `doctrine_lint` gates raw access and
-  the pre-funnel backlog is shrink-only. `Docs/filesystem.md`.
+  the pre-funnel backlog is shrink-only. `Docs/filesystem.md`. `DataResource` is
+  the read behind the Lua **`data` table**: authored data files (a level table,
+  an item list, a dialogue tree, a tuning table) live in `data/` and are read by
+  project-relative name through `ResourceAccess` — **never `fopen`**, so one call
+  serves a loose file, a mounted pak and an APK entry — jailed by `PathJail` and
+  size-capped. `data/` is a `payloadSubdirs()` entry, so it ships with every
+  export. Reading is not executing: the sandbox keeps denying
+  `load`/`loadfile`/`dofile`/`require`.
 - **Other core modules**: `core_project` (project/manifest, `AssetDatabase`,
   `ProjectPaths`, `TextureSamplerTable`), `core_script` (`ScriptRuntime`),
   `core_tween`, `core_http` (`Docs/http.md`), `core_debugnet` (the

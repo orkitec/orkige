@@ -130,6 +130,27 @@ def expected_samplers(project_dir, platform):
     return samplers
 
 
+def check_payload_data(payload_dir, project_dir):
+    """authored DATA files (data/) are content a running script reads by
+    project-relative name, so every one the project authors must reach the
+    payload at the SAME relative path. A payload missing them installs
+    perfectly and then runs on nothing. A project with no data/ has nothing to
+    prove here (logged, not asserted) - projects/jumper-lua is the one that
+    carries the assertion."""
+    source_data = os.path.join(project_dir, "data")
+    if not os.path.isdir(source_data):
+        log("data files: the project authors none - nothing to ship")
+        return
+    authored = sorted(
+        os.path.relpath(os.path.join(parent, name), source_data)
+        for parent, _dirs, files in os.walk(source_data) for name in files)
+    require(authored, "the source project authors data files at all")
+    for relative in authored:
+        require(os.path.isfile(os.path.join(payload_dir, "data", relative)),
+                "payload carries data/" + relative.replace(os.sep, "/"))
+    log("data files: %d authored file(s) shipped" % len(authored))
+
+
 def check_payload_samplers(payload_dir, project_dir, platform):
     """a packaged payload carries NO .orkmeta - sidecars are editor
     bookkeeping - and the one answer a runtime reads out of them (how a texture
@@ -543,6 +564,7 @@ def main():
         payload = os.path.join(artifact, "Contents", "Resources", "project")
         check_payload_cook(payload, cooked_names)
         check_payload_samplers(payload, args.project, args.platform)
+        check_payload_data(payload, args.project)
         check_macos(artifact, exe_name, args.run_frames, flavor,
                     make_clean_room(args.repo, args.output))
     elif args.platform == "ios-simulator":
@@ -551,6 +573,7 @@ def main():
         check_payload_cook(os.path.join(artifact, "project"), cooked_names)
         check_payload_samplers(os.path.join(artifact, "project"), args.project,
                                args.platform)
+        check_payload_data(os.path.join(artifact, "project"), args.project)
     elif args.platform == "android-aab":
         artifact = os.path.join(args.output, exe_name + ".aab.module.zip")
         check_android_aab_module(artifact)
@@ -568,6 +591,7 @@ def main():
             payload = os.path.join(temp_dir, "assets", "project")
             check_payload_cook(payload, cooked_names)
             check_payload_samplers(payload, args.project, args.platform)
+            check_payload_data(payload, args.project)
 
     log("artifact %s (%.1f MiB)" % (artifact,
         directory_size(artifact) / (1024.0 * 1024.0)))

@@ -40,7 +40,11 @@ namespace OrkigeExport
 
 	//! what of a project ships: the manifest plus these subdirectories
 	//! (native/ and builds/ stay home - compiled code ships as the packaged
-	//! binary)
+	//! binary). `data/` is the home of AUTHORED DATA FILES - level tables,
+	//! item lists, dialogue trees, tuning tables - which a script reads by
+	//! project-relative name through the `data` Lua table
+	//! (@see core_filesystem/DataResource.h); it ships like any other content
+	//! so the same read serves the editor, a pak and a phone.
 	std::vector<Orkige::String> payloadSubdirs();
 
 	//! @brief PROJECT-CONFIG assets ride along too: manifest Settings keys

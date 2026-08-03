@@ -938,11 +938,51 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 			detail += " update-not-run";
 		}
 
+		// the DATA half: the same script read an authored data file out of the
+		// same pak through the `data` table. There is no loose file and no
+		// fopen path at all, so these values can only have come from the
+		// archive - the proof that authored data reaches a game the way a
+		// script does, on every packaging.
+		const std::string dataError =
+			scripts.getString({ "pak_marker", "dataError" }, "");
+		if (!dataError.empty())
+		{
+			ok = false;
+			detail += " data-read-failed:" + dataError;
+		}
+		if (scripts.getNumber({ "pak_marker", "dataLevels" }, 0.0) != 7.0)
+		{
+			ok = false;
+			detail += " data-number-wrong";
+		}
+		if (scripts.getString({ "pak_marker", "dataName" }, "") != "pak world")
+		{
+			ok = false;
+			detail += " data-string-wrong";
+		}
+		if (scripts.getNumber({ "pak_marker", "dataFirstRoom" }, 0.0) != 11.0)
+		{
+			ok = false;
+			detail += " data-nested-array-wrong";
+		}
+		if (scripts.getNumber({ "pak_marker", "dataBytes" }, 0.0) <= 0.0)
+		{
+			ok = false;
+			detail += " data-raw-text-empty";
+		}
+		if (!scripts.getBool({ "pak_marker", "escapeRefused" }, false))
+		{
+			ok = false;
+			detail += " data-traversal-not-refused";
+		}
+
 		if (ok)
 		{
 			SDL_Log("orkige_pak_script_selfcheck: PASS - path-bound "
 				"ScriptComponent 'scripts/pak_script.lua' loaded and ran from "
-				"the mounted pak with NO loose file on disk (this flavor)");
+				"the mounted pak with NO loose file on disk, and read "
+				"'data/pak_data.json' out of the same pak through the data "
+				"table (this flavor)");
 			return 0;
 		}
 		SDL_Log("orkige_pak_script_selfcheck: FAILED -%s", detail.c_str());

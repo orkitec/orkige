@@ -8,6 +8,11 @@
 ***************************************************************/
 
 #include "core_script/ScriptManager.h"
+#include "core_debugnet/Json.h"
+#include "core_filesystem/DataResource.h"
+
+#include <cstddef>
+#include <utility>
 
 namespace Orkige
 {
@@ -85,6 +90,134 @@ namespace Orkige
 		// tables (world/shared/self, music/save/screen/haptics/input, loc,
 		// component handles, and - editor only - editor.*) are installed AFTER
 		// this hardening and are unaffected.
+
+		// The one capability handed BACK in place of the denied file globals:
+		// `data`, a read-only view of the CONTENT this game ships. It grants
+		// strictly less than `io` - no writes, no handles, no paths outside the
+		// project, and only what is actually mounted - so authored data files
+		// stop having to be baked into executable .lua source.
+		this->installDataTable();
+	}
+	//---------------------------------------------------------
+	namespace
+	{
+		//! @brief one parsed JSON value as its natural Lua value: objects become
+		//! string-keyed tables, arrays 1-based array tables, scalars themselves
+		//! and null a nil (so an absent-in-JSON and a null-in-JSON member read
+		//! the same in Lua). Recursion is bounded because JsonValue::parse
+		//! bounds nesting depth before this ever sees a value.
+		sol::object jsonToLua(sol::state_view lua, JsonValue const & value)
+		{
+			switch (value.getType())
+			{
+			case JsonValue::Type::Bool:
+				return sol::make_object(lua, value.asBool());
+			case JsonValue::Type::Number:
+				return sol::make_object(lua, value.asNumber());
+			case JsonValue::Type::String:
+				return sol::make_object(lua, value.asString());
+			case JsonValue::Type::Array:
+			{
+				sol::table array = lua.create_table();
+				for (std::size_t i = 0; i < value.size(); ++i)
+				{
+					array[i + 1] = jsonToLua(lua, value.at(i));
+				}
+				return array;
+			}
+			case JsonValue::Type::Object:
+			{
+				sol::table table = lua.create_table();
+				for (auto const & member : value.members())
+				{
+					table[member.first] = jsonToLua(lua, member.second);
+				}
+				return table;
+			}
+			case JsonValue::Type::Null:
+			default:
+				return sol::object(lua, sol::in_place, sol::lua_nil);
+			}
+		}
+		//! the honest two-value refusal every `data` function returns: nil plus
+		//! a message, so a script reads `local text, err = data.read(name)`
+		sol::variadic_results dataFailure(sol::state_view lua,
+			String const & error)
+		{
+			sol::variadic_results results;
+			results.push_back(sol::object(lua, sol::in_place, sol::lua_nil));
+			results.push_back(sol::make_object(lua, error));
+			return results;
+		}
+		//! the one-value success
+		sol::variadic_results dataSuccess(sol::object value)
+		{
+			sol::variadic_results results;
+			results.push_back(std::move(value));
+			return results;
+		}
+	}
+	//---------------------------------------------------------
+	void ScriptManager::installDataTable()
+	{
+		sol::state & lua = this->luaState;
+		sol::table data = lua.create_table();
+
+		// data.read(name) -> text | nil, error
+		// FORMAT-NEUTRAL by design: JSON, CSV, INI or a game's own text
+		// grammar all come back as the bytes on record. Restricting formats
+		// would buy nothing - only EXECUTING content was ever the risk, and
+		// reading a `.lua` file as TEXT is not running it.
+		data["read"] = [](sol::this_state ts, String const & name)
+			-> sol::variadic_results
+		{
+			sol::state_view view(ts);
+			String text;
+			String error;
+			if (!DataResource::read(name, text, error))
+			{
+				return dataFailure(view, error);
+			}
+			return dataSuccess(sol::make_object(view, text));
+		};
+
+		// data.json(text) -> table | nil, error
+		// the decode helper over the engine's own JSON codec (the one the
+		// editor's MCP endpoint parses with) - a convenience on top of
+		// data.read, never the only road to a data file
+		data["json"] = [](sol::this_state ts, String const & text)
+			-> sol::variadic_results
+		{
+			sol::state_view view(ts);
+			JsonValue value;
+			if (!JsonValue::parse(text, value))
+			{
+				return dataFailure(view, "not valid JSON");
+			}
+			return dataSuccess(jsonToLua(view, value));
+		};
+
+		// data.readJson(name) -> table | nil, error (read + decode in one)
+		data["readJson"] = [](sol::this_state ts, String const & name)
+			-> sol::variadic_results
+		{
+			sol::state_view view(ts);
+			String text;
+			String error;
+			if (!DataResource::read(name, text, error))
+			{
+				return dataFailure(view, error);
+			}
+			JsonValue value;
+			if (!JsonValue::parse(text, value))
+			{
+				return dataFailure(view,
+					"data resource '" + name + "' is not valid JSON");
+			}
+			return dataSuccess(jsonToLua(view, value));
+		};
+
+		lua["data"] = data;
 	}
 	//---------------------------------------------------------
 	ScriptManager::~ScriptManager()

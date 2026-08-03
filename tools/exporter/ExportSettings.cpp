@@ -127,7 +127,7 @@ namespace OrkigeExport
 	//---------------------------------------------------------
 	std::vector<Orkige::String> payloadSubdirs()
 	{
-		return { "scenes", "assets", "scripts" };
+		return { "scenes", "assets", "scripts", "data" };
 	}
 	//---------------------------------------------------------
 	std::vector<Orkige::String> configSettingKeys()

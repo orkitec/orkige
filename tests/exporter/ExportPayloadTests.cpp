@@ -68,6 +68,12 @@ namespace
 		writeFile(ExportFiles::join(root, "assets/coin.osfx"),
 			"version 1\npreset coin\n");
 		writeFile(ExportFiles::join(root, "scripts/player.lua"), "-- lua\n");
+		// authored DATA files: a script reads these by project-relative name
+		// at runtime, so they must reach the payload like any other content
+		writeFile(ExportFiles::join(root, "data/tuning.json"),
+			"{\"moveSpeed\":4.5}\n");
+		writeFile(ExportFiles::join(root, "data/levels/world1.csv"),
+			"id,name\n1,start\n");
 		// what must NOT ship: compiled code and previous packages
 		writeFile(ExportFiles::join(root, "native/main.cpp"), "int main(){}\n");
 		writeFile(ExportFiles::join(root, "builds/macos/old.app/x"), "stale\n");
@@ -79,7 +85,7 @@ namespace
 	}
 }
 
-TEST_CASE("the payload ships the manifest and the three subdirectories",
+TEST_CASE("the payload ships the manifest and the content subdirectories",
 	"[unit][export]")
 {
 	ScratchDir scratch("payload");
@@ -92,7 +98,7 @@ TEST_CASE("the payload ships the manifest and the three subdirectories",
 	Orkige::String error;
 	REQUIRE(stageProjectPayload(project, destination, "", "next", nullptr,
 		&staged, &error));
-	CHECK(staged == 4);	// manifest + scene + asset + script
+	CHECK(staged == 6);	// manifest + scene + asset + script + two data files
 
 	CHECK(ExportFiles::isRegularFile(
 		ExportFiles::join(destination, "project.orkproj")));
@@ -100,6 +106,12 @@ TEST_CASE("the payload ships the manifest and the three subdirectories",
 		ExportFiles::join(destination, "scenes/main.oscene")));
 	CHECK(ExportFiles::isRegularFile(
 		ExportFiles::join(destination, "scripts/player.lua")));
+	// data/ ships whole, nesting included: a game that reads its levels from
+	// a data file in the editor reads the SAME name from the package
+	CHECK(ExportFiles::isRegularFile(
+		ExportFiles::join(destination, "data/tuning.json")));
+	CHECK(ExportFiles::isRegularFile(
+		ExportFiles::join(destination, "data/levels/world1.csv")));
 	// every asset kind rides along verbatim, including the sound PARAMETER
 	// files the engine synthesizes at load
 	CHECK(ExportFiles::isRegularFile(

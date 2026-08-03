@@ -60,8 +60,12 @@ globals are denied — `require`/`package` (module loading), `load`/`loadstring`
 `io` (raw files), `debug` (the reflection/hook library), and all of `os` beyond a
 read-only `time`/`clock`/`date` subset. So a scene attached from an untrusted
 source cannot read the filesystem, spawn a process, or load code — loading it is
-loading data. Detail:
-[lua-api.md § Sandbox / security](lua-api.md#sandbox--security).
+loading data. What a script does get is `data`: reading authored content files by
+project-relative name (jailed by the same `PathJail` predicate, size-capped,
+resolved only through the mounted content and never through `fopen`). It grants
+strictly less than `io` — no writes, no handles, no path outside the project —
+and reading a file is not running it, so the code-loading globals stay denied.
+Detail: [lua-api.md § Sandbox / security](lua-api.md#sandbox--security).
 
 ## 4. Outbound requests are https-first, and not an agent's tool
 

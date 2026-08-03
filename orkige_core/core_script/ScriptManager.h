@@ -68,6 +68,17 @@ namespace Orkige
 		//! access/require/package/load/loadstring/loadfile/dofile/debug/
 		//! collectgarbage. See Docs/lua-api.md (Sandbox / security).
 		void applySandboxAllowlist();
+
+		//! @brief install the `data` table - the READ-ONLY content access a
+		//! sandboxed script gets in place of the denied file globals
+		//! (data.read / data.json / data.readJson). It reads by
+		//! project-relative resource name through the injected ResourceReader
+		//! (@see core_filesystem/DataResource.h), so the same call serves a
+		//! loose file, a mounted pak and an APK entry - and it can reach
+		//! NOTHING that is not mounted content. Reading is not executing: the
+		//! sandbox keeps denying load/loadfile/dofile/require, so a data file
+		//! is data even when it happens to hold Lua source.
+		void installDataTable();
 	};
 	/** @} */
 }

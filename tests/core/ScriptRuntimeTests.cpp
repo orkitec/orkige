@@ -217,6 +217,16 @@ TEST_CASE("ScriptRuntime sandbox denies unsafe globals", "[script][security]")
 		assert(os.getenv == nil, "os.getenv reachable")
 		assert(os.exit == nil, "os.exit reachable")
 		assert(os.time and os.clock and os.date, "safe os subset missing")
+		-- `data` is the read-only content access granted IN PLACE of the
+		-- denied file globals: three read functions, nothing that writes,
+		-- opens a handle or names a path outside the project
+		assert(type(data) == "table", "data table missing")
+		assert(type(data.read) == "function", "data.read missing")
+		assert(type(data.json) == "function", "data.json missing")
+		assert(type(data.readJson) == "function", "data.readJson missing")
+		assert(data.write == nil and data.open == nil, "data grants writes")
+		assert(select(1, data.read("../escape")) == nil, "data escapes root")
+		assert(select(1, data.read("/etc/passwd")) == nil, "data reads absolute")
 		-- the permitted computation stdlib still works
 		assert(math.floor(1.9) == 1, "math missing")
 		assert(string.upper("ab") == "AB", "string missing")

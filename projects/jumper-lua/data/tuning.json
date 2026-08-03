@@ -1,0 +1,10 @@
+{
+	"moveSpeed": 4.5,
+	"accelRate": 12.0,
+	"jumpSpeed": 8.0,
+	"gravityY": -20.0,
+	"killPlaneY": -10.0,
+	"goalRadius": 1.5,
+	"cameraRate": 5.0,
+	"jumpBufferSeconds": 0.12
+}
