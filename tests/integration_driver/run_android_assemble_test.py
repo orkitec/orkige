@@ -172,12 +172,27 @@ def main():
     command = [args.exporter, "android-player", "--engine-build", tree,
                "--output", apk]
     log("$ " + " ".join(command))
+    # a SCRATCH home, so the debug keystore is created rather than inherited.
+    # A developer machine that has ever run an Android tool already holds
+    # ~/.android/debug.keystore, so running under the real home exercises the
+    # "a keystore is already there" path and NEVER the creation one - which is
+    # how a missing `mkdir` for that directory reached a fresh CI runner and
+    # failed there while passing on every machine that had signed anything.
+    home = os.path.join(args.output, "home")
+    os.makedirs(home)
+    environment = dict(os.environ)
+    environment["HOME"] = home
+    environment["USERPROFILE"] = home
     result = subprocess.run(command, cwd=args.repo, capture_output=True,
-                            text=True)
+                            text=True, env=environment)
     sys.stdout.write(result.stdout)
     sys.stdout.write(result.stderr)
     require(result.returncode == 0, "the assembly succeeded")
     require("orkige_export: OK " in result.stdout, "it reported its artifact")
+    # and it MADE the keystore under that empty home, directory included -
+    # keytool writes the file but never creates the folder holding it
+    require(os.path.isfile(os.path.join(home, ".android", "debug.keystore")),
+            "a machine with no Android history gets a debug keystore")
 
     # NOTHING may have gone through a shell: the assembly names its programs.
     # A run that quietly grew one back would still produce an APK here, so the

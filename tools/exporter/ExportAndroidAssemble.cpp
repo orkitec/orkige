@@ -1207,11 +1207,27 @@ namespace OrkigeExport
 			{
 				return false;
 			}
-			if(!ExportFiles::isRegularFile(layout.debugKeystore) &&
-				!runStep(plan.createDebugKey, request.log, request.runner,
-					error))
+			if(!ExportFiles::isRegularFile(layout.debugKeystore))
 			{
-				return false;
+				// keytool writes the keystore but does NOT create the directory
+				// holding it, and on a machine that has never run an Android
+				// tool `~/.android` does not exist yet - a fresh CI runner is
+				// exactly that machine. Make the parent first, the way the
+				// shell this replaced did, or keytool fails with a bare
+				// FileNotFoundException naming a path it could have created.
+				const Orkige::String keystoreDirectory =
+					std::filesystem::path(layout.debugKeystore)
+						.parent_path().string();
+				if(!keystoreDirectory.empty() &&
+					!ExportFiles::makeDirectories(keystoreDirectory, error))
+				{
+					return false;
+				}
+				if(!runStep(plan.createDebugKey, request.log, request.runner,
+					error))
+				{
+					return false;
+				}
 			}
 			if(!runStep(plan.sign, request.log, request.runner, error))
 			{
