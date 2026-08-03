@@ -9,6 +9,7 @@ set(ORKIGE_CORE_MODULES
     core_game
     core_http
     core_module
+    core_monetization
     core_project
     core_script
     core_serialization

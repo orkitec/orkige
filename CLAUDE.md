@@ -666,6 +666,7 @@ lives in a doc and is pointed at from here. The full index:
 | `ios-signing.md` / `store-release.md` / `device-session.md` | signing, store artifacts, phone runs |
 | `web-export.md` | the wasm player and browser export |
 | `http.md` | the engine HTTP client |
+| `monetization.md` | the store/ads seam, the provider contract, the simulated provider |
 | `benchmark.md` | the feature-tour benchmark project |
 | `sanitizers.md` / `fuzzing.md` / `soak.md` / `security.md` | the stability + safety instruments |
 | `ports.md` / `vendored-libs.md` | overlay ports, third-party provenance + pinning |
