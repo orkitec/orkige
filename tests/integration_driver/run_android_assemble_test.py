@@ -80,14 +80,35 @@ def find_toolchain():
     for program in ("aapt2", "zipalign"):
         if not os.path.isfile(os.path.join(build_tools, program)):
             skip("no %s in %s" % (program, build_tools))
-    java_home = os.environ.get("JAVA_HOME", "")
-    if not java_home and shutil.which("javac"):
-        java_home = os.path.dirname(os.path.dirname(
-            os.path.realpath(shutil.which("javac"))))
-    if not java_home or not os.path.isfile(os.path.join(java_home, "bin",
-                                                        "javac")):
-        skip("no JDK (set JAVA_HOME, or install one)")
-    return build_tools, java_home
+    for java_home in jdk_candidates():
+        # a real JDK, the way the exporter judges one: all three programs AND
+        # the `release` descriptor at its root. macOS ships /usr/bin/javac as a
+        # STUB that only forwards to an installed JDK, so a home derived from
+        # it lands on /usr - which would report "found a JDK" and then fail
+        # inside javac.
+        if not all(os.path.isfile(os.path.join(java_home, "bin", program))
+                   for program in ("javac", "java", "keytool")):
+            continue
+        if os.path.isfile(os.path.join(java_home, "release")) \
+                or os.path.isfile(os.path.join(java_home, "lib", "modules")):
+            return build_tools, java_home
+    skip("no JDK (set JAVA_HOME, or install one)")
+
+
+def jdk_candidates():
+    """every JDK home worth probing, in the exporter's own order."""
+    candidates = []
+    if os.environ.get("JAVA_HOME"):
+        candidates.append(os.environ["JAVA_HOME"])
+    if shutil.which("javac"):
+        candidates.append(os.path.dirname(os.path.dirname(
+            os.path.realpath(shutil.which("javac")))))
+    candidates.append("/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/"
+                      "Contents/Home")
+    jvms = "/Library/Java/JavaVirtualMachines"
+    for name in sorted(os.listdir(jvms) if os.path.isdir(jvms) else []):
+        candidates.append(os.path.join(jvms, name, "Contents", "Home"))
+    return candidates
 
 
 def find_sdl_java_glue():
