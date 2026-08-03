@@ -485,7 +485,8 @@ def check_android_aab_module(module_path):
                          "assets/orkige_assets.txt",
                          # stored mode: the mount marker is staged; bundletool
                          # keeps the assets uncompressed in the generated APKs
-                         # via the BundleConfig uncompressedGlob (build_aab.sh)
+                         # via the BundleConfig uncompressedGlob the export
+                        # writes
                          "assets/orkige_mount.txt"):
             require(required in names, "module carries " + required)
         # the manifest must be PROTOBUF-encoded (bundletool rejects binary AXML

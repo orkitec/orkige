@@ -177,7 +177,7 @@ if(ORKIGE_HTTP)
         target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_ANDROID)
         # the JNI entry points come from the NDK's own libraries, which every
         # Android link already carries; the Java half (core_http/OrkigeHttp.java)
-        # is packaged into the APK by tools/player/android/package_apk.sh
+        # is compiled into the APK's dex by the exporter's Android assembly
         set_source_files_properties(
             "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendAndroid.cpp"
             PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

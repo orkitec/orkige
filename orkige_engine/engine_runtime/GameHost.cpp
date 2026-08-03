@@ -129,11 +129,11 @@ String androidApkPath()
 //! @brief extract the APK's bundled media into destRoot. APK assets are not
 //! files - the render backend's filesystem archives, the scene loader
 //! (tinyxml2/fopen) and the sound loader all want real paths, so everything is
-//! materialized once under the app files dir. The package script
-//! (tools/player/android/package_apk.sh) writes assets/orkige_assets.txt
-//! listing every bundled file; SDL_LoadFile with a relative path reads from the
-//! APK assets. A file that already exists with the same size is skipped (cheap
-//! re-launch).
+//! materialized once under the app files dir. The packaging run writes
+//! assets/orkige_assets.txt listing every bundled file (@see
+//! tools/exporter/ExportAndroidAssemble.h); SDL_LoadFile with a relative path
+//! reads from the APK assets. A file that already exists with the same size is
+//! skipped (cheap re-launch).
 //! @param mountMediaMode `stored` mode: skip the bulk binary media
 //! (isMountedMediaPath) - the player mounts those in place - and extract only
 //! the small fopen tree + shader/font media.

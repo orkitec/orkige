@@ -81,7 +81,7 @@ choice (see [store-release.md](store-release.md#assets-stored-vs-compressed)):
   the app files dir on first launch.
 
 The App Bundle (`.aab`) path keeps the assets uncompressed in bundletool's
-generated APKs via a `BundleConfig` `uncompressedGlob` (`build_aab.sh`).
+generated APKs via a `BundleConfig` `uncompressedGlob` the export writes.
 
 ## Script loading via the archive read
 

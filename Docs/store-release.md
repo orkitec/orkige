@@ -264,9 +264,9 @@ set in the editor wins, an empty one falls through.
        --platform android-aab --engine-build build/android-release
    ```
 
-   The exporter validates the version and package, stages the payload, then drives
-   `tools/player/android/build_aab.sh`: `aapt2 link --proto-format` →
-   the bundle module → `bundletool build-bundle` → `jarsigner`. The result is
+   The exporter validates the version and package, stages the payload, then
+   assembles the bundle in process: `aapt2 link --proto-format` → the bundle
+   module → `bundletool build-bundle` → `jarsigner`. The result is
    `<project>/builds/android-aab/<Game>.aab`.
 
 3. Upload `<Game>.aab` to the Play Console (Internal testing → Production). Play
@@ -279,8 +279,8 @@ To inspect the pipeline without a keystore or bundletool — what CI does — ad
 ### Notes
 
 - **Target SDK.** Google Play requires new-app and app-update uploads to target a
-  recent API (currently 35). The player manifest targets 35;
-  `build_aab.sh` warns loudly if a build ever drops below the floor.
+  recent API (currently 35). The player manifest targets 35, and the export
+  warns loudly if a build ever drops below the floor.
 - **Non-debuggable.** The release bundle flips `android:debuggable` to `false`
   (the dev-player APK stays debuggable for the editor's Play-on-device drop).
 

@@ -83,11 +83,14 @@ Deploying: iOS builds the runtime as `tools/player/OrkigePlayer.app` (SDL3 UIKit
 main, media bundled in) — `xcrun simctl boot/install/launch` for the simulator,
 `xcrun devicectl device install app` + `... process launch` for hardware.
 Android builds `tools/player/libmain.so` (everything incl. SDL3 statically
-linked); `tools/player/android/package_apk.sh` assembles + signs the APK
-directly with javac/d8/aapt2/apksigner (no Gradle — the machine's JDK predates
-Gradle support; SDL3's Java glue comes from the vcpkg SDL source, or - packaging
+linked); `tools/exporter/ExportAndroidAssemble.h` assembles + signs the APK
+IN PROCESS, spawning javac/d8/aapt2/zipalign/apksigner directly as argv (**no
+shell, no Gradle** — the whole command set is decided up front by a pure
+planner, so "nothing is handed to a command interpreter" is a unit-tested
+property; SDL3's Java glue comes from the vcpkg SDL source, or - packaging
 from a fetched payload, where there is no vcpkg - from the Java sources that
-payload carries). Deploy with
+payload carries). `orkige_export android-player --engine-build <tree>`
+packages the dev player's own APK. Deploy with
 `adb install`; emulator AVD `orkige_test` (android-35, arm64) exists. The
 manifest Setting `export.android.assets` picks how media rides in the APK
 (`stored`, the default: assets stay UNCOMPRESSED so the player mounts its own
@@ -580,8 +583,8 @@ packages a project as a distributable macOS `.app` (self-contained:
 player/module binary + dylib closure + engine media + project payload; a marker
 file makes the app boot its bundled project with no arguments — `PlayerBundle`
 in `engine_runtime/PlayerRuntime.h`), an iOS-simulator `.app`, an Android APK
-(via `package_apk.sh`) or a web payload. Output lands in
-`<project>/builds/<platform>/`; ids come from the manifest Settings
+(assembled in process — `ExportAndroidAssemble.h`) or a web payload. Output
+lands in `<project>/builds/<platform>/`; ids come from the manifest Settings
 `export.macos.bundleId` / `export.android.package` / `export.ios.bundleId`.
 Every export gets a per-project app icon (`export.icon` source PNG resized by
 `ExportIcons` → macOS `.icns` / iOS `CFBundleIconFiles` / Android launcher
@@ -623,8 +626,8 @@ browser are not there yet).
   **engine SDK pack**, which belongs to compiled C++ game code ALONE. **A
   project with no C++ never needs a pack, at debug, release or signed**, and no
   message may mention one.
-- The store-submittable platforms `android-aab` (via
-  `tools/player/android/build_aab.sh`, off an `android-release` tree,
+- The store-submittable platforms `android-aab` (the same in-process assembly
+  in protobuf form + `bundletool` + `jarsigner`, off an `android-release` tree,
   `bundletool` resolved via `ORKIGE_BUNDLETOOL`) and `ios-ipa` **refuse rather
   than emit a half-signed artifact** when credentials are absent, and stay
   CLI-only (a headless MCP agent lacks the secrets) — `Docs/store-release.md`.

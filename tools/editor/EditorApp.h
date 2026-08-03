@@ -1245,7 +1245,7 @@ struct PlaySession
 	std::string launchStatus;
 	//! play target picked in the toolbar: empty = not Android, otherwise the
 	//! adb serial of a connected device/emulator (the player APK must be
-	//! installed - see tools/player/android/package_apk.sh). The temp scene
+	//! installed - `orkige_export android-player`). The temp scene
 	//! travels via 'adb push + run-as' into the app files dir; the debug link
 	//! rides an 'adb forward tcp' bridge, so the editor still connects to
 	//! 127.0.0.1. Physical Android phones work through the exact same flow.

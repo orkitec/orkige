@@ -10,11 +10,12 @@
 //! @brief the decisions a mobile package is made of.
 //!
 //! Everything here is composition: which keys land on an iOS Info.plist, what
-//! an `.ipa` calls a bundle file, the exact `codesign` invocation, the two
-//! Android packaging command lines and the credential gate a signed bundle
-//! sits behind. None of it needs a certificate, a keystore, an SDK or a
-//! device - which is why the argument shape can be a hard gate on every host
-//! while the cryptography itself is exercised only where credentials exist.
+//! an `.ipa` calls a bundle file, the exact `codesign` invocation, the
+//! Android package name and toolchain gate, and the credential gate a signed
+//! bundle sits behind. None of it needs a certificate, a keystore, an SDK or
+//! a device - which is why the argument shape can be a hard gate on every
+//! host while the cryptography itself is exercised only where credentials
+//! exist. The Android ASSEMBLY itself is ExportAndroidAssembleTests.cpp.
 
 #include "ExportAndroid.h"
 #include "ExportFiles.h"
@@ -144,86 +145,6 @@ TEST_CASE("androidPackageName defaults off the project slug and validates",
 		package, &error));
 	REQUIRE(error.find("not a valid Android package name") !=
 		Orkige::String::npos);
-}
-
-TEST_CASE("the APK command line reaches package_apk.sh whole",
-	"[exporter][android]")
-{
-	const std::vector<Orkige::String> command = androidApkArguments(
-		"/repo/tools/player/android/package_apk.sh", "/out/payload-staging",
-		"com.orkitec.jumperlua", "Jumper Lua", "/out/res-staging", "#101014",
-		"stored", "portrait", "/out/JumperLua.apk", "/build/android-debug");
-	REQUIRE(command == std::vector<Orkige::String>{
-		"bash", "/repo/tools/player/android/package_apk.sh",
-		"--project-payload", "/out/payload-staging",
-		"--package", "com.orkitec.jumperlua",
-		"--label", "Jumper Lua",
-		"--res-dir", "/out/res-staging",
-		"--launch-color", "#101014",
-		"--assets", "stored",
-		"--output", "/out/JumperLua.apk",
-		"--orientation", androidScreenOrientation("portrait"),
-		"/build/android-debug" });
-}
-
-TEST_CASE("only a locked orientation reaches the Android manifest",
-	"[exporter][android]")
-{
-	// `auto` leaves the template's own (unspecified) value alone, so an
-	// unconstrained project's manifest stays byte-identical
-	const std::vector<Orkige::String> command = androidApkArguments(
-		"/s.sh", "/p", "com.a.b", "L", "/r", "#000000", "stored", "auto",
-		"/o.apk", "/build");
-	REQUIRE(std::find(command.begin(), command.end(), "--orientation") ==
-		command.end());
-	REQUIRE(command.back() == "/build");
-}
-
-TEST_CASE("the App Bundle command line carries the version and the signing "
-	"material", "[exporter][android]")
-{
-	AndroidBundleOptions options;
-	options.versionCode = 7;
-	options.versionName = "1.2.3";
-	options.keystore.keystore = "/secrets/release.jks";
-	options.keystore.alias = "upload";
-	options.keystore.hasStorePassword = true;
-	options.bundletool = "/tools/bundletool.jar";
-	const std::vector<Orkige::String> command = androidBundleArguments(
-		"/repo/tools/player/android/build_aab.sh", "/out/payload-staging",
-		"com.orkitec.jumperlua", "Jumper Lua", "/out/res-staging", "#101014",
-		"stored", "auto", "/out/JumperLua.aab", "/build/android-release",
-		options);
-	REQUIRE(command == std::vector<Orkige::String>{
-		"bash", "/repo/tools/player/android/build_aab.sh",
-		"--project-payload", "/out/payload-staging",
-		"--package", "com.orkitec.jumperlua",
-		"--label", "Jumper Lua",
-		"--res-dir", "/out/res-staging",
-		"--launch-color", "#101014",
-		"--assets", "stored",
-		"--output", "/out/JumperLua.aab",
-		"--version-code", "7",
-		"--version-name", "1.2.3",
-		"/build/android-release",
-		"--keystore", "/secrets/release.jks",
-		"--key-alias", "upload",
-		"--bundletool", "/tools/bundletool.jar" });
-}
-
-TEST_CASE("the unsigned bundle module asks for no credentials",
-	"[exporter][android]")
-{
-	AndroidBundleOptions options;
-	options.moduleOnly = true;
-	const std::vector<Orkige::String> command = androidBundleArguments(
-		"/s.sh", "/p", "com.a.b", "L", "/r", "#000000", "stored", "auto",
-		"/o.aab.module.zip", "/build", options);
-	REQUIRE(command.back() == "--module-only");
-	REQUIRE(std::find(command.begin(), command.end(), "--keystore") ==
-		command.end());
-	REQUIRE(std::find(command.begin(), command.end(), "--bundletool") ==
-		command.end());
 }
 
 //--- the signed iOS assembly, over an injected runner ---------------
@@ -623,33 +544,4 @@ TEST_CASE("a missing Android tool is named, one program at a time",
 	REQUIRE(refusal.find("/srv/sdk") != Orkige::String::npos);
 	REQUIRE(refusal.find("Build Targets") == Orkige::String::npos);
 	REQUIRE(refusal.find("SDK pack") == Orkige::String::npos);
-}
-
-TEST_CASE("the APK command line names its engine source and its tools",
-	"[exporter][android]")
-{
-	// the fetched-player shape: `--payload` instead of the positional build
-	// tree, so no build tree is named at all - there is none on the machine
-	AndroidToolchain tools;
-	tools.buildTools = "/srv/sdk/build-tools/35.0.0";
-	tools.javaHome = "/opt/jdk";
-	const std::vector<Orkige::String> command = androidApkArguments(
-		"/payloads/player-android/android/package_apk.sh", "/out/payload",
-		"com.orkitec.jumperlua", "Jumper Lua", "/out/res", "#101014", "stored",
-		"auto", "/out/JumperLua.apk", "", "/payloads/player-android", tools);
-	const std::vector<Orkige::String>::const_iterator payload =
-		std::find(command.begin(), command.end(), "--payload");
-	REQUIRE(payload != command.end());
-	REQUIRE(*(payload + 1) == "/payloads/player-android");
-	// the resolved toolchain is handed DOWN, so the programs the export
-	// checked for are exactly the ones that run
-	REQUIRE(std::find(command.begin(), command.end(), "--build-tools") !=
-		command.end());
-	REQUIRE(std::find(command.begin(), command.end(), tools.javaHome) !=
-		command.end());
-	// and nothing empty is ever passed as a positional build directory
-	for (Orkige::String const& argument : command)
-	{
-		REQUIRE_FALSE(argument.empty());
-	}
 }

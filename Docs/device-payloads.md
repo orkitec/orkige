@@ -26,8 +26,7 @@ rather than copied whole the way a `.app` is:
     libmain.so              the prebuilt player, already STRIPPED
     Media/                  the engine media that player renders through
     android/
-        package_apk.sh      the assembler
-        AndroidManifest.xml the manifest template it substitutes
+        AndroidManifest.xml the manifest template the assembly substitutes
         res/                the network-security policy every package declares
         java/               the Java the package compiles
 
@@ -129,7 +128,10 @@ For **iOS Simulator** the payload is the whole story: the `.app` is copied into
 place and packaging runs no platform tools at all.
 
 For **Android** you also need the Android SDK's own build tools, because every
-APK is assembled and signed by them:
+APK is assembled and signed by them. The assembly itself runs in process — the
+editor stages the trees, writes the archive and spawns each SDK program
+directly, so there is no interpreter, no script and no shell anywhere in the
+path:
 
 | Program | Where it comes from |
 | --- | --- |

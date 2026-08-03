@@ -1882,14 +1882,15 @@ DEVICE_PAYLOAD_MANIFEST = "orkige_payload.txt"
 #
 # A `.app` is COPIED whole into the package, so the iOS payload needs nothing
 # but the bundle. An Android package is ASSEMBLED around the player, so its
-# payload also carries the assembler, the manifest template it substitutes and
-# the Java it compiles - all engine pieces. Only the Android SDK's own programs
-# stay the machine's, which is the line we draw everywhere.
+# payload also carries what the assembly builds it out of: the manifest
+# template it substitutes, the platform policy resources and the Java it
+# compiles - all engine pieces. Only the Android SDK's own programs stay the
+# machine's, which is the line we draw everywhere.
 DEVICE_PAYLOADS = {
     "player-ios-simulator": ("OrkigePlayer.app", "ios-simulator", ()),
     "player-android": ("libmain.so", "android",
-                       (os.path.join("android", "package_apk.sh"),
-                        os.path.join("android", "AndroidManifest.xml"),
+                       (os.path.join("android", "AndroidManifest.xml"),
+                        os.path.join("android", "res"),
                         os.path.join("android", "java"))),
 }
 #: the Java a packaged Android app compiles: SDL3's own glue (zlib licensed,
@@ -1938,7 +1939,7 @@ def android_sdl_java_dir(build_dir):
     library from. vcpkg's sdl3 port installs only the native library, so the
     glue comes out of the build tree's own buildtrees (or, once those are
     cleaned, the verified source archive in the downloads cache) - the same two
-    places package_apk.sh looks when it runs against a build tree."""
+    places the exporter's own assembly looks against a build tree."""
     vcpkg = os.environ.get("VCPKG_ROOT") or os.path.expanduser(
         "~/Development/vcpkg")
     relative = os.path.join("android-project", "app", "src", "main", "java",
@@ -1968,17 +1969,15 @@ def android_sdl_java_dir(build_dir):
 
 
 def stage_android_assembly(target, build_dir):
-    """the Android payload's assembly half: the packaging script, the manifest
-    template, the res/ policy file and the Java sources. Everything here is
-    ENGINE - the SDK's own programs stay the machine's, and the exporter names
-    each missing one before this script is ever run."""
+    """the Android payload's assembly half: the manifest template, the res/
+    policy file and the Java sources. Everything here is ENGINE - the SDK's own
+    programs stay the machine's, and the exporter names each missing one before
+    it assembles anything."""
     android = os.path.join(target, "android")
     os.makedirs(android, exist_ok=True)
-    for name in ("package_apk.sh", "AndroidManifest.xml"):
-        shutil.copy2(os.path.join(REPO_ROOT, "tools", "player", "android",
-                                  name),
-                     os.path.join(android, name))
-    os.chmod(os.path.join(android, "package_apk.sh"), 0o755)
+    shutil.copy2(os.path.join(REPO_ROOT, "tools", "player", "android",
+                              "AndroidManifest.xml"),
+                 os.path.join(android, "AndroidManifest.xml"))
     shutil.copytree(os.path.join(REPO_ROOT, "tools", "player", "android",
                                  "res"),
                     os.path.join(android, "res"), dirs_exist_ok=True)
@@ -5170,15 +5169,15 @@ exit 0
             [DEVICE_PAYLOAD_MANIFEST]
 
     # The ANDROID payload is a longer list, because an APK is ASSEMBLED around
-    # its player rather than copied whole: the assembler, the manifest template
-    # and the Java it compiles are engine pieces and travel with it. The editor
-    # composes the same required set from its own catalogue
+    # its player rather than copied whole: the manifest template, the platform
+    # policy resources and the Java it compiles are engine pieces and travel
+    # with it. The editor composes the same required set from its own catalogue
     # (EditorPayloadsTests), so the two cannot drift.
     android_required = device_payload_required("player-android")
     assert DEVICE_PAYLOAD_MANIFEST in android_required, android_required
     assert "libmain.so" in android_required, android_required
     assert "Media" in android_required, android_required
-    for piece in ("package_apk.sh", "AndroidManifest.xml", "java"):
+    for piece in ("AndroidManifest.xml", "res", "java"):
         assert os.path.join("android", piece) in android_required, \
             android_required
     with tempfile.TemporaryDirectory() as temp:
@@ -5235,8 +5234,11 @@ exit 0
         assert os.path.isfile(os.path.join(
             composed, "android", "java", "org", "libsdl", "app",
             "SDLActivity.java"))
-        assert os.access(os.path.join(composed, "android", "package_apk.sh"),
-                         os.X_OK)
+        # the platform policy resource the manifest names, which every
+        # assembled package links in
+        assert os.path.isfile(os.path.join(
+            composed, "android", "res", "xml",
+            "orkige_network_security.xml"))
         # ...and an incomplete one is named as incomplete rather than packed
         shutil.rmtree(os.path.join(composed, "android", "java"))
         assert device_payload_problems(composed, "player-android") == \

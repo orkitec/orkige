@@ -19,6 +19,9 @@
 //!                 [--banned <substring>]... <binary>...
 //!   orkige_export cook-textures <payload dir> --flavor next|classic
 //!                 [--platform ios|android|web]
+//!   orkige_export android-player (--engine-build <android preset tree> |
+//!                 --device-payload <installed player> --output <apk>)
+//!                 [--output <apk>]
 //! @endverbatim
 //!
 //! The engine pieces an export packages (the player binary, the engine media)
@@ -44,6 +47,11 @@
 //! line on success is `orkige_export: OK <artifact>` - the editor's Build menu
 //! parses it for the reveal-in-Finder nicety, tests for the artifact path.
 //!
+//! `android-player` packages the DEV PLAYER's own APK: the same in-process
+//! assembly a project export runs (@see ExportAndroidAssemble.h), carrying the
+//! player's demo content instead of a project - what a developer installs to
+//! play a scene on a phone.
+//!
 //! `self-contain` is the same dylib-closure operation an export performs,
 //! reachable on its own so the editor BUILD can stage its app the identical
 //! way (@see ExportSelfContain.h); `cook-textures` is the same block-
@@ -51,6 +59,8 @@
 //! place and boot a runtime on it (@see ExportTextureCook.h). Both exist for
 //! the same reason: one implementation, two entry points, never a second copy.
 
+#include "ExportAndroid.h"
+#include "ExportAndroidAssemble.h"
 #include "ExportFiles.h"
 #include "ExportProcess.h"
 #include "ExportProject.h"
@@ -160,6 +170,85 @@ namespace
 	}
 
 	//---------------------------------------------------------
+	//! the DEV PLAYER's own APK: the same assembly a project export runs,
+	//! carrying the player's demo content instead of a project. What a
+	//! developer installs to play a scene on a phone, and what the Android
+	//! Play tests are prepared with.
+	int androidPlayerMain(std::vector<String> const & arguments)
+	{
+		String engineBuild;
+		String devicePayload;
+		String output;
+		String repoRoot = defaultRepoRoot();
+		for(std::size_t index = 0; index < arguments.size(); ++index)
+		{
+			String const & argument = arguments[index];
+			const bool hasValue = index + 1 < arguments.size();
+			if(!hasValue)
+			{
+				return fail("missing value for '" + argument + "'");
+			}
+			String const & value = arguments[++index];
+			if(argument == "--engine-build") { engineBuild = value; }
+			else if(argument == "--device-payload") { devicePayload = value; }
+			else if(argument == "--output") { output = value; }
+			else if(argument == "--repo") { repoRoot = value; }
+			else
+			{
+				return fail("unknown android-player argument '" + argument +
+					"'");
+			}
+		}
+		if(engineBuild.empty() == devicePayload.empty())
+		{
+			return fail("android-player needs ONE engine source: "
+				"--engine-build <android preset tree> or --device-payload "
+				"<installed Android player>");
+		}
+		if(output.empty())
+		{
+			if(devicePayload.empty())
+			{
+				output = OrkigeExport::ExportFiles::join(
+					OrkigeExport::ExportFiles::join(engineBuild, "apk"),
+					"OrkigePlayer.apk");
+			}
+			else
+			{
+				return fail("--device-payload needs --output (an installed "
+					"player is read-only)");
+			}
+		}
+		OrkigeExport::AndroidPackageRequest request;
+		request.buildDirectory = engineBuild;
+		request.devicePayload = devicePayload;
+		request.repoRoot = repoRoot;
+		request.environment = OrkigeExport::currentEnvironment();
+		request.vcpkgRoot = OrkigeExport::androidVcpkgRoot(request.environment);
+		request.outputPath = output;
+		request.log = logLine;
+		request.runner = OrkigeExport::defaultProcessRunner();
+
+		const OrkigeExport::AndroidToolchain tools =
+			OrkigeExport::resolveAndroidToolchain(request.environment);
+		const String refusal = OrkigeExport::androidToolchainRefusal(tools);
+		if(!refusal.empty())
+		{
+			return fail(refusal);
+		}
+		String artifact;
+		String error;
+		if(!OrkigeExport::assembleAndroidPackage(request, tools, artifact,
+			&error))
+		{
+			return fail(error);
+		}
+		std::printf("orkige_export: OK %s\n", artifact.c_str());
+		std::fflush(stdout);
+		return 0;
+	}
+
+	//---------------------------------------------------------
 	//! the editor build's staging call: the same operation an export performs
 	int selfContainMain(std::vector<String> const & arguments)
 	{
@@ -231,6 +320,11 @@ int main(int argc, char ** argv)
 	if(!arguments.empty() && arguments[0] == "cook-textures")
 	{
 		return cookTexturesMain(
+			std::vector<String>(arguments.begin() + 1, arguments.end()));
+	}
+	if(!arguments.empty() && arguments[0] == "android-player")
+	{
+		return androidPlayerMain(
 			std::vector<String>(arguments.begin() + 1, arguments.end()));
 	}
 
