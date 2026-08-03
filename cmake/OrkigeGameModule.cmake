@@ -718,6 +718,12 @@ function(orkige_game_module target)
         else()
             target_link_libraries(${target} PRIVATE OgreNext::RenderSystem_Vulkan)
         endif()
+        # the DEVICELESS render system beside the graphics one: the engine
+        # archive's backend boot references the NULL RS plugin on every
+        # platform (ORKIGE_RENDERSYSTEM=NULL boots a process with no window
+        # and no GPU - @see orkige_engine/CMakeLists.txt), so a module links
+        # it like the engine build does
+        target_link_libraries(${target} PRIVATE OgreNext::RenderSystem_NULL)
     else()
         target_link_libraries(${target} PRIVATE
             OgreOverlay
