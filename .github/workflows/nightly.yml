@@ -940,6 +940,18 @@ jobs:
       - name: Build the editor + player + the staged payload
         run: cmake --build --preset "$PRESET" --target orkige_editor_bundle
 
+      # The SDK pack that pairs with THIS editor, gating publication: a released
+      # editor that cannot build C++ game code is a broken release, and this is
+      # the only place the shipping configuration is exercised - the per-push
+      # suites run Debug trees. The ladder installs the pack, RENAMES it, audits
+      # self-containment and configuration coherence, compiles every installed
+      # header, then builds and runs a real game module with the engine source
+      # tree, build tree and vcpkg root all denied. ~14s on a warm Release tree.
+      - name: Verify the SDK pack (MUST pass - gates the release)
+        run: |
+          ctest --test-dir "build/$PRESET" -R "^sdk_pack" \
+            --output-on-failure --no-tests=error
+
       - name: Save ccache
         if: always()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -1300,6 +1312,18 @@ jobs:
       - name: Build the editor + player + the staged payload
         run: cmake --build --preset "$PRESET" --target orkige_editor_bundle
 
+      # The SDK pack that pairs with THIS editor, gating publication: a released
+      # editor that cannot build C++ game code is a broken release, and this is
+      # the only place the shipping configuration is exercised - the per-push
+      # suites run Debug trees. The ladder installs the pack, RENAMES it, audits
+      # self-containment and configuration coherence, compiles every installed
+      # header, then builds and runs a real game module with the engine source
+      # tree, build tree and vcpkg root all denied. ~14s on a warm Release tree.
+      - name: Verify the SDK pack (MUST pass - gates the release)
+        run: |
+          ctest --test-dir "build/$PRESET" -R "^sdk_pack" \
+            --output-on-failure --no-tests=error
+
       - name: Save ccache
         if: always()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -1532,6 +1556,15 @@ jobs:
       - name: Build the editor + player + the staged payload
         shell: pwsh
         run: cmake --build --preset ${env:PRESET} --target orkige_editor_bundle
+
+      # The SDK pack that pairs with THIS editor, gating publication (see the
+      # macOS job for the rationale). The clean room degrades on Windows - there
+      # is no sandbox-exec - so the run stages outside the repository and audits
+      # the pack instead; the strict form runs on macOS.
+      - name: Verify the SDK pack (MUST pass - gates the release)
+        run: |
+          ctest --test-dir "build/${env:PRESET}" -R "^sdk_pack" `
+            --output-on-failure --no-tests=error
 
       # The installer is compiled by makensis, which the hosted Windows image
       # does NOT ship, so the job installs it rather than depending on somebody
