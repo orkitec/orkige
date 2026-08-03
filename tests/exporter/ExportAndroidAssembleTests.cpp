@@ -88,6 +88,42 @@ namespace
 		return std::find(arguments.begin(), arguments.end(), value) !=
 			arguments.end();
 	}
+	//---------------------------------------------------------
+	//! the host's own spelling of a path the PLANNER composes. Every path the
+	//! plan builds itself (a program under a resolved toolchain root, a jar
+	//! under build-tools) goes through ExportFiles::join, whose contract is
+	//! ONE separator - the host's preferred one - so on Windows the POSIX
+	//! fixture paths come back backslashed. Restated here independently (a
+	//! plain character swap) rather than routed through the helper under
+	//! test, so the expectation stays an expectation. Paths the layout hands
+	//! over VERBATIM (an output path, a keystore, a module zip) are passed
+	//! through untouched by the planner and stay POSIX in the fixtures.
+	Orkige::String hostPath(Orkige::String posix)
+	{
+#if defined(_WIN32)
+		std::replace(posix.begin(), posix.end(), '/', '\\');
+#endif
+		return posix;
+	}
+	//---------------------------------------------------------
+	//! the host's own name for a toolchain program: `.exe` on Windows, the
+	//! bare name elsewhere (the androidProgramPath contract, restated)
+	Orkige::String hostProgram(Orkige::String const & posix)
+	{
+#if defined(_WIN32)
+		return hostPath(posix + ".exe");
+#else
+		return posix;
+#endif
+	}
+	//---------------------------------------------------------
+	//! a step's program is a PATH (however the host spells its separator),
+	//! never a bare name PATH-lookup would have to resolve
+	bool namesAPath(Orkige::String const & program)
+	{
+		return program.find('/') != Orkige::String::npos ||
+			program.find('\\') != Orkige::String::npos;
+	}
 }
 
 //--- THE no-shell gate -------------------------------------------
@@ -145,13 +181,13 @@ TEST_CASE("every assembly step names an ABSOLUTE program",
 	for (AndroidCommand const& step : androidAssemblyPlan(makeLayout()).all())
 	{
 		INFO(step.label);
-		CHECK(step.arguments[0].find('/') != Orkige::String::npos);
+		CHECK(namesAPath(step.arguments[0]));
 	}
 	for (AndroidCommand const& step :
 		androidAssemblyPlan(makeBundleLayout()).all())
 	{
 		INFO(step.label);
-		CHECK(step.arguments[0].find('/') != Orkige::String::npos);
+		CHECK(namesAPath(step.arguments[0]));
 	}
 }
 
@@ -171,46 +207,48 @@ TEST_CASE("the APK plan is the SDK choreography, in order",
 	// accepts a custom bootclasspath for, which is what keeps java.* resolving
 	// against android.jar instead of the host JDK
 	CHECK(plan.compileJava.arguments == std::vector<Orkige::String>{
-		"/opt/jdk/bin/javac", "-source", "8", "-target", "8",
+		hostProgram("/opt/jdk/bin/javac"), "-source", "8", "-target", "8",
 		"-encoding", "UTF-8",
 		"-bootclasspath", "/srv/sdk/platforms/android-35/android.jar",
 		"-d", "/work/classes", "-nowarn",
 		"/glue/SDLActivity.java", "/repo/OrkigeActivity.java" });
 
 	CHECK(plan.dex.arguments == std::vector<Orkige::String>{
-		"/opt/jdk/bin/java", "-cp", "/srv/sdk/build-tools/35.0.0/lib/d8.jar",
+		hostProgram("/opt/jdk/bin/java"), "-cp",
+		hostPath("/srv/sdk/build-tools/35.0.0/lib/d8.jar"),
 		"com.android.tools.r8.D8", "--release", "--min-api", "28",
 		"--lib", "/srv/sdk/platforms/android-35/android.jar",
 		"--output", "/work/dex", "@/work/classlist.txt" });
 
 	CHECK(plan.compileResources.arguments == std::vector<Orkige::String>{
-		"/srv/sdk/build-tools/35.0.0/aapt2", "compile",
+		hostProgram("/srv/sdk/build-tools/35.0.0/aapt2"), "compile",
 		"--dir", "/work/res", "-o", "/work/res.zip" });
 
 	// the linked output goes to a DIRECTORY: the package is assembled here, so
 	// every entry's compression is ours to decide (a mounted APK reads its
 	// assets in place, which a deflated entry cannot offer)
 	CHECK(plan.linkResources.arguments == std::vector<Orkige::String>{
-		"/srv/sdk/build-tools/35.0.0/aapt2", "link",
+		hostProgram("/srv/sdk/build-tools/35.0.0/aapt2"), "link",
 		"--manifest", "/work/AndroidManifest.xml",
 		"-I", "/srv/sdk/platforms/android-35/android.jar",
 		"-o", "/work/linked", "--output-to-dir", "/work/res.zip" });
 	CHECK_FALSE(contains(plan.linkResources.arguments, "--proto-format"));
 
 	CHECK(plan.align.arguments == std::vector<Orkige::String>{
-		"/srv/sdk/build-tools/35.0.0/zipalign", "-f", "4",
+		hostProgram("/srv/sdk/build-tools/35.0.0/zipalign"), "-f", "4",
 		"/work/unaligned.apk", "/out/JumperLua.apk" });
 
 	CHECK(plan.sign.arguments == std::vector<Orkige::String>{
-		"/opt/jdk/bin/java", "-jar",
-		"/srv/sdk/build-tools/35.0.0/lib/apksigner.jar", "sign",
+		hostProgram("/opt/jdk/bin/java"), "-jar",
+		hostPath("/srv/sdk/build-tools/35.0.0/lib/apksigner.jar"), "sign",
 		"--ks", "/home/dev/.android/debug.keystore",
 		"--ks-pass", "pass:android", "--key-pass", "pass:android",
 		"/out/JumperLua.apk" });
 
 	// the shared Android debug key, created on demand: Android installs no
 	// unsigned package, so signing was never the optional part
-	CHECK(plan.createDebugKey.arguments[0] == "/opt/jdk/bin/keytool");
+	CHECK(plan.createDebugKey.arguments[0] ==
+		hostProgram("/opt/jdk/bin/keytool"));
 	CHECK(contains(plan.createDebugKey.arguments,
 		"/home/dev/.android/debug.keystore"));
 	CHECK(contains(plan.createDebugKey.arguments, "androiddebugkey"));
@@ -251,7 +289,8 @@ TEST_CASE("the App Bundle links in protobuf and signs with the release key",
 	CHECK(plan.createDebugKey.empty());
 
 	CHECK(plan.buildBundle.arguments == std::vector<Orkige::String>{
-		"/opt/jdk/bin/java", "-jar", "/tools/bundletool.jar", "build-bundle",
+		hostProgram("/opt/jdk/bin/java"), "-jar", "/tools/bundletool.jar",
+		"build-bundle",
 		"--modules=/work/base.zip", "--output=/work/app.aab",
 		"--config=/work/BundleConfig.json" });
 
@@ -259,7 +298,7 @@ TEST_CASE("the App Bundle links in protobuf and signs with the release key",
 	// itself, so no secret ever reaches a command line (which every process
 	// listing on the machine can read)
 	CHECK(plan.signBundle.arguments == std::vector<Orkige::String>{
-		"/opt/jdk/bin/jarsigner", "-sigalg", "SHA256withRSA",
+		hostProgram("/opt/jdk/bin/jarsigner"), "-sigalg", "SHA256withRSA",
 		"-digestalg", "SHA-256", "-keystore", "/secrets/release.jks",
 		"-storepass:env", "ORKIGE_ANDROID_KEYSTORE_PASS",
 		"-keypass:env", "ORKIGE_ANDROID_KEY_PASS",
@@ -269,7 +308,7 @@ TEST_CASE("the App Bundle links in protobuf and signs with the release key",
 		CHECK(argument.find("hunter2") == Orkige::String::npos);
 	}
 	CHECK(plan.verifyBundle.arguments == std::vector<Orkige::String>{
-		"/opt/jdk/bin/jarsigner", "-verify", "/work/app.aab" });
+		hostProgram("/opt/jdk/bin/jarsigner"), "-verify", "/work/app.aab" });
 }
 
 TEST_CASE("the unsigned bundle module reaches neither bundletool nor a key",
