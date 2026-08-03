@@ -53,6 +53,9 @@ add_executable(orkige_core_tests
     LevelSequenceTests.cpp
     SaveStoreTests.cpp
     AppLifecycleTests.cpp
+    ProductCatalogTests.cpp
+    AdPlacementTests.cpp
+    MonetizationServiceTests.cpp
     CameraFitTests.cpp
     DevicePresetTests.cpp
     ProjectPathsTests.cpp
