@@ -113,8 +113,11 @@ namespace Orkige
 				entries[i].Trustee.TrusteeForm = TRUSTEE_IS_SID;
 				entries[i].Trustee.TrusteeType = TRUSTEE_IS_UNKNOWN;
 			}
-			entries[0].Trustee.ptstr_name = reinterpret_cast<LPWSTR>(owner);
-			entries[1].Trustee.ptstr_name = reinterpret_cast<LPWSTR>(systemSid);
+			// ptstrName, not ptstr_name: with TRUSTEE_IS_SID the field carries a
+			// PSID rather than a name, which is why the cast looks wrong and is
+			// not - that is the documented Win32 shape.
+			entries[0].Trustee.ptstrName = reinterpret_cast<LPWSTR>(owner);
+			entries[1].Trustee.ptstrName = reinterpret_cast<LPWSTR>(systemSid);
 			PACL list = NULL;
 			bool applied = false;
 			if (::SetEntriesInAclW(2, entries, NULL, &list) == ERROR_SUCCESS)
