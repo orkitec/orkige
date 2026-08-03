@@ -603,9 +603,9 @@ browser are not there yet).
   scripted builds never depend on a desktop keyring. The platform backend is
   installed ONLY by an interactive editor launch (`installPlatformSecretVault`
   refuses on the `automatedRun` probe), so no test run can prompt for keychain
-  access or read the user's credentials. The credential model is a platform x purpose matrix
-  (development and distribution take different identities) with three honest
-  cell states: automatic, applied, and shown-but-not-wired
+  access or read the user's credentials. The credential model is a platform x
+  purpose matrix (development and distribution take different identities) with
+  three honest cell states: automatic, applied, and shown-but-not-wired
   (`Docs/store-release.md`, `Docs/ios-signing.md`).
 - **A phone's player is FETCHED, not carried** (`Docs/device-payloads.md`): a
   released editor packages for iOS Simulator and Android out of a downloaded
