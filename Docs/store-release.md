@@ -66,24 +66,24 @@ the variables) is unaffected.
 
 #### What "readable by you alone" rests on
 
-The file is written to a temporary name, restricted, then renamed — so it is
-never briefly readable under its final name. The restriction is *owner read and
-write, nobody else named*, and how far it is enforced depends on the platform's
-access-control model:
+The file is created empty, restricted while it still holds nothing, written, and
+then renamed onto its final name — so the credentials are never in a file
+another account can open, not even for the instant between a write and a
+restriction applied afterwards. It is the same sink every secret the editor
+writes goes through (`core_filesystem/FileWriter`, `Docs/security.md`). The
+restriction is *owner read and write, nobody else named*, stated in each
+platform's own access-control vocabulary:
 
 | Platform | The restriction |
 |---|---|
 | **macOS**, **Linux** | POSIX mode bits, enforced by the kernel: the file is `0600` |
-| **Windows** | **requested but not applied.** Access there is governed by ACLs, which the standard filesystem library cannot express — a permissions call only toggles the read-only attribute, so the file keeps the ACL it inherits from the editor's state directory. Restricting it properly needs a DACL written through the platform's security API, which the editor does not do |
+| **Windows** | a **protected** (non-inheriting) DACL granting this user and SYSTEM, and naming nobody else — written through the platform's own security API, since access control there is an ACL the standard filesystem library cannot express |
 
-The gap is real and worth stating plainly, and it is also narrow. **No password
-is ever in this file** — those are in the operating system's own credential
-store (below), which is why the exposure is a keystore *path* and a key *alias*
-rather than a secret. The editor's state directory lives under the signed-in
-user's own profile, whose inherited ACL already excludes other unprivileged
-accounts; what an ACL of our own would add is protection against an
-administrator-level account on the same machine, which on a POSIX host `root`
-has anyway.
+What the restriction buys is bounded: it stops another account on the machine,
+never code running as this user. It also is not the last line here — **no
+password is ever in this file.** Those live in the operating system's own
+credential store (below), which is why the worst this file can expose is a
+keystore *path* and a key *alias*.
 
 ### Passwords go to the operating system's credential store
 

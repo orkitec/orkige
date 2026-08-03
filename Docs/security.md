@@ -38,6 +38,38 @@ The token is compared in **constant time** (`core_util/ConstantTimeCompare.h`), 
 a match cannot be recovered byte-by-byte through reply latency. Detail:
 [mcp.md § Security posture](mcp.md#security-posture).
 
+The token is minted from the platform's entropy source
+(`core_util/SecretToken.h`) and never from a seeded engine whose other outputs
+are published, and every file that carries it is written **owner-only**.
+
+#### Files that carry a secret
+
+Three files quote the live endpoint's token — the MCP token file
+(`mcp-endpoint.token`), the per-project discovery file `<projectRoot>/.mcp.json`,
+and the Claude-IDE lock `~/.claude/ide/<port>.lock` — and a fourth, the
+per-project build-credential file, carries signing settings. All four go through
+one sink, `core_filesystem/FileWriter`'s owner-only road, and the **sequence** is
+the guarantee: the file is created empty and exclusively, restricted while it
+still holds nothing, written, and then renamed onto its target. So the secret
+never exists in a file another account can open — not even for the instant
+between a write and a restriction applied afterwards.
+
+| Platform | The restriction |
+|---|---|
+| **macOS**, **Linux** | POSIX mode bits, enforced by the kernel: the file is `0600` |
+| **Windows** | a **protected** (non-inheriting) DACL granting the current token's owner and SYSTEM, and naming nobody else — written through the platform's own security API, since access control there is an ACL the standard filesystem library cannot express |
+
+A volume that can hold neither (FAT/exFAT, many network mounts) gets the file
+plus **one honest warning**: refusing would trade a defence-in-depth control for
+a broken feature, and on the token file it would degrade to auth-off, which is
+strictly worse than a permissive file.
+
+What this buys is bounded, and the bound is worth stating: **a file ACL stops
+another account, never code already running as this user.** Malware with the
+user's own identity reads the token exactly as the editor does. What limits that
+exposure is the token's lifetime — it is minted per session, on an ephemeral
+port, and the file is removed on shutdown — not the mode bits.
+
 ## 2. Every path boundary is jailed
 
 File authoring over MCP (`write_project_file`, `read_project_file`,

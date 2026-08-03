@@ -162,7 +162,9 @@ set_source_files_properties(
 
 if(WIN32)
     # the debug-net socket layer's winsock backend (WSAStartup, closesocket)
-    target_link_libraries(orkige_core PUBLIC ws2_32)
+    # and the OS access-control API FileWriter's owner-only files are written
+    # through (SetNamedSecurityInfoW & co; part of the OS, not a dependency)
+    target_link_libraries(orkige_core PUBLIC ws2_32 advapi32)
 endif()
 
 # --- HTTP client: the chosen transport's define + link -----------------------

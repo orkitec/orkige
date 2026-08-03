@@ -12,6 +12,7 @@
 #include "EditorMcpConfig.h"
 
 #include <core_debug/DebugMacros.h>
+#include <core_filesystem/FileWriter.h>
 
 #include <filesystem>
 #include <fstream>
@@ -85,24 +86,21 @@ namespace OrkigeEditor
 			oDebugMsg("editor.mcp", 0, "project .mcp.json: " << plan.reason);
 			return;
 		}
-		std::error_code ec;
+		// the file quotes the bearer token, so it is written OWNER-ONLY - and
+		// this one lives at the PROJECT root, which can be any volume the user
+		// picked (a second drive, a shared or synced folder). Nothing about
+		// that location restricts it on its own, so the restriction travels
+		// with the write instead of being inherited (@see
+		// FileWriter::beginOwnerOnly).
+		Orkige::String writeError;
+		if (!Orkige::FileWriter::writeOwnerOnlyFile(desiredPath,
+			plan.content + "\n", writeError))
 		{
-			std::ofstream out(desiredPath, std::ios::binary | std::ios::trunc);
-			if (!out)
-			{
-				oDebugWarn("editor.mcp", 0, "could not write project .mcp.json at "
-					<< desiredPath);
-				mPath.clear();
-				return;
-			}
-			out << plan.content << "\n";
+			oDebugWarn("editor.mcp", 0, "could not write project .mcp.json at "
+				<< desiredPath << ": " << writeError);
+			mPath.clear();
+			return;
 		}
-#ifndef _WIN32
-		// the file carries the bearer token: keep it readable by its owner only
-		fs::permissions(desiredPath,
-			fs::perms::owner_read | fs::perms::owner_write,
-			fs::perm_options::replace, ec);
-#endif
 		mPath = desiredPath;
 		mUrl = url;
 		mToken = bearerToken;

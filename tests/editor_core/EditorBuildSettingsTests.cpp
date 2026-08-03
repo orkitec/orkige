@@ -458,28 +458,27 @@ TEST_CASE("a saved credential file is owner-only and holds no password",
 		std::filesystem::perms::others_all)) ==
 		std::filesystem::perms::none);
 
-	// What is ENFORCED is the platform's answer, and the file is checked
-	// against it - so a POSIX host still fails if the restriction stops being
-	// applied (a rename keeps the temporary's mode, so the write below it is
-	// load-bearing), while a host whose access control is ACL-based is not
-	// asked to prove a claim its filesystem cannot make. That gap is a KNOWN
-	// one, recorded in Docs/store-release.md: on such a platform the file
-	// keeps whatever its directory grants, and what it holds is a keystore
-	// path and a key alias - never a password, which lives in the OS vault.
-#if !defined(_WIN32)
-	// ...and the predicate is pinned to what this host really is, so it can
-	// never go quiet by answering false everywhere
+	// Every platform APPLIES it now, so the predicate is pinned true on every
+	// host and can never go quiet by answering false somewhere.
 	CHECK(buildSettingsPermissionsEnforced());
+	// Only POSIX states the restriction as mode bits, so only there does it
+	// read straight back off the finished file - and it still fails here if the
+	// restriction stops being applied (a rename keeps the temporary's mode, so
+	// the write below it is load-bearing). Windows states it as a protected
+	// DACL, which std::filesystem cannot report; those properties are asserted
+	// against the real file in the FileWriter suite, which is the one place the
+	// owner-only write happens for this file and every other secret.
+#if !defined(_WIN32)
+	const std::filesystem::perms permissions =
+		std::filesystem::status(path).permissions();
+	CHECK((permissions & std::filesystem::perms::group_all) ==
+		std::filesystem::perms::none);
+	CHECK((permissions & std::filesystem::perms::others_all) ==
+		std::filesystem::perms::none);
+	// ...and EXACTLY what is requested above, so the declaration cannot drift
+	// away from the sink that applies it: a widening on either side fails here
+	CHECK(permissions == buildSettingsFilePermissions());
 #endif
-	if(buildSettingsPermissionsEnforced())
-	{
-		const std::filesystem::perms permissions =
-			std::filesystem::status(path).permissions();
-		CHECK((permissions & std::filesystem::perms::group_all) ==
-			std::filesystem::perms::none);
-		CHECK((permissions & std::filesystem::perms::others_all) ==
-			std::filesystem::perms::none);
-	}
 
 	const BuildSettingMap reloaded = loadBuildSettings(projectRoot);
 	CHECK(reloaded == sanitizeBuildSettings(values));

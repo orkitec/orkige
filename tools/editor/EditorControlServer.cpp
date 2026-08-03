@@ -34,6 +34,7 @@
 #include <core_base/TypeManager.h>
 #include <core_debugnet/ControlAuth.h>
 #include <core_debugnet/DebugSocket.h>
+#include <core_filesystem/FileWriter.h>
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectComponent.h>
 #include <core_game/GameObjectManager.h>
@@ -45,6 +46,7 @@
 #include <core_util/optr.h>
 #include <core_util/PlatformUtil.h>
 #include <core_util/PathJail.h>
+#include <core_util/SecretToken.h>
 #include <core_util/VectorAnimAsset.h>
 
 #include <engine_gocomponent/ScriptComponentRegistry.h>
@@ -2161,30 +2163,33 @@ namespace Orkige
 			return false;
 		}
 		// auth policy: a token is only meaningful when we can PUBLISH it for the
-		// client to read. With a token-file path we mint a fresh secret (the
-		// same 128-bit hex generator the asset database uses) and enforce it on
-		// EVERY request (reads included - see the handleMessage auth gate);
-		// without one, auth is off (a hand-started dev port - there is no
-		// secret to present).
+		// client to read. With a token-file path we mint a fresh secret from the
+		// platform's entropy source (never a seeded engine whose other outputs
+		// are published - @see mintSecretToken) and enforce it on EVERY request
+		// (reads included - see the handleMessage auth gate); without one, auth
+		// is off (a hand-started dev port - there is no secret to present).
 		this->mTokenFilePath = tokenFilePath;
 		if (!tokenFilePath.empty())
 		{
-			this->mToken = AssetDatabase::generateId();
-			std::error_code ignored;
-			std::filesystem::create_directories(
-				std::filesystem::path(tokenFilePath).parent_path(), ignored);
-			FILE* file = std::fopen(tokenFilePath.c_str(), "wb");
-			if (!file)
+			this->mToken = Orkige::mintSecretToken();
+			// the port rides along, so a client that started the editor on an
+			// ephemeral port (0) can discover it: "<port>\n<token>\n". The file
+			// is OWNER-ONLY from the instant it exists: this token authorises
+			// every mutating verb - project writes, editor scripts, play,
+			// export - so a world-readable copy of it is code execution as this
+			// user for anyone else on the machine.
+			const Orkige::String body =
+				std::to_string(this->mServer.getPort()) + "\n" +
+				this->mToken + "\n";
+			Orkige::String writeError;
+			if (!Orkige::FileWriter::writeOwnerOnlyFile(tokenFilePath, body,
+				writeError))
 			{
+				oDebugWarn("editor.mcp", 0, "the MCP token file could not be "
+					"written: " << writeError);
 				this->mServer.stop();
 				return false;
 			}
-			// the port too, so a client that started the editor on an ephemeral
-			// port (0) can discover it: "<port>\n<token>\n"
-			std::fprintf(file, "%u\n%s\n",
-				static_cast<unsigned>(this->mServer.getPort()),
-				this->mToken.c_str());
-			std::fclose(file);
 		}
 		return true;
 	}

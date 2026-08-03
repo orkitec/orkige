@@ -17176,12 +17176,34 @@ int main(int argc, char** argv)
 						body.find(mcpTerminalUrl) != std::string::npos;
 					const bool hasBearer =
 						body.find("Bearer ") != std::string::npos;
+					// both files quote the bearer token that authorises every
+					// mutating verb, so both must be readable by their owner
+					// alone. POSIX states that as mode bits and it reads
+					// straight back here; Windows states it as an access
+					// control list std::filesystem cannot report, and those
+					// properties are asserted in the FileWriter unit suite.
+					bool ownerOnly = true;
+#if !defined(_WIN32)
+					auto isOwnerOnly = [](std::string const& file)
+					{
+						std::error_code permErr;
+						const std::filesystem::perms mode =
+							std::filesystem::status(file, permErr).permissions();
+						return !permErr &&
+							(mode & (std::filesystem::perms::group_all |
+								std::filesystem::perms::others_all)) ==
+							std::filesystem::perms::none;
+					};
+					ownerOnly = tokenWritten && isOwnerOnly(controlTokenFile) &&
+						configPresent && isOwnerOnly(configPath);
+#endif
 					SDL_Log("orkige_editor: mcp-default selfcheck - listening=%d "
-						"token=%d config=%d marker=%d url=%d bearer=%d",
+						"token=%d config=%d marker=%d url=%d bearer=%d "
+						"owner-only=%d",
 						listening, tokenWritten, configPresent, hasMarker, hasUrl,
-						hasBearer);
+						hasBearer, ownerOnly);
 					if (!listening || !tokenWritten || !configPresent ||
-						!hasMarker || !hasUrl || !hasBearer)
+						!hasMarker || !hasUrl || !hasBearer || !ownerOnly)
 					{
 						mcpFail("endpoint/token/.mcp.json not as expected");
 					}

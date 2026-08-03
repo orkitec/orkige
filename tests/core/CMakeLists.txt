@@ -19,6 +19,7 @@ add_executable(orkige_core_tests
     BenchmarkRecorderTests.cpp
     JsonTests.cpp
     ConstantTimeCompareTests.cpp
+    SecretTokenTests.cpp
     ControlAuthTests.cpp
     Sha1Tests.cpp
     Sha256Tests.cpp

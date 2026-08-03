@@ -261,18 +261,19 @@ namespace OrkigeEditor
 
 	//! @brief whether this platform's filesystem ENFORCES those permissions.
 	//!
-	//! POSIX mode bits say exactly what @ref buildSettingsFilePermissions
-	//! means and the kernel holds everyone to it. Windows governs access with
-	//! ACLs, and the standard filesystem library can express only a read-only
-	//! flag there, so the restriction is REQUESTED and not applied: the file
-	//! keeps whatever its directory grants. This reports that rather than
-	//! implying otherwise, and `Docs/store-release.md` carries the gap in full
-	//! - including what is and is not exposed by it.
+	//! Every platform the editor runs on does, each in its own vocabulary:
+	//! POSIX mode bits the kernel holds everyone to on macOS/Linux, and a
+	//! PROTECTED (non-inheriting) DACL naming only the owner and SYSTEM on
+	//! Windows, since access control there is an ACL on the object and not a
+	//! mode the standard filesystem library can express. Only the POSIX form
+	//! reads back through `std::filesystem::status`; the Windows properties are
+	//! asserted where the file is written (@see Orkige::FileWriter). What the
+	//! restriction does and does not buy is in `Docs/store-release.md`.
 	bool buildSettingsPermissionsEnforced();
 
 	//! @brief write the machine settings for @p projectRoot, restricted to its
-	//! owner where the platform enforces that (@see
-	//! buildSettingsPermissionsEnforced).
+	//! owner before a single byte of it exists (@see
+	//! Orkige::FileWriter::beginOwnerOnly).
 	//! @return false with an honest @p error when there is nowhere to write.
 	//! @remarks the values are sanitized first, so a caller cannot persist a
 	//! key the model does not declare - passwords included, which have no key.

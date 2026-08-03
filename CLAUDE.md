@@ -309,7 +309,13 @@ Rules that hold here:
   open; no token file ⇒ auth off for dev.
 - DEFAULT-ON for an interactive session, OFF for automated runs — no normal test
   opens a socket. An interactive editor takes an EPHEMERAL loopback port and
-  writes its token to the writable app dir (owner-only `mcp-endpoint.token`).
+  writes its token to the writable app dir (`mcp-endpoint.token`). The token is
+  minted from the platform's entropy source (`core_util/SecretToken.h`), and
+  **every file that carries it is written OWNER-ONLY through the one sink**
+  `core_filesystem/FileWriter::beginOwnerOnly` — created empty, restricted while
+  empty, written, then renamed, so the secret never sits in a readable file
+  (`0600` on macOS/Linux, a protected DACL on Windows; a volume that holds
+  neither gets one warn, never a refusal). `Docs/security.md`.
   Pin explicitly with `--mcp-port <N> --mcp-token-file <path>` (aliases
   `--control-port`/`--control-token-file`; env `ORKIGE_MCP_PORT` /
   `ORKIGE_MCP_TOKEN_FILE`, `ORKIGE_CONTROL_*` also honored);
@@ -972,9 +978,11 @@ what rule it carries, which doc has the depth.
   - On Linux a process-wide X error guard (`SDLNativeWindowLinux.cpp`) keeps the
     inherently racy clipboard-answer BadWindow from killing any SDL-hosted app.
 - **Claude IDE protocol** (`Docs/claude-ide.md`; editor-only, interactive
-  sessions): the editor announces itself as an IDE — it writes
-  `~/.claude/ide/<port>.lock` and serves MCP over a WebSocket UPGRADE on the SAME
-  control-server port (`core_debugnet` `HttpServer` + `WebSocketConnection`).
+  sessions): the editor announces itself as an IDE — it serves MCP over a
+  WebSocket UPGRADE on its OWN ephemeral loopback port (a second
+  `core_debugnet` `HttpServer` + `WebSocketConnection`, separate from the MCP
+  control endpoint and its token) and writes the owner-only discovery lock
+  `~/.claude/ide/<port>.lock` carrying that port's own auth token.
   The active document is STICKY (focusing another panel never blanks the agent's
   context) and paths travel with forward slashes on every platform. Terminal
   children get `CLAUDE_CODE_SSE_PORT`/`ENABLE_IDE_INTEGRATION`, so `/ide` inside

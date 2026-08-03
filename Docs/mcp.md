@@ -66,7 +66,10 @@ The `x-orkige-managed` marker (a field `claude` ignores) lets the editor manage
 is left untouched, every other server the user authored is preserved across
 rewrites, and an unparseable file is never clobbered. The file is rewritten on a
 project switch / port change and **removed on clean shutdown** (a crash leaves
-it; the next launch's ephemeral rewrite self-heals it). It is gitignored, hidden
+it; the next launch's ephemeral rewrite self-heals it). It quotes the bearer
+token, so it is written **owner-only** — and this one sits at the project root,
+which can be any volume the user picked, so the restriction travels with the
+write instead of being inherited from a directory. It is gitignored, hidden
 from project file listings, and never bundled by the exporter. `claude` prompts
 once per session to approve a project's `.mcp.json`; because the default port is
 ephemeral, that approval recurs each launch (pin `--mcp-port` for a stable URL
@@ -140,6 +143,20 @@ this section details.
   `core_debugnet/ControlAuth::verbAllowed` (unit-tested by `ControlAuthTests`),
   and the `editor_control` self-test drives a read WITHOUT the token and asserts
   it is refused while a token is configured.
+
+- **The token is unpredictable, and the files that carry it are owner-only.**
+  It is minted per session from the platform's entropy source
+  (`core_util/SecretToken.h`) — never from a seeded engine whose other outputs
+  are published, which would make the secret recoverable from files anyone can
+  read. Both the token file and the per-project `.mcp.json` are written through
+  the owner-only file sink (`core_filesystem/FileWriter::beginOwnerOnly`): they
+  are created empty, restricted while still empty, written, then renamed, so the
+  token never sits in a file another account can open. The restriction is `0600`
+  on macOS/Linux and a protected DACL on Windows; a volume that can hold neither
+  gets one honest warning rather than a refusal. What it does *not* stop is code
+  already running as this user — the bound on that is the token's session
+  lifetime and its removal on shutdown, not the file mode
+  ([security.md](security.md#files-that-carry-a-secret)).
 
 - **Constant-time token comparison.** The bearer token is compared with
   `core_util/constantTimeEquals` (unit-tested by `ConstantTimeCompareTests`),
