@@ -1049,8 +1049,17 @@ what rule it carries, which doc has the depth.
     `Settings`, live OUTSIDE `assets/` and are NOT id-tracked. They reach an
     export through `configSettingKeys()` in `tools/exporter/ExportSettings.cpp` —
     add a new config asset there or it will not ship.
-  - **The canonical player-loop tick order** is a FENCED block in
-    `tools/player/main.cpp`: input → scripts → tweens → physics → deferred-load.
+  - **The canonical game-loop tick order** is a FENCED block in
+    `advanceGameWorld` (`engine_runtime/GameHost.cpp`): input → scripts →
+    tweens → physics → deferred-load. It lives in the engine rather than the
+    player because compiled game code gets it instead of re-deriving it.
+  - **`engine_runtime/GameHost`** owns the packaging prologue (APK/browser
+    payload, media and writable directories, orientation and back-button
+    policy, abort diagnostics) and the CALLBACK-shaped frame loop every plain
+    loop is expressed in terms of — a browser page owns the frame cadence, so
+    a blocking `while` inside `main` cannot exist there. The player is its
+    first consumer; a desktop module may still write its own main, on mobile
+    and web the harness is structural.
   - **The scene teardown hook** (`GameObjectManager::clear`) is fenced too;
     `clearExceptPersistent` is its persistence-aware sibling.
 

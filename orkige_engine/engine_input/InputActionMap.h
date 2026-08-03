@@ -30,9 +30,9 @@ namespace Orkige
 	//!
 	//! ONCE-PER-FRAME CONTRACT: update(dt) takes ONE edge snapshot per frame
 	//! (pressed = down && !down-last-frame) and every query reads that snapshot
-	//! back. It MUST be called exactly once per frame, in the player loop's
+	//! back. It MUST be called exactly once per frame, in the game loop's
 	//! input slot BEFORE the scripts that read it (see the canonical tick order
-	//! in tools/player/main.cpp). Recomputing edges per query or per script
+	//! in engine_runtime/GameHost.cpp). Recomputing edges per query or per script
 	//! would make pressed() flicker across readers within one frame.
 	//!
 	//! CONFIG-ASSET CONVENTION (this is the FIRST project-config asset; the

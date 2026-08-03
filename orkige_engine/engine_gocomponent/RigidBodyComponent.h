@@ -153,7 +153,7 @@ namespace Orkige
 		void syncFromSimulation();
 		//! @brief publish every ACTIVE dynamic body's simulated pose under the
 		//! given manager into its TransformComponent - the sim->scene half of
-		//! the canonical PLAYER LOOP TICK ORDER (tools/player/main.cpp):
+		//! the canonical GAME LOOP TICK ORDER (engine_runtime/GameHost.cpp):
 		//! component updates run BEFORE the physics step there, so without
 		//! this post-physics pass rendering and the debug stream would show a
 		//! one-tick-old pose (the classic step-while-paused contract caught

@@ -44,6 +44,7 @@ add_executable(orkige_engine_tests
     TextEntryEditTests.cpp
     HapticTests.cpp
     AppHostPolicyTests.cpp
+    GameHostTests.cpp
     SkinnedRigExtractTests.cpp
     PakMountTests.cpp
 )

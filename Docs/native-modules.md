@@ -15,6 +15,33 @@ directory carrying headers, archives, the dependency closure and the cmake
 surface, for a machine with no engine checkout. That form, and the one helper
 serving both, is `Docs/sdk-pack.md`.
 
+## The game host a module runs on
+
+A module is its own program with its own `main`, so it also owns everything a
+runtime needs AROUND the world: the platform prologue, the frame loop and the
+per-frame tick order. It does not write any of that — `engine_runtime/GameHost.h`
+is the reusable host, and `tools/player` is its first consumer:
+
+| what | the harness | why it is not the module's business |
+| --- | --- | --- |
+| the packaging prologue | `GamePlatform::boot` | an APK's assets are archive entries, not files; a browser export's payload is one archive. Both must be materialised or mounted before anything reads a manifest, and the mount-versus-extract rule is `PlayerBundle::isMountedMediaPath`. |
+| the platform directories | `GamePlatform::getMediaDirectory` / `getContentDirectories` / `getEngineLogPath` / `getStateDirectory` | a sandboxed app writes into its container, an exported desktop app into the app-support directory, a dev run into the cwd. |
+| the scene + orientation rules | `GamePlatform::resolveScenePath` / `applyOrientationPolicy` | a packaged app defaults to the scene it bundles; a device window must be pinned before it is created or the app boots in the wrong orientation. |
+| the frame loop | `runGameFrameLoop` | some platforms own the frame cadence and the runtime must RETURN to them between frames, so the loop is CALLBACK-shaped and takes ownership of the run state where it outlives `main`'s frame (`gameFrameLoopOwnsContext` answers that in one line). |
+| the tick order | `advanceGameWorld` | input → scripts/world → tweens → physics → deferred-load, then the presentation layers. Fenced and reasoned in one place; a step in the wrong position is a silent one-frame-lag bug. |
+| abort diagnostics | `installAbortDiagnostics` / `installAbortSignalTrap` | an abort with no assert dialog must still name itself in a headless log. |
+
+**A desktop module MAY keep its own `main` and its own loop.** On desktop the
+prologue is genuinely empty and the loop genuinely returns, so a hand-written
+`while` is a working program — and requiring the harness would break every
+existing sample. On mobile and in the browser it is not a choice: without the
+prologue a packaged app resolves nothing, and a blocking loop inside `main`
+cannot exist in a browser at all. Since a module that ships anywhere but the
+desktop needs the harness regardless, it is the recommended path everywhere.
+
+`AppHost` (`engine_runtime/AppHost.h`) stays the layer below: the window, the
+engine singletons and the world. GameHost is what surrounds it.
+
 ## Which engine the editor builds against
 
 Compile-on-Play and export ask ONE seam (`core_project/NativeModule.h`,

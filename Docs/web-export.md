@@ -139,9 +139,12 @@ uncompressed APK:
   each directory its own flat pak mount so files resolve by BARE resource
   name, exactly like the loose-file registration a desktop run does.
 
-One split, one mechanism, two packages (`isMountedMediaPath` in
-`tools/player/main.cpp` is the shared rule). A page whose module filesystem
-carries no `game.pak` boots exactly as before.
+One split, one mechanism, two packages: `PlayerBundle::isMountedMediaPath`
+(`engine_runtime/PlayerRuntime.h`) is the shared rule and the packaging
+prologue that applies it — unpacking the payload, remembering the mounts — is
+`GamePlatform::boot` in `engine_runtime/GameHost.cpp`, so every runtime built
+on the game host gets it. A page whose module filesystem carries no
+`game.pak` boots as a dev module.
 
 ## The browser payload inside a packaged editor
 

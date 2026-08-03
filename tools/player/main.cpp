@@ -39,13 +39,6 @@
 // SDL_main.h in the translation unit defining main(): a no-op on desktop,
 // on iOS it wraps main() in SDL's UIKit application bootstrap
 #include <SDL3/SDL_main.h>
-#if defined(_WIN32) && defined(_DEBUG)
-// _CrtSetReportMode / _CrtSetReportFile: main() routes Debug assert reporting
-// to stderr so a failed assert names itself in a headless CI log
-#include <crtdbg.h>
-// _write(2): the async-signal-safe stderr write the SIGABRT trap uses
-#include <io.h>
-#endif
 #include <engine_graphic/Engine.h>
 #include <engine_graphic/ScreenFade.h>
 #include <engine_graphic/ScreenShake.h>
@@ -80,12 +73,9 @@
 // assertions below run on BOTH render flavors
 #include <engine_gui/GuiManager.h>
 #include <engine_runtime/AppHost.h>
-#include <engine_filesystem/MiniZip.h>
+#include <engine_runtime/GameHost.h>
 #include "PlayerContext.h"
 #include "PlayerSelfChecks.h"
-#ifdef __EMSCRIPTEN__
-#include <emscripten.h>
-#endif
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
@@ -134,126 +124,12 @@
 #include <unordered_set>
 #include <vector>
 
-#ifdef __ANDROID__
-#include <jni.h>	// the APK path is a JNI call on the SDL activity (stored mode)
-#endif
-
 // the engine's shared-ownership alias, used throughout this TU
 using Orkige::optr;
 using Orkige::woptr;
 
 namespace
 {
-
-//--- abort traps (name a non-assert Debug abort in the CI log) -----------
-// The benchmark tour has twice aborted a headless CI runner (Windows Debug,
-// exit code 3) mid scene-switch with NOTHING in the captured stdout. The CRT
-// report routing in main() only catches _CRT_ASSERT/_CRT_ERROR; these traps
-// widen that to the two abort classes that bypass it: an uncaught C++
-// exception reaching std::terminate (an engine exception escaping a path the
-// render try/catch does not cover) and a raw abort()/SIGABRT (a driver /
-// validation-layer abort). Each names the abort class on stderr - and, for
-// terminate, the escaping exception's description - before letting the process
-// die with an honest exit code. The durable scene trail rides the Breadcrumbs
-// FILE (flushed per entry, dumped by the ctest drivers), which the always-on
-// Breadcrumbs crash handler also stamps with the signal.
-//
-// The terminate handler is portable (an uncaught exception aborts on every
-// platform and naming it helps every CI job; it only prints and then chains to
-// the previous handler, so the exit code stays honest - trivially safe). The
-// SIGABRT stderr trap is Windows-Debug-only: that is the sighting's platform,
-// and elsewhere the Breadcrumbs SIGABRT file marker already names it while the
-// Linux sanitizer jobs own the signal handlers (ASan) and must keep them.
-
-//! print the tail of the in-memory breadcrumb ring to stderr. Called from the
-//! terminate handler ONLY (a normal C++ call site, not a signal context), so
-//! std::string / stdio are safe here. Cheap: reads the ring, no file I/O.
-void dumpBreadcrumbTailToStderr()
-{
-	if (Orkige::Breadcrumbs::getSingletonPtr() == nullptr)
-	{
-		return;
-	}
-	const Orkige::String trail = Orkige::Breadcrumbs::getSingleton().contents();
-	if (trail.empty())
-	{
-		return;
-	}
-	std::fputs("orkige_player: breadcrumb trail (tail):\n", stderr);
-	// the final entries are the ones that matter (the last scene reached)
-	const size_t keep = 1200;
-	const size_t from = trail.size() > keep ? trail.size() - keep : 0;
-	std::fputs(trail.c_str() + from, stderr);
-	if (trail.back() != '\n')
-	{
-		std::fputc('\n', stderr);
-	}
-}
-
-//! the terminate handler installed at boot; chains to whatever was there
-std::terminate_handler gPreviousTerminateHandler = nullptr;
-
-//! std::terminate hook: the uncaught-exception abort path. Name the exception
-//! (its what()) and the breadcrumb tail on stderr, then chain to the previous
-//! handler (default = abort) so the process still dies with the honest code.
-[[noreturn]] void playerTerminateHandler()
-{
-	std::fputs("orkige_player: std::terminate called - the process is "
-		"aborting\n", stderr);
-	if (std::exception_ptr active = std::current_exception())
-	{
-		try
-		{
-			std::rethrow_exception(active);
-		}
-		catch (std::exception const& e)
-		{
-			std::fprintf(stderr, "orkige_player: unhandled exception: %s\n",
-				e.what());
-		}
-		catch (...)
-		{
-			std::fputs("orkige_player: unhandled non-standard exception\n",
-				stderr);
-		}
-	}
-	dumpBreadcrumbTailToStderr();
-	std::fflush(stderr);
-	if (gPreviousTerminateHandler != nullptr &&
-		gPreviousTerminateHandler != &playerTerminateHandler)
-	{
-		gPreviousTerminateHandler();
-	}
-	std::abort();
-}
-
-#if defined(_WIN32) && defined(_DEBUG)
-//! the SIGABRT disposition installed just after Breadcrumbs armed its own (so
-//! this chains INTO the Breadcrumbs file marker)
-void (*gPreviousSigabrtHandler)(int) = nullptr;
-
-//! SIGABRT hook: the raw-abort path (a driver / validation-layer abort, or the
-//! tail of std::terminate). Async-signal-safe - one fixed write(2) to stderr,
-//! then chain to whatever was installed before us (the Breadcrumbs file
-//! marker) so the durable trail still records the signal and the process still
-//! dies with the right code.
-extern "C" void playerAbortHandler(int signo)
-{
-	static const char message[] =
-		"orkige_player: SIGABRT (abort) - see the breadcrumb trail for the "
-		"last scene reached\n";
-	(void)::_write(2, message, static_cast<unsigned int>(sizeof(message) - 1));
-	if (gPreviousSigabrtHandler != nullptr &&
-		gPreviousSigabrtHandler != SIG_DFL &&
-		gPreviousSigabrtHandler != SIG_ERR &&
-		gPreviousSigabrtHandler != &playerAbortHandler)
-	{
-		gPreviousSigabrtHandler(signo);
-	}
-	std::signal(signo, SIG_DFL);
-	std::raise(signo);
-}
-#endif // _WIN32 && _DEBUG
 
 // does any loaded GameObject carry a RigidBodyComponent?
 bool sceneHasRigidBodies(Orkige::GameObjectManager& gameObjectManager)
@@ -279,221 +155,6 @@ bool sceneHasRigidBodies(Orkige::GameObjectManager& gameObjectManager)
 using Orkige::pushKeyEvent;
 using Orkige::pushMouseMove;
 using Orkige::pushMouseButton;
-
-#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
-//! the mount-versus-extract rule, shared by both packaged platforms and
-//! unit-tested headlessly (@see Orkige::PlayerBundle::isMountedMediaPath)
-using Orkige::PlayerBundle::isMountedMediaPath;
-#endif // __ANDROID__ || __EMSCRIPTEN__
-
-#ifdef __ANDROID__
-//! @brief the APK file's own path, via a JNI call on the SDL activity
-//! (Context.getPackageCodePath) - the file the player mounts in `stored` mode.
-//! "" when JNI/the activity is unavailable (the mount then falls back to
-//! extraction, the always-safe path).
-std::string androidApkPath()
-{
-	JNIEnv* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
-	jobject activity = static_cast<jobject>(SDL_GetAndroidActivity());
-	if (!env || !activity)
-	{
-		return std::string();
-	}
-	std::string result;
-	jclass cls = env->GetObjectClass(activity);
-	if (cls)
-	{
-		jmethodID method = env->GetMethodID(cls, "getPackageCodePath",
-			"()Ljava/lang/String;");
-		if (method)
-		{
-			jstring jpath = static_cast<jstring>(
-				env->CallObjectMethod(activity, method));
-			if (jpath)
-			{
-				const char* chars = env->GetStringUTFChars(jpath, nullptr);
-				if (chars)
-				{
-					result = chars;
-					env->ReleaseStringUTFChars(jpath, chars);
-				}
-				env->DeleteLocalRef(jpath);
-			}
-		}
-		env->DeleteLocalRef(cls);
-	}
-	env->DeleteLocalRef(activity);
-	return result;
-}
-
-//! @brief extract the APK's bundled media into destRoot. APK assets are not
-//! files - OGRE's FileSystem archives, the scene loader (tinyxml2/fopen) and
-//! the sound loader all want real paths, so everything is materialized once
-//! under the app files dir. The package script (tools/player/android/
-//! package_apk.sh) writes assets/orkige_assets.txt listing every bundled
-//! file; SDL_LoadFile with a relative path reads from the APK assets. A file
-//! that already exists with the same size is skipped (cheap re-launch).
-//! @param mountMediaMode `stored` mode: skip the bulk binary media
-//! (isMountedMediaPath) - the player mounts those in place - and extract only
-//! the small fopen tree + shader/font media.
-bool extractBundledAssets(std::string const& destRoot, bool mountMediaMode)
-{
-	size_t manifestSize = 0;
-	char* manifestData = static_cast<char*>(
-		SDL_LoadFile("orkige_assets.txt", &manifestSize));
-	if (!manifestData)
-	{
-		SDL_Log("orkige_player: FAILED - no orkige_assets.txt in the APK "
-			"assets: %s", SDL_GetError());
-		return false;
-	}
-	std::istringstream manifest(std::string(manifestData, manifestSize));
-	SDL_free(manifestData);
-	std::string relativePath;
-	unsigned extracted = 0;
-	unsigned kept = 0;
-	while (std::getline(manifest, relativePath))
-	{
-		if (!relativePath.empty() && relativePath.back() == '\r')
-		{
-			relativePath.pop_back();
-		}
-		if (relativePath.empty())
-		{
-			continue;
-		}
-		if (mountMediaMode && isMountedMediaPath(relativePath))
-		{
-			continue;	// mounted in place from the APK, not extracted
-		}
-		size_t dataSize = 0;
-		void* data = SDL_LoadFile(relativePath.c_str(), &dataSize);
-		if (!data)
-		{
-			SDL_Log("orkige_player: FAILED - manifest lists '%s' but the "
-				"asset cannot be read: %s", relativePath.c_str(),
-				SDL_GetError());
-			return false;
-		}
-		// zip-slip guard on the extract-to-disk boundary: refuse any entry
-		// that (lexically or through a symlink) would land outside destRoot
-		// before a single byte is written (Docs/filesystem.md - Security)
-		std::filesystem::path destPath;
-		if (!Orkige::PathJail::resolveExtractPath(
-			std::filesystem::path(destRoot), relativePath, destPath))
-		{
-			SDL_Log("orkige_player: FAILED - refusing to extract '%s' "
-				"(escapes the asset root)", relativePath.c_str());
-			return false;
-		}
-		std::error_code ignored;
-		if (std::filesystem::exists(destPath, ignored) &&
-			std::filesystem::file_size(destPath, ignored) == dataSize)
-		{
-			SDL_free(data);
-			++kept;
-			continue;
-		}
-		std::filesystem::create_directories(destPath.parent_path(), ignored);
-		const bool saved =
-			SDL_SaveFile(destPath.string().c_str(), data, dataSize);
-		SDL_free(data);
-		if (!saved)
-		{
-			SDL_Log("orkige_player: FAILED - could not write '%s': %s",
-				destPath.string().c_str(), SDL_GetError());
-			return false;
-		}
-		++extracted;
-	}
-	SDL_Log("orkige_player: bundled assets ready under '%s' (%u extracted, "
-		"%u up to date)", destRoot.c_str(), extracted, kept);
-	return true;
-}
-#endif // __ANDROID__
-
-#ifdef __EMSCRIPTEN__
-//! the browser export's payload archive, placed in the module filesystem by
-//! the page's data loader (tools/player/web/pak_loader.js) before main() runs
-const char* const WEB_PAK_FILE_NAME = "game.pak";
-
-//! @brief unpack a browser export's game pak: write out the small tree that is
-//! read through fopen (the orkige_project.txt marker, the project manifest,
-//! scenes, scripts, config assets and the engine shader/font media) and report
-//! back the media directories whose contents stay IN the archive to be mounted
-//! in place (@see isMountedMediaPath - the Android `stored` split, verbatim).
-//! @param pakPath the archive in the module filesystem
-//! @param destRoot where the extracted tree lands (the module base directory)
-//! @param outMountDirs receives one entry per media directory found, each an
-//!        archive-internal path ending in '/' - what mountPak takes as its
-//!        sub-tree mount point so files resolve by BARE resource name.
-//! @return false only when the archive cannot be read or an entry cannot be
-//!         written; a page with no pak never reaches here.
-bool extractWebPak(std::string const& pakPath, std::string const& destRoot,
-	std::set<std::string>& outMountDirs)
-{
-	Orkige::MiniZip pak;
-	if (!pak.open(pakPath))
-	{
-		SDL_Log("orkige_player: FAILED - '%s' is not a readable game pak",
-			pakPath.c_str());
-		return false;
-	}
-	unsigned extracted = 0;
-	std::vector<unsigned char> bytes;
-	for (auto const& entry : pak.entries())
-	{
-		const std::string& name = entry.first;
-		if (name.empty() || name.back() == '/')
-		{
-			continue;	// a directory record carries no bytes
-		}
-		if (isMountedMediaPath(name))
-		{
-			const std::size_t slash = name.find_last_of('/');
-			if (slash != std::string::npos)
-			{
-				outMountDirs.insert(name.substr(0, slash + 1));
-			}
-			continue;	// mounted in place, never written out
-		}
-		// zip-slip guard on the extract-to-disk boundary: the archive is this
-		// engine's own output, but the check costs nothing and the rule is the
-		// same one every extraction here follows (Docs/filesystem.md)
-		std::filesystem::path destPath;
-		if (!Orkige::PathJail::resolveExtractPath(
-			std::filesystem::path(destRoot), name, destPath))
-		{
-			SDL_Log("orkige_player: FAILED - refusing to extract '%s' "
-				"(escapes the payload root)", name.c_str());
-			return false;
-		}
-		if (!pak.read(name, bytes))
-		{
-			SDL_Log("orkige_player: FAILED - could not read '%s' from the "
-				"game pak", name.c_str());
-			return false;
-		}
-		std::error_code ignored;
-		std::filesystem::create_directories(destPath.parent_path(), ignored);
-		// an empty entry is still a file the payload lists: hand SDL a valid
-		// pointer with a zero length rather than a null one
-		const unsigned char emptyEntry = 0;
-		if (!SDL_SaveFile(destPath.string().c_str(),
-			bytes.empty() ? &emptyEntry : bytes.data(), bytes.size()))
-		{
-			SDL_Log("orkige_player: FAILED - could not write '%s': %s",
-				destPath.string().c_str(), SDL_GetError());
-			return false;
-		}
-		++extracted;
-	}
-	SDL_Log("orkige_player: game pak ready (%u files under '%s', %zu media "
-		"dirs mounted in place)", extracted, destRoot.c_str(),
-		outMountDirs.size());
-	return true;
-}
-#endif // __EMSCRIPTEN__
 
 } // namespace
 
@@ -889,174 +550,41 @@ static bool playerIterate(PlayerContext& context)
 	}
 	if (advanceWorld)
 	{
-		// ============== PLAYER LOOP TICK ORDER (canonical) ==============
-		// Ruled ONCE for every runtime feature (execution plan, 2026-07):
-		//   input (+ async answers) -> scripts/world -> tweens ->
-		//   physics -> load pump.
-		// Later packages FILL their labeled slot below instead of
-		// appending elsewhere - a wrong position means silent
-		// one-frame-lag bugs.
-		//
-		// TIME SCALE: the gameplay tick (scripts, tweens, physics) runs on
-		// the SCALED delta (world.setTimeScale; 0 = hitstop, still renders);
-		// input sampling, presentation overlays (fade/shake), audio, the
-		// debug stream and rendering stay on the real delta.
-		const float gameplayDelta = deltaTime * timeControl.getTimeScale();
-		//
-		// [1] INPUT - the raw SDL events of this frame were polled and
-		//     injected at the top of the loop (inputManager.injectEvent).
-		//     SLOT(input-actions): map raw input state to actions
-		//     HERE, before the scripts that read them run. ONE edge
-		//     snapshot per frame (pressed = down && !down-last-frame);
-		//     scripts read the snapshot back, never recompute it.
+		// the CANONICAL tick order (input -> scripts/world -> tweens ->
+		// physics -> deferred-load pump, then the presentation layers) is
+		// fenced and reasoned ONCE, in Orkige::advanceGameWorld
+		// (engine_runtime/GameHost.h) - read it there before adding
+		// anything to a frame. The player supplies its subsystems and the
+		// deferred-load pump's scene loader; every other host that ticks a
+		// world calls the same function.
+		Orkige::GameTick tick;
+		tick.inputActions = &inputActions;
+		tick.httpClient = context.httpClient ? &*context.httpClient : nullptr;
+		tick.gameObjects = &gameObjectManager;
+		tick.tweens = &tweenManager;
+		tick.timers = &timerManager;
+		tick.physics = &physicsWorld;
+		tick.physicsNeeded = physicsNeeded;
+		tick.levels = &levelManager;
+		tick.sound = &soundManager;
+		tick.screenFade = &screenFade;
+		tick.screenShake = &screenShake;
+		tick.debugDraw = &debugDraw;
+		tick.timeScale = timeControl.getTimeScale();
+		tick.loadScene = [&](Orkige::String const & pendingScene) -> bool
 		{
-			OPROFILE("input");
-			inputActions.update(deltaTime);
-		}
-		//
-		// [1b] ASYNC ANSWERS - the network's frame boundary. An HTTP
-		//     transfer progresses off the main thread; THIS is the one
-		//     place its progress and completion callbacks run, so game
-		//     code never sees an answer arrive mid-update. Placed with
-		//     input, before the scripts that read it: an answer that
-		//     landed between frames is applied before the code that
-		//     looks at it runs, exactly like a key the OS delivered.
-		//     Inside the fence, so a PAUSED runtime holds its answers
-		//     (a callback must not mutate a frozen world) and they are
-		//     delivered on resume - the injected-input discipline.
-		if (context.httpClient)
-		{
-			OPROFILE("http");
-			context.httpClient->update();
-		}
-		//
-		// [2] SCRIPTS/WORLD - the component updates: ScriptComponent
-		//     runs the game code, rigid bodies create lazily and sync
-		//     their simulated pose into the transforms, sounds/sprites
-		//     follow their transforms.
-		{
-			OPROFILE("scripts");
-			gameObjectManager.update(gameplayDelta);
-		}
-		//
-		// [2b] EVENT BUS - drain the ONE engine event bus
-		//     (core_event/GlobalEventManager) in the SCRIPT PHASE: the
-		//     script `events` table, the gui and the engine mirrors all
-		//     queue onto it, and this tick fans each queued event out to
-		//     its C++ and Lua listeners in subscription order. THIS is the
-		//     missing wire that activates the heritage async queue. The
-		//     manager's double-buffered queue makes an emit from inside a
-		//     handler deliver NEXT frame (cascade-safe, no recursion). gui
-		//     events queued during input dispatch (before [2]) and events
-		//     emitted by the scripts just above are delivered HERE, this
-		//     frame; events emitted LATER in the tick (the physics contact
-		//     mirror in [4]) land next frame.
-		if (Orkige::GlobalEventManager::getSingletonPtr())
-		{
-			OPROFILE("events");
-			Orkige::GlobalEventManager::getSingleton().tick();
-		}
-		//
-		// [3] TWEENS - after scripts (a tween started this frame takes
-		//     its first step this frame), before physics (tweened poses
-		//     are what the simulation sees). Dormant in the editor: only
-		//     runtimes that tick this block create a TweenManager.
-		{
-			OPROFILE("tweens");
-			tweenManager.update(gameplayDelta);
-			// timers ride the SAME phase (a timer is a degenerate tween);
-			// scheduled Lua callbacks fire here, after scripts, on the
-			// scaled gameplay delta - NOT a new tick-order fence entry
-			timerManager.update(gameplayDelta);
-		}
-		//
-		// [4] PHYSICS - the fixed-timestep simulation, then the
-		//     sim->scene pose sync: dynamic bodies publish the pose
-		//     THIS frame's step produced (component updates ran before
-		//     physics, so without this pass rendering and the debug
-		//     stream would lag the simulation by one tick).
-		if (physicsNeeded)
-		{
-			OPROFILE("physics");
-			physicsWorld.update(gameplayDelta);
-			Orkige::RigidBodyComponent::syncDynamicBodyPoses(
-				gameObjectManager);
-			// contacts + sensors/triggers: the worker-thread
-			// contact queue was drained inside update() above; dispatch
-			// the coalesced frame contacts to game code on THIS main
-			// thread (C++ ContactBegan/EndedEvent + the Lua
-			// onContactBegin/onContactEnd hooks). A script mutating the
-			// world here defers through the GameObjectManager delete
-			// queue, so it stays safe mid-dispatch.
-			Orkige::RigidBodyComponent::dispatchContacts(
-				gameObjectManager);
-		}
-		//
-		// [5] SLOT(deferred-load pump): a script asked for a scene
-		//     switch (world.loadScene / LevelManager:loadLevel set the
-		//     pending request during [2]). Apply it HERE, at the frame
-		//     boundary AFTER physics - never mid-update, where in-flight
-		//     script/update pointers would dangle. reloadSceneFrom tears
-		//     the old world down through the GameObjectManager::clear
-		//     teardown hook and reloads; the new scene's scripts init on
-		//     the NEXT frame. Keep this slot LAST.
-		{
-			OPROFILE("load");
-			int pendingLevelIndex = -1;
-			Orkige::String pendingScene;
-			if (levelManager.consumePendingLoad(pendingLevelIndex,
-				pendingScene))
+			// resolve project-relative scene paths through the open
+			// project (an already-existing path passes through)
+			Orkige::String resolvedScene = pendingScene;
+			std::error_code ignored;
+			if (project.isLoaded() &&
+				!std::filesystem::exists(resolvedScene, ignored))
 			{
-				// resolve project-relative scene paths through the open
-				// project (an already-existing path passes through)
-				Orkige::String resolvedScene = pendingScene;
-				std::error_code ignored;
-				if (project.isLoaded() &&
-					!std::filesystem::exists(resolvedScene, ignored))
-				{
-					resolvedScene = project.resolvePath(pendingScene);
-				}
-				if (reloadSceneFrom(resolvedScene))
-				{
-					if (pendingLevelIndex >= 0)
-					{
-						levelManager.setCurrentIndex(pendingLevelIndex);
-					}
-				}
+				resolvedScene = project.resolvePath(pendingScene);
 			}
-		}
-		// ================ end PLAYER LOOP TICK ORDER ====================
-
-		// audio listener follows the (script-driven) camera rig
-		{
-			OPROFILE("audio");
-			soundManager.update(deltaTime);
-		}
-
-		// the fade overlay is a PRESENTATION layer: ticked last, after
-		// the deferred-load pump, so its alpha reflects the frame about to
-		// render and a mid-fade scene switch is hidden under full opacity
-		{
-			OPROFILE("present");
-			screenFade.update(deltaTime);
-		}
-		// screen shake is a PRESENTATION effect too, ticked after the fade
-		// and the deferred-load pump: it reads the camera's base pose AFTER
-		// the scripts/physics of this frame set it, applies the wobble for
-		// the frame about to render, and restores it. On the real delta so
-		// it still animates during a hitstop (timeScale 0).
-		{
-			OPROFILE("present");
-			screenShake.update(deltaTime);
-		}
-		// immediate-mode debug lines are a PRESENTATION layer too: flushed after
-		// the scripts of this frame queued their draw.* primitives, so the mesh
-		// shows this frame's shapes, then their lifetimes age (frame-only shapes
-		// drop). Real delta so a hitstop (timeScale 0) still ages TTLs correctly.
-		{
-			OPROFILE("present");
-			debugDraw.update(deltaTime);
-		}
+			return reloadSceneFrom(resolvedScene);
+		};
+		Orkige::advanceGameWorld(tick, deltaTime);
 	}
 
 	// streaming: hierarchy on change (checked every N frames),
@@ -1228,33 +756,18 @@ static bool playerIterate(PlayerContext& context)
 
 int main(int argc, char** argv)
 {
-#if defined(_WIN32) && defined(_DEBUG)
-	// Windows Debug: route CRT assertion reporting to stderr. A failed assert -
-	// ours through _ASSERTE, Ogre-Next's through the CRT assert(), or the CRT's
-	// own runtime checks - reports by default through a modal window /
-	// OutputDebugString and then terminates the process. On a headless CI runner
-	// that terminates with exit code 3 (abort) and NOTHING in the captured log,
-	// so the failure cannot name itself. Reporting to stderr instead prints the
-	// file:line:expression into the test's captured output while the process
-	// still terminates (the assert still fails the test) - the next occurrence
-	// is diagnosable from the log alone.
-	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
-	_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
-	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
-	_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
-#endif
-	// the terminate trap: an uncaught C++ exception (an engine exception
-	// escaping a path the render try/catch does not cover) reaches
-	// std::terminate and aborts with no captured-log line otherwise. Name it +
-	// the breadcrumb tail before chaining to the previous handler so the exit
-	// code stays honest (@see playerTerminateHandler). Portable - trivially safe
-	// and useful on every CI job.
-	gPreviousTerminateHandler = std::set_terminate(&playerTerminateHandler);
+	// the process-level abort diagnostics (engine_runtime/GameHost.h): the
+	// Debug CRT's assertion reporting routed to stderr, and the terminate
+	// trap that names an escaping exception plus the breadcrumb tail before
+	// the process dies - so an abort with no assert dialog still says what
+	// killed it in a headless log.
+	Orkige::installAbortDiagnostics("orkige_player");
 	// the player's whole world lives on ONE heap context
 	// (PlayerContext.h): main() fills it in boot order, playerIterate
-	// reads it back per frame. Owned here for the desktop teardown; the
-	// browser path hands it to the page's frame callback instead (which
-	// deletes it, exactly once, when the run ends).
+	// reads it back per frame. Owned here where the frame loop returns;
+	// where it outlives main()'s frame the loop takes ownership instead and
+	// destroys the context, exactly once, when the run ends
+	// (@see Orkige::gameFrameLoopOwnsContext).
 	std::unique_ptr<PlayerContext> contextOwner(new PlayerContext());
 	PlayerContext& context = *contextOwner;
 	// arguments: the player CLI contract (an optional positional scene file,
@@ -1288,44 +801,43 @@ int main(int argc, char** argv)
 	const bool pakScriptSelfCheck =
 		std::getenv("ORKIGE_PAK_SCRIPT_SELFCHECK") != nullptr;
 
-#ifdef __EMSCRIPTEN__
-	// browser export: the page's data loader fetched the game pak and placed
-	// it at the module filesystem root before main() ran. Unpack the small
-	// fopen tree NOW - the marker below is read from it - and remember the
-	// media directories that stay in the archive; they are mounted in place
-	// once the render system exists (the resource-location block further
-	// down). A page without a pak (a dev module, a differently packaged one)
-	// simply has none of this and boots as before.
-	std::string webPakPath;
-	std::set<std::string> webPakMountDirs;
+	// the platform harness (engine_runtime/GameHost.h): materialize a
+	// packaged app's content before anything tries to READ it - an APK's
+	// assets are not files and a browser export's payload is one archive -
+	// and resolve the media/content directories this platform reads from.
+	// A desktop run has no prologue beyond letting an exported bundle's own
+	// Media/ override the build-tree default.
+	Orkige::GamePlatform& platform = context.platform;
 	{
-		const std::string webBase = Orkige::PlayerBundle::baseDirectory();
-		const std::string candidate =
-			(webBase.empty() ? std::string("/") : webBase) + WEB_PAK_FILE_NAME;
-		std::error_code ignored;
-		if (std::filesystem::is_regular_file(candidate, ignored))
+		Orkige::GamePlatformConfig platformConfig;
+		platformConfig.appName = "Orkige Player";
+		platformConfig.logTag = "orkige_player";
+		platformConfig.desktopMediaDirectory = ORKIGE_PLAYER_MEDIA_DIR;
+		// sample assets (test_mesh.glb; scene meshes load lazily) and the
+		// jumper sample assets, so the editor's play mode works on samples/*
+		// scenes too; a packaged app carries the same two sub-trees
+		platformConfig.desktopContentDirectories = {
+			ORKIGE_PLAYER_ASSET_DIR, ORKIGE_PLAYER_JUMPER_ASSET_DIR };
+		platformConfig.bundleContentSubdirectories = {
+			"assets", "jumper_media" };
+		if (!platform.boot(platformConfig))
 		{
-			if (!extractWebPak(candidate,
-				webBase.empty() ? std::string("/") : webBase, webPakMountDirs))
-			{
-				return 1;
-			}
-			webPakPath = candidate;
+			return 1;
 		}
 	}
-#endif
 
 	// exported app, launched WITHOUT arguments (double-click): the
 	// orkige_project.txt marker next to the executable's resources names the
 	// bundled default project - macOS .app: Contents/Resources/, iOS .app:
 	// the flat bundle root, a browser export: the module filesystem root the
-	// pak above unpacked into (Android reads its extracted assets root below,
-	// after SDL is up). Dev runs carry no marker and are unaffected. See
-	// PlayerBundle in engine_runtime/PlayerRuntime.h.
+	// payload unpacked into, Android: the content root the APK extracted to.
+	// Dev runs carry no marker and are unaffected. See PlayerBundle in
+	// engine_runtime/PlayerRuntime.h.
 	bool bundledProjectRun = false;
 	if (projectPath.empty() && scenePath.empty())
 	{
-		projectPath = Orkige::PlayerBundle::findBundledProject();
+		projectPath =
+			Orkige::PlayerBundle::findBundledProject(platform.getContentRoot());
 		bundledProjectRun = !projectPath.empty();
 		if (bundledProjectRun)
 		{
@@ -1369,122 +881,17 @@ int main(int argc, char** argv)
 		}
 	}
 
-#ifdef ORKIGE_IPHONE
-	// iOS app bundle: everything ships inside the bundle - default to the
-	// bundled example scene when launched without arguments (simctl launch
-	// can still pass a different bundled scene path)
-	if (scenePath.empty())
-	{
-		scenePath = Orkige::PlatformUtil::getResourceDirectory() +
-			"example.oscene";
-	}
-#elif defined(__ANDROID__)
-	// Android APK: the bundled media is extracted below (after SDL_Init) -
-	// an empty scenePath defaults to the extracted example scene there (the
-	// editor's play mode passes a scene path through the OrkigeActivity
-	// intent extras instead)
-#else
+	// the platform's scene rule: a packaged app defaults an empty path to the
+	// scene it bundles and anchors a relative one in its writable root (the
+	// shape a device-side play session pushes it in); a desktop path passes
+	// through, so an empty one stays empty and the usage line below fires.
+	scenePath = platform.resolveScenePath(scenePath);
 	if (scenePath.empty() && !pakSelfCheck && !pakScriptSelfCheck)
 	{
 		SDL_Log("usage: orkige_player [--project <dir-or-.orkproj>] "
 			"[scene.oscene] [--debug-port N]");
 		return 1;
 	}
-#endif
-
-	// Android back button: TRAP it so SDL delivers it as an
-	// SDL_SCANCODE_AC_BACK key event (-> KC_WEBBACK, readable by scripts / an
-	// input action) instead of letting the system finish the activity. The
-	// engine default is DELIVER, don't exit - a game handles Back as "pause /
-	// go up a menu"; a game that wants the old exit behavior can undo it. A
-	// harmless no-op off Android.
-	SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
-#ifdef __ANDROID__
-	// the APK media must be extracted (and the bundled project resolved)
-	// before the host boots, and extraction reads through SDL's asset IO -
-	// initialise SDL video early; AppHost's own SDL_Init stacks on top
-	// (per-subsystem refcount) and its teardown closes SDL for both.
-	if (!SDL_Init(SDL_INIT_VIDEO))
-	{
-		SDL_Log("SDL_Init failed: %s", SDL_GetError());
-		return 1;
-	}
-	// the app files dir is the writable root - the historical PlatformUtil
-	// Android path model (setFilesPath feeds getDocumentsDirectory,
-	// getResourceDirectory & co)
-	Orkige::PlatformUtil::setFilesPath(
-		std::string(SDL_GetAndroidInternalStoragePath()) + "/");
-	// materialize the APK's bundled media (same set the iOS bundle carries)
-	const std::string bundleRoot =
-		Orkige::PlatformUtil::getResourceDirectory() + "bundle/";
-	// stored mode (export.android.assets=stored, the default): the packager
-	// left the APK assets UNCOMPRESSED and dropped an orkige_mount.txt marker,
-	// so the player MOUNTS the bulk game media in place (no extraction of the
-	// big textures/audio/meshes) and extracts only the small fopen tree +
-	// shader/font media. A resolvable APK path is required; if it or the marker
-	// is absent the run falls back to full extraction (the always-safe path).
-	bool androidMountAssets = false;
-	std::string androidApkForMount;
-	{
-		size_t markerSize = 0;
-		void* marker = SDL_LoadFile("orkige_mount.txt", &markerSize);
-		const bool storedMode = (marker != nullptr);
-		if (marker)
-		{
-			SDL_free(marker);
-		}
-		if (storedMode)
-		{
-			androidApkForMount = androidApkPath();
-			androidMountAssets = !androidApkForMount.empty();
-			if (!androidMountAssets)
-			{
-				SDL_Log("orkige_player: stored APK but no resolvable APK path "
-					"- falling back to full extraction");
-			}
-		}
-	}
-	if (!extractBundledAssets(bundleRoot, androidMountAssets))
-	{
-		return 1;
-	}
-	if (androidMountAssets)
-	{
-		SDL_Log("orkige_player: stored mode - mounting APK media in place "
-			"from '%s'", androidApkForMount.c_str());
-	}
-	// exported APK: the marker rides in the extracted assets - the same
-	// no-args default-project mechanism as the desktop/iOS bundles (SDL has
-	// no base path on Android, so the extracted root is passed explicitly)
-	if (!project.isLoaded() && scenePath.empty() && projectPath.empty())
-	{
-		const std::string bundledProject =
-			Orkige::PlayerBundle::findBundledProject(bundleRoot);
-		if (!bundledProject.empty())
-		{
-			bundledProjectRun = true;
-			std::string projectError;
-			if (!project.load(bundledProject, &projectError))
-			{
-				SDL_Log("orkige_player: FAILED - %s", projectError.c_str());
-				return 1;
-			}
-			scenePath = project.getMainScenePath();
-			SDL_Log("orkige_player: exported app - bundled project '%s'",
-				project.getName().c_str());
-		}
-	}
-	if (scenePath.empty())
-	{
-		scenePath = bundleRoot + "example.oscene";
-	}
-	else if (scenePath[0] != '/')
-	{
-		// the editor's play mode drops the temp scene into the app files dir
-		// (adb push + run-as) and passes the path relative to it
-		scenePath = Orkige::PlatformUtil::getDocumentsDirectory() + scenePath;
-	}
-#endif
 	int& exitCode = context.exitCode;
 	// crash breadcrumbs, declared before the host so the trail stays alive
 	// through the whole engine teardown: an always-on, flush-per-entry trail
@@ -1497,85 +904,38 @@ int main(int argc, char** argv)
 	// unless armed from ORKIGE_BENCHMARK below. Declared alongside breadcrumbs
 	// so its results artifact is flushed through the whole teardown.
 	Orkige::BenchmarkRecorder& benchmarkRecorder = context.benchmarkRecorder;
-	// mobile orientation: constrain the window / UIKit view-controller
-	// orientations to the project's export.orientation BEFORE the window is
-	// created. iOS otherwise picks the boot orientation from the allowed set by
-	// the initial window aspect - and the mobile window is created desktop-wide
-	// (w>h), so an unconstrained app boots LANDSCAPE. Pinning the hint makes the
-	// render surface match the orientation the OS presents (the iOS 90°-rotation
-	// guard) and keeps the safe-area insets deterministic. PORTRAIT is the default
-	// (and where any unrecognised value lands); explicit "auto" leaves the hint
-	// unset AND asks for a rotation-following window - both halves are needed:
-	// with no hint the window system derives the allowed set from the window,
-	// and only a RESIZABLE window may follow the device orientation (a fixed
-	// one gets pinned to its boot aspect). A no-op on desktop.
-	bool followDeviceRotation = false;
-	{
-		// an explicit --orientation (the editor's Android play sessions, where
-		// the manifest does not travel to the device) wins over the manifest
-		const Orkige::String orientation = !arguments.orientation.empty()
-			? arguments.orientation
-			: project.getSetting("export.orientation", "portrait");
-		if (orientation == "landscape")
-		{
-			SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
-		}
-		else if (orientation == "auto")
-		{
-			followDeviceRotation = true;
-		}
-		else
-		{
-			SDL_SetHint(SDL_HINT_ORIENTATIONS, "Portrait");
-		}
-	}
+	// mobile orientation: constrain the window / view-controller orientations
+	// to the project's export.orientation BEFORE the window is created (the
+	// rule itself lives in GamePlatform::applyOrientationPolicy). An explicit
+	// --orientation (a device play session, where the manifest does not travel
+	// to the device) wins over the manifest.
+	platform.applyOrientationPolicy(!arguments.orientation.empty()
+		? arguments.orientation
+		: project.getSetting("export.orientation", "portrait"));
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window (mobile
 	// fullscreen / desktop high-pixel-density), engine singletons, the
 	// per-flavor Engine boot, the window-camera rig and the GameObject world
 	Orkige::AppHost& host = context.host;
 	{
 
-#if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
-		// sandboxed app: the working directory is not writable - the engine
-		// log goes into the app container (iOS: Documents, fetchable via
-		// 'simctl get_app_container ... data'; Android: the files dir set
-		// above, fetchable via 'adb shell run-as ... cat files/...')
-		const std::string engineLogPath =
-			Orkige::PlatformUtil::getDocumentsDirectory() + "orkige_player.log";
-#else
-		// exported .app: never write into the cwd (a double-clicked app runs
-		// with cwd "/") - the log goes to ~/Library/Application Support/
-		// "Orkige Player"/; dev runs keep the historical cwd log
-		const std::string engineLogPath = bundledProjectRun
-			? Orkige::PlatformUtil::getSupportDirectory("Orkige Player") +
-				"orkige_player.log"
-			: "orkige_player.log";
-#endif
-		// the breadcrumb file: the writable app dir (getSupportDirectory on
-		// desktop, getDocumentsDirectory on mobile); ORKIGE_BREADCRUMB_DIR
-		// overrides it (test isolation). rotate() at boot moves the last
-		// run's file to breadcrumbs.prev.jsonl.
+		// the writable paths, per platform (GamePlatform::resolveDirectories):
+		// a sandboxed app writes into its container, an exported desktop app
+		// into the app-support directory (a double-clicked app runs with an
+		// unwritable cwd) and a dev run keeps the historical cwd log.
+		platform.resolveDirectories("orkige_player.log", bundledProjectRun);
+		const std::string engineLogPath = platform.getEngineLogPath();
+		// the breadcrumb file: the platform's writable state dir;
+		// ORKIGE_BREADCRUMB_DIR overrides it (test isolation). rotate() at
+		// boot moves the last run's file to breadcrumbs.prev.jsonl.
 		{
-			std::string breadcrumbDir;
+			std::string breadcrumbDir = platform.getStateDirectory();
 			if (const char* dirEnv = std::getenv("ORKIGE_BREADCRUMB_DIR"))
 			{
 				breadcrumbDir = dirEnv;
-			}
-#if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
-			else
-			{
-				breadcrumbDir = Orkige::PlatformUtil::getDocumentsDirectory();
-			}
-#else
-			else
-			{
-				breadcrumbDir =
-					Orkige::PlatformUtil::getSupportDirectory("Orkige Player");
-			}
-#endif
-			if (!breadcrumbDir.empty() && breadcrumbDir.back() != '/')
-			{
-				breadcrumbDir += '/';
+				if (!breadcrumbDir.empty() && breadcrumbDir.back() != '/')
+				{
+					breadcrumbDir += '/';
+				}
 			}
 			if (!breadcrumbDir.empty())
 			{
@@ -1607,16 +967,10 @@ int main(int argc, char** argv)
 				// crumb before the OS report generates. Returns false (marker
 				// stands down) on a sanitizer build - ASan owns the handlers.
 				context.crashMarkerArmed = breadcrumbs.installCrashHandler();
-#if defined(_WIN32) && defined(_DEBUG)
-				// widen the SIGABRT coverage on the CI platform that showed the
-				// silent exit-3: chain a stderr last-gasp line IN FRONT of the
-				// Breadcrumbs file marker (installed just above, so it is the
-				// prior disposition this captures and calls). Windows-Debug only
-				// - elsewhere the file marker already names the signal and the
-				// Linux sanitizer jobs must keep ASan's own handlers.
-				gPreviousSigabrtHandler =
-					std::signal(SIGABRT, &playerAbortHandler);
-#endif
+				// widen the abort coverage: chain a stderr last-gasp line IN
+				// FRONT of the Breadcrumbs file marker (installed just above,
+				// so it is the prior disposition the trap captures and calls)
+				Orkige::installAbortSignalTrap("orkige_player");
 				// ORKIGE_CRASH_SELFCHECK=<frame>: the deliberate crash-marker
 				// test hook (see the playerIterate raise() below). The marker
 				// line lets the driver decide arm-vs-skip from run 1's stdout.
@@ -1657,45 +1011,14 @@ int main(int argc, char** argv)
 				{
 					meta.engineSha = sha;
 				}
-#ifdef ORKIGE_RENDER_NEXT
-				meta.flavor = "next";
-#else
-				meta.flavor = "classic";
-#endif
-#if defined(ORKIGE_IPHONE)
-				meta.platform = "ios";
-#elif defined(__ANDROID__)
-				meta.platform = "android";
-#elif defined(__APPLE__)
-				meta.platform = "macos";
-#elif defined(_WIN32)
-				meta.platform = "windows";
-#else
-				meta.platform = "linux";
-#endif
-				// render system: next boots Metal on Apple / Vulkan elsewhere;
-				// classic honours ORKIGE_RENDERSYSTEM (GL3Plus default)
-#ifdef ORKIGE_RENDER_NEXT
-#if defined(__APPLE__)
-				meta.renderSystem = "Metal";
-#else
-				meta.renderSystem = "Vulkan";
-#endif
-#else
-				if (const char* rs = std::getenv("ORKIGE_RENDERSYSTEM"))
-				{
-					meta.renderSystem = rs;
-				}
-				else
-				{
-					meta.renderSystem = "GL3Plus";
-				}
-#endif
-#ifdef NDEBUG
-				meta.build = "Release";
-#else
-				meta.build = "Debug";
-#endif
+				// the compiled-in identity - flavor, platform, render system
+				// and build configuration (Orkige::describeBuild)
+				const Orkige::GameBuildIdentity identity =
+					Orkige::describeBuild();
+				meta.flavor = identity.flavor;
+				meta.platform = identity.platform;
+				meta.renderSystem = identity.renderSystem;
+				meta.build = identity.build;
 				if (const char* osName = SDL_GetPlatform())
 				{
 					meta.deviceOs = osName;
@@ -1733,52 +1056,32 @@ int main(int argc, char** argv)
 		context.selfChecks.readEnvironment(context);
 		const bool automatedRun = context.automatedRun;
 
-#ifdef ORKIGE_IPHONE
-		// iOS: everything was copied into the app bundle by the CMake
-		// post-build step (see tools/player/CMakeLists.txt)
-		const std::string bundleDir = Orkige::PlatformUtil::getResourceDirectory();
-		// note: "assets", not "media" - macOS/iOS filesystems are case-
-		// insensitive and a "media" dir would collide with "Media" above
-		const std::string playerMediaDir = bundleDir + "Media";
-		const std::string playerAssetDir = bundleDir + "assets";
-		const std::string playerJumperAssetDir = bundleDir + "jumper_media";
-#elif defined(__ANDROID__)
-		// Android: same layout as the iOS bundle, extracted from the APK
-		// assets into <files>/bundle/ above
-		const std::string playerMediaDir = bundleRoot + "Media";
-		const std::string playerAssetDir = bundleRoot + "assets";
-		const std::string playerJumperAssetDir = bundleRoot + "jumper_media";
-#else
-		// desktop: build-tree defaults; an exported .app overrides the engine
-		// media with the Media/ it carries in Contents/Resources (next to the
-		// project marker) so the bundle is self-contained - no vcpkg or
-		// source-tree path is touched at runtime
-		const std::string playerMediaDir =
-			Orkige::PlayerBundle::resolveMediaDirectory(ORKIGE_PLAYER_MEDIA_DIR);
-		const std::string playerAssetDir = ORKIGE_PLAYER_ASSET_DIR;
-		const std::string playerJumperAssetDir = ORKIGE_PLAYER_JUMPER_ASSET_DIR;
-#endif
+		// the engine media root the platform harness resolved: a packaged app
+		// reads the media it carries, a desktop dev run the build tree and an
+		// exported .app the Media/ in its own Resources (self-contained - no
+		// dependency-closure or source-tree path is touched at runtime)
+		const std::string playerMediaDir = platform.getMediaDirectory();
 		// the host boot: mobile is a fullscreen native window, desktop bakes
 		// the scene path into the title. The media dir feeds the classic RTSS
-		// registration AND the next flavor's Hlms override: a device bundle
-		// always overrides (the engine's baked default is a build-tree path,
-		// invalid there), a desktop dev run keeps the baked Hlms default and
-		// an exported .app resolves to the Media/ in its Resources instead.
+		// registration AND the next flavor's Hlms override: whenever it is not
+		// the baked build-tree default, the backend's own default would name a
+		// path that does not exist for this run.
 		Orkige::AppHostConfig hostConfig;
-#if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
-		hostConfig.windowTitle = "Orkige Player";
-		hostConfig.hlmsMediaDir = playerMediaDir;
-		// export.orientation "auto": the fullscreen surface follows device
-		// rotation (see the orientation-hint block above)
-		hostConfig.resizableWindow = followDeviceRotation;
-#else
-		hostConfig.windowTitle = "Orkige Player - " + scenePath;
-		if (playerMediaDir != std::string(ORKIGE_PLAYER_MEDIA_DIR))
+		if (Orkige::GamePlatform::isMobile())
+		{
+			hostConfig.windowTitle = "Orkige Player";
+			// export.orientation "auto": the fullscreen surface follows
+			// device rotation (see the orientation policy above)
+			hostConfig.resizableWindow = platform.followsDeviceRotation();
+		}
+		else
+		{
+			hostConfig.windowTitle = "Orkige Player - " + scenePath;
+		}
+		if (platform.overridesEngineMedia())
 		{
 			hostConfig.hlmsMediaDir = playerMediaDir;
 		}
-		(void)followDeviceRotation;	// rotation policy is a mobile concern
-#endif
 		hostConfig.automatedRun = automatedRun;
 		hostConfig.engineLogFile = engineLogPath;
 		hostConfig.classicMediaDir = playerMediaDir;
@@ -1904,7 +1207,7 @@ int main(int argc, char** argv)
 				// assets, and the (baked-in) dev source-tree paths must not
 				// abort the run elsewhere
 				for (std::string const& sampleAssetDir :
-					{ playerAssetDir, playerJumperAssetDir })
+					platform.getContentDirectories())
 				{
 					std::error_code sampleDirError;
 					if (std::filesystem::is_directory(sampleAssetDir,
@@ -1995,68 +1298,14 @@ int main(int argc, char** argv)
 						"the resource locations", project.getName().c_str(),
 						project.getRootDirectory().c_str());
 				}
-#ifdef __ANDROID__
-				// stored mode: mount the APK's bulk game media in place. Each
-				// media DIRECTORY becomes its own flat pak mount so files
-				// resolve by BARE resource name, exactly like the loose-file
-				// registration above (a single sub-tree mount would only
-				// resolve by full sub-path). MiniZip enumerates the APK's own
-				// directory table.
-				if (androidMountAssets)
-				{
-					Orkige::MiniZip apk;
-					if (apk.open(androidApkForMount))
-					{
-						std::set<std::string> mediaDirs;
-						for (auto const& entry : apk.entries())
-						{
-							const std::string& full = entry.first;
-							if (full.rfind("assets/", 0) != 0)
-							{
-								continue;
-							}
-							if (!isMountedMediaPath(full.substr(7)))
-							{
-								continue;
-							}
-							const std::size_t slash = full.find_last_of('/');
-							if (slash != std::string::npos)
-							{
-								mediaDirs.insert(full.substr(0, slash + 1));
-							}
-						}
-						for (std::string const& dir : mediaDirs)
-						{
-							render->mountPak(androidApkForMount, dir,
-								Orkige::Project::RESOURCE_GROUP_NAME);
-						}
-						SDL_Log("orkige_player: mounted %zu APK media dirs in "
-							"place", mediaDirs.size());
-					}
-					else
-					{
-						SDL_Log("orkige_player: WARNING - could not open APK "
-							"'%s' to mount media in place",
-							androidApkForMount.c_str());
-					}
-				}
-#endif
-#ifdef __EMSCRIPTEN__
-				// browser export: the bulk game media never left the pak -
-				// mount each media DIRECTORY as its own flat sub-tree so files
-				// resolve by BARE resource name, exactly like the loose-file
-				// registration above (the Android `stored` mount, verbatim).
-				if (!webPakPath.empty())
-				{
-					for (std::string const& dir : webPakMountDirs)
-					{
-						render->mountPak(webPakPath, dir,
-							Orkige::Project::RESOURCE_GROUP_NAME);
-					}
-					SDL_Log("orkige_player: mounted %zu game-pak media dirs in "
-						"place", webPakMountDirs.size());
-				}
-#endif
+				// a packaged app's bulk game media never left its archive:
+				// mount each media DIRECTORY as its own flat sub-tree so its
+				// files resolve by BARE resource name, exactly like the
+				// loose-file registration above (a single sub-tree mount
+				// would only resolve by full sub-path). A platform that
+				// extracted everything mounts nothing.
+				platform.mountPackagedContent(*render,
+					Orkige::Project::RESOURCE_GROUP_NAME);
 				// ORKIGE_PAK_SELFCHECK: mount the pak's sub-tree so its scene,
 				// textures and sounds resolve through the resource system like
 				// loose files (the reborn BigZip acceptance path, both flavors).
@@ -2609,47 +1858,33 @@ int main(int argc, char** argv)
 
 		context.lastFrameTime = std::chrono::steady_clock::now();
 
-		// the frame loop: one playerIterate per frame (the canonical tick
-		// order lives in its fenced block above). The browser cannot loop
-		// on main()'s stack - the page owns the frame cadence - so the
-		// context moves to the page's frame callback and main() never
-		// returns normally there; every other platform keeps the plain
-		// loop and the straight-line teardown.
-#ifdef __EMSCRIPTEN__
-		// pacing follows the automated-run window policy: a HUMAN run uses
-		// requestAnimationFrame (fps 0 - the page's vsync), an automated
-		// (frame-capped/scripted) run uses timer pacing so a headless
-		// session's virtual clock can fast-forward the frames. The final
-		// `true` abandons main()'s frame right here, so the context
-		// ownership moves to the callback BEFORE the call (nothing below
-		// this line runs on the web)
-		const int webFramesPerSecond = context.automatedRun ? 60 : 0;
-		emscripten_set_main_loop_arg(
-			[](void* rawContext)
-			{
-				PlayerContext* context = static_cast<PlayerContext*>(rawContext);
-				if (playerIterate(*context))
-				{
-					return;
-				}
-				// the run ended: the same orderly shutdown the desktop path
-				// runs, then the ONE owning pointer is deleted here, exactly
-				// once - the loop is cancelled and the runtime exits with the
-				// game's code; nothing touches the context afterwards
-				context->shutdownWorld();
-				const int finalExitCode = context->exitCode;
-				delete context;
-				emscripten_cancel_main_loop();
-				emscripten_force_exit(finalExitCode);
-			},
-			contextOwner.release(), webFramesPerSecond, true);
-#else
-		while (context.running)
+		// the frame loop, driven by the platform (engine_runtime/GameHost.h):
+		// one playerIterate per frame, then the orderly shutdown. Some
+		// platforms own the frame cadence and the runtime must RETURN to them
+		// between frames, so the loop is expressed as callbacks and takes
+		// ownership of the run state where it outlives main()'s frame; where
+		// it does not, it loops here and returns with the context still ours.
+		Orkige::GameFrameLoop loop;
+		loop.context = Orkige::gameFrameLoopOwnsContext()
+			? contextOwner.release() : contextOwner.get();
+		loop.frame = [](void* rawContext)
 		{
-			playerIterate(context);
-		}
-		context.shutdownWorld();
-#endif
+			return playerIterate(*static_cast<PlayerContext*>(rawContext));
+		};
+		loop.finish = [](void* rawContext)
+		{
+			static_cast<PlayerContext*>(rawContext)->shutdownWorld();
+		};
+		loop.exitCode = [](void* rawContext)
+		{
+			return static_cast<PlayerContext*>(rawContext)->exitCode;
+		};
+		loop.dispose = [](void* rawContext)
+		{
+			delete static_cast<PlayerContext*>(rawContext);
+		};
+		loop.automatedRun = context.automatedRun;
+		Orkige::runGameFrameLoop(loop);
 	}
 
 	// AppHost's destructor mirrors the boot: world, engine, singletons,

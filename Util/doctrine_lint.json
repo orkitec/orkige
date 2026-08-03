@@ -164,6 +164,7 @@
   ],
   "funnel_files": {
    "orkige_engine/engine_filesystem/MiniZip.cpp": "the funnel's archive backend - MiniZip reads pak/APK bytes in place; this IS the plumbing core_filesystem/ResourceReader resolves through",
+   "orkige_engine/engine_runtime/GameHost.cpp": "the funnel's MATERIALIZATION boundary - the packaging prologue writes out exactly the entries PlayerBundle::isMountedMediaPath refuses to mount (an APK's assets and a browser payload are archive entries, not files, and every by-path reader needs a real one); this is the write side of the rule MiniZip reads through, so there is nothing here to route through the reader",
    "orkige_core/core_filesystem/FileWriter.cpp": "the funnel's WRITE plumbing - the streaming, temp-then-rename file sink core writers go through (ResourceReader covers reads only); this IS the one place a core/engine writer opens a file, so the legacy writers above have a single call site to migrate onto"
   },
   "legacy": {

@@ -197,6 +197,10 @@ set(ORKIGE_ENGINE_SOURCES
     # editor, native game modules); hosts keep their own frame loops
     engine_runtime/AppHost.h
     engine_runtime/AppHost.cpp
+    # the reusable game host around that spine: the platform packaging
+    # prologue, the canonical gameplay tick order and the frame loop
+    engine_runtime/GameHost.h
+    engine_runtime/GameHost.cpp
     engine_sound/SoundPlatform.h
     engine_sound/SoundPlatform.cpp
     engine_sound/SoundError.h

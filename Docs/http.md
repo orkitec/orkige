@@ -73,8 +73,9 @@ point is that the owner is going away and must not be called into.
 
 ### Where completions are delivered
 
-`HttpClient::update()` is the only place a callback runs. The player calls it
-inside the canonical tick order's async-answers slot (`tools/player/main.cpp`):
+`HttpClient::update()` is the only place a callback runs. The runtime calls it
+inside the canonical tick order's async-answers slot
+(`Orkige::advanceGameWorld`, `engine_runtime/GameHost.cpp`):
 
 ```
 input -> [async answers] -> scripts/world -> tweens -> physics -> load pump

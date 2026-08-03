@@ -33,6 +33,7 @@
 #include <engine_render/RenderCamera.h>
 #include <engine_render/RenderNode.h>
 #include <engine_runtime/AppHost.h>
+#include <engine_runtime/GameHost.h>
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_sound/SoundManager.h>
 #include <engine_util/FrameStatsUtil.h>
@@ -66,6 +67,10 @@
 struct PlayerContext
 {
 	//--- boot inputs (pure data, before any engine object) ------------------
+	//! the platform harness: the packaging prologue's results (content root,
+	//! media + content directories, the archives mounted in place, the
+	//! writable paths). Pure resolved data once boot() has run.
+	Orkige::GamePlatform platform;
 	Orkige::Project project;
 	std::string scenePath;
 	int exitCode = 0;

@@ -29,8 +29,8 @@ namespace Orkige
 	//! @remarks Renderer-independent by construction: vector/colour tweens are
 	//! just multi-channel float tweens, the engine-layer binding splits and
 	//! recombines the typed values. The manager is ticked EXPLICITLY by the
-	//! runtime that owns live behavior (the PLAYER LOOP TICK ORDER block in
-	//! tools/player/main.cpp: scripts -> tweens -> physics); the editor never
+	//! runtime that owns live behavior (the GAME LOOP TICK ORDER block in
+	//! engine_runtime/GameHost.cpp: scripts -> tweens -> physics); the editor never
 	//! creates/ticks one, so tweens are dormant in edit mode for free.
 	//!
 	//! LIFETIME RULES (the cross-cutting risk of the tween design):
