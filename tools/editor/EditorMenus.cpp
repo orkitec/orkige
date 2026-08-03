@@ -331,56 +331,8 @@ void drawViewSettingsWindow(EditorState& state, ViewSettings& viewSettings,
 	ImGui::End();
 }
 
-// the Project Settings window: the manifest Settings that shape an export (the
-// screen orientation today). Reads/writes the OPEN project's Settings and saves
-// the .orkproj on change - the same key (export.orientation) the exporter reads
-// and the set_project_setting MCP verb writes. Portrait/landscape lock the app
-// on device; Auto keeps every orientation. A no-op with no project open.
-void drawProjectSettingsWindow(EditorState& state)
-{
-	if (!state.showProjectSettingsWindow)
-	{
-		return;
-	}
-	if (ImGui::Begin("Project Settings", &state.showProjectSettingsWindow,
-		ImGuiWindowFlags_AlwaysAutoResize))
-	{
-		if (!state.project.isLoaded())
-		{
-			ImGui::TextUnformatted("Open a project to edit its settings.");
-		}
-		else
-		{
-			// the value maps 1:1 to the exporter's export.orientation vocabulary
-			static const char* const kLabels[] = { "Auto", "Portrait",
-				"Landscape" };
-			static const char* const kValues[] = { "auto", "portrait",
-				"landscape" };
-			const Orkige::String current =
-				state.project.getSetting("export.orientation", "portrait");
-			int index = 0;
-			for (int i = 0; i < 3; ++i)
-			{
-				if (current == kValues[i]) { index = i; break; }
-			}
-			ImGui::TextUnformatted("Screen orientation");
-			ImGui::SameLine();
-			if (ImGui::Combo("##orientation", &index, kLabels, 3))
-			{
-				state.project.setSetting("export.orientation", kValues[index]);
-				Orkige::String saveError;
-				if (!state.project.save(&saveError))
-				{
-					oDebugError("editor.project", 0, "Project Settings: could "
-						"not save the manifest - " << saveError);
-				}
-			}
-			ImGui::TextDisabled("Locks the exported app's orientation "
-				"(iOS Info.plist + Android manifest) and the runtime window.");
-		}
-	}
-	ImGui::End();
-}
+// (the Project Settings window lives in EditorProjectSettings.cpp - the two
+// groups of build settings and the line between them)
 
 // the in-window ImGui menu bar. NOT drawn on macOS - the native NSMenu bar
 // (MacMenu.mm) mirrors this structure there and routes into the exact same

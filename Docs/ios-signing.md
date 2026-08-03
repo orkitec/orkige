@@ -45,12 +45,23 @@ machine-neutral.
 
 ## Pointing the tools at your identity and profile
 
-Set these on your machine (they are never read from the manifest):
+Two places set them, and neither is the project. **Build ▸ Project Settings ▸
+Signing** is the editor surface (see
+[Build settings in the editor](store-release.md#build-settings-in-the-editor)):
+pick **iOS**, fill the **Development** pair, and the values are kept in a
+per-project file under the editor's own state directory — outside every project
+tree, readable by you alone. Every export the editor runs hands them over.
+
+The environment is the machine-wide fallback, and what the CLI reads:
 
 ```sh
 export ORKIGE_IOS_SIGNING_IDENTITY="Apple Development: you@example.com (XXXXXXXXXX)"
 export ORKIGE_IOS_PROVISIONING_PROFILE="$HOME/path/to/YourGame_Development.mobileprovision"
 ```
+
+A value set in the editor wins over the variable; an empty one falls through to
+it. Nothing in either place is ever written into the `.orkproj`: only the Team
+ID is, because it identifies the project rather than you.
 
 Then export a signed device app:
 

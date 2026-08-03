@@ -58,6 +58,12 @@ add_library(orkige_editor_core STATIC
     # pure over resolved paths, unit-tested headlessly (EditorExportPlanTests)
     EditorExportPlan.h
     EditorExportPlan.cpp
+    # the two groups of build settings and the line between them: the
+    # platform x purpose credential matrix, the committed manifest vocabulary,
+    # and the per-project machine store that keeps signing material outside
+    # every project tree - unit-tested headlessly (EditorBuildSettingsTests)
+    EditorBuildSettings.h
+    EditorBuildSettings.cpp
     EditorTextDiagnostics.h
     EditorTextDiagnostics.cpp
     # the PURE half of the Claude-IDE integration (lock model + MCP message
@@ -164,6 +170,10 @@ add_executable(orkige_editor
     EditorImageDecode.cpp
     EditorInspectorPanel.cpp
     EditorMenus.cpp
+    # the Project Settings window: the committed manifest group, the
+    # machine-local signing group, and the hand-over of the latter onto an
+    # export request (the readiness lines come from the exporter's own gates)
+    EditorProjectSettings.cpp
     GuiPreviewStage.h
     GuiPreviewStage.cpp
     GamePreviewStage.h

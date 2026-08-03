@@ -2240,9 +2240,19 @@ void requestQuit(EditorState& state, Orkige::EditorCore& core);
 void drawViewSettingsWindow(EditorState& state, ViewSettings& viewSettings,
 	optr<Orkige::RenderCamera> const& sceneCamera);
 
-// the floating Project Settings window: the manifest Settings that shape an
-// export (screen orientation) - reads/writes the open project + saves .orkproj
+// the floating Project Settings window (EditorProjectSettings.cpp): the two
+// groups of build settings - the manifest `export.*` Settings that describe
+// the app and are committed, and the signing credentials that are kept on this
+// machine alone (@see EditorBuildSettings.h, which owns the split)
 void drawProjectSettingsWindow(EditorState& state);
+
+// the ONE hand-over of this project's machine-local signing credentials onto
+// an export request, mirroring the CLI arguments the exporter already resolves
+// them from (an explicit value wins over the environment, an empty one falls
+// through). Defined beside the window that edits them.
+namespace OrkigeExport { struct ExportRequest; }
+OrkigeExport::ExportRequest& applyBuildCredentials(
+	OrkigeExport::ExportRequest& request, Orkige::String const& projectRoot);
 
 // the in-window ImGui menu bar (NOT drawn on macOS - MacMenu.mm mirrors it)
 void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,

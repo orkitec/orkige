@@ -21,6 +21,66 @@ the pipeline stays honest even on a machine (like CI) with no signing material.
 
 ---
 
+## Build settings in the editor
+
+**Build ▸ Project Settings…** edits both kinds of build setting, in two tabs that
+look different because they *are* different.
+
+### Project — committed
+
+The **Project** tab writes manifest `export.*` Settings: screen orientation, app
+icon, launch background, bundle ids, Team ID, Android package name, version code
+and name, asset packaging. They describe the app, everyone working on the game
+needs the same ones, and they are committed with the `.orkproj`. The same keys
+are reachable by hand in the manifest and over MCP (`set_project_setting`) —
+there is one vocabulary, not three.
+
+### Signing — this machine only
+
+The **Signing** tab is a platform × purpose matrix, because **development and
+distribution use different credentials**: an iOS development identity does not
+sign an App Store upload, and a distribution identity installs on no development
+device. Each platform tab shows both purposes:
+
+| | Development | Distribution |
+|---|---|---|
+| **iOS** | signing identity + development provisioning profile (Play on a device, a development install) | distribution identity + App Store/ad-hoc profile |
+| **Android** | nothing to configure — a debug APK is signed with the shared debug keystore, created on this machine on demand | release keystore, key alias, bundletool jar, plus the two passwords in the environment |
+| **macOS** | nothing to configure — an export is signed ad-hoc, which runs on this machine | shown, not wired: distributing to other Macs needs a Developer ID identity and notarization |
+| **Windows** | nothing to configure — an exported executable is unsigned and runs here | shown, not wired: removing the SmartScreen warning needs your own code-signing certificate |
+
+A cell with nothing to configure says so rather than showing an empty field, and
+a cell whose credentials are not applied yet says that too — three honest states
+instead of one hopeful one.
+
+What you fill in is kept in a **per-project file under the editor's own writable
+state directory**, readable by you alone, never inside a project directory. The
+window shows the exact path. That location is the whole point: a signing setting
+that landed in a repository is the failure this split exists to prevent, so
+there is no fallback that puts one near a project — on a machine with no per-user
+application directory the editor stores nothing and says so.
+
+Each field falls back to its environment variable when left empty, so a machine
+already configured for the CLI needs no editing at all, and CI (which sets only
+the variables) is unaffected.
+
+### Passwords are stored nowhere
+
+**The editor never writes a password to disk.** A keystore password kept in an
+editor settings file would be a plaintext secret sitting there for the lifetime
+of the project, and it would buy nothing: the signing step already reads
+passwords straight from the environment (`jarsigner -storepass:env`), so they
+never reach a command line either. A password therefore has no field — the row
+reports whether the environment holds one and names the variable that would.
+
+### Refusals
+
+A release the machine cannot sign refuses before it starts, naming each missing
+piece: the settings window and the export gate ask the *same* function, so what
+the window promises and what a build refuses cannot drift apart.
+
+---
+
 ## Screen orientation
 
 `export.orientation` is a project manifest Setting (applies to **every** mobile
@@ -124,8 +184,12 @@ for the mount mechanics.
 
 ### Point the tools at your keystore
 
-Passwords are read straight from the environment by `jarsigner` — they never
-appear on a command line or in a file the exporter writes:
+The keystore path, the alias and the bundletool jar are settable in **Build ▸
+Project Settings ▸ Signing ▸ Android** (see
+[Build settings in the editor](#build-settings-in-the-editor)). The two
+**passwords are not**, on purpose — they are read straight from the environment
+by `jarsigner`, so they never appear on a command line, and the editor keeps no
+copy of them anywhere:
 
 ```sh
 export ORKIGE_ANDROID_KEYSTORE="$HOME/keys/yourgame-upload.jks"
@@ -133,6 +197,9 @@ export ORKIGE_ANDROID_KEY_ALIAS="yourgame"
 export ORKIGE_ANDROID_KEYSTORE_PASS="…"        # keystore (store) password
 export ORKIGE_ANDROID_KEY_PASS="…"             # key password (omit if same)
 ```
+
+Every variable above is also the fallback for the matching editor field: a value
+set in the editor wins, an empty one falls through.
 
 ### The repeatable release flow
 
@@ -198,7 +265,9 @@ App Store Connect. They use a **separate** certificate and provisioning profile.
 
 ### Point the tools at your distribution identity + profile
 
-Separate from the development pair, so both can coexist:
+Separate from the development pair, so both can coexist — which is exactly why
+they are a separate row in **Build ▸ Project Settings ▸ Signing ▸ iOS ▸
+Distribution** and a separate pair of variables:
 
 ```sh
 export ORKIGE_IOS_DISTRIBUTION_IDENTITY="Apple Distribution: Your Studio (ABCDE12345)"

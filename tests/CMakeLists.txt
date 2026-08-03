@@ -1952,6 +1952,21 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         ENVIRONMENT "ORKIGE_EDITOR_HELPTEST=1"
         LABELS integration TIMEOUT 60)
 
+    # build settings, both groups: open projects/example, open Build > Project
+    # Settings and prove the window draws AND that the line between the two
+    # groups holds - the credentials this surface writes land in the editor's
+    # own state directory (redirected here so the run never touches the real
+    # user's), never inside the project, and the committed manifest carries
+    # neither a credential nor a machine key. The headless half of the same
+    # rule is EditorBuildSettingsTests.
+    add_test(NAME editor_build_settings${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_build_settings${ORKIGE_FLAVOR_TEST_SUFFIX}
+        PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_BUILDSETTINGS_TEST=${Orkige_SOURCE_DIR}/projects/example;ORKIGE_EDITOR_STATE_DIR=${CMAKE_CURRENT_BINARY_DIR}/editor_build_settings${ORKIGE_FLAVOR_TEST_SUFFIX};ORKIGE_DEMO_FRAMES=60"
+        LABELS integration TIMEOUT 120)
+
     # the project system end to end: open projects/example programmatically
     # (same function as File > Open Project), re-open it (resource-group
     # teardown on a project switch), assert the project roots everything

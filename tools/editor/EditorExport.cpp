@@ -152,6 +152,12 @@ bool runPlannedExport(OrkigeEditor::EditorExportPlan const& plan,
 	request.platform = plan.platform;
 	request.defaultIconPath = plan.defaultIcon;
 	request.environment = OrkigeExport::currentEnvironment();
+	// the signing material this person configured for THIS project, kept on
+	// this machine and never in the project (@see EditorBuildSettings.h). It
+	// arrives on the same fields the CLI fills, so the exporter's resolution
+	// is unchanged: an explicit value wins, an empty one falls through to the
+	// environment above.
+	applyBuildCredentials(request, project.root);
 	if (plan.source == OrkigeEditor::EditorExportSource::Tree)
 	{
 		request.source.buildDirectory = plan.engineBuild;

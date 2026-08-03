@@ -112,6 +112,7 @@
 #include "EditorApp.h"
 #include "EditorAutosave.h"
 #include "EditorBuildInfo.h"	// --version / the About box build identity
+#include "EditorBuildSettings.h"	// the committed/machine build-settings split
 #include "EditorControlServer.h"
 #include "EditorIdeServer.h"	// Claude-IDE integration (lock + MCP-over-WebSocket)
 #include "EditorMcpConfigFile.h"	// project-scope .mcp.json discovery-file reconciler
@@ -452,7 +453,8 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_TERMINAL_UITEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_IDE_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MCPDEFAULT_TEST") != nullptr ||
-		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr;
+		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_BUILDSETTINGS_TEST") != nullptr;
 	// the IDE integration's interactive default resolves once automatedRun is
 	// known: an interactive session advertises itself, a scripted one never
 	// does unless its script explicitly opted in above
@@ -1709,6 +1711,13 @@ int main(int argc, char** argv)
 		// playtest presses Play at frame 40; with a project open the player
 		// receives --project, so the plumbing is covered end to end.
 		const char* projectTestEnv = std::getenv("ORKIGE_EDITOR_PROJECT_TEST");
+		// ORKIGE_EDITOR_BUILDSETTINGS_TEST=<project>: open the project, open
+		// Build > Project Settings and prove the two groups stay apart - the
+		// window draws both tabs, a credential set through the surface lands in
+		// the editor's own state directory OUTSIDE the project, and the
+		// project's committed manifest never carries it (editor_build_settings).
+		const char* buildSettingsTestEnv =
+			std::getenv("ORKIGE_EDITOR_BUILDSETTINGS_TEST");
 		// ORKIGE_EDITOR_PREVIEW_SELFCHECK=<project>: open the project and prove
 		// both human preview tabs load real assets, dock beside Scene and submit
 		// their live texture IDs. Used by editor_previews_next.
@@ -14008,6 +14017,89 @@ int main(int argc, char** argv)
 				if (!cubemapOk)
 				{
 					exitCode = 14;
+				}
+				running = false;
+			}
+
+			// --- build settings, both groups (ORKIGE_EDITOR_BUILDSETTINGS_TEST)
+			if (buildSettingsTestEnv && frameCount == 10)
+			{
+				if (!openProjectFromPath(state, editorCore,
+					buildSettingsTestEnv))
+				{
+					SDL_Log("orkige_editor: build settings selfcheck - FAILED: "
+						"could not open '%s'", buildSettingsTestEnv);
+					exitCode = 27;
+					running = false;
+				}
+				// Build > Project Settings, through the same flag both menu
+				// bars set
+				state.showProjectSettingsWindow = true;
+			}
+			if (buildSettingsTestEnv && frameCount == 25 && exitCode == 0)
+			{
+				bool settingsOk = true;
+				std::string settingsFailure;
+				auto require = [&](bool condition, char const* what)
+				{
+					if (!condition && settingsOk)
+					{
+						settingsOk = false;
+						settingsFailure = what;
+					}
+				};
+				// the window drew (both tabs, both tables, the platform tab
+				// bar) - an ImGui surface nobody has ever submitted is exactly
+				// where an id collision or a stray Begin/End hides
+				require(ImGui::FindWindowByName("Project Settings") != nullptr,
+					"the Project Settings window drew");
+				const std::string projectRoot =
+					state.project.getRootDirectory();
+				const Orkige::String storePath =
+					OrkigeEditor::buildSettingsPath(projectRoot);
+				require(!storePath.empty(), "a machine-settings path resolves");
+				// THE rule: credentials live outside every project tree
+				require(storePath.rfind(projectRoot, 0) != 0,
+					"the credential file is outside the project");
+				OrkigeEditor::BuildSettingMap credentials;
+				credentials["android.release.keystore"] =
+					"/nowhere/SELFCHECKKEYSTORE.jks";
+				credentials["ios.development.identity"] =
+					"Apple Development: SELFCHECKIDENTITY";
+				credentials["android.release.keystorePassword"] = "hunter2";
+				Orkige::String storeError;
+				require(OrkigeEditor::saveBuildSettings(projectRoot,
+					credentials, &storeError), "the credentials saved");
+				const OrkigeEditor::BuildSettingMap reloaded =
+					OrkigeEditor::loadBuildSettings(projectRoot);
+				require(reloaded.count("android.release.keystore") == 1,
+					"a saved credential reads back");
+				require(reloaded.count("android.release.keystorePassword") == 0,
+					"a password is not storable");
+				// ...and none of it reached the project a person commits
+				std::string manifestText;
+				{
+					std::ifstream manifest((std::filesystem::path(projectRoot) /
+						Orkige::Project::MANIFEST_FILE_NAME).string(),
+						std::ios::binary);
+					std::ostringstream contents;
+					contents << manifest.rdbuf();
+					manifestText = contents.str();
+				}
+				require(!manifestText.empty(), "the manifest was read back");
+				require(manifestText.find("SELFCHECK") == std::string::npos,
+					"the manifest carries no credential");
+				require(manifestText.find("android.release") ==
+					std::string::npos, "the manifest carries no machine key");
+				std::error_code cleanupIgnored;
+				std::filesystem::remove(storePath.c_str(), cleanupIgnored);
+				SDL_Log("orkige_editor: build settings selfcheck - %s%s%s",
+					settingsOk ? "OK" : "FAILED: ",
+					settingsOk ? "" : settingsFailure.c_str(),
+					settingsOk ? "" : "");
+				if (!settingsOk)
+				{
+					exitCode = 27;
 				}
 				running = false;
 			}

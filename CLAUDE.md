@@ -590,8 +590,16 @@ browser are not there yet).
   credentials. Three separate tiers, and none ever stands in for another.
 
 - **Signing credentials NEVER live in the manifest** — only `export.ios.teamId`
-  is committed. Identity and provisioning profile come from CLI/env
-  (`Docs/ios-signing.md`).
+  is committed. They come from the CLI, the environment, or the editor's
+  **Build > Project Settings** window, whose `tools/editor/EditorBuildSettings.h`
+  owns the split: the committed `export.*` group in the manifest, the
+  machine-local credential group in a PER-PROJECT file under the editor's
+  writable state directory (never inside a project tree), and **passwords stored
+  nowhere at all** — they stay in the environment, which is where the signing
+  step reads them from. The credential model is a platform x purpose matrix
+  (development and distribution take different identities) with three honest
+  cell states: automatic, applied, and shown-but-not-wired
+  (`Docs/store-release.md`, `Docs/ios-signing.md`).
 - **A phone's player is FETCHED, not carried** (`Docs/device-payloads.md`): a
   released editor packages for iOS Simulator and Android out of a downloaded
   payload, with no repository and no build tree. Three prerequisite tiers stay

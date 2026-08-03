@@ -31,6 +31,7 @@ add_executable(orkige_editor_core_tests
 	EditorViewModesTests.cpp
 	EditorResourcePathsTests.cpp
 	EditorExportPlanTests.cpp
+	EditorBuildSettingsTests.cpp
 	EditorUiEditTests.cpp
 	EditorTreeDndTests.cpp
 	EditorUpdateTests.cpp
@@ -51,6 +52,17 @@ target_link_libraries(orkige_editor_core_tests PRIVATE
     orkige_editor_core
     Catch2::Catch2WithMain
 )
+
+# EditorCore itself stays free of the exporter (the fields of an export request
+# are MIRRORED, never included - see EditorExportPlan.h). The credential model
+# mirrors its environment-variable names the same way, so the ONE place that
+# can see both spellings at once is this test executable: it links the exporter
+# purely to assert that the two never drift apart.
+if(TARGET orkige_exporter)
+    target_link_libraries(orkige_editor_core_tests PRIVATE orkige_exporter)
+    target_compile_definitions(orkige_editor_core_tests PRIVATE
+        ORKIGE_HAVE_EXPORTER=1)
+endif()
 
 # the shipped sample .oui files the round-trip test reads from the source tree
 target_compile_definitions(orkige_editor_core_tests PRIVATE
