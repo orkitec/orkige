@@ -31,13 +31,19 @@ namespace Orkige
 		// so applySandboxAllowlist() can keep its read-only clock subset and
 		// drop the rest. A scene or script file is untrusted CONTENT: loading
 		// it must not open a path to the filesystem, other processes or
-		// arbitrary code loading - see applySandboxAllowlist().
+		// arbitrary code loading - see applySandboxAllowlist(). `coroutine`
+		// belongs to that pure-computation set - it is control flow and
+		// carries no capability at all - and is opened so the engine can
+		// build the TASK vocabulary on top of it; the raw table is then
+		// dropped, so a script reaches suspension only through `script.async`
+		// and the wait functions (@see installTaskVocabulary).
 		this->luaState.open_libraries(
 			sol::lib::base,
 			sol::lib::string,
 			sol::lib::table,
 			sol::lib::math,
-			sol::lib::os);
+			sol::lib::os,
+			sol::lib::coroutine);
 		this->applySandboxAllowlist();
 	}
 	//---------------------------------------------------------
@@ -88,7 +94,11 @@ namespace Orkige
 		// The permitted computation surface stays: base (assert, error, pcall,
 		// xpcall, ipairs, pairs, next, select, tonumber, tostring, type,
 		// set/getmetatable, raw*, print, _G, _VERSION) plus the string, table
-		// and math libraries. `print` writes only to the process log stream (no
+		// and math libraries. `coroutine` is the one opened library that does
+		// NOT stay: it is pure control flow and carries no capability, but an
+		// unowned coroutine puts the RESUME POINT in the script's hands, so
+		// the engine keeps that point and hands back the task vocabulary
+		// instead (@see installTaskVocabulary). `print` writes only to the process log stream (no
 		// file/process access) and stays as-is. The sanctioned engine API
 		// tables (world/shared/self, music/save/screen/haptics/input, loc,
 		// component handles, and - editor only - editor.*) are installed AFTER
@@ -112,6 +122,72 @@ namespace Orkige
 		// modules, an arbitrary search - and what `load` grants - code
 		// synthesised from a STRING - stay denied.
 		this->installScriptTable();
+
+		// The task vocabulary, built ON the coroutine library and replacing
+		// it: `wait`, `waitFrames`, `waitUntil`. Raw `coroutine.*` is NOT a
+		// script surface - an unowned coroutine could be resumed from
+		// anywhere, at any point in a frame, which is exactly the reentrancy
+		// the engine refuses - so the raw table is dropped here and the only
+		// road to suspension is a task the engine owns and resumes at ONE
+		// point in the tick order (@see ScriptTaskManager).
+		this->installTaskVocabulary();
+	}
+	//---------------------------------------------------------
+	void ScriptManager::installTaskVocabulary()
+	{
+		sol::state & lua = this->luaState;
+
+		// The three wait functions are Lua closures over `coroutine.yield`,
+		// which they capture as an upvalue - so they keep working after the
+		// table itself is gone, and a script cannot get the yield back out of
+		// them (the `debug` library, the only way to read an upvalue, is
+		// denied). Each yields ONE request table the engine reads; a bare
+		// number/string cannot be mistaken for one.
+		const sol::protected_function_result result = lua.safe_script(
+R"LUA(
+local yield = coroutine.yield
+
+-- wait(seconds) - suspend this task for `seconds` of gameplay time (the
+-- SCALED delta, so a hitstop holds a wait too)
+function wait(seconds)
+	if type(seconds) ~= "number" then
+		error("wait(seconds): the delay must be a number", 2)
+	end
+	return yield({ kind = "seconds", seconds = seconds })
+end
+
+-- waitFrames(frames) - suspend this task for that many task ticks
+function waitFrames(frames)
+	if type(frames) ~= "number" then
+		error("waitFrames(frames): the count must be a number", 2)
+	end
+	return yield({ kind = "frames", frames = frames })
+end
+
+-- waitUntil(condition [, limitFrames]) - suspend until condition() answers
+-- true. It is asked ONCE PER TICK, at the one resume point, so it can never
+-- run in the middle of another system's work. With a limit, a condition that
+-- never comes true gives up (and fails the task) instead of hanging forever.
+function waitUntil(condition, limitFrames)
+	if type(condition) ~= "function" then
+		error("waitUntil(condition): the condition must be a function", 2)
+	end
+	return yield({
+		kind = "condition",
+		condition = condition,
+		limit = limitFrames,
+	})
+end
+)LUA", sol::script_pass_on_error, "@orkige/task-vocabulary.lua");
+		if (!result.valid())
+		{
+			// the vocabulary is engine-owned source: a failure here is a bug
+			// in this build, not something a game can cause
+			const sol::error error = result;
+			throw std::runtime_error(
+				String("the task vocabulary failed to load: ") + error.what());
+		}
+		lua["coroutine"] = sol::lua_nil;
 	}
 	//---------------------------------------------------------
 	namespace

@@ -2488,11 +2488,18 @@ if(TARGET orkige_player)
         # run says WHICH test and WHY without scraping the log. Both flavors -
         # the tier is renderer-neutral, and running it on each proves the
         # runtime it rides in boots the same either way.
+        #
+        # BOTH TIERS, ONE RUN, ONE PLAYER BOOT: tests/playthrough.test.lua
+        # declares a `scene`, so it runs in a live world - the player loads
+        # that scene fresh per test and drives real frames while the test body
+        # suspends on its waits. Each play-mode test carries its own frame
+        # budget, so a wedged wait fails by name instead of burning the
+        # timeout below.
         add_test(NAME player_project_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project projects/jumper-lua --run-tests
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_project_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-            LABELS integration TIMEOUT 120
+            LABELS integration TIMEOUT 180
             ENVIRONMENT "ALSOFT_DRIVERS=null;ORKIGE_TEST_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}")
 
         # the 2D tier, end to end: projects/roller (a tilt-gravity ball +

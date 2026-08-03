@@ -264,7 +264,7 @@ TEST_CASE("the test vocabulary passes, fails and names the failing line",
 	CHECK(records[0].name == "deep equal tables");
 }
 
-TEST_CASE("a test declaring a scene option is refused honestly", "[script]")
+TEST_CASE("a frameless caller refuses a play-mode test honestly", "[script]")
 {
 	Orkige::CoreTestEnvironment & env = Orkige::CoreTestEnvironment::get();
 	if(!Orkige::ScriptRuntime::available())
@@ -284,12 +284,16 @@ TEST_CASE("a test declaring a scene option is refused honestly", "[script]")
 
 	std::vector<Orkige::ScriptTestRecord> records;
 	Orkige::String error;
+	// runTestFile is the FRAMELESS road: it has no world to load a scene into
+	// and advances no frames, so it cannot run this test
 	REQUIRE(runtime.runTestFile("tests/play.test.lua", "", records, 0, &error));
 	REQUIRE(records.size() == 1);
-	// NOT a silent pass: the run fails and says exactly what is missing
+	// NOT a silent pass: the run fails and says exactly what is missing (the
+	// frame-driven runner is orkige_player --run-tests)
 	CHECK(records[0].status == "error");
-	CHECK(records[0].message.find("play-mode tests are not available yet") !=
+	CHECK(records[0].message.find("frame-driven runner") !=
 		Orkige::String::npos);
+	CHECK(records[0].name == "the ball falls");
 }
 
 TEST_CASE("a test file that cannot load is a run failure, not a skip",

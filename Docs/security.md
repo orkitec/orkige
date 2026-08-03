@@ -97,6 +97,18 @@ project-relative name (jailed by the same `PathJail` predicate, size-capped,
 resolved only through the mounted content and never through `fopen`). It grants
 strictly less than `io` — no writes, no handles, no path outside the project —
 and reading a file is not running it, so the code-loading globals stay denied.
+
+`coroutine` is the one library that is opened and then **replaced** rather than
+denied, and the distinction is worth stating: it carries no capability at all -
+no file, no process, no code loading - so nothing about coroutines is unsafe to
+compute with. What a script-created coroutine does carry is the **resume point**,
+and a resume landing inside a physics contact callback or an event dispatch
+re-enters the world in the middle of an update. That is a correctness boundary,
+not a security one, and the engine holds it the same way it holds the tick order:
+`coroutine.yield` is captured into the engine's three wait functions, the raw
+table is dropped, and the only way to suspend game code is a task the engine owns
+and resumes at exactly one point in the frame. A script therefore gets the
+expressive power and none of the reentrancy.
 Detail: [lua-api.md § Sandbox / security](lua-api.md#sandbox--security).
 
 ## 4. Outbound requests are https-first, and not an agent's tool

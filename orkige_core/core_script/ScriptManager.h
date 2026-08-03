@@ -64,7 +64,9 @@ namespace Orkige
 		//! reads fall through to these globals, so removing a capability here
 		//! removes it from EVERY game- and editor-script sandbox at once. Keeps
 		//! the pure-computation stdlib (base/string/table/math + a read-only os
-		//! subset) and the engine API tables; denies io/os process+file
+		//! subset) and the engine API tables; replaces the raw `coroutine`
+		//! table with the engine-owned task vocabulary (@see
+		//! installTaskVocabulary); denies io/os process+file
 		//! access/require/package/load/loadstring/loadfile/dofile/debug/
 		//! collectgarbage. See Docs/lua-api.md (Sandbox / security).
 		void applySandboxAllowlist();
@@ -93,6 +95,19 @@ namespace Orkige
 		//! `require` stay denied - code synthesised from a string, or read
 		//! from an arbitrary path, is the escalation this deliberately is not.
 		void installScriptTable();
+
+		//! @brief install the TASK vocabulary - `wait(seconds)`,
+		//! `waitFrames(n)` and `waitUntil(condition [, limitFrames])` - and
+		//! then REMOVE the raw `coroutine` table. The three are Lua closures
+		//! over `coroutine.yield`, so suspension itself stays free, but the
+		//! only way to create and resume a coroutine is `script.async`, whose
+		//! tasks the engine owns: sandbox-scoped, cancelled when the sandbox
+		//! retires, and resumed at exactly ONE point in the frame (@see
+		//! core_script/ScriptTaskManager.h). Raw create/resume/wrap would put
+		//! the resume point in the script's hands - inside a contact callback
+		//! or an event handler - which is the reentrancy this design exists
+		//! to make impossible.
+		void installTaskVocabulary();
 	};
 	/** @} */
 }

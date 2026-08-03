@@ -12,17 +12,21 @@
 #include <core_project/Project.h>
 #include <core_project/ProjectPaths.h>
 #include <core_script/ScriptRuntime.h>
+#include <core_script/ScriptTaskCore.h>
+#include <core_script/ScriptTaskManager.h>
 #include <core_script/ScriptTestReport.h>
 #include <core_script/ScriptTestTools.h>
 
 #include <SDL3/SDL_log.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -122,9 +126,100 @@ namespace
 	}
 }
 
+namespace
+{
+	//! @brief run ONE play-mode test: a fresh world at its scene, the body
+	//! started as a script task, then frames until it lands. The task's own
+	//! tick budget is what makes a wedged wait a NAMED failure - this loop
+	//! carries the same bound as a second belt, so a host whose pumpFrame
+	//! stops advancing the world cannot hang the run either.
+	void runPlayCase(Orkige::ScriptRuntime & runtime,
+		Orkige::ScriptRuntime::ScriptTestSessionId session,
+		Orkige::ScriptTestCase const & testCase,
+		PlayerTestHooks const & hooks, Orkige::ScriptTestRecord & record)
+	{
+		record.name = testCase.name;
+		if(!hooks.loadScene || !hooks.pumpFrame)
+		{
+			record.status = "error";
+			record.message = "a play-mode test needs a frame-driven runner "
+				"(this host advances no frames)";
+			return;
+		}
+		// PER-TEST ISOLATION: the world is torn down whole and reloaded, for
+		// every test, even two in a row on the same scene. A test starts from
+		// the scene as authored or not at all.
+		if(!hooks.loadScene(testCase.scene))
+		{
+			record.status = "error";
+			record.message = "the scene '" + testCase.scene +
+				"' could not be loaded";
+			return;
+		}
+		const int tickLimit = Orkige::ScriptTaskCore::defaultTestTickLimit();
+		Orkige::String error;
+		const Orkige::ScriptTaskManager::TaskId task =
+			runtime.startTestCase(session, testCase.index, tickLimit, &error);
+		if(task == 0)
+		{
+			record.status = "error";
+			record.message = error;
+			return;
+		}
+		bool hostAlive = true;
+		for(int frame = 0; frame <= tickLimit + 1; ++frame)
+		{
+			if(Orkige::ScriptTaskManager::getSingletonPtr() == 0 ||
+				!Orkige::ScriptTaskManager::getSingleton().isActive(task))
+			{
+				break;
+			}
+			if(!hooks.pumpFrame())
+			{
+				hostAlive = false;
+				break;
+			}
+		}
+		Orkige::ScriptTaskStatus status = Orkige::ScriptTaskStatus::Unknown;
+		Orkige::String taskError;
+		if(Orkige::ScriptTaskManager::getSingletonPtr() != 0)
+		{
+			status = Orkige::ScriptTaskManager::getSingleton().statusOf(task);
+			taskError = Orkige::ScriptTaskManager::getSingleton().errorOf(task);
+			Orkige::ScriptTaskManager::getSingleton().cancel(task);
+		}
+		// the body records its own verdict when it RAN to the end; anything
+		// else (a time-out, a cancel, a host that stopped) is the runner's to
+		// report - and it is a failure, never a skip
+		if(runtime.testCaseRecord(session, testCase.index, record) &&
+			!record.status.empty())
+		{
+			record.name = testCase.name;
+			return;
+		}
+		record.status = "error";
+		if(!taskError.empty())
+		{
+			record.message = taskError;
+		}
+		else if(!hostAlive)
+		{
+			record.message = "the run ended before the test finished";
+		}
+		else if(status == Orkige::ScriptTaskStatus::Cancelled)
+		{
+			record.message = "the test's task was cancelled";
+		}
+		else
+		{
+			record.message = "the test finished without recording a verdict";
+		}
+	}
+}
 //---------------------------------------------------------
 int runProjectLuaTests(Orkige::Project const & project,
-	Orkige::String const & filter, Orkige::String const & fallbackReportDir)
+	Orkige::String const & filter, Orkige::String const & fallbackReportDir,
+	PlayerTestHooks const & hooks)
 {
 	if(!Orkige::ScriptRuntime::available())
 	{
@@ -173,13 +268,52 @@ int runProjectLuaTests(Orkige::Project const & project,
 	const std::chrono::steady_clock::time_point started =
 		std::chrono::steady_clock::now();
 
+	// the record sink: one JSONL line, one log line on a refusal, one tally
+	const auto recordOutcome =
+		[&report, &summary](Orkige::ScriptTestRecord const & record)
+	{
+		report.write(Orkige::ScriptTestReport::testLine(record));
+		++summary.total;
+		if(record.status == "pass")
+		{
+			++summary.passed;
+		}
+		else if(record.status == "fail")
+		{
+			++summary.failed;
+			SDL_Log("orkige_player:   FAIL %s :: %s\n    %s",
+				record.file.c_str(), record.name.c_str(),
+				record.message.c_str());
+		}
+		else
+		{
+			++summary.errors;
+			SDL_Log("orkige_player:   ERROR %s :: %s\n    %s",
+				record.file.c_str(), record.name.c_str(),
+				record.message.c_str());
+		}
+	};
+
+	// PASS 1: open every file (its chunk running IS its declaration pass) and
+	// run, right there, every test that needs no scene. They are fast, they
+	// cannot be disturbed by a world, and their verdicts all land before any
+	// scene is loaded - so a suite whose logic is broken says so without ever
+	// booting a level.
+	struct OpenFile
+	{
+		Orkige::String								resourceName;
+		Orkige::ScriptRuntime::ScriptTestSessionId	session;
+	};
+	std::vector<OpenFile> openFiles;
+	std::vector<std::pair<std::size_t, Orkige::ScriptTestCase> > playCases;
 	for(Orkige::ScriptTestFile const & file : files)
 	{
-		std::vector<Orkige::ScriptTestRecord> records;
 		int declared = 0;
 		Orkige::String error;
-		if(!runtime.runTestFile(file.resourceName, filter, records, &declared,
-			&error))
+		Orkige::ScriptRuntime::ScriptTestSessionId session = 0;
+		std::vector<Orkige::ScriptTestCase> cases;
+		if(!runtime.beginTestFile(file.resourceName, filter, session, cases,
+			&declared, &error))
 		{
 			// a whole file that cannot load is one honest ERROR record, never
 			// a silent skip - the artifact must never imply a file passed
@@ -187,38 +321,61 @@ int runProjectLuaTests(Orkige::Project const & project,
 			record.file = file.resourceName;
 			record.status = "error";
 			record.message = error;
-			report.write(Orkige::ScriptTestReport::testLine(record));
-			SDL_Log("orkige_player:   ERROR %s: %s",
-				file.resourceName.c_str(), error.c_str());
-			++summary.errors;
-			++summary.total;
+			recordOutcome(record);
 			continue;
 		}
-		summary.filtered += declared - static_cast<int>(records.size());
-		for(Orkige::ScriptTestRecord const & record : records)
+		summary.filtered += declared - static_cast<int>(cases.size());
+		OpenFile open;
+		open.resourceName = file.resourceName;
+		open.session = session;
+		openFiles.push_back(open);
+		const std::size_t fileIndex = openFiles.size() - 1;
+		for(Orkige::ScriptTestCase const & testCase : cases)
 		{
-			report.write(Orkige::ScriptTestReport::testLine(record));
-			++summary.total;
-			if(record.status == "pass")
+			if(!testCase.scene.empty())
 			{
-				++summary.passed;
+				playCases.push_back(std::make_pair(fileIndex, testCase));
+				continue;
 			}
-			else if(record.status == "fail")
+			Orkige::ScriptTestRecord record;
+			record.file = file.resourceName;
+			record.name = testCase.name;
+			Orkige::String caseError;
+			if(!runtime.runTestCase(session, testCase.index, record,
+				&caseError))
 			{
-				++summary.failed;
-				SDL_Log("orkige_player:   FAIL %s :: %s\n    %s",
-					record.file.c_str(), record.name.c_str(),
-					record.message.c_str());
+				record.status = "error";
+				record.message = caseError;
 			}
-			else
-			{
-				++summary.errors;
-				SDL_Log("orkige_player:   ERROR %s :: %s\n    %s",
-					record.file.c_str(), record.name.c_str(),
-					record.message.c_str());
-			}
+			record.file = file.resourceName;
+			record.name = testCase.name;
+			recordOutcome(record);
 		}
 	}
+
+	// PASS 2: the play-mode tests, GROUPED BY SCENE (stable, so a group keeps
+	// its declaration order). Each still gets its own fresh world - the
+	// grouping is about reading a run, not about sharing one.
+	std::stable_sort(playCases.begin(), playCases.end(),
+		[](std::pair<std::size_t, Orkige::ScriptTestCase> const & a,
+			std::pair<std::size_t, Orkige::ScriptTestCase> const & b)
+	{
+		return a.second.scene < b.second.scene;
+	});
+	for(std::pair<std::size_t, Orkige::ScriptTestCase> const & entry : playCases)
+	{
+		OpenFile const & open = openFiles[entry.first];
+		Orkige::ScriptTestRecord record;
+		record.file = open.resourceName;
+		runPlayCase(runtime, open.session, entry.second, hooks, record);
+		record.file = open.resourceName;
+		recordOutcome(record);
+	}
+	for(OpenFile const & open : openFiles)
+	{
+		runtime.endTestFile(open.session);
+	}
+
 	summary.ms = std::chrono::duration<double, std::milli>(
 		std::chrono::steady_clock::now() - started).count();
 	report.write(Orkige::ScriptTestReport::summaryLine(summary));

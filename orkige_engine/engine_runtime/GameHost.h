@@ -39,6 +39,7 @@ namespace Orkige
 	class PhysicsWorld;
 	class RenderSystem;
 	class ScreenFade;
+	class ScriptTaskManager;
 	class ScreenShake;
 	class SoundManager;
 	class TimerManager;
@@ -217,8 +218,11 @@ namespace Orkige
 		InputActionMap*		inputActions = nullptr;
 		//! [1b] the transport whose off-thread answers land at this boundary
 		HttpClient*			httpClient = nullptr;
-		//! [2] the world whose components run the game code
+		//! [2] the world whose components run the game code, and the tasks
+		//! those scripts suspended - resumed in that SAME phase and nowhere
+		//! else (@see core_script/ScriptTaskManager.h)
 		GameObjectManager*	gameObjects = nullptr;
+		ScriptTaskManager*	scriptTasks = nullptr;
 		//! [3] the scheduled interpolations and callbacks
 		TweenManager*		tweens = nullptr;
 		TimerManager*		timers = nullptr;

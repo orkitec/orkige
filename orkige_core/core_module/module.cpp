@@ -30,6 +30,7 @@
 #include "core_tween/TimerManager.h"
 
 #include "core_script/ScriptEventBus.h"
+#include "core_script/ScriptTaskManager.h"
 
 using namespace Orkige;
 
@@ -118,6 +119,16 @@ OEXPORT(ObjectAttributeHolder::AttributeWrapper< ::Orkige::uint >)
 		// cancel the scheduled timer: cancel() -> true when it was still scheduled
 		OFUNC(cancel)
 		// is the timer still scheduled: isActive()
+		OFUNC(isActive)
+	OSIMPLEEXPORT_END
+
+	//the value handle script.async returns (core_script/ScriptTaskManager.h);
+	//script.async itself is registered through the ScriptRuntime seam in
+	//engine_gocomponent/ScriptComponent.cpp (ensureScriptApi)
+	OSIMPLEEXPORT(Orkige::ScriptTaskHandle,ScriptTaskHandle)
+		// cancel the task: cancel() -> true when it was still running
+		OFUNC(cancel)
+		// is the task still running: isActive()
 		OFUNC(isActive)
 	OSIMPLEEXPORT_END
 

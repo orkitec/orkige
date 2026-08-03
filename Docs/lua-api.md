@@ -53,7 +53,7 @@ the process log stream — no file/process access). `os` is kept only as a **pru
 read-only subset**: `os.time`, `os.clock`, `os.date` (RNG seeding / timing /
 timestamp formatting carry no capability). Plus the sanctioned engine API tables —
 `world`, `shared`, `self`, `music`, `save`, `screen`, `haptics`, `input`, `data`,
-`script`, `loc`, the component handles, and (editor only) `editor.*` — which are
+`script`, `loc`, the wait functions, the component handles, and (editor only) `editor.*` — which are
 the intended API.
 
 `data` is the read-only content access granted in place of the denied file
@@ -61,6 +61,17 @@ globals: it reads authored data files by project-relative name and grants
 strictly less than `io` — no writes, no handles, no path outside the project, and
 only content that is actually mounted. See
 [Reading data files](#reading-data-files-the-data-table).
+
+`coroutine` is **opened and then replaced**. The library is pure control flow and
+carries no capability at all, so nothing about it is dangerous to *compute* with —
+but a coroutine a script creates itself puts the **resume point** in the script's
+hands, and a resume that lands inside a physics contact callback or an event
+dispatch re-enters the world mid-update. The engine therefore keeps that point:
+`coroutine.yield` is captured into the three wait functions (`wait`, `waitFrames`,
+`waitUntil`), the raw table is set to `nil`, and the only way to create a
+suspendable piece of game code is `script.async`, whose tasks the engine owns and
+resumes at exactly one place in the frame. See
+[Tasks](#tasks-code-that-spans-frames-scriptasync).
 
 `script.require` is the library loader granted in place of the denied `require`.
 It is **not** a relaxation of the sandbox, and the reasoning is the point: a
@@ -83,6 +94,7 @@ errors honestly):
 | `require`, `package` | load Lua/C modules off the package path (the `package` library is never opened) — `script.require` is the jailed, project-only replacement |
 | `load`, `loadstring`, `loadfile`, `dofile` | compile+run arbitrary source / read+run an arbitrary file |
 | `debug` | the reflection + hook library (bypasses every sandbox boundary) |
+| `coroutine` | not a denial of capability but of the RESUME POINT — replaced by `script.async` + `wait`/`waitFrames`/`waitUntil`, which the engine resumes at one place in the tick order |
 
 `collectgarbage` is **permitted**: it controls only the garbage collector (force a
 collection, read the live count) and carries no file/process/code-loading
@@ -259,6 +271,10 @@ timer.after(seconds, fn) -> TimerHandle  -- run fn() ONCE after a delay; sandbox
 timer.every(seconds, fn) -> TimerHandle  -- run fn() every `seconds`; sandbox-scoped (auto-cancels on retire)
 timer.cancel(handle) -> bool  -- stop a scheduled timer (also handle:cancel())
 
+## script
+script.async(fn) -> ScriptTaskHandle  -- run fn as a TASK that spans frames (wait/waitFrames/waitUntil suspend it); sandbox-scoped (auto-cancels on retire), resumed only in the script phase
+script.require(name) -> value  -- load another project .lua as a LIBRARY and return its value (cached per sandbox); raises on a refused name, a miss or a cycle
+
 ## game
 game.setState(name)  -- set the game state; fires game.stateChanged {old,new} on the event bus
 game.getState() -> string  -- the current game state name ("" when unset)
@@ -271,9 +287,6 @@ http.request(options) -> id  -- the full form: url/method/body/headers/timeout/m
 http.cancel(id) -> bool  -- abort a request; its onComplete still fires once with error='cancelled'
 http.isAvailable() -> bool  -- does this runtime have an HTTP client (false in the editor)
 http.pending() -> number  -- how many requests are still awaiting an answer
-
-## script
-script.require(name) -> value  -- load another project .lua as a LIBRARY and return its value (cached per sandbox); raises on a refused name, a miss or a cycle
 
 ## globals
 loc(key [, ...]) -> string  -- localised string; %%N%% filled by trailing args
@@ -861,6 +874,57 @@ tools and test files alike — because they are all the same hardened state.
 feel math lives there, `scripts/player.lua` runs on it, and
 `projects/jumper-lua/tests/` tests it ([testing.md](testing.md)).
 
+## Tasks: code that spans frames (`script.async`)
+
+Some game logic is a *sequence*, not a state machine: open the door, wait half a
+second, play the chime, wait for the player to walk through, close it. Written
+against `update` that becomes a hand-rolled step counter. Written as a task it
+stays one readable function.
+
+```lua
+function init(self)
+    self.intro = script.async(function()
+        wait(0.5)                                     -- seconds of GAMEPLAY time
+        world.getAnimation("Door"):play("open")
+        waitFrames(2)                                 -- ticks, for a one-frame settle
+        waitUntil(function() return shared.doorOpen end)   -- a condition, asked once a frame
+        events.emit("intro.done")
+    end)
+end
+```
+
+`script.async(fn)` starts `fn` and returns a **handle**: `task:cancel()` stops it,
+`task:isActive()` says whether it is still going. The three waits suspend the task
+that calls them:
+
+| Wait | Comes back |
+| --- | --- |
+| `wait(seconds)` | after that many seconds of **scaled gameplay time** — a hitstop (`world.setTimeScale(0)`) holds a wait too |
+| `waitFrames(n)` | after `n` task ticks (one per advanced frame) |
+| `waitUntil(fn [, limitFrames])` | the first tick `fn()` returns true. With `limitFrames`, a condition that never comes true **gives up and fails the task by name** instead of waiting forever |
+
+The rules a task lives by — the same four every other live thing in the engine
+carries, which is why they need no separate bookkeeping:
+
+- **It is owned by the sandbox that started it.** Removing the component,
+  destroying the object, tearing the scene down or hot-reloading the script
+  cancels it. You never cancel tasks in `shutdown`.
+- **It dies with the scene**, like a tween or a timer.
+- **It is never serialized.** A task is live control flow, not state: a save file
+  records what the game *decided*, never where a coroutine was parked. A sequence
+  that must survive a save has to write down its step itself.
+- **It is resumed at exactly ONE point in the frame** — the script phase of the
+  tick order, right after the component updates. A task can therefore never
+  continue inside a physics contact callback, an event handler or a render pass,
+  and two tasks never interleave mid-statement. It is also why `wait(0)` still
+  costs one frame: the earliest a suspended task can come back is the next tick.
+
+A wait called outside a task raises (there is nothing to suspend), and
+`script.async` is an honest no-op in the editor, which never ticks game scripts.
+
+Tests use the same waits through their assertion table (`t.wait`,
+`t.waitFrames`, `t.waitUntil`) — see [testing.md](testing.md).
+
 ## Canonical snippets
 
 **Screen from a `.oui` + wire it.**
@@ -1112,6 +1176,10 @@ LevelManager:saveProgress()  -- write the progression save file
 ## TimerHandle
 TimerHandle:cancel()  -- stop the timer now
 TimerHandle:isActive() -> bool  -- is the timer still scheduled
+
+## ScriptTaskHandle
+ScriptTaskHandle:cancel(...)
+ScriptTaskHandle:isActive(...)
 
 ## GameObject
 GameObject(...)

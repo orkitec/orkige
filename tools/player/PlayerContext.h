@@ -18,6 +18,7 @@
 #include <core_game/TimeControl.h>
 #include <core_http/HttpClient.h>
 #include <core_project/Project.h>
+#include <core_script/ScriptTaskManager.h>
 #include <core_tween/TweenManager.h>
 #include <core_tween/TimerManager.h>
 #include <core_util/optr.h>
@@ -105,6 +106,9 @@ struct PlayerContext
 	std::optional<Orkige::PhysicsWorld> physicsWorld;
 	std::optional<Orkige::TweenManager> tweenManager;
 	std::optional<Orkige::TimerManager> timerManager;
+	//! suspended script tasks (script.async): resumed ONLY in the script phase
+	//! of the tick order, cancelled by sandbox retire and by scene teardown
+	std::optional<Orkige::ScriptTaskManager> scriptTaskManager;
 	std::optional<Orkige::GameState> gameState;
 	std::optional<Orkige::LevelManager> levelManager;
 	std::optional<Orkige::ScreenFade> screenFade;
@@ -142,6 +146,11 @@ struct PlayerContext
 	//--- structural helpers (defined in main.cpp, next to the loop) ---------
 	//! the re-entrant scene load the deferred-load pump reuses
 	bool reloadSceneFrom(std::string const & newScenePath);
+	//! @brief the TEST-tier scene reset: tear the world down WHOLE (not the
+	//! persistence-preserving teardown the level system uses - a test run is
+	//! a boundary, and a survivor would couple one test to the next) and load
+	//! the named scene fresh. Takes a project-relative or absolute path.
+	bool loadSceneForTest(std::string const & requestedScene);
 	//! translate one mobile app-lifecycle event into subsystem actions
 	void applyLifecycle(Orkige::AppLifecycle::Event event);
 	//! record newly-failed ScriptComponents to the breadcrumb trail (once each)
