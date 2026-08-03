@@ -2153,9 +2153,12 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         # the boot-from-shutdown path, exercised explicitly: "auto-shutdown"
         # only accepts a SHUTDOWN simulator, so the run really covers simctl
         # boot + open Simulator.app + poll-until-Booted + app auto-install +
-        # launch, and shuts the simulator down again afterwards. SKIPPED
-        # (exit 77) when no shutdown simulator (or no built player app)
-        # exists.
+        # launch, and shuts the simulator down again afterwards. The ONE
+        # exception: a designated warm device (ORKIGE_CI_SIMULATOR_SHUTDOWN)
+        # left Booted by an earlier failed run is shut down and reclaimed
+        # (pickShutdownSimulator), so a retry re-boots the warm device
+        # instead of cold-booting an arbitrary stock one. SKIPPED (exit 77)
+        # when no shutdown simulator (or no built player app) exists.
         add_test(NAME editor_play_simulator_boot COMMAND orkige_editor
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_play_simulator_boot PROPERTIES

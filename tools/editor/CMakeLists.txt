@@ -33,6 +33,11 @@ add_library(orkige_editor_core STATIC
     EditorScriptTools.cpp
     PlayMirror.h
     PlayMirror.cpp
+    # the boot-from-shutdown simulator pick (which device Play boots, and
+    # whether a leftover-Booted warm device is reclaimed first) - pure,
+    # unit-tested headlessly (PlaySimulatorPickTests)
+    PlaySimulatorPick.h
+    PlaySimulatorPick.cpp
     EditorLabelFormat.h
     EditorLabelFormat.cpp
     EditorEuler.h
