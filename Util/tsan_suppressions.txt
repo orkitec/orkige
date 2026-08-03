@@ -45,6 +45,20 @@ race:Ogre::Barrier
 # working form.
 race:JPH::
 
+# SDL3's Linux desktop bootstrap talks to the session message bus through the
+# system's libdbus (portal/screensaver queries) during SDL_Init and again
+# during SDL_Quit, and libdbus's own global recursive-mutex layer
+# (_dbus_platform_rmutex_lock) acquires its two internal locks in opposite
+# orders on the open and close paths - a lock-order-inversion report sited
+# entirely inside the system library, with no Orkige lock in either stack.
+# Surfaces in any player boot under the TSan gate (the deviceless run is the
+# one the unit gate carries). libdbus is DYNAMICALLY loaded, so the
+# library-scoped form works and covers every report whose locking sits inside
+# dbus's own code; the function entry beneath it pins the observed report in
+# case a static or renamed dbus ever defeats the library match.
+called_from_lib:libdbus-1.so
+deadlock:_dbus_platform_rmutex_lock
+
 # OpenAL Soft runs its audio mixer on its OWN thread (even the null backend used
 # in tests), racing internally on its lock-free voice-change list and its voice
 # property blocks (alu.cpp ProcessVoiceChanges / CalcVoiceParams and siblings).
