@@ -183,11 +183,22 @@ local function newAssertions(state)
 		end
 		return raised
 	end
+	-- THE SAME waits a game script uses, reachable through `t` so a play-mode
+	-- test body reads like one thing: t.wait(0.25) / t.waitFrames(2) /
+	-- t.waitUntil(fn, 120). They suspend the test's task until the next
+	-- script phase, so a test never spins and never advances a frame itself.
+	-- Called from a test that runs WITHOUT a scene (no task, no frames) they
+	-- raise honestly - there is nothing to suspend.
+	t.wait = function(seconds) return wait(seconds) end
+	t.waitFrames = function(frames) return waitFrames(frames) end
+	t.waitUntil = function(condition, limitFrames)
+		return waitUntil(condition, limitFrames)
+	end
 	return t
 end
 
 -- test(name, fn) / test(name, options, fn) - the declaration. Called while the
--- file's chunk runs; nothing executes until __orkige_run.
+-- file's chunk runs; nothing executes until the host asks for a case.
 function test(name, optionsOrBody, maybeBody)
 	local options, body = nil, optionsOrBody
 	if type(optionsOrBody) == "table" then
@@ -204,39 +215,62 @@ function test(name, optionsOrBody, maybeBody)
 		{ name = name, options = options, body = body }
 end
 
--- the run pass. `shouldRun(name)` (supplied by the host) selects; a nil
--- selector runs everything.
-function __orkige_run(shouldRun)
-	local results = {}
+-- where a finished test left its verdict, by declaration index
+local records = {}
+
+-- the PLAN pass. `shouldRun(name)` (supplied by the host) selects; a nil
+-- selector selects everything. Nothing runs here: the host learns WHICH tests
+-- were selected and which of them name a scene, so it can run the ones that
+-- need no world right away and give the play-mode ones a loaded scene and
+-- frames.
+function __orkige_plan(shouldRun)
+	local plan = {}
 	for index = 1, #registered do
 		local entry = registered[index]
 		if shouldRun == nil or shouldRun(entry.name) then
-			local record = { name = entry.name, ms = 0.0 }
-			if entry.options ~= nil and entry.options.scene ~= nil then
-				-- honest refusal, never a silent pass: a scene test has to
-				-- yield across frames, and the sandbox has no coroutine
-				record.status = "error"
-				record.message = "play-mode tests are not available yet " ..
-					"(a test declaring a `scene` option needs a " ..
-					"frame-yielding runner)"
-			else
-				local state = { failed = false }
-				local t = newAssertions(state)
-				local started = os.clock()
-				local ok, raised = pcall(entry.body, t)
-				record.ms = (os.clock() - started) * 1000.0
-				if ok then
-					record.status = "pass"
-					record.message = ""
-				else
-					record.status = state.failed and "fail" or "error"
-					record.message = tostring(raised)
-				end
-			end
-			results[#results + 1] = record
+			plan[#plan + 1] = {
+				index = index,
+				name = entry.name,
+				scene = entry.options and entry.options.scene or nil,
+			}
 		end
 	end
-	return results
+	return plan
+end
+
+-- ONE test as a callable. The host either calls it directly (a test that
+-- needs no frames) or starts it as a TASK (a play-mode test suspends itself
+-- across frames) - either way the body runs under pcall and the SAME record
+-- lands, which is what makes the two tiers one vocabulary. pcall is
+-- yield-transparent, so an assertion still separates a FAILURE from an
+-- unexpected error on the far side of a wait.
+function __orkige_case(index)
+	local entry = registered[index]
+	if entry == nil then
+		return nil
+	end
+	return function()
+		local state = { failed = false }
+		local t = newAssertions(state)
+		local record = { name = entry.name, ms = 0.0 }
+		local started = os.clock()
+		local ok, raised = pcall(entry.body, t)
+		record.ms = (os.clock() - started) * 1000.0
+		if ok then
+			record.status = "pass"
+			record.message = ""
+		else
+			record.status = state.failed and "fail" or "error"
+			record.message = tostring(raised)
+		end
+		records[index] = record
+	end
+end
+
+-- the verdict of a test that ran (nil when it never got that far - a task
+-- that was cancelled or ran out of frames, which the host reports itself)
+function __orkige_record(index)
+	return records[index]
 end
 )LUA";
 	}

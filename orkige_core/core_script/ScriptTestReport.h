@@ -33,6 +33,18 @@ namespace Orkige
 		double	ms = 0.0;		//!< wall time the body took
 	};
 
+	//! @brief one DECLARED test, as the declaration pass found it: what it is
+	//! called and, when it declared one, the scene it wants to run in. A test
+	//! naming a scene is a PLAY-MODE test - it needs a live world and frames,
+	//! so the runner loads that scene and runs the body as a script task; a
+	//! test with no scene needs neither and runs straight through.
+	struct ScriptTestCase
+	{
+		int		index = 0;	//!< the declaration's index inside its file (the run key)
+		String	name;		//!< the declared test name
+		String	scene;		//!< "" for a test that needs no scene
+	};
+
 	//! @brief the run's closing tally (the artifact's last line)
 	struct ScriptTestSummary
 	{

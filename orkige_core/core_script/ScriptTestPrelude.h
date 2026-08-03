@@ -31,9 +31,17 @@ namespace Orkige
 	//!  - the assertion table handed to each test body as its one argument:
 	//!    `t.eq` (recursive deep-equal), `t.near` (float tolerance),
 	//!    `t.truthy`, `t.falsy`, `t.isnil`, `t.errors(fn [, contains])`,
-	//!    `t.fail(message)`.
-	//!  - `__orkige_run(shouldRun)` - the run pass, returning one record per
-	//!    executed test (name / status / message / ms).
+	//!    `t.fail(message)`, plus the waits a play-mode body suspends on
+	//!    (`t.wait`, `t.waitFrames`, `t.waitUntil`) - the SAME engine-owned
+	//!    waits a game script uses.
+	//!  - `__orkige_plan(shouldRun)` - the selection pass: which tests the
+	//!    filter picked and which of them name a scene.
+	//!  - `__orkige_case(index)` - one test as a callable. The host calls it
+	//!    directly (no scene, no frames needed) or starts it as a script TASK
+	//!    (a play-mode test); either way the body runs under pcall and lands
+	//!    the same record, which is what makes the two tiers ONE vocabulary.
+	//!  - `__orkige_record(index)` - that record (name / status / message /
+	//!    ms), or nil for a test that never got that far.
 	//!
 	//! FILE:LINE COMES FREE WITHOUT THE `debug` LIBRARY: script chunks load
 	//! under their project-relative names, so an assertion raising with
@@ -41,11 +49,11 @@ namespace Orkige
 	//! naming the line in the TEST BODY that failed. That is core Lua, not the
 	//! denied reflection surface.
 	//!
-	//! A test declaring a `scene` option is REFUSED honestly (recorded as an
-	//! error naming what is missing) rather than silently passing: running a
-	//! test against a live scene means yielding across frames, which needs a
-	//! coroutine in the sandbox - a security-posture decision that has not been
-	//! taken.
+	//! A test declaring a `scene` option is a PLAY-MODE test: it needs a live
+	//! world and frames, so it runs as a script task under a runner that has
+	//! both. A caller that has neither (the frameless
+	//! ScriptRuntime::runTestFile road) refuses it honestly, per test, rather
+	//! than silently passing it.
 	char const * scriptTestPrelude();
 
 	/** @} */

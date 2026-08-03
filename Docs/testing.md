@@ -115,17 +115,76 @@ for its content. `projects/jumper-lua/tests/tuning.test.lua` uses that to assert
 the **shipped** `data/tuning.json` against the same validation the game boots
 with — the file that actually ships, not a copy of its numbers.
 
-What a test cannot do yet is drive a **scene**. Declaring one says so:
+A test that also needs a **world** — objects, physics, the game's own scripts
+running — declares the scene it wants and gets one; see below.
+
+## Play-mode tests: a test with a world
+
+Declaring a `scene` makes a test a **play-mode test**: it runs in a live world,
+with physics stepping, scripts updating and frames actually rendering.
 
 ```lua
-test("the ball falls", { scene = "scenes/level.oscene" }, function(t) ... end)
+test("the level holds the player up", { scene = "scenes/main.oscene" },
+    function(t)
+        t.waitUntil(function() return shared.jumper ~= nil end, 300)
+        t.wait(1.0)
+        t.truthy(shared.jumper.y > -10, "the player fell out of the level")
+    end)
 ```
 
-is recorded as an `error` reading *play-mode tests are not available yet (a test
-declaring a `scene` option needs a frame-yielding runner)*. It is a refusal, not
-a skip: the run fails, because a test that cannot run has not passed. Advancing
-frames from inside a test body means yielding across them, which needs a
-coroutine in the sandbox — a security-posture decision that has not been taken.
+The body runs as a **script task** ([lua-api.md](lua-api.md#tasks-code-that-spans-frames-scriptasync)),
+so it suspends on the same three waits a game script uses, reached through the
+assertion table:
+
+| Wait | Comes back |
+| --- | --- |
+| `t.wait(seconds)` | after that many seconds of gameplay time |
+| `t.waitFrames(n)` | after `n` frames |
+| `t.waitUntil(fn [, limitFrames])` | the first frame `fn()` returns true; with a limit, giving up is a named failure |
+
+While the test is suspended the GAME runs. It is resumed once per frame, in the
+script phase of the tick order and nowhere else, so a test observes the world
+only at frame boundaries — never halfway through a physics step.
+
+The assertion vocabulary is **identical** in both tiers. That is the point: a
+test is a test, and only its declaration says whether it needs a world.
+
+### Isolation
+
+Every play-mode test gets its **own** world: the runner tears the current one
+down whole through `GameObjectManager::clear` and loads the scene fresh — for
+every test, even two in a row on the same scene.
+
+The teardown is the full clear, *not* the persistence-preserving one the level
+system's mid-play switch uses. A test run is a boundary: an object marked
+persistent surviving into the next test would couple the two, and a suite whose
+tests can influence each other is worth less than no suite. Persistence is a
+feature of a *play session*, and a test declares the world it wants.
+
+### The frame budget
+
+**Every play-mode test carries a frame budget** (600 frames — about ten seconds
+of gameplay — unless a wait was given a shorter one of its own). A test that
+runs out of frames is recorded as an `error` reading *timed out after 600 frames
+without finishing*, and the run fails.
+
+This is not a nicety. A `waitUntil` whose condition never comes true would
+otherwise hang the runner until the CI job's own timeout killed it — burning the
+whole job's budget and reporting nothing about which test was stuck. A named
+failure costs ten seconds and says exactly which test wedged.
+
+### Ordering, and one player boot
+
+A run is one player process from start to finish. Inside it:
+
+1. every test that needs no scene runs first — they are fast, they cannot be
+   disturbed by a world, and their verdicts land before anything is loaded;
+2. then the play-mode tests, grouped by scene, each with its own fresh world.
+
+The frameless entry point (`ScriptRuntime::runTestFile`, which the engine's own
+unit tests use) has no world and advances no frames, so it refuses a play-mode
+test per test — honestly, as an `error` naming the frame-driven runner — rather
+than passing it silently.
 
 ## Making it a ctest
 
@@ -137,7 +196,9 @@ add_test(NAME player_project_lua_tests
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 ```
 
-`projects/jumper-lua` carries the shipped example, registered per render flavor.
+`projects/jumper-lua` carries the shipped example, registered per render flavor:
+`tests/movement.test.lua` and `tests/tuning.test.lua` need no world,
+`tests/playthrough.test.lua` runs in `scenes/main.oscene`.
 
 ## What ships
 

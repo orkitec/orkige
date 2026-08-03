@@ -468,6 +468,10 @@
 		"sig": "(name) -> table | nil, error",
 		"doc": "read a data file and decode it as JSON"
 	},
+	"script.async": {
+		"sig": "(fn) -> ScriptTaskHandle",
+		"doc": "run fn as a TASK that spans frames (wait/waitFrames/waitUntil suspend it); sandbox-scoped (auto-cancels on retire), resumed only in the script phase"
+	},
 	"script.require": {
 		"sig": "(name) -> value",
 		"doc": "load another project .lua as a LIBRARY and return its value (cached per sandbox); raises on a refused name, a miss or a cycle"

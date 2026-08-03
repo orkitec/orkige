@@ -16,6 +16,7 @@
 #include "core_game/GameObjectManager.h"
 #include "core_game/LevelManager.h"
 #include "core_http/HttpClient.h"
+#include "core_script/ScriptTaskManager.h"
 #include "core_tween/TimerManager.h"
 #include "core_tween/TweenManager.h"
 #include "core_util/PathJail.h"
@@ -864,6 +865,20 @@ void advanceGameWorld(GameTick const & tick, float deltaTime)
 	{
 		OPROFILE("scripts");
 		tick.gameObjects->update(gameplayDelta);
+	}
+	//
+	// [2a] SCRIPT TASKS - the SINGLE point where a suspended task
+	//     (script.async) is ever resumed. It rides the SCRIPT PHASE,
+	//     right after the component updates, on the same scaled
+	//     delta - NOT a new tick-order fence entry. Having exactly
+	//     one resume site is the whole safety argument: a task can
+	//     never continue inside a physics contact callback, an event
+	//     dispatch or a render pass, because nothing else resumes
+	//     one. Do not add a second site.
+	if (tick.scriptTasks)
+	{
+		OPROFILE("scripts");
+		tick.scriptTasks->update(gameplayDelta);
 	}
 	//
 	// [2b] EVENT BUS - drain the ONE engine event bus

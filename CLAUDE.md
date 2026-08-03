@@ -247,9 +247,23 @@ when the whole matrix is green — see the **CI** section at the end of this fil
   the live runtime, over an engine-owned vocabulary that is a C++ string
   constant (so a released player carries it — no file, no repo, no Python),
   exit code as the verdict plus a flush-per-record JSONL artifact
-  (`ORKIGE_TEST_REPORT_DIR`). `tests/` is NOT a payload subdirectory — a
+  (`ORKIGE_TEST_REPORT_DIR`). A test that declares `{ scene = ... }` is a
+  PLAY-MODE test: the runner clears the world WHOLE (never
+  `clearExceptPersistent` — a run is a boundary), loads that scene fresh per
+  test and drives real frames while the body suspends on the same waits a game
+  uses, under a per-test frame budget so a wedged wait is a NAMED failure and
+  never a hung job. `tests/` is NOT a payload subdirectory — a
   suite never ships — and `*.editor.lua` is stripped from `scripts/` at
   export; both absences are asserted. `Docs/testing.md`.
+- **Script tasks** (`script.async` + `wait`/`waitFrames`/`waitUntil`,
+  `core_script/ScriptTaskManager` + the pure `ScriptTaskCore`): game code that
+  spans frames, written as one function. `coroutine` is opened for the engine
+  to build the wait vocabulary on and then REMOVED from the sandbox — a
+  script-owned coroutine would hold the RESUME POINT, and a task is resumed at
+  exactly ONE place, the script phase of the fenced tick order, so it can never
+  continue inside a contact callback or an event dispatch. A task is
+  sandbox-scoped (auto-cancels on retire/hot-reload), dies with the scene and
+  is never serialized. `Docs/lua-api.md`.
 - Everything builds statically (`ORKIGE_STATIC` is defined globally); the old
   `__declspec` DLL export macros in the prerequisites headers are inert.
 - Keep the existing code style when editing old files: tabs, `m`-prefixed members,

@@ -44,6 +44,7 @@
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_script/ScriptEventBus.h>
+#include <core_script/ScriptTaskManager.h>
 #include <core_util/StringTable.h>
 #include <core_tween/TweenManager.h>
 #include <core_tween/TimerManager.h>
@@ -2426,6 +2427,59 @@ namespace Orkige
 			[](TimerHandle handle) -> bool
 		{
 			return handle.cancel();
+		});
+
+		// ================= `script.async` (tasks) =========================
+		// A sequence written as ONE readable function that spans frames:
+		//   self.task = script.async(function()
+		//       wait(0.5) waitFrames(2) waitUntil(function() return done end)
+		//   end)
+		// The handle cancels it (task:cancel()) and answers task:isActive().
+		// A task is SANDBOX-SCOPED like a timer or a subscription (the same
+		// owner token): removing the component / tearing the scene down /
+		// hot-reloading the script cancels it, so a suspended task can never
+		// continue into a dead sandbox and nothing needs cancelling in
+		// shutdown(). It is resumed at exactly ONE point in the frame - the
+		// script phase of the tick order - so it can never continue inside a
+		// contact callback or an event dispatch. Honest no-op without a
+		// ScriptTaskManager (the editor never makes one): a dead handle.
+		if (ScriptTaskManager::getSingletonPtr() != NULL)
+		{
+			ScriptTaskManager::getSingleton().setErrorSink(
+				[](String const & message)
+			{
+				EngineLogCapture::logError("script task: " + message);
+			});
+		}
+		runtime.registerFunction("script", "async",
+			[](ScriptArgs args) -> ScriptTaskHandle
+		{
+			ScriptTaskHandle handle;
+			if (!ScriptTaskManager::getSingletonPtr())
+			{
+				return handle;
+			}
+			const ScriptCallback body = ScriptCallback::fromArgs(args, 0);
+			if (!body.valid())
+			{
+				EngineLogCapture::logError(
+					"script.async: the argument must be a function");
+				return handle;
+			}
+			// the current owner is the sandbox executing this call (set by the
+			// ScriptCallScope around every script entry point) - the same
+			// token the timers and event subscriptions carry
+			void const * owner = ScriptEventBus::getSingleton().currentOwner();
+			String error;
+			// tickLimit 0: a GAME task is unbudgeted, because waiting for a
+			// door to open is not a bug. The test tier passes its own budget.
+			handle.mId = ScriptRuntime::getSingleton().startScriptTask(body,
+				owner, 0, &error);
+			if (handle.mId == 0)
+			{
+				EngineLogCapture::logError("script.async: " + error);
+			}
+			return handle;
 		});
 
 		// ================= THE `game` TABLE (state) =======================
