@@ -204,7 +204,8 @@ inside.
   `xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest ...` with
   `VK_DRIVER_FILES` pointed at the lavapipe ICD.
 
-CI is a hard gate on every push — see the **CI** section at the end of this file.
+CI is a hard gate on every PULL REQUEST, and `main` is protected: it moves only
+when the whole matrix is green — see the **CI** section at the end of this file.
 
 ## Modernization ground rules
 
@@ -1177,10 +1178,26 @@ what rule it carries, which doc has the depth.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) builds + tests on every push as
-**fifteen jobs**, mostly parallel, so a failure names itself and every verdict
-lands as early as its own build allows (public-repo runners are free; the only
-cap is 5 concurrent macOS jobs). The jobs:
+GitHub Actions (`.github/workflows/ci.yml`) builds + tests as **fifteen jobs**,
+mostly parallel, so a failure names itself and every verdict lands as early as
+its own build allows. **A change is verified on its BRANCH, through a pull
+request, and `main` only moves once all fourteen gating jobs are green** —
+`main` is a protected branch requiring them. `pull_request` verifies a branch;
+`push` is restricted to `main` and verifies the merge, so a branch with an open
+PR never runs the matrix twice. The `site` job is pinned to a push on `main`:
+every other job renders a VERDICT on a change, that one PUBLISHES, and it must
+never fire for a branch under review.
+
+Protection deliberately does NOT require a branch to be up to date before
+merging — with a matrix this slow, strict mode makes every merge invalidate
+every other open PR's run. Admins are not bound by the checks, so a genuine
+emergency still has a door.
+
+Throughput, not correctness, is the usual constraint: public-repo runners are
+free, but the ACCOUNT's concurrent-job ceiling is what actually paces a queue of
+open PRs (macOS is separately capped at 5). A pile of branches can starve the
+one PR that unblocks the others - cancelling runs for branches that must be
+rebased anyway is the cheap lever. The jobs:
 
 | Job | What it gates |
 |-----|---------------|
