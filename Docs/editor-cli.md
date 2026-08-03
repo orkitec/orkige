@@ -164,6 +164,11 @@ is — nobody is watching it, so it touches no user state and opens no socket:
 
 The single stated exception is the credential-name read above.
 
+Nothing here reaches the network **on its own**. `fetch-payload` obviously does —
+but only because a person or a script named that download by id on the command
+line, which is the opposite of the incidental background traffic the automated-run
+rule exists to suppress. No other subcommand opens a connection.
+
 ## Platform notes
 
 **Windows.** The editor is built as a **console-subsystem** executable
