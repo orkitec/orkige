@@ -628,6 +628,34 @@ browser are not there yet).
   `bundletool` resolved via `ORKIGE_BUNDLETOOL`) and `ios-ipa` **refuse rather
   than emit a half-signed artifact** when credentials are absent, and stay
   CLI-only (a headless MCP agent lacks the secrets) — `Docs/store-release.md`.
+- **The CLI that ships is the EDITOR's** (`Docs/editor-cli.md`). `orkige_export`
+  is a development-tree tool and is NOT part of a release, so on a machine
+  carrying only a distributed Orkige the export capability lives inside the
+  editor process alone. `orkige_editor <subcommand>` is that door:
+  `tools/editor/EditorCli.{h,cpp}` is the PURE argv→decision router (in
+  editor_core, unit-tested) and `EditorCliRun.cpp` carries it out, before SDL
+  video and the render backend exist. Rules:
+  - **Two entry points, ONE implementation.** `export` goes through the SAME
+    `planExport` → `runPlannedExport` pair the Build menu and MCP
+    `export_project` use — never a second export path, and never a spawned
+    `orkige_export` (which also keeps the cheap `host-exporter` CI job alive).
+    What the editor's door adds is the engine-source resolution only THIS
+    installation knows (its build tree / bundled payload / fetched device
+    player / installed SDK pack) and the three-tier refusals.
+  - **An unrecognised first-word argument EXITS 2, never falls through to the
+    GUI** — a typo on a build server used to open a window and hang the job.
+    Flags keep their historical harmless-if-unknown behaviour.
+  - **A subcommand run IS an `automatedRun`** (the same boolean, not a third
+    mode): no view settings, recents, imgui ini, MCP endpoint, IDE lock or
+    credential vault. ONE stated exception: headless export READS the
+    machine-local per-project build settings for the identity NAMES, so it
+    signs identically to Build ▸ Export on that machine (read only; passwords
+    stay environment-only).
+  - **The editor stays CONSOLE-subsystem on Windows** (`add_executable` with no
+    `WIN32`) — that is what makes stdout and the exit code reach a caller.
+  - v1 covers `export`, `fetch-payload`, `version`, `changelog`, `help` and
+    promises NOTHING that needs a live game world (a scene load reaches
+    `RenderWorld` → a window → a GPU, and there is no null render backend).
 
 Covered by the `export_*` integration ctests (the macOS ones RUN the exported app
 from a neutral cwd; `export_android_aab` asserts the unsigned bundle-module
@@ -661,6 +689,7 @@ lives in a doc and is pointed at from here. The full index:
 | `editor.md` | editor panels (Source Control, asset badges), scene view + level authoring |
 | `terminal.md` / `claude-ide.md` | embedded terminal / the IDE protocol |
 | `native-modules.md` / `sdk-pack.md` | compiled C++ game modules / the relocatable SDK pack |
+| `editor-cli.md` | the editor's headless subcommands (`export`, `fetch-payload`, …) |
 | `editor-distribution.md` / `editor-updates.md` / `nightly-builds.md` | shipping and updating the editor |
 | `device-payloads.md` | the fetched device players, and the prerequisite tiers per platform |
 | `ios-signing.md` / `store-release.md` / `device-session.md` | signing, store artifacts, phone runs |

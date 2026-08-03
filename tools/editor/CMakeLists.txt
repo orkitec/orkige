@@ -64,6 +64,12 @@ add_library(orkige_editor_core STATIC
     # every project tree - unit-tested headlessly (EditorBuildSettingsTests)
     EditorBuildSettings.h
     EditorBuildSettings.cpp
+    # the headless subcommand front door: argv -> a decision, purely, so the
+    # whole surface (including "an unknown subcommand never opens a window")
+    # is asserted headlessly (EditorCliTests). Carrying the decision out is
+    # EditorCliRun.cpp, in the executable below.
+    EditorCli.h
+    EditorCli.cpp
     # where a signing PASSWORD lives: the operating system's own credential
     # store, keyed per project and per slot. The portable half (the keying, the
     # environment-wins-then-vault order, the automated-run refusal) is here and
@@ -163,6 +169,11 @@ orkige_pch_ccache_compat(orkige_editor_core)
 # The editor shell: main.cpp (boot + frame loop) plus one TU per concern
 # (EditorApp.h is the shared-state/seam header) so a single-panel edit
 # recompiles one small TU instead of the former 8600-line monolith.
+#
+# CONSTRAINT: no WIN32 here - the editor is a CONSOLE-subsystem executable on
+# Windows, which is what makes stdout, stderr and the exit code reach a caller
+# (@see EditorCli.h). Adding WIN32 would detach the process from its console
+# and every subcommand would appear to print nothing.
 add_executable(orkige_editor
 	main.cpp
 	EditorApp.h
@@ -194,6 +205,9 @@ add_executable(orkige_editor
     EditorEngineSdk.h
     EditorEngineSdk.cpp
     EditorBrowserServe.cpp
+    # the subcommands' impure half: it runs the SAME export seam the Build menu
+    # runs, before any window exists
+    EditorCliRun.cpp
     EditorExport.cpp
     EditorFileDialogs.cpp
     EditorHierarchyPanel.cpp

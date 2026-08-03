@@ -1377,6 +1377,32 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_CONTROL_TEST=${CMAKE_CURRENT_BINARY_DIR}/editor_control_shot.png"
         LABELS integration TIMEOUT 240)
 
+    # The editor's COMMAND LINE, driven as a build script drives it
+    # (integration_driver/run_editor_cli_test.py). The pure argument router is
+    # unit-tested; what needs the real binary is the part a regression would
+    # otherwise show as a HUNG JOB rather than a failure: a subcommand must
+    # finish on its own, with no window, on a machine that may have no display.
+    # The driver also asserts the three exit codes and, where this host
+    # packages a desktop app, that `export` produces one and prints the
+    # `orkige_editor: OK <artifact>` line callers grep for.
+    # No window and no GPU - but it spawns the editor binary and (on macOS)
+    # packages a real app, so it is an integration test, not a unit one.
+    if(APPLE)
+        set(ORKIGE_CLI_EXPORT_ARGS --platform macos)
+    else()
+        set(ORKIGE_CLI_EXPORT_ARGS --skip-export)
+    endif()
+    add_test(NAME editor_cli${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND python3
+            "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_editor_cli_test.py"
+            --editor "$<TARGET_FILE:orkige_editor>"
+            --project "${Orkige_SOURCE_DIR}/projects/example"
+            --output "${CMAKE_CURRENT_BINARY_DIR}/editor_cli${ORKIGE_FLAVOR_TEST_SUFFIX}"
+            ${ORKIGE_CLI_EXPORT_ARGS}
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_cli${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        LABELS integration TIMEOUT 2400)
+
     # --- distribution readiness: a COPIED editor stands alone --------------
     # The editor ships as an app somebody copies onto a machine with no clone
     # of this repository, no engine build tree and no Python. The driver

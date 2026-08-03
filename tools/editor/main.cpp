@@ -113,6 +113,7 @@
 #include "EditorAutosave.h"
 #include "EditorBuildInfo.h"	// --version / the About box build identity
 #include "EditorBuildSettings.h"	// the committed/machine build-settings split
+#include "EditorCli.h"			// the headless subcommand front door
 #include "EditorSecretStore.h"	// signing passwords: the OS vault, never a file
 #include "EditorControlServer.h"
 #include "EditorIdeServer.h"	// Claude-IDE integration (lock + MCP-over-WebSocket)
@@ -277,6 +278,20 @@ int main(int argc, char** argv)
 			return 0;
 		}
 	}
+
+	// the command-line front door (@see EditorCli.h): `orkige_editor export
+	// --project ... --platform ...` and its siblings do the editor's work with
+	// no window, which is the ONLY way a machine carrying a distributed Orkige
+	// can package a game from a script. The decision is made here, up front and
+	// purely, and carried out below once the automated-run boolean it shares
+	// with every scripted run is known.
+	//
+	// HAZARD: a first argument that is a WORD and not a known subcommand is
+	// REFUSED here (exit 2). It used to be ignored, which meant a typo on a
+	// build server opened a GUI application and hung the job until its timeout.
+	const OrkigeEditor::EditorCliCommand cliCommand =
+		OrkigeEditor::parseEditorCli(std::vector<std::string>(argv + 1,
+			argv + argc));
 
 	// --mcp-port N / --mcp-token-file PATH (aliases --control-port /
 	// --control-token-file): opt-in in-editor MCP endpoint over Streamable HTTP
@@ -455,7 +470,11 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_IDE_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MCPDEFAULT_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr ||
-		std::getenv("ORKIGE_EDITOR_BUILDSETTINGS_TEST") != nullptr;
+		std::getenv("ORKIGE_EDITOR_BUILDSETTINGS_TEST") != nullptr ||
+		// a subcommand is an automated run by the same definition a scripted
+		// test is: nobody is watching it, so it must touch no user state and
+		// open no socket. It gets the SAME boolean rather than a third mode.
+		cliCommand.headless();
 	// the IDE integration's interactive default resolves once automatedRun is
 	// known: an interactive session advertises itself, a scripted one never
 	// does unless its script explicitly opted in above
@@ -469,6 +488,16 @@ int main(int argc, char** argv)
 	// on to do (@see EditorSecretStore.h). This is the ONE call that reaches a
 	// platform credential API in the whole editor.
 	OrkigeEditor::installPlatformSecretVault(automatedRun);
+
+	// ...and now the subcommand runs, still before SDL video, the window and
+	// the render backend exist. Everything it reaches (the resource locator,
+	// the export seam, the payload fetcher) resolves off SDL_GetBasePath and
+	// the filesystem alone, so this whole road works on a machine with no
+	// display and no GPU.
+	if (cliCommand.headless())
+	{
+		return OrkigeEditor::runEditorCli(cliCommand);
+	}
 
 	int exitCode = 0;
 
