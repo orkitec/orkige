@@ -672,20 +672,23 @@ void GamePlatform::resolveDirectories(String const & logFileName,
 		// simulator's app-container path; Android: the files dir boot() set,
 		// fetchable through the debug bridge)
 		this->mStateDirectory = PlatformUtil::getDocumentsDirectory();
-		this->mEngineLogPath = this->mStateDirectory + logFileName;
 	}
 	else
 	{
 		// an exported .app must never write into the cwd (a double-clicked
-		// app runs with cwd "/") - its log goes to the app-support directory;
-		// a dev run keeps the historical cwd log
+		// app runs with cwd "/") - its log goes to the app-support directory
 		this->mStateDirectory =
 			PlatformUtil::getSupportDirectory(this->mConfig.appName);
-		this->mEngineLogPath = bundledRun
-			? this->mStateDirectory + logFileName
-			: logFileName;
 	}
+	// TERMINATE FIRST, then compose: the platform call returns a trailing
+	// separator on some hosts and not on others, so composing before this ran
+	// produced a joined-up path ("...\Orkigeorkige.log") wherever it did not.
 	terminateDirectory(this->mStateDirectory);
+	// a dev desktop run keeps the historical cwd log; everything sandboxed or
+	// bundled writes into the state directory
+	this->mEngineLogPath = (MOBILE_PLATFORM || bundledRun)
+		? this->mStateDirectory + logFileName
+		: logFileName;
 }
 
 //---------------------------------------------------------
