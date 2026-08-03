@@ -14,13 +14,26 @@
 #include "ExportImage.h"
 #include "ExportProcess.h"
 
+#include <algorithm>
+#include <cctype>
+#include <cstddef>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace OrkigeExport
 {
+	const char * const ANDROID_HOME_ENV = "ANDROID_HOME";
+	const char * const ANDROID_SDK_ROOT_ENV = "ANDROID_SDK_ROOT";
+	const char * const JAVA_HOME_ENV = "JAVA_HOME";
+
 	namespace
 	{
+		//! the API level the player's own dex is compiled for; an SDK whose
+		//! newest platform is older cannot link a package for it
+		const int ANDROID_MINIMUM_API = 28;
+
 		bool report(Orkige::String * error, Orkige::String const & message)
 		{
 			if(error != 0)
@@ -28,6 +41,200 @@ namespace OrkigeExport
 				*error = message;
 			}
 			return false;
+		}
+		//---------------------------------------------------------
+		//! @p name in @p environment, or "" (whitespace-only reads as absent,
+		//! the same rule the signing resolvers use)
+		Orkige::String lookup(EnvironmentMap const & environment,
+			char const * name)
+		{
+			EnvironmentMap::const_iterator found = environment.find(name);
+			if(found == environment.end())
+			{
+				return Orkige::String();
+			}
+			Orkige::String const & value = found->second;
+			for(std::size_t index = 0; index < value.size(); ++index)
+			{
+				if(std::isspace(static_cast<unsigned char>(value[index])) == 0)
+				{
+					return value;
+				}
+			}
+			return Orkige::String();
+		}
+		//---------------------------------------------------------
+		//! the dot-separated numbers in a version-shaped directory name, or an
+		//! empty list when it carries none ("35.0.0" -> {35,0,0})
+		std::vector<int> versionParts(Orkige::String const & name)
+		{
+			std::vector<int> parts;
+			std::size_t index = 0;
+			while(index < name.size())
+			{
+				if(std::isdigit(static_cast<unsigned char>(name[index])) == 0)
+				{
+					// a suffix like "-rc1" ends the comparable prefix rather
+					// than disqualifying the whole name
+					break;
+				}
+				int value = 0;
+				while(index < name.size() &&
+					std::isdigit(static_cast<unsigned char>(name[index])) != 0)
+				{
+					value = value * 10 +
+						static_cast<int>(name[index] - '0');
+					++index;
+				}
+				parts.push_back(value);
+				if(index < name.size() && name[index] == '.')
+				{
+					++index;
+				}
+				else
+				{
+					break;
+				}
+			}
+			return parts;
+		}
+		//---------------------------------------------------------
+		//! is @p left an older version than @p right (component-wise; a
+		//! shorter prefix that ties sorts older, so "35.0" < "35.0.1")
+		bool olderVersion(std::vector<int> const & left,
+			std::vector<int> const & right)
+		{
+			const std::size_t count = std::max(left.size(), right.size());
+			for(std::size_t index = 0; index < count; ++index)
+			{
+				const int a = index < left.size() ? left[index] : 0;
+				const int b = index < right.size() ? right[index] : 0;
+				if(a != b)
+				{
+					return a < b;
+				}
+			}
+			return false;
+		}
+		//---------------------------------------------------------
+		//! the immediate subdirectory names of @p path, sorted (empty when it
+		//! is not a directory - an absent SDK piece is not an error here, it
+		//! is the answer)
+		std::vector<Orkige::String> subdirectoryNames(
+			Orkige::String const & path)
+		{
+			std::vector<Orkige::String> names;
+			std::error_code ignored;
+			const std::filesystem::directory_iterator end;
+			std::filesystem::directory_iterator entry(
+				std::filesystem::path(path), ignored);
+			if(ignored)
+			{
+				return names;
+			}
+			for(; entry != end; entry.increment(ignored))
+			{
+				if(ignored)
+				{
+					break;
+				}
+				if(entry->is_directory(ignored))
+				{
+					names.push_back(entry->path().filename().string());
+				}
+			}
+			std::sort(names.begin(), names.end());
+			return names;
+		}
+		//---------------------------------------------------------
+		//! is @p home a real JDK? All three programs a package needs - javac
+		//! compiles the Java, java runs d8 and apksigner, keytool makes the
+		//! debug key - AND the `release` descriptor every JDK since modules
+		//! carries at its root.
+		//! @remarks the descriptor is what keeps this HONEST on macOS, which
+		//! ships /usr/bin/javac, java and keytool as STUBS that only forward to
+		//! a JDK if one is installed. Reporting "found a JDK" off those and
+		//! then failing inside javac would be exactly the lumped, unactionable
+		//! answer this whole resolution exists to avoid.
+		bool isJdk(Orkige::String const & home)
+		{
+			if(home.empty())
+			{
+				return false;
+			}
+			const Orkige::String bin = ExportFiles::join(home, "bin");
+			char const * const programs[] = { "javac", "java", "keytool" };
+			for(char const * program : programs)
+			{
+				const Orkige::String path =
+					ExportFiles::join(bin, program);
+				if(!ExportFiles::isRegularFile(path) &&
+					!ExportFiles::isRegularFile(path + ".exe"))
+				{
+					return false;
+				}
+			}
+			return ExportFiles::isRegularFile(
+				ExportFiles::join(home, "release")) ||
+				ExportFiles::isRegularFile(
+					ExportFiles::join(home, "lib/modules"));
+		}
+		//---------------------------------------------------------
+		//! the JDK home a `javac` on the PATH belongs to (`<home>/bin/javac`),
+		//! following the symlink first - the usual shape of a package
+		//! manager's shim
+		Orkige::String jdkHomeFromPath()
+		{
+			const Orkige::String javac = findOnPath("javac");
+			if(javac.empty())
+			{
+				return Orkige::String();
+			}
+			std::error_code ignored;
+			std::filesystem::path real =
+				std::filesystem::canonical(std::filesystem::path(javac),
+					ignored);
+			if(ignored)
+			{
+				real = std::filesystem::path(javac);
+			}
+			const std::filesystem::path home =
+				real.parent_path().parent_path();
+			return home.string();
+		}
+		//---------------------------------------------------------
+		//! every JDK home worth probing, in order: what the environment names,
+		//! what the PATH implies, then where each platform's own packaging
+		//! puts one - the same "found rather than configured" rule the SDK
+		//! lookup follows
+		std::vector<Orkige::String> jdkCandidates(
+			EnvironmentMap const & environment)
+		{
+			std::vector<Orkige::String> candidates;
+			const Orkige::String named = lookup(environment, JAVA_HOME_ENV);
+			if(!named.empty())
+			{
+				candidates.push_back(named);
+			}
+			const Orkige::String onPath = jdkHomeFromPath();
+			if(!onPath.empty())
+			{
+				candidates.push_back(onPath);
+			}
+#if defined(__APPLE__)
+			candidates.push_back("/opt/homebrew/opt/openjdk/libexec/"
+				"openjdk.jdk/Contents/Home");
+			candidates.push_back("/usr/local/opt/openjdk/libexec/"
+				"openjdk.jdk/Contents/Home");
+			// every installed runtime, newest name last so it is preferred
+			char const * const jvms = "/Library/Java/JavaVirtualMachines";
+			for(Orkige::String const & name : subdirectoryNames(jvms))
+			{
+				candidates.push_back(ExportFiles::join(
+					ExportFiles::join(jvms, name), "Contents/Home"));
+			}
+#endif
+			return candidates;
 		}
 		//---------------------------------------------------------
 		void emit(ExportLog const & log, Orkige::String const & message)
@@ -89,6 +296,257 @@ namespace OrkigeExport
 		}
 	}
 	//---------------------------------------------------------
+	int androidMinimumApi()
+	{
+		return ANDROID_MINIMUM_API;
+	}
+	//---------------------------------------------------------
+	bool AndroidToolchain::complete() const
+	{
+		return this->aapt2 && this->zipalign && this->apksigner && this->d8 &&
+			this->jdk && !this->platformJar.empty();
+	}
+	//---------------------------------------------------------
+	Orkige::String newestAndroidBuildTools(
+		std::vector<Orkige::String> const & versions)
+	{
+		Orkige::String best;
+		std::vector<int> bestParts;
+		for(Orkige::String const & name : versions)
+		{
+			const std::vector<int> parts = versionParts(name);
+			if(parts.empty())
+			{
+				continue;
+			}
+			if(best.empty() || olderVersion(bestParts, parts))
+			{
+				best = name;
+				bestParts = parts;
+			}
+		}
+		return best;
+	}
+	//---------------------------------------------------------
+	Orkige::String newestAndroidPlatform(
+		std::vector<Orkige::String> const & names, int minimumApi)
+	{
+		const Orkige::String prefix = "android-";
+		Orkige::String best;
+		int bestApi = 0;
+		for(Orkige::String const & name : names)
+		{
+			if(name.compare(0, prefix.size(), prefix) != 0)
+			{
+				continue;
+			}
+			const Orkige::String tail = name.substr(prefix.size());
+			// a preview platform is named for its letter ("android-VanillaIce")
+			// and carries no stable API number - skip rather than guess
+			const std::vector<int> parts = versionParts(tail);
+			if(parts.empty() || tail.size() != std::to_string(parts[0]).size())
+			{
+				continue;
+			}
+			if(parts[0] >= minimumApi && parts[0] > bestApi)
+			{
+				best = name;
+				bestApi = parts[0];
+			}
+		}
+		return best;
+	}
+	//---------------------------------------------------------
+	std::vector<Orkige::String> androidSdkCandidates(
+		EnvironmentMap const & environment)
+	{
+		std::vector<Orkige::String> candidates;
+		const Orkige::String named[] = {
+			lookup(environment, ANDROID_HOME_ENV),
+			lookup(environment, ANDROID_SDK_ROOT_ENV)
+		};
+		for(Orkige::String const & value : named)
+		{
+			if(!value.empty())
+			{
+				candidates.push_back(value);
+			}
+		}
+		// ...then where each platform's own installer puts one, so a person
+		// who installed Android Studio and configured nothing is still found
+		const Orkige::String home = lookup(environment, "HOME");
+		if(!home.empty())
+		{
+#if defined(__APPLE__)
+			candidates.push_back(
+				ExportFiles::join(home, "Library/Android/sdk"));
+#else
+			candidates.push_back(ExportFiles::join(home, "Android/Sdk"));
+			candidates.push_back(ExportFiles::join(home, "Android/sdk"));
+#endif
+		}
+		const Orkige::String localAppData = lookup(environment, "LOCALAPPDATA");
+		if(!localAppData.empty())
+		{
+			candidates.push_back(
+				ExportFiles::join(localAppData, "Android/Sdk"));
+		}
+		return candidates;
+	}
+	//---------------------------------------------------------
+	AndroidToolchain resolveAndroidToolchain(
+		EnvironmentMap const & environment)
+	{
+		AndroidToolchain tools;
+		for(Orkige::String const & candidate :
+			androidSdkCandidates(environment))
+		{
+			if(ExportFiles::isDirectory(
+				ExportFiles::join(candidate, "build-tools")) ||
+				ExportFiles::isDirectory(
+					ExportFiles::join(candidate, "platforms")))
+			{
+				tools.sdkRoot = candidate;
+				break;
+			}
+		}
+		if(!tools.sdkRoot.empty())
+		{
+			// the NEWEST installed of each, rather than a pinned version: a
+			// person's SDK is whatever their SDK manager gave them, and every
+			// build-tools release since the minimum API assembles this package
+			const Orkige::String buildToolsRoot =
+				ExportFiles::join(tools.sdkRoot, "build-tools");
+			const Orkige::String version = newestAndroidBuildTools(
+				subdirectoryNames(buildToolsRoot));
+			if(!version.empty())
+			{
+				tools.buildTools = ExportFiles::join(buildToolsRoot, version);
+			}
+			const Orkige::String platformsRoot =
+				ExportFiles::join(tools.sdkRoot, "platforms");
+			const Orkige::String platform = newestAndroidPlatform(
+				subdirectoryNames(platformsRoot), androidMinimumApi());
+			if(!platform.empty())
+			{
+				const Orkige::String jar = ExportFiles::join(
+					ExportFiles::join(platformsRoot, platform), "android.jar");
+				if(ExportFiles::isRegularFile(jar))
+				{
+					tools.platformJar = jar;
+				}
+			}
+		}
+		if(!tools.buildTools.empty())
+		{
+			tools.aapt2 = ExportFiles::isRegularFile(
+				ExportFiles::join(tools.buildTools, "aapt2")) ||
+				ExportFiles::isRegularFile(
+					ExportFiles::join(tools.buildTools, "aapt2.exe"));
+			tools.zipalign = ExportFiles::isRegularFile(
+				ExportFiles::join(tools.buildTools, "zipalign")) ||
+				ExportFiles::isRegularFile(
+					ExportFiles::join(tools.buildTools, "zipalign.exe"));
+			// the JARs rather than the launcher scripts: those are what the
+			// packaging script runs, through the JDK's own `java`
+			tools.apksigner = ExportFiles::isRegularFile(
+				ExportFiles::join(tools.buildTools, "lib/apksigner.jar"));
+			tools.d8 = ExportFiles::isRegularFile(
+				ExportFiles::join(tools.buildTools, "lib/d8.jar"));
+		}
+		for(Orkige::String const & candidate : jdkCandidates(environment))
+		{
+			if(isJdk(candidate))
+			{
+				tools.javaHome = candidate;
+				break;
+			}
+		}
+		tools.jdk = !tools.javaHome.empty();
+		return tools;
+	}
+	//---------------------------------------------------------
+	std::vector<Orkige::String> androidToolchainGaps(
+		AndroidToolchain const & tools)
+	{
+		std::vector<Orkige::String> missing;
+		if(tools.sdkRoot.empty())
+		{
+			missing.push_back(Orkige::String("the Android SDK - install it "
+				"with Android Studio or the command-line tools, then point ") +
+				ANDROID_HOME_ENV + " at it");
+		}
+		else
+		{
+			// one sentence per PROGRAM: somebody who has the SDK and only
+			// lacks the platform jar should read about the platform jar
+			if(!tools.aapt2)
+			{
+				missing.push_back("aapt2 - install the Android SDK build tools "
+					"(`sdkmanager \"build-tools;35.0.0\"`, or SDK Manager > SDK "
+					"Tools > Android SDK Build-Tools)");
+			}
+			if(!tools.zipalign)
+			{
+				missing.push_back("zipalign - it ships with the Android SDK "
+					"build tools (`sdkmanager \"build-tools;35.0.0\"`)");
+			}
+			if(!tools.apksigner)
+			{
+				missing.push_back("apksigner - it ships with the Android SDK "
+					"build tools (`sdkmanager \"build-tools;35.0.0\"`)");
+			}
+			if(!tools.d8)
+			{
+				missing.push_back("d8 - it ships with the Android SDK build "
+					"tools (`sdkmanager \"build-tools;35.0.0\"`)");
+			}
+			if(tools.platformJar.empty())
+			{
+				missing.push_back("an Android platform of API " +
+					std::to_string(androidMinimumApi()) + " or newer "
+					"(`sdkmanager \"platforms;android-35\"`)");
+			}
+		}
+		if(!tools.jdk)
+		{
+			missing.push_back(Orkige::String("a JDK - javac compiles the "
+				"package's Java, java runs the SDK's own tools and keytool "
+				"makes the debug key (install one, e.g. `brew install "
+				"openjdk` or your distribution's OpenJDK package, and set ") +
+				JAVA_HOME_ENV + ")");
+		}
+		return missing;
+	}
+	//---------------------------------------------------------
+	Orkige::String androidToolchainRefusal(AndroidToolchain const & tools)
+	{
+		const std::vector<Orkige::String> missing =
+			androidToolchainGaps(tools);
+		if(missing.empty())
+		{
+			return Orkige::String();
+		}
+		// the engine/toolchain split, said out loud: Orkige ships the player,
+		// Android's own tools assemble the package around it
+		Orkige::String message = "an Android package is assembled by the "
+			"Android SDK's own tools, which this machine is missing:";
+		for(std::size_t index = 0; index < missing.size(); ++index)
+		{
+			message += "\n  - " + missing[index];
+		}
+		if(!tools.sdkRoot.empty())
+		{
+			message += "\n(looked under '" + tools.sdkRoot + "')";
+		}
+		// the reading, named as a DOC rather than a URL: this library is also
+		// a standalone CLI and carries no editor constants, and a doc name is
+		// what doc_link_lint can check against the corpus on disk
+		message += "\nSee Docs/device-payloads.md for the whole set of "
+			"Android prerequisites.";
+		return message;
+	}
+	//---------------------------------------------------------
 	bool androidPackageName(ExportProject const & project,
 		Orkige::String & out, Orkige::String * error)
 	{
@@ -109,7 +567,9 @@ namespace OrkigeExport
 		Orkige::String const & resDirectory,
 		Orkige::String const & launchColour, Orkige::String const & assetsMode,
 		Orkige::String const & orientation, Orkige::String const & outputPath,
-		Orkige::String const & engineBuild)
+		Orkige::String const & engineBuild,
+		Orkige::String const & enginePayload,
+		AndroidToolchain const & tools)
 	{
 		std::vector<Orkige::String> command = { "bash", script };
 		appendCommonArguments(command, payloadDirectory, package, label,
@@ -119,7 +579,28 @@ namespace OrkigeExport
 			command.push_back("--orientation");
 			command.push_back(androidScreenOrientation(orientation));
 		}
-		command.push_back(engineBuild);
+		if(!tools.buildTools.empty())
+		{
+			command.push_back("--build-tools");
+			command.push_back(tools.buildTools);
+		}
+		if(!tools.javaHome.empty())
+		{
+			command.push_back("--java-home");
+			command.push_back(tools.javaHome);
+		}
+		if(!enginePayload.empty())
+		{
+			// the fetched-player shape: no build tree exists to read a stripped
+			// library, a flavor or a shader tree out of, so the payload names
+			// all four
+			command.push_back("--payload");
+			command.push_back(enginePayload);
+		}
+		else
+		{
+			command.push_back(engineBuild);
+		}
 		return command;
 	}
 	//---------------------------------------------------------
@@ -205,36 +686,52 @@ namespace OrkigeExport
 				"work (the Lua/scene parts of a project export fine without "
 				"one)");
 		}
-		if(source.fromBundle())
+		// TWO engine sources, like every other platform: a preset build tree,
+		// or a FETCHED device payload - which carries the stripped player, the
+		// engine media, the packaging script and the Java it compiles, so a
+		// machine with no repository has every ENGINE piece. What is left is
+		// the machine's own Android toolchain, gated below by name.
+		const bool fromPayload = !source.devicePayload.empty();
+		if(source.fromBundle() && !fromPayload)
 		{
-			// unlike an iOS package, this one needs more than the player: the
-			// APK is assembled by the Android SDK's own build tools (aapt2,
-			// zipalign, apksigner) driven by the scripts beside the player in
-			// the engine source tree. Those are a TOOLCHAIN on the machine,
-			// not an engine piece, so a fetched player alone cannot close it.
-			return report(error, "a staged engine payload cannot assemble an "
-				"Android package: an APK is built by the Android SDK's own "
-				"tools from the packaging scripts in the engine source tree. "
-				"Build Orkige from the engine repository to package for "
-				"Android");
+			return report(error, "a staged engine payload packages the desktop "
+				"app only; an Android package needs the Android player - "
+				"install it (Settings > Build Targets), or package from the "
+				"android-debug preset build tree");
 		}
-		if(environment.repoRoot.empty())
+		if(!fromPayload && environment.repoRoot.empty())
 		{
 			return report(error, "an Android package is assembled by the SDK "
 				"scripts beside the player (tools/player/android) - this "
 				"export has no engine source tree to run them from");
 		}
-		const Orkige::String nativeLib = ExportFiles::join(
-			ExportFiles::join(source.buildDirectory, "tools/player"),
-			"libmain.so");
+		if(fromPayload && request.bundle)
+		{
+			// a store App Bundle is built off an android-RELEASE tree and needs
+			// bundletool plus a release keystore; the published player is the
+			// debug one, so shipping a bundle out of it would be a lie about
+			// what was optimized. Store artifacts stay a source-tree job.
+			return report(error, "a release App Bundle is built from the "
+				"android-release preset tree (the installed player is the debug "
+				"build) - see Docs/store-release.md; the installed player "
+				"packages APKs");
+		}
+		const Orkige::String nativeLib = fromPayload
+			? ExportFiles::join(source.devicePayload, "libmain.so")
+			: ExportFiles::join(
+				ExportFiles::join(source.buildDirectory, "tools/player"),
+				"libmain.so");
 		if(!ExportFiles::isRegularFile(nativeLib))
 		{
-			return report(error, "no libmain.so at '" + nativeLib +
-				"' - build the android-" +
-				(request.bundle ? "release (or android-debug)" : "debug") +
-				" preset first");
+			return report(error, fromPayload
+				? ("the installed Android player is incomplete (no libmain.so "
+					"at '" + nativeLib + "') - fetch it again under Settings > "
+					"Build Targets")
+				: ("no libmain.so at '" + nativeLib + "' - build the android-" +
+					(request.bundle ? "release (or android-debug)" : "debug") +
+					" preset first"));
 		}
-		if(request.bundle &&
+		if(!fromPayload && request.bundle &&
 			readCMakeCache(source.buildDirectory, "CMAKE_BUILD_TYPE") !=
 				"Release")
 		{
@@ -246,6 +743,18 @@ namespace OrkigeExport
 				"bundle will carry a non-optimized libmain.so; build the "
 				"android-release preset for a shippable bundle");
 		}
+		// the machine's half of the prerequisites, reported program by program.
+		// This is a TOOLCHAIN gate and nothing else: a project with no compiled
+		// C++ has no engine SDK question to answer, so none is asked here.
+		const AndroidToolchain tools =
+			resolveAndroidToolchain(request.environment);
+		const Orkige::String toolchainRefusal = androidToolchainRefusal(tools);
+		if(!toolchainRefusal.empty())
+		{
+			return report(error, toolchainRefusal);
+		}
+		emit(environment.log, "Android tools: " + tools.buildTools +
+			", JDK " + tools.javaHome);
 
 		Orkige::String package;
 		if(!androidPackageName(project, package, error))
@@ -283,7 +792,9 @@ namespace OrkigeExport
 			}
 		}
 
-		const Orkige::String flavor = renderBackend(source.buildDirectory);
+		const Orkige::String flavor = fromPayload
+			? payloadFlavor(source.devicePayload)
+			: renderBackend(source.buildDirectory);
 		const Orkige::String payloadDirectory =
 			ExportFiles::join(outputDirectory, "payload-staging");
 		if(!ExportFiles::removeTree(payloadDirectory, error))
@@ -309,8 +820,12 @@ namespace OrkigeExport
 		const Orkige::String orientation =
 			orientationSetting(project.settings);
 
-		const Orkige::String scriptDirectory = ExportFiles::join(
-			environment.repoRoot, "tools/player/android");
+		// the assembler comes from whichever engine source answered: the source
+		// tree beside the build, or the payload the player travelled in - so
+		// the script and the library it packages are always from one build
+		const Orkige::String scriptDirectory = fromPayload
+			? ExportFiles::join(source.devicePayload, "android")
+			: ExportFiles::join(environment.repoRoot, "tools/player/android");
 		Orkige::String artifact;
 		std::vector<Orkige::String> command;
 		if(request.bundle)
@@ -331,7 +846,7 @@ namespace OrkigeExport
 				ExportFiles::join(scriptDirectory, "package_apk.sh"),
 				payloadDirectory, package, project.name, resDirectory,
 				launchColour, assetsMode, orientation, artifact,
-				source.buildDirectory);
+				source.buildDirectory, source.devicePayload, tools);
 		}
 		emit(environment.log, "$ " + commandLine(command));
 		const ProcessResult result = environment.runner(command);

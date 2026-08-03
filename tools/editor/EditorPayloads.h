@@ -91,6 +91,12 @@ namespace OrkigeEditor
 		//! usable - probed rather than trusted, so a half-unpacked copy is
 		//! never handed to an export
 		Orkige::String	marker;
+		//! anything else the platform needs beside the player and the media.
+		//! A `.app` is COPIED whole, so it needs nothing; an Android package
+		//! is ASSEMBLED around the player, so the assembler and the Java it
+		//! compiles travel with it - those are engine pieces, unlike the SDK's
+		//! own programs, which stay the machine's.
+		std::vector<Orkige::String>	extraPaths;
 	};
 
 	//! @brief every payload this editor knows how to fetch, in the order the
@@ -196,6 +202,11 @@ namespace OrkigeEditor
 	//! player that cannot be executed is not a player.
 	std::vector<Orkige::String> payloadExtractCommand(
 		Orkige::String const & archivePath, Orkige::String const & destination);
+
+	//! @brief the doc that explains payloads, as its FILE STEM - what
+	//! @ref OrkigeEditor::helpUrl turns into a published link, and what
+	//! `doc_link_lint` checks against `Docs/`.
+	char const * payloadHelpPage();
 
 	//! @brief the one sentence an export shows when the payload it needs is
 	//! not installed - always naming BOTH the platform and the way to get it,

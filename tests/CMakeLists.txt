@@ -89,6 +89,20 @@ add_test(NAME doctrine_lint_selftest
 set_tests_properties(doctrine_lint_selftest PROPERTIES
     LABELS unit TIMEOUT 120)
 
+# doc-link lint: every doc the CODE points a person at must exist. The help
+# portal's own generator fails on a broken link BETWEEN docs, which is what
+# keeps the corpus honest - but it cannot see a reference inside a C++ string
+# (a refusal that ends by naming a doc, or a help page name the editor composes
+# a URL from). Rename that doc and the portal stays green while a shipped binary
+# carries a dead pointer. This resolves both shapes against Docs/ on disk.
+# NO NETWORK: a page exists on the published site exactly when its doc exists
+# in the corpus, so the site is never a test dependency. Stdlib-only, headless.
+add_test(NAME doc_link_lint
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_doc_links.py"
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(doc_link_lint PROPERTIES
+    LABELS unit TIMEOUT 120)
+
 # sprite-atlas packer self-validation: make_sprite_atlas.py packs a
 # handful of synthetic sprites, re-parses its own .oatlas and asserts no region
 # overlaps, all rects in bounds, deterministic order. Stdlib-only, headless -
@@ -1472,6 +1486,31 @@ if(TARGET orkige_editor)
                 --repo-root "${Orkige_SOURCE_DIR}"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_bundle_ios${ORKIGE_FLAVOR_TEST_SUFFIX}
+            PROPERTIES LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
+
+        # ...and its ANDROID sibling. An APK is ASSEMBLED around the player
+        # rather than copied whole like a .app, so this leg is where the three
+        # prerequisite tiers have to stay three answers: the PLAYER is fetched
+        # (a download), the Android SDK build tools and a JDK are the MACHINE's
+        # (named one program at a time - we ship the engine, never a
+        # toolchain), and the engine SDK pack belongs to compiled C++ game code
+        # ALONE. The project packaged here is pure Lua, so no pack is installed
+        # anywhere in the clean room and neither refusal may mention one - the
+        # negative that keeps a Lua game from ever needing a C++ SDK.
+        # Skips (77) without an Android player or without the SDK.
+        add_test(NAME editor_bundle_android${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_editor_bundle_test.py"
+                --leg android
+                --editor-app "$<TARGET_BUNDLE_DIR:orkige_editor>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --scene "scenes/main.oscene"
+                --device-build
+                    "${Orkige_SOURCE_DIR}/build/android-debug${ORKIGE_IOS_PAYLOAD_TREE_SUFFIX}"
+                --stage-root "${CMAKE_CURRENT_BINARY_DIR}/editor_bundle_android${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                --repo-root "${Orkige_SOURCE_DIR}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_bundle_android${ORKIGE_FLAVOR_TEST_SUFFIX}
             PROPERTIES LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
 
         # COMPILED GAME CODE from a copied editor: the third distribution
@@ -3267,6 +3306,25 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(export_android_run PROPERTIES
             SKIP_RETURN_CODE 77 TIMEOUT 900)
+
+        # ...and the APK a DOWNLOADED editor produces: assembled out of a
+        # fetched device payload with NO engine build tree in the picture, then
+        # installed and launched exactly like its build-tree sibling. Bytes are
+        # not a game - a package whose player, media, dex and Java all arrived
+        # through a payload installs perfectly and can still boot into nothing.
+        add_test(NAME export_android_payload_run
+            COMMAND python3 "${ORKIGE_EXPORT_DEVICE_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform android
+                --engine-source payload
+                --host-build "${CMAKE_BINARY_DIR}"
+                --engine-build "${Orkige_SOURCE_DIR}/build/android-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/android-payload-run"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_android_payload_run PROPERTIES
+            SKIP_RETURN_CODE 77 TIMEOUT 900)
     endif()
 
     # the HTTP client on a REAL mobile runtime. The desktop suite proves the
@@ -3529,7 +3587,7 @@ foreach(device_test editor_play_simulator editor_play_simulator_boot
         player_rotation_android player_rotation_ios
         http_device_android http_device_ios
         export_ios_simulator_run export_ios_simulator_payload_run
-        export_android_run)
+        export_android_run export_android_payload_run)
     if(TEST ${device_test})
         # RESOURCE_LOCK: device tests share one simulator/emulator + adb -
         # they must not run concurrently when the suite runs with -j

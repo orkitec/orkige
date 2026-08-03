@@ -90,6 +90,7 @@ import stat
 import subprocess
 import sys
 import time
+import zipfile
 
 
 SKIP = 77
@@ -1057,6 +1058,189 @@ def check_ios_app(artifact, project_root, payload):
         log("the exported iOS app is complete (%s)" % artifact)
 
 
+# The ANDROID sibling of the leg below, and the one that has to keep THREE
+# prerequisite tiers apart - because an APK, unlike a `.app`, is ASSEMBLED
+# rather than copied, and the assembly runs the Android SDK's own programs:
+#
+#   1. the PLAYER               fetched, so a missing one is a download
+#   2. the platform TOOLCHAIN   the SDK's build tools and a JDK, which are the
+#                               machine's - named one by one when absent
+#   3. the engine SDK PACK      needed ONLY by a project with compiled C++
+#
+# The project this leg packages is pure Lua, so tier 3 must never appear: no
+# pack is installed anywhere in the clean room, and neither refusal below is
+# allowed to mention one. That negative is the point of the leg - it is easy to
+# fold three questions into one "can we export?" precondition, and doing so
+# would make a Lua game need a C++ SDK.
+#
+# Skips (77) without a built Android player or without the SDK on the machine.
+
+
+def android_toolchain_env():
+    """the machine's Android toolchain, as the two variables that name it.
+    Empty when this machine has no SDK or no JDK - the leg then skips rather
+    than passing on a refusal it would have got anyway."""
+    sdk = os.environ.get("ANDROID_HOME") or os.environ.get(
+        "ANDROID_SDK_ROOT") or os.path.expanduser("~/Library/Android/sdk")
+    if not os.path.isdir(os.path.join(sdk, "build-tools")):
+        return {}
+    java_home = os.environ.get("JAVA_HOME", "")
+    if not java_home:
+        for candidate in (
+                "/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home",
+                "/usr/local/opt/openjdk/libexec/openjdk.jdk/Contents/Home"):
+            if os.path.isfile(os.path.join(candidate, "bin", "javac")):
+                java_home = candidate
+                break
+    if not java_home or not os.path.isfile(os.path.join(java_home, "bin",
+                                                        "javac")):
+        return {}
+    return {"ANDROID_HOME": sdk, "JAVA_HOME": java_home}
+
+
+def check_android_apk(artifact, payload, abi):
+    """the packaged APK as a device would receive it: the project payload with
+    its boot marker, and the player library the PAYLOAD carries, byte for
+    byte"""
+    if not os.path.isfile(artifact):
+        fail("the export reported '%s', which is not a file" % artifact)
+    with zipfile.ZipFile(artifact) as apk:
+        names = set(apk.namelist())
+        library = "lib/%s/libmain.so" % abi
+        for entry in ("classes.dex", library, "AndroidManifest.xml",
+                      "assets/orkige_project.txt"):
+            if entry not in names:
+                fail("the exported APK has no %s" % entry)
+        if not any(name.startswith("assets/project/") for name in names):
+            fail("the exported APK carries no project payload")
+        if not any(name.startswith("assets/Media/") for name in names):
+            fail("the exported APK carries no engine media")
+        shipped = hashlib.sha256(apk.read(library)).hexdigest()
+    carried = sha256(os.path.join(payload, "libmain.so"))
+    if shipped != carried:
+        fail("the exported APK's player is not the one the payload carries")
+    log("the exported APK carries the payload's own player (%s, %s)"
+        % (abi, library))
+
+
+def run_android_export_leg(args, stage_dir, sandbox_profile):
+    """a copied editor asked to package the open Lua project AS AN APK.
+
+    Three times, because the three prerequisite tiers must read as three
+    different answers: no player installed, a player but no Android toolchain,
+    and both - which packages. No engine SDK pack exists in this clean room at
+    any point, and a Lua project must never ask for one."""
+    toolchain = android_toolchain_env()
+    if not toolchain:
+        skip("no Android SDK build-tools + JDK on this machine - the platform "
+             "toolchain is the machine's, so this leg cannot run without it")
+    executable = stage_app(args.editor_app, stage_dir)
+    project = os.path.join(stage_dir, "project")
+    shutil.copytree(args.project, project,
+                    ignore=shutil.ignore_patterns("builds", ".orkige",
+                                                  "build*", ".mcp.json"))
+    for name in ("home", "cwd", "state", "tmp"):
+        os.makedirs(os.path.join(stage_dir, name), exist_ok=True)
+    payload = stage_device_payload(args, stage_dir, "player-android")
+    if not payload:
+        skip("no Android player at '%s' - build the android-debug preset (or "
+             "point --device-build at a tree that has one) to run this leg"
+             % args.device_build)
+    log("composed the Android payload the way a release publishes one (%s)"
+        % payload)
+    abi = ""
+    with open(os.path.join(payload, "orkige_payload.txt")) as handle:
+        for line in handle:
+            if line.startswith("abi:"):
+                abi = line.split(":", 1)[1].strip()
+    if not abi:
+        fail("the composed Android payload records no abi")
+
+    def session(env, token_name, expect_accepted, what):
+        """one editor run asked to export for Android; returns the reply text
+        (a refusal) or the finished artifact path"""
+        token_file = os.path.join(stage_dir, token_name)
+        process = launch(executable,
+                         [executable, "--mcp-port", "0",
+                          "--mcp-token-file", token_file],
+                         os.path.join(stage_dir, "cwd"), env, sandbox_profile)
+        try:
+            port, token = wait_for_endpoint(process, token_file,
+                                            args.boot_timeout)
+            if not port:
+                output = stop(process)
+                print(output[-8000:], flush=True)
+                fail("the copied editor never opened its MCP endpoint for %s"
+                     % what)
+            client = McpClient(port, token)
+            client.call("initialize",
+                        {"protocolVersion": "2025-03-26", "capabilities": {},
+                         "clientInfo": {"name": "bundle-selfcheck",
+                                        "version": "1"}})
+            client.tool("open_project", {"path": project})
+            accepted, structured, text = client.attempt(
+                "export_project", {"platform": "android"})
+            if accepted != expect_accepted:
+                fail("%s: the export was %s" % (what,
+                     "accepted" if accepted else "refused: " + text))
+            reject_build_machine_paths(args, text, what)
+            # TIER 3 stays out of it: this project has no compiled C++, so
+            # nothing here may reach for - or talk about - an engine SDK pack
+            for forbidden in ("SDK pack", "sdk pack", "Orkige SDK"):
+                if forbidden in text:
+                    fail("%s mentions an engine SDK pack for a Lua project: %s"
+                         % (what, text))
+            if not accepted:
+                return text
+            result = poll_export(client, str(structured.get("jobId", "")),
+                                 args.export_timeout)
+            if str(result.get("ok", "")) != "1":
+                error = str(result.get("error", ""))
+                reject_build_machine_paths(args, error, what)
+                fail("%s: the export failed: %s" % (what, error))
+            return str(result.get("artifactPath", ""))
+        finally:
+            stop(process)
+
+    # (1) no player installed: a DOWNLOAD is missing, and the sentence says so
+    text = session(scrubbed_env(stage_dir), "endpoint1.token", False,
+                   "the Android export with no player installed")
+    for needle in ("Android", "Build Targets"):
+        if needle not in text:
+            fail("the Android export refusal does not say %r: %s"
+                 % (needle, text))
+    log("with no player installed the export is refused, with the way to get "
+        "one: " + text)
+
+    # (2) the player, but no Android toolchain: a different tier, and every
+    # missing PROGRAM is named rather than lumped into "install the SDK"
+    env = scrubbed_env(stage_dir, {"ORKIGE_EDITOR_PAYLOAD_DIR":
+                                   os.path.join(stage_dir, "payloads")})
+    # (the scrubbed HOME is what puts the SDK out of reach; whatever else the
+    # machine genuinely has - a JDK at an absolute path, say - is reported
+    # honestly as present, and WHICH programs get named one at a time is the
+    # unit gate's job. What this proves is that the tier is a different answer)
+    text = session(env, "endpoint2.token", False,
+                   "the Android export with no SDK tools")
+    if "Android SDK" not in text:
+        fail("the missing-toolchain refusal does not name the Android SDK: "
+             + text)
+    if "Build Targets" in text:
+        fail("the missing-toolchain refusal offers a download for something "
+             "no download provides: " + text)
+    log("with the player installed and no SDK, a DIFFERENT refusal names what "
+        "to install: " + text.replace("\n", " | "))
+
+    # (3) both: the APK is packaged - out of the payload and the machine's own
+    # Android tools, with no engine SDK pack anywhere in this clean room
+    env = scrubbed_env(stage_dir, dict(toolchain, **{
+        "ORKIGE_EDITOR_PAYLOAD_DIR": os.path.join(stage_dir, "payloads")}))
+    artifact = session(env, "endpoint3.token", True,
+                       "the Android export from the installed player")
+    log("the copied editor exported '%s' from the installed player" % artifact)
+    check_android_apk(artifact, payload, abi)
+
+
 def run_ios_export_leg(args, stage_dir, sandbox_profile):
     """a copied editor asked to package the open project FOR AN iOS SIMULATOR.
 
@@ -1627,7 +1811,9 @@ def main():
                        help="scratch directory (inside the build tree)")
     parser.add_argument("--repo-root", required=True,
                        help="the tree the staged app must NOT reach into")
-    parser.add_argument("--leg", choices=("bundle", "web", "native", "ios"),
+    parser.add_argument("--leg",
+                       choices=("bundle", "web", "native", "ios",
+                                "android"),
                        default="bundle",
                        help="'bundle' (default) runs the session, packaging, "
                             "unreadable-media and changelog legs; 'web' runs "
@@ -1638,7 +1824,10 @@ def main():
                             "clean room of its own (a build toolchain is "
                             "reachable, the repository still is not); 'ios' "
                             "runs the mobile-package leg, which skips where "
-                            "no iOS-simulator player has been built")
+                            "no iOS-simulator player has been built; "
+                            "'android' runs its APK sibling, which also "
+                            "proves the player, the Android toolchain and the "
+                            "engine SDK pack stay three separate answers")
     parser.add_argument("--web-build", default="",
                        help="the wasm build tree the browser payload is "
                             "composed from (else ORKIGE_WEB_BUILD, else the "
@@ -1647,8 +1836,9 @@ def main():
                        help="native leg: the engine build tree the SDK pack is "
                             "installed from")
     parser.add_argument("--device-build", default="",
-                       help="ios leg: the preset build tree the device player "
-                            "payload is composed from (the ios-simulator one)")
+                       help="ios/android leg: the preset build tree the "
+                            "device player payload is composed from (the "
+                            "ios-simulator or android-debug one)")
     parser.add_argument("--flavor", default="next",
                        help="native leg: the render flavor of this build (the "
                             "installed pack is per flavor)")
@@ -1731,6 +1921,20 @@ def main():
             log("PASSED: a copied editor plus an installed SDK pack builds, "
                 "plays and packages compiled C++ game code - and reports a "
                 "missing SDK and a missing toolchain as two different things")
+            return 0
+
+        if args.leg == "android":
+            if not args.device_build:
+                skip("the Android leg needs --device-build (the android "
+                     "preset tree the payload is composed from)")
+            android_stage = os.path.join(args.stage_root, "android")
+            os.makedirs(android_stage)
+            run_android_export_leg(args, android_stage, sandbox_profile)
+            log("PASSED: an installed device player plus the machine's own "
+                "Android tools turn a copied editor into one that packages an "
+                "APK for a Lua game - with the player, the toolchain and the "
+                "engine SDK reported as three different prerequisites, and no "
+                "SDK asked for at all")
             return 0
 
         if args.leg == "ios":

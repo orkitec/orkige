@@ -54,6 +54,14 @@ namespace OrkigeExport
 			ANDROID_KEYSTORE_PASS_ENV,
 			ANDROID_KEY_PASS_ENV,
 			BUNDLETOOL_ENV,
+			// where the Android SDK and the JDK that drives it are found; HOME
+			// (and LOCALAPPDATA on Windows) so the default install location is
+			// reachable when nobody configured anything
+			ANDROID_HOME_ENV,
+			ANDROID_SDK_ROOT_ENV,
+			JAVA_HOME_ENV,
+			"HOME",
+			"LOCALAPPDATA",
 		};
 		for(const char * name : names)
 		{
@@ -265,6 +273,9 @@ namespace OrkigeExport
 		{
 			AndroidRequest androidRequest;
 			androidRequest.bundle = (request.platform == "android-aab");
+			// the machine's SDK + JDK are resolved from the same environment
+			// the signing material is (@see resolveAndroidToolchain)
+			androidRequest.environment = request.environment;
 			if(androidRequest.bundle)
 			{
 				if(!androidVersion(project.settings,

@@ -11,6 +11,8 @@
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorPayloads.h"
 
+#include "EditorHelpLinks.h"
+
 #include <core_util/VersionOrder.h>
 
 #include <algorithm>
@@ -25,11 +27,19 @@ namespace OrkigeEditor
 		//! the ids, spelled once. They travel in published file names and in
 		//! install paths, so they are frozen the moment one is published.
 		char const * const PAYLOAD_IOS_SIMULATOR = "player-ios-simulator";
+		char const * const PAYLOAD_ANDROID = "player-android";
 
 		//! the prebuilt player inside a player payload, and the engine media
 		//! beside it - the same `Media/` layout every runtime resolves at boot
 		char const * const IOS_PLAYER_APP = "OrkigePlayer.app";
+		char const * const ANDROID_PLAYER_LIB = "libmain.so";
 		char const * const PAYLOAD_MEDIA_DIR = "Media";
+		//! the Android payload's assembly half: the packaging script, the
+		//! manifest template it substitutes, and the Java it compiles. An
+		//! Android package is assembled AROUND the player rather than copied
+		//! whole like a `.app`, so those pieces are ENGINE and travel with it -
+		//! only the SDK's own programs stay the machine's.
+		char const * const ANDROID_ASSEMBLY_DIR = "android";
 		//! the manifest a payload describes itself with (platform, flavor,
 		//! version). The EXPORTER reads it to learn which flavor it is
 		//! packaging - the name is spelled there too
@@ -94,11 +104,25 @@ namespace OrkigeEditor
 		ios.marker = join(IOS_PLAYER_APP, "Info.plist");
 		payloads.push_back(ios);
 
-		// Android is deliberately absent: assembling an APK needs the Android
-		// SDK's own build tools on the machine as well as the player, and a
-		// download that turned into "install a toolchain" would be a switch
-		// that promises what it cannot deliver. The export refuses it by name
-		// instead (Docs/device-payloads.md).
+		FetchablePayload android;
+		android.id = PAYLOAD_ANDROID;
+		android.label = "Android player";
+		android.platformLabel = "Android";
+		android.kind = PayloadKind::Player;
+		android.exportPlatform = "android";
+		android.marker = ANDROID_PLAYER_LIB;
+		// an APK is ASSEMBLED rather than copied, so this payload carries the
+		// assembler and the Java it compiles beside the player - everything
+		// that belongs to the engine. The Android SDK's own programs are the
+		// machine's, reported one by one when one is missing, which is the
+		// same line we draw for a native module's cmake and ninja.
+		android.extraPaths.push_back(
+			join(ANDROID_ASSEMBLY_DIR, "package_apk.sh"));
+		android.extraPaths.push_back(
+			join(ANDROID_ASSEMBLY_DIR, "AndroidManifest.xml"));
+		android.extraPaths.push_back(
+			join(ANDROID_ASSEMBLY_DIR, "java"));
+		payloads.push_back(android);
 		return payloads;
 	}
 	//---------------------------------------------------------
@@ -240,6 +264,10 @@ namespace OrkigeEditor
 		{
 			required.push_back(payload.marker);
 		}
+		for(std::size_t index = 0; index < payload.extraPaths.size(); ++index)
+		{
+			required.push_back(payload.extraPaths[index]);
+		}
 		if(payload.kind == PayloadKind::Player)
 		{
 			// a player renders through the engine media staged beside it: the
@@ -353,21 +381,33 @@ namespace OrkigeEditor
 	Orkige::String payloadMissingMessage(FetchablePayload const & payload,
 		bool enabled, bool hasNetworkClient)
 	{
+		// where the whole mechanism is written down. Every sentence below ends
+		// on it, because "cannot export" with no reading is only half an
+		// answer - and it is composed from a DOC NAME, so a renamed page
+		// breaks doc_link_lint rather than shipping a dead link.
+		const Orkige::String reading =
+			" - more in " + helpUrl(payloadHelpPage());
 		if(!enabled)
 		{
 			return "packaging for " + payload.platformLabel + " is not switched "
 				"on for this installation - enable it under Settings > Build "
-				"Targets, and Orkige fetches the " + payload.label + " once";
+				"Targets, and Orkige fetches the " + payload.label + " once" +
+				reading;
 		}
 		if(!hasNetworkClient)
 		{
 			return "the " + payload.label + " is not installed, and this build "
 				"carries no network transport to fetch it with - install an "
 				"Orkige build with HTTP support, or package from an engine "
-				"source tree";
+				"source tree" + reading;
 		}
 		return "the " + payload.label + " is not installed yet - fetch it under "
 			"Settings > Build Targets (one download, kept for this version of "
-			"Orkige), then export again";
+			"Orkige), then export again" + reading;
+	}
+	//---------------------------------------------------------
+	char const * payloadHelpPage()
+	{
+		return "device-payloads";
 	}
 }

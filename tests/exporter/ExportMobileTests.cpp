@@ -483,3 +483,154 @@ TEST_CASE("the signed-bundle gate names every missing credential",
 	complete.hasStorePassword = true;
 	REQUIRE(androidSigningGaps(complete, "/tools/bundletool.jar").empty());
 }
+
+TEST_CASE("the newest installed SDK pieces are the ones taken",
+	"[exporter][android]")
+{
+	// a person's SDK holds whatever their SDK manager gave them, so the
+	// packaging takes the newest of each rather than a pinned pair - compared
+	// by NUMERIC component, which a filename sort gets backwards
+	const std::vector<Orkige::String> versions = { "9.0.0", "35.0.0", "34.0.1",
+		"30.0.3" };
+	REQUIRE(newestAndroidBuildTools(versions) == "35.0.0");
+	REQUIRE(newestAndroidBuildTools({ "35.0.0", "35.0.1" }) == "35.0.1");
+	// a preview build-tools name still carries a comparable numeric prefix
+	REQUIRE(newestAndroidBuildTools({ "34.0.0", "35.0.0-rc1" }) ==
+		"35.0.0-rc1");
+	REQUIRE(newestAndroidBuildTools({ "source.properties" }).empty());
+	REQUIRE(newestAndroidBuildTools({}).empty());
+
+	// a platform must clear the API the player's own dex is built for, and a
+	// LETTER-named preview carries no stable number to compare - skipped
+	// rather than guessed at
+	const std::vector<Orkige::String> platforms = { "android-28", "android-35",
+		"android-31", "android-VanillaIceCream" };
+	REQUIRE(newestAndroidPlatform(platforms, androidMinimumApi()) ==
+		"android-35");
+	REQUIRE(newestAndroidPlatform({ "android-21", "android-26" },
+		androidMinimumApi()).empty());
+	REQUIRE(newestAndroidPlatform({ "sources" }, androidMinimumApi()).empty());
+	REQUIRE(androidMinimumApi() == 28);
+}
+
+TEST_CASE("an Android SDK is FOUND rather than configured",
+	"[exporter][android]")
+{
+	// the two variables people set, in order, then the place each platform's
+	// own installer puts one - so somebody who installed the tools and
+	// configured nothing is still found
+	EnvironmentMap environment;
+	environment["HOME"] = "/home/dev";
+	environment["ANDROID_SDK_ROOT"] = "/opt/android";
+	environment["ANDROID_HOME"] = "/srv/sdk";
+	const std::vector<Orkige::String> candidates =
+		androidSdkCandidates(environment);
+	REQUIRE(candidates.size() >= 3);
+	REQUIRE(candidates[0] == "/srv/sdk");
+	REQUIRE(candidates[1] == "/opt/android");
+	REQUIRE(candidates[2].find("/home/dev") == 0);
+
+	// whitespace reads as absent, the same rule the signing resolvers use
+	EnvironmentMap blank;
+	blank["ANDROID_HOME"] = "   ";
+	const std::vector<Orkige::String> none = androidSdkCandidates(blank);
+	for (Orkige::String const& candidate : none)
+	{
+		REQUIRE(candidate != "   ");
+	}
+}
+
+TEST_CASE("a missing Android tool is named, one program at a time",
+	"[exporter][android]")
+{
+	// THE POINT of this gate: a person who has the SDK and no JDK reads about
+	// the JDK. One lumped "install the Android SDK" would be unactionable for
+	// four of the five things that can be missing here.
+	AndroidToolchain nothing;
+	const std::vector<Orkige::String> bare = androidToolchainGaps(nothing);
+	REQUIRE(bare.size() == 2);		// the SDK itself, and the JDK
+	REQUIRE(bare[0].find("Android SDK") != Orkige::String::npos);
+	REQUIRE(bare[0].find(ANDROID_HOME_ENV) != Orkige::String::npos);
+	REQUIRE(bare[1].find("JDK") != Orkige::String::npos);
+
+	// an SDK with a JDK beside it, but no build tools unpacked: FOUR named
+	// programs plus the platform, each with the command that installs it
+	AndroidToolchain sdkOnly;
+	sdkOnly.sdkRoot = "/srv/sdk";
+	sdkOnly.javaHome = "/opt/jdk";
+	sdkOnly.jdk = true;
+	const std::vector<Orkige::String> gaps = androidToolchainGaps(sdkOnly);
+	REQUIRE(gaps.size() == 5);
+	for (Orkige::String const& gap : gaps)
+	{
+		INFO(gap);
+		REQUIRE(gap.find("sdkmanager") != Orkige::String::npos);
+	}
+	REQUIRE(gaps[0].find("aapt2") == 0);
+	REQUIRE(gaps[1].find("zipalign") == 0);
+	REQUIRE(gaps[2].find("apksigner") == 0);
+	REQUIRE(gaps[3].find("d8") == 0);
+	REQUIRE(gaps[4].find("platform") != Orkige::String::npos);
+
+	// ONE missing piece is ONE sentence - the case that would be lost by
+	// reporting the SDK as a single yes/no
+	AndroidToolchain jdkMissing;
+	jdkMissing.sdkRoot = "/srv/sdk";
+	jdkMissing.buildTools = "/srv/sdk/build-tools/35.0.0";
+	jdkMissing.platformJar = "/srv/sdk/platforms/android-35/android.jar";
+	jdkMissing.aapt2 = jdkMissing.zipalign = true;
+	jdkMissing.apksigner = jdkMissing.d8 = true;
+	const std::vector<Orkige::String> onlyJdk =
+		androidToolchainGaps(jdkMissing);
+	REQUIRE(onlyJdk.size() == 1);
+	REQUIRE(onlyJdk[0].find("JDK") != Orkige::String::npos);
+	REQUIRE_FALSE(jdkMissing.complete());
+
+	AndroidToolchain ready = jdkMissing;
+	ready.jdk = true;
+	ready.javaHome = "/opt/jdk";
+	REQUIRE(ready.complete());
+	REQUIRE(androidToolchainGaps(ready).empty());
+	REQUIRE(androidToolchainRefusal(ready).empty());
+
+	// the refusal a person actually reads: every gap on its own line, and the
+	// engine/toolchain split said out loud. It must NEVER offer a download
+	// (nothing here is fetchable) and must NEVER mention an engine SDK pack -
+	// that tier belongs to compiled C++ game code alone, and a Lua game must
+	// not be sent looking for one.
+	const Orkige::String refusal = androidToolchainRefusal(jdkMissing);
+	REQUIRE(refusal.find("Android SDK's own tools") != Orkige::String::npos);
+	REQUIRE(refusal.find("\n  - ") != Orkige::String::npos);
+	REQUIRE(refusal.find("/srv/sdk") != Orkige::String::npos);
+	REQUIRE(refusal.find("Build Targets") == Orkige::String::npos);
+	REQUIRE(refusal.find("SDK pack") == Orkige::String::npos);
+}
+
+TEST_CASE("the APK command line names its engine source and its tools",
+	"[exporter][android]")
+{
+	// the fetched-player shape: `--payload` instead of the positional build
+	// tree, so no build tree is named at all - there is none on the machine
+	AndroidToolchain tools;
+	tools.buildTools = "/srv/sdk/build-tools/35.0.0";
+	tools.javaHome = "/opt/jdk";
+	const std::vector<Orkige::String> command = androidApkArguments(
+		"/payloads/player-android/android/package_apk.sh", "/out/payload",
+		"com.orkitec.jumperlua", "Jumper Lua", "/out/res", "#101014", "stored",
+		"auto", "/out/JumperLua.apk", "", "/payloads/player-android", tools);
+	const std::vector<Orkige::String>::const_iterator payload =
+		std::find(command.begin(), command.end(), "--payload");
+	REQUIRE(payload != command.end());
+	REQUIRE(*(payload + 1) == "/payloads/player-android");
+	// the resolved toolchain is handed DOWN, so the programs the export
+	// checked for are exactly the ones that run
+	REQUIRE(std::find(command.begin(), command.end(), "--build-tools") !=
+		command.end());
+	REQUIRE(std::find(command.begin(), command.end(), tools.javaHome) !=
+		command.end());
+	// and nothing empty is ever passed as a positional build directory
+	for (Orkige::String const& argument : command)
+	{
+		REQUIRE_FALSE(argument.empty());
+	}
+}

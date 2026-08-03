@@ -102,6 +102,7 @@ machine-readable contract orkige_export ends on.
 import argparse
 import datetime
 import fnmatch
+import glob
 import hashlib
 import json
 import os
@@ -1876,11 +1877,34 @@ class WebPayload:
 # platform with an actionable sentence.
 
 DEVICE_PAYLOAD_MANIFEST = "orkige_payload.txt"
-# id -> (the player file or bundle inside the payload, the export platform)
+# id -> (the player file or bundle inside the payload, the export platform,
+#        anything else that platform's packaging needs from the ENGINE)
+#
+# A `.app` is COPIED whole into the package, so the iOS payload needs nothing
+# but the bundle. An Android package is ASSEMBLED around the player, so its
+# payload also carries the assembler, the manifest template it substitutes and
+# the Java it compiles - all engine pieces. Only the Android SDK's own programs
+# stay the machine's, which is the line we draw everywhere.
 DEVICE_PAYLOADS = {
-    "player-ios-simulator": ("OrkigePlayer.app", "ios-simulator"),
-    "player-android": ("libmain.so", "android"),
+    "player-ios-simulator": ("OrkigePlayer.app", "ios-simulator", ()),
+    "player-android": ("libmain.so", "android",
+                       (os.path.join("android", "package_apk.sh"),
+                        os.path.join("android", "AndroidManifest.xml"),
+                        os.path.join("android", "java"))),
 }
+#: the Java a packaged Android app compiles: SDL3's own glue (zlib licensed,
+#: redistributable) plus Orkige's activity and HTTP transport. It is taken from
+#: the exact SDL source vcpkg built the player's libmain.so against - a Java
+#: glue and a native library that disagree is a crash at the JNI boundary, so
+#: the pair is composed together and travels together.
+ANDROID_PAYLOAD_JAVA_PACKAGES = (
+    ("org/libsdl/app", None),
+    ("com/orkitec/orkigeplayer",
+     os.path.join("tools", "player", "android", "java",
+                  "com", "orkitec", "orkigeplayer")),
+    ("com/orkitec/orkige",
+     os.path.join("orkige_core", "core_http")),
+)
 
 
 def device_payload_asset_name(payload_id, flavor, version):
@@ -1893,40 +1917,147 @@ def device_payload_asset_name(payload_id, flavor, version):
     return "orkige-%s-%s-%s.zip" % (payload_id, flavor, token)
 
 
+def device_payload_required(payload_id):
+    """every payload-relative path a COMPLETE payload carries. The editor
+    composes the same list from its own catalogue
+    (EditorPayloads::payloadRequiredPaths), so a payload that packs and one
+    that is accepted cannot drift."""
+    player, _platform, extras = DEVICE_PAYLOADS[payload_id]
+    return (DEVICE_PAYLOAD_MANIFEST, player, "Media") + tuple(extras)
+
+
 def device_payload_problems(payload_dir, payload_id):
     """what a composed payload directory is missing (empty when complete) -
     the same required set the editor checks after unpacking one."""
-    player, _platform = DEVICE_PAYLOADS[payload_id]
-    problems = []
-    for name in (DEVICE_PAYLOAD_MANIFEST, player, "Media"):
-        if not os.path.exists(os.path.join(payload_dir, name)):
-            problems.append(name)
-    return problems
+    return [name for name in device_payload_required(payload_id)
+            if not os.path.exists(os.path.join(payload_dir, name))]
+
+
+def android_sdl_java_dir(build_dir):
+    """SDL3's Java glue, from the exact source vcpkg built this player's native
+    library from. vcpkg's sdl3 port installs only the native library, so the
+    glue comes out of the build tree's own buildtrees (or, once those are
+    cleaned, the verified source archive in the downloads cache) - the same two
+    places package_apk.sh looks when it runs against a build tree."""
+    vcpkg = os.environ.get("VCPKG_ROOT") or os.path.expanduser(
+        "~/Development/vcpkg")
+    relative = os.path.join("android-project", "app", "src", "main", "java",
+                            "org", "libsdl", "app")
+    for source in sorted(glob.glob(os.path.join(vcpkg, "buildtrees", "sdl3",
+                                                "src", "*.clean"))):
+        candidate = os.path.join(source, relative)
+        if os.path.isdir(candidate):
+            return candidate
+    archives = sorted(glob.glob(os.path.join(
+        vcpkg, "downloads", "libsdl-org-SDL-release-3.*.tar.gz")))
+    if not archives:
+        return ""
+    extract = os.path.join(build_dir, "payload-sdl3-java")
+    shutil.rmtree(extract, ignore_errors=True)
+    os.makedirs(extract, exist_ok=True)
+    with tarfile.open(archives[-1]) as archive:
+        members = [entry for entry in archive.getmembers()
+                   if relative.replace(os.sep, "/") in entry.name]
+        if not members:
+            return ""
+        archive.extractall(extract, members=members)
+    for root, _dirs, _files in os.walk(extract):
+        if root.replace(os.sep, "/").endswith("org/libsdl/app"):
+            return root
+    return ""
+
+
+def stage_android_assembly(target, build_dir):
+    """the Android payload's assembly half: the packaging script, the manifest
+    template, the res/ policy file and the Java sources. Everything here is
+    ENGINE - the SDK's own programs stay the machine's, and the exporter names
+    each missing one before this script is ever run."""
+    android = os.path.join(target, "android")
+    os.makedirs(android, exist_ok=True)
+    for name in ("package_apk.sh", "AndroidManifest.xml"):
+        shutil.copy2(os.path.join(REPO_ROOT, "tools", "player", "android",
+                                  name),
+                     os.path.join(android, name))
+    os.chmod(os.path.join(android, "package_apk.sh"), 0o755)
+    shutil.copytree(os.path.join(REPO_ROOT, "tools", "player", "android",
+                                 "res"),
+                    os.path.join(android, "res"), dirs_exist_ok=True)
+    sdl_java = android_sdl_java_dir(build_dir)
+    if not sdl_java:
+        warn("no SDL3 Java glue under the vcpkg root - an Android payload "
+             "without it cannot assemble a package")
+        return False
+    for package, source in ANDROID_PAYLOAD_JAVA_PACKAGES:
+        destination = os.path.join(android, "java", *package.split("/"))
+        os.makedirs(destination, exist_ok=True)
+        origin = sdl_java if source is None else os.path.join(REPO_ROOT,
+                                                              source)
+        staged = 0
+        for name in sorted(os.listdir(origin)):
+            if name.endswith(".java"):
+                shutil.copy2(os.path.join(origin, name),
+                             os.path.join(destination, name))
+                staged += 1
+        if staged == 0:
+            warn("no .java under '%s' for package %s" % (origin, package))
+            return False
+    return True
+
+
+def android_payload_abi(build_dir):
+    """the ABI the payload's library is for. A package's lib/ directory is
+    named for it and an emulator payload is a different one from a phone's, so
+    it is recorded rather than assumed."""
+    return orkige_buildtree.read_cmake_cache(build_dir, "ANDROID_ABI") or "arm64-v8a"
+
+
+def stage_android_player(source, target_lib, build_dir):
+    """copy the player's native library into a payload, STRIPPED. A debug
+    libmain.so carries hundreds of megabytes of DWARF, which is not something
+    to publish for download - and the client that unpacks this has no strip
+    tool for the target anyway, so it happens here, on the machine that built
+    it and has the NDK."""
+    strip = orkige_buildtree.read_cmake_cache(build_dir, "CMAKE_STRIP")
+    if strip and os.path.isfile(strip):
+        orkige_buildtree.run([strip, "--strip-unneeded", "-o", target_lib,
+                              source])
+        return True
+    warn("no CMAKE_STRIP in '%s' - an Android payload must ship a stripped "
+         "library" % build_dir)
+    return False
 
 
 def compose_device_payload(target, payload_id, build_dir, version, commit="",
                            media=None):
     """write one device player payload into @p target from that platform's
     preset BUILD TREE: the player it produced, the engine media staged the way
-    every runtime resolves it, and the manifest describing the three things the
-    payload has to be able to say about itself."""
+    every runtime resolves it, whatever else that platform's packaging needs
+    from the engine, and the manifest describing what the payload has to be
+    able to say about itself."""
     if payload_id not in DEVICE_PAYLOADS:
         fail("'%s' is not a device payload this script composes (%s)"
              % (payload_id, ", ".join(sorted(DEVICE_PAYLOADS))))
-    player, platform = DEVICE_PAYLOADS[payload_id]
+    player, platform, _extras = DEVICE_PAYLOADS[payload_id]
     source = os.path.join(build_dir, "tools", "player", player)
     if not os.path.exists(source):
         warn("no %s in '%s' - build that platform's preset first"
              % (player, os.path.dirname(source)))
         return False
     flavor = orkige_buildtree.render_backend(build_dir)
+    abi = android_payload_abi(build_dir) if platform == "android" else ""
     if os.path.isdir(target):
         shutil.rmtree(target)
     os.makedirs(target, exist_ok=True)
     if os.path.isdir(source):
         shutil.copytree(source, os.path.join(target, player), symlinks=True)
+    elif platform == "android":
+        if not stage_android_player(source, os.path.join(target, player),
+                                    build_dir):
+            return False
     else:
         shutil.copy2(source, os.path.join(target, player))
+    if platform == "android" and not stage_android_assembly(target, build_dir):
+        return False
     # the engine media from the SAME tree, so the shaders beside the player are
     # the ones it was built against
     (media or stage_engine_media)(build_dir, os.path.join(target, "Media"))
@@ -1935,6 +2066,8 @@ def compose_device_payload(target, payload_id, build_dir, version, commit="",
         handle.write("flavor: %s\n" % flavor)
         handle.write("version: %s\n" % version)
         handle.write("commit: %s\n" % commit)
+        if abi:
+            handle.write("abi: %s\n" % abi)
     return True
 
 
@@ -3989,10 +4122,12 @@ def selftest():
                            SHA="dea551f9e0abcdef1234", SHORT_SHA="dea551f9e",
                            BUILD_DATE="2026-07-30", VERSION=ordered,
                            TOKEN=token, TRUST_MACOS=SIGN_ADHOC,
-                           # the device player job's own result: the notes say
-                           # whether tonight published a mobile player, because
-                           # an editor that cannot find one looks here
-                           RESULT_PLAYER_IOS="success")
+                           # each device player job's own result: the notes
+                           # say per platform whether tonight published a
+                           # mobile player, because an editor that cannot find
+                           # one looks here
+                           RESULT_PLAYER_IOS="success",
+                           RESULT_PLAYER_ANDROID="failure")
             run = subprocess.run(["bash", "-c", notes_script], cwd=temp,
                                  env=environ, capture_output=True, text=True)
             assert run.returncode == 0, run.stdout + run.stderr
@@ -4025,18 +4160,25 @@ def selftest():
             # has none, and the honest answer is that this build cannot
             # package for it.
             assert "No iOS Simulator player was published" in body, body
+            # ...PER PLATFORM, and carrying that job's own result: a night
+            # whose Android build failed still ships the editors, and this is
+            # the line that says so
+            assert "No Android player was published" in body, body
+            assert "(failure)" in body, body
             # ...and with the asset present, the notes name it and say who
             # fetches it
-            payload_asset = device_payload_asset_name(
-                "player-ios-simulator", "next", ordered)
-            open(os.path.join(downloads, payload_asset), "w").close()
-            run = subprocess.run(["bash", "-c", notes_script], cwd=temp,
-                                 env=environ, capture_output=True, text=True)
-            assert run.returncode == 0, run.stdout + run.stderr
-            with_payload = open(os.path.join(temp, "notes.md")).read()
-            assert payload_asset in with_payload, with_payload
-            assert "Settings > Build Targets" in with_payload, with_payload
-            os.remove(os.path.join(downloads, payload_asset))
+            for payload_id in ("player-ios-simulator", "player-android"):
+                payload_asset = device_payload_asset_name(payload_id, "next",
+                                                          ordered)
+                open(os.path.join(downloads, payload_asset), "w").close()
+                run = subprocess.run(["bash", "-c", notes_script], cwd=temp,
+                                     env=environ, capture_output=True,
+                                     text=True)
+                assert run.returncode == 0, run.stdout + run.stderr
+                with_payload = open(os.path.join(temp, "notes.md")).read()
+                assert payload_asset in with_payload, with_payload
+                assert "Settings > Build Targets" in with_payload, with_payload
+                os.remove(os.path.join(downloads, payload_asset))
 
             assert ordered in body and bounded.strip() in body
             # the sidecar is the integrity story the notes point at
@@ -5026,6 +5168,61 @@ exit 0
         os.remove(os.path.join(composed, DEVICE_PAYLOAD_MANIFEST))
         assert device_payload_problems(composed, "player-ios-simulator") == \
             [DEVICE_PAYLOAD_MANIFEST]
+
+    # The ANDROID payload is a longer list, because an APK is ASSEMBLED around
+    # its player rather than copied whole: the assembler, the manifest template
+    # and the Java it compiles are engine pieces and travel with it. The editor
+    # composes the same required set from its own catalogue
+    # (EditorPayloadsTests), so the two cannot drift.
+    android_required = device_payload_required("player-android")
+    assert DEVICE_PAYLOAD_MANIFEST in android_required, android_required
+    assert "libmain.so" in android_required, android_required
+    assert "Media" in android_required, android_required
+    for piece in ("package_apk.sh", "AndroidManifest.xml", "java"):
+        assert os.path.join("android", piece) in android_required, \
+            android_required
+    with tempfile.TemporaryDirectory() as temp:
+        tree = os.path.join(temp, "android-debug")
+        os.makedirs(os.path.join(tree, "tools", "player"))
+        with open(os.path.join(tree, "CMakeCache.txt"), "w") as handle:
+            handle.write("ORKIGE_RENDER_BACKEND:STRING=next\n")
+            handle.write("ANDROID_ABI:STRING=x86_64\n")
+            # a tree whose strip tool is a no-op stand-in, so the composition
+            # is exercised without an NDK
+            strip = os.path.join(temp, "strip.sh")
+            handle.write("CMAKE_STRIP:FILEPATH=%s\n" % strip)
+        with open(strip, "w") as handle:
+            handle.write('#!/bin/bash\ncp "$4" "$3"\n')
+        os.chmod(strip, 0o755)
+        composed = os.path.join(temp, "android-payload")
+        # a tree that built no player composes nothing, and says so
+        assert not compose_device_payload(composed, "player-android", tree,
+                                          ordered_device,
+                                          media=fake_device_media)
+        with open(os.path.join(tree, "tools", "player", "libmain.so"),
+                  "w") as handle:
+            handle.write("not really a library")
+        assert compose_device_payload(composed, "player-android", tree,
+                                      ordered_device, commit="dea551f9e0",
+                                      media=fake_device_media)
+        assert device_payload_problems(composed, "player-android") == []
+        with open(os.path.join(composed, DEVICE_PAYLOAD_MANIFEST)) as handle:
+            manifest = handle.read()
+        assert "platform: android" in manifest, manifest
+        # the ABI is RECORDED rather than assumed: a package's lib/ directory
+        # is named for it, and an emulator payload is not a phone's
+        assert "abi: x86_64" in manifest, manifest
+        # SDL's own glue rides along, matched to the library it was built
+        # against - a downloaded editor has no vcpkg to take it from
+        assert os.path.isfile(os.path.join(
+            composed, "android", "java", "org", "libsdl", "app",
+            "SDLActivity.java"))
+        assert os.access(os.path.join(composed, "android", "package_apk.sh"),
+                         os.X_OK)
+        # ...and an incomplete one is named as incomplete rather than packed
+        shutil.rmtree(os.path.join(composed, "android", "java"))
+        assert device_payload_problems(composed, "player-android") == \
+            [os.path.join("android", "java")]
 
     # --- the browser payload: composed, handed over, and judged ---------
     #

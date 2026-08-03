@@ -109,6 +109,16 @@ namespace OrkigeEditor
 		//! and how to get it. Ready-made, because that refusal has ONE
 		//! definition beside the catalogue (@ref payloadMissingMessage).
 		Orkige::String		devicePayloadProblem;
+		//! "" when this machine has the programs the requested platform's own
+		//! packaging needs; otherwise the sentence naming each missing one.
+		//! A THIRD kind of prerequisite, kept distinct on purpose: a missing
+		//! player is a download, a missing SDK program is something to install,
+		//! and an engine SDK pack is neither - it belongs to compiled C++ game
+		//! code alone and a project without any never consults one. Android is
+		//! the only platform with such tools today
+		//! (@ref OrkigeExport::androidToolchainRefusal), and the sentence
+		//! arrives ready-made from beside that resolution.
+		Orkige::String		platformToolProblem;
 		//! the desktop package this host produces (hostExportPlatform()), or
 		//! "" where the exporter has no packaging target for it yet
 		Orkige::String		hostPlatform;

@@ -85,7 +85,9 @@ main, media bundled in) — `xcrun simctl boot/install/launch` for the simulator
 Android builds `tools/player/libmain.so` (everything incl. SDL3 statically
 linked); `tools/player/android/package_apk.sh` assembles + signs the APK
 directly with javac/d8/aapt2/apksigner (no Gradle — the machine's JDK predates
-Gradle support; SDL3's Java glue comes from the vcpkg SDL source). Deploy with
+Gradle support; SDL3's Java glue comes from the vcpkg SDL source, or - packaging
+from a fetched payload, where there is no vcpkg - from the Java sources that
+payload carries). Deploy with
 `adb install`; emulator AVD `orkige_test` (android-35, arm64) exists. The
 manifest Setting `export.android.assets` picks how media rides in the APK
 (`stored`, the default: assets stay UNCOMPRESSED so the player mounts its own
@@ -574,6 +576,15 @@ unset) and a launch screen. Native-module projects are desktop-only.
 - **Signing credentials NEVER live in the manifest** — only `export.ios.teamId`
   is committed. Identity and provisioning profile come from CLI/env
   (`Docs/ios-signing.md`).
+- **A phone's player is FETCHED, not carried** (`Docs/device-payloads.md`): a
+  released editor packages for iOS Simulator and Android out of a downloaded
+  payload, with no repository and no build tree. Three prerequisite tiers stay
+  three answers and must not be folded together — the **payload** (a download
+  the editor performs), the **platform toolchain** (Android's SDK build tools
+  and a JDK, each missing program named with what installs it), and the
+  **engine SDK pack**, which belongs to compiled C++ game code ALONE. **A
+  project with no C++ never needs a pack, at debug, release or signed**, and no
+  message may mention one.
 - The store-submittable platforms `android-aab` (via
   `tools/player/android/build_aab.sh`, off an `android-release` tree,
   `bundletool` resolved via `ORKIGE_BUNDLETOOL`) and `ios-ipa` **refuse rather
@@ -613,6 +624,7 @@ lives in a doc and is pointed at from here. The full index:
 | `terminal.md` / `claude-ide.md` | embedded terminal / the IDE protocol |
 | `native-modules.md` / `sdk-pack.md` | compiled C++ game modules / the relocatable SDK pack |
 | `editor-distribution.md` / `editor-updates.md` / `nightly-builds.md` | shipping and updating the editor |
+| `device-payloads.md` | the fetched device players, and the prerequisite tiers per platform |
 | `ios-signing.md` / `store-release.md` / `device-session.md` | signing, store artifacts, phone runs |
 | `web-export.md` | the wasm player and browser export |
 | `http.md` | the engine HTTP client |

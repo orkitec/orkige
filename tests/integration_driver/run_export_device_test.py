@@ -46,11 +46,20 @@ BOOT_MARKER = re.compile(r"orkige_player: scene '.*' loaded \((\d+) GameObjects\
 #: ...and the line the frame-capped run prints when it ENDS. Booting proves the
 #: payload resolves; this proves the app RENDERED the frames it was asked for.
 FRAME_MARKER = re.compile(r"orkige_player: frame stats - (\d+) frames")
-#: the device payload an iOS-simulator package is fetched from, and the ordered
+#: the device payload each platform's package is fetched from, and the ordered
 #: version its install directory is named for (any release identity will do -
 #: nothing here is published)
-IOS_PAYLOAD_ID = "player-ios-simulator"
+PAYLOAD_IDS = {
+    "ios-simulator": "player-ios-simulator",
+    "android": "player-android",
+}
 PAYLOAD_VERSION = "2.0.0-nightly.20260802+abcdef123"
+#: logcat tags the player's own lines arrive under. SDL routes an app's
+#: SDL_Log through "SDL/APP" rather than "SDL", so a filter that names only
+#: the latter reads a perfect run as a failure - the boot and frame markers
+#: below are exactly those lines.
+ANDROID_LOG_TAGS = ("SDL", "SDL/APP", "Orkige", "orkige_player",
+                    "OrkigePlayer")
 
 
 def log(message):
@@ -109,22 +118,23 @@ def stage_device_payload(args, work):
     packaging = load_module("orkige_nightly_package",
                             os.path.join(args.repo, "Util",
                                          "orkige_nightly_package.py"))
-    payload = os.path.join(work, "payloads", IOS_PAYLOAD_ID)
-    if not packaging.compose_device_payload(payload, IOS_PAYLOAD_ID,
+    payload_id = PAYLOAD_IDS[args.platform]
+    payload = os.path.join(work, "payloads", payload_id)
+    if not packaging.compose_device_payload(payload, payload_id,
                                             args.engine_build,
                                             PAYLOAD_VERSION,
                                             commit="abcdef123"):
         return "", ""
-    problems = packaging.device_payload_problems(payload, IOS_PAYLOAD_ID)
+    problems = packaging.device_payload_problems(payload, payload_id)
     if problems:
         fail("the composed %s payload is incomplete: %s"
-             % (IOS_PAYLOAD_ID, ", ".join(problems)))
+             % (payload_id, ", ".join(problems)))
     # the editor's own staged resources - the OTHER engine source of the two a
     # downloaded editor packages a phone build from
     bundle = os.path.join(work, "bundle")
     packaging.stage_engine_media(args.host_build, os.path.join(bundle, "Media"))
     log("composed the %s payload the way a release publishes one (%s)"
-        % (IOS_PAYLOAD_ID, payload))
+        % (payload_id, payload))
     return payload, bundle
 
 
@@ -334,6 +344,21 @@ def android_package(project_dir, exe_name):
     return "com.orkitec." + exe_name.lower()
 
 
+def android_build_tools(sdk):
+    """the newest build-tools installed under `sdk`, or "" - the same "take
+    what the SDK manager gave this machine" rule the packaging script and the
+    exporter's doctor follow, rather than a pinned version"""
+    root = os.path.join(sdk, "build-tools")
+    versions = []
+    for name in os.listdir(root) if os.path.isdir(root) else []:
+        if re.fullmatch(r"[0-9]+(\.[0-9]+)*", name):
+            versions.append([int(part) for part in name.split(".")])
+    if not versions:
+        return ""
+    newest = max(versions)
+    return os.path.join(root, ".".join(str(part) for part in newest))
+
+
 def run_android(args):
     adb = adb_path()
     if not adb:
@@ -343,9 +368,13 @@ def run_android(args):
         skip("no built Android player under '%s' - build the matching android "
              "preset to enable this test" % args.engine_build)
     sdk = os.environ.get("ANDROID_HOME",
-                         os.path.expanduser("~/Library/Android/sdk"))
-    if not os.path.isfile(os.path.join(sdk, "build-tools", "35.0.0", "aapt2")):
-        skip("no Android build-tools 35.0.0 under '%s'" % sdk)
+                         os.environ.get("ANDROID_SDK_ROOT",
+                                        os.path.expanduser(
+                                            "~/Library/Android/sdk")))
+    build_tools = android_build_tools(sdk)
+    if not build_tools or not os.path.isfile(os.path.join(build_tools,
+                                                          "aapt2")):
+        skip("no Android SDK build-tools under '%s'" % sdk)
     code, devices = run([adb, "devices"], timeout=120, check=False)
     attached = [line.split("\t")[0] for line in devices.splitlines()[1:]
                 if line.strip().endswith("\tdevice")]
@@ -353,10 +382,22 @@ def run_android(args):
         skip("no adb device/emulator connected")
     log("using device " + attached[0])
 
+    payload = bundle = ""
+    if args.engine_source == "payload":
+        payload, bundle = stage_device_payload(
+            args, os.path.join(args.output, "engine-source"))
+        if not payload:
+            skip("no Android player to compose a device payload from under "
+                 "'%s'" % args.engine_build)
+
     _name, exe_name = project_names(args.project)
     package = android_package(args.project, exe_name)
-    export(args, args.output)
-    apk = os.path.join(args.output, exe_name + ".apk")
+    # the package goes in its OWN subdirectory: an export clears the directory
+    # it writes into, and the staged engine source is a sibling it must not
+    # take with it
+    package_dir = os.path.join(args.output, "package")
+    export(args, package_dir, payload, bundle)
+    apk = os.path.join(package_dir, exe_name + ".apk")
     require(os.path.isfile(apk), "the exporter produced an APK")
 
     run([adb, "uninstall", package], timeout=120, check=False)
@@ -371,8 +412,8 @@ def run_android(args):
         deadline = time.monotonic() + args.deadline
         transcript = ""
         while time.monotonic() < deadline:
-            _code, transcript = run([adb, "logcat", "-d", "-s",
-                                     "SDL", "orkige_player", "OrkigePlayer"],
+            _code, transcript = run([adb, "logcat", "-d", "-s"]
+                                    + list(ANDROID_LOG_TAGS),
                                     timeout=120, check=False)
             if BOOT_MARKER.search(transcript):
                 break

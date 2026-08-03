@@ -17,6 +17,7 @@
 
 #include <core_project/NativeModule.h>
 
+#include <ExportAndroid.h>
 #include <ExportProject.h>
 #include <ExportRun.h>
 
@@ -94,6 +95,17 @@ OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
 					payloadId),
 				gEditorPayloads != nullptr);
 		}
+	}
+	// ...and the THIRD kind of prerequisite, kept apart from both: programs
+	// that belong to the target platform's own SDK. We ship the engine, never
+	// a toolchain, so each missing one is named where a person can act on it -
+	// asked HERE rather than inside the export job, so a refusal arrives
+	// instead of a spinner. One resolution, shared with the CLI.
+	if (platform == "android")
+	{
+		inputs.platformToolProblem = OrkigeExport::androidToolchainRefusal(
+			OrkigeExport::resolveAndroidToolchain(
+				OrkigeExport::currentEnvironment()));
 	}
 	// the one file an export needs that is neither code nor engine media
 	inputs.defaultIcon = resources.defaultAppIcon().path;

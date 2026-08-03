@@ -31,9 +31,98 @@
 //! So the exporter's Android surface is argument composition, which is exactly
 //! what the pure builders below expose: what breaks a package is a wrong flag
 //! or a missing gate, never the SDK tools themselves.
+//!
+//! @par Two engine sources, like every other platform
+//! The player and the assembler come either from a preset BUILD TREE (the
+//! developer case) or from a fetched device PAYLOAD, which is what an editor
+//! with no repository packages from (Docs/device-payloads.md). A payload
+//! carries the stripped `libmain.so`, the engine media, the packaging script
+//! and the Java sources it compiles - everything that belongs to the ENGINE.
+//!
+//! @par Three prerequisite tiers, never conflated
+//! What is left over is the machine's, and each tier refuses in its own words:
+//! - the PLAYER for the platform: fetched, so a missing one is a download.
+//! - the platform TOOLCHAIN: the Android SDK build tools and a JDK assemble
+//!   and sign every package, debug builds included (Android installs no
+//!   unsigned APK; the debug key itself is created on demand, so signing was
+//!   never the obstacle). We ship the engine, never a toolchain - so each
+//!   program is resolved by name and each missing one is named, with what
+//!   installs it (@ref androidToolchainGaps).
+//! - the engine SDK PACK: needed ONLY by a project that carries compiled C++
+//!   game code. A Lua game has nothing to compile, so no pack is consulted and
+//!   none is ever mentioned - at debug, release or signed.
 
 namespace OrkigeExport
 {
+	//--- the platform toolchain --------------------------------
+
+	//! the environment variables an Android SDK is looked up under, in order
+	extern const char * const ANDROID_HOME_ENV;
+	extern const char * const ANDROID_SDK_ROOT_ENV;
+	//! ...and the one naming the JDK that compiles and signs
+	extern const char * const JAVA_HOME_ENV;
+
+	//! @brief the oldest Android platform a package may be linked against -
+	//! the player's own `--min-api`, so an SDK with nothing newer cannot
+	//! assemble one
+	int androidMinimumApi();
+
+	//! @brief where the Android packaging programs were found on this machine.
+	//! Every field is a resolved path or an honest false; nothing is guessed.
+	struct AndroidToolchain
+	{
+		//! the SDK the rest was resolved under ("" = none found at all)
+		Orkige::String	sdkRoot;
+		//! `<sdk>/build-tools/<version>` - the newest one installed
+		Orkige::String	buildTools;
+		//! `<sdk>/platforms/android-<api>/android.jar`
+		Orkige::String	platformJar;
+		//! the JDK `javac`, `keytool` and `java` come from
+		Orkige::String	javaHome;
+		bool			aapt2 = false;
+		bool			zipalign = false;
+		bool			apksigner = false;	//!< `lib/apksigner.jar`
+		bool			d8 = false;			//!< `lib/d8.jar`
+		bool			jdk = false;		//!< javac + keytool + java, all three
+
+		//! can this machine assemble a package?
+		bool complete() const;
+	};
+
+	//! @brief the newest of @p versions, comparing NUMERIC components ("9.0.0"
+	//! is older than "35.0.0", which a plain string sort gets backwards).
+	//! "" when the list holds no version-shaped name. PURE.
+	Orkige::String newestAndroidBuildTools(
+		std::vector<Orkige::String> const & versions);
+
+	//! @brief the newest `android-<N>` in @p names with `N >= minimumApi`, or
+	//! "" when none qualifies. PURE.
+	Orkige::String newestAndroidPlatform(
+		std::vector<Orkige::String> const & names, int minimumApi);
+
+	//! @brief the directories an Android SDK is looked for in, in order:
+	//! `ANDROID_HOME`, `ANDROID_SDK_ROOT`, then this platform's default
+	//! install location under the user's home. PURE, so the precedence is
+	//! asserted on a machine with no SDK at all.
+	std::vector<Orkige::String> androidSdkCandidates(
+		EnvironmentMap const & environment);
+
+	//! @brief resolve the toolchain by probing the candidates in order.
+	AndroidToolchain resolveAndroidToolchain(EnvironmentMap const & environment);
+
+	//! @brief what is missing, ONE SENTENCE PER PROGRAM, each naming what
+	//! installs it. Empty when a package can be assembled here. PURE.
+	//! @remarks deliberately never a single lumped "install the Android SDK":
+	//! a person who has the SDK and no JDK is told about the JDK.
+	std::vector<Orkige::String> androidToolchainGaps(
+		AndroidToolchain const & tools);
+
+	//! @brief the gaps as the one refusal an export shows, or "" when there
+	//! are none. PURE.
+	Orkige::String androidToolchainRefusal(AndroidToolchain const & tools);
+
+	//--- packaging ---------------------------------------------
+
 	//! @brief the validated Android package name: `export.android.package`,
 	//! else `com.orkitec.<slug>`. False with an honest @p error when the
 	//! manifest names something that is not a package name.
@@ -44,13 +133,24 @@ namespace OrkigeExport
 	//! @param orientation the normalised `export.orientation`; only a NON-auto
 	//!        lock injects `--orientation`, so an unconstrained project leaves
 	//!        the manifest template byte-identical
+	//! @param engineBuild the preset build tree, passed positionally
+	//! @param enginePayload the fetched device payload instead - `--payload`.
+	//!        Exactly ONE of the two is set: they are the two engine sources,
+	//!        and the script refuses both together for the same reason the
+	//!        exporter does.
+	//! @param tools the resolved machine toolchain, handed DOWN rather than
+	//!        looked up again: the programs the export checked for and reported
+	//!        on are then exactly the ones that run. An empty one leaves the
+	//!        script to resolve its own, which is what a hand run does.
 	std::vector<Orkige::String> androidApkArguments(
 		Orkige::String const & script, Orkige::String const & payloadDirectory,
 		Orkige::String const & package, Orkige::String const & label,
 		Orkige::String const & resDirectory,
 		Orkige::String const & launchColour, Orkige::String const & assetsMode,
 		Orkige::String const & orientation, Orkige::String const & outputPath,
-		Orkige::String const & engineBuild);
+		Orkige::String const & engineBuild,
+		Orkige::String const & enginePayload = Orkige::String(),
+		AndroidToolchain const & tools = AndroidToolchain());
 
 	//! @brief what a release App Bundle needs beyond the APK arguments
 	struct AndroidBundleOptions
@@ -88,6 +188,9 @@ namespace OrkigeExport
 		//! package an App Bundle (`.aab`) rather than an APK
 		bool					bundle = false;
 		AndroidBundleOptions	options;
+		//! the machine's environment, for resolving the SDK and the JDK the
+		//! packaging tools come from (@ref resolveAndroidToolchain)
+		EnvironmentMap			environment;
 	};
 
 	//! @brief package @p project as `<output>/<Exe>.apk` (or the App Bundle

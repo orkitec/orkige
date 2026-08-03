@@ -843,6 +843,138 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The ANDROID player payload, the same shape and the same promise: not a
+  # precondition for shipping an editor, and an editor that cannot find one
+  # says so.
+  #
+  # It carries more than its iOS sibling, because an APK is ASSEMBLED around
+  # its player rather than copied whole: the payload holds the stripped
+  # arm64-v8a `libmain.so`, the engine media, the packaging script, the
+  # manifest template and the Java sources it compiles - SDL3's own glue among
+  # them (zlib licensed, and taken from the exact source this player was built
+  # against, because a Java glue and a native library that disagree crash at
+  # the JNI boundary). What it does NOT carry is the Android SDK's own
+  # programs: those are a toolchain on the user's machine, which the export
+  # names one at a time when one is missing.
+  #
+  # arm64-v8a, not the CI emulator's x86_64: this is the artifact people ship
+  # to phones.
+  binaries-player-android:
+    name: Binaries - the Android player payload
+    needs: binaries-gate
+    if: needs.binaries-gate.outputs.green == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # cold vcpkg build headroom; cached runs take minutes
+    env:
+      VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
+      CCACHE_DIR: /home/runner/.ccache
+      PRESET: android-debug
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          # the commit the matrix proved green - one night, one commit, and the
+          # dated release tag is what pairs this with the editors beside it
+          ref: ${{ needs.binaries-gate.outputs.sha }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build ccache autoconf automake autoconf-archive libtool \
+            pkg-config libltdl-dev
+
+      - name: Install pinned Android build toolchain
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found under $ANDROID_HOME/cmdline-tools" >&2
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        # this triplet is arm64-android, which no push-CI job builds (those are
+        # the emulator's x86_64), so this job OWNS its cache and saves it
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-android-arm64-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-android-arm64-next-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/.ccache
+          key: ccache-nightly-android-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-nightly-android-${{ runner.os }}-
+
+      - name: Configure (android-debug)
+        run: |
+          bash Util/ci_configure.sh --preset "$PRESET" \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      # right after the configure - that is when vcpkg builds and installs -
+      # and BEFORE anything that can fail, so a red build never loses a cold
+      # dependency build somebody already paid six hours for
+      - name: Save vcpkg binary cache
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build the Android player
+        run: cmake --build --preset "$PRESET" --target orkige_player
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /home/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      # ONE composition, by the same tool the editor reads the name back from.
+      # The library is STRIPPED here, on the machine that has the NDK: a debug
+      # libmain.so is hundreds of megabytes of DWARF, which is not something to
+      # publish for download, and the client that unpacks this has no strip
+      # tool for the target.
+      - name: Compose, pack and checksum the payload
+        env:
+          SHA: ${{ needs.binaries-gate.outputs.sha }}
+          BUILD_DATE: ${{ needs.binaries-gate.outputs.date }}
+          VERSION: ${{ needs.binaries-gate.outputs.version }}
+        run: |
+          python3 Util/orkige_nightly_package.py \
+            --stage-device-payload player-android \
+            --build-dir "build/$PRESET" \
+            --commit "${SHA}" --date "${BUILD_DATE}" --version "${VERSION}" \
+            --output device-payload
+          ls -l device-payload
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: binaries-player-android
+          # the archive AND its .sha256 sidecar - the publish job uploads both
+          path: device-payload/orkige-player-android-*
+          if-no-files-found: error
+          retention-days: 14
+
   # macOS: the Release .app, in two containers built from ONE staging. The
   # engine links statically and the bundle depends on nothing but system
   # frameworks, so the packaging is a copy, an rpath scrub and a bundle seal
@@ -1718,7 +1850,7 @@ jobs:
   binaries-publish:
     name: Binaries - publish the rolling and dated prereleases
     needs: [binaries-gate, binaries-macos, binaries-linux, binaries-windows,
-            binaries-player-ios]
+            binaries-player-ios, binaries-player-android]
     if: always() && needs.binaries-gate.outputs.green == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1766,6 +1898,7 @@ jobs:
           # the unsigned wording is the honest answer to that.
           TRUST_MACOS: ${{ needs.binaries-macos.outputs.trust }}
           RESULT_PLAYER_IOS: ${{ needs.binaries-player-ios.result }}
+          RESULT_PLAYER_ANDROID: ${{ needs.binaries-player-android.result }}
         run: |
           set -uo pipefail
           ls -l downloads || true
@@ -1847,7 +1980,8 @@ jobs:
             # editor fetches the one for the platform they switched on. The
             # notes say whether tonight published one, because an editor that
             # cannot find it will say so and this is where to check.
-            for row in "iOS Simulator|${RESULT_PLAYER_IOS}|orkige-player-ios-simulator-next-${TOKEN}.zip"; do
+            for row in "iOS Simulator|${RESULT_PLAYER_IOS}|orkige-player-ios-simulator-next-${TOKEN}.zip" \
+                       "Android|${RESULT_PLAYER_ANDROID}|orkige-player-android-next-${TOKEN}.zip"; do
               IFS='|' read -r label result asset <<< "${row}"
               if [ -f "downloads/${asset}" ]; then
                 echo "The ${label} player for this build is published as"

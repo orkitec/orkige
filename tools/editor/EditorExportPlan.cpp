@@ -115,7 +115,13 @@ namespace OrkigeEditor
 		if(inputs.engineTree)
 		{
 			// the developer shape: package a preset build tree, with the source
-			// tree beside it supplying the engine media and the build scripts
+			// tree beside it supplying the engine media and the build scripts.
+			// The machine's own tools are needed here too - a checkout does not
+			// supply somebody's Android SDK.
+			if(!inputs.platformToolProblem.empty())
+			{
+				return refuse(inputs.platformToolProblem);
+			}
 			plan.source = EditorExportSource::Tree;
 			plan.engineBuild = treeFor(inputs);
 			plan.repoRoot = inputs.engineRoot;
@@ -147,6 +153,14 @@ namespace OrkigeEditor
 		if(!deviceFromPayload && !inputs.devicePayloadProblem.empty())
 		{
 			return refuse(inputs.devicePayloadProblem);
+		}
+		// ...and only THEN the machine's own programs. The order is the point:
+		// one of these two Orkige can do for the person (fetch the player), the
+		// other is a list of things to install, and being handed the list while
+		// the download is still missing would bury the actionable half.
+		if(!inputs.platformToolProblem.empty())
+		{
+			return refuse(inputs.platformToolProblem);
 		}
 		if(!webFromBundle && !deviceFromPayload && inputs.hostPlatform.empty())
 		{

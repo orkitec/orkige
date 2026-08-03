@@ -28,6 +28,7 @@
 #include "EditorCamera.h"
 #include "EditorCore.h"
 #include "EditorExportPlan.h"	// the ONE export decision (menu + endpoint)
+#include "EditorHelpLinks.h"	// the ONE published docs root + page links
 #include "EditorPanelRegistry.h"
 #include "EditorTheme.h"
 #include "EditorPayloadFetcher.h"	// the fetched device players the menus offer
@@ -331,7 +332,10 @@ std::string staticResolveServedFile(std::string const& docRoot,
 //! or serve locally). Automated runs never open a browser (gAutomatedRun) -
 //! the editor_help_portal ctest asserts the menu wiring and that gate,
 //! never the network.
-constexpr char const* HELP_PORTAL_URL = "https://orkige.orkitec.com/help/";
+//! ONE root, shared with the refusals that link a specific page
+//! (@see EditorHelpLinks.h, which is where a deep link is composed and where
+//! the check that keeps one from rotting is described).
+constexpr char const* HELP_PORTAL_URL = OrkigeEditor::HELP_PORTAL_ROOT;
 
 //--- view settings (grid, orientation gizmo, camera) ------------------------
 

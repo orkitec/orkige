@@ -16,6 +16,7 @@
 #include "EditorPayloads.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <vector>
@@ -69,17 +70,56 @@ TEST_CASE("the catalogue names what each download unlocks",
 	}
 	CHECK(payloadIdForExportPlatform("ios-simulator") ==
 		"player-ios-simulator");
+	CHECK(payloadIdForExportPlatform("android") == "player-android");
 	// the two targets a released editor packages out of ITSELF need no
 	// download at all, and neither does something that is not a platform
 	CHECK(payloadIdForExportPlatform("macos").empty());
 	CHECK(payloadIdForExportPlatform("web").empty());
 	CHECK(payloadIdForExportPlatform("nonsense").empty());
-	// Android is deliberately NOT offered: an APK needs the platform's own
-	// build tools as well as the player, so a download could not close it and
-	// the export refuses it by name instead
-	CHECK(payloadIdForExportPlatform("android").empty());
-	FetchablePayload absent;
-	CHECK_FALSE(findFetchablePayload("player-android", absent));
+}
+
+TEST_CASE("the Android payload carries what ASSEMBLES a package",
+	"[editor][payloads]")
+{
+	// an iOS `.app` is copied whole into the package, so its payload needs
+	// nothing but the bundle. An APK is ASSEMBLED around the player, so this
+	// one also carries the assembler, the manifest template and the Java it
+	// compiles - engine pieces, all of them. What it does NOT carry is the
+	// Android SDK's own programs: those are the machine's, and the export
+	// names each missing one instead (OrkigeExport::androidToolchainGaps).
+	FetchablePayload android;
+	REQUIRE(findFetchablePayload("player-android", android));
+	CHECK(android.kind == PayloadKind::Player);
+	CHECK(android.exportPlatform == "android");
+	CHECK(android.marker == "libmain.so");
+
+	const std::vector<Orkige::String> required = payloadRequiredPaths(android);
+	for (char const* piece : { "orkige_payload.txt", "libmain.so", "Media",
+		"android/package_apk.sh", "android/AndroidManifest.xml",
+		"android/java" })
+	{
+		INFO(piece);
+		CHECK(std::find(required.begin(), required.end(),
+			Orkige::String(piece)) != required.end());
+	}
+	// ...and each of them is genuinely REQUIRED: a payload unpacked without
+	// its assembler is refused rather than handed to an export that would
+	// fail deep inside a shell script
+	std::vector<Orkige::String> present;
+	for (Orkige::String const& relative : required)
+	{
+		present.push_back("/p/" + relative);
+	}
+	CHECK(payloadProblems(android, "/p", presence(present)).empty());
+	for (std::size_t index = 0; index < required.size(); ++index)
+	{
+		std::vector<Orkige::String> partial = present;
+		partial.erase(partial.begin() + static_cast<long>(index));
+		const std::vector<Orkige::String> problems =
+			payloadProblems(android, "/p", presence(partial));
+		REQUIRE(problems.size() == 1);
+		CHECK(problems[0] == required[index]);
+	}
 }
 
 TEST_CASE("the published asset name is one grammar", "[editor][payloads]")
@@ -89,8 +129,7 @@ TEST_CASE("the published asset name is one grammar", "[editor][payloads]")
 	// spellings are pinned on both sides because neither library sees the other
 	CHECK(payloadAssetName("player-ios-simulator", "next", VERSION) ==
 		"orkige-player-ios-simulator-next-" + std::string(TOKEN) + ".zip");
-	// the grammar is per-id, so it composes a name for an id this editor does
-	// not offer yet - the publishing side and the client share one rule
+	// ...and the same rule for every other id, on both sides
 	CHECK(payloadAssetName("player-android", "classic", VERSION) ==
 		"orkige-player-android-classic-" + std::string(TOKEN) + ".zip");
 	// an unstamped build names no asset rather than one nobody published
@@ -232,9 +271,16 @@ TEST_CASE("the build-targets setting round-trips and drops strangers",
 	// a setting written by ANOTHER build never makes this one fetch something
 	// it cannot use, and a duplicate is not carried twice
 	const std::vector<Orkige::String> filtered = parseEnabledPayloads(
-		"player-ios-simulator,player-android,player-ios-simulator,,");
+		"player-ios-simulator,player-toaster,player-ios-simulator,,");
 	REQUIRE(filtered.size() == 1);
 	CHECK(filtered[0] == "player-ios-simulator");
+	// ...and every id the catalogue DOES know survives the round trip, in
+	// catalogue order, so a user who builds for two platforms keeps both
+	const std::vector<Orkige::String> both = parseEnabledPayloads(
+		"player-android, player-ios-simulator");
+	REQUIRE(both.size() == 2);
+	CHECK(formatEnabledPayloads(both) ==
+		"player-ios-simulator,player-android");
 }
 
 TEST_CASE("the unpack command names a tool the platform provides",
