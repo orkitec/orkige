@@ -30,7 +30,12 @@
 name: CI
 
 on:
+  # A branch is verified through its PULL REQUEST, and main is verified on the
+  # merge. Leaving `push` unrestricted would run the whole matrix TWICE for
+  # every branch that has a PR open - once for the push, once for the PR - so
+  # each trigger owns exactly one of the two cases.
   push:
+    branches: [main]
   pull_request:
 
 # a newer push supersedes the previous run of the same branch
@@ -79,6 +84,11 @@ jobs:
   # /play/ artifact is reused from the `web` job (no second wasm build here).
   site:
     needs: web
+    # DEPLOY ONLY FROM main. Every other job is a verdict on a change and is
+    # meant to run for a pull request; this one PUBLISHES to the live site, so
+    # it must never fire for a branch under review - a proposed change would
+    # otherwise replace what visitors see before anyone approved it.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
