@@ -79,11 +79,15 @@ namespace OrkigeEditor
 			return slot;
 		}
 
-		//! a password: no key, so there is no way to persist it
+		//! a password: no settings-file key, so there is no way to persist it
+		//! there; @p vaultKey (may be "") names it in the platform's own
+		//! credential store instead
 		BuildCredentialSlot secretSlot(const char * label,
-			const char * environmentVariable, const char * hint)
+			const char * environmentVariable, const char * vaultKey,
+			const char * hint)
 		{
 			BuildCredentialSlot slot;
+			slot.vaultKey = vaultKey;
 			slot.label = label;
 			slot.environmentVariable = environmentVariable;
 			slot.storage = BuildCredentialStorage::Secret;
@@ -194,11 +198,12 @@ namespace OrkigeEditor
 				"Key alias", ANDROID_KEY_ALIAS_ENV, false,
 				"the alias inside the keystore that signs this app"));
 			cell.slots.push_back(secretSlot("Keystore password",
-				ANDROID_KEYSTORE_PASS_ENV,
-				"read straight from the environment by the signing step, so "
-				"it never reaches a command line or a file"));
+				ANDROID_KEYSTORE_PASS_ENV, "android.release.keystorePassword",
+				"kept in this machine's credential store, never in a file; "
+				"the signing step reads it from the environment, so it never "
+				"reaches a command line either"));
 			cell.slots.push_back(secretSlot("Key password",
-				ANDROID_KEY_PASS_ENV,
+				ANDROID_KEY_PASS_ENV, "android.release.keyPassword",
 				"only when the key uses a different password than the "
 				"keystore"));
 			cell.slots.push_back(machineSlot("android.release.bundletool",
@@ -270,9 +275,9 @@ namespace OrkigeEditor
 				"stored.";
 			cell.slots.push_back(machineSlot("", "Code-signing certificate",
 				"", true, "the .pfx that signs the executable"));
-			cell.slots.push_back(secretSlot("Certificate password", "",
-				"a password is never stored by the editor - it would come "
-				"from the environment, like every other one here"));
+			// no vault key: a Pending cell stores nothing, of either kind
+			cell.slots.push_back(secretSlot("Certificate password", "", "",
+				"nothing is kept for a signing step that does not run yet"));
 			cells.push_back(cell);
 		}
 		return cells;
@@ -368,6 +373,40 @@ namespace OrkigeEditor
 		return std::find(keys.begin(), keys.end(), key) != keys.end();
 	}
 	//---------------------------------------------------------
+	std::vector<Orkige::String> secretVaultKeys()
+	{
+		std::vector<Orkige::String> keys;
+		const std::vector<BuildTargetCell> cells = buildTargetMatrix();
+		for(BuildTargetCell const & cell : cells)
+		{
+			if(cell.state != BuildCellState::Applied)
+			{
+				// same rule as the file store: a cell that is not applied
+				// keeps nothing anywhere
+				continue;
+			}
+			for(BuildCredentialSlot const & slot : cell.slots)
+			{
+				if(slot.storage == BuildCredentialStorage::Secret &&
+					!slot.vaultKey.empty())
+				{
+					keys.push_back(slot.vaultKey);
+				}
+			}
+		}
+		return keys;
+	}
+	//---------------------------------------------------------
+	bool isSecretVaultKey(Orkige::String const & key)
+	{
+		if(key.empty())
+		{
+			return false;
+		}
+		const std::vector<Orkige::String> keys = secretVaultKeys();
+		return std::find(keys.begin(), keys.end(), key) != keys.end();
+	}
+	//---------------------------------------------------------
 	bool isProjectSettingKey(Orkige::String const & key)
 	{
 		const std::vector<ProjectSettingRow> rows = projectSettingRows();
@@ -444,7 +483,7 @@ namespace OrkigeEditor
 		return text;
 	}
 	//---------------------------------------------------------
-	Orkige::String buildSettingsFileName(Orkige::String const & projectRoot)
+	Orkige::String buildProjectScopeId(Orkige::String const & projectRoot)
 	{
 		// normalise away trailing separators so `/games/game` and
 		// `/games/game/` are the same project rather than two
@@ -490,7 +529,12 @@ namespace OrkigeEditor
 			digest[index] = hex[hash & 0xFu];
 			hash >>= 4;
 		}
-		return safe + "-" + digest + SETTINGS_SUFFIX;
+		return safe + "-" + digest;
+	}
+	//---------------------------------------------------------
+	Orkige::String buildSettingsFileName(Orkige::String const & projectRoot)
+	{
+		return buildProjectScopeId(projectRoot) + SETTINGS_SUFFIX;
 	}
 	//---------------------------------------------------------
 	Orkige::String buildSettingsDirectory()

@@ -18,6 +18,7 @@
 // can never drift apart.
 #include "EditorApp.h"
 #include "EditorBuildSettings.h"
+#include "EditorSecretStore.h"
 #include <core_util/HelpLink.h>
 
 #include <ExportAndroid.h>
@@ -29,8 +30,10 @@
 #include <cstddef>
 #include <cstdlib>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace
@@ -54,8 +57,49 @@ namespace
 		std::string		machinePath;
 		//! the last write's refusal, shown in place ("" = fine)
 		std::string		storeError;
+		//! what is being TYPED into a password field right now, per vault key.
+		//! Wiped the moment it reaches the credential store and again on a
+		//! project switch - a password has no reason to outlive the keystroke
+		//! that sends it, and this is the only buffer one ever sits in.
+		std::map<std::string, std::vector<char>>	secretDraft;
+		//! where each password comes from, resolved ONCE per project rather
+		//! than per frame: this window redraws continuously and a credential
+		//! store is not something to interrogate sixty times a second.
+		//! Invalidated whenever this editor changes one.
+		std::map<std::string, OrkigeEditor::SecretState>	secretState;
 	};
 	ProjectSettingsUi gUi;
+
+	//! @brief zero every password buffer in place
+	void scrubSecretDrafts()
+	{
+		for (std::pair<const std::string, std::vector<char>>& draft :
+			gUi.secretDraft)
+		{
+			std::fill(draft.second.begin(), draft.second.end(), '\0');
+		}
+		gUi.secretDraft.clear();
+	}
+
+	//! @brief where @p slot's password comes from (cached, @see
+	//! ProjectSettingsUi::secretState). The RESOLUTION is
+	//! EditorSecretStore.h's - this only decides how often to ask.
+	OrkigeEditor::SecretState const& secretStateFor(
+		std::string const& projectRoot, BuildCredentialSlot const& slot)
+	{
+		// a slot the editor stores nothing for has no vault key, so the label
+		// is what keeps those apart
+		const std::string cacheKey = slot.vaultKey.empty() ? slot.label
+			: slot.vaultKey;
+		const std::map<std::string, OrkigeEditor::SecretState>::iterator found =
+			gUi.secretState.find(cacheKey);
+		if (found != gUi.secretState.end())
+		{
+			return found->second;
+		}
+		return gUi.secretState[cacheKey] =
+			OrkigeEditor::resolveSecret(slot, projectRoot);
+	}
 
 	//! @brief (re)load the machine settings when the window is showing a
 	//! different project than the one they were read for
@@ -69,6 +113,8 @@ namespace
 		gUi.machine = OrkigeEditor::loadBuildSettings(projectRoot);
 		gUi.machinePath = OrkigeEditor::buildSettingsPath(projectRoot);
 		gUi.storeError.clear();
+		gUi.secretState.clear();
+		scrubSecretDrafts();
 	}
 
 	//! @brief persist the machine settings after an edit. A failure is shown
@@ -261,28 +307,101 @@ namespace
 		return value != nullptr && value[0] != '\0';
 	}
 
-	//! @brief one credential row. A Machine slot is editable and saved on
-	//! commit; a Secret slot is a STATUS, never a field - the editor stores no
-	//! password, so there is nothing here to type into.
+	//! @brief one PASSWORD row. There is never a plaintext home for what is
+	//! typed here: it goes straight to the platform's credential store and the
+	//! editor keeps only the key (@see EditorSecretStore.h). The row is a
+	//! status - never an editable field - whenever the value is not this
+	//! editor's to keep: the environment already holds one (it wins), the cell
+	//! is not applied, or this machine has no vault.
+	void drawSecretSlot(std::string const& projectRoot,
+		BuildCredentialSlot const& slot, bool enabled)
+	{
+		const OrkigeEditor::SecretState secret =
+			secretStateFor(projectRoot, slot);
+		const bool editable = enabled && secret.storable &&
+			(secret.source == OrkigeEditor::SecretSource::Missing ||
+			 secret.source == OrkigeEditor::SecretSource::Vault);
+		if (!editable)
+		{
+			const char* status = "not set";
+			if (secret.source == OrkigeEditor::SecretSource::Environment)
+			{
+				status = "set in the environment";
+			}
+			else if (secret.source == OrkigeEditor::SecretSource::Unreadable)
+			{
+				status = "unreadable";
+			}
+			ImGui::BeginDisabled();
+			ImGui::TextUnformatted(status);
+			ImGui::EndDisabled();
+			ImGui::SetItemTooltip("%s", secret.sentence.c_str());
+			return;
+		}
+		if (secret.source == OrkigeEditor::SecretSource::Vault)
+		{
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted(("kept in your " + secret.vaultName).c_str());
+			ImGui::SetItemTooltip("%s", secret.sentence.c_str());
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Forget"))
+			{
+				Orkige::String error;
+				if (!OrkigeEditor::forgetSecret(slot, projectRoot, &error))
+				{
+					gUi.storeError = error;
+				}
+				gUi.secretState.clear();	// this editor changed it: ask again
+			}
+			ImGui::SetItemTooltip("remove this password from your %s. The "
+				"build then needs %s in its environment again.",
+				secret.vaultName.c_str(), slot.environmentVariable.c_str());
+			return;
+		}
+		// nothing set anywhere: the ONE place a password is typed, and it
+		// leaves this buffer for the vault without ever passing a file
+		std::vector<char>& draft = gUi.secretDraft[slot.vaultKey];
+		if (draft.empty())
+		{
+			draft.assign(256, '\0');
+		}
+		const std::string widgetId = "##secret_" + std::string(slot.vaultKey);
+		ImGui::SetNextItemWidth(-70.0f);
+		const bool entered = ImGui::InputTextWithHint(widgetId.c_str(),
+			"(not set)", draft.data(), draft.size(),
+			ImGuiInputTextFlags_Password |
+			ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::SetItemTooltip("%s", secret.sentence.c_str());
+		ImGui::SameLine();
+		const bool stored = ImGui::SmallButton("Keep");
+		ImGui::SetItemTooltip("keep this password in your %s, for this "
+			"project only. It is never written into a file.",
+			secret.vaultName.c_str());
+		if (entered || stored)
+		{
+			Orkige::String value(draft.data());
+			Orkige::String error;
+			if (!OrkigeEditor::storeSecret(slot, projectRoot, value, &error))
+			{
+				gUi.storeError = error;
+			}
+			OrkigeEditor::scrubSecret(value);
+			// the typed bytes do not linger in a UI buffer for the session
+			std::fill(draft.begin(), draft.end(), '\0');
+			gUi.secretState.clear();	// this editor changed it: ask again
+		}
+	}
+
+	//! @brief one credential row: a Machine slot is an editable name or path
+	//! saved into this project's machine-settings file, a Secret slot is a
+	//! password and goes nowhere near it (@see drawSecretSlot).
 	void drawCredentialSlot(std::string const& projectRoot,
 		BuildCredentialSlot const& slot, bool enabled)
 	{
 		drawRowLabel(slot.label, slot.hint);
 		if (slot.storage == BuildCredentialStorage::Secret)
 		{
-			const bool present = environmentHas(slot.environmentVariable);
-			ImGui::BeginDisabled();
-			ImGui::TextUnformatted(present ? "set in the environment"
-				: "not set");
-			ImGui::EndDisabled();
-			if (!slot.environmentVariable.empty())
-			{
-				ImGui::SetItemTooltip("passwords are never stored by the "
-					"editor. Export %s in the shell that runs the build; the "
-					"signing step reads it from the environment, so it never "
-					"reaches a command line or a file.",
-					slot.environmentVariable.c_str());
-			}
+			drawSecretSlot(projectRoot, slot, enabled);
 			return;
 		}
 		ImGui::BeginDisabled(!enabled);
@@ -335,6 +454,37 @@ namespace
 		const Orkige::String bundletool = OrkigeExport::resolveBundletool(
 			credentials.bundletool, environment, 0);
 		return OrkigeExport::androidSigningGaps(keystore, bundletool);
+	}
+
+	//! @brief the honest note under a cell whose password this editor keeps.
+	//! The readiness above it is the EXPORTER'S gate, which reads the
+	//! environment - so a stored password does not turn a shell build ready,
+	//! and saying so here is the difference between a convenience and a lie.
+	//! The editor deliberately does not push a stored secret into its own
+	//! process environment: everything it launches - the embedded terminal
+	//! included - would inherit it.
+	void drawStoredSecretNote(std::string const& projectRoot,
+		BuildTargetCell const& cell)
+	{
+		for (BuildCredentialSlot const& slot : cell.slots)
+		{
+			if (slot.storage != BuildCredentialStorage::Secret)
+			{
+				continue;
+			}
+			const OrkigeEditor::SecretState secret =
+				secretStateFor(projectRoot, slot);
+			if (secret.source != OrkigeEditor::SecretSource::Vault)
+			{
+				continue;
+			}
+			ImGui::TextDisabled("%s: kept in your %s. A build started from a "
+				"shell reads %s from that shell.", slot.label.c_str(),
+				secret.vaultName.c_str(), slot.environmentVariable.c_str());
+			ImGui::SetItemTooltip("The editor does not put a stored password "
+				"into its own environment - every process it launches, the "
+				"embedded terminal included, would inherit it.");
+		}
 	}
 
 	//! @brief the readiness line under an Applied cell: green when the export
@@ -422,6 +572,7 @@ namespace
 			if (enabled)
 			{
 				drawCellReadiness(cell);
+				drawStoredSecretNote(projectRoot, cell);
 			}
 		}
 		drawHelpLine(cell.helpPage, "cell");
@@ -449,6 +600,24 @@ namespace
 			ImGui::TextDisabled("Kept in %s", gUi.machinePath.c_str());
 			ImGui::SetItemTooltip("one file per project, readable by you "
 				"alone, outside every project directory");
+		}
+		// ...and passwords are not in that file, in any case
+		if (OrkigeEditor::SecretVault const* const vault =
+			OrkigeEditor::secretVault())
+		{
+			ImGui::TextDisabled("Passwords go to your %s instead - never into "
+				"a file.", vault->name().c_str());
+			ImGui::SetItemTooltip("one entry per project and per password, "
+				"under %s. An environment variable still wins over it.",
+				OrkigeEditor::secretVaultService().c_str());
+		}
+		else
+		{
+			ImGui::TextDisabled("Passwords are not kept here at all - this "
+				"machine has no credential store the editor can use.");
+			ImGui::SetItemTooltip("a password would only ever go to the "
+				"platform's own credential store, never to a file. Where "
+				"there is none, the environment is the way.");
 		}
 		if (!gUi.storeError.empty())
 		{

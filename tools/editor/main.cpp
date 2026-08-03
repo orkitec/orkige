@@ -113,6 +113,7 @@
 #include "EditorAutosave.h"
 #include "EditorBuildInfo.h"	// --version / the About box build identity
 #include "EditorBuildSettings.h"	// the committed/machine build-settings split
+#include "EditorSecretStore.h"	// signing passwords: the OS vault, never a file
 #include "EditorControlServer.h"
 #include "EditorIdeServer.h"	// Claude-IDE integration (lock + MCP-over-WebSocket)
 #include "EditorMcpConfigFile.h"	// project-scope .mcp.json discovery-file reconciler
@@ -462,6 +463,12 @@ int main(int argc, char** argv)
 	{
 		claudeIdeEnabled = !automatedRun;
 	}
+	// the signing-password store, on the same rule and for a stronger reason:
+	// an automated run installs NO vault, so no scripted editor can prompt for
+	// keychain access or read the person's real credentials, whatever it goes
+	// on to do (@see EditorSecretStore.h). This is the ONE call that reaches a
+	// platform credential API in the whole editor.
+	OrkigeEditor::installPlatformSecretVault(automatedRun);
 
 	int exitCode = 0;
 
@@ -14076,6 +14083,14 @@ int main(int argc, char** argv)
 					"a saved credential reads back");
 				require(reloaded.count("android.release.keystorePassword") == 0,
 					"a password is not storable");
+				// a password goes to the OS credential store instead - and an
+				// automated run installs none, so THIS run cannot reach the
+				// person's real one (@see EditorSecretStore.h)
+				require(OrkigeEditor::secretVault() == nullptr,
+					"an automated run installs no credential store");
+				require(!OrkigeEditor::isMachineSettingKey(
+					"android.release.keystorePassword"),
+					"a vault key is not a file key");
 				// ...and none of it reached the project a person commits
 				std::string manifestText;
 				{

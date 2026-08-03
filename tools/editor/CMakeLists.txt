@@ -64,6 +64,13 @@ add_library(orkige_editor_core STATIC
     # every project tree - unit-tested headlessly (EditorBuildSettingsTests)
     EditorBuildSettings.h
     EditorBuildSettings.cpp
+    # where a signing PASSWORD lives: the operating system's own credential
+    # store, keyed per project and per slot. The portable half (the keying, the
+    # environment-wins-then-vault order, the automated-run refusal) is here and
+    # unit-tested against an injected vault; the platform backend is one TU
+    # below, and editor_core installs NONE of its own
+    EditorSecretStore.h
+    EditorSecretStore.cpp
     EditorTextDiagnostics.h
     EditorTextDiagnostics.cpp
     # the PURE half of the Claude-IDE integration (lock model + MCP message
@@ -122,6 +129,30 @@ target_link_libraries(orkige_editor_core PRIVATE tinyxml2::tinyxml2)
 # libvterm is an implementation detail of EditorTerminalScreen.cpp; the header
 # exposes only the editor's own cell/grid vocabulary, so it links PRIVATE
 target_link_libraries(orkige_editor_core PRIVATE libvterm::vterm)
+
+# The credential store's platform backend: EXACTLY ONE of these is compiled,
+# and each defines the same platformSecretVault() the portable half calls.
+# Linux gets the honest refusal rather than a file-based substitute - the
+# reasoning is in EditorSecretStoreNone.cpp.
+if(APPLE)
+    # the Keychain, through Security.framework's C API (ObjC++ for the
+    # framework include, like engine_input/HapticBridgeApple.mm)
+    target_sources(orkige_editor_core PRIVATE EditorSecretStoreApple.mm)
+    target_link_libraries(orkige_editor_core PRIVATE
+        "-framework Security"
+        "-framework CoreFoundation"
+    )
+elseif(WIN32)
+    # the Credential Manager (CredRead/CredWrite/CredDelete live in Advapi32)
+    target_sources(orkige_editor_core PRIVATE EditorSecretStoreWindows.cpp)
+    target_link_libraries(orkige_editor_core PRIVATE Advapi32)
+    # <wincred.h> needs <windows.h> ahead of it, which the PCH force-includes
+    # after OGRE's own headers - the same opt-out EditorTerminalPty.cpp takes
+    set_source_files_properties(EditorSecretStoreWindows.cpp PROPERTIES
+        SKIP_PRECOMPILE_HEADERS ON)
+else()
+    target_sources(orkige_editor_core PRIVATE EditorSecretStoreNone.cpp)
+endif()
 
 # PCH (no imgui here - EditorCore stays UI-independent and does not link it)
 target_precompile_headers(orkige_editor_core PRIVATE

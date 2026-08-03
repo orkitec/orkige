@@ -594,9 +594,16 @@ browser are not there yet).
   **Build > Project Settings** window, whose `tools/editor/EditorBuildSettings.h`
   owns the split: the committed `export.*` group in the manifest, the
   machine-local credential group in a PER-PROJECT file under the editor's
-  writable state directory (never inside a project tree), and **passwords stored
-  nowhere at all** — they stay in the environment, which is where the signing
-  step reads them from. The credential model is a platform x purpose matrix
+  writable state directory (never inside a project tree), and **passwords in
+  the OS credential store, never in a file** —
+  `tools/editor/EditorSecretStore.h` (macOS Keychain / Windows Credential
+  Manager; Linux refuses honestly rather than pull in libsecret, and NO
+  platform gets a plaintext fallback), keyed per project and per slot, with
+  the order **environment wins, then the vault, then not set** so CI and
+  scripted builds never depend on a desktop keyring. The platform backend is
+  installed ONLY by an interactive editor launch (`installPlatformSecretVault`
+  refuses on the `automatedRun` probe), so no test run can prompt for keychain
+  access or read the user's credentials. The credential model is a platform x purpose matrix
   (development and distribution take different identities) with three honest
   cell states: automatic, applied, and shown-but-not-wired
   (`Docs/store-release.md`, `Docs/ios-signing.md`).

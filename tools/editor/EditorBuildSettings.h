@@ -32,22 +32,24 @@
 //!   (@ref buildSettingsPath), which is outside every project tree by
 //!   construction.
 //!
-//! @par Passwords are not the third group - they are stored NOWHERE
-//! A keystore password written into any file the editor owns is a plaintext
-//! secret sitting on disk for the lifetime of the project, protected by nothing
-//! but file permissions. The packaging scripts never needed one there: a
-//! password reaches `jarsigner` through `-storepass:env`, so it is read from the
-//! process environment and never even reaches a command line. Storing a copy
-//! would therefore ADD an exposure without removing a step. So a password slot
-//! (@ref BuildCredentialStorage::Secret) carries no store key at all - it is
-//! structurally unstorable - and the editor's only job is to report whether the
-//! environment holds one, and to name the variable that would.
+//! @par Passwords are not the third group - they live in the OS vault
+//! A keystore password written into any file the editor owns would be a
+//! plaintext secret sitting on disk for the lifetime of the project, protected
+//! by nothing but file permissions. So a password slot (@ref
+//! BuildCredentialStorage::Secret) carries no @ref BuildCredentialSlot::key at
+//! all - it is structurally unstorable HERE - and names itself in the
+//! platform's own credential store instead through @ref
+//! BuildCredentialSlot::vaultKey (@see EditorSecretStore.h), keyed per project
+//! and per slot. An explicit environment variable still WINS over the vault, so
+//! CI, headless runs and scripted builds never depend on a desktop keyring.
 //!
 //! @par The split is enforced, not just documented
 //! @ref machineSettingKeys and @ref projectSettingRows are disjoint by
 //! assertion, @ref sanitizeBuildSettings drops any key that is not a machine
 //! key before a write, and a Secret slot has an empty @ref
-//! BuildCredentialSlot::key so there is no route for one to be persisted.
+//! BuildCredentialSlot::key so there is no route for one to be persisted. The
+//! vault vocabulary (@ref secretVaultKeys) is a THIRD disjoint set: a key that
+//! opens a credential store is never a key a file may hold.
 //!
 //! Everything here is PURE except the four file functions at the bottom, which
 //! is what lets the whole vocabulary - and the secret split itself - be
@@ -101,6 +103,12 @@ namespace OrkigeEditor
 		//! BuildCredentialStorage::Secret - a password has no key BECAUSE it
 		//! has no home here.
 		Orkige::String			key;
+		//! the credential-store key of a @ref BuildCredentialStorage::Secret:
+		//! what the platform vault files this password under, per project
+		//! (@see EditorSecretStore.h). EMPTY for a Machine slot, and empty for
+		//! a Secret the editor does not keep at all - a cell that is not
+		//! @ref BuildCellState::Applied stores nothing, of either kind.
+		Orkige::String			vaultKey;
 		Orkige::String			label;
 		//! the environment variable the exporter falls back to (and, for a
 		//! Secret, the ONLY place the value ever lives)
@@ -186,6 +194,16 @@ namespace OrkigeEditor
 	//! @brief may @p key be written into the machine-settings file?
 	bool isMachineSettingKey(Orkige::String const & key);
 
+	//! @brief every key the PLATFORM VAULT may hold, and nothing else - the
+	//! passwords of the Applied cells. Derived from @ref buildTargetMatrix the
+	//! same way @ref machineSettingKeys is, and disjoint from it by assertion:
+	//! a vault key never names a file entry and a file key never names a
+	//! secret. @see EditorSecretStore.h
+	std::vector<Orkige::String> secretVaultKeys();
+
+	//! @brief may @p key be handed to the credential store?
+	bool isSecretVaultKey(Orkige::String const & key);
+
 	//! @brief is @p key one of the committed manifest Settings?
 	bool isProjectSettingKey(Orkige::String const & key);
 
@@ -207,11 +225,16 @@ namespace OrkigeEditor
 	//! @brief the file text for @p values (PURE, deterministic key order)
 	Orkige::String serializeBuildSettings(BuildSettingMap const & values);
 
+	//! @brief the name ONE project's machine-local credentials are filed under
+	//! (PURE): the readable leaf name plus a short digest of the absolute
+	//! root, so two projects called `game` on the same machine keep separate
+	//! credentials and a moved project starts from none rather than silently
+	//! inheriting. Carries no separator and no whitespace, because both the
+	//! settings file name and the vault account are built from it.
+	Orkige::String buildProjectScopeId(Orkige::String const & projectRoot);
+
 	//! @brief the machine-settings file NAME for a project (PURE).
-	//! @remarks per PROJECT, because a person has several: the readable leaf
-	//! name plus a short digest of the absolute root, so two projects called
-	//! `game` on the same machine keep separate credentials and a moved
-	//! project starts from none rather than silently inheriting.
+	//! @see buildProjectScopeId
 	Orkige::String buildSettingsFileName(Orkige::String const & projectRoot);
 
 	//! @brief the machine-settings directory: a subdirectory of the editor's

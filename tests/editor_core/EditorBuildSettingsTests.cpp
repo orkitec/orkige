@@ -13,6 +13,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "EditorBuildSettings.h"
+#include "EditorSecretStore.h"
 
 #include <core_project/Project.h>
 
@@ -94,6 +95,76 @@ namespace
 		std::ostringstream contents;
 		contents << file.rdbuf();
 		return contents.str();
+	}
+
+	//! the credential store as a map, so "the password went to the vault and
+	//! nowhere else" is one assertion on each side. Never the real one: the
+	//! suite must not prompt for keychain access or read whoever runs it.
+	class CountingVault : public OrkigeEditor::SecretVault
+	{
+	public:
+		std::map<std::string, std::string> entries;
+
+		Orkige::String name() const override { return "Test Vault"; }
+
+		OrkigeEditor::SecretResult read(
+			Orkige::String const & account) const override
+		{
+			OrkigeEditor::SecretResult result;
+			const std::map<std::string, std::string>::const_iterator found =
+				this->entries.find(account);
+			if(found == this->entries.end())
+			{
+				result.status = OrkigeEditor::SecretStatus::Missing;
+				return result;
+			}
+			result.status = OrkigeEditor::SecretStatus::Ok;
+			result.value = found->second;
+			return result;
+		}
+
+		OrkigeEditor::SecretResult write(Orkige::String const & account,
+			Orkige::String const & secret) override
+		{
+			this->entries[account] = secret;
+			OrkigeEditor::SecretResult result;
+			result.status = OrkigeEditor::SecretStatus::Ok;
+			return result;
+		}
+
+		OrkigeEditor::SecretResult erase(
+			Orkige::String const & account) override
+		{
+			this->entries.erase(account);
+			OrkigeEditor::SecretResult result;
+			result.status = OrkigeEditor::SecretStatus::Ok;
+			return result;
+		}
+	};
+
+	struct ScopedVault
+	{
+		explicit ScopedVault(OrkigeEditor::SecretVault * vault)
+		{
+			OrkigeEditor::setSecretVault(vault);
+		}
+		~ScopedVault() { OrkigeEditor::setSecretVault(0); }
+	};
+
+	//! the Android keystore password slot, straight out of the model
+	OrkigeEditor::BuildCredentialSlot keystorePasswordSlot()
+	{
+		for(BuildTargetCell const & cell : buildTargetMatrix())
+		{
+			for(BuildCredentialSlot const & slot : cell.slots)
+			{
+				if(slot.vaultKey == "android.release.keystorePassword")
+				{
+					return slot;
+				}
+			}
+		}
+		return OrkigeEditor::BuildCredentialSlot();
 	}
 }
 
@@ -420,12 +491,16 @@ TEST_CASE("credentials map onto the export request's own fields",
 TEST_CASE("a credential set in the editor never reaches the project",
 	"[buildsettings]")
 {
-	// the acceptance proof for the whole file: set every storable credential,
-	// write the project settings a person WOULD commit, save the manifest, and
-	// read the bytes back looking for any of the secrets.
+	// the acceptance proof for the whole file: set every storable credential
+	// AND a password, write the project settings a person WOULD commit, save
+	// the manifest, and read the bytes back - out of the project a person
+	// commits AND out of every file the editor itself writes - looking for any
+	// of the secrets. The password must be in the vault and nowhere else.
 	ScopedDirectory state("split_state");
 	ScopedDirectory projectDirectory("split_project");
 	ScopedStateDirectory redirect(state.path);
+	CountingVault vault;
+	ScopedVault installed(&vault);
 	const Orkige::String projectRoot = projectDirectory.path.string();
 
 	BuildSettingMap credentials;
@@ -444,6 +519,14 @@ TEST_CASE("a credential set in the editor never reaches the project",
 		"/Users/nobody/tools/SECRETBUNDLETOOL.jar";
 	Orkige::String error;
 	REQUIRE(saveBuildSettings(projectRoot, credentials, &error));
+
+	// ...and the password, which takes the other road entirely
+	const OrkigeEditor::BuildCredentialSlot password = keystorePasswordSlot();
+	REQUIRE_FALSE(password.vaultKey.empty());
+	REQUIRE(OrkigeEditor::storeSecret(password, projectRoot,
+		"SECRETPASSPHRASE", &error));
+	REQUIRE(vault.entries.size() == 1);
+	CHECK(vault.entries.begin()->second == "SECRETPASSPHRASE");
 
 	Orkige::Project project;
 	Orkige::String createError;
@@ -480,5 +563,34 @@ TEST_CASE("a credential set in the editor never reaches the project",
 		INFO(entry.path().string());
 		CHECK(entry.path().extension() != ".buildsettings");
 	}
+
+	// THE password rule, from both sides. Every file the editor itself wrote
+	// - the machine-settings file included, which is where a plaintext one
+	// would have gone - is read back byte for byte: the password appears in
+	// none of them, and neither does the key that would name it.
+	bool sawEditorFile = false;
+	for(std::filesystem::directory_entry const & entry :
+		std::filesystem::recursive_directory_iterator(state.path))
+	{
+		if(!entry.is_regular_file())
+		{
+			continue;
+		}
+		sawEditorFile = true;
+		const std::string text = readWholeFile(entry.path());
+		INFO(entry.path().string());
+		CHECK(text.find("SECRETPASSPHRASE") == std::string::npos);
+		CHECK(text.find(password.vaultKey) == std::string::npos);
+		// the machine group DID land in one of them, so this is not passing
+		// by writing nothing at all
+		if(text.find("SECRETKEYSTORE") != std::string::npos)
+		{
+			CHECK(text.find("android.release.keystore") != std::string::npos);
+		}
+	}
+	CHECK(sawEditorFile);
+	// the vault is what holds it, under this project's own account
+	CHECK(vault.entries.count(OrkigeEditor::secretVaultAccount(projectRoot,
+		password.vaultKey)) == 1);
 	project.close();	// leave no process-wide asset database behind
 }

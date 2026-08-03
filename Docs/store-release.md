@@ -11,8 +11,8 @@ credentials that are **machine-local and never committed**, and they **degrade
 honestly** — absent a credential (or a required tool), the exporter refuses and
 produces nothing, rather than a half-signed artifact that would only mislead.
 The config that IS safe to commit (bundle/package ids, team id, version) lives in
-the project manifest; the certificates, keystores and passwords stay on your
-machine in environment variables.
+the project manifest; the certificates and keystores stay on your machine, and
+the passwords stay in its credential store or its environment.
 
 The pieces that need no credential (the Android bundle module structure, the
 version/keystore config validation, the entitlements composition) are covered by
@@ -45,7 +45,7 @@ device. Each platform tab shows both purposes:
 | | Development | Distribution |
 |---|---|---|
 | **iOS** | signing identity + development provisioning profile (Play on a device, a development install) | distribution identity + App Store/ad-hoc profile |
-| **Android** | nothing to configure — a debug APK is signed with the shared debug keystore, created on this machine on demand | release keystore, key alias, bundletool jar, plus the two passwords in the environment |
+| **Android** | nothing to configure — a debug APK is signed with the shared debug keystore, created on this machine on demand | release keystore, key alias, bundletool jar, plus the two passwords (which go to the credential store, never to a file) |
 | **macOS** | nothing to configure — an export is signed ad-hoc, which runs on this machine | shown, not wired: distributing to other Macs needs a Developer ID identity and notarization |
 | **Windows** | nothing to configure — an exported executable is unsigned and runs here | shown, not wired: removing the SmartScreen warning needs your own code-signing certificate |
 
@@ -64,14 +64,58 @@ Each field falls back to its environment variable when left empty, so a machine
 already configured for the CLI needs no editing at all, and CI (which sets only
 the variables) is unaffected.
 
-### Passwords are stored nowhere
+### Passwords go to the operating system's credential store
 
-**The editor never writes a password to disk.** A keystore password kept in an
-editor settings file would be a plaintext secret sitting there for the lifetime
-of the project, and it would buy nothing: the signing step already reads
-passwords straight from the environment (`jarsigner -storepass:env`), so they
-never reach a command line either. A password therefore has no field — the row
-reports whether the environment holds one and names the variable that would.
+**No password is ever written into a file the editor owns.** A keystore password
+kept in an editor settings file would be a plaintext secret sitting there for the
+lifetime of the project, backed up as readable text with everything else. So a
+password takes a different road from every other credential: the platform's own
+vault, keyed per project and per slot.
+
+| Platform | Where a password goes |
+|---|---|
+| **macOS** | the **Keychain** (a generic-password item under the service `com.orkitec.orkige.signing`) |
+| **Windows** | the **Credential Manager** (a generic credential under the same service name, stored for this user on this machine) |
+| **Linux** | **nowhere** — see below |
+
+The account name is `<project>-<digest>/<slot>`, so two projects on one machine
+never share a password, a moved project starts from none rather than silently
+inheriting one, and the whole set is findable — and revocable — in the system's
+own credential UI.
+
+**The order is environment, then vault, then not set.** An `export`ed variable
+always wins: CI, headless runs and scripted builds must not depend on a desktop
+keyring, and someone debugging a signing problem must be able to override what is
+stored without emptying it first. When neither has one, the row says so and names
+*both* ways to provide it.
+
+**On Linux the editor keeps no password at all.** The desktop keyring is a
+session D-Bus service reached through libsecret, which would pull glib into every
+Linux build for a case that degrades to the environment on the same machine — and
+the Linux builds that run unattended have no session bus and no unlocked keyring
+anyway. There is no file-based substitute, because a file is the exposure this
+whole arrangement removes. The field says so and names the variable.
+
+#### What a vault protects, and what it does not
+
+It removes three real exposures: a secret that can be committed, a secret that
+rides into backups as readable text, and a secret readable by glancing at a file.
+It does **not** make a secret unreadable by a process you have already
+authorised — the same user, on the same machine, can ask the vault for it, which
+is exactly how the editor reads it back. Treat it as "not lying around", not as
+"locked away".
+
+The editor also does not push a stored password into its own process
+environment: everything it launches — the embedded terminal included — would
+inherit it. A build started from a shell therefore reads the variable from that
+shell, and the settings window says so rather than reporting a readiness the
+build would not agree with.
+
+Automated editor runs (the `ORKIGE_*_TEST` / `ORKIGE_DEMO_*` probes every ctest
+sets) install **no vault at all**, so a test run cannot prompt for keychain
+access or read the credentials of whoever is running it. For the same reason
+there is **no MCP verb** that reads or writes one: an agent that could would
+launder exactly the rule this split exists to enforce.
 
 ### Refusals
 
@@ -187,9 +231,11 @@ for the mount mechanics.
 The keystore path, the alias and the bundletool jar are settable in **Build ▸
 Project Settings ▸ Signing ▸ Android** (see
 [Build settings in the editor](#build-settings-in-the-editor)). The two
-**passwords are not**, on purpose — they are read straight from the environment
-by `jarsigner`, so they never appear on a command line, and the editor keeps no
-copy of them anywhere:
+**passwords** are settable there too, and go to this machine's credential store
+rather than to any file
+([Passwords go to the operating system's credential store](#passwords-go-to-the-operating-systems-credential-store)).
+A build started from a shell reads them from that shell — `jarsigner` takes them
+through `-storepass:env`, so they never appear on a command line:
 
 ```sh
 export ORKIGE_ANDROID_KEYSTORE="$HOME/keys/yourgame-upload.jks"
