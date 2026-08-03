@@ -111,6 +111,7 @@
 
 #include "EditorApp.h"
 #include "EditorAutosave.h"
+#include "PlaySimulatorPick.h"	// boot-path simulator pick (pure, unit-tested)
 #include "EditorBuildInfo.h"	// --version / the About box build identity
 #include "EditorBuildSettings.h"	// the committed/machine build-settings split
 #include "EditorSecretStore.h"	// signing passwords: the OS vault, never a file
@@ -1119,24 +1120,47 @@ int main(int argc, char** argv)
 					// over the arbitrary first pick: a never-booted device's
 					// cold first boot takes many minutes on a loaded runner,
 					// a warm re-boot seconds - the flow exercised is identical.
+					// The warm device wins even when a prior FAILED run left
+					// it Booted (only the passing path shuts it down again;
+					// a killed run cannot): it is shut down here and reused,
+					// instead of falling back to a cold stranger whose first
+					// boot can outlast the whole preparation budget - the
+					// pure decision is pickShutdownSimulator
+					// (PlaySimulatorPick.h).
 					std::error_code ignored;
 					if (std::filesystem::exists(ORKIGE_EDITOR_IOS_PLAYER_APP,
 						ignored))
 					{
 						const char* warmShutdown =
 							std::getenv("ORKIGE_CI_SIMULATOR_SHUTDOWN");
+						std::vector<OrkigeEditor::SimulatorPickCandidate>
+							candidates;
+						candidates.reserve(simulators.size());
 						for (SimulatorDevice const& device : simulators)
 						{
-							if (device.booted)
+							candidates.push_back({ device.name, device.udid,
+								device.booted });
+						}
+						OrkigeEditor::SimulatorShutdownPick pick;
+						if (OrkigeEditor::pickShutdownSimulator(candidates,
+							warmShutdown ? warmShutdown : "", pick))
+						{
+							if (pick.shutdownFirst)
 							{
-								continue;
+								oDebugWarn("editor.play", 0, "play simulator "
+									"- designated warm device '" << pick.name
+									<< "' (" << pick.udid << ") was left "
+									"Booted by an earlier run - shutting it "
+									"down to reuse its warm boot");
+								std::string shutdownOutput;
+								int shutdownExit = 0;
+								runProcessCapturedTimeout(
+									{ "/usr/bin/xcrun", "simctl", "shutdown",
+										pick.udid },
+									shutdownOutput, shutdownExit, 120000u);
 							}
-							if (playSession.simulatorUdid.empty() ||
-								(warmShutdown && device.udid == warmShutdown))
-							{
-								playSession.simulatorUdid = device.udid;
-								playSession.simulatorLabel = device.name;
-							}
+							playSession.simulatorUdid = pick.udid;
+							playSession.simulatorLabel = pick.name;
 						}
 					}
 				}
