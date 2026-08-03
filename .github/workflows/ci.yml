@@ -894,13 +894,17 @@ jobs:
       - name: Build + package the Android player (MUST pass)
         run: |
           cmake --build --preset android-emulator-debug-ci --target orkige_player
-          # a binary-cache hit skips source extraction, but the APK packer
+          # a binary-cache hit skips source extraction, but the assembly
           # pulls SDL's Java glue from the source tarball - prime the download
           # (classic mode from a neutral cwd; the repo root is manifest mode)
           if ! ls "$VCPKG_ROOT_DIR"/downloads/libsdl-org-SDL-release-3.*.tar.gz >/dev/null 2>&1; then
             (cd "$VCPKG_ROOT_DIR" && ./vcpkg install sdl3 --only-downloads)
           fi
-          tools/player/android/package_apk.sh build/android-emulator-debug-ci
+          # the APK is assembled by the host exporter, in process over the
+          # Android SDK's own programs - the same code a project export runs
+          cmake --build --preset linux-debug-next --target orkige_export
+          build/linux-debug-next/tools/exporter/orkige_export android-player \
+            --engine-build build/android-emulator-debug-ci
 
       - name: Build the host editor (drives the Play test)
         run: cmake --build --preset linux-debug-next
@@ -1091,13 +1095,17 @@ jobs:
       - name: Build + package the Android player (MUST pass)
         run: |
           cmake --build --preset android-emulator-debug-ci-classic --target orkige_player
-          # a binary-cache hit skips source extraction, but the APK packer
+          # a binary-cache hit skips source extraction, but the assembly
           # pulls SDL's Java glue from the source tarball - prime the download
           # (classic mode from a neutral cwd; the repo root is manifest mode)
           if ! ls "$VCPKG_ROOT_DIR"/downloads/libsdl-org-SDL-release-3.*.tar.gz >/dev/null 2>&1; then
             (cd "$VCPKG_ROOT_DIR" && ./vcpkg install sdl3 --only-downloads)
           fi
-          tools/player/android/package_apk.sh build/android-emulator-debug-ci-classic
+          # the APK is assembled by the host exporter, in process over the
+          # Android SDK's own programs - the same code a project export runs
+          cmake --build --preset linux-debug-classic --target orkige_export
+          build/linux-debug-classic/tools/exporter/orkige_export android-player \
+            --engine-build build/android-emulator-debug-ci-classic
 
       - name: Build the host editor (drives the Play test)
         run: cmake --build --preset linux-debug-classic

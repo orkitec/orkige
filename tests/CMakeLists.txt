@@ -2188,7 +2188,7 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # launched on an adb-connected device/emulator (temp scene delivered via
     # adb push + run-as, debug link over an 'adb forward tcp' bridge).
     # SKIPPED (exit 77) when no adb device has the APK installed - build
-    # (android-debug preset), package (tools/player/android/package_apk.sh)
+    # (android-debug preset), package (`orkige_export android-player`)
     # and adb install it. The host-side flow is portable across macOS and
     # Linux; Linux CI drives an x86_64 emulator while shipping builds remain
     # arm64-v8a.
@@ -3242,6 +3242,27 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(export_ios_simulator PROPERTIES SKIP_RETURN_CODE 77)
 
+        # the Android ASSEMBLY, run for real against this machine's own SDK
+        # without an android-* build tree: the engine source is synthesised
+        # (a CMake cache, a stand-in library and shader tree) and everything
+        # else is the real thing - the real Java glue, the real SDK programs,
+        # a real signed archive that `apksigner verify` and `aapt2 dump`
+        # accept. export_android proves the same road with a real cross tree,
+        # which most machines do not have; this one skips (77) only when the
+        # SDK build tools, a platform jar, a JDK or the SDL Java sources are
+        # missing. The no-shell property itself is a unit gate
+        # (ExportAndroidAssembleTests.cpp) - this asserts the other half, that
+        # the argv road produces a package the platform accepts.
+        add_test(NAME export_android_assemble
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_android_assemble_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/android-assemble"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_android_assemble PROPERTIES
+            SKIP_RETURN_CODE 77 TIMEOUT 600)
+
         add_test(NAME export_android
             COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
                 --repo "${Orkige_SOURCE_DIR}"
@@ -3526,6 +3547,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_rotation_android player_rotation_ios
         export_macos_lua export_macos_native export_macos_native_next
         export_ios_simulator export_android export_android_aab
+        export_android_assemble
         demo_plain_vulkan player_example_scene_vulkan editor_selfcheck_vulkan
         jumper_selfcheck editor_open_jumper_level render_facade_selfcheck)
     if(TEST ${integration_test})
@@ -3556,7 +3578,8 @@ foreach(play_test player_debug_pause player_script_debug
         player_roller_progression_selfcheck_next
         # the export tests package a whole bundle and (macos) run the
         # exported app for 90 frames; android runs javac/d8/aapt2
-        export_macos_lua export_ios_simulator export_android)
+        export_macos_lua export_ios_simulator export_android
+        export_android_assemble)
     if(TEST ${play_test})
         set_tests_properties(${play_test} PROPERTIES TIMEOUT 120)
     endif()

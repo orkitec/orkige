@@ -23,8 +23,8 @@ else()
 endif()
 # Android cross-build (preset android-debug): the engine's historical Android
 # code keys off the compiler-provided __ANDROID__, no extra define needed.
-# The player builds as the SDL-loaded shared lib libmain.so packaged into an
-# APK by tools/player/android/package_apk.sh.
+# The player builds as the SDL-loaded shared lib libmain.so the exporter
+# assembles an APK around (tools/exporter/ExportAndroidAssemble.h).
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     set(ORKIGE_ANDROID TRUE)
     # The Ninja generator otherwise chooses the host clang-scan-deps binary,

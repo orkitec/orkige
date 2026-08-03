@@ -3,10 +3,11 @@
 # Everything asserted here is a DECISION: the manifest facts, the setting
 # vocabularies (orientation, launch background, Android version/assets/package),
 # the machine-local credential resolvers, the fixed Apple declarations
-# (entitlements, App Transport Security, the privacy manifest) and the image
-# arithmetic an icon set and a texture cook are built from. None of it needs a
-# certificate, a device or a build tree, which is exactly why it can be a hard
-# gate on every host.
+# (entitlements, App Transport Security, the privacy manifest), the image
+# arithmetic an icon set and a texture cook are built from, and the whole
+# Android package assembly - every program it spawns, decided up front by a
+# pure planner. None of it needs a certificate, an SDK, a device or a build
+# tree, which is exactly why it can be a hard gate on every host.
 
 find_package(Catch2 3 CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -24,6 +25,7 @@ add_executable(orkige_exporter_tests
     ExportPayloadTests.cpp
     ExportZipTests.cpp
     ExportMobileTests.cpp
+    ExportAndroidAssembleTests.cpp
     ExportWebTests.cpp
     TextureEncodeTests.cpp
     # the engine's zip READER, compiled straight in: the writer's round trip is

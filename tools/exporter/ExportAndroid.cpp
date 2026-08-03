@@ -8,6 +8,7 @@
 *********************************************************************/
 #include "ExportAndroid.h"
 
+#include "ExportAndroidAssemble.h"
 #include "ExportBuildTree.h"
 #include "ExportFiles.h"
 #include "ExportIcons.h"
@@ -245,33 +246,7 @@ namespace OrkigeExport
 			}
 		}
 		//---------------------------------------------------------
-		//! the arguments both packaging scripts share, in the order they
-		//! expect them
-		void appendCommonArguments(std::vector<Orkige::String> & command,
-			Orkige::String const & payloadDirectory,
-			Orkige::String const & package, Orkige::String const & label,
-			Orkige::String const & resDirectory,
-			Orkige::String const & launchColour,
-			Orkige::String const & assetsMode,
-			Orkige::String const & outputPath)
-		{
-			command.push_back("--project-payload");
-			command.push_back(payloadDirectory);
-			command.push_back("--package");
-			command.push_back(package);
-			command.push_back("--label");
-			command.push_back(label);
-			command.push_back("--res-dir");
-			command.push_back(resDirectory);
-			command.push_back("--launch-color");
-			command.push_back(launchColour);
-			command.push_back("--assets");
-			command.push_back(assetsMode);
-			command.push_back("--output");
-			command.push_back(outputPath);
-		}
-		//---------------------------------------------------------
-		//! stage the launcher-icon res/ tree the packagers compile with aapt2
+		//! stage the launcher-icon res/ tree the assembly compiles with aapt2
 		bool stageAndroidRes(ExportProject const & project,
 			Orkige::String const & outputDirectory,
 			ExportEnvironment const & environment, Orkige::String & outResDir,
@@ -355,6 +330,18 @@ namespace OrkigeExport
 			}
 		}
 		return best;
+	}
+	//---------------------------------------------------------
+	Orkige::String androidVcpkgRoot(EnvironmentMap const & environment)
+	{
+		const Orkige::String named = lookup(environment, "VCPKG_ROOT");
+		if(!named.empty())
+		{
+			return named;
+		}
+		const Orkige::String home = lookup(environment, "HOME");
+		return home.empty() ? Orkige::String()
+			: ExportFiles::join(home, "Development/vcpkg");
 	}
 	//---------------------------------------------------------
 	std::vector<Orkige::String> androidSdkCandidates(
@@ -561,87 +548,6 @@ namespace OrkigeExport
 		return true;
 	}
 	//---------------------------------------------------------
-	std::vector<Orkige::String> androidApkArguments(
-		Orkige::String const & script, Orkige::String const & payloadDirectory,
-		Orkige::String const & package, Orkige::String const & label,
-		Orkige::String const & resDirectory,
-		Orkige::String const & launchColour, Orkige::String const & assetsMode,
-		Orkige::String const & orientation, Orkige::String const & outputPath,
-		Orkige::String const & engineBuild,
-		Orkige::String const & enginePayload,
-		AndroidToolchain const & tools)
-	{
-		std::vector<Orkige::String> command = { "bash", script };
-		appendCommonArguments(command, payloadDirectory, package, label,
-			resDirectory, launchColour, assetsMode, outputPath);
-		if(orientation != "auto")
-		{
-			command.push_back("--orientation");
-			command.push_back(androidScreenOrientation(orientation));
-		}
-		if(!tools.buildTools.empty())
-		{
-			command.push_back("--build-tools");
-			command.push_back(tools.buildTools);
-		}
-		if(!tools.javaHome.empty())
-		{
-			command.push_back("--java-home");
-			command.push_back(tools.javaHome);
-		}
-		if(!enginePayload.empty())
-		{
-			// the fetched-player shape: no build tree exists to read a stripped
-			// library, a flavor or a shader tree out of, so the payload names
-			// all four
-			command.push_back("--payload");
-			command.push_back(enginePayload);
-		}
-		else
-		{
-			command.push_back(engineBuild);
-		}
-		return command;
-	}
-	//---------------------------------------------------------
-	std::vector<Orkige::String> androidBundleArguments(
-		Orkige::String const & script, Orkige::String const & payloadDirectory,
-		Orkige::String const & package, Orkige::String const & label,
-		Orkige::String const & resDirectory,
-		Orkige::String const & launchColour, Orkige::String const & assetsMode,
-		Orkige::String const & orientation, Orkige::String const & outputPath,
-		Orkige::String const & engineBuild,
-		AndroidBundleOptions const & options)
-	{
-		std::vector<Orkige::String> command = { "bash", script };
-		appendCommonArguments(command, payloadDirectory, package, label,
-			resDirectory, launchColour, assetsMode, outputPath);
-		command.push_back("--version-code");
-		command.push_back(std::to_string(options.versionCode));
-		command.push_back("--version-name");
-		command.push_back(options.versionName);
-		if(orientation != "auto")
-		{
-			command.push_back("--orientation");
-			command.push_back(androidScreenOrientation(orientation));
-		}
-		command.push_back(engineBuild);
-		if(options.moduleOnly)
-		{
-			command.push_back("--module-only");
-		}
-		else
-		{
-			command.push_back("--keystore");
-			command.push_back(options.keystore.keystore);
-			command.push_back("--key-alias");
-			command.push_back(options.keystore.alias);
-			command.push_back("--bundletool");
-			command.push_back(options.bundletool);
-		}
-		return command;
-	}
-	//---------------------------------------------------------
 	std::vector<Orkige::String> androidSigningGaps(
 		AndroidKeystore const & keystore, Orkige::String const & bundletool)
 	{
@@ -701,9 +607,10 @@ namespace OrkigeExport
 		}
 		if(!fromPayload && environment.repoRoot.empty())
 		{
-			return report(error, "an Android package is assembled by the SDK "
-				"scripts beside the player (tools/player/android) - this "
-				"export has no engine source tree to run them from");
+			return report(error, "an Android package is assembled around the "
+				"manifest template and the Java glue beside the player "
+				"(tools/player/android) - this export has no engine source "
+				"tree to take them from");
 		}
 		if(fromPayload && request.bundle)
 		{
@@ -820,52 +727,45 @@ namespace OrkigeExport
 		const Orkige::String orientation =
 			orientationSetting(project.settings);
 
-		// the assembler comes from whichever engine source answered: the source
-		// tree beside the build, or the payload the player travelled in - so
-		// the script and the library it packages are always from one build
-		const Orkige::String scriptDirectory = fromPayload
-			? ExportFiles::join(source.devicePayload, "android")
-			: ExportFiles::join(environment.repoRoot, "tools/player/android");
+		// the assembly runs IN PROCESS over the Android SDK's own programs
+		AndroidPackageRequest packaging;
+		packaging.buildDirectory = fromPayload ? Orkige::String()
+			: source.buildDirectory;
+		packaging.devicePayload = source.devicePayload;
+		packaging.repoRoot = environment.repoRoot;
+		packaging.vcpkgRoot = androidVcpkgRoot(request.environment);
+		packaging.projectPayload = payloadDirectory;
+		packaging.launcherResources = resDirectory;
+		packaging.package = package;
+		packaging.label = project.name;
+		packaging.launchColour = launchColour;
+		packaging.assetsMode = assetsMode;
+		// only a NON-auto lock reaches the manifest, so an unconstrained
+		// project leaves the template byte-identical
+		packaging.screenOrientation = orientation == "auto"
+			? Orkige::String() : androidScreenOrientation(orientation);
+		packaging.bundle = request.bundle;
+		packaging.moduleOnly = request.options.moduleOnly;
+		packaging.versionCode = request.options.versionCode;
+		packaging.versionName = request.options.versionName;
+		packaging.bundletool = request.options.bundletool;
+		packaging.keystore = request.options.keystore;
+		packaging.environment = request.environment;
+		packaging.log = environment.log;
+		packaging.runner = environment.runner;
+		packaging.outputPath = request.bundle
+			? ExportFiles::join(outputDirectory, project.exeName() +
+				(request.options.moduleOnly ? ".aab.module.zip" : ".aab"))
+			: ExportFiles::join(outputDirectory, project.exeName() + ".apk");
+
 		Orkige::String artifact;
-		std::vector<Orkige::String> command;
-		if(request.bundle)
-		{
-			artifact = ExportFiles::join(outputDirectory, project.exeName() +
-				(request.options.moduleOnly ? ".aab.module.zip" : ".aab"));
-			command = androidBundleArguments(
-				ExportFiles::join(scriptDirectory, "build_aab.sh"),
-				payloadDirectory, package, project.name, resDirectory,
-				launchColour, assetsMode, orientation, artifact,
-				source.buildDirectory, request.options);
-		}
-		else
-		{
-			artifact =
-				ExportFiles::join(outputDirectory, project.exeName() + ".apk");
-			command = androidApkArguments(
-				ExportFiles::join(scriptDirectory, "package_apk.sh"),
-				payloadDirectory, package, project.name, resDirectory,
-				launchColour, assetsMode, orientation, artifact,
-				source.buildDirectory, source.devicePayload, tools);
-		}
-		emit(environment.log, "$ " + commandLine(command));
-		const ProcessResult result = environment.runner(command);
+		const bool packaged = assembleAndroidPackage(packaging, tools, artifact,
+			error);
 		ExportFiles::removeTree(payloadDirectory, 0);
 		ExportFiles::removeTree(resDirectory, 0);
-		if(!result.launched)
+		if(!packaged)
 		{
-			return report(error, "could not run '" + command[0] + "'");
-		}
-		if(result.exitCode != 0)
-		{
-			return report(error, "command failed (exit " +
-				std::to_string(result.exitCode) + "): " + command[1] +
-				(result.output.empty() ? "" : " - " + result.output));
-		}
-		if(!ExportFiles::isRegularFile(artifact))
-		{
-			return report(error, ExportFiles::fileName(command[1]) +
-				" produced no '" + artifact + "'");
+			return false;
 		}
 		if(request.bundle && request.options.moduleOnly)
 		{

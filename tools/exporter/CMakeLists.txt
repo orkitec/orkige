@@ -49,6 +49,8 @@ add_library(orkige_exporter STATIC
     ExportIos.cpp
     ExportAndroid.h
     ExportAndroid.cpp
+    ExportAndroidAssemble.h
+    ExportAndroidAssemble.cpp
     ExportWeb.h
     ExportWeb.cpp
     ExportRun.h

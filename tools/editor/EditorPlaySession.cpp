@@ -1294,7 +1294,7 @@ bool startPlay(PlaySession& session,
 				oDebugError("editor.play", 0, "play failed - adb step '" <<
 					step[3] << "' on '" << session.androidLabel << "' (exit " <<
 					exitCode << "): " << output << " (is the player APK "
-					"installed? see tools/player/android/package_apk.sh)");
+					"installed? `orkige_export android-player`)");
 				endPlaySession(session, "adb deploy failed");
 				return false;
 			}
