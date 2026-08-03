@@ -22,6 +22,26 @@ other backend is a hard error (delete the tree, or use the matching preset).
 Presets carry the flavor — see the preset list in the top-level `CLAUDE.md`
 (`macos-debug`/`-classic`, `android-debug`/`-classic`, and so on).
 
+## The deviceless run
+
+`ORKIGE_RENDERSYSTEM=NULL` (or `headless`) boots the Ogre-Next flavor with **no
+window and no GPU**: SDL's video subsystem is never initialised, no OS window is
+created, and the render system is Ogre-Next's deviceless one. Everything above
+the facade behaves normally — scenes load, transforms compose through the render
+node graph, scripts tick, physics runs, frames advance and the process exits
+cleanly — so a runtime can hold a live world on a machine with no display
+server. `engine_render/RenderSystemSelection.h` is the one place the word is
+parsed; `player_deviceless_next` is the gate, and it is the one player
+registration in the `unit` label because a display is not among its
+prerequisites.
+
+Nothing is drawn, and the run is honest about it: the low-level shader tier
+(`.material`/`.program` media — sky, bloom, output grade) is not registered,
+because a deviceless render system has no GPU program manager to parse it into.
+Anything that reads pixels back is meaningless here, so pixel and parity gates
+stay on a real render system. The classic flavor carries no deviceless render
+system and refuses the request rather than opening a window nobody asked for.
+
 ## The containment rule
 
 Code above the backend never names `Ogre::`. The only zones allowed to are

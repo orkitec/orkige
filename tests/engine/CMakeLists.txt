@@ -6,6 +6,7 @@ find_package(Catch2 3 CONFIG REQUIRED)
 add_executable(orkige_engine_tests
     TestRunListener.cpp
     EngineTestEnvironment.h
+    DevicelessSelectionTests.cpp
     GuiAtlasTests.cpp
     NineSliceLayoutTests.cpp
     GuiLayoutIoTests.cpp

@@ -11,6 +11,7 @@
 
 #include "engine_graphic/Engine.h"
 #include "engine_render/RenderSystem.h"
+#include "engine_render/RenderSystemSelection.h"
 #include "engine_render/RenderWorld.h"
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderNode.h"
@@ -92,12 +93,34 @@ namespace Orkige
 	bool AppHost::initialise(AppHostConfig const & config)
 	{
 		this->mConfig = config;
-		if (!SDL_Init(SDL_INIT_VIDEO))
+		// DEVICELESS: the process was asked for no window and no GPU (@see
+		// engine_render/RenderSystemSelection.h). It still needs the event
+		// subsystem (the frame loop polls quit), but must NOT touch video -
+		// initialising it is exactly what fails on a machine with no display
+		// server, which is the situation this mode exists for.
+		this->mDeviceless = RenderSystemSelection::devicelessRequested();
+		if (this->mDeviceless && !RenderSystemSelection::devicelessAvailable())
+		{
+			// honest refusal beats booting a window nobody asked for
+			oDebugError("engine", 0, "AppHost: a deviceless run was requested "
+				"(ORKIGE_RENDERSYSTEM) but this build carries no deviceless "
+				"render system");
+			return false;
+		}
+		if (!SDL_Init(this->mDeviceless ? SDL_INIT_EVENTS : SDL_INIT_VIDEO))
 		{
 			oDebugError("engine", 0, "AppHost: SDL_Init failed: " << SDL_GetError());
 			return false;
 		}
 		this->mSdlInitialised = true;
+		if (this->mDeviceless)
+		{
+			// no SDL window at all: PlatformWindow answers its content scale
+			// and safe area from "no active window" (1.0 / zero insets), and
+			// the render system creates its own deviceless window below
+			logAttachPlatformStdio();
+			return this->initialiseEngineObjects(config);
+		}
 #if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
 		// mobile: fullscreen native window; SDL sizes it to the screen/surface
 		// regardless of the requested size (it renders at native scale via the
@@ -151,7 +174,11 @@ namespace Orkige
 			}
 		}
 #endif
-
+		return this->initialiseEngineObjects(config);
+	}
+	//---------------------------------------------------------
+	bool AppHost::initialiseEngineObjects(AppHostConfig const & config)
+	{
 		// the engine singletons, in the order Engine::setup depends on; the
 		// scripting seam must exist before the module init functions run so
 		// OrkigeMetaExport reaches the real backend state (otherwise it
@@ -177,9 +204,14 @@ namespace Orkige
 		this->mEngine = uptr<Engine>(new Engine(config.engineLogFile));
 #endif
 		// SDL may have clamped the request to the usable display bounds
+		// (a deviceless run has no SDL window: the requested size stands,
+		// and the render system's own window honours it exactly)
 		int actualWidth = config.windowWidth;
 		int actualHeight = config.windowHeight;
-		SDL_GetWindowSize(this->mWindow, &actualWidth, &actualHeight);
+		if (this->mWindow)
+		{
+			SDL_GetWindowSize(this->mWindow, &actualWidth, &actualHeight);
+		}
 		this->mEngine->setCustomWindowParam("width",
 			StringUtil::Converter::toString(actualWidth));
 		this->mEngine->setCustomWindowParam("height",
@@ -249,8 +281,9 @@ namespace Orkige
 		// (the browser's one canvas IS the window): an empty handle string
 		// makes the engine create its own render window instead of parsing
 		// a meaningless zero
-		void* const nativeWindowHandle =
-			orkige_native_window_handle(this->mWindow);
+		// (a deviceless run has no SDL window to embed into at all)
+		void* const nativeWindowHandle = this->mWindow
+			? orkige_native_window_handle(this->mWindow) : NULL;
 		if (!this->mEngine->setup(this->mConfig.windowTitle,
 			Engine::SHOW_NEVER, nativeWindowHandle
 				? StringUtil::Converter::toString(

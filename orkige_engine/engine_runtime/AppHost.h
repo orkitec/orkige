@@ -83,6 +83,10 @@ namespace Orkige
 		AppHostConfig				mConfig;
 		SDL_Window*					mWindow = nullptr;
 		bool						mSdlInitialised = false;
+		//! this process runs with NO window and NO GPU (@see
+		//! engine_render/RenderSystemSelection.h) - SDL's video subsystem is
+		//! never initialised and mWindow stays null
+		bool						mDeviceless = false;
 		uptr<GlobalEventManager>	mEventManager;
 		uptr<ScriptRuntime>			mScriptRuntime;
 		//! the archive-aware content reader installed into the core
@@ -102,6 +106,10 @@ namespace Orkige
 		//! resource-group init, a contended driver call) returns false - a clean
 		//! non-zero app exit - instead of escaping as an uncaught throw. @see setupEngine
 		bool setupEngineBody(std::function<void()> const & registerResources);
+		//! @brief the window-INDEPENDENT tail of initialise(): the engine
+		//! singletons and the per-flavor Engine construction/config. Both the
+		//! windowed and the deviceless path run exactly this.
+		bool initialiseEngineObjects(AppHostConfig const & config);
 	public:
 		AppHost();
 		//! mirrored teardown: world before engine, engine before the script/
@@ -164,6 +172,8 @@ namespace Orkige
 		optr<RenderNode> const & getCameraNode() const { return this->mCameraNode; }
 		GameObjectManager& getGameObjectManager() { return *this->mGameObjectManager; }
 		bool isAutomatedRun() const { return this->mConfig.automatedRun; }
+		//! no window, no GPU: the host booted the deviceless render system
+		bool isDeviceless() const { return this->mDeviceless; }
 	};
 
 	//! @brief quit-on-ESC through the engine input pipeline (SDL event ->
