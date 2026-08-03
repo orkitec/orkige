@@ -535,6 +535,18 @@ TEST_CASE("the newest installed SDK pieces are the ones taken",
 TEST_CASE("an Android SDK is FOUND rather than configured",
 	"[exporter][android]")
 {
+	// The candidates a home directory produces are built with ExportFiles::join
+	// and therefore carry the HOST's separator. What this case is about is
+	// WHICH directories are offered and in what ORDER, so the comparisons run
+	// on a separator-normalized form rather than on a POSIX-shaped literal -
+	// otherwise the assertion is about the runner, not about the lookup.
+	auto normalized = [](Orkige::String const & path)
+	{
+		Orkige::String result = path;
+		std::replace(result.begin(), result.end(), '\\', '/');
+		return result;
+	};
+
 	// the two variables people set, in order, then the place each platform's
 	// own installer puts one - so somebody who installed the tools and
 	// configured nothing is still found
@@ -545,9 +557,29 @@ TEST_CASE("an Android SDK is FOUND rather than configured",
 	const std::vector<Orkige::String> candidates =
 		androidSdkCandidates(environment);
 	REQUIRE(candidates.size() >= 3);
+	// a variable is taken VERBATIM - it names a directory, and the person who
+	// exported it wrote the separators they meant
 	REQUIRE(candidates[0] == "/srv/sdk");
 	REQUIRE(candidates[1] == "/opt/android");
-	REQUIRE(candidates[2].find("/home/dev") == 0);
+	// ...and after them, at least one place under the home directory itself
+	size_t homeDerived = 0;
+	for(size_t index = 2; index < candidates.size(); ++index)
+	{
+		if(normalized(candidates[index]).rfind("/home/dev/", 0) == 0)
+		{
+			++homeDerived;
+		}
+	}
+	REQUIRE(homeDerived >= 1);
+
+	// the Windows installer's own location, which is where a machine with no
+	// variable set and no HOME keeps one
+	EnvironmentMap windowsLike;
+	windowsLike["LOCALAPPDATA"] = "C:/Users/dev/AppData/Local";
+	const std::vector<Orkige::String> local =
+		androidSdkCandidates(windowsLike);
+	REQUIRE(local.size() == 1);
+	REQUIRE(normalized(local[0]) == "C:/Users/dev/AppData/Local/Android/Sdk");
 
 	// whitespace reads as absent, the same rule the signing resolvers use
 	EnvironmentMap blank;

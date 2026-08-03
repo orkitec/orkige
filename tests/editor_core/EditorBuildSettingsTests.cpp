@@ -446,12 +446,40 @@ TEST_CASE("a saved credential file is owner-only and holds no password",
 
 	const std::filesystem::path path = buildSettingsPath(projectRoot);
 	REQUIRE(std::filesystem::exists(path));
-	const std::filesystem::perms permissions =
-		std::filesystem::status(path).permissions();
-	CHECK((permissions & std::filesystem::perms::group_all) ==
+
+	// What is REQUESTED is the same everywhere, and asserting it here is what
+	// makes a widening of the restriction fail on every host rather than on
+	// whichever one happens to enforce it.
+	CHECK(buildSettingsFilePermissions() ==
+		(std::filesystem::perms::owner_read |
+		std::filesystem::perms::owner_write));
+	CHECK((buildSettingsFilePermissions() &
+		(std::filesystem::perms::group_all |
+		std::filesystem::perms::others_all)) ==
 		std::filesystem::perms::none);
-	CHECK((permissions & std::filesystem::perms::others_all) ==
-		std::filesystem::perms::none);
+
+	// What is ENFORCED is the platform's answer, and the file is checked
+	// against it - so a POSIX host still fails if the restriction stops being
+	// applied (a rename keeps the temporary's mode, so the write below it is
+	// load-bearing), while a host whose access control is ACL-based is not
+	// asked to prove a claim its filesystem cannot make. That gap is a KNOWN
+	// one, recorded in Docs/store-release.md: on such a platform the file
+	// keeps whatever its directory grants, and what it holds is a keystore
+	// path and a key alias - never a password, which lives in the OS vault.
+#if !defined(_WIN32)
+	// ...and the predicate is pinned to what this host really is, so it can
+	// never go quiet by answering false everywhere
+	CHECK(buildSettingsPermissionsEnforced());
+#endif
+	if(buildSettingsPermissionsEnforced())
+	{
+		const std::filesystem::perms permissions =
+			std::filesystem::status(path).permissions();
+		CHECK((permissions & std::filesystem::perms::group_all) ==
+			std::filesystem::perms::none);
+		CHECK((permissions & std::filesystem::perms::others_all) ==
+			std::filesystem::perms::none);
+	}
 
 	const BuildSettingMap reloaded = loadBuildSettings(projectRoot);
 	CHECK(reloaded == sanitizeBuildSettings(values));

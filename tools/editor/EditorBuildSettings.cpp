@@ -580,6 +580,27 @@ namespace OrkigeEditor
 		return parseBuildSettings(contents.str());
 	}
 	//---------------------------------------------------------
+	std::filesystem::perms buildSettingsFilePermissions()
+	{
+		return std::filesystem::perms::owner_read |
+			std::filesystem::perms::owner_write;
+	}
+	//---------------------------------------------------------
+	bool buildSettingsPermissionsEnforced()
+	{
+#if defined(_WIN32)
+		// Windows access control is an ACL on the object, which the standard
+		// filesystem library does not model: a permissions() call there sets
+		// the read-only attribute and nothing more. Restricting this file to
+		// its owner needs a DACL written through the platform's own security
+		// API, which the editor does not do yet - so this answers false
+		// instead of letting a caller (or a test) believe otherwise.
+		return false;
+#else
+		return true;
+#endif
+	}
+	//---------------------------------------------------------
 	bool saveBuildSettings(Orkige::String const & projectRoot,
 		BuildSettingMap const & values, Orkige::String * error)
 	{
@@ -618,11 +639,12 @@ namespace OrkigeEditor
 			}
 		}
 		// owner-only BEFORE the rename, so the file is never briefly readable
-		// under its final name (the MCP token file's precedent)
+		// under its final name (the MCP token file's precedent). The call is
+		// unconditional: where the filesystem models POSIX mode bits this is
+		// the restriction, and where it does not the request is simply not
+		// honored (@see buildSettingsPermissionsEnforced)
 		std::error_code permissionError;
-		std::filesystem::permissions(temporary,
-			std::filesystem::perms::owner_read |
-			std::filesystem::perms::owner_write,
+		std::filesystem::permissions(temporary, buildSettingsFilePermissions(),
 			std::filesystem::perm_options::replace, permissionError);
 		std::error_code renameError;
 		std::filesystem::rename(temporary, path, renameError);

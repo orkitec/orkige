@@ -11,6 +11,7 @@
 
 #include <core_util/String.h>
 
+#include <filesystem>
 #include <map>
 #include <vector>
 
@@ -252,7 +253,26 @@ namespace OrkigeEditor
 	//! an empty map, not an error - nothing configured is the normal state.
 	BuildSettingMap loadBuildSettings(Orkige::String const & projectRoot);
 
-	//! @brief write the machine settings for @p projectRoot, OWNER-ONLY.
+	//! @brief the permissions a written machine-settings file is restricted to
+	//! (PURE): the owner may read and write it, and nobody else is named at
+	//! all. Spelled once here so the requested restriction is assertable on
+	//! every host, including the ones whose filesystem cannot apply it.
+	std::filesystem::perms buildSettingsFilePermissions();
+
+	//! @brief whether this platform's filesystem ENFORCES those permissions.
+	//!
+	//! POSIX mode bits say exactly what @ref buildSettingsFilePermissions
+	//! means and the kernel holds everyone to it. Windows governs access with
+	//! ACLs, and the standard filesystem library can express only a read-only
+	//! flag there, so the restriction is REQUESTED and not applied: the file
+	//! keeps whatever its directory grants. This reports that rather than
+	//! implying otherwise, and `Docs/store-release.md` carries the gap in full
+	//! - including what is and is not exposed by it.
+	bool buildSettingsPermissionsEnforced();
+
+	//! @brief write the machine settings for @p projectRoot, restricted to its
+	//! owner where the platform enforces that (@see
+	//! buildSettingsPermissionsEnforced).
 	//! @return false with an honest @p error when there is nowhere to write.
 	//! @remarks the values are sanitized first, so a caller cannot persist a
 	//! key the model does not declare - passwords included, which have no key.
