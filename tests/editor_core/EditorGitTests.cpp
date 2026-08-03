@@ -255,3 +255,31 @@ TEST_CASE("gitResolveRepoRoot returns empty when git cannot spawn",
 	CHECK(gitResolveRepoRoot(GitRunner(), "/some/dir").empty());
 	CHECK(gitResolveRepoRoot(absent, "").empty());
 }
+
+TEST_CASE("a missing git is told apart from a folder outside a repository",
+	"[unit][editor][git]")
+{
+	// BOTH of these resolve to "", which is why the empty string alone cannot
+	// drive the panel's message: one names a program to install, the other is
+	// the ordinary state of a folder nobody ran `git init` in.
+	GitRunner absent = [](std::vector<std::string> const&, std::string&, int&)
+		{ return false; };			// the process could not be launched
+	GitRunner notARepo = [](std::vector<std::string> const&, std::string&,
+		int& exitCode) { exitCode = 128; return true; };	// git ran, said no
+
+	bool present = true;
+	CHECK(gitResolveRepoRoot(absent, "/some/dir", &present).empty());
+	CHECK_FALSE(present);			// git is not on this machine
+
+	present = false;
+	CHECK(gitResolveRepoRoot(notARepo, "/some/dir", &present).empty());
+	CHECK(present);					// git IS here - the path just is not a repo
+
+	// a path that never gets probed leaves the answer UNTOUCHED rather than
+	// reporting a machine without git
+	present = true;
+	CHECK(gitResolveRepoRoot(absent, "", &present).empty());
+	CHECK(present);
+	// and the out-param stays optional: the old call shape still compiles
+	CHECK(gitResolveRepoRoot(absent, "/some/dir").empty());
+}

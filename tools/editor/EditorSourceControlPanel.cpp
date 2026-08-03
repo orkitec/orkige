@@ -95,6 +95,9 @@ namespace OrkigeEditor
 			std::string	projectRoot;	//!< the project the job ran for
 			std::string	root;			//!< the resolved repo root
 			bool		repoValid = false;
+			//! git could be launched at all (false = not installed / not on
+			//! PATH). Only meaningful when a resolve actually probed.
+			bool		gitPresent = true;
 			bool		ranOp = false;
 			GitResult	opResult;
 			GitStatus	status;
@@ -107,6 +110,10 @@ namespace OrkigeEditor
 			std::string	repoRoot;			//!< cached resolved repo root
 			bool		resolved = false;	//!< a refresh has completed once
 			bool		hasRepo = false;	//!< the project sits in a git repo
+			//! git itself is installed. Distinguishes "this folder is not under
+			//! version control" (ordinary) from "this machine has no git"
+			//! (a program to install) - the panel says which.
+			bool		gitPresent = true;
 			GitStatus	status;				//!< the grouped status for the panel
 			GitBadgeSnapshot	snapshot;	//!< the shared browser snapshot
 			std::string	statusLine;			//!< last op message / errors
@@ -154,7 +161,7 @@ namespace OrkigeEditor
 			std::string root = cachedRoot;
 			if (root.empty())
 			{
-				root = gitResolveRepoRoot(runner, projectRoot);
+				root = gitResolveRepoRoot(runner, projectRoot, &out.gitPresent);
 			}
 			out.root = root;
 			GitRepo repo{ runner, root };
@@ -284,6 +291,7 @@ namespace OrkigeEditor
 				svc.repoRoot = result.root;
 				svc.resolved = true;
 				svc.hasRepo = result.repoValid;
+				svc.gitPresent = result.gitPresent;
 				if (result.repoValid)
 				{
 					svc.status = result.status;
@@ -500,12 +508,25 @@ void drawSourceControlPanel(EditorState& state, ViewSettings& viewSettings,
 	}
 	ImGui::Separator();
 
-	// honest empty state: not a repo / git absent (only after a completed probe)
+	// honest empty state (only after a completed probe), and the two reasons are
+	// told APART: a missing git names a program to install, while a project
+	// outside a repository is the ordinary state of a new folder and needs no
+	// remedy but `git init`. Saying "or" left the user unable to act on either.
 	if (svc.resolved && !svc.hasRepo)
 	{
-		ImGui::TextWrapped(
-			"This project is not inside a git repository, or git is not "
-			"available on PATH. Source control is unavailable.");
+		if (!svc.gitPresent)
+		{
+			ImGui::TextWrapped(
+				"git is not installed on this machine (or not on PATH), so "
+				"source control is unavailable. Install git to use it - "
+				"nothing else in the editor requires it.");
+		}
+		else
+		{
+			ImGui::TextWrapped(
+				"This project is not inside a git repository. Run 'git init' "
+				"in the project folder to put it under version control.");
+		}
 		ImGui::End();
 		return;
 	}

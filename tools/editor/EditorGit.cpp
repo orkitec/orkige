@@ -366,11 +366,11 @@ namespace OrkigeEditor
 	}
 
 	std::string gitResolveRepoRoot(GitRunner const& run,
-		std::string const& pathInRepo)
+		std::string const& pathInRepo, bool* gitPresent)
 	{
 		if (!run || pathInRepo.empty())
 		{
-			return std::string();
+			return std::string();	// no probe made: presence stays unknown
 		}
 		std::error_code ec;
 		// resolve against a DIRECTORY: git -C needs one, and a file's parent is
@@ -386,10 +386,20 @@ namespace OrkigeEditor
 		}
 		std::string output;
 		int exitCode = 0;
-		if (!run({ "git", "-C", dir, "rev-parse", "--show-toplevel" },
-			output, exitCode) || exitCode != 0)
+		// the SPAWN result and the EXIT code answer different questions: a failed
+		// spawn means git is not on this machine, a non-zero exit means git ran
+		// and said no. Both yield "" here, so the distinction is reported out
+		// rather than collapsed - the panel tells the user which one it is.
+		const bool spawned =
+			run({ "git", "-C", dir, "rev-parse", "--show-toplevel" },
+				output, exitCode);
+		if (gitPresent)
 		{
-			return std::string();	// not a repo / git absent
+			*gitPresent = spawned;
+		}
+		if (!spawned || exitCode != 0)
+		{
+			return std::string();	// git absent, or this path is not a repo
 		}
 		return trimTrailing(output);
 	}

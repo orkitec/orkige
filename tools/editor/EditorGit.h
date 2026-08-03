@@ -180,8 +180,15 @@ namespace OrkigeEditor
 	//! file or directory path) via `git -C <dir> rev-parse --show-toplevel`. "" on
 	//! a non-repo / git-absent / bad path. Uses the passed absolute path, never the
 	//! process cwd (a .app bundle's cwd is not the source tree). @see GitRunner.
+	//! @param gitPresent optional out: false ONLY when the process could not be
+	//! launched at all (git is not installed / not on PATH), true when git ran and
+	//! merely reported that this path is not inside a repository. The two are
+	//! different answers to the user - one names a program to install, the other
+	//! is the ordinary state of a folder nobody has put under version control -
+	//! and an empty return alone cannot tell them apart. A bad path reports the
+	//! presence UNKNOWN (left untouched), since no probe was made.
 	std::string gitResolveRepoRoot(GitRunner const& run,
-		std::string const& pathInRepo);
+		std::string const& pathInRepo, bool* gitPresent = nullptr);
 
 	//! @brief the repo-relative path (forward slashes) of an ABSOLUTE path under
 	//! `repoRoot`; "" when the path is outside the repo. PURE (a lexical/std::fs
