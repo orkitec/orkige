@@ -3231,6 +3231,31 @@ if(TARGET orkige_player)
         set_tests_properties(export_ios_simulator_run PROPERTIES
             SKIP_RETURN_CODE 77 TIMEOUT 900)
 
+        # ...and the SAME run for the package a DOWNLOADED editor produces. It
+        # carries no phone player, so it packages from a fetched device payload
+        # beside its own staged resources (Docs/device-payloads.md), and
+        # editor_bundle_ios proves the editor drives exactly that - by
+        # comparing BYTES. Bytes are not a game: a package whose engine media
+        # arrived from the payload rather than the source tree installs
+        # perfectly and can still boot into nothing, which is why the payload
+        # path gets the same install-and-launch verdict as the build tree. The
+        # payload is composed by the packaging tool's OWN function, so the
+        # shipped composition is what runs. Device-labeled and skipping 77 for
+        # the same reasons as its sibling above.
+        add_test(NAME export_ios_simulator_payload_run
+            COMMAND python3 "${ORKIGE_EXPORT_DEVICE_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform ios-simulator
+                --engine-source payload
+                --host-build "${CMAKE_BINARY_DIR}"
+                --engine-build "${Orkige_SOURCE_DIR}/build/ios-simulator-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/ios-simulator-payload-run"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_ios_simulator_payload_run PROPERTIES
+            SKIP_RETURN_CODE 77 TIMEOUT 900)
+
         add_test(NAME export_android_run
             COMMAND python3 "${ORKIGE_EXPORT_DEVICE_DRIVER}"
                 --repo "${Orkige_SOURCE_DIR}"
@@ -3503,7 +3528,8 @@ foreach(device_test editor_play_simulator editor_play_simulator_boot
         editor_play_android editor_play_ios_device player_safearea_device
         player_rotation_android player_rotation_ios
         http_device_android http_device_ios
-        export_ios_simulator_run export_android_run)
+        export_ios_simulator_run export_ios_simulator_payload_run
+        export_android_run)
     if(TEST ${device_test})
         # RESOURCE_LOCK: device tests share one simulator/emulator + adb -
         # they must not run concurrently when the suite runs with -j

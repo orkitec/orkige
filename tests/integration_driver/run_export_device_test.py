@@ -1,24 +1,33 @@
 #!/usr/bin/env python3
 """ctest driver for RUNNING a mobile export on a real device: package the
 project, install the artifact on an iOS Simulator / Android device, launch it
-and wait for the bundled project to boot.
+and wait for the bundled project to boot and render its frames.
 
     run_export_device_test.py --repo <root> --project <dir>
                               --exporter <orkige_export>
                               --platform ios-simulator|android
                               --engine-build <dir> --output <dir>
-                              [--deadline 300]
+                              [--engine-source build-tree|payload]
+                              [--host-build <dir>] [--deadline 300]
 
 The structural export tests (run_export_test.py) assert what a package
 CONTAINS. This one asserts that what it contains is enough: a payload missing a
 scene, a shader tree or a texture is a package that installs perfectly and then
 boots into nothing, which no amount of file-list checking catches.
 
+The ENGINE SOURCE is the second axis, because the same app is packaged two
+ways. `build-tree` is the developer case (the platform's preset tree). `payload`
+is what a DOWNLOADED editor does: it carries no phone player, so it packages
+from a FETCHED device payload beside its own staged resources
+(Docs/device-payloads.md). Byte-comparing the two packages proves they agree;
+only running one proves either is a game.
+
 Exit codes: 0 pass, 77 skip (no built player, no device, no SDK tool - the
 ctest SKIP_RETURN_CODE), anything else fail.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import plistlib
@@ -26,6 +35,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import xml.etree.ElementTree as ET
 
@@ -33,6 +43,14 @@ SKIP = 77
 #: the line the player prints once its project's scene is live - the proof the
 #: payload was complete enough to reach a running game
 BOOT_MARKER = re.compile(r"orkige_player: scene '.*' loaded \((\d+) GameObjects\)")
+#: ...and the line the frame-capped run prints when it ENDS. Booting proves the
+#: payload resolves; this proves the app RENDERED the frames it was asked for.
+FRAME_MARKER = re.compile(r"orkige_player: frame stats - (\d+) frames")
+#: the device payload an iOS-simulator package is fetched from, and the ordered
+#: version its install directory is named for (any release identity will do -
+#: nothing here is published)
+IOS_PAYLOAD_ID = "player-ios-simulator"
+PAYLOAD_VERSION = "2.0.0-nightly.20260802+abcdef123"
 
 
 def log(message):
@@ -71,11 +89,57 @@ def project_names(project_dir):
     return name, re.sub(r"[^A-Za-z0-9]", "", name)
 
 
-def export(exporter, project, platform, engine_build, output):
+def load_module(name, path):
+    """import a tool by path (the packaging tool is not on sys.path)"""
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def stage_device_payload(args, work):
+    """compose the platform's device payload from its preset build tree, plus
+    the host resource root a distributed editor carries beside it.
+
+    Both halves come from the PACKAGING tool's own functions, so what is under
+    test is the shipped composition rather than a second one written here.
+    Returns (payload dir, bundle resources dir), or ("", "") when this machine
+    built no such player."""
+    sys.path.insert(0, os.path.join(args.repo, "Util"))
+    packaging = load_module("orkige_nightly_package",
+                            os.path.join(args.repo, "Util",
+                                         "orkige_nightly_package.py"))
+    payload = os.path.join(work, "payloads", IOS_PAYLOAD_ID)
+    if not packaging.compose_device_payload(payload, IOS_PAYLOAD_ID,
+                                            args.engine_build,
+                                            PAYLOAD_VERSION,
+                                            commit="abcdef123"):
+        return "", ""
+    problems = packaging.device_payload_problems(payload, IOS_PAYLOAD_ID)
+    if problems:
+        fail("the composed %s payload is incomplete: %s"
+             % (IOS_PAYLOAD_ID, ", ".join(problems)))
+    # the editor's own staged resources - the OTHER engine source of the two a
+    # downloaded editor packages a phone build from
+    bundle = os.path.join(work, "bundle")
+    packaging.stage_engine_media(args.host_build, os.path.join(bundle, "Media"))
+    log("composed the %s payload the way a release publishes one (%s)"
+        % (IOS_PAYLOAD_ID, payload))
+    return payload, bundle
+
+
+def export(args, output, payload="", bundle=""):
     if os.path.exists(output):
         shutil.rmtree(output)
-    argv = [exporter, "--project", project, "--platform", platform,
-            "--engine-build", engine_build, "--output", output]
+    argv = [args.exporter, "--project", args.project,
+            "--platform", args.platform]
+    if payload:
+        # the two-source shape a downloaded editor uses: its own staged
+        # resources plus the fetched device player, and NO repository
+        argv += ["--engine-bundle", bundle, "--device-payload", payload]
+    else:
+        argv += ["--engine-build", args.engine_build]
+    argv += ["--output", output]
     log("$ " + " ".join(argv))
     result = subprocess.run(argv, capture_output=True, text=True)
     print(result.stdout, end="", flush=True)
@@ -110,6 +174,79 @@ def first_simulator():
     return ""
 
 
+class ConsoleTail(object):
+    """follow `simctl launch --console-pty` on a thread, keeping the app's own
+    output for the verdict.
+
+    The launch command is deliberately NOT waited on. An iOS app whose main
+    function returns stays alive in UIKit's run loop, so the console command
+    outlives the run it is streaming - waiting for it to return would time out
+    on a run that finished in seconds. The verdict is therefore what the APP
+    printed, and the driver stops both when it has it."""
+
+    def __init__(self, argv, environment):
+        self.lines = []
+        self.lock = threading.Lock()
+        log("$ " + " ".join(argv) + "   (streaming)")
+        self.process = subprocess.Popen(argv, stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, text=True,
+                                        errors="replace", bufsize=1,
+                                        env=environment)
+        self.thread = threading.Thread(target=self._pump, daemon=True)
+        self.thread.start()
+
+    def _pump(self):
+        try:
+            for line in self.process.stdout:
+                with self.lock:
+                    self.lines.append(line.rstrip("\n"))
+        except (OSError, ValueError):
+            pass
+
+    def text(self):
+        with self.lock:
+            return "\n".join(self.lines)
+
+    def finished(self):
+        """has the console command itself ended? It outlives a healthy run, so
+        this means the app is GONE - a crash, not a completion."""
+        return self.process.poll() is not None
+
+    def stop(self):
+        try:
+            self.process.terminate()
+            self.process.wait(timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                self.process.kill()
+            except OSError:
+                pass
+
+
+def await_marker(tail, pattern, deadline, what):
+    """wait for one of the app's own lines, or fail with its transcript"""
+    end = time.monotonic() + deadline
+    ended = 0.0
+    reason = "within %ds" % deadline
+    while time.monotonic() < end:
+        match = pattern.search(tail.text())
+        if match:
+            return match
+        if tail.finished():
+            # the console outlives a healthy run, so its end means the app
+            # died: drain the last lines, then report instead of waiting out
+            # the whole deadline on a process that is never coming back
+            if ended == 0.0:
+                ended = time.monotonic()
+            elif time.monotonic() - ended > 3.0:
+                reason = "- it stopped running first"
+                break
+        time.sleep(1.0)
+    print(tail.text()[-8000:], flush=True)
+    fail("the installed export never %s %s" % (what, reason))
+    return None
+
+
 def run_ios_simulator(args):
     if sys.platform != "darwin" or not shutil.which("xcrun"):
         skip("the iOS Simulator flow needs macOS with the Xcode command line "
@@ -124,10 +261,17 @@ def run_ios_simulator(args):
         skip("no BOOTED iPhone simulator (boot one with 'xcrun simctl boot')")
     log("using simulator " + udid)
 
+    payload = bundle = ""
+    if args.engine_source == "payload":
+        payload, bundle = stage_device_payload(
+            args, os.path.join(args.output, "engine-source"))
+        if not payload:
+            skip("no iOS Simulator player to compose a device payload from "
+                 "under '%s'" % args.engine_build)
+
     name, _exe = project_names(args.project)
-    export(args.exporter, args.project, "ios-simulator", args.engine_build,
-           args.output)
-    app = os.path.join(args.output, name + ".app")
+    export(args, os.path.join(args.output, "package"), payload, bundle)
+    app = os.path.join(args.output, "package", name + ".app")
     require(os.path.isdir(app), "the exporter produced an app bundle")
     with open(os.path.join(app, "Info.plist"), "rb") as handle:
         bundle_id = plistlib.load(handle)["CFBundleIdentifier"]
@@ -136,18 +280,25 @@ def run_ios_simulator(args):
         check=False)
     run(["xcrun", "simctl", "install", udid, app], timeout=300)
     log("installed " + bundle_id)
+    tail = None
     try:
-        # --console-pty attaches the app's stdout; the frame cap rides in as a
-        # child environment variable, so the app ends its own run
-        code, output = run(
-            ["xcrun", "simctl", "launch", "--console-pty", udid, bundle_id],
-            timeout=args.deadline, check=False)
-        print(output, end="", flush=True)
-        require(BOOT_MARKER.search(output) is not None,
-                "the installed export booted its bundled project")
-        require("FAILED" not in output,
-                "the run reported no failure")
+        # --console-pty attaches the app's stdout; the frame cap and the
+        # end-of-run measurement line ride in as child environment variables,
+        # so the app itself says when it is done
+        tail = ConsoleTail(["xcrun", "simctl", "launch", "--console-pty",
+                            udid, bundle_id], os.environ.copy())
+        await_marker(tail, BOOT_MARKER, args.deadline,
+                     "booted its bundled project")
+        log("ok: the installed export booted its bundled project")
+        frames = await_marker(tail, FRAME_MARKER, args.deadline,
+                              "reached its frame cap")
+        require(int(frames.group(1)) > 0,
+                "the installed export RENDERED frames (%s measured)"
+                % frames.group(1))
+        require("FAILED" not in tail.text(), "the run reported no failure")
     finally:
+        if tail is not None:
+            tail.stop()
         run(["xcrun", "simctl", "terminate", udid, bundle_id], timeout=120,
             check=False)
         run(["xcrun", "simctl", "uninstall", udid, bundle_id], timeout=120,
@@ -204,8 +355,7 @@ def run_android(args):
 
     _name, exe_name = project_names(args.project)
     package = android_package(args.project, exe_name)
-    export(args.exporter, args.project, "android", args.engine_build,
-           args.output)
+    export(args, args.output)
     apk = os.path.join(args.output, exe_name + ".apk")
     require(os.path.isfile(apk), "the exporter produced an APK")
 
@@ -243,12 +393,32 @@ def main():
     parser.add_argument("--project", required=True)
     parser.add_argument("--platform", required=True,
                         choices=["ios-simulator", "android"])
-    parser.add_argument("--engine-build", required=True)
+    parser.add_argument("--engine-build", required=True,
+                        help="the platform's preset build tree - the engine "
+                             "source itself, or (payload mode) the tree the "
+                             "device payload is composed from")
+    parser.add_argument("--engine-source", default="build-tree",
+                        choices=["build-tree", "payload"],
+                        help="package from the preset build tree (the "
+                             "developer case) or from a fetched device payload "
+                             "beside staged editor resources (what a "
+                             "downloaded editor does)")
+    parser.add_argument("--host-build", default="",
+                        help="payload mode: the host build tree the staged "
+                             "editor resources are composed from")
     parser.add_argument("--output", required=True)
     parser.add_argument("--deadline", type=int, default=300)
     args = parser.parse_args()
+    if args.engine_source == "payload" and not os.path.isdir(args.host_build):
+        fail("payload mode needs --host-build <configured build tree> to "
+             "compose the staged editor resources from")
 
     os.environ.setdefault("SIMCTL_CHILD_ORKIGE_DEMO_FRAMES", "120")
+    # the end-of-run measurement line is what says the frames HAPPENED
+    os.environ.setdefault("SIMCTL_CHILD_ORKIGE_DEMO_FPS_LOG", "1")
+    # the simulator's CoreAudio device is not usable from a test run: opening
+    # one times out inside CoreAudio and aborts the app before it ever boots a
+    # scene. The null backend keeps the audio system real without a device.
     os.environ.setdefault("SIMCTL_CHILD_ALSOFT_DRIVERS", "null")
     if args.platform == "ios-simulator":
         run_ios_simulator(args)

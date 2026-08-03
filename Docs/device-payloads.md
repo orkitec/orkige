@@ -174,6 +174,13 @@ same writable state root today, for the same read-only-bundle reason.
   automated-run veto.
 - `editor_bundle_ios` — a COPIED editor in a clean room that denies the
   repository: with a payload installed it exports an iOS simulator app out of
-  that payload alone, and without one it refuses with the way to get it.
+  that payload alone, and without one it refuses with the way to get it. Its
+  verdict is byte-level: the player it shipped is the payload's own.
+- `export_ios_simulator_payload_run` — the same package INSTALLED ON A
+  SIMULATOR AND LAUNCHED: it boots its bundled project and renders its frames.
+  Bytes are not a game — a package whose engine media arrived from the payload
+  rather than from a source tree installs perfectly and can still boot into
+  nothing, so the payload path carries the same install-and-launch verdict its
+  build-tree sibling `export_ios_simulator_run` does.
 - `orkige_nightly_package.py --selftest` — the asset name, the composition, the
   manifest a payload describes itself with, and the release notes' two states.
