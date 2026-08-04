@@ -59,6 +59,22 @@ namespace OrkigeExport
 	//! @brief the release-tree NAME for a flavor (PURE)
 	Orkige::String releaseTreeName(Orkige::String const & flavor);
 
+	//! @brief may an export substitute the sibling RELEASE tree's player for
+	//! the one in the build tree it was pointed at? (PURE)
+	//! @param buildType the named tree's CMAKE_BUILD_TYPE ("" when unknown)
+	//! @param testBuild is this a TEST BUILD (@see PayloadTestRun)?
+	//! @remarks the substitution exists for SHIPPING SPEED - a Debug player
+	//! runs far slower, and a developer exporting from a debug tree wants the
+	//! fast artifact. A TEST BUILD asks the opposite question: does the
+	//! runtime THIS tree produced still pass the project's suite once
+	//! packaged? A sibling tree is a different build of a different commit,
+	//! so packaging it answers about a binary nobody named - and a stale one
+	//! silently ignores the marker's `run-tests` directive and plays the game
+	//! instead, which is a hang rather than a verdict. Speed is worth nothing
+	//! to a suite, so a test build always packages the tree it was given.
+	bool prefersSiblingReleasePlayer(Orkige::String const & buildType,
+		bool testBuild);
+
 	//! @brief the tree's target architecture derived from its vcpkg triplet
 	//! ("arm64-osx" -> "arm64"), or "".
 	//! @remarks the exporter PINS a native-module build to it: without the

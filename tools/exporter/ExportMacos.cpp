@@ -185,12 +185,17 @@ namespace OrkigeExport
 	//---------------------------------------------------------
 	bool buildNativeModule(ExportProject const & project,
 		Orkige::String const & target, Orkige::String const & buildDirectory,
-		ExportEnvironment const & environment, Orkige::String & outExecutable,
+		ExportEnvironment const & environment, bool testBuild,
+		Orkige::String & outExecutable,
 		Orkige::String & outEngineTree, Orkige::String * error)
 	{
 		Orkige::String engineTree = buildDirectory;
 		const Orkige::String releaseTree = siblingReleaseTree(buildDirectory);
-		if(readCMakeCache(buildDirectory, "CMAKE_BUILD_TYPE") != "Release")
+		// the same rule the player takes: a TEST BUILD judges the tree it was
+		// pointed at, so it never links a sibling's engine
+		// (@see prefersSiblingReleasePlayer)
+		if(prefersSiblingReleasePlayer(
+			readCMakeCache(buildDirectory, "CMAKE_BUILD_TYPE"), testBuild))
 		{
 			if(ExportFiles::isRegularFile(ExportFiles::join(
 				ExportFiles::join(releaseTree, "orkige_engine"),
@@ -391,7 +396,7 @@ namespace OrkigeExport
 		else if(!nativeTarget.empty())
 		{
 			if(!buildNativeModule(project, nativeTarget, source.buildDirectory,
-				environment, executable, sourceTree, error))
+				environment, tests.enabled, executable, sourceTree, error))
 			{
 				return false;
 			}
@@ -399,13 +404,23 @@ namespace OrkigeExport
 		}
 		else
 		{
-			// prefer the RELEASE player: a Debug one runs far slower
+			// prefer the RELEASE player: a Debug one runs far slower - but
+			// never for a TEST BUILD, which exists to judge the tree it was
+			// pointed at (@see prefersSiblingReleasePlayer)
 			executable = ExportFiles::join(
 				ExportFiles::join(source.buildDirectory, "tools/player"),
 				"orkige_player");
 			sourceTree = source.buildDirectory;
-			if(readCMakeCache(source.buildDirectory, "CMAKE_BUILD_TYPE") !=
-				"Release")
+			if(tests.enabled)
+			{
+				emit(environment.log, "test build: packaging the player from "
+					"'" + source.buildDirectory + "' (the named tree), not a "
+					"release sibling - a suite judges the runtime this tree "
+					"produced");
+			}
+			if(prefersSiblingReleasePlayer(
+				readCMakeCache(source.buildDirectory, "CMAKE_BUILD_TYPE"),
+				tests.enabled))
 			{
 				const Orkige::String releaseTree =
 					siblingReleaseTree(source.buildDirectory);

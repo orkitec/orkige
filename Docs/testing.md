@@ -362,6 +362,15 @@ no third.
 
 **A test build is not shippable**, and the export says so while it works.
 
+**A test build packages the engine tree it was pointed at.** An ordinary macOS
+export prefers the sibling release tree's player when it is handed a debug one,
+because a debug player runs far slower and the artifact is meant to be played. A
+suite is not played, and the question it answers is *does the runtime THIS tree
+produced still pass once packaged* — a sibling is a different build of a
+different commit, so substituting it answers about a binary nobody named. The
+same rule covers a native module's engine tree. The export names the choice in
+its log.
+
 ### Why a package, not a flag
 
 A packaged app is launched with **no argv at all** — a phone taps an icon,
@@ -416,6 +425,13 @@ started), a report with no summary (the run died, naming the last test it
 reached), a summary over **zero tests** (the package carried no suite), and a
 nonzero verdict (the game's tests failed). A harness that reports success when
 nothing ran is worth less than no harness.
+
+They also refuse rather than **wait**. The runner writes its report's `meta`
+line before it runs one test, so that file appearing is the fact "the artifact
+entered the runner at all". An artifact that never does is not a slow suite —
+it is a package running the GAME, and a game runs forever. Neither driver pays
+for that at its deadline: no report inside a generous start window is its own
+named failure, and the desktop run is terminated rather than left playing.
 
 ## Making it a ctest
 

@@ -131,6 +131,16 @@ namespace OrkigeExport
 		return (flavor == "next") ? "macos-release" : "macos-release-classic";
 	}
 	//---------------------------------------------------------
+	bool prefersSiblingReleasePlayer(Orkige::String const & buildType,
+		bool testBuild)
+	{
+		if(testBuild)
+		{
+			return false;
+		}
+		return buildType != "Release";
+	}
+	//---------------------------------------------------------
 	Orkige::String siblingReleaseTree(Orkige::String const & buildDirectory)
 	{
 		const Orkige::String parent = std::filesystem::path(
