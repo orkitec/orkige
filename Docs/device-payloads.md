@@ -103,6 +103,14 @@ complete → rename it into place. Every step refuses out loud:
 | the release names another build | names both versions |
 | no network | says so — there is no offline path |
 
+The same fetch runs from a shell, for a machine with nobody in front of it:
+`orkige_editor fetch-payload <id>` installs one and
+`orkige_editor fetch-payload --list` names the directory each would live in
+([editor-cli.md](editor-cli.md)). An export through that door reads the same
+installation, so a build server fetches once and packages from then on; a
+missing player is refused there with the command that installs it rather than
+with the settings window it has no way to open.
+
 Nothing lands inside the application. A distributed bundle is signed and
 read-only, and an app that rewrites itself invalidates its own signature, so an
 installed payload lives at
@@ -273,7 +281,11 @@ same writable state root today, for the same read-only-bundle reason.
   program named, and no download offered for something no download provides),
   and both (the APK, carrying the payload's own library byte for byte). The
   project is pure Lua and no SDK pack exists anywhere in the room, so neither
-  refusal is allowed to mention one.
+  refusal is allowed to mention one. A fourth leg runs the same three questions
+  through the SHIPPED command line, with the payload placed in the directory
+  that installation names as its own rather than through the sideload override
+  — so the download and the export have to agree about where a player lives,
+  and the refusal is checked for the instruction a build server can act on.
 - `export_android_run` / `export_android_payload_run` — the APK INSTALLED ON AN
   EMULATOR AND LAUNCHED, from a build tree and from a payload. Bytes are not a
   game: a package whose player, media, dex and Java all arrived through a

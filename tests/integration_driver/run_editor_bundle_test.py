@@ -1123,6 +1123,60 @@ def check_android_apk(artifact, payload, abi):
         % (abi, library))
 
 
+def run_subcommand(executable, argv, stage_dir, env, sandbox_profile,
+                   seconds=900.0):
+    """one headless `orkige_editor <subcommand>` run in the clean room; returns
+    (exit code, merged output).
+
+    The shipped command line is the editor's own (`orkige_export` is a
+    development-tree tool and is not part of a release), so a build server on a
+    machine carrying only a downloaded Orkige packages through THIS door - and
+    it has to reach the same fetched player the window does."""
+    command = [executable] + list(argv)
+    if sandbox_profile:
+        command = ["/usr/bin/sandbox-exec", "-f", sandbox_profile] + command
+    process = subprocess.run(command, cwd=os.path.join(stage_dir, "cwd"),
+                             env=env, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True,
+                             errors="replace", timeout=seconds)
+    return (process.returncode, process.stdout)
+
+
+def ok_artifact(output):
+    """the artifact a successful subcommand names. The machine-readable half of
+    the contract is one line, `<program>: OK <path>`, spelled the same by every
+    door so a caller keys on one grep."""
+    for line in reversed(output.splitlines()):
+        if line.startswith("orkige_editor: OK "):
+            return line[len("orkige_editor: OK "):].strip()
+    fail("the subcommand reported no artifact: " + output)
+
+
+def payload_install_directory(executable, stage_dir, env, sandbox_profile,
+                              payload_id):
+    """where THIS installation keeps that payload, asked of the installation
+    itself.
+
+    The path carries the editor's render flavor and its ordered version, so it
+    cannot be spelled from outside without re-deriving both - and a test that
+    re-derived them would pass while the editor looked somewhere else, which is
+    exactly the failure this leg exists to catch."""
+    code, output = run_subcommand(executable, ["fetch-payload", "--list"],
+                                  stage_dir, env, sandbox_profile, seconds=120)
+    if code != 0:
+        fail("'fetch-payload --list' exited %d: %s" % (code, output))
+    for line in output.splitlines():
+        if payload_id not in line or " at " not in line:
+            continue
+        directory = line.rsplit(" at ", 1)[1].strip()
+        if not directory:
+            fail("'fetch-payload --list' names an empty directory for %s: %s"
+                 % (payload_id, line))
+        return directory
+    fail("'fetch-payload --list' names no directory for %s: %s"
+         % (payload_id, output))
+
+
 def run_android_export_leg(args, stage_dir, sandbox_profile):
     """a copied editor asked to package the open Lua project AS AN APK.
 
@@ -1239,6 +1293,52 @@ def run_android_export_leg(args, stage_dir, sandbox_profile):
                        "the Android export from the installed player")
     log("the copied editor exported '%s' from the installed player" % artifact)
     check_android_apk(artifact, payload, abi)
+
+    # (4) the SHIPPED command line, which is the door a build server has: the
+    # same three tiers, told with instructions a machine with no window can
+    # follow, and reading the payload out of the installation's OWN directory
+    # rather than through the sideload override the legs above use.
+    cli_env = scrubbed_env(stage_dir, toolchain)
+    installed = payload_install_directory(executable, stage_dir, cli_env,
+                                          sandbox_profile, "player-android")
+    if os.path.exists(installed):
+        fail("the clean room already holds an installed player at " + installed)
+    code, output = run_subcommand(
+        executable, ["export", "--project", project, "--platform", "android"],
+        stage_dir, cli_env, sandbox_profile, seconds=args.export_timeout)
+    if code == 0:
+        fail("the headless export packaged an APK with no player installed:\n"
+             + output)
+    reject_build_machine_paths(args, output, "the headless Android refusal")
+    if "fetch-payload" not in output:
+        fail("the headless refusal does not name the subcommand that installs "
+             "a player: " + output)
+    if "Build Targets" in output:
+        fail("the headless refusal sends a build server to a settings window: "
+             + output)
+    for forbidden in ("SDK pack", "sdk pack", "Orkige SDK"):
+        if forbidden in output:
+            fail("the headless refusal mentions an engine SDK pack for a Lua "
+                 "project: " + output)
+    log("the headless door refuses with the command that fixes it: "
+        + output.strip().splitlines()[-1])
+
+    # ...and with the payload where this installation keeps one, the SAME door
+    # packages the APK. Nothing points at it: the export finds it because both
+    # subcommands describe the install root the same way.
+    os.makedirs(os.path.dirname(installed), exist_ok=True)
+    shutil.copytree(payload, installed)
+    code, output = run_subcommand(
+        executable, ["export", "--project", project, "--platform", "android",
+                     "--output", os.path.join(stage_dir, "cli-out")],
+        stage_dir, cli_env, sandbox_profile, seconds=args.export_timeout)
+    if code != 0:
+        fail("the headless export failed with the player installed:\n" + output)
+    reject_build_machine_paths(args, output, "the headless Android export")
+    cli_artifact = ok_artifact(output)
+    log("the headless door packaged '%s' from the installed player alone"
+        % cli_artifact)
+    check_android_apk(cli_artifact, payload, abi)
 
 
 def run_ios_export_leg(args, stage_dir, sandbox_profile):

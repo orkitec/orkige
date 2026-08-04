@@ -52,6 +52,45 @@ namespace
 		return 1;
 	}
 	//---------------------------------------------------------
+	//! @brief where this installation keeps its fetched device players, and
+	//! which build they must belong to. ONE description, because `fetch-payload`
+	//! installs into it and `export` reads out of it - two subcommands that
+	//! disagreed about the directory would be a download nothing could find.
+	OrkigeEditor::EditorPayloadFetcher::Config payloadFetcherConfig()
+	{
+		OrkigeEditor::EditorPayloadFetcher::Config config;
+		config.version = Orkige::editorBuildVersion();
+		config.flavor = ORKIGE_EDITOR_RENDER_BACKEND;
+		config.rootDirectory =
+			OrkigeEditor::editorWritableStateDirectory() + "payloads";
+		return config;
+	}
+	//---------------------------------------------------------
+	//! @brief publish a fetcher as the process-wide one for as long as it is in
+	//! scope, and take it back down again.
+	//!
+	//! @remarks A device target's player is resolved through that one seam
+	//! wherever an export is planned from (@see planExport), and an interactive
+	//! editor publishes its fetcher the same way. Without this, a headless
+	//! export would look for an installed payload through a null seam and
+	//! conclude there is none - refusing a download that had already been
+	//! performed by this very program.
+	class ScopedPayloadFetcher
+	{
+	public:
+		explicit ScopedPayloadFetcher(
+			OrkigeEditor::EditorPayloadFetcher & fetcher)
+		{
+			gEditorPayloads = &fetcher;
+		}
+		~ScopedPayloadFetcher()
+		{
+			gEditorPayloads = nullptr;
+		}
+		ScopedPayloadFetcher(ScopedPayloadFetcher const &) = delete;
+		ScopedPayloadFetcher & operator=(ScopedPayloadFetcher const &) = delete;
+	};
+	//---------------------------------------------------------
 	//! `export`: the SAME plan-then-run pair the Build menu and the MCP verb
 	//! use. Nothing is spawned and nothing is re-implemented - what this door
 	//! adds is that it needs no window to walk through.
@@ -68,8 +107,15 @@ namespace
 		{
 			return fail(error);
 		}
+		// a phone target packages out of a FETCHED player, so this door has to
+		// be able to see one: the same installation root `fetch-payload` writes
+		// into, published on the same seam an interactive editor publishes its
+		// own fetcher on. No network client is attached - reading what is
+		// installed is all an export does with it.
+		OrkigeEditor::EditorPayloadFetcher payloads(payloadFetcherConfig());
+		const ScopedPayloadFetcher published(payloads);
 		const OrkigeEditor::EditorExportPlan plan =
-			planExport(project, command.platform);
+			planExport(project, command.platform, ExportDoor::CommandLine);
 		if(!plan.ok)
 		{
 			// the plan's refusal is already the complete, actionable sentence -
@@ -303,15 +349,27 @@ namespace
 	//---------------------------------------------------------
 	//! `fetch-payload --list`: what this installation can install, and what it
 	//! already has
-	int listPayloads(OrkigeEditor::EditorPayloadFetcher const & fetcher)
+	//!
+	//! @remarks The DIRECTORY is printed either way - where an installed payload
+	//! is, and where a missing one would land. "not installed" alone leaves the
+	//! one follow-up question ("so where does it go?") unanswered, and the
+	//! answer is a per-build path nobody can spell from outside: it carries this
+	//! editor's render flavor and its ordered version.
+	int listPayloads(OrkigeEditor::EditorPayloadFetcher const & fetcher,
+		OrkigeEditor::EditorPayloadFetcher::Config const & config)
 	{
 		const std::vector<OrkigeEditor::FetchablePayload> payloads =
 			OrkigeEditor::fetchablePayloads();
 		for(OrkigeEditor::FetchablePayload const & payload : payloads)
 		{
 			const String installed = fetcher.installedPath(payload.id);
+			const String directory = installed.empty()
+				? OrkigeEditor::payloadInstallDirectory(config.rootDirectory,
+					payload.id, config.flavor, config.version)
+				: installed;
 			say(payload.id + " - " + payload.label + " - " +
-				(installed.empty() ? String("not installed") : installed));
+				(installed.empty() ? String("not installed, would install at ")
+					: String("installed at ")) + directory);
 		}
 		return 0;
 	}
@@ -328,11 +386,8 @@ namespace
 	//! payload always lands.
 	int runFetchPayloadCommand(OrkigeEditor::EditorCliCommand const & command)
 	{
-		OrkigeEditor::EditorPayloadFetcher::Config config;
-		config.version = Orkige::editorBuildVersion();
-		config.flavor = ORKIGE_EDITOR_RENDER_BACKEND;
-		config.rootDirectory =
-			OrkigeEditor::editorWritableStateDirectory() + "payloads";
+		const OrkigeEditor::EditorPayloadFetcher::Config config =
+			payloadFetcherConfig();
 		OrkigeEditor::EditorPayloadFetcher fetcher(config);
 		fetcher.setProcessRunner(
 			[](std::vector<std::string> const & argv, std::string & output,
@@ -342,7 +397,7 @@ namespace
 			});
 		if(command.listPayloads)
 		{
-			return listPayloads(fetcher);
+			return listPayloads(fetcher, config);
 		}
 		OrkigeEditor::FetchablePayload payload;
 		if(!OrkigeEditor::findFetchablePayload(command.payloadId, payload))

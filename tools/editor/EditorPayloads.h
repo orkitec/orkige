@@ -217,6 +217,23 @@ namespace OrkigeEditor
 	//! @param hasNetworkClient does this build carry an HTTP transport at all?
 	Orkige::String payloadMissingMessage(FetchablePayload const & payload,
 		bool enabled, bool hasNetworkClient);
+
+	//! @brief the same refusal for the HEADLESS door, where the sentence above
+	//! would be unactionable: a build server has no settings window to switch a
+	//! platform on in, and the subcommand that installs a payload is the whole
+	//! answer there.
+	//!
+	//! @remarks There is no "switched on" half here. That setting decides what
+	//! an interactive installation OFFERS to download and keeps pruned; a
+	//! command line names the payload it wants, so an installed one is used and
+	//! a missing one is fetched by id. The two sentences stay two rather than
+	//! one with a branch, because they end on different instructions.
+	//!
+	//! @param hasNetworkClient does this build carry an HTTP transport at all?
+	//! A build without one cannot fetch anything, and saying "run
+	//! fetch-payload" to somebody it would also refuse is a dead end.
+	Orkige::String payloadMissingCommandMessage(
+		FetchablePayload const & payload, bool hasNetworkClient);
 }
 
 #endif //__EditorPayloads_h__2_8_2026__14_00_00__

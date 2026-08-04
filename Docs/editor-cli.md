@@ -98,6 +98,20 @@ The platform vocabulary and every artifact shape are the exporter's — see
 for the browser payload and [device-payloads.md](device-payloads.md) for what a
 phone build needs.
 
+A phone platform packages out of the installed device player, read from the same
+directory `fetch-payload` writes into — so the two subcommands are one workflow
+and neither needs to be told where the other put anything:
+
+```sh
+orkige_editor fetch-payload player-android
+orkige_editor export --project ~/games/roller --platform android
+```
+
+With no player installed the refusal names the command that installs one, rather
+than the settings window a build server does not have. That is the only thing
+about an export that differs between the two doors: the three prerequisite tiers
+are the same three tiers, told with an instruction the caller can follow.
+
 ### `--with-tests`: a package that runs the game's own suite
 
 `--with-tests` packages a **test build** instead of a shippable one: the
@@ -223,6 +237,11 @@ orkige_editor fetch-payload player-android  # install one
 
 It prints the install directory on success and one honest line on failure (an
 unstamped developer build can pair with no published release and says so).
+
+`--list` names the directory either way — where an installed payload is, and
+where a missing one would land. The path carries this editor's render flavor and
+its ordered version, so it is not a path anybody can spell from outside, and
+"not installed" on its own leaves the follow-up question unanswered.
 
 ## What is deliberately NOT here
 

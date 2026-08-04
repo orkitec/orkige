@@ -15,6 +15,7 @@
 #include "EditorPayloads.h"
 #include "EditorResourcePaths.h"
 
+#include <core_http/HttpClient.h>	// does this BUILD carry a transport at all
 #include <core_project/NativeModule.h>
 
 #include <ExportAndroid.h>
@@ -38,7 +39,8 @@
 //! subcommand needs and what keeps the process-wide AssetDatabase untouched
 //! either way (@see EditorApp.h).
 OrkigeEditor::EditorExportPlan planExport(
-	OrkigeExport::ExportProject const& project, std::string const& platform)
+	OrkigeExport::ExportProject const& project, std::string const& platform,
+	ExportDoor door)
 {
 	OrkigeEditor::EditorResourceLocator const& resources =
 		OrkigeEditor::editorResources();
@@ -90,14 +92,21 @@ OrkigeEditor::EditorExportPlan planExport(
 			OrkigeEditor::resolveInstalledPayload(payloadId, gEditorPayloads);
 		if (inputs.devicePayload.empty())
 		{
-			inputs.devicePayloadProblem = OrkigeEditor::payloadMissingMessage(
-				payload,
-				OrkigeEditor::isPayloadEnabled(
-					OrkigeEditor::parseEnabledPayloads(
-						gViewSettings != nullptr ? gViewSettings->buildTargets
-							: std::string()),
-					payloadId),
-				gEditorPayloads != nullptr);
+			// the same miss, told two ways. A window can be pointed at the
+			// switch that starts the download; a build server is pointed at the
+			// subcommand that performs it, because it has no window and its
+			// installation carries no build-targets setting at all.
+			inputs.devicePayloadProblem = door == ExportDoor::CommandLine
+				? OrkigeEditor::payloadMissingCommandMessage(payload,
+					Orkige::HttpClient::compiled())
+				: OrkigeEditor::payloadMissingMessage(
+					payload,
+					OrkigeEditor::isPayloadEnabled(
+						OrkigeEditor::parseEnabledPayloads(
+							gViewSettings != nullptr
+								? gViewSettings->buildTargets : std::string()),
+						payloadId),
+					gEditorPayloads != nullptr);
 		}
 	}
 	// ...and the THIRD kind of prerequisite, kept apart from both: programs

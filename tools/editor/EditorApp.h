@@ -260,8 +260,23 @@ struct ExportJob
 //! already avoids. A surface that HAS a project open passes
 //! @ref exportProjectFor; one that does not passes
 //! `OrkigeExport::ExportProject::readManifest`.
+//! @brief which door asked for a plan. Everything about an export is the same
+//! either way but ONE thing: a device player is fetched rather than carried, so
+//! a missing one has to be reported with an instruction the caller can actually
+//! follow - a settings window for a person, a subcommand for a build server.
+//! @remarks Not a second export path: it selects a SENTENCE, and the "switched
+//! on under Settings" question that sentence rests on. A command line has no
+//! settings window, so it uses whatever is installed and names the subcommand
+//! that installs the rest.
+enum class ExportDoor
+{
+	Window,			//!< the Build menu and the control endpoint
+	CommandLine		//!< the headless `export` subcommand (@see EditorCli.h)
+};
+
 OrkigeEditor::EditorExportPlan planExport(
-	OrkigeExport::ExportProject const& project, std::string const& platform);
+	OrkigeExport::ExportProject const& project, std::string const& platform,
+	ExportDoor door = ExportDoor::Window);
 
 //! @brief the exporter's view of the open project - the four manifest facts an
 //! export needs, copied out on the MAIN thread (Project is not thread-safe, and
