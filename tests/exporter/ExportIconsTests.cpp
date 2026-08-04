@@ -24,9 +24,28 @@
 #include "ExportProject.h"
 
 #include <filesystem>
-#include <unistd.h>
 
 using namespace OrkigeExport;
+
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
+namespace
+{
+	//! the calling process's id, spelled the way each platform spells it
+	long long currentProcessId()
+	{
+#if defined(_WIN32)
+		return static_cast<long long>(::_getpid());
+#else
+		return static_cast<long long>(::getpid());
+#endif
+	}
+}
+
 
 namespace
 {
@@ -43,8 +62,7 @@ namespace
 			// still writing - observed as makeMacosIconset returning false.
 			this->path = (std::filesystem::temp_directory_path() /
 				("orkige_icons_test_" + name + "_" +
-					std::to_string(
-						static_cast<long long>(::getpid())))).string();
+					std::to_string(currentProcessId()))).string();
 			ExportFiles::removeTree(this->path, 0);
 			ExportFiles::makeDirectories(this->path, 0);
 		}
