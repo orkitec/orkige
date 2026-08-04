@@ -1284,8 +1284,11 @@ invalidate every other open run.
 
 **Admins ARE bound by the checks** (`enforce_admins`), so an unverified commit
 to `main` is refused by GitHub rather than by discipline — verified by pushing
-one: `GH006: Protected branch update failed ... 14 of 14 required status checks
-are expected`. A fast-forward onto a green commit passes the same gate, because
+one: `GH006: Protected branch update failed ... required status checks are
+expected`. The cross-flavor parity gate is among the fifteen required contexts,
+which closes the one road around `fast-forward-main`: a pull request merged
+straight into `main` is judged on its HEAD, so without it a branch could land
+green on everything except parity. A fast-forward onto a green commit passes the same gate, because
 that commit carries the checks. **"Require a pull request before merging" is
 deliberately OFF**: it would block the fast-forward too, and a PR into `main`
 cannot preserve the property anyway — merge, squash and rebase each produce a
