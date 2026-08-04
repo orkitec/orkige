@@ -170,9 +170,13 @@ buys nothing there), Vulkan on Linux and Android:
   interface is `-framework Metal;-framework AppKit;-framework QuartzCore` on
   macOS, `-framework Metal;-framework QuartzCore` on iOS (no AppKit).
 
-All four also build the NULL render system (headless option), Hlms PBS + Unlit
+All four also build the NULL (headless) render system, Hlms PBS + Unlit
 components and rapidjson (a hard OgreMain 3.0 dependency: OgreRootLayout.cpp
-includes it unconditionally).
+includes it unconditionally). The NULL RS needs no portfile switch and has no
+`OGRE_BUILD_RENDERSYSTEM_NULL` to set: upstream's `RenderSystems/CMakeLists.txt`
+gates every other render system behind an option but adds this one
+unconditionally, so it is present on every triplet as a property of the
+upstream build rather than a choice this port makes.
 
 **Image codec** is FreeImage on desktop (decode + encode - screenshots need an
 encoder). Mobile drops the FreeImage dependency (`platform: "!ios & !android"`
