@@ -75,6 +75,12 @@ add_library(orkige_editor_core STATIC
     # EditorCliRun.cpp, in the executable below.
     EditorCli.h
     EditorCli.cpp
+    # the project TEST tier's editor-side decisions: the runner's JSONL run
+    # artifact accumulated into a result model, where a failure points, and
+    # what a run is made of (one leg per filter) - pure, unit-tested headlessly
+    # (EditorProjectTestsTests). Running one is EditorTestSession.cpp below.
+    EditorProjectTests.h
+    EditorProjectTests.cpp
     # where a signing PASSWORD lives: the operating system's own credential
     # store, keyed per project and per slot. The portable half (the keying, the
     # environment-wins-then-vault order, the automated-run refusal) is here and
@@ -247,6 +253,12 @@ add_executable(orkige_editor
     EditorScriptPanel.cpp
     EditorSourceControlPanel.h
     EditorSourceControlPanel.cpp
+    # the project's own Lua suite: the ONE seam that spawns the runner (the
+    # Tests panel and the run_project_tests MCP verbs share it) and the panel
+    EditorTestSession.h
+    EditorTestSession.cpp
+    EditorTestsPanel.h
+    EditorTestsPanel.cpp
     # the embedded terminal: the OS pty backend seam (POSIX openpty / Windows
     # ConPTY) and the dockable ImGui panel + its headless selfcheck
     EditorTerminalPty.h

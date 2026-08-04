@@ -127,6 +127,8 @@
 #include "GamePreviewStage.h"
 #include "EditorUiEditorPanel.h"
 #include "EditorSourceControlPanel.h"
+#include "EditorTestsPanel.h"
+#include "EditorTestSession.h"
 #include "EditorTerminalPanel.h"
 #include "EditorNativeKeyInject.h"
 #include "MeshPreviewStage.h"
@@ -3273,6 +3275,12 @@ int main(int argc, char** argv)
 			// worker, start a pending job) BEFORE the panels + Asset browser read
 			// its snapshot this frame. No-op during automated runs.
 			OrkigeEditor::sourceControlTick();
+			// advance the project test run: drain the runner's output into the
+			// Console and tail its artifact into the results. A no-op while
+			// nothing runs; driven here rather than from the panel so a run
+			// keeps progressing (and an agent polling over MCP keeps getting
+			// records) with the Tests tab closed.
+			OrkigeEditor::tickProjectTestSession(&console);
 			if (viewSettings.showScenePanel)
 			{
 				drawScenePanel(state, editorCore, !playSession.isActive(),
@@ -3422,6 +3430,14 @@ int main(int argc, char** argv)
 			// the showTerminalPanel flag mirrors "any terminal window open".
 			drawTerminalPanel(state, viewSettings, mcpTerminalUrl,
 				mcpTerminalTokenFile, &viewSettings.showTerminalPanel);
+			// the Tests panel (the open project's own Lua suite). The run it
+			// starts is the ONE session seam the MCP verbs drive too, so the
+			// tab being open or closed changes nothing about a run.
+			if (viewSettings.showTestsPanel)
+			{
+				OrkigeEditor::drawTestsPanel(state, viewSettings, console,
+					&viewSettings.showTestsPanel);
+			}
 			bool panelVisibilityChanged = false;
 #define ORKIGE_CHECK_PANEL_VISIBILITY(id, label, visible, member) \
 			panelVisibilityChanged |= \
@@ -16954,6 +16970,14 @@ int main(int argc, char** argv)
 			{
 				if (frameCount == 3)
 				{
+					// draw the Tests panel for the whole conversation: the
+					// project-test verbs this flavor drives are the panel's
+					// own session seam, so the view is exercised against a
+					// real run (empty, in flight, and finished) instead of
+					// the one surface a person uses going undrawn. Only the
+					// EDIT-WORLD flavor - the frame-exact input flavors must
+					// keep drawing exactly what they always drew.
+					viewSettings.showTestsPanel = (controlTestEnv != nullptr);
 					controlSelfTest.begin(controlServer.getPort(),
 						controlServer.getToken(), controlSelfTestEnv,
 						controlPlaytestEnv != nullptr,
@@ -17340,6 +17364,11 @@ int main(int argc, char** argv)
 		// terminate any live embedded-terminal child so a running shell never
 		// outlives the editor
 		OrkigeEditor::terminalPanelShutdown();
+
+		// the same for a test run: kill the runner and remove its temp report
+		// directory, so neither a player nor a stray artifact outlives the
+		// editor that asked for them
+		OrkigeEditor::shutdownProjectTestSession();
 
 		// a verified update installs HERE and nowhere else: the helper is
 		// launched now, waits for this process to exit, and only then moves

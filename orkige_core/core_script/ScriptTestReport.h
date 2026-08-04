@@ -95,6 +95,43 @@ namespace Orkige
 		//! @brief the one-line human verdict the runtime logs (the same facts
 		//! as the summary line, in prose): "12 passed, 1 failed, 0 errors".
 		String summaryText(ScriptTestSummary const & summary);
+
+		//--- reading ---------------------------------------------
+		//! what one artifact line turned out to be
+		enum class LineKind
+		{
+			None,		//!< blank, malformed, or a record kind this build
+						//!< does not know - never a partial fill
+			Meta,
+			Test,
+			Summary
+		};
+
+		//! @brief what a `meta` line carries. The run's identity, which a
+		//! reader needs to say WHICH run it is looking at.
+		struct MetaRecord
+		{
+			String	project;
+			String	utc;		//!< "" when the writer omitted it
+			String	filter;
+			int		files = 0;
+		};
+
+		//! @brief decode ONE artifact line, the exact inverse of the three
+		//! writers above.
+		//!
+		//! @remarks A reader lives beside the writer so the format has ONE
+		//! definition: whoever changes a field changes both, and the round
+		//! trip is a unit test rather than a hope. It is as pure as the
+		//! writers - a string in, a record out, no I/O - so the file that
+		//! carries the lines stays entirely the caller's business.
+		//!
+		//! Total: any malformed line, any line that is not a JSON object, and
+		//! any `record` value this build does not know yields @ref
+		//! LineKind::None and leaves every output untouched. A reader that
+		//! guessed would turn a truncated run into a wrong verdict.
+		LineKind parseLine(String const & line, MetaRecord & outMeta,
+			ScriptTestRecord & outRecord, ScriptTestSummary & outSummary);
 	}
 
 	/** @} */

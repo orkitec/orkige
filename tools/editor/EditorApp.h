@@ -460,6 +460,15 @@ struct ViewSettings
 	//! shell). Closed by default; it opens from the View menu and docks as a tab
 	//! in the bottom group beside Console. Inactive during automated runs.
 	bool showTerminalPanel = false;
+	//! Tests panel (the open project's own Lua suite: the test files, what a run
+	//! made of each test, and the failures with their file:line). Closed by
+	//! default; it opens from the View menu and docks as a tab in the bottom
+	//! group beside Console.
+	bool showTestsPanel = false;
+	//! Tests panel: the last test filter typed there. It is the RUNNER's filter
+	//! grammar (a plain substring over `<file>::<test name>`), so the same text
+	//! narrows the list and the run - never two spellings of one idea.
+	std::string testFilter;
 	//! Game Preview language axis: the language tag the .oui overlay resolves
 	//! `@key` captions in ("" = the project's source language). Persisted (key
 	//! `gui_preview_language`, kept for a clean migration) so the tab reopens on

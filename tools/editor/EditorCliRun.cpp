@@ -15,6 +15,7 @@
 #include "EditorBuildInfo.h"
 #include "EditorCli.h"
 #include "EditorPayloadFetcher.h"
+#include "EditorProjectTests.h"	// the ONE "can this project be tested" decision
 #include "EditorResourcePaths.h"
 
 #include <ExportProject.h>	// the manifest facts an export packages from
@@ -172,36 +173,34 @@ namespace
 		// Where the line falls matters: this asks only whether the directory
 		// exists. What counts as a test inside it, and what an empty one is
 		// worth, stay the runner's to decide.
-		const String testsDirectory = (std::filesystem::path(project.root) /
+		//
+		// The VERDICT on those facts is not made here. This door and the
+		// editor's Tests panel / MCP session run in different phases of one
+		// process and cannot share a code path, so they share the DECISION
+		// instead (@see EditorProjectTests.h) - a project that cannot be
+		// tested is refused in the same words whichever door asked.
+		const OrkigeEditor::EditorResourcePath player =
+			OrkigeEditor::editorResources().player();
+		std::error_code ignored;
+		OrkigeEditor::ProjectTestPreflight facts;
+		facts.projectName = project.name;
+		facts.projectOpen = true;	// the manifest above read
+		facts.testsDirectory = (std::filesystem::path(project.root) /
 			Orkige::ScriptTestTools::testsDirectoryName())
 			.lexically_normal().string();
-		std::error_code ignored;
-		if(!std::filesystem::is_directory(testsDirectory, ignored))
-		{
-			return fail("'" + project.name + "' has no test suite - a project "
-				"tests itself with '" +
-				Orkige::ScriptTestTools::testFileSuffix() + "' files under '" +
-				testsDirectory + "'");
-		}
+		facts.testsDirectoryExists =
+			std::filesystem::is_directory(facts.testsDirectory, ignored);
 		// the COMPILE-TIME fact, which is the only one available this early:
 		// `available()` also requires the runtime to be BOOTED, and nothing
 		// here has booted one. The player asks the identical question before
 		// its own boot, and both binaries come out of one build.
-		if(std::strcmp(Orkige::ScriptRuntime::backendName(), "none") == 0)
+		facts.scriptingAvailable =
+			std::strcmp(Orkige::ScriptRuntime::backendName(), "none") != 0;
+		facts.playerFound = player.found();
+		const String refusal = OrkigeEditor::projectTestRunRefusal(facts);
+		if(!refusal.empty())
 		{
-			// no interpreter means the question cannot be answered, and
-			// reporting a pass would be a lie
-			return fail("this build has no scripting backend "
-				"(ORKIGE_SCRIPTING=OFF), so it cannot run a Lua suite - use a "
-				"build with scripting enabled");
-		}
-		const OrkigeEditor::EditorResourcePath player =
-			OrkigeEditor::editorResources().player();
-		if(!player.found())
-		{
-			return fail("no player executable found - this build ships none "
-				"beside the editor and no build tree is reachable, so there "
-				"is nothing to run the suite in");
+			return fail(refusal);
 		}
 		std::vector<String> arguments = { player.path, "--project",
 			project.root, "--run-tests" };

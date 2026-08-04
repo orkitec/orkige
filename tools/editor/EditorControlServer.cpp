@@ -21,6 +21,8 @@
 #include "EditorControlServer.h"
 #include "EditorApp.h"
 #include "EditorScriptHost.h"
+#include "EditorTestSession.h"	// the ONE seam the project-test verbs share
+								// with the Tests panel
 #include "EditorViewModes.h"
 #include <ExportProject.h>	// the manifest slice the in-process export takes
 #include "AnimationPreviewStage.h"
@@ -2017,6 +2019,44 @@ namespace Orkige
 				  "'failed_durations', 'failed_logtails' (index-aligned; each "
 				  "logtail is the tail of that test's captured output).",
 				  { { "jobId", "string", "the id run_tests returned", true } } },
+				{ "list_project_tests",
+				  "The open PROJECT's own Lua test suite: the test FILES under "
+				  "'<project>/tests' (a project tests itself in Lua - this is NOT "
+				  "the engine's ctest suite, which is list_tests). Returns 'files' "
+				  "(project-relative paths) and 'names' (their stable ids), "
+				  "index-aligned. Only files: the individual tests a file declares "
+				  "exist only once its chunk has RUN, so those come back from "
+				  "run_project_tests. Read-only.",
+				  {} },
+				{ "run_project_tests",
+				  "Run the open PROJECT's own Lua suite (<project>/tests/*.test.lua) "
+				  "in this installation's player, which is what has a live world - a "
+				  "test that declares a scene needs one. NOT the engine's ctest suite "
+				  "(that is run_tests). ASYNC: returns accepted + 'legs'; poll "
+				  "get_project_test_results, which streams verdicts AS THEY LAND. "
+				  "'filter' is the runner's own grammar - a plain substring matched "
+				  "against '<file>::<test name>', so 'movement' selects a whole file "
+				  "and a test's name selects that case across files. failed='1' "
+				  "re-runs only what failed in the last run instead. Refused with no "
+				  "project, with no suite, in a build with no scripting backend, and "
+				  "while a run is already in flight.",
+				  { { "filter", "string",
+				      "substring over '<file>::<test name>' ('' = everything)",
+				      false },
+				    { "failed", "string",
+				      "'1' re-runs only the previous run's failures", false } } },
+				{ "get_project_test_results",
+				  "Poll the project Lua test run. 'status' is idle / running / "
+				  "cancelled / done, and the records so far ALWAYS come back - the "
+				  "runner flushes per test, so a run in flight already names what "
+				  "passed. Verdicts arrive as index-aligned lists: 'test_files', "
+				  "'test_names', 'test_status' (pass|fail|error), 'test_messages', "
+				  "'test_ms'. 'run_failure' is non-empty ONLY when the runner never "
+				  "reached a verdict (it crashed or was killed) - a suite whose TESTS "
+				  "failed leaves it empty and reports failed>0, and the two must not "
+				  "be confused. 'output_tail' carries the runner's own output for "
+				  "that case. Read-only.",
+				  {} },
 				{ "export_project",
 				  "Package the open project as a distributable via the export "
 				  "pipeline (tools/exporter, run in process). ASYNC: returns "
@@ -6714,6 +6754,147 @@ namespace Orkige
 			ok.set("jobId", jobPtr->id);
 			ok.set("build", doBuild ? "1" : "0");
 			ok.set("buildDir", buildDir);
+			this->sendOk(req, ok);
+			return;
+		}
+		//--- the open project's OWN Lua suite ----------------
+		// A different thing from the three verbs above: those drive ctest over
+		// the ENGINE's tests, these run the GAME's. They share nothing but the
+		// word "test", so they share no code either - and each keeps its own
+		// name so neither can be reached by accident.
+		//
+		// Both doors onto a project run - these verbs and the Tests panel - go
+		// through the ONE session seam (EditorTestSession.h) over the SAME pure
+		// planners, so an agent polling here and a person watching the panel
+		// are looking at one run, not two.
+		if (type == "list_project_tests")
+		{
+			if (!context.state || !context.state->project.isLoaded())
+			{
+				this->sendErr(req, "no project is open, and a test suite "
+					"belongs to a project");
+				return;
+			}
+			const std::vector<ScriptTestFile> files =
+				OrkigeEditor::scanProjectTests(
+					context.state->project.getRootDirectory());
+			StringVector paths;
+			StringVector names;
+			for (ScriptTestFile const& file : files)
+			{
+				paths.push_back(file.resourceName);
+				names.push_back(file.name);
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("count", std::to_string(files.size()));
+			ok.setList("files", paths);
+			ok.setList("names", names);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "run_project_tests")
+		{
+			if (!context.state)
+			{
+				this->sendErr(req, "no editor state");
+				return;
+			}
+			EditorState& state = *context.state;
+			// the SAME pure planners the panel's buttons use, so an agent can
+			// only ask for runs the tier actually has
+			OrkigeEditor::ProjectTestRunPlan plan;
+			if (request.get("failed") == "1")
+			{
+				plan = OrkigeEditor::planRerunFailedProjectTests(
+					OrkigeEditor::projectTestSessionReport());
+				if (plan.empty())
+				{
+					this->sendErr(req, "nothing failed in the last run (there "
+						"may not have been one)");
+					return;
+				}
+			}
+			else if (!request.get("filter").empty())
+			{
+				plan.filters.push_back(request.get("filter"));
+				plan.label = "filter '" + request.get("filter") + "'";
+			}
+			else
+			{
+				plan = OrkigeEditor::planAllProjectTests();
+			}
+			String error;
+			if (!OrkigeEditor::startProjectTestRun(plan,
+				state.project.getRootDirectory(), state.project.getName(),
+				context.console, error))
+			{
+				this->sendErr(req, error);
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("accepted", "1");
+			ok.set("legs", std::to_string(plan.filters.size()));
+			ok.set("label", plan.label);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "get_project_test_results")
+		{
+			const OrkigeEditor::ProjectTestSessionState session =
+				OrkigeEditor::projectTestSessionState();
+			OrkigeEditor::ProjectTestReport const& report =
+				OrkigeEditor::projectTestSessionReport();
+			DebugMessage ok(MSG_OK);
+			switch (session.state)
+			{
+			case OrkigeEditor::ProjectTestRunState::Running:
+				ok.set("status", "running");
+				break;
+			case OrkigeEditor::ProjectTestRunState::Cancelled:
+				ok.set("status", "cancelled");
+				break;
+			case OrkigeEditor::ProjectTestRunState::Finished:
+				ok.set("status", "done");
+				break;
+			default:
+				ok.set("status", "idle");
+				break;
+			}
+			ok.set("label", session.label);
+			ok.set("leg", std::to_string(session.leg));
+			ok.set("legs", std::to_string(session.legCount));
+			// a crash and a failing suite are DIFFERENT answers; run_failure is
+			// the one that says the runner never reached a verdict at all
+			ok.set("run_failure", session.runFailure);
+			const ScriptTestSummary tally = report.tally();
+			ok.set("total", std::to_string(tally.total));
+			ok.set("passed", std::to_string(tally.passed));
+			ok.set("failed", std::to_string(tally.failed));
+			ok.set("errors", std::to_string(tally.errors));
+			ok.set("complete", report.hasSummary ? "1" : "0");
+			StringVector files;
+			StringVector names;
+			StringVector statuses;
+			StringVector messages;
+			StringVector durations;
+			for (ScriptTestRecord const& record : report.records)
+			{
+				files.push_back(record.file);
+				names.push_back(record.name);
+				statuses.push_back(record.status);
+				messages.push_back(record.message);
+				durations.push_back(std::to_string(record.ms));
+			}
+			ok.setList("test_files", files);
+			ok.setList("test_names", names);
+			ok.setList("test_status", statuses);
+			ok.setList("test_messages", messages);
+			ok.setList("test_ms", durations);
+			if (!session.runFailure.empty())
+			{
+				ok.set("output_tail", lastLines(
+					OrkigeEditor::projectTestSessionOutputTail(), 40));
+			}
 			this->sendOk(req, ok);
 			return;
 		}
@@ -13350,6 +13531,281 @@ namespace Orkige
 				std::filesystem::remove(gamePng, ig);
 				SDL_Log("orkige_editor: control self-test - preview_game OK (scene "
 					"camera, overlay, animate, bad preset errored, auth enforced)");
+			}
+
+			// (24) THE PROJECT'S OWN LUA SUITE over MCP - the verbs the Tests
+			// panel shares its one session seam with. jumper-lua is still the
+			// open project here and it carries a real suite under tests/, so
+			// this drives the real runner rather than a fixture.
+			{
+				JsonValue s;
+				bool e = false;
+				JsonValue none = JsonValue::object();
+				if (!callTool("list_project_tests", none, true, s, e) || e ||
+					s.get("files").size() == 0)
+				{
+					finish(false, "control self-test: list_project_tests did "
+						"not find the project's test files");
+					return;
+				}
+				bool sawMovement = false;
+				for (size_t each = 0; each < s.get("files").size(); ++each)
+				{
+					sawMovement = sawMovement ||
+						s.get("files").at(each).asString() ==
+							"tests/movement.test.lua";
+				}
+				if (!sawMovement)
+				{
+					finish(false, "control self-test: list_project_tests did "
+						"not list tests/movement.test.lua");
+					return;
+				}
+				// run ONE file, not the suite: the play-mode tests boot a
+				// world per case and this leg is about the verbs, not about
+				// how long jumper-lua takes
+				JsonValue runArgs = JsonValue::object();
+				runArgs.set("filter", JsonValue(String("movement")));
+				JsonValue accepted;
+				if (!callTool("run_project_tests", runArgs, true, accepted, e) ||
+					e || accepted.get("accepted").asString() != "1")
+				{
+					finish(false, "control self-test: run_project_tests was "
+						"not accepted");
+					return;
+				}
+				// a second run while one is in flight must be REFUSED, not
+				// silently queued behind it (one session, one verdict)
+				JsonValue second;
+				bool secondError = false;
+				if (!callTool("run_project_tests", runArgs, true, second,
+					secondError) || !secondError)
+				{
+					finish(false, "control self-test: a second concurrent "
+						"run_project_tests was not refused");
+					return;
+				}
+				// poll: a player boots, runs the file and exits - measured at
+				// a few seconds, budgeted at two minutes so a cold or loaded
+				// machine is not a failure
+				JsonValue results;
+				bool finished = false;
+				for (int attempt = 0; attempt < 1200 && !finished; ++attempt)
+				{
+					SDL_Delay(100);
+					if (!callTool("get_project_test_results", none, true,
+						results, e) || e)
+					{
+						finish(false, "control self-test: "
+							"get_project_test_results failed");
+						return;
+					}
+					finished = results.get("status").asString() != "running";
+				}
+				if (!finished)
+				{
+					finish(false, "control self-test: the project test run "
+						"never finished");
+					return;
+				}
+				if (results.get("status").asString() != "done")
+				{
+					finish(false, "control self-test: the project test run "
+						"ended '" + results.get("status").asString() +
+						"' instead of done");
+					return;
+				}
+				// the two failure modes are DIFFERENT answers and the verb
+				// must keep them apart: a crashed runner sets run_failure, a
+				// failing suite sets failed>0
+				if (!results.get("run_failure").asString().empty())
+				{
+					finish(false, "control self-test: the project test run "
+						"did not reach a verdict: " +
+						results.get("run_failure").asString());
+					return;
+				}
+				const int passed = std::atoi(
+					results.get("passed").asString().c_str());
+				const int failed = std::atoi(
+					results.get("failed").asString().c_str());
+				const int errors = std::atoi(
+					results.get("errors").asString().c_str());
+				if (passed <= 0 || failed != 0 || errors != 0)
+				{
+					finish(false, "control self-test: the project's own suite "
+						"did not pass (" + results.get("passed").asString() +
+						" passed, " + results.get("failed").asString() +
+						" failed, " + results.get("errors").asString() +
+						" errors)");
+					return;
+				}
+				// the per-test records are what a panel and an agent read, and
+				// they are index-aligned lists
+				if (results.get("test_names").size() !=
+						static_cast<size_t>(passed) ||
+					results.get("test_status").size() !=
+						results.get("test_names").size() ||
+					results.get("test_files").size() !=
+						results.get("test_names").size())
+				{
+					finish(false, "control self-test: the project test records "
+						"are not index-aligned with the tally");
+					return;
+				}
+				if (results.get("complete").asString() != "1")
+				{
+					finish(false, "control self-test: a finished project test "
+						"run reported an incomplete artifact");
+					return;
+				}
+				// a read is open, a run is a mutation
+				JsonValue unauthRead;
+				bool unauthReadError = false;
+				if (!callTool("get_project_test_results", none, false,
+					unauthRead, unauthReadError))
+				{
+					finish(false, "control self-test: unauthenticated "
+						"get_project_test_results did not answer");
+					return;
+				}
+				JsonValue unauthRun;
+				bool unauthRunError = false;
+				if (!callTool("run_project_tests", runArgs, false, unauthRun,
+					unauthRunError) || !unauthRunError)
+				{
+					finish(false, "control self-test: unauthenticated "
+						"run_project_tests was not rejected");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - project Lua tests "
+					"OK (%s passed over MCP, records index-aligned, second "
+					"run refused, auth enforced)",
+					results.get("passed").asString().c_str());
+
+				// A FAILING suite is a RESULT, not a malfunction: the verdict
+				// must arrive with run_failure EMPTY and failed > 0, and the
+				// message must carry the file:line the Tests panel turns into
+				// a jump button. Authoring the failure here (rather than
+				// trusting the green path to generalise) is what pins that
+				// distinction - a crash reported as "0 passed" would be the
+				// worst lie this tier can tell.
+				const String probeRel = "tests/mcpprobe.test.lua";
+				JsonValue writeArgs = JsonValue::object();
+				writeArgs.set("path", JsonValue(probeRel));
+				writeArgs.set("content", JsonValue(String(
+					"test('mcpprobe passes', function(t)\n"
+					"  t.eq(1, 1)\n"
+					"end)\n"
+					"test('mcpprobe fails on purpose', function(t)\n"
+					"  t.eq(1, 2)\n"
+					"end)\n")));
+				if (!callTool("write_project_file", writeArgs, true, s, e) || e)
+				{
+					finish(false, "control self-test: could not author the "
+						"failing project test");
+					return;
+				}
+				JsonValue redArgs = JsonValue::object();
+				redArgs.set("filter", JsonValue(String("mcpprobe")));
+				if (!callTool("run_project_tests", redArgs, true, accepted, e) ||
+					e)
+				{
+					finish(false, "control self-test: the failing project test "
+						"run was not accepted");
+					return;
+				}
+				finished = false;
+				for (int attempt = 0; attempt < 1200 && !finished; ++attempt)
+				{
+					SDL_Delay(100);
+					if (!callTool("get_project_test_results", none, true,
+						results, e) || e)
+					{
+						finish(false, "control self-test: "
+							"get_project_test_results failed on the red run");
+						return;
+					}
+					finished = results.get("status").asString() != "running";
+				}
+				// the tally is 8 + 2: a FILTERED run updates its own rows and
+				// leaves the earlier verdicts standing, because re-running two
+				// tests says nothing about the eight it did not run
+				if (!finished ||
+					results.get("status").asString() != "done" ||
+					!results.get("run_failure").asString().empty() ||
+					results.get("total").asString() != "10" ||
+					results.get("passed").asString() != "9" ||
+					results.get("failed").asString() != "1")
+				{
+					finish(false, "control self-test: a failing project suite "
+						"was not reported as one (status '" +
+						results.get("status").asString() + "', run_failure '" +
+						results.get("run_failure").asString() + "', " +
+						results.get("passed").asString() + " passed, " +
+						results.get("failed").asString() + " failed, total " +
+						results.get("total").asString() + ")");
+					return;
+				}
+				bool sawLocatedFailure = false;
+				for (size_t each = 0; each < results.get("test_status").size();
+					++each)
+				{
+					if (results.get("test_status").at(each).asString() != "fail")
+					{
+						continue;
+					}
+					sawLocatedFailure = results.get("test_messages").at(each)
+						.asString().find(probeRel + ":") == 0;
+				}
+				if (!sawLocatedFailure)
+				{
+					finish(false, "control self-test: the failing project test "
+						"did not report its file:line");
+					return;
+				}
+				// re-running only the failures must select exactly the one
+				JsonValue failedArgs = JsonValue::object();
+				failedArgs.set("failed", JsonValue(String("1")));
+				if (!callTool("run_project_tests", failedArgs, true, accepted,
+					e) || e || accepted.get("legs").asString() != "1")
+				{
+					finish(false, "control self-test: re-run-failed did not "
+						"select exactly the one failure");
+					return;
+				}
+				finished = false;
+				for (int attempt = 0; attempt < 1200 && !finished; ++attempt)
+				{
+					SDL_Delay(100);
+					if (!callTool("get_project_test_results", none, true,
+						results, e) || e)
+					{
+						finish(false, "control self-test: "
+							"get_project_test_results failed on the re-run");
+						return;
+					}
+					finished = results.get("status").asString() != "running";
+				}
+				// the re-run REPLACED that test's row rather than appending a
+				// second verdict for it, and the passing sibling it did not
+				// run is still there
+				if (!finished || results.get("total").asString() != "10" ||
+					results.get("failed").asString() != "1")
+				{
+					finish(false, "control self-test: the re-run did not "
+						"update the failure's row in place (total " +
+						results.get("total").asString() + ", failed " +
+						results.get("failed").asString() + ")");
+					return;
+				}
+				std::error_code probeIgnored;
+				std::filesystem::remove(
+					std::filesystem::path(previewRoot) / "tests" /
+						"mcpprobe.test.lua", probeIgnored);
+				SDL_Log("orkige_editor: control self-test - a failing project "
+					"suite reports as a RESULT (run_failure empty, file:line "
+					"present, re-run-failed replaced the row)");
 			}
 		}
 

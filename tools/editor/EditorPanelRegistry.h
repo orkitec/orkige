@@ -26,7 +26,8 @@
 	X(PANEL_UI_EDITOR, "UI Editor", false, showUiEditorPanel) \
 	X(PANEL_DEBUG, "Debug", false, showDebugPanel) \
 	X(PANEL_SOURCE_CONTROL, "Source Control", false, showSourceControlPanel) \
-	X(PANEL_TERMINAL, "Terminal", false, showTerminalPanel)
+	X(PANEL_TERMINAL, "Terminal", false, showTerminalPanel) \
+	X(PANEL_TESTS, "Tests", false, showTestsPanel)
 
 namespace Orkige
 {
