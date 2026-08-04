@@ -772,7 +772,7 @@ if(TARGET hello_orkige)
     # through DrawLayer2D), so it runs on classic + next.
     add_test(NAME demo_layout COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_layout PROPERTIES LABELS integration
+    set_tests_properties(demo_layout PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_LAYOUT=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_LUATEARDOWN: the shutdown-after-Lua-GUI-use acceptance test -
@@ -784,7 +784,7 @@ if(TARGET hello_orkige)
     # nonzero exit fails here. Flavor-neutral.
     add_test(NAME demo_luateardown COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_luateardown PROPERTIES LABELS integration
+    set_tests_properties(demo_luateardown PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_LUATEARDOWN=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_LUAORPHAN: the weak-handle orphan contract. Under option-C weak
@@ -795,7 +795,7 @@ if(TARGET hello_orkige)
     # crash). Clean exit is the contract. Flavor-neutral (gui draws through DrawLayer2D).
     add_test(NAME demo_luaorphan COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_luaorphan PROPERTIES LABELS integration
+    set_tests_properties(demo_luaorphan PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_LUAORPHAN=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_LUAHANDLE: the weak Lua widget-handle (option C) acceptance test.
@@ -806,7 +806,7 @@ if(TARGET hello_orkige)
     # the touching line (catchable, no crash). Flavor-neutral.
     add_test(NAME demo_luahandle COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_luahandle PROPERTIES LABELS integration
+    set_tests_properties(demo_luahandle PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_LUAHANDLE=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_LUAGOHANDLE: the GameObject/component weak-handle acceptance
@@ -819,7 +819,7 @@ if(TARGET hello_orkige)
     # probe. Scripting-gated. Flavor-neutral (reads ids/flags/error strings).
     add_test(NAME demo_luagohandle COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_luagohandle PROPERTIES LABELS integration
+    set_tests_properties(demo_luagohandle PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_LUAGOHANDLE=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_LUAHANDLE_SURFACE: the weak-handle completeness sweep. One live
@@ -829,7 +829,7 @@ if(TARGET hello_orkige)
     # here). The living spec of the whole handle surface. Flavor-neutral.
     add_test(NAME demo_luahandle_surface COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_luahandle_surface PROPERTIES LABELS integration
+    set_tests_properties(demo_luahandle_surface PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_LUAHANDLE_SURFACE=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_OUI: the declarative-UI + layout-group + scroll selfcheck -
@@ -841,7 +841,7 @@ if(TARGET hello_orkige)
     # position. Flavor-neutral (pure resolver, gui on DrawLayer2D).
     add_test(NAME demo_oui COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_oui PROPERTIES LABELS integration
+    set_tests_properties(demo_oui PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_OUI=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_GUI_INPUT: the gui input-enablement selfcheck - proves the
@@ -852,7 +852,7 @@ if(TARGET hello_orkige)
     # screen with buttons. Flavor-neutral (gui on DrawLayer2D).
     add_test(NAME demo_gui_input COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_gui_input PROPERTIES LABELS integration
+    set_tests_properties(demo_gui_input PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_GUI_INPUT=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_LOC: the localisation-runtime selfcheck - loads a project's
@@ -864,7 +864,7 @@ if(TARGET hello_orkige)
     # that also renders. Flavor-neutral (gui @key routing on DrawLayer2D).
     add_test(NAME demo_loc COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_loc PROPERTIES LABELS integration
+    set_tests_properties(demo_loc PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_LOC=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_GUI_MODAL: the modal / disabled / toggle-group / toast /
@@ -876,7 +876,7 @@ if(TARGET hello_orkige)
     # dropdown opens/picks/closes. Flavor-neutral (gui on DrawLayer2D).
     add_test(NAME demo_gui_modal COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_gui_modal PROPERTIES LABELS integration
+    set_tests_properties(demo_gui_modal PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_GUI_MODAL=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_GUI_MATRIX: the widget interaction MATRIX - the completeness
@@ -889,7 +889,7 @@ if(TARGET hello_orkige)
     # DrawLayer2D), so it runs on classic + next and both must agree.
     add_test(NAME demo_gui_matrix COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_gui_matrix PROPERTIES LABELS integration
+    set_tests_properties(demo_gui_matrix PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_GUI_MATRIX=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_GUI_FLOW: the screen-stack (screen-flow router) selfcheck.
@@ -901,7 +901,7 @@ if(TARGET hello_orkige)
     # runs on classic + next and both must agree.
     add_test(NAME demo_gui_flow COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_gui_flow PROPERTIES LABELS integration
+    set_tests_properties(demo_gui_flow PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_GUI_FLOW=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_GUI_LUA: the FULLY-SCRIPTABLE contract - the whole widget
@@ -912,7 +912,7 @@ if(TARGET hello_orkige)
     # ORKIGE_SCRIPTING=OFF build skips the body (ScriptRuntime unavailable).
     add_test(NAME demo_gui_lua COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_gui_lua PROPERTIES LABELS integration
+    set_tests_properties(demo_gui_lua PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_GUI_LUA=1;ORKIGE_DEMO_FRAMES=4")
 
     add_test(NAME demo_mesh COMMAND hello_orkige
@@ -1108,7 +1108,7 @@ if(TARGET hello_orkige)
     # scrolling shimmer) - a per-flavor probe, NOT a pixel parity case.
     add_test(NAME demo_water COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(demo_water PROPERTIES LABELS integration
+    set_tests_properties(demo_water PROPERTIES LABELS integration TIMEOUT 120
         ENVIRONMENT "ORKIGE_DEMO_WATER=1;ORKIGE_DEMO_FRAMES=120")
 
     # ORKIGE_DEMO_SKY: the sky-type + IBL + bloom showcase selfcheck - one lit
@@ -1237,7 +1237,7 @@ if(TARGET orkige_editor)
 				--path "${Orkige_SOURCE_DIR}/projects/benchmark/assets/settings.oui"
 				-- $<TARGET_FILE:orkige_editor>
 			WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-		set_tests_properties(editor_previews_next PROPERTIES LABELS integration
+		set_tests_properties(editor_previews_next PROPERTIES LABELS integration TIMEOUT 300
 			ENVIRONMENT "ORKIGE_EDITOR_PREVIEW_SELFCHECK=${Orkige_SOURCE_DIR}/projects/benchmark;ORKIGE_DEMO_FRAMES=90")
 	endif()
 
@@ -2287,6 +2287,10 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         set_tests_properties(player_safearea_device PROPERTIES
             ENVIRONMENT
                 "ORKIGE_EDITOR_SAFEAREA_CHECK=${Orkige_SOURCE_DIR}/projects/roller;ORKIGE_EDITOR_PLAY_SIMULATOR=auto"
+            # a hosted runner boots even a warm simulator in 4-6 minutes, and
+            # this leg took ~129s once booted - so the budget is the BOOT, not
+            # the check
+            TIMEOUT 900
             SKIP_RETURN_CODE 77)
     endif()
 
@@ -2399,7 +2403,7 @@ if(TARGET orkige_player)
     add_test(NAME player_tilt_calibration_selfcheck
         COMMAND orkige_player samples/scenes/example.oscene
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(player_tilt_calibration_selfcheck PROPERTIES LABELS integration
+    set_tests_properties(player_tilt_calibration_selfcheck PROPERTIES LABELS integration TIMEOUT 300
         ENVIRONMENT "ORKIGE_TILT_CALIB_SELFCHECK=1;ORKIGE_TILT_CALIB_FILE=${CMAKE_CURRENT_BINARY_DIR}/tilt_calib_selfcheck.osave")
 
     # haptics honest desktop no-op + API shape (synchronous, no render loop):
@@ -2409,7 +2413,7 @@ if(TARGET orkige_player)
     add_test(NAME player_haptic_selfcheck
         COMMAND orkige_player samples/scenes/example.oscene
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(player_haptic_selfcheck PROPERTIES LABELS integration
+    set_tests_properties(player_haptic_selfcheck PROPERTIES LABELS integration TIMEOUT 300
         ENVIRONMENT "ORKIGE_HAPTIC_SELFCHECK=1")
 
     # THE pak-mount contract, end to end and flavor-neutral (the classic BigZip
@@ -2631,7 +2635,7 @@ if(TARGET orkige_player)
             COMMAND orkige_player tests/projects/lines/scenes/lines.oscene
                 --project tests/projects/lines
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        set_tests_properties(player_lines_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration
+        set_tests_properties(player_lines_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration TIMEOUT 300
             ENVIRONMENT "ORKIGE_LINES_SELFCHECK=1")
 
         # RAW INPUT REACH, end to end: tests/projects/rawinput - synthetic
@@ -2650,7 +2654,7 @@ if(TARGET orkige_player)
             COMMAND orkige_player tests/projects/rawinput/scenes/rawinput.oscene
                 --project tests/projects/rawinput
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        set_tests_properties(player_raw_input_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration
+        set_tests_properties(player_raw_input_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration TIMEOUT 300
             ENVIRONMENT "ORKIGE_RAWINPUT_SELFCHECK=1")
 
         # THE UI GALLERY, end to end: projects/gallery - the example project
@@ -2717,7 +2721,7 @@ if(TARGET orkige_player)
             COMMAND orkige_player projects/vectorshapes/scenes/vectoranim.oscene
                 --project projects/vectorshapes
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        set_tests_properties(player_vectoranim_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration
+        set_tests_properties(player_vectoranim_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration TIMEOUT 300
             ENVIRONMENT "ORKIGE_VECTORANIM_SELFCHECK=1")
 
         # the WATER TEST BENCH project (projects/watertest, generated by
@@ -2900,7 +2904,7 @@ if(TARGET orkige_player)
         add_test(NAME player_breadcrumb_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project tests/projects/breadcrumb
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        set_tests_properties(player_breadcrumb_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration
+        set_tests_properties(player_breadcrumb_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration TIMEOUT 300
             ENVIRONMENT "ORKIGE_BREADCRUMB_SELFCHECK=1;ORKIGE_BREADCRUMB_DIR=${CMAKE_CURRENT_BINARY_DIR}/breadcrumb_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}")
 
         # the fatal-signal crash marker, end to end: the driver runs the player
@@ -2933,7 +2937,7 @@ if(TARGET orkige_player)
         add_test(NAME player_fade_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project tests/projects/fade
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        set_tests_properties(player_fade_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration
+        set_tests_properties(player_fade_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration TIMEOUT 300
             ENVIRONMENT "ORKIGE_FADE_SELFCHECK=1")
 
         # mobile app lifecycle, end to end: tests/projects/lifecycle drives the
@@ -2947,7 +2951,7 @@ if(TARGET orkige_player)
         add_test(NAME player_lifecycle_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project tests/projects/lifecycle
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        set_tests_properties(player_lifecycle_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration
+        set_tests_properties(player_lifecycle_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration TIMEOUT 300
             ENVIRONMENT "ORKIGE_LIFECYCLE_SELFCHECK=1;ORKIGE_PROGRESS_RESET=1;ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/lifecycle_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX};ORKIGE_BREADCRUMB_DIR=${CMAKE_CURRENT_BINARY_DIR}/lifecycle_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}")
 
         # window-resize plumbing, end to end - the same path a device rotation
@@ -2977,7 +2981,7 @@ if(TARGET orkige_player)
         add_test(NAME player_perf_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project projects/roller
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        set_tests_properties(player_perf_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration
+        set_tests_properties(player_perf_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES LABELS integration TIMEOUT 300
             ENVIRONMENT "ORKIGE_PERF_SELFCHECK=1;ORKIGE_PROGRESS_RESET=1;ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/perf_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}")
 
         # per-scene benchmark recorder, end to end: run the roller project armed
@@ -3945,3 +3949,30 @@ unset(_orkige_registered_tests)
 unset(_orkige_test)
 unset(_orkige_test_labels)
 unset(_orkige_unlabelled)
+
+# Every integration test declares a TIMEOUT. Without one ctest falls back to a
+# 25-minute default, so a windowed test that wedges holds a runner for that long
+# and, if the run is interrupted, can outlive it entirely - a stray demo was
+# found burning a core for over two hours. 24 tests had neither a label nor a
+# timeout; both gaps are closed, and this refuses the next one at configure time
+# rather than waiting for someone to notice a slow suite.
+get_property(_orkige_registered_tests DIRECTORY PROPERTY TESTS)
+set(_orkige_untimed "")
+foreach(_orkige_test IN LISTS _orkige_registered_tests)
+    get_test_property("${_orkige_test}" LABELS _orkige_test_labels)
+    get_test_property("${_orkige_test}" TIMEOUT _orkige_test_timeout)
+    if(_orkige_test_labels MATCHES "integration" AND NOT _orkige_test_timeout)
+        list(APPEND _orkige_untimed "${_orkige_test}")
+    endif()
+endforeach()
+if(_orkige_untimed)
+    message(FATAL_ERROR
+        "these integration tests declare no TIMEOUT, so a wedged run holds a "
+        "runner for ctest's 25-minute default: ${_orkige_untimed}. Give each "
+        "one a TIMEOUT it should comfortably fit inside.")
+endif()
+unset(_orkige_registered_tests)
+unset(_orkige_test)
+unset(_orkige_test_labels)
+unset(_orkige_test_timeout)
+unset(_orkige_untimed)
