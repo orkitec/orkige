@@ -57,7 +57,12 @@ Rules and hazards:
   build dir or use the matching preset.
 - **Both flavors must render the SAME image** (WYSIWYG). Games, gui and the
   editor (ImGui on `DrawLayer2D`) all run on both; the `render_backend_parity`
-  pixel test enforces it. Classic stays first-class — it owns the runtime
+  pixel test checks it. **It is a DEVELOPER-MACHINE gate, not a CI one**: it is
+  registered on the next preset but reads the classic binary out of
+  `build/<host>-debug-classic`, and a CI job builds one preset only, so it
+  exits 77 (Skipped) on every CI run — as do `grade_look_parity` and the two
+  `benchmark_crossflavor_parity` gates. Build both trees locally to arm them.
+  Closing that hole is its own piece of work. Classic stays first-class — it owns the runtime
   render-system pick (`ORKIGE_RENDERSYSTEM`), the GLES2 mobile presets, the
   WebGL/web path and the `samples/jumper` C++ sample (gui HUD; the only
   classic-gated `add_subdirectory` in the root CMakeLists).
