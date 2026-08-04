@@ -39,6 +39,7 @@ share one implementation. Neither spawns the other.
 | Command | What it does |
 |---------|--------------|
 | `export` | packages a project |
+| `test` | runs a project's Lua test suite |
 | `fetch-payload` | downloads and installs a platform's player |
 | `version` | this build's identity (the `--version` flag's twin) |
 | `changelog` | what this build shipped with |
@@ -126,6 +127,74 @@ written, no recents move, no view settings are loaded.
 a keystore password comes from the environment, which is where a build server
 keeps one anyway.
 
+## `test`
+
+```
+orkige_editor test --project <dir-or-.orkproj>
+                   [--test-filter <substring>]
+                   [--report-dir <dir>]
+```
+
+Runs `<project>/tests/*.test.lua` — the project's own Lua suite
+([testing.md](testing.md)) — and exits with the suite's verdict: `0` when
+everything passed.
+
+```sh
+orkige_editor test --project ~/games/roller --report-dir ci-out
+# orkige_editor: running the tests of 'Roller' (player: …/Orkige.app/Contents/MacOS/orkige_player)
+# orkige_player: tests - 18 tests, 18 passed …
+# orkige_editor: OK /…/ci-out/tests-20260804T101500Z.jsonl
+```
+
+`--test-filter` is matched against `<file>::<test name>`, exactly as the
+runner's own flag is. `--report-dir` chooses where the run's JSONL artifact
+lands; it is the existing `ORKIGE_TEST_REPORT_DIR` seam under a flag name, not
+a second report format. Without it the runner writes its artifact where it
+always does, beside the breadcrumb trail, and the `OK` line says the suite
+passed rather than naming a path this process would have had to guess.
+
+### This one runs the player, and that is not the rule above being bent
+
+`export` may never spawn `orkige_export`, because a second exporter would be a
+second **copy of a decision** — two places that could disagree about what a
+package contains. Handing a test run to the player copies nothing, because the
+editor holds no test runner to copy. The player is the engine's runtime: the
+only part of an installation that owns a game world.
+
+That matters because of what a test may declare. A test with a `scene` is a
+**play-mode test** — physics stepping, scripts updating, frames advancing — and
+those are the tests worth putting on a build server. The editor boots exactly
+one render backend, the graphics one, straight into a window, so it has no
+world to lend before its own is up. A door that ran only the worldless half of
+a suite would report a green verdict on a game whose gameplay was never
+exercised.
+
+So this subcommand contributes the one thing the runtime cannot know for
+itself: **which player this installation has** — the copy inside the
+application for a distributed editor, the build tree's binary for a developer
+one ([editor-distribution.md](editor-distribution.md)). The runner's verdict
+travels back untouched.
+
+Standard streams are inherited rather than captured, so the run's output
+reaches the caller as it happens. A wedged suite shows which test it was on
+instead of sitting silent until something kills it.
+
+### What it refuses, and why each is a separate answer
+
+| Refusal | What fixes it |
+|---------|---------------|
+| no `--project` | name one — a suite belongs to a project (its `tests/` and its `scripts/` libraries), never to a loose scene |
+| no manifest at that path | point at a project directory or a `.orkproj` file |
+| the project has no `tests/` directory | write one — the sentence names the directory and the `.test.lua` suffix |
+| this build has no scripting backend | use a build with scripting on; an `ORKIGE_SCRIPTING=OFF` build has no interpreter and reporting a pass would be a lie |
+| no player beside the editor and no build tree | there is nothing to run the suite in |
+
+The directory check is deliberately the only thing this door decides about the
+suite's contents. **What counts as a test inside `tests/`, and what an empty
+run is worth, stay the runner's** — one question answered in one place. What
+the door adds is that a misspelled or missing `tests/` fails loudly here
+instead of booting an engine to be told nothing ran.
+
 ## `fetch-payload`
 
 A phone's player is another architecture's binary, so a released editor
@@ -142,15 +211,23 @@ unstamped developer build can pair with no published release and says so).
 
 ## What is deliberately NOT here
 
-Anything that needs a **live game world**: opening a scene, editing objects,
-running editor scripts, taking a screenshot. A `TransformComponent` stores its
-transform *inside the render node*, so loading a scene reaches a `RenderWorld`,
-which reaches `Engine::setup`, which reaches a window and a GPU. There is no
-null render backend, so a headless scene operation cannot exist — and the usage
-text promises none.
+Anything that needs a live game world **in this process**: opening a scene,
+editing objects, running editor scripts, taking a screenshot. A
+`TransformComponent` stores its transform *inside the render node*, so loading
+a scene reaches a `RenderWorld`, which reaches `Engine::setup` — and the editor
+boots exactly one render backend, the graphics one, straight into a window.
 
-Those belong to a running editor and are reached over its MCP endpoint
-([mcp.md](mcp.md)).
+The engine does carry a **deviceless render system** (`ORKIGE_RENDERSYSTEM=NULL`,
+`engine_render/RenderSystemSelection.h`), which is how the player holds a live
+scene on a machine with no display, and the `player_deviceless` test proves it.
+That is a runtime capability: the editor has no deviceless awareness, and
+teaching it to boot that way is its own piece of work. Until it does, nothing
+here may advertise a headless scene operation.
+
+Where a live world is what the caller actually wants, the honest answer is the
+part of the installation that already has one — which is what `test` does.
+Everything else belongs to a running editor and is reached over its MCP
+endpoint ([mcp.md](mcp.md)).
 
 ## Behaviour a script can rely on
 
@@ -163,6 +240,16 @@ is — nobody is watching it, so it touches no user state and opens no socket:
 - no `.mcp.json` written into any project.
 
 The single stated exception is the credential-name read above.
+
+`test` is the one subcommand that runs a second process, and the same rule
+carries across the boundary rather than stopping at it. The player inherits the
+environment, so a run isolated by `ORKIGE_EDITOR_STATE_DIR` stays isolated; the
+two automation hooks that would cut a run short (`ORKIGE_DEMO_FRAMES`,
+`ORKIGE_DEMO_SCREENSHOT`) are **unset** for the child, because a player that
+exits after N frames would end a suite early and call it a pass. No debug port
+is passed, so the run opens no socket. What it does touch is the runtime's own
+writable directory: a play-mode test loads scenes and the engine writes its
+breadcrumb trail, exactly as any player run does.
 
 The network rule is about **incidental** traffic: no subcommand reaches the
 network as a side effect of doing something else. Update checks, telemetry and
@@ -194,4 +281,5 @@ equivalent — it detaches the process and discards the exit code.
 |------|---------------|
 | `EditorCliTests` (unit) | the argument router: every subcommand, flag passthrough, and that an unknown word never reaches the window road |
 | `editor_cli` (integration) | the real binary: the three exit codes, the refusals, an export that produces an artifact and prints its `OK` line — each within a deadline, because a subcommand that opened a window would hang rather than fail |
+| `editor_cli_test` (integration) | the real binary running a real suite: a project with tests passes and names its JSONL artifact, a filter that matches nothing still passes, a project with no `tests/` is refused by name, and a suite whose tests fail comes back non-zero |
 | `editor_bundle_native` (integration) | the distribution proof: a **copied** editor, in a clean room that denies the repository, the engine build tree and the vcpkg root, packages a project from a command line with no editor session running |
