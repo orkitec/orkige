@@ -34,6 +34,23 @@ The measurements the second road needs travel with the screenshots — the
 selfcheck writes `dimensions.txt` (the window density both flavors must agree
 on) and `grade_metrics.txt` (the same metrics line it prints) beside them.
 
+**Reading a parity failure.** A mean and an outlier fraction say that two
+frames differ, never where, so both pixel drivers add two things from
+`tests/integration_driver/parity_diff.py`. Every run — green included — prints
+the largest **8-connected region** of pixels differing by more than 48, with
+its bounding box: ten thousand scattered one-level pixels and one badly
+rendered object score the same mean, and only the second is usually a bug. A
+run that FAILS also writes a **diff image** beside the compared frame
+(`<shot>.diff.png`, or `--diff-dir` elsewhere) — the per-pixel delta on an
+absolute heat ramp (blue a shade off, cyan at the outlier threshold, red
+inverted or missing) over a dimmed grayscale of the classic frame, so the
+picture shows which object moved. The captures directory is what the CI job
+uploads, so the diff rides out with the failure. The region size is
+**reported, not gated**: its healthy value on the CI rasterizer pair has never
+been measured, and a threshold invented without a measurement blocks merges
+instead of catching bugs — the green logs are what a corridor would be
+measured from.
+
 The flavor is fixed at **build time** — classic OGRE and Ogre-Next export the
 same `Ogre::` symbols, so one binary links exactly one backend; there is no
 runtime switch. Build trees are flavor-bound: reconfiguring a tree with the
