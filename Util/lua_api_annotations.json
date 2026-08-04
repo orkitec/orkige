@@ -862,5 +862,57 @@
   "store.pending": {
     "sig": "() -> number",
     "doc": "how many store requests are still awaiting an answer"
+  },
+  "ads.setConsent": {
+    "sig": "(status [, tracking, childDirected]) -> bool",
+    "doc": "what the player answered ('granted'/'denied'/'not_gathered') - REQUIRED before ads.init"
+  },
+  "ads.init": {
+    "sig": "([testMode]) -> bool",
+    "doc": "bring the ad surface up; refused until consent is gathered. testMode defaults true"
+  },
+  "ads.load": {
+    "sig": "(format, placement, onComplete) -> bool",
+    "doc": "load a unit ('banner'/'interstitial'/'rewarded'/'app_open'); branch on res.ready, res.noFill is ordinary"
+  },
+  "ads.show": {
+    "sig": "(format, placement, onComplete) -> bool",
+    "doc": "present a loaded unit; GRANT ON res.rewardEarned, never on the advert closing"
+  },
+  "ads.hideBanner": {
+    "sig": "() -> bool",
+    "doc": "take the banner down (fullscreen units consume themselves)"
+  },
+  "ads.state": {
+    "sig": "(format, placement) -> string",
+    "doc": "'idle', 'loading', 'ready', 'showing' or 'failed'"
+  },
+  "ads.isReady": {
+    "sig": "(format, placement) -> bool",
+    "doc": "is inventory showable right now"
+  },
+  "ads.bannerVisible": {
+    "sig": "() -> bool",
+    "doc": "is a banner on screen"
+  },
+  "ads.bannerSize": {
+    "sig": "() -> Vec2",
+    "doc": "the strip the banner eats, in window pixels"
+  },
+  "ads.bannerPosition": {
+    "sig": "() -> string",
+    "doc": "which edge it hugs ('top'/'bottom')"
+  },
+  "ads.isTakeover": {
+    "sig": "() -> bool",
+    "doc": "a fullscreen advert is up (the world is not advancing)"
+  },
+  "ads.isAvailable": {
+    "sig": "() -> bool",
+    "doc": "did an ad surface come up (false in the editor)"
+  },
+  "ads.adFree": {
+    "sig": "() -> bool",
+    "doc": "does the player own a product that removes adverts"
   }
 }

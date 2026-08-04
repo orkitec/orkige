@@ -1579,6 +1579,18 @@ struct PlaySession
 	long long remoteStorePending = -1;
 	bool remoteStoreAdFree = false;
 	std::vector<std::string> remoteStoreOwned;
+	//! @brief the running game's AD snapshot (MSG_STATS), served by the same
+	//! get_state. `remoteAdsProvider` is "" when the game installed no ad
+	//! surface - the ordinary answer, since the engine mediates and ships no
+	//! ad network. `remoteAdsConsent` carries the consent token because it is
+	//! the ordering constraint that decides whether the surface may come up.
+	//! Reset by clearRemoteState.
+	std::string remoteAdsProvider;
+	std::string remoteAdsConsent;
+	bool remoteAdsReady = false;
+	bool remoteAdsTestMode = false;
+	bool remoteAdsTakeover = false;
+	long long remoteAdsBannerHeight = -1;
 	//! running-game CPU frame profile (MSG_PROFILE_DATA): the last streamed
 	//! hierarchical scope snapshot, flattened depth-first. profileSeq counts
 	//! received snapshots (0 = none yet) so get_profile can report freshness.

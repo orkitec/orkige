@@ -328,6 +328,81 @@ namespace Orkige
 				": no store in this runtime");
 			return NULL;
 		}
+		//! @brief is there an ad seam in this host at all? (@see storeService -
+		//! the same honest no-op in the editor's edit mode)
+		MonetizationService * adsService(char const * what)
+		{
+			if(MonetizationService::getSingletonPtr() != NULL)
+			{
+				return MonetizationService::getSingletonPtr();
+			}
+			EngineLogCapture::logError(String("ads.") + what +
+				": no ad surface in this runtime");
+			return NULL;
+		}
+		//! @brief hand an advert answer to a script closure, naming the surface
+		//! in the log when the script itself throws
+		void invokeAdsCallback(ScriptCallback const & callback,
+			ScriptEventPayload const & payload, char const * what)
+		{
+			String error;
+			if(!callback.invokePayload(payload, &error))
+			{
+				EngineLogCapture::logError(String("ads.") + what +
+					" onComplete: SCRIPT ERROR - " + error);
+			}
+		}
+		//! @brief read an ad-format token ("banner", "rewarded", ...), naming
+		//! what it did not understand rather than silently picking one
+		bool adFormatArg(String const & name, char const * what,
+			AdFormat & outFormat)
+		{
+			if(adFormatFromName(name, outFormat)) { return true; }
+			EngineLogCapture::logError(String("ads.") + what + ": '" + name +
+				"' is not an ad format (banner, interstitial, rewarded or "
+				"app_open)");
+			return false;
+		}
+		//! @brief the answer to one advert LOAD as the bounded table a script's
+		//! onComplete receives.
+		//! @remarks `ready` is the field to branch on. `noFill` is called out
+		//! separately because it is the one answer a real network produces
+		//! constantly and development never does: the request was perfectly
+		//! valid and there was simply no advert to give, so it is neither an
+		//! error nor a thing to retry in a tight loop.
+		ScriptEventPayload adLoadPayload(AdLoadOutcome const & outcome)
+		{
+			ScriptEventPayload payload;
+			payload.setBool("ready", outcome.ready());
+			payload.setString("state", adLoadResultName(outcome.result));
+			payload.setBool("noFill", outcome.result == ALR_NO_FILL);
+			payload.setBool("suppressed", outcome.result == ALR_SUPPRESSED);
+			payload.setString("format", adFormatName(outcome.format));
+			payload.setString("placement", outcome.placement);
+			payload.setString("reason", outcome.reason);
+			return payload;
+		}
+		//! @brief the answer to one advert SHOW as the bounded table a script's
+		//! onComplete receives.
+		//! @remarks `rewardEarned` IS THE BRANCH, and it is a distinct field
+		//! from "the advert closed" on purpose: a mediation surface reports
+		//! those as two separate signals, and a game that pays out when the
+		//! advert closed pays for an advert nobody watched. The reward travels
+		//! ONLY with the earned answer - a dismissal always carries 0 - so the
+		//! wrong branch has nothing to grant even if a game reads it.
+		ScriptEventPayload adShowPayload(AdShowOutcome const & outcome)
+		{
+			ScriptEventPayload payload;
+			payload.setBool("rewardEarned", outcome.rewardEarned());
+			payload.setString("state", adShowResultName(outcome.result));
+			payload.setString("format", adFormatName(outcome.format));
+			payload.setString("placement", outcome.placement);
+			payload.setString("rewardId", outcome.rewardId);
+			payload.setNumber("rewardAmount", outcome.rewardAmount);
+			payload.setBool("suppressed", outcome.result == ASR_SUPPRESSED);
+			payload.setString("reason", outcome.reason);
+			return payload;
+		}
 		//! wrap a script onComplete closure as the client's completion callback
 		HttpCompleteCallback wrapScriptHttpComplete(ScriptCallback const & callback)
 		{
@@ -2855,6 +2930,205 @@ namespace Orkige
 			return MonetizationService::getSingletonPtr()
 				? static_cast<double>(
 					MonetizationService::getSingleton().pendingCount()) : 0.0;
+		});
+
+		// =================== THE `ads` TABLE (adverts) =====================
+		// THE ENGINE MEDIATES, IT DOES NOT ADVERTISE: this table sits in front
+		// of whatever advertising surface the project installed, and a build
+		// that installed none refuses every call by name.
+		//   ads.setConsent("granted", tracking, childDirected)  -- FIRST
+		//   ads.init(testMode)                  -- refused before consent
+		//   ads.load("rewarded", "level_end", function(res) end)
+		//   ads.show("rewarded", "level_end", function(res)
+		//       if res.rewardEarned then grant() end end)
+		//   ads.hideBanner() / ads.state(fmt, placement) / ads.isReady(...)
+		//   ads.banner() / ads.isTakeover() / ads.isAvailable() / ads.adFree()
+		//
+		// CONSENT IS AN ORDERING CONSTRAINT, not a flag to remember: ads.init
+		// is REFUSED while the player has not been asked, so the surface
+		// cannot come up on a permission nobody gave. "Not gathered" is not a
+		// synonym for "denied" - a player who refused HAS been asked, so the
+		// surface comes up and serves contextual inventory.
+		//
+		// THE REWARD RULE, and it is the one to take away: grant on
+		// res.rewardEarned and NEVER on the advert closing. Those are two
+		// separate signals from a mediation surface, and a game that pays out
+		// when the advert closed pays for an advert nobody watched. Grant
+		// DURABLY inside the callback (save.set + save.flush) - unlike a
+		// purchase there is no store queue to re-deliver a reward, so the
+		// callback is the only chance the game gets.
+		//
+		// A FULLSCREEN ADVERT SUSPENDS THE GAME while it is up (ads.isTakeover
+		// reports it) - the host stops advancing the world and suspends audio,
+		// exactly as it does when the app is backgrounded.
+		runtime.registerFunction("ads", "setConsent",
+			[](String const & status, ScriptArgs args) -> bool
+		{
+			MonetizationService * money = adsService("setConsent");
+			if(!money) { return false; }
+			ConsentState consent;
+			if(!consentStatusFromName(status, consent.status))
+			{
+				EngineLogCapture::logError(String("ads.setConsent: '") +
+					status + "' is not a consent status (granted, denied or "
+					"not_gathered)");
+				return false;
+			}
+			// three INDEPENDENT gates, because they come from three different
+			// places and any one alone forbids personalisation: what the
+			// player answered, the operating system's own tracking
+			// permission, and whether the PRODUCT is directed at children
+			consent.trackingAuthorized =
+				ScriptRuntime::boolArg(args, 0, false);
+			consent.childDirected = ScriptRuntime::boolArg(args, 1, false);
+			money->setConsent(consent);
+			return true;
+		});
+		// ads.init(testMode): bring the surface up. TEST MODE IS NOT A
+		// CONVENIENCE - a development build serving live adverts generates
+		// invalid traffic against the account that owns them, so it defaults
+		// to true and a release build has to say otherwise.
+		runtime.registerFunction("ads", "init",
+			[](ScriptArgs args) -> bool
+		{
+			MonetizationService * money = adsService("init");
+			if(!money) { return false; }
+			return money->initializeAds(ScriptRuntime::boolArg(args, 0, true));
+		});
+		runtime.registerFunction("ads", "load",
+			[](String const & format, String const & placement,
+				ScriptArgs args) -> bool
+		{
+			MonetizationService * money = adsService("load");
+			if(!money) { return false; }
+			AdFormat adFormat = AF_BANNER;
+			if(!adFormatArg(format, "load", adFormat)) { return false; }
+			const ScriptCallback callback = ScriptCallback::fromArgs(args, 0);
+			if(!callback.valid())
+			{
+				EngineLogCapture::logError("ads.load: an onComplete function "
+					"is required - a load nobody reads can never be shown");
+				return false;
+			}
+			return money->loadAd(adFormat, placement, [callback]
+				(AdLoadOutcome const & outcome)
+			{
+				invokeAdsCallback(callback, adLoadPayload(outcome), "load");
+			}) != 0;
+		});
+		runtime.registerFunction("ads", "show",
+			[](String const & format, String const & placement,
+				ScriptArgs args) -> bool
+		{
+			MonetizationService * money = adsService("show");
+			if(!money) { return false; }
+			AdFormat adFormat = AF_BANNER;
+			if(!adFormatArg(format, "show", adFormat)) { return false; }
+			const ScriptCallback callback = ScriptCallback::fromArgs(args, 0);
+			if(!callback.valid())
+			{
+				EngineLogCapture::logError("ads.show: an onComplete function "
+					"is required - a rewarded advert whose answer nobody reads "
+					"takes the player's time and grants nothing");
+				return false;
+			}
+			return money->showAd(adFormat, placement, [callback]
+				(AdShowOutcome const & outcome)
+			{
+				invokeAdsCallback(callback, adShowPayload(outcome), "show");
+			}) != 0;
+		});
+		runtime.registerFunction("ads", "hideBanner", []() -> bool
+		{
+			MonetizationService * money = adsService("hideBanner");
+			if(!money) { return false; }
+			money->hideBanner();
+			return true;
+		});
+		// ads.state(format, placement): where one unit stands - "idle",
+		// "loading", "ready", "showing" or "failed"
+		runtime.registerFunction("ads", "state",
+			[](String const & format, String const & placement) -> String
+		{
+			if(MonetizationService::getSingletonPtr() == NULL)
+			{
+				return adStateName(AS_IDLE);
+			}
+			AdFormat adFormat = AF_BANNER;
+			if(!adFormatFromName(format, adFormat))
+			{
+				return adStateName(AS_IDLE);
+			}
+			return adStateName(MonetizationService::getSingleton().adState(
+				adFormat, placement));
+		});
+		// ads.isReady(format, placement): is inventory held and showable RIGHT
+		// NOW - the check that belongs in front of every show
+		runtime.registerFunction("ads", "isReady",
+			[](String const & format, String const & placement) -> bool
+		{
+			if(MonetizationService::getSingletonPtr() == NULL) { return false; }
+			AdFormat adFormat = AF_BANNER;
+			if(!adFormatFromName(format, adFormat)) { return false; }
+			return MonetizationService::getSingleton().adState(
+				adFormat, placement) == AS_READY;
+		});
+		// THE BANNER'S SCREEN COST. A banner is a platform view laid over the
+		// window: the engine never renders into that strip and never learns
+		// about it from the render target, so a HUD anchored to that edge sits
+		// UNDERNEATH the advert. Because no advert exists in development, that
+		// fault only appears on a device with live inventory, usually after
+		// release - which is why the geometry is readable whether or not
+		// anything was ever served.
+		runtime.registerFunction("ads", "bannerVisible", []() -> bool
+		{
+			return MonetizationService::getSingletonPtr() != NULL &&
+				MonetizationService::getSingleton().bannerGeometry().visible;
+		});
+		// ads.bannerSize(): the strip's extent in WINDOW PIXELS, (0,0) when
+		// nothing is on screen - so a layout can subtract it unconditionally
+		runtime.registerFunction("ads", "bannerSize", []() -> Vec2
+		{
+			if(MonetizationService::getSingletonPtr() == NULL)
+			{
+				return Vec2(0.0f, 0.0f);
+			}
+			const BannerGeometry banner =
+				MonetizationService::getSingleton().bannerGeometry();
+			return Vec2(static_cast<float>(banner.width),
+				static_cast<float>(banner.height));
+		});
+		//! which edge the strip hugs ("top" or "bottom")
+		runtime.registerFunction("ads", "bannerPosition", []() -> String
+		{
+			if(MonetizationService::getSingletonPtr() == NULL)
+			{
+				return bannerPositionName(BP_BOTTOM);
+			}
+			return bannerPositionName(
+				MonetizationService::getSingleton().bannerGeometry().position);
+		});
+		// ads.isTakeover(): is a fullscreen advert covering the app right now.
+		// The host has already stopped advancing the world and suspended
+		// audio; this is here so a game can also hold back anything of its own.
+		runtime.registerFunction("ads", "isTakeover", []() -> bool
+		{
+			return MonetizationService::getSingletonPtr() != NULL &&
+				MonetizationService::getSingleton().isTakeoverActive();
+		});
+		runtime.registerFunction("ads", "isAvailable", []() -> bool
+		{
+			return MonetizationService::getSingletonPtr() != NULL &&
+				MonetizationService::getSingleton().isAdsReady();
+		});
+		// ads.adFree(): the SAME answer store.adFree() gives, reachable from
+		// the ad side so a game asking "should I even try" asks once. Owning a
+		// no-ads product suppresses loading as well as showing, so a paying
+		// player's data is never spent on inventory that can never be shown.
+		runtime.registerFunction("ads", "adFree", []() -> bool
+		{
+			return MonetizationService::getSingletonPtr() != NULL &&
+				MonetizationService::getSingleton().isAdFree();
 		});
 	}
 	//---------------------------------------------------------

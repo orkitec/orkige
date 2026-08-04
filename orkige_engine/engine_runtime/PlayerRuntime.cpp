@@ -2569,6 +2569,26 @@ namespace Orkige
 				owned.push_back(entitlements[i].productId);
 			}
 			stats.setList(Protocol::LIST_STORE_OWNED, owned);
+
+			// the AD half of the same seam, on the same stream. CONSENT is
+			// reported because it is the ordering constraint the whole surface
+			// turns on: an agent seeing ads_ready "0" needs to know whether the
+			// player was never asked or the surface simply failed. TAKEOVER is
+			// reported because while it holds the world is NOT advancing, and
+			// an agent watching a frozen game deserves to know an advert is why.
+			stats.set(Protocol::FIELD_ADS_PROVIDER, money.adProvider()
+				? String(money.adProvider()->name()) : String());
+			stats.set(Protocol::FIELD_ADS_READY,
+				money.isAdsReady() ? "1" : "0");
+			stats.set(Protocol::FIELD_ADS_CONSENT,
+				consentStatusName(money.consent().status));
+			stats.set(Protocol::FIELD_ADS_TEST_MODE,
+				money.isTestMode() ? "1" : "0");
+			stats.set(Protocol::FIELD_ADS_TAKEOVER,
+				money.isTakeoverActive() ? "1" : "0");
+			stats.set(Protocol::FIELD_ADS_BANNER_HEIGHT, std::to_string(
+				money.bannerGeometry().visible
+					? money.bannerGeometry().height : 0u));
 			anyField = true;
 		}
 		// streamed-music snapshot: one entry per track (id, file, and a flat

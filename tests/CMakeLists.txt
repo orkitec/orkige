@@ -2603,8 +2603,11 @@ if(TARGET orkige_player)
         # refusals that have to say WHY. The platform bridge's own decisions are
         # proved separately and headlessly in tests/core (the ledger, the
         # request/delivery correlation and the two integer translations).
+        # Filtered to its own file so the two monetization legs stay two
+        # verdicts: an ads failure must not be reported as a store failure.
         add_test(NAME player_store_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project projects/example --run-tests
+                --test-filter store.test
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         # ORKIGE_PROGRESS_DIR/RESET isolate the save store into the build tree
         # and wipe it before each run: the test grants a purchase the way the
@@ -2613,6 +2616,29 @@ if(TARGET orkige_player)
         set_tests_properties(player_store_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 180
             ENVIRONMENT "ALSOFT_DRIVERS=null;ORKIGE_TEST_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/store_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX};ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/store_lua_save${ORKIGE_FLAVOR_TEST_SUFFIX};ORKIGE_PROGRESS_RESET=1")
+
+        # THE ADVERTISING TIER END TO END, against the SIMULATED ad surface -
+        # the leg no real network can provide, because no CI machine has an ad
+        # account and a real network answers what it feels like answering. The
+        # engine MEDIATES rather than advertises, so what is proved here is
+        # everything the engine owns: consent gating initialization (the
+        # ordering constraint), the placement lifecycle, no-fill as an ordinary
+        # answer, THE REWARD ARRIVING ONLY WITH THE EARNED SIGNAL - never on
+        # the advert closing - and a no-ads purchase silencing the interruptive
+        # formats while deliberately leaving opt-in rewarded running. Unhappy
+        # paths are pinned through the `ads.sim` cvar, which exists only while
+        # the simulator is installed. The per-unit state machine is proved
+        # separately and headlessly in tests/core/AdPlacementTests.cpp.
+        add_test(NAME player_ads_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project projects/example --run-tests
+                --test-filter ads.test
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        # the same save isolation the store leg needs, and for the same reason:
+        # the reward is granted the way the doc says to (durable, inside the
+        # callback), so this really does write a save.
+        set_tests_properties(player_ads_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 180
+            ENVIRONMENT "ALSOFT_DRIVERS=null;ORKIGE_TEST_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/ads_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX};ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/ads_lua_save${ORKIGE_FLAVOR_TEST_SUFFIX};ORKIGE_PROGRESS_RESET=1")
 
         # the 2D tier, end to end: projects/roller (a tilt-gravity ball +
         # sliding-tile puzzle prototype - SpriteComponents, ortho camera,

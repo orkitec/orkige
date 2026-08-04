@@ -135,6 +135,11 @@ struct PlayerContext
 	std::optional<Orkige::AppLifecycle> lifecycle;
 
 	//--- loop state ----------------------------------------------------------
+	//! @brief was a fullscreen advert covering the app on the PREVIOUS frame -
+	//! the edge that suspends and resumes audio, so the game's music does not
+	//! play underneath an advert's own sound. Edge-tracked rather than
+	//! re-applied every frame because onInterruptBegin/End are transitions.
+	bool adTakeoverActive = false;
 	bool physicsNeeded = false;
 	unsigned long frameLimit = 0;
 	bool automatedRun = false;

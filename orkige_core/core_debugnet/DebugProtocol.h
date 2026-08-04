@@ -512,6 +512,25 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String FIELD_STORE_PENDING;
 		extern ORKIGE_CORE_DLL const String FIELD_STORE_AD_FREE;
 		extern ORKIGE_CORE_DLL const String LIST_STORE_OWNED;
+		//! @brief MSG_STATS: the running game's AD state, on the same stream and
+		//! for the same reason as the store block above. FIELD_ADS_PROVIDER
+		//! names the installed ad provider ("" when the game installed none,
+		//! which is the ordinary answer - the engine mediates and ships no ad
+		//! network); FIELD_ADS_READY is "1" once the surface came up;
+		//! FIELD_ADS_CONSENT carries the consent token (not_gathered, granted,
+		//! denied) because it is the ORDERING CONSTRAINT that decides whether
+		//! the surface may come up at all; FIELD_ADS_TEST_MODE is "1" while
+		//! bound to test inventory; FIELD_ADS_TAKEOVER is "1" while a fullscreen
+		//! advert covers the app (the world is not advancing then);
+		//! FIELD_ADS_BANNER_HEIGHT is the strip's height in window pixels, 0
+		//! when no banner is on screen. Omitted when the runtime has no
+		//! monetization seam. Additive since protocol v1.
+		extern ORKIGE_CORE_DLL const String FIELD_ADS_PROVIDER;
+		extern ORKIGE_CORE_DLL const String FIELD_ADS_READY;
+		extern ORKIGE_CORE_DLL const String FIELD_ADS_CONSENT;
+		extern ORKIGE_CORE_DLL const String FIELD_ADS_TEST_MODE;
+		extern ORKIGE_CORE_DLL const String FIELD_ADS_TAKEOVER;
+		extern ORKIGE_CORE_DLL const String FIELD_ADS_BANNER_HEIGHT;
 		//! @brief MSG_PROFILE_DATA: the flattened scope tree - parallel lists,
 		//! LIST_PROFILE_NAMES the scope names (depth-first), LIST_PROFILE_INFO
 		//! one flat "depth calls milliseconds maxMilliseconds" per name.
