@@ -220,7 +220,7 @@ def check_payload_samplers(payload_dir, project_dir, platform):
 # a software Vulkan ICD) and the audio-driver choice the suite pins.
 PASSTHROUGH_ENV = ("DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
                    "VK_DRIVER_FILES", "VK_ICD_FILENAMES",
-                   "LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER", "ALSOFT_DRIVERS")
+                   "LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER", "ORKIGE_AUDIO_BACKEND")
 
 
 def write_sandbox_profile(path, denied, allowed):

@@ -12,7 +12,7 @@
 //! @file SoundVariation.h
 //! @brief the pure pitch/volume randomization math a SoundSource applies on each
 //! play() so a repeated effect (a footstep, a coin, a hit) never sounds
-//! mechanically identical. No OpenAL, no source - a unit test feeds fixed
+//! mechanically identical. No audio device, no source - a unit test feeds fixed
 //! [0,1) samples and asserts the endpoints/midpoint, and the source draws the
 //! sample from its own RNG at play time. Both channels take a symmetric range:
 //! a range of 0 leaves the value untouched (the honest off switch).
@@ -25,7 +25,7 @@ namespace Orkige
 	//! @param range the +/- fraction (0 = no variation, 0.1 = +/-10%); a
 	//! negative range is treated as its magnitude. @param unit01 a random sample
 	//! in [0,1) (0 -> the low edge, 0.5 -> 1.0, 1 -> the high edge). The result
-	//! is clamped above 0 so AL_PITCH stays valid at large ranges.
+	//! is clamped above 0 so the applied pitch stays valid at large ranges.
 	inline float variedPitch(float range, float unit01)
 	{
 		const float r = range < 0.0f ? -range : range;

@@ -10,7 +10,7 @@
 #ifndef __SoundSource_h__31_8_2010__13_58_48__
 #define __SoundSource_h__31_8_2010__13_58_48__
 
-#include "engine_sound/SoundPlatform.h"
+#include "engine_sound/SoundData.h"
 #include <core_base/Object.h>
 
 namespace Orkige
@@ -26,22 +26,18 @@ namespace Orkige
                 //--- Variables ---------------------------------------------
         public:
         protected:
-#ifdef ORKIGE_OPENAL_SOUND
-                ALuint			source;			//!< openAl source
-                ALuint			buffer;			//!< openAl buffer
-
-                ALenum			format;			//!< Sound samples: format specifier e.g. AL_FORMA_*
-                ALsizei			size;			//!< sound data size
-                ALsizei			freq;			//!< sound SampleRate
-#endif //ORKIGE_OPENAL_SOUND
+                AudioBackend::Voice			voice;	//!< the mixer voice (NULL while audio is down)
+                SoundUtil::PcmFormat		format;	//!< channels/bits/rate of the samples
+                int				size;			//!< sound data size in bytes
                 void*			data;			//!< the actual SoundFile data
 
                 Ogre::Vector3	position;		//!< position in 3d space (only for mono sounds)
                 String			fileName;		//!< filename of this SoundSource
                 bool			looped;			//!< marks if source should be looping
                 bool			initialized;	//!< true after SoundSource::init() was called
-                //--- the mixer model: AL_GAIN = baseGain * groupVolume; the
-                //--- master sits on the listener (SoundManager::setMasterVolume)
+                bool			paused;			//!< pause() stopped it where it stood
+                //--- the mixer model: the voice's volume = baseGain * groupVolume;
+                //--- the master sits on the graph (SoundManager::setMasterVolume)
                 float			baseGain;		//!< this source's own volume 0..1 (default 1)
                 String			group;			//!< mixer group tag (default "sfx")
                 float			groupVolume;	//!< the group's volume 0..1, pushed by SoundManager
@@ -97,10 +93,10 @@ namespace Orkige
                 void setPlayPosition(float pos);
 
                 //--- MIXER (effective = baseGain * groupVolume; master rides
-                //--- on the AL listener via SoundManager::setMasterVolume) ---
+                //--- on the graph via SoundManager::setMasterVolume) ---------
                 //! @brief this source's own volume, clamped to 0..1
-                //! @remarks volumes stay <= 1 by design: init() pins
-                //! AL_MAX_GAIN to 1.0, so anything above would clamp silently
+                //! @remarks the whole volume vocabulary stays in 0..1 by
+                //! design, so one scale covers source, group and master
                 void setBaseGain(float gain);
                 //! @see SoundSource::setBaseGain
                 float getBaseGain() const;
@@ -115,7 +111,7 @@ namespace Orkige
                 void setGroupVolume(float volume);
                 //! @brief the gain this source actually plays at:
                 //! baseGain * groupVolume - queryable headlessly (the state is
-                //! kept even while OpenAL is not initialized)
+                //! kept even while there is no audio device)
                 float getEffectiveGain() const;
 
                 //--- PER-PLAY VARIATION (a repeated effect never sounds
@@ -133,28 +129,28 @@ namespace Orkige
                 //! @see SoundSource::setVolumeVariation
                 float getVolumeVariation() const;
                 //! @brief the pitch the most recent play() applied (1.0 before any
-                //! play, or with no variation). Kept even while OpenAL is not
-                //! initialized so a headless selfcheck can assert the variation math.
+                //! play, or with no variation). Kept even while there is no audio
+                //! device so a headless selfcheck can assert the variation math.
                 float getCurrentPitch() const;
-                //! @brief read the pitch OpenAL currently holds on this source
-                //! (0 when not initialized) - the device-side proof that a varied
-                //! pitch reached the source
+                //! @brief read the pitch the MIXER currently holds for this
+                //! source (0 when not initialized) - the device-side proof that
+                //! a varied pitch reached the voice
                 float queryPitch() const;
 
-                //! @brief read the byte size OpenAL holds for this source's
-                //! buffer (0 when not initialized) - the device-side proof
-                //! that the decoded (or SYNTHESIZED, @see LoadOsfxData.cpp)
-                //! samples were accepted by the buffer upload
+                //! @brief read the byte size the MIXER reads behind this source
+                //! (0 when not initialized) - the device-side proof that the
+                //! decoded (or SYNTHESIZED, @see LoadSfxData.cpp) samples were
+                //! accepted by the voice
                 int queryBufferBytes() const;
-                //! @brief the sample rate OpenAL holds for this source's
-                //! buffer in Hz (0 when not initialized)
+                //! @brief the sample rate the mixer reads this source at in Hz
+                //! (0 when not initialized)
                 //! @see SoundSource::queryBufferBytes
                 int queryBufferSampleRate() const;
 
                 //! true after SoundSource::init() succeeded
                 bool isInitialized() const;
         protected:
-                //! push the effective gain onto the AL source (if initialized)
+                //! push the effective gain onto the voice (if initialized)
                 void applyGain();
         private:
         };

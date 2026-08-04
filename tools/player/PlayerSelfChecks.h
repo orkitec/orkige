@@ -504,7 +504,7 @@ struct PlayerSelfChecks
 	// its `.osfx` text twin an agent writes - is SYNTHESIZED at load
 	// (core_util/SfxAsset + SfxSynth) through the extension dispatch a wave
 	// file's decoder sits in, so the leg proves such a file is a sound FILE to
-	// everything above: (1) the samples OpenAL holds for the source match what
+	// everything above: (1) the samples the mixer holds for the source match what
 	// the pure synthesizer renders from the same asset, byte count and rate -
 	// the device-side proof that the synthesized PCM reached the buffer, and
 	// the text asset's `preset` seed / explicit-override precedence holds;
@@ -515,7 +515,7 @@ struct PlayerSelfChecks
 	// SoundComponent/Lua surface a `.wav` uses added and played one with no new
 	// API (the script publishes what it saw into shared.sfx). Device-tolerant:
 	// without an audio device the leg asserts the honest no-op instead (the
-	// demo_music shape); ctest runs it on OpenAL Soft's null backend, so the
+	// demo_music shape); ctest runs it on the silent audio device, so the
 	// audible branch is the one that executes.
 	bool sfxCheckDone = false;
 	bool sfxCheckFailed = false;

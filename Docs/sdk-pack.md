@@ -90,7 +90,7 @@ game from the pruned pack, on both flavors.
 
 A distribution pack is a **Release** one: about **200 MB** for the default
 flavor, dominated by the dependency closure (~139 MB: OGRE-Next and its render
-systems, the image and mesh codecs, SDL3, OpenAL, Jolt, Lua), with the two
+systems, the image and mesh codecs, SDL3, Jolt, Lua), with the two
 engine archives ~59 MB and the headers ~2 MB. Trimming host tools and the ports
 above takes ~42 MB off the closure a Release next-flavor pack would otherwise
 carry.
@@ -264,7 +264,7 @@ archives were, or its objects disagree with the archive about struct layout and
 inline behaviour. Two channels carry that.
 
 **Definitions.** The set is not small and it is not static: `ORKIGE_STATIC`, the
-render-flavor macro, `USE_RTSHADER_SYSTEM`, `ORKIGE_OPENAL_SOUND`,
+render-flavor macro, `USE_RTSHADER_SYSTEM`,
 `ORKIGE_ENGINE_HAS_GOCOMPONENT`, `ORKIGE_HTTP`, the scripting-backend define,
 `ORKIGE_HAVE_VULKAN`, the standard-library hardening switch, and on Windows
 `NOMINMAX`/`WIN32_LEAN_AND_MEAN`.

@@ -1537,10 +1537,10 @@ namespace Orkige
 		// Global mixer controls (per-sound volume/group live on the
 		// SoundComponent reached via world.getSound). Effective per-source
 		// gain = sound volume * group volume, master on top - all 0..1
-		// (values above 1 clamp silently at OpenAL's pinned AL_MAX_GAIN).
+		// (the whole volume vocabulary is 0..1 by design).
 		// Group volumes persist per project as the manifest Settings
 		// "audio.master" / "audio.group.<name>", applied on project load.
-		// Honest without audio: no SoundManager (or a failed OpenAL init)
+		// Honest without audio: no SoundManager (or a failed audio init)
 		// reads back the defaults and setters no-op.
 		runtime.registerFunction("sound", "setGroupVolume",
 			[](String const & group, float volume)
@@ -1578,7 +1578,7 @@ namespace Orkige
 		// master volume stay on the `sound` table (sound.setGroupVolume("music",
 		// v) / tween.volume("music", ...) reach streams transparently) - this
 		// table carries only the per-track own volume. Honest without audio: no
-		// SoundManager (or a failed OpenAL init) makes every call a no-op and the
+		// SoundManager (or a failed audio init) makes every call a no-op and the
 		// readbacks return their defaults.
 		runtime.registerFunction("music", "play",
 			[](String const & id, String const & file, ScriptArgs args) -> bool

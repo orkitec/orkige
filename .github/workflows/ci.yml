@@ -17,7 +17,7 @@
 #                                    GL on hosted Windows for the windowed set)
 #
 # TIMING EXPECTATIONS: the very first run compiles the whole vcpkg dependency
-# set (classic OGRE or Ogre-Next, assimp, freeimage, SDL3, Jolt, OpenAL, Lua,
+# set (classic OGRE or Ogre-Next, assimp, freeimage, SDL3, Jolt, Lua,
 # imgui, catch2, ... in Debug AND Release) from source - expect 1-2 HOURS per
 # job. Every later run restores the vcpkg binary cache + ccache and should
 # configure+build in well under 15 minutes. The caches are keyed on
@@ -334,7 +334,7 @@ jobs:
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
           GALLIUM_DRIVER: llvmpipe
-          ALSOFT_DRIVERS: "null"
+          ORKIGE_AUDIO_BACKEND: "null"
           SDL_VIDEO_DRIVER: x11
         run: |
           glxinfo -B > /dev/null 2>&1 || true
@@ -469,12 +469,12 @@ jobs:
         run: ctest --preset unit-linux-next
 
       # A hard gate: the full Ogre-Next desktop suite under a virtual display.
-      # Vulkan renders through lavapipe; audio routes to openal-soft's null
-      # backend because hosted runners have no audio device.
+      # Vulkan renders through lavapipe; audio routes to the silent device
+      # because hosted runners have no audio hardware.
       - name: Windowed desktop suite (xvfb + Mesa lavapipe - MUST pass)
         id: linux_desktop
         env:
-          ALSOFT_DRIVERS: "null"
+          ORKIGE_AUDIO_BACKEND: "null"
           SDL_VIDEO_DRIVER: x11
         run: |
           # steer the Vulkan loader to the software rasterizer; the ICD
@@ -709,7 +709,7 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/Util/lsan_suppressions.txt
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-          ALSOFT_DRIVERS: "null"
+          ORKIGE_AUDIO_BACKEND: "null"
           SDL_VIDEO_DRIVER: x11
         run: |
           LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
@@ -819,7 +819,7 @@ jobs:
           # The suppressions file covers ONLY non-Orkige worker-thread races
           # (Docs/sanitizers.md) - an Orkige race is a hard failure here.
           TSAN_OPTIONS: halt_on_error=1:history_size=4:suppressions=${{ github.workspace }}/Util/tsan_suppressions.txt
-          ALSOFT_DRIVERS: "null"
+          ORKIGE_AUDIO_BACKEND: "null"
         run: ctest --preset unit-linux-tsan
 
       - name: Save vcpkg binary cache
@@ -1241,7 +1241,7 @@ jobs:
           # bounded test phase; `env VAR=... xvfb-run ... ctest` carries the
           # host editor's Vulkan/audio/display environment (no nested quoting).
           script: |
-            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci --timeout 420 --repeat until-pass:2
+            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ORKIGE_AUDIO_BACKEND=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci --timeout 420 --repeat until-pass:2
 
       - name: Emulator Play test - self-heal retry on a fresh AVD
         id: play_next_retry
@@ -1259,7 +1259,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci --timeout 420 --repeat until-pass:2
+            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ORKIGE_AUDIO_BACKEND=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci --timeout 420 --repeat until-pass:2
 
       - name: Emulator Play verdict (MUST pass)
         if: always()
@@ -1437,7 +1437,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci-classic/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci-classic --timeout 420 --repeat until-pass:2
+            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci-classic/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ORKIGE_AUDIO_BACKEND=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci-classic --timeout 420 --repeat until-pass:2
 
       - name: Emulator Play test - self-heal retry on a fresh AVD
         id: play_classic_retry
@@ -1455,7 +1455,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci-classic/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci-classic --timeout 420 --repeat until-pass:2
+            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); bash tools/player/android/run_play_test.sh build/android-emulator-debug-ci-classic/apk/OrkigePlayer.apk -- env VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ORKIGE_AUDIO_BACKEND=null SDL_VIDEO_DRIVER=x11 xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci-classic --timeout 420 --repeat until-pass:2
 
       - name: Emulator Play verdict (MUST pass)
         if: always()
@@ -1489,8 +1489,8 @@ jobs:
     # verdict here would re-prove the identical commit. The site path
     # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
     if: github.event_name != 'push' || github.ref != 'refs/heads/main'
-    # macos-15's default toolchain: openal-soft 1.25 needs a newer AppleClang
-    # than the macos-14 image ships (CTAD in its event handling)
+    # macos-15's default toolchain: the dependency closure needs a newer
+    # AppleClang than the macos-14 image ships
     runs-on: macos-15
     timeout-minutes: 360
     env:
@@ -1561,7 +1561,7 @@ jobs:
       - name: Complete desktop suite (Metal - MUST pass)
         id: macos_desktop
         env:
-          ALSOFT_DRIVERS: "null"
+          ORKIGE_AUDIO_BACKEND: "null"
         run: |
           # list_play_targets probes adb and simctl. Warm both outside the
           # MCP request deadline so a cold hosted runner cannot consume the
@@ -1822,7 +1822,7 @@ jobs:
         # wall.
         timeout-minutes: 60
         env:
-          ALSOFT_DRIVERS: "null"
+          ORKIGE_AUDIO_BACKEND: "null"
         run: ctest --preset device-macos-ios-ci --timeout 1400 --repeat until-pass:2
 
       - name: Upload test diagnostics
@@ -2087,7 +2087,7 @@ jobs:
       - name: Complete Windows desktop suite (lavapipe - MUST pass)
         shell: pwsh
         env:
-          ALSOFT_DRIVERS: "null"
+          ORKIGE_AUDIO_BACKEND: "null"
           MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
         run: |
           # the ICD is registered in the REGISTRY, not (only) the environment:

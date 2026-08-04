@@ -44,8 +44,8 @@ namespace Orkige
 		bool stopAllSounds();
 		//--- MIXER (per attached sound; effective gain = volume * group
 		//--- volume, master on top - see engine_sound/SoundManager.h) ---
-		//! set an attached sound's own volume (0..1 - gains above 1 would
-		//! clamp silently at the pinned AL_MAX_GAIN)
+		//! set an attached sound's own volume (0..1 - gains above 1 are
+		//! outside the engine's volume vocabulary and clamp)
 		bool setVolume(String const & sid, float volume);
 		//! an attached sound's own volume (1 when the sound is unknown)
 		float getVolume(String const & sid);

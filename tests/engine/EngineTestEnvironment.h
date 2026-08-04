@@ -15,6 +15,7 @@
 #include <core_event/GlobalEventManager.h>
 #include <core_game/GameObjectManager.h>
 #include <core_script/ScriptRuntime.h>
+#include <engine_sound/SoundManager.h>
 
 namespace Orkige
 {
@@ -58,6 +59,10 @@ namespace Orkige
 	private:
 		EngineTestEnvironment()
 		{
+			// a unit run IS an automated run: whatever opens an audio device
+			// here reaches the SILENT one, so a bare binary run is as quiet
+			// as a ctest run (@see SoundManager::setAutomatedRun)
+			SoundManager::setAutomatedRun(true);
 			Timer::initialise();
 			init_module_orkige_core();
 			init_module_orkige_engine();

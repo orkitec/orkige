@@ -22,26 +22,14 @@ namespace Orkige
 	{
 		switch(errorCode)
 		{
-#ifdef ORKIGE_OPENAL_SOUND
-		case AL_INVALID_VALUE:
-			return "AL_INVALID_VALUE";
-			break;
-		case AL_INVALID_ENUM:
-			return "AL_INVALID_ENUM";
-			break;
-		case AL_INVALID_NAME:
-			return "AL_INVALID_NAME";
-			break;
-		case AL_INVALID_OPERATION:
-			return "AL_INVALID_OPERATION";
-			break;
-		case AL_OUT_OF_MEMORY:
-			return "AL_OUT_OF_MEMORY";
-			break;
-#endif //ORKIGE_OPENAL_SOUND
+		case SE_BAD_DATA:
+			return "SE_BAD_DATA";
+		case SE_UNREADABLE:
+			return "SE_UNREADABLE";
+		case SE_DEVICE:
+			return "SE_DEVICE";
 		default:
-			return "UNKNOWN_AL_ERROR";
-			break;
+			return "SE_UNKNOWN";
 		}
 	}
 	//---------------------------------------------------------
@@ -49,15 +37,13 @@ namespace Orkige
 	{
 		if(!condition)
 		{
-#ifdef ORKIGE_OPENAL_SOUND
 			SoundError exception(message, code);
-			if(code != AL_INVALID)
+			if(code != SE_UNKNOWN)
 			{
-				oDebugMsg("sound",0,"OpenAL ErrorCode: " << SoundError::getErrorDesc(code));
+				oDebugMsg("sound",0,"Sound error: " << SoundError::getErrorDesc(code));
 			}
 			oDebugMsg("sound",0,message);
 			throw exception;
-#endif //ORKIGE_OPENAL_SOUND
 		}
 	}
 	//---------------------------------------------------------

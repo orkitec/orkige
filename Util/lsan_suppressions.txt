@@ -16,7 +16,7 @@
 # LeakSanitizer reports only allocations that are UNREACHABLE at process exit
 # (definitely/indirectly lost) - never blocks still reachable from a global or
 # static pointer. The third-party engine singletons a game holds for its whole
-# life (the Ogre root, the SDL subsystems, Jolt's factory, the OpenAL device)
+# life (the Ogre root, the SDL subsystems, Jolt's factory, the audio device)
 # stay reachable through their owning globals at exit, so LSan does not flag
 # them and they need no suppression. Orkige's own teardown is leak-disciplined
 # (the GameObjectManager::clear hook, the event/manager destructors), so the

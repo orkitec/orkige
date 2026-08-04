@@ -36,7 +36,7 @@ LSan reports only allocations that are **unreachable at process exit**
 (definitely / indirectly lost); it never flags blocks still reachable from a
 global or static pointer. This is why the third-party engine singletons a game
 holds for its whole lifetime — the Ogre root, the SDL subsystems, Jolt's
-factory, the OpenAL device — do **not** appear: they stay reachable through
+factory, the audio device — do **not** appear: they stay reachable through
 their owning globals at exit. The engine's own teardown is leak-disciplined
 (the `GameObjectManager::clear` hook, the event/manager destructors), so the
 full unit + desktop integration suite runs **clean** under `detect_leaks=1`.
@@ -114,12 +114,13 @@ third-party threads (this is why the suppression file is wired into
 
 **Suppress vs exclude.** The physics tests are kept in the gate (with Jolt
 suppressed) because they also exercise Orkige's own contact-event queue — real
-TSan value. The one AL-device test (`SoundManagerDestructorTearsDownAL`) is
-instead **excluded** from the TSan presets outright: it spins OpenAL Soft's
-internal mixer thread but carries no Orkige-owned threading (the engine drives
-OpenAL entirely from the main thread), so under TSan it is pure third-party
-noise — and `halt_on_error=1` stops at the first of OpenAL's several internal
-race sites, so a suppression would be an open-ended chase. Its teardown
+TSan value. The two audio-device tests
+(`SoundManagerDestructorTearsDownAudio`, `MusicStreamTeardownMidRefill`) are
+instead **excluded** from the TSan presets outright: they spin the audio
+library's own device thread, and the only Orkige-owned crossing there is the
+music ring, whose two ends are `std::atomic` by construction — so under TSan
+they are third-party noise, and `halt_on_error=1` stops at the first internal
+race site, which makes a suppression an open-ended chase. Their teardown
 memory-safety stays covered by the ASan gate. Exclusion lives in the
 `unit-*-tsan` test-preset `filter.exclude.name`.
 
@@ -141,7 +142,7 @@ export PATH=/opt/homebrew/bin:$PATH
 VCPKG_ROOT=$HOME/Development/vcpkg cmake --preset macos-debug-tsan \
   -DPKG_CONFIG_EXECUTABLE=/opt/homebrew/bin/pkg-config
 cmake --build --preset macos-debug-tsan
-ALSOFT_DRIVERS=null \
+ORKIGE_AUDIO_BACKEND=null \
   TSAN_OPTIONS="halt_on_error=1:suppressions=$PWD/Util/tsan_suppressions.txt" \
   ctest --preset unit-macos-tsan
 ```
@@ -158,7 +159,7 @@ bash Util/ci_configure.sh --preset linux-debug-tsan \
   -DVCPKG_INSTALL_OPTIONS="--clean-after-build;--allow-unsupported"
 cmake --build --preset linux-debug-tsan
 TSAN_OPTIONS="halt_on_error=1:suppressions=$PWD/Util/tsan_suppressions.txt" \
-  ALSOFT_DRIVERS=null ctest --preset unit-linux-tsan
+  ORKIGE_AUDIO_BACKEND=null ctest --preset unit-linux-tsan
 ```
 
 `ORKIGE_TSAN` and `ORKIGE_ENABLE_SANITIZERS` are mutually exclusive — enabling

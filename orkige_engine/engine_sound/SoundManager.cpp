@@ -7,40 +7,38 @@
 	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
 
-// OpenAL Soft port notes:
-// - the OgreOggSound backend (ORKIGE_OGGSOUNDMANAGER) is gone together with
-//   its vendored dependency; streaming/ogg support is future work
-// - the iOS AudioSession interruption wiring (AudioSessionInitialize & co)
-//   was removed from the iOS SDK long ago; AVAudioSession based handling
-//   returns with the mobile phase and should call onInterruptBegin/End
-// - the Windows OpenAL_LoadLibrary loader shim is obsolete: openal-soft is
-//   linked directly on every platform
-
 #include "engine_sound/SoundManager.h"
 #include "engine_sound/SoundError.h"
 #include <core_util/foreach.h>
 
 #include <algorithm>
 #include <cstdlib>
-#ifdef __APPLE__
-// TARGET_OS_IPHONE: activating the audio session is an iOS-only prerequisite
-#include <TargetConditionals.h>
-#if TARGET_OS_IPHONE
-//! @see engine_sound/AudioSessionApple.mm - OpenAL Soft does not manage the
-//! audio session, so the engine activates it before opening a device
-extern "C" bool orkige_activate_audio_session(char const ** outError);
-#endif
-#endif
+#include <cstring>
 
 namespace Orkige
 {
+	namespace
+	{
+		//! the env name the whole engine (and its child processes) reads
+		char const * const kAudioBackendEnv = "ORKIGE_AUDIO_BACKEND";
+		//! what kind of run this process is (@see SoundManager::setAutomatedRun)
+		bool gAutomatedRun = false;
+
+		//! set an environment variable on this process (and everything it
+		//! spawns from here on)
+		void publishEnv(char const * name, char const * value)
+		{
+#ifdef _WIN32
+			_putenv_s(name, value);
+#else
+			setenv(name, value, 1 /*overwrite*/);
+#endif
+		}
+	}
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	SoundManager::SoundManager(optr<RenderNode> const & soundListener) : isInitialized(false)
-#ifdef ORKIGE_OPENAL_SOUND
-	, context(0)
-#endif //ORKIGE_OPENAL_SOUND
 	, listener(soundListener)
 	, masterVolume(1.f)
 	{
@@ -49,6 +47,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	SoundManager::~SoundManager()
 	{
+		// the runtimes own the manager as a stack local and never call
+		// deinit(), so this is the only teardown at shutdown: the voices go
+		// first, then the device they live on
+		if (this->isInitialized)
+		{
+			this->deinit();
+		}
 		oInfo("...SoundManager destroyed!...");
 	}
 	//---------------------------------------------------------
@@ -58,7 +63,7 @@ namespace Orkige
 	{
 		try
 		{
-			this->isInitialized = this->initOpenAl();
+			this->isInitialized = this->initAudioDevice();
 		}
 		catch (...)
 		{
@@ -83,31 +88,18 @@ namespace Orkige
 
 		if(this->listener)
 		{
-#ifdef ORKIGE_OPENAL_SOUND
 			// the listener node's world pose: forward = -Z, up = +Y (the
 			// same convention cameras attach with)
 			const Vec3 pos = this->listener->getWorldPosition();
-			alListener3f(AL_POSITION, pos.x, pos.y, pos.z);
-
 			const Quat pose = this->listener->getWorldOrientation();
-			Vec3 dir = pose * Vec3::NEGATIVE_UNIT_Z;
-			Vec3 up = pose * Vec3::UNIT_Y;
-
-			ALfloat orientation[6];
-			orientation[0]= dir.x; // Forward.x
-			orientation[1]= dir.y; // Forward.y
-			orientation[2]= dir.z; // Forward.z
-
-			orientation[3]= up.x; // Up.x
-			orientation[4]= up.y; // Up.y
-			orientation[5]= up.z; // Up.z
-
-			alListenerfv(AL_ORIENTATION, orientation);
-#endif //ORKIGE_OPENAL_SOUND
+			const Vec3 dir = pose * Vec3::NEGATIVE_UNIT_Z;
+			const Vec3 up = pose * Vec3::UNIT_Y;
+			AudioBackend::engineSetListener(pos.x, pos.y, pos.z,
+				dir.x, dir.y, dir.z, up.x, up.y, up.z);
 		}
 
 		// streamed music: refill each track's ring on the main thread (the
-		// 4x0.5s AL cushion tolerates the occasional long frame)
+		// 4x0.5s cushion tolerates the occasional long frame)
 		this->updateMusic();
 	}
 	//---------------------------------------------------------
@@ -132,18 +124,19 @@ namespace Orkige
 			{
 				src->stop();
 			}
-			// sources registered while OpenAL was down own no AL objects
+			// sources registered while audio was down own no voice
 			if(src->isInitialized())
 			{
 				src->deinit();
 			}
 		}
 		this->sounds.clear();
-		// streamed tracks free their AL objects + decoder in their destructor
+		// streamed tracks free their voice + decoder in their destructor
 		this->music.clear();
 		if (this->isInitialized)
 		{
-			return this->deinitOpenAl();
+			this->isInitialized = false;
+			return this->deinitAudioDevice();
 		}
 		else
 		{
@@ -159,7 +152,7 @@ namespace Orkige
 		{
 
 			optr<SoundSource> sound = onew(new SoundSource(id, fileName, loop, pos));
-			// AL objects only exist while OpenAL is up; an uninitialized
+			// a voice only exists while the device is up; an uninitialized
 			// manager still REGISTERS the source (headless tests exercise the
 			// gain model this way) - it just stays silent
 			if(this->isInitialized)
@@ -292,7 +285,7 @@ namespace Orkige
 			return it->second->isPlaying();
 		}
 		optr<MusicStream> stream = onew(new MusicStream(id, fileName, loop));
-		// AL objects + decoding only happen while OpenAL is up; an
+		// the voice + decoding only happen while the device is up; an
 		// uninitialized manager still REGISTERS the track (the gain model stays
 		// queryable headlessly), exactly like createSound does for SoundSource
 		bool started = false;
@@ -456,14 +449,12 @@ namespace Orkige
 	void SoundManager::setMasterVolume(float volume)
 	{
 		this->masterVolume = std::clamp(volume, 0.f, 1.f);
-#ifdef ORKIGE_OPENAL_SOUND
-		// ONE call scales the whole mix - the listener gain; reapplied by
-		// initOpenAl after interruption reinits
+		// ONE call scales the whole mix - the graph's own volume; reapplied
+		// by initAudioDevice after an interruption reinit
 		if(this->isInitialized)
 		{
-			alListenerf(AL_GAIN, this->masterVolume);
+			AudioBackend::engineSetMasterVolume(this->masterVolume);
 		}
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	float SoundManager::getMasterVolume() const
@@ -479,6 +470,39 @@ namespace Orkige
 		}
 		sound->setGroup(group);
 		sound->setGroupVolume(this->getGroupVolume(group));
+	}
+	//---------------------------------------------------------
+	void SoundManager::setAutomatedRun(bool automatedRun)
+	{
+		gAutomatedRun = automatedRun;
+		// A CHILD process makes its own decision, and it cannot see this
+		// process's boolean - so an automated run states its choice in the
+		// environment it hands down. That is what keeps the player an
+		// automated editor spawns as silent as the editor itself, without
+		// every caller having to remember to pass the flag on.
+		if(automatedRun && std::getenv(kAudioBackendEnv) == NULL)
+		{
+			publishEnv(kAudioBackendEnv, "null");
+		}
+	}
+	//---------------------------------------------------------
+	bool SoundManager::isAutomatedRun()
+	{
+		return gAutomatedRun;
+	}
+	//---------------------------------------------------------
+	bool SoundManager::resolveSilentDevice(char const * backendSetting,
+		bool automatedRun)
+	{
+		if(backendSetting != NULL && backendSetting[0] != '\0')
+		{
+			// an EXPLICIT setting wins, either way: a developer who wants to
+			// hear a scripted run says so and gets the machine's device
+			return std::strcmp(backendSetting, "null") == 0 ||
+				std::strcmp(backendSetting, "silent") == 0 ||
+				std::strcmp(backendSetting, "off") == 0;
+		}
+		return automatedRun;
 	}
 	//---------------------------------------------------------
 	void SoundManager::applySettings(std::map<String, String> const & settings)
@@ -521,26 +545,36 @@ namespace Orkige
 				src->deinit();
 			}
 		}
-		// streamed tracks release their AL objects too (they die with the
-		// context); the decoder + resident bytes are kept for the restore below
+		// streamed tracks release their voice too (it dies with the device);
+		// the decoder + resident bytes are kept for the restore below
 		foreach(MusicRegistry::value_type const & vt, music)
 		{
 			vt.second->suspend();
 		}
 
-		//deinit al
-		this->deinitOpenAl();
+		//close the device
+		this->deinitAudioDevice();
 	}
 	//---------------------------------------------------------
 	void SoundManager::onInterruptEnd()
 	{
-		//reinit al
-		this->initOpenAl();
+		//reopen the device
+		this->initAudioDevice();
 
-		//reinit sources
+		//rebuild the voices
 		foreach(SoundRegistry::value_type const & vt, sounds)
 		{
-			vt.second->init();
+			// a source whose file went away stays silent instead of
+			// unwinding into the caller, exactly like createSound
+			try
+			{
+				vt.second->init();
+			}
+			catch(SoundError const & e)
+			{
+				oDebugError("sound", 0, "sound '" << vt.first
+					<< "' stays silent after the interruption: " << e.what());
+			}
 		}
 
 		//resume interrupted sounds
@@ -562,104 +596,31 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
-	bool SoundManager::initOpenAl()
+	bool SoundManager::initAudioDevice()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
-#if defined(__APPLE__) && TARGET_OS_IPHONE
-		// ACTIVATE THE AUDIO SESSION FIRST. OpenAL Soft does not manage it -
-		// that is the application's job - and its CoreAudio backend
-		// initialises an AURemoteIO inside alcCreateContext below. On a
-		// session that was never activated the iOS 17+ simulator leaves that
-		// call waiting on the audio server until the RPC watchdog abort()s the
-		// process, which no error handling here could catch. @see
-		// AudioSessionApple.mm.
-		char const * sessionError = 0;
-		if(!orkige_activate_audio_session(&sessionError))
+		// the platform's own default output; the audio backend picks the
+		// platform API itself and, on iOS, sets up and activates the audio
+		// session before it touches the hardware. An automated run opens the
+		// SILENT device instead - silence belongs to the RUN.
+		const bool silent = resolveSilentDevice(std::getenv(kAudioBackendEnv),
+			gAutomatedRun);
+		if(!AudioBackend::engineInit(silent))
 		{
-			// Do not walk into the backend with a session it rejected: on the
-			// simulator that is the watchdog abort, and a silent game beats a
-			// dead one. An explicit ALSOFT_DRIVERS still wins.
-			oDebugMsg("sound", 0, "no audio: " <<
-				(sessionError ? sessionError : "the audio session is not "
-				"available") << " - continuing without sound");
-			if(std::getenv("ALSOFT_DRIVERS") == 0)
-			{
-				setenv("ALSOFT_DRIVERS", "null", 1);
-			}
-		}
-#endif
-		// clear any errors
-		alGetError();
-
-		// Create a new OpenAL Device
-		// Pass NULL to open the system's default output device; OpenAL Soft
-		// picks the platform backend itself (the old "DirectSound3D" /
-		// "Generic Software" device names died with the Creative runtime)
-		ALCdevice* device = alcOpenDevice(NULL);
-		if(!device)
-		{
-			oDebugMsg("sound",0,"Error creating ALCdevice");
 			return false;
 		}
-
-		// Create a new OpenAL Context
-		// The new context will render to the OpenAL Device just created
-		this->context = alcCreateContext(device, 0);
-		if (!this->context)
-		{
-			oDebugMsg("sound",0,"Error creating ALCcontext");
-			alcCloseDevice(device);
-			return false;
-		}
-
-		// Make the new context the Current OpenAL Context
-		alcMakeContextCurrent(this->context);
-
-		ALenum error;
-		if((error = alGetError()) != AL_NO_ERROR)
-		{
-			oDebugMsg("sound",0,"Error initializing OpenAL!");
-			return false;
-		}
-		// a fresh context starts at listener gain 1 - reapply the mixer's
-		// master volume (matters on the interruption reinit path)
-		alListenerf(AL_GAIN, this->masterVolume);
+		oDebugMsg("sound", 0, "audio: opened the "
+			<< (silent ? "SILENT device (this run makes no sound)"
+				: "machine's own output device"));
+		// a fresh graph starts at volume 1 - reapply the mixer's master
+		// volume (matters on the interruption reinit path)
+		AudioBackend::engineSetMasterVolume(this->masterVolume);
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
-	bool SoundManager::deinitOpenAl()
+	bool SoundManager::deinitAudioDevice()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
-		ALCcontext	*context = NULL;
-		ALCdevice	*device = NULL;
-
-		//Get active context (there can only be one)
-		context = alcGetCurrentContext();
-		if(context == NULL)
-		{
-			oDebugMsg("sound", 0, "");
-			return false;
-		}
-		//Get device for active context
-		device = alcGetContextsDevice(context);
-		if(device == NULL)
-		{
-			return false;
-		}
-		//A context must not be current when it gets destroyed
-		alcMakeContextCurrent(NULL);
-		//Release context
-		alcDestroyContext(context);
-		//Close device
-		alcCloseDevice(device);
-		this->context = NULL;
+		AudioBackend::engineUninit();
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------

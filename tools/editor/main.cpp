@@ -5272,7 +5272,7 @@ int main(int argc, char** argv)
 				// as a sound like a wave file), and the Inspector's Audition
 				// button plays it THROUGH THE ENGINE'S OWN AUDIO PATH with no
 				// play session - the tune-and-hear loop a designer needs. The
-				// device is the null OpenAL backend under ctest, so the audible
+				// device is the silent one under ctest, so the audible
 				// branch is asserted; a machine with no device at all is the
 				// honest refusal the stage reports instead.
 				if (assetOk)

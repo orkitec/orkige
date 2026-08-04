@@ -10,14 +10,14 @@
 #ifndef __MusicStream_h__10_7_2026__21_00_00__
 #define __MusicStream_h__10_7_2026__21_00_00__
 
-#include "engine_sound/SoundPlatform.h"
+#include "engine_sound/AudioBackend.h"
 #include <core_base/Object.h>
 
 #include <vector>
 
 namespace Orkige
 {
-	//! @brief the compressed-audio decode seam: a thin, AL-free and
+	//! @brief the compressed-audio decode seam: a thin, device-free and
 	//! renderer-free wrapper over the single-file Vorbis decoder.
 	//! @remarks the ONE place the decoder is compiled is StbVorbisImpl.cpp;
 	//! everything else (MusicStream, the unit tests) reaches Vorbis ONLY through
@@ -47,22 +47,25 @@ namespace Orkige
 	}
 
 	//! @brief one streamed music track: the compressed audio is held resident
-	//! and decoded a little at a time into a small ring of OpenAL buffers that
-	//! is refilled on the main thread (SoundManager::update). Unlike SoundSource
-	//! (one fully-buffered clip) this keeps memory flat for long tracks.
-	//! @remarks looping is decoder-level (seek-to-start on end of stream), not
-	//! native AL_LOOPING (which would loop a single queued buffer). The mixer
-	//! model mirrors SoundSource: effective AL_GAIN = baseGain * groupVolume,
-	//! master rides the AL listener (SoundManager::setMasterVolume). All streams
-	//! sit in the "music" mixer group. The gain state is kept even while OpenAL
-	//! is down, so the volume math stays queryable headlessly.
+	//! and decoded a little at a time into a ring the MAIN thread fills
+	//! (SoundManager::update) and the mixer drains. Unlike SoundSource (one
+	//! fully-buffered clip) this keeps memory flat for long tracks.
+	//! @remarks DECODING STAYS ON THE MAIN THREAD by design: the Vorbis
+	//! decoder and the resource read behind it are main-thread facts, so the
+	//! ring - not the audio callback - is where the two threads meet.
+	//! Looping is decoder-level (seek-to-start on end of stream), so a track
+	//! wraps without a gap. The mixer model mirrors SoundSource: the voice's
+	//! volume = baseGain * groupVolume, master rides the graph
+	//! (SoundManager::setMasterVolume). All streams sit in the "music" mixer
+	//! group. The gain state is kept even while there is no audio device, so
+	//! the volume math stays queryable headlessly.
 	class ORKIGE_ENGINE_DLL MusicStream : public Object
 	{
 		OOBJECT(MusicStream, Object)
 		//--- Types -------------------------------------------------
 	public:
-		static const int	kBufferCount;		//!< AL queued-buffer ring size
-		static const float	kBufferSeconds;		//!< seconds of PCM per ring buffer
+		static const int	kBufferCount;		//!< chunks the ring holds
+		static const float	kBufferSeconds;		//!< seconds of PCM per chunk
 		//! the mixer group every streamed track belongs to
 		static const String	kMusicGroup;
 	protected:
@@ -70,12 +73,8 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-#ifdef ORKIGE_OPENAL_SOUND
-		ALuint			mSource;			//!< OpenAL streaming source
-		std::vector<ALuint>	mBuffers;		//!< the ring of queued buffers
-		ALenum			mFormat;			//!< MONO16 / STEREO16
-		ALsizei			mSampleRate;		//!< stream sample rate (Hz)
-#endif //ORKIGE_OPENAL_SOUND
+		AudioBackend::Stream mStream;		//!< the streamed voice (NULL while audio is down)
+		std::vector<short> mChunk;			//!< the main thread's decode scratch
 		void*			mVorbis;			//!< decoder handle (MusicDecode)
 		std::vector<unsigned char> mEncoded;	//!< resident compressed audio bytes
 		int				mChannels;			//!< 1 or 2
@@ -85,14 +84,13 @@ namespace Orkige
 		String			mGroup;				//!< mixer group ("music")
 		bool			mLoop;				//!< seek-to-start on end of stream
 		bool			mOpen;				//!< decoder opened
-		bool			mPrimed;			//!< AL objects created + ring filled
+		bool			mPrimed;			//!< voice created + ring filled
 		bool			mReachedEnd;		//!< a non-looping stream drained
 		bool			mWasPlaying;		//!< playing when suspend() ran (for restore())
+		bool			mPaused;			//!< pause() stopped it where it stood
 		//--- effective gain = baseGain * groupVolume (0..1), like SoundSource
 		float			mBaseGain;			//!< this track's own volume (default 1)
 		float			mGroupVolume;		//!< the "music" group volume, pushed in
-		//! frames unqueued (fully played out) so far - the base of the playhead
-		long long		mPlayedFrames;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -105,15 +103,15 @@ namespace Orkige
 		virtual ~MusicStream();
 
 		//! @brief read the file's bytes through the resource system and open the
-		//! decoder; then, when OpenAL is up, create the AL objects and prime the
-		//! ring. @returns false on a missing/unreadable/undecodable file.
+		//! decoder; then, when there is an audio device, create the voice and
+		//! prime the ring. @returns false on a missing/unreadable/undecodable file.
 		bool open();
 		//! @brief open the decoder over an already-loaded compressed blob (no
-		//! resource system, no OpenAL). The device-free entry the unit tests and
-		//! open() share. @returns false when the bytes are not decodable.
+		//! resource system, no audio device). The device-free entry the unit
+		//! tests and open() share. @returns false when the bytes are not decodable.
 		bool openFromMemory(std::vector<unsigned char> encoded);
-		//! @brief MAIN-THREAD refill: recycle processed buffers (unqueue, decode,
-		//! requeue) and recover a source AL auto-stopped on a brief underrun.
+		//! @brief MAIN-THREAD refill: decode into whatever room the ring has
+		//! and hand the frames over. This is the ONLY place the decoder runs.
 		void update();
 		//! start playback (idempotent while already playing)
 		bool play();
@@ -123,29 +121,29 @@ namespace Orkige
 		bool pause();
 		//! resume a paused stream
 		bool resume();
-		//! @brief release the AL objects for an audio-session interruption,
+		//! @brief release the voice for an audio-session interruption,
 		//! remembering whether the track was playing; the decoder and the
 		//! resident compressed bytes are kept for restore().
 		void suspend();
-		//! recreate the AL ring after an interruption and resume if it was playing
+		//! recreate the voice after an interruption and resume if it was playing
 		void restore();
 		//! is the source currently playing
 		bool isPlaying() const;
 		//! true once the decoder is open (device or not)
 		bool isOpen() const;
-		//! true once the AL ring is created and primed
+		//! true once the voice is created and its ring primed
 		bool isPrimed() const;
 		//! did a non-looping stream reach its end
 		bool reachedEnd() const;
 
-		//! @brief decode one ring-buffer's worth of interleaved 16-bit PCM into
-		//! out (capacity kBufferSeconds * rate frames). On end of stream: loop ->
-		//! seek to start and keep filling so no gap is queued; non-loop -> stop
-		//! early and set reachedEnd. @returns frames written (0 only when a
-		//! non-looping stream is fully drained). AL-free; the ring accounting in
-		//! update() uploads the result.
+		//! @brief decode one chunk's worth of interleaved 16-bit PCM into out
+		//! (capacity kBufferSeconds * rate frames). On end of stream: loop ->
+		//! seek to start and keep filling so no gap is handed over; non-loop ->
+		//! stop early and set reachedEnd. @returns frames written (0 only when
+		//! a non-looping stream is fully drained). Device-free; update() hands
+		//! the result to the ring.
 		int decodeChunk(short * out, int maxFrames);
-		//! frames one ring buffer holds (kBufferSeconds at the stream rate)
+		//! frames one chunk holds (kBufferSeconds at the stream rate)
 		int bufferFrames() const;
 
 		//--- MIXER (effective = baseGain * groupVolume) ---------------
@@ -169,13 +167,14 @@ namespace Orkige
 		//! the source file (resource-relative)
 		String const & getFile() const;
 	protected:
-		//! create the AL objects and fill + queue the ring (needs an AL context)
+		//! create the streamed voice and fill its ring (needs an audio device)
 		bool primeAudio();
-		//! decode into ONE AL buffer and upload it; false at end (non-loop)
-		bool fillBuffer(ALuint buffer);
-		//! push the effective gain onto the AL source (when primed)
+		//! @brief decode into whatever room the ring has and hand it over;
+		//! marks the stream drained once a non-looping track runs out
+		void fillRing();
+		//! push the effective gain onto the voice (when primed)
 		void applyGain();
-		//! release the AL source + buffers (when primed)
+		//! release the streamed voice (when primed)
 		void teardownAudio();
 	private:
 	};

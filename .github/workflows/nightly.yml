@@ -189,7 +189,7 @@ jobs:
 
       - name: Run the soak (benchmark attract loop, RSS watch)
         env:
-          ALSOFT_DRIVERS: "null"
+          ORKIGE_AUDIO_BACKEND: "null"
           SDL_VIDEO_DRIVER: x11
         run: |
           LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
@@ -305,7 +305,7 @@ jobs:
 
       - name: Memcheck the headless unit suite (MUST pass, may not skip)
         env:
-          ALSOFT_DRIVERS: "null"
+          ORKIGE_AUDIO_BACKEND: "null"
         run: |
           BIN=build/linux-debug-next/tests/core/orkige_core_tests
           # may-not-skip guard: the binary must exist, or the driver lost its
@@ -1578,7 +1578,7 @@ jobs:
       - name: Boot the AppImage headlessly (xvfb + Mesa lavapipe)
         env:
           APPIMAGE: nightly-out/Orkige-linux-${{ needs.binaries-gate.outputs.version_token }}.AppImage
-          ALSOFT_DRIVERS: "null"
+          ORKIGE_AUDIO_BACKEND: "null"
           SDL_VIDEO_DRIVER: x11
           ORKIGE_DEMO_FRAMES: "90"
           # no MCP endpoint and no reopened project: this is an automated run

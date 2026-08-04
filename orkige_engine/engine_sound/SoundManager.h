@@ -20,10 +20,9 @@
 namespace Orkige
 {
 	//! @brief Sound Management
-	//! @remarks simple registry of fully buffered OpenAL (Soft) SoundSources;
-	//! there is no dynamic source sharing/reusing, streaming or priorities and
-	//! only AL_MAX_SOURCES concurrent SoundSources can be active
-	//! (the old OgreOggSound backend is gone together with its dependency)
+	//! @remarks a simple registry of fully buffered SoundSources plus the
+	//! streamed music tracks; there is no dynamic voice sharing/reusing and no
+	//! priorities, so every registered source keeps its own voice on the mixer
 	class ORKIGE_ENGINE_DLL SoundManager : public Singleton<SoundManager>, public Interface
 	{
 		OOBJECT(SoundManager,Interface);
@@ -44,16 +43,13 @@ namespace Orkige
 		SoundRegistry				sounds;				//!< created SoundSource collection
 		MusicRegistry				music;				//!< streamed music tracks (own the mMusic registry, not components)
 		InterruptedSoundRegistry	interruptedSounds;	//!< all currently interrupted sounds
-#ifdef ORKIGE_OPENAL_SOUND
-		ALCcontext*					context;			//!< OpenAL context
-#endif //ORKIGE_OPENAL_SOUND
 		//! optional sound listener: the node the "ears" sit on (usually the
 		//! camera's node) - facade-typed since A1 (Docs/render-abstraction.md);
 		//! forward = the node's -Z, up = its +Y
 		optr<RenderNode>			listener;
-		//--- the mixer: per-source AL_GAIN = baseGain * groupVolumes[group],
-		//--- master = alListenerf(AL_GAIN); all volumes 0..1 (AL_MAX_GAIN is
-		//--- pinned to 1.0 per source - see SoundSource.cpp)
+		//--- the mixer: per-source voice volume = baseGain *
+		//--- groupVolumes[group], master = the graph's own volume; all
+		//--- volumes are 0..1 by design, so one scale covers all three
 		GroupVolumeMap				groupVolumes;		//!< mixer group volumes (absent = 1)
 		float						masterVolume;		//!< listener gain 0..1 (default 1)
 
@@ -104,7 +100,7 @@ namespace Orkige
 
 		//--- STREAMED MUSIC ------------------------------------------------
 		//! @brief stream a track: decode a compressed audio file (OGG Vorbis)
-		//! a little at a time through a small ring of OpenAL buffers. Tracks
+		//! a little at a time through a small ring of PCM. Tracks
 		//! live on the manager (not on a component), so they survive scene
 		//! switches. A new track joins the "music" mixer group and starts
 		//! playing. Re-using an existing id is a no-op (returns the running
@@ -171,16 +167,41 @@ namespace Orkige
 		//! @brief move a source into a mixer group: stores the tag AND pushes
 		//! the group's current volume (use this instead of SoundSource::setGroup)
 		void setSoundGroup(SoundSourcePtr const & sound, String const & group);
+		//--- WHICH DEVICE THIS RUN OPENS -----------------------------------
+		//! @brief declare what kind of run this process is, ONCE at boot
+		//! (`AppHost::initialise` does it for every host: editor, player,
+		//! samples, a native game module).
+		//! @remarks silence is a property of the RUN, not of a test: an
+		//! automated run opens the SILENT device, so nothing a scripted run
+		//! does can reach the speakers of the machine it runs on. The choice
+		//! is also published to CHILD processes through the environment, so
+		//! the player an automated editor spawns makes the same one.
+		static void setAutomatedRun(bool automatedRun);
+		//! @see SoundManager::setAutomatedRun
+		static bool isAutomatedRun();
+		//! @brief the pure decision: does this run open the SILENT device?
+		//! @param backendSetting the ORKIGE_AUDIO_BACKEND value (NULL/empty
+		//! when unset): `null`, `silent` or `off` force the silent device,
+		//! anything else (`auto` is the spelling to use) forces the machine's
+		//! @param automatedRun @see SoundManager::setAutomatedRun
+		//! @remarks an EXPLICIT setting always wins, either way - a developer
+		//! who wants to hear a scripted run says so and gets it.
+		static bool resolveSilentDevice(char const * backendSetting,
+			bool automatedRun);
+
 		//! @brief apply the audio.* keys of a project's manifest Settings map:
 		//! "audio.master" and "audio.group.<name>" (values parsed as floats,
 		//! clamped 0..1; unrelated keys are ignored). Called by the runtimes
 		//! on project load - the manifest is the persistence layer.
 		void applySettings(std::map<String, String> const & settings);
 	protected:
-		//! init openAl
-		bool initOpenAl();
-		//! deinit openAl
-		bool deinitOpenAl();
+		//! @brief open the output device and the mixing graph
+		//! @remarks ORKIGE_AUDIO_BACKEND=null asks for the SILENT device
+		//! instead of the machine's - what an automated run sets so a test
+		//! never reaches the speakers while everything still behaves
+		bool initAudioDevice();
+		//! close the output device and the mixing graph
+		bool deinitAudioDevice();
 
 	private:
 	};

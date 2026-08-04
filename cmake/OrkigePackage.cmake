@@ -19,7 +19,7 @@ include_guard(GLOBAL)
 #   package forms - the build tree here and the SDK pack in cmake/OrkigeSdk.cmake
 #   - declare the SAME closure, so it is written once.
 function(orkige_package_transitive_list out)
-    set(_packages "SDL3" "OpenAL" "Jolt" "tinyxml2" "NanoSVG")
+    set(_packages "SDL3" "Jolt" "tinyxml2" "NanoSVG")
     if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         list(APPEND _packages "OGRE-Next" "assimp")
     else()
@@ -53,8 +53,8 @@ endfunction()
 #       global ABI switches live (ORKIGE_STATIC, the scripting backend define,
 #       and on Windows NOMINMAX/WIN32_LEAN_AND_MEAN)
 #     - each archive's INTERFACE_COMPILE_DEFINITIONS, i.e. exactly what it
-#       declares PUBLIC (ORKIGE_OPENAL_SOUND, ORKIGE_ENGINE_HAS_GOCOMPONENT,
-#       the render flavor macro, USE_RTSHADER_SYSTEM, ORKIGE_HAVE_VULKAN, ...)
+#       declares PUBLIC (ORKIGE_ENGINE_HAS_GOCOMPONENT, the render flavor
+#       macro, USE_RTSHADER_SYSTEM, ORKIGE_HAVE_VULKAN, ...)
 #   The engine's own build-tree-absolute paths are declared PRIVATE and are
 #   therefore correctly absent - they are implementation, not contract, and a
 #   pack must not carry them.

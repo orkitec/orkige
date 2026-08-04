@@ -8,11 +8,11 @@
 
 	Headless streamed-music unit tests: the OGG Vorbis decode seam, the
 	ring-refill decode bookkeeping (loop wrap vs. non-loop end of stream)
-	and the effective-gain model (base x "music" group). No OpenAL device
-	is opened and no AL objects are created - the decoder and the volume
-	math are fully exercised without one (SoundManager registers a track
+	and the effective-gain model (base x "music" group). No audio device
+	is opened and no voice is created - the decoder and the volume math
+	are fully exercised without one (SoundManager registers a track
 	uninitialized when audio is down, exactly like a SoundSource); the
-	audible AL path is proven by the demo_music integration run.
+	audible path is proven by the demo_music integration run.
 ***************************************************************/
 
 #include <catch2/catch_test_macros.hpp>
@@ -143,8 +143,8 @@ TEST_CASE("MusicGroupVolumeTest", "[sound]")
 	Orkige::EngineTestEnvironment::get();
 	Orkige::SoundManager soundManager;	// deliberately NOT initialized
 
-	// playMusic on an uninitialized manager REGISTERS the track (silent, no AL
-	// objects, no decode) so the gain model stays queryable - just like
+	// playMusic on an uninitialized manager REGISTERS the track (silent, no
+	// voice, no decode) so the gain model stays queryable - just like
 	// createSound does for a SoundSource
 	REQUIRE_FALSE(soundManager.playMusic("bgm", "blip.ogg", true));
 	Orkige::MusicStreamPtr track = soundManager.getMusic("bgm");

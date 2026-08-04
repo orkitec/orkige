@@ -12,11 +12,11 @@
 //! into the same PCM block a wave file would have decoded to
 //! @remarks This sits exactly where loadWavData / loadCafData sit
 //! (SoundUtil::loadSoundData dispatches on the extension), so a parameter file
-//! IS a sound file to everything above: SoundSource uploads it through the one
-//! alBufferDataPlatform call, keeps its own copy for a re-upload after an audio
-//! interruption, and every consumer - SoundComponent::addSound, the Lua sound
-//! surface, the mixer groups, per-play pitch/volume variation, positional
-//! audio - works verbatim with no new API.
+//! IS a sound file to everything above: SoundSource hands the samples to a
+//! mixer voice, keeps its own copy for a rebuild after an audio interruption,
+//! and every consumer - SoundComponent::addSound, the Lua sound surface, the
+//! mixer groups, per-play pitch/volume variation, positional audio - works
+//! verbatim with no new API.
 //!
 //! BOTH carriers of the one parameter model land here (@see
 //! core_util/SfxAsset.h): the standard binary `.sfs` a designer saves out of an
@@ -24,8 +24,7 @@
 //! through the backend-neutral resource read, so either resolves out of a
 //! mounted pak/APK like any other resource.
 
-#ifdef ORKIGE_OPENAL_SOUND
-#include "engine_sound/SoundPlatform.h"
+#include "engine_sound/SoundData.h"
 
 #include <core_util/SfxAsset.h>
 #include <core_util/SfxSynth.h>
@@ -39,8 +38,8 @@ namespace Orkige
 {
 	namespace SoundUtil
 	{
-		void* loadSfxData(Orkige::String const & fileName, ALsizei *dataSize,
-			ALenum *dataFormat, ALsizei* sampleRate)
+		void* loadSfxData(Orkige::String const & fileName, int * dataSize,
+			PcmFormat * format)
 		{
 			RenderSystem* render = RenderSystem::get();
 			// the resource read hands back the file's bytes verbatim (no
@@ -90,12 +89,13 @@ namespace Orkige
 				return NULL;
 			}
 
-			*dataFormat = AL_FORMAT_MONO16;		// mono, so a source is 3D
-			*sampleRate = static_cast<ALsizei>(pcm.sampleRate);
-			*dataSize = static_cast<ALsizei>(pcm.byteSize());
+			format->channels = 1;				// mono, so a source is 3D
+			format->bitsPerSample = 16;
+			format->sampleRate = static_cast<int>(pcm.sampleRate);
+			*dataSize = static_cast<int>(pcm.byteSize());
 
 			// malloc + copy like the file loaders: SoundSource owns the block
-			// and free()s it (alBufferData copies it into the AL buffer)
+			// and free()s it (the voice keeps its own copy of the samples)
 			void* data = malloc(pcm.byteSize());
 			if(!data)
 			{
@@ -111,4 +111,3 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 }
-#endif //ORKIGE_OPENAL_SOUND

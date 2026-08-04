@@ -62,7 +62,7 @@
 #     carries the engine include roots + ABI defines (ORKIGE_STATIC, the flavor
 #     ABI macro, the scripting backend define) and pulls Orkige::Core
 #   - plus the full dependency closure (the flavor's OGRE + render systems +
-#     codecs, SDL3, OpenAL, Jolt, tinyxml2, Lua/sol2, ...) resolved through the
+#     codecs, SDL3, Jolt, tinyxml2, Lua/sol2, ...) resolved through the
 #     prefix the package points at - the build's own vcpkg_installed/<triplet>
 #     tree, or the pack's bundled vcpkg/. Either way these are the exact
 #     binaries the engine archives were linked against, so versions can never
@@ -494,7 +494,6 @@ endmacro()
 # CMakeLists.txt); the imported targets carry the full transitive closure. The
 # backend-agnostic packages are shared; OGRE differs per flavor.
 find_package(SDL3 CONFIG REQUIRED)
-find_package(OpenAL CONFIG REQUIRED)
 find_package(Jolt CONFIG REQUIRED)
 find_package(tinyxml2 CONFIG REQUIRED)
 # the gui runtime atlas rasterises SVG UI sprites (and the asset-import cook
@@ -628,8 +627,8 @@ function(orkige_game_module target)
     # covers ORKIGE_STATIC, the render flavor macro (engine_graphic/Engine.h
     # and engine_render/RenderMath.h gate on it, so the module MUST compile the
     # same branch the archives were built with), USE_RTSHADER_SYSTEM,
-    # ORKIGE_OPENAL_SOUND, ORKIGE_ENGINE_HAS_GOCOMPONENT, the scripting-backend
-    # define, ORKIGE_HAVE_VULKAN and the platform lean-header switches.
+    # ORKIGE_ENGINE_HAS_GOCOMPONENT, the scripting-backend define,
+    # ORKIGE_HAVE_VULKAN and the platform lean-header switches.
     #
     # The dependencies' own contract (Jolt's, OGRE's, SDL's) is NOT here: it
     # rides their imported targets, linked below. That only holds while the
@@ -682,7 +681,6 @@ function(orkige_game_module target)
         "${_orkige_core_lib}"
         tinyxml2::tinyxml2
         SDL3::SDL3
-        OpenAL::OpenAL
         Jolt::Jolt
         NanoSVG::nanosvg
         NanoSVG::nanosvgrast
@@ -774,13 +772,21 @@ function(orkige_game_module target)
         # options above, like every other switch the engine build declares.
         #
         # frameworks orkige_core/orkige_engine list on their PUBLIC link
-        # interface (PlatformUtil.mm, LoadCafData.mm); the OGRE/SDL imported
-        # targets carry their own framework closure themselves
+        # interface (PlatformUtil.mm, LoadCafData.mm, the audio backend); the
+        # OGRE/SDL imported targets carry their own framework closure themselves
         target_link_libraries(${target} PRIVATE
             "-framework Foundation"
             "-framework CoreServices"
             "-framework AudioToolbox"
+            "-framework CoreAudio"
             "-framework CoreFoundation"
         )
+        if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+            # the mobile audio backend goes through the audio session
+            target_link_libraries(${target} PRIVATE "-framework AVFoundation")
+        endif()
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # the audio backend opens the machine's audio API at runtime
+        target_link_libraries(${target} PRIVATE ${CMAKE_DL_LIBS} pthread m)
     endif()
 endfunction()

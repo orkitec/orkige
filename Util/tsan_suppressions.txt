@@ -59,17 +59,18 @@ race:JPH::
 called_from_lib:libdbus-1.so
 deadlock:_dbus_platform_rmutex_lock
 
-# OpenAL Soft runs its audio mixer on its OWN thread (even the null backend used
-# in tests), racing internally on its lock-free voice-change list and its voice
-# property blocks (alu.cpp ProcessVoiceChanges / CalcVoiceParams and siblings).
-# Unlike physics, the sound tests carry NO Orkige-owned threading to protect -
-# the engine drives OpenAL entirely from the main thread (engine_sound/
-# SoundManager; music refill is main-thread in SoundManager::update), so the
-# tests that spin a real AL device (SoundManagerDestructorTearsDownAL,
-# MusicStreamTeardownMidRefill) are EXCLUDED from the TSan unit gate at the
-# preset level (CMakePresets.json unit-*-tsan filter) rather than chasing
-# OpenAL's internal race sites here. Whether such a race is REPORTED depends on
-# how the mixer thread happens to interleave with the AL calls under test, so an
-# excluded test is not one that "used to pass" - it is one whose verdict TSan
-# cannot give. Their AL memory safety is still covered by the ASan gate, which
-# runs the complete unit suite. No race:AL... entry is needed as a result.
+# The audio library runs its mixer on its OWN device thread (the silent device
+# used in tests included), racing internally on the lock-free structures that
+# carry voice state to it. Unlike physics, the sound tests carry almost no
+# Orkige-owned threading to protect - the engine drives the mixer from the main
+# thread (engine_sound/SoundManager; music refill is main-thread in
+# SoundManager::update) and the ONE crossing, the music ring, has std::atomic
+# on both ends - so the tests that spin a real device
+# (SoundManagerDestructorTearsDownAudio, MusicStreamTeardownMidRefill) are
+# EXCLUDED from the TSan unit gate at the preset level (CMakePresets.json
+# unit-*-tsan filter) rather than chasing the library's internal race sites
+# here. Whether such a race is REPORTED depends on how the device thread
+# happens to interleave with the calls under test, so an excluded test is not
+# one that "used to pass" - it is one whose verdict TSan cannot give. Their
+# memory safety is still covered by the ASan gate, which runs the complete unit
+# suite. No suppression entry is needed as a result.

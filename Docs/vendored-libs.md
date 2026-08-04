@@ -32,11 +32,19 @@ below are what `VCPKG_COMMIT` resolves today.
 
 | Library | Parses | vcpkg port (version) | Translation unit | License |
 |---|---|---|---|---|
+| miniaudio | (no asset parsing — the audio device, mixer and voices) | `miniaudio` (0.11.25) | `engine_sound/MiniaudioImpl.cpp` | Unlicense (public domain) / MIT-0 (dual) |
 | stb_vorbis | OGG/Vorbis music | `stb` (2024-07-29; stb_vorbis v1.22) | `engine_sound/StbVorbisImpl.cpp` | MIT / public-domain (dual) |
 | stb_truetype | TrueType glyphs | `stb` (2024-07-29) | `engine_gui/FontBakeImpl.cpp` | MIT / public-domain (dual) |
 | stb_image | PNG decode | `stb` (2024-07-29) | `tools/editor/EditorImageDecode.cpp` | MIT / public-domain (dual) |
 | nanosvg | SVG UI sprites | `nanosvg` (2023-12-29) | `engine_gui/SvgRasterImpl.cpp` | Zlib |
 | earcut | polygon triangulation | `earcut-hpp` (2.2.4) | `core_util/VectorTessellator.cpp` | ISC |
+
+miniaudio is in the table because it is a single-file library confined the same
+way (`MINIAUDIO_IMPLEMENTATION` in one TU), not because it reads assets: the
+engine decodes every sound itself and hands it finished PCM, and the library's
+own file decoders are compiled out (`MA_NO_DECODING`). Its licence terms place
+no condition on a distributed binary, which is what lets a shipped game and the
+editor link it statically with nothing to carry.
 
 The `stb` headers define their implementation in the TU above
 (`STB_*_IMPLEMENTATION`); nanosvg is precompiled by its vcpkg port into static
@@ -73,8 +81,9 @@ cadence — a deliberate manual pass, since neither is auto-updated:
   every port forward to that commit's versions; the ABI hash forces the affected
   ports to rebuild on all triplets and the full suite proves the bump. Review
   upstream security advisories for the asset parsers (stb, nanosvg, earcut,
-  tinyxml2, libpng, freetype) at least each release cycle and when a CVE for one
-  is reported; a security fix is a `VCPKG_COMMIT` bump, tested, in its own commit.
+  tinyxml2, libpng, freetype) and for miniaudio at least each release cycle,
+  and when a CVE for one is reported; a security fix is a `VCPKG_COMMIT` bump,
+  tested, in its own commit.
 - **FastDelegate (in-tree).** Upstream is effectively frozen (last revision 2005),
   so there is no feed to poll; if a correctness or safety issue ever surfaces, the
   fix is re-vendoring the single header and updating the version row above in the

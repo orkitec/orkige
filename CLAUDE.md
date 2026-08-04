@@ -474,10 +474,18 @@ behind `ORKIGE_BUILD_ENGINE`, ON for all app work).
 - **`engine_physic/PhysicsWorld`** wraps Jolt behind a backend-agnostic seam
   (planar 2D mode; `teleport` moves body AND transform even while the sim is
   `setPaused` — the tile-slide / "move world" API).
-- **`engine_sound`**: `SoundComponent` on OpenAL Soft (fully-buffered WAV/CAF
-  sfx), streamed OGG Vorbis music on `MusicStream` (queued-buffer ring, main-thread
-  refill in `SoundManager::update`, owned by the `SoundManager` music registry so
-  tracks survive scene switches), mixer groups + master.
+- **`engine_sound`**: `SoundComponent` (fully-buffered WAV/CAF sfx), streamed
+  OGG Vorbis music on `MusicStream` (a lock-free ring, main-thread refill in
+  `SoundManager::update`, owned by the `SoundManager` music registry so tracks
+  survive scene switches), mixer groups + master. The device, mixing graph and
+  voices sit behind the one `engine_sound/AudioBackend.h` seam, whose
+  single-file library is compiled in ONE TU (`MiniaudioImpl.cpp`); the engine
+  decodes every sound itself, so the backend's own decoders stay compiled out.
+  **Silence is a property of the RUN**: an automated run opens the SILENT
+  device (`AppHost::initialise` → `SoundManager::setAutomatedRun`, handed down
+  to child processes), so no test registration asks for it and a scripted run
+  never reaches a developer's speakers; `ORKIGE_AUDIO_BACKEND=null|auto`
+  overrides either way. `Docs/sound.md`.
 - **`engine_input`** is SDL3-based (KC_* keycodes preserved). `isKeyDown`, the
   gamepad state and the touch/pointer snapshot all read the injectEvent-fed
   state, so synthetic SDL events work. `getTilt()` is a
