@@ -697,7 +697,13 @@ which is why one stick can feed several actions at different tolerances.
 input grammar spells; prefer a named action for anything a player would rebind.
 
 The table carries **no capability** — it is read-only device state — which is why
-it sits in the permitted sandbox set beside `world`, `save` and `haptics`.
+it sits in the permitted sandbox set beside `world`, `save` and `haptics`. There
+is deliberately no way to PRESS anything from here: `isKeyDown` answering true
+for something nobody pressed would muddy the input model for every reader. The
+one place that capability is opened is a project's own test files, through
+`t.press` / `t.release` / `t.tap` on the assertion table
+([testing.md](testing.md#driving-input)) — installed for a test run and bound
+into a test file's own sandbox, so a game script never sees it.
 
 Everything here is driveable over MCP with `send_input` (`touch …`,
 `gamepad …`), so an agent can test a touch or controller game it just wrote on a

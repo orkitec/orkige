@@ -25,6 +25,7 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
 #include <functional>
 
@@ -2334,6 +2335,28 @@ namespace Orkige
 				error.what();
 			return false;
 		}
+		// the input seam, bound INTO THIS SANDBOX and nowhere else: a test may
+		// press things, a game script may not (@see setTestInputHandler). Left
+		// absent when no host installed one, which is what makes the
+		// vocabulary's own refusal ("this run drives no input") honest.
+		if (this->testInput)
+		{
+			const TestInputHandler handler = this->testInput;
+			environment["__orkige_test_input"] =
+				[handler](String const & verb, String const & target)
+			{
+				String error;
+				if (handler(verb, target, error))
+				{
+					return std::make_tuple(true, String());
+				}
+				if (error.empty())
+				{
+					error = "the input request was refused";
+				}
+				return std::make_tuple(false, error);
+			};
+		}
 		String source;
 		if (!this->readScriptSource(resourceName, source, outError))
 		{
@@ -2588,6 +2611,15 @@ namespace Orkige
 #else
 		(void)session;
 #endif
+	}
+	//---------------------------------------------------------
+	void ScriptRuntime::setTestInputHandler(TestInputHandler const & handler)
+	{
+		// a plain store: the capability becomes REACHABLE only where
+		// beginTestFile binds it, which is one test file's own sandbox. Files
+		// already open keep the seam they were opened with - a run installs
+		// this before it opens anything.
+		this->testInput = handler;
 	}
 	//---------------------------------------------------------
 	bool ScriptRuntime::runTestFile(String const & resourceName,

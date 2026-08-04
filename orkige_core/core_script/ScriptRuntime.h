@@ -369,6 +369,27 @@ namespace Orkige
 		//! alive) is dropped, and any task still running in it is cancelled
 		void endTestFile(ScriptTestSessionId session);
 
+		//! @brief what a test's `t.press` / `t.release` is answered by: a
+		//! verb ("press" / "release") and the target the test named. False
+		//! fills @p outError with the ONE reason, which the test body reads as
+		//! a raise at its own file:line.
+		typedef std::function<bool(String const & verb, String const & target,
+			String & outError)> TestInputHandler;
+		//! @brief install (or, with an empty handler, remove) the seam that
+		//! lets a test DRIVE input.
+		//! @remarks It lives here rather than in the `input` script table on
+		//! purpose. A game script that can fake input is a real capability
+		//! with real consequences - isKeyDown answering true for something
+		//! nobody pressed muddies the input model for every reader - so the
+		//! capability is opened where it belongs and nowhere else: a host
+		//! installs it only for a test run, and beginTestFile binds it INTO
+		//! the test file's own sandbox, never into the globals a game script
+		//! reads. Core knows nothing about input devices; the engine layer
+		//! supplies the handler (@see InputTestDriver).
+		void setTestInputHandler(TestInputHandler const & handler);
+		//! is a test-input handler installed right now
+		bool hasTestInputHandler() const { return (bool)this->testInput; }
+
 		//! @brief read a script file's top-level `properties` table (the
 		//! exported-property declaration) into backend-neutral
 		//! descriptors. The Lua backend loads the file into a THROWAWAY
@@ -748,6 +769,9 @@ namespace Orkige
 		//! id -> live GameObject for the registry-driven accessors (set by
 		//! installComponentAccessors; empty until then)
 		std::function<GameObject * (String const &)> componentResolver;
+		//! the test tier's input seam (empty outside a test run, which is why
+		//! nothing a game runs can reach it)
+		TestInputHandler				testInput;
 	};
 
 	//! @brief one loaded script file in its own sandboxed environment,
