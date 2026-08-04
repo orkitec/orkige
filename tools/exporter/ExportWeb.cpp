@@ -316,6 +316,16 @@ namespace OrkigeExport
 			return false;
 		}
 
+		// the third-party license notices, BESIDE the page rather than inside
+		// the pak: a served directory is what a browser build hands out, so
+		// the notices have to be a file a visitor can open, not an archive
+		// entry only the module filesystem sees
+		if(!stageThirdPartyNotices(outputDirectory, source, environment, 0,
+			error))
+		{
+			return false;
+		}
+
 		// the shell page: the project's identity baked into the template
 		Orkige::String shellTemplate;
 		if(!ExportFiles::readTextFile(web.shellTemplate, shellTemplate, error))

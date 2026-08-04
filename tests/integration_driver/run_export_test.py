@@ -300,6 +300,26 @@ def clean_room_env(stage_dir, extra=None):
     return env
 
 
+NOTICES_FILE = "THIRD-PARTY-NOTICES.md"
+
+
+def check_third_party_notices(resource_root, label):
+    """the licenses of the statically linked closure require their text to
+    travel with the BINARY, so every package carries the notices at the
+    resource root the runtime resolves - beside the default-project marker. An
+    empty or stub file would satisfy a presence check and discharge nothing, so
+    the content is checked too."""
+    path = os.path.join(resource_root, NOTICES_FILE)
+    require(os.path.isfile(path), "%s at %s" % (NOTICES_FILE, label))
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    require(len(text) > 10000,
+            "%s carries the license texts (%d bytes)" % (NOTICES_FILE,
+                                                         len(text)))
+    for marker in ("Third-party notices", "OpenAL Soft"):
+        require(marker in text, "%s names '%s'" % (NOTICES_FILE, marker))
+
+
 def check_macos(app_dir, exe_name, run_frames, flavor, sandbox_profile):
     contents = os.path.join(app_dir, "Contents")
     executable = os.path.join(contents, "MacOS", exe_name)
@@ -335,6 +355,7 @@ def check_macos(app_dir, exe_name, run_frames, flavor, sandbox_profile):
         media = os.path.join(resources, "Media", media_subdir)
         require(os.path.isdir(media) and os.listdir(media),
                 "engine media Media/%s bundled" % media_subdir)
+    check_third_party_notices(resources, "Contents/Resources")
 
     # self-containment of the binary itself: no dylib may resolve outside
     # the bundle or the OS (otool is available wherever these tests run)
@@ -419,6 +440,8 @@ def check_ios(app_dir, flavor):
     media_subdir = "Hlms" if flavor == "next" else "Main"
     require(os.path.isdir(os.path.join(app_dir, "Media", media_subdir)),
             "engine media Media/%s bundled" % media_subdir)
+    # an iOS bundle is FLAT, so its root IS the resource root
+    check_third_party_notices(app_dir, "the bundle root")
     # icon + launch screen + rewritten identity: the export must replace the
     # generic player identity and add the loose icons + a launch screen
     with open(plist_path, "rb") as plist_file:
@@ -469,8 +492,14 @@ def check_android(apk_path, aapt2):
         for required in ("classes.dex", "lib/arm64-v8a/libmain.so",
                          "AndroidManifest.xml", "assets/orkige_project.txt",
                          "assets/project/project.orkproj",
-                         "assets/orkige_assets.txt"):
+                         "assets/orkige_assets.txt",
+                         # the license texts the bundled libraries require to
+                         # travel with the binary, at the assets root the
+                         # runtime resolves
+                         "assets/" + NOTICES_FILE):
             require(required in names, "APK carries " + required)
+        require(len(apk.read("assets/" + NOTICES_FILE)) > 10000,
+                "the APK's %s carries the license texts" % NOTICES_FILE)
         extraction_list = apk.read("assets/orkige_assets.txt").decode()
         for listed in ("orkige_project.txt", "project/project.orkproj"):
             require(listed in extraction_list.splitlines(),
@@ -511,6 +540,7 @@ def check_android_aab_module(module_path):
                          "assets/orkige_project.txt",
                          "assets/project/project.orkproj",
                          "assets/orkige_assets.txt",
+                         "assets/" + NOTICES_FILE,
                          # stored mode: the mount marker is staged; bundletool
                          # keeps the assets uncompressed in the generated APKs
                          # via the BundleConfig uncompressedGlob the export

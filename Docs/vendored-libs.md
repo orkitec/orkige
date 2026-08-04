@@ -83,6 +83,64 @@ cadence — a deliberate manual pass, since neither is auto-updated:
 Do not bump a library version as a side effect of an unrelated change — a version
 move is its own tested commit.
 
+## Redistribution: the third-party notices
+
+Pinning answers *which* code is in a build. Redistribution asks a second
+question: several of those licenses require their copyright notice and license
+text to travel with a **binary**, not merely with the source. Orkige links its
+closure statically, so a published editor, a published player and every
+exported game each contain that closure and each owe the notices.
+
+[`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md) at the repository root is
+that text: a tier table of what ships in which artifact, a section naming every
+license whose obligation goes beyond attribution, and the verbatim copyright
+file of each component. Its per-component texts come from the authoritative
+source — the `share/<port>/copyright` file vcpkg installs, and the committed
+license file for media and in-tree sources. `Util/make_third_party_notices.py`
+assembles it from those files (a maintainer tool, run deliberately like a
+`VCPKG_COMMIT` bump; the committed document is what ships):
+
+    python3 Util/make_third_party_notices.py \
+        --share build/macos-debug/vcpkg_installed/arm64-osx/share
+
+**The file ships, it does not merely exist.** It is packaged at the resource
+root of every artifact — the directory that already holds the default-project
+marker, which is what `SDL_GetBasePath()` answers:
+
+| Artifact | Path | Staged by |
+|---|---|---|
+| Orkige editor | the resource root, and the download archive's root | `tools/editor/CMakeLists.txt` + `Util/orkige_nightly_package.py` |
+| Exported macOS app | `Contents/Resources/` | `tools/exporter/ExportMacos.cpp` |
+| Exported iOS app | the bundle root (an iOS bundle is flat) | `tools/exporter/ExportIos.cpp` |
+| Android APK / App Bundle | `assets/` | `tools/exporter/ExportAndroidAssemble.cpp` |
+| Web build | beside `index.html`, so a visitor can open it | `tools/exporter/ExportWeb.cpp` |
+| Engine SDK pack | the pack root | `cmake/OrkigeSdk.cmake` |
+| Fetched device payload | the payload root | `Util/orkige_nightly_package.py` |
+
+`OrkigeExport::stageThirdPartyNotices` is the one copy every packaging path
+calls; it resolves the file from the same engine sources everything else comes
+from (a distributed editor's own bundle, a fetched device payload, an installed
+SDK pack, an engine source tree — in that order) and WARNS rather than refusing
+when a source carries none. The export suite is what makes that warning
+impossible to ship past: `export_*` asserts the file in each packaged artifact,
+and the nightly packager's layout check asserts both editor copies.
+
+**Adding a dependency means answering here.** `third_party_notices_lint`
+(`Util/check_third_party_notices.py`) reads `vcpkg.json` and `ports/` and fails
+on a dependency with no answer — a license section in the notices file, or a
+recorded reason why it reaches no shipped artifact. A build-time-only component
+(the test framework, a header registry) needs no attribution in a distributed
+notice, and saying so explicitly is what keeps the file's silence meaningful.
+
+Two entries in that document are worth knowing without reading it:
+
+- **OpenAL Soft is LGPL** and is statically linked into every artifact. A
+  static link carries a relinking obligation the notice states in full.
+- **LibRaw (LGPL-2.1 or CDDL-1.0) and FreeImage (GPL-2.0, GPL-3.0 or the
+  FreeImage Public License)** reach the desktop editor and desktop player
+  through the default render backend's image codec. Both are absent from the
+  mobile and browser builds, and the classic flavor links neither.
+
 ## GitHub Actions are SHA-pinned
 
 Every `uses:` step across all workflows (`.github/workflows/ci.yml`, `pages.yml`,

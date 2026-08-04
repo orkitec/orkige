@@ -51,8 +51,12 @@ ROLLER_PROJECT = os.path.join(REPO_ROOT, "projects", "roller")
 # the whole payload - engine media, the project, the orkige_project.txt marker
 # - in ONE engine pak; game.js is the loader that hands it to the module
 # filesystem.
+# THIRD-PARTY-NOTICES.md sits BESIDE the page rather than inside game.pak: a
+# web build is a served directory, so the notices the bundled libraries require
+# have to be a file a visitor can open, not an archive entry
 ARTIFACT_FILES = ("index.html", "orkige_player.js", "orkige_player.wasm",
-                  "game.pak", "game.js", "icon.png")
+                  "game.pak", "game.js", "icon.png",
+                  "THIRD-PARTY-NOTICES.md")
 
 BOOT_MARKER = "bundled project '/project'"
 EXIT_MARKER = "frame stats - "  # printed by the player's orderly shutdown

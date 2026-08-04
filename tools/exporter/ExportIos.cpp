@@ -308,6 +308,12 @@ namespace OrkigeExport
 		{
 			return false;
 		}
+		// the third-party license notices, at the bundle root the marker sits
+		// at - an iOS bundle is FLAT, so this is the resource root
+		if(!stageThirdPartyNotices(appDirectory, source, environment, 0, error))
+		{
+			return false;
+		}
 		emit(environment.log,
 			"project payload: " + std::to_string(staged) + " files");
 

@@ -210,6 +210,93 @@ TEST_CASE("the marker names the payload directory", "[unit][export]")
 	CHECK(content == "project\n");
 }
 
+TEST_CASE("the notices are looked for in engine-source precedence",
+	"[unit][export]")
+{
+	// a distributed editor answers from inside itself before it consults
+	// anything else, and an engine source tree is the last resort - the same
+	// order every other packaged piece follows. Empty roots drop out entirely,
+	// so a source that has only one of the four yields exactly one candidate.
+	EngineSource source;
+	source.bundleResources = "/apps/Orkige.app/Contents/Resources";
+	source.devicePayload = "/state/payloads/android";
+	source.sdkPack = "/state/sdk";
+	const std::vector<Orkige::String> full =
+		thirdPartyNoticesCandidates(source, "/src/orkige");
+	REQUIRE(full.size() == 4);
+	CHECK(full[0] == ExportFiles::join(source.bundleResources,
+		THIRD_PARTY_NOTICES_FILE_NAME));
+	CHECK(full[1] == ExportFiles::join(source.devicePayload,
+		THIRD_PARTY_NOTICES_FILE_NAME));
+	CHECK(full[2] == ExportFiles::join(source.sdkPack,
+		THIRD_PARTY_NOTICES_FILE_NAME));
+	CHECK(full[3] == ExportFiles::join("/src/orkige",
+		THIRD_PARTY_NOTICES_FILE_NAME));
+
+	EngineSource tree;
+	const std::vector<Orkige::String> only =
+		thirdPartyNoticesCandidates(tree, "/src/orkige");
+	REQUIRE(only.size() == 1);
+	CHECK(only[0] == full[3]);
+	CHECK(thirdPartyNoticesCandidates(tree, "").empty());
+}
+
+TEST_CASE("the notices are staged from the first source that has them",
+	"[unit][export]")
+{
+	ScratchDir scratch("notices");
+	const Orkige::String preferred =
+		ExportFiles::join(scratch.path, "bundle");
+	const Orkige::String fallback = ExportFiles::join(scratch.path, "repo");
+	const Orkige::String destination = ExportFiles::join(scratch.path, "app");
+	writeFile(ExportFiles::join(fallback, THIRD_PARTY_NOTICES_FILE_NAME),
+		"from the source tree\n");
+
+	Orkige::String error;
+	int staged = -1;
+	const std::vector<Orkige::String> candidates =
+		thirdPartyNoticesCandidates({ preferred, fallback });
+	REQUIRE(stageThirdPartyNoticesFrom(destination, candidates, ExportLog(),
+		&staged, &error));
+	CHECK(staged == 1);
+	Orkige::String content;
+	REQUIRE(ExportFiles::readTextFile(
+		ExportFiles::join(destination, THIRD_PARTY_NOTICES_FILE_NAME), content,
+		&error));
+	CHECK(content == "from the source tree\n");
+
+	// with the preferred root carrying its own copy, that one wins
+	writeFile(ExportFiles::join(preferred, THIRD_PARTY_NOTICES_FILE_NAME),
+		"from the bundle\n");
+	REQUIRE(stageThirdPartyNoticesFrom(destination, candidates, ExportLog(),
+		&staged, &error));
+	CHECK(staged == 1);
+	REQUIRE(ExportFiles::readTextFile(
+		ExportFiles::join(destination, THIRD_PARTY_NOTICES_FILE_NAME), content,
+		&error));
+	CHECK(content == "from the bundle\n");
+}
+
+TEST_CASE("a source with no notices warns instead of failing the export",
+	"[unit][export]")
+{
+	// an export that cannot find a text file must still produce a runnable
+	// app; the export suite is what asserts the file is actually there, so a
+	// packaging path cannot lose it silently
+	ScratchDir scratch("notices_absent");
+	Orkige::String error;
+	Orkige::String warned;
+	int staged = -1;
+	REQUIRE(stageThirdPartyNoticesFrom(scratch.path,
+		thirdPartyNoticesCandidates({ ExportFiles::join(scratch.path, "none") }),
+		[&warned](Orkige::String const & line) { warned = line; }, &staged,
+		&error));
+	CHECK(staged == 0);
+	CHECK(warned.find(THIRD_PARTY_NOTICES_FILE_NAME) != Orkige::String::npos);
+	CHECK_FALSE(ExportFiles::isRegularFile(
+		ExportFiles::join(scratch.path, THIRD_PARTY_NOTICES_FILE_NAME)));
+}
+
 TEST_CASE("the next flavor bundles the Hlms templates", "[unit][export]")
 {
 	ScratchDir scratch("media_next");

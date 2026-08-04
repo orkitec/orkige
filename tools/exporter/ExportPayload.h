@@ -16,6 +16,7 @@
 #include <core_util/String.h>
 
 #include <functional>
+#include <vector>
 
 //! @file ExportPayload.h
 //! @brief what rides inside every packaged app: the shippable slice of the
@@ -166,6 +167,45 @@ namespace OrkigeExport
 	//! @brief write the default-project marker naming the payload directory
 	bool writeProjectMarker(Orkige::String const & directory,
 		Orkige::String * error);
+
+	//! the third-party license notices every packaged artifact carries, at its
+	//! resource root - beside the project marker, in the directory
+	//! `SDL_GetBasePath()` answers
+	extern const char * const THIRD_PARTY_NOTICES_FILE_NAME;
+
+	//! @brief the ordered places the notices file is looked for: the file name
+	//! under each non-empty root, empty roots dropped (PURE - no filesystem is
+	//! touched). The caller copies the first entry that exists.
+	std::vector<Orkige::String> thirdPartyNoticesCandidates(
+		std::vector<Orkige::String> const & roots);
+
+	//! @see thirdPartyNoticesCandidates - the roots an @ref EngineSource
+	//! carries, in the same precedence every other packaged piece follows: a
+	//! distributed editor answers from INSIDE ITSELF first, then the fetched
+	//! device payload, then an installed SDK pack, and an engine source tree
+	//! last.
+	std::vector<Orkige::String> thirdPartyNoticesCandidates(
+		EngineSource const & source, Orkige::String const & repoRoot);
+
+	//! @brief copy the third-party license notices to @p destination.
+	//! @remarks the licenses of the statically linked closure require their
+	//! text to travel with a BINARY distribution, so the file rides in the
+	//! package rather than only in the engine repository. A source that carries
+	//! none WARNS rather than refusing: an export that cannot find a text file
+	//! must still produce a runnable app, and the export suite asserts the file
+	//! is there so a packaging path cannot lose it silently.
+	//! @param outStaged receives 1 when the file was copied, 0 when none was
+	//!        found
+	bool stageThirdPartyNotices(Orkige::String const & destination,
+		EngineSource const & source, ExportEnvironment const & environment,
+		int * outStaged, Orkige::String * error);
+
+	//! @see stageThirdPartyNotices - the same copy driven by an explicit
+	//! candidate list, for a packaging step that carries its own roots rather
+	//! than an @ref EngineSource
+	bool stageThirdPartyNoticesFrom(Orkige::String const & destination,
+		std::vector<Orkige::String> const & candidates, ExportLog const & log,
+		int * outStaged, Orkige::String * error);
 
 	//! the manifest a fetched device payload describes itself with, at its
 	//! root: `key: value` lines carrying the platform, the render flavor and

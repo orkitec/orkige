@@ -635,6 +635,15 @@ instead of the player, so its iOS-simulator export BUILDS the module against an
 iOS SDK pack (`--sdk-pack`, the only engine source it needs; Android and the
 browser are not there yet).
 
+- **Every package carries `THIRD-PARTY-NOTICES.md`** at its resource root
+  (beside the project marker; `assets/` in an APK, beside `index.html` on the
+  web). The statically linked closure's licenses require their text to travel
+  with the BINARY, so `stageThirdPartyNotices` is a step of every platform's
+  packaging and the `export_*` suite asserts the file in each artifact. A new
+  dependency has to be answered in that file — `third_party_notices_lint`
+  fails otherwise. `Docs/vendored-libs.md` has the tier table and the copyleft
+  entries (OpenAL Soft is LGPL and statically linked everywhere).
+
 - **The SDK pack is never a prerequisite for a project with no C++.** A Lua
   game has nothing to compile: it needs the platform's player (fetched, for a
   distributed editor) and — for a device or store build — the signing
@@ -686,6 +695,13 @@ browser are not there yet).
     What the editor's door adds is the engine-source resolution only THIS
     installation knows (its build tree / bundled payload / fetched device
     player / installed SDK pack) and the three-tier refusals.
+  - **`test` DELEGATES to the player, and that is the same rule, not an
+    exception.** A second exporter would be a second copy of a DECISION;
+    handing a test run to the runtime copies nothing, because the editor holds
+    no test runner — and a test declaring a `scene` needs a live world only the
+    runtime has. The door contributes the player resolution
+    (`editorResources().player()`: the copy inside the app, else the build
+    tree) and relays the suite's exit code untouched.
   - **An unrecognised first-word argument EXITS 2, never falls through to the
     GUI** — a typo on a build server used to open a window and hang the job.
     Flags keep their historical harmless-if-unknown behaviour.
@@ -697,9 +713,15 @@ browser are not there yet).
     stay environment-only).
   - **The editor stays CONSOLE-subsystem on Windows** (`add_executable` with no
     `WIN32`) — that is what makes stdout and the exit code reach a caller.
-  - v1 covers `export`, `fetch-payload`, `version`, `changelog`, `help` and
-    promises NOTHING that needs a live game world (a scene load reaches
-    `RenderWorld` → a window → a GPU, and there is no null render backend).
+  - v1 covers `export`, `test`, `fetch-payload`, `version`, `changelog`, `help`
+    and promises NO scene or asset operation IN THIS PROCESS (a scene load
+    reaches `RenderWorld`, and the editor boots one render backend, the
+    graphics one, into a window). The engine DOES carry a deviceless render
+    system (`ORKIGE_RENDERSYSTEM=NULL`, `engine_render/RenderSystemSelection.h`,
+    next flavor, gated by `player_deviceless`) — that is how the PLAYER holds a
+    live scene with no display, which is why `test` delegates there; teaching
+    the EDITOR to boot deviceless is separate work and must not be advertised
+    as done.
 
 Covered by the `export_*` integration ctests (the macOS ones RUN the exported app
 from a neutral cwd; `export_android_aab` asserts the unsigned bundle-module
@@ -743,7 +765,7 @@ lives in a doc and is pointed at from here. The full index:
 | `monetization.md` | the store/ads seam, the provider contract, the simulated provider |
 | `benchmark.md` | the feature-tour benchmark project |
 | `sanitizers.md` / `fuzzing.md` / `soak.md` / `security.md` | the stability + safety instruments |
-| `ports.md` / `vendored-libs.md` | overlay ports, third-party provenance + pinning |
+| `ports.md` / `vendored-libs.md` | overlay ports, third-party provenance + pinning, the redistribution notices |
 | `help-portal.md` | the published site generator |
 | `upstream/` | the OGRE PR package (OGRECave/ogre #3667-3669) and `upstream/ogre-next/` (OGRECave/ogre-next #587-#589, the NULL render system) |
 | `api/`, `legal/` | the site's class-reference config, imprint + privacy |
