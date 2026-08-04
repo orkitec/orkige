@@ -101,6 +101,16 @@ struct LuaEventProbe
 
 int main(int, char**)
 {
+	// A windowed run needs a display, and this process may hold a login
+	// session that owns none - on macOS that is fast user switching. Say so
+	// and SKIP (ctest's 77): the check has nothing to report here, and
+	// reporting it as a FAILURE buries the real ones.
+	if(!Orkige::PlatformWindow::hasDisplaySession())
+	{
+		SDL_Log("hello_orkige: no display session (a background login session owns "
+			"no screen) - skipping");
+		return 77;
+	}
 	// automation-hook flags, read before boot: ORKIGE_DEMO_FRAMES caps the
 	// run (0/unset = run until the window is closed) and marks it automated
 	// (vsync-free, simulated-time frame pacing); the ORKIGE_DEMO_* feature

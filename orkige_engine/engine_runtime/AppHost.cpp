@@ -107,6 +107,24 @@ namespace Orkige
 				"render system");
 			return false;
 		}
+		// NO DISPLAY SESSION: a process can hold a perfectly good login
+		// session that owns no display - on macOS that is fast user
+		// switching, where only the session at the console owns the window
+		// server. Asked HERE because the render backend's macOS GL support
+		// reads the display-mode list without checking it, so the process
+		// dies inside CoreFoundation during plugin install, before any engine
+		// code runs and with a stack that names nothing an application author
+		// could act on. A deviceless run is exempt: it wants no display.
+		if (!this->mDeviceless && !PlatformWindow::hasDisplaySession())
+		{
+			this->mNoDisplaySession = true;
+			oDebugError("engine", 0, "AppHost: this process has no display "
+				"session, so no window or render system can be created. On "
+				"macOS this is what a background login session looks like - "
+				"switch to the session that owns the screen, or run a "
+				"deviceless build (ORKIGE_RENDERSYSTEM=null)");
+			return false;
+		}
 		if (!SDL_Init(this->mDeviceless ? SDL_INIT_EVENTS : SDL_INIT_VIDEO))
 		{
 			oDebugError("engine", 0, "AppHost: SDL_Init failed: " << SDL_GetError());

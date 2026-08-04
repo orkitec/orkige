@@ -3843,3 +3843,29 @@ foreach(_orkige_test IN LISTS _orkige_registered_tests)
 endforeach()
 unset(_orkige_registered_tests)
 unset(_orkige_test)
+
+# A windowed binary answers 77 when this PROCESS reaches no display - on macOS
+# that is a background login session, which owns no window server (fast user
+# switching). Every windowed test can hit it, so ctest has to read 77 as
+# SKIPPED across the board rather than on the 49 tests that happened to declare
+# it. Applied to everything EXCEPT the `unit` label: those executables are
+# Catch2, whose exit status is its failed-assertion count, so a blanket rule
+# would read 77 failures as a skip - the one case this must not cover.
+# Everything else runs a real binary and can meet a display-less session.
+#
+# The set needing it is WIDER than the `integration` label: some windowed demos
+# and player selfchecks carry no label at all, which is a separate defect -
+# `ctest -L integration` does not see them either.
+#
+# Without this the whole classic suite reports failures on a machine whose
+# screen belongs to another user, and the real failures drown in them.
+get_property(_orkige_registered_tests DIRECTORY PROPERTY TESTS)
+foreach(_orkige_test IN LISTS _orkige_registered_tests)
+    get_test_property("${_orkige_test}" LABELS _orkige_test_labels)
+    if(NOT _orkige_test_labels MATCHES "unit")
+        set_property(TEST "${_orkige_test}" PROPERTY SKIP_RETURN_CODE 77)
+    endif()
+endforeach()
+unset(_orkige_registered_tests)
+unset(_orkige_test)
+unset(_orkige_test_labels)

@@ -31,6 +31,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include "engine_util/PlatformWindow.h"
 
 using namespace Orkige;
 
@@ -97,6 +98,16 @@ static int runSmoke(RenderSystem* renderSystem, std::string const & outDir)
 
 int main(int, char**)
 {
+	// A windowed run needs a display, and this process may hold a login
+	// session that owns none - on macOS that is fast user switching. Say so
+	// and SKIP (ctest's 77): the check has nothing to report here, and
+	// reporting it as a FAILURE buries the real ones.
+	if(!Orkige::PlatformWindow::hasDisplaySession())
+	{
+		std::printf("render_next_smoke: no display session (a background "
+			"login session owns no screen) - skipping\n");
+		return 77;
+	}
 	// screenshot output directory: ctest points this at the build tree;
 	// interactive runs fall back to the system temp directory
 	std::string outDir;

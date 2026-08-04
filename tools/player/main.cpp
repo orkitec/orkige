@@ -1427,7 +1427,12 @@ int main(int argc, char** argv)
 				}
 			}))
 		{
-			return 1;
+			// a boot that failed because this process reaches no display is
+			// not a broken player: a windowed run has nothing to do on a
+			// session that owns no screen. Report it as ctest's SKIP so it
+			// never hides a real failure underneath it.
+			return host.hasNoDisplaySession()
+				? Orkige::AppHost::NO_DISPLAY_EXIT_CODE : 1;
 		}
 		Orkige::RenderSystem* render = host.getRenderSystem();
 		context.render = render;

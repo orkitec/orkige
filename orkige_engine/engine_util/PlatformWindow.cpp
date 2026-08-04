@@ -101,6 +101,17 @@ namespace Orkige
 		}
 #endif
 		//---------------------------------------------------------
+#if !defined(__APPLE__)
+		// the macOS answer lives in engine_util/SDLNativeWindow.mm, beside the
+		// other CoreGraphics work. No other platform hands a process a session
+		// that looks complete but owns no display: a headless Linux or Windows
+		// run fails when it tries to OPEN a window, which is already honest.
+		bool hasDisplaySession()
+		{
+			return true;
+		}
+#endif
+		//---------------------------------------------------------
 		void setContentScaleOverride(float scale)
 		{
 			gContentScaleOverride = scale > 0.0f ? scale : 0.0f;

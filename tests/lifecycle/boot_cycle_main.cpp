@@ -59,6 +59,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include "engine_util/PlatformWindow.h"
 
 using Orkige::optr;
 
@@ -230,6 +231,16 @@ namespace
 
 int main(int, char**)
 {
+	// A windowed run needs a display, and this process may hold a login
+	// session that owns none - on macOS that is fast user switching. Say so
+	// and SKIP (ctest's 77): the check has nothing to report here, and
+	// reporting it as a FAILURE buries the real ones.
+	if(!Orkige::PlatformWindow::hasDisplaySession())
+	{
+		SDL_Log("boot_cycle_selfcheck: no display session (a background login session owns "
+			"no screen) - skipping");
+		return 77;
+	}
 	// N meaningful but runtime-sane; overridable for a longer local soak
 	int sceneCycles = 6;
 	if(const char* override = std::getenv("ORKIGE_BOOT_CYCLES"))

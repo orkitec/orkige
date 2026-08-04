@@ -46,3 +46,39 @@ extern "C" void* orkige_native_window_handle(SDL_Window* window)
 	return (__bridge void*)nswindow;
 #endif
 }
+
+// The macOS half of PlatformWindow::hasDisplaySession - here rather than in
+// PlatformWindow.cpp because the answer comes from CoreGraphics, and this is
+// the file that already carries the platform's own frameworks.
+#include "engine_util/PlatformWindow.h"
+
+namespace Orkige
+{
+	namespace PlatformWindow
+	{
+		//---------------------------------------------------------
+		bool hasDisplaySession()
+		{
+#if TARGET_OS_IPHONE
+			// a device always has its screen; there is no session to lose
+			return true;
+#else
+			// FAST USER SWITCHING: only the login session that owns the
+			// console owns the window server. A process in a background
+			// session gets no main display, and CGDisplayCopyAllDisplayModes
+			// answers NULL - which is exactly the value the render backend's
+			// macOS GL support hands to CFArrayGetCount without checking, so
+			// the process dies inside CoreFoundation before any engine code
+			// runs. Ask it here, where the answer can still become a sentence.
+			CFArrayRef modes =
+				CGDisplayCopyAllDisplayModes(CGMainDisplayID(), NULL);
+			if(modes == NULL)
+			{
+				return false;
+			}
+			CFRelease(modes);
+			return true;
+#endif
+		}
+	}
+}

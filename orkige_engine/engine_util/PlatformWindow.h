@@ -43,6 +43,19 @@ namespace Orkige
 		//! standard-DPI, ~2-3 on retina / phone. 1.0 fallback when unknown.
 		ORKIGE_ENGINE_DLL float getContentScale();
 
+		//! @brief can this PROCESS reach a display at all? Asked BEFORE a
+		//! render system is installed, because on macOS the answer decides
+		//! between a refusal and a crash.
+		//!
+		//! With fast user switching only the ACTIVE login session owns the
+		//! window server. A process in a background session has no main
+		//! display, so CoreGraphics answers a NULL display-mode list, and the
+		//! GL support code in the render backend dereferences it before any
+		//! engine code runs. Asking the same question here turns that into a
+		//! sentence a caller can act on. True where the platform has no such
+		//! notion, so nothing outside macOS changes behaviour.
+		ORKIGE_ENGINE_DLL bool hasDisplaySession();
+
 		//--- headless test seam ----------------------------------------
 		//! @brief provoke the X11 inter-client selection race, so a selfcheck
 		//! can prove the X error guard survives it. Asks THIS process - which

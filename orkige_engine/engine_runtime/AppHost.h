@@ -87,6 +87,10 @@ namespace Orkige
 		//! engine_render/RenderSystemSelection.h) - SDL's video subsystem is
 		//! never initialised and mWindow stays null
 		bool						mDeviceless = false;
+		//! set when initialise refused because the process reaches no
+		//! display; a host turns it into the SKIP exit code so an automated
+		//! run reads as "not applicable here" rather than "broken"
+		bool						mNoDisplaySession = false;
 		uptr<GlobalEventManager>	mEventManager;
 		uptr<ScriptRuntime>			mScriptRuntime;
 		//! the archive-aware content reader installed into the core
@@ -174,6 +178,13 @@ namespace Orkige
 		bool isAutomatedRun() const { return this->mConfig.automatedRun; }
 		//! no window, no GPU: the host booted the deviceless render system
 		bool isDeviceless() const { return this->mDeviceless; }
+		//! @brief did the boot fail because this process reaches no display?
+		//! @see NO_DISPLAY_EXIT_CODE
+		bool hasNoDisplaySession() const { return this->mNoDisplaySession; }
+		//! ctest's SKIP_RETURN_CODE: a windowed test on a machine whose
+		//! session owns no screen has nothing to say, and saying it as a
+		//! FAILURE buries the real failures underneath it
+		static const int NO_DISPLAY_EXIT_CODE = 77;
 	};
 
 	//! @brief quit-on-ESC through the engine input pipeline (SDL event ->
