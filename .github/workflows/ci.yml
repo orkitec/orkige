@@ -881,7 +881,14 @@ jobs:
           echo "ORKIGE_EXPORT_BINARY=$PWD/host-exporter/orkige_export" \
             >> "$GITHUB_ENV"
 
+      # SKIPPED ON A PUSH TO main, where this job exists only to produce the
+      # /play/ export the site deploys. main is fast-forwarded onto a commit
+      # this same suite already passed - identical SHA, identical sources - so
+      # running it again re-proves the identical thing. It still runs for every
+      # push to development and every pull request, which is where the verdict
+      # is actually wanted.
       - name: Web suite (MUST pass, boot test may not skip)
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
         run: |
           # the hosted image ships headless Chrome; a skip would mean the
           # driver lost its browser discovery and must fail loudly
@@ -894,6 +901,13 @@ jobs:
       # this artifact and is `needs: web`, so a red WebGL suite skips the site
       # deploy entirely and the last good site (with a working player) stays
       # live - we never rebuild the page onto a broken build.
+      #
+      # On a main push the suite above is skipped rather than failed, so that
+      # gate is INHERITED rather than dropped: main only ever reaches a commit
+      # whose development run passed the suite, and a skipped step does not
+      # satisfy an `if: success()` chain any less than a passing one - what
+      # protects the live page here is that the commit could not have arrived
+      # on main red.
       - name: Export the benchmark project to /play/ (for the site job)
         run: |
           "$ORKIGE_EXPORT_BINARY" --project projects/benchmark \

@@ -1215,7 +1215,11 @@ directly, or it stops being an ancestor of `development` and the model breaks.
 
 The exemption is the site path (`host-exporter` → `web` → `site`), which still
 runs on a `main` push because it PUBLISHES rather than judging. It must never
-fire for a branch under review.
+fire for a branch under review. `web` **builds without testing** there — it is
+only producing the `/play/` export the site embeds, and the suite already
+passed on the identical commit. Its build is close to link-only, because a
+fast-forward preserves the SHA and the ccache key is the SHA, so the `main` run
+restores the exact cache `development` just saved.
 
 The **`branch-base`** job guards the one way this breaks quietly: if anything
 reaches `main` by another road — a hand edit through the web UI, a hotfix
