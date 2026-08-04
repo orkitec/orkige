@@ -695,6 +695,13 @@ browser are not there yet).
     What the editor's door adds is the engine-source resolution only THIS
     installation knows (its build tree / bundled payload / fetched device
     player / installed SDK pack) and the three-tier refusals.
+  - **`test` DELEGATES to the player, and that is the same rule, not an
+    exception.** A second exporter would be a second copy of a DECISION;
+    handing a test run to the runtime copies nothing, because the editor holds
+    no test runner — and a test declaring a `scene` needs a live world only the
+    runtime has. The door contributes the player resolution
+    (`editorResources().player()`: the copy inside the app, else the build
+    tree) and relays the suite's exit code untouched.
   - **An unrecognised first-word argument EXITS 2, never falls through to the
     GUI** — a typo on a build server used to open a window and hang the job.
     Flags keep their historical harmless-if-unknown behaviour.
@@ -706,9 +713,15 @@ browser are not there yet).
     stay environment-only).
   - **The editor stays CONSOLE-subsystem on Windows** (`add_executable` with no
     `WIN32`) — that is what makes stdout and the exit code reach a caller.
-  - v1 covers `export`, `fetch-payload`, `version`, `changelog`, `help` and
-    promises NOTHING that needs a live game world (a scene load reaches
-    `RenderWorld` → a window → a GPU, and there is no null render backend).
+  - v1 covers `export`, `test`, `fetch-payload`, `version`, `changelog`, `help`
+    and promises NO scene or asset operation IN THIS PROCESS (a scene load
+    reaches `RenderWorld`, and the editor boots one render backend, the
+    graphics one, into a window). The engine DOES carry a deviceless render
+    system (`ORKIGE_RENDERSYSTEM=NULL`, `engine_render/RenderSystemSelection.h`,
+    next flavor, gated by `player_deviceless`) — that is how the PLAYER holds a
+    live scene with no display, which is why `test` delegates there; teaching
+    the EDITOR to boot deviceless is separate work and must not be advertised
+    as done.
 
 Covered by the `export_*` integration ctests (the macOS ones RUN the exported app
 from a neutral cwd; `export_android_aab` asserts the unsigned bundle-module

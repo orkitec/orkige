@@ -28,6 +28,7 @@ namespace OrkigeEditor
 		bool verbFor(Orkige::String const & word, EditorCliVerb & out)
 		{
 			if(word == "export")		{ out = EditorCliVerb::Export; return true; }
+			if(word == "test")			{ out = EditorCliVerb::Test; return true; }
 			if(word == "fetch-payload")	{ out = EditorCliVerb::FetchPayload; return true; }
 			if(word == "version")		{ out = EditorCliVerb::Version; return true; }
 			if(word == "changelog")		{ out = EditorCliVerb::Changelog; return true; }
@@ -105,6 +106,51 @@ namespace OrkigeEditor
 			{
 				return refuse(command, "export needs --project <dir> and "
 					"--platform <name>");
+			}
+			return command;
+		}
+		//---------------------------------------------------------
+		//! the `test` options. `--test-filter` is spelled exactly as the
+		//! player's own flag, because it IS the player's flag - this door
+		//! passes it through rather than reinterpreting it.
+		EditorCliCommand parseTest(EditorCliCommand command,
+			std::vector<Orkige::String> const & arguments)
+		{
+			for(std::size_t index = 1; index < arguments.size(); ++index)
+			{
+				Orkige::String const & argument = arguments[index];
+				if(argument == "--help" || argument == "-h")
+				{
+					command.verb = EditorCliVerb::Help;
+					return command;
+				}
+				if(index + 1 >= arguments.size())
+				{
+					return refuse(command,
+						"missing value for '" + argument + "'");
+				}
+				Orkige::String const & value = arguments[++index];
+				if(argument == "--project") { command.projectPath = value; }
+				else if(argument == "--test-filter")
+				{
+					command.testFilter = value;
+				}
+				else if(argument == "--report-dir")
+				{
+					command.reportDirectory = value;
+				}
+				else
+				{
+					return refuse(command,
+						"unknown test argument '" + argument + "'");
+				}
+			}
+			if(command.projectPath.empty())
+			{
+				// a suite belongs to a PROJECT (its tests/ directory and its
+				// scripts/ libraries), never to a loose scene - the same
+				// precondition the player states
+				return refuse(command, "test needs --project <dir-or-.orkproj>");
 			}
 			return command;
 		}
@@ -217,6 +263,8 @@ namespace OrkigeEditor
 		{
 		case EditorCliVerb::Export:
 			return parseExport(command, arguments);
+		case EditorCliVerb::Test:
+			return parseTest(command, arguments);
 		case EditorCliVerb::FetchPayload:
 			return parseFetchPayload(command, arguments);
 		default:
@@ -246,6 +294,13 @@ namespace OrkigeEditor
 			"                 Packages a project with this installation's own\n"
 			"                 engine source. Prints "
 			"'orkige_editor: OK <artifact>'.\n"
+			"  test           --project <dir-or-.orkproj>\n"
+			"                 [--test-filter <substring>] [--report-dir <dir>]\n"
+			"                 Runs the project's Lua suite "
+			"(tests/*.test.lua) in\n"
+			"                 this installation's player. The suite's own "
+			"verdict\n"
+			"                 is the exit code.\n"
 			"  fetch-payload  <id> | --list\n"
 			"                 Downloads and installs a platform's player.\n"
 			"  version        This build's identity.\n"
@@ -256,8 +311,8 @@ namespace OrkigeEditor
 			"\n"
 			"Scene, asset and editor-script operations are NOT available "
 			"headlessly:\n"
-			"they need a live game world, which needs a render backend and a "
-			"window.\n"
+			"they need a live game world, and this process boots one only "
+			"into a window.\n"
 			"Drive those through the editor's MCP endpoint (Docs/mcp.md).\n";
 	}
 }
