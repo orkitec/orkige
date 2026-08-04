@@ -1141,7 +1141,13 @@ namespace Orkige
 				  "loop'), and the running game's store: 'store_provider' (empty "
 				  "when the game installed none), 'store_ready', 'store_pending', "
 				  "'store_ad_free' and 'store_owned' (the LOGICAL product ids the "
-				  "player owns). While/after a compile-on-Play native build it also carries "
+				  "player owns), and its ads: 'ads_provider' (empty when the game "
+				  "installed none), 'ads_ready', 'ads_consent' (not_gathered/granted/"
+				  "denied - the ordering constraint the surface turns on), "
+				  "'ads_test_mode', 'ads_takeover' ('1' while a fullscreen advert "
+				  "covers the app and the world is not advancing) and "
+				  "'ads_banner_height' in window pixels. "
+				  "While/after a compile-on-Play native build it also carries "
 				  "'build_status' (none/building/ok/failed), 'build_target' and, "
 				  "on a failure, the 'build_errors' compiler tail (kept after the "
 				  "session reverts to edit mode). Also carries a 'capabilities' "
@@ -3023,6 +3029,18 @@ namespace Orkige
 			ok.set("store_ad_free", play.remoteStoreAdFree ? "1" : "0");
 			ok.set("store_pending", std::to_string(play.remoteStorePending));
 			ok.setList("store_owned", play.remoteStoreOwned);
+			// the running game's ADS (same stream, same seam). ads_consent is
+			// carried because it is the ordering constraint the surface turns
+			// on - "not_gathered" explains an ads_ready of "0" that nothing
+			// else would. ads_takeover "1" means a fullscreen advert is up and
+			// the world is deliberately NOT advancing.
+			ok.set("ads_provider", play.remoteAdsProvider);
+			ok.set("ads_ready", play.remoteAdsReady ? "1" : "0");
+			ok.set("ads_consent", play.remoteAdsConsent);
+			ok.set("ads_test_mode", play.remoteAdsTestMode ? "1" : "0");
+			ok.set("ads_takeover", play.remoteAdsTakeover ? "1" : "0");
+			ok.set("ads_banner_height",
+				std::to_string(play.remoteAdsBannerHeight));
 			{
 				StringVector allocTags;
 				StringVector allocCounts;

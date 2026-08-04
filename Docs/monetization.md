@@ -294,6 +294,41 @@ slot the HTTP client's answers are, inside the pause fence. A host that owns no
 store (the editor's edit mode) makes the whole table an honest no-op. The full
 signature list is in [the Lua reference](lua-api.md).
 
+## Serving an advert from Lua
+
+```lua
+ads.setConsent("granted", true, false)   -- status, tracking, child-directed
+ads.init(true)                           -- testMode; refused before consent
+
+ads.load("rewarded", "level_end", function(res)
+    if res.ready then showWatchButton()
+    elseif res.noFill then retryMuchLater()   -- ordinary, NOT an error
+    else print(res.reason) end
+end)
+
+ads.show("rewarded", "level_end", function(res)
+    if res.rewardEarned then                  -- THE branch, never "it closed"
+        save.set("coins", save.getNumber("coins", 0) + res.rewardAmount)
+        save.flush()                          -- durable, in the callback
+    end
+end)
+
+ads.isReady("interstitial", "gate")      -- before every show
+ads.hideBanner()                         -- a fullscreen unit needs no hiding
+ads.bannerSize()                         -- the strip a HUD must lay out around
+ads.isTakeover()                         -- a fullscreen advert is up right now
+ads.adFree()                             -- the same answer store.adFree gives
+```
+
+`res.ready` and `res.rewardEarned` are the fields to branch on, for the same
+reason `res.owned` is on the store side: the correct branch is the obvious one.
+A dismissal carries `rewardAmount == 0` and an empty `rewardId`, so the
+incorrect branch has nothing to grant. Requests are async exactly like `http`
+and `store` — the call returns immediately and its one answer arrives at a
+frame boundary — and a host that owns no ad surface (the editor's edit mode)
+makes the whole table an honest no-op. The full signature list is in
+[the Lua reference](lua-api.md).
+
 ## What an agent can reach
 
 The authoring half needs no verb of its own: a `.ocatalog` and the manifest
@@ -305,9 +340,48 @@ session runs — the same route the streamed-music snapshot takes, because a
 second channel for state the seam already holds would be a second thing to keep
 in step.
 
+The ad half rides the same stream and comes back through the same `get_state`:
+`ads_provider`, `ads_ready`, `ads_consent`, `ads_test_mode`, `ads_takeover` and
+`ads_banner_height`. `ads_consent` is carried because it is the ordering
+constraint the whole surface turns on — an `ads_ready` of `0` means something
+different when the player was never asked — and `ads_takeover` because while it
+is `1` the world is deliberately not advancing, which an agent watching a
+frozen game otherwise has no way to explain.
+
+Pinning an unhappy path needs no verb either. While the simulated surface is
+installed the player registers the cvar **`ads.sim`**, which takes one
+`key=value` from the [scenario table](#the-simulated-provider) and refuses an
+unrecognised one by name, so `set_cvar` reaches every no-fill, dismissal and
+failure a real network would produce only rarely. One mechanism serves both
+callers: a project's Lua test says `cvar.set("ads.sim", "showResult=no_fill")`
+and an agent says the same thing over MCP. The cvar exists **only** when the
+simulator is installed, because a real network has no scenario to pin.
+
 What an agent deliberately cannot do is drive a real payment surface, for the
-same reason no verb performs a git mutation. Pinning an unhappy path is the
-simulated provider's job, and a project asks for it by name.
+same reason no verb performs a git mutation.
+
+### Which ad surface stands behind the seam
+
+The manifest Setting `ads.provider` picks it, exactly as `store.provider` picks
+the store: `platform` (the default), `simulated`, or `none`. An unset value
+means `platform`, and **the simulator is never a fallback a missing platform
+surface decays into** — a shipped game running against it would serve a fake
+advert and report a reward nobody watched an advert for, looking entirely
+correct doing so.
+
+**`platform` is an honest absence on every build today, and that is the design
+rather than a gap.** The engine mediates; it does not advertise. There is no ad
+network in the tree and none is planned: a network integration is a provider a
+project brings with it — on Android a library archive it depends on
+([the packaging side](android-libraries.md)) — installed through the same
+`AdProvider` interface the simulated one uses. `createPlatformAdProvider()` is
+the single seam that changes when one arrives, and
+`platformAdsUnavailableReason()` names the missing prerequisite until then, so
+a developer reads a cause rather than watching every load fail silently.
+
+Installing the provider is all a host does at boot. **Bringing the surface up is
+deliberately not a boot step**, because consent has to be gathered first and
+only the game knows when it has asked.
 
 ## Consent is an ordering constraint
 
@@ -377,7 +451,19 @@ the backgrounding gate in `core_game/AppLifecycle` carries: stop
 advancing the sim, suspend or duck audio, and on Android keep the system back
 button away from the game — the advert owns the gesture. The service only
 *reports* the state; the loop that owns the tick order is the one entitled to
-skip it.
+skip it. The player does exactly that: the takeover joins the debug pause and
+the lifecycle sim pause in the one `advanceWorld` decision, and the audio
+suspension rides the same `SoundManager::onInterruptBegin`/`End` pair the
+backgrounding gate uses.
+
+**One hazard that placement creates, and the reason it is written down here.**
+The monetization drain lives *inside* the fenced tick order, so a host that
+simply stops advancing while a takeover is up would never drain the advert's own
+completion event — and that event is the only thing that ends the takeover. The
+suspension would outlive the advert forever. The player therefore drains the
+seam explicitly on the frames the takeover itself suspended, and only those: a
+debugger pause still holds its answers, so a purchase that settled while a
+developer was stopped is delivered on resume rather than into a frozen world.
 
 `AdPlacement` is the per-unit lifecycle, and every refusal is an explicit state:
 
@@ -407,6 +493,39 @@ The **rewarded** branch is the one games get wrong. Mediation surfaces report
 that grants on close pays out for an advert nobody watched. `ASR_DISMISSED` and
 `ASR_REWARD_EARNED` are mutually exclusive values of one enum, and the reward
 amount travels only with the earned result — a dismissal always carries `0`.
+
+### The reward window, and how it differs from the purchase one
+
+> Grant on the provider's completion signal, never on the UI closing.
+
+The seam enforces the first half structurally: `MonetizationService` copies
+`rewardId` and `rewardAmount` out of a show event **only** for
+`ASR_REWARD_EARNED`, so a dismissal reaches game code carrying nothing to grant
+even if the game reads the wrong field. The simulator reports a reward on
+*every* outcome, exactly as a real surface does, precisely so that a test proves
+the seam is what withholds it rather than the provider being tidy.
+
+The second half is a game's own ordering, and it is the twin of the store's
+[acknowledge-after-granting rule](#the-unacknowledged-purchase-window) — with
+one asymmetry that must not be papered over:
+
+| | a purchase | a reward |
+| --- | --- | --- |
+| the record | the store's queue re-delivers until finished | **nothing re-delivers** |
+| a crash before granting | recoverable, on the next launch | **the reward is gone** |
+
+A settled purchase survives a crash because the platform's payment queue is the
+record and keeps offering it. **A client-side rewarded advert has no such
+queue.** The callback is the only chance the game gets, which makes the rule
+stricter rather than looser: grant durably *inside* the callback — `save.set`
+then `save.flush` — before anything else, and never defer it to a later frame.
+
+That window cannot be closed on the device, and the engine does not pretend
+otherwise. Closing it needs the same thing receipt validation needs: a server.
+Real mediation surfaces offer server-side verification, where the network calls
+the game's own backend with the reward instead of trusting the client — the
+engine carries no such backend and cannot fake one. What it does do is keep the
+window as small as a frame and make the ordering the obvious code.
 
 ## The two seams meet at no-ads
 
@@ -487,9 +606,24 @@ quietly doing the same job twice.
   produces them. Both statements are needed and neither substitutes for the
   other.
 - **Only the STORE side has a platform provider, and only on Apple platforms.**
-  The ad side is the simulated provider alone. On Android the platform half of
+  The ad side is the simulated provider alone, and `ads.provider = platform`
+  resolves to a named absence everywhere. This is mediation by design, not an
+  unfinished row: a network integration is a provider a project installs
+  through the ordinary `AdProvider` interface. On Android the platform half of
   either arrives as a library archive the project depends on -
   [android-libraries.md](android-libraries.md) is the packaging side of that.
+- **A rewarded reward has no re-delivery queue**, so unlike a purchase it cannot
+  survive a crash between the network's signal and the game's durable grant.
+  The window is one frame wide and the ordering is documented above; genuinely
+  closing it needs server-side verification, which needs a backend the engine
+  does not have. Anything of real value belongs behind one.
+- **What a real ad account proves is untestable in CI.** Live fill rates, a
+  genuine no-fill in a low-traffic region, a real mediation waterfall and an
+  actual reward callback all need an account and a device. What IS proved
+  headlessly is everything above the network call - the placement lifecycle
+  including every refusal transition, the consent ordering gate, the no-ads
+  suppression, the reward travelling only with the earned signal, and that
+  every answer arrives exactly once at a frame boundary.
 - **Subscription expiry is carried, not enforced.** `Entitlement::active` and
   `expiryUnixSeconds` are whatever the platform last reported; the engine runs
   no clock against them and re-checking is a restore.

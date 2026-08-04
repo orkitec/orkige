@@ -117,6 +117,12 @@ namespace Orkige
 		const String FIELD_STORE_PENDING	= "store_pending";
 		const String FIELD_STORE_AD_FREE	= "store_ad_free";
 		const String LIST_STORE_OWNED		= "store_owned";
+		const String FIELD_ADS_PROVIDER		= "ads_provider";
+		const String FIELD_ADS_READY		= "ads_ready";
+		const String FIELD_ADS_CONSENT		= "ads_consent";
+		const String FIELD_ADS_TEST_MODE	= "ads_test_mode";
+		const String FIELD_ADS_TAKEOVER		= "ads_takeover";
+		const String FIELD_ADS_BANNER_HEIGHT = "ads_banner_height";
 		const String LIST_PROFILE_NAMES		= "prof_names";
 		const String LIST_PROFILE_INFO		= "prof_info";
 		const String LIST_TRANSFORMS		= "xforms";

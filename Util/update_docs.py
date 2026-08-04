@@ -935,10 +935,11 @@ def cmd_selftest():
     # world.getComponent; the runtime object lifecycle added world.spawn /
     # world.despawn; the cvar table added registerString; the `data` table its
     # three content reads; the `input` table the raw touch/pointer/controller
-    # reads; the `store` table the purchase, restore and entitlement surface);
+    # reads; the `store` table the purchase, restore and entitlement surface;
+    # the `ads` table the consent, placement, reward and banner surface);
     # kept well inside one context read.
     size = len(index_text.encode("utf-8"))
-    assert size < 15000, "index is %d bytes, over the budget" % size
+    assert size < 16500, "index is %d bytes, over the budget" % size
     # (4) gui hierarchy tree includes the root chain
     gui_tree = render_gui_mermaid()
     assert "IGuiObject --> GuiWidget" in gui_tree, gui_tree

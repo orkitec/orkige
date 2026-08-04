@@ -125,6 +125,12 @@ void clearRemoteState(PlaySession& session)
 	session.remoteStorePending = -1;
 	session.remoteStoreAdFree = false;
 	session.remoteStoreOwned.clear();
+	session.remoteAdsProvider.clear();
+	session.remoteAdsConsent.clear();
+	session.remoteAdsReady = false;
+	session.remoteAdsTestMode = false;
+	session.remoteAdsTakeover = false;
+	session.remoteAdsBannerHeight = -1;
 	session.remoteProfile.clear();
 	session.remoteProfileFrameMs = -1.0;
 	session.profileSeq = 0;
@@ -2435,6 +2441,19 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 				{
 					session.remoteStoreOwned.push_back(id);
 				}
+				// the ad half arrives in the same block, under the same seam
+				session.remoteAdsProvider =
+					message.get(Protocol::FIELD_ADS_PROVIDER);
+				session.remoteAdsConsent =
+					message.get(Protocol::FIELD_ADS_CONSENT);
+				session.remoteAdsReady =
+					message.get(Protocol::FIELD_ADS_READY) == "1";
+				session.remoteAdsTestMode =
+					message.get(Protocol::FIELD_ADS_TEST_MODE) == "1";
+				session.remoteAdsTakeover =
+					message.get(Protocol::FIELD_ADS_TAKEOVER) == "1";
+				readInt(Protocol::FIELD_ADS_BANNER_HEIGHT,
+					session.remoteAdsBannerHeight);
 			}
 			const Orkige::StringVector& allocTags =
 				message.getList(Protocol::LIST_ALLOC_TAGS);

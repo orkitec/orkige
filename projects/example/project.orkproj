@@ -9,5 +9,9 @@
         <!-- the SIMULATED store, asked for by name. The default is the
              platform's own; nothing makes a shipped game fall into this one. -->
         <Setting key="store.provider" value="simulated"/>
+        <!-- the SIMULATED ad surface, asked for by name for the same reason.
+             The default is the platform's own, which today is an honest
+             absence everywhere: the engine mediates and ships no ad network. -->
+        <Setting key="ads.provider" value="simulated"/>
     </Settings>
 </OrkigeProject>

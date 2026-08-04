@@ -299,6 +299,21 @@ store.adFree() -> bool  -- does the player own a product that removes adverts
 store.isAvailable() -> bool  -- did a store come up in this runtime (false in the editor)
 store.pending() -> number  -- how many store requests are still awaiting an answer
 
+## ads
+ads.setConsent(status [, tracking, childDirected]) -> bool  -- what the player answered ('granted'/'denied'/'not_gathered') - REQUIRED before ads.init
+ads.init([testMode]) -> bool  -- bring the ad surface up; refused until consent is gathered. testMode defaults true
+ads.load(format, placement, onComplete) -> bool  -- load a unit ('banner'/'interstitial'/'rewarded'/'app_open'); branch on res.ready, res.noFill is ordinary
+ads.show(format, placement, onComplete) -> bool  -- present a loaded unit; GRANT ON res.rewardEarned, never on the advert closing
+ads.hideBanner() -> bool  -- take the banner down (fullscreen units consume themselves)
+ads.state(format, placement) -> string  -- 'idle', 'loading', 'ready', 'showing' or 'failed'
+ads.isReady(format, placement) -> bool  -- is inventory showable right now
+ads.bannerVisible() -> bool  -- is a banner on screen
+ads.bannerSize() -> Vec2  -- the strip the banner eats, in window pixels
+ads.bannerPosition() -> string  -- which edge it hugs ('top'/'bottom')
+ads.isTakeover() -> bool  -- a fullscreen advert is up (the world is not advancing)
+ads.isAvailable() -> bool  -- did an ad surface come up (false in the editor)
+ads.adFree() -> bool  -- does the player own a product that removes adverts
+
 ## globals
 loc(key [, ...]) -> string  -- localised string; %%N%% filled by trailing args
 

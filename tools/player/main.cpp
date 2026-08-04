@@ -76,6 +76,7 @@
 #include <engine_runtime/AppHost.h>
 #include <engine_runtime/GameHost.h>
 #include <core_filesystem/ResourceReader.h>
+#include <core_monetization/PlatformAds.h>
 #include <core_monetization/PlatformStore.h>
 #include <core_monetization/ProductCatalogFile.h>
 #include <core_monetization/SimulatedProvider.h>
@@ -618,8 +619,26 @@ static bool playerIterate(PlayerContext& context)
 	// The lifecycle sim gate (isSimPaused) pauses gameplay while the app
 	// is backgrounded, the same way the editor's pause does; a debug
 	// step still forces exactly one tick for inspection.
+	// A FULLSCREEN ADVERT COVERS THE APP, so the gameplay behind it stops
+	// exactly as it does for a background: the player cannot see the world
+	// and must not be playing it, and a timer that kept running would spend
+	// the player's lives while an advert was on screen. The same gate the
+	// lifecycle uses, applied by the same host at the same place - the
+	// service only REPORTS the state, because the loop that owns the tick
+	// order is the one entitled to skip it.
+	const bool adTakeover = context.monetization &&
+		context.monetization->isTakeoverActive();
+	if (adTakeover != context.adTakeoverActive)
+	{
+		// the advert owns the speaker while it owns the screen: the same
+		// suspension the backgrounding gate applies, on the same seam
+		context.adTakeoverActive = adTakeover;
+		if (adTakeover)	{ soundManager.onInterruptBegin(); }
+		else			{ soundManager.onInterruptEnd(); }
+	}
 	const bool advanceWorld =
-		(!debugLink.isPaused() && !lifecycle.isSimPaused()) || stepOnce;
+		(!debugLink.isPaused() && !lifecycle.isSimPaused() && !adTakeover) ||
+		stepOnce;
 	if (stepOnce)
 	{
 		deltaTime = Orkige::PhysicsWorld::FIXED_TIMESTEP;
@@ -664,6 +683,20 @@ static bool playerIterate(PlayerContext& context)
 			return reloadSceneFrom(resolvedScene);
 		};
 		Orkige::advanceGameWorld(tick, deltaTime);
+	}
+	else if (adTakeover && context.monetization)
+	{
+		// THE ONE THING THAT CAN END A TAKEOVER is the advert's own
+		// completion event, and it arrives through the monetization drain -
+		// which the gate above just skipped, because the takeover is the
+		// reason it skipped it. Draining here is what keeps that gate from
+		// wedging the app on the frame an advert covers it: without this the
+		// suspension would outlive the advert forever.
+		// It stays an EXCEPTION rather than moving the drain out of the tick
+		// order: a debugger pause still HOLDS its answers, so a purchase that
+		// settled while a developer was stopped is still delivered on resume,
+		// never into a frozen world.
+		context.monetization->update();
 	}
 
 	// streaming: hierarchy on change (checked every N frames),
@@ -1881,6 +1914,90 @@ int main(int argc, char** argv)
 				SDL_Log("orkige_player: no store provider - %s",
 					reason.empty() ? "none was asked for" : reason.c_str());
 			}
+
+			// WHICH ADVERTISING SURFACE stands behind the ad seam. The engine
+			// mediates rather than advertises, so this installs a plugin and
+			// nothing more; every build's `platform` answer today is an honest
+			// absence (@see PlatformAds.h). The simulator is asked for by name
+			// for the same reason the store's is - one that turned up by
+			// accident in a shipped game would report a reward for an advert
+			// nobody watched.
+			Orkige::AdProviderChoice adChoice = Orkige::APC_PLATFORM;
+			const std::string adProviderRef =
+				project.getSetting(Orkige::ADS_PROVIDER_SETTING_KEY);
+			if (!Orkige::adProviderChoiceFromName(adProviderRef, adChoice))
+			{
+				SDL_Log("orkige_player: '%s' is not an ad provider "
+					"(platform, simulated or none) - using the platform's",
+					adProviderRef.c_str());
+				adChoice = Orkige::APC_PLATFORM;
+			}
+			if (adChoice == Orkige::APC_SIMULATED)
+			{
+				auto simulated =
+					std::make_unique<Orkige::SimulatedAdProvider>();
+				Orkige::SimulatedAdProvider* scenarioOwner = simulated.get();
+				money.setAdProvider(std::move(simulated));
+				SDL_Log("orkige_player: the SIMULATED ad surface is installed "
+					"- these adverts are not real");
+				// PINNING AN UNHAPPY PATH IS THE SIMULATOR'S WHOLE JOB, and a
+				// cvar is how it is reachable without inventing a surface: a
+				// project test says cvar.set("ads.sim", "showResult=no_fill")
+				// and an agent says the same thing through MCP set_cvar. One
+				// mechanism, two callers, no new verb - and it exists ONLY
+				// when the simulator is installed, because a real network has
+				// no scenario to pin.
+				// The captured pointer is safe because the player installs an
+				// ad provider exactly once, here, and never replaces it.
+				Orkige::CVarManager::getSingleton().registerCVar("ads.sim",
+					Orkige::CVarType::String, "", Orkige::CVAR_NONE,
+					"pin the simulated ad surface's next answer, as one "
+					"'key=value' (loadResult, loadResult.<format>, showResult, "
+					"rewardId, rewardAmount, latencyTicks, banner*, reason)",
+					[scenarioOwner](Orkige::CVar const& cvar)
+				{
+					if (cvar.value.empty()) { return; }
+					const std::size_t split = cvar.value.find('=');
+					if (split == Orkige::String::npos)
+					{
+						SDL_Log("orkige_player: ads.sim '%s' - expected one "
+							"'key=value'", cvar.value.c_str());
+						return;
+					}
+					Orkige::String scenarioError;
+					if (!scenarioOwner->scenario().apply(
+						cvar.value.substr(0, split),
+						cvar.value.substr(split + 1), scenarioError))
+					{
+						// refused BY NAME: a typo that silently kept the old
+						// scenario would make a test assert the wrong thing
+						SDL_Log("orkige_player: ads.sim '%s' - %s",
+							cvar.value.c_str(), scenarioError.c_str());
+					}
+				});
+			}
+			else if (adChoice == Orkige::APC_PLATFORM)
+			{
+				if (Orkige::AdProvider* platformAds =
+					Orkige::createPlatformAdProvider())
+				{
+					money.setAdProvider(
+						std::unique_ptr<Orkige::AdProvider>(platformAds));
+				}
+				else
+				{
+					// named, not silent: without this a developer watches
+					// every load answer "no ad surface" with no stated cause
+					SDL_Log("orkige_player: no ad provider - %s",
+						Orkige::platformAdsUnavailableReason().c_str());
+				}
+			}
+			// THE AD SURFACE IS NOT BROUGHT UP HERE, and that is the ordering
+			// constraint rather than an omission: consent must be gathered
+			// BEFORE an ad provider initializes, and only the game knows when
+			// it has asked. So boot installs the plugin and the game does
+			// ads.setConsent(...) then ads.init(...) - which the service
+			// refuses outright while the status is still not-gathered.
 		}
 		if (project.isLoaded())
 		{

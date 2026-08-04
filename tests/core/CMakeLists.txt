@@ -61,6 +61,7 @@ add_executable(orkige_core_tests
     MonetizationServiceTests.cpp
     StoreTransactionCoreTests.cpp
     PlatformStoreTests.cpp
+    PlatformAdsTests.cpp
     CameraFitTests.cpp
     DevicePresetTests.cpp
     ProjectPathsTests.cpp
