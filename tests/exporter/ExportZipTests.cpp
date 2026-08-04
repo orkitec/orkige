@@ -252,3 +252,89 @@ TEST_CASE("ExportZip writes an empty archive a reader still opens",
 	REQUIRE(reader.open(archive));
 	REQUIRE(reader.entries().empty());
 }
+
+//--- the reader ---------------------------------------------------
+
+TEST_CASE("ExportZipReader reads back what ExportZip wrote",
+	"[exporter][zip]")
+{
+	// the round trip that matters for a CONSUMED archive: a library archive
+	// arrives from somewhere else, so both compression methods and an entry of
+	// every awkward size have to come back exactly.
+	ScratchDirectory scratch("reader_roundtrip");
+	const Orkige::String archive = scratch.file("library.zip");
+	Orkige::String error;
+	// a payload big enough that deflate actually beats storing it
+	std::string repetitive;
+	for(int index = 0; index < 400; ++index)
+	{
+		repetitive += "the same line over and over\n";
+	}
+	{
+		ExportZip zip;
+		REQUIRE(zip.addBytes("AndroidManifest.xml", bytesOf("<manifest/>"),
+			ExportZip::METHOD_STORE, 0, &error));
+		REQUIRE(zip.addBytes("classes.jar", bytesOf(repetitive),
+			ExportZip::METHOD_DEFLATE, 0, &error));
+		REQUIRE(zip.addBytes("res/values/values.xml", bytesOf(""),
+			ExportZip::METHOD_DEFLATE, 0, &error));
+		REQUIRE(zip.write(archive, &error));
+	}
+
+	OrkigeExport::ExportZipReader reader;
+	INFO(error);
+	REQUIRE(reader.open(archive, &error));
+	REQUIRE(reader.entries().size() == 3);
+	CHECK(reader.entries()[0].name == "AndroidManifest.xml");
+	CHECK(reader.has("classes.jar"));
+	CHECK_FALSE(reader.has("libs/other.jar"));
+
+	std::vector<unsigned char> bytes;
+	REQUIRE(reader.read("AndroidManifest.xml", bytes, &error));
+	CHECK(bytes == bytesOf("<manifest/>"));
+	REQUIRE(reader.read("classes.jar", bytes, &error));
+	CHECK(bytes == bytesOf(repetitive));
+	// an EMPTY entry is a real case (a marker file, a stub resource) and the
+	// one an inflate loop gets wrong
+	REQUIRE(reader.read("res/values/values.xml", bytes, &error));
+	CHECK(bytes.empty());
+
+	// ...and an entry that is not there is an honest refusal, not an empty read
+	CHECK_FALSE(reader.read("libs/other.jar", bytes, &error));
+	CHECK(error.find("libs/other.jar") != Orkige::String::npos);
+}
+
+TEST_CASE("ExportZipReader refuses what is not an archive",
+	"[exporter][zip]")
+{
+	ScratchDirectory scratch("reader_refusals");
+	Orkige::String error;
+	const Orkige::String garbage = scratch.file("garbage.zip");
+	REQUIRE(ExportFiles::writeTextFile(garbage,
+		"this is not a zip archive at all", &error));
+	OrkigeExport::ExportZipReader reader;
+	CHECK_FALSE(reader.open(garbage, &error));
+	CHECK(error.find("not a zip") != Orkige::String::npos);
+
+	CHECK_FALSE(reader.open(scratch.file("absent.zip"), &error));
+}
+
+TEST_CASE("an archive entry never unpacks outside where it was told to",
+	"[exporter][zip]")
+{
+	// a consumed archive comes from somewhere else, so its entry names are
+	// input rather than fact. Each of these writes outside the destination on
+	// SOME host, which is exactly one host too many.
+	using OrkigeExport::isSafeArchiveEntryName;
+	CHECK(isSafeArchiveEntryName("res/values/values.xml"));
+	CHECK(isSafeArchiveEntryName("classes.jar"));
+	CHECK(isSafeArchiveEntryName("a..b/c.txt"));
+
+	CHECK_FALSE(isSafeArchiveEntryName("/etc/passwd"));
+	CHECK_FALSE(isSafeArchiveEntryName("../outside.txt"));
+	CHECK_FALSE(isSafeArchiveEntryName("res/../../outside.txt"));
+	// a backslash is a legal zip name character and a SEPARATOR on Windows
+	CHECK_FALSE(isSafeArchiveEntryName("res\\..\\outside.txt"));
+	CHECK_FALSE(isSafeArchiveEntryName("C:/windows/system32/a.dll"));
+	CHECK_FALSE(isSafeArchiveEntryName(""));
+}

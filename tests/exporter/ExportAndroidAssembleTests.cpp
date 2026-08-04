@@ -25,6 +25,7 @@
 
 #include "ExportAndroid.h"
 #include "ExportAndroidAssemble.h"
+#include "ExportAndroidLibrary.h"
 #include "ExportFiles.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -510,6 +511,129 @@ TEST_CASE("a program is named the way this host names one",
 #else
 	CHECK(aapt2 == "/srv/bt/aapt2");
 #endif
+}
+
+//--- the Android library archives a project depends on -----------
+
+TEST_CASE("the resources are compiled and linked before the Java",
+	"[exporter][android][assemble]")
+{
+	// the linker is what ASSIGNS resource ids, and the `R` classes carrying
+	// them are Java the compiler then has to see. A run that compiles first
+	// works right up until a library reads its own resources.
+	std::vector<Orkige::String> order;
+	for (AndroidCommand const& step : androidAssemblyPlan(makeLayout()).all())
+	{
+		order.push_back(step.label);
+	}
+	const std::size_t link = static_cast<std::size_t>(
+		std::find(order.begin(), order.end(), Orkige::String("aapt2 link")) -
+		order.begin());
+	const std::size_t compile = static_cast<std::size_t>(
+		std::find(order.begin(), order.end(),
+			Orkige::String("compiling the Java glue")) - order.begin());
+	const std::size_t dex = static_cast<std::size_t>(
+		std::find(order.begin(), order.end(), Orkige::String("dexing")) -
+		order.begin());
+	REQUIRE(link < order.size());
+	REQUIRE(compile < order.size());
+	REQUIRE(dex < order.size());
+	CHECK(link < compile);
+	CHECK(compile < dex);
+}
+
+TEST_CASE("a project with no library archives spawns the argv it always did",
+	"[exporter][android][assemble]")
+{
+	// the property that keeps this addition invisible where it is unused: an
+	// empty library list adds no flag anywhere
+	const AndroidAssemblyPlan plan = androidAssemblyPlan(makeLayout());
+	CHECK_FALSE(contains(plan.compileJava.arguments, "-classpath"));
+	CHECK_FALSE(contains(plan.linkResources.arguments, "--java"));
+	CHECK_FALSE(contains(plan.linkResources.arguments, "--extra-packages"));
+	// the dexer reads its class list and nothing else
+	CHECK(plan.dex.arguments.back() == "@/work/classlist.txt");
+	CHECK(plan.dex.arguments[plan.dex.arguments.size() - 2] == "/work/dex");
+}
+
+TEST_CASE("a library archive's jar is compiled against AND dexed in",
+	"[exporter][android][assemble]")
+{
+	// two different mistakes with the same symptom. Left off the CLASSPATH,
+	// the app's own Java stops compiling; left out of the DEX, it compiles and
+	// then throws NoClassDefFoundError on the phone - which is why both are
+	// asserted here rather than one standing in for the other.
+	AndroidAssemblyLayout layout = makeLayout();
+	layout.libraryJars = { "/work/lib0/classes.jar", "/work/lib1/classes.jar" };
+	const AndroidAssemblyPlan plan = androidAssemblyPlan(layout);
+
+	CHECK(contains(plan.compileJava.arguments, "-classpath"));
+	CHECK(contains(plan.compileJava.arguments,
+		androidClasspath(layout.libraryJars)));
+	for (Orkige::String const& jar : layout.libraryJars)
+	{
+		INFO(jar);
+		CHECK(contains(plan.dex.arguments, jar));
+	}
+	// the class list stays LAST: an @file after the jars is what the dexer
+	// reads its own inputs from, and order is how it tells them apart
+	CHECK(plan.dex.arguments.back() == "@/work/classlist.txt");
+}
+
+TEST_CASE("a library that reads its own resources gets ids generated for it",
+	"[exporter][android][assemble]")
+{
+	// a library resolves its resources through an `R` class only the APP can
+	// produce, because the ids are assigned when the whole table is linked.
+	// Without this the library compiles, packages, and fails at runtime.
+	AndroidAssemblyLayout layout = makeLayout();
+	layout.libraryJars = { "/work/lib0/classes.jar" };
+	layout.resourcePackages = { "com.vendor.sdk", "com.vendor.ui" };
+	layout.generatedJavaDirectory = "/work/gen";
+	layout.generatedSourceListFile = "/work/gen-sources.txt";
+	const AndroidAssemblyPlan plan = androidAssemblyPlan(layout);
+
+	CHECK(contains(plan.linkResources.arguments, "--java"));
+	CHECK(contains(plan.linkResources.arguments, "/work/gen"));
+	CHECK(contains(plan.linkResources.arguments, "com.vendor.sdk"));
+	CHECK(contains(plan.linkResources.arguments, "com.vendor.ui"));
+	// one flag per package - never one flag carrying a joined list, which is a
+	// different tool's spelling
+	int flags = 0;
+	for (Orkige::String const& argument : plan.linkResources.arguments)
+	{
+		if (argument == "--extra-packages")
+		{
+			++flags;
+		}
+	}
+	CHECK(flags == 2);
+
+	// ...and those generated sources reach javac. They do not exist when the
+	// plan is laid out, so the argv names the LIST the assembly writes between
+	// the two steps rather than paths the planner could not have known.
+	CHECK(plan.compileJava.arguments.back() == "@/work/gen-sources.txt");
+}
+
+TEST_CASE("an App Bundle consumes library archives the same way an APK does",
+	"[exporter][android][assemble]")
+{
+	// the bundle differs from the APK only in how the artifact is packed; the
+	// compile, link and dex steps in front of it are the same ones, so a
+	// library reaching only one of the two shapes would be an accident
+	AndroidAssemblyLayout layout = makeBundleLayout();
+	layout.libraryJars = { "/work/lib0/classes.jar" };
+	layout.resourcePackages = { "com.vendor.sdk" };
+	layout.generatedJavaDirectory = "/work/gen";
+	layout.generatedSourceListFile = "/work/gen-sources.txt";
+	const AndroidAssemblyPlan plan = androidAssemblyPlan(layout);
+
+	CHECK(contains(plan.compileJava.arguments, "/work/lib0/classes.jar"));
+	CHECK(contains(plan.dex.arguments, "/work/lib0/classes.jar"));
+	CHECK(contains(plan.linkResources.arguments, "com.vendor.sdk"));
+	// ...and it still links protobuf resources, which is what makes it a
+	// bundle rather than an APK
+	CHECK(contains(plan.linkResources.arguments, "--proto-format"));
 }
 
 TEST_CASE("the vcpkg root a build tree's Java glue comes from",

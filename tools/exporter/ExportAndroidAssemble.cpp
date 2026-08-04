@@ -9,6 +9,7 @@
 #include "ExportAndroidAssemble.h"
 
 #include "ExportAndroid.h"
+#include "ExportAndroidLibrary.h"
 #include "ExportBuildTree.h"
 #include "ExportFiles.h"
 #include "ExportPayload.h"
@@ -21,6 +22,7 @@
 #include <filesystem>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace OrkigeExport
@@ -219,9 +221,9 @@ namespace OrkigeExport
 	std::vector<AndroidCommand> AndroidAssemblyPlan::all() const
 	{
 		const AndroidCommand steps[] = {
-			this->strip, this->compileJava, this->dex, this->compileResources,
-			this->linkResources, this->align, this->createDebugKey, this->sign,
-			this->buildBundle, this->signBundle, this->verifyBundle
+			this->strip, this->compileResources, this->linkResources,
+			this->compileJava, this->dex, this->align, this->createDebugKey,
+			this->sign, this->buildBundle, this->signBundle, this->verifyBundle
 		};
 		std::vector<AndroidCommand> ordered;
 		for(AndroidCommand const & step : steps)
@@ -257,10 +259,28 @@ namespace OrkigeExport
 		plan.compileJava.label = "compiling the Java glue";
 		plan.compileJava.arguments = { androidProgramPath(javaBin, "javac"),
 			"-source", "8", "-target", "8", "-encoding", "UTF-8",
-			"-bootclasspath", layout.platformJar,
-			"-d", layout.classesDirectory, "-nowarn" };
+			"-bootclasspath", layout.platformJar };
+		if(!layout.libraryJars.empty())
+		{
+			// the library archives' own compiled Java, so anything compiled
+			// here resolves against the SAME classes that end up in the dex
+			plan.compileJava.arguments.push_back("-classpath");
+			plan.compileJava.arguments.push_back(
+				androidClasspath(layout.libraryJars));
+		}
+		plan.compileJava.arguments.push_back("-d");
+		plan.compileJava.arguments.push_back(layout.classesDirectory);
+		plan.compileJava.arguments.push_back("-nowarn");
 		plan.compileJava.arguments.insert(plan.compileJava.arguments.end(),
 			layout.javaSources.begin(), layout.javaSources.end());
+		if(!layout.generatedSourceListFile.empty())
+		{
+			// the resource linker's `R` classes: written between the link and
+			// this step, so they reach javac as a list rather than as argv the
+			// planner could not have known
+			plan.compileJava.arguments.push_back(
+				"@" + layout.generatedSourceListFile);
+		}
 
 		plan.dex.label = "dexing";
 		plan.dex.arguments = { java, "-cp",
@@ -268,8 +288,12 @@ namespace OrkigeExport
 			"com.android.tools.r8.D8", "--release",
 			"--min-api", std::to_string(layout.minimumApi),
 			"--lib", layout.platformJar,
-			"--output", layout.dexDirectory,
-			"@" + layout.classListFile };
+			"--output", layout.dexDirectory };
+		// the library jars are dexed WITH the app's own classes: a jar left off
+		// here is a class the app resolves at compile time and not at runtime
+		plan.dex.arguments.insert(plan.dex.arguments.end(),
+			layout.libraryJars.begin(), layout.libraryJars.end());
+		plan.dex.arguments.push_back("@" + layout.classListFile);
 
 		plan.compileResources.label = "aapt2 compile (res)";
 		plan.compileResources.arguments = {
@@ -296,6 +320,21 @@ namespace OrkigeExport
 		plan.linkResources.arguments.push_back(layout.linkedDirectory);
 		plan.linkResources.arguments.push_back("--output-to-dir");
 		plan.linkResources.arguments.push_back(layout.compiledResources);
+		if(!layout.generatedJavaDirectory.empty())
+		{
+			// the linker is what assigns resource ids, so it is also what
+			// writes the `R` classes carrying them - for the app's own package
+			// and, one flag each, for every library package whose code looks
+			// its own resources up through one
+			plan.linkResources.arguments.push_back("--java");
+			plan.linkResources.arguments.push_back(
+				layout.generatedJavaDirectory);
+			for(Orkige::String const & package : layout.resourcePackages)
+			{
+				plan.linkResources.arguments.push_back("--extra-packages");
+				plan.linkResources.arguments.push_back(package);
+			}
+		}
 
 		if(!layout.bundle)
 		{
@@ -537,6 +576,50 @@ namespace OrkigeExport
 			return true;
 		}
 		//---------------------------------------------------------
+		//! merge @p source into @p destination, refusing rather than
+		//! overwriting where the two disagree.
+		//! @remarks two library archives (or a library and the app) providing
+		//! the SAME resource or asset path with different bytes is a real
+		//! conflict: the platform's own answer is an overlay order nobody here
+		//! declared, so it is named instead of silently resolved. Identical
+		//! bytes are the same file twice and pass.
+		bool mergeTree(Orkige::String const & source,
+			Orkige::String const & destination, Orkige::String const & label,
+			Orkige::String const & what, Orkige::String * error)
+		{
+			for(Orkige::String const & relative :
+				ExportFiles::listFilesRecursive(source))
+			{
+				const Orkige::String from = ExportFiles::join(source, relative);
+				const Orkige::String to =
+					ExportFiles::join(destination, relative);
+				if(ExportFiles::isRegularFile(to))
+				{
+					std::vector<unsigned char> existing;
+					std::vector<unsigned char> arriving;
+					if(!ExportFiles::readBytes(to, existing, error) ||
+						!ExportFiles::readBytes(from, arriving, error))
+					{
+						return false;
+					}
+					if(existing == arriving)
+					{
+						continue;
+					}
+					return report(error, "the Android library '" + label +
+						"' brings a different " + what + " '" + relative +
+						"' than the package already carries - rename one, or "
+						"drop one of the libraries (see "
+						"Docs/android-libraries.md)");
+				}
+				if(!ExportFiles::copyFile(from, to, error))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+		//---------------------------------------------------------
 		//! the NDK strip a build tree recorded, else the one under the NDK the
 		//! environment names ("" when neither is there, which is honest: the
 		//! packaged library is then the unstripped one)
@@ -748,6 +831,7 @@ namespace OrkigeExport
 		//! build tree only) and the staged project payload
 		bool stageAssets(AndroidPackageRequest const & request,
 			AndroidEngineFacts const & facts, Orkige::String const & assets,
+			std::vector<AndroidLibrary> const & libraries,
 			Orkige::String * error)
 		{
 			const Orkige::String media = ExportFiles::join(assets, "Media");
@@ -849,6 +933,20 @@ namespace OrkigeExport
 					return false;
 				}
 			}
+			// the library archives' own assets, beside the project's: a library
+			// reads them by the same relative name inside the package. LAST of
+			// the stagers, so a library file landing on one this export wrote
+			// is caught rather than quietly replacing it - and still before the
+			// listing below, so it is listed like everything else.
+			for(AndroidLibrary const & library : libraries)
+			{
+				if(!library.assetsDirectory.empty() &&
+					!mergeTree(library.assetsDirectory, assets, library.name,
+						"asset", error))
+				{
+					return false;
+				}
+			}
 			// the extraction manifest, listing every bundled file relative to
 			// the assets root. Unused on the mount path, kept so a compressed
 			// package still lists.
@@ -871,6 +969,7 @@ namespace OrkigeExport
 		//! caller staged one
 		bool stageResources(AndroidPackageRequest const & request,
 			AndroidEngineFacts const & facts, Orkige::String const & resDirectory,
+			std::vector<AndroidLibrary> const & libraries,
 			Orkige::String * error)
 		{
 			if(!ExportFiles::removeTree(resDirectory, error))
@@ -907,21 +1006,38 @@ namespace OrkigeExport
 			{
 				return false;
 			}
-			if(request.launcherResources.empty())
+			if(!request.launcherResources.empty())
 			{
-				return true;
+				if(!isAndroidLaunchColour(request.launchColour))
+				{
+					return report(error, "launch background '" +
+						request.launchColour + "' is not #RRGGBB");
+				}
+				if(!ExportFiles::writeTextFile(
+					ExportFiles::join(resDirectory, "values/colors.xml"),
+					androidLaunchColoursXml(request.launchColour), error) ||
+					!ExportFiles::writeTextFile(
+						ExportFiles::join(resDirectory, "values/styles.xml"),
+						androidLaunchStylesXml(), error))
+				{
+					return false;
+				}
 			}
-			if(!isAndroidLaunchColour(request.launchColour))
+			// the library archives' resources go into the SAME tree, so the
+			// linker builds one table over all of them - which is what makes a
+			// library's own ids resolvable at runtime. LAST, so a library file
+			// landing on one this export wrote is caught rather than quietly
+			// replacing it or being quietly replaced.
+			for(AndroidLibrary const & library : libraries)
 			{
-				return report(error, "launch background '" +
-					request.launchColour + "' is not #RRGGBB");
+				if(!library.resDirectory.empty() &&
+					!mergeTree(library.resDirectory, resDirectory, library.name,
+						"resource", error))
+				{
+					return false;
+				}
 			}
-			return ExportFiles::writeTextFile(
-				ExportFiles::join(resDirectory, "values/colors.xml"),
-				androidLaunchColoursXml(request.launchColour), error) &&
-				ExportFiles::writeTextFile(
-					ExportFiles::join(resDirectory, "values/styles.xml"),
-					androidLaunchStylesXml(), error);
+			return true;
 		}
 		//---------------------------------------------------------
 		//! write the APK: the linked resources, the dex, the native library and
@@ -981,11 +1097,23 @@ namespace OrkigeExport
 			{
 				return false;
 			}
-			if(!zip.addFile("dex/classes.dex",
-				ExportFiles::join(stage, "classes.dex"),
-				ExportZip::METHOD_DEFLATE, error))
+			// EVERY dex image, not just the first: a package carrying library
+			// archives can pass what one dex file addresses, and the dexer
+			// answers with classes2.dex, classes3.dex, ...
+			for(Orkige::String const & relative :
+				ExportFiles::listFilesRecursive(stage))
 			{
-				return false;
+				if(!beginsWith(relative, "classes") ||
+					!endsWith(relative, ".dex"))
+				{
+					continue;
+				}
+				if(!zip.addFile("dex/" + relative,
+					ExportFiles::join(stage, relative),
+					ExportZip::METHOD_DEFLATE, error))
+				{
+					return false;
+				}
 			}
 			return addTree(zip, ExportFiles::join(stage, "assets"), "assets/",
 				false, none, error) &&
@@ -1046,6 +1174,23 @@ namespace OrkigeExport
 		emit(request.log, "Java: " + std::to_string(javaSources.size()) +
 			" sources");
 
+		// the Android library archives the project depends on, unpacked once
+		// and routed part by part below (@see ExportAndroidLibrary.h)
+		std::vector<AndroidLibrary> libraries;
+		for(std::size_t index = 0; index < request.libraryArchives.size();
+			++index)
+		{
+			AndroidLibrary library;
+			if(!unpackAndroidLibrary(request.libraryArchives[index],
+				ExportFiles::join(ExportFiles::join(work, "libraries"),
+					std::to_string(index)),
+				facts.abi, library, request.log, error))
+			{
+				return false;
+			}
+			libraries.push_back(library);
+		}
+
 		AndroidAssemblyLayout layout;
 		layout.buildTools = tools.buildTools;
 		layout.platformJar = tools.platformJar;
@@ -1056,6 +1201,24 @@ namespace OrkigeExport
 		layout.stagedLibrary = ExportFiles::join(
 			ExportFiles::join(stage, "lib/" + facts.abi), "libmain.so");
 		layout.javaSources = javaSources;
+		for(AndroidLibrary const & library : libraries)
+		{
+			layout.libraryJars.insert(layout.libraryJars.end(),
+				library.jars.begin(), library.jars.end());
+			if(library.generatesResourceIds && !library.packageName.empty() &&
+				std::find(layout.resourcePackages.begin(),
+					layout.resourcePackages.end(), library.packageName) ==
+					layout.resourcePackages.end())
+			{
+				layout.resourcePackages.push_back(library.packageName);
+			}
+		}
+		if(!layout.resourcePackages.empty())
+		{
+			layout.generatedJavaDirectory = ExportFiles::join(work, "gen");
+			layout.generatedSourceListFile =
+				ExportFiles::join(work, "gen-sources.txt");
+		}
 		layout.classesDirectory = ExportFiles::join(work, "classes");
 		layout.classListFile = ExportFiles::join(work, "classlist.txt");
 		layout.dexDirectory = ExportFiles::join(work, "dex");
@@ -1113,7 +1276,145 @@ namespace OrkigeExport
 			return false;
 		}
 
+		//--- the native libraries the library archives bring
+		for(AndroidLibrary const & library : libraries)
+		{
+			for(std::pair<Orkige::String, Orkige::String> const & staged :
+				library.nativeLibraries)
+			{
+				const Orkige::String destination = ExportFiles::join(
+					ExportFiles::join(stage, "lib/" + facts.abi), staged.first);
+				if(ExportFiles::isRegularFile(destination))
+				{
+					return report(error, "the Android library '" + library.name +
+						"' brings a native library '" + staged.first +
+						"' the package already carries");
+				}
+				if(!ExportFiles::copyFile(staged.second, destination, error))
+				{
+					return false;
+				}
+			}
+		}
+
+		//--- the assets
+		emit(request.log, "staging assets (" + facts.flavor + " flavor)");
+		if(!stageAssets(request, facts, assets, libraries, error))
+		{
+			return false;
+		}
+
+		//--- the resources and the manifest. These run BEFORE the Java: the
+		// linker assigns the resource ids, and the `R` classes carrying them
+		// are Java the compiler has to see.
+		if(!stageResources(request, facts, layout.resDirectory, libraries,
+			error))
+		{
+			return false;
+		}
+		Orkige::String templateText;
+		if(!ExportFiles::readTextFile(ExportFiles::join(
+			facts.assemblyDirectory, "AndroidManifest.xml"), templateText,
+			error))
+		{
+			return false;
+		}
+		AndroidManifestEdits edits;
+		edits.package = request.package;
+		edits.label = request.label;
+		edits.screenOrientation = request.screenOrientation;
+		edits.launcherResources = !request.launcherResources.empty();
+		edits.release = request.bundle;
+		edits.versionCode = request.bundle ? request.versionCode : 0;
+		edits.versionName = request.bundle ? request.versionName
+			: Orkige::String();
+		Orkige::String manifestText =
+			androidManifestText(templateText, edits);
+		// ...then the library archives' own manifest fragments. With no
+		// libraries this is the identity, so the packaged manifest of a project
+		// that depends on none is byte for byte what it always was.
+		std::vector<AndroidManifestFragment> fragments;
+		for(AndroidLibrary const & library : libraries)
+		{
+			AndroidManifestFragment fragment;
+			fragment.source = library.name;
+			fragment.text = library.manifestText;
+			fragments.push_back(fragment);
+		}
+		if(!fragments.empty())
+		{
+			const Orkige::String applicationId = request.package.empty()
+				? androidManifestPackage(manifestText) : request.package;
+			std::vector<Orkige::String> notes;
+			Orkige::String merged;
+			if(!androidMergeManifest(manifestText, fragments, applicationId,
+				layout.minimumApi, merged, &notes, error))
+			{
+				return false;
+			}
+			for(Orkige::String const & note : notes)
+			{
+				emit(request.log, note);
+			}
+			manifestText = merged;
+		}
+		if(!ExportFiles::writeTextFile(layout.manifestPath, manifestText,
+			error))
+		{
+			return false;
+		}
+		if(request.bundle)
+		{
+			const int target = androidManifestTargetSdk(manifestText);
+			if(target > 0 && target < androidPlayTargetSdkFloor())
+			{
+				emit(request.log, "WARNING: targetSdkVersion " +
+					std::to_string(target) + " is below Google Play's current "
+					"floor (" + std::to_string(androidPlayTargetSdkFloor()) +
+					") - Play will reject the upload (see "
+					"Docs/store-release.md)");
+			}
+		}
+		if(!runStep(plan.compileResources, request.log, request.runner,
+			error) ||
+			!ExportFiles::makeDirectories(layout.linkedDirectory, error) ||
+			(!layout.generatedJavaDirectory.empty() &&
+				!ExportFiles::makeDirectories(layout.generatedJavaDirectory,
+					error)) ||
+			!runStep(plan.linkResources, request.log, request.runner, error))
+		{
+			return false;
+		}
+
 		//--- the Java side
+		if(!layout.generatedSourceListFile.empty())
+		{
+			// the `R` sources the linker just wrote, handed to javac as the
+			// list the plan already names: what they are is only knowable now,
+			// which is why the argv carries a file rather than the paths
+			Orkige::String generatedList;
+			for(Orkige::String const & relative :
+				ExportFiles::listFilesRecursive(layout.generatedJavaDirectory))
+			{
+				if(endsWith(relative, ".java"))
+				{
+					generatedList += ExportFiles::join(
+						layout.generatedJavaDirectory, relative) + "\n";
+				}
+			}
+			if(generatedList.empty())
+			{
+				return report(error, "the resource linker generated no R "
+					"sources under '" + layout.generatedJavaDirectory + "' for " +
+					std::to_string(layout.resourcePackages.size()) + " library "
+					"package(s) - their code would not find its own resources");
+			}
+			if(!ExportFiles::writeTextFile(layout.generatedSourceListFile,
+				generatedList, error))
+			{
+				return false;
+			}
+		}
 		if(!ExportFiles::makeDirectories(layout.classesDirectory, error) ||
 			!ExportFiles::makeDirectories(layout.dexDirectory, error) ||
 			!runStep(plan.compileJava, request.log, request.runner, error))
@@ -1140,69 +1441,35 @@ namespace OrkigeExport
 		{
 			classList += path + "\n";
 		}
-		if(!ExportFiles::writeTextFile(layout.classListFile, classList,
-			error) ||
-			!runStep(plan.dex, request.log, request.runner, error) ||
-			!ExportFiles::copyFile(
-				ExportFiles::join(layout.dexDirectory, "classes.dex"),
-				ExportFiles::join(stage, "classes.dex"), error))
+		if(!ExportFiles::writeTextFile(layout.classListFile, classList, error) ||
+			!runStep(plan.dex, request.log, request.runner, error))
 		{
 			return false;
 		}
-
-		//--- the assets
-		emit(request.log, "staging assets (" + facts.flavor + " flavor)");
-		if(!stageAssets(request, facts, assets, error))
+		// EVERY dex image the dexer produced: a package carrying library
+		// archives can pass what one dex file addresses, and the answer is
+		// classes2.dex, classes3.dex, ... - which the platform loads only if
+		// they are all in the package
+		int dexImages = 0;
+		for(Orkige::String const & relative :
+			ExportFiles::listFilesRecursive(layout.dexDirectory))
 		{
-			return false;
-		}
-
-		//--- the resources and the manifest
-		if(!stageResources(request, facts, layout.resDirectory, error))
-		{
-			return false;
-		}
-		Orkige::String templateText;
-		if(!ExportFiles::readTextFile(ExportFiles::join(
-			facts.assemblyDirectory, "AndroidManifest.xml"), templateText,
-			error))
-		{
-			return false;
-		}
-		AndroidManifestEdits edits;
-		edits.package = request.package;
-		edits.label = request.label;
-		edits.screenOrientation = request.screenOrientation;
-		edits.launcherResources = !request.launcherResources.empty();
-		edits.release = request.bundle;
-		edits.versionCode = request.bundle ? request.versionCode : 0;
-		edits.versionName = request.bundle ? request.versionName
-			: Orkige::String();
-		const Orkige::String manifestText =
-			androidManifestText(templateText, edits);
-		if(!ExportFiles::writeTextFile(layout.manifestPath, manifestText,
-			error))
-		{
-			return false;
-		}
-		if(request.bundle)
-		{
-			const int target = androidManifestTargetSdk(manifestText);
-			if(target > 0 && target < androidPlayTargetSdkFloor())
+			if(!beginsWith(relative, "classes") || !endsWith(relative, ".dex"))
 			{
-				emit(request.log, "WARNING: targetSdkVersion " +
-					std::to_string(target) + " is below Google Play's current "
-					"floor (" + std::to_string(androidPlayTargetSdkFloor()) +
-					") - Play will reject the upload (see "
-					"Docs/store-release.md)");
+				continue;
 			}
+			if(!ExportFiles::copyFile(
+				ExportFiles::join(layout.dexDirectory, relative),
+				ExportFiles::join(stage, relative), error))
+			{
+				return false;
+			}
+			++dexImages;
 		}
-		if(!runStep(plan.compileResources, request.log, request.runner,
-			error) ||
-			!ExportFiles::makeDirectories(layout.linkedDirectory, error) ||
-			!runStep(plan.linkResources, request.log, request.runner, error))
+		if(dexImages == 0)
 		{
-			return false;
+			return report(error, "the dexer produced no dex image under '" +
+				layout.dexDirectory + "'");
 		}
 
 		//--- the artifact

@@ -103,9 +103,23 @@ namespace OrkigeExport
 		Orkige::String	nativeLibrary;		//!< the `libmain.so` to package
 		Orkige::String	stagedLibrary;		//!< where it lands under the stage
 		std::vector<Orkige::String>	javaSources;	//!< the `.java` files to compile
+		//! the Android library archives' jars: the javac classpath and extra
+		//! dexer inputs (empty for a project that depends on none, which is
+		//! what keeps those two argv byte-identical)
+		std::vector<Orkige::String>	libraryJars;
+		//! the library packages the resource linker also generates ids for, so
+		//! a library's own code finds its resources at runtime
+		std::vector<Orkige::String>	resourcePackages;
 
 		//--- the work layout
 		Orkige::String	classesDirectory;	//!< javac output
+		//! the `@file` javac reads the GENERATED sources from - the resource
+		//! linker's `R` classes, which do not exist until it has run, so they
+		//! reach javac as a list written between the two steps. "" when no
+		//! library needs one.
+		Orkige::String	generatedSourceListFile;
+		//! where the resource linker writes those `R` sources ("" = none)
+		Orkige::String	generatedJavaDirectory;
 		Orkige::String	classListFile;		//!< the `@file` d8 reads
 		Orkige::String	dexDirectory;		//!< d8 output
 		Orkige::String	resDirectory;		//!< the composed `res/` tree
@@ -138,13 +152,16 @@ namespace OrkigeExport
 	//! @brief every program one assembly spawns, in the order it spawns them.
 	//! @remarks a step that this package shape does not need carries no
 	//! arguments (@ref AndroidCommand::empty).
+	//! @remarks the RESOURCES are compiled and linked before the Java is: the
+	//! linker is what assigns resource ids, and the `R` classes carrying them
+	//! are Java the compiler then has to see.
 	struct AndroidAssemblyPlan
 	{
 		AndroidCommand	strip;				//!< NDK llvm-strip
-		AndroidCommand	compileJava;		//!< javac
-		AndroidCommand	dex;				//!< d8
 		AndroidCommand	compileResources;	//!< aapt2 compile
 		AndroidCommand	linkResources;		//!< aapt2 link
+		AndroidCommand	compileJava;		//!< javac
+		AndroidCommand	dex;				//!< d8
 		AndroidCommand	align;				//!< zipalign (APK)
 		AndroidCommand	createDebugKey;		//!< keytool (APK, on demand)
 		AndroidCommand	sign;				//!< apksigner (APK)
@@ -244,6 +261,10 @@ namespace OrkigeExport
 		//! a staged `res/` tree of launcher mipmaps ("" = no launcher icon,
 		//! and the manifest keeps the framework theme)
 		Orkige::String	launcherResources;
+		//! the Android library archives (`.aar`) this package consumes, as
+		//! absolute paths in the order the project listed them
+		//! (@see ExportAndroidLibrary.h). Empty is the ordinary case.
+		std::vector<Orkige::String>	libraryArchives;
 		Orkige::String	package;		//!< "" keeps the template's
 		Orkige::String	label;			//!< "" keeps the template's
 		Orkige::String	launchColour = "#12161f";

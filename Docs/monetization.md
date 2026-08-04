@@ -280,7 +280,9 @@ quietly doing the same job twice.
 - **No vendor integration ships yet.** The simulated provider is the only
   provider. The interfaces are designed against published platform behaviour,
   not against a running integration, so the first real provider is also the
-  first real test of the seam's shape.
+  first real test of the seam's shape. On Android, the platform half of such a
+  provider arrives as a library archive the project depends on -
+  [android-libraries.md](android-libraries.md) is the packaging side of that.
 - **Subscription expiry is carried, not enforced.** `Entitlement::active` and
   `expiryUnixSeconds` are whatever the platform last reported; the engine runs
   no clock against them and re-checking is a restore.

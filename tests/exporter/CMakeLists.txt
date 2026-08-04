@@ -26,6 +26,7 @@ add_executable(orkige_exporter_tests
     ExportZipTests.cpp
     ExportMobileTests.cpp
     ExportAndroidAssembleTests.cpp
+    ExportAndroidLibraryTests.cpp
     ExportWebTests.cpp
     TextureEncodeTests.cpp
     # the engine's zip READER, compiled straight in: the writer's round trip is

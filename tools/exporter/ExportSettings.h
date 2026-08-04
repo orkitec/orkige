@@ -101,6 +101,18 @@ namespace OrkigeExport
 	//! dot-separated identifiers)
 	bool isValidAndroidPackage(Orkige::String const & package);
 
+	//! @brief the Android LIBRARY ARCHIVES a project depends on, from
+	//! `export.android.libraries`: a semicolon-separated list of
+	//! project-relative `.aar` paths, returned in the order written.
+	//!
+	//! Nothing is downloaded and no dependency graph is resolved - a project
+	//! points at files it already has (@see ExportAndroidLibrary.h). False with
+	//! an honest @p error naming the offending entry when one is absolute,
+	//! escapes the project with `..`, or is not an `.aar`: an export must not
+	//! read a path a manifest can point anywhere.
+	bool androidLibrarySettings(SettingMap const & settings,
+		std::vector<Orkige::String> & out, Orkige::String * error);
+
 	//--- machine-local signing material ------------------------
 	// The identity/profile/keystore are developer-machine specific and must
 	// never be committed - they come from the CLI or the environment. Only the

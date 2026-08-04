@@ -673,6 +673,32 @@ namespace OrkigeExport
 		{
 			return false;
 		}
+		// the Android library archives the project depends on: project-relative
+		// paths to files it already carries - nothing is downloaded and no
+		// dependency graph is resolved (Docs/android-libraries.md)
+		std::vector<Orkige::String> libraryNames;
+		if(!androidLibrarySettings(project.settings, libraryNames, error))
+		{
+			return false;
+		}
+		std::vector<Orkige::String> libraryArchives;
+		for(Orkige::String const & relative : libraryNames)
+		{
+			const Orkige::String path =
+				ExportFiles::join(project.root, relative);
+			if(!ExportFiles::isRegularFile(path))
+			{
+				return report(error, "export.android.libraries names '" +
+					relative + "', which is not a file in this project (looked "
+					"at '" + path + "')");
+			}
+			libraryArchives.push_back(path);
+		}
+		if(!libraryArchives.empty())
+		{
+			emit(environment.log, "Android libraries: " +
+				std::to_string(libraryArchives.size()) + " archive(s)");
+		}
 		if(request.bundle)
 		{
 			emit(environment.log, "release bundle: versionCode " +
@@ -736,6 +762,7 @@ namespace OrkigeExport
 		packaging.vcpkgRoot = androidVcpkgRoot(request.environment);
 		packaging.projectPayload = payloadDirectory;
 		packaging.launcherResources = resDirectory;
+		packaging.libraryArchives = libraryArchives;
 		packaging.package = package;
 		packaging.label = project.name;
 		packaging.launchColour = launchColour;
