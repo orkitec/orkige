@@ -3980,3 +3980,34 @@ unset(_orkige_test)
 unset(_orkige_test_labels)
 unset(_orkige_test_timeout)
 unset(_orkige_untimed)
+
+# EACH BUILD TREE GETS ITS OWN TEMP DIRECTORY. Test binaries scatter scratch
+# files through std::filesystem::temp_directory_path(), and most name them
+# after what they test rather than after the process - which is fine until the
+# SAME binary runs from a second checkout (an agent worktree, a second CI job
+# on one runner). Then two runs share one path and the first cleanup deletes
+# what the second is still writing; it surfaced as an exporter icon case
+# failing in the suite while passing alone.
+#
+# Keyed on a short digest of this binary directory, so it is unique per tree
+# and still short: macOS caps a unix socket path near 104 characters, and a
+# temp root under the build tree would spend most of that budget before the
+# socket is even named.
+string(MD5 _orkige_tree_digest "${CMAKE_CURRENT_BINARY_DIR}")
+string(SUBSTRING "${_orkige_tree_digest}" 0 8 _orkige_tree_digest)
+set(ORKIGE_TEST_TMPDIR "/tmp/orkige-tests-${_orkige_tree_digest}")
+if(WIN32)
+    set(ORKIGE_TEST_TMPDIR "${CMAKE_CURRENT_BINARY_DIR}/tmp")
+endif()
+file(MAKE_DIRECTORY "${ORKIGE_TEST_TMPDIR}")
+get_property(_orkige_registered_tests DIRECTORY PROPERTY TESTS)
+foreach(_orkige_test IN LISTS _orkige_registered_tests)
+    set_property(TEST "${_orkige_test}" APPEND PROPERTY
+        ENVIRONMENT_MODIFICATION
+            "TMPDIR=set:${ORKIGE_TEST_TMPDIR}"
+            "TMP=set:${ORKIGE_TEST_TMPDIR}"
+            "TEMP=set:${ORKIGE_TEST_TMPDIR}")
+endforeach()
+unset(_orkige_registered_tests)
+unset(_orkige_test)
+unset(_orkige_tree_digest)
