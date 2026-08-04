@@ -346,14 +346,21 @@ int main(int argc, char ** argv)
 	String androidKeystore;
 	String androidKeyAlias;
 	String bundletool;
+	String testFilter;
 	bool unsignedBundleModule = false;
+	bool withTests = false;
 	for(std::size_t index = 0; index < arguments.size(); ++index)
 	{
 		String const & argument = arguments[index];
-		// the one valueless option: build just the unsigned bundle module
+		// the two valueless options
 		if(argument == "--aab-unsigned-module")
 		{
 			unsignedBundleModule = true;
+			continue;
+		}
+		if(argument == "--with-tests")
+		{
+			withTests = true;
 			continue;
 		}
 		if(index + 1 >= arguments.size())
@@ -388,6 +395,7 @@ int main(int argc, char ** argv)
 		else if(argument == "--android-keystore") { androidKeystore = value; }
 		else if(argument == "--android-key-alias") { androidKeyAlias = value; }
 		else if(argument == "--bundletool") { bundletool = value; }
+		else if(argument == "--test-filter") { testFilter = value; }
 		else { return fail("unknown argument '" + argument + "'"); }
 	}
 	if(projectPath.empty() || platform.empty())
@@ -402,6 +410,7 @@ int main(int argc, char ** argv)
 			"                      [--device-payload <dir>] |\n"
 			"                      --sdk-pack <installed Orkige SDK>)\n"
 			"                     [--output <dir>]\n"
+			"                     [--with-tests [--test-filter <substring>]]\n"
 			"       orkige_export self-contain --frameworks <dir> "
 			"[--search <dir>]... <binary>...\n");
 		return 2;
@@ -410,6 +419,11 @@ int main(int argc, char ** argv)
 	{
 		return fail("'" + platform + "' is not a platform this exporter "
 			"packages yet");
+	}
+	if(!testFilter.empty() && !withTests)
+	{
+		return fail("--test-filter only means something in a test build - "
+			"pass --with-tests too");
 	}
 	if(!engineBundle.empty() && !engineBuild.empty())
 	{
@@ -466,6 +480,11 @@ int main(int argc, char ** argv)
 	// staged payload (what a distributed editor has), or on its own, which is
 	// the whole engine source for an app that IS the module (@see ExportIos.h)
 	request.source.sdkPack = sdkPack;
+	// --with-tests: a TEST BUILD - the package carries the project's own Lua
+	// suite and runs it instead of the game. Not shippable, and it is a
+	// separate KIND of artifact rather than a variant of one.
+	request.withTests = withTests;
+	request.testFilter = testFilter;
 
 	String artifact;
 	if(!OrkigeExport::runExport(project, request, logLine, artifact, &error))

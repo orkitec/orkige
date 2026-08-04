@@ -66,6 +66,13 @@ namespace OrkigeExport
 		Orkige::String	bundletool;
 		//! android-aab only: stop after the unsigned bundle module
 		bool			unsignedBundleModule = false;
+		//! a TEST BUILD: carry the project's `tests/` suite into the payload
+		//! and mark the artifact to run it instead of the game (@see
+		//! testRunPlatformRefusal for where that is and is not possible).
+		//! Default false, so a shipping export is untouched.
+		bool			withTests = false;
+		//! a test build's `--test-filter` substring ("" = the whole suite)
+		Orkige::String	testFilter;
 		//! the machine-local signing environment (@see currentEnvironment)
 		EnvironmentMap	environment;
 		//! the platform-tool seam ("" = @ref defaultProcessRunner)
@@ -74,6 +81,21 @@ namespace OrkigeExport
 
 	//! @brief is @p platform one @ref runExport packages?
 	bool isPackagedPlatform(Orkige::String const & platform);
+
+	//! @brief "" when @p platform can carry a test build, otherwise the one
+	//! sentence saying why it cannot (PURE - no filesystem, no environment).
+	//! @remarks The line is drawn by how the SUITE IS DISCOVERED, not by how
+	//! the artifact is shaped. The runner enumerates `<project>/tests/` with a
+	//! directory walk, because there is no other way to learn which files
+	//! declare tests. `macos` and the three iOS targets lay their payload out
+	//! as loose files inside the bundle, so the walk finds the suite exactly as
+	//! it does in a source tree. An Android package and a browser payload put
+	//! the payload inside an ARCHIVE the runtime mounts in place: a mounted
+	//! entry is not a directory entry, so the walk would find nothing and the
+	//! run would report a green verdict over zero tests - the one outcome a
+	//! test harness must never produce. Refusing by name is the honest answer
+	//! until discovery has a second road there.
+	Orkige::String testRunPlatformRefusal(Orkige::String const & platform);
 
 	//! @brief the signing environment variables read from the process
 	//! environment - the ONE lookup every resolver below sees.

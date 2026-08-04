@@ -340,37 +340,70 @@ namespace Orkige
 			return basePath ? String(basePath) : String();
 		}
 		//---------------------------------------------------------
-		String findBundledProject(String const & baseDir)
+		//! trim trailing whitespace and the CR of a CRLF marker
+		static void trimTail(String & line)
 		{
-			const String base = normalizedBase(baseDir);
-			if (base.empty())
-			{
-				return String();
-			}
-			std::ifstream marker(base + PROJECT_MARKER_FILE_NAME);
-			if (!marker.is_open())
-			{
-				return String(); // not an exported app - the normal dev case
-			}
-			String line;
-			std::getline(marker, line);
 			while (!line.empty() && (line.back() == '\r' ||
 				line.back() == '\n' || line.back() == ' ' ||
 				line.back() == '\t'))
 			{
 				line.pop_back();
 			}
+		}
+		//---------------------------------------------------------
+		BundleRun readBundleRun(String const & baseDir)
+		{
+			BundleRun run;
+			const String base = normalizedBase(baseDir);
+			if (base.empty())
+			{
+				return run;
+			}
+			std::ifstream marker(base + PROJECT_MARKER_FILE_NAME);
+			if (!marker.is_open())
+			{
+				return run; // not an exported app - the normal dev case
+			}
+			String line;
+			std::getline(marker, line);
+			trimTail(line);
 			if (line.empty())
 			{
-				return String();
+				return run;
 			}
 			const String projectPath = base + line;
 			std::error_code ignored;
 			if (!std::filesystem::exists(projectPath, ignored))
 			{
-				return String(); // honest miss: a marker naming nothing
+				return run; // honest miss: a marker naming nothing
 			}
-			return projectPath;
+			run.projectPath = projectPath;
+			// the directives: everything after the first line, `key=value`
+			while (std::getline(marker, line))
+			{
+				trimTail(line);
+				const size_t split = line.find('=');
+				if (line.empty() || split == String::npos)
+				{
+					continue;
+				}
+				const String key = line.substr(0, split);
+				const String value = line.substr(split + 1);
+				if (key == "run-tests")
+				{
+					run.runTests = (value == "1");
+				}
+				else if (key == "test-filter")
+				{
+					run.testFilter = value;
+				}
+			}
+			return run;
+		}
+		//---------------------------------------------------------
+		String findBundledProject(String const & baseDir)
+		{
+			return readBundleRun(baseDir).projectPath;
 		}
 		//---------------------------------------------------------
 		String resolveMediaDirectory(String const & fallbackMediaDir,

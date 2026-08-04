@@ -281,6 +281,13 @@ struct PlannedExportOverrides
 	//! any non-empty field WINS over the machine store, which in turn wins over
 	//! the environment - the same precedence `orkige_export`'s flags have
 	OrkigeEditor::BuildCredentials			credentials;
+	//! a TEST BUILD: package the project's own Lua suite and mark the artifact
+	//! to run it instead of the game. An override rather than a plan field,
+	//! because it says nothing about where the engine comes from - the plan's
+	//! only question - and the same package is produced either way.
+	bool									withTests = false;
+	//! a test build's `--test-filter` substring ("" = the whole suite)
+	std::string								testFilter;
 };
 
 //! @brief run a planned export to completion on the CALLING thread - the

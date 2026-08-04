@@ -332,6 +332,91 @@ unit tests use) has no world and advances no frames, so it refuses a play-mode
 test per test — honestly, as an `error` naming the frame-driven runner — rather
 than passing it silently.
 
+## Running the suite inside the package
+
+The runs above test a project **folder**. A game ships as a **package**, and
+between the two lies the whole export: the texture cook, the sampler bake, the
+media staging, the payload subdirectory vocabulary. A file the payload quietly
+drops is invisible to a loose run and fatal to a player.
+
+A **test build** closes that gap. It is an export, asked for by name:
+
+```sh
+orkige_export  --project projects/jumper-lua --platform ios-simulator \
+               --engine-build build/ios-simulator-debug --with-tests
+orkige_editor  export --project ~/games/roller --platform macos --with-tests
+```
+
+`--with-tests` changes exactly two things about the package, and nothing else:
+the project's `tests/` tree is staged into the payload, and the artifact's
+project marker gains the line `run-tests=1`. Launched, that app runs the suite
+instead of the game and exits with the suite's verdict. `--test-filter` bakes
+the runner's own filter in beside it.
+
+**A shipping export is untouched.** `tests/` is still absent from
+`payloadSubdirs()`, so a normal package cannot acquire a suite by accident — the
+staging is a separate step, called from one guarded place. A marker written
+without the flag is byte-for-byte the one line it always was. Diffing a plain
+export against a test build of the same project shows those two differences and
+no third.
+
+**A test build is not shippable**, and the export says so while it works.
+
+### Why a package, not a flag
+
+A packaged app is launched with **no argv at all** — a phone taps an icon,
+`simctl launch` passes nothing. An instruction that is a command-line flag on a
+desktop run therefore has to ride *inside* the artifact, which is what makes
+this a distinct KIND of export rather than a different way of starting one.
+
+### macos and iOS only
+
+| Platform | Test build |
+| --- | --- |
+| `macos`, `ios-simulator`, `ios`, `ios-ipa` | yes |
+| `android`, `android-aab`, `web` | refused by name |
+
+The line is drawn by how a suite is **discovered**. The runner enumerates
+`tests/` with a directory walk, because there is no other way to learn which
+files declare tests. A macOS or iOS bundle lays its payload out as loose files,
+so the walk finds the suite exactly as it does in a source tree. An Android
+package and a browser payload put the payload inside an **archive** the runtime
+mounts in place, and a mounted entry is not a directory entry — the walk would
+find nothing and the run would report a green verdict over zero tests. Refusing
+by name is the honest answer until discovery has a second road there.
+
+### The verdict travels in the artifact
+
+There is no new channel. The run writes the same flush-per-record JSONL
+described above, and `ORKIGE_TEST_REPORT_DIR` still chooses where. On a
+simulator the app's own data container is a real host directory
+(`xcrun simctl get_app_container <udid> <bundle id> data`), so the host names a
+path inside it and reads the report back when the run settles.
+
+The `summary` record carries the exit code. Its **absence** is the separate,
+named fact that the run died — which is why a harness reads the artifact rather
+than the process: an iOS app's process outlives its `main` inside UIKit's run
+loop, and there is no exit code to read at all.
+
+### Over MCP
+
+`export_project` takes `withTests` (and `testFilter`), so an agent packages a
+test build through the verb it already uses. The platform refusal above applies
+there too, and `get_export_results` reports it verbatim.
+
+### Tests
+
+| Test | What it holds |
+| --- | --- |
+| `export_macos_tests` | the packaged run with no device in it: `projects/jumper-lua` is exported `--with-tests`, run from a neutral cwd, and its whole suite — the play-mode tests included — passes against the **payload's** content |
+| `export_ios_simulator_tests` | the same suite on the device it ships to: installed, launched, and the report read back out of the app's data container. `device`-labeled, skipping 77 without a booted simulator |
+
+Both refuse rather than pass on four separate facts: no report (the runner never
+started), a report with no summary (the run died, naming the last test it
+reached), a summary over **zero tests** (the package carried no suite), and a
+nonzero verdict (the game's tests failed). A harness that reports success when
+nothing ran is worth less than no harness.
+
 ## Making it a ctest
 
 A project's suite is one `add_test` line:
@@ -352,7 +437,8 @@ reads what the game's own scripts made of that.
 ## What ships
 
 Nothing here does. `tests/` is not an export payload subdirectory, so a game's
-suite is out of every package **by construction** rather than by a later strip;
+suite is out of every **shippable** package by construction rather than by a
+later strip (a test build is the one artifact that carries it, and it says so);
 editor tools (`*.editor.lua`) ride inside `scripts/`, which IS a payload
 subdirectory, so those are stripped explicitly. The export suite asserts both
 absences, so neither can regress quietly.

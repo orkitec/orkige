@@ -306,7 +306,7 @@ advertised set is the discoverable subset, not a hard limit.)
 | `list_project_tests()` | the open PROJECT's own Lua suite: the test FILES under `<project>/tests` (index-aligned `files`/`names`). NOT `list_tests`, which is ctest over the engine's suite |
 | `run_project_tests(filter, failed)` | **auth** — async: run the project's Lua suite in this installation's player (a test that declares a scene needs a live world, which only the player has) → `accepted` + `legs`; poll `get_project_test_results`. `filter` is the runner's own substring over `<file>::<test name>`; `failed`=`"1"` re-runs only the previous run's failures |
 | `get_project_test_results()` | the project test run: `status` (idle/running/cancelled/done) plus the records SO FAR (the runner flushes per test) as index-aligned `test_files`/`test_names`/`test_status`/`test_messages`/`test_ms`, the `total`/`passed`/`failed`/`errors` tally, and `run_failure` — non-empty ONLY when the runner never reached a verdict |
-| `export_project(platform)` | async in-process export (macos/ios-simulator/android/web; the exporter is a library the editor links) → a jobId; poll `get_export_results` (classic-flavor tree required) |
+| `export_project(platform[, withTests, testFilter])` | async in-process export (macos/ios-simulator/android/web; the exporter is a library the editor links) → a jobId; poll `get_export_results` (classic-flavor tree required). `withTests` packages a test build that runs the project's own Lua suite |
 | `get_export_results(jobId)` | the structured verdict of an `export_project` job (`ok`/`artifactPath`/`error`) |
 
 ### Component properties (reflected)
@@ -1017,6 +1017,18 @@ compiled C++ never needs a pack for any platform.
 ```jsonc
 tools/call export_project { "platform":"macos" }   // authed → { accepted:"1", jobId:"..." }
 tools/call get_export_results { "jobId":"..." }     // poll → status:"done", ok:"1", artifactPath:".../MyGame.app"
+```
+
+**`withTests` packages a TEST BUILD**, not a shippable one: the project's own
+Lua suite (`tests/*.test.lua`) rides in the payload and the artifact runs it
+instead of the game, leaving the runner's JSONL report in the app's writable
+directory — `Docs/testing.md`. `testFilter` bakes the runner's own filter in
+beside it. `macos` and `ios-simulator` only; an `android` or `web` payload lives
+inside an archive the runner cannot walk, and is refused by name rather than
+reporting a pass over zero tests.
+
+```jsonc
+tools/call export_project { "platform":"macos", "withTests":true }
 ```
 
 **Icon / launch-screen / signing config — no new verb.** The exporter

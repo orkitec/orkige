@@ -3361,6 +3361,13 @@ if(TARGET orkige_player)
         # project to boot (@see run_export_device_test.py)
         set(ORKIGE_EXPORT_DEVICE_DRIVER
             "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_device_test.py")
+        # ...and the third question, which neither of the two above asks:
+        # does the game that SHIPS still pass its own tests? A TEST BUILD
+        # (`--with-tests`) carries the project's tests/ suite into the payload
+        # and marks the artifact to run it; the verdict comes back as the
+        # runner's JSONL report (@see run_export_tests.py).
+        set(ORKIGE_EXPORT_TESTS_DRIVER
+            "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_tests.py")
 
         # the pure-Lua jumper as a double-clickable macOS .app (release player
         # when build/macos-release carries one, else debug + warning)
@@ -3372,6 +3379,21 @@ if(TARGET orkige_player)
                 --platform macos --engine-build "${CMAKE_BINARY_DIR}"
                 --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-lua"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+
+        # the same project's own Lua suite, run INSIDE the package: the
+        # payload's cooked textures, baked samplers and staged media are what
+        # the tests see, so a payload that quietly dropped a file fails here
+        # instead of shipping. No device, so this is not device-labeled.
+        add_test(NAME export_macos_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3 "${ORKIGE_EXPORT_TESTS_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform macos --engine-build "${CMAKE_BINARY_DIR}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-tests"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_macos_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
+            PROPERTIES LABELS integration TIMEOUT 900)
 
         # the native-module jumper: the exporter builds the module executable
         # (arch-pinned, into the per-flavor native/build-export-<flavor> tree -
@@ -3486,6 +3508,26 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(export_ios_simulator_run PROPERTIES
             SKIP_RETURN_CODE 77 TIMEOUT 900)
+
+        # the project's own Lua suite, run on the DEVICE it ships to: the
+        # package is installed and launched exactly as a shipped one is, and
+        # the runner's JSONL report is read back out of the app's own data
+        # container - the existing ORKIGE_TEST_REPORT_DIR seam, pointed at a
+        # directory the host can read. A report with no summary is a run that
+        # DIED and a report over zero tests is a package that carried no suite;
+        # both fail by name, because a harness that reports success when
+        # nothing ran is the one outcome worth nothing at all.
+        add_test(NAME export_ios_simulator_tests
+            COMMAND python3 "${ORKIGE_EXPORT_TESTS_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform ios-simulator
+                --engine-build "${Orkige_SOURCE_DIR}/build/ios-simulator-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/ios-simulator-tests"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_ios_simulator_tests PROPERTIES
+            SKIP_RETURN_CODE 77 TIMEOUT 1200)
 
         # ...and the SAME run for the package a DOWNLOADED editor produces. It
         # carries no phone player, so it packages from a fetched device payload
@@ -3834,6 +3876,7 @@ foreach(device_test editor_play_simulator editor_play_simulator_boot
         http_device_android http_device_ios
         export_ios_simulator_run export_ios_simulator_payload_run
         export_ios_simulator_native_run
+        export_ios_simulator_tests
         export_android_run export_android_payload_run)
     if(TEST ${device_test})
         # RESOURCE_LOCK: device tests share one simulator/emulator + adb -

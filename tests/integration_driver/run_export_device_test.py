@@ -213,6 +213,13 @@ def export(args, output, payload="", bundle="", pack="", project=""):
     else:
         argv += ["--engine-build", args.engine_build]
     argv += ["--output", output]
+    # a TEST BUILD is a different KIND of package (@see run_export_tests.py):
+    # the project's suite rides in the payload and the artifact runs it. Off
+    # unless the caller asked, so every shipping export here is unchanged.
+    if getattr(args, "with_tests", False):
+        argv.append("--with-tests")
+        if getattr(args, "test_filter", ""):
+            argv += ["--test-filter", args.test_filter]
     log("$ " + " ".join(argv))
     result = subprocess.run(argv, capture_output=True, text=True)
     print(result.stdout, end="", flush=True)

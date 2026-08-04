@@ -28,6 +28,7 @@
 #include "ExportImage.h"
 #include "ExportMacos.h"
 #include "ExportPayload.h"
+#include "ExportRun.h"
 #include "ExportSettings.h"
 
 #include <core_project/AssetDatabase.h>
@@ -208,6 +209,114 @@ TEST_CASE("the marker names the payload directory", "[unit][export]")
 	// the runtime reads this from SDL_GetBasePath() and boots what it names;
 	// the trailing LF is part of the written form
 	CHECK(content == "project\n");
+}
+
+TEST_CASE("a test build is a deliberate, separate mode", "[unit][export]")
+{
+	ScratchDir scratch("testbuild");
+	const Orkige::String root = ExportFiles::join(scratch.path, "project");
+	const ExportProject project = makeProject(root);
+	const Orkige::String destination =
+		ExportFiles::join(scratch.path, "payload");
+	Orkige::String error;
+
+	SECTION("staging the suite is the ONLY thing that carries tests/")
+	{
+		REQUIRE(stageProjectPayload(project, destination, "", "next", nullptr,
+			0, &error));
+		// the shipping payload, unchanged: tests/ is out by construction
+		REQUIRE_FALSE(ExportFiles::exists(
+			ExportFiles::join(destination, "tests")));
+
+		int staged = 0;
+		REQUIRE(stageTestSuite(project, destination, nullptr, &staged, &error));
+		CHECK(staged == 1);
+		CHECK(ExportFiles::isRegularFile(
+			ExportFiles::join(destination, "tests/movement.test.lua")));
+	}
+	SECTION("a project with no tests/ is not an error HERE")
+	{
+		// what an empty suite is worth is the RUNNER's question, answered in
+		// one place; the exporter only reports what it staged
+		ExportProject bare;
+		bare.root = ExportFiles::join(scratch.path, "bare");
+		bare.name = "Bare";
+		writeFile(ExportFiles::join(bare.root, "project.orkproj"),
+			"<OrkigeProject version=\"1\"><Name>Bare</Name></OrkigeProject>\n");
+		const Orkige::String bareOut = ExportFiles::join(scratch.path, "out2");
+		REQUIRE(stageProjectPayload(bare, bareOut, "", "next", nullptr, 0,
+			&error));
+		int staged = -1;
+		REQUIRE(stageTestSuite(bare, bareOut, nullptr, &staged, &error));
+		CHECK(staged == 0);
+		CHECK_FALSE(ExportFiles::exists(ExportFiles::join(bareOut, "tests")));
+	}
+}
+
+TEST_CASE("the marker carries the run directives a test build needs",
+	"[unit][export]")
+{
+	ScratchDir scratch("marker_tests");
+	Orkige::String error;
+	const Orkige::String path =
+		ExportFiles::join(scratch.path, PROJECT_MARKER_FILE_NAME);
+	Orkige::String content;
+
+	SECTION("a shipping package is byte-identical to what it always was")
+	{
+		PayloadTestRun off;
+		REQUIRE(writeProjectMarker(scratch.path, off, &error));
+		REQUIRE(ExportFiles::readTextFile(path, content, &error));
+		CHECK(content == "project\n");
+	}
+	SECTION("a test build says so, under the payload line")
+	{
+		PayloadTestRun tests;
+		tests.enabled = true;
+		REQUIRE(writeProjectMarker(scratch.path, tests, &error));
+		REQUIRE(ExportFiles::readTextFile(path, content, &error));
+		// the payload line stays FIRST: every reader takes the project path
+		// from it, and a test build is still an app with a project in it
+		CHECK(content == "project\nrun-tests=1\n");
+	}
+	SECTION("a filter rides along, verbatim")
+	{
+		PayloadTestRun tests;
+		tests.enabled = true;
+		tests.filter = "movement";
+		REQUIRE(writeProjectMarker(scratch.path, tests, &error));
+		REQUIRE(ExportFiles::readTextFile(path, content, &error));
+		CHECK(content == "project\nrun-tests=1\ntest-filter=movement\n");
+	}
+	SECTION("a filter with no test run writes no directive at all")
+	{
+		PayloadTestRun tests;
+		tests.filter = "movement";
+		REQUIRE(writeProjectMarker(scratch.path, tests, &error));
+		REQUIRE(ExportFiles::readTextFile(path, content, &error));
+		CHECK(content == "project\n");
+	}
+}
+
+TEST_CASE("a test build is refused where a suite cannot be discovered",
+	"[unit][export]")
+{
+	// the loose-payload platforms: the runner walks a real directory inside
+	// the bundle, exactly as it walks a source tree
+	CHECK(testRunPlatformRefusal("macos").empty());
+	CHECK(testRunPlatformRefusal("ios-simulator").empty());
+	CHECK(testRunPlatformRefusal("ios").empty());
+	CHECK(testRunPlatformRefusal("ios-ipa").empty());
+	// the archive-payload platforms: a mounted entry is not a directory entry,
+	// so the walk would find nothing and the run would pass over zero tests
+	for(Orkige::String const & platform :
+		{ "android", "android-aab", "web" })
+	{
+		const Orkige::String refusal = testRunPlatformRefusal(platform);
+		CHECK_FALSE(refusal.empty());
+		CHECK(refusal.find(platform) != Orkige::String::npos);
+	}
+	CHECK_FALSE(testRunPlatformRefusal("nintendo").empty());
 }
 
 TEST_CASE("the notices are looked for in engine-source precedence",

@@ -273,7 +273,21 @@ when the whole matrix is green — see the **CI** section at the end of this fil
   player and tails the same artifact, decoded by the reader that lives beside
   the writer (`ScriptTestReport::parseLine`). A crashed runner is NOT a
   failing suite — a report with no `summary` line is a run that died, and
-  every surface reports that separately. `Docs/testing.md`.
+  every surface reports that separately.
+  A suite also runs INSIDE THE PACKAGE, which is the only way to test what
+  actually ships: `--with-tests` (on `orkige_export`, `orkige_editor export`
+  and MCP `export_project`) packages a **test build** — the `tests/` tree is
+  staged by ONE separately-named, guarded step (never an entry in
+  `payloadSubdirs()`) and the project marker gains a `run-tests=1` DIRECTIVE
+  the player reads, because a packaged app is launched with no argv at all.
+  A shipping export stays byte-identical. macos + iOS only: an Android or web
+  payload lives inside an archive, and the runner discovers a suite by walking
+  a DIRECTORY, so those are refused by name rather than passing over zero
+  tests. The verdict travels in the existing JSONL artifact
+  (`ORKIGE_TEST_REPORT_DIR`, read off the simulator through
+  `simctl get_app_container`), and the harness fails on all four false-green
+  shapes — no report, no `summary`, zero tests, nonzero verdict
+  (`export_macos_tests`, `export_ios_simulator_tests`). `Docs/testing.md`.
 - **Script tasks** (`script.async` + `wait`/`waitFrames`/`waitUntil`,
   `core_script/ScriptTaskManager` + the pure `ScriptTaskCore`): game code that
   spans frames, written as one function. `coroutine` is opened for the engine

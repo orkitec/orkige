@@ -15,6 +15,7 @@
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
 #include <core_project/TextureSamplerTable.h>
+#include <core_script/ScriptTestTools.h>
 
 #include <functional>
 #include <string>
@@ -276,6 +277,39 @@ namespace OrkigeExport
 		return true;
 	}
 	//---------------------------------------------------------
+	bool stageTestSuite(ExportProject const & project,
+		Orkige::String const & destination, ExportLog const & log,
+		int * outStaged, Orkige::String * error)
+	{
+		// the directory NAME comes from the tier that owns it, so the exporter
+		// and the runner cannot disagree about where a suite lives
+		const Orkige::String subdir =
+			Orkige::ScriptTestTools::testsDirectoryName();
+		const Orkige::String source = ExportFiles::join(project.root, subdir);
+		int staged = 0;
+		if(ExportFiles::isDirectory(source))
+		{
+			if(!ExportFiles::copyTree(source,
+				ExportFiles::join(destination, subdir), error, &staged))
+			{
+				return false;
+			}
+			emit(log, "test build: staged " + std::to_string(staged) +
+				" file(s) from " + subdir + "/ - THIS PACKAGE IS NOT "
+				"SHIPPABLE");
+		}
+		else
+		{
+			emit(log, "test build: the project has no " + subdir +
+				"/ directory");
+		}
+		if(outStaged != 0)
+		{
+			*outStaged = staged;
+		}
+		return true;
+	}
+	//---------------------------------------------------------
 	bool stageEngineMediaFromTree(Orkige::String const & resources,
 		Orkige::String const & backendMediaDirectory,
 		Orkige::String const & flavor, EngineSourceMedia const & sourceMedia,
@@ -334,9 +368,24 @@ namespace OrkigeExport
 	bool writeProjectMarker(Orkige::String const & directory,
 		Orkige::String * error)
 	{
+		return writeProjectMarker(directory, PayloadTestRun(), error);
+	}
+	//---------------------------------------------------------
+	bool writeProjectMarker(Orkige::String const & directory,
+		PayloadTestRun const & tests, Orkige::String * error)
+	{
+		Orkige::String marker = Orkige::String(PAYLOAD_DIR_NAME) + "\n";
+		if(tests.enabled)
+		{
+			marker += "run-tests=1\n";
+			if(!tests.filter.empty())
+			{
+				marker += "test-filter=" + tests.filter + "\n";
+			}
+		}
 		return ExportFiles::writeTextFile(
-			ExportFiles::join(directory, PROJECT_MARKER_FILE_NAME),
-			Orkige::String(PAYLOAD_DIR_NAME) + "\n", error);
+			ExportFiles::join(directory, PROJECT_MARKER_FILE_NAME), marker,
+			error);
 	}
 	//---------------------------------------------------------
 	const char * const THIRD_PARTY_NOTICES_FILE_NAME =

@@ -98,6 +98,9 @@ namespace OrkigeExport
 		bool		distribution = false;
 		//! wrap the signed bundle into an `.ipa` under `Payload/`
 		bool		packageIpa = false;
+		//! a TEST BUILD: carry the project's suite and run it (default off,
+		//! so a shipping bundle is untouched)
+		PayloadTestRun	tests;
 	};
 
 	//! @brief package @p project into a copy of the iOS player bundle the

@@ -59,6 +59,12 @@ namespace OrkigeEditor
 					command.verb = EditorCliVerb::Help;
 					return command;
 				}
+				// the one valueless export option
+				if(argument == "--with-tests")
+				{
+					command.withTests = true;
+					continue;
+				}
 				if(index + 1 >= arguments.size())
 				{
 					return refuse(command,
@@ -67,6 +73,10 @@ namespace OrkigeEditor
 				Orkige::String const & value = arguments[++index];
 				if(argument == "--project") { command.projectPath = value; }
 				else if(argument == "--platform") { command.platform = value; }
+				else if(argument == "--test-filter")
+				{
+					command.testFilter = value;
+				}
 				else if(argument == "--output") { command.outputDirectory = value; }
 				else if(argument == "--signing-identity")
 				{
@@ -106,6 +116,12 @@ namespace OrkigeEditor
 			{
 				return refuse(command, "export needs --project <dir> and "
 					"--platform <name>");
+			}
+			// an option that would silently do nothing is worse than a refusal
+			if(!command.testFilter.empty() && !command.withTests)
+			{
+				return refuse(command, "--test-filter only means something in "
+					"a test build - pass --with-tests too");
 			}
 			return command;
 		}
@@ -291,9 +307,14 @@ namespace OrkigeEditor
 			"                 [--android-keystore <path>] "
 			"[--android-key-alias <name>]\n"
 			"                 [--bundletool <path>]\n"
+			"                 [--with-tests [--test-filter <substring>]]\n"
 			"                 Packages a project with this installation's own\n"
 			"                 engine source. Prints "
 			"'orkige_editor: OK <artifact>'.\n"
+			"                 --with-tests packages a TEST BUILD instead: the\n"
+			"                 project's suite rides along and the artifact "
+			"runs\n"
+			"                 it. Not shippable. macos and iOS targets only.\n"
 			"  test           --project <dir-or-.orkproj>\n"
 			"                 [--test-filter <substring>] [--report-dir <dir>]\n"
 			"                 Runs the project's Lua suite "

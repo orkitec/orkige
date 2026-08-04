@@ -184,6 +184,8 @@ bool runPlannedExport(OrkigeEditor::EditorExportPlan const& plan,
 		prefer(request.androidKeystore, given.androidKeystore);
 		prefer(request.androidKeyAlias, given.androidKeyAlias);
 		prefer(request.bundletool, given.bundletool);
+		request.withTests = overrides->withTests;
+		request.testFilter = overrides->testFilter;
 	}
 	if (plan.source == OrkigeEditor::EditorExportSource::Tree)
 	{
