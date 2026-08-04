@@ -259,3 +259,11 @@ and the matching patch lifecycle — lives in [Docs/ports.md](Docs/ports.md).
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE). © 2009–2026 orkitec / Steffen Römer and contributors.
+
+Orkige links a large third-party closure statically and bundles third-party
+media. Their notices and license texts are
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which is packaged into the
+editor, the player and every exported game — the licenses require the text to
+travel with the binary. See
+[Docs/vendored-libs.md](Docs/vendored-libs.md#redistribution-the-third-party-notices)
+for what ships where and what the copyleft entries oblige.

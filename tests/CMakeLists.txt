@@ -80,6 +80,27 @@ add_test(NAME doctrine_lint
 set_tests_properties(doctrine_lint PROPERTIES
     LABELS unit TIMEOUT 120)
 
+# third-party notices currency gate: several licenses in the statically linked
+# closure require their text to travel with the BINARY, so a dependency added
+# to vcpkg.json or ports/ has to be answered in THIRD-PARTY-NOTICES.md in the
+# same change - with a license section, or with a written reason why it reaches
+# no shipped artifact. Pure source scan, headless, LABELS unit.
+add_test(NAME third_party_notices_lint
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_third_party_notices.py"
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(third_party_notices_lint PROPERTIES
+    LABELS unit TIMEOUT 30)
+
+# ...and its own self-test: fixture trees prove the gate flags a new dependency
+# with no answer, honours the build-time-only and pending-text exemptions, and
+# refuses a section that carries no license text.
+add_test(NAME third_party_notices_lint_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_third_party_notices.py"
+        --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(third_party_notices_lint_selftest PROPERTIES
+    LABELS unit TIMEOUT 30)
+
 # doctrine lint's own self-test: embedded fixture trees prove every sub-check
 # passes on a clean tree, flags its violation and honours its suppression -
 # no real source touched. Stdlib-only, headless.
