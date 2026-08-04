@@ -347,7 +347,11 @@ TEST_CASE("the headless door names the command, never the settings window",
 	// carry no compiled code at all, and an engine SDK is never its business
 	for(Orkige::String const & sentence : { missing, offline })
 	{
+		// the PHRASES the clean-room gate greps for, not the bare word
+		// "pack" - these sentences legitimately say "package from an engine
+		// build", and a substring check calls that a violation
 		CHECK(sentence.find("SDK") == Orkige::String::npos);
-		CHECK(sentence.find("pack") == Orkige::String::npos);
+		CHECK(sentence.find("SDK pack") == Orkige::String::npos);
+		CHECK(sentence.find("engine pack") == Orkige::String::npos);
 	}
 }
