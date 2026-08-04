@@ -143,6 +143,56 @@ TEST_CASE("export carries the store platforms' credentials", "[editorcli]")
 	REQUIRE(command.credentials.bundletool == "/opt/bundletool.jar");
 }
 
+TEST_CASE("test takes a project, and nothing else is required", "[editorcli]")
+{
+	const EditorCliCommand command =
+		parse({ "test", "--project", "/games/roller" });
+	REQUIRE_FALSE(command.usageError);
+	REQUIRE(command.verb == EditorCliVerb::Test);
+	REQUIRE(command.headless());
+	REQUIRE(command.projectPath == "/games/roller");
+	// the two optional flags stay empty, so nothing is filtered and the
+	// runner's own artifact location is left alone
+	REQUIRE(command.testFilter.empty());
+	REQUIRE(command.reportDirectory.empty());
+}
+
+TEST_CASE("test carries the filter and the report directory through",
+	"[editorcli]")
+{
+	const EditorCliCommand command = parse({ "test",
+		"--project", "/games/roller.orkproj",
+		"--test-filter", "is symmetric",
+		"--report-dir", "/ci/out/reports" });
+	REQUIRE_FALSE(command.usageError);
+	REQUIRE(command.verb == EditorCliVerb::Test);
+	REQUIRE(command.projectPath == "/games/roller.orkproj");
+	// a filter with a space is ONE value, not two arguments
+	REQUIRE(command.testFilter == "is symmetric");
+	REQUIRE(command.reportDirectory == "/ci/out/reports");
+}
+
+TEST_CASE("test without a project is a usage error, not a run", "[editorcli]")
+{
+	// a suite belongs to a project (its tests/ directory and its scripts/
+	// libraries), never to a loose scene
+	const EditorCliCommand bare = parse({ "test" });
+	REQUIRE(bare.usageError);
+	REQUIRE(bare.headless());
+	REQUIRE(bare.error.find("--project") != std::string::npos);
+
+	// a filter alone names no project either
+	REQUIRE(parse({ "test", "--test-filter", "movement" }).usageError);
+	// an option whose value is missing takes the value of nothing
+	REQUIRE(parse({ "test", "--project" }).usageError);
+	REQUIRE(parse({ "test", "--project", "/g", "--report-dir" }).usageError);
+	// and a flag this door does not have is refused rather than passed on to
+	// the player, where it would fail much later and less clearly
+	REQUIRE(parse({ "test", "--project", "/g", "--verbose" }).usageError);
+	REQUIRE(parse({ "test", "--project", "/g", "--scene", "a.oscene" })
+		.usageError);
+}
+
 TEST_CASE("fetch-payload takes one id, positionally or named", "[editorcli]")
 {
 	const EditorCliCommand positional =
@@ -179,9 +229,25 @@ TEST_CASE("help is reachable as a word and as a flag", "[editorcli]")
 	REQUIRE(parse({ "--help" }).verb == EditorCliVerb::Help);
 	REQUIRE(parse({ "-h" }).verb == EditorCliVerb::Help);
 	REQUIRE(parse({ "export", "--help" }).verb == EditorCliVerb::Help);
+	REQUIRE(parse({ "test", "--help" }).verb == EditorCliVerb::Help);
 	REQUIRE(parse({ "fetch-payload", "-h" }).verb == EditorCliVerb::Help);
 	// and asking for help is never a usage error
 	REQUIRE_FALSE(parse({ "--help" }).usageError);
+}
+
+TEST_CASE("a near-miss of a real subcommand is still refused", "[editorcli]")
+{
+	// `test` joining the vocabulary must not soften the hazard rule for words
+	// that merely look like it
+	for (std::string const & word :
+		std::vector<std::string>{ "tset", "tests", "run-tests" })
+	{
+		const EditorCliCommand command = parse({ word, "--project", "/g" });
+		REQUIRE(command.usageError);
+		REQUIRE(command.verb == EditorCliVerb::None);
+		REQUIRE(command.headless());
+		REQUIRE(command.error.find(word) != std::string::npos);
+	}
 }
 
 TEST_CASE("the usage text stays honest about what v1 covers", "[editorcli]")
@@ -189,11 +255,12 @@ TEST_CASE("the usage text stays honest about what v1 covers", "[editorcli]")
 	const std::string usage = editorCliUsage();
 	REQUIRE(usage.find("export") != std::string::npos);
 	REQUIRE(usage.find("fetch-payload") != std::string::npos);
+	REQUIRE(usage.find("test") != std::string::npos);
 	// the exit-code contract callers key on
 	REQUIRE(usage.find("0 success") != std::string::npos);
-	// ...and it promises NOTHING that needs a live game world: a scene load
-	// reaches a render world, a window and a GPU, which a headless run has
-	// none of (@see EditorCli.h)
+	// ...and it promises NOTHING this process can only do with a live game
+	// world of its own. Running a game's tests is not an exception: that road
+	// leads to the runtime, which has one (@see EditorCli.h)
 	REQUIRE(usage.find("Scene, asset and editor-script operations are NOT") !=
 		std::string::npos);
 	for (std::string const & absent :

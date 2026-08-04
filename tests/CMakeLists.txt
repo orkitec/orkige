@@ -1403,6 +1403,35 @@ if(TARGET orkige_editor)
     set_tests_properties(editor_cli${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         LABELS integration TIMEOUT 2400)
 
+    # `orkige_editor test`: the shipped door onto a project's own Lua suite
+    # (integration_driver/run_editor_cli_test_command.py). Separate from the
+    # test above because it is a different SHAPE - that one proves no
+    # subcommand ever boots anything, this one deliberately does: the run is
+    # delegated to the player, which brings up the whole runtime.
+    #
+    # It runs projects/jumper-lua's REAL suite, whose playthrough.test.lua
+    # declares a scene. That case is the point: a play-mode test needs a live
+    # world, the editor process has none before its window, and the player
+    # does - so proving it passes THROUGH THIS DOOR is what makes the
+    # delegation more than an assertion in a doc. The driver then builds a
+    # deliberately failing suite of its own, because a door that could only
+    # report success would be worse than none.
+    # Scripting-gated: an ORKIGE_SCRIPTING=OFF build has no interpreter and
+    # this door says so instead of running anything.
+    if(TARGET orkige_player AND ORKIGE_SCRIPTING STREQUAL "LUA")
+        add_test(NAME editor_cli_test${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_editor_cli_test_command.py"
+                --editor "$<TARGET_FILE:orkige_editor>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --template-project "${Orkige_SOURCE_DIR}/projects/example"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/editor_cli_test${ORKIGE_FLAVOR_TEST_SUFFIX}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_cli_test${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 1200
+            ENVIRONMENT "ALSOFT_DRIVERS=null")
+    endif()
+
     # --- distribution readiness: a COPIED editor stands alone --------------
     # The editor ships as an app somebody copies onto a machine with no clone
     # of this repository, no engine build tree and no Python. The driver
