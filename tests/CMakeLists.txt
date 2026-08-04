@@ -4123,7 +4123,16 @@ string(MD5 _orkige_tree_digest "${CMAKE_CURRENT_BINARY_DIR}")
 string(SUBSTRING "${_orkige_tree_digest}" 0 8 _orkige_tree_digest)
 set(ORKIGE_TEST_TMPDIR "/tmp/orkige-tests-${_orkige_tree_digest}")
 if(WIN32)
-    set(ORKIGE_TEST_TMPDIR "${CMAKE_CURRENT_BINARY_DIR}/tmp")
+    # NOT the build tree, however tempting: the build tree lives INSIDE the
+    # git work tree, and a test that renders a synthetic corpus there then
+    # finds this repository's commit history instead of none - which is
+    # exactly how the docs-portal selftest failed. Keep temp outside the
+    # checkout on every platform.
+    if(DEFINED ENV{TEMP})
+        set(ORKIGE_TEST_TMPDIR "$ENV{TEMP}/orkige-tests-${_orkige_tree_digest}")
+    else()
+        set(ORKIGE_TEST_TMPDIR "C:/Windows/Temp/orkige-tests-${_orkige_tree_digest}")
+    endif()
 endif()
 file(MAKE_DIRECTORY "${ORKIGE_TEST_TMPDIR}")
 get_property(_orkige_registered_tests DIRECTORY PROPERTY TESTS)
