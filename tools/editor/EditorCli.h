@@ -38,6 +38,18 @@
 //! the payload it carries inside itself, a fetched device player, an installed
 //! SDK pack) and the three-tier refusal sentence when it has none.
 //!
+//! @par Running a game's tests is a RUNTIME question, so it goes to the runtime
+//! @ref EditorCliVerb::Test is the one subcommand that runs another process,
+//! and the distinction from the rule above is what makes that consistent. A
+//! second exporter would be a second COPY OF A DECISION - two places that
+//! could disagree about what a package contains. The player is not a copy of
+//! anything the editor holds: it is the engine's runtime, the only thing in
+//! the installation that owns a game world, and a test that declares a scene
+//! needs one. The editor could not run those tests in process at any price
+//! short of becoming a runtime itself. So this door supplies what only it
+//! knows - WHICH player this installation has (@see EditorResourcePaths.h) -
+//! and the runner's verdict travels back untouched as the exit code.
+//!
 //! @par The parse is pure
 //! @ref parseEditorCli is a total function from argv to a decision, so the
 //! whole surface - including the hazard below - is asserted headlessly
@@ -87,6 +99,16 @@ namespace OrkigeEditor
 		//! installed in an automated run, so a password comes from the
 		//! environment, which is where a build server keeps one anyway.
 		Export,
+		//! `test` - run a project's own Lua suite (`<project>/tests/*.test.lua`)
+		//! through this installation's player and report its exit code.
+		//!
+		//! @remarks The runner is the player's (`--run-tests`), because a test
+		//! that declares a scene runs in a LIVE WORLD - physics stepping,
+		//! scripts updating, frames advancing. The editor has no world to lend
+		//! it before its render backend and window exist, and a headless door
+		//! that could only run the worldless half of a suite would report a
+		//! green verdict on an untested game.
+		Test,
 		//! `fetch-payload` - download and install a platform's player
 		FetchPayload,
 		//! `version` - the build identity (the `--version` flag's twin)
@@ -116,6 +138,17 @@ namespace OrkigeEditor
 		//! to the machine store and then to the environment
 		BuildCredentials	credentials;
 
+		//--- test --------------------------------------------
+		//! `--test-filter`: matched against `<file>::<test name>`, exactly as
+		//! the player's own flag is ("" = run everything)
+		Orkige::String	testFilter;
+		//! `--report-dir`: where the run's JSONL artifact lands. Empty leaves
+		//! the runner's own default (beside the breadcrumb trail in the
+		//! writable app directory) alone - this door adds a way to ASK for the
+		//! artifact somewhere a build server can collect it, never a second
+		//! report format.
+		Orkige::String	reportDirectory;
+
 		//--- fetch-payload -----------------------------------
 		Orkige::String	payloadId;		//!< which player to install
 		bool			listPayloads = false;	//!< `--list`
@@ -138,12 +171,17 @@ namespace OrkigeEditor
 	//! pure: it reads no environment, opens no file and never throws.
 	EditorCliCommand parseEditorCli(std::vector<Orkige::String> const & arguments);
 
-	//! @brief the usage text, honest about what v1 covers.
-	//! @remarks It deliberately promises no scene or asset operations. Those
-	//! need a live game world, and a `TransformComponent` stores its transform
-	//! inside the render node - so loading a scene pulls in a render world, a
-	//! window and a GPU. There is no null render backend, so a headless scene
-	//! operation cannot exist yet and must not be advertised.
+	//! @brief the usage text, honest about what this door covers.
+	//! @remarks It deliberately promises no scene or asset operations IN THIS
+	//! PROCESS. A `TransformComponent` stores its transform inside the render
+	//! node, so loading a scene pulls in a render world - and the editor boots
+	//! exactly one render backend, the graphics one, straight into a window.
+	//! The engine does carry a deviceless render system (@see
+	//! RenderSystemSelection.h), which is how the PLAYER holds a live scene
+	//! with no display; teaching the editor to boot that way is its own piece
+	//! of work and nothing here may advertise it as done. Where a live world
+	//! is what the caller actually wants, the honest answer is the runtime
+	//! that already has one - which is what @ref EditorCliVerb::Test does.
 	Orkige::String editorCliUsage();
 
 	//! @brief run a parsed command to completion. 0 = it worked, 1 = it ran

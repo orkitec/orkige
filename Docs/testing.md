@@ -75,6 +75,24 @@ released editor and the one on a device payload — so testing a project needs n
 repository, no build tree and no interpreter beyond the engine's own. The
 vocabulary above is a string constant inside the binary, not a file to install.
 
+### From an installed Orkige
+
+`orkige_player` is a development-tree binary. On a machine carrying only a
+released editor, the same run has a front door of its own
+([editor-cli.md](editor-cli.md#test)):
+
+```sh
+orkige_editor test --project ~/games/roller
+orkige_editor test --project ~/games/roller --test-filter clamp \
+                   --report-dir ci-out
+```
+
+It resolves the player this installation has — the copy inside the application
+— runs exactly the command above in it, and exits with the suite's verdict. The
+runner is the same one; only the way it was reached differs. `--report-dir` is
+the `ORKIGE_TEST_REPORT_DIR` seam below under a flag name, so the artifact
+lands where a build server can collect it.
+
 An `ORKIGE_SCRIPTING=OFF` build has no interpreter and says so, exiting
 non-zero: it cannot answer the question that was asked, and reporting a pass
 would be a lie.

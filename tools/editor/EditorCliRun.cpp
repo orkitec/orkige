@@ -20,9 +20,13 @@
 #include <ExportProject.h>	// the manifest facts an export packages from
 
 #include <core_http/HttpClient.h>
+#include <core_script/ScriptRuntime.h>	// does THIS build carry an interpreter
+#include <core_script/ScriptTestTools.h>	// the ONE tests/ + suffix vocabulary
 
 #include <chrono>
 #include <cstdio>
+#include <cstring>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <vector>
@@ -85,6 +89,201 @@ namespace
 		// the machine-readable contract, spelled exactly like the exporter's so
 		// a caller keys on one grep whichever door produced the artifact
 		std::printf("orkige_editor: OK %s\n", artifact.c_str());
+		std::fflush(stdout);
+		return 0;
+	}
+	//---------------------------------------------------------
+	//! @brief a run artifact, identified by BOTH its path and when it was
+	//! written - which is what lets a reused report directory be told apart
+	//! from a fresh one (@see newestRunArtifact)
+	struct RunArtifact
+	{
+		String							path;
+		std::filesystem::file_time_type	written{};
+
+		bool operator==(RunArtifact const & other) const
+		{
+			return this->path == other.path && this->written == other.written;
+		}
+	};
+	//---------------------------------------------------------
+	//! @brief the newest `tests-*.jsonl` in @p directory, empty when there is
+	//! none.
+	//!
+	//! The file name carries a UTC stamp in `%Y%m%dT%H%M%SZ` form, which sorts
+	//! chronologically as plain text - so "greatest name" IS "most recent",
+	//! with no clock read and no directory-order assumption. Sampled once
+	//! before the run and once after, so a directory a caller REUSES cannot
+	//! hand back a previous run's file as this one's: a run that died before
+	//! writing anything leaves the two samples identical, and this door then
+	//! names no artifact rather than a stale one.
+	RunArtifact newestRunArtifact(String const & directory)
+	{
+		std::error_code ignored;
+		RunArtifact newest;
+		String newestName;
+		for(std::filesystem::directory_iterator it(directory, ignored), end;
+			it != end; it.increment(ignored))
+		{
+			const String name = it->path().filename().string();
+			if(name.rfind("tests-", 0) != 0 ||
+				it->path().extension() != ".jsonl" || name <= newestName)
+			{
+				continue;
+			}
+			newestName = name;
+			newest.path = it->path().lexically_normal().string();
+			newest.written = std::filesystem::last_write_time(it->path(),
+				ignored);
+		}
+		return newest;
+	}
+	//---------------------------------------------------------
+	//! @brief `test`: run the project's Lua suite in this installation's
+	//! player and hand back its exit code.
+	//!
+	//! @remarks THE ONE SUBCOMMAND THAT RUNS ANOTHER PROCESS, and it is not
+	//! the thing the export rule forbids. Spawning a second EXPORTER would
+	//! duplicate a decision; spawning the player duplicates nothing, because
+	//! the editor holds no runner to duplicate. A test that declares a scene
+	//! runs in a live world - physics stepping, scripts updating, frames
+	//! advancing - and the player is the only part of an installation that
+	//! has one. What this door contributes is the resolution only THIS
+	//! installation can do: which player it has (the copy inside the app for a
+	//! distributed editor, the build tree's binary for a developer one).
+	//!
+	//! Standard streams are INHERITED rather than piped, so the runner's
+	//! output reaches the caller as it happens. A suite with play-mode tests
+	//! takes real seconds per case, and a run that wedges must show which test
+	//! it was on - not sit silent until it is killed.
+	int runTestCommand(OrkigeEditor::EditorCliCommand const & command)
+	{
+		// the same manifest read `export` does, for the same reason: four
+		// facts off disk, never a live Project (@see ExportProject.h)
+		OrkigeExport::ExportProject project;
+		String error;
+		if(!OrkigeExport::ExportProject::readManifest(command.projectPath,
+			project, &error))
+		{
+			return fail(error);
+		}
+		// a suite is a SHAPE the project either has or does not, and that is
+		// answerable here without booting an engine to be told nothing ran.
+		// Where the line falls matters: this asks only whether the directory
+		// exists. What counts as a test inside it, and what an empty one is
+		// worth, stay the runner's to decide.
+		const String testsDirectory = (std::filesystem::path(project.root) /
+			Orkige::ScriptTestTools::testsDirectoryName())
+			.lexically_normal().string();
+		std::error_code ignored;
+		if(!std::filesystem::is_directory(testsDirectory, ignored))
+		{
+			return fail("'" + project.name + "' has no test suite - a project "
+				"tests itself with '" +
+				Orkige::ScriptTestTools::testFileSuffix() + "' files under '" +
+				testsDirectory + "'");
+		}
+		// the COMPILE-TIME fact, which is the only one available this early:
+		// `available()` also requires the runtime to be BOOTED, and nothing
+		// here has booted one. The player asks the identical question before
+		// its own boot, and both binaries come out of one build.
+		if(std::strcmp(Orkige::ScriptRuntime::backendName(), "none") == 0)
+		{
+			// no interpreter means the question cannot be answered, and
+			// reporting a pass would be a lie
+			return fail("this build has no scripting backend "
+				"(ORKIGE_SCRIPTING=OFF), so it cannot run a Lua suite - use a "
+				"build with scripting enabled");
+		}
+		const OrkigeEditor::EditorResourcePath player =
+			OrkigeEditor::editorResources().player();
+		if(!player.found())
+		{
+			return fail("no player executable found - this build ships none "
+				"beside the editor and no build tree is reachable, so there "
+				"is nothing to run the suite in");
+		}
+		std::vector<String> arguments = { player.path, "--project",
+			project.root, "--run-tests" };
+		if(!command.testFilter.empty())
+		{
+			arguments.push_back("--test-filter");
+			arguments.push_back(command.testFilter);
+		}
+		std::vector<char const *> argv;
+		argv.reserve(arguments.size() + 1);
+		for(String const & argument : arguments)
+		{
+			argv.push_back(argument.c_str());
+		}
+		argv.push_back(nullptr);
+
+		SDL_Environment* environment = SDL_CreateEnvironment(true);
+		String reportDirectory;
+		if(!command.reportDirectory.empty())
+		{
+			// --report-dir rides the runner's OWN artifact seam. There is one
+			// report format and one writer; this only says where it lands.
+			std::filesystem::create_directories(command.reportDirectory,
+				ignored);
+			reportDirectory = std::filesystem::absolute(
+				command.reportDirectory, ignored).lexically_normal().string();
+			SDL_SetEnvironmentVariable(environment, "ORKIGE_TEST_REPORT_DIR",
+				reportDirectory.c_str(), true);
+		}
+		// the automation hooks aimed at an EDITOR run must not reach the
+		// player: it honours the same variables and would exit after N frames
+		// or overwrite the requested screenshot, cutting a suite short and
+		// calling it a pass
+		SDL_UnsetEnvironmentVariable(environment, "ORKIGE_DEMO_FRAMES");
+		SDL_UnsetEnvironmentVariable(environment, "ORKIGE_DEMO_SCREENSHOT");
+
+		const RunArtifact before = reportDirectory.empty()
+			? RunArtifact() : newestRunArtifact(reportDirectory);
+
+		say("running the tests of '" + project.name + "' (player: " +
+			player.path + ")");
+		SDL_PropertiesID properties = SDL_CreateProperties();
+		SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER,
+			const_cast<char**>(argv.data()));
+		SDL_SetPointerProperty(properties,
+			SDL_PROP_PROCESS_CREATE_ENVIRONMENT_POINTER, environment);
+		SDL_Process* process = SDL_CreateProcessWithProperties(properties);
+		SDL_DestroyProperties(properties);
+		SDL_DestroyEnvironment(environment);
+		if(process == 0)
+		{
+			return fail("could not start the player '" + player.path + "': " +
+				SDL_GetError());
+		}
+		int exitCode = 1;
+		const bool exited = SDL_WaitProcess(process, true, &exitCode);
+		SDL_DestroyProcess(process);
+		if(!exited)
+		{
+			return fail("the test run could not be waited on: " +
+				String(SDL_GetError()));
+		}
+		const RunArtifact after = reportDirectory.empty()
+			? RunArtifact() : newestRunArtifact(reportDirectory);
+		// only THIS run's report is worth naming: a run that died before
+		// opening one leaves the directory exactly as it found it
+		const String artifact = (after == before) ? String("") : after.path;
+		if(exitCode != 0)
+		{
+			// the SUITE's verdict, relayed - not re-derived. The runner has
+			// already named every refusal on the way past.
+			return fail("the test suite of '" + project.name + "' did not "
+				"pass (the run exited " + std::to_string(exitCode) + ")" +
+				(artifact.empty() ? String("") : " - see '" + artifact + "'"));
+		}
+		// the machine-readable last line every subcommand ends on. A run's
+		// artifact is its JSONL report, so that is what OK names when one was
+		// asked for; with no --report-dir the runner wrote it somewhere only
+		// it knows, and saying so beats naming a path this process guessed.
+		const String okPayload = artifact.empty()
+			? ("the test suite of '" + project.name + "' passed") : artifact;
+		std::printf("orkige_editor: OK %s\n", okPayload.c_str());
 		std::fflush(stdout);
 		return 0;
 	}
@@ -215,6 +414,8 @@ namespace OrkigeEditor
 		}
 		case EditorCliVerb::Export:
 			return runExportCommand(command);
+		case EditorCliVerb::Test:
+			return runTestCommand(command);
 		case EditorCliVerb::FetchPayload:
 			return runFetchPayloadCommand(command);
 		case EditorCliVerb::None:
