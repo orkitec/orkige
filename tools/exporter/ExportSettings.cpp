@@ -141,7 +141,12 @@ namespace OrkigeExport
 	//---------------------------------------------------------
 	std::vector<Orkige::String> configSettingKeys()
 	{
-		return { "input.actions", "physics.layers", "levels", "localisation" };
+		// "store.catalog" carries what a game SELLS: logical product ids and the
+		// identifier each storefront knows them by. Public data - it travels to
+		// the store from the player's own device - and it must ship, because a
+		// packaged game with no catalog can name no product to buy.
+		return { "input.actions", "physics.layers", "levels", "localisation",
+			"store.catalog" };
 	}
 	//---------------------------------------------------------
 	Orkige::String cookPlatformToken(Orkige::String const & platform)

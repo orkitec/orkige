@@ -112,6 +112,11 @@ namespace Orkige
 		const String LIST_ALLOC_COUNTS		= "alloc_counts";
 		const String FIELD_FRAME_MS			= "frame_ms";
 		const String FIELD_GAME_STATE		= "game_state";
+		const String FIELD_STORE_PROVIDER	= "store_provider";
+		const String FIELD_STORE_READY		= "store_ready";
+		const String FIELD_STORE_PENDING	= "store_pending";
+		const String FIELD_STORE_AD_FREE	= "store_ad_free";
+		const String LIST_STORE_OWNED		= "store_owned";
 		const String LIST_PROFILE_NAMES		= "prof_names";
 		const String LIST_PROFILE_INFO		= "prof_info";
 		const String LIST_TRANSFORMS		= "xforms";

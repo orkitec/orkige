@@ -40,6 +40,7 @@
 #include <core_game/GameState.h>
 #include <core_debug/CVarManager.h>
 #include <core_http/HttpClient.h>
+#include <core_monetization/MonetizationService.h>
 #include <core_debug/BenchmarkRecorder.h>
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
@@ -201,6 +202,131 @@ namespace Orkige
 			payload.fields.push_back(std::make_pair(
 				ScriptEventKey::named("headers"), headers));
 			return payload;
+		}
+		//! @brief the answer to one purchase as the bounded table a script's
+		//! onComplete receives.
+		//! @remarks `owned` is the field a game branches on: it is TRUE for both
+		//! a fresh purchase and an already-owned one, so the commonest mistake -
+		//! showing an error to a player who is simply reinstalling - is not
+		//! reachable through the obvious code. `state` carries the token when a
+		//! game wants the distinction (pending, cancelled, declined, ...).
+		ScriptEventPayload purchasePayload(PurchaseResult const & result)
+		{
+			ScriptEventPayload payload;
+			payload.setBool("owned", result.owned());
+			payload.setString("state", purchaseStateName(result.state));
+			payload.setString("productId", result.productId);
+			payload.setString("transactionId", result.transactionId);
+			payload.setString("receipt", result.receipt);
+			payload.setString("reason", result.reason);
+			return payload;
+		}
+		//! one product as a nested entry of a product-query answer
+		ScriptEventField productField(Product const & product)
+		{
+			ScriptEventField entry;
+			entry.isTable = true;
+			entry.table.push_back(std::make_pair(ScriptEventKey::named("id"),
+				ScriptEventScalar::makeString(product.id)));
+			entry.table.push_back(std::make_pair(ScriptEventKey::named("title"),
+				ScriptEventScalar::makeString(product.title)));
+			entry.table.push_back(std::make_pair(
+				ScriptEventKey::named("description"),
+				ScriptEventScalar::makeString(product.description)));
+			// THE ONLY PRICE FIT TO DISPLAY: the storefront's own localised,
+			// currency-correct string. `priceValue` is for analytics and
+			// sorting; formatting it in a game gets the currency, the
+			// separators or the tax rules wrong somewhere.
+			entry.table.push_back(std::make_pair(
+				ScriptEventKey::named("displayPrice"),
+				ScriptEventScalar::makeString(product.displayPrice)));
+			entry.table.push_back(std::make_pair(
+				ScriptEventKey::named("currency"),
+				ScriptEventScalar::makeString(product.priceCurrency)));
+			entry.table.push_back(std::make_pair(
+				ScriptEventKey::named("price"),
+				ScriptEventScalar::makeNumber(product.priceValue)));
+			entry.table.push_back(std::make_pair(
+				ScriptEventKey::named("kind"),
+				ScriptEventScalar::makeString(productKindName(product.kind))));
+			return entry;
+		}
+		//! the answer to a product query as the table a script receives
+		ScriptEventPayload productQueryPayload(ProductQueryResult const & result)
+		{
+			ScriptEventPayload payload;
+			payload.setBool("ok", result.completed);
+			payload.setString("reason", result.reason);
+			payload.setNumber("count",
+				static_cast<double>(result.products.size()));
+			for(std::size_t i = 0; i < result.products.size(); ++i)
+			{
+				payload.fields.push_back(std::make_pair(
+					ScriptEventKey::indexed(static_cast<long long>(i + 1)),
+					productField(result.products[i])));
+			}
+			return payload;
+		}
+		//! the answer to a restore as the table a script receives
+		ScriptEventPayload restorePayload(RestoreResult const & result)
+		{
+			ScriptEventPayload payload;
+			// AN EMPTY RESTORE IS A SUCCESS - a player who never bought
+			// anything restores nothing - so `ok` says whether the store was
+			// reached and `count` says what came back. A game that treats an
+			// empty list as failure shows an error to an innocent player.
+			payload.setBool("ok", result.completed);
+			payload.setString("reason", result.reason);
+			payload.setNumber("count",
+				static_cast<double>(result.entitlements.size()));
+			for(std::size_t i = 0; i < result.entitlements.size(); ++i)
+			{
+				Entitlement const & owned = result.entitlements[i];
+				ScriptEventField entry;
+				entry.isTable = true;
+				entry.table.push_back(std::make_pair(
+					ScriptEventKey::named("productId"),
+					ScriptEventScalar::makeString(owned.productId)));
+				entry.table.push_back(std::make_pair(
+					ScriptEventKey::named("active"),
+					ScriptEventScalar::makeBool(owned.active)));
+				entry.table.push_back(std::make_pair(
+					ScriptEventKey::named("transactionId"),
+					ScriptEventScalar::makeString(owned.transactionId)));
+				entry.table.push_back(std::make_pair(
+					ScriptEventKey::named("receipt"),
+					ScriptEventScalar::makeString(owned.receipt)));
+				payload.fields.push_back(std::make_pair(
+					ScriptEventKey::indexed(static_cast<long long>(i + 1)),
+					entry));
+			}
+			return payload;
+		}
+		//! @brief hand a store answer to a script closure, naming the surface in
+		//! the log when the script itself throws
+		void invokeStoreCallback(ScriptCallback const & callback,
+			ScriptEventPayload const & payload, char const * what)
+		{
+			String error;
+			if(!callback.invokePayload(payload, &error))
+			{
+				EngineLogCapture::logError(String("store.") + what +
+					" onComplete: SCRIPT ERROR - " + error);
+			}
+		}
+		//! @brief is there a store seam in this host at all?
+		//! @remarks The editor never makes one, so `store.*` is an honest no-op
+		//! in edit mode - refused BY NAME rather than by an answer that never
+		//! comes, which a script cannot tell from a slow store.
+		MonetizationService * storeService(char const * what)
+		{
+			if(MonetizationService::getSingletonPtr() != NULL)
+			{
+				return MonetizationService::getSingletonPtr();
+			}
+			EngineLogCapture::logError(String("store.") + what +
+				": no store in this runtime");
+			return NULL;
 		}
 		//! wrap a script onComplete closure as the client's completion callback
 		HttpCompleteCallback wrapScriptHttpComplete(ScriptCallback const & callback)
@@ -2592,6 +2718,143 @@ namespace Orkige
 			return HttpClient::getSingletonPtr()
 				? static_cast<double>(
 					HttpClient::getSingleton().getPendingCount()) : 0.0;
+		});
+
+		// ================= THE `store` TABLE (purchases) ===================
+		// Selling something: a coin pack, an unlock, remove-ads, a
+		// subscription. ASYNC ALWAYS, like `http`: a call returns immediately
+		// and the one answer arrives in onComplete at a frame boundary, so a
+		// payment sheet never lands mid-update.
+		//   store.products(function(res) end)   -- prices/titles, localised
+		//   store.purchase(productId, function(res) end)
+		//   store.restore(function(res) end)
+		//   store.owns(productId) / store.entitlements()
+		//   store.finish(transactionId)
+		//   store.adFree() / store.isAvailable() / store.pending()
+		// A PRODUCT IS NAMED BY ITS LOGICAL ID here and forever
+		// ("remove_ads"); the identifier that travels to a storefront is
+		// resolved from the project's catalog per platform.
+		// A purchase answer carries `owned` (true for a fresh purchase AND for
+		// one this account already paid for), `state` (the token: purchased,
+		// already_owned, pending, cancelled, declined, unavailable, failed),
+		// `productId`, `transactionId`, `receipt` and `reason`. Branch on
+		// `owned`; `state == "pending"` grants NOTHING - it may settle days
+		// later, in a later session, and arrives then on its own.
+		// FINISHING IS THE LAST STEP AND ITS ORDER IS LOAD-BEARING: call
+		// store.finish(res.transactionId) only AFTER the goods are durably
+		// granted (save.set + save.flush). Finishing first loses the purchase
+		// if the app dies one instant later; granting first means the worst
+		// case is the store re-offering something the player already has.
+		// Honest no-op without a store (the editor makes none), and every
+		// refusal arrives through the SAME onComplete a success does.
+		runtime.registerFunction("store", "products",
+			[](ScriptArgs args) -> bool
+		{
+			MonetizationService * money = storeService("products");
+			if(!money) { return false; }
+			const ScriptCallback callback = ScriptCallback::fromArgs(args, 0);
+			if(!callback.valid())
+			{
+				EngineLogCapture::logError("store.products: an onComplete "
+					"function is required - a query nobody reads does nothing");
+				return false;
+			}
+			return money->requestProducts([callback]
+				(ProductQueryResult const & result)
+			{
+				invokeStoreCallback(callback, productQueryPayload(result),
+					"products");
+			}) != 0;
+		});
+		runtime.registerFunction("store", "purchase",
+			[](String const & productId, ScriptArgs args) -> bool
+		{
+			MonetizationService * money = storeService("purchase");
+			if(!money) { return false; }
+			const ScriptCallback callback = ScriptCallback::fromArgs(args, 0);
+			if(!callback.valid())
+			{
+				EngineLogCapture::logError("store.purchase: an onComplete "
+					"function is required - a purchase whose answer nobody "
+					"reads takes the player's money and grants nothing");
+				return false;
+			}
+			return money->purchase(productId, [callback]
+				(PurchaseResult const & result)
+			{
+				invokeStoreCallback(callback, purchasePayload(result),
+					"purchase");
+			}) != 0;
+		});
+		runtime.registerFunction("store", "restore",
+			[](ScriptArgs args) -> bool
+		{
+			MonetizationService * money = storeService("restore");
+			if(!money) { return false; }
+			const ScriptCallback callback = ScriptCallback::fromArgs(args, 0);
+			if(!callback.valid())
+			{
+				EngineLogCapture::logError("store.restore: an onComplete "
+					"function is required");
+				return false;
+			}
+			return money->restore([callback](RestoreResult const & result)
+			{
+				invokeStoreCallback(callback, restorePayload(result),
+					"restore");
+			}) != 0;
+		});
+		// store.owns(id): does the player own it RIGHT NOW. A cache of what the
+		// platform last said - never a save file, which does not travel with
+		// the player's account and which a player can edit.
+		runtime.registerFunction("store", "owns",
+			[](String const & productId) -> bool
+		{
+			return MonetizationService::getSingletonPtr() != NULL &&
+				MonetizationService::getSingleton().hasEntitlement(productId);
+		});
+		runtime.registerFunction("store", "entitlements", []() -> StringVector
+		{
+			StringVector owned;
+			if(MonetizationService::getSingletonPtr() == NULL) { return owned; }
+			std::vector<Entitlement> const & entitlements =
+				MonetizationService::getSingleton().entitlements();
+			for(std::size_t i = 0; i < entitlements.size(); ++i)
+			{
+				if(!entitlements[i].active) { continue; }
+				owned.push_back(entitlements[i].productId);
+			}
+			return owned;
+		});
+		// store.finish(transactionId): tell the store the goods were delivered.
+		// MANDATORY - a store never told will refund the purchase and, for a
+		// consumable, refuse to sell it again. @see the ordering note above.
+		runtime.registerFunction("store", "finish",
+			[](String const & transactionId) -> bool
+		{
+			MonetizationService * money = storeService("finish");
+			if(!money) { return false; }
+			money->finishTransaction(transactionId);
+			return true;
+		});
+		// store.adFree(): does the player own anything that removes adverts -
+		// THE link between the store and ad sides, a catalog fact rather than
+		// something each game re-derives.
+		runtime.registerFunction("store", "adFree", []() -> bool
+		{
+			return MonetizationService::getSingletonPtr() != NULL &&
+				MonetizationService::getSingleton().isAdFree();
+		});
+		runtime.registerFunction("store", "isAvailable", []() -> bool
+		{
+			return MonetizationService::getSingletonPtr() != NULL &&
+				MonetizationService::getSingleton().isStoreReady();
+		});
+		runtime.registerFunction("store", "pending", []() -> double
+		{
+			return MonetizationService::getSingletonPtr()
+				? static_cast<double>(
+					MonetizationService::getSingleton().pendingCount()) : 0.0;
 		});
 	}
 	//---------------------------------------------------------

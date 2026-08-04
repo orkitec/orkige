@@ -1,0 +1,22 @@
+# What this project sells. A CONFIG ASSET of PUBLIC identifiers - the ids
+# travel to a storefront from the player's own device and appear in every
+# receipt. Credentials never live here (Docs/security.md).
+#
+# The identifier a product carries differs per store, so game code says the
+# LOGICAL id ("remove_ads") forever and the column is resolved per platform.
+version 1
+
+product remove_ads
+	kind non_consumable
+	noads true
+	ios com.orkitec.example.removeads
+	macos com.orkitec.example.removeads
+	android remove_ads_v2
+	simulated remove_ads
+
+product coins_500
+	kind consumable
+	ios com.orkitec.example.coins500
+	macos com.orkitec.example.coins500
+	android coins_500
+	simulated coins_500

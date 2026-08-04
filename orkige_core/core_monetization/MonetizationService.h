@@ -66,10 +66,9 @@ namespace Orkige
 	//! reaches for it guards on getSingletonPtr(), so a host without one (the
 	//! editor's edit mode) leaves the surface an honest no-op.
 	//!
-	//! @remarks THE INTENDED SCRIPT SURFACE (not yet wired - the binding is a
-	//! mechanical follow-up against this class, and the vocabulary below is the
-	//! contract it should realise). A global `store` table and a global `ads`
-	//! table, both honest no-ops when no service exists:
+	//! @remarks THE SCRIPT SURFACE. A global `store` table (registered with the
+	//! rest in ScriptComponent::ensureScriptApi) and the intended `ads` table
+	//! beside it, both honest no-ops when no service exists:
 	//!
 	//!     store.products(function(res) ... end)      -- requestProducts
 	//!     store.purchase("remove_ads", function(res) -- purchase
@@ -96,22 +95,21 @@ namespace Orkige
 	//! stable string tokens the table trades in (@see adFormatName,
 	//! purchaseStateName, adShowResultName).
 	//!
-	//! @remarks THE INTENDED MCP SURFACE (not yet wired). Two verbs, both
-	//! DEVELOPMENT-ONLY and both driving the SIMULATED provider - an agent
-	//! must never be able to reach a real payment surface or a real ad network,
-	//! for the same reason no MCP verb performs a git mutation:
+	//! @remarks THE MCP SURFACE is a READ, and it needs no verb of its own: the
+	//! running game's store snapshot - the installed provider, whether it came
+	//! up, the outstanding request count, isAdFree and the entitlement list -
+	//! rides the existing MSG_STATS stream and comes back through `get_state`,
+	//! exactly as the streamed-music snapshot does. A second channel for state
+	//! this class already holds would be a second thing to keep in step.
 	//!
-	//!     set_monetization_scenario { key = "loadResult", value = "no_fill" }
-	//!         -> SimulatedScenario::apply on the running play session's
-	//!            simulated provider, so an agent can pin an unhappy path and
-	//!            then assert the game handled it
-	//!     get_monetization_state
-	//!         -> the honest read-back: consent status, whether ads
-	//!            initialized, test mode, per-placement AdState, the banner
-	//!            geometry, isAdFree and the entitlement list
+	//! The AUTHORING half is reachable through the verbs that already exist: a
+	//! catalog and the manifest settings that name it are ordinary project
+	//! files (`write_project_file`), and a game's purchase code is ordinary Lua.
 	//!
-	//! Both are reads/writes of state this class already exposes, so the verb
-	//! handler stays a thin adapter with no monetization logic of its own.
+	//! What an agent deliberately CANNOT do is drive a real payment surface -
+	//! for the same reason no MCP verb performs a git mutation. Pinning an
+	//! unhappy path is the SIMULATED provider's job (@see SimulatedScenario),
+	//! and a project asks for it by name in its manifest.
 	class ORKIGE_CORE_DLL MonetizationService : public Singleton<MonetizationService>
 	{
 		DECL_OSINGLETON(MonetizationService);

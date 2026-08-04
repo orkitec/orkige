@@ -2,4 +2,12 @@
 <OrkigeProject version="1">
     <Name>Example</Name>
     <MainScene>scenes/main.oscene</MainScene>
+    <Settings>
+        <!-- what this project sells: logical ids and the identifier each
+             storefront knows them by (public data, no credentials) -->
+        <Setting key="store.catalog" value="store.ocatalog"/>
+        <!-- the SIMULATED store, asked for by name. The default is the
+             platform's own; nothing makes a shipped game fall into this one. -->
+        <Setting key="store.provider" value="simulated"/>
+    </Settings>
 </OrkigeProject>

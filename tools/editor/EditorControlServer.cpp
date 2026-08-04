@@ -1136,7 +1136,10 @@ namespace Orkige
 				  "While a play session runs it also carries the streamed-music "
 				  "snapshot (parallel 'music_ids'/'music_files' arrays plus a "
 				  "'music_info' string per track: 'playing pos dur base group eff "
-				  "loop'). While/after a compile-on-Play native build it also carries "
+				  "loop'), and the running game's store: 'store_provider' (empty "
+				  "when the game installed none), 'store_ready', 'store_pending', "
+				  "'store_ad_free' and 'store_owned' (the LOGICAL product ids the "
+				  "player owns). While/after a compile-on-Play native build it also carries "
 				  "'build_status' (none/building/ok/failed), 'build_target' and, "
 				  "on a failure, the 'build_errors' compiler tail (kept after the "
 				  "session reverts to edit mode). Also carries a 'capabilities' "
@@ -2998,6 +3001,15 @@ namespace Orkige
 			// the running game's current named state (Lua game.setState via
 			// core_game/GameState, streamed on MSG_STATS); "" until it sets one
 			ok.set("game_state", play.remoteGameState);
+			// the running game's STORE (streamed on MSG_STATS): what a purchase
+			// actually did. store_provider is "" when the game installed none -
+			// the ordinary answer on a platform with no store - and
+			// store_owned lists the LOGICAL product ids the player owns.
+			ok.set("store_provider", play.remoteStoreProvider);
+			ok.set("store_ready", play.remoteStoreReady ? "1" : "0");
+			ok.set("store_ad_free", play.remoteStoreAdFree ? "1" : "0");
+			ok.set("store_pending", std::to_string(play.remoteStorePending));
+			ok.setList("store_owned", play.remoteStoreOwned);
 			{
 				StringVector allocTags;
 				StringVector allocCounts;

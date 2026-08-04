@@ -14,6 +14,7 @@
 
 #include "engine_runtime/PlayerRuntime.h"
 
+#include "core_monetization/MonetizationService.h"
 #include "core_base/TypeManager.h"
 #include "core_base/PropertySchema.h"
 #include "core_base/PropertyValue.h"
@@ -2508,6 +2509,33 @@ namespace Orkige
 			stats.set(Protocol::FIELD_SAFE_RIGHT, std::to_string(insets.mRight));
 			stats.set(Protocol::FIELD_SAFE_BOTTOM,
 				std::to_string(insets.mBottom));
+			anyField = true;
+		}
+		// store snapshot: what the running game's purchase surface is doing, so
+		// an agent can see what a purchase actually did. Rides MSG_STATS rather
+		// than a verb of its own, exactly like the music snapshot - the state
+		// is a READ of what the seam already holds, and a second channel for it
+		// would be a second thing to keep in step.
+		if (MonetizationService::getSingletonPtr() != NULL)
+		{
+			MonetizationService const & money =
+				MonetizationService::getSingleton();
+			stats.set(Protocol::FIELD_STORE_PROVIDER, money.storeProvider()
+				? String(money.storeProvider()->name()) : String());
+			stats.set(Protocol::FIELD_STORE_READY,
+				money.isStoreReady() ? "1" : "0");
+			stats.set(Protocol::FIELD_STORE_PENDING,
+				std::to_string(money.pendingCount()));
+			stats.set(Protocol::FIELD_STORE_AD_FREE,
+				money.isAdFree() ? "1" : "0");
+			StringVector owned;
+			std::vector<Entitlement> const & entitlements = money.entitlements();
+			for (std::size_t i = 0; i < entitlements.size(); ++i)
+			{
+				if (!entitlements[i].active) { continue; }
+				owned.push_back(entitlements[i].productId);
+			}
+			stats.setList(Protocol::LIST_STORE_OWNED, owned);
 			anyField = true;
 		}
 		// streamed-music snapshot: one entry per track (id, file, and a flat

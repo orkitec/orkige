@@ -392,7 +392,12 @@ set_tests_properties(orkige_nightly_appimage_selftest PROPERTIES
 add_test(NAME make_help_portal_selftest
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_help_portal.py" --selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-set_tests_properties(make_help_portal_selftest PROPERTIES LABELS unit TIMEOUT 60)
+# The budget is generous because this one renders the WHOLE committed corpus
+# twice over (a synthetic fixture, then the real docs) while sharing a machine
+# with the rest of the unit pack - it is the slowest test in that label by an
+# order of magnitude, and its cost grows with every doc written. A tight bound
+# here does not catch a slow renderer, it catches a busy runner.
+set_tests_properties(make_help_portal_selftest PROPERTIES LABELS unit TIMEOUT 180)
 
 # the /api/ class-reference config (Docs/api/Doxyfile) actually renders: run
 # the documentation tool over the real headers into a temp dir and assert a
@@ -2581,6 +2586,28 @@ if(TARGET orkige_player)
         set_tests_properties(player_project_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 180
             ENVIRONMENT "ALSOFT_DRIVERS=null;ORKIGE_TEST_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}")
+
+        # THE PURCHASE TIER END TO END, against the SIMULATED store - the leg a
+        # real storefront cannot provide, because no CI machine has a signed
+        # app, a store account or a device. projects/example carries a
+        # store.ocatalog and asks for the simulator BY NAME in its manifest, and
+        # tests/store.test.lua drives the whole road a game takes: the catalog
+        # resolving to logical products, a purchase reaching game code at a
+        # frame boundary, the entitlement cache, the no-ads link between the two
+        # seams, a restore named through the catalog's reverse index, and the
+        # refusals that have to say WHY. The platform bridge's own decisions are
+        # proved separately and headlessly in tests/core (the ledger, the
+        # request/delivery correlation and the two integer translations).
+        add_test(NAME player_store_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project projects/example --run-tests
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        # ORKIGE_PROGRESS_DIR/RESET isolate the save store into the build tree
+        # and wipe it before each run: the test grants a purchase the way the
+        # doc says to (durable FIRST, acknowledge SECOND), so it really does
+        # write a save, and that write belongs nowhere near the source tree.
+        set_tests_properties(player_store_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 180
+            ENVIRONMENT "ALSOFT_DRIVERS=null;ORKIGE_TEST_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/store_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX};ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/store_lua_save${ORKIGE_FLAVOR_TEST_SUFFIX};ORKIGE_PROGRESS_RESET=1")
 
         # the 2D tier, end to end: projects/roller (a tilt-gravity ball +
         # sliding-tile puzzle prototype - SpriteComponents, ortho camera,

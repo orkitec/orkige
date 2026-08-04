@@ -12,6 +12,7 @@
 #include <core_project/Project.h>
 #include <core_project/ProjectPaths.h>
 #include <core_script/ScriptRuntime.h>
+#include <engine_gocomponent/ScriptComponent.h>
 #include <core_script/ScriptTaskCore.h>
 #include <core_script/ScriptTaskManager.h>
 #include <core_script/ScriptTestReport.h>
@@ -231,6 +232,14 @@ int runProjectLuaTests(Orkige::Project const & project,
 		return 1;
 	}
 	Orkige::ScriptRuntime & runtime = Orkige::ScriptRuntime::getSingleton();
+
+	// THE ENGINE'S SCRIPT SURFACE, installed for the run. It is otherwise
+	// installed lazily by the first ScriptComponent that loads, which would
+	// make `world`, `save`, `http` and `store` reachable from a test only when
+	// the project's scene happens to carry a script component - a test asking
+	// about the store would silently see a nil table instead of a verdict. The
+	// call is idempotent, so a scene that does load one changes nothing.
+	Orkige::ScriptComponent::ensureScriptApi();
 
 	// THE INPUT CAPABILITY, opened for exactly this run. The driver resolves a
 	// target name and injects through InputManager - the one synthesis path

@@ -69,6 +69,51 @@ currency-correct string and is the only price fit to show a player; it is empty
 until a product query completes, so a store screen shows a placeholder rather
 than a wrong number.
 
+### The catalog is a file, not code
+
+The identifiers are decided in each store's console by whoever set the products
+up, and they change — a product re-created after a mistake gets a new one. So a
+project writes them down in a `.ocatalog` config asset named by the manifest
+Setting `store.catalog`, which an agent authors over `write_project_file` and
+the export ships automatically:
+
+```
+version 1
+
+# the most common purchase in existence
+product remove_ads
+	kind non_consumable
+	noads true
+	ios com.example.game.removeads
+	android remove_ads_v2
+
+product coins_500
+	kind consumable
+	ios com.example.game.coins500
+```
+
+`product` opens a block; `kind` and `noads` describe it; every other line is a
+storefront column (`ios`, `android`, `macos`, `windows`, `web`, `simulated`).
+Keywords are case-insensitive, identifiers are not. **Anything the parser does
+not understand is refused with its line number** — a typo silently ignored here
+is an unbuyable product discovered by a player — and a failed parse leaves the
+catalog EMPTY rather than half-read, so a game cannot end up selling some
+products and silently refusing others. `ProductCatalogFile` is the reader, and
+`serialize` is its byte-stable inverse.
+
+**Nothing secret lives here.** Store product identifiers are public: they travel
+to the storefront from the player's own device and appear in every receipt.
+Signing credentials and API keys follow the split in
+[security](security.md) — the manifest carries descriptive keys only.
+
+### Which store stands behind the seam
+
+The manifest Setting `store.provider` picks it: `platform` (the default),
+`simulated`, or `none`. An unset value means `platform`, and **the simulator is
+never a fallback that a missing platform store decays into** — a shipped game
+running against it would hand every product out for free and look entirely
+correct doing so, so it has to be asked for by name.
+
 ## Purchases have six unhappy endings
 
 ```cpp
@@ -104,6 +149,57 @@ A settled transaction must be acknowledged with `finishTransaction`. A store
 that is never told the goods were delivered will refund the purchase and, for a
 consumable, refuse to sell it again.
 
+## The unacknowledged-purchase window
+
+Between "the store charged the player" and "the game acknowledged the purchase"
+the app can die — a crash, the player swiping it away, the operating system
+reclaiming a backgrounded game. That gap is the classic money bug: a game whose
+own memory is the record of what was bought loses the purchase, and the player
+paid for nothing.
+
+**The store's queue is the record, not ours.** A settled transaction stays in
+the platform's payment queue until it is explicitly finished, and is
+re-delivered on every launch until then. So the engine persists nothing to
+survive a crash. It lets the queue re-deliver, and the re-delivery arrives
+through the ordinary unsolicited path with request id `0`, named through the
+catalog's reverse index, exactly as a deferred purchase settling late does. A
+game handles both with the same code.
+
+Which makes **the order load-bearing, and it is the one rule to take away**:
+
+> Acknowledge only AFTER the goods are durably granted.
+
+```lua
+store.purchase("coins_500", function(res)
+    if not res.owned then return end
+    save.set("coins", save.getNumber("coins", 0) + 500)
+    save.flush()                    -- durable FIRST
+    store.finish(res.transactionId) -- acknowledge SECOND
+end)
+```
+
+Finish first and a crash one instruction later loses the purchase for good — the
+queue has already forgotten it. Grant first and the worst case is the store
+re-offering something the player already has, which a game absorbs by granting
+it again. The asymmetry is deliberate: the failure mode of granting twice is
+recoverable, the failure mode of charging without granting is not.
+
+`StoreTransactionLedger` is what makes this provable rather than asserted. It
+holds the open set, reports the same transaction arriving twice inside one
+session so the game is told once, refuses to acknowledge a transaction that was
+never delivered (a silent no-op there would hide a game tracking transactions
+the store does not agree with), and is deliberately in-memory — persisting it
+would create a second record that can disagree with the store's.
+
+**A failed transaction is finished immediately**, and that asymmetry is the same
+reasoning from the other side: there are no goods to grant, so there is no
+window to protect, while leaving it in the queue would re-deliver the same
+failure on every launch forever.
+
+None of this needs a store to be verified. The ledger, the request-to-delivery
+correlation, the transaction-state translation and the error taxonomy are pure
+and unit-tested headlessly.
+
 ## Entitlements are a cache, never a save
 
 The platform is the source of truth. `MonetizationService` deliberately has no
@@ -112,6 +208,106 @@ reinstall or a second device, and one the player can edit is not a proof of
 payment. `restore()` is how ownership comes back — and an **empty** restore is a
 success, not a failure, because a player who never bought anything restores
 nothing.
+
+## The platform's own store
+
+`createPlatformStoreProvider()` is the one seam a host reaches for. Exactly one
+translation unit is compiled per platform, chosen by the build, so no call site
+above it carries a platform `#ifdef`:
+
+| Platform | What is compiled |
+| --- | --- |
+| macOS + iOS | the system in-app purchase framework (StoreKit) |
+| everywhere else | an honest, named absence |
+
+**A platform with no store is not an error.** Most development happens on one.
+`platformStoreAvailable()` answers the runtime question and
+`platformStoreUnavailableReason()` names what is missing, so a refusal says
+"this process has no app identity" rather than "the purchase failed".
+
+The Apple provider uses the framework's older, Objective-C-reachable API. That
+is not a fallback: the newer one is published for a language this engine does
+not compile, and the older one is built around the **persistent payment queue**
+that closes the window described above. It is a transaction pump and nothing
+more — the observer is attached in `initialize()` before anything else happens,
+so whatever a previous run left unacknowledged arrives immediately.
+
+Its refusals are specific rather than generic, which is why `initialize()`
+always succeeds on the platform: a `false` there would collapse several very
+different developer-facing situations into the service's one
+"the store is not available".
+
+| Situation | What comes back |
+| --- | --- |
+| no app identity (a bare executable, not the packaged app) | every call refuses, naming it |
+| no products in the catalog for this storefront | `completed = false`, "no products are configured for the ios storefront" |
+| payments restricted on the device | `PS_DECLINED`, "this device is not allowed to make payments" |
+| a purchase before its product query completed | `PS_UNAVAILABLE`, naming the identifier |
+| a transaction state this build does not know | left **unacknowledged**, never finished, one log line |
+
+The whole platform-specific decision surface is two integer translations
+(`appleStorePhaseFromRaw`, `appleStoreFailureFromRaw`) living in pure code the
+unit suite drives. The bridge that owns the framework `static_assert`s every
+constant against the SDK it compiles against, so a renumbered enum is a build
+failure rather than a mis-reported purchase.
+
+Subscription expiry, promotional offers and price-tier introspection sit out;
+each is a real feature, and the bridge stays a transaction pump until one of
+them earns its keep.
+
+## Buying something from Lua
+
+```lua
+store.products(function(res)
+    if not res.ok then print(res.reason) return end
+    for i = 1, res.count do
+        showRow(res[i].title, res[i].displayPrice)   -- never a formatted number
+    end
+end)
+
+store.purchase("remove_ads", function(res)
+    if res.owned then                       -- purchased AND already_owned
+        save.set("adFree", true) save.flush()
+        store.finish(res.transactionId)
+    elseif res.state == "pending" then      -- grant NOTHING yet
+        showAwaitingApproval()
+    elseif res.state == "cancelled" then    -- not an error
+    else
+        showError(res.reason)
+    end
+end)
+
+store.restore(function(res) ... end)        -- THE reinstall path
+store.owns("remove_ads")                    -- right now, from the platform
+store.entitlements()                        -- the logical ids owned
+store.adFree()                              -- the link to the ads side
+```
+
+`res.owned` is the field to branch on: it is true for a fresh purchase and for
+one this account already paid for, so the commonest mistake — showing an error
+to a player who is simply reinstalling — is not reachable through the obvious
+code. `res.state` carries the token when a game wants the distinction.
+
+Requests are async exactly like `http`: the call returns immediately and its one
+answer arrives in `onComplete` at a frame boundary, drained in the same tick-order
+slot the HTTP client's answers are, inside the pause fence. A host that owns no
+store (the editor's edit mode) makes the whole table an honest no-op. The full
+signature list is in [the Lua reference](lua-api.md).
+
+## What an agent can reach
+
+The authoring half needs no verb of its own: a `.ocatalog` and the manifest
+settings that name it are ordinary project files (`write_project_file`), and a
+game's purchase code is ordinary Lua. The read-back rides the existing
+`MSG_STATS` stream, so [`get_state`](mcp.md) carries `store_provider`,
+`store_ready`, `store_pending`, `store_ad_free` and `store_owned` while a play
+session runs — the same route the streamed-music snapshot takes, because a
+second channel for state the seam already holds would be a second thing to keep
+in step.
+
+What an agent deliberately cannot do is drive a real payment surface, for the
+same reason no verb performs a git mutation. Pinning an unhappy path is the
+simulated provider's job, and a project asks for it by name.
 
 ## Consent is an ordering constraint
 
@@ -277,11 +473,22 @@ quietly doing the same job twice.
   should be gated server-side.
 - **Products must be configured in each store's console**, per platform, before
   any identifier resolves. The catalog maps names; it cannot create products.
-- **No vendor integration ships yet.** The simulated provider is the only
-  provider. The interfaces are designed against published platform behaviour,
-  not against a running integration, so the first real provider is also the
-  first real test of the seam's shape. On Android, the platform half of such a
-  provider arrives as a library archive the project depends on -
+- **What a real store account proves is untestable in CI.** A live product
+  query, a real payment sheet, a genuine deferred approval and a purchase
+  surviving a crash all need a signed app, a store account and a device; no
+  automated run has any of them. What IS proved headlessly is everything above
+  the framework call - the ledger, the request-to-delivery correlation, the
+  state and error translation, the catalog parse, and that every refusal names
+  itself and arrives exactly once. The seam is shaped so that is the whole
+  remainder: the bridge passes integers to pure functions and objects to the
+  queue, and nothing else.
+- **The simulator is deterministic and a platform store is not.** A simulated
+  run proves a game handles each outcome; it does not prove the platform
+  produces them. Both statements are needed and neither substitutes for the
+  other.
+- **Only the STORE side has a platform provider, and only on Apple platforms.**
+  The ad side is the simulated provider alone. On Android the platform half of
+  either arrives as a library archive the project depends on -
   [android-libraries.md](android-libraries.md) is the packaging side of that.
 - **Subscription expiry is carried, not enforced.** `Entitlement::active` and
   `expiryUnixSeconds` are whatever the platform last reported; the engine runs

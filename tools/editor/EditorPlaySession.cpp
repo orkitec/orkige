@@ -120,6 +120,11 @@ void clearRemoteState(PlaySession& session)
 	session.remoteAllocCounts.clear();
 	session.remoteFrameMs = -1.0;
 	session.remoteGameState.clear();
+	session.remoteStoreProvider.clear();
+	session.remoteStoreReady = false;
+	session.remoteStorePending = -1;
+	session.remoteStoreAdFree = false;
+	session.remoteStoreOwned.clear();
 	session.remoteProfile.clear();
 	session.remoteProfileFrameMs = -1.0;
 	session.profileSeq = 0;
@@ -2410,6 +2415,26 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 			{
 				session.remoteGameState =
 					message.get(Protocol::FIELD_GAME_STATE);
+			}
+			// the store snapshot: present only while the runtime owns a
+			// monetization seam, so an absent field leaves the last reading
+			// alone rather than reporting "no store" for a frame
+			if (message.has(Protocol::FIELD_STORE_READY))
+			{
+				session.remoteStoreProvider =
+					message.get(Protocol::FIELD_STORE_PROVIDER);
+				session.remoteStoreReady =
+					message.get(Protocol::FIELD_STORE_READY) == "1";
+				session.remoteStoreAdFree =
+					message.get(Protocol::FIELD_STORE_AD_FREE) == "1";
+				readInt(Protocol::FIELD_STORE_PENDING,
+					session.remoteStorePending);
+				session.remoteStoreOwned.clear();
+				for (Orkige::String const& id :
+					message.getList(Protocol::LIST_STORE_OWNED))
+				{
+					session.remoteStoreOwned.push_back(id);
+				}
 			}
 			const Orkige::StringVector& allocTags =
 				message.getList(Protocol::LIST_ALLOC_TAGS);
