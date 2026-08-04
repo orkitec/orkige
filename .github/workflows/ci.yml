@@ -115,6 +115,65 @@ jobs:
           echo "Fix by bringing it in:  git checkout development && git merge origin/main"
           exit 1
 
+  # main IS the last commit that went green, so moving it is mechanical and
+  # belongs here rather than in a person's hands. It waits on every gating job
+  # and runs only when all of them succeeded, so a single red verdict leaves
+  # main where it was.
+  #
+  # The push is a FAST-FORWARD of the very commit this run verified: nothing is
+  # created, nothing is merged, so main can carry no state that was not tested.
+  # Branch protection is NOT bypassed - admins are bound by it, and this push
+  # is accepted for the same reason a manual one would be, because the commit
+  # already holds the fourteen required verdicts.
+  #
+  # CONSEQUENCE WORTH KNOWING: moving main deploys the public site, since the
+  # site job triggers on a main push. Green therefore means published.
+  fast-forward-main:
+    name: fast-forward main onto this commit
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    needs:
+      - branch-base
+      - linux-classic
+      - linux-next
+      - linux-sanitizer
+      - linux-tsan
+      - host-exporter
+      - web
+      - android-emulator-next
+      - android-emulator-classic
+      - macos-next
+      - macos-classic
+      - ios-simulator-next
+      - ios-simulator-classic
+      - windows-next
+      - windows-classic
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Fast-forward main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "main already carries $(git rev-parse --short HEAD) - nothing to do"
+            exit 0
+          fi
+          # belt to branch-base's braces: that job ran before the suites, and a
+          # push to main could have landed while they were running
+          if ! git merge-base --is-ancestor origin/main HEAD; then
+            echo "::error::main moved while this run was in flight and is no longer an ancestor - merge origin/main into development"
+            git log --oneline HEAD..origin/main
+            exit 1
+          fi
+          git push origin HEAD:main
+          echo "main -> $(git rev-parse --short HEAD)"
+
   # The public site (https://orkige.orkitec.com): landing page + docs portal +
   # legal pages from Util/make_help_portal.py plus the /api/ class reference
   # (Docs/api/Doxyfile - runner-only tooling). Lives INSIDE the CI workflow so

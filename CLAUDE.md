@@ -1199,8 +1199,11 @@ its own build allows.
 **Work lands on `development`; `main` is the last commit that went green.**
 Small changes are committed straight to `development` — no PR ceremony — and a
 burst of pushes collapses into ONE matrix run, because the concurrency group
-cancels a superseded run of the same branch. When `development` is green,
-`main` is **FAST-FORWARDED** onto that exact commit.
+cancels a superseded run of the same branch. When `development` is green, the
+**`fast-forward-main`** job moves `main` onto that exact commit by itself: it
+waits on all fifteen gating jobs, so one red verdict leaves `main` where it
+was, and nobody has to remember. **Green therefore means PUBLISHED** — moving
+`main` runs the site deploy.
 
 That last word is load-bearing. Check runs belong to a **SHA**, not to a
 branch, so a fast-forwarded commit arrives on `main` already carrying its own
