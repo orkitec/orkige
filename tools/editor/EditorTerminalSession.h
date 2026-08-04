@@ -276,6 +276,34 @@ namespace OrkigeEditor
 	TerminalGridPoint terminalCellAtPoint(float px, float py, float originX,
 		float originY, float cellW, float cellH, int cols, int totalLines);
 
+	//! one held-drag frame: where the selection head is, and whether that head
+	//! and its anchor actually enclose anything.
+	struct TerminalDragState
+	{
+		int		headLine = 0;
+		int		headCol = 0;
+		bool	hasSelection = false;
+	};
+
+	//! @brief advance a held selection drag by one frame. @p anchor is the cell
+	//! the press armed, @p head where the head stands now, @p pointer the cell
+	//! under the mouse, @p pointerInWindow whether the mouse HAS a position at
+	//! all.
+	//!
+	//! Two rules the panel cannot get wrong by hand:
+	//! - a pointer that has left the window carries no position, and the hit
+	//!   test's edge clamp would read that as the grid's top-left cell - so the
+	//!   head HOLDS where it stands until the pointer comes back, instead of
+	//!   collapsing the drag onto whatever sits at (0,0).
+	//! - "has a selection" is re-derived from anchor vs head EVERY frame, never
+	//!   latched: a drag that returns to its own anchor encloses nothing, and a
+	//!   stale flag would hand the copy chord an empty string to publish.
+	//!
+	//! Pure - unit-tested in EditorTerminalSessionTests.
+	TerminalDragState terminalDragStep(TerminalGridPoint const& anchor,
+		TerminalGridPoint const& head, TerminalGridPoint const& pointer,
+		bool pointerInWindow);
+
 	//! a FIFO byte queue in front of a pty's input. A terminal accepts only a
 	//! small amount of pending input at a time (a tty's input queue is about a
 	//! kilobyte), so a paste - or any burst larger than that - cannot be handed

@@ -440,6 +440,22 @@ namespace OrkigeEditor
 		return out;
 	}
 
+	TerminalDragState terminalDragStep(TerminalGridPoint const& anchor,
+		TerminalGridPoint const& head, TerminalGridPoint const& pointer,
+		bool pointerInWindow)
+	{
+		TerminalDragState out;
+		// no position means no news about the head: terminalCellAtPoint clamps
+		// every input into the grid, so an absent pointer would arrive as cell
+		// (0,0) and silently drag the head to the grid's top-left.
+		out.headLine = pointerInWindow ? pointer.line : head.line;
+		out.headCol = pointerInWindow ? pointer.col : head.col;
+		// derived, never latched - anchor == head selects nothing
+		out.hasSelection = (out.headLine != anchor.line ||
+			out.headCol != anchor.col);
+		return out;
+	}
+
 	int terminalIndexAfterClose(int count, int closedIndex, int activeIndex)
 	{
 		const int newCount = count - 1;

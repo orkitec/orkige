@@ -882,14 +882,28 @@ namespace
 		}
 		else if (s.selecting && ImGui::IsMouseDown(ImGuiMouseButton_Left))
 		{
+			// The head follows the pointer through the pure terminalDragStep,
+			// which owns the two rules a hand-written follow keeps getting
+			// wrong: a pointer with NO position (it left the window - ImGui
+			// reports -FLT_MAX, which the hit test's edge clamp turns into cell
+			// (0,0)) holds the head where it stands instead of collapsing the
+			// drag onto the grid's top-left, and the armed flag is re-derived
+			// from anchor vs head rather than latched on. Sharing a display with
+			// other windows makes the first case ordinary rather than exotic: a
+			// window mapped by another process sends a mouse-leave mid-drag.
 			const TerminalGridPoint hit = terminalCellAtPoint(mouse.x, mouse.y,
 				gridOrigin.x, gridOrigin.y, cellW, cellH, s.cols, totalLines);
-			s.headLine = hit.line;
-			s.headCol = hit.col;
-			if (s.headLine != s.anchorLine || s.headCol != s.anchorCol)
-			{
-				s.hasSelection = true;
-			}
+			TerminalGridPoint anchor;
+			anchor.line = s.anchorLine;
+			anchor.col = s.anchorCol;
+			TerminalGridPoint head;
+			head.line = s.headLine;
+			head.col = s.headCol;
+			const TerminalDragState next = terminalDragStep(anchor, head, hit,
+				ImGui::IsMousePosValid(&mouse));
+			s.headLine = next.headLine;
+			s.headCol = next.headCol;
+			s.hasSelection = next.hasSelection;
 		}
 		if (s.selecting && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
 		{
