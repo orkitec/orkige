@@ -12,6 +12,7 @@
 #include "core_project/Project.h"
 #include "core_serialization/XMLArchive.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace Orkige
@@ -21,7 +22,10 @@ namespace Orkige
 	const String InputActionMap::ACTIONS_SETTING_KEY = "input.actions";
 	const String InputActionMap::ACTIONS_FILE_EXTENSION = ".oactions";
 	const String InputActionMap::ACTIONS_FILE_MAGIC = "orkige.oactions";
-	const int InputActionMap::ACTIONS_FORMAT_VERSION = 1;
+	// v2 carries the controller binding shapes (gamepad buttons, a deadzoned
+	// gamepad axis). CLEAN CUTOVER: the loader accepts exactly this version and
+	// refuses anything else with an honest message - no per-version field gates.
+	const int InputActionMap::ACTIONS_FORMAT_VERSION = 2;
 
 	//---------------------------------------------------------
 	namespace
@@ -62,6 +66,26 @@ namespace Orkige
 			binding.outputComponent = outputComponent;
 			return binding;
 		}
+		//! @brief a digital controller-button binding (any of them held -> +1)
+		InputActionBinding makeGamepadButton(
+			std::vector<Gamepad::Button> const & buttons, int outputComponent)
+		{
+			InputActionBinding binding;
+			binding.type = InputActionBinding::GamepadButton;
+			binding.gamepadButtons = buttons;
+			binding.outputComponent = outputComponent;
+			return binding;
+		}
+		//! @brief a deadzoned controller-axis binding
+		InputActionBinding makeGamepadAxis(Gamepad::Axis axis,
+			int outputComponent)
+		{
+			InputActionBinding binding;
+			binding.type = InputActionBinding::GamepadAxis;
+			binding.gamepadAxis = axis;
+			binding.outputComponent = outputComponent;
+			return binding;
+		}
 		//! any of the keys held?
 		bool anyKeyDown(std::vector<KeyEventData::KeyCode> const & keys,
 			InputManager & input)
@@ -69,6 +93,19 @@ namespace Orkige
 			for(KeyEventData::KeyCode key : keys)
 			{
 				if(input.isKeyDown(key))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+		//! any of the controller buttons held?
+		bool anyGamepadButtonDown(std::vector<Gamepad::Button> const & buttons,
+			InputManager & input)
+		{
+			for(Gamepad::Button button : buttons)
+			{
+				if(input.isGamepadButtonDown(button))
 				{
 					return true;
 				}
@@ -98,10 +135,17 @@ namespace Orkige
 		// (arrows drive move.x AND menu_* AND steer) never conflict.
 		mActions.clear();
 
-		// jumper: 2D movement on WASD/arrows, jump on SPACE. move.x = the
-		// left/right axis (A/LEFT negative, D/RIGHT positive), move.y = the
-		// depth axis (W/UP negative, S/DOWN positive) - matches the original
-		// axis() helper in projects/jumper-lua/scripts/player.lua.
+		// EVERY default action also answers a CONTROLLER, so a reference
+		// project is controller-playable with zero authoring: the analog
+		// actions gain a stick binding beside their keys (max magnitude picks
+		// whichever pushes harder), the digital ones a face/dpad/start button.
+
+		// jumper: 2D movement on WASD/arrows or the left stick, jump on SPACE
+		// or the bottom face button. move.x = the left/right axis (A/LEFT
+		// negative, D/RIGHT positive), move.y = the depth axis (W/UP negative,
+		// S/DOWN positive) - matches the original axis() helper in
+		// projects/jumper-lua/scripts/player.lua, and matches the stick's own
+		// sign convention (a controller's +y is DOWN).
 		{
 			InputAction move;
 			move.name = "move";
@@ -112,12 +156,20 @@ namespace Orkige
 			move.bindings.push_back(makeKeyAxis(
 				{ KeyEventData::KC_W, KeyEventData::KC_UP },
 				{ KeyEventData::KC_S, KeyEventData::KC_DOWN }, 1));
+			move.bindings.push_back(makeGamepadAxis(Gamepad::GA_LEFTX, 0));
+			move.bindings.push_back(makeGamepadAxis(Gamepad::GA_LEFTY, 1));
 			mActions.push_back(move);
 		}
-		mActions.push_back(makeDigital("jump", { KeyEventData::KC_SPACE }));
+		{
+			InputAction jump = makeDigital("jump", { KeyEventData::KC_SPACE });
+			jump.bindings.push_back(
+				makeGamepadButton({ Gamepad::GB_SOUTH }, 0));
+			mActions.push_back(jump);
+		}
 
-		// roller: steer on the tilt X component OR LEFT/RIGHT arrows (max
-		// magnitude), and the move-world menu keys (TAB toggles, arrows slide).
+		// roller: steer on the tilt X component OR LEFT/RIGHT arrows OR the
+		// left stick (max magnitude), and the move-world menu keys (TAB
+		// toggles, arrows slide) mirrored on start + the dpad.
 		{
 			InputAction steer;
 			steer.name = "steer";
@@ -125,13 +177,31 @@ namespace Orkige
 			steer.bindings.push_back(makeTiltAxis(0, 0));
 			steer.bindings.push_back(makeKeyAxis(
 				{ KeyEventData::KC_LEFT }, { KeyEventData::KC_RIGHT }, 0));
+			steer.bindings.push_back(makeGamepadAxis(Gamepad::GA_LEFTX, 0));
 			mActions.push_back(steer);
 		}
-		mActions.push_back(makeDigital("menu_toggle", { KeyEventData::KC_TAB }));
-		mActions.push_back(makeDigital("menu_left", { KeyEventData::KC_LEFT }));
-		mActions.push_back(makeDigital("menu_right", { KeyEventData::KC_RIGHT }));
-		mActions.push_back(makeDigital("menu_up", { KeyEventData::KC_UP }));
-		mActions.push_back(makeDigital("menu_down", { KeyEventData::KC_DOWN }));
+		// the digital menu set: keys plus the matching controller button
+		struct MenuDefault
+		{
+			char const *			name;
+			KeyEventData::KeyCode	key;
+			Gamepad::Button			button;
+		};
+		const MenuDefault menuDefaults[] =
+		{
+			{ "menu_toggle",	KeyEventData::KC_TAB,	Gamepad::GB_START },
+			{ "menu_left",		KeyEventData::KC_LEFT,	Gamepad::GB_DPAD_LEFT },
+			{ "menu_right",		KeyEventData::KC_RIGHT,	Gamepad::GB_DPAD_RIGHT },
+			{ "menu_up",		KeyEventData::KC_UP,	Gamepad::GB_DPAD_UP },
+			{ "menu_down",		KeyEventData::KC_DOWN,	Gamepad::GB_DPAD_DOWN }
+		};
+		for(MenuDefault const & entry : menuDefaults)
+		{
+			InputAction action = makeDigital(entry.name, { entry.key });
+			action.bindings.push_back(
+				makeGamepadButton({ entry.button }, 0));
+			mActions.push_back(action);
+		}
 	}
 	//---------------------------------------------------------
 	bool InputActionMap::loadActions(String const & fileName)
@@ -154,8 +224,10 @@ namespace Orkige
 		}
 		int version = 0;
 		ar >> version;
-		if(version > ACTIONS_FORMAT_VERSION)
+		if(version != ACTIONS_FORMAT_VERSION)
 		{
+			// clean cutover: exactly the current version loads, anything else
+			// is refused by name (re-save the file from this build)
 			oDebugMsg("core",0,"InputActionMap: action file "<<fileName
 				<<" has unsupported version "<<version<<" (supported: "
 				<<ACTIONS_FORMAT_VERSION<<")");
@@ -201,6 +273,23 @@ namespace Orkige
 				readKeys(binding.keys);
 				readKeys(binding.negativeKeys);
 				readKeys(binding.positiveKeys);
+				// the controller half of the binding
+				unsigned int gamepadButtonCount = 0;
+				ar >> gamepadButtonCount;
+				binding.gamepadButtons.clear();
+				for(unsigned int buttonIndex = 0;
+					buttonIndex < gamepadButtonCount; ++buttonIndex)
+				{
+					int buttonCode = 0;
+					ar >> buttonCode;
+					binding.gamepadButtons.push_back(
+						static_cast<Gamepad::Button>(buttonCode));
+				}
+				int gamepadAxis = 0;
+				ar >> gamepadAxis;
+				binding.gamepadAxis = static_cast<Gamepad::Axis>(gamepadAxis);
+				ar >> binding.deadzone;
+				ar >> binding.invert;
 				action.bindings.push_back(binding);
 			}
 			loaded.push_back(action);
@@ -258,6 +347,20 @@ namespace Orkige
 				writeKeys(binding.keys);
 				writeKeys(binding.negativeKeys);
 				writeKeys(binding.positiveKeys);
+				unsigned int gamepadButtonCount =
+					static_cast<unsigned int>(binding.gamepadButtons.size());
+				ar << gamepadButtonCount;
+				for(Gamepad::Button button : binding.gamepadButtons)
+				{
+					int buttonCode = static_cast<int>(button);
+					ar << buttonCode;
+				}
+				int gamepadAxis = static_cast<int>(binding.gamepadAxis);
+				ar << gamepadAxis;
+				float deadzone = binding.deadzone;
+				ar << deadzone;
+				bool invert = binding.invert;
+				ar << invert;
 			}
 		}
 
@@ -383,6 +486,28 @@ namespace Orkige
 		return (std::fabs(candidate) >= std::fabs(current)) ? candidate : current;
 	}
 	//---------------------------------------------------------
+	float InputActionMap::applyDeadzone(float raw, float deadzone)
+	{
+		if(!std::isfinite(raw) || !std::isfinite(deadzone))
+		{
+			return 0.0f;
+		}
+		const float magnitude = std::fabs(raw);
+		if(deadzone <= 0.0f)
+		{
+			return std::clamp(raw, -1.0f, 1.0f);
+		}
+		if(deadzone >= 1.0f || magnitude <= deadzone)
+		{
+			return 0.0f;
+		}
+		// rescale the live band onto the full range: the first movement past
+		// the zone starts at 0 instead of jumping to the zone's width
+		const float scaled = (magnitude - deadzone) / (1.0f - deadzone);
+		const float clamped = std::min(scaled, 1.0f);
+		return (raw < 0.0f) ? -clamped : clamped;
+	}
+	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	InputAction const * InputActionMap::findAction(String const & name) const
@@ -413,6 +538,18 @@ namespace Orkige
 			// the vector's -1 y (see InputManager::getTilt)
 			const Vec3 tilt = input.getTilt();
 			return (binding.tiltComponent == 1) ? tilt.y : tilt.x;
+		}
+		case InputActionBinding::GamepadButton:
+			return anyGamepadButtonDown(binding.gamepadButtons, input)
+				? 1.0f : 0.0f;
+		case InputActionBinding::GamepadAxis:
+		{
+			// the raw reading is UNDEADZONED (InputManager keeps it that way,
+			// so one stick can feed several actions at different tolerances):
+			// the binding's own zone is applied here
+			const float value = applyDeadzone(
+				input.getGamepadAxis(binding.gamepadAxis), binding.deadzone);
+			return binding.invert ? -value : value;
 		}
 		default:
 			return 0.0f;

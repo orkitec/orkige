@@ -15,6 +15,7 @@
 //! the RenderSystem facade IS the boot - see Docs/render-abstraction.md).
 
 #include "engine_render_next/NextBackend.h"
+#include "engine_render/RenderSystemSelection.h"	// the deviceless boot word
 #include <core_util/SkyEnvMap.h>
 #include <core_util/PlanarReflectionGuard.h>
 #include <core_debug/Breadcrumbs.h>	// crash-survivable trail at the mid-run mirror init points
@@ -42,6 +43,7 @@
 // ports/ogre-next builds the Vulkan RS with XCB windowing on Linux)
 #include <OgreVulkanPlugin.h>
 #endif
+#include <OgreNULLPlugin.h>	// the deviceless render system (@see bootRenderSystemPlugin)
 #include <OgrePlugin.h>
 #include <OgreRenderSystem.h>
 #include <OgreSceneManager.h>
@@ -55,6 +57,10 @@
 #include <OgreHlmsListener.h>	// the pass-buffer seam the water swell clock rides
 #include <OgreRectangle2D2.h>
 #include <OgreMaterial.h>
+#include <OgreDepthBuffer.h>			// the deviceless window's depth-less declaration
+#include <Vao/OgreVaoManager.h>			// the deviceless vao-name reservation
+#include <Vao/OgreVertexArrayObject.h>
+#include <Vao/OgreVertexBufferPacked.h>
 #include <OgreTextureGpuManager.h>
 #include <OgreTextureFilters.h>
 #include <OgreTextureBox.h>
@@ -602,11 +608,74 @@ namespace Orkige
 		//! the app initialises its resource groups. Sets the availability flag
 		//! setAtmosphere reads (a media-less boot leaves it false → honest
 		//! no-op). The HlmsPbs object-fog integration pieces ride in the Hlms
+		//! the vertex array object + buffer a deviceless boot parks forever
+		//! (@see reserveDevicelessVaoName)
+		Ogre::VertexArrayObject* gDevicelessVao = NULL;
+		Ogre::VertexBufferPacked* gDevicelessVaoBuffer = NULL;
+
+		//! @brief park one live vertex array object so no later one is named 0
+		//! @remarks The deviceless render system names a vertex array object
+		//! after the COUNT of live ones, so the first one it hands out is
+		//! named zero - and zero is the render queue's reserved "no vao bound
+		//! yet" value, which a debug build asserts on at the first draw call.
+		//! Keeping one object alive from boot moves every real name to one or
+		//! above; the parked one is never attached to anything and is released
+		//! with the render system. Costs one vertex of memory, and only in a
+		//! run that already asked for no GPU.
+		void reserveDevicelessVaoName(Ogre::VaoManager* vaoManager)
+		{
+			if(!vaoManager || gDevicelessVao)
+			{
+				return;
+			}
+			Ogre::VertexElement2Vec elements;
+			elements.push_back(Ogre::VertexElement2(Ogre::VET_FLOAT3,
+				Ogre::VES_POSITION));
+			const float vertex[3] = { 0.0f, 0.0f, 0.0f };
+			gDevicelessVaoBuffer = vaoManager->createVertexBuffer(elements,
+				1u /*numVertices*/, Ogre::BT_DEFAULT,
+				const_cast<float*>(vertex), false /*keepAsShadow*/);
+			Ogre::VertexBufferPackedVec buffers;
+			buffers.push_back(gDevicelessVaoBuffer);
+			gDevicelessVao = vaoManager->createVertexArrayObject(buffers,
+				NULL /*indexBuffer*/, Ogre::OT_TRIANGLE_LIST);
+		}
+
+		//! @brief release the parked vertex array object (@see above)
+		void releaseDevicelessVaoName(Ogre::VaoManager* vaoManager)
+		{
+			if(!vaoManager)
+			{
+				gDevicelessVao = NULL;
+				gDevicelessVaoBuffer = NULL;
+				return;
+			}
+			if(gDevicelessVao)
+			{
+				vaoManager->destroyVertexArrayObject(gDevicelessVao);
+				gDevicelessVao = NULL;
+			}
+			if(gDevicelessVaoBuffer)
+			{
+				vaoManager->destroyVertexBuffer(gDevicelessVaoBuffer);
+				gDevicelessVaoBuffer = NULL;
+			}
+		}
+
 		//! Pbs templates registered above.
 		void registerAtmosphereMedia(String const & mediaRoot)
 		{
 			gAtmosphereMediaAvailable = false;
 			if(mediaRoot.empty())
+			{
+				return;
+			}
+			// DEVICELESS: this media is `.material`/`.program` SCRIPTS - the
+			// low-level shader tier. A render system with no device has no
+			// GPU program manager to parse them into, and nothing they define
+			// could run, so the sky media stays unregistered and setAtmosphere
+			// keeps its honest media-less no-op.
+			if(RenderSystemSelection::devicelessRequested())
 			{
 				return;
 			}
@@ -661,13 +730,27 @@ namespace Orkige
 		Ogre::Root* root = OGRE_NEW Ogre::Root(NULL /*abiCookie*/,
 			"" /*pluginFileName*/, "" /*configFileName*/,
 			options.logFileName, "Orkige");
+		// the DEVICELESS boot (@see engine_render/RenderSystemSelection.h): a
+		// process that asked for no window and no GPU installs the deviceless
+		// render system INSTEAD of the platform's graphics one. Everything
+		// below stays the one boot sequence - the deviceless window, its Vao
+		// manager and its texture manager satisfy the same interfaces, so no
+		// call site downstream learns which render system it got.
+		const bool deviceless = RenderSystemSelection::devicelessRequested();
+		if(deviceless)
+		{
+			gRenderSystemPlugin = OGRE_NEW Ogre::NULLPlugin();
+		}
+		else
+		{
 #if defined(__APPLE__)
-		gRenderSystemPlugin = OGRE_NEW Ogre::MetalPlugin();
+			gRenderSystemPlugin = OGRE_NEW Ogre::MetalPlugin();
 #else
-		// TODO(linux): authored against the Ogre-Next 3.0 sources, first
-		// real Linux run pending (verified in CI - see .github/workflows)
-		gRenderSystemPlugin = OGRE_NEW Ogre::VulkanPlugin();
+			// TODO(linux): authored against the Ogre-Next 3.0 sources, first
+			// real Linux run pending (verified in CI - see .github/workflows)
+			gRenderSystemPlugin = OGRE_NEW Ogre::VulkanPlugin();
 #endif
+		}
 		root->installPlugin(gRenderSystemPlugin, NULL);
 		Ogre::RenderSystemList const & renderers =
 			root->getAvailableRenderers();
@@ -727,6 +810,22 @@ namespace Orkige
 		// on framebufferOnly layers unless the window opts in
 		window->setWantsToDownload(true);
 		window->_setVisible(true);
+		if(deviceless)
+		{
+			reserveDevicelessVaoName(
+				root->getRenderSystem()->getVaoManager());
+			// The deviceless window's colour texture reports itself as
+			// window-specific but answers no "Window" custom attribute, so
+			// the depth-buffer lookup for a pass targeting it would read an
+			// UNINITIALISED window pointer. Declare the window depth-less
+			// instead: the lookup returns "no depth buffer" before it ever
+			// asks, and a run that draws nothing has no use for one. Render
+			// textures are unaffected - they are not window-specific and take
+			// the ordinary pooled path.
+			window->getTexture()->_setDepthBufferDefaults(
+				Ogre::DepthBuffer::POOL_NO_DEPTH, false /*preferDepthTexture*/,
+				Ogre::PFG_UNKNOWN);
+		}
 
 #if defined(ORKIGE_IPHONE)
 		// iOS: the render system created its own OgreMetalView detached from
@@ -856,6 +955,13 @@ namespace Orkige
 			return;
 		}
 		Ogre::Root* root = gRenderSystem->mImpl->root;
+		// the parked deviceless vertex array object (@see
+		// reserveDevicelessVaoName) goes back to the Vao manager that made it,
+		// before the root tears that manager down. A no-op on a graphics boot.
+		if(root->getRenderSystem())
+		{
+			releaseDevicelessVaoName(root->getRenderSystem()->getVaoManager());
+		}
 		// the planar reflection subsystem owns reflection cameras, RTTs and
 		// workspaces on the scene + compositor managers, and holds a pointer set
 		// on HlmsPbs - it must die BEFORE the root tears the scene manager down

@@ -11,6 +11,8 @@
 
 #include <core_debugnet/WebSocket.h>
 #include <core_debug/DebugMacros.h>
+#include <core_filesystem/FileWriter.h>
+#include <core_util/SecretToken.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -20,7 +22,6 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
-#include <random>
 #include <sstream>
 #include <thread>
 #include <utility>
@@ -107,21 +108,6 @@ namespace Orkige
 			}
 			return std::string();
 		}
-
-		//! a random hex-ish token (the lock's authToken; 128 bits of CSPRNG)
-		std::string mintToken()
-		{
-			std::random_device device;
-			std::uniform_int_distribution<int> nibble(0, 15);
-			static const char* HEX = "0123456789abcdef";
-			std::string token;
-			token.reserve(32);
-			for (int i = 0; i < 32; ++i)
-			{
-				token += HEX[nibble(device)];
-			}
-			return token;
-		}
 	}
 	//---------------------------------------------------------
 	EditorIdeServer::EditorIdeServer() = default;
@@ -137,7 +123,9 @@ namespace Orkige
 		{
 			return false;
 		}
-		mToken = mintToken();
+		// the lock's authToken - the same secret primitive the MCP control
+		// endpoint mints (@see mintSecretToken)
+		mToken = mintSecretToken();
 		// the WebSocket upgrade takeover: an accepted (auth-checked) handshake
 		// hands the raw socket here; adopted into a WebSocketConnection next pump
 		mServer.setTakeoverHandler(
@@ -200,18 +188,16 @@ namespace Orkige
 		info.ideName = "Orkige";
 		info.transport = "ws";
 		info.authToken = mToken;
-		std::ofstream out(lockPath, std::ios::binary | std::ios::trunc);
-		if (!out)
+		// the lock quotes the endpoint's auth token, so it is written
+		// OWNER-ONLY from the instant it exists (@see FileWriter::beginOwnerOnly)
+		String writeError;
+		if (!FileWriter::writeOwnerOnlyFile(lockPath.string(),
+			OrkigeEditor::serializeIdeLock(info), writeError))
 		{
+			oDebugWarn("editor.ide", 0, "could not write the IDE lock at " <<
+				lockPath.string() << ": " << writeError);
 			return false;
 		}
-		out << OrkigeEditor::serializeIdeLock(info);
-		out.close();
-#ifndef _WIN32
-		// the token is a secret: keep the lock readable by its owner only
-		fs::permissions(lockPath, fs::perms::owner_read | fs::perms::owner_write,
-			fs::perm_options::replace, ec);
-#endif
 		mLockPath = lockPath.string();
 		mLockWorkspace = workspaceFolders;
 		return true;

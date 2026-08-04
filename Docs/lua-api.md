@@ -5,9 +5,14 @@ The scripting surface a game reaches from a script component
 `projects/jumper-lua/scripts/player.lua` and
 `projects/roller/scripts/ball.component.lua` are the reference reads.
 
-A script is a **component kind** iff its file name ends in `.component.lua` (see
-[Script components](#script-components) below): `player.component.lua` attaches
-as the component `player`. Plain `.lua` files are libraries, never attachable.
+The file name says what a `.lua` file IS — the suffix marks the kind:
+
+| File | What it is |
+| --- | --- |
+| `scripts/player.component.lua` | a component **kind** named `player`: attachable by name in the editor, over MCP and in a scene (see [Script components](#script-components)) |
+| `scripts/mathutil.lua` | a **library**: shared code another script loads with [`script.require`](#sharing-code-between-scripts-scriptrequire). It is not a component kind, so nothing offers it in the Add Component list — but the low-level path-bound `ScriptComponent` can still be pointed at any `.lua` file by path |
+| `scripts/retag.editor.lua` | an editor **tool**: a one-shot command in the editor's Tools menu (see [Editor scripts](#editor-scripts-tools-menu)) |
+| `tests/movement.test.lua` | a **test file**: run against the project with `orkige_player --run-tests` — [testing.md](testing.md) |
 
 This page is layered. The **signature index** below is the whole API, one line per
 symbol, for a fast top-to-bottom scan (an agent ingests it in a single read). Below
@@ -48,14 +53,36 @@ the process log stream — no file/process access). `os` is kept only as a **pru
 read-only subset**: `os.time`, `os.clock`, `os.date` (RNG seeding / timing /
 timestamp formatting carry no capability). Plus the sanctioned engine API tables —
 `world`, `shared`, `self`, `music`, `save`, `screen`, `haptics`, `input`, `data`,
-`loc`, the component handles, and (editor only) `editor.*` — which are the
-intended API.
+`script`, `loc`, the wait functions, the component handles, and (editor only) `editor.*` — which are
+the intended API.
 
 `data` is the read-only content access granted in place of the denied file
 globals: it reads authored data files by project-relative name and grants
 strictly less than `io` — no writes, no handles, no path outside the project, and
 only content that is actually mounted. See
 [Reading data files](#reading-data-files-the-data-table).
+
+`coroutine` is **opened and then replaced**. The library is pure control flow and
+carries no capability at all, so nothing about it is dangerous to *compute* with —
+but a coroutine a script creates itself puts the **resume point** in the script's
+hands, and a resume that lands inside a physics contact callback or an event
+dispatch re-enters the world mid-update. The engine therefore keeps that point:
+`coroutine.yield` is captured into the three wait functions (`wait`, `waitFrames`,
+`waitUntil`), the raw table is set to `nil`, and the only way to create a
+suspendable piece of game code is `script.async`, whose tasks the engine owns and
+resumes at exactly one place in the frame. See
+[Tasks](#tasks-code-that-spans-frames-scriptasync).
+
+`script.require` is the library loader granted in place of the denied `require`.
+It is **not** a relaxation of the sandbox, and the reasoning is the point: a
+scene can already attach a path-bound `ScriptComponent` naming any
+project-relative `.lua` file, so a hostile `.oscene` can already cause any
+project script to run. A loader jailed to project-relative `.lua` names reaches
+**exactly the same files** — the same capability with better ergonomics, not a
+new one. What stock `require` additionally granted (the package path, C modules,
+an arbitrary search) and what `load` grants (code synthesised from a *string*)
+stay denied. See
+[Sharing code between scripts](#sharing-code-between-scripts-scriptrequire).
 
 **Denied — every escape from "content" to the machine** (each is `nil`; a call
 errors honestly):
@@ -64,9 +91,10 @@ errors honestly):
 | --- | --- |
 | `io` | raw file handles (read/write/delete arbitrary files) |
 | `os.execute`, `os.remove`, `os.rename`, `os.exit`, `os.getenv`, `os.tmpname` | process execution, filesystem + environment access (dropped from the `os` subset) |
-| `require`, `package` | load Lua/C modules off the package path (the `package` library is never opened) |
+| `require`, `package` | load Lua/C modules off the package path (the `package` library is never opened) — `script.require` is the jailed, project-only replacement |
 | `load`, `loadstring`, `loadfile`, `dofile` | compile+run arbitrary source / read+run an arbitrary file |
 | `debug` | the reflection + hook library (bypasses every sandbox boundary) |
+| `coroutine` | not a denial of capability but of the RESUME POINT — replaced by `script.async` + `wait`/`waitFrames`/`waitUntil`, which the engine resumes at one place in the tick order |
 
 `collectgarbage` is **permitted**: it controls only the garbage collector (force a
 collection, read the live count) and carries no file/process/code-loading
@@ -174,6 +202,20 @@ screens.depth() -> int  -- screens on the stack
 screens.clear()  -- pop every screen
 screens.setBackHandler(handler)  -- own the back gesture (handler decides)
 
+## input
+input.touchCount() -> number  -- fingers reported this frame (a lifting one counts once more)
+input.touch(i) -> id, x, y, phase  -- 1-based finger: window pixels + 'began'/'moved'/'ended'/'none'
+input.touchDelta(i) -> dx, dy  -- that finger's movement since the previous frame, window pixels
+input.pointer() -> Vector2  -- the one pointer (mouse or finger) in window pixels
+input.pointerDown([button]) -> bool  -- pointer button held ('left' default, 'middle', 'right')
+input.pointerPressed([button]) -> bool  -- pointer button went down this frame
+input.pointerReleased([button]) -> bool  -- pointer button came up this frame
+input.keyDown(name) -> bool  -- raw key by name ('SPACE', 'LEFT'); prefer a named action
+input.gamepadCount() -> number  -- connected controllers
+input.gamepadConnected() -> bool  -- is a controller present (show pad button prompts)
+input.gamepadButton(name) -> bool  -- pad button held; positional names ('south', 'dpleft'), a/b/x/y alias
+input.gamepadAxis(name) -> number  -- RAW stick/trigger reading, undeadzoned (sticks -1..1, +y down)
+
 ## haptics
 haptics.play(strength, ms)  -- generic vibration; no-op off-device
 haptics.pattern(name)  -- named haptic (light..selection); preferred on iOS
@@ -228,6 +270,10 @@ benchmark.isArmed() -> bool  -- is a benchmark run being recorded
 timer.after(seconds, fn) -> TimerHandle  -- run fn() ONCE after a delay; sandbox-scoped (auto-cancels on retire)
 timer.every(seconds, fn) -> TimerHandle  -- run fn() every `seconds`; sandbox-scoped (auto-cancels on retire)
 timer.cancel(handle) -> bool  -- stop a scheduled timer (also handle:cancel())
+
+## script
+script.async(fn) -> ScriptTaskHandle  -- run fn as a TASK that spans frames (wait/waitFrames/waitUntil suspend it); sandbox-scoped (auto-cancels on retire), resumed only in the script phase
+script.require(name) -> value  -- load another project .lua as a LIBRARY and return its value (cached per sandbox); raises on a refused name, a miss or a cycle
 
 ## game
 game.setState(name)  -- set the game state; fires game.stateChanged {old,new} on the event bus
@@ -553,6 +599,110 @@ handle — `self.gameObject` stored across frames, a contact OTHER stashed for l
 — is always safe: it locks per call and raises honestly once its object is
 destroyed, never dereferencing freed engine state.
 
+## Input: named actions and raw devices
+
+Input reaches a game at two levels, and which one to use is decided by one
+question: **does the input carry an intent, or a position?**
+
+**Named actions — `InputActions`.** A game asks for intent (`"jump"`, `"move"`,
+`"steer"`), never for hardware, so the same script runs under a keyboard, a tilted
+phone or a controller. Each action combines any number of bindings — keys, a key
+axis, the tilt, a gamepad button, a gamepad stick — and several bindings on one
+component combine by **max magnitude**: whichever source pushes harder owns the
+value that frame. A half-pushed stick loses to a held arrow key; a full stick
+deflection matches it. That rule is why a key binding and a controller binding on
+the same action need no special case at all.
+
+Edges follow a **once-per-frame snapshot**: `pressed`/`released` are computed once
+in the game loop's input slot, before the scripts that read them, so two reads in
+the same frame always agree and a press stays true for exactly one frame.
+
+```lua
+local actions = InputActions.getSingleton()
+if actions:pressed("jump") then ... end          -- SPACE or the pad's south button
+local move = actions:value2("move")              -- WASD/arrows or the left stick
+```
+
+**Controllers are answered by the built-in defaults**, so a project is playable on
+a pad with zero authoring: the left stick drives `move` and `steer`, the bottom
+face button (`A` on one vendor's pad, `B` on another's — the engine names it
+`south`) is `jump`, `start` is `menu_toggle` and the dpad drives
+`menu_left`/`right`/`up`/`down`. A stick's `+y` is **down**, matching the key axis
+(`W`/`UP` is negative). Sticks read `-1`..`1` through a **deadzone** (0.25 by
+default) that is a rescaled curve, not a cut-off: motion starts at 0 just past the
+zone and full deflection still reaches `±1`, so there is no step at the edge.
+Triggers read `0`..`1`.
+
+A project overrides the whole set with an `input.oactions` file (the config-asset
+convention: a project-relative path under the manifest `Settings` key
+`input.actions`, outside `assets/`, not id-tracked). A binding stores a gamepad
+button list, an axis, a deadzone and an invert flag alongside the key groups. Pad
+state is **merged across connected controllers** — one player, several pads;
+per-pad state is not a v1 surface.
+
+### The `input` table (raw devices)
+
+Touch is deliberately **not** a binding shape: a finger carries a position, and a
+position has no intent. On-screen controls are gui widgets ([gui.md](gui.md));
+everything else positional is read from the global `input` table.
+
+**One coordinate space: window pixels** of the game's drawable — the same numbers
+the gui hit-tests widgets in, that `get_ui_layout` reports over MCP and that the
+`send_input` grammar spells. Touch arrives from the platform normalised and is
+converted once on the way in; the pointer is already in that space. Content scale
+and safe-area insets are **separate, composable** concepts and are not applied
+here — read them from `engine:getContentScale()` and `engine:getSafeAreaInsets()`
+when a layout needs them.
+
+```lua
+for i = 1, input.touchCount() do
+    local id, x, y, phase = input.touch(i)       -- window pixels
+    if phase == "began" then                     -- "began" / "moved" / "ended"
+        aimAt(x, y)
+    elseif phase == "moved" then
+        local dx, dy = input.touchDelta(i)       -- movement since last frame
+        pan(dx, dy)
+    end
+end
+
+local p = input.pointer()                        -- Vector2, window pixels
+if input.pointerPressed() then fire(p.x, p.y) end -- optional "left"/"middle"/"right"
+
+if input.gamepadConnected() then showPadPrompts() end
+```
+
+A finger is reported in `began` for exactly one frame, in `moved` for every frame
+it stays down (whether it moved or not) and in `ended` for exactly one frame —
+that last frame is where a game reads the release, so a finger is still counted by
+`touchCount()` while lifting. A tap that goes down and up inside a single frame is
+still seen as `began` and then `ended`, never swallowed. `input.touch(i)` is
+1-based like every Lua sequence; an index outside `1..touchCount()` answers id
+`-1` and phase `"none"` rather than erroring.
+
+The **pointer is one pointer**: the mouse on desktop and the finger on a touch
+screen (the platform raises pointer events for touches too), so a tap and a click
+hit-test with the same numbers. `pointerDown` reads the held state,
+`pointerPressed`/`pointerReleased` the one-frame edges of the same snapshot the
+action map uses.
+
+The controller half of the table is what a game needs to **show the right button
+prompts** and to read a pad directly: `input.gamepadCount()`,
+`input.gamepadConnected()`, `input.gamepadButton(name)` and
+`input.gamepadAxis(name)`. Names are positional (`"south"`, `"dpleft"`,
+`"lefttrigger"`) with the lettered `"a"`/`"b"`/`"x"`/`"y"` as aliases; an unknown
+name reads `false`/`0` instead of erroring, so a prompt never crashes a game. The
+axis reading is **raw** (undeadzoned) — the deadzone belongs to whatever reads it,
+which is why one stick can feed several actions at different tolerances.
+`input.keyDown(name)` polls a raw key by the same name vocabulary the injected
+input grammar spells; prefer a named action for anything a player would rebind.
+
+The table carries **no capability** — it is read-only device state — which is why
+it sits in the permitted sandbox set beside `world`, `save` and `haptics`.
+
+Everything here is driveable over MCP with `send_input` (`touch …`,
+`gamepad …`), so an agent can test a touch or controller game it just wrote on a
+machine with neither device attached — see [mcp.md](mcp.md#driving-gameplay-send_input).
+
 ## Component enable / disable
 
 Every component carries a generic **`enabled`** flag (default `true`) — declared
@@ -666,6 +816,114 @@ allowed; *running* it is not, and `load`, `loadstring`, `loadfile`, `dofile` and
 
 `projects/jumper-lua` is the worked example: its feel numbers live in
 `data/tuning.json` and `scripts/player.lua` reads them in `init`.
+
+## Sharing code between scripts (`script.require`)
+
+A plain `.lua` file is a **library**: shared helpers, common math, a wrapper
+around a data table. Another script picks it up by project-relative name.
+
+```lua
+-- scripts/mathutil.lua
+local M = {}
+function M.clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
+return M
+```
+
+```lua
+-- scripts/player.component.lua
+local m = script.require("scripts/mathutil.lua")
+
+function update(self, dt)
+    self.transform:setPosition(Vector3(m.clamp(x, -8, 8), y, z))
+end
+```
+
+`script.require(name)` returns the value the library's chunk returns (`true`
+when it returns nothing, matching stock `require`). It **raises** on failure
+rather than returning `nil` plus a reason the way `data` does, and the
+difference is deliberate: absent *data* is a situation a game handles, a missing
+*library* is a broken dependency. The message names the library and carries the
+requiring line's own `file:line` prefix.
+
+**Where a library may live.** Anywhere in the project, under any directory —
+the name is a project-relative path and the only shape rules are that it must
+not escape the project (no absolute path, no drive/UNC root, no `..` segment)
+and must end in `.lua`. The read resolves through the content mounts, so a loose
+file, an entry in a mounted pak and a file inside a phone's package all answer
+the identical call.
+
+**Each sandbox gets its own copy.** A library is loaded at most once *per
+requiring sandbox*, not once per process. Requiring it twice inside one script
+returns the identical value; two script instances requiring the same library get
+two independent copies. That follows the sandbox rule this whole surface is
+built on — one instance's state never leaks into another's, and deliberate
+sharing goes through the `shared` table. It is also what makes hot-reload
+correct: a rebuilt sandbox re-reads its libraries with no cache to invalidate.
+
+**A library does not see its caller.** The chunk runs in its own environment
+with the globals underneath it, so it has no `self`, no view of the requiring
+script's locals, and no way to write into them. Pass what it needs as arguments.
+
+**A dependency cycle is refused by name**, not by a stack overflow: if `a.lua`
+requires `b.lua` which requires `a.lua`, the second require raises
+`circular library dependency (scripts/a.lua -> scripts/b.lua -> scripts/a.lua)`.
+
+Libraries are available in **every** sandbox — game script components, editor
+tools and test files alike — because they are all the same hardened state.
+`projects/jumper-lua/scripts/jumperlib.lua` is the worked example: the jumper's
+feel math lives there, `scripts/player.lua` runs on it, and
+`projects/jumper-lua/tests/` tests it ([testing.md](testing.md)).
+
+## Tasks: code that spans frames (`script.async`)
+
+Some game logic is a *sequence*, not a state machine: open the door, wait half a
+second, play the chime, wait for the player to walk through, close it. Written
+against `update` that becomes a hand-rolled step counter. Written as a task it
+stays one readable function.
+
+```lua
+function init(self)
+    self.intro = script.async(function()
+        wait(0.5)                                     -- seconds of GAMEPLAY time
+        world.getAnimation("Door"):play("open")
+        waitFrames(2)                                 -- ticks, for a one-frame settle
+        waitUntil(function() return shared.doorOpen end)   -- a condition, asked once a frame
+        events.emit("intro.done")
+    end)
+end
+```
+
+`script.async(fn)` starts `fn` and returns a **handle**: `task:cancel()` stops it,
+`task:isActive()` says whether it is still going. The three waits suspend the task
+that calls them:
+
+| Wait | Comes back |
+| --- | --- |
+| `wait(seconds)` | after that many seconds of **scaled gameplay time** — a hitstop (`world.setTimeScale(0)`) holds a wait too |
+| `waitFrames(n)` | after `n` task ticks (one per advanced frame) |
+| `waitUntil(fn [, limitFrames])` | the first tick `fn()` returns true. With `limitFrames`, a condition that never comes true **gives up and fails the task by name** instead of waiting forever |
+
+The rules a task lives by — the same four every other live thing in the engine
+carries, which is why they need no separate bookkeeping:
+
+- **It is owned by the sandbox that started it.** Removing the component,
+  destroying the object, tearing the scene down or hot-reloading the script
+  cancels it. You never cancel tasks in `shutdown`.
+- **It dies with the scene**, like a tween or a timer.
+- **It is never serialized.** A task is live control flow, not state: a save file
+  records what the game *decided*, never where a coroutine was parked. A sequence
+  that must survive a save has to write down its step itself.
+- **It is resumed at exactly ONE point in the frame** — the script phase of the
+  tick order, right after the component updates. A task can therefore never
+  continue inside a physics contact callback, an event handler or a render pass,
+  and two tasks never interleave mid-statement. It is also why `wait(0)` still
+  costs one frame: the earliest a suspended task can come back is the next tick.
+
+A wait called outside a task raises (there is nothing to suspend), and
+`script.async` is an honest no-op in the editor, which never ticks game scripts.
+
+Tests use the same waits through their assertion table (`t.wait`,
+`t.waitFrames`, `t.waitUntil`) — see [testing.md](testing.md).
 
 ## Canonical snippets
 
@@ -918,6 +1176,10 @@ LevelManager:saveProgress()  -- write the progression save file
 ## TimerHandle
 TimerHandle:cancel()  -- stop the timer now
 TimerHandle:isActive() -> bool  -- is the timer still scheduled
+
+## ScriptTaskHandle
+ScriptTaskHandle:cancel(...)
+ScriptTaskHandle:isActive(...)
 
 ## GameObject
 GameObject(...)

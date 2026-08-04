@@ -127,6 +127,12 @@ namespace OrkigeExport
 	//---------------------------------------------------------
 	std::vector<Orkige::String> payloadSubdirs()
 	{
+		// DELIBERATELY without "tests": a project's `tests/*.test.lua` suite is
+		// a development artefact - it is run against a project on a dev machine
+		// (orkige_player --run-tests), never by a shipped game - so it stays out
+		// of every payload BY CONSTRUCTION rather than by a later strip. Adding
+		// it here would ship a game's test suite to players; the export suite
+		// asserts its absence so that edit cannot pass silently.
 		return { "scenes", "assets", "scripts", "data" };
 	}
 	//---------------------------------------------------------

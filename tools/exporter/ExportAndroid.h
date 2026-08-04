@@ -20,23 +20,19 @@
 //! @file ExportAndroid.h
 //! @brief packaging a project as an Android APK or App Bundle.
 //!
-//! The ASSEMBLY of an Android package is `aapt2` + `d8` + `apksigner` (or
-//! bundletool + jarsigner) driven by two shell scripts that live beside the
-//! player: `tools/player/android/package_apk.sh` and `build_aab.sh`. They own
-//! the SDK-tool choreography and are driven unchanged - what an export
-//! contributes is everything before them: the staged project payload, the
-//! launcher-icon `res/` tree, the launch-screen colour, the validated package
-//! name and version, and the credential gate a signed bundle sits behind.
-//!
-//! So the exporter's Android surface is argument composition, which is exactly
-//! what the pure builders below expose: what breaks a package is a wrong flag
-//! or a missing gate, never the SDK tools themselves.
+//! This file owns the two halves an export decides: whether the MACHINE can
+//! assemble a package at all (the toolchain probe and its program-by-program
+//! refusal) and what the package SAYS (the validated package name, the
+//! launcher-icon `res/` tree, the launch colour, the version, and the
+//! credential gate a signed bundle sits behind). The assembly itself - the SDK
+//! programs, spawned directly as argv, and the archive written around them -
+//! is @ref ExportAndroidAssemble.h.
 //!
 //! @par Two engine sources, like every other platform
-//! The player and the assembler come either from a preset BUILD TREE (the
+//! The player and the assembly pieces come either from a preset BUILD TREE (the
 //! developer case) or from a fetched device PAYLOAD, which is what an editor
 //! with no repository packages from (Docs/device-payloads.md). A payload
-//! carries the stripped `libmain.so`, the engine media, the packaging script
+//! carries the stripped `libmain.so`, the engine media, the manifest template
 //! and the Java sources it compiles - everything that belongs to the ENGINE.
 //!
 //! @par Three prerequisite tiers, never conflated
@@ -100,6 +96,12 @@ namespace OrkigeExport
 	Orkige::String newestAndroidPlatform(
 		std::vector<Orkige::String> const & names, int minimumApi);
 
+	//! @brief the vcpkg root a BUILD TREE's SDL Java glue comes out of:
+	//! `VCPKG_ROOT`, else this machine's usual checkout. PURE.
+	//! @remarks a fetched device payload carries the glue outright and never
+	//! consults this - a distributed editor has no vcpkg at all.
+	Orkige::String androidVcpkgRoot(EnvironmentMap const & environment);
+
 	//! @brief the directories an Android SDK is looked for in, in order:
 	//! `ANDROID_HOME`, `ANDROID_SDK_ROOT`, then this platform's default
 	//! install location under the user's home. PURE, so the precedence is
@@ -129,30 +131,7 @@ namespace OrkigeExport
 	bool androidPackageName(ExportProject const & project,
 		Orkige::String & out, Orkige::String * error);
 
-	//! @brief the `package_apk.sh` command line (PURE).
-	//! @param orientation the normalised `export.orientation`; only a NON-auto
-	//!        lock injects `--orientation`, so an unconstrained project leaves
-	//!        the manifest template byte-identical
-	//! @param engineBuild the preset build tree, passed positionally
-	//! @param enginePayload the fetched device payload instead - `--payload`.
-	//!        Exactly ONE of the two is set: they are the two engine sources,
-	//!        and the script refuses both together for the same reason the
-	//!        exporter does.
-	//! @param tools the resolved machine toolchain, handed DOWN rather than
-	//!        looked up again: the programs the export checked for and reported
-	//!        on are then exactly the ones that run. An empty one leaves the
-	//!        script to resolve its own, which is what a hand run does.
-	std::vector<Orkige::String> androidApkArguments(
-		Orkige::String const & script, Orkige::String const & payloadDirectory,
-		Orkige::String const & package, Orkige::String const & label,
-		Orkige::String const & resDirectory,
-		Orkige::String const & launchColour, Orkige::String const & assetsMode,
-		Orkige::String const & orientation, Orkige::String const & outputPath,
-		Orkige::String const & engineBuild,
-		Orkige::String const & enginePayload = Orkige::String(),
-		AndroidToolchain const & tools = AndroidToolchain());
-
-	//! @brief what a release App Bundle needs beyond the APK arguments
+	//! @brief what a release App Bundle needs beyond an APK
 	struct AndroidBundleOptions
 	{
 		int				versionCode = 1;
@@ -163,16 +142,6 @@ namespace OrkigeExport
 		AndroidKeystore	keystore;
 		Orkige::String	bundletool;
 	};
-
-	//! @brief the `build_aab.sh` command line (PURE)
-	std::vector<Orkige::String> androidBundleArguments(
-		Orkige::String const & script, Orkige::String const & payloadDirectory,
-		Orkige::String const & package, Orkige::String const & label,
-		Orkige::String const & resDirectory,
-		Orkige::String const & launchColour, Orkige::String const & assetsMode,
-		Orkige::String const & orientation, Orkige::String const & outputPath,
-		Orkige::String const & engineBuild,
-		AndroidBundleOptions const & options);
 
 	//! @brief the credential gate a SIGNED App Bundle sits behind: the list of
 	//! missing pieces, empty when the bundle can be built and signed. PURE, so

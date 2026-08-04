@@ -15,6 +15,8 @@
 #include "core_util/optr.h"
 #include "core_base/PropertyValue.h"
 #include "core_script/ScriptDebugCore.h"
+#include "core_script/ScriptTaskManager.h"
+#include "core_script/ScriptTestReport.h"
 
 #include <functional>
 #include <map>
@@ -283,6 +285,89 @@ namespace Orkige
 		//! script error, scripting disabled)
 		optr<ScriptInstance> loadScriptInstance(String const & scriptFile,
 			String * outError);
+
+		//! @brief read a script file's SOURCE by project-relative name: the
+		//! injected ResourceReader first (so a script inside a mounted pak/APK
+		//! resolves in place), then the on-disk file resolveScriptPath finds.
+		//! The ONE routing both loadScriptInstance and the library loader use,
+		//! so no consumer of script source ever grows an `fopen` of its own.
+		//! @return false with *outError set when the name resolves nowhere
+		bool readScriptSource(String const & scriptFile, String & outSource,
+			String * outError) const;
+
+		//! @brief run every test a `*.test.lua` file declares, in its own
+		//! sandbox seeded with the engine-owned test vocabulary
+		//! (@see scriptTestPrelude). Loading the file IS the declaration pass;
+		//! the bodies then run under pcall, so one failing test never stops the
+		//! rest.
+		//! @param resourceName the project-relative file (also the chunk name
+		//! every `file:line` in a message is written in terms of)
+		//! @param filter the `--test-filter` substring ("" runs everything),
+		//! matched by ScriptTestTools::filterMatches
+		//! @param outRecords receives one record per test actually RUN
+		//! @param outDeclared (optional) receives the number of tests the file
+		//! declared, so the caller can report how many the filter excluded
+		//! @return false with *outError set when the FILE itself could not be
+		//! loaded (not found, syntax error) or scripting is disabled - a whole
+		//! file that cannot load is a run failure, never a silent skip
+		bool runTestFile(String const & resourceName, String const & filter,
+			std::vector<ScriptTestRecord> & outRecords, int * outDeclared,
+			String * outError);
+
+		//--- script tasks ----------------------------------------------------
+		//! @brief start a SCRIPT TASK: run @p body as a coroutine that can
+		//! suspend itself on a wait and continue on a later frame (the
+		//! `script.async` surface). The task is adopted by the
+		//! ScriptTaskManager, which is the ONE place a task is ever resumed -
+		//! in the script phase of the canonical tick order.
+		//! @param owner the script sandbox the task belongs to: it is
+		//! cancelled when that sandbox retires (component removed, scene torn
+		//! down, script hot-reloaded)
+		//! @param tickLimit ticks before the task is given up on (0 =
+		//! unbudgeted, which is what a game task wants - waiting for a door
+		//! to open is not a bug; the test tier passes its own budget)
+		//! @return the task's id, or 0 with *outError set (no scripting
+		//! backend, no ScriptTaskManager in this host, or a body that is not
+		//! a function)
+		ScriptTaskManager::TaskId startScriptTask(ScriptCallback const & body,
+			void const * owner, int tickLimit, String * outError);
+
+		//--- the test tier's frame-driven road --------------------------------
+		//! a test file OPEN in its own sandbox (0 = none; @see beginTestFile)
+		typedef int ScriptTestSessionId;
+
+		//! @brief open a `*.test.lua` file: seed a fresh sandbox with the
+		//! engine-owned vocabulary, run the file (which IS the declaration
+		//! pass) and report the tests the filter selects. The sandbox stays
+		//! ALIVE until endTestFile, so a play-mode test's body can keep
+		//! running across frames.
+		//! @param outCases receives the selected tests in declaration order
+		//! @param outDeclared (optional) how many the file declared in total
+		//! @return false with *outError when the file could not be loaded
+		bool beginTestFile(String const & resourceName, String const & filter,
+			ScriptTestSessionId & outSession,
+			std::vector<ScriptTestCase> & outCases, int * outDeclared,
+			String * outError);
+		//! @brief run one selected test to completion RIGHT HERE (the tier
+		//! that needs no frames). @return false with *outError only when the
+		//! session/case does not exist - a test that fails is a filled record.
+		bool runTestCase(ScriptTestSessionId session, int caseIndex,
+			ScriptTestRecord & outRecord, String * outError);
+		//! @brief start one selected test as a script TASK (the play-mode
+		//! tier): the body runs across frames and lands its own record.
+		//! @param tickLimit the per-test frame budget - a wedged wait must be
+		//! a NAMED failure, never a hung run
+		//! @return the task's id, or 0 with *outError set
+		ScriptTaskManager::TaskId startTestCase(ScriptTestSessionId session,
+			int caseIndex, int tickLimit, String * outError);
+		//! @brief read the record a run/started case left behind
+		//! @return false when the case has not recorded an outcome (a task
+		//! that was cancelled or timed out never got that far)
+		bool testCaseRecord(ScriptTestSessionId session, int caseIndex,
+			ScriptTestRecord & outRecord);
+		//! @brief close a test file: its sandbox (and everything it kept
+		//! alive) is dropped, and any task still running in it is cancelled
+		void endTestFile(ScriptTestSessionId session);
 
 		//! @brief read a script file's top-level `properties` table (the
 		//! exported-property declaration) into backend-neutral
@@ -646,8 +731,20 @@ namespace Orkige
 		//! unchanged) whenever break-on-errors is off - so disarmed behavior is
 		//! byte-identical to having no handler at all.
 		void installDebugErrorHandler();
+		//! @brief hand the ScriptTaskManager this backend's coroutine
+		//! operations (called once from the ctor; a no-op without a backend)
+		void installTaskBackend();
+		//! @brief drop every task coroutine and open test sandbox WHILE the
+		//! scripting state is still open (called from the dtor)
+		void releaseTaskState();
 		//! the honest OFF-configuration error message
 		static String disabledError();
+#ifdef ORKIGE_LUA
+		//! open `*.test.lua` sandboxes, alive across frames while a play-mode
+		//! test runs in them (@see beginTestFile / endTestFile)
+		std::map<int, sol::environment>	testSessions;
+		int								nextTestSession = 0;
+#endif
 		//! id -> live GameObject for the registry-driven accessors (set by
 		//! installComponentAccessors; empty until then)
 		std::function<GameObject * (String const &)> componentResolver;

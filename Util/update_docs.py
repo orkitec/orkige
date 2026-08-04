@@ -67,7 +67,7 @@ RENDER_CAPS_EXPECTED_NEXT = os.path.join(
 # appended after these in discovery order.
 INDEX_TABLE_ORDER = [
     "world", "screen", "sound", "music", "tween", "guitween", "screens",
-    "haptics", "cvar", "save", "data", "events",
+    "input", "haptics", "cvar", "save", "data", "events",
 ]
 # the per-component world.<accessor>(id) lookups are declared at each
 # component's OSCRIPT_HANDLE site (not hand-wired in ScriptComponent.cpp), so
@@ -934,9 +934,10 @@ def cmd_selftest():
     # and `game` state; the scriptable-component registry added the generic
     # world.getComponent; the runtime object lifecycle added world.spawn /
     # world.despawn; the cvar table added registerString; the `data` table its
-    # three content reads); kept well inside one context read.
+    # three content reads; the `input` table the raw touch/pointer/controller
+    # reads); kept well inside one context read.
     size = len(index_text.encode("utf-8"))
-    assert size < 12500, "index is %d bytes, over the budget" % size
+    assert size < 13500, "index is %d bytes, over the budget" % size
     # (4) gui hierarchy tree includes the root chain
     gui_tree = render_gui_mermaid()
     assert "IGuiObject --> GuiWidget" in gui_tree, gui_tree

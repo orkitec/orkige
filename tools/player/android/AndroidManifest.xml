@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Orkige Player APK manifest (packaged by package_apk.sh, no Gradle).
+<!-- Orkige Player APK manifest - the template the exporter's Android assembly
+     substitutes a project's package, label, icon and version into (no Gradle).
      debuggable stays true on purpose: the editor's play mode delivers the
      temp scene via 'adb push + run-as' (the standard debuggable-app file
      drop) and the whole revival ships debug builds only. -->

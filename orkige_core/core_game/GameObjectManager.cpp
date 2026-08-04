@@ -12,6 +12,7 @@
 #include "core_event/GlobalEventManager.h"
 #include "core_tween/TweenManager.h"
 #include "core_tween/TimerManager.h"
+#include "core_script/ScriptTaskManager.h"
 #include "core_debug/Profile.h"
 #include <algorithm>
 
@@ -142,6 +143,15 @@ namespace Orkige
 		{
 			TimerManager::getSingleton().clear();
 		}
+		// suspended script TASKS die with the scene for the same reason: a
+		// coroutine parked in a wait holds this scene's objects in its locals
+		// and would continue into a world that is gone
+		// (core_script/ScriptTaskManager.h lifetime rules); none is resumed.
+		// The editor never creates one - guard.
+		if(ScriptTaskManager::getSingletonPtr() != 0)
+		{
+			ScriptTaskManager::getSingleton().clear();
+		}
 
 		this->numUpdatableComponents = 0;
 		this->currentUpdatableComponentIndex = 0;
@@ -163,7 +173,8 @@ namespace Orkige
 		// running tweens/timers die with the OUTGOING scene exactly as in
 		// clear(): their callbacks close over objects that may be torn down
 		// here. A persistent object's SCRIPT state survives, but an in-flight
-		// tween/timer it started does not (a documented first-version limit).
+		// tween/timer/task it started does not (a documented first-version
+		// limit).
 		if(TweenManager::getSingletonPtr() != 0)
 		{
 			TweenManager::getSingleton().clear();
@@ -171,6 +182,10 @@ namespace Orkige
 		if(TimerManager::getSingletonPtr() != 0)
 		{
 			TimerManager::getSingleton().clear();
+		}
+		if(ScriptTaskManager::getSingletonPtr() != 0)
+		{
+			ScriptTaskManager::getSingleton().clear();
 		}
 
 		// the survivor set: an object survives iff it (or any ancestor) is

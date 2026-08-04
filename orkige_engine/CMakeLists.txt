@@ -88,6 +88,10 @@ set(ORKIGE_ENGINE_SOURCES
     engine_render/RenderTexture.h
     engine_render/DrawLayer2D.h
     engine_render/DrawLayer2DClip.h
+    # which render system a process boots (incl. the deviceless one) - the ONE
+    # name vocabulary every host asks; flavor-neutral, so it lives here
+    engine_render/RenderSystemSelection.h
+    engine_render/RenderSystemSelection.cpp
     engine_render/RenderFacadeCheck.cpp
     # the `.omesh` asset road: flavor-NEUTRAL by construction, so it lives with
     # the facade instead of being copied into both backend directories
@@ -552,7 +556,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
             # PlanarReflection; engine_render_next drives Ogre::PlanarReflections)
             OgreNext::PlanarReflections
     )
-    # exactly one Ogre-Next render system per platform (the backend boot in
+    # exactly one GRAPHICS render system per platform (the backend boot in
     # engine_render_next/NextBackend.cpp installs the matching plugin):
     # Metal on Apple, Vulkan everywhere else (ports/ogre-next builds it with
     # the XCB windowing on Linux). TODO(linux): first real Linux run pending.
@@ -561,6 +565,12 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
     else()
         target_link_libraries(orkige_engine PUBLIC OgreNext::RenderSystem_Vulkan)
     endif()
+    # the DEVICELESS render system beside it: ORKIGE_RENDERSYSTEM=NULL boots a
+    # process with no window and no GPU (@see engine_render/
+    # RenderSystemSelection.h). Every platform carries it - whether a run can
+    # go headless is a property of the process, not of the machine's graphics
+    # stack - and it costs nothing until the plugin is installed.
+    target_link_libraries(orkige_engine PUBLIC OgreNext::RenderSystem_NULL)
     # everything below is classic-backend plumbing (render system plugins,
     # codecs, Vulkan loader wiring)
     return()

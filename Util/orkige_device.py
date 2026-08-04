@@ -12,8 +12,9 @@ simulator) and this drives the whole loop so a session needs no archaeology:
 
 It reuses the existing tooling wholesale rather than reinventing it:
   * the packaging path is the `orkige_export` binary (tools/exporter, which
-    itself drives tools/player/android/package_apk.sh and the iOS bundle
-    signing seam) - taken from a desktop build tree on this machine;
+    assembles the APK in process over the Android SDK's own programs and owns
+    the iOS bundle signing seam) - taken from a desktop build tree on this
+    machine;
   * the project manifest / package-id logic is orkige_buildtree.Project;
   * device enumeration mirrors tools/editor/EditorDeviceTargets.cpp
     (adb devices -l, xcrun simctl list, security find-identity, the
@@ -219,8 +220,9 @@ def assemble_doctor_report(facts):
         "title": "Android: packaging (NDK + JDK)",
         "ok": pack_ok, "lines": pack_lines,
         "action": None if pack_ok else
-        "set ANDROID_NDK_HOME (NDK 27) and JAVA_HOME - package_apk.sh needs "
-        "both (see CLAUDE.md Build)"})
+        "set ANDROID_NDK_HOME (NDK 27) and JAVA_HOME - the NDK builds the "
+        "player, the JDK assembles and signs the package (see CLAUDE.md "
+        "Build)"})
 
     # iOS toolchain (Apple hosts only)
     if facts["darwin"]:

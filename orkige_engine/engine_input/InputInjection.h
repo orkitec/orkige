@@ -11,6 +11,7 @@
 
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_input/KeyEventData.h"
+#include "engine_input/InputDevices.h"
 
 #include <vector>
 
@@ -38,6 +39,29 @@ namespace Orkige
 		ORKIGE_ENGINE_DLL StringVector allNames();
 	}
 
+	//! @brief the TEXT vocabulary of the standard gamepad layout - the
+	//! KeyCodeNames sibling for controllers.
+	//! @remarks Canonical names are POSITIONAL ("south", "dpleft",
+	//! "lefttrigger"), because the same physical button carries a different
+	//! letter per vendor; the lettered spellings ("a", "b", "x", "y") stay as
+	//! aliases so a human writes what is printed on the pad in front of them.
+	//! Matched case-insensitively. Pure: no singleton, no SDL.
+	namespace GamepadNames
+	{
+		//! @brief the button a name spells; GB_COUNT when the name is unknown
+		ORKIGE_ENGINE_DLL Gamepad::Button buttonFromName(String const & name);
+		//! @brief the canonical name of a button, or "" when out of range
+		ORKIGE_ENGINE_DLL String buttonToName(Gamepad::Button button);
+		//! every canonical button name, in table order
+		ORKIGE_ENGINE_DLL StringVector allButtonNames();
+		//! @brief the axis a name spells; GA_COUNT when the name is unknown
+		ORKIGE_ENGINE_DLL Gamepad::Axis axisFromName(String const & name);
+		//! @brief the canonical name of an axis, or "" when out of range
+		ORKIGE_ENGINE_DLL String axisToName(Gamepad::Axis axis);
+		//! every canonical axis name, in table order
+		ORKIGE_ENGINE_DLL StringVector allAxisNames();
+	}
+
 	//! @brief the pure half of AGENT-DRIVEN INPUT: a compact text step list
 	//! ("key press SPACE 3") compiled into a FRAME-STAMPED event timeline the
 	//! runtime replays one frame at a time.
@@ -59,12 +83,20 @@ namespace Orkige
 	//!   pointer down <x> <y> [button]   button = left|middle|right (default left)
 	//!   pointer up <x> <y> [button]
 	//!   pointer click <x> <y> [button]  move+press, held one frame, release
+	//!   touch <id> down|move|up <x> <y> one finger of a multi-touch gesture;
+	//!                              `id` is the caller's own finger number
+	//!   touch <id> tap <x> <y>     down, held one frame, up
+	//!   gamepad button <NAME> down|up          a controller button edge
+	//!   gamepad button <NAME> press [frames]   held for `frames` (default 1)
+	//!   gamepad axis <NAME> <value>            a stick/trigger reading
+	//!                              (sticks -1..1, triggers 0..1)
 	//!   tilt angle <radians>       the simulated tilt angle (0 = upright)
 	//!   tilt vector <x> <y>        a gravity direction, converted to an angle
 	//!   wait <frames>              advance the timeline without an event
 	//! @endcode
 	//! Coordinates are WINDOW PIXELS of the running game's drawable (the same
-	//! space MSG_STATS reports as window_w/window_h and gui rects live in).
+	//! space MSG_STATS reports as window_w/window_h and gui rects live in) -
+	//! pointer and touch alike, so one number space drives both.
 	namespace InputInjection
 	{
 		//! the widest gesture a single sequence may span, in frames (10s at
@@ -72,6 +104,9 @@ namespace Orkige
 		static const unsigned int MAX_FRAMES = 600;
 		//! the most steps one sequence may carry
 		static const unsigned int MAX_STEPS = 256;
+		//! the highest finger number a `touch` step may name (the runtime
+		//! tracks a bounded number of simultaneous touch sequences)
+		static const int MAX_TOUCH_ID = 9;
 
 		//! what one compiled event does when its frame comes up
 		enum class EventKind
@@ -81,6 +116,12 @@ namespace Orkige
 			PointerMove,
 			PointerDown,
 			PointerUp,
+			TouchDown,
+			TouchMove,
+			TouchUp,
+			GamepadButtonDown,
+			GamepadButtonUp,
+			GamepadAxis,
 			TiltAngle
 		};
 
@@ -98,10 +139,14 @@ namespace Orkige
 			unsigned int			frame = 0;			//!< 0-based frame offset
 			EventKind				kind = EventKind::KeyDown;
 			KeyEventData::KeyCode	key = KeyEventData::KC_UNASSIGNED;
-			float					x = 0.0f;			//!< pointer window px
-			float					y = 0.0f;			//!< pointer window px
+			float					x = 0.0f;			//!< pointer/touch window px
+			float					y = 0.0f;			//!< pointer/touch window px
 			PointerButton			button = PointerButton::Left;
 			float					angle = 0.0f;		//!< tilt radians
+			int						touchId = 0;		//!< Touch*: finger number
+			Gamepad::Button			gamepadButton = Gamepad::GB_SOUTH;
+			Gamepad::Axis			gamepadAxis = Gamepad::GA_LEFTX;
+			float					axisValue = 0.0f;	//!< GamepadAxis reading
 		};
 
 		//! a compiled step list: the events in frame order plus the number of

@@ -9,6 +9,7 @@ set(ORKIGE_CORE_MODULES
     core_game
     core_http
     core_module
+    core_monetization
     core_project
     core_script
     core_serialization
@@ -162,7 +163,9 @@ set_source_files_properties(
 
 if(WIN32)
     # the debug-net socket layer's winsock backend (WSAStartup, closesocket)
-    target_link_libraries(orkige_core PUBLIC ws2_32)
+    # and the OS access-control API FileWriter's owner-only files are written
+    # through (SetNamedSecurityInfoW & co; part of the OS, not a dependency)
+    target_link_libraries(orkige_core PUBLIC ws2_32 advapi32)
 endif()
 
 # --- HTTP client: the chosen transport's define + link -----------------------
@@ -177,7 +180,7 @@ if(ORKIGE_HTTP)
         target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_ANDROID)
         # the JNI entry points come from the NDK's own libraries, which every
         # Android link already carries; the Java half (core_http/OrkigeHttp.java)
-        # is packaged into the APK by tools/player/android/package_apk.sh
+        # is compiled into the APK's dex by the exporter's Android assembly
         set_source_files_properties(
             "${CMAKE_CURRENT_SOURCE_DIR}/core_http/HttpBackendAndroid.cpp"
             PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

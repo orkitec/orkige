@@ -19,6 +19,7 @@ add_executable(orkige_core_tests
     BenchmarkRecorderTests.cpp
     JsonTests.cpp
     ConstantTimeCompareTests.cpp
+    SecretTokenTests.cpp
     ControlAuthTests.cpp
     Sha1Tests.cpp
     Sha256Tests.cpp
@@ -28,6 +29,8 @@ add_executable(orkige_core_tests
     ComponentTests.cpp
     TypeManagerTests.cpp
     ScriptRuntimeTests.cpp
+    ScriptLibraryTests.cpp
+    ScriptTestTierTests.cpp
     ScriptDebugTests.cpp
     ScriptEventBusTests.cpp
     ResourceReaderTests.cpp
@@ -52,6 +55,9 @@ add_executable(orkige_core_tests
     LevelSequenceTests.cpp
     SaveStoreTests.cpp
     AppLifecycleTests.cpp
+    ProductCatalogTests.cpp
+    AdPlacementTests.cpp
+    MonetizationServiceTests.cpp
     CameraFitTests.cpp
     DevicePresetTests.cpp
     ProjectPathsTests.cpp

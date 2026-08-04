@@ -1882,14 +1882,15 @@ DEVICE_PAYLOAD_MANIFEST = "orkige_payload.txt"
 #
 # A `.app` is COPIED whole into the package, so the iOS payload needs nothing
 # but the bundle. An Android package is ASSEMBLED around the player, so its
-# payload also carries the assembler, the manifest template it substitutes and
-# the Java it compiles - all engine pieces. Only the Android SDK's own programs
-# stay the machine's, which is the line we draw everywhere.
+# payload also carries what the assembly builds it out of: the manifest
+# template it substitutes, the platform policy resources and the Java it
+# compiles - all engine pieces. Only the Android SDK's own programs stay the
+# machine's, which is the line we draw everywhere.
 DEVICE_PAYLOADS = {
     "player-ios-simulator": ("OrkigePlayer.app", "ios-simulator", ()),
     "player-android": ("libmain.so", "android",
-                       (os.path.join("android", "package_apk.sh"),
-                        os.path.join("android", "AndroidManifest.xml"),
+                       (os.path.join("android", "AndroidManifest.xml"),
+                        os.path.join("android", "res"),
                         os.path.join("android", "java"))),
 }
 #: the Java a packaged Android app compiles: SDL3's own glue (zlib licensed,
@@ -1938,7 +1939,7 @@ def android_sdl_java_dir(build_dir):
     library from. vcpkg's sdl3 port installs only the native library, so the
     glue comes out of the build tree's own buildtrees (or, once those are
     cleaned, the verified source archive in the downloads cache) - the same two
-    places package_apk.sh looks when it runs against a build tree."""
+    places the exporter's own assembly looks against a build tree."""
     vcpkg = os.environ.get("VCPKG_ROOT") or os.path.expanduser(
         "~/Development/vcpkg")
     relative = os.path.join("android-project", "app", "src", "main", "java",
@@ -1968,17 +1969,15 @@ def android_sdl_java_dir(build_dir):
 
 
 def stage_android_assembly(target, build_dir):
-    """the Android payload's assembly half: the packaging script, the manifest
-    template, the res/ policy file and the Java sources. Everything here is
-    ENGINE - the SDK's own programs stay the machine's, and the exporter names
-    each missing one before this script is ever run."""
+    """the Android payload's assembly half: the manifest template, the res/
+    policy file and the Java sources. Everything here is ENGINE - the SDK's own
+    programs stay the machine's, and the exporter names each missing one before
+    it assembles anything."""
     android = os.path.join(target, "android")
     os.makedirs(android, exist_ok=True)
-    for name in ("package_apk.sh", "AndroidManifest.xml"):
-        shutil.copy2(os.path.join(REPO_ROOT, "tools", "player", "android",
-                                  name),
-                     os.path.join(android, name))
-    os.chmod(os.path.join(android, "package_apk.sh"), 0o755)
+    shutil.copy2(os.path.join(REPO_ROOT, "tools", "player", "android",
+                              "AndroidManifest.xml"),
+                 os.path.join(android, "AndroidManifest.xml"))
     shutil.copytree(os.path.join(REPO_ROOT, "tools", "player", "android",
                                  "res"),
                     os.path.join(android, "res"), dirs_exist_ok=True)
@@ -2011,16 +2010,20 @@ def android_payload_abi(build_dir):
     return orkige_buildtree.read_cmake_cache(build_dir, "ANDROID_ABI") or "arm64-v8a"
 
 
-def stage_android_player(source, target_lib, build_dir):
+def stage_android_player(source, target_lib, build_dir,
+                         runner=orkige_buildtree.run):
     """copy the player's native library into a payload, STRIPPED. A debug
     libmain.so carries hundreds of megabytes of DWARF, which is not something
     to publish for download - and the client that unpacks this has no strip
     tool for the target anyway, so it happens here, on the machine that built
-    it and has the NDK."""
+    it and has the NDK.
+
+    @p runner is the process launcher, injectable so the composition is
+    verifiable on a machine that has no NDK - and on one whose launcher starts
+    only real executables, where a stand-in script cannot be run at all."""
     strip = orkige_buildtree.read_cmake_cache(build_dir, "CMAKE_STRIP")
     if strip and os.path.isfile(strip):
-        orkige_buildtree.run([strip, "--strip-unneeded", "-o", target_lib,
-                              source])
+        runner([strip, "--strip-unneeded", "-o", target_lib, source])
         return True
     warn("no CMAKE_STRIP in '%s' - an Android payload must ship a stripped "
          "library" % build_dir)
@@ -2028,12 +2031,15 @@ def stage_android_player(source, target_lib, build_dir):
 
 
 def compose_device_payload(target, payload_id, build_dir, version, commit="",
-                           media=None):
+                           media=None, strip_runner=None):
     """write one device player payload into @p target from that platform's
     preset BUILD TREE: the player it produced, the engine media staged the way
     every runtime resolves it, whatever else that platform's packaging needs
     from the engine, and the manifest describing what the payload has to be
-    able to say about itself."""
+    able to say about itself.
+
+    @p media and @p strip_runner are the two seams a machine without that
+    platform's toolchain composes through (@see stage_android_player)."""
     if payload_id not in DEVICE_PAYLOADS:
         fail("'%s' is not a device payload this script composes (%s)"
              % (payload_id, ", ".join(sorted(DEVICE_PAYLOADS))))
@@ -2052,7 +2058,9 @@ def compose_device_payload(target, payload_id, build_dir, version, commit="",
         shutil.copytree(source, os.path.join(target, player), symlinks=True)
     elif platform == "android":
         if not stage_android_player(source, os.path.join(target, player),
-                                    build_dir):
+                                    build_dir,
+                                    runner=strip_runner or
+                                    orkige_buildtree.run):
             return False
     else:
         shutil.copy2(source, os.path.join(target, player))
@@ -5170,35 +5178,45 @@ exit 0
             [DEVICE_PAYLOAD_MANIFEST]
 
     # The ANDROID payload is a longer list, because an APK is ASSEMBLED around
-    # its player rather than copied whole: the assembler, the manifest template
-    # and the Java it compiles are engine pieces and travel with it. The editor
-    # composes the same required set from its own catalogue
+    # its player rather than copied whole: the manifest template, the platform
+    # policy resources and the Java it compiles are engine pieces and travel
+    # with it. The editor composes the same required set from its own catalogue
     # (EditorPayloadsTests), so the two cannot drift.
     android_required = device_payload_required("player-android")
     assert DEVICE_PAYLOAD_MANIFEST in android_required, android_required
     assert "libmain.so" in android_required, android_required
     assert "Media" in android_required, android_required
-    for piece in ("package_apk.sh", "AndroidManifest.xml", "java"):
+    for piece in ("AndroidManifest.xml", "res", "java"):
         assert os.path.join("android", piece) in android_required, \
             android_required
     with tempfile.TemporaryDirectory() as temp:
         tree = os.path.join(temp, "android-debug")
         os.makedirs(os.path.join(tree, "tools", "player"))
+        strip = os.path.join(temp, "llvm-strip")
         with open(os.path.join(tree, "CMakeCache.txt"), "w") as handle:
             handle.write("ORKIGE_RENDER_BACKEND:STRING=next\n")
             handle.write("ANDROID_ABI:STRING=x86_64\n")
-            # a tree whose strip tool is a no-op stand-in, so the composition
-            # is exercised without an NDK
-            strip = os.path.join(temp, "strip.sh")
+            # the NDK's strip program, which the machine running this selftest
+            # does not have. The tree NAMES one - the file only has to exist to
+            # be named - and the RUN is injected below, so the composition and
+            # the command line it issues are asserted on every platform rather
+            # than only on one that can execute a stand-in script.
             handle.write("CMAKE_STRIP:FILEPATH=%s\n" % strip)
-        with open(strip, "w") as handle:
-            handle.write('#!/bin/bash\ncp "$4" "$3"\n')
-        os.chmod(strip, 0o755)
+        open(strip, "w").close()
+        stripped = []
+
+        def fake_strip(command, **kwargs):
+            # the real argv is [strip, --strip-unneeded, -o, target, source]
+            stripped.append(list(command))
+            shutil.copyfile(command[4], command[3])
+            return subprocess.CompletedProcess(command, 0)
+
         composed = os.path.join(temp, "android-payload")
         # a tree that built no player composes nothing, and says so
         assert not compose_device_payload(composed, "player-android", tree,
                                           ordered_device,
-                                          media=fake_device_media)
+                                          media=fake_device_media,
+                                          strip_runner=fake_strip)
         with open(os.path.join(tree, "tools", "player", "libmain.so"),
                   "w") as handle:
             handle.write("not really a library")
@@ -5218,12 +5236,20 @@ exit 0
         os.environ["VCPKG_ROOT"] = fake_vcpkg
         assert compose_device_payload(composed, "player-android", tree,
                                       ordered_device, commit="dea551f9e0",
-                                      media=fake_device_media)
+                                      media=fake_device_media,
+                                      strip_runner=fake_strip)
         if previous_vcpkg is None:
             os.environ.pop("VCPKG_ROOT", None)
         else:
             os.environ["VCPKG_ROOT"] = previous_vcpkg
         assert device_payload_problems(composed, "player-android") == []
+        # the library was STRIPPED on the way in rather than copied: a debug
+        # libmain.so carries hundreds of megabytes of DWARF, and the machine
+        # that unpacks a payload has no strip tool for the target
+        assert stripped == [[strip, "--strip-unneeded", "-o",
+                             os.path.join(composed, "libmain.so"),
+                             os.path.join(tree, "tools", "player",
+                                          "libmain.so")]], stripped
         with open(os.path.join(composed, DEVICE_PAYLOAD_MANIFEST)) as handle:
             manifest = handle.read()
         assert "platform: android" in manifest, manifest
@@ -5235,12 +5261,29 @@ exit 0
         assert os.path.isfile(os.path.join(
             composed, "android", "java", "org", "libsdl", "app",
             "SDLActivity.java"))
-        assert os.access(os.path.join(composed, "android", "package_apk.sh"),
-                         os.X_OK)
+        # the platform policy resource the manifest names, which every
+        # assembled package links in
+        assert os.path.isfile(os.path.join(
+            composed, "android", "res", "xml",
+            "orkige_network_security.xml"))
         # ...and an incomplete one is named as incomplete rather than packed
         shutil.rmtree(os.path.join(composed, "android", "java"))
         assert device_payload_problems(composed, "player-android") == \
             [os.path.join("android", "java")]
+
+        # a tree that names no strip program composes NOTHING: publishing an
+        # unstripped debug library for download is the outcome this refuses
+        bare = os.path.join(temp, "android-debug-nostrip")
+        os.makedirs(os.path.join(bare, "tools", "player"))
+        with open(os.path.join(bare, "CMakeCache.txt"), "w") as handle:
+            handle.write("ORKIGE_RENDER_BACKEND:STRING=next\n")
+        with open(os.path.join(bare, "tools", "player", "libmain.so"),
+                  "w") as handle:
+            handle.write("not really a library")
+        assert not compose_device_payload(
+            os.path.join(temp, "android-payload-nostrip"), "player-android",
+            bare, ordered_device, media=fake_device_media,
+            strip_runner=fake_strip)
 
     # --- the browser payload: composed, handed over, and judged ---------
     #

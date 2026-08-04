@@ -30,6 +30,7 @@ struct PlayerSelfChecks
 	std::string rollerShotDir;
 	bool softbodyCheck = false;
 	bool linesCheck = false;
+	bool rawInputCheck = false;
 	bool meshAssetCheck = false;
 	bool shapeColliderCheck = false;
 	bool vectorAnimCheck = false;
@@ -240,6 +241,19 @@ struct PlayerSelfChecks
 	std::size_t linesRebuilds = 0;		//!< the LineComponent's rebuild count last seen
 	bool linesDrainVerified = false;	//!< the debug primitives drained after the draw phase
 	unsigned long linesPhaseDeadline = 0;
+	// --- ORKIGE_RAWINPUT_SELFCHECK=1: raw touch + controller reach, end to
+	// end in a RUNNING game (tests/projects/rawinput). Synthetic fingers and
+	// pad edges are injected on the real SDL path; the fixture script reads
+	// them back through the `input` table (and the pad through the NAMED
+	// action map), so this gates the whole chain: event -> the once-per-frame
+	// snapshot the loop's input slot takes -> the numbers Lua sees. The pure
+	// halves are unit-tested (InputActionTests / RawInputScriptTests); what
+	// only a running game can prove is the frame WIRING.
+	enum class RawInputPhase { Touch, Pointer, Gamepad, Done };
+	RawInputPhase rawInputPhase = RawInputPhase::Touch;
+	bool rawInputFailed = false;
+	int rawInputStep = 0;				//!< step inside the current phase
+	unsigned long rawInputDeadline = 0;
 	// --- ORKIGE_MESH_SELFCHECK=1: the parametric `.omesh` tier end to end
 	// against tests/projects/mesh (scenes/blockout.oscene). Three
 	// ModelComponents name three `.omesh` files - a seven-shape two-material

@@ -12,6 +12,9 @@
 #include "core_http/HttpClient.h"
 #include "core_tween/TimerManager.h"
 #include "core_script/ScriptEventPayload.h"
+#include "core_script/ScriptLibrary.h"
+#include "core_script/ScriptTestPrelude.h"
+#include "core_script/ScriptTestTools.h"
 #include "core_base/TypeInfo.h"
 #include "core_filesystem/ResourceReader.h"
 
@@ -28,7 +31,6 @@
 namespace Orkige
 {
 	IMPL_OSINGLETON(ScriptRuntime)
-#ifdef ORKIGE_LUA
 	namespace
 	{
 		//! @brief try the process-wide archive ResourceReader for a script's
@@ -42,6 +44,10 @@ namespace Orkige
 			ResourceReader const * reader = ResourceAccess::reader();
 			return reader && reader->readText(scriptFile, outSource);
 		}
+	}
+#ifdef ORKIGE_LUA
+	namespace
+	{
 		//! walk a global path like {"shared","jumper","wins"} to its value
 		//! (nil when any step is missing or not a table)
 		sol::object resolveGlobalPath(sol::state & lua, StringVector const & path)
@@ -75,10 +81,19 @@ namespace Orkige
 		// so disarmed behavior stays byte-identical to today's.
 		this->installDebugErrorHandler();
 #endif
+		// the coroutine operations the ScriptTaskManager drives tasks with.
+		// Registered even though no manager exists yet (a host creates one
+		// later, or never): the record is process-wide and every manager
+		// picks it up at construction.
+		this->installTaskBackend();
 	}
 	//---------------------------------------------------------
 	ScriptRuntime::~ScriptRuntime()
 	{
+		// task coroutines and open test sandboxes hold sol references: drop
+		// them here, WHILE the Lua state is still open (same reason the
+		// event-bus sweep below is here)
+		this->releaseTaskState();
 		// release every held script callback (event-bus subscriptions) WHILE the
 		// Lua state is still open: the ScriptManager member below is destroyed
 		// AFTER this body runs, so a subscription's sol reference would otherwise
@@ -135,6 +150,41 @@ namespace Orkige
 		return "";
 	}
 	//---------------------------------------------------------
+	bool ScriptRuntime::readScriptSource(String const & scriptFile,
+		String & outSource, String * outError) const
+	{
+		oAssert(outError);
+		// ARCHIVE-FIRST: when an archive reader is installed AND it resolves
+		// the name, the source comes out of the mounted pak/APK in place - no
+		// real file on disk, no extraction. A miss (or no reader at all) falls
+		// through to the on-disk file, so headless core tests and loose-file
+		// dev keep working unchanged.
+		String source;
+		if(readScriptThroughReader(scriptFile, source))
+		{
+			outSource.swap(source);
+			return true;
+		}
+		const String resolvedPath = this->resolveScriptPath(scriptFile);
+		if(resolvedPath.empty())
+		{
+			*outError = "script file '" + scriptFile + "' not found (searched "
+				"the mounted content, the project root '" +
+				this->scriptSearchRoot + "' and the working directory)";
+			return false;
+		}
+		std::ifstream file(resolvedPath, std::ios::binary);
+		if(!file)
+		{
+			*outError = "script file could not be read: " + resolvedPath;
+			return false;
+		}
+		std::ostringstream buffer;
+		buffer << file.rdbuf();
+		outSource = buffer.str();
+		return true;
+	}
+	//---------------------------------------------------------
 	ScriptRuntime::Result ScriptRuntime::runString(String const & code)
 	{
 		Result result;
@@ -174,50 +224,18 @@ namespace Orkige
 		// instances; deliberate sharing goes through the `shared` table)
 		instance->environment = sol::environment(lua, sol::create, lua.globals());
 
-		// ARCHIVE-FIRST: when an archive reader is installed AND it resolves the
-		// script by name, load the source from memory (the runString idiom, but
-		// into THIS instance's sandbox) - so a script mounted inside a pak/APK
-		// loads in place, no real file on disk. The chunk name is the script
-		// path so Lua errors still read "<file>:<line>". No reader, or a miss,
-		// falls through to the on-disk file below (headless core tests and
-		// loose-file dev keep working unchanged).
-		String source;
-		if (readScriptThroughReader(scriptFile, source))
-		{
-			const sol::protected_function_result loadResult = lua.safe_script(
-				source, instance->environment, sol::script_pass_on_error,
-				"@" + scriptFile);
-			if (!loadResult.valid())
-			{
-				const sol::error error = loadResult;
-				*outError = error.what();
-				return optr<ScriptInstance>();
-			}
-			instance->selfTable = lua.create_table();
-			return instance;
-		}
-
-		const String resolvedPath = this->resolveScriptPath(scriptFile);
-		if (resolvedPath.empty())
-		{
-			*outError = "script file not found (searched the project root '" +
-				this->scriptSearchRoot + "' and the working directory)";
-			return optr<ScriptInstance>();
-		}
-		// load the on-disk file through a memory chunk so the chunk NAME stays
-		// the path the component asked for (project-relative), never the
-		// machine-local absolute path resolveScriptPath found. Every instance
-		// of one script then shares ONE chunk name - the key the script
+		// the source comes through the ONE routing (readScriptSource): the
+		// archive reader first - so a script mounted inside a pak/APK loads in
+		// place, no real file on disk - then the on-disk file. Either way the
+		// chunk is loaded from MEMORY under the project-relative chunk NAME the
+		// component asked for, never the machine-local absolute path: every
+		// instance of one script then shares ONE chunk name, the key the script
 		// debugger's breakpoints and the error file:line prefixes agree on.
-		std::ifstream file(resolvedPath, std::ios::binary);
-		if (!file)
+		String source;
+		if (!this->readScriptSource(scriptFile, source, outError))
 		{
-			*outError = "script file could not be read: " + resolvedPath;
 			return optr<ScriptInstance>();
 		}
-		std::ostringstream buffer;
-		buffer << file.rdbuf();
-		source = buffer.str();
 		const sol::protected_function_result loadResult = lua.safe_script(
 			source, instance->environment, sol::script_pass_on_error,
 			"@" + scriptFile);
@@ -2038,6 +2056,589 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
+	//---------------------------------------------------------
+	//=========================================================
+	//--- script tasks (coroutines) ---------------------------
+	//=========================================================
+#ifdef ORKIGE_LUA
+	namespace
+	{
+		//! @brief one live coroutine behind a ScriptTaskManager task. The
+		//! manager deals only in the integer SLOT below, so no backend type
+		//! ever crosses the neutral seam.
+		struct ScriptTaskSlot
+		{
+			sol::thread				thread;		//!< the coroutine (a registry reference keeps it alive)
+			sol::protected_function	body;		//!< the function it runs
+			sol::protected_function	condition;	//!< the condition of a Condition wait (invalid otherwise)
+			bool					started = false;	//!< has the body been pushed for the first resume
+		};
+		//! the slot table: process-wide, like the state it lives in. Cleared
+		//! by ~ScriptRuntime WHILE the Lua state is still open.
+		std::map<int, ScriptTaskSlot> & scriptTaskSlots()
+		{
+			static std::map<int, ScriptTaskSlot> slots;
+			return slots;
+		}
+		int & nextScriptTaskSlot()
+		{
+			static int next = 1;
+			return next;
+		}
+		//! @brief translate the value a task yielded into the neutral wait,
+		//! keeping a condition function on the slot. The wait vocabulary is
+		//! engine-owned (@see ScriptManager's task vocabulary), so an
+		//! unrecognised shape is simply "resume next tick" - never a wedge.
+		ScriptTaskWait readTaskWait(sol::object const & value,
+			ScriptTaskSlot & slot)
+		{
+			slot.condition = sol::protected_function();
+			if (!value.is<sol::table>())
+			{
+				return ScriptTaskCore::waitTick();
+			}
+			const sol::table request = value.as<sol::table>();
+			const sol::object kind = request["kind"];
+			const String kindName =
+				kind.is<String>() ? kind.as<String>() : String();
+			if (kindName == "seconds")
+			{
+				const sol::object seconds = request["seconds"];
+				return ScriptTaskCore::waitSeconds(
+					seconds.is<double>() ? seconds.as<double>() : 0.0);
+			}
+			if (kindName == "frames")
+			{
+				const sol::object frames = request["frames"];
+				return ScriptTaskCore::waitTicks(
+					frames.is<double>() ? frames.as<double>() : 0.0);
+			}
+			if (kindName == "condition")
+			{
+				const sol::object condition = request["condition"];
+				if (condition.is<sol::protected_function>())
+				{
+					slot.condition = condition.as<sol::protected_function>();
+				}
+				const sol::object limit = request["limit"];
+				return ScriptTaskCore::waitCondition(
+					limit.is<double>() ? limit.as<double>() : 0.0);
+			}
+			return ScriptTaskCore::waitTick();
+		}
+		//! @brief resume one slot's coroutine ONE step, the way the standard
+		//! coroutine library does it: resume, then move whatever came back
+		//! off the coroutine's stack so nothing accumulates there across the
+		//! (arbitrarily many) resumes a long-lived task performs.
+		ScriptTaskStep resumeTaskSlot(lua_State * mainState,
+			ScriptTaskSlot & slot, ScriptTaskWait & outWait, String & outError)
+		{
+			lua_State * const co = slot.thread.thread_state();
+			if (co == 0)
+			{
+				outError = "the task's coroutine is gone";
+				return ScriptTaskStep::Failed;
+			}
+			if (!slot.started)
+			{
+				// the FIRST resume runs the body: it sits at the bottom of
+				// the coroutine's own stack
+				slot.body.push(co);
+				slot.started = true;
+			}
+			int results = 0;
+			const int status = lua_resume(co, mainState, 0, &results);
+			if (status != LUA_OK && status != LUA_YIELD)
+			{
+				String message = "the task raised an error";
+				if (results > 0)
+				{
+					lua_xmove(co, mainState, results);
+					if (lua_type(mainState, -1) == LUA_TSTRING)
+					{
+						message = lua_tostring(mainState, -1);
+					}
+					lua_pop(mainState, results);
+				}
+				outError = message;
+				return ScriptTaskStep::Failed;
+			}
+			if (status == LUA_OK)
+			{
+				// the body returned: whatever it returned is not ours to keep
+				if (results > 0)
+				{
+					lua_xmove(co, mainState, results);
+					lua_pop(mainState, results);
+				}
+				return ScriptTaskStep::Finished;
+			}
+			if (results <= 0)
+			{
+				slot.condition = sol::protected_function();
+				outWait = ScriptTaskCore::waitTick();
+				return ScriptTaskStep::Yielded;
+			}
+			lua_xmove(co, mainState, results);
+			const sol::object yielded(mainState, -results);
+			lua_pop(mainState, results);
+			outWait = readTaskWait(yielded, slot);
+			return ScriptTaskStep::Yielded;
+		}
+	}
+#endif
+	//---------------------------------------------------------
+	void ScriptRuntime::installTaskBackend()
+	{
+#ifdef ORKIGE_LUA
+		lua_State * const mainState = this->luaManager.state().lua_state();
+		ScriptTaskManager::Backend backend;
+		backend.resume = [mainState](int slot, void const * owner,
+			ScriptTaskWait & outWait, String & outError) -> ScriptTaskStep
+		{
+			std::map<int, ScriptTaskSlot> & slots = scriptTaskSlots();
+			std::map<int, ScriptTaskSlot>::iterator it = slots.find(slot);
+			if (it == slots.end())
+			{
+				outError = "the task's coroutine is gone";
+				return ScriptTaskStep::Failed;
+			}
+			// the body runs AS its sandbox: anything it subscribes to or
+			// schedules is tagged with the same owner token, so it retires
+			// with the sandbox exactly like code called from update()
+			ScriptCallScope ownerScope(owner);
+			const ScriptTaskStep step = resumeTaskSlot(mainState, it->second,
+				outWait, outError);
+			return step;
+		};
+		backend.condition = [](int slot, void const * owner, bool & outReady,
+			String & outError) -> bool
+		{
+			std::map<int, ScriptTaskSlot> & slots = scriptTaskSlots();
+			std::map<int, ScriptTaskSlot>::iterator it = slots.find(slot);
+			if (it == slots.end() || !it->second.condition.valid())
+			{
+				outError = "the task's condition is gone";
+				return false;
+			}
+			ScriptCallScope ownerScope(owner);
+			const sol::protected_function_result result =
+				it->second.condition();
+			if (!result.valid())
+			{
+				const sol::error error = result;
+				outError = error.what();
+				return false;
+			}
+			// Lua truthiness, exactly as an `if` would read it: a condition
+			// that returns nothing is simply not ready yet
+			outReady = false;
+			if (result.return_count() > 0)
+			{
+				const sol::object value = result.get<sol::object>(0);
+				outReady = value.valid() && value != sol::lua_nil &&
+					(!value.is<bool>() || value.as<bool>());
+			}
+			return true;
+		};
+		backend.release = [](int slot)
+		{
+			scriptTaskSlots().erase(slot);
+		};
+		ScriptTaskManager::registerBackend(backend);
+		// a manager created BEFORE this runtime (never in practice, but the
+		// registry is process-wide) still gets the live backend
+		if (ScriptTaskManager::getSingletonPtr() != NULL)
+		{
+			ScriptTaskManager::getSingleton().setBackend(backend);
+		}
+#endif
+	}
+	//---------------------------------------------------------
+	void ScriptRuntime::releaseTaskState()
+	{
+#ifdef ORKIGE_LUA
+		// drop every held sol reference WHILE the Lua state is still open
+		// (the ScriptManager member is destroyed after ~ScriptRuntime's body)
+		scriptTaskSlots().clear();
+		this->testSessions.clear();
+#endif
+	}
+	//---------------------------------------------------------
+	ScriptTaskManager::TaskId ScriptRuntime::startScriptTask(
+		ScriptCallback const & body, void const * owner, int tickLimit,
+		String * outError)
+	{
+		oAssert(outError);
+#ifdef ORKIGE_LUA
+		if (!body.mFunction.valid())
+		{
+			*outError = "the task body must be a function";
+			return 0;
+		}
+		if (ScriptTaskManager::getSingletonPtr() == NULL)
+		{
+			// honest, never a silent nothing: a host that runs no tasks (the
+			// editor, which never ticks game scripts) says so
+			*outError = "this host runs no script tasks";
+			return 0;
+		}
+		sol::state & lua = this->luaManager.state();
+		ScriptTaskSlot slot;
+		slot.thread = sol::thread::create(lua.lua_state());
+		slot.body = body.mFunction;
+		const int slotId = nextScriptTaskSlot()++;
+		scriptTaskSlots()[slotId] = slot;
+		const ScriptTaskManager::TaskId id =
+			ScriptTaskManager::getSingleton().start(slotId, owner, tickLimit);
+		if (id == 0)
+		{
+			scriptTaskSlots().erase(slotId);
+			*outError = "no scripting backend is registered for tasks";
+		}
+		return id;
+#else
+		(void)body;
+		(void)owner;
+		(void)tickLimit;
+		*outError = ScriptRuntime::disabledError();
+		return 0;
+#endif
+	}
+	//=========================================================
+	//--- the project test tier -------------------------------
+	//=========================================================
+	bool ScriptRuntime::beginTestFile(String const & resourceName,
+		String const & filter, ScriptTestSessionId & outSession,
+		std::vector<ScriptTestCase> & outCases, int * outDeclared,
+		String * outError)
+	{
+		oAssert(outError);
+		outSession = 0;
+		if (outDeclared != 0)
+		{
+			*outDeclared = 0;
+		}
+#ifdef ORKIGE_LUA
+		sol::state & lua = this->luaManager.state();
+		// the test file gets a sandbox of exactly the shape a script component
+		// gets, so a test exercises the SAME environment the game runs in
+		sol::environment environment(lua, sol::create, lua.globals());
+		const sol::protected_function_result preludeResult = lua.safe_script(
+			scriptTestPrelude(), environment, sol::script_pass_on_error,
+			"@orkige/test-prelude.lua");
+		if (!preludeResult.valid())
+		{
+			const sol::error error = preludeResult;
+			*outError = String("the test vocabulary failed to load: ") +
+				error.what();
+			return false;
+		}
+		String source;
+		if (!this->readScriptSource(resourceName, source, outError))
+		{
+			return false;
+		}
+		// loading the file IS the declaration pass: its top-level test() calls
+		// register bodies, nothing runs yet
+		const sol::protected_function_result loadResult = lua.safe_script(
+			source, environment, sol::script_pass_on_error,
+			"@" + resourceName);
+		if (!loadResult.valid())
+		{
+			const sol::error error = loadResult;
+			*outError = error.what();
+			return false;
+		}
+		const sol::object declared = environment["__orkige_tests"];
+		if (declared.is<sol::table>() && outDeclared != 0)
+		{
+			*outDeclared = static_cast<int>(declared.as<sol::table>().size());
+		}
+		const sol::object planner = environment["__orkige_plan"];
+		if (!planner.is<sol::protected_function>())
+		{
+			*outError = "the test vocabulary was replaced by the test file "
+				"(__orkige_plan is gone)";
+			return false;
+		}
+		// the filter decision stays in ONE place (the pure rule); Lua only asks
+		std::function<bool(String const &)> shouldRun =
+			[&resourceName, &filter](String const & testName)
+		{
+			return ScriptTestTools::filterMatches(filter, resourceName,
+				testName);
+		};
+		const sol::protected_function_result planResult =
+			planner.as<sol::protected_function>()(shouldRun);
+		if (!planResult.valid())
+		{
+			const sol::error error = planResult;
+			*outError = error.what();
+			return false;
+		}
+		const sol::object planObject = planResult.get<sol::object>(0);
+		if (!planObject.is<sol::table>())
+		{
+			*outError = "the declaration pass produced no plan";
+			return false;
+		}
+		const sol::table plan = planObject.as<sol::table>();
+		for (std::size_t index = 1; index <= plan.size(); ++index)
+		{
+			const sol::object entryObject = plan[index];
+			if (!entryObject.is<sol::table>())
+			{
+				continue;
+			}
+			const sol::table entry = entryObject.as<sol::table>();
+			ScriptTestCase testCase;
+			const sol::object caseIndex = entry["index"];
+			testCase.index =
+				caseIndex.is<double>() ? static_cast<int>(caseIndex.as<double>()) : 0;
+			const sol::object name = entry["name"];
+			testCase.name = name.is<String>() ? name.as<String>() : String();
+			const sol::object scene = entry["scene"];
+			testCase.scene = scene.is<String>() ? scene.as<String>() : String();
+			outCases.push_back(testCase);
+		}
+		const ScriptTestSessionId session = ++this->nextTestSession;
+		this->testSessions[session] = environment;
+		outSession = session;
+		return true;
+#else
+		(void)resourceName;
+		(void)filter;
+		(void)outCases;
+		*outError = ScriptRuntime::disabledError();
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	bool ScriptRuntime::runTestCase(ScriptTestSessionId session, int caseIndex,
+		ScriptTestRecord & outRecord, String * outError)
+	{
+		oAssert(outError);
+#ifdef ORKIGE_LUA
+		std::map<int, sol::environment>::iterator it =
+			this->testSessions.find(session);
+		if (it == this->testSessions.end())
+		{
+			*outError = "no such test session";
+			return false;
+		}
+		const sol::object maker = it->second["__orkige_case"];
+		if (!maker.is<sol::protected_function>())
+		{
+			*outError = "the test vocabulary was replaced by the test file "
+				"(__orkige_case is gone)";
+			return false;
+		}
+		const sol::protected_function_result caseResult =
+			maker.as<sol::protected_function>()(caseIndex);
+		if (!caseResult.valid())
+		{
+			const sol::error error = caseResult;
+			*outError = error.what();
+			return false;
+		}
+		const sol::object body = caseResult.get<sol::object>(0);
+		if (!body.is<sol::protected_function>())
+		{
+			*outError = "no test with that index";
+			return false;
+		}
+		// the body records its OWN outcome (pass/fail/error), so a test that
+		// fails is a filled record, never a false return here
+		const sol::protected_function_result runResult =
+			body.as<sol::protected_function>()();
+		if (!runResult.valid())
+		{
+			const sol::error error = runResult;
+			*outError = error.what();
+			return false;
+		}
+		if (!this->testCaseRecord(session, caseIndex, outRecord))
+		{
+			*outError = "the test left no record";
+			return false;
+		}
+		return true;
+#else
+		(void)session;
+		(void)caseIndex;
+		(void)outRecord;
+		*outError = ScriptRuntime::disabledError();
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	ScriptTaskManager::TaskId ScriptRuntime::startTestCase(
+		ScriptTestSessionId session, int caseIndex, int tickLimit,
+		String * outError)
+	{
+		oAssert(outError);
+#ifdef ORKIGE_LUA
+		std::map<int, sol::environment>::iterator it =
+			this->testSessions.find(session);
+		if (it == this->testSessions.end())
+		{
+			*outError = "no such test session";
+			return 0;
+		}
+		const sol::object maker = it->second["__orkige_case"];
+		if (!maker.is<sol::protected_function>())
+		{
+			*outError = "the test vocabulary was replaced by the test file "
+				"(__orkige_case is gone)";
+			return 0;
+		}
+		const sol::protected_function_result caseResult =
+			maker.as<sol::protected_function>()(caseIndex);
+		if (!caseResult.valid())
+		{
+			const sol::error error = caseResult;
+			*outError = error.what();
+			return 0;
+		}
+		const sol::object body = caseResult.get<sol::object>(0);
+		if (!body.is<sol::protected_function>())
+		{
+			*outError = "no test with that index";
+			return 0;
+		}
+		ScriptCallback callback;
+		callback.mFunction = body.as<sol::protected_function>();
+		// the test's sandbox IS the owner token, so closing the file cancels
+		// whatever it left running
+		void const * const owner = static_cast<void const *>(&it->second);
+		return this->startScriptTask(callback, owner, tickLimit, outError);
+#else
+		(void)session;
+		(void)caseIndex;
+		(void)tickLimit;
+		*outError = ScriptRuntime::disabledError();
+		return 0;
+#endif
+	}
+	//---------------------------------------------------------
+	bool ScriptRuntime::testCaseRecord(ScriptTestSessionId session,
+		int caseIndex, ScriptTestRecord & outRecord)
+	{
+#ifdef ORKIGE_LUA
+		std::map<int, sol::environment>::iterator it =
+			this->testSessions.find(session);
+		if (it == this->testSessions.end())
+		{
+			return false;
+		}
+		const sol::object reader = it->second["__orkige_record"];
+		if (!reader.is<sol::protected_function>())
+		{
+			return false;
+		}
+		const sol::protected_function_result result =
+			reader.as<sol::protected_function>()(caseIndex);
+		if (!result.valid())
+		{
+			return false;
+		}
+		const sol::object entryObject = result.get<sol::object>(0);
+		if (!entryObject.is<sol::table>())
+		{
+			return false;
+		}
+		const sol::table entry = entryObject.as<sol::table>();
+		const sol::object name = entry["name"];
+		outRecord.name = name.is<String>() ? name.as<String>() : String();
+		const sol::object status = entry["status"];
+		outRecord.status =
+			status.is<String>() ? status.as<String>() : String("error");
+		const sol::object message = entry["message"];
+		outRecord.message =
+			message.is<String>() ? message.as<String>() : String();
+		const sol::object ms = entry["ms"];
+		outRecord.ms = ms.is<double>() ? ms.as<double>() : 0.0;
+		return true;
+#else
+		(void)session;
+		(void)caseIndex;
+		(void)outRecord;
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	void ScriptRuntime::endTestFile(ScriptTestSessionId session)
+	{
+#ifdef ORKIGE_LUA
+		std::map<int, sol::environment>::iterator it =
+			this->testSessions.find(session);
+		if (it == this->testSessions.end())
+		{
+			return;
+		}
+		// whatever the file left running dies with it - the SAME
+		// auto-cancel-on-retire every sandbox gets
+		if (ScriptTaskManager::getSingletonPtr() != NULL)
+		{
+			ScriptTaskManager::getSingleton().cancelOwner(
+				static_cast<void const *>(&it->second));
+		}
+		this->testSessions.erase(it);
+#else
+		(void)session;
+#endif
+	}
+	//---------------------------------------------------------
+	bool ScriptRuntime::runTestFile(String const & resourceName,
+		String const & filter, std::vector<ScriptTestRecord> & outRecords,
+		int * outDeclared, String * outError)
+	{
+		oAssert(outError);
+		if (outDeclared != 0)
+		{
+			*outDeclared = 0;
+		}
+		// the FRAMELESS road: one file, start to finish, right here. A
+		// play-mode test cannot run this way - advancing frames is the
+		// caller's business - so it is refused honestly, per test, and the
+		// run fails. The frame-driven runner (orkige_player --run-tests)
+		// drives the same sessions and runs both tiers.
+		ScriptTestSessionId session = 0;
+		std::vector<ScriptTestCase> cases;
+		if (!this->beginTestFile(resourceName, filter, session, cases,
+			outDeclared, outError))
+		{
+			return false;
+		}
+		for (ScriptTestCase const & testCase : cases)
+		{
+			ScriptTestRecord record;
+			record.file = resourceName;
+			record.name = testCase.name;
+			if (!testCase.scene.empty())
+			{
+				record.status = "error";
+				record.message = "a play-mode test needs a frame-driven "
+					"runner (orkige_player --run-tests)";
+				outRecords.push_back(record);
+				continue;
+			}
+			String caseError;
+			if (!this->runTestCase(session, testCase.index, record,
+				&caseError))
+			{
+				record.status = "error";
+				record.message = caseError;
+			}
+			record.file = resourceName;
+			record.name = testCase.name;
+			outRecords.push_back(record);
+		}
+		this->endTestFile(session);
+		return true;
+	}
+	//---------------------------------------------------------
 	//--- ScriptCallScope -------------------------------------
 	//---------------------------------------------------------
 	ScriptCallScope::ScriptCallScope(void const * owner)
@@ -2071,6 +2672,15 @@ namespace Orkige
 		if(TimerManager::getSingletonPtr() != 0)
 		{
 			TimerManager::getSingleton().cancelOwner(this);
+		}
+		// and the SAME owner-token retire for this sandbox's suspended TASKS
+		// (script.async tagged with `this`): a coroutine parked in a wait must
+		// never continue into a dead sandbox - which is also what makes a
+		// script hot-reload drop the tasks of the swapped-out instance.
+		// Guarded - the editor never creates a ScriptTaskManager.
+		if(ScriptTaskManager::getSingletonPtr() != 0)
+		{
+			ScriptTaskManager::getSingleton().cancelOwner(this);
 		}
 		// and the SAME retire for this sandbox's in-flight HTTP requests (the
 		// `http` table tags each one with `this`): an answer that arrives after

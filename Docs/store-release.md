@@ -19,6 +19,22 @@ version/keystore config validation, the entitlements composition) are covered by
 `ctest` — `export_android_aab` and the `tests/exporter` units — so
 the pipeline stays honest even on a machine (like CI) with no signing material.
 
+## Which command line
+
+Store packaging is a **command-line** operation, because it needs secrets a
+remote agent does not hold. Which command depends on what the machine has:
+
+| The machine has | The command |
+|---|---|
+| a clone of this repository and a build tree | `orkige_export` — the development-tree tool the snippets below use |
+| an installed Orkige and nothing else | `orkige_editor export` — the same exporter, same flags, same `OK` line ([editor-cli.md](editor-cli.md)) |
+
+The two are one implementation behind two entry points. `orkige_export` is *not*
+part of a release, so on an installed Orkige the editor's own command line is the
+whole store-release path; it resolves the engine source (its bundled payload, a
+fetched device player, an installed SDK pack) instead of taking `--engine-build`.
+Every credential rule on this page applies unchanged to both.
+
 ---
 
 ## Build settings in the editor
@@ -63,6 +79,27 @@ application directory the editor stores nothing and says so.
 Each field falls back to its environment variable when left empty, so a machine
 already configured for the CLI needs no editing at all, and CI (which sets only
 the variables) is unaffected.
+
+#### What "readable by you alone" rests on
+
+The file is created empty, restricted while it still holds nothing, written, and
+then renamed onto its final name — so the credentials are never in a file
+another account can open, not even for the instant between a write and a
+restriction applied afterwards. It is the same sink every secret the editor
+writes goes through (`core_filesystem/FileWriter`, `Docs/security.md`). The
+restriction is *owner read and write, nobody else named*, stated in each
+platform's own access-control vocabulary:
+
+| Platform | The restriction |
+|---|---|
+| **macOS**, **Linux** | POSIX mode bits, enforced by the kernel: the file is `0600` |
+| **Windows** | a **protected** (non-inheriting) DACL granting this user and SYSTEM, and naming nobody else — written through the platform's own security API, since access control there is an ACL the standard filesystem library cannot express |
+
+What the restriction buys is bounded: it stops another account on the machine,
+never code running as this user. It also is not the last line here — **no
+password is ever in this file.** Those live in the operating system's own
+credential store (below), which is why the worst this file can expose is a
+keystore *path* and a key *alias*.
 
 ### Passwords go to the operating system's credential store
 
@@ -264,9 +301,9 @@ set in the editor wins, an empty one falls through.
        --platform android-aab --engine-build build/android-release
    ```
 
-   The exporter validates the version and package, stages the payload, then drives
-   `tools/player/android/build_aab.sh`: `aapt2 link --proto-format` →
-   the bundle module → `bundletool build-bundle` → `jarsigner`. The result is
+   The exporter validates the version and package, stages the payload, then
+   assembles the bundle in process: `aapt2 link --proto-format` → the bundle
+   module → `bundletool build-bundle` → `jarsigner`. The result is
    `<project>/builds/android-aab/<Game>.aab`.
 
 3. Upload `<Game>.aab` to the Play Console (Internal testing → Production). Play
@@ -279,8 +316,8 @@ To inspect the pipeline without a keystore or bundletool — what CI does — ad
 ### Notes
 
 - **Target SDK.** Google Play requires new-app and app-update uploads to target a
-  recent API (currently 35). The player manifest targets 35;
-  `build_aab.sh` warns loudly if a build ever drops below the floor.
+  recent API (currently 35). The player manifest targets 35, and the export
+  warns loudly if a build ever drops below the floor.
 - **Non-debuggable.** The release bundle flips `android:debuggable` to `false`
   (the dev-player APK stays debuggable for the editor's Play-on-device drop).
 

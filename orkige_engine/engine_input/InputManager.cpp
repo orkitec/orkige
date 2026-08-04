@@ -31,6 +31,8 @@
 
 //! maximum number of simultaneously tracked touch sequences (OIS tracked 4)
 #define ORKIGE_MAX_NUM_TOUCHES 10
+//! maximum number of simultaneously open gamepads
+#define ORKIGE_MAX_NUM_GAMEPADS 4
 
 namespace Orkige
 {
@@ -50,6 +52,11 @@ namespace Orkige
 	IMPL_OWNED_EVENTTYPE(InputManager, TextInputEvent);
 
 	IMPL_OSINGLETON(InputManager);
+
+	//! @brief the instance id injected (synthetic) gamepad events carry: a
+	//! value no platform assigns to a real device, so a virtual pad and a
+	//! plugged-in one never collide in the tracking table
+	static const SDL_JoystickID INJECTED_GAMEPAD_ID = 0x0F00CAFEu;
 
 	// simulated tilt tuning: a held steer key sweeps from upright to the
 	// clamp in ~0.7s; the clamp keeps "gravity" from ever pointing upward
@@ -221,6 +228,87 @@ namespace Orkige
 		return table[static_cast<unsigned int>(kc) & 0xFF];
 	}
 	//---------------------------------------------------------
+	//! the engine's positional gamepad button for an SDL one (GB_COUNT = a
+	//! button outside the standard layout, e.g. a vendor's extra paddle)
+	static Gamepad::Button sdlGamepadButton(SDL_GamepadButton button)
+	{
+		switch(button)
+		{
+		case SDL_GAMEPAD_BUTTON_SOUTH:			return Gamepad::GB_SOUTH;
+		case SDL_GAMEPAD_BUTTON_EAST:			return Gamepad::GB_EAST;
+		case SDL_GAMEPAD_BUTTON_WEST:			return Gamepad::GB_WEST;
+		case SDL_GAMEPAD_BUTTON_NORTH:			return Gamepad::GB_NORTH;
+		case SDL_GAMEPAD_BUTTON_BACK:			return Gamepad::GB_BACK;
+		case SDL_GAMEPAD_BUTTON_GUIDE:			return Gamepad::GB_GUIDE;
+		case SDL_GAMEPAD_BUTTON_START:			return Gamepad::GB_START;
+		case SDL_GAMEPAD_BUTTON_LEFT_STICK:		return Gamepad::GB_LEFTSTICK;
+		case SDL_GAMEPAD_BUTTON_RIGHT_STICK:	return Gamepad::GB_RIGHTSTICK;
+		case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER:	return Gamepad::GB_LEFTSHOULDER;
+		case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER:	return Gamepad::GB_RIGHTSHOULDER;
+		case SDL_GAMEPAD_BUTTON_DPAD_UP:		return Gamepad::GB_DPAD_UP;
+		case SDL_GAMEPAD_BUTTON_DPAD_DOWN:		return Gamepad::GB_DPAD_DOWN;
+		case SDL_GAMEPAD_BUTTON_DPAD_LEFT:		return Gamepad::GB_DPAD_LEFT;
+		case SDL_GAMEPAD_BUTTON_DPAD_RIGHT:		return Gamepad::GB_DPAD_RIGHT;
+		default:								return Gamepad::GB_COUNT;
+		}
+	}
+	//---------------------------------------------------------
+	//! the SDL button an engine one names (SDL_GAMEPAD_BUTTON_INVALID when the
+	//! value is out of range) - the injectGamepadButton synthesis side
+	static SDL_GamepadButton gamepadButtonToSdl(Gamepad::Button button)
+	{
+		for(int each = 0; each < SDL_GAMEPAD_BUTTON_COUNT; each++)
+		{
+			if(sdlGamepadButton(static_cast<SDL_GamepadButton>(each)) == button)
+			{
+				return static_cast<SDL_GamepadButton>(each);
+			}
+		}
+		return SDL_GAMEPAD_BUTTON_INVALID;
+	}
+	//---------------------------------------------------------
+	//! the engine's axis for an SDL one (GA_COUNT = not a standard axis)
+	static Gamepad::Axis sdlGamepadAxis(SDL_GamepadAxis axis)
+	{
+		switch(axis)
+		{
+		case SDL_GAMEPAD_AXIS_LEFTX:			return Gamepad::GA_LEFTX;
+		case SDL_GAMEPAD_AXIS_LEFTY:			return Gamepad::GA_LEFTY;
+		case SDL_GAMEPAD_AXIS_RIGHTX:			return Gamepad::GA_RIGHTX;
+		case SDL_GAMEPAD_AXIS_RIGHTY:			return Gamepad::GA_RIGHTY;
+		case SDL_GAMEPAD_AXIS_LEFT_TRIGGER:		return Gamepad::GA_LEFTTRIGGER;
+		case SDL_GAMEPAD_AXIS_RIGHT_TRIGGER:	return Gamepad::GA_RIGHTTRIGGER;
+		default:								return Gamepad::GA_COUNT;
+		}
+	}
+	//---------------------------------------------------------
+	//! the SDL axis an engine one names (SDL_GAMEPAD_AXIS_INVALID when out of
+	//! range) - the injectGamepadAxis synthesis side
+	static SDL_GamepadAxis gamepadAxisToSdl(Gamepad::Axis axis)
+	{
+		for(int each = 0; each < SDL_GAMEPAD_AXIS_COUNT; each++)
+		{
+			if(sdlGamepadAxis(static_cast<SDL_GamepadAxis>(each)) == axis)
+			{
+				return static_cast<SDL_GamepadAxis>(each);
+			}
+		}
+		return SDL_GAMEPAD_AXIS_INVALID;
+	}
+	//---------------------------------------------------------
+	//! @brief SDL's raw signed-short axis reading as the engine's normalized
+	//! one: sticks -1..+1, triggers 0..+1 (SDL reports those as 0..32767)
+	static float normalizeGamepadAxis(Gamepad::Axis axis, Sint16 raw)
+	{
+		const float value = static_cast<float>(raw) / 32767.0f;
+		const float clamped = std::clamp(value, -1.0f, 1.0f);
+		if(axis == Gamepad::GA_LEFTTRIGGER || axis == Gamepad::GA_RIGHTTRIGGER)
+		{
+			return std::max(0.0f, clamped);
+		}
+		return clamped;
+	}
+	//---------------------------------------------------------
 	//! hidden inputmanager translates SDL3 input to Orkige input
 	class InputManagerImpl : public Singleton<InputManagerImpl>
 	{
@@ -257,6 +345,44 @@ namespace Orkige
 		//! active touch sequences: SDL finger id per slot, slot index = sequenceId
 		SDL_FingerID touchSequences[ORKIGE_MAX_NUM_TOUCHES];
 		bool touchSequenceUsed[ORKIGE_MAX_NUM_TOUCHES];
+		//! @brief the RAW per-slot touch state the event stream writes, folded
+		//! into the frame snapshot below by updateFrameState(). Positions are
+		//! window pixels (SDL delivers normalized coordinates - scaled on
+		//! arrival, exactly like touchData).
+		struct TouchSlot
+		{
+			float	x = 0.0f;			//!< latest position, window pixels
+			float	y = 0.0f;
+			float	snapX = 0.0f;		//!< position at the last snapshot
+			float	snapY = 0.0f;
+			bool	pendingDown = false;	//!< a down edge arrived since the snapshot
+			bool	pendingUp = false;		//!< an up/cancel edge arrived since it
+			bool	endedReported = false;	//!< the TP_ENDED frame has been published
+		};
+		TouchSlot touchSlots[ORKIGE_MAX_NUM_TOUCHES];
+		//! the frame snapshot: the touch points published to game code
+		TouchPoint touchFrame[ORKIGE_MAX_NUM_TOUCHES];
+		int touchFrameCount;
+		//! @brief pointer button state: the LIVE held mask plus the edge masks
+		//! ACCUMULATED since the last snapshot, so a press and its release
+		//! inside one frame are both still seen (a fast tap is not swallowed),
+		//! and the three the frame snapshot publishes
+		int pointerButtons;
+		int pointerPressedRaw;
+		int pointerReleasedRaw;
+		int pointerButtonsFrame;
+		int pointerPressedFrame;
+		int pointerReleasedFrame;
+		//--- gamepads ----------------------------------------
+		SDL_Gamepad* gamepads[ORKIGE_MAX_NUM_GAMEPADS];
+		SDL_JoystickID gamepadIds[ORKIGE_MAX_NUM_GAMEPADS];
+		int gamepadCount;
+		//! @brief button/axis state per the standard layout, MERGED across
+		//! pads and fed from the INJECTED event stream (never SDL_GetGamepad*),
+		//! so synthetic pad events are as real as hardware ones - the same
+		//! reason keyDownState exists
+		bool gamepadButtonState[Gamepad::GB_COUNT];
+		float gamepadAxisValue[Gamepad::GA_COUNT];
 		//! @brief key-down state per SDL scancode, fed from the INJECTED event
 		//! stream (not SDL_GetKeyboardState): the application pumps every SDL
 		//! event through injectEvent, so this covers hardware input AND
@@ -326,6 +452,29 @@ namespace Orkige
 			{
 				this->touchSequences[each] = 0;
 				this->touchSequenceUsed[each] = false;
+				this->touchSlots[each] = TouchSlot();
+				this->touchFrame[each] = TouchPoint();
+			}
+			this->touchFrameCount = 0;
+			this->pointerButtons = 0;
+			this->pointerPressedRaw = 0;
+			this->pointerReleasedRaw = 0;
+			this->pointerButtonsFrame = 0;
+			this->pointerPressedFrame = 0;
+			this->pointerReleasedFrame = 0;
+			for (int each = 0; each < ORKIGE_MAX_NUM_GAMEPADS; each++)
+			{
+				this->gamepads[each] = NULL;
+				this->gamepadIds[each] = 0;
+			}
+			this->gamepadCount = 0;
+			for (int each = 0; each < Gamepad::GB_COUNT; each++)
+			{
+				this->gamepadButtonState[each] = false;
+			}
+			for (int each = 0; each < Gamepad::GA_COUNT; each++)
+			{
+				this->gamepadAxisValue[each] = 0.0f;
 			}
 			for (int each = 0; each < SDL_SCANCODE_COUNT; each++)
 			{
@@ -348,6 +497,124 @@ namespace Orkige
 			{
 				SDL_CloseSensor(this->accelSensor);
 				this->accelSensor = NULL;
+			}
+			for (int each = 0; each < this->gamepadCount; each++)
+			{
+				if (this->gamepads[each])
+				{
+					SDL_CloseGamepad(this->gamepads[each]);
+				}
+				this->gamepads[each] = NULL;
+			}
+			this->gamepadCount = 0;
+		}
+		//! @brief open the gamepad subsystem and every pad already plugged in.
+		//! Pads connected LATER arrive as SDL_EVENT_GAMEPAD_ADDED through
+		//! injectEvent, so hot-plugging works with no polling.
+		void openGamepads()
+		{
+			if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD))
+			{
+				return;
+			}
+			int padCount = 0;
+			SDL_JoystickID* padIds = SDL_GetGamepads(&padCount);
+			if (!padIds)
+			{
+				return;
+			}
+			for (int each = 0; each < padCount; each++)
+			{
+				this->addGamepad(padIds[each]);
+			}
+			SDL_free(padIds);
+		}
+		//! is this instance id already tracked
+		bool hasGamepad(SDL_JoystickID instanceId) const
+		{
+			for (int each = 0; each < this->gamepadCount; each++)
+			{
+				if (this->gamepadIds[each] == instanceId)
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+		//! start tracking one gamepad by instance id (ignores duplicates and
+		//! anything past the tracked bound)
+		void addGamepad(SDL_JoystickID instanceId)
+		{
+			if (this->hasGamepad(instanceId) ||
+				this->gamepadCount >= ORKIGE_MAX_NUM_GAMEPADS)
+			{
+				return;
+			}
+			SDL_Gamepad* pad = SDL_OpenGamepad(instanceId);
+			if (!pad)
+			{
+				return;
+			}
+			this->gamepads[this->gamepadCount] = pad;
+			this->gamepadIds[this->gamepadCount] = instanceId;
+			this->gamepadCount++;
+			char const * name = SDL_GetGamepadName(pad);
+			oDebugMsg("core", 0, "InputManager: gamepad '"
+				<< (name ? name : "controller") << "' connected ("
+				<< this->gamepadCount << " open)");
+		}
+		//! @brief track a pad that DELIVERS events without an open SDL handle:
+		//! an injected (synthetic) controller. A pad speaking IS a pad present,
+		//! so a scripted run or an agent's injected gesture makes
+		//! isGamepadConnected() true exactly like plugging one in - the same
+		//! rule that makes injected keys as real as pressed ones.
+		void addVirtualGamepad(SDL_JoystickID instanceId)
+		{
+			if (this->hasGamepad(instanceId) ||
+				this->gamepadCount >= ORKIGE_MAX_NUM_GAMEPADS)
+			{
+				return;
+			}
+			this->gamepads[this->gamepadCount] = NULL;
+			this->gamepadIds[this->gamepadCount] = instanceId;
+			this->gamepadCount++;
+		}
+		//! stop tracking one gamepad; the last pad leaving CLEARS the merged
+		//! state so an unplugged held button can never stay stuck down
+		void removeGamepad(SDL_JoystickID instanceId)
+		{
+			for (int each = 0; each < this->gamepadCount; each++)
+			{
+				if (this->gamepadIds[each] != instanceId)
+				{
+					continue;
+				}
+				if (this->gamepads[each])
+				{
+					SDL_CloseGamepad(this->gamepads[each]);
+				}
+				for (int shift = each; shift + 1 < this->gamepadCount; shift++)
+				{
+					this->gamepads[shift] = this->gamepads[shift + 1];
+					this->gamepadIds[shift] = this->gamepadIds[shift + 1];
+				}
+				this->gamepadCount--;
+				this->gamepads[this->gamepadCount] = NULL;
+				this->gamepadIds[this->gamepadCount] = 0;
+				oDebugMsg("core", 0, "InputManager: gamepad disconnected ("
+					<< this->gamepadCount << " open)");
+				break;
+			}
+			if (this->gamepadCount == 0)
+			{
+				for (int each = 0; each < Gamepad::GB_COUNT; each++)
+				{
+					this->gamepadButtonState[each] = false;
+				}
+				for (int each = 0; each < Gamepad::GA_COUNT; each++)
+				{
+					this->gamepadAxisValue[each] = 0.0f;
+				}
 			}
 		}
 		//! open the first accelerometer, if the machine has one (phones/tablets;
@@ -398,9 +665,17 @@ namespace Orkige
 		inline int acquireTouchSequenceId(SDL_FingerID fingerId)
 		{
 			int existing = this->findTouchSequenceId(fingerId);
-			if (existing != -1)
+			if (existing != -1 && !this->touchSlots[existing].pendingUp)
 			{
 				return existing;
+			}
+			if (existing != -1)
+			{
+				// the platform reused a finger id before the frame snapshot
+				// published the previous sequence's release: drop the id
+				// mapping so the NEW sequence gets its own slot and the
+				// pending release still reaches the game
+				this->touchSequences[existing] = 0;
 			}
 			for (int each = 0; each < ORKIGE_MAX_NUM_TOUCHES; each++)
 			{
@@ -411,18 +686,32 @@ namespace Orkige
 					return each;
 				}
 			}
+			// every slot is taken: reclaim one already lifted whose release the
+			// frame snapshot has not published yet (a host that never calls
+			// updateFrameState would otherwise run out of slots)
+			for (int each = 0; each < ORKIGE_MAX_NUM_TOUCHES; each++)
+			{
+				if (this->touchSlots[each].pendingUp)
+				{
+					this->touchSequences[each] = fingerId;
+					return each;
+				}
+			}
 			return -1;
 		}
-		//! stop tracking a finger and return the slot it had
+		//! @brief stop tracking a finger and return the slot it had. The slot
+		//! stays RESERVED until the frame snapshot has published its TP_ENDED
+		//! frame, so a release is never lost between two frames.
 		inline int releaseTouchSequenceId(SDL_FingerID fingerId)
 		{
-			int sequenceId = this->findTouchSequenceId(fingerId);
-			if (sequenceId != -1)
-			{
-				this->touchSequenceUsed[sequenceId] = false;
-				this->touchSequences[sequenceId] = 0;
-			}
-			return sequenceId;
+			return this->findTouchSequenceId(fingerId);
+		}
+		//! free a slot the frame snapshot has finished reporting
+		inline void retireTouchSequence(int sequenceId)
+		{
+			this->touchSequenceUsed[sequenceId] = false;
+			this->touchSequences[sequenceId] = 0;
+			this->touchSlots[sequenceId] = TouchSlot();
 		}
 		inline void sdlKeyToOrkige(SDL_KeyboardEvent const & e)
 		{
@@ -486,6 +775,31 @@ namespace Orkige
 			this->touchData->absY = static_cast<int>(e.y * this->windowHeight);
 			this->touchData->absZ = 0;
 			this->touchData->sequenceId = sequenceId;
+		}
+		//! @brief record one raw finger edge into its slot for the next frame
+		//! snapshot (the positions stay in window pixels, like touchData)
+		inline void noteTouch(SDL_TouchFingerEvent const & e, int sequenceId,
+			bool down, bool up)
+		{
+			if (sequenceId < 0 || sequenceId >= ORKIGE_MAX_NUM_TOUCHES)
+			{
+				return;	// untracked finger (past the slot bound) - nothing to fold
+			}
+			TouchSlot & slot = this->touchSlots[sequenceId];
+			if (down)
+			{
+				// a fresh sequence starts where it landed: no phantom delta
+				slot = TouchSlot();
+				slot.snapX = e.x * this->windowWidth;
+				slot.snapY = e.y * this->windowHeight;
+				slot.pendingDown = true;
+			}
+			slot.x = e.x * this->windowWidth;
+			slot.y = e.y * this->windowHeight;
+			if (up)
+			{
+				slot.pendingUp = true;
+			}
 		}
 	};
 	IMPL_OSINGLETON(InputManagerImpl);
@@ -567,10 +881,16 @@ namespace Orkige
 			return true;
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 			this->impl->sdlMouseButtonToOrkige(event.button);
+			this->impl->pointerButtons = this->impl->mouseData->buttons;
+			this->impl->pointerPressedRaw |=
+				1 << this->impl->mouseData->button;
 			GlobalEventManager::getSingleton().trigger(this->impl->mousePressedEvent);
 			return true;
 		case SDL_EVENT_MOUSE_BUTTON_UP:
 			this->impl->sdlMouseButtonToOrkige(event.button);
+			this->impl->pointerButtons = this->impl->mouseData->buttons;
+			this->impl->pointerReleasedRaw |=
+				1 << this->impl->mouseData->button;
 			GlobalEventManager::getSingleton().trigger(this->impl->mouseReleasedEvent);
 			return true;
 		case SDL_EVENT_MOUSE_WHEEL:
@@ -578,21 +898,81 @@ namespace Orkige
 			GlobalEventManager::getSingleton().trigger(this->impl->mouseMovedEvent);
 			return true;
 		case SDL_EVENT_FINGER_DOWN:
-			this->impl->sdlTouchToOrkige(event.tfinger, this->impl->acquireTouchSequenceId(event.tfinger.fingerID));
+		{
+			const int downSequence =
+				this->impl->acquireTouchSequenceId(event.tfinger.fingerID);
+			this->impl->sdlTouchToOrkige(event.tfinger, downSequence);
+			this->impl->noteTouch(event.tfinger, downSequence, true, false);
 			GlobalEventManager::getSingleton().trigger(this->impl->touchPressedEvent);
 			return true;
+		}
 		case SDL_EVENT_FINGER_MOTION:
-			this->impl->sdlTouchToOrkige(event.tfinger, this->impl->findTouchSequenceId(event.tfinger.fingerID));
+		{
+			const int moveSequence =
+				this->impl->findTouchSequenceId(event.tfinger.fingerID);
+			this->impl->sdlTouchToOrkige(event.tfinger, moveSequence);
+			this->impl->noteTouch(event.tfinger, moveSequence, false, false);
 			GlobalEventManager::getSingleton().trigger(this->impl->touchMovedEvent);
 			return true;
+		}
 		case SDL_EVENT_FINGER_UP:
-			this->impl->sdlTouchToOrkige(event.tfinger, this->impl->releaseTouchSequenceId(event.tfinger.fingerID));
+		{
+			const int upSequence =
+				this->impl->releaseTouchSequenceId(event.tfinger.fingerID);
+			this->impl->sdlTouchToOrkige(event.tfinger, upSequence);
+			this->impl->noteTouch(event.tfinger, upSequence, false, true);
 			GlobalEventManager::getSingleton().trigger(this->impl->touchReleasedEvent);
 			return true;
+		}
 		case SDL_EVENT_FINGER_CANCELED:
-			this->impl->sdlTouchToOrkige(event.tfinger, this->impl->releaseTouchSequenceId(event.tfinger.fingerID));
+		{
+			const int cancelSequence =
+				this->impl->releaseTouchSequenceId(event.tfinger.fingerID);
+			this->impl->sdlTouchToOrkige(event.tfinger, cancelSequence);
+			this->impl->noteTouch(event.tfinger, cancelSequence, false, true);
 			GlobalEventManager::getSingleton().trigger(this->impl->touchCancelledEvent);
 			return true;
+		}
+		case SDL_EVENT_GAMEPAD_ADDED:
+			// hot-plug: open the pad so its buttons/axes start arriving
+			this->impl->addGamepad(event.gdevice.which);
+			return true;
+		case SDL_EVENT_GAMEPAD_REMOVED:
+			this->impl->removeGamepad(event.gdevice.which);
+			return true;
+		case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+		case SDL_EVENT_GAMEPAD_BUTTON_UP:
+		{
+			const Gamepad::Button button = sdlGamepadButton(
+				static_cast<SDL_GamepadButton>(event.gbutton.button));
+			if(button == Gamepad::GB_COUNT)
+			{
+				return false;	// outside the standard layout - nothing to bind
+			}
+			if(!this->impl->hasGamepad(event.gbutton.which))
+			{
+				this->impl->addVirtualGamepad(event.gbutton.which);
+			}
+			this->impl->gamepadButtonState[button] =
+				(event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN);
+			return true;
+		}
+		case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+		{
+			const Gamepad::Axis axis = sdlGamepadAxis(
+				static_cast<SDL_GamepadAxis>(event.gaxis.axis));
+			if(axis == Gamepad::GA_COUNT)
+			{
+				return false;
+			}
+			if(!this->impl->hasGamepad(event.gaxis.which))
+			{
+				this->impl->addVirtualGamepad(event.gaxis.which);
+			}
+			this->impl->gamepadAxisValue[axis] =
+				normalizeGamepadAxis(axis, event.gaxis.value);
+			return true;
+		}
 		case SDL_EVENT_SENSOR_UPDATE:
 			// the accelerometer opened in openTiltSensor: feed the classic
 			// (2012) AccelerationEventData AND the getTilt() sample
@@ -656,6 +1036,189 @@ namespace Orkige
 		event.key.down = down;
 		event.key.repeat = false;
 		return this->injectEvent(event);
+	}
+	//---------------------------------------------------------
+	bool InputManager::injectTouch(int fingerId, TouchPhase phase, float x,
+		float y)
+	{
+		if(this->impl->windowWidth <= 0 || this->impl->windowHeight <= 0)
+		{
+			// without extents the pixel -> normalized conversion is a guess:
+			// refuse rather than inject a finger at a made-up position
+			return false;
+		}
+		SDL_Event event{};
+		switch(phase)
+		{
+		case TP_BEGAN:	event.type = SDL_EVENT_FINGER_DOWN; break;
+		case TP_MOVED:	event.type = SDL_EVENT_FINGER_MOTION; break;
+		case TP_ENDED:	event.type = SDL_EVENT_FINGER_UP; break;
+		default:		return false;
+		}
+		// SDL delivers finger coordinates NORMALIZED; the engine's touch
+		// vocabulary is window pixels, so the conversion happens here - the one
+		// synthesis path, matching what sdlTouchToOrkige undoes on arrival
+		event.tfinger.fingerID = static_cast<SDL_FingerID>(fingerId + 1);
+		event.tfinger.x = x / static_cast<float>(this->impl->windowWidth);
+		event.tfinger.y = y / static_cast<float>(this->impl->windowHeight);
+		event.tfinger.dx = 0.0f;
+		event.tfinger.dy = 0.0f;
+		event.tfinger.pressure = (phase == TP_ENDED) ? 0.0f : 1.0f;
+		return this->injectEvent(event);
+	}
+	//---------------------------------------------------------
+	bool InputManager::injectGamepadButton(Gamepad::Button button, bool down)
+	{
+		const SDL_GamepadButton sdlButton = gamepadButtonToSdl(button);
+		if(sdlButton == SDL_GAMEPAD_BUTTON_INVALID)
+		{
+			return false;
+		}
+		SDL_Event event{};
+		event.type = down ? SDL_EVENT_GAMEPAD_BUTTON_DOWN
+			: SDL_EVENT_GAMEPAD_BUTTON_UP;
+		event.gbutton.which = INJECTED_GAMEPAD_ID;
+		event.gbutton.button = static_cast<Uint8>(sdlButton);
+		event.gbutton.down = down;
+		return this->injectEvent(event);
+	}
+	//---------------------------------------------------------
+	bool InputManager::injectGamepadAxis(Gamepad::Axis axis, float value)
+	{
+		const SDL_GamepadAxis sdlAxis = gamepadAxisToSdl(axis);
+		if(sdlAxis == SDL_GAMEPAD_AXIS_INVALID)
+		{
+			return false;
+		}
+		const float clamped = std::clamp(value, -1.0f, 1.0f);
+		SDL_Event event{};
+		event.type = SDL_EVENT_GAMEPAD_AXIS_MOTION;
+		event.gaxis.which = INJECTED_GAMEPAD_ID;
+		event.gaxis.axis = static_cast<Uint8>(sdlAxis);
+		event.gaxis.value = static_cast<Sint16>(clamped * 32767.0f);
+		return this->injectEvent(event);
+	}
+	//---------------------------------------------------------
+	bool InputManager::isGamepadButtonDown(Gamepad::Button button) const
+	{
+		if(button < 0 || button >= Gamepad::GB_COUNT)
+		{
+			return false;
+		}
+		return this->impl->gamepadButtonState[button];
+	}
+	//---------------------------------------------------------
+	float InputManager::getGamepadAxis(Gamepad::Axis axis) const
+	{
+		if(axis < 0 || axis >= Gamepad::GA_COUNT)
+		{
+			return 0.0f;
+		}
+		return this->impl->gamepadAxisValue[axis];
+	}
+	//---------------------------------------------------------
+	int InputManager::getGamepadCount() const
+	{
+		return this->impl->gamepadCount;
+	}
+	//---------------------------------------------------------
+	bool InputManager::isGamepadConnected() const
+	{
+		return this->impl->gamepadCount > 0;
+	}
+	//---------------------------------------------------------
+	void InputManager::updateFrameState()
+	{
+		// --- touch: fold the raw slot edges into the published frame ---
+		this->impl->touchFrameCount = 0;
+		for(int slotIndex = 0; slotIndex < ORKIGE_MAX_NUM_TOUCHES; slotIndex++)
+		{
+			if(!this->impl->touchSequenceUsed[slotIndex])
+			{
+				continue;
+			}
+			InputManagerImpl::TouchSlot & slot =
+				this->impl->touchSlots[slotIndex];
+			// a slot whose TP_ENDED frame has been published is done: retire it
+			// so the finger stops being reported at all
+			if(slot.endedReported)
+			{
+				this->impl->retireTouchSequence(slotIndex);
+				continue;
+			}
+			TouchPoint point;
+			point.id = slotIndex;
+			point.x = slot.x;
+			point.y = slot.y;
+			point.deltaX = slot.x - slot.snapX;
+			point.deltaY = slot.y - slot.snapY;
+			// a down edge always reads BEGAN first, even when the release
+			// arrived in the same frame - the up stays pending and is published
+			// as ENDED next frame, so a one-frame tap is never swallowed
+			if(slot.pendingDown)
+			{
+				point.phase = TP_BEGAN;
+				slot.pendingDown = false;
+			}
+			else if(slot.pendingUp)
+			{
+				point.phase = TP_ENDED;
+				slot.endedReported = true;
+			}
+			else
+			{
+				point.phase = TP_MOVED;
+			}
+			slot.snapX = slot.x;
+			slot.snapY = slot.y;
+			this->impl->touchFrame[this->impl->touchFrameCount] = point;
+			this->impl->touchFrameCount++;
+		}
+
+		// --- pointer: the held mask plus the edges seen since the last snapshot
+		this->impl->pointerButtonsFrame = this->impl->pointerButtons;
+		this->impl->pointerPressedFrame = this->impl->pointerPressedRaw;
+		this->impl->pointerReleasedFrame = this->impl->pointerReleasedRaw;
+		this->impl->pointerPressedRaw = 0;
+		this->impl->pointerReleasedRaw = 0;
+	}
+	//---------------------------------------------------------
+	int InputManager::getTouchCount() const
+	{
+		return this->impl->touchFrameCount;
+	}
+	//---------------------------------------------------------
+	TouchPoint InputManager::getTouchPoint(int index) const
+	{
+		if(index < 0 || index >= this->impl->touchFrameCount)
+		{
+			return TouchPoint();
+		}
+		return this->impl->touchFrame[index];
+	}
+	//---------------------------------------------------------
+	Vec2 InputManager::getPointerPosition() const
+	{
+		return Vec2(static_cast<float>(this->impl->mouseData->absX),
+			static_cast<float>(this->impl->mouseData->absY));
+	}
+	//---------------------------------------------------------
+	bool InputManager::isPointerDown(
+		MouseEventData::MouseButtonID button) const
+	{
+		return (this->impl->pointerButtonsFrame & (1 << button)) != 0;
+	}
+	//---------------------------------------------------------
+	bool InputManager::isPointerPressed(
+		MouseEventData::MouseButtonID button) const
+	{
+		return (this->impl->pointerPressedFrame & (1 << button)) != 0;
+	}
+	//---------------------------------------------------------
+	bool InputManager::isPointerReleased(
+		MouseEventData::MouseButtonID button) const
+	{
+		return (this->impl->pointerReleasedFrame & (1 << button)) != 0;
 	}
 	//---------------------------------------------------------
 	String const & InputManager::getAsString(KeyEventData::KeyCode kc)
@@ -938,6 +1501,9 @@ namespace Orkige
 		}
 		// tilt: open the accelerometer where one exists (phones/tablets)
 		this->impl->openTiltSensor();
+		// controllers: open every pad already plugged in (later ones arrive as
+		// SDL_EVENT_GAMEPAD_ADDED through injectEvent)
+		this->impl->openGamepads();
 	}
 	//---------------------------------------------------------
 	void InputManager::capture( void )

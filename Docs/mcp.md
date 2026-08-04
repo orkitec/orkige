@@ -66,7 +66,10 @@ The `x-orkige-managed` marker (a field `claude` ignores) lets the editor manage
 is left untouched, every other server the user authored is preserved across
 rewrites, and an unparseable file is never clobbered. The file is rewritten on a
 project switch / port change and **removed on clean shutdown** (a crash leaves
-it; the next launch's ephemeral rewrite self-heals it). It is gitignored, hidden
+it; the next launch's ephemeral rewrite self-heals it). It quotes the bearer
+token, so it is written **owner-only** — and this one sits at the project root,
+which can be any volume the user picked, so the restriction travels with the
+write instead of being inherited from a directory. It is gitignored, hidden
 from project file listings, and never bundled by the exporter. `claude` prompts
 once per session to approve a project's `.mcp.json`; because the default port is
 ephemeral, that approval recurs each launch (pin `--mcp-port` for a stable URL
@@ -140,6 +143,20 @@ this section details.
   `core_debugnet/ControlAuth::verbAllowed` (unit-tested by `ControlAuthTests`),
   and the `editor_control` self-test drives a read WITHOUT the token and asserts
   it is refused while a token is configured.
+
+- **The token is unpredictable, and the files that carry it are owner-only.**
+  It is minted per session from the platform's entropy source
+  (`core_util/SecretToken.h`) — never from a seeded engine whose other outputs
+  are published, which would make the secret recoverable from files anyone can
+  read. Both the token file and the per-project `.mcp.json` are written through
+  the owner-only file sink (`core_filesystem/FileWriter::beginOwnerOnly`): they
+  are created empty, restricted while still empty, written, then renamed, so the
+  token never sits in a file another account can open. The restriction is `0600`
+  on macOS/Linux and a protected DACL on Windows; a volume that can hold neither
+  gets one honest warning rather than a refusal. What it does *not* stop is code
+  already running as this user — the bound on that is the token's session
+  lifetime and its removal on shutdown, not the file mode
+  ([security.md](security.md#files-that-carry-a-secret)).
 
 - **Constant-time token comparison.** The bearer token is compared with
   `core_util/constantTimeEquals` (unit-tested by `ConstantTimeCompareTests`),
@@ -276,7 +293,7 @@ advertised set is the discoverable subset, not a hard limit.)
 | `get_ui_layout()` | the RUNNING game's gui widget rects AND resolved text style: parallel `ids`/`rects`/`styles` (each rect `"left top width height visible enabled modal"`, pixels; the three flags are `1`/`0` — `enabled`=interactive, `modal`=part of an active modal dialog. Each style `"hasText font textScale colourSet r g b a"` — the text style the widget actually draws with after a named `[Style]` and its own keys merged, so a styling edit is verifiable, not just a geometry one; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box, read `modal` to assert a dialog is up, or read `styles` to assert a font/colour/scale landed |
 | `gui_press(id)` | **auth** — synthesize a press on a gui widget by id in the RUNNING game, routed through the REAL input path so modal/disabled semantics apply (a button under a modal scrim does NOT fire; a disabled widget stays inert) (`MSG_GUI_PRESS`) |
 | `dismiss_modal(id?)` | **auth** — close a modal dialog in the RUNNING game by id, or the topmost one when omitted (`MSG_GUI_DISMISS_MODAL`) |
-| `send_input(steps)` | **auth** — PLAY the running game: replay a whole input GESTURE (keys, pointer, tilt) through the REAL input path, so `isKeyDown`, the action map, the gui hit test and every input listener see it exactly like hardware input (`MSG_SEND_INPUT`). `steps` is an ARRAY OF STRINGS applied ONE PER FRAME in order — see the grammar below. ASYNC and FRAME-EXACT: returns `accepted` + `prev_input_seq` + `input_frames`/`input_events`; poll `get_state` until `input_seq` exceeds `prev_input_seq`, then `input_ok`=`1` means the gesture replayed AND every injected frame was stepped, so `runtime_state`/`runtime_hierarchy`/`screenshot_game` right after it show the RESULT with no sleeping. `input_message` carries a refusal reason, or one honest note on a success. One gesture at a time; refused (naming the offending step's 1-based index) on a malformed list, with no player, and while the session is PAUSED |
+| `send_input(steps)` | **auth** — PLAY the running game: replay a whole input GESTURE (keys, pointer, touch, gamepad, tilt) through the REAL input path, so `isKeyDown`, the action map, the `input` script table, the gui hit test and every input listener see it exactly like hardware input (`MSG_SEND_INPUT`). `steps` is an ARRAY OF STRINGS applied ONE PER FRAME in order — see the grammar below. ASYNC and FRAME-EXACT: returns `accepted` + `prev_input_seq` + `input_frames`/`input_events`; poll `get_state` until `input_seq` exceeds `prev_input_seq`, then `input_ok`=`1` means the gesture replayed AND every injected frame was stepped, so `runtime_state`/`runtime_hierarchy`/`screenshot_game` right after it show the RESULT with no sleeping. `input_message` carries a refusal reason, or one honest note on a success. One gesture at a time; refused (naming the offending step's 1-based index) on a malformed list, with no player, and while the session is PAUSED |
 | `get_breadcrumbs()` | the player's on-disk crash trail (pure file I/O — the player may be dead): `live` (this/most-recent session's `breadcrumbs.jsonl` text) and `previous` (the prior session's, rotated aside at boot — the one to read after a crash), one JSON object per line, plus the resolved `dir`. Two derived fields answer "did the last run die?" straight off the `previous` trail: `crashed` (`"true"`/`"false"` — true when its LAST entry is a fatal-signal `"crash"` marker) and `crashSignal` (the signal name, e.g. `"SIGSEGV"`, empty when not crashed) — the machine-detectable crash verdict a phone can't show as a dialog. Mobile app-lifecycle transitions ride this same trail — `"background"`/`"foreground"`/`"terminating"`/`"low_memory"` kinds — so no new readback verb is needed to observe backgrounding on device |
 | `get_benchmark_results(file?)` | the per-scene performance artifact the player captured when armed for a benchmark run (`ORKIGE_BENCHMARK`): pure file I/O from the player's writable app dir (its project jail can't reach it, like `get_breadcrumbs`). Picks the newest `benchmark-*.jsonl`, or the named `file`. Returns the raw `text`, the parsed `meta`/`summary` lines, a `scenes` array (one JSON object per scene — frame-ms min/avg/p50/p95/p99/max, per-phase means, alloc mean+peak, RSS peak, triangle/batch/texture means), `scene_count`, `aborted` and the resolved `dir`/`file`. Empty when no artifact exists. Schema: `Docs/benchmark.md`. Starting a run is the existing `play` verb with `ORKIGE_BENCHMARK` armed; on-device artifacts are pulled by the CLI harness (`adb pull` / `simctl get_app_container`), not MCP |
 | `get_profile()` | the RUNNING game's hierarchical CPU frame profile: parallel `names`/`info` lists (each info `"depth calls milliseconds maxMilliseconds"`; depth-0 rows are the canonical tick phases — `input scripts events tweens physics load audio present debug render`), plus `frame_ms` and `profile_seq` (poll until it advances for a fresh frame). A Debug player streams snapshots unprompted (`MSG_PROFILE_DATA` on the stats cadence); on a Release player the first call arms the profiler (`MSG_PROFILE`), so call again shortly after. Pair with `get_state`'s `alloc_per_frame`/`alloc_tags` to answer "where does the frame go, and what allocates?" |
@@ -376,9 +393,11 @@ widget recipes live in `Docs/gui.md`.
 ### Driving gameplay: `send_input`
 
 `gui_press` drives a WIDGET; `send_input` drives the GAME. It replays a whole
-input gesture — key edges, pointer moves/presses, a tilt pose — through the
+input gesture — key edges, pointer moves/presses, fingers, controller buttons and
+sticks, a tilt pose — through the
 same `InputManager::injectEvent` path the platform's own event loop feeds, so
-`isKeyDown`, the named-action map's per-frame edge snapshot, the gui hit test and
+`isKeyDown`, the named-action map's per-frame edge snapshot, the `input` script
+table, the gui hit test and
 every input listener see synthetic input exactly like hardware input. A gesture
 travels as ONE call because a round trip per key edge would make every press
 wall-clock dependent: an agent needs "hold RIGHT for 12 frames" to be *frame*
@@ -394,6 +413,11 @@ exact, or its assertion is a coin flip.
 | `pointer move <x> <y>` | move the pointer |
 | `pointer down\|up <x> <y> [left\|middle\|right]` | press / release a button at a point |
 | `pointer click <x> <y> [button]` | move + press, held one frame, release |
+| `touch <id> down\|move\|up <x> <y>` | one finger of a multi-touch gesture at a point |
+| `touch <id> tap <x> <y>` | that finger down, held one frame, up |
+| `gamepad button <NAME> down\|up` | a controller button edge |
+| `gamepad button <NAME> press [frames]` | hold it for `frames` frames (default 1) |
+| `gamepad axis <NAME> <value>` | a stick or trigger reading |
 | `tilt angle <radians>` | set the simulated tilt angle (0 = upright) |
 | `tilt vector <x> <y>` | the same seam, given as a gravity direction (`0 -1` = upright) |
 | `wait <frames>` | advance the timeline without an event |
@@ -401,7 +425,26 @@ exact, or its assertion is a coin flip.
 Key names are the `KC_` spellings without the prefix (`SPACE`, `LEFT`, `A`, `F5`,
 `WEBBACK` — the Android hardware back button), matched case-insensitively, with an
 optional `KC_` prefix and the friendly aliases `ENTER`/`ESC`/`BACKSPACE`/`SHIFT`/
-`CTRL`/`ALT`/`PAGEUP`/`PAGEDOWN`. Pointer coordinates are **window pixels** of the
+`CTRL`/`ALT`/`PAGEUP`/`PAGEDOWN`.
+
+A `touch` step's `<id>` is the caller's own finger number (`0`..`9`), stable for
+as long as that finger is down, so a pinch is two interleaved step streams. The
+game reads the result through the `input` table
+([lua-api.md](lua-api.md#the-input-table-raw-devices)).
+
+Gamepad button names are **positional** — `south`, `east`, `west`, `north`,
+`back`, `guide`, `start`, `leftstick`, `rightstick`, `leftshoulder`,
+`rightshoulder`, `dpup`, `dpdown`, `dpleft`, `dpright` — because the same
+physical button carries a different letter per vendor; `a`/`b`/`x`/`y` (and
+`select`/`menu`/`l1`/`r1`/`l3`/`r3`) resolve as aliases. Axis names are `leftx`,
+`lefty`, `rightx`, `righty`, `lefttrigger`, `righttrigger` (aliases `lx`, `ly`,
+`rx`, `ry`, `lt`, `rt`); sticks take `-1`..`1` (`+y` is down), triggers `0`..`1`,
+and a value outside that range is refused rather than clamped. A pad that
+delivers injected events counts as **connected**, exactly as an injected key
+counts as pressed — so a controller game is testable on a machine with no
+controller.
+
+Pointer and touch coordinates are **window pixels** of the
 game's drawable — the space `get_safe_area` reports (`window_w`/`window_h`) and
 `get_ui_layout`'s rects live in. A gesture is bounded (at most 256 steps spanning
 600 frames) so one call can never occupy a session.
@@ -938,7 +981,9 @@ should not) hold, so a store verb over MCP could never do more than gate. The
 gating logic itself (version-code/keystore config validation, the honest refusal
 when a credential is missing) lives in `tools/exporter/ExportSettings.h` and is exercised
 cert-free by its `--selftest`; run store packaging from the shell, where the
-secrets live. See `Docs/store-release.md`.
+secrets live — `orkige_export` inside the engine repository, `orkige_editor
+export` on an installed Orkige (`Docs/editor-cli.md`). See
+`Docs/store-release.md`.
 
 ## Dirty-state policy
 

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Build the script-in-pak test fixture: a STORED zip holding ONE Lua script
-under "scripts/" and ONE authored data file under "data/", and nothing else. The
-player mounts this pak and loads a path-bound ScriptComponent whose file lives
-ONLY inside it (no loose file, no --project), proving Lua scripts read through
-the resource system from an archive in place instead of via fopen - the read
-that removes the Android fopen-tree extraction (Docs/filesystem.md). The script
-then reads the data file through the `data` table, so the SAME in-place read is
-proven for content a script asks for at runtime.
+"""Build the script-in-pak test fixture: a STORED zip holding a Lua script and
+a Lua LIBRARY under "scripts/", one authored data file under "data/", and
+nothing else. The player mounts this pak and loads a path-bound ScriptComponent
+whose file lives ONLY inside it (no loose file, no --project), proving Lua
+scripts read through the resource system from an archive in place instead of via
+fopen - the read that removes the Android fopen-tree extraction
+(Docs/filesystem.md). That script then does two more in-place reads by the same
+road: `script.require` for the library and the `data` table for the data file.
+The library one is the load-bearing case for the loader - a fopen-based
+implementation would pass every loose-file test and fail here, which is exactly
+where a phone would have discovered it.
 
 Usage: make_script_pak_fixture.py <out.pak>
 
@@ -25,6 +28,19 @@ import zipfile
 # the script LOADED and RAN purely from what it published.
 PAK_SCRIPT = """-- loaded from inside a mounted pak, no loose file on disk
 pak_marker.loaded = true
+-- the LIBRARY rides in the same pak: script.require resolves it by
+-- project-relative name through the content mounts, so an archive entry answers
+-- the identical call a loose file would (an fopen loader would find nothing)
+local lib = script.require("scripts/pak_lib.lua")
+pak_marker.libTag = lib.tag
+pak_marker.libSum = lib.add(4, 5)
+-- requiring the same library again is the cached one, not a second copy
+pak_marker.libCached = (script.require("scripts/pak_lib.lua") == lib)
+-- and a library outside the project is refused, mounted or not
+local escaped, escapeError = pcall(function()
+    return script.require("../evil.lua")
+end)
+pak_marker.libEscapeRefused = (escaped == false)
 function init(self)
     pak_marker.inited = true
     -- the authored data file rides in the SAME pak: this read resolves by
@@ -54,6 +70,15 @@ function update(self, dt)
 end
 """
 
+# the LIBRARY the script above requires. A plain .lua file: not a component
+# kind, not attachable - just shared code another script picks up.
+PAK_LIB = """local M = {}
+M.tag = "library-from-the-archive"
+function M.add(a, b) return a + b end
+return M
+"""
+
+
 # the authored data file the script reads. Ordinary JSON - the engine reads it
 # as CONTENT, never as code.
 PAK_DATA = """{
@@ -77,6 +102,7 @@ def main(argv):
     # choice the APK `stored` mode makes for the mount-in-place path)
     with zipfile.ZipFile(out_pak, "w", compression=zipfile.ZIP_STORED) as pak:
         pak.writestr("scripts/pak_script.lua", PAK_SCRIPT)
+        pak.writestr("scripts/pak_lib.lua", PAK_LIB)
         pak.writestr("data/pak_data.json", PAK_DATA)
 
     with zipfile.ZipFile(out_pak) as pak:
@@ -85,7 +111,7 @@ def main(argv):
                 sys.stderr.write("make_script_pak_fixture: %s is not STORED\n"
                                  % info.filename)
                 return 1
-    sys.stdout.write("make_script_pak_fixture: wrote %s (2 STORED entries)\n"
+    sys.stdout.write("make_script_pak_fixture: wrote %s (3 STORED entries)\n"
                      % out_pak)
     return 0
 

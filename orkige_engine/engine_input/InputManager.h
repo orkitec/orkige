@@ -16,6 +16,7 @@
 #include "engine_input/TouchEventData.h"
 #include "engine_input/AccelerationEventData.h"
 #include "engine_input/GestureEventData.h"
+#include "engine_input/InputDevices.h"
 
 // forward declaration of the SDL3 event union (SDL3 declares it as
 // "typedef union SDL_Event SDL_Event;" so this stays compatible)
@@ -112,12 +113,72 @@ namespace Orkige
 		//! parallel key-state source.
 		//! @returns false when the keycode has no SDL scancode (nothing injected)
 		bool injectKey(KeyEventData::KeyCode kc, bool down);
+		//! @brief synthesize one TOUCH edge through the SAME injectEvent path:
+		//! builds the SDL finger event for @p fingerId at @p x / @p y (WINDOW
+		//! PIXELS, converted here to the normalized coordinates SDL delivers)
+		//! and injects it, so the touch snapshot, the gui hit test and every
+		//! TouchPressed/Moved/Released listener see it exactly like a real
+		//! finger. Sibling of injectKey - ONE synthesis path, not a parallel
+		//! touch source.
+		//! @returns false when the window extents are unknown (nothing injected)
+		bool injectTouch(int fingerId, TouchPhase phase, float x, float y);
+		//! @brief synthesize one GAMEPAD button edge through the SAME
+		//! injectEvent path (@see injectKey)
+		bool injectGamepadButton(Gamepad::Button button, bool down);
+		//! @brief synthesize one GAMEPAD axis reading through the SAME
+		//! injectEvent path; @p value is the normalized -1..+1 (triggers 0..1)
+		//! reading, converted here to the raw axis units SDL delivers
+		bool injectGamepadAxis(Gamepad::Axis axis, float value);
 		//!	Translates KeyCode to String representation. For example, KC_RETURN will be "Return" - Locale	specific of course.
 		//! @param kc KeyCode to convert
 		//! @returns The String as determined from the current locale
 		String const & getAsString(KeyEventData::KeyCode kc);
 		//! check if given key is pressed
 		bool isKeyDown(KeyEventData::KeyCode kc);
+
+		//--- gamepads (controller input) ----------------------
+		//! @brief is @p button held on ANY connected pad.
+		//! @remarks Fed from the INJECTED event stream (like isKeyDown), so
+		//! synthetic pad events work exactly like hardware ones. The state is
+		//! MERGED across pads - a v1 single-player model; a couch game wanting
+		//! per-pad state needs a per-pad surface, which this deliberately is not.
+		bool isGamepadButtonDown(Gamepad::Button button) const;
+		//! @brief the RAW reading of @p axis on the connected pad(s): sticks
+		//! -1..+1 (+y is DOWN), triggers 0..1, 0 when nothing is connected. Raw
+		//! means UNDEADZONED - the deadzone belongs to the binding that reads
+		//! it (InputActionMap::applyDeadzone), so one pad can feed several
+		//! actions at different tolerances.
+		float getGamepadAxis(Gamepad::Axis axis) const;
+		//! how many gamepads are open right now
+		int getGamepadCount() const;
+		//! is at least one gamepad connected
+		bool isGamepadConnected() const;
+
+		//--- the once-per-frame pointer/touch snapshot --------
+		//! @brief recompute the pointer/touch edge snapshot from the events
+		//! injected since the last call. Call EXACTLY ONCE PER FRAME, in the
+		//! game loop's input slot BEFORE the scripts that read it (the same
+		//! contract InputActionMap::update carries - see the canonical tick
+		//! order in engine_runtime/GameHost.cpp). Recomputing edges per query
+		//! would make pressed/released flicker across readers within one frame.
+		void updateFrameState();
+		//! touch points reported THIS frame (a finger in its TP_ENDED frame is
+		//! still counted - that is the frame a game reads the release from)
+		int getTouchCount() const;
+		//! @brief the touch point at @p index (0-based, < getTouchCount()); an
+		//! index outside the range answers a default TouchPoint (id -1, TP_NONE)
+		TouchPoint getTouchPoint(int index) const;
+		//! @brief the pointer position in WINDOW PIXELS. One pointer: the mouse
+		//! on desktop, and on a touch screen the finger (the platform layer
+		//! raises pointer events for touches too), so a game hit-tests both
+		//! with the same numbers.
+		Vec2 getPointerPosition() const;
+		//! is @p button held this frame
+		bool isPointerDown(MouseEventData::MouseButtonID button) const;
+		//! did @p button go down this frame (the edge snapshot)
+		bool isPointerPressed(MouseEventData::MouseButtonID button) const;
+		//! did @p button come up this frame (the edge snapshot)
+		bool isPointerReleased(MouseEventData::MouseButtonID button) const;
 
 		//--- text input (SDL text-input session; the TextEntry widget) --------
 		//! @brief begin an SDL text-input session on the active window: SDL then

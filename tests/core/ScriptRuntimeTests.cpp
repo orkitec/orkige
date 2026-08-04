@@ -227,6 +227,18 @@ TEST_CASE("ScriptRuntime sandbox denies unsafe globals", "[script][security]")
 		assert(data.write == nil and data.open == nil, "data grants writes")
 		assert(select(1, data.read("../escape")) == nil, "data escapes root")
 		assert(select(1, data.read("/etc/passwd")) == nil, "data reads absolute")
+		-- RAW COROUTINES ARE NOT A SCRIPT SURFACE: the library is opened so
+		-- the engine can build the task vocabulary on it, then removed. An
+		-- unowned coroutine would put the RESUME POINT in the script's hands
+		-- (mid-contact-callback, mid-event-dispatch); the engine keeps that
+		-- point and hands back tasks it owns instead.
+		assert(coroutine == nil, "raw coroutine reachable")
+		assert(type(wait) == "function", "wait missing")
+		assert(type(waitFrames) == "function", "waitFrames missing")
+		assert(type(waitUntil) == "function", "waitUntil missing")
+		-- ...and a wait outside a task refuses instead of doing something
+		-- surprising (there is nothing to suspend)
+		assert(select(1, pcall(wait, 0.1)) == false, "wait yielded outside a task")
 		-- the permitted computation stdlib still works
 		assert(math.floor(1.9) == 1, "math missing")
 		assert(string.upper("ab") == "AB", "string missing")

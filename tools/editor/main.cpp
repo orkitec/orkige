@@ -111,8 +111,10 @@
 
 #include "EditorApp.h"
 #include "EditorAutosave.h"
+#include "PlaySimulatorPick.h"	// boot-path simulator pick (pure, unit-tested)
 #include "EditorBuildInfo.h"	// --version / the About box build identity
 #include "EditorBuildSettings.h"	// the committed/machine build-settings split
+#include "EditorCli.h"			// the headless subcommand front door
 #include "EditorSecretStore.h"	// signing passwords: the OS vault, never a file
 #include "EditorControlServer.h"
 #include "EditorIdeServer.h"	// Claude-IDE integration (lock + MCP-over-WebSocket)
@@ -277,6 +279,20 @@ int main(int argc, char** argv)
 			return 0;
 		}
 	}
+
+	// the command-line front door (@see EditorCli.h): `orkige_editor export
+	// --project ... --platform ...` and its siblings do the editor's work with
+	// no window, which is the ONLY way a machine carrying a distributed Orkige
+	// can package a game from a script. The decision is made here, up front and
+	// purely, and carried out below once the automated-run boolean it shares
+	// with every scripted run is known.
+	//
+	// HAZARD: a first argument that is a WORD and not a known subcommand is
+	// REFUSED here (exit 2). It used to be ignored, which meant a typo on a
+	// build server opened a GUI application and hung the job until its timeout.
+	const OrkigeEditor::EditorCliCommand cliCommand =
+		OrkigeEditor::parseEditorCli(std::vector<std::string>(argv + 1,
+			argv + argc));
 
 	// --mcp-port N / --mcp-token-file PATH (aliases --control-port /
 	// --control-token-file): opt-in in-editor MCP endpoint over Streamable HTTP
@@ -455,7 +471,11 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_IDE_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MCPDEFAULT_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr ||
-		std::getenv("ORKIGE_EDITOR_BUILDSETTINGS_TEST") != nullptr;
+		std::getenv("ORKIGE_EDITOR_BUILDSETTINGS_TEST") != nullptr ||
+		// a subcommand is an automated run by the same definition a scripted
+		// test is: nobody is watching it, so it must touch no user state and
+		// open no socket. It gets the SAME boolean rather than a third mode.
+		cliCommand.headless();
 	// the IDE integration's interactive default resolves once automatedRun is
 	// known: an interactive session advertises itself, a scripted one never
 	// does unless its script explicitly opted in above
@@ -469,6 +489,16 @@ int main(int argc, char** argv)
 	// on to do (@see EditorSecretStore.h). This is the ONE call that reaches a
 	// platform credential API in the whole editor.
 	OrkigeEditor::installPlatformSecretVault(automatedRun);
+
+	// ...and now the subcommand runs, still before SDL video, the window and
+	// the render backend exist. Everything it reaches (the resource locator,
+	// the export seam, the payload fetcher) resolves off SDL_GetBasePath and
+	// the filesystem alone, so this whole road works on a machine with no
+	// display and no GPU.
+	if (cliCommand.headless())
+	{
+		return OrkigeEditor::runEditorCli(cliCommand);
+	}
 
 	int exitCode = 0;
 
@@ -1119,24 +1149,47 @@ int main(int argc, char** argv)
 					// over the arbitrary first pick: a never-booted device's
 					// cold first boot takes many minutes on a loaded runner,
 					// a warm re-boot seconds - the flow exercised is identical.
+					// The warm device wins even when a prior FAILED run left
+					// it Booted (only the passing path shuts it down again;
+					// a killed run cannot): it is shut down here and reused,
+					// instead of falling back to a cold stranger whose first
+					// boot can outlast the whole preparation budget - the
+					// pure decision is pickShutdownSimulator
+					// (PlaySimulatorPick.h).
 					std::error_code ignored;
 					if (std::filesystem::exists(ORKIGE_EDITOR_IOS_PLAYER_APP,
 						ignored))
 					{
 						const char* warmShutdown =
 							std::getenv("ORKIGE_CI_SIMULATOR_SHUTDOWN");
+						std::vector<OrkigeEditor::SimulatorPickCandidate>
+							candidates;
+						candidates.reserve(simulators.size());
 						for (SimulatorDevice const& device : simulators)
 						{
-							if (device.booted)
+							candidates.push_back({ device.name, device.udid,
+								device.booted });
+						}
+						OrkigeEditor::SimulatorShutdownPick pick;
+						if (OrkigeEditor::pickShutdownSimulator(candidates,
+							warmShutdown ? warmShutdown : "", pick))
+						{
+							if (pick.shutdownFirst)
 							{
-								continue;
+								oDebugWarn("editor.play", 0, "play simulator "
+									"- designated warm device '" << pick.name
+									<< "' (" << pick.udid << ") was left "
+									"Booted by an earlier run - shutting it "
+									"down to reuse its warm boot");
+								std::string shutdownOutput;
+								int shutdownExit = 0;
+								runProcessCapturedTimeout(
+									{ "/usr/bin/xcrun", "simctl", "shutdown",
+										pick.udid },
+									shutdownOutput, shutdownExit, 120000u);
 							}
-							if (playSession.simulatorUdid.empty() ||
-								(warmShutdown && device.udid == warmShutdown))
-							{
-								playSession.simulatorUdid = device.udid;
-								playSession.simulatorLabel = device.name;
-							}
+							playSession.simulatorUdid = pick.udid;
+							playSession.simulatorLabel = pick.name;
 						}
 					}
 				}
@@ -17176,12 +17229,34 @@ int main(int argc, char** argv)
 						body.find(mcpTerminalUrl) != std::string::npos;
 					const bool hasBearer =
 						body.find("Bearer ") != std::string::npos;
+					// both files quote the bearer token that authorises every
+					// mutating verb, so both must be readable by their owner
+					// alone. POSIX states that as mode bits and it reads
+					// straight back here; Windows states it as an access
+					// control list std::filesystem cannot report, and those
+					// properties are asserted in the FileWriter unit suite.
+					bool ownerOnly = true;
+#if !defined(_WIN32)
+					auto isOwnerOnly = [](std::string const& file)
+					{
+						std::error_code permErr;
+						const std::filesystem::perms mode =
+							std::filesystem::status(file, permErr).permissions();
+						return !permErr &&
+							(mode & (std::filesystem::perms::group_all |
+								std::filesystem::perms::others_all)) ==
+							std::filesystem::perms::none;
+					};
+					ownerOnly = tokenWritten && isOwnerOnly(controlTokenFile) &&
+						configPresent && isOwnerOnly(configPath);
+#endif
 					SDL_Log("orkige_editor: mcp-default selfcheck - listening=%d "
-						"token=%d config=%d marker=%d url=%d bearer=%d",
+						"token=%d config=%d marker=%d url=%d bearer=%d "
+						"owner-only=%d",
 						listening, tokenWritten, configPresent, hasMarker, hasUrl,
-						hasBearer);
+						hasBearer, ownerOnly);
 					if (!listening || !tokenWritten || !configPresent ||
-						!hasMarker || !hasUrl || !hasBearer)
+						!hasMarker || !hasUrl || !hasBearer || !ownerOnly)
 					{
 						mcpFail("endpoint/token/.mcp.json not as expected");
 					}

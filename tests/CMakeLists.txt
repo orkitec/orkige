@@ -1377,6 +1377,32 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_CONTROL_TEST=${CMAKE_CURRENT_BINARY_DIR}/editor_control_shot.png"
         LABELS integration TIMEOUT 240)
 
+    # The editor's COMMAND LINE, driven as a build script drives it
+    # (integration_driver/run_editor_cli_test.py). The pure argument router is
+    # unit-tested; what needs the real binary is the part a regression would
+    # otherwise show as a HUNG JOB rather than a failure: a subcommand must
+    # finish on its own, with no window, on a machine that may have no display.
+    # The driver also asserts the three exit codes and, where this host
+    # packages a desktop app, that `export` produces one and prints the
+    # `orkige_editor: OK <artifact>` line callers grep for.
+    # No window and no GPU - but it spawns the editor binary and (on macOS)
+    # packages a real app, so it is an integration test, not a unit one.
+    if(APPLE)
+        set(ORKIGE_CLI_EXPORT_ARGS --platform macos)
+    else()
+        set(ORKIGE_CLI_EXPORT_ARGS --skip-export)
+    endif()
+    add_test(NAME editor_cli${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND python3
+            "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_editor_cli_test.py"
+            --editor "$<TARGET_FILE:orkige_editor>"
+            --project "${Orkige_SOURCE_DIR}/projects/example"
+            --output "${CMAKE_CURRENT_BINARY_DIR}/editor_cli${ORKIGE_FLAVOR_TEST_SUFFIX}"
+            ${ORKIGE_CLI_EXPORT_ARGS}
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_cli${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        LABELS integration TIMEOUT 2400)
+
     # --- distribution readiness: a COPIED editor stands alone --------------
     # The editor ships as an app somebody copies onto a machine with no clone
     # of this repository, no engine build tree and no Python. The driver
@@ -2153,9 +2179,12 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         # the boot-from-shutdown path, exercised explicitly: "auto-shutdown"
         # only accepts a SHUTDOWN simulator, so the run really covers simctl
         # boot + open Simulator.app + poll-until-Booted + app auto-install +
-        # launch, and shuts the simulator down again afterwards. SKIPPED
-        # (exit 77) when no shutdown simulator (or no built player app)
-        # exists.
+        # launch, and shuts the simulator down again afterwards. The ONE
+        # exception: a designated warm device (ORKIGE_CI_SIMULATOR_SHUTDOWN)
+        # left Booted by an earlier failed run is shut down and reclaimed
+        # (pickShutdownSimulator), so a retry re-boots the warm device
+        # instead of cold-booting an arbitrary stock one. SKIPPED (exit 77)
+        # when no shutdown simulator (or no built player app) exists.
         add_test(NAME editor_play_simulator_boot COMMAND orkige_editor
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_play_simulator_boot PROPERTIES
@@ -2185,7 +2214,7 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # launched on an adb-connected device/emulator (temp scene delivered via
     # adb push + run-as, debug link over an 'adb forward tcp' bridge).
     # SKIPPED (exit 77) when no adb device has the APK installed - build
-    # (android-debug preset), package (tools/player/android/package_apk.sh)
+    # (android-debug preset), package (`orkige_export android-player`)
     # and adb install it. The host-side flow is portable across macOS and
     # Linux; Linux CI drives an x86_64 emulator while shipping builds remain
     # arm64-v8a.
@@ -2385,6 +2414,23 @@ if(TARGET orkige_player)
     set_tests_properties(player_example_project PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_FRAMES=90")
 
+    # THE DEVICELESS RUN: the same project, the same player, with no window
+    # and no GPU (ORKIGE_RENDERSYSTEM=NULL - @see engine_render/
+    # RenderSystemSelection.h). It boots, loads the scene, ticks frames and
+    # exits 0 without ever initialising SDL's video subsystem, so this is the
+    # ONE player registration that carries LABELS unit: a display server is
+    # not among its prerequisites, and if that ever regresses the unit preset
+    # says so. Next flavor only - the classic flavor carries no deviceless
+    # render system and refuses the request honestly instead.
+    if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+        add_test(NAME player_deviceless${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project projects/example
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_deviceless${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_DEMO_FRAMES=90;ORKIGE_RENDERSYSTEM=NULL"
+            LABELS unit TIMEOUT 120)
+    endif()
+
     # the flat-colour vector-shape demo project (Util/make_vectorshape_demo.py):
     # loads scenes/main.oscene which places three VectorShapeComponent instances
     # (blob + concave star .oshape assets) at rising zOrders and distinct tints -
@@ -2433,6 +2479,28 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_jumper_lua_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_JUMPER_LUA_SELFCHECK=1")
+
+        # THE PROJECT'S OWN SUITE, run in Lua: projects/jumper-lua/tests/*.test.lua
+        # exercise the game's real library (scripts/jumperlib.lua, which
+        # scripts/player.lua runs on) and its shipped data/tuning.json, through
+        # the SAME script.require and `data` reads the game uses. The exit code
+        # is the verdict; the JSONL artifact lands in the build tree so a failed
+        # run says WHICH test and WHY without scraping the log. Both flavors -
+        # the tier is renderer-neutral, and running it on each proves the
+        # runtime it rides in boots the same either way.
+        #
+        # BOTH TIERS, ONE RUN, ONE PLAYER BOOT: tests/playthrough.test.lua
+        # declares a `scene`, so it runs in a live world - the player loads
+        # that scene fresh per test and drives real frames while the test body
+        # suspends on its waits. Each play-mode test carries its own frame
+        # budget, so a wedged wait fails by name instead of burning the
+        # timeout below.
+        add_test(NAME player_project_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project projects/jumper-lua --run-tests
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_project_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration TIMEOUT 180
+            ENVIRONMENT "ALSOFT_DRIVERS=null;ORKIGE_TEST_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}")
 
         # the 2D tier, end to end: projects/roller (a tilt-gravity ball +
         # sliding-tile puzzle prototype - SpriteComponents, ortho camera,
@@ -2485,6 +2553,25 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_lines_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_LINES_SELFCHECK=1")
+
+        # RAW INPUT REACH, end to end: tests/projects/rawinput - synthetic
+        # fingers, a pointer press and a controller are injected on the REAL
+        # SDL path while a game runs, and the fixture script reads them back
+        # through the `input` table (touch phases + window-pixel positions +
+        # per-frame delta, the pointer's one-frame press edge, the raw pad
+        # reads) AND through the named action map (the built-in "jump"/"move"
+        # answering a pad with zero project authoring). What only a running
+        # game can prove is the FRAME WIRING: the once-per-frame snapshot
+        # taken in the loop's input slot before the scripts that read it. The
+        # pure halves are unit-tested in orkige_engine_tests. Renderer-neutral,
+        # so it runs on both flavors. See the ORKIGE_RAWINPUT_SELFCHECK block
+        # in tools/player/PlayerSelfChecks.cpp.
+        add_test(NAME player_raw_input_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player tests/projects/rawinput/scenes/rawinput.oscene
+                --project tests/projects/rawinput
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_raw_input_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_RAWINPUT_SELFCHECK=1")
 
         # THE UI GALLERY, end to end: projects/gallery - the example project
         # that shows EVERY runtime widget kind on one declarative .oui screen
@@ -3239,6 +3326,27 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(export_ios_simulator PROPERTIES SKIP_RETURN_CODE 77)
 
+        # the Android ASSEMBLY, run for real against this machine's own SDK
+        # without an android-* build tree: the engine source is synthesised
+        # (a CMake cache, a stand-in library and shader tree) and everything
+        # else is the real thing - the real Java glue, the real SDK programs,
+        # a real signed archive that `apksigner verify` and `aapt2 dump`
+        # accept. export_android proves the same road with a real cross tree,
+        # which most machines do not have; this one skips (77) only when the
+        # SDK build tools, a platform jar, a JDK or the SDL Java sources are
+        # missing. The no-shell property itself is a unit gate
+        # (ExportAndroidAssembleTests.cpp) - this asserts the other half, that
+        # the argv road produces a package the platform accepts.
+        add_test(NAME export_android_assemble
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_android_assemble_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/android-assemble"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_android_assemble PROPERTIES
+            SKIP_RETURN_CODE 77 TIMEOUT 600)
+
         add_test(NAME export_android
             COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
                 --repo "${Orkige_SOURCE_DIR}"
@@ -3493,6 +3601,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_debug_pause player_script_debug player_script_debug_next
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
+        player_project_lua_tests player_project_lua_tests_next
         player_softbody_selfcheck player_softbody_selfcheck_next
         player_mesh_selfcheck player_mesh_selfcheck_next
         player_shapecollider_selfcheck player_shapecollider_selfcheck_next
@@ -3523,6 +3632,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_rotation_android player_rotation_ios
         export_macos_lua export_macos_native export_macos_native_next
         export_ios_simulator export_android export_android_aab
+        export_android_assemble
         demo_plain_vulkan player_example_scene_vulkan editor_selfcheck_vulkan
         jumper_selfcheck editor_open_jumper_level render_facade_selfcheck)
     if(TEST ${integration_test})
@@ -3553,7 +3663,8 @@ foreach(play_test player_debug_pause player_script_debug
         player_roller_progression_selfcheck_next
         # the export tests package a whole bundle and (macos) run the
         # exported app for 90 frames; android runs javac/d8/aapt2
-        export_macos_lua export_ios_simulator export_android)
+        export_macos_lua export_ios_simulator export_android
+        export_android_assemble)
     if(TEST ${play_test})
         set_tests_properties(${play_test} PROPERTIES TIMEOUT 120)
     endif()

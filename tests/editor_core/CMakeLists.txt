@@ -14,6 +14,7 @@ add_executable(orkige_editor_core_tests
     EditorLabelFormatTests.cpp
     EditorEulerTests.cpp
     PlayMirrorTests.cpp
+	PlaySimulatorPickTests.cpp
 	EditorCameraTests.cpp
 	EditorCameraGizmoTests.cpp
 	EditorOverlayGeometryTests.cpp
@@ -32,6 +33,7 @@ add_executable(orkige_editor_core_tests
 	EditorResourcePathsTests.cpp
 	EditorExportPlanTests.cpp
 	EditorBuildSettingsTests.cpp
+	EditorCliTests.cpp
 	EditorSecretStoreTests.cpp
 	EditorUiEditTests.cpp
 	EditorTreeDndTests.cpp

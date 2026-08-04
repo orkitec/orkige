@@ -49,10 +49,14 @@ filename is the IDE's WebSocket **port**, and the JSON body carries:
   current: the lock is rewritten when the open project changes.
 * `ideName` — a display name (`Orkige`).
 * `transport` — `ws` (WebSocket).
-* `authToken` — a random 128-bit secret the WebSocket handshake must present.
+* `authToken` — a 128-bit secret the WebSocket handshake must present, minted
+  from the platform's entropy source (`core_util/SecretToken.h`).
 
-The editor writes this file at owner-read/write permissions (the token is a
-secret) and removes it on clean shutdown. The pure model + serializer/parser is
+Because it carries that secret the lock is written **owner-only** through the
+one sink every editor secret goes through — restricted while the file is still
+empty, so the token never lands in a readable one
+([security.md](security.md#files-that-carry-a-secret)) — and removed on clean
+shutdown. The pure model + serializer/parser is
 `OrkigeEditor::serializeIdeLock` / `parseIdeLock`
 (`tools/editor/EditorIdeProtocol.h`).
 

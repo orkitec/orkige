@@ -365,7 +365,11 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 	// the machine allows; a HUMAN run gets vsync so games neither spin
 	// uncapped nor tear
-	automatedRun = jumperLuaCheck || rollerCheck ||
+	// ORKIGE_RAWINPUT_SELFCHECK: the raw touch/pointer/controller reach in a
+	// RUNNING game (run with --project tests/projects/rawinput) - see the
+	// perFrame block and PlayerSelfChecks.h for what it gates.
+	rawInputCheck = (std::getenv("ORKIGE_RAWINPUT_SELFCHECK") != nullptr);
+	automatedRun = rawInputCheck || jumperLuaCheck || rollerCheck ||
 		rollerProgressionCheck || tweenCheck || sfxCheck ||
 		hotreloadCheck || scriptPropCheck ||
 		integrationContactCheck || integrationLevelCheck || persistentCheck ||
@@ -938,6 +942,39 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 			detail += " update-not-run";
 		}
 
+		// the LIBRARY half: the same script pulled "scripts/pak_lib.lua" in with
+		// script.require. That name has no loose file either (the disk check
+		// above covers the whole pak's sub-tree), so the values below can only
+		// have come from the archive - THE proof that the library loader rides
+		// the resource reader and not an fopen, which is the difference between
+		// working on a desktop and working on a phone.
+		if (!scripts.resolveScriptPath("scripts/pak_lib.lua").empty())
+		{
+			ok = false;
+			detail += " loose-library-present(no-in-place-proof)";
+		}
+		if (scripts.getString({ "pak_marker", "libTag" }, "") !=
+			"library-from-the-archive")
+		{
+			ok = false;
+			detail += " library-not-loaded-from-pak";
+		}
+		if (scripts.getNumber({ "pak_marker", "libSum" }, 0.0) != 9.0)
+		{
+			ok = false;
+			detail += " library-function-wrong";
+		}
+		if (!scripts.getBool({ "pak_marker", "libCached" }, false))
+		{
+			ok = false;
+			detail += " library-not-cached-within-the-sandbox";
+		}
+		if (!scripts.getBool({ "pak_marker", "libEscapeRefused" }, false))
+		{
+			ok = false;
+			detail += " library-traversal-not-refused";
+		}
+
 		// the DATA half: the same script read an authored data file out of the
 		// same pak through the `data` table. There is no loose file and no
 		// fopen path at all, so these values can only have come from the
@@ -980,9 +1017,10 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 		{
 			SDL_Log("orkige_pak_script_selfcheck: PASS - path-bound "
 				"ScriptComponent 'scripts/pak_script.lua' loaded and ran from "
-				"the mounted pak with NO loose file on disk, and read "
-				"'data/pak_data.json' out of the same pak through the data "
-				"table (this flavor)");
+				"the mounted pak with NO loose file on disk, required "
+				"'scripts/pak_lib.lua' out of the same pak, and read "
+				"'data/pak_data.json' out of it through the data table "
+				"(this flavor)");
 			return 0;
 		}
 		SDL_Log("orkige_pak_script_selfcheck: FAILED -%s", detail.c_str());
@@ -4107,6 +4145,213 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		}
 	}
 	if (linesCheck && linesCheckFailed)
+	{
+		exitCode = 1;
+		running = false;
+	}
+
+	// --- raw input selfcheck (ORKIGE_RAWINPUT_SELFCHECK) --------------
+	// Drive a real game with synthetic fingers, a pointer press and a
+	// controller, and assert on what the GAME SCRIPT saw. Injection happens
+	// here (after this frame's world step), so each edge is read by the NEXT
+	// frame's snapshot - exactly the ordering a hardware event gets.
+	if (rawInputCheck && !rawInputFailed &&
+		rawInputPhase != RawInputPhase::Done)
+	{
+		auto rawNumber = [](char const* key, double fallback) -> double
+		{
+			return Orkige::ScriptRuntime::getSingleton().getNumber(
+				{"shared", "rawinput", key}, fallback);
+		};
+		auto rawFlag = [](char const* key) -> bool
+		{
+			return Orkige::ScriptRuntime::getSingleton().getBool(
+				{"shared", "rawinput", key}, false);
+		};
+		auto rawText = [](char const* key) -> std::string
+		{
+			return Orkige::ScriptRuntime::getSingleton().getString(
+				{"shared", "rawinput", key}, "");
+		};
+		auto rawFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: RAWINPUT SELFCHECK FAILED - %s "
+				"(phase=%d step=%d phases='%s' touches=%.0f pad=%d "
+				"jumps=%.0f)", what.c_str(),
+				static_cast<int>(rawInputPhase), rawInputStep,
+				rawText("phases").c_str(), rawNumber("touches", -1),
+				rawFlag("padSeen") ? 1 : 0, rawNumber("jumpPresses", -1));
+			rawInputFailed = true;
+		};
+		// give the scene + script a few frames to come up
+		if (frameCount < 10)
+		{
+			rawInputDeadline = frameCount + 600;
+		}
+		else if (frameCount >= rawInputDeadline)
+		{
+			rawFail("a phase never completed inside its frame budget");
+		}
+		else if (rawInputPhase == RawInputPhase::Touch)
+		{
+			// a finger lands, is dragged 80px and lifts - one step per frame,
+			// so the script sees began / moved / ended as separate frames
+			switch (rawInputStep)
+			{
+			case 0:
+				if (!inputManager.injectTouch(0, Orkige::TP_BEGAN,
+					100.0f, 200.0f))
+				{
+					rawFail("injectTouch refused - the runtime reported no "
+						"window extents");
+				}
+				rawInputStep = 1;
+				break;
+			case 1:
+				inputManager.injectTouch(0, Orkige::TP_MOVED, 180.0f, 200.0f);
+				rawInputStep = 2;
+				break;
+			case 2:
+				inputManager.injectTouch(0, Orkige::TP_ENDED, 180.0f, 200.0f);
+				rawInputStep = 3;
+				break;
+			default:
+				// the script must have seen the full began/moved/ended stream,
+				// at the injected WINDOW-PIXEL positions
+				if (rawText("phases") != "bme")
+				{
+					break;	// still arriving - the deadline above bounds it
+				}
+				if (rawNumber("touches", -1) != 1.0)
+				{
+					rawFail("the script saw the wrong number of fingers");
+				}
+				else if (std::abs(rawNumber("beganX", -1) - 100.0) > 2.0 ||
+					std::abs(rawNumber("beganY", -1) - 200.0) > 2.0)
+				{
+					rawFail("the finger landed at the wrong window-pixel "
+						"position");
+				}
+				else if (std::abs(rawNumber("dragX", -1) - 180.0) > 2.0 ||
+					std::abs(rawNumber("dragDelta", 0) - 80.0) > 2.0)
+				{
+					rawFail("the drag did not report the expected position "
+						"and per-frame delta");
+				}
+				else
+				{
+					rawInputPhase = RawInputPhase::Pointer;
+					rawInputStep = 0;
+					rawInputDeadline = frameCount + 600;
+				}
+				break;
+			}
+		}
+		else if (rawInputPhase == RawInputPhase::Pointer)
+		{
+			if (rawInputStep == 0)
+			{
+				SDL_Event press{};
+				press.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+				press.button.button = SDL_BUTTON_LEFT;
+				press.button.down = true;
+				press.button.x = 320.0f;
+				press.button.y = 240.0f;
+				inputManager.injectEvent(press);
+				rawInputStep = 1;
+			}
+			else if (rawInputStep == 1)
+			{
+				SDL_Event release{};
+				release.type = SDL_EVENT_MOUSE_BUTTON_UP;
+				release.button.button = SDL_BUTTON_LEFT;
+				release.button.down = false;
+				release.button.x = 320.0f;
+				release.button.y = 240.0f;
+				inputManager.injectEvent(release);
+				rawInputStep = 2;
+			}
+			else if (rawNumber("pointerPresses", 0) >= 1.0)
+			{
+				// exactly ONE press edge for one press: the snapshot contract
+				if (rawNumber("pointerPresses", 0) != 1.0)
+				{
+					rawFail("one pointer press produced more than one edge");
+				}
+				else if (std::abs(rawNumber("pointerX", -1) - 320.0) > 1.0 ||
+					std::abs(rawNumber("pointerY", -1) - 240.0) > 1.0)
+				{
+					rawFail("the pointer position did not reach the script");
+				}
+				else
+				{
+					rawInputPhase = RawInputPhase::Gamepad;
+					rawInputStep = 0;
+					rawInputDeadline = frameCount + 600;
+				}
+			}
+		}
+		else if (rawInputPhase == RawInputPhase::Gamepad)
+		{
+			// a controller speaks: the raw reads AND the named actions the
+			// built-in defaults map onto it, with zero project authoring
+			if (rawInputStep == 0)
+			{
+				inputManager.injectGamepadButton(Orkige::Gamepad::GB_SOUTH,
+					true);
+				inputManager.injectGamepadAxis(Orkige::Gamepad::GA_LEFTX,
+					-1.0f);
+				rawInputStep = 1;
+			}
+			else if (rawInputStep == 1)
+			{
+				inputManager.injectGamepadButton(Orkige::Gamepad::GB_SOUTH,
+					false);
+				inputManager.injectGamepadAxis(Orkige::Gamepad::GA_LEFTX,
+					0.0f);
+				rawInputStep = 2;
+			}
+			else if (rawNumber("jumpPresses", 0) >= 1.0)
+			{
+				if (!rawFlag("padSeen"))
+				{
+					rawFail("a pad that DELIVERS events did not read as "
+						"connected");
+				}
+				else if (!rawFlag("padSouth"))
+				{
+					rawFail("the raw controller button never reached the "
+						"script");
+				}
+				else if (rawNumber("padAxis", 0) > -0.9)
+				{
+					rawFail("the raw controller axis never reached the "
+						"script");
+				}
+				else if (rawNumber("jumpPresses", 0) != 1.0)
+				{
+					rawFail("the face button produced the wrong number of "
+						"'jump' press edges");
+				}
+				else if (rawNumber("moveX", 0) > -0.9)
+				{
+					rawFail("the left stick did not drive the built-in "
+						"'move' action");
+				}
+				else
+				{
+					SDL_Log("orkige_player: RAWINPUT SELFCHECK PASSED - a "
+						"synthetic finger (began/moved/ended at the injected "
+						"window pixels), a pointer press and a controller "
+						"(raw reads plus the built-in 'jump'/'move' actions) "
+						"all reached the game script");
+					rawInputPhase = RawInputPhase::Done;
+					running = false;
+				}
+			}
+		}
+	}
+	if (rawInputCheck && rawInputFailed)
 	{
 		exitCode = 1;
 		running = false;

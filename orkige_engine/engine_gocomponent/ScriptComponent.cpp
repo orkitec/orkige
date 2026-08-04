@@ -25,6 +25,8 @@
 #include "engine_graphic/ScreenShake.h"
 #include "engine_graphic/DebugDraw.h"
 #include "engine_input/HapticManager.h"
+#include "engine_input/InputManager.h"
+#include "engine_input/InputInjection.h"
 #include "engine_gui/GuiManager.h"
 #include "engine_base/EngineLog.h"
 #include <core_game/GameObject.h>
@@ -42,6 +44,7 @@
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_script/ScriptEventBus.h>
+#include <core_script/ScriptTaskManager.h>
 #include <core_util/StringTable.h>
 #include <core_tween/TweenManager.h>
 #include <core_tween/TimerManager.h>
@@ -62,6 +65,29 @@ namespace Orkige
 		void logScriptError(String const & message)
 		{
 			EngineLogCapture::logError(message);
+		}
+		//! @brief the pointer button a script names ("left" / "middle" /
+		//! "right", case-insensitive); anything else reads as left, so a typo
+		//! answers about a button instead of erroring mid-frame
+		MouseEventData::MouseButtonID pointerButtonFromName(String const & name)
+		{
+			String wanted = name;
+			for (char & each : wanted)
+			{
+				if (each >= 'A' && each <= 'Z')
+				{
+					each = static_cast<char>(each - 'A' + 'a');
+				}
+			}
+			if (wanted == "right")
+			{
+				return MouseEventData::MB_Right;
+			}
+			if (wanted == "middle")
+			{
+				return MouseEventData::MB_Middle;
+			}
+			return MouseEventData::MB_Left;
 		}
 	}
 	namespace
@@ -1280,6 +1306,150 @@ namespace Orkige
 			}
 		});
 
+		// ================= THE `input` TABLE (raw devices) ================
+		// The RAW device surface, for the input a NAMED ACTION cannot carry: a
+		// finger's position, the pointer, whether a controller is even there.
+		// Named intent (move/jump/steer) stays with InputActions - this table
+		// is what a game reads when the POSITION is the point (drag a piece,
+		// aim at a tapped spot) or when the UI must say which device is live.
+		//
+		// COORDINATES ARE WINDOW PIXELS - one space for everything: the same
+		// numbers the gui hit-tests widgets in, that get_ui_layout reports and
+		// that the injected-input grammar spells. Touch arrives from the
+		// platform normalized and is converted once, on the way in; the
+		// pointer is already in that space. Neither content scale nor the safe
+		// area is applied here (both are separate, composable concepts -
+		// engine:getContentScale() / engine:getSafeAreaInsets()).
+		//
+		// EDGES FOLLOW THE ONE-SNAPSHOT-PER-FRAME RULE the action map carries:
+		// the snapshot is taken in the loop's input slot before scripts run, so
+		// two reads in one frame always agree. Honest zeros without an
+		// InputManager (the editor never ticks game scripts).
+		runtime.registerFunction("input", "touchCount", []() -> int
+		{
+			return InputManager::getSingletonPtr()
+				? InputManager::getSingleton().getTouchCount() : 0;
+		});
+		// input.touch(i) -> id, x, y, phase. 1-BASED like every Lua sequence;
+		// an index outside 1..touchCount() answers id -1 and phase "none".
+		// `phase` is "began" the frame the finger lands, "moved" while it is
+		// held and "ended" the frame it lifts - a finger is reported once more
+		// after release exactly so a game can read that release.
+		runtime.registerFunction("input", "touch",
+			[](int index) -> std::tuple<int, double, double, String>
+		{
+			TouchPoint point;
+			if(InputManager::getSingletonPtr())
+			{
+				point = InputManager::getSingleton().getTouchPoint(index - 1);
+			}
+			char const * phase = "none";
+			switch(point.phase)
+			{
+			case TP_BEGAN:	phase = "began"; break;
+			case TP_MOVED:	phase = "moved"; break;
+			case TP_ENDED:	phase = "ended"; break;
+			default:		phase = "none"; break;
+			}
+			return std::make_tuple(point.id, static_cast<double>(point.x),
+				static_cast<double>(point.y), String(phase));
+		});
+		// input.touchDelta(i) -> dx, dy: how far that finger moved since the
+		// previous frame (0,0 on its "began" frame - a drag has no history yet)
+		runtime.registerFunction("input", "touchDelta",
+			[](int index) -> std::tuple<double, double>
+		{
+			TouchPoint point;
+			if(InputManager::getSingletonPtr())
+			{
+				point = InputManager::getSingleton().getTouchPoint(index - 1);
+			}
+			return std::make_tuple(static_cast<double>(point.deltaX),
+				static_cast<double>(point.deltaY));
+		});
+		// ONE pointer: the mouse on desktop, the finger on a touch screen (the
+		// platform raises pointer events for touches too), so a tap and a click
+		// hit-test with the same numbers. The optional button is
+		// "left" (default), "middle" or "right".
+		runtime.registerFunction("input", "pointer", []() -> Vec2
+		{
+			return InputManager::getSingletonPtr()
+				? InputManager::getSingleton().getPointerPosition()
+				: Vec2(0.0f, 0.0f);
+		});
+		runtime.registerFunction("input", "pointerDown",
+			[](ScriptArgs args) -> bool
+		{
+			return InputManager::getSingletonPtr() &&
+				InputManager::getSingleton().isPointerDown(
+					pointerButtonFromName(
+						ScriptRuntime::stringArg(args, 0, "left")));
+		});
+		runtime.registerFunction("input", "pointerPressed",
+			[](ScriptArgs args) -> bool
+		{
+			return InputManager::getSingletonPtr() &&
+				InputManager::getSingleton().isPointerPressed(
+					pointerButtonFromName(
+						ScriptRuntime::stringArg(args, 0, "left")));
+		});
+		runtime.registerFunction("input", "pointerReleased",
+			[](ScriptArgs args) -> bool
+		{
+			return InputManager::getSingletonPtr() &&
+				InputManager::getSingleton().isPointerReleased(
+					pointerButtonFromName(
+						ScriptRuntime::stringArg(args, 0, "left")));
+		});
+		// raw keys by NAME (the same vocabulary the injected-input grammar
+		// spells: "SPACE", "LEFT", "A"). Prefer a named action - this is for
+		// the debug/cheat key a binding would be overkill for.
+		runtime.registerFunction("input", "keyDown",
+			[](String const & name) -> bool
+		{
+			const KeyEventData::KeyCode key = KeyCodeNames::fromName(name);
+			return key != KeyEventData::KC_UNASSIGNED &&
+				InputManager::getSingletonPtr() &&
+				InputManager::getSingleton().isKeyDown(key);
+		});
+		// controllers: what a game needs to SHOW the right button prompts, and
+		// the raw pad reads for anything the action map does not carry. Button
+		// and axis names are positional ("south"/"dpleft"/"lefttrigger", with
+		// the lettered "a"/"b"/"x"/"y" as aliases); an unknown name reads
+		// false / 0 rather than erroring, so a prompt never crashes a game.
+		runtime.registerFunction("input", "gamepadCount", []() -> int
+		{
+			return InputManager::getSingletonPtr()
+				? InputManager::getSingleton().getGamepadCount() : 0;
+		});
+		runtime.registerFunction("input", "gamepadConnected", []() -> bool
+		{
+			return InputManager::getSingletonPtr() &&
+				InputManager::getSingleton().isGamepadConnected();
+		});
+		runtime.registerFunction("input", "gamepadButton",
+			[](String const & name) -> bool
+		{
+			const Gamepad::Button button = GamepadNames::buttonFromName(name);
+			return button != Gamepad::GB_COUNT &&
+				InputManager::getSingletonPtr() &&
+				InputManager::getSingleton().isGamepadButtonDown(button);
+		});
+		// the RAW reading (sticks -1..1 with +y DOWN, triggers 0..1): no
+		// deadzone is applied - that belongs to the binding that reads it, so
+		// a game wanting one applies its own
+		runtime.registerFunction("input", "gamepadAxis",
+			[](String const & name) -> double
+		{
+			const Gamepad::Axis axis = GamepadNames::axisFromName(name);
+			if(axis == Gamepad::GA_COUNT ||
+				InputManager::getSingletonPtr() == NULL)
+			{
+				return 0.0;
+			}
+			return InputManager::getSingleton().getGamepadAxis(axis);
+		});
+
 		// ================= THE `loc` GLOBAL (localisation) =================
 		// loc("key") -> the active-language string for the key (the key itself
 		// when untranslated, so UI stays readable). loc("key", a, b, ...) -> the
@@ -2257,6 +2427,59 @@ namespace Orkige
 			[](TimerHandle handle) -> bool
 		{
 			return handle.cancel();
+		});
+
+		// ================= `script.async` (tasks) =========================
+		// A sequence written as ONE readable function that spans frames:
+		//   self.task = script.async(function()
+		//       wait(0.5) waitFrames(2) waitUntil(function() return done end)
+		//   end)
+		// The handle cancels it (task:cancel()) and answers task:isActive().
+		// A task is SANDBOX-SCOPED like a timer or a subscription (the same
+		// owner token): removing the component / tearing the scene down /
+		// hot-reloading the script cancels it, so a suspended task can never
+		// continue into a dead sandbox and nothing needs cancelling in
+		// shutdown(). It is resumed at exactly ONE point in the frame - the
+		// script phase of the tick order - so it can never continue inside a
+		// contact callback or an event dispatch. Honest no-op without a
+		// ScriptTaskManager (the editor never makes one): a dead handle.
+		if (ScriptTaskManager::getSingletonPtr() != NULL)
+		{
+			ScriptTaskManager::getSingleton().setErrorSink(
+				[](String const & message)
+			{
+				EngineLogCapture::logError("script task: " + message);
+			});
+		}
+		runtime.registerFunction("script", "async",
+			[](ScriptArgs args) -> ScriptTaskHandle
+		{
+			ScriptTaskHandle handle;
+			if (!ScriptTaskManager::getSingletonPtr())
+			{
+				return handle;
+			}
+			const ScriptCallback body = ScriptCallback::fromArgs(args, 0);
+			if (!body.valid())
+			{
+				EngineLogCapture::logError(
+					"script.async: the argument must be a function");
+				return handle;
+			}
+			// the current owner is the sandbox executing this call (set by the
+			// ScriptCallScope around every script entry point) - the same
+			// token the timers and event subscriptions carry
+			void const * owner = ScriptEventBus::getSingleton().currentOwner();
+			String error;
+			// tickLimit 0: a GAME task is unbudgeted, because waiting for a
+			// door to open is not a bug. The test tier passes its own budget.
+			handle.mId = ScriptRuntime::getSingleton().startScriptTask(body,
+				owner, 0, &error);
+			if (handle.mId == 0)
+			{
+				EngineLogCapture::logError("script.async: " + error);
+			}
+			return handle;
 		});
 
 		// ================= THE `game` TABLE (state) =======================

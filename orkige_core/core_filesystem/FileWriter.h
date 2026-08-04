@@ -60,6 +60,23 @@ namespace Orkige
 		//! empty, its directory cannot be created or the temp file cannot be
 		//! opened
 		bool begin(String const & path, String & error);
+		//! @brief open a transfer onto @p path whose file only its OWNER may
+		//! read - the variant for a file that carries a secret (an auth token,
+		//! a credential, a discovery file quoting one).
+		//!
+		//! THE SEQUENCE IS THE GUARANTEE: the temp file is created EMPTY and
+		//! EXCLUSIVELY, restricted while it still holds nothing, and only then
+		//! written to; commit() renames the already-restricted file onto the
+		//! target. So there is no instant at which the secret sits in a file
+		//! other users can read - which a write-then-restrict call site cannot
+		//! say, and which is why the restriction is not offered as a separate
+		//! step callers apply afterwards.
+		//! @remarks A filesystem that cannot express the restriction (FAT/exFAT,
+		//! many network mounts) gets ONE honest warning and the transfer
+		//! proceeds: refusing to write would trade a defence-in-depth control
+		//! for a broken feature, and for the token file it would degrade to
+		//! auth-off, which is strictly worse than a permissive file.
+		bool beginOwnerOnly(String const & path, String & error);
 		//! @brief append @p count bytes; @return false with @p error set on a
 		//! short/failed write (the transfer is aborted then, @see abort)
 		bool write(char const * bytes, unsigned long long count, String & error);
@@ -82,7 +99,15 @@ namespace Orkige
 		//! call (the small-payload case - a config, a manifest, a save)
 		static bool writeWholeFile(String const & path, String const & bytes,
 			String & error);
+		//! @brief the whole-file convenience for a SECRET: beginOwnerOnly +
+		//! write + commit, so the bytes only ever exist in a file restricted to
+		//! its owner (@see beginOwnerOnly for the sequence and its limits)
+		static bool writeOwnerOnlyFile(String const & path, String const & bytes,
+			String & error);
 	private:
+		//! the shared body of begin()/beginOwnerOnly()
+		bool openTransfer(String const & path, bool ownerOnly, String & error);
+
 		FileWriter(FileWriter const &) = delete;
 		FileWriter & operator=(FileWriter const &) = delete;
 	};

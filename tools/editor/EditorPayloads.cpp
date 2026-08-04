@@ -112,14 +112,16 @@ namespace OrkigeEditor
 		android.exportPlatform = "android";
 		android.marker = ANDROID_PLAYER_LIB;
 		// an APK is ASSEMBLED rather than copied, so this payload carries the
-		// assembler and the Java it compiles beside the player - everything
-		// that belongs to the engine. The Android SDK's own programs are the
-		// machine's, reported one by one when one is missing, which is the
-		// same line we draw for a native module's cmake and ninja.
-		android.extraPaths.push_back(
-			join(ANDROID_ASSEMBLY_DIR, "package_apk.sh"));
+		// pieces the assembly builds the package out of: the manifest
+		// template, the platform policy resources and the Java it compiles -
+		// everything that belongs to the engine. The assembly itself is the
+		// editor's own code, and the Android SDK's programs are the machine's,
+		// reported one by one when one is missing, which is the same line we
+		// draw for a native module's cmake and ninja.
 		android.extraPaths.push_back(
 			join(ANDROID_ASSEMBLY_DIR, "AndroidManifest.xml"));
+		android.extraPaths.push_back(
+			join(ANDROID_ASSEMBLY_DIR, "res"));
 		android.extraPaths.push_back(
 			join(ANDROID_ASSEMBLY_DIR, "java"));
 		payloads.push_back(android);

@@ -43,6 +43,7 @@
 #include <engine_graphic/ScreenFade.h>
 #include <engine_graphic/ScreenShake.h>
 #include <engine_render/RenderSystem.h>
+#include <engine_render/RenderSystemSelection.h>
 #include <engine_render/RenderWorld.h>
 #include <engine_render/RenderNode.h>
 #include <engine_render/RenderCamera.h>
@@ -76,6 +77,7 @@
 #include <engine_runtime/GameHost.h>
 #include "PlayerContext.h"
 #include "PlayerSelfChecks.h"
+#include "PlayerTestRun.h"
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
@@ -169,6 +171,48 @@ using Orkige::pushMouseButton;
 // persists - inited once, never torn down), drop the debug-link
 // selection so a stale id cannot dangle and let the hierarchy
 // re-stream. A failed load is logged but keeps the run alive.
+//---------------------------------------------------------
+// THE TEST-TIER SCENE RESET. Deliberately NOT reloadSceneFrom above: that one
+// preserves persistent objects (the level system's mid-play switch), and a
+// test run is a boundary - a survivor carried from one test into the next
+// would couple them, which is the whole reason a test tier isolates. So the
+// world goes down WHOLE through GameObjectManager::clear (the ONE teardown
+// hook: scripts get their shutdown, tweens/timers/tasks are reaped, rigid
+// bodies leave the sim) and the scene loads fresh beside it.
+bool PlayerContext::loadSceneForTest(std::string const & requestedScene)
+{
+	Orkige::GameObjectManager& gameObjectManager = *this->gameObjectManagerPtr;
+	std::string resolvedScene = requestedScene;
+	std::error_code ignored;
+	if (this->project.isLoaded() &&
+		!std::filesystem::exists(resolvedScene, ignored))
+	{
+		resolvedScene = this->project.resolvePath(requestedScene);
+	}
+	// the explicit whole-world teardown, before the load - so a scene that
+	// FAILS to load leaves an empty world rather than the previous test's
+	gameObjectManager.clear();
+	if (!Orkige::SceneSerializer::loadScene(resolvedScene, gameObjectManager))
+	{
+		SDL_Log("orkige_player: test scene '%s' could not be loaded",
+			resolvedScene.c_str());
+		return false;
+	}
+	Orkige::applyUnlitFixToLoadedModels(gameObjectManager);
+	this->physicsNeeded = sceneHasRigidBodies(gameObjectManager);
+	if (this->physicsNeeded && this->physicsWorld &&
+		!this->physicsWorld->isInitialized())
+	{
+		if (!this->physicsWorld->init())
+		{
+			SDL_Log("orkige_player: FAILED - PhysicsWorld::init failed for "
+				"test scene '%s'", resolvedScene.c_str());
+			return false;
+		}
+	}
+	this->scenePath = resolvedScene;
+	return true;
+}
 //---------------------------------------------------------
 bool PlayerContext::reloadSceneFrom(std::string const & newScenePath)
 {
@@ -426,6 +470,7 @@ static bool playerIterate(PlayerContext& context)
 	Orkige::PhysicsWorld& physicsWorld = *context.physicsWorld;
 	Orkige::TweenManager& tweenManager = *context.tweenManager;
 	Orkige::TimerManager& timerManager = *context.timerManager;
+	Orkige::ScriptTaskManager& scriptTaskManager = *context.scriptTaskManager;
 	Orkige::LevelManager& levelManager = *context.levelManager;
 	Orkige::ScreenFade& screenFade = *context.screenFade;
 	Orkige::ScreenShake& screenShake = *context.screenShake;
@@ -563,6 +608,7 @@ static bool playerIterate(PlayerContext& context)
 		tick.gameObjects = &gameObjectManager;
 		tick.tweens = &tweenManager;
 		tick.timers = &timerManager;
+		tick.scriptTasks = &scriptTaskManager;
 		tick.physics = &physicsWorld;
 		tick.physicsNeeded = physicsNeeded;
 		tick.levels = &levelManager;
@@ -783,7 +829,27 @@ int main(int argc, char** argv)
 		SDL_Log("orkige_player: unknown argument '%s'",
 			arguments.unknownArgument.c_str());
 		SDL_Log("usage: orkige_player [--project <dir-or-.orkproj>] "
-			"[scene.oscene] [--debug-port N]");
+			"[scene.oscene] [--debug-port N] "
+			"[--run-tests [--test-filter <substring>]]");
+		return 1;
+	}
+	// --run-tests: a test suite belongs to a PROJECT (its tests/ directory and
+	// its scripts/ libraries), never to a loose scene - say so before booting
+	if (arguments.runTests && arguments.projectPath.empty())
+	{
+		SDL_Log("orkige_player: --run-tests needs --project <dir-or-.orkproj> "
+			"(a test suite belongs to a project)");
+		return 1;
+	}
+	// and a build with no scripting backend cannot answer the question at all -
+	// say so HERE, before a window and an engine are stood up for nothing.
+	// backendName() is the compiled-in fact (unlike available(), which also
+	// needs the runtime to be booted), so this is honest pre-boot.
+	if (arguments.runTests &&
+		std::strcmp(Orkige::ScriptRuntime::backendName(), "none") == 0)
+	{
+		SDL_Log("orkige_player: --run-tests needs a scripting backend - this "
+			"build has none (ORKIGE_SCRIPTING=OFF)");
 		return 1;
 	}
 	std::string& scenePath = context.scenePath;
@@ -1157,6 +1223,15 @@ int main(int argc, char** argv)
 				{
 					render->addResourceLocation(ORKIGE_PLAYER_DECAL_DIR);
 				}
+				// DEVICELESS: everything below this line is the low-level
+				// shader tier - `.material`/`.program` SCRIPTS. A render
+				// system with no device has no GPU program manager to parse
+				// them into and could not run what they define, so a deviceless
+				// run registers none of it (@see engine_render/
+				// RenderSystemSelection.h). Textures, meshes and fonts above
+				// stay registered - a scene still loads its content.
+				const bool devicelessRun =
+					Orkige::RenderSystemSelection::devicelessRequested();
 #ifdef ORKIGE_PLAYER_BLOOM_DIR
 				// the engine bloom compositor media (the bright/blur/combine
 				// material + shaders engine:setBloom needs), per flavor
@@ -1167,7 +1242,11 @@ int main(int argc, char** argv)
 				// dev machine) would double-define its GpuPrograms and abort
 				// resource-group initialisation.
 				std::error_code bloomDirError;
-				if (std::filesystem::is_directory(
+				if (devicelessRun)
+				{
+					// no shader tier in a deviceless run (see above)
+				}
+				else if (std::filesystem::is_directory(
 					playerMediaDir + "/" ORKIGE_BLOOM_MEDIA_SUBDIR,
 					bloomDirError))
 				{
@@ -1187,7 +1266,11 @@ int main(int argc, char** argv)
 				// above (a material SCRIPT - double-parsing aborts resource-group
 				// init).
 				std::error_code gradeDirError;
-				if (std::filesystem::is_directory(
+				if (devicelessRun)
+				{
+					// no shader tier in a deviceless run (see above)
+				}
+				else if (std::filesystem::is_directory(
 					playerMediaDir + "/" ORKIGE_GRADE_MEDIA_SUBDIR,
 					gradeDirError))
 				{
@@ -1575,6 +1658,14 @@ int main(int argc, char** argv)
 		// GameObjectManager::clear teardown hook.
 		context.timerManager.emplace();
 		Orkige::TimerManager& timerManager = *context.timerManager;
+		// suspended script tasks (Lua `script.async` + wait/waitFrames/
+		// waitUntil): resumed in the SCRIPT phase of the loop below, at the
+		// ONE resume site. Created like the TweenManager - the editor never
+		// makes one, so `script.async` is an honest no-op there; scene clears
+		// reap tasks via the GameObjectManager::clear teardown hook.
+		context.scriptTaskManager.emplace();
+		Orkige::ScriptTaskManager& scriptTaskManager = *context.scriptTaskManager;
+		(void)scriptTaskManager;
 		// the game's single named state (Lua `game` table): every setState fires
 		// `game.stateChanged` on the event bus. Created like the TweenManager -
 		// the editor never makes one, so `game.setState` is a no-op there.
@@ -1857,6 +1948,37 @@ int main(int argc, char** argv)
 		context.selfChecks.beforeLoop(context);
 
 		context.lastFrameTime = std::chrono::steady_clock::now();
+
+		// --run-tests: the project's OWN Lua test suite, run here - where the
+		// runtime is fully up, so a test sees exactly the engine a game sees
+		// (live resource mounts, so script.require reaches a library inside a
+		// pak or an APK; the project's script search root; the hardened
+		// sandbox). The exit code IS the verdict, the same contract every
+		// player selfcheck ctest uses. Always compiled in: a released player -
+		// the one inside a distributed editor and the one on a device payload -
+		// must be able to run a project's tests with no repository, no build
+		// tree and no interpreter beyond the engine's own.
+		//
+		// ONE PLAYER BOOT for the whole run: the suite runs INSTEAD of the
+		// frame loop, driving frames itself for the play-mode tests through
+		// the same playerIterate the loop below would call. Everything the
+		// loop needs is up by this point.
+		if (arguments.runTests)
+		{
+			PlayerTestHooks testHooks;
+			testHooks.pumpFrame = [&context]() -> bool
+			{
+				return playerIterate(context);
+			};
+			testHooks.loadScene =
+				[&context](Orkige::String const & requestedScene) -> bool
+			{
+				return context.loadSceneForTest(requestedScene);
+			};
+			return runProjectLuaTests(project, arguments.testFilter,
+				std::filesystem::path(engineLogPath).parent_path().string(),
+				testHooks);
+		}
 
 		// the frame loop, driven by the platform (engine_runtime/GameHost.h):
 		// one playerIterate per frame, then the orderly shutdown. Some

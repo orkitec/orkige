@@ -83,11 +83,14 @@ Deploying: iOS builds the runtime as `tools/player/OrkigePlayer.app` (SDL3 UIKit
 main, media bundled in) — `xcrun simctl boot/install/launch` for the simulator,
 `xcrun devicectl device install app` + `... process launch` for hardware.
 Android builds `tools/player/libmain.so` (everything incl. SDL3 statically
-linked); `tools/player/android/package_apk.sh` assembles + signs the APK
-directly with javac/d8/aapt2/apksigner (no Gradle — the machine's JDK predates
-Gradle support; SDL3's Java glue comes from the vcpkg SDL source, or - packaging
+linked); `tools/exporter/ExportAndroidAssemble.h` assembles + signs the APK
+IN PROCESS, spawning javac/d8/aapt2/zipalign/apksigner directly as argv (**no
+shell, no Gradle** — the whole command set is decided up front by a pure
+planner, so "nothing is handed to a command interpreter" is a unit-tested
+property; SDL3's Java glue comes from the vcpkg SDL source, or - packaging
 from a fetched payload, where there is no vcpkg - from the Java sources that
-payload carries). Deploy with
+payload carries). `orkige_export android-player --engine-build <tree>`
+packages the dev player's own APK. Deploy with
 `adb install`; emulator AVD `orkige_test` (android-35, arm64) exists. The
 manifest Setting `export.android.assets` picks how media rides in the APK
 (`stored`, the default: assets stay UNCOMPRESSED so the player mounts its own
@@ -201,7 +204,8 @@ inside.
   `xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest ...` with
   `VK_DRIVER_FILES` pointed at the lavapipe ICD.
 
-CI is a hard gate on every push — see the **CI** section at the end of this file.
+CI is a hard gate on every PULL REQUEST, and `main` is protected: it moves only
+when the whole matrix is green — see the **CI** section at the end of this file.
 
 ## Modernization ground rules
 
@@ -228,9 +232,38 @@ CI is a hard gate on every push — see the **CI** section at the end of this fi
   so several different scripts attach to one object, each with its own container
   key + sandbox, addable in the editor / over MCP / in scenes by kind name. A
   top-level `properties` table auto-exposes designer-tunable fields through the
-  ONE reflection registry. Plain `.lua` files are libraries; the low-level
-  path-bound `ScriptComponent` kind still works —
+  ONE reflection registry. Plain `.lua` files are LIBRARIES, loaded by another
+  script with **`script.require("scripts/lib.lua")`** — jailed by `PathJail` to
+  a project-relative `.lua` name (exactly the file set a path-bound
+  `ScriptComponent` could already run, so it is the same capability, not a new
+  one; `load`/`loadfile`/`dofile`/`require` stay denied), read through
+  `ResourceAccess` so a library resolves out of a pak/APK in place, cached PER
+  SANDBOX (a process-wide module registry would be a second, undeclared sharing
+  channel beside `shared`), with a named cycle refusal instead of a blown C
+  stack. The low-level path-bound `ScriptComponent` kind still works —
   `Docs/lua-api.md#script-components`.
+  A project TESTS its own Lua in Lua: `<project>/tests/*.test.lua` run by
+  `orkige_player --project <p> --run-tests [--test-filter <substr>]` against
+  the live runtime, over an engine-owned vocabulary that is a C++ string
+  constant (so a released player carries it — no file, no repo, no Python),
+  exit code as the verdict plus a flush-per-record JSONL artifact
+  (`ORKIGE_TEST_REPORT_DIR`). A test that declares `{ scene = ... }` is a
+  PLAY-MODE test: the runner clears the world WHOLE (never
+  `clearExceptPersistent` — a run is a boundary), loads that scene fresh per
+  test and drives real frames while the body suspends on the same waits a game
+  uses, under a per-test frame budget so a wedged wait is a NAMED failure and
+  never a hung job. `tests/` is NOT a payload subdirectory — a
+  suite never ships — and `*.editor.lua` is stripped from `scripts/` at
+  export; both absences are asserted. `Docs/testing.md`.
+- **Script tasks** (`script.async` + `wait`/`waitFrames`/`waitUntil`,
+  `core_script/ScriptTaskManager` + the pure `ScriptTaskCore`): game code that
+  spans frames, written as one function. `coroutine` is opened for the engine
+  to build the wait vocabulary on and then REMOVED from the sandbox — a
+  script-owned coroutine would hold the RESUME POINT, and a task is resumed at
+  exactly ONE place, the script phase of the fenced tick order, so it can never
+  continue inside a contact callback or an event dispatch. A task is
+  sandbox-scoped (auto-cancels on retire/hot-reload), dies with the scene and
+  is never serialized. `Docs/lua-api.md`.
 - Everything builds statically (`ORKIGE_STATIC` is defined globally); the old
   `__declspec` DLL export macros in the prerequisites headers are inert.
 - Keep the existing code style when editing old files: tabs, `m`-prefixed members,
@@ -309,7 +342,13 @@ Rules that hold here:
   open; no token file ⇒ auth off for dev.
 - DEFAULT-ON for an interactive session, OFF for automated runs — no normal test
   opens a socket. An interactive editor takes an EPHEMERAL loopback port and
-  writes its token to the writable app dir (owner-only `mcp-endpoint.token`).
+  writes its token to the writable app dir (`mcp-endpoint.token`). The token is
+  minted from the platform's entropy source (`core_util/SecretToken.h`), and
+  **every file that carries it is written OWNER-ONLY through the one sink**
+  `core_filesystem/FileWriter::beginOwnerOnly` — created empty, restricted while
+  empty, written, then renamed, so the secret never sits in a readable file
+  (`0600` on macOS/Linux, a protected DACL on Windows; a volume that holds
+  neither gets one warn, never a refusal). `Docs/security.md`.
   Pin explicitly with `--mcp-port <N> --mcp-token-file <path>` (aliases
   `--control-port`/`--control-token-file`; env `ORKIGE_MCP_PORT` /
   `ORKIGE_MCP_TOKEN_FILE`, `ORKIGE_CONTROL_*` also honored);
@@ -420,11 +459,16 @@ behind `ORKIGE_BUILD_ENGINE`, ON for all app work).
   sfx), streamed OGG Vorbis music on `MusicStream` (queued-buffer ring, main-thread
   refill in `SoundManager::update`, owned by the `SoundManager` music registry so
   tracks survive scene switches), mixer groups + master.
-- **`engine_input`** is SDL3-based (KC_* keycodes preserved). `isKeyDown` reads
-  the injectEvent-fed state, so synthetic SDL events work. `getTilt()` is a
+- **`engine_input`** is SDL3-based (KC_* keycodes preserved). `isKeyDown`, the
+  gamepad state and the touch/pointer snapshot all read the injectEvent-fed
+  state, so synthetic SDL events work. `getTilt()` is a
   normalized gravity direction (accelerometer where one exists, LEFT/RIGHT-key
   simulated on desktop) — it is WALL-CLOCK paced, so selfchecks must poll it
-  condition-driven, never frame-count.
+  condition-driven, never frame-count. Input reaches a game at two levels:
+  named INTENT through `InputActionMap` (keys/tilt/gamepad bindings, max-magnitude
+  combine) and raw POSITION through the `input` script table (touch, pointer,
+  raw keys, pad reads) — `Docs/lua-api.md`. Both take ONE edge snapshot per
+  frame, in the tick order's input slot before scripts.
 - **`engine_gui`** is the runtime UI system on both flavors (widgets + the
   engine-owned `UiAtlas`/`UiRenderer` 2D renderer on `DrawLayer2D`); atlases come
   from `Util/make_gui_atlas.py`. `Docs/gui.md`.
@@ -580,8 +624,8 @@ packages a project as a distributable macOS `.app` (self-contained:
 player/module binary + dylib closure + engine media + project payload; a marker
 file makes the app boot its bundled project with no arguments — `PlayerBundle`
 in `engine_runtime/PlayerRuntime.h`), an iOS-simulator `.app`, an Android APK
-(via `package_apk.sh`) or a web payload. Output lands in
-`<project>/builds/<platform>/`; ids come from the manifest Settings
+(assembled in process — `ExportAndroidAssemble.h`) or a web payload. Output
+lands in `<project>/builds/<platform>/`; ids come from the manifest Settings
 `export.macos.bundleId` / `export.android.package` / `export.ios.bundleId`.
 Every export gets a per-project app icon (`export.icon` source PNG resized by
 `ExportIcons` → macOS `.icns` / iOS `CFBundleIconFiles` / Android launcher
@@ -623,11 +667,39 @@ browser are not there yet).
   **engine SDK pack**, which belongs to compiled C++ game code ALONE. **A
   project with no C++ never needs a pack, at debug, release or signed**, and no
   message may mention one.
-- The store-submittable platforms `android-aab` (via
-  `tools/player/android/build_aab.sh`, off an `android-release` tree,
+- The store-submittable platforms `android-aab` (the same in-process assembly
+  in protobuf form + `bundletool` + `jarsigner`, off an `android-release` tree,
   `bundletool` resolved via `ORKIGE_BUNDLETOOL`) and `ios-ipa` **refuse rather
   than emit a half-signed artifact** when credentials are absent, and stay
   CLI-only (a headless MCP agent lacks the secrets) — `Docs/store-release.md`.
+- **The CLI that ships is the EDITOR's** (`Docs/editor-cli.md`). `orkige_export`
+  is a development-tree tool and is NOT part of a release, so on a machine
+  carrying only a distributed Orkige the export capability lives inside the
+  editor process alone. `orkige_editor <subcommand>` is that door:
+  `tools/editor/EditorCli.{h,cpp}` is the PURE argv→decision router (in
+  editor_core, unit-tested) and `EditorCliRun.cpp` carries it out, before SDL
+  video and the render backend exist. Rules:
+  - **Two entry points, ONE implementation.** `export` goes through the SAME
+    `planExport` → `runPlannedExport` pair the Build menu and MCP
+    `export_project` use — never a second export path, and never a spawned
+    `orkige_export` (which also keeps the cheap `host-exporter` CI job alive).
+    What the editor's door adds is the engine-source resolution only THIS
+    installation knows (its build tree / bundled payload / fetched device
+    player / installed SDK pack) and the three-tier refusals.
+  - **An unrecognised first-word argument EXITS 2, never falls through to the
+    GUI** — a typo on a build server used to open a window and hang the job.
+    Flags keep their historical harmless-if-unknown behaviour.
+  - **A subcommand run IS an `automatedRun`** (the same boolean, not a third
+    mode): no view settings, recents, imgui ini, MCP endpoint, IDE lock or
+    credential vault. ONE stated exception: headless export READS the
+    machine-local per-project build settings for the identity NAMES, so it
+    signs identically to Build ▸ Export on that machine (read only; passwords
+    stay environment-only).
+  - **The editor stays CONSOLE-subsystem on Windows** (`add_executable` with no
+    `WIN32`) — that is what makes stdout and the exit code reach a caller.
+  - v1 covers `export`, `fetch-payload`, `version`, `changelog`, `help` and
+    promises NOTHING that needs a live game world (a scene load reaches
+    `RenderWorld` → a window → a GPU, and there is no null render backend).
 
 Covered by the `export_*` integration ctests (the macOS ones RUN the exported app
 from a neutral cwd; `export_android_aab` asserts the unsigned bundle-module
@@ -655,17 +727,20 @@ lives in a doc and is pointed at from here. The full index:
 | `filesystem.md` | pak mounting, `MiniZip`, the filesystem funnel |
 | `textures.md` | import settings, the export-time GPU cook |
 | `logging.md` | tags, levels, sinks, the `log.*` cvars |
-| `lua-api.md` | the generated Lua reference (script components, editor scripts) |
+| `lua-api.md` | the generated Lua reference (script components, libraries, editor scripts) |
+| `testing.md` | the project Lua test tier (`tests/*.test.lua`, `--run-tests`) |
 | `mcp.md` / `mcp-workflows.md` | the MCP endpoint reference / worked agent workflows |
 | `script-debugging.md` | script editor, breakpoints, the debug loop |
 | `editor.md` | editor panels (Source Control, asset badges), scene view + level authoring |
 | `terminal.md` / `claude-ide.md` | embedded terminal / the IDE protocol |
 | `native-modules.md` / `sdk-pack.md` | compiled C++ game modules / the relocatable SDK pack |
+| `editor-cli.md` | the editor's headless subcommands (`export`, `fetch-payload`, …) |
 | `editor-distribution.md` / `editor-updates.md` / `nightly-builds.md` | shipping and updating the editor |
 | `device-payloads.md` | the fetched device players, and the prerequisite tiers per platform |
 | `ios-signing.md` / `store-release.md` / `device-session.md` | signing, store artifacts, phone runs |
 | `web-export.md` | the wasm player and browser export |
 | `http.md` | the engine HTTP client |
+| `monetization.md` | the store/ads seam, the provider contract, the simulated provider |
 | `benchmark.md` | the feature-tour benchmark project |
 | `sanitizers.md` / `fuzzing.md` / `soak.md` / `security.md` | the stability + safety instruments |
 | `ports.md` / `vendored-libs.md` | overlay ports, third-party provenance + pinning |
@@ -857,8 +932,8 @@ what rule it carries, which doc has the depth.
   concave mesh prism, dynamic the convex hull (a concave dynamic body degrades
   with one warn). Holes and scale sit out v1; soft bodies collide as their rest
   shape; the Scene Colliders overlay draws the real contour.
-- **Gameplay**: `engine_input/InputActionMap` (named actions over keys/tilt,
-  `input.oactions`); `engine_sound` mixer groups + master; `core_tween`
+- **Gameplay**: `engine_input/InputActionMap` (named actions over
+  keys/tilt/gamepad, `input.oactions`); `engine_sound` mixer groups + master; `core_tween`
   (`TweenManager` + `EaseLibrary`); `core_debug/CVarManager` (typed cvars,
   live-tunable over the debug protocol, `cvar.`-prefixed manifest persistence).
   The Lua surface for all of it is `Docs/lua-api.md`.
@@ -972,9 +1047,11 @@ what rule it carries, which doc has the depth.
   - On Linux a process-wide X error guard (`SDLNativeWindowLinux.cpp`) keeps the
     inherently racy clipboard-answer BadWindow from killing any SDL-hosted app.
 - **Claude IDE protocol** (`Docs/claude-ide.md`; editor-only, interactive
-  sessions): the editor announces itself as an IDE — it writes
-  `~/.claude/ide/<port>.lock` and serves MCP over a WebSocket UPGRADE on the SAME
-  control-server port (`core_debugnet` `HttpServer` + `WebSocketConnection`).
+  sessions): the editor announces itself as an IDE — it serves MCP over a
+  WebSocket UPGRADE on its OWN ephemeral loopback port (a second
+  `core_debugnet` `HttpServer` + `WebSocketConnection`, separate from the MCP
+  control endpoint and its token) and writes the owner-only discovery lock
+  `~/.claude/ide/<port>.lock` carrying that port's own auth token.
   The active document is STICKY (focusing another panel never blanks the agent's
   context) and paths travel with forward slashes on every platform. Terminal
   children get `CLAUDE_CODE_SSE_PORT`/`ENABLE_IDE_INTEGRATION`, so `/ide` inside
@@ -1115,10 +1192,26 @@ what rule it carries, which doc has the depth.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) builds + tests on every push as
-**fifteen jobs**, mostly parallel, so a failure names itself and every verdict
-lands as early as its own build allows (public-repo runners are free; the only
-cap is 5 concurrent macOS jobs). The jobs:
+GitHub Actions (`.github/workflows/ci.yml`) builds + tests as **fifteen jobs**,
+mostly parallel, so a failure names itself and every verdict lands as early as
+its own build allows. **A change is verified on its BRANCH, through a pull
+request, and `main` only moves once all fourteen gating jobs are green** —
+`main` is a protected branch requiring them. `pull_request` verifies a branch;
+`push` is restricted to `main` and verifies the merge, so a branch with an open
+PR never runs the matrix twice. The `site` job is pinned to a push on `main`:
+every other job renders a VERDICT on a change, that one PUBLISHES, and it must
+never fire for a branch under review.
+
+Protection deliberately does NOT require a branch to be up to date before
+merging — with a matrix this slow, strict mode makes every merge invalidate
+every other open PR's run. Admins are not bound by the checks, so a genuine
+emergency still has a door.
+
+Throughput, not correctness, is the usual constraint: public-repo runners are
+free, but the ACCOUNT's concurrent-job ceiling is what actually paces a queue of
+open PRs (macOS is separately capped at 5). A pile of branches can starve the
+one PR that unblocks the others - cancelling runs for branches that must be
+rebased anyway is the cheap lever. The jobs:
 
 | Job | What it gates |
 |-----|---------------|

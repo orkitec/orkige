@@ -446,12 +446,39 @@ TEST_CASE("a saved credential file is owner-only and holds no password",
 
 	const std::filesystem::path path = buildSettingsPath(projectRoot);
 	REQUIRE(std::filesystem::exists(path));
+
+	// What is REQUESTED is the same everywhere, and asserting it here is what
+	// makes a widening of the restriction fail on every host rather than on
+	// whichever one happens to enforce it.
+	CHECK(buildSettingsFilePermissions() ==
+		(std::filesystem::perms::owner_read |
+		std::filesystem::perms::owner_write));
+	CHECK((buildSettingsFilePermissions() &
+		(std::filesystem::perms::group_all |
+		std::filesystem::perms::others_all)) ==
+		std::filesystem::perms::none);
+
+	// Every platform APPLIES it now, so the predicate is pinned true on every
+	// host and can never go quiet by answering false somewhere.
+	CHECK(buildSettingsPermissionsEnforced());
+	// Only POSIX states the restriction as mode bits, so only there does it
+	// read straight back off the finished file - and it still fails here if the
+	// restriction stops being applied (a rename keeps the temporary's mode, so
+	// the write below it is load-bearing). Windows states it as a protected
+	// DACL, which std::filesystem cannot report; those properties are asserted
+	// against the real file in the FileWriter suite, which is the one place the
+	// owner-only write happens for this file and every other secret.
+#if !defined(_WIN32)
 	const std::filesystem::perms permissions =
 		std::filesystem::status(path).permissions();
 	CHECK((permissions & std::filesystem::perms::group_all) ==
 		std::filesystem::perms::none);
 	CHECK((permissions & std::filesystem::perms::others_all) ==
 		std::filesystem::perms::none);
+	// ...and EXACTLY what is requested above, so the declaration cannot drift
+	// away from the sink that applies it: a widening on either side fails here
+	CHECK(permissions == buildSettingsFilePermissions());
+#endif
 
 	const BuildSettingMap reloaded = loadBuildSettings(projectRoot);
 	CHECK(reloaded == sanitizeBuildSettings(values));

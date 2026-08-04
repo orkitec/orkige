@@ -16,6 +16,7 @@
 #include "core_game/GameObjectManager.h"
 #include "core_game/LevelManager.h"
 #include "core_http/HttpClient.h"
+#include "core_script/ScriptTaskManager.h"
 #include "core_tween/TimerManager.h"
 #include "core_tween/TweenManager.h"
 #include "core_util/PathJail.h"
@@ -26,6 +27,7 @@
 #include "engine_graphic/ScreenFade.h"
 #include "engine_graphic/ScreenShake.h"
 #include "engine_input/InputActionMap.h"
+#include "engine_input/InputManager.h"
 #include "engine_physic/PhysicsWorld.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_sound/SoundManager.h"
@@ -129,11 +131,11 @@ String androidApkPath()
 //! @brief extract the APK's bundled media into destRoot. APK assets are not
 //! files - the render backend's filesystem archives, the scene loader
 //! (tinyxml2/fopen) and the sound loader all want real paths, so everything is
-//! materialized once under the app files dir. The package script
-//! (tools/player/android/package_apk.sh) writes assets/orkige_assets.txt
-//! listing every bundled file; SDL_LoadFile with a relative path reads from the
-//! APK assets. A file that already exists with the same size is skipped (cheap
-//! re-launch).
+//! materialized once under the app files dir. The packaging run writes
+//! assets/orkige_assets.txt listing every bundled file (@see
+//! tools/exporter/ExportAndroidAssemble.h); SDL_LoadFile with a relative path
+//! reads from the APK assets. A file that already exists with the same size is
+//! skipped (cheap re-launch).
 //! @param mountMediaMode `stored` mode: skip the bulk binary media
 //! (isMountedMediaPath) - the player mounts those in place - and extract only
 //! the small fopen tree + shader/font media.
@@ -823,10 +825,20 @@ void advanceGameWorld(GameTick const & tick, float deltaTime)
 	//     HERE, before the scripts that read them run. ONE edge
 	//     snapshot per frame (pressed = down && !down-last-frame);
 	//     scripts read the snapshot back, never recompute it.
-	if (tick.inputActions)
+	//     SLOT(input-devices): the RAW pointer/touch snapshot the
+	//     `input` script table reads carries the SAME once-per-frame
+	//     contract and is taken FIRST, so an action and a raw read
+	//     inside one frame describe the same instant.
 	{
 		OPROFILE("input");
-		tick.inputActions->update(deltaTime);
+		if (InputManager::getSingletonPtr())
+		{
+			InputManager::getSingleton().updateFrameState();
+		}
+		if (tick.inputActions)
+		{
+			tick.inputActions->update(deltaTime);
+		}
 	}
 	//
 	// [1b] ASYNC ANSWERS - the network's frame boundary. An HTTP
@@ -853,6 +865,20 @@ void advanceGameWorld(GameTick const & tick, float deltaTime)
 	{
 		OPROFILE("scripts");
 		tick.gameObjects->update(gameplayDelta);
+	}
+	//
+	// [2a] SCRIPT TASKS - the SINGLE point where a suspended task
+	//     (script.async) is ever resumed. It rides the SCRIPT PHASE,
+	//     right after the component updates, on the same scaled
+	//     delta - NOT a new tick-order fence entry. Having exactly
+	//     one resume site is the whole safety argument: a task can
+	//     never continue inside a physics contact callback, an event
+	//     dispatch or a render pass, because nothing else resumes
+	//     one. Do not add a second site.
+	if (tick.scriptTasks)
+	{
+		OPROFILE("scripts");
+		tick.scriptTasks->update(gameplayDelta);
 	}
 	//
 	// [2b] EVENT BUS - drain the ONE engine event bus

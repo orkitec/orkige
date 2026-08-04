@@ -83,7 +83,8 @@ TEST_CASE("the Android payload carries what ASSEMBLES a package",
 {
 	// an iOS `.app` is copied whole into the package, so its payload needs
 	// nothing but the bundle. An APK is ASSEMBLED around the player, so this
-	// one also carries the assembler, the manifest template and the Java it
+	// one also carries what the assembly builds the package out of: the
+	// manifest template, the platform policy resources and the Java it
 	// compiles - engine pieces, all of them. What it does NOT carry is the
 	// Android SDK's own programs: those are the machine's, and the export
 	// names each missing one instead (OrkigeExport::androidToolchainGaps).
@@ -95,16 +96,15 @@ TEST_CASE("the Android payload carries what ASSEMBLES a package",
 
 	const std::vector<Orkige::String> required = payloadRequiredPaths(android);
 	for (char const* piece : { "orkige_payload.txt", "libmain.so", "Media",
-		"android/package_apk.sh", "android/AndroidManifest.xml",
-		"android/java" })
+		"android/AndroidManifest.xml", "android/res", "android/java" })
 	{
 		INFO(piece);
 		CHECK(std::find(required.begin(), required.end(),
 			Orkige::String(piece)) != required.end());
 	}
-	// ...and each of them is genuinely REQUIRED: a payload unpacked without
-	// its assembler is refused rather than handed to an export that would
-	// fail deep inside a shell script
+	// ...and each of them is genuinely REQUIRED: a payload unpacked without a
+	// piece of the assembly is refused rather than handed to an export that
+	// would fail deep inside the packaging run
 	std::vector<Orkige::String> present;
 	for (Orkige::String const& relative : required)
 	{

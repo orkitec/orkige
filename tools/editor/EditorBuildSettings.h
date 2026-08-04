@@ -11,6 +11,7 @@
 
 #include <core_util/String.h>
 
+#include <filesystem>
 #include <map>
 #include <vector>
 
@@ -252,7 +253,27 @@ namespace OrkigeEditor
 	//! an empty map, not an error - nothing configured is the normal state.
 	BuildSettingMap loadBuildSettings(Orkige::String const & projectRoot);
 
-	//! @brief write the machine settings for @p projectRoot, OWNER-ONLY.
+	//! @brief the permissions a written machine-settings file is restricted to
+	//! (PURE): the owner may read and write it, and nobody else is named at
+	//! all. Spelled once here so the requested restriction is assertable on
+	//! every host, including the ones whose filesystem cannot apply it.
+	std::filesystem::perms buildSettingsFilePermissions();
+
+	//! @brief whether this platform's filesystem ENFORCES those permissions.
+	//!
+	//! Every platform the editor runs on does, each in its own vocabulary:
+	//! POSIX mode bits the kernel holds everyone to on macOS/Linux, and a
+	//! PROTECTED (non-inheriting) DACL naming only the owner and SYSTEM on
+	//! Windows, since access control there is an ACL on the object and not a
+	//! mode the standard filesystem library can express. Only the POSIX form
+	//! reads back through `std::filesystem::status`; the Windows properties are
+	//! asserted where the file is written (@see Orkige::FileWriter). What the
+	//! restriction does and does not buy is in `Docs/store-release.md`.
+	bool buildSettingsPermissionsEnforced();
+
+	//! @brief write the machine settings for @p projectRoot, restricted to its
+	//! owner before a single byte of it exists (@see
+	//! Orkige::FileWriter::beginOwnerOnly).
 	//! @return false with an honest @p error when there is nowhere to write.
 	//! @remarks the values are sanitized first, so a caller cannot persist a
 	//! key the model does not declare - passwords included, which have no key.

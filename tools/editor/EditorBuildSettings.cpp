@@ -10,6 +10,8 @@
 
 #include "EditorResourcePaths.h"
 
+#include <core_filesystem/FileWriter.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
@@ -580,6 +582,22 @@ namespace OrkigeEditor
 		return parseBuildSettings(contents.str());
 	}
 	//---------------------------------------------------------
+	std::filesystem::perms buildSettingsFilePermissions()
+	{
+		return std::filesystem::perms::owner_read |
+			std::filesystem::perms::owner_write;
+	}
+	//---------------------------------------------------------
+	bool buildSettingsPermissionsEnforced()
+	{
+		// every platform the editor runs on applies the restriction, in the
+		// vocabulary its own access-control model speaks: POSIX mode bits on
+		// macOS/Linux, a protected DACL on Windows. Both are written by the
+		// one owner-only file sink (@see Orkige::FileWriter::beginOwnerOnly),
+		// so there is no host left where the restriction is only requested.
+		return true;
+	}
+	//---------------------------------------------------------
 	bool saveBuildSettings(Orkige::String const & projectRoot,
 		BuildSettingMap const & values, Orkige::String * error)
 	{
@@ -594,46 +612,17 @@ namespace OrkigeEditor
 			}
 			return false;
 		}
+		// the one owner-only sink: restricted while it is still empty, written,
+		// then renamed onto the target - so the credentials are never in a file
+		// anyone else can open, not even for the instant between the write and
+		// the restriction (@see Orkige::FileWriter::beginOwnerOnly)
 		const Orkige::String text = serializeBuildSettings(values);
-		const Orkige::String temporary = path + ".tmp";
+		Orkige::String writeError;
+		if(!Orkige::FileWriter::writeOwnerOnlyFile(path, text, writeError))
 		{
-			std::ofstream file(temporary.c_str(), std::ios::binary |
-				std::ios::trunc);
-			if(!file.is_open())
-			{
-				if(error != 0)
-				{
-					*error = "could not write '" + temporary + "'";
-				}
-				return false;
-			}
-			file << text;
-			if(!file.good())
-			{
-				if(error != 0)
-				{
-					*error = "could not write '" + temporary + "'";
-				}
-				return false;
-			}
-		}
-		// owner-only BEFORE the rename, so the file is never briefly readable
-		// under its final name (the MCP token file's precedent)
-		std::error_code permissionError;
-		std::filesystem::permissions(temporary,
-			std::filesystem::perms::owner_read |
-			std::filesystem::perms::owner_write,
-			std::filesystem::perm_options::replace, permissionError);
-		std::error_code renameError;
-		std::filesystem::rename(temporary, path, renameError);
-		if(renameError)
-		{
-			std::error_code removeError;
-			std::filesystem::remove(temporary, removeError);
 			if(error != 0)
 			{
-				*error = "could not replace '" + path + "' - " +
-					renameError.message();
+				*error = writeError;
 			}
 			return false;
 		}

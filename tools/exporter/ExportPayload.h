@@ -116,6 +116,18 @@ namespace OrkigeExport
 		Orkige::String const & texturePlatform, ExportLog const & log,
 		int * outStripped, Orkige::String * error);
 
+	//! @brief drop every `*.editor.lua` under @p payloadDirectory.
+	//! @remarks an editor TOOL is dev tooling - a command in the editor's Tools
+	//! menu - and is structurally inert in a player: nothing in a runtime
+	//! discovers it, and the `editor.*` verb table it is written against does
+	//! not exist there. It rides inside `scripts/`, which is a payload
+	//! subdirectory, so it needs its own strip the way `.orkmeta` does. Test
+	//! files need no strip: they live in `tests/`, which is not a payload
+	//! subdirectory at all - out by construction rather than by removal.
+	//! @param outStripped receives the number of files removed
+	bool stripEditorScripts(Orkige::String const & payloadDirectory,
+		ExportLog const & log, int * outStripped, Orkige::String * error);
+
 	//! @brief copy the shippable project subset into @p destination and run
 	//! the export-time texture cook over it for @p platform and @p flavor.
 	//! @param texturePlatform the cook's platform token (@see

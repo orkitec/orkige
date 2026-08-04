@@ -2,8 +2,9 @@
 
 `Util/orkige_device.py` is the owner-facing front door for running an Orkige
 game on a real phone (or the `orkige_test` emulator / an iOS simulator). It
-reuses the existing tooling — the `orkige_export` binary, which itself drives
-`tools/player/android/package_apk.sh` and the iOS signing seam — and adds the
+reuses the existing tooling — the `orkige_export` binary, which assembles the
+APK in process over the Android SDK's own programs and owns the iOS signing
+seam — and adds the
 glue a session needs: a readiness check, the build-if-stale step, install,
 launch and log streaming, so a phone session needs zero archaeology.
 
@@ -101,5 +102,5 @@ matching provisioning profile — enroll, create a Development certificate,
 register the device, download the `.mobileprovision`, then export
 `ORKIGE_IOS_SIGNING_IDENTITY` and `ORKIGE_IOS_PROVISIONING_PROFILE`. Only
 `export.ios.teamId` is ever committed. The full step-by-step is in
-[`ios-signing.md`](ios-signing.md). Android needs no such one-time setup —
-`package_apk.sh` signs with a shared debug keystore it creates on demand.
+[`ios-signing.md`](ios-signing.md). Android needs no such one-time setup — the
+packaging run signs with a shared debug keystore it creates on demand.

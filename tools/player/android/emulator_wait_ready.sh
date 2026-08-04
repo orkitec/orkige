@@ -29,8 +29,8 @@ POLL="${ORKIGE_READY_POLL:-3}"
 
 log() { printf '[wait-ready] %s\n' "$*"; }
 
-# Resolve adb: an explicit override wins, then the SDK layout package_apk.sh
-# uses, then whatever is on PATH.
+# Resolve adb: an explicit override wins, then the standard SDK layout, then
+# whatever is on PATH.
 resolve_adb() {
 	if [ -n "${ORKIGE_ADB:-}" ]; then
 		# an explicit override must actually be runnable; a bad path is a

@@ -25,6 +25,7 @@
 #include <imgui.h>
 
 #include "EditorAssetDnd.h"
+#include "EditorBuildSettings.h"	// the credentials an export run is handed
 #include "EditorCamera.h"
 #include "EditorCore.h"
 #include "EditorExportPlan.h"	// the ONE export decision (menu + endpoint)
@@ -248,11 +249,19 @@ struct ExportJob
 //! @brief what @p project packages from on @p platform, or the one honest
 //! sentence saying why this editor cannot produce it (@see EditorExportPlan.h).
 //! Resolves every path through the ONE resource locator, so a copied app plans
-//! against the payload it carries and a build-tree run against the tree - both
-//! the Build menu and the control endpoint's export verb go through it, so the
-//! sourcing and the refusals have one definition. Defined in EditorExport.cpp.
-OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
-	std::string const& platform);
+//! against the payload it carries and a build-tree run against the tree - the
+//! Build menu, the control endpoint's export verb and the headless `export`
+//! subcommand all go through it, so the sourcing and the refusals have one
+//! definition. Defined in EditorExport.cpp.
+//!
+//! @remarks It takes the MANIFEST FACTS, never a live `Orkige::Project`:
+//! loading one makes its AssetDatabase the process-wide active database (@see
+//! ExportProject.h), which a headless run must not do and an in-editor run
+//! already avoids. A surface that HAS a project open passes
+//! @ref exportProjectFor; one that does not passes
+//! `OrkigeExport::ExportProject::readManifest`.
+OrkigeEditor::EditorExportPlan planExport(
+	OrkigeExport::ExportProject const& project, std::string const& platform);
 
 //! @brief the exporter's view of the open project - the four manifest facts an
 //! export needs, copied out on the MAIN thread (Project is not thread-safe, and
@@ -260,14 +269,30 @@ OrkigeEditor::EditorExportPlan planExport(Orkige::Project const& project,
 //! EditorExport.cpp.
 OrkigeExport::ExportProject exportProjectFor(Orkige::Project const& project);
 
+//! @brief what a caller may say about an export beyond the plan: where the
+//! artifact goes, and credentials it was handed explicitly. Both are the
+//! headless `export` subcommand's business - an in-editor export writes to the
+//! project's own `builds/` and takes its credentials from the machine store
+//! alone (@see EditorBuildSettings.h).
+struct PlannedExportOverrides
+{
+	//! "" = the project's own `builds/<platform>/`
+	std::string								outputDirectory;
+	//! any non-empty field WINS over the machine store, which in turn wins over
+	//! the environment - the same precedence `orkige_export`'s flags have
+	OrkigeEditor::BuildCredentials			credentials;
+};
+
 //! @brief run a planned export to completion on the CALLING thread - the
-//! worker body both async export drivers share (the Build menu's ExportJob and
-//! the control endpoint's `export_project`). Progress goes to @p log; false
-//! leaves the reason in @p error. Defined in EditorExport.cpp.
+//! worker body every export driver shares (the Build menu's ExportJob, the
+//! control endpoint's `export_project` and the headless `export` subcommand).
+//! Progress goes to @p log; false leaves the reason in @p error. Defined in
+//! EditorExport.cpp.
 bool runPlannedExport(OrkigeEditor::EditorExportPlan const& plan,
 	OrkigeExport::ExportProject const& project,
 	std::function<void(std::string const&)> const& log,
-	std::string& artifact, std::string& error);
+	std::string& artifact, std::string& error,
+	PlannedExportOverrides const* overrides = nullptr);
 
 //! @brief start the export for the open project (async; false when it cannot
 //! start) - see EditorExport.cpp
@@ -1245,7 +1270,7 @@ struct PlaySession
 	std::string launchStatus;
 	//! play target picked in the toolbar: empty = not Android, otherwise the
 	//! adb serial of a connected device/emulator (the player APK must be
-	//! installed - see tools/player/android/package_apk.sh). The temp scene
+	//! installed - `orkige_export android-player`). The temp scene
 	//! travels via 'adb push + run-as' into the app files dir; the debug link
 	//! rides an 'adb forward tcp' bridge, so the editor still connects to
 	//! 127.0.0.1. Physical Android phones work through the exact same flow.

@@ -293,6 +293,15 @@ namespace Orkige
 			{
 				arguments.orientation = argv[++argIndex];
 			}
+			else if (std::strcmp(argv[argIndex], "--run-tests") == 0)
+			{
+				arguments.runTests = true;
+			}
+			else if (std::strcmp(argv[argIndex], "--test-filter") == 0 &&
+				argIndex + 1 < argc)
+			{
+				arguments.testFilter = argv[++argIndex];
+			}
 			else if (argv[argIndex][0] != '-' && arguments.scenePath.empty())
 			{
 				arguments.scenePath = argv[argIndex];
@@ -1585,6 +1594,35 @@ namespace Orkige
 				input->injectEvent(button);
 				break;
 			}
+			case InputInjection::EventKind::TouchDown:
+			case InputInjection::EventKind::TouchMove:
+			case InputInjection::EventKind::TouchUp:
+			{
+				// the finger synthesis lives in InputManager (it owns the
+				// window extents the pixel -> normalized conversion needs), so
+				// there is ONE touch injection path, not a second one here
+				const TouchPhase phase =
+					event.kind == InputInjection::EventKind::TouchDown
+						? TP_BEGAN
+						: (event.kind == InputInjection::EventKind::TouchMove
+							? TP_MOVED : TP_ENDED);
+				if (!input->injectTouch(event.touchId, phase, event.x, event.y)
+					&& mInputNote.empty())
+				{
+					mInputNote = "touch step ignored: this runtime has no "
+						"window extents to place a finger in";
+				}
+				break;
+			}
+			case InputInjection::EventKind::GamepadButtonDown:
+			case InputInjection::EventKind::GamepadButtonUp:
+				input->injectGamepadButton(event.gamepadButton,
+					event.kind ==
+						InputInjection::EventKind::GamepadButtonDown);
+				break;
+			case InputInjection::EventKind::GamepadAxis:
+				input->injectGamepadAxis(event.gamepadAxis, event.axisValue);
+				break;
 			case InputInjection::EventKind::TiltAngle:
 				// the SIMULATION seam the desktop steer keys drive - the one
 				// tilt source there is. A device whose accelerometer is in
