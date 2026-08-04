@@ -392,7 +392,11 @@ set_tests_properties(orkige_nightly_appimage_selftest PROPERTIES
 add_test(NAME make_help_portal_selftest
     COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_help_portal.py" --selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-set_tests_properties(make_help_portal_selftest PROPERTIES LABELS unit TIMEOUT 60)
+# 180s, not 60: this renders the WHOLE docs corpus twice (a synthetic one
+# and the real one), so its cost grows with the documentation and the old
+# budget left barely 3x headroom - it timed out on a machine running
+# parallel builds while taking 17s standalone.
+set_tests_properties(make_help_portal_selftest PROPERTIES LABELS unit TIMEOUT 180)
 
 # the /api/ class-reference config (Docs/api/Doxyfile) actually renders: run
 # the documentation tool over the real headers into a temp dir and assert a
