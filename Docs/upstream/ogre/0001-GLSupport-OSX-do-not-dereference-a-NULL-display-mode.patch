@@ -1,0 +1,45 @@
+From 103924d53983290b7a44833cb1c22a296b51ace6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Steffen=20R=C3=B6mer?= <steffen.roemer@orkitec.com>
+Date: Tue, 4 Aug 2026 18:36:02 +0300
+Subject: [PATCH] GLSupport: OSX - do not dereference a NULL display mode list
+
+CGDisplayCopyAllDisplayModes returns NULL for an invalid display, which
+includes a process that has no window server session. CFArrayGetCount(NULL)
+then faults inside CoreFoundation, during GL3PlusPlugin::install(), so no
+application code can intervene.
+
+Guard the count and the release. The mode loop is bounded by numModes, so an
+empty list falls out naturally and the render system reports no video modes,
+which is the truth on a machine with no usable display.
+---
+ RenderSystems/GLSupport/src/OSX/OgreOSXGL3PlusSupport.mm | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/RenderSystems/GLSupport/src/OSX/OgreOSXGL3PlusSupport.mm b/RenderSystems/GLSupport/src/OSX/OgreOSXGL3PlusSupport.mm
+index 20c84387c..bc2eca446 100644
+--- a/RenderSystems/GLSupport/src/OSX/OgreOSXGL3PlusSupport.mm
++++ b/RenderSystems/GLSupport/src/OSX/OgreOSXGL3PlusSupport.mm
+@@ -80,7 +80,9 @@ of this software and associated documentation files (the "Software"), to deal
+ 
+ 	// Video mode possibilities
+ 	CFArrayRef displayModes = CGDisplayCopyAllDisplayModes(CGMainDisplayID(), NULL);
+-	CFIndex numModes = CFArrayGetCount(displayModes);
++	// NULL for an invalid display, which includes a process that has no window
++	// server session. Report no video modes instead of dereferencing it.
++	CFIndex numModes = displayModes ? CFArrayGetCount(displayModes) : 0;
+ 	CFMutableArrayRef goodModes = NULL;
+ 	goodModes = CFArrayCreateMutable(kCFAllocatorDefault, numModes, NULL);
+ 	
+@@ -120,7 +122,8 @@ of this software and associated documentation files (the "Software"), to deal
+ 	}
+ 	
+     // Release memory
+-    CFRelease(displayModes);
++    if(displayModes)
++        CFRelease(displayModes);
+ 
+ 	// Sort the modes...
+ 	CFArraySortValues(goodModes, CFRangeMake(0, CFArrayGetCount(goodModes)), 
+-- 
+2.50.1 (Apple Git-155)
+
