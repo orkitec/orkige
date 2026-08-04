@@ -38,6 +38,7 @@ add_executable(orkige_engine_tests
     TweenScriptTests.cpp
     InputActionTests.cpp
     InputInjectionTests.cpp
+    InputTestDriveTests.cpp
     RawInputScriptTests.cpp
     CVarProtocolBehaviourTests.cpp
     ScreenFadeTests.cpp

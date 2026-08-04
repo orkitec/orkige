@@ -194,6 +194,52 @@ local function newAssertions(state)
 	t.waitUntil = function(condition, limitFrames)
 		return waitUntil(condition, limitFrames)
 	end
+	-- DRIVING INPUT. A test presses what a PLAYER presses: t.press("jump"),
+	-- t.press("move+x"), t.tap("RETURN") - named actions first (that is what
+	-- game code reads, so a test keeps its meaning when a binding moves), a
+	-- key name for anything no action covers.
+	--
+	-- It lives on `t` and NOT on the global `input` table on purpose. A game
+	-- script that can fake input is a real capability with real consequences -
+	-- isKeyDown answering true for something nobody pressed muddies the input
+	-- model for every reader - so the ability to press is opened where it
+	-- belongs, to test files, and stays out of the surface a game runs on.
+	-- The seam (__orkige_test_input) is bound into THIS sandbox by the host;
+	-- a runner that drives no frames binds none and every call says so.
+	--
+	-- An input refusal is an ERROR, not a failed assertion: naming something
+	-- unpressable is a mistake in the test, not a fact about the game - so
+	-- state.failed stays untouched and the record reads "error". Level 4 is
+	-- the test body (raiseInput <- drive <- t.press/t.tap <- the body).
+	local function raiseInput(message)
+		error(message, 4)
+	end
+	local function drive(verb, target)
+		if __orkige_test_input == nil then
+			raiseInput("t." .. verb ..
+				" needs the frame-driven runner (this run drives no input)")
+		end
+		if type(target) ~= "string" then
+			raiseInput("t." .. verb ..
+				" expects an action or key name, got " .. type(target))
+		end
+		local ok, reason = __orkige_test_input(verb, target)
+		if not ok then
+			raiseInput(tostring(reason))
+		end
+	end
+	-- press and HOLD until released; the key is down from the next frame's
+	-- input slot on, which is where the action map takes its edge snapshot -
+	-- so the very next game update sees the press
+	t.press = function(target) drive("press", target) end
+	t.release = function(target) drive("release", target) end
+	-- press, hold for `frames` frames (default 1), release: exactly ONE press
+	-- edge, because the release cannot land before the frame that read it
+	t.tap = function(target, frames)
+		drive("press", target)
+		waitFrames(frames or 1)
+		drive("release", target)
+	end
 	return t
 end
 
