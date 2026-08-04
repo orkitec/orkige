@@ -32,6 +32,8 @@ SHIPPED = {
     "assimp": "Open Asset Import Library",
     "brotli": "Brotli",
     "bzip2": "bzip2",
+    "curl": "libcurl",
+    "openssl": "OpenSSL",
     "earcut-hpp": "earcut.hpp",
     "fmt": "{fmt}",
     "freeimage": "FreeImage",
@@ -95,10 +97,12 @@ BUILD_TIME_ONLY = {
 # run of this check prints it, so the gap is loud rather than forgotten. It is
 # not a failure: refusing every build over a text file nobody can fetch on this
 # host would only teach people to disable the check.
-PENDING_TEXT = {
-    "curl": "Linux-only; its copyright file lives in a Linux vcpkg install "
-            "tree, which the notices file was not assembled on",
-}
+#
+# Empty, and worth keeping empty. A platform-only license text is reachable
+# without that platform's CI: the Linux rig container carries a Linux
+# vcpkg_installed tree, so its copyright files can be read on any host that can
+# run the rig. Reach for that before adding an entry here.
+PENDING_TEXT = {}
 #: the phrase the notices file's pending section has to carry, so a port cannot
 #: be quietly moved into PENDING_TEXT without the document saying so
 PENDING_MARKER = "the HTTP client closure"
@@ -285,17 +289,25 @@ def selftest():
         assert check(temp) == [], check(temp)
 
         # a port awaiting its license text is a NOTE, not a failure - but only
-        # while the document itself says the gap is there
-        pending = sorted(PENDING_TEXT)[0]
-        with open(os.path.join(temp, MANIFEST_FILE), "w") as handle:
-            json.dump({"dependencies": ["lua", pending]}, handle)
-        problems = check(temp)
-        assert any(pending in problem for problem in problems), problems
-        with open(os.path.join(temp, NOTICES_FILE), "w") as handle:
-            handle.write(SELFTEST_NOTICES + "\n### " + PENDING_MARKER + "\n")
-        notes = []
-        assert check(temp, notes) == [], check(temp)
-        assert any(pending in note for note in notes), notes
+        # while the document itself says the gap is there. PENDING_TEXT is
+        # empty and should stay that way, so the mechanism is exercised against
+        # a SYNTHETIC entry: the escape hatch keeps its test even when nothing
+        # is actually using it.
+        pending = "selftest-pending-port"
+        global PENDING_TEXT
+        restore, PENDING_TEXT = PENDING_TEXT, {pending: "a selftest fixture"}
+        try:
+            with open(os.path.join(temp, MANIFEST_FILE), "w") as handle:
+                json.dump({"dependencies": ["lua", pending]}, handle)
+            problems = check(temp)
+            assert any(pending in problem for problem in problems), problems
+            with open(os.path.join(temp, NOTICES_FILE), "w") as handle:
+                handle.write(SELFTEST_NOTICES + "\n### " + PENDING_MARKER + "\n")
+            notes = []
+            assert check(temp, notes) == [], check(temp)
+            assert any(pending in note for note in notes), notes
+        finally:
+            PENDING_TEXT = restore
 
         # a section with no license text block is an entry that carries nothing
         with open(os.path.join(temp, NOTICES_FILE), "w") as handle:
