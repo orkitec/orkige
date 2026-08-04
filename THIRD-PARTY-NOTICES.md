@@ -82,14 +82,22 @@ documentation of any product using FreeType, which this file is:
 > Portions of this software are copyright (c) The FreeType Project
 > (https://www.freetype.org). All rights reserved.
 
-### glslang - carries a GPL-3.0-or-later component
+### glslang - carries a GPL-3.0-or-later component under the bison exception
 
 glslang's package license is recorded as
-`Apache-2.0 AND BSD-3-Clause AND MIT AND GPL-3.0-or-later`. The
-GPL-covered part is the parser generator's output, which upstream
-distributes with the generator's linking exception; the full text as
-upstream ships it is reproduced below and has not been independently
-audited here.
+`Apache-2.0 AND BSD-3-Clause AND MIT AND GPL-3.0-or-later`, which reads
+alarming for a statically linked closure because it is an AND rather than
+a choice. The GPL-covered part is the parser generator's output, and
+upstream's own copyright file heads that section
+**"GPL 3 with special bison exception"** - the exception that permits
+distributing the generated parser under the terms of one's choosing. So
+the AND carries no obligation onto a binary that links it.
+
+Where it actually ships is narrower than the package list suggests: it is
+installed in the macOS trees but linked into no macOS artifact (the
+shipped player and editor export zero glslang symbols), and it is linked
+on the platforms whose backend compiles shaders through it - the Linux
+player carries it.
 
 ### Dual-licensed entries where the permissive side is elected
 
