@@ -635,6 +635,15 @@ instead of the player, so its iOS-simulator export BUILDS the module against an
 iOS SDK pack (`--sdk-pack`, the only engine source it needs; Android and the
 browser are not there yet).
 
+- **Every package carries `THIRD-PARTY-NOTICES.md`** at its resource root
+  (beside the project marker; `assets/` in an APK, beside `index.html` on the
+  web). The statically linked closure's licenses require their text to travel
+  with the BINARY, so `stageThirdPartyNotices` is a step of every platform's
+  packaging and the `export_*` suite asserts the file in each artifact. A new
+  dependency has to be answered in that file — `third_party_notices_lint`
+  fails otherwise. `Docs/vendored-libs.md` has the tier table and the copyleft
+  entries (OpenAL Soft is LGPL and statically linked everywhere).
+
 - **The SDK pack is never a prerequisite for a project with no C++.** A Lua
   game has nothing to compile: it needs the platform's player (fetched, for a
   distributed editor) and — for a device or store build — the signing
@@ -743,7 +752,7 @@ lives in a doc and is pointed at from here. The full index:
 | `monetization.md` | the store/ads seam, the provider contract, the simulated provider |
 | `benchmark.md` | the feature-tour benchmark project |
 | `sanitizers.md` / `fuzzing.md` / `soak.md` / `security.md` | the stability + safety instruments |
-| `ports.md` / `vendored-libs.md` | overlay ports, third-party provenance + pinning |
+| `ports.md` / `vendored-libs.md` | overlay ports, third-party provenance + pinning, the redistribution notices |
 | `help-portal.md` | the published site generator |
 | `upstream/` | the OGRE PR package (OGRECave/ogre #3667-3669) |
 | `api/`, `legal/` | the site's class-reference config, imprint + privacy |

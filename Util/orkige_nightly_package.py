@@ -566,6 +566,12 @@ def today():
 # against synthetic log text rather than against whatever history a machine has).
 
 CHANGELOG_FILE = "CHANGELOG.md"
+# the third-party license notices every artifact carries: the statically linked
+# closure's licenses require their text to travel with a BINARY distribution,
+# so it rides at the archive root a person reads and at the resource root the
+# build staged it into (which is also where the exporter finds it when this
+# editor packages a game)
+THIRD_PARTY_NOTICES = "THIRD-PARTY-NOTICES.md"
 # how many entries a changelog lists before it says "+N more" - a nightly after
 # a busy fortnight must not render as an unbounded wall
 CHANGELOG_MAX_ENTRIES = 20
@@ -2069,6 +2075,12 @@ def compose_device_payload(target, payload_id, build_dir, version, commit="",
     # the engine media from the SAME tree, so the shaders beside the player are
     # the ones it was built against
     (media or stage_engine_media)(build_dir, os.path.join(target, "Media"))
+    # the third-party notices travel with the player they belong to: this
+    # payload IS the engine source a downloaded editor packages that platform
+    # from, and the exporter looks for the file at the payload root
+    notices = os.path.join(REPO_ROOT, THIRD_PARTY_NOTICES)
+    if os.path.isfile(notices):
+        shutil.copy2(notices, os.path.join(target, THIRD_PARTY_NOTICES))
     with open(os.path.join(target, DEVICE_PAYLOAD_MANIFEST), "w") as handle:
         handle.write("platform: %s\n" % platform)
         handle.write("flavor: %s\n" % flavor)
@@ -2129,13 +2141,22 @@ def stage_device_payload(payload_id, build_dir, version, commit, output_dir):
 
 def stage_export_support(resource_root, web=None):
     """everything a staged editor needs to package a GAME beyond the exporter
-    it links: the neutral default app icon, and the browser payload when this
-    machine has one."""
+    it links: the neutral default app icon, the third-party license notices,
+    and the browser payload when this machine has one."""
     icon = os.path.join(REPO_ROOT, "Util", "media", DEFAULT_ICON_FILE)
     if not os.path.isfile(icon):
         fail("the default app icon is missing from the source tree - an export "
              "of a project without its own icon would ship none")
     shutil.copy2(icon, os.path.join(resource_root, DEFAULT_ICON_FILE))
+    # the notices this editor's own closure needs, and the ones the exporter
+    # copies into every game packaged from this copy. The build stages the same
+    # file into a build tree's resource root; this is the packaged path.
+    notices = os.path.join(REPO_ROOT, THIRD_PARTY_NOTICES)
+    if not os.path.isfile(notices):
+        fail("%s is missing from the source tree - the artifact and every game "
+             "packaged from it would carry no third-party license notices"
+             % THIRD_PARTY_NOTICES)
+    shutil.copy2(notices, os.path.join(resource_root, THIRD_PARTY_NOTICES))
     (web or WebPayload()).stage(resource_root)
 
 
@@ -2955,6 +2976,11 @@ def package(platform, build_dir, commit, date, output_dir, version="",
             handle.write(limitations)
         with open(os.path.join(target, CHANGELOG_FILE), "w") as handle:
             handle.write(changelog)
+    # the notices are committed rather than composed; the resource root already
+    # has its copy (stage_export_support), and the archive root gets the one a
+    # person opens before installing
+    shutil.copy2(os.path.join(REPO_ROOT, THIRD_PARTY_NOTICES),
+                 os.path.join(stage_root, THIRD_PARTY_NOTICES))
     # the installable artifact and the portable one come from ONE staging, so
     # they can never hold different builds. On macOS the ORDER matters: the app
     # is sealed, notarized and stapled, THEN the disk image is built (and
@@ -3041,6 +3067,10 @@ def verify_layout(root, platform):
                           os.path.join(root, "VERSION"),
                           os.path.join(root, "KNOWN-LIMITATIONS.md"),
                           os.path.join(root, CHANGELOG_FILE),
+                          # the notices a person reads before installing, and
+                          # the copy the exporter packages into a game
+                          os.path.join(root, THIRD_PARTY_NOTICES),
+                          os.path.join(resources, THIRD_PARTY_NOTICES),
                           os.path.join(resources, "VERSION"),
                           # what the editor's About box reads back
                           os.path.join(resources, CHANGELOG_FILE)]
@@ -3053,12 +3083,15 @@ def verify_layout(root, platform):
         expected_files = [editor,
                           os.path.join(root, "VERSION"),
                           os.path.join(root, "KNOWN-LIMITATIONS.md"),
-                          os.path.join(root, CHANGELOG_FILE)]
+                          os.path.join(root, CHANGELOG_FILE),
+                          os.path.join(root, THIRD_PARTY_NOTICES)]
         # the editor resolves its resources under share/orkige/ beside its own
         # executable, so that is where the check looks
         ui_font_dir = os.path.join(root, FLAT_RESOURCE_DIR)
         # what the editor's About box reads back
         expected_files.append(os.path.join(ui_font_dir, CHANGELOG_FILE))
+        # the copy the exporter packages into a game
+        expected_files.append(os.path.join(ui_font_dir, THIRD_PARTY_NOTICES))
         media_root = os.path.join(ui_font_dir, "Media")
         player_dir = root
     # forward slashes in the message on every platform: the complaint text is
@@ -5340,13 +5373,27 @@ exit 0
         os.makedirs(os.path.join(media_root, "Hlms"))
         for name in ("fonts", "water", "decals"):
             os.makedirs(os.path.join(media_root, name))
-        for name in (EDITOR_UI_FONTS[0], CHANGELOG_FILE, DEFAULT_ICON_FILE):
+        for name in (EDITOR_UI_FONTS[0], CHANGELOG_FILE, DEFAULT_ICON_FILE,
+                     THIRD_PARTY_NOTICES):
             open(os.path.join(tree, FLAT_RESOURCE_DIR, name), "w").close()
         for name in ("orkige_editor", "orkige_player", "texcook", "VERSION",
-                     "KNOWN-LIMITATIONS.md", CHANGELOG_FILE):
+                     "KNOWN-LIMITATIONS.md", CHANGELOG_FILE,
+                     THIRD_PARTY_NOTICES):
             open(os.path.join(tree, name), "w").close()
         os.chmod(os.path.join(tree, "orkige_editor"), 0o755)
         # no payload at all: a note, not a problem
+        _, problems = verify_layout(tree, "linux")
+        assert problems == [], problems
+        # the third-party notices are a shipping obligation, so their absence
+        # from EITHER root is a packaging problem rather than a note
+        for missing in (os.path.join(tree, THIRD_PARTY_NOTICES),
+                        os.path.join(tree, FLAT_RESOURCE_DIR,
+                                     THIRD_PARTY_NOTICES)):
+            os.remove(missing)
+            _, problems = verify_layout(tree, "linux")
+            assert any(THIRD_PARTY_NOTICES in problem
+                       for problem in problems), problems
+            open(missing, "w").close()
         _, problems = verify_layout(tree, "linux")
         assert problems == [], problems
         shutil.copytree(composed,
@@ -5398,8 +5445,11 @@ exit 0
         # layout check wants a copy there as well as at the archive root
         open(os.path.join(tree, FLAT_RESOURCE_DIR, CHANGELOG_FILE),
              "w").close()
+        open(os.path.join(tree, FLAT_RESOURCE_DIR, THIRD_PARTY_NOTICES),
+             "w").close()
         for name in ("orkige_editor", "orkige_player", "texcook", "VERSION",
-                     "KNOWN-LIMITATIONS.md", CHANGELOG_FILE):
+                     "KNOWN-LIMITATIONS.md", CHANGELOG_FILE,
+                     THIRD_PARTY_NOTICES):
             open(os.path.join(tree, name), "w").close()
         # the one file an export needs beyond the exporter the editor links
         open(os.path.join(tree, FLAT_RESOURCE_DIR, DEFAULT_ICON_FILE),
@@ -5487,11 +5537,13 @@ def selftest_dmg():
             os.chmod(path, 0o755)
         open(os.path.join(resources, EDITOR_UI_FONTS[0]), "w").close()
         open(os.path.join(resources, DEFAULT_ICON_FILE), "w").close()
-        for name in ("VERSION", CHANGELOG_FILE):
+        for name in ("VERSION", CHANGELOG_FILE, THIRD_PARTY_NOTICES):
             # the resource root carries what the EDITOR reads back (its About
-            # box shows the changelog it shipped with)
+            # box shows the changelog it shipped with) and what it packages
+            # into a game (the third-party notices)
             open(os.path.join(resources, name), "w").close()
-        for name in ("VERSION", "KNOWN-LIMITATIONS.md", CHANGELOG_FILE):
+        for name in ("VERSION", "KNOWN-LIMITATIONS.md", CHANGELOG_FILE,
+                     THIRD_PARTY_NOTICES):
             open(os.path.join(stage_root, name), "w").close()
 
         dmg = os.path.join(temp, "Orkige-macos-selftest.dmg")

@@ -339,6 +339,72 @@ namespace OrkigeExport
 			Orkige::String(PAYLOAD_DIR_NAME) + "\n", error);
 	}
 	//---------------------------------------------------------
+	const char * const THIRD_PARTY_NOTICES_FILE_NAME =
+		"THIRD-PARTY-NOTICES.md";
+	//---------------------------------------------------------
+	std::vector<Orkige::String> thirdPartyNoticesCandidates(
+		std::vector<Orkige::String> const & roots)
+	{
+		std::vector<Orkige::String> candidates;
+		for(Orkige::String const & root : roots)
+		{
+			if(!root.empty())
+			{
+				candidates.push_back(ExportFiles::join(root,
+					THIRD_PARTY_NOTICES_FILE_NAME));
+			}
+		}
+		return candidates;
+	}
+	//---------------------------------------------------------
+	std::vector<Orkige::String> thirdPartyNoticesCandidates(
+		EngineSource const & source, Orkige::String const & repoRoot)
+	{
+		return thirdPartyNoticesCandidates({ source.bundleResources,
+			source.devicePayload, source.sdkPack, repoRoot });
+	}
+	//---------------------------------------------------------
+	bool stageThirdPartyNoticesFrom(Orkige::String const & destination,
+		std::vector<Orkige::String> const & candidates, ExportLog const & log,
+		int * outStaged, Orkige::String * error)
+	{
+		if(outStaged)
+		{
+			*outStaged = 0;
+		}
+		for(Orkige::String const & candidate : candidates)
+		{
+			if(!ExportFiles::isRegularFile(candidate))
+			{
+				continue;
+			}
+			if(!ExportFiles::copyFile(candidate, ExportFiles::join(destination,
+				THIRD_PARTY_NOTICES_FILE_NAME), error))
+			{
+				return false;
+			}
+			if(outStaged)
+			{
+				*outStaged = 1;
+			}
+			return true;
+		}
+		emit(log, "warning: no " +
+			Orkige::String(THIRD_PARTY_NOTICES_FILE_NAME) +
+			" found beside this engine source - the packaged app carries no "
+			"third-party license notices, which the bundled libraries require");
+		return true;
+	}
+	//---------------------------------------------------------
+	bool stageThirdPartyNotices(Orkige::String const & destination,
+		EngineSource const & source, ExportEnvironment const & environment,
+		int * outStaged, Orkige::String * error)
+	{
+		return stageThirdPartyNoticesFrom(destination,
+			thirdPartyNoticesCandidates(source, environment.repoRoot),
+			environment.log, outStaged, error);
+	}
+	//---------------------------------------------------------
 	const char * const DEVICE_PAYLOAD_MANIFEST_FILE_NAME =
 		"orkige_payload.txt";
 	//---------------------------------------------------------
