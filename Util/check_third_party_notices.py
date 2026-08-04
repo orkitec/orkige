@@ -61,7 +61,7 @@ SHIPPED = {
     "nanosvg": "nanosvg",
     "ogre": "OGRE",
     "ogre-next": "OGRE-Next",
-    "openal-soft": "OpenAL Soft",
+    "miniaudio": "miniaudio",
     "openexr": "OpenEXR",
     "openjpeg": "OpenJPEG",
     "openjph": "OpenJPH",
