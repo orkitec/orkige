@@ -81,7 +81,12 @@ def make_fixture(template, target, tests):
     like - that is the manifest reader's job, and it has its own tests.
     """
     shutil.rmtree(target, ignore_errors=True)
-    shutil.copytree(template, target)
+    # the template's OWN suite is left behind: this fixture asserts exact
+    # pass/fail counts, so inheriting whatever tests the template happens to
+    # ship makes those counts drift the moment it gains one - which is how
+    # this broke when the store tier gave projects/example a suite.
+    shutil.copytree(template, target,
+                    ignore=shutil.ignore_patterns("tests", "builds", ".orkige"))
     tests_dir = os.path.join(target, "tests")
     os.makedirs(tests_dir, exist_ok=True)
     for name, body in tests.items():
@@ -133,8 +138,14 @@ def main():
     expect("project.orkproj" in output,
            "the refusal names the manifest it looked for")
 
-    code, output = run(editor, ["test", "--project", args.template_project],
-                       QUICK_SECONDS)
+    # A project with NO suite, built here rather than borrowed from the tree:
+    # depending on a shipped project having no tests/ makes this case hostage
+    # to that project gaining one, which is exactly what happened when the
+    # store tier gave projects/example a suite of its own.
+    suiteless = os.path.join(args.output, "suiteless")
+    shutil.copytree(args.template_project, suiteless,
+                    ignore=shutil.ignore_patterns("tests", "builds", ".orkige"))
+    code, output = run(editor, ["test", "--project", suiteless], QUICK_SECONDS)
     expect(code == 1, "a project with no tests/ directory fails (exit 1)")
     expect(".test.lua" in output and "tests" in output,
            "the refusal names the suffix and the directory that would fix it")
