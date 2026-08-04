@@ -14,8 +14,8 @@
 #include <vector>
 
 //! @file ExportZip.h
-//! @brief the zip WRITER an export packages archives with - the write sibling
-//! of the engine's `MiniZip` reader, over the same zlib.
+//! @brief the zip an export WRITES and the zip it READS - one module over the
+//! same zlib the engine's `MiniZip` runs on.
 //!
 //! An export produces two kinds of zip: the `.ipa` an App Store upload is, and
 //! the game pak a browser build mounts. Both are read back by code in this
@@ -23,7 +23,12 @@
 //! methods that side understands: STORED (verbatim, what a mounted pak reads
 //! in place) and DEFLATE (raw, via zlib - what a download-sized archive uses).
 //!
-//! Deliberately NOT a shell-out to `zip`: that binary does not exist on
+//! It also CONSUMES one: an Android library archive is a zip a project points
+//! at, and its parts are routed into the package being assembled
+//! (@see ExportAndroidLibrary.h). Reading and writing share the format's
+//! constants here rather than growing a second, drifting copy.
+//!
+//! Deliberately NOT a shell-out to `zip`/`unzip`: neither binary exists on
 //! Windows, and an export must behave the same on every host it runs on.
 //!
 //! Two properties matter beyond "it is a zip":
@@ -103,10 +108,83 @@ namespace OrkigeExport
 		std::vector<Entry>	mEntries;
 	};
 
+	//! @brief a zip archive being read - the reverse of @ref ExportZip, for the
+	//! archives an export CONSUMES rather than produces.
+	//!
+	//! The whole file is held in memory: what this reads is a library archive a
+	//! project points at, which is orders of magnitude below the cap it refuses
+	//! past. Nothing about the archive is taken on faith - an entry name that
+	//! escapes the tree it unpacks into, an encrypted entry and a zip64 archive
+	//! are each refused BY NAME rather than unpacked somewhere surprising.
+	class ExportZipReader
+	{
+		//--- Types -------------------------------------------------
+	public:
+		//! @brief one entry the central directory names
+		struct Entry
+		{
+			//! the stored name, forward-slashed (a zip name always is)
+			Orkige::String		name;
+			unsigned long long	size = 0;		//!< uncompressed bytes
+			//! a directory entry (a trailing slash - it carries no content)
+			bool				directory = false;
+		};
+
+		//--- Methods -----------------------------------------------
+	public:
+		//! @brief read @p path's central directory. False with an honest
+		//! @p error when the file is missing, is not a zip, needs zip64, holds
+		//! an encrypted entry, or names an entry that would unpack outside the
+		//! destination.
+		bool open(Orkige::String const & path, Orkige::String * error);
+
+		//! @brief every entry, in central-directory order
+		std::vector<Entry> const & entries() const { return this->mEntries; }
+
+		//! @brief does the archive carry an entry named @p name?
+		bool has(Orkige::String const & name) const;
+
+		//! @brief the uncompressed bytes of the entry named @p name
+		bool read(Orkige::String const & name,
+			std::vector<unsigned char> & out, Orkige::String * error) const;
+
+		//--- Types -------------------------------------------------
+	private:
+		//! an entry plus where its bytes are and how they are stored
+		struct Located
+		{
+			Entry				entry;
+			unsigned int		method = 0;
+			unsigned int		crc = 0;
+			unsigned long long	compressedSize = 0;
+			unsigned long long	localHeaderOffset = 0;
+		};
+
+		//--- Attributes --------------------------------------------
+	private:
+		Orkige::String				mPath;
+		std::vector<unsigned char>	mBytes;
+		std::vector<Entry>			mEntries;
+		std::vector<Located>		mLocated;
+	};
+
+	//! @brief is @p entryName safe to unpack under a destination directory?
+	//! PURE. False for an absolute path, a Windows drive letter, a backslash
+	//! separator and any `..` component - the four ways an archive from
+	//! somewhere else writes outside the tree it was told to write into.
+	bool isSafeArchiveEntryName(Orkige::String const & entryName);
+
 	//! @brief raw-deflate @p input into @p out (no zlib wrapper - the byte
 	//! stream a zip entry carries). False with an @p error when zlib refuses.
 	bool deflateRaw(std::vector<unsigned char> const & input,
 		std::vector<unsigned char> & out, Orkige::String * error);
+
+	//! @brief raw-inflate @p input, whose content is @p originalSize bytes
+	//! long. False with an @p error when zlib refuses or the stream does not
+	//! produce exactly that many bytes.
+	bool inflateRaw(std::vector<unsigned char> const & input,
+		unsigned long long originalSize, std::vector<unsigned char> & out,
+		Orkige::String * error);
 
 	//! @brief whether this host stores POSIX file modes.
 	//! @remarks false on Windows, which models only a read-only flag - and

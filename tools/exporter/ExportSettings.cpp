@@ -8,9 +8,12 @@
 *********************************************************************/
 #include "ExportSettings.h"
 
+#include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 namespace OrkigeExport
 {
@@ -305,6 +308,72 @@ namespace OrkigeExport
 			start = dot + 1;
 		}
 		return parts >= 2;
+	}
+	//---------------------------------------------------------
+	bool androidLibrarySettings(SettingMap const & settings,
+		std::vector<Orkige::String> & out, Orkige::String * error)
+	{
+		out.clear();
+		const Orkige::String value =
+			trimmed(lookup(settings, "export.android.libraries"));
+		std::size_t begin = 0;
+		while(begin <= value.size())
+		{
+			const std::size_t separator = value.find(';', begin);
+			const Orkige::String entry = trimmed(
+				(separator == Orkige::String::npos)
+					? value.substr(begin) : value.substr(begin, separator - begin));
+			if(!entry.empty())
+			{
+				// a project-relative path and nothing else: an export follows a
+				// manifest's paths, and a manifest is a file in a repository
+				// somebody else may have written
+				if(entry[0] == '/' || entry[0] == '\\' ||
+					(entry.size() >= 2 && entry[1] == ':'))
+				{
+					if(error != 0)
+					{
+						*error = "export.android.libraries entry '" + entry +
+							"' is an absolute path - list library archives "
+							"relative to the project directory";
+					}
+					return false;
+				}
+				if(entry.find("..") != Orkige::String::npos)
+				{
+					if(error != 0)
+					{
+						*error = "export.android.libraries entry '" + entry +
+							"' leaves the project directory - list library "
+							"archives inside the project";
+					}
+					return false;
+				}
+				const Orkige::String folded = lowered(entry);
+				if(folded.size() < 5 ||
+					folded.compare(folded.size() - 4, 4, ".aar") != 0)
+				{
+					if(error != 0)
+					{
+						*error = "export.android.libraries entry '" + entry +
+							"' is not an .aar - an Android library archive is "
+							"what this setting lists (see "
+							"Docs/android-libraries.md)";
+					}
+					return false;
+				}
+				if(std::find(out.begin(), out.end(), entry) == out.end())
+				{
+					out.push_back(entry);
+				}
+			}
+			if(separator == Orkige::String::npos)
+			{
+				break;
+			}
+			begin = separator + 1;
+		}
+		return true;
 	}
 	//---------------------------------------------------------
 	SigningPair resolveIosSigning(Orkige::String const & identityArg,

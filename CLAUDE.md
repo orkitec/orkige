@@ -770,6 +770,7 @@ lives in a doc and is pointed at from here. The full index:
 | `editor-cli.md` | the editor's headless subcommands (`export`, `fetch-payload`, …) |
 | `editor-distribution.md` / `editor-updates.md` / `nightly-builds.md` | shipping and updating the editor |
 | `device-payloads.md` | the fetched device players, and the prerequisite tiers per platform |
+| `android-libraries.md` | `.aar` dependencies: `export.android.libraries`, the manifest merge and its refusals |
 | `ios-signing.md` / `store-release.md` / `device-session.md` | signing, store artifacts, phone runs |
 | `web-export.md` | the wasm player and browser export |
 | `http.md` | the engine HTTP client |
