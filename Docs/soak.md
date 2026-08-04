@@ -55,8 +55,8 @@ often masks a use-after-free a sanitizer build reports.
 Run it (both flavors):
 
 ```sh
-ALSOFT_DRIVERS=null ctest --test-dir build/macos-debug         -R boot_cycle_selfcheck
-ALSOFT_DRIVERS=null ctest --test-dir build/macos-debug-classic -R boot_cycle_selfcheck
+ORKIGE_AUDIO_BACKEND=null ctest --test-dir build/macos-debug         -R boot_cycle_selfcheck
+ORKIGE_AUDIO_BACKEND=null ctest --test-dir build/macos-debug-classic -R boot_cycle_selfcheck
 ```
 
 The cycle count is `ORKIGE_BOOT_CYCLES` (default 6); raise it for a longer
@@ -105,7 +105,7 @@ Run a real short soak against a built player (raise `--frames` for a longer
 watch):
 
 ```sh
-ALSOFT_DRIVERS=null python3 Util/orkige_soak.py \
+ORKIGE_AUDIO_BACKEND=null python3 Util/orkige_soak.py \
   --repo "$PWD" \
   --player build/macos-debug/tools/player/orkige_player \
   --frames 1500 --interval 1

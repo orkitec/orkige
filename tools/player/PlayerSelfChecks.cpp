@@ -723,7 +723,7 @@ std::optional<int> PlayerSelfChecks::gameplaySynchronousChecks(PlayerContext& co
 		// the resource system (readResourceBytes) off the mounted zip, decodes
 		// them and primes the ring - the seek-heavy path (stb_vorbis seeks
 		// within the mounted bytes; priming a short loop already wraps via
-		// seekStart). A silent build (OpenAL down) still proves the bytes were
+		// seekStart). A silent build (no audio device) still proves the bytes were
 		// read + decoded (isOpen); the audible stop/replay is skipped honestly.
 		Orkige::SoundManager& soundManager = *context.soundManager;
 		const bool played = soundManager.playMusic("bgm", "music.ogg", true);
@@ -5661,7 +5661,7 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		{
 			sfxProbed = true;
 			SDL_Log("orkige_sfx_selfcheck: audio device %s",
-				audioUp ? "up (synthesized samples reach a real AL buffer)"
+				audioUp ? "up (synthesized samples reach a real mixer voice)"
 					: "absent - asserting the honest no-op path");
 
 			// (1) the expectation, computed INDEPENDENTLY from the same asset
@@ -5724,19 +5724,19 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				}
 				else if (!probe->isInitialized())
 				{
-					sfxFail("the .osfx source never reached an AL buffer");
+					sfxFail("the .osfx source never reached a mixer voice");
 				}
 				else if (probe->queryBufferBytes() !=
 					static_cast<int>(expected.byteSize()))
 				{
-					sfxFail("OpenAL holds " +
+					sfxFail("the mixer holds " +
 						std::to_string(probe->queryBufferBytes()) +
 						" bytes for the .osfx but the synthesizer renders " +
 						std::to_string(expected.byteSize()));
 				}
 				else if (probe->queryBufferSampleRate() != expected.sampleRate)
 				{
-					sfxFail("OpenAL holds the .osfx at " +
+					sfxFail("the mixer holds the .osfx at " +
 						std::to_string(probe->queryBufferSampleRate()) +
 						" Hz but it was rendered at " +
 						std::to_string(expected.sampleRate));
@@ -5913,7 +5913,7 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 				}
 				else if (!scripted || !scripted->isInitialized())
 				{
-					sfxFail("the component's .osfx source has no AL buffer");
+					sfxFail("the component's .osfx source has no mixer voice");
 				}
 				else if (group != "sfx" ||
 					std::abs(scripted->getEffectiveGain() - 0.4f) > 0.001f)

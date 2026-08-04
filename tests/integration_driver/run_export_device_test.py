@@ -521,7 +521,7 @@ def main():
     # the simulator's CoreAudio device is not usable from a test run: opening
     # one times out inside CoreAudio and aborts the app before it ever boots a
     # scene. The null backend keeps the audio system real without a device.
-    os.environ.setdefault("SIMCTL_CHILD_ALSOFT_DRIVERS", "null")
+    os.environ.setdefault("SIMCTL_CHILD_ORKIGE_AUDIO_BACKEND", "null")
     if args.platform == "ios-simulator":
         run_ios_simulator(args)
     else:

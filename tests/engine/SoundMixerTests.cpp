@@ -9,7 +9,7 @@
 	Headless audio mixer unit tests: the effective-gain model
 	(base x group, master, recompute across sources), the manifest
 	Settings parsing (audio.master / audio.group.<name>) and the
-	project round-trip. No OpenAL device is opened - the mixer STATE
+	project round-trip. No audio device is opened - the mixer STATE
 	is fully queryable without one (SoundManager registers sources
 	uninitialized when audio is down); the audible proof is the
 	demo_sound integration run.
@@ -47,8 +47,8 @@ TEST_CASE("SoundSource effective gain is base times group volume", "[sound]")
 	soundManager.setGroupVolume("sfx", 0.5f);
 	CHECK(sound->getEffectiveGain() == Approx(0.4f));
 
-	// volumes stay in 0..1 (AL_MAX_GAIN is pinned to 1 - larger values
-	// would clamp silently, so the API clamps honestly)
+	// volumes stay in 0..1 by design, so one scale covers source, group
+	// and master and nothing ever clamps silently
 	sound->setBaseGain(2.0f);
 	CHECK(sound->getBaseGain() == Approx(1.0f));
 	sound->setBaseGain(-1.0f);
@@ -90,7 +90,7 @@ TEST_CASE("SoundManager group volume recomputes every source of the group", "[so
 		soundManager.createSound("mix.late", "late.wav");
 	CHECK(lateEffect->getEffectiveGain() == Approx(0.5f));
 
-	// master is one knob on top (the AL listener), clamped like the rest
+	// master is one knob on top (the whole graph), clamped like the rest
 	soundManager.setMasterVolume(0.7f);
 	CHECK(soundManager.getMasterVolume() == Approx(0.7f));
 	soundManager.setMasterVolume(3.0f);
@@ -119,6 +119,39 @@ TEST_CASE("SoundManager applies the audio.* manifest settings", "[sound]")
 	CHECK(soundManager.getGroupVolume("loud") == Approx(1.0f));
 
 	soundManager.deinit();
+}
+
+// WHICH DEVICE A RUN OPENS. This is the rule that keeps a developer's machine
+// quiet while ctest runs, and it regresses invisibly - nothing fails, the
+// laptop just starts making noise. The decision is a pure function precisely
+// so it can be asserted here, with no device anywhere near it.
+TEST_CASE("An automated run resolves to the silent audio device", "[sound]")
+{
+	Orkige::EngineTestEnvironment::get();
+	using Orkige::SoundManager;
+
+	// the DEFAULT, and the whole point: a scripted run is silent, a human run
+	// gets the machine's own device
+	CHECK(SoundManager::resolveSilentDevice(NULL, true /*automated*/));
+	CHECK_FALSE(SoundManager::resolveSilentDevice(NULL, false /*human*/));
+	// an unset variable reads as empty on some platforms - same answer
+	CHECK(SoundManager::resolveSilentDevice("", true));
+	CHECK_FALSE(SoundManager::resolveSilentDevice("", false));
+
+	// an EXPLICIT setting wins, either way: a developer who wants to HEAR a
+	// scripted run says so, and a human run can be silenced on demand
+	CHECK_FALSE(SoundManager::resolveSilentDevice("auto", true));
+	CHECK(SoundManager::resolveSilentDevice("null", false));
+	CHECK(SoundManager::resolveSilentDevice("silent", false));
+	CHECK(SoundManager::resolveSilentDevice("off", false));
+
+	// anything that is not one of the silent spellings asks for the machine's
+	// device - the setting never fails closed into silence by accident
+	CHECK_FALSE(SoundManager::resolveSilentDevice("device", true));
+	CHECK_FALSE(SoundManager::resolveSilentDevice("NULL", true));
+
+	// the latch this test binary itself runs under: a unit run IS automated
+	CHECK(SoundManager::isAutomatedRun());
 }
 
 TEST_CASE("Audio mixer settings round-trip through the project manifest", "[sound]")

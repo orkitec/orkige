@@ -9,7 +9,7 @@
 	Headless tests of the Lua tween/sound surface registered by
 	ScriptComponent::ensureScriptApi (the `tween`, `sound` and extended
 	`world` tables): a script starts tweens, a manually ticked
-	TweenManager drives them - no renderer, no OpenAL device. The
+	TweenManager drives them - no renderer, no audio device. The
 	transform-typed helpers (tween.move/scale/rotate/fade) need live
 	scene components and are covered by the player_tween_selfcheck
 	integration run instead.

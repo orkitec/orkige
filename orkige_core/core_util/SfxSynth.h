@@ -15,7 +15,7 @@
 //! @remarks No audio backend, no engine, no allocation beyond the one result
 //! buffer - the GradeMath / CameraFit / UiLayout shape, so the whole sound
 //! character of a sound asset is asserted headlessly in unit tests. The engine
-//! side hands the returned samples to the SAME OpenAL buffer upload a `.wav`
+//! side hands the returned samples to the SAME mixer voice a `.wav`
 //! goes through (SoundUtil::loadSoundData -> alBufferDataPlatform), so a
 //! synthesized sound is a sound source like any other: positional, mixer
 //! grouped, pitch/volume varied, interruption-safe.
@@ -58,7 +58,7 @@ namespace Orkige
 	public:
 		//--- Types -------------------------------------------------
 		//! @brief a rendered effect: 16-bit signed mono samples plus the rate
-		//! they were rendered at (the pair an OpenAL buffer upload needs)
+		//! they were rendered at (the pair a mixer voice needs)
 		struct Pcm
 		{
 			std::vector<std::int16_t>	samples;			//!< mono

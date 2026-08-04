@@ -280,7 +280,7 @@ int main(int, char**)
 				&Orkige::QuitOnEscape::onKeyPressed, &quitOnEscape);
 
 		// ORKIGE_DEMO_SOUND=1: play a synthesized beep through the engine_sound
-		// OpenAL Soft path at demo start; normal runs stay silent (the manager
+		// audio path at demo start; normal runs stay silent (the manager
 		// is only initialized when the env var is set).
 		Orkige::SoundManager soundManager;
 		if (std::getenv("ORKIGE_DEMO_SOUND"))
@@ -288,7 +288,7 @@ int main(int, char**)
 			if (!soundManager.init())
 			{
 				SDL_Log("hello_orkige: FAILED - SoundManager::init "
-					"(OpenAL device/context) failed");
+					"(audio device) failed");
 				return 1;
 			}
 			// 0.2s of 440Hz 16-bit mono PCM synthesized in code - the raw-PCM
@@ -309,7 +309,7 @@ int main(int, char**)
 				1, 16, sampleRate);
 			if (soundManager.playSound("beep"))
 			{
-				SDL_Log("hello_orkige: beep playing (440Hz via OpenAL Soft)");
+				SDL_Log("hello_orkige: beep playing (440Hz)");
 			}
 			else
 			{
@@ -319,7 +319,7 @@ int main(int, char**)
 
 			// SFX variation: a source with +/-20% pitch variation lands each
 			// play within the range, moves off 1.0 across a few plays, and the
-			// varied pitch actually reaches the AL source (queryPitch).
+			// varied pitch actually reaches the mixer voice (queryPitch).
 			Orkige::SoundSourcePtr varied = soundManager.createSoundFromPCM(
 				"varied", samples.data(),
 				static_cast<int>(samples.size() * sizeof(int16_t)),
@@ -330,7 +330,7 @@ int main(int, char**)
 				bool anyOffOne = false;
 				for (int i = 0; i < 8; ++i)
 				{
-					varied->stop();		// clear AL_PLAYING so play() pushes this pitch
+					varied->stop();		// stop it so play() pushes this pitch
 					varied->play();
 					const float p = varied->getCurrentPitch();
 					if (p < 0.8f - 1e-3f || p > 1.2f + 1e-3f)
@@ -347,7 +347,7 @@ int main(int, char**)
 						std::fabs(varied->queryPitch() - p) > 1e-3f)
 					{
 						SDL_Log("hello_orkige: FAILED - varied pitch %f did not "
-							"reach the AL source (%f)", p, varied->queryPitch());
+							"reach the mixer voice (%f)", p, varied->queryPitch());
 						return 1;
 					}
 				}
@@ -363,7 +363,7 @@ int main(int, char**)
 		}
 
 		// ORKIGE_DEMO_MUSIC=1: stream a committed loopable OGG through the
-		// queued-buffer MusicStream path. Device-tolerant: when OpenAL opens a
+		// ring-fed MusicStream path. Device-tolerant: when the backend opens a
 		// device the selfcheck asserts the track plays and its playhead ADVANCES
 		// across frames (proving the ring refilled); headless (no device) it
 		// asserts the honest no-op path instead (the track registers but stays
@@ -382,7 +382,7 @@ int main(int, char**)
 					return 1;
 				}
 				SDL_Log("hello_orkige: music streaming music_loop.ogg "
-					"(OGG Vorbis, queued buffers)");
+					"(OGG Vorbis, streamed)");
 			}
 			else
 			{
@@ -5429,7 +5429,7 @@ int main(int, char**)
 			if (demoMusic)
 			{
 				// refill the ring on the main thread; the small real-time delay
-				// lets OpenAL actually advance the playhead between the sampled
+				// lets the mixer actually advance the playhead between the sampled
 				// frames (audio plays wall-clock, not per rendered frame)
 				soundManager.update(0.016f);
 				SDL_Delay(4);
@@ -6110,7 +6110,7 @@ int main(int, char**)
 				if (musicAudioUp)
 				{
 					// device present: the track must be playing AND its playhead
-					// must have advanced (proves the queued-buffer ring
+					// must have advanced (proves the streaming ring
 					// refilled). A looping playhead WRAPS at the duration, and a
 					// slow host spans whole loops between the two samples - a
 					// counted wrap is advancement too. The mixer consumes in

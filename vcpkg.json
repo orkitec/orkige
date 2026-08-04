@@ -26,10 +26,7 @@
       ]
     },
     "sdl3",
-    {
-      "name": "openal-soft",
-      "platform": "!emscripten"
-    },
+    "miniaudio",
     "stb",
     {
       "name": "ktx",

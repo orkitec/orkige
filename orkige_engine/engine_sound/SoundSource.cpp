@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <random>
+#include <cstdlib>
 #include <cstring>
 
 namespace
@@ -26,6 +27,14 @@ namespace
 		static std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 		return dist(engine);
 	}
+
+	//--- the distance model every positional source plays under -------------
+	//! full volume out to here
+	const float kReferenceDistance	= 150.f;
+	//! attenuation stops falling past here
+	const float kMaxDistance		= 3400.f;
+	//! how steeply it falls in between (1 = the plain inverse curve)
+	const float kRolloffFactor		= 1.f;
 }
 
 namespace Orkige
@@ -34,22 +43,18 @@ namespace Orkige
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	SoundSource::SoundSource(String const & id, String const & file, bool loop, Ogre::Vector3 const & pos)
-		: Object(id), data(NULL), position(pos), fileName(file), looped(loop), initialized(false)
+		: Object(id), voice(NULL), size(0), data(NULL), position(pos)
+		, fileName(file), looped(loop), initialized(false), paused(false)
 		, baseGain(1.f), group("sfx"), groupVolume(1.f)
 		, pitchVariation(0.f), gainVariation(0.f), currentPitch(1.f)
 	{
-#ifdef ORKIGE_OPENAL_SOUND
-		this->source = 0;
-		this->buffer = 0;
-		this->format = 0;
-		this->size = 0;
-		this->freq = 0;
-#endif //ORKIGE_OPENAL_SOUND
+		this->format.channels = 0;
+		this->format.bitsPerSample = 0;
+		this->format.sampleRate = 0;
 	}
 	//---------------------------------------------------------
 	SoundSource::~SoundSource()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(this->initialized)
 			this->deinit();
 
@@ -58,189 +63,101 @@ namespace Orkige
 			free(this->data);
 			this->data = NULL;
 		}
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::init(bool reloadData, bool alwaysFreeData)
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		oAssertDesc(!this->initialized, "Already initialized you have to call deinit first!");
 
-		ALenum  error = AL_NO_ERROR;
-		try
+		if(this->data && reloadData)
 		{
-			alGenBuffers(1, &this->buffer);
-			error = alGetError();
-			SoundError::call(error == AL_NO_ERROR, "Error generating buffer for: " + this->fileName + "!", error);
-
-			// Create some OpenAL Source Objects
-			alGenSources(1, &this->source);
-			error = alGetError();
-			SoundError::call(error == AL_NO_ERROR, "Error generating source for: " + this->fileName + "!", error);
-
-			if(this->data && reloadData)
-			{
-				free(this->data);
-				this->data = NULL;
-			}
-			if(this->data == NULL)
-			{
-				this->data = SoundUtil::loadSoundData(this->fileName, &size, &format, &freq);
-			}
-			// honest failure instead of an assert: loadSoundData returns
-			// NULL for unreadable files AND for .caf on non-Apple platforms
-			// (the decoder is AudioToolbox-backed, see SoundPlatform.h) -
-			// throw the established SoundError so the cleanup below runs
-			SoundError::call(this->data != NULL,
-				"Unsupported or unreadable sound file: " + this->fileName + "!", AL_INVALID_VALUE);
-			SoundUtil::alBufferDataPlatform(this->buffer, format, data, size, freq);
-
-			error = alGetError();
-			SoundError::call(error == AL_NO_ERROR, "Error loading sound: " + this->fileName + "!", error);
-
-			// alBufferData copied the samples into the al buffer so the data
-			// can be freed right after the upload (with alBufferDataStatic it
-			// had to stay alive as long as the buffer)
-			if(alwaysFreeData)
-			{
-				free(this->data);
-				this->data = NULL;
-			}
+			free(this->data);
+			this->data = NULL;
 		}
-		catch(SoundError const & e)
+		if(this->data == NULL)
 		{
-			if(this->buffer != 0)
-			{
-				if (alIsBuffer(this->buffer) == AL_TRUE)
-				{
-					alDeleteBuffers(1, &this->buffer);
-					error = alGetError();
-					SoundError::call(error == AL_NO_ERROR, "Failed to delete Buffer", error);
-				}
-			}
+			this->data = SoundUtil::loadSoundData(this->fileName, &this->size,
+				&this->format);
+		}
+		// honest failure instead of an assert: loadSoundData returns NULL for
+		// unreadable files AND for .caf on non-Apple platforms (the decoder is
+		// AudioToolbox-backed, see SoundData.h) - throw the established
+		// SoundError so the caller's cleanup runs
+		SoundError::call(this->data != NULL,
+			"Unsupported or unreadable sound file: " + this->fileName + "!",
+			SoundError::SE_UNREADABLE);
 
-			// Prevent the ~Sound() destructor from double-freeing.
-			this->buffer = 0;
-			// Propagate.
-			throw (e);
+		this->voice = AudioBackend::voiceCreate(this->data, this->size,
+			this->format, this->looped);
+		SoundError::call(this->voice != NULL,
+			"Error creating a voice for: " + this->fileName + "!",
+			SoundError::SE_DEVICE);
+
+		// the samples were copied into the voice, so the block can be freed
+		// right after (a source that wants to survive an interruption keeps it)
+		if(alwaysFreeData)
+		{
+			free(this->data);
+			this->data = NULL;
 		}
 
-		// Turn Looping ON or OFF
-		alSourcei(this->source, AL_LOOPING, this->looped ? AL_TRUE : AL_FALSE);
+		AudioBackend::voiceSetPosition(this->voice, this->position.x,
+			this->position.y, this->position.z);
+		AudioBackend::voiceSetAttenuation(this->voice, kReferenceDistance,
+			kMaxDistance, kRolloffFactor);
+		AudioBackend::voiceSetPitch(this->voice, 1.f);
+		AudioBackend::voiceSetVolume(this->voice, this->getEffectiveGain());
 
-		// Set Source Position
-		float sourcePosAL[] = {this->position.x, this->position.y, this->position.z};
-		alSourcefv(this->source, AL_POSITION, sourcePosAL);
-
-		//@TODO: make pitch/distance model configurable with SoundSource set and get functions
-		// AL_GAIN carries the mixer model (baseGain * groupVolume) - note
-		// AL_MAX_GAIN is pinned to 1.0 here, so gains above 1 would clamp
-		// SILENTLY: the whole volume vocabulary stays in 0..1 by design
-		alSourcef (this->source, AL_PITCH,				1.f);
-		alSourcef (this->source, AL_GAIN,				this->getEffectiveGain());
-		alSourcef (this->source, AL_MAX_GAIN,			1.f);
-		alSourcef (this->source, AL_MIN_GAIN,			0.f);
-		alSourcef (this->source, AL_MAX_DISTANCE,		3400.f);
-		alSourcef (this->source, AL_ROLLOFF_FACTOR,		1.f);
-		alSourcef (this->source, AL_REFERENCE_DISTANCE,	150.f);
-		alSourcef (this->source, AL_CONE_OUTER_GAIN,	0.f);
-		alSourcef (this->source, AL_CONE_INNER_ANGLE,	360.f);
-		alSourcef (this->source, AL_CONE_OUTER_ANGLE,	360.f);
-		alSourcei (this->source, AL_SOURCE_RELATIVE,	AL_FALSE);
-
-		// attach OpenAL Buffer to OpenAL Source
-		alSourcei(this->source, AL_BUFFER, this->buffer);
-
-		if((error = alGetError()) != AL_NO_ERROR)
-		{
-			oDebugMsg("sound",0,"Error attaching buffer to source: " << this->fileName << "!");
-			return false;
-		}
-
+		this->paused = false;
 		this->initialized = true;
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::initFromPCM(void const * pcmData, int dataSize, int channels, int bitsPerSample, int sampleRate)
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		oAssertDesc(!this->initialized, "Already initialized you have to call deinit first!");
 		oAssertDesc(pcmData != NULL && dataSize > 0, "No PCM data given!");
 		oAssertDesc(channels == 1 || channels == 2, "Only mono and stereo PCM supported!");
 		oAssertDesc(bitsPerSample == 8 || bitsPerSample == 16, "Only 8 and 16 bit PCM supported!");
 
-		if(channels == 1)
-		{
-			this->format = (bitsPerSample == 8) ? AL_FORMAT_MONO8 : AL_FORMAT_MONO16;
-		}
-		else
-		{
-			this->format = (bitsPerSample == 8) ? AL_FORMAT_STEREO8 : AL_FORMAT_STEREO16;
-		}
-		this->size = static_cast<ALsizei>(dataSize);
-		this->freq = static_cast<ALsizei>(sampleRate);
+		this->format.channels = channels;
+		this->format.bitsPerSample = bitsPerSample;
+		this->format.sampleRate = sampleRate;
+		this->size = dataSize;
 
-		// keep an own copy like the file loaders do so init() can reupload it
-		// e.g. after an interruption
+		// keep an own copy like the file loaders do so init() can rebuild the
+		// voice e.g. after an interruption
 		if(this->data)
 		{
 			free(this->data);
 			this->data = NULL;
 		}
 		this->data = malloc(dataSize);
+		if(this->data == NULL)
+		{
+			return false;
+		}
 		memcpy(this->data, pcmData, dataSize);
 
-		// data is already loaded here so init() only creates the al objects
-		// and uploads it
+		// data is already loaded here so init() only creates the voice
 		return this->init();
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::deinit(bool freeData)
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		oAssert(this->initialized);
-		ALenum  error = AL_NO_ERROR;
 
-		bool ret = true;
-
-		//stop source
-		if(this->isPlaying())
-			ret = this->stop();
-
-		// Delete the Sources
-		alDeleteSources(1, &this->source);
-
-		if((error = alGetError()) != AL_NO_ERROR)
-		{
-			oDebugMsg("sound",0,"Error deleting source: " << this->fileName << "!");
-			ret = false;
-		}
-
-		// Delete the Buffers
-		alDeleteBuffers(1, &this->buffer);
-
-		if((error = alGetError()) != AL_NO_ERROR)
-		{
-			oDebugMsg("sound",0,"Error deleting buffer: " << this->fileName << "!");
-			ret = false;
-		}
+		AudioBackend::voiceDestroy(this->voice);
+		this->voice = NULL;
 
 		if(this->data && freeData)
 		{
 			free(this->data);
 			this->data = NULL;
 		}
+		this->paused = false;
 		this->initialized = false;
-		return ret;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
+		return true;
 	}
 	//---------------------------------------------------------
 	bool SoundSource::play()
@@ -250,81 +167,60 @@ namespace Orkige
 		// so a source that never opts in behaves exactly as before.
 		this->currentPitch = variedPitch(this->pitchVariation,
 			this->pitchVariation != 0.f ? nextVariationSample() : 0.5f);
-#ifdef ORKIGE_OPENAL_SOUND
+
 		if(this->isPlaying())
 			return false;
 
-		ALenum error = AL_NO_ERROR;
-
-		// push this play's varied pitch/gain onto the source before it starts
+		// push this play's varied pitch/gain onto the voice before it starts
 		if(this->initialized)
 		{
 			const float playGain = variedGain(this->getEffectiveGain(),
 				this->gainVariation,
 				this->gainVariation != 0.f ? nextVariationSample() : 0.5f);
-			alSourcef(this->source, AL_PITCH, this->currentPitch);
-			alSourcef(this->source, AL_GAIN, playGain);
+			AudioBackend::voiceSetPitch(this->voice, this->currentPitch);
+			AudioBackend::voiceSetVolume(this->voice, playGain);
 		}
 
-		// Begin playing our source file
-		alSourcePlay(this->source);
-		if((error = alGetError()) != AL_NO_ERROR)
+		if(!AudioBackend::voiceStart(this->voice))
 		{
 			oDebugMsg("sound",0,"Error starting source for " << this->fileName << "!");
 			return false;
 		}
-
+		this->paused = false;
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::stop()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->isPlaying())
 			return false;
 
-		ALenum error = AL_NO_ERROR;
-
-		alSourceStop(this->source);
-		if((error = alGetError()) != AL_NO_ERROR)
+		if(!AudioBackend::voiceStop(this->voice))
 		{
 			oDebugMsg("sound",0,"Error stopping source for " << this->fileName << "!");
 			return false;
 		}
-
+		this->paused = false;
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::pause()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(this->isPaused())
 			return false;
 
-		ALenum error = AL_NO_ERROR;
-
-		alSourcePause(this->source);
-		if((error = alGetError()) != AL_NO_ERROR)
+		if(!AudioBackend::voiceSuspend(this->voice))
 		{
 			oDebugMsg("sound",0,"Error pausing source for " << this->fileName << "!");
 			return false;
 		}
-
+		// a paused source keeps its playhead: resume() picks it up there
+		this->paused = this->initialized;
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::resume()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->isPaused())
 			return false;
 
@@ -332,85 +228,50 @@ namespace Orkige
 			return false;
 
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::isPlaying()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->initialized)
 			return false;
 
-		ALenum state;
-		alGetSourcei(this->source, AL_SOURCE_STATE, &state);
-
-		if(state != AL_PLAYING)
-			return false;
-
-		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
+		return AudioBackend::voiceIsPlaying(this->voice);
 	}
 	//---------------------------------------------------------
 	bool SoundSource::isPaused()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->initialized)
 			return false;
 
-		ALenum state;
-		alGetSourcei(this->source, AL_SOURCE_STATE, &state);
-
-		if(state != AL_PAUSED)
-			return false;
-
-		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
+		return this->paused && !AudioBackend::voiceIsPlaying(this->voice);
 	}
 	//---------------------------------------------------------
 	float SoundSource::getPlayPosition()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->isPlaying())
 			return 0.f;
 
-		float pos;
-		alGetSourcef(this->source, AL_SEC_OFFSET,  &pos);
-		return pos;
-#else //ORKIGE_OPENAL_SOUND
-		return 0.f;
-#endif //ORKIGE_OPENAL_SOUND
+		return AudioBackend::voiceGetCursorSeconds(this->voice);
 	}
 	//---------------------------------------------------------
 	void SoundSource::setPlayPosition(float pos)
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->initialized)
 			return;
 
-		alSourcef(this->source, AL_SEC_OFFSET, pos);
-#endif //ORKIGE_OPENAL_SOUND
+		AudioBackend::voiceSeekSeconds(this->voice, pos);
 	}
 	//---------------------------------------------------------
 	bool SoundSource::setPosition(Ogre::Vector3 const & pos)
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->initialized)
 			return false;
 
 		this->position = pos;
-		float sourcePosAL[] = {this->position.x, this->position.y, this->position.z};
-		alSourcefv(this->source, AL_POSITION, sourcePosAL);
+		AudioBackend::voiceSetPosition(this->voice, this->position.x,
+			this->position.y, this->position.z);
 
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	Ogre::Vector3 const & SoundSource::getPosition()
@@ -477,40 +338,31 @@ namespace Orkige
 	//---------------------------------------------------------
 	float SoundSource::queryPitch() const
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(this->initialized)
 		{
-			float pitch = 0.f;
-			alGetSourcef(this->source, AL_PITCH, &pitch);
-			return pitch;
+			return AudioBackend::voiceGetPitch(this->voice);
 		}
-#endif //ORKIGE_OPENAL_SOUND
 		return 0.f;
 	}
 	//---------------------------------------------------------
 	int SoundSource::queryBufferBytes() const
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(this->initialized)
 		{
-			ALint bytes = 0;
-			alGetBufferi(this->buffer, AL_SIZE, &bytes);
-			return static_cast<int>(bytes);
+			const int frames = AudioBackend::voiceFrameCount(this->voice);
+			const int bytesPerFrame = this->format.channels *
+				(this->format.bitsPerSample / 8);
+			return frames * bytesPerFrame;
 		}
-#endif //ORKIGE_OPENAL_SOUND
 		return 0;
 	}
 	//---------------------------------------------------------
 	int SoundSource::queryBufferSampleRate() const
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(this->initialized)
 		{
-			ALint frequency = 0;
-			alGetBufferi(this->buffer, AL_FREQUENCY, &frequency);
-			return static_cast<int>(frequency);
+			return AudioBackend::voiceSampleRate(this->voice);
 		}
-#endif //ORKIGE_OPENAL_SOUND
 		return 0;
 	}
 	//---------------------------------------------------------
@@ -523,12 +375,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SoundSource::applyGain()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if(this->initialized)
 		{
-			alSourcef(this->source, AL_GAIN, this->getEffectiveGain());
+			AudioBackend::voiceSetVolume(this->voice, this->getEffectiveGain());
 		}
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 

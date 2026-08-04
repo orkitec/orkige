@@ -105,7 +105,7 @@ Both targets carry the engine include roots and the ABI compile definitions
 (`ORKIGE_STATIC`, the render-flavor macro `ORKIGE_RENDER_NEXT` /
 `ORKIGE_RENDER_CLASSIC`, the scripting-backend define), so a consumer inherits
 the matching ABI straight from the package. The vcpkg dependency closure the
-archives link (SDL3, OpenAL, Jolt, tinyxml2, NanoSVG, the flavor's OGRE +
+archives link (SDL3, Jolt, tinyxml2, NanoSVG, the flavor's OGRE +
 codecs, Lua/sol2) is DECLARED by the package (`ORKIGE_TRANSITIVE_PACKAGES`) and
 realized by `cmake/OrkigeGameModule.cmake` against the prefix the package points
 at — the engine tree's own `vcpkg_installed/<triplet>`, or a pack's bundled

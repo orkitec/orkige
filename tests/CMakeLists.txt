@@ -880,7 +880,7 @@ if(TARGET hello_orkige)
         ENVIRONMENT "ORKIGE_DEMO_SOUND=1;ORKIGE_DEMO_FRAMES=120")
 
     # ORKIGE_DEMO_MUSIC: the streamed-music selfcheck - stream a committed
-    # loopable OGG through the queued-buffer MusicStream path and assert the
+    # loopable OGG through the ring-fed MusicStream path and assert the
     # playhead advances (audio device present) or the honest no-op path (device
     # absent, headless CI). Device-tolerant; runs on both render flavors.
     add_test(NAME demo_music COMMAND hello_orkige
@@ -1595,7 +1595,7 @@ if(TARGET orkige_editor)
     # Inspector's AUDITION of a procedural `.osfx`: the written text parses back
     # to its archetype and renders the archetype's own samples, classifies as
     # audio, and plays through the engine's audio path with no play session
-    # (the null OpenAL backend every test here runs on makes that the audible
+    # (the silent audio device every test here runs on makes that the audible
     # branch; a device-less machine asserts the honest refusal instead).
     # Flavor-agnostic; both flavors.
     add_test(NAME editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
@@ -2339,7 +2339,7 @@ if(TARGET orkige_player)
     # (no fopen against a zip entry), resolves the texture from it and STREAMS
     # the OGG from it - all resolving like loose files. Runs on both render
     # flavors (mountPak is backend-neutral over MiniZip). The setup fixture
-    # builds the pak into the build tree; ALSOFT_DRIVERS=null keeps it headless.
+    # builds the pak into the build tree.
     # See the ORKIGE_PAK_SELFCHECK block in tools/player/PlayerSelfChecks.cpp.
     set(ORKIGE_PAK_FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/pak_fixture${ORKIGE_FLAVOR_TEST_SUFFIX}/game.pak")
     add_test(NAME pak_fixture_build${ORKIGE_FLAVOR_TEST_SUFFIX}
@@ -2354,7 +2354,7 @@ if(TARGET orkige_player)
     set_tests_properties(player_pak_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         FIXTURES_REQUIRED PAK_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
         LABELS integration TIMEOUT 60
-        ENVIRONMENT "ORKIGE_PAK_SELFCHECK=${ORKIGE_PAK_FIXTURE};ALSOFT_DRIVERS=null")
+        ENVIRONMENT "ORKIGE_PAK_SELFCHECK=${ORKIGE_PAK_FIXTURE}")
 
     # THE archive-in-place SCRIPT read (Stage 1 of the VFS unification): a STORED
     # zip carrying ONE "scripts/pak_script.lua" and nothing else. The player
@@ -2377,7 +2377,7 @@ if(TARGET orkige_player)
     set_tests_properties(player_pak_script_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         FIXTURES_REQUIRED SCRIPT_PAK_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
         LABELS integration TIMEOUT 60
-        ENVIRONMENT "ORKIGE_PAK_SCRIPT_SELFCHECK=${ORKIGE_SCRIPT_PAK_FIXTURE};ALSOFT_DRIVERS=null")
+        ENVIRONMENT "ORKIGE_PAK_SCRIPT_SELFCHECK=${ORKIGE_SCRIPT_PAK_FIXTURE}")
 
     # THE AUTHORED TEXTURE SAMPLER AGAINST MOUNTED MEDIA - the setting a stored
     # APK and a browser export are structurally unable to read off disk. The
@@ -2403,7 +2403,7 @@ if(TARGET orkige_player)
     set_tests_properties(player_pak_sampler_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         FIXTURES_REQUIRED PAK_SAMPLER_FIXTURE${ORKIGE_FLAVOR_TEST_SUFFIX}
         LABELS integration TIMEOUT 60
-        ENVIRONMENT "ORKIGE_PAK_SAMPLER_SELFCHECK=${ORKIGE_PAK_SAMPLER_DIR}/game.pak;ALSOFT_DRIVERS=null")
+        ENVIRONMENT "ORKIGE_PAK_SAMPLER_SELFCHECK=${ORKIGE_PAK_SAMPLER_DIR}/game.pak")
 
     # whole-project run: --project loads projects/example's manifest,
     # registers its assets/ and scenes/ as resource locations and plays the
@@ -2500,7 +2500,7 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_project_lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             LABELS integration TIMEOUT 180
-            ENVIRONMENT "ALSOFT_DRIVERS=null;ORKIGE_TEST_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}")
+            ENVIRONMENT "ORKIGE_TEST_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/lua_tests${ORKIGE_FLAVOR_TEST_SUFFIX}")
 
         # the 2D tier, end to end: projects/roller (a tilt-gravity ball +
         # sliding-tile puzzle prototype - SpriteComponents, ortho camera,
@@ -2732,14 +2732,14 @@ if(TARGET orkige_player)
         # procedural sound effects, end to end: tests/projects/sfx carries a
         # `.osfx` TEXT asset (a preset seed plus overrides) instead of a wave
         # file, and the leg proves it IS a sound file to everything above -
-        # OpenAL holds exactly the bytes the pure synthesizer renders from the
+        # the mixer holds exactly the bytes the pure synthesizer renders from the
         # same asset (the device-side proof), the source plays, the unchanged
         # SoundComponent/Lua surface added it into its mixer group, and a
         # deliberately malformed sibling asset stays honestly silent instead of
         # unwinding into game code. See the ORKIGE_SFX_SELFCHECK block in
         # tools/player/PlayerSelfChecks.cpp. Runs on both flavors (the
         # synthesizer is pure core, the upload is renderer-neutral); the null
-        # OpenAL backend every test in this directory runs on makes the
+        # audio device every test in this directory runs on makes the
         # audible branch the one that executes.
         add_test(NAME player_sfx_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project tests/projects/sfx
@@ -3779,17 +3779,25 @@ if(APPLE AND TARGET orkige_editor)
     unset(_orkige_test)
 endif()
 
-# Tests are SILENT on a developer's machine: every test in this directory runs
-# with OpenAL Soft's null backend, so a player selfcheck's sfx, a benchmark
-# scene's music or an editor play session (child processes inherit the
-# environment) never reach the speakers. The null device behaves like a real
-# one - buffers drain, stream positions advance (SoundTeardownTests runs the
-# full SoundManager on it) - so sound-asserting tests pass unchanged, just
-# inaudibly. ENVIRONMENT_MODIFICATION layers over any per-test ENVIRONMENT.
+# Tests are SILENT on a developer's machine, and that is a property of the
+# RUN, never of a test: an automated run opens the SILENT audio device
+# (AppHost::initialise -> SoundManager::setAutomatedRun), and every app a test
+# starts - editor, player, sample, native game module - boots through it. No
+# test registration here asks for silence, and none may: a per-test opt-in is
+# how a new test ends up audible.
+#
+# This ONE directory-wide line is the outer belt, for the corner the app-level
+# rule cannot see. A few player selfchecks are deliberately NOT classified as
+# automated runs (that classification also pins the frame delta to a fixed
+# tick, which would change what they measure), so the suite states its own
+# audio choice once, for everything it starts. It is an explicit setting, so
+# it wins over the automated-run default the same way a developer's own
+# ORKIGE_AUDIO_BACKEND=auto does. ENVIRONMENT_MODIFICATION layers over any
+# per-test ENVIRONMENT.
 get_property(_orkige_registered_tests DIRECTORY PROPERTY TESTS)
 foreach(_orkige_test IN LISTS _orkige_registered_tests)
     set_property(TEST "${_orkige_test}" APPEND PROPERTY
-        ENVIRONMENT_MODIFICATION "ALSOFT_DRIVERS=set:null")
+        ENVIRONMENT_MODIFICATION "ORKIGE_AUDIO_BACKEND=set:null")
 endforeach()
 unset(_orkige_registered_tests)
 unset(_orkige_test)

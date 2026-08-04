@@ -7,11 +7,10 @@
 	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
 // Apple-only: decodes .caf files through AudioToolbox (ExtAudioFile) into
-// 16 bit signed PCM for OpenAL Soft. Works on macOS and iOS alike now (used
-// to be iPhone-only); on other platforms loadSoundData never calls this.
+// 16 bit signed PCM. Works on macOS and iOS alike; on other platforms
+// loadSoundData never calls this.
 #ifdef __APPLE__
-#include "engine_sound/SoundPlatform.h"
-#ifdef ORKIGE_OPENAL_SOUND
+#include "engine_sound/SoundData.h"
 #include "engine_util/ResourceUtil.h"
 #import <AudioToolbox/AudioToolbox.h>
 #import <AudioToolbox/ExtendedAudioFile.h>
@@ -20,9 +19,9 @@ namespace Orkige
 {
 	namespace SoundUtil
 	{
-		void* loadCafDataInternal(CFURLRef fileURL, ALsizei *dataSize, ALenum *dataFormat, ALsizei*	sampleRate);
+		void* loadCafDataInternal(CFURLRef fileURL, int * dataSize, PcmFormat * format);
 		//---------------------------------------------------------
-		void* loadCafData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate)
+		void* loadCafData(Orkige::String const & fileName, int * dataSize, PcmFormat * format)
 		{
 			// resolve the file through the OGRE resource system (CAF decoding
 			// needs a real file on disk for ExtAudioFileOpenURL)
@@ -30,12 +29,12 @@ namespace Orkige
 			CFStringRef pathString = CFStringCreateWithCString(kCFAllocatorDefault, fullPath.c_str(), kCFStringEncodingUTF8);
 			CFURLRef fileURL = CFURLCreateWithFileSystemPath(kCFAllocatorDefault, pathString, kCFURLPOSIXPathStyle, false);
 			CFRelease(pathString);
-			void* data = loadCafDataInternal(fileURL, dataSize, dataFormat, sampleRate);
+			void* data = loadCafDataInternal(fileURL, dataSize, format);
 			CFRelease(fileURL);
 			return data;
 		}
 		//---------------------------------------------------------
-		void* loadCafDataInternal(CFURLRef fileURL, ALsizei *dataSize, ALenum *dataFormat, ALsizei*	sampleRate)
+		void* loadCafDataInternal(CFURLRef fileURL, int * dataSize, PcmFormat * format)
 		{
 			OSStatus						err = noErr;
 			SInt64							fileLengthInFrames = 0;
@@ -112,9 +111,10 @@ namespace Orkige
 					if(err == noErr)
 					{
 						// success
-						*dataSize = (ALsizei)_dataSize;
-						*dataFormat = (outputFormat.mChannelsPerFrame > 1) ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16;
-						*sampleRate = (ALsizei)outputFormat.mSampleRate;
+						*dataSize = (int)_dataSize;
+						format->channels = (int)outputFormat.mChannelsPerFrame;
+						format->bitsPerSample = 16;
+						format->sampleRate = (int)outputFormat.mSampleRate;
 					}
 					else
 					{
@@ -136,5 +136,4 @@ Exit:
 		}
 	}
 }
-#endif //ORKIGE_OPENAL_SOUND
 #endif //__APPLE__

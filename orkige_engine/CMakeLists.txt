@@ -23,18 +23,11 @@
 
 # --- dependencies shared by both flavors ------------------------------------
 find_package(SDL3 CONFIG REQUIRED)
-if(EMSCRIPTEN)
-    # the browser runtime provides OpenAL itself: the AL/ALC headers live in
-    # the Emscripten sysroot and the implementation is a JavaScript library
-    # the linker resolves (WebAudio-backed) - openal-soft is deliberately
-    # absent from the wasm dependency set (vcpkg.json platform qualifier).
-    # An empty imported target keeps the engine's link line uniform.
-    if(NOT TARGET OpenAL::OpenAL)
-        add_library(OpenAL::OpenAL INTERFACE IMPORTED)
-    endif()
-else()
-    find_package(OpenAL CONFIG REQUIRED)
-endif()
+# miniaudio: header-only - the audio device, mixing graph and voices behind
+# engine_sound/AudioBackend.h. Compiled in exactly one TU
+# (engine_sound/MiniaudioImpl.cpp); the vcpkg port only installs the header,
+# so this is an include directory rather than a link target.
+find_path(ORKIGE_MINIAUDIO_INCLUDE_DIR "miniaudio.h" REQUIRED)
 # stb: header/single-file only - ships stb_vorbis.c (the OGG Vorbis decoder
 # engine_sound/StbVorbisImpl.cpp compiles) + stb_truetype.h (the glyph
 # rasteriser engine_gui/FontBakeImpl.cpp compiles). Provides Stb_INCLUDE_DIR.
@@ -207,8 +200,12 @@ set(ORKIGE_ENGINE_SOURCES
     # prologue, the canonical gameplay tick order and the frame loop
     engine_runtime/GameHost.h
     engine_runtime/GameHost.cpp
-    engine_sound/SoundPlatform.h
-    engine_sound/SoundPlatform.cpp
+    # the audio device, mixing graph and voices: the seam plus the ONE TU that
+    # compiles the single-file audio library behind it (MiniaudioImpl.cpp -
+    # nothing else includes it, so it never touches the umbrella or the PCH)
+    engine_sound/AudioBackend.h
+    engine_sound/MiniaudioImpl.cpp
+    engine_sound/SoundData.h
     engine_sound/SoundError.h
     engine_sound/SoundError.cpp
     engine_sound/SoundSource.h
@@ -220,7 +217,7 @@ set(ORKIGE_ENGINE_SOURCES
     # `.sfs` or its `.osfx` text twin) SYNTHESIZED into the same PCM block a
     # wave file decodes to (the pure synth lives in core_util)
     engine_sound/LoadSfxData.cpp
-    # streamed music: the queued-buffer streamer + the ONE TU that compiles the
+    # streamed music: the ring-fed streamer + the ONE TU that compiles the
     # single-file OGG Vorbis decoder (StbVorbisImpl.cpp - nothing else includes
     # it, so the decoder never touches the umbrella or the PCH)
     engine_sound/MusicStream.h
@@ -402,10 +399,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # iOS-only - macOS has no phone vibrator and takes the desktop no-op path.
     # UIKit resolves at the final app link (SDL's UIKit main already pulls it).
     list(APPEND ORKIGE_ENGINE_SOURCES engine_input/HapticBridgeApple.mm)
-    # the audio-session bridge SoundManager activates before OpenAL opens a
-    # device: OpenAL Soft does not manage AVAudioSession, and an unactivated
-    # session deadlocks AURemoteIO on the simulator (@see AudioSessionApple.mm)
-    list(APPEND ORKIGE_ENGINE_SOURCES engine_sound/AudioSessionApple.mm)
     if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         # iOS attaches the Ogre-Next Metal view into SDL's UIKit window via a
         # small ObjC++ bridge (the render-system-created view is otherwise
@@ -474,6 +467,17 @@ set_source_files_properties(engine_sound/StbVorbisImpl.cpp PROPERTIES
     SKIP_PRECOMPILE_HEADERS ON
     INCLUDE_DIRECTORIES "${Stb_INCLUDE_DIR}")
 
+# the single-file audio library is compiled in exactly one TU: only it sees
+# the miniaudio include, and it stays off the PCH. On Apple platforms its
+# implementation reaches AVFoundation, so that TU is Objective-C++ there.
+set_source_files_properties(engine_sound/MiniaudioImpl.cpp PROPERTIES
+    SKIP_PRECOMPILE_HEADERS ON
+    INCLUDE_DIRECTORIES "${ORKIGE_MINIAUDIO_INCLUDE_DIR}")
+if(APPLE)
+    set_source_files_properties(engine_sound/MiniaudioImpl.cpp
+        PROPERTIES LANGUAGE OBJCXX)
+endif()
+
 # the single-file TrueType rasteriser (stb_truetype.h) is likewise compiled in
 # exactly one TU: only it sees the stb include, and it stays off the PCH.
 set_source_files_properties(engine_gui/FontBakeImpl.cpp PROPERTIES
@@ -490,13 +494,9 @@ set_source_files_properties(engine_gui/SvgRasterImpl.cpp
 
 # The whole 2026 target set (GL3+/Metal/Vulkan/GLES3) is shader-based; the
 # fixed-function fallbacks from the 1.7 era are gone for good.
-# ORKIGE_OPENAL_SOUND: engine_sound compiles against OpenAL Soft (vcpkg
-# openal-soft) on every platform; without the define the sound classes
-# degrade to inert stubs (the historical no-sound configuration).
 # ORKIGE_ENGINE_HAS_GOCOMPONENT: engine_gocomponent is ported; enables the
 # TransformComponent/ModelComponent code paths guarded in engine_util/NodeUtil.h.
 target_compile_definitions(orkige_engine PUBLIC
-    ORKIGE_OPENAL_SOUND
     ORKIGE_ENGINE_HAS_GOCOMPONENT
 )
 
@@ -528,7 +528,6 @@ target_link_libraries(orkige_engine
     PUBLIC
         Orkige::Core
         SDL3::SDL3
-        OpenAL::OpenAL
     PRIVATE
         # backend-agnostic physics: Jolt types never leave the engine_physic
         # translation units, so the dependency stays private
@@ -544,6 +543,25 @@ target_link_libraries(orkige_engine
         # leave engine_filesystem, so the dependency stays private
         ZLIB::ZLIB
 )
+
+# what the audio backend's platform APIs need at the link. The library resolves
+# the rest at runtime (it opens the machine's audio API itself), so this is the
+# whole audio link surface.
+if(APPLE)
+    target_link_libraries(orkige_engine PUBLIC
+        "-framework CoreFoundation"
+        "-framework CoreAudio"
+        "-framework AudioToolbox")
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        # the mobile audio backend goes through the audio session, and it is
+        # the one that sets the engine's ambient category
+        target_link_libraries(orkige_engine PUBLIC "-framework AVFoundation")
+    endif()
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(orkige_engine PUBLIC ${CMAKE_DL_LIBS} pthread m)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    target_link_libraries(orkige_engine PUBLIC ${CMAKE_DL_LIBS})
+endif()
 
 if(ORKIGE_RENDER_BACKEND STREQUAL "next")
     target_link_libraries(orkige_engine

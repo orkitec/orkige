@@ -290,7 +290,7 @@ def write_sandbox_profile(path, denied, allowed, allow_files=()):
 # these would test a broken machine, not a clean one.
 PASSTHROUGH_ENV = ("DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
                    "VK_DRIVER_FILES", "VK_ICD_FILENAMES",
-                   "LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER", "ALSOFT_DRIVERS",
+                   "LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER", "ORKIGE_AUDIO_BACKEND",
                    "SYSTEMROOT", "WINDIR")
 
 

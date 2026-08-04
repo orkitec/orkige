@@ -9,11 +9,10 @@
 #ifndef __SoundError_h__6_9_2010__16_30_32__
 #define __SoundError_h__6_9_2010__16_30_32__
 
-#include "engine_sound/SoundPlatform.h"
-#ifndef ORKIGE_OPENAL_SOUND
-typedef int ALenum;
-#define AL_INVALID -1
-#endif
+#include "engine_module/EnginePrerequisites.h"
+
+#include <stdexcept>
+
 namespace Orkige
 {
 	//! error that gets thrown on errors regarding Sounds
@@ -21,24 +20,31 @@ namespace Orkige
 	{
 		//-Types--------------------------------------------
 	public:
-		typedef ALenum SoundErrorCode;	//!< (al) sound error code
+		//! what went wrong - the whole vocabulary the sound tier can report
+		enum SoundErrorCode
+		{
+			SE_UNKNOWN = -1,	//!< no code was given
+			SE_BAD_DATA,		//!< the bytes are not the sound file they claim
+			SE_UNREADABLE,		//!< the file is missing, unreadable or unsupported
+			SE_DEVICE			//!< the audio device refused the request
+		};
 	protected:
 	private:
 		//-Variables----------------------------------------
 	public:
 	protected:
-		SoundErrorCode errorCode;		//!< (al) sound error code
+		SoundErrorCode errorCode;		//!< the sound error code
 	private:
 		//-Methods------------------------------------------
 	public:
 		//! construct SoundError with optional message and SoundErrorCode
-		SoundError(String const & msg = "", SoundErrorCode code = AL_INVALID);
+		SoundError(String const & msg = "", SoundErrorCode code = SE_UNKNOWN);
 		//! get the error code
 		inline SoundErrorCode getErrorCode();
 		//! convert error code to readable string
 		static const char* getErrorDesc(SoundErrorCode errorCode);
 		//! throw SoundError if condition is false
-		static void call(bool condition, String const & message = "", SoundErrorCode code = AL_INVALID);
+		static void call(bool condition, String const & message = "", SoundErrorCode code = SE_UNKNOWN);
 	protected:
 	private:
 	};

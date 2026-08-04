@@ -96,9 +96,9 @@ Lua/scene project as a static directory every web server can host as-is.
   wasm player needs it — packaging a project for the browser does not, so an
   editor that carries a prebuilt browser player exports one on a machine with
   no emsdk at all.
-- vcpkg as for every other preset. The wasm dependency set is the classic
-  set minus openal-soft (the browser provides OpenAL), minus the editor-only
-  ports; `catch2` stays in so the unit suite runs on the target.
+- vcpkg as for every other preset. The wasm dependency set is the classic set
+  minus the editor-only ports; `catch2` stays in so the unit suite runs on the
+  target.
 
 ## How the pieces fit
 
@@ -107,7 +107,7 @@ Lua/scene project as a static directory every web server can host as-is.
 | `triplets/wasm32-emscripten.cmake` | overlay triplet: static wasm libs, hermetic `/usr/local` isolation, chainload below |
 | `cmake/wasm32-emscripten-toolchain.cmake` | the ONE chainload toolchain (ports AND engine): seeds `-fwasm-exceptions`, then includes the emsdk platform file. vcpkg has no emscripten toolchain of its own, so `VCPKG_C(XX)_FLAGS` set in a triplet never reach a compiler here — the wrapper is where ABI-relevant flags live. |
 | preset `web-release` | classic backend, Release, tests ON |
-| `tools/player/CMakeLists.txt` (Emscripten branch) | player link flags: WebGL2 ceiling, forced FS, Emscripten's OpenAL |
+| `tools/player/CMakeLists.txt` (Emscripten branch) | player link flags: WebGL2 ceiling, forced FS |
 | `tools/player/PlayerContext.h` + `playerIterate` (main.cpp) | the player's world on ONE heap context and the loop body as an iterate callback: the desktop loop calls it in a plain `while`, the browser hands the context to the page's frame callback (`emscripten_set_main_loop_arg`, requestAnimationFrame-paced) — same frame body, same orderly teardown, no stack-suspension instrumentation |
 | `engine_util/SDLNativeWindowWeb.cpp` | the native-handle bridge returns null: the page's one canvas is both SDL's window (input) and the GLES2 render surface (OGRE binds it through Emscripten's EGL) |
 | `orkige_export --platform web` (@see `tools/exporter/ExportWeb.h`) | packages `<project>/builds/web/`: `index.html` (title/launch background/icon from the manifest), `orkige_player.{js,wasm}`, `icon.png`, `game.pak` + `game.js`. COMPILES NOTHING — the wasm player is a build artifact like every other platform's player and the rest is bytes the exporter arranges, so a browser build packages on a machine with no Emscripten toolchain. |

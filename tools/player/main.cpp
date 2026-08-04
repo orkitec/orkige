@@ -1594,13 +1594,13 @@ int main(int argc, char** argv)
 
 		// audio: the mixer lives on the SoundManager (per-source gain x group
 		// volume, master on the AL listener); the "ears" ride the window
-		// camera's rig node. A failed OpenAL init is NOT fatal - the game
+		// camera's rig node. A failed audio init is NOT fatal - the game
 		// runs silent, every sound call no-ops honestly (headless CI safety)
 		context.soundManager.emplace(cameraNode);
 		Orkige::SoundManager& soundManager = *context.soundManager;
 		if (!soundManager.init())
 		{
-			SDL_Log("orkige_player: sound disabled - OpenAL init failed");
+			SDL_Log("orkige_player: sound disabled - audio init failed");
 		}
 		if (project.isLoaded())
 		{

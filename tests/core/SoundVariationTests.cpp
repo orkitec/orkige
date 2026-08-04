@@ -39,7 +39,7 @@ TEST_CASE("variedPitch: the sample walks the symmetric range", "[unit][sound][va
 
 TEST_CASE("variedPitch: stays strictly positive at large ranges", "[unit][sound][variation]")
 {
-	// range 2.0 at the low edge would be -1.0; it clamps above zero so AL_PITCH
+	// range 2.0 at the low edge would be -1.0; it clamps above zero so the pitch
 	// never goes non-positive
 	CHECK(variedPitch(2.0f, 0.0f) > 0.0f);
 }

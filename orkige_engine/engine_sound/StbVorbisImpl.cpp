@@ -12,8 +12,6 @@
 	the tests reach Vorbis only through the MusicDecode seam declared in
 	MusicStream.h.
 *********************************************************************/
-#ifdef ORKIGE_OPENAL_SOUND
-
 #include "engine_sound/MusicStream.h"
 
 // the decoder's own API (no pushdata/pulldata file helpers needed - we feed it
@@ -113,5 +111,3 @@ namespace Orkige
 		}
 	}
 }
-
-#endif //ORKIGE_OPENAL_SOUND

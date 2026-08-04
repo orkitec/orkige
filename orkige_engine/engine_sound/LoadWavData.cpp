@@ -6,8 +6,7 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
-#ifdef ORKIGE_OPENAL_SOUND
-#include "engine_sound/SoundPlatform.h"
+#include "engine_sound/SoundData.h"
 #include "engine_sound/SoundError.h"
 // explicit (the neutral umbrella carries math only): wav bytes
 // come through the resource system - Ogre::DataStream/ResourceGroupManager
@@ -66,89 +65,24 @@ namespace Orkige
 			return data;
 		}
 		//----------------------------------------------------
-		inline void prepareBuffer(ALsizei channels, ALsizei bits, ALsizei freq, int* bufferSize, ALenum* format)
+		//! @brief the read chunk size: a quarter of a second, rounded down to a
+		//! whole number of frames (a partial frame would shear the samples)
+		inline int prepareBuffer(int channels, int bits, int freq)
 		{
-			switch(channels)
+			const int blockAlign = channels * (bits / 8);
+			if(blockAlign <= 0)
 			{
-			case 1:
-				if(bits == 8)
-				{
-					*format = AL_FORMAT_MONO8;
-					// Set BufferSize to 250ms (Frequency divided by 4 (quarter of a second))
-					*bufferSize = freq / 4;
-				}
-				else
-				{
-					*format = AL_FORMAT_MONO16;
-					// Set BufferSize to 250ms (Frequency * 2 (16bit) divided by 4 (quarter of a second))
-					*bufferSize = freq >> 1;
-					// IMPORTANT : The Buffer Size must be an exact multiple of the BlockAlignment ...
-					*bufferSize -= (*bufferSize % 2);
-				}
-				break;
-			case 2:
-				if(bits == 8)
-				{
-					*format = AL_FORMAT_STEREO8;
-					// Set BufferSize to 250ms (Frequency * 2 (8bit stereo) divided by 4 (quarter of a second))
-					*bufferSize = freq >> 1;
-					// IMPORTANT : The Buffer Size must be an exact multiple of the BlockAlignment ...
-					*bufferSize -= (*bufferSize % 2);
-				}
-				else
-				{
-					*format = AL_FORMAT_STEREO16;
-					// Set BufferSize to 250ms (Frequency * 4 (16bit stereo) divided by 4 (quarter of a second))
-					*bufferSize = freq;
-					// IMPORTANT : The Buffer Size must be an exact multiple of the BlockAlignment ...
-					*bufferSize-= (*bufferSize % 4);
-				}
-				break;
-			case 4:
-				*format = alGetEnumValue("AL_FORMAT_QUAD16");
-				// Set BufferSize to 250ms (Frequency * 8 (16bit 4-channel) divided by 4 (quarter of a second))
-				*bufferSize = freq * 2;
-				// IMPORTANT : The Buffer Size must be an exact multiple of the BlockAlignment ...
-				*bufferSize -= (*bufferSize % 8);
-				break;
-			case 6:
-				*format = alGetEnumValue("AL_FORMAT_51CHN16");
-				// Set BufferSize to 250ms (Frequency * 12 (16bit 6-channel) divided by 4 (quarter of a second))
-				*bufferSize = freq * 3;
-				// IMPORTANT : The Buffer Size must be an exact multiple of the BlockAlignment ...
-				*bufferSize -= (*bufferSize % 12);
-				break;
-			case 7:
-				*format = alGetEnumValue("AL_FORMAT_61CHN16");
-				// Set BufferSize to 250ms (Frequency * 16 (16bit 7-channel) divided by 4 (quarter of a second))
-				*bufferSize = freq  * 4;
-				// IMPORTANT : The Buffer Size must be an exact multiple of the BlockAlignment ...
-				*bufferSize -= (*bufferSize % 16);
-				break;
-			case 8:
-				*format = alGetEnumValue("AL_FORMAT_71CHN16");
-				// Set BufferSize to 250ms (Frequency * 20 (16bit 8-channel) divided by 4 (quarter of a second))
-				*bufferSize = freq * 5;
-				// IMPORTANT : The Buffer Size must be an exact multiple of the BlockAlignment ...
-				*bufferSize -= (*bufferSize % 20);
-				break;
-			default:
-				// Couldn't determine buffer format so log the error and default to mono
-				oDebugMsg("sound",0,"Could not determine buffer format!  Setting to MONO");
-
-				*format = AL_FORMAT_MONO16;
-				// Set BufferSize to 250ms (Frequency * 2 (16bit) divided by 4 (quarter of a second))
-				*bufferSize = freq  >> 1;
-				// IMPORTANT : The Buffer Size must be an exact multiple of the BlockAlignment ...
-				*bufferSize -= (*bufferSize % 2);
-				break;
+				return freq;
 			}
+			int bufferSize = (freq * blockAlign) / 4;
+			bufferSize -= (bufferSize % blockAlign);
+			return (bufferSize > 0) ? bufferSize : blockAlign;
 		}
 		//----------------------------------------------------
-		void* loadWavData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate)
+		void* loadWavData(Orkige::String const & fileName, int * dataSize, PcmFormat * format)
 		{
-			ALsizei bits;
-			ALsizei channels;
+			int bits;
+			int channels;
 			int bufferSize;
 
 			Ogre::ResourceGroupManager *groupManager = Ogre::ResourceGroupManager::getSingletonPtr();
@@ -188,18 +122,18 @@ namespace Orkige
 
 			// read number of channels
 			SoundError::call(soundData->read(buffer16, 2) == 2, "Cannot read wav file " + fileName);
-			channels = readSoundByte16(buffer16);
+			channels = static_cast<int>(readSoundByte16(buffer16));
 
 			// read frequency (sample rate)
 			SoundError::call(soundData->read(buffer32, 4) == 4, "Cannot read wav file " + fileName);
-			*sampleRate = readSoundByte32(buffer32);
+			format->sampleRate = static_cast<int>(readSoundByte32(buffer32));
 
 			// skip 6 bytes (Byte rate (4), Block align (2))
 			soundData->skip(6);
 
 			// read bits per sample
 			SoundError::call(soundData->read(buffer16, 2) == 2, "Cannot read wav file " + fileName);
-			bits = readSoundByte16(buffer16);
+			bits = static_cast<int>(readSoundByte16(buffer16));
 
 			// check 'data' sub chunk (2)
 			SoundError::call(soundData->read(magic, 4) == 4, "Cannot read wav file " + fileName);
@@ -217,12 +151,23 @@ namespace Orkige
 
 			// The next four bytes are the size remaing of the file
 			SoundError::call(soundData->read(buffer32, 4) == 4, "Cannot read wav file " + fileName);
-			*dataSize = readSoundByte32(buffer32);
+			*dataSize = static_cast<int>(readSoundByte32(buffer32));
 
-			prepareBuffer(channels, bits, *sampleRate, &bufferSize, dataFormat);
+			// the mixer takes 8 bit unsigned and 16 bit signed samples; any
+			// other width is an honest refusal rather than a silent mis-read
+			SoundError::call(bits == 8 || bits == 16,
+				"Unsupported wav sample width (only 8 and 16 bit): " + fileName,
+				SoundError::SE_BAD_DATA);
+			SoundError::call(channels >= 1,
+				"Wrong wav file format. (no channels): " + fileName,
+				SoundError::SE_BAD_DATA);
+			format->channels = channels;
+			format->bitsPerSample = bits;
+
+			bufferSize = prepareBuffer(channels, bits, format->sampleRate);
 
 			std::vector<char> vdata = getSoundData(*dataSize, bufferSize, soundData);
-			*dataSize = vdata.size();
+			*dataSize = static_cast<int>(vdata.size());
 			void* data = malloc(sizeof(char) * vdata.size());
 			memcpy(data, &vdata[0], sizeof(char) * vdata.size());
 
@@ -231,4 +176,3 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 }
-#endif //ORKIGE_OPENAL_SOUND

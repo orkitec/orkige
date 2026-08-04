@@ -12,10 +12,8 @@
 // through the resource system - Ogre::DataStream/ResourceGroupManager exist
 // identically in classic OGRE 14 and Ogre-Next, exactly as LoadWavData reads
 // wav bytes, so streamed music stays mounted-pak/APK compatible
-#ifdef ORKIGE_OPENAL_SOUND
 #include <OgreDataStream.h>
 #include <OgreResourceGroupManager.h>
-#endif
 
 #include <algorithm>
 #include <cmath>
@@ -27,7 +25,6 @@ namespace Orkige
 	const float	MusicStream::kBufferSeconds	= 0.5f;
 	const String MusicStream::kMusicGroup	= "music";
 	//---------------------------------------------------------
-#ifdef ORKIGE_OPENAL_SOUND
 	namespace
 	{
 		//! read a resource's whole byte content through the OGRE resource
@@ -68,12 +65,12 @@ namespace Orkige
 			}
 		}
 	}
-#endif //ORKIGE_OPENAL_SOUND
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	MusicStream::MusicStream(String const & id, String const & fileName, bool loop)
 		: Object(id)
+		, mStream(NULL)
 		, mVorbis(NULL)
 		, mChannels(0)
 		, mDecodeRate(0)
@@ -85,32 +82,24 @@ namespace Orkige
 		, mPrimed(false)
 		, mReachedEnd(false)
 		, mWasPlaying(false)
+		, mPaused(false)
 		, mBaseGain(1.f)
 		, mGroupVolume(1.f)
-		, mPlayedFrames(0)
 	{
-#ifdef ORKIGE_OPENAL_SOUND
-		this->mSource = 0;
-		this->mFormat = 0;
-		this->mSampleRate = 0;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	MusicStream::~MusicStream()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		this->teardownAudio();
 		if (this->mVorbis)
 		{
 			MusicDecode::close(this->mVorbis);
 			this->mVorbis = NULL;
 		}
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool MusicStream::open()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		std::vector<unsigned char> bytes;
 		if (!readResourceBytes(this->mFileName, bytes) || bytes.empty())
 		{
@@ -124,16 +113,12 @@ namespace Orkige
 				<< this->mFileName << "!");
 			return false;
 		}
-		// create the AL objects + prime the ring so play() can start it
+		// create the voice + prime its ring so play() can start it
 		return this->primeAudio();
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool MusicStream::openFromMemory(std::vector<unsigned char> encoded)
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (this->mOpen)
 		{
 			return true;
@@ -155,16 +140,8 @@ namespace Orkige
 		this->mDecodeRate = (info.sampleRate > 0) ? info.sampleRate : 44100;
 		this->mDuration = info.durationSeconds;
 		this->mReachedEnd = false;
-		this->mPlayedFrames = 0;
-		this->mFormat = (this->mChannels == 2)
-			? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16;
-		this->mSampleRate = static_cast<ALsizei>(this->mDecodeRate);
 		this->mOpen = true;
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		(void)encoded;
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	int MusicStream::bufferFrames() const
@@ -175,14 +152,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	int MusicStream::decodeChunk(short * out, int maxFrames)
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (!this->mOpen || out == NULL || maxFrames <= 0)
 		{
 			return 0;
 		}
 		int framesWritten = 0;
 		// keep filling until the buffer is full; on end of stream a looping
-		// track seeks to the start and continues so no silent gap is queued
+		// track seeks to the start and continues so no silent gap is handed on
 		while (framesWritten < maxFrames)
 		{
 			const int got = MusicDecode::read(this->mVorbis,
@@ -215,61 +191,19 @@ namespace Orkige
 			}
 		}
 		return framesWritten;
-#else //ORKIGE_OPENAL_SOUND
-		(void)out;
-		(void)maxFrames;
-		return 0;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	void MusicStream::update()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (!this->mPrimed)
 		{
 			return;
 		}
-		ALint processed = 0;
-		alGetSourcei(this->mSource, AL_BUFFERS_PROCESSED, &processed);
-		while (processed-- > 0)
-		{
-			ALuint buffer = 0;
-			alSourceUnqueueBuffers(this->mSource, 1, &buffer);
-			// the buffer that just finished contributes to the playhead base
-			ALint bits = 16;
-			ALint channels = this->mChannels;
-			ALint sizeBytes = 0;
-			alGetBufferi(buffer, AL_SIZE, &sizeBytes);
-			const int bytesPerFrame = (bits / 8) * channels;
-			if (bytesPerFrame > 0)
-			{
-				this->mPlayedFrames += sizeBytes / bytesPerFrame;
-			}
-			// refill and requeue unless a non-looping stream has drained
-			if (this->fillBuffer(buffer))
-			{
-				alSourceQueueBuffers(this->mSource, 1, &buffer);
-			}
-		}
-		// a brief underrun can leave AL_STOPPED with buffers still queued -
-		// restart so the track keeps playing through the hiccup
-		if (!this->mReachedEnd)
-		{
-			ALint state = 0;
-			alGetSourcei(this->mSource, AL_SOURCE_STATE, &state);
-			ALint queued = 0;
-			alGetSourcei(this->mSource, AL_BUFFERS_QUEUED, &queued);
-			if (state != AL_PLAYING && state != AL_PAUSED && queued > 0)
-			{
-				alSourcePlay(this->mSource);
-			}
-		}
-#endif //ORKIGE_OPENAL_SOUND
+		this->fillRing();
 	}
 	//---------------------------------------------------------
 	bool MusicStream::play()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (!this->mPrimed)
 		{
 			return false;
@@ -278,82 +212,63 @@ namespace Orkige
 		{
 			return true;
 		}
-		alSourcePlay(this->mSource);
+		AudioBackend::streamStart(this->mStream);
+		this->mPaused = false;
 		return this->isPlaying();
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool MusicStream::stop()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (!this->mPrimed)
 		{
 			return false;
 		}
-		alSourceStop(this->mSource);
-		// rewind the decoder so a later play() starts from the top
+		// a stop rewinds: the voice goes quiet, the ring is emptied and the
+		// decoder goes back to the top, so a later play() starts from there
+		AudioBackend::streamReset(this->mStream);
 		MusicDecode::seekStart(this->mVorbis);
 		this->mReachedEnd = false;
-		this->mPlayedFrames = 0;
+		this->mPaused = false;
+		this->fillRing();
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool MusicStream::pause()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (!this->mPrimed)
 		{
 			return false;
 		}
-		alSourcePause(this->mSource);
+		AudioBackend::streamSuspend(this->mStream);
+		this->mPaused = true;
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool MusicStream::resume()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
-		if (!this->mPrimed)
+		if (!this->mPrimed || !this->mPaused)
 		{
 			return false;
 		}
-		ALint state = 0;
-		alGetSourcei(this->mSource, AL_SOURCE_STATE, &state);
-		if (state == AL_PAUSED)
-		{
-			alSourcePlay(this->mSource);
-			return true;
-		}
-		return false;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
+		AudioBackend::streamStart(this->mStream);
+		this->mPaused = false;
+		return true;
 	}
 	//---------------------------------------------------------
 	void MusicStream::suspend()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (!this->mPrimed)
 		{
 			return;
 		}
 		this->mWasPlaying = this->isPlaying();
-		// releases the AL source + buffers; the decoder + resident bytes stay,
-		// so restore() re-primes the ring from the decoder's current position
+		// releases the voice; the decoder + resident bytes stay, so restore()
+		// re-primes the ring from the decoder's current position
 		this->teardownAudio();
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	void MusicStream::restore()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (this->mPrimed || !this->mOpen)
 		{
 			return;
@@ -363,22 +278,15 @@ namespace Orkige
 			this->play();
 		}
 		this->mWasPlaying = false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool MusicStream::isPlaying() const
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (!this->mPrimed)
 		{
 			return false;
 		}
-		ALint state = 0;
-		alGetSourcei(this->mSource, AL_SOURCE_STATE, &state);
-		return state == AL_PLAYING;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
+		return AudioBackend::streamIsPlaying(this->mStream);
 	}
 	//---------------------------------------------------------
 	bool MusicStream::isOpen() const		{ return this->mOpen; }
@@ -414,16 +322,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	float MusicStream::getPlayPosition() const
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (!this->mPrimed)
 		{
 			return 0.f;
 		}
-		ALint offset = 0;
-		alGetSourcei(this->mSource, AL_SAMPLE_OFFSET, &offset);
 		const double rate = (this->mDecodeRate > 0) ? this->mDecodeRate : 44100;
-		double seconds = (static_cast<double>(this->mPlayedFrames) + offset)
-			/ rate;
+		double seconds = static_cast<double>(
+			AudioBackend::streamConsumedFrames(this->mStream)) / rate;
 		// a looping track reports its position within the track, not the
 		// ever-growing total
 		if (this->mLoop && this->mDuration > 0.f)
@@ -431,9 +336,6 @@ namespace Orkige
 			seconds = std::fmod(seconds, static_cast<double>(this->mDuration));
 		}
 		return static_cast<float>(seconds);
-#else //ORKIGE_OPENAL_SOUND
-		return 0.f;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	float MusicStream::getDuration() const	{ return this->mDuration; }
@@ -444,7 +346,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool MusicStream::primeAudio()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (!this->mOpen)
 		{
 			return false;
@@ -453,116 +354,79 @@ namespace Orkige
 		{
 			return true;
 		}
-		alGetError();
-		alGenSources(1, &this->mSource);
-		if (alGetError() != AL_NO_ERROR)
+		// the ring carries kBufferCount chunks of cushion, which is what lets
+		// a main-thread refill tolerate the occasional long frame
+		this->mStream = AudioBackend::streamCreate(this->mChannels,
+			this->mDecodeRate, this->bufferFrames() * kBufferCount);
+		if (this->mStream == NULL)
 		{
-			oDebugMsg("sound", 0, "Error generating music source for "
+			oDebugMsg("sound", 0, "Error creating the music voice for "
 				<< this->mFileName << "!");
 			return false;
-		}
-		this->mBuffers.assign(kBufferCount, 0);
-		alGenBuffers(kBufferCount, &this->mBuffers[0]);
-		if (alGetError() != AL_NO_ERROR)
-		{
-			alDeleteSources(1, &this->mSource);
-			this->mSource = 0;
-			this->mBuffers.clear();
-			oDebugMsg("sound", 0, "Error generating music buffers for "
-				<< this->mFileName << "!");
-			return false;
-		}
-		// music is a 2D stream: keep it listener-relative at the origin so the
-		// 3D attenuation model never touches it
-		alSourcei(this->mSource, AL_SOURCE_RELATIVE, AL_TRUE);
-		alSource3f(this->mSource, AL_POSITION, 0.f, 0.f, 0.f);
-		alSourcef(this->mSource, AL_ROLLOFF_FACTOR, 0.f);
-		alSourcef(this->mSource, AL_MAX_GAIN, 1.f);
-		alSourcef(this->mSource, AL_MIN_GAIN, 0.f);
-		alSourcef(this->mSource, AL_GAIN, this->getEffectiveGain());
-
-		// prime the ring: fill each buffer and queue the ones that got data
-		std::vector<short> pcm(bufferFrames() * this->mChannels);
-		std::vector<ALuint> toQueue;
-		for (int i = 0; i < kBufferCount; ++i)
-		{
-			const int frames = this->decodeChunk(&pcm[0], bufferFrames());
-			if (frames <= 0)
-			{
-				break;
-			}
-			alBufferData(this->mBuffers[i], this->mFormat, &pcm[0],
-				static_cast<ALsizei>(frames * this->mChannels * sizeof(short)),
-				this->mSampleRate);
-			toQueue.push_back(this->mBuffers[i]);
-		}
-		if (!toQueue.empty())
-		{
-			alSourceQueueBuffers(this->mSource,
-				static_cast<ALsizei>(toQueue.size()), &toQueue[0]);
 		}
 		this->mPrimed = true;
+		AudioBackend::streamSetVolume(this->mStream, this->getEffectiveGain());
+		this->fillRing();
 		return true;
-#else //ORKIGE_OPENAL_SOUND
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
-	bool MusicStream::fillBuffer(ALuint buffer)
+	void MusicStream::fillRing()
 	{
-#ifdef ORKIGE_OPENAL_SOUND
-		std::vector<short> pcm(bufferFrames() * this->mChannels);
-		const int frames = this->decodeChunk(&pcm[0], bufferFrames());
-		if (frames <= 0)
-		{
-			return false;	// non-looping stream fully drained
-		}
-		alBufferData(buffer, this->mFormat, &pcm[0],
-			static_cast<ALsizei>(frames * this->mChannels * sizeof(short)),
-			this->mSampleRate);
-		return true;
-#else //ORKIGE_OPENAL_SOUND
-		(void)buffer;
-		return false;
-#endif //ORKIGE_OPENAL_SOUND
-	}
-	//---------------------------------------------------------
-	void MusicStream::applyGain()
-	{
-#ifdef ORKIGE_OPENAL_SOUND
-		if (this->mPrimed)
-		{
-			alSourcef(this->mSource, AL_GAIN, this->getEffectiveGain());
-		}
-#endif //ORKIGE_OPENAL_SOUND
-	}
-	//---------------------------------------------------------
-	void MusicStream::teardownAudio()
-	{
-#ifdef ORKIGE_OPENAL_SOUND
 		if (!this->mPrimed)
 		{
 			return;
 		}
-		alSourceStop(this->mSource);
-		// unqueue anything still queued before deleting the buffers
-		ALint queued = 0;
-		alGetSourcei(this->mSource, AL_BUFFERS_QUEUED, &queued);
-		while (queued-- > 0)
+		const int chunkFrames = this->bufferFrames();
+		if (chunkFrames <= 0)
 		{
-			ALuint buffer = 0;
-			alSourceUnqueueBuffers(this->mSource, 1, &buffer);
+			return;
 		}
-		alDeleteSources(1, &this->mSource);
-		if (!this->mBuffers.empty())
+		if (static_cast<int>(this->mChunk.size()) < chunkFrames * this->mChannels)
 		{
-			alDeleteBuffers(static_cast<ALsizei>(this->mBuffers.size()),
-				&this->mBuffers[0]);
+			this->mChunk.assign(static_cast<std::size_t>(chunkFrames) *
+				this->mChannels, 0);
 		}
-		this->mSource = 0;
-		this->mBuffers.clear();
+		int room = AudioBackend::streamWritableFrames(this->mStream);
+		while (room > 0)
+		{
+			const int want = (room < chunkFrames) ? room : chunkFrames;
+			const int got = this->decodeChunk(&this->mChunk[0], want);
+			if (got <= 0)
+			{
+				// a non-looping track is out of samples: the voice ends once
+				// the mixer has played what is still in the ring
+				AudioBackend::streamMarkDrained(this->mStream);
+				break;
+			}
+			const int taken = AudioBackend::streamWrite(this->mStream,
+				&this->mChunk[0], got);
+			room -= taken;
+			if (taken < got)
+			{
+				break;	// the ring filled up mid-chunk
+			}
+		}
+	}
+	//---------------------------------------------------------
+	void MusicStream::applyGain()
+	{
+		if (this->mPrimed)
+		{
+			AudioBackend::streamSetVolume(this->mStream,
+				this->getEffectiveGain());
+		}
+	}
+	//---------------------------------------------------------
+	void MusicStream::teardownAudio()
+	{
+		if (!this->mPrimed)
+		{
+			return;
+		}
+		AudioBackend::streamDestroy(this->mStream);
+		this->mStream = NULL;
 		this->mPrimed = false;
-#endif //ORKIGE_OPENAL_SOUND
+		this->mPaused = false;
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------

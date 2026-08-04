@@ -63,15 +63,12 @@ if(EMSCRIPTEN)
     #                    before any C fopen is seen - and it exports the
     #                    FS_createDataFile / run-dependency pair the export's
     #                    data loader installs that pak through
-    #   -lopenal         Emscripten's WebAudio-backed OpenAL implementation
-    #                    (the same AL surface openal-soft provides natively)
     target_link_options(orkige_player PRIVATE
         -sALLOW_MEMORY_GROWTH=1
         -sSTACK_SIZE=5242880
         -sMAX_WEBGL_VERSION=2
         -sFORCE_FILESYSTEM=1
         -sEXIT_RUNTIME=1
-        -lopenal
     )
 endif()
 

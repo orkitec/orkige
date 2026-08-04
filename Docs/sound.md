@@ -1,18 +1,91 @@
 # Sound
 
 Orkige plays three kinds of audio, all through one `SoundManager`
-(`orkige_engine/engine_sound/`, OpenAL Soft on every platform):
+(`orkige_engine/engine_sound/`):
 
 | kind | asset | how it is loaded |
 | --- | --- | --- |
-| sound effects | `.wav`, `.caf` (Apple platforms) | decoded whole into one buffer |
+| sound effects | `.wav`, `.caf` (Apple platforms) | decoded whole into one voice |
 | **procedural sound effects** | **`.sfs`, `.osfx`** | **SYNTHESIZED at load from sound parameters** |
-| music | `.ogg` (Vorbis) | streamed through a queued-buffer ring |
+| music | `.ogg` (Vorbis) | streamed through a ring the main thread fills |
 
-Everything below is about the middle row. The mixer (per-source volume x mixer
-group x master), positional audio, per-play pitch/volume variation and the Lua
-`sound` surface are shared by all three and documented in
-[the Lua API reference](lua-api.md).
+Most of this page is about the middle row; [the audio
+backend](#the-audio-backend) below covers the tier all three sit on. The mixer
+(per-source volume x mixer group x master), positional audio, per-play
+pitch/volume variation and the Lua `sound` surface are shared by all three and
+documented in [the Lua API reference](lua-api.md).
+
+## The audio backend
+
+`engine_sound/AudioBackend.h` is the ONE door to the output device, the mixing
+graph and the voices on it. Handles are opaque and the single-file audio
+library behind it is compiled in exactly one translation unit
+(`engine_sound/MiniaudioImpl.cpp`), so it never reaches a header, the neutral
+umbrella or the precompiled header — the same containment
+`engine_sound/StbVorbisImpl.cpp` keeps around the Vorbis decoder.
+
+**The engine decodes its own audio.** `SoundUtil::loadSoundData` is the one
+place a sound file becomes samples (`.wav`, `.caf`, `.sfs`/`.osfx`), and
+`MusicDecode` is the one place compressed music does; the backend's own file
+decoders are compiled out. One decode path, never two.
+
+**Streamed music decodes on the MAIN thread.** A voice is fed from a lock-free
+ring: `SoundManager::update` (main thread) decodes into whatever room the ring
+has, the mixer's device thread drains it. That is deliberate — the Vorbis
+decoder and the resource read behind it are main-thread facts, and the
+[filesystem funnel](filesystem.md) is not built to be entered from an audio
+callback. The ring carries about two seconds of cushion, so an occasional long
+frame costs nothing; a genuine underrun plays silence and the track keeps
+going, and a non-looping track ends by itself once its drained ring empties.
+
+**Positional audio** is the inverse-distance model, clamped at both ends: a
+source plays at full volume out to a reference distance, falls off as
+`ref / (ref + rolloff * (clamp(d, ref, max) - ref))`, and stops falling past a
+maximum distance. Only MONO sources are placed in the world; a stereo clip is
+a finished mix and plays as authored. Streamed music is never positional.
+
+**Volumes are 0..1 everywhere** — source, mixer group and master — so one
+scale covers all three and `effective = base x group`, with the master over
+the whole graph.
+
+### Silence is a property of the RUN
+
+**An automated run opens the SILENT device.** Not a test, not a scene, not a
+component — the run. `AppHost::initialise` tells the sound system what kind of
+run this process is (`SoundManager::setAutomatedRun`, from the same
+`automatedRun` flag that decides vsync), and every host comes through it:
+editor, player, samples, a native game module, and `--run-tests`. So a scripted
+run never reaches the speakers of the machine it runs on, and no test
+registration has to remember to ask.
+
+The choice is also **handed down to child processes** through the environment,
+so the player an automated editor spawns makes the same one.
+
+The silent device is a real device in every way that matters: it consumes
+samples in real time, so playheads advance and rings drain exactly as they
+would audibly, and sound-asserting tests pass unchanged. It is preferred over
+a zero master volume because it never opens the machine's audio hardware at
+all — nothing to steal, no route change, nothing that can interrupt what the
+developer is listening to.
+
+**`ORKIGE_AUDIO_BACKEND` overrides the default, either way**, because a
+developer sometimes DOES want to hear a scripted run:
+
+| value | effect |
+| --- | --- |
+| unset | the run decides: silent when automated, the machine's device otherwise |
+| `null` / `silent` / `off` | the silent device, even for a human run |
+| `auto` (or anything else) | the machine's own device, even for an automated run |
+
+The decision is the pure `SoundManager::resolveSilentDevice`, unit-tested with
+no device in sight — it is the kind of rule that regresses without failing
+anything, so it has a test of its own.
+
+On iOS the backend sets the AMBIENT audio-session category and activates the
+session before it touches the hardware: a game's audio is not the user's
+primary media, so it mixes with whatever they are already playing and honours
+the ringer switch. A game that wants to play through silence sets its own
+category before the sound system starts.
 
 ## Why a parameter file
 
@@ -173,9 +246,9 @@ sound:setPitchVariation("coin", 0.1)
 sound:play("coin")
 ```
 
-Synthesis happens once, at `addSound`; the samples then live in an OpenAL
-buffer like any decoded file's, so an interruption re-upload, positional audio
-and the mixer all work unchanged. A file that cannot be read or parsed leaves
+Synthesis happens once, at `addSound`; the samples then feed a mixer voice like
+any decoded file's, so an interruption rebuild, positional audio and the mixer
+all work unchanged. A file that cannot be read or parsed leaves
 the source registered but SILENT with one honest error line - one bad asset
 costs its own sound and nothing else.
 

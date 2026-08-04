@@ -35,6 +35,7 @@ add_executable(orkige_engine_tests
     SoundMixerTests.cpp
     MusicStreamTests.cpp
     SoundTeardownTests.cpp
+    AudioBackendTests.cpp
     TweenScriptTests.cpp
     InputActionTests.cpp
     InputInjectionTests.cpp
@@ -121,10 +122,9 @@ if(TARGET orkige_generate_atlases)
 endif()
 
 include(Catch)
-# ALSOFT_DRIVERS: the engine unit suite links OpenAL - keep any test that
-# opens a device on the silent null backend (SoundTeardownTests also forces
-# it in-code so a bare binary run stays silent too).
+# Nothing here declares an audio choice: a unit run IS an automated run, so
+# EngineTestEnvironment latches it and every device this binary opens is the
+# SILENT one - whether ctest starts it or a developer runs the binary by hand.
 catch_discover_tests(orkige_engine_tests
     PROPERTIES LABELS unit TIMEOUT 30
-        ENVIRONMENT_MODIFICATION "ALSOFT_DRIVERS=set:null"
 )

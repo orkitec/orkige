@@ -18,6 +18,7 @@
 #include "engine_render/MeshInstance.h"
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_input/KeyEventData.h"
+#include "engine_sound/SoundManager.h"
 #include "engine_util/PlatformWindow.h"
 #include "engine_util/StringUtil.h"
 #include "core_debug/CVarManager.h"
@@ -93,6 +94,13 @@ namespace Orkige
 	bool AppHost::initialise(AppHostConfig const & config)
 	{
 		this->mConfig = config;
+		// WHICH AUDIO DEVICE THIS RUN OPENS - decided here, once, before
+		// anything can open one: silence is a property of the RUN, so an
+		// automated run reaches the SILENT device and never the speakers of
+		// the machine it runs on. Every host (editor, player, samples, a
+		// native game module) comes through here, and the choice is handed
+		// down to child processes (@see SoundManager::setAutomatedRun).
+		SoundManager::setAutomatedRun(config.automatedRun);
 		// DEVICELESS: the process was asked for no window and no GPU (@see
 		// engine_render/RenderSystemSelection.h). It still needs the event
 		// subsystem (the frame loop polls quit), but must NOT touch video -

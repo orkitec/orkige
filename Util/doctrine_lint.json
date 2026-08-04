@@ -37,7 +37,7 @@
    "code comments, string literals or Docs prose (identifiers are not",
    "scanned). This table is the ONE sanctioned place for the names. The",
    "project's OWN stack (OGRE/Ogre-Next, SDL, Jolt, vcpkg, ImGui, sol2, Lua,",
-   "OpenAL, Emscripten, WebGL, Metal, Vulkan, Lottie, ...) is never listed.",
+   "miniaudio, Emscripten, WebGL, Metal, Vulkan, Lottie, ...) is never listed.",
    "exempt_files carries vendored third-party sources (whose own docs may",
    "mention anything) and the factual DevicePreset device table (real phone",
    "model names are platform-target data, not a product comparison)."
