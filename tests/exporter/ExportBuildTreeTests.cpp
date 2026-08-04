@@ -114,6 +114,27 @@ TEST_CASE("each flavor prefers its own release sibling", "[unit][export]")
 		ExportFiles::join(scratch.path, "macos-release-classic"));
 }
 
+TEST_CASE("a test build packages the tree it was pointed at", "[unit][export]")
+{
+	// SHIPPING SPEED is the only reason the substitution exists, so it holds
+	// for every ordinary export from a non-Release tree...
+	CHECK(prefersSiblingReleasePlayer("Debug", false));
+	CHECK(prefersSiblingReleasePlayer("RelWithDebInfo", false));
+	CHECK(prefersSiblingReleasePlayer("", false));
+	// ...and never when the tree already IS the release one
+	CHECK_FALSE(prefersSiblingReleasePlayer("Release", false));
+
+	// A TEST BUILD asks whether the runtime THIS tree produced still passes
+	// the project's suite once packaged, so it is answered by that tree and no
+	// other - whatever build type either one carries. A sibling is a different
+	// build of a different commit, and one older than the packaged test build
+	// does not act on the marker's run-tests directive at all: it plays the
+	// game, forever, and the suite never reaches a verdict.
+	CHECK_FALSE(prefersSiblingReleasePlayer("Debug", true));
+	CHECK_FALSE(prefersSiblingReleasePlayer("Release", true));
+	CHECK_FALSE(prefersSiblingReleasePlayer("", true));
+}
+
 TEST_CASE("the architecture comes off the triplet", "[unit][export]")
 {
 	CHECK(tripletArchitecture("arm64-osx") == "arm64");

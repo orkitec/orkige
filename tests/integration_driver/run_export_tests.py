@@ -87,6 +87,33 @@ def report_settled(report_dir):
     return read_report(report_dir)[2] is not None
 
 
+# The runner opens its report and writes the `meta` line BEFORE it runs a
+# single test, so the file appearing is the fact "the packaged artifact entered
+# the test runner AT ALL". That is a different failure from a slow or a wedged
+# suite, and it must not be paid for at the deadline: an artifact whose player
+# does not act on the marker's `run-tests` directive simply plays the GAME, and
+# a game runs forever. Naming it here turns ten silent minutes into one line.
+#
+# The window has to sit ABOVE any legitimate boot, because it accuses the
+# artifact rather than timing it: the sibling device driver budgets a whole
+# simulator app boot at 300s on a hosted runner, and a desktop bundle boots in
+# seconds. So it is generous, and its value is the NAME it fails with.
+RUNNER_START_GRACE = 240
+
+
+def report_started(report_dir):
+    """has the packaged artifact entered the runner? (a `meta` record landed)"""
+    return read_report(report_dir)[0] is not None
+
+
+def never_started(seconds):
+    fail("the packaged app never entered the test runner: no test report "
+         "appeared within %ds, so not one record was written. The artifact is "
+         "running the GAME instead of its suite - the packaged player does not "
+         "act on the project marker's run-tests directive (an engine tree "
+         "older than the packaged test build would do exactly this)" % seconds)
+
+
 def judge(report_dir, exit_code):
     """turn the artifact into this driver's own exit status.
 
@@ -153,9 +180,34 @@ def run_macos(args, report_dir):
     environment.pop("ORKIGE_DEMO_SCREENSHOT", None)
     log("$ %s   (cwd = %s)" % (executable, args.output))
     # a NEUTRAL cwd: the source tree's files would mask a payload that lost one
-    result = subprocess.run([executable], cwd=args.output, env=environment,
-                            timeout=args.deadline)
-    return result.returncode
+    process = subprocess.Popen([executable], cwd=args.output, env=environment)
+    started = False
+    window = min(RUNNER_START_GRACE, args.deadline)
+    grace = time.monotonic() + window
+    end = time.monotonic() + args.deadline
+    try:
+        while True:
+            code = process.poll()
+            if code is not None:
+                return code
+            if not started:
+                started = report_started(report_dir)
+            now = time.monotonic()
+            if not started and now > grace:
+                never_started(window)
+            if now > end:
+                fail("the packaged suite never reached a verdict within %ds"
+                     % args.deadline)
+            time.sleep(0.5)
+    finally:
+        # the app is a game loop when this goes wrong, so it is never left
+        # running behind a failed driver
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                process.kill()
 
 
 # --- iOS Simulator: the packaged run on the device it ships to --------------
@@ -205,10 +257,20 @@ def run_ios_simulator(args, report_dir):
         environment.pop("SIMCTL_CHILD_ORKIGE_DEMO_FPS_LOG", None)
         tail = ConsoleTail(["xcrun", "simctl", "launch", "--console-pty",
                             udid, bundle_id], environment)
+        started = False
+        window = min(RUNNER_START_GRACE, args.deadline)
+        grace = time.monotonic() + window
         end = time.monotonic() + args.deadline
         while time.monotonic() < end:
             if report_settled(device_report):
                 break
+            # the same distinction the macOS run draws: an app that never
+            # entered the runner is not a slow suite, and says so at the grace
+            # rather than at the deadline
+            started = started or report_started(device_report)
+            if not started and time.monotonic() > grace:
+                print(tail.text()[-8000:], flush=True)
+                never_started(window)
             time.sleep(1.0)
         else:
             print(tail.text()[-8000:], flush=True)
