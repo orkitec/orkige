@@ -54,6 +54,16 @@ struct PlayerSelfChecks
 	bool resizeCheck = false;
 	bool perfCheck = false;
 	bool benchmarkCheck = false;
+	//! @brief the SHARED-MATERIAL contract probe (@see afterSceneLoad): a
+	//! scene where many meshes name ONE `.omat` must build that material
+	//! ONCE. Building is create-or-update and not local - assigning a field
+	//! of a live material invalidates every surface already bound to it - so
+	//! a per-instance rebuild is quadratic in the sharer count and shows up
+	//! as a scene-load stall. The check reads the build count off the ONE
+	//! memo both backends consult (@see engine_render/RenderMaterialCache.h)
+	//! and requires exactly one build per DISTINCT material, no matter how
+	//! many instances asked for it.
+	bool sharedMaterialCheck = false;
 	//! the static-mobility contract probe (@see the perFrame block)
 	bool staticMoveCheck = false;
 	//! the sprite-run batching probe (@see the perFrame block)

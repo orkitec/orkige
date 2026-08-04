@@ -56,6 +56,13 @@ never a half-applied look).
   is the scalar-drive path (e.g. lowering `roughness` on a ground material at
   runtime to read wet). Returns false (and logs) when a referenced texture is
   missing; the material is still created with everything that resolved.
+  A call that would reproduce exactly what the live material already carries
+  does nothing: updating is not local (it invalidates every surface bound to
+  the material), so a scene where many meshes name one `.omat` would
+  otherwise pay a quadratic rebuild as a load stall. The memo behind that is
+  `engine_render/RenderMaterialCache.h`; a changed description — the only way
+  an edit reaches here — still updates the live material. See
+  `Docs/performance.md`.
 - `MeshInstance::setMaterial(name)` — assign to ALL sub-meshes of that
   instance (whole-instance granularity is the v1 boundary; per-instance, so
   other instances of the same mesh resource are untouched). Returns false and

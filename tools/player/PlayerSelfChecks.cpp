@@ -57,6 +57,7 @@
 #include <engine_gui/GuiTextEntry.h>
 #include <engine_input/InputManager.h>
 #include <engine_render/RenderSystem.h>
+#include <engine_render/RenderMaterialCache.h>
 #include <engine_render/RenderWorld.h>
 #include <engine_render/RenderCamera.h>
 #include <engine_render/MeshInstance.h>
@@ -74,6 +75,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <string>
 #include <vector>
 #include <cstring>
@@ -308,6 +310,12 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		(std::getenv("ORKIGE_PERF_SELFCHECK") != nullptr);
 	benchmarkCheck =
 		(std::getenv("ORKIGE_BENCHMARK_SELFCHECK") != nullptr);
+	// ORKIGE_SHARED_MATERIAL_SELFCHECK=1 verifies the shared-material
+	// contract against a scene whose meshes share one `.omat` (@see the
+	// header): one build per DISTINCT material, however many instances name
+	// it. Deviceless-friendly - it reads a count, not pixels.
+	sharedMaterialCheck =
+		(std::getenv("ORKIGE_SHARED_MATERIAL_SELFCHECK") != nullptr);
 	// ORKIGE_STATICMOVE_SELFCHECK verifies the static-mobility contract
 	// against projects/benchmark scenes/fixture_static.oscene (@see the
 	// header's block comment): a runtime move of a static object must warn
@@ -379,6 +387,7 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 		galleryCheck ||
 		benchmarkCheck || vectorAnimCheck ||
 		characterRigCheck || staticMoveCheck || spriteBatchCheck ||
+		sharedMaterialCheck ||
 		!assetIdCheckTexture.empty() || !cookedCheckTexture.empty() ||
 		frameLimit != 0;
 }
@@ -542,6 +551,63 @@ std::optional<int> PlayerSelfChecks::afterSceneLoad(PlayerContext& context)
 		SDL_Log("orkige_player: COOKED SELFCHECK PASSED - '%s' renders at "
 			"%ux%u from the cooked payload",
 			sprite->getTextureName().c_str(), texW, texH);
+	}
+
+	// --- ORKIGE_SHARED_MATERIAL_SELFCHECK: the shared-material contract.
+	// Walk the loaded world for every ModelComponent that names a material,
+	// count the DISTINCT names, and require the render backends' one memo to
+	// report exactly that many builds. A scene of N meshes sharing one
+	// `.omat` must build it ONCE: every build re-applies the description to a
+	// LIVE material and invalidates the surfaces already bound to it, so a
+	// per-instance rebuild costs O(N^2) and is paid as a scene-load stall
+	// (@see engine_render/RenderMaterialCache.h).
+	if (sharedMaterialCheck)
+	{
+		std::set<std::string> distinctMaterials;
+		unsigned int sharers = 0;
+		for (auto const& entry : gameObjectManager.getGameObjects())
+		{
+			optr<Orkige::GameObject> const& gameObject = entry.second;
+			if (!gameObject ||
+				!gameObject->hasComponent<Orkige::ModelComponent>())
+			{
+				continue;
+			}
+			Orkige::ModelComponent* model =
+				gameObject->getComponentPtr<Orkige::ModelComponent>();
+			const std::string materialName = model->getMaterialFileName();
+			if (materialName.empty())
+			{
+				continue;
+			}
+			distinctMaterials.insert(materialName);
+			++sharers;
+		}
+		const unsigned long builds =
+			Orkige::RenderMaterialCache::shared().buildCount();
+		// the check must not be able to pass vacuously: the scene it is
+		// pointed at has to actually SHARE a material between instances
+		if (sharers <= distinctMaterials.size())
+		{
+			SDL_Log("orkige_player: SHARED MATERIAL SELFCHECK FAILED - the "
+				"scene shares nothing (%u model components naming %zu "
+				"distinct materials), so it cannot prove the contract",
+				sharers, distinctMaterials.size());
+			return 1;
+		}
+		if (builds != distinctMaterials.size())
+		{
+			SDL_Log("orkige_player: SHARED MATERIAL SELFCHECK FAILED - %u "
+				"model components name %zu distinct materials but the "
+				"backend built %lu (expected one build per distinct "
+				"material; a per-instance rebuild is the quadratic "
+				"scene-load stall)",
+				sharers, distinctMaterials.size(), builds);
+			return 1;
+		}
+		SDL_Log("orkige_player: SHARED MATERIAL SELFCHECK PASSED - %u model "
+			"components sharing %zu distinct material(s) cost %lu build(s)",
+			sharers, distinctMaterials.size(), builds);
 	}
 	return std::nullopt;
 }

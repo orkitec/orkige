@@ -7,6 +7,7 @@ add_executable(orkige_engine_tests
     TestRunListener.cpp
     EngineTestEnvironment.h
     DevicelessSelectionTests.cpp
+    RenderMaterialCacheTests.cpp
     GuiAtlasTests.cpp
     NineSliceLayoutTests.cpp
     GuiLayoutIoTests.cpp

@@ -16,6 +16,7 @@
 
 #include "engine_render_next/NextBackend.h"
 #include "engine_render/RenderSystemSelection.h"	// the deviceless boot word
+#include "engine_render/RenderMaterialCache.h"	// the create-or-update memo
 #include <core_util/SkyEnvMap.h>
 #include <core_util/PlanarReflectionGuard.h>
 #include <core_debug/Breadcrumbs.h>	// crash-survivable trail at the mid-run mirror init points
@@ -3897,6 +3898,17 @@ namespace Orkige
 				return NULL;
 			}
 			datablock = static_cast<Ogre::HlmsPbsDatablock*>(existing);
+			// ALREADY REALIZED: this very datablock was last built completely
+			// from an equal description, so every assignment below would write
+			// back what is already there. Not merely wasted - each setter
+			// flushes the datablock's linked renderables, so re-applying it
+			// once per instance costs O(instances^2) on a scene where many
+			// meshes share one material (@see RenderMaterialCache). An edited
+			// asset parses to a different description and still rebuilds.
+			if(!RenderMaterialCache::shared().needsBuild(name, datablock, desc))
+			{
+				return datablock;
+			}
 		}
 		else
 		{
@@ -4019,6 +4031,17 @@ namespace Orkige
 			{
 				datablock->setTexture(binding.slot, resolvedName, &samplerblock);
 			}
+		}
+		// remember a COMPLETE build only: a description whose texture is
+		// missing may resolve once the map arrives, so that one stays
+		// un-memoized and honestly retries (@see RenderMaterialCache)
+		if(outComplete)
+		{
+			RenderMaterialCache::shared().recordBuilt(name, datablock, desc);
+		}
+		else
+		{
+			RenderMaterialCache::shared().forget(name);
 		}
 		return datablock;
 	}

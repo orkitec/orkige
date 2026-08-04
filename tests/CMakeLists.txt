@@ -2521,6 +2521,39 @@ if(TARGET orkige_player)
             LABELS unit TIMEOUT 120)
     endif()
 
+    # THE SHARED-MATERIAL CONTRACT, against the worst real case in the tree:
+    # projects/benchmark scenes/field.oscene places 324 meshes that all name
+    # ONE `.omat`. Building a material is create-or-update and it is not
+    # local - assigning a field of a live material invalidates every surface
+    # already bound to it - so rebuilding it once per instance costs
+    # O(instances^2) and is paid as a whole-frame scene-load stall. The check
+    # requires exactly ONE build per DISTINCT material however many instances
+    # ask for it (@see engine_render/RenderMaterialCache.h), which is the
+    # mechanism of the stall rather than a wall clock, so it gates the same
+    # way on a fast desktop and a slow runner.
+    #
+    # Deviceless on the next flavor (no window, no GPU - it reads a count,
+    # not pixels), which puts it in the unit preset beside player_deviceless;
+    # the classic flavor carries no deviceless render system, so there it is
+    # an ordinary windowed integration run against the same scene.
+    if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+        add_test(NAME player_shared_material${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player projects/benchmark/scenes/field.oscene
+                --project projects/benchmark
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_shared_material${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_SHARED_MATERIAL_SELFCHECK=1;ORKIGE_DEMO_FRAMES=5;ORKIGE_RENDERSYSTEM=NULL;ALSOFT_DRIVERS=null"
+            LABELS unit TIMEOUT 300)
+    else()
+        add_test(NAME player_shared_material${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player projects/benchmark/scenes/field.oscene
+                --project projects/benchmark
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_shared_material${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_SHARED_MATERIAL_SELFCHECK=1;ORKIGE_DEMO_FRAMES=5;ALSOFT_DRIVERS=null"
+            LABELS integration TIMEOUT 300)
+    endif()
+
     # the flat-colour vector-shape demo project (Util/make_vectorshape_demo.py):
     # loads scenes/main.oscene which places three VectorShapeComponent instances
     # (blob + concave star .oshape assets) at rising zOrders and distinct tints -

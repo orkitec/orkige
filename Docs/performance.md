@@ -225,6 +225,59 @@ same-mesh instances. The facade seam sketched for that day: promote N
 same-(mesh,material) `MeshInstance`s above a threshold, demote on any
 individualization — but it earns its complexity only with the content.
 
+## Scene loading — where a switch's time actually goes
+
+A scene switch is a whole-frame stall: the deferred-load pump in the tick
+order's last slot (`advanceGameWorld`, `engine_runtime/GameHost.cpp`) tears
+the world down through the fenced teardown hook and rebuilds it before the
+frame ends. Nothing about that is deferrable — the render backends are not
+thread-safe, and the fence exists so no in-flight script or update pointer
+can dangle across the switch.
+
+What a load is made of, measured with the profiler scopes below (a
+327-object benchmark scene, Debug tree, deviceless boot):
+
+| Phase | Profiler scope | Share of the load |
+|---|---|---|
+| read the file + build its document tree | `scene-parse` | **~0.1 %** |
+| tear the old world down | `scene-teardown` | ~0.1 % |
+| create the objects and their components | `scene-build` | **~99.8 %** |
+| resolve parent links, apply active state | *(in `scene-load`)* | < 0.1 % |
+
+The shape to keep in mind: **reading and parsing a scene file is noise.**
+The cost is what the arriving components do as their properties are
+assigned — creating render, physics and audio state. That is main-thread
+work by construction, so moving the file read to a worker thread would buy
+a fraction of a percent. Optimize what the build does, not where the parse
+runs.
+
+Every load reports itself: `log.scene debug` (the live cvar, reachable over
+the debug protocol and MCP `set_cvar`) prints the object count and the
+elapsed milliseconds per load, and the named scopes put the split in the
+profiler snapshot. Gate-before-format keeps it free when the tag is quiet.
+
+### The shared-material rule
+
+Building a material is **create-or-update** — that is what makes an edited
+`.omat` reach every surface already using it. It is also not a local
+operation: assigning a field of a *live* material invalidates every
+renderable bound to it (the next flavor flushes the datablock's linked
+renderables; the classic one rebuilds the pass and regenerates its shader
+techniques). So a scene where N meshes name ONE material asks for the same
+build N times, and the k-th build touches the k−1 surfaces already bound —
+**quadratic in the sharer count**, paid entirely inside the load frame.
+
+`engine_render/RenderMaterialCache.h` is the memo both backends consult
+before they build: a name whose *live material object* was last built
+completely from an *equal* description is left alone. The update contract is
+untouched — an edited asset parses to a different description and still
+rebuilds — and an incomplete build (a texture the description names is
+missing) is never remembered, so it honestly retries once the map can
+resolve.
+
+The rule the gate holds: **one build per distinct material, however many
+instances name it.**
+
 ## The structural budget gate (the standing guard)
 
 `run_benchmark_budget_test.py` + the checked-in
@@ -305,6 +358,8 @@ Notes for the reader of the deltas:
 | Concern | Test |
 |---|---|
 | grouping contract + dirty tracking (pure) | `SpriteRunPlannerTests` (unit) |
+| the shared-material decision, both directions (pure) | `RenderMaterialCacheTests` (unit) |
+| one build per distinct material over a 324-sharer scene | `player_shared_material[_next]` (unit on next — deviceless; integration on classic) |
 | static hierarchy rule + schema + round-trip (pure/headless) | `StaticFlagTests` (unit) |
 | static toggle pixel identity + draw win + mobility contract | `player_static_contract[_next]` (integration, per flavor) |
 | sprite batching exact counts + live toggle + moved member + pixel identity | `player_spritebatch[_next]` (integration, per flavor) |

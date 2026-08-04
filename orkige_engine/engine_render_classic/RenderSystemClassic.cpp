@@ -20,6 +20,7 @@
 #include "engine_render_classic/HemisphereAmbientSrs.h"
 #include "engine_render_classic/ImageLightingSrs.h"
 #include "engine_render_classic/MetalRoughLightingSrs.h"
+#include "engine_render/RenderMaterialCache.h"	// the create-or-update memo
 #include "engine_graphic/Engine.h"
 #include <core_util/SkyEnvMap.h>
 #include "engine_filesystem/PakMount.h"
@@ -436,6 +437,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	RenderSystem::~RenderSystem()
 	{
+		// the material memo describes materials of THIS render system - it
+		// must not outlive them (@see RenderMaterialCache)
+		RenderMaterialCache::shared().clear();
 		this->mImpl->windowCamera.reset();
 		delete this->mImpl->world;
 		delete this->mImpl;
@@ -753,6 +757,32 @@ namespace Orkige
 			material = materialManager.create(name,
 				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		}
+		// ALREADY REALIZED: this very material was last built completely from
+		// an equal description, so the rebuild below - which drops the pass's
+		// texture units, reloads every map and regenerates the shader
+		// techniques - would reproduce exactly what is there. Doing it once per
+		// instance costs O(instances^2) on a scene where many meshes share one
+		// material (@see RenderMaterialCache). An edited asset parses to a
+		// different description and still rebuilds.
+		if(!RenderMaterialCache::shared().needsBuild(name, material.get(), desc))
+		{
+			return material;
+		}
+		// close the build on either exit below. Only a COMPLETE build is
+		// remembered: a description whose texture is missing may resolve once
+		// the map arrives, so that one honestly retries.
+		auto recordBuild = [&name, &desc, &material, &outComplete]()
+		{
+			if(outComplete)
+			{
+				RenderMaterialCache::shared().recordBuilt(name, material.get(),
+					desc);
+			}
+			else
+			{
+				RenderMaterialCache::shared().forget(name);
+			}
+		};
 		Ogre::Technique* technique = material->getTechnique(0);
 		// an UPDATE may have appended an emissive-map pass last time - collapse
 		// back to the single surface pass before rebuilding it
@@ -979,6 +1009,7 @@ namespace Orkige
 			{
 				material->getTechnique(each)->setShadowCasterMaterial(caster);
 			}
+			recordBuild();
 			return material;
 		}
 #endif // USE_RTSHADER_SYSTEM
@@ -1005,6 +1036,7 @@ namespace Orkige
 					"subset, the normal/emissive maps are ignored");
 			}
 		}
+		recordBuild();
 		return material;
 	}
 	//---------------------------------------------------------
