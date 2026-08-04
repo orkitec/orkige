@@ -24,6 +24,7 @@
 #include "ExportProject.h"
 
 #include <filesystem>
+#include <unistd.h>
 
 using namespace OrkigeExport;
 
@@ -34,8 +35,16 @@ namespace
 		Orkige::String path;
 		explicit ScratchDir(Orkige::String const & name)
 		{
+			// the PROCESS id is part of the path, not decoration: ctest runs
+			// these cases as parallel processes, and a second checkout of this
+			// tree (an agent worktree, a second CI job on one runner) runs the
+			// same binary against the same /tmp. Without it two runs share one
+			// directory and the first destructor deletes what the second is
+			// still writing - observed as makeMacosIconset returning false.
 			this->path = (std::filesystem::temp_directory_path() /
-				("orkige_icons_test_" + name)).string();
+				("orkige_icons_test_" + name + "_" +
+					std::to_string(
+						static_cast<long long>(::getpid())))).string();
 			ExportFiles::removeTree(this->path, 0);
 			ExportFiles::makeDirectories(this->path, 0);
 		}
