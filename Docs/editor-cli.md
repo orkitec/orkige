@@ -164,10 +164,17 @@ is — nobody is watching it, so it touches no user state and opens no socket:
 
 The single stated exception is the credential-name read above.
 
-Nothing here reaches the network **on its own**. `fetch-payload` obviously does —
-but only because a person or a script named that download by id on the command
-line, which is the opposite of the incidental background traffic the automated-run
-rule exists to suppress. No other subcommand opens a connection.
+The network rule is about **incidental** traffic: no subcommand reaches the
+network as a side effect of doing something else. Update checks, telemetry and
+discovery all fall under that, and none of them run.
+
+`fetch-payload` is not an exception to the rule, because a download is not a
+side effect there — it is the whole command. The caller named the payload by id
+on the command line, and the connection is the work that was asked for. A rule
+phrased as "an automated run never opens a connection" would have to carve this
+out; phrased as "an automated run never opens a connection the caller did not
+ask for", it covers both cases without one. No other subcommand opens a
+connection at all.
 
 ## Platform notes
 
