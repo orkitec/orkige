@@ -318,3 +318,36 @@ TEST_CASE("a missing payload is refused with a next step",
 	CHECK(offline.find("network") != Orkige::String::npos);
 	CHECK(offline.find("source tree") != Orkige::String::npos);
 }
+
+TEST_CASE("the headless door names the command, never the settings window",
+	"[editor][payloads]")
+{
+	const FetchablePayload payload = iosPayload();
+	// a build server has no window to switch a platform on in, so the sentence
+	// that serves a person there is unactionable. This one names the
+	// subcommand that installs the payload, and names it BY ID - the argument
+	// the caller has to type.
+	const Orkige::String missing =
+		payloadMissingCommandMessage(payload, true);
+	CHECK(missing.find("fetch-payload") != Orkige::String::npos);
+	CHECK(missing.find(payload.id) != Orkige::String::npos);
+	CHECK(missing.find("Build Targets") == Orkige::String::npos);
+	CHECK(missing.find("Settings") == Orkige::String::npos);
+
+	// a build with no transport cannot fetch anything, so pointing it at the
+	// download would be a dead end - it gets the same honest answer the
+	// windowed door gives
+	const Orkige::String offline =
+		payloadMissingCommandMessage(payload, false);
+	CHECK(offline.find("network") != Orkige::String::npos);
+	CHECK(offline.find("source tree") != Orkige::String::npos);
+	CHECK(offline.find("fetch-payload") == Orkige::String::npos);
+
+	// the prerequisite tiers stay apart in BOTH sentences: this project may
+	// carry no compiled code at all, and an engine SDK is never its business
+	for(Orkige::String const & sentence : { missing, offline })
+	{
+		CHECK(sentence.find("SDK") == Orkige::String::npos);
+		CHECK(sentence.find("pack") == Orkige::String::npos);
+	}
+}

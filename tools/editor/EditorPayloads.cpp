@@ -408,6 +408,23 @@ namespace OrkigeEditor
 			"Orkige), then export again" + reading;
 	}
 	//---------------------------------------------------------
+	Orkige::String payloadMissingCommandMessage(
+		FetchablePayload const & payload, bool hasNetworkClient)
+	{
+		const Orkige::String reading =
+			" - more in " + Orkige::helpUrl(payloadHelpPage());
+		if(!hasNetworkClient)
+		{
+			return "the " + payload.label + " is not installed, and this build "
+				"carries no network transport to fetch it with - install an "
+				"Orkige build with HTTP support, or package from an engine "
+				"source tree" + reading;
+		}
+		return "the " + payload.label + " is not installed yet - run "
+			"'orkige_editor fetch-payload " + payload.id + "' (one download, "
+			"kept for this version of Orkige), then export again" + reading;
+	}
+	//---------------------------------------------------------
 	char const * payloadHelpPage()
 	{
 		return "device-payloads";
