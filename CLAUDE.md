@@ -1214,6 +1214,14 @@ The exemption is the site path (`host-exporter` → `web` → `site`), which sti
 runs on a `main` push because it PUBLISHES rather than judging. It must never
 fire for a branch under review.
 
+The **`branch-base`** job guards the one way this breaks quietly: if anything
+reaches `main` by another road — a hand edit through the web UI, a hotfix
+pushed straight there — `main` stops being an ancestor and the fast-forward
+simply becomes unavailable, normally discovered only after a full matrix has
+run for nothing. It is the cheapest job in the file and returns first, naming
+the commits `development` is missing and the `git merge origin/main` that
+fixes it.
+
 A **pull request** is still the right tool where review or isolation is worth a
 dedicated matrix run — a dependency pin bump whose failure should name itself,
 anything a fork contributes, anything touching what this machine cannot run

@@ -79,6 +79,42 @@ env:
   CXX: clang++
 
 jobs:
+  # main is fast-forwarded onto development, which is only possible while main
+  # is an ANCESTOR of it. Anything that reaches main by another road - a hand
+  # edit through the web UI, a hotfix pushed straight there - breaks that
+  # silently: development keeps going green, and the fast-forward simply stops
+  # being available, discovered only when someone tries it after a full matrix
+  # has already run. Cheapest possible check, first verdict back, so the answer
+  # arrives long before the suites do.
+  branch-base:
+    name: development carries main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: main is an ancestor of this commit
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "main ($(git rev-parse --short origin/main)) is an ancestor - fast-forward is available"
+            exit 0
+          fi
+          echo "::error::main has commits development does not carry, so main can no longer be fast-forwarded onto it."
+          echo
+          echo "main is at    $(git rev-parse --short origin/main)"
+          echo "development at $(git rev-parse --short HEAD)"
+          echo
+          echo "What reached main without going through development:"
+          git log --oneline HEAD..origin/main
+          echo
+          echo "Fix by bringing it in:  git checkout development && git merge origin/main"
+          exit 1
+
   # The public site (https://orkige.orkitec.com): landing page + docs portal +
   # legal pages from Util/make_help_portal.py plus the /api/ class reference
   # (Docs/api/Doxyfile - runner-only tooling). Lives INSIDE the CI workflow so
