@@ -1120,6 +1120,16 @@ int main(int argc, char** argv)
 		// the selfcheck env hooks (they also derive the frame cap and
 		// the automated-run pacing decision below)
 		context.selfChecks.readEnvironment(context);
+		// --run-tests IS an automated run: a machine drives the game to a
+		// verdict with nobody at the window. It matters beyond pacing, because
+		// a play-mode test's budget counts TICKS while its waits are measured
+		// in SIMULATED SECONDS - and only an automated run makes the two agree.
+		// With a real delta, wait(0.5) costs about 30 frames behind vsync and
+		// several hundred on a headless host that free-runs, against one fixed
+		// tick limit; the fixed AUTOMATED_FRAME_DELTA makes it exactly 30
+		// everywhere, so a budget overrun means a wedged wait rather than a
+		// fast machine.
+		context.automatedRun = context.automatedRun || arguments.runTests;
 		const bool automatedRun = context.automatedRun;
 
 		// the engine media root the platform harness resolved: a packaged app

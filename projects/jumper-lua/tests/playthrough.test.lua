@@ -118,3 +118,51 @@ test("the character walks and jumps when the test presses",
 		t.waitUntil(function() return shared.jumper.grounded end, 300)
 		t.eq(shared.jumper.respawns, 0, "the character fell out while jumping")
 	end)
+
+-- The PACING leg. A play-mode test's budget is counted in TICKS, while every
+-- wait a test body makes is measured in SIMULATED SECONDS - so the budget only
+-- means anything if the two are related by a constant. They are, because a
+-- test run is paced like every other automated run: one fixed simulated tick
+-- per frame, whatever the host took to draw it. Under a real delta the same
+-- wait costs whatever the machine's frame rate happened to be - roughly 30
+-- frames behind vsync, several hundred on a headless host that free-runs - and
+-- a budget sized on one machine would indict another for being fast.
+--
+-- Two identical waits, counted, is the cheapest way to say that: equal counts
+-- mean the run is paced by the fixed delta and not by the display.
+test("a wait costs the same frames every time",
+	{ scene = "scenes/main.oscene" },
+	function(t)
+		-- a second task counts the frames the body spends waiting: tasks and
+		-- test bodies are both resumed once per frame, in the script phase, so
+		-- this counts ticks of exactly the clock the budget is spent against
+		local frames = 0
+		script.async(function()
+			-- bounded, so this counter can never outlive its usefulness
+			while frames < 1000 do
+				waitFrames(1)
+				frames = frames + 1
+			end
+		end)
+
+		-- let the counter start before anything is measured against it: a task
+		-- begins on a later frame than the call that created it, and those
+		-- unmet frames would otherwise be charged to the first wait
+		t.waitFrames(4)
+
+		local mark = frames
+		t.wait(0.5)
+		local firstWait = frames - mark
+
+		mark = frames
+		t.wait(0.5)
+		local secondWait = frames - mark
+
+		t.eq(firstWait, secondWait,
+			"two identical waits took " .. tostring(firstWait) .. " and " ..
+			tostring(secondWait) .. " frames - the run is paced by the host " ..
+			"frame rate rather than by the fixed automated delta")
+		t.truthy(firstWait >= 28 and firstWait <= 32,
+			"half a second of simulated time took " .. tostring(firstWait) ..
+			" frames; the fixed automated delta makes it 30")
+	end)
