@@ -29,7 +29,18 @@ and DROPPED here at this pin bump once it merged - the standing lifecycle.
 No release tag carries them yet; move the REF back to a release tag when one
 does. The pin moves like ogre-next's: a reviewed bump, full-suite verified,
 never implicit. Enabled from the root `vcpkg.json`. Delete this overlay if
-upstream ever grows equivalent features. Local additions:
+upstream ever grows equivalent features.
+
+**Moving this pin is a pixel decision, not just a build one.** The classic
+backend renders through the RTSS default scheme
+(`RenderSystemClassic.cpp` composes `SRS_TRANSFORM`, `SRS_VERTEX_COLOUR`,
+`SRS_TEXTURING`, `SRS_ALPHA_TEST` and `SRS_NORMALMAP` render states), so any
+upstream change to RTSS lighting - attenuation curves, directional-light
+handling, where the per-light loop runs, how CookTorrance mixes ambient -
+moves classic's lit output while the next flavor stays exactly where it was.
+That is a one-sided shift, which is precisely what `render_backend_parity`
+fails on. Review the RTSS commits in a candidate range before bumping, and
+budget for re-baselining the parity gate. Local additions:
 
 - `metal` feature (`OGRE_BUILD_RENDERSYSTEM_METAL=ON`, Apple platforms) so
   RenderSystem_Metal is available next to GL3Plus - the upstream port has no
@@ -93,13 +104,16 @@ upstream ever grows equivalent features. Local additions:
 
 ## ports/ogre-next
 
-Locally authored port (pinned master commit `ef2e8f35c3ac929b06f67c76cbc80c5577016b30`,
-2026-07-16, declared as `version-date` in the port's vcpkg.json; no upstream
+Locally authored port (pinned master commit `2a82de656f8abe7627e373621044b53df080f9de`,
+2026-08-01, declared as `version-date` in the port's vcpkg.json; no upstream
 vcpkg port exists). Master over the v3.0.0 tag by decision: upstream maintains
 only master (no patch releases since the 2024 tag) and it carries Vulkan
 hardening the engine wants - device-loss recovery in `VulkanRootLayout`, an
-Adreno 6xx workaround - plus it absorbed part of this port's Apple patches
-(below). The current pin contains our merged OGRECave/ogre-next #582 (the
+Adreno 6xx workaround, a run of render-pass/synchronization-hazard corrections
+in the Vulkan RS - plus it absorbed part of this port's Apple patches
+(below). The pin is the merge commit of our own OGRECave/ogre-next #586, so the
+tip of the pinned range is a reviewed change rather than an arbitrary HEAD. It
+also contains our merged #582 (the
 NEON Math/Array include-order fix, merged 2026-07-15), which un-breaks the
 arm64 Linux build - the `linux-debug-sanitize` preset in the Linux rig
 container cold-builds this port natively. The pin moves deliberately (a
@@ -283,28 +297,27 @@ Patches (the same Xcode-oriented-CMake class as classic's ios/metal patches):
   in-shader `sqrt` encode (`!hw_gamma_write`) on non-sRGB targets. HlmsUnlit
   is deliberately untouched (its raw passthrough IS the 2D parity
   convention).
-- `hlms-tls-init-symbol-visibility.patch` - upstream candidate. `Hlms::msThreadId`
-  is a `thread_local` static member declared in `OgreHlms.h` and defined,
-  constant-initialized, in `OgreHlms.cpp`. A translation unit that sees only the
-  declaration cannot know the initialization is constant, so it emits the Itanium
-  ABI thread-local access wrapper `_ZTW...`, which weakly references the
-  thread-local init function `_ZTHN4Ogre4Hlms10msThreadIdE` - a symbol a
-  constant-initialized variable never defines anywhere. Resolving that dangling
-  weak reference to zero needs a GOT entry, which clang only emits for a symbol
-  that may bind externally; `OGRE_SHADER_THREADING_USE_TLS` is a static-build-only
-  setting and `_OgreExport` is `visibility("hidden")` there, so clang instead
-  addresses the symbol directly and the object carries
-  `R_X86_64_PC32 _ZTHN4Ogre4Hlms10msThreadIdE`, which GNU ld refuses to link into
-  a PIE. Only optimized builds hit it: unoptimized ones leave the reference inside
-  the wrapper's own COMDAT section, which the linker discards in favour of the
-  clean copy `OgreHlms.cpp` contributes, while inlining moves it into ordinary
-  `.text` where it survives to the final link. GCC uses the GOT here regardless,
-  and AArch64 does too, so the failure is clang-on-x86-64 only - which is exactly
-  the Release Linux configuration. The patch declares the member with explicit
-  default visibility, restoring the GOT indirection every other configuration
-  already uses. The generated code is otherwise unchanged; the linker relaxes the
-  resulting general-dynamic TLS access back to local-exec because the variable is
-  defined in the executable.
+- One former upstream-candidate patch was CONSUMED at the 2026-08-01 pin bump,
+  its PR having merged into the range this REF spans - it now comes from
+  upstream through the pin, the same lifecycle the classic port's patches
+  follow: `hlms-tls-init-symbol-visibility.patch` (OGRECave/ogre-next #586, the
+  merge commit this REF names). `Hlms::msThreadId` is a `thread_local` static
+  member whose definition in `OgreHlms.cpp` is constant-initialized; a
+  translation unit seeing only the declaration cannot know that, so it emits the
+  Itanium ABI access wrapper `_ZTW...` weakly referencing the thread-local init
+  function `_ZTHN4Ogre4Hlms10msThreadIdE` - a symbol a constant-initialized
+  variable never defines. Resolving that dangling weak reference to zero needs a
+  GOT entry, which clang only emits for a symbol that may bind externally;
+  `OGRE_SHADER_THREADING_USE_TLS` is a static-build-only setting and
+  `_OgreExport` is `visibility("hidden")` there, so clang addressed the symbol
+  directly and the object carried `R_X86_64_PC32`, which GNU ld refuses to link
+  into a PIE - clang-on-x86-64 only, which is exactly the Release Linux
+  configuration. Upstream now declares the member with explicit default
+  visibility under `OGRE_GCC_VISIBILITY`, restoring the GOT indirection every
+  other configuration already uses.
+- Future upstream-candidate fixes follow the same lifecycle this one did: vendor
+  the patch in the port the same day the PR goes upstream, then drop the patch
+  file at the next reviewed pin bump once it is merged.
 
 Debug/release note: vcpkg ships ONE header tree for both configs, but
 ogre-next's generated `OgreBuildSettings.h` bakes `OGRE_DEBUG_MODE` per build

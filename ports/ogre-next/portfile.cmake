@@ -19,8 +19,8 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO OGRECave/ogre-next
-    REF ef2e8f35c3ac929b06f67c76cbc80c5577016b30
-    SHA512 226b9995d12e70c908c362a752d3b6bfd9127f9b12912f92bdae0800e6d9ffbf3ec401f15b4b1fa03c9e9ae459c4dab8fc86085cc67f4cfe21a70eff5d32bd30
+    REF 2a82de656f8abe7627e373621044b53df080f9de
+    SHA512 d0a7c0c925e433623aa1172e3a26f7e70b61b27f1e12b860a6aee7ee2d88aa4a5137958418a6ba2bd63f26d8ad1f5d7a21847f19e3d23e15847c30d7ec032981
     HEAD_REF master
     PATCHES
         apple-ninja-objcxx-sysroot.patch          # enable OBJC/OBJCXX for the .mm sources + do not clobber the iOS "iphoneos" CMAKE_OSX_SYSROOT with a symbolic name under single-config generators (the macOS block gained an upstream NOT-CMAKE_OSX_SYSROOT guard; the iOS block still needs this)
@@ -28,8 +28,6 @@ vcpkg_from_github(
         lib-install-path.patch                    # iOS + Windows: keep the standard vcpkg bin/lib layout (upstream installs into per-config lib/Release-style subdirs there, plugins under /opt on Windows)
         freeimage-codec-gate-unity-list.patch     # the unity SEPARATE list force-compiles OgreFreeImageCodec2.cpp into OgreMain even with the codec disabled - fatal on the FreeImage-less mobile platforms
         pbs-honour-non-srgb-target.patch          # HlmsPbs assumed an sRGB colour target unconditionally (hw_gamma_write hardcoded 1); derive it from the live pass descriptor so linear lighting gamma-encodes in-shader on UNORM swapchains (upstream candidate)
-        hlms-tls-init-symbol-visibility.patch     # Hlms::msThreadId is hidden in a static build, so clang addresses its never-defined TLS init function directly instead of through the GOT; the resulting relocation is unlinkable into an x86-64 PIE once optimization inlines the access wrapper (upstream candidate)
-
 )
 
 # Render system per platform: Metal is Ogre-Next's first-class RS on Apple
