@@ -17,19 +17,33 @@ water/mirror bands, terrain band) between the two images:
     bright sun highlight (the specular streak - its absence on one flavor
     was a real regression).
 
-Needs BOTH build trees: the sibling flavor's player path is passed in and the
-test SKIPS (exit 77) when it is not built - CI jobs build one flavor per job,
-so this gate runs where both trees exist (a developer machine / the local
-verification pass).
+Capturing and comparing are separable, because one machine does not always
+hold both flavors:
+
+  * BOTH PLAYERS (--player-next + --player-classic): capture both, compare,
+    one run. The developer road, and the ctest; the sibling flavor's player
+    path is passed in and the test SKIPS (exit 77) when it is not built.
+  * CAPTURE ONE (--capture next|classic): boot that flavor's player, write
+    its frame, stop. What a per-flavor build job can do.
+  * COMPARE TWO CAPTURES (--compare-shots --shot-next + --shot-classic): the
+    comparison alone, on frames captured elsewhere. A missing or empty
+    capture FAILS - a parity gate that compared nothing must not report
+    parity.
 
 Pure stdlib (the sibling pixel test's PNG decoder). Exit codes: 0 pass,
 1 fail, 77 skip.
 """
 
 import argparse
+import contextlib
+import io
 import os
+import shutil
+import struct
 import subprocess
 import sys
+import tempfile
+import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
@@ -160,29 +174,101 @@ def region_max_luma(img, x0, y0, x1, y1, step=2):
     return best
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", required=True)
-    parser.add_argument("--player-next", required=True)
-    parser.add_argument("--player-classic", required=True)
-    parser.add_argument("--dir", required=True)
+def load_capture(label, path):
+    """Decode a capture taken elsewhere; refuse when there is nothing there.
+
+    A comparison handed an absent or truncated frame would otherwise either
+    crash obscurely or - worse - be skipped past. Silence is not parity.
+    """
+    if not os.path.exists(path):
+        fail(f"the {label} capture does not exist: {path}")
+    if os.path.getsize(path) == 0:
+        fail(f"the {label} capture is empty: {path}")
+    try:
+        return decode_png(path)
+    except Exception as error:
+        # any decode complaint at all is reported verbatim - the point is that
+        # an unreadable capture ends the run, not which byte was wrong
+        fail(f"the {label} capture is unreadable ({path}): {error}")
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo")
+    parser.add_argument("--player-next")
+    parser.add_argument("--player-classic")
+    parser.add_argument("--dir")
     parser.add_argument("--scene", default="scenes/lake.oscene")
     parser.add_argument("--frames", type=int, default=90)
-    args = parser.parse_args()
+    parser.add_argument("--capture", choices=("next", "classic"),
+                        help="boot that flavor's player and write its frame "
+                             "to <dir>/<flavor>.png, then stop")
+    parser.add_argument("--compare-shots", action="store_true",
+                        help="compare two captures taken elsewhere; no "
+                             "player is run")
+    parser.add_argument("--shot-next",
+                        help="the next flavor's capture (--compare-shots)")
+    parser.add_argument("--shot-classic",
+                        help="the classic flavor's capture (--compare-shots)")
+    parser.add_argument("--selftest", action="store_true",
+                        help="exercise the pure parts and exit")
+    return parser.parse_args(argv)
 
-    if not os.path.exists(args.player_next):
-        skip("next player not built: " + args.player_next)
-    if not os.path.exists(args.player_classic):
-        skip("classic player not built: " + args.player_classic)
 
+def capture_one(args):
+    """--capture: one flavor's frame, written where a build job can carry it."""
+    player = (args.player_next if args.capture == "next"
+              else args.player_classic)
+    if not player:
+        fail(f"--capture {args.capture} needs --player-{args.capture}")
+    if not args.repo or not args.dir:
+        fail("--capture needs --repo and --dir")
+    if not os.path.exists(player):
+        # asked for explicitly, so absence is a failure rather than a skip -
+        # the caller wanted this capture and there is none
+        fail(f"{args.capture} player not built: {player}")
     os.makedirs(args.dir, exist_ok=True)
-    shot_next = os.path.join(args.dir, "next.png")
-    shot_classic = os.path.join(args.dir, "classic.png")
-    img_next = capture(args.player_next, args.repo, args.scene, shot_next,
-                       args.dir, args.frames)
-    img_classic = capture(args.player_classic, args.repo, args.scene,
-                          shot_classic, args.dir, args.frames)
+    shot = os.path.join(args.dir, args.capture + ".png")
+    capture(player, args.repo, args.scene, shot, args.dir, args.frames)
+    print(f"crossflavor_parity: captured {args.capture} {args.scene} -> {shot}")
+    return 0
 
+
+def main(argv=None):
+    args = parse_args(argv)
+    if args.selftest:
+        return selftest()
+    if args.capture:
+        return capture_one(args)
+
+    if args.compare_shots:
+        if not (args.shot_next and args.shot_classic):
+            fail("--compare-shots needs --shot-next and --shot-classic")
+        img_next = load_capture("next", args.shot_next)
+        img_classic = load_capture("classic", args.shot_classic)
+        kept_in = os.path.dirname(os.path.abspath(args.shot_next))
+    else:
+        for name in ("repo", "player_next", "player_classic", "dir"):
+            if not getattr(args, name):
+                fail("--" + name.replace("_", "-") + " is required")
+        if not os.path.exists(args.player_next):
+            skip("next player not built: " + args.player_next)
+        if not os.path.exists(args.player_classic):
+            skip("classic player not built: " + args.player_classic)
+
+        os.makedirs(args.dir, exist_ok=True)
+        shot_next = os.path.join(args.dir, "next.png")
+        shot_classic = os.path.join(args.dir, "classic.png")
+        img_next = capture(args.player_next, args.repo, args.scene, shot_next,
+                           args.dir, args.frames)
+        img_classic = capture(args.player_classic, args.repo, args.scene,
+                              shot_classic, args.dir, args.frames)
+        kept_in = args.dir
+
+    return compare_captures(img_next, img_classic, args.scene, kept_in)
+
+
+def compare_captures(img_next, img_classic, scene, kept_in):
     if img_next[0] != img_classic[0] or img_next[1] != img_classic[1]:
         fail(f"capture sizes differ: {img_next[0]}x{img_next[1]} vs "
              f"{img_classic[0]}x{img_classic[1]}")
@@ -194,9 +280,9 @@ def main():
     def sy(fraction):
         return int(height * fraction)
 
-    profile = PROFILES.get(os.path.basename(args.scene))
+    profile = PROFILES.get(os.path.basename(scene))
     if profile is None:
-        fail(f"no region profile for scene '{args.scene}' - add one to "
+        fail(f"no region profile for scene '{scene}' - add one to "
              "PROFILES with measured corridors")
     regions = {name: (sx(fx0), sy(fy0), sx(fx1), sy(fy1), tolerance)
                for name, (fx0, fy0, fx1, fy1, tolerance)
@@ -214,7 +300,7 @@ def main():
             fail(f"region '{name}' diverges between flavors: max channel "
                  f"delta {max(deltas):.0f} > {tolerance} - the flavors "
                  "no longer show the same scene (capture pair kept in "
-                 f"{args.dir})")
+                 f"{kept_in})")
 
     if profile.get("streak"):
         # the sun's specular streak on the water: both flavors must carry a
@@ -232,8 +318,131 @@ def main():
                      "streak is missing on this flavor")
 
     print("crossflavor_parity: PASS")
-    sys.exit(0)
+    return 0
+
+
+# --- selftest ---------------------------------------------------------------
+
+def write_png(path, width, height, fill):
+    """Write a minimal 8-bit RGB PNG of one colour (selftest fixture)."""
+    raw = bytearray()
+    for _row in range(height):
+        raw.append(0)                       # filter type None
+        raw.extend(bytes(fill) * width)
+
+    def chunk(kind, payload):
+        return (struct.pack(">I", len(payload)) + kind + payload +
+                struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    with open(path, "wb") as handle:
+        handle.write(b"\x89PNG\r\n\x1a\n")
+        handle.write(chunk(b"IHDR", header))
+        handle.write(chunk(b"IDAT", zlib.compress(bytes(raw))))
+        handle.write(chunk(b"IEND", b""))
+
+
+def run_quiet(argv):
+    """Run main() swallowing its report - a passing selftest logs no FAIL."""
+    captured = io.StringIO()
+    code = 0
+    try:
+        with contextlib.redirect_stdout(captured):
+            code = main(argv)
+    except SystemExit as exit_code:
+        code = exit_code.code
+    return code, captured.getvalue()
+
+
+def expect_refusal(what, argv, names):
+    code, said = run_quiet(argv)
+    if code != 1:
+        raise AssertionError(f"{what} returned {code}, must refuse with 1")
+    if names not in said:
+        raise AssertionError(f"{what} refused without naming {names}: {said}")
+
+
+def selftest():
+    scratch = tempfile.mkdtemp(prefix="orkige_crossflavor_selftest_")
+    shot_next = os.path.join(scratch, "next.png")
+    shot_classic = os.path.join(scratch, "classic.png")
+
+    # the mirror scene carries no streak contract, so flat frames are enough
+    # to exercise the region comparison
+    mirror = "scenes/mirrorlake.oscene"
+    write_png(shot_next, 64, 64, (80, 90, 100))
+    write_png(shot_classic, 64, 64, (80, 90, 100))
+    assert run_quiet(["--compare-shots", "--scene", mirror,
+                      "--shot-next", shot_next,
+                      "--shot-classic", shot_classic])[0] == 0
+
+    # a region that diverges beyond its corridor fails and names the region
+    write_png(shot_classic, 64, 64, (200, 90, 100))
+    code, said = run_quiet(["--compare-shots", "--scene", mirror,
+                            "--shot-next", shot_next,
+                            "--shot-classic", shot_classic])
+    assert code == 1 and "diverges between flavors" in said, said
+    write_png(shot_classic, 64, 64, (80, 90, 100))
+
+    # captures of different sizes are not comparable
+    odd = os.path.join(scratch, "odd.png")
+    write_png(odd, 32, 32, (80, 90, 100))
+    expect_refusal("captures of different sizes",
+                   ["--compare-shots", "--scene", mirror,
+                    "--shot-next", shot_next, "--shot-classic", odd],
+                   "capture sizes differ")
+
+    # a scene with no measured profile is refused rather than guessed at
+    expect_refusal("an unprofiled scene",
+                   ["--compare-shots", "--scene", "scenes/nowhere.oscene",
+                    "--shot-next", shot_next, "--shot-classic", shot_classic],
+                   "no region profile")
+
+    # THE refusals: comparing nothing must never read as parity
+    absent = os.path.join(scratch, "absent.png")
+    expect_refusal("a missing capture",
+                   ["--compare-shots", "--scene", mirror,
+                    "--shot-next", shot_next, "--shot-classic", absent],
+                   absent)
+    blank = os.path.join(scratch, "blank.png")
+    open(blank, "wb").close()
+    expect_refusal("an empty capture",
+                   ["--compare-shots", "--scene", mirror,
+                    "--shot-next", blank, "--shot-classic", shot_classic],
+                   "is empty")
+    garbage = os.path.join(scratch, "garbage.png")
+    with open(garbage, "wb") as handle:
+        handle.write(b"not a png at all")
+    expect_refusal("an unreadable capture",
+                   ["--compare-shots", "--scene", mirror,
+                    "--shot-next", garbage, "--shot-classic", shot_classic],
+                   "unreadable")
+    expect_refusal("one capture without the other",
+                   ["--compare-shots", "--shot-next", shot_next],
+                   "--shot-classic")
+
+    # an explicitly asked-for capture with no player is a failure, not a skip
+    expect_refusal("a capture with no player",
+                   ["--capture", "classic", "--repo", scratch,
+                    "--dir", scratch,
+                    "--player-classic", "/nonexistent/player"],
+                   "not built")
+
+    # the run road keeps its honest skip when a sibling tree is unbuilt
+    assert run_quiet(["--repo", scratch, "--dir", scratch,
+                      "--player-next", "/nonexistent/next",
+                      "--player-classic", "/nonexistent/classic"])[0] == 77
+
+    # argument routing
+    parsed = parse_args(["--compare-shots", "--shot-next", "a",
+                         "--shot-classic", "b"])
+    assert parsed.compare_shots and parsed.shot_next == "a"
+    assert parse_args(["--capture", "next"]).capture == "next"
+    assert parse_args(["--selftest"]).selftest is True
+
+    shutil.rmtree(scratch, ignore_errors=True)
+    print("run_crossflavor_parity_test: selftest OK")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

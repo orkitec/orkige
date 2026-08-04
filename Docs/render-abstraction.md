@@ -15,6 +15,25 @@ Two backends (**flavors**) implement it:
 Both flavors render the **same image** (WYSIWYG), gated by the
 `render_backend_parity` pixel test.
 
+A comparison needs both flavors, and a build tree carries one, so each parity
+driver has two roads to the same verdict:
+
+- **Both binaries in one run** — a machine holding both trees. This is the
+  ctest (`render_backend_parity`, `grade_look_parity`,
+  `benchmark_crossflavor_parity{,_mirror}`), registered on the next preset and
+  skipping honestly (exit 77) when the sibling tree is unbuilt.
+- **Captures compared later** (`--classic-shots`/`--next-shots`,
+  `--capture`/`--compare-shots`) — each flavor writes its frames where it was
+  built and the comparison happens elsewhere, off the images alone. This is how
+  a per-flavor build matrix reaches the same verdict; the `render-parity` CI job
+  compares the two Linux flavor jobs' captures. A capture that is missing,
+  empty or unreadable FAILS: a parity gate that compared nothing must never
+  report parity.
+
+The measurements the second road needs travel with the screenshots — the
+selfcheck writes `dimensions.txt` (the window density both flavors must agree
+on) and `grade_metrics.txt` (the same metrics line it prints) beside them.
+
 The flavor is fixed at **build time** — classic OGRE and Ogre-Next export the
 same `Ogre::` symbols, so one binary links exactly one backend; there is no
 runtime switch. Build trees are flavor-bound: reconfiguring a tree with the

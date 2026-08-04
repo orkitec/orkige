@@ -3207,10 +3207,22 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			SELFCHECK(measureLook(gradeOnShot, satOn, contrastOn) &&
 				spriteLuma(gradeOnShot, spriteOn),
 				"the grade-on look probes decode");
-			// machine-parseable metrics for the cross-flavor probe driver
-			std::printf("render_facade_selfcheck: grade-metrics satOff=%.4f "
-				"satOn=%.4f contrastOff=%.4f contrastOn=%.4f\n",
-				satOff, satOn, contrastOff, contrastOn);
+			// machine-parseable metrics for the cross-flavor probe driver,
+			// emitted twice from ONE formatting: to stdout for a run that
+			// watches the log, and to a sidecar beside the screenshots so the
+			// comparison can happen later, on another machine, from the
+			// captured output directory alone.
+			char gradeMetrics[160];
+			std::snprintf(gradeMetrics, sizeof(gradeMetrics),
+				"grade-metrics satOff=%.4f satOn=%.4f contrastOff=%.4f "
+				"contrastOn=%.4f\n", satOff, satOn, contrastOff, contrastOn);
+			std::printf("render_facade_selfcheck: %s", gradeMetrics);
+			if(std::FILE* metricsFile =
+				std::fopen((outDir + "/grade_metrics.txt").c_str(), "w"))
+			{
+				std::fputs(gradeMetrics, metricsFile);
+				std::fclose(metricsFile);
+			}
 			std::printf("render_facade_selfcheck: grade delta - saturation "
 				"%.3f -> %.3f, contrast %.3f -> %.3f\n",
 				satOff, satOn, contrastOff, contrastOn);

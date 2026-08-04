@@ -57,12 +57,18 @@ Rules and hazards:
   build dir or use the matching preset.
 - **Both flavors must render the SAME image** (WYSIWYG). Games, gui and the
   editor (ImGui on `DrawLayer2D`) all run on both; the `render_backend_parity`
-  pixel test checks it. **It is a DEVELOPER-MACHINE gate, not a CI one**: it is
-  registered on the next preset but reads the classic binary out of
-  `build/<host>-debug-classic`, and a CI job builds one preset only, so it
-  exits 77 (Skipped) on every CI run — as do `grade_look_parity` and the two
-  `benchmark_crossflavor_parity` gates. Build both trees locally to arm them.
-  Closing that hole is its own piece of work. Classic stays first-class — it owns the runtime
+  pixel test enforces it, with `grade_look_parity` and the two
+  `benchmark_crossflavor_parity` gates beside it. A comparison needs BOTH
+  flavors and a build tree carries one, so each driver has two roads to the
+  same verdict: run both binaries (the ctest, registered on the next preset,
+  reading the classic binary out of `build/<host>-debug-classic` and skipping
+  honestly at 77 when it is unbuilt) or compare CAPTURES taken where each
+  flavor was built (`--classic-shots`/`--next-shots`,
+  `--capture`/`--compare-shots`). The second road is what makes it a CI gate:
+  the `render-parity` job compares the two Linux flavor jobs' uploaded
+  screenshots. **A missing or empty capture FAILS** — a parity gate that
+  compared nothing must never report parity.
+  Classic stays first-class — it owns the runtime
   render-system pick (`ORKIGE_RENDERSYSTEM`), the GLES2 mobile presets, the
   WebGL/web path and the `samples/jumper` C++ sample (gui HUD; the only
   classic-gated `add_subdirectory` in the root CMakeLists).
@@ -1219,7 +1225,7 @@ what rule it carries, which doc has the depth.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) builds + tests as **fifteen jobs**,
+GitHub Actions (`.github/workflows/ci.yml`) builds + tests as **sixteen jobs**,
 mostly parallel, so a failure names itself and every verdict lands as early as
 its own build allows.
 
@@ -1228,14 +1234,15 @@ Small changes are committed straight to `development` — no PR ceremony — and
 burst of pushes collapses into ONE matrix run, because the concurrency group
 cancels a superseded run of the same branch. When `development` is green, the
 **`fast-forward-main`** job moves `main` onto that exact commit by itself: it
-waits on all fifteen gating jobs, so one red verdict leaves `main` where it
-was, and nobody has to remember. **Green therefore means PUBLISHED** — moving
+waits on all sixteen gating jobs, so one red verdict leaves `main` where it
+was, and nobody has to remember. **A new gating job belongs in that `needs:`
+list in the same change** — otherwise `main` moves without waiting for it. **Green therefore means PUBLISHED** — moving
 `main` runs the site deploy.
 
 That last word is load-bearing. Check runs belong to a **SHA**, not to a
 branch, so a fast-forwarded commit arrives on `main` already carrying its own
 green verdicts and satisfies protection with no second run — which is why the
-twelve verdict jobs skip a push to `main`. **Merging** into `main` instead
+thirteen verdict jobs skip a push to `main`. **Merging** into `main` instead
 would create a NEW commit that nothing has verified, and would cost a second
 full matrix to prove it. So: fast-forward only, and never push to `main`
 directly, or it stops being an ancestor of `development` and the model breaks.
@@ -1289,6 +1296,7 @@ runs for branches that must be rebased anyway. The jobs:
 | Job | What it gates |
 |-----|---------------|
 | `linux-classic` / `linux-next` | the full windowed desktop suites under xvfb (llvmpipe / lavapipe); `linux-next` adds the `ORKIGE_SCRIPTING=OFF` build + unit gate |
+| `render-parity` (needs both Linux jobs) | the WYSIWYG gate: downloads the two flavor jobs' screenshots and compares them — facade pixels, window density, the output grade's induced deltas, and the lake + planar-mirror benchmark vignettes. No build, no GPU |
 | `linux-sanitizer` | CI-only ASan + UBSan tree, complete unit + desktop suite |
 | `linux-tsan` | ThreadSanitizer tree, headless unit gate only (windowed sets are too noisy under TSan) |
 | `host-exporter` | builds `orkige_export` on Linux and uploads it — the browser export needs a host exporter the wasm tree cannot build |
@@ -1308,6 +1316,13 @@ Standing facts and hazards:
 - Editor-session device tests stay on `ios-simulator-next` + local hardware: the
   HOST classic editor is unreliable on hosted virtual GPUs. Run the classic
   device suite locally with `ctest --preset all` on the classic tree.
+- The cross-flavor parity comparison rides the **Linux pair** because that is
+  the only place in the matrix where BOTH flavors run a windowed suite
+  (`macos-classic` is build + headless units, `windows-classic` likewise). Its
+  corridors were measured on the developer pair; the Linux pair is a different
+  software rasterizer on each side, so a corridor that needs widening is
+  widened with the measurement written beside it, never by loosening it until
+  it passes.
 - Shipping Android is arm64-v8a; the emulator jobs are x86_64 only.
 - Windowed CI suites retry a failing test once (`--repeat until-pass:2`); local
   runs and both sanitizer jobs stay strict so flakes remain visible.
