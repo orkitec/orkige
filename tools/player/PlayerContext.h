@@ -17,6 +17,7 @@
 #include <core_game/SaveStore.h>
 #include <core_game/TimeControl.h>
 #include <core_http/HttpClient.h>
+#include <core_monetization/MonetizationService.h>
 #include <core_project/Project.h>
 #include <core_script/ScriptTaskManager.h>
 #include <core_tween/TweenManager.h>
@@ -123,6 +124,12 @@ struct PlayerContext
 	//! the scripting state below it, so no answer is ever delivered into a
 	//! sandbox that is already gone.
 	std::optional<Orkige::HttpClient> httpClient;
+	//! @brief the store and ad seam the Lua `store` table is a face on. Owning
+	//! one is what makes a purchase possible at all: a host that creates none
+	//! (the editor's edit mode) turns the whole surface into an honest no-op.
+	//! Destroyed before the scripting state below it, so no purchase answer is
+	//! ever delivered into a sandbox that is already gone.
+	std::optional<Orkige::MonetizationService> monetization;
 	std::optional<Orkige::PlayerDebugLink> debugLink;
 	std::optional<Orkige::FrameStatsUtil> frameStats;
 	std::optional<Orkige::AppLifecycle> lifecycle;

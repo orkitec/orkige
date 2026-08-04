@@ -1569,6 +1569,16 @@ struct PlaySession
 	//! the running game's current named state (MSG_STATS, core_game/GameState
 	//! via Lua game.setState); "" until the game sets one. Served by get_state.
 	std::string remoteGameState;
+	//! @brief the running game's STORE snapshot (MSG_STATS). Served by
+	//! get_state, so an agent sees what a purchase actually did without a
+	//! second port or a verb of its own. `remoteStoreProvider` is "" when the
+	//! game installed no store at all, which is the ordinary answer on a
+	//! platform that has none. Reset by clearRemoteState.
+	std::string remoteStoreProvider;
+	bool remoteStoreReady = false;
+	long long remoteStorePending = -1;
+	bool remoteStoreAdFree = false;
+	std::vector<std::string> remoteStoreOwned;
 	//! running-game CPU frame profile (MSG_PROFILE_DATA): the last streamed
 	//! hierarchical scope snapshot, flattened depth-first. profileSeq counts
 	//! received snapshots (0 = none yet) so get_profile can report freshness.

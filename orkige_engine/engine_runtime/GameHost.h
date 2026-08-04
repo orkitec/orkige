@@ -34,6 +34,7 @@ namespace Orkige
 	class DebugDraw;
 	class GameObjectManager;
 	class HttpClient;
+	class MonetizationService;
 	class InputActionMap;
 	class LevelManager;
 	class PhysicsWorld;
@@ -216,8 +217,11 @@ namespace Orkige
 	{
 		//! [1] the named actions this frame's raw input maps to
 		InputActionMap*		inputActions = nullptr;
-		//! [1b] the transport whose off-thread answers land at this boundary
+		//! [1b] the transport whose off-thread answers land at this boundary,
+		//! and the store/ad surface whose platform callbacks land at the same
+		//! one (a payment sheet answers on the platform's own queue)
 		HttpClient*			httpClient = nullptr;
+		MonetizationService* monetization = nullptr;
 		//! [2] the world whose components run the game code, and the tasks
 		//! those scripts suspended - resumed in that SAME phase and nowhere
 		//! else (@see core_script/ScriptTaskManager.h)

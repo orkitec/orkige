@@ -288,6 +288,17 @@ http.cancel(id) -> bool  -- abort a request; its onComplete still fires once wit
 http.isAvailable() -> bool  -- does this runtime have an HTTP client (false in the editor)
 http.pending() -> number  -- how many requests are still awaiting an answer
 
+## store
+store.products(onComplete) -> bool  -- ask the storefront for titles and localised prices; onComplete(res) with res[1..n]
+store.purchase(productId, onComplete) -> bool  -- buy one LOGICAL product; onComplete(res) - branch on res.owned, res.state=='pending' grants nothing
+store.restore(onComplete) -> bool  -- re-fetch what this account owns (THE reinstall path); an empty result is a success
+store.owns(productId) -> bool  -- does the player own it right now (a cache of what the platform said, never a save)
+store.entitlements() -> table  -- the logical ids the player currently owns
+store.finish(transactionId) -> bool  -- acknowledge a settled purchase - MANDATORY, and only AFTER the goods are durably saved
+store.adFree() -> bool  -- does the player own a product that removes adverts
+store.isAvailable() -> bool  -- did a store come up in this runtime (false in the editor)
+store.pending() -> number  -- how many store requests are still awaiting an answer
+
 ## globals
 loc(key [, ...]) -> string  -- localised string; %%N%% filled by trailing args
 

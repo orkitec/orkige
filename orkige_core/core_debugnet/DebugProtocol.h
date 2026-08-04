@@ -497,6 +497,21 @@ namespace Orkige
 		//! @brief MSG_STATS: the game's current named state (core_game/GameState,
 		//! Lua `game.setState`); "" / omitted when the game never set one.
 		extern ORKIGE_CORE_DLL const String FIELD_GAME_STATE;
+		//! @brief MSG_STATS: the running game's STORE state, so an agent can see
+		//! what a purchase actually did without a second port or a verb of its
+		//! own. FIELD_STORE_PROVIDER names the installed provider ("" when the
+		//! game installed none - which is the ordinary answer on a platform with
+		//! no store); FIELD_STORE_READY is "1" once it came up;
+		//! FIELD_STORE_PENDING counts requests still awaiting an answer;
+		//! FIELD_STORE_AD_FREE is "1" when the player owns a product that
+		//! suppresses adverts; LIST_STORE_OWNED holds the LOGICAL product ids
+		//! currently owned. Omitted when the runtime has no monetization seam
+		//! (the editor never makes one). Additive since protocol v1.
+		extern ORKIGE_CORE_DLL const String FIELD_STORE_PROVIDER;
+		extern ORKIGE_CORE_DLL const String FIELD_STORE_READY;
+		extern ORKIGE_CORE_DLL const String FIELD_STORE_PENDING;
+		extern ORKIGE_CORE_DLL const String FIELD_STORE_AD_FREE;
+		extern ORKIGE_CORE_DLL const String LIST_STORE_OWNED;
 		//! @brief MSG_PROFILE_DATA: the flattened scope tree - parallel lists,
 		//! LIST_PROFILE_NAMES the scope names (depth-first), LIST_PROFILE_INFO
 		//! one flat "depth calls milliseconds maxMilliseconds" per name.

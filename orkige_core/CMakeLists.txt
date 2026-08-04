@@ -43,6 +43,29 @@ if(APPLE)
     list(APPEND ORKIGE_CORE_SOURCES ${core_objcxx_sources})
 endif()
 
+# --- the monetization seam's platform store ----------------------------------
+# Exactly ONE store translation unit is compiled, chosen here so no call site
+# above the StoreProvider seam carries a platform #ifdef (the same split as the
+# HTTP transport below). A platform with no store integration gets the honest
+# absence rather than nothing at all, so the refusal can name itself.
+#
+#   Apple (macOS/iOS)   the system in-app purchase framework
+#   everywhere else     an honest, named absence
+#
+# See Docs/monetization.md.
+list(REMOVE_ITEM ORKIGE_CORE_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/core_monetization/PlatformStoreNone.cpp"
+)
+if(APPLE)
+    set(ORKIGE_STORE_BACKEND "apple")
+    list(APPEND ORKIGE_CORE_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/core_monetization/PlatformStoreApple.mm")
+else()
+    set(ORKIGE_STORE_BACKEND "none")
+    list(APPEND ORKIGE_CORE_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/core_monetization/PlatformStoreNone.cpp")
+endif()
+
 # --- the HTTP client's platform transport ------------------------------------
 # Exactly ONE backend translation unit is compiled, chosen here so no call site
 # above the HttpBackend seam carries a platform #ifdef (the
@@ -213,13 +236,27 @@ else()
     target_compile_definitions(orkige_core PRIVATE ORKIGE_HTTP_NONE)
 endif()
 
+# --- monetization: the chosen store's define + link --------------------------
+# PRIVATE like the HTTP backends: only the one store TU reads its macro, and the
+# platform header stays out of every other translation unit and the PCH.
+if(ORKIGE_STORE_BACKEND STREQUAL "apple")
+    target_compile_definitions(orkige_core PRIVATE ORKIGE_STORE_APPLE)
+    set_source_files_properties(
+        "${CMAKE_CURRENT_SOURCE_DIR}/core_monetization/PlatformStoreApple.mm"
+        PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+else()
+    target_compile_definitions(orkige_core PRIVATE ORKIGE_STORE_NONE)
+endif()
+
 if(APPLE)
     # core_util/PlatformUtil.mm uses Foundation (NSFileManager & co) and
-    # CoreServices (FSFindFolder); PUBLIC because static-lib consumers must
-    # link the frameworks themselves
+    # CoreServices (FSFindFolder); core_monetization/PlatformStoreApple.mm uses
+    # the system in-app purchase framework. PUBLIC because static-lib consumers
+    # must link the frameworks themselves
     target_link_libraries(orkige_core PUBLIC
         "-framework Foundation"
         "-framework CoreServices"
+        "-framework StoreKit"
     )
 endif()
 

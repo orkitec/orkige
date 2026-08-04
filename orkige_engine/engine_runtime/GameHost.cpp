@@ -16,6 +16,7 @@
 #include "core_game/GameObjectManager.h"
 #include "core_game/LevelManager.h"
 #include "core_http/HttpClient.h"
+#include "core_monetization/MonetizationService.h"
 #include "core_script/ScriptTaskManager.h"
 #include "core_tween/TimerManager.h"
 #include "core_tween/TweenManager.h"
@@ -855,6 +856,17 @@ void advanceGameWorld(GameTick const & tick, float deltaTime)
 	{
 		OPROFILE("http");
 		tick.httpClient->update();
+	}
+	//     The store and ad surface drains in the SAME slot and for the
+	//     same reason: a platform payment sheet and an advert callback
+	//     answer on the platform's own queue, and a purchase callback
+	//     landing inside a world update is the fault this placement
+	//     exists to prevent. Inside the fence too, so a purchase that
+	//     settled while the runtime was paused is delivered on resume.
+	if (tick.monetization)
+	{
+		OPROFILE("monetization");
+		tick.monetization->update();
 	}
 	//
 	// [2] SCRIPTS/WORLD - the component updates: ScriptComponent

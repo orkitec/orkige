@@ -75,6 +75,10 @@
 #include <engine_gui/GuiManager.h>
 #include <engine_runtime/AppHost.h>
 #include <engine_runtime/GameHost.h>
+#include <core_filesystem/ResourceReader.h>
+#include <core_monetization/PlatformStore.h>
+#include <core_monetization/ProductCatalogFile.h>
+#include <core_monetization/SimulatedProvider.h>
 #include "PlayerContext.h"
 #include "PlayerSelfChecks.h"
 #include "PlayerTestRun.h"
@@ -118,6 +122,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <memory>
@@ -132,6 +137,32 @@ using Orkige::woptr;
 
 namespace
 {
+
+// Read a project config file's text. The mounted content reader is tried FIRST
+// by project-relative name, so the same file resolves out of a pak or an APK
+// entry in place; a loose development tree falls through to the path read.
+bool readProjectTextFile(std::string const& absolutePath,
+	std::string const& relativeName, std::string& outText)
+{
+	if (Orkige::ResourceReader const* reader = Orkige::ResourceAccess::reader())
+	{
+		Orkige::String text;
+		if (reader->readText(relativeName, text))
+		{
+			outText.assign(text.begin(), text.end());
+			return true;
+		}
+	}
+	std::ifstream file(absolutePath, std::ios::binary);
+	if (!file)
+	{
+		return false;
+	}
+	std::ostringstream buffer;
+	buffer << file.rdbuf();
+	outText = buffer.str();
+	return true;
+}
 
 // does any loaded GameObject carry a RigidBodyComponent?
 bool sceneHasRigidBodies(Orkige::GameObjectManager& gameObjectManager)
@@ -605,6 +636,8 @@ static bool playerIterate(PlayerContext& context)
 		Orkige::GameTick tick;
 		tick.inputActions = &inputActions;
 		tick.httpClient = context.httpClient ? &*context.httpClient : nullptr;
+		tick.monetization =
+			context.monetization ? &*context.monetization : nullptr;
 		tick.gameObjects = &gameObjectManager;
 		tick.tweens = &tweenManager;
 		tick.timers = &timerManager;
@@ -1762,6 +1795,93 @@ int main(int argc, char** argv)
 		// transport comes up on the first submit - and its completions are
 		// delivered in the tick order's [1b] slot below.
 		context.httpClient.emplace();
+		// the store and ad seam the Lua `store` table talks to. Its answers are
+		// delivered in the same tick-order slot the HTTP client's are, and for
+		// the same reason: a platform payment sheet answers on the platform's
+		// own queue. The editor never makes one, so `store.*` is an honest
+		// no-op in edit mode.
+		context.monetization.emplace();
+		if (project.isLoaded())
+		{
+			Orkige::MonetizationService& money = *context.monetization;
+			// WHAT THE GAME SELLS comes from the project's catalog file, a
+			// config asset of public identifiers (@see ProductCatalogFile) -
+			// never from code, because the identifier a product is sold under
+			// is decided in each store's console and changes there.
+			const std::string catalogRef = project.getSetting(
+				Orkige::ProductCatalogFile::CATALOG_SETTING_KEY);
+			if (!catalogRef.empty())
+			{
+				const std::string catalogPath = project.resolvePath(catalogRef);
+				std::string catalogText;
+				std::string catalogError;
+				if (!readProjectTextFile(catalogPath, catalogRef, catalogText))
+				{
+					SDL_Log("orkige_player: product catalog '%s' not read",
+						catalogRef.c_str());
+				}
+				else if (!Orkige::ProductCatalogFile::parse(catalogText,
+					money.catalog(), &catalogError))
+				{
+					// a broken catalog leaves NOTHING sellable rather than a
+					// half-read one that sells some products and not others
+					SDL_Log("orkige_player: product catalog '%s' - %s",
+						catalogRef.c_str(), catalogError.c_str());
+				}
+				else
+				{
+					SDL_Log("orkige_player: product catalog '%s' (%u products)",
+						catalogRef.c_str(),
+						static_cast<unsigned>(money.catalog().count()));
+				}
+			}
+			// WHICH STORE stands behind the seam. The default is the platform's
+			// own (or the honest absence where there is none); the simulator is
+			// never a fallback a missing platform store decays into, because a
+			// shipped game running against it would hand every product out for
+			// free and look correct doing it.
+			Orkige::StoreProviderChoice storeChoice = Orkige::SPC_PLATFORM;
+			const std::string providerRef =
+				project.getSetting(Orkige::STORE_PROVIDER_SETTING_KEY);
+			if (!Orkige::storeProviderChoiceFromName(providerRef, storeChoice))
+			{
+				SDL_Log("orkige_player: '%s' is not a store provider "
+					"(platform, simulated or none) - using the platform's",
+					providerRef.c_str());
+				storeChoice = Orkige::SPC_PLATFORM;
+			}
+			if (storeChoice == Orkige::SPC_SIMULATED)
+			{
+				money.setStoreProvider(
+					std::make_unique<Orkige::SimulatedStoreProvider>(
+						Orkige::SF_SIMULATED));
+				SDL_Log("orkige_player: the SIMULATED store is installed - "
+					"purchases are not real");
+			}
+			else if (storeChoice == Orkige::SPC_PLATFORM)
+			{
+				if (Orkige::StoreProvider* platformStore =
+					Orkige::createPlatformStoreProvider())
+				{
+					money.setStoreProvider(
+						std::unique_ptr<Orkige::StoreProvider>(platformStore));
+				}
+			}
+			if (money.storeProvider() && !money.initializeStore())
+			{
+				SDL_Log("orkige_player: the store did not come up - purchases "
+					"will be refused");
+			}
+			else if (!money.storeProvider())
+			{
+				// named, not silent: the game's own purchase callbacks will say
+				// the same thing, but a developer reads this first
+				const std::string reason =
+					Orkige::platformStoreUnavailableReason();
+				SDL_Log("orkige_player: no store provider - %s",
+					reason.empty() ? "none was asked for" : reason.c_str());
+			}
+		}
 		if (project.isLoaded())
 		{
 			const std::string levelsRef =
