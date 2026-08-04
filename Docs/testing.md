@@ -149,6 +149,70 @@ only at frame boundaries — never halfway through a physics step.
 The assertion vocabulary is **identical** in both tiers. That is the point: a
 test is a test, and only its declaration says whether it needs a world.
 
+### Driving input
+
+A test presses what a player presses:
+
+| Call | Does |
+| --- | --- |
+| `t.press(target)` | press and HOLD until released |
+| `t.release(target)` | release |
+| `t.tap(target [, frames])` | press, hold `frames` frames (default 1), release |
+
+```lua
+t.press("move+x")
+t.wait(0.3)
+t.release("move+x")
+t.tap("jump")
+```
+
+A **target** is a named action, an action direction, or a raw key:
+
+| Target | Means |
+| --- | --- |
+| `jump` | a DIGITAL action — its key binding is pressed |
+| `move+x` / `move-x` / `move+y` / `move-y` | one DIRECTION of an axis action: the keys that push that component positive or negative |
+| `SPACE`, `RETURN`, `RIGHT`, … | a raw KEY, for anything no action covers (the same key names the injected-input step grammar uses — case-insensitive, a leading `KC_` optional) |
+
+**Named actions first.** They are what game code reads
+(`actions:pressed("jump")`, `actions:value2("move")`), so a test written
+against them keeps meaning what it meant when a binding is re-authored. A key
+name is the escape hatch for input a game reads directly.
+
+An action bound only to tilt or a controller axis has no key to press and is
+**refused by name**, saying what it *is* bound to. A silent no-press would let
+a test that proves nothing pass.
+
+Every press goes through the engine's ONE input synthesis path
+(`InputManager::injectKey` — the same road agent-driven input takes), so a
+driven key is indistinguishable from a key the platform delivered: `isKeyDown`,
+the action map, the gui hit test and every key listener see exactly what ships.
+A test that drove input by a private road would stop exercising what ships.
+
+**The frame it lands on.** `InputActionMap` takes ONE edge snapshot per frame
+(`pressed` = down && !down-last-frame) in the tick order's input slot, before
+the scripts of that frame run. A test body is resumed in the SCRIPT phase,
+*after* that slot — so a press made there is the **next** frame's press, seen by
+the input slot before that frame's game code. `t.press("jump")` followed by one
+wait IS a press the game saw, and `t.tap("jump")` is exactly one press edge,
+never zero and never two.
+
+**Anything still held is released when the test ends**, before the next one
+starts — the same boundary the fresh world draws. One test can never press a
+key into the next.
+
+This vocabulary is on `t` and deliberately **not** on the game-facing `input`
+table. A game script that can fake input is a real capability with real
+consequences — `isKeyDown` answering true for something nobody pressed muddies
+the input model for every reader — so the ability to press is opened where it
+belongs. The seam is installed only for a test run and bound into a test file's
+own sandbox, never into the globals a game script reads.
+
+Pointer and touch have no test verb: a finger is positional, and the number
+space it lives in belongs to a window a headless assertion does not have. Drive
+them from a `.oui` layout's own widgets, or over MCP `send_input` against a
+running game.
+
 ### Isolation
 
 Every play-mode test gets its **own** world: the runner tears the current one
@@ -198,7 +262,10 @@ add_test(NAME player_project_lua_tests
 
 `projects/jumper-lua` carries the shipped example, registered per render flavor:
 `tests/movement.test.lua` and `tests/tuning.test.lua` need no world,
-`tests/playthrough.test.lua` runs in `scenes/main.oscene`.
+`tests/playthrough.test.lua` runs in `scenes/main.oscene` — and its last case
+drives the game entirely through presses: it taps `RETURN` past the title
+screen, holds `move+x` to walk the character and taps `jump` to lift it, then
+reads what the game's own scripts made of that.
 
 ## What ships
 

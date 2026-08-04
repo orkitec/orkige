@@ -463,6 +463,11 @@ namespace Orkige
 		return this->findAction(name) != NULL;
 	}
 	//---------------------------------------------------------
+	InputAction const * InputActionMap::getAction(String const & name) const
+	{
+		return this->findAction(name);
+	}
+	//---------------------------------------------------------
 	void InputActionMap::setAction(InputAction const & action)
 	{
 		for(InputAction & existing : mActions)

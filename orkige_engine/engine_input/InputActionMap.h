@@ -108,6 +108,13 @@ namespace Orkige
 
 		//--- introspection (tests / future editor) ---------
 		bool hasAction(String const & name) const;
+		//! @brief the DEFINITION @p name carries (bindings and kind), or NULL
+		//! when there is no such action. The read side anything that has to
+		//! reason about what an action is bound to needs - the test tier's
+		//! input driver resolves "which key does pressing this action mean"
+		//! through it (@see InputTestDrive). The per-frame snapshot fields are
+		//! written only by update(); read them through down()/pressed()/value().
+		InputAction const * getAction(String const & name) const;
 		size_t getActionCount() const { return mActions.size(); }
 		//! append/replace an action definition (used by loaders and tests)
 		void setAction(InputAction const & action);

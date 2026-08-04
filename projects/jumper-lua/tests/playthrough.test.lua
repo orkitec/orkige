@@ -8,7 +8,7 @@
 --
 -- Every test gets a frame budget. A wait that never comes true fails BY NAME
 -- ("the condition never became true within N frames") instead of hanging the
--- run - which is why every waitUntil below carries a limit and a message.
+-- run - which is why every waitUntil below carries a limit.
 
 local KILL_PLANE_Y = -10.0
 
@@ -66,4 +66,103 @@ test("reaching the buddy wins the round", { scene = "scenes/main.oscene" },
 		-- script publishes goes up, and it respawns for another round
 		t.waitUntil(function() return shared.jumper.wins >= 1 end, 300)
 		t.eq(shared.jumper.wins, 1, "the win was not counted exactly once")
+	end)
+
+-- The INPUT-DRIVEN leg: the test presses what a player presses and then reads
+-- what the game did with it. Every press goes through the engine's one input
+-- synthesis path, so the game sees a key exactly as the platform would have
+-- delivered it - the action layer, the buffered jump and the title-screen
+-- state machine all run for real.
+--
+-- Targets are NAMED ACTIONS ("jump", "move+x"), which is what the game code
+-- reads back, so re-binding a key leaves this test meaning what it meant.
+-- "RETURN" is a raw key because the title screen watches the key itself.
+--
+-- Deliberately modest in distance: the starting platform spans x = -2..2, so
+-- the walk stays well inside it. Proving that a press moves the character is
+-- the point; walking the whole level would be a slower test that fails for
+-- reasons other than input.
+test("the character walks and jumps when the test presses",
+	{ scene = "scenes/main.oscene" },
+	function(t)
+		t.waitUntil(playerIsUp, 300)
+
+		-- the game boots into its title screen and the player script only
+		-- takes control while the flow says "playing" - so start the game the
+		-- way a player does. One tap = one press edge, which is what the
+		-- state machine's own edge detection needs.
+		t.tap("RETURN")
+		t.waitUntil(function()
+			return shared.game == nil or shared.game.state == "playing"
+		end, 120)
+
+		-- WALK: hold the move action's positive x direction, then let go
+		local startX = shared.jumper.x
+		t.press("move+x")
+		t.wait(0.3)
+		t.release("move+x")
+		t.wait(0.1)		-- the velocity approach coasts to a stop
+		t.truthy(shared.jumper.x > startX + 0.5,
+			"holding move+x moved the character by only " ..
+			tostring(shared.jumper.x - startX) .. " m")
+		t.eq(shared.jumper.respawns, 0, "the character walked off the level")
+
+		-- JUMP: one tap, and the game's own buffered-jump rule lifts it
+		t.waitUntil(function() return shared.jumper.grounded end, 300)
+		local groundY = shared.jumper.y
+		t.tap("jump")
+		-- a tap that never lifted the character times out here, by name
+		t.waitUntil(function() return shared.jumper.y > groundY + 0.2 end, 60)
+
+		-- and it comes back down onto the platform it took off from
+		t.waitUntil(function() return shared.jumper.grounded end, 300)
+		t.eq(shared.jumper.respawns, 0, "the character fell out while jumping")
+	end)
+
+-- The PACING leg. A play-mode test's budget is counted in TICKS, while every
+-- wait a test body makes is measured in SIMULATED SECONDS - so the budget only
+-- means anything if the two are related by a constant. They are, because a
+-- test run is paced like every other automated run: one fixed simulated tick
+-- per frame, whatever the host took to draw it. Under a real delta the same
+-- wait costs whatever the machine's frame rate happened to be - roughly 30
+-- frames behind vsync, several hundred on a headless host that free-runs - and
+-- a budget sized on one machine would indict another for being fast.
+--
+-- Two identical waits, counted, is the cheapest way to say that: equal counts
+-- mean the run is paced by the fixed delta and not by the display.
+test("a wait costs the same frames every time",
+	{ scene = "scenes/main.oscene" },
+	function(t)
+		-- a second task counts the frames the body spends waiting: tasks and
+		-- test bodies are both resumed once per frame, in the script phase, so
+		-- this counts ticks of exactly the clock the budget is spent against
+		local frames = 0
+		script.async(function()
+			-- bounded, so this counter can never outlive its usefulness
+			while frames < 1000 do
+				waitFrames(1)
+				frames = frames + 1
+			end
+		end)
+
+		-- let the counter start before anything is measured against it: a task
+		-- begins on a later frame than the call that created it, and those
+		-- unmet frames would otherwise be charged to the first wait
+		t.waitFrames(4)
+
+		local mark = frames
+		t.wait(0.5)
+		local firstWait = frames - mark
+
+		mark = frames
+		t.wait(0.5)
+		local secondWait = frames - mark
+
+		t.eq(firstWait, secondWait,
+			"two identical waits took " .. tostring(firstWait) .. " and " ..
+			tostring(secondWait) .. " frames - the run is paced by the host " ..
+			"frame rate rather than by the fixed automated delta")
+		t.truthy(firstWait >= 28 and firstWait <= 32,
+			"half a second of simulated time took " .. tostring(firstWait) ..
+			" frames; the fixed automated delta makes it 30")
 	end)

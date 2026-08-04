@@ -16,6 +16,7 @@
 #include <core_script/ScriptTaskManager.h>
 #include <core_script/ScriptTestReport.h>
 #include <core_script/ScriptTestTools.h>
+#include <engine_input/InputTestDrive.h>
 
 #include <SDL3/SDL_log.h>
 
@@ -231,6 +232,30 @@ int runProjectLuaTests(Orkige::Project const & project,
 	}
 	Orkige::ScriptRuntime & runtime = Orkige::ScriptRuntime::getSingleton();
 
+	// THE INPUT CAPABILITY, opened for exactly this run. The driver resolves a
+	// target name and injects through InputManager - the one synthesis path
+	// agent-driven input already uses - so a driven key is the same key the
+	// platform would have delivered. It is installed here, not in the engine's
+	// script surface, because only a test run should be able to press
+	// anything; the sandbox binding in beginTestFile keeps it out of every
+	// game script's reach even during this run.
+	Orkige::InputTestDriver inputDriver;
+	runtime.setTestInputHandler(
+		[&inputDriver](Orkige::String const & verb,
+			Orkige::String const & target, Orkige::String & outError)
+	{
+		if(verb == "press")
+		{
+			return inputDriver.press(target, outError);
+		}
+		if(verb == "release")
+		{
+			return inputDriver.release(target, outError);
+		}
+		outError = "unknown input verb '" + verb + "'";
+		return false;
+	});
+
 	Orkige::StringVector duplicates;
 	const std::vector<Orkige::ScriptTestFile> files =
 		Orkige::ScriptTestTools::collectTestFiles(
@@ -349,6 +374,10 @@ int runProjectLuaTests(Orkige::Project const & project,
 			}
 			record.file = file.resourceName;
 			record.name = testCase.name;
+			// a finished test holds nothing: whatever it pressed and never
+			// released comes up HERE, so one test can never press a key into
+			// the next one (the same boundary the fresh world draws)
+			inputDriver.releaseAll();
 			recordOutcome(record);
 		}
 	}
@@ -369,12 +398,16 @@ int runProjectLuaTests(Orkige::Project const & project,
 		record.file = open.resourceName;
 		runPlayCase(runtime, open.session, entry.second, hooks, record);
 		record.file = open.resourceName;
+		inputDriver.releaseAll();
 		recordOutcome(record);
 	}
 	for(OpenFile const & open : openFiles)
 	{
 		runtime.endTestFile(open.session);
 	}
+	// the capability closes with the run: nothing that outlives this function
+	// can press anything
+	runtime.setTestInputHandler(Orkige::ScriptRuntime::TestInputHandler());
 
 	summary.ms = std::chrono::duration<double, std::milli>(
 		std::chrono::steady_clock::now() - started).count();
