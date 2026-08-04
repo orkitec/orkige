@@ -76,11 +76,14 @@ namespace
 			// the same one the menu shows on hover and the endpoint returns
 			return fail(plan.error);
 		}
-		say("packaging '" + project.name + "' for " + plan.platform +
+		say(String(command.withTests ? "packaging a TEST BUILD of '" :
+			"packaging '") + project.name + "' for " + plan.platform +
 			" (engine: " + plan.enginePayload + ")");
 		PlannedExportOverrides overrides;
 		overrides.outputDirectory = command.outputDirectory;
 		overrides.credentials = command.credentials;
+		overrides.withTests = command.withTests;
+		overrides.testFilter = command.testFilter;
 		String artifact;
 		if(!runPlannedExport(plan, project,
 			[](std::string const & line) { say(line); },

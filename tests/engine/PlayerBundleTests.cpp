@@ -104,6 +104,59 @@ TEST_CASE("empty marker yields no bundled project", "[engine][playerbundle]")
 		fixture.base.string()).empty());
 }
 
+TEST_CASE("the marker's directives say what the package is FOR",
+	"[engine][playerbundle]")
+{
+	BundleFixture fixture;
+	std::filesystem::create_directories(fixture.base / "project");
+
+	SECTION("a shipping package asks for nothing beyond its project")
+	{
+		fixture.writeMarker("project\n");
+		const Orkige::PlayerBundle::BundleRun run =
+			Orkige::PlayerBundle::readBundleRun(fixture.base.string());
+		CHECK(std::filesystem::path(run.projectPath) ==
+			fixture.base / "project");
+		CHECK_FALSE(run.runTests);
+		CHECK(run.testFilter.empty());
+	}
+	SECTION("a test build asks for the suite instead of the game")
+	{
+		fixture.writeMarker("project\nrun-tests=1\n");
+		const Orkige::PlayerBundle::BundleRun run =
+			Orkige::PlayerBundle::readBundleRun(fixture.base.string());
+		CHECK(std::filesystem::path(run.projectPath) ==
+			fixture.base / "project");
+		CHECK(run.runTests);
+	}
+	SECTION("the filter travels verbatim, CRLF and all")
+	{
+		fixture.writeMarker("project\r\nrun-tests=1\r\ntest-filter=move me\r\n");
+		const Orkige::PlayerBundle::BundleRun run =
+			Orkige::PlayerBundle::readBundleRun(fixture.base.string());
+		CHECK(run.runTests);
+		CHECK(run.testFilter == "move me");
+	}
+	SECTION("a stranger directive is ignored, never a refusal to boot")
+	{
+		// this reader is older than the artifact it was handed; refusing to
+		// run a game over an instruction it does not need is the worse answer
+		fixture.writeMarker("project\nsomething-new=1\nrun-tests=1\n");
+		const Orkige::PlayerBundle::BundleRun run =
+			Orkige::PlayerBundle::readBundleRun(fixture.base.string());
+		CHECK_FALSE(run.projectPath.empty());
+		CHECK(run.runTests);
+	}
+	SECTION("directives under a marker naming nothing reach nobody")
+	{
+		fixture.writeMarker("no_such_project\nrun-tests=1\n");
+		const Orkige::PlayerBundle::BundleRun run =
+			Orkige::PlayerBundle::readBundleRun(fixture.base.string());
+		CHECK(run.projectPath.empty());
+		CHECK_FALSE(run.runTests);
+	}
+}
+
 TEST_CASE("bundled media overrides the fallback only when Media/Main exists",
 	"[engine][playerbundle]")
 {

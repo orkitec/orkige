@@ -852,6 +852,12 @@ int main(int argc, char** argv)
 			"build has none (ORKIGE_SCRIPTING=OFF)");
 		return 1;
 	}
+	// the run's KIND, merged from two roads that mean the same thing: the
+	// --run-tests flag a desktop caller passes, and the marker directive a
+	// packaged test build carries (a tapped icon and `simctl launch` pass no
+	// argv at all - @see PlayerBundle in engine_runtime/PlayerRuntime.h).
+	bool runTests = arguments.runTests;
+	std::string testFilter = arguments.testFilter;
 	std::string& scenePath = context.scenePath;
 	scenePath = arguments.scenePath;
 	std::string projectPath = arguments.projectPath;
@@ -902,13 +908,35 @@ int main(int argc, char** argv)
 	bool bundledProjectRun = false;
 	if (projectPath.empty() && scenePath.empty())
 	{
-		projectPath =
-			Orkige::PlayerBundle::findBundledProject(platform.getContentRoot());
+		const Orkige::PlayerBundle::BundleRun bundle =
+			Orkige::PlayerBundle::readBundleRun(platform.getContentRoot());
+		projectPath = bundle.projectPath;
 		bundledProjectRun = !projectPath.empty();
 		if (bundledProjectRun)
 		{
 			SDL_Log("orkige_player: exported app - bundled project '%s'",
 				projectPath.c_str());
+		}
+		// a TEST BUILD: the artifact says to run the project's own suite
+		// instead of the game and exit with its verdict. Same refusal as the
+		// flag's, said again HERE because this road reaches the decision after
+		// that check - a build with no interpreter cannot answer the question,
+		// and reporting a pass would be a lie.
+		if (bundledProjectRun && bundle.runTests)
+		{
+			if (std::strcmp(Orkige::ScriptRuntime::backendName(), "none") == 0)
+			{
+				SDL_Log("orkige_player: this package asks for a test run, but "
+					"this build has no scripting backend "
+					"(ORKIGE_SCRIPTING=OFF)");
+				return 1;
+			}
+			runTests = true;
+			testFilter = bundle.testFilter;
+			const std::string filterNote = testFilter.empty() ?
+				std::string() : (", filter '" + testFilter + "'");
+			SDL_Log("orkige_player: exported app - test build%s",
+				filterNote.c_str());
 		}
 	}
 
@@ -1129,7 +1157,7 @@ int main(int argc, char** argv)
 		// tick limit; the fixed AUTOMATED_FRAME_DELTA makes it exactly 30
 		// everywhere, so a budget overrun means a wedged wait rather than a
 		// fast machine.
-		context.automatedRun = context.automatedRun || arguments.runTests;
+		context.automatedRun = context.automatedRun || runTests;
 		const bool automatedRun = context.automatedRun;
 
 		// the engine media root the platform harness resolved: a packaged app
@@ -1978,7 +2006,7 @@ int main(int argc, char** argv)
 		// frame loop, driving frames itself for the play-mode tests through
 		// the same playerIterate the loop below would call. Everything the
 		// loop needs is up by this point.
-		if (arguments.runTests)
+		if (runTests)
 		{
 			PlayerTestHooks testHooks;
 			testHooks.pumpFrame = [&context]() -> bool
@@ -1990,7 +2018,7 @@ int main(int argc, char** argv)
 			{
 				return context.loadSceneForTest(requestedScene);
 			};
-			return runProjectLuaTests(project, arguments.testFilter,
+			return runProjectLuaTests(project, testFilter,
 				std::filesystem::path(engineLogPath).parent_path().string(),
 				testHooks);
 		}

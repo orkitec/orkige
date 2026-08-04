@@ -150,10 +150,17 @@ namespace OrkigeEditor
 		//! credentials named on the command line; an empty field falls through
 		//! to the machine store and then to the environment
 		BuildCredentials	credentials;
+		//! `--with-tests`: package a TEST BUILD - the project's own Lua suite
+		//! rides in the payload and the artifact runs it instead of the game.
+		//! A separate KIND of package; a shipping export never sets it.
+		bool			withTests = false;
 
-		//--- test --------------------------------------------
+		//--- test, and a test build's filter -----------------
 		//! `--test-filter`: matched against `<file>::<test name>`, exactly as
-		//! the player's own flag is ("" = run everything)
+		//! the player's own flag is ("" = run everything). ONE field for both
+		//! doors, because it is one grammar: the `test` subcommand hands it to
+		//! the player's flag, and `export --with-tests` bakes it into the
+		//! package the player reads it back out of.
 		Orkige::String	testFilter;
 		//! `--report-dir`: where the run's JSONL artifact lands. Empty leaves
 		//! the runner's own default (beside the breadcrumb trail in the

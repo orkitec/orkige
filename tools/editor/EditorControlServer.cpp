@@ -638,7 +638,8 @@ namespace Orkige
 		//! thread-safe) and handed in whole.
 		void runExportJobWorker(EditorExportJob* job, ExportRunResult params,
 			OrkigeEditor::EditorExportPlan plan,
-			OrkigeExport::ExportProject project)
+			OrkigeExport::ExportProject project,
+			PlannedExportOverrides overrides)
 		{
 			ExportRunResult result = params;
 			// the progress lines are what get_export_results reports as the
@@ -651,7 +652,8 @@ namespace Orkige
 			};
 			std::string artifact;
 			std::string error;
-			if (runPlannedExport(plan, project, log, artifact, error))
+			if (runPlannedExport(plan, project, log, artifact, error,
+				&overrides))
 			{
 				result.artifactPath = artifact;
 				result.ok = true;
@@ -2068,9 +2070,20 @@ namespace Orkige
 				  "platforms package from that platform's preset build tree, "
 				  "either render flavor; a tree that was never built is refused "
 				  "up front with an honest error. Native-module projects export "
-				  "desktop only.",
+				  "desktop only. withTests packages a TEST BUILD instead of a "
+				  "shippable one: the project's own Lua suite (tests/*.test.lua) "
+				  "rides in the payload and the artifact runs it instead of the "
+				  "game, exiting with the suite's verdict and leaving its JSONL "
+				  "report in the app's writable directory. macos and "
+				  "ios-simulator only - an android or web payload lives inside "
+				  "an archive the runner cannot walk, and is refused by name.",
 				  { { "platform", "string",
-				      "macos | ios-simulator | android | web", true } } },
+				      "macos | ios-simulator | android | web", true },
+				    { "withTests", "boolean",
+				      "package a test build (default false)", false },
+				    { "testFilter", "string",
+				      "a test build's filter, matched against "
+				      "'<file>::<test name>'", false } } },
 				{ "get_export_results",
 				  "Poll an export_project job. Returns status 'running' until the "
 				  "export finishes, then 'done' with 'ok' ('1'/'0'), the "
@@ -7018,9 +7031,17 @@ namespace Orkige
 			// what the export packages from: the build tree, or - in a copied
 			// app - the engine payload staged inside it
 			params.engineBuild = plan.enginePayload;
+			// a TEST BUILD is a different KIND of package, asked for by name.
+			// The exporter refuses the platforms whose payload a runner cannot
+			// walk, so no verdict can come back from a run that found nothing.
+			PlannedExportOverrides overrides;
+			const String& withTestsArg = request.get("withTests");
+			overrides.withTests =
+				withTestsArg == "1" || withTestsArg == "true";
+			overrides.testFilter = request.get("testFilter");
 			EditorExportJob* jobPtr = job.get();
 			job->worker = std::thread(runExportJobWorker, jobPtr, params, plan,
-				exportProject);
+				exportProject, overrides);
 			this->mExportJobs.push_back(std::move(job));
 			DebugMessage ok(MSG_OK);
 			ok.set("accepted", "1");

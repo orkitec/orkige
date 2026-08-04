@@ -139,6 +139,28 @@ namespace OrkigeExport
 		Orkige::String const & texturePlatform, Orkige::String const & flavor,
 		ExportLog const & log, int * outStaged, Orkige::String * error);
 
+	//! @brief additionally copy the project's `tests/` tree into an ALREADY
+	//! STAGED payload at @p destination - the test build's one extra step.
+	//! @remarks Deliberately a separate function called from one guarded place,
+	//! rather than an entry in `payloadSubdirs()` or a flag inside
+	//! `stageProjectPayload`. A suite must be out of a shipping package BY
+	//! CONSTRUCTION: the copy loop never visits a directory the vocabulary does
+	//! not name, so the only way tests reach a payload is a caller that asked
+	//! for them in so many words. A shipping export does not call this and is
+	//! byte-for-byte what it was.
+	//!
+	//! It runs AFTER `stageProjectPayload` on purpose. The texture cook and the
+	//! sampler bake walk what they find, and a test file is neither a texture
+	//! nor a sidecar - but `stripEditorScripts` walks the WHOLE payload, and a
+	//! project may reasonably keep a `*.editor.lua` fixture under `tests/`.
+	//! Staging afterwards keeps the strip meaning exactly what it meant.
+	//! @param outStaged receives the number of files staged (0 when the project
+	//!        has no `tests/` directory - which is not an error here; the
+	//!        runner is the one place that decides what an empty suite is worth)
+	bool stageTestSuite(ExportProject const & project,
+		Orkige::String const & destination, ExportLog const & log,
+		int * outStaged, Orkige::String * error);
+
 	//! @brief lay the engine media a runtime registers at boot into
 	//! `<resources>/Media`, sourced from the build's vcpkg + the source tree.
 	//! @remarks per flavor: the classic RTSS shader library (Main +
@@ -164,9 +186,28 @@ namespace OrkigeExport
 		Orkige::String const & flavor, EngineSourceMedia const & sourceMedia,
 		Orkige::String * error);
 
+	//! @brief what a packaged app is FOR, written into the marker under the
+	//! payload line. A packaged app is launched with NO arguments, so an
+	//! instruction that is a command-line flag on a desktop run has to ride
+	//! inside the artifact (@see Orkige::PlayerBundle, which reads this).
+	struct PayloadTestRun
+	{
+		//! run the project's own Lua suite instead of the game and exit with
+		//! its verdict
+		bool			enabled = false;
+		//! the runner's `--test-filter` substring, passed through unchanged
+		Orkige::String	filter;
+	};
+
 	//! @brief write the default-project marker naming the payload directory
 	bool writeProjectMarker(Orkige::String const & directory,
 		Orkige::String * error);
+
+	//! @brief the same marker plus the run directives @p tests asks for.
+	//! @remarks a disabled `PayloadTestRun` writes the one-line marker
+	//! verbatim, so a shipping package is unchanged down to the byte.
+	bool writeProjectMarker(Orkige::String const & directory,
+		PayloadTestRun const & tests, Orkige::String * error);
 
 	//! the third-party license notices every packaged artifact carries, at its
 	//! resource root - beside the project marker, in the directory

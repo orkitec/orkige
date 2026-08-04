@@ -41,6 +41,24 @@ namespace OrkigeExport
 			platform == "web";
 	}
 	//---------------------------------------------------------
+	String testRunPlatformRefusal(String const & platform)
+	{
+		if(platform == "macos" || platform == "ios-simulator" ||
+			platform == "ios" || platform == "ios-ipa")
+		{
+			return String();
+		}
+		if(!isPackagedPlatform(platform))
+		{
+			return "'" + platform + "' is not a platform this packages for";
+		}
+		return "a test build is not available for '" + platform + "': its "
+			"payload rides inside an archive the runtime mounts in place, and "
+			"the test runner discovers a suite by walking a directory - so the "
+			"run would find no tests and report a pass over nothing. Export "
+			"--with-tests for macos or an iOS target";
+	}
+	//---------------------------------------------------------
 	EnvironmentMap currentEnvironment()
 	{
 		EnvironmentMap environment;
@@ -81,6 +99,14 @@ namespace OrkigeExport
 		{
 			return refuse(error, "'" + request.platform + "' is not a platform "
 				"this exporter packages yet");
+		}
+		if(request.withTests)
+		{
+			const String refusal = testRunPlatformRefusal(request.platform);
+			if(!refusal.empty())
+			{
+				return refuse(error, refusal);
+			}
 		}
 		if(request.source.fromBundle())
 		{
@@ -244,16 +270,21 @@ namespace OrkigeExport
 			source.devicePayload = ExportFiles::absolute(source.devicePayload);
 		}
 
+		PayloadTestRun tests;
+		tests.enabled = request.withTests;
+		tests.filter = request.testFilter;
+
 		bool packaged = false;
 		if(request.platform == "macos")
 		{
 			packaged = exportMacos(project, source, outputDirectory,
-				environment, artifact, error);
+				environment, tests, artifact, error);
 		}
 		else if(request.platform == "ios-simulator" ||
 			request.platform == "ios" || request.platform == "ios-ipa")
 		{
 			IosRequest iosRequest;
+			iosRequest.tests = tests;
 			if(request.platform == "ios")
 			{
 				iosRequest.signing = resolveIosSigning(request.signingIdentity,

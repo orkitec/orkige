@@ -89,6 +89,7 @@ orkige_editor export --project <dir>
                      [--android-keystore <path>]
                      [--android-key-alias <name>]
                      [--bundletool <path>]
+                     [--with-tests [--test-filter <substring>]]
 ```
 
 Output lands in `<project>/builds/<platform>/` unless `--output` says otherwise.
@@ -96,6 +97,20 @@ The platform vocabulary and every artifact shape are the exporter's — see
 [textures.md](textures.md) for the export-time cook, [web-export.md](web-export.md)
 for the browser payload and [device-payloads.md](device-payloads.md) for what a
 phone build needs.
+
+### `--with-tests`: a package that runs the game's own suite
+
+`--with-tests` packages a **test build** instead of a shippable one: the
+project's `tests/*.test.lua` suite rides in the payload and the artifact runs it
+instead of the game, exiting with the suite's verdict
+([testing.md](testing.md#running-the-suite-inside-the-package)). It is what
+`test` is to a project folder, for the thing that actually ships — the payload's
+cooked textures, baked samplers and staged media are what the tests see.
+
+`macos` and the iOS platforms only. An Android or web payload lives inside an
+archive the runner cannot walk, and is refused by name rather than passing over
+zero tests. `--test-filter` without `--with-tests` is a usage error, because an
+option that silently did nothing would be worse.
 
 ### The store platforms are here
 

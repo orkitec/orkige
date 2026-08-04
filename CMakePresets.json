@@ -723,14 +723,14 @@
     },
     {
       "name": "device-macos-ios-ci",
-      "displayName": "iOS Simulator CI: export + play + cold-boot + safe-area tests",
+      "displayName": "iOS Simulator CI: export + packaged Lua suite + play + cold-boot + safe-area tests",
       "configurePreset": "macos-debug",
       "environment": {
         "ORKIGE_REQUIRE_DEVICE_TEST_TARGET": "1"
       },
       "filter": {
         "include": {
-          "name": "^(export_ios_simulator|editor_play_simulator|editor_play_simulator_boot|player_safearea_device)$"
+          "name": "^(export_ios_simulator|export_ios_simulator_tests|editor_play_simulator|editor_play_simulator_boot|player_safearea_device)$"
         }
       },
       "execution": {

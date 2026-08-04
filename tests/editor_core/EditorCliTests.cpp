@@ -144,6 +144,42 @@ TEST_CASE("export carries the store platforms' credentials", "[editorcli]")
 	REQUIRE(command.credentials.bundletool == "/opt/bundletool.jar");
 }
 
+TEST_CASE("export --with-tests packages a test build", "[editorcli]")
+{
+	SECTION("the flag is valueless and does not eat the next argument")
+	{
+		const EditorCliCommand command = parse({ "export",
+			"--project", "/g", "--with-tests", "--platform", "ios-simulator" });
+		REQUIRE_FALSE(command.usageError);
+		REQUIRE(command.withTests);
+		REQUIRE(command.platform == "ios-simulator");
+		REQUIRE(command.testFilter.empty());
+	}
+	SECTION("the filter is the runner's own grammar, passed through")
+	{
+		const EditorCliCommand command = parse({ "export",
+			"--project", "/g", "--platform", "macos",
+			"--with-tests", "--test-filter", "movement" });
+		REQUIRE_FALSE(command.usageError);
+		REQUIRE(command.withTests);
+		REQUIRE(command.testFilter == "movement");
+	}
+	SECTION("a shipping export never sets it")
+	{
+		const EditorCliCommand command = parse(
+			{ "export", "--project", "/g", "--platform", "macos" });
+		REQUIRE_FALSE(command.withTests);
+	}
+	SECTION("a filter with no test build is refused, not silently ignored")
+	{
+		const EditorCliCommand command = parse({ "export",
+			"--project", "/g", "--platform", "macos",
+			"--test-filter", "movement" });
+		REQUIRE(command.usageError);
+		REQUIRE(command.error.find("--with-tests") != std::string::npos);
+	}
+}
+
 TEST_CASE("test takes a project, and nothing else is required", "[editorcli]")
 {
 	const EditorCliCommand command =

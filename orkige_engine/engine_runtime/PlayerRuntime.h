@@ -78,24 +78,55 @@ namespace Orkige
 	//! directory - SDL_GetBasePath(): macOS .app = Contents/Resources/, iOS
 	//! .app = the flat bundle root, a plain executable = its own directory;
 	//! on Android the caller passes the extracted-assets root explicitly
-	//! (SDL has no base path there) - and holds a single line: the project
-	//! path relative to that base (the exporter writes "project"). A missing
+	//! (SDL has no base path there) - and holds the project path relative to
+	//! that base on its FIRST line (the exporter writes "project"). A missing
 	//! marker simply means "not an exported app" - dev runs are unaffected.
 	//! Everything here is pure filesystem logic (plus SDL_GetBasePath), so
 	//! the engine unit tests cover it headlessly via the explicit baseDir.
+	//!
+	//! Lines AFTER the first are `key=value` directives that say what the app
+	//! is FOR. There is exactly one today - `run-tests` - and it exists
+	//! because a packaged app is launched with no argv at all: a phone taps an
+	//! icon, and `simctl launch` passes no arguments either. So an instruction
+	//! that would be a command-line flag on a desktop run has to ride inside
+	//! the artifact, which is precisely what makes a test run a distinct KIND
+	//! of export rather than a different way of starting one. A marker with no
+	//! directives is byte-identical to the one a shipping export has always
+	//! written.
 	namespace PlayerBundle
 	{
 		//! the marker file's name ("orkige_project.txt")
 		extern const String PROJECT_MARKER_FILE_NAME;
 
+		//! @brief what the marker says: which project, and what to do with it
+		struct BundleRun
+		{
+			//! the bundled project's absolute path; "" = not an exported app
+			String	projectPath;
+			//! `run-tests=1`: run the project's own Lua suite instead of the
+			//! game and exit with its verdict (@see PlayerArguments::runTests)
+			bool	runTests = false;
+			//! `test-filter=<substring>`: the runner's own filter, passed
+			//! through unchanged (@see PlayerArguments::testFilter)
+			String	testFilter;
+		};
+
 		//! @brief the app's base directory (SDL_GetBasePath(), separator-
 		//! terminated); "" when SDL cannot provide one (e.g. on Android)
 		String baseDirectory();
 
+		//! @brief read the marker under baseDir ("" = use baseDirectory()).
+		//! @remarks `projectPath` is "" - and every directive its default -
+		//! when there is no marker, the marker is empty, or the named path is
+		//! missing. Unknown directive keys are ignored: the marker is written
+		//! by the exporter in the same tree as this reader, so a stranger is a
+		//! newer artifact run by an older player, and refusing to boot a game
+		//! over an instruction it does not need would be the worse answer.
+		BundleRun readBundleRun(String const & baseDir = String());
+
 		//! @brief the bundled default project the marker under baseDir names
-		//! ("" = use baseDirectory()): the marker's first line resolved
-		//! against baseDir. Returns "" when there is no marker (not an
-		//! exported app), the marker is empty or the named path is missing.
+		//! ("" = use baseDirectory()): `readBundleRun(baseDir).projectPath`,
+		//! for the callers that only ever wanted the path.
 		String findBundledProject(String const & baseDir = String());
 
 		//! @brief the engine media dir a runtime should register:

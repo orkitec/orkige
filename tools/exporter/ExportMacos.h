@@ -45,10 +45,12 @@ namespace OrkigeExport
 	//! @brief package @p project as `<outputDirectory>/<Name>.app`.
 	//! @param outArtifact receives the bundle path on success
 	//! @return false with an honest @p error naming the missing piece
+	//! @param tests a TEST BUILD: carry the project's suite and run it
+	//!        (default off, so a shipping bundle is untouched)
 	bool exportMacos(ExportProject const & project, EngineSource const & source,
 		Orkige::String const & outputDirectory,
-		ExportEnvironment const & environment, Orkige::String & outArtifact,
-		Orkige::String * error);
+		ExportEnvironment const & environment, PayloadTestRun const & tests,
+		Orkige::String & outArtifact, Orkige::String * error);
 
 	//! @brief the Info.plist an exported macOS app carries
 	Orkige::JsonValue macosInfoPlist(ExportProject const & project,

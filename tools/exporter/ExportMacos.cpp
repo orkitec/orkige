@@ -324,8 +324,8 @@ namespace OrkigeExport
 	//---------------------------------------------------------
 	bool exportMacos(ExportProject const & project, EngineSource const & source,
 		Orkige::String const & outputDirectory,
-		ExportEnvironment const & environment, Orkige::String & outArtifact,
-		Orkige::String * error)
+		ExportEnvironment const & environment, PayloadTestRun const & tests,
+		Orkige::String & outArtifact, Orkige::String * error)
 	{
 		const Orkige::String nativeTarget = project.nativeTarget();
 		Orkige::String executable;
@@ -551,7 +551,18 @@ namespace OrkigeExport
 		{
 			return false;
 		}
-		if(!writeProjectMarker(resources, error))
+		if(tests.enabled)
+		{
+			int testFiles = 0;
+			if(!stageTestSuite(project,
+				ExportFiles::join(resources, PAYLOAD_DIR_NAME),
+				environment.log, &testFiles, error))
+			{
+				return false;
+			}
+			staged += testFiles;
+		}
+		if(!writeProjectMarker(resources, tests, error))
 		{
 			return false;
 		}

@@ -299,7 +299,18 @@ namespace OrkigeExport
 		{
 			return false;
 		}
-		if(!writeProjectMarker(appDirectory, error))
+		if(request.tests.enabled)
+		{
+			int testFiles = 0;
+			if(!stageTestSuite(project,
+				ExportFiles::join(appDirectory, PAYLOAD_DIR_NAME),
+				environment.log, &testFiles, error))
+			{
+				return false;
+			}
+			staged += testFiles;
+		}
+		if(!writeProjectMarker(appDirectory, request.tests, error))
 		{
 			return false;
 		}
