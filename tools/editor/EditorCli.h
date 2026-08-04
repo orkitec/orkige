@@ -71,6 +71,19 @@
 //! imgui ini, no IDE lock, no MCP endpoint, no credential vault. The ONE
 //! deliberate exception is stated at @ref EditorCliVerb::Export.
 //!
+//! @par The editor is a WINDOW application, and says so when asked otherwise
+//! The engine carries a deviceless render system (`ORKIGE_RENDERSYSTEM=null`,
+//! @see RenderSystemSelection.h) so a process can hold a live scene with no
+//! display. The PLAYER boots it; the editor does not. Its scene view, its
+//! preview, its gizmos and its whole interface ARE render targets, so there is
+//! nothing left of the editor once the window is gone - a deviceless editor
+//! would be an MCP endpoint with no pixels, and an automated run may not open a
+//! socket anyway. @ref editorDevicelessRefusal is that answer, given by name
+//! before any render system is installed rather than as a crash inside one.
+//! Subcommands are deliberately EXEMPT: they boot no render system at all, so a
+//! build server that exports its games with that variable set machine-wide
+//! keeps working.
+//!
 //! @par Windows: the editor is a CONSOLE-subsystem executable
 //! `add_executable(orkige_editor ...)` carries no `WIN32`, which is what makes
 //! stdout, stderr and the exit code reach a caller on Windows. Flipping the
@@ -171,17 +184,29 @@ namespace OrkigeEditor
 	//! pure: it reads no environment, opens no file and never throws.
 	EditorCliCommand parseEditorCli(std::vector<Orkige::String> const & arguments);
 
+	//! @brief the one sentence a launch must refuse with when this process was
+	//! told to boot the deviceless render system, or "" when there is nothing
+	//! to refuse.
+	//! @param command what @ref parseEditorCli decided
+	//! @param renderSystemName the `ORKIGE_RENDERSYSTEM` value ("" = unset)
+	//! @remarks Pure - the name is passed in, and what counts as deviceless
+	//! stays the ONE vocabulary (@see RenderSystemSelection::isDevicelessName),
+	//! so no graphics name can ever read as a refusal here. Only a WINDOWED
+	//! launch is refused: a headless command (@ref EditorCliCommand::headless)
+	//! installs no render system, so the variable does not concern it.
+	Orkige::String editorDevicelessRefusal(EditorCliCommand const & command,
+		Orkige::String const & renderSystemName);
+
 	//! @brief the usage text, honest about what this door covers.
 	//! @remarks It deliberately promises no scene or asset operations IN THIS
 	//! PROCESS. A `TransformComponent` stores its transform inside the render
 	//! node, so loading a scene pulls in a render world - and the editor boots
 	//! exactly one render backend, the graphics one, straight into a window.
-	//! The engine does carry a deviceless render system (@see
-	//! RenderSystemSelection.h), which is how the PLAYER holds a live scene
-	//! with no display; teaching the editor to boot that way is its own piece
-	//! of work and nothing here may advertise it as done. Where a live world
-	//! is what the caller actually wants, the honest answer is the runtime
-	//! that already has one - which is what @ref EditorCliVerb::Test does.
+	//! That is not a gap waiting to be filled: the editor is a window
+	//! application and refuses a deviceless launch by name (@see
+	//! editorDevicelessRefusal). Where a live world is what the caller actually
+	//! wants, the honest answer is the runtime that already has one - which is
+	//! what @ref EditorCliVerb::Test does.
 	Orkige::String editorCliUsage();
 
 	//! @brief run a parsed command to completion. 0 = it worked, 1 = it ran

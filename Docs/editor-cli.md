@@ -220,9 +220,25 @@ boots exactly one render backend, the graphics one, straight into a window.
 The engine does carry a **deviceless render system** (`ORKIGE_RENDERSYSTEM=NULL`,
 `engine_render/RenderSystemSelection.h`), which is how the player holds a live
 scene on a machine with no display, and the `player_deviceless` test proves it.
-That is a runtime capability: the editor has no deviceless awareness, and
-teaching it to boot that way is its own piece of work. Until it does, nothing
-here may advertise a headless scene operation.
+That is a **runtime** capability. The editor is a window application: its scene
+view, its preview, its gizmos and its whole interface *are* render targets, so
+a deviceless editor would be an MCP endpoint with no pixels — and an automated
+run opens no socket. A windowed launch under that variable therefore **refuses
+by name** before any render system is installed:
+
+```sh
+$ ORKIGE_RENDERSYSTEM=null orkige_editor
+orkige_editor: ERROR: ORKIGE_RENDERSYSTEM=null selects the deviceless render
+system, and the editor is a window application: … Headless work goes through
+the subcommands (orkige_editor help); a live scene with no display is
+orkige_player.
+$ echo $?
+1
+```
+
+**Subcommands are exempt.** They install no render system at all, so a build
+server that sets the variable machine-wide for its player runs still exports,
+tests and fetches with it set.
 
 Where a live world is what the caller actually wants, the honest answer is the
 part of the installation that already has one — which is what `test` does.
@@ -271,15 +287,49 @@ exit code reach a caller. Flipping it to the GUI subsystem would silently kill
 this whole surface: the process would detach from its console and every
 subcommand would appear to print nothing.
 
-**macOS.** The editor ships as `Orkige.app`; the executable to invoke is
+**macOS.** The editor ships as `Orkige.app`, so its executable is buried at
 `Orkige.app/Contents/MacOS/Orkige`. `open -a Orkige --args …` is *not*
-equivalent — it detaches the process and discards the exit code.
+equivalent — it detaches the process and discards the exit code, which is the
+one thing a subcommand exists to produce.
+
+So the downloadable archive publishes the command line under **the same
+`orkige_editor` name on every platform**, at the archive root: on Linux and
+Windows that is the editor executable itself, on macOS a small wrapper beside
+the bundle that `exec`s the buried executable, passing arguments through and
+returning its exit code unchanged.
+
+```
+Orkige-macos-<version>/
+  Orkige.app/            the editor
+  orkige_editor          the command line  ->  Orkige.app/Contents/MacOS/Orkige
+  VERSION  CHANGELOG.md  KNOWN-LIMITATIONS.md  THIRD-PARTY-NOTICES.md
+```
+
+The wrapper runs **the bundle beside it and no other**. It does not search
+`/Applications`, because an unpacked archive that ran some other installation's
+editor would be a wrong answer that looks right — on a build server pinning a
+version, silently the wrong build. The cost of that choice is where it bites:
+move `Orkige.app` out of the unpacked directory and the wrapper stops working.
+It says so, and names the path to invoke directly. **A machine that installs
+Orkige by dragging the app to `/Applications` invokes
+`/Applications/Orkige.app/Contents/MacOS/Orkige`** — which is why the disk
+image carries no wrapper, and the portable archive does.
+
+`Util/orkige_nightly_package.py` writes it, and its `verify_layout` refuses an
+archive that lacks the entry point or whose wrapper no longer reaches the
+executable, so a layout change cannot drop the command line quietly.
+
+**The installed forms need no wrapper.** A Linux AppImage takes arguments
+directly (`./Orkige-linux-<version>.AppImage export --project …`), and the
+Windows installer puts `orkige_editor.exe` in the install directory. Only the
+macOS bundle buries its executable, which is the one case this exists for.
 
 ## Tests
 
 | Test | What it holds |
 |------|---------------|
-| `EditorCliTests` (unit) | the argument router: every subcommand, flag passthrough, and that an unknown word never reaches the window road |
-| `editor_cli` (integration) | the real binary: the three exit codes, the refusals, an export that produces an artifact and prints its `OK` line — each within a deadline, because a subcommand that opened a window would hang rather than fail |
+| `EditorCliTests` (unit) | the argument router: every subcommand, flag passthrough, that an unknown word never reaches the window road, and the deviceless refusal — which fires for a windowed launch, never for a graphics render system, never for a subcommand |
+| `orkige_nightly_package_selftest` (unit) | the archive's entry point: the macOS wrapper is *run* over a stand-in bundle (arguments arrive one for one, the exit code comes back, an absent bundle refuses), and `verify_layout` rejects a tree whose command line is missing or no longer reaches the executable |
+| `editor_cli` (integration) | the real binary: the three exit codes, the refusals, a deviceless launch that exits instead of booting, an export that produces an artifact and prints its `OK` line — each within a deadline, because a subcommand that opened a window would hang rather than fail |
 | `editor_cli_test` (integration) | the real binary running a real suite: a project with tests passes and names its JSONL artifact, a filter that matches nothing still passes, a project with no `tests/` is refused by name, and a suite whose tests fail comes back non-zero |
 | `editor_bundle_native` (integration) | the distribution proof: a **copied** editor, in a clean room that denies the repository, the engine build tree and the vcpkg root, packages a project from a command line with no editor session running |

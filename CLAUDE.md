@@ -735,12 +735,25 @@ browser are not there yet).
   - v1 covers `export`, `test`, `fetch-payload`, `version`, `changelog`, `help`
     and promises NO scene or asset operation IN THIS PROCESS (a scene load
     reaches `RenderWorld`, and the editor boots one render backend, the
-    graphics one, into a window). The engine DOES carry a deviceless render
-    system (`ORKIGE_RENDERSYSTEM=NULL`, `engine_render/RenderSystemSelection.h`,
-    next flavor, gated by `player_deviceless`) — that is how the PLAYER holds a
-    live scene with no display, which is why `test` delegates there; teaching
-    the EDITOR to boot deviceless is separate work and must not be advertised
-    as done.
+    graphics one, into a window).
+  - **The editor is WINDOW-ONLY, and refuses a deviceless launch by name.**
+    The engine's deviceless render system (`ORKIGE_RENDERSYSTEM=null|headless`,
+    `engine_render/RenderSystemSelection.h`, next flavor, gated by
+    `player_deviceless`) is how the PLAYER holds a live scene with no display —
+    which is why `test` delegates there. The editor's scene view, preview and
+    whole interface ARE render targets, so a windowed launch under that
+    variable exits 1 with a sentence naming it (`editorDevicelessRefusal`, pure
+    and unit-tested, checked in `main` before SDL exists). **Subcommands are
+    exempt** — they install no render system, so a build server may set the
+    variable machine-wide.
+  - **A release publishes the command line at the ARCHIVE ROOT** as one
+    `orkige_editor[.exe]` on every platform: the executable itself on
+    Linux/Windows, and on macOS a wrapper beside `Orkige.app` that `exec`s
+    `Contents/MacOS/Orkige` (`open -a` detaches and discards the exit code). It
+    resolves the bundle BESIDE IT and nowhere else — searching `/Applications`
+    would let a pinned archive run another installation — and it rides the
+    portable archive only, never the disk image. `verify_layout` in
+    `Util/orkige_nightly_package.py` refuses an archive that lacks it.
 
 Covered by the `export_*` integration ctests (the macOS ones RUN the exported app
 from a neutral cwd; `export_android_aab` asserts the unsigned bundle-module

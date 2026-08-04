@@ -133,6 +133,15 @@ ARCHIVE_SUFFIX = {"macos": ".zip", "linux": ".tar.gz", "windows": ".zip"}
 # sets OUTPUT_NAME "Orkige" + MACOSX_BUNDLE)
 MACOS_APP_NAME = "Orkige.app"
 
+# the invokable command-line name at the ARCHIVE ROOT, on every platform. The
+# editor's subcommands (Docs/editor-cli.md) are the only export door a machine
+# carrying a distributed Orkige has, so the archive a build server unpacks must
+# offer one obvious name to run. On Linux and Windows that name IS the editor
+# executable. On macOS the executable is buried at
+# Orkige.app/Contents/MacOS/Orkige, so the archive carries a small wrapper
+# under the same name - see macos_cli_wrapper_text.
+CLI_ENTRY_NAME = "orkige_editor"
+
 # editor settings files. The editor writes these into the per-user application
 # data directory, but an older tree may still hold a copy beside the binary -
 # never ship one: a fresh download must start with the editor's own defaults,
@@ -1286,6 +1295,60 @@ def msvc_runtime_dlls(environ=None):
             if name.lower().endswith(".dll"):
                 found.append(os.path.join(crt_dir, name))
     return found
+
+
+def cli_entry_name(platform):
+    """the file at the archive root a caller runs to reach the subcommands"""
+    return CLI_ENTRY_NAME + (".exe" if platform == "windows" else "")
+
+
+def macos_cli_wrapper_text(app_name=MACOS_APP_NAME):
+    """the macOS archive's command-line entry point.
+
+    `open -a Orkige --args ...` is NOT a substitute for running the executable:
+    it detaches the process and discards the exit code, which is the one thing
+    a subcommand exists to produce. So the archive carries the same
+    `orkige_editor` name the Linux and Windows archives carry, and it execs the
+    buried executable - `exec` rather than a call, so the editor inherits the
+    caller's streams and its exit code IS the wrapper's.
+
+    It resolves the bundle BESIDE ITSELF and refuses otherwise. A wrapper that
+    searched /Applications for an Orkige.app would let an unpacked archive run
+    some OTHER installation's editor - a wrong answer that looks right, and on
+    a build server pinning a version, the wrong build silently. The cost of
+    that choice is stated where it bites: drag the bundle out of the unpacked
+    directory and this script stops working, so it names the path to invoke
+    directly instead of guessing."""
+    return (
+        "#!/bin/sh\n"
+        "# The Orkige editor's command line (Docs/editor-cli.md).\n"
+        "#\n"
+        "# On macOS the editor is an application bundle, so its executable\n"
+        "# lives at %s/Contents/MacOS/Orkige. This script is the\n"
+        "# invokable name beside it, matching the bare executable the Linux\n"
+        "# and Windows archives carry at their root.\n"
+        "#\n"
+        "# It runs the bundle NEXT TO IT and no other: searching the machine\n"
+        "# could run a different installation than the one you unpacked.\n"
+        "here=$(cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
+        "editor=\"$here/%s/Contents/MacOS/Orkige\"\n"
+        "if [ ! -x \"$editor\" ]; then\n"
+        "\techo \"orkige_editor: ERROR: no %s beside this script"
+        " ($here).\" >&2\n"
+        "\techo \"orkige_editor: keep it beside the bundle, or run"
+        " <%s>/Contents/MacOS/Orkige directly.\" >&2\n"
+        "\texit 1\n"
+        "fi\n"
+        "exec \"$editor\" \"$@\"\n" % (app_name, app_name, app_name, app_name))
+
+
+def write_macos_cli_wrapper(stage_root, app_name=MACOS_APP_NAME):
+    """write that wrapper into an already-staged macOS archive root"""
+    path = os.path.join(stage_root, CLI_ENTRY_NAME)
+    with open(path, "w") as handle:
+        handle.write(macos_cli_wrapper_text(app_name))
+    os.chmod(path, 0o755)
+    return path
 
 
 def stage_macos(build_dir, stage_root, editor, player, web=None):
@@ -3001,6 +3064,14 @@ def package(platform, build_dir, commit, date, output_dir, version="",
             stage_root,
             os.path.join(output_dir, dmg_name(platform, commit, version)),
             dmg_volume_name(version), signing)
+        # the command-line entry point belongs to the PORTABLE archive alone,
+        # so it is written after the image is built. The disk image is the
+        # drag-to-Applications road: the bundle leaves the volume and this
+        # script would not, so shipping it there would be an installed file
+        # that never works. It sits outside the .app, so it is not part of
+        # anything that was just sealed and stapled.
+        log("staged the command line as %s" % CLI_ENTRY_NAME)
+        write_macos_cli_wrapper(stage_root)
 
     archive_path = os.path.join(output_dir,
                                 artifact_name(platform, commit, version))
@@ -3046,10 +3117,14 @@ def package(platform, build_dir, commit, date, output_dir, version="",
 
 # --- verification (the pipeline's smoke test) ------------------------------
 
-def verify_layout(root, platform):
+def verify_layout(root, platform, expect_command_line=True):
     """the structural half of the smoke test: every file a downloaded build is
     supposed to contain, checked on the UNPACKED tree. Returns the editor
     executable path; a list of complaints means the packaging is broken.
+
+    `expect_command_line` is False for the macOS DISK IMAGE, which is the
+    drag-to-Applications road: the bundle leaves the volume and a wrapper beside
+    it would not follow, so the command line rides the portable archive alone.
 
     The media and the sibling executables are checked AT THE PATHS THE EDITOR
     RESOLVES (Contents/Resources/Media + Contents/MacOS on macOS,
@@ -3106,6 +3181,29 @@ def verify_layout(root, platform):
         # an archive format that drops the executable bit turns a download into
         # a permission error nobody can diagnose
         problems.append("the editor is not executable")
+    # the command line the archive publishes (Docs/editor-cli.md): one name at
+    # the root on every platform, because a build server unpacking this has no
+    # other export door. On Linux and Windows it IS the editor executable and
+    # the checks above already cover it - saying so twice would only make a job
+    # log harder to read. On macOS the executable is inside the bundle, so the
+    # root carries a wrapper that reaches it, and a wrapper that stopped doing
+    # that would be a file that runs nothing while looking entirely correct.
+    entry = os.path.join(root, cli_entry_name(platform))
+    if expect_command_line and os.path.normpath(entry) != os.path.normpath(
+            editor):
+        if not os.path.isfile(entry):
+            problems.append("missing the command line (%s)"
+                            % cli_entry_name(platform))
+        else:
+            if platform != "windows" and not os.access(entry, os.X_OK):
+                problems.append("the command line (%s) is not executable"
+                                % cli_entry_name(platform))
+            with open(entry, "r") as handle:
+                wrapper = handle.read()
+            if "%s/Contents/MacOS/Orkige" % MACOS_APP_NAME not in wrapper:
+                problems.append("the command line (%s) does not reach the "
+                                "editor inside %s"
+                                % (cli_entry_name(platform), MACOS_APP_NAME))
     player = "orkige_player.exe" if platform == "windows" else "orkige_player"
     if not os.path.isfile(os.path.join(player_dir, player)):
         problems.append("missing the player (%s)" % player)
@@ -3253,7 +3351,11 @@ def verify_dmg(dmg_path):
         elif os.readlink(link) != "/Applications":
             problems.append("the %s symlink points at '%s', not /Applications"
                             % (APPLICATIONS_LINK, os.readlink(link)))
-        _, layout_problems = verify_layout(mountpoint, "macos")
+        # ...every file the app itself needs, but NOT the archive's command
+        # line: that is the portable road's entry point (Docs/editor-cli.md),
+        # and an installed app is invoked at its own path
+        _, layout_problems = verify_layout(mountpoint, "macos",
+                                           expect_command_line=False)
         problems.extend(layout_problems)
         for problem in problems:
             print("orkige_nightly_package: DMG: " + problem, flush=True)
@@ -5135,6 +5237,13 @@ exit 0
         _, problems = verify_layout(tree, "linux")
         assert problems == [], problems
         media_root = os.path.join(tree, FLAT_RESOURCE_DIR, "Media")
+        # the command line this archive publishes is, on a flat platform, the
+        # editor executable at the root - the same one name a caller runs on
+        # macOS, where it reaches a wrapper instead
+        editor_path, _ = verify_layout(tree, "linux")
+        assert os.path.basename(editor_path) == cli_entry_name("linux"), \
+            editor_path
+        assert os.access(editor_path, os.X_OK), editor_path
         os.remove(os.path.join(tree, "orkige_player"))
         os.remove(os.path.join(tree, "texcook"))
         os.remove(os.path.join(tree, CHANGELOG_FILE))
@@ -5159,6 +5268,86 @@ exit 0
         _, problems = verify_layout(tree, "linux")
         assert any(problem.startswith("missing share/orkige/Media")
                    for problem in problems), problems
+
+    # --- the macOS command line, RUN for real ---------------------------
+    #
+    # On macOS the editor's executable is buried inside the bundle, so the
+    # archive publishes a wrapper under the same name the other platforms'
+    # archives carry at their root. What has to hold cannot be read off the
+    # text: the arguments have to arrive one for one, the exit code has to come
+    # back, and an absent bundle has to produce a refusal rather than silence.
+    # So this RUNS it over a stand-in app - any platform with a POSIX shell can,
+    # which is what keeps the check on the two CI hosts that are not macOS.
+    if os.name == "nt":
+        log("skipping the command-line run leg on this platform")
+    else:
+        with tempfile.TemporaryDirectory() as temp:
+            root = os.path.join(temp, "Orkige-macos-selftest")
+            macos_dir = os.path.join(root, MACOS_APP_NAME, "Contents", "MacOS")
+            os.makedirs(macos_dir)
+            wrapper = write_macos_cli_wrapper(root)
+            assert os.access(wrapper, os.X_OK), wrapper
+
+            # with no bundle beside it, it refuses and names what to run
+            # instead - the case someone reaches by dragging the app out
+            result = subprocess.run([wrapper, "version"], capture_output=True,
+                                    text=True)
+            assert result.returncode == 1, result
+            assert MACOS_APP_NAME in result.stderr, result.stderr
+            assert result.stdout == "", result.stdout
+
+            # a stand-in editor that reports its arguments one per line and
+            # picks its own exit code: the two things `exec` has to preserve
+            stand_in = os.path.join(macos_dir, "Orkige")
+            with open(stand_in, "w") as handle:
+                handle.write("#!/bin/sh\nprintf 'arg:%s\\n' \"$@\"\nexit 7\n")
+            os.chmod(stand_in, 0o755)
+            result = subprocess.run(
+                [wrapper, "export", "--project", "/games/my game",
+                 "--platform", "macos"], capture_output=True, text=True)
+            assert result.returncode == 7, result
+            assert result.stdout.splitlines() == [
+                "arg:export", "arg:--project", "arg:/games/my game",
+                "arg:--platform", "arg:macos"], result.stdout
+
+            # ...and the layout check, on the macOS shape in miniature
+            resources = os.path.join(root, MACOS_APP_NAME, "Contents",
+                                     "Resources")
+            media_root = os.path.join(resources, "Media")
+            for name in ("Hlms", "fonts", "water", "decals"):
+                os.makedirs(os.path.join(media_root, name))
+            for name in ("orkige_player", "texcook"):
+                path = os.path.join(macos_dir, name)
+                open(path, "w").close()
+                os.chmod(path, 0o755)
+            for name in (EDITOR_UI_FONTS[0], DEFAULT_ICON_FILE, "VERSION",
+                         CHANGELOG_FILE, THIRD_PARTY_NOTICES):
+                open(os.path.join(resources, name), "w").close()
+            for name in ("VERSION", "KNOWN-LIMITATIONS.md", CHANGELOG_FILE,
+                         THIRD_PARTY_NOTICES):
+                open(os.path.join(root, name), "w").close()
+            _, problems = verify_layout(root, "macos")
+            assert problems == [], problems
+            # a wrapper that stopped reaching into the bundle is a file that
+            # runs nothing, and looks entirely fine on a listing
+            with open(wrapper, "w") as handle:
+                handle.write("#!/bin/sh\nexit 0\n")
+            os.chmod(wrapper, 0o755)
+            _, problems = verify_layout(root, "macos")
+            assert any("does not reach the editor" in problem
+                       for problem in problems), problems
+            os.remove(wrapper)
+            _, problems = verify_layout(root, "macos")
+            assert any("the command line" in problem
+                       for problem in problems), problems
+            # ...while the DISK IMAGE's own check does not demand it. The image
+            # is the drag-to-Applications road: the bundle leaves the volume,
+            # and a wrapper left behind would be a file that never runs again
+            _, problems = verify_layout(root, "macos",
+                                        expect_command_line=False)
+            assert problems == [], problems
+            log("the macOS command line passes arguments, exit codes and the "
+                "layout check")
 
     # --- the device player payloads: named, composed and packed ---------
     #
