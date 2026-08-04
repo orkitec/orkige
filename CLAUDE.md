@@ -1230,8 +1230,20 @@ the default road.
 
 Protection on `main` deliberately does NOT require a branch to be up to date
 before merging — with a matrix this slow, strict mode makes every merge
-invalidate every other open run. Admins are not bound by the checks, so a
-genuine emergency still has a door.
+invalidate every other open run.
+
+**Admins ARE bound by the checks** (`enforce_admins`), so an unverified commit
+to `main` is refused by GitHub rather than by discipline — verified by pushing
+one: `GH006: Protected branch update failed ... 14 of 14 required status checks
+are expected`. A fast-forward onto a green commit passes the same gate, because
+that commit carries the checks. **"Require a pull request before merging" is
+deliberately OFF**: it would block the fast-forward too, and a PR into `main`
+cannot preserve the property anyway — merge, squash and rebase each produce a
+NEW commit, throwing away the verdicts and costing a second full matrix.
+
+The emergency door is now switching protection off deliberately, which is one
+API call and leaves a trace, rather than an exemption that is silently in
+force.
 
 Throughput, not correctness, is the usual constraint: public-repo runners are
 free, but the ACCOUNT's concurrent-job ceiling is what actually paces things
