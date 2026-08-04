@@ -27,6 +27,12 @@ leave room for shading models while catching the actual parity failure
 classes (sRGB/gamma mismatches shift EVERYTHING by dozens of levels, missing
 content flips whole regions).
 
+Two numbers cannot say WHERE a pair disagrees, so every pair also reports the
+largest 8-connected region of differing pixels (parity_diff), and a pair that
+fails leaves a DIFF IMAGE beside the compared shot - `<shot>.diff.png`, the
+delta painted over the frame it belongs to. The region size is reported, not
+gated: see parity_diff for why.
+
 Pure stdlib (zlib PNG decode - the screenshots are 8-bit RGB/RGBA PNGs).
 """
 
@@ -40,6 +46,9 @@ import subprocess
 import sys
 import tempfile
 import zlib
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import parity_diff  # noqa: E402
 
 SKIP_EXIT_CODE = 77
 
@@ -61,6 +70,20 @@ COMPARED_SHOTS = [
     "selfcheck_omesh.png",
 ]
 
+# The corridors were measured on the developer pair (GL3Plus against Metal).
+# What the CI pair (a software GL rasterizer against a software Vulkan one)
+# actually measures, from a green run of the parity job:
+#
+#   selfcheck_window.png       mean 0.17   outliers 0.30%
+#   selfcheck_drawlayer2d.png  mean 0.17   outliers 0.30%
+#   selfcheck_rtt.png          mean 0.00   outliers 0.00%
+#   selfcheck_omesh.png        mean 2.08   outliers 0.00%
+#
+# Two facts to keep: the means sit far inside a 6.0 corridor, and the two
+# window shots carry ~0.3% of pixels differing by MORE than 48 while their
+# mean is 0.17 - a small, strongly-differing set that the mean alone cannot
+# see. That is the shape the region report exists to name. The corridors stay
+# where they are until a tightening is measured rather than guessed.
 MEAN_TOLERANCE = 6.0          # mean abs diff per channel, 0..255
 OUTLIER_TOLERANCE = 48        # a pixel "differs" above this per-channel delta
 OUTLIER_FRACTION = 0.02       # fraction of differing pixels allowed
@@ -138,34 +161,38 @@ def decode_png(path):
     return width, height, channels, out
 
 
-def compare_pair(classic_path, next_path):
-    """Compare one screenshot pair; returns (ok, human-readable summary)."""
-    cw, ch, cc, classic = decode_png(classic_path)
-    nw, nh, nc, nxt = decode_png(next_path)
-    if (cw, ch) != (nw, nh):
-        return False, (f"dimension mismatch: classic {cw}x{ch} vs "
-                       f"next {nw}x{nh}")
-    pixel_count = cw * ch
-    compare_channels = min(cc, nc, 3)   # RGB only (alpha differs by format)
-    total_diff = 0
-    outliers = 0
-    for pixel in range(pixel_count):
-        c_base = pixel * cc
-        n_base = pixel * nc
-        worst = 0
-        for channel in range(compare_channels):
-            diff = abs(classic[c_base + channel] - nxt[n_base + channel])
-            total_diff += diff
-            if diff > worst:
-                worst = diff
-        if worst > OUTLIER_TOLERANCE:
-            outliers += 1
-    mean = total_diff / float(pixel_count * compare_channels)
+def compare_pair(classic_path, next_path, diff_dir=None):
+    """Compare one screenshot pair; returns (ok, human-readable summary).
+
+    One pass over the pair produces the per-pixel delta map, and the mean, the
+    outlier fraction and the region shape are all read off THAT - the pixels
+    are never walked twice for three numbers.
+    """
+    classic = decode_png(classic_path)
+    nxt = decode_png(next_path)
+    if (classic[0], classic[1]) != (nxt[0], nxt[1]):
+        return False, (f"dimension mismatch: classic {classic[0]}x{classic[1]} "
+                       f"vs next {nxt[0]}x{nxt[1]}")
+    dmap = parity_diff.delta_map(classic, nxt)
+    pixel_count = dmap.width * dmap.height
+    outliers = sum(1 for delta in dmap.deltas if delta > OUTLIER_TOLERANCE)
+    mean = dmap.channel_sum / float(pixel_count * dmap.channels)
     outlier_fraction = outliers / float(pixel_count)
     ok = mean <= MEAN_TOLERANCE and outlier_fraction <= OUTLIER_FRACTION
+    spatial = parity_diff.spatial_summary(dmap, OUTLIER_TOLERANCE)
     summary = (f"mean {mean:.2f}/{MEAN_TOLERANCE} "
                f"outliers {outlier_fraction * 100.0:.2f}%/"
-               f"{OUTLIER_FRACTION * 100.0:.0f}% (>{OUTLIER_TOLERANCE})")
+               f"{OUTLIER_FRACTION * 100.0:.0f}% (>{OUTLIER_TOLERANCE}); "
+               + parity_diff.describe(spatial, pixel_count, OUTLIER_TOLERANCE))
+    destination = parity_diff.diff_path(next_path, diff_dir)
+    if ok:
+        parity_diff.drop_stale_diff(destination)
+    else:
+        # the failure travels with its picture: the delta over the classic
+        # frame, beside the shot, inside whatever the job uploads
+        written = parity_diff.try_write_diff(destination, dmap, classic)
+        if written:
+            summary += f"; diff image {written}"
     return ok, summary
 
 
@@ -253,7 +280,7 @@ def verify_shots_dir(label, directory):
             f"screenshots ({', '.join(COMPARED_SHOTS)}): {directory}")
 
 
-def compare_shot_dirs(classic_out, next_out):
+def compare_shot_dirs(classic_out, next_out, diff_dir=None):
     """Compare two captured selfcheck output directories; returns failures."""
     failures = 0
 
@@ -275,7 +302,7 @@ def compare_shot_dirs(classic_out, next_out):
                   f"({classic_path} / {next_path})")
             failures += 1
             continue
-        ok, summary = compare_pair(classic_path, next_path)
+        ok, summary = compare_pair(classic_path, next_path, diff_dir)
         print(f"{'ok  ' if ok else 'FAIL'} {shot}: {summary}")
         failures += 0 if ok else 1
     return failures
@@ -298,6 +325,9 @@ def parse_args(argv):
     parser.add_argument("--next-shots",
                         help="a next selfcheck output directory captured "
                              "elsewhere (compared as-is, nothing is run)")
+    parser.add_argument("--diff-dir",
+                        help="where a failing pair's diff image lands "
+                             "(default: beside the next screenshot)")
     parser.add_argument("--selftest", action="store_true",
                         help="exercise the pure parts and exit")
     return parser.parse_args(argv)
@@ -356,7 +386,7 @@ def main(argv=None):
               f"preset to enable the cross-backend parity comparison")
         return SKIP_EXIT_CODE
 
-    failures = compare_shot_dirs(*directories)
+    failures = compare_shot_dirs(*directories, diff_dir=args.diff_dir)
     if failures:
         print(f"render_backend_parity: {failures} screenshot pair(s) out of "
               f"tolerance - the backends must render the same image "
@@ -416,18 +446,43 @@ def selftest():
     classic = os.path.join(scratch, "classic")
     nxt = os.path.join(scratch, "next")
 
-    # identical captures compare clean
+    # the shared diagnosis: clustering, the heat ramp, the diff destination,
+    # and the writer read back through THIS file's decoder
+    parity_diff.selftest_pure()
+    parity_diff.selftest_roundtrip(decode_png, scratch)
+
+    # identical captures compare clean, report their shape and leave no diff
     write_shots_dir(classic, (40, 80, 120))
     write_shots_dir(nxt, (40, 80, 120))
-    assert run_quiet(["--classic-shots", classic, "--next-shots", nxt])[0] == 0
+    code, said = run_quiet(["--classic-shots", classic, "--next-shots", nxt])
+    assert code == 0, said
+    assert "no pixel over" in said, said
+    diff_image = os.path.join(nxt, COMPARED_SHOTS[0].replace(".png",
+                                                             ".diff.png"))
+    assert not os.path.exists(diff_image), "a clean pair wrote a diff image"
 
-    # a difference beyond tolerance is caught
+    # a difference beyond tolerance is caught, names the region it found and
+    # leaves the picture behind - the whole 8x8 fixture is one region
     write_shots_dir(nxt, (200, 80, 120))
-    assert run_quiet(["--classic-shots", classic, "--next-shots", nxt])[0] == 1
+    code, said = run_quiet(["--classic-shots", classic, "--next-shots", nxt])
+    assert code == 1, said
+    assert "largest region 64px" in said, said
+    assert os.path.exists(diff_image), said
+    assert decode_png(diff_image)[0] == 8
+    assert diff_image in said, said
 
-    # ... and one inside it is not
+    # ... a diff directory of its own is honored
+    elsewhere = os.path.join(scratch, "diffs")
+    assert run_quiet(["--classic-shots", classic, "--next-shots", nxt,
+                      "--diff-dir", elsewhere])[0] == 1
+    assert os.path.exists(os.path.join(
+        elsewhere, COMPARED_SHOTS[0].replace(".png", ".diff.png")))
+
+    # ... and a difference inside tolerance is not a failure, and takes the
+    # now-stale picture of the old one away with it
     write_shots_dir(nxt, (43, 80, 120))
     assert run_quiet(["--classic-shots", classic, "--next-shots", nxt])[0] == 0
+    assert not os.path.exists(diff_image), "a passing pair kept a stale diff"
 
     # a density disagreement fails on its own, before any pixel differs
     write_shots_dir(nxt, (40, 80, 120), pixel=(1920, 1080))

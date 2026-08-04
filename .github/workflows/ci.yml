@@ -622,7 +622,10 @@ jobs:
 
       - name: Upload the compared captures
         # a divergence is a LOOK verdict - the two frames are what a person
-        # needs to read it, so they travel with the failure
+        # needs to read it, so they travel with the failure. A driver that
+        # fails writes its diff image (`<frame>.diff.png` - the delta painted
+        # over the scene) beside the frame it explains, which is inside this
+        # tree, so the picture rides out with no second upload path.
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:

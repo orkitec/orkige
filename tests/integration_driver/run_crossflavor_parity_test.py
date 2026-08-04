@@ -30,6 +30,12 @@ hold both flavors:
     capture FAILS - a parity gate that compared nothing must not report
     parity.
 
+A region mean says THAT two frames disagree, never where, so every comparison
+also reports the largest 8-connected region of differing pixels across the
+whole frame (parity_diff), and a failing comparison leaves a DIFF IMAGE beside
+the next capture - `next.diff.png`, the delta painted over the scene. The
+region size is reported, not gated: see parity_diff for why.
+
 Pure stdlib (the sibling pixel test's PNG decoder). Exit codes: 0 pass,
 1 fail, 77 skip.
 """
@@ -46,9 +52,23 @@ import tempfile
 import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import parity_diff  # noqa: E402
 from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 
 
+#: What the CI rasterizer pair (software GL against software Vulkan) measures
+#: for these corridors, from a green run of the parity job - max channel delta
+#: against the corridor:
+#:
+#:   lake        sky 7/28    terrain 4/28   water 26/28
+#:   mirrorlake  sky 8/22    shore 4/20     watermirror 16/20, 19/20
+#:               rockmirror 23/26           water_open 49/55
+#:
+#: The corridors hold on that pair, several of them with little room: the lake
+#: water sits two levels under its 28 and the mirror rock three under its 26.
+#: They were measured on the developer pair, so nothing here is tightened
+#: without a measurement - a corridor moved by guesswork blocks merges.
+#:
 #: per-scene comparison profiles: named regions as frame fractions
 #: (fx0, fy0, fx1, fy1, corridor) plus whether the scene carries the
 #: sun-streak contract. Corridors are tolerance-parity: measured on the
@@ -210,6 +230,9 @@ def parse_args(argv):
                         help="the next flavor's capture (--compare-shots)")
     parser.add_argument("--shot-classic",
                         help="the classic flavor's capture (--compare-shots)")
+    parser.add_argument("--diff-dir",
+                        help="where a failing comparison's diff image lands "
+                             "(default: beside the next capture)")
     parser.add_argument("--selftest", action="store_true",
                         help="exercise the pure parts and exit")
     return parser.parse_args(argv)
@@ -247,6 +270,7 @@ def main(argv=None):
         img_next = load_capture("next", args.shot_next)
         img_classic = load_capture("classic", args.shot_classic)
         kept_in = os.path.dirname(os.path.abspath(args.shot_next))
+        shot_next = args.shot_next
     else:
         for name in ("repo", "player_next", "player_classic", "dir"):
             if not getattr(args, name):
@@ -265,14 +289,32 @@ def main(argv=None):
                               shot_classic, args.dir, args.frames)
         kept_in = args.dir
 
-    return compare_captures(img_next, img_classic, args.scene, kept_in)
+    return compare_captures(img_next, img_classic, args.scene, kept_in,
+                            shot_next, args.diff_dir)
 
 
-def compare_captures(img_next, img_classic, scene, kept_in):
+def compare_captures(img_next, img_classic, scene, kept_in,
+                     shot_next=None, diff_dir=None):
     if img_next[0] != img_classic[0] or img_next[1] != img_classic[1]:
         fail(f"capture sizes differ: {img_next[0]}x{img_next[1]} vs "
              f"{img_classic[0]}x{img_classic[1]}")
     width, height = img_next[0], img_next[1]
+
+    # the SHAPE of the whole-frame disagreement, printed on every run - a
+    # green log records the healthy value, which is what a corridor would
+    # have to be measured from. Reported, never gated (parity_diff).
+    dmap = parity_diff.delta_map(img_classic, img_next)
+    spatial = parity_diff.spatial_summary(dmap)
+    print("crossflavor_parity: whole frame: "
+          + parity_diff.describe(spatial, width * height))
+
+    destination = parity_diff.diff_path(
+        shot_next or os.path.join(kept_in, "next.png"), diff_dir)
+
+    def fail_with_diff(message):
+        """Refuse, leaving the picture that explains the refusal behind."""
+        written = parity_diff.try_write_diff(destination, dmap, img_classic)
+        fail(message + (f" - diff image {written}" if written else ""))
 
     def sx(fraction):
         return int(width * fraction)
@@ -297,10 +339,10 @@ def compare_captures(img_next, img_classic, scene, kept_in):
               f"{mean_classic[2]:.0f}) delta=({deltas[0]:.0f},"
               f"{deltas[1]:.0f},{deltas[2]:.0f}) tol={tolerance:.0f}")
         if max(deltas) > tolerance:
-            fail(f"region '{name}' diverges between flavors: max channel "
-                 f"delta {max(deltas):.0f} > {tolerance} - the flavors "
-                 "no longer show the same scene (capture pair kept in "
-                 f"{kept_in})")
+            fail_with_diff(f"region '{name}' diverges between flavors: max "
+                           f"channel delta {max(deltas):.0f} > {tolerance} - "
+                           "the flavors no longer show the same scene "
+                           f"(capture pair kept in {kept_in})")
 
     if profile.get("streak"):
         # the sun's specular streak on the water: both flavors must carry a
@@ -313,10 +355,11 @@ def compare_captures(img_next, img_classic, scene, kept_in):
             print(f"crossflavor_parity: sun-streak max luma [{label}] = "
                   f"{luma:.0f}")
             if luma < STREAK_MIN:
-                fail(f"{label} shows no bright sun highlight on the water "
-                     f"(max luma {luma:.0f} < {STREAK_MIN}) - the specular "
-                     "streak is missing on this flavor")
+                fail_with_diff(f"{label} shows no bright sun highlight on the "
+                               f"water (max luma {luma:.0f} < {STREAK_MIN}) - "
+                               "the specular streak is missing on this flavor")
 
+    parity_diff.drop_stale_diff(destination)
     print("crossflavor_parity: PASS")
     return 0
 
@@ -366,22 +409,50 @@ def selftest():
     shot_next = os.path.join(scratch, "next.png")
     shot_classic = os.path.join(scratch, "classic.png")
 
+    # the shared diagnosis (clustering, the heat ramp, the writer read back
+    # through this driver's own decoder)
+    parity_diff.selftest_pure()
+    parity_diff.selftest_roundtrip(decode_png, scratch)
+
     # the mirror scene carries no streak contract, so flat frames are enough
     # to exercise the region comparison
     mirror = "scenes/mirrorlake.oscene"
+    diff_image = os.path.join(scratch, "next.diff.png")
     write_png(shot_next, 64, 64, (80, 90, 100))
     write_png(shot_classic, 64, 64, (80, 90, 100))
-    assert run_quiet(["--compare-shots", "--scene", mirror,
-                      "--shot-next", shot_next,
-                      "--shot-classic", shot_classic])[0] == 0
+    code, said = run_quiet(["--compare-shots", "--scene", mirror,
+                            "--shot-next", shot_next,
+                            "--shot-classic", shot_classic])
+    assert code == 0, said
+    # matching frames still report their shape, and leave no picture behind
+    assert "whole frame: no pixel over" in said, said
+    assert not os.path.exists(diff_image), "a clean pair wrote a diff image"
 
-    # a region that diverges beyond its corridor fails and names the region
+    # a region that diverges beyond its corridor fails, names the region and
+    # leaves the diff image beside the next capture
     write_png(shot_classic, 64, 64, (200, 90, 100))
     code, said = run_quiet(["--compare-shots", "--scene", mirror,
                             "--shot-next", shot_next,
                             "--shot-classic", shot_classic])
     assert code == 1 and "diverges between flavors" in said, said
+    assert "largest region 4096px" in said, said
+    assert os.path.exists(diff_image) and diff_image in said, said
+    assert decode_png(diff_image)[0] == 64
+
+    # ... into a directory of its own when asked
+    elsewhere = os.path.join(scratch, "diffs")
+    assert run_quiet(["--compare-shots", "--scene", mirror,
+                      "--shot-next", shot_next,
+                      "--shot-classic", shot_classic,
+                      "--diff-dir", elsewhere])[0] == 1
+    assert os.path.exists(os.path.join(elsewhere, "next.diff.png"))
+
+    # agreeing again takes the stale picture of the old divergence away
     write_png(shot_classic, 64, 64, (80, 90, 100))
+    assert run_quiet(["--compare-shots", "--scene", mirror,
+                      "--shot-next", shot_next,
+                      "--shot-classic", shot_classic])[0] == 0
+    assert not os.path.exists(diff_image), "a passing pair kept a stale diff"
 
     # captures of different sizes are not comparable
     odd = os.path.join(scratch, "odd.png")
