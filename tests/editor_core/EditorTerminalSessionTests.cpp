@@ -216,6 +216,73 @@ TEST_CASE("terminal mouse->cell hit test clamps to the grid",
 	}
 }
 
+TEST_CASE("terminal drag holds its head when the pointer leaves the window",
+	"[unit][editor][terminal]")
+{
+	TerminalGridPoint anchor;
+	anchor.line = 0;
+	anchor.col = 0;
+	TerminalGridPoint head;
+	head.line = 0;
+	head.col = 11;
+	// terminalCellAtPoint CLAMPS every input into the grid, so a pointer with
+	// no position (-FLT_MAX, the leave convention) arrives here as cell (0,0).
+	// Following it would collapse a live drag onto an anchor sitting there -
+	// which reads as "still selecting" while the selected text is empty.
+	TerminalGridPoint clampedAway;
+	clampedAway.line = 0;
+	clampedAway.col = 0;
+	{
+		const TerminalDragState d =
+			terminalDragStep(anchor, head, clampedAway, false);
+		CHECK(d.headLine == 0);
+		CHECK(d.headCol == 11);		// held, not collapsed
+		CHECK(d.hasSelection);
+	}
+	// and it resumes from the live pointer the moment it is back
+	{
+		TerminalGridPoint p;
+		p.line = 2;
+		p.col = 4;
+		const TerminalDragState d = terminalDragStep(anchor, head, p, true);
+		CHECK(d.headLine == 2);
+		CHECK(d.headCol == 4);
+		CHECK(d.hasSelection);
+	}
+}
+
+TEST_CASE("terminal drag arms from anchor vs head, never a latch",
+	"[unit][editor][terminal]")
+{
+	TerminalGridPoint anchor;
+	anchor.line = 3;
+	anchor.col = 5;
+	// a head still on the anchor encloses nothing
+	{
+		const TerminalDragState d = terminalDragStep(anchor, anchor, anchor,
+			true);
+		CHECK_FALSE(d.hasSelection);
+	}
+	// dragging away arms it
+	TerminalGridPoint away;
+	away.line = 3;
+	away.col = 16;
+	const TerminalDragState armed = terminalDragStep(anchor, anchor, away,
+		true);
+	CHECK(armed.hasSelection);
+	// ... and dragging BACK onto the anchor disarms it again: a latched flag
+	// would leave the copy chord publishing an empty string to the pasteboard
+	{
+		TerminalGridPoint back;
+		back.line = anchor.line;
+		back.col = anchor.col;
+		const TerminalDragState d = terminalDragStep(anchor, away, back, true);
+		CHECK(d.headLine == anchor.line);
+		CHECK(d.headCol == anchor.col);
+		CHECK_FALSE(d.hasSelection);
+	}
+}
+
 TEST_CASE("terminal agent classification maps names to specific agents",
 	"[unit][editor][terminal]")
 {

@@ -212,7 +212,11 @@ Three seams, each pure and testable, with libvterm confined to one file:
   cleaning, the agent classifier, tab-label composition (title vs process-name,
   agent detection), the post-close active index, the pure mouse→cell hit test
   (`terminalCellAtPoint`, which the drag-selection shares so a drag past the
-  visible rows still extends deterministically) and the **agent-badge maker**
+  visible rows still extends deterministically), the held-drag step
+  (`terminalDragStep`: the head HOLDS while the pointer has no position rather
+  than following the hit test's edge clamp to cell (0,0), and "has a selection"
+  is re-derived from anchor vs head every frame rather than latched, so a drag
+  returning to its own anchor selects nothing) and the **agent-badge maker**
   (per-agent private-use codepoint + signature tint + the deterministic
   `terminalAgentBadgePixels` generator). Unit-tested headlessly
   (`EditorTerminalSessionTests`). The atlas wiring —
