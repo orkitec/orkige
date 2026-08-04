@@ -17,6 +17,7 @@
 //! (mountPak) run here too - Ogre-Next ships the same stock Zip archive.
 
 #include "engine_render_next/NextBackend.h"
+#include "engine_render/RenderMaterialCache.h"
 #include "engine_filesystem/PakMount.h"
 
 #include <OgreRoot.h>
@@ -52,6 +53,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	RenderSystem::~RenderSystem()
 	{
+		// the material memo describes datablocks of THIS render system - it
+		// must not outlive them (@see RenderMaterialCache)
+		RenderMaterialCache::shared().clear();
 		this->mImpl->windowCamera.reset();
 		delete this->mImpl->world;
 		// the workspace is owned by CompositorManager2 and dies with the

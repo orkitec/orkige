@@ -15,8 +15,10 @@
 #include "core_base/TypeManager.h"
 #include "core_base/PropertyValue.h"
 #include "core_base/PropertySchema.h"
+#include "core_debug/Profile.h"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <map>
 #include <set>
@@ -487,7 +489,14 @@ namespace Orkige
 	{
 		oAssert(!fileName.empty());
 		optr<XMLArchive> ar = onew(new XMLArchive());
-		if(!ar->startReading(fileName))
+		bool opened = false;
+		{
+			// reading the file and building its document tree - a small,
+			// self-contained slice of a load (@see loadSceneFromArchive)
+			OPROFILE("scene-parse");
+			opened = ar->startReading(fileName);
+		}
+		if(!opened)
 		{
 			oDebugMsg("scene",0,"SceneSerializer: could not open scene file: "<<fileName);
 			return false;
@@ -500,7 +509,14 @@ namespace Orkige
 	{
 		oAssert(!fileName.empty());
 		optr<XMLArchive> ar = onew(new XMLArchive());
-		if(!ar->startReading(fileName))
+		bool opened = false;
+		{
+			// reading the file and building its document tree - a small,
+			// self-contained slice of a load (@see loadSceneFromArchive)
+			OPROFILE("scene-parse");
+			opened = ar->startReading(fileName);
+		}
+		if(!opened)
 		{
 			oDebugMsg("scene",0,"SceneSerializer: could not open scene file: "<<fileName);
 			return false;
@@ -530,6 +546,16 @@ namespace Orkige
 		GameObjectManager & gameObjectManager, String const & fileName,
 		bool keepPersistent)
 	{
+		// A SCENE LOAD IS A STALL, so it is measured. The frame that runs one
+		// does nothing else: the world is torn down and rebuilt whole, and the
+		// cost is dominated by what the components do as they load (creating
+		// render, physics and audio state), not by reading or parsing the file.
+		// The named scopes below put that split in the profiler, and the
+		// summary line reports it per load - raise it with `log.scene debug`
+		// (the cvar the debug protocol and MCP `set_cvar` already reach).
+		OPROFILE("scene-load");
+		const std::chrono::steady_clock::time_point loadBegin =
+			std::chrono::steady_clock::now();
 		String magic;
 		ar >> magic;
 		if(magic != SCENE_FORMAT_MAGIC)
@@ -553,13 +579,16 @@ namespace Orkige
 		// scene-side state (e.g. TransformComponent destroys its scene nodes).
 		// The persistence-aware path spares persistent objects and their
 		// subtrees (they carry their whole live state into this scene).
-		if(keepPersistent)
 		{
-			gameObjectManager.clearExceptPersistent();
-		}
-		else
-		{
-			gameObjectManager.clear();
+			OPROFILE("scene-teardown");
+			if(keepPersistent)
+			{
+				gameObjectManager.clearExceptPersistent();
+			}
+			else
+			{
+				gameObjectManager.clear();
+			}
 		}
 		// the ids the survivors already own: an arriving object with one of
 		// these is the DUPLICATE the survivor wins over (skipped below)
@@ -587,6 +616,14 @@ namespace Orkige
 		std::vector<ParentLink> parentLinks;
 		typedef std::pair<String, bool> ActiveState;		// object id -> activeSelf
 		std::vector<ActiveState> activeStates;
+		// the OBJECT BUILD: this is where a scene load's time actually goes -
+		// every component that arrives creates its backend state as its
+		// properties are assigned. It is main-thread work by construction (the
+		// render backends are not thread-safe) and it sits inside the tick
+		// order's load slot, so nothing here may be deferred or reordered.
+		// The brace pair only bounds the profiler span - the loop it wraps
+		// keeps its own indentation.
+		{ OPROFILE("scene-build");
 		for(unsigned int objectIndex = 0; objectIndex < objectCount && loaded; ++objectIndex)
 		{
 			String id;
@@ -770,6 +807,7 @@ namespace Orkige
 				break;
 			}
 		}
+		}	// scene-build
 
 		if(loaded)
 		{
@@ -811,6 +849,13 @@ namespace Orkige
 		}
 
 		ar->stopReading();
+		if(loaded)
+		{
+			const double loadMilliseconds = std::chrono::duration<double,
+				std::milli>(std::chrono::steady_clock::now() - loadBegin).count();
+			oDebugMsg("scene",0,"SceneSerializer: loaded "<<fileName<<" - "
+				<<objectCount<<" objects in "<<loadMilliseconds<<" ms");
+		}
 		if(!loaded)
 		{
 			// don't leave a half-loaded world behind

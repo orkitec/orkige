@@ -93,6 +93,10 @@ set(ORKIGE_ENGINE_SOURCES
     engine_render/RenderSystemSelection.h
     engine_render/RenderSystemSelection.cpp
     engine_render/RenderFacadeCheck.cpp
+    # the create-or-update memo in front of both backends' material builders
+    # (the decision is one place, so neither flavor can drift from it)
+    engine_render/RenderMaterialCache.h
+    engine_render/RenderMaterialCache.cpp
     # the `.omesh` asset road: flavor-NEUTRAL by construction, so it lives with
     # the facade instead of being copied into both backend directories
     engine_render/MeshAssetLoad.cpp
