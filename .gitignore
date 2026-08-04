@@ -13,6 +13,10 @@ tests/projects/*/builds/
 __pycache__/
 .claude/
 
+# cross-flavor parity captures: one flavor's frames, staged at the repo root
+# for the comparison that happens elsewhere (the drivers' --capture mode)
+parity-shots/
+
 # runtime crash trail written to the cwd by players/tests run from the repo root
 breadcrumbs.jsonl
 breadcrumbs.prev.jsonl

@@ -135,6 +135,7 @@ jobs:
       - branch-base
       - linux-classic
       - linux-next
+      - render-parity
       - linux-sanitizer
       - linux-tsan
       - host-exporter
@@ -340,6 +341,42 @@ jobs:
           xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
             ctest --preset desktop-linux-classic --timeout 300 --repeat until-pass:2
 
+      # This flavor's half of the cross-flavor parity gate. A parity test needs
+      # BOTH flavors and a job builds one, so each job captures its own frames
+      # and the `render-parity` job compares the pair. The facade screenshots
+      # already exist - the suite's render_facade_selfcheck wrote them - so only
+      # the benchmark vignettes need a run here.
+      - name: Capture the cross-flavor parity vignettes (xvfb + Mesa llvmpipe)
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: llvmpipe
+          ALSOFT_DRIVERS: "null"
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          set -euo pipefail
+          player="$PWD/build/linux-debug-classic/tools/player/orkige_player"
+          for scene in lake mirrorlake; do
+            xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
+              python3 tests/integration_driver/run_crossflavor_parity_test.py \
+                --repo "$PWD" --capture classic --player-classic "$player" \
+                --scene "scenes/$scene.oscene" \
+                --dir "$PWD/parity-shots/$scene"
+          done
+
+      - name: Stage the parity captures for comparison
+        run: |
+          set -euo pipefail
+          cp -r build/linux-debug-classic/tests/render_facade \
+            parity-shots/render_facade
+          ls -R parity-shots
+
+      - name: Upload the parity captures
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: parity-shots-classic
+          path: parity-shots
+          if-no-files-found: error
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -450,6 +487,40 @@ jobs:
           xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
             ctest --preset desktop-linux --timeout 300 --repeat until-pass:2
 
+      # This flavor's half of the cross-flavor parity gate - the sibling of the
+      # step in linux-classic, same recipe, same scenes. The `render-parity`
+      # job downloads both and compares.
+      - name: Capture the cross-flavor parity vignettes (xvfb + Mesa lavapipe)
+        env:
+          ALSOFT_DRIVERS: "null"
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          set -euo pipefail
+          LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
+          export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
+          player="$PWD/build/linux-debug-next/tools/player/orkige_player"
+          for scene in lake mirrorlake; do
+            xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
+              python3 tests/integration_driver/run_crossflavor_parity_test.py \
+                --repo "$PWD" --capture next --player-next "$player" \
+                --scene "scenes/$scene.oscene" \
+                --dir "$PWD/parity-shots/$scene"
+          done
+
+      - name: Stage the parity captures for comparison
+        run: |
+          set -euo pipefail
+          cp -r build/linux-debug-next/tests/render_facade \
+            parity-shots/render_facade
+          ls -R parity-shots
+
+      - name: Upload the parity captures
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: parity-shots-next
+          path: parity-shots
+          if-no-files-found: error
+
       # The scripting-OFF configuration enforces the Lua/sol2 dependency seam.
       # It uses Ogre-Next as well so every test configuration exercises the
       # default backend.
@@ -483,6 +554,81 @@ jobs:
             *.log
           if-no-files-found: ignore
 
+
+  # WYSIWYG, enforced: both render flavors must show the SAME image. Every
+  # other job judges ONE flavor, and a build tree is flavor-bound, so no single
+  # job can hold the comparison - it lives here, between the two Linux jobs
+  # that captured their halves. The Linux pair is the only one available: the
+  # classic flavor's windowed suite runs there and nowhere else in the matrix
+  # (hosted-Mac virtual GPUs are unreliable for classic, hosted Windows has no
+  # software GL).
+  #
+  # Cheap by construction: the flavor jobs upload SCREENSHOTS, so this job
+  # downloads a few megabytes of PNG and compares them on a bare runner - no
+  # build, no GPU, no engine binary crossing between jobs. Each gate is its own
+  # step so a divergence names itself, and every driver FAILS on a missing or
+  # empty capture rather than reporting parity it never measured.
+  render-parity:
+    name: Cross-flavor render parity (classic vs next)
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+    needs:
+      - linux-classic
+      - linux-next
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Download the classic captures
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: parity-shots-classic
+          path: parity/classic
+
+      - name: Download the next captures
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: parity-shots-next
+          path: parity/next
+
+      - name: Facade screenshots agree (the WYSIWYG pixel gate)
+        run: |
+          python3 tests/integration_driver/compare_backend_screenshots.py \
+            --classic-shots parity/classic/render_facade \
+            --next-shots parity/next/render_facade
+
+      - name: The output grade moves both flavors the same way
+        run: |
+          python3 tests/integration_driver/run_grade_probe_test.py \
+            --classic-shots parity/classic/render_facade \
+            --next-shots parity/next/render_facade
+
+      - name: The lake vignette looks the same on both flavors
+        run: |
+          python3 tests/integration_driver/run_crossflavor_parity_test.py \
+            --compare-shots --scene scenes/lake.oscene \
+            --shot-classic parity/classic/lake/classic.png \
+            --shot-next parity/next/lake/next.png
+
+      - name: The planar mirror is as strong on both flavors
+        run: |
+          python3 tests/integration_driver/run_crossflavor_parity_test.py \
+            --compare-shots --scene scenes/mirrorlake.oscene \
+            --shot-classic parity/classic/mirrorlake/classic.png \
+            --shot-next parity/next/mirrorlake/next.png
+
+      - name: Upload the compared captures
+        # a divergence is a LOOK verdict - the two frames are what a person
+        # needs to read it, so they travel with the failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: render-parity-captures
+          path: parity
+          if-no-files-found: ignore
 
   # The ASan + UBSan + LSan gate as its own job: the instrumented tree is the
   # slowest Linux build and its verdict must not wait behind (or delay) the

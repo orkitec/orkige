@@ -124,6 +124,36 @@ add_test(NAME doc_link_lint
 set_tests_properties(doc_link_lint PROPERTIES
     LABELS unit TIMEOUT 120)
 
+# The cross-flavor parity drivers' own self-tests. Each driver compares two
+# flavors that a single machine does not always hold, so each carries a
+# captured-output road beside its run-both-binaries road - and the decision
+# that matters is what happens when a capture is absent, empty or unreadable:
+# it FAILS. A parity gate that compares nothing must never report parity, so
+# every refusal is asserted here, on fixtures, with no window and no GPU.
+add_test(NAME render_parity_driver_selftest
+    COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/compare_backend_screenshots.py"
+        --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(render_parity_driver_selftest PROPERTIES
+    LABELS unit TIMEOUT 60)
+
+add_test(NAME grade_parity_driver_selftest
+    COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_grade_probe_test.py"
+        --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(grade_parity_driver_selftest PROPERTIES
+    LABELS unit TIMEOUT 60)
+
+add_test(NAME crossflavor_parity_driver_selftest
+    COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_crossflavor_parity_test.py"
+        --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(crossflavor_parity_driver_selftest PROPERTIES
+    LABELS unit TIMEOUT 60)
+
 # sprite-atlas packer self-validation: make_sprite_atlas.py packs a
 # handful of synthetic sprites, re-parses its own .oatlas and asserts no region
 # overlaps, all rects in bounds, deterministic order. Stdlib-only, headless -
@@ -3216,15 +3246,19 @@ if(TARGET orkige_player)
         # the one gate that notices the two flavors drifting apart visually
         # (every other probe bands each flavor separately). Registered on the
         # next (default) tree only; SKIPS (exit 77) when the sibling classic
-        # tree's player is not built - CI builds one flavor per job, so this
-        # gate bites on a developer machine with both trees.
+        # tree's player is not built, so this road bites on a developer machine
+        # carrying both trees (the host's conventional classic preset,
+        # ORKIGE_PARITY_CLASSIC_TREE - the same one the facade parity gates
+        # read). A build job holds ONE flavor, so CI reaches the same
+        # comparison the other way: each flavor job captures its frames with
+        # the driver's --capture mode and the render-parity job compares them.
         if(ORKIGE_RENDER_BACKEND STREQUAL "next")
             add_test(NAME benchmark_crossflavor_parity
                 COMMAND python3
                     "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_crossflavor_parity_test.py"
                     --repo "${Orkige_SOURCE_DIR}"
                     --player-next "$<TARGET_FILE:orkige_player>"
-                    --player-classic "${CMAKE_BINARY_DIR}-classic/tools/player/$<TARGET_FILE_NAME:orkige_player>"
+                    --player-classic "${Orkige_SOURCE_DIR}/${ORKIGE_PARITY_CLASSIC_TREE}/tools/player/$<TARGET_FILE_NAME:orkige_player>"
                     --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_crossflavor_parity"
                 WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
             set_tests_properties(benchmark_crossflavor_parity PROPERTIES
@@ -3240,7 +3274,7 @@ if(TARGET orkige_player)
                     "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_crossflavor_parity_test.py"
                     --repo "${Orkige_SOURCE_DIR}"
                     --player-next "$<TARGET_FILE:orkige_player>"
-                    --player-classic "${CMAKE_BINARY_DIR}-classic/tools/player/$<TARGET_FILE_NAME:orkige_player>"
+                    --player-classic "${Orkige_SOURCE_DIR}/${ORKIGE_PARITY_CLASSIC_TREE}/tools/player/$<TARGET_FILE_NAME:orkige_player>"
                     --scene "scenes/mirrorlake.oscene"
                     --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_crossflavor_parity_mirror"
                 WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
@@ -3263,7 +3297,7 @@ if(TARGET orkige_player)
                     "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_water_wobble_probe_test.py"
                     --repo "${Orkige_SOURCE_DIR}"
                     --player-next "$<TARGET_FILE:orkige_player>"
-                    --player-classic "${CMAKE_BINARY_DIR}-classic/tools/player/$<TARGET_FILE_NAME:orkige_player>"
+                    --player-classic "${Orkige_SOURCE_DIR}/${ORKIGE_PARITY_CLASSIC_TREE}/tools/player/$<TARGET_FILE_NAME:orkige_player>"
                     --dir "${CMAKE_CURRENT_BINARY_DIR}/water_mirror_wobble"
                 WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
             set_tests_properties(water_mirror_wobble PROPERTIES

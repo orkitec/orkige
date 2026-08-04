@@ -2,14 +2,21 @@
 """Cross-backend pixel comparison of the render_facade_selfcheck output.
 
 The WYSIWYG backend-parity gate: the facade selfcheck renders the SAME scene
-on the classic-OGRE and Ogre-Next flavors; this driver runs both binaries
-(each into its own output directory) and compares the named screenshot pairs
-within tolerance. Registered as ctest `render_backend_parity` on the NEXT
-preset only (tests/CMakeLists.txt): the next flavor is the one that must
-match the established classic output. Cross-preset reality: the classic
-binary lives in another build tree - when it is absent (not configured/built
-on this machine) the test SKIPs honestly (exit 77, ctest SKIP_RETURN_CODE)
-instead of failing or silently passing.
+on the classic-OGRE and Ogre-Next flavors; this driver compares the named
+screenshot pairs within tolerance. Two roads reach the same comparison:
+
+  * RUN BOTH BINARIES (--next-binary/--classic-binary): the developer road,
+    on a machine carrying both build trees. Registered as ctest
+    `render_backend_parity` on the NEXT preset. The classic binary lives in
+    another build tree - when it is absent the test SKIPs honestly (exit 77,
+    ctest SKIP_RETURN_CODE) instead of failing or silently passing.
+  * COMPARE CAPTURED DIRECTORIES (--classic-shots/--next-shots): each flavor
+    ran its own selfcheck elsewhere and its output directory was carried
+    here. One flavor per machine is the shape a per-flavor build matrix has,
+    so this is how the gate runs where no single machine holds both trees.
+    A directory that is missing, empty or short of the compared shots is a
+    FAILURE, never a skip - a parity gate that compared nothing must not
+    report parity.
 
 Comparison model (per pair): images must have identical dimensions; the mean
 absolute per-channel error must stay below MEAN_TOLERANCE and at most
@@ -24,10 +31,14 @@ Pure stdlib (zlib PNG decode - the screenshots are 8-bit RGB/RGBA PNGs).
 """
 
 import argparse
+import contextlib
+import io
 import os
+import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 import zlib
 
 SKIP_EXIT_CODE = 77
@@ -217,32 +228,33 @@ def run_selfcheck(binary, out_dir, cwd):
         raise RuntimeError(f"{binary} exited with {result.returncode}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--next-binary", required=True,
-                        help="this build tree's render_facade_selfcheck")
-    parser.add_argument("--classic-binary", required=True,
-                        help="the classic tree's render_facade_selfcheck "
-                             "(SKIP when absent)")
-    parser.add_argument("--out", required=True,
-                        help="working directory for both runs' screenshots")
-    parser.add_argument("--repo", required=True,
-                        help="repo root (the selfcheck's working directory)")
-    args = parser.parse_args()
+class ShotsUnusable(Exception):
+    """A captured output directory cannot be compared - refuse, never pass."""
 
-    if not os.path.exists(args.classic_binary):
-        print(f"SKIP: classic selfcheck binary not built "
-              f"({args.classic_binary}) - configure + build the classic "
-              f"preset to enable the cross-backend parity comparison")
-        return SKIP_EXIT_CODE
 
-    classic_out = os.path.join(args.out, "classic")
-    next_out = os.path.join(args.out, "next")
-    print(f"running classic selfcheck: {args.classic_binary}")
-    run_selfcheck(args.classic_binary, classic_out, args.repo)
-    print(f"running next selfcheck: {args.next_binary}")
-    run_selfcheck(args.next_binary, next_out, args.repo)
+def verify_shots_dir(label, directory):
+    """Refuse a captured directory that carries nothing to compare.
 
+    The failure mode this exists to prevent: a comparison handed an empty or
+    wrong directory reports parity because it found no disagreement. Silence
+    is not evidence, so a directory that is absent, empty or short of every
+    compared screenshot raises instead.
+    """
+    if not os.path.isdir(directory):
+        raise ShotsUnusable(f"{label} screenshot directory does not exist: "
+                            f"{directory}")
+    if not os.listdir(directory):
+        raise ShotsUnusable(f"{label} screenshot directory is empty: "
+                            f"{directory}")
+    if not any(os.path.exists(os.path.join(directory, shot))
+               for shot in COMPARED_SHOTS):
+        raise ShotsUnusable(
+            f"{label} screenshot directory carries none of the compared "
+            f"screenshots ({', '.join(COMPARED_SHOTS)}): {directory}")
+
+
+def compare_shot_dirs(classic_out, next_out):
+    """Compare two captured selfcheck output directories; returns failures."""
     failures = 0
 
     # density gate FIRST: both flavors must make the same pixel-density choice
@@ -266,12 +278,201 @@ def main():
         ok, summary = compare_pair(classic_path, next_path)
         print(f"{'ok  ' if ok else 'FAIL'} {shot}: {summary}")
         failures += 0 if ok else 1
+    return failures
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--next-binary",
+                        help="this build tree's render_facade_selfcheck")
+    parser.add_argument("--classic-binary",
+                        help="the classic tree's render_facade_selfcheck "
+                             "(SKIP when absent)")
+    parser.add_argument("--out",
+                        help="working directory for both runs' screenshots")
+    parser.add_argument("--repo",
+                        help="repo root (the selfcheck's working directory)")
+    parser.add_argument("--classic-shots",
+                        help="a classic selfcheck output directory captured "
+                             "elsewhere (compared as-is, nothing is run)")
+    parser.add_argument("--next-shots",
+                        help="a next selfcheck output directory captured "
+                             "elsewhere (compared as-is, nothing is run)")
+    parser.add_argument("--selftest", action="store_true",
+                        help="exercise the pure parts and exit")
+    return parser.parse_args(argv)
+
+
+def resolve_directories(args):
+    """Produce the (classic, next) directories to compare, running if asked.
+
+    Returns None when the run road is unavailable and the honest answer is a
+    skip; raises ShotsUnusable when captured directories cannot be compared.
+    """
+    captured = bool(args.classic_shots) or bool(args.next_shots)
+    if captured:
+        if not (args.classic_shots and args.next_shots):
+            raise ShotsUnusable("--classic-shots and --next-shots come as a "
+                                "pair - one alone compares nothing")
+        verify_shots_dir("classic", args.classic_shots)
+        verify_shots_dir("next", args.next_shots)
+        return args.classic_shots, args.next_shots
+
+    missing = [name for name, value in (("--next-binary", args.next_binary),
+                                        ("--classic-binary",
+                                         args.classic_binary),
+                                        ("--out", args.out),
+                                        ("--repo", args.repo)) if not value]
+    if missing:
+        raise ShotsUnusable("either the captured directories "
+                            "(--classic-shots + --next-shots) or the full "
+                            "run arguments are required; missing "
+                            + ", ".join(missing))
+    if not os.path.exists(args.classic_binary):
+        return None
+
+    classic_out = os.path.join(args.out, "classic")
+    next_out = os.path.join(args.out, "next")
+    print(f"running classic selfcheck: {args.classic_binary}")
+    run_selfcheck(args.classic_binary, classic_out, args.repo)
+    print(f"running next selfcheck: {args.next_binary}")
+    run_selfcheck(args.next_binary, next_out, args.repo)
+    return classic_out, next_out
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    if args.selftest:
+        return selftest()
+
+    try:
+        directories = resolve_directories(args)
+    except ShotsUnusable as refusal:
+        print(f"render_backend_parity: FAIL: {refusal}")
+        return 1
+    if directories is None:
+        print(f"SKIP: classic selfcheck binary not built "
+              f"({args.classic_binary}) - configure + build the classic "
+              f"preset to enable the cross-backend parity comparison")
+        return SKIP_EXIT_CODE
+
+    failures = compare_shot_dirs(*directories)
     if failures:
         print(f"render_backend_parity: {failures} screenshot pair(s) out of "
               f"tolerance - the backends must render the same image "
               f"(Docs/render-abstraction.md, colour parity)")
         return 1
     print("render_backend_parity: all screenshot pairs within tolerance")
+    return 0
+
+
+# --- selftest ---------------------------------------------------------------
+
+def write_png(path, width, height, fill):
+    """Write a minimal 8-bit RGB PNG of one colour (selftest fixture)."""
+    raw = bytearray()
+    for _row in range(height):
+        raw.append(0)                       # filter type None
+        raw.extend(bytes(fill) * width)
+    def chunk(kind, payload):
+        return (struct.pack(">I", len(payload)) + kind + payload +
+                struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    with open(path, "wb") as handle:
+        handle.write(b"\x89PNG\r\n\x1a\n")
+        handle.write(chunk(b"IHDR", header))
+        handle.write(chunk(b"IDAT", zlib.compress(bytes(raw))))
+        handle.write(chunk(b"IEND", b""))
+
+
+def write_shots_dir(directory, fill, logical=(960, 540), pixel=(960, 540)):
+    os.makedirs(directory, exist_ok=True)
+    for shot in COMPARED_SHOTS:
+        write_png(os.path.join(directory, shot), 8, 8, fill)
+    with open(os.path.join(directory, "dimensions.txt"), "w") as handle:
+        handle.write("logical %d %d\npixel %d %d\n"
+                     % (logical[0], logical[1], pixel[0], pixel[1]))
+
+
+def run_quiet(argv):
+    """Run main() swallowing its report - a passing selftest logs no FAIL."""
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        code = main(argv)
+    return code, captured.getvalue()
+
+
+def expect_refusal(what, argv, names):
+    """A run that MUST refuse: exit 1, saying which directory it refused."""
+    code, said = run_quiet(argv)
+    if code != 1:
+        raise AssertionError(f"{what} returned {code}, must refuse with 1")
+    if names not in said:
+        raise AssertionError(f"{what} refused without naming {names}: {said}")
+
+
+def selftest():
+    scratch = tempfile.mkdtemp(prefix="orkige_parity_selftest_")
+    classic = os.path.join(scratch, "classic")
+    nxt = os.path.join(scratch, "next")
+
+    # identical captures compare clean
+    write_shots_dir(classic, (40, 80, 120))
+    write_shots_dir(nxt, (40, 80, 120))
+    assert run_quiet(["--classic-shots", classic, "--next-shots", nxt])[0] == 0
+
+    # a difference beyond tolerance is caught
+    write_shots_dir(nxt, (200, 80, 120))
+    assert run_quiet(["--classic-shots", classic, "--next-shots", nxt])[0] == 1
+
+    # ... and one inside it is not
+    write_shots_dir(nxt, (43, 80, 120))
+    assert run_quiet(["--classic-shots", classic, "--next-shots", nxt])[0] == 0
+
+    # a density disagreement fails on its own, before any pixel differs
+    write_shots_dir(nxt, (40, 80, 120), pixel=(1920, 1080))
+    assert run_quiet(["--classic-shots", classic, "--next-shots", nxt])[0] == 1
+    write_shots_dir(nxt, (40, 80, 120))
+
+    # THE refusals: comparing nothing must never read as parity
+    absent = os.path.join(scratch, "absent")
+    expect_refusal("a missing directory",
+                   ["--classic-shots", absent, "--next-shots", nxt], absent)
+    empty = os.path.join(scratch, "empty")
+    os.makedirs(empty, exist_ok=True)
+    expect_refusal("an empty directory",
+                   ["--classic-shots", empty, "--next-shots", nxt], empty)
+    unrelated = os.path.join(scratch, "unrelated")
+    os.makedirs(unrelated, exist_ok=True)
+    write_png(os.path.join(unrelated, "something_else.png"), 8, 8, (0, 0, 0))
+    expect_refusal("a directory holding no compared screenshot",
+                   ["--classic-shots", unrelated, "--next-shots", nxt],
+                   unrelated)
+    expect_refusal("one directory without the other",
+                   ["--classic-shots", classic], "--next-shots")
+    expect_refusal("no arguments at all", [], "--classic-shots")
+
+    # a shot missing from an otherwise usable directory is a failure too
+    partial = os.path.join(scratch, "partial")
+    write_shots_dir(partial, (40, 80, 120))
+    os.remove(os.path.join(partial, COMPARED_SHOTS[-1]))
+    code, said = run_quiet(["--classic-shots", classic,
+                            "--next-shots", partial])
+    assert code == 1 and COMPARED_SHOTS[-1] in said, said
+
+    # the run road keeps its honest skip when the sibling tree is unbuilt
+    assert run_quiet(["--next-binary", "/nonexistent/next",
+                      "--classic-binary", "/nonexistent/classic",
+                      "--out", scratch,
+                      "--repo", scratch])[0] == SKIP_EXIT_CODE
+
+    # argument routing
+    parsed = parse_args(["--classic-shots", "a", "--next-shots", "b"])
+    assert parsed.classic_shots == "a" and parsed.next_shots == "b"
+    assert parse_args(["--selftest"]).selftest is True
+
+    shutil.rmtree(scratch, ignore_errors=True)
+    print("compare_backend_screenshots: selftest OK")
     return 0
 
 
