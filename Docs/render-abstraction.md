@@ -61,6 +61,12 @@ Anything that reads pixels back is meaningless here, so pixel and parity gates
 stay on a real render system. The classic flavor carries no deviceless render
 system and refuses the request rather than opening a window nobody asked for.
 
+This is a **runtime** capability, and the editor is not one of its consumers:
+its scene view, its preview and its whole interface are render targets, so a
+windowed editor launch under that variable refuses by name instead of booting
+([editor-cli.md](editor-cli.md#platform-notes)). Editor subcommands install no
+render system at all and are unaffected.
+
 ## The containment rule
 
 Code above the backend never names `Ogre::`. The only zones allowed to are

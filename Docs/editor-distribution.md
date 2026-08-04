@@ -47,6 +47,14 @@ so. See [The browser payload](web-export.md#the-browser-payload-inside-a-package
   the executable's own directory. The build stages this layout beside the built
   executable, so a distributable archive is that directory.
 
+A packaged archive additionally carries one invokable `orkige_editor[.exe]` at
+its **root** — the [command line](editor-cli.md), which on a machine with only a
+distributed Orkige is the sole export door. On Linux and Windows that is the
+editor executable, already at the root. On macOS it is a `/bin/sh` wrapper
+beside the bundle that `exec`s the executable inside it, since the bundled path
+is not something a build server should have to know and `open -a` discards the
+exit code.
+
 ## Linked libraries
 
 Most of the closure is static, but not all of it: the classic flavor links

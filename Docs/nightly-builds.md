@@ -117,6 +117,7 @@ Orkige-<platform>-<version>/
     CHANGELOG.md            what landed since the previous nightly
     KNOWN-LIMITATIONS.md    what this build cannot do yet
     <the editor>            Orkige.app, or orkige_editor[.exe]
+    orkige_editor[.exe]     the command line (Docs/editor-cli.md)
     <the player>            beside the editor, for Play
     <the texture cook tool> beside the player, for the export cook
     <resources>             the engine media, at the path the editor resolves
@@ -144,6 +145,16 @@ packaging but the editor's own contract (`Docs/editor-distribution.md`):
   `share/orkige/` beside them (`share/orkige/Media/…` plus the editor's icon and
   mono fonts, and the same three text files), which is what the locator reads
   relative to `SDL_GetBasePath`.
+
+The archive root always carries one invokable `orkige_editor[.exe]`, which is
+what a build server runs to reach the [subcommands](editor-cli.md). On Linux and
+Windows it is the editor executable itself. On macOS the executable is inside
+the bundle, so the archive root carries a small `/bin/sh` wrapper of that name
+which `exec`s `Orkige.app/Contents/MacOS/Orkige` beside it. The wrapper is
+written **after** the disk image is built, so it belongs to the portable archive
+alone: the image is the drag-to-`/Applications` road, where the app leaves the
+volume and a wrapper would not follow it. `verify_layout` refuses an archive
+without the entry point, or one whose wrapper no longer names the executable.
 
 The build stages that same payload into the build tree, so the two are one
 layout: the packaging targets `orkige_editor_bundle` (which depends on the

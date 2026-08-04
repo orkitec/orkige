@@ -21,6 +21,7 @@ using OrkigeEditor::EditorCliCommand;
 using OrkigeEditor::EditorCliVerb;
 using OrkigeEditor::editorCliUsage;
 using OrkigeEditor::editorCliUsageExitCode;
+using OrkigeEditor::editorDevicelessRefusal;
 using OrkigeEditor::parseEditorCli;
 
 namespace
@@ -268,5 +269,62 @@ TEST_CASE("the usage text stays honest about what v1 covers", "[editorcli]")
 			"save-scene" })
 	{
 		REQUIRE(usage.find(absent) == std::string::npos);
+	}
+}
+
+TEST_CASE("a deviceless launch is refused by name", "[editorcli]")
+{
+	// the editor is a window application. ORKIGE_RENDERSYSTEM=null asks for
+	// the render system the PLAYER boots to hold a scene with no display, and
+	// the editor has to say so rather than fail inside it (@see EditorCli.h).
+	const EditorCliCommand windowed = parse({});
+	for (std::string const & name :
+		std::vector<std::string>{ "null", "NULL", "Null", "headless",
+			"  null  " })
+	{
+		const std::string refusal = editorDevicelessRefusal(windowed, name);
+		REQUIRE_FALSE(refusal.empty());
+		// it names the variable AND the value that was set, so the sentence
+		// tells a build server exactly what to unset
+		REQUIRE(refusal.find("ORKIGE_RENDERSYSTEM=") != std::string::npos);
+		REQUIRE(refusal.find(name) != std::string::npos);
+		// ...and points at the two doors that DO work without a display
+		REQUIRE(refusal.find("orkige_editor help") != std::string::npos);
+		REQUIRE(refusal.find("orkige_player") != std::string::npos);
+	}
+}
+
+TEST_CASE("a graphics render system is never read as deviceless", "[editorcli]")
+{
+	// the negative rule this shares with RenderSystemSelection: no graphics
+	// name, and no unset variable, may ever cost someone their editor
+	const EditorCliCommand windowed = parse({});
+	for (std::string const & name :
+		std::vector<std::string>{ "", "Vulkan", "Metal", "GL3Plus", "GL",
+			"nullish", "none" })
+	{
+		REQUIRE(editorDevicelessRefusal(windowed, name).empty());
+	}
+}
+
+TEST_CASE("a subcommand is exempt from the deviceless refusal", "[editorcli]")
+{
+	// a subcommand installs no render system at all, so a build server that
+	// sets the variable machine-wide for its player runs still exports, tests
+	// and fetches
+	for (std::vector<std::string> const & arguments :
+		std::vector<std::vector<std::string>>{
+			{ "export", "--project", "/g", "--platform", "macos" },
+			{ "test", "--project", "/g" },
+			{ "fetch-payload", "--list" },
+			{ "version" },
+			{ "help" },
+			// a refusal is headless too, and it already has its own answer:
+			// exit 2 with the reason it was refused for
+			{ "exprot" } })
+	{
+		const EditorCliCommand command = parse(arguments);
+		REQUIRE(command.headless());
+		REQUIRE(editorDevicelessRefusal(command, "null").empty());
 	}
 }

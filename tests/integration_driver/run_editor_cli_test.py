@@ -37,13 +37,17 @@ def fail(message):
     sys.exit(1)
 
 
-def run(editor, argv, seconds=QUICK_SECONDS):
+def run(editor, argv, seconds=QUICK_SECONDS, environment=None):
     """run the editor with `argv` and return (exit code, merged output)"""
     log("$ orkige_editor " + " ".join(argv))
     started = time.time()
+    child_environment = None
+    if environment:
+        child_environment = dict(os.environ)
+        child_environment.update(environment)
     process = subprocess.Popen([editor] + argv, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True,
-                               errors="replace")
+                               errors="replace", env=child_environment)
     try:
         output = process.communicate(timeout=seconds)[0]
     except subprocess.TimeoutExpired:
@@ -109,6 +113,25 @@ def main():
                                 "--platform", args.platform])
     expect(code == 2, "a mistyped subcommand exits 2")
     expect("exprot" in output, "...and the refusal names what was typed")
+
+    # --- the editor is a WINDOW application, and says so --------------------
+    # ORKIGE_RENDERSYSTEM can name the deviceless render system the PLAYER
+    # boots to hold a scene with no display. The editor cannot be that, so a
+    # windowed launch has to refuse by name instead of failing somewhere inside
+    # a render system - and it has to refuse FAST, which is what the deadline
+    # on this call asserts (an editor that got as far as opening a window would
+    # sit here until the timeout).
+    code, output = run(editor, [],
+                       environment={"ORKIGE_RENDERSYSTEM": "null"})
+    expect(code == 1, "a deviceless windowed launch exits 1")
+    expect("ORKIGE_RENDERSYSTEM=null" in output,
+           "...and the refusal names the variable and its value")
+
+    # ...while a SUBCOMMAND is exempt: it installs no render system, so a build
+    # server that sets the variable machine-wide still packages its games
+    code, output = run(editor, ["version"],
+                       environment={"ORKIGE_RENDERSYSTEM": "null"})
+    expect(code == 0, "a subcommand still runs with the variable set")
 
     code, output = run(editor, ["export", "--project", args.project])
     expect(code == 2, "export without --platform is a usage error (2)")

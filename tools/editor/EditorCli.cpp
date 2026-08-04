@@ -11,6 +11,8 @@
 
 #include "EditorCli.h"
 
+#include <engine_render/RenderSystemSelection.h>
+
 namespace OrkigeEditor
 {
 	namespace
@@ -270,6 +272,29 @@ namespace OrkigeEditor
 		default:
 			return parseBare(command, arguments);
 		}
+	}
+
+	//---------------------------------------------------------
+	Orkige::String editorDevicelessRefusal(EditorCliCommand const & command,
+		Orkige::String const & renderSystemName)
+	{
+		if(command.headless())
+		{
+			// a subcommand installs no render system at all, so the variable
+			// says nothing about it - and a build server that keeps it set
+			// machine-wide must still be able to package a game
+			return Orkige::String();
+		}
+		if(!Orkige::RenderSystemSelection::isDevicelessName(renderSystemName))
+		{
+			return Orkige::String();
+		}
+		return "ORKIGE_RENDERSYSTEM=" + renderSystemName + " selects the "
+			"deviceless render system, and the editor is a window application: "
+			"its scene view, its preview and its whole interface ARE render "
+			"targets, so there is nothing for it to be without one. Headless "
+			"work goes through the subcommands (orkige_editor help); a live "
+			"scene with no display is orkige_player.";
 	}
 
 	//---------------------------------------------------------

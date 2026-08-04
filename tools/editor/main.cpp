@@ -296,6 +296,28 @@ int main(int argc, char** argv)
 		OrkigeEditor::parseEditorCli(std::vector<std::string>(argv + 1,
 			argv + argc));
 
+	// ...and the other way a run can have nowhere to draw: ORKIGE_RENDERSYSTEM
+	// can name the DEVICELESS render system, which the player boots to hold a
+	// live scene on a machine with no display. The editor is a window
+	// application and refuses that by name, here - before SDL, before the
+	// engine, before anything can fail obscurely inside a render system that
+	// was never going to give it pixels. A subcommand is exempt: it installs
+	// no render system, so a build server with the variable set machine-wide
+	// still exports its games. @see EditorCli.h
+	{
+		const char* const renderSystemName =
+			std::getenv("ORKIGE_RENDERSYSTEM");
+		const std::string devicelessRefusal =
+			OrkigeEditor::editorDevicelessRefusal(cliCommand,
+				renderSystemName != nullptr ? renderSystemName : "");
+		if (!devicelessRefusal.empty())
+		{
+			std::fprintf(stderr, "orkige_editor: ERROR: %s\n",
+				devicelessRefusal.c_str());
+			return 1;
+		}
+	}
+
 	// --mcp-port N / --mcp-token-file PATH (aliases --control-port /
 	// --control-token-file): opt-in in-editor MCP endpoint over Streamable HTTP
 	// (previously a line-JSON control port). Off unless asked for; the
