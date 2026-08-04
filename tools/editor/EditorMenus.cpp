@@ -1029,6 +1029,9 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	// from the View menu; a tab slot waits here for it)
 	ImGui::DockBuilderDockWindow(
 		ICON_FA_CODE_BRANCH " Source Control###SourceControl", bottomId);
+	// the Tests panel (the open project's Lua suite) tabs into the same bottom
+	// node, for the same reason
+	ImGui::DockBuilderDockWindow(ICON_FA_FLASK " Tests###Tests", bottomId);
 	// terminal session windows (one per pty, ###terminal<uid>) carry dynamic ids
 	// and cannot be pre-registered here; each first-appearance-docks into this
 	// bottom node itself (drawSessionWindow), so no slot is reserved.

@@ -20,11 +20,11 @@ TEST_CASE("ImGui and macOS menus share one complete panel registry",
 	using namespace Orkige;
 	REQUIRE(EDITOR_PANEL_REGISTRY.size() ==
 		static_cast<std::size_t>(PANEL_COUNT));
-	REQUIRE(PANEL_COUNT == 12);
+	REQUIRE(PANEL_COUNT == 13);
 
 	const char* expected[] = { "Scene Hierarchy", "Inspector", "Console",
 		"Stats", "Scene", "Assets", "Tile Palette", "Preview", "UI Editor",
-		"Debug", "Source Control", "Terminal" };
+		"Debug", "Source Control", "Terminal", "Tests" };
 	std::set<std::string> uniqueLabels;
 	for (int each = 0; each < PANEL_COUNT; ++each)
 	{
@@ -48,4 +48,7 @@ TEST_CASE("ImGui and macOS menus share one complete panel registry",
 	// the Terminal is closed by default; it opens from the View menu and docks
 	// as a tab in the bottom group beside Console
 	CHECK(EDITOR_PANEL_REGISTRY[PANEL_TERMINAL].defaultVisible == false);
+	// the Tests panel is closed by default; it opens from the View menu and
+	// docks as a tab in the bottom group beside Console
+	CHECK(EDITOR_PANEL_REGISTRY[PANEL_TESTS].defaultVisible == false);
 }

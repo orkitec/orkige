@@ -97,6 +97,45 @@ An `ORKIGE_SCRIPTING=OFF` build has no interpreter and says so, exiting
 non-zero: it cannot answer the question that was asked, and reporting a pass
 would be a lie.
 
+### In the editor: the Tests panel
+
+**View ▸ Tests** is the interactive door. It lists the project's test files,
+runs them, and shows each verdict with its message and the `file:line` it came
+from - click that button and the script editor opens there.
+
+- **Run All** runs the suite. **Run Selected** runs whatever row is selected: a
+  file row runs the file, a test row runs that one test. **Re-run Failed** runs
+  only what failed last time. **Stop** ends the run in flight; what it already
+  learned stands.
+- The **filter** box is the runner's own grammar - the plain substring matched
+  against `<file>::<test name>` - so the same text narrows the list and, through
+  **Run Filtered**, narrows the run. There is no second grammar.
+- A file lists **no tests until it has run**. The tests a file declares only
+  exist once its chunk has executed, and the editor runs no game Lua; listing a
+  guess would be worse than listing nothing.
+- Verdicts appear **as they land**, because the runner flushes its artifact per
+  record and the panel tails it.
+- A **filtered run updates its own rows** and leaves the rest of the list
+  standing; only a whole-suite run replaces it. Re-running one failure says
+  nothing about the tests it did not run, and wiping their passes would leave a
+  suite that looks like nothing but its failures.
+
+The panel does not run tests in process. The editor never ticks game objects, so
+`ScriptComponent` is dormant in edit mode and a test that declares a scene has no
+world to run in. The panel starts the same `orkige_player --run-tests` the
+command lines above do, resolving the player this installation has, and reads
+back the same artifact. What it adds is a place to read it.
+
+**A run that dies is not a failing suite**, and the panel says which happened. A
+suite whose tests failed shows red rows and a tally. A runner that crashed or was
+killed shows the sentence *the test runner exited (N) without finishing the run*,
+naming the last test it reached, with the runner's own output foldable underneath
+- and every verdict it did produce still listed, because the artifact was flushed
+per record.
+
+Only one run is in flight at a time. A run belongs to the project that started
+it: opening another project stops it and drops its results.
+
 ## The run artifact
 
 Every run writes a JSONL file — one JSON object per line, flushed as it is
@@ -123,6 +162,31 @@ that happened. A file with no `summary` line is a run that died.
 The artifact lands beside the breadcrumb trail in the writable app directory;
 `ORKIGE_TEST_REPORT_DIR` overrides the directory (the isolation seam a ctest
 uses), and the file is named `tests-<utcstamp>.jsonl`.
+
+The reader lives beside the writer (`ScriptTestReport::parseLine`), so the format
+has one definition and the round trip is a unit test. The editor's Tests panel
+and the `get_project_test_results` MCP verb both decode the artifact through it -
+neither derives a verdict from log text.
+
+## Over MCP
+
+An agent reaches the same runner through three verbs
+([mcp.md](mcp.md#the-projects-own-lua-suite)):
+
+```
+tools/call list_project_tests {}
+tools/call run_project_tests { "filter": "movement" }
+tools/call get_project_test_results {}
+```
+
+`run_project_tests` is asynchronous and `get_project_test_results` streams the
+records as they land, so an agent sees a long suite progress rather than waiting
+in the dark. They drive the **same session** the Tests panel does: a person
+watching the panel while an agent polls is looking at one run, not two.
+
+Do not confuse them with `run_tests` / `list_tests` / `get_test_results`, which
+drive **ctest over the engine's own suite**. Two different suites, two different
+names, no shared code.
 
 ## What a test can reach
 

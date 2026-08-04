@@ -100,6 +100,47 @@ MCP: agents are forbidden from committing on the developer's behalf, and an MCP
 tool would launder that prohibition. The read-only status could be exposed as a
 tool in the future; the mutations will not be.
 
+## Tests
+
+The **Tests** panel runs the open project's own Lua suite
+(`<project>/tests/*.test.lua`) and shows what each test made of it. It opens from
+the View menu and docks as a tab in the bottom group beside Console.
+
+The full tier — how a test is written, the filter grammar, the run artifact and
+the MCP verbs — is [Testing a game in Lua](testing.md#in-the-editor-the-tests-panel).
+What matters here is how the panel behaves:
+
+- **It drives the player, it does not run tests itself.** The editor never ticks
+  game objects, so `ScriptComponent` is dormant in edit mode and a test that
+  declares a scene has no world to run in. The panel starts
+  `orkige_player --run-tests` — the same runner the command line and the MCP
+  verbs reach — through the one session seam, resolving the player this
+  installation has exactly as Play does.
+- **Nothing blocks the UI.** The runner is a child process polled once per frame,
+  the same shape as the compile-on-Play build stream. Verdicts appear as they
+  land because the runner flushes its artifact per record and the panel tails it.
+  **Stop** kills the run in flight; the records already read stand.
+- **The run is not the panel's.** It keeps going with the tab closed, and the MCP
+  verbs read the same session — a person and an agent watch one run, not two.
+  Only one is in flight at a time.
+- **Buttons map onto what the runner can express.** Its filter is a single
+  substring, so a set of individual tests is not one filter: **Re-run Failed**
+  is one runner invocation per failure, minus the ones a broader one already
+  covers. The filter box is that same grammar, so it narrows the list and the run
+  identically.
+- **A filtered run updates its own rows.** Only a run that covers the whole
+  suite replaces the list; re-running one failure says nothing about the tests
+  it did not run, so their verdicts stand.
+- **A file lists no tests until it has run.** A test exists once its file's chunk
+  has executed, and the editor executes no game Lua.
+- **A crashed runner is not a failing suite.** A suite whose tests failed shows
+  red rows and a tally. A runner that died shows the sentence naming the last
+  test it reached, its own output underneath, and every verdict it did manage to
+  produce.
+
+A failure's `file:line` is a button: it opens that test in the script editor at
+that line.
+
 ## Tile Palette and the grid-paint tool
 
 Level authoring in 2D mode: the **Tile Palette** panel arms a paintable asset and

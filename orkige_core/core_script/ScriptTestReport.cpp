@@ -77,4 +77,62 @@ namespace Orkige
 			" tests in " + std::to_string(summary.files) + " file(s))";
 	}
 	//---------------------------------------------------------
+	ScriptTestReport::LineKind ScriptTestReport::parseLine(String const & line,
+		MetaRecord & outMeta, ScriptTestRecord & outRecord,
+		ScriptTestSummary & outSummary)
+	{
+		JsonValue value;
+		if(!JsonValue::parse(line, value) || !value.isObject())
+		{
+			return LineKind::None;
+		}
+		const String kind = value.get("record").asString();
+		if(kind == "meta")
+		{
+			MetaRecord meta;
+			meta.project = value.get("project").asString();
+			meta.utc = value.get("utc").asString();
+			meta.filter = value.get("filter").asString();
+			meta.files = value.get("files").asInt();
+			outMeta = meta;
+			return LineKind::Meta;
+		}
+		if(kind == "test")
+		{
+			// the status VOCABULARY is closed (@see ScriptTestRecord): a word
+			// outside it is a line this build cannot honestly interpret, and
+			// treating an unknown verdict as a pass is the one mistake a test
+			// reader must never make
+			const String status = value.get("status").asString();
+			if(status != "pass" && status != "fail" && status != "error")
+			{
+				return LineKind::None;
+			}
+			ScriptTestRecord record;
+			record.file = value.get("file").asString();
+			record.name = value.get("name").asString();
+			record.status = status;
+			record.message = value.get("message").asString();
+			record.ms = value.get("ms").asNumber();
+			outRecord = record;
+			return LineKind::Test;
+		}
+		if(kind == "summary")
+		{
+			ScriptTestSummary summary;
+			summary.files = value.get("files").asInt();
+			summary.total = value.get("total").asInt();
+			summary.passed = value.get("passed").asInt();
+			summary.failed = value.get("failed").asInt();
+			summary.errors = value.get("errors").asInt();
+			summary.filtered = value.get("filtered").asInt();
+			summary.ms = value.get("ms").asNumber();
+			// `exitCode` is DERIVED, never read back: the summary line carries
+			// it for a reader with no code, and this one has the rule
+			outSummary = summary;
+			return LineKind::Summary;
+		}
+		return LineKind::None;
+	}
+	//---------------------------------------------------------
 }

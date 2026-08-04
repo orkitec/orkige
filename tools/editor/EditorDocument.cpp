@@ -11,7 +11,8 @@
 // resource group) and the mesh import (asset database wiring included).
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
-#include "EditorSourceControlPanel.h"	// event-driven git refresh on scene save
+#include "EditorSourceControlPanel.h"
+#include "EditorTestSession.h"	// stop/forget a run when the project changes	// event-driven git refresh on scene save
 #include "EditorAutosave.h"
 #include "EditorSceneTemplate.h"
 #include "EditorResourcePaths.h"	// the ONE bundle-first / tree-second locator
@@ -400,6 +401,10 @@ bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	// store swaps to this project's persisted set (.orkige/breakpoints)
 	scriptPanelCloseAll();
 	state.breakpoints.attachProject(state.project.getRootDirectory());
+	// the Tests panel's results describe the project that produced them: a
+	// run in flight is stopped and the previous project's verdicts are dropped
+	OrkigeEditor::projectTestSessionOnProjectChanged(
+		state.project.getRootDirectory());
 	oDebugMsg("editor.project", 0, "project '" << state.project.getName() <<
 		"' opened (root '" << state.project.getRootDirectory() << "', " <<
 		state.project.listScenes().size() << " scenes)");
@@ -452,6 +457,7 @@ void closeProject(EditorState& state, Orkige::EditorCore& core)
 	// and stops persisting; loose-scene mode keeps an in-memory set only)
 	scriptPanelCloseAll();
 	state.breakpoints.attachProject("");
+	OrkigeEditor::projectTestSessionOnProjectChanged("");
 }
 
 // File > New Project...: create the skeleton (project name = the picked

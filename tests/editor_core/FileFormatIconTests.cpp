@@ -66,6 +66,9 @@ namespace
 		0xf03d, 0xf03e,
 		0xf047, 0xf047,
 		0xf04b, 0xf04b,
+		0xf04d, 0xf04d,		// stop (Tests panel Stop)
+		0xf057, 0xf058,		// circle-xmark / circle-check (Tests verdicts)
+		0xf0c3, 0xf0c3,		// flask (Tests panel/tab)
 		0xf0cb, 0xf0cb,
 		0xf0c5, 0xf0c5,		// copy (Terminal MCP-connect copy button)
 		0xf11b, 0xf11b,
@@ -129,6 +132,27 @@ namespace
 		REQUIRE(icon.glyph[0] != '\0');
 		CHECK(codepointInRanges(firstCodepoint(icon.glyph)));
 		CHECK((icon.color.r != 0 || icon.color.g != 0 || icon.color.b != 0));
+	}
+}
+
+TEST_CASE("Tests panel glyphs are all in the icon font ranges",
+	"[editor_core][file_format_icon]")
+{
+	// the FA6 codepoints the Tests panel draws (panel/tab, run, re-run, stop,
+	// and the two verdict marks); a glyph outside ICON_GLYPH_RANGES rasterises
+	// as a blank tofu box. Keep this list in step with EditorTestsPanel.cpp.
+	const std::uint32_t kTestsPanelGlyphs[] = {
+		0xf0c3,		// flask (panel + tab)
+		0xf04b,		// play (Run All / Run Selected / Run Filtered)
+		0xf021,		// arrows-rotate (Re-run Failed)
+		0xf04d,		// stop (Stop)
+		0xf058,		// circle-check (a passed test)
+		0xf057,		// circle-xmark (a failed or errored test)
+	};
+	for (std::uint32_t codepoint : kTestsPanelGlyphs)
+	{
+		INFO("codepoint: 0x" << std::hex << codepoint);
+		CHECK(codepointInRanges(codepoint));
 	}
 }
 

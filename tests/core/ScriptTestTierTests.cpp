@@ -183,6 +183,84 @@ TEST_CASE("the JSONL run artifact carries file, name, status and message",
 		Orkige::String::npos);
 }
 
+TEST_CASE("the artifact reader is the writer's exact inverse", "[script]")
+{
+	// The reader lives beside the writer so the format has ONE definition -
+	// and a round trip is what proves that, rather than two hand-kept
+	// spellings that agree until one of them is edited.
+	Orkige::ScriptTestReport::MetaRecord meta;
+	Orkige::ScriptTestRecord record;
+	Orkige::ScriptTestSummary summary;
+
+	Orkige::ScriptTestRecord written;
+	written.file = "tests/movement.test.lua";
+	written.name = "clamp is symmetric";
+	written.status = "fail";
+	written.message = "tests/movement.test.lua:4: expected -1, got \"x\"";
+	written.ms = 1.25;
+	REQUIRE(Orkige::ScriptTestReport::parseLine(
+		Orkige::ScriptTestReport::testLine(written), meta, record, summary) ==
+		Orkige::ScriptTestReport::LineKind::Test);
+	CHECK(record.file == written.file);
+	CHECK(record.name == written.name);
+	CHECK(record.status == written.status);
+	CHECK(record.message == written.message);	// quotes and all
+	CHECK(record.ms == written.ms);
+
+	REQUIRE(Orkige::ScriptTestReport::parseLine(
+		Orkige::ScriptTestReport::metaLine("roller", "2026-08-03T10:00:00Z",
+			"movement", 2), meta, record, summary) ==
+		Orkige::ScriptTestReport::LineKind::Meta);
+	CHECK(meta.project == "roller");
+	CHECK(meta.utc == "2026-08-03T10:00:00Z");
+	CHECK(meta.filter == "movement");
+	CHECK(meta.files == 2);
+
+	Orkige::ScriptTestSummary tally;
+	tally.files = 2;
+	tally.total = 3;
+	tally.passed = 2;
+	tally.failed = 1;
+	tally.filtered = 4;
+	tally.ms = 12.5;
+	REQUIRE(Orkige::ScriptTestReport::parseLine(
+		Orkige::ScriptTestReport::summaryLine(tally), meta, record, summary) ==
+		Orkige::ScriptTestReport::LineKind::Summary);
+	CHECK(summary.files == 2);
+	CHECK(summary.total == 3);
+	CHECK(summary.passed == 2);
+	CHECK(summary.failed == 1);
+	CHECK(summary.filtered == 4);
+	CHECK(summary.ms == 12.5);
+	// the exit code is DERIVED by the reader's own rule, never read back
+	CHECK(summary.exitCode() == 1);
+}
+
+TEST_CASE("the artifact reader refuses what it cannot honestly read",
+	"[script]")
+{
+	Orkige::ScriptTestReport::MetaRecord meta;
+	Orkige::ScriptTestRecord record;
+	Orkige::ScriptTestSummary summary;
+	char const * const junk[] = {
+		"",
+		"not json",
+		"{\"record\":\"test\"",					// truncated mid-write
+		"[1,2,3]",									// json, but not an object
+		"{\"record\":\"something-new\"}",		// a kind this build lacks
+		// a status word outside the closed vocabulary: a reader that guessed
+		// would turn an unknown verdict into a pass
+		"{\"record\":\"test\",\"file\":\"a\",\"name\":\"b\","
+			"\"status\":\"ok\"}",
+	};
+	for(char const * line : junk)
+	{
+		INFO("line: " << line);
+		CHECK(Orkige::ScriptTestReport::parseLine(line, meta, record,
+			summary) == Orkige::ScriptTestReport::LineKind::None);
+	}
+}
+
 TEST_CASE("the test vocabulary passes, fails and names the failing line",
 	"[script]")
 {

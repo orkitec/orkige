@@ -303,6 +303,9 @@ advertised set is the discoverable subset, not a hard limit.)
 | `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
 | `run_tests(filter, label, preset, build, targets)` | async build + `ctest` → a jobId; poll `get_test_results` |
 | `get_test_results(jobId)` | the structured verdict of a `run_tests` job |
+| `list_project_tests()` | the open PROJECT's own Lua suite: the test FILES under `<project>/tests` (index-aligned `files`/`names`). NOT `list_tests`, which is ctest over the engine's suite |
+| `run_project_tests(filter, failed)` | **auth** — async: run the project's Lua suite in this installation's player (a test that declares a scene needs a live world, which only the player has) → `accepted` + `legs`; poll `get_project_test_results`. `filter` is the runner's own substring over `<file>::<test name>`; `failed`=`"1"` re-runs only the previous run's failures |
+| `get_project_test_results()` | the project test run: `status` (idle/running/cancelled/done) plus the records SO FAR (the runner flushes per test) as index-aligned `test_files`/`test_names`/`test_status`/`test_messages`/`test_ms`, the `total`/`passed`/`failed`/`errors` tally, and `run_failure` — non-empty ONLY when the runner never reached a verdict |
 | `export_project(platform)` | async in-process export (macos/ios-simulator/android/web; the exporter is a library the editor links) → a jobId; poll `get_export_results` (classic-flavor tree required) |
 | `get_export_results(jobId)` | the structured verdict of an `export_project` job (`ok`/`artifactPath`/`error`) |
 
@@ -657,6 +660,61 @@ cheap, deterministic evidence.
   editor's own build; `desktop-classic` (or a `build/` dir name, or an absolute
   path) = another tree. Build/ctest paths are this editor build's own baked
   constants (`CMAKE_COMMAND` / `CMAKE_CTEST_COMMAND`).
+
+### The project's own Lua suite
+
+A project tests its own Lua in Lua (`Docs/testing.md`), and that is a **different
+suite** from the engine's ctest tree above. It has its own three verbs, and the
+names never overlap so neither can be reached by accident.
+
+- `list_project_tests()` returns the test FILES under `<project>/tests` as
+  index-aligned `files` (project-relative paths) and `names` (stable ids). Files
+  only: the individual tests a file declares exist once its chunk has RUN, and
+  the editor runs no game Lua, so the tests themselves come back from a run.
+- `run_project_tests(filter?, failed?)` is **async**. It runs the suite in this
+  installation's PLAYER, because a test that declares a scene needs a live world
+  and the editor has none in edit mode. `filter` is the runner's own grammar — a
+  plain substring matched against `<file>::<test name>` — so `movement` selects a
+  whole file and a test's name selects that case across files. `failed:"1"`
+  re-runs only what failed in the last run (one player run per failure, which is
+  why the reply reports `legs`). Refused with no project, with no suite, in a
+  build with no scripting backend, and while a run is already in flight.
+- `get_project_test_results()` returns `status` — `idle` / `running` /
+  `cancelled` / `done` — and **always the records so far**: the runner flushes
+  its artifact per test, so a suite in flight already names what passed. The
+  records arrive as the index-aligned lists `test_files`, `test_names`,
+  `test_status` (`pass`|`fail`|`error`), `test_messages`, `test_ms`, beside the
+  `total`/`passed`/`failed`/`errors` tally and `complete` (the run's artifact
+  carried its closing summary line).
+
+**`run_failure` is the field that keeps a crash from reading as a test result.**
+It is non-empty ONLY when the runner never reached a verdict — it crashed, or it
+was killed — and then `output_tail` carries the runner's own output. A suite
+whose TESTS failed leaves `run_failure` empty and reports `failed` > 0. Do not
+collapse the two: "the game is broken" and "the runner is broken" are different
+findings.
+
+A **filtered** run updates its own records and leaves the rest standing; only a
+run with no filter replaces them. So `run_project_tests { "failed": "1" }`
+followed by a poll shows the whole suite with the re-run rows updated in place,
+not just the tests that re-ran.
+
+These verbs and the editor's **Tests** panel drive the SAME session, so an agent
+polling here and a person watching the panel see one run. Only one run is in
+flight at a time; a second `run_project_tests` is refused rather than queued.
+
+```jsonc
+tools/call run_project_tests { "filter": "movement" }
+//   → { "accepted": "1", "legs": "1", "label": "filter 'movement'" }
+
+tools/call get_project_test_results {}
+//   → { "status": "running", "passed": "3", ... }   // records already landing
+//   → { "status": "done", "total": "8", "passed": "8", "failed": "0",
+//       "run_failure": "", "complete": "1", "test_names": [...] }
+
+// only the failures, after a fix:
+tools/call run_project_tests { "failed": "1" }
+```
 
 Example loop — edit a project script, then verify with its selfcheck:
 

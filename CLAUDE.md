@@ -254,7 +254,15 @@ when the whole matrix is green — see the **CI** section at the end of this fil
   uses, under a per-test frame budget so a wedged wait is a NAMED failure and
   never a hung job. `tests/` is NOT a payload subdirectory — a
   suite never ships — and `*.editor.lua` is stripped from `scripts/` at
-  export; both absences are asserted. `Docs/testing.md`.
+  export; both absences are asserted. The interactive door is the editor's
+  **Tests** panel and the MCP verbs `list_project_tests` /
+  `run_project_tests` / `get_project_test_results` (distinct from the ctest
+  verbs `list_tests`/`run_tests` — two suites, two names): both drive ONE
+  session seam (`tools/editor/EditorTestSession.h`) that spawns the same
+  player and tails the same artifact, decoded by the reader that lives beside
+  the writer (`ScriptTestReport::parseLine`). A crashed runner is NOT a
+  failing suite — a report with no `summary` line is a run that died, and
+  every surface reports that separately. `Docs/testing.md`.
 - **Script tasks** (`script.async` + `wait`/`waitFrames`/`waitUntil`,
   `core_script/ScriptTaskManager` + the pure `ScriptTaskCore`): game code that
   spans frames, written as one function. `coroutine` is opened for the engine

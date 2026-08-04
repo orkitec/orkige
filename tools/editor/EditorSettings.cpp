@@ -154,6 +154,14 @@ void ViewSettings::load()
 		{
 			this->showTerminalPanel = (value == "1");
 		}
+		else if (key == "panel_tests")
+		{
+			this->showTestsPanel = (value == "1");
+		}
+		else if (key == "test_filter")
+		{
+			this->testFilter = value;
+		}
 		else if (key == "snap_enabled")
 		{
 			this->snapEnabled = (value == "1");
@@ -301,6 +309,8 @@ void ViewSettings::save() const
 		<< "panel_source_control="
 		<< (this->showSourceControlPanel ? 1 : 0) << "\n"
 		<< "panel_terminal=" << (this->showTerminalPanel ? 1 : 0) << "\n"
+		<< "panel_tests=" << (this->showTestsPanel ? 1 : 0) << "\n"
+		<< "test_filter=" << this->testFilter << "\n"
 		<< "rotation_as_euler=" << (this->rotationAsEuler ? 1 : 0) << "\n"
 		<< "break_on_script_errors="
 		<< (this->breakOnScriptErrors ? 1 : 0) << "\n"
