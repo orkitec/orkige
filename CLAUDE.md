@@ -745,7 +745,7 @@ lives in a doc and is pointed at from here. The full index:
 | `sanitizers.md` / `fuzzing.md` / `soak.md` / `security.md` | the stability + safety instruments |
 | `ports.md` / `vendored-libs.md` | overlay ports, third-party provenance + pinning |
 | `help-portal.md` | the published site generator |
-| `upstream/` | the OGRE PR package (OGRECave/ogre #3667-3669) |
+| `upstream/` | the OGRE PR package (OGRECave/ogre #3667-3669) and `upstream/ogre-next/` (OGRECave/ogre-next #587-#589, the NULL render system) |
 | `api/`, `legal/` | the site's class-reference config, imprint + privacy |
 
 `Docs/lua-api.md` and `Docs/gui.md` carry GENERATED blocks — never hand-edit
