@@ -384,7 +384,8 @@ jobs:
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
             libibus-1.0-dev \
             xvfb mesa-utils libgl1-mesa-dri \
-            mesa-vulkan-drivers vulkan-tools
+            mesa-vulkan-drivers vulkan-tools \
+            doxygen graphviz
 
       - name: Check out pinned vcpkg
         run: |
