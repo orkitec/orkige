@@ -555,6 +555,13 @@ namespace OrkigeExport
 		{
 			return false;
 		}
+		// the third-party license notices ride at the resource root, beside
+		// the marker: the bundled libraries require their text to travel with
+		// the binary, and a .app is the binary a player receives
+		if(!stageThirdPartyNotices(resources, source, environment, 0, error))
+		{
+			return false;
+		}
 		emit(environment.log,
 			"project payload: " + std::to_string(staged) + " files");
 

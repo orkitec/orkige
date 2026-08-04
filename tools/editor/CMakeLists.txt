@@ -595,6 +595,16 @@ list(APPEND _editor_stage_commands
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${Orkige_SOURCE_DIR}/Util/media/orkige_default_icon.png"
         "${_editor_stage_resources}/")
+# the third-party license notices. TWO reasons this rides at the resource root:
+# the editor is itself a binary distribution of that statically linked closure,
+# and it is the engine source a copied editor packages a GAME from - the
+# exporter looks for the file beside the Media/ tree it takes everything else
+# from, so an editor with no repository can still put the notices in the app it
+# writes.
+list(APPEND _editor_stage_commands
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${Orkige_SOURCE_DIR}/THIRD-PARTY-NOTICES.md"
+        "${_editor_stage_resources}/")
 if(NOT APPLE)
     # the editor's own UI fonts (+ their licenses): on macOS they ride in the
     # bundle's Resources through MACOSX_PACKAGE_LOCATION above; every other

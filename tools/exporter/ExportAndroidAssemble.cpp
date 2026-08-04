@@ -11,6 +11,7 @@
 #include "ExportAndroid.h"
 #include "ExportBuildTree.h"
 #include "ExportFiles.h"
+#include "ExportPayload.h"
 #include "ExportSettings.h"
 #include "ExportZip.h"
 
@@ -825,6 +826,17 @@ namespace OrkigeExport
 				{
 					return false;
 				}
+			}
+			// the third-party license notices, at the assets root the marker
+			// sits at - the resource root an Android runtime resolves. An
+			// Android package is sourced from a fetched payload or a build
+			// tree; there is no bundle-resources form of it.
+			if(!stageThirdPartyNoticesFrom(assets,
+				thirdPartyNoticesCandidates(
+					{ request.devicePayload, request.repoRoot }),
+				request.log, 0, error))
+			{
+				return false;
 			}
 			if(request.assetsMode == "stored")
 			{

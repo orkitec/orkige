@@ -152,6 +152,16 @@ function(orkige_install_sdk)
             COMPONENT sdk)
     endif()
 
+    # --- third-party license notices -----------------------------------------
+    # a pack carries the closure a module links, so it carries that closure's
+    # notices too; it is also an engine source the exporter packages a game
+    # from, and the notices file is looked for at the pack root
+    if(EXISTS "${_src}/THIRD-PARTY-NOTICES.md")
+        install(FILES "${_src}/THIRD-PARTY-NOTICES.md"
+            DESTINATION .
+            COMPONENT sdk)
+    endif()
+
     # --- the dependency closure ---------------------------------------------
     # The build's own vcpkg triplet prefix. Copied rather than re-resolved:
     # these are the exact binaries the engine archives were compiled and linked
