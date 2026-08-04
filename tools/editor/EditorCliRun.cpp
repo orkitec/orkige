@@ -31,6 +31,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "engine_runtime/AppHost.h"
 
 namespace
 {
@@ -268,6 +269,16 @@ namespace
 		// only THIS run's report is worth naming: a run that died before
 		// opening one leaves the directory exactly as it found it
 		const String artifact = (after == before) ? String("") : after.path;
+		if(exitCode == Orkige::AppHost::NO_DISPLAY_EXIT_CODE)
+		{
+			// the runner could not open a window at all: this login session
+			// owns no screen (on macOS, fast user switching). No suite ran,
+			// so there is no verdict to report - relay the SKIP rather than
+			// call a run that never happened a failure.
+			std::printf("orkige_editor: the test runner reports no display "
+				"session, so no suite was run\n");
+			return Orkige::AppHost::NO_DISPLAY_EXIT_CODE;
+		}
 		if(exitCode != 0)
 		{
 			// the SUITE's verdict, relayed - not re-derived. The runner has

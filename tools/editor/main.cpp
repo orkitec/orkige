@@ -647,7 +647,12 @@ int main(int argc, char** argv)
 		SDL_Log("orkige_editor: %s", resources.describe().c_str());
 		if (!host.initialise(hostConfig))
 		{
-			return 1;
+			// no display session is not a broken editor: a windowed run has
+			// nothing to do on a login session that owns no screen. Report
+			// ctest's SKIP so it never hides a real failure. @see
+			// PlatformWindow::hasDisplaySession
+			return host.hasNoDisplaySession()
+				? Orkige::AppHost::NO_DISPLAY_EXIT_CODE : 1;
 		}
 		SDL_Window* const window = host.getWindow();
 		// testing/multi-display hook: ORKIGE_EDITOR_WINDOW_DISPLAY=<index>

@@ -145,6 +145,14 @@ def main():
     reports = os.path.join(args.output, "reports")
     code, output = run(editor, ["test", "--project", args.project,
                                 "--report-dir", reports], RUN_SECONDS)
+    # The suite runs in the PLAYER, which needs a window. A process on a login
+    # session that owns no screen (macOS fast user switching) cannot open one
+    # and answers 77, which the editor relays. That is not a failed suite -
+    # there is nothing here to run - so skip rather than report a red test that
+    # would sit on top of the real ones.
+    if code == 77:
+        log("the runner reports no display session - skipping")
+        sys.exit(77)
     expect(code == 0, "a passing suite comes back 0")
     artifact = ok_line(output)
     expect(artifact.endswith(".jsonl") and os.path.isfile(artifact),
