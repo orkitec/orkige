@@ -30,12 +30,21 @@
 name: CI
 
 on:
-  # A branch is verified through its PULL REQUEST, and main is verified on the
-  # merge. Leaving `push` unrestricted would run the whole matrix TWICE for
-  # every branch that has a PR open - once for the push, once for the PR - so
-  # each trigger owns exactly one of the two cases.
+  # WORK LANDS ON `development`; main is the last commit that went green.
+  #
+  # Every push to development runs the whole matrix, and the concurrency group
+  # below means a burst of pushes collapses into one run of the newest commit.
+  # main then moves by FAST-FORWARD onto that exact commit. Check runs belong
+  # to a SHA rather than to a branch, so the fast-forwarded commit arrives on
+  # main carrying its own green verdicts and satisfies branch protection with
+  # no second run - which is why the verdict jobs skip a push to main. Merging
+  # instead of fast-forwarding would create a NEW commit that nothing has
+  # verified, so the shape is load-bearing, not a preference.
+  #
+  # `pull_request` still verifies a branch that wants review before it reaches
+  # development, and it is the only trigger a fork can use.
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
 
 # a newer push supersedes the previous run of the same branch
@@ -134,6 +143,11 @@ jobs:
 
   linux-classic:
     name: Linux classic (GL3Plus) - compatibility build + tests
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 240 # cold vcpkg build headroom; cached runs take minutes
     steps:
@@ -247,6 +261,11 @@ jobs:
   # DEFAULT backend, verified per push with the complete desktop suite.
   linux-next:
     name: Linux next - desktop suites
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -377,6 +396,11 @@ jobs:
   # suppressions file (Util/lsan_suppressions.txt); an Orkige leak is a bug.
   linux-sanitizer:
     name: Linux sanitizer (ASan + UBSan) - full suite
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -488,6 +512,11 @@ jobs:
   # trailing comment); keep this job on the same pinned refs as its siblings.
   linux-tsan:
     name: Linux ThreadSanitizer - headless unit gate
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -799,6 +828,11 @@ jobs:
   # the emulator from the editor; the emulator boots last.
   android-emulator-next:
     name: Android emulator next - build + Play test
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -1001,6 +1035,11 @@ jobs:
   # the emulator from the editor; the emulator boots last.
   android-emulator-classic:
     name: Android emulator classic - build + Play test
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -1189,6 +1228,11 @@ jobs:
   # unit suite, then build, boot and test the iOS Simulator player.
   macos-next:
     name: macOS next - desktop suite
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     # macos-15's default toolchain: openal-soft 1.25 needs a newer AppleClang
     # than the macos-14 image ships (CTAD in its event handling)
     runs-on: macos-15
@@ -1279,6 +1323,11 @@ jobs:
   # the documented dev-machine setup).
   macos-classic:
     name: macOS classic - desktop suite
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: macos-15
     timeout-minutes: 360
     env:
@@ -1370,6 +1419,11 @@ jobs:
   # last.
   ios-simulator-next:
     name: iOS simulator next - build + device tests
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: macos-15
     timeout-minutes: 360
     env:
@@ -1543,6 +1597,11 @@ jobs:
   # last.
   ios-simulator-classic:
     name: iOS simulator classic - player build + export structure
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: macos-15
     timeout-minutes: 360
     env:
@@ -1649,6 +1708,11 @@ jobs:
   # with Win32 presentation support.
   windows-next:
     name: Windows next (Vulkan) - build + desktop tests
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 240
     env:
@@ -1810,6 +1874,11 @@ jobs:
   # classic windowed gate runs on Linux (llvmpipe) and macOS.
   windows-classic:
     name: Windows classic - build + unit tests
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit. The site path
+    # (host-exporter -> web -> site) is exempt: it PUBLISHES on main.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 240
     env:

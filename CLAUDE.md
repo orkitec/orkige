@@ -1194,24 +1194,43 @@ what rule it carries, which doc has the depth.
 
 GitHub Actions (`.github/workflows/ci.yml`) builds + tests as **fifteen jobs**,
 mostly parallel, so a failure names itself and every verdict lands as early as
-its own build allows. **A change is verified on its BRANCH, through a pull
-request, and `main` only moves once all fourteen gating jobs are green** —
-`main` is a protected branch requiring them. `pull_request` verifies a branch;
-`push` is restricted to `main` and verifies the merge, so a branch with an open
-PR never runs the matrix twice. The `site` job is pinned to a push on `main`:
-every other job renders a VERDICT on a change, that one PUBLISHES, and it must
-never fire for a branch under review.
+its own build allows.
 
-Protection deliberately does NOT require a branch to be up to date before
-merging — with a matrix this slow, strict mode makes every merge invalidate
-every other open PR's run. Admins are not bound by the checks, so a genuine
-emergency still has a door.
+**Work lands on `development`; `main` is the last commit that went green.**
+Small changes are committed straight to `development` — no PR ceremony — and a
+burst of pushes collapses into ONE matrix run, because the concurrency group
+cancels a superseded run of the same branch. When `development` is green,
+`main` is **FAST-FORWARDED** onto that exact commit.
+
+That last word is load-bearing. Check runs belong to a **SHA**, not to a
+branch, so a fast-forwarded commit arrives on `main` already carrying its own
+green verdicts and satisfies protection with no second run — which is why the
+twelve verdict jobs skip a push to `main`. **Merging** into `main` instead
+would create a NEW commit that nothing has verified, and would cost a second
+full matrix to prove it. So: fast-forward only, and never push to `main`
+directly, or it stops being an ancestor of `development` and the model breaks.
+
+The exemption is the site path (`host-exporter` → `web` → `site`), which still
+runs on a `main` push because it PUBLISHES rather than judging. It must never
+fire for a branch under review.
+
+A **pull request** is still the right tool where review or isolation is worth a
+dedicated matrix run — a dependency pin bump whose failure should name itself,
+anything a fork contributes, anything touching what this machine cannot run
+where a second opinion matters before it reaches `development`. It is no longer
+the default road.
+
+Protection on `main` deliberately does NOT require a branch to be up to date
+before merging — with a matrix this slow, strict mode makes every merge
+invalidate every other open run. Admins are not bound by the checks, so a
+genuine emergency still has a door.
 
 Throughput, not correctness, is the usual constraint: public-repo runners are
-free, but the ACCOUNT's concurrent-job ceiling is what actually paces a queue of
-open PRs (macOS is separately capped at 5). A pile of branches can starve the
-one PR that unblocks the others - cancelling runs for branches that must be
-rebased anyway is the cheap lever. The jobs:
+free, but the ACCOUNT's concurrent-job ceiling is what actually paces things
+(macOS is separately capped at 5). This is exactly what the `development` model
+exists to fix: several branches in flight starve each other, and the one that
+unblocks the rest waits longest. Batch onto `development` instead, and cancel
+runs for branches that must be rebased anyway. The jobs:
 
 | Job | What it gates |
 |-----|---------------|
