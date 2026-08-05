@@ -76,8 +76,8 @@ COMPONENTS = [
     ("stb", "stb", "MIT OR CC-PDDC", "2024-07-29",
      "https://github.com/nothings/stb", "E D M W",
      "stb_truetype (glyphs), stb_vorbis (music), stb_image (PNG decode)"),
-    ("OpenAL Soft", "openal-soft", "LGPL-2.0-or-later", "1.25.1",
-     "https://openal-soft.org/", "E D M",
+    ("miniaudio", "miniaudio", "Unlicense OR MIT-0", "0.11.25",
+     "https://github.com/mackron/miniaudio", "E D M W",
      "the audio mixer and device backend"),
     ("{fmt}", "fmt", "MIT", "12.2.0", "https://fmt.dev/", "E D M",
      "string formatting inside the render backend"),
@@ -285,17 +285,6 @@ def main():
     w("are the ones that are not, stated plainly rather than buried in the")
     w("table. **Read them before publishing a closed-source binary.**")
     w("")
-    w("### OpenAL Soft - LGPL-2.0-or-later, statically linked, in every artifact")
-    w("")
-    w("The audio backend is under the GNU Library General Public License and is")
-    w("linked STATICALLY into the editor, every player and every exported game.")
-    w("LGPL section 6 permits distributing a work that uses the library in")
-    w("executable form, but a STATIC link obliges the distributor to let a")
-    w("recipient relink the work against a modified library - in practice by")
-    w("supplying the application's object files or its source, alongside the")
-    w("library's source. Section 6 also requires the notice that the library is")
-    w("used and that it is covered by the LGPL, which this file provides.")
-    w("")
     w("### LibRaw - LGPL-2.1-only OR CDDL-1.0, statically linked, desktop builds")
     w("")
     w("LibRaw reaches the desktop editor and the desktop player through")
@@ -303,7 +292,7 @@ def main():
     w("either license, at the recipient's choice. CDDL-1.0 is a per-FILE")
     w("copyleft: it permits combining the covered files into a larger work under")
     w("other terms, provided the covered source stays available under CDDL.")
-    w("LGPL-2.1 carries the same relinking obligation as OpenAL Soft above.")
+    w("LGPL-2.1 carries a static-relinking obligation.")
     w("Both texts are reproduced below.")
     w("")
     w("### FreeImage - GPL-2.0-only OR GPL-3.0-only OR FreeImage Public License")

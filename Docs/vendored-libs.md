@@ -141,10 +141,8 @@ recorded reason why it reaches no shipped artifact. A build-time-only component
 (the test framework, a header registry) needs no attribution in a distributed
 notice, and saying so explicitly is what keeps the file's silence meaningful.
 
-Two entries in that document are worth knowing without reading it:
+One entry in that document is worth knowing without reading it:
 
-- **OpenAL Soft is LGPL** and is statically linked into every artifact. A
-  static link carries a relinking obligation the notice states in full.
 - **LibRaw (LGPL-2.1 or CDDL-1.0) and FreeImage (GPL-2.0, GPL-3.0 or the
   FreeImage Public License)** reach the desktop editor and desktop player
   through the default render backend's image codec. Both are absent from the

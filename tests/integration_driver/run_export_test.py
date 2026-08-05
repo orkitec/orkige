@@ -317,11 +317,10 @@ def check_third_party_notices(resource_root, label):
             "%s carries the license texts (%d bytes)" % (NOTICES_FILE,
                                                          len(text)))
     # Named components rather than a byte count alone, so a truncated or
-    # placeholder file cannot pass. Both are linked into EVERY artifact on
-    # every platform, which is what makes them safe to assert here: a marker
-    # naming a component that can leave the closure turns a dependency change
-    # into an unrelated red test, which is how "OpenAL Soft" broke this when
-    # the audio backend was replaced.
+    # placeholder file cannot pass. Only components linked into EVERY artifact
+    # on every platform belong here: a marker naming something that can leave
+    # the closure turns an ordinary dependency change into an unrelated red
+    # test.
     for marker in ("Third-party notices", "SDL", "Lua"):
         require(marker in text, "%s names '%s'" % (NOTICES_FILE, marker))
 

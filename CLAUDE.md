@@ -106,7 +106,12 @@ packages the dev player's own APK. Deploy with
 manifest Setting `export.android.assets` picks how media rides in the APK
 (`stored`, the default: assets stay UNCOMPRESSED so the player mounts its own
 APK and reads bulk media in place; `compressed`: deflated, extracted on first
-launch).
+launch). `export.android.libraries` is the semicolon-separated list of
+project-relative `.aar` archives the package pulls in — classes onto the dex
+inputs, manifest fragment merged, `res/`/`assets/`/`jni/<abi>` routed into the
+tree they belong in, paths jailed like every manifest path. That is plumbing,
+never a provider: nothing in the engine knows what any archive does —
+`Docs/android-libraries.md`.
 
 The editor's Play toolbar has a target picker (desktop / iOS simulators — a
 shutdown one is booted via simctl and auto-installed / adb devices + emulators /
@@ -192,6 +197,19 @@ pass before committing.
 
 The noscript tree is preset-encoded: `cmake --preset macos-debug-noscript`,
 `ctest --preset unit-noscript`.
+
+**HAZARD — a login session can own no display.** On macOS only the session at
+the console owns the window server, so a process in a background session (fast
+user switching) has no screen to render to, and the render backend's macOS GL
+support reads the display-mode list without checking, dying inside
+CoreFoundation before any engine code runs. `PlatformWindow::hasDisplaySession()`
+(`engine_util`, the answer from CoreGraphics; other platforms and iOS answer
+true) is asked in one place — `AppHost::initialise`, which refuses with a
+sentence naming the situation — and again at the top of each windowed
+self-checking app, which prints and returns **77** so ctest records a SKIP. A
+run that cannot see a screen has nothing to report, and reporting it as a
+failure buries the real ones. A deviceless run (`ORKIGE_RENDERSYSTEM=null`) is
+exempt: it wants no display.
 
 **Local Linux rig** (`Util/linux_rig/`): `run_container.sh` builds the
 `orkige-ci-linux` image (ubuntu 24.04, clang, xvfb + Mesa lavapipe/llvmpipe,
@@ -448,9 +466,10 @@ Include paths are rooted at the layer directory (e.g. `#include "core_util/Strin
   `load`/`loadfile`/`dofile`/`require`.
 - **Other core modules**: `core_project` (project/manifest, `AssetDatabase`,
   `ProjectPaths`, `TextureSamplerTable`), `core_script` (`ScriptRuntime`),
-  `core_tween`, `core_http` (`Docs/http.md`), `core_debugnet` (the
-  editor↔player debug protocol, plus the hand-rolled `HttpServer`/`Json`/
-  `WebSocketConnection` the MCP endpoint rides on).
+  `core_tween`, `core_http` (`Docs/http.md`), `core_monetization`
+  (`Docs/monetization.md`), `core_debugnet` (the editor↔player debug protocol,
+  plus the hand-rolled `HttpServer`/`Json`/`WebSocketConnection` the MCP
+  endpoint rides on).
 - Umbrella header: `core_module/OrkigePrerequisites.h` (forward decls, export macros).
 
 **`orkige_engine/`** — the OGRE-facing layer, ported to OGRE 14.x + SDL3 (gated
@@ -683,7 +702,8 @@ browser are not there yet).
   packaging and the `export_*` suite asserts the file in each artifact. A new
   dependency has to be answered in that file — `third_party_notices_lint`
   fails otherwise. `Docs/vendored-libs.md` has the tier table and the copyleft
-  entries (OpenAL Soft is LGPL and statically linked everywhere).
+  entries (LibRaw and FreeImage, both reached through the default flavor's
+  desktop image codec and absent from the mobile and browser builds).
 
 - **The SDK pack is never a prerequisite for a project with no C++.** A Lua
   game has nothing to compile: it needs the platform's player (fetched, for a
@@ -1036,6 +1056,22 @@ what rule it carries, which doc has the depth.
   `flush`; it coexists with the LevelManager progression save. Lua `save` table.
   **Crash semantics: only a flush reaches disk** (breadcrumbs cover the unflushed
   window). The editor never makes one — honest no-op in edit mode.
+- **Monetization** (`core_monetization`, `Docs/monetization.md`): one
+  `MonetizationService` holding a `StoreProvider` and an `AdProvider`, both
+  plugins — the shipped simulated provider goes in through the same interface a
+  vendor integration would. Renderer-free and headless, drained once per frame
+  inside the fenced tick order, Lua `store` and `ads` tables, read back over MCP
+  `get_state`. The rules that make it correct: **acknowledge a purchase only
+  after the goods are durably granted** (the store's queue is the record —
+  `MonetizationService` persists nothing); **consent is an ordering constraint**
+  that `AdProvider::initialize` takes as an argument rather than a flag to
+  remember; a reward travels only with `ASR_REWARD_EARNED`, never a dismissal.
+  Products live in a `.ocatalog` config asset mapping one logical id to each
+  storefront's own identifier. The store side has a real platform provider on
+  macOS + iOS (StoreKit's payment queue); **the ad side is mediation ONLY** —
+  `ads.provider = platform` is a named absence everywhere, by design, and a
+  network arrives as a provider a project brings with it (on Android, an
+  `.aar` — `Docs/android-libraries.md`).
 - **2D camera fit** (`core_util/CameraFit.h`, pure math): `CameraComponent`'s
   reflected `fitMode` (FM_HEIGHT default / FM_WIDTH / FM_EXPAND) plus
   `designWidth`/`designHeight` derive `orthoSize` from the live viewport aspect,
@@ -1249,10 +1285,11 @@ what rule it carries, which doc has the depth.
     byte-identical. **Don't add an ad-hoc `visible` bool** — `enabled` is the one
     vocabulary (the Lua `setXVisible` aliases are kept for compatibility).
   - **The config-asset pattern**: project-config files (`input.oactions`,
-    `physics.olayers`, `levels.olevels`) are referenced from the manifest
-    `Settings`, live OUTSIDE `assets/` and are NOT id-tracked. They reach an
-    export through `configSettingKeys()` in `tools/exporter/ExportSettings.cpp` —
-    add a new config asset there or it will not ship.
+    `physics.olayers`, `levels.olevels`, the `.xlf` string table, the
+    `.ocatalog` product list) are referenced from the manifest `Settings`, live
+    OUTSIDE `assets/` and are NOT id-tracked. They reach an export through
+    `configSettingKeys()` in `tools/exporter/ExportSettings.cpp` — add a new
+    config asset there or it will not ship.
   - **The canonical game-loop tick order** is a FENCED block in
     `advanceGameWorld` (`engine_runtime/GameHost.cpp`): input → scripts →
     tweens → physics → deferred-load. It lives in the engine rather than the
@@ -1269,17 +1306,19 @@ what rule it carries, which doc has the depth.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) builds + tests as **sixteen jobs**,
-mostly parallel, so a failure names itself and every verdict lands as early as
-its own build allows.
+GitHub Actions (`.github/workflows/ci.yml`) carries **eighteen jobs** — fifteen
+verdicts, mostly parallel, so a failure names itself and every verdict lands as
+early as its own build allows, plus `branch-base`, `fast-forward-main` and the
+`site` deploy.
 
 **Work lands on `development`; `main` is the last commit that went green.**
 Small changes are committed straight to `development` — no PR ceremony — and a
 burst of pushes collapses into ONE matrix run, because the concurrency group
 cancels a superseded run of the same branch. When `development` is green, the
 **`fast-forward-main`** job moves `main` onto that exact commit by itself: it
-waits on all sixteen gating jobs, so one red verdict leaves `main` where it
-was, and nobody has to remember. **A new gating job belongs in that `needs:`
+waits on every gating job — the fifteen verdicts plus `branch-base`, sixteen
+`needs:` entries — so one red verdict leaves `main` where it was, and nobody
+has to remember. **A new gating job belongs in that `needs:`
 list in the same change** — otherwise `main` moves without waiting for it. **Green therefore means PUBLISHED** — moving
 `main` runs the site deploy.
 
@@ -1338,7 +1377,8 @@ free, but the ACCOUNT's concurrent-job ceiling is what actually paces things
 (macOS is separately capped at 5). This is exactly what the `development` model
 exists to fix: several branches in flight starve each other, and the one that
 unblocks the rest waits longest. Batch onto `development` instead, and cancel
-runs for branches that must be rebased anyway. The jobs:
+runs for branches that must be rebased anyway. The fifteen verdicts, plus the
+`site` deploy (`branch-base` and `fast-forward-main` are the two above):
 
 | Job | What it gates |
 |-----|---------------|

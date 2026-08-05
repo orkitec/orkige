@@ -124,7 +124,7 @@ jobs:
   # created, nothing is merged, so main can carry no state that was not tested.
   # Branch protection is NOT bypassed - admins are bound by it, and this push
   # is accepted for the same reason a manual one would be, because the commit
-  # already holds the fourteen required verdicts.
+  # already holds the fifteen required verdicts.
   #
   # CONSEQUENCE WORTH KNOWING: moving main deploys the public site, since the
   # site job triggers on a main push. Green therefore means published.

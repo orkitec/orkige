@@ -86,7 +86,7 @@ function init(self)
 		0.4)
 
 	-- [5] the SoundComponent surface (the first sound binding): reached via
-	-- the world accessor. Guarded honestly: without a working OpenAL device
+	-- the world accessor. Guarded honestly: without a working audio device
 	-- addSound refuses and the sound checks stay skipped
 	-- (shared.tween.soundChecked stays false - the C++ side mirrors that).
 	local snd = world.getSound(self.id)

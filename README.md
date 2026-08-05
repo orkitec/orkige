@@ -109,6 +109,16 @@ game can be purely 2D, purely 3D, or mix both freely.
   apply), WinHTTP on Windows, the page's `fetch` in the browser, and libcurl on
   Linux — the one platform with no system HTTP client to ask. https by default,
   no downgrade on redirect, and a size cap and timeout on every request.
+- **Monetization** — one seam with pluggable providers for **in-app purchases**
+  (`store` in Lua: product query with the storefront's own localised prices,
+  purchase, restore, entitlements) and **adverts** (`ads`: banner, interstitial,
+  rewarded, app-open, with consent as an ordering constraint and a reported
+  banner strip a HUD can lay out around). Products are a text `.ocatalog` mapping
+  one logical id to each storefront's own identifier. The store side runs against
+  Apple's StoreKit on macOS and iOS; the ad side is **mediation only** — no
+  network ships in the tree, and one is a provider a project brings with it. A
+  deterministic simulated provider makes every unhappy path (no-fill, dismissal,
+  deferred approval, already-owned) reachable on demand.
 - **Scripting** — Lua on sol2 behind a backend-neutral seam; game logic lives in
   per-object `ScriptComponent`s. `projects/roller` is a complete game in pure Lua,
   zero compiled code.
@@ -216,14 +226,17 @@ ctest --preset desktop-classic # the classic-flavor suite (exports, Vulkan, nati
 ctest --preset all             # classic + simulator/emulator device tests
 ```
 
-Every push runs a **thirteen-job CI matrix** — one job per platform × flavor, so
-a failure names itself (`.github/workflows/ci.yml`). Both Linux render flavors
-run their full windowed suites under a virtual display; Ogre-Next additionally
-owns scripting-off and an ASan + UBSan pass. macOS (Metal) and Windows (Mesa
-lavapipe software Vulkan) run the complete desktop suites. The Android player
-runs in a hardware-accelerated x86_64 emulator, the iOS player in an arm64
-iPhone Simulator — and the **browser player builds to WebAssembly and boots in
-headless Chrome with a pixel check** on every push.
+Every push runs a **fifteen-verdict CI matrix** — roughly one job per platform ×
+flavor, so a failure names itself (`.github/workflows/ci.yml`). Both Linux
+render flavors run their full windowed suites under a virtual display, and a
+**cross-flavor parity job** then compares the two flavors' screenshots pixel by
+pixel — with a diff image and the largest disagreeing region on every run, so a
+divergence is readable rather than a number. Ogre-Next additionally owns
+scripting-off, an ASan + UBSan pass and a ThreadSanitizer pass. macOS (Metal)
+and Windows (Mesa lavapipe software Vulkan) run the complete desktop suites. The
+Android player runs in a hardware-accelerated x86_64 emulator, the iOS player in
+an arm64 iPhone Simulator — and the **browser player builds to WebAssembly and
+boots in headless Chrome with a pixel check** on every push.
 
 ## Repository layout
 
@@ -242,9 +255,10 @@ ports/ triplets/   vcpkg overlay ports and triplets
 Docs/              the documentation corpus (published at orkige.orkitec.com)
 ```
 
-Modern work happens on `main`; the deep history carries the engine's
-2009–2012 origins. The games shipped on the original engine live in a
-private archive.
+Work lands on `development`, and `main` is the last commit the whole matrix
+turned green — CI fast-forwards it there itself, so every commit on `main`
+carries its own verdicts. The deep history carries the engine's 2009–2012
+origins; the games shipped on the original engine live in a private archive.
 
 ## Upstream
 
