@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <fstream>
 
+#include <zlib.h>
+
 namespace Orkige
 {
 	namespace
@@ -28,42 +30,8 @@ namespace Orkige
 			out.push_back(static_cast<unsigned char>(v & 0xFF));
 		}
 
-		//! CRC-32 (the PNG/zip polynomial) over a byte span, seeded per call -
-		//! chunk CRCs are short, so a per-call table build stays negligible
-		std::uint32_t crc32(unsigned char const * data, std::size_t length)
-		{
-			std::uint32_t table[256];
-			for (std::uint32_t n = 0; n < 256; ++n)
-			{
-				std::uint32_t c = n;
-				for (int k = 0; k < 8; ++k)
-				{
-					c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
-				}
-				table[n] = c;
-			}
-			std::uint32_t crc = 0xFFFFFFFFu;
-			for (std::size_t i = 0; i < length; ++i)
-			{
-				crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
-			}
-			return crc ^ 0xFFFFFFFFu;
-		}
-
-		//! Adler-32 (the zlib stream checksum) over the raw filtered scanlines
-		std::uint32_t adler32(unsigned char const * data, std::size_t length)
-		{
-			std::uint32_t a = 1, b = 0;
-			const std::uint32_t MOD = 65521u;
-			for (std::size_t i = 0; i < length; ++i)
-			{
-				a = (a + data[i]) % MOD;
-				b = (b + a) % MOD;
-			}
-			return (b << 16) | a;
-		}
-
-		//! write one PNG chunk (length + type + data + CRC of type|data)
+		//! write one PNG chunk (length + type + data + CRC of type|data);
+		//! the CRC is zlib's crc32 (the PNG/zip polynomial)
 		void putChunk(std::vector<unsigned char> & out, char const type[4],
 			std::vector<unsigned char> const & data)
 		{
@@ -74,8 +42,9 @@ namespace Orkige
 				out.push_back(static_cast<unsigned char>(type[i]));
 			}
 			out.insert(out.end(), data.begin(), data.end());
-			const std::uint32_t crc = crc32(out.data() + typeStart,
-				4 + data.size());
+			const std::uint32_t crc = static_cast<std::uint32_t>(
+				::crc32(0uL, out.data() + typeStart,
+					static_cast<uInt>(4 + data.size())));
 			putU32BE(out, crc);
 		}
 	}
@@ -88,6 +57,9 @@ namespace Orkige
 		{
 			return false;
 		}
+		// on any later failure the appended prefix is rewound, so a false
+		// return leaves out exactly as it arrived
+		const std::size_t outStart = out.size();
 		// PNG signature
 		static const unsigned char SIGNATURE[8] =
 			{ 137, 80, 78, 71, 13, 10, 26, 10 };
@@ -116,42 +88,21 @@ namespace Orkige
 			raw.insert(raw.end(), row, row + rowBytes);
 		}
 
-		// zlib stream around DEFLATE STORED blocks: header (0x78 0x01), then
-		// each <= 65535-byte block as [BFINAL/BTYPE=00][LEN][~LEN][bytes], then
-		// the Adler-32 of the raw data. Correct and reader-universal; no zlib.
-		std::vector<unsigned char> idat;
-		idat.push_back(0x78);	// CMF: deflate, 32K window
-		idat.push_back(0x01);	// FLG: no dict, fastest (check bits consistent)
-		std::size_t offset = 0;
-		const std::size_t total = raw.size();
-		const std::size_t MAX_BLOCK = 65535;
-		if (total == 0)
+		// the compressed image stream: zlib's compress2 emits the complete
+		// zlib wrapper (header, DEFLATE blocks, Adler-32 trailer), which is
+		// exactly what a PNG IDAT chunk carries. The screenshot suites write
+		// full-resolution frames through this encoder, so real compression is
+		// a requirement, not a nicety - an uncompressed stream turns a flat
+		// test capture from kilobytes into megabytes
+		uLongf compressedSize = compressBound(static_cast<uLong>(raw.size()));
+		std::vector<unsigned char> idat(compressedSize);
+		if (compress2(idat.data(), &compressedSize, raw.data(),
+			static_cast<uLong>(raw.size()), Z_DEFAULT_COMPRESSION) != Z_OK)
 		{
-			// a zero-length stored block still needs a final marker
-			idat.push_back(0x01);
-			idat.push_back(0x00);
-			idat.push_back(0x00);
-			idat.push_back(0xFF);
-			idat.push_back(0xFF);
+			out.resize(outStart);
+			return false;
 		}
-		while (offset < total)
-		{
-			const std::size_t chunk =
-				(total - offset < MAX_BLOCK) ? (total - offset) : MAX_BLOCK;
-			const bool finalBlock = (offset + chunk >= total);
-			idat.push_back(finalBlock ? 0x01 : 0x00);
-			const std::uint16_t len = static_cast<std::uint16_t>(chunk);
-			const std::uint16_t nlen = static_cast<std::uint16_t>(~len);
-			idat.push_back(static_cast<unsigned char>(len & 0xFF));
-			idat.push_back(static_cast<unsigned char>((len >> 8) & 0xFF));
-			idat.push_back(static_cast<unsigned char>(nlen & 0xFF));
-			idat.push_back(static_cast<unsigned char>((nlen >> 8) & 0xFF));
-			idat.insert(idat.end(), raw.begin() + offset,
-				raw.begin() + offset + chunk);
-			offset += chunk;
-		}
-		const std::uint32_t adler = adler32(raw.data(), raw.size());
-		putU32BE(idat, adler);
+		idat.resize(compressedSize);
 		putChunk(out, "IDAT", idat);
 
 		putChunk(out, "IEND", std::vector<unsigned char>());

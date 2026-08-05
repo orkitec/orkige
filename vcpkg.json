@@ -28,6 +28,7 @@
     "sdl3",
     "miniaudio",
     "stb",
+    "zlib",
     {
       "name": "ktx",
       "platform": "!ios & !android & !emscripten"

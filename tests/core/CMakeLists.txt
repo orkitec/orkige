@@ -146,9 +146,13 @@ if(ORKIGE_SCRIPTING STREQUAL "LUA")
     target_sources(orkige_core_tests PRIVATE MetaLuaTests.cpp)
 endif()
 
+# zlib gives the PngWriter round-trip test the REFERENCE inflater: the
+# encoder's stream is decoded with uncompress() and compared pixel by pixel
+find_package(ZLIB REQUIRED)
 target_link_libraries(orkige_core_tests PRIVATE
     Orkige::Core
     Catch2::Catch2WithMain
+    ZLIB::ZLIB
 )
 
 # committed fixture assets (e.g. the cook round-trip .oanim, whose currency

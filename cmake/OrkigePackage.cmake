@@ -19,7 +19,7 @@ include_guard(GLOBAL)
 #   package forms - the build tree here and the SDK pack in cmake/OrkigeSdk.cmake
 #   - declare the SAME closure, so it is written once.
 function(orkige_package_transitive_list out)
-    set(_packages "SDL3" "Jolt" "tinyxml2" "NanoSVG")
+    set(_packages "SDL3" "Jolt" "tinyxml2" "NanoSVG" "ZLIB")
     if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         list(APPEND _packages "OGRE-Next" "assimp")
     else()

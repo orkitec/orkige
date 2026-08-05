@@ -147,6 +147,12 @@ target_include_directories(orkige_core PUBLIC
 find_package(tinyxml2 CONFIG REQUIRED)
 target_link_libraries(orkige_core PRIVATE tinyxml2::tinyxml2)
 
+# zlib backs the DEFLATE stream inside PngWriter's IDAT chunk (the PNG
+# container itself stays hand-written); the same library already serves the
+# engine's pak reader, so this adds no new closure entry
+find_package(ZLIB REQUIRED)
+target_link_libraries(orkige_core PRIVATE ZLIB::ZLIB)
+
 # earcut-hpp: single-header polygon triangulation (concave + holes), the one
 # library the vector-shape tessellator takes. Header-only, no CMake config -
 # the include path is scoped to core_util/VectorTessellator.cpp ALONE (nothing

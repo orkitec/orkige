@@ -118,7 +118,7 @@ failure this file exists to prevent.
 | [UTF8-CPP](#utf8-cpp) | 4.1.1 | `BSL-1.0` | E D M W | UTF-8 handling inside the mesh importer (header-only) |
 | [minizip](#minizip) | 1.3.2 | `Zlib` | E D M W | the zip reader behind pak and APK mounting |
 | [kubazip](#kubazip) | 0.3.14 | `MIT` | E D M W | zip support inside the render backend |
-| [zlib](#zlib) | 1.3.2 | `Zlib` | E D M W | deflate, under the archive and image readers |
+| [zlib](#zlib) | 1.3.2 | `Zlib` | E D M W | deflate, under the archive and image readers and the PNG writer |
 | [nanosvg](#nanosvg) | 2023-12-29 | `Zlib` | E D M W | SVG parsing for UI sprites and shape cooking |
 | [earcut.hpp](#earcuthpp) | 2.2.4 | `ISC` | E D M W | polygon triangulation for vector shapes (header-only) |
 | [stb](#stb) | 2024-07-29 | `MIT OR CC-PDDC` | E D M W | stb_truetype (glyphs), stb_vorbis (music), stb_image (PNG decode) |

@@ -10,17 +10,18 @@
 #define __PngWriter_h__12_7_2026__17_00_00__
 
 //! @file PngWriter.h
-//! @brief a minimal, dependency-free PNG encoder for a straight-RGBA8 buffer
+//! @brief a minimal PNG encoder for a straight-RGBA8 buffer
 //! @remarks Lives in orkige_core beside VectorShapeRaster ON PURPOSE: it is
 //! the headless CPU counterpart of the render backend's texture-readback save.
 //! A CPU rasterizer (VectorShapeRaster, the vector-shape thumbnail/preview) has
 //! pixels but no render target to hand to `RenderTexture::writeContentsToFile`,
 //! so this turns the RGBA8 buffer straight into a PNG file with no renderer and
-//! no image library. The stream is a valid 8-bit RGBA PNG built with STORED
-//! (uncompressed) DEFLATE blocks - no zlib link, no compression, just a
-//! correct container - which every PNG reader accepts; the files are a little
-//! larger than a compressed encoder would produce, which is irrelevant for the
-//! small preview/thumbnail images this serves. Pure and unit-testable.
+//! no image library: the container (chunks, CRCs, scanline filter bytes) is
+//! owned here, and only the DEFLATE stream inside IDAT is delegated to zlib -
+//! the one compression library the engine already links everywhere. Real
+//! compression is part of the contract: the screenshot suites push
+//! full-resolution frames through this encoder, where an uncompressed stream
+//! would be two orders of magnitude larger. Pure and unit-testable.
 
 #include <core_util/String.h>
 #include <vector>

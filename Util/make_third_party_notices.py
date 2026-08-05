@@ -66,7 +66,7 @@ COMPONENTS = [
      "https://github.com/kuba--/zip", "E D M W",
      "zip support inside the render backend"),
     ("zlib", "zlib", "Zlib", "1.3.2", "https://zlib.net/", "E D M W",
-     "deflate, under the archive and image readers"),
+     "deflate, under the archive and image readers and the PNG writer"),
     ("nanosvg", "nanosvg", "Zlib", "2023-12-29",
      "https://github.com/memononen/nanosvg", "E D M W",
      "SVG parsing for UI sprites and shape cooking"),

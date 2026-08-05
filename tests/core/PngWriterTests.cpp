@@ -6,16 +6,21 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
-// PngWriterTests.cpp - the minimal dependency-free PNG encoder: a valid 8-bit
-// RGBA stream (signature + IHDR carrying the dimensions + IDAT + IEND), a
-// correct IDAT CRC, and honest refusal of bad arguments. The encoder is what
-// lets the CPU vector-animation preview write a PNG headlessly.
+// PngWriterTests.cpp - the minimal PNG encoder: a valid 8-bit RGBA stream
+// (signature + IHDR carrying the dimensions + IDAT + IEND), a correct IDAT
+// CRC, honest refusal of bad arguments, and a full round-trip - the IDAT
+// stream decoded by zlib's uncompress (the REFERENCE inflater, not a
+// re-implementation) and compared to the source pixels. The encoder is what
+// lets the CPU vector-animation preview write a PNG headlessly, and what the
+// render backends' screenshot saves ride on.
 #include <catch2/catch_test_macros.hpp>
 
 #include "core_util/PngWriter.h"
 
 #include <cstdint>
 #include <vector>
+
+#include <zlib.h>
 
 using Orkige::PngWriter;
 
@@ -114,4 +119,106 @@ TEST_CASE("PngWriter refuses bad arguments", "[unit][png]")
 	REQUIRE_FALSE(PngWriter::encode(px.data(), 0, 2, out));
 	REQUIRE_FALSE(PngWriter::encode(px.data(), 2, -1, out));
 	REQUIRE(out.empty());
+}
+
+namespace
+{
+	//! concatenate every IDAT chunk's payload (the zlib stream)
+	std::vector<unsigned char> collectIdat(
+		std::vector<unsigned char> const& png)
+	{
+		std::vector<unsigned char> stream;
+		std::size_t pos = 8;
+		while (pos + 12 <= png.size())
+		{
+			const std::uint32_t len = readU32BE(png, pos);
+			const std::size_t typeAt = pos + 4;
+			const std::string type(
+				reinterpret_cast<char const*>(&png[typeAt]), 4);
+			if (type == "IDAT")
+			{
+				stream.insert(stream.end(), png.begin() + typeAt + 4,
+					png.begin() + typeAt + 4 + len);
+			}
+			pos = typeAt + 4 + len + 4;
+		}
+		return stream;
+	}
+
+	//! decode with the reference inflater, strip the filter bytes (the
+	//! encoder only ever emits the None filter) and compare every pixel
+	void requireRoundTrip(std::vector<unsigned char> const& pixels,
+		int w, int h)
+	{
+		std::vector<unsigned char> png;
+		REQUIRE(PngWriter::encode(pixels.data(), w, h, png));
+
+		const std::vector<unsigned char> stream = collectIdat(png);
+		REQUIRE_FALSE(stream.empty());
+
+		const std::size_t rowBytes = static_cast<std::size_t>(w) * 4;
+		const std::size_t rawSize =
+			(rowBytes + 1) * static_cast<std::size_t>(h);
+		std::vector<unsigned char> raw(rawSize);
+		uLongf rawLen = static_cast<uLongf>(rawSize);
+		// uncompress also verifies the stream's own Adler-32 trailer
+		REQUIRE(uncompress(raw.data(), &rawLen, stream.data(),
+			static_cast<uLong>(stream.size())) == Z_OK);
+		REQUIRE(rawLen == rawSize);
+
+		for (int y = 0; y < h; ++y)
+		{
+			const std::size_t line =
+				static_cast<std::size_t>(y) * (rowBytes + 1);
+			REQUIRE(raw[line] == 0);	// None filter on every scanline
+			for (std::size_t x = 0; x < rowBytes; ++x)
+			{
+				REQUIRE(raw[line + 1 + x] ==
+					pixels[static_cast<std::size_t>(y) * rowBytes + x]);
+			}
+		}
+	}
+}
+
+TEST_CASE("PngWriter round-trips pixels through the reference inflater",
+	"[unit][png]")
+{
+	SECTION("flat colour")
+	{
+		const int w = 64, h = 48;
+		std::vector<unsigned char> px(
+			static_cast<std::size_t>(w) * h * 4, 200);
+		requireRoundTrip(px, w, h);
+	}
+	SECTION("deterministic noise")
+	{
+		const int w = 61, h = 37;	// odd sizes: no power-of-two alignment
+		std::vector<unsigned char> px(static_cast<std::size_t>(w) * h * 4);
+		std::uint32_t state = 0x12345678u;
+		for (std::size_t i = 0; i < px.size(); ++i)
+		{
+			state = state * 1664525u + 1013904223u;	// the classic LCG
+			px[i] = static_cast<unsigned char>(state >> 24);
+		}
+		requireRoundTrip(px, w, h);
+	}
+	SECTION("single pixel")
+	{
+		std::vector<unsigned char> px = { 1, 2, 3, 4 };
+		requireRoundTrip(px, 1, 1);
+	}
+}
+
+TEST_CASE("PngWriter compresses a flat image far below its raw size",
+	"[unit][png]")
+{
+	// the property the screenshot suites depend on: a near-flat capture must
+	// come out kilobytes, not megabytes. 256x256 RGBA raw is 256 KB; a real
+	// DEFLATE stream takes a flat frame well under a fiftieth of that
+	const int w = 256, h = 256;
+	const std::size_t rawSize = static_cast<std::size_t>(w) * h * 4;
+	std::vector<unsigned char> px(rawSize, 33);
+	std::vector<unsigned char> png;
+	REQUIRE(PngWriter::encode(px.data(), w, h, png));
+	REQUIRE(png.size() < rawSize / 50);
 }
