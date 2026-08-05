@@ -2,7 +2,8 @@
 """ctest driver for running a project's own Lua suite INSIDE A PACKAGE.
 
     run_export_tests.py --repo <root> --exporter <orkige_export>
-                        --project <dir> --platform macos|linux|ios-simulator
+                        --project <dir>
+                        --platform macos|linux|windows|ios-simulator
                         --engine-build <dir> --output <dir>
                         [--test-filter <substring>] [--deadline 600]
 
@@ -192,6 +193,24 @@ def run_linux(args, report_dir):
     return run_desktop_package(args, report_dir, executable)
 
 
+def run_windows(args, report_dir):
+    """the portable directory's test build - the same package a player would
+    receive, running its own suite instead of the game"""
+    if not sys.platform.startswith("win"):
+        skip("a Windows package is produced on Windows; this host is "
+             + sys.platform)
+    exe_name = project_names(args.project)[1]
+    package = os.path.join(args.output, "package", exe_name)
+    export(args, os.path.join(args.output, "package"))
+    require(os.path.isdir(package), "the exporter produced a package directory")
+    # executability is the extension on Windows, not a permission bit
+    executable = os.path.join(package, exe_name + ".exe")
+    require(os.path.isfile(executable), "the package carries its executable")
+    require(os.path.isdir(os.path.join(package, "project", "tests")),
+            "the test build carries the project's tests/ directory")
+    return run_desktop_package(args, report_dir, executable)
+
+
 def run_desktop_package(args, report_dir, executable):
     """run a packaged desktop artifact's own suite and return its exit code.
     ONE implementation for both desktop shapes: what differs between them is
@@ -323,7 +342,7 @@ def main():
     parser.add_argument("--exporter", required=True)
     parser.add_argument("--project", required=True)
     parser.add_argument("--platform", required=True,
-                        choices=["macos", "linux", "ios-simulator"])
+                        choices=["macos", "linux", "windows", "ios-simulator"])
     parser.add_argument("--engine-build", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--test-filter", default="")
@@ -340,6 +359,8 @@ def main():
         exit_code = run_macos(args, report_dir)
     elif args.platform == "linux":
         exit_code = run_linux(args, report_dir)
+    elif args.platform == "windows":
+        exit_code = run_windows(args, report_dir)
     else:
         exit_code = run_ios_simulator(args, report_dir)
     judge(report_dir, exit_code)

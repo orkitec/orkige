@@ -44,10 +44,13 @@ namespace OrkigeExport
 			return platform == "ios" || platform == "android";
 		}
 		//---------------------------------------------------------
-		//! the desktop slot: the default block, whether spelled "" or "macos"
+		//! the desktop slot: the default block, whether spelled "" or by the
+		//! name of any one desktop system - they all resolve to the same block,
+		//! because a desktop GPU wants no mobile container
 		bool isDesktopPlatform(Orkige::String const & platform)
 		{
-			return platform.empty() || platform == "macos";
+			return platform.empty() || platform == "macos" ||
+				platform == "linux" || platform == "windows";
 		}
 		//---------------------------------------------------------
 		bool report(Orkige::String * error, Orkige::String const & message)

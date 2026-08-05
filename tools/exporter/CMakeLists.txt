@@ -45,6 +45,8 @@ add_library(orkige_exporter STATIC
     ExportMacos.cpp
     ExportLinux.h
     ExportLinux.cpp
+    ExportWindows.h
+    ExportWindows.cpp
     ExportMacosSign.h
     ExportMacosSign.cpp
     ExportZip.h

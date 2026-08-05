@@ -14,6 +14,7 @@
 #include "ExportLinux.h"
 #include "ExportMacos.h"
 #include "ExportWeb.h"
+#include "ExportWindows.h"
 
 #include <cstdlib>
 
@@ -37,6 +38,7 @@ namespace OrkigeExport
 	bool isPackagedPlatform(String const & platform)
 	{
 		return platform == "macos" || platform == "linux" ||
+			platform == "windows" ||
 			platform == "ios-simulator" ||
 			platform == "ios" || platform == "ios-ipa" ||
 			platform == "android" || platform == "android-aab" ||
@@ -45,7 +47,25 @@ namespace OrkigeExport
 	//---------------------------------------------------------
 	bool isDesktopPlatform(String const & platform)
 	{
-		return platform == "macos" || platform == "linux";
+		return platform == "macos" || platform == "linux" ||
+			platform == "windows";
+	}
+	//---------------------------------------------------------
+	String desktopPlatformLabel(String const & platform)
+	{
+		if(platform == "macos")
+		{
+			return "macOS";
+		}
+		if(platform == "linux")
+		{
+			return "Linux";
+		}
+		if(platform == "windows")
+		{
+			return "Windows";
+		}
+		return String();
 	}
 	//---------------------------------------------------------
 	String hostDesktopPlatform()
@@ -54,6 +74,8 @@ namespace OrkigeExport
 		return "macos";
 #elif defined(__linux__)
 		return "linux";
+#elif defined(_WIN32)
+		return "windows";
 #else
 		// the honest answer where the exporter has no desktop target for its
 		// own host yet, rather than a guess that would package the wrong
@@ -68,7 +90,7 @@ namespace OrkigeExport
 		{
 			return String();
 		}
-		const String label = (platform == "macos") ? "macOS" : "Linux";
+		const String label = desktopPlatformLabel(platform);
 		if(hostDesktop.empty())
 		{
 			return "a " + label + " package is assembled around the " + label +
@@ -76,7 +98,7 @@ namespace OrkigeExport
 				"packages no desktop app for - export from a machine running " +
 				label;
 		}
-		const String hostLabel = (hostDesktop == "macos") ? "macOS" : "Linux";
+		const String hostLabel = desktopPlatformLabel(hostDesktop);
 		return "a " + label + " package is assembled around the " + label +
 			" player, and this exporter runs on " + hostLabel + " - nothing "
 			"here cross-compiles a player for another operating system. Export "
@@ -86,7 +108,7 @@ namespace OrkigeExport
 	//---------------------------------------------------------
 	String testRunPlatformRefusal(String const & platform)
 	{
-		if(platform == "macos" || platform == "linux" ||
+		if(isDesktopPlatform(platform) ||
 			platform == "ios-simulator" ||
 			platform == "ios" || platform == "ios-ipa")
 		{
@@ -100,7 +122,7 @@ namespace OrkigeExport
 			"payload rides inside an archive the runtime mounts in place, and "
 			"the test runner discovers a suite by walking a directory - so the "
 			"run would find no tests and report a pass over nothing. Export "
-			"--with-tests for macos or an iOS target";
+			"--with-tests for a desktop or an iOS target";
 	}
 	//---------------------------------------------------------
 	EnvironmentMap currentEnvironment()
@@ -368,6 +390,11 @@ namespace OrkigeExport
 		else if(request.platform == "linux")
 		{
 			packaged = exportLinux(project, source, outputDirectory,
+				environment, tests, artifact, error);
+		}
+		else if(request.platform == "windows")
+		{
+			packaged = exportWindows(project, source, outputDirectory,
 				environment, tests, artifact, error);
 		}
 		else if(request.platform == "ios-simulator" ||

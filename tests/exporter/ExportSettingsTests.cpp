@@ -262,7 +262,11 @@ TEST_CASE("bundletool resolves arg over env over PATH", "[unit][export]")
 
 TEST_CASE("the cook platform token per export platform", "[unit][export]")
 {
+	// every desktop reads the sidecar's default block - there is no
+	// desktop-specific override slot, because a desktop GPU wants none
 	CHECK(cookPlatformToken("macos") == "");
+	CHECK(cookPlatformToken("linux") == "");
+	CHECK(cookPlatformToken("windows") == "");
 	CHECK(cookPlatformToken("ios-simulator") == "ios");
 	CHECK(cookPlatformToken("ios") == "ios");
 	CHECK(cookPlatformToken("ios-ipa") == "ios");

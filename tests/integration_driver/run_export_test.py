@@ -5,7 +5,7 @@ the exported app from a neutral cwd (ORKIGE_DEMO_FRAMES caps the run) so a clean
 exit proves the package is genuinely self-contained.
 
     run_export_test.py --repo <root> --project <dir> --exporter <orkige_export>
-                       --platform macos|linux|ios-simulator|android
+                       --platform macos|linux|windows|ios-simulator|android
                        --engine-build <dir> --output <dir> [--run-frames N]
 
 Exit codes: 0 pass, 77 skip (missing platform build/SDK - the ctest
@@ -519,6 +519,140 @@ def check_linux(app_dir, exe_name, run_frames, flavor):
             "exported game ran standalone from a neutral cwd and exited 0")
 
 
+def check_windows_companions(app_dir, engine_build, exe_name):
+    """which libraries the package carries, held against the ones that sat
+    beside the player it was built from.
+
+    The Windows closure is linked STATICALLY (the x64-windows-static-md triplet
+    links every dependency in and leaves only the C runtime dynamic), so the
+    expected answer on both sides is NONE. Comparing the two sets rather than
+    asserting an empty one keeps the test honest either way: if a dependency
+    ever does build as a DLL it must travel with the game, and this fails only
+    when the two disagree - a library beside the player that the package left
+    behind (a game that cannot start), or one in the package that no build step
+    produced."""
+    packaged = sorted(
+        os.path.relpath(os.path.join(parent, name), app_dir)
+        for parent, _dirs, files in os.walk(app_dir) for name in files
+        if name.lower().endswith(".dll"))
+    player_dir = os.path.join(engine_build, "tools", "player")
+    built = sorted(name for name in os.listdir(player_dir)
+                   if name.lower().endswith(".dll")) \
+        if os.path.isdir(player_dir) else []
+    require(packaged == built,
+            "the package carries exactly the libraries built beside the "
+            "player (package %s, build tree %s)" % (packaged, built))
+    if not packaged:
+        log("companion libraries: none on either side (the closure is static)")
+    else:
+        log("companion libraries: %s" % packaged)
+    # a build directory's own bookkeeping is not part of a game. A .pdb also
+    # hands out every symbol name in the binary, so shipping one is a decision
+    # nobody made.
+    developer_files = sorted(
+        os.path.relpath(os.path.join(parent, name), app_dir)
+        for parent, _dirs, files in os.walk(app_dir) for name in files
+        if os.path.splitext(name)[1].lower() in (".pdb", ".ilk", ".exp",
+                                                 ".lib"))
+    require(not developer_files,
+            "the package carries no link or debug artifacts (found %s)"
+            % developer_files)
+    # exactly one program: the game. Another target's executable arriving here
+    # would mean the copy step started sweeping the directory.
+    executables = sorted(
+        os.path.relpath(os.path.join(parent, name), app_dir)
+        for parent, _dirs, files in os.walk(app_dir) for name in files
+        if name.lower().endswith(".exe"))
+    require(executables == [exe_name],
+            "the package carries exactly one executable, the game (found %s)"
+            % executables)
+
+
+def check_windows(app_dir, exe_name, run_frames, flavor, engine_build):
+    """the portable directory: the executable, the engine media, the payload,
+    the marker and the notices, all beside each other - which is what makes
+    SDL_GetBasePath() resolve them with nothing baked in and no argument."""
+    require(os.path.isdir(app_dir), "package directory exists: " + app_dir)
+    executable = os.path.join(app_dir, exe_name)
+    # no permission bit is checked: on Windows executability is the extension,
+    # which is why the packaged name carries .exe rather than the bare stem
+    require(os.path.isfile(executable),
+            "executable .\\" + exe_name + " at the package root")
+    require(exe_name.lower().endswith(".exe"),
+            "the packaged program carries the .exe extension")
+    marker = os.path.join(app_dir, "orkige_project.txt")
+    require(os.path.isfile(marker), "default-project marker present")
+    with open(marker) as marker_file:
+        require(marker_file.read().strip() == "project",
+                "marker names the bundled project dir")
+    require(os.path.isfile(os.path.join(app_dir, "project",
+                                        "project.orkproj")),
+            "project manifest bundled")
+    require(os.path.isdir(os.path.join(app_dir, "project", "scenes")),
+            "project scenes/ bundled")
+    # flavor-specific engine media, exactly as the other packages carry it
+    media_subdirs = ("Hlms",) if flavor == "next" else ("Main", "RTShaderLib")
+    for media_subdir in media_subdirs:
+        media = os.path.join(app_dir, "Media", media_subdir)
+        require(os.path.isdir(media) and os.listdir(media),
+                "engine media Media/%s bundled" % media_subdir)
+    check_third_party_notices(app_dir, "the package root")
+    check_windows_companions(app_dir, engine_build, exe_name)
+
+    # THE proof: the package runs standalone from a NEUTRAL cwd (the output
+    # dir - never the source tree, whose files could mask a missing resource)
+    # with a scrubbed environment, and exits 0 after the frame cap.
+    output_dir = os.path.dirname(app_dir)
+    environment = windows_clean_room_env(output_dir,
+                                         {"ORKIGE_DEMO_FRAMES":
+                                          str(run_frames)})
+    log("running the exported game (%d frames, cwd = output dir)" % run_frames)
+    result = subprocess.run([executable], cwd=output_dir, env=environment)
+    require(result.returncode == 0,
+            "exported game ran standalone from a neutral cwd and exited 0")
+
+
+def windows_clean_room_env(stage_dir, extra=None):
+    """the scrubbed environment a packaged Windows game is run under.
+
+    Windows cannot take the POSIX treatment: a process with no SystemRoot
+    cannot load a system DLL at all, so the scrub is a KEEP-LIST of the
+    variables the operating system itself needs, not an empty environment. What
+    it removes is everything that could stand in for something the package
+    forgot to carry - the developer PATH above all, which is what a build
+    machine would otherwise silently lend it."""
+    env = {
+        "SystemRoot": os.environ.get("SystemRoot", r"C:\Windows"),
+        "windir": os.environ.get("windir", r"C:\Windows"),
+        "SystemDrive": os.environ.get("SystemDrive", "C:"),
+        "COMSPEC": os.environ.get("COMSPEC", r"C:\Windows\system32\cmd.exe"),
+        "NUMBER_OF_PROCESSORS": os.environ.get("NUMBER_OF_PROCESSORS", "1"),
+        "PROCESSOR_ARCHITECTURE": os.environ.get("PROCESSOR_ARCHITECTURE",
+                                                 "AMD64"),
+        "USERPROFILE": os.path.join(stage_dir, "home"),
+        "LOCALAPPDATA": os.path.join(stage_dir, "home", "AppData", "Local"),
+        "APPDATA": os.path.join(stage_dir, "home", "AppData", "Roaming"),
+        "TEMP": os.path.join(stage_dir, "tmp"),
+        "TMP": os.path.join(stage_dir, "tmp"),
+    }
+    system_root = env["SystemRoot"]
+    # the system directories only - no developer PATH, and so no vcpkg bin, no
+    # compiler runtime staged by a build, and no python
+    env["PATH"] = os.pathsep.join([
+        os.path.join(system_root, "system32"),
+        system_root,
+        os.path.join(system_root, "system32", "Wbem"),
+    ])
+    for name in (env["USERPROFILE"], env["LOCALAPPDATA"], env["APPDATA"],
+                 env["TEMP"]):
+        os.makedirs(name, exist_ok=True)
+    for name in PASSTHROUGH_ENV:
+        if name in os.environ:
+            env[name] = os.environ[name]
+    env.update(extra or {})
+    return env
+
+
 def check_ios(app_dir, flavor):
     require(os.path.isdir(app_dir), "app bundle exists: " + app_dir)
     require(os.path.isfile(os.path.join(app_dir, "OrkigePlayer")),
@@ -662,8 +796,8 @@ def main():
                         help="the orkige_export executable under test")
     parser.add_argument("--project", required=True)
     parser.add_argument("--platform", required=True,
-                        choices=["macos", "linux", "ios-simulator", "android",
-                                 "android-aab"])
+                        choices=["macos", "linux", "windows", "ios-simulator",
+                                 "android", "android-aab"])
     parser.add_argument("--engine-build", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--run-frames", type=int, default=90)
@@ -675,6 +809,9 @@ def main():
         # the exporter refuses elsewhere by name - there is nothing to assert
         # here that its own unit case does not
         skip("a Linux package is produced on Linux; this host is "
+             + sys.platform)
+    if args.platform == "windows" and not sys.platform.startswith("win"):
+        skip("a Windows package is produced on Windows; this host is "
              + sys.platform)
     if args.platform == "ios-simulator" and not os.path.isdir(
             os.path.join(player_dir, "OrkigePlayer.app")):
@@ -737,6 +874,18 @@ def main():
         check_payload_data(payload, args.project)
         check_payload_dev_only(payload, args.project)
         check_linux(artifact, exe_name, args.run_frames, flavor)
+    elif args.platform == "windows":
+        # the artifact IS the directory, named for the executable inside it -
+        # the same shape as the Linux package, with the extension that makes a
+        # file runnable on this system
+        artifact = os.path.join(args.output, exe_name)
+        payload = os.path.join(artifact, "project")
+        check_payload_cook(payload, cooked_names)
+        check_payload_samplers(payload, args.project, args.platform)
+        check_payload_data(payload, args.project)
+        check_payload_dev_only(payload, args.project)
+        check_windows(artifact, exe_name + ".exe", args.run_frames, flavor,
+                      args.engine_build)
     elif args.platform == "ios-simulator":
         artifact = os.path.join(args.output, name + ".app")
         check_ios(artifact, flavor)

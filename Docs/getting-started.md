@@ -152,10 +152,10 @@ When you're ready to ship, use the **Build** menu:
 
 - **Build for macOS** — a self-contained `.app` (player binary, its dylib closure,
   engine media, and your project payload; it boots your project with no arguments).
-  On Linux the item reads **Build for Linux** and produces a portable directory
-  holding the same pieces — a desktop package is built around the host's own
-  player binary, so each system offers its own
-  ([desktop-export.md](desktop-export.md)).
+  On Linux the item reads **Build for Linux** and on Windows **Build for
+  Windows**, each producing a portable directory holding the same pieces — a
+  desktop package is built around the host's own player binary, so each system
+  offers its own ([desktop-export.md](desktop-export.md)).
 - **Build for iOS Simulator** — a simulator `.app`.
 - **Build for Android APK** — a signed `.apk`.
 

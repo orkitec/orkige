@@ -41,6 +41,7 @@ TEST_CASE("linux is a platform the exporter packages", "[unit][export]")
 	CHECK(isPackagedPlatform("linux"));
 	CHECK(isDesktopPlatform("linux"));
 	CHECK(isDesktopPlatform("macos"));
+	CHECK(isDesktopPlatform("windows"));
 	// the platforms whose artifact is not assembled around the host's own
 	// binary: each ships a player built for somewhere else
 	CHECK_FALSE(isDesktopPlatform("ios-simulator"));
@@ -81,6 +82,7 @@ TEST_CASE("a desktop package is refused off its own host", "[unit][export]")
 	{
 		CHECK(desktopHostRefusal(platform, "macos").empty());
 		CHECK(desktopHostRefusal(platform, "linux").empty());
+		CHECK(desktopHostRefusal(platform, "windows").empty());
 		CHECK(desktopHostRefusal(platform, "").empty());
 	}
 
@@ -114,6 +116,8 @@ TEST_CASE("this build names the desktop platform it can package",
 	CHECK(host == "macos");
 #elif defined(__linux__)
 	CHECK(host == "linux");
+#elif defined(_WIN32)
+	CHECK(host == "windows");
 #else
 	CHECK(host.empty());
 #endif

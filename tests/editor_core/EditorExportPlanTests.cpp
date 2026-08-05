@@ -387,9 +387,15 @@ TEST_CASE("export plan: the OTHER desktop system is refused by name",
 		const char * hostName;
 		const char * wanted;
 	};
+	// every ordered pair of the three desktops, so no host is left with a
+	// refusal that names the wrong system
 	const Cross crosses[] = {
 		{ "linux", "macos", "macOS", "Linux" },
 		{ "macos", "linux", "Linux", "macOS" },
+		{ "windows", "macos", "macOS", "Windows" },
+		{ "windows", "linux", "Linux", "Windows" },
+		{ "macos", "windows", "Windows", "macOS" },
+		{ "linux", "windows", "Windows", "Linux" },
 	};
 	for(Cross const & cross : crosses)
 	{
@@ -433,13 +439,22 @@ TEST_CASE("export plan: the editor and the exporter agree about platforms",
 	// MIRRORED rather than included (@see EditorExportPlan.h) - and this
 	// executable is the one place both spellings are visible at once.
 	for(Orkige::String const & platform : { Orkige::String("macos"),
-		Orkige::String("linux"), Orkige::String("ios-simulator"),
+		Orkige::String("linux"), Orkige::String("windows"),
+		Orkige::String("ios-simulator"),
 		Orkige::String("ios"), Orkige::String("android"),
 		Orkige::String("web") })
 	{
 		INFO(platform);
 		CHECK(OrkigeEditor::isExportPlatform(platform));
 		CHECK(OrkigeExport::isPackagedPlatform(platform));
+	}
+	// the three desktops are the same three on both sides, which is what makes
+	// the Build menu's host item and the exporter's refusal one decision
+	for(Orkige::String const & platform : { Orkige::String("macos"),
+		Orkige::String("linux"), Orkige::String("windows") })
+	{
+		INFO(platform);
+		CHECK(OrkigeExport::isDesktopPlatform(platform));
 	}
 	// the desktop pair especially: the editor decides which Build item to
 	// offer from its own host constant and the exporter refuses from its own,

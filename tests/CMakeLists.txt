@@ -3777,6 +3777,46 @@ if(TARGET orkige_player)
             PROPERTIES LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 900)
     endif()
 
+    # the Windows desktop package: the same portable directory, with the
+    # extension that makes a file runnable on this system. Registered on
+    # Windows only, for the reason the Linux pair is registered on Linux - the
+    # exporter refuses a desktop platform that is not the host's, and the run
+    # leg needs a machine that can execute the binary. The driver asserts what
+    # nothing else can: that the package carries exactly the libraries that
+    # sat beside the player it was built from (none, while the closure is
+    # static), that no link or debug artifact and no second executable came
+    # along, and that the whole directory RUNS from a neutral cwd under an
+    # environment scrubbed down to the variables Windows itself needs.
+    if(WIN32)
+        add_test(NAME export_windows${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform windows --engine-build "${CMAKE_BINARY_DIR}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/windows-lua"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_windows${ORKIGE_FLAVOR_TEST_SUFFIX}
+            PROPERTIES LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 900)
+
+        # ...and the same project's own Lua suite run INSIDE the package - the
+        # only thing that answers "does the game that SHIPS still work". A
+        # Windows package is a directory, which is exactly why the runner can
+        # discover a suite in it (@see testRunPlatformRefusal).
+        add_test(NAME export_windows_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_tests.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform windows --engine-build "${CMAKE_BINARY_DIR}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/windows-tests"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_windows_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
+            PROPERTIES LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 900)
+    endif()
+
     # the HTTP client on a REAL mobile runtime. The desktop suite proves the
     # client's contract in process; these run it inside an exported app on a
     # device, against a loopback server the driver hosts: status codes, a
