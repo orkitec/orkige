@@ -462,13 +462,18 @@ TEST_CASE("NativeModule build-command assembly", "[project][native]")
 		REQUIRE(Orkige::NativeModule::executablePath(dir.path, "my_game") ==
 			dir.path + "/libmain.so");
 	}
-	SECTION("needsConfigure is keyed on CMakeCache.txt")
+	SECTION("needsConfigure demands the cache AND the generator output")
 	{
 		TempDir dir("orkige_test_native_needs_configure");
 		std::filesystem::create_directories(dir.path);
 		REQUIRE(Orkige::NativeModule::needsConfigure(dir.path));
+		// a FAILED configure's leavings: the cache written, build.ninja
+		// never generated - the tree must reconfigure, not build
 		writeFile((std::filesystem::path(dir.path) /
 			"CMakeCache.txt").string(), "# cache");
+		REQUIRE(Orkige::NativeModule::needsConfigure(dir.path));
+		writeFile((std::filesystem::path(dir.path) /
+			"build.ninja").string(), "# generated");
 		REQUIRE_FALSE(Orkige::NativeModule::needsConfigure(dir.path));
 	}
 	SECTION("flavoredBuildDir suffixes the flavor so the two flavors never share a tree")

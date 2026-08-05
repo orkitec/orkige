@@ -319,10 +319,17 @@ namespace Orkige
 		//---------------------------------------------------------
 		bool needsConfigure(String const & buildDirAbsolute)
 		{
+			// the cache alone is not readiness: a configure that FAILS (an
+			// ABI-stamp refusal, a missing dependency) has already written
+			// CMakeCache.txt but never generated build.ninja, and a plain
+			// `cmake --build` on that half-configured tree errors on the
+			// missing generator output forever after. The generator is
+			// pinned to Ninja (@see configureCommand), so its output file is
+			// the honest marker; re-running the configure heals the tree
 			std::error_code ignored;
-			return !std::filesystem::exists(
-				std::filesystem::path(buildDirAbsolute) / "CMakeCache.txt",
-				ignored);
+			const std::filesystem::path dir(buildDirAbsolute);
+			return !std::filesystem::exists(dir / "CMakeCache.txt", ignored) ||
+				!std::filesystem::exists(dir / "build.ninja", ignored);
 		}
 		//---------------------------------------------------------
 		StringVector configureCommand(String const & cmakeExecutable,
