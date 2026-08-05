@@ -4356,11 +4356,6 @@ namespace Orkige
 			// belongs to the sun glint's GGX lobe, and the mirror keeps its
 			// own near-mip-0 look independently of it
 			const float mirrorLod = 0.05f;
-			// the steep-view roll-off (@see the piece below): where it
-			// starts and ends in NdotV, and how much of the mirror it takes
-			const float steepStart = 0.22f;
-			const float steepEnd = 0.55f;
-			const float steepDim = 0.85f;
 			char mirrorSource[4096];
 			std::snprintf(mirrorSource, sizeof(mirrorSource),
 				"@property( use_planar_reflections )\n"
@@ -4395,18 +4390,6 @@ namespace Orkige
 				"\tfloat3 planarReflectionS = OGRE_SampleLevel( planarReflectionTex,\n"
 				"\t\tplanarReflectionSampler, planarReflUVs.xy,\n"
 				"\t\t%.5ff * passBuf.planarReflNumMips ).xyz;\n"
-				// ORKIGE: dim the mirror in the STEEP-view regime only. HlmsPbs
-				// already applies its fresnel chain, so a second full Schlick
-				// here would double-count the falloff and crush the mirror at
-				// the strength probe's angle - the seam this treats is the
-				// angle-independent remainder (the env BRDF bias, re-encoded
-				// by the display transfer into a view-independent sheen),
-				// which classic's display-space mix never adds. A factor of
-				// one below the roll-off start keeps the probe-calibrated
-				// regime untouched; the floor at steep view is what lets the deep
-				// foreground read the body instead of the sky
-				"\tfloat steepView = smoothstep( %.5ff, %.5ff, pixelData.NdotV );\n"
-				"\tplanarReflectionS *= 1.0f - %.5ff * steepView;\n"
 				"\tfloat planarWeight = max( 1.0 - abs( distanceToPlanarReflPlane )\n"
 				"\t\t* passBuf.invMaxDistanceToPlanarRefl.x, 0.0 );\n"
 				"\tplanarWeight = sqrt( planarWeight );\n"
@@ -4434,7 +4417,7 @@ namespace Orkige
 				"\t@end\n"
 				"@end\n"
 				"@end\n",
-				distort, mirrorLod, steepStart, steepEnd, steepDim);
+				distort, mirrorLod);
 			// the mirrored surface's ambient stage, with the SPECULAR sky
 			// fill suppressed: upstream's DoAmbientLighting adds the
 			// hemisphere ambient onto envColourS AFTER the planar piece put
@@ -4486,8 +4469,8 @@ namespace Orkige
 				"@end\n";
 			char mirrorTag[96];
 			std::snprintf(mirrorTag, sizeof(mirrorTag),
-				"_mirror_%.5f_%.5f_%.5f_%.5f_%.5f_ambfill0_piece_ps.any",
-				distort, mirrorLod, steepStart, steepEnd, steepDim);
+				"_mirror_%.5f_%.5f_ambfill0_piece_ps.any",
+				distort, mirrorLod);
 			datablock->setCustomPieceCodeFromMemory(name + mirrorTag,
 				String(mirrorSource) + AMBIENT_NO_SKY_FILL,
 				Ogre::CustomPieceStage::PixelShader);
