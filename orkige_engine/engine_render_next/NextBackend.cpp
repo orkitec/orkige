@@ -4358,12 +4358,18 @@ namespace Orkige
 				"\tfloat3 projPointInPlane = mul( float4( pointInPlane.xyz, 1.0 ),\n"
 				"\t\tpassBuf.planarReflProjectionMat ).xyw;\n"
 				"\tfloat2 planarReflUVs = projPointInPlane.xy / projPointInPlane.z;\n"
-				// ORKIGE ripple: the wave normal's horizontal slope (x/z of the
-				// world normal - 0 on the flat plane, so calm water is unchanged)
-				// shifts the mirror sample UV, the analog of the classic
-				// program's screenUv + swellNormal.xz perturbation
-				"\tplanarReflUVs.xy += float2( pixelData.normal.x, pixelData.normal.z )\n"
-				"\t\t* %.5ff;\n"
+				// ORKIGE ripple: the wave normal's DEVIATION from the plane
+				// normal shifts the mirror sample UV - the analog of the
+				// classic program's screenUv + swellNormal.xz perturbation.
+				// Both vectors are VIEW-space here (the plane is uploaded in
+				// view space), so the deviation is exactly zero on the flat
+				// plane whatever the camera's pitch - a raw normal component
+				// would carry a constant sin(pitch) term that shifts the
+				// whole mirror - and its x/y are screen-aligned, the axes of
+				// the projected UV being perturbed
+				"\tfloat3 rippleDeviation = pixelData.normal.xyz\n"
+				"\t\t- planarReflection.xyz;\n"
+				"\tplanarReflUVs.xy += rippleDeviation.xy * %.5ff;\n"
 				"\tfloat3 planarReflectionS = OGRE_SampleLevel( planarReflectionTex,\n"
 				"\t\tplanarReflectionSampler, planarReflUVs.xy,\n"
 				"\t\t%.5ff * passBuf.planarReflNumMips ).xyz;\n"
