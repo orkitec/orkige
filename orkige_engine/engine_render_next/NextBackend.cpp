@@ -4395,10 +4395,60 @@ namespace Orkige
 				"@end\n"
 				"@end\n",
 				distort, mirrorLod);
+			// the mirrored surface's ambient stage, with the SPECULAR sky
+			// fill suppressed: upstream's DoAmbientLighting adds the
+			// hemisphere ambient onto envColourS AFTER the planar piece put
+			// the mirror there - the sky is then counted twice on the water
+			// (once inside the mirrored scene, once as the fill), which is a
+			// large part of why this surface reads brighter than the classic
+			// program, whose reflect path has no such fill. The body's
+			// DIFFUSE ambient stays - the surface is still lit - and every
+			// other branch reproduces the library piece verbatim, so this
+			// must track that piece across a pin bump. Scoped to the
+			// mirror-on water datablock alone by the custom-piece mechanism.
+			static char const * const AMBIENT_NO_SKY_FILL =
+				"@property( use_planar_reflections )\n"
+				"@undefpiece( DoAmbientLighting )\n"
+				"@piece( DoAmbientLighting )\n"
+				"\t@property( ambient_sh )\n"
+				"\t\t@property( vct_num_probes )\n"
+				"\t\t\tif( vctSpecular.w == 0 )\n"
+				"\t\t\t{\n"
+				"\t\t@end\n"
+				"\t\t\t\tfloat3 wsNormal = mul( passBuf.invViewMatCubemap, pixelData.normal );\n"
+				"\t\t\t\twsNormal.x = -wsNormal.x;\n"
+				"\t\t\t\tpixelData.envColourD += irradianceSH( wsNormal PASSBUF_ARG );\n"
+				"\t\t@property( vct_num_probes )\n"
+				"\t\t\t}\n"
+				"\t\t@end\n"
+				"\t@end\n"
+				"\t@property( ambient_hemisphere )\n"
+				"\t\t@property( ambient_hemisphere_inverted )\n"
+				"\t\t\tfloat tmpAmbientWD = ambientWS;\n"
+				"\t\t@else\n"
+				"\t\t\tfloat tmpAmbientWD = ambientWD;\n"
+				"\t\t@end\n"
+				"\t\t@property( vct_num_probes )\n"
+				"\t\t\tif( vctSpecular.w == 0 )\n"
+				"\t\t\t{\n"
+				"\t\t@end\n"
+				"\t\t\t\tpixelData.envColourD += lerp( midf3_c( passBuf.ambientLowerHemi.xyz ),\n"
+				"\t\t\t\t\t\t\t\t\t\t\t  midf3_c( passBuf.ambientUpperHemi.xyz ), tmpAmbientWD );\n"
+				"\t\t@property( vct_num_probes )\n"
+				"\t\t\t}\n"
+				"\t\t@end\n"
+				"\t@end\n"
+				"\t@property( ambient_fixed && vct_num_probes )\n"
+				"\t\tfinalColour += vctSpecular.w == 0 ? float3( 0, 0, 0 ) :\n"
+				"\t\t\t\t\t\t\t\t\t\t(passBuf.ambientUpperHemi.xyz * pixelData.diffuse.xyz);\n"
+				"\t@end\n"
+				"@end\n"
+				"@end\n";
 			char mirrorTag[64];
 			std::snprintf(mirrorTag, sizeof(mirrorTag),
-				"_mirror_%.5f_%.5f_piece_ps.any", distort, mirrorLod);
-			datablock->setCustomPieceCodeFromMemory(name + mirrorTag, mirrorSource,
+				"_mirror_%.5f_%.5f_ambfill0_piece_ps.any", distort, mirrorLod);
+			datablock->setCustomPieceCodeFromMemory(name + mirrorTag,
+				String(mirrorSource) + AMBIENT_NO_SKY_FILL,
 				Ogre::CustomPieceStage::PixelShader);
 		}
 		else
