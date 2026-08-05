@@ -41,8 +41,8 @@ namespace OrkigeExport
 	//! @brief what to package, beyond the project itself
 	struct ExportRequest
 	{
-		//! "macos" | "linux" | "ios-simulator" | "ios" | "ios-ipa" |
-		//! "android" | "android-aab" | "web"
+		//! "macos" | "linux" | "windows" | "ios-simulator" | "ios" |
+		//! "ios-ipa" | "android" | "android-aab" | "web"
 		Orkige::String	platform;
 		//! the engine pieces: a preset build tree, or a staged payload
 		EngineSource	source;
@@ -97,10 +97,16 @@ namespace OrkigeExport
 	bool isDesktopPlatform(Orkige::String const & platform);
 
 	//! @brief the desktop platform THIS exporter build packages natively -
-	//! "macos" on an Apple build, "linux" on a Linux one - or "" where the
-	//! exporter has no desktop packaging target for the OS it was built for.
+	//! "macos" on an Apple build, "linux" on a Linux one, "windows" on a
+	//! Windows one - or "" where the exporter has no desktop packaging target
+	//! for the OS it was built for.
 	//! @remarks A compile-time fact, so it is a lookup rather than a probe.
 	Orkige::String hostDesktopPlatform();
+
+	//! @brief the name a person calls @p platform, for a sentence they read -
+	//! "macOS", "Linux", "Windows", or "" when @p platform is not a desktop
+	//! one (PURE).
+	Orkige::String desktopPlatformLabel(Orkige::String const & platform);
 
 	//! @brief "" when a host whose own desktop platform is @p hostDesktop can
 	//! package @p platform; the refusal sentence otherwise (PURE).
@@ -116,9 +122,10 @@ namespace OrkigeExport
 	//! @remarks The line is drawn by how the SUITE IS DISCOVERED, not by how
 	//! the artifact is shaped. The runner enumerates `<project>/tests/` with a
 	//! directory walk, because there is no other way to learn which files
-	//! declare tests. `macos` and the three iOS targets lay their payload out
-	//! as loose files inside the bundle, so the walk finds the suite exactly as
-	//! it does in a source tree. An Android package and a browser payload put
+	//! declare tests. The desktop platforms and the three iOS targets lay their
+	//! payload out as loose files inside the artifact, so the walk finds the
+	//! suite exactly as it does in a source tree. An Android package and a
+	//! browser payload put
 	//! the payload inside an ARCHIVE the runtime mounts in place: a mounted
 	//! entry is not a directory entry, so the walk would find nothing and the
 	//! run would report a green verdict over zero tests - the one outcome a

@@ -23,6 +23,7 @@ add_executable(orkige_exporter_tests
     ExportSelfContainTests.cpp
     ExportBuildTreeTests.cpp
     ExportLinuxTests.cpp
+    ExportWindowsTests.cpp
     ExportPayloadTests.cpp
     ExportZipTests.cpp
     ExportMobileTests.cpp

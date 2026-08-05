@@ -10,8 +10,8 @@
 //!
 //! @verbatim
 //!   orkige_export --project <dir>
-//!                 --platform macos|linux|ios-simulator|ios|ios-ipa|android|
-//!                            android-aab|web
+//!                 --platform macos|linux|windows|ios-simulator|ios|ios-ipa|
+//!                            android|android-aab|web
 //!                 (--engine-build <preset build dir> | --engine-bundle <dir>
 //!                  [--engine-tools <dir>] [--device-payload <dir>])
 //!                 [--output <dir>]
@@ -446,8 +446,8 @@ int main(int argc, char ** argv)
 	{
 		std::fprintf(stderr,
 			"usage: orkige_export --project <dir>\n"
-			"                     --platform macos|linux|ios-simulator|ios|"
-			"ios-ipa|android|android-aab|web\n"
+			"                     --platform macos|linux|windows|ios-simulator|"
+			"ios|ios-ipa|android|android-aab|web\n"
 			"                     (--engine-build <preset build dir> |\n"
 			"                      --engine-bundle <dir> [--engine-tools "
 			"<dir>]\n"

@@ -2073,13 +2073,15 @@ namespace Orkige
 				  "pipeline (tools/exporter, run in process). ASYNC: returns "
 				  "{ accepted, "
 				  "jobId }; poll get_export_results. 'platform' is macos, "
-				  "linux, ios-simulator, android or web. A web export compiles "
+				  "linux, windows, ios-simulator, android or web. A web export "
+				  "compiles "
 				  "nothing - it packages the prebuilt browser player - so it "
 				  "works from any editor on any host that carries that payload. "
 				  "The desktop platform is the HOST's own (a package is "
 				  "assembled around its player binary and nothing "
-				  "cross-compiles one), so an editor on macOS exports macos and "
-				  "one on Linux exports linux, each refusing the other by name. "
+				  "cross-compiles one), so an editor on macOS exports macos, "
+				  "one on Linux exports linux and one on Windows exports "
+				  "windows, each refusing the others by name. "
 				  "The other "
 				  "platforms package from that platform's preset build tree, "
 				  "either render flavor; a tree that was never built is refused "
@@ -2093,7 +2095,8 @@ namespace Orkige
 				  "lives inside an archive the runner cannot walk, and is "
 				  "refused by name.",
 				  { { "platform", "string",
-				      "macos | linux | ios-simulator | android | web", true },
+				      "macos | linux | windows | ios-simulator | android | web",
+				      true },
 				    { "withTests", "boolean",
 				      "package a test build (default false)", false },
 				    { "testFilter", "string",
@@ -7014,11 +7017,11 @@ namespace Orkige
 		{
 			const String& platform = request.get("platform");
 			if (platform != "macos" && platform != "linux" &&
-				platform != "ios-simulator" &&
+				platform != "windows" && platform != "ios-simulator" &&
 				platform != "android" && platform != "web")
 			{
 				this->sendErr(req, "export_project needs a 'platform' of macos, "
-					"linux, ios-simulator, android or web");
+					"linux, windows, ios-simulator, android or web");
 				return;
 			}
 			if (!state.project.isLoaded())

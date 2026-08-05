@@ -4,18 +4,19 @@ A desktop package is the game as a person receives it: the runtime, the engine
 media and the project payload arranged so the whole thing boots by being
 double-clicked, with no arguments and nothing installed beside it.
 
-Two shapes, one for each desktop system Orkige packages for:
+Three shapes, one for each desktop system Orkige packages for:
 
 | Platform | Artifact | Where it lands |
 |----------|----------|----------------|
 | `macos` | `<Name>.app`, a bundle | `<project>/builds/macos/` |
 | `linux` | `<Exe>/`, a portable directory | `<project>/builds/linux/` |
+| `windows` | `<Exe>/`, a portable directory | `<project>/builds/windows/` |
 
-Both come out of the same export: the same payload staging, the same
+All three come out of the same export: the same payload staging, the same
 export-time [texture cook](textures.md), the same baked texture samplers, the
 same `THIRD-PARTY-NOTICES.md`, and the same default-project marker. Only the
-enclosing shape differs, because the two systems disagree about what an
-application is.
+enclosing shape differs, because the systems disagree about what an application
+is — macOS has a bundle format and the other two do not.
 
 Three doors, one implementation: `orkige_export` inside this repository,
 **Build ▸ Export** in the editor, and `orkige_editor export` on a machine that
@@ -24,9 +25,9 @@ carries only an installed Orkige ([editor-cli.md](editor-cli.md)).
 ## The desktop platform is the host's own
 
 A desktop package is assembled **around a player binary**, and nothing in the
-export pipeline cross-compiles one. So `macos` packages on a Mac and `linux` on
-Linux, and each refuses the other by name rather than writing a directory that
-cannot run:
+export pipeline cross-compiles one. So `macos` packages on a Mac, `linux` on
+Linux and `windows` on Windows, and each refuses the others by name rather than
+writing a directory that cannot run:
 
 ```
 $ orkige_export --project ~/games/roller --platform linux --engine-build build/macos-debug
@@ -37,8 +38,10 @@ operating system. Export for macOS, or run the export on a Linux machine
 
 The editor says the same thing in its own words, and its **Build** menu offers
 only the host's desktop item — an entry that could never succeed is worse than
-no entry. Over MCP, `export_project` takes `linux` like any other platform and
-answers with the refusal where it does not apply.
+no entry. That item is derived from the one host pairing rather than written out
+per system, so the menu and the refusal are the same decision. Over MCP,
+`export_project` takes any desktop platform like any other platform and answers
+with the refusal where it does not apply.
 
 Everything else about an export is unchanged by this: the mobile and browser
 targets ship *another* platform's player, fetched or built, and are governed by
@@ -273,13 +276,117 @@ Stated plainly, because each is a thing somebody will look for:
   [macOS above](#signing-a-macos-package-three-states-and-nothing-in-between)
   there is nothing to configure and nothing that can be half-signed.
 
+## The Windows package
+
+```
+JumperLua/
+    JumperLua.exe           the game (the player binary, renamed)
+    Media/                  the render flavor's engine media
+    project/                manifest, scenes/, assets/, scripts/, data/
+    orkige_project.txt      the default-project marker
+    THIRD-PARTY-NOTICES.md  the linked libraries' license texts
+```
+
+The same portable directory as the Linux package, for the same reason: Windows
+has no bundle format either, so the directory is the artifact. It is copied or
+archived whole and the program is run from inside it.
+
+```
+cd JumperLua
+JumperLua.exe
+```
+
+The directory and the executable carry the **same** name — the project name
+reduced to its alphanumerics — and the `.exe` is not decoration. Windows takes
+executability from the extension, so there is no permission bit to set the way
+the other two desktops have one.
+
+Two names Windows will not accept, handled rather than discovered: a project
+whose name reduces to `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9` or `LPT1`–`LPT9`
+gets a `Game` suffix. Those name character devices at *every* directory, and the
+extension does not save them — `CON.exe` is still the console — so the artifact
+could not otherwise be written at all.
+
+The marker does the rest, exactly as it does elsewhere: the runtime reads
+`orkige_project.txt` and the `Media/` tree relative to `SDL_GetBasePath()`, which
+on Windows is the directory the executable lives in. Nothing is baked into the
+binary, so moving the directory changes nothing.
+
+### What the machine supplies
+
+The package carries no libraries, and that is a property of the build rather
+than an omission: the dependency closure is linked **statically** (the
+`x64-windows-static-md` triplet), so the binary the export copies is already
+whole. What rides beside it is *enumerated* rather than assumed — the export
+copies the DLLs that sat beside the player it packaged, which is none today, and
+would be the right answer rather than a broken package if a dependency ever
+built as one.
+
+What stays dynamic is the machine's own, and on Windows that is one tier worth
+naming precisely:
+
+- **The Microsoft Visual C++ runtime** (`vcruntime140.dll`, `msvcp140.dll`) and
+  the Universal CRT. The triplet's `-md` half is exactly this: every dependency
+  static, the C and C++ runtimes dynamic. They are **system tier**, the way
+  glibc and libstdc++ are on Linux — supplied by the *Visual C++
+  Redistributable*, which virtually every Windows machine already carries and
+  which Microsoft distributes for the ones that do not. The export neither
+  bundles them nor installs them, because that is an installer's job and this
+  artifact deliberately installs nothing.
+- **The graphics and audio stack**: the Vulkan loader (`vulkan-1.dll`, placed by
+  the GPU driver, the same system-tier position it holds on Linux) for the
+  default flavor, `opengl32.dll` for the classic one, and the audio devices SDL
+  resolves through the platform.
+
+One consequence is sharp enough to state on its own: **a shipping package must
+be built from a release tree.** A debug build links the *debug* C runtime
+(`vcruntime140d.dll`), which is not redistributable and exists only on machines
+with Visual Studio installed — a package built from a debug tree starts on the
+machine that built it and nowhere else. The export prefers a release player
+automatically when one is beside the tree it was given, and says so in the log
+when it has to fall back.
+
+### What the Windows package does not do
+
+Stated plainly, because each is a thing somebody will look for:
+
+- **No icon on the executable.** A Windows program carries its icon as a
+  *resource inside the binary*, so setting one means rewriting the executable
+  rather than copying a file beside it. `export.icon` is read by the macOS, iOS
+  and Android packages today; the Windows executable shows the default.
+- **No shortcut and no Start-menu entry.** The package writes neither, for the
+  reason the Linux one writes no `.desktop` file: those belong to an install,
+  and a portable directory deliberately installs nothing.
+- **No archive and no installer.** The artifact is a directory. Zipping it is
+  one command, and an MSI or an installer executable is a different kind of
+  artifact that is not the exporter's business yet.
+- **No compiled game code.** A project with a `native.target`
+  ([native-modules.md](native-modules.md)) is refused by name, as it is for
+  Linux: the module build the exporter drives is written against an Apple
+  toolchain today.
+- **No signing.** Unlike Linux, Windows *does* have a code-signing tier —
+  Authenticode, and the SmartScreen reputation that hangs off it — so this is a
+  gap rather than an absence. Nothing is configured and nothing can be
+  half-signed today; when it arrives it rhymes with
+  [the macOS tier above](#signing-a-macos-package-three-states-and-nothing-in-between),
+  which is the model for it: signing opt-in and always explicit, an unsigned
+  package byte-identical to one that never asked, credentials never in the
+  manifest, and a missing credential refusing rather than emitting a
+  half-signed artifact.
+- **A console window.** The player is a console-subsystem program, which is what
+  makes its output and its exit code reach a caller — the property every test
+  leg depends on — so a packaged game currently opens a console window beside
+  it. Changing that is a change to the player's own target shape, not to
+  packaging.
+
 ## Test builds
 
-`--with-tests` works on both desktop platforms: the project's own Lua suite
+`--with-tests` works on every desktop platform: the project's own Lua suite
 rides in the payload and the package runs it instead of the game, exiting with
 the suite's verdict ([testing.md](testing.md)). The reason it works here and not
 for Android or the browser is discovery — the runner finds a suite by walking a
-directory, and a desktop package's payload is loose files either way.
+directory, and a desktop package's payload is loose files whichever shape
+encloses it.
 
 ## Verified by
 
@@ -293,6 +400,17 @@ directory, and a desktop package's payload is loose files either way.
 - `export_linux_tests` (Linux only) packages the same project as a **test
   build** and runs the suite inside the package, so the payload's cooked
   textures, baked samplers and staged media are what the tests see.
+- `export_windows` / `export_windows_tests` (Windows only) are the same pair for
+  the Windows package. The structure leg additionally holds the package's
+  libraries against the ones that sat beside the player it was built from — so
+  a dependency that starts building as a DLL either travels or fails the test,
+  and neither outcome is silent — and asserts that no link or debug artifact
+  (`.pdb`, `.ilk`, `.lib`, `.exp`) and no second executable came along. The run
+  leg's environment is a **keep-list** rather than an empty one: a Windows
+  process with no `SystemRoot` cannot load a system DLL at all, so the scrub
+  removes the developer `PATH` and everything else that could stand in for a
+  resource the package forgot, while leaving the variables the operating system
+  itself needs.
 - `export_macos_lua` / `export_macos_native` / `export_macos_tests` are the
   macOS siblings.
 - `tests/exporter/ExportMacosSignTests.cpp` — the pure signing decisions: the

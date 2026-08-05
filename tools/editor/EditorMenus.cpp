@@ -566,13 +566,18 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			// desktop system would be offering something no machine here can
 			// produce. A host the exporter has no desktop target for shows no
 			// item at all rather than one that only ever refuses.
-			if (OrkigeEditor::hostExportPlatform() == "macos")
+			//
+			// DERIVED from the one host pairing rather than spelled out per
+			// system, so a desktop platform the exporter learns to package
+			// appears here by being in that vocabulary - a hand-written branch
+			// per system is a second list to forget.
+			const Orkige::String hostPlatform =
+				OrkigeEditor::hostExportPlatform();
+			if (!hostPlatform.empty())
 			{
-				exportItem("Build for macOS", "macos");
-			}
-			else if (OrkigeEditor::hostExportPlatform() == "linux")
-			{
-				exportItem("Build for Linux", "linux");
+				const Orkige::String hostLabel =
+					"Build for " + OrkigeEditor::hostExportName();
+				exportItem(hostLabel.c_str(), hostPlatform.c_str());
 			}
 			exportItem("Build for iOS Simulator", "ios-simulator");
 			exportItem("Build for Android APK", "android");

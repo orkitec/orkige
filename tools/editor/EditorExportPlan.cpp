@@ -19,7 +19,7 @@ namespace OrkigeEditor
 		const char* const HOST_PLATFORM = "macos";
 		const char* const HOST_NAME = "macOS";
 #elif defined(_WIN32)
-		const char* const HOST_PLATFORM = "";
+		const char* const HOST_PLATFORM = "windows";
 		const char* const HOST_NAME = "Windows";
 #else
 		const char* const HOST_PLATFORM = "linux";
@@ -49,6 +49,10 @@ namespace OrkigeEditor
 			{
 				return "Linux";
 			}
+			if(platform == "windows")
+			{
+				return "Windows";
+			}
 			return platform;
 		}
 		//---------------------------------------------------------
@@ -59,7 +63,8 @@ namespace OrkigeEditor
 		//! executable that links both.
 		bool isDesktopPlatform(Orkige::String const & platform)
 		{
-			return platform == "macos" || platform == "linux";
+			return platform == "macos" || platform == "linux" ||
+				platform == "windows";
 		}
 		//---------------------------------------------------------
 		//! @brief the preset build tree a Tree-source export packages from:
@@ -102,7 +107,7 @@ namespace OrkigeEditor
 	bool isExportPlatform(Orkige::String const & platform)
 	{
 		return platform == "macos" || platform == "linux" ||
-			platform == "ios-simulator" ||
+			platform == "windows" || platform == "ios-simulator" ||
 			platform == "ios" || platform == "android" || platform == "web";
 	}
 	//---------------------------------------------------------
@@ -121,8 +126,8 @@ namespace OrkigeEditor
 		if(!isExportPlatform(inputs.platform))
 		{
 			return refuse("'" + inputs.platform + "' is not a platform this "
-				"editor exports for (macos, linux, ios-simulator, ios, "
-				"android, web)");
+				"editor exports for (macos, linux, windows, ios-simulator, "
+				"ios, android, web)");
 		}
 		// a DESKTOP package is assembled around the host's own player binary,
 		// and nothing cross-compiles one - so the answer is the same whichever

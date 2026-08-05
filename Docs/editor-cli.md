@@ -79,8 +79,8 @@ own options are flags and an unknown one must stay harmless there.
 
 ```
 orkige_editor export --project <dir>
-                     --platform macos|linux|ios-simulator|ios|ios-ipa|android|
-                                android-aab|web
+                     --platform macos|linux|windows|ios-simulator|ios|ios-ipa|
+                                android|android-aab|web
                      [--output <dir>]
                      [--signing-identity <name>]
                      [--provisioning-profile <path>]
@@ -106,7 +106,8 @@ The platform vocabulary and every artifact shape are the exporter's — see
 
 The **desktop** platform is the one this machine runs: a package is assembled
 around a player binary and nothing cross-compiles one, so `macos` packages on a
-Mac and `linux` on Linux, each refusing the other by name.
+Mac, `linux` on Linux and `windows` on Windows, each refusing the others by
+name.
 
 A phone platform packages out of the installed device player, read from the same
 directory `fetch-payload` writes into — so the two subcommands are one workflow

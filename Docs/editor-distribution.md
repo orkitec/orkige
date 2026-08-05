@@ -243,6 +243,8 @@ packaging pipeline writes there must show *that*.
   left.
 - **A signed, notarized macOS app** and the archive/installer shapes for Linux
   and Windows are packaging concerns beyond the app's own self-sufficiency.
-- **Export on Linux and Windows** has no packaging target yet — the exporter
-  writes a macOS app, an iOS bundle, an Android package or a browser build, and
-  a copy on another desktop says so plainly.
+- **A desktop export is the host's own.** Each desktop system packages the
+  player binary it has — a Mac writes a macOS app, a Linux machine and a
+  Windows one each write their portable directory — and an editor asked for
+  another desktop system says so plainly, because nothing cross-compiles a
+  player ([desktop-export.md](desktop-export.md)).

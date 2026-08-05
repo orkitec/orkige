@@ -57,8 +57,8 @@ namespace OrkigeEditor
 	//! planner concatenates and chooses, it never probes.
 	struct EditorExportInputs
 	{
-		//! the requested platform ("macos", "linux", "ios-simulator", "ios",
-		//! "android", "web")
+		//! the requested platform ("macos", "linux", "windows",
+		//! "ios-simulator", "ios", "android", "web")
 		Orkige::String		platform;
 		Orkige::String		projectRoot;
 		//! does the project carry compiled C++ game code? (a native module
@@ -176,8 +176,8 @@ namespace OrkigeEditor
 	bool isExportPlatform(Orkige::String const & platform);
 
 	//! @brief the desktop package platform of the host the editor runs on
-	//! ("macos", "linux"), or "" where the exporter has no packaging target
-	//! yet.
+	//! ("macos", "linux", "windows"), or "" where the exporter has no
+	//! packaging target yet.
 	Orkige::String hostExportPlatform();
 
 	//! @brief this host's display name for a refusal ("macOS", "Linux",

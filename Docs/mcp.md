@@ -306,7 +306,7 @@ advertised set is the discoverable subset, not a hard limit.)
 | `list_project_tests()` | the open PROJECT's own Lua suite: the test FILES under `<project>/tests` (index-aligned `files`/`names`). NOT `list_tests`, which is ctest over the engine's suite |
 | `run_project_tests(filter, failed)` | **auth** — async: run the project's Lua suite in this installation's player (a test that declares a scene needs a live world, which only the player has) → `accepted` + `legs`; poll `get_project_test_results`. `filter` is the runner's own substring over `<file>::<test name>`; `failed`=`"1"` re-runs only the previous run's failures |
 | `get_project_test_results()` | the project test run: `status` (idle/running/cancelled/done) plus the records SO FAR (the runner flushes per test) as index-aligned `test_files`/`test_names`/`test_status`/`test_messages`/`test_ms`, the `total`/`passed`/`failed`/`errors` tally, and `run_failure` — non-empty ONLY when the runner never reached a verdict |
-| `export_project(platform[, withTests, testFilter])` | async in-process export (macos/linux/ios-simulator/android/web, the desktop one being the host's own; the exporter is a library the editor links) → a jobId; poll `get_export_results` (classic-flavor tree required). `withTests` packages a test build that runs the project's own Lua suite |
+| `export_project(platform[, withTests, testFilter])` | async in-process export (macos/linux/windows/ios-simulator/android/web, the desktop one being the host's own; the exporter is a library the editor links) → a jobId; poll `get_export_results` (classic-flavor tree required). `withTests` packages a test build that runs the project's own Lua suite |
 | `get_export_results(jobId)` | the structured verdict of an `export_project` job (`ok`/`artifactPath`/`error`) |
 
 ### Component properties (reflected)
@@ -992,11 +992,11 @@ ships the engine, never a toolchain, so those two are said separately.
 
 `export_project(platform)` packages the open project as a distributable through
 the same pipeline as the editor's Build menu (`tools/exporter`, run in process).
-`platform` is `macos`, `linux`, `ios-simulator`, `android` or `web`. The
-**desktop** one is the host's own — a package is assembled around a player
-binary and nothing cross-compiles one, so an editor on macOS answers `macos` and
-one on Linux answers `linux`, each refusing the other by name
-(`Docs/desktop-export.md`). It is **async** (a
+`platform` is `macos`, `linux`, `windows`, `ios-simulator`, `android` or `web`.
+The **desktop** one is the host's own — a package is assembled around a player
+binary and nothing cross-compiles one, so an editor on macOS answers `macos`,
+one on Linux answers `linux` and one on Windows answers `windows`, each refusing
+the others by name (`Docs/desktop-export.md`). It is **async** (a
 multi-minute job): it returns `{ accepted:"1", jobId }`; poll
 `get_export_results(jobId)` — `status:"running"` until it finishes, then
 `status:"done"` with `ok` (`"1"`/`"0"`), the `artifactPath` (the built `.app`/

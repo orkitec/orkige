@@ -306,6 +306,7 @@ TEST_CASE("a test build is refused where a suite cannot be discovered",
 	// a directory, so a suite is discovered there for the same reason
 	CHECK(testRunPlatformRefusal("macos").empty());
 	CHECK(testRunPlatformRefusal("linux").empty());
+	CHECK(testRunPlatformRefusal("windows").empty());
 	CHECK(testRunPlatformRefusal("ios-simulator").empty());
 	CHECK(testRunPlatformRefusal("ios").empty());
 	CHECK(testRunPlatformRefusal("ios-ipa").empty());
