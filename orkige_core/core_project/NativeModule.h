@@ -210,8 +210,11 @@ namespace Orkige
 		String moduleBuildDirectory(String const & buildDir,
 			EngineSdk const & engine, String const & flavor);
 
-		//! does the build tree still need a configure run? (no CMakeCache.txt
-		//! yet - `cmake --build` handles re-configures of an existing tree)
+		//! does the build tree still need a configure run? A READY tree
+		//! carries both CMakeCache.txt and the generated build.ninja; a
+		//! FAILED configure leaves the cache without the generator output,
+		//! and only a configure re-run heals that tree - `cmake --build`
+		//! errors on it forever
 		bool needsConfigure(String const & buildDirAbsolute);
 
 		//! @brief assemble the configure command: Ninja generator, explicit

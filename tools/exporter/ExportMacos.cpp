@@ -252,7 +252,10 @@ namespace OrkigeExport
 				ExportFiles::removeTree(moduleBuildDirectory, 0);
 			}
 		}
-		if(!ExportFiles::isRegularFile(cachePath))
+		// the shared readiness check rather than the cache file alone: a
+		// configure that FAILED left the cache without build.ninja, and only
+		// a configure re-run heals that tree - building it errors forever
+		if(Orkige::NativeModule::needsConfigure(moduleBuildDirectory))
 		{
 			const Orkige::String sysroot =
 				readCMakeCache(engineTree, "CMAKE_OSX_SYSROOT");

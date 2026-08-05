@@ -4263,8 +4263,25 @@ namespace Orkige
 			// the (1-cos)^5 lobe integrates to 1/21). The mirrored scene, not
 			// the body glow, carries the surface; the fresnel gate still keeps
 			// the look water, not chrome.
-			const float effectiveF0 =
-				mirrorF0 * std::clamp(desc.opacity, 0.0f, 1.0f);
+			// the refracted share is dimmed toward classic's compose:
+			// classic's paint carries its scene share pre-dimmed AND renders
+			// the underwater scene darker, while the Refractive mode
+			// composes the captured scene at the full (1 - opacity) - at the
+			// benchmark's bright sandy bed that share alone outshines the
+			// whole paint. The factor is CALIBRATED, not derived: it covers
+			// classic's own dim and the brighter captured content in one
+			// measured number (the mirror scene's deep water band, classic
+			// 48 against 95 undimmed, 57 at this value - the residual is the
+			// sky-dome hue seam, not brightness). HlmsPbs premultiplies its
+			// fresnel by this alpha, so the effective F0 below reads the
+			// SAME value and the mirror math stays coherent
+			const float kRefractedShareDim = 0.30f;
+			const float alphaEff = 1.0f -
+				(1.0f - std::clamp(desc.opacity, 0.0f, 1.0f)) * kRefractedShareDim;
+			datablock->setTransparency(alphaEff, useRefraction
+				? Ogre::HlmsPbsDatablock::Refractive
+				: Ogre::HlmsPbsDatablock::Transparent);
+			const float effectiveF0 = mirrorF0 * alphaEff;
 			const float meanFresnel =
 				effectiveF0 + (1.0f - effectiveF0) / 21.0f;
 			const float classicBodyWeight =
@@ -4277,9 +4294,13 @@ namespace Orkige
 				desc.shallowColour.r * scatter * albedoScale,
 				desc.shallowColour.g * scatter * albedoScale,
 				desc.shallowColour.b * scatter * albedoScale));
-			// 0.05: sharp enough that the mirrored scene stays legible, one
-			// soft mip down so residual tessellation edges melt away
-			datablock->setRoughness(0.05f);
+			// roughness stays the shared water value (@see the base branch
+			// above and classic's kWaterMirrorRoughness): it shapes the SUN
+			// GLINT, and narrowing it for the mirror's sake collapses the
+			// GGX lobe below the pixel grid - the streak vanishes while the
+			// lake vignette (no mirror) keeps it. The mirror's own sharpness
+			// is a BAKED sample LOD in the overridden piece below, so the
+			// two jobs roughness would otherwise do are split
 		}
 		// stand up / tear down the reflection subsystem for this surface (world Y
 		// = the mirror plane; extents unknown here, the actor is generous +
@@ -4329,7 +4350,13 @@ namespace Orkige
 			// stopped rippling makes the two frames identical).
 			float distort = 0.09f;
 			if(std::getenv("ORKIGE_WATER_FLAT_MIRROR")) distort = 0.0f;
-			char mirrorSource[2560];
+			// the mirror's sample sharpness, as a PERCEPTUAL-roughness-
+			// equivalent mip fraction, baked into the piece instead of read
+			// from pixelData.perceptualRoughness: the datablock's roughness
+			// belongs to the sun glint's GGX lobe, and the mirror keeps its
+			// own near-mip-0 look independently of it
+			const float mirrorLod = 0.05f;
+			char mirrorSource[4096];
 			std::snprintf(mirrorSource, sizeof(mirrorSource),
 				"@property( use_planar_reflections )\n"
 				// free the piece slot the library already claimed - a plain
@@ -4348,15 +4375,21 @@ namespace Orkige
 				"\tfloat3 projPointInPlane = mul( float4( pointInPlane.xyz, 1.0 ),\n"
 				"\t\tpassBuf.planarReflProjectionMat ).xyw;\n"
 				"\tfloat2 planarReflUVs = projPointInPlane.xy / projPointInPlane.z;\n"
-				// ORKIGE ripple: the wave normal's horizontal slope (x/z of the
-				// world normal - 0 on the flat plane, so calm water is unchanged)
-				// shifts the mirror sample UV, the analog of the classic
-				// program's screenUv + swellNormal.xz perturbation
-				"\tplanarReflUVs.xy += float2( pixelData.normal.x, pixelData.normal.z )\n"
-				"\t\t* %.5ff;\n"
+				// ORKIGE ripple: the wave normal's DEVIATION from the plane
+				// normal shifts the mirror sample UV - the analog of the
+				// classic program's screenUv + swellNormal.xz perturbation.
+				// Both vectors are VIEW-space here (the plane is uploaded in
+				// view space), so the deviation is exactly zero on the flat
+				// plane whatever the camera's pitch - a raw normal component
+				// would carry a constant sin(pitch) term that shifts the
+				// whole mirror - and its x/y are screen-aligned, the axes of
+				// the projected UV being perturbed
+				"\tfloat3 rippleDeviation = pixelData.normal.xyz\n"
+				"\t\t- planarReflection.xyz;\n"
+				"\tplanarReflUVs.xy += rippleDeviation.xy * %.5ff;\n"
 				"\tfloat3 planarReflectionS = OGRE_SampleLevel( planarReflectionTex,\n"
 				"\t\tplanarReflectionSampler, planarReflUVs.xy,\n"
-				"\t\tpixelData.perceptualRoughness * passBuf.planarReflNumMips ).xyz;\n"
+				"\t\t%.5ff * passBuf.planarReflNumMips ).xyz;\n"
 				"\tfloat planarWeight = max( 1.0 - abs( distanceToPlanarReflPlane )\n"
 				"\t\t* passBuf.invMaxDistanceToPlanarRefl.x, 0.0 );\n"
 				"\tplanarWeight = sqrt( planarWeight );\n"
@@ -4384,11 +4417,62 @@ namespace Orkige
 				"\t@end\n"
 				"@end\n"
 				"@end\n",
-				distort);
-			char mirrorTag[48];
+				distort, mirrorLod);
+			// the mirrored surface's ambient stage, with the SPECULAR sky
+			// fill suppressed: upstream's DoAmbientLighting adds the
+			// hemisphere ambient onto envColourS AFTER the planar piece put
+			// the mirror there - the sky is then counted twice on the water
+			// (once inside the mirrored scene, once as the fill), which is a
+			// large part of why this surface reads brighter than the classic
+			// program, whose reflect path has no such fill. The body's
+			// DIFFUSE ambient stays - the surface is still lit - and every
+			// other branch reproduces the library piece verbatim, so this
+			// must track that piece across a pin bump. Scoped to the
+			// mirror-on water datablock alone by the custom-piece mechanism.
+			static char const * const AMBIENT_NO_SKY_FILL =
+				"@property( use_planar_reflections )\n"
+				"@undefpiece( DoAmbientLighting )\n"
+				"@piece( DoAmbientLighting )\n"
+				"\t@property( ambient_sh )\n"
+				"\t\t@property( vct_num_probes )\n"
+				"\t\t\tif( vctSpecular.w == 0 )\n"
+				"\t\t\t{\n"
+				"\t\t@end\n"
+				"\t\t\t\tfloat3 wsNormal = mul( passBuf.invViewMatCubemap, pixelData.normal );\n"
+				"\t\t\t\twsNormal.x = -wsNormal.x;\n"
+				"\t\t\t\tpixelData.envColourD += irradianceSH( wsNormal PASSBUF_ARG );\n"
+				"\t\t@property( vct_num_probes )\n"
+				"\t\t\t}\n"
+				"\t\t@end\n"
+				"\t@end\n"
+				"\t@property( ambient_hemisphere )\n"
+				"\t\t@property( ambient_hemisphere_inverted )\n"
+				"\t\t\tfloat tmpAmbientWD = ambientWS;\n"
+				"\t\t@else\n"
+				"\t\t\tfloat tmpAmbientWD = ambientWD;\n"
+				"\t\t@end\n"
+				"\t\t@property( vct_num_probes )\n"
+				"\t\t\tif( vctSpecular.w == 0 )\n"
+				"\t\t\t{\n"
+				"\t\t@end\n"
+				"\t\t\t\tpixelData.envColourD += lerp( midf3_c( passBuf.ambientLowerHemi.xyz ),\n"
+				"\t\t\t\t\t\t\t\t\t\t\t  midf3_c( passBuf.ambientUpperHemi.xyz ), tmpAmbientWD );\n"
+				"\t\t@property( vct_num_probes )\n"
+				"\t\t\t}\n"
+				"\t\t@end\n"
+				"\t@end\n"
+				"\t@property( ambient_fixed && vct_num_probes )\n"
+				"\t\tfinalColour += vctSpecular.w == 0 ? float3( 0, 0, 0 ) :\n"
+				"\t\t\t\t\t\t\t\t\t\t(passBuf.ambientUpperHemi.xyz * pixelData.diffuse.xyz);\n"
+				"\t@end\n"
+				"@end\n"
+				"@end\n";
+			char mirrorTag[96];
 			std::snprintf(mirrorTag, sizeof(mirrorTag),
-				"_mirror_%.5f_piece_ps.any", distort);
-			datablock->setCustomPieceCodeFromMemory(name + mirrorTag, mirrorSource,
+				"_mirror_%.5f_%.5f_ambfill0_piece_ps.any",
+				distort, mirrorLod);
+			datablock->setCustomPieceCodeFromMemory(name + mirrorTag,
+				String(mirrorSource) + AMBIENT_NO_SKY_FILL,
 				Ogre::CustomPieceStage::PixelShader);
 		}
 		else
