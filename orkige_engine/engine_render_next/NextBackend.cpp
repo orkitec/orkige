@@ -4277,9 +4277,13 @@ namespace Orkige
 				desc.shallowColour.r * scatter * albedoScale,
 				desc.shallowColour.g * scatter * albedoScale,
 				desc.shallowColour.b * scatter * albedoScale));
-			// 0.05: sharp enough that the mirrored scene stays legible, one
-			// soft mip down so residual tessellation edges melt away
-			datablock->setRoughness(0.05f);
+			// roughness stays the shared water value (@see the base branch
+			// above and classic's kWaterMirrorRoughness): it shapes the SUN
+			// GLINT, and narrowing it for the mirror's sake collapses the
+			// GGX lobe below the pixel grid - the streak vanishes while the
+			// lake vignette (no mirror) keeps it. The mirror's own sharpness
+			// is a BAKED sample LOD in the overridden piece below, so the
+			// two jobs roughness would otherwise do are split
 		}
 		// stand up / tear down the reflection subsystem for this surface (world Y
 		// = the mirror plane; extents unknown here, the actor is generous +
@@ -4329,6 +4333,12 @@ namespace Orkige
 			// stopped rippling makes the two frames identical).
 			float distort = 0.09f;
 			if(std::getenv("ORKIGE_WATER_FLAT_MIRROR")) distort = 0.0f;
+			// the mirror's sample sharpness, as a PERCEPTUAL-roughness-
+			// equivalent mip fraction, baked into the piece instead of read
+			// from pixelData.perceptualRoughness: the datablock's roughness
+			// belongs to the sun glint's GGX lobe, and the mirror keeps its
+			// own near-mip-0 look independently of it
+			const float mirrorLod = 0.05f;
 			char mirrorSource[2560];
 			std::snprintf(mirrorSource, sizeof(mirrorSource),
 				"@property( use_planar_reflections )\n"
@@ -4356,7 +4366,7 @@ namespace Orkige
 				"\t\t* %.5ff;\n"
 				"\tfloat3 planarReflectionS = OGRE_SampleLevel( planarReflectionTex,\n"
 				"\t\tplanarReflectionSampler, planarReflUVs.xy,\n"
-				"\t\tpixelData.perceptualRoughness * passBuf.planarReflNumMips ).xyz;\n"
+				"\t\t%.5ff * passBuf.planarReflNumMips ).xyz;\n"
 				"\tfloat planarWeight = max( 1.0 - abs( distanceToPlanarReflPlane )\n"
 				"\t\t* passBuf.invMaxDistanceToPlanarRefl.x, 0.0 );\n"
 				"\tplanarWeight = sqrt( planarWeight );\n"
@@ -4384,10 +4394,10 @@ namespace Orkige
 				"\t@end\n"
 				"@end\n"
 				"@end\n",
-				distort);
-			char mirrorTag[48];
+				distort, mirrorLod);
+			char mirrorTag[64];
 			std::snprintf(mirrorTag, sizeof(mirrorTag),
-				"_mirror_%.5f_piece_ps.any", distort);
+				"_mirror_%.5f_%.5f_piece_ps.any", distort, mirrorLod);
 			datablock->setCustomPieceCodeFromMemory(name + mirrorTag, mirrorSource,
 				Ogre::CustomPieceStage::PixelShader);
 		}

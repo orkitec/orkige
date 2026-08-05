@@ -120,10 +120,12 @@ PROFILES = {
     # stretches the mirrored ridge further down than the default backend's
     # true projective mapping. Measured 44 healthy vs 69 under the
     # 3x-strong calibration - the 55 corridor bites on strength drift and
-    # re-tightens when the sky-dome seam closes. No streak contract: the
-    # mirrored sun is occluded by the ridge, so the classic flavor's
-    # analytic streak has no default-backend counterpart in this framing
-    # (the lake scene carries the streak gate).
+    # re-tightens when the sky-dome seam closes. The streak contract HOLDS
+    # here: the glint is a DIRECT sun specular on both flavors (classic's
+    # analytic Blinn term, next's GGX lobe at the shared water roughness),
+    # so it renders regardless of what the mirror shows - ridge occlusion
+    # applies to the mirrored sun, never to the glint. This gate is what
+    # catches the glint collapsing when something narrows the lobe.
     "mirrorlake.oscene": {
         "regions": {
             "sky": (0.30, 0.02, 0.95, 0.08, 22.0),
@@ -133,7 +135,7 @@ PROFILES = {
             "rockmirror": (0.38, 0.38, 0.52, 0.50, 26.0),
             "water_open": (0.05, 0.36, 0.35, 0.52, 55.0),
         },
-        "streak": False,
+        "streak": True,
     },
 }
 
@@ -379,12 +381,22 @@ def compare_captures(img_next, img_classic, scene, kept_in,
 
 # --- selftest ---------------------------------------------------------------
 
-def write_png(path, width, height, fill):
-    """Write a minimal 8-bit RGB PNG of one colour (selftest fixture)."""
+def write_png(path, width, height, fill, poke=None):
+    """Write a minimal 8-bit RGB PNG of one colour (selftest fixture).
+
+    poke=(x, y, colour) recolours a 2x2 block - the selftest's stand-in
+    for the sun highlight the streak contract requires inside its centre
+    band. A block rather than a pixel: the streak reader samples every
+    second pixel, and a block covers both parities by construction.
+    """
     raw = bytearray()
-    for _row in range(height):
+    for row in range(height):
         raw.append(0)                       # filter type None
         raw.extend(bytes(fill) * width)
+        if poke is not None and row in (poke[1], poke[1] + 1):
+            for dx in (0, 1):
+                base = len(raw) - (width - (poke[0] + dx)) * 3
+                raw[base:base + 3] = bytes(poke[2])
 
     def chunk(kind, payload):
         return (struct.pack(">I", len(payload)) + kind + payload +
@@ -427,12 +439,14 @@ def selftest():
     parity_diff.selftest_pure()
     parity_diff.selftest_roundtrip(decode_png, scratch)
 
-    # the mirror scene carries no streak contract, so flat frames are enough
-    # to exercise the region comparison
+    # the mirror scene carries the streak contract like the lake does, so
+    # every fixture pokes a bright "sun" pixel into the streak band; the
+    # flat fill exercises the region comparison around it
     mirror = "scenes/mirrorlake.oscene"
+    SUN = (32, 32, (255, 255, 255))
     diff_image = os.path.join(scratch, "next.diff.png")
-    write_png(shot_next, 64, 64, (80, 90, 100))
-    write_png(shot_classic, 64, 64, (80, 90, 100))
+    write_png(shot_next, 64, 64, (80, 90, 100), poke=SUN)
+    write_png(shot_classic, 64, 64, (80, 90, 100), poke=SUN)
     code, said = run_quiet(["--compare-shots", "--scene", mirror,
                             "--shot-next", shot_next,
                             "--shot-classic", shot_classic])
@@ -443,12 +457,13 @@ def selftest():
 
     # a region that diverges beyond its corridor fails, names the region and
     # leaves the diff image beside the next capture
-    write_png(shot_classic, 64, 64, (200, 90, 100))
+    write_png(shot_classic, 64, 64, (200, 90, 100), poke=SUN)
     code, said = run_quiet(["--compare-shots", "--scene", mirror,
                             "--shot-next", shot_next,
                             "--shot-classic", shot_classic])
     assert code == 1 and "diverges between flavors" in said, said
-    assert "largest region 4096px" in said, said
+    # the whole frame minus the 2x2 sun block the two fixtures share
+    assert "largest region 4092px" in said, said
     assert os.path.exists(diff_image) and diff_image in said, said
     assert decode_png(diff_image)[0] == 64
 
@@ -461,7 +476,7 @@ def selftest():
     assert os.path.exists(os.path.join(elsewhere, "next.diff.png"))
 
     # agreeing again takes the stale picture of the old divergence away
-    write_png(shot_classic, 64, 64, (80, 90, 100))
+    write_png(shot_classic, 64, 64, (80, 90, 100), poke=SUN)
     assert run_quiet(["--compare-shots", "--scene", mirror,
                       "--shot-next", shot_next,
                       "--shot-classic", shot_classic])[0] == 0
@@ -469,7 +484,7 @@ def selftest():
 
     # captures of different sizes are not comparable
     odd = os.path.join(scratch, "odd.png")
-    write_png(odd, 32, 32, (80, 90, 100))
+    write_png(odd, 32, 32, (80, 90, 100), poke=(16, 16, (255, 255, 255)))
     expect_refusal("captures of different sizes",
                    ["--compare-shots", "--scene", mirror,
                     "--shot-next", shot_next, "--shot-classic", odd],
