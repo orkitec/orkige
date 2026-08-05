@@ -636,6 +636,32 @@ if(TARGET orkige_engine)
         set_tests_properties(render_backend_parity PROPERTIES
             LABELS integration TIMEOUT 700 SKIP_RETURN_CODE 77)
 
+        # render_feature_parity - the WYSIWYG gate widened to the whole
+        # feature set: the selfcheck writes some forty MORE frames than the
+        # four the pixel gate scores (shadows, lighting, sky, atmosphere,
+        # fog, IBL, decals, bloom, the output grade, the 2D layers), and
+        # without this sweep a flavor drift in any of them is invisible to
+        # every gate in the tree. Per-shot corridors live in the driver's
+        # FEATURE_SHOTS table with the measurement each came from beside it.
+        #
+        # This registration GATES, because the corridors were measured on
+        # exactly this pair - the host's own two flavors. The CI step runs
+        # the same sweep with --report-only, because the Linux pair is a
+        # different software rasterizer on each side and a corridor moved
+        # onto an unmeasured pair blocks merges instead of catching bugs.
+        # Same cross-preset skip-77 as render_backend_parity.
+        add_test(NAME render_feature_parity
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/compare_backend_screenshots.py"
+                --feature-sweep
+                --next-binary $<TARGET_FILE:render_facade_selfcheck>
+                --classic-binary "${Orkige_SOURCE_DIR}/${ORKIGE_PARITY_CLASSIC_TREE}/tests/render_facade_selfcheck"
+                --out "${CMAKE_CURRENT_BINARY_DIR}/render_feature_parity"
+                --repo "${Orkige_SOURCE_DIR}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(render_feature_parity PROPERTIES
+            LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
+
         # grade_look_parity - the shared-output-grade look-parity gate: run the
         # selfcheck on BOTH flavors and assert the grade moves saturation +
         # contrast measurably on each AND the induced deltas MATCH across flavors
